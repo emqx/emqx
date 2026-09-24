@@ -29,26 +29,27 @@ groups() ->
         {unit_tests, [], [
             t_init_cache,
             t_scope_catalog,
-            t_path_to_scope,
-            t_path_to_scope_denied,
-            t_path_to_scope_no_cache,
-            t_path_to_scope_canonicalizes_request_path,
-            t_classify_path,
+            t_handler_scopes,
+            t_handler_scopes_login_only,
+            t_handler_scopes_no_cache,
+            t_classify_handler,
+            t_multi_scope_handler,
+            t_authorize_denied_handler,
             t_validate_scopes,
             t_validate_scopes_bad_input,
             t_is_denied_scope,
             t_all_modules_have_scopes,
             t_all_endpoints_covered_by_scopes,
+            t_no_conflicting_declarations,
+            t_scope_map_keys_are_declared_paths,
             t_init_cache_no_missing_path_warnings,
-            t_public_paths_not_in_cache,
-            t_wildcard_does_not_claim_public_path
+            t_public_handlers_are_unscoped
         ]},
         {integration_tests, [parallel], [
             t_authorize_with_scopes,
             t_authorize_no_scopes,
             t_authorize_empty_scopes,
-            t_authorize_denied_path,
-            t_check_scopes_unmapped_path
+            t_check_scopes_unmapped_handler
         ]},
         {api_tests, [parallel], [
             t_api_list_scopes,
@@ -97,7 +98,7 @@ t_init_cache(_Config) ->
     ?assertEqual(ok, emqx_mgmt_api_key_scopes:init_cache()),
     Cache = persistent_term:get({emqx_mgmt_api_key_scopes, scope_cache}, undefined),
     ?assertNotEqual(undefined, Cache),
-    ?assertMatch(#{path_to_scope := _}, Cache),
+    ?assertMatch(#{handler_scopes := _}, Cache),
     ?assertEqual(ok, emqx_mgmt_api_key_scopes:clear_cache()),
     ?assertEqual(
         undefined, persistent_term:get({emqx_mgmt_api_key_scopes, scope_cache}, undefined)
@@ -133,90 +134,135 @@ t_scope_catalog(_Config) ->
     %% $denied must NOT be in the catalog
     ?assertNot(lists:member(?SCOPE_DENIED, Names)).
 
-t_path_to_scope(_Config) ->
+-doc """
+A handler resolves to the scopes its module declares for the path the
+handler serves. The key is the `{module, function}' minirest puts in
+`HandlerInfo', so the lookup is an exact map hit.
+""".
+t_handler_scopes(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
-    %% "/clients" should resolve to <<"connections">>
-    ?assertEqual(?SCOPE_CONNECTIONS, emqx_mgmt_api_key_scopes:path_to_scope(<<"/clients">>)),
-    %% "/clients/:clientid" should also be connections
     ?assertEqual(
-        ?SCOPE_CONNECTIONS,
-        emqx_mgmt_api_key_scopes:path_to_scope(<<"/clients/:clientid">>)
+        [?SCOPE_CONNECTIONS],
+        emqx_mgmt_api_key_scopes:handler_scopes({emqx_mgmt_api_clients, clients})
     ),
-    %% "/publish" should resolve to <<"publish">>
-    ?assertEqual(?SCOPE_PUBLISH, emqx_mgmt_api_key_scopes:path_to_scope(<<"/publish">>)),
-    %% Unknown path → undefined
-    ?assertEqual(undefined, emqx_mgmt_api_key_scopes:path_to_scope(<<"/nonexistent">>)),
+    %% The HandlerInfo map form is accepted too.
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS],
+        emqx_mgmt_api_key_scopes:handler_scopes(
+            #{method => get, module => emqx_mgmt_api_clients, function => client}
+        )
+    ),
+    ?assertEqual(
+        [?SCOPE_PUBLISH],
+        emqx_mgmt_api_key_scopes:handler_scopes({emqx_mgmt_api_publish, publish})
+    ),
+    %% Unknown handler -> undefined
+    ?assertEqual(
+        undefined,
+        emqx_mgmt_api_key_scopes:handler_scopes({no_such_api_module, no_such_function})
+    ),
     emqx_mgmt_api_key_scopes:clear_cache().
 
-t_path_to_scope_denied(_Config) ->
+t_handler_scopes_login_only(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
-    %% Dashboard / API-key management paths formerly resolved to
-    %% $denied. They now map to login-only scopes
-    %% (api_key_management, user_management, mfa_management,
-    %% sso_management). API keys still cannot reach these endpoints
-    %% — minirest's bearer-only `security` declaration
-    %% rejects API key authentication before scope check.
-    ?assertEqual(?SCOPE_USER_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>)),
-    ?assertEqual(?SCOPE_API_KEY_MGMT, emqx_mgmt_api_key_scopes:path_to_scope(<<"/api_key">>)),
+    %% Dashboard / API-key management handlers map to login-only
+    %% scopes. API keys still cannot reach these endpoints: minirest's
+    %% bearer-only `security' declaration rejects API key
+    %% authentication before the scope check.
+    ?assertEqual(
+        [?SCOPE_USER_MGMT],
+        emqx_mgmt_api_key_scopes:handler_scopes({emqx_dashboard_api, users})
+    ),
+    ?assertEqual(
+        [?SCOPE_API_KEY_MGMT],
+        emqx_mgmt_api_key_scopes:handler_scopes({emqx_mgmt_api_api_keys, api_key})
+    ),
     emqx_mgmt_api_key_scopes:clear_cache().
 
-t_path_to_scope_no_cache(_Config) ->
+t_handler_scopes_no_cache(_Config) ->
     emqx_mgmt_api_key_scopes:clear_cache(),
     %% Should lazy-init and return correct scope
-    ?assertEqual(?SCOPE_CONNECTIONS, emqx_mgmt_api_key_scopes:path_to_scope(<<"/clients">>)).
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS],
+        emqx_mgmt_api_key_scopes:handler_scopes({emqx_mgmt_api_clients, clients})
+    ).
 
 -doc """
-`classify_path/1' distinguishes the three cases the login-user scope
-check needs to tell apart: a known scope, an explicitly public path,
-and a genuinely-unmapped path. `path_to_scope/1' keeps collapsing the
-last two to `undefined' for the API-key path.
+`classify_handler/1' distinguishes the three cases the login-user scope
+check needs to tell apart: a known scope, an explicitly public
+endpoint, and a genuinely-unmapped handler. `handler_scopes/1' keeps
+collapsing the last two to `undefined' for the API-key path.
 """.
-t_classify_path(_Config) ->
+t_classify_handler(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
-    %% Mapped path -> {scope, Name}.
+    %% Mapped handler -> {scopes, Names}.
     ?assertEqual(
-        {scope, ?SCOPE_CONNECTIONS},
-        emqx_mgmt_api_key_scopes:classify_path(<<"/clients">>)
+        {scopes, [?SCOPE_CONNECTIONS]},
+        emqx_mgmt_api_key_scopes:classify_handler({emqx_mgmt_api_clients, clients})
     ),
     %% Genuinely unmapped -> not_found (login-user path denies these).
     ?assertEqual(
         not_found,
-        emqx_mgmt_api_key_scopes:classify_path(<<"/some/unmapped/path">>)
+        emqx_mgmt_api_key_scopes:classify_handler({no_such_api_module, no_such_function})
     ),
     %% Explicitly public -> public (login-user path allows these).
-    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
-    [PublicPath | _] = collect_public_paths(Modules),
-    ?assertEqual(public, emqx_mgmt_api_key_scopes:classify_path(PublicPath)),
-    %% path_to_scope/1 still collapses public and unmapped to undefined.
-    ?assertEqual(undefined, emqx_mgmt_api_key_scopes:path_to_scope(PublicPath)),
+    [PublicHandler | _] = collect_public_handlers(emqx_mgmt_api_key_scopes:find_api_modules()),
+    ?assertEqual(public, emqx_mgmt_api_key_scopes:classify_handler(PublicHandler)),
+    %% handler_scopes/1 still collapses public and unmapped to undefined.
+    ?assertEqual(undefined, emqx_mgmt_api_key_scopes:handler_scopes(PublicHandler)),
     ?assertEqual(
-        undefined, emqx_mgmt_api_key_scopes:path_to_scope(<<"/some/unmapped/path">>)
+        undefined,
+        emqx_mgmt_api_key_scopes:handler_scopes({no_such_api_module, no_such_function})
     ),
     emqx_mgmt_api_key_scopes:clear_cache().
 
 -doc """
-A concrete request path must map to the same scope regardless of
-percent-encoding or `.'/`..' segments, so the lookup agrees with the
-path the router dispatched on. Otherwise an obfuscated path resolves
-to `undefined' (unmapped) and slips the scope gate.
+An endpoint may declare several acceptable scopes. `classify_handler/1'
+returns all of them and `any_scope_granted/2' grants access to a
+holder of any single one, so an endpoint with two legitimate
+audiences does not have to pick one of them.
 """.
-t_path_to_scope_canonicalizes_request_path(_Config) ->
-    emqx_mgmt_api_key_scopes:init_cache(),
-    Canonical = emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>),
-    ?assertEqual(?SCOPE_USER_MGMT, Canonical),
-    %% percent-encoded characters in a static segment
-    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/user%73">>)),
-    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/%75sers">>)),
-    %% dot-segments that the router collapses before dispatch
-    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/x/../users">>)),
-    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/./users">>)),
-    %% same invariant for a path-parameter endpoint
-    ClientsScope = emqx_mgmt_api_key_scopes:path_to_scope(<<"/clients/:clientid">>),
-    ?assertEqual(
-        ClientsScope,
-        emqx_mgmt_api_key_scopes:path_to_scope(<<"/client%73/abc">>)
+t_multi_scope_handler(_Config) ->
+    Handler = {test_multi_scope_module, test_multi_scope_function},
+    with_scope_cache(
+        #{Handler => [?SCOPE_MONITORING, ?SCOPE_SYSTEM]},
+        fun() ->
+            ?assertEqual(
+                {scopes, [?SCOPE_MONITORING, ?SCOPE_SYSTEM]},
+                emqx_mgmt_api_key_scopes:classify_handler(Handler)
+            ),
+            ?assertEqual(
+                [?SCOPE_MONITORING, ?SCOPE_SYSTEM],
+                emqx_mgmt_api_key_scopes:handler_scopes(Handler)
+            )
+        end
     ),
-    emqx_mgmt_api_key_scopes:clear_cache().
+    Declared = [?SCOPE_MONITORING, ?SCOPE_SYSTEM],
+    ?assert(emqx_mgmt_api_key_scopes:any_scope_granted(Declared, [?SCOPE_SYSTEM])),
+    ?assert(emqx_mgmt_api_key_scopes:any_scope_granted(Declared, [?SCOPE_MONITORING])),
+    ?assert(
+        emqx_mgmt_api_key_scopes:any_scope_granted(
+            Declared, [?SCOPE_PUBLISH, ?SCOPE_MONITORING]
+        )
+    ),
+    ?assertNot(emqx_mgmt_api_key_scopes:any_scope_granted(Declared, [?SCOPE_PUBLISH])),
+    ?assertNot(emqx_mgmt_api_key_scopes:any_scope_granted(Declared, [])).
+
+%% Run `Fun' against a synthetic handler -> scopes cache, so the
+%% lookup semantics can be exercised without depending on which API
+%% modules happen to be loaded. Restores the previous cache after.
+with_scope_cache(HandlerMap, Fun) ->
+    Key = {emqx_mgmt_api_key_scopes, scope_cache},
+    Prev = persistent_term:get(Key, undefined),
+    persistent_term:put(Key, #{handler_scopes => HandlerMap}),
+    try
+        Fun()
+    after
+        case Prev of
+            undefined -> emqx_mgmt_api_key_scopes:clear_cache();
+            _ -> persistent_term:put(Key, Prev)
+        end
+    end.
 
 t_validate_scopes(_Config) ->
     %% Valid: known scope names
@@ -266,65 +312,141 @@ t_all_modules_have_scopes(_Config) ->
     %% Critical coverage test: every minirest_api module must export scopes/0.
     %% This is the compile-time-equivalent CI check done at test time.
     emqx_mgmt_api_key_scopes:init_cache(),
-    PathToScope = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
-    ?assert(map_size(PathToScope) > 0),
-    %% Every path should map to a known scope, $denied, or one of the
-    %% four login-only scopes (user/mfa/sso/api_key_management — these
-    %% apply to dashboard login users only and are not in the API key
-    %% scope catalog).
+    HandlerToScopes = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
+    ?assert(map_size(HandlerToScopes) > 0),
+    %% Every handler should map to a known scope, $denied, $public, or
+    %% one of the four login-only scopes (user/mfa/sso/api_key_management
+    %% — these apply to dashboard login users only and are not in the
+    %% API key scope catalog).
     AllValidScopes =
         [N || #{name := N} <- emqx_scope_catalog:scope_catalog()] ++
             [?SCOPE_DENIED] ++
             [?SCOPE_PUBLIC] ++
             ?LOGIN_ONLY_SCOPES,
     maps:foreach(
-        fun(Path, Scope) ->
-            ?assert(
-                lists:member(Scope, AllValidScopes),
+        fun(Handler, Scopes) ->
+            Unknown = [S || S <- Scopes, not lists:member(S, AllValidScopes)],
+            ?assertEqual(
+                [],
+                Unknown,
                 lists:flatten(
-                    io_lib:format("Path ~s mapped to unknown scope ~s", [Path, Scope])
+                    io_lib:format("Handler ~p mapped to unknown scope(s) ~p", [Handler, Unknown])
                 )
             )
         end,
-        PathToScope
+        HandlerToScopes
     ),
     emqx_mgmt_api_key_scopes:clear_cache().
 
+-doc """
+Every path every API module declares must resolve to a handler that is
+in the scope cache. This is the invariant the handler-keyed lookup
+rests on: a path whose `schema/1' yields no `operationId', or whose
+declaration the collector rejected, is unmapped, and unmapped means
+fail-open for API keys.
+
+Public paths count as covered: they are in the cache under
+`?SCOPE_PUBLIC', so a genuinely forgotten path is the only way to
+fail here.
+""".
 t_all_endpoints_covered_by_scopes(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
-    PathToScope = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
+    HandlerToScopes = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
     Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
-    AllDeclaredPaths = lists:usort(
-        lists:flatmap(
-            fun(M) ->
-                try
-                    [path_to_binary(P) || P <- apply(M, paths, [])]
-                catch
-                    _:_ -> []
-                end
-            end,
-            Modules
-        )
+    Uncovered = lists:flatmap(
+        fun(M) ->
+            [
+                {M, path_to_binary(P), Reason}
+             || P <- safe_paths(M),
+                Reason <- [coverage_gap(M, P, HandlerToScopes)],
+                Reason =/= covered
+            ]
+        end,
+        Modules
     ),
-    %% Paths explicitly marked ?SCOPE_PUBLIC are intentionally unscoped
-    %% (pre-login entry points, static catalog endpoints). They are
-    %% derived from each module's scopes/0 map so adding a new public
-    %% path only requires editing that module, no allow-list edit here.
-    PublicPaths = collect_public_paths(Modules),
-    MappedPaths = lists:sort(maps:keys(PathToScope)),
-    Uncovered = (AllDeclaredPaths -- MappedPaths) -- PublicPaths,
     ?assertEqual(
         [],
         Uncovered,
         lists:flatten(
             io_lib:format(
-                "~p endpoint path(s) not covered by any scope and not "
-                "marked ?SCOPE_PUBLIC: ~p",
+                "~p endpoint path(s) not covered by any scope: ~p",
                 [length(Uncovered), Uncovered]
             )
         )
     ),
     emqx_mgmt_api_key_scopes:clear_cache().
+
+coverage_gap(Module, Path, HandlerToScopes) ->
+    case emqx_mgmt_api_key_scopes:operation_id(Module, Path) of
+        {ok, OperationId} ->
+            case maps:is_key({Module, OperationId}, HandlerToScopes) of
+                true -> covered;
+                false -> no_scope_declared
+            end;
+        error ->
+            no_operation_id
+    end.
+
+-doc """
+Two paths of one module may share an `operationId' (one function serves
+both). The cache then holds one entry for both, so their declarations
+must agree, or the collector keeps the first and the second silently
+loses its own scope.
+""".
+t_no_conflicting_declarations(_Config) ->
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    Conflicts = lists:flatmap(fun conflicting_declarations/1, Modules),
+    ?assertEqual(
+        [],
+        Conflicts,
+        lists:flatten(
+            io_lib:format("handlers with conflicting scope declarations: ~p", [Conflicts])
+        )
+    ).
+
+conflicting_declarations(Module) ->
+    Declared = [
+        {OperationId, declared_for(Module, P)}
+     || P <- safe_paths(Module),
+        {ok, OperationId} <- [emqx_mgmt_api_key_scopes:operation_id(Module, P)]
+    ],
+    ByHandler = maps:groups_from_list(
+        fun({OperationId, _}) -> OperationId end, fun({_, S}) -> S end, Declared
+    ),
+    [
+        {Module, OperationId, lists:usort(Scopes)}
+     || {OperationId, Scopes} <- maps:to_list(ByHandler),
+        length(lists:usort(Scopes)) > 1
+    ].
+
+declared_for(Module, Path) ->
+    case safe_scopes(Module) of
+        Map when is_map(Map) -> maps:get(Path, Map, undefined);
+        Scope -> Scope
+    end.
+
+-doc """
+A map-form scopes/0 is keyed by the exact terms paths/0 returns. A key
+that is not one of them names nothing the router serves: a typo, or a
+path that was removed or renamed, whose scope entry would otherwise
+outlive it unnoticed.
+""".
+t_scope_map_keys_are_declared_paths(_Config) ->
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    Stray = lists:flatmap(
+        fun(M) ->
+            case safe_scopes(M) of
+                Map when is_map(Map) -> [{M, K} || K <- maps:keys(Map) -- safe_paths(M)];
+                _ -> []
+            end
+        end,
+        Modules
+    ),
+    ?assertEqual(
+        [],
+        Stray,
+        lists:flatten(io_lib:format("scopes/0 map keys that are not declared paths: ~p", [Stray]))
+    ).
 
 -doc """
 Every map-form scopes/0 callback must list every path returned by
@@ -339,8 +461,7 @@ t_init_cache_no_missing_path_warnings(_Config) ->
         fun(M) ->
             case safe_scopes(M) of
                 Map when is_map(Map) ->
-                    Paths = [path_to_binary(P) || P <- safe_paths(M)],
-                    [{M, P} || P <- Paths, not maps:is_key(P, Map)];
+                    [{M, P} || P <- safe_paths(M), not maps:is_key(P, Map)];
                 _ ->
                     []
             end
@@ -372,106 +493,49 @@ safe_paths(M) ->
     end.
 
 -doc """
-?SCOPE_PUBLIC paths must keep the unmapped/fail-open semantics that
-production already relies on for `/login' and friends: `path_to_scope/1'
-must return `undefined' for these paths so the runtime authorisation
-layer treats them as unscoped.
-
-The cache itself MAY carry ?SCOPE_PUBLIC sentinel values internally
-(this is how exact-match lookup distinguishes "intentionally public"
-from "genuinely unmapped" and stops sibling wildcard templates from
-claiming a public endpoint -- see `t_wildcard_does_not_claim_public_path').
-The user-visible invariant being asserted here is the `path_to_scope/1'
-return value, not the cache representation.
+?SCOPE_PUBLIC endpoints must keep the unmapped/fail-open semantics that
+production relies on for `/login' and friends: `handler_scopes/1' must
+return `undefined' for their handlers so the API-key authorisation
+layer treats them as unscoped, while `classify_handler/1' reports them
+as `public' so the login-user layer allows them for every user.
 """.
-t_public_paths_not_in_cache(_Config) ->
+t_public_handlers_are_unscoped(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
-    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
-    PublicPaths = collect_public_paths(Modules),
+    PublicHandlers = collect_public_handlers(emqx_mgmt_api_key_scopes:find_api_modules()),
     %% Sanity: the production code under test declares at least one
     %% public path. If this drops to zero, the test no longer guards
     %% anything; loudly fail instead of silently passing.
-    ?assert(PublicPaths =/= [], "no ?SCOPE_PUBLIC paths declared -- test now vacuous"),
+    ?assert(PublicHandlers =/= [], "no ?SCOPE_PUBLIC paths declared -- test now vacuous"),
     lists:foreach(
-        fun(Path) ->
+        fun(Handler) ->
             ?assertEqual(
                 undefined,
-                emqx_mgmt_api_key_scopes:path_to_scope(Path),
-                lists:flatten(io_lib:format("public path ~s leaked into cache", [Path]))
-            )
+                emqx_mgmt_api_key_scopes:handler_scopes(Handler),
+                lists:flatten(io_lib:format("public handler ~p carries a scope", [Handler]))
+            ),
+            ?assertEqual(public, emqx_mgmt_api_key_scopes:classify_handler(Handler))
         end,
-        PublicPaths
+        PublicHandlers
     ),
     emqx_mgmt_api_key_scopes:clear_cache().
 
--doc """
-Regression: a path explicitly marked ?SCOPE_PUBLIC must NOT be
-claimed by a sibling wildcard template at scope-lookup time.
-
-Concrete example: `/sso/running' is declared ?SCOPE_PUBLIC, while
-the sibling template `/sso/:backend' is mapped to `sso_management'.
-Without the sentinel-in-cache fix, segment-wise match would let the
-wildcard absorb the public path and `path_to_scope(<<"/sso/running">>)'
-would return `sso_management', collapsing defense-in-depth (the
-runtime auth layer separately bypasses the scope check via
-`security => []' on these endpoints, but the catalog itself was
-incorrect).
-
-This test asserts the catalog stays honest:
-  * every declared ?SCOPE_PUBLIC path resolves to `undefined' via
-    `path_to_scope/1';
-  * sibling wildcard templates still resolve correctly for genuine
-    parameterised requests (e.g. `/sso/oidc' -> `sso_management').
-""".
-t_wildcard_does_not_claim_public_path(_Config) ->
-    emqx_mgmt_api_key_scopes:init_cache(),
-    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
-    PublicPaths = collect_public_paths(Modules),
-    ?assert(PublicPaths =/= [], "no ?SCOPE_PUBLIC paths declared -- test now vacuous"),
-    %% Every public path resolves to `undefined', even though the
-    %% cache may contain sibling wildcard templates that would have
-    %% claimed them by segment match.
-    lists:foreach(
-        fun(Path) ->
-            ?assertEqual(
-                undefined,
-                emqx_mgmt_api_key_scopes:path_to_scope(Path),
-                lists:flatten(
-                    io_lib:format(
-                        "public path ~s wrongly claimed by a sibling wildcard template",
-                        [Path]
-                    )
-                )
-            )
-        end,
-        PublicPaths
-    ),
-    %% Sibling wildcard templates still resolve for genuine
-    %% parameterised paths: `/sso/<some-backend>' must map to
-    %% sso_management even though the sibling `/sso/running' is
-    %% public.
-    case lists:member(<<"/sso/running">>, PublicPaths) of
-        true ->
-            ?assertEqual(
-                <<"sso_management">>,
-                emqx_mgmt_api_key_scopes:path_to_scope(<<"/sso/oidc">>)
-            );
-        false ->
-            ok
-    end,
-    emqx_mgmt_api_key_scopes:clear_cache().
-
-collect_public_paths(Modules) ->
-    lists:sort(
+%% The handlers of every path declared ?SCOPE_PUBLIC, derived from each
+%% module's scopes/0 map so adding a public path only requires editing
+%% that module.
+collect_public_handlers(Modules) ->
+    lists:usort(
         lists:flatmap(
             fun(M) ->
-                try apply(M, scopes, []) of
+                case safe_scopes(M) of
                     Map when is_map(Map) ->
-                        [path_to_binary(P) || {P, ?SCOPE_PUBLIC} <- maps:to_list(Map)];
+                        [
+                            {M, OperationId}
+                         || P <- safe_paths(M),
+                            maps:get(P, Map, undefined) =:= ?SCOPE_PUBLIC,
+                            {ok, OperationId} <- [emqx_mgmt_api_key_scopes:operation_id(M, P)]
+                        ];
                     _ ->
                         []
-                catch
-                    _:_ -> []
                 end
             end,
             Modules
@@ -490,87 +554,90 @@ path_to_binary(P) when is_list(P) ->
 %% Integration tests
 %%--------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% Integration tests
+%%--------------------------------------------------------------------
+
 t_authorize_with_scopes(_Config) ->
     Name = <<"SCOPES-TEST-WITH">>,
     {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
         create_app(Name, #{scopes => [?SCOPE_CONNECTIONS]}),
     %% /clients should succeed (connections scope)
-    ?assertMatch({ok, _}, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
-    ?assertMatch({ok, _}, auth_authorize(<<"/clients/:clientid">>, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(clients, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(client, ApiKey, ApiSecret)),
     %% /alarms should be denied (monitoring scope, not granted)
-    ?assertMatch({error, _}, auth_authorize(<<"/alarms">>, ApiKey, ApiSecret)),
+    ?assertMatch({error, _}, auth_authorize(alarms, ApiKey, ApiSecret)),
     %% /publish should be denied (publish scope, not granted)
-    ?assertMatch({error, _}, auth_authorize(<<"/publish">>, ApiKey, ApiSecret)),
+    ?assertMatch({error, _}, auth_authorize(publish, ApiKey, ApiSecret)),
     delete_app(Name).
 
 t_authorize_no_scopes(_Config) ->
     Name = <<"SCOPES-TEST-NONE">>,
     {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
         create_app(Name),
-    %% No scopes = full access to non-denied paths
-    ?assertMatch({ok, _}, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
-    ?assertMatch({ok, _}, auth_authorize(<<"/alarms">>, ApiKey, ApiSecret)),
-    ?assertMatch({ok, _}, auth_authorize(<<"/publish">>, ApiKey, ApiSecret)),
+    %% No scopes = full access to non-denied endpoints
+    ?assertMatch({ok, _}, auth_authorize(clients, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(alarms, ApiKey, ApiSecret)),
+    ?assertMatch({ok, _}, auth_authorize(publish, ApiKey, ApiSecret)),
     delete_app(Name).
 
 t_authorize_empty_scopes(_Config) ->
     Name = <<"SCOPES-TEST-EMPTY">>,
     {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} =
         create_app(Name, #{scopes => []}),
-    %% Empty scopes = all mapped paths denied
-    ?assertMatch({error, _}, auth_authorize(<<"/clients">>, ApiKey, ApiSecret)),
-    ?assertMatch({error, _}, auth_authorize(<<"/alarms">>, ApiKey, ApiSecret)),
+    %% Empty scopes = all mapped endpoints denied
+    ?assertMatch({error, _}, auth_authorize(clients, ApiKey, ApiSecret)),
+    ?assertMatch({error, _}, auth_authorize(alarms, ApiKey, ApiSecret)),
     delete_app(Name).
 
-t_authorize_denied_path(_Config) ->
-    Name = <<"SCOPES-TEST-DENIED">>,
-    {ok, #{<<"api_key">> := _ApiKey, <<"api_secret">> := _ApiSecret}} =
-        create_app(Name),
-    %% Dashboard / SSO / API-key-management paths no longer use
-    %% ?SCOPE_DENIED — they map to login-only scopes.
-    %% ?SCOPE_DENIED stays as an internal sentinel for SSO public flow
-    %% modules (OIDC callback / SAML ACS / SSO MFA setup) which are not
-    %% loaded in this test app's dep graph. We mock the scope cache to
-    %% inject a denied entry and verify that emqx_mgmt_auth still
-    %% rejects API key access to such paths.
-    DeniedPath = <<"/__test_denied__">>,
-    meck:new(emqx_mgmt_api_key_scopes, [passthrough]),
-    meck:expect(emqx_mgmt_api_key_scopes, path_to_scope, fun
-        (P) when P =:= DeniedPath -> ?SCOPE_DENIED;
-        (P) -> meck:passthrough([P])
-    end),
-    try
-        Extra = #{role => ?ROLE_API_SUPERUSER},
-        ?assertMatch(
-            {error, unauthorized_role},
-            emqx_mgmt_auth:check_scopes(Extra, DeniedPath, <<"GET">>)
-        ),
-        %% Even with explicit scopes, denied paths are still blocked
-        ExtraWithScopes = #{
-            role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]
-        },
-        ?assertMatch(
-            {error, unauthorized_role},
-            emqx_mgmt_auth:check_scopes(ExtraWithScopes, DeniedPath, <<"GET">>)
-        )
-    after
-        meck:unload(emqx_mgmt_api_key_scopes)
-    end,
-    delete_app(Name).
+-doc """
+A handler that maps to `?SCOPE_DENIED' is rejected for every API key,
+with or without an explicit scope list. The sentinel is declared by
+the SSO public-flow modules (OIDC callback, SAML ACS, SSO MFA setup),
+which are not in this test app's dependency graph, so a synthetic
+cache injects one. The synthetic cache replaces the shared one for the
+duration of the case, so the case must not run in a parallel group.
+""".
+t_authorize_denied_handler(_Config) ->
+    DeniedHandler = #{method => get, module => test_denied_module, function => test_denied},
+    with_scope_cache(
+        #{{test_denied_module, test_denied} => [?SCOPE_DENIED]},
+        fun() ->
+            Extra = #{role => ?ROLE_API_SUPERUSER},
+            ?assertMatch(
+                {error, unauthorized_role},
+                emqx_mgmt_auth:check_scopes(Extra, DeniedHandler)
+            ),
+            %% Even with explicit scopes, denied handlers are still blocked
+            ExtraWithScopes = #{
+                role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]
+            },
+            ?assertMatch(
+                {error, unauthorized_role},
+                emqx_mgmt_auth:check_scopes(ExtraWithScopes, DeniedHandler)
+            )
+        end
+    ).
 
-t_check_scopes_unmapped_path(_Config) ->
+t_check_scopes_unmapped_handler(_Config) ->
     Extra = #{role => ?ROLE_API_SUPERUSER, scopes => [?SCOPE_CONNECTIONS]},
-    %% Unmapped path → allowed (fail-open for unknown paths)
-    ?assertEqual(ok, emqx_mgmt_auth:check_scopes(Extra, <<"/nonexistent/path">>, <<"GET">>)),
-    %% Mapped path in wrong scope → denied
+    Unmapped = handler_info(no_such_api_module, no_such_function),
+    %% Unmapped handler -> allowed (fail-open for unknown handlers)
+    ?assertEqual(ok, emqx_mgmt_auth:check_scopes(Extra, Unmapped)),
+    %% Mapped handler in wrong scope -> denied
     ?assertMatch(
         {error, unauthorized_role},
-        emqx_mgmt_auth:check_scopes(Extra, <<"/alarms">>, <<"GET">>)
+        emqx_mgmt_auth:check_scopes(Extra, handler_info(emqx_mgmt_api_alarms, alarms))
     ),
-    %% No scopes → all allowed
+    %% No scopes -> all allowed
     ExtraNoScopes = #{role => ?ROLE_API_SUPERUSER},
-    ?assertEqual(ok, emqx_mgmt_auth:check_scopes(ExtraNoScopes, <<"/alarms">>, <<"GET">>)),
-    ?assertEqual(ok, emqx_mgmt_auth:check_scopes(ExtraNoScopes, <<"/clients">>, <<"GET">>)).
+    ?assertEqual(
+        ok, emqx_mgmt_auth:check_scopes(ExtraNoScopes, handler_info(emqx_mgmt_api_alarms, alarms))
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mgmt_auth:check_scopes(ExtraNoScopes, handler_info(emqx_mgmt_api_clients, clients))
+    ).
 
 %%--------------------------------------------------------------------
 %% API endpoint tests
@@ -610,7 +677,7 @@ t_api_update_scopes(_Config) ->
     Name = <<"SCOPES-API-UPDATE">>,
     {ok, Created} = create_app(Name),
     %% POST without `scopes' now materialises the role-default scope list
-    %% (administrator -> the 10 common management scopes). The legacy
+    %% (administrator -> the common management scopes). The legacy
     %% `<<"unset">>' sentinel is reserved for records that pre-date the
     %% scopes feature and was thus upgraded without a scopes field.
     DefaultAdminScopes = lists:sort(?GENERIC_SCOPES),
@@ -692,18 +759,24 @@ t_api_legacy_record_shows_unset_sentinel(_Config) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-auth_authorize(RelPath, Key, Secret) ->
-    AbsPath = erlang:list_to_binary(
-        emqx_dashboard_swagger:relative_uri(binary_to_list(RelPath))
-    ),
+%% Authorize an API key against the handler that serves an endpoint,
+%% with the HandlerInfo minirest passes to the authorize callback. The
+%% scope check keys on `module' and `function'; `path' is what
+%% minirest would carry for that route.
+auth_authorize(Endpoint, Key, Secret) ->
+    {Module, Function, RelPath} = endpoint(Endpoint),
+    AbsPath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(RelPath)),
     FakeReq = #{method => <<"GET">>, path => AbsPath},
-    HandlerInfo = #{
-        method => get,
-        module => dummy_module,
-        function => dummy_func,
-        path => binary_to_list(RelPath)
-    },
+    HandlerInfo = #{method => get, module => Module, function => Function, path => RelPath},
     emqx_mgmt_auth:authorize(HandlerInfo, FakeReq, Key, Secret).
+
+endpoint(clients) -> {emqx_mgmt_api_clients, clients, "/clients"};
+endpoint(client) -> {emqx_mgmt_api_clients, client, "/clients/:clientid"};
+endpoint(alarms) -> {emqx_mgmt_api_alarms, alarms, "/alarms"};
+endpoint(publish) -> {emqx_mgmt_api_publish, publish, "/publish"}.
+
+handler_info(Module, Function) ->
+    #{method => get, module => Module, function => Function}.
 
 create_app(Name) ->
     create_app(Name, #{}).

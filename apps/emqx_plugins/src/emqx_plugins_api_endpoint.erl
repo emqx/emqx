@@ -21,7 +21,12 @@
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-scopes() -> ?SCOPE_SYSTEM.
+%% Two scopes reach this gateway. `?SCOPE_PLUGIN_API` is the restricted
+%% scope for callers that only need to talk to a plugin. `?SCOPE_SYSTEM`
+%% is kept because it was the only way in before `?SCOPE_PLUGIN_API`
+%% existed: dropping it would break every API key and dashboard user
+%% created earlier.
+scopes() -> [?SCOPE_PLUGIN_API, ?SCOPE_SYSTEM].
 
 paths() ->
     ["/plugin_api/:plugin/[...]"].

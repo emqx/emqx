@@ -94,7 +94,9 @@ groups() ->
         {socket, [], [
             t_sock_keepalive,
             t_sock_closed_reason_normal,
-            t_sock_closed_force_closed_by_client
+            t_sock_closed_force_closed_by_client,
+            t_large_publish_after_connect,
+            t_pipelined_large_publish
         ]}
     ].
 
@@ -1180,6 +1182,91 @@ client_user_properties(N) ->
 listener_shutdown_count(Cause) ->
     Counts = emqx_listeners:shutdown_count('tcp:default', 1883),
     proplists:get_value(Cause, Counts, 0).
+
+%%--------------------------------------------------------------------
+%% Test cases for reading a large packet on a listener with a small `recbuf'
+%% (both listener groups set `tcp_options.recbuf = 4KB')
+%%--------------------------------------------------------------------
+
+-define(LARGE_PAYLOAD_SIZE, 256 * 1024).
+
+-doc """
+A PUBLISH much larger than `tcp_options.recbuf' is read, acknowledged and
+echoed back to the subscriber without stalling the connection.
+""".
+t_large_publish_after_connect(_) ->
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {Socket, State0} = raw_connect_and_subscribe(Topic),
+    try
+        ok = gen_tcp:send(Socket, large_publish(Topic)),
+        {Types, _} = recv_packet_types(Socket, 2, State0),
+        ?assertEqual(lists:sort([?PUBACK, ?PUBLISH]), lists:sort(Types))
+    after
+        gen_tcp:close(Socket)
+    end.
+
+-doc """
+A client may send packets right behind CONNECT without waiting for CONNACK. A
+PUBLISH much larger than `tcp_options.recbuf', written together with CONNECT
+and SUBSCRIBE, is read to the end, acknowledged and echoed back.
+""".
+t_pipelined_large_publish(_) ->
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    try
+        ok = gen_tcp:send(Socket, [
+            raw_connect_frame(Topic), raw_subscribe_frame(Topic), large_publish(Topic)
+        ]),
+        {Types, _} = recv_packet_types(Socket, 4, emqx_frame:initial_parse_state(#{})),
+        ?assertEqual([?CONNACK, ?SUBACK], lists:sublist(Types, 2), #{types => Types}),
+        ?assertEqual(lists:sort([?PUBACK, ?PUBLISH]), lists:sort(lists:nthtail(2, Types)))
+    after
+        gen_tcp:close(Socket)
+    end.
+
+raw_connect_and_subscribe(Topic) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    ok = gen_tcp:send(Socket, raw_connect_frame(Topic)),
+    {[?CONNACK], State1} = recv_packet_types(Socket, 1, emqx_frame:initial_parse_state(#{})),
+    ok = gen_tcp:send(Socket, raw_subscribe_frame(Topic)),
+    {[?SUBACK], State2} = recv_packet_types(Socket, 1, State1),
+    {Socket, State2}.
+
+raw_connect_frame(ClientId) ->
+    emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = ClientId})).
+
+raw_subscribe_frame(Topic) ->
+    emqx_frame:serialize(
+        ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => ?QOS_1}}])
+    ).
+
+large_publish(Topic) ->
+    Payload = binary:copy(<<"p">>, ?LARGE_PAYLOAD_SIZE),
+    emqx_frame:serialize(?PUBLISH_PACKET(?QOS_1, Topic, 2, Payload)).
+
+%% Read `N' MQTT packets from a raw socket in active mode and return their
+%% types, in arrival order, together with the parser state left over.
+recv_packet_types(Socket, N, ParseState) ->
+    recv_packet_types(Socket, N, [], ParseState).
+
+recv_packet_types(_Socket, N, Acc, ParseState) when length(Acc) >= N ->
+    {lists:sublist(Acc, N), ParseState};
+recv_packet_types(Socket, N, Acc, ParseState) ->
+    receive
+        {tcp, Socket, Data} ->
+            {Types, NParseState} = parse_packet_types(Data, ParseState, []),
+            recv_packet_types(Socket, N, Acc ++ Types, NParseState)
+    after 5000 ->
+        ct:fail({timeout_receiving_packets, N, Acc})
+    end.
+
+parse_packet_types(Data, ParseState, Acc) ->
+    case emqx_frame:parse(Data, ParseState) of
+        {#mqtt_packet{header = #mqtt_packet_header{type = Type}}, Rest, NParseState} ->
+            parse_packet_types(Rest, NParseState, [Type | Acc]);
+        {_More, NParseState} ->
+            {lists:reverse(Acc), NParseState}
+    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions
