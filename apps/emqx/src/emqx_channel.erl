@@ -698,15 +698,28 @@ post_process_connect(
 
 %% A hook callback may install a limiter container at connect time
 %% (e.g. multi-tenant limiters). Otherwise the field stays `undefined`
-%% and the container is built on first use; see ensure_quota/1.
+%% and the container is built on first use, once a finite limit is
+%% configured for the zone or the listener; see try_consume_quota/2.
 adjust_limiter(ClientInfo) ->
     emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], undefined).
 
-ensure_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+try_consume_quota(Needs, #channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
     #{zone := Zone, listener := ListenerId} = ClientInfo,
-    Channel#channel{quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)};
-ensure_quota(Channel) ->
-    Channel.
+    Names = [Name || {Name, _Amount} <- Needs],
+    case emqx_limiter:channel_limits_configured(Zone, ListenerId, Names) of
+        false ->
+            {true, Channel};
+        true ->
+            Container = emqx_limiter:create_channel_client_container(Zone, ListenerId),
+            try_consume_quota(Needs, Channel#channel{quota = Container})
+    end;
+try_consume_quota(Needs, #channel{quota = Quota0} = Channel) ->
+    case emqx_limiter_client_container:try_consume(Quota0, Needs) of
+        {true, Quota} ->
+            {true, Channel#channel{quota = Quota}};
+        {false, Quota, Reason} ->
+            {false, Channel#channel{quota = Quota}, Reason}
+    end.
 
 handle_zone_change(
     _Output,
@@ -2963,14 +2976,11 @@ packing_alias(Packet, Channel) ->
 check_quota_exceeded(
     ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), Chann0
 ) ->
-    #channel{quota = Quota} = Chann = ensure_quota(Chann0),
-    Result = emqx_limiter_client_container:try_consume(
-        Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
-    ),
-    case Result of
-        {true, Quota2} ->
-            {ok, Chann#channel{quota = Quota2}};
-        {false, Quota2, Reason} ->
+    Needs = [{bytes, erlang:byte_size(Payload)}, {messages, 1}],
+    case try_consume_quota(Needs, Chann0) of
+        {true, Chann} ->
+            {ok, Chann};
+        {false, Chann, Reason} ->
             ?SLOG_THROTTLE(
                 warning,
                 #{
@@ -2979,20 +2989,16 @@ check_quota_exceeded(
                 },
                 #{topic => Topic, tag => "QUOTA"}
             ),
-            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Quota2}}
+            {error, ?RC_QUOTA_EXCEEDED, Chann}
     end.
 
 check_subscribe_quota_exceeded(
     #subscribe_operation{topic_filters = TopicFilters}, Chann0
 ) ->
-    #channel{quota = Limiter0} = Chann = ensure_quota(Chann0),
-    Result = emqx_limiter_client_container:try_consume(
-        Limiter0, [{subscribes, 1}]
-    ),
-    case Result of
-        {true, Limiter} ->
-            {ok, Chann#channel{quota = Limiter}};
-        {false, Limiter, Reason} ->
+    case try_consume_quota([{subscribes, 1}], Chann0) of
+        {true, Chann} ->
+            {ok, Chann};
+        {false, Chann, Reason} ->
             ?tp("subscribe_rate_limit", #{reason => Reason}),
             ?SLOG_THROTTLE(
                 warning,
@@ -3002,7 +3008,7 @@ check_subscribe_quota_exceeded(
                 },
                 #{topics => TopicFilters, tag => "QUOTA"}
             ),
-            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Limiter}}
+            {error, ?RC_QUOTA_EXCEEDED, Chann}
     end.
 
 %%--------------------------------------------------------------------
