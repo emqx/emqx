@@ -1,0 +1,957 @@
+{
+  "comment": [
+    "Term overrides applied after OpenCC's cn->twp conversion when generating",
+    "src/i18n/zh-TW.json. OpenCC gets some technical terms wrong or converts",
+    "them too eagerly for Taiwanese usage; these rules put them right.",
+    "Rules are applied in order. Keep this table in sync with the one in",
+    "emqx.git rel/i18n-tr/gen-zh-TW.py so the Dashboard and the config",
+    "descriptions use the same wording."
+  ],
+  "terms": [
+    {
+      "from": "引數",
+      "to": "參數",
+      "note": "parameter"
+    },
+    {
+      "from": "全域性",
+      "to": "全域",
+      "note": "global"
+    },
+    {
+      "from": "分割槽",
+      "to": "分割區",
+      "note": "partition"
+    },
+    {
+      "from": "例項",
+      "to": "實例",
+      "note": "instance"
+    },
+    {
+      "from": "許可權",
+      "to": "權限",
+      "note": "permission"
+    },
+    {
+      "from": "控制檯",
+      "to": "控制台",
+      "note": "console"
+    },
+    {
+      "from": "聯結器",
+      "to": "連接器",
+      "note": "connector"
+    },
+    {
+      "from": "閘道器",
+      "to": "閘道",
+      "note": "gateway"
+    },
+    {
+      "from": "回撥",
+      "to": "回呼",
+      "note": "callback"
+    },
+    {
+      "from": "釋出",
+      "to": "發布",
+      "note": "publish (MQTT), never release here"
+    },
+    {
+      "from": "識別符號",
+      "to": "識別碼",
+      "note": "identifier"
+    },
+    {
+      "from": "儀表盤",
+      "to": "儀表板",
+      "note": "Dashboard"
+    },
+    {
+      "from": "訪問",
+      "to": "存取",
+      "note": "access"
+    },
+    {
+      "from": "返回",
+      "to": "回傳",
+      "note": "return"
+    },
+    {
+      "from": "證書",
+      "to": "憑證",
+      "note": "certificate"
+    },
+    {
+      "from": "丟失",
+      "to": "遺失",
+      "note": "lost"
+    },
+    {
+      "from": "使能",
+      "to": "啟用",
+      "note": "enable"
+    },
+    {
+      "from": "缺省",
+      "to": "預設",
+      "note": "default"
+    },
+    {
+      "from": "采集",
+      "to": "採集",
+      "note": "collect, OpenCC misses it after 下"
+    },
+    {
+      "from": "秘鑰",
+      "to": "金鑰",
+      "note": "the zh source has the common 秘钥/密钥 typo"
+    },
+    {
+      "from": "賬",
+      "to": "帳",
+      "note": "賬號/賬戶/記賬 -> 帳號/帳戶/記帳"
+    },
+    {
+      "from": "後臺",
+      "to": "後台",
+      "note": "OpenCC picks the 臺 variant"
+    },
+    {
+      "from": "前臺",
+      "to": "前台"
+    },
+    {
+      "from": "平臺",
+      "to": "平台"
+    },
+    {
+      "from": "控制台使用者",
+      "to": "儀表板使用者",
+      "note": "Dashboard, not console"
+    },
+    {
+      "from": "控制台登入",
+      "to": "儀表板登入"
+    },
+    {
+      "from": "控制台角色",
+      "to": "儀表板角色"
+    },
+    {
+      "from": "控制台帳戶",
+      "to": "儀表板帳戶"
+    },
+    {
+      "from": "控制台本地",
+      "to": "儀表板本地"
+    },
+    {
+      "from": "控制台節點",
+      "to": "儀表板節點"
+    },
+    {
+      "from": "控制台作用域",
+      "to": "儀表板作用域"
+    },
+    {
+      "from": "控制台啟用",
+      "to": "儀表板啟用"
+    },
+    {
+      "from": "控制台 token",
+      "to": "儀表板 token"
+    },
+    {
+      "from": "控制台 HTTP",
+      "to": "儀表板 HTTP"
+    },
+    {
+      "from": "控制台 UI",
+      "to": "儀表板 UI"
+    },
+    {
+      "from": "控制台 scope",
+      "to": "儀表板 scope"
+    },
+    {
+      "from": "許可證",
+      "to": "授權",
+      "note": "license"
+    },
+    {
+      "from": "(?<=[一-鿿、。，；：？！（）「」])\\s*[Ll]icense [Kk]ey\\s*(?=[一-鿿、。，；：？！（）「」])",
+      "to": "授權金鑰",
+      "regex": true,
+      "note": "Chinese on both sides, so neither space survives"
+    },
+    {
+      "from": "[Ll]icense [Kk]ey\\s*(?=[一-鿿、。，；：？！（）「」])",
+      "to": "授權金鑰",
+      "regex": true,
+      "note": "absorbs the space so 授權金鑰中 does not keep the English spacing"
+    },
+    {
+      "from": "[Ll]icense [Kk]ey",
+      "to": "授權金鑰",
+      "regex": true,
+      "note": "runs before the bare License rules"
+    },
+    {
+      "from": "(?<=[一-鿿、。，；：？！（）「」])\\s*[Ll]icense\\s*(?=[一-鿿、。，；：？！（）「」])",
+      "to": "授權",
+      "regex": true,
+      "note": "only next to Chinese, so config keys and URLs keep the English word"
+    },
+    {
+      "from": "(?<=[一-鿿、。，；：？！（）「」])\\s*[Ll]icense(?![\\w\\-/.])",
+      "to": "授權",
+      "regex": true
+    },
+    {
+      "from": "[Ll]icense\\s*(?=[一-鿿、。，；：？！（）「」])",
+      "to": "授權",
+      "regex": true
+    },
+    {
+      "from": "^[Ll]icense$",
+      "to": "授權",
+      "regex": true,
+      "note": "a bare License label"
+    },
+    {
+      "from": "審計日誌",
+      "to": "稽核紀錄",
+      "note": "audit log"
+    },
+    {
+      "from": "審計",
+      "to": "稽核",
+      "note": "audit"
+    },
+    {
+      "from": "自定義",
+      "to": "自訂",
+      "note": "custom"
+    },
+    {
+      "from": "系統級權限",
+      "to": "系統層級權限",
+      "note": "not 超級權限, which stays"
+    },
+    {
+      "from": "名稱空間",
+      "to": "命名空間",
+      "note": "namespace; OpenCC over-converts 命名空间"
+    },
+    {
+      "from": "封禁",
+      "to": "封鎖",
+      "note": "ban"
+    },
+    {
+      "from": "登錄檔",
+      "to": "註冊表",
+      "note": "registry; 登錄檔 is the Windows registry"
+    },
+    {
+      "from": "(?<!自動)補全",
+      "to": "自動補全",
+      "regex": true,
+      "note": "AI completion"
+    },
+    {
+      "from": "校驗(?!和)",
+      "to": "驗證",
+      "regex": true,
+      "note": "schema validation; 校驗和 is a checksum and stays"
+    },
+    {
+      "from": "客戶端",
+      "to": "用戶端",
+      "note": "client"
+    },
+    {
+      "from": "客戶機",
+      "to": "用戶端",
+      "note": "client machine"
+    },
+    {
+      "from": "客戶(?!端)",
+      "to": "用戶端",
+      "regex": true,
+      "note": "客戶程序 / 客戶請求; there is no customer sense in these texts"
+    },
+    {
+      "from": "授權配置",
+      "to": "授權設定",
+      "note": "authorization configuration"
+    },
+    {
+      "from": "告警",
+      "to": "警報",
+      "note": "alarm / alert"
+    },
+    {
+      "from": "跟蹤",
+      "to": "追蹤",
+      "note": "trace; unifies with the 追蹤 OpenCC already produces"
+    },
+    {
+      "from": "配置檔案",
+      "to": "設定檔",
+      "note": "profile, not a file"
+    },
+    {
+      "from": "配置設定",
+      "to": "設定"
+    },
+    {
+      "from": "配置",
+      "to": "設定",
+      "note": "configuration; no allocation sense in these texts"
+    },
+    {
+      "from": "當前",
+      "to": "目前",
+      "note": "current"
+    },
+    {
+      "from": "(?<!未)通過(?![次後的，。])",
+      "to": "透過",
+      "regex": true,
+      "note": "via; 未通過 / 通過次數 / 測試通過，keep the pass sense"
+    },
+    {
+      "from": "(?<=[一-鿿])\\s*Profiles?\\s*(?=[一-鿿])",
+      "to": "設定檔",
+      "regex": true,
+      "note": "profile; only next to Chinese so identifiers keep the English word"
+    },
+    {
+      "from": "(?<=[一-鿿])\\s*Profiles?(?![\\w\\-/.])",
+      "to": "設定檔",
+      "regex": true
+    },
+    {
+      "from": "Profiles?\\s*(?=[一-鿿])",
+      "to": "設定檔",
+      "regex": true
+    },
+    {
+      "from": "(?<!處理)程序",
+      "to": "行程",
+      "regex": true,
+      "note": "process; 處理程序 renders handler, not process"
+    },
+    {
+      "from": "報文",
+      "to": "封包",
+      "note": "packet"
+    },
+    {
+      "from": "(?<!連接)埠",
+      "to": "連接埠",
+      "regex": true,
+      "note": "port"
+    },
+    {
+      "from": "禁用",
+      "to": "停用",
+      "note": "disable"
+    },
+    {
+      "from": "響應",
+      "to": "回應",
+      "note": "response"
+    },
+    {
+      "from": "令牌",
+      "to": "權杖",
+      "note": "token"
+    },
+    {
+      "from": "頭部",
+      "to": "標頭",
+      "note": "header; runs before 請求頭 so 請求頭部 cannot be split"
+    },
+    {
+      "from": "請求頭",
+      "to": "請求標頭",
+      "note": "request header"
+    },
+    {
+      "from": "資料頭",
+      "to": "標頭",
+      "note": "the zlib / gzip header"
+    },
+    {
+      "from": "訊息頭",
+      "to": "訊息標頭"
+    },
+    {
+      "from": "示例",
+      "to": "範例",
+      "note": "example; 實例 is already taken by instance"
+    },
+    {
+      "from": "提供商",
+      "to": "提供者",
+      "note": "provider"
+    },
+    {
+      "from": "(?<!Boolean )(?<!String )(?<!STRING )(?<!Integer )(?<!Float )(?<!Array )(?<!Map )(?<!資料)(?<!欄位)型別",
+      "to": "類型",
+      "regex": true,
+      "note": "OpenCC renders every 类型 as 型別. Taiwan keeps 型別 for a programming data type and uses 類型 for a category, so the primitive type names above are excluded and everything else (橋接, 動作, 連接器, 後端, 帳號, 驅動, 供應商 ...) becomes 類型"
+    },
+    {
+      "from": "遠端代理(?=[一-鿿])",
+      "to": "遠端 broker ",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "遠端代理",
+      "to": "遠端 broker",
+      "note": "broker"
+    },
+    {
+      "from": "本地代理(?=[一-鿿])",
+      "to": "本地 broker ",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "本地代理",
+      "to": "本地 broker",
+      "note": "broker"
+    },
+    {
+      "from": "MQTT 代理(?=[一-鿿])",
+      "to": "MQTT broker ",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "MQTT 代理",
+      "to": "MQTT broker",
+      "note": "broker"
+    },
+    {
+      "from": "Kafka 代理(?=[一-鿿])",
+      "to": "Kafka broker ",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "Kafka 代理",
+      "to": "Kafka broker",
+      "note": "broker"
+    },
+    {
+      "from": "RabbitMQ 代理(?=[一-鿿])",
+      "to": "RabbitMQ broker ",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "RabbitMQ 代理",
+      "to": "RabbitMQ broker",
+      "note": "broker"
+    },
+    {
+      "from": "Pulsar 代理(?=[一-鿿])",
+      "to": "Pulsar broker ",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "Pulsar 代理",
+      "to": "Pulsar broker",
+      "note": "broker"
+    },
+    {
+      "from": "向代理突發傳送",
+      "to": "向 broker 突發傳送",
+      "note": "broker"
+    },
+    {
+      "from": "向代理傳送",
+      "to": "向 broker 傳送",
+      "note": "broker"
+    },
+    {
+      "from": "從代理斷開",
+      "to": "從 broker 斷開",
+      "note": "broker"
+    },
+    {
+      "from": "在代理中",
+      "to": "在 broker 中",
+      "note": "broker"
+    },
+    {
+      "from": "代理必須支援",
+      "to": "broker 必須支援",
+      "note": "broker"
+    },
+    {
+      "from": "(?<=[一-鿿])代理池",
+      "to": " broker 池",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "代理池",
+      "to": "broker 池",
+      "note": "broker"
+    },
+    {
+      "from": "(?<=[一-鿿])代理 IP",
+      "to": " broker IP",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "代理 IP",
+      "to": "broker IP",
+      "note": "broker"
+    },
+    {
+      "from": "(?<=[一-鿿])代理 PUBLISH",
+      "to": " broker PUBLISH",
+      "regex": true,
+      "note": "broker"
+    },
+    {
+      "from": "代理 PUBLISH",
+      "to": "broker PUBLISH",
+      "note": "broker"
+    },
+    {
+      "from": "(?<=[一-鿿])代理伺服器",
+      "to": " Proxy 伺服器",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "代理伺服器",
+      "to": "Proxy 伺服器",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "(?<=[一-鿿])代理連接埠",
+      "to": " Proxy 連接埠",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "代理連接埠",
+      "to": "Proxy 連接埠",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "(?<=[一-鿿])代理連接器",
+      "to": " Proxy 連接器",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "代理連接器",
+      "to": "Proxy 連接器",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "(?<=[一-鿿])代理設定",
+      "to": " Proxy 設定",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "代理設定",
+      "to": "Proxy 設定",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "(?<=[一-鿿])代理主機",
+      "to": " Proxy 主機",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "代理主機",
+      "to": "Proxy 主機",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "(?<=[一-鿿])代理地址",
+      "to": " Proxy 地址",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "代理地址",
+      "to": "Proxy 地址",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "(?<=[一-鿿])HTTP 代理",
+      "to": " HTTP Proxy",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "HTTP 代理(?=[一-鿿])",
+      "to": "HTTP Proxy ",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "HTTP 代理",
+      "to": "HTTP Proxy",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "(?<=[一-鿿])WebSocket 代理",
+      "to": " WebSocket Proxy",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "WebSocket 代理(?=[一-鿿])",
+      "to": "WebSocket Proxy ",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "WebSocket 代理",
+      "to": "WebSocket Proxy",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "反向代理(?=[一-鿿])",
+      "to": "反向 Proxy ",
+      "regex": true,
+      "note": "proxy stays English"
+    },
+    {
+      "from": "反向代理",
+      "to": "反向 Proxy",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "在代理上",
+      "to": "在 Proxy 上",
+      "note": "proxy stays English"
+    },
+    {
+      "from": "Agent Card",
+      "to": "Agent 卡片",
+      "note": "Agent-to-Agent stays as is"
+    },
+    {
+      "from": "(?<!授權)(?<!許可)(?<!服務)(?<!使用者)協議",
+      "to": "協定",
+      "regex": true,
+      "note": "protocol, but keep 協議 where it means an agreement"
+    },
+    {
+      "from": "(?<=[一-鿿])代理協定",
+      "to": " Proxy 協定",
+      "regex": true,
+      "note": "PROXY protocol"
+    },
+    {
+      "from": "代理協定",
+      "to": "Proxy 協定",
+      "note": "PROXY protocol"
+    },
+    {
+      "from": "(?<=[一-鿿])PROXY 協定",
+      "to": " Proxy 協定",
+      "regex": true,
+      "note": "PROXY protocol"
+    },
+    {
+      "from": "PROXY 協定",
+      "to": "Proxy 協定",
+      "note": "PROXY protocol"
+    },
+    {
+      "from": "(?<=[一-鿿])Proxy Protocol",
+      "to": " Proxy 協定",
+      "regex": true,
+      "note": "PROXY protocol"
+    },
+    {
+      "from": "Proxy Protocol",
+      "to": "Proxy 協定",
+      "note": "PROXY protocol"
+    },
+    {
+      "from": "(?<=[一-鿿])Proxy protocol",
+      "to": " Proxy 協定",
+      "regex": true,
+      "note": "PROXY protocol"
+    },
+    {
+      "from": "Proxy protocol",
+      "to": "Proxy 協定",
+      "note": "PROXY protocol"
+    },
+    {
+      "from": "Proxy 協定 (?=[一-鿿])",
+      "to": "Proxy 協定",
+      "regex": true,
+      "note": "the English source had a space after Protocol; drop it between Han"
+    },
+    {
+      "from": "Agent 卡片 的",
+      "to": "Agent 卡片的"
+    },
+    {
+      "from": "(?<!EMQX )Broker",
+      "to": "broker",
+      "regex": true,
+      "note": "broker is a common noun and reads lower case in the other 54 places; EMQX Broker is the product name and keeps its capital"
+    },
+    {
+      "from": "(?<=[一-鿿])\\s*Client ID",
+      "to": "用戶端 ID",
+      "regex": true,
+      "note": "client"
+    },
+    {
+      "from": "Client ID",
+      "to": "用戶端 ID"
+    },
+    {
+      "from": "最大(?=[一-鿿]{0,5}時間)",
+      "to": "最長",
+      "regex": true,
+      "note": "a duration is 最長 in Taiwan; 最大 is for a size or a count, so 最大連線數 / 最大位元組數 / 最大重試次數 are left alone"
+    },
+    {
+      "from": "最大(?=[一-鿿]{0,5}時長)",
+      "to": "最長",
+      "regex": true
+    },
+    {
+      "from": "最大(?=[一-鿿]{0,5}間隔)",
+      "to": "最長",
+      "regex": true
+    },
+    {
+      "from": "HTTP 頭",
+      "to": "HTTP 標頭",
+      "note": "header"
+    },
+    {
+      "from": "匯出器頭",
+      "to": "匯出器標頭",
+      "note": "header"
+    },
+    {
+      "from": "協定頭",
+      "to": "協定標頭",
+      "note": "header"
+    },
+    {
+      "from": "封包頭",
+      "to": "封包標頭",
+      "note": "header"
+    },
+    {
+      "from": "固定報頭",
+      "to": "固定標頭",
+      "note": "the MQTT fixed header"
+    },
+    {
+      "from": "headers標頭",
+      "to": "標頭",
+      "note": "the Simplified source says both"
+    },
+    {
+      "from": "該頭",
+      "to": "該標頭",
+      "note": "header"
+    },
+    {
+      "from": "Hubs標頭",
+      "to": "Hubs 標頭",
+      "note": "the Simplified source omits the space"
+    },
+    {
+      "from": "超時",
+      "to": "逾時",
+      "note": "timeout; 超時 is Mainland usage"
+    },
+    {
+      "from": "(?<=[一-鿿])訊息伺服器(?=[一-鿿])",
+      "to": " broker ",
+      "regex": true,
+      "note": "the fourth way the Simplified source spells a broker (消息服务器)"
+    },
+    {
+      "from": "訊息伺服器(?=[一-鿿])",
+      "to": "broker ",
+      "regex": true
+    },
+    {
+      "from": "(?<=[一-鿿])訊息伺服器",
+      "to": " broker",
+      "regex": true
+    },
+    {
+      "from": "訊息伺服器",
+      "to": "broker"
+    },
+    {
+      "from": "覆蓋範圍",
+      "to": "涵蓋範圍",
+      "note": "coverage"
+    },
+    {
+      "from": "預設值覆蓋",
+      "to": "預設值涵蓋",
+      "note": "the default covers ..."
+    },
+    {
+      "from": "預設覆蓋",
+      "to": "預設涵蓋",
+      "note": "the default covers ..."
+    },
+    {
+      "from": "最大化覆蓋",
+      "to": "最大化涵蓋",
+      "note": "covering large numbers of topics"
+    },
+    {
+      "from": "覆蓋",
+      "to": "覆寫",
+      "note": "override / overwrite"
+    },
+    {
+      "from": "髮送",
+      "to": "傳送",
+      "note": "OpenCC picks 髮 (hair) for the 发 in 被发送; it is 發 here"
+    },
+    {
+      "from": "髮布",
+      "to": "發布",
+      "note": "same 发 / 髮 confusion"
+    },
+    {
+      "from": "獲取",
+      "to": "取得",
+      "note": "get / obtain"
+    },
+    {
+      "from": "掛起請求",
+      "to": "待處理請求",
+      "note": "a pending request"
+    },
+    {
+      "from": "掛起的資料",
+      "to": "待處理的資料",
+      "note": "pending data"
+    },
+    {
+      "from": "掛起連線",
+      "to": "待處理連線",
+      "note": "pending connections"
+    },
+    {
+      "from": "將該行程掛起",
+      "to": "暫停該行程",
+      "note": "suspend"
+    },
+    {
+      "from": "而掛起",
+      "to": "而暫停",
+      "note": "suspend"
+    },
+    {
+      "from": "被掛起",
+      "to": "被暫停",
+      "note": "suspend"
+    },
+    {
+      "from": "事務",
+      "to": "交易",
+      "note": "a database transaction"
+    },
+    {
+      "from": "標識",
+      "to": "識別",
+      "note": "identify"
+    },
+    {
+      "from": "質量",
+      "to": "品質",
+      "note": "quality of service"
+    },
+    {
+      "from": "倉庫",
+      "to": "儲存庫",
+      "note": "repository"
+    },
+    {
+      "from": "捕獲",
+      "to": "捕捉",
+      "note": "capture"
+    },
+    {
+      "from": "數組",
+      "to": "陣列",
+      "note": "array; OpenCC left this one"
+    },
+    {
+      "from": "註釋",
+      "to": "註解",
+      "note": "comment"
+    },
+    {
+      "from": "遍歷",
+      "to": "走訪",
+      "note": "traverse"
+    },
+    {
+      "from": "比如",
+      "to": "例如"
+    },
+    {
+      "from": "集群后",
+      "to": "叢集後",
+      "note": "OpenCC picks 后 (empress) for the 後 here"
+    },
+    {
+      "from": "(?<!Workload Identity )(?<!Service )(?<=[一-鿿])\\s*Providers?\\s*(?=[一-鿿])",
+      "to": "提供者",
+      "regex": true,
+      "note": "provider; Workload Identity Provider and Service Provider are proper nouns"
+    },
+    {
+      "from": "(?<!Workload Identity )(?<!Service )(?<=[一-鿿])\\s*Providers?",
+      "to": "提供者",
+      "regex": true
+    },
+    {
+      "from": "(?<!Workload Identity )(?<!Service )Providers?\\s*(?=[一-鿿])",
+      "to": "提供者",
+      "regex": true
+    },
+    {
+      "from": "(?<!Workload Identity )(?<!Service )Providers?",
+      "to": "提供者",
+      "regex": true
+    },
+    {
+      "from": "身份",
+      "to": "身分",
+      "note": "Taiwan writes 身分, as in 身分證"
+    }
+  ]
+}
