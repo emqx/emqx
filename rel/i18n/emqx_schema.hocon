@@ -1491,6 +1491,14 @@ Note: changing this config at runtime may only take effect for newly established
 mqtt_max_packet_size.label:
 """Max Packet Size"""
 
+mqtt_max_connect_packet_size.desc:
+"""Maximum size of a CONNECT packet. Maximum: 256 MB.
+EMQX closes the connection when a CONNECT packet is larger than this.
+This limit applies in addition to `max_packet_size`, and the smaller of the two applies to CONNECT."""
+
+mqtt_max_connect_packet_size.label:
+"""Max CONNECT Packet Size"""
+
 mqtt_max_connect_user_properties.desc:
 """Maximum number of 'User-Property' pairs accepted in a CONNECT packet.
 The limit applies separately to the CONNECT properties and to the will properties.

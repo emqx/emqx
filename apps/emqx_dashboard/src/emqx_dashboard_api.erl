@@ -818,6 +818,17 @@ validate_role_scope_compat(Role, Scopes) ->
                             <<"Namespaced administrators cannot hold scopes: ">>, Names
                         ])}
             end;
+        {ok, #{?namespace := Namespace}} when is_binary(Namespace) ->
+            case [S || S <- Scopes, not lists:member(S, ?NS_VIEWER_ALLOWED_SCOPES)] of
+                [] ->
+                    ok;
+                Forbidden ->
+                    Names = lists:join(<<", ">>, Forbidden),
+                    {error,
+                        iolist_to_binary([
+                            <<"Namespaced viewers cannot hold scopes: ">>, Names
+                        ])}
+            end;
         {ok, _} ->
             case [S || S <- Scopes, lists:member(S, ?ADMIN_ONLY_SCOPES)] of
                 [] ->

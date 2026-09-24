@@ -88,6 +88,7 @@ groups() ->
             t_congestion_decongested,
             t_first_packet_not_connect,
             t_connect_user_property_limit,
+            t_connect_packet_too_large,
             t_large_connect_with_few_user_properties
         ]},
         {socket, [], [
@@ -523,7 +524,18 @@ t_sock_closed_reason_normal(Config) ->
             )
         end,
         fun(Trace0) ->
-            ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
+            %% Filter by this case's client id: the captured trace can
+            %% contain sock_closed events from other clients (e.g. a late
+            %% close from the previous case), so assert on this client's
+            %% event rather than requiring it to be the only one in the trace.
+            ?assertMatch(
+                [#{clientid := ClientId}],
+                [
+                    E
+                 || #{clientid := CId} = E <- ?of_kind(sock_closed_normal, Trace0),
+                    CId =:= ClientId
+                ]
+            ),
             ok
         end
     ).
@@ -542,8 +554,16 @@ t_sock_closed_force_closed_by_client(Config) ->
             )
         end,
         fun(Trace0) ->
+            %% Filter by this case's client id, see
+            %% t_sock_closed_reason_normal.
             ?assertMatch(
-                [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
+                [#{clientid := ClientId}],
+                [
+                    E
+                 || #{clientid := CId} = E <-
+                        ?of_kind(sock_closed_with_other_reason, Trace0),
+                    CId =:= ClientId
+                ]
             ),
             ok
         end
@@ -1063,6 +1083,56 @@ assert_connect_accepted(Transport, NConnect, NWill) ->
 
 assert_connect_rejected(Transport, NConnect, NWill) ->
     ?assertMatch({error, _}, connect_with_user_properties(Transport, NConnect, NWill)).
+
+-doc """
+A CONNECT larger than `mqtt.max_connect_packet_size' is refused on TCP, TLS and
+WebSocket listeners and counted as `connect_packet_too_large'. A CONNECT within
+the limit connects.
+""".
+t_connect_packet_too_large(_) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    try
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], 1024),
+        CountBefore = listener_shutdown_count(connect_packet_too_large),
+        lists:foreach(
+            fun(Transport) ->
+                ?assertMatch(
+                    {error, _},
+                    connect_with_username(Transport, binary:copy(<<"u">>, 2048)),
+                    #{transport => Transport}
+                ),
+                ?assertMatch(
+                    {ok, _}, connect_with_username(Transport, <<"u">>), #{transport => Transport}
+                )
+            end,
+            [tcp, tls, ws]
+        ),
+        %% The counter is per listener; the tcp one is the one read here.
+        ?WAIT(
+            ?assertEqual(CountBefore + 1, listener_shutdown_count(connect_packet_too_large)),
+            5
+        )
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], Old)
+    end.
+
+connect_with_username(Transport, Username) ->
+    {ok, Client} = emqtt:start_link(transport_opts(Transport) ++ [{username, Username}]),
+    unlink(Client),
+    try
+        Result =
+            case Transport of
+                ws -> emqtt:ws_connect(Client);
+                _ -> emqtt:connect(Client)
+            end,
+        case Result of
+            {ok, _} -> ok = emqtt:disconnect(Client);
+            {error, _} -> ok
+        end,
+        Result
+    after
+        catch emqtt:stop(Client)
+    end.
 
 connect_with_user_properties(Transport, NConnect, NWill) ->
     ConnectProps = #{'User-Property' => client_user_properties(NConnect)},

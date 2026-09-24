@@ -305,15 +305,17 @@ ensure_installed() ->
 %% * Configure the plugin
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
-    case install_state(NameVsn) of
-        installed ->
-            maybe
-                {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
-                configure(NameVsn, ?normal, RunningSt)
-            end;
-        _IncompleteOrAbsent ->
-            reinstall(NameVsn)
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case install_state(NameVsn) of
+            installed ->
+                maybe
+                    {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
+                    configure(NameVsn, ?normal, RunningSt)
+                end;
+            _IncompleteOrAbsent ->
+                reinstall(NameVsn)
+        end
+    end).
 
 %% @doc Replace whatever the install dir holds with the package found in the
 %% install dir (or copied from another node).
@@ -330,11 +332,13 @@ reinstall(NameVsn) ->
     end.
 
 ensure_installed(NameVsn, ?fresh_install = Mode) ->
-    %% TODO
-    %% Additionally check if the plugin is actually stopped/uninstalled.
-    %% Currently, external layers (API, CLI) are responsible for
-    %% not allowing to install a plugin that is already installed.
-    install_and_configure(NameVsn, Mode, stopped).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        %% TODO
+        %% Additionally check if the plugin is actually stopped/uninstalled.
+        %% Currently, external layers (API, CLI) are responsible for
+        %% not allowing to install a plugin that is already installed.
+        install_and_configure(NameVsn, Mode, stopped)
+    end).
 
 %% @doc Classify the plugin's installation on this node.
 %%
@@ -365,26 +369,28 @@ install_state(NameVsn) ->
 %% If a plugin is running, or enabled, an error is returned.
 -spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
 ensure_uninstalled(NameVsn) ->
-    case read_plugin_info(NameVsn, #{}) of
-        {ok, #{running_status := running}} ->
-            {error, #{
-                msg => "bad_plugin_running_status",
-                hint => "stop_the_plugin_first"
-            }};
-        {ok, #{config_status := enabled}} ->
-            {error, #{
-                msg => "bad_plugin_config_status",
-                hint => "disable_the_plugin_first"
-            }};
-        {ok, Plugin} ->
-            maybe
-                ok ?= emqx_plugins_apps:unload(Plugin),
-                ok ?= purge(NameVsn),
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case read_plugin_info(NameVsn, #{}) of
+            {ok, #{running_status := running}} ->
+                {error, #{
+                    msg => "bad_plugin_running_status",
+                    hint => "stop_the_plugin_first"
+                }};
+            {ok, #{config_status := enabled}} ->
+                {error, #{
+                    msg => "bad_plugin_config_status",
+                    hint => "disable_the_plugin_first"
+                }};
+            {ok, Plugin} ->
+                maybe
+                    ok ?= emqx_plugins_apps:unload(Plugin),
+                    ok ?= purge(NameVsn),
+                    ensure_delete_state(NameVsn)
+                end;
+            {error, _Reason} ->
                 ensure_delete_state(NameVsn)
-            end;
-        {error, _Reason} ->
-            ensure_delete_state(NameVsn)
-    end.
+        end
+    end).
 
 %% @doc Ensure a plugin is enabled to the end of the plugins list.
 -spec ensure_enabled(name_vsn()) -> ok | {error, any()}.
@@ -415,27 +421,29 @@ ensure_disabled(NameVsn) ->
 %% reside in all the plugin install dirs.
 -spec purge(name_vsn()) -> ok | {error, map()}.
 purge(NameVsn) ->
-    ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
-    ok = delete_cached_config(NameVsn),
-    case emqx_plugins_fs:purge_installed(NameVsn) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            %% The leftovers can not be removed, so the installation can not be
-            %% replaced: report it instead of failing with a `badmatch'.
-            {error, #{
-                msg => "failed_to_purge_plugin_dir",
-                name_vsn => NameVsn,
-                reason => Reason
-            }}
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
+        ok = delete_cached_config(NameVsn),
+        case emqx_plugins_fs:purge_installed(NameVsn) of
+            ok ->
+                ok;
+            {error, Reason} ->
+                %% The leftovers can not be removed, so the installation can not be
+                %% replaced: report it instead of failing with a `badmatch'.
+                {error, #{
+                    msg => "failed_to_purge_plugin_dir",
+                    name_vsn => NameVsn,
+                    reason => Reason
+                }}
+        end
+    end).
 
 -spec delete_state(name_vsn()) -> ok.
 delete_state(NameVsn) ->
     ensure_delete_state(NameVsn).
 
 %% @doc Write the package file.
--spec write_package(name_vsn(), binary()) -> ok.
+-spec write_package(name_vsn(), binary()) -> ok | {error, map()}.
 write_package(NameVsn, Bin) ->
     emqx_plugins_fs:write_tar(NameVsn, Bin).
 
@@ -459,48 +467,52 @@ restore_package(NameVsn, Backup) ->
 is_package_present(NameVsn) ->
     emqx_plugins_fs:is_tar_present(NameVsn).
 
--spec purge_other_versions(name_vsn()) -> ok.
+-spec purge_other_versions(name_vsn()) -> ok | {error, map()}.
 purge_other_versions(NameVsn) ->
-    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    AppNameBin = bin(AppName),
-    ?SLOG(debug, #{
-        msg => "purge_plugin_other_versions",
-        keep_plugin => NameVsn,
-        reason => "cluster_sync"
-    }),
-    lists:foreach(
-        fun
-            (#{name := Name, rel_vsn := RelVsn}) when
-                AppNameBin =:= Name, AppVsn =:= RelVsn
-            ->
-                ok;
-            (#{name := Name, rel_vsn := RelVsn}) ->
-                case AppNameBin =:= Name of
-                    true ->
-                        NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
-                        maybe
-                            ok ?= ensure_stopped(NameVsn1),
-                            ok ?= ensure_uninstalled(NameVsn1)
-                        else
-                            {error, Reason} ->
-                                ?SLOG(error, #{
-                                    msg => "failed_to_purge_plugin",
-                                    name_vsn => NameVsn1,
-                                    reason => Reason
-                                })
-                        end;
-                    false ->
-                        ok
-                end
-        end,
-        emqx_plugins:list()
-    ).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+        AppNameBin = bin(AppName),
+        ?SLOG(debug, #{
+            msg => "purge_plugin_other_versions",
+            keep_plugin => NameVsn,
+            reason => "cluster_sync"
+        }),
+        lists:foreach(
+            fun
+                (#{name := Name, rel_vsn := RelVsn}) when
+                    AppNameBin =:= Name, AppVsn =:= RelVsn
+                ->
+                    ok;
+                (#{name := Name, rel_vsn := RelVsn}) ->
+                    case AppNameBin =:= Name of
+                        true ->
+                            NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
+                            maybe
+                                ok ?= ensure_stopped(NameVsn1),
+                                ok ?= ensure_uninstalled(NameVsn1)
+                            else
+                                {error, Reason} ->
+                                    ?SLOG(error, #{
+                                        msg => "failed_to_purge_plugin",
+                                        name_vsn => NameVsn1,
+                                        reason => Reason
+                                    })
+                            end;
+                        false ->
+                            ok
+                    end
+            end,
+            emqx_plugins:list()
+        )
+    end).
 
 %% @doc Delete the package file.
--spec delete_package(name_vsn()) -> ok.
+-spec delete_package(name_vsn()) -> ok | {error, term()}.
 delete_package(NameVsn) ->
-    _ = emqx_plugins_serde:delete_schema(NameVsn),
-    emqx_plugins_fs:delete_tar(NameVsn).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        _ = emqx_plugins_serde:delete_schema(NameVsn),
+        emqx_plugins_fs:delete_tar(NameVsn)
+    end).
 
 %% @doc Safely delete a plugin package.
 %% If another version of the same plugin is currently active,
@@ -508,24 +520,26 @@ delete_package(NameVsn) ->
 %% Otherwise, stop and uninstall the plugin before deleting.
 -spec safe_delete_package(name_vsn()) -> ok | {error, any()}.
 safe_delete_package(NameVsn) ->
-    _ = forget_allowed_installation(NameVsn),
-    case has_other_active_version(NameVsn) of
-        true ->
-            ok = delete_state(NameVsn),
-            ok = purge(NameVsn),
-            _ = delete_package(NameVsn),
-            ok;
-        false ->
-            case maybe_stop_plugin(NameVsn) of
-                ok ->
-                    ok = maybe_disable_plugin(NameVsn),
-                    ok = maybe_uninstall_plugin(NameVsn),
-                    _ = delete_package(NameVsn),
-                    ok;
-                Error ->
-                    Error
-            end
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        _ = forget_allowed_installation(NameVsn),
+        case has_other_active_version(NameVsn) of
+            true ->
+                ok = delete_state(NameVsn),
+                ok = purge(NameVsn),
+                _ = delete_package(NameVsn),
+                ok;
+            false ->
+                case maybe_stop_plugin(NameVsn) of
+                    ok ->
+                        ok = maybe_disable_plugin(NameVsn),
+                        ok = maybe_uninstall_plugin(NameVsn),
+                        _ = delete_package(NameVsn),
+                        ok;
+                    Error ->
+                        Error
+                end
+        end
+    end).
 
 %%--------------------------------------------------------------------
 %% Plugin runtime management
@@ -1060,16 +1074,18 @@ get_tar(NameVsn) ->
 
 -spec install_package(name_vsn(), binary()) -> ok | {error, term()}.
 install_package(NameVsn, Bin) ->
-    ok = write_package(NameVsn, Bin),
-    case ensure_installed(NameVsn, ?fresh_install) of
-        {error, #{reason := plugin_not_found}} = NotFound ->
-            NotFound;
-        {error, _} = Error ->
-            _ = delete_package(NameVsn),
-            Error;
-        Result ->
-            Result
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        ok = write_package(NameVsn, Bin),
+        case ensure_installed(NameVsn, ?fresh_install) of
+            {error, #{reason := plugin_not_found}} = NotFound ->
+                NotFound;
+            {error, _} = Error ->
+                _ = delete_package(NameVsn),
+                Error;
+            Result ->
+                Result
+        end
+    end).
 
 %%--------------------------------------------------------------------
 %% Internal functions

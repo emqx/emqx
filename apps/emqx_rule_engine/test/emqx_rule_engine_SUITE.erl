@@ -43,7 +43,7 @@ suite() ->
 groups() ->
     [
         {engine, [sequence], [t_create_rule]},
-        {funcs, [], [t_kv_store]},
+        {funcs, [], [t_kv_store, t_kv_store_namespace]},
         {registry, [sequence], [
             t_add_get_remove_rule,
             t_add_get_remove_rules,
@@ -460,6 +460,84 @@ t_kv_store(_) ->
     1 = emqx_rule_funcs:kv_store_get(<<"abc">>),
     emqx_rule_funcs:kv_store_del(<<"abc">>),
     undefined = emqx_rule_funcs:kv_store_get(<<"abc">>).
+
+t_kv_store_namespace(_) ->
+    Ns1 = <<"kv_store_ns1">>,
+    Ns2 = <<"kv_store_ns2">>,
+    Key = <<"k">>,
+    try
+        ok = ns_kv_del(Ns1, Key),
+        ok = ns_kv_del(Ns2, Key),
+        ok = ns_kv_del(?global_ns, Key),
+
+        %% Entries are scoped to the namespace of the rule being applied.
+        ok = ns_kv_put(Ns1, Key, <<"ns1">>),
+        ?assertEqual(<<"ns1">>, ns_kv_get(Ns1, Key)),
+        ?assertEqual(undefined, ns_kv_get(Ns2, Key)),
+        ?assertEqual(undefined, ns_kv_get(?global_ns, Key)),
+
+        %% Namespaced rules cannot observe the global key space.
+        ok = ns_kv_put(?global_ns, Key, <<"global">>),
+        ?assertEqual(<<"global">>, ns_kv_get(?global_ns, Key)),
+        ?assertEqual(<<"ns1">>, ns_kv_get(Ns1, Key)),
+        ?assertEqual(undefined, ns_kv_get(Ns2, Key)),
+
+        %% Deletes are scoped as well.
+        ok = ns_kv_put(Ns2, Key, <<"ns2">>),
+        ok = ns_kv_del(Ns1, Key),
+        ?assertEqual(undefined, ns_kv_get(Ns1, Key)),
+        ?assertEqual(<<"ns2">>, ns_kv_get(Ns2, Key)),
+
+        %% The ambient namespace is restored once the rule has been applied, so
+        %% direct calls fall back to the global key space.
+        ?assertEqual(<<"global">>, emqx_rule_funcs:kv_store_get(Key)),
+
+        %% ... also when the rule fails while evaluating the SQL.
+        ?assertMatch(
+            {error, {select_and_transform_error, _}},
+            emqx_rule_sqltester:test(
+                Ns1,
+                #{sql => <<"select upper(xxxx) from \"t/kv_store\"">>, context => ns_kv_context()}
+            )
+        ),
+        ?assertEqual(<<"global">>, emqx_rule_funcs:kv_store_get(Key)),
+
+        %% Keys are always scoped by the namespace of the applying rule.
+        true = emqx_rule_funcs:kv_store_put({Ns1, Key}, <<"planted">>),
+        ?assertEqual(<<"planted">>, emqx_rule_funcs:kv_store_get({Ns1, Key})),
+        ?assertEqual(undefined, ns_kv_get(Ns1, Key)),
+        ok
+    after
+        ok = ns_kv_del(Ns1, Key),
+        ok = ns_kv_del(Ns2, Key),
+        ok = ns_kv_del(?global_ns, Key),
+        _ = emqx_rule_funcs:kv_store_del({Ns1, Key}),
+        ok
+    end.
+
+ns_kv_context() ->
+    #{topic => <<"t/kv_store">>, payload => <<"{}">>}.
+
+ns_kv_put(Namespace, Key, Val) ->
+    SQL = <<
+        "select kv_store_put('",
+        Key/binary,
+        "', '",
+        Val/binary,
+        "') as r from \"t/kv_store\""
+    >>,
+    {ok, _} = emqx_rule_sqltester:test(Namespace, #{sql => SQL, context => ns_kv_context()}),
+    ok.
+
+ns_kv_get(Namespace, Key) ->
+    SQL = <<"select kv_store_get('", Key/binary, "') as v from \"t/kv_store\"">>,
+    {ok, Result} = emqx_rule_sqltester:test(Namespace, #{sql => SQL, context => ns_kv_context()}),
+    maps:get(<<"v">>, Result).
+
+ns_kv_del(Namespace, Key) ->
+    SQL = <<"select kv_store_del('", Key/binary, "') as r from \"t/kv_store\"">>,
+    {ok, _} = emqx_rule_sqltester:test(Namespace, #{sql => SQL, context => ns_kv_context()}),
+    ok.
 
 t_function_clause_errors(_Config) ->
     %% upper/1 rejects a missing column itself, so the SQL runtime
