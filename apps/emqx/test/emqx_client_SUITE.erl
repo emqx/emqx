@@ -78,6 +78,7 @@ groups() ->
             t_v5_receive_maximum_in_connack,
             t_v5_receive_maximum_clamped_min,
             t_v5_receive_maximum_clamped_max,
+            t_chan_info_structure,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client
         ]},
@@ -455,6 +456,62 @@ assert_receive_maximum(MaxAwaitingRel, ServerReceiveMaximum, Config) ->
     {ok, C} = emqtt:start_link(v5_conn_props(ClientReceiveMaximum, Config)),
     {ok, Props} = emqtt:connect(C),
     ?assertMatch(#{'Receive-Maximum' := ServerReceiveMaximum}, Props),
+    ok = emqtt:disconnect(C).
+
+-doc """
+The channel info table holds exactly the attributes its readers use.
+
+The client connects with CONNECT properties, a will message and a subscription. None of
+the three reaches the table: they grow with client input and nothing reads them there.
+""".
+t_chan_info_structure(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"TopicA">>,
+    {ok, C} = emqtt:start_link([
+        {clientid, ClientId},
+        {properties, #{'User-Property' => [{<<"k">>, <<"v">>}]}},
+        {will_topic, <<"will">>},
+        {will_payload, <<"bye">>}
+        | Config
+    ]),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
+    ?WAIT(
+        ?assertEqual(
+            1, proplists:get_value(subscriptions_cnt, emqx_cm:get_chan_stats(ClientId))
+        ),
+        2
+    ),
+    #{conninfo := ConnInfo, clientinfo := ClientInfo, session := SessionInfo} =
+        Info = emqx_cm:get_chan_info(ClientId),
+    ?assertEqual(
+        [clientinfo, conn_state, conninfo, session, sockinfo],
+        lists:sort(maps:keys(Info))
+    ),
+    ?assertEqual(
+        [
+            clean_start,
+            clientid,
+            conn_mod,
+            connected_at,
+            expiry_interval,
+            keepalive,
+            peername,
+            proto_name,
+            proto_ver,
+            receive_maximum,
+            sock,
+            sockname,
+            socktype,
+            username
+        ],
+        lists:sort(maps:keys(ConnInfo))
+    ),
+    ?assertEqual([created_at, impl, is_persistent], lists:sort(maps:keys(SessionInfo))),
+    ?assertMatch(#{clientid := ClientId, proto_ver := ?MQTT_PROTO_V5}, ConnInfo),
+    ?assertMatch(#{clientid := ClientId, zone := default}, ClientInfo),
+    ?assertMatch(#{impl := emqx_session_mem, is_persistent := false}, SessionInfo),
+    ?assertMatch(#{conn_state := connected}, Info),
     ok = emqtt:disconnect(C).
 
 %%--------------------------------------------------------------------

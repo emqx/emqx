@@ -2108,9 +2108,10 @@ t_quic_takeover_tls(Config) ->
         _Interval0 = 100,
         _NAttempts0 = 30,
         begin
+            #{<<"topic/takeover">> := _} = channel_subscriptions(ClientId),
             CI = emqx_cm:get_chan_info(ClientId),
             #{
-                session := S = #{subscriptions := #{<<"topic/takeover">> := _}},
+                session := S,
                 conninfo := #{connected_at := CA},
                 sockinfo := #{socktype := ssl}
             } = CI,
@@ -2216,10 +2217,11 @@ t_quic_takeover_tls_0rtt(Config) ->
     {Session3, QuicConnectedAT2, ChanQuic2} = retry_get_chan_info(ClientId, quic),
     ?assertEqual(1, proplists:get_value(session_present, emqtt:info(C1))),
     ?assert(ChanQuic2 =/= ChanQuic),
-    ?assert(maps:without([subscriptions], Session3) == maps:without([subscriptions], Session)),
+    ?assertEqual(Session, Session3),
     %% THEN (a): subscriptions are updated and takenover
     ?assertEqual(
-        [<<"topic/takeover">>, <<"topic/takeover2">>], maps:keys(maps:get(subscriptions, Session3))
+        [<<"topic/takeover">>, <<"topic/takeover2">>],
+        lists:sort(maps:keys(channel_subscriptions(ClientId)))
     ),
     ?assert(QuicConnectedAT2 > QuicConnectedAT),
     %% THEN: connection is resumed and session is takenover.
@@ -2287,6 +2289,14 @@ t_tls_takeover_quic(Config) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+-doc """
+Read the subscriptions of the client's session from the channel process.
+
+The `emqx_channel_info` table holds the session attributes without the subscriptions map.
+""".
+channel_subscriptions(ClientId) ->
+    emqx_cth_broker:connection_info({channel, {session, subscriptions}}, ClientId).
 
 -doc """
 Fetch channel info of ClientId, retrying until the registered channel has

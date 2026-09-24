@@ -184,10 +184,25 @@
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
 
-%% @doc Get infos of the channel.
+-doc """
+Channel attributes, as cached in the `emqx_channel_info` ETS table.
+
+The map omits `will_msg`, `conninfo.conn_props` and `session.subscriptions`. They are the
+largest attributes, they grow with client input, and no reader of the table uses them.
+Read them with `info/2`: `info(will_msg, Channel)`, `info(conninfo, Channel)` and
+`info({session, subscriptions}, Channel)`.
+""".
 -spec info(channel()) -> emqx_types:infos().
-info(Channel) ->
-    maps:from_list(info(?INFO_KEYS, Channel)).
+info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
+    #{
+        conninfo => maps:remove(conn_props, ConnInfo),
+        conn_state => info(conn_state, Channel),
+        clientinfo => info(clientinfo, Channel),
+        session => emqx_utils:maybe_apply(fun chan_info_session/1, Session)
+    }.
+
+chan_info_session(Session) ->
+    maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session)).
 
 -spec info(list(atom()) | atom() | tuple(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->

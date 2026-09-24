@@ -3262,10 +3262,13 @@ t_connected_clean_session_false_same_source_tuple_reused_preserves_session(_) ->
         ?retry(
             50,
             20,
-            #{
-                conn_state := disconnected,
-                session := #{subscriptions := #{TopicName := _}}
-            } = emqx_gateway_cm:get_chan_info(mqttsn, ClientId1)
+            begin
+                #{conn_state := disconnected} =
+                    emqx_gateway_cm:get_chan_info(mqttsn, ClientId1),
+                {ok, Subscriptions} =
+                    emqx_gateway_cm:call(mqttsn, ClientId1, subscriptions),
+                {TopicName, _} = lists:keyfind(TopicName, 1, Subscriptions)
+            end
         ),
         ?assertNot(received_connection_closed(ClientId1)),
         emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
@@ -3340,10 +3343,13 @@ t_awake_same_source_tuple_reused_by_other_clientid(_) ->
         ?retry(
             50,
             20,
-            #{
-                conn_state := disconnected,
-                session := #{subscriptions := #{TopicName := _}}
-            } = emqx_gateway_cm:get_chan_info(mqttsn, ClientId1)
+            begin
+                #{conn_state := disconnected} =
+                    emqx_gateway_cm:get_chan_info(mqttsn, ClientId1),
+                {ok, Subscriptions} =
+                    emqx_gateway_cm:call(mqttsn, ClientId1, subscriptions),
+                {TopicName, _} = lists:keyfind(TopicName, 1, Subscriptions)
+            end
         ),
         ?assertNot(received_connection_closed(ClientId1)),
         emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload2)),

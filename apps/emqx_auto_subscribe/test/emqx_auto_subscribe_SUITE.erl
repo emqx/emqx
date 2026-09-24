@@ -417,8 +417,8 @@ t_get_basic_usage_info(_Config) ->
     ok.
 
 client_subscriptions(ClientId) ->
-    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
-    #{session := #{subscriptions := Subscriptions}} = emqx_connection:info(ChannelPid),
+    Subscriptions =
+        emqx_cth_broker:connection_info({channel, {session, subscriptions}}, ClientId),
     maps:keys(Subscriptions).
 
 check_subs(Count) ->
