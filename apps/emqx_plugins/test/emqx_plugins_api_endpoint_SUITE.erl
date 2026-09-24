@@ -285,8 +285,9 @@ mock_plugin_ok() ->
 %% Create an API key holding exactly `Scopes', run `Fun' with its
 %% basic-auth header, then delete the key.
 with_api_key(Name, Scopes, Fun) ->
-    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
-    AdminAuth = {"Authorization", "Bearer " ++ binary_to_list(Token)},
+    %% The dashboard test config sets a non-default password, so sign in with
+    %% the configured default user rather than a literal password.
+    AdminAuth = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     Body = #{
         name => Name,
