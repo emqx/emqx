@@ -148,6 +148,75 @@ write_file(Path, Content) ->
     ok = filelib:ensure_dir(Path),
     file:write_file(Path, Content).
 
+package_operations_validate_names_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(fun(Dir) ->
+            InstallDir = filename:join(Dir, "plugins"),
+            ok = emqx_plugins:put_config_internal(install_dir, InstallDir),
+            Kept = filename:join(Dir, "kept-1"),
+            Files = [filename:join(Kept, "marker"), Kept ++ ".tar.gz", Kept ++ ".tar.gz.md5sum"],
+            lists:foreach(fun(F) -> ok = write_file(F, <<"original">>) end, Files),
+            Operations = [
+                fun emqx_plugins:ensure_installed/1,
+                fun(N) -> emqx_plugins:ensure_installed(N, fresh_install) end,
+                fun emqx_plugins:ensure_uninstalled/1,
+                fun emqx_plugins:purge/1,
+                fun emqx_plugins:safe_delete_package/1,
+                fun emqx_plugins:purge_other_versions/1,
+                fun(N) -> emqx_plugins:install_package(N, <<"replacement">>) end,
+                fun(N) -> emqx_plugins:write_package(N, <<"replacement">>) end,
+                fun emqx_plugins:delete_package/1,
+                fun emqx_plugins:backup_package/1,
+                fun(N) -> emqx_plugins:restore_package(N, #{tar => none, md5sum => none}) end,
+                fun emqx_plugins_fs:prepare_replacement/1,
+                fun emqx_plugins_fs:purge_installed/1,
+                fun emqx_plugins_fs:delete_tar/1,
+                fun emqx_plugins_fs:get_tar/1,
+                fun emqx_plugins_fs:ensure_config_dir/1
+            ],
+            Names = [
+                "../kept-1", filename:absname(Kept), "valid-1/../../kept-1", "..-1", ".-1", "-1"
+            ],
+            lists:foreach(
+                fun(Name) ->
+                    lists:foreach(
+                        fun(N) ->
+                            lists:foreach(
+                                fun(Op) ->
+                                    ?assertMatch(
+                                        {error, #{msg := "bad_plugin_package_name"}}, Op(N)
+                                    ),
+                                    lists:foreach(
+                                        fun(F) ->
+                                            ?assertEqual({ok, <<"original">>}, file:read_file(F))
+                                        end,
+                                        Files
+                                    )
+                                end,
+                                Operations
+                            )
+                        end,
+                        [Name, list_to_binary(Name)]
+                    )
+                end,
+                Names
+            ),
+            %% A name which is not a string at all is refused as well, and an
+            %% improper list must not make the operation crash.
+            ?assertMatch(
+                {error, #{msg := "bad_plugin_package_name"}}, emqx_plugins:purge(123)
+            ),
+            ?assertMatch(
+                {error, #{msg := "bad_plugin_package_name"}},
+                emqx_plugins:purge([$p, $-, $1 | bad_tail])
+            ),
+            ?assertEqual(false, filelib:is_dir(InstallDir))
+        end)
+    after
+        unmeck_emqx()
+    end.
+
 %% delete package should mostly work and return ok
 %% but it may fail in case the path is a directory
 %% or if the file is read-only
