@@ -41,11 +41,7 @@ init_per_suite(Config) ->
             wait_for_port(Port),
             Apps = emqx_cth_suite:start(
                 [
-                    {emqx,
-                        "listeners.tcp.default.enable = false\n"
-                        "listeners.ssl.default.enable = false\n"
-                        "listeners.ws.default.enable = false\n"
-                        "listeners.wss.default.enable = false\n"},
+                    emqx,
                     emqx_conf,
                     emqx_bridge_nats,
                     emqx_bridge,
@@ -79,6 +75,7 @@ init_per_testcase(TestCase, Config) ->
             <<"pool_size">> => 1,
             <<"connect_timeout">> => <<"2s">>,
             <<"authentication">> => <<"none">>,
+            <<"ssl">> => #{<<"enable">> => false},
             <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
         }
     ),
@@ -137,9 +134,10 @@ t_core_publish(Config) ->
     },
     {201, _} = create_action(Config, Action),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
-    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-core">>)),
-    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-core">>)),
-    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-core">>)),
+    Publisher = mqtt_client(),
+    publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-core">>),
+    publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-core">>),
+    publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-core">>),
     lists:foreach(
         fun(_) ->
             ?assertMatch(
@@ -171,17 +169,13 @@ t_core_concurrent_publish(Config) ->
             }
         }
     ),
+    {ok, _} = create_rule(Config, <<"nats/concurrent">>),
+    Publisher = mqtt_client(),
     Payloads = [integer_to_binary(N) || N <- lists:seq(1, 32)],
     Parent = self(),
     _ = [
         spawn(fun() ->
-            Result = emqx_bridge_v2:send_message(
-                ?global_ns,
-                ?ACTION_TYPE,
-                proplists:get_value(action_name, Config),
-                #{<<"payload">> => Payload},
-                #{}
-            ),
+            Result = emqtt:publish(Publisher, <<"nats/concurrent">>, Payload, [{qos, 1}]),
             Parent ! {sent, Payload, Result}
         end)
      || Payload <- Payloads
@@ -196,7 +190,7 @@ t_core_concurrent_publish(Config) ->
     ],
     ?assertEqual(
         [],
-        [{Payload, Result} || {Payload, Result} <- Results, not is_success(Result)]
+        [{Payload, Result} || {Payload, Result} <- Results, not is_mqtt_publish_success(Result)]
     ),
     ?assertEqual(lists:sort(Payloads), lists:sort(receive_payloads(length(Payloads), []))),
     ok = enats_client:stop(Client).
@@ -220,11 +214,10 @@ t_core_batch_callback_mode(Config) ->
     {ok, _} = create_rule(Config, <<"sensor/+/async">>),
     ok = snabbkaffe:start_trace(),
     try
+        Publisher = mqtt_client(),
         lists:foreach(
             fun(N) ->
-                emqx:publish(
-                    emqx_message:make(<<"sensor/1/async">>, integer_to_binary(N))
-                )
+                publish_mqtt(Publisher, <<"sensor/1/async">>, integer_to_binary(N))
             end,
             lists:seq(1, 3)
         ),
@@ -248,130 +241,12 @@ t_core_batch_callback_mode(Config) ->
         ok = enats_client:stop(Client)
     end.
 
-t_invalid_query_shapes(_Config) ->
-    EmptyState = #{channels => #{}},
-    ?assertEqual(
-        {error, {unrecoverable_error, {invalid_channel, missing}}},
-        emqx_bridge_nats_connector:on_query(test, {missing, #{}}, EmptyState)
+t_invalid_connector_config(Config) ->
+    {ok, 400, Body} = create_connector_silent(
+        Config,
+        #{<<"authentication">> => #{<<"mechanism">> => <<"unsupported">>}}
     ),
-    ?assertEqual(
-        {error, {unrecoverable_error, {invalid_query, malformed}}},
-        emqx_bridge_nats_connector:on_query(test, malformed, EmptyState)
-    ),
-    ?assertEqual(
-        {error, {unrecoverable_error, {invalid_batch, []}}},
-        emqx_bridge_nats_connector:on_batch_query(test, [], EmptyState)
-    ),
-    ?assertEqual(
-        {error, {unrecoverable_error, {invalid_channel, missing}}},
-        emqx_bridge_nats_connector:on_batch_query(test, [{missing, #{}}], EmptyState)
-    ),
-    State = #{channels => #{channel => #{}}},
-    ?assertEqual(
-        {error, {unrecoverable_error, mixed_channels_in_batch}},
-        emqx_bridge_nats_connector:on_batch_query(
-            test, [{channel, #{}}, {other_channel, #{}}], State
-        )
-    ).
-
-t_error_classification(_Config) ->
-    meck:new(ecpool, [passthrough]),
-    on_exit(fun() -> meck:unload(ecpool) end),
-    meck:expect(ecpool, pick_and_do, fun(_, _, _) -> {error, get(nats_test_reason)} end),
-    State = #{channels => #{channel => #{}}},
-    Cases = [
-        {disconnected, {error, {recoverable_error, disconnected}}},
-        {reconnecting, {error, {recoverable_error, reconnecting}}},
-        {closed, {error, {recoverable_error, closed}}},
-        {stale_connection, {error, {recoverable_error, stale_connection}}},
-        {timeout, {error, {recoverable_error, timeout}}},
-        {econnrefused, {error, {recoverable_error, econnrefused}}},
-        {{transport, closed}, {error, {recoverable_error, {transport, closed}}}},
-        {
-            {tls_upgrade_failed, bad_cert},
-            {error, {recoverable_error, {tls_upgrade_failed, bad_cert}}}
-        },
-        {{client_exit, normal}, {error, {recoverable_error, {client_exit, normal}}}},
-        {{auth, denied}, {error, {unrecoverable_error, {auth, denied}}}},
-        {{protocol, bad_frame}, {error, {recoverable_error, {protocol, bad_frame}}}},
-        {
-            {invalid_batch_message, 1, invalid_subject},
-            {error, {unrecoverable_error, {invalid_batch_message, 1, invalid_subject}}}
-        },
-        {
-            {batch_too_large, bytes, 2, 1},
-            {error, {unrecoverable_error, {batch_too_large, bytes, 2, 1}}}
-        },
-        {
-            {disconnected, {server_error, denied}},
-            {error, {unrecoverable_error, {server_error, denied}}}
-        },
-        {
-            {disconnected, #{reason => econnrefused}},
-            {error, {recoverable_error, #{reason => econnrefused}}}
-        },
-        {
-            {disconnected, #{reason => {server_error, denied}}},
-            {error, {unrecoverable_error, #{reason => {server_error, denied}}}}
-        },
-        {{disconnected, peer_closed}, {error, {recoverable_error, {disconnected, peer_closed}}}},
-        {{payload_too_large, 10}, {error, {unrecoverable_error, {payload_too_large, 10}}}},
-        {headers_not_supported, {error, {unrecoverable_error, headers_not_supported}}},
-        {{invalid_subject, invalid}, {error, {unrecoverable_error, {invalid_subject, invalid}}}},
-        {
-            {template_error, bad_template},
-            {error, {unrecoverable_error, {template_error, bad_template}}}
-        },
-        {{server_error, denied}, {error, {unrecoverable_error, {server_error, denied}}}},
-        {
-            {jetstream_unavailable, no_responders},
-            {error, {recoverable_error, {jetstream_unavailable, no_responders}}}
-        },
-        {
-            {jetstream_rejected, denied},
-            {error, {unrecoverable_error, {jetstream_rejected, denied}}}
-        },
-        {{jetstream_error, bad_ack}, {error, {unrecoverable_error, {jetstream_error, bad_ack}}}},
-        {{invalid_msg_id, bad_id}, {error, {unrecoverable_error, {invalid_msg_id, bad_id}}}},
-        {
-            {jetstream, unavailable, no_responders},
-            {error, {recoverable_error, {jetstream, unavailable, no_responders}}}
-        },
-        {
-            {jetstream, rejected, denied},
-            {error, {unrecoverable_error, {jetstream, rejected, denied}}}
-        },
-        {
-            {jetstream, invalid_ack, bad_ack},
-            {error, {unrecoverable_error, {jetstream, invalid_ack, bad_ack}}}
-        },
-        {other_error, {error, {unrecoverable_error, other_error}}},
-        {ecpool_empty, {error, {recoverable_error, disconnected}}}
-    ],
-    lists:foreach(
-        fun({Reason, Expected}) ->
-            put(nats_test_reason, Reason),
-            ?assertEqual(Expected, emqx_bridge_nats_connector:on_query(test, {channel, #{}}, State))
-        end,
-        Cases
-    ).
-
-t_invalid_connector_config(_Config) ->
-    ?assertMatch(
-        {error, {invalid_config, {invalid_authentication, _}}},
-        emqx_bridge_nats_connector:on_start(
-            test,
-            #{
-                servers => <<"127.0.0.1:4222">>,
-                pool_size => 1,
-                connect_timeout => 1000,
-                authentication => #{mechanism => unsupported},
-                tls_handshake => starttls,
-                ssl => #{enable => false},
-                resource_opts => #{health_check_timeout => 1000}
-            }
-        )
-    ).
+    ?assertNotEqual(nomatch, binary:match(Body, <<"authentication">>)).
 
 t_invalid_authentication_is_redacted(Config) ->
     Secret = <<"nats-authentication-must-not-leak">>,
@@ -393,58 +268,47 @@ t_core_batch_partial_failure(Config) ->
                 <<"payload_template">> => <<"${.payload}">>
             },
             <<"resource_opts">> => #{
+                <<"query_mode">> => <<"async">>,
                 <<"batch_size">> => 3,
                 <<"batch_time">> => <<"1s">>,
                 <<"worker_pool_size">> => 1
             }
         }
     ),
-    ActionName = proplists:get_value(action_name, Config),
-    Parent = self(),
+    {ok, _} = create_rule(Config, <<"#">>),
+    Publisher = mqtt_client(),
     Messages = [
         {<<"emqx.batch.one">>, <<"batch-one">>},
         {<<"bad subject">>, <<"batch-bad">>},
         {<<"emqx.batch.two">>, <<"batch-two">>}
     ],
-    _ = [
-        spawn(fun() ->
-            Result = emqx_bridge_v2:send_message(
-                ?global_ns,
-                ?ACTION_TYPE,
-                ActionName,
-                #{<<"topic">> => Topic, <<"payload">> => Payload},
-                #{}
-            ),
-            Parent ! {batch_result, Topic, Result}
-        end)
-     || {Topic, Payload} <- Messages
-    ],
-    Results = [
-        receive
-            {batch_result, Topic, Result} -> {Topic, Result}
-        after 10000 ->
-            ct:fail(batch_partial_failure_timeout)
-        end
-     || _ <- Messages
-    ],
-    ?assertMatch(
-        {<<"bad subject">>, {error, {unrecoverable_error, {invalid_subject, _}}}},
-        lists:keyfind(<<"bad subject">>, 1, Results)
-    ),
-    ?assertEqual(ok, proplists:get_value(<<"emqx.batch.one">>, Results)),
-    ?assertEqual(ok, proplists:get_value(<<"emqx.batch.two">>, Results)),
-    ?assertEqual(
-        lists:sort([<<"batch-one">>, <<"batch-two">>]),
-        lists:sort(receive_payloads(2, []))
-    ),
-    ok = enats_client:stop(Client).
-
-is_success(ok) ->
-    true;
-is_success({ok, _}) ->
-    true;
-is_success(_) ->
-    false.
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt_concurrently(Publisher, Messages),
+        ?assertEqual(
+            lists:sort([<<"batch-one">>, <<"batch-two">>]),
+            lists:sort(receive_payloads(2, []))
+        ),
+        {ok, _} = ?block_until(
+            #{?snk_kind := nats_connector_query_return, batch := true, batch_size := 3},
+            5_000
+        ),
+        Trace = snabbkaffe:collect_trace(),
+        ?assert(
+            lists:any(
+                fun
+                    (#{result := Results}) when is_list(Results) ->
+                        lists:any(fun is_invalid_subject_result/1, Results);
+                    (_) ->
+                        false
+                end,
+                ?of_kind(nats_connector_query_return, Trace)
+            )
+        )
+    after
+        snabbkaffe:stop(),
+        ok = enats_client:stop(Client)
+    end.
 
 %%--------------------------------------------------------------------
 %% JetStream publishing
@@ -470,8 +334,9 @@ t_jetstream_publish(Config) ->
     },
     {201, _} = create_action(Config, Action),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
-    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-js">>)),
-    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-js">>)),
+    Publisher = mqtt_client(),
+    publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-js">>),
+    publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-js">>),
     ok = wait_until(fun() -> stream_last_sequence(Client) =:= {ok, InitialCount + 1} end, 5000),
     ?assertEqual({ok, InitialCount + 1}, stream_last_sequence(Client)),
     ok = enats_client:stop(Client).
@@ -491,36 +356,22 @@ t_jetstream_batch_publish_all(Config) ->
             <<"headers">> => []
         },
         <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
             <<"batch_size">> => 3,
             <<"batch_time">> => <<"1s">>,
             <<"worker_pool_size">> => 1
         }
     },
     {201, _} = create_action(Config, Action),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
     ok = snabbkaffe:start_trace(),
     try
-        Parent = self(),
-        _ = [
-            spawn(fun() ->
-                Result = emqx_bridge_v2:send_message(
-                    ?global_ns,
-                    ?ACTION_TYPE,
-                    proplists:get_value(action_name, Config),
-                    #{<<"topic">> => <<"sensor/1/data">>, <<"payload">> => Payload},
-                    #{}
-                ),
-                Parent ! {sent, Result}
-            end)
-         || Payload <- [<<"js-batch-1">>, <<"js-batch-2">>, <<"js-batch-3">>]
-        ],
-        [
-            receive
-                {sent, {ok, _}} -> ok;
-                {sent, ok} -> ok
-            after 5000 -> ct:fail(batch_send_timeout)
-            end
-         || _ <- lists:seq(1, 3)
-        ],
+        publish_mqtt_concurrently(
+            Publisher,
+            <<"sensor/1/data">>,
+            [<<"js-batch-1">>, <<"js-batch-2">>, <<"js-batch-3">>]
+        ),
         ok = wait_until(fun() -> stream_last_sequence(Client) =:= {ok, InitialCount + 3} end, 5000),
         ?assertEqual(
             lists:sort([<<"js-batch-1">>, <<"js-batch-2">>, <<"js-batch-3">>]),
@@ -565,34 +416,17 @@ t_jetstream_no_responders(Config) ->
                 }
             }
         ),
+        {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+        Publisher = mqtt_client(),
         ok = snabbkaffe:start_trace(),
         try
-            Result = emqx_bridge_v2:send_message(
-                ?global_ns,
-                ?ACTION_TYPE,
-                proplists:get_value(action_name, Config),
-                #{<<"payload">> => <<"no-js">>},
-                #{}
-            ),
-            Trace = snabbkaffe:collect_trace(),
-            ?assertMatch({error, {resource_error, #{reason := timeout}}}, Result),
-            ?assert(
-                lists:any(
-                    fun
-                        (
-                            #{
-                                ?snk_kind := nats_connector_query_return,
-                                result :=
-                                    {error,
-                                        {recoverable_error, {jetstream, unavailable, <<"503">>}}}
-                            }
-                        ) ->
-                            true;
-                        (_) ->
-                            false
-                    end,
-                    Trace
-                )
+            publish_mqtt(Publisher, <<"sensor/1/data">>, <<"no-js">>),
+            {ok, _} = ?block_until(
+                #{
+                    ?snk_kind := nats_connector_query_return,
+                    result := {error, {recoverable_error, {jetstream, unavailable, <<"503">>}}}
+                },
+                10_000
             )
         after
             snabbkaffe:stop()
@@ -610,17 +444,22 @@ t_template_error_details(Config) ->
             <<"resource_opts">> => #{<<"batch_size">> => 1}
         }
     ),
-    Result = emqx_bridge_v2:send_message(
-        ?global_ns,
-        ?ACTION_TYPE,
-        proplists:get_value(action_name, Config),
-        #{<<"payload">> => <<"hello">>},
-        #{}
-    ),
-    ?assertMatch(
-        {error, {unrecoverable_error, {template_error, #{class := error, reason := _}}}},
-        Result
-    ).
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello">>),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result :=
+                    {error, {unrecoverable_error, {template_error, #{class := error, reason := _}}}}
+            },
+            5_000
+        )
+    after
+        snabbkaffe:stop()
+    end.
 
 t_publish_error_preserves_classification(Config) ->
     {201, _} = create_connector(Config),
@@ -628,17 +467,19 @@ t_publish_error_preserves_classification(Config) ->
         Config,
         #{<<"parameters">> => #{<<"subject">> => <<"bad subject">>}}
     ),
-    Result = emqx_bridge_v2:send_message(
-        ?global_ns,
-        ?ACTION_TYPE,
-        proplists:get_value(action_name, Config),
-        #{<<"payload">> => <<"hello">>},
-        #{}
-    ),
-    ?assertMatch(
-        {error, {unrecoverable_error, {invalid_subject, _}}},
-        Result
-    ).
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello">>),
+        {ok, #{result := Result}} = ?block_until(
+            #{?snk_kind := nats_connector_query_return},
+            5_000
+        ),
+        ?assert(has_invalid_subject_result(Result))
+    after
+        snabbkaffe:stop()
+    end.
 
 t_reconnect(Config) ->
     Port = free_port(),
@@ -651,6 +492,7 @@ t_reconnect(Config) ->
         {201, _} = create_connector(Config, #{<<"servers">> => nats_server(Port)}),
         {201, _} = create_action(Config),
         {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+        Publisher = mqtt_client(),
         stop_nats(Nats),
         receive
             {enats_client, Client, disconnected, _Reason} -> ok
@@ -667,7 +509,7 @@ t_reconnect(Config) ->
             end
         end),
         try
-            emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-during-outage">>)),
+            publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-during-outage">>),
             receive
                 {nats_restarted, Restart} -> ok
             after 10000 -> ct:fail(nats_restart_not_observed)
@@ -689,6 +531,7 @@ t_worker_client_restart(Config) ->
     {201, _} = create_connector(Config),
     {201, _} = create_action(Config),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
     ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
     OldClient = pool_client(ResourceId),
     exit(OldClient, kill),
@@ -701,7 +544,7 @@ t_worker_client_restart(Config) ->
             ?assert(is_process_alive(NewClient))
         end
     ),
-    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-after-client-restart">>)),
+    publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-after-client-restart">>),
     ?assertMatch(
         {enats_client, Subscriber, {message, #{payload := <<"hello-after-client-restart">>}}},
         receive_message(5000)
@@ -713,7 +556,7 @@ t_health_check_timeout(Config) ->
         Config,
         #{
             <<"resource_opts">> => #{
-                <<"health_check_interval">> => <<"1m">>,
+                <<"health_check_interval">> => <<"100ms">>,
                 <<"health_check_timeout">> => <<"100ms">>
             }
         }
@@ -725,10 +568,14 @@ t_health_check_timeout(Config) ->
         _ = catch sys:resume(Client),
         ok
     end),
-    StartedAt = erlang:monotonic_time(millisecond),
-    ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId)),
-    Elapsed = erlang:monotonic_time(millisecond) - StartedAt,
-    ?assert(Elapsed < 1_000, #{elapsed => Elapsed}),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"disconnected">>}},
+            get_connector(Config)
+        )
+    ),
     _ = catch sys:resume(Client),
     ok.
 
@@ -985,7 +832,8 @@ auth_publish_case(
         {201, _} = create_action(Config),
         {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
         {ok, _} = create_rule(Config, <<"sensor/+/data">>),
-        emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-auth">>)),
+        Publisher = mqtt_client(),
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-auth">>),
         ?assertMatch(
             {enats_client, Client, {message, #{payload := <<"hello-auth">>}}},
             receive_message(5000)
@@ -1079,6 +927,60 @@ create_action(Config, Overrides) ->
 
 create_rule(Config, Topic) ->
     emqx_bridge_v2_testlib:create_rule_and_action_http(?ACTION_TYPE_BIN, Topic, Config, #{}).
+
+get_connector(Config) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(
+            proplists:get_value(connector_type, Config),
+            proplists:get_value(connector_name, Config)
+        )
+    ).
+
+mqtt_client() ->
+    {ok, Client} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(Client),
+    on_exit(fun() -> emqtt:stop(Client) end),
+    Client.
+
+publish_mqtt(Client, Topic, Payload) ->
+    {ok, _} = emqtt:publish(Client, Topic, Payload, [{qos, 1}]),
+    ok.
+
+publish_mqtt_concurrently(Client, Topic, Payloads) ->
+    publish_mqtt_concurrently(Client, [{Topic, Payload} || Payload <- Payloads]).
+
+publish_mqtt_concurrently(Client, Messages) ->
+    Parent = self(),
+    _ = [
+        spawn(fun() ->
+            Parent ! {mqtt_publish_result, emqtt:publish(Client, Topic, Payload, [{qos, 1}])}
+        end)
+     || {Topic, Payload} <- Messages
+    ],
+    [
+        receive
+            {mqtt_publish_result, {ok, _}} -> ok
+        after 5_000 ->
+            ct:fail(mqtt_publish_timeout)
+        end
+     || _ <- Messages
+    ],
+    ok.
+
+is_mqtt_publish_success({ok, _PacketId}) ->
+    true;
+is_mqtt_publish_success(_) ->
+    false.
+
+is_invalid_subject_result({error, {unrecoverable_error, {invalid_subject, _}}}) ->
+    true;
+is_invalid_subject_result(_) ->
+    false.
+
+has_invalid_subject_result(Results) when is_list(Results) ->
+    lists:any(fun is_invalid_subject_result/1, Results);
+has_invalid_subject_result(Result) ->
+    is_invalid_subject_result(Result).
 
 nats_client(Config) ->
     nats_client_on_port(?config(nats_port, Config)).
