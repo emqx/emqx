@@ -110,7 +110,7 @@ jobs:
           DATALAYERS_TAG: "v2.3.21"
           TDENGINE_TAG: "3.0.2.4"
           OPENTS_TAG: "9aa7f88"
-          MINIO_TAG: "RELEASE.2023-03-20T20-16-18Z"
+          MINIO_TAG: "RELEASE.2026-09-16T00-00-00Z"
           SUITEGROUP: ${{ matrix.suitegroup }}
           ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-sg${{ matrix.suitegroup }}

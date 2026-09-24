@@ -1,7 +1,7 @@
 services:
   minio:
     hostname: minio
-    image: quay.io/minio/minio:${MINIO_TAG}
+    image: docker.io/pgsty/silo:${MINIO_TAG}
     command: server --address ":9000" --console-address ":9001" /minio-data
     environment:
       MINIO_DOMAIN: "minio.net"

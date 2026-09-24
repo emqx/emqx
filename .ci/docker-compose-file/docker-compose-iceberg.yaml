@@ -98,7 +98,7 @@ services:
       - CATALOG_S3_ENDPOINT=http://minio.net:9000
 
   minio:
-    image: quay.io/minio/minio:${MINIO_TAG}
+    image: docker.io/pgsty/silo:${MINIO_TAG}
     container_name: minio
     environment:
       - MINIO_ROOT_USER=admin
@@ -123,7 +123,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    image: quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z
+    image: docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z
     container_name: minio-warehouse-init
     networks:
       emqx_bridge:
@@ -134,7 +134,7 @@ services:
     restart: no
     entrypoint: >
       /bin/sh -c "
-      until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+      until (/usr/bin/mc alias set minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
       /usr/bin/mc rm -r --force minio/warehouse;
       /usr/bin/mc mb minio/warehouse;
       /usr/bin/mc anonymous set public minio/warehouse;
