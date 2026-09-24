@@ -356,7 +356,7 @@ without_static_credentials(TCConfig) ->
 
 %% Emulates credentials obtained from the ECS task role or EC2 instance metadata.
 mock_metadata_credentials(Result) ->
-    ok = meck:new(erlcloud_aws, [passthrough, no_link]),
+    ok = meck:new(erlcloud_aws, [passthrough]),
     on_exit(fun() -> meck:unload(erlcloud_aws) end),
     ok = meck:expect(
         erlcloud_aws,
@@ -877,9 +877,9 @@ t_connector_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig
             emqx_common_test_helpers:with_mock(
                 erlcloud_kinesis,
                 list_streams,
-                fun(_, _, _) ->
+                fun(ExclusiveStartStreamName, Limit, AWSConfig) ->
                     timer:sleep(1_500),
-                    meck:passthrough([])
+                    meck:passthrough([ExclusiveStartStreamName, Limit, AWSConfig])
                 end,
                 fun() ->
                     {201, _} = create_connector_api(TCConfig, #{
@@ -1047,9 +1047,9 @@ t_action_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig) -
             emqx_common_test_helpers:with_mock(
                 erlcloud_kinesis,
                 describe_stream,
-                fun(StreamName, _Limit) ->
+                fun(StreamName, Limit, AWSConfig) ->
                     timer:sleep(1_500),
-                    meck:passthrough([StreamName])
+                    meck:passthrough([StreamName, Limit, AWSConfig])
                 end,
                 fun() ->
                     {201, _} = create_connector_api(TCConfig, #{}),
@@ -1126,7 +1126,7 @@ t_action_health_check_throttled(TCConfig) ->
     emqx_common_test_helpers:with_mock(
         erlcloud_kinesis,
         describe_stream,
-        fun(_StreamName, _Limit) ->
+        fun(_StreamName, _Limit, _AWSConfig) ->
             {error, {<<"LimitExceededException">>, <<"Rate exceeded for account 123456789012.">>}}
         end,
         fun() ->
@@ -1237,7 +1237,7 @@ t_static_credentials_provided_together(TCConfig) ->
 t_metadata_credentials(TCConfig0) ->
     TCConfig = without_static_credentials(TCConfig0),
     mock_metadata_credentials({ok, {"imds_key", "imds_secret", "imds_token"}}),
-    ok = meck:new(erlcloud_httpc, [passthrough, no_link]),
+    ok = meck:new(erlcloud_httpc, [passthrough]),
     on_exit(fun() -> meck:unload(erlcloud_httpc) end),
     ?assertMatch({204, _}, probe_connector_api(TCConfig, #{})),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_connector_api(TCConfig, #{})),

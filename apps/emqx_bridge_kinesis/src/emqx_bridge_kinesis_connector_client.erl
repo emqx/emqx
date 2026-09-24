@@ -11,7 +11,8 @@
 -behaviour(gen_server).
 
 -type state() :: #{
-    instance_id := resource_id()
+    instance_id := resource_id(),
+    aws_config := #aws_config{}
 }.
 -type record() :: {Data :: binary(), PartitionKey :: binary()}.
 
@@ -37,7 +38,7 @@
 ]).
 
 -ifdef(TEST).
--export([execute/2]).
+-export([execute/3]).
 -endif.
 
 %% The default timeout for Kinesis API calls is 10 seconds,
@@ -79,7 +80,10 @@ query(Pid, Records, StreamName) ->
 -spec check_credentials(emqx_bridge_kinesis_impl_producer:config_connector()) ->
     ok | {error, {failed_to_obtain_credentials, term()}}.
 check_credentials(Config) ->
-    ensure_credentials(new_aws_config(Config)).
+    maybe
+        {ok, _} ?= resolve_aws_config(new_aws_config(Config)),
+        ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -99,30 +103,29 @@ start_link(Options) ->
 init(#{instance_id := InstanceId} = Config) ->
     process_flag(trap_exit, true),
     State = #{
-        instance_id => InstanceId
+        instance_id => InstanceId,
+        aws_config => new_aws_config(Config)
     },
-    {ok, _} = erlcloud_aws:configure(new_aws_config(Config)),
     %% Leave checking the connection to health checks
     {ok, State}.
 
-handle_call({connection_status, StreamName}, _From, State) ->
+handle_call({connection_status, StreamName}, _From, #{aws_config := AWSConfig0} = State) ->
     Status =
         maybe
-            ok ?= ensure_credentials(aws_config()),
-            get_status(StreamName)
+            {ok, AWSConfig} ?= resolve_aws_config(AWSConfig0),
+            get_status(StreamName, AWSConfig)
         end,
     {reply, Status, State};
-handle_call(connection_status, _From, State) ->
-    AWSConfig = aws_config(),
+handle_call(connection_status, _From, #{aws_config := AWSConfig0} = State) ->
     Status =
         maybe
-            ok ?= ensure_credentials(AWSConfig),
+            {ok, AWSConfig} ?= resolve_aws_config(AWSConfig0),
             {ok, _ListStreamsResult} ?= erlcloud_kinesis:list_streams(<<".">>, 1, AWSConfig),
             {ok, ?status_connected}
         end,
     {reply, Status, State};
-handle_call({query, Records, StreamName}, _From, State) ->
-    Result = do_query(StreamName, Records),
+handle_call({query, Records, StreamName}, _From, #{aws_config := AWSConfig} = State) ->
+    Result = do_query(StreamName, Records, AWSConfig),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
@@ -172,21 +175,20 @@ static_credentials(_Config) ->
     {undefined, undefined}.
 
 %% Without static credentials, erlcloud obtains them from the ECS task role or EC2 instance
-%% metadata before each request, and caches them node-wide until shortly before they expire.
-%% Resolving them explicitly tells failures to obtain credentials apart from Kinesis API errors.
-ensure_credentials(AWSConfig) ->
+%% metadata and caches them node-wide until shortly before they expire.  The config kept in
+%% the state stays unresolved so that they get refreshed, and each request gets a resolved
+%% copy, which erlcloud then uses as is.  Resolving here rather than inside erlcloud tells
+%% failures to obtain credentials apart from Kinesis API errors.
+resolve_aws_config(AWSConfig) ->
     case erlcloud_aws:update_config(AWSConfig) of
-        {ok, _} ->
-            ok;
+        {ok, _ResolvedAWSConfig} = Ok ->
+            Ok;
         {error, Reason} ->
             {error, {failed_to_obtain_credentials, Reason}}
     end.
 
-aws_config() ->
-    erlcloud_aws:default_config().
-
-get_status(StreamName) ->
-    case erlcloud_kinesis:describe_stream(StreamName, 1) of
+get_status(StreamName, AWSConfig) ->
+    case erlcloud_kinesis:describe_stream(StreamName, 1, AWSConfig) of
         {ok, _} ->
             {ok, ?status_connected};
         {error, {<<"ResourceNotFoundException">>, _}} ->
@@ -195,15 +197,16 @@ get_status(StreamName) ->
             {error, Error}
     end.
 
--spec do_query(binary(), [record()]) ->
+-spec do_query(binary(), [record()], #aws_config{}) ->
     {ok, jsx:json_term() | binary()}
+    | {error, {recoverable_error, term()}}
     | {error, {unrecoverable_error, term()}}
     | {error, term()}.
-do_query(StreamName, Records) ->
-    case ensure_credentials(aws_config()) of
-        ok ->
+do_query(StreamName, Records, AWSConfig0) ->
+    case resolve_aws_config(AWSConfig0) of
+        {ok, AWSConfig} ->
             try
-                execute(put_record, {StreamName, Records})
+                execute(put_record, {StreamName, Records}, AWSConfig)
             catch
                 _Type:Reason ->
                     {error, {unrecoverable_error, {invalid_request, Reason}}}
@@ -212,15 +215,15 @@ do_query(StreamName, Records) ->
             {error, {recoverable_error, Reason}}
     end.
 
--spec execute(put_record, {binary(), [record()]}) ->
+-spec execute(put_record, {binary(), [record()]}, #aws_config{}) ->
     {ok, jsx:json_term() | binary()}
     | {error, term()}.
-execute(put_record, {StreamName, [{Data, PartitionKey}] = Record}) ->
-    Result = erlcloud_kinesis:put_record(StreamName, PartitionKey, Data),
+execute(put_record, {StreamName, [{Data, PartitionKey}] = Record}, AWSConfig) ->
+    Result = erlcloud_kinesis:put_record(StreamName, PartitionKey, Data, AWSConfig),
     ?tp(kinesis_put_record, #{records => Record, result => Result}),
     Result;
-execute(put_record, {StreamName, Items}) when is_list(Items) ->
-    Result = erlcloud_kinesis:put_records(StreamName, Items),
+execute(put_record, {StreamName, Items}, AWSConfig) when is_list(Items) ->
+    Result = erlcloud_kinesis:put_records(StreamName, Items, AWSConfig),
     ?tp(kinesis_put_record, #{records => Items, result => Result}),
     Result.
 
