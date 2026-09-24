@@ -358,7 +358,7 @@ declared_scopes(Module, Path, ScopeMap) when is_map(ScopeMap) ->
             ?SLOG(warning, #{
                 msg => "path_missing_from_scopes_map",
                 module => Module,
-                path => path_to_binary(Path)
+                path => Path
             }),
             error;
         Declared ->
@@ -387,7 +387,7 @@ normalize_declaration(Module, Path, Declared) ->
             ?SLOG(warning, #{
                 msg => "invalid_scope_declaration",
                 module => Module,
-                path => path_to_binary(Path),
+                path => Path,
                 declared => Declared
             }),
             error
@@ -405,7 +405,7 @@ operation_id(Module, Path) ->
             ?SLOG(warning, #{
                 msg => "path_has_no_operation_id",
                 module => Module,
-                path => path_to_binary(Path)
+                path => Path
             }),
             error
     catch
@@ -413,7 +413,7 @@ operation_id(Module, Path) ->
             ?SLOG(warning, #{
                 msg => "failed_to_resolve_operation_id",
                 module => Module,
-                path => path_to_binary(Path),
+                path => Path,
                 class => Class,
                 reason => Reason
             }),
@@ -434,18 +434,10 @@ insert_handler_scopes(Module, Path, Key, Scopes, Acc) ->
             ?SLOG(warning, #{
                 msg => "conflicting_scope_declaration",
                 module => Module,
-                path => path_to_binary(Path),
+                path => Path,
                 handler => Key,
                 declared => Scopes,
                 kept => Existing
             }),
             Acc
     end.
-
-path_to_binary(Path) when is_binary(Path) ->
-    ensure_leading_slash(Path);
-path_to_binary(Path) when is_list(Path) ->
-    ensure_leading_slash(iolist_to_binary(filename:join("/", Path))).
-
-ensure_leading_slash(<<"/", _/binary>> = Path) -> Path;
-ensure_leading_slash(Path) -> <<"/", Path/binary>>.
