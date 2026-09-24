@@ -35,7 +35,8 @@
 -type state() :: #{
     client_id := pulsar_client_id(),
     channels := map(),
-    client_opts := map()
+    client_opts := map(),
+    health_check_timeout := timeout()
 }.
 
 -type message_template_raw() :: #{
@@ -50,7 +51,8 @@
     authentication := _,
     bridge_name := atom(),
     servers := binary(),
-    ssl := _
+    ssl := _,
+    resource_opts := #{health_check_timeout := timeout(), atom() => term()}
 }.
 
 %% Allocatable resources
@@ -83,7 +85,11 @@ query_opts(_) ->
 
 -spec on_start(connector_resource_id(), config()) -> {ok, state()}.
 on_start(ConnResId, Config) ->
-    #{servers := Servers0, ssl := SSL} = Config,
+    #{
+        servers := Servers0,
+        ssl := SSL,
+        resource_opts := #{health_check_timeout := HCTimeout}
+    } = Config,
     Servers = format_servers(Servers0),
     ClientId = make_client_id(ConnResId),
     ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, ?pulsar_client_id, ClientId),
@@ -119,7 +125,13 @@ on_start(ConnResId, Config) ->
                 end,
             throw(Message)
     end,
-    {ok, #{channels => #{}, client_id => ClientId, client_opts => ClientOpts}}.
+    ConnState = #{
+        channels => #{},
+        client_id => ClientId,
+        client_opts => ClientOpts,
+        health_check_timeout => HCTimeout
+    },
+    {ok, ConnState}.
 
 on_add_channel(
     ConnResId,
@@ -192,22 +204,15 @@ on_stop(ConnResId, _State) ->
 %% Note: since Pulsar client has its own replayq that is not managed by
 %% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
 %% `emqx_resource_manager' will kill the Pulsar producers and messages might be lost.
--spec on_get_status(resource_id(), state()) -> connected | connecting.
+-spec on_get_status(resource_id(), state()) -> ?status_connected | {?status_connecting, any()}.
 on_get_status(_ConnResId, State = #{}) ->
-    #{client_id := ClientId} = State,
-    try pulsar_client_manager:get_status(ClientId, 5_000) of
-        true -> ?status_connected;
-        false -> ?status_connecting
-    catch
-        exit:{timeout, _} ->
-            ?status_connecting;
-        exit:{noproc, _} ->
-            ?status_connecting
-    end;
-on_get_status(_ConnResId, _State) ->
-    %% If a health check happens just after a concurrent request to
-    %% create the bridge is not quite finished, `State = undefined'.
-    ?status_connecting.
+    #{client_id := ClientId, health_check_timeout := HCTimeout} = State,
+    case pulsar_client_manager:get_status_details(ClientId, HCTimeout) of
+        ok ->
+            ?status_connected;
+        {error, Reason} ->
+            {?status_connecting, Reason}
+    end.
 
 on_get_channel_status(_ConnResId, ActionResId, #{channels := Channels}) ->
     case maps:find(ActionResId, Channels) of
