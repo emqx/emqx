@@ -20,6 +20,9 @@
 %% emqtt
 -export([handle_disconnect/4]).
 
+%% For unit tests, pins the classification the buffer worker consumes.
+-export([on_async_result/2]).
+
 -behaviour(emqx_resource).
 -export([
     callback_mode/0,
@@ -272,24 +275,66 @@ handle_ecpool_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
 handle_ecpool_result({error, ecpool_empty}) ->
     {error, {recoverable_error, disconnected}};
+handle_ecpool_result({error, no_such_pool}) ->
+    %% the pool is being (re)started by the resource manager
+    {error, {recoverable_error, no_such_pool}};
 handle_ecpool_result(Result) ->
     Result.
 
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
 
+%% `disconnected' on the pool level is mapped by `handle_ecpool_result/1'; this
+%% clause classifies the same reason, and the MQTT-level `{disconnected, RC,
+%% Props}', when it arrives from `emqtt' on the publish callback path.
+classify_error(disconnected = Reason) ->
+    {recoverable_error, Reason};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error(shutdown = Reason) ->
     {recoverable_error, Reason};
-classify_error(Reason) when
+classify_error(Reason) ->
+    case is_connection_error(Reason) of
+        true ->
+            {recoverable_error, Reason};
+        false ->
+            {unrecoverable_error, Reason}
+    end.
+
+%% Reasons that mean the connection to the remote broker is gone (or was never
+%% established).  The query may still be delivered once the broker is reachable
+%% again, so they must be retried instead of being dropped: a query whose error is
+%% unrecoverable is acknowledged by the buffer worker and counted as failed.
+%%
+%% This is a curated list of *connection-level* failures, not the whole
+%% `inet:posix()' type nor every retriable reason: configuration or resource
+%% errors (e.g. `eaddrinuse', `eaddrnotavail', `emsgsize', `eproto') and TLS
+%% handshake failures stay on the fail-fast side of `classify_error/1'.
+is_connection_error({tcp_closed, _}) ->
+    true;
+is_connection_error({tcp_error, _}) ->
+    true;
+is_connection_error({ssl_closed, _}) ->
+    true;
+is_connection_error({ssl_error, _}) ->
+    true;
+is_connection_error({quic_closed, _}) ->
+    true;
+is_connection_error({quic_error, _}) ->
+    true;
+is_connection_error(Reason) when
     Reason =:= closed;
-    Reason =:= tcp_closed;
-    Reason =:= ssl_closed;
     Reason =:= einval;
     Reason =:= enotconn;
+    Reason =:= epipe;
+    Reason =:= tcp_closed;
+    Reason =:= tcp_error;
+    Reason =:= ssl_closed;
+    Reason =:= ssl_error;
+    Reason =:= quic_closed;
+    Reason =:= quic_error;
     Reason =:= econnaborted;
     Reason =:= econnrefused;
     Reason =:= econnreset;
@@ -298,11 +343,13 @@ classify_error(Reason) when
     Reason =:= enetdown;
     Reason =:= enetreset;
     Reason =:= enetunreach;
-    Reason =:= etimedout
+    Reason =:= etimedout;
+    Reason =:= timeout;
+    Reason =:= nxdomain
 ->
-    {recoverable_error, Reason};
-classify_error(Reason) ->
-    {unrecoverable_error, Reason}.
+    true;
+is_connection_error(_) ->
+    false.
 
 %% copied from emqx_bridge_mqtt_connector
 on_get_status(ResourceId, #{pool_name := PoolName} = _State) ->

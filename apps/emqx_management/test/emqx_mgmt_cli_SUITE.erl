@@ -9,6 +9,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
+
+-define(CHURN_DUMP_KEY, {<<"test-churn-dump-15">>, undefined}).
 
 -define(ON(NODES, BODY),
     emqx_ds_test_helpers:on(NODES, fun() -> BODY end)
@@ -609,6 +612,70 @@ t_clients_dump_stats_with_sleep(_Config) ->
     %% Clean up
     ok = file:delete(TestFile),
     ok.
+
+-doc """
+A client connects while the dump sleeps between two batches. The dump
+continues from the key after the last written row, so it writes the new
+client and every client that was already in the table.
+""".
+t_clients_dump_stats_table_changes_during_sleep(init, Config) ->
+    Pids = [
+        start_link_client(<<"test-churn-dump-", (integer_to_binary(I))/binary>>)
+     || I <- lists:seq(1, 3)
+    ],
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    [{clients, Pids} | Config];
+t_clients_dump_stats_table_changes_during_sleep('end', Config) ->
+    meck:unload(emqx_ctl),
+    true = ets:delete(?CHAN_INFO_TAB, ?CHURN_DUMP_KEY),
+    lists:foreach(fun stop_client/1, ?config(clients, Config)),
+    ok.
+t_clients_dump_stats_table_changes_during_sleep(_Config) ->
+    Tester = self(),
+    %% The command prints a progress line right before it sleeps. On the
+    %% first one, insert a row whose key sorts between the first two
+    %% clients, as a client connecting during the sleep would.
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun(Fmt, Args) ->
+            Line = iolist_to_binary(io_lib:format(Fmt, Args)),
+            Tester ! {print, Line},
+            case Line of
+                <<"Progress: 1/", _/binary>> ->
+                    true = ets:insert(?CHAN_INFO_TAB, {?CHURN_DUMP_KEY, #{}, []});
+                _ ->
+                    ok
+            end,
+            meck:passthrough([Fmt, Args])
+        end
+    ),
+    TestFile = "/tmp/test_dump_stats_churn.csv",
+    _ = file:delete(TestFile),
+    ok = dump_client_stats(TestFile, 1, 10),
+    Printed = collect_printed([]),
+    ?assertEqual([], [L || <<"[error]", _/binary>> = L <- Printed]),
+    {ok, Content} = file:read_file(TestFile),
+    ClientIds = [
+        lists:nth(2, binary:split(Line, <<",">>, [global]))
+     || Line <- tl(binary:split(Content, <<"\n">>, [global, trim_all]))
+    ],
+    Expected = [
+        <<"test-churn-dump-1">>,
+        <<"test-churn-dump-15">>,
+        <<"test-churn-dump-2">>,
+        <<"test-churn-dump-3">>
+    ],
+    ?assertEqual([], Expected -- ClientIds, ClientIds),
+    ok = file:delete(TestFile),
+    ok.
+
+collect_printed(Acc) ->
+    receive
+        {print, Line} -> collect_printed([Line | Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
 
 %% Test error handling for invalid batch size
 t_clients_dump_stats_invalid_args(init, Config) ->

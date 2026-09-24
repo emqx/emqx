@@ -708,3 +708,28 @@ t_topic_not_found_templated_topic(TCConfig) ->
         emqx_bridge_v2_testlib:health_check_channel(TCConfig)
     ),
     ok.
+
+-doc """
+A connector against a reachable name server is `connected` as soon as it is created, and
+raises no `resource down` alarm on the way there.
+
+The `health_check_interval` is long, so a second health check cannot rescue the connector: it
+has to be connected when the first one runs. `rocketmq_client` guarantees that by finishing
+its first connect before it answers the first status poll. When it answers `connecting`
+instead, the resource manager raises the alarm and does not check again for a whole interval.
+""".
+t_connected_without_startup_alarm(TCConfig) when is_list(TCConfig) ->
+    ?check_trace(
+        begin
+            {201, #{<<"status">> := Status}} = create_connector_api(TCConfig, #{
+                <<"resource_opts">> => #{<<"health_check_interval">> => <<"15s">>}
+            }),
+            ?assertEqual(<<"connected">>, Status),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(resource_activate_alarm, Trace)),
+            ok
+        end
+    ),
+    ok.

@@ -169,18 +169,20 @@ list_name_vsn() ->
 
 -spec get_tar(name_vsn()) -> {ok, binary()} | {error, any}.
 get_tar(NameVsn) ->
-    TarGz = tar_file_path(NameVsn),
-    case file:read_file(TarGz) of
-        {ok, Content} ->
-            {ok, Content};
-        {error, _} ->
-            case create_tar(NameVsn, TarGz) of
-                ok ->
-                    file:read_file(TarGz);
-                Err ->
-                    Err
-            end
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        TarGz = tar_file_path(NameVsn),
+        case file:read_file(TarGz) of
+            {ok, Content} ->
+                {ok, Content};
+            {error, _} ->
+                case create_tar(NameVsn, TarGz) of
+                    ok ->
+                        file:read_file(TarGz);
+                    Err ->
+                        Err
+                end
+        end
+    end).
 
 -spec is_tar_present(name_vsn()) ->
     false | {true, [file:filename()]}.
@@ -191,13 +193,15 @@ is_tar_present(NameVsn) ->
         false -> false
     end.
 
--spec write_tar(name_vsn(), iodata()) -> ok.
+-spec write_tar(name_vsn(), iodata()) -> ok | {error, map()}.
 write_tar(NameVsn, Content) ->
-    TarFilePath = tar_file_path(NameVsn),
-    ok = filelib:ensure_dir(TarFilePath),
-    ok = file:write_file(TarFilePath, Content),
-    MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Content), lower),
-    ok = file:write_file(md5sum_file_path(NameVsn), MD5).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        TarFilePath = tar_file_path(NameVsn),
+        ok = filelib:ensure_dir(TarFilePath),
+        ok = file:write_file(TarFilePath, Content),
+        MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Content), lower),
+        ok = file:write_file(md5sum_file_path(NameVsn), MD5)
+    end).
 
 %% @doc Snapshot the package file (and its checksum) as it is on disk, so that
 %% it can be put back when a replacement of the installation fails.
@@ -207,20 +211,24 @@ write_tar(NameVsn, Content) ->
 %% failure instead, see `read_package_file/1'.
 -spec backup_package(name_vsn()) -> {ok, package_backup()} | {error, map()}.
 backup_package(NameVsn) ->
-    maybe
-        {ok, Tar} ?= read_package_file(tar_file_path(NameVsn)),
-        {ok, Md5sum} ?= read_package_file(md5sum_file_path(NameVsn)),
-        {ok, #{tar => Tar, md5sum => Md5sum}}
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        maybe
+            {ok, Tar} ?= read_package_file(tar_file_path(NameVsn)),
+            {ok, Md5sum} ?= read_package_file(md5sum_file_path(NameVsn)),
+            {ok, #{tar => Tar, md5sum => Md5sum}}
+        end
+    end).
 
 %% @doc Put the package file (and its checksum) back as it was before a failed
 %% installation attempt: a file which was not there is deleted.
 -spec restore_package(name_vsn(), package_backup()) -> ok | {error, term()}.
 restore_package(NameVsn, #{tar := Tar, md5sum := Md5sum}) ->
-    maybe
-        ok ?= restore_file(tar_file_path(NameVsn), Tar),
-        ok ?= restore_file(md5sum_file_path(NameVsn), Md5sum)
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        maybe
+            ok ?= restore_file(tar_file_path(NameVsn), Tar),
+            ok ?= restore_file(md5sum_file_path(NameVsn), Md5sum)
+        end
+    end).
 
 restore_file(Path, none) ->
     delete_file_if_exists(Path);
@@ -393,41 +401,43 @@ is_in_use(NameVsn) ->
 %% Serializing the plugin lifecycle operations is left to the callers.
 -spec prepare_replacement(name_vsn()) -> ok | {error, map()}.
 prepare_replacement(NameVsn) ->
-    PluginDir = plugin_dir(NameVsn),
-    case emqx_plugins_apps:running_apps_from(PluginDir) of
-        [] ->
-            case emqx_plugins_apps:stop_and_unload_loaded(PluginDir) of
-                {ok, _} ->
-                    ok;
-                {error, Reason} ->
-                    %% The applications are still loaded from the directory
-                    %% which is about to be purged: the code they run would be
-                    %% replaced or deleted.
-                    ?SLOG(warning, #{
-                        msg => "failed_to_unload_plugin_apps",
-                        name_vsn => NameVsn,
-                        reason => Reason
-                    }),
-                    {error, #{
-                        msg => "failed_to_unload_plugin_apps",
-                        name_vsn => NameVsn,
-                        reason => Reason,
-                        hint => <<"stop the plugin first">>
-                    }}
-            end;
-        Running ->
-            ?SLOG(warning, #{
-                msg => "refusing_to_replace_running_plugin",
-                name_vsn => NameVsn,
-                running_apps => Running
-            }),
-            {error, #{
-                msg => "plugin_is_in_use",
-                name_vsn => NameVsn,
-                running_apps => Running,
-                hint => <<"stop the plugin first">>
-            }}
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        PluginDir = plugin_dir(NameVsn),
+        case emqx_plugins_apps:running_apps_from(PluginDir) of
+            [] ->
+                case emqx_plugins_apps:stop_and_unload_loaded(PluginDir) of
+                    {ok, _} ->
+                        ok;
+                    {error, Reason} ->
+                        %% The applications are still loaded from the directory
+                        %% which is about to be purged: the code they run would be
+                        %% replaced or deleted.
+                        ?SLOG(warning, #{
+                            msg => "failed_to_unload_plugin_apps",
+                            name_vsn => NameVsn,
+                            reason => Reason
+                        }),
+                        {error, #{
+                            msg => "failed_to_unload_plugin_apps",
+                            name_vsn => NameVsn,
+                            reason => Reason,
+                            hint => <<"stop the plugin first">>
+                        }}
+                end;
+            Running ->
+                ?SLOG(warning, #{
+                    msg => "refusing_to_replace_running_plugin",
+                    name_vsn => NameVsn,
+                    running_apps => Running
+                }),
+                {error, #{
+                    msg => "plugin_is_in_use",
+                    name_vsn => NameVsn,
+                    running_apps => Running,
+                    hint => <<"stop the plugin first">>
+                }}
+        end
+    end).
 
 recover_incomplete_installation(NameVsn, InstallValidator) ->
     case prepare_replacement(NameVsn) of
@@ -459,43 +469,49 @@ recover_incomplete_installation(NameVsn, InstallValidator) ->
 is_installed(NameVsn) ->
     filelib:is_dir(plugin_dir(NameVsn)).
 
--spec delete_tar(name_vsn()) -> ok.
+-spec delete_tar(name_vsn()) -> ok | {error, term()}.
 delete_tar(NameVsn) ->
-    TarFilePath = tar_file_path(NameVsn),
-    MD5FilePath = md5sum_file_path(NameVsn),
-    maybe
-        ok ?= delete_file_if_exists(TarFilePath),
-        ok ?= delete_file_if_exists(MD5FilePath),
-        ok
-    else
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_delete_package_file",
-                package => NameVsn,
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        TarFilePath = tar_file_path(NameVsn),
+        MD5FilePath = md5sum_file_path(NameVsn),
+        maybe
+            ok ?= delete_file_if_exists(TarFilePath),
+            ok ?= delete_file_if_exists(MD5FilePath),
+            ok
+        else
+            {error, Reason} ->
+                ?SLOG(error, #{
+                    msg => "failed_to_delete_package_file",
+                    package => NameVsn,
+                    reason => Reason
+                }),
+                {error, Reason}
+        end
+    end).
 
 -spec purge_installed(name_vsn()) -> ok | {error, term()}.
 purge_installed(NameVsn) ->
-    Dir = plugin_dir(NameVsn),
-    purge_plugin_dir(Dir).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        Dir = plugin_dir(NameVsn),
+        purge_plugin_dir(Dir)
+    end).
 
 -spec ensure_config_dir(name_vsn()) -> ok | {error, term()}.
 ensure_config_dir(NameVsn) ->
-    ConfigDir = plugin_data_dir(NameVsn),
-    case filelib:ensure_path(ConfigDir) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_create_plugin_config_dir",
-                dir => ConfigDir,
-                reason => Reason
-            }),
-            {error, {mkdir_failed, ConfigDir, Reason}}
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        ConfigDir = plugin_data_dir(NameVsn),
+        case filelib:ensure_path(ConfigDir) of
+            ok ->
+                ok;
+            {error, Reason} ->
+                ?SLOG(warning, #{
+                    msg => "failed_to_create_plugin_config_dir",
+                    dir => ConfigDir,
+                    reason => Reason
+                }),
+                {error, {mkdir_failed, ConfigDir, Reason}}
+        end
+    end).
 
 -spec lib_dir(name_vsn()) -> string().
 lib_dir(NameVsn) ->

@@ -51,6 +51,7 @@
     t_ee_api_key_unaffected_by_colliding_username_scopes,
     %% Namespaced-key scope defaults and create-time publish rejection (#18220)
     t_ee_ns_admin_default_scopes_exclude_publish,
+    t_ee_ns_viewer_default_scopes,
     t_ee_ns_key_create_rejects_publish_scope,
     t_ee_ns_key_update_rejects_publish_in_changed_scopes,
     t_ee_ns_admin_legacy_publish_scopes_roundtrip,
@@ -1867,6 +1868,25 @@ t_ee_ns_admin_default_scopes_exclude_publish(_Config) ->
         create_app(GlobalName, #{role => ?ROLE_API_SUPERUSER}),
     ?assertEqual(lists:usort(?GENERIC_SCOPES), lists:usort(GlobalScopes)),
     ?assert(lists:member(?SCOPE_PUBLISH, GlobalScopes)),
+    delete_app(Name),
+    delete_app(GlobalName).
+
+-doc """
+A newly created namespaced viewer API key defaults to the namespaced
+viewer scopes. It holds no scope that the namespaced administrator key
+default lacks. The global viewer default is unchanged.
+""".
+t_ee_ns_viewer_default_scopes(_Config) ->
+    Name = <<"EE-NS-VIEWER-DEFAULT-SCOPES">>,
+    {ok, #{<<"scopes">> := NsScopes}} =
+        create_app(Name, #{role => <<"ns:scopes_ns1::viewer">>}),
+    ?assertEqual(lists:usort(?NS_VIEWER_ALLOWED_SCOPES), lists:usort(NsScopes)),
+    ?assertEqual([], NsScopes -- ?NS_ADMIN_COMMON_SCOPES),
+    ?assertNot(lists:member(?SCOPE_GATEWAYS, NsScopes)),
+    GlobalName = <<"EE-GLOBAL-VIEWER-DEFAULT-SCOPES">>,
+    {ok, #{<<"scopes">> := GlobalScopes}} =
+        create_app(GlobalName, #{role => ?ROLE_API_VIEWER}),
+    ?assertEqual(lists:usort(?GENERIC_SCOPES), lists:usort(GlobalScopes)),
     delete_app(Name),
     delete_app(GlobalName).
 

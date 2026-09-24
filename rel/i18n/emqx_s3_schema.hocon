@@ -33,7 +33,10 @@ upload_headers.desc:
 Useful to specify content type, content encoding, etc. of the S3 object."""
 
 host.desc:
-"""The host of the S3 endpoint."""
+  """~
+  The host of the S3 endpoint.
+
+  Note: even when using the Virtual Host (`vhost`) access method, do **NOT** specify an endpoint containing the bucket name.  The bucket name is specified in each Action, and prepended to the endpoint automatically.~"""
 
 port.desc:
 """The port of the S3 endpoint."""

@@ -527,7 +527,7 @@ t_bad_tar_gz(Config) ->
             msg := "no_nodes_to_copy_plugin_from",
             reason := plugin_not_found
         }},
-        emqx_plugins:ensure_installed("nonexisting")
+        emqx_plugins:ensure_installed("nonexisting-1.0")
     ),
     ?assertEqual([], emqx_plugins:list()),
     ok = emqx_plugins:delete_package("fake-vsn"),
