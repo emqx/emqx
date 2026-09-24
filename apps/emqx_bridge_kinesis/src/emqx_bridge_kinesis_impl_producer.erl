@@ -53,8 +53,8 @@
 -define(action_account, action_account).
 
 -type config_connector() :: #{
-    aws_access_key_id := binary(),
-    aws_secret_access_key := emqx_secret:t(binary()),
+    aws_access_key_id => binary(),
+    aws_secret_access_key => emqx_secret:t(binary()),
     endpoint := binary(),
     max_retries := non_neg_integer(),
     pool_size := non_neg_integer(),
@@ -103,10 +103,12 @@ on_start(
         health_check_timeout => HealthCheckTimeout,
         installed_channels => #{}
     },
-    case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
-        ok ->
-            ?tp(emqx_bridge_kinesis_impl_producer_start_ok, #{config => Config}),
-            {ok, State};
+    maybe
+        ok ?= emqx_bridge_kinesis_connector_client:check_credentials(Config),
+        ok ?= emqx_resource_pool:start(InstanceId, ?MODULE, Options),
+        ?tp(emqx_bridge_kinesis_impl_producer_start_ok, #{config => Config}),
+        {ok, State}
+    else
         Error ->
             ?tp(emqx_bridge_kinesis_impl_producer_start_failed, #{config => Config}),
             Error

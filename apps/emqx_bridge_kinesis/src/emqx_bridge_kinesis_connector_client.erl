@@ -22,7 +22,8 @@
     start_link/1,
     connection_status/1,
     connection_status/2,
-    query/3
+    query/3,
+    check_credentials/1
 ]).
 
 %% gen_server callbacks
@@ -74,6 +75,12 @@ connection_status(Pid, StreamName) ->
 query(Pid, Records, StreamName) ->
     gen_server:call(Pid, {query, Records, StreamName}, infinity).
 
+%% @doc Checks that credentials can be obtained, when they are not configured statically.
+-spec check_credentials(emqx_bridge_kinesis_impl_producer:config_connector()) ->
+    ok | {error, {failed_to_obtain_credentials, term()}}.
+check_credentials(Config) ->
+    ensure_credentials(new_aws_config(Config)).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts Bridge which communicates to Amazon Kinesis Data Streams
@@ -89,58 +96,29 @@ start_link(Options) ->
 %% Initialize kinesis connector
 -spec init(emqx_bridge_kinesis_impl_producer:config_connector()) ->
     {ok, state()} | {stop, Reason :: term()}.
-init(#{
-    aws_access_key_id := AwsAccessKey,
-    aws_secret_access_key := AwsSecretAccessKey,
-    endpoint := Endpoint,
-    max_retries := MaxRetries,
-    instance_id := InstanceId
-}) ->
+init(#{instance_id := InstanceId} = Config) ->
     process_flag(trap_exit, true),
-
-    #{scheme := Scheme, hostname := Host, port := Port} =
-        emqx_schema:parse_server(
-            Endpoint,
-            #{
-                default_port => ?DEFAULT_PORT,
-                supported_schemes => ["http", "https"]
-            }
-        ),
     State = #{
         instance_id => InstanceId
     },
-    %% TODO: teach `erlcloud` to to accept 0-arity closures as passwords.
-    ok = erlcloud_config:configure(
-        to_str(AwsAccessKey),
-        to_str(emqx_secret:unwrap(AwsSecretAccessKey)),
-        Host,
-        Port,
-        Scheme,
-        fun(AccessKeyID, SecretAccessKey, HostAddr, HostPort, ConnectionScheme) ->
-            Config0 = erlcloud_kinesis:new(
-                AccessKeyID,
-                SecretAccessKey,
-                HostAddr,
-                HostPort,
-                ConnectionScheme ++ "://"
-            ),
-            Config0#aws_config{retry_num = MaxRetries}
-        end
-    ),
+    {ok, _} = erlcloud_aws:configure(new_aws_config(Config)),
     %% Leave checking the connection to health checks
     {ok, State}.
 
 handle_call({connection_status, StreamName}, _From, State) ->
-    Status = get_status(StreamName),
+    Status =
+        maybe
+            ok ?= ensure_credentials(aws_config()),
+            get_status(StreamName)
+        end,
     {reply, Status, State};
 handle_call(connection_status, _From, State) ->
     AWSConfig = aws_config(),
     Status =
-        case erlcloud_kinesis:list_streams(<<".">>, 1, AWSConfig) of
-            {ok, _ListStreamsResult} ->
-                {ok, ?status_connected};
-            {error, Error} ->
-                {error, Error}
+        maybe
+            ok ?= ensure_credentials(AWSConfig),
+            {ok, _ListStreamsResult} ?= erlcloud_kinesis:list_streams(<<".">>, 1, AWSConfig),
+            {ok, ?status_connected}
         end,
     {reply, Status, State};
 handle_call({query, Records, StreamName}, _From, State) ->
@@ -166,6 +144,44 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+new_aws_config(#{endpoint := Endpoint, max_retries := MaxRetries} = Config) ->
+    #{scheme := Scheme, hostname := Host, port := Port} =
+        emqx_schema:parse_server(
+            Endpoint,
+            #{
+                default_port => ?DEFAULT_PORT,
+                supported_schemes => ["http", "https"]
+            }
+        ),
+    {AccessKeyID, SecretAccessKey} = static_credentials(Config),
+    #aws_config{
+        access_key_id = AccessKeyID,
+        secret_access_key = SecretAccessKey,
+        kinesis_host = Host,
+        kinesis_port = Port,
+        kinesis_scheme = Scheme ++ "://",
+        retry_num = MaxRetries
+    }.
+
+static_credentials(#{aws_access_key_id := AccessKeyID, aws_secret_access_key := Secret}) when
+    is_binary(AccessKeyID), AccessKeyID =/= <<>>
+->
+    %% TODO: teach `erlcloud` to to accept 0-arity closures as passwords.
+    {to_str(AccessKeyID), to_str(emqx_secret:unwrap(Secret))};
+static_credentials(_Config) ->
+    {undefined, undefined}.
+
+%% Without static credentials, erlcloud obtains them from the ECS task role or EC2 instance
+%% metadata before each request, and caches them node-wide until shortly before they expire.
+%% Resolving them explicitly tells failures to obtain credentials apart from Kinesis API errors.
+ensure_credentials(AWSConfig) ->
+    case erlcloud_aws:update_config(AWSConfig) of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, {failed_to_obtain_credentials, Reason}}
+    end.
+
 aws_config() ->
     erlcloud_aws:default_config().
 
@@ -184,11 +200,16 @@ get_status(StreamName) ->
     | {error, {unrecoverable_error, term()}}
     | {error, term()}.
 do_query(StreamName, Records) ->
-    try
-        execute(put_record, {StreamName, Records})
-    catch
-        _Type:Reason ->
-            {error, {unrecoverable_error, {invalid_request, Reason}}}
+    case ensure_credentials(aws_config()) of
+        ok ->
+            try
+                execute(put_record, {StreamName, Records})
+            catch
+                _Type:Reason ->
+                    {error, {unrecoverable_error, {invalid_request, Reason}}}
+            end;
+        {error, Reason} ->
+            {error, {recoverable_error, Reason}}
     end.
 
 -spec execute(put_record, {binary(), [record()]}) ->

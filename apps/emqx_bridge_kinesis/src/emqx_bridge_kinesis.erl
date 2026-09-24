@@ -22,6 +22,8 @@
     connector_examples/1
 ]).
 
+-export([validate_credentials/1]).
+
 -define(CONNECTOR_TYPE, kinesis).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
 
@@ -88,14 +90,14 @@ fields(connector_config) ->
             mk(
                 binary(),
                 #{
-                    required => true,
+                    required => false,
                     desc => ?DESC("aws_access_key_id")
                 }
             )},
         {aws_secret_access_key,
             emqx_schema_secret:mk(
                 #{
-                    required => true,
+                    required => false,
                     desc => ?DESC("aws_secret_access_key")
                 }
             )},
@@ -222,6 +224,40 @@ action_values() ->
             <<"stream_name">> => <<"my_stream">>
         }
     }.
+
+%%-------------------------------------------------------------------------------------------------
+%% Validators
+%%-------------------------------------------------------------------------------------------------
+
+%% Without static credentials, the connector obtains them from the ECS task role or EC2 instance
+%% metadata, so the access key ID and the secret access key must be either both set or both unset.
+%%
+%% Hocon calls the validator of the `connectors.kinesis' map both with the whole map and with each
+%% connector config in it, whose keys may be either atoms or binaries.
+validate_credentials(Config) ->
+    case get_field(endpoint, Config) of
+        Endpoint when is_binary(Endpoint) ->
+            HasAccessKeyId = is_set(get_field(aws_access_key_id, Config)),
+            HasSecretAccessKey = is_set(get_field(aws_secret_access_key, Config)),
+            case HasAccessKeyId =:= HasSecretAccessKey of
+                true ->
+                    ok;
+                false ->
+                    {error,
+                        <<"aws_access_key_id and aws_secret_access_key must be provided together">>}
+            end;
+        _ ->
+            %% Map level validation
+            ok
+    end.
+
+get_field(Key, Config) ->
+    maps:get(Key, Config, maps:get(atom_to_binary(Key), Config, undefined)).
+
+is_set(undefined) -> false;
+is_set(<<>>) -> false;
+is_set(Secret) when is_function(Secret, 0) -> is_set(emqx_secret:term(Secret));
+is_set(_) -> true.
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
