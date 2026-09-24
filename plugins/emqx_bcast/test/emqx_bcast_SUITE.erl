@@ -5088,6 +5088,36 @@ t_expiry_reap_keeps_index_of_refreshed_message(_Config) ->
     ?assertEqual(ApiMsgId, ReusedApiMsgId),
     ?assertEqual(MsgId, ReusedMsgId).
 
+-doc "A part whose devices all acknowledge inside ONE shard must decrement the\n"
+"remaining-ack counter by the number of acks it applied. The ack removes the\n"
+"index entry, so dropping the part accounting together with the last entry\n"
+"loses the acks already applied in that part: the counter stays above zero,\n"
+"the delivery never completes, and its delivery row and ack markers are kept\n"
+"until msg_ttl expires.".
+t_ack_part_decrements_after_its_index_entry_is_gone(_Config) ->
+    PK = <<"PPARTDEC">>,
+    %% Two devices of the same delivery on the same shard: the second ack is
+    %% the one that empties the shard's index and finishes the part.
+    [A1, A2] = same_shard_dns(PK, 0, 2),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"part decrement">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [A1, A2], 2),
+    Shard = emqx_bcast_index_owner:shard_of({PK, A1}),
+    ?assert(wait_until(fun() -> shard_active(Shard) end, 200)),
+    counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
+    counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
+    %% Both acks are applied in the same part, so the one durable decrement
+    %% must carry both of them: the delivery reaches zero and completes, and
+    %% its rows and markers go away instead of waiting 15 days for msg_ttl.
+    ?assert(
+        wait_until(
+            fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100
+        )
+    ),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_meta, DeliveryId)).
+
 -doc "A promotion that keeps aborting must hand the batch back for a later\n"
 "retry instead of dropping it: the request was already acknowledged to the\n"
 "caller, and a crash path can reach the same state after the mria commit, so\n"
@@ -5212,10 +5242,13 @@ t_part_accounting_pruned_when_delivery_leaves(_Config) ->
     %% owed; B1's shard holds it with nothing applied.
     ?assertEqual(1, part_entry(ShardA, part_applied, DeliveryId)),
     ?assertEqual(1, part_entry(ShardA, part_pending, DeliveryId)),
-    ?assertEqual(1, part_entry(ShardA, part_entries, DeliveryId)),
-    ?assertEqual(1, part_entry(ShardB, part_entries, DeliveryId)),
     %% The delivery leaves both shards (management delete path).
     ok = emqx_bcast_storage:delete_delivery(DeliveryId),
+    %% The accounting is dropped by the periodic cleanup tick, which is the only
+    %% point that can tell "the delivery is gone" from "the part finished and
+    %% still owes its report".
+    ok = gen_server:call(index_shard_name(ShardA), {cleanup_local}, 30000),
+    ok = gen_server:call(index_shard_name(ShardB), {cleanup_local}, 30000),
     ?assert(
         wait_until(
             fun() ->
@@ -5239,7 +5272,7 @@ part_held(Shard, Did) ->
     ),
     HasAccounting = lists:any(
         fun(Key) -> maps:is_key(Did, maps:get(Key, State, #{})) end,
-        [part_pending, part_applied, part_entries]
+        [part_pending, part_applied]
     ),
     HasEntry orelse HasAccounting.
 

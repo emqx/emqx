@@ -99,17 +99,24 @@ reached 10,000,000, so nothing was left delivered without being acknowledged.
   now deleted by key, like the management cascade does; only the message row
   keeps the value-matching delete, which is what protects a refresh that landed
   in between.
-- **The per-part acknowledgement accounting is released when the delivery
-  leaves the shard.** The accounting (how many acks a shard applied for a
-  delivery and how many of its devices it still owes) was only removed when a
-  part reached zero and reported. A delivery that ended with an unacked device
-  - the ordinary offline-device case reaped by TTL, or one removed through the
-  management delete - therefore left one entry per (delivery, shard) in the
-  shard process for the life of the node: unbounded heap growth in the 48 shard
-  processes, and a cleanup tick whose fold over that set grew with it. The
-  shard now tracks how many index entries of a delivery it holds and drops the
-  accounting with the last one (the periodic tick also clears anything an older
-  build left behind).
+- **The per-part acknowledgement accounting is released when the delivery is
+  gone.** The accounting (how many acks a shard applied for a delivery and how
+  many of its devices it still owes) was only removed when a part reached zero
+  and reported. A delivery that ended with an unacked device - the ordinary
+  offline-device case reaped by TTL, or one removed through the management
+  delete - therefore left one entry per (delivery, shard) in the shard process
+  for the life of the node: unbounded heap growth in the 48 shard processes,
+  and a cleanup tick whose fold over that set grew with it. The periodic
+  cleanup tick now drops the accounting of a delivery whose delivery row is
+  gone. That test is deliberate: a part that finished reporting but whose
+  report has not been retried yet has no index entries left either, and its
+  applied acks are exactly what the retry needs - dropping on the last entry
+  instead (as a first cut of this fix did) threw them away, the durable
+  decrement then carried only the acks applied after that point, and the
+  delivery never completed: its delivery row and acknowledgement markers stayed
+  until `msg_ttl` (observed after an 800k-device backlog run as 48,000
+  deliveries kept with 2,304,000 markers, i.e. one marker per shard, each
+  having decremented 1 instead of the devices it acknowledged).
 - **A part report whose counter write is lost is now repaired by its retry.**
   Acknowledgement bookkeeping writes the durable ack marker first and the
   remaining-ack counter second, so a counter write that fails (or a shard that
