@@ -153,6 +153,7 @@ def test_node_cookie_from_file(emqx_bin_path, tmp_path):
     with open_emqx_console(
             emqx_bin_path,
             {
+                "EMQX_LOG__CONSOLE__LEVEL": "notice",
                 "EMQX_LOG__CONSOLE__FORMATTER": "json",
                 "EMQX_NODE__COOKIE": f"file://{cookie_file}",
             },
@@ -725,21 +726,21 @@ def test_feature_gate_essential(emqx_bin_path):
 # Using a dict value to allow specifying feature-specific stuff to test, if needed
 # Remember to update known feature list when `emqx_machine_features:known_features` change.
 KNOWN_FEATURES = {
+    "ai": {},
+    "cluster_link": {},
     "dashboard": {},
     "data_integration": {},
-    "message_transformation": {},
-    "schema_validation": {},
-    "schema_registry": {},
-    "gateways": {},
-    "cluster_link": {},
-    "multi_tenancy": {},
-    "plugins": {},
-    "ai": {},
-    "metrics": {},
-    "file_transfer": {},
-    "gcp_device": {},
     "exhook": {},
+    "file_transfer": {},
+    "gateways": {},
+    "message_transformation": {},
+    "metrics": {},
+    "mqtt_extensions": {},
+    "multi_tenancy": {},
     "opentelemetry": {},
+    "plugins": {},
+    "schema_registry": {},
+    "schema_validation": {},
 }
 
 
