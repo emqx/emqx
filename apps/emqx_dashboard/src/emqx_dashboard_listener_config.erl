@@ -92,7 +92,7 @@ remove_handler() ->
     ok.
 
 pre_config_update(_Path, {change_i18n_lang, NewLang}, RawConf) ->
-    %% e.g. emqx_conf:update([dashboard], {change_i18n_lang, zh}, #{}).
+    %% e.g. emqx_conf:update([dashboard], {change_i18n_lang, 'zh-TW'}, #{}).
     %% TODO: check if there is such a language (all languages are cached in emqx_dashboard_desc_cache)
     Update = #{<<"i18n_lang">> => NewLang},
     NewConf = emqx_utils_maps:deep_merge(RawConf, Update),
