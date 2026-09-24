@@ -13,7 +13,17 @@
 -behaviour(gen_server).
 
 -export([start_link/0]).
--export([enqueue/1, take_batch/2, delete_batch/1, depth/0, reset/0]).
+-export([
+    enqueue/1,
+    requeue/1,
+    backoff_ms/1,
+    sweep_deferred/0,
+    take_batch/2,
+    delete_batch/1,
+    depth/0,
+    deferred_depth/0,
+    reset/0
+]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -export_type([entry/0]).
@@ -33,6 +43,9 @@
 %%   devices        :: [binary()]
 %%   created_at     :: non_neg_integer() -- seconds (intake time)
 %%   expires_at     :: non_neg_integer() -- seconds
+%%   not_before     :: non_neg_integer() -- ms, monotonic; set only while the
+%%                                          entry waits out a retry backoff
+%%   defer_attempts :: non_neg_integer() -- how many times it was deferred
 -type entry() :: #{
     payload := binary(),
     hash := binary(),
@@ -43,8 +56,21 @@
     topic_template := binary(),
     devices := [binary()],
     created_at := non_neg_integer(),
-    expires_at := non_neg_integer()
+    expires_at := non_neg_integer(),
+    not_before => non_neg_integer(),
+    defer_attempts => non_neg_integer()
 }.
+
+%% Backoff of a batch that the promoter could not append to the per-device
+%% index after ?APPEND_RETRY_MAX in-worker attempts. It is never dropped: the
+%% batch is already committed in mria, so dropping it would leave devices
+%% permanently without an index entry (accepted requests would never be
+%% delivered). Doubling from 100ms and capped at 30s keeps a permanently
+%% unreachable shard retried forever without occupying a promoter worker -
+%% the failure mode where N permanently failing batches pinned every worker
+%% and the intake queue stopped draining.
+-define(DEFER_BACKOFF_BASE_MS, 100).
+-define(DEFER_BACKOFF_MAX_MS, 30000).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -54,6 +80,9 @@ init([]) ->
         named_table, ordered_set, public, {write_concurrency, true}, {read_concurrency, true}
     ]),
     _ = ets:new(?TAB_INT_SEQ, [named_table, set, public, {write_concurrency, true}]),
+    _ = ets:new(?TAB_INT_DEFER, [
+        named_table, ordered_set, public, {write_concurrency, true}, {read_concurrency, true}
+    ]),
     true = ets:insert(?TAB_INT_SEQ, {seq, 0}),
     {ok, #{}}.
 
@@ -80,6 +109,56 @@ enqueue(Entry) ->
             emqx_bcast_metrics:intake_enqueued(),
             {ok, Seq}
     end.
+
+%% Put a batch that the promoter already took (and already committed in mria)
+%% back for a later retry, delaying each entry by a doubling backoff. The
+%% bounded-depth check of enqueue/1 is deliberately skipped: these entries
+%% were taken out of this same queue moments ago, so returning them cannot
+%% push the queue above the depth it already reached - and a full queue must
+%% never turn into a dropped batch.
+-spec requeue([entry()]) -> non_neg_integer().
+requeue(Entries) ->
+    Now = erlang:monotonic_time(millisecond),
+    lists:foldl(
+        fun(Entry, N) ->
+            Attempts = maps:get(defer_attempts, Entry, 0) + 1,
+            NotBefore = Now + backoff_ms(Attempts),
+            Seq = ets:update_counter(?TAB_INT_SEQ, seq, 1),
+            true = ets:insert(
+                ?TAB_INT_DEFER,
+                {{NotBefore, Seq}, Entry#{not_before => NotBefore, defer_attempts => Attempts}}
+            ),
+            N + 1
+        end,
+        0,
+        Entries
+    ).
+
+%% Doubling from ?DEFER_BACKOFF_BASE_MS, capped at ?DEFER_BACKOFF_MAX_MS.
+-spec backoff_ms(pos_integer()) -> pos_integer().
+backoff_ms(Attempts) ->
+    min(?DEFER_BACKOFF_BASE_MS bsl (Attempts - 1), ?DEFER_BACKOFF_MAX_MS).
+
+%% Move every entry whose backoff elapsed back onto the ready queue, keeping
+%% the queue ordered by the order they woke up. Cheap when nothing is due: one
+%% ets:first/1 on an empty (or far-future) deferred table.
+-spec sweep_deferred() -> non_neg_integer().
+sweep_deferred() ->
+    sweep_due(ets:first(?TAB_INT_DEFER), erlang:monotonic_time(millisecond), 0).
+
+sweep_due('$end_of_table', _Now, N) ->
+    N;
+sweep_due({NotBefore, _Seq} = Key, Now, N) when NotBefore =< Now ->
+    case ets:take(?TAB_INT_DEFER, Key) of
+        [{Key, Entry}] ->
+            Seq = ets:update_counter(?TAB_INT_SEQ, seq, 1),
+            true = ets:insert(?TAB_INT_Q, {Seq, Entry}),
+            sweep_due(ets:first(?TAB_INT_DEFER), Now, N + 1);
+        [] ->
+            sweep_due(ets:first(?TAB_INT_DEFER), Now, N)
+    end;
+sweep_due(_Key, _Now, N) ->
+    N.
 
 %% Atomically take the head batch (ets:take per key): the entries leave
 %% the queue here and the promoter promotes them afterwards. Concurrent
@@ -132,6 +211,14 @@ delete_batch(Seqs) ->
 depth() ->
     queue_size().
 
+%% Entries waiting out an append-retry backoff (not yet takeable).
+-spec deferred_depth() -> non_neg_integer().
+deferred_depth() ->
+    case ets:info(?TAB_INT_DEFER, size) of
+        undefined -> 0;
+        N -> N
+    end.
+
 queue_size() ->
     case ets:info(?TAB_INT_Q, size) of
         undefined -> 0;
@@ -144,6 +231,7 @@ queue_size() ->
 -spec reset() -> ok.
 reset() ->
     ets:delete_all_objects(?TAB_INT_Q),
+    ets:delete_all_objects(?TAB_INT_DEFER),
     ets:delete_all_objects(?TAB_INT_SEQ),
     true = ets:insert(?TAB_INT_SEQ, {seq, 0}),
     ok.

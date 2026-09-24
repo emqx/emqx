@@ -925,7 +925,7 @@ delete_message(ApiId) ->
         [#bcast_message_api_id{msg_id = MsgId}] ->
             Deliveries = dirty_deliveries_of(MsgId),
             DeliveryIds = [D#bcast_msg.delivery_id || D <- Deliveries],
-            ?SLOG(info, #{
+            ?SLOG(warning, #{
                 msg => "bcast_message_delete_requested",
                 api_msg_id => ApiId,
                 msg_id => MsgId,
@@ -1119,7 +1119,7 @@ cleanup_expired() ->
         0 ->
             ok;
         ExpiredCount ->
-            ?SLOG(info, #{
+            ?SLOG(warning, #{
                 msg => "bcast_expired_deliveries_reclaimed",
                 count => ExpiredCount,
                 now => Now,
@@ -1977,7 +1977,7 @@ activated(Mode, Counts, State) ->
     sync_quota_baselines(Epoch),
     case Mode of
         ensure ->
-            ?SLOG(info, #{
+            ?SLOG(warning, #{
                 msg => "bcast_index_owner_activated",
                 node => node(),
                 shard_count => ?SHARD_COUNT
@@ -2739,7 +2739,7 @@ activate_partition(Proj, State, Completed) ->
             Proj
         ),
         Count = maps:size(maps:get(dids, State2)),
-        ?SLOG(info, #{
+        ?SLOG(warning, #{
             msg => "bcast_index_shard_rebuilt",
             shard => Shard,
             pending => Count
@@ -4384,7 +4384,7 @@ cleanup_completed_deliveries() ->
         [] ->
             ok;
         _ ->
-            ?SLOG(info, #{
+            ?SLOG(warning, #{
                 msg => "bcast_completed_deliveries_reclaimed",
                 count => length(Deleted),
                 node => node()
@@ -4535,7 +4535,7 @@ cleanup_expired_messages_local(Now) ->
         [] ->
             ok;
         _ ->
-            ?SLOG(info, #{
+            ?SLOG(warning, #{
                 msg => "bcast_messages_expired",
                 count => length(Expired),
                 deleted => length(Deleted),

@@ -195,7 +195,7 @@ init_tables() ->
 %% per-table size (with the copy type) makes that - and any later reset -
 %% visible in the logs instead of looking like rows vanishing.
 log_table_baseline() ->
-    ?SLOG(info, #{
+    ?SLOG(warning, #{
         msg => "bcast_tables_ready",
         node => node(),
         is_core => is_core(),
@@ -529,7 +529,7 @@ ensure_core_copy(Tab) ->
             }),
             try Do() of
                 Result ->
-                    ?SLOG(info, #{
+                    ?SLOG(warning, #{
                         msg => "bcast_table_copy_type_changed",
                         table => Tab,
                         operation => Op,

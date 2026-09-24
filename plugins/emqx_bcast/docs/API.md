@@ -409,9 +409,12 @@ restart/reset.
 | `bcast_batch_pub_qos1_enqueued` | QoS=1 requests accepted into this node's intake queue |
 | `bcast_batch_pub_qos1_intake_rejected` | QoS=1 requests rejected because this node's intake queue is full |
 | `bcast_batch_pub_qos1_promote_error` | QoS=1 promotion batch failures on this node (retries exhausted) |
+| `bcast_batch_pub_qos1_append_deferred` | QoS=1 committed batches handed back to the intake queue after the in-worker index-append retry budget ran out (retried until they succeed, never dropped) |
 
-All four are **intake scope**: a replicant forwards BatchPub to a core for
-admission and reports 0 for them.
+All five are **intake scope**: a replicant forwards BatchPub to a core for
+admission and reports 0 for them. A non-zero `append_deferred` means an index
+shard is unreachable or slow, not that data was lost; those deliveries are
+counted in `bcast_batch_pub_qos1_wanted` only when the append finally succeeds.
 
 Within a node's lifetime `in = enqueued + intake_rejected + quota
 rejections`; quota (429 QuotaExceeded) rejections are not exported
@@ -439,6 +442,7 @@ gauges).
 | Metric | Scope | Description |
 |--------|-------|-------------|
 | `bcast_intake_depth` | intake | QoS=1 intake queue depth on this node (requests awaiting promotion) |
+| `bcast_intake_deferred_depth` | intake | QoS=1 committed batches on this node waiting out an index-append retry backoff (not yet takeable by the promoter) |
 | `bcast_batch_pub_qos1_queued` | index | Committed logical deliveries queued on this node's shards but not yet claimed |
 | `bcast_batch_pub_qos1_inflight` | index | Claimed logical deliveries on this node's shards not yet terminal (awaiting ack/release/expiry) |
 

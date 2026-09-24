@@ -100,7 +100,12 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 wait_intake_idle() ->
-    _ = wait_until(fun() -> emqx_bcast_intake:depth() =:= 0 end, 50),
+    _ = wait_until(
+        fun() ->
+            emqx_bcast_intake:depth() =:= 0 andalso emqx_bcast_intake:deferred_depth() =:= 0
+        end,
+        50
+    ),
     timer:sleep(50).
 
 end_per_testcase(_Case, _Config) ->
@@ -1475,6 +1480,110 @@ t_promoter_retries_after_internal_crash(_Config) ->
         meck:unload(emqx_bcast_index_owner),
         demonitor(MRef, [flush])
     end,
+    ok.
+
+%% One intake entry for the promoter retry tests, built by hand so the test
+%% does not depend on the API path.
+retry_entry(PK, DN) ->
+    Now = emqx_bcast_utils:now_sec(),
+    Payload = <<"promoter-retry payload">>,
+    #{
+        payload => Payload,
+        hash => crypto:hash(sha256, Payload),
+        api_msg_id => emqx_bcast_utils:gen_guid(),
+        msg_id => emqx_bcast_utils:gen_guid(),
+        delivery_id => emqx_bcast_utils:gen_guid(),
+        product_key => PK,
+        topic_template => <<"tpl/retry">>,
+        devices => [DN],
+        created_at => Now,
+        expires_at => Now + 3600
+    }.
+
+indexed_deliveries(PK, DN) ->
+    case catch emqx_bcast_index_owner:device_deliveries({PK, DN}) of
+        {ok, Deliveries} -> Deliveries;
+        _ -> []
+    end.
+
+-doc "A batch whose index append keeps failing must not pin a promoter\n"
+"worker: after the in-worker retry budget the batch goes back to the\n"
+"intake queue with a backoff (bcast_promoter_append_deferred) and the\n"
+"worker returns to the queue. The batch is retried until it succeeds -\n"
+"a committed batch is never dropped, and the drain path keeps serving\n"
+"other batches while it waits.".
+t_append_failure_beyond_budget_defers_the_batch(_Config) ->
+    PK = <<"PDEFER">>,
+    DNFail = <<"DDEFER-FAIL">>,
+    DNOk = <<"DDEFER-OK">>,
+    DeferredBefore = metric(<<"batch_pub_qos1_append_deferred">>),
+    Gate = atomics:new(1, []),
+    atomics:put(Gate, 1, 1),
+    meck:new(emqx_bcast_index_owner, [passthrough, no_link]),
+    meck:expect(emqx_bcast_index_owner, append_batch, fun(Entries) ->
+        case lists:keymember(DNFail, 2, Entries) andalso atomics:get(Gate, 1) =:= 1 of
+            true -> {error, append_failed};
+            false -> meck:passthrough([Entries])
+        end
+    end),
+    try
+        {ok, _Seq} = emqx_bcast_intake:enqueue(retry_entry(PK, DNFail)),
+        %% The in-worker budget runs out and the batch is handed to the
+        %% deferred queue instead of holding its worker forever.
+        ?assert(wait_until(fun() -> emqx_bcast_intake:deferred_depth() >= 1 end, 100)),
+        ?assert(metric(<<"batch_pub_qos1_append_deferred">>) > DeferredBefore),
+        %% The drain path is not wedged: another batch is promoted and
+        %% indexed while the failing one waits out its backoff.
+        {ok, _Seq2} = emqx_bcast_intake:enqueue(retry_entry(PK, DNOk)),
+        ?assert(wait_until(fun() -> indexed_deliveries(PK, DNOk) =/= [] end, 100)),
+        ?assertEqual([], indexed_deliveries(PK, DNFail)),
+        %% The fault clears: the deferred batch is swept back and appended,
+        %% so nothing was lost.
+        atomics:put(Gate, 1, 0),
+        ?assert(wait_until(fun() -> indexed_deliveries(PK, DNFail) =/= [] end, 600)),
+        ?assert(
+            wait_until(fun() -> emqx_bcast_intake:deferred_depth() =:= 0 end, 100)
+        )
+    after
+        meck:unload(emqx_bcast_index_owner)
+    end,
+    ok.
+
+-doc "A batch handed back to the intake queue must not be takeable before\n"
+"its backoff elapsed, must come back at the tail (fresh Seq), and must\n"
+"back off further each time it is deferred.".
+t_deferred_batch_waits_out_its_backoff(_Config) ->
+    %% The policy itself: doubling from the base, capped (a permanently
+    %% unreachable shard must not turn into a hot retry loop).
+    ?assertEqual(100, emqx_bcast_intake:backoff_ms(1)),
+    ?assertEqual(200, emqx_bcast_intake:backoff_ms(2)),
+    ?assertEqual(400, emqx_bcast_intake:backoff_ms(3)),
+    ?assertEqual(30000, emqx_bcast_intake:backoff_ms(30)),
+    PK = <<"PBACKOFF">>,
+    DN = <<"DBACKOFF">>,
+    {ok, Seq0} = emqx_bcast_intake:enqueue(retry_entry(PK, DN)),
+    [{Seq0, Entry}] = emqx_bcast_intake:take_batch(10, 1000),
+    ?assertEqual(1, emqx_bcast_intake:requeue([Entry])),
+    ?assertEqual(1, emqx_bcast_intake:deferred_depth()),
+    ?assertEqual(0, emqx_bcast_intake:depth()),
+    %% Out of the promoter's reach until the backoff elapses: not takeable,
+    %% not swept, and the promoter's own tick cannot pull it forward either.
+    ?assertEqual([], emqx_bcast_intake:take_batch(10, 1000)),
+    ?assertEqual(0, emqx_bcast_intake:sweep_deferred()),
+    timer:sleep(60),
+    ?assertEqual([], emqx_bcast_intake:take_batch(10, 1000)),
+    ?assertEqual(1, emqx_bcast_intake:deferred_depth()),
+    %% Once it elapses the entry comes back (swept by the promoter's tick or
+    %% by this call) and leaves the deferred table.
+    ?assert(
+        wait_until(
+            fun() ->
+                _ = emqx_bcast_intake:sweep_deferred(),
+                emqx_bcast_intake:deferred_depth() =:= 0
+            end,
+            100
+        )
+    ),
     ok.
 
 -doc "The delivery worker must commit only the fields it owns (claim,\n"

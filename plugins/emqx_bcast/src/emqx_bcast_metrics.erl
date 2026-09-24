@@ -16,7 +16,8 @@
     qos1_canceled/1,
     intake_enqueued/0,
     intake_rejected/0,
-    qos1_promote_error/0
+    qos1_promote_error/0,
+    qos1_append_deferred/1
 ]).
 -export([broadcast_in/0, broadcast_error/0]).
 -export([register_in/0, register_refresh/0, register_error/0]).
@@ -84,6 +85,16 @@
 %%                            delivery TTL expired before confirmation
 %%   batch_pub_qos1_canceled  logical deliveries removed by management
 %%                            delete / reset before confirmation
+%%   batch_pub_qos1_append_deferred
+%%                            batches this node committed and then could not
+%%                            append to the per-device index, handed back to
+%%                            the intake queue for a later retry. They are
+%%                            retried until they succeed (never dropped), so
+%%                            a rising counter means an index shard is
+%%                            unreachable - not lost data. wanted counts
+%%                            these deliveries only when the append finally
+%%                            succeeds, so wanted lags while they wait (the
+%%                            same under-count the rebuild path has).
 %%
 %% Ledger identity (eventually consistent): wanted = acked + auto_acked +
 %% ttl_expired + canceled + queued + inflight, where queued/inflight are
@@ -147,6 +158,9 @@ declare_counters() ->
             "QoS=1 requests rejected because this node's intake queue is full (intake scope)"},
         {"batch_pub_qos1_promote_error",
             "QoS=1 promotion batch failures on this node, retries exhausted (intake scope)"},
+        {"batch_pub_qos1_append_deferred",
+            "QoS=1 committed batches requeued for a later index append after the in-worker "
+            "retry budget ran out (intake scope; retried until they succeed, never dropped)"},
         {"broadcast_pub_in", "PubBroadcast API requests"},
         {"broadcast_pub_error", "PubBroadcast errors"},
         {"register_message_in", "RegisterMessage API requests"},
@@ -174,6 +188,9 @@ declare_gauges() ->
             {"intake_depth",
                 "QoS1 intake queue depth on this node: requests awaiting promotion "
                 "(intake scope; replicants report 0)"},
+            {"intake_deferred_depth",
+                "QoS1 committed batches on this node waiting out an index-append retry "
+                "backoff, i.e. not yet takeable by the promoter (intake scope)"},
             {"batch_pub_qos1_queued",
                 "QoS1 committed logical deliveries queued but not yet claimed on this node's "
                 "shards (index scope; cores only; sum() over nodes)"},
@@ -190,6 +207,9 @@ declare_gauges() ->
 %% report 0 so a cluster sum() stays correct.
 report_business_gauges() ->
     prometheus_gauge:set(?BCAST_REGISTRY, mname("intake_depth"), [], emqx_bcast_intake:depth()),
+    prometheus_gauge:set(
+        ?BCAST_REGISTRY, mname("intake_deferred_depth"), [], emqx_bcast_intake:deferred_depth()
+    ),
     {Queued, Inflight} = emqx_bcast_index_owner:gauge_sample(),
     prometheus_gauge:set(?BCAST_REGISTRY, mname("batch_pub_qos1_queued"), [], Queued),
     prometheus_gauge:set(?BCAST_REGISTRY, mname("batch_pub_qos1_inflight"), [], Inflight),
@@ -228,6 +248,8 @@ intake_enqueued() -> c("batch_pub_qos1_enqueued").
 intake_rejected() -> c("batch_pub_qos1_intake_rejected").
 -spec qos1_promote_error() -> ok.
 qos1_promote_error() -> c("batch_pub_qos1_promote_error").
+-spec qos1_append_deferred(non_neg_integer()) -> ok.
+qos1_append_deferred(N) -> c("batch_pub_qos1_append_deferred", N).
 
 -spec broadcast_in() -> ok.
 broadcast_in() -> c("broadcast_pub_in").

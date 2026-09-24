@@ -29,6 +29,10 @@
 %% cache: entries live here between the HTTP 200 and the mria promotion).
 -define(TAB_INT_Q, bcast_intake_queue).
 -define(TAB_INT_SEQ, bcast_intake_seq).
+%% Entries whose promoter could not append them to the per-device index and
+%% which are waiting out a backoff before they are taken again. Keyed by
+%% {NotBefore, Seq} so the earliest wake-up is ets:first/1.
+-define(TAB_INT_DEFER, bcast_intake_deferred).
 
 %% Bounded node-local intake queue depth. Hardcoded on purpose: it is not
 %% part of the avro config schema, so a value here could never be changed

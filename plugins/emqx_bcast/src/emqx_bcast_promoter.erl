@@ -14,6 +14,15 @@
 %% survives any single node crash (dual-core ram_copies) and a promoter or
 %% owner crash only delays the derived ETS index append, which is either
 %% retried or rebuilt from bcast_msg at owner takeover.
+%%
+%% A batch whose index append keeps failing is never dropped: mria has the
+%% delivery row but the device has no index entry, so dropping it would
+%% silently lose an accepted request. Instead the batch is retried a bounded
+%% number of times in the worker and then handed back to the intake queue
+%% with a doubling backoff, which releases the worker. A permanently
+%% unreachable index shard therefore costs one deferred batch per affected
+%% batch - not one pinned worker per affected batch, which is what stopped
+%% the queue from draining and stalled the fanout in the field.
 
 -behaviour(gen_server).
 
@@ -32,6 +41,10 @@
 -define(DRAIN_BACKOFF_MS, 10).
 -define(RETRY_BACKOFF_MS, 5).
 -define(MAX_CONSECUTIVE_FAILURES, 10).
+%% In-worker attempts on the SAME batch before it is handed back to the intake
+%% queue with a backoff. 10 x ?RETRY_BACKOFF_MS (5ms) covers an owner takeover
+%% or a transient shard-call timeout, which is what most append failures are.
+-define(APPEND_RETRY_MAX, 10).
 
 %% Drain workers per core: the single-promoter digest rate (~240 req/s at
 %% bs=1000) capped the load-phase acceptance (intake queue filled, 429s);
@@ -74,6 +87,9 @@ handle_info(drain, State = #{failures := Failures, pending := Pending}) ->
     %% The batch under retry lives in the state: with the atomic intake
     %% take a failed batch is no longer in the queue, so the retry MUST
     %% re-process the SAME batch (a fresh take would silently lose it).
+    %% Waking deferred batches first also keeps them moving when the node has
+    %% no other traffic at all.
+    _ = emqx_bcast_intake:sweep_deferred(),
     Batch =
         case Pending of
             undefined -> emqx_bcast_intake:take_batch(?BATCH_MAX_ENTRIES, ?BATCH_MAX_KEYS);
@@ -101,6 +117,7 @@ handle_info(_Info, State) ->
 worker_loop(Failures) ->
     case emqx_bcast_intake:take_batch(?BATCH_MAX_ENTRIES, ?BATCH_MAX_KEYS) of
         [] ->
+            _ = emqx_bcast_intake:sweep_deferred(),
             timer:sleep(?DRAIN_BACKOFF_MS),
             worker_loop(0);
         Batch ->
@@ -240,17 +257,32 @@ process_batch(Batch, Failures) ->
                     ok = trigger_broadcast(Promoted ++ AlreadyPromoted),
                     {done, 0};
                 {error, _Reason} = Error ->
-                    %% Owner takeover, shard overload (call timeout) or any
-                    %% other append failure: retry the SAME batch. The retry
-                    %% is idempotent (already_promoted + append dedup), and
-                    %% with the atomic intake take this is the only safety
-                    %% net against losing committed-but-unindexed deliveries.
+                    %% Owner takeover, shard overload (call timeout), a shard
+                    %% that is dormant or unreachable or any other append
+                    %% failure: retry the SAME batch. The retry is idempotent
+                    %% (already_promoted + append dedup), and with the atomic
+                    %% intake take this is the only safety net against losing
+                    %% committed-but-unindexed deliveries.
+                    Attempts = Failures + 1,
                     ?SLOG(warning, #{
                         msg => "bcast_promoter_append_failed_retry",
                         result => Error,
-                        batch_size => length(Batch)
+                        batch_size => length(Batch),
+                        attempts => Attempts,
+                        defer_attempts => defer_attempts(Entries)
                     }),
-                    {retry, Failures + 1}
+                    case Attempts >= ?APPEND_RETRY_MAX of
+                        false ->
+                            {retry, Attempts};
+                        true ->
+                            %% Out of in-worker budget: hand the batch back to
+                            %% the intake queue with a backoff and free this
+                            %% worker. Dropping it is not an option (see the
+                            %% module comment), and holding the worker is what
+                            %% wedges the whole drain path once every worker
+                            %% holds a permanently failing batch.
+                            defer_batch(Entries, Error)
+                    end
             end;
         {error, Reason} ->
             ?SLOG(warning, #{
@@ -267,6 +299,26 @@ process_batch(Batch, Failures) ->
                     {retry, Failures + 1}
             end
     end.
+
+%% Hand a committed-but-unindexed batch back to the intake queue for a later
+%% retry. The admission reservation stays held: the devices are committed, so
+%% the quota they consume is still in flight.
+defer_batch(Entries, Error) ->
+    Count = emqx_bcast_intake:requeue(Entries),
+    emqx_bcast_metrics:qos1_append_deferred(Count),
+    ?SLOG(warning, #{
+        msg => "bcast_promoter_append_deferred",
+        result => Error,
+        entries => Count,
+        defer_attempts => defer_attempts(Entries),
+        node => node()
+    }),
+    {done, 0}.
+
+defer_attempts([Entry | _]) ->
+    maps:get(defer_attempts, Entry, 0);
+defer_attempts([]) ->
+    0.
 
 %% Coalesced trigger: group the promoted devices by (product, template) and
 %% emit one broadcast per group instead of one per request, so the 5-node

@@ -4,11 +4,12 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 
 ## Unreleased
 
-A follow-up to 0.4.1 for the subscription hooks. **No breaking API change, no
-configuration change and no change to what the Prometheus counters mean.**
-Verified end to end on a 10,000,000-message QoS=1 backlog run: deliveries and
-acknowledgements both reached 10,000,000, so nothing was left delivered without
-being acknowledged.
+A follow-up to 0.4.1 for the subscription hooks and for the promoter's
+index-append retry. **No breaking API change, no configuration change and no
+change to what the existing Prometheus counters mean** (one counter and one
+gauge are added). Verified end to end on a 10,000,000-message QoS=1 backlog run:
+deliveries and acknowledgements both reached 10,000,000, so nothing was left
+delivered without being acknowledged.
 
 ### Upgrade notes
 
@@ -90,9 +91,39 @@ being acknowledged.
   node whose plugin loads before mria publishes its role does not skip every
   core-only table and worker for the rest of its life; a role that never
   resolves still falls back to replicant, and the request path never waits.
+- **A batch whose index append keeps failing no longer pins a promoter worker.**
+  Promotion commits the delivery rows first and appends the per-device index
+  afterwards; when that append failed, the promoter retried the same batch in
+  place without a limit. One index shard that stays dormant or unreachable
+  therefore pinned one worker per affected batch - and every batch that
+  contained a single device of that shard failed as a whole. On a node with
+  `schedulers_online` workers, a handful of such batches stopped the intake
+  queue from draining while the API kept answering 200: accepted requests sat
+  in the queue, their devices received nothing, and the only visible symptom
+  was an unbroken stream of `bcast_promoter_append_failed_retry` warnings
+  (6.3 million lines over 21 hours in one production incident). The retry is now
+  bounded: 10 attempts 5ms apart in the worker, then the batch goes back to the
+  intake queue with a doubling backoff (100ms, capped at 30s) and the worker
+  returns to the queue. **Nothing is dropped** - the batch is already committed
+  and is retried until the append succeeds - so the worst case for those
+  devices is a delayed delivery, not a lost one. The new
+  `bcast_batch_pub_qos1_append_deferred` counter and `bcast_intake_deferred_depth`
+  gauge report it, and each deferral logs `bcast_promoter_append_deferred` at
+  warning.
 
 ### Changed
 
+- **Diagnostic logs that used to be `info` are now `warning`**, so the default
+  file logger records them: the startup table baseline (`bcast_tables_ready`),
+  a table copy-type repair (`bcast_table_copy_type_changed`), an index owner
+  activation (`bcast_index_owner_activated`), a shard rebuild
+  (`bcast_index_shard_rebuilt`), an accepted management delete
+  (`bcast_message_delete_requested`), and the expiry/reclamation summaries
+  (`bcast_messages_expired`, `bcast_expired_deliveries_reclaimed`,
+  `bcast_completed_deliveries_reclaimed`). Every one of them fires on a state
+  change or an operation, never per message, and each answers a question that
+  a field investigation in this release cycle had to answer without the logs
+  (was the partition activated, was it rebuilt, when were rows deleted).
 - **Acknowledgement bookkeeping is per delivery part, not per flush tick.** One
   shard owns the devices one delivery has on that shard: an acknowledgement only
   moves that shard's local counters, and the two Mnesia writes (the acked-device
@@ -127,11 +158,10 @@ being acknowledged.
   bookkeeping is replicated to every core, so its cost follows the request rate
   rather than the number of messages.
 - **A core that keeps its share of the index shards while it cannot serve them**
-  (it runs without this plugin, or stays unreachable for a long time). Every
-  append batch then fails on that core's legs and the promoter retries the same
-  batch without a limit, which pins one worker per stuck batch; enough of them
-  stop the intake queue from draining while the API still accepts requests.
-  Batches that were committed are delivered once the core is back.
+  (it runs without this plugin, or stays unreachable for a long time). Its
+  devices are delivered late: the batches committed for them wait in the intake
+  queue and are retried (up to 30s apart) until the core is back. Nothing is
+  lost, and the waiting batches no longer hold a promoter worker.
 
 ## 0.4.1
 
