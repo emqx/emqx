@@ -166,10 +166,28 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(_AllTestCase, Config) ->
     timer:sleep(300),
+    cleanup_lwm2m_channels(),
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
     snabbkaffe:stop(),
     ok.
+
+cleanup_lwm2m_channels() ->
+    lists:foreach(
+        fun({ClientId, ChanPid}) ->
+            _ = emqx_gateway_cm:kick_session(lwm2m, ClientId, ChanPid)
+        end,
+        lwm2m_channels()
+    ),
+    ?retry(100, 20, ?assertEqual([], lwm2m_channels())).
+
+lwm2m_channels() ->
+    Tab = emqx_gateway_cm:tabname(chan, lwm2m),
+    try ets:tab2list(Tab) of
+        Channels -> Channels
+    catch
+        error:badarg -> []
+    end.
 
 default_config() ->
     default_config(#{}).
