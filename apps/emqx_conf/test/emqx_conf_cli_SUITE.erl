@@ -25,7 +25,7 @@ init_per_suite(Config) ->
             emqx_auth_redis,
             emqx_auth,
             emqx_management
-        ],
+        ] ++ ee_apps(),
         #{
             work_dir => emqx_cth_suite:work_dir(Config)
         }
@@ -36,6 +36,23 @@ end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
     ok.
+
+init_per_testcase(t_merge_union_member_without_selector, Config) ->
+    case emqx_release:edition() of
+        ee -> Config;
+        ce -> {skip, no_schema_registry}
+    end;
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
+ee_apps() ->
+    case emqx_release:edition() of
+        ee -> [emqx_schema_registry];
+        ce -> []
+    end.
 
 t_load_config(Config) ->
     Authz = authorization,
@@ -270,6 +287,162 @@ put_sentinel() ->
     emqx_conf:update([sysmon, top, db_password], ?SENTINEL, #{
         rawconf_with_defaults => true, override_to => cluster
     }).
+
+%% Loading one listener field with `--merge` keeps the other stored fields of
+%% that listener, and applies the loaded field.
+t_merge_keeps_omitted_listener_fields(Config) ->
+    Path = [listeners, tcp, merge_test],
+    Listener = #{
+        <<"enable">> => false,
+        <<"bind">> => <<"127.0.0.1:31883">>,
+        <<"acceptors">> => 4,
+        <<"max_connections">> => 100
+    },
+    ok = load_conf(merge, listener_conf(Listener), Config),
+    ok = load_conf(
+        merge,
+        listener_conf(#{<<"tcp_options">> => #{<<"active_n">> => 50}}),
+        Config
+    ),
+    ?assertMatch(
+        #{
+            bind := {{127, 0, 0, 1}, 31883},
+            acceptors := 4,
+            max_connections := 100,
+            tcp_options := #{active_n := 50}
+        },
+        emqx_conf:get(Path)
+    ),
+    {ok, _} = emqx_conf:remove(Path, #{override_to => cluster}),
+    ok.
+
+%% Loading one `mqtt` field with `--merge` keeps the other stored `mqtt` fields.
+%% Loading the same file with `--replace` resets the omitted fields to defaults.
+t_merge_keeps_omitted_mqtt_fields(Config) ->
+    MqttInit = emqx_conf:get_raw([mqtt]),
+    ok = load_conf(
+        merge,
+        #{<<"mqtt">> => #{<<"idle_timeout">> => <<"30s">>, <<"max_inflight">> => 64}},
+        Config
+    ),
+    OneField = #{<<"mqtt">> => #{<<"max_packet_size">> => <<"2MB">>}},
+    ok = load_conf(merge, OneField, Config),
+    ?assertMatch(
+        #{idle_timeout := 30_000, max_inflight := 64, max_packet_size := 2_097_152},
+        emqx_conf:get([mqtt])
+    ),
+    ok = load_conf(replace, OneField, Config),
+    ?assertMatch(
+        #{idle_timeout := 15_000, max_inflight := 32, max_packet_size := 2_097_152},
+        emqx_conf:get([mqtt])
+    ),
+    ok = load_conf(replace, #{<<"mqtt">> => MqttInit}, Config),
+    ok.
+
+%% Loading one `authorization` field with `--merge` keeps the other stored
+%% `authorization` fields and the stored sources.
+t_merge_keeps_omitted_authz_fields(Config) ->
+    AuthzInit = emqx_conf:get_raw([authorization]),
+    [FileSource] = maps:get(<<"sources">>, AuthzInit),
+    Authz = AuthzInit#{
+        <<"deny_action">> => <<"disconnect">>,
+        <<"cache">> => #{<<"max_size">> => 64},
+        <<"sources">> => [FileSource#{<<"enable">> => false}]
+    },
+    ok = load_conf(replace, #{<<"authorization">> => Authz}, Config),
+    ok = load_conf(merge, #{<<"authorization">> => #{<<"no_match">> => <<"deny">>}}, Config),
+    ?assertMatch(
+        #{
+            no_match := deny,
+            deny_action := disconnect,
+            cache := #{max_size := 64},
+            sources := [#{type := file, enable := false}]
+        },
+        emqx_conf:get([authorization])
+    ),
+    ok = load_conf(replace, #{<<"authorization">> => AuthzInit}, Config),
+    ok.
+
+%% Loading an authenticator with `--merge` keeps the stored fields that the
+%% loaded authenticator omits, and applies the loaded fields.
+t_merge_keeps_omitted_authn_fields(Config) ->
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    Redis = #{
+        <<"backend">> => <<"redis">>,
+        <<"mechanism">> => <<"password_based">>,
+        <<"enable">> => false,
+        <<"redis_type">> => <<"single">>,
+        <<"server">> => <<"127.0.0.1:6379">>,
+        <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt">>
+    },
+    ok = load_conf(replace, #{<<"authentication">> => [Redis#{<<"pool_size">> => 4}]}, Config),
+    NewCmd = <<"HMGET mqtt_user:${clientid} password_hash salt">>,
+    ok = load_conf(merge, #{<<"authentication">> => [Redis#{<<"cmd">> => NewCmd}]}, Config),
+    ?assertMatch(
+        [#{<<"pool_size">> := 4, <<"cmd">> := NewCmd}],
+        emqx_conf:get_raw([authentication])
+    ),
+    ok = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
+    ok.
+
+%% Loading a field under its alias name with `--merge` overrides the stored
+%% value under the canonical name.
+t_merge_alias_over_stored_field(Config) ->
+    Path = [listeners, tcp, merge_test],
+    Listener = #{<<"enable">> => true, <<"bind">> => <<"127.0.0.1:31884">>},
+    ok = load_conf(merge, listener_conf(Listener), Config),
+    ?assertMatch(#{enable := true}, emqx_conf:get(Path)),
+    ok = load_conf(merge, listener_conf(#{<<"enabled">> => false}), Config),
+    ?assertMatch(#{enable := false}, emqx_conf:get(Path)),
+    ?assertNot(maps:is_key(<<"enabled">>, emqx_conf:get_raw(Path))),
+    {ok, _} = emqx_conf:remove(Path, #{override_to => cluster}),
+    ok.
+
+%% Loading `authentication` as a single object with `--merge` merges it
+%% into the stored authenticator list.
+t_merge_authn_object_form(Config) ->
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    Redis = #{
+        <<"backend">> => <<"redis">>,
+        <<"mechanism">> => <<"password_based">>,
+        <<"enable">> => false,
+        <<"redis_type">> => <<"single">>,
+        <<"server">> => <<"127.0.0.1:6379">>,
+        <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt">>
+    },
+    ok = load_conf(replace, #{<<"authentication">> => [Redis#{<<"pool_size">> => 4}]}, Config),
+    NewCmd = <<"HMGET mqtt_user:${clientid} password_hash salt">>,
+    ok = load_conf(merge, #{<<"authentication">> => Redis#{<<"cmd">> => NewCmd}}, Config),
+    ?assertMatch(
+        [#{<<"pool_size">> := 4, <<"cmd">> := NewCmd}],
+        emqx_conf:get_raw([authentication])
+    ),
+    ok = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
+    ok.
+
+%% Loading one field of a union member with `--merge` keeps the stored
+%% fields that select the member (issue #17552, `schema_registry` schemas).
+t_merge_union_member_without_selector(Config) ->
+    Path = [schema_registry, schemas, <<"merge_test">>],
+    Schema = #{<<"type">> => <<"json">>, <<"source">> => <<"{}">>},
+    ok = load_conf(merge, schema_conf(Schema), Config),
+    ok = load_conf(merge, schema_conf(#{<<"description">> => <<"updated">>}), Config),
+    ?assertMatch(
+        #{type := json, source := <<"{}">>, description := <<"updated">>},
+        emqx_conf:get(Path)
+    ),
+    {ok, _} = emqx_conf:remove(Path, #{override_to => cluster}),
+    ok.
+
+schema_conf(Schema) ->
+    #{<<"schema_registry">> => #{<<"schemas">> => #{<<"merge_test">> => Schema}}}.
+
+load_conf(Mode, Conf, Config) ->
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, hocon_pp:do(Conf, #{}), Config),
+    emqx_conf_cli:conf(["load", "--" ++ atom_to_list(Mode), ConfFile]).
+
+listener_conf(Listener) ->
+    #{<<"listeners">> => #{<<"tcp">> => #{<<"merge_test">> => Listener}}}.
 
 base_conf() ->
     #{

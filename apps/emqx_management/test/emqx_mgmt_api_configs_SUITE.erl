@@ -426,7 +426,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                         }
                 }
         },
-        emqx_conf:get_raw([<<"actions">>])
+        raw_with_defaults(<<"actions">>)
     ),
     Connectors =
         #{
@@ -474,9 +474,13 @@ t_create_webhook_v1_bridges_api(Config) ->
                         }
                 }
         },
-    ?assertEqual(Connectors, emqx_conf:get_raw([<<"connectors">>])),
+    ?assertEqual(Connectors, raw_with_defaults(<<"connectors">>)),
     ?assertEqual(#{<<"webhook">> => #{}}, emqx_conf:get_raw([<<"bridges">>])),
     ok.
+
+%% `conf load --merge` stores the merged raw config without filling defaults.
+raw_with_defaults(Root) ->
+    maps:get(Root, emqx_config:fill_defaults(#{Root => emqx_conf:get_raw([Root])})).
 
 t_config_update_parse_error(_Config) ->
     BadHoconList = [
