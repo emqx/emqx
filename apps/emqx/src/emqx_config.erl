@@ -20,6 +20,7 @@
     check_config/2,
     fill_defaults/1,
     fill_defaults/2,
+    normalize_raw_conf/1,
     fill_defaults/3,
     save_configs/5,
     save_to_app_env/1,
@@ -492,6 +493,30 @@ fill_defaults(RawConf, Opts) ->
         #{},
         RawConf
     ).
+
+%% Normalize a fragment of raw config: rename aliases to their canonical
+%% names and apply converters. Omitted fields are neither filled with
+%% defaults nor required.
+-spec normalize_raw_conf(raw_config()) -> raw_config().
+normalize_raw_conf(RawConf) ->
+    RootNames = get_root_names(),
+    maps:fold(
+        fun(Key, Conf, Acc) ->
+            SubMap = #{Key => Conf},
+            Normalized =
+                case lists:member(Key, RootNames) of
+                    true -> normalize_raw_root(get_schema_mod(Key), SubMap);
+                    false -> SubMap
+                end,
+            maps:merge(Acc, Normalized)
+        end,
+        #{},
+        RawConf
+    ).
+
+normalize_raw_root(SchemaMod, RawConf) ->
+    Opts = #{partial => true, make_serializable => true},
+    hocon_tconf:check_plain(SchemaMod, RawConf, Opts, root_names_from_conf(RawConf)).
 
 -spec fill_defaults(module(), raw_config(), hocon_tconf:opts()) -> map().
 fill_defaults(SchemaMod, RawConf = #{<<"durable_storage">> := Ds}, Opts) ->
