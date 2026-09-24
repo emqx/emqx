@@ -54,7 +54,6 @@
 ]).
 -export([scopes/0]).
 
--define(NAME_RE, "^[A-Za-z]+\\w*\\-[\\w-.]*$").
 -define(TAGS, [<<"Plugins">>]).
 
 -define(CONTENT_PLUGIN, plugin).
@@ -488,25 +487,7 @@ sync_request_body() ->
     ).
 
 validate_name(Name) ->
-    NameLen = byte_size(Name),
-    case NameLen > 0 andalso NameLen =< 256 of
-        true ->
-            case re:run(Name, ?NAME_RE) of
-                nomatch ->
-                    {
-                        error,
-                        "Name should be an application name"
-                        " (starting with a letter, containing letters, digits and underscores)"
-                        " followed with a dash and a version string "
-                        " (can contain letters, digits, dots, and dashes), "
-                        " e.g. emqx_plugin_template-5.0-rc.1"
-                    };
-                _ ->
-                    ok
-            end;
-        false ->
-            {error, "Name Length must =< 256"}
-    end.
+    emqx_plugins_utils:validate_name_vsn(Name).
 
 validate_file_name(#{body := #{<<"plugin">> := Plugin}} = Params, _Meta) when is_map(Plugin) ->
     [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
@@ -798,6 +779,7 @@ sync_plugin(post, #{body := Body}) ->
                     do_sync_plugin(NameVsn)
             end;
         {error, {plugin_error, Reason}} ->
+            ?SLOG(warning, #{msg => "invalid_plugin_sync_name", reason => Reason}),
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
                 message => Reason
@@ -827,20 +809,22 @@ install_package(FileName, Bin) ->
     install_package_v4(NameVsn, Bin).
 
 install_package_v4(NameVsn, Bin) ->
-    case emqx_plugins:install_state(NameVsn) of
-        installed ->
-            %% The installation is already complete, and a complete
-            %% installation is not unpacked again (`ensure_installed_from_tar/2'
-            %% returns without touching the package), so writing the upload
-            %% would pair the new package with the files of the previous one.
-            %% Keep both as they are: a cluster install runs this callback on
-            %% every node, including the ones which hold the installation
-            %% already (the node which answers the request decides whether the
-            %% upload is refused, see `do_upload_install/2').
-            emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
-        _IncompleteOrAbsent ->
-            install_replacing_package(NameVsn, Bin)
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case emqx_plugins:install_state(NameVsn) of
+            installed ->
+                %% The installation is already complete, and a complete
+                %% installation is not unpacked again (`ensure_installed_from_tar/2'
+                %% returns without touching the package), so writing the upload
+                %% would pair the new package with the files of the previous one.
+                %% Keep both as they are: a cluster install runs this callback on
+                %% every node, including the ones which hold the installation
+                %% already (the node which answers the request decides whether the
+                %% upload is refused, see `do_upload_install/2').
+                emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
+            _IncompleteOrAbsent ->
+                install_replacing_package(NameVsn, Bin)
+        end
+    end).
 
 %% Replace the package of an absent or incomplete installation with the
 %% uploaded one.
@@ -1515,14 +1499,15 @@ parse_position(Position, _) ->
 -spec parse_sync_plugin_name(map()) -> {ok, string()} | {error, term()}.
 parse_sync_plugin_name(#{<<"name">> := Name}) ->
     parse_sync_plugin_name(Name);
-parse_sync_plugin_name(Name) ->
-    try emqx_plugins_utils:parse_name_vsn(Name) of
-        {_AppName, _Vsn} ->
-            {ok, binary_to_list(Name)}
-    catch
-        error:bad_name_vsn ->
+parse_sync_plugin_name(Name) when is_binary(Name) ->
+    case validate_name(Name) of
+        ok ->
+            {ok, binary_to_list(Name)};
+        {error, _} ->
             {error, {plugin_error, <<"Bad Plugin Name Vsn">>}}
-    end.
+    end;
+parse_sync_plugin_name(_) ->
+    {error, {plugin_error, <<"Bad Plugin Name Vsn">>}}.
 
 format_plugins(List) ->
     StatusMap = aggregate_status(List),
