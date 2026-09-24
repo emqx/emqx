@@ -238,7 +238,9 @@ validate_credentials(Config) ->
     case get_field(endpoint, Config) of
         Endpoint when is_binary(Endpoint) ->
             HasAccessKeyId = is_set(get_field(aws_access_key_id, Config)),
-            HasSecretAccessKey = is_set(get_field(aws_secret_access_key, Config)),
+            HasSecretAccessKey = is_set(
+                emqx_schema_secret:source(get_field(aws_secret_access_key, Config))
+            ),
             case HasAccessKeyId =:= HasSecretAccessKey of
                 true ->
                     ok;
@@ -256,7 +258,6 @@ get_field(Key, Config) ->
 
 is_set(undefined) -> false;
 is_set(<<>>) -> false;
-is_set(Secret) when is_function(Secret, 0) -> is_set(emqx_secret:term(Secret));
 is_set(_) -> true.
 
 %%-------------------------------------------------------------------------------------------------
