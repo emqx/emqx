@@ -1246,7 +1246,7 @@ t_internal_subscribe_checks_authz_and_runs_hook(_) ->
     ),
     snabbkaffe_diff:assert_lists_eq(
         lists:sort(AllowedTopics),
-        channel_subscriptions(ChannelPid)
+        channel_subscriptions(ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -1275,7 +1275,7 @@ t_internal_subscribe_checks_caps(_) ->
         ]},
     snabbkaffe_diff:assert_lists_eq(
         [SimpleTopic],
-        channel_subscriptions(ChannelPid)
+        channel_subscriptions(ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -1937,6 +1937,7 @@ on_client_subscribe(_ClientInfo, Properties, TopicFilters, TestPid) ->
     TestPid ! {client_subscribe, Properties, TopicFilters},
     {ok, TopicFilters}.
 
-channel_subscriptions(ChannelPid) ->
-    #{session := #{subscriptions := Subscriptions}} = emqx_connection:info(ChannelPid),
+channel_subscriptions(ClientId) ->
+    Subscriptions =
+        emqx_cth_broker:connection_info({channel, {session, subscriptions}}, ClientId),
     lists:sort(maps:keys(Subscriptions)).
