@@ -30,6 +30,9 @@ scope_audit.desc:
 scope_license.desc:
 """License management"""
 
+scope_plugin_api.desc:
+"""Call the API endpoints a plugin publishes, under /plugin_api. Does not grant plugin installation or configuration, which stay in the system scope"""
+
 scope_user_management.desc:
 """Manage dashboard users (create, update, delete, change other users' password)"""
 
