@@ -504,7 +504,11 @@ t_config_enable_waits_for_the_install_lock(Config) ->
     NameVsn = proplists:get_value(name_vsn, Config),
     ok = emqx_plugins:ensure_installed(NameVsn),
     ok = emqx_plugins:ensure_disabled(NameVsn),
+    %% The plugin is configured but no longer installed: enabling it has to
+    %% unpack the package, which needs the installation lock.
+    ok = emqx_plugins:purge(NameVsn),
     ?assertNot(plugin_is_running(NameVsn)),
+    ?assertNot(emqx_plugins_fs:is_installed(NameVsn)),
     %% The configuration callback and the retry of the refused start do not run
     %% in this process, so the refusals are counted with a shared counter.
     Refusals = atomics:new(1, []),
@@ -536,6 +540,49 @@ t_config_enable_waits_for_the_install_lock(Config) ->
     end,
     %% every refusal was retried, and the plugin is running
     ?assert(atomics:get(Refusals, 1) >= ?LOCK_REFUSALS),
+    ?assert(plugin_is_running(NameVsn)),
+    ok.
+
+%% Enabling a plugin whose installation is already complete on this node starts
+%% it even while the cluster wide installation lock can not be taken: starting it
+%% unpacks and writes nothing, and the configuration entry is applied once, so a
+%% start which was refused here would leave the plugin stopped while its
+%% configuration says enabled.
+t_config_enable_installed_plugin_ignores_the_install_lock({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_config_enable_installed_plugin_ignores_the_install_lock({'end', Config}) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn);
+t_config_enable_installed_plugin_ignores_the_install_lock(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_disabled(NameVsn),
+    ?assertNot(plugin_is_running(NameVsn)),
+    Refusals = atomics:new(1, []),
+    ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_install_serializer, run, fun(_NV, _Fun) ->
+            _ = atomics:add_get(Refusals, 1, 1),
+            {error, #{
+                msg => "failed_to_acquire_plugin_install_lock",
+                reason => installation_in_progress
+            }}
+        end),
+        Enable =
+            #{
+                <<"states">> => [
+                    #{<<"name_vsn">> => bin(NameVsn), <<"enable">> => true}
+                ]
+            },
+        {ok, _} = emqx_conf:update([plugins], Enable, #{override_to => cluster}),
+        ok = wait_until_running(NameVsn, 200)
+    after
+        ok = meck:unload(emqx_plugins_install_serializer)
+    end,
+    ?assert(atomics:get(Refusals, 1) >= 1),
     ?assert(plugin_is_running(NameVsn)),
     ok.
 

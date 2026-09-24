@@ -314,18 +314,61 @@ ensure_installed() ->
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
     emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
-        with_installation_lock(NameVsn, fun() -> ensure_installed_locked(NameVsn) end)
+        case with_installation_lock(NameVsn, fun() -> ensure_installed_locked(NameVsn) end) of
+            {error, _} = Refusal ->
+                with_installed_or_refused(NameVsn, Refusal, fun() ->
+                    ensure_installed_installed(NameVsn)
+                end);
+            Result ->
+                Result
+        end
     end).
 
 ensure_installed_locked(NameVsn) ->
     case install_state(NameVsn) of
         installed ->
-            maybe
-                {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
-                configure(NameVsn, ?normal, RunningSt)
-            end;
+            ensure_installed_installed(NameVsn);
         _IncompleteOrAbsent ->
             reinstall(NameVsn)
+    end.
+
+%% Configure an installation which is complete on this node.
+ensure_installed_installed(NameVsn) ->
+    maybe
+        {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
+        configure(NameVsn, ?normal, RunningSt)
+    end.
+
+%% @doc Run `Fun' when the lock could not be taken but the plugin is already
+%% installed, otherwise return the refusal.
+%%
+%% The installation lock orders the operations which write, unpack, publish or
+%% roll back an installation.  A plugin which is already installed on this node
+%% has nothing to write: it may even have been placed in the install directory
+%% by hand, without a package file.  Refusing to start it because the lock is
+%% held by an unrelated installation -- or because the coordinator can not hand
+%% the lock out at all, for example while it is unreachable -- would leave the
+%% node running without a plugin which its own configuration enables.
+%%
+%% The state is only read when no installation of this application runs on this
+%% node: an installation here can be between the publication and the validation
+%% of its tree, when the tree is already complete but can still be rolled back
+%% (`emqx_plugins_fs:ensure_installed_from_tar/2').  An installation on another
+%% node can not touch this node's install directory.
+with_installed_or_refused(NameVsn, Refusal, Fun) ->
+    case installation_refused(Refusal) of
+        false ->
+            Refusal;
+        true ->
+            case emqx_plugins_install_serializer:install_in_progress(NameVsn) of
+                true ->
+                    Refusal;
+                false ->
+                    case install_state(NameVsn) of
+                        installed -> Fun();
+                        _IncompleteOrAbsent -> Refusal
+                    end
+            end
     end.
 
 %% @doc Replace whatever the install dir holds with the package found in the
@@ -703,9 +746,16 @@ start_plugin_waiting_for_lock(NameVsn) ->
 -spec ensure_start_package(name_vsn()) -> ok | {error, term()}.
 ensure_start_package(NameVsn) ->
     ?CATCH(
-        with_installation_lock(NameVsn, fun() ->
-            do_ensure_start_package(NameVsn)
-        end)
+        case
+            with_installation_lock(NameVsn, fun() ->
+                do_ensure_start_package(NameVsn)
+            end)
+        of
+            {error, _} = Refusal ->
+                with_installed_or_refused(NameVsn, Refusal, fun() -> ok end);
+            Result ->
+                Result
+        end
     ).
 
 %% @doc Validate that a plugin can be started without changing runtime state.
@@ -1046,7 +1096,7 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
 do_ensure_started(NameVsn) ->
     maybe
         ok ?= ensure_no_other_version_active(NameVsn),
-        ok ?= install(NameVsn, ?normal),
+        ok ?= ensure_start_installation(NameVsn),
         ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
@@ -1056,6 +1106,33 @@ do_ensure_started(NameVsn) ->
     else
         {error, Reason} ->
             {error, Reason}
+    end.
+
+%% @doc Ensure the installation a start needs.
+%%
+%% Same as `install/2', except that an installation which is already complete on
+%% this node is still started when the installation lock can not be taken (see
+%% `with_installed_or_refused/3'): loading and starting it writes nothing, and
+%% refusing would leave the plugin stopped while the configuration which enables
+%% it stays.
+ensure_start_installation(NameVsn) ->
+    case install(NameVsn, ?normal) of
+        {error, _} = Refusal ->
+            with_installed_or_refused(NameVsn, Refusal, fun() ->
+                ensure_started_from_installed(NameVsn)
+            end);
+        Result ->
+            Result
+    end.
+
+%% Load an installation which is complete on this node.
+%%
+%% This is the `installed' branch of `install/2' without the lock: the state was
+%% already read by `with_installed_or_refused/3'.
+ensure_started_from_installed(NameVsn) ->
+    maybe
+        {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        emqx_plugins_apps:load(Plugin, emqx_plugins_fs:lib_dir(NameVsn))
     end.
 
 do_ensure_start_package(NameVsn) ->

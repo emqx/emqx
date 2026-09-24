@@ -934,6 +934,44 @@ t_start_stops_at_the_first_node_without_the_lock(Config) ->
     end,
     ok.
 
+%% An installed plugin is started even when the cluster wide installation lock
+%% can not be taken: starting it unpacks and writes nothing, so the API must not
+%% leave a plugin which is installed on the nodes stopped because another
+%% installation holds the lock.
+t_start_installed_plugin_when_the_lock_is_unavailable(Config) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_disabled(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_install_serializer, run, fun(_NV, _Fun) ->
+            {error, #{
+                msg => "failed_to_acquire_plugin_install_lock",
+                reason => installation_in_progress
+            }}
+        end),
+        ?assertMatch(
+            {204},
+            emqx_mgmt_api_plugins:update_plugin(put, #{
+                bindings => #{name => NameVsn, action => start}
+            })
+        )
+    after
+        ok = meck:unload(emqx_plugins_install_serializer)
+    end,
+    ok.
+
 %% A complete installation is still an installation: uploading the same package
 %% again is refused with ALREADY_INSTALLED and the installed files are kept.
 t_install_over_complete_install_dir(_Config) ->

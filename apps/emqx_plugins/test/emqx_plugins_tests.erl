@@ -440,6 +440,85 @@ install_package_writes_nothing_when_the_install_lock_is_unavailable_test() ->
         unmeck_emqx()
     end.
 
+%% A plugin whose installation is already complete on this node is started even
+%% when the cluster wide installation lock can not be taken: loading it unpacks
+%% and writes nothing, and the node would otherwise run without a plugin its own
+%% configuration enables.  The check is on the installation, not on the caller:
+%% a package which still has to be unpacked keeps reporting the refusal.
+start_package_of_an_installed_plugin_does_not_need_the_install_lock_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                Installed = "already_installed-0.1.0",
+                ok = install_plugin_files(Installed, []),
+                ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins_install_serializer, run, fun(_NameVsn, _Fun) ->
+                        {error, #{
+                            msg => "failed_to_acquire_plugin_install_lock",
+                            reason => installation_in_progress
+                        }}
+                    end),
+                    ?assertEqual(ok, emqx_plugins:ensure_start_package(Installed)),
+                    ?assertMatch(
+                        {error, #{msg := "failed_to_acquire_plugin_install_lock"}},
+                        emqx_plugins:ensure_start_package("not_installed-0.1.0")
+                    )
+                after
+                    ok = meck:unload(emqx_plugins_install_serializer)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% An installation which runs on this node can be between the publication and
+%% the validation of its tree: the tree is already complete, but it can still be
+%% rolled back.  A start which can not take the lock must keep the refusal while
+%% such an installation is running, and only bypass it when no installation of
+%% this application runs here (the installation on another node can not touch
+%% this node's install directory).
+start_package_keeps_the_refusal_while_a_local_install_runs_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "already_installed-0.1.0",
+                ok = install_plugin_files(NameVsn, []),
+                Parent = self(),
+                {Holder, Ref} = spawn_monitor(fun() ->
+                    emqx_plugins_fs:with_installation_lock(NameVsn, fun() ->
+                        Parent ! {locked, self()},
+                        receive
+                            release -> ok
+                        end
+                    end)
+                end),
+                receive
+                    {locked, Holder} -> ok
+                after 5000 ->
+                    error(lock_not_taken)
+                end,
+                ?assertMatch(
+                    {error, #{reason := installation_in_progress}},
+                    emqx_plugins:ensure_start_package(NameVsn)
+                ),
+                Holder ! release,
+                receive
+                    {'DOWN', Ref, process, Holder, _} -> ok
+                after 5000 ->
+                    error(install_did_not_finish)
+                end,
+                ?assertEqual(false, emqx_plugins_install_serializer:install_in_progress(NameVsn)),
+                ?assertEqual(ok, emqx_plugins:ensure_start_package(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
 %% Purging the other versions of a plugin only needs the two textual parts of
 %% the name: the name comes from a request and does not become an atom.
 purge_other_versions_keeps_the_name_textual_test() ->

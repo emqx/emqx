@@ -18,7 +18,7 @@
 
 -export([start_link/0, run/2, lock_status/0, child_spec/0]).
 -export([acquire_lock/1, release_lock/1]).
--export([supports_install_lock/0]).
+-export([supports_install_lock/0, install_in_progress/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
 -define(SERVER, ?MODULE).
@@ -26,6 +26,9 @@
 %% The lock this process took, so that it can be taken again by the same
 %% process without calling the coordinator a second time.
 -define(HELD_KEY, {?MODULE, held_lock}).
+
+%% The applications installed on this node right now, see `install_in_progress/1'.
+-define(LOCAL_INSTALLS, {?MODULE, local_installs}).
 
 -type lock() :: reference().
 -type state() :: #{owner := {pid(), lock()} | undefined}.
@@ -64,10 +67,12 @@ run(NameVsn, Fun) ->
             case acquire(NameVsn) of
                 {ok, Coordinator, Lock} ->
                     erlang:put(?HELD_KEY, {Coordinator, Lock}),
+                    ok = mark_install_started(NameVsn),
                     try
                         Fun()
                     after
                         erlang:erase(?HELD_KEY),
+                        mark_install_finished(NameVsn),
                         release(Coordinator, Lock)
                     end;
                 {error, _} = Error ->
@@ -78,6 +83,49 @@ run(NameVsn, Fun) ->
             %% around the whole sequence which replaces an installation, and the
             %% steps inside that sequence take it again.
             Fun()
+    end.
+
+%% @doc Whether this node runs an installation of `NameVsn' right now.
+%%
+%% The installation lock is cluster wide, but the files it protects are local
+%% to each node: an installation running on another node can not touch this
+%% node's install directory, while one running here can be between the
+%% publication and the validation of its tree, when the tree is already
+%% complete but can still be rolled back.  A caller which has to read the
+%% installation state while the lock is not available uses this to tell the two
+%% apart (`emqx_plugins:with_installed_or_refused/3').
+%%
+%% Installations of the same application are not told apart: replacing a
+%% version also removes the other versions of that application.
+-spec install_in_progress(name_vsn()) -> boolean().
+install_in_progress(NameVsn) ->
+    maps:is_key(install_app(NameVsn), local_installs()).
+
+mark_install_started(NameVsn) ->
+    update_local_installs(fun(Installs) ->
+        maps:update_with(install_app(NameVsn), fun(Count) -> Count + 1 end, 1, Installs)
+    end).
+
+mark_install_finished(NameVsn) ->
+    update_local_installs(fun(Installs) ->
+        case maps:get(install_app(NameVsn), Installs, 0) of
+            0 -> Installs;
+            1 -> maps:remove(install_app(NameVsn), Installs);
+            Count -> Installs#{install_app(NameVsn) => Count - 1}
+        end
+    end).
+
+local_installs() ->
+    persistent_term:get(?LOCAL_INSTALLS, #{}).
+
+update_local_installs(Fun) ->
+    persistent_term:put(?LOCAL_INSTALLS, Fun(local_installs())),
+    ok.
+
+install_app(NameVsn) ->
+    case emqx_plugins_utils:split_name_vsn(NameVsn) of
+        {AppName, _Vsn} -> AppName;
+        error -> NameVsn
     end.
 
 %% @doc Acquire this node's lock for the original installation process.
