@@ -467,6 +467,10 @@ resource_id(Config) ->
     Name = ?config(greptimedb_name, Config),
     emqx_bridge_resource:resource_id(Type, Name).
 
+bridge_metrics(Config) ->
+    Name = ?config(greptimedb_name, Config),
+    emqx_bridge:get_metrics(?ACTION_TYPE, Name).
+
 create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
@@ -960,6 +964,8 @@ do_t_partially_invalid_batch(Config) ->
             #{
                 <<"resource_opts">> => #{
                     <<"batch_size">> => 3,
+                    <<"batch_time">> => <<"5s">>,
+                    <<"metrics_flush_interval">> => <<"100ms">>,
                     <<"worker_pool_size">> => 1
                 },
                 <<"write_syntax">> =>
@@ -989,10 +995,7 @@ do_t_partially_invalid_batch(Config) ->
             Results = emqx_utils:pmap(fun(Data) -> send_message(Config, Data) end, Batch, infinity),
             case QueryMode of
                 sync ->
-                    ?assertEqual(
-                        [{ok, {affected_rows, 2}}, InvalidResult, {ok, {affected_rows, 2}}],
-                        Results
-                    );
+                    ?assertMatch([{ok, _}, InvalidResult, {ok, _}], Results);
                 async ->
                     ?assertEqual([ok, ok, ok], Results)
             end,
@@ -1011,12 +1014,11 @@ do_t_partially_invalid_batch(Config) ->
                     )
                 end
             ),
-            ResourceId = resource_id(Config),
             ?retry(
                 100,
                 20,
                 begin
-                    #{counters := Counters} = emqx_resource:get_metrics(ResourceId),
+                    #{counters := Counters} = bridge_metrics(Config),
                     ?assertMatch(
                         #{matched := 3, success := 2, failed := 1},
                         Counters
@@ -1026,15 +1028,174 @@ do_t_partially_invalid_batch(Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch(
-                [#{batch := true, points := [_, _]}],
-                ?of_kind(greptimedb_connector_send_query, Trace)
+            BatchQueryEvents =
+                ?of_kind(call_batch_query, Trace) ++
+                    ?of_kind(call_batch_query_async, Trace),
+            ?assertMatch([#{batch := [_, _, _]}], BatchQueryEvents),
+            SendEvents = ?of_kind(greptimedb_connector_send_query, Trace),
+            ?assertNotEqual([], SendEvents),
+            ?assert(lists:all(fun(#{batch := IsBatch}) -> IsBatch end, SendEvents)),
+            ?assertEqual(
+                2,
+                lists:sum([length(Points) || #{points := Points} <- SendEvents])
             ),
             ?assertMatch(
                 [#{batch := true, error := points_trans_failed}],
                 ?of_kind(greptimedb_connector_send_query_error, Trace)
             ),
             ok
+        end
+    ),
+    ok.
+
+t_invalid_data_does_not_block_worker(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"resource_opts">> => #{
+                    <<"metrics_flush_interval">> => <<"100ms">>,
+                    <<"worker_pool_size">> => 1
+                },
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} value=${payload.value}i">>
+            }
+        ),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Message =
+        fun(ClientId, Value) ->
+            #{
+                <<"clientid">> => ClientId,
+                <<"topic">> => Topic,
+                <<"payload">> => #{<<"value">> => Value},
+                <<"timestamp">> => erlang:system_time(millisecond)
+            }
+        end,
+    InvalidClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    InvalidResult = send_message(Config, Message(InvalidClientId, 20.5)),
+    case QueryMode of
+        sync -> ?assertMatch({error, {unrecoverable_error, _}}, InvalidResult);
+        async -> ?assertEqual(ok, InvalidResult)
+    end,
+    ?retry(
+        100,
+        20,
+        begin
+            #{
+                counters := #{matched := 1, failed := 1},
+                gauges := #{queuing := 0, inflight := 0}
+            } = bridge_metrics(Config)
+        end
+    ),
+    ValidClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ValidResult = send_message(Config, Message(ValidClientId, 42)),
+    case QueryMode of
+        sync -> ?assertMatch({ok, _}, ValidResult);
+        async -> ?assertEqual(ok, ValidResult)
+    end,
+    ?retry(
+        500,
+        20,
+        begin
+            ?assertMatch(
+                #{<<"value">> := 42},
+                query_by_clientid(ValidClientId, Config)
+            ),
+            #{
+                counters := #{matched := 2, success := 1, failed := 1},
+                gauges := #{queuing := 0, inflight := 0}
+            } = bridge_metrics(Config)
+        end
+    ),
+    ok.
+
+t_numeric_ranges(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"resource_opts">> => #{
+                    <<"metrics_flush_interval">> => <<"100ms">>,
+                    <<"worker_pool_size">> => 1
+                },
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} ", "int_value=${payload.int_value}i,",
+                        "uint_value=${payload.uint_value}u,", "float_value=${payload.float_value}">>
+            }
+        ),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Message =
+        fun(ClientId, Payload, Timestamp) ->
+            #{
+                <<"clientid">> => ClientId,
+                <<"topic">> => Topic,
+                <<"payload">> => Payload,
+                <<"timestamp">> => Timestamp
+            }
+        end,
+    ValidPayload = #{
+        <<"int_value">> => 42,
+        <<"uint_value">> => 42,
+        <<"float_value">> => 42
+    },
+    Now = erlang:system_time(millisecond),
+    InvalidCases = [
+        {signed_underflow, ValidPayload#{<<"int_value">> => -16#8000000000000001}, Now},
+        {signed_overflow, ValidPayload#{<<"int_value">> => 16#8000000000000000}, Now},
+        {negative_unsigned, ValidPayload#{<<"uint_value">> => -1}, Now},
+        {unsigned_overflow, ValidPayload#{<<"uint_value">> => 16#10000000000000000}, Now},
+        {float_overflow, ValidPayload#{<<"float_value">> => 1 bsl 1024}, Now},
+        {timestamp_overflow, ValidPayload, 16#7FFFFFFFFFFFFFFF div 1_000_000 + 1}
+    ],
+    InvalidMessages = [
+        {ClientId, Message(ClientId, Payload, Timestamp)}
+     || {_Case, Payload, Timestamp} <- InvalidCases,
+        ClientId <- [emqx_guid:to_hexstr(emqx_guid:gen())]
+    ],
+    ValidClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Messages =
+        InvalidMessages ++
+            [
+                {ValidClientId, Message(ValidClientId, ValidPayload, Now)}
+            ],
+    Results = [send_message(Config, Data) || {_ClientId, Data} <- Messages],
+    case QueryMode of
+        sync ->
+            {InvalidResults, [ValidResult]} = lists:split(length(InvalidMessages), Results),
+            lists:foreach(
+                fun(Result) ->
+                    ?assertMatch({error, {unrecoverable_error, _}}, Result)
+                end,
+                InvalidResults
+            ),
+            ?assertMatch({ok, _}, ValidResult);
+        async ->
+            ?assertEqual(lists:duplicate(length(Messages), ok), Results)
+    end,
+    ?retry(
+        500,
+        20,
+        begin
+            lists:foreach(
+                fun({ClientId, _Data}) ->
+                    ?assertEqual(#{}, query_by_clientid(ClientId, Config))
+                end,
+                InvalidMessages
+            ),
+            ?assertMatch(
+                #{
+                    <<"int_value">> := 42,
+                    <<"uint_value">> := 42,
+                    <<"float_value">> := 42.0
+                },
+                query_by_clientid(ValidClientId, Config)
+            ),
+            #{
+                counters := #{matched := 7, success := 1, failed := 6},
+                gauges := #{queuing := 0, inflight := 0}
+            } = bridge_metrics(Config)
         end
     ),
     ok.

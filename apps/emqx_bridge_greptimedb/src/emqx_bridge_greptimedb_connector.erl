@@ -53,6 +53,9 @@
 -define(greptime_client, greptime_client).
 
 -define(GREPTIMEDB_DEFAULT_PORT, 4001).
+-define(INT64_MIN, -16#8000000000000000).
+-define(INT64_MAX, 16#7FFFFFFFFFFFFFFF).
+-define(UINT64_MAX, 16#FFFFFFFFFFFFFFFF).
 
 -define(DEFAULT_DB, <<"public">>).
 
@@ -189,7 +192,7 @@ on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
                 greptimedb_connector_send_query,
                 #{points => Points, batch => false, mode => async}
             ),
-            do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
+            do_async_query(Channel, Client, Points, {ReplyFun, Args});
         {error, ErrorPoints} ->
             ?tp(
                 greptimedb_connector_send_query_error,
@@ -211,7 +214,7 @@ on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, S
                 greptimedb_connector_send_query,
                 #{points => Points, batch => true, mode => async}
             ),
-            do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
+            do_async_query(Channel, Client, Points, {ReplyFun, Args});
         {ok, Points, BatchResults} ->
             ?tp(
                 greptimedb_connector_send_query_error,
@@ -229,9 +232,7 @@ on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, S
                         greptimedb_connector_send_query,
                         #{points => Points, batch => true, mode => async}
                     ),
-                    do_async_batch_query(
-                        InstId, Channel, Client, Points, BatchResults, ReplyFunAndArgs
-                    )
+                    do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs)
             end
     end.
 
@@ -488,7 +489,7 @@ do_query(InstId, Channel, Client, Points) ->
             ?SLOG(debug, #{
                 msg => "greptimedb_write_point_success",
                 connector => InstId,
-                points => Points
+                affected_rows => Rows
             }),
             {ok, {affected_rows, Rows}};
         {error, {unauth, _, _}} ->
@@ -519,22 +520,12 @@ on_format_query_result({ok, {affected_rows, Rows}}) ->
 on_format_query_result(Result) ->
     Result.
 
-do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs) ->
-    ?SLOG(info, #{
-        msg => "greptimedb_write_point_async",
-        connector => InstId,
-        points => Points
-    }),
+do_async_query(Channel, Client, Points, ReplyFunAndArgs) ->
     emqx_trace:rendered_action_template(Channel, #{points => Points}),
     WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
     ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
 
-do_async_batch_query(InstId, Channel, Client, Points, BatchResults, ReplyFunAndArgs) ->
-    ?SLOG(info, #{
-        msg => "greptimedb_write_point_async",
-        connector => InstId,
-        points => Points
-    }),
+do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs) ->
     emqx_trace:rendered_action_template(Channel, #{points => Points}),
     WrappedReplyFunAndArgs = {
         fun ?MODULE:batch_reply_callback/3, [ReplyFunAndArgs, BatchResults]
@@ -757,16 +748,23 @@ line_to_point(
         {ok, EncodedTags} ->
             case config_to_data(Data, Fields) of
                 {ok, EncodedFields} ->
-                    TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
-                    Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
-                    {ok,
-                        {Metric, [
-                            maps:without([precision, measurement], Item#{
-                                tags => EncodedTags,
-                                fields => EncodedFields,
-                                timestamp => maybe_convert_time_unit(Ts, Precision)
-                            })
-                        ]}};
+                    case convert_timestamp(Ts, Precision) of
+                        {ok, Timestamp} ->
+                            TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
+                            Metric = #{
+                                dbname => DbName, table => TableName, timeunit => ToPrecision
+                            },
+                            {ok,
+                                {Metric, [
+                                    maps:without([precision, measurement], Item#{
+                                        tags => EncodedTags,
+                                        fields => EncodedFields,
+                                        timestamp => Timestamp
+                                    })
+                                ]}};
+                        {error, _} = Error ->
+                            Error
+                    end;
                 {error, _} = Error ->
                     Error
             end;
@@ -776,6 +774,13 @@ line_to_point(
 
 maybe_convert_time_unit(Ts, {FromPrecision, ToPrecision}) ->
     erlang:convert_time_unit(Ts, time_unit(FromPrecision), time_unit(ToPrecision)).
+
+convert_timestamp(Ts, Precision) ->
+    Timestamp = maybe_convert_time_unit(Ts, Precision),
+    case is_int64(Timestamp) of
+        true -> {ok, Timestamp};
+        false -> {error, {bad_timestamp, Ts}}
+    end.
 
 time_unit(s) -> second;
 time_unit(ms) -> millisecond;
@@ -813,13 +818,13 @@ maps_config_to_data(K, V, Data, {ok, Res}) ->
     end.
 
 value_type([Int, <<"i">>]) when
-    is_integer(Int)
+    is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX
 ->
     {ok, greptimedb_values:int64_value(Int)};
 value_type([Invalid, <<"i">>]) ->
     {error, {invalid_integer_value, Invalid}};
 value_type([UInt, <<"u">>]) when
-    is_integer(UInt)
+    is_integer(UInt), UInt >= 0, UInt =< ?UINT64_MAX
 ->
     {ok, greptimedb_values:uint64_value(UInt)};
 value_type([Invalid, <<"u">>]) ->
@@ -847,16 +852,21 @@ value_type([<<"False">>]) ->
 value_type([Float]) when is_float(Float) ->
     {ok, Float};
 value_type([Int]) when is_integer(Int) ->
-    {ok, greptimedb_values:float64_value(Int)};
+    try
+        {ok, greptimedb_values:float64_value(float(Int))}
+    catch
+        error:badarg ->
+            {error, {invalid_float_value, Int}}
+    end;
 value_type(Val0) ->
     try unicode:characters_to_binary(Val0, utf8) of
         Val1 when is_binary(Val1) ->
             {ok, greptimedb_values:string_value([Val1])};
         _Error ->
-            {error, {non_utf8_string_value, Val0}}
+            {error, {invalid_string_value, Val0}}
     catch
         error:badarg ->
-            {error, {non_utf8_string_value, Val0}}
+            {error, {invalid_string_value, Val0}}
     end.
 
 key_filter(undefined) -> undefined;
@@ -902,6 +912,9 @@ is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
 is_unrecoverable_error(_) ->
     false.
 
+is_int64(Int) ->
+    is_integer(Int) andalso Int >= ?INT64_MIN andalso Int =< ?INT64_MAX.
+
 %%===================================================================
 %% eunit tests
 %%===================================================================
@@ -933,10 +946,7 @@ integer_point_validation_test() ->
         #{value_data => {i64_value, 470}},
         maps:get(<<"e2e_delay">>, Fields)
     ),
-    ?assertEqual(
-        {ok, #{value_data => {f64_value, 470}}},
-        value_type([470])
-    ),
+    ?assertEqual({ok, #{value_data => {f64_value, 470.0}}}, value_type([470])),
     InvalidErrorPoints = [{error, {invalid_integer_value, 470.5}}],
     ?assertEqual(
         {error, InvalidErrorPoints}, data_to_points(InvalidData, <<"public">>, SyntaxLines)
@@ -1002,8 +1012,58 @@ integer_point_validation_test() ->
         error(callback_timeout)
     end,
     ?assertEqual(
-        {error, {non_utf8_string_value, [470.5, <<"x">>]}},
+        {error, {invalid_string_value, [470.5, <<"x">>]}},
         value_type([470.5, <<"x">>])
+    ).
+
+numeric_range_validation_test() ->
+    ?assertEqual(
+        {ok, #{value_data => {i64_value, ?INT64_MIN}}},
+        value_type([?INT64_MIN, <<"i">>])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {i64_value, ?INT64_MAX}}},
+        value_type([?INT64_MAX, <<"i">>])
+    ),
+    ?assertEqual(
+        {error, {invalid_integer_value, ?INT64_MIN - 1}},
+        value_type([?INT64_MIN - 1, <<"i">>])
+    ),
+    ?assertEqual(
+        {error, {invalid_integer_value, ?INT64_MAX + 1}},
+        value_type([?INT64_MAX + 1, <<"i">>])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {u64_value, ?UINT64_MAX}}},
+        value_type([?UINT64_MAX, <<"u">>])
+    ),
+    ?assertEqual(
+        {error, {invalid_unsigned_integer_value, -1}},
+        value_type([-1, <<"u">>])
+    ),
+    ?assertEqual(
+        {error, {invalid_unsigned_integer_value, ?UINT64_MAX + 1}},
+        value_type([?UINT64_MAX + 1, <<"u">>])
+    ),
+    TooLargeForFloat64 = 1 bsl 1024,
+    ?assertEqual(
+        {error, {invalid_float_value, TooLargeForFloat64}},
+        value_type([TooLargeForFloat64])
+    ),
+    ?assertEqual({ok, ?INT64_MIN}, convert_timestamp(?INT64_MIN, {ns, ns})),
+    ?assertEqual({ok, ?INT64_MAX}, convert_timestamp(?INT64_MAX, {ns, ns})),
+    ?assertEqual(
+        {error, {bad_timestamp, ?INT64_MIN - 1}},
+        convert_timestamp(?INT64_MIN - 1, {ns, ns})
+    ),
+    ?assertEqual(
+        {error, {bad_timestamp, ?INT64_MAX + 1}},
+        convert_timestamp(?INT64_MAX + 1, {ns, ns})
+    ),
+    MillisecondOverflow = ?INT64_MAX div 1_000_000 + 1,
+    ?assertEqual(
+        {error, {bad_timestamp, MillisecondOverflow}},
+        convert_timestamp(MillisecondOverflow, {ms, ns})
     ).
 
 %% for coverage
