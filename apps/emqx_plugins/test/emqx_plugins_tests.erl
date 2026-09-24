@@ -148,6 +148,125 @@ write_file(Path, Content) ->
     ok = filelib:ensure_dir(Path),
     file:write_file(Path, Content).
 
+%% The retry of a start which was refused the installation lock runs in its own
+%% process (`emqx_plugins:enable_disable_plugin/2'), so the test waits for the
+%% installation it makes instead of reading it directly.  The wait is bounded
+%% well below the EUnit timeout of the test function, so a missing retry is
+%% reported as a failure of this assertion instead of cancelling the run.
+wait_for_extraction_complete(_NameVsn, 0) ->
+    error(plugin_was_not_installed);
+wait_for_extraction_complete(NameVsn, Attempts) ->
+    case emqx_plugins_fs:is_extraction_complete(NameVsn) of
+        true ->
+            ok;
+        false ->
+            timer:sleep(50),
+            wait_for_extraction_complete(NameVsn, Attempts - 1)
+    end.
+
+package_operations_validate_names_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(fun(Dir) ->
+            InstallDir = filename:join(Dir, "plugins"),
+            ok = emqx_plugins:put_config_internal(install_dir, InstallDir),
+            Kept = filename:join(Dir, "kept-1"),
+            Files = [filename:join(Kept, "marker"), Kept ++ ".tar.gz", Kept ++ ".tar.gz.md5sum"],
+            lists:foreach(fun(F) -> ok = write_file(F, <<"original">>) end, Files),
+            Operations = [
+                fun emqx_plugins:ensure_installed/1,
+                fun(N) -> emqx_plugins:ensure_installed(N, fresh_install) end,
+                fun emqx_plugins:ensure_uninstalled/1,
+                fun emqx_plugins:purge/1,
+                fun emqx_plugins:safe_delete_package/1,
+                fun emqx_plugins:purge_other_versions/1,
+                fun(N) -> emqx_plugins:install_package(N, <<"replacement">>) end,
+                fun(N) -> emqx_plugins:write_package(N, <<"replacement">>) end,
+                fun emqx_plugins:delete_package/1,
+                fun emqx_plugins:backup_package/1,
+                fun(N) -> emqx_plugins:restore_package(N, #{tar => none, md5sum => none}) end,
+                fun emqx_plugins_fs:prepare_replacement/1,
+                fun emqx_plugins_fs:purge_installed/1,
+                fun emqx_plugins_fs:delete_tar/1,
+                fun emqx_plugins_fs:get_tar/1,
+                fun emqx_plugins_fs:ensure_config_dir/1
+            ],
+            Names = [
+                "../kept-1", filename:absname(Kept), "valid-1/../../kept-1", "..-1", ".-1", "-1"
+            ],
+            lists:foreach(
+                fun(Name) ->
+                    lists:foreach(
+                        fun(N) ->
+                            lists:foreach(
+                                fun(Op) ->
+                                    ?assertMatch(
+                                        {error, #{msg := "bad_plugin_package_name"}}, Op(N)
+                                    ),
+                                    lists:foreach(
+                                        fun(F) ->
+                                            ?assertEqual({ok, <<"original">>}, file:read_file(F))
+                                        end,
+                                        Files
+                                    )
+                                end,
+                                Operations
+                            )
+                        end,
+                        [Name, list_to_binary(Name)]
+                    )
+                end,
+                Names
+            ),
+            ?assertEqual(false, filelib:is_dir(InstallDir))
+        end)
+    after
+        unmeck_emqx()
+    end.
+
+package_paths_validate_components_test() ->
+    Paths = [
+        fun emqx_plugins_fs:plugin_dir/1,
+        fun emqx_plugins_fs:lib_dir/1,
+        fun emqx_plugins_fs:tar_file_path/1
+    ],
+    lists:foreach(
+        fun(Name) ->
+            lists:foreach(
+                fun(Path) ->
+                    ?assertException(error, #{msg := "bad_plugin_package_name"}, Path(Name))
+                end,
+                Paths
+            )
+        end,
+        [
+            "/",
+            <<"/">>,
+            "../p-1",
+            "/p-1",
+            "p-1/",
+            "p-1\\child",
+            "p-1\n",
+            "p-1" ++ [0],
+            ".emqx-plugin-staging"
+        ]
+    ),
+    lists:foreach(
+        fun(Name) ->
+            ?assertException(
+                error, #{msg := "bad_plugin_package_name"}, emqx_plugins_fs:config_file_path(Name)
+            )
+        end,
+        ["..-1", ".-1", "-1", "../p-1"]
+    ),
+    lists:foreach(
+        fun(Path) ->
+            ?assertEqual(Path("plugin-1"), Path(<<"plugin-1">>)),
+            ?assert(is_list(Path("plugin-1")))
+        end,
+        Paths
+    ).
+
 %% delete package should mostly work and return ok
 %% but it may fail in case the path is a directory
 %% or if the file is read-only
@@ -188,6 +307,7 @@ purge_test() ->
     unmeck_emqx().
 
 meck_emqx() ->
+    start_install_serializer(),
     meck:new(emqx, [passthrough]),
     meck:new(emqx_plugins_serde),
     meck:expect(
@@ -212,7 +332,30 @@ meck_emqx() ->
 unmeck_emqx() ->
     meck:unload(emqx),
     meck:unload(emqx_plugins_serde),
+    stop_install_serializer(),
     ok.
+
+%% The installation path takes its lock from `emqx_plugins_install_serializer',
+%% which the plugins application starts in a running node.  These tests run
+%% without the plugins application (and without the rest of EMQX), so the server
+%% is started here; a node without peers coordinates with itself, so the lock is
+%% the same one a single node installation would take.
+start_install_serializer() ->
+    case whereis(emqx_plugins_install_serializer) of
+        undefined ->
+            {ok, _Pid} = emqx_plugins_install_serializer:start_link(),
+            ok;
+        _Pid ->
+            ok
+    end.
+
+stop_install_serializer() ->
+    case whereis(emqx_plugins_install_serializer) of
+        undefined ->
+            ok;
+        Pid ->
+            ok = gen_server:stop(Pid)
+    end.
 
 ensure_installed_from_tar_purges_leftovers_test() ->
     meck_emqx(),
@@ -262,6 +405,512 @@ ensure_installed_from_tar_replaces_broken_info_test() ->
         )
     after
         unmeck_emqx()
+    end.
+
+%% A package which could not be installed because the cluster wide installation
+%% lock was not available is refused before anything is written: the package file
+%% and the unpack are one critical section, so a refused attempt leaves neither a
+%% package file nor a plugin directory behind.
+install_package_writes_nothing_when_the_install_lock_is_unavailable_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "locked-0.1.0",
+                ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins_install_serializer, run, fun(_NameVsn, _Fun) ->
+                        {error, #{
+                            msg => "failed_to_acquire_plugin_install_lock",
+                            reason => coordinator_unknown
+                        }}
+                    end),
+                    ?assertMatch(
+                        {error, #{msg := "failed_to_acquire_plugin_install_lock"}},
+                        emqx_plugins:install_package(NameVsn, plugin_package(NameVsn, []))
+                    ),
+                    ?assertEqual(false, emqx_plugins:is_package_present(NameVsn)),
+                    ?assertNot(emqx_plugins_fs:is_installed(NameVsn))
+                after
+                    ok = meck:unload(emqx_plugins_install_serializer)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A plugin whose installation is already complete on this node is started even
+%% when the cluster wide installation lock can not be taken: loading it unpacks
+%% and writes nothing, and the node would otherwise run without a plugin its own
+%% configuration enables.  The check is on the installation, not on the caller:
+%% a package which still has to be unpacked keeps reporting the refusal.
+start_package_of_an_installed_plugin_does_not_need_the_install_lock_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                Installed = "already_installed-0.1.0",
+                ok = install_plugin_files(Installed, []),
+                ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins_install_serializer, run, fun(_NameVsn, _Fun) ->
+                        {error, #{
+                            msg => "failed_to_acquire_plugin_install_lock",
+                            reason => installation_in_progress
+                        }}
+                    end),
+                    ?assertEqual(ok, emqx_plugins:ensure_start_package(Installed)),
+                    ?assertMatch(
+                        {error, #{msg := "failed_to_acquire_plugin_install_lock"}},
+                        emqx_plugins:ensure_start_package("not_installed-0.1.0")
+                    )
+                after
+                    ok = meck:unload(emqx_plugins_install_serializer)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% An installation which runs on this node can be between the publication and
+%% the validation of its tree: the tree is already complete, but it can still be
+%% rolled back.  A start which can not take the lock must keep the refusal while
+%% such an installation is running, and only bypass it when no installation of
+%% this application runs here (the installation on another node can not touch
+%% this node's install directory).
+start_package_keeps_the_refusal_while_a_local_install_runs_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "already_installed-0.1.0",
+                ok = install_plugin_files(NameVsn, []),
+                Parent = self(),
+                {Holder, Ref} = spawn_monitor(fun() ->
+                    emqx_plugins_fs:with_installation_lock(NameVsn, fun() ->
+                        Parent ! {locked, self()},
+                        receive
+                            release -> ok
+                        end
+                    end)
+                end),
+                receive
+                    {locked, Holder} -> ok
+                after 5000 ->
+                    error(lock_not_taken)
+                end,
+                ?assertMatch(
+                    {error, #{reason := installation_in_progress}},
+                    emqx_plugins:ensure_start_package(NameVsn)
+                ),
+                Holder ! release,
+                receive
+                    {'DOWN', Ref, process, Holder, _} -> ok
+                after 5000 ->
+                    error(install_did_not_finish)
+                end,
+                ?assertEqual(false, emqx_plugins_install_serializer:install_in_progress(NameVsn)),
+                ?assertEqual(ok, emqx_plugins:ensure_start_package(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% Purging the other versions of a plugin only needs the two textual parts of
+%% the name: the name comes from a request and does not become an atom.
+purge_other_versions_keeps_the_name_textual_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                Name = "purge_textual_" ++ integer_to_list(erlang:unique_integer([positive])),
+                ?assertNot(is_existing_atom(Name)),
+                ?assertEqual(ok, emqx_plugins:purge_other_versions(Name ++ "-1.0")),
+                ?assertNot(is_existing_atom(Name)),
+                ?assertEqual(ok, emqx_plugins:purge_other_versions(list_to_binary(Name ++ "-1.0"))),
+                ?assertNot(is_existing_atom(Name))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+is_existing_atom(Name) ->
+    try
+        _ = binary_to_existing_atom(list_to_binary(Name), utf8),
+        true
+    catch
+        error:badarg -> false
+    end.
+
+%% The boot path of an enabled plugin waits for a transient installation lock
+%% contention instead of skipping the plugin and leaving the node running
+%% without its hooks.  The lock is held for the time of one installation, so the
+%% first attempts are refused and the retry has to bring the installation
+%% forward.
+start_enabled_plugin_waits_for_the_install_lock_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "booting-0.1.0",
+                ok = emqx_plugins:put_config_internal(states, [
+                    #{name_vsn => NameVsn, enable => true}
+                ]),
+                erase(install_lock_calls),
+                erase(install_lock_refusals),
+                ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins_install_serializer, run, fun(NV, Fun) ->
+                        Calls =
+                            case get(install_lock_calls) of
+                                undefined -> 0;
+                                Counted -> Counted
+                            end,
+                        put(install_lock_calls, Calls + 1),
+                        Refusals =
+                            case get(install_lock_refusals) of
+                                undefined -> 0;
+                                Refused -> Refused
+                            end,
+                        case Refusals < 2 of
+                            true ->
+                                put(install_lock_refusals, Refusals + 1),
+                                {error, #{
+                                    msg => "failed_to_acquire_plugin_install_lock",
+                                    reason => installation_in_progress
+                                }};
+                            false ->
+                                meck:passthrough([NV, Fun])
+                        end
+                    end),
+                    ?assertEqual(ok, emqx_plugins:ensure_started()),
+                    %% two refused attempts, then the retry which takes the lock
+                    ?assertEqual(2, get(install_lock_refusals)),
+                    ?assert(get(install_lock_calls) > 2)
+                after
+                    ok = meck:unload(emqx_plugins_install_serializer)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% Enabling an installed plugin through the configuration starts it even when
+%% the cluster wide installation lock is held elsewhere for a moment.  This
+%% asserts that the refused start is retried and runs the installation it needs;
+%% the Common Test case of the same name asserts the plugin is running
+%% afterwards.  The configuration is not applied again after it was stored, so a
+%% start which was dropped here would leave the plugin loaded and stopped while
+%% the stored configuration says enabled.
+enable_disable_plugin_waits_for_the_install_lock_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "config_enable-0.1.0",
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                %% The retry of the start runs in its own process, so the
+                %% refusals are counted with a shared counter.
+                LockCalls = atomics:new(1, []),
+                ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins_install_serializer, run, fun(NV, Fun) ->
+                        case atomics:add_get(LockCalls, 1, 1) of
+                            N when N =< 2 ->
+                                {error, #{
+                                    msg => "failed_to_acquire_plugin_install_lock",
+                                    reason => installation_in_progress
+                                }};
+                            _Taken ->
+                                meck:passthrough([NV, Fun])
+                        end
+                    end),
+                    ok = emqx_plugins:post_config_update(
+                        [plugins],
+                        undefined,
+                        %% the stored state, now enabling the plugin
+                        #{states => [#{name_vsn => NameVsn, enable => true}]},
+                        %% the stored state before the update
+                        #{states => [#{name_vsn => NameVsn, enable => false}]},
+                        #{}
+                    ),
+                    %% the refused start was retried, and the retry ran the
+                    %% installation the start needs
+                    ok = wait_for_extraction_complete(NameVsn, 40),
+                    ?assert(atomics:get(LockCalls, 1) > 2)
+                after
+                    ok = meck:unload(emqx_plugins_install_serializer)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A node which does not hold the package fetches it from another node, writes
+%% it to the shared package file and unpacks it in one critical section: while
+%% that runs, another installation of the same name-vsn is refused instead of
+%% racing the package file which is about to be read back.
+ensure_start_package_prepares_the_fetched_package_under_the_install_lock_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "fetched-0.1.0",
+                Tar = plugin_package(NameVsn, []),
+                Parent = self(),
+                ok = meck:new(mria, [passthrough]),
+                ok = meck:new(emqx_plugins_proto_v2, [passthrough]),
+                try
+                    ok = meck:expect(mria, running_nodes, fun() -> [node(), 'peer@host'] end),
+                    ok = meck:expect(emqx_plugins_proto_v2, get_tar, fun(_Node, _NV, _Timeout) ->
+                        Parent ! {concurrent_install, install_in_another_process(NameVsn)},
+                        {ok, Tar}
+                    end),
+                    ?assertEqual(ok, emqx_plugins:ensure_start_package(NameVsn)),
+                    receive
+                        {concurrent_install, Result} ->
+                            ?assertMatch(
+                                {error, #{reason := installation_in_progress}},
+                                Result
+                            )
+                    after 5000 ->
+                        error(no_concurrent_install_result)
+                    end,
+                    ?assertEqual({ok, Tar}, emqx_plugins_fs:get_tar(NameVsn))
+                after
+                    ok = meck:unload(emqx_plugins_proto_v2),
+                    ok = meck:unload(mria)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The cluster install reads the package of this node in the same critical
+%% section which writes the shared package file: a concurrent upload of the same
+%% name-vsn could otherwise make it read half of its content and push that to
+%% every node.  The snapshot is taken before the per-node calls, each of which
+%% takes the installation lock for its own installation.
+ensure_installed_cluster_snapshots_the_package_under_the_install_lock_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "cluster_snapshot-0.1.0",
+                ok = emqx_plugins:write_package(NameVsn, plugin_package(NameVsn, [])),
+                ok = meck:expect(emqx, running_nodes, fun() -> [node()] end),
+                ok = meck:new(emqx_plugins_proto_v5, [passthrough]),
+                ok = meck:new(emqx_plugins_fs, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins_proto_v5, install_package, fun(_Nodes, _NV, _Bin) ->
+                        %% `erpc:multicall/5' returns one `{ok, Result}' per node
+                        [{ok, ok}]
+                    end),
+                    ok = meck:expect(emqx_plugins_fs, get_tar, fun(NV) ->
+                        put(
+                            snapshot_lock,
+                            maps:get(owner, emqx_plugins_install_serializer:lock_status())
+                        ),
+                        meck:passthrough([NV])
+                    end),
+                    erase(snapshot_lock),
+                    Json = emqx_plugins_cli_utils:ensure_installed_cluster(
+                        NameVsn,
+                        fun(Format, Args) -> iolist_to_binary(io_lib:format(Format, Args)) end
+                    ),
+                    ?assertMatch(#{<<"result">> := <<"ok">>}, emqx_utils_json:decode(Json)),
+                    %% the read happened while this process held the lock
+                    ?assert(is_pid(get(snapshot_lock)))
+                after
+                    ok = meck:unload(emqx_plugins_fs),
+                    ok = meck:unload(emqx_plugins_proto_v5)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The cluster install walks the nodes in order and stops at the first node
+%% which can not take the cluster wide installation lock: installing on the
+%% remaining nodes would update them while the refused node keeps its old
+%% package, and a retry could then be refused as already installed by a node
+%% which was updated.
+ensure_installed_cluster_stops_at_the_first_node_without_the_lock_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "cluster_stop-0.1.0",
+                ok = emqx_plugins:write_package(NameVsn, plugin_package(NameVsn, [])),
+                Peer = 'sec376_cli_cluster_peer@nowhere',
+                ok = meck:expect(emqx, running_nodes, fun() -> [node(), Peer] end),
+                ok = meck:new(emqx_plugins, [passthrough]),
+                ok = meck:new(emqx_plugins_proto_v5, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins, node_supports_install_lock, fun(_Node) ->
+                        true
+                    end),
+                    ok = meck:expect(emqx_plugins_proto_v5, install_package, fun([Node], _NV, _Bin) ->
+                        case Node of
+                            Peer ->
+                                [{ok, ok}];
+                            _ ->
+                                [
+                                    {ok,
+                                        {error, #{
+                                            msg => "failed_to_acquire_plugin_install_lock",
+                                            reason => busy
+                                        }}}
+                                ]
+                        end
+                    end),
+                    Json = emqx_plugins_cli_utils:ensure_installed_cluster(
+                        NameVsn,
+                        fun(Format, Args) -> iolist_to_binary(io_lib:format(Format, Args)) end
+                    ),
+                    ?assertMatch(#{<<"result">> := <<"not_ok">>}, emqx_utils_json:decode(Json)),
+                    %% the peer was never asked to install
+                    ?assertEqual(
+                        1,
+                        meck:num_calls(emqx_plugins_proto_v5, install_package, ['_', '_', '_'])
+                    )
+                after
+                    ok = meck:unload(emqx_plugins_proto_v5),
+                    ok = meck:unload(emqx_plugins)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The cluster install also stops at a node which can not be reached: `erpc'
+%% answers with the caught call exception for such a node instead of an
+%% installation result, and installing on the remaining nodes would leave the
+%% cluster split in the same way a refused lock does.
+ensure_installed_cluster_stops_at_the_first_unreachable_node_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "cluster_unreachable-0.1.0",
+                ok = emqx_plugins:write_package(NameVsn, plugin_package(NameVsn, [])),
+                Peer = 'sec376_cli_unreachable_peer@nowhere',
+                ok = meck:expect(emqx, running_nodes, fun() -> [node(), Peer] end),
+                ok = meck:new(emqx_plugins, [passthrough]),
+                ok = meck:new(emqx_plugins_proto_v5, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins, node_supports_install_lock, fun(_Node) ->
+                        true
+                    end),
+                    ok = meck:expect(emqx_plugins_proto_v5, install_package, fun([Node], _NV, _Bin) ->
+                        case Node of
+                            Peer -> [{ok, ok}];
+                            _ -> [{error, {erpc, noconnection}}]
+                        end
+                    end),
+                    Json = emqx_plugins_cli_utils:ensure_installed_cluster(
+                        NameVsn,
+                        fun(Format, Args) -> iolist_to_binary(io_lib:format(Format, Args)) end
+                    ),
+                    ?assertMatch(#{<<"result">> := <<"not_ok">>}, emqx_utils_json:decode(Json)),
+                    %% the peer was never asked to install
+                    ?assertEqual(
+                        1,
+                        meck:num_calls(emqx_plugins_proto_v5, install_package, ['_', '_', '_'])
+                    )
+                after
+                    ok = meck:unload(emqx_plugins_proto_v5),
+                    ok = meck:unload(emqx_plugins)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The fresh-install overload is called by the CLI directly, so it takes the
+%% installation lock itself: the configuration which follows the installation
+%% runs in the same critical section, so another installation attempt can not
+%% interleave with it.
+ensure_installed_fresh_install_holds_the_install_lock_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "cli_fresh-0.1.0",
+                ok = emqx_plugins:write_package(NameVsn, plugin_package(NameVsn, [])),
+                %% the cluster wide configuration store of a running node is out
+                %% of scope here
+                ok = meck:new(emqx_conf, [passthrough]),
+                ok = meck:expect(emqx_conf, update, fun(_Path, _Values, _Opts) -> {ok, #{}} end),
+                erase(configure_owner),
+                ok = meck:new(emqx_plugins_local_config, [passthrough]),
+                try
+                    ok = meck:expect(emqx_plugins_local_config, copy_default, fun(NV) ->
+                        %% `configure' runs after the package was unpacked; the
+                        %% lock has to still be held here.
+                        put(
+                            configure_owner,
+                            maps:get(owner, emqx_plugins_install_serializer:lock_status())
+                        ),
+                        meck:passthrough([NV])
+                    end),
+                    ?assertEqual(ok, emqx_plugins:ensure_installed(NameVsn, fresh_install)),
+                    ?assert(is_pid(get(configure_owner)))
+                after
+                    ok = meck:unload(emqx_plugins_local_config),
+                    ok = meck:unload(emqx_conf)
+                end,
+                ?assertEqual(installed, emqx_plugins:install_state(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A failed installation keeps the package which was on disk before the attempt:
+%% the content which failed is not the one to keep, and the previous package may
+%% be the only local copy which can repair the installation later.
+install_package_restores_the_previous_package_on_failure_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "keep_previous-0.1.0",
+                ok = emqx_plugins:write_package(NameVsn, <<"previous package">>),
+                {ok, Before} = emqx_plugins:backup_package(NameVsn),
+                ?assertMatch(
+                    {error, _},
+                    emqx_plugins:install_package(NameVsn, plugin_package("other-0.1.0", []))
+                ),
+                ?assertEqual({ok, Before}, emqx_plugins:backup_package(NameVsn)),
+                ?assertNot(emqx_plugins_fs:is_installed(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+install_in_another_process(NameVsn) ->
+    Parent = self(),
+    Pid = spawn(fun() ->
+        Parent ! {install_result, emqx_plugins:install_package(NameVsn, <<"another package">>)}
+    end),
+    receive
+        {install_result, Result} ->
+            Result
+    after 5000 ->
+        exit(Pid, kill),
+        error(concurrent_install_timeout)
     end.
 
 %% A healthy installation is kept as is: it is not purged, and the package is
@@ -619,9 +1268,519 @@ install_from_local_tar_rejects_incomplete_package_test() ->
         unmeck_emqx()
     end.
 
+%% The core regression: an authorized package which carries entries of another
+%% plugin must not write (or delete) anything of that other plugin.  The whole
+%% package is refused before a single byte is written.
+install_from_local_tar_rejects_sibling_entries_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                Existing = "existing-1.0",
+                ok = install_plugin_files(Existing, []),
+                ok = write_file(
+                    filename:join(emqx_plugins_fs:plugin_dir(Existing), "marker.txt"), <<
+                        "keep me"
+                    >>
+                ),
+                Before = snapshot_plugin_dir(Existing),
+                NameVsn = "candidate-1.0",
+                Package = tar_of([
+                    {filename:join(NameVsn, "release.json"), release_json(NameVsn)},
+                    {
+                        filename:join([NameVsn, NameVsn, "ebin", "candidate.app"]),
+                        app_file(app_name(NameVsn), app_vsn(NameVsn), [])
+                    },
+                    {filename:join(Existing, "release.json"), <<"replacement">>},
+                    {filename:join([Existing, Existing, "ebin", "existing.app"]), <<"replacement">>}
+                ]),
+                ok = emqx_plugins_fs:write_tar(NameVsn, Package),
+                ?assertMatch(
+                    {error, #{msg := "plugin_package_entry_outside_root"}},
+                    emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+                ),
+                %% every file of the sibling plugin is untouched, byte for byte
+                ?assertEqual(Before, snapshot_plugin_dir(Existing)),
+                ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
+                %% guard against the rejection point moving behind the staging
+                %% directory creation (the package is refused before it)
+                ?assertEqual([], staging_attempts(NameVsn)),
+                %% nothing was written before the package was refused: the
+                %% install dir only holds the existing plugin and the package file
+                %% `write_tar/2' wrote itself
+                ?assertEqual(
+                    lists:sort([
+                        emqx_plugins_fs:plugin_dir(Existing),
+                        emqx_plugins_fs:tar_file_path(NameVsn),
+                        emqx_plugins_fs:tar_file_path(NameVsn) ++ ".md5sum"
+                    ]),
+                    lists:sort(filelib:wildcard(filename:join(emqx_plugins_fs:install_dir(), "*")))
+                )
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A failed installation must only ever clean up after itself: the rollback of
+%% a rejected replacement does not touch the directory of another plugin.
+install_from_local_tar_rollback_touches_only_its_own_name_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                Existing = "existing-1.0",
+                ok = install_plugin_files(Existing, []),
+                ok = write_file(
+                    filename:join(emqx_plugins_fs:plugin_dir(Existing), "marker.txt"), <<"keep me">>
+                ),
+                Before = snapshot_plugin_dir(Existing),
+                NameVsn = "candidate-1.0",
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                ?assertMatch(
+                    {error, #{msg := "boom"}},
+                    emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                        {error, #{msg => "boom"}}
+                    end)
+                ),
+                ?assertEqual(Before, snapshot_plugin_dir(Existing)),
+                ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
+                ?assertEqual([], staging_attempts(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% An entry which resolves back to the package root (or to the install root)
+%% would be written over a directory: it is refused, and no directory of the
+%% install dir is left behind by the attempt.
+install_from_local_tar_rejects_root_resolving_entry_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "candidate-1.0",
+                ok = emqx_plugins_fs:write_tar(
+                    NameVsn,
+                    tar_of([
+                        {filename:join(NameVsn, "release.json"), release_json(NameVsn)},
+                        {filename:join(NameVsn, "dir/.."), <<"replacement">>}
+                    ])
+                ),
+                ?assertMatch(
+                    {error, #{
+                        msg := "unsafe_tar_entry_path", reason := resolves_to_package_root
+                    }},
+                    emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+                ),
+                ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
+                ?assertNot(filelib:is_regular(emqx_plugins_fs:plugin_dir(NameVsn))),
+                ?assertNot(
+                    filelib:is_dir(filename:join(emqx_plugins_fs:plugin_dir(NameVsn), "dir"))
+                ),
+                %% the same for an entry which resolves to the install root
+                ok = emqx_plugins_fs:write_tar(NameVsn, tar_of([{"dir/..", <<"replacement">>}])),
+                ?assertMatch(
+                    {error, #{
+                        msg := "unsafe_tar_entry_path", reason := resolves_to_install_root
+                    }},
+                    emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+                ),
+                ?assertNot(filelib:is_dir(filename:join(emqx_plugins_fs:install_dir(), "dir"))),
+                ?assertEqual([], staging_attempts(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A successful installation leaves no staging directory behind, and the
+%% staging root is not mistaken for a plugin.
+install_from_local_tar_cleans_staging_on_success_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "staged-0.1.0",
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                ok = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end),
+                ?assert(emqx_plugins_fs:is_extraction_complete(NameVsn)),
+                ?assertEqual([], staging_attempts(NameVsn)),
+                ?assertEqual([NameVsn], lists:sort(emqx_plugins_fs:list_name_vsn()))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A failed replacement puts back whatever the plugin's install directory held
+%% before: the previous target is moved aside before the new tree is published
+%% and must survive a validator which refuses the new one.
+%%
+%% The target here is a leftover which is not a directory.  That is the shape
+%% `install_state/1' reports as `absent' while something is still there, so it
+%% is the replacement the public entry can actually be asked to do.
+install_from_local_tar_rolls_back_replacement_on_validator_error_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "replaced-0.1.0",
+                Target = emqx_plugins_fs:plugin_dir(NameVsn),
+                ok = write_file(Target, <<"installed v1">>),
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                ?assertEqual(
+                    {error, #{msg => "boom"}},
+                    emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                        {error, #{msg => "boom"}}
+                    end)
+                ),
+                ?assertEqual({ok, <<"installed v1">>}, file:read_file(Target)),
+                ?assertNot(emqx_plugins_fs:is_extraction_complete(NameVsn)),
+                ?assertEqual([], staging_attempts(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A validator which crashes must not lose the installation which was there
+%% before: the previous target is put back before the exception is re-raised.
+install_from_local_tar_rolls_back_when_validator_crashes_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "crashed_validator-0.1.0",
+                Target = emqx_plugins_fs:plugin_dir(NameVsn),
+                ok = write_file(Target, <<"installed v1">>),
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                ?assertException(
+                    error,
+                    boom,
+                    emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> error(boom) end)
+                ),
+                ?assertEqual({ok, <<"installed v1">>}, file:read_file(Target)),
+                ?assertNot(emqx_plugins_fs:is_extraction_complete(NameVsn)),
+                ?assertEqual([], staging_attempts(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A write which fails in the middle is reported, instead of crashing the
+%% caller, and the install directory is left exactly as it was.
+install_from_local_tar_keeps_target_on_midwrite_failure_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                Existing = "existing-1.0",
+                ok = install_plugin_files(Existing, []),
+                Before = snapshot_plugin_dir(Existing),
+                NameVsn = "conflict-1.0",
+                ok = emqx_plugins_fs:write_tar(
+                    NameVsn,
+                    tar_of([
+                        {filename:join(NameVsn, "x"), <<"a plain file">>},
+                        {filename:join(NameVsn, "x/y"), <<"needs x to be a directory">>}
+                    ])
+                ),
+                ?assertMatch(
+                    {error, #{msg := "failed_to_write_plugin_package"}},
+                    emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+                ),
+                ?assertEqual(Before, snapshot_plugin_dir(Existing)),
+                ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
+                ?assertEqual([], staging_attempts(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% An installation never sweeps the staging directories of another one (a
+%% concurrent installation of the same plugin may be writing its own attempt);
+%% the leftovers of a crashed installation are swept when the node starts.
+stale_staging_is_left_alone_by_installs_and_swept_at_startup_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "stale_target-0.1.0",
+                Stale = filename:join([staging_root(), NameVsn, "crashed-attempt"]),
+                OtherStale = filename:join([staging_root(), "other-0.1.0", "crashed-attempt"]),
+                ok = write_file(filename:join([Stale, NameVsn, "release.json"]), <<"stale">>),
+                ok = write_file(
+                    filename:join([OtherStale, "other-0.1.0", "release.json"]), <<"stale">>
+                ),
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                ok = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end),
+                ?assert(emqx_plugins_fs:is_extraction_complete(NameVsn)),
+                ?assert(filelib:is_dir(Stale)),
+                ?assert(filelib:is_dir(OtherStale)),
+                ?assertEqual([NameVsn], lists:sort(emqx_plugins_fs:list_name_vsn())),
+                ?assertEqual([Stale], staging_attempts(NameVsn)),
+                %% the same sweep the plugins application runs when it starts
+                ok = emqx_plugins_fs:cleanup_stale_staging(),
+                ?assertNot(filelib:is_dir(Stale)),
+                ?assertNot(filelib:is_dir(OtherStale))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A name which is not a single, already normalized path component can not name
+%% a package root: it must be refused before it is used to build the package
+%% path.  For `"."' and `".."' this also has to happen before `install_state/1'
+%% is consulted, because `is_installed(".")' sees the install directory itself
+%% and recovering it would delete everything in there
+%% (`file:del_dir_r("<dir>/.")' removes the contents and then fails with
+%% `einval').
+install_from_local_tar_rejects_multi_component_namevsn_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(Dir) ->
+                Parent = filename:dirname(Dir),
+                Sentinel = filename:join(Dir, "sentinel.txt"),
+                ok = write_file(Sentinel, <<"keep me">>),
+                lists:foreach(
+                    fun(NameVsn) ->
+                        ?assertMatch(
+                            {error, #{msg := "bad_plugin_package_name"}},
+                            emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+                        ),
+                        %% the refused name did not touch the install directory
+                        ?assertEqual({ok, <<"keep me">>}, file:read_file(Sentinel))
+                    end,
+                    %% `"escape-1.0/"' is refused as well: it names the directory
+                    %% of `"escape-1.0"' but is a different package file name
+                    ["/", <<"/">>, "../escape-1.0", "a/b-1.0", ".", "..", "escape-1.0/"]
+                ),
+                %% `tar_file_path/1' was never reached with the bad name
+                ?assertNot(filelib:is_regular(filename:join(Parent, "escape-1.0.tar.gz"))),
+                ?assertNot(filelib:is_dir(filename:join(Parent, "escape-1.0")))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% Concurrent public installations of the same plugin are serialized by the
+%% installation lock: the caller which takes it unpacks the package while the
+%% others are either refused as busy or find the complete tree, so all of them
+%% come back cleanly and the installation on disk is the one the package
+%% describes, with no staging attempt left behind.  Half of the callers name the
+%% plugin as a string, half as a binary: both spellings name the same plugin
+%% directory.  (That concurrent writers can not interleave their bytes is the
+%% staging design itself: only the lock holder publishes, by one `file:rename/2'.)
+install_from_local_tar_concurrent_callers_leave_one_installation_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "concurrent-0.1.0",
+                ExpectedMarker = <<"packaged content">>,
+                ok = emqx_plugins_fs:write_tar(
+                    NameVsn, plugin_package(NameVsn, [{"marker.txt", ExpectedMarker}])
+                ),
+                Names = [
+                    case N rem 2 of
+                        0 -> NameVsn;
+                        1 -> emqx_plugins_utils:bin(NameVsn)
+                    end
+                 || N <- lists:seq(1, 8)
+                ],
+                Monitors = [
+                    begin
+                        {_Pid, Ref} = spawn_monitor(fun() ->
+                            _ = emqx_plugins_fs:ensure_installed_from_tar(Name, fun() -> ok end),
+                            ok
+                        end),
+                        Ref
+                    end
+                 || Name <- Names
+                ],
+                lists:foreach(
+                    fun(Ref) ->
+                        receive
+                            {'DOWN', Ref, process, _Pid, Reason} ->
+                                %% a failed attempt is allowed, a crash is not
+                                ?assertEqual(normal, Reason)
+                        after 30000 ->
+                            ?assert(false)
+                        end
+                    end,
+                    Monitors
+                ),
+                ?assert(emqx_plugins_fs:is_extraction_complete(NameVsn)),
+                ?assertEqual(
+                    {ok, ExpectedMarker},
+                    file:read_file(
+                        filename:join(emqx_plugins_fs:plugin_dir(NameVsn), "marker.txt")
+                    )
+                ),
+                ?assertEqual(
+                    {ok, release_json(NameVsn)},
+                    file:read_file(emqx_plugins_fs:info_file_path(NameVsn))
+                ),
+                ?assertEqual([], staging_attempts(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The state check of the public entry runs under the same lock as the
+%% publication: an attempt which has already published its tree but has not
+%% validated it yet can still roll that tree back, so no concurrent caller of
+%% `ensure_installed_from_tar/2' may be told that the plugin is installed while
+%% the tree is in that state.
+ensure_installed_from_tar_retries_after_a_concurrent_rollback_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "racing-0.1.0",
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                Parent = self(),
+                %% A publishes the package and stops inside its validator: its
+                %% tree is in place but not validated yet, and A holds the lock.
+                PidA = spawn(fun() ->
+                    Result = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                        Parent ! {a_in_validator, self()},
+                        receive
+                            release -> ok
+                        end,
+                        {error, #{msg => "rejected_by_test"}}
+                    end),
+                    Parent ! {a_result, self(), Result}
+                end),
+                %% Whatever happens below, A must be let go of: it holds the
+                %% installation lock of NameVsn while it waits, and a test process
+                %% which aborts before releasing it would leave that lock set
+                %% for the rest of the VM.
+                try
+                    receive
+                        {a_in_validator, PidA} ->
+                            ok
+                    after 5000 ->
+                        error(a_validator_not_reached)
+                    end,
+                    %% B enters the public entry for the same plugin while A is
+                    %% between publishing and rolling back.
+                    PidB = spawn(fun() ->
+                        Result = emqx_plugins_fs:ensure_installed_from_tar(
+                            NameVsn, fun() -> ok end
+                        ),
+                        Parent ! {b_result, self(), Result}
+                    end),
+                    receive
+                        {b_result, PidB, ResultB} ->
+                            ?assertMatch({error, #{reason := installation_in_progress}}, ResultB)
+                    after 5000 ->
+                        error(b_result_timeout)
+                    end,
+                    PidA ! release,
+                    receive
+                        {a_result, PidA, {error, #{msg := "rejected_by_test"}}} ->
+                            ok
+                    after 5000 ->
+                        error(a_result_timeout)
+                    end,
+                    %% After the first attempt finishes, a new request can install.
+                    ?assertEqual(
+                        ok,
+                        emqx_plugins_fs:ensure_installed_from_tar(
+                            NameVsn, fun() -> ok end
+                        )
+                    ),
+                    ?assert(emqx_plugins_fs:is_extraction_complete(NameVsn)),
+                    ?assertEqual(
+                        {ok, release_json(NameVsn)},
+                        file:read_file(emqx_plugins_fs:info_file_path(NameVsn))
+                    ),
+                    ?assertEqual([], staging_attempts(NameVsn))
+                after
+                    PidA ! release
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
 %% A failed installation attempt must leave the package which was installed
 %% before it as it was: it may be the only local copy the installation can be
 %% repaired from.
+write_package_restores_partial_writes_test_() ->
+    {timeout, 60, fun() ->
+        meck_emqx(),
+        try
+            with_rand_install_dir(fun(_Dir) ->
+                lists:foreach(
+                    fun({Operation, Previous, FailedFile}) ->
+                        assert_package_write_restored(Operation, Previous, FailedFile)
+                    end,
+                    [
+                        {Operation, Previous, FailedFile}
+                     || Operation <- [
+                            fun emqx_plugins:write_package/2, fun emqx_plugins:install_package/2
+                        ],
+                        Previous <- [absent, tar_only, complete],
+                        FailedFile <- [tar, checksum]
+                    ]
+                )
+            end)
+        after
+            unmeck_emqx()
+        end
+    end}.
+
+assert_package_write_restored(Operation, Previous, FailedFile) ->
+    NameVsn = "write_restore-1.0",
+    TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
+    ChecksumFile = TarFile ++ ".md5sum",
+    ok = emqx_plugins:delete_package(NameVsn),
+    case Previous of
+        absent -> ok;
+        tar_only -> ok = write_file(TarFile, <<"previous">>);
+        complete -> ok = emqx_plugins:write_package(NameVsn, <<"previous">>)
+    end,
+    {ok, Before} = emqx_plugins:backup_package(NameVsn),
+    Content = <<"replacement">>,
+    {FailedPath, FailedContent} =
+        case FailedFile of
+            tar -> {TarFile, Content};
+            checksum -> {ChecksumFile, emqx_utils:bin_to_hexstr(crypto:hash(md5, Content), lower)}
+        end,
+    ok = meck:new(file, [passthrough, unstick]),
+    try
+        ok = meck:expect(file, write_file, fun(Path, Bytes) ->
+            case {Path, Bytes} of
+                {FailedPath, FailedContent} ->
+                    ok = meck:passthrough([Path, <<"partial">>]),
+                    {error, enospc};
+                _ ->
+                    meck:passthrough([Path, Bytes])
+            end
+        end),
+        ?assertMatch(
+            {error, #{
+                msg := "failed_to_write_plugin_package", path := FailedPath, reason := enospc
+            }},
+            Operation(NameVsn, Content)
+        ),
+        ?assertEqual({ok, Before}, emqx_plugins:backup_package(NameVsn)),
+        ?assertEqual(absent, emqx_plugins:install_state(NameVsn))
+    after
+        ok = meck:unload(file)
+    end.
+
 restore_package_puts_back_the_replaced_package_test() ->
     meck_emqx(),
     try
@@ -872,6 +2031,24 @@ tar_of(Files) ->
     after
         ok = file:delete(TmpFile)
     end.
+
+%% The staging directory the installations under test use.
+staging_root() ->
+    emqx_plugins_fs:staging_root().
+
+%% The installation attempts of `NameVsn' which are still on disk: `[]' means
+%% that the attempt cleaned up after itself.
+staging_attempts(NameVsn) ->
+    filelib:wildcard(filename:join([staging_root(), NameVsn, "*"])).
+
+%% Every regular file below the plugin's install directory, with its bytes.
+snapshot_plugin_dir(NameVsn) ->
+    lists:sort([
+        {File, Content}
+     || File <- filelib:wildcard(filename:join(emqx_plugins_fs:plugin_dir(NameVsn), "**")),
+        filelib:is_regular(File),
+        {ok, Content} <- [file:read_file(File)]
+    ]).
 
 %% Load and start the plugin's application, so that the plugin is in use.
 start_plugin_app(NameVsn) ->

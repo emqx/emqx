@@ -161,24 +161,81 @@ ensure_installed(NameVsn, LogFun) ->
     end.
 
 ensure_installed_cluster(NameVsn, LogFun) ->
-    case emqx_plugins_fs:get_tar(NameVsn) of
+    %% The package file is shared with the uploads and with the installations
+    %% which run on this node: reading it takes the same lock which writes it, so
+    %% a concurrent upload of the same name-vsn can not make this node read (and
+    %% then install on every node) half of its content.  The lock is released
+    %% before the per-node calls below, each of which takes it for its own
+    %% installation.
+    case local_package_snapshot(NameVsn) of
         {ok, TarBin} ->
             Running = emqx:running_nodes(),
-            V5Nodes = nodes_supporting_bpapi_version(5),
-            case Running -- V5Nodes of
+            %% A node which can not take the installation lock would install
+            %% without it, so the cluster install only runs when every node can.
+            LockNodes = [
+                Node
+             || Node <- Running,
+                emqx_plugins:node_supports_install_lock(Node)
+            ],
+            case Running -- LockNodes of
                 [] ->
-                    Results = emqx_plugins_proto_v5:install_package(V5Nodes, NameVsn, TarBin),
-                    print_cluster_result(V5Nodes, Results, NameVsn, LogFun);
+                    {CalledNodes, Results} = install_on_nodes_until_refused(
+                        LockNodes, NameVsn, TarBin
+                    ),
+                    print_cluster_result(CalledNodes, Results, NameVsn, LogFun);
                 Missing ->
                     Reason = #{
-                        hint => <<"cluster install requires all nodes to support proto v5">>,
-                        nodes_missing_v5 => Missing
+                        hint => <<
+                            "cluster install requires all nodes to support "
+                            "the cluster wide installation lock"
+                        >>,
+                        nodes_without_install_lock => Missing
                     },
                     ?PRINT({error, Reason}, LogFun)
             end;
         {error, Reason} ->
             ?PRINT({error, Reason}, LogFun)
     end.
+
+%% Install the snapshot on the nodes in order, and stop at the first node which
+%% could not run the installation: it could not be reached, or it could not take
+%% the cluster wide installation lock (`emqx_plugins:installation_refused/1').
+%% Installing on the remaining nodes after one of them was refused would leave
+%% the cluster with two different packages, and a retry of the same command can
+%% then be refused by a node which was already updated, so the refused node
+%% could not be repaired through this command any more.  The nodes which were
+%% not reached keep what they had, and the caller retries when the lock is free.
+%%
+%% `emqx_plugins_proto_v5:install_package/3' is an `erpc' multicall: a node which
+%% ran the call answers `{ok, Result}', and one which could not run it at all
+%% answers with the caught call exception instead (`erpc:caught_call_exception/0',
+%% for example `{error, {erpc, noconnection}}' for an unreachable node, or
+%% `{error, {exception, _, _}}' for one which raised).  Only the first shape
+%% carries an installation result; every other shape means the node did not run
+%% the installation, so it counts as a refusal.
+install_on_nodes_until_refused(Nodes, NameVsn, TarBin) ->
+    install_on_nodes_until_refused(Nodes, NameVsn, TarBin, [], []).
+
+install_on_nodes_until_refused([], _NameVsn, _TarBin, Called, Results) ->
+    {lists:reverse(Called), lists:append(lists:reverse(Results))};
+install_on_nodes_until_refused([Node | Rest], NameVsn, TarBin, Called, Results) ->
+    NodeResults = emqx_plugins_proto_v5:install_package([Node], NameVsn, TarBin),
+    Called1 = [Node | Called],
+    Results1 = [NodeResults | Results],
+    case lists:any(fun rpc_result_refused/1, NodeResults) of
+        true -> install_on_nodes_until_refused([], NameVsn, TarBin, Called1, Results1);
+        false -> install_on_nodes_until_refused(Rest, NameVsn, TarBin, Called1, Results1)
+    end.
+
+rpc_result_refused({ok, Result}) -> emqx_plugins:installation_refused(Result);
+rpc_result_refused(_DidNotRun) -> true.
+
+%% The package of this node as one immutable snapshot: the read has to be in
+%% the same critical section as the writes of the shared package file.
+local_package_snapshot(NameVsn) ->
+    emqx_plugins:with_installation_lock(NameVsn, fun() ->
+        emqx_plugins_fs:get_tar(NameVsn)
+    end).
 
 ensure_uninstalled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_uninstalled(NameVsn), LogFun).

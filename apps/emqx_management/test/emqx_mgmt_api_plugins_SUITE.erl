@@ -52,6 +52,11 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
+init_per_testcase(t_cluster_sync_valid_name = TestCase, Config0) ->
+    Config = [{api_port, 48085} | Config0],
+    Cluster = [Node1 | _] = cluster(TestCase, Config),
+    {ok, API} = init_api(Node1),
+    [{api, API}, {cluster, Cluster} | Config];
 init_per_testcase(t_cluster_update_order = TestCase, Config0) ->
     Config = [{api_port, 18085} | Config0],
     Cluster = [Node1 | _] = cluster(TestCase, Config),
@@ -85,6 +90,7 @@ init_per_testcase(TestCase, Config) ->
     Config.
 
 end_per_testcase(TestCase, Config) when
+    TestCase =:= t_cluster_sync_valid_name;
     TestCase =:= t_cluster_update_order;
     TestCase =:= t_cluster_rejects_invalid_local_config_on_start;
     TestCase =:= t_cluster_rolls_back_partial_start_failure
@@ -95,6 +101,123 @@ end_per_testcase(TestCase, Config) when
 end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
     ok.
+
+t_sync_plugin_validates_name(Config) ->
+    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+    Kept = filename:join(WorkDir, "kept-1"),
+    Marker = filename:join(Kept, "marker"),
+    ok = filelib:ensure_dir(Marker),
+    ok = file:write_file(Marker, <<"original">>),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "cluster_sync"]),
+    Names = [
+        <<"../kept-1">>,
+        list_to_binary(filename:absname(Kept)),
+        <<"valid-1/../../kept-1">>,
+        <<"..-1">>,
+        <<".-1">>,
+        <<"-1">>,
+        <<"plugin-1\n">>,
+        <<"plugin-1", 0>>,
+        <<"plugin-1\\child">>,
+        <<".emqx-plugin-staging">>,
+        <<>>,
+        123,
+        [],
+        #{},
+        <<"p-", (binary:copy(<<"a">>, 255))/binary>>
+    ],
+    lists:foreach(
+        fun(Name) ->
+            ?assertMatch(
+                {error, {_, 400, _}},
+                emqx_mgmt_api_test_util:request_api(
+                    post, Path, "", [], #{<<"name">> => Name}
+                )
+            ),
+            ?assertEqual({ok, <<"original">>}, file:read_file(Marker))
+        end,
+        Names
+    ),
+    ?assertMatch(
+        {error, {_, 400, _}}, emqx_mgmt_api_test_util:request_api(post, Path, "", [], #{})
+    ),
+    ?assertEqual({ok, <<"original">>}, file:read_file(Marker)),
+    ?assertEqual([], emqx_plugins_fs:list_name_vsn()),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", [], #{<<"name">> => <<"missing_sync_plugin-1">>}
+        )
+    ).
+
+t_install_callback_validates_name(_Config) ->
+    ?assertMatch(
+        {error, #{msg := "bad_plugin_package_name"}},
+        emqx_mgmt_api_plugins:install_package_v4(<<"../plugin-1">>, <<>>)
+    ).
+
+t_sync_plugin_keeps_name_textual(_Config) ->
+    Name = <<"sync_candidate_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
+    NameVsn = <<Name/binary, "-1.0">>,
+    ?assertError(badarg, binary_to_existing_atom(Name, utf8)),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "cluster_sync"]),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", [], #{<<"name">> => NameVsn}
+        )
+    ),
+    ?assertError(badarg, binary_to_existing_atom(Name, utf8)).
+
+%% A sync request which can not read the installation state because the cluster
+%% wide installation lock is held elsewhere is a transient failure the caller can
+%% retry, not a missing plugin.
+t_sync_install_lock_unavailable_is_a_server_error(_Config) ->
+    NameVsn = <<"missing_sync_lock-1.0">>,
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "cluster_sync"]),
+    ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_install_serializer, run, fun(_NameVsn, _Fun) ->
+            {error, #{
+                msg => "failed_to_acquire_plugin_install_lock",
+                reason => installation_in_progress
+            }}
+        end),
+        {error, {{"HTTP/1.1", 500, _}, _, Body}} = emqx_mgmt_api_test_util:request_api(
+            post, Path, "", [], #{<<"name">> => NameVsn}, #{return_all => true}
+        ),
+        ?assertMatch(#{<<"code">> := <<"INTERNAL_ERROR">>}, emqx_utils_json:decode(Body))
+    after
+        ok = meck:unload(emqx_plugins_install_serializer)
+    end,
+    ok.
+
+t_cluster_sync_valid_name(Config) ->
+    [Initiator | _] = Nodes = ?config(cluster, Config),
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ?ON(Initiator, ok = allow_installation(NameVsn)),
+    ok = install_plugin_into_cluster(Config, PackagePath),
+    ?assertEqual(
+        [{ok, installed}, {ok, installed}],
+        erpc:multicall(
+            Nodes, emqx_plugins, install_state, [NameVsn], 5000
+        )
+    ),
+    #{host := Host, auth := Auth} = get_host_and_auth(Config),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins", "cluster_sync"]),
+    ?assertMatch(
+        {ok, {{_, 204, _}, _, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", Auth, #{<<"name">> => list_to_binary(NameVsn)}, #{return_all => true}
+        )
+    ),
+    ?assertEqual(
+        [{ok, installed}, {ok, installed}],
+        erpc:multicall(
+            Nodes, emqx_plugins, install_state, [NameVsn], 5000
+        )
+    ).
 
 t_plugins(_Config) ->
     PackagePath = get_demo_plugin_package(),
@@ -204,7 +327,113 @@ t_install_plugin_with_invalid_schema_returns_bad_plugin_info(Config) ->
     #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Message} =
         emqx_utils_json:decode(Body),
     ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_plugin_config_schema">>)),
-    ?assertNotEqual(nomatch, binary:match(Message, <<"Rebuild or reinstall">>)).
+    ?assertNotEqual(nomatch, binary:match(Message, <<"Rebuild or reinstall">>)),
+    %% the package root was right and the semantic validation failed, so the
+    %% rejected attempt left neither the plugin directory nor a staging
+    %% directory behind
+    ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ?assertEqual([], staging_attempts(NameVsn)).
+
+%% A package whose entries are not all below its own name-vsn must not write
+%% (or delete) the files of another plugin: it is refused before a single byte
+%% is written, and the other installation is untouched.
+t_install_rejects_sibling_entries(Config) ->
+    Victim = "invalid_plugin-1.0.0",
+    VictimPackage = make_test_plugin_package(
+        Config, "1.0.0", "invalid_plugin", "0.1.0", test_plugin_schema(), <<"foo = \"bar\"\n">>
+    ),
+    ok = emqx_plugins:ensure_uninstalled(Victim),
+    ok = emqx_plugins:delete_package(Victim),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(Victim),
+        _ = emqx_plugins:ensure_uninstalled(Victim),
+        _ = emqx_plugins:delete_package(Victim),
+        _ = disallow_installation(Victim)
+    end),
+    ok = allow_installation(Victim),
+    ok = install_plugin(VictimPackage),
+    ?assertEqual(installed, emqx_plugins:install_state(Victim)),
+    VictimFiles = plugin_dir_files(Victim),
+
+    %% The attacker package is a valid package of `invalid_plugin-2.0.0' which
+    %% additionally carries entries of the plugin installed above.
+    NameVsn = "invalid_plugin-2.0.0",
+    AttackerPackage = make_test_plugin_package(
+        Config,
+        "2.0.0",
+        "invalid_plugin",
+        "0.1.0",
+        test_plugin_schema(),
+        <<"foo = \"bar\"\n">>,
+        iolist_to_binary(io_lib:format("{application, invalid_plugin, [{vsn, \"0.1.0\"}]}.\n", [])),
+        [
+            {filename:join(Victim, "release.json"), <<"pwned">>},
+            {filename:join([Victim, "invalid_plugin-0.1.0", "ebin", "invalid_plugin.app"]), <<
+                "pwned"
+            >>}
+        ]
+    ),
+    on_exit(fun() ->
+        _ = disallow_installation(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, Body}} = install_plugin(AttackerPackage),
+    #{<<"code">> := <<"BAD_PLUGIN_INFO">>} = emqx_utils_json:decode(Body),
+    %% the victim is untouched, byte for byte, and still installed
+    ?assertEqual(VictimFiles, plugin_dir_files(Victim)),
+    ?assertEqual(installed, emqx_plugins:install_state(Victim)),
+    %% nothing of the refused package was written anywhere
+    ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
+    ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ?assertEqual([], staging_attempts(NameVsn)).
+
+%% A failed replacement must not destroy the package the installation can be
+%% repaired from: the upload is refused and the previous package file (and its
+%% checksum) are put back.
+t_install_failure_keeps_previous_package_and_files(Config) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    InstalledPackage = make_test_plugin_package(
+        Config, "1.0.0", "invalid_plugin", "0.1.0", test_plugin_schema(), <<"foo = \"bar\"\n">>
+    ),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(InstalledPackage),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, InstalledTar} = file:read_file(TarFile),
+    {ok, InstalledChecksum} = file:read_file(TarFile ++ ".md5sum"),
+
+    %% a complete installation is not replaced by an upload, so degrade it to
+    %% the leftovers an interrupted unpack would leave
+    ok = emqx_plugins_test_helpers:delete_plugin_app_dirs(NameVsn),
+    ?assertEqual(incomplete, emqx_plugins:install_state(NameVsn)),
+
+    %% the uploaded package has the right package root but an invalid schema
+    RefusedPackage = make_test_plugin_package(
+        Config,
+        "1.0.0",
+        "invalid_plugin",
+        "0.1.0",
+        <<"not an avro schema">>,
+        <<"foo = \"bar\"\n">>
+    ),
+    %% a successful install revokes the allow entry, so the package has to be
+    %% authorized again for the refused attempt
+    ok = allow_installation(NameVsn),
+    {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, Body}} = install_plugin(RefusedPackage),
+    #{<<"code">> := <<"BAD_PLUGIN_INFO">>} = emqx_utils_json:decode(Body),
+    %% the previous package is back, so the installation can be repaired from it
+    ?assertEqual({ok, InstalledTar}, file:read_file(TarFile)),
+    ?assertEqual({ok, InstalledChecksum}, file:read_file(TarFile ++ ".md5sum")),
+    ?assertEqual([], staging_attempts(NameVsn)).
 
 t_install_plugin_with_bad_app_file_returns_consistent_error(Config) ->
     PackagePath = make_test_plugin_package(
@@ -520,6 +749,229 @@ t_install_orphan_package_requires_allow(Config) ->
     {ok, []} = uninstall_plugin(NameVsn),
     ok.
 
+%% A failure which is not the package's fault is a server error: when the
+%% cluster wide installation lock can not be acquired, the upload is refused
+%% with a 500 instead of a 400 which would tell the caller to fix the package.
+t_install_lock_unavailable_is_a_server_error(Config) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_install_serializer, run, fun(_NameVsn, _Fun) ->
+            {error, #{
+                msg => "failed_to_acquire_plugin_install_lock",
+                reason => coordinator_unknown
+            }}
+        end),
+        {ok, {{"HTTP/1.1", 500, _}, _, Body}} = install_plugin(PackagePath),
+        #{<<"code">> := <<"INTERNAL_ERROR">>} = emqx_utils_json:decode(Body),
+        %% Nothing was installed, and the upload left no package behind.
+        ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
+        ?assertEqual(false, emqx_plugins:is_package_present(NameVsn))
+    after
+        ok = meck:unload(emqx_plugins_install_serializer)
+    end,
+    ok.
+
+%% An installation may replace the files of a plugin, so it needs the cluster
+%% wide installation lock on every node which takes part.  A node which can not
+%% take it would install without serializing against the other installations, so
+%% the upload is refused instead of installing on the other nodes only.
+t_install_requires_the_install_lock_on_every_node(Config) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = meck:new(emqx_plugins_proto_v6, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_proto_v6, supports_install_lock, fun(_Node) -> false end),
+        {ok, {{"HTTP/1.1", 500, _}, _, Body}} = install_plugin(PackagePath),
+        #{<<"code">> := <<"INTERNAL_ERROR">>} = emqx_utils_json:decode(Body),
+        %% nothing was installed
+        ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
+        ?assertEqual(false, emqx_plugins:is_package_present(NameVsn))
+    after
+        ok = meck:unload(emqx_plugins_proto_v6)
+    end,
+    ok.
+
+%% The cluster upload walks the nodes in order and stops at the first node which
+%% can not take the installation lock: uploading to the remaining nodes would
+%% update them while the refused node keeps its old package, and a retry could
+%% then be refused as already installed by a node which was updated.
+t_install_stops_at_the_first_node_without_the_lock(Config) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    {ok, Bin} = file:read_file(PackagePath),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    Peer = 'sec376_install_peer@nowhere',
+    ok = meck:new(emqx, [passthrough]),
+    ok = meck:new(emqx_plugins, [passthrough]),
+    ok = meck:new(emqx_mgmt_api_plugins_proto_v4, [passthrough]),
+    try
+        %% the local node is refused the lock, and it comes before the peer
+        ok = meck:expect(emqx, running_nodes, fun() -> [node(), Peer] end),
+        ok = meck:expect(emqx_plugins, node_supports_install_lock, fun(_Node) -> true end),
+        ok = meck:expect(emqx_mgmt_api_plugins_proto_v4, install_package, fun([Node], _NV, _Bin) ->
+            case Node of
+                Peer ->
+                    {[ok], []};
+                _ ->
+                    {
+                        [
+                            {error, #{
+                                msg => "failed_to_acquire_plugin_install_lock", reason => busy
+                            }}
+                        ],
+                        []
+                    }
+            end
+        end),
+        ?assertMatch(
+            {500, #{code := 'INTERNAL_ERROR'}},
+            emqx_mgmt_api_plugins:upload_install(post, #{name => NameVsn, bin => Bin})
+        ),
+        ?assertEqual(
+            1,
+            meck:num_calls(emqx_mgmt_api_plugins_proto_v4, install_package, [[node()], '_', '_'])
+        ),
+        ?assertEqual(
+            0,
+            meck:num_calls(emqx_mgmt_api_plugins_proto_v4, install_package, [
+                [Peer], '_', '_'
+            ])
+        )
+    after
+        ok = meck:unload(emqx_mgmt_api_plugins_proto_v4),
+        ok = meck:unload(emqx_plugins),
+        ok = meck:unload(emqx)
+    end,
+    ok.
+
+%% Preparing the package of a start action walks the nodes in order and stops at
+%% the first node which can not take the installation lock: preparing the rest
+%% would leave the package on some nodes only, and the start which follows would
+%% then fail on the node which was left out while a retry still has to prepare
+%% the other ones.
+t_start_stops_at_the_first_node_without_the_lock(Config) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    Peer = 'sec376_start_peer@nowhere',
+    ok = meck:new(emqx, [passthrough]),
+    ok = meck:new(emqx_plugins, [passthrough]),
+    ok = meck:new(emqx_mgmt_api_plugins_proto_v5, [passthrough]),
+    try
+        %% the local node is refused the lock, and it comes before the peer
+        ok = meck:expect(emqx, running_nodes, fun() -> [node(), Peer] end),
+        ok = meck:expect(emqx_plugins, node_supports_install_lock, fun(_Node) -> true end),
+        ok = meck:expect(emqx_mgmt_api_plugins_proto_v5, ensure_start_package, fun([Node], _Name) ->
+            case Node of
+                Peer ->
+                    {[ok], []};
+                _ ->
+                    {
+                        [
+                            {error, #{
+                                msg => "failed_to_acquire_plugin_install_lock", reason => busy
+                            }}
+                        ],
+                        []
+                    }
+            end
+        end),
+        ?assertMatch(
+            {500, #{code := 'INTERNAL_ERROR'}},
+            emqx_mgmt_api_plugins:update_plugin(put, #{
+                bindings => #{name => NameVsn, action => start}
+            })
+        ),
+        ?assertEqual(
+            1,
+            meck:num_calls(emqx_mgmt_api_plugins_proto_v5, ensure_start_package, ['_', '_'])
+        ),
+        ?assertEqual(
+            0,
+            meck:num_calls(emqx_mgmt_api_plugins_proto_v5, ensure_start_package, [[Peer], '_'])
+        )
+    after
+        ok = meck:unload(emqx_mgmt_api_plugins_proto_v5),
+        ok = meck:unload(emqx_plugins),
+        ok = meck:unload(emqx)
+    end,
+    ok.
+
+%% An installed plugin is started even when the cluster wide installation lock
+%% can not be taken: starting it unpacks and writes nothing, so the API must not
+%% leave a plugin which is installed on the nodes stopped because another
+%% installation holds the lock.
+t_start_installed_plugin_when_the_lock_is_unavailable(Config) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_disabled(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_install_serializer, run, fun(_NV, _Fun) ->
+            {error, #{
+                msg => "failed_to_acquire_plugin_install_lock",
+                reason => installation_in_progress
+            }}
+        end),
+        ?assertMatch(
+            {204},
+            emqx_mgmt_api_plugins:update_plugin(put, #{
+                bindings => #{name => NameVsn, action => start}
+            })
+        )
+    after
+        ok = meck:unload(emqx_plugins_install_serializer)
+    end,
+    ok.
+
 %% A complete installation is still an installation: uploading the same package
 %% again is refused with ALREADY_INSTALLED and the installed files are kept.
 t_install_over_complete_install_dir(_Config) ->
@@ -672,6 +1124,108 @@ t_install_refuses_unreadable_installed_package(Config) ->
     ?assert(filelib:is_dir(ChecksumFile)),
     ok.
 
+t_install_classifies_under_lock(Config) ->
+    assert_install_classifies_under_lock(Config, fun emqx_mgmt_api_plugins:install_package_v4/2).
+
+t_ensure_installed_classifies_under_lock(Config) ->
+    assert_install_classifies_under_lock(Config, fun(NameVsn, _Bin) ->
+        emqx_plugins:ensure_installed(NameVsn)
+    end).
+
+assert_install_classifies_under_lock(Config, Install) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    {ok, Package} = file:read_file(PackagePath),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = emqx_plugins:write_package(NameVsn, Package),
+    Parent = self(),
+    Ref = make_ref(),
+    {Worker, Monitor} = spawn_monitor(fun() ->
+        receive
+            {Ref, go} -> ok
+        end,
+        Result = Install(NameVsn, Package),
+        Parent ! {Ref, Result}
+    end),
+    ok = meck:new(emqx_plugins_fs, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_fs, install_state, fun(Name) ->
+            case self() of
+                Worker ->
+                    Parent ! {Ref, reading_state},
+                    receive
+                        {Ref, continue} -> ok
+                    end;
+                _ ->
+                    ok
+            end,
+            meck:passthrough([Name])
+        end),
+        Worker ! {Ref, go},
+        receive
+            {Ref, reading_state} -> ok
+        after 5000 -> error(state_read_timeout)
+        end,
+        ok = meck:expect(emqx_plugins_fs, install_state, fun(Name) -> meck:passthrough([Name]) end),
+        ?assertMatch(
+            {error, #{reason := installation_in_progress}},
+            emqx_plugins:install_package(NameVsn, <<"another package">>)
+        ),
+        Worker ! {Ref, continue},
+        receive
+            {Ref, Result} -> ?assertEqual(ok, Result)
+        after 5000 -> error(install_timeout)
+        end,
+        ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+        ?assertEqual({ok, Package}, file:read_file(emqx_plugins_fs:tar_file_path(NameVsn)))
+    after
+        Worker ! {Ref, continue},
+        receive
+            {'DOWN', Monitor, process, Worker, _} -> ok
+        after 5000 -> exit(Worker, kill)
+        end,
+        ok = meck:unload(emqx_plugins_fs)
+    end.
+
+t_install_exception_restores_package(Config) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    {ok, Package} = file:read_file(PackagePath),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = meck:new(emqx_plugins_serde, [passthrough]),
+    try
+        lists:foreach(
+            fun({Class, Previous}) ->
+                ok = emqx_plugins:delete_package(NameVsn),
+                case Previous of
+                    absent -> ok;
+                    present -> ok = emqx_plugins:write_package(NameVsn, <<"previous package">>)
+                end,
+                {ok, Before} = emqx_plugins:backup_package(NameVsn),
+                ok = meck:expect(emqx_plugins_serde, add_schema, fun(_, _) ->
+                    erlang:raise(Class, test_install_exception, [])
+                end),
+                ?assertException(
+                    Class,
+                    test_install_exception,
+                    emqx_mgmt_api_plugins:install_package_v4(NameVsn, Package)
+                ),
+                ?assertEqual({ok, Before}, emqx_plugins:backup_package(NameVsn)),
+                ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
+                ?assertEqual([], staging_attempts(NameVsn))
+            end,
+            [{Class, Previous} || Class <- [error, throw, exit], Previous <- [absent, present]]
+        )
+    after
+        ok = meck:unload(emqx_plugins_serde)
+    end.
+
 %% A node where the installation is complete does not unpack the upload
 %% (`ensure_installed_from_tar/2' returns without touching the package), so
 %% replacing the package would leave the uploaded bytes next to the files of
@@ -702,6 +1256,7 @@ t_install_on_complete_installation_keeps_package(Config) ->
     ?assertNotEqual(InstalledPackage, OtherPackage),
     %% this is what the cluster install runs on this node
     ok = emqx_mgmt_api_plugins:install_package_v4(NameVsn, OtherPackage),
+    ok = emqx_plugins:install_package(NameVsn, OtherPackage),
     %% the package still matches the files which are installed
     ?assertEqual({ok, InstalledPackage}, file:read_file(TarFile)),
     ?assertEqual({ok, InstalledChecksum}, file:read_file(TarFile ++ ".md5sum")),
@@ -1306,6 +1861,13 @@ make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig)
     make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig, AppFile).
 
 make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig, AppFile) ->
+    make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig, AppFile, []).
+
+%% The same, with entries appended to the package: used to build a package
+%% which carries the entries of another plugin.
+make_test_plugin_package(
+    Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig, AppFile, ExtraEntries
+) ->
     NameVsn = "invalid_plugin-" ++ RelVsn,
     PluginApp = AppName ++ "-" ++ AppVsn,
     PrivDir = filename:join([NameVsn, PluginApp, "priv"]),
@@ -1331,7 +1893,7 @@ make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig,
             },
             {filename:join(PrivDir, "config_schema.avsc"), Schema},
             {filename:join(PrivDir, "config.hocon"), DefaultConfig}
-        ],
+        ] ++ ExtraEntries,
         [compressed]
     ),
     PackagePath.
@@ -1406,3 +1968,25 @@ allow_installation(NameVsn, Sha256Hex) ->
 
 disallow_installation(NameVsn) ->
     emqx_ctl:run_command(["plugins", "disallow", NameVsn]).
+
+%% Every regular file of the plugin's install directory, with its bytes.
+plugin_dir_files(NameVsn) ->
+    Dir = emqx_plugins_fs:plugin_dir(NameVsn),
+    lists:sort([
+        {File, Content}
+     || File <- filelib:wildcard(filename:join(Dir, "**")),
+        filelib:is_regular(File),
+        {ok, Content} <- [file:read_file(File)]
+    ]).
+
+%% The installation attempts of `NameVsn' still on disk: `[]' means that the
+%% attempt cleaned up after itself.
+staging_attempts(NameVsn) ->
+    %% `filename:join/1' returns a binary as soon as one part is a binary, and
+    %% `filelib:wildcard/1' only takes a string.
+    filelib:wildcard(
+        to_list(filename:join([emqx_plugins_fs:staging_root(), NameVsn, "*"]))
+    ).
+
+to_list(Path) when is_binary(Path) -> unicode:characters_to_list(Path);
+to_list(Path) -> Path.

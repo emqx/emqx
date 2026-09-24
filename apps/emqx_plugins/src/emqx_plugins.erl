@@ -46,6 +46,9 @@
     ensure_disabled/1,
     delete_state/1,
     purge/1,
+    with_installation_lock/2,
+    node_supports_install_lock/1,
+    installation_refused/1,
     write_package/2,
     backup_package/1,
     restore_package/2,
@@ -117,6 +120,11 @@
 %% After this many milliseconds the entry is treated as expired and is purged
 %% lazily on the next allow/check/forget call.
 -define(ALLOW_TTL_MS, timer:minutes(5)).
+
+%% How long the start path of an enabled plugin waits for the cluster wide
+%% installation lock to become available again, and how often it retries.
+-define(INSTALL_LOCK_WAIT_MS, timer:seconds(30)).
+-define(INSTALL_LOCK_RETRY_MS, 250).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -305,14 +313,62 @@ ensure_installed() ->
 %% * Configure the plugin
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case with_installation_lock(NameVsn, fun() -> ensure_installed_locked(NameVsn) end) of
+            {error, _} = Refusal ->
+                with_installed_or_refused(NameVsn, Refusal, fun() ->
+                    ensure_installed_installed(NameVsn)
+                end);
+            Result ->
+                Result
+        end
+    end).
+
+ensure_installed_locked(NameVsn) ->
     case install_state(NameVsn) of
         installed ->
-            maybe
-                {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
-                configure(NameVsn, ?normal, RunningSt)
-            end;
+            ensure_installed_installed(NameVsn);
         _IncompleteOrAbsent ->
             reinstall(NameVsn)
+    end.
+
+%% Configure an installation which is complete on this node.
+ensure_installed_installed(NameVsn) ->
+    maybe
+        {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
+        configure(NameVsn, ?normal, RunningSt)
+    end.
+
+%% @doc Run `Fun' when the lock could not be taken but the plugin is already
+%% installed, otherwise return the refusal.
+%%
+%% The installation lock orders the operations which write, unpack, publish or
+%% roll back an installation.  A plugin which is already installed on this node
+%% has nothing to write: it may even have been placed in the install directory
+%% by hand, without a package file.  Refusing to start it because the lock is
+%% held by an unrelated installation -- or because the coordinator can not hand
+%% the lock out at all, for example while it is unreachable -- would leave the
+%% node running without a plugin which its own configuration enables.
+%%
+%% The state is only read when no installation of this application runs on this
+%% node: an installation here can be between the publication and the validation
+%% of its tree, when the tree is already complete but can still be rolled back
+%% (`emqx_plugins_fs:ensure_installed_from_tar/2').  An installation on another
+%% node can not touch this node's install directory.
+with_installed_or_refused(NameVsn, Refusal, Fun) ->
+    case installation_refused(Refusal) of
+        false ->
+            Refusal;
+        true ->
+            case emqx_plugins_install_serializer:install_in_progress(NameVsn) of
+                true ->
+                    Refusal;
+                false ->
+                    case install_state(NameVsn) of
+                        installed -> Fun();
+                        _IncompleteOrAbsent -> Refusal
+                    end
+            end
     end.
 
 %% @doc Replace whatever the install dir holds with the package found in the
@@ -322,6 +378,9 @@ ensure_installed(NameVsn) ->
 %% that they do not shadow the newly unpacked files.  Refuse when the plugin is
 %% still in use: purging the files of a loaded plugin would leave it running
 %% from replaced or missing code.
+%%
+%% The caller holds the installation lock while classifying the installation
+%% and throughout replacement and configuration.
 reinstall(NameVsn) ->
     maybe
         ok ?= emqx_plugins_fs:prepare_replacement(NameVsn),
@@ -330,11 +389,20 @@ reinstall(NameVsn) ->
     end.
 
 ensure_installed(NameVsn, ?fresh_install = Mode) ->
-    %% TODO
-    %% Additionally check if the plugin is actually stopped/uninstalled.
-    %% Currently, external layers (API, CLI) are responsible for
-    %% not allowing to install a plugin that is already installed.
-    install_and_configure(NameVsn, Mode, stopped).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        %% TODO
+        %% Additionally check if the plugin is actually stopped/uninstalled.
+        %% Currently, external layers (API, CLI) are responsible for
+        %% not allowing to install a plugin that is already installed.
+        %%
+        %% This overload is called by the CLI directly, so it takes the lock
+        %% itself: the installation and the configuration which follows it are
+        %% one critical section, and a caller does not purge, load and configure
+        %% the plugin while another attempt publishes the same plugin.
+        with_installation_lock(NameVsn, fun() ->
+            install_and_configure(NameVsn, Mode, stopped)
+        end)
+    end).
 
 %% @doc Classify the plugin's installation on this node.
 %%
@@ -365,26 +433,28 @@ install_state(NameVsn) ->
 %% If a plugin is running, or enabled, an error is returned.
 -spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
 ensure_uninstalled(NameVsn) ->
-    case read_plugin_info(NameVsn, #{}) of
-        {ok, #{running_status := running}} ->
-            {error, #{
-                msg => "bad_plugin_running_status",
-                hint => "stop_the_plugin_first"
-            }};
-        {ok, #{config_status := enabled}} ->
-            {error, #{
-                msg => "bad_plugin_config_status",
-                hint => "disable_the_plugin_first"
-            }};
-        {ok, Plugin} ->
-            maybe
-                ok ?= emqx_plugins_apps:unload(Plugin),
-                ok ?= purge(NameVsn),
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case read_plugin_info(NameVsn, #{}) of
+            {ok, #{running_status := running}} ->
+                {error, #{
+                    msg => "bad_plugin_running_status",
+                    hint => "stop_the_plugin_first"
+                }};
+            {ok, #{config_status := enabled}} ->
+                {error, #{
+                    msg => "bad_plugin_config_status",
+                    hint => "disable_the_plugin_first"
+                }};
+            {ok, Plugin} ->
+                maybe
+                    ok ?= emqx_plugins_apps:unload(Plugin),
+                    ok ?= purge(NameVsn),
+                    ensure_delete_state(NameVsn)
+                end;
+            {error, _Reason} ->
                 ensure_delete_state(NameVsn)
-            end;
-        {error, _Reason} ->
-            ensure_delete_state(NameVsn)
-    end.
+        end
+    end).
 
 %% @doc Ensure a plugin is enabled to the end of the plugins list.
 -spec ensure_enabled(name_vsn()) -> ok | {error, any()}.
@@ -415,27 +485,77 @@ ensure_disabled(NameVsn) ->
 %% reside in all the plugin install dirs.
 -spec purge(name_vsn()) -> ok | {error, map()}.
 purge(NameVsn) ->
-    ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
-    ok = delete_cached_config(NameVsn),
-    case emqx_plugins_fs:purge_installed(NameVsn) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            %% The leftovers can not be removed, so the installation can not be
-            %% replaced: report it instead of failing with a `badmatch'.
-            {error, #{
-                msg => "failed_to_purge_plugin_dir",
-                name_vsn => NameVsn,
-                reason => Reason
-            }}
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
+        ok = delete_cached_config(NameVsn),
+        case emqx_plugins_fs:purge_installed(NameVsn) of
+            ok ->
+                ok;
+            {error, Reason} ->
+                %% The leftovers can not be removed, so the installation can not be
+                %% replaced: report it instead of failing with a `badmatch'.
+                {error, #{
+                    msg => "failed_to_purge_plugin_dir",
+                    name_vsn => NameVsn,
+                    reason => Reason
+                }}
+        end
+    end).
 
 -spec delete_state(name_vsn()) -> ok.
 delete_state(NameVsn) ->
     ensure_delete_state(NameVsn).
 
+%% @doc Run an operation which replaces a plugin's installation while holding
+%% the cluster wide installation lock.
+%%
+%% The lock is taken again by the steps of the operation itself (it is reentrant
+%% for the process which holds it), so the whole sequence which reads or writes
+%% the plugin's installation directory and its package file is one critical
+%% section: an installation which another node or process started in between can
+%% not interleave with it.
+-spec with_installation_lock(name_vsn(), fun(() -> T)) -> T | {error, map()}.
+with_installation_lock(NameVsn, Fun) ->
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        emqx_plugins_fs:with_installation_lock(NameVsn, Fun)
+    end).
+
+%% @doc Whether `Node' takes the cluster wide installation lock, so that it may
+%% be the target of an operation which installs a package.
+%%
+%% A node which can not take the lock would install without serializing against
+%% the other installations, so a caller which may install on several nodes
+%% refuses the operation while any of them can not.  A node which runs the older
+%% code has no serializer, and the probe fails there.
+-spec node_supports_install_lock(node()) -> boolean().
+node_supports_install_lock(Node) ->
+    try emqx_plugins_proto_v6:supports_install_lock(Node) of
+        true -> true;
+        _Other -> false
+    catch
+        _Class:_Reason -> false
+    end.
+
+%% @doc Whether the result of an installation RPC says that the node could not
+%% run the installation: it could not be reached, or it could not take the
+%% cluster wide installation lock.
+%%
+%% A caller which may install on several nodes stops the operation at the first
+%% such node.  Continuing would update the reachable nodes while this one keeps
+%% what it had, and a later retry can not repair it through the same operation
+%% once the other nodes report the installation as complete.
+-spec installation_refused(term()) -> boolean().
+installation_refused({badrpc, _Reason}) ->
+    true;
+installation_refused({error, #{msg := "failed_to_acquire_plugin_install_lock"}}) ->
+    true;
+installation_refused({error, #{reason := installation_in_progress}}) ->
+    true;
+installation_refused(_Other) ->
+    false.
+
 %% @doc Write the package file.
--spec write_package(name_vsn(), binary()) -> ok.
+-spec write_package(name_vsn(), binary()) -> ok | {error, map()}.
 write_package(NameVsn, Bin) ->
     emqx_plugins_fs:write_tar(NameVsn, Bin).
 
@@ -459,10 +579,25 @@ restore_package(NameVsn, Backup) ->
 is_package_present(NameVsn) ->
     emqx_plugins_fs:is_tar_present(NameVsn).
 
--spec purge_other_versions(name_vsn()) -> ok.
+-spec purge_other_versions(name_vsn()) -> ok | {error, map()}.
 purge_other_versions(NameVsn) ->
-    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    AppNameBin = bin(AppName),
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        %% The two parts are only compared with the installed plugins and used to
+        %% build the name-vsn of another version, so they stay textual: the name
+        %% comes from a request and does not need to become an atom.
+        case emqx_plugins_utils:split_name_vsn(NameVsn) of
+            {AppNameBin, AppVsnBin} ->
+                do_purge_other_versions(NameVsn, AppNameBin, AppVsnBin);
+            error ->
+                {error, #{
+                    msg => "bad_plugin_package_name",
+                    name_vsn => NameVsn,
+                    hint => "the package name must be an application name and a version"
+                }}
+        end
+    end).
+
+do_purge_other_versions(NameVsn, AppNameBin, AppVsnBin) ->
     ?SLOG(debug, #{
         msg => "purge_plugin_other_versions",
         keep_plugin => NameVsn,
@@ -471,7 +606,7 @@ purge_other_versions(NameVsn) ->
     lists:foreach(
         fun
             (#{name := Name, rel_vsn := RelVsn}) when
-                AppNameBin =:= Name, AppVsn =:= RelVsn
+                AppNameBin =:= Name, AppVsnBin =:= RelVsn
             ->
                 ok;
             (#{name := Name, rel_vsn := RelVsn}) ->
@@ -497,10 +632,12 @@ purge_other_versions(NameVsn) ->
     ).
 
 %% @doc Delete the package file.
--spec delete_package(name_vsn()) -> ok.
+-spec delete_package(name_vsn()) -> ok | {error, term()}.
 delete_package(NameVsn) ->
-    _ = emqx_plugins_serde:delete_schema(NameVsn),
-    emqx_plugins_fs:delete_tar(NameVsn).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        _ = emqx_plugins_serde:delete_schema(NameVsn),
+        emqx_plugins_fs:delete_tar(NameVsn)
+    end).
 
 %% @doc Safely delete a plugin package.
 %% If another version of the same plugin is currently active,
@@ -508,24 +645,26 @@ delete_package(NameVsn) ->
 %% Otherwise, stop and uninstall the plugin before deleting.
 -spec safe_delete_package(name_vsn()) -> ok | {error, any()}.
 safe_delete_package(NameVsn) ->
-    _ = forget_allowed_installation(NameVsn),
-    case has_other_active_version(NameVsn) of
-        true ->
-            ok = delete_state(NameVsn),
-            ok = purge(NameVsn),
-            _ = delete_package(NameVsn),
-            ok;
-        false ->
-            case maybe_stop_plugin(NameVsn) of
-                ok ->
-                    ok = maybe_disable_plugin(NameVsn),
-                    ok = maybe_uninstall_plugin(NameVsn),
-                    _ = delete_package(NameVsn),
-                    ok;
-                Error ->
-                    Error
-            end
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        _ = forget_allowed_installation(NameVsn),
+        case has_other_active_version(NameVsn) of
+            true ->
+                ok = delete_state(NameVsn),
+                ok = purge(NameVsn),
+                _ = delete_package(NameVsn),
+                ok;
+            false ->
+                case maybe_stop_plugin(NameVsn) of
+                    ok ->
+                        ok = maybe_disable_plugin(NameVsn),
+                        ok = maybe_uninstall_plugin(NameVsn),
+                        _ = delete_package(NameVsn),
+                        ok;
+                    Error ->
+                        Error
+                end
+        end
+    end).
 
 %%--------------------------------------------------------------------
 %% Plugin runtime management
@@ -538,7 +677,7 @@ ensure_started() ->
     maybe_persist_normalized_config(Configured0, Configured),
     Fun = fun
         (#{name_vsn := NameVsn, enable := true}) ->
-            case ?CATCH(do_ensure_started(NameVsn)) of
+            case start_plugin_waiting_for_lock(NameVsn) of
                 ok -> [];
                 {error, Reason} -> [{NameVsn, Reason}]
             end;
@@ -563,10 +702,61 @@ ensure_started(NameVsn) ->
             {error, Reason}
     end.
 
+%% Start an enabled plugin, waiting for a transient installation lock
+%% contention.
+%%
+%% The installation lock of the cluster is taken before the installation state
+%% is read (`emqx_plugins_fs:ensure_installed_from_tar/2'): a tree which another
+%% attempt has published but not validated yet is not an installation, and that
+%% attempt has to be able to roll it back before this caller may report the
+%% plugin as installed.  The lock is cluster wide, so an installation on any node
+%% keeps it for the time of one package.  A node which starts while that happens
+%% must not skip an enabled plugin and mark itself ready with its hooks missing,
+%% so the wait is retried for a bounded time; only then is the plugin reported as
+%% not started.
+start_plugin_waiting_for_lock(NameVsn) ->
+    Deadline = erlang:monotonic_time(millisecond) + ?INSTALL_LOCK_WAIT_MS,
+    Retry = fun Loop() ->
+        case ?CATCH(do_ensure_started(NameVsn)) of
+            {error, #{reason := installation_in_progress}} = Error ->
+                case erlang:monotonic_time(millisecond) < Deadline of
+                    true ->
+                        ?SLOG(warning, #{
+                            msg => "waiting_for_plugin_install_lock",
+                            name_vsn => NameVsn
+                        }),
+                        timer:sleep(?INSTALL_LOCK_RETRY_MS),
+                        Loop();
+                    false ->
+                        Error
+                end;
+            Result ->
+                Result
+        end
+    end,
+    Retry().
+
 %% @doc Ensure that a plugin package is available and extracted locally.
+%%
+%% The whole preparation is one critical section: when the package is not local,
+%% it is fetched from another node, written to the shared package file and read
+%% back by the extraction which follows.  A concurrent upload of the same
+%% name-vsn which wrote the package in between would make this node extract
+%% other bytes than it fetched.
 -spec ensure_start_package(name_vsn()) -> ok | {error, term()}.
 ensure_start_package(NameVsn) ->
-    ?CATCH(do_ensure_start_package(NameVsn)).
+    ?CATCH(
+        case
+            with_installation_lock(NameVsn, fun() ->
+                do_ensure_start_package(NameVsn)
+            end)
+        of
+            {error, _} = Refusal ->
+                with_installed_or_refused(NameVsn, Refusal, fun() -> ok end);
+            Result ->
+                Result
+        end
+    ).
 
 %% @doc Validate that a plugin can be started without changing runtime state.
 %% The returned status is a rollback hint only.  Validation and start are not
@@ -906,7 +1096,7 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
 do_ensure_started(NameVsn) ->
     maybe
         ok ?= ensure_no_other_version_active(NameVsn),
-        ok ?= install(NameVsn, ?normal),
+        ok ?= ensure_start_installation(NameVsn),
         ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
@@ -916,6 +1106,33 @@ do_ensure_started(NameVsn) ->
     else
         {error, Reason} ->
             {error, Reason}
+    end.
+
+%% @doc Ensure the installation a start needs.
+%%
+%% Same as `install/2', except that an installation which is already complete on
+%% this node is still started when the installation lock can not be taken (see
+%% `with_installed_or_refused/3'): loading and starting it writes nothing, and
+%% refusing would leave the plugin stopped while the configuration which enables
+%% it stays.
+ensure_start_installation(NameVsn) ->
+    case install(NameVsn, ?normal) of
+        {error, _} = Refusal ->
+            with_installed_or_refused(NameVsn, Refusal, fun() ->
+                ensure_started_from_installed(NameVsn)
+            end);
+        Result ->
+            Result
+    end.
+
+%% Load an installation which is complete on this node.
+%%
+%% This is the `installed' branch of `install/2' without the lock: the state was
+%% already read by `with_installed_or_refused/3'.
+ensure_started_from_installed(NameVsn) ->
+    maybe
+        {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        emqx_plugins_apps:load(Plugin, emqx_plugins_fs:lib_dir(NameVsn))
     end.
 
 do_ensure_start_package(NameVsn) ->
@@ -1028,6 +1245,11 @@ log_start_error(Reason) ->
         reason => Reason
     }).
 
+log_start_result(ok) ->
+    ok;
+log_start_result({error, Reason}) ->
+    log_start_error(Reason).
+
 maybe_initialize_cached_config(NameVsn) ->
     case get_cached_config(NameVsn, ?plugin_conf_not_found) of
         ?plugin_conf_not_found ->
@@ -1058,17 +1280,67 @@ get_config(NameVsn, ?CONFIG_FORMAT_MAP, Default) ->
 get_tar(NameVsn) ->
     emqx_plugins_fs:get_tar(NameVsn).
 
+%% Install a package which is not on disk yet from its content.
+%%
+%% The package file is written and unpacked under the same installation lock:
+%% the unpack reads the file back, and a concurrent upload of the same name-vsn
+%% which wrote it in between would be installed instead of this content.
 -spec install_package(name_vsn(), binary()) -> ok | {error, term()}.
 install_package(NameVsn, Bin) ->
-    ok = write_package(NameVsn, Bin),
-    case ensure_installed(NameVsn, ?fresh_install) of
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        with_installation_lock(NameVsn, fun() ->
+            install_package_locked(NameVsn, Bin)
+        end)
+    end).
+
+install_package_locked(NameVsn, Bin) ->
+    case install_state(NameVsn) of
+        installed ->
+            ensure_installed(NameVsn, ?fresh_install);
+        _IncompleteOrAbsent ->
+            write_and_install_package(NameVsn, Bin)
+    end.
+
+%% Replace the package of an absent or incomplete installation with the given
+%% content.
+%%
+%% The package which is replaced is snapshotted before anything is written: an
+%% installation attempt which fails must not destroy the only local copy of the
+%% package which was there, it may be the only way to repair the installation
+%% later.  When the snapshot itself can not be taken, the install is refused
+%% instead of overwriting a package which could not be put back.
+write_and_install_package(NameVsn, Bin) ->
+    maybe
+        {ok, PreviousPackage} ?= backup_package(NameVsn),
+        ok ?= write_package(NameVsn, Bin),
+        install_written_package(NameVsn, PreviousPackage)
+    end.
+
+install_written_package(NameVsn, PreviousPackage) ->
+    try ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
         {error, _} = Error ->
-            _ = delete_package(NameVsn),
+            restore_written_package(NameVsn, PreviousPackage),
             Error;
         Result ->
             Result
+    catch
+        Class:Reason:Stacktrace ->
+            restore_written_package(NameVsn, PreviousPackage),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
+
+restore_written_package(NameVsn, PreviousPackage) ->
+    case restore_package(NameVsn, PreviousPackage) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_restore_plugin_package",
+                name_vsn => NameVsn,
+                reason => Reason
+            })
     end.
 
 %%--------------------------------------------------------------------
@@ -1154,8 +1426,17 @@ configure(NameVsn, Mode, RunningSt) ->
             Error
     end.
 
-%% Install from local tarball or get tarball from cluster
+%% Install from local tarball or get tarball from cluster.
+%%
+%% The whole sequence is one critical section: when the package is not local, it
+%% is fetched from another node, written to the shared package file and read back
+%% by the extraction which follows.  A concurrent upload of the same name-vsn
+%% which wrote the package in between would make this node install other bytes
+%% than it fetched.
 install(NameVsn, Mode) ->
+    with_installation_lock(NameVsn, fun() -> do_install(NameVsn, Mode) end).
+
+do_install(NameVsn, Mode) ->
     case {ensure_installed_locally(NameVsn), Mode} of
         {ok, _} ->
             ok;
@@ -1268,9 +1549,29 @@ enable_disable_plugin(NameVsn, {#{enable := true}, #{enable := false}}) ->
     _ = ensure_stopped(NameVsn),
     ok;
 enable_disable_plugin(NameVsn, {#{enable := false}, #{enable := true}}) ->
-    %% errors are already logged in this fn
-    _ = ensure_started(NameVsn),
-    ok;
+    %% Enabling a plugin starts it, and the start may have to take the cluster
+    %% wide installation lock, which another installation holds for the time of
+    %% one package.  The start is attempted here and a refusal is retried with
+    %% the same bounded wait the boot path uses
+    %% (`start_plugin_waiting_for_lock/1'), but outside of this callback: it
+    %% runs in the config handler, and waiting in there would hold every other
+    %% configuration update on this node while one plugin is being installed.
+    %% The configuration entry is applied once, so the retry has to happen here
+    %% or the plugin would stay enabled and stopped.  The first attempt is not
+    %% logged as an error when the lock refuses it: that is the transient case
+    %% the retry handles.
+    case ?CATCH(do_ensure_started(NameVsn)) of
+        ok ->
+            ok;
+        {error, #{reason := installation_in_progress}} ->
+            _ = spawn(fun() ->
+                log_start_result(start_plugin_waiting_for_lock(NameVsn))
+            end),
+            ok;
+        {error, Reason} ->
+            log_start_error(Reason),
+            ok
+    end;
 enable_disable_plugin(_NameVsn, _Diff) ->
     ok.
 

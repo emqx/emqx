@@ -20,7 +20,10 @@ init([]) ->
             intensity => 100,
             period => 10
         },
-    ChildSpecs = [child_spec(emqx_plugins_serde)],
+    ChildSpecs = [
+        emqx_plugins_install_serializer:child_spec(),
+        child_spec(emqx_plugins_serde)
+    ],
     {ok, {SupFlags, ChildSpecs}}.
 
 child_spec(Mod) ->

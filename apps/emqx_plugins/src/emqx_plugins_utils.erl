@@ -8,9 +8,14 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-include_lib("emqx/include/logger.hrl").
+
 -export([
+    validate_name_vsn/1,
+    with_valid_name/2,
     bin/1,
     parse_name_vsn/1,
+    split_name_vsn/1,
     plugin_name/1,
     normalize_state_item/1,
     latest_name_vsn/2,
@@ -23,6 +28,42 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
+%% @doc Validate the textual package identifier used by plugin operations.
+-spec validate_name_vsn(term()) -> ok | {error, string()}.
+validate_name_vsn(Name) when is_list(Name) ->
+    case lists:all(fun(C) -> is_integer(C) andalso C >= 0 andalso C < 128 end, Name) of
+        true -> validate_name_vsn(list_to_binary(Name));
+        false -> {error, "Name must be an ASCII string"}
+    end;
+validate_name_vsn(Name) when is_binary(Name), byte_size(Name) > 0, byte_size(Name) =< 256 ->
+    case re:run(Name, "\\A[A-Za-z]+[A-Za-z0-9_]*-[A-Za-z0-9_.-]*\\z", [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            {error,
+                "Name should be an application name"
+                " (starting with a letter, containing letters, digits and underscores)"
+                " followed with a dash and a version string "
+                " (can contain letters, digits, dots, and dashes), "
+                " e.g. emqx_plugin_template-5.0-rc.1"}
+    end;
+validate_name_vsn(Name) when is_binary(Name) ->
+    {error, "Name Length must =< 256"};
+validate_name_vsn(_) ->
+    {error, "Name must be a string"}.
+
+%% @doc Validate a package identifier before running an operation.
+-spec with_valid_name(term(), fun(() -> T)) -> T | {error, map()}.
+with_valid_name(NameVsn, Fun) ->
+    case validate_name_vsn(NameVsn) of
+        ok ->
+            Fun();
+        {error, Hint} ->
+            Error = #{msg => "bad_plugin_package_name", name_vsn => NameVsn, hint => Hint},
+            ?SLOG(warning, Error),
+            {error, Error}
+    end.
+
 parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
     parse_name_vsn(binary_to_list(NameVsn));
 parse_name_vsn(NameVsn) when is_list(NameVsn) ->
@@ -30,6 +71,24 @@ parse_name_vsn(NameVsn) when is_list(NameVsn) ->
         {AppName, [$- | Vsn]} -> {list_to_atom(AppName), Vsn};
         _ -> error(bad_name_vsn)
     end.
+
+%% @doc Split a package identifier into its application name and version
+%% without converting the name into an atom.
+%%
+%% The split is at the first dash, like `parse_name_vsn/1'.  Callers which only
+%% need the two textual parts (a lookup, a comparison, a log) must use this one:
+%% the identifier may come from a request, and it stays textual, so no atom is
+%% created for a name which is only looked up or compared.
+-spec split_name_vsn(term()) -> {binary(), binary()} | error.
+split_name_vsn(NameVsn) when is_list(NameVsn) ->
+    split_name_vsn(bin(NameVsn));
+split_name_vsn(NameVsn) when is_binary(NameVsn) ->
+    case binary:split(NameVsn, <<"-">>) of
+        [AppName, Vsn] when byte_size(AppName) > 0 -> {AppName, Vsn};
+        _ -> error
+    end;
+split_name_vsn(_NameVsn) ->
+    error.
 
 compare_vsn(Vsn1, Vsn2) when is_binary(Vsn1) ->
     compare_vsn(binary_to_list(Vsn1), Vsn2);
@@ -115,11 +174,62 @@ compare_segment({string, _}, {int, _}) ->
 
 -ifdef(TEST).
 
+validate_name_vsn_test_() ->
+    Valid = ["plugin-1.0", "my_plugin-5.9.0-beta.3", "Plugin2-", "p-" ++ lists:duplicate(254, $a)],
+    Invalid = [
+        "",
+        ".",
+        "..",
+        ".emqx-plugin-staging",
+        "..-1",
+        ".-1",
+        "-1",
+        "plugin",
+        "../plugin-1",
+        "/plugin-1",
+        "plugin-1/",
+        "plugin-1/child",
+        "plugin-1\\child",
+        "plugin-1\n",
+        "plugin-1\r",
+        "plugin-1" ++ [0],
+        "p-" ++ lists:duplicate(255, $a)
+    ],
+    [
+        [?_assertEqual(ok, validate_name_vsn(N)) || N <- [Name, list_to_binary(Name)]]
+     || Name <- Valid
+    ] ++
+        [
+            [?_assertMatch({error, _}, validate_name_vsn(N)) || N <- [Name, list_to_binary(Name)]]
+         || Name <- Invalid
+        ] ++
+        [
+            ?_assertMatch({error, _}, validate_name_vsn(N))
+         || N <- [undefined, 1, #{}, [<<"p-1">>], [256]]
+        ].
+
 parse_name_vsn_test_() ->
     [
         ?_assertError(bad_name_vsn, parse_name_vsn("foo")),
         ?_assertEqual({foo, "1.0.0"}, parse_name_vsn("foo-1.0.0")),
         ?_assertEqual({bar_plugin, "5.9.0-beta.1"}, parse_name_vsn(<<"bar_plugin-5.9.0-beta.1">>))
+    ].
+
+split_name_vsn_test_() ->
+    [
+        %% the same split as `parse_name_vsn/1', without the atom
+        ?_assertEqual({<<"foo">>, <<"1.0.0">>}, split_name_vsn("foo-1.0.0")),
+        ?_assertEqual({<<"foo">>, <<"1.0.0">>}, split_name_vsn(<<"foo-1.0.0">>)),
+        ?_assertEqual(
+            {<<"bar_plugin">>, <<"5.9.0-beta.1">>}, split_name_vsn(<<"bar_plugin-5.9.0-beta.1">>)
+        ),
+        %% a version may be empty, as `validate_name_vsn/1' accepts it
+        ?_assertEqual({<<"foo">>, <<>>}, split_name_vsn("foo-")),
+        ?_assertEqual(error, split_name_vsn("foo")),
+        ?_assertEqual(error, split_name_vsn("-1.0.0")),
+        ?_assertEqual(error, split_name_vsn("")),
+        ?_assertEqual(error, split_name_vsn(undefined)),
+        ?_assertEqual(error, split_name_vsn(1))
     ].
 
 make_name_vsn_string_test_() ->
