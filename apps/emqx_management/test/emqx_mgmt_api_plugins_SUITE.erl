@@ -96,6 +96,73 @@ end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
     ok.
 
+t_sync_plugin_validates_name(Config) ->
+    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+    Kept = filename:join(WorkDir, "kept-1"),
+    Marker = filename:join(Kept, "marker"),
+    ok = filelib:ensure_dir(Marker),
+    ok = file:write_file(Marker, <<"original">>),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "cluster_sync"]),
+    Names = [
+        <<"../kept-1">>,
+        list_to_binary(filename:absname(Kept)),
+        <<"valid-1/../../kept-1">>,
+        <<"..-1">>,
+        <<".-1">>,
+        <<"-1">>,
+        <<"plugin-1\n">>,
+        <<"plugin-1", 0>>,
+        <<"plugin-1\\child">>,
+        <<".emqx-plugin-staging">>,
+        <<>>,
+        123,
+        [],
+        #{},
+        <<"p-", (binary:copy(<<"a">>, 255))/binary>>
+    ],
+    lists:foreach(
+        fun(Name) ->
+            ?assertMatch(
+                {error, {_, 400, _}},
+                emqx_mgmt_api_test_util:request_api(
+                    post, Path, "", [], #{<<"name">> => Name}
+                )
+            ),
+            ?assertEqual({ok, <<"original">>}, file:read_file(Marker))
+        end,
+        Names
+    ),
+    ?assertMatch(
+        {error, {_, 400, _}}, emqx_mgmt_api_test_util:request_api(post, Path, "", [], #{})
+    ),
+    ?assertEqual({ok, <<"original">>}, file:read_file(Marker)),
+    ?assertEqual([], emqx_plugins_fs:list_name_vsn()),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", [], #{<<"name">> => <<"missing_sync_plugin-1">>}
+        )
+    ).
+
+t_install_callback_validates_name(_Config) ->
+    ?assertMatch(
+        {error, #{msg := "bad_plugin_package_name"}},
+        emqx_mgmt_api_plugins:install_package_v4(<<"../plugin-1">>, <<>>)
+    ).
+
+t_sync_plugin_keeps_name_textual(_Config) ->
+    Name = <<"sync_candidate_", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
+    NameVsn = <<Name/binary, "-1.0">>,
+    ?assertError(badarg, binary_to_existing_atom(Name, utf8)),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "cluster_sync"]),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", [], #{<<"name">> => NameVsn}
+        )
+    ),
+    ?assertError(badarg, binary_to_existing_atom(Name, utf8)).
+
 t_plugins(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
