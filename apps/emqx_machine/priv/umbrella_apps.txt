@@ -31,6 +31,7 @@ emqx_bridge_couchbase
 emqx_bridge_dameng
 emqx_bridge_datalayers
 emqx_bridge_disk_log
+emqx_bridge_nats
 emqx_bridge_doris
 emqx_bridge_dynamo
 emqx_bridge_emqx_tables
