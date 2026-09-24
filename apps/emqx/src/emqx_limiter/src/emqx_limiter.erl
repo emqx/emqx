@@ -25,6 +25,7 @@
     create_listener_limiter_client/2,
     create_channel_client_container/2,
     create_session_client_container/1,
+    channel_limits_configured/3,
     session_limits_configured/1
 ]).
 
@@ -149,10 +150,24 @@ create_channel_client_container(ZoneName, ListenerId) ->
 create_session_client_container(ListenerId) ->
     create_session_client_container(ListenerId, ?SESSION_LIMITS).
 
+%% Check whether any of the named channel limiters has a finite limit. The groups
+%% checked here must be the ones `channel_limiter_ids/3` returns, so that a caller
+%% can skip creating the container when this returns `false`.
+-spec channel_limits_configured(zone(), listener_id(), [name()]) -> boolean().
+channel_limits_configured(ZoneName, ListenerId, Names) ->
+    ZoneNames = [Name || Name <- Names, not ?IS_CHANNEL_ONLY_LIMITER(Name)],
+    any_finite_limit(channel_group(ListenerId), Names) orelse
+        any_finite_limit(zone_group(ZoneName), ZoneNames).
+
 %% Check whether any session (delivery) limiter has a finite limit.
 -spec session_limits_configured(listener_id()) -> boolean().
 session_limits_configured(ListenerId) ->
-    case emqx_limiter_registry:find_group(channel_group(ListenerId)) of
+    any_finite_limit(channel_group(ListenerId), ?SESSION_LIMITS).
+
+any_finite_limit(_Group, []) ->
+    false;
+any_finite_limit(Group, Names) ->
+    case emqx_limiter_registry:find_group(Group) of
         undefined ->
             false;
         {_Module, LimiterOptions} ->
@@ -164,7 +179,7 @@ session_limits_configured(ListenerId) ->
                         false -> false
                     end
                 end,
-                ?SESSION_LIMITS
+                Names
             )
     end.
 
