@@ -32,9 +32,9 @@ scopes() ->
     %% top-level path (sibling to /action_types, /source_types)
     %% chosen to avoid wildcard routing collisions with /api_key/:name.
     #{
-        <<"/api_key">> => ?SCOPE_API_KEY_MGMT,
-        <<"/api_key/:name">> => ?SCOPE_API_KEY_MGMT,
-        <<"/api_key_scopes">> => ?SCOPE_PUBLIC
+        "/api_key" => ?SCOPE_API_KEY_MGMT,
+        "/api_key/:name" => ?SCOPE_API_KEY_MGMT,
+        "/api_key_scopes" => ?SCOPE_PUBLIC
     }.
 
 api_spec() ->
