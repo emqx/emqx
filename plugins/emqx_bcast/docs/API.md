@@ -409,7 +409,7 @@ restart/reset.
 | `bcast_batch_pub_qos1_enqueued` | QoS=1 requests accepted into this node's intake queue |
 | `bcast_batch_pub_qos1_intake_rejected` | QoS=1 requests rejected because this node's intake queue is full |
 | `bcast_batch_pub_qos1_promote_error` | QoS=1 promotion batch failures on this node (retries exhausted) |
-| `bcast_batch_pub_qos1_append_deferred` | QoS=1 committed batches handed back to the intake queue after the in-worker index-append retry budget ran out (retried until they succeed, never dropped) |
+| `bcast_batch_pub_qos1_deferred` | QoS=1 batches handed back to the intake queue for a later retry after the in-worker budget ran out - index append, promotion or batch processing kept failing (retried until they succeed, never dropped) |
 
 All five are **intake scope**: a replicant forwards BatchPub to a core for
 admission and reports 0 for them. A non-zero `append_deferred` means an index

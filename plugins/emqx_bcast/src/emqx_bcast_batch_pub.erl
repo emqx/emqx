@@ -382,6 +382,11 @@ validate_short_name(_) ->
 
 validate_template_name(undefined) ->
     ok;
+%% An empty template is not "use the configured default" (that is what an
+%% absent field means): it is an explicit empty MQTT topic, which the broker
+%% rejects, so the request would be accepted and never delivered.
+validate_template_name(<<>>) ->
+    {error, <<"InvalidTopicTemplate">>, <<"TopicTemplateName must not be empty">>};
 validate_template_name(TemplateName) when is_binary(TemplateName) ->
     case contains_any(TemplateName, [<<"+">>, <<"#">>]) of
         false -> validate_placeholders(TemplateName);

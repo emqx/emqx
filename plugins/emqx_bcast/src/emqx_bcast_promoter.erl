@@ -151,8 +151,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% silently lose the whole batch - and the worker link would take the
 %% promoter gen_server (and its pending batch) down with it. Contain the
 %% crash as a bounded retry of the SAME batch (idempotent:
-%% already_promoted + append dedup); after the consecutive-failure
-%% budget the batch is dropped loudly with its admissions released.
+%% already_promoted + append dedup); once the in-worker budget is spent the
+%% batch goes back to the intake queue with a backoff (never dropped: the
+%% crash can happen after the mria commit, and a dropped batch would leave
+%% committed deliveries with no index entry and nothing to retry them).
 process_batch_guarded(Batch, Failures) ->
     try process_batch(Batch, Failures) of
         Result ->
@@ -169,29 +171,15 @@ process_batch_guarded(Batch, Failures) ->
             emqx_bcast_metrics:qos1_promote_error(),
             case Failures >= ?MAX_CONSECUTIVE_FAILURES of
                 true ->
-                    drop_batch([Entry || {_Seq, Entry} <- Batch], {Error, Reason}),
-                    {done, 0};
+                    defer_batch(
+                        "bcast_promoter_crash_deferred",
+                        [Entry || {_Seq, Entry} <- Batch],
+                        {Error, Reason}
+                    );
                 false ->
                     {retry, Failures + 1}
             end
     end.
-
-%% A persistently failing batch must not block the queue forever. Drop it
-%% loudly (the queue is crash-volatile by contract; this is a bug path).
-drop_batch(Entries, Reason) ->
-    ?SLOG(error, #{
-        msg => "bcast_promoter_dropped_batch",
-        reason => Reason,
-        batch_size => length(Entries)
-    }),
-    lists:foreach(
-        fun(E) ->
-            _ = emqx_bcast_index_owner:release_admit(
-                maps:get(product_key, E), maps:get(devices, E)
-            )
-        end,
-        Entries
-    ).
 
 %% Entries dropped because their message was deleted after the request was
 %% accepted. Nothing durable was written for them and no ledger counter was
@@ -244,6 +232,17 @@ process_batch(Batch, Failures) ->
             ],
             case emqx_bcast_index_owner:append_batch(Appends) of
                 ok ->
+                    %% Trigger BEFORE counting, and count last: this branch is
+                    %% the only place a batch is counted, and a raise from the
+                    %% trigger lands in the crash guard, which retries the SAME
+                    %% batch - counting first would count those deliveries a
+                    %% second time. Nothing after the count can fail, so the
+                    %% count happens exactly once per committed batch.
+                    %%
+                    %% already_promoted entries were committed by an earlier
+                    %% run that failed before its append/trigger; re-trigger
+                    %% them too so committed deliveries are always claimed.
+                    ok = trigger_broadcast(Promoted ++ AlreadyPromoted),
                     %% Durable ledger base: count logical deliveries (one
                     %% per appended device) only after the mria commit AND
                     %% the per-device index append both succeeded. The
@@ -251,10 +250,6 @@ process_batch(Batch, Failures) ->
                     %% entries, so every committed device is counted
                     %% exactly once (no double count, no leak).
                     emqx_bcast_metrics:qos1_wanted(length(Appends)),
-                    %% already_promoted entries were committed by an earlier
-                    %% run that failed before its append/trigger; re-trigger
-                    %% them too so committed deliveries are always claimed.
-                    ok = trigger_broadcast(Promoted ++ AlreadyPromoted),
                     {done, 0};
                 {error, _Reason} = Error ->
                     %% Owner takeover, shard overload (call timeout), a shard
@@ -281,7 +276,7 @@ process_batch(Batch, Failures) ->
                             %% module comment), and holding the worker is what
                             %% wedges the whole drain path once every worker
                             %% holds a permanently failing batch.
-                            defer_batch(Entries, Error)
+                            defer_batch("bcast_promoter_append_deferred", Entries, Error)
                     end
             end;
         {error, Reason} ->
@@ -293,22 +288,30 @@ process_batch(Batch, Failures) ->
             emqx_bcast_metrics:qos1_promote_error(),
             case Failures >= ?MAX_CONSECUTIVE_FAILURES of
                 true ->
-                    drop_batch(Entries, Reason),
-                    {done, 0};
+                    %% Out of in-worker budget for a promotion that keeps
+                    %% aborting: give the batch back to the intake queue with
+                    %% a backoff instead of dropping accepted requests.
+                    defer_batch("bcast_promoter_promote_deferred", Entries, Reason);
                 false ->
                     {retry, Failures + 1}
             end
     end.
 
-%% Hand a committed-but-unindexed batch back to the intake queue for a later
-%% retry. The admission reservation stays held: the devices are committed, so
-%% the quota they consume is still in flight.
-defer_batch(Entries, Error) ->
+%% Hand a batch the worker cannot finish back to the intake queue for a later
+%% retry, and free the worker. Used for three faults that share the same
+%% requirement - the accepted request must not be dropped:
+%%   - the index append keeps failing (the batch IS committed in mria),
+%%   - promotion keeps aborting (nothing durable yet, but the request was
+%%     already acknowledged to the caller),
+%%   - batch processing keeps crashing (it may have committed before crashing).
+%% The admission reservation stays held throughout: the request is still in
+%% flight, so the quota it consumes is too.
+defer_batch(Msg, Entries, Reason) ->
     Count = emqx_bcast_intake:requeue(Entries),
-    emqx_bcast_metrics:qos1_append_deferred(Count),
+    emqx_bcast_metrics:qos1_deferred(Count),
     ?SLOG(warning, #{
-        msg => "bcast_promoter_append_deferred",
-        result => Error,
+        msg => Msg,
+        result => Reason,
         entries => Count,
         defer_attempts => defer_attempts(Entries),
         node => node()

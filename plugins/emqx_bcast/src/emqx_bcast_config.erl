@@ -162,11 +162,20 @@ topic_or(Key, Config, Defaults) ->
             maps:get(Key, Defaults)
     end.
 
-valid_topic_template(Template) ->
+%% An empty template expands to an empty topic name, which the broker rejects:
+%% the plugin would accept the configuration and then fail every publish that
+%% falls back to it (the delivery is acknowledged to the caller, so the failure
+%% is silent). Treat it as invalid, exactly like a wildcard or an unknown
+%% placeholder, and fall back to the default with a warning.
+valid_topic_template(<<>>) ->
+    false;
+valid_topic_template(Template) when is_binary(Template) ->
     case binary:match(Template, [<<"+">>, <<"#">>]) of
         nomatch -> known_placeholders_only(Template);
         _ -> false
-    end.
+    end;
+valid_topic_template(_NotABinary) ->
+    false.
 
 known_placeholders_only(Template) ->
     Rest0 = binary:replace(Template, <<"${productKey}">>, <<>>, [global]),

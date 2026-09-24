@@ -350,9 +350,7 @@ t_config_topic_template_validated(_Config) ->
     try
         Reports = emqx_cth_log_capture:capture(fun() ->
             ok = emqx_bcast_config:update(#{<<"broadcast_topic">> => <<"/sys/broadcast/+">>}),
-            ok = emqx_bcast_config:update(#{
-                <<"batch_topic">> => <<"/${tenant}/${deviceName}/user/get">>
-            })
+            ok = emqx_bcast_config:update(#{<<"batch_topic">> => <<>>})
         end),
         ?assertEqual(DefaultBroadcast, emqx_bcast_config:get(broadcast_topic)),
         ?assertEqual(DefaultBatch, emqx_bcast_config:get(batch_topic)),
@@ -1516,7 +1514,7 @@ t_append_failure_beyond_budget_defers_the_batch(_Config) ->
     PK = <<"PDEFER">>,
     DNFail = <<"DDEFER-FAIL">>,
     DNOk = <<"DDEFER-OK">>,
-    DeferredBefore = metric(<<"batch_pub_qos1_append_deferred">>),
+    DeferredBefore = metric(<<"batch_pub_qos1_deferred">>),
     Gate = atomics:new(1, []),
     atomics:put(Gate, 1, 1),
     meck:new(emqx_bcast_index_owner, [passthrough, no_link]),
@@ -1531,7 +1529,7 @@ t_append_failure_beyond_budget_defers_the_batch(_Config) ->
         %% The in-worker budget runs out and the batch is handed to the
         %% deferred queue instead of holding its worker forever.
         ?assert(wait_until(fun() -> emqx_bcast_intake:deferred_depth() >= 1 end, 100)),
-        ?assert(metric(<<"batch_pub_qos1_append_deferred">>) > DeferredBefore),
+        ?assert(metric(<<"batch_pub_qos1_deferred">>) > DeferredBefore),
         %% The drain path is not wedged: another batch is promoted and
         %% indexed while the failing one waits out its backoff.
         {ok, _Seq2} = emqx_bcast_intake:enqueue(retry_entry(PK, DNOk)),
@@ -2181,7 +2179,10 @@ t_batch_pub_invalid_short_name(_Config) ->
         [<<"a/b">>, <<"a+b">>, <<"a#b">>, <<"a$b">>, <<"a${b}">>, 123]
     ).
 
--doc "BatchPub rejects a TopicTemplateName with wildcards or unknown placeholders.".
+-doc "BatchPub rejects a TopicTemplateName that is empty, carries wildcards or\n"
+"carries unknown placeholders: an empty template is not 'use the configured\n"
+"default' (that is an absent field) but an explicit empty MQTT topic, which\n"
+"would be accepted and never deliverable.".
 t_batch_pub_invalid_template_name(_Config) ->
     lists:foreach(
         fun(TemplateName) ->
@@ -2197,7 +2198,7 @@ t_batch_pub_invalid_template_name(_Config) ->
             {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
             ?assertEqual(<<"InvalidTopicTemplate">>, maps:get(<<"Code">>, Resp))
         end,
-        [<<"/a/+/b">>, <<"/a/#/b">>, <<"/a/${unknown}/b">>, 123]
+        [<<>>, <<"/a/+/b">>, <<"/a/#/b">>, <<"/a/${unknown}/b">>, 123]
     ).
 
 -doc "BatchPub accepts a TopicTemplateName with the supported ${productKey} and ${deviceName} placeholders.".
@@ -5086,6 +5087,78 @@ t_expiry_reap_keeps_index_of_refreshed_message(_Config) ->
     ),
     ?assertEqual(ApiMsgId, ReusedApiMsgId),
     ?assertEqual(MsgId, ReusedMsgId).
+
+-doc "A promotion that keeps aborting must hand the batch back for a later\n"
+"retry instead of dropping it: the request was already acknowledged to the\n"
+"caller, and a crash path can reach the same state after the mria commit, so\n"
+"dropping leaves committed deliveries with no index entry and nothing to\n"
+"retry them.".
+t_promote_failure_defers_instead_of_dropping(_Config) ->
+    PK = <<"PPROMDEFER">>,
+    DN = <<"DPROMDEFER">>,
+    Gate = atomics:new(1, []),
+    atomics:put(Gate, 1, 1),
+    DeferredBefore = metric(<<"batch_pub_qos1_deferred">>),
+    meck:new(emqx_bcast_storage, [passthrough, no_link]),
+    meck:expect(emqx_bcast_storage, promote_batch, fun(Entries) ->
+        case atomics:get(Gate, 1) of
+            0 -> meck:passthrough([Entries]);
+            _ -> {error, injected_promote_failure}
+        end
+    end),
+    try
+        {ok, _Seq} = emqx_bcast_intake:enqueue(retry_entry(PK, DN)),
+        %% Out of the in-worker budget the batch goes back to the intake queue
+        %% (deferred) - it is not dropped.
+        ?assert(wait_until(fun() -> emqx_bcast_intake:deferred_depth() >= 1 end, 200)),
+        ?assert(metric(<<"batch_pub_qos1_deferred">>) > DeferredBefore),
+        ?assertEqual([], indexed_deliveries(PK, DN)),
+        %% Nothing is lost: once promotion works again the delivery is indexed.
+        atomics:put(Gate, 1, 0),
+        ?assert(wait_until(fun() -> indexed_deliveries(PK, DN) =/= [] end, 600))
+    after
+        meck:unload(emqx_bcast_storage)
+    end,
+    ok.
+
+-doc "The promotion count is taken exactly once per committed batch, even when\n"
+"the trigger broadcast raises after the append succeeded: the crash guard then\n"
+"retries the same batch, so counting before the trigger counted it twice.".
+t_wanted_counted_once_when_the_trigger_raises(_Config) ->
+    PK = <<"PTRIGCNT">>,
+    DN = <<"DTRIGCNT">>,
+    WantedBefore = metric(<<"batch_pub_qos1_wanted">>),
+    meck:new(emqx_bcast_pull_server_pool, [passthrough, no_link]),
+    meck:expect(emqx_bcast_pull_server_pool, qos1_trigger, fun
+        (PK0, [DN0 | _] = DNs, Tpl) when PK0 =:= PK, DN0 =:= DN ->
+            %% The first trigger raises - the batch is already committed and
+            %% indexed at that point, so the crash guard retries it; the real
+            %% trigger goes through afterwards.
+            case get(trigger_raised) of
+                undefined ->
+                    put(trigger_raised, true),
+                    error(injected_trigger_failure);
+                _ ->
+                    meck:passthrough([PK0, DNs, Tpl])
+            end;
+        (PK0, DNs, Tpl) ->
+            meck:passthrough([PK0, DNs, Tpl])
+    end),
+    try
+        {ok, _Seq} = emqx_bcast_intake:enqueue(retry_entry(PK, DN)),
+        ?assert(wait_until(fun() -> indexed_deliveries(PK, DN) =/= [] end, 500)),
+        %% One device, one committed batch: exactly one wanted, never two.
+        ?assert(
+            wait_until(
+                fun() -> metric(<<"batch_pub_qos1_wanted">>) - WantedBefore =:= 1 end, 100
+            )
+        ),
+        timer:sleep(200),
+        ?assertEqual(1, metric(<<"batch_pub_qos1_wanted">>) - WantedBefore)
+    after
+        meck:unload(emqx_bcast_pull_server_pool)
+    end,
+    ok.
 
 -doc "The TTL reap must really remove the registration row. Deleting it with a\n"
 "record built from the default `registered_at` (undefined) matches nothing -\n"

@@ -162,9 +162,35 @@ reached 10,000,000, so nothing was left delivered without being acknowledged.
   returns to the queue. **Nothing is dropped** - the batch is already committed
   and is retried until the append succeeds - so the worst case for those
   devices is a delayed delivery, not a lost one. The new
-  `bcast_batch_pub_qos1_append_deferred` counter and `bcast_intake_deferred_depth`
+  `bcast_batch_pub_qos1_deferred` counter and `bcast_intake_deferred_depth`
   gauge report it, and each deferral logs `bcast_promoter_append_deferred` at
   warning.
+- **Nothing accepted is dropped when promotion itself keeps failing.** The
+  promote-error path and the "batch processing keeps crashing" path used to
+  discard the batch after ten attempts (with a loud error and the admission
+  reservation released). Both now hand the batch back to the intake queue with
+  the same doubling backoff as a failing index append. The crash path in
+  particular can run after the mria commit, so dropping there left committed
+  deliveries with no index entry, no trigger and nothing to retry them - they
+  only returned with a partition rebuild or expired with `msg_ttl`. The
+  deferrals are counted by `batch_pub_qos1_deferred` (the counter previously
+  scoped to append failures, since a batch that keeps failing can fail in any
+  of the three places) and logged as `bcast_promoter_promote_deferred` /
+  `bcast_promoter_crash_deferred`.
+- **The promotion ledger counts a batch exactly once, even when the trigger
+  broadcast fails.** `batch_pub_qos1_wanted` was incremented before the
+  trigger, and a raise from the trigger is caught by the crash guard, which
+  retries the same batch: its devices were counted a second time (the retry's
+  append is a no-op dedup). The trigger now runs first and the count is the
+  last step of the pass, so a failure before it is retried without counting and
+  a failure after it cannot happen (nothing between the count and the return).
+- **An empty topic template is rejected instead of being accepted as an empty
+  MQTT topic.** Both the configured defaults (`broadcast_topic`/`batch_topic`,
+  which now fall back to their defaults with the existing
+  `invalid_plugin_config_topic_template` warning) and an explicitly supplied
+  `TopicTemplateName` (400 `InvalidTopicTemplate`) used to accept `""`: the
+  request succeeded and the delivery went to an empty topic name, which the
+  broker rejects, so nothing was delivered.
 - **A deferred batch counts against the node's intake bound.** A batch reaches
   the deferred queue only after a worker took it out of the ready queue, so
   without counting deferred entries a node whose index shard stays unavailable
