@@ -335,7 +335,8 @@ delete_expired_data(MQs) ->
     ).
 
 tx_mq_delete_expired_data(#{data_retention_period := DataRetentionPeriod} = MQ, Index) ->
-    TimeRetentionDeadline = max(now_ms() - DataRetentionPeriod, 0),
+    DataRetentionPeriodUs = erlang:convert_time_unit(DataRetentionPeriod, millisecond, microsecond),
+    TimeRetentionDeadline = max(now_us() - DataRetentionPeriodUs, 0),
     LimitsDeadline =
         case Index of
             undefined ->
@@ -656,5 +657,5 @@ delete_topics(?MQ_MESSAGE_REGULAR_DB, MQHandle) ->
 delete_topics(?MQ_MESSAGE_LASTVALUE_DB, MQHandle) ->
     [mq_index_topic(MQHandle), mq_message_topic(MQHandle, '#')].
 
-now_ms() ->
-    erlang:monotonic_time(millisecond).
+now_us() ->
+    erlang:system_time(microsecond).
