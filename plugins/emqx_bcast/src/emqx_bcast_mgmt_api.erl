@@ -195,8 +195,13 @@ parse_cursor(Bin) when is_binary(Bin) ->
     case binary:split(Bin, <<"_">>) of
         [CreatedBin, MsgIdHex] ->
             case catch {binary_to_integer(CreatedBin), binary:decode_hex(MsgIdHex)} of
-                {Created, MsgId} when is_integer(Created), is_binary(MsgId) ->
-                    {ok, {Created, MsgId}};
+                {Created, MsgId} when
+                    is_integer(Created), Created >= 0, is_binary(MsgId), byte_size(MsgId) =:= 16
+                ->
+                    case integer_to_binary(Created) =:= CreatedBin of
+                        true -> {ok, {Created, MsgId}};
+                        false -> {error, invalid_cursor}
+                    end;
                 _ ->
                     {error, invalid_cursor}
             end;

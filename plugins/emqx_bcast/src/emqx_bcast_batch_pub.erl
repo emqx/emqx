@@ -178,7 +178,7 @@ enqueue_request(
     %% rejected request, saturating the index shards the promoters need
     %% for appends (measured: shard 0 backed up at 1600 rejected req/s).
     MaxDepth = ?INTAKE_QUEUE_DEPTH,
-    case emqx_bcast_intake:depth() >= MaxDepth of
+    case emqx_bcast_intake:admission_depth() >= MaxDepth of
         true ->
             emqx_bcast_metrics:intake_rejected(),
             {ok, 429, #{},

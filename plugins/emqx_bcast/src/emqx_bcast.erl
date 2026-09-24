@@ -473,8 +473,8 @@ bump_msg_epoch_everywhere(Hash) ->
     %% budget expires - so a sequential fan-out with a 15s leg would let the
     %% framework, not the plugin, decide the outcome, after some cores had
     %% already advanced their epoch for this hash.
-    Results = parallel_legs(fun(Node) -> {Node, bump_msg_epoch_on(Node, Hash)} end, Nodes),
-    case [N || {N, false} <- Results] of
+    Results = parallel_legs(fun(Node) -> bump_msg_epoch_on(Node, Hash) end, Nodes),
+    case [N || {N, Result} <- Results, Result =/= true] of
         [] -> ok;
         Failed -> {error, {epoch_bump_failed, Failed}}
     end.

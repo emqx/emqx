@@ -104,6 +104,57 @@ settle_cluster() ->
 
 %% tests
 
+-doc "A failed remote delete-epoch bump must not let management delete return success.".
+t_failed_remote_epoch_blocks_delete_e2e(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
+    Payload = <<"epoch-delete-failure">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ok, 200, _, R} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(Payload)
+    }),
+    ApiId = maps:get(<<"MessageId">>, R),
+    BeforeRemote = erpc:call(N2, emqx_bcast, msg_epoch, [Hash]),
+    {Result, Hits} = erpc:call(N1, fun() ->
+        HitCounter = atomics:new(1, []),
+        ok = meck:new(emqx_rpc, [passthrough, no_link]),
+        try
+            ok = meck:expect(emqx_rpc, call, fun(M, Node, FMod, F, Args, Timeout) ->
+                case
+                    Node =:= N2 andalso FMod =:= emqx_bcast andalso
+                        F =:= bump_msg_epoch
+                of
+                    true ->
+                        atomics:add(HitCounter, 1, 1),
+                        {badrpc, injected_unreachable};
+                    false ->
+                        meck:passthrough([M, Node, FMod, F, Args, Timeout])
+                end
+            end),
+            Reply = emqx_bcast_api:handle(delete, [<<"messages">>, ApiId], #{}),
+            {Reply, atomics:get(HitCounter, 1)}
+        after
+            meck:unload(emqx_rpc)
+        end
+    end),
+    ?assert(Hits > 0),
+    ?assertEqual(BeforeRemote, erpc:call(N2, emqx_bcast, msg_epoch, [Hash])),
+    ?assertMatch({error, 500, _, _}, Result),
+    ?assertMatch(
+        {ok, 200, _, _},
+        api_call_message(N1, get, ApiId)
+    ),
+    ?assertMatch(
+        {ok, 200, _, _},
+        api_call_message(N2, get, ApiId)
+    ),
+    ?assertMatch({ok, 200, _, _}, api_call_message(N1, delete, ApiId)),
+    ?assertEqual(BeforeRemote + 1, erpc:call(N2, emqx_bcast, msg_epoch, [Hash])).
+
+api_call_message(Node, Method, ApiId) ->
+    erpc:call(Node, emqx_bcast_api, handle, [Method, [<<"messages">>, ApiId], #{}]).
+
 %% Devices connected to different nodes must all receive the message when the
 %% API request lands on only one of them. Resolve happens on every node, and
 %% pool workers hand the message to remote channel pids via Erlang `!`.

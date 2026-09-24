@@ -204,6 +204,19 @@ process_batch(Batch, Failures) ->
     Entries = [Entry || {_Seq, Entry} <- Batch],
     case emqx_bcast_storage:promote_batch(Entries) of
         {ok, Results} ->
+            case
+                length(Results) =:= length(Entries) andalso
+                    lists:all(
+                        fun(Result) ->
+                            Result =:= ok orelse Result =:= already_promoted orelse
+                                Result =:= deleted
+                        end,
+                        Results
+                    )
+            of
+                true -> ok;
+                false -> error({unexpected_promote_results, Results})
+            end,
             Promoted = [
                 Entry
              || {Result, Entry} <- lists:zip(Results, Entries), Result =:= ok

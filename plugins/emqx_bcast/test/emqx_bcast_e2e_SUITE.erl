@@ -342,6 +342,21 @@ t_pub_broadcast_e2e(_Config) ->
     disconnect(C2),
     disconnect(C3).
 
+-doc "An explicit empty broadcast topic is rejected before the API acknowledges the publish.".
+t_pub_broadcast_empty_topic_e2e(_Config) ->
+    C = connect(<<"e2e_bc_empty">>),
+    sub(C, <<"/sys/broadcast/#">>),
+    wait_subscribed(<<"e2e_bc_empty">>, <<"/sys/broadcast/#">>),
+    {ok, 400, _, Resp} = api_call(#{
+        <<"Action">> => <<"PubBroadcast">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"TopicFullName">> => <<>>
+    }),
+    ?assertEqual(<<"InvalidTopicTemplate">>, maps:get(<<"Code">>, Resp)),
+    ?assertEqual([], recv(1)),
+    disconnect(C).
+
 -doc "QoS=1 BatchPub delivers online now and replays to the offline device when it connects.".
 t_batch_pub_partial_online_e2e(_Config) ->
     C1 = connect(<<"e2e_part_1">>),

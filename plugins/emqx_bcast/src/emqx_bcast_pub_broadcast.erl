@@ -43,6 +43,8 @@ validate(ProductKey, MessageContent, TopicFullName) ->
 %% characters into the topic.
 validate_topic_full_name(ProductKey, undefined) ->
     validate_product_key_chars(ProductKey);
+validate_topic_full_name(_, <<>>) ->
+    {error, <<"InvalidTopicTemplate">>, <<"TopicFullName must not be empty">>};
 validate_topic_full_name(ProductKey, TopicFullName) when is_binary(TopicFullName) ->
     case re:run(TopicFullName, <<"[+#${}]">>) of
         nomatch -> validate_product_key_chars(ProductKey);

@@ -2363,7 +2363,7 @@ t_broadcast_invalid_topic_full_name(_Config) ->
             {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
             ?assertEqual(<<"InvalidTopicTemplate">>, maps:get(<<"Code">>, Resp))
         end,
-        [<<"/a/+/b">>, <<"/a/#/b">>, <<"/a/${b}">>, 123]
+        [<<>>, <<"/a/+/b">>, <<"/a/#/b">>, <<"/a/${b}">>, 123]
     ).
 
 -doc "PubBroadcast rejects a ProductKey with wildcard or separator characters.".
@@ -3442,10 +3442,20 @@ t_mgmt_list_messages_cursor_end(_Config) ->
     ?assertNot(maps:is_key(<<"Cursor">>, Page1)),
     %% An invalid cursor is a client error rather than a silent restart from
     %% the first page.
-    {error, 400, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>], #{
-        query_string => #{<<"limit">> => <<"10">>, <<"cursor">> => <<"garbage">>}
-    }),
-    ?assertEqual(<<"InvalidParams">>, maps:get(<<"Code">>, Resp)).
+    lists:foreach(
+        fun(Cursor) ->
+            {error, 400, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>], #{
+                query_string => #{<<"limit">> => <<"10">>, <<"cursor">> => Cursor}
+            }),
+            ?assertEqual(<<"InvalidParams">>, maps:get(<<"Code">>, Resp))
+        end,
+        [
+            <<"garbage">>,
+            <<"1_AA">>,
+            <<"-1_00000000000000000000000000000000">>,
+            <<"+1_00000000000000000000000000000000">>
+        ]
+    ).
 
 -doc "a limit above the maximum returns 400 InvalidParams.".
 t_mgmt_list_messages_limit_too_high(_Config) ->
@@ -4995,6 +5005,7 @@ t_ack_part_report_failure_retries_instead_of_killing_shard(_Config) ->
 "answer 429 to new work instead of growing the deferred queue without limit,\n"
 "since every deferred batch holds its payload and was already accepted.".
 t_intake_admission_counts_deferred(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
     %% Stop the promoter so the queue under test is the one this process fills
     %% (its workers would otherwise drain it).
     ok = supervisor:terminate_child(emqx_bcast_sup, emqx_bcast_promoter),
@@ -5025,8 +5036,20 @@ t_intake_admission_counts_deferred(_Config) ->
         %% that no device has been offered yet, so accepting more of it would
         %% let an unavailable index shard grow the node without limit.
         ?assertEqual(full, emqx_bcast_intake:enqueue(retry_entry(<<"PCAP">>, <<"DCAP">>))),
-        ?assert(emqx_bcast_intake:depth() < Depth)
+        ?assert(emqx_bcast_intake:depth() < Depth),
+        persistent_term:put({?APP, config}, Cfg#{max_pending_deliveries => 0}),
+        {ok, 429, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{
+            body => #{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => <<"PCAP">>,
+                <<"DeviceName">> => [<<"DCAP-API">>],
+                <<"MessageContent">> => <<"aGVsbG8=">>,
+                <<"Qos">> => 1
+            }
+        }),
+        ?assertEqual(<<"Busy">>, maps:get(<<"Code">>, Resp))
     after
+        persistent_term:put({?APP, config}, Cfg),
         catch emqx_bcast_intake:reset(),
         {ok, _} = supervisor:restart_child(emqx_bcast_sup, emqx_bcast_promoter)
     end.
@@ -5150,6 +5173,29 @@ t_promote_failure_defers_instead_of_dropping(_Config) ->
         meck:unload(emqx_bcast_storage)
     end,
     ok.
+
+-doc "A per-entry promotion error must retry the accepted delivery instead of silently discarding it.".
+t_promote_entry_error_retries(_Config) ->
+    PK = <<"PPROMENTRY">>,
+    DN = <<"DPROMENTRY">>,
+    Gate = atomics:new(1, []),
+    meck:new(emqx_bcast_storage, [passthrough, no_link]),
+    meck:expect(emqx_bcast_storage, promote_batch, fun(Entries) ->
+        case atomics:get(Gate, 1) of
+            0 ->
+                atomics:put(Gate, 1, 1),
+                {ok, [{error, injected_entry_error} || _ <- Entries]};
+            _ ->
+                meck:passthrough([Entries])
+        end
+    end),
+    try
+        {ok, _Seq} = emqx_bcast_intake:enqueue(retry_entry(PK, DN)),
+        ?assert(wait_until(fun() -> indexed_deliveries(PK, DN) =/= [] end, 600)),
+        ?assertEqual(1, atomics:get(Gate, 1))
+    after
+        meck:unload(emqx_bcast_storage)
+    end.
 
 -doc "The promotion count is taken exactly once per committed batch, even when\n"
 "the trigger broadcast raises after the append succeeded: the crash guard then\n"
