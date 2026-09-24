@@ -12,7 +12,7 @@
 
 -type state() :: #{
     instance_id := resource_id(),
-    aws_config := #aws_config{}
+    aws_config := aws_config()
 }.
 -type record() :: {Data :: binary(), PartitionKey :: binary()}.
 
@@ -197,7 +197,7 @@ get_status(StreamName, AWSConfig) ->
             {error, Error}
     end.
 
--spec do_query(binary(), [record()], #aws_config{}) ->
+-spec do_query(binary(), [record()], aws_config()) ->
     {ok, jsx:json_term() | binary()}
     | {error, {recoverable_error, term()}}
     | {error, {unrecoverable_error, term()}}
@@ -215,7 +215,7 @@ do_query(StreamName, Records, AWSConfig0) ->
             {error, {recoverable_error, Reason}}
     end.
 
--spec execute(put_record, {binary(), [record()]}, #aws_config{}) ->
+-spec execute(put_record, {binary(), [record()]}, aws_config()) ->
     {ok, jsx:json_term() | binary()}
     | {error, term()}.
 execute(put_record, {StreamName, [{Data, PartitionKey}] = Record}, AWSConfig) ->
