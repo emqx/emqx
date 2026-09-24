@@ -11,6 +11,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -define(HOST, "http://127.0.0.1:18083").
 
@@ -121,6 +122,57 @@ t_unauthenticated_malformed_auth_header(_Config) ->
             [{"Authorization", "~~~"}],
             [{"Authorization", "Bearer a"}, {"Authorization", "Bearer b"}]
         ]
+    ).
+
+-doc """
+Verify login users with an explicit scope list that covers no documentation
+scope can read the spec endpoints, for both the administrator and the viewer
+role. The spec handler is mapped to the public scope, so the login-user scope
+check must not fail closed on it.
+""".
+t_scoped_user_reads_spec(_Config) ->
+    lists:foreach(fun assert_scoped_user_reads_spec/1, [<<"administrator">>, <<"viewer">>]).
+
+assert_scoped_user_reads_spec(Role) ->
+    Username = <<"spec_scoped_", Role/binary>>,
+    Password = <<"spec_scoped_passworD123!">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, Role, <<>>),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, [?SCOPE_MONITORING]),
+    try
+        ?assertEqual([?SCOPE_MONITORING], emqx_dashboard_admin:scopes_of(Username)),
+        Auth = emqx_common_test_http:bearer_auth_header(Username, Password),
+        assert_spec_readable(Auth)
+    after
+        emqx_dashboard_admin:remove_user(Username)
+    end.
+
+-doc """
+Verify a viewer API key with an explicit scope list that covers no
+documentation scope can read the spec endpoints.
+""".
+t_scoped_api_key_reads_spec(_Config) ->
+    Name = <<"spec_scoped_api_key">>,
+    {ok, #{api_key := Key, api_secret := Secret}} =
+        emqx_mgmt_auth:create(
+            Name, true, infinity, <<>>, <<"viewer">>, [?SCOPE_MONITORING]
+        ),
+    try
+        Auth = emqx_common_test_http:auth_header(binary_to_list(Key), binary_to_list(Secret)),
+        assert_spec_readable(Auth)
+    after
+        emqx_mgmt_auth:delete(Name)
+    end.
+
+-doc """
+Verify the spec endpoints still reject a request without credentials with 401,
+now that the spec handler is mapped to the public scope.
+""".
+t_public_scope_still_requires_auth(_Config) ->
+    lists:foreach(
+        fun(Path) ->
+            ?assertMatch({401, _, _}, do_get_raw(Path, []), #{path => Path})
+        end,
+        spec_paths()
     ).
 
 -doc "Verify /api-spec.md returns markdown with expected content-type and body.".
@@ -479,6 +531,17 @@ do_get(Path, Headers) ->
 
 auth_header() ->
     emqx_common_test_http:default_auth_header().
+
+spec_paths() ->
+    ["/api-spec.json", "/api-spec.md", "/api-docs/swagger.json", "/api-spec/status"].
+
+assert_spec_readable(Auth) ->
+    lists:foreach(
+        fun(Path) ->
+            ?assertMatch({200, _, _}, do_get_raw(Path, [Auth]), #{path => Path})
+        end,
+        spec_paths()
+    ).
 
 assert_openapi_shape(Spec) ->
     ?assertMatch(#{<<"openapi">> := <<"3.0.0">>}, Spec),
