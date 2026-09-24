@@ -366,15 +366,19 @@ t_config_update_empty(_Config) ->
     ?assertMatch({200, _}, update_configs_with_binary("")).
 
 t_config_update_unknown_field(_Config) ->
+    %% hocon reports the errors of a root as a list, and names the fields it did
+    %% not match alongside the unknown one.
     ?assertMatch(
         {400, #{
             <<"errors">> := #{
-                <<"dashboard">> :=
+                <<"dashboard">> := [
                     #{
                         <<"kind">> := <<"validation_error">>,
                         <<"reason">> := <<"unknown_fields">>,
-                        <<"unknown">> := <<"nofield">>
+                        <<"unknown">> := <<"nofield">>,
+                        <<"path">> := <<"dashboard">>
                     }
+                ]
             }
         }},
         update_configs_with_binary("dashboard { nofield { bind = novalue } }")

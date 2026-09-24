@@ -896,7 +896,7 @@ merge_sources(OriginConf, NewConf) ->
                         {[MergedSource | OriginAcc], NewAcc1}
                 end
             end,
-            {[], get_sources(NewConf)},
+            {[], maps:get(<<"sources">>, NewConf, [])},
             get_sources(OriginConf)
         ),
     lists:reverse(OriginSource) ++ NewSources.
@@ -956,6 +956,11 @@ merge_sources_test() ->
     ?assertEqual(Default, merge_sources(#{}, #{})),
     ?assertEqual([], merge_sources(#{<<"sources">> => []}, #{<<"sources">> => []})),
     ?assertEqual(Default, merge_sources(#{}, #{<<"sources">> => []})),
+    %% absent new sources keep the old sources
+    ?assertEqual(
+        [HttpDisable],
+        merge_sources(#{<<"sources">> => [HttpDisable]}, #{<<"no_match">> => <<"deny">>})
+    ),
 
     %% add
     ?assertEqual(
