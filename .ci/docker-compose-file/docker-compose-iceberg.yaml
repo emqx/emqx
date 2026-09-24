@@ -30,7 +30,7 @@ services:
   #     emqx_bridge:
   #   depends_on:
   #     - iceberg-rest
-  #     - minio
+  #     - seaweedfs
   #   volumes:
   #     - ./spark/notebooks/emqx-iceberg-debug.ipynb:/home/iceberg/notebooks/emqx-iceberg-debug.ipynb
   #   environment:
@@ -42,7 +42,7 @@ services:
   #     - 8080:8080
   #     - 10000:10000
   #     - 10001:10001
-  ## Remember to uncoment `minio`'s ports as well to easily inspect files, and `query`'s
+  ## Remember to uncomment `seaweedfs`'s port as well to inspect files, and `query`'s
   ## 7890 for nREPL access
 
   query:
@@ -78,10 +78,8 @@ services:
     networks:
       emqx_bridge:
     depends_on:
-      minio:
+      seaweedfs:
         condition: service_healthy
-      minio-warehouse-init:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8181/v1/config"]
       interval: 5s
@@ -95,48 +93,39 @@ services:
       - AWS_REGION=sa-east-1
       - CATALOG_WAREHOUSE=s3://warehouse/
       - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
-      - CATALOG_S3_ENDPOINT=http://minio.net:9000
+      - CATALOG_S3_ENDPOINT=http://seaweedfs.net:9000
 
-  minio:
-    image: quay.io/minio/minio:${MINIO_TAG}
-    container_name: minio
+  seaweedfs:
+    image: chrislusf/seaweedfs:${SEAWEEDFS_TAG}
+    container_name: seaweedfs
     environment:
-      - MINIO_ROOT_USER=admin
-      - MINIO_ROOT_PASSWORD=password
-      - MINIO_DOMAIN=minio.net
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - S3_BUCKET=warehouse
+    tmpfs:
+      - /data
     networks:
       emqx_bridge:
         aliases:
-          - minio.net
+          - seaweedfs.net
+          - warehouse.seaweedfs.net
+          # spark-query:1.0.7 uses this virtual-host endpoint.
           - warehouse.minio.net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9001/minio/health/live"]
+      test: ["CMD", "curl", "-sS", "-o", "/dev/null", "http://localhost:9000/"]
       interval: 3s
       timeout: 5s
       retries: 10
     # ports:
-    #   - 9001:9001
     #   - 9000:9000
-    command: ["server", "/data", "--console-address", ":9001"]
-
-  minio-warehouse-init:
-    depends_on:
-      minio:
-        condition: service_healthy
-    image: quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z
-    container_name: minio-warehouse-init
-    networks:
-      emqx_bridge:
-    environment:
-      - AWS_ACCESS_KEY_ID=admin
-      - AWS_SECRET_ACCESS_KEY=password
-      - AWS_REGION=sa-east-1
-    restart: no
-    entrypoint: >
-      /bin/sh -c "
-      until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
-      /usr/bin/mc rm -r --force minio/warehouse;
-      /usr/bin/mc mb minio/warehouse;
-      /usr/bin/mc anonymous set public minio/warehouse;
-      # tail -f /dev/null
-      "
+    command:
+      - mini
+      - -dir=/data
+      - -s3.port=9000
+      - -s3.port.iceberg=0
+      - -s3.port.lance=0
+      - -s3.autoCreateBucket=false
+      - -s3.domainName=seaweedfs.net,minio.net
+      - -webdav=false
+      - -admin.ui=false
+      - -master.telemetry=false
