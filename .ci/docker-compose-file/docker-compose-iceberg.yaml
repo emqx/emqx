@@ -83,7 +83,7 @@ services:
       - CATALOG_S3_ENDPOINT=http://minio.net:9000
 
   minio:
-    image: quay.io/minio/minio:${MINIO_TAG}
+    image: ghcr.io/emqx/minio:1.0.0
     container_name: minio
     environment:
       - MINIO_ROOT_USER=admin
@@ -108,7 +108,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    image: quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z
+    image: ghcr.io/emqx/minio-mc:1.0.0
     container_name: minio-warehouse-init
     networks:
       emqx_bridge:
