@@ -1915,6 +1915,66 @@ t_sock_closed_incomplete_qos2_transmission(_) ->
     ok = emqx_cm:discard_session(PublisherId),
     ok = emqtt:stop(Subscriber).
 
+-doc """
+The configured user-property limit is applied to new TCP, TLS, and WebSocket
+connections. CONNECT and will property blocks are counted separately. The
+rejection is counted on the listener.
+""".
+t_connect_user_property_limit(_) ->
+    OldLimit = emqx_config:get_zone_conf(default, [mqtt, max_connect_user_properties]),
+    Limit = 2,
+    try
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], Limit),
+        %% The limit is hit while the CONNECT packet is parsed, so the
+        %% shutdown is counted as `invalid_connect_packet': a map-shaped frame
+        %% error keeps its cause in the shutdown reason, and shares the counter
+        %% of its connection state (see `emqx_channel:frame_error_kind/2').
+        CountBefore = listener_shutdown_count(too_many_user_properties),
+        lists:foreach(
+            fun(Transport) ->
+                assert_connect_accepted(Transport, Limit, Limit),
+                assert_connect_rejected(Transport, Limit + 1, Limit),
+                assert_connect_rejected(Transport, Limit, Limit + 1)
+            end,
+            [tcp, tls, ws]
+        ),
+        ?WAIT(
+            begin
+                Count = listener_shutdown_count(too_many_user_properties),
+                ?assert(Count >= CountBefore + 2, #{before => CountBefore, now => Count})
+            end,
+            5
+        ),
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], infinity),
+        assert_connect_accepted(tcp, 20, 20)
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], OldLimit)
+    end.
+
+-doc """
+A CONNECT larger than 64 KB with only one user property remains accepted under the
+existing `mqtt.max_packet_size` setting, assuming `mqtt.max_connect_packet_size =
+mqtt.max_packet_size`
+""".
+t_large_connect_with_few_user_properties(_) ->
+    Credential = binary:copy(<<"x">>, 40_000),
+    Opts = [
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"k">>, <<"v">>}]}},
+        {username, Credential},
+        {password, Credential}
+    ],
+    {ok, Client} = emqtt:start_link(Opts),
+    OldLimit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], 1048576),
+    try
+        ?assertMatch({ok, _}, emqtt:connect(Client)),
+        ok = emqtt:disconnect(Client)
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], OldLimit),
+        catch emqtt:stop(Client)
+    end.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
