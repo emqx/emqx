@@ -4989,6 +4989,211 @@ t_ack_part_report_failure_retries_instead_of_killing_shard(_Config) ->
     ?assertNot(maps:is_key(PoisonDid, maps:get(part_applied, State2))),
     ?assertEqual(PrePid, whereis(Name)).
 
+-doc "Deferred batches count towards the intake bound: a node whose promoter\n"
+"keeps handing batches back (an index shard that cannot be appended to) must\n"
+"answer 429 to new work instead of growing the deferred queue without limit,\n"
+"since every deferred batch holds its payload and was already accepted.".
+t_intake_admission_counts_deferred(_Config) ->
+    %% Stop the promoter so the queue under test is the one this process fills
+    %% (its workers would otherwise drain it).
+    ok = supervisor:terminate_child(emqx_bcast_sup, emqx_bcast_promoter),
+    try
+        Depth = ?INTAKE_QUEUE_DEPTH,
+        Enqueued = [
+            emqx_bcast_intake:enqueue(retry_entry(<<"PCAP">>, <<"DCAP">>))
+         || _ <- lists:seq(1, Depth)
+        ],
+        ?assert(
+            lists:all(
+                fun
+                    ({ok, _}) -> true;
+                    (_) -> false
+                end,
+                Enqueued
+            )
+        ),
+        %% The queue is at its bound: new work is rejected (429).
+        ?assertEqual(full, emqx_bcast_intake:enqueue(retry_entry(<<"PCAP">>, <<"DCAP">>))),
+        %% A worker takes a batch and hands it back for a later retry.
+        Taken = emqx_bcast_intake:take_batch(10, 1000),
+        ?assertNotEqual([], Taken),
+        ?assertEqual(length(Taken), emqx_bcast_intake:requeue([E || {_Seq, E} <- Taken])),
+        ?assert(emqx_bcast_intake:deferred_depth() > 0),
+        ?assertEqual(Depth, emqx_bcast_intake:admission_depth()),
+        %% ... and the bound still holds: deferred entries are accepted work
+        %% that no device has been offered yet, so accepting more of it would
+        %% let an unavailable index shard grow the node without limit.
+        ?assertEqual(full, emqx_bcast_intake:enqueue(retry_entry(<<"PCAP">>, <<"DCAP">>))),
+        ?assert(emqx_bcast_intake:depth() < Depth)
+    after
+        catch emqx_bcast_intake:reset(),
+        {ok, _} = supervisor:restart_child(emqx_bcast_sup, emqx_bcast_promoter)
+    end.
+
+-doc "The TTL reap must not strip a message whose expiry a concurrent refresh\n"
+"extended. The reap reads the expired row, removes the hash / API-id / order /\n"
+"reg rows, then deletes the body with the record it read - so a refresh landing\n"
+"in between keeps the body (its delete no longer matches) while reusing the very\n"
+"same MessageId, and removing the index rows makes the next registration of the\n"
+"same content hand out a DIFFERENT MessageId.".
+t_expiry_reap_keeps_index_of_refreshed_message(_Config) ->
+    Payload = <<"refresh during reap">>,
+    Hash = crypto:hash(sha256, Payload),
+    ApiMsgId = emqx_bcast_utils:gen_api_uuid(),
+    MsgId = emqx_bcast_utils:gen_guid(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgId, Hash, Payload),
+    Now = emqx_bcast_utils:now_sec(),
+    {atomic, ok} = mnesia:transaction(fun() ->
+        [M] = mnesia:wread({bcast_message, MsgId}),
+        mnesia:write(M#bcast_message{expires_at = Now - 100})
+    end),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_delete_object, fun
+            (#bcast_message_hash{msg_id = Did} = Rec) when Did =:= MsgId ->
+                %% A RegisterMessage commits right here: it extends this very
+                %% row in place (same MessageId, same hash and API-id rows) and
+                %% rewrites the index rows, which the reap then overtakes.
+                [Msg] = mnesia:dirty_read(bcast_message, MsgId),
+                ok = mnesia:dirty_write(Msg#bcast_message{expires_at = Now + 3600}),
+                meck:passthrough([Rec]);
+            (Rec) ->
+                meck:passthrough([Rec])
+        end),
+        emqx_bcast_storage:cleanup_expired()
+    after
+        meck:unload(mnesia)
+    end,
+    %% The body survived the reap (that part already worked) ...
+    {ok, #bcast_message{msg_id = MsgId, api_msg_id = ApiMsgId} = Live} =
+        emqx_bcast_storage:lookup_message(MsgId),
+    %% ... and so must everything that makes it findable.
+    ?assertMatch(
+        [#bcast_message_hash{msg_id = MsgId}], mnesia:dirty_read(bcast_message_hash, Hash)
+    ),
+    ?assertMatch(
+        [#bcast_message_api_id{msg_id = MsgId}], mnesia:dirty_read(bcast_message_api_id, ApiMsgId)
+    ),
+    ?assertMatch(
+        [#bcast_message_order{}],
+        mnesia:dirty_read(bcast_message_order, {Live#bcast_message.created_at, MsgId})
+    ),
+    ?assertMatch([#bcast_message_reg{msg_id = MsgId}], mnesia:dirty_read(bcast_message_reg, MsgId)),
+    %% Which is what keeps the de-duplication promise: the same content resolves
+    %% to the same MessageId.
+    {existing, ReusedApiMsgId, ReusedMsgId} = emqx_bcast_storage:lookup_or_create_message(
+        Payload, Hash, emqx_bcast_utils:gen_api_uuid(), emqx_bcast_utils:gen_guid()
+    ),
+    ?assertEqual(ApiMsgId, ReusedApiMsgId),
+    ?assertEqual(MsgId, ReusedMsgId).
+
+-doc "A part report whose counter write fails after the marker landed must be\n"
+"repaired by its retry. The retry used to stop as soon as it saw the marker,\n"
+"so the remaining-ack counter stayed at 1 and the delivery leaked until TTL\n"
+"(only an activation rebuild recomputed it). The marker is the durable record\n"
+"of which devices acked, so the retry recomputes the remaining from it.".
+t_ack_counter_repaired_when_decrement_is_lost(_Config) ->
+    PK = <<"PCNTREC">>,
+    %% One device per part, on different shards: A's ack finishes A's part.
+    {A, B} = two_different_shards(PK),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"counter reconcile">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2),
+    ShardA = emqx_bcast_index_owner:shard_of({PK, A}),
+    Name = index_shard_name(ShardA),
+    ?assert(wait_until(fun() -> shard_active(ShardA) end, 200)),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_update_counter, fun
+            (bcast_msg_meta_counter, Did, Decr) when Did =:= DeliveryId ->
+                %% The marker is already durable at this point: fail only the
+                %% decrement, once, so the retry has a leak to repair.
+                case get(counter_failure_injected) of
+                    undefined ->
+                        put(counter_failure_injected, true),
+                        error(injected_counter_failure);
+                    _ ->
+                        meck:passthrough([bcast_msg_meta_counter, Did, Decr])
+                end;
+            (Tab, Key, Incr) ->
+                meck:passthrough([Tab, Key, Incr])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId)
+    after
+        meck:unload(mnesia)
+    end,
+    %% The marker landed, the decrement did not: A's part has reported, yet the
+    %% delivery still counts both acks as owed and B's is the only one missing.
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= [] end, 100)),
+    ?assertEqual(2, ack_counter(DeliveryId)),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    %% The periodic cleanup tick retries the unreported part and recomputes the
+    %% counter from the durable marker - without it the delivery would sit at 2
+    %% until TTL, and B's ack alone could never complete it.
+    ok = gen_server:call(Name, {cleanup_local}, 30000),
+    ?assert(wait_until(fun() -> ack_counter(DeliveryId) =:= 1 end, 100)),
+    %% B's ack then completes the delivery, exactly once.
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)).
+
+-doc "Deleting one delivery must fail - and keep the durable rows - when a\n"
+"device shard cannot remove its index entry: deleting the rows first would\n"
+"strand an index entry no sweep can attribute (the sweep matches on the\n"
+"delivery row) and count it as canceled while the device is still claimed.".
+t_delete_delivery_fails_when_index_removal_fails(_Config) ->
+    PK = <<"PDELFAIL">>,
+    DN = <<"DDELFAIL">>,
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Name = index_shard_name(Shard),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"delete with a dead shard">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    ?assert(wait_until(fun() -> shard_active(Shard) end, 200)),
+    ok = sys:suspend(Name),
+    Result =
+        try
+            emqx_bcast_storage:delete_delivery(DeliveryId)
+        after
+            ok = sys:resume(Name)
+        end,
+    ?assertMatch({error, {index_remove_failed, [Shard]}}, Result),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    %% (The index entry itself may already be gone: resuming the shard lets it
+    %% run the request that timed out - a removal is idempotent - but the
+    %% durable rows are what the delete must not commit to while a leg is
+    %% unconfirmed.)
+    %% Once the shard answers again the delete completes and the index is gone.
+    ok = emqx_bcast_storage:delete_delivery(DeliveryId),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "Every epoch-bump leg must fit the API request budget: this fan-out runs\n"
+"on the synchronous management-delete path, and the framework kills a callback\n"
+"that outlives its budget (answering 503) - after some cores may already have\n"
+"advanced their epoch for the hash.".
+t_epoch_bump_timeout_stays_inside_api_budget(_Config) ->
+    meck:new(emqx_bcast_utils, [passthrough, no_link]),
+    try
+        meck:expect(emqx_bcast_utils, api_rpc_timeout_ms, fun() -> 5000 end),
+        ?assertEqual(5000, emqx_bcast:epoch_bump_timeout_ms()),
+        %% Clamped by the generic RPC timeout as well.
+        meck:expect(emqx_bcast_utils, api_rpc_timeout_ms, fun() -> 60000 end),
+        ?assertEqual(?BCAST_RPC_CALL_TIMEOUT_MS, emqx_bcast:epoch_bump_timeout_ms()),
+        %% The real budget is tighter than the generic timeout, which is the
+        %% point: 5s - 1.5s margin.
+        meck:expect(emqx_bcast_utils, api_rpc_timeout_ms, fun() -> 3500 end),
+        ?assertEqual(3500, emqx_bcast:epoch_bump_timeout_ms()),
+        %% And the local leg still bumps (no regression in the happy path).
+        Hash = crypto:hash(sha256, <<"epoch-bump budget">>),
+        Before = emqx_bcast:msg_epoch(Hash),
+        ?assertEqual(ok, emqx_bcast:bump_msg_epoch_everywhere(Hash)),
+        ?assertEqual(Before + 1, emqx_bcast:msg_epoch(Hash))
+    after
+        meck:unload(emqx_bcast_utils)
+    end.
+
 -doc "Completed-delivery cleanup must keep the <=0 counter row when its delete\n"
 "transaction aborts, so the next cleanup tick re-discovers the rows instead\n"
 "of leaking them to TTL.".

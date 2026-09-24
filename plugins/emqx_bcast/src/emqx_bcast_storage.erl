@@ -314,7 +314,11 @@ write_message_group_tx(Entry) ->
         [#bcast_message_hash{msg_id = ExistingMsgId}] ->
             case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
                 [#bcast_message{} = Existing] ->
+                    %% Refresh: bump the expiry AND rewrite the index rows (see
+                    %% write_message_tx/7) so a TTL reap that already removed
+                    %% them cannot leave the live message unfindable.
                     mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
+                    write_message_index_rows(Existing),
                     {existing, Existing#bcast_message.api_msg_id, ExistingMsgId};
                 [] ->
                     write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
@@ -822,14 +826,21 @@ write_new_message_inc_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL) ->
 %% the management order index. The order row goes in the same transaction, so a
 %% page can never see a message without an order key or the other way round.
 write_message_rows_tx(
-    #bcast_message{
-        msg_id = MsgId,
-        api_msg_id = ApiMsgId,
-        content_hash = Hash,
-        created_at = CreatedAt
-    } = Record
+    #bcast_message{} = Record
 ) ->
     mnesia:write(Record),
+    write_message_index_rows(Record).
+
+%% The rows that make a message findable: content hash -> msg_id (the index
+%% RegisterMessage and BatchPub de-duplicate through), API id -> msg_id (the
+%% management API), and the order key the message list pages through. Written
+%% with the message body, and rewritten by every refresh.
+write_message_index_rows(#bcast_message{
+    msg_id = MsgId,
+    api_msg_id = ApiMsgId,
+    content_hash = Hash,
+    created_at = CreatedAt
+}) ->
     mnesia:write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
     mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}),
     mnesia:write(#bcast_message_order{key = {CreatedAt, MsgId}}),
@@ -851,7 +862,14 @@ write_message_tx(true, Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
 write_message_tx(false, _Payload, _Hash, _ApiMsgId, MsgId, Now, TTL) ->
     case mnesia:wread({?TAB_MSG, MsgId}) of
         [#bcast_message{} = Existing] ->
-            mnesia:write(Existing#bcast_message{expires_at = Now + TTL});
+            %% A refresh re-establishes the whole row set, not just the expiry.
+            %% The TTL reaper removes a message's hash / API-id / order rows
+            %% before the body, and a refresh that lands in that window keeps
+            %% the body: a refresh that wrote the body alone would leave a live
+            %% message with no content index, and the next registration of the
+            %% same content would resolve to a different MessageId.
+            mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
+            write_message_index_rows(Existing);
         [] ->
             ok
     end.

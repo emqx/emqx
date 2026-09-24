@@ -22,6 +22,7 @@
     delete_batch/1,
     depth/0,
     deferred_depth/0,
+    admission_depth/0,
     reset/0
 ]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -99,7 +100,7 @@ init([]) ->
 -spec enqueue(entry()) -> {ok, non_neg_integer()} | full.
 enqueue(Entry) ->
     MaxDepth = ?INTAKE_QUEUE_DEPTH,
-    case queue_size() >= MaxDepth of
+    case admission_depth() >= MaxDepth of
         true ->
             emqx_bcast_metrics:intake_rejected(),
             full;
@@ -110,12 +111,25 @@ enqueue(Entry) ->
             {ok, Seq}
     end.
 
+%% Everything accepted and not yet promoted on this node: the ready queue plus
+%% the batches the promoter handed back for a later retry. The deferred
+%% entries count towards the bound on purpose. A batch only reaches the
+%% deferred table after a worker took it out of the ready queue, so without
+%% them in the total an unavailable index shard would keep the ready queue
+%% shallow - acceptance would keep answering 200 for work that can never be
+%% indexed, and the deferred table (payload included) would grow without limit
+%% instead of the overload turning into 429 backpressure.
+-spec admission_depth() -> non_neg_integer().
+admission_depth() ->
+    queue_size() + deferred_depth().
+
 %% Put a batch that the promoter already took (and already committed in mria)
 %% back for a later retry, delaying each entry by a doubling backoff. The
-%% bounded-depth check of enqueue/1 is deliberately skipped: these entries
-%% were taken out of this same queue moments ago, so returning them cannot
-%% push the queue above the depth it already reached - and a full queue must
-%% never turn into a dropped batch.
+%% bounded-depth check of enqueue/1 is deliberately skipped: a batch that was
+%% already accepted must never fail to come back, or it would be dropped. The
+%% bound is enforced where it belongs - on new work, via admission_depth/0,
+%% which counts these entries, so a node whose deferred set is over the bound
+%% answers 429 to new requests until it drains.
 -spec requeue([entry()]) -> non_neg_integer().
 requeue(Entries) ->
     Now = erlang:monotonic_time(millisecond),

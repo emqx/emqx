@@ -441,7 +441,7 @@ gauges).
 
 | Metric | Scope | Description |
 |--------|-------|-------------|
-| `bcast_intake_depth` | intake | QoS=1 intake queue depth on this node (requests awaiting promotion) |
+| `bcast_intake_depth` | intake | QoS=1 intake ready-queue depth on this node (requests awaiting promotion; admission also counts the deferred entries below, so the two together are bounded by the intake queue depth) |
 | `bcast_intake_deferred_depth` | intake | QoS=1 committed batches on this node waiting out an index-append retry backoff (not yet takeable by the promoter) |
 | `bcast_batch_pub_qos1_queued` | index | Committed logical deliveries queued on this node's shards but not yet claimed |
 | `bcast_batch_pub_qos1_inflight` | index | Claimed logical deliveries on this node's shards not yet terminal (awaiting ack/release/expiry) |

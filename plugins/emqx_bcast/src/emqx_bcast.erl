@@ -29,6 +29,7 @@
     on_message_acked/2,
     msg_epoch/1,
     bump_msg_epoch/1,
+    epoch_bump_timeout_ms/0,
     bump_msg_epoch_everywhere/1
 ]).
 
@@ -465,7 +466,15 @@ bump_msg_epoch(Hash) ->
 -spec bump_msg_epoch_everywhere(binary()) -> ok | {error, term()}.
 bump_msg_epoch_everywhere(Hash) ->
     Nodes = lists:usort([node() | core_nodes()]),
-    case [N || N <- Nodes, not bump_msg_epoch_on(N, Hash)] of
+    %% Every leg runs concurrently and each one is bounded by the request
+    %% budget (emqx_bcast_utils:api_rpc_timeout_ms/0), not by the generic 15s
+    %% RPC timeout: this runs on the synchronous management-delete path, where
+    %% the plugin framework kills the callback (and answers 503) once its
+    %% budget expires - so a sequential fan-out with a 15s leg would let the
+    %% framework, not the plugin, decide the outcome, after some cores had
+    %% already advanced their epoch for this hash.
+    Results = parallel_legs(fun(Node) -> {Node, bump_msg_epoch_on(Node, Hash)} end, Nodes),
+    case [N || {N, false} <- Results] of
         [] -> ok;
         Failed -> {error, {epoch_bump_failed, Failed}}
     end.
@@ -474,11 +483,51 @@ bump_msg_epoch_on(Node, Hash) when Node =:= node() ->
     _ = bump_msg_epoch(Hash),
     true;
 bump_msg_epoch_on(Node, Hash) ->
-    try emqx_rpc:call(?MODULE, Node, ?MODULE, bump_msg_epoch, [Hash], ?BCAST_RPC_CALL_TIMEOUT_MS) of
+    Timeout = epoch_bump_timeout_ms(),
+    try emqx_rpc:call(?MODULE, Node, ?MODULE, bump_msg_epoch, [Hash], Timeout) of
         {badrpc, _} -> false;
         _ -> true
     catch
         _:_ -> false
+    end.
+
+%% One epoch-bump leg. The fan-out runs inside a management API request, so a
+%% leg is bounded by that request's budget (emqx_bcast_utils:api_rpc_timeout_ms/0)
+%% and never by the generic 15s RPC timeout: an unreachable core must not let
+%% the framework kill the callback (and answer 503) before the plugin answers
+%% with a reason - and must not leave the request to die after advancing some
+%% cores' epochs.
+-spec epoch_bump_timeout_ms() -> pos_integer().
+epoch_bump_timeout_ms() ->
+    min(?BCAST_RPC_CALL_TIMEOUT_MS, emqx_bcast_utils:api_rpc_timeout_ms()).
+
+%% Run one fun per item concurrently and pair each result with its item. A leg
+%% that dies (or sends nothing before exiting) counts as a failure rather than
+%% taking the caller down: the callers here are API paths that have to answer.
+parallel_legs(Fun, Items) ->
+    Parent = self(),
+    Waiting = [
+        begin
+            Ref = make_ref(),
+            Pid = spawn(fun() -> Parent ! {Ref, catch Fun(Item)} end),
+            {Item, Ref, Pid}
+        end
+     || Item <- Items
+    ],
+    [{Item, leg_result(Ref, Pid)} || {Item, Ref, Pid} <- Waiting].
+
+leg_result(Ref, Pid) ->
+    MRef = monitor(process, Pid),
+    receive
+        {Ref, Result} ->
+            demonitor(MRef, [flush]),
+            Result;
+        {'DOWN', MRef, process, Pid, _Reason} ->
+            %% The result may already be queued behind the DOWN.
+            receive
+                {Ref, Result} -> Result
+            after 0 -> false
+            end
     end.
 
 %% Every core node needs a local ram copy of the storage tables so that

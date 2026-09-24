@@ -569,7 +569,16 @@ remove_batch_groups(Groups) ->
         Groups
     ),
     Removed = lists:sum([N || {ok, N} <- Results]),
-    case [{Group, Reason} || {Group, {error, Reason}} <- lists:zip(Groups, Results)] of
+    %% Every leg result that is not a count is a failure, including one that
+    %% died before it could reply: `parallel_map` hands back whatever the leg
+    %% produced, so a crashed leg arrives as {'EXIT', _} and must not be read
+    %% as "nothing to remove" (that turned a dead shard into a successful
+    %% removal).
+    Failed = fun
+        ({ok, N}) when is_integer(N) -> false;
+        (_) -> true
+    end,
+    case [{Group, Result} || {Group, Result} <- lists:zip(Groups, Results), Failed(Result)] of
         [] -> {ok, Removed, []};
         Failures -> {error, Removed, Failures}
     end.
@@ -914,8 +923,35 @@ delete_delivery(Did) ->
         [] ->
             {error, not_found};
         [#bcast_msg{product_key = PK, device_names = DNs, msg_id = MsgId}] ->
-            maybe_count_canceled(remove_batch([{PK, DN, Did} || DN <- DNs])),
-            route(did_shard_of(Did), {delete_delivery_rows, Did, MsgId}, ?SYNC_TIMEOUT_MS)
+            %% Error-aware like the message-level cascade: the durable rows are
+            %% only removed once every device shard confirmed the index entry
+            %% is gone. Deleting them first would leave an index entry that no
+            %% sweep can attribute (the delivery row it belongs to is what the
+            %% orphan sweep matches on) and would count it as canceled while
+            %% the device still gets claimed.
+            case remove_delivery_index(group_entries([{PK, DN, Did} || DN <- DNs]), 1) of
+                ok ->
+                    route(did_shard_of(Did), {delete_delivery_rows, Did, MsgId}, ?SYNC_TIMEOUT_MS);
+                {error, Failures} ->
+                    {error, {index_remove_failed, Failures}}
+            end
+    end.
+
+%% Drop one delivery's index entries and count them, retrying only the shards
+%% that failed (removing an entry that is already gone is a no-op). Mirrors
+%% reconcile_index_groups/2, which the management cascade uses.
+remove_delivery_index(Groups, Attempt) ->
+    case remove_batch_groups(Groups) of
+        {ok, Removed, []} ->
+            maybe_count_canceled(Removed),
+            ok;
+        {error, Removed, Failures} ->
+            maybe_count_canceled(Removed),
+            log_reconcile_failure(Attempt, Failures),
+            case Attempt of
+                1 -> remove_delivery_index([Group || {Group, _} <- Failures], 2);
+                _ -> {error, [Shard || {{Shard, _Sub}, _Reason} <- Failures]}
+            end
     end.
 
 delete_message(ApiId) ->
@@ -3750,13 +3786,73 @@ retry_unreported_parts(State) ->
         maps:get(part_pending, State, #{})
     ).
 
+%% The remaining-ack counter, recomputed from the durable markers. Used when a
+%% part's report is retried after its marker already landed: the marker proves
+%% which devices acked, so the marker-derived remaining is an upper bound of the
+%% truth (acks whose marker has not been written yet are not counted), and the
+%% delivery is only ever completed from that bound - never early. Only a lower
+%% value is written, so a delivery whose counter already matches is untouched,
+%% and a concurrent decrement that lands meanwhile is repaired by the next
+%% report or by the activation rebuild.
+reconcile_part_counter(Did) ->
+    case {mnesia:dirty_read(?TAB_MSG_META_CNT, Did), mnesia:dirty_read(?TAB_MSG_REC, Did)} of
+        {[#bcast_msg_meta_counter{counter = Current}], [#bcast_msg{target_ack_count = Target}]} ->
+            Remaining = backfill_remaining(Did, Current, #{Did => Target}),
+            case Remaining < Current of
+                true ->
+                    ?SLOG(warning, #{
+                        msg => "bcast_ack_counter_reconciled",
+                        delivery_id => Did,
+                        counter => Current,
+                        reconciled => Remaining
+                    }),
+                    ok = write_meta_counters([{Did, Remaining}]),
+                    case Remaining =< 0 of
+                        true ->
+                            _ = complete_delivery(Did),
+                            ok;
+                        false ->
+                            ok
+                    end;
+                false ->
+                    ok
+            end;
+        _ ->
+            %% No counter row (already completed) or no delivery row: nothing to
+            %% reconcile.
+            ok
+    end.
+
 %% One durable pair of writes for a finished part: the marker first, so a
 %% crash between the two can only leave the counter too high (the delivery then
 %% completes late or is reclaimed by TTL, but an acked device is never
 %% resurrected and a replayed ack cannot decrement a live delivery twice), then
 %% the decrement, then the completion check.
 report_part_done(Shard, Did, Applied) ->
-    try part_devices(Shard, Did) of
+    %% try/1 (no `of` clause) on purpose: a failure in the `of` body is NOT
+    %% caught by that same try's catch clauses, so the counter write and the
+    %% completion check have to be inside the protected expression too -
+    %% otherwise a failed decrement escapes to the ack handler, the whole ack
+    %% batch is answered with an error and the part accounting that would have
+    %% retried the report is dropped with it.
+    try
+        do_report_part_done(Shard, Did, Applied)
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "bcast_ack_part_report_failed",
+                delivery_id => Did,
+                shard => Shard,
+                applied => Applied,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            {error, {Class, Reason}}
+    end.
+
+do_report_part_done(Shard, Did, Applied) ->
+    case part_devices(Shard, Did) of
         not_found ->
             %% The delivery is gone (completed or deleted): the acks are moot.
             ok;
@@ -3765,8 +3861,16 @@ report_part_done(Shard, Did, Applied) ->
             case mnesia:dirty_match_object(Marker) of
                 [_] ->
                     %% This part already reported in an earlier incarnation of
-                    %% the shard: the marker is idempotent, the decrement is
-                    %% not, so stop here.
+                    %% the shard, so the decrement must not be applied twice -
+                    %% but it may not have been applied at all (the counter
+                    %% write failed, or the shard died right after the marker).
+                    %% Recompute the remaining from the durable markers instead
+                    %% of skipping: the recompute is idempotent either way, and
+                    %% it is the only thing that can release a delivery whose
+                    %% counter was left at 1 by that window (the in-memory part
+                    %% accounting is gone once this shard restarts, and the
+                    %% periodic sweep only scans counters at or below zero).
+                    reconcile_part_counter(Did),
                     ok;
                 [] ->
                     mnesia:dirty_write(Marker),
@@ -3792,18 +3896,6 @@ report_part_done(Shard, Did, Applied) ->
                             ok
                     end
             end
-    catch
-        Class:Reason:Stacktrace ->
-            ?SLOG(warning, #{
-                msg => "bcast_ack_part_report_failed",
-                delivery_id => Did,
-                shard => Shard,
-                applied => Applied,
-                exception => Class,
-                reason => Reason,
-                stacktrace => Stacktrace
-            }),
-            {error, {Class, Reason}}
     end.
 
 %% The devices of this delivery the shard owns, in the committed delivery row's
@@ -4591,17 +4683,51 @@ delete_expired_message({MsgId, Hash, ApiMsgId, ExpiresAt, CreatedAt}, Now) ->
             %% then the message row last - the order the management cascade
             %% delete uses, so a rebuild never sees an order or hash row whose
             %% message is already gone.
-            _ = mnesia:dirty_delete_object(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
-            _ = mnesia:dirty_delete_object(#bcast_message_api_id{
-                api_msg_id = ApiMsgId, msg_id = MsgId
-            }),
-            _ = mnesia:dirty_delete_object(#bcast_message_reg{msg_id = MsgId}),
-            _ = mnesia:dirty_delete_object(#bcast_message_order{key = {CreatedAt, MsgId}}),
-            _ = mnesia:dirty_delete_object(Row),
-            true;
+            delete_message_rows(MsgId, Hash, ApiMsgId, CreatedAt, Row),
+            %% Those deletes are value-matching and lock-free, so a refresh can
+            %% commit in between: it keeps this MessageId and relies on the
+            %% index rows, which by then are the rows we just removed (a
+            %% refresh that lands after this read but before the deletes had
+            %% its own rewrite overtaken). Put them back rather than leave a
+            %% live message whose content index is gone - the next
+            %% registration of the same content would then hand out a
+            %% different MessageId for identical content.
+            case mnesia:dirty_read(?TAB_MSG, MsgId) of
+                [] ->
+                    true;
+                [#bcast_message{} = Live] ->
+                    _ = restore_message_rows(Live),
+                    false
+            end;
         _ ->
             false
     end.
+
+delete_message_rows(MsgId, Hash, ApiMsgId, CreatedAt, Row) ->
+    _ = mnesia:dirty_delete_object(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
+    _ = mnesia:dirty_delete_object(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}),
+    _ = mnesia:dirty_delete_object(#bcast_message_reg{msg_id = MsgId}),
+    _ = mnesia:dirty_delete_object(#bcast_message_order{key = {CreatedAt, MsgId}}),
+    _ = mnesia:dirty_delete_object(Row),
+    ok.
+
+%% Rewrite the rows that make a live message findable, after a reap removed
+%% them under a refresh. Idempotent: the keys are the message's own ids, which a
+%% TTL refresh does not change (it only bumps expires_at).
+restore_message_rows(#bcast_message{
+    msg_id = MsgId,
+    api_msg_id = ApiMsgId,
+    content_hash = Hash,
+    created_at = CreatedAt
+}) ->
+    _ = mnesia:dirty_write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
+    _ = mnesia:dirty_write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}),
+    _ = mnesia:dirty_write(#bcast_message_order{key = {CreatedAt, MsgId}}),
+    _ = mnesia:dirty_write(#bcast_message_reg{
+        msg_id = MsgId,
+        registered_at = erlang:system_time(second)
+    }),
+    ok.
 
 %% Reservations whose intake node died (queue entry lost with the node)
 %% expire here so the quota counter does not leak them forever.

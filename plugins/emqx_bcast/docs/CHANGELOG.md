@@ -4,12 +4,13 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 
 ## Unreleased
 
-A follow-up to 0.4.1 for the subscription hooks and for the promoter's
-index-append retry. **No breaking API change, no configuration change and no
-change to what the existing Prometheus counters mean** (one counter and one
-gauge are added). Verified end to end on a 10,000,000-message QoS=1 backlog run:
-deliveries and acknowledgements both reached 10,000,000, so nothing was left
-delivered without being acknowledged.
+A follow-up to 0.4.1 for the subscription hooks, for the promoter's index-append
+retry, and for the ordering and accounting windows the review round found around
+expiry, acknowledgement bookkeeping and the management delete. **No breaking API
+change, no configuration change and no change to what the existing Prometheus
+counters mean** (one counter and one gauge are added). Verified end to end on a
+10,000,000-message QoS=1 backlog run: deliveries and acknowledgements both
+reached 10,000,000, so nothing was left delivered without being acknowledged.
 
 ### Upgrade notes
 
@@ -75,17 +76,52 @@ delivered without being acknowledged.
   the current session never received it. It now releases the claim instead, so
   the new session is handed the delivery.
 - **A message extended by a re-send is no longer deleted by an expiry scan that
-  ran before it.** The TTL scan is a snapshot; the deletes that follow it were
-  unconditional, so a concurrent create/refresh of the same content (a
-  `RegisterMessage`, a `BatchPub` that resolves to the same hash) could have its
-  payload, hash and API-id rows removed with it, leaving the delivery of the
-  refreshed message without a body. Each delete is now an equality delete of a
-  record read a moment earlier, so a row that changed in between does not match
-  and stays, and the derived rows carry this message's own ids, so a refresh
-  that wrote new ones cannot be hit either. It stays lock-free on purpose: a
-  transaction here would take the message and hash write locks that promotion
-  needs first and hold them while its commit queues behind the Mnesia
-  transaction manager.
+  ran before it, and it keeps its content index.** The TTL scan is a snapshot;
+  the deletes that follow it were unconditional, so a concurrent create/refresh
+  of the same content (a `RegisterMessage`, a `BatchPub` that resolves to the
+  same hash) could lose its payload, hash and API-id rows together. The message
+  body is now removed with an equality delete of the record the scan read, so a
+  row that changed in between does not match and stays. A refresh is an in-place
+  update of that same row (it keeps the MessageId, the hash row and the API-id
+  row), so the reaper additionally re-reads the message after its deletes: if
+  the row is still there - the refresh won that race - the hash, API-id, order
+  and registration rows are restored and the refresh path rewrites them too.
+  Without that second step the row survived while its index did not, and
+  registering the same content again handed out a *different* MessageId. The
+  reaper stays lock-free on purpose: a transaction here would take the message
+  and hash write locks that promotion needs first and hold them while its
+  commit queues behind the Mnesia transaction manager.
+- **A part report whose counter write is lost is now repaired by its retry.**
+  Acknowledgement bookkeeping writes the durable ack marker first and the
+  remaining-ack counter second, so a counter write that fails (or a shard that
+  dies right after the marker) leaves the delivery counted as owing an
+  acknowledgement its devices already sent. The retry stopped as soon as it saw
+  the marker already present, so the counter stayed at 1 and the delivery
+  lingered until `msg_ttl` - only a partition rebuild recomputed it. The retry
+  now recomputes the remaining count from the markers (a lower value only,
+  never a completion that the markers do not support). A failure inside the
+  report is also contained by the report itself instead of escaping to the ack
+  handler, so the part accounting survives for the periodic retry.
+- **Deleting one delivery no longer reports success while a device shard kept
+  its index entry.** The management delete removed the delivery's index entries
+  and deleted its durable rows whether or not every device shard answered:
+  a shard that was down or timed out left an index entry behind that no sweep
+  can attribute (the orphan sweep matches entries against the delivery row),
+  and the removal was undercounted in `batch_pub_qos1_canceled`. The removal is
+  now error-aware (the same path the message-level cascade uses), retries the
+  shards that failed, and the durable rows are only deleted once every leg
+  confirmed - otherwise the API reports the failure and a retry finishes the
+  delete. A leg that dies without replying now also counts as a failure rather
+  than as "nothing to remove".
+- **The delete-epoch fan-out stays inside the API request budget.** Every core
+  is asked to advance the epoch of a deleted content hash before its rows go
+  away, and one unreachable core used to hold the request for the generic 15s
+  RPC timeout - per core, sequentially. The plugin framework kills a callback
+  that outlives its (5s by default) budget and answers 503, so the request
+  could be killed after some cores had already advanced their epoch. The legs
+  now run concurrently and each one is bounded by the request budget
+  (`emqx_bcast_utils:api_rpc_timeout_ms/0`), so the plugin answers with its own
+  error instead.
 - **A slow role lookup during startup no longer pins a core into the
   non-core layout.** The role probe retries briefly before it answers, so a
   node whose plugin loads before mria publishes its role does not skip every
@@ -110,6 +146,14 @@ delivered without being acknowledged.
   `bcast_batch_pub_qos1_append_deferred` counter and `bcast_intake_deferred_depth`
   gauge report it, and each deferral logs `bcast_promoter_append_deferred` at
   warning.
+- **A deferred batch counts against the node's intake bound.** A batch reaches
+  the deferred queue only after a worker took it out of the ready queue, so
+  without counting deferred entries a node whose index shard stays unavailable
+  would keep its ready queue looking shallow: every request would be accepted
+  (200) and pile up in the deferred queue with its payload, instead of the
+  overload turning into 429 backpressure. The admission check now bounds the
+  ready and deferred entries together (`bcast_intake_depth` keeps reporting the
+  ready queue, `bcast_intake_deferred_depth` the deferred one).
 
 ### Changed
 
