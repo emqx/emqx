@@ -567,7 +567,6 @@ handle_first_server_block1(More, Size, Msg, Key, ServerMap, State) ->
                 payload => Payload,
                 next_num => 1,
                 size => Size,
-                req => Msg,
                 expires_at => expires_at(State)
             },
             case try_put(server_rx_block1, Key, Tx, State) of
