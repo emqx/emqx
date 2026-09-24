@@ -282,7 +282,12 @@ def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     """Test that malformed EMQX_SECURITY_PROFILE fails before boot."""
     result = run_emqx_console(
         emqx_bin_path,
-        {"EMQX_SECURITY_PROFILE": security_profile},
+        {
+            # needed otherwise new default hardened profile prevents the node from
+            # starting.
+            "EMQX_NODE__COOKIE": "nondefaultcookie",
+            "EMQX_SECURITY_PROFILE": security_profile,
+        },
     )
     output = result.stdout + result.stderr
     assert result.returncode != 0
@@ -297,7 +302,12 @@ def test_invalid_default_listener_address_fails_fast(emqx_bin_path, default_addr
     before boot."""
     result = run_emqx_console(
         emqx_bin_path,
-        {"EMQX_NODE__DEFAULT_LISTENER_ADDRESS": default_address},
+        {
+            # needed otherwise new default hardened profile prevents the node from
+            # starting.
+            "EMQX_NODE__COOKIE": "nondefaultcookie",
+            "EMQX_NODE__DEFAULT_LISTENER_ADDRESS": default_address,
+        },
         timeout=120,
     )
     output = result.stdout + result.stderr
@@ -310,7 +320,12 @@ def test_unresolvable_default_listener_address_fails_boot(emqx_bin_path):
     validation and fails at listener start (.invalid never resolves)."""
     result = run_emqx_console(
         emqx_bin_path,
-        {"EMQX_NODE__DEFAULT_LISTENER_ADDRESS": "host.invalid"},
+        {
+            # needed otherwise new default hardened profile prevents the node from
+            # starting.
+            "EMQX_NODE__COOKIE": "nondefaultcookie",
+            "EMQX_NODE__DEFAULT_LISTENER_ADDRESS": "host.invalid",
+        },
         timeout=120,
     )
     output = result.stdout + result.stderr
@@ -766,8 +781,13 @@ def test_skip_quic_nif_load(emqx_bin_path, emqx_rel_path):
             nif_file.unlink()
 
         # Test that console fails without QUICER_SKIP_NIF_LOAD
+        env = os.environ.copy()
+        # needed otherwise new default hardened profile prevents the node from
+        # starting.
+        env["EMQX_NODE__COOKIE"] = "nondefaultcookie"
         result = subprocess.run(
             [str(emqx_bin_path), "console"],
+            env=env,
             capture_output=True,
             text=True,
             timeout=timeout
@@ -777,6 +797,7 @@ def test_skip_quic_nif_load(emqx_bin_path, emqx_rel_path):
         # Test that start succeeds with QUICER_SKIP_NIF_LOAD=1
         env = os.environ.copy()
         env["QUICER_SKIP_NIF_LOAD"] = "1"
+        env["EMQX_NODE__COOKIE"] = "nondefaultcookie"
         result = subprocess.run(
             [str(emqx_bin_path), "start"],
             env=env,
@@ -825,8 +846,11 @@ def _test_acl_file_failure(emqx_bin_path, emqx_rel_path, setup_acl_file, expecte
         setup_acl_file(acl_file)
 
         try:
+            env = os.environ.copy()
+            env["EMQX_NODE__COOKIE"] = "nondefaultcookie"
             result = subprocess.run(
                 [str(emqx_bin_path), "console"],
+                env=env,
                 capture_output=True,
                 text=True,
                 timeout=15
