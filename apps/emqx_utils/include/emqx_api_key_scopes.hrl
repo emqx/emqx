@@ -88,8 +88,9 @@
 %% Generic (API-key-compatible) scopes — these scopes are usable
 %% both by API keys and by dashboard login users. Used to compute the
 %% role-default fallback for users whose extra.scopes is absent:
-%%   * administrator default = GENERIC_SCOPES ++ LOGIN_ONLY_SCOPES
-%%   * viewer default        = GENERIC_SCOPES
+%%   * global administrator default = GENERIC_SCOPES ++ LOGIN_ONLY_SCOPES
+%%   * global viewer default        = GENERIC_SCOPES
+%% Namespaced roles use NS_ADMIN_ALLOWED_SCOPES / NS_VIEWER_ALLOWED_SCOPES.
 -define(GENERIC_SCOPES, [
     ?SCOPE_CONNECTIONS,
     ?SCOPE_PUBLISH,
@@ -132,6 +133,11 @@
     ?SCOPE_API_KEY_MGMT
 ]).
 -define(NS_ADMIN_ALLOWED_SCOPES, ?NS_ADMIN_COMMON_SCOPES ++ ?NS_ADMIN_LOGIN_SCOPES).
+
+%% Namespaced non-administrator scopes (dashboard viewer, API-key viewer).
+%% A namespaced viewer may not hold a scope that a namespaced administrator
+%% lacks, and it holds no login-only scopes.
+-define(NS_VIEWER_ALLOWED_SCOPES, ?NS_ADMIN_COMMON_SCOPES).
 
 %% ── Privilege scope group ──────────────────────────────────────────
 %%

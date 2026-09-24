@@ -7,6 +7,10 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+%% `run_batch/2` deliberately turns any batch sync failure into the error value,
+%% so that the syncer can log it and retry.
+-elvis([{elvis_style, no_catch_expressions, disable}]).
+
 -behaviour(gen_server).
 
 -export([start_link/1]).
@@ -411,7 +415,12 @@ stash_stats(Stash) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-batch_test() ->
+%% EUnit shares one process between all plain test cases of a run, so run this case in a
+%% process of its own: the mailbox then holds exactly the replies it produced (#19101).
+batch_test_() ->
+    {spawn, ?_test(tc_batch())}.
+
+tc_batch() ->
     Dest = node(),
     Ctx = fun(N) -> [{N, self()}] end,
     Stash = stash_add(

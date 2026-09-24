@@ -28,7 +28,11 @@ def emqx_bin_path(profile):
     workspace_root = Path(__file__).parent.parent.parent
     bin_path = workspace_root / "_build" / profile / "rel" / "emqx" / "bin" / "emqx"
     if not bin_path.exists():
-        pytest.skip(f"EMQX binary not found at {bin_path}")
+        pytest.fail(
+            f"EMQX binary not found at {bin_path}: the release artifact "
+            "(e.g. <profile>-rel) must provide _build/<profile>/rel/emqx. "
+            "Failing instead of skipping so a missing release cannot turn this job green."
+        )
     return bin_path
 
 
@@ -38,7 +42,11 @@ def emqx_rel_path(profile):
     workspace_root = Path(__file__).parent.parent.parent
     rel_path = workspace_root / "_build" / profile / "rel" / "emqx"
     if not rel_path.exists():
-        pytest.skip(f"EMQX release not found at {rel_path}")
+        pytest.fail(
+            f"EMQX release not found at {rel_path}: the release artifact "
+            "(e.g. <profile>-rel) must provide _build/<profile>/rel/emqx. "
+            "Failing instead of skipping so a missing release cannot turn this job green."
+        )
     return rel_path
 
 
@@ -168,6 +176,7 @@ def test_node_cookie_from_file(emqx_bin_path, tmp_path):
     with open_emqx_console(
             emqx_bin_path,
             {
+                "EMQX_LOG__CONSOLE__LEVEL": "notice",
                 "EMQX_LOG__CONSOLE__FORMATTER": "json",
                 "EMQX_NODE__COOKIE": f"file://{cookie_file}",
             },
@@ -900,6 +909,10 @@ def test_feature_gate_full(emqx_bin_path):
     with open_emqx_console(
             emqx_bin_path,
             {
+                # needed otherwise new default hardened profile prevents the node from
+                # starting.
+                "EMQX_NODE__COOKIE": "nondefaultcookie",
+                "EMQX_LOG__CONSOLE__LEVEL": "notice",
                 "EMQX_LOG__CONSOLE__FORMATTER": "json",
                 "EMQX_FEATURES": "FULL",
             },
@@ -929,6 +942,10 @@ def test_feature_gate_essential(emqx_bin_path):
     with open_emqx_console(
             emqx_bin_path,
             {
+                # needed otherwise new default hardened profile prevents the node from
+                # starting.
+                "EMQX_NODE__COOKIE": "nondefaultcookie",
+                "EMQX_LOG__CONSOLE__LEVEL": "notice",
                 "EMQX_LOG__CONSOLE__FORMATTER": "json",
                 "EMQX_FEATURES": "ESSENTIAL",
             },
@@ -955,21 +972,21 @@ def test_feature_gate_essential(emqx_bin_path):
 # Using a dict value to allow specifying feature-specific stuff to test, if needed
 # Remember to update known feature list when `emqx_machine_features:known_features` change.
 KNOWN_FEATURES = {
+    "ai": {},
+    "cluster_link": {},
     "dashboard": {},
     "data_integration": {},
-    "message_transformation": {},
-    "schema_validation": {},
-    "schema_registry": {},
-    "gateways": {},
-    "cluster_link": {},
-    "multi_tenancy": {},
-    "plugins": {},
-    "ai": {},
-    "metrics": {},
-    "file_transfer": {},
-    "gcp_device": {},
     "exhook": {},
+    "file_transfer": {},
+    "gateways": {},
+    "message_transformation": {},
+    "metrics": {},
+    "mqtt_extensions": {},
+    "multi_tenancy": {},
     "opentelemetry": {},
+    "plugins": {},
+    "schema_registry": {},
+    "schema_validation": {},
 }
 
 
@@ -980,6 +997,10 @@ def test_feature_gate_custom(emqx_bin_path, feature):
     with open_emqx_console(
             emqx_bin_path,
             {
+                # needed otherwise new default hardened profile prevents the node from
+                # starting.
+                "EMQX_NODE__COOKIE": "nondefaultcookie",
+                "EMQX_LOG__CONSOLE__LEVEL": "notice",
                 "EMQX_LOG__CONSOLE__FORMATTER": "json",
                 "EMQX_FEATURES": feature,
             },
@@ -1006,6 +1027,10 @@ def test_feature_gate_custom_multiple(emqx_bin_path):
     with open_emqx_console(
             emqx_bin_path,
             {
+                # needed otherwise new default hardened profile prevents the node from
+                # starting.
+                "EMQX_NODE__COOKIE": "nondefaultcookie",
+                "EMQX_LOG__CONSOLE__LEVEL": "notice",
                 "EMQX_LOG__CONSOLE__FORMATTER": "json",
                 "EMQX_FEATURES": features,
             },
@@ -1031,6 +1056,10 @@ def test_feature_gate_bad_preset(emqx_bin_path):
     result = run_emqx_console(
         emqx_bin_path,
         {
+            # needed otherwise new default hardened profile prevents the node from
+            # starting.
+            "EMQX_NODE__COOKIE": "nondefaultcookie",
+            "EMQX_LOG__CONSOLE__LEVEL": "notice",
             "EMQX_LOG__CONSOLE__FORMATTER": "json",
             "EMQX_FEATURES": "UNKNOWN",
         },
@@ -1051,6 +1080,10 @@ def test_feature_gate_bad_feature(emqx_bin_path):
     result = run_emqx_console(
         emqx_bin_path,
         {
+            # needed otherwise new default hardened profile prevents the node from
+            # starting.
+            "EMQX_NODE__COOKIE": "nondefaultcookie",
+            "EMQX_LOG__CONSOLE__LEVEL": "notice",
             "EMQX_LOG__CONSOLE__FORMATTER": "json",
             "EMQX_FEATURES": "data_integratio",
         },

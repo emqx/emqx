@@ -574,11 +574,11 @@ Simple assertions about namespaced user permissions.
      are mostly to avoid accidentally mutating the wrong resources rather than hiding
      information.
    - Exception: endpoints whose response would expose MQTT payload content (per-client
-     mqueue/inflight, retained, delayed) or client-uploaded file content (File Transfer
-     listing and download) are denied for namespaced users by RBAC, because the
-     underlying stores are global and cannot be safely filtered by namespace.  Those
-     handlers are kept in a static deny list here so this assertion does not have to
-     reach into RBAC internals.
+     mqueue/inflight, retained, delayed), client-uploaded file content (File Transfer
+     listing and download) or the global plugin configuration are denied for namespaced
+     users by RBAC, because the underlying stores are global and cannot be safely filtered
+     by namespace.  Those handlers are kept in a static deny list here so this assertion
+     does not have to reach into RBAC internals.
 """.
 t_namespaced_user_permissions(_TCConfig) ->
     GlobalAdminHeader = create_superuser(),
@@ -645,7 +645,9 @@ namespaced_get_denylist() ->
             module => emqx_ft_storage_exporter_fs_api,
             function => '/file_transfer/file'
         },
-        #{method => get, module => emqx_audit_api, function => audit}
+        #{method => get, module => emqx_audit_api, function => audit},
+        #{method => get, module => emqx_mgmt_api_plugins, function => plugin_config},
+        #{method => get, module => emqx_mgmt_api_plugins, function => download_plugin_config}
     ].
 
 -doc """

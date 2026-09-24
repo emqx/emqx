@@ -61,6 +61,8 @@ groups() ->
             t_parse_duplicate_connect_property_strict,
             t_parse_duplicate_connect_property_lenient,
             t_parse_repeated_user_property_strict,
+            t_parse_connect_user_property_limit,
+            t_parse_connect_packet_too_large,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
             t_serialize_parse_connect_with_malformed_will,
@@ -704,7 +706,6 @@ t_parse_connect_user_properties_unlimited_by_default(_) ->
 user_property_pairs(N) ->
     [{<<>>, integer_to_binary(I)} || I <- lists:seq(1, N)].
 
-%% N user properties on the wire, each with an empty key and an indexed value.
 user_properties(N) ->
     iolist_to_binary([
         begin

@@ -119,7 +119,10 @@ groups() ->
             t_shutdown_count_too_many_user_properties,
             t_frame_error_shutdown_count_connected,
             t_frame_error_shutdown_count_is_bounded,
-            t_sock_closed_incomplete_qos2_transmission
+            t_sock_closed_incomplete_qos2_transmission,
+            t_connect_user_property_limit,
+            t_connect_packet_too_large,
+            t_large_connect_with_few_user_properties
         ]},
         {socket, [], [
             t_connection_stats,
@@ -1629,16 +1632,6 @@ loop_slow_consumer(active, Socket, Recvlen, Interval) ->
     end.
 
 -doc """
-A CONNECT larger than `mqtt.max_connect_packet_size` is refused and the
-connection is closed, without a CONNACK.
-""".
-t_connect_packet_too_large(Config) ->
-    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
-    Socket = socket_connect(Config, [{active, true}, binary]),
-    ok = socket_send(Socket, oversized_connect(Limit)),
-    ?assertEqual(ok, wait_socket_closed(Socket)).
-
--doc """
 A CONNECT carrying more user properties than
 `mqtt.max_connect_user_properties` is refused and the connection is closed.
 """.
@@ -1991,6 +1984,108 @@ socket_sockname({tcp, Socket}) ->
     inet:sockname(Socket);
 socket_sockname({ssl, Socket}) ->
     ssl:sockname(Socket).
+assert_connect_accepted(Transport, NConnect, NWill) ->
+    ?assertMatch({ok, _}, connect_with_user_properties(Transport, NConnect, NWill)).
+
+assert_connect_rejected(Transport, NConnect, NWill) ->
+    ?assertMatch({error, _}, connect_with_user_properties(Transport, NConnect, NWill)).
+
+-doc """
+A CONNECT larger than `mqtt.max_connect_packet_size' is refused on TCP, TLS and
+WebSocket listeners and counted as `connect_packet_too_large'. A CONNECT within
+the limit connects.
+""".
+t_connect_packet_too_large(_) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    try
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], 1024),
+        CountBefore = listener_shutdown_count(connect_packet_too_large),
+        lists:foreach(
+            fun(Transport) ->
+                ?assertMatch(
+                    {error, _},
+                    connect_with_username(Transport, binary:copy(<<"u">>, 2048)),
+                    #{transport => Transport}
+                ),
+                ?assertMatch(
+                    {ok, _}, connect_with_username(Transport, <<"u">>), #{transport => Transport}
+                )
+            end,
+            [tcp, tls, ws]
+        ),
+        %% The counter is per listener; the tcp one is the one read here.
+        ?WAIT(
+            ?assertEqual(CountBefore + 1, listener_shutdown_count(connect_packet_too_large)),
+            5
+        )
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], Old)
+    end.
+
+connect_with_username(Transport, Username) ->
+    {ok, Client} = emqtt:start_link(transport_opts(Transport) ++ [{username, Username}]),
+    unlink(Client),
+    try
+        Result =
+            case Transport of
+                ws -> emqtt:ws_connect(Client);
+                _ -> emqtt:connect(Client)
+            end,
+        case Result of
+            {ok, _} -> ok = emqtt:disconnect(Client);
+            {error, _} -> ok
+        end,
+        Result
+    after
+        catch emqtt:stop(Client)
+    end.
+
+connect_with_user_properties(Transport, NConnect, NWill) ->
+    ConnectProps = #{'User-Property' => client_user_properties(NConnect)},
+    WillProps = #{'User-Property' => client_user_properties(NWill)},
+    Opts =
+        transport_opts(Transport) ++
+            [
+                {proto_ver, v5},
+                {properties, ConnectProps},
+                {will_topic, <<"will">>},
+                {will_payload, <<"payload">>},
+                {will_props, WillProps}
+            ],
+    {ok, Client} = emqtt:start_link(Opts),
+    unlink(Client),
+    try
+        Result =
+            case Transport of
+                ws -> emqtt:ws_connect(Client);
+                _ -> emqtt:connect(Client)
+            end,
+        case Result of
+            {ok, _} -> ok = emqtt:disconnect(Client);
+            {error, _} -> ok
+        end,
+        Result
+    after
+        catch emqtt:stop(Client)
+    end.
+
+transport_opts(tcp) ->
+    [];
+transport_opts(tls) ->
+    [
+        {port, 8883},
+        {ssl, true},
+        {ssl_opts, emqx_common_test_helpers:client_mtls(default)}
+    ];
+transport_opts(ws) ->
+    [{port, 8083}].
+
+client_user_properties(N) ->
+    [{<<"key">>, integer_to_binary(I)} || I <- lists:seq(1, N)].
+
+listener_shutdown_count(Cause) ->
+    Counts = emqx_listeners:shutdown_count('tcp:default', 1883),
+    proplists:get_value(Cause, Counts, 0).
 
 recv_msgs(Count) ->
     recv_msgs(Count, []).

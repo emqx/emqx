@@ -591,37 +591,32 @@ traverse_chain_info(Config, ProcessedCount, BatchCount, Key) ->
         batch_size := BatchSize,
         sleep_ms := SleepMs
     } = Config,
-    % Process current row
-    NextKey = ets:next(?CHAN_INFO_TAB, Key),
+    %% The table is an ordered_set, so ets:next/2 works even when `Key'
+    %% was deleted while this batch slept.
     case ets:lookup(?CHAN_INFO_TAB, Key) of
         [{Key, Info, Stats}] ->
             _ = write_client_stats_row({Key, Info, Stats}, FileHandle),
             NewProcessedCount = ProcessedCount + 1,
             NewBatchCount = BatchCount + 1,
-            % Check if we need to print progress and add delay
             case NewBatchCount >= BatchSize of
                 true ->
-                    % Print progress
-                    ProgressPercent = (NewProcessedCount * 100) div TotalRows,
+                    %% Clients may connect during the dump, so cap the
+                    %% progress at 100%.
+                    ProgressPercent = min(100, (NewProcessedCount * 100) div TotalRows),
                     emqx_ctl:print("Progress: ~w/~w (~w%)~n", [
                         NewProcessedCount, TotalRows, ProgressPercent
                     ]),
-
-                    % Add delay to reduce CPU load
-
-                    % Configurable delay between batches
+                    %% Sleep between batches to reduce CPU load
                     timer:sleep(SleepMs),
-
-                    % Continue with next batch
                     NextKey = ets:next(?CHAN_INFO_TAB, Key),
                     traverse_chain_info(Config, NewProcessedCount, 0, NextKey);
                 false ->
-                    % Continue processing current batch
                     NextKey = ets:next(?CHAN_INFO_TAB, Key),
                     traverse_chain_info(Config, NewProcessedCount, NewBatchCount, NextKey)
             end;
         [] ->
-            % Key not found, skip to next
+            %% Key not found, skip to next
+            NextKey = ets:next(?CHAN_INFO_TAB, Key),
             traverse_chain_info(Config, ProcessedCount, BatchCount, NextKey)
     end.
 

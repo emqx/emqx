@@ -846,6 +846,132 @@ t_tracing_config_update_rejects_namespaced_actors(_) ->
         emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_viewer_actor_context())
     ).
 
+-doc """
+The plugin configuration is global, so its read endpoints are restricted to the
+global administrator: all namespaced actors (any role) and the remaining global
+principals such as viewers are rejected.  The other plugin GET endpoints are not
+affected.
+
+The actor contexts here are role/namespace pairs, and the API-key role macros are
+the same binaries as the login-user ones, so this matrix cannot distinguish a
+namespaced API key from a namespaced login user of the same role; the API-key
+specific gating lives in `emqx_mgmt_auth`.
+""".
+t_plugin_config_endpoints_require_global_admin(_) ->
+    Req = #{},
+    lists:foreach(
+        fun(HandlerInfo) ->
+            lists:foreach(
+                fun(ActorContext) ->
+                    ?assertEqual(
+                        {error, <<"Plugin configuration is not available to namespaced users">>},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+                    )
+                end,
+                namespaced_actor_contexts()
+            ),
+            lists:foreach(
+                fun(ActorContext) ->
+                    ?assertEqual(
+                        {error,
+                            <<"Plugin configuration is only available to the global administrator">>},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+                    )
+                end,
+                [global_viewer_actor_context(), global_publisher_actor_context()]
+            ),
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_admin_actor_context())
+            )
+        end,
+        plugin_config_endpoint_handlers()
+    ),
+    %% Scope check: the new clause must only cover the two configuration
+    %% endpoints, leaving the other plugin GET endpoints readable.
+    lists:foreach(
+        fun(HandlerInfo) ->
+            lists:foreach(
+                fun(ActorContext) ->
+                    ?assertMatch(
+                        {ok, _},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+                    )
+                end,
+                namespaced_actor_contexts() ++
+                    [global_admin_actor_context(), global_viewer_actor_context()]
+            )
+        end,
+        other_plugin_get_handlers()
+    ).
+
+-doc """
+Over the real HTTP API, the plugin configuration endpoints answer 403
+`UNAUTHORIZED_ROLE` for viewers and namespaced administrators, while the global
+administrator still reaches the endpoint (404 for an unknown plugin rather than
+403).
+""".
+t_plugin_config_endpoints_http_denied(_) ->
+    add_default_superuser(),
+    Password = <<"public_www1">>,
+    Viewer = <<"plugin_cfg_viewer">>,
+    NsAdmin = <<"plugin_cfg_ns_admin">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Viewer, Password, ?ROLE_VIEWER, ?ADD_DESCRIPTION),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        NsAdmin, Password, <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>, ?ADD_DESCRIPTION
+    ),
+    NameVsn = <<"plugin_cfg_probe-1.0">>,
+    Paths = [
+        uri(["plugins", NameVsn, "config"]),
+        uri(["plugins", NameVsn, "config", "download"])
+    ],
+    Denied = [
+        {Viewer, <<"Plugin configuration is only available to the global administrator">>},
+        {NsAdmin, <<"Plugin configuration is not available to namespaced users">>}
+    ],
+    lists:foreach(
+        fun(Url) ->
+            lists:foreach(
+                fun({Username, ExpectedMessage}) ->
+                    {ok, DeniedCode, DeniedBody} = emqx_dashboard_api_test_helpers:request(
+                        Username, Password, get, Url, []
+                    ),
+                    ?assertEqual(403, DeniedCode),
+                    ?assertMatch(
+                        #{
+                            <<"code">> := <<"UNAUTHORIZED_ROLE">>,
+                            <<"message">> := ExpectedMessage
+                        },
+                        emqx_utils_json:decode(DeniedBody)
+                    )
+                end,
+                Denied
+            ),
+            %% The probe plugin is not installed, so the administrator reaches the
+            %% handler and gets plugin_not_found instead of a denial.
+            ?assertMatch(
+                {ok, 404, _},
+                emqx_dashboard_api_test_helpers:request(
+                    ?DEFAULT_SUPERUSER, ?DEFAULT_SUPERUSER_PASS, get, Url, []
+                )
+            )
+        end,
+        Paths
+    ).
+
+plugin_config_endpoint_handlers() ->
+    [
+        #{method => get, module => emqx_mgmt_api_plugins, function => plugin_config},
+        #{method => get, module => emqx_mgmt_api_plugins, function => download_plugin_config}
+    ].
+
+other_plugin_get_handlers() ->
+    [
+        #{method => get, module => emqx_mgmt_api_plugins, function => list_plugins},
+        #{method => get, module => emqx_mgmt_api_plugins, function => plugin},
+        #{method => get, module => emqx_mgmt_api_plugins, function => plugin_schema}
+    ].
+
 global_only_message_endpoint_handlers() ->
     [
         #{method => get, module => emqx_mgmt_api_clients, function => mqueue_msgs},
@@ -888,6 +1014,9 @@ global_admin_actor_context() ->
 
 global_viewer_actor_context() ->
     #{?actor => <<"global_viewer">>, ?role => ?ROLE_VIEWER, ?namespace => ?global_ns}.
+
+global_publisher_actor_context() ->
+    #{?actor => <<"global_publisher">>, ?role => ?ROLE_API_PUBLISHER, ?namespace => ?global_ns}.
 
 assert_global_viewer_rbac(Req, #{method := get} = HandlerInfo) ->
     ?assertMatch(
