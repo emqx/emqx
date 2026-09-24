@@ -5049,16 +5049,16 @@ t_expiry_reap_keeps_index_of_refreshed_message(_Config) ->
     end),
     meck:new(mnesia, [passthrough, no_link]),
     try
-        meck:expect(mnesia, dirty_delete_object, fun
-            (#bcast_message_hash{msg_id = Did} = Rec) when Did =:= MsgId ->
+        meck:expect(mnesia, dirty_delete, fun
+            ({bcast_message_hash, H}) when H =:= Hash ->
                 %% A RegisterMessage commits right here: it extends this very
                 %% row in place (same MessageId, same hash and API-id rows) and
                 %% rewrites the index rows, which the reap then overtakes.
                 [Msg] = mnesia:dirty_read(bcast_message, MsgId),
                 ok = mnesia:dirty_write(Msg#bcast_message{expires_at = Now + 3600}),
-                meck:passthrough([Rec]);
-            (Rec) ->
-                meck:passthrough([Rec])
+                meck:passthrough([{bcast_message_hash, H}]);
+            (Key) ->
+                meck:passthrough([Key])
         end),
         emqx_bcast_storage:cleanup_expired()
     after
@@ -5087,6 +5087,89 @@ t_expiry_reap_keeps_index_of_refreshed_message(_Config) ->
     ?assertEqual(ApiMsgId, ReusedApiMsgId),
     ?assertEqual(MsgId, ReusedMsgId).
 
+-doc "The TTL reap must really remove the registration row. Deleting it with a\n"
+"record built from the default `registered_at` (undefined) matches nothing -\n"
+"dirty_delete_object/1 compares the whole record - so every message that\n"
+"expired kept its bcast_message_reg row on every core, for good.".
+t_expiry_reap_removes_registration_row(_Config) ->
+    Payload = <<"registration row reap">>,
+    Hash = crypto:hash(sha256, Payload),
+    ApiMsgId = emqx_bcast_utils:gen_api_uuid(),
+    MsgId = emqx_bcast_utils:gen_guid(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgId, Hash, Payload),
+    ok = emqx_bcast_storage:mark_message_registered(MsgId),
+    ?assertMatch([#bcast_message_reg{msg_id = MsgId}], mnesia:dirty_read(bcast_message_reg, MsgId)),
+    Now = emqx_bcast_utils:now_sec(),
+    {atomic, ok} = mnesia:transaction(fun() ->
+        [M] = mnesia:wread({bcast_message, MsgId}),
+        mnesia:write(M#bcast_message{expires_at = Now - 100})
+    end),
+    emqx_bcast_storage:cleanup_expired(),
+    ?assertEqual([], mnesia:dirty_read(bcast_message, MsgId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_reg, MsgId)).
+
+-doc "The per-part ack accounting has to go away with the delivery. A delivery\n"
+"that ends with an unacked device - the ordinary offline-device case reaped by\n"
+"TTL, or one removed by management - used to keep one part_pending (and\n"
+"part_applied) entry per (delivery, shard) for the life of the node: unbounded\n"
+"heap growth in the 48 shard processes, plus a cleanup tick that walks all of\n"
+"it.".
+t_part_accounting_pruned_when_delivery_leaves(_Config) ->
+    PK = <<"PPARTPRUNE">>,
+    %% Two devices on one shard (so one part applies an ack while still owing
+    %% another) and one on a second shard that never acks.
+    [A1, A2] = same_shard_dns(PK, 0, 2),
+    [B1] = same_shard_dns(PK, 1, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"part accounting prune">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A1, A2, B1], 3
+    ),
+    ShardA = emqx_bcast_index_owner:shard_of({PK, A1}),
+    ShardB = emqx_bcast_index_owner:shard_of({PK, B1}),
+    ?assert(
+        wait_until(fun() -> shard_active(ShardA) andalso shard_active(ShardB) end, 200)
+    ),
+    counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
+    %% A1's ack is applied in A's part, but that part is not finished (A2 still
+    %% owes one), so the durable remaining-ack counter has not moved: the
+    %% accounting below is what has to be pruned, not the counter.
+    ?assertEqual(3, ack_counter(DeliveryId)),
+    %% A1's shard holds the delivery with an applied ack and one device still
+    %% owed; B1's shard holds it with nothing applied.
+    ?assertEqual(1, part_entry(ShardA, part_applied, DeliveryId)),
+    ?assertEqual(1, part_entry(ShardA, part_pending, DeliveryId)),
+    ?assertEqual(1, part_entry(ShardA, part_entries, DeliveryId)),
+    ?assertEqual(1, part_entry(ShardB, part_entries, DeliveryId)),
+    %% The delivery leaves both shards (management delete path).
+    ok = emqx_bcast_storage:delete_delivery(DeliveryId),
+    ?assert(
+        wait_until(
+            fun() ->
+                part_held(ShardA, DeliveryId) =:= false andalso
+                    part_held(ShardB, DeliveryId) =:= false
+            end,
+            100
+        )
+    ).
+
+part_entry(Shard, Key, Did) ->
+    maps:get(Did, maps:get(Key, sys:get_state(index_shard_name(Shard))), 0).
+
+%% Does this shard still hold anything for the delivery: index entries or
+%% per-part accounting?
+part_held(Shard, Did) ->
+    State = sys:get_state(index_shard_name(Shard)),
+    HasEntry = lists:any(
+        fun({{_PK, _DN, D}, _Ts}) -> D =:= Did end,
+        maps:to_list(maps:get(dids, State))
+    ),
+    HasAccounting = lists:any(
+        fun(Key) -> maps:is_key(Did, maps:get(Key, State, #{})) end,
+        [part_pending, part_applied, part_entries]
+    ),
+    HasEntry orelse HasAccounting.
+
 -doc "A part report whose counter write fails after the marker landed must be\n"
 "repaired by its retry. The retry used to stop as soon as it saw the marker,\n"
 "so the remaining-ack counter stayed at 1 and the delivery leaked until TTL\n"
@@ -5102,29 +5185,23 @@ t_ack_counter_repaired_when_decrement_is_lost(_Config) ->
     ShardA = emqx_bcast_index_owner:shard_of({PK, A}),
     Name = index_shard_name(ShardA),
     ?assert(wait_until(fun() -> shard_active(ShardA) end, 200)),
-    meck:new(mnesia, [passthrough, no_link]),
-    try
-        meck:expect(mnesia, dirty_update_counter, fun
-            (bcast_msg_meta_counter, Did, Decr) when Did =:= DeliveryId ->
-                %% The marker is already durable at this point: fail only the
-                %% decrement, once, so the retry has a leak to repair.
-                case get(counter_failure_injected) of
-                    undefined ->
-                        put(counter_failure_injected, true),
-                        error(injected_counter_failure);
-                    _ ->
-                        meck:passthrough([bcast_msg_meta_counter, Did, Decr])
-                end;
-            (Tab, Key, Incr) ->
-                meck:passthrough([Tab, Key, Incr])
-        end),
-        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId)
-    after
-        meck:unload(mnesia)
-    end,
-    %% The marker landed, the decrement did not: A's part has reported, yet the
-    %% delivery still counts both acks as owed and B's is the only one missing.
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= [] end, 100)),
+    ?assertEqual(1, ack_counter(DeliveryId)),
+    %% Now land the window this test is about, without mocking Mnesia (its
+    %% reload races every other Mnesia user in the suite): the durable marker
+    %% says A's part reported, but its decrement was lost - the counter still
+    %% counts A's ack, and the part is still in the accounting (as it is when
+    %% the report itself fails).
+    ok = mnesia:dirty_write(#bcast_msg_meta_counter{
+        delivery_id = DeliveryId, counter = 2
+    }),
+    _ = sys:replace_state(Name, fun(St) ->
+        St#{
+            part_pending => (maps:get(part_pending, St))#{DeliveryId => 0},
+            part_applied => (maps:get(part_applied, St))#{DeliveryId => 1}
+        }
+    end),
     ?assertEqual(2, ack_counter(DeliveryId)),
     ?assertNotEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
     %% The periodic cleanup tick retries the unreported part and recomputes the

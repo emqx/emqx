@@ -300,10 +300,16 @@ init([Shard]) ->
         %% probe round cannot pile up behind the timer
         quota_recount_running => false,
         %% per-delivery part accounting (see the note above ?SHARD_COUNT):
-        %% entries this shard still owes an ack for, and the acks it has
-        %% applied for them since the part was last reported
+        %% entries this shard still owes an ack for, the acks it has applied
+        %% for them since the part was last reported, and how many index
+        %% entries of that delivery this shard holds at all. The last one is
+        %% what lets the accounting go away when the delivery leaves the
+        %% shard (TTL reap, management delete): without it a delivery that
+        %% ends with an unacked device - the ordinary offline-device case -
+        %% kept one entry per (delivery, shard) for the life of the node.
         part_pending => #{},
         part_applied => #{},
+        part_entries => #{},
         %% deliveries whose marker-based completion aborted its transaction:
         %% #{Did => true}, retried by the periodic cleanup tick
         pending_completions => #{},
@@ -1545,7 +1551,9 @@ handle_call({cleanup_local}, _From, State = #{active := true}) ->
     State4 = retry_pending_completions(State3),
     %% Retry the parts that finished but whose report failed.
     State5 = retry_unreported_parts(State4),
-    {reply, ok, State5};
+    %% Then drop the accounting of deliveries this shard no longer holds any
+    %% index entry for (see drop_empty_part/2).
+    {reply, ok, prune_unheld_parts(State5)};
 handle_call({rebuild_index}, From, State = #{active := true}) ->
     %% A manual rebuild used to run inside this call, so its caller could
     %% rebuild and then look at the result. Keep that contract - answer when the
@@ -3043,7 +3051,8 @@ reset_state(State) ->
         peak => 0,
         orphan_cursor => 0,
         part_pending => #{},
-        part_applied => #{}
+        part_applied => #{},
+        part_entries => #{}
     }.
 
 %% Live gauges for this shard's partition: queued = live pending minus
@@ -3173,7 +3182,8 @@ append_entry(State, Key = {PK, DN}, Did) ->
             State1 = put_in(queues, Key, queue:in(Did, Q), State),
             State2 = put_in(dids, Key3, Ts, State1),
             State3 = incr_in(counts, Key, State2),
-            State3b = bump_part_pending(Did, 1, State3),
+            State3a = bump_part_entries(Did, 1, State3),
+            State3b = bump_part_pending(Did, 1, State3a),
             {State4, Decr} = reserve_dec(State3b, Key),
             {State4, 1 - Decr}
     end.
@@ -3205,7 +3215,20 @@ remove_did(State, Key, Key3) ->
     State2 = unmark_inflight(State1, Key, Key3),
     State3 = maps:put(dids, maps:remove(Key3, maps:get(dids, State2)), State2),
     State4 = maps:put(attempts, maps:remove(Key3, maps:get(attempts, State3)), State3),
-    maybe_drop_device(State4, Key).
+    maybe_drop_device(drop_empty_part(State4, Key3), Key).
+
+%% The delivery has no index entry left on this shard, so its part accounting
+%% is unreachable: keep it and the shard accumulates one entry per
+%% (delivery, shard) that ever held a device which was never acknowledged
+%% (TTL reap, management delete, a device that simply never acked), for the
+%% life of the node - and every cleanup tick walks that set. Dropping it here
+%% is enough: a later rebuild re-appends the entries and rebuilds the
+%% accounting from scratch.
+drop_empty_part(State, {_PK, _DN, Did}) ->
+    case maps:get(Did, maps:get(part_entries, State), 0) of
+        N when N =< 1 -> drop_part_accounting(Did, State);
+        _ -> bump_part_entries(Did, -1, State)
+    end.
 
 decr_in(MapName, K, State) ->
     M = maps:get(MapName, State),
@@ -3764,8 +3787,26 @@ maybe_report_part(_Did, _Applied, State) ->
 drop_part_accounting(Did, State) ->
     State#{
         part_pending => maps:remove(Did, maps:get(part_pending, State)),
-        part_applied => maps:remove(Did, maps:get(part_applied, State))
+        part_applied => maps:remove(Did, maps:get(part_applied, State)),
+        part_entries => maps:remove(Did, maps:get(part_entries, State))
     }.
+
+bump_part_entries(Did, Delta, State) ->
+    Entries = maps:get(Did, maps:get(part_entries, State), 0),
+    State#{part_entries => (maps:get(part_entries, State))#{Did => Entries + Delta}}.
+
+%% Belt and braces for the accounting of deliveries this shard no longer
+%% holds: drop_empty_part/2 keeps the invariant on the removal path, and this
+%% clears whatever an older build left behind. Iterating the accounting (not
+%% the index) keeps it proportional to the accounting, which the invariant
+%% now keeps bounded.
+prune_unheld_parts(State) ->
+    Entries = maps:get(part_entries, State),
+    Unheld = [
+        Did
+     || {Did, N} <- maps:to_list(Entries), N =< 0
+    ],
+    lists:foldl(fun drop_part_accounting/2, State, Unheld).
 
 %% Finished parts whose report failed are retried by the periodic cleanup tick
 %% (and before an activation resets the accounting): leaving them unreported
@@ -4703,11 +4744,18 @@ delete_expired_message({MsgId, Hash, ApiMsgId, ExpiresAt, CreatedAt}, Now) ->
             false
     end.
 
+%% Key-based deletes for the derived rows, like the management cascade does.
+%% `dirty_delete_object/1` matches the WHOLE record, so a record built without
+%% every field matches nothing and the row leaks quietly: the registration row
+%% carries the timestamp its writer stored, and the order row has a
+%% `placeholder` field no writer currently sets - one writer away from the
+%% same silent no-op. Only the message row keeps the value-matching delete,
+%% which is what protects a refresh that landed in between.
 delete_message_rows(MsgId, Hash, ApiMsgId, CreatedAt, Row) ->
-    _ = mnesia:dirty_delete_object(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
-    _ = mnesia:dirty_delete_object(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}),
-    _ = mnesia:dirty_delete_object(#bcast_message_reg{msg_id = MsgId}),
-    _ = mnesia:dirty_delete_object(#bcast_message_order{key = {CreatedAt, MsgId}}),
+    _ = mnesia:dirty_delete({?TAB_MSG_HASH, Hash}),
+    _ = mnesia:dirty_delete({?TAB_MSG_API_ID, ApiMsgId}),
+    _ = mnesia:dirty_delete({?TAB_MSG_REG, MsgId}),
+    _ = mnesia:dirty_delete({?TAB_MSG_ORDER, {CreatedAt, MsgId}}),
     _ = mnesia:dirty_delete_object(Row),
     ok.
 

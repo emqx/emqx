@@ -91,6 +91,25 @@ reached 10,000,000, so nothing was left delivered without being acknowledged.
   reaper stays lock-free on purpose: a transaction here would take the message
   and hash write locks that promotion needs first and hold them while its
   commit queues behind the Mnesia transaction manager.
+- **The TTL reap really removes the derived rows now.** They were deleted with
+  `mnesia:dirty_delete_object/1`, which matches the *whole* record: the
+  registration row carries the timestamp its writer stored, so the reap's
+  record (built with the default) matched nothing and every registered message
+  kept its `bcast_message_reg` row on every core for good. The derived rows are
+  now deleted by key, like the management cascade does; only the message row
+  keeps the value-matching delete, which is what protects a refresh that landed
+  in between.
+- **The per-part acknowledgement accounting is released when the delivery
+  leaves the shard.** The accounting (how many acks a shard applied for a
+  delivery and how many of its devices it still owes) was only removed when a
+  part reached zero and reported. A delivery that ended with an unacked device
+  - the ordinary offline-device case reaped by TTL, or one removed through the
+  management delete - therefore left one entry per (delivery, shard) in the
+  shard process for the life of the node: unbounded heap growth in the 48 shard
+  processes, and a cleanup tick whose fold over that set grew with it. The
+  shard now tracks how many index entries of a delivery it holds and drops the
+  accounting with the last one (the periodic tick also clears anything an older
+  build left behind).
 - **A part report whose counter write is lost is now repaired by its retry.**
   Acknowledgement bookkeeping writes the durable ack marker first and the
   remaining-ack counter second, so a counter write that fails (or a shard that
