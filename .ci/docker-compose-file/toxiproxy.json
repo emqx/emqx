@@ -217,15 +217,15 @@
     "enabled": true
   },
   {
-    "name": "minio_tcp",
+    "name": "seaweedfs_tcp",
     "listen": "0.0.0.0:19000",
-    "upstream": "minio:9000",
+    "upstream": "seaweedfs:9000",
     "enabled": true
   },
   {
-    "name": "minio_tls",
+    "name": "seaweedfs_tls",
     "listen": "0.0.0.0:19100",
-    "upstream": "minio-tls:9100",
+    "upstream": "seaweedfs-tls:9100",
     "enabled": true
   },
   {
