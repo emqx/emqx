@@ -201,7 +201,7 @@ negotiate_protocol(Type, Listener, Req, Opts, WsOpts) ->
         fail_if_no_subprotocol := FailIfNoSubprotocol,
         supported_subprotocols := SupportedSubprotocols
     } = WsOpts,
-    case cowboy_req:parse_header(Header, Req) of
+    case parse_ws_protocol_header(Req) of
         undefined when not FailIfNoSubprotocol ->
             upgrade(Type, Listener, Req, Opts, WsOpts);
         undefined ->
@@ -214,6 +214,17 @@ negotiate_protocol(Type, Listener, Req, Opts, WsOpts) ->
                 {error, no_supported_subprotocol} ->
                     {ok, cowboy_req:reply(400, Req), #{}}
             end
+    end.
+
+%% Cowboy raises `exit({request_error, {header, _}, _})' when a header value
+%% cannot be parsed, which crashes the request process before any reply is
+%% sent. Treat such a value as if the header were absent.
+parse_ws_protocol_header(Req) ->
+    try
+        cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req)
+    catch
+        exit:{request_error, {header, <<"sec-websocket-protocol">>}, _} ->
+            undefined
     end.
 
 upgrade(Type, Listener, Req, Opts, WsOpts) ->
