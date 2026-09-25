@@ -3,14 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
 
-%% minirest's HandlerInfo at runtime contains a `path` key, but our
-%% authorize/4 head patterns only reference `module` and `function`,
-%% which narrows the inferred type so dialyzer cannot prove that
-%% `maps:get(path, HandlerInfo)` succeeds. Suppress all dialyzer
-%% warnings for check_scopes/2 — the path key is guaranteed by
-%% minirest at runtime.
--dialyzer({nowarn_function, [check_scopes/2]}).
-
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -40,7 +32,7 @@
     list/0,
     try_init_bootstrap_file/0,
     format/1,
-    check_scopes/3
+    check_scopes/2
 ]).
 
 -export([authorize/4, is_api_key_allowed/1]).
@@ -381,43 +373,31 @@ find_by_api_key(ApiKey) ->
             {error, "not_found"}
     end.
 
-%% @doc Check if the request path is within the allowed scopes for this API key.
+%% @doc Check if the request's endpoint is within the allowed scopes for this API key.
 %% Denied scopes are always blocked, regardless of configuration.
-%% If no scopes are configured (key not present or undefined), all non-denied paths are allowed.
-%% If scopes is an empty list, all *mapped* paths are denied; unmapped paths
-%% (e.g. status, prometheus data) remain allowed so an operator can still
-%% reach the node and reconfigure the key via the UI.
+%% If no scopes are configured (key not present or undefined), all non-denied endpoints are allowed.
+%% If scopes is an empty list, all *mapped* endpoints are denied; unmapped
+%% ones (e.g. status, prometheus data) remain allowed so an operator can
+%% still reach the node and reconfigure the key via the UI.
 %% Publisher role skips scope check (has its own hardcoded path restrictions).
 %%
-%% Path is obtained from minirest HandlerInfo (the route template, e.g., "/clients/:clientid"),
-%% which is the same path registered by the API module's paths/0 callback.
-%% This ensures scope lookup uses the exact route that cowboy matched,
-%% eliminating the need for a parallel path matching implementation.
+%% The endpoint is identified by the `module' and `function' of minirest's
+%% HandlerInfo: the handler cowboy dispatched to. The scope cache is keyed
+%% the same way, so no path is re-matched here.
 -spec check_scopes(map(), map()) -> ok | {error, unauthorized_role}.
 check_scopes(Extra, HandlerInfo) ->
-    Path = list_to_binary(maps:get(path, HandlerInfo)),
-    case is_denied_path(Path) of
+    case is_denied_handler(HandlerInfo) of
         true ->
             {error, unauthorized_role};
         false ->
-            check_scopes_for_path(Extra, Path)
+            check_scopes_for_handler(Extra, HandlerInfo)
     end.
 
-%% @doc Check scopes with explicit path and method (for external callers).
--spec check_scopes(map(), binary(), binary()) -> ok | {error, unauthorized_role}.
-check_scopes(Extra, Path, _Method) ->
-    case is_denied_path(Path) of
-        true ->
-            {error, unauthorized_role};
-        false ->
-            check_scopes_for_path(Extra, Path)
-    end.
-
-%% @doc Internal: check scopes for a path that has already passed denied check.
-check_scopes_for_path(Extra, Path) ->
+%% @doc Internal: check scopes for a handler that has already passed denied check.
+check_scopes_for_handler(Extra, HandlerInfo) ->
     case get_scopes(Extra) of
         undefined ->
-            %% No scopes configured = all non-denied paths allowed (backward compat)
+            %% No scopes configured = all non-denied endpoints allowed (backward compat)
             ok;
         Scopes ->
             Role = maps:get(?role, Extra, ?ROLE_API_DEFAULT),
@@ -427,32 +407,36 @@ check_scopes_for_path(Extra, Path) ->
                     %% skip scope check
                     ok;
                 _ ->
-                    check_path_in_scopes(Path, Scopes)
+                    check_handler_in_scopes(HandlerInfo, Scopes)
             end
     end.
 
-check_path_in_scopes(Path, Scopes) ->
-    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+check_handler_in_scopes(HandlerInfo, Scopes) ->
+    case emqx_mgmt_api_key_scopes:handler_scopes(HandlerInfo) of
         undefined ->
-            %% Path not mapped to any scope — allow access regardless of
-            %% whether `Scopes' is empty. This keeps unmapped public
+            %% Endpoint not mapped to any scope — allow access regardless
+            %% of whether `Scopes' is empty. This keeps unmapped public
             %% endpoints (status, prometheus data, etc.) reachable for
             %% keys whose scope list was filtered down to `[]' by the
             %% bootstrap loader, so an operator can still observe the
             %% node and reconfigure the key via the UI.
             ok;
-        PathScope ->
-            case lists:member(PathScope, Scopes) of
+        Declared ->
+            %% An endpoint may declare more than one acceptable scope;
+            %% holding any one of them grants access.
+            case emqx_mgmt_api_key_scopes:any_scope_granted(Declared, Scopes) of
                 true -> ok;
                 false -> {error, unauthorized_role}
             end
     end.
 
-%% @doc Check if a path belongs to a denied scope.
-is_denied_path(Path) ->
-    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
-        undefined -> false;
-        Scope -> emqx_mgmt_api_key_scopes:is_denied_scope(Scope)
+%% @doc Check if a handler belongs to a denied scope.
+is_denied_handler(HandlerInfo) ->
+    case emqx_mgmt_api_key_scopes:handler_scopes(HandlerInfo) of
+        undefined ->
+            false;
+        Declared ->
+            lists:any(fun emqx_mgmt_api_key_scopes:is_denied_scope/1, Declared)
     end.
 
 get_scopes(#{scopes := Scopes}) when is_list(Scopes) ->
@@ -477,7 +461,7 @@ maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
 %% list (POST without `scopes', 2-/3-segment bootstrap line). Accepts a
 %% bare role or a serialized namespaced role (`ns:<ns>::<role>').
 %%
-%%   * global administrator / viewer -> `?GENERIC_SCOPES' (10 management
+%%   * global administrator / viewer -> `?GENERIC_SCOPES' (the management
 %%     scopes, no login-only scopes — those are reserved for dashboard
 %%     users).
 %%   * namespaced administrator -> `?NS_ADMIN_COMMON_SCOPES': the subset a
@@ -486,6 +470,8 @@ maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
 %%     dashboard-user default (`?NS_ADMIN_ALLOWED_SCOPES') minus the
 %%     login-only scopes, exactly as the global administrator default is
 %%     `?GENERIC_SCOPES' without the login-only scopes.
+%%   * namespaced viewer -> `?NS_VIEWER_ALLOWED_SCOPES', the same as the
+%%     namespaced dashboard-viewer default.
 %%   * publisher              -> `[<<"publish">>]' (the only scope the
 %%     publisher role is ever permitted to hold; runtime RBAC also
 %%     hard-restricts publisher to `/publish*' regardless of the stored
@@ -502,6 +488,8 @@ role_default_scopes(?ROLE_API_PUBLISHER, _Namespace) ->
     [?SCOPE_PUBLISH];
 role_default_scopes(?ROLE_API_SUPERUSER, Namespace) when is_binary(Namespace) ->
     ?NS_ADMIN_COMMON_SCOPES;
+role_default_scopes(_Role, Namespace) when is_binary(Namespace) ->
+    ?NS_VIEWER_ALLOWED_SCOPES;
 role_default_scopes(_Role, _Namespace) ->
     ?GENERIC_SCOPES.
 

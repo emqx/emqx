@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 %%
 %% Coverage for dashboard login user scope checking
-%% (emqx_dashboard_rbac:check_login_user_scopes/2) and the MFA
+%% (emqx_dashboard_rbac:check_login_user_scopes/3) and the MFA
 %% authorization rules on both sides of the self/admin split.
 %%
 %% Self-MFA (`/current_user/mfa',
@@ -163,8 +163,8 @@ t_post_users_response_includes_scopes(_Config) ->
     ?assertEqual(?ROLE_SUPERUSER, maps:get(<<"role">>, Resp)).
 
 %% Response from POST /users without an explicit `scopes' field
-%% materialises the role-default scope list (administrator -> 10 common
-%% + 4 login-only = 14 scopes). The legacy `<<"unset">>' sentinel is
+%% materialises the role-default scope list (administrator -> every common
+%% scope plus the 4 login-only scopes). The legacy `<<"unset">>' sentinel is
 %% reserved for records that survived an upgrade without scopes
 %% (pre-#17235); fresh POSTs never produce that state.
 t_post_users_response_role_default_scopes_when_not_set(_Config) ->
@@ -180,7 +180,7 @@ t_post_users_response_role_default_scopes_when_not_set(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    %% Response carries the materialised admin defaults (10 common + 4 login-only).
+    %% Response carries the materialised admin defaults (all common + 4 login-only).
     CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
     LoginOnlyNames = [N || #{name := N} <- emqx_scope_catalog:admin_only_scope_catalog()],
     ExpectedScopes = lists:sort(CommonNames ++ LoginOnlyNames),
@@ -190,7 +190,7 @@ t_post_users_response_role_default_scopes_when_not_set(_Config) ->
     EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(<<"no_scopes">>),
     ?assertEqual(ExpectedScopes, lists:sort(EffectiveScopes)).
 
-%% Viewer default = the 10 common scopes, no login-only ones.
+%% Viewer default = the common scopes, no login-only ones.
 t_post_users_response_viewer_default_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -204,7 +204,7 @@ t_post_users_response_viewer_default_scopes(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    %% Response carries the materialised viewer defaults (10 common, no login-only).
+    %% Response carries the materialised viewer defaults (common only, no login-only).
     CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
     ExpectedScopes = lists:sort(CommonNames),
     ?assertEqual(ExpectedScopes, lists:sort(maps:get(<<"scopes">>, Resp))),
@@ -567,7 +567,7 @@ t_ns_admin_can_hold_allowed_scopes(_Config) ->
 
 %% POST a namespaced administrator without an explicit `scopes'
 %% field — must materialise the restricted role defaults
-%% (7 common + 2 login-only), not the global-admin full set.
+%% (`?NS_ADMIN_ALLOWED_SCOPES'), not the global-admin full set.
 t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -581,7 +581,7 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(?NS_CONTROL_USER),
-    %% Must have the restricted subset (7 common).
+    %% Must have the restricted common subset.
     ?assert(lists:member(?SCOPE_CONNECTIONS, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_MONITORING, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_DATA_INTEGRATION, EffectiveScopes)),
@@ -592,6 +592,9 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     %% groups for namespaced callers.
     ?assert(lists:member(?SCOPE_CLUSTER_OPERATIONS, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_LICENSE, EffectiveScopes)),
+    %% The plugin API gateway, which namespaced callers reached
+    %% through `system' before the `plugin_api' scope existed.
+    ?assert(lists:member(?SCOPE_PLUGIN_API, EffectiveScopes)),
     %% Must have the two allowed login-only scopes.
     ?assert(lists:member(?SCOPE_USER_MGMT, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_API_KEY_MGMT, EffectiveScopes)),
@@ -602,8 +605,10 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     %% Must NOT have mfa, sso login-only scopes.
     ?assertNot(lists:member(?SCOPE_MFA_MGMT, EffectiveScopes)),
     ?assertNot(lists:member(?SCOPE_SSO_MGMT, EffectiveScopes)),
-    %% Exact count: 9 scopes (7 common + 2 login-only).
-    ?assertEqual(9, length(EffectiveScopes)).
+    %% The default is exactly the ns-admin allowlist: no more, no less.
+    ?assertEqual(
+        lists:sort(?NS_ADMIN_ALLOWED_SCOPES), lists:sort(EffectiveScopes)
+    ).
 
 %% PUT a namespaced administrator with only the description field
 %% updated (role + scopes unchanged).  The persisted scopes are the
@@ -819,6 +824,118 @@ t_ns_admin_still_rejects_forbidden_scope(_Config) ->
         {ok, 400, _},
         request_api(post, api_path(["users"]), auth_header(Token), Body)
     ).
+
+-define(NS_VIEWER_ROLE, <<"ns:test::viewer">>).
+
+-doc """
+A namespaced viewer created without `scopes` gets the namespaced viewer
+default. It holds no scope that the namespaced administrator default
+lacks.
+""".
+t_ns_viewer_gets_namespaced_default_scopes(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, 200, _} = create_ns_user(Token, <<"ns_viewer">>, ?NS_VIEWER_ROLE, omitted),
+    Stored = emqx_dashboard_admin:scopes_of(<<"ns_viewer">>),
+    ?assertEqual(lists:usort(?NS_VIEWER_ALLOWED_SCOPES), lists:usort(Stored)),
+    ?assertEqual([], Stored -- ?NS_ADMIN_ALLOWED_SCOPES),
+    ?assertNot(lists:member(?SCOPE_GATEWAYS, Stored)),
+    ?assertNot(lists:member(?SCOPE_PUBLISH, Stored)),
+    ?assertNot(lists:member(?SCOPE_AUDIT, Stored)).
+
+-doc """
+Namespaced administrators and viewers get the namespaced defaults both
+when `scopes` is omitted and when it is `"unset"`. With `"unset"` the
+record stores no list, and the runtime fallback must still use the
+namespace.
+""".
+t_ns_roles_default_scopes_omitted_and_unset(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Cases = [
+        {<<"ns_a_omitted">>, ?NS_ROLE, omitted, ?NS_ADMIN_ALLOWED_SCOPES},
+        {<<"ns_a_unset">>, ?NS_ROLE, <<"unset">>, ?NS_ADMIN_ALLOWED_SCOPES},
+        {<<"ns_v_omitted">>, ?NS_VIEWER_ROLE, omitted, ?NS_VIEWER_ALLOWED_SCOPES},
+        {<<"ns_v_unset">>, ?NS_VIEWER_ROLE, <<"unset">>, ?NS_VIEWER_ALLOWED_SCOPES}
+    ],
+    lists:foreach(
+        fun({Username, Role, Scopes, Expected}) ->
+            {ok, 200, _} = create_ns_user(Token, Username, Role, Scopes),
+            Effective = emqx_dashboard_admin:effective_scopes_of(Username),
+            ?assertEqual(lists:usort(Expected), lists:usort(Effective), Username),
+            ?assertNot(lists:member(?SCOPE_GATEWAYS, Effective), Username)
+        end,
+        Cases
+    ),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(<<"ns_a_unset">>)),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(<<"ns_v_unset">>)).
+
+-doc """
+A read-modify-write of a namespaced administrator that sends back its
+default list clears the stored list. The effective scopes stay the
+namespaced default and do not widen to the global administrator default.
+""".
+t_ns_admin_put_default_list_stays_namespaced(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, 200, _} = create_ns_user(Token, <<"ns_rmw">>, ?NS_ROLE, omitted),
+    Stored = emqx_dashboard_admin:scopes_of(<<"ns_rmw">>),
+    Body = #{
+        <<"role">> => ?NS_ROLE,
+        <<"description">> => <<"edited">>,
+        <<"scopes">> => Stored
+    },
+    {ok, 200, _} = request_api(put, api_path(["users", "ns_rmw"]), auth_header(Token), Body),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(<<"ns_rmw">>)),
+    ?assertEqual(
+        lists:usort(?NS_ADMIN_ALLOWED_SCOPES),
+        lists:usort(emqx_dashboard_admin:effective_scopes_of(<<"ns_rmw">>))
+    ).
+
+-doc """
+A namespaced viewer may hold only the namespaced viewer scopes. A list
+with a scope outside that set is rejected with 400.
+""".
+t_ns_viewer_rejects_forbidden_scope(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    lists:foreach(
+        fun(Scope) ->
+            ?assertMatch(
+                {ok, 400, _},
+                create_ns_user(Token, <<"ns_v_bad">>, ?NS_VIEWER_ROLE, [Scope]),
+                Scope
+            )
+        end,
+        [?SCOPE_GATEWAYS, ?SCOPE_PUBLISH, ?SCOPE_AUDIT, ?SCOPE_MFA_MGMT]
+    ),
+    ?assertMatch(
+        {ok, 200, _},
+        create_ns_user(Token, <<"ns_v_ok">>, ?NS_VIEWER_ROLE, [?SCOPE_CONNECTIONS])
+    ).
+
+-doc """
+At boot, scopes a namespaced role may not hold are removed from stored
+lists. A list that narrows to the role default is cleared. Global users
+and allowed lists are not changed.
+""".
+t_ns_scopes_narrowed_on_boot(_Config) ->
+    AddUser = fun(Username, Role, Scopes) ->
+        {ok, _} = emqx_dashboard_admin:add_user(Username, test_password(), Role, <<"d">>),
+        {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, Scopes)
+    end,
+    AddUser(<<"ns_v_generic">>, ?NS_VIEWER_ROLE, ?GENERIC_SCOPES),
+    AddUser(<<"ns_v_mixed">>, ?NS_VIEWER_ROLE, [?SCOPE_CONNECTIONS, ?SCOPE_GATEWAYS]),
+    AddUser(<<"ns_a_allowed">>, ?NS_ROLE, [?SCOPE_CONNECTIONS]),
+    AddUser(<<"g_v_generic">>, ?ROLE_VIEWER, ?GENERIC_SCOPES),
+    ok = emqx_dashboard_admin:ensure_namespaced_scopes_allowed(),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(<<"ns_v_generic">>)),
+    ?assertEqual([?SCOPE_CONNECTIONS], emqx_dashboard_admin:scopes_of(<<"ns_v_mixed">>)),
+    ?assertEqual([?SCOPE_CONNECTIONS], emqx_dashboard_admin:scopes_of(<<"ns_a_allowed">>)),
+    ?assertEqual(?GENERIC_SCOPES, emqx_dashboard_admin:scopes_of(<<"g_v_generic">>)),
+    %% Idempotent.
+    ok = emqx_dashboard_admin:ensure_namespaced_scopes_allowed(),
+    ?assertEqual([?SCOPE_CONNECTIONS], emqx_dashboard_admin:scopes_of(<<"ns_v_mixed">>)).
 
 %% Update path: PUT rejects a mixed list and accepts a privilege-only
 %% list for the same user.
@@ -1311,7 +1428,7 @@ t_self_disable_does_not_touch_admin_override(_Config) ->
     ok = emqx_dashboard_admin:disable_mfa(<<"u">>, _ByAdmin = false),
     ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
 
-%% NOTE: scope-deny path coverage for emqx_dashboard_rbac:check_login_user_scopes/2
+%% NOTE: scope-deny path coverage for emqx_dashboard_rbac:check_login_user_scopes/3
 %% lives in apps/emqx_dashboard_rbac/test/emqx_dashboard_rbac_SUITE.erl,
 %% because emqx_dashboard does not depend on emqx_dashboard_rbac and the
 %% predicate is not loadable from this SUITE's app graph.
@@ -1350,6 +1467,20 @@ assert_create_user_mutex_400(Token, Scopes) ->
     {ok, 400, RespBody} =
         request_api(post, api_path(["users"]), auth_header(Token), Body),
     ?assertMatch({_, _}, binary:match(RespBody, ?MUTEX_MSG)).
+
+create_ns_user(Token, Username, Role, Scopes) ->
+    Body0 = #{
+        <<"username">> => Username,
+        <<"password">> => test_password(),
+        <<"role">> => Role,
+        <<"description">> => <<"ns user">>
+    },
+    Body =
+        case Scopes of
+            omitted -> Body0;
+            _ -> Body0#{<<"scopes">> => Scopes}
+        end,
+    request_api(post, api_path(["users"]), auth_header(Token), Body).
 
 create_user_body(Scopes) ->
     N = erlang:integer_to_binary(erlang:unique_integer([positive, monotonic])),

@@ -8,25 +8,40 @@
 API Key scope management.
 
 Each minirest_api module declares its scope via a `scopes/0` callback
-that returns either a scope name binary (all paths share the same
-scope) or a `#{Path => ScopeName}` map (for modules whose endpoints
-span multiple scopes).
+that returns either a scope declaration (all paths share it) or a
+`#{Path => ScopeDeclaration}` map (for modules whose endpoints span
+multiple scopes). A map is keyed by the exact terms `paths/0` returns;
+a key that is not one of them is rejected, and a path that is missing
+from the map is left unmapped. Both warn at collection.
 
-This module collects those declarations, builds a path → scope cache,
-and exposes the user-visible scope catalog.
+A scope declaration is either a single scope name binary or a
+non-empty list of scope names. A list means the endpoint is reachable
+by a holder of *any one* of the listed scopes. Use it only where an
+endpoint genuinely has two legitimate audiences — for example the
+plugin API gateway, which a dedicated restricted scope reaches and
+which `system` must keep reaching for backward compatibility.
+
+This module collects those declarations into a cache keyed by the
+handler that serves each path: `{Module, OperationId}`, where
+`OperationId` is the `'operationId'` of the path's `schema/1` entry.
+That is the same `{module, function}` pair minirest puts in the
+`HandlerInfo` of every authorised request, so a scope lookup never
+re-derives which route a request matched. Cowboy's router is the only
+route selector.
 
 Scopes are decoupled from OpenAPI tags: scope names are stable
-identifiers defined in `emqx_mgmt_api_key_scopes.hrl`.  The internal
-mapping from paths to scopes can change across versions without
-affecting user-facing API key configurations.
+identifiers defined in `emqx_api_key_scopes.hrl`. The internal mapping
+from handlers to scopes can change across versions without affecting
+user-facing API key configurations.
 """.
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -export([
-    path_to_scope/1,
-    classify_path/1,
+    handler_scopes/1,
+    classify_handler/1,
+    any_scope_granted/2,
     init_cache/0,
     clear_cache/0,
     validate_scopes/1,
@@ -37,156 +52,94 @@ affecting user-facing API key configurations.
 -ifdef(TEST).
 -export([
     collect_scopes_from_modules/0,
-    find_api_modules/0
+    find_api_modules/0,
+    operation_id/2
 ]).
 -endif.
 
 -define(CACHE_KEY, {?MODULE, scope_cache}).
+
+-type handler_info() :: #{module := module(), function := atom(), _ => _}.
+-type handler_key() :: {module(), atom()}.
+
 %%--------------------------------------------------------------------
-%% Path → scope lookup
+%% Handler → scope lookup
 %%--------------------------------------------------------------------
 
 -doc """
-Given a request path, return the scope name for this path, or
-`undefined` if unmapped.
+Given the `HandlerInfo` of a request, return the scopes that grant
+access to its endpoint, or `undefined` if the handler is unmapped.
+Holding any one of the returned scopes is enough — see
+`any_scope_granted/2`.
 
-The cache stores OpenAPI route templates such as
-`<<"/users/:username/mfa">>`. Callers that already have a template
-(e.g. minirest's `HandlerInfo.path` for API-key authorisation) get
-an O(1) map lookup. Callers that have a concrete cowboy request path
-such as `<<"/users/john/mfa">>` (e.g. dashboard login user RBAC,
-which receives `cowboy_req:path/1`) fall through to a segment-wise
-match against every template — `:`-prefixed segments wildcard.
-
-Both forms must produce the same scope; otherwise scope checks would
-silently fail-open for any endpoint with a path parameter.
+The lookup is an exact map hit on `{module, function}`. Both are set
+by minirest from the route cowboy dispatched to, so the lookup agrees
+with the router by construction.
 """.
--spec path_to_scope(binary()) -> binary() | undefined.
-path_to_scope(Path) ->
+-spec handler_scopes(handler_info() | handler_key()) -> [binary(), ...] | undefined.
+handler_scopes(Handler) ->
     %% Two-way view kept for the API-key authorisation path
-    %% (`emqx_mgmt_auth:check_path_in_scopes/2'), which treats both
-    %% "public" and "unmapped" as unscoped. Callers that must tell the
-    %% two apart use `classify_path/1'.
-    case classify_path(Path) of
-        {scope, Scope} -> Scope;
+    %% (`emqx_mgmt_auth:check_scopes/2'), which treats both "public"
+    %% and "unmapped" as unscoped. Callers that must tell the two apart
+    %% use `classify_handler/1'.
+    case classify_handler(Handler) of
+        {scopes, Scopes} -> Scopes;
         public -> undefined;
         not_found -> undefined
     end.
 
 -doc """
-Three-way classification of a request path:
+Return `true` when the holder's scope list covers an endpoint, i.e. it
+contains at least one of the scopes the endpoint declares.
 
-* `{scope, Name}' — the path maps to the known scope `Name'.
-* `public'        — the path exactly matches a `?SCOPE_PUBLIC' sentinel.
-* `not_found'     — the path maps to no scope at all.
-
-Unlike `path_to_scope/1', which collapses `public' and `not_found'
-into `undefined', this keeps them distinct so a caller can allow
-public paths while denying genuinely-unmapped ones (fail closed).
+An endpoint may declare several acceptable scopes, so membership of
+any one of them grants access. Both the API-key check
+(`emqx_mgmt_auth:check_scopes/2`) and the login-user check
+(`emqx_dashboard_rbac:check_login_user_scopes/3`) must use this
+predicate, so the two never diverge on a multi-scope endpoint.
 """.
--spec classify_path(binary()) -> {scope, binary()} | public | not_found.
-classify_path(Path) ->
+-spec any_scope_granted([binary()], [binary()]) -> boolean().
+any_scope_granted(Declared, HeldScopes) ->
+    lists:any(fun(S) -> lists:member(S, HeldScopes) end, Declared).
+
+-doc """
+Three-way classification of a request handler:
+
+* `{scopes, Names}' — any one of `Names' grants access to the endpoint.
+* `public'          — the endpoint is declared `?SCOPE_PUBLIC'.
+* `not_found'       — the handler maps to no scope at all.
+
+Unlike `handler_scopes/1', which collapses `public' and `not_found'
+into `undefined', this keeps them distinct so a caller can allow
+public endpoints while denying genuinely-unmapped ones (fail closed).
+""".
+-spec classify_handler(handler_info() | handler_key()) ->
+    {scopes, [binary(), ...]} | public | not_found.
+classify_handler(#{module := Module, function := Function}) ->
+    classify_handler({Module, Function});
+classify_handler({_Module, _Function} = Key) ->
     case get_cache() of
         undefined ->
             init_cache(),
-            classify_with_cache(Path);
-        #{path_to_scope := PathMap} ->
-            classify(Path, PathMap)
+            classify_with_cache(Key);
+        #{handler_scopes := HandlerMap} ->
+            classify(Key, HandlerMap)
     end.
 
-classify_with_cache(Path) ->
+classify_with_cache(Key) ->
     case get_cache() of
-        #{path_to_scope := PathMap} ->
-            classify(Path, PathMap);
+        #{handler_scopes := HandlerMap} ->
+            classify(Key, HandlerMap);
         _ ->
             not_found
     end.
 
-classify(Path, PathMap) ->
-    case maps:get(Path, PathMap, undefined) of
-        undefined ->
-            case match_template(Path, PathMap) of
-                undefined -> not_found;
-                ?SCOPE_PUBLIC -> public;
-                Scope -> {scope, Scope}
-            end;
-        ?SCOPE_PUBLIC ->
-            %% Exact-match hit on a path explicitly declared public.
-            public;
-        Scope ->
-            {scope, Scope}
+classify(Key, HandlerMap) ->
+    case maps:get(Key, HandlerMap, undefined) of
+        undefined -> not_found;
+        [?SCOPE_PUBLIC] -> public;
+        Scopes -> {scopes, Scopes}
     end.
-
-%% Return the scope of the template whose segments match the request
-%% path. Concrete path segments must equal template segments verbatim
-%% except where the template segment starts with `:' (path parameter),
-%% which matches any single segment.
-%%
-%% Scoped templates are tried first and ?SCOPE_PUBLIC ones only if none
-%% matched, so a scoped template always wins over a public one: a
-%% public template's wildcard segment must not claim a path that
-%% another template scopes. The public pass exists because public
-%% declarations can carry path parameters, such as
-%% `/sso/login/:backend', which no exact-match lookup can reach.
-%%
-%% Two passes cost one extra traversal in the no-match case. The cache
-%% is small (~250 entries) and this runs once per authorised request.
-match_template(Path, PathMap) ->
-    PathSegs = normalize_segments(split_segments(Path)),
-    case match_template_iter(PathSegs, maps:iterator(PathMap), scoped) of
-        undefined -> match_template_iter(PathSegs, maps:iterator(PathMap), public);
-        Scope -> Scope
-    end.
-
-match_template_iter(PathSegs, Iter, Pass) ->
-    case maps:next(Iter) of
-        none ->
-            undefined;
-        {_Tmpl, ?SCOPE_PUBLIC, Iter1} when Pass =:= scoped ->
-            match_template_iter(PathSegs, Iter1, Pass);
-        {_Tmpl, Scope, Iter1} when Pass =:= public, Scope =/= ?SCOPE_PUBLIC ->
-            match_template_iter(PathSegs, Iter1, Pass);
-        {Tmpl, Scope, Iter1} ->
-            case segments_match(PathSegs, split_segments(Tmpl)) of
-                true -> Scope;
-                false -> match_template_iter(PathSegs, Iter1, Pass)
-            end
-    end.
-
-split_segments(Path) ->
-    %% Drop the leading empty segment from the leading slash.
-    case binary:split(Path, <<"/">>, [global]) of
-        [<<>> | Rest] -> Rest;
-        Other -> Other
-    end.
-
-%% Canonicalise concrete request-path segments the same way
-%% `cowboy_router' does before it selects a handler: percent-decode
-%% each segment (`cow_uri:urldecode/1', the exact decoder the router
-%% uses) and resolve `.'/`..' segments. The lookup must operate on the
-%% same segments the router dispatched on; comparing raw request
-%% segments against decoded templates would let a request reach a
-%% handler while its scope lookup matches nothing. Decoding is done
-%% after splitting so an encoded separator stays within its segment
-%% and never introduces an extra boundary.
-normalize_segments(Segments) ->
-    emqx_utils_uri:remove_dot_segments([cow_uri:urldecode(S) || S <- Segments]).
-
-segments_match([], []) ->
-    true;
-segments_match([_ | _], []) ->
-    false;
-segments_match([], [_ | _]) ->
-    false;
-segments_match([Seg | Rest1], [TmplSeg | Rest2]) ->
-    case is_param_segment(TmplSeg) of
-        true -> segments_match(Rest1, Rest2);
-        false when Seg =:= TmplSeg -> segments_match(Rest1, Rest2);
-        false -> false
-    end.
-
-is_param_segment(<<":", _/binary>>) -> true;
-is_param_segment(_) -> false.
 
 %%--------------------------------------------------------------------
 %% Scope validation
@@ -260,8 +213,8 @@ Should be called once after the dashboard HTTP server has started.
 """.
 -spec init_cache() -> ok.
 init_cache() ->
-    PathToScope = collect_scopes_from_modules(),
-    persistent_term:put(?CACHE_KEY, #{path_to_scope => PathToScope}),
+    HandlerMap = collect_scopes_from_modules(),
+    persistent_term:put(?CACHE_KEY, #{handler_scopes => HandlerMap}),
     ok.
 
 -doc "Clear the scope cache.".
@@ -277,9 +230,9 @@ clear_cache() ->
 get_cache() ->
     persistent_term:get(?CACHE_KEY, undefined).
 
-%% @doc Collect path → scope mappings from all API modules that export scopes/0.
-%% Returns a flat map: #{<<"/clients">> => <<"connections">>, ...}.
--spec collect_scopes_from_modules() -> #{binary() => binary()}.
+%% @doc Collect handler → scopes mappings from all API modules that export scopes/0.
+%% Returns a flat map: #{{emqx_mgmt_api_clients, clients} => [<<"connections">>], ...}.
+-spec collect_scopes_from_modules() -> #{handler_key() => [binary(), ...]}.
 collect_scopes_from_modules() ->
     Modules = find_api_modules(),
     lists:foldl(fun collect_module_scopes/2, #{}, Modules).
@@ -325,8 +278,10 @@ is_test_module(Module) ->
 
 %% Collect scopes from a single API module.
 %% The module must export scopes/0 returning either:
-%%   - a binary (all paths share this scope)
-%%   - a #{Path => Scope} map (per-path scope assignment)
+%%   - a scope declaration (all paths share it)
+%%   - a #{Path => ScopeDeclaration} map (per-path assignment)
+%% A scope declaration is a scope name binary, or a non-empty list of
+%% scope names meaning "any one of these grants access".
 collect_module_scopes(Module, Acc) ->
     try
         case erlang:function_exported(Module, scopes, 0) of
@@ -339,7 +294,14 @@ collect_module_scopes(Module, Acc) ->
             true ->
                 Paths = apply(Module, paths, []),
                 ScopeSpec = apply(Module, scopes, []),
-                collect_paths_with_scope(Module, Paths, ScopeSpec, Acc)
+                ok = check_scope_map_keys(Module, Paths, ScopeSpec),
+                lists:foldl(
+                    fun(Path, InnerAcc) ->
+                        collect_path(Module, Path, ScopeSpec, InnerAcc)
+                    end,
+                    Acc,
+                    Paths
+                )
         end
     catch
         Class:Reason ->
@@ -352,56 +314,130 @@ collect_module_scopes(Module, Acc) ->
             Acc
     end.
 
-collect_paths_with_scope(_Module, Paths, ScopeName, Acc) when is_binary(ScopeName) ->
-    %% Simple form: all paths share the same scope
-    lists:foldl(
-        fun(Path, InnerAcc) ->
-            PathBin = path_to_binary(Path),
-            InnerAcc#{PathBin => ScopeName}
+%% Resolve one declared path to its handler and insert the declared
+%% scopes under that key. A path that cannot be resolved or whose
+%% declaration is malformed is left unmapped. A warning is the signal
+%% that the module needs fixing; the CT invariant test fails on it.
+collect_path(Module, Path, ScopeSpec, Acc) ->
+    maybe
+        {ok, Declared} ?= declared_scopes(Module, Path, ScopeSpec),
+        {ok, Scopes} ?= normalize_declaration(Module, Path, Declared),
+        {ok, OperationId} ?= operation_id(Module, Path),
+        insert_handler_scopes(Module, Path, {Module, OperationId}, Scopes, Acc)
+    else
+        error -> Acc
+    end.
+
+%% A map-form scopes/0 is keyed by the exact terms `paths/0' returns.
+%% A key that is not one of them names nothing the router serves: a
+%% typo, or a path that was removed or renamed. Warn on each; the CT
+%% invariant `t_scope_map_keys_are_declared_paths' fails on it.
+check_scope_map_keys(Module, Paths, ScopeMap) when is_map(ScopeMap) ->
+    lists:foreach(
+        fun(Key) ->
+            ?SLOG(warning, #{
+                msg => "scope_map_key_not_a_declared_path",
+                module => Module,
+                key => Key
+            })
         end,
-        Acc,
-        Paths
+        maps:keys(ScopeMap) -- Paths
     );
-collect_paths_with_scope(Module, Paths, ScopeMap, Acc) when is_map(ScopeMap) ->
-    %% Map form: per-path scope assignment. The sentinel ?SCOPE_PUBLIC
-    %% marks paths that are intentionally unscoped (pre-login entry
-    %% points and static catalog endpoints). Such paths ARE inserted
-    %% into the cache, carrying ?SCOPE_PUBLIC as the value, so that:
-    %%
-    %%   * exact-match lookup can distinguish "explicitly public" from
-    %%     "genuinely unmapped" and return `undefined' for the former
-    %%     (preventing a sibling wildcard template from silently
-    %%     claiming an endpoint the module owner declared public); and
-    %%   * the template iterator can skip these entries when doing
-    %%     segment matching, so e.g. `/sso/:backend' does not absorb
-    %%     `/sso/running'.
-    %%
-    %% Genuinely missing paths still warn.
-    lists:foldl(
-        fun(Path, InnerAcc) ->
-            PathBin = path_to_binary(Path),
-            case maps:get(PathBin, ScopeMap, maps:get(Path, ScopeMap, undefined)) of
-                undefined ->
-                    ?SLOG(warning, #{
-                        msg => "path_missing_from_scopes_map",
-                        module => Module,
-                        path => PathBin
-                    }),
-                    InnerAcc;
-                ?SCOPE_PUBLIC ->
-                    InnerAcc#{PathBin => ?SCOPE_PUBLIC};
-                ScopeName ->
-                    InnerAcc#{PathBin => ScopeName}
-            end
-        end,
-        Acc,
-        Paths
-    ).
+check_scope_map_keys(_Module, _Paths, _Declared) ->
+    ok.
 
-path_to_binary(Path) when is_binary(Path) ->
-    ensure_leading_slash(Path);
-path_to_binary(Path) when is_list(Path) ->
-    ensure_leading_slash(iolist_to_binary(filename:join("/", Path))).
+%% Map form: per-path scope assignment, looked up by the exact path
+%% term with no normalization. The sentinel ?SCOPE_PUBLIC marks paths
+%% that are intentionally unscoped (pre-login entry points and static
+%% catalog endpoints). Such paths ARE inserted into the cache, carrying
+%% `[?SCOPE_PUBLIC]', so that lookups can tell "explicitly public" from
+%% "genuinely unmapped". Genuinely missing paths warn.
+declared_scopes(Module, Path, ScopeMap) when is_map(ScopeMap) ->
+    case maps:get(Path, ScopeMap, undefined) of
+        undefined ->
+            ?SLOG(warning, #{
+                msg => "path_missing_from_scopes_map",
+                module => Module,
+                path => Path
+            }),
+            error;
+        Declared ->
+            {ok, Declared}
+    end;
+declared_scopes(_Module, _Path, Declared) ->
+    %% Simple form: all paths share the same scope declaration.
+    {ok, Declared}.
 
-ensure_leading_slash(<<"/", _/binary>> = Path) -> Path;
-ensure_leading_slash(Path) -> <<"/", Path/binary>>.
+%% Normalize a declared scope value to a non-empty list of scope
+%% names. `?SCOPE_PUBLIC' is exclusive: a public endpoint is unscoped,
+%% so listing it alongside a real scope is a contradiction, not a union.
+normalize_declaration(_Module, _Path, Scope) when is_binary(Scope) ->
+    {ok, [Scope]};
+normalize_declaration(_Module, _Path, [?SCOPE_PUBLIC]) ->
+    {ok, [?SCOPE_PUBLIC]};
+normalize_declaration(Module, Path, Declared) ->
+    IsValid =
+        is_list(Declared) andalso Declared =/= [] andalso
+            lists:all(fun is_binary/1, Declared) andalso
+            not lists:member(?SCOPE_PUBLIC, Declared),
+    case IsValid of
+        true ->
+            {ok, Declared};
+        false ->
+            ?SLOG(warning, #{
+                msg => "invalid_scope_declaration",
+                module => Module,
+                path => Path,
+                declared => Declared
+            }),
+            error
+    end.
+
+%% The handler that serves `Path' is the `'operationId'' of its
+%% `schema/1' entry: `emqx_dashboard_swagger:spec/2' registers exactly
+%% that atom as the minirest route function.
+-spec operation_id(module(), string() | binary()) -> {ok, atom()} | error.
+operation_id(Module, Path) ->
+    try apply(Module, schema, [Path]) of
+        #{'operationId' := OperationId} when is_atom(OperationId) ->
+            {ok, OperationId};
+        _ ->
+            ?SLOG(warning, #{
+                msg => "path_has_no_operation_id",
+                module => Module,
+                path => Path
+            }),
+            error
+    catch
+        Class:Reason ->
+            ?SLOG(warning, #{
+                msg => "failed_to_resolve_operation_id",
+                module => Module,
+                path => Path,
+                class => Class,
+                reason => Reason
+            }),
+            error
+    end.
+
+%% Two paths of one module may share an operationId (one function
+%% serving both), so the same key can be reached twice. Equal
+%% declarations are fine. Unequal ones are a contradiction: keep the
+%% first, which is deterministic (`paths/0' order), and warn.
+insert_handler_scopes(Module, Path, Key, Scopes, Acc) ->
+    case maps:get(Key, Acc, undefined) of
+        undefined ->
+            Acc#{Key => Scopes};
+        Scopes ->
+            Acc;
+        Existing ->
+            ?SLOG(warning, #{
+                msg => "conflicting_scope_declaration",
+                module => Module,
+                path => Path,
+                handler => Key,
+                declared => Scopes,
+                kept => Existing
+            }),
+            Acc
+    end.

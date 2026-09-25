@@ -93,9 +93,12 @@ COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=curl_static /usr/local/bin/curl /usr/bin/curl
 COPY --from=runtime_deps /runtime-rootfs/ /
 
-# Keep the existing volume ownership contract without installing user-management
-# tools. The hardened base has a shell but starts as nonroot (UID 65532).
+# Declare the users this image runs as, without installing user-management
+# tools. The hardened base has a shell but starts as nonroot (UID 65532) and
+# ships no entry for UID 0, which `docker run --user root` resolves by name.
 RUN set -eu; \
+    printf 'root:x:0:0:root:/root:/bin/bash\n' >> /etc/passwd; \
+    printf 'root:x:0:\n' >> /etc/group; \
     printf 'emqx:x:1000:1000::/home/emqx:/bin/bash\n' >> /etc/passwd; \
     printf 'emqx:x:1000:\n' >> /etc/group; \
     mkdir -p /home/emqx; \

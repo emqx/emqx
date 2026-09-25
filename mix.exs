@@ -175,9 +175,9 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.2", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.5", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.7", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.1", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.3", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
@@ -220,7 +220,7 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.5", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
-  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.5.1", override: true}
+  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "4.0.0", override: true}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
@@ -490,7 +490,8 @@ defmodule EMQXUmbrella.MixProject do
           :assemble,
           &create_RELEASES/1,
           &copy_files(&1, release_type, package_type, edition_type),
-          &copy_escript(&1, "nodetool"),
+          &copy_escript(&1, "nodetool", "nodetool.escript"),
+          &compile_escript(&1, "nodetool.escript", "nodetool"),
           &strip_dependency_beams/1,
           &cleanup_release_package/1
         ]
@@ -900,13 +901,30 @@ defmodule EMQXUmbrella.MixProject do
     release
   end
 
-  defp copy_escript(release, escript_name) do
+  defp compile_escript(release, source_name, target_name) do
+    source_path = Path.join([release.path, "bin", source_name])
+    {:ok, sections} = :escript.extract(String.to_charlist(source_path), [:compile_source])
+
+    sections =
+      Enum.map(sections, fn
+        {:source, beam} -> {:beam, beam}
+        section -> section
+      end)
+
+    compiled_path = Path.join([release.path, "bin", target_name])
+    :ok = :escript.create(String.to_charlist(compiled_path), sections)
+    File.chmod!(compiled_path, 0o755)
+
+    release
+  end
+
+  defp copy_escript(release, source_name, target_name) do
     [shebang | lines] =
-      "bin/#{escript_name}"
+      "bin/#{source_name}"
       |> File.read!()
       |> String.split("\n")
 
-    # the elixir version of escript + start.boot required the boot_var
+    # The Elixir version of escript + start.boot requires the boot_var
     # RELEASE_LIB to be defined.
     rel_args = "-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
 
@@ -924,8 +942,9 @@ defmodule EMQXUmbrella.MixProject do
           end)
       end
 
-    path = Path.join([release.path, "bin", escript_name])
+    path = Path.join([release.path, "bin", target_name])
     File.write!(path, Enum.join([shebang | lines], "\n"))
+    File.chmod!(path, 0o755)
 
     release
   end

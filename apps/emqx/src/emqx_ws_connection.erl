@@ -64,6 +64,13 @@
     stats_timer :: paused | disabled | option(reference()),
     %% Idle Timer
     idle_timer :: option(reference()),
+    %% Hibernate the connection after this period without activity
+    hibernate_after = infinity :: timeout(),
+    %% Hibernate Timer
+    hibernate_timer :: option(reference()),
+    %% Set when the connection handles a frame or a message, cleared when the
+    %% hibernate timer fires
+    recently_active = false :: boolean(),
     %% Zone name
     zone :: atom(),
     %% Listener Type and Name
@@ -354,36 +361,47 @@ get_peer_info(Type, Listener, Req, Opts) ->
             {get_peer(Req, Opts), cowboy_req:cert(Req), Host}
     end.
 
-websocket_handle({binary, Data}, State) ->
+websocket_handle(Frame, State) ->
+    handle_ws_frame(Frame, mark_active(State)).
+
+handle_ws_frame({binary, Data}, State) ->
     on_frame_in(Data, State);
 %% Pings should be replied with pongs, cowboy does it automatically
 %% Pongs can be safely ignored. Clause here simply prevents crash.
-websocket_handle(Frame, State) when Frame =:= ping; Frame =:= pong ->
+handle_ws_frame(Frame, State) when Frame =:= ping; Frame =:= pong ->
     {ok, State};
-websocket_handle({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
+handle_ws_frame({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
     {ok, State};
-websocket_handle({Frame, _}, State) ->
+handle_ws_frame({Frame, _}, State) ->
     %% TODO: should not close the ws connection
     ?LOG(error, #{msg => "unexpected_frame", frame => Frame}),
     {[{shutdown, unexpected_ws_frame}], State}.
 
-websocket_info({call, From, Req}, State) ->
+%% A timer message is not activity. A connection that only wakes up for its own
+%% timers goes back to hibernation. Arm the hibernate timer again here, because
+%% a timer can fire while the connection is hibernated.
+websocket_info({timeout, TRef, hibernate}, State) ->
+    handle_timeout(TRef, hibernate, State);
+websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
+    handle_timeout(TRef, Msg, ensure_hibernate_timer(State));
+websocket_info(Info, State) ->
+    handle_ws_info(Info, mark_active(State)).
+
+handle_ws_info({call, From, Req}, State) ->
     handle_call(From, Req, State);
-websocket_info({gc, Which}, State = #state{listener = {Type, Listener}}) ->
+handle_ws_info({gc, Which}, State = #state{listener = {Type, Listener}}) ->
     Metrics = rotate_gc_metrics(Which, get_active_n(Type, Listener)),
     check_oom(run_gc(Metrics, State));
-websocket_info(
+handle_ws_info(
     Deliver = {deliver, _Topic, _Msg},
     State = #state{listener = {Type, Listener}}
 ) ->
     ActiveN = get_active_n(Type, Listener),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     commands(with_channel(handle_deliver, [Delivers], {[], State}));
-websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
-    handle_timeout(TRef, Msg, State);
-websocket_info({stop, Reason}, State) ->
+handle_ws_info({stop, Reason}, State) ->
     {[{shutdown, Reason}], State};
-websocket_info(Info, State) ->
+handle_ws_info(Info, State) ->
     handle_info(Info, State).
 
 websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
@@ -474,6 +492,17 @@ handle_event({event, _Other}, State = #state{channel = Channel}) ->
 
 handle_timeout(TRef, idle_timeout, State = #state{idle_timer = TRef}) ->
     {[{shutdown, idle_timeout}], State};
+handle_timeout(
+    TRef,
+    hibernate,
+    State = #state{hibernate_timer = TRef, recently_active = true}
+) ->
+    NState = State#state{hibernate_timer = undefined, recently_active = false},
+    {ok, ensure_hibernate_timer(NState)};
+handle_timeout(TRef, hibernate, State = #state{hibernate_timer = TRef}) ->
+    {ok, State#state{hibernate_timer = undefined}, hibernate};
+handle_timeout(_TRef, hibernate, State) ->
+    {ok, State};
 handle_timeout(
     TRef,
     emit_stats,
@@ -896,6 +925,24 @@ resume_stats_timer(State = #state{stats_timer = paused}) ->
 resume_stats_timer(State = #state{stats_timer = disabled}) ->
     State.
 
+%%--------------------------------------------------------------------
+%% Hibernate after a period without activity
+%%
+%% One timer covers a whole period, however many frames and messages arrive in
+%% it. When the timer fires on an active connection, it starts another period.
+
+mark_active(State = #state{recently_active = true}) ->
+    State;
+mark_active(State) ->
+    ensure_hibernate_timer(State#state{recently_active = true}).
+
+ensure_hibernate_timer(State = #state{hibernate_after = infinity}) ->
+    State;
+ensure_hibernate_timer(State = #state{hibernate_timer = undefined, hibernate_after = Timeout}) ->
+    State#state{hibernate_timer = emqx_utils:start_timer(Timeout, hibernate)};
+ensure_hibernate_timer(State) ->
+    State.
+
 get_peer(Req, #{listener := {Type, Listener}}) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
     Allow = get_ws_opt(Type, Listener, proxy_address_allow),
@@ -1012,6 +1059,7 @@ init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
         gc_state = GcState,
         stats_timer = StatsTimer,
         idle_timer = IdleTimer,
+        hibernate_after = emqx_channel:get_mqtt_conf(Zone, hibernate_after),
         zone = Zone
     }.
 
