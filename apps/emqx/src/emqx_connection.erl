@@ -189,8 +189,15 @@
     ]}
 ).
 -dialyzer({no_missing_calls, [handle_msg/2]}).
-%% For unknown reasons, dialyzer thinks that this function is never called...
--compile({nowarn_unused_function, [set_tcp_keepalive/1]}).
+%% For unknown reasons, dialyzer thinks that these functions are never called...
+-compile(
+    {nowarn_unused_function, [
+        activate_socket_for_connect/1,
+        active_n/1,
+        pending_transport_error/0,
+        set_tcp_keepalive/1
+    ]}
+).
 
 -ifndef(BUILD_WITHOUT_QUIC).
 -spec start_link
