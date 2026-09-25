@@ -105,10 +105,33 @@ internal_subscribe_test_profile(_) ->
 %%--------------------------------------------------------------------
 
 t_chan_info(_) ->
+    WillMsg = emqx_message:make(<<"clientid">>, <<"will">>, <<"payload">>),
+    Channel = channel(#{
+        will_msg => WillMsg,
+        session => session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}})
+    }),
     #{
         conn_state := connected,
-        clientinfo := ClientInfo
-    } = emqx_channel:info(channel()),
+        clientinfo := ClientInfo,
+        conninfo := ConnInfo,
+        session := SessionInfo
+    } = Info = emqx_channel:info(Channel),
+    %% `info/1` omits the attributes that grow with client input.
+    ?assertNot(maps:is_key(will_msg, Info)),
+    ?assertNot(maps:is_key(conn_props, ConnInfo)),
+    ?assertNot(maps:is_key(subscriptions, SessionInfo)),
+    %% The session attributes are the ones the channel info table's readers use; the
+    %% counters come from the stats element of the same table row.
+    ?assertMatch(
+        #{created_at := _, is_persistent := _, impl := emqx_session_mem}, SessionInfo
+    ),
+    ?assertEqual([created_at, impl, is_persistent], lists:sort(maps:keys(SessionInfo))),
+    %% `info/2` still reads them from the channel.
+    ?assertEqual(emqx_message:to_map(WillMsg), emqx_channel:info(will_msg, Channel)),
+    ?assertMatch(#{conn_props := #{}}, emqx_channel:info(conninfo, Channel)),
+    ?assertMatch(
+        #{<<"t">> := _}, emqx_channel:info({session, subscriptions}, Channel)
+    ),
     ?assertMatch(
         #{
             zone := default,
@@ -1299,7 +1322,7 @@ t_internal_subscribe_checks_authz_and_runs_hook(_) ->
     ),
     snabbkaffe_diff:assert_lists_eq(
         lists:sort(AllowedTopics),
-        channel_subscriptions(ChannelPid)
+        channel_subscriptions(ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -1328,7 +1351,7 @@ t_internal_subscribe_checks_caps(_) ->
         ]},
     snabbkaffe_diff:assert_lists_eq(
         [SimpleTopic],
-        channel_subscriptions(ChannelPid)
+        channel_subscriptions(ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -1991,6 +2014,7 @@ on_client_subscribe(_ClientInfo, Properties, TopicFilters, TestPid) ->
     TestPid ! {client_subscribe, Properties, TopicFilters},
     {ok, TopicFilters}.
 
-channel_subscriptions(ChannelPid) ->
-    #{session := #{subscriptions := Subscriptions}} = emqx_connection:info(ChannelPid),
+channel_subscriptions(ClientId) ->
+    Subscriptions =
+        emqx_cth_broker:connection_info({channel, {session, subscriptions}}, ClientId),
     lists:sort(maps:keys(Subscriptions)).
