@@ -47,9 +47,10 @@ fields(?SCHEMA_ROOT) ->
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)
             })},
         {regular_stream_retention_period,
-            mk(emqx_schema:timeout_duration_ms(), #{
+            mk(emqx_schema:duration_ms(), #{
                 default => <<"7d">>,
                 required => true,
+                validator => fun(Duration) -> Duration >= 0 end,
                 desc => ?DESC(regular_stream_retention_period)
             })},
         {check_stream_status_interval,

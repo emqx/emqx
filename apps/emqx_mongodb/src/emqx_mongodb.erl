@@ -29,12 +29,11 @@
 
 -export([roots/0, fields/1, desc/1]).
 
--export([mongo_query/5, mongo_insert/3, check_worker_health/1]).
+-export([mongo_query/5, mongo_insert/3, check_worker_health/2]).
 
 %% for testing
 -export([maybe_resolve_srv_and_txt_records/1]).
 
--define(HEALTH_CHECK_TIMEOUT, 30000).
 -define(DEFAULT_MONGO_LIMIT, 1000).
 -define(DEFAULT_MONGO_BATCH_SIZE, 100).
 
@@ -204,9 +203,17 @@ on_start(
         {worker_options, init_worker_options(maps:to_list(NConfig), SslOpts)}
     ],
     Collection = maps:get(collection, Config, <<"mqtt">>),
+    HCTimeout =
+        case Config of
+            #{resource_opts := #{health_check_timeout := HCTimeout0}} ->
+                HCTimeout0;
+            #{} ->
+                emqx_resource_pool:health_check_timeout()
+        end,
     case emqx_resource_pool:start(InstId, ?MODULE, Opts) of
         ok ->
             {ok, #{
+                health_check_timeout => HCTimeout,
                 pool_name => InstId,
                 type => Type,
                 collection => Collection
@@ -321,8 +328,12 @@ on_select_query(
             {ok, Result}
     end.
 
-on_get_status(InstId, #{pool_name := PoolName}) ->
-    case health_check(PoolName) of
+on_get_status(InstId, ConnState) ->
+    #{
+        health_check_timeout := HCTimeout,
+        pool_name := PoolName
+    } = ConnState,
+    case health_check(PoolName, HCTimeout) of
         ok ->
             ?tp(debug, emqx_connector_mongo_health_check, #{
                 instance_id => InstId,
@@ -338,12 +349,12 @@ on_get_status(InstId, #{pool_name := PoolName}) ->
             {?status_disconnected, Reason}
     end.
 
-health_check(PoolName) ->
+health_check(PoolName, HCTimeout) ->
     Results =
         emqx_resource_pool:health_check_workers(
             PoolName,
-            fun ?MODULE:check_worker_health/1,
-            ?HEALTH_CHECK_TIMEOUT + timer:seconds(1),
+            {?MODULE, check_worker_health, [HCTimeout]},
+            HCTimeout,
             #{return_values => true}
         ),
     case Results of
@@ -364,9 +375,9 @@ health_check(PoolName) ->
 
 %% ===================================================================
 
-check_worker_health(Conn) ->
+check_worker_health(Conn, HCTimeout) ->
     %% we don't care if this returns something or not, we just to test the connection
-    try do_test_query(Conn) of
+    try do_test_query(Conn, HCTimeout) of
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "mongo_connection_get_status_error",
@@ -388,7 +399,7 @@ check_worker_health(Conn) ->
             {error, {Class, Error}}
     end.
 
-do_test_query(Conn) ->
+do_test_query(Conn, HCTimeout) ->
     mongoc:transaction_query(
         Conn,
         fun(Conf = #{pool := Worker}) ->
@@ -396,7 +407,7 @@ do_test_query(Conn) ->
             mc_worker_api:find_one(Worker, Query)
         end,
         #{},
-        ?HEALTH_CHECK_TIMEOUT
+        HCTimeout
     ).
 
 connect(Opts) ->
