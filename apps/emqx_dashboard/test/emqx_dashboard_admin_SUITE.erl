@@ -588,8 +588,9 @@ Simple assertions about namespaced user permissions.
      mqueue/inflight, retained, delayed), client-uploaded file content (File Transfer
      listing and download) or the global plugin configuration are denied for namespaced
      users by RBAC, because the underlying stores are global and cannot be safely filtered
-     by namespace.  Those handlers are kept in a static deny list here so this assertion
-     does not have to reach into RBAC internals.
+     by namespace.  The `text/plain` configuration export (`GET /configs`) is denied too,
+     because it is only available to the global administrator.  Those handlers are kept in
+     a static deny list here so this assertion does not have to reach into RBAC internals.
 """.
 t_namespaced_user_permissions(_TCConfig) ->
     GlobalAdminHeader = create_superuser(),
@@ -676,7 +677,10 @@ namespaced_get_denylist() ->
         },
         #{method => get, module => emqx_audit_api, function => audit},
         #{method => get, module => emqx_mgmt_api_plugins, function => plugin_config},
-        #{method => get, module => emqx_mgmt_api_plugins, function => download_plugin_config}
+        #{method => get, module => emqx_mgmt_api_plugins, function => download_plugin_config},
+        %% Denied for the `text/plain' export, which the fake request negotiates
+        %% because it sends no `Accept' header.
+        #{method => get, module => emqx_mgmt_api_configs, function => configs}
     ].
 
 -doc """
