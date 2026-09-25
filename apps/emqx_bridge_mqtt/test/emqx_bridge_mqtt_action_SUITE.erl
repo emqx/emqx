@@ -38,6 +38,10 @@ For cases where a single connector has both actions and sources, see
 -define(global_namespace, global_namespace).
 -define(namespaced, namespaced).
 
+%% Response delay used by the delayed-broker fixture: most of the probe budget
+%% computed from `health_check_timeout' = 2s below.
+-define(delayed_pingresp_ms, 700).
+
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 -define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
@@ -1727,3 +1731,409 @@ t_scheme_ssl_consistent_connects(TCConfig) ->
         ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
     ),
     ok.
+
+-doc """
+A connection the peer closed without an MQTT-level reason must not be explained as
+a listener capacity problem: the connector cannot know why the remote closed it.
+""".
+t_closed_connection_reason_is_not_a_guess(TCConfig) ->
+    {Port, Broker} = start_closing_broker(),
+    on_exit(fun() -> stop_closing_broker(Broker) end),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => broker_address(Port),
+        <<"proto_ver">> => <<"v4">>
+    }),
+    ?retry(500, 20, begin
+        {200, #{<<"status">> := Status, <<"status_reason">> := Reason}} =
+            get_connector_api(TCConfig),
+        ?assertEqual(<<"disconnected">>, Status),
+        ?assertEqual(
+            nomatch,
+            re:run(Reason, <<"maximum capacity">>, [{capture, none}]),
+            #{status_reason => Reason}
+        ),
+        ?assertEqual(
+            nomatch,
+            re:run(Reason, <<"connection attempt was unsuccessful">>, [{capture, none}]),
+            #{status_reason => Reason}
+        )
+    end),
+    ok.
+
+-doc """
+End-to-end reproduction of the reported scenario: the remote end stops forwarding
+traffic in both directions while keeping the connection open, so the broker never
+answers the PINGREQ.  The connector must go `connecting' within a couple of health
+check intervals, keep the messages published meanwhile queued instead of handing
+them to the dead connection, and deliver them once the connection works again.
+
+The black hole is a test-owned TCP relay in front of the broker rather than the
+`toxiproxy' service the source suite connects through: that helper only offers a
+full connection close (`with_failure(down, ...)`) while this needs a silent hang,
+and the service is not part of this app's own test dependencies, so keeping the
+relay in the suite makes the case self-contained.
+""".
+t_health_check_hung_remote(TCConfig) ->
+    BrokerPort = get_tcp_mqtt_port(node()),
+    {RelayPort, Relay} = start_relay(BrokerPort),
+    on_exit(fun() -> stop_relay(Relay) end),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => broker_address(RelayPort),
+        <<"proto_ver">> => <<"v4">>,
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"500ms">>,
+            <<"health_check_timeout">> => <<"2s">>
+        }
+    }),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"topic">> => <<"remote/${topic}">>,
+            <<"payload">> => <<"${payload}">>,
+            <<"qos">> => <<"${qos}">>
+        },
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"request_ttl">> => <<"5m">>
+        }
+    }),
+    #{topic := LocalTopic} = simple_create_rule_api(TCConfig),
+    RemoteTopic = <<"remote/", LocalTopic/binary>>,
+    emqx:subscribe(RemoteTopic),
+    ?retry(
+        500,
+        20,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
+    ),
+    emqx:publish(emqx_message:make(LocalTopic, <<"before">>)),
+    ?assertReceive({deliver, RemoteTopic, #message{payload = <<"before">>}}, 5_000),
+
+    %% The remote end goes silent: everything is dropped, the connection stays up.
+    ok = freeze_relay(Relay),
+    try
+        ?retry(
+            200,
+            25,
+            ?assertMatch({200, #{<<"status">> := <<"connecting">>}}, get_connector_api(TCConfig))
+        ),
+        %% The action must follow the connector, otherwise its buffer workers keep
+        %% feeding a connection that cannot deliver anything.
+        ?retry(
+            200,
+            25,
+            ?assertMatch({200, #{<<"status">> := <<"connecting">>}}, get_action_api(TCConfig))
+        ),
+        ?retry(200, 25, ?assert(is_resource_down_alarm(connector_resource_id(TCConfig)))),
+        %% The message may not be reported as sent, failed or dropped while the
+        %% connection is unusable: it is held by the worker for a retry (either in
+        %% its queue or in its inflight window) until the remote comes back.
+        emqx:publish(emqx_message:make(LocalTopic, <<"during_hang">>)),
+        ?retry(200, 10, begin
+            Metrics = action_metrics(TCConfig),
+            ?assertEqual(1, maps:get(<<"success">>, Metrics, -1), #{metrics => Metrics}),
+            ?assertEqual(0, maps:get(<<"failed">>, Metrics, -1), #{metrics => Metrics}),
+            ?assertEqual(0, maps:get(<<"dropped">>, Metrics, -1), #{metrics => Metrics})
+        end),
+        ct:sleep(3_000),
+        ?assertNotReceive({deliver, RemoteTopic, #message{payload = <<"during_hang">>}})
+    after
+        ok = thaw_relay(Relay)
+    end,
+    %% Once the connection is usable again the queued message must be delivered: it
+    %% may not have been dropped as expired, nor counted as a failure, while the
+    %% remote was silent.
+    ?assertReceive({deliver, RemoteTopic, #message{payload = <<"during_hang">>}}, 15_000),
+    ?retry(
+        300,
+        20,
+        begin
+            {200, #{<<"status">> := <<"connected">>}} = get_connector_api(TCConfig),
+            Metrics = action_metrics(TCConfig),
+            ?assert(maps:get(<<"matched">>, Metrics, 0) >= 2, #{metrics => Metrics}),
+            ?assert(maps:get(<<"success">>, Metrics, 0) >= 2, #{metrics => Metrics}),
+            ?assertEqual(0, maps:get(<<"failed">>, Metrics, -1), #{metrics => Metrics}),
+            ?assertEqual(0, maps:get(<<"dropped.expired">>, Metrics, -1), #{metrics => Metrics})
+        end
+    ),
+    ok.
+
+action_metrics(TCConfig) ->
+    case get_action_metrics_api(TCConfig) of
+        {200, #{<<"metrics">> := Metrics}} ->
+            Metrics;
+        Other ->
+            error({unexpected_action_metrics, Other})
+    end.
+
+-doc """
+Overlapping health checks of the same connector must not probe the same MQTT
+clients at the same time.  The channel health checks call `on_get_status/2' as
+well and run on their own timers, and `emqtt' answers explicit pings
+newest-first: a concurrent probe would consume the PINGRESP the earlier one is
+waiting for and turn a healthy connection into `connecting'.
+
+The broker here answers every PINGREQ after a delay that is most of the probe
+budget, which is what makes a stolen response visible.
+""".
+t_health_check_serializes_overlapping_probes(TCConfig) ->
+    {Port, Broker} = start_delayed_broker(?delayed_pingresp_ms),
+    on_exit(fun() -> stop_delayed_broker(Broker) end),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => broker_address(Port),
+        <<"proto_ver">> => <<"v4">>,
+        <<"pool_size">> => 1,
+        <<"resource_opts">> => #{
+            %% Probe budget: `health_check_timeout' div 2 = 1s.  No periodic round
+            %% is wanted here, only the two overlapping ones below.
+            <<"health_check_interval">> => <<"60s">>,
+            <<"health_check_timeout">> => <<"2s">>
+        }
+    }),
+    ConnResId = connector_resource_id(TCConfig),
+    ?retry(
+        500,
+        20,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
+    ),
+    State = resource_state(ConnResId),
+    First = spawn_probe(ConnResId, State),
+    ct:sleep(?delayed_pingresp_ms - 200),
+    Second = spawn_probe(ConnResId, State),
+    %% Both rounds must see the healthy connection: without serialization the
+    %% second round takes the PINGRESP of the first, which then exhausts its
+    %% budget and reports `connecting'.
+    ?assertEqual(?status_connected, await_probe(First)),
+    ?assertEqual(?status_connected, await_probe(Second)),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Test fixtures
+%%------------------------------------------------------------------------------
+
+broker_address(Port) ->
+    iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]).
+
+%% A stand-in for a remote TCP endpoint that accepts a connection and drops it right
+%% away, so the client fails with a bare connection error.
+start_closing_broker() ->
+    {ok, ListenSocket} = gen_tcp:listen(0, [
+        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
+    ]),
+    {ok, Port} = inet:port(ListenSocket),
+    Pid = spawn(fun() -> closing_broker_accept_loop(ListenSocket) end),
+    {Port, {ListenSocket, Pid}}.
+
+stop_closing_broker({ListenSocket, Pid}) ->
+    _ = catch gen_tcp:close(ListenSocket),
+    exit(Pid, kill),
+    ok.
+
+closing_broker_accept_loop(ListenSocket) ->
+    case gen_tcp:accept(ListenSocket) of
+        {ok, Socket} ->
+            _ = spawn(fun() -> gen_tcp:close(Socket) end),
+            closing_broker_accept_loop(ListenSocket);
+        {error, _Reason} ->
+            ok
+    end.
+
+%% A TCP relay towards the broker that the test can freeze.  While frozen, bytes are
+%% dropped in both directions but the sockets stay open, which is what a black-holed
+%% network looks like to the client.
+start_relay(UpstreamPort) ->
+    {ok, ListenSocket} = gen_tcp:listen(0, [
+        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
+    ]),
+    {ok, Port} = inet:port(ListenSocket),
+    Pid = spawn(fun() -> relay_coordinator(ListenSocket, UpstreamPort) end),
+    {Port, {ListenSocket, Pid}}.
+
+stop_relay({ListenSocket, Pid}) ->
+    _ = catch gen_tcp:close(ListenSocket),
+    exit(Pid, kill),
+    ok.
+
+freeze_relay(Relay) ->
+    relay_set_frozen(Relay, true).
+
+thaw_relay(Relay) ->
+    relay_set_frozen(Relay, false).
+
+relay_set_frozen({_ListenSocket, Pid}, Frozen) ->
+    Pid ! {frozen, Frozen},
+    ok.
+
+relay_coordinator(ListenSocket, UpstreamPort) ->
+    process_flag(trap_exit, true),
+    Coordinator = self(),
+    _ = spawn_link(fun() -> relay_acceptor(ListenSocket, UpstreamPort, Coordinator) end),
+    relay_coordinator_loop(UpstreamPort, false, []).
+
+relay_coordinator_loop(UpstreamPort, Frozen, Connections) ->
+    receive
+        {connection, Pid} ->
+            %% Keep the state consistent for connections accepted while frozen.
+            Pid ! {frozen, Frozen},
+            relay_coordinator_loop(UpstreamPort, Frozen, [Pid | Connections]);
+        {frozen, NewFrozen} ->
+            [
+                Pid ! {frozen, NewFrozen}
+             || Pid <- Connections
+            ],
+            relay_coordinator_loop(UpstreamPort, NewFrozen, Connections);
+        {'EXIT', _Pid, _Reason} ->
+            relay_coordinator_loop(UpstreamPort, Frozen, Connections)
+    end.
+
+relay_acceptor(ListenSocket, UpstreamPort, Coordinator) ->
+    case gen_tcp:accept(ListenSocket) of
+        {ok, Downstream} ->
+            Pid = spawn_link(fun() -> relay_connection_start(UpstreamPort) end),
+            %% The accepted socket receives data in the process that controls it, so
+            %% hand it over before that process listens on it.
+            ok = gen_tcp:controlling_process(Downstream, Pid),
+            Pid ! {downstream, Downstream},
+            Coordinator ! {connection, Pid},
+            relay_acceptor(ListenSocket, UpstreamPort, Coordinator);
+        {error, _Reason} ->
+            ok
+    end.
+
+relay_connection_start(UpstreamPort) ->
+    case relay_wait_for(downstream) of
+        undefined ->
+            ok;
+        Downstream ->
+            %% The coordinator reports the state of the relay as soon as it knows
+            %% about this connection, so a connection accepted while frozen never
+            %% forwards anything.
+            Frozen =
+                case relay_wait_for(frozen) of
+                    undefined -> false;
+                    Value -> Value
+                end,
+            relay_connection(Downstream, UpstreamPort, Frozen)
+    end.
+
+relay_wait_for(Tag) ->
+    receive
+        {Tag, Value} -> Value
+    after 5_000 -> undefined
+    end.
+
+relay_connection(Downstream, UpstreamPort, Frozen) ->
+    case gen_tcp:connect({127, 0, 0, 1}, UpstreamPort, [binary, {active, true}], 5_000) of
+        {ok, Upstream} ->
+            ok = inet:setopts(Downstream, [{active, true}]),
+            relay_loop(Downstream, Upstream, Frozen);
+        {error, _Reason} ->
+            ok = gen_tcp:close(Downstream)
+    end.
+
+relay_loop(Downstream, Upstream, Frozen) ->
+    receive
+        {tcp, Downstream, Data} ->
+            _ = relay_forward(Upstream, Data, Frozen),
+            relay_loop(Downstream, Upstream, Frozen);
+        {tcp, Upstream, Data} ->
+            _ = relay_forward(Downstream, Data, Frozen),
+            relay_loop(Downstream, Upstream, Frozen);
+        {frozen, NewFrozen} ->
+            relay_loop(Downstream, Upstream, NewFrozen);
+        {tcp_closed, _Socket} ->
+            ok;
+        {tcp_error, _Socket, _Reason} ->
+            ok
+    end.
+
+relay_forward(_To, _Data, true) ->
+    ok;
+relay_forward(To, Data, false) ->
+    gen_tcp:send(To, Data).
+
+%% A broker that completes the handshake and answers each PINGREQ after
+%% `RespondAfter' ms, like a link whose round trip time is most of the probe
+%% budget.
+start_delayed_broker(RespondAfter) ->
+    {ok, ListenSocket} = gen_tcp:listen(0, [
+        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
+    ]),
+    {ok, Port} = inet:port(ListenSocket),
+    Pid = spawn(fun() -> delayed_broker_accept_loop(ListenSocket, RespondAfter) end),
+    {Port, {ListenSocket, Pid}}.
+
+stop_delayed_broker({ListenSocket, Pid}) ->
+    _ = catch gen_tcp:close(ListenSocket),
+    exit(Pid, kill),
+    ok.
+
+delayed_broker_accept_loop(ListenSocket, RespondAfter) ->
+    case gen_tcp:accept(ListenSocket) of
+        {ok, Downstream} ->
+            Pid = spawn(fun() -> delayed_broker_connection(RespondAfter) end),
+            ok = gen_tcp:controlling_process(Downstream, Pid),
+            Pid ! {downstream, Downstream},
+            delayed_broker_accept_loop(ListenSocket, RespondAfter);
+        {error, _Reason} ->
+            ok
+    end.
+
+delayed_broker_connection(RespondAfter) ->
+    receive
+        {downstream, Socket} ->
+            ok = inet:setopts(Socket, [{active, true}]),
+            delayed_broker_loop(Socket, RespondAfter, false)
+    after 5_000 ->
+        ok
+    end.
+
+delayed_broker_loop(Socket, RespondAfter, IsHandshaked) ->
+    receive
+        %% MQTT 3.1.1 PINGREQ has packet type 12 (0xC0), PINGRESP is 13 (0xD0).
+        {tcp, Socket, <<16#C0, _/binary>>} ->
+            _ = erlang:send_after(RespondAfter, self(), pingresp),
+            delayed_broker_loop(Socket, RespondAfter, IsHandshaked);
+        pingresp ->
+            ok = gen_tcp:send(Socket, <<16#D0, 0>>),
+            delayed_broker_loop(Socket, RespondAfter, IsHandshaked);
+        {tcp, Socket, _Connect} when not IsHandshaked ->
+            %% MQTT 3.1.1 CONNACK: session present 0, return code 0.
+            ok = gen_tcp:send(Socket, <<16#20, 2, 0, 0>>),
+            delayed_broker_loop(Socket, RespondAfter, true);
+        {tcp, Socket, _Data} ->
+            delayed_broker_loop(Socket, RespondAfter, IsHandshaked);
+        {tcp_closed, Socket} ->
+            ok;
+        {tcp_error, Socket, _Reason} ->
+            ok
+    end.
+
+%% Runs one health check round in its own process, the way the channel health
+%% checks are driven, and hands the result back to the test.
+resource_state(ResId) ->
+    {ok, _Group, Data} = emqx_resource:get_instance(ResId),
+    maps:get(state, Data).
+
+spawn_probe(ResId, State) ->
+    Parent = self(),
+    Ref = make_ref(),
+    _ = spawn(fun() ->
+        Parent ! {Ref, emqx_bridge_mqtt_connector:on_get_status(ResId, State)}
+    end),
+    Ref.
+
+await_probe(Ref) ->
+    receive
+        {Ref, Status} -> Status
+    after 20_000 -> error(probe_timeout)
+    end.
+
+is_resource_down_alarm(ResId) ->
+    lists:any(
+        fun
+            (#{name := Name, details := Details}) when is_map(Details) ->
+                Name =:= ResId andalso maps:get(reason, Details, undefined) =:= resource_down;
+            (_) ->
+                false
+        end,
+        emqx_alarm:get_alarms(activated)
+    ).

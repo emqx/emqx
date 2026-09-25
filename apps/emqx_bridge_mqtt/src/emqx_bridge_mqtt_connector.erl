@@ -52,6 +52,16 @@
 -define(AUTO_RECONNECT_INTERVAL_S, 2).
 
 -define(available_clientid_info, available_clientid_info).
+-define(health_check_ping_timeout, health_check_ping_timeout).
+-define(health_check_probe_lock, health_check_probe_lock).
+
+%% Slots of the `atomics' ref that serializes health check rounds: the ticket of
+%% the round in progress (0 when free) and when that round started.
+-define(PROBE_LOCK_OWNER, 1).
+-define(PROBE_LOCK_STARTED_AT, 2).
+-define(PROBE_LOCK_SLOTS, 2).
+-define(PROBE_LOCK_POLL_INTERVAL, 10).
+-define(PROBE_LOCK_STEAL_SLACK, 1000).
 
 -define(SCHEME_SSL_MISMATCH_MSG, <<
     "Inconsistent server address and SSL settings: "
@@ -170,7 +180,9 @@ do_on_start(ConnResId, #{server := Server} = Conf) ->
                 clean_start => maps:get(clean_start, Conf),
                 subscription_id_to_handler_index => SubscriptionIdToHandlerIndex,
                 topic_to_handler_index => TopicToHandlerIndex,
-                server => Server
+                server => Server,
+                ?health_check_ping_timeout => health_check_ping_timeout(Conf),
+                ?health_check_probe_lock => atomics:new(?PROBE_LOCK_SLOTS, [])
             }};
         {error, Reason} ->
             maybe_delete_subscription_id_index(SubscriptionIdToHandlerIndex),
@@ -515,9 +527,26 @@ classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 
 on_get_status(_ResourceId, State) ->
+    %% Resource state taken over from a previous incarnation does not carry the
+    %% per-connector probe budget yet; use the value the default configuration
+    %% gives until the resource is started again.
+    PingTimeout = maps:get(?health_check_ping_timeout, State, default_health_check_ping_timeout()),
+    ProbeLock = maps:get(?health_check_probe_lock, State, undefined),
+    case acquire_probe_lock(ProbeLock, PingTimeout) of
+        disabled ->
+            do_get_status(State, PingTimeout);
+        {acquired, Lock} ->
+            try
+                do_get_status(State, PingTimeout)
+            after
+                release_probe_lock(Lock)
+            end
+    end.
+
+do_get_status(State, PingTimeout) ->
     Pools = maps:to_list(maps:with([pool_name], State)),
     Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
-    try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
+    try emqx_utils:pmap(fun get_status/1, Workers, PingTimeout) of
         Statuses ->
             combine_status(Statuses, State)
     catch
@@ -532,6 +561,81 @@ get_status({_Pool, Worker}) ->
         {error, _} ->
             ?status_disconnected
     end.
+
+%% Concurrent health checks of the same connector must not probe the same MQTT
+%% clients at the same time: the channel health checks call `on_get_status/2' as
+%% well, and on their own timers.
+%%
+%% `emqtt' keeps one pending call per connection for explicit pings and replies
+%% to the newest caller, so a later probe can consume the PINGRESP an earlier one
+%% is waiting for and make a healthy connection look unreachable.  Serialize the
+%% rounds per connector instead: one round, i.e. one PINGREQ per pool worker, at
+%% a time.  Overlapping callers wait for the round in progress and then probe
+%% themselves, so every caller still gets a fresh answer.
+%%
+%% The lock lives in an `atomics' ref held in the connector state, so it needs no
+%% process and lives as long as the connector does.  It is absent from resource
+%% state created before this change, in which case the check simply runs
+%% unshared.
+acquire_probe_lock(undefined, _PingTimeout) ->
+    disabled;
+acquire_probe_lock(Lock, PingTimeout) ->
+    %% A round cannot take much longer than its own probe budget.  If the holder
+    %% is gone (it was killed while probing), take the lock over instead of
+    %% waiting for it forever.
+    claim_probe_lock(Lock, PingTimeout + ?PROBE_LOCK_STEAL_SLACK).
+
+claim_probe_lock(Lock, MaxHold) ->
+    Ticket = erlang:unique_integer([monotonic, positive]),
+    case atomics:compare_exchange(Lock, ?PROBE_LOCK_OWNER, 0, Ticket) of
+        ok ->
+            ok = atomics:put(Lock, ?PROBE_LOCK_STARTED_AT, now_ms()),
+            {acquired, {Lock, Ticket}};
+        Held ->
+            %% Held is the ticket of the current holder.  Only clear that exact
+            %% ticket, so a stale holder cannot release the lock of the process
+            %% that took over from it.
+            case now_ms() - atomics:get(Lock, ?PROBE_LOCK_STARTED_AT) > MaxHold of
+                true ->
+                    _ = atomics:compare_exchange(Lock, ?PROBE_LOCK_OWNER, Held, 0),
+                    claim_probe_lock(Lock, MaxHold);
+                false ->
+                    timer:sleep(?PROBE_LOCK_POLL_INTERVAL),
+                    claim_probe_lock(Lock, MaxHold)
+            end
+    end.
+
+release_probe_lock({Lock, Ticket}) ->
+    _ = atomics:compare_exchange(Lock, ?PROBE_LOCK_OWNER, Ticket, 0),
+    ok.
+
+now_ms() ->
+    erlang:monotonic_time(millisecond).
+
+%% How long one health check may wait for the PINGRESP of the pool workers.
+%%
+%% This bounds the whole `pmap' of `on_get_status/2', so it is a budget per
+%% health check, not per connection.  It stays at most half of the health check
+%% budget the user configured, because the framework aborts the whole check at
+%% `health_check_timeout' and reports a generic result instead of our reason.
+%% `?HEALTH_CHECK_TIMEOUT' is the floor so that a very small
+%% `health_check_interval' (1 ms is allowed by the schema) cannot make a slow
+%% but alive link look unreachable; the floor only applies while it stays below
+%% that budget, and a `health_check_timeout' below it is left to the framework.
+health_check_ping_timeout(Conf) ->
+    ResourceOpts = maps:get(resource_opts, Conf, #{}),
+    Interval = maps:get(health_check_interval, ResourceOpts, ?HEALTHCHECK_INTERVAL),
+    case maps:get(health_check_timeout, ResourceOpts, ?HEALTHCHECK_TIMEOUT) of
+        infinity ->
+            max(?HEALTH_CHECK_TIMEOUT, Interval);
+        Timeout ->
+            FrameworkBudget = Timeout div 2,
+            min(FrameworkBudget, max(?HEALTH_CHECK_TIMEOUT, min(Interval, FrameworkBudget)))
+    end.
+
+default_health_check_ping_timeout() ->
+    %% Same computation with the default `resource_opts'.
+    health_check_ping_timeout(#{resource_opts => #{}}).
 
 combine_status(Statuses, ConnState) ->
     %% NOTE
@@ -852,8 +956,7 @@ log_connect_error_reason(Level, {tcp_closed, _} = Reason, Name) ->
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
         reason => Reason,
-        name => Name,
-        explain => explain_error(Reason)
+        name => Name
     });
 log_connect_error_reason(Level, econnrefused = Reason, Name) ->
     ?tp(emqx_bridge_mqtt_connector_econnrefused_error, #{}),
@@ -878,8 +981,7 @@ log_connect_error_reason(Level, tcp_closed = Reason, Name) ->
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
         reason => Reason,
-        name => Name,
-        explain => explain_error(Reason)
+        name => Name
     });
 log_connect_error_reason(Level, Reason, Name) ->
     ?SLOG(Level, #{
@@ -898,17 +1000,14 @@ explain_error(econnrefused) ->
         "running at all or you might have provided the wrong address "
         "or port number for the server."
     >>;
-explain_error(tcp_closed) ->
-    listener_max_limit_explanation();
-explain_error({tcp_closed, _}) ->
-    listener_max_limit_explanation();
-explain_error(closed) ->
-    listener_max_limit_explanation();
 explain_error({shutdown, {frame_parse_error, _}}) ->
     non_mqtt_data_explanation();
 explain_error({frame_parse_error, _}) ->
     non_mqtt_data_explanation();
 explain_error(_Reason) ->
+    %% The connector cannot know why the peer closed a connection (it may even
+    %% have been closed because it stopped answering, see the health check), so
+    %% do not claim a cause here.
     undefined.
 
 non_mqtt_data_explanation() ->
@@ -919,14 +1018,6 @@ non_mqtt_data_explanation() ->
         "(e.g. an mqtts:// port while SSL is disabled for this connector), "
         "or the port may not serve MQTT at all. "
         "Please check the server address and the SSL settings."
-    >>.
-
-listener_max_limit_explanation() ->
-    <<
-        "Your MQTT connection attempt was unsuccessful. "
-        "It might be at its maximum capacity for handling new connections. "
-        "To diagnose the issue further, you can check the server logs for "
-        "any specific messages related to the unavailability or connection limits."
     >>.
 
 handle_disconnect(_Reason) ->
