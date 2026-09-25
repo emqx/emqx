@@ -700,10 +700,10 @@ subscriptions(["list"]) ->
             )
     end;
 subscriptions(["show", ClientId]) ->
-    case ets:lookup(emqx_subid, bin(ClientId)) of
-        [] ->
+    case emqx_broker_helper:lookup_subpid(bin(ClientId)) of
+        undefined ->
             emqx_ctl:print("Not Found.~n");
-        [{_, Pid}] ->
+        Pid ->
             case ets:match_object(?SUBOPTION, {{'_', Pid}, '_'}) of
                 [] -> emqx_ctl:print("Not Found.~n");
                 SubOption -> [print({?SUBOPTION, Sub}) || Sub <- SubOption]

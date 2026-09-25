@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -106,6 +107,8 @@ t_clean_down_after_clientid_reassigned(_) ->
     ?assertEqual(undefined, emqx_broker_helper:lookup_subid(Pid1)),
     ?assertNot(ets:member(emqx_submon, Pid1)),
     ?assert(ets:member(emqx_submon, Pid2)),
+    exit(Pid2, kill),
+    ?retry(10, 100, ?assertEqual(undefined, emqx_broker_helper:lookup_subpid(<<"clientid">>))),
     ok.
 
 t_uncovered_func(_) ->

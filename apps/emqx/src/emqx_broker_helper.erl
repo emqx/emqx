@@ -47,7 +47,6 @@
 -endif.
 
 -define(HELPER, ?MODULE).
--define(SUBID, emqx_subid).
 -define(SUBMON, emqx_submon).
 
 -define(SHARD_CAPACITY, 1024).
@@ -66,7 +65,7 @@ register_sub(SubPid, SubId, Monitor) when is_pid(SubPid) ->
             _ = erlang:send(?HELPER, {register_sub, SubPid, SubId}),
             ok;
         [] when Monitor =:= no_monitor ->
-            true = insert_tables(SubId, SubPid),
+            true = insert_submon(SubId, SubPid),
             ok;
         [{_, SubId}] ->
             ok;
@@ -81,9 +80,32 @@ lookup_pid_to_id(Pid) ->
 lookup_subid(SubPid) when is_pid(SubPid) ->
     emqx_utils_ets:lookup_value(?SUBMON, SubPid).
 
+-doc """
+Return the pid of the subscriber registered with `SubId`, or `undefined`.
+
+MQTT channels are found by a key lookup in the `emqx_cm` channel table. Other
+subscribers, such as gateway channels, are not in that table. They are found by
+a full scan of the `emqx_submon` table, which costs time in proportion to the
+number of subscribers.
+
+When several pids match, for example during a session takeover, return the
+largest one. Local pids are allocated in increasing order, so the largest pid
+is the newest one until the pid space wraps.
+""".
 -spec lookup_subpid(emqx_types:subid()) -> option(pid()).
+lookup_subpid(undefined) ->
+    undefined;
 lookup_subpid(SubId) ->
-    emqx_utils_ets:lookup_value(?SUBID, SubId).
+    case [Pid || Pid <- emqx_cm:lookup_channels(local, SubId), lookup_subid(Pid) =:= SubId] of
+        [] ->
+            MatchSpec = [{{'$1', '$2'}, [{'=:=', '$2', {const, SubId}}], ['$1']}],
+            latest_pid(ets:select(?SUBMON, MatchSpec));
+        Pids ->
+            latest_pid(Pids)
+    end.
+
+latest_pid([]) -> undefined;
+latest_pid(Pids) -> lists:max(Pids).
 
 -doc """
 Assign `Topic` subscriber to some shard, where shard is simply a number between
@@ -223,8 +245,6 @@ init([]) ->
     process_flag(message_queue_data, off_heap),
     %% Helper table
     ok = emqx_utils_ets:new(?HELPER, [public, {read_concurrency, true}, {write_concurrency, true}]),
-    %% SubId: SubId -> SubPid
-    ok = emqx_utils_ets:new(?SUBID, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% SubMon: SubPid -> SubId
     ok = emqx_utils_ets:new(?SUBMON, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% Stats timer
@@ -289,19 +309,9 @@ handle_registrations(Regs) ->
 
 handle_register({SubId, SubPid}) ->
     ok = monitor_subscriber(SubPid),
-    insert_tables(SubId, SubPid).
+    insert_submon(SubId, SubPid).
 
-insert_tables(SubId, SubPid) ->
-    %% Must insert pid to ID first to ensure no leak
-    true = insert_pid_to_id(SubId, SubPid),
-    true = insert_id_to_pid(SubId, SubPid).
-
-insert_id_to_pid(undefined, _) ->
-    true;
-insert_id_to_pid(SubId, SubPid) ->
-    ets:insert(?SUBID, {SubId, SubPid}).
-
-insert_pid_to_id(SubId, SubPid) ->
+insert_submon(SubId, SubPid) ->
     ets:insert(?SUBMON, {SubPid, SubId}).
 
 monitor_subscriber(SubPid) ->
@@ -322,11 +332,8 @@ handle_down(SubPids) ->
 clean_down(SubPid) ->
     try
         case ets:lookup(?SUBMON, SubPid) of
-            [{_, SubId}] ->
+            [_] ->
                 true = ets:delete(?SUBMON, SubPid),
-                true =
-                    (SubId =:= undefined) orelse
-                        ets:delete_object(?SUBID, {SubId, SubPid}),
                 emqx_broker:subscriber_down(SubPid),
                 ok;
             [] ->

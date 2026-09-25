@@ -258,6 +258,71 @@ t_subscriptions(Config) when is_list(Config) ->
 t_subscriptions({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).
 
+-doc "`subscriptions/1` returns the same list for an MQTT client's clientid as for its channel pid.".
+t_subscriptions_by_clientid({init, Config}) ->
+    Config;
+t_subscriptions_by_clientid({'end', _Config}) ->
+    ok;
+t_subscriptions_by_clientid(Config) when is_list(Config) ->
+    ClientId = <<"t_subscriptions_by_clientid">>,
+    {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    try
+        {ok, _, [1, 0]} = emqtt:subscribe(C, [{<<"t/1">>, 1}, {<<"t/2">>, 0}]),
+        [ChanPid] = emqx_cm:lookup_channels(local, ClientId),
+        Subs = emqx_broker:subscriptions(ChanPid),
+        ?assertEqual([<<"t/1">>, <<"t/2">>], lists:sort(proplists:get_keys(Subs))),
+        ?assertEqual(Subs, emqx_broker:subscriptions(ClientId))
+    after
+        ok = emqtt:disconnect(C)
+    end.
+
+-doc """
+When two channels are registered for one clientid, as during a session takeover,
+`subscriptions/1` returns the subscriptions of the newer channel.
+""".
+t_subscriptions_by_clientid_takeover({init, Config}) ->
+    Config;
+t_subscriptions_by_clientid_takeover({'end', _Config}) ->
+    ok;
+t_subscriptions_by_clientid_takeover(Config) when is_list(Config) ->
+    ClientId = <<"t_subscriptions_by_clientid_takeover">>,
+    StartChan = fun(Topic) ->
+        spawn_link(fun() ->
+            receive
+                {subscribe, From} ->
+                    ok = emqx_broker:subscribe(Topic, ClientId, #{qos => 0}, no_monitor),
+                    From ! {subscribed, self()}
+            end,
+            receive
+                stop -> ok
+            end
+        end)
+    end,
+    OldPid = StartChan(<<"t/old">>),
+    NewPid = StartChan(<<"t/new">>),
+    ?assert(NewPid > OldPid),
+    %% Register the newer channel first, so that the channel table order
+    %% differs from the pid order.
+    ok = emqx_cm:register_channel(ClientId, NewPid, #{conn_mod => emqx_connection}),
+    ok = emqx_cm:register_channel(ClientId, OldPid, #{conn_mod => emqx_connection}),
+    lists:foreach(
+        fun(Pid) ->
+            Pid ! {subscribe, self()},
+            receive
+                {subscribed, Pid} -> ok
+            after 5000 -> ct:fail({subscribe_timeout, Pid})
+            end
+        end,
+        [OldPid, NewPid]
+    ),
+    try
+        ?assertEqual([<<"t/new">>], proplists:get_keys(emqx_broker:subscriptions(ClientId)))
+    after
+        OldPid ! stop,
+        NewPid ! stop
+    end.
+
 t_sub_pub({init, Config}) ->
     ok = emqx_broker:subscribe(<<"topic">>),
     Config;
