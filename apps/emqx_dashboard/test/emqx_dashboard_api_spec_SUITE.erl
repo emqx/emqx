@@ -131,37 +131,42 @@ role. The spec handler is mapped to the public scope, so the login-user scope
 check must not fail closed on it.
 """.
 t_scoped_user_reads_spec(_Config) ->
-    lists:foreach(fun assert_scoped_user_reads_spec/1, [<<"administrator">>, <<"viewer">>]).
-
-assert_scoped_user_reads_spec(Role) ->
-    Username = <<"spec_scoped_", Role/binary>>,
-    Password = <<"spec_scoped_passworD123!">>,
-    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, Role, <<>>),
-    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, [?SCOPE_MONITORING]),
-    try
-        ?assertEqual([?SCOPE_MONITORING], emqx_dashboard_admin:scopes_of(Username)),
-        Auth = emqx_common_test_http:bearer_auth_header(Username, Password),
-        assert_spec_readable(Auth)
-    after
-        emqx_dashboard_admin:remove_user(Username)
-    end.
+    assert_user_reads_spec(<<"spec_scoped_admin">>, <<"administrator">>, [?SCOPE_MONITORING]),
+    assert_user_reads_spec(<<"spec_scoped_viewer">>, <<"viewer">>, [?SCOPE_MONITORING]).
 
 -doc """
 Verify a viewer API key with an explicit scope list that covers no
 documentation scope can read the spec endpoints.
 """.
 t_scoped_api_key_reads_spec(_Config) ->
-    Name = <<"spec_scoped_api_key">>,
-    {ok, #{api_key := Key, api_secret := Secret}} =
-        emqx_mgmt_auth:create(
-            Name, true, infinity, <<>>, <<"viewer">>, [?SCOPE_MONITORING]
-        ),
-    try
-        Auth = emqx_common_test_http:auth_header(binary_to_list(Key), binary_to_list(Secret)),
-        assert_spec_readable(Auth)
-    after
-        emqx_mgmt_auth:delete(Name)
-    end.
+    assert_api_key_reads_spec(<<"spec_scoped_api_key">>, <<"viewer">>, [?SCOPE_MONITORING]).
+
+-doc """
+Verify namespaced principals can read the spec endpoints. The case covers the
+namespaced administrator and viewer roles, for both login users and API keys,
+with no explicit scope list and with a scope list that covers no documentation
+scope.
+""".
+t_namespaced_roles_read_spec(_Config) ->
+    Cases = [
+        {Kind, Role, Scopes}
+     || Kind <- [user, api_key],
+        Role <- [<<"ns:ns1::administrator">>, <<"ns:ns1::viewer">>],
+        Scopes <- [undefined, [?SCOPE_MONITORING]]
+    ],
+    lists:foldl(
+        fun({Kind, Role, Scopes}, N) ->
+            Name = <<"spec_ns_", (integer_to_binary(N))/binary>>,
+            ct:pal("~p ~s with scopes ~p", [Kind, Role, Scopes]),
+            case Kind of
+                user -> assert_user_reads_spec(Name, Role, Scopes);
+                api_key -> assert_api_key_reads_spec(Name, Role, Scopes)
+            end,
+            N + 1
+        end,
+        1,
+        Cases
+    ).
 
 -doc """
 Verify the spec endpoints still reject a request without credentials with 401,
@@ -531,6 +536,33 @@ do_get(Path, Headers) ->
 
 auth_header() ->
     emqx_common_test_http:default_auth_header().
+
+assert_user_reads_spec(Username, Role, Scopes) ->
+    Password = <<"spec_scoped_passworD123!">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, Role, <<>>),
+    try
+        ok = maybe_set_user_scopes(Username, Scopes),
+        Auth = emqx_common_test_http:bearer_auth_header(Username, Password),
+        assert_spec_readable(Auth)
+    after
+        emqx_dashboard_admin:remove_user(Username)
+    end.
+
+maybe_set_user_scopes(_Username, undefined) ->
+    ok;
+maybe_set_user_scopes(Username, Scopes) ->
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, Scopes),
+    ?assertEqual(Scopes, emqx_dashboard_admin:scopes_of(Username)).
+
+assert_api_key_reads_spec(Name, Role, Scopes) ->
+    {ok, #{api_key := Key, api_secret := Secret}} =
+        emqx_mgmt_auth:create(Name, true, infinity, <<>>, Role, Scopes),
+    try
+        Auth = emqx_common_test_http:auth_header(binary_to_list(Key), binary_to_list(Secret)),
+        assert_spec_readable(Auth)
+    after
+        emqx_mgmt_auth:delete(Name)
+    end.
 
 spec_paths() ->
     ["/api-spec.json", "/api-spec.md", "/api-docs/swagger.json", "/api-spec/status"].
