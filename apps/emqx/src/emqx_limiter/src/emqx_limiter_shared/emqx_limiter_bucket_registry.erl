@@ -81,14 +81,15 @@ start_link() ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    {ok, #{groups => sets:new([{version, 2}])}}.
+    ok = erase_stale_buckets(),
+    {ok, #{}}.
 
-handle_call(#insert_buckets{group = Group, buckets = Buckets}, _From, #{groups := Groups} = State) ->
+handle_call(#insert_buckets{group = Group, buckets = Buckets}, _From, State) ->
     _ = persistent_term:put(?PT_KEY(Group), maps:from_list(Buckets)),
-    {reply, ok, State#{groups := sets:add_element(Group, Groups)}};
-handle_call(#delete_buckets{group = Group}, _From, #{groups := Groups} = State) ->
+    {reply, ok, State};
+handle_call(#delete_buckets{group = Group}, _From, State) ->
     _ = persistent_term:erase(?PT_KEY(Group)),
-    {reply, ok, State#{groups := sets:del_element(Group, Groups)}};
+    {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignore, State}.
@@ -101,10 +102,38 @@ handle_info(Req, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Req}),
     {noreply, State}.
 
-terminate(_Reason, #{groups := Groups} = _State) ->
+terminate(_Reason, _State) ->
+    ok.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+-doc """
+Drops bucket keys left behind by a previous incarnation of this process.
+
+`delete_buckets/1` erases a group's key on the normal path, but a brutal kill
+runs no `terminate/2`, so keys can outlive the groups they belong to. A key is
+stale only when its group is no longer registered: that way a restart of this
+process alone leaves the buckets of a live group untouched.
+
+`persistent_term:get/0` copies neither the keys nor the values of the terms it
+returns, only the list that holds them, so the sweep costs the number of
+persistent terms rather than their size.
+""".
+erase_stale_buckets() ->
     lists:foreach(
-        fun(Group) ->
-            _ = persistent_term:erase(?PT_KEY(Group))
+        fun
+            ({?PT_KEY(Group) = Key, _Buckets}) ->
+                case emqx_limiter_registry:find_group(Group) of
+                    undefined ->
+                        _ = persistent_term:erase(Key),
+                        ok;
+                    {_Module, _LimiterOptions} ->
+                        ok
+                end;
+            ({_OtherKey, _Value}) ->
+                ok
         end,
-        sets:to_list(Groups)
+        persistent_term:get()
     ).
