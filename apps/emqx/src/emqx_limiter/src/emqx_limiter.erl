@@ -23,7 +23,8 @@
 -export([
     create_esockd_limiter_client/2,
     create_listener_limiter_client/2,
-    create_channel_client_container/2
+    create_channel_client_container/2,
+    channel_limits_configured/2
 ]).
 
 %% Generic limiter client API
@@ -128,6 +129,35 @@ try_delete_group(Group) ->
 -spec create_channel_client_container(zone(), listener_id()) -> emqx_limiter_client_container:t().
 create_channel_client_container(ZoneName, ListenerId) ->
     create_client_container(ZoneName, ListenerId, [messages, bytes]).
+
+-doc """
+Tells whether any limiter a channel container would hold has a finite limit.
+
+The groups checked here must be the ones `create_channel_limiter/3` connects to, so
+that a caller can skip building the container when this returns `false`.
+""".
+-spec channel_limits_configured(zone(), listener_id()) -> boolean().
+channel_limits_configured(ZoneName, ListenerId) ->
+    Names = [messages, bytes],
+    any_finite_limit(zone_group(ZoneName), Names) orelse
+        any_finite_limit(channel_group(ListenerId), Names).
+
+any_finite_limit(Group, Names) ->
+    case emqx_limiter_registry:find_group(Group) of
+        undefined ->
+            false;
+        {_Module, LimiterOptions} ->
+            lists:any(
+                fun(Name) ->
+                    case lists:keyfind(Name, 1, LimiterOptions) of
+                        {_, #{capacity := infinity}} -> false;
+                        {_, _} -> true;
+                        false -> false
+                    end
+                end,
+                Names
+            )
+    end.
 
 -spec create_esockd_limiter_client(zone(), listener_id()) -> emqx_esockd_limiter:create_options().
 create_esockd_limiter_client(ZoneName, ListenerId) ->

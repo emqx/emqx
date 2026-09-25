@@ -89,7 +89,9 @@
     %% Authentication Data Cache
     auth_cache :: option(map()),
     %% Quota checkers
-    quota :: emqx_limiter_client_container:t(),
+    %% `undefined' until a publish needs it and a finite limit is configured;
+    %% see try_consume_quota/2.
+    quota :: option(emqx_limiter_client_container:t()),
     %% Timers
     timers :: #{atom() => disabled | option(reference())},
     %% Conn State
@@ -278,8 +280,6 @@ init(
     ok = validate_clientinfo_string(peersni, maps:get(peersni, NClientInfo, undefined)),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
 
-    Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
-
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
@@ -288,7 +288,7 @@ init(
             outbound => #{}
         },
         auth_cache = #{},
-        quota = Limiter,
+        quota = undefined,
         timers = #{},
         conn_state = idle,
         takeover = false,
@@ -2573,15 +2573,13 @@ packing_alias(Packet, Channel) ->
 %% Check quota state
 
 check_quota_exceeded(
-    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), #channel{quota = Quota} = Chann
+    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), Chann0
 ) ->
-    Result = emqx_limiter_client_container:try_consume(
-        Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
-    ),
-    case Result of
-        {true, Quota2} ->
-            {ok, Chann#channel{quota = Quota2}};
-        {false, Quota2, Reason} ->
+    Needs = [{bytes, erlang:byte_size(Payload)}, {messages, 1}],
+    case try_consume_quota(Needs, Chann0) of
+        {true, Chann} ->
+            {ok, Chann};
+        {false, Chann, Reason} ->
             ?SLOG_THROTTLE(
                 warning,
                 #{
@@ -2590,7 +2588,27 @@ check_quota_exceeded(
                 },
                 #{topic => Topic, tag => "QUOTA"}
             ),
-            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Quota2}}
+            {error, ?RC_QUOTA_EXCEEDED, Chann}
+    end.
+
+%% The container copies per-listener constants onto the connection heap, so it is
+%% built only when a limit can actually reject a publish. A hook may have installed
+%% one already (multi-tenancy), in which case it is used as is.
+try_consume_quota(Needs, #channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+    #{zone := Zone, listener := ListenerId} = ClientInfo,
+    case emqx_limiter:channel_limits_configured(Zone, ListenerId) of
+        false ->
+            {true, Channel};
+        true ->
+            Container = emqx_limiter:create_channel_client_container(Zone, ListenerId),
+            try_consume_quota(Needs, Channel#channel{quota = Container})
+    end;
+try_consume_quota(Needs, #channel{quota = Quota0} = Channel) ->
+    case emqx_limiter_client_container:try_consume(Quota0, Needs) of
+        {true, Quota} ->
+            {true, Channel#channel{quota = Quota}};
+        {false, Quota, Reason} ->
+            {false, Channel#channel{quota = Quota}, Reason}
     end.
 
 %%--------------------------------------------------------------------
