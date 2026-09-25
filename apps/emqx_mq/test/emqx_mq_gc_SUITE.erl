@@ -12,6 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 -include("../src/emqx_mq_internal.hrl").
 
@@ -102,6 +103,24 @@ t_gc(_Config) ->
     %% Check that only last messages are available
     Records = emqx_mq_message_db:dirty_read_all(MQC),
     ?assertEqual(10, length(Records)).
+
+%% Verify that retention removes expired last-value records and preserves newer records.
+t_retention_lastvalue(_Config) ->
+    test_retention(#{is_lastvalue => true, key_expression => <<"message.topic">>}).
+
+%% Verify that retention removes expired regular records below the count limit.
+t_retention_regular_count(_Config) ->
+    test_retention(#{
+        is_lastvalue => false,
+        limits => #{max_shard_message_count => 1000, max_shard_message_bytes => infinity}
+    }).
+
+%% Verify that retention removes expired regular records below the byte limit.
+t_retention_regular_bytes(_Config) ->
+    test_retention(#{
+        is_lastvalue => false,
+        limits => #{max_shard_message_count => infinity, max_shard_message_bytes => 1024 * 1024}
+    }).
 
 %% Verify that the GC successfully completes when there are no queues
 t_gc_noop(_Config) ->
@@ -269,6 +288,51 @@ t_update_gc_interval(_Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+test_retention(QueueOpts) ->
+    RetentionMs = 3600_000,
+    {ok, MQ} = emqx_mq_test_utils:create_mq(QueueOpts#{
+        topic_filter => <<"retention/#">>, data_retention_period => RetentionMs
+    }),
+    NowUs = erlang:system_time(microsecond),
+    RetentionUs = erlang:convert_time_unit(RetentionMs, millisecond, microsecond),
+    ok = meck:new(emqx_ds, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_ds) end),
+
+    %% Store distinct keys with controlled timestamps on both sides of the retention cutoff.
+    lists:foreach(
+        fun({Prefix, Timestamp}) ->
+            ok = meck:expect(emqx_ds, tx_write, fun
+                ({Topic, ?ds_tx_ts_monotonic, Value}) ->
+                    meck:passthrough([{Topic, Timestamp, Value}]);
+                (Record) ->
+                    meck:passthrough([Record])
+            end),
+            ok = emqx_mq_test_utils:populate(10, #{
+                topic_prefix => Prefix, different_clients => true
+            })
+        end,
+        [
+            {<<"retention/old/">>, NowUs - 2 * RetentionUs},
+            {<<"retention/fresh/">>, NowUs - RetentionUs div 2}
+        ]
+    ),
+    ok = meck:delete(emqx_ds, tx_write, 1),
+    ok = emqx_mq_quota_buffer:flush(?MQ_QUOTA_BUFFER),
+    Records = emqx_mq_message_db:dirty_read_all(MQ),
+    ?assertEqual(20, length(Records)),
+    FreshRecords = [
+        Record
+     || {_, Timestamp, _} = Record <- Records, Timestamp > NowUs - RetentionUs
+    ],
+    ?assertEqual(10, length(FreshRecords)),
+
+    %% Check stored records after GC completes, without consumer-side expiry filtering.
+    ?assertWaitEvent(emqx_mq_gc:gc(), #{?snk_kind := mq_gc_done}, 5000),
+    ?assertEqual(
+        lists:sort(FreshRecords),
+        lists:sort(emqx_mq_message_db:dirty_read_all(MQ))
+    ).
 
 binfmt(Format, Args) ->
     iolist_to_binary(io_lib:format(Format, Args)).
