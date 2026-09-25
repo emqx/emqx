@@ -20,7 +20,18 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    %% No listener is needed; not binding ports lets the suite run
+    %% beside a running broker.
+    ListenerConf = """
+    listeners.tcp.default.enable = false
+    listeners.ssl.default.enable = false
+    listeners.ws.default.enable = false
+    listeners.wss.default.enable = false
+    """,
+    Apps = emqx_cth_suite:start(
+        [{emqx, ListenerConf}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -282,4 +293,66 @@ count_consumed(N) ->
             count_consumed(N + Cnt)
     after 100 ->
         N
+    end.
+
+-doc """
+A kill runs no `terminate/2`, so bucket keys can outlive their group. The
+registry drops such keys when it starts, and keeps the keys of groups that are
+still registered, so restarting it alone does not disturb a live limiter.
+""".
+t_bucket_registry_erases_stale_buckets_on_init(_) ->
+    ok = emqx_limiter:create_group(shared, group1, [
+        {limiter0, #{capacity => 10, interval => 100, burst_capacity => 0}}
+    ]),
+    LiveKey = {emqx_limiter_bucket_registry, group1},
+    StaleKey = {emqx_limiter_bucket_registry, group_never_registered},
+    ?assertNotEqual(undefined, persistent_term:get(LiveKey, undefined)),
+    persistent_term:put(StaleKey, #{limiter0 => a_stale_bucket_ref}),
+
+    Pid = whereis(emqx_limiter_bucket_registry),
+    MRef = erlang:monitor(process, Pid),
+    true = exit(Pid, kill),
+    receive
+        {'DOWN', MRef, process, Pid, killed} -> ok
+    after 5000 -> ct:fail(registry_not_killed)
+    end,
+    NewPid = wait_for_registry(Pid, 50),
+    ?assert(is_pid(NewPid) andalso NewPid =/= Pid),
+
+    ?assertEqual(undefined, persistent_term:get(StaleKey, undefined)),
+    ?assertNotEqual(undefined, emqx_limiter_bucket_registry:find_bucket({group1, limiter0})),
+    ok.
+
+-doc """
+`delete_all_buckets/0` is what the shutdown path uses, so it must not consult
+the registry: at that point every group is still registered.
+""".
+t_bucket_registry_delete_all_buckets(_) ->
+    ok = emqx_limiter:create_group(shared, group1, [
+        {limiter0, #{capacity => 10, interval => 100, burst_capacity => 0}}
+    ]),
+    ?assertNotEqual(undefined, emqx_limiter_bucket_registry:find_bucket({group1, limiter0})),
+    ?assertMatch({_Module, _Options}, emqx_limiter_registry:find_group(group1)),
+
+    ok = emqx_limiter_bucket_registry:delete_all_buckets(),
+
+    ?assertEqual(undefined, emqx_limiter_bucket_registry:find_bucket({group1, limiter0})),
+    ?assertEqual(
+        [],
+        [K || {{emqx_limiter_bucket_registry, _} = K, _} <- persistent_term:get()]
+    ),
+    ok.
+
+wait_for_registry(_OldPid, 0) ->
+    ct:fail(registry_not_restarted);
+wait_for_registry(OldPid, N) ->
+    case whereis(emqx_limiter_bucket_registry) of
+        undefined ->
+            timer:sleep(100),
+            wait_for_registry(OldPid, N - 1);
+        OldPid ->
+            timer:sleep(100),
+            wait_for_registry(OldPid, N - 1);
+        NewPid ->
+            NewPid
     end.
