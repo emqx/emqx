@@ -830,7 +830,7 @@ t_cache(_Config) ->
     ?assertMatch(
         #{
             <<"node_cache">> := #{<<"enable">> := true},
-            <<"ignore_backend_failures">> := false
+            <<"ignore_backend_failures">> := <<"per_security_profile">>
         },
         emqx_utils_json:decode(CacheData0)
     ),
@@ -860,6 +860,24 @@ t_cache(_Config) ->
             <<"ignore_backend_failures">> := true
         },
         emqx_utils_json:decode(CacheData1)
+    ),
+    lists:foreach(
+        fun(Value) ->
+            {ok, 204, _} = request(
+                put,
+                uri(["authentication", "settings"]),
+                #{
+                    <<"node_cache">> => #{<<"enable">> => true},
+                    <<"ignore_backend_failures">> => Value
+                }
+            ),
+            {ok, 200, SettingsData} = request(get, uri(["authentication", "settings"])),
+            Settings = emqx_utils_json:decode(SettingsData),
+            ?assertMatch(#{<<"ignore_backend_failures">> := Value}, Settings),
+            %% The GET response must be accepted back unchanged.
+            {ok, 204, _} = request(put, uri(["authentication", "settings"]), Settings)
+        end,
+        [false, <<"per_security_profile">>, true]
     ),
 
     %% We enabled authn cache, let's create

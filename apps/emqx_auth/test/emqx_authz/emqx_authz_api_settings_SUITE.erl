@@ -82,12 +82,24 @@ t_api(_) ->
     Settings2Get = Settings2Put#{
         <<"cache">> := Cache#{<<"excludes">> => []},
         <<"include_mountpoint">> => false,
-        <<"ignore_backend_failures">> => false
+        <<"ignore_backend_failures">> => <<"per_security_profile">>
     },
 
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2Put),
     {ok, 200, Result2} = request(get, uri(["authorization", "settings"]), []),
     ?assertEqual(Settings2Get, emqx_utils_json:decode(Result2)),
+
+    lists:foreach(
+        fun(Value) ->
+            Put = Settings2Get#{<<"ignore_backend_failures">> => Value},
+            {ok, 200, Result3} = request(put, uri(["authorization", "settings"]), Put),
+            {ok, 200, Result3} = request(get, uri(["authorization", "settings"]), []),
+            ?assertEqual(Put, emqx_utils_json:decode(Result3)),
+            %% The GET response must be accepted back unchanged.
+            {ok, 200, Result3} = request(put, uri(["authorization", "settings"]), Put)
+        end,
+        [false, true, <<"per_security_profile">>]
+    ),
 
     ok.
 
