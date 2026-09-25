@@ -44,10 +44,28 @@ end_per_suite(_Config) ->
 %%
 %% We want to test both ways, both with the db backend enabled and disabled.
 %%
-%% In addition, we test both tcp and quic connections.
+%% In addition, we test all transports here. QUIC cases use mqtt_quic_tests and
+%% FlowSDK rather than emqtt.
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
+    QuicTCs = [
+        t_quic_flowsdk_session_controls,
+        t_quic_flowsdk_offline_qos1,
+        t_quic_flowsdk_offline_qos2,
+        t_quic_flowsdk_many_qos1,
+        t_quic_flowsdk_many_qos2,
+        t_quic_flowsdk_clean_start,
+        t_quic_flowsdk_expiry,
+        t_quic_flowsdk_unsubscribe,
+        t_quic_flowsdk_unsubscribe_replay,
+        t_quic_flowsdk_multiple_matches,
+        t_quic_flowsdk_sys_messages,
+        t_quic_flowsdk_no_will_message,
+        t_quic_flowsdk_will_message1,
+        t_quic_flowsdk_will_message2,
+        t_quic_flowsdk_will_message3
+    ],
+    TCs = emqx_common_test_helpers:all(?MODULE) -- QuicTCs,
     TCsNonGeneric = [
         t_choose_impl,
         t_transient,
@@ -55,12 +73,12 @@ groups() ->
         t_client_replies_pubcomp_when_qos1,
         t_client_replies_puback_when_qos2
     ],
-    TCGroups = [{group, tcp}, {group, quic}, {group, ws}],
+    TCGroups = [{group, tcp}, {group, quic_flowsdk}, {group, ws}],
     [
         {persistence_disabled, TCGroups},
         {persistence_enabled, TCGroups},
         {tcp, [], TCs},
-        {quic, [], TCs -- TCsNonGeneric},
+        {quic_flowsdk, [], QuicTCs},
         {ws, [], TCs -- TCsNonGeneric}
     ].
 
@@ -125,14 +143,14 @@ init_per_group(ws, Config0) ->
         {conn_fun, ws_connect}
         | Config
     ];
-init_per_group(quic, Config0) ->
+init_per_group(quic_flowsdk, Config0) ->
     CTHOpts0 = #{emqx_opts := EMQXOpts0} = ?config(cth_opts, Config0),
     EMQXOpts = EMQXOpts0#{
         <<"listeners">> => #{
             <<"quic">> => #{
                 <<"test">> => #{
                     <<"enable">> => true,
-                    <<"ssl_options">> => #{<<"verify">> => <<"verify_peer">>}
+                    <<"ssl_options">> => #{<<"verify">> => <<"verify_none">>}
                 }
             }
         }
@@ -141,11 +159,11 @@ init_per_group(quic, Config0) ->
     Config = emqx_common_test_helpers:start_apps_ds(Config0, _ExtraApps = [], CTHOpts),
     [
         {port, get_listener_port(quic, test)},
-        {conn_fun, quic_connect},
-        {ssl_opts, emqx_common_test_helpers:client_mtls()},
-        {ssl, true}
+        {conn_type, quic_flowsdk}
         | Config
-    ].
+    ];
+init_per_group(_Group, Config) ->
+    Config.
 
 get_listener_port(Type, Name) ->
     case emqx_config:get([listeners, Type, Name, bind]) of
@@ -153,7 +171,7 @@ get_listener_port(Type, Name) ->
         Port -> Port
     end.
 
-end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic ->
+end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic_flowsdk ->
     emqx_common_test_helpers:stop_apps_ds(Config),
     ok;
 end_per_group(_, _Config) ->
@@ -343,6 +361,80 @@ do_publish(Messages = [_ | _], PublishFun, WaitForUnregister) ->
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
+
+t_quic_flowsdk_session_controls(Config) ->
+    %% Replaces QUIC executions of t_connect_discards_existing_client,
+    %% t_without_client_id, t_assigned_clientid_persistent_session,
+    %% t_cancel_on_disconnect, and t_persist_on_disconnect.
+    run_persistent_quic("persistent-session-controls", Config, []).
+
+t_quic_flowsdk_offline_qos1(Config) ->
+    %% Replaces t_connect_session_expiry_interval and
+    %% t_publish_while_client_is_gone_qos1.
+    run_persistent_quic("persistent-offline-qos1", Config, []).
+
+t_quic_flowsdk_offline_qos2(Config) ->
+    %% Replaces t_connect_session_expiry_interval_qos2 and
+    %% t_publish_while_client_is_gone.
+    run_persistent_quic("persistent-offline-qos2", Config, []).
+
+t_quic_flowsdk_many_qos1(Config) ->
+    %% Replaces t_publish_many_while_client_is_gone_qos1, including DUP/order checks.
+    run_persistent_quic("persistent-many-qos1", Config, ["--timeout-ms", "30000"]).
+
+t_quic_flowsdk_many_qos2(Config) ->
+    %% Replaces t_publish_many_while_client_is_gone, including PUBREL replay.
+    run_persistent_quic("persistent-many-qos2", Config, ["--timeout-ms", "30000"]).
+
+t_quic_flowsdk_clean_start(Config) ->
+    run_persistent_quic("persistent-clean-start", Config, []).
+
+t_quic_flowsdk_expiry(Config) ->
+    %% Replaces t_process_dies_session_expires.
+    run_persistent_quic("persistent-expiry", Config, [
+        "--session-expiry-interval", "1"
+    ]).
+
+t_quic_flowsdk_unsubscribe(Config) ->
+    run_persistent_quic("persistent-unsubscribe", Config, []).
+
+t_quic_flowsdk_unsubscribe_replay(Config) ->
+    run_persistent_quic("persistent-unsubscribe-replay", Config, ["--timeout-ms", "30000"]).
+
+t_quic_flowsdk_multiple_matches(Config) ->
+    run_persistent_quic("persistent-multiple-matches", Config, []).
+
+t_quic_flowsdk_sys_messages(Config) ->
+    run_persistent_quic("persistent-sys-messages", Config, ["--timeout-ms", "30000"]).
+
+t_quic_flowsdk_no_will_message(_Config) ->
+    skip_flowsdk_will_connect().
+
+t_quic_flowsdk_will_message1(_Config) ->
+    skip_flowsdk_will_connect().
+
+t_quic_flowsdk_will_message2(_Config) ->
+    skip_flowsdk_will_connect().
+
+t_quic_flowsdk_will_message3(_Config) ->
+    skip_flowsdk_will_connect().
+
+skip_flowsdk_will_connect() ->
+    {skip,
+        "FlowSDK QuicMqttEngine CONNECT currently drops MqttClientOptions::will; "
+        "send_raw_on cannot replace the engine's automatically queued CONNECT"}.
+
+run_persistent_quic(Scenario, Config, ExtraArgs) ->
+    SessionExpiryArgs =
+        case lists:member("--session-expiry-interval", ExtraArgs) of
+            true -> [];
+            false -> ["--session-expiry-interval", "30"]
+        end,
+    emqx_quic_multistreams_SUITE:run_scenario(
+        Scenario,
+        Config,
+        SessionExpiryArgs ++ ExtraArgs
+    ).
 
 t_choose_impl(Config) ->
     ClientId = ?config(client_id, Config),
