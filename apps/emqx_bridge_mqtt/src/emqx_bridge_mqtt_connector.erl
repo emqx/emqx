@@ -710,7 +710,8 @@ mk_ecpool_client_opts(
         force_ping => true,
         tcp_opts => TcpOpts,
         ssl => EnableSsl,
-        ssl_opts => maps:to_list(maps:remove(enable, Ssl))
+        ssl_opts => maps:to_list(maps:without([enable, hostname_check], Ssl)) ++
+            emqx_tls_lib:hostname_check_opts(Ssl)
     }.
 
 ms_to_s(Ms) ->

@@ -36,7 +36,8 @@
     to_client_opts/2,
     ensure_default_certs/1,
     is_cert_configured/1,
-    default_certs_if_present/1
+    default_certs_if_present/1,
+    hostname_check_opts/1
 ]).
 
 %% ssl:tls_version/0 is not exported.
@@ -769,7 +770,7 @@ to_client_opts(Type, Opts = #{enable := true}) ->
             )
         ],
     CertsOpts = resolve_managed_certs(conf_get_opt(managed_certs, Opts), Opts),
-    TLSClientOpts = CertsOpts ++ TLSClientOpts0,
+    TLSClientOpts = CertsOpts ++ TLSClientOpts0 ++ hostname_check_opts(Opts),
     ensure_valid_options(TLSClientOpts);
 to_client_opts(_Type, #{}) ->
     [].
@@ -1024,6 +1025,25 @@ verify_required_managed_files_are_present(Opts, Context) ->
         [_ | _] ->
             ?tp(error, "missing_required_managed_cert_files", Context#{missing => Missing}),
             ok
+    end.
+
+%% @doc The ssl client options for the `hostname_check' field of hocon-checked
+%% tls client options (map()). For callers that pass the rest of the map to
+%% ssl as is, which must also drop the `hostname_check' key itself.
+-spec hostname_check_opts(map()) -> [ssl:tls_client_option()].
+hostname_check_opts(Opts) ->
+    Verify = conf_get_opt(verify, Opts, verify_none),
+    HostnameCheck = conf_get_opt(hostname_check, Opts, san_only),
+    case {Verify, HostnameCheck} of
+        {verify_peer, San} when San =:= san_or_common_name; San =:= <<"san_or_common_name">> ->
+            [
+                {verify_fun,
+                    emqx_tls_lib_const_v1:make_tls_verify_fun(
+                        hostname_check_san_or_common_name, []
+                    )}
+            ];
+        _ ->
+            []
     end.
 
 customize_hostname_check(verify_none) ->
