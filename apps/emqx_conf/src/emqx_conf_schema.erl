@@ -1021,6 +1021,26 @@ fields("rpc") ->
                     desc => ?DESC(rpc_async_batch_size)
                 }
             )},
+        {"compress_level",
+            sc(
+                range(0, 9),
+                #{
+                    mapping => "gen_rpc.compress",
+                    default => 0,
+                    desc => ?DESC(rpc_compress_level),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
+        {"compress_threshold",
+            sc(
+                emqx_schema:bytesize(),
+                #{
+                    mapping => "gen_rpc.compression_threshold",
+                    default => <<"1KB">>,
+                    desc => ?DESC(rpc_compress_threshold),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {"port_discovery",
             sc(
                 hoconsc:enum([manual, stateless]),

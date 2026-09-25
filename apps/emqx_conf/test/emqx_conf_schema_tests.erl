@@ -869,6 +869,37 @@ rpc_insecure_fallback_is_ignored_test() ->
         proplists:get_value(insecure_auth_fallback_allowed, GenRpcEnv)
     ).
 
+rpc_compress_defaults_test() ->
+    GenRpcEnv = gen_rpc_env(""),
+    ?assertEqual(0, proplists:get_value(compress, GenRpcEnv)),
+    ?assertEqual(1024, proplists:get_value(compression_threshold, GenRpcEnv)).
+
+rpc_compress_mapping_test() ->
+    GenRpcEnv = gen_rpc_env("rpc.compress_level = 6\nrpc.compress_threshold = 2KB\n"),
+    ?assertEqual(6, proplists:get_value(compress, GenRpcEnv)),
+    ?assertEqual(2048, proplists:get_value(compression_threshold, GenRpcEnv)),
+    GenRpcEnv0 = gen_rpc_env("rpc.compress_level = 1\nrpc.compress_threshold = 0\n"),
+    ?assertEqual(1, proplists:get_value(compress, GenRpcEnv0)),
+    ?assertEqual(0, proplists:get_value(compression_threshold, GenRpcEnv0)).
+
+rpc_compress_level_range_test() ->
+    ?assertThrow(
+        {emqx_conf_schema, [#{kind := validation_error, path := "rpc.compress_level"}]},
+        gen_rpc_env("rpc.compress_level = 10\n")
+    ),
+    ?assertThrow(
+        {emqx_conf_schema, [#{kind := validation_error, path := "rpc.compress_level"}]},
+        gen_rpc_env("rpc.compress_level = -1\n")
+    ).
+
+gen_rpc_env(Extra) ->
+    ensure_acl_conf(),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
+    Conf = <<BaseConf/binary, "\n", (list_to_binary(Extra))/binary>>,
+    {ok, ConfMap} = hocon:binary(Conf, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap),
+    proplists:get_value(gen_rpc, ConfList).
+
 node_role_conf(Role0) ->
     Role = atom_to_binary(Role0),
     Hocon = <<"node { role =", Role/binary, ", cookie = \"cookie\", data_dir = \".\" }">>,

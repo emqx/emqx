@@ -880,6 +880,29 @@ rpc_async_batch_size.desc:
 rpc_async_batch_size.label:
 """Async Batch Size"""
 
+rpc_compress_level.desc:
+"""The zlib compression level for data that nodes send to each other over RPC, including forwarded MQTT messages.
+<code>0</code> disables compression. <code>1</code> is the fastest level and <code>9</code> gives the smallest output.
+
+Compression uses CPU on both the sending and the receiving node to reduce the traffic between them.
+Enable it when the bandwidth between nodes is limited or billed, for example when a cluster spans availability zones.
+Level <code>1</code> gives most of the size reduction at the lowest CPU cost.
+Higher levels reduce the size only slightly more and cost much more CPU for large messages.
+Payloads that are already compressed or encrypted do not get smaller, so for them compression only adds CPU cost."""
+
+rpc_compress_level.label:
+"""RPC Compression Level"""
+
+rpc_compress_threshold.desc:
+"""The minimum size of an RPC packet to compress. Smaller packets are sent uncompressed.
+A packet can carry several messages, because RPC batches messages that are sent to the same node.
+<code>0</code> compresses every packet.
+Compressing a small packet costs much more CPU than it saves in bandwidth.
+This option has an effect only when <code>rpc.compress_level</code> is greater than <code>0</code>."""
+
+rpc_compress_threshold.label:
+"""RPC Compression Threshold"""
+
 cluster_call_max_history.desc:
 """Retain the maximum number of completed transactions (for queries)."""
 
