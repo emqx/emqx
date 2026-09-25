@@ -141,18 +141,20 @@ t_message_persisted(_Config) ->
     Msg = emqx_message:make(?MODULE, 1, Topic, <<"payload">>),
 
     %% An absent or false header does not count as persistence.
-    ?assertEqual([], emqx_broker:publish(Msg)),
-    ?assertEqual([], emqx_broker:publish(emqx_message:set_header(message_persisted, false, Msg))),
+    ?assertEqual({ok, [], Msg}, emqx_broker:publish(Msg)),
+    NotPersisted = emqx_message:set_header(message_persisted, false, Msg),
+    ?assertEqual({ok, [], NotPersisted}, emqx_broker:publish(NotPersisted)),
 
     %% Hook-reported persistence prevents a no-subscriber drop.
     ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_persisted, []}, ?HP_LOWEST),
     Dropped = emqx_metrics:val_global('messages.dropped.no_subscribers'),
-    ?assertEqual([persisted], emqx_broker:publish(Msg)),
+    Persisted = emqx_message:set_header(message_persisted, true, Msg),
+    ?assertEqual({ok, [persisted], Persisted}, emqx_broker:publish(Msg)),
     ?assertEqual(Dropped, emqx_metrics:val_global('messages.dropped.no_subscribers')),
 
     %% Persisted messages still reach matching subscribers.
     ok = emqx_broker:subscribe(Topic),
-    ?assertMatch([{_, Topic, _}, persisted], emqx_broker:publish(Msg)),
+    ?assertMatch({ok, [{_, Topic, _}, persisted], Persisted}, emqx_broker:publish(Msg)),
     receive
         {deliver, Topic, #message{payload = <<"payload">>}} -> ok
     after 1000 ->
@@ -162,12 +164,17 @@ t_message_persisted(_Config) ->
 
     %% Publish rejection takes precedence over the persistence header.
     Blocked = emqx_message:set_header(allow_publish, false, Msg),
-    ?assertEqual([], emqx_broker:publish(Blocked)),
-    ?assertMatch({blocked, _}, emqx_broker:publish(Blocked, #{hook_prohibition_as_error => true})),
+    PersistedBlocked = emqx_message:set_header(message_persisted, true, Blocked),
+    ?assertEqual({ok, [], PersistedBlocked}, emqx_broker:publish(Blocked)),
+    ?assertEqual(
+        {error, blocked, PersistedBlocked},
+        emqx_broker:publish(Blocked, #{hook_prohibition_as_error => true})
+    ),
 
     %% A disconnect request also takes precedence over the persistence header.
     Disconnect = emqx_message:set_header(should_disconnect, true, Msg),
-    ?assertEqual(disconnect, emqx_broker:publish(Disconnect)).
+    PersistedDisconnect = emqx_message:set_header(message_persisted, true, Disconnect),
+    ?assertEqual({error, disconnect, PersistedDisconnect}, emqx_broker:publish(Disconnect)).
 
 mark_message_persisted(Message) ->
     {ok, emqx_message:set_header(message_persisted, true, Message)}.
