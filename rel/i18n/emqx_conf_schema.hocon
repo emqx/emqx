@@ -881,7 +881,7 @@ rpc_async_batch_size.label:
 """Async Batch Size"""
 
 rpc_compress_level.desc:
-"""The zlib compression level for data that nodes send to each other over RPC, including forwarded MQTT messages.
+"""The compression level for data that nodes send to each other over RPC, including forwarded MQTT messages.
 <code>0</code> disables compression. <code>1</code> is the fastest level and <code>9</code> gives the smallest output.
 
 Compression uses CPU on both the sending and the receiving node to reduce the traffic between them.
