@@ -291,7 +291,7 @@ t_update_gc_interval(_Config) ->
 
 test_retention(QueueOpts) ->
     RetentionMs = 3600_000,
-    MQ = emqx_mq_test_utils:create_mq(QueueOpts#{
+    {ok, MQ} = emqx_mq_test_utils:create_mq(QueueOpts#{
         topic_filter => <<"retention/#">>, data_retention_period => RetentionMs
     }),
     NowUs = erlang:system_time(microsecond),
@@ -318,7 +318,7 @@ test_retention(QueueOpts) ->
         ]
     ),
     ok = meck:delete(emqx_ds, tx_write, 1),
-    ok = emqx_mq_message_quota_buffer:flush(),
+    ok = emqx_mq_quota_buffer:flush(?MQ_QUOTA_BUFFER),
     Records = emqx_mq_message_db:dirty_read_all(MQ),
     ?assertEqual(20, length(Records)),
     FreshRecords = [
