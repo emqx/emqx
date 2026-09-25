@@ -338,6 +338,9 @@ authn_header_value(TCConfig) ->
     end.
 
 query_by_clientid(RuleTopic, ClientId, TCConfig) ->
+    query_in_bucket(<<"mqtt">>, RuleTopic, ClientId, TCConfig).
+
+query_in_bucket(Bucket, RuleTopic, ClientId, TCConfig) ->
     APIType = get_config(api_type, TCConfig, ?api_v2),
     RawBody0 =
         case APIType of
@@ -346,14 +349,16 @@ query_by_clientid(RuleTopic, ClientId, TCConfig) ->
                     c => ClientId,
                     t => RuleTopic
                 }),
-                Body = #{db => <<"mqtt">>, q => Query, format => <<"csv">>},
+                Body = #{db => Bucket, q => Query, format => <<"csv">>},
                 Path = <<"/api/v3/query_influxql">>,
                 Method = post,
                 Opts = #{method => Method, body => Body, path => Path},
                 query_v3(Opts, TCConfig);
             _ ->
                 Query = <<
-                    "from(bucket: \"mqtt\")\n"
+                    "from(bucket: \"",
+                    Bucket/binary,
+                    "\")\n"
                     "  |> range(start: -12h)\n"
                     "  |> filter(fn: (r) => r.clientid == \"",
                     ClientId/binary,
@@ -514,6 +519,13 @@ pad_zero(BinTs) ->
     NewNano = lists:reverse(NanoNum) ++ Padding ++ "Z",
     iolist_to_binary(string:join(lists:reverse([NewNano | Rest]), ".")).
 
+%% the v3 query helper does not produce `_value_type`
+dynamic_bucket_expected(Value, TCConfig) ->
+    case get_config(api_type, TCConfig, ?api_v2) of
+        ?api_v3 -> Value;
+        _ -> {Value, <<"long">>}
+    end.
+
 assert_persisted_data(ClientId, Expected, PersistedData) ->
     ClientIdIntKey = <<ClientId/binary, "_int_value">>,
     maps:foreach(
@@ -558,6 +570,116 @@ clear_table(RuleTopic, TCConfig) ->
             }
         },
         query_v3(Opts, TCConfig)
+    end.
+
+ensure_dynamic_database(TCConfig) ->
+    case get_config(api_type, TCConfig, ?api_v2) of
+        ?api_v3 -> ensure_v3_database(TCConfig);
+        _ -> ensure_v2_bucket(TCConfig)
+    end.
+
+%% v2 buckets are created through the v2 API. v1 uses the same server and the
+%% same bucket through the v1 compatibility API, but its live test also needs a
+%% DBRP mapping and a v1 auth scoped to the new bucket. The v1 bucket override
+%% shares the `database` option handling with v3, which is covered below.
+ensure_v2_bucket(TCConfig) ->
+    {Host, Port} = server_tuple(TCConfig),
+    BaseURI = iolist_to_binary([
+        "http://",
+        Host,
+        ":",
+        integer_to_binary(Port)
+    ]),
+    Headers = [{"Authorization", "Token abcdefg"}],
+    {ok, 200, _, OrgBody} =
+        ehttpc:request(
+            ?HELPER_POOL,
+            get,
+            {<<BaseURI/binary, "/api/v2/orgs">>, Headers},
+            10_000,
+            0
+        ),
+    #{<<"orgs">> := [#{<<"id">> := OrgId} | _]} = emqx_utils_json:decode(OrgBody),
+    %% the matrix runs this test case several times against the same influxdb
+    %% container, so the bucket may already exist; only create it once
+    {ok, 200, _, BucketsBody} =
+        ehttpc:request(
+            ?HELPER_POOL,
+            get,
+            {<<BaseURI/binary, "/api/v2/buckets?orgID=", OrgId/binary>>, Headers},
+            10_000,
+            0
+        ),
+    Buckets = maps:get(<<"buckets">>, emqx_utils_json:decode(BucketsBody)),
+    case
+        lists:any(
+            fun
+                (#{<<"name">> := <<"mqtt2">>}) -> true;
+                (_) -> false
+            end,
+            Buckets
+        )
+    of
+        true ->
+            ok;
+        false ->
+            Body = emqx_utils_json:encode(#{
+                <<"name">> => <<"mqtt2">>,
+                <<"orgID">> => OrgId,
+                <<"retentionRules">> => []
+            }),
+            {ok, 201, _, _} =
+                ehttpc:request(
+                    ?HELPER_POOL,
+                    post,
+                    {
+                        <<BaseURI/binary, "/api/v2/buckets">>,
+                        [
+                            {"Authorization", "Token abcdefg"},
+                            {"Content-Type", "application/json"}
+                        ],
+                        Body
+                    },
+                    10_000,
+                    0
+                ),
+            ok
+    end.
+
+ensure_v3_database(TCConfig) ->
+    {Host, Port} = server_tuple(TCConfig),
+    BaseURI = iolist_to_binary([
+        "http://",
+        Host,
+        ":",
+        integer_to_binary(Port)
+    ]),
+    Body = emqx_utils_json:encode(#{<<"db">> => <<"mqtt2">>}),
+    Headers = [
+        {"Authorization", authn_header_value(TCConfig)},
+        {"Content-Type", "application/json"}
+    ],
+    case
+        ehttpc:request(
+            ?HELPER_POOL,
+            post,
+            {<<BaseURI/binary, "/api/v3/configure/database">>, Headers, Body},
+            10_000,
+            0
+        )
+    of
+        {ok, 200, _} ->
+            ok;
+        {ok, 200, _, _} ->
+            ok;
+        {ok, 409, _} ->
+            %% already exists
+            ok;
+        {ok, 409, _, _} ->
+            %% already exists
+            ok;
+        Other ->
+            error({failed_to_create_v3_database, Other})
     end.
 
 proxy_name(TCConfig) ->
@@ -1243,6 +1365,79 @@ t_missing_field(TCConfig) when is_list(TCConfig) ->
             ok
         end
     ),
+    ok.
+
+t_dynamic_bucket() ->
+    [{matrix, true}].
+t_dynamic_bucket(matrix) ->
+    [
+        [APIType, ?tcp, Sync, Batch]
+     || APIType <- [?api_v2, ?api_v3],
+        Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_dynamic_bucket(TCConfig) when is_list(TCConfig) ->
+    ensure_dynamic_database(TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"bucket">> => <<"${payload.bucket}">>,
+            <<"write_syntax">> => <<"${topic},clientid=${clientid} foo=${payload.foo}i">>
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId0 = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId1 = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C0 = start_client(#{clientid => ClientId0}),
+    C1 = start_client(#{clientid => ClientId1}),
+    ct:timetrap({seconds, 30}),
+    Payload0 = emqx_utils_json:encode(#{<<"foo">> => 123, <<"bucket">> => <<"mqtt2">>}),
+    %% payload without the bucket field, the connector bucket is used as fallback
+    Payload1 = emqx_utils_json:encode(#{<<"foo">> => 456}),
+    emqtt:publish(C0, RuleTopic, Payload0, [{qos, 1}]),
+    emqtt:publish(C1, RuleTopic, Payload1, [{qos, 1}]),
+    ?retry(200, 10, begin
+        PersistedData0 = query_in_bucket(<<"mqtt2">>, RuleTopic, ClientId0, TCConfig),
+        PersistedData1 = query_in_bucket(<<"mqtt">>, RuleTopic, ClientId1, TCConfig),
+        assert_persisted_data(
+            ClientId0, #{foo => dynamic_bucket_expected(<<"123">>, TCConfig)}, PersistedData0
+        ),
+        assert_persisted_data(
+            ClientId1, #{foo => dynamic_bucket_expected(<<"456">>, TCConfig)}, PersistedData1
+        ),
+        ok
+    end),
+    ok.
+
+t_raw_line_write_syntax() ->
+    [{matrix, true}].
+t_raw_line_write_syntax(matrix) ->
+    [
+        [?api_v2, ?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async], Batch <- [?without_batch, ?with_batch]
+    ];
+t_raw_line_write_syntax(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"write_syntax">> => <<"${line_protocol}">>}
+    }),
+    SQL = <<
+        "select clientid, topic, "
+        "concat(concat(concat(concat('mqtt,clientid=', clientid), ' foo='), payload.foo), 'i') "
+        "as line_protocol "
+        "from \"${t}\" "
+    >>,
+    #{topic := RuleTopic} = simple_create_rule_api(SQL, TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    ct:timetrap({seconds, 30}),
+    Payload = emqx_utils_json:encode(#{<<"foo">> => 123}),
+    emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    ?retry(200, 10, begin
+        PersistedData = query_by_clientid(RuleTopic, ClientId, TCConfig),
+        Expected = #{foo => {<<"123">>, <<"long">>}},
+        assert_persisted_data(ClientId, Expected, PersistedData)
+    end),
     ok.
 
 t_authentication_error() ->
