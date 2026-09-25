@@ -13,6 +13,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("erlcloud/include/erlcloud_aws.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -347,6 +348,39 @@ get_action_metrics_api(TCConfig) ->
 
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+without_static_credentials(TCConfig) ->
+    emqx_bridge_v2_testlib:proplist_update(TCConfig, connector_config, fun(Old) ->
+        maps:without([<<"aws_access_key_id">>, <<"aws_secret_access_key">>], Old)
+    end).
+
+%% Emulates credentials obtained from the ECS task role or EC2 instance metadata.
+mock_metadata_credentials(Result) ->
+    ok = meck:new(erlcloud_aws, [passthrough]),
+    on_exit(fun() -> meck:unload(erlcloud_aws) end),
+    ok = meck:expect(
+        erlcloud_aws,
+        update_config,
+        fun
+            (#aws_config{access_key_id = undefined} = AWSConfig) ->
+                case Result of
+                    {ok, {AccessKeyID, SecretAccessKey, Token}} ->
+                        {ok, AWSConfig#aws_config{
+                            access_key_id = AccessKeyID,
+                            secret_access_key = SecretAccessKey,
+                            security_token = Token
+                        }};
+                    {error, _} ->
+                        Result
+                end;
+            (AWSConfig) ->
+                meck:passthrough([AWSConfig])
+        end
+    ).
+
+assert_body_contains(Body, Pattern) ->
+    Encoded = emqx_utils_json:encode(Body),
+    ?assertEqual(match, re:run(Encoded, Pattern, [{capture, none}]), #{body => Body}).
 
 start_client() ->
     start_client(_Opts = #{}).
@@ -843,9 +877,9 @@ t_connector_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig
             emqx_common_test_helpers:with_mock(
                 erlcloud_kinesis,
                 list_streams,
-                fun(_, _, _) ->
+                fun(ExclusiveStartStreamName, Limit, AWSConfig) ->
                     timer:sleep(1_500),
-                    meck:passthrough([])
+                    meck:passthrough([ExclusiveStartStreamName, Limit, AWSConfig])
                 end,
                 fun() ->
                     {201, _} = create_connector_api(TCConfig, #{
@@ -1013,9 +1047,9 @@ t_action_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig) -
             emqx_common_test_helpers:with_mock(
                 erlcloud_kinesis,
                 describe_stream,
-                fun(StreamName, _Limit) ->
+                fun(StreamName, Limit, AWSConfig) ->
                     timer:sleep(1_500),
-                    meck:passthrough([StreamName])
+                    meck:passthrough([StreamName, Limit, AWSConfig])
                 end,
                 fun() ->
                     {201, _} = create_connector_api(TCConfig, #{}),
@@ -1092,7 +1126,7 @@ t_action_health_check_throttled(TCConfig) ->
     emqx_common_test_helpers:with_mock(
         erlcloud_kinesis,
         describe_stream,
-        fun(_StreamName, _Limit) ->
+        fun(_StreamName, _Limit, _AWSConfig) ->
             {error, {<<"LimitExceededException">>, <<"Rate exceeded for account 123456789012.">>}}
         end,
         fun() ->
@@ -1181,4 +1215,93 @@ t_action_health_check_no_core(TCConfig) when is_list(TCConfig) ->
             ok
         end
     ),
+    ok.
+
+%% Checks that static credentials are either both set or both unset.
+t_static_credentials_provided_together(TCConfig) ->
+    lists:foreach(
+        fun(Overrides) ->
+            ?assertMatch({400, _}, probe_connector_api(TCConfig, Overrides)),
+            {400, Body} = create_connector_api(TCConfig, Overrides),
+            assert_body_contains(Body, <<"must be provided together">>)
+        end,
+        [
+            #{<<"aws_access_key_id">> => <<>>},
+            #{<<"aws_secret_access_key">> => <<>>}
+        ]
+    ),
+    ok.
+
+%% Checks that, without static credentials, the connector signs requests with credentials
+%% obtained from the ECS task role or EC2 instance metadata.
+t_metadata_credentials(TCConfig0) ->
+    TCConfig = without_static_credentials(TCConfig0),
+    mock_metadata_credentials({ok, {"imds_key", "imds_secret", "imds_token"}}),
+    ok = meck:new(erlcloud_httpc, [passthrough]),
+    on_exit(fun() -> meck:unload(erlcloud_httpc) end),
+    ?assertMatch({204, _}, probe_connector_api(TCConfig, #{})),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_connector_api(TCConfig, #{})),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_action_api(TCConfig, #{})),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    ShardIt = get_shard_iterator(TCConfig),
+    Payload = <<"payload">>,
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    Record = wait_record(ShardIt, TCConfig),
+    Data = proplists:get_value(<<"Data">>, Record),
+    ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(Data)),
+    PutRecordHeaders = [
+        Headers
+     || {_Pid, {erlcloud_httpc, request, [_URL, post, Headers | _]}, _Result} <-
+            meck:history(erlcloud_httpc),
+        proplists:get_value("x-amz-target", Headers) =:= "Kinesis_20131202.PutRecord"
+    ],
+    ?assertMatch([_ | _], PutRecordHeaders),
+    lists:foreach(
+        fun(Headers) ->
+            Authorization = proplists:get_value("Authorization", Headers),
+            ?assertNotEqual(nomatch, string:find(Authorization, "Credential=imds_key/")),
+            ?assertEqual("imds_token", proplists:get_value("x-amz-security-token", Headers))
+        end,
+        PutRecordHeaders
+    ),
+    ok.
+
+%% Checks that the connector fails to start when credentials cannot be obtained from the ECS
+%% task role or EC2 instance metadata.
+t_metadata_credentials_unavailable(TCConfig0) ->
+    TCConfig = without_static_credentials(TCConfig0),
+    mock_metadata_credentials({error, metadata_not_available}),
+    {400, ProbeBody} = probe_connector_api(TCConfig, #{}),
+    assert_body_contains(ProbeBody, <<"failed_to_obtain_credentials">>),
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := Reason
+    }} = create_connector_api(TCConfig, #{}),
+    assert_body_contains(Reason, <<"failed_to_obtain_credentials">>),
+    ok.
+
+%% Checks that failures to refresh credentials are reported by health checks, and that
+%% requests failing because of them are retried.
+t_metadata_credentials_refresh_failure(_TCConfig) ->
+    mock_metadata_credentials({error, metadata_not_available}),
+    {ok, Pid} = emqx_bridge_kinesis_connector_client:start_link(#{
+        endpoint => <<"http://toxiproxy:4566">>,
+        max_retries => 0,
+        instance_id => atom_to_binary(?FUNCTION_NAME)
+    }),
+    Error = {failed_to_obtain_credentials, metadata_not_available},
+    ?assertEqual(
+        {error, Error},
+        emqx_bridge_kinesis_connector_client:connection_status(Pid)
+    ),
+    ?assertEqual(
+        {error, Error},
+        emqx_bridge_kinesis_connector_client:connection_status(Pid, ?STREAM_NAME)
+    ),
+    ?assertEqual(
+        {error, {recoverable_error, Error}},
+        emqx_bridge_kinesis_connector_client:query(Pid, [{<<"data">>, <<"key">>}], ?STREAM_NAME)
+    ),
+    gen_server:stop(Pid),
     ok.
