@@ -323,6 +323,26 @@ t_bucket_registry_erases_stale_buckets_on_init(_) ->
     ?assertNotEqual(undefined, emqx_limiter_bucket_registry:find_bucket({group1, limiter0})),
     ok.
 
+-doc """
+`delete_all_buckets/0` is what the shutdown path uses, so it must not consult
+the registry: at that point every group is still registered.
+""".
+t_bucket_registry_delete_all_buckets(_) ->
+    ok = emqx_limiter:create_group(shared, group1, [
+        {limiter0, #{capacity => 10, interval => 100, burst_capacity => 0}}
+    ]),
+    ?assertNotEqual(undefined, emqx_limiter_bucket_registry:find_bucket({group1, limiter0})),
+    ?assertMatch({_Module, _Options}, emqx_limiter_registry:find_group(group1)),
+
+    ok = emqx_limiter_bucket_registry:delete_all_buckets(),
+
+    ?assertEqual(undefined, emqx_limiter_bucket_registry:find_bucket({group1, limiter0})),
+    ?assertEqual(
+        [],
+        [K || {{emqx_limiter_bucket_registry, _} = K, _} <- persistent_term:get()]
+    ),
+    ok.
+
 wait_for_registry(_OldPid, 0) ->
     ct:fail(registry_not_restarted);
 wait_for_registry(OldPid, N) ->
