@@ -438,7 +438,7 @@ handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
     %% FIXME: it's not trapping exit, should never receive an EXIT
     terminate(Reason, State);
 handle_recv(Msg, Parent, State) ->
-    case process_msg(Msg, ensure_stats_timer(State)) of
+    case process_msg(Msg, [], ensure_stats_timer(State)) of
         {ok, NewState} ->
             drain_loop(Parent, NewState);
         {stop, Reason, NewSate} ->
@@ -538,33 +538,16 @@ get_zone_hibernate_after(Zone) ->
 %%--------------------------------------------------------------------
 %% Process next Msg
 
-process_msgs([], State) ->
-    {ok, State};
-process_msgs([Msgs | More], State) when is_list(Msgs) ->
-    case process_msgs(Msgs, State) of
-        {ok, NState} ->
-            process_msgs(More, NState);
-        Stop ->
-            Stop
-    end;
-process_msgs([Msg | More], State) ->
-    case process_msg(Msg, State) of
-        {ok, NState} ->
-            process_msgs(More, NState);
-        Stop ->
-            Stop
-    end.
+-compile({inline, [process_msg_tail/2, append_msgs/2]}).
 
-process_msg(Msg, State) ->
+process_msg(Msg, Tail, State) ->
     try handle_msg(Msg, State) of
         ok ->
-            {ok, State};
+            process_msg_tail(Tail, State);
         {ok, NState} ->
-            {ok, NState};
-        {ok, NextMsgs, NState} when is_list(NextMsgs) ->
-            process_msgs(NextMsgs, NState);
+            process_msg_tail(Tail, NState);
         {ok, NextMsg, NState} ->
-            process_msg(NextMsg, NState);
+            process_msg_cont(NextMsg, Tail, NState);
         {stop, Reason, NState} ->
             {stop, Reason, NState}
     catch
@@ -583,6 +566,24 @@ process_msg(Msg, State) ->
                 },
                 State}
     end.
+
+process_msg_cont([], Tail, State) ->
+    process_msg_tail(Tail, State);
+process_msg_cont([Msg | Rest], Tail, State) ->
+    process_msg_cont(Msg, append_msgs(Rest, Tail), State);
+process_msg_cont(Msg, Tail, State) ->
+    process_msg(Msg, Tail, State).
+
+process_msg_tail([], State) ->
+    {ok, State};
+process_msg_tail([NextMsg | Rest], State) ->
+    process_msg_cont(NextMsg, Rest, State).
+
+append_msgs(Rest, []) -> Rest;
+append_msgs([], Tail) -> Tail;
+append_msgs([M1], Tail) -> [M1 | Tail];
+append_msgs([M1, M2], Tail) -> [M1, M2 | Tail];
+append_msgs(Rest, Tail) -> [Rest | Tail].
 
 %%--------------------------------------------------------------------
 %% Handle a Msg
