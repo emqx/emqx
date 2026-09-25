@@ -29,6 +29,10 @@ That is the same `{module, function}` pair minirest puts in the
 re-derives which route a request matched. Cowboy's router is the only
 route selector.
 
+Cowboy handlers that are not minirest API modules have no `scopes/0`
+for the collector to find. Their scopes are listed in
+`non_minirest_handler_scopes/0`.
+
 Scopes are decoupled from OpenAPI tags: scope names are stable
 identifiers defined in `emqx_api_key_scopes.hrl`. The internal mapping
 from handlers to scopes can change across versions without affecting
@@ -213,7 +217,7 @@ Should be called once after the dashboard HTTP server has started.
 """.
 -spec init_cache() -> ok.
 init_cache() ->
-    HandlerMap = collect_scopes_from_modules(),
+    HandlerMap = maps:merge(collect_scopes_from_modules(), non_minirest_handler_scopes()),
     persistent_term:put(?CACHE_KEY, #{handler_scopes => HandlerMap}),
     ok.
 
@@ -229,6 +233,19 @@ clear_cache() ->
 
 get_cache() ->
     persistent_term:get(?CACHE_KEY, undefined).
+
+%% Scopes of cowboy handlers that authenticate through the same
+%% primitives as minirest but are not minirest API modules, so the
+%% collector cannot find them. Every key here is a deliberate exception.
+%%
+%% `emqx_dashboard_api_spec_handler' serves the OpenAPI documents
+%% (`/api-docs/swagger.json', `/api-spec*'). Any authenticated user or
+%% API key may read them, whatever scopes it holds. The handler still
+%% rejects unauthenticated requests with 401.
+non_minirest_handler_scopes() ->
+    #{
+        {emqx_dashboard_api_spec_handler, handle_get} => [?SCOPE_PUBLIC]
+    }.
 
 %% @doc Collect handler → scopes mappings from all API modules that export scopes/0.
 %% Returns a flat map: #{{emqx_mgmt_api_clients, clients} => [<<"connections">>], ...}.
