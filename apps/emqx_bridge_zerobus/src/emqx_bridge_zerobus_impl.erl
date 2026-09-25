@@ -177,7 +177,7 @@ on_stop(ConnResId, _ConnState) ->
 on_get_status(ConnResId, ConnState) ->
     case ConnState of
         #{?transport := {?rest, _}} ->
-            ehttpc_connector_health_check(ConnResId);
+            ehttpc_connector_health_check(ConnResId, ConnState);
         #{?transport := {?grpc, _}} ->
             grpc_connector_health_check(ConnState)
     end.
@@ -477,19 +477,21 @@ map_grpc_health_check_error({error, Reason}) ->
 map_grpc_health_check_error(Reason) ->
     Reason.
 
-ehttpc_connector_health_check(ConnResId) ->
+ehttpc_connector_health_check(ConnResId, ConnState) ->
     case ehttpc:check_pool_integrity(ConnResId) of
         ok ->
-            health_check_ehttpc_pool_workers(ConnResId);
+            health_check_ehttpc_pool_workers(ConnResId, ConnState);
         {error, Reason} ->
             {?status_disconnected, Reason}
     end.
 
-health_check_ehttpc_pool_workers(ConnResId) ->
-    Timeout = emqx_resource_pool:health_check_timeout(),
+health_check_ehttpc_pool_workers(ConnResId, ConnState) ->
+    #{?health_check_timeout := HCTimeout} = ConnState,
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(ConnResId)],
     try
-        emqx_utils:pmap(fun(Worker) -> ehttpc:health_check(Worker, Timeout) end, Workers, Timeout)
+        emqx_utils:pmap(
+            fun(Worker) -> ehttpc:health_check(Worker, HCTimeout) end, Workers, HCTimeout
+        )
     of
         [] ->
             {?status_connecting, <<"connection_pool_not_initialized">>};
