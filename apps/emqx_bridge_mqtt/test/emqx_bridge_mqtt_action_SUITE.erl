@@ -19,6 +19,7 @@ For cases where a single connector has both actions and sources, see
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
@@ -1283,6 +1284,380 @@ t_mqtt_conn_bridge_egress_async_reconnect(TCConfig) ->
         end
     ),
     ok.
+
+%% Messages the `emqtt' client has accepted but not yet acknowledged are reported to
+%% the action with the reason why its socket was closed.  For a TLS connection that
+%% reason is a connection-level error (`ssl_closed' for a closed socket), which used to
+%% be classified as unrecoverable: the buffer worker then acknowledged those queries
+%% and dropped them, so they never reached the remote broker even though the connection
+%% came back moments later.  The classification of those reasons themselves is pinned
+%% in `emqx_bridge_mqtt_connector_tests'.
+%%
+%% The broker-side connection of the connector's client is suspended before the
+%% burst is published: while it is suspended no acknowledgement can drain the
+%% client's queue, so the client is guaranteed to still hold the publishes when that
+%% connection is killed.  This removes the race between sampling the queue and
+%% injecting the fault.
+t_publish_while_tls_connection_closed(TCConfig) ->
+    ClientId = <<"t_publish_while_tls_connection_closed">>,
+    ?check_trace(
+        begin
+            SslPort = integer_to_binary(get_ssl_mqtt_port()),
+            ConnResId = connector_resource_id(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{
+                <<"server">> => <<"mqtts://127.0.0.1:", SslPort/binary>>,
+                <<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>},
+                <<"static_clientids">> => [
+                    #{<<"node">> => atom_to_binary(node()), <<"ids">> => [ClientId]}
+                ],
+                %% At most one unacknowledged publish at a time: the client keeps the
+                %% rest of the burst queued, so losing the connection below is
+                %% guaranteed to catch messages that were accepted but not
+                %% acknowledged yet.
+                <<"max_inflight">> => 1,
+                %% No health check tick during the outage: the connection must come
+                %% back through the client's own reconnection, not through a resource
+                %% restart.
+                <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
+            }),
+            RemotePrefix = <<"remote">>,
+            {201, _} = create_action_api(TCConfig, #{
+                <<"parameters">> => #{
+                    <<"topic">> => <<RemotePrefix/binary, "/${topic}">>,
+                    <<"payload">> => <<"${payload}">>,
+                    <<"qos">> => ?QOS_2
+                },
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"60s">>,
+                    <<"query_mode">> => <<"async">>,
+                    <<"request_ttl">> => <<"60s">>,
+                    <<"resume_interval">> => <<"500ms">>
+                }
+            }),
+            #{topic := LocalTopic} = simple_create_rule_api(TCConfig),
+            RemoteTopic = emqx_topic:join([RemotePrefix, LocalTopic]),
+            emqx:subscribe(RemoteTopic),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig)
+                )
+            ),
+
+            %% Suspend the broker-side connection: acknowledgements stop, so the burst
+            %% published below stays with the client until the connection is lost.
+            BrokerConns = emqx_cm:lookup_channels(ClientId),
+            ?assertMatch([_ | _], BrokerConns),
+            %% Kill the connections on exit as well, in case an assertion below fails
+            %% before they are killed on purpose.
+            on_exit(fun() ->
+                lists:foreach(fun(Pid) -> exit(Pid, kill) end, BrokerConns)
+            end),
+            lists:foreach(fun(Pid) -> true = erlang:suspend_process(Pid) end, BrokerConns),
+
+            Payloads = [integer_to_binary(I) || I <- lists:seq(1, 200)],
+            lists:foreach(
+                fun(Payload) ->
+                    emqx:publish(emqx_message:make(LocalTopic, Payload))
+                end,
+                Payloads
+            ),
+            ok = wait_until_clients_hold(ConnResId, length(Payloads) div 4),
+
+            %% Lose the connection under the client: every publish it holds is reported
+            %% to the action with the socket error and must be retried.
+            lists:foreach(fun(Pid) -> monitor(process, Pid) end, BrokerConns),
+            lists:foreach(fun(Pid) -> exit(Pid, kill) end, BrokerConns),
+            _ = wait_for_downs(length(BrokerConns), 5_000),
+
+            %% Every message must still be delivered once the connection is back.
+            ok = assert_all_delivered(RemoteTopic, Payloads, 60_000),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> := #{
+                            <<"matched">> := Matched, <<"failed">> := 0, <<"dropped">> := 0
+                        }
+                    }} when
+                        Matched >= 200,
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            %% The publishes held by the client when the socket was closed must have
+            %% been retried; a run in which nothing was retried proves nothing.
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_retry_inflight, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+wait_until_clients_hold(ConnResId, MinCount) ->
+    wait_until_clients_hold(ConnResId, MinCount, 400).
+
+wait_until_clients_hold(_ConnResId, _MinCount, 0) ->
+    ct:fail("the mqtt clients never held the unacknowledged messages");
+wait_until_clients_hold(ConnResId, MinCount, Attempts) ->
+    case held_message_count(ConnResId) >= MinCount of
+        true ->
+            ok;
+        false ->
+            timer:sleep(5),
+            wait_until_clients_hold(ConnResId, MinCount, Attempts - 1)
+    end.
+
+held_message_count(ConnResId) ->
+    lists:sum([
+        emqtt:info(Client, n_inflight) + emqtt:info(Client, n_queued)
+     || Client <- get_emqtt_clients(ConnResId)
+    ]).
+
+%% Waits until every expected payload has been delivered at least once.  A retry
+%% may deliver a payload more than once, so duplicates are not a failure here.
+assert_all_delivered(Topic, Payloads, Timeout) ->
+    Expected = maps:from_list([{Payload, true} || Payload <- Payloads]),
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    Seen = collect_delivered(Topic, Expected, #{}, Deadline),
+    Missing = maps:keys(maps:without(maps:keys(Seen), Expected)),
+    ?assertEqual([], Missing, #{delivered => maps:size(Seen)}),
+    ok.
+
+collect_delivered(Topic, Expected, Seen, Deadline) ->
+    case maps:size(Seen) =:= maps:size(Expected) of
+        true ->
+            Seen;
+        false ->
+            Timeout = max(1, Deadline - erlang:monotonic_time(millisecond)),
+            receive
+                {deliver, Topic, #message{payload = Payload}} ->
+                    collect_delivered(Topic, Expected, Seen#{Payload => true}, Deadline)
+            after Timeout ->
+                Seen
+            end
+    end.
+
+%% Errors that the pool answers a query with (instead of an asynchronous publish
+%% result) are classified on the connector's public query path: answers that mean the
+%% connection is gone must be retried until `request_ttl', while a peer that does not
+%% speak MQTT must fail fast.
+t_pool_query_errors_are_classified(TCConfig) ->
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_action_api(TCConfig, #{
+                <<"parameters">> => #{
+                    <<"topic">> => <<"remote/${topic}">>,
+                    <<"payload">> => <<"${payload}">>,
+                    <<"qos">> => ?QOS_1
+                },
+                <<"resource_opts">> => #{
+                    <<"query_mode">> => <<"async">>,
+                    <<"request_ttl">> => <<"5s">>,
+                    <<"resume_interval">> => <<"200ms">>
+                }
+            }),
+            #{topic := LocalTopic} = simple_create_rule_api(TCConfig),
+            RemoteTopic = emqx_topic:join([<<"remote">>, LocalTopic]),
+            emqx:subscribe(RemoteTopic),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig)
+                )
+            ),
+
+            %% The pool is unavailable while the resource manager restarts it: the query
+            %% must be kept and retried rather than acknowledged and dropped.
+            lists:foreach(
+                fun(Reason) ->
+                    Payload = pool_error_payload(Reason),
+                    ok = meck:new(ecpool, [passthrough]),
+                    on_exit(fun() -> catch meck:unload(ecpool) end),
+                    ok = meck:expect(ecpool, pick_and_do, 3, {error, Reason}),
+                    CallsBefore = meck:num_calls(ecpool, pick_and_do, 3),
+                    emqx:publish(emqx_message:make(LocalTopic, Payload)),
+                    %% The query really went through the unavailable pool before the pool
+                    %% is healed below.
+                    ?retry(
+                        100,
+                        50,
+                        ?assert(meck:num_calls(ecpool, pick_and_do, 3) > CallsBefore)
+                    ),
+                    %% The pool is back: the query was kept and is delivered.
+                    ok = meck:unload(ecpool),
+                    ?assertReceive({deliver, RemoteTopic, #message{payload = Payload}}, 5_000)
+                end,
+                [disconnected, ecpool_empty, no_such_pool]
+            ),
+            ?retry(
+                200,
+                20,
+                ?assertMatch(
+                    {200, #{<<"metrics">> := #{<<"failed">> := 0, <<"dropped">> := 0}}},
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+
+            %% The remote peer does not speak MQTT: failing fast is intentional, so the
+            %% message is acknowledged and counted `failed' instead of being retried.
+            ok = meck:new(ecpool, [passthrough]),
+            ok = meck:expect(ecpool, pick_and_do, 3, {error, {frame_parse_error, <<"not mqtt">>}}),
+            CallsBeforeNotMqtt = meck:num_calls(ecpool, pick_and_do, 3),
+            emqx:publish(emqx_message:make(LocalTopic, <<"not-mqtt">>)),
+            ?retry(
+                100,
+                50,
+                ?assert(meck:num_calls(ecpool, pick_and_do, 3) > CallsBeforeNotMqtt)
+            ),
+            ?retry(
+                200,
+                20,
+                ?assertMatch(
+                    {200, #{<<"metrics">> := #{<<"failed">> := 1}}},
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+            ?assertNotReceive({deliver, RemoteTopic, #message{payload = <<"not-mqtt">>}}, 1_000),
+            ok = meck:unload(ecpool),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_retry_inflight, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+%% A channel whose pool has no connected client must not keep the buffered queries
+%% away from the connector until the next channel health check: that check can be
+%% later than `request_ttl', so a message published while the pool is briefly down
+%% would expire even though the connection is already back.  For that transient state
+%% the channel is `connecting', which still reports the channel as unhealthy and still
+%% keeps the resource manager from resuming the channel's buffer workers.
+t_stale_channel_status_does_not_expire_queries(TCConfig) ->
+    ?check_trace(
+        begin
+            ConnResId = connector_resource_id(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{
+                <<"pool_size">> => 1,
+                %% Long enough for the resource status to stay `connected' during this
+                %% case: only the (frequent) channel health check observes the pool.
+                <<"resource_opts">> => #{<<"health_check_interval">> => <<"300s">>}
+            }),
+            {201, _} = create_action_api(TCConfig, #{
+                <<"parameters">> => #{
+                    <<"topic">> => <<"remote/${topic}">>,
+                    <<"payload">> => <<"${payload}">>,
+                    <<"qos">> => ?QOS_1
+                },
+                <<"resource_opts">> => #{
+                    %% The channel status is refreshed this often.  `request_ttl' is
+                    %% shorter, so a cached `disconnected' would outlive the message.
+                    <<"health_check_interval">> => <<"5s">>,
+                    <<"request_ttl">> => <<"2s">>,
+                    <<"resume_interval">> => <<"200ms">>,
+                    <<"query_mode">> => <<"async">>
+                }
+            }),
+            #{topic := LocalTopic} = simple_create_rule_api(TCConfig),
+            RemoteTopic = emqx_topic:join([<<"remote">>, LocalTopic]),
+            emqx:subscribe(RemoteTopic),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig)
+                )
+            ),
+            ChanResId = action_resource_id(TCConfig),
+
+            %% Make the pool look down to the channel health check only: the connector's
+            %% own health check does not run during this case.
+            ok = meck:new(ecpool_worker, [passthrough, no_history]),
+            on_exit(fun() -> catch meck:unload(ecpool_worker) end),
+            ok = meck:expect(ecpool_worker, client, 1, {error, disconnected}),
+            %% A channel health check must cache the pool as `connecting' instead of
+            %% `disconnected': a disconnected channel would keep the query below away
+            %% from the connector until the next check, which is later than
+            %% `request_ttl' here.
+            ok = wait_until_channel_status(ConnResId, ChanResId, ?status_connecting, 20_000),
+
+            %% The connection is available again, but the channel status stays as cached
+            %% until the next channel health check (up to its interval, which is longer
+            %% than `request_ttl'): the query must still reach the connector.
+            ok = meck:unload(ecpool_worker),
+            emqx:publish(emqx_message:make(LocalTopic, <<"during-stale-status">>)),
+            ?assertReceive(
+                {deliver, RemoteTopic, #message{payload = <<"during-stale-status">>}}, 5_000
+            ),
+            ?retry(
+                200,
+                20,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> := #{<<"failed">> := 0, <<"dropped">> := 0}
+                    }},
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+            ok
+        end,
+        fun(_Trace) ->
+            ok
+        end
+    ),
+    ok.
+
+pool_error_payload(Reason) ->
+    iolist_to_binary(["pool-error-", atom_to_list(Reason)]).
+
+action_resource_id(TCConfig) ->
+    #{
+        resource_namespace := Namespace,
+        conf_root_key := ConfRootKey,
+        type := Type,
+        name := Name
+    } = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    {ok, {_ConnResId, ChanResId}} = emqx_bridge_v2:get_resource_ids(
+        Namespace, ConfRootKey, Type, Name
+    ),
+    ChanResId.
+
+%% Reads the channel status that the resource manager cached for the action.  Unlike a
+%% manual health check (`emqx_resource_manager:channel_health_check/2') this only reads
+%% the cache, so it can be polled while the case depends on no resource health check
+%% being performed.
+cached_channel_status(ConnResId, ChanResId) ->
+    case emqx_resource_cache:get_runtime({ConnResId, ChanResId}) of
+        {ok, #rt{channel_status = Status}} -> {ok, Status};
+        {error, not_found} -> {error, not_found}
+    end.
+
+wait_until_channel_status(ConnResId, ChanResId, Expected, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    do_wait_until_channel_status(ConnResId, ChanResId, Expected, Deadline).
+
+do_wait_until_channel_status(ConnResId, ChanResId, Expected, Deadline) ->
+    case cached_channel_status(ConnResId, ChanResId) of
+        {ok, Expected} ->
+            ok;
+        {ok, Other} ->
+            case erlang:monotonic_time(millisecond) < Deadline of
+                true ->
+                    timer:sleep(50),
+                    do_wait_until_channel_status(ConnResId, ChanResId, Expected, Deadline);
+                false ->
+                    ct:fail({channel_status_not_updated, #{expected => Expected, seen => Other}})
+            end;
+        {error, not_found} ->
+            ct:fail({channel_cache_not_found, ConnResId, ChanResId})
+    end.
 
 t_egress_mqtt_bridge_with_dummy_rule(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
