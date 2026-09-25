@@ -603,69 +603,74 @@ t_metrics(Config) ->
     SourceName = <<"api_target">>,
     TargetName = <<"api_source">>,
 
-    ?assertMatch(
-        {200, #{
-            <<"metrics">> := #{
-                <<"router">> := #{
-                    <<"routes">> := 0
-                },
-                <<"forwarding">> := #{
-                    <<"matched">> := _,
-                    <<"success">> := _,
-                    <<"failed">> := _,
-                    <<"dropped">> := _,
-                    <<"retried">> := _,
-                    <<"queuing">> := _,
-                    <<"inflight">> := _,
-                    <<"rate">> := _,
-                    <<"rate_last5m">> := _,
-                    <<"rate_max">> := _
-                }
-            },
-            <<"node_metrics">> := [
-                #{
-                    <<"node">> := _,
-                    <<"metrics">> := #{
-                        <<"router">> := #{
-                            <<"routes">> := 0
-                        },
-                        <<"forwarding">> := #{
-                            <<"matched">> := _,
-                            <<"success">> := _,
-                            <<"failed">> := _,
-                            <<"dropped">> := _,
-                            <<"retried">> := _,
-                            <<"queuing">> := _,
-                            <<"inflight">> := _,
-                            <<"rate">> := _,
-                            <<"rate_last5m">> := _,
-                            <<"rate_max">> := _
-                        }
+    %% Routes of the preceding case may still be counted cluster-wide.
+    ?retry(
+        300,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"router">> := #{
+                        <<"routes">> := 0
+                    },
+                    <<"forwarding">> := #{
+                        <<"matched">> := _,
+                        <<"success">> := _,
+                        <<"failed">> := _,
+                        <<"dropped">> := _,
+                        <<"retried">> := _,
+                        <<"queuing">> := _,
+                        <<"inflight">> := _,
+                        <<"rate">> := _,
+                        <<"rate_last5m">> := _,
+                        <<"rate_max">> := _
                     }
                 },
-                #{
-                    <<"node">> := _,
-                    <<"metrics">> := #{
-                        <<"router">> := #{
-                            <<"routes">> := 0
-                        },
-                        <<"forwarding">> := #{
-                            <<"matched">> := _,
-                            <<"success">> := _,
-                            <<"failed">> := _,
-                            <<"dropped">> := _,
-                            <<"retried">> := _,
-                            <<"queuing">> := _,
-                            <<"inflight">> := _,
-                            <<"rate">> := _,
-                            <<"rate_last5m">> := _,
-                            <<"rate_max">> := _
+                <<"node_metrics">> := [
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> := #{
+                            <<"router">> := #{
+                                <<"routes">> := 0
+                            },
+                            <<"forwarding">> := #{
+                                <<"matched">> := _,
+                                <<"success">> := _,
+                                <<"failed">> := _,
+                                <<"dropped">> := _,
+                                <<"retried">> := _,
+                                <<"queuing">> := _,
+                                <<"inflight">> := _,
+                                <<"rate">> := _,
+                                <<"rate_last5m">> := _,
+                                <<"rate_max">> := _
+                            }
+                        }
+                    },
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> := #{
+                            <<"router">> := #{
+                                <<"routes">> := 0
+                            },
+                            <<"forwarding">> := #{
+                                <<"matched">> := _,
+                                <<"success">> := _,
+                                <<"failed">> := _,
+                                <<"dropped">> := _,
+                                <<"retried">> := _,
+                                <<"queuing">> := _,
+                                <<"inflight">> := _,
+                                <<"rate">> := _,
+                                <<"rate_last5m">> := _,
+                                <<"rate_max">> := _
+                            }
                         }
                     }
-                }
-            ]
-        }},
-        get_metrics(source, SourceName, Config)
+                ]
+            }},
+            get_metrics(source, SourceName, Config)
+        )
     ),
     ?assertMatch(
         {200, #{
