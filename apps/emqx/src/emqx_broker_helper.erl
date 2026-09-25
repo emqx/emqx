@@ -59,6 +59,14 @@
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
 
+-doc """
+Register `SubPid` as a subscriber with `SubId`.
+
+Pass `no_monitor` only when `emqx_cm` monitors `SubPid` and has registered it in
+the `emqx_cm` channel table under `SubId`. Such a subscriber writes no
+`emqx_subid` row, so `lookup_subpid/1` can find it only through `emqx_cm`.
+Pass `monitor` in all other cases.
+""".
 -spec register_sub(pid(), emqx_types:subid(), monitor | no_monitor) -> ok.
 register_sub(SubPid, SubId, Monitor) when is_pid(SubPid) ->
     case lookup_pid_to_id(SubPid) of

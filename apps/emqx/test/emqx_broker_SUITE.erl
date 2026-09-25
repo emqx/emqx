@@ -258,7 +258,10 @@ t_subscriptions(Config) when is_list(Config) ->
 t_subscriptions({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).
 
--doc "`subscriptions/1` returns the same list for an MQTT client's clientid as for its channel pid.".
+-doc """
+An MQTT client writes no `emqx_subid` row, and `subscriptions/1` returns the same
+list for its clientid as for its channel pid.
+""".
 t_subscriptions_by_clientid({init, Config}) ->
     Config;
 t_subscriptions_by_clientid({'end', _Config}) ->
@@ -270,6 +273,10 @@ t_subscriptions_by_clientid(Config) when is_list(Config) ->
     try
         {ok, _, [1, 0]} = emqtt:subscribe(C, [{<<"t/1">>, 1}, {<<"t/2">>, 0}]),
         [ChanPid] = emqx_cm:lookup_channels(local, ClientId),
+        %% The channel registers with `no_monitor`, so it writes no emqx_subid row
+        %% and is found through the emqx_cm channel table.
+        ?assertEqual(ClientId, emqx_broker_helper:lookup_subid(ChanPid)),
+        ?assertEqual([], ets:lookup(emqx_subid, ClientId)),
         Subs = emqx_broker:subscriptions(ChanPid),
         ?assertEqual([<<"t/1">>, <<"t/2">>], lists:sort(proplists:get_keys(Subs))),
         ?assertEqual(Subs, emqx_broker:subscriptions(ClientId))
