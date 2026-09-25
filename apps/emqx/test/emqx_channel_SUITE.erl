@@ -94,7 +94,7 @@ t_chan_info(_) ->
     ?assertMatch(
         #{
             zone := default,
-            listener := {tcp, default},
+            listener := 'tcp:default',
             protocol := mqtt,
             peername := {{127, 0, 0, 1}, 3456},
             peerhost := {127, 0, 0, 1},
@@ -577,7 +577,7 @@ t_quota_qos0(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+        clientinfo(#{listener => 'tcp:low_message_rate'}), #{conn_state => connected}, #{
             listener => {tcp, low_message_rate}
         }
     ),
@@ -602,7 +602,7 @@ t_quota_qos1(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+        clientinfo(#{listener => 'tcp:low_message_rate'}), #{conn_state => connected}, #{
             listener => {tcp, low_message_rate}
         }
     ),
@@ -620,7 +620,7 @@ t_quota_qos2(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+        clientinfo(#{listener => 'tcp:low_message_rate'}), #{conn_state => connected}, #{
             listener => {tcp, low_message_rate}
         }
     ),
@@ -640,7 +640,7 @@ t_quota_qos2(_) ->
 t_quota_bytes(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(clientinfo(#{listener => {tcp, low_byte_rate}}), #{conn_state => connected}, #{
+    Chann = channel(clientinfo(#{listener => 'tcp:low_byte_rate'}), #{conn_state => connected}, #{
         listener => {tcp, low_byte_rate}
     }),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
@@ -1301,7 +1301,7 @@ clientinfo(InitProps) ->
     maps:merge(
         #{
             zone => default,
-            listener => {tcp, default},
+            listener => 'tcp:default',
             protocol => mqtt,
             peername => {{127, 0, 0, 1}, 3456},
             peerhost => {127, 0, 0, 1},
