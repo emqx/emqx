@@ -2001,6 +2001,13 @@ socket_sockname({ssl, Socket}) ->
 
 -define(LARGE_PAYLOAD_SIZE, 256 * 1024).
 
+%% A packet pipelined behind CONNECT is read while the socket still carries the
+%% CONNECT-sized `packet_size' limit, which `emqx_connection' raises to
+%% `mqtt.max_packet_size' once the client is connected. A pipelined payload must
+%% therefore stay under `mqtt.max_connect_packet_size' (64KB), while still being
+%% much larger than `tcp_options.recbuf'.
+-define(PIPELINED_PAYLOAD_SIZE, 32 * 1024).
+
 -doc """
 A PUBLISH much larger than `tcp_options.recbuf' is read, acknowledged and
 echoed back to the subscriber without stalling the connection.
@@ -2020,13 +2027,18 @@ t_large_publish_after_connect(_) ->
 A client may send packets right behind CONNECT without waiting for CONNACK. A
 PUBLISH much larger than `tcp_options.recbuf', written together with CONNECT
 and SUBSCRIBE, is read to the end, acknowledged and echoed back.
+
+The pipelined PUBLISH stays under `mqtt.max_connect_packet_size': packets that
+arrive before the client is connected are held to that limit.
 """.
 t_pipelined_large_publish(_) ->
     Topic = atom_to_binary(?FUNCTION_NAME),
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
     try
         ok = gen_tcp:send(Socket, [
-            raw_connect_frame(Topic), raw_subscribe_frame(Topic), large_publish(Topic)
+            raw_connect_frame(Topic),
+            raw_subscribe_frame(Topic),
+            publish_frame(Topic, ?PIPELINED_PAYLOAD_SIZE)
         ]),
         {Types, _} = recv_packet_types(Socket, 4, emqx_frame:initial_parse_state(#{})),
         ?assertEqual([?CONNACK, ?SUBACK], lists:sublist(Types, 2), #{types => Types}),
@@ -2052,7 +2064,10 @@ raw_subscribe_frame(Topic) ->
     ).
 
 large_publish(Topic) ->
-    Payload = binary:copy(<<"p">>, ?LARGE_PAYLOAD_SIZE),
+    publish_frame(Topic, ?LARGE_PAYLOAD_SIZE).
+
+publish_frame(Topic, PayloadSize) ->
+    Payload = binary:copy(<<"p">>, PayloadSize),
     emqx_frame:serialize(?PUBLISH_PACKET(?QOS_1, Topic, 2, Payload)).
 
 %% Read `N' MQTT packets from a raw socket in active mode and return their
