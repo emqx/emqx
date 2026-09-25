@@ -46,8 +46,9 @@ t_lookup_subpid(_) ->
     ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)),
     emqx_broker_helper:clean_down(self()),
     ?assertEqual(undefined, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    %% A `no_monitor` subscriber is found through the emqx_cm channel table only.
     emqx_broker_helper:register_sub(self(), <<"clientid">>, no_monitor),
-    ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    ?assertEqual(undefined, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
     emqx_broker_helper:clean_down(self()),
     ok.
 
@@ -96,8 +97,7 @@ t_clean_down_after_clientid_reassigned(_) ->
     ok = emqx_broker_helper:register_sub(Pid1, <<"clientid">>, monitor),
     ok = emqx_broker_helper:register_sub(Pid2, <<"clientid">>, monitor),
     ?assertEqual(ignored, gen_server:call(emqx_broker_helper, dummy, infinity)),
-    %% Neither pid is in the emqx_cm channel table, so the scan order decides.
-    ?assert(lists:member(emqx_broker_helper:lookup_subpid(<<"clientid">>), [Pid1, Pid2])),
+    ?assertEqual(Pid2, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
     ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(Pid2)),
     ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(Pid1)),
     exit(Pid1, kill),

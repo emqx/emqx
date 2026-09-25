@@ -47,6 +47,7 @@
 -endif.
 
 -define(HELPER, ?MODULE).
+-define(SUBID, emqx_subid).
 -define(SUBMON, emqx_submon).
 
 -define(SHARD_CAPACITY, 1024).
@@ -83,15 +84,17 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 -doc """
 Return the pid of the subscriber registered with `SubId`, or `undefined`.
 
-MQTT channels are found by a key lookup in the `emqx_cm` channel table. Other
-subscribers, such as gateway channels, are not in that table. They are found by
-a full scan of the `emqx_submon` table, which costs time in proportion to the
-number of subscribers.
+Subscribers registered with `no_monitor` are channels that `emqx_cm` monitors.
+They are found by a key lookup in the `emqx_cm` channel table. When several
+channels match, for example during a session takeover, return the most recently
+registered one: `ets:lookup/2` on a `bag` table returns objects with the same
+key in insertion order.
 
-When several pids match, return the last one in lookup order. For MQTT channels,
-for example during a session takeover, this is the most recently registered
-channel, because `ets:lookup/2` on a `bag` table returns objects with the same
-key in insertion order. For the `emqx_submon` scan, the order is not defined.
+Subscribers registered with `monitor` are not in the `emqx_cm` channel table.
+Examples are gateway channels, including connectionless CoAP clients, QUIC
+stream processes and plugin processes. They are found by a key lookup in the
+`emqx_subid` table, which only this kind of subscriber writes to. When several
+subscribers share one `SubId`, the most recent registration wins.
 """.
 -spec lookup_subpid(emqx_types:subid()) -> option(pid()).
 lookup_subpid(undefined) ->
@@ -99,14 +102,10 @@ lookup_subpid(undefined) ->
 lookup_subpid(SubId) ->
     case [Pid || Pid <- emqx_cm:lookup_channels(local, SubId), lookup_subid(Pid) =:= SubId] of
         [] ->
-            MatchSpec = [{{'$1', '$2'}, [{'=:=', '$2', {const, SubId}}], ['$1']}],
-            last_pid(ets:select(?SUBMON, MatchSpec));
+            emqx_utils_ets:lookup_value(?SUBID, SubId);
         Pids ->
-            last_pid(Pids)
+            lists:last(Pids)
     end.
-
-last_pid([]) -> undefined;
-last_pid(Pids) -> lists:last(Pids).
 
 -doc """
 Assign `Topic` subscriber to some shard, where shard is simply a number between
@@ -246,6 +245,8 @@ init([]) ->
     process_flag(message_queue_data, off_heap),
     %% Helper table
     ok = emqx_utils_ets:new(?HELPER, [public, {read_concurrency, true}, {write_concurrency, true}]),
+    %% SubId: SubId -> SubPid, for subscribers registered with `monitor` only
+    ok = emqx_utils_ets:new(?SUBID, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% SubMon: SubPid -> SubId
     ok = emqx_utils_ets:new(?SUBMON, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% Stats timer
@@ -310,7 +311,14 @@ handle_registrations(Regs) ->
 
 handle_register({SubId, SubPid}) ->
     ok = monitor_subscriber(SubPid),
-    insert_submon(SubId, SubPid).
+    %% Insert into ?SUBMON first: clean_down/1 finds the ?SUBID row through it.
+    true = insert_submon(SubId, SubPid),
+    insert_subid(SubId, SubPid).
+
+insert_subid(undefined, _SubPid) ->
+    true;
+insert_subid(SubId, SubPid) ->
+    ets:insert(?SUBID, {SubId, SubPid}).
 
 insert_submon(SubId, SubPid) ->
     ets:insert(?SUBMON, {SubPid, SubId}).
@@ -333,8 +341,11 @@ handle_down(SubPids) ->
 clean_down(SubPid) ->
     try
         case ets:lookup(?SUBMON, SubPid) of
-            [_] ->
+            [{_, SubId}] ->
                 true = ets:delete(?SUBMON, SubPid),
+                true =
+                    (SubId =:= undefined) orelse
+                        ets:delete_object(?SUBID, {SubId, SubPid}),
                 emqx_broker:subscriber_down(SubPid),
                 ok;
             [] ->
