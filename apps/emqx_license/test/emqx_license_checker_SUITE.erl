@@ -434,3 +434,51 @@ format_date({Year, Month, Day}) ->
             [Year, Month, Day]
         )
     ).
+
+-doc """
+The `license_expiry` alarm is raised up to 30 days before the expiry date, so
+its message must say whether the license is expiring or has already expired.
+An empty message would be reported as the alarm name, which reads as expired.
+The details are refreshed while the alarm stays up, and the alarm is re-raised
+when the message itself changes.
+""".
+t_expiry_alarm_message(_Config) ->
+    {Today, _} = calendar:universal_time(),
+    ExpiringLicense = license_valid_for(Today, 5),
+    #{} = emqx_license_checker:update(ExpiringLicense),
+    ?assertMatch(
+        #{message := <<"The license expires on ", _/binary>>, details := #{days_left := 5}},
+        activated_license_alarm()
+    ),
+    %% Same expiry date, one day later: the message is unchanged, so the alarm
+    %% is not re-raised, but the details follow the calendar.
+    #{} = emqx_license_checker:update(license_valid_for(Today, 4)),
+    ?assertMatch(#{details := #{days_left := 4}}, activated_license_alarm()),
+    %% An expired license changes the message, so the alarm is re-raised.
+    #{} = emqx_license_checker:update(license_valid_for(Today, -2)),
+    ?assertMatch(
+        #{message := <<"The license expired on ", _/binary>>, details := #{days_left := -2}},
+        activated_license_alarm()
+    ),
+    %% A license well inside its validity clears the alarm.
+    #{} = emqx_license_checker:update(license_valid_for(Today, 365)),
+    ?assertEqual(undefined, activated_license_alarm()).
+
+%% A license whose expiry date is `DaysFromToday' away. The start date is moved
+%% back instead of using a negative validity, so an already expired license is
+%% expressed the same way a real one is.
+license_valid_for(Today, DaysFromToday) ->
+    Back = 30,
+    StartDate = calendar:gregorian_days_to_date(
+        calendar:date_to_gregorian_days(Today) - Back
+    ),
+    mk_license(#{
+        start_date => format_date(StartDate),
+        days => integer_to_list(Back + DaysFromToday)
+    }).
+
+activated_license_alarm() ->
+    case [A || #{name := license_expiry} = A <- emqx_alarm:get_alarms(activated)] of
+        [Alarm] -> Alarm;
+        [] -> undefined
+    end.

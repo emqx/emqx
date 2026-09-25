@@ -46,6 +46,7 @@ all() ->
         t_enabled,
         t_health_reports_missing_primary_config,
         t_interval_ms,
+        t_rejects_invalid_sync_durations,
         t_app_registers_backup_sync_cli,
         t_cli_status_ok,
         t_cli_status_error,
@@ -77,6 +78,7 @@ all() ->
         t_sync_once_reports_cleanup_errors,
         t_sync_once_reports_remote_export_errors,
         t_sync_once_passes_primary_ssl_options_to_httpc,
+        t_sync_once_ignores_ssl_for_http,
         t_sync_once_rejects_bad_primary_ssl_verify,
         t_sync_once_rejects_non_binary_primary_ssl_verify,
         t_sync_once_rejects_redirects_without_forwarding_auth,
@@ -132,6 +134,29 @@ t_interval_ms(_Config) ->
     ?assertEqual(60000, emqx_backup_sync:interval_ms(sync_config(<<"1m">>))),
     ?assertEqual(300000, emqx_backup_sync:interval_ms(sync_config(<<"invalid">>))).
 
+t_rejects_invalid_sync_durations(_Config) ->
+    Conf = conf(),
+    InvalidValues = [
+        {<<"interval">>, <<"5ssss">>},
+        {<<"interval">>, <<"0s">>},
+        {<<"interval">>, <<"-5s">>},
+        {<<"timeout">>, <<"5ssss">>},
+        {<<"timeout">>, <<"0s">>},
+        {<<"timeout">>, <<"-5s">>}
+    ],
+    lists:foreach(
+        fun({Field, Value}) ->
+            Sync0 = maps:get(<<"sync">>, Conf),
+            InvalidConf = Conf#{<<"sync">> => Sync0#{Field => Value}},
+            Error = invalid_config_error(<<"sync.", Field/binary>>, Value),
+            ?assertEqual(Error, emqx_backup_sync_client:validate_config(InvalidConf)),
+            %% The callback must validate before calling the gen_server, so that
+            %% a loaded/stopped plugin cannot persist the invalid config.
+            ?assertEqual(Error, emqx_backup_sync:on_config_changed(Conf, InvalidConf))
+        end,
+        InvalidValues
+    ).
+
 t_app_registers_backup_sync_cli(_Config) ->
     ok = emqx_ctl:stop(),
     {ok, _} = emqx_ctl:start_link(),
@@ -175,7 +200,8 @@ t_cli_status_error(_Config) ->
     try
         Output = emqx_backup_sync_cli:cmd(["status"]),
         ?assertMatch({match, _}, re:run(Output, "Status: error")),
-        ?assertMatch({match, _}, re:run(Output, "missing_primary_base_url"))
+        ?assertMatch({match, _}, re:run(Output, "invalid_config")),
+        ?assertMatch({match, _}, re:run(Output, "primary.base_url"))
     after
         unmock_print()
     end.
@@ -409,15 +435,15 @@ t_sync_once_uses_default_table_sets(_Config) ->
 
 t_sync_once_requires_primary_api_config(_Config) ->
     ?assertEqual(
-        {error, missing_primary_base_url},
+        invalid_config_error(<<"primary.base_url">>, <<>>),
         emqx_backup_sync_client:sync_once(remove_primary_field(conf(), <<"base_url">>))
     ),
     ?assertEqual(
-        {error, missing_primary_api_key},
+        invalid_config_error(<<"primary.api_key">>, <<>>),
         emqx_backup_sync_client:sync_once(remove_primary_field(conf(), <<"api_key">>))
     ),
     ?assertEqual(
-        {error, missing_primary_api_secret},
+        invalid_config_error(<<"primary.api_secret">>, <<>>),
         emqx_backup_sync_client:sync_once(remove_primary_field(conf(), <<"api_secret">>))
     ).
 
@@ -645,6 +671,11 @@ t_sync_once_passes_primary_ssl_options_to_httpc(Config) ->
     Cacertfile = filename:join(?config(priv_dir, Config), "backup_sync_ca.pem"),
     ok = file:write_file(Cacertfile, cert_file("cacert.pem")),
     BackupName = <<"emqx-export-2026-06-02.tar.gz">>,
+    ok = meck:new(emqx_tls_lib, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_tls_lib, to_client_opts, fun(Opts) ->
+        Self ! {tls_client_options, Opts},
+        meck:passthrough([Opts])
+    end),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
     meck:expect(httpc, request, fun
         (post, {_Url, _Headers, _ContentType, _Body}, HTTPOpts, _Opts) ->
@@ -683,9 +714,72 @@ t_sync_once_passes_primary_ssl_options_to_httpc(Config) ->
         ?assert(is_list(SSLOpts)),
         ?assertEqual(verify_peer, proplists:get_value(verify, SSLOpts)),
         ?assertEqual(Cacertfile, proplists:get_value(cacertfile, SSLOpts)),
-        ?assertEqual("primary.example.com", proplists:get_value(server_name_indication, SSLOpts))
+        ?assertEqual("primary.example.com", proplists:get_value(server_name_indication, SSLOpts)),
+        ClientSSLOpts =
+            receive
+                {tls_client_options, CapturedSSLOpts} -> CapturedSSLOpts
+            after 1000 ->
+                error(missing_tls_client_options)
+            end,
+        ?assertEqual(Cacertfile, maps:get(cacertfile, ClientSSLOpts)),
+        ?assertEqual(undefined, maps:get(certfile, ClientSSLOpts)),
+        ?assertEqual(undefined, maps:get(keyfile, ClientSSLOpts)),
+        flush_tls_client_options()
     after
+        catch meck:unload(emqx_tls_lib),
         catch meck:unload(httpc)
+    end.
+
+t_sync_once_ignores_ssl_for_http(_Config) ->
+    Self = self(),
+    BackupName = <<"emqx-export-2026-06-02.tar.gz">>,
+    ok = meck:new(emqx_tls_lib, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_tls_lib, to_client_opts, fun(Opts) ->
+        Self ! {tls_client_options, Opts},
+        []
+    end),
+    ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(httpc, request, fun
+        (post, {_Url, _Headers, _ContentType, _Body}, _HTTPOpts, _Opts) ->
+            {ok, {
+                {"HTTP/1.1", 200, "OK"}, [], emqx_utils_json:encode(#{<<"filename">> => BackupName})
+            }};
+        (get, {_Url, _Headers}, _HTTPOpts, _Opts) ->
+            {ok, {{"HTTP/1.1", 200, "OK"}, [], <<"backup">>}};
+        (delete, {_Url, _Headers}, _HTTPOpts, _Opts) ->
+            {ok, {{"HTTP/1.1", 204, "No Content"}, [], <<>>}}
+    end),
+    try
+        Conf = with_primary_ssl(conf(), #{<<"enable">> => true}),
+        Deps = #{
+            upload_fun => fun(_Filename, _Bin) -> ok end,
+            import_fun => fun(_Filename) -> {ok, #{db_errors => #{}, config_errors => #{}}} end,
+            delete_local_fun => fun(_Filename) -> ok end
+        },
+        flush_tls_client_options(),
+        ?assertMatch(
+            {ok, #{filename := BackupName}},
+            emqx_backup_sync_client:sync_once(Conf, Deps)
+        ),
+        ?assertEqual(
+            timeout,
+            receive
+                {tls_client_options, _} -> tls_options_must_not_be_built
+            after 100 ->
+                timeout
+            end
+        )
+    after
+        catch meck:unload(emqx_tls_lib),
+        catch meck:unload(httpc)
+    end.
+
+flush_tls_client_options() ->
+    receive
+        {tls_client_options, _} ->
+            flush_tls_client_options()
+    after 0 ->
+        ok
     end.
 
 t_sync_once_rejects_bad_primary_ssl_verify(_Config) ->
@@ -694,7 +788,7 @@ t_sync_once_rejects_bad_primary_ssl_verify(_Config) ->
         <<"verify">> => <<"verify_bad">>
     }),
     ?assertEqual(
-        {error, {bad_primary_ssl_verify, <<"verify_bad">>}},
+        invalid_config_error(<<"primary.ssl.verify">>, <<"verify_bad">>),
         emqx_backup_sync_client:sync_once(Conf)
     ).
 
@@ -704,7 +798,7 @@ t_sync_once_rejects_non_binary_primary_ssl_verify(_Config) ->
         <<"verify">> => verify_peer
     }),
     ?assertEqual(
-        {error, {bad_primary_ssl_verify, verify_peer}},
+        invalid_config_error(<<"primary.ssl.verify">>, verify_peer),
         emqx_backup_sync_client:validate_config(Conf)
     ).
 
@@ -1314,6 +1408,9 @@ t_real_sync_reports_observable_failure(Config) ->
 
 sync_config(Interval) ->
     #{<<"sync">> => #{<<"interval">> => Interval}}.
+
+invalid_config_error(Field, Value) ->
+    {error, #{cause => invalid_config, field => Field, value => Value}}.
 
 conf() ->
     conf(<<"http://primary:18083/api/v5/">>).

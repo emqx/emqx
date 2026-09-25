@@ -912,23 +912,40 @@ t_quota_lazy_hot_update(_) ->
             #{listener => {tcp, lazy_hot_update}}
         ),
         Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
-        %% No limit configured: both publishes pass.
+        %% No limit configured: both publishes pass and no container is built.
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
             emqx_channel:handle_in(Pub, Chann),
+        ?assertEqual(undefined, emqx_channel:info(quota, Chann1)),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann2} =
             emqx_channel:handle_in(Pub, Chann1),
+        ?assertEqual(undefined, emqx_channel:info(quota, Chann2)),
         %% Configure a tight rate at runtime; the limit must apply without reconnect.
         {ok, MessagesRate} = emqx_limiter_schema:to_rate("1/s"),
         ok = emqx_limiter:update_listener_limiters(ListenerId, #{messages_rate => MessagesRate}),
         timer:sleep(1200),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
             emqx_channel:handle_in(Pub, Chann2),
+        ?assertNotEqual(undefined, emqx_channel:info(quota, Chann3)),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
             emqx_channel:handle_in(Pub, Chann3),
         ok
     after
         emqx_limiter:delete_listener_limiters(ListenerId)
     end.
+
+-doc "Subscribing without any finite channel limit builds no limiter container.".
+t_quota_stays_absent_on_subscribe(_) ->
+    ok = meck:expect(
+        emqx_session,
+        subscribe,
+        fun(_, _, _, Session) -> {ok, Session} end
+    ),
+    Chann = channel(#{conn_state => connected, quota => undefined}),
+    TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
+    Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
+    Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
+    {ok, Replies, Chann1} = emqx_channel:handle_in(Subscribe, Chann),
+    ?assertEqual(undefined, emqx_channel:info(quota, Chann1)).
 
 t_mount_will_msg(_) ->
     Self = self(),

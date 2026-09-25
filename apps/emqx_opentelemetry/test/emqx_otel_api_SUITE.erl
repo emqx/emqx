@@ -12,6 +12,12 @@
 
 -define(OTEL_API_PATH, emqx_mgmt_api_test_util:api_path(["opentelemetry"])).
 -define(CONF_PATH, [opentelemetry]).
+-define(MASKED_EXPORTER_CONF, #{
+    <<"exporter">> := #{
+        <<"headers">> := #{<<"Authorization">> := <<"******">>},
+        <<"ssl_options">> := #{<<"password">> := <<"******">>}
+    }
+}).
 
 -define(CACERT, <<
     "-----BEGIN CERTIFICATE-----\n"
@@ -317,6 +323,64 @@ t_put_cert(Config) ->
     ),
     ct:pal("CA certfile1: ~p", [CaFile1]),
     ?assertNot(filelib:is_file(CaFile1)).
+
+%% The exporter configuration may carry credentials in `headers' and in
+%% `ssl_options.password': they must be masked in the responses, and submitting
+%% a masked body back must keep the stored values.
+t_config_redaction(Config) ->
+    Auth = ?config(auth, Config),
+    Path = ?OTEL_API_PATH,
+    HeaderSecret = <<"Bearer otel-header-secret">>,
+    TLSSecret = <<"otel-tls-secret">>,
+    Conf = #{
+        <<"exporter">> => #{
+            <<"endpoint">> => <<"http://localhost:4317">>,
+            <<"headers">> => #{<<"Authorization">> => HeaderSecret},
+            <<"ssl_options">> => #{<<"enable">> => false, <<"password">> => TLSSecret}
+        }
+    },
+    {ok, PutBody0} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, Conf),
+    PutBody = iolist_to_binary(PutBody0),
+    ?assertMatch(?MASKED_EXPORTER_CONF, emqx_utils_json:decode(PutBody)),
+    ?assertEqual(nomatch, binary:match(PutBody, HeaderSecret)),
+    ?assertEqual(nomatch, binary:match(PutBody, TLSSecret)),
+
+    {ok, GetBody0} = emqx_mgmt_api_test_util:request_api(get, Path, Auth),
+    GetBody = iolist_to_binary(GetBody0),
+    GetConf = emqx_utils_json:decode(GetBody),
+    ?assertMatch(?MASKED_EXPORTER_CONF, GetConf),
+    ?assertEqual(nomatch, binary:match(GetBody, HeaderSecret)),
+    ?assertEqual(nomatch, binary:match(GetBody, TLSSecret)),
+
+    %% Re-submitting the masked body must not overwrite the stored values.
+    ?assertMatch({ok, _}, emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, GetConf)),
+    ?assertEqual(
+        #{<<"Authorization">> => HeaderSecret},
+        emqx:get_raw_config([opentelemetry, exporter, headers])
+    ),
+    ?assertEqual(
+        TLSSecret,
+        emqx:get_raw_config([opentelemetry, exporter, ssl_options, password])
+    ),
+    {ok, GetBody1} = emqx_mgmt_api_test_util:request_api(get, Path, Auth),
+    ?assertMatch(?MASKED_EXPORTER_CONF, emqx_utils_json:decode(GetBody1)),
+
+    %% A failed update must neither crash nor echo the value it restored.
+    BadCert = #{
+        <<"exporter">> => #{
+            <<"ssl_options">> => #{
+                <<"enable">> => true,
+                <<"cacertfile">> => <<"not a pem">>,
+                <<"password">> => <<"******">>
+            }
+        }
+    },
+    {error, {{_, 400, _}, _ErrHeaders, ErrBody0}} = emqx_mgmt_api_test_util:request_api(
+        put, Path, [], Auth, BadCert, #{return_all => true}
+    ),
+    ?assertEqual(nomatch, binary:match(iolist_to_binary(ErrBody0), TLSSecret)),
+
+    ok.
 
 -doc """
 Smoke tests that verify that the api matches the root schema, by updating it with a

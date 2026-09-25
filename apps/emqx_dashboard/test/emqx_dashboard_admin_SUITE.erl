@@ -11,6 +11,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -197,9 +198,17 @@ umbrella_apps() ->
         end
     ].
 
+%% Every authorized handler of the loaded API modules. Routes declared
+%% `security => []' never reach the authorize callback, so they are no
+%% permission surface and are left out. Test-only minirest modules
+%% (`*_SUITE') are left out too: they declare no scopes.
 all_handlers() ->
     AllMethods = [get, post, put, delete],
-    Mods = minirest_api:find_api_modules(umbrella_apps()),
+    Mods = [
+        Mod
+     || Mod <- minirest_api:find_api_modules(umbrella_apps()),
+        not lists:suffix("_SUITE", atom_to_list(Mod))
+    ],
     lists:flatmap(
         fun(Mod) ->
             Paths = Mod:paths(),
@@ -208,7 +217,9 @@ all_handlers() ->
                     #{'operationId' := Fn} = Sc = Mod:schema(Path),
                     [
                         #{method => M, module => Mod, function => Fn}
-                     || M <- maps:keys(Sc), lists:member(M, AllMethods)
+                     || M <- maps:keys(Sc),
+                        lists:member(M, AllMethods),
+                        maps:get(security, maps:get(M, Sc), undefined) =/= []
                     ]
                 end,
                 Paths
@@ -574,11 +585,11 @@ Simple assertions about namespaced user permissions.
      are mostly to avoid accidentally mutating the wrong resources rather than hiding
      information.
    - Exception: endpoints whose response would expose MQTT payload content (per-client
-     mqueue/inflight, retained, delayed) or client-uploaded file content (File Transfer
-     listing and download) are denied for namespaced users by RBAC, because the
-     underlying stores are global and cannot be safely filtered by namespace.  Those
-     handlers are kept in a static deny list here so this assertion does not have to
-     reach into RBAC internals.
+     mqueue/inflight, retained, delayed), client-uploaded file content (File Transfer
+     listing and download) or the global plugin configuration are denied for namespaced
+     users by RBAC, because the underlying stores are global and cannot be safely filtered
+     by namespace.  Those handlers are kept in a static deny list here so this assertion
+     does not have to reach into RBAC internals.
 """.
 t_namespaced_user_permissions(_TCConfig) ->
     GlobalAdminHeader = create_superuser(),
@@ -597,12 +608,18 @@ t_namespaced_user_permissions(_TCConfig) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     AllHandlers = [_ | _] = all_handlers(),
     Denied = namespaced_get_denylist(),
+    %% The scope layer is a separate gate on top of RBAC. A namespaced
+    %% administrator holds `?NS_ADMIN_ALLOWED_SCOPES', so handlers
+    %% scoped outside it (gateways, sso_management, ...) are denied
+    %% there by design. Keep the handlers that layer lets through;
+    %% RBAC is what this case checks.
     GetHandlers =
         [_ | _] =
         [
             FHI
          || #{method := get} = FHI <- AllHandlers,
-            not lists:member(maps:with([method, module, function], FHI), Denied)
+            not lists:member(maps:with([method, module, function], FHI), Denied),
+            held_by_namespaced_admin(FHI)
         ],
     FakeReq = #{path => <<"/api/v5/clients">>},
     Failures =
@@ -622,6 +639,18 @@ t_namespaced_user_permissions(_TCConfig) ->
         ct:fail({should_have_been_allowed, Failures})
     end,
     ok.
+
+held_by_namespaced_admin(HandlerInfo) ->
+    case emqx_mgmt_api_key_scopes:classify_handler(HandlerInfo) of
+        {scopes, Declared} ->
+            emqx_mgmt_api_key_scopes:any_scope_granted(Declared, ?NS_ADMIN_ALLOWED_SCOPES);
+        public ->
+            true;
+        %% An unmapped handler is denied to a user with an explicit
+        %% scope list. Keep it so the gap shows up here as a failure.
+        not_found ->
+            true
+    end.
 
 %% Keep in sync with the namespaced-deny clauses in
 %% `emqx_dashboard_rbac:do_check_rbac/3' for these modules.  Adding a new
@@ -645,7 +674,9 @@ namespaced_get_denylist() ->
             module => emqx_ft_storage_exporter_fs_api,
             function => '/file_transfer/file'
         },
-        #{method => get, module => emqx_audit_api, function => audit}
+        #{method => get, module => emqx_audit_api, function => audit},
+        #{method => get, module => emqx_mgmt_api_plugins, function => plugin_config},
+        #{method => get, module => emqx_mgmt_api_plugins, function => download_plugin_config}
     ].
 
 -doc """

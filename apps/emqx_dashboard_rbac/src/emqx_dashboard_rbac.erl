@@ -11,7 +11,7 @@
 
 -export([
     check_rbac/3,
-    check_login_user_scopes/2,
+    check_login_user_scopes/3,
     parse_dashboard_role/1,
     parse_api_role/1,
     serialize_role/1,
@@ -56,6 +56,7 @@
 -define(FT_API(METHOD, FN), ?API(emqx_ft_api, METHOD, FN)).
 -define(FT_FS_API(METHOD, FN), ?API(emqx_ft_storage_exporter_fs_api, METHOD, FN)).
 -define(AUDIT_API(METHOD, FN), ?API(emqx_audit_api, METHOD, FN)).
+-define(PLUGINS_API(METHOD, FN), ?API(emqx_mgmt_api_plugins, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -71,26 +72,34 @@ parse_dashboard_role(Role) ->
     parse_role(dashboard, Role).
 
 %% Look up the login user's `scopes' from the admin record's extra map
-%% and cross-reference against the path-to-scope mapping built from all
-%% minirest_api modules' scopes/0 callbacks. Semantics:
+%% and check them against the scopes declared for the handler that
+%% serves the request. The handler is the `module' and `function' of
+%% minirest's HandlerInfo: the route cowboy dispatched to, so no path
+%% is re-matched here. Semantics:
 %%
 %%   * scopes absent  (undefined)        -> fall back to RBAC default
 %%                                          (already passed at this
 %%                                          point), so allow.
-%%   * scopes = [...]  (list)            -> path must map to one of
-%%                                          the listed scopes; unmapped
-%%                                          paths fail-open (allow).
+%%   * scopes = [...]  (list)            -> the handler's scopes must
+%%                                          overlap the listed scopes;
+%%                                          unmapped handlers are
+%%                                          denied (fail closed).
 %%
-%% The unmapped-path fail-open is consistent with API key scope
-%% semantics (emqx_mgmt_auth:check_path_in_scopes/2). CT
+%% Public endpoints are allowed for every user. An unmapped handler is
+%% allowed only for a user with no explicit scope list, so a catalog
+%% gap cannot grant a deliberately restricted user an endpoint nobody
+%% scoped.
+%%
+%% This differs from API keys: emqx_mgmt_auth:check_scopes/2 allows
+%% unmapped handlers even for a key with an explicit scope list. CT
 %% t_all_endpoints_covered_by_scopes guards against accidentally
-%% leaving a non-public path unmapped.
+%% leaving a non-public endpoint unmapped.
 %%
 %% IMPORTANT: this predicate is for dashboard LOGIN users only. It must
 %% NOT be invoked from API-key authorisation paths because:
 %%   1. API keys have their own scope mechanism via
-%%      emqx_mgmt_auth:check_path_in_scopes/2 — invoking this on top
-%%      is redundant.
+%%      emqx_mgmt_auth:check_scopes/2 — invoking this on top is
+%%      redundant.
 %%   2. If an API-key string value collided with a dashboard username,
 %%      this lookup would resolve against that user's extra.scopes and
 %%      produce a wrong authorisation decision for the API key.
@@ -98,33 +107,21 @@ parse_dashboard_role(Role) ->
 %% primary key (binary for local users, ?SSO_USERNAME tuple for SSO
 %% users). The dashboard token verifier reconstructs the SSO tuple via
 %% emqx_dashboard_token:resolve_admin_key/1 before invoking us.
-check_login_user_scopes(Username, Req) when is_map(Req) ->
-    AbsPath = cowboy_req:path(Req),
-    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
-        {ok, Path} ->
-            check_login_user_scopes_for_path(Username, Path);
-        _ ->
-            %% Requests outside the `/api/v5' management API — e.g. the
-            %% OpenAPI spec endpoints (`/api-docs/swagger.json',
-            %% `/api-spec.html', `/api-spec.md', ...) served by
-            %% emqx_dashboard_api_spec_handler — are not scope-mapped
-            %% management operations. They are already gated by
-            %% authentication and role-based RBAC; the login-user scope
-            %% layer must not deny them. Treat them as unmapped (allow),
-            %% consistent with check_login_user_scopes_strict/2 which
-            %% allows any path that has no scope mapping.
-            true
-    end;
-check_login_user_scopes(Username, Path) when is_binary(Path) ->
-    check_login_user_scopes_for_path(Username, Path).
-
-%% Self-service lives on `/current_user/*', which
-%% `emqx_dashboard_api:scopes/0' declares ?SCOPE_PUBLIC, so
-%% `check_login_user_scopes_strict/2' allows it through the `public'
-%% branch. Everything under `/users/' is management of another user and
-%% is scope-checked without exception.
-check_login_user_scopes_for_path(Username, Path) ->
-    check_login_user_scopes_strict(Username, Path).
+-spec check_login_user_scopes(
+    username() | tuple(), emqx_dashboard:request(), emqx_dashboard:handler_info()
+) -> boolean().
+check_login_user_scopes(Username, _Req, HandlerInfo) ->
+    %% Self-service has its own endpoints under `/current_user', which
+    %% `emqx_dashboard_api:scopes/0' declares ?SCOPE_PUBLIC. A user can
+    %% always read their own profile, change their own password and set
+    %% up their own MFA, whatever scopes they hold.
+    %%
+    %% Everything under `/users/' is management of an account and is
+    %% scope-checked without exception, including when the target is the
+    %% caller. Otherwise an administrator who set `scopes = []' could PUT
+    %% their own record to add admin-only scopes back, defeating the
+    %% explicit self-restriction.
+    check_login_user_scopes_strict(Username, HandlerInfo).
 
 parse_api_role(Role) ->
     parse_role(api, Role).
@@ -136,25 +133,28 @@ serialize_role(#{?role := Role, ?namespace := ?global_ns}) ->
 serialize_role(#{?role := Role, ?namespace := Namespace}) when is_binary(Namespace) ->
     <<"ns:", Namespace/binary, "::", Role/binary>>.
 
-check_login_user_scopes_strict(Username, Path) ->
-    case emqx_mgmt_api_key_scopes:classify_path(Path) of
+check_login_user_scopes_strict(Username, HandlerInfo) ->
+    case emqx_mgmt_api_key_scopes:classify_handler(HandlerInfo) of
         %% Explicitly public endpoint — allow regardless of scopes.
         public ->
             true;
-        %% Path maps to no known scope. Fail closed only for users that
-        %% carry an explicit scope list (deliberately restricted), so a
-        %% catalog gap cannot silently grant them an unmapped endpoint.
-        %% Users with no explicit scopes are not scope-restricted and stay
-        %% governed by role-based RBAC alone, so they are not locked out.
+        %% Handler maps to no known scope. Fail closed only for users
+        %% that carry an explicit scope list (deliberately restricted),
+        %% so a catalog gap cannot silently grant them an unmapped
+        %% endpoint. Users with no explicit scopes are not
+        %% scope-restricted and stay governed by role-based RBAC alone,
+        %% so they are not locked out.
         not_found ->
             emqx_dashboard_admin:scopes_of(Username) =:= undefined;
-        {scope, PathScope} ->
+        {scopes, Declared} ->
             %% Work on the effective scope list (role-default expanded) so
             %% administrators with no explicit scopes implicitly hold the
             %% full catalog and viewers implicitly hold the common scopes.
             %% Explicit [] is honoured as "no permissions".
+            %% An endpoint may declare more than one acceptable scope;
+            %% holding any one of them grants access.
             Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
-            lists:member(PathScope, Scopes)
+            emqx_mgmt_api_key_scopes:any_scope_granted(Declared, Scopes)
     end.
 
 parse_role(Type, Role0) ->
@@ -249,6 +249,18 @@ do_check_rbac(#{?namespace := Namespace}, _, ?AUDIT_API(get, audit)) when
     %% request bodies and arguments. Reading it would expose activity outside the
     %% caller's namespace.
     {error, <<"The audit log is not available to namespaced users">>};
+do_check_rbac(ActorContext, _, ?PLUGINS_API(get, Fn)) when
+    (Fn == plugin_config orelse Fn == download_plugin_config)
+->
+    case ActorContext of
+        #{?namespace := Namespace} when is_binary(Namespace) ->
+            %% The plugin configuration is global; it is not scoped by namespace.
+            {error, <<"Plugin configuration is not available to namespaced users">>};
+        _ ->
+            %% The remaining global principals (for example viewers) may not read the
+            %% plugin configuration either.
+            {error, <<"Plugin configuration is only available to the global administrator">>}
+    end;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
