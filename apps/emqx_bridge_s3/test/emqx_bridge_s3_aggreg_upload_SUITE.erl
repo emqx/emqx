@@ -18,7 +18,7 @@
 -define(BRIDGE_TYPE, <<"s3">>).
 -define(CONNECTOR_TYPE, <<"s3">>).
 
--define(PROXY_NAME, "minio_tcp").
+-define(PROXY_NAME, "seaweedfs_tcp").
 
 -define(CONF_TIME_INTERVAL, 4000).
 -define(CONF_MAX_RECORDS, 100).
@@ -427,7 +427,7 @@ t_aggreg_pending_upload_restart(Config) ->
     %% Stop the bridge.
     {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
     %% Verify that pending uploads have been gracefully aborted.
-    %% NOTE: Minio does not support multipart upload listing w/o prefix.
+    %% List the multipart upload by its key prefix.
     ?assertEqual(
         [],
         emqx_bridge_s3_test_helpers:list_pending_uploads(Bucket, ObjectKey)

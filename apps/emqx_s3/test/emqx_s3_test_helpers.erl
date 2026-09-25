@@ -7,14 +7,14 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(ACCESS_KEY_ID, "minioadmin").
--define(SECRET_ACCESS_KEY, "minioadmin").
+-define(ACCESS_KEY_ID, "seaweedfsadmin").
+-define(SECRET_ACCESS_KEY, "seaweedfsadmin").
 
 -define(TOXIPROXY_HOST, "toxiproxy").
 -define(TOXIPROXY_PORT, 8474).
 
--define(MINIO_HOST, "minio.net").
--define(MINIO_PORT, 9000).
+-define(SEAWEEDFS_HOST, "seaweedfs.net").
+-define(SEAWEEDFS_PORT, 9000).
 
 -define(TCP_HOST, ?TOXIPROXY_HOST).
 -define(TCP_PORT, 19000).
@@ -43,7 +43,7 @@ aws_config(tcp) ->
 aws_config(tls) ->
     aws_config(tls, ?TLS_HOST, ?TLS_PORT);
 aws_config({tcp, direct}) ->
-    aws_config(tcp, ?MINIO_HOST, ?MINIO_PORT).
+    aws_config(tcp, ?SEAWEEDFS_HOST, ?SEAWEEDFS_PORT).
 
 aws_config(tcp, Host, Port) ->
     erlcloud_s3_new(
@@ -98,8 +98,8 @@ base_raw_config({tcp, direct}) ->
     maps:merge(
         base_raw_config(tcp),
         #{
-            <<"host">> => ?MINIO_HOST,
-            <<"port">> => ?MINIO_PORT
+            <<"host">> => ?SEAWEEDFS_HOST,
+            <<"port">> => ?SEAWEEDFS_PORT
         }
     ).
 
@@ -158,8 +158,8 @@ delete_bucket(Bucket, AwsConfig) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-toxproxy_name(tcp) -> "minio_tcp";
-toxproxy_name(tls) -> "minio_tls".
+toxproxy_name(tcp) -> "seaweedfs_tcp";
+toxproxy_name(tls) -> "seaweedfs_tls".
 
 cert_path(FileName) ->
     Dir = code:lib_dir(emqx_s3, test),
