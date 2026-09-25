@@ -97,7 +97,7 @@ $share/g/sensor/+/temperature?location = roomA & value >= 25
 
 ## Additional Constraints
 
-- Filtered subscriptions are rejected for `$queue/...`, `$q/...`,
-  `$stream/...`, and `$s/...` topic filters.
+- Filtered subscriptions are rejected for `$queue/...` and `$stream/...`
+  topic filters.
 - Unsubscribe requests strip the `?filter-expression` suffix before topic-filter
   validation when the feature is enabled.
