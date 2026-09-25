@@ -467,6 +467,10 @@ resource_id(Config) ->
     Name = ?config(greptimedb_name, Config),
     emqx_bridge_resource:resource_id(Type, Name).
 
+bridge_metrics(Config) ->
+    Name = ?config(greptimedb_name, Config),
+    emqx_bridge:get_metrics(?ACTION_TYPE, Name).
+
 create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
@@ -898,6 +902,304 @@ t_boolean_variants(Config) ->
     ),
     ok.
 
+t_auto_cast_integer_to_float(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} float_value=${payload.float_key}">>
+            }
+        ),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    SendValue =
+        fun(ClientId, Value) ->
+            SentData = #{
+                <<"clientid">> => ClientId,
+                <<"topic">> => Topic,
+                <<"payload">> => #{<<"float_key">> => Value},
+                <<"timestamp">> => erlang:system_time(millisecond)
+            },
+            case QueryMode of
+                sync -> ?assertMatch({ok, _}, send_message(Config, SentData));
+                async -> ?assertEqual(ok, send_message(Config, SentData))
+            end
+        end,
+    FloatClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    SendValue(FloatClientId, 24.5),
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            #{<<"float_value">> := 24.5},
+            query_by_clientid(FloatClientId, Config)
+        )
+    ),
+    IntegerClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    SendValue(IntegerClientId, 30),
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            #{<<"float_value">> := 30.0},
+            query_by_clientid(IntegerClientId, Config)
+        )
+    ),
+    ok.
+
+t_partially_invalid_batch(Config) ->
+    case ?config(batch_size, Config) of
+        1 ->
+            {skip, requires_batching};
+        _ ->
+            do_t_partially_invalid_batch(Config)
+    end.
+
+do_t_partially_invalid_batch(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"resource_opts">> => #{
+                    <<"batch_size">> => 3,
+                    <<"batch_time">> => <<"5s">>,
+                    <<"metrics_flush_interval">> => <<"100ms">>,
+                    <<"worker_pool_size">> => 1
+                },
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} value=${payload.value}i">>
+            }
+        ),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    ClientIds = [emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- lists:seq(1, 3)],
+    [ClientId0, ClientId1, ClientId2] = ClientIds,
+    Values = [101, 20.5, 303],
+    Batch =
+        lists:zipwith(
+            fun(ClientId, Value) ->
+                #{
+                    <<"clientid">> => ClientId,
+                    <<"topic">> => Topic,
+                    <<"payload">> => #{<<"value">> => Value},
+                    <<"timestamp">> => erlang:system_time(millisecond)
+                }
+            end,
+            ClientIds,
+            Values
+        ),
+    InvalidResult = {error, {unrecoverable_error, points_trans_failed}},
+    ?check_trace(
+        begin
+            Results = emqx_utils:pmap(fun(Data) -> send_message(Config, Data) end, Batch, infinity),
+            case QueryMode of
+                sync ->
+                    ?assertMatch([{ok, _}, InvalidResult, {ok, _}], Results);
+                async ->
+                    ?assertEqual([ok, ok, ok], Results)
+            end,
+            ?retry(
+                500,
+                20,
+                begin
+                    ?assertMatch(
+                        #{<<"value">> := 101},
+                        query_by_clientid(ClientId0, Config)
+                    ),
+                    ?assertEqual(#{}, query_by_clientid(ClientId1, Config)),
+                    ?assertMatch(
+                        #{<<"value">> := 303},
+                        query_by_clientid(ClientId2, Config)
+                    )
+                end
+            ),
+            ?retry(
+                100,
+                20,
+                begin
+                    #{counters := Counters} = bridge_metrics(Config),
+                    ?assertMatch(
+                        #{matched := 3, success := 2, failed := 1},
+                        Counters
+                    )
+                end
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            BatchQueryEvents =
+                ?of_kind(call_batch_query, Trace) ++
+                    ?of_kind(call_batch_query_async, Trace),
+            ?assertMatch([#{batch := [_, _, _]}], BatchQueryEvents),
+            SendEvents = ?of_kind(greptimedb_connector_send_query, Trace),
+            ?assertNotEqual([], SendEvents),
+            ?assert(lists:all(fun(#{batch := IsBatch}) -> IsBatch end, SendEvents)),
+            ?assertEqual(
+                2,
+                lists:sum([length(Points) || #{points := Points} <- SendEvents])
+            ),
+            ?assertMatch(
+                [#{batch := true, error := points_trans_failed}],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_invalid_data_does_not_block_worker(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"resource_opts">> => #{
+                    <<"metrics_flush_interval">> => <<"100ms">>,
+                    <<"worker_pool_size">> => 1
+                },
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} value=${payload.value}i">>
+            }
+        ),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Message =
+        fun(ClientId, Value) ->
+            #{
+                <<"clientid">> => ClientId,
+                <<"topic">> => Topic,
+                <<"payload">> => #{<<"value">> => Value},
+                <<"timestamp">> => erlang:system_time(millisecond)
+            }
+        end,
+    InvalidClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    InvalidResult = send_message(Config, Message(InvalidClientId, 20.5)),
+    case QueryMode of
+        sync -> ?assertMatch({error, {unrecoverable_error, _}}, InvalidResult);
+        async -> ?assertEqual(ok, InvalidResult)
+    end,
+    ?retry(
+        100,
+        20,
+        begin
+            #{
+                counters := #{matched := 1, failed := 1},
+                gauges := #{queuing := 0, inflight := 0}
+            } = bridge_metrics(Config)
+        end
+    ),
+    ValidClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ValidResult = send_message(Config, Message(ValidClientId, 42)),
+    case QueryMode of
+        sync -> ?assertMatch({ok, _}, ValidResult);
+        async -> ?assertEqual(ok, ValidResult)
+    end,
+    ?retry(
+        500,
+        20,
+        begin
+            ?assertMatch(
+                #{<<"value">> := 42},
+                query_by_clientid(ValidClientId, Config)
+            ),
+            #{
+                counters := #{matched := 2, success := 1, failed := 1},
+                gauges := #{queuing := 0, inflight := 0}
+            } = bridge_metrics(Config)
+        end
+    ),
+    ok.
+
+t_numeric_ranges(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"resource_opts">> => #{
+                    <<"metrics_flush_interval">> => <<"100ms">>,
+                    <<"worker_pool_size">> => 1
+                },
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} ", "int_value=${payload.int_value}i,",
+                        "uint_value=${payload.uint_value}u,", "float_value=${payload.float_value}">>
+            }
+        ),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Message =
+        fun(ClientId, Payload, Timestamp) ->
+            #{
+                <<"clientid">> => ClientId,
+                <<"topic">> => Topic,
+                <<"payload">> => Payload,
+                <<"timestamp">> => Timestamp
+            }
+        end,
+    ValidPayload = #{
+        <<"int_value">> => 42,
+        <<"uint_value">> => 42,
+        <<"float_value">> => 42
+    },
+    Now = erlang:system_time(millisecond),
+    InvalidCases = [
+        {signed_underflow, ValidPayload#{<<"int_value">> => -16#8000000000000001}, Now},
+        {signed_overflow, ValidPayload#{<<"int_value">> => 16#8000000000000000}, Now},
+        {negative_unsigned, ValidPayload#{<<"uint_value">> => -1}, Now},
+        {unsigned_overflow, ValidPayload#{<<"uint_value">> => 16#10000000000000000}, Now},
+        {float_overflow, ValidPayload#{<<"float_value">> => 1 bsl 1024}, Now},
+        {timestamp_overflow, ValidPayload, 16#7FFFFFFFFFFFFFFF div 1_000_000 + 1}
+    ],
+    InvalidMessages = [
+        {ClientId, Message(ClientId, Payload, Timestamp)}
+     || {_Case, Payload, Timestamp} <- InvalidCases,
+        ClientId <- [emqx_guid:to_hexstr(emqx_guid:gen())]
+    ],
+    ValidClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Messages =
+        InvalidMessages ++
+            [
+                {ValidClientId, Message(ValidClientId, ValidPayload, Now)}
+            ],
+    Results = [send_message(Config, Data) || {_ClientId, Data} <- Messages],
+    case QueryMode of
+        sync ->
+            {InvalidResults, [ValidResult]} = lists:split(length(InvalidMessages), Results),
+            lists:foreach(
+                fun(Result) ->
+                    ?assertMatch({error, {unrecoverable_error, _}}, Result)
+                end,
+                InvalidResults
+            ),
+            ?assertMatch({ok, _}, ValidResult);
+        async ->
+            ?assertEqual(lists:duplicate(length(Messages), ok), Results)
+    end,
+    ?retry(
+        500,
+        20,
+        begin
+            lists:foreach(
+                fun({ClientId, _Data}) ->
+                    ?assertEqual(#{}, query_by_clientid(ClientId, Config))
+                end,
+                InvalidMessages
+            ),
+            ?assertMatch(
+                #{
+                    <<"int_value">> := 42,
+                    <<"uint_value">> := 42,
+                    <<"float_value">> := 42.0
+                },
+                query_by_clientid(ValidClientId, Config)
+            ),
+            #{
+                counters := #{matched := 7, success := 1, failed := 6},
+                gauges := #{queuing := 0, inflight := 0}
+            } = bridge_metrics(Config)
+        end
+    ),
+    ok.
+
 t_bad_timestamp(Config) ->
     GreptimedbType = ?config(greptimedb_type, Config),
     GreptimedbName = ?config(greptimedb_name, Config),
@@ -974,9 +1276,10 @@ t_bad_timestamp(Config) ->
                     );
                 {sync, false} ->
                     ?assertEqual(
-                        {error, [
-                            {error, {bad_timestamp, <<"bad_timestamp">>}}
-                        ]},
+                        {error,
+                            {unrecoverable_error, [
+                                {error, {bad_timestamp, <<"bad_timestamp">>}}
+                            ]}},
                         Return
                     );
                 {sync, true} ->
