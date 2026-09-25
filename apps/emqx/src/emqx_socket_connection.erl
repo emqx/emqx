@@ -440,7 +440,30 @@ handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
-            ?MODULE:recvloop(Parent, NewState);
+            drain_loop(Parent, NewState);
+        {stop, Reason, NewSate} ->
+            terminate(Reason, NewSate)
+    end.
+
+drain_loop(Parent, State) ->
+    receive
+        Msg ->
+            handle_recv_drain(Msg, Parent, State)
+    after 1 ->
+        %% NOTE
+        %% Run a minor GC after a short idle period to make the next minor GC
+        %% less likely to occur in the middle of message processing, while
+        %% temporary terms are still live and could be promoted to the old heap.
+        run_minor_gc(),
+        ?MODULE:recvloop(Parent, State)
+    end.
+
+handle_recv_drain({system, From, Request}, Parent, State) ->
+    sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
+handle_recv_drain(Msg, Parent, State) ->
+    case process_msg(Msg, ensure_stats_timer(State)) of
+        {ok, NewState} ->
+            drain_loop(Parent, NewState);
         {stop, Reason, NewSate} ->
             terminate(Reason, NewSate)
     end.
@@ -614,16 +637,13 @@ handle_msg({outgoing, Packets}, State) ->
         {ok, NState} ->
             case maybe_signal_congestion(NState) of
                 {ok, FState} ->
-                    {ok, run_minor_gc, FState};
+                    {ok, FState};
                 {ok, Msgs, FState} ->
-                    {ok, [Msgs, run_minor_gc], FState}
+                    {ok, Msgs, FState}
             end;
         {ok, {sock_error, _}, _State} = Error ->
             Error
     end;
-handle_msg(run_minor_gc, State) ->
-    run_minor_gc(),
-    {ok, State};
 handle_msg(
     Deliver = #deliver{message = _Msg},
     #state{conf = #conf{active_n = ActiveN}} = State
@@ -827,7 +847,7 @@ handle_data(
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
     NeedMore = RequestMore andalso SS =/= closed,
-    Tail = [run_minor_gc || N > 0] ++ [{request_more_data, More} || NeedMore],
+    Tail = [{request_more_data, More} || NeedMore],
     Msgs = next_incoming_msgs(Tail, Packets),
     {ok, Msgs, State}.
 
