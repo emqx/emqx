@@ -150,7 +150,10 @@ that a caller can skip building the container when this returns `false`.
 """.
 -spec channel_limits_configured(zone(), listener_id()) -> boolean().
 channel_limits_configured(ZoneName, ListenerId) ->
-    Names = [messages, bytes],
+    %% Must cover exactly the limiters `create_channel_client_container/2' holds,
+    %% delivery included: a zone that limits only delivery still needs the
+    %% container.
+    Names = ?CHANNEL_LIM_NAMES,
     any_finite_limit(zone_group(ZoneName), Names) orelse
         any_finite_limit(channel_group(ListenerId), Names).
 

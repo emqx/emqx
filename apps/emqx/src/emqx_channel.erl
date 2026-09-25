@@ -1262,10 +1262,18 @@ do_handle_deliver(
             handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
     end.
 
+%% The session consumes the delivery limiters from this context. The container is
+%% built on demand, so pass it on only once it exists; `emqx_session_mem' skips
+%% the delivery check when the context carries no limiter. `pop_limiter_ctx/1'
+%% puts whatever the session leaves in the context back on the channel, so the
+%% container built here is not lost.
 stash_limiter_ctx(Channel) ->
-    #channel{quota = Limiter0} = Channel,
-    DeliverCtx = #{limiter => Limiter0},
-    emqx_session:put_context(DeliverCtx).
+    case ensure_quota_container(Channel) of
+        #channel{quota = undefined} ->
+            emqx_session:put_context(#{});
+        #channel{quota = Limiter} ->
+            emqx_session:put_context(#{limiter => Limiter})
+    end.
 
 pop_limiter_ctx(Channel0) ->
     case emqx_session:pop_context() of
@@ -2766,14 +2774,12 @@ check_quota_exceeded(
 %% The container copies per-listener constants onto the connection heap, so it is
 %% built only when a limit can actually reject a publish. A hook may have installed
 %% one already (multi-tenancy), in which case it is used as is.
-try_consume_quota(Needs, #channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
-    #{zone := Zone, listener := ListenerId} = ClientInfo,
-    case emqx_limiter:channel_limits_configured(Zone, ListenerId) of
-        false ->
+try_consume_quota(Needs, #channel{quota = undefined} = Channel0) ->
+    case ensure_quota_container(Channel0) of
+        #channel{quota = undefined} = Channel ->
             {true, Channel};
-        true ->
-            Container = emqx_limiter:create_channel_client_container(Zone, ListenerId),
-            try_consume_quota(Needs, Channel#channel{quota = Container})
+        Channel ->
+            try_consume_quota(Needs, Channel)
     end;
 try_consume_quota(Needs, #channel{quota = Quota0} = Channel) ->
     case emqx_limiter_client_container:try_consume(Quota0, Needs) of
@@ -2782,6 +2788,19 @@ try_consume_quota(Needs, #channel{quota = Quota0} = Channel) ->
         {false, Quota, Reason} ->
             {false, Channel#channel{quota = Quota}, Reason}
     end.
+
+%% Build the container on first use, and only when a limit can actually reject.
+%% `quota' stays `undefined' when nothing is limited.
+ensure_quota_container(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+    #{zone := Zone, listener := ListenerId} = ClientInfo,
+    case emqx_limiter:channel_limits_configured(Zone, ListenerId) of
+        false ->
+            Channel;
+        true ->
+            Channel#channel{quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)}
+    end;
+ensure_quota_container(Channel) ->
+    Channel.
 
 %%--------------------------------------------------------------------
 %% Check Pub Alias
