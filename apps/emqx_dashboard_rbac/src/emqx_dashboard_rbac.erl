@@ -52,6 +52,7 @@
 -define(FT_FS_API(METHOD, FN), ?API(emqx_ft_storage_exporter_fs_api, METHOD, FN)).
 -define(AUDIT_API(METHOD, FN), ?API(emqx_audit_api, METHOD, FN)).
 -define(PLUGINS_API(METHOD, FN), ?API(emqx_mgmt_api_plugins, METHOD, FN)).
+-define(CONFIGS_API(METHOD, FN), ?API(emqx_mgmt_api_configs, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -282,6 +283,19 @@ do_check_rbac(ActorContext, _, ?PLUGINS_API(get, Fn)) when
             %% plugin configuration either.
             {error, <<"Plugin configuration is only available to the global administrator">>}
     end;
+do_check_rbac(#{?role := Role}, Req, ?CONFIGS_API(get, configs)) when
+    Role == ?ROLE_SUPERUSER orelse Role == ?ROLE_VIEWER
+->
+    %% `GET /configs' negotiated to `text/plain' is the HOCON export that pairs with
+    %% `PUT /configs'. It is not fully redacted, so only the global administrator
+    %% (allowed by the first clause) may read it. The `application/json' variant stays
+    %% readable by every role that may `GET'.
+    case wants_plaintext_config_dump(Req) of
+        true ->
+            {error, <<"The configuration export is only available to the global administrator">>};
+        false ->
+            true
+    end;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
@@ -418,6 +432,20 @@ do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?API_K
     true;
 do_check_rbac(_, _, _) ->
     {error, <<"You don't have permission to access this resource">>}.
+
+%% Mirrors the `Accept' negotiation in `emqx_mgmt_api_configs:configs/3': it prefers
+%% `text/plain', and a missing `Accept' header (or `*/*') resolves to that first
+%% preference.
+wants_plaintext_config_dump(Req) ->
+    Accept = cowboy_req:header(<<"accept">>, Req, <<"*/*">>),
+    Accepts = [
+        begin
+            [T | _] = binary:split(string:trim(S), <<";">>),
+            T
+        end
+     || S <- re:split(Accept, ",")
+    ],
+    lists:member(<<"*/*">>, Accepts) orelse lists:member(<<"text/plain">>, Accepts).
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];
