@@ -294,3 +294,45 @@ count_consumed(N) ->
     after 100 ->
         N
     end.
+
+-doc """
+A kill runs no `terminate/2`, so bucket keys can outlive their group. The
+registry drops such keys when it starts, and keeps the keys of groups that are
+still registered, so restarting it alone does not disturb a live limiter.
+""".
+t_bucket_registry_erases_stale_buckets_on_init(_) ->
+    ok = emqx_limiter:create_group(shared, group1, [
+        {limiter0, #{capacity => 10, interval => 100, burst_capacity => 0}}
+    ]),
+    LiveKey = {emqx_limiter_bucket_registry, group1},
+    StaleKey = {emqx_limiter_bucket_registry, group_never_registered},
+    ?assertNotEqual(undefined, persistent_term:get(LiveKey, undefined)),
+    persistent_term:put(StaleKey, #{limiter0 => a_stale_bucket_ref}),
+
+    Pid = whereis(emqx_limiter_bucket_registry),
+    MRef = erlang:monitor(process, Pid),
+    true = exit(Pid, kill),
+    receive
+        {'DOWN', MRef, process, Pid, killed} -> ok
+    after 5000 -> ct:fail(registry_not_killed)
+    end,
+    NewPid = wait_for_registry(Pid, 50),
+    ?assert(is_pid(NewPid) andalso NewPid =/= Pid),
+
+    ?assertEqual(undefined, persistent_term:get(StaleKey, undefined)),
+    ?assertNotEqual(undefined, emqx_limiter_bucket_registry:find_bucket({group1, limiter0})),
+    ok.
+
+wait_for_registry(_OldPid, 0) ->
+    ct:fail(registry_not_restarted);
+wait_for_registry(OldPid, N) ->
+    case whereis(emqx_limiter_bucket_registry) of
+        undefined ->
+            timer:sleep(100),
+            wait_for_registry(OldPid, N - 1);
+        OldPid ->
+            timer:sleep(100),
+            wait_for_registry(OldPid, N - 1);
+        NewPid ->
+            NewPid
+    end.
