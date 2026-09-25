@@ -88,9 +88,10 @@ subscribers, such as gateway channels, are not in that table. They are found by
 a full scan of the `emqx_submon` table, which costs time in proportion to the
 number of subscribers.
 
-When several pids match, for example during a session takeover, return the
-largest one. Local pids are allocated in increasing order, so the largest pid
-is the newest one until the pid space wraps.
+When several pids match, return the last one in lookup order. For MQTT channels,
+for example during a session takeover, this is the most recently registered
+channel, because `ets:lookup/2` on a `bag` table returns objects with the same
+key in insertion order. For the `emqx_submon` scan, the order is not defined.
 """.
 -spec lookup_subpid(emqx_types:subid()) -> option(pid()).
 lookup_subpid(undefined) ->
@@ -99,13 +100,13 @@ lookup_subpid(SubId) ->
     case [Pid || Pid <- emqx_cm:lookup_channels(local, SubId), lookup_subid(Pid) =:= SubId] of
         [] ->
             MatchSpec = [{{'$1', '$2'}, [{'=:=', '$2', {const, SubId}}], ['$1']}],
-            latest_pid(ets:select(?SUBMON, MatchSpec));
+            last_pid(ets:select(?SUBMON, MatchSpec));
         Pids ->
-            latest_pid(Pids)
+            last_pid(Pids)
     end.
 
-latest_pid([]) -> undefined;
-latest_pid(Pids) -> lists:max(Pids).
+last_pid([]) -> undefined;
+last_pid(Pids) -> lists:last(Pids).
 
 -doc """
 Assign `Topic` subscriber to some shard, where shard is simply a number between

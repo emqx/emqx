@@ -279,7 +279,8 @@ t_subscriptions_by_clientid(Config) when is_list(Config) ->
 
 -doc """
 When two channels are registered for one clientid, as during a session takeover,
-`subscriptions/1` returns the subscriptions of the newer channel.
+`subscriptions/1` returns the subscriptions of the channel registered last,
+even when that channel has the smaller pid.
 """.
 t_subscriptions_by_clientid_takeover({init, Config}) ->
     Config;
@@ -287,10 +288,10 @@ t_subscriptions_by_clientid_takeover({'end', _Config}) ->
     ok;
 t_subscriptions_by_clientid_takeover(Config) when is_list(Config) ->
     ClientId = <<"t_subscriptions_by_clientid_takeover">>,
-    StartChan = fun(Topic) ->
+    StartChan = fun() ->
         spawn_link(fun() ->
             receive
-                {subscribe, From} ->
+                {subscribe, Topic, From} ->
                     ok = emqx_broker:subscribe(Topic, ClientId, #{qos => 0}, no_monitor),
                     From ! {subscribed, self()}
             end,
@@ -299,22 +300,19 @@ t_subscriptions_by_clientid_takeover(Config) when is_list(Config) ->
             end
         end)
     end,
-    OldPid = StartChan(<<"t/old">>),
-    NewPid = StartChan(<<"t/new">>),
-    ?assert(NewPid > OldPid),
-    %% Register the newer channel first, so that the channel table order
-    %% differs from the pid order.
-    ok = emqx_cm:register_channel(ClientId, NewPid, #{conn_mod => emqx_connection}),
+    %% The channel registered last gets the smaller pid.
+    [NewPid, OldPid] = lists:sort([StartChan(), StartChan()]),
     ok = emqx_cm:register_channel(ClientId, OldPid, #{conn_mod => emqx_connection}),
+    ok = emqx_cm:register_channel(ClientId, NewPid, #{conn_mod => emqx_connection}),
     lists:foreach(
-        fun(Pid) ->
-            Pid ! {subscribe, self()},
+        fun({Pid, Topic}) ->
+            Pid ! {subscribe, Topic, self()},
             receive
                 {subscribed, Pid} -> ok
             after 5000 -> ct:fail({subscribe_timeout, Pid})
             end
         end,
-        [OldPid, NewPid]
+        [{OldPid, <<"t/old">>}, {NewPid, <<"t/new">>}]
     ),
     try
         ?assertEqual([<<"t/new">>], proplists:get_keys(emqx_broker:subscriptions(ClientId)))
