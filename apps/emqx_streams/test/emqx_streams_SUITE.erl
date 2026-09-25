@@ -740,6 +740,26 @@ t_autocreate_stream(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that the default configuration does not automatically create streams
+t_autocreate_stream_disabled_by_default(_Config) ->
+    %% Take the `auto_create' settings straight from the schema defaults
+    #{<<"streams">> := #{<<"auto_create">> := AutoCreate}} =
+        emqx_config:fill_defaults(#{<<"streams">> => #{}}),
+    ?assertEqual(#{<<"regular">> => false, <<"lastvalue">> => false}, AutoCreate),
+    {ok, _} = emqx:update_config([streams, auto_create], AutoCreate),
+
+    %% Connect a client and subscribe to a non-existent stream
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    ok = emqx_streams_test_utils:emqtt_sub(CSub, [
+        <<"$stream/auto_create_default/a/#">>
+    ]),
+
+    %% Verify that no stream was automatically created
+    ?assertEqual([], emqx_utils_stream:consume(emqx_streams_registry:list())),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %% Verify that the data retention period is applied correctly
 t_data_retention_period(_Config) ->
     %% Create a lastvalue and a regular streams with 1s data retention period
