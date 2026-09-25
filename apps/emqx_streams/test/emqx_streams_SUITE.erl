@@ -34,20 +34,38 @@ Main test suite for the Streams application.
 
 -define(MANY, 999_999_999_999).
 
+-define(DIRECT_PUBLISH_TESTS, [
+    t_direct_publish,
+    t_direct_publish_auto_create,
+    t_direct_publish_missing_destination,
+    t_direct_publish_topic_mismatch,
+    t_direct_publish_persist_error,
+    t_direct_publish_create_race,
+    t_direct_publish_invalid_topic
+]).
+
 all() ->
-    All = emqx_common_test_helpers:all(?MODULE) -- (?PUBLISH_AND_CONSUME_CASES ++ ?READ_CASES),
+    All =
+        emqx_common_test_helpers:all(?MODULE) --
+            (?PUBLISH_AND_CONSUME_CASES ++ ?READ_CASES ++ ?DIRECT_PUBLISH_TESTS),
     [
+        {group, direct_publish_regular},
+        {group, direct_publish_lastvalue},
         {group, pub_and_consume},
         {group, read}
     ] ++ All.
 
 groups() ->
-    emqx_common_test_helpers:nested_groups([
-        [pub_and_consume],
-        [limited, unlimited],
-        [pc_subscribe_all, pc_subscribe_all_stream],
-        ?PUBLISH_AND_CONSUME_CASES
-    ]) ++
+    [
+        {direct_publish_regular, [], ?DIRECT_PUBLISH_TESTS},
+        {direct_publish_lastvalue, [], ?DIRECT_PUBLISH_TESTS}
+    ] ++
+        emqx_common_test_helpers:nested_groups([
+            [pub_and_consume],
+            [limited, unlimited],
+            [pc_subscribe_all, pc_subscribe_all_stream],
+            ?PUBLISH_AND_CONSUME_CASES
+        ]) ++
         emqx_common_test_helpers:nested_groups([
             [read],
             [read_subscribe_all, read_subscribe_all_stream],
@@ -70,6 +88,10 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
+init_per_group(direct_publish_regular, Config) ->
+    [{is_lastvalue, false} | Config];
+init_per_group(direct_publish_lastvalue, Config) ->
+    [{is_lastvalue, true} | Config];
 init_per_group(limited, Config) ->
     [{limits, #{max_shard_message_bytes => ?MANY, max_shard_message_count => ?MANY}} | Config];
 init_per_group(unlimited, Config) ->
@@ -105,6 +127,7 @@ init_per_testcase(_CaseName, Config) ->
 end_per_testcase(_CaseName, Config) ->
     _ = emqx_hooks:del('message.publish', {?MODULE, test_schema_validation}),
     _ = emqx_hooks:del('message.publish', {?MODULE, test_message_transformation}),
+    emqx_common_test_helpers:call_janitor(),
     ok = snabbkaffe:stop(),
     ok = emqx_streams_test_utils:cleanup_streams(),
     ok = emqx_streams_test_utils:reset_config(),
@@ -114,6 +137,199 @@ end_per_testcase(_CaseName, Config) ->
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+
+%% Check that direct publishes at every QoS reach only the named stream, with or without a topic.
+t_direct_publish(Config) ->
+    %% Create the target stream and matching destinations that must receive nothing.
+    C = direct_publish_client(),
+    Stream = direct_publish_stream(<<"direct">>, <<"bound/topic">>, Config),
+    Other = direct_publish_stream(<<"other">>, <<"$stream/#">>, Config),
+    ok = emqx_broker:subscribe(<<"$stream/#">>),
+    emqx_common_test_helpers:on_exit(fun() -> emqx_broker:unsubscribe(<<"$stream/#">>) end),
+    %% Publish both topic forms at every QoS level.
+    lists:foreach(
+        fun(QoS) ->
+            lists:foreach(
+                fun(Suffix) ->
+                    Result = direct_publish(C, <<"direct", Suffix/binary>>, QoS),
+                    case QoS of
+                        0 -> ?assertEqual(ok, Result);
+                        _ -> ?assertMatch({ok, #{reason_code := ?RC_SUCCESS}}, Result)
+                    end
+                end,
+                [<<>>, <<"/bound/topic">>]
+            )
+        end,
+        [0, 1, 2]
+    ),
+    %% Check storage in the target stream and the absence of other deliveries.
+    ?assertEqual(6, length(emqx_streams_message_db:dirty_read_all(Stream))),
+    ?assertEqual([], emqx_streams_message_db:dirty_read_all(Other)),
+    ?assertNotReceive({deliver, _, _}),
+    ok = emqtt:disconnect(C).
+
+%% Check that direct publishing creates a missing stream with the supplied topic when enabled.
+t_direct_publish_auto_create(Config) ->
+    %% Enable auto-creation for the stream type under test.
+    C = direct_publish_client(),
+    direct_publish_auto_create(true, Config),
+    lists:foreach(
+        fun(QoS) ->
+            %% Check the acknowledgment, stream topic, and stored message for QoS 1 and 2.
+            Name = <<"created-", (integer_to_binary(QoS))/binary>>,
+            ?assertMatch(
+                {ok, #{reason_code := ?RC_SUCCESS}},
+                direct_publish(C, <<Name/binary, "/bound/topic">>, QoS)
+            ),
+            {ok, Stream} = emqx_streams_registry:find(Name),
+            ?assertMatch(#{topic_filter := <<"bound/topic">>}, Stream),
+            ?assertEqual(1, length(emqx_streams_message_db:dirty_read_all(Stream)))
+        end,
+        [1, 2]
+    ),
+    ok = emqtt:disconnect(C).
+
+%% Check that missing streams fail when auto-creation is disabled or the topic is omitted.
+t_direct_publish_missing_destination(Config) ->
+    C = direct_publish_client(),
+    %% Reject both topic forms while auto-creation is disabled.
+    lists:foreach(
+        fun(QoS) ->
+            ?assertMatch(
+                {ok, #{reason_code := ?RC_IMPLEMENTATION_SPECIFIC_ERROR}},
+                direct_publish(C, <<"missing">>, QoS)
+            ),
+            ?assertMatch(
+                {ok, #{reason_code := ?RC_IMPLEMENTATION_SPECIFIC_ERROR}},
+                direct_publish(C, <<"missing/topic">>, QoS)
+            )
+        end,
+        [1, 2]
+    ),
+    %% Auto-creation cannot create a stream without a topic.
+    direct_publish_auto_create(true, Config),
+    ?assertMatch(
+        {ok, #{reason_code := ?RC_IMPLEMENTATION_SPECIFIC_ERROR}},
+        direct_publish(C, <<"missing">>, 1)
+    ),
+    ?assertEqual(not_found, emqx_streams_registry:find(<<"missing">>)),
+    ok = emqtt:disconnect(C).
+
+%% Check that a conflicting topic is rejected regardless of the stream auto-creation setting.
+t_direct_publish_topic_mismatch(Config) ->
+    %% Create a stream bound to a different topic.
+    C = direct_publish_client(),
+    Stream = direct_publish_stream(<<"conflict">>, <<"original/topic">>, Config),
+    %% Check QoS 1 and 2 errors with auto-creation disabled and enabled.
+    lists:foreach(
+        fun(Enabled) ->
+            direct_publish_auto_create(Enabled, Config),
+            lists:foreach(
+                fun(QoS) ->
+                    ?assertMatch(
+                        {ok, #{reason_code := ?RC_TOPIC_NAME_INVALID}},
+                        direct_publish(C, <<"conflict/other/topic">>, QoS)
+                    )
+                end,
+                [1, 2]
+            )
+        end,
+        [false, true]
+    ),
+    %% Check that rejected messages were not stored.
+    ?assertEqual([], emqx_streams_message_db:dirty_read_all(Stream)),
+    ok = emqtt:disconnect(C).
+
+%% Check that stream storage failures return implementation-specific errors for QoS 1 and 2.
+t_direct_publish_persist_error(Config) ->
+    %% Create the stream and make storage writes fail.
+    C = direct_publish_client(),
+    _ = direct_publish_stream(<<"ds-error">>, <<"topic">>, Config),
+    ok = meck:new(emqx_streams_message_db, [passthrough, no_link]),
+    emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_streams_message_db) end),
+    ok = meck:expect(emqx_streams_message_db, insert, fun(_, _) ->
+        {error, {recoverable, unavailable}}
+    end),
+    %% Check the PUBACK and PUBREC failure reasons.
+    lists:foreach(
+        fun(QoS) ->
+            ?assertMatch(
+                {ok, #{reason_code := ?RC_IMPLEMENTATION_SPECIFIC_ERROR}},
+                direct_publish(C, <<"ds-error">>, QoS)
+            )
+        end,
+        [1, 2]
+    ),
+    ok = emqtt:disconnect(C).
+
+%% Check that a concurrently created stream is accepted only when its topic matches.
+t_direct_publish_create_race(Config) ->
+    %% Enable auto-creation and intercept stream creation.
+    C = direct_publish_client(),
+    direct_publish_auto_create(true, Config),
+    ok = meck:new(emqx_streams_registry, [passthrough, no_link]),
+    emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_streams_registry) end),
+    %% Simulate another creator winning with either the requested topic or a conflicting topic.
+    lists:foreach(
+        fun({Name, ExistingTopic, RC}) ->
+            ok = meck:expect(emqx_streams_registry, create, fun(Stream) ->
+                {ok, _Existing} = meck:passthrough([Stream#{topic_filter := ExistingTopic}]),
+                {error, stream_exists}
+            end),
+            ?assertMatch(
+                {ok, #{reason_code := RC}}, direct_publish(C, <<Name/binary, "/topic">>, 1)
+            )
+        end,
+        [
+            {<<"race-same">>, <<"topic">>, ?RC_SUCCESS},
+            {<<"race-other">>, <<"other">>, ?RC_TOPIC_NAME_INVALID}
+        ]
+    ),
+    ok = emqtt:disconnect(C).
+
+%% Check that direct publishing rejects empty or invalid stream names and empty topic suffixes.
+t_direct_publish_invalid_topic(Config) ->
+    C = direct_publish_client(),
+    direct_publish_auto_create(true, Config),
+    lists:foreach(
+        fun(Suffix) ->
+            ?assertMatch(
+                {ok, #{reason_code := ?RC_TOPIC_NAME_INVALID}}, direct_publish(C, Suffix, 1)
+            )
+        end,
+        [<<>>, <<"/topic">>, <<"invalid name/topic">>, <<"empty-topic/">>]
+    ),
+    ok = emqtt:disconnect(C).
+
+direct_publish_client() ->
+    {ok, C} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+direct_publish_stream(Name, Topic, Config) ->
+    emqx_streams_test_utils:ensure_stream_created(#{
+        name => Name, topic_filter => Topic, is_lastvalue => ?config(is_lastvalue, Config)
+    }).
+
+direct_publish_auto_create(Enabled, Config) ->
+    Type =
+        case ?config(is_lastvalue, Config) of
+            true -> <<"lastvalue">>;
+            false -> <<"regular">>
+        end,
+    Defaults = #{<<"regular">> => false, <<"lastvalue">> => false},
+    AutoCreate =
+        case Enabled of
+            true -> Defaults#{Type := #{}};
+            false -> Defaults
+        end,
+    {ok, _} = emqx:update_config([streams, auto_create], AutoCreate),
+    ok.
+
+direct_publish(C, Suffix, QoS) ->
+    Key = integer_to_binary(erlang:unique_integer([positive, monotonic])),
+    Properties = #{'User-Property' => [{<<"stream-key">>, Key}]},
+    emqtt:publish(C, <<"$stream/", Suffix/binary>>, Properties, Key, [{qos, QoS}]).
 
 %% Very basic test, publish some messages to the stream and look into the DB
 %% to verify that the messages are stored.

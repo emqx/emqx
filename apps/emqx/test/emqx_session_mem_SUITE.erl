@@ -252,28 +252,28 @@ t_unsubscribe(_) ->
         emqx_session_mem:unsubscribe(clientinfo(), <<"#">>, Session1).
 
 t_publish_qos0(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    ok = meck:expect(emqx_broker, publish, fun(M) -> {ok, [], M} end),
     Msg = emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"payload">>),
-    {ok, [], [], Session} = emqx_session_mem:publish(1, Msg, Session = session()),
-    {ok, [], [], Session} = emqx_session_mem:publish(undefined, Msg, Session).
+    {ok, {ok, [], Msg}, [], Session} = emqx_session_mem:publish(1, Msg, Session = session()),
+    {ok, {ok, [], Msg}, [], Session} = emqx_session_mem:publish(undefined, Msg, Session).
 
 t_publish_qos1(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    ok = meck:expect(emqx_broker, publish, fun(M) -> {ok, [], M} end),
     Msg = emqx_message:make(clientid, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, [], [], Session} = emqx_session_mem:publish(1, Msg, Session = session()),
-    {ok, [], [], Session} = emqx_session_mem:publish(2, Msg, Session).
+    {ok, {ok, [], Msg}, [], Session} = emqx_session_mem:publish(1, Msg, Session = session()),
+    {ok, {ok, [], Msg}, [], Session} = emqx_session_mem:publish(2, Msg, Session).
 
 t_publish_qos2(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    ok = meck:expect(emqx_broker, publish, fun(M) -> {ok, [], M} end),
     Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
-    {ok, [], Session} = emqx_session_mem:publish(1, Msg, session()),
+    {ok, {ok, [], Msg}, Session} = emqx_session_mem:publish(1, Msg, session()),
     ?assertEqual(1, emqx_session_mem:info(awaiting_rel_cnt, Session)),
     {ok, Session1} = emqx_session_mem:pubrel(1, Session),
     ?assertEqual(0, emqx_session_mem:info(awaiting_rel_cnt, Session1)),
     {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session_mem:pubrel(1, Session1).
 
 t_publish_qos2_with_error_return(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    ok = meck:expect(emqx_broker, publish, fun(M) -> {ok, [], M} end),
     ok = meck:expect(emqx_hooks, run, fun
         ('message.dropped', [Msg, _By, ReasonName]) ->
             self() ! {'message.dropped', ReasonName, Msg},
@@ -297,7 +297,7 @@ t_publish_qos2_with_error_return(_) ->
     end,
 
     Msg2 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload2">>),
-    {ok, [], Session1} = emqx_session:publish(
+    {ok, {ok, [], Msg2}, Session1} = emqx_session:publish(
         clientinfo(), _PacketId2 = 2, Msg2, Session
     ),
     ?assertEqual(2, emqx_session_mem:info(awaiting_rel_cnt, Session1)),

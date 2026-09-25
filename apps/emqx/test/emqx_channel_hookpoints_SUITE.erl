@@ -74,6 +74,64 @@ t_deliver_via_handle_info(_Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
+%% Check that PUBACK hooks receive publish-hook headers for allowed and blocked messages.
+t_modified_message_puback({init, Config}) ->
+    emqx_hooks:put('message.publish', {?MODULE, modify_message, []}, ?HP_LOWEST),
+    emqx_hooks:put('message.puback', {?MODULE, modified_message_puback, []}, ?HP_LOWEST),
+    Config;
+t_modified_message_puback({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, modify_message}),
+    emqx_hooks:del('message.puback', {?MODULE, modified_message_puback});
+t_modified_message_puback(_Config) ->
+    %% Connect an MQTT 5 publisher.
+    {ok, C} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+    %% Check the reason derived from the modified message for both publish outcomes.
+    lists:foreach(
+        fun(Topic) ->
+            {ok, #{reason_code := ?RC_IMPLEMENTATION_SPECIFIC_ERROR}} =
+                emqtt:publish(C, Topic, <<"payload">>, 1)
+        end,
+        [<<"modified/allowed">>, <<"modified/blocked">>]
+    ),
+    ok = emqtt:disconnect(C).
+
+modify_message(#message{topic = <<"modified/", Suffix/binary>>} = Msg) ->
+    {stop,
+        emqx_message:set_headers(
+            #{
+                test_publish_result => ?RC_IMPLEMENTATION_SPECIFIC_ERROR,
+                allow_publish => Suffix =/= <<"blocked">>
+            },
+            Msg
+        )};
+modify_message(Msg) ->
+    {ok, Msg}.
+
+modified_message_puback(_PacketId, #message{headers = #{test_publish_result := RC}}, _PubRes, _RC) ->
+    {stop, RC};
+modified_message_puback(_PacketId, _Msg, _PubRes, RC) ->
+    {ok, RC}.
+
+%% Check that PUBREC hooks receive modified messages and rejected MQTT 5 packets are released.
+t_modified_message_pubrec({init, Config}) ->
+    emqx_hooks:put('message.publish', {?MODULE, modify_message, []}, ?HP_LOWEST),
+    emqx_hooks:put('message.pubrec', {?MODULE, modified_message_puback, []}, ?HP_LOWEST),
+    Config;
+t_modified_message_pubrec({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, modify_message}),
+    emqx_hooks:del('message.pubrec', {?MODULE, modified_message_puback});
+t_modified_message_pubrec(_Config) ->
+    %% Publish a blocked QoS 2 message and check the hook-provided reason.
+    {ok, C} = emqtt:start_link([{proto_ver, v5}, {clientid, <<"modified-pubrec">>}]),
+    {ok, _} = emqtt:connect(C),
+    {ok, #{reason_code := ?RC_IMPLEMENTATION_SPECIFIC_ERROR}} =
+        emqtt:publish(C, <<"modified/blocked">>, <<"payload">>, 2),
+    [Channel] = emqx_cm:lookup_channels(<<"modified-pubrec">>),
+    %% Check that the rejected publish leaves no packet identifier awaiting PUBREL.
+    ?assertEqual(0, proplists:get_value(awaiting_rel_cnt, emqx_connection:stats(Channel))),
+    ok = emqtt:disconnect(C).
+
 on_message_puback(PacketId, _Msg, PubRes, _RC) ->
     erlang:send(self(), {puback, PacketId, PubRes, ?RC_UNSPECIFIED_ERROR}),
     {stop, undefined}.

@@ -53,6 +53,7 @@
     'message.publish',
     'message.ingress',
     'message.puback',
+    'message.pubrec',
     'message.dropped',
     'message.transformation_failed',
     'schema.validation_failed',
@@ -252,13 +253,21 @@ when
 -callback 'message.puback'(
     emqx_types:packet_id(),
     emqx_types:message(),
-    emqx_types:publish_result(),
+    emqx_types:publish_routes(),
     emqx_types:reason_code()
 ) ->
     fold_callback_result(undefined | emqx_types:reason_code()).
 
 -callback 'message.dropped'(emqx_types:message(), #{node => node()}, _Reason :: atom()) ->
     callback_result().
+
+-callback 'message.pubrec'(
+    emqx_types:packet_id(),
+    emqx_types:message(),
+    emqx_types:publish_routes(),
+    emqx_types:reason_code()
+) ->
+    fold_callback_result(emqx_types:reason_code()).
 
 -callback 'message.transformation_failed'(emqx_types:message(), transformation_context()) ->
     callback_result().

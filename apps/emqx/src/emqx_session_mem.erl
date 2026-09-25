@@ -541,8 +541,8 @@ is_awaiting_full(#session{
 }) ->
     maps:size(AwaitingRel) >= MaxLimit.
 
-dup_publish_result(#message{topic = Topic}) ->
-    [{node(), Topic, ok}].
+dup_publish_result(#message{topic = Topic} = Msg) ->
+    {ok, [{node(), Topic, ok}], Msg}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBACK

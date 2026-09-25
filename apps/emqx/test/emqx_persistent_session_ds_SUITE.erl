@@ -12,6 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds_pmap.hrl").
@@ -275,6 +276,48 @@ t_smoke_publish(_Config) ->
         end,
         []
     ).
+
+%% Check that durable sessions pass modified messages to PUBREC hooks and release rejected packets.
+t_publish_hook_message_qos2(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_publish_hook_message_qos2(_Config) ->
+    %% Connect an MQTT 5 client with a durable session.
+    ClientId = <<"publish-hook-message-qos2">>,
+    C = start_client(#{
+        clientid => ClientId,
+        clean_start => true,
+        properties => #{'Session-Expiry-Interval' => 30},
+        proto_ver => v5
+    }),
+    {ok, _} = emqtt:connect(C),
+    [Channel] = emqx_cm:lookup_channels(ClientId),
+    ?assertMatch(
+        #{session := #{impl := emqx_persistent_session_ds}}, emqx_connection:info(Channel)
+    ),
+    %% Reject the publish using a header added by the publish hook.
+    ok = emqx_hooks:add('message.publish', {?MODULE, modify_publish_message, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('message.pubrec', {?MODULE, check_publish_message, []}, ?HP_LOWEST),
+    {ok, #{reason_code := ?RC_IMPLEMENTATION_SPECIFIC_ERROR}} =
+        emqtt:publish(C, <<"modified/topic">>, <<"payload">>, 2),
+    %% Check that the durable session released the rejected packet identifier.
+    ?assertEqual(0, proplists:get_value(awaiting_rel_cnt, emqx_connection:stats(Channel))),
+    %% Remove the hooks and disconnect the client.
+    ok = emqx_hooks:del('message.publish', {?MODULE, modify_publish_message}),
+    ok = emqx_hooks:del('message.pubrec', {?MODULE, check_publish_message}),
+    ok = emqtt:disconnect(C).
+
+modify_publish_message(#message{topic = <<"modified/topic">>} = Msg) ->
+    {stop,
+        emqx_message:set_headers(#{allow_publish => false, test_publish_result => rejected}, Msg)};
+modify_publish_message(Msg) ->
+    {ok, Msg}.
+
+check_publish_message(
+    _PacketId, #message{headers = #{test_publish_result := rejected}}, _PubRes, _RC
+) ->
+    {stop, ?RC_IMPLEMENTATION_SPECIFIC_ERROR};
+check_publish_message(_PacketId, _Msg, _PubRes, RC) ->
+    {ok, RC}.
 
 %% This testcase verifies session's behavior related to generation
 %% rotation in the message storage.
