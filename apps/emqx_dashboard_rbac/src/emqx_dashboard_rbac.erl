@@ -11,7 +11,7 @@
 
 -export([
     check_rbac/3,
-    check_login_user_scopes/2,
+    check_login_user_scopes/3,
     parse_dashboard_role/1,
     parse_api_role/1,
     serialize_role/1,
@@ -72,26 +72,34 @@ parse_dashboard_role(Role) ->
     parse_role(dashboard, Role).
 
 %% Look up the login user's `scopes' from the admin record's extra map
-%% and cross-reference against the path-to-scope mapping built from all
-%% minirest_api modules' scopes/0 callbacks. Semantics:
+%% and check them against the scopes declared for the handler that
+%% serves the request. The handler is the `module' and `function' of
+%% minirest's HandlerInfo: the route cowboy dispatched to, so no path
+%% is re-matched here. Semantics:
 %%
 %%   * scopes absent  (undefined)        -> fall back to RBAC default
 %%                                          (already passed at this
 %%                                          point), so allow.
-%%   * scopes = [...]  (list)            -> path must map to one of
-%%                                          the listed scopes; unmapped
-%%                                          paths fail-open (allow).
+%%   * scopes = [...]  (list)            -> the handler's scopes must
+%%                                          overlap the listed scopes;
+%%                                          unmapped handlers are
+%%                                          denied (fail closed).
 %%
-%% The unmapped-path fail-open is consistent with API key scope
-%% semantics (emqx_mgmt_auth:check_path_in_scopes/2). CT
+%% Public endpoints are allowed for every user. An unmapped handler is
+%% allowed only for a user with no explicit scope list, so a catalog
+%% gap cannot grant a deliberately restricted user an endpoint nobody
+%% scoped.
+%%
+%% This differs from API keys: emqx_mgmt_auth:check_scopes/2 allows
+%% unmapped handlers even for a key with an explicit scope list. CT
 %% t_all_endpoints_covered_by_scopes guards against accidentally
-%% leaving a non-public path unmapped.
+%% leaving a non-public endpoint unmapped.
 %%
 %% IMPORTANT: this predicate is for dashboard LOGIN users only. It must
 %% NOT be invoked from API-key authorisation paths because:
 %%   1. API keys have their own scope mechanism via
-%%      emqx_mgmt_auth:check_path_in_scopes/2 — invoking this on top
-%%      is redundant.
+%%      emqx_mgmt_auth:check_scopes/2 — invoking this on top is
+%%      redundant.
 %%   2. If an API-key string value collided with a dashboard username,
 %%      this lookup would resolve against that user's extra.scopes and
 %%      produce a wrong authorisation decision for the API key.
@@ -99,27 +107,10 @@ parse_dashboard_role(Role) ->
 %% primary key (binary for local users, ?SSO_USERNAME tuple for SSO
 %% users). The dashboard token verifier reconstructs the SSO tuple via
 %% emqx_dashboard_token:resolve_admin_key/1 before invoking us.
-check_login_user_scopes(Username, Req) when is_map(Req) ->
-    AbsPath = cowboy_req:path(Req),
-    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
-        {ok, Path} ->
-            check_login_user_scopes_for_path(Username, Path);
-        _ ->
-            %% Requests outside the `/api/v5' management API — e.g. the
-            %% OpenAPI spec endpoints (`/api-docs/swagger.json',
-            %% `/api-spec.html', `/api-spec.md', ...) served by
-            %% emqx_dashboard_api_spec_handler — are not scope-mapped
-            %% management operations. They are already gated by
-            %% authentication and role-based RBAC; the login-user scope
-            %% layer must not deny them. Treat them as unmapped (allow),
-            %% consistent with check_login_user_scopes_strict/2 which
-            %% allows any path that has no scope mapping.
-            true
-    end;
-check_login_user_scopes(Username, Path) when is_binary(Path) ->
-    check_login_user_scopes_for_path(Username, Path).
-
-check_login_user_scopes_for_path(Username, Path) ->
+-spec check_login_user_scopes(
+    username() | tuple(), emqx_dashboard:request(), emqx_dashboard:handler_info()
+) -> boolean().
+check_login_user_scopes(Username, Req, HandlerInfo) ->
     %% Self-service endpoints — the user's own change_pwd / mfa —
     %% bypass the scope check: they are gated by RBAC's self rule
     %% and, for MFA, by emqx_dashboard_api:authorize_mfa_change/3
@@ -133,9 +124,9 @@ check_login_user_scopes_for_path(Username, Path) ->
     %% checked — otherwise an admin who explicitly set
     %% `scopes = []' could PUT their own record to add admin-only
     %% scopes back, defeating the explicit self-restriction.
-    case is_self_service_endpoint(Path, Username) of
+    case is_self_service_endpoint(Req, HandlerInfo, Username) of
         true -> true;
-        false -> check_login_user_scopes_strict(Username, Path)
+        false -> check_login_user_scopes_strict(Username, HandlerInfo)
     end.
 
 parse_api_role(Role) ->
@@ -148,53 +139,51 @@ serialize_role(#{?role := Role, ?namespace := ?global_ns}) ->
 serialize_role(#{?role := Role, ?namespace := Namespace}) when is_binary(Namespace) ->
     <<"ns:", Namespace/binary, "::", Role/binary>>.
 
-check_login_user_scopes_strict(Username, Path) ->
-    case emqx_mgmt_api_key_scopes:classify_path(Path) of
+check_login_user_scopes_strict(Username, HandlerInfo) ->
+    case emqx_mgmt_api_key_scopes:classify_handler(HandlerInfo) of
         %% Explicitly public endpoint — allow regardless of scopes.
         public ->
             true;
-        %% Path maps to no known scope. Fail closed only for users that
-        %% carry an explicit scope list (deliberately restricted), so a
-        %% catalog gap cannot silently grant them an unmapped endpoint.
-        %% Users with no explicit scopes are not scope-restricted and stay
-        %% governed by role-based RBAC alone, so they are not locked out.
+        %% Handler maps to no known scope. Fail closed only for users
+        %% that carry an explicit scope list (deliberately restricted),
+        %% so a catalog gap cannot silently grant them an unmapped
+        %% endpoint. Users with no explicit scopes are not
+        %% scope-restricted and stay governed by role-based RBAC alone,
+        %% so they are not locked out.
         not_found ->
             emqx_dashboard_admin:scopes_of(Username) =:= undefined;
-        {scope, PathScope} ->
+        {scopes, Declared} ->
             %% Work on the effective scope list (role-default expanded) so
             %% administrators with no explicit scopes implicitly hold the
             %% full catalog and viewers implicitly hold the common scopes.
             %% Explicit [] is honoured as "no permissions".
+            %% An endpoint may declare more than one acceptable scope;
+            %% holding any one of them grants access.
             Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
-            lists:member(PathScope, Scopes)
+            emqx_mgmt_api_key_scopes:any_scope_granted(Declared, Scopes)
     end.
 
-%% Whitelist of self-service paths that may skip the login-user
+%% Whitelist of self-service handlers that may skip the login-user
 %% scope check. Currently only the own password and MFA endpoints —
 %% extending this whitelist requires careful thought because it
 %% creates a hole where an admin who self-restricted via explicit
 %% scopes can no longer be reliably restricted.
 %%
-%% Match /users/<self>/change_pwd or /users/<self>/mfa (with
-%% %-encoded segments) regardless of whether Username is a bare
-%% binary (local) or a ?SSO_USERNAME(Backend, Name) tuple (SSO;
-%% the sub-path uses just Name).
-is_self_service_endpoint(<<"/users/", SubPath/binary>>, Username) ->
-    case binary:split(SubPath, <<"/">>, [global]) of
-        [SelfSeg, Action] when
-            Action =:= <<"change_pwd">>;
-            Action =:= <<"mfa">>
-        ->
-            Decoded = uri_string:percent_decode(SelfSeg),
-            is_same_user(Decoded, Username);
-        _ ->
-            false
-    end;
-is_self_service_endpoint(_Path, _Username) ->
+%% The target user is the `username' path binding, already decoded by
+%% cowboy. It must be the caller, whether Username is a bare binary
+%% (local) or a ?SSO_USERNAME(Backend, Name) tuple (SSO; the binding
+%% is just Name).
+is_self_service_endpoint(
+    #{bindings := #{username := Target}},
+    ?DASHBOARD_API(_, Fn),
+    Username
+) when Fn =:= change_pwd; Fn =:= change_mfa ->
+    is_same_user(Target, Username);
+is_self_service_endpoint(_Req, _HandlerInfo, _Username) ->
     false.
 
-is_same_user(Decoded, Decoded) -> true;
-is_same_user(Decoded, {_Backend, Decoded}) -> true;
+is_same_user(Target, Target) -> true;
+is_same_user(Target, {_Backend, Target}) -> true;
 is_same_user(_, _) -> false.
 
 parse_role(Type, Role0) ->
