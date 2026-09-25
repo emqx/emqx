@@ -22,7 +22,8 @@
     start_link/0,
     find_bucket/1,
     insert_buckets/2,
-    delete_buckets/1
+    delete_buckets/1,
+    delete_all_buckets/0
 ]).
 
 -export([
@@ -72,6 +73,26 @@ insert_buckets(Group, Buckets) ->
 delete_buckets(Group) ->
     gen_server:call(?MODULE, #delete_buckets{group = Group}, infinity).
 
+-doc """
+Erases the buckets of every group, without asking whether the groups still
+exist. Call it when the whole limiter is going away, from application stop or
+from this process's shutdown, so that no keys are left in `persistent_term'.
+Do not call it while the limiter is running: a registered group whose buckets
+are erased cannot consume until the group is created again.
+""".
+-spec delete_all_buckets() -> ok.
+delete_all_buckets() ->
+    lists:foreach(
+        fun
+            ({?PT_KEY(_Group) = Key, _Buckets}) ->
+                _ = persistent_term:erase(Key),
+                ok;
+            ({_OtherKey, _Value}) ->
+                ok
+        end,
+        persistent_term:get()
+    ).
+
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -102,6 +123,14 @@ handle_info(Req, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Req}),
     {noreply, State}.
 
+%% The supervisor stops this process before `emqx_limiter_registry', so at
+%% shutdown every group is still registered and the startup sweep would keep
+%% every key. Erase them all instead. A crash is different: the limiter keeps
+%% running, and the groups still need their buckets.
+terminate(shutdown, _State) ->
+    delete_all_buckets();
+terminate({shutdown, _}, _State) ->
+    delete_all_buckets();
 terminate(_Reason, _State) ->
     ok.
 
