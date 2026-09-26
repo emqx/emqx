@@ -1918,7 +1918,6 @@ with_client_info_fields(ClientInfoMap, all) ->
             send_pend,
             conn_props,
             peercert,
-            sockstate,
             subscriptions,
             receive_maximum,
             protocol,

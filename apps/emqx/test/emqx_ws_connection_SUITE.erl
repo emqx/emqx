@@ -81,13 +81,15 @@ t_info(_) ->
                 gen_server:reply(From, ?ws_conn:info(st()))
         end
     end),
-    #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
+    #{conninfo := ConnInfo} = ?ws_conn:call(WsPid, info),
     #{
         socktype := ws,
         peername := {{127, 0, 0, 1}, 3456},
-        sockname := {{127, 0, 0, 1}, 18083},
-        sockstate := running
-    } = SockInfo.
+        sockname := {{127, 0, 0, 1}, 18083}
+    } = ConnInfo,
+    %% `sockstate' is not part of the channel info map; it is read from the
+    %% connection state.
+    ?assertEqual(running, ?ws_conn:info(sockstate, st())).
 
 set_ws_opts(Key, Val) ->
     emqx_config:put_listener_conf(ws, default, [websocket, Key], Val).
@@ -618,6 +620,7 @@ channel() -> channel(#{}).
 channel(InitFields) ->
     Listener = 'ws:default',
     ConnInfo = #{
+        socktype => ws,
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 18083},
         conn_mod => emqx_ws_connection,

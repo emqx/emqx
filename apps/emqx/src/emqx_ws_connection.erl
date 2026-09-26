@@ -85,7 +85,6 @@
 
 -type state() :: #state{}.
 
--define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(ENABLED(X), (X =/= undefined)).
@@ -107,12 +106,8 @@
 -spec info(pid() | state()) -> emqx_types:infos().
 info(WsPid) when is_pid(WsPid) ->
     call(WsPid, info);
-info(State = #state{channel = Channel}) ->
-    ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(
-        info(?INFO_KEYS, State)
-    ),
-    ChanInfo#{sockinfo => SockInfo}.
+info(#state{channel = Channel}) ->
+    emqx_channel:info(Channel).
 
 -spec info
     (info(), state()) -> _Value;
