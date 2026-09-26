@@ -96,7 +96,7 @@ t_reauthenticate_preserves_session(_Config) ->
     ?assert(is_process_alive(ChanPid)),
     ?assertMatch(
         #{clientinfo := #{clientid := ClientId, username := ?USERNAME}},
-        emqx_cm:get_chan_info(ClientId)
+        emqx_connection:info(ChanPid)
     ).
 
 %% A fresh token pushes the disconnect deadline out: the connection outlives the
@@ -182,8 +182,11 @@ reauthenticate(JWT) ->
 get_client() ->
     get(client).
 
+%% Re-authentication does not rewrite the `emqx_cm' channel info row, so ask the
+%% channel process.
 client_attrs(ClientId) ->
-    #{clientinfo := #{client_attrs := Attrs}} = emqx_cm:get_chan_info(ClientId),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    #{clientinfo := #{client_attrs := Attrs}} = emqx_connection:info(ChanPid),
     Attrs.
 
 receive_packet() ->
