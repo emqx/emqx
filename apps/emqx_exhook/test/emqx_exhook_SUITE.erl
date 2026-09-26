@@ -235,6 +235,7 @@ t_access_failed_if_no_server_running(Config) ->
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
         peername => {{127, 0, 0, 1}, 3456},
+        peerhost => {127, 0, 0, 1},
         sockport => 1883,
         protocol => mqtt,
         mountpoint => undefined
