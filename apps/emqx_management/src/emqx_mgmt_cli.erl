@@ -17,6 +17,7 @@
 
 -define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
 -define(EXCLUSIVE_TAB, emqx_exclusive_subscription).
+-define(DUMP_CHUNK_SIZE, 100).
 
 -export([load/0, unload/0]).
 
@@ -1366,23 +1367,21 @@ string_to_ds_dbs(DBStr) ->
 %% Dump ETS
 %%--------------------------------------------------------------------
 
+-doc """
+Print every object in `Table`. The walk reads the table in chunks with an
+`ets:select/3` continuation, so it does not fail when objects are inserted
+or deleted during the walk. Such objects may be printed or skipped.
+""".
 dump(Table, Tag) ->
-    dump(Table, Tag, ets:first(Table), []).
+    dump_chunk(Tag, ets:select(Table, [{'_', [], ['$_']}], ?DUMP_CHUNK_SIZE)).
 
-dump(_Table, _, '$end_of_table', Result) ->
-    lists:reverse(Result);
-dump(Table, Tag, Key, Result) ->
-    PrintValue = [print({Tag, Record}) || Record <- ets:lookup(Table, Key)],
-    dump(Table, Tag, ets:next(Table, Key), [PrintValue | Result]).
-
-print({_, []}) ->
+dump_chunk(_Tag, '$end_of_table') ->
     ok;
-print({client, {ClientId, ChanPid}}) ->
-    Attrs =
-        case emqx_cm:get_chan_info(ClientId, ChanPid) of
-            undefined -> #{};
-            Attrs0 -> Attrs0
-        end,
+dump_chunk(Tag, {Records, Cont}) ->
+    lists:foreach(fun(Record) -> print({Tag, Record}) end, Records),
+    dump_chunk(Tag, ets:select(Cont)).
+
+print_client(ClientId, ChanPid, Attrs) ->
     Stats =
         case emqx_cm:get_chan_stats(ClientId, ChanPid) of
             undefined -> #{};
@@ -1461,7 +1460,16 @@ print({client, {ClientId, ChanPid}}) ->
                 false -> ")~n"
             end,
         [format(K, maps:get(K, Info1)) || K <- InfoKeys]
-    );
+    ).
+
+print({_, []}) ->
+    ok;
+print({client, {ClientId, ChanPid}}) ->
+    %% The channel is gone when it has no info. Print nothing for it.
+    case emqx_cm:get_chan_info(ClientId, ChanPid) of
+        undefined -> ok;
+        Attrs -> print_client(ClientId, ChanPid, Attrs)
+    end;
 print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
