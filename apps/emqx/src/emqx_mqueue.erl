@@ -45,6 +45,7 @@
 
 -export([
     init/1,
+    init_lazy/1,
     info/1,
     info/2
 ]).
@@ -107,15 +108,15 @@
     p_credit :: non_neg_integer() | undefined
 }).
 
--type mqueue() :: #mqueue{}.
+%% An empty queue for a zone. `in/2' replaces it with a record built from the
+%% zone's config, so a session with nothing queued holds no queue record.
+-define(LAZY(Zone), {empty, Zone}).
+
+-type mqueue() :: ?LAZY(emqx_types:zone()) | #mqueue{}.
 
 -spec init(options()) -> mqueue().
 init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
-    MaxLen =
-        case (is_integer(MaxLen0) andalso MaxLen0 > ?MAX_LEN_INFINITY) of
-            true -> MaxLen0;
-            false -> ?MAX_LEN_INFINITY
-        end,
+    MaxLen = max_len_opt(MaxLen0),
     Prios =
         case get_opt(priorities, Opts, ?NO_PRIORITY_TABLE) of
             ?NO_PRIORITY_TABLE ->
@@ -135,11 +136,46 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
         prios = Prios
     }.
 
+-doc """
+Return an empty queue for `Zone`. The first `in/2` builds the queue from the
+zone's `mqtt` config at that time. Every function accepts the returned value.
+""".
+-spec init_lazy(emqx_types:zone()) -> mqueue().
+init_lazy(Zone) ->
+    ?LAZY(Zone).
+
+zone_opts(Zone) ->
+    #{
+        max_len => zone_max_len(Zone),
+        store_qos0 => get_zone_conf(Zone, mqueue_store_qos0),
+        priorities => get_zone_conf(Zone, mqueue_priorities),
+        default_priority => get_zone_conf(Zone, mqueue_default_priority)
+    }.
+
+zone_max_len(Zone) ->
+    emqx_config:get_zone_conf(Zone, [mqtt, max_mqueue_len], 1000).
+
+get_zone_conf(Zone, Key) ->
+    emqx_config:get_zone_conf(Zone, [mqtt, Key]).
+
+max_len_opt(MaxLen) when is_integer(MaxLen), MaxLen > ?MAX_LEN_INFINITY ->
+    MaxLen;
+max_len_opt(_) ->
+    ?MAX_LEN_INFINITY.
+
 -spec info(mqueue()) -> emqx_types:infos().
 info(MQ) ->
     maps:from_list([{Key, info(Key, MQ)} || Key <- ?INFO_KEYS]).
 
 -spec info(atom(), mqueue()) -> term().
+info(store_qos0, ?LAZY(Zone)) ->
+    get_zone_conf(Zone, mqueue_store_qos0);
+info(max_len, ?LAZY(_) = MQ) ->
+    max_len(MQ);
+info(len, ?LAZY(_)) ->
+    0;
+info(dropped, ?LAZY(_)) ->
+    0;
 info(store_qos0, #mqueue{store_qos0 = True}) ->
     True;
 info(max_len, #mqueue{max_len = MaxLen}) ->
@@ -149,20 +185,29 @@ info(len, #mqueue{q = Q}) ->
 info(dropped, #mqueue{dropped = Dropped}) ->
     Dropped.
 
+is_empty(?LAZY(_)) ->
+    true;
 is_empty(#mqueue{q = Q}) ->
     emqx_pqueue:len(Q) =:= 0.
 
+len(?LAZY(_)) ->
+    0;
 len(#mqueue{q = Q}) ->
     emqx_pqueue:len(Q).
 
+max_len(?LAZY(Zone)) -> max_len_opt(zone_max_len(Zone));
 max_len(#mqueue{max_len = MaxLen}) -> MaxLen.
 
 %% @doc Return all queued items in a list.
 -spec to_list(mqueue()) -> list().
+to_list(?LAZY(_)) ->
+    [];
 to_list(MQ) ->
     to_list(MQ, []).
 
 -spec filter(fun((any()) -> boolean()), mqueue()) -> mqueue().
+filter(_Pred, ?LAZY(_) = MQ) ->
+    MQ;
 filter(Pred, #mqueue{q = Q, dropped = Dropped} = MQ) ->
     L0 = emqx_pqueue:len(Q),
     Q1 = emqx_pqueue:filter(Pred, Q),
@@ -182,6 +227,8 @@ filter(Pred, #mqueue{q = Q, dropped = Dropped} = MQ) ->
 when
     Pos :: none | {integer(), priority()},
     Limit :: non_neg_integer().
+query(?LAZY(_), PagerParams) ->
+    query(#mqueue{}, PagerParams);
 query(MQ, #{limit := Limit} = PagerParams) ->
     Pos = maps:get(position, PagerParams, none),
     PQsList = emqx_pqueue:to_queues_list(MQ#mqueue.q),
@@ -264,19 +311,26 @@ to_list(MQ, Acc) ->
 
 %% @doc Return number of dropped messages.
 -spec dropped(mqueue()) -> count().
+dropped(?LAZY(_)) -> 0;
 dropped(#mqueue{dropped = Dropped}) -> Dropped.
 
 -spec payload_bytes(mqueue()) -> non_neg_integer().
+payload_bytes(?LAZY(_)) ->
+    0;
 payload_bytes(#mqueue{payload_bytes = PayloadBytes}) ->
     PayloadBytes.
 
 %% @doc Stats of the mqueue
 -spec stats(mqueue()) -> [stat()].
+stats(?LAZY(_) = MQ) ->
+    [{len, 0}, {max_len, max_len(MQ)}, {dropped, 0}];
 stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
     [{len, len(MQ)}, {max_len, MaxLen}, {dropped, Dropped}].
 
 %% @doc Enqueue a message.
 -spec in(message(), mqueue()) -> {option(message()), mqueue()} | false.
+in(Msg, ?LAZY(Zone)) ->
+    in(Msg, init(zone_opts(Zone)));
 in(#message{qos = ?QOS_0}, #mqueue{store_qos0 = false}) ->
     false;
 in(
@@ -328,6 +382,8 @@ in(
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.
+out(?LAZY(_) = MQ) ->
+    {empty, MQ};
 out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, prios = ?NO_PRIORITY_TABLE}) ->
     case emqx_pqueue:out(Q) of
         {{value, V}, Q1} ->

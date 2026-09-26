@@ -197,7 +197,6 @@ create(
     _MaybeWillMsg,
     Conf
 ) ->
-    QueueOpts = get_mqueue_conf(Zone),
     Limiter = create_limiter(ClientInfo, Conf),
     #session{
         id = emqx_guid:gen(),
@@ -205,7 +204,7 @@ create(
         is_persistent = EI > 0,
         subscriptions = #{},
         inflight = emqx_inflight:new(ReceiveMax),
-        mqueue = emqx_mqueue:init(QueueOpts),
+        mqueue = emqx_mqueue:init_lazy(Zone),
         quota = Limiter,
         next_pkt_id = 1,
         awaiting_rel = #{},
@@ -230,20 +229,6 @@ create_limiter(#{listener := ListenerId} = ClientInfo, _Conf) ->
     %% tenant with delivery limits under a listener with none) must not
     %% depend on that gate.
     emqx_hooks:run_fold('session.limiter_adjustment', [ClientInfo], {lazy, ListenerId}).
-
-get_mqueue_conf(Zone) ->
-    #{
-        max_len => get_mqtt_conf(Zone, max_mqueue_len, 1000),
-        store_qos0 => get_mqtt_conf(Zone, mqueue_store_qos0),
-        priorities => get_mqtt_conf(Zone, mqueue_priorities),
-        default_priority => get_mqtt_conf(Zone, mqueue_default_priority)
-    }.
-
-get_mqtt_conf(Zone, Key) ->
-    emqx_config:get_zone_conf(Zone, [mqtt, Key]).
-
-get_mqtt_conf(Zone, Key, Default) ->
-    emqx_config:get_zone_conf(Zone, [mqtt, Key], Default).
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(_Session) ->
@@ -356,7 +341,7 @@ import(ClientInfo, #{
     }.
 
 import_mqueue(ClientInfo = #{zone := Zone}, Messages) ->
-    enqueue_messages(ClientInfo, Messages, emqx_mqueue:init(get_mqueue_conf(Zone))).
+    enqueue_messages(ClientInfo, Messages, emqx_mqueue:init_lazy(Zone)).
 
 import_inflight(Inflight) ->
     lists:foldl(fun import_inflight_entry/2, emqx_inflight:new(0), Inflight).

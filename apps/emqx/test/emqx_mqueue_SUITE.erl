@@ -12,10 +12,139 @@
 
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(Q, emqx_mqueue).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
+
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    [{suite_apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
+    ok.
+
+-doc """
+Checks that every read function returns the same answer for a lazy queue of the
+default zone as for an empty record built from the default zone config.
+""".
+t_lazy_same_answers(_) ->
+    Lazy = ?Q:init_lazy(default),
+    Record = ?Q:init(#{
+        max_len => 1000,
+        store_qos0 => true,
+        priorities => disabled,
+        default_priority => lowest
+    }),
+    lists:foreach(
+        fun(F) -> ?assertEqual(F(Record), F(Lazy)) end,
+        [
+            fun ?Q:info/1,
+            fun(Q) -> ?Q:info(store_qos0, Q) end,
+            fun(Q) -> ?Q:info(max_len, Q) end,
+            fun(Q) -> ?Q:info(len, Q) end,
+            fun(Q) -> ?Q:info(dropped, Q) end,
+            fun ?Q:is_empty/1,
+            fun ?Q:len/1,
+            fun ?Q:max_len/1,
+            fun ?Q:stats/1,
+            fun ?Q:dropped/1,
+            fun ?Q:payload_bytes/1,
+            fun ?Q:to_list/1,
+            fun(Q) -> ?Q:query(Q, #{limit => 10}) end
+        ]
+    ),
+    ?assertEqual({empty, Lazy}, ?Q:out(Lazy)),
+    ?assertEqual(Lazy, ?Q:filter(fun(_) -> false end, Lazy)).
+
+-doc """
+Checks that the first `in/2` on a lazy queue of the default zone builds a queue
+that stores QoS 0, drops the oldest message at 1000 and counts drops and
+payload bytes.
+""".
+t_lazy_in_overflow(_) ->
+    Q0 = ?Q:init_lazy(default),
+    {undefined, Q1} = ?Q:in(#message{qos = ?QOS_0, payload = <<"a">>}, Q0),
+    ?assertEqual(1, ?Q:len(Q1)),
+    ?assertEqual(1, ?Q:payload_bytes(Q1)),
+    Msgs = [#message{qos = ?QOS_1, payload = <<"bb">>} || _ <- lists:seq(1, 1000)],
+    {Q2, Dropped} = lists:foldl(
+        fun(Msg, {QAcc, DAcc}) ->
+            case ?Q:in(Msg, QAcc) of
+                {undefined, QAcc1} -> {QAcc1, DAcc};
+                {D, QAcc1} -> {QAcc1, [D | DAcc]}
+            end
+        end,
+        {Q1, []},
+        Msgs
+    ),
+    ?assertMatch([#message{payload = <<"a">>}], Dropped),
+    ?assertEqual(1000, ?Q:len(Q2)),
+    ?assertEqual(1, ?Q:dropped(Q2)),
+    ?assertEqual(2000, ?Q:payload_bytes(Q2)),
+    ?assertEqual(
+        #{store_qos0 => true, max_len => 1000, len => 1000, dropped => 1},
+        ?Q:info(Q2)
+    ).
+
+-doc """
+Checks that a lazy queue reports the zone's current `max_mqueue_len` and
+`mqueue_store_qos0`, and that the first `in/2` builds the queue from them.
+""".
+t_lazy_zone_config(_) ->
+    set_zone_conf(max_mqueue_len, 2),
+    set_zone_conf(mqueue_store_qos0, false),
+    Q0 = ?Q:init_lazy(default),
+    ?assertEqual(2, ?Q:max_len(Q0)),
+    ?assertEqual(false, ?Q:info(store_qos0, Q0)),
+    ?assertEqual([{len, 0}, {max_len, 2}, {dropped, 0}], ?Q:stats(Q0)),
+    ?assertEqual(false, ?Q:in(#message{qos = ?QOS_0, payload = <<>>}, Q0)),
+    {undefined, Q1} = ?Q:in(#message{qos = ?QOS_1, payload = <<"1">>}, Q0),
+    {undefined, Q2} = ?Q:in(#message{qos = ?QOS_1, payload = <<"2">>}, Q1),
+    {#message{payload = <<"1">>}, Q3} = ?Q:in(#message{qos = ?QOS_1, payload = <<"3">>}, Q2),
+    ?assertEqual(2, ?Q:len(Q3)),
+    ?assertEqual(1, ?Q:dropped(Q3)),
+    set_zone_conf(max_mqueue_len, infinity),
+    ?assertEqual(0, ?Q:max_len(?Q:init_lazy(default))),
+    %% A built queue keeps the options it was built with.
+    ?assertEqual(2, ?Q:max_len(Q3)).
+
+-doc """
+Checks that the first `in/2` on a lazy queue applies the zone's
+`mqueue_priorities` and `mqueue_default_priority`.
+""".
+t_lazy_zone_priorities(_) ->
+    set_zone_conf(mqueue_priorities, #{<<"t/high">> => 10, <<"t/low">> => 1}),
+    set_zone_conf(mqueue_default_priority, highest),
+    Msgs = [
+        #message{qos = ?QOS_1, topic = <<"t/low">>, payload = <<"low">>},
+        #message{qos = ?QOS_1, topic = <<"t/other">>, payload = <<"other">>},
+        #message{qos = ?QOS_1, topic = <<"t/high">>, payload = <<"high">>}
+    ],
+    Q = lists:foldl(
+        fun(Msg, QAcc) ->
+            {undefined, QAcc1} = ?Q:in(Msg, QAcc),
+            QAcc1
+        end,
+        ?Q:init_lazy(default),
+        Msgs
+    ),
+    ?assertEqual(
+        [<<"other">>, <<"high">>, <<"low">>],
+        [P || #message{payload = P} <- ?Q:to_list(Q)]
+    ).
+
+set_zone_conf(Key, Value) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, Key]),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_config:put_zone_conf(default, [mqtt, Key], Old)
+    end),
+    ok = emqx_config:put_zone_conf(default, [mqtt, Key], Value).
 
 t_info(_) ->
     Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
