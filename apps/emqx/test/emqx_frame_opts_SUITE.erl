@@ -12,7 +12,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(KEY(Zone), {frame_parser_opts, Zone}).
+-define(KEY(Zone), {frame_opts, Zone}).
 -define(PROTO_VERS, [v3, v4, v5]).
 
 -define(SOCKET_PORT, 21883).
@@ -127,7 +127,7 @@ t_build_matches_frame(_Config) ->
     InitialParseState = emqx_frame:initial_parse_state(FrameOpts),
     ?assertEqual(
         #{
-            parse_state => InitialParseState,
+            initial_parse_state => InitialParseState,
             serialize_opts => emqx_frame:initial_serialize_opts(FrameOpts)
         },
         PreConnect
@@ -135,7 +135,7 @@ t_build_matches_frame(_Config) ->
     ?assertEqual(
         #{
             ProtoVer => #{
-                parse_state => emqx_frame:connect_parsed(ProtoVer, InitialParseState),
+                initial_parse_state => emqx_frame:connect_parsed(ProtoVer, InitialParseState),
                 serialize_opts => emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)
             }
          || ProtoVer <- [?MQTT_PROTO_V3, ?MQTT_PROTO_V4, ?MQTT_PROTO_V5]
@@ -162,8 +162,12 @@ t_shared_after_connect(Config) ->
             C1 = connect(Config, ProtoVer),
             C2 = connect(Config, ProtoVer),
             V = proto_ver(ProtoVer),
-            ?assertEqual(#{parse_state => true, serialize_opts => true}, held_shared(C1, V)),
-            ?assertEqual(#{parse_state => true, serialize_opts => true}, held_shared(C2, V)),
+            ?assertEqual(
+                #{initial_parse_state => true, serialize_opts => true}, held_shared(C1, V)
+            ),
+            ?assertEqual(
+                #{initial_parse_state => true, serialize_opts => true}, held_shared(C2, V)
+            ),
             {_ParseState, SerializeOpts} = frame_state(Config, C1),
             ?assertMatch(
                 #{version := V, strict_mode := false, max_size := ?MAX_PACKET_SIZE},
@@ -206,8 +210,8 @@ gets the default limit and the shared serializer options.
 t_client_max_packet_size(Config) ->
     Small = connect(Config, v5, [{properties, #{'Maximum-Packet-Size' => 1024}}]),
     Default = connect(Config, v5),
-    ?assertEqual(#{parse_state => true, serialize_opts => false}, held_shared(Small, 5)),
-    ?assertEqual(#{parse_state => true, serialize_opts => true}, held_shared(Default, 5)),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => false}, held_shared(Small, 5)),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(Default, 5)),
     {_, SmallSerialize} = frame_state(Config, Small),
     ?assertMatch(#{max_size := 1024, strict_mode := false}, SmallSerialize),
     {_, DefaultSerialize} = frame_state(Config, Default),
@@ -232,11 +236,11 @@ has `strict_mode = false`.
 t_pre_connect_strict_mode(Config) ->
     {ok, _} = emqx:update_config([mqtt, strict_mode], true),
     #{pre_connect := PreConnect} = persistent_term:get(?KEY(default)),
-    #{parse_state := PreParseState, serialize_opts := PreSerialize} = PreConnect,
+    #{initial_parse_state := PreParseState, serialize_opts := PreSerialize} = PreConnect,
     ?assertMatch(#{strict_mode := true}, PreSerialize),
     {Sock, Pid} = raw_connect(Config),
     ?assertEqual({PreParseState, PreSerialize}, frame_state(Config, Pid)),
-    ?assertEqual(#{parse_state => true, serialize_opts => true}, held_pre_connect(Pid)),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_pre_connect(Pid)),
     ConnPkt = ?CONNECT_PACKET(#mqtt_packet_connect{
         proto_ver = ?MQTT_PROTO_V5,
         proto_name = <<"MQTT">>,
@@ -250,7 +254,7 @@ t_pre_connect_strict_mode(Config) ->
     ),
     {_, PostSerialize} = frame_state(Config, Pid),
     ?assertMatch(#{strict_mode := false, version := ?MQTT_PROTO_V5}, PostSerialize),
-    ?assertEqual(#{parse_state => true, serialize_opts => true}, held_shared(Pid, 5)),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(Pid, 5)),
     ok = gen_tcp:close(Sock).
 
 -doc """
@@ -323,20 +327,20 @@ assert_zone_entry(Zone, MaxSize, Old) ->
     ?assertNotEqual(Old, New),
     FrameOpts = emqx_frame_opts:frame_opts(Zone),
     ?assertMatch(#{max_size := MaxSize}, FrameOpts),
-    #{common := #{?MQTT_PROTO_V5 := #{parse_state := ParseState}}} = New,
+    #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := ParseState}}} = New,
     ?assertEqual(
         emqx_frame:connect_parsed(?MQTT_PROTO_V5, emqx_frame:initial_parse_state(FrameOpts)),
         ParseState
     ).
 
 assert_after_change(Config, C1, Old) ->
-    #{common := #{?MQTT_PROTO_V5 := #{parse_state := OldParseState}}} = Old,
+    #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := OldParseState}}} = Old,
     %% The existing connection keeps the terms it had. The runtime copied them
     %% into its heap when the old entry was replaced.
     ?assertMatch({OldParseState, _}, frame_state(Config, C1)),
-    ?assertEqual(#{parse_state => false, serialize_opts => false}, held_shared(C1, 5)),
+    ?assertEqual(#{initial_parse_state => false, serialize_opts => false}, held_shared(C1, 5)),
     C2 = connect(Config, v5),
-    ?assertEqual(#{parse_state => true, serialize_opts => true}, held_shared(C2, 5)),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C2, 5)),
     ok = assert_pubsub(C1, C2),
     ok = assert_pubsub(C2, C1),
     ok = emqtt:stop(C1),
@@ -433,11 +437,11 @@ held(Client, GetShared) ->
     Self = self(),
     Ref = make_ref(),
     _ = sys:replace_state(Pid, fun(Misc) ->
-        #{parse_state := ParseState, serialize_opts := SerializeOpts} = GetShared(),
+        #{initial_parse_state := ParseState, serialize_opts := SerializeOpts} = GetShared(),
         Elements = state_elements(Misc),
         Self !
             {Ref, #{
-                parse_state => lists:any(
+                initial_parse_state => lists:any(
                     fun(E) -> erts_debug:same(unwrap(E), ParseState) end, Elements
                 ),
                 serialize_opts => lists:any(

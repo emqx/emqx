@@ -9,16 +9,22 @@ Frame parser and serializer options, derived from zone config and shared
 between connections.
 
 Each zone has one `persistent_term` entry under the key
-`{frame_parser_opts, Zone}`. Its value holds two groups of terms:
+`{frame_opts, Zone}`. Its value holds two groups of terms:
 
 - `pre_connect`: the initial parse state and the initial serializer options
   that a connection uses until it receives CONNECT.
-- `common`: for each MQTT protocol version, the parse state and the
+- `common`: for each MQTT protocol version, the initial parse state and the
   serializer options that a connection uses after CONNECT.
 
 A term read out of `persistent_term` is not copied into the heap of the
 reading process. So every connection that stores one of these terms in its
-state refers to the same instance.
+state refers to the same instance. `process_info(Pid, memory)` does not count
+the shared terms. `sys:get_state/1`, `erlang:external_size/1` and
+`erts_debug:flat_size/1` do count them, so they overstate the size of a
+connection state.
+
+When an entry is replaced, the runtime copies the old terms into the heap of
+every process that still refers to them.
 
 Only `post_zone_config_update/2` writes the entries. Connection processes
 only read them. When an entry is absent, the functions here build the terms
@@ -36,16 +42,16 @@ locally from zone config.
 
 -export_type([pre_connect/0]).
 
--define(KEY(Zone), {frame_parser_opts, Zone}).
+-define(KEY(Zone), {frame_opts, Zone}).
 -define(PROTO_VERS, [?MQTT_PROTO_V3, ?MQTT_PROTO_V4, ?MQTT_PROTO_V5]).
 
 -type pre_connect() :: #{
-    parse_state := emqx_frame:parse_state_initial(),
+    initial_parse_state := emqx_frame:parse_state_initial(),
     serialize_opts := emqx_frame:serialize_opts()
 }.
 
 -type connected() :: #{
-    parse_state := emqx_frame:parse_state_initial(),
+    initial_parse_state := emqx_frame:parse_state_initial(),
     serialize_opts := emqx_frame:serialize_opts()
 }.
 
@@ -99,7 +105,8 @@ client that sends `Maximum-Packet-Size` are never replaced.
 connected(Zone, ProtoVer, ParseState, SerializeOpts) ->
     case persistent_term:get(?KEY(Zone), undefined) of
         #{common := #{ProtoVer := Shared}} ->
-            #{parse_state := SharedParseState, serialize_opts := SharedSerializeOpts} = Shared,
+            #{initial_parse_state := SharedParseState, serialize_opts := SharedSerializeOpts} =
+                Shared,
             {
                 same_or_given(SharedParseState, ParseState),
                 same_or_given(SharedSerializeOpts, SerializeOpts)
@@ -153,12 +160,12 @@ update_zone(Zone, _ZoneConf) ->
 -spec build(emqx_frame:options()) -> value().
 build(FrameOpts) ->
     PreConnect = build_pre_connect(FrameOpts),
-    #{parse_state := ParseState} = PreConnect,
+    #{initial_parse_state := ParseState} = PreConnect,
     #{
         pre_connect => PreConnect,
         common => maps:from_list([
             {ProtoVer, #{
-                parse_state => emqx_frame:connect_parsed(ProtoVer, ParseState),
+                initial_parse_state => emqx_frame:connect_parsed(ProtoVer, ParseState),
                 serialize_opts => emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)
             }}
          || ProtoVer <- ?PROTO_VERS
@@ -167,7 +174,7 @@ build(FrameOpts) ->
 
 build_pre_connect(FrameOpts) ->
     #{
-        parse_state => emqx_frame:initial_parse_state(FrameOpts),
+        initial_parse_state => emqx_frame:initial_parse_state(FrameOpts),
         serialize_opts => emqx_frame:initial_serialize_opts(FrameOpts)
     }.
 

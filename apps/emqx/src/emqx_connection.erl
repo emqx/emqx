@@ -1602,7 +1602,9 @@ init_parser_and_serializer(Zone, State0) ->
         transport = Transport,
         socket = Socket
     } = State0,
-    #{parse_state := ParseState, serialize_opts := Serialize} = emqx_frame_opts:pre_connect(Zone),
+    #{initial_parse_state := ParseState, serialize_opts := Serialize} = emqx_frame_opts:pre_connect(
+        Zone
+    ),
     {init_parser(Transport, Socket, ParseState), Serialize}.
 
 %%--------------------------------------------------------------------

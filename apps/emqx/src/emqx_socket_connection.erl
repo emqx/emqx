@@ -1582,7 +1582,9 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
     }.
 
 init_parser_and_serializer(Zone) ->
-    #{parse_state := Parser, serialize_opts := Serialize} = emqx_frame_opts:pre_connect(Zone),
+    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_frame_opts:pre_connect(
+        Zone
+    ),
     {Parser, Serialize}.
 
 get_active_n(#conf{listener = {Type, Listener}}) ->

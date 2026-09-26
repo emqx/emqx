@@ -1038,7 +1038,9 @@ init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
     }.
 
 init_parser_and_serializer(Zone) ->
-    #{parse_state := Parser, serialize_opts := Serialize} = emqx_frame_opts:pre_connect(Zone),
+    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_frame_opts:pre_connect(
+        Zone
+    ),
     {Parser, Serialize}.
 
 %% Swap in the zone's shared parse state and serializer options where they are
