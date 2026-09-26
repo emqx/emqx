@@ -60,6 +60,22 @@ t_restore_empty_stream_buffer(_Config) ->
         emqx_mq_consumer_stream_buffer:inspect(SB)
     ).
 
+%% Verify that a stream buffer accepts acks while it restores its state
+t_ack_restoring_stream_buffer(_Config) ->
+    MQ = #{stream_max_buffer_size => 100},
+    Progress = #{
+        it => fake_iterator,
+        last_message_id => 2,
+        unacked => [#{1 => true, 2 => true}]
+    },
+    SB0 = emqx_mq_consumer_stream_buffer:restore(Progress, MQ),
+
+    {ok, SB} = emqx_mq_consumer_stream_buffer:handle_ack(SB0, 1),
+    ?assertMatch(
+        #{status := restoring, unacked := 1},
+        emqx_mq_consumer_stream_buffer:inspect(SB)
+    ).
+
 %% Verify that the consumer stops itself after there are no active subscribers for a while
 t_auto_shutdown(_Config) ->
     %% Create a non-lastvalue Queue
