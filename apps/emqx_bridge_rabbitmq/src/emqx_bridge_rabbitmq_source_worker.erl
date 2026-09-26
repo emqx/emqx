@@ -5,10 +5,9 @@
 
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([start_link/1, consume/2]).
 -export([
     init/1,
-    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
@@ -16,21 +15,32 @@
 ]).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
-init({_RabbitChannel, _InstanceId, _Params} = State) ->
-    {ok, State, {continue, confirm_ok}}.
+-doc "Asks the worker to subscribe to the queue in `BasicConsume` on its channel.".
+consume(Pid, BasicConsume) ->
+    gen_server:cast(Pid, {consume, BasicConsume}).
 
-handle_continue(confirm_ok, State) ->
-    receive
-        #'basic.consume_ok'{} -> {noreply, State}
-    end.
+init({_RabbitChannel, _InstanceId, _Params} = State) ->
+    {ok, State}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({consume, BasicConsume}, {Channel, InstanceId, _Params} = State) ->
+    try amqp_channel:subscribe(Channel, BasicConsume, self()) of
+        #'basic.consume_ok'{} ->
+            ok;
+        Reply ->
+            log_consume_failed(InstanceId, BasicConsume, Reply)
+    catch
+        exit:Reason ->
+            log_consume_failed(InstanceId, BasicConsume, Reason)
+    end,
+    {noreply, State};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -52,10 +62,20 @@ handle_info(
         amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = Tag}),
     emqx_resource_metrics:received_inc(InstanceId),
     {noreply, State};
+handle_info(#'basic.consume_ok'{}, State) ->
+    {noreply, State};
 handle_info(#'basic.cancel_ok'{}, State) ->
     {stop, normal, State};
 handle_info(_Info, State) ->
     {noreply, State}.
+
+log_consume_failed(InstanceId, #'basic.consume'{queue = Queue}, Reason) ->
+    ?SLOG(error, #{
+        msg => "rabbitmq_source_consume_failed",
+        instance_id => InstanceId,
+        queue => Queue,
+        reason => Reason
+    }).
 
 to_map(BasicDeliver, PBasic, Params, Payload) ->
     #'basic.deliver'{exchange = Exchange, routing_key = RoutingKey} = BasicDeliver,
