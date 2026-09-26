@@ -472,7 +472,18 @@ handle_timeout(Type, CBM, Time, Key, Value) ->
         emqx_durable_timer:handle_durable_timeout(CBM, Key, Value),
         ok
     catch
-        _:_ ->
+        Class:Reason:Stacktrace ->
+            %% A failing callback does not prevent the timer from being
+            %% consumed: it is not retried. The value is not logged, because it
+            %% is opaque callback data and may hold user payload, such as an
+            %% `emqx_durable_will' will message.
+            ?tp(error, ?tp_callback_failed, #{
+                Class => Reason,
+                type => Type,
+                cbm => CBM,
+                key => Key,
+                stacktrace => Stacktrace
+            }),
             ok
     end.
 
