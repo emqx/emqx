@@ -600,6 +600,51 @@ t_progress_restoration_from_removed_gen(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub1).
 
+%% We check that the consumer moves to the next generation of a shard after a restart
+%% when all messages of the shard in the previous generation were acknowledged
+t_progress_restoration_acked_stream_from_old_gen(_Config) ->
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    %% Create a non-lastvalue Queue
+    MQ =
+        emqx_mq_test_utils:create_mq(#{
+            topic_filter => <<"t/#">>,
+            is_lastvalue => false,
+            consumer_max_inactive => 50
+        }),
+
+    %% Messages are sharded by the publisher's clientid,
+    %% so all messages go to the same shard
+    PopulateOpts = #{topic_prefix => <<"t/">>, clientid => <<"publisher">>},
+
+    %% Consume and acknowledge all the messages
+    emqx_mq_test_utils:populate(10, PopulateOpts#{payload_prefix => <<"payload-old-">>}),
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 500),
+    ?assertEqual(10, length(Msgs0)),
+
+    %% Disconnect the client and wait for the consumer to stop and save the progress
+    ok = emqtt:disconnect(CSub0),
+    ok = wait_for_consumer_stop(MQ, 100),
+
+    %% Publish to the same shard in a new generation, keeping the old one
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    emqx_mq_test_utils:populate(10, PopulateOpts#{payload_prefix => <<"payload-new-">>}),
+
+    %% Start the client and the consumer again
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Verify that we receive all new messages and no old ones
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 0, _Timeout1 = 500),
+    ?assertEqual(
+        lists:sort([<<"payload-new-", (integer_to_binary(I))/binary>> || I <- lists:seq(0, 9)]),
+        lists:sort([Payload || #{payload := Payload} <- Msgs1])
+    ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
 %% We check that the consumption progress is restored correctly
 %% when the consumption buffer is full
 t_progress_restoration_full_buffer(_Config) ->

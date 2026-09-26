@@ -138,7 +138,7 @@ fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ0) ->
 populate(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
     NeedDifferentClients = maps:get(different_clients, Opts, false),
-    C0 = emqx_mq_test_utils:emqtt_connect([]),
+    C0 = emqx_mq_test_utils:emqtt_connect(maps:to_list(maps:with([clientid], Opts))),
     C = lists:foldl(
         fun(I, Conn0) ->
             IBin = integer_to_binary(I),
