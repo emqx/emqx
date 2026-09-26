@@ -187,7 +187,14 @@
 %% @doc Get infos of the channel.
 -spec info(channel()) -> emqx_types:infos().
 info(Channel) ->
-    maps:from_list(info(?INFO_KEYS, Channel)).
+    Infos = maps:from_list(info(?INFO_KEYS, Channel)),
+    maps:update_with(clientinfo, fun drop_derivable_peer_fields/1, Infos).
+
+%% `clientinfo' keeps these so that authn, authz and hooks can reach them without
+%% `conninfo'. The info map already carries `conninfo', so a reader can derive them
+%% from `conninfo.peername' and `conninfo.sockname' instead.
+drop_derivable_peer_fields(ClientInfo) ->
+    maps:without([peerhost, peerport, peername, sockport], ClientInfo).
 
 -spec info(list(atom()) | atom() | tuple(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->

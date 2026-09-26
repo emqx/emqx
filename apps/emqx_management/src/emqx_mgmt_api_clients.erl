@@ -1888,7 +1888,8 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
     ClientInfoMap1 = maps:merge(StatsMap, ClientInfoMap0),
     ClientInfoMap2 = maps:put(node, Node, ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
-    ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
+    %% `peerport' is not stored; it is the port half of `peername'.
+    ClientInfoMap4 = ClientInfoMap3#{port => Port, peerport => Port},
     ClientInfoMap5 = convert_expiry_interval_unit(ClientInfoMap4),
     ClientInfoMap6 = maps:put(connected, Connected, ClientInfoMap5),
     %% Since this is for the memory session format, and its lifetime is linked to the
