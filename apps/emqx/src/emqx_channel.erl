@@ -2828,7 +2828,7 @@ do_authenticate(
         {ok, AuthResult} ->
             Channel1 = Channel#channel{
                 clientinfo = merge_auth_result(
-                    ClientInfo, freeze_client_attrs_on_reauth(AuthResult, Channel)
+                    ClientInfo, drop_connect_fields_on_reauth(AuthResult, Channel)
                 ),
                 auth_cache = #{}
             },
@@ -2836,7 +2836,7 @@ do_authenticate(
         {ok, AuthResult, AuthData} ->
             Channel1 = Channel#channel{
                 clientinfo = merge_auth_result(
-                    ClientInfo, freeze_client_attrs_on_reauth(AuthResult, Channel)
+                    ClientInfo, drop_connect_fields_on_reauth(AuthResult, Channel)
                 ),
                 auth_cache = #{}
             },
@@ -2886,14 +2886,14 @@ log_auth_failure(Reason) ->
         #{tag => "AUTHN"}
     ).
 
-%% Client attributes are computed once, while the CONNECT is enriched, and hold
-%% for the whole session. Drop them from the result of a re-authentication so
-%% only the rest of it, such as ACL rules and the superuser flag, is applied.
-freeze_client_attrs_on_reauth(AuthResult, #channel{conn_state = ConnState}) when
+%% Client attributes and the client ID are set at CONNECT and hold for the
+%% whole session. Drop them from the result of a re-authentication so only the
+%% rest of it, such as ACL rules, the superuser flag and the expiry, is applied.
+drop_connect_fields_on_reauth(AuthResult, #channel{conn_state = ConnState}) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    maps:remove(client_attrs, AuthResult);
-freeze_client_attrs_on_reauth(AuthResult, _Channel) ->
+    maps:without([client_attrs, clientid_override], AuthResult);
+drop_connect_fields_on_reauth(AuthResult, _Channel) ->
     AuthResult.
 
 %% Merge authentication result into ClientInfo
