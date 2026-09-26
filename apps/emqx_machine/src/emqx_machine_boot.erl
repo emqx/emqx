@@ -70,6 +70,9 @@ stop_apps() ->
     %% connections accepted before the listen sockets close are refused.
     %% `ensure_apps_started/0' marks the node ready again after a reboot.
     ok = emqx_node_readiness:mark_not_ready(),
+    %% Stop sources while clients are still connected and the rule engine is
+    %% running, so a source does not consume messages no client can receive.
+    ok = stop_sources(),
     %% Stop listeners next, so no client traffic reaches hook callbacks
     %% while the apps behind them (plugins, rule engine, ...) are stopped.
     ok = stop_listeners(),
@@ -77,6 +80,26 @@ stop_apps() ->
     ok = emqx_conf_app:unset_config_loaded(),
     ok = emqx_plugins:ensure_stopped(),
     lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
+
+%% Sources are unloaded again when the `emqx_bridge' app stops; removing a
+%% channel that is already gone is a no-op.
+stop_sources() ->
+    try
+        _ = is_running(emqx_bridge) andalso emqx_bridge_v2:stop_sources(),
+        ok
+    catch
+        C:E:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "failed_to_stop_sources",
+                exception => C,
+                reason => E,
+                stacktrace => Stacktrace
+            }),
+            ok
+    end.
+
+is_running(App) ->
+    lists:keymember(App, 1, application:which_applications()).
 
 %% Listeners are stopped again from `emqx_app:prep_stop/1' when the `emqx'
 %% app stops; `emqx_listeners:stop/0' is idempotent.
