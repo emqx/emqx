@@ -76,16 +76,18 @@ t_info(_) ->
         after 100 -> error("error")
         end
     end),
-    #{sockinfo := SockInfo} = emqx_connection:info(CPid),
+    #{conninfo := ConnInfo} = emqx_connection:info(CPid),
     ?assertMatch(
         #{
             peername := {{127, 0, 0, 1}, 3456},
             sockname := {{127, 0, 0, 1}, 18083},
-            sockstate := idle,
             socktype := tcp
         },
-        SockInfo
-    ).
+        ConnInfo
+    ),
+    %% `sockstate' is not part of the channel info map; it is read from the
+    %% connection state.
+    ?assertEqual(idle, emqx_connection:info(sockstate, st())).
 
 t_stats(_) ->
     CPid = spawn(fun() ->
@@ -607,15 +609,14 @@ t_start_link_exit_on_activate(_) ->
 
 t_get_conn_info(_) ->
     with_conn(fun(CPid) ->
-        #{sockinfo := SockInfo} = emqx_connection:info(CPid),
-        ?assertEqual(
+        #{conninfo := ConnInfo} = emqx_connection:info(CPid),
+        ?assertMatch(
             #{
-                peername => {{127, 0, 0, 1}, 3456},
-                sockname => {{127, 0, 0, 1}, 1883},
-                sockstate => running,
-                socktype => tcp
+                peername := {{127, 0, 0, 1}, 3456},
+                sockname := {{127, 0, 0, 1}, 1883},
+                socktype := tcp
             },
-            SockInfo
+            ConnInfo
         )
     end).
 
@@ -781,6 +782,7 @@ st(InitFields, ChannelFields) when is_map(InitFields) ->
 channel() -> channel(#{}).
 channel(InitFields) ->
     ConnInfo = #{
+        socktype => tcp,
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 18083},
         conn_mod => emqx_connection,
