@@ -417,6 +417,18 @@ verification check."""
 client_ssl_opts_schema_server_name_indication.label:
 """Server Name Indication"""
 
+client_ssl_opts_schema_hostname_check.desc:
+"""~
+How the peer certificate is matched against the server name when `verify` is `verify_peer`.
+
+- `san_only`: match the subjectAltName entries only, as RFC 9525 requires. A certificate without a subjectAltName fails verification.
+- `san_or_common_name`: additionally accept a certificate that has no subjectAltName when its subject Common Name (CN) matches the server name. Wildcards are allowed in the left-most label only. IP addresses are never matched against the CN.
+
+Use `san_or_common_name` only as a transition aid while the server certificate is reissued with a subjectAltName.~"""
+
+client_ssl_opts_schema_hostname_check.label:
+"""Hostname Check"""
+
 client_ssl_opts_schema_middlebox_comp_mode.desc:
 """~
 Configures the middle box compatibility mode for a TLS-1.3 connection.
