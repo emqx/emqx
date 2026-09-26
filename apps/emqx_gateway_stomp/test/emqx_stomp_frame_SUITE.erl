@@ -203,3 +203,59 @@ t_pipelined_frames(_) ->
         #stomp_frame{command = <<"SEND">>, headers = [{<<"b">>, <<"2">>}], body = <<"hi">>},
         Frame2
     ).
+
+%% The frame size limits must bound the parser state while a frame is being
+%% accumulated, not only once the frame is complete.
+
+-doc "An unterminated command beyond max_headers_length is rejected while buffering.".
+t_unterminated_command_rejected(_) ->
+    Parser = emqx_stomp_frame:initial_parse_state(#{max_headers_length => 16}),
+    ?assertError(
+        {too_long_header, _},
+        emqx_stomp_frame:parse(binary:copy(<<"C">>, 64), Parser)
+    ).
+
+-doc "An unterminated header name beyond max_headers_length is rejected while buffering.".
+t_unterminated_header_name_rejected(_) ->
+    Parser = emqx_stomp_frame:initial_parse_state(#{max_headers_length => 16}),
+    Bytes = <<"SEND\n", (binary:copy(<<"a">>, 64))/binary>>,
+    ?assertError({too_long_header, _}, emqx_stomp_frame:parse(Bytes, Parser)).
+
+-doc "An unterminated header value beyond max_headers_length is rejected while buffering.".
+t_unterminated_header_value_rejected(_) ->
+    Parser = emqx_stomp_frame:initial_parse_state(#{max_headers_length => 16}),
+    Bytes = <<"SEND\na:", (binary:copy(<<"v">>, 64))/binary>>,
+    ?assertError({too_long_header, _}, emqx_stomp_frame:parse(Bytes, Parser)).
+
+-doc """
+A header is bounded by name+value while buffering: each part fits on its own,
+but together they must still respect max_headers_length.
+""".
+t_combined_header_length_rejected(_) ->
+    Parser = emqx_stomp_frame:initial_parse_state(#{max_headers_length => 10}),
+    Bytes = <<"SEND\nabcdefgh:1234567890">>,
+    ?assertError({too_long_header, _}, emqx_stomp_frame:parse(Bytes, Parser)).
+
+-doc "More headers than max_headers are rejected while buffering.".
+t_too_many_headers_rejected(_) ->
+    Parser = emqx_stomp_frame:initial_parse_state(#{max_headers => 2}),
+    Bytes = <<"SEND\na:1\nb:2\nc:3\n\n", 0>>,
+    ?assertError({too_many_headers, _}, emqx_stomp_frame:parse(Bytes, Parser)).
+
+-doc """
+A body longer than max_body_length is rejected while buffering, even when the
+frame terminator has not arrived yet.
+""".
+t_body_too_long_rejected(_) ->
+    Parser = emqx_stomp_frame:initial_parse_state(#{max_body_length => 16}),
+    Bytes = <<"SEND\n\n", (binary:copy(<<"b">>, 64))/binary>>,
+    ?assertError({too_long_body, _}, emqx_stomp_frame:parse(Bytes, Parser)).
+
+-doc """
+A client-declared content-length beyond max_body_length is rejected as soon as
+the header is parsed, without waiting for the body to arrive.
+""".
+t_declared_content_length_too_long_rejected(_) ->
+    Parser = emqx_stomp_frame:initial_parse_state(#{max_body_length => 16}),
+    Bytes = <<"SEND\ncontent-length:1000000\n\n">>,
+    ?assertError({too_long_body, _}, emqx_stomp_frame:parse(Bytes, Parser)).
