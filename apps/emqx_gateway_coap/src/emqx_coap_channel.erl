@@ -232,6 +232,23 @@ handle_timeout(_, {state_machine, Msg}, Channel) ->
     call_session(timeout, Msg, Channel);
 handle_timeout(_, {transport, Msg}, Channel) ->
     call_session(timeout, Msg, Channel);
+handle_timeout(Ref, blockwise_expire, #channel{timers = Timers, blockwise = BW0} = Channel) ->
+    case maps:get(blockwise_expire, Timers, undefined) of
+        Ref ->
+            BW = emqx_coap_blockwise:expire(erlang:monotonic_time(millisecond), BW0),
+            Channel1 = Channel#channel{
+                blockwise = BW, timers = maps:remove(blockwise_expire, Timers)
+            },
+            case Channel1#channel.session of
+                undefined ->
+                    {ok, Channel1};
+                Session ->
+                    Result = emqx_coap_session:drain_pending_observe_notifications(Session, BW),
+                    handle_result(Result, Channel1)
+            end;
+        _ ->
+            {ok, Channel}
+    end;
 handle_timeout(_, disconnect, Channel) ->
     {shutdown, normal, Channel};
 handle_timeout(_, connection_expire, Channel) ->
@@ -834,8 +851,8 @@ process_protocol({Type, Msg}, Result, Channel, Iter) ->
 process_out(Outs, Result, Channel, _) ->
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, Outs2}] ++ Events, Channel}.
-process_nothing(_, _, Channel) -> {ok, Channel}.
+    {ok, [{outgoing, Outs2}] ++ Events, schedule_blockwise_timer(Channel)}.
+process_nothing(_, _, Channel) -> {ok, schedule_blockwise_timer(Channel)}.
 
 drain_observe_after_blockwise(
     Result0,
@@ -925,9 +942,30 @@ process_reply(
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{
-        session = Session2, blockwise = BW1
-    }}.
+    Channel1 = Channel#channel{session = Session2, blockwise = BW1},
+    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, schedule_blockwise_timer(Channel1)}.
+
+schedule_blockwise_timer(#channel{timers = Timers, session = Session, blockwise = BW} = Channel) ->
+    OldRef = maps:get(blockwise_expire, Timers, undefined),
+    _ =
+        case OldRef of
+            undefined -> ok;
+            _ -> erlang:cancel_timer(OldRef)
+        end,
+    Timers1 = maps:remove(blockwise_expire, Timers),
+    case Session =/= undefined andalso emqx_coap_session:info(mqueue_len, Session) > 0 of
+        false ->
+            Channel#channel{timers = Timers1};
+        true ->
+            case emqx_coap_blockwise:next_expiry(BW) of
+                undefined ->
+                    Channel#channel{timers = Timers1};
+                Expiry ->
+                    Delay = max(1, Expiry - erlang:monotonic_time(millisecond)),
+                    Ref = emqx_utils:start_timer(Delay, blockwise_expire),
+                    Channel#channel{timers = Timers1#{blockwise_expire => Ref}}
+            end
+    end.
 
 process_shutdown(Reply, _Result, Channel, _) -> {shutdown, normal, Reply, Channel}.
 
@@ -945,7 +983,16 @@ maybe_prepare_block2_reply(Req, Reply, PeerKey, Ctx, BW0) ->
             {Reply1, BW1};
         {error, Reply1, BW1} ->
             metrics_inc('blockwise.tx_block2.failed', Ctx),
-            {Reply1, BW1}
+            {Reply1, BW1};
+        {busy, _Reason, BW1} ->
+            metrics_inc('blockwise.tx_block2.failed', Ctx),
+            BusyReply = emqx_coap_message:set(
+                max_age, 1, emqx_coap_message:piggyback({error, service_unavailable}, Req)
+            ),
+            {BusyReply, BW1};
+        {too_large, BW1} ->
+            metrics_inc('blockwise.tx_block2.failed', Ctx),
+            {emqx_coap_message:piggyback({error, service_unavailable}, Req), BW1}
     end.
 
 maybe_inc_block2_completed(Reply, Ctx) ->

@@ -36,6 +36,82 @@ t_server_inorder_reassemble(_) ->
     ?assertEqual(<<"hello world">>, Full#coap_message.payload),
     ?assertEqual(undefined, emqx_coap_message:get_option(block1, Full, undefined)).
 
+t_server_session_exchange_count_limit(_) ->
+    BW0 = emqx_coap_blockwise:new(#{
+        max_block_size => 16,
+        max_concurrent_exchanges => 2,
+        max_total_size => 100
+    }),
+    Msg1 = block1_start(<<"one">>, <<"1">>),
+    Msg2 = block1_start(<<"two">>, <<"2">>),
+    Msg3 = block1_start(<<"three">>, <<"3">>),
+    {continue, _, BW1} = emqx_coap_blockwise:server_in(Msg1, peer, BW0),
+    {continue, _, BW2} = emqx_coap_blockwise:server_in(Msg2, peer, BW1),
+    {error, LimitReply, BW2} = emqx_coap_blockwise:server_in(Msg3, peer, BW2),
+    ?assertEqual({error, too_many_requests}, LimitReply#coap_message.method),
+    ?assertEqual(1, emqx_coap_message:get_option(max_age, LimitReply, undefined)),
+
+    Msg1Done = Msg1#coap_message{
+        payload = <<"done">>,
+        options = (Msg1#coap_message.options)#{block1 => {1, false, 16}}
+    },
+    {complete, _, BW3} = emqx_coap_blockwise:server_in(Msg1Done, peer, BW2),
+    {continue, _, BW4} = emqx_coap_blockwise:server_in(Msg3, peer, BW3),
+    ?assertEqual(2, map_size(maps:get(server_rx_block1, BW4))).
+
+t_server_session_limit_hot_upgrade_defaults(_) ->
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
+    Opts0 = maps:get(opts, BW0),
+    LegacyOpts = maps:without([max_concurrent_exchanges, max_total_size], Opts0),
+    LegacyBW = BW0#{opts => LegacyOpts},
+    Msg = block1_start(<<"one">>, <<"legacy">>),
+    ?assertMatch(
+        {continue, _, _},
+        emqx_coap_blockwise:server_in(Msg, peer, LegacyBW)
+    ).
+
+t_server_session_total_size_limit(_) ->
+    BW0 = emqx_coap_blockwise:new(#{
+        max_block_size => 16,
+        max_concurrent_exchanges => 10,
+        max_total_size => 5
+    }),
+    Msg1 = block1_start(<<"123">>, <<"1">>),
+    Msg2 = block1_start(<<"45">>, <<"2">>),
+    Msg3 = block1_start(<<"6">>, <<"3">>),
+    {continue, _, BW1} = emqx_coap_blockwise:server_in(Msg1, peer, BW0),
+    [FirstRx] = maps:values(maps:get(server_rx_block1, BW1)),
+    ?assertEqual(false, maps:is_key(req, FirstRx)),
+    {continue, _, BW2} = emqx_coap_blockwise:server_in(Msg2, peer, BW1),
+    {error, LimitReply, BW2} = emqx_coap_blockwise:server_in(Msg3, peer, BW2),
+    ?assertEqual({error, request_entity_too_large}, LimitReply#coap_message.method),
+
+    Msg1Next = Msg1#coap_message{
+        payload = <<"x">>,
+        options = (Msg1#coap_message.options)#{block1 => {1, true, 16}}
+    },
+    {error, GrowReply, BW3} = emqx_coap_blockwise:server_in(Msg1Next, peer, BW2),
+    ?assertEqual({error, request_entity_too_large}, GrowReply#coap_message.method),
+    ?assertEqual(1, map_size(maps:get(server_rx_block1, BW3))).
+
+t_client_maps_count_as_one_exchange(_) ->
+    BW0 = emqx_coap_blockwise:new(#{
+        max_block_size => 16,
+        max_concurrent_exchanges => 1,
+        max_total_size => 100
+    }),
+    Req1 = (emqx_coap_message:request(con, put, binary:copy(<<"a">>, 32)))#coap_message{
+        token = <<"1">>
+    },
+    Req2 = Req1#coap_message{token = <<"2">>},
+    {first_block, _, BW1} = emqx_coap_blockwise:client_prepare_out_request(ctx1, Req1, BW0),
+    ?assertEqual(1, map_size(maps:get(client_req, BW1))),
+    ?assertEqual(1, map_size(maps:get(client_tx_block1, BW1))),
+    ?assertEqual(
+        {busy, too_many_exchanges, BW1},
+        emqx_coap_blockwise:client_prepare_out_request(ctx2, Req2, BW1)
+    ).
+
 t_server_out_of_order(_) ->
     BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Msg0 =
@@ -81,6 +157,20 @@ t_client_tx_continue_out_of_range(_) ->
     ?assertEqual({error, request_entity_incomplete}, Reply#coap_message.method),
     ?assertEqual(#{}, maps:get(client_tx_block1, BW3)).
 
+t_client_tx_block1_size_negotiation(_) ->
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 32}),
+    Req = emqx_coap_message:request(con, put, binary:copy(<<"B">>, 64)),
+    Ctx = #{ctx => negotiation},
+    {first_block, First, BW1} = emqx_coap_blockwise:client_prepare_out_request(Ctx, Req, BW0),
+    TooLarge0 = emqx_coap_message:piggyback({error, request_entity_too_large}, First),
+    TooLarge = emqx_coap_message:set(block1, {0, true, 16}, TooLarge0),
+    {send_next, Retry, BW2} = emqx_coap_blockwise:client_in_response(Ctx, TooLarge, BW1),
+    ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block1, Retry, undefined)),
+    Continue0 = emqx_coap_message:piggyback({ok, continue}, Retry),
+    Continue = emqx_coap_message:set(block1, {0, true, 16}, Continue0),
+    {send_next, Next, _BW3} = emqx_coap_blockwise:client_in_response(Ctx, Continue, BW2),
+    ?assertEqual({1, true, 16}, emqx_coap_message:get_option(block1, Next, undefined)).
+
 t_client_rx_block2_reassemble(_) ->
     BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Req =
@@ -101,6 +191,22 @@ t_client_rx_block2_reassemble(_) ->
     {deliver, FullResp, _BW2} = emqx_coap_blockwise:client_in_response(Ctx, Resp1, BW1),
     ?assertEqual(<<"hello world">>, FullResp#coap_message.payload),
     ?assertEqual(undefined, emqx_coap_message:get_option(block2, FullResp, undefined)).
+
+t_client_rx_final_block_respects_session_total_size(_) ->
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, max_total_size => 16}),
+    Req = emqx_coap_message:request(con, get, <<>>),
+    Ctx = #{request => Req},
+    Resp0 = #coap_message{
+        type = ack,
+        method = {ok, content},
+        payload = binary:copy(<<"A">>, 16),
+        options = #{block2 => {0, true, 16}}
+    },
+    {send_next, _, BW1} = emqx_coap_blockwise:client_in_response(Ctx, Resp0, BW0),
+    Resp1 = Resp0#coap_message{payload = <<"B">>, options = #{block2 => {1, false, 16}}},
+    {deliver, LimitReply, BW2} = emqx_coap_blockwise:client_in_response(Ctx, Resp1, BW1),
+    ?assertEqual({error, service_unavailable}, LimitReply#coap_message.method),
+    ?assertEqual(#{}, maps:get(client_rx_block2, BW2)).
 
 t_server_tx_block2_followup(_) ->
     BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
@@ -342,8 +448,7 @@ t_blockwise_server_followup_variants(_) ->
     {error, ReplyBadTuple, _BW2} = emqx_coap_blockwise:server_followup_in(BadTuple, {peer, 3}, BW0),
     ?assertEqual({error, bad_option}, ReplyBadTuple#coap_message.method),
     BadSize = #coap_message{options = #{block2 => {0, false, 32}}},
-    {error, ReplyBadSize, _BW3} = emqx_coap_blockwise:server_followup_in(BadSize, {peer, 3}, BW0),
-    ?assertEqual({error, bad_option}, ReplyBadSize#coap_message.method),
+    {pass, _BadSize, _BW3} = emqx_coap_blockwise:server_followup_in(BadSize, {peer, 3}, BW0),
     NoToken = #coap_message{token = <<>>, options = #{block2 => {0, false, 16}}},
     {pass, _Msg1, _BW4} = emqx_coap_blockwise:server_followup_in(NoToken, {peer, 3}, BW0),
     Req =
@@ -359,9 +464,10 @@ t_blockwise_server_followup_variants(_) ->
     FollowMismatch = Req#coap_message{
         options = (Req#coap_message.options)#{block2 => {1, false, 32}}
     },
-    {error, _ReplyMismatch, _BW6} = emqx_coap_blockwise:server_followup_in(
+    {reply, ReplyMismatch, _BW6} = emqx_coap_blockwise:server_followup_in(
         FollowMismatch, {peer, 3}, BW5
     ),
+    ?assertEqual({2, false, 16}, emqx_coap_message:get_option(block2, ReplyMismatch, undefined)),
     {chunked, _Reply2, BW7} = emqx_coap_blockwise:server_prepare_out_response(
         Req, Reply0, {peer, 3}, BW0
     ),
@@ -467,8 +573,8 @@ t_blockwise_followup_size_mismatch(_) ->
         id = 201,
         options = (Req#coap_message.options)#{block2 => {1, false, 32}}
     },
-    {error, ReplyErr, _BW2} = emqx_coap_blockwise:server_followup_in(FollowBad, {peer, 9}, BW1),
-    ?assertEqual({error, bad_option}, ReplyErr#coap_message.method).
+    {reply, Reply, _BW2} = emqx_coap_blockwise:server_followup_in(FollowBad, {peer, 9}, BW1),
+    ?assertEqual({2, false, 16}, emqx_coap_message:get_option(block2, Reply, undefined)).
 
 t_blockwise_invalid_block2_request(_) ->
     BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
@@ -560,3 +666,15 @@ t_blockwise_block2_token_empty(_) ->
     },
     {send_next, NextReq, _BW1} = emqx_coap_blockwise:client_in_response(Ctx, Resp0, BW0),
     ?assertEqual(<<"reqtok">>, NextReq#coap_message.token).
+
+block1_start(Payload, Token) ->
+    #coap_message{
+        type = con,
+        method = post,
+        token = Token,
+        payload = Payload,
+        options = #{
+            uri_path => [<<"ps">>, <<"topic">>],
+            block1 => {0, true, 16}
+        }
+    }.

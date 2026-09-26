@@ -18,7 +18,10 @@
     parse_object_list/1,
     reregister/3,
     on_close/1,
-    find_cmd_record/3
+    find_cmd_record/3,
+    blockwise/1,
+    set_blockwise/2,
+    has_pending/1
 ]).
 
 %% Info & Stats
@@ -36,6 +39,7 @@
     handle_out/3,
     timeout/3,
     send_cmd/3,
+    resume_pending/3,
     set_reply/2
 ]).
 
@@ -202,6 +206,15 @@ on_close(Session) ->
 find_cmd_record(Path, Type, #session{cmd_record = Record}) ->
     maps:get(?CMD_KEY(Path, Type), Record, undefined).
 
+blockwise(#session{blockwise = Blockwise}) ->
+    Blockwise.
+
+set_blockwise(Blockwise, Session) ->
+    Session#session{blockwise = Blockwise}.
+
+has_pending(#session{queue = Queue}) ->
+    not queue:is_empty(Queue).
+
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
@@ -289,6 +302,10 @@ set_reply(Msg, #session{coap = Coap} = Session) ->
 
 send_cmd(Cmd, WithContext, Session) ->
     return(send_cmd_impl(Cmd, WithContext, Session)).
+
+resume_pending(_, WithContext, #session{blockwise = BW0} = Session) ->
+    BW1 = emqx_coap_blockwise:expire(erlang:monotonic_time(millisecond), BW0),
+    return(send_dl_msg(WithContext, Session#session{blockwise = BW1})).
 
 set_subscriptions(Subs, Session) ->
     Session#session{subscriptions = Subs}.
@@ -433,7 +450,7 @@ update(
     },
 
     Session2 = proto_subscribe(WithContext, NewSession),
-    Session3 = send_dl_msg(Session2),
+    Session3 = send_dl_msg(WithContext, Session2),
     RegPayload = #{<<"data">> => UpdateRegInfo},
     Session4 =
         case should_publish_update(RegInfo) of
@@ -472,7 +489,7 @@ register_init(WithContext, #session{reg_info = RegInfo} = Session) ->
         #{qos => Qos}
     ),
     Session3 = do_subscribe(MountedTopic, SubOpts, WithContext, Session2),
-    Session4 = send_dl_msg(Session3),
+    Session4 = send_dl_msg(WithContext, Session3),
 
     %% - report the registration info
     RegPayload = #{<<"data">> => RegInfo},
@@ -570,7 +587,7 @@ observe_object(AlternatePath, ObjectPath, WithContext, Session) ->
     },
     deliver_auto_observe_to_coap(AlternatePath, Payload, WithContext, Session).
 
-deliver_auto_observe_to_coap(AlternatePath, TermData, _WithContext, Session) ->
+deliver_auto_observe_to_coap(AlternatePath, TermData, WithContext, Session) ->
     ?SLOG(info, #{
         msg => "send_auto_observe",
         path => AlternatePath,
@@ -578,7 +595,7 @@ deliver_auto_observe_to_coap(AlternatePath, TermData, _WithContext, Session) ->
     }),
     {Req0, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     Req = alloc_token(Req0),
-    maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
+    maybe_do_deliver_to_coap(Ctx, Req, 0, false, WithContext, Session).
 
 filter_ignore_object(ObjectList) when is_list(ObjectList) ->
     lists:filter(
@@ -647,7 +664,7 @@ handle_coap_response(
 ) ->
     case emqx_coap_blockwise:client_in_response(Ctx, Resp0, BW0) of
         {send_next, NextReq, BW1} ->
-            send_to_coap(Ctx, NextReq, Session#session{blockwise = BW1});
+            send_to_coap(Ctx, NextReq, WithContext, 0, Session#session{blockwise = BW1});
         {deliver,
             #coap_message{
                 method = CoapMsgMethod,
@@ -680,14 +697,14 @@ handle_coap_response(
                     _ ->
                         send_to_mqtt(Ctx, EventType, MqttPayload, WithContext, Session2)
                 end,
-            send_dl_msg(Ctx, clear_blockwise_downlink(Ctx, Session3))
+            send_dl_msg(Ctx, WithContext, clear_blockwise_downlink(Ctx, Session3))
     end.
 
 %%--------------------------------------------------------------------
 %% Ack
 %%--------------------------------------------------------------------
 handle_ack({Ctx, _}, WithContext, Session) ->
-    Session2 = send_dl_msg(Ctx, Session),
+    Session2 = send_dl_msg(Ctx, WithContext, Session),
     MqttPayload = emqx_lwm2m_cmd:empty_ack_to_mqtt(Ctx),
     send_to_mqtt(Ctx, <<"ack">>, MqttPayload, WithContext, Session2).
 
@@ -701,7 +718,7 @@ handle_ack_reset({Ctx, _}, WithContext, Session) ->
     handle_ack_failure(Ctx, <<"coap_reset">>, WithContext, Session).
 
 handle_ack_failure(Ctx, MsgType, WithContext, Session) ->
-    Session2 = may_send_dl_msg(coap_timeout, Ctx, Session),
+    Session2 = may_send_dl_msg(coap_timeout, Ctx, WithContext, Session),
     MqttPayload = emqx_lwm2m_cmd:coap_failure_to_mqtt(Ctx, MsgType),
     send_to_mqtt(Ctx, MsgType, MqttPayload, WithContext, Session2).
 
@@ -709,10 +726,10 @@ handle_ack_failure(Ctx, MsgType, WithContext, Session) ->
 %% Send To CoAP
 %%--------------------------------------------------------------------
 
-may_send_dl_msg(coap_timeout, Ctx, #session{wait_ack = WaitAck} = Session) ->
+may_send_dl_msg(coap_timeout, Ctx, WithContext, #session{wait_ack = WaitAck} = Session) ->
     case is_cache_mode(Session) of
         false ->
-            send_dl_msg(Ctx, clear_blockwise_downlink(Ctx, Session));
+            send_dl_msg(Ctx, WithContext, clear_blockwise_downlink(Ctx, Session));
         true ->
             case WaitAck of
                 Ctx ->
@@ -749,40 +766,43 @@ is_qmode(#{<<"b">> := Binding}) when
 is_qmode(_) ->
     false.
 
-send_dl_msg(Session) ->
+send_dl_msg(WithContext, Session) ->
     %% if has in waiting  donot send
     case Session#session.wait_ack of
         undefined ->
-            send_to_coap(Session);
+            send_to_coap(WithContext, Session);
         _ ->
             Session
     end.
 
-send_dl_msg(Ctx, Session) ->
+send_dl_msg(Ctx, WithContext, Session) ->
     case Session#session.wait_ack of
         undefined ->
-            send_to_coap(Session);
+            send_to_coap(WithContext, Session);
         Ctx ->
-            send_to_coap(clear_blockwise_downlink(Ctx, Session#session{wait_ack = undefined}));
+            send_to_coap(
+                WithContext,
+                clear_blockwise_downlink(Ctx, Session#session{wait_ack = undefined})
+            );
         _ ->
             Session
     end.
 
-send_to_coap(#session{queue = Queue} = Session) ->
+send_to_coap(WithContext, #session{queue = Queue} = Session) ->
     case queue:out(Queue) of
         {{value, {Timestamp, Ctx, Req}}, Q2} ->
             Now = ?NOW,
             case Timestamp =:= 0 orelse Timestamp > Now of
                 true ->
-                    send_to_coap(Ctx, Req, Session#session{queue = Q2});
+                    send_to_coap(Ctx, Req, WithContext, Timestamp, Session#session{queue = Q2});
                 false ->
-                    send_to_coap(Session#session{queue = Q2})
+                    send_to_coap(WithContext, Session#session{queue = Q2})
             end;
         {empty, _} ->
             Session
     end.
 
-send_to_coap(Ctx, Req, #session{blockwise = BW0} = Session) ->
+send_to_coap(Ctx, Req, WithContext, ExpiryTime, #session{blockwise = BW0} = Session) ->
     ?SLOG(debug, #{
         msg => "deliver_to_coap",
         coap_request => Req
@@ -812,7 +832,22 @@ send_to_coap(Ctx, Req, #session{blockwise = BW0} = Session) ->
                     blockwise = BW1,
                     blockwise_downlink = downlink_ctx_key(Ctx)
                 }
-            )
+            );
+        {busy, _Reason, BW1} ->
+            Session#session{
+                blockwise = BW1,
+                queue = queue:in_r({ExpiryTime, Ctx, Req}, Session#session.queue)
+            };
+        {error, too_large, BW1} ->
+            ?SLOG(warning, #{
+                msg => "lwm2m_blockwise_downlink_too_large"
+            }),
+            WithContext(metrics, 'delivery.dropped'),
+            EventType = maps:get(<<"msgType">>, Ctx),
+            MqttPayload = emqx_lwm2m_cmd:cmd_error_to_mqtt(request_entity_too_large, Ctx),
+            Session1 = record_response(EventType, MqttPayload, Session#session{blockwise = BW1}),
+            Session2 = send_to_mqtt(Ctx, EventType, MqttPayload, WithContext, Session1),
+            send_to_coap(WithContext, Session2)
     end.
 
 send_msg_not_waiting_ack(Ctx, Req, Session) ->
@@ -935,7 +970,7 @@ deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session) 
         {Req, Ctx} ->
             ExpiryTime = get_expiry_time(MQTT),
             Session2 = record_request(Ctx, Session),
-            maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session2);
+            maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, WithContext, Session2);
         {error, {bad_request, Reason}, Ctx} ->
             ?SLOG(warning, #{
                 msg => "lwm2m_cmd_bad_request",
@@ -953,6 +988,7 @@ maybe_do_deliver_to_coap(
     Req,
     ExpiryTime,
     CacheMode,
+    WithContext,
     #session{
         wait_ack = WaitAck,
         queue = Queue
@@ -974,7 +1010,7 @@ maybe_do_deliver_to_coap(
                             queue:is_empty(Queue) andalso WaitAck =:= undefined
                     of
                         true ->
-                            send_to_coap(Ctx, Req, Session);
+                            send_to_coap(Ctx, Req, WithContext, ExpiryTime, Session);
                         false ->
                             Session#session{queue = queue:in({ExpiryTime, Ctx, Req}, Queue)}
                     end
@@ -1016,13 +1052,13 @@ get_expiry_time(_) ->
 %%--------------------------------------------------------------------
 %% Send CMD
 %%--------------------------------------------------------------------
-send_cmd_impl(Cmd, _WithContext, #session{reg_info = RegInfo} = Session) ->
+send_cmd_impl(Cmd, WithContext, #session{reg_info = RegInfo} = Session) ->
     CacheMode = is_cache_mode(Session),
     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
     case emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, Cmd) of
         {Req, Ctx} ->
             Session2 = record_request(Ctx, Session),
-            maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, Session2);
+            maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, WithContext, Session2);
         {error, {bad_request, Reason}, Ctx} ->
             ?SLOG(warning, #{
                 msg => "lwm2m_cmd_bad_request",

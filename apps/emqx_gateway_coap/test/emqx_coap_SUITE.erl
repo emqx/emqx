@@ -106,13 +106,28 @@ with_notify_type(NotifyType, Fun) ->
     end.
 
 with_blockwise_max_size(MaxBlockSize, Fun) ->
+    with_blockwise_opts(#{<<"max_block_size">> => MaxBlockSize}, Fun).
+
+with_blockwise_opts(Opts, Fun) ->
     OldConf = emqx:get_raw_config([gateway, coap]),
     OldBlockwise = maps:get(<<"blockwise">>, OldConf, #{}),
     {ok, _} = emqx_gateway_conf:update_gateway(
         coap,
         OldConf#{
-            <<"blockwise">> => OldBlockwise#{<<"max_block_size">> => MaxBlockSize}
+            <<"blockwise">> => maps:merge(OldBlockwise, Opts)
         }
+    ),
+    try
+        Fun()
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
+with_connection_required(Required, Fun) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{<<"connection_required">> => atom_to_binary(Required)}
     ),
     try
         Fun()
@@ -123,6 +138,76 @@ with_blockwise_max_size(MaxBlockSize, Fun) ->
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
+
+t_blockwise_session_limits_unauthenticated_uplink(_) ->
+    with_connection_required(false, fun() ->
+        with_blockwise_opts(
+            #{
+                <<"max_block_size">> => 16,
+                <<"max_concurrent_exchanges">> => 2,
+                <<"max_total_size">> => <<"1KB">>
+            },
+            fun() ->
+                {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+                try
+                    Req1 = block1_start_request(<<"one">>, <<"1">>),
+                    Req2 = block1_start_request(<<"two">>, <<"2">>),
+                    Req3 = block1_start_request(<<"three">>, <<"3">>),
+                    ?assertEqual({ok, continue}, raw_block1_reply(Sock, Req1, 1001)),
+                    ?assertEqual({ok, continue}, raw_block1_reply(Sock, Req2, 1002)),
+                    ?assertEqual({error, too_many_requests}, raw_block1_reply(Sock, Req3, 1003))
+                after
+                    gen_udp:close(Sock)
+                end
+            end
+        )
+    end).
+
+t_blockwise_final_block_respects_session_total_size(_) ->
+    with_connection_required(false, fun() ->
+        with_blockwise_opts(
+            #{<<"max_block_size">> => 16, <<"max_total_size">> => <<"64B">>},
+            fun() ->
+                {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+                try
+                    Token = <<"final">>,
+                    Full = block1_start_request(binary:copy(<<"A">>, 16), Token),
+                    lists:foreach(
+                        fun(Num) ->
+                            ?assertEqual(
+                                {ok, continue},
+                                raw_block1_reply(Sock, Full, 1100 + Num, {Num, true, 16})
+                            )
+                        end,
+                        lists:seq(0, 3)
+                    ),
+                    Last = block1_start_request(<<"B">>, Token),
+                    ?assertEqual(
+                        {error, request_entity_too_large},
+                        raw_block1_reply(Sock, Last, 1104, {4, false, 16})
+                    ),
+                    Fresh = block1_start_request(binary:copy(<<"C">>, 16), <<"fresh">>),
+                    ?assertEqual({ok, continue}, raw_block1_reply(Sock, Fresh, 1105))
+                after
+                    gen_udp:close(Sock)
+                end
+            end
+        )
+    end).
+
+raw_block1_reply(Sock, Req0, Id) ->
+    raw_block1_reply(Sock, Req0, Id, {0, true, 16}).
+
+raw_block1_reply(Sock, Req0, Id, Block1) ->
+    Req = Req0#coap_message{
+        id = Id,
+        options = #{uri_path => [<<"resource-limit">>], block1 => Block1}
+    },
+    Packet = emqx_coap_frame:serialize_pkt(Req, emqx_coap_frame:serialize_opts()),
+    ok = gen_udp:send(Sock, {127, 0, 0, 1}, 5683, Packet),
+    {ok, {_Addr, _Port, ReplyPacket}} = gen_udp:recv(Sock, 0, 2000),
+    {ok, Reply, <<>>, _} = emqx_coap_frame:parse(ReplyPacket, #{}),
+    Reply#coap_message.method.
 
 t_connection(_) ->
     Action = fun(Channel) ->
@@ -1129,6 +1214,91 @@ t_observe_non_blockwise_queue_preserves_all_drained_tokens(_) ->
         end)
     end).
 
+t_observe_pending_block2_respects_session_total_size(_) ->
+    with_notify_type(qos, fun() ->
+        with_blockwise_opts(
+            #{
+                <<"max_block_size">> => 16,
+                <<"max_concurrent_exchanges">> => 10,
+                <<"max_total_size">> => <<"64B">>
+            },
+            fun() ->
+                Fun = fun(Channel, Token) ->
+                    TopicA = <<"coap/observe_notify_limit/a">>,
+                    TopicB = <<"coap/observe_notify_limit/b">>,
+                    TopicC = <<"coap/observe_notify_limit/c">>,
+                    observe_topic(Channel, Token, TopicA, <<"obslima">>),
+                    observe_topic(Channel, Token, TopicB, <<"obslimb">>),
+                    observe_topic(Channel, Token, TopicC, <<"obslimc">>),
+
+                    publish(TopicA, ?QOS_1, <<"inflight">>),
+                    Inflight = assert_notify(Channel, con, <<"inflight">>),
+                    PayloadB = blockwise_payload(<<"B">>, <<"b">>, <<"1">>),
+                    PayloadC = blockwise_payload(<<"C">>, <<"c">>, <<"2">>),
+                    publish(TopicB, ?QOS_0, PayloadB),
+                    publish(TopicC, ?QOS_0, PayloadC),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                    ack_if_con(Channel, Inflight),
+                    First = assert_notify(Channel, non),
+                    ?assertEqual({0, true, 16}, coap_option(block2, First, undefined)),
+                    {FirstTopic, Mid, Tail, LastHead} =
+                        case notify_payload(First) of
+                            <<"BBBBBBBBBBBBBBBB">> -> {TopicB, <<"b">>, <<"1">>, <<"C">>};
+                            <<"CCCCCCCCCCCCCCCC">> -> {TopicC, <<"c">>, <<"2">>, <<"B">>}
+                        end,
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+                    URI = pubsub_uri(binary_to_list(FirstTopic), Token),
+                    _ = assert_block2_followup(
+                        Channel,
+                        URI,
+                        First#coap_message.token,
+                        1,
+                        binary:copy(Mid, 16),
+                        {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel,
+                        URI,
+                        First#coap_message.token,
+                        2,
+                        binary:copy(Tail, 8),
+                        {2, false, 16}
+                    ),
+                    Last = assert_notify(Channel, non, binary:copy(LastHead, 16)),
+                    ?assertEqual({0, true, 16}, coap_option(block2, Last, undefined)),
+                    true
+                end,
+                with_connection(Fun)
+            end
+        )
+    end).
+
+t_observe_pending_block2_resumes_after_expiry(_) ->
+    with_notify_type(qos, fun() ->
+        with_blockwise_opts(
+            #{
+                <<"max_block_size">> => 16,
+                <<"max_total_size">> => <<"64B">>,
+                <<"exchange_lifetime">> => <<"1s">>
+            },
+            fun() ->
+                with_connection(fun(Channel, Token) ->
+                    Topic = <<"coap/observe_notify_expiry">>,
+                    observe_topic(Channel, Token, Topic, <<"obsexp">>),
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"a">>, <<"1">>)),
+                    First = assert_notify(Channel, non, binary:copy(<<"A">>, 16)),
+                    ?assertEqual({0, true, 16}, coap_option(block2, First, undefined)),
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"B">>, <<"b">>, <<"2">>)),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+                    Second = assert_notify(Channel, non, binary:copy(<<"B">>, 16)),
+                    ?assertEqual({0, true, 16}, coap_option(block2, Second, undefined)),
+                    true
+                end)
+            end
+        )
+    end).
+
 t_observe_same_token_blockwise_queue_serializes_drained_notifications(_) ->
     with_notify_type(qos, fun() ->
         with_blockwise_max_size(16, fun() ->
@@ -1936,6 +2106,9 @@ blockwise_payload(First, Second, Third) ->
         binary:copy(Second, 16),
         binary:copy(Third, 8)
     ]).
+
+block1_start_request(Payload, Token) ->
+    (make_req(post, Payload, [{block1, {0, true, 16}}]))#coap_message{token = Token}.
 
 find_notify_by_payload(Payload, Notify1, Notify2) ->
     case {notify_payload(Notify1), notify_payload(Notify2)} of

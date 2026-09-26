@@ -18,7 +18,10 @@
     block1_required/2,
     blockwise_size/1,
     max_body_size/1,
-    enabled/1
+    enabled/1,
+    merge/2,
+    merge_within_limits/2,
+    next_expiry/1
 ]).
 
 -export_type([state/0]).
@@ -28,6 +31,8 @@
 
 -define(DEFAULT_MAX_BLOCK_SIZE, 1024).
 -define(DEFAULT_MAX_BODY_SIZE, 4 * 1024 * 1024).
+-define(DEFAULT_MAX_CONCURRENT_EXCHANGES, 16).
+-define(DEFAULT_MAX_TOTAL_SIZE, 16 * 1024 * 1024).
 -define(DEFAULT_EXCHANGE_LIFETIME, 247000).
 
 -type block_key() :: term().
@@ -69,6 +74,8 @@ base_default_opts() ->
         enable => true,
         max_block_size => ?DEFAULT_MAX_BLOCK_SIZE,
         max_body_size => ?DEFAULT_MAX_BODY_SIZE,
+        max_concurrent_exchanges => ?DEFAULT_MAX_CONCURRENT_EXCHANGES,
+        max_total_size => ?DEFAULT_MAX_TOTAL_SIZE,
         exchange_lifetime => ?DEFAULT_EXCHANGE_LIFETIME
     }.
 
@@ -77,6 +84,43 @@ enabled(#{opts := Opts}) -> maps:get(enable, Opts, true).
 
 -spec blockwise_size(state()) -> pos_integer().
 blockwise_size(#{opts := Opts}) -> maps:get(max_block_size, Opts, ?DEFAULT_MAX_BLOCK_SIZE).
+
+-spec merge(state(), state()) -> state().
+merge(Left, Right) ->
+    MapNames = [
+        server_rx_block1,
+        server_tx_block2,
+        client_tx_block1,
+        client_rx_block2,
+        client_req
+    ],
+    lists:foldl(
+        fun(Name, Acc) ->
+            Acc#{Name => maps:merge(maps:get(Name, Left, #{}), maps:get(Name, Right, #{}))}
+        end,
+        Left,
+        MapNames
+    ).
+
+-spec merge_within_limits(state(), state()) ->
+    {ok, state()} | {error, too_many_exchanges | total_size_exhausted}.
+merge_within_limits(Left, Right) ->
+    Merged = merge(Left, Right),
+    case admission(Merged) of
+        ok -> {ok, Merged};
+        {error, Reason} -> {error, Reason}
+    end.
+
+next_expiry(State) ->
+    Maps = [server_rx_block1, server_tx_block2, client_tx_block1, client_rx_block2, client_req],
+    Expiries = [
+        maps:get(expires_at, Item)
+     || Name <- Maps, Item <- maps:values(maps:get(Name, State))
+    ],
+    case Expiries of
+        [] -> undefined;
+        _ -> lists:min(Expiries)
+    end.
 
 -spec max_body_size(state()) -> pos_integer().
 max_body_size(#{opts := Opts}) -> maps:get(max_body_size, Opts, ?DEFAULT_MAX_BODY_SIZE).
@@ -149,7 +193,9 @@ server_incoming(Msg, PeerKey, State0) ->
 -spec server_prepare_out_response(coap_message() | undefined, coap_message(), term(), state()) ->
     {single, coap_message(), state()}
     | {chunked, coap_message(), state()}
-    | {error, coap_message(), state()}.
+    | {error, coap_message(), state()}
+    | {busy, atom(), state()}
+    | {too_large, state()}.
 server_prepare_out_response(_Req, Reply, _PeerKey, State0) when
     not is_record(Reply, coap_message)
 ->
@@ -166,26 +212,41 @@ server_prepare_out_response(Req, Reply, PeerKey, State0) ->
     end.
 
 -spec client_prepare_out_request(term(), coap_message(), state()) ->
-    {single, coap_message(), state()} | {first_block, coap_message(), state()}.
+    {single, coap_message(), state()}
+    | {first_block, coap_message(), state()}
+    | {busy, too_many_exchanges | total_size_exhausted, state()}
+    | {error, too_large, state()}.
 client_prepare_out_request(Ctx, Msg, State0) ->
     State = maybe_expire(State0),
-    State1 = put_client_request(Ctx, Msg, State),
-    case block1_required(Msg, State) of
-        false ->
-            {single, Msg, State1};
-        true ->
-            Size = blockwise_size(State),
-            Payload = Msg#coap_message.payload,
-            Key = client_tx_key(Ctx),
-            First = emqx_coap_message:set_payload_block(Payload, block1, {0, true, Size}, Msg),
-            Tx = #{
-                payload => Payload,
-                size => Size,
-                next_num => 1,
-                req => Msg,
-                expires_at => expires_at(State)
-            },
-            {first_block, First, put_client_tx(Key, Tx, State1)}
+    case
+        {block1_required(Msg, State), byte_size(Msg#coap_message.payload) > max_total_size(State)}
+    of
+        {true, true} ->
+            {error, too_large, State};
+        _ ->
+            State1 = put_client_request(Ctx, Msg, State),
+            case block1_required(Msg, State) of
+                false ->
+                    {single, Msg, State1};
+                true ->
+                    Size = blockwise_size(State),
+                    Payload = Msg#coap_message.payload,
+                    Key = client_tx_key(Ctx),
+                    First = emqx_coap_message:set_payload_block(
+                        Payload, block1, {0, true, Size}, Msg
+                    ),
+                    Tx = #{
+                        payload => Payload,
+                        size => Size,
+                        next_num => 1,
+                        req => Msg,
+                        expires_at => expires_at(State)
+                    },
+                    case try_put(client_tx_block1, Key, Tx, State1) of
+                        {ok, State2} -> {first_block, First, State2};
+                        {error, Reason} -> {busy, Reason, State}
+                    end
+            end
     end.
 
 -spec client_in_response(term(), coap_message(), state()) ->
@@ -258,15 +319,22 @@ do_handle_server_tx_block2(Key, Req, Reply, Num, Size, _PeerKey, State) ->
     Tx = new_server_tx(Reply, Size, State),
     case build_server_tx_block(Req, Reply, Num, Tx) of
         {ok, ChunkedReply, More} ->
-            State1 = put_server_tx(Key, Tx, More, State),
-            ?SLOG(debug, #{
-                msg => "coap_block2_tx_chunked",
-                key => Key,
-                block_num => Num,
-                block_size => Size,
-                more => More
-            }),
-            {chunked, ChunkedReply, State1};
+            case try_put_server_tx(Key, Tx, More, State) of
+                {ok, State1} ->
+                    ?SLOG(debug, #{
+                        msg => "coap_block2_tx_chunked",
+                        key => Key,
+                        block_num => Num,
+                        block_size => Size,
+                        more => More
+                    }),
+                    {chunked, ChunkedReply, State1};
+                {error, Reason} ->
+                    case byte_size(Reply#coap_message.payload) > max_total_size(State) of
+                        true -> {too_large, State};
+                        false -> {busy, Reason, State}
+                    end
+            end;
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "coap_block2_tx_build_failed",
@@ -311,7 +379,7 @@ new_server_tx(Reply, Size, State) ->
 handle_server_followup_block2({Num, More, Size}, Msg, PeerKey, State) when
     is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size)
 ->
-    case is_valid_block_size(Size) andalso Size =< blockwise_size(State) of
+    case is_valid_block_size(Size) of
         false ->
             {error, error_reply({error, bad_option}, Msg), State};
         true ->
@@ -333,28 +401,26 @@ serve_server_followup_block2(Key, Num, Size, Msg, State) ->
     case maps:get(Key, TxMap, undefined) of
         undefined ->
             {pass, Msg, State};
-        #{size := TxSize} when TxSize =/= Size ->
-            ?SLOG(warning, #{
-                msg => "coap_block2_followup_size_mismatch",
-                key => Key,
-                expected_size => TxSize,
-                got_size => Size
-            }),
-            State1 = State#{server_tx_block2 => maps:remove(Key, TxMap)},
-            {error, error_reply({error, bad_option}, Msg), State1};
-        Tx ->
-            case build_server_tx_block(Msg, undefined, Num, Tx) of
+        #{size := TxSize} = Tx ->
+            EffectiveSize = min(Size, min(TxSize, blockwise_size(State))),
+            EffectiveNum = Num * Size div EffectiveSize,
+            Tx1 = Tx#{size => EffectiveSize},
+            case build_server_tx_block(Msg, undefined, EffectiveNum, Tx1) of
                 {ok, Reply, More} ->
-                    Tx2 = Tx#{expires_at => expires_at(State)},
-                    State1 = put_server_tx(Key, Tx2, More, State),
-                    ?SLOG(debug, #{
-                        msg => "coap_block2_followup_served",
-                        key => Key,
-                        block_num => Num,
-                        block_size => Size,
-                        more => More
-                    }),
-                    {reply, Reply, State1};
+                    Tx2 = Tx1#{expires_at => expires_at(State)},
+                    case try_put_server_tx(Key, Tx2, More, State) of
+                        {ok, State1} ->
+                            ?SLOG(debug, #{
+                                msg => "coap_block2_followup_served",
+                                key => Key,
+                                block_num => Num,
+                                block_size => Size,
+                                more => More
+                            }),
+                            {reply, Reply, State1};
+                        {error, _Reason} ->
+                            {error, error_reply({error, service_unavailable}, Msg), State}
+                    end;
                 {error, Reason} ->
                     ?SLOG(warning, #{
                         msg => "coap_block2_followup_failed",
@@ -403,9 +469,12 @@ pick_server_tx_block2_params(Req, State) ->
         {Num, _More, Size} when
             is_integer(Num), Num >= 0, is_boolean(_More), is_integer(Size)
         ->
-            case is_valid_block_size(Size) andalso Size =< DefaultSize of
-                true -> {ok, Num, Size};
-                false -> error
+            case is_valid_block_size(Size) of
+                true ->
+                    EffectiveSize = min(Size, DefaultSize),
+                    {ok, Num * Size div EffectiveSize, EffectiveSize};
+                false ->
+                    error
             end;
         _ ->
             error
@@ -419,7 +488,8 @@ has_block2_option(#coap_message{} = Req) ->
 has_block2_option(_) ->
     false.
 
-reply_request(#coap_message{} = Req, _Reply) -> Req.
+reply_request(#coap_message{} = Req, _Reply) -> Req;
+reply_request(_Req, #coap_message{} = Reply) -> Reply.
 
 maybe_clear_server_tx(PeerKey, Req, State) ->
     case server_tx_key_from_req(PeerKey, Req) of
@@ -430,29 +500,39 @@ maybe_clear_server_tx(PeerKey, Req, State) ->
             State#{server_tx_block2 => maps:remove(Key, TxMap)}
     end.
 
-put_server_tx(Key, _Tx, false, State) ->
+try_put_server_tx(Key, _Tx, false, State) ->
     TxMap = maps:get(server_tx_block2, State),
-    State#{server_tx_block2 => maps:remove(Key, TxMap)};
-put_server_tx(Key, Tx, true, State) ->
+    {ok, State#{server_tx_block2 => maps:remove(Key, TxMap)}};
+try_put_server_tx(Key, Tx, true, State) ->
     TxMap = maps:get(server_tx_block2, State),
     Observe = maps:get(observe, Tx, undefined),
-    TxMap2 =
-        case maps:get(Key, TxMap, undefined) of
-            #{observe := Observe} = Prev when Observe =/= undefined ->
-                TxMap#{Key => Prev#{expires_at => maps:get(expires_at, Tx)}};
-            _ ->
-                TxMap#{Key => Tx}
-        end,
-    State#{server_tx_block2 => TxMap2}.
+    case maps:get(Key, TxMap, undefined) of
+        #{observe := Observe} = Prev when Observe =/= undefined ->
+            {ok, State#{
+                server_tx_block2 => TxMap#{
+                    Key => Prev#{expires_at => maps:get(expires_at, Tx)}
+                }
+            }};
+        _ ->
+            try_put(server_tx_block2, Key, Tx, State)
+    end.
 
 handle_server_block1({Num, More, Size}, Msg, PeerKey, State) when
     is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size)
 ->
-    case is_valid_block_size(Size) andalso Size =< blockwise_size(State) of
+    case is_valid_block_size(Size) of
         false ->
             {error, error_reply({error, bad_option}, Msg), State};
         true ->
-            do_handle_server_block1(Num, More, Size, Msg, PeerKey, State)
+            case Size > blockwise_size(State) of
+                true ->
+                    Reply = too_large_block1_reply(Msg, State),
+                    {error,
+                        emqx_coap_message:set(block1, {Num, More, blockwise_size(State)}, Reply),
+                        State};
+                false ->
+                    do_handle_server_block1(Num, More, Size, Msg, PeerKey, State)
+            end
     end;
 handle_server_block1(_, Msg, _PeerKey, State) ->
     {error, error_reply({error, bad_option}, Msg), State}.
@@ -460,84 +540,129 @@ handle_server_block1(_, Msg, _PeerKey, State) ->
 do_handle_server_block1(Num, More, Size, Msg, PeerKey, State) ->
     Key = server_block1_key(PeerKey, Msg),
     ServerMap = maps:get(server_rx_block1, State),
-    MaxBody = max_body_size(State),
-    Payload = Msg#coap_message.payload,
     case {Num, maps:get(Key, ServerMap, undefined)} of
         {0, _Prev} ->
-            Total = byte_size(Payload),
-            case Total > MaxBody of
-                true ->
-                    {error, error_reply({error, request_entity_too_large}, Msg), State};
-                false ->
-                    case More of
-                        true ->
-                            Tx = #{
-                                payload => Payload,
-                                next_num => 1,
-                                size => Size,
-                                req => Msg,
-                                expires_at => expires_at(State)
-                            },
-                            Continue = continue_reply(Msg, Num, Size),
-                            {continue, Continue, State#{server_rx_block1 => ServerMap#{Key => Tx}}};
-                        false ->
-                            {complete, clear_block1(Msg), State#{
-                                server_rx_block1 => maps:remove(Key, ServerMap)
-                            }}
-                    end
-            end;
+            handle_first_server_block1(More, Size, Msg, Key, ServerMap, State);
         {_Num, undefined} ->
             {error, error_reply({error, request_entity_incomplete}, Msg), State};
         {_Num, Tx = #{next_num := Expected, size := TxSize, payload := Acc}} ->
-            case Num =:= Expected andalso Size =:= TxSize of
-                false ->
-                    {
-                        error,
-                        error_reply({error, request_entity_incomplete}, Msg),
-                        State#{server_rx_block1 => maps:remove(Key, ServerMap)}
-                    };
-                true ->
-                    NewPayload = <<Acc/binary, Payload/binary>>,
-                    case byte_size(NewPayload) > MaxBody of
-                        true ->
-                            {
-                                error,
-                                error_reply({error, request_entity_too_large}, Msg),
-                                State#{server_rx_block1 => maps:remove(Key, ServerMap)}
-                            };
-                        false when More ->
-                            Tx2 = Tx#{
-                                payload => NewPayload,
-                                next_num => Expected + 1,
-                                expires_at => expires_at(State)
-                            },
-                            Continue = continue_reply(Msg, Num, Size),
-                            {
-                                continue,
-                                Continue,
-                                State#{server_rx_block1 => ServerMap#{Key => Tx2}}
-                            };
-                        false ->
-                            Full = clear_block1(Msg#coap_message{payload = NewPayload}),
-                            {
-                                complete,
-                                Full,
-                                State#{server_rx_block1 => maps:remove(Key, ServerMap)}
-                            }
-                    end
+            handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, Acc, State)
+    end.
+
+handle_first_server_block1(More, Size, Msg, Key, ServerMap, State) ->
+    Payload = Msg#coap_message.payload,
+    Total = byte_size(Payload),
+    case
+        Total > max_body_size(State) orelse Total > max_total_size(State) orelse
+            size1_too_large(Msg, State)
+    of
+        true ->
+            {error, too_large_block1_reply(Msg, State), State};
+        false when not More ->
+            {complete, clear_block1(Msg), State#{
+                server_rx_block1 => maps:remove(Key, ServerMap)
+            }};
+        false ->
+            Tx = #{
+                payload => Payload,
+                next_num => 1,
+                size => Size,
+                expires_at => expires_at(State)
+            },
+            case try_put(server_rx_block1, Key, Tx, State) of
+                {ok, State1} ->
+                    {continue, continue_reply(Msg, 0, Size), State1};
+                {error, too_many_exchanges} ->
+                    {error, busy_block1_reply(Msg), State};
+                {error, total_size_exhausted} ->
+                    {error, too_large_block1_reply(Msg, State), State}
             end
     end.
 
+handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, Acc, State) ->
+    ServerMap = maps:get(server_rx_block1, State),
+    case Num =:= Expected andalso Size =:= TxSize of
+        false ->
+            {error, error_reply({error, request_entity_incomplete}, Msg), State#{
+                server_rx_block1 => maps:remove(Key, ServerMap)
+            }};
+        true ->
+            Payload = Msg#coap_message.payload,
+            NewPayload = <<Acc/binary, Payload/binary>>,
+            append_server_block1(Num, More, Size, Msg, Key, Tx, NewPayload, State)
+    end.
+
+append_server_block1(Num, More, Size, Msg, Key, Tx, NewPayload, State) ->
+    ServerMap = maps:get(server_rx_block1, State),
+    case byte_size(NewPayload) > max_body_size(State) of
+        true ->
+            {error, too_large_block1_reply(Msg, State), State#{
+                server_rx_block1 => maps:remove(Key, ServerMap)
+            }};
+        false ->
+            Tx2 = Tx#{
+                payload => NewPayload,
+                next_num => Num + 1,
+                expires_at => expires_at(State)
+            },
+            case try_put(server_rx_block1, Key, Tx2, State) of
+                {ok, State1} when More ->
+                    {continue, continue_reply(Msg, Num, Size), State1};
+                {ok, State1} ->
+                    Full = clear_block1(Msg#coap_message{payload = NewPayload}),
+                    {complete, Full, State1#{
+                        server_rx_block1 => maps:remove(
+                            Key, maps:get(server_rx_block1, State1)
+                        )
+                    }};
+                {error, _Reason} ->
+                    {error, too_large_block1_reply(Msg, State), State#{
+                        server_rx_block1 => maps:remove(Key, ServerMap)
+                    }}
+            end
+    end.
+
+size1_too_large(Msg, State) ->
+    case emqx_coap_message:get_option(size1, Msg, undefined) of
+        Size when is_integer(Size) -> Size > min(max_body_size(State), max_total_size(State));
+        _ -> false
+    end.
+
+busy_block1_reply(Msg) ->
+    emqx_coap_message:set(max_age, 1, error_reply({error, too_many_requests}, Msg)).
+
+too_large_block1_reply(Msg, State) ->
+    emqx_coap_message:set(
+        size1,
+        min(max_body_size(State), max_total_size(State)),
+        error_reply({error, request_entity_too_large}, Msg)
+    ).
+
 handle_client_tx_block1(Ctx, Resp, Key, Tx, State) ->
     Method = Resp#coap_message.method,
-    case Method of
-        {ok, continue} ->
-            send_next_client_tx_block(Ctx, Tx, State);
+    case {Method, negotiated_block1_size(Resp, Tx), maps:get(size, Tx)} of
+        {{ok, continue}, Size, OldSize} ->
+            Offset = maps:get(next_num, Tx) * OldSize,
+            send_next_client_tx_block(Ctx, Tx#{size => Size, next_num => Offset div Size}, State);
+        {{error, request_entity_too_large}, Size, OldSize} when Size < OldSize ->
+            send_next_client_tx_block(Ctx, Tx#{size => Size, next_num => 0}, State);
         _ ->
             State2 = State#{
                 client_tx_block1 => maps:remove(Key, maps:get(client_tx_block1, State))
             },
             maybe_handle_rx_block2(Ctx, Resp, State2)
+    end.
+
+negotiated_block1_size(Resp, Tx) ->
+    CurrentSize = maps:get(size, Tx),
+    case emqx_coap_message:get_option(block1, Resp, undefined) of
+        {_Num, _More, Size} when is_integer(Size), Size >= 16, Size < CurrentSize ->
+            case is_valid_block_size(Size) of
+                true -> Size;
+                false -> CurrentSize
+            end;
+        _ ->
+            CurrentSize
     end.
 
 send_next_client_tx_block(Ctx, Tx, State) ->
@@ -604,7 +729,12 @@ rx_block2_start(Ctx, Key, More, Size, Resp, RxMap, State) ->
                 size => Size,
                 expires_at => expires_at(State)
             },
-            {send_next, NextReq, State#{client_rx_block2 => RxMap#{Key => Rx}}};
+            case try_put(client_rx_block2, Key, Rx, State) of
+                {ok, State1} ->
+                    {send_next, NextReq, State1};
+                {error, _Reason} ->
+                    rx_block2_abort(Ctx, Key, Resp, RxMap, State, resource_limit)
+            end;
         false ->
             State1 = State#{client_rx_block2 => maps:remove(Key, RxMap)},
             {deliver, clear_block2(Resp), clear_client_request(Ctx, State1)}
@@ -628,20 +758,29 @@ rx_block2_append(Ctx, Key, Num, More, Size, Resp, Rx, RxMap, State) ->
             case NewTotal > max_body_size(State) of
                 true ->
                     rx_block2_abort(Ctx, Key, Resp, RxMap, State, body_too_large);
-                false when More ->
-                    NextReq = next_block2_request(Ctx, Resp, Num + 1, Size, State),
+                false ->
                     Rx2 = Rx#{
                         chunks => [Payload | Chunks],
                         total_size => NewTotal,
                         next_num => Num + 1,
                         expires_at => expires_at(State)
                     },
-                    {send_next, NextReq, State#{client_rx_block2 => RxMap#{Key => Rx2}}};
-                false ->
-                    FullPayload = iolist_to_binary(lists:reverse([Payload | Chunks])),
-                    Full = clear_block2(Resp#coap_message{payload = FullPayload}),
-                    State1 = State#{client_rx_block2 => maps:remove(Key, RxMap)},
-                    {deliver, Full, clear_client_request(Ctx, State1)}
+                    case try_put(client_rx_block2, Key, Rx2, State) of
+                        {ok, State1} when More ->
+                            NextReq = next_block2_request(Ctx, Resp, Num + 1, Size, State1),
+                            {send_next, NextReq, State1};
+                        {ok, State1} ->
+                            FullPayload = iolist_to_binary(lists:reverse([Payload | Chunks])),
+                            Full = clear_block2(Resp#coap_message{payload = FullPayload}),
+                            State2 = State1#{
+                                client_rx_block2 => maps:remove(
+                                    Key, maps:get(client_rx_block2, State1)
+                                )
+                            },
+                            {deliver, Full, clear_client_request(Ctx, State2)};
+                        {error, _Reason} ->
+                            rx_block2_abort(Ctx, Key, Resp, RxMap, State, resource_limit)
+                    end
             end
     end.
 
@@ -656,7 +795,9 @@ rx_block2_abort(Ctx, Key, Resp, RxMap, State, Reason) ->
 block2_abort_reply(Resp = #coap_message{}, body_too_large) ->
     Resp#coap_message{method = {error, request_entity_too_large}};
 block2_abort_reply(Resp = #coap_message{}, sequence_mismatch) ->
-    Resp#coap_message{method = {error, request_entity_incomplete}}.
+    Resp#coap_message{method = {error, request_entity_incomplete}};
+block2_abort_reply(Resp = #coap_message{}, resource_limit) ->
+    Resp#coap_message{method = {error, service_unavailable}}.
 
 next_block2_request(Ctx, Resp, Num, Size, State) ->
     Req0 = block2_template(Ctx, Resp, State),
@@ -741,8 +882,8 @@ put_client_tx(Key, Tx, State) ->
 
 put_client_request(Ctx, Req, State) ->
     Key = client_req_key(Ctx),
-    ReqMap = maps:get(client_req, State),
     ReqItem = #{request => Req, expires_at => expires_at(State)},
+    ReqMap = maps:get(client_req, State),
     State#{client_req => ReqMap#{Key => ReqItem}}.
 
 clear_client_request(Ctx, State) ->
@@ -794,6 +935,20 @@ normalize_opts(Opts0) ->
             normalize_block_size(maps:get(max_block_size, Opts0, ?DEFAULT_MAX_BLOCK_SIZE))},
         {max_body_size,
             normalize_max_body_size(maps:get(max_body_size, Opts0, ?DEFAULT_MAX_BODY_SIZE))},
+        {max_concurrent_exchanges,
+            normalize_positive_integer(
+                max_concurrent_exchanges,
+                maps:get(
+                    max_concurrent_exchanges, Opts0, ?DEFAULT_MAX_CONCURRENT_EXCHANGES
+                ),
+                ?DEFAULT_MAX_CONCURRENT_EXCHANGES
+            )},
+        {max_total_size,
+            normalize_positive_integer(
+                max_total_size,
+                maps:get(max_total_size, Opts0, ?DEFAULT_MAX_TOTAL_SIZE),
+                ?DEFAULT_MAX_TOTAL_SIZE
+            )},
         {exchange_lifetime,
             normalize_exchange_lifetime(
                 maps:get(exchange_lifetime, Opts0, ?DEFAULT_EXCHANGE_LIFETIME)
@@ -845,6 +1000,85 @@ normalize_exchange_lifetime(Other) ->
         using_default => ?DEFAULT_EXCHANGE_LIFETIME
     }),
     ?DEFAULT_EXCHANGE_LIFETIME.
+
+normalize_positive_integer(_Name, Value, _Default) when is_integer(Value), Value > 0 ->
+    Value;
+normalize_positive_integer(Name, Value, Default) ->
+    ?SLOG(warning, #{
+        msg => "coap_blockwise_invalid_limit",
+        limit => Name,
+        configured => Value,
+        using_default => Default
+    }),
+    Default.
+
+try_put(MapName, Key, Value, State) ->
+    Map = maps:get(MapName, State),
+    Candidate = State#{MapName => Map#{Key => Value}},
+    case admission(Candidate) of
+        ok -> {ok, Candidate};
+        {error, Reason} -> {error, Reason}
+    end.
+
+admission(#{opts := Opts} = State) ->
+    {ExchangeCount, TotalSize} = resource_usage(State),
+    case
+        ExchangeCount > maps:get(max_concurrent_exchanges, Opts, ?DEFAULT_MAX_CONCURRENT_EXCHANGES)
+    of
+        true ->
+            {error, too_many_exchanges};
+        false ->
+            case TotalSize > max_total_size(State) of
+                true -> {error, total_size_exhausted};
+                false -> ok
+            end
+    end.
+
+max_total_size(#{opts := Opts}) ->
+    maps:get(max_total_size, Opts, ?DEFAULT_MAX_TOTAL_SIZE).
+
+resource_usage(State) ->
+    ServerRx = maps:get(server_rx_block1, State),
+    ServerTx = maps:get(server_tx_block2, State),
+    ClientContexts = client_contexts(State),
+    ExchangeCount = map_size(ServerRx) + map_size(ServerTx) + length(ClientContexts),
+    TotalSize =
+        map_payload_size(ServerRx, payload) +
+            map_payload_size(ServerTx, payload) +
+            lists:sum([client_context_size(Ctx, State) || Ctx <- ClientContexts]),
+    {ExchangeCount, TotalSize}.
+
+client_contexts(State) ->
+    lists:usort(
+        [Ctx || {_Type, Ctx} <- maps:keys(maps:get(client_tx_block1, State))] ++
+            [Ctx || {_Type, Ctx} <- maps:keys(maps:get(client_rx_block2, State))]
+    ).
+
+client_context_size(Ctx, State) ->
+    ReqSize = request_item_size(maps:get(client_req_key(Ctx), maps:get(client_req, State), #{})),
+    TxSize = item_binary_size(
+        maps:get(client_tx_key(Ctx), maps:get(client_tx_block1, State), #{}), payload
+    ),
+    RxSize = maps:get(
+        total_size,
+        maps:get(client_rx_key(Ctx), maps:get(client_rx_block2, State), #{}),
+        0
+    ),
+    max(ReqSize, TxSize) + RxSize.
+
+request_item_size(#{request := #coap_message{payload = Payload}}) ->
+    byte_size(Payload);
+request_item_size(_) ->
+    0.
+
+map_payload_size(Map, Field) ->
+    maps:fold(fun(_Key, Item, Acc) -> Acc + item_binary_size(Item, Field) end, 0, Map).
+
+item_binary_size(Item, Field) ->
+    case maps:get(Field, Item, <<>>) of
+        Value when is_binary(Value) -> byte_size(Value);
+        _ -> 0
+    end.
 
 is_valid_block_size(Size) when is_integer(Size) ->
     Size >= 16 andalso Size =< ?MAX_BLOCK_SIZE andalso (Size band (Size - 1)) =:= 0.
