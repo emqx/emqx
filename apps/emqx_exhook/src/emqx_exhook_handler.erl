@@ -160,18 +160,33 @@ on_client_subscribe(ClientInfo, Props, TopicFilters) ->
         props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
-    case emqx_exhook:call_fold('client.subscribe', Req, fun merge_responsed_topicfilters/2) of
+    ok = emqx_exhook:cast('client.subscribe', Req),
+    call_fold_topicfilters('client.subscribe', Req, TopicFilters, fun(TopicFilter, RespTf) ->
+        rewrite_subscribe_filter(ClientInfo, TopicFilter, RespTf)
+    end).
+
+on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
+    {UserProps, SystemProps} = format_props(Props),
+    Req = #{
+        clientinfo => clientinfo(ClientInfo),
+        user_props => UserProps,
+        props => SystemProps,
+        topic_filters => topicfilters(TopicFilters)
+    },
+    ok = emqx_exhook:cast('client.unsubscribe', Req),
+    call_fold_topicfilters(
+        'client.unsubscribe', Req, TopicFilters, fun rewrite_unsubscribe_filter/2
+    ).
+
+%% Asks the servers that registered `Hookpoint' with `valued_response' for
+%% rewritten topic filters.
+call_fold_topicfilters(Hookpoint, Req, TopicFilters, RewriteFun) ->
+    case emqx_exhook:call_fold_valued(Hookpoint, Req, fun merge_responsed_topicfilters/2) of
         {StopOrOk, #{topic_filters := RespTfs}} ->
-            case rewrite_topicfilters(ClientInfo, TopicFilters, RespTfs) of
+            case rewrite_topicfilters(Hookpoint, TopicFilters, RespTfs, RewriteFun) of
                 {ok, TopicFilters} ->
-                    %% Nothing was rewritten, so the accumulator is left alone
-                    %% and the rest of the `client.subscribe' chain runs -- but
-                    %% only when the server said to continue. Returning the
-                    %% filters unchanged is how a server says "I have looked at
-                    %% this and no later hook should touch it", and `ignore'
-                    %% would downgrade that to "continue", because `emqx_hooks'
-                    %% treats any term other than `stop' or `{stop, Acc}' as
-                    %% continue. `{stop, TopicFilters}' keeps both properties.
+                    %% Nothing to rewrite, but a STOP_AND_RETURN still stops
+                    %% the chain, with the accumulator as it is.
                     unchanged_topicfilters(StopOrOk, TopicFilters);
                 {ok, NTopicFilters} ->
                     {StopOrOk, NTopicFilters};
@@ -186,16 +201,6 @@ unchanged_topicfilters(stop, TopicFilters) ->
     {stop, TopicFilters};
 unchanged_topicfilters(_Ok, _TopicFilters) ->
     ignore.
-
-on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
-    {UserProps, SystemProps} = format_props(Props),
-    Req = #{
-        clientinfo => clientinfo(ClientInfo),
-        user_props => UserProps,
-        props => SystemProps,
-        topic_filters => topicfilters(TopicFilters)
-    },
-    emqx_exhook:cast('client.unsubscribe', Req).
 
 %%--------------------------------------------------------------------
 %% Session
@@ -488,55 +493,72 @@ topicfilters(Tfs) when is_list(Tfs) ->
      || {Topic, SubOpts} <- Tfs
     ].
 
-%% Apply the topic filters a `client.subscribe.rewrite' hook responded with.
+%% Apply the topic filters a valued `client.subscribe' or `client.unsubscribe'
+%% hook responded with.
 %%
-%% The hook runs after `check_sub_authzs'/`check_sub_caps' and its result goes
-%% straight to the session, so what the broker guarantees about a SUBSCRIBE has
-%% to be re-established here:
-%%
-%%   * one filter back per requested filter, in the same order, because SUBACK
-%%     carries one reason code per requested topic filter, ordered as the
-%%     filters were received (MQTT-3.9.3-1);
-%%   * `subopts' within their MQTT ranges, since they end up as the granted QoS;
-%%   * a rewritten filter authorized and within the zone's subscribe caps.
+%% SUBACK and UNSUBACK carry one reason code per requested topic filter, ordered
+%% as the filters were received (MQTT-3.9.3-1, MQTT-3.11.3-1), and the channel
+%% derives them from what the hook returns. So the response must hold one filter
+%% per requested filter, and must not move a requested filter to another
+%% position. `RewriteFun' checks each rewritten filter.
 %%
 %% A response breaking any of these is rejected as a whole: applying it in part
-%% would subscribe the client to a set nobody asked for.
-rewrite_topicfilters(ClientInfo, TopicFilters, RespTfs) when
+%% would act on a set of filters nobody asked for.
+rewrite_topicfilters(Hookpoint, TopicFilters, RespTfs, RewriteFun) when
     length(RespTfs) =:= length(TopicFilters)
 ->
     try
-        {ok,
-            lists:zipwith(
-                fun(TopicFilter, RespTf) ->
-                    rewrite_topicfilter(ClientInfo, TopicFilter, RespTf)
-                end,
-                TopicFilters,
-                RespTfs
-            )}
+        ok = check_topicfilter_order(TopicFilters, RespTfs),
+        {ok, lists:zipwith(RewriteFun, TopicFilters, RespTfs)}
     catch
         throw:{Reason, Meta} ->
             ?SLOG(error, Meta#{
                 msg => "exhook_topic_filter_rewrite_rejected",
+                hookpoint => Hookpoint,
                 reason => Reason
             }),
             {error, Reason}
     end;
-rewrite_topicfilters(_ClientInfo, TopicFilters, RespTfs) ->
+rewrite_topicfilters(Hookpoint, TopicFilters, RespTfs, _RewriteFun) ->
     ?SLOG(error, #{
         msg => "exhook_topic_filter_rewrite_rejected",
+        hookpoint => Hookpoint,
         reason => topic_filter_count_mismatch,
         requested => length(TopicFilters),
         responded => length(RespTfs)
     }),
     {error, topic_filter_count_mismatch}.
 
-rewrite_topicfilter(ClientInfo, TopicFilter = {Topic, SubOpts}, RespTf) ->
+%% A response entry that names a filter requested at another position means
+%% the server reordered the list, and the reason codes would no longer line up
+%% with the filters the client sent.
+check_topicfilter_order(TopicFilters, RespTfs) ->
+    Names = [emqx_topic:maybe_format_share(Topic) || {Topic, _SubOpts} <- TopicFilters],
+    lists:foreach(
+        fun({Name, RespTf}) ->
+            RespName = maps:get(name, RespTf, undefined),
+            case RespName =/= Name andalso lists:member(RespName, Names) of
+                true -> throw({topic_filter_order_mismatch, #{topic => RespName}});
+                false -> ok
+            end
+        end,
+        lists:zip(Names, RespTfs)
+    ).
+
+%% The hook runs after `check_sub_authzs'/`check_sub_caps' and its result goes
+%% straight to the session, so a rewritten filter is range-checked, authorized
+%% and checked against the zone's subscribe caps here.
+rewrite_subscribe_filter(ClientInfo, TopicFilter = {Topic, SubOpts}, RespTf) ->
     NSubOpts = rewrite_subopts(SubOpts, maps:get(subopts, RespTf, undefined)),
     case rewrite_topic(Topic, NSubOpts, maps:get(name, RespTf, undefined)) of
         TopicFilter -> TopicFilter;
         NTopicFilter -> recheck_topicfilter(ClientInfo, NTopicFilter)
     end.
+
+%% The channel does not authorize an UNSUBSCRIBE, and `subopts' play no part
+%% in it, so only the name is taken from the response.
+rewrite_unsubscribe_filter({Topic, SubOpts}, RespTf) ->
+    rewrite_topic(Topic, SubOpts, maps:get(name, RespTf, undefined)).
 
 %% `topicfilters/1' flattens a shared subscription into its wire form
 %% (`$share/<group>/<filter>'). Re-parse only a name the hook actually changed,
@@ -679,13 +701,7 @@ merge_responsed_topicfilters(Req, #{
     type := Type, value := {topic_filters, #{filters := TopicFilters}}
 }) when is_list(TopicFilters) ->
     {ret(Type), Req#{topic_filters => TopicFilters}};
-%% A server registered as `client.subscribe' rather than `client.subscribe.rewrite'
-%% answers `OnClientSubscribe' with an empty `EmptySuccess', which decodes to a
-%% response carrying no value. Nothing to merge, and nothing worth warning about.
-merge_responsed_topicfilters(_Req, #{value := undefined}) ->
-    ignore;
-merge_responsed_topicfilters(_Req, Resp) when map_size(Resp) =:= 0 ->
-    ignore;
+%% CONTINUE without a value leaves the topic filters as they are.
 merge_responsed_topicfilters(_Req, #{type := 'CONTINUE'} = Resp) when map_size(Resp) =:= 1 ->
     ignore;
 merge_responsed_topicfilters(_Req, Resp) ->
