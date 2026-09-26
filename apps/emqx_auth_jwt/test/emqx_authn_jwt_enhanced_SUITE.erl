@@ -184,6 +184,27 @@ t_reauthenticate_keeps_connect_clientid_override(_Config) ->
     ?assertEqual(ClientId, clientid(ChanPid)),
     ?assertEqual([], emqx_cm:lookup_channels(<<"c_override_reauth">>)).
 
+%% With the authorization cache enabled, a re-authentication that narrows the
+%% `acl' claim applies to the next publish.
+t_reauthenticate_empties_authz_cache(_Config) ->
+    ok = emqx_config:put([authorization, cache, enable], true),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_config:put([authorization, cache, enable], false)
+    end),
+    _ = connect(
+        <<"c_authz_cache">>,
+        jws(#{<<"exp">> => exp(60), <<"acl">> => #{<<"pub">> => [<<"t/1">>]}})
+    ),
+    ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
+    ?assertEqual(?RC_NO_MATCHING_SUBSCRIBERS, publish(<<"t/1">>, 1)),
+
+    ok = reauthenticate(
+        jws(#{<<"exp">> => exp(120), <<"acl">> => #{<<"pub">> => [<<"t/2">>]}})
+    ),
+    ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
+    ?assertEqual(?RC_NOT_AUTHORIZED, publish(<<"t/1">>, 2)),
+    ?assertEqual(?RC_NO_MATCHING_SUBSCRIBERS, publish(<<"t/2">>, 3)).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -227,6 +248,13 @@ client_attrs(ClientId) ->
 clientid(ChanPid) ->
     #{clientinfo := #{clientid := ClientId}} = emqx_connection:info(ChanPid),
     ClientId.
+
+publish(Topic, PacketId) ->
+    ok = emqx_mqtt_test_client:send(
+        get_client(), ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, <<"payload">>)
+    ),
+    ?PUBACK_PACKET(PacketId, ReasonCode) = receive_packet(),
+    ReasonCode.
 
 receive_packet() ->
     receive
