@@ -788,6 +788,55 @@ get_groups() ->
         all_bootstrap_hosts()
     ).
 
+wait_until_waiting_for_node_ready(TCConfig) ->
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            {200, #{
+                <<"status">> := <<"connecting">>,
+                <<"status_reason">> := <<"Waiting for the node to be ready">>
+            }},
+            get_source_api(TCConfig)
+        )
+    ).
+
+mark_ready_and_wait_gate(Node) ->
+    ?wait_async_action(
+        ?ON(Node, emqx_node_readiness:mark_ready()),
+        #{?snk_kind := kafka_consumer_gate_scan_done},
+        5_000
+    ).
+
+%% Committed offset of each partition of the source topic, for the source's group.
+committed_offsets(TCConfig) ->
+    #{<<"parameters">> := #{<<"topic">> := KafkaTopic}} = get_config(source_config, TCConfig),
+    {ok, Topics} = brod:fetch_committed_offsets(
+        all_bootstrap_hosts(), _ConnCfg = [], consumer_group_id(TCConfig)
+    ),
+    maps:from_list([
+        {Partition, Offset}
+     || #{name := T, partitions := Partitions} <- Topics,
+        T =:= KafkaTopic,
+        #{partition_index := Partition, committed_offset := Offset} <- Partitions
+    ]).
+
+durable_sessions_node(TestCase, TCConfig) ->
+    AppSpecs = [
+        emqx_conf,
+        {emqx, #{config => #{<<"durable_sessions">> => #{<<"enable">> => true}}}},
+        emqx_bridge_kafka,
+        emqx_connector,
+        {emqx_bridge, #{schema_mod => emqx_bridge_v2_schema, config => #{}}},
+        emqx_rule_engine,
+        emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard()
+    ],
+    emqx_cth_cluster:mk_nodespecs(
+        [{node_name(TestCase, 1), #{apps => AppSpecs}}],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+    ).
+
 with_group_subscriber_spy(Opts, Fn) ->
     #{timeout := Timeout} = Opts,
     setup_group_subscriber_spy(self()),
@@ -1349,6 +1398,166 @@ t_dynamic_mqtt_topic(TCConfig) ->
             ?assertError({timeout, _}, receive_published(#{timeout => 500})),
             ok
         end
+    ),
+    ok.
+
+%% Checks that a source added while the node is not ready consumes nothing until the
+%% node is ready. The source reads from `earliest', so it then delivers the records
+%% produced in the meantime.
+t_start_after_node_ready(TCConfig) ->
+    ?check_trace(
+        begin
+            {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+            %% MQTT connections are refused while the node is not ready.
+            C = start_client(),
+            on_exit(fun emqx_node_readiness:mark_ready/0),
+            ok = emqx_node_readiness:mark_not_ready(),
+            {201, _} = create_source_api(TCConfig, #{}),
+            #{topic := MQTTTopic} = simple_create_rule_api(TCConfig),
+            {ok, _, [0]} = emqtt:subscribe(C, MQTTTopic),
+            Payloads = [unique_payload() || _ <- lists:seq(1, 3)],
+            publish_kafka(TCConfig, [#{key => <<"mykey">>, value => P} || P <- Payloads]),
+            wait_until_waiting_for_node_ready(TCConfig),
+            {ok, {ok, _}} = mark_ready_and_wait_gate(node()),
+            ?assertMatch(
+                [_, _, _],
+                receive_published_payloads(#{expected => Payloads, timeout => 30_000})
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            {BeforeReady, _AfterReady} = ?split_trace_at(
+                #{?snk_kind := kafka_consumer_gate_scan_done}, Trace
+            ),
+            ?assertEqual([], ?of_kind(kafka_consumer_handle_message, BeforeReady)),
+            ok
+        end
+    ),
+    ok.
+
+%% Checks that a source deleted while the node is not ready never starts its group
+%% subscriber.
+t_remove_before_node_ready(TCConfig) ->
+    ?check_trace(
+        begin
+            {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+            publish_kafka(TCConfig, [#{key => <<"mykey">>, value => unique_payload()}]),
+            on_exit(fun emqx_node_readiness:mark_ready/0),
+            ok = emqx_node_readiness:mark_not_ready(),
+            {201, _} = create_source_api(TCConfig, #{}),
+            wait_until_waiting_for_node_ready(TCConfig),
+            {204, _} = delete_source_api(TCConfig),
+            ?assertMatch(
+                {ok, {ok, #{subscriber_ids := []}}},
+                mark_ready_and_wait_gate(node())
+            ),
+            ?assertEqual([], supervisor:which_children(emqx_bridge_kafka_consumer_sup)),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(kafka_consumer_subscriber_started, Trace)),
+            ?assertEqual(
+                [], ?of_kind("kafka_consumer_subscriber_started_after_node_ready", Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+%% Checks that a source waiting for the node to be ready starts once it is ready,
+%% even if `emqx_bridge_kafka_consumer_gate' restarted while it waited.
+t_gate_restart_while_waiting(TCConfig) ->
+    Gate = emqx_bridge_kafka_consumer_gate,
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+    on_exit(fun emqx_node_readiness:mark_ready/0),
+    ok = emqx_node_readiness:mark_not_ready(),
+    {201, _} = create_source_api(TCConfig, #{}),
+    wait_until_waiting_for_node_ready(TCConfig),
+    GatePid0 = whereis(Gate),
+    MRef = monitor(process, GatePid0),
+    exit(GatePid0, kill),
+    receive
+        {'DOWN', MRef, process, GatePid0, killed} -> ok
+    after 1_000 -> ct:fail(gate_not_killed)
+    end,
+    ?retry(
+        100,
+        20,
+        ?assertMatch(GatePid when is_pid(GatePid) andalso GatePid =/= GatePid0, whereis(Gate))
+    ),
+    ?assertMatch({ok, {ok, #{subscriber_ids := [_]}}}, mark_ready_and_wait_gate(node())),
+    ?retry(
+        200,
+        50,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_source_api(TCConfig))
+    ),
+    ok.
+
+%% Checks that a durable session subscribed to the republish topic before a node
+%% restart receives, once it reconnects, the records produced while the node was not
+%% ready, and that the committed offsets cover those records. Durable storage is up
+%% before the source is created.
+t_durable_session_receives_backlog() ->
+    [{?cluster, true}].
+t_durable_session_receives_backlog(TCConfig) ->
+    ct:timetrap({seconds, 150}),
+    NumRecords = 10,
+    NodeSpecs = durable_sessions_node(?FUNCTION_NAME, TCConfig),
+    [N] = emqx_cth_cluster:start(NodeSpecs),
+    on_exit(fun() -> emqx_cth_cluster:stop([N]) end),
+    ok = ?ON(N, emqx_persistent_message:wait_readiness(15_000)),
+    emqx_bridge_v2_testlib:set_auth_header_getter(fun() ->
+        ?ON(N, emqx_mgmt_api_test_util:auth_header_())
+    end),
+    MQTTTopic = <<"republish/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
+    ClientOpts = #{
+        port => get_mqtt_port(N),
+        proto_ver => v5,
+        clientid => atom_to_binary(?FUNCTION_NAME),
+        clean_start => false,
+        properties => #{'Session-Expiry-Interval' => 300}
+    },
+    {ok, C0} = emqtt:start_link(ClientOpts),
+    {ok, _} = emqtt:connect(C0),
+    {ok, _, [2]} = emqtt:subscribe(C0, MQTTTopic, 2),
+    ok = emqtt:disconnect(C0),
+    %% Only a durable session survives the restart.
+    [N] = emqx_cth_cluster:restart(NodeSpecs),
+    ok = ?ON(N, emqx_persistent_message:wait_readiness(15_000)),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+    ok = ?ON(N, emqx_node_readiness:mark_not_ready()),
+    Payloads = [unique_payload() || _ <- lists:seq(1, NumRecords)],
+    lists:foreach(
+        fun(P) -> publish_kafka(TCConfig, [#{key => P, value => P}]) end,
+        Payloads
+    ),
+    {201, _} = create_source_api(TCConfig, #{}),
+    #{topic := MQTTTopic} = simple_create_rule_api(
+        #{sql => auto, republish_overrides => #{<<"topic">> => MQTTTopic}},
+        TCConfig
+    ),
+    wait_until_waiting_for_node_ready(TCConfig),
+    {ok, SRef} = snabbkaffe:subscribe(
+        ?match_event(#{
+            ?snk_kind := kafka_consumer_handle_message,
+            ?snk_span := {complete, _}
+        }),
+        NumRecords,
+        30_000
+    ),
+    {ok, {ok, _}} = mark_ready_and_wait_gate(N),
+    {ok, _} = snabbkaffe:receive_events(SRef),
+    ?retry(
+        500,
+        40,
+        ?assertEqual(NumRecords, lists:sum(maps:values(committed_offsets(TCConfig))))
+    ),
+    {ok, C1} = emqtt:start_link(ClientOpts),
+    on_exit(fun() -> catch emqtt:stop(C1) end),
+    {ok, _} = emqtt:connect(C1),
+    ?assertEqual(
+        NumRecords,
+        length(receive_published_payloads(#{expected => Payloads, timeout => 30_000}))
     ),
     ok.
 

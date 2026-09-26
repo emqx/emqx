@@ -33,14 +33,14 @@ child_spec(Id, GroupSubscriberConfig) ->
     DelaySecs = 5,
     {
         Id,
-        _Start = {Mod, start_link, [GroupSubscriberConfig]},
+        _Start = {emqx_bridge_kafka_consumer_gate, start_subscriber, [GroupSubscriberConfig]},
         _Restart = {permanent, DelaySecs},
         _Shutdown = 10_000,
         _Type = worker,
         _Module = [Mod]
     }.
 
--spec start_child(child_id(), map()) -> {ok, pid()} | {error, term()}.
+-spec start_child(child_id(), map()) -> {ok, pid() | undefined} | {error, term()}.
 start_child(Id, GroupSubscriberConfig) ->
     ChildSpec = child_spec(Id, GroupSubscriberConfig),
     case brod_supervisor3:start_child(?MODULE, ChildSpec) of
@@ -60,8 +60,14 @@ start_child(Id, GroupSubscriberConfig) ->
 ensure_child_deleted(Id) ->
     case brod_supervisor3:terminate_child(?MODULE, Id) of
         ok ->
-            ok = brod_supervisor3:delete_child(?MODULE, Id),
-            ok;
+            case brod_supervisor3:delete_child(?MODULE, Id) of
+                ok ->
+                    ok;
+                {error, Reason} when Reason =:= running; Reason =:= restarting ->
+                    %% The child was restarted between the two calls, by
+                    %% `emqx_bridge_kafka_consumer_gate' or a pending delayed restart.
+                    ensure_child_deleted(Id)
+            end;
         {error, not_found} ->
             ok
     end.
