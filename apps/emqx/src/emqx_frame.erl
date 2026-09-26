@@ -9,7 +9,8 @@
 -export([
     initial_parse_state/0,
     initial_parse_state/1,
-    update_parse_state/2
+    update_parse_state/2,
+    connect_parsed/2
 ]).
 
 -export([
@@ -482,7 +483,12 @@ parse_connect(Frame, Options = #options{strict_mode = StrictMode}) ->
 update_parse_state(ProtoVer, Options) ->
     Options#options{version = ProtoVer}.
 
-%% CONNECT is parsed: record the protocol version and stop requiring CONNECT.
+-doc """
+Return the parse state the parser moves to once it has parsed a CONNECT packet.
+
+The state records the protocol version and no longer requires a CONNECT.
+The parser itself returns this state together with the CONNECT packet.
+""".
 -spec connect_parsed(emqx_types:proto_ver(), parse_state_initial()) ->
     parse_state_initial().
 connect_parsed(ProtoVer, Options) ->
