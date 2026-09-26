@@ -516,6 +516,35 @@ t_handle_in_subscribe_hook_drops_topic_filter(_) ->
         ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
     end.
 
+t_handle_in_subscribe_hook_drops_middle_topic_filter(_) ->
+    %% The hook dropped the middle filter: it is reported as failed, and the one
+    %% after it keeps its own granted QoS.
+    ok = meck:expect(
+        emqx_session,
+        subscribe,
+        fun(_, _, _, Session) -> {ok, Session} end
+    ),
+    ok = add_subscribe_hook(fun(TopicFilters) -> lists:keydelete(<<"b">>, 1, TopicFilters) end),
+    try
+        Channel = channel(#{conn_state => connected}),
+        Subscribe = ?SUBSCRIBE_PACKET(1, #{}, [
+            {<<"a">>, ?DEFAULT_SUBOPTS#{qos => ?QOS_0}},
+            {<<"b">>, ?DEFAULT_SUBOPTS#{qos => ?QOS_1}},
+            {<<"c">>, ?DEFAULT_SUBOPTS#{qos => ?QOS_2}}
+        ]),
+        ?assertMatch(
+            {ok,
+                [
+                    {outgoing, ?SUBACK_PACKET(1, [?QOS_0, ?RC_UNSPECIFIED_ERROR, ?QOS_2])}
+                    | _
+                ],
+                _Chan},
+            emqx_channel:handle_in(Subscribe, Channel)
+        )
+    after
+        ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
+    end.
+
 add_subscribe_hook(Fun) ->
     emqx_hooks:add('client.subscribe', {?MODULE, on_client_subscribe, [Fun]}, ?HP_HIGHEST).
 
