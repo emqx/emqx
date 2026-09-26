@@ -10,6 +10,7 @@
     nats_to_mqtt/1,
     nats_to_mqtt_publish/1,
     mqtt_to_nats/1,
+    mqtt_to_nats_publish/1,
     validate_nats_subject/1
 ]).
 
@@ -20,8 +21,12 @@
 %% MQTT wildcards: + matches a single level, # matches all remaining levels
 -spec nats_to_mqtt(binary()) -> binary().
 nats_to_mqtt(<<>>) ->
-    <<>>;
+    error({invalid_subject, empty_subject});
 nats_to_mqtt(Subject) ->
+    ensure_valid_nats_subject(Subject),
+    do_nats_to_mqtt(Subject).
+
+do_nats_to_mqtt(Subject) ->
     case has_nats_wildcard_chars(Subject) of
         false ->
             replace_dot_with_slash_if_needed(Subject);
@@ -30,7 +35,7 @@ nats_to_mqtt(Subject) ->
                 $> ->
                     %% Convert NATS '>' to MQTT '#'
                     Base = binary:part(Subject, 0, byte_size(Subject) - 1),
-                    BaseMqtt = nats_to_mqtt(Base),
+                    BaseMqtt = do_nats_to_mqtt(Base),
                     <<BaseMqtt/binary, "#">>;
                 _ ->
                     %% Convert NATS '*' to MQTT '+'
@@ -45,8 +50,9 @@ nats_to_mqtt(Subject) ->
 %% Preserve NATS wildcard tokens as literals.
 -spec nats_to_mqtt_publish(binary()) -> binary().
 nats_to_mqtt_publish(<<>>) ->
-    <<>>;
+    error({invalid_subject, empty_subject});
 nats_to_mqtt_publish(Subject) ->
+    ensure_valid_nats_subject(Subject),
     replace_dot_with_slash_if_needed(Subject).
 
 %% @doc Convert MQTT topic to NATS subject
@@ -70,6 +76,20 @@ mqtt_to_nats(Topic) ->
             iolist_to_binary(lists:join(<<".">>, [convert_mqtt_wildcard(Part) || Part <- Parts]))
     end.
 
+-spec mqtt_to_nats_publish(binary()) -> {ok, binary()} | {error, invalid_topic}.
+mqtt_to_nats_publish(Topic) ->
+    %% A dot inside an MQTT level would become another NATS token.
+    case binary:match(Topic, <<".">>) of
+        nomatch ->
+            Subject = mqtt_to_nats(Topic),
+            case validate_nats_subject(Subject) of
+                {ok, false} -> {ok, Subject};
+                _ -> {error, invalid_topic}
+            end;
+        _ ->
+            {error, invalid_topic}
+    end.
+
 %% @doc Convert NATS wildcard to MQTT wildcard
 -spec convert_nats_wildcard(binary()) -> binary().
 convert_nats_wildcard(<<"*">>) -> <<"+">>;
@@ -84,12 +104,28 @@ convert_mqtt_wildcard(Part) -> Part.
 %% Subject names are case-sensitive. They must be non-empty UTF-8
 %% strings and cannot contain null characters, whitespace, or the
 %% special characters . (period), * (asterisk), and > (greater than sign).
+%% MQTT-reserved characters and subscription prefixes are excluded from
+%% the subset supported by the NATS gateway.
 %% By convention, subject names starting with $ (e.g., $SYS., $JS.API., $KV.)
 %% are reserved for NATS system use.
 -spec validate_nats_subject(binary()) -> {ok, boolean()} | {error, term()}.
 validate_nats_subject(<<>>) ->
     {error, empty_subject};
+validate_nats_subject(<<"$share.", _/binary>>) ->
+    {error, mqtt_reserved_prefix};
+validate_nats_subject(<<"$queue.", _/binary>>) ->
+    {error, mqtt_reserved_prefix};
+validate_nats_subject(<<"$exclusive.", _/binary>>) ->
+    {error, mqtt_reserved_prefix};
 validate_nats_subject(Subject) ->
+    case binary:match(Subject, [<<"/">>, <<"+">>, <<"#">>]) of
+        nomatch ->
+            do_validate_nats_subject(Subject);
+        _ ->
+            {error, mqtt_reserved_char}
+    end.
+
+do_validate_nats_subject(Subject) ->
     case fast_validate_plain_ascii_subject(Subject) of
         {ok, false} ->
             {ok, false};
@@ -107,6 +143,12 @@ validate_nats_subject(Subject) ->
             end;
         Error ->
             Error
+    end.
+
+ensure_valid_nats_subject(Subject) ->
+    case validate_nats_subject(Subject) of
+        {ok, _HasWildcard} -> ok;
+        {error, Reason} -> error({invalid_subject, Reason})
     end.
 
 validate_nats_subject_tokens([], _Lv, HasWildcard) ->

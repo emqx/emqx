@@ -1050,8 +1050,7 @@ ensure_disconnected(
 handle_deliver(
     Delivers,
     Channel = #channel{
-        ctx = Ctx,
-        clientinfo = ClientInfo = #{clientid := ClientId, mountpoint := Mountpoint},
+        clientinfo = #{clientid := ClientId},
         subscriptions = Subs
     }
 ) ->
@@ -1062,30 +1061,9 @@ handle_deliver(
                 true ->
                     {FrameAcc, SubsAcc};
                 false ->
-                    ReplyTo = emqx_message:get_header(reply_to, Message),
                     case find_sub_by_topic(SubTopic, SubsAcc) of
                         #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
-                            Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
-                            metrics_inc('messages.delivered', Channel),
-                            NMessage = run_hooks_without_metrics(
-                                Ctx,
-                                'message.delivered',
-                                [ClientInfo],
-                                Message1
-                            ),
-                            MsgContent = #{
-                                subject => emqx_nats_topic:mqtt_to_nats(
-                                    emqx_message:topic(NMessage)
-                                ),
-                                sid => SId,
-                                reply_to => ReplyTo,
-                                payload => emqx_message:payload(NMessage)
-                            },
-                            Frame = #nats_frame{
-                                operation = ?OP_MSG,
-                                message = MsgContent
-                            },
-                            {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+                            deliver_to_subscriber(Message, SId, {FrameAcc, SubsAcc}, Channel);
                         #{max_msgs := 0} ->
                             metrics_inc('delivery.dropped', Channel),
                             metrics_inc('delivery.dropped.max_msgs', Channel),
@@ -1121,6 +1099,34 @@ handle_deliver(
     ),
 
     {ok, [{outgoing, lists:reverse(Frames0)}, {event, updated}], Channel2}.
+
+deliver_to_subscriber(
+    Message,
+    SId,
+    {FrameAcc, SubsAcc},
+    Channel = #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo = #{mountpoint := Mountpoint}
+    }
+) ->
+    ReplyTo = emqx_message:get_header(reply_to, Message),
+    Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
+    NMessage = run_hooks_without_metrics(Ctx, 'message.delivered', [ClientInfo], Message1),
+    case emqx_nats_topic:mqtt_to_nats_publish(emqx_message:topic(NMessage)) of
+        {ok, Subject} ->
+            metrics_inc('messages.delivered', Channel),
+            MsgContent = #{
+                subject => Subject,
+                sid => SId,
+                reply_to => ReplyTo,
+                payload => emqx_message:payload(NMessage)
+            },
+            Frame = #nats_frame{operation = ?OP_MSG, message = MsgContent},
+            {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+        {error, invalid_topic} ->
+            metrics_inc('delivery.dropped', Channel),
+            {FrameAcc, SubsAcc}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -1319,12 +1325,16 @@ jwt_permissions_authorize(
     Subject
 ) when is_map(JWTPerms) ->
     JWTPermAction = action_to_jwt_permission(Action),
-    do_jwt_permissions_authorize(
-        JWTPermAction,
-        Topic,
-        Subject,
-        jwt_rule_filters(JWTPerms, JWTPermAction)
-    );
+    try
+        do_jwt_permissions_authorize(
+            JWTPermAction,
+            Topic,
+            Subject,
+            jwt_rule_filters(JWTPerms, JWTPermAction)
+        )
+    catch
+        error:{invalid_subject, _Reason} -> deny
+    end;
 jwt_permissions_authorize(_ClientInfo, _Action, _Topic, _Subject) ->
     ignore.
 
@@ -1466,23 +1476,7 @@ default_jwt_rule_filters() ->
     }.
 
 normalize_rule_filters(Rules) ->
-    lists:filtermap(
-        fun(Rule) ->
-            case safe_nats_subject_to_filter(Rule) of
-                {ok, RuleFilter} -> {true, RuleFilter};
-                error -> false
-            end
-        end,
-        Rules
-    ).
-
-safe_nats_subject_to_filter(Subject) ->
-    try
-        {ok, nats_subject_to_filter(Subject)}
-    catch
-        _:_ ->
-            error
-    end.
+    lists:map(fun nats_subject_to_filter/1, Rules).
 
 nats_subject_to_filter(Subject) ->
     emqx_nats_topic:nats_to_mqtt(Subject).
