@@ -20,7 +20,7 @@
 ]).
 
 %% APIs
--export([call/3]).
+-export([call/3, call_valued/3]).
 
 %% Infos
 -export([
@@ -204,23 +204,34 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
                         catch
                             T:R:_ -> {T, R}
                         end,
+                    Valued = maps:get(valued_response, HookSpec, false),
                     case {lists:member(Name, AvailableHooks), lists:member(Name, MessageHooks)} of
                         {false, _} ->
                             error({unknown_hookpoint, Name0});
                         {true, false} ->
-                            Acc#{Name => #{}};
+                            Acc#{Name => valued_hook_opts(Name, Name0, Valued)};
                         {true, true} ->
-                            Acc#{
-                                Name => #{
-                                    topics => maps:get(topics, HookSpec, [])
-                                }
-                            }
+                            Opts = valued_hook_opts(Name, Name0, Valued),
+                            Acc#{Name => Opts#{topics => maps:get(topics, HookSpec, [])}}
                     end
             end
         end,
         #{},
         HookSpecs
     ).
+
+%% @private
+%% `valued_response' selects the valued RPC on the hookpoints in `valued_hooks/0'.
+%% It is ignored on those whose only RPC already answers with a `ValuedResponse',
+%% and fails the load on the rest.
+valued_hook_opts(_Name, _Name0, false) ->
+    #{};
+valued_hook_opts(Name, Name0, true) ->
+    case {lists:member(Name, valued_hooks()), lists:member(Name, valued_only_hooks())} of
+        {true, _} -> #{valued => true};
+        {false, true} -> #{};
+        {false, false} -> error({unsupported_valued_response, Name0})
+    end.
 
 %% @private
 ensure_hooks(HookSpecs) ->
@@ -326,11 +337,24 @@ format(#{name := Name, hookspec := Hooks}) ->
         io_lib:format("name=~ts, hooks=~0p, active=true", [Name, Hooks])
     ).
 
+%% Calls the server if it registered `Hookpoint' without `valued_response'.
 -spec call(hookpoint(), map(), service()) ->
     ignore
     | {ok, Resp :: term()}
     | {error, term()}.
+call(Hookpoint, Req, Service) ->
+    call(false, Hookpoint, Req, Service).
+
+%% Calls the server if it registered `Hookpoint' with `valued_response'.
+-spec call_valued(hookpoint(), map(), service()) ->
+    ignore
+    | {ok, Resp :: term()}
+    | {error, term()}.
+call_valued(Hookpoint, Req, Service) ->
+    call(true, Hookpoint, Req, Service).
+
 call(
+    Valued,
     Hookpoint,
     Req,
     #{
@@ -346,7 +370,7 @@ call(
             NeedCall =
                 case lists:member(Hookpoint, message_hooks()) of
                     false ->
-                        true;
+                        maps:get(valued, Opts, false) =:= Valued;
                     _ ->
                         #{message := #{topic := Topic}} = Req,
                         match_topic_filter(Topic, maps:get(topics, Opts, []))
@@ -355,7 +379,7 @@ call(
                 false ->
                     ignore;
                 _ ->
-                    GrpcFun = hk2func(Hookpoint),
+                    GrpcFun = hk2func(Hookpoint, Valued),
                     do_call(ChannName, Hookpoint, GrpcFun, Req, ReqOpts)
             end
     end.
@@ -444,6 +468,11 @@ failed_action(#{options := Opts}) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
+-compile({inline, [hk2func/2]}).
+hk2func('client.subscribe', true) -> 'on_client_subscribe_valued';
+hk2func('client.unsubscribe', true) -> 'on_client_unsubscribe_valued';
+hk2func(Hookpoint, false) -> hk2func(Hookpoint).
+
 -compile({inline, [hk2func/1]}).
 hk2func('client.connect') -> 'on_client_connect';
 hk2func('client.connack') -> 'on_client_connack';
@@ -474,6 +503,24 @@ message_hooks() ->
         'message.delivered',
         'message.acked',
         'message.dropped'
+    ].
+
+%% The hookpoints with an RPC for `valued_response'.
+-compile({inline, [valued_hooks/0]}).
+valued_hooks() ->
+    [
+        'client.subscribe',
+        'client.unsubscribe'
+    ].
+
+%% The hookpoints whose only RPC answers with a `ValuedResponse'.
+-compile({inline, [valued_only_hooks/0]}).
+valued_only_hooks() ->
+    [
+        'client.authenticate',
+        'client.authorize',
+        'message.ingress',
+        'message.publish'
     ].
 
 -compile({inline, [available_hooks/0]}).
