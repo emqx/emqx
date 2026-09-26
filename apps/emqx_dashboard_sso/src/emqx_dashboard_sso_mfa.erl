@@ -12,7 +12,8 @@
 
 -export([
     check_sso_mfa/2,
-    get_force_mfa/1
+    get_force_mfa/1,
+    mfa_required_for_user/2
 ]).
 
 -define(MOD_KEY_PATH(Sub), [dashboard, sso, Sub]).
@@ -47,8 +48,10 @@ get_force_mfa(Backend) ->
         _ -> false
     end.
 
-%% Combine admin override and live backend policy. Used at login time
-%% to decide whether the user must set up / verify MFA.
+%% @doc Combine admin override and live backend policy. Used at login time
+%% to decide whether the user must set up / verify MFA, and by
+%% `emqx_dashboard_admin:mfa_status/1' for an SSO account.
+-spec mfa_required_for_user(dashboard_username(), atom()) -> boolean().
 mfa_required_for_user(Username, Backend) ->
     case emqx_dashboard_admin:admin_override_of(Username) of
         ?ADMIN_MFA_REQUIRED -> true;

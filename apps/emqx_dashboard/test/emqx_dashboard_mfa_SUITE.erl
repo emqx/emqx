@@ -473,6 +473,31 @@ t_mfa_status_admin_required(_Config) ->
     ?assertEqual(pending_enforced, emqx_dashboard_admin:mfa_status(<<"viewer4">>)),
     ok.
 
+%% An SSO account reports what its SSO login enforces: the backend's
+%% `force_mfa' and the admin override, not `dashboard.default_mfa'.
+t_mfa_status_sso_user({init, Config}) ->
+    SsoUsername = ?SSO_USERNAME(ldap, <<"sso_viewer">>),
+    {ok, ok} = emqx_dashboard_admin:clear_mfa_state(SsoUsername),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, undefined),
+    Config;
+t_mfa_status_sso_user({'end', _Config}) ->
+    emqx_config:put([dashboard, sso, ldap, force_mfa], false),
+    emqx_config:put([dashboard, default_mfa], none);
+t_mfa_status_sso_user(_Config) ->
+    SsoUsername = ?SSO_USERNAME(ldap, <<"sso_viewer">>),
+    Token = sso_jwt_token(SsoUsername),
+    emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
+    ?assertMatch(#{<<"mfa_status">> := <<"pending_voluntary">>}, current_user(Token)),
+    emqx_config:put([dashboard, sso, ldap, force_mfa], true),
+    ?assertMatch(#{<<"mfa_status">> := <<"pending_enforced">>}, current_user(Token)),
+    %% a self-disable records no exemption, so the next SSO login enrolls again
+    ?assertMatch({ok, 204, _}, disable_own_mfa(Token)),
+    ?assertMatch(#{<<"mfa_status">> := <<"pending_enforced">>}, current_user(Token)),
+    %% an admin exemption takes the account out of force_mfa
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, ?ADMIN_MFA_EXEMPTED),
+    ?assertMatch(#{<<"mfa_status">> := <<"disabled">>}, current_user(Token)),
+    ok.
+
 %% `GET /current_user' reports the derived status alongside the stored one, and
 %% needs no user management permission: a viewer reads it for itself.
 t_current_user_mfa_status({init, Config}) ->

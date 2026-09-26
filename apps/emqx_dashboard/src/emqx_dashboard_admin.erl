@@ -1144,14 +1144,16 @@ pending_or(Otherwise, Username) ->
         false -> Otherwise
     end.
 
-%% Whether anything requires this account to keep MFA: the admin's explicit
-%% per-user decision, or the global `dashboard.default_mfa' mandate.
+%% Whether anything requires this account to keep MFA. An SSO account follows
+%% the rule of its SSO login, `emqx_dashboard_sso_mfa:mfa_required_for_user/2'.
+%% A local account is covered by the admin's explicit per-user decision, or by
+%% the `dashboard.default_mfa' mandate.
 %%
-%% NOTE: the two are not enforced in the same place. `maybe_init_mfa_state/2'
-%% acts on the mandate only, so a local user carrying
-%% `admin_override = mfa_required' with no MFA state is reported here as
-%% required but is not actually stopped at a password login; the SSO path
-%% (`emqx_dashboard_sso_mfa:mfa_required_for_user/2') does honor the override.
+%% NOTE: `maybe_init_mfa_state/2' acts on the mandate only, so a local user
+%% carrying `admin_override = mfa_required' with no MFA state is reported here
+%% as required but is not actually stopped at a password login.
+mfa_required_for(?SSO_USERNAME(Backend, _Name) = Username) ->
+    emqx_dashboard_sso_mfa:mfa_required_for_user(Username, Backend);
 mfa_required_for(Username) ->
     admin_override_of(Username) =:= ?ADMIN_MFA_REQUIRED orelse
         mfa_enforced_for(Username).
