@@ -699,15 +699,13 @@ subscriptions(["list"]) ->
                 ets:tab2list(?SUBOPTION)
             )
     end;
-subscriptions(["show", ClientId]) ->
-    case emqx_broker_helper:lookup_subpid(bin(ClientId)) of
-        undefined ->
+subscriptions(["show", ClientId0]) ->
+    ClientId = bin(ClientId0),
+    case emqx_broker:subopts_by_clientid(ClientId) of
+        [] ->
             emqx_ctl:print("Not Found.~n");
-        Pid ->
-            case ets:match_object(?SUBOPTION, {{'_', Pid}, '_'}) of
-                [] -> emqx_ctl:print("Not Found.~n");
-                SubOption -> [print({?SUBOPTION, Sub}) || Sub <- SubOption]
-            end
+        Subs ->
+            [print_subopts(ClientId, Topic, Options) || {Topic, Options} <- Subs]
     end;
 subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, fun(IntQos) ->
@@ -1835,16 +1833,18 @@ print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({?SUBOPTION, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
-    SubId = maps:get(subid, Options),
+    print_subopts(maps:get(subid, Options), Topic, Options);
+print({exclusive, {exclusive_subscription, Topic, ClientId}}) ->
+    emqx_ctl:print("topic:~ts -> ClientId:~ts~n", [Topic, ClientId]).
+
+print_subopts(SubId, Topic, Options) ->
     QoS = maps:get(qos, Options, 0),
     NL = maps:get(nl, Options, 0),
     RH = maps:get(rh, Options, 0),
     RAP = maps:get(rap, Options, 0),
     emqx_ctl:print("~ts -> topic:~ts qos:~p nl:~p rh:~p rap:~p~n", [
         SubId, emqx_topic:maybe_format_share(Topic), QoS, NL, RH, RAP
-    ]);
-print({exclusive, {exclusive_subscription, Topic, ClientId}}) ->
-    emqx_ctl:print("topic:~ts -> ClientId:~ts~n", [Topic, ClientId]).
+    ]).
 
 format(_, undefined) ->
     undefined;

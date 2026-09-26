@@ -279,7 +279,8 @@ t_subscriptions_by_clientid(Config) when is_list(Config) ->
         ?assertEqual([], ets:lookup(emqx_subid, ClientId)),
         Subs = emqx_broker:subscriptions(ChanPid),
         ?assertEqual([<<"t/1">>, <<"t/2">>], lists:sort(proplists:get_keys(Subs))),
-        ?assertEqual(Subs, emqx_broker:subscriptions(ClientId))
+        ?assertEqual(Subs, emqx_broker:subscriptions(ClientId)),
+        ?assertEqual(Subs, emqx_broker:subopts_by_clientid(ClientId))
     after
         ok = emqtt:disconnect(C)
     end.
