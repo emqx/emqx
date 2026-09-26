@@ -356,6 +356,130 @@ t_authenticate_bad_password(TCConfig) ->
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
+-doc """
+Tests that a client connected with SCRAM can re-authenticate with a new two-round SCRAM
+exchange over AUTH packets: the server final message verifies, and the connection keeps its
+channel and client ID.
+""".
+t_reauthenticate(_Config) ->
+    Algorithm = sha512,
+    Username = <<"u">>,
+    Password = <<"p">>,
+    ClientId = <<"c_scram_reauth">>,
+
+    init_auth(Username, Password, Algorithm, [{ns, ?global_ns}]),
+
+    {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
+
+    ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
+
+    ConnectPacket = ?CONNECT_PACKET(
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            clientid = ClientId,
+            properties = #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ClientFirstMessage
+            }
+        }
+    ),
+
+    ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
+
+    ?AUTH_PACKET(
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{'Authentication-Data' := ServerFirstMessage}
+    ) = receive_packet(),
+
+    {continue, ClientFinalMessage, ClientCache} =
+        sasl_auth_scram:check_server_first_message(
+            ServerFirstMessage,
+            #{
+                client_first_message => ClientFirstMessage,
+                password => Password,
+                algorithm => Algorithm
+            }
+        ),
+
+    ok = emqx_mqtt_test_client:send(
+        Pid,
+        ?AUTH_PACKET(
+            ?RC_CONTINUE_AUTHENTICATION,
+            #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ClientFinalMessage
+            }
+        )
+    ),
+
+    ?CONNACK_PACKET(
+        ?RC_SUCCESS,
+        _,
+        #{'Authentication-Data' := ServerFinalMessage}
+    ) = receive_packet(),
+
+    ok = sasl_auth_scram:check_server_final_message(
+        ServerFinalMessage, ClientCache#{algorithm => Algorithm}
+    ),
+
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+
+    ReauthFirstMessage = sasl_auth_scram:client_first_message(Username),
+
+    ok = emqx_mqtt_test_client:send(
+        Pid,
+        ?AUTH_PACKET(
+            ?RC_RE_AUTHENTICATE,
+            #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ReauthFirstMessage
+            }
+        )
+    ),
+
+    ?AUTH_PACKET(
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{'Authentication-Data' := ReauthServerFirstMessage}
+    ) = receive_packet(),
+
+    {continue, ReauthFinalMessage, ReauthCache} =
+        sasl_auth_scram:check_server_first_message(
+            ReauthServerFirstMessage,
+            #{
+                client_first_message => ReauthFirstMessage,
+                password => Password,
+                algorithm => Algorithm
+            }
+        ),
+
+    ok = emqx_mqtt_test_client:send(
+        Pid,
+        ?AUTH_PACKET(
+            ?RC_CONTINUE_AUTHENTICATION,
+            #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ReauthFinalMessage
+            }
+        )
+    ),
+
+    ?AUTH_PACKET(
+        ?RC_SUCCESS,
+        #{'Authentication-Data' := ReauthServerFinalMessage}
+    ) = receive_packet(),
+
+    ok = sasl_auth_scram:check_server_final_message(
+        ReauthServerFinalMessage, ReauthCache#{algorithm => Algorithm}
+    ),
+
+    ?assertEqual([ChanPid], emqx_cm:lookup_channels(ClientId)),
+    ?assertMatch(
+        #{clientinfo := #{clientid := ClientId}},
+        emqx_connection:info(ChanPid)
+    ),
+
+    ok.
+
 t_destroy() ->
     [{matrix, true}].
 t_destroy(matrix) ->

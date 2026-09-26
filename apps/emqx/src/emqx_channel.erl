@@ -486,10 +486,14 @@ handle_in(
                     connecting ->
                         post_process_connect(NProperties, NChannel);
                     _ ->
+                        %% Drop authorization decisions cached under the previous credential.
+                        ok = emqx_authz_cache:empty_authz_cache(),
                         handle_out(
                             auth,
                             {?RC_SUCCESS, NProperties},
-                            NChannel#channel{conn_state = connected}
+                            schedule_connection_auth_expire(
+                                NChannel#channel{conn_state = connected}
+                            )
                         )
                 end;
             {continue, NProperties, NChannel} ->
@@ -2825,13 +2829,17 @@ do_authenticate(
     case emqx_access_control:authenticate(Credential) of
         {ok, AuthResult} ->
             Channel1 = Channel#channel{
-                clientinfo = merge_auth_result(ClientInfo, AuthResult),
+                clientinfo = merge_auth_result(
+                    ClientInfo, drop_connect_fields_on_reauth(AuthResult, Channel)
+                ),
                 auth_cache = #{}
             },
             with_post_authn(Channel1, Properties);
         {ok, AuthResult, AuthData} ->
             Channel1 = Channel#channel{
-                clientinfo = merge_auth_result(ClientInfo, AuthResult),
+                clientinfo = merge_auth_result(
+                    ClientInfo, drop_connect_fields_on_reauth(AuthResult, Channel)
+                ),
                 auth_cache = #{}
             },
             with_post_authn(Channel1, Properties#{'Authentication-Data' => AuthData});
@@ -2879,6 +2887,16 @@ log_auth_failure(Reason) ->
         },
         #{tag => "AUTHN"}
     ).
+
+%% Client attributes and the client ID are set at CONNECT and hold for the
+%% whole session. Drop them from the result of a re-authentication so only the
+%% rest of it, such as ACL rules, the superuser flag and the expiry, is applied.
+drop_connect_fields_on_reauth(AuthResult, #channel{conn_state = ConnState}) when
+    ConnState =:= connected orelse ConnState =:= reauthenticating
+->
+    maps:without([client_attrs, clientid_override], AuthResult);
+drop_connect_fields_on_reauth(AuthResult, _Channel) ->
+    AuthResult.
 
 %% Merge authentication result into ClientInfo
 %% Authentication result may include:
@@ -3471,11 +3489,14 @@ ensure_connected(
         conn_state = connected
     }).
 
+%% Called when the connection is established and again after every
+%% re-authentication. Any timer armed for an earlier credential is cancelled
+%% first, so the pending expiry always matches the current `auth_expire_at'.
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
-    Channel;
+    clean_timer(connection_auth_expire, Channel);
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
     Interval = max(0, ExpireAt - erlang:system_time(millisecond)),
-    ensure_timer(connection_auth_expire, Interval, Channel).
+    reset_timer(connection_auth_expire, Interval, Channel).
 
 trim_conninfo(ConnInfo) ->
     maps:without(
