@@ -478,11 +478,10 @@ handle_timeout(Type, CBM, Time, Key, Value) ->
             %% is opaque callback data and may hold user payload, such as an
             %% `emqx_durable_will' will message.
             ?tp(error, ?tp_callback_failed, #{
+                Class => Reason,
                 type => Type,
                 cbm => CBM,
                 key => Key,
-                exception => Class,
-                reason => Reason,
                 stacktrace => Stacktrace
             }),
             ok
