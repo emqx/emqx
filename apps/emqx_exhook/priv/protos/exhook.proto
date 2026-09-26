@@ -48,16 +48,17 @@ service HookProvider {
 
   rpc OnClientSubscribe(ClientSubscribeRequest) returns (EmptySuccess) {};
 
-  // Same event as `OnClientSubscribe`, but the server may rewrite the topic
-  // filters. Register it under the `client.subscribe.rewrite` hook name.
-  //
-  // Do not rename this to a digit suffix such as `OnClientSubscribeV2`: the
-  // generated client stub would be `on_client_subscribe_v2` while the server
-  // dispatch in `grpc_stream:init/2` resolves `on_client_subscribe_v_2`, and
-  // every call fails with `badarg` in `list_to_existing_atom/1`.
-  rpc OnClientSubscribeRewrite(ClientSubscribeRequest) returns (ValuedResponse) {};
+  // Called in place of `OnClientSubscribe` for a server that registers
+  // `client.subscribe` with `valued_response` set. The server may rewrite the
+  // topic filters, see `TopicFilters`.
+  rpc OnClientSubscribeValued(ClientSubscribeRequest) returns (ValuedResponse) {};
 
   rpc OnClientUnsubscribe(ClientUnsubscribeRequest) returns (EmptySuccess) {};
+
+  // Called in place of `OnClientUnsubscribe` for a server that registers
+  // `client.unsubscribe` with `valued_response` set. The server may rewrite the
+  // topic filters, see `TopicFilters`.
+  rpc OnClientUnsubscribeValued(ClientUnsubscribeRequest) returns (ValuedResponse) {};
 
   rpc OnSessionCreated(SessionCreatedRequest) returns (EmptySuccess) {};
 
@@ -323,7 +324,8 @@ message LoadedResponse {
 }
 
 // Responsed by `ClientAuthenticateRequest` `ClientAuthorizeRequest`
-// `MessageIngressRequest` `MessagePublishRequest` `ClientSubscribeRequest`
+// `MessageIngressRequest` `MessagePublishRequest`, and by
+// `ClientSubscribeRequest` `ClientUnsubscribeRequest` with `valued_response`
 
 message ValuedResponse {
 
@@ -351,22 +353,26 @@ message ValuedResponse {
     // Message result, used on the 'message.*' hooks
     Message message = 4;
 
-    // Rewritten topic filters, used on the 'client.subscribe.rewrite' hook
+    // Rewritten topic filters, used on the 'client.subscribe' and
+    // 'client.unsubscribe' hooks with `valued_response`
     TopicFilters topic_filters = 5;
   }
 }
 
-// The topic filters a `client.subscribe.rewrite` hook wants the client to be
-// subscribed to, in place of the ones it requested.
+// The topic filters to subscribe or unsubscribe in place of the ones the client
+// sent.
 //
 // `filters` MUST hold exactly as many entries as the request did, in the same
-// order: SUBACK carries one reason code per requested topic filter, ordered as
-// the filters were received (MQTT-3.9.3-1). A response of a different length is
-// rejected as a whole and the requested filters are used unchanged.
+// order: SUBACK and UNSUBACK carry one reason code per requested topic filter,
+// ordered as the filters were received (MQTT-3.9.3-1, MQTT-3.11.3-1). An entry
+// naming a filter the request holds at another position counts as reordering.
+// A response of a different length, or a reordered one, is rejected as a whole
+// and the requested filters are used unchanged.
 //
-// A rewritten filter is re-authorized and re-checked against the subscribe
-// capabilities of the zone, so a hook cannot grant more than the client could
-// have asked for itself.
+// On 'client.subscribe', a rewritten filter is re-authorized and re-checked
+// against the subscribe capabilities of the zone, so a hook cannot grant more
+// than the client could have asked for itself. On 'client.unsubscribe',
+// `subopts` is not used.
 message TopicFilters {
 
   repeated TopicFilter filters = 1;
@@ -401,7 +407,6 @@ message HookSpec {
   //   "client.connected",    "client.disconnected"
   //   "client.authenticate", "client.authorize"
   //   "client.subscribe",    "client.unsubscribe"
-  //   "client.subscribe.rewrite"
   //
   //   "session.created",      "session.subscribed"
   //   "session.unsubscribed", "session.resumed"
@@ -414,6 +419,17 @@ message HookSpec {
 
   // The topic filters for message hooks
   repeated string topics = 2;
+
+  // Call the hook with the RPC that answers with a `ValuedResponse`:
+  //   "client.subscribe":   `OnClientSubscribeValued`
+  //   "client.unsubscribe": `OnClientUnsubscribeValued`
+  //
+  // It has no effect on "client.authenticate", "client.authorize",
+  // "message.ingress" and "message.publish", whose only RPC already answers
+  // with a `ValuedResponse`. Setting it on any other hook fails the server's
+  // load. EMQX versions without this field ignore it and call
+  // `OnClientSubscribe` and `OnClientUnsubscribe`.
+  bool valued_response = 3;
 }
 
 message ConnInfo {
