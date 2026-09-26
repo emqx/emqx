@@ -179,7 +179,7 @@ in with a Dashboard password: a user without MFA is initialized with a
 random TOTP secret at the next login, and users cannot disable their own
 MFA, only replace the secret with a new one. An administrator can exempt
 an individual user by disabling MFA for that user.
-This setting does not cover SSO logins. Those follow the `force_mfa`
+This setting does not cover SSO users. Their MFA follows the `force_mfa`
 flag of the SSO backend they authenticate against."""
 
 mfa_mechanism.label:

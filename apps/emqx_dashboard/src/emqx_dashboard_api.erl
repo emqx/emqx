@@ -1018,6 +1018,9 @@ mfa_result({error, Reason}, LogMeta) ->
 %%                                 enabled, and a first enrolment must
 %%                                 stay open, so this route runs no
 %%                                 check.
+%%   disable, default_mfa set   => denied on a local account that an
+%%                                 administrator has not exempted.
+%%                                 SSO accounts skip this rule.
 %%   disable, override=required => denied. An administrator requires MFA on
 %%                                 this account; only another administrator
 %%                                 or the CLI can lift it.
@@ -1030,7 +1033,7 @@ authorize_self_mfa_disable(Username) ->
     case emqx_dashboard_admin:mfa_enforced_for(Username) of
         true ->
             {deny, 403, ?MFA_ENFORCED, <<
-                "MFA is required for every account by dashboard.default_mfa. "
+                "MFA is required on this account by dashboard.default_mfa. "
                 "Only an administrator can exempt an account from it."
             >>};
         false ->

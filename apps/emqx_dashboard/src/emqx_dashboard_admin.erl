@@ -1258,10 +1258,13 @@ do_verify_mfa_token(Username, MfaToken, IsPwdOk) ->
     end.
 
 %% @doc Whether `dashboard.default_mfa' requires MFA for this account.
-%% It applies to every account except the ones an admin has exempted by
-%% setting `admin_override' to mfa_exempted.
+%% It applies to every local account except the ones an admin has
+%% exempted by setting `admin_override' to mfa_exempted. An SSO account
+%% follows its backend's `force_mfa', see `emqx_dashboard_sso_mfa'.
 -spec mfa_enforced_for(dashboard_username()) -> boolean().
-mfa_enforced_for(Username) ->
+mfa_enforced_for(?SSO_USERNAME(_Backend, _Name)) ->
+    false;
+mfa_enforced_for(Username) when is_binary(Username) ->
     default_mfa() =/= none andalso
         admin_override_of(Username) =/= ?ADMIN_MFA_EXEMPTED.
 

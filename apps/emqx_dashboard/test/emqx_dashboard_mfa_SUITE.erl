@@ -78,6 +78,7 @@ init_users() ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"viewer4">>, <<"viewer4pass">>, ?ROLE_VIEWER, "viewer"
     ),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(ldap, <<"sso_viewer">>, ?ROLE_VIEWER, <<>>),
     {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
         [User] = mnesia:wread({?ADMIN, <<"viewer3">>}),
         OldFormat = User#?ADMIN{extra = []},
@@ -396,6 +397,23 @@ t_enforce_skips_admin_exempted(_Config) ->
     ?assertMatch(#{<<"mfa">> := <<"disabled">>}, get_user(<<"viewer4">>)),
     ok.
 
+%% An SSO account is not covered by the requirement: its MFA follows the
+%% backend's `force_mfa', so an SSO user can still disable their own MFA.
+t_enforce_skips_sso_user({init, Config}) ->
+    Config;
+t_enforce_skips_sso_user({'end', _Config}) ->
+    emqx_config:put([dashboard, default_mfa], none);
+t_enforce_skips_sso_user(_Config) ->
+    SsoUsername = ?SSO_USERNAME(ldap, <<"sso_viewer">>),
+    MfaState = #{mechanism => totp, secret => <<"SECRET">>, first_verify_ts => 1000},
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
+    emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
+    ?assertMatch({ok, 204, _}, disable_own_mfa(sso_jwt_token(SsoUsername))),
+    ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
+    %% a self-disable records no exemption, so force_mfa still applies
+    ?assertEqual(undefined, emqx_dashboard_admin:admin_override_of(SsoUsername)),
+    ok.
+
 %% DELETE MFA ignores the historical reset query parameter.
 %% Resetting/re-keying another user's MFA is POST /users/:username/mfa;
 %% for one's own account it is POST /current_user/mfa.
@@ -528,6 +546,13 @@ list_users() ->
 admin_jwt_token() ->
     {ok, #{token := JwtToken}} = emqx_dashboard_admin:sign_token(
         <<"admin1">>, <<"admin1pass">>, ?TRUSTED_MFA_TOKEN
+    ),
+    JwtToken.
+
+%% An SSO account has an empty local password, see `add_sso_user/4'.
+sso_jwt_token(SsoUsername) ->
+    {ok, #{token := JwtToken}} = emqx_dashboard_admin:sign_token(
+        SsoUsername, <<>>, ?TRUSTED_MFA_TOKEN
     ),
     JwtToken.
 

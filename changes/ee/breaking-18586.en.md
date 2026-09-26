@@ -2,4 +2,4 @@
 
 An administrator can still exempt an account. Disabling another user's MFA with `DELETE /users/:username/mfa`, or `emqx ctl admins mfa <Username> disable` from the node console, records the exemption and takes that account out of the requirement. Enabling `default_mfa` on an existing cluster therefore forces every non-exempted user who signs in with a Dashboard password, including anyone who had previously turned MFA off, to enroll at their next login.
 
-The requirement does not reach SSO logins. Those are decided by the `force_mfa` flag of the SSO backend, which `dashboard.default_mfa` does not feed into.
+The requirement does not cover SSO users. Their MFA is decided by the `force_mfa` flag of the SSO backend, which `dashboard.default_mfa` does not feed into.
