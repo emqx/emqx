@@ -121,7 +121,6 @@ on_start(ConnResId, ConnConfig) ->
         {host, Host},
         {port, Port},
         {connect_timeout, ConnectTimeout},
-        {keepalive, 30_000},
         {pool_type, random},
         {pool_size, PoolSize},
         {transport, Transport},

@@ -108,7 +108,6 @@ start(
         {port, Port},
         {protocols, Protocols},
         {connect_timeout, ConnectTimeout},
-        {keepalive, 30_000},
         {pool_type, PoolType},
         {pool_size, PoolSize},
         {transport, Transport},

@@ -56,7 +56,6 @@ common_ehttpc_pool_opts(Params) ->
     ProxyConfig ++
         [
             {connect_timeout, ConnectTimeout},
-            {keepalive, 30_000},
             {transport, tls},
             {transport_opts, TransportOpts},
             {max_inactive, MaxInactive},
