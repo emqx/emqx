@@ -91,6 +91,44 @@ t_session_init(_) ->
     ?assertEqual(300000, emqx_session_mem:info(await_rel_timeout, Session)),
     ?assert(is_integer(emqx_session_mem:info(created_at, Session))).
 
+-doc """
+Checks that a new session holds a lazy mqueue: nothing queued, and the queue
+limits come from the zone config.
+""".
+t_session_init_lazy_mqueue(_) ->
+    Session = session(),
+    ?assertEqual(emqx_mqueue:init_lazy(default), emqx_session_mem:info(mqueue, Session)),
+    ?assertEqual(
+        emqx_config:get_zone_conf(default, [mqtt, max_mqueue_len]),
+        emqx_session_mem:info(mqueue_max, Session)
+    ),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session)),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_dropped, Session)),
+    ?assertEqual(0, emqx_session_mem:info(total_payload_bytes, Session)),
+    ?assertMatch({[], _}, emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Session)).
+
+-doc """
+Checks that a session in a zone with `mqueue_priorities` dequeues in priority
+order.
+""".
+t_session_mqueue_priorities(_) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, mqueue_priorities]),
+    ?on_exit(emqx_config:put_zone_conf(default, [mqtt, mqueue_priorities], Old)),
+    ok = emqx_config:put_zone_conf(
+        default, [mqtt, mqueue_priorities], #{<<"t/high">> => 10, <<"t/low">> => 1}
+    ),
+    Session0 = session(),
+    Low = emqx_message:make(clientid, ?QOS_1, <<"t/low">>, <<"low">>),
+    High = emqx_message:make(clientid, ?QOS_1, <<"t/high">>, <<"high">>),
+    Session1 = emqx_session_mem:enqueue(clientinfo(), [Low, High], Session0),
+    ?assertEqual(
+        [<<"high">>, <<"low">>],
+        [
+            emqx_message:payload(M)
+         || M <- emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session1))
+        ]
+    ).
+
 %%--------------------------------------------------------------------
 %% Test cases for session info/stats
 %%--------------------------------------------------------------------
@@ -913,6 +951,19 @@ t_export_import(_) ->
         [Msg2],
         emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session3))
     ).
+
+-doc """
+Checks that exporting a session with nothing queued and importing it gives a
+lazy mqueue for the importing zone.
+""".
+t_export_import_empty_mqueue(_) ->
+    Persistent = emqx_session_mem:export(session()),
+    ?assertEqual([], maps:get(mqueue, Persistent)),
+    Session = emqx_session_mem:import(
+        clientinfo(#{zone => default, listener => 'tcp:default'}),
+        Persistent
+    ),
+    ?assertEqual(emqx_mqueue:init_lazy(default), emqx_session_mem:info(mqueue, Session)).
 
 t_replay(_) ->
     Session = session(),
