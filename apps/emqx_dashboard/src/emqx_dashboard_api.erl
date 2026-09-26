@@ -52,6 +52,7 @@
 -define(SCRAM_CHALLENGE_INVALID, 'SCRAM_CHALLENGE_INVALID').
 -define(SERVICE_UNAVAILABLE, 'SERVICE_UNAVAILABLE').
 -define(MFA_ADMIN_REQUIRED, 'MFA_ADMIN_REQUIRED').
+-define(MFA_ENFORCED, 'MFA_ENFORCED').
 
 namespace() -> "dashboard".
 
@@ -233,7 +234,7 @@ schema("/current_user/mfa") ->
             responses => #{
                 204 => <<"MFA setting is disabled">>,
                 403 => emqx_dashboard_swagger:error_codes(
-                    [?MFA_ADMIN_REQUIRED], ?DESC(current_user_mfa_admin_required)
+                    [?MFA_ADMIN_REQUIRED, ?MFA_ENFORCED], ?DESC(current_user_mfa_admin_required)
                 ),
                 404 => response_schema(404)
             }
@@ -1017,6 +1018,9 @@ mfa_result({error, Reason}, LogMeta) ->
 %%                                 enabled, and a first enrolment must
 %%                                 stay open, so this route runs no
 %%                                 check.
+%%   disable, default_mfa set   => denied on a local account that an
+%%                                 administrator has not exempted.
+%%                                 SSO accounts skip this rule.
 %%   disable, override=required => denied. An administrator requires MFA on
 %%                                 this account; only another administrator
 %%                                 or the CLI can lift it.
@@ -1026,6 +1030,17 @@ mfa_result({error, Reason}, LogMeta) ->
 %% ANOTHER user (`emqx_dashboard_api:change_mfa/2' passes ByAdmin), so a
 %% user cannot lock themselves out by rotating their own MFA.
 authorize_self_mfa_disable(Username) ->
+    case emqx_dashboard_admin:mfa_enforced_for(Username) of
+        true ->
+            {deny, 403, ?MFA_ENFORCED, <<
+                "MFA is required on this account by dashboard.default_mfa. "
+                "Only an administrator can exempt an account from it."
+            >>};
+        false ->
+            authorize_self_mfa_disable_override(Username)
+    end.
+
+authorize_self_mfa_disable_override(Username) ->
     case emqx_dashboard_admin:admin_override_of(Username) of
         ?ADMIN_MFA_REQUIRED ->
             {deny, 403, ?MFA_ADMIN_REQUIRED, <<
