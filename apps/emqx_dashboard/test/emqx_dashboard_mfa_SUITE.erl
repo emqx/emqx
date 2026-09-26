@@ -452,7 +452,7 @@ t_mfa_status(_Config) ->
     ?assertEqual(<<"disabled">>, Status3),
     ?assertMatch(#{<<"mfa_status">> := <<"disabled">>}, current_user(Token3)),
     %% the same stored state reads as pending once the global mandate covers
-    %% the account, because the next login enrols them again
+    %% the account, because the next login enrolls them again
     emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
     ?assertEqual(pending_enforced, emqx_dashboard_admin:mfa_status(<<"viewer2">>)),
     %% an admin exemption takes the account back out of the mandate
