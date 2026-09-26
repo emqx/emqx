@@ -276,6 +276,16 @@ setup_auth_header(TCConfig) ->
             ok
     end.
 
+%% This node cannot be the remote broker while it is not ready: it refuses MQTT
+%% connections.
+start_remote_broker(TestCase, TCConfig) ->
+    [Remote] = emqx_cth_cluster:start(
+        [{remote_broker, #{apps => [emqx, emqx_conf], base_port => 20200}}],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+    ),
+    on_exit(fun() -> emqx_cth_cluster:stop([Remote]) end),
+    Remote.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -367,4 +377,76 @@ t_no_local(TCConfig) ->
     ?assertReceive({deliver, RemoteTopic, _}),
     ?assertNotReceive({deliver, RemoteTopic, _}),
     ?assertNotReceive({deliver, RuleTopic, _}),
+    ok.
+
+-doc """
+While a `clean_start = false` connector with a source waits for the node to be ready, its
+action keeps the messages in its buffer and sends them once the connector connects.
+""".
+t_egress_waits_for_node_ready(TCConfig) ->
+    Remote = start_remote_broker(?FUNCTION_NAME, TCConfig),
+    Port = get_tcp_mqtt_port(Remote),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"enable">> => false,
+        <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
+        <<"proto_ver">> => <<"v4">>,
+        <<"clean_start">> => false,
+        <<"static_clientids">> => [
+            #{<<"node">> => atom_to_binary(node()), <<"ids">> => [atom_to_binary(?FUNCTION_NAME)]}
+        ]
+    }),
+    {201, _} = create_source_api(TCConfig, #{
+        <<"parameters">> => #{<<"topic">> => <<"remote/t/in">>}
+    }),
+    RemoteTopicOut = <<"remote/t/out">>,
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"topic">> => RemoteTopicOut},
+        <<"resource_opts">> => #{<<"query_mode">> => <<"async">>}
+    }),
+    #{topic := RuleTopic} = simple_create_rule_action_api(TCConfig),
+    C = start_client(Remote),
+    {ok, _, _} = emqtt:subscribe(C, RemoteTopicOut, [{qos, 1}]),
+    on_exit(fun emqx_node_readiness:mark_ready/0),
+    ok = emqx_node_readiness:mark_not_ready(),
+    {ok, {{_, 204, _}, _, _}} = emqx_bridge_v2_testlib:enable_connector_api(
+        ?CONNECTOR_TYPE, get_config(connector_name, TCConfig)
+    ),
+    ?assertMatch(
+        {200, #{<<"status">> := <<"connecting">>}},
+        emqx_bridge_v2_testlib:simplify_result(
+            emqx_bridge_v2_testlib:get_connector_api(
+                ?CONNECTOR_TYPE, get_config(connector_name, TCConfig)
+            )
+        )
+    ),
+
+    emqx:publish(emqx_message:make(<<"me">>, ?QOS_1, RuleTopic, <<"hey">>)),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"matched">> := 1,
+                    <<"success">> := 0,
+                    <<"failed">> := 0,
+                    <<"dropped">> := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+
+    ok = emqx_node_readiness:mark_ready(),
+    {publish, #{payload := PayloadBin}} =
+        ?assertReceive({publish, #{topic := RemoteTopicOut}}, 5_000),
+    ?assertMatch(#{<<"payload">> := <<"hey">>}, emqx_utils_json:decode(PayloadBin)),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{<<"metrics">> := #{<<"success">> := 1, <<"failed">> := 0}}},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
     ok.

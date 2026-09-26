@@ -19,7 +19,7 @@ at its start point. The deferred starts are kept in a table owned by
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %% API
--export([create_table/0, start_link/0, when_ready/2]).
+-export([cancel/1, create_table/0, start_link/0, when_ready/2]).
 
 %% `gen_server' API
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
@@ -59,6 +59,15 @@ when_ready(Key, {M, F, A} = MFA) when is_atom(M), is_atom(F), is_list(A) ->
             deferred
     end.
 
+-doc """
+Drops the start deferred under `Key`, if any. A start the waiter has already
+begun to apply still completes.
+""".
+-spec cancel(term()) -> ok.
+cancel(Key) ->
+    true = ets:delete(?TAB, Key),
+    ok.
+
 -doc "Creates the table of deferred starts, owned by the calling process.".
 -spec create_table() -> ok.
 create_table() ->
@@ -86,15 +95,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info(poll, armed) ->
-    case emqx_node_readiness:is_ready() of
-        false ->
-            {noreply, schedule(?POLL_INTERVAL)};
-        true ->
-            case run_all() of
-                ok -> {noreply, idle};
-                retry -> {noreply, schedule(?RETRY_INTERVAL)}
-            end
-    end;
+    {noreply, poll()};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -111,22 +112,44 @@ wake(idle) ->
 wake(armed) ->
     armed.
 
+poll() ->
+    case ets:info(?TAB, size) of
+        0 ->
+            idle;
+        _ ->
+            case emqx_node_readiness:is_ready() of
+                false ->
+                    schedule(?POLL_INTERVAL);
+                true ->
+                    case run_all() of
+                        ok -> idle;
+                        retry -> schedule(?RETRY_INTERVAL)
+                    end
+            end
+    end.
+
 schedule(Timeout) ->
     _ = erlang:send_after(Timeout, self(), poll),
     armed.
 
 run_all() ->
-    Entries = ets:tab2list(?TAB),
-    Results = lists:map(fun run/1, Entries),
-    ?tp(resource_ready_waiter_ran, #{keys => [Key || {Key, _MFA, _Ref} <- Entries]}),
-    case lists:member(retry, Results) of
+    Results = lists:map(fun run/1, ets:tab2list(?TAB)),
+    ?tp(resource_ready_waiter_ran, #{keys => [Key || {Key, Result} <- Results, Result =/= skipped]}),
+    case lists:keymember(retry, 2, Results) of
         true -> retry;
         false -> ok
     end.
 
+%% An entry cancelled or replaced since `run_all/0' read the table is skipped.
+run({Key, _MFA, _Ref} = Entry) ->
+    case ets:lookup(?TAB, Key) of
+        [Entry] -> {Key, apply_start(Entry)};
+        _ -> {Key, skipped}
+    end.
+
 %% `delete_object' keeps an entry registered again under the same key while the
 %% start ran.
-run({Key, {M, F, A}, _Ref} = Entry) ->
+apply_start({Key, {M, F, A}, _Ref} = Entry) ->
     try apply(M, F, A) of
         ok ->
             true = ets:delete_object(?TAB, Entry),

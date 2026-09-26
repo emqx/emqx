@@ -67,6 +67,10 @@ defer_again(Pid, Key) ->
     deferred = ?WAITER:when_ready(Key, {?MODULE, notify, [Pid, second]}),
     notify(Pid, first).
 
+cancel_other(Pid, Tag, OtherKey) ->
+    ok = ?WAITER:cancel(OtherKey),
+    notify(Pid, Tag).
+
 bad_return(Pid, Tag) ->
     ok = notify(Pid, Tag),
     foo.
@@ -200,6 +204,43 @@ t_entries_survive_waiter_restart(_TCConfig) ->
     ),
     ?assertMatch({ok, {ok, #{keys := [Key]}}}, mark_ready_and_wait_run()),
     assert_started(restarted),
+    ok.
+
+-doc """
+A cancelled start does not run once the node is ready, and the waiter goes idle
+when no start is left.
+""".
+t_cancel(_TCConfig) ->
+    Key = key(?FUNCTION_NAME),
+    Barrier = key(barrier),
+    Self = self(),
+    mark_not_ready(),
+    deferred = ?WAITER:when_ready(Key, {?MODULE, notify, [Self, cancelled]}),
+    ?assertEqual(armed, waiter_state()),
+    ok = ?WAITER:cancel(Key),
+    ?retry(100, 10, ?assertEqual(idle, waiter_state())),
+    deferred = ?WAITER:when_ready(Barrier, {?MODULE, notify, [Self, barrier]}),
+    ?assertMatch({ok, {ok, #{keys := [Barrier]}}}, mark_ready_and_wait_run()),
+    assert_started(barrier),
+    assert_not_started(),
+    ok.
+
+-doc "A start cancelled by an earlier start in the same pass does not run.".
+t_cancel_during_pass(_TCConfig) ->
+    KeyA = key(a),
+    KeyB = key(b),
+    Self = self(),
+    mark_not_ready(),
+    deferred = ?WAITER:when_ready(KeyA, {?MODULE, cancel_other, [Self, a, KeyB]}),
+    deferred = ?WAITER:when_ready(KeyB, {?MODULE, cancel_other, [Self, b, KeyA]}),
+    {ok, {ok, #{keys := Keys}}} = mark_ready_and_wait_run(),
+    ?assertMatch([_], Keys),
+    receive
+        {started, _} -> ok
+    after 5_000 -> ct:fail(not_started)
+    end,
+    assert_not_started(),
+    ?assertEqual([], ets:tab2list(?WAITER)),
     ok.
 
 -doc "A start with an unexpected return value runs once and is dropped.".
