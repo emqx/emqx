@@ -907,15 +907,15 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
 
-init_parser(Transport, Socket, FrameOpts) ->
+init_parser(Transport, Socket, ParseState) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
     case lists:keyfind(packet, 1, SocketOpts) of
         {packet, mqtt} ->
             %% Enable whole-frame packet parser.
-            {frame, emqx_frame:initial_parse_state(FrameOpts)};
+            {frame, ParseState};
         _Otherwise ->
             %% Go with regular streaming parser.
-            emqx_frame:initial_parse_state(FrameOpts)
+            ParseState
     end.
 
 update_state_on_parse_error(
@@ -923,11 +923,12 @@ update_state_on_parse_error(
     #{proto_ver := ProtoVer, parse_state := ParseState},
     State
 ) ->
-    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
     case ParseState0 of
-        {frame, _Options} -> NParseState = {frame, ParseState};
-        _StreamParseState -> NParseState = ParseState
+        {frame, _Options} -> NParseState0 = {frame, ParseState};
+        _StreamParseState -> NParseState0 = ParseState
     end,
+    Serialize0 = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
+    {NParseState, Serialize} = share_frame_opts(ProtoVer, NParseState0, Serialize0, State),
     State#state{serialize = Serialize, parser = NParseState};
 update_state_on_parse_error(_, _, State) ->
     State.
@@ -961,6 +962,14 @@ run_frame_parser(Data, Options, State) ->
 describe_parser_state(ParseState) ->
     emqx_frame:describe_state(ParseState).
 
+%% Swap in the zone's shared parse state and serializer options where they are
+%% equal to the connection's own.
+share_frame_opts(ProtoVer, {frame, Options0}, Serialize0, State) ->
+    {Options, Serialize} = share_frame_opts(ProtoVer, Options0, Serialize0, State),
+    {{frame, Options}, Serialize};
+share_frame_opts(ProtoVer, ParseState, Serialize, #state{conf = #conf{zone = Zone}}) ->
+    emqx_frame_opts:connected(Zone, ProtoVer, ParseState, Serialize).
+
 get_parser_state({frame, Options}) ->
     Options;
 get_parser_state(ParseState) ->
@@ -981,8 +990,16 @@ handle_incoming(Packet = ?PACKET(Type), #state{quic_conn_ss = QSS} = State) ->
         ?CONNECT ->
             %% CONNECT packet is fully received, time to cancel idle timer.
             ok = cancel_idle_timer(State),
+            #mqtt_packet{variable = ConnPkt} = Packet,
+            {Parser, Serialize} = share_frame_opts(
+                ConnPkt#mqtt_packet_connect.proto_ver,
+                State#state.parser,
+                emqx_frame:serialize_opts(ConnPkt),
+                State
+            ),
             NState = State#state{
-                serialize = emqx_frame:serialize_opts(Packet#mqtt_packet.variable),
+                parser = Parser,
+                serialize = Serialize,
                 stats_timer = init_stats_timer(State)
             },
             with_channel(handle_in, [Packet], NState);
@@ -1547,24 +1564,15 @@ start_timer(Time, Msg) ->
 
 init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
     #conf{listener = {Type, Listener}} = Conf,
-    FrameOpts0 = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
-        %% zone will **not** take effect after the override.
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-        max_connect_size => emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
-        max_connect_user_properties => emqx_config:get_zone_conf(
-            Zone, [mqtt, max_connect_user_properties]
-        ),
-        %% Any packet received before CONNECT is rejected by the parser.
-        expect_connect => true
-    },
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
-                init_parser_and_serializer(FrameOpts0, State0);
+                init_parser_and_serializer(Zone, State0);
             Parser1 ->
-                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+                %% zone will **not** take effect after the override.
+                FrameOpts = emqx_frame_opts:frame_opts(Zone),
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
     GcThresholds =
@@ -1589,14 +1597,13 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         conf = NConf
     }.
 
-init_parser_and_serializer(FrameOpts0, State0) ->
+init_parser_and_serializer(Zone, State0) ->
     #state{
         transport = Transport,
         socket = Socket
     } = State0,
-    Parser0 = init_parser(Transport, Socket, FrameOpts0),
-    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-    {Parser0, Serialize0}.
+    #{parse_state := ParseState, serialize_opts := Serialize} = emqx_frame_opts:pre_connect(Zone),
+    {init_parser(Transport, Socket, ParseState), Serialize}.
 
 %%--------------------------------------------------------------------
 %% For CT tests
