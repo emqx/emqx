@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/6.1-8:1.19.1-28.4.1-4-debian13
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/6.2-1:1.19.1-28.5.0.7-1-debian13
 ARG RUN_FROM=dhi.io/debian-base:trixie
 ARG DEPS_FROM=dhi.io/debian-base:trixie-dev
 ARG SOURCE_TYPE=src # tgz
