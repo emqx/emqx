@@ -301,6 +301,59 @@ get_source_metrics_api(Config) ->
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
+%% This node cannot be the remote broker while it is not ready: it refuses MQTT
+%% connections.
+start_remote_broker(TestCase, TCConfig) ->
+    [Remote] = emqx_cth_cluster:start(
+        [{remote_broker, #{apps => [emqx, emqx_conf], base_port => 20200}}],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+    ),
+    on_exit(fun() -> emqx_cth_cluster:stop([Remote]) end),
+    Remote.
+
+%% Leaves a session with a QoS 1 subscription to `Topic' on the remote broker, as a
+%% previous run of the connector does.
+create_remote_session(Remote, ClientId, Topic) ->
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(Remote),
+    {ok, C} = emqtt:start_link(#{
+        port => Port, clientid => ClientId, proto_ver => v4, clean_start => false
+    }),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C, Topic, ?QOS_1),
+    ok = emqtt:disconnect(C).
+
+remote_mqueue_len(Remote, ClientId) ->
+    ?ON(Remote, begin
+        [ChanPid] = emqx_cm:lookup_channels(ClientId),
+        proplists:get_value(mqueue_len, emqx_connection:stats(ChanPid))
+    end).
+
+%% The connector is created disabled and enabled after the node is marked as not ready,
+%% so it starts with its source already configured, as it does at boot.
+start_source_while_not_ready(TCConfig, Remote, ClientId, CleanStart, Topic) ->
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(Remote),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"enable">> => false,
+        <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
+        <<"proto_ver">> => <<"v4">>,
+        <<"clean_start">> => CleanStart,
+        <<"static_clientids">> => [
+            #{<<"node">> => atom_to_binary(node()), <<"ids">> => [ClientId]}
+        ]
+    }),
+    {201, _} = create_source_api(TCConfig, #{
+        <<"parameters">> => #{<<"topic">> => Topic, <<"qos">> => 1}
+    }),
+    #{id := RuleId, topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(TCConfig),
+    {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, ?QOS_1),
+    on_exit(fun emqx_node_readiness:mark_ready/0),
+    ok = emqx_node_readiness:mark_not_ready(),
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    {ok, {{_, 204, _}, _, _}} = emqx_bridge_v2_testlib:enable_connector_api(Type, Name),
+    RuleId.
+
 start_client(TCConfigOrNode) ->
     start_client(TCConfigOrNode, _Opts = #{}).
 
@@ -1235,4 +1288,99 @@ t_bridge_mode_v5_logs_warning(TCConfig) ->
             )
         end
     ),
+    ok.
+
+-doc """
+With `clean_start = false`, a connector that has a source connects only once the node is
+ready, so the messages queued in its remote session meanwhile stay there and reach the
+rule after that.
+""".
+t_unclean_start_connects_after_node_ready(TCConfig) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"remote/t">>,
+    Remote = start_remote_broker(?FUNCTION_NAME, TCConfig),
+    ok = create_remote_session(Remote, ClientId, Topic),
+    RuleId = start_source_while_not_ready(TCConfig, Remote, ClientId, false, Topic),
+    lists:foreach(
+        fun(N) ->
+            Msg = emqx_message:make(<<"me">>, ?QOS_1, Topic, integer_to_binary(N)),
+            ?ON(Remote, emqx:publish(Msg))
+        end,
+        lists:seq(1, 3)
+    ),
+    ?retry(200, 10, ?assertEqual(3, remote_mqueue_len(Remote, ClientId))),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"connecting">>,
+            <<"status_reason">> := <<"Waiting for the node to be ready">>
+        }},
+        get_connector_api(TCConfig)
+    ),
+    ?assertMatch(
+        #{counters := #{'matched' := 0}},
+        emqx_bridge_v2_testlib:get_rule_metrics(RuleId)
+    ),
+
+    ok = emqx_node_readiness:mark_ready(),
+    Publishes = emqx_common_test_helpers:wait_publishes(3, 5_000),
+    ?assertEqual(
+        [<<"1">>, <<"2">>, <<"3">>],
+        [maps:get(<<"payload">>, emqx_utils_json:decode(P)) || #{payload := P} <- Publishes]
+    ),
+    ?retry(
+        200,
+        10,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
+    ),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{counters := #{'matched' := 3, 'actions.success' := 3}},
+            emqx_bridge_v2_testlib:get_rule_metrics(RuleId)
+        )
+    ),
+    ok.
+
+-doc "With `clean_start = true`, a connector connects while the node is not ready.".
+t_clean_start_connects_before_node_ready(TCConfig) ->
+    Topic = <<"remote/t">>,
+    Remote = start_remote_broker(?FUNCTION_NAME, TCConfig),
+    RuleId = start_source_while_not_ready(
+        TCConfig, Remote, atom_to_binary(?FUNCTION_NAME), true, Topic
+    ),
+    ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig)),
+    ?ON(Remote, emqx:publish(emqx_message:make(<<"me">>, ?QOS_1, Topic, <<"1">>))),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"1">>}}),
+    ?assertMatch(
+        #{counters := #{'matched' := 1}},
+        emqx_bridge_v2_testlib:get_rule_metrics(RuleId)
+    ),
+    ok.
+
+-doc """
+A `clean_start = false` connector disabled while it waits for the node to be ready stays
+stopped once the node is ready, and its remote session keeps the queued messages.
+""".
+t_disable_while_waiting_for_node_ready(TCConfig) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"remote/t">>,
+    Remote = start_remote_broker(?FUNCTION_NAME, TCConfig),
+    ok = create_remote_session(Remote, ClientId, Topic),
+    _RuleId = start_source_while_not_ready(TCConfig, Remote, ClientId, false, Topic),
+    ?ON(Remote, emqx:publish(emqx_message:make(<<"me">>, ?QOS_1, Topic, <<"1">>))),
+    ?retry(200, 10, ?assertEqual(1, remote_mqueue_len(Remote, ClientId))),
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    {ok, {{_, 204, _}, _, _}} = emqx_bridge_v2_testlib:disable_connector_api(Type, Name),
+
+    ?assertMatch(
+        {ok, timeout},
+        ?wait_async_action(
+            emqx_node_readiness:mark_ready(),
+            #{?snk_kind := "starting_mqtt_connector"},
+            1_000
+        )
+    ),
+    ?assertEqual(1, remote_mqueue_len(Remote, ClientId)),
     ok.
