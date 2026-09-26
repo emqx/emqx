@@ -486,6 +486,8 @@ handle_in(
                     connecting ->
                         post_process_connect(NProperties, NChannel);
                     _ ->
+                        %% Drop authorization decisions cached under the previous credential.
+                        ok = emqx_authz_cache:empty_authz_cache(),
                         handle_out(
                             auth,
                             {?RC_SUCCESS, NProperties},
