@@ -105,8 +105,6 @@ stream processes and plugin processes. They are found by a key lookup in the
 subscribers share one `SubId`, the most recent registration wins.
 """.
 -spec lookup_subpid(emqx_types:subid()) -> option(pid()).
-lookup_subpid(undefined) ->
-    undefined;
 lookup_subpid(SubId) ->
     case [Pid || Pid <- emqx_cm:lookup_channels(local, SubId), lookup_subid(Pid) =:= SubId] of
         [] ->
