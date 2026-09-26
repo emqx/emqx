@@ -1151,7 +1151,7 @@ pending_or(Otherwise, Username) ->
 %% acts on the mandate only, so a local user carrying
 %% `admin_override = mfa_required' with no MFA state is reported here as
 %% required but is not actually stopped at a password login; the SSO path
-%% (`emqx_dashboard_sso_mfa:mfa_required_for_user/2') does honour the override.
+%% (`emqx_dashboard_sso_mfa:mfa_required_for_user/2') does honor the override.
 mfa_required_for(Username) ->
     admin_override_of(Username) =:= ?ADMIN_MFA_REQUIRED orelse
         mfa_enforced_for(Username).
