@@ -446,7 +446,7 @@ subscribe(
     Session = #session{subscriptions = Subs}
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
-    Monitor = maybe_mointor(),
+    Monitor = maybe_monitor(),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, Monitor),
@@ -462,7 +462,7 @@ subscribe(
 %% When 'no_monitor', it means there is no need for broker to monitor self() process,
 %% because emqx_cm:clean_down/1 calls emqx_broker_helper:clean_down/1
 %% when the process is DOWN
-maybe_mointor() ->
+maybe_monitor() ->
     case emqx_cm:is_monitored(self()) of
         true ->
             %% gen_tcp/ssl/socket connections
@@ -1022,7 +1022,7 @@ save_subopts(#session{subscriptions = Subs0} = Session0) ->
 -spec resume(emqx_types:clientinfo(), session()) ->
     session().
 resume(_ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = Subs}) ->
-    Monitor = maybe_mointor(),
+    Monitor = maybe_monitor(),
     ok = maps:foreach(
         fun(TopicFilter, SubOpts) ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, Monitor)

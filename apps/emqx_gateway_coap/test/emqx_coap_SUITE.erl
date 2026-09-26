@@ -22,6 +22,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 -define(PS_PREFIX, "coap://127.0.0.1/ps").
@@ -1973,6 +1974,32 @@ t_connectionless_pubsub(_) ->
     end,
     do(Fun),
     update_coap_with_connection_mode(true).
+
+-doc """
+A connectionless CoAP observer is registered in no channel table, but
+`emqx_broker:subscriptions/1` still finds its subscriptions by clientid.
+""".
+t_connectionless_subscriptions_by_clientid(_) ->
+    update_coap_with_connection_mode(false),
+    try
+        do(fun(Channel) ->
+            Topic = <<"coap/connectionless/subscriptions-by-clientid">>,
+            ClientId = <<"coap-connectionless-subscriptions">>,
+            URI = pubsub_uri(binary_to_list(Topic), #{"clientid" => ClientId}),
+            {ok, content, _} = do_request(Channel, URI, make_req(get, <<>>, [{observe, 0}])),
+            ?retry(100, 20, [_] = emqx:subscribers(Topic)),
+            [SubPid] = emqx:subscribers(Topic),
+            ?assertEqual([], emqx_gateway_cm:lookup_channels(coap, ClientId)),
+            ?retry(
+                100,
+                20,
+                ?assertMatch([{Topic, _}], emqx_broker:subscriptions(ClientId))
+            ),
+            ?assertEqual(emqx_broker:subscriptions(SubPid), emqx_broker:subscriptions(ClientId))
+        end)
+    after
+        update_coap_with_connection_mode(true)
+    end.
 
 t_ignore_unknown_version(_) ->
     Packet = <<2:2, 0:2, 0:4, 0:3, 1:5, 16#2000:16>>,
