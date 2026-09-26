@@ -149,6 +149,41 @@ t_reauthenticate_freezes_client_attrs(_Config) ->
     ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
     ?assertMatch(#{<<"tier">> := <<"gold">>}, client_attrs(ClientId)).
 
+%% The client ID is set at CONNECT; a `clientid_override' claim in a
+%% re-authentication token does not change it.
+t_reauthenticate_keeps_clientid(_Config) ->
+    ClientId = <<"c_keep_id">>,
+    _ = connect(ClientId, jws(#{<<"exp">> => exp(60)})),
+    ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+
+    ok = reauthenticate(
+        jws(#{<<"exp">> => exp(120), <<"clientid_override">> => <<"c_keep_id_other">>})
+    ),
+    ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
+    ?assertEqual(ClientId, clientid(ChanPid)),
+    ?assertEqual([ChanPid], emqx_cm:lookup_channels(ClientId)),
+    ?assertEqual([], emqx_cm:lookup_channels(<<"c_keep_id_other">>)).
+
+%% An override in the CONNECT token applies for the session, and a different
+%% one at re-authentication does not replace it.
+t_reauthenticate_keeps_connect_clientid_override(_Config) ->
+    ClientId = <<"c_override_connect">>,
+    _ = connect(
+        <<"c_override_orig">>,
+        jws(#{<<"exp">> => exp(60), <<"clientid_override">> => ClientId})
+    ),
+    ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    ?assertEqual(ClientId, clientid(ChanPid)),
+
+    ok = reauthenticate(
+        jws(#{<<"exp">> => exp(120), <<"clientid_override">> => <<"c_override_reauth">>})
+    ),
+    ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
+    ?assertEqual(ClientId, clientid(ChanPid)),
+    ?assertEqual([], emqx_cm:lookup_channels(<<"c_override_reauth">>)).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -188,6 +223,10 @@ client_attrs(ClientId) ->
     [ChanPid] = emqx_cm:lookup_channels(ClientId),
     #{clientinfo := #{client_attrs := Attrs}} = emqx_connection:info(ChanPid),
     Attrs.
+
+clientid(ChanPid) ->
+    #{clientinfo := #{clientid := ClientId}} = emqx_connection:info(ChanPid),
+    ClientId.
 
 receive_packet() ->
     receive
