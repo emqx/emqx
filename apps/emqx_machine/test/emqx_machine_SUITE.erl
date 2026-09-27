@@ -112,7 +112,7 @@ t_shutdown_reboot(Config) ->
             emqx_machine_boot:ensure_apps_started(),
             true = emqx:is_running(node()),
             %% managed boot marks the node ready once apps and plugins are started
-            true = emqx_node_readiness:is_ready(),
+            ?retry(100, 10, true = emqx_node_readiness:is_ready()),
             ok = emqx_machine_boot:stop_apps(),
             false = emqx:is_running(node()),
             ok
@@ -160,7 +160,7 @@ t_stop_apps_stops_listeners_first(Config) ->
         %% The reboot path (cluster join/leave) restores listeners and readiness.
         ok = erpc:call(Node, emqx_app, set_config_loader, [emqx_cth_suite]),
         ok = erpc:call(Node, emqx_machine_boot, ensure_apps_started, []),
-        ?assert(erpc:call(Node, emqx_node_readiness, is_ready, [])),
+        ?retry(100, 10, ?assert(erpc:call(Node, emqx_node_readiness, is_ready, []))),
         {ok, Sock1} = gen_tcp:connect("127.0.0.1", Port, [], 5000),
         ok = gen_tcp:close(Sock1)
     after

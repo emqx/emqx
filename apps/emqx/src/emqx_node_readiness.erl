@@ -21,11 +21,12 @@ ready.
 
 An application can keep the flag cleared past that point by
 registering a check from its `start/2` callback with
-`register_check/2`.  `mark_ready/0` runs the registered checks in
-registration order and sets the flag once they all return `true`,
-running them again every second until they do.  Setting the flag drops
-the checks, and so does `mark_not_ready/0`, so applications register
-them again when they restart.  `is_ready/0` never runs a check.
+`register_check/2`.  `mark_ready/0` starts a process that runs the
+registered checks in registration order and sets the flag once they
+all return `true`, running them again every second until they do.
+Setting the flag drops the checks, and so does `mark_not_ready/0`, so
+applications register them again when they restart.  `is_ready/0`
+never runs a check.
 
 A check that raises, or returns anything other than a boolean, counts
 as not passing and is reported through a throttled
@@ -33,9 +34,13 @@ as not passing and is reported through a throttled
 """.
 
 -include("logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([is_ready/0, mark_ready/0, mark_not_ready/0]).
 -export([register_check/2]).
+
+%% Internal exports
+-export([start_poller/0, poll/0]).
 
 -define(KEY, {?MODULE, ready}).
 -define(CHECKS, {?MODULE, checks}).
@@ -54,16 +59,14 @@ is_ready() ->
     persistent_term:get(?KEY, true).
 
 -doc """
-Mark the node as fully booted.  The flag is set at once if every
-registered check returns `true`, otherwise by a process that runs the
-checks every second until they do.
+Mark the node as fully booted.  Starts a process that runs the
+registered checks and sets the flag once they all return `true`,
+running them again every second until they do.  Returns without
+waiting for the checks, so `is_ready/0` can return `false` right after.
 """.
 -spec mark_ready() -> ok.
 mark_ready() ->
-    case checks_pass() of
-        true -> set_ready();
-        false -> ensure_poller()
-    end.
+    ensure_poller().
 
 -doc """
 Mark the node as booting and drop all registered checks.  Connection
@@ -77,10 +80,10 @@ mark_not_ready() ->
 
 -doc """
 Register a readiness check under `Name`, replacing any check already
-registered under it.  `mark_ready/0` does not set the flag while the
-check returns anything but `true`.  Registration is a read-modify-write,
-so calls must not run concurrently; the boot sequence starts
-applications one at a time.
+registered under it.  The flag is not set while the check returns
+anything but `true`.  Registration is a read-modify-write, so calls
+must not run concurrently; the boot sequence starts applications one
+at a time.
 """.
 -spec register_check(check_name(), check()) -> ok.
 register_check(Name, Check) when is_function(Check, 0) ->
@@ -97,12 +100,15 @@ set_ready() ->
     persistent_term:put(?KEY, true),
     persistent_term:put(?CHECKS, []).
 
-%% The poller sleeps before its first run, so it is still alive here.
-%% The name lets `mark_not_ready/0' kill it before clearing the flag.
+%% The name is registered before the first run of the checks, so
+%% `mark_not_ready/0' can find and kill the poller before clearing the
+%% flag.
 ensure_poller() ->
     case whereis(?POLLER) of
         undefined ->
-            true = register(?POLLER, proc_lib:spawn(fun poll/0)),
+            Pid = proc_lib:spawn(fun ?MODULE:start_poller/0),
+            true = register(?POLLER, Pid),
+            Pid ! start,
             ok;
         _Pid ->
             ok
@@ -120,15 +126,31 @@ stop_poller() ->
             end
     end.
 
-poll() ->
-    timer:sleep(?POLL_INTERVAL),
-    case checks_pass() of
-        true -> set_ready();
-        false -> poll()
+%% Waits for the name to be registered: a first run that passes would
+%% otherwise exit before `register/2'.
+start_poller() ->
+    receive
+        start -> ?MODULE:poll()
     end.
 
-checks_pass() ->
-    lists:all(fun run_check/1, checks()).
+poll() ->
+    case run_checks(checks()) of
+        ok ->
+            ok = set_ready(),
+            ?tp(debug, readiness_checks_passed, #{});
+        {pending, Name} ->
+            ?tp(debug, readiness_check_pending, #{check => Name}),
+            timer:sleep(?POLL_INTERVAL),
+            ?MODULE:poll()
+    end.
+
+run_checks([]) ->
+    ok;
+run_checks([{Name, _} = Check | Rest]) ->
+    case run_check(Check) of
+        true -> run_checks(Rest);
+        false -> {pending, Name}
+    end.
 
 run_check({Name, Check}) ->
     try Check() of
