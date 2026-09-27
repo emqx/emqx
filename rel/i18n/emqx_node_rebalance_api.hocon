@@ -13,7 +13,7 @@ load_rebalance_global_status.label:
 """Get global rebalance status"""
 
 load_rebalance_availability_check.desc:
-"""Check if the node is being evacuated or rebalanced"""
+"""Check if the node takes new client connections. Returns 503 with code `NODE_EVACUATING` while the node is being evacuated or rebalanced, and with code `NODE_OVERLOADED` while overload protection closes new connections."""
 
 load_rebalance_availability_check.label:
 """Availability check"""
@@ -294,10 +294,10 @@ empty_response.desc:
 empty_response.label:
 """Empty response"""
 
-node_evacuating.desc:
-"""Node Evacuating"""
-node_evacuating.label:
-"""Node Evacuating"""
+node_unavailable.desc:
+"""Node Evacuating or Overloaded"""
+node_unavailable.label:
+"""Node Evacuating or Overloaded"""
 
 bad_request.desc:
 """Bad Request"""

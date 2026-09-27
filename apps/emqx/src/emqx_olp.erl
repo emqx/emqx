@@ -10,7 +10,8 @@
     backoff/1,
     backoff_gc/1,
     backoff_hibernation/1,
-    backoff_new_conn/1
+    backoff_new_conn/1,
+    is_closing_new_conn/1
 ]).
 
 %% exports for O&M
@@ -76,14 +77,20 @@ backoff_hibernation(Zone) ->
 %%      High memory does not skip GC or hibernation, since both free memory.
 -spec backoff_new_conn(Zone :: atom()) -> ok | {error, overloaded}.
 backoff_new_conn(Zone) ->
-    IsLoaded = load_ctl:is_overloaded() orelse load_ctl:is_high_mem(),
-    case IsLoaded andalso is_enabled(Zone, ?FUNCTION_NAME) of
+    case is_closing_new_conn(Zone) of
         true ->
             emqx_metrics:inc_global('overload_protection.new_conn'),
             {error, overloaded};
         false ->
             ok
     end.
+
+%% @doc If new connections to the zone are closed right now.
+%%      Unlike backoff_new_conn/1, it does not count a closed connection.
+-spec is_closing_new_conn(Zone :: atom()) -> boolean().
+is_closing_new_conn(Zone) ->
+    IsLoaded = load_ctl:is_overloaded() orelse load_ctl:is_high_mem(),
+    IsLoaded andalso is_enabled(Zone, backoff_new_conn).
 
 -spec status() -> any().
 status() ->

@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(
     emqx_mgmt_api_test_util,
@@ -495,6 +496,30 @@ t_availability_check(Config) ->
         api_get_noauth(["load_rebalance", "availability_check"])
     ).
 
+-doc """
+The availability check answers 503 `NODE_OVERLOADED` while overload protection
+closes new connections, and the probe itself is not counted as a closed
+connection.
+""".
+t_availability_check_overloaded(Config) ->
+    [DonorNode | _] = ?config(cluster_nodes, Config),
+    ok = set_high_mem(DonorNode, true),
+    ?assertMatch({200, _}, availability_check()),
+
+    ok = set_olp(DonorNode, enable, true),
+    Closed = rpc:call(DonorNode, emqx_metrics, val_global, ['overload_protection.new_conn']),
+    ?assertMatch({503, #{<<"code">> := <<"NODE_OVERLOADED">>}}, availability_check()),
+    ?assertEqual(
+        Closed, rpc:call(DonorNode, emqx_metrics, val_global, ['overload_protection.new_conn'])
+    ),
+
+    ok = set_olp(DonorNode, backoff_new_conn, false),
+    ?assertMatch({200, _}, availability_check()),
+
+    ok = set_olp(DonorNode, backoff_new_conn, true),
+    ok = set_high_mem(DonorNode, false),
+    ?assertMatch({200, _}, availability_check()).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -502,6 +527,35 @@ t_availability_check(Config) ->
 api_get_noauth(Path) ->
     AuthHeader = emqx_common_test_http:auth_header("invalid", "password"),
     emqx_mgmt_api_test_util:request_api(get, uri(Path), AuthHeader).
+
+availability_check() ->
+    AuthHeader = emqx_common_test_http:auth_header("invalid", "password"),
+    {ok, Code, Body} = emqx_mgmt_api_test_util:request_api(
+        get,
+        uri(["load_rebalance", "availability_check"]),
+        _QueryParams = [],
+        AuthHeader,
+        _Body = [],
+        #{compatible_mode => true}
+    ),
+    {Code, emqx_utils_json:decode(Body)}.
+
+set_olp(Node, Key, Value) ->
+    ok = rpc:call(Node, emqx_config, put, [[overload_protection, Key], Value]).
+
+%% Drive the real lc memory flag on the node through its threshold.
+set_high_mem(Node, IsHigh) ->
+    Threshold =
+        case IsHigh of
+            true -> 0.0;
+            false -> 1.0
+        end,
+    LCConf = rpc:call(Node, load_ctl, get_config, []),
+    ok = rpc:call(Node, load_ctl, put_config, [
+        LCConf#{memory_threshold => Threshold, memory_t1 => 100}
+    ]),
+    ?retry(100, 50, ?assertEqual(IsHigh, rpc:call(Node, load_ctl, is_high_mem, []))),
+    ok.
 
 api_get(Path) ->
     AuthHeader = get(api_auth_header),

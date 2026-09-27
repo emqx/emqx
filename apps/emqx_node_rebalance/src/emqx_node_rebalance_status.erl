@@ -24,11 +24,17 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec availability_status() -> available | unavailable.
+-spec availability_status() -> available | unavailable | overloaded.
 availability_status() ->
     case emqx_eviction_agent:enable_status() of
-        {enabled, _Kind, _ServerReference, _Options} -> unavailable;
-        disabled -> available
+        {enabled, _Kind, _ServerReference, _Options} ->
+            unavailable;
+        disabled ->
+            %% The check is per node, so it follows the listeners' default zone.
+            case emqx_olp:is_closing_new_conn(default) of
+                true -> overloaded;
+                false -> available
+            end
     end.
 
 -spec local_status() -> disabled | {evacuation, map()} | {purge, map()} | {rebalance, map()}.
