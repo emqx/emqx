@@ -12,6 +12,8 @@
     name :: atom(),
     %% Hibernate connection process if inactive for
     hibernate_after :: integer() | infinity,
+    %% Run a minor GC after this period of mailbox inactivity
+    minor_gc_after :: non_neg_integer() | infinity,
     %% Forced GC thresholds, `false` if disabled
     force_gc :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
     %% Forced shutdown policy

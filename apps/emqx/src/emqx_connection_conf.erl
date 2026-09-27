@@ -16,8 +16,8 @@ Each zone has two `persistent_term` entries:
   - `common`: for each MQTT protocol version, the initial parse state and the
     serializer options that a connection uses after CONNECT.
 - `{emqx_connection_conf, Zone, conf}`: the `#zone_conf{}` record, which holds
-  the zone settings of the connection process: `hibernate_after`, `force_gc`
-  and `force_shutdown`.
+  the zone settings of the connection process: `hibernate_after`,
+  `minor_gc_after`, `force_gc` and `force_shutdown`.
 
 The two groups are separate entries because replacing an entry makes the
 runtime copy the old terms into the heap of every process that still refers
@@ -135,6 +135,7 @@ zone_conf(Zone) ->
             zone_conf(
                 Zone,
                 emqx_config:get_zone_conf(Zone, [mqtt, hibernate_after]),
+                emqx_config:get_zone_conf(Zone, [mqtt, minor_gc_after]),
                 emqx_config:get_zone_conf(Zone, [force_gc]),
                 emqx_config:get_zone_conf(Zone, [force_shutdown])
             )
@@ -215,18 +216,19 @@ build_pre_connect(FrameOpts) ->
 
 -spec build_zone_conf(emqx_types:zone(), map()) -> zone_conf() | undefined.
 build_zone_conf(Zone, #{
-    mqtt := #{hibernate_after := HibernateAfter},
+    mqtt := #{hibernate_after := HibernateAfter, minor_gc_after := MinorGcAfter},
     force_gc := ForceGc,
     force_shutdown := ForceShutdown
 }) ->
-    zone_conf(Zone, HibernateAfter, ForceGc, ForceShutdown);
+    zone_conf(Zone, HibernateAfter, MinorGcAfter, ForceGc, ForceShutdown);
 build_zone_conf(_Zone, _ZoneConf) ->
     undefined.
 
-zone_conf(Zone, HibernateAfter, ForceGc, ForceShutdown) ->
+zone_conf(Zone, HibernateAfter, MinorGcAfter, ForceGc, ForceShutdown) ->
     #zone_conf{
         name = Zone,
         hibernate_after = HibernateAfter,
+        minor_gc_after = MinorGcAfter,
         force_gc = force_gc(ForceGc),
         force_shutdown = ForceShutdown
     }.
