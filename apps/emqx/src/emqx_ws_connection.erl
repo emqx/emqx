@@ -174,14 +174,16 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 %% WebSocket callbacks
 %%--------------------------------------------------------------------
 
-init(Req, Opts) ->
-    case emqx_node_readiness:is_ready() of
-        true ->
+init(Req, #{zone := Zone} = Opts) ->
+    case emqx_node_readiness:is_ready() andalso emqx_olp:backoff_new_conn(Zone) of
+        ok ->
             do_init(Req, Opts);
         false ->
             %% Refuse to serve before node boot completes: authn/authz
             %% hooks (e.g. from plugins) may not be installed yet.
             ?SLOG(info, #{msg => ws_connection_refused_before_boot_complete}),
+            {ok, cowboy_req:reply(503, Req), #{}};
+        {error, overloaded} ->
             {ok, cowboy_req:reply(503, Req), #{}}
     end.
 

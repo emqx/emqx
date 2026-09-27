@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("lc/include/lc.hrl").
 
 -define(TCP_PORT, 1883).
@@ -53,15 +54,17 @@ init_per_suite(Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     OldSch = erlang:system_flag(schedulers_online, 1),
-    [{apps, Apps}, {old_sch, OldSch} | Config].
+    [{apps, Apps}, {old_sch, OldSch}, {lc_conf, load_ctl:get_config()} | Config].
 
 end_per_suite(Config) ->
+    ok = load_ctl:put_config(?config(lc_conf, Config)),
     erlang:system_flag(schedulers_online, ?config(old_sch, Config)),
     emqx_cth_suite:stop(?config(apps, Config)).
 
 end_per_testcase(_, _Config) ->
     meck:unload(),
     emqx_config:put([overload_protection, enable], false),
+    emqx_config:put([overload_protection, backoff_gc], false),
     emqx_config:put([overload_protection, backoff_new_conn], true).
 
 init_per_testcase(_, Config) ->
@@ -78,8 +81,11 @@ init_per_testcase(_, Config) ->
         ?RUNQ_MON_T1 => 200,
         ?RUNQ_MON_T2 => 50,
         ?RUNQ_MON_C1 => 2,
-        ?RUNQ_MON_F5 => -1
+        ?RUNQ_MON_F5 => -1,
+        ?MEM_MON_T1 => 100
     }),
+    %% Keep the memory flag down regardless of the host's memory usage.
+    ok = set_high_mem(false),
     Config.
 
 %% Test that olp could be enabled/disabled globally
@@ -123,6 +129,35 @@ t_overload_cooldown_conn(Config) ->
     ?assertMatch({ok, _Pid}, emqtt:connect(C)),
     emqtt:stop(C),
     meck:unload(load_ctl).
+
+t_high_mem_new_conn() ->
+    [{matrix, true}].
+
+-doc """
+High memory closes a new connection and counts it, and a new connection is
+accepted again once memory usage drops.
+""".
+t_high_mem_new_conn(matrix) ->
+    [[T] || T <- ?TRANSPORTS];
+t_high_mem_new_conn(TCConfig) when is_list(TCConfig) ->
+    ok = mock_runq_overloaded(false),
+    emqx_config:put([overload_protection, enable], true),
+    ok = set_high_mem(true),
+    Before = emqx_metrics:val_global('overload_protection.new_conn'),
+    ?assertMatch({error, _}, try_connect(TCConfig)),
+    ?assertEqual(Before + 1, emqx_metrics:val_global('overload_protection.new_conn')),
+    ok = set_high_mem(false),
+    ?assertEqual(ok, try_connect(TCConfig)).
+
+-doc "High memory does not skip GC or hibernation, since both free memory.".
+t_high_mem_keeps_gc_and_hibernation(_Config) ->
+    ok = mock_runq_overloaded(false),
+    emqx_config:put([overload_protection, enable], true),
+    emqx_config:put([overload_protection, backoff_gc], true),
+    ok = set_high_mem(true),
+    ?assertNot(emqx_olp:backoff_gc(default)),
+    ?assertNot(emqx_olp:backoff_hibernation(default)),
+    ?assertEqual({error, overloaded}, emqx_olp:backoff_new_conn(default)).
 
 t_backoff_new_conn_disabled() ->
     [{matrix, true}].
@@ -170,6 +205,17 @@ connect_opts(quic) ->
 mock_runq_overloaded(IsOverloaded) ->
     ok = meck:new(load_ctl, [passthrough, no_history]),
     ok = meck:expect(load_ctl, is_overloaded, fun() -> IsOverloaded end).
+
+%% Drive the real lc memory flag through its threshold.
+set_high_mem(IsHigh) ->
+    Threshold =
+        case IsHigh of
+            true -> 0.0;
+            false -> 1.0
+        end,
+    ok = load_ctl:put_config((load_ctl:get_config())#{?MEM_MON_F1 => Threshold}),
+    ?retry(100, 50, ?assertEqual(IsHigh, load_ctl:is_high_mem())),
+    ok.
 
 wait_for(_Fun, 0) ->
     false;
