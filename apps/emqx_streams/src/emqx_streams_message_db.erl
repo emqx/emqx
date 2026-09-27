@@ -421,7 +421,8 @@ delete_expired_data(Streams) ->
 
 tx_stream_delete_expired_data(Stream, Index) ->
     DataRetentionPeriod = emqx_streams_prop:data_retention_period(Stream),
-    TimeRetentionDeadline = max(now_ms() - DataRetentionPeriod, 0),
+    DataRetentionPeriodUs = erlang:convert_time_unit(DataRetentionPeriod, millisecond, microsecond),
+    TimeRetentionDeadline = max(now_us() - DataRetentionPeriodUs, 0),
     LimitsDeadline =
         case Index of
             undefined ->
@@ -732,5 +733,5 @@ delete_topics(?STREAMS_MESSAGE_REGULAR_DB, Stream) ->
 delete_topics(?STREAMS_MESSAGE_LASTVALUE_DB, Stream) ->
     [stream_index_topic(Stream), stream_message_topic(Stream, '#')].
 
-now_ms() ->
-    erlang:monotonic_time(millisecond).
+now_us() ->
+    erlang:system_time(microsecond).

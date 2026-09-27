@@ -107,7 +107,7 @@ gc_interval() ->
 check_stream_status_interval() ->
     emqx:get_config([streams, check_stream_status_interval]).
 
--spec regular_stream_retention_period() -> emqx_schema:timeout_duration_ms().
+-spec regular_stream_retention_period() -> emqx_schema:duration_ms().
 regular_stream_retention_period() ->
     emqx:get_config([streams, regular_stream_retention_period]).
 
