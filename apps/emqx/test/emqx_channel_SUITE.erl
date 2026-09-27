@@ -104,29 +104,49 @@ internal_subscribe_test_profile(_) ->
 %% Test cases for channel info/stats/caps
 %%--------------------------------------------------------------------
 
+-doc """
+The stored channel info carries a `clientinfo` without the fields derivable from
+`conninfo`, while the channel's own `clientinfo` keeps them all.
+""".
 t_chan_info(_) ->
+    Channel = channel(),
     #{
         conn_state := connected,
-        clientinfo := ClientInfo
-    } = emqx_channel:info(channel()),
+        clientinfo := Stored
+    } = emqx_channel:info(Channel),
     ?assertMatch(
         #{
             zone := default,
             listener := 'tcp:default',
             protocol := mqtt,
-            peername := {{127, 0, 0, 1}, 3456},
-            peerhost := {127, 0, 0, 1},
-            peerport := 3456,
-            sockport := 1883,
             clientid := <<"clientid">>,
             username := <<"username">>,
             is_superuser := false,
             is_bridge := false,
             mountpoint := undefined
         },
-        ClientInfo
+        Stored
     ),
-    ?assertEqual(clientinfo(), ClientInfo).
+    ?assertEqual(
+        maps:without([peerhost, peerport, peername, sockport], clientinfo()),
+        Stored
+    ),
+    %% Hooks, authn and authz receive the channel's own clientinfo.
+    ?assertEqual(clientinfo(), emqx_channel:info(clientinfo, Channel)).
+
+-doc """
+`info/1` drops the `clientinfo` fields derivable from `conninfo`, and
+`restore_derivable_peer_fields/2` puts back exactly those, so that a channel rebuilt
+from a stored info map carries the `clientinfo` the connection had.
+""".
+t_restore_derivable_peer_fields(_) ->
+    #{conninfo := ConnInfo, clientinfo := Stored} = emqx_channel:info(channel()),
+    ?assertEqual(
+        clientinfo(),
+        emqx_channel:restore_derivable_peer_fields(Stored, ConnInfo)
+    ),
+    %% With nothing to derive from, the clientinfo is returned as is.
+    ?assertEqual(Stored, emqx_channel:restore_derivable_peer_fields(Stored, #{})).
 
 t_chan_caps(_) ->
     ?assertMatch(
