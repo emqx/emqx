@@ -176,8 +176,7 @@ parse_http_resp_body(ContentType = <<_/binary>>, _Body) ->
 
 -spec content_type(cow_http:headers()) -> binary().
 content_type(Headers) when is_list(Headers) ->
-    %% header name is lower case, see:
-    %% https://github.com/ninenines/cowlib/blob/ce6798c6b2e95b6a34c6a76d2489eaf159827d80/src/cow_http.erl#L192
+    %% Both the pooled and the one-off request paths return lower-case header names.
     proplists:get_value(
         <<"content-type">>,
         Headers,
