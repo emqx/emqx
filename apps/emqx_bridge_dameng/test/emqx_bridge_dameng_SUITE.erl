@@ -512,7 +512,7 @@ t_batch_write(TCConfig) ->
         begin
             ?wait_async_action(
                 lists:foreach(
-                    fun(Payload) -> emqx:publish(emqx_message:make(Topic, Payload)) end,
+                    fun(Payload) -> emqx:publish2(emqx_message:make(Topic, Payload)) end,
                     Payloads
                 ),
                 #{?snk_kind := dameng_connector_query_return},
@@ -729,7 +729,7 @@ t_non_insert_template(TCConfig) when is_list(TCConfig) ->
     ),
     ?assertEqual([{<<"sentinel">>, <<"old">>}], connect_and_get_id_payload_pairs()),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
-    emqx:publish(emqx_message:make(Topic, <<"still works">>)),
+    emqx:publish2(emqx_message:make(Topic, <<"still works">>)),
     ?retry(200, 30, ?assertEqual(2, connect_and_get_count())),
     ?assertEqual(
         lists:sort([{<<"old">>}, {<<"still works">>}]),
@@ -792,7 +792,7 @@ t_insert_parameter_binding(TCConfig) when is_list(TCConfig) ->
             Parent = self(),
             Publishers = [
                 spawn_link(fun() ->
-                    emqx:publish(emqx_message:make(Topic, Payload)),
+                    emqx:publish2(emqx_message:make(Topic, Payload)),
                     Parent ! {published, self()}
                 end)
              || Payload <- Payloads

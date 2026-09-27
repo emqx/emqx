@@ -1639,7 +1639,7 @@ t_matching_validations_missing_index_table(_Config) ->
         ?assertEqual([], emqx_schema_validation_registry:matching_validations(<<"t/1">>)),
         Msg = emqx_message:make(<<"$SYS/brokers/test">>, <<"{}">>),
         ?check_trace(
-            emqx_broker:publish(Msg),
+            emqx_broker:publish2(Msg),
             fun(Trace) ->
                 ?assertEqual([], ?of_kind("hook_callback_exception", Trace))
             end

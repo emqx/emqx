@@ -574,7 +574,7 @@ t_publish_big_msg(TCConfig) ->
     #{topic := Topic} = simple_create_rule_api(TCConfig),
     % Maximum size is 1MB. Using 1MB + 1 here.
     Payload = binary:copy(<<"a">>, 1 * 1024 * 1024 + 1),
-    emqx:publish(emqx_message:make(Topic, Payload)),
+    emqx:publish2(emqx_message:make(Topic, Payload)),
     %% to avoid test flakiness
     ?retry(
         500,

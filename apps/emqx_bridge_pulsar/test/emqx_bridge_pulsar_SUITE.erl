@@ -1351,7 +1351,7 @@ t_overflow_rule_metrics(TCConfig) when is_list(TCConfig) ->
         ),
     #{id := RuleId, topic := RuleTopic} = simple_create_rule_api(TCConfig),
     %% Async
-    emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+    emqx:publish2(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
     ?retry(
         100,
         10,
@@ -1395,7 +1395,7 @@ t_overflow_rule_metrics(TCConfig) when is_list(TCConfig) ->
         }),
     reset_combined_metrics(TCConfig, RuleId),
 
-    emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+    emqx:publish2(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
     ?retry(
         100,
         10,
@@ -1528,7 +1528,7 @@ t_expired_rule_metrics(TCConfig) when is_list(TCConfig) ->
     Enqueue = fun() ->
         with_failure(down, TCConfig, fun() ->
             ct:sleep(500),
-            emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+            emqx:publish2(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
             receive
                 enqueued -> ok
             after 5_000 -> ct:fail("didn't enqueue message!")

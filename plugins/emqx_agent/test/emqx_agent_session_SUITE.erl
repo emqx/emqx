@@ -5,7 +5,7 @@
 %% Integration tests for emqx_agent_session against a real LLM.
 %%
 %% Infrastructure:
-%%   - emqx:subscribe / emqx_broker:publish used for in/out traffic
+%%   - emqx:subscribe / emqx_broker:publish2 used for in/out traffic
 %%     (bypasses MQTT auth, no emqtt client needed).
 %%   - Unique SID per test case (the test case atom as binary) so that
 %%     globally-registered gen_statem processes never collide.
@@ -664,7 +664,7 @@ t_request_while_busy_is_queued(Config) ->
 t_non_session_topic_ignored(Config) ->
     Sid = ?config(sid, Config),
     Msg = emqx_message:make(?MODULE, 0, <<"unrelated/topic">>, <<"hello">>),
-    emqx_broker:publish(Msg),
+    emqx_broker:publish2(Msg),
     ?assertEqual(undefined, emqx_agent_session:whereis(Sid)).
 
 %%--------------------------------------------------------------------
@@ -698,7 +698,7 @@ request(Config, Overrides) ->
 publish_in(Config, Msg) ->
     Sid = ?config(sid, Config),
     Payload = emqx_utils_json:encode(Msg),
-    emqx_broker:publish(
+    emqx_broker:publish2(
         emqx_message:make(?MODULE, 0, in_topic(Sid), Payload)
     ).
 

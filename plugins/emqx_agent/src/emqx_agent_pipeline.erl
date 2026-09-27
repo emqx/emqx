@@ -787,7 +787,7 @@ cancel_reply_timer(#data{reply_timer_ref = Ref} = Data) ->
 publish_to_sess_in(Sid, Payload) ->
     Topic = emqx_agent_topics:sess_in_topic(Sid),
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ok.
 
 publish_cap_invoke(Type, ToolId, PayloadMap) ->
@@ -796,7 +796,7 @@ publish_cap_invoke(Type, ToolId, PayloadMap) ->
     Msg = emqx_message:make(
         ?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(maps:remove(<<"req_id">>, PayloadMap))
     ),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ok.
 
 send_tool_result(Sid, CallId, Result) ->
@@ -822,7 +822,7 @@ publish_pipeline_event(
         Frame
     ),
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ok.
 
 log_received(Kind, #data{iid = Iid}, Payload) ->

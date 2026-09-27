@@ -102,7 +102,7 @@ timer_introduced_in() -> "6.0.0".
 
 handle_durable_timeout(_Key, MsgBin) ->
     Msg = emqx_ds_msg_serializer:deserialize(asn1, MsgBin),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ok.
 
 %%================================================================================

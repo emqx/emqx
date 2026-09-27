@@ -31,6 +31,7 @@
     subscribe/2,
     subscribe/3,
     publish/1,
+    publish2/1,
     unsubscribe/1
 ]).
 
@@ -140,9 +141,14 @@ subscribe(Topic, SubOpts) when is_map(SubOpts) ->
 subscribe(Topic, SubId, SubOpts) when (is_atom(SubId) orelse is_binary(SubId)), is_map(SubOpts) ->
     emqx_broker:subscribe(iolist_to_binary(Topic), SubId, SubOpts).
 
--spec publish(emqx_types:message()) -> emqx_types:publish_result().
+-spec publish(emqx_types:message()) ->
+    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
 publish(Msg) ->
     emqx_broker:publish(Msg).
+
+-spec publish2(emqx_types:message()) -> emqx_types:publish_result().
+publish2(Msg) ->
+    emqx_broker:publish2(Msg).
 
 -spec unsubscribe(emqx_types:topic() | string()) -> ok.
 unsubscribe(Topic) ->

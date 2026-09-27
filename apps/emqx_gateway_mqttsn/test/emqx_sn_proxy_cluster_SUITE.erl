@@ -190,7 +190,7 @@ mqttsn_conf(Port) ->
 
 publish(Node, QoS, TopicName, Payload) ->
     Msg = emqx_message:make(<<"ct">>, QoS, TopicName, Payload),
-    _ = erpc:call(Node, emqx_broker, publish, [Msg]),
+    _ = erpc:call(Node, emqx_broker, publish2, [Msg]),
     ok.
 
 receive_publish(Socket, Dup, QoS, Retain, WillBit, CleanSession, TopicId, Payload) ->

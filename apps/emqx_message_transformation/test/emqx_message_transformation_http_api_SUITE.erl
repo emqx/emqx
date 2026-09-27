@@ -607,7 +607,7 @@ t_smoke_test(_Config) ->
                 }}
             ),
             %% remember to clear retained message
-            on_exit(fun() -> emqx:publish(emqx_message:make(<<"t/1/t">>, <<"">>)) end),
+            on_exit(fun() -> emqx:publish2(emqx_message:make(<<"t/1/t">>, <<"">>)) end),
 
             %% test `disconnect' failure action
             Transformation2 = transformation(

@@ -185,5 +185,5 @@ raw_udp_request(Socket, Port, URI, #coap_message{options = Opts} = Req) ->
 
 publish(Node, Topic, Payload) ->
     Msg = emqx_message:make(<<"coap-cluster-ct">>, 0, Topic, Payload),
-    _ = erpc:call(Node, emqx, publish, [Msg]),
+    _ = erpc:call(Node, emqx, publish2, [Msg]),
     ok.

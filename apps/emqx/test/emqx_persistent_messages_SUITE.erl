@@ -514,7 +514,7 @@ group_maps_by(K, Maps) ->
     emqx_ds_test_helpers:group_maps_by(K, Maps).
 
 publish(Node, Message) ->
-    erpc:call(Node, emqx, publish, [Message]).
+    erpc:call(Node, emqx, publish2, [Message]).
 
 app_specs() ->
     app_specs(_Opts = #{}).

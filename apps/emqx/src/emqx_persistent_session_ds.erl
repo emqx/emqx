@@ -540,7 +540,7 @@ publish(
         false ->
             case emqx_persistent_session_ds_state:get_awaiting_rel(PacketId, S0) of
                 undefined ->
-                    Results = emqx_broker:publish(Msg),
+                    Results = emqx_broker:publish2(Msg),
                     S = emqx_persistent_session_ds_state:put_awaiting_rel(PacketId, TS, S0),
                     {ok, Results, ensure_state_commit_timer(Session#{s := S})};
                 _TS ->
@@ -550,7 +550,7 @@ publish(
             {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}
     end;
 publish(_PacketId, Msg, Session) ->
-    Result = emqx_broker:publish(Msg),
+    Result = emqx_broker:publish2(Msg),
     {ok, Result, Session}.
 
 is_awaiting_full(#{s := S, props := Props}) ->

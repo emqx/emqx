@@ -243,12 +243,12 @@ invoke_with_tool(Type, ToolId, Args, ReqId, Extra) ->
             Extra
         )
     ),
-    _ = emqx_broker:publish(emqx_message:make(ToolId, 0, Topic, Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(ToolId, 0, Topic, Payload)),
     ok.
 
 invoke_raw(Type, ToolId, ReqId, Payload) ->
     Topic = <<"$cap/", Type/binary, "/", ToolId/binary, "/request/", ReqId/binary>>,
-    _ = emqx_broker:publish(emqx_message:make(ToolId, 0, Topic, Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(ToolId, 0, Topic, Payload)),
     ok.
 
 register_mock_tool() ->

@@ -291,7 +291,7 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps, DirectDispatch) ->
 
 do_safe_publish(Msg, DirectDispatch) ->
     case
-        emqx_broker:safe_publish(Msg, #{
+        emqx_broker:safe_publish2(Msg, #{
             bypass_hook => DirectDispatch, hook_prohibition_as_error => true
         })
     of

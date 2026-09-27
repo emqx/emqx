@@ -255,7 +255,7 @@ portinfo(Port) ->
 
 safe_publish(Event, WarnMsg) ->
     Topic = emqx_topic:systop(lists:concat(['sysmon/', Event])),
-    emqx_broker:safe_publish(sysmon_msg(Topic, iolist_to_binary(WarnMsg))).
+    emqx_broker:safe_publish2(sysmon_msg(Topic, iolist_to_binary(WarnMsg))).
 
 sysmon_msg(Topic, Payload) ->
     Msg = emqx_message:make(?SYSMON, Topic, Payload),

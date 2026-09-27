@@ -364,7 +364,7 @@ t_no_local(TCConfig) ->
     ok = emqx:subscribe(RepublishTopic, #{qos => ?QOS_1, nl => 1}),
     %% Should receive only 1 message copy.
     ok = emqx:subscribe(RemoteTopic),
-    emqx:publish(emqx_message:make(<<"external_client">>, ?QOS_1, RuleTopic, <<"hey">>)),
+    emqx:publish2(emqx_message:make(<<"external_client">>, ?QOS_1, RuleTopic, <<"hey">>)),
     ?assertReceive({deliver, RemoteTopic, _}),
     ?assertNotReceive({deliver, RemoteTopic, _}),
     ?assertNotReceive({deliver, RuleTopic, _}),

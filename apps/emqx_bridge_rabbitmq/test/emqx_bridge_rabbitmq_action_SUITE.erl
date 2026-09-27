@@ -322,7 +322,7 @@ t_heavy_batching(TCConfig) ->
     NumberOfMessages = 1_000,
     emqx_utils:pforeach(
         fun(N) ->
-            emqx:publish(emqx_message:make(Topic, integer_to_binary(N)))
+            emqx:publish2(emqx_message:make(Topic, integer_to_binary(N)))
         end,
         lists:seq(1, NumberOfMessages)
     ),

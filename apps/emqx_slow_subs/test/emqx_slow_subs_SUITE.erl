@@ -100,7 +100,7 @@ stats_with_type(Type) ->
         fun(I) ->
             Topic = list_to_binary(io_lib:format("/test1/~p", [I])),
             Msg = emqx_message:make(undefined, ?QOS_1, Topic, <<"Hello">>),
-            emqx:publish(Msg#message{timestamp = Now - ?LANTENCY}),
+            emqx:publish2(Msg#message{timestamp = Now - ?LANTENCY}),
             timer:sleep(100)
         end,
         lists:seq(1, 10)
@@ -110,7 +110,7 @@ stats_with_type(Type) ->
         fun(I) ->
             Topic = list_to_binary(io_lib:format("/test2/~p", [I])),
             Msg = emqx_message:make(undefined, ?QOS_2, Topic, <<"Hello">>),
-            emqx:publish(Msg#message{timestamp = Now - ?LANTENCY}),
+            emqx:publish2(Msg#message{timestamp = Now - ?LANTENCY}),
             timer:sleep(100)
         end,
         lists:seq(1, 10)

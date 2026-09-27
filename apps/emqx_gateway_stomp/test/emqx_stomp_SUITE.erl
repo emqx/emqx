@@ -590,7 +590,7 @@ t_receive_from_mqtt_publish(_) ->
             _Flags = #{},
             _Headers = #{properties => #{'Content-Type' => <<"application/json">>}}
         ),
-        emqx:publish(Msg),
+        emqx:publish2(Msg),
 
         {ok, Frame} = recv_a_frame(Sock),
         ?assertEqual(
@@ -1461,7 +1461,7 @@ t_mountpoint(_) ->
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
 
         Msg = emqx_message:make(<<"stomp/t/a">>, <<"hello">>),
-        emqx:publish(Msg),
+        emqx:publish2(Msg),
 
         {ok, #stomp_frame{
             command = <<"MESSAGE">>,

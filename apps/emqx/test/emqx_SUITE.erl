@@ -52,21 +52,21 @@ t_emqx_pubsub_api(_) ->
     ?assertNot(emqx:subscribed(self(), Topic3)),
     %% These emqx_broker_helper do not track client IDs from emqx:subscribe/2 calls
     ?assertNot(lists:any(fun(T) -> emqx:subscribed(ClientId, T) end, [Topic3 | SubscribedTopics])),
-    emqx:publish(emqx_message:make(Topic, Payload)),
+    emqx:publish2(emqx_message:make(Topic, Payload)),
     receive
         {deliver, Topic, #message{payload = Payload}} ->
             ok
     after 100 ->
         ct:fail("no_message")
     end,
-    emqx:publish(emqx_message:make(Topic1, Payload)),
+    emqx:publish2(emqx_message:make(Topic1, Payload)),
     receive
         {deliver, Topic1, #message{payload = Payload}} ->
             ok
     after 100 ->
         ct:fail("no_message")
     end,
-    emqx:publish(emqx_message:make(Topic2, Payload)),
+    emqx:publish2(emqx_message:make(Topic2, Payload)),
     receive
         {deliver, Topic2, #message{payload = Payload}} ->
             ok

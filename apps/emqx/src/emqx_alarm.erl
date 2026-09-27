@@ -517,7 +517,7 @@ do_actions(Operation, Alarm, [publish | More], State) ->
         #{sys => true},
         #{properties => #{'Content-Type' => <<"application/json">>}}
     ),
-    _ = emqx_broker:safe_publish(Message),
+    _ = emqx_broker:safe_publish2(Message),
     _ =
         %% We run hooks in a temporary process to avoid blocking the alarm process for long.
         case Operation of

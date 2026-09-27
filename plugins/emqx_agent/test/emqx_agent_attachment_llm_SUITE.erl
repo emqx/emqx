@@ -240,7 +240,7 @@ register_pipeline(PipelineId, TcId, Tools, Instructions) ->
 
 trigger_and_await(PipelineId, TcId) ->
     Payload = emqx_utils_json:encode(#{<<"case_id">> => TcId}),
-    _ = emqx_broker:publish(emqx_message:make(?MODULE, 0, event_topic(TcId), Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(?MODULE, 0, event_topic(TcId), Payload)),
     await_pipeline_result(PipelineId).
 
 await_pipeline_result(PipelineId) ->
@@ -278,7 +278,7 @@ start_mqtt_responder(Topic, Payload) ->
             #deliver{topic = Topic, message = Msg} ->
                 Props = emqx_message:get_header(properties, Msg, #{}),
                 ResponseTopic = maps:get('Response-Topic', Props),
-                _ = emqx_broker:publish(emqx_message:make(?MODULE, 0, ResponseTopic, Payload)),
+                _ = emqx_broker:publish2(emqx_message:make(?MODULE, 0, ResponseTopic, Payload)),
                 ok = emqx:unsubscribe(Topic),
                 Parent ! {mqtt_responder_done, self()}
         after ?LLM_TIMEOUT ->

@@ -1320,7 +1320,7 @@ t_subscribe(_) ->
         ?assert(is_pid(SubPid)),
 
         %% publish a message
-        emqx:publish(emqx_message:make(Topic, Payload)),
+        emqx:publish2(emqx_message:make(Topic, Payload)),
         {ok, content, Notify} = with_response(Channel),
         ?LOGT("observer get Notif=~p", [Notify]),
 
@@ -1359,7 +1359,7 @@ t_subscribe_with_qos_opt(_) ->
         [SubPid] = emqx:subscribers(Topic),
         ?assert(is_pid(SubPid)),
         %% publish a message
-        emqx:publish(emqx_message:make(Topic, Payload)),
+        emqx:publish2(emqx_message:make(Topic, Payload)),
         {ok, content, Notify} = with_response(Channel),
         ?LOGT("observer get Notif=~p", [Notify]),
 
@@ -1426,7 +1426,7 @@ t_observe_wildcard(_) ->
 
         %% Publish a message
         PubTopic = <<"abc/def">>,
-        emqx:publish(emqx_message:make(PubTopic, Payload)),
+        emqx:publish2(emqx_message:make(PubTopic, Payload)),
         {ok, content, Notify} = with_response(Channel),
 
         ?LOGT("observer get Notif=~p", [Notify]),
@@ -2307,7 +2307,7 @@ make_req_type(Type, Method, Payload, Opts) ->
     er_coap_message:request(Type, Method, Payload, Opts).
 
 publish(Topic, QoS, Payload) ->
-    emqx:publish(emqx_message:make(<<"coap">>, QoS, Topic, Payload)).
+    emqx:publish2(emqx_message:make(<<"coap">>, QoS, Topic, Payload)).
 
 gateway_metric(Name) ->
     proplists:get_value(Name, emqx_gateway_metrics:lookup(coap), 0).

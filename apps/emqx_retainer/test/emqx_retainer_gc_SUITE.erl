@@ -189,7 +189,7 @@ store_retained(NMessages, Config) ->
                     #{retain => true},
                     #{properties => #{'Message-Expiry-Interval' => ExpiryInterval}}
                 ),
-                emqx:publish(Msg)
+                emqx:publish2(Msg)
             end,
             lists:seq(StartN, StartN + NMessages - 1)
         )

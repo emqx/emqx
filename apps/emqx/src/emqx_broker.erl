@@ -35,8 +35,12 @@
 -export([
     publish/1,
     publish/2,
+    publish2/1,
+    publish2/2,
     safe_publish/1,
-    safe_publish/2
+    safe_publish/2,
+    safe_publish2/1,
+    safe_publish2/2
 ]).
 
 -export([
@@ -259,12 +263,26 @@ do_unsubscribe_regular(Topic, SubPid, SubOpts) ->
 %% Publish
 %%--------------------------------------------------------------------
 
--spec publish(emqx_types:message()) -> emqx_types:publish_result().
-publish(#message{} = Msg) ->
-    publish(#message{} = Msg, _Opts = #{}).
+-spec publish(emqx_types:message()) ->
+    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
+publish(Msg) ->
+    publish(Msg, _Opts = #{}).
 
--spec publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
-publish(#message{} = Msg, Opts) ->
+-spec publish(emqx_types:message(), publish_opts()) ->
+    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
+publish(Msg, Opts) ->
+    case publish2(Msg, Opts) of
+        {ok, Routes, _Message} -> Routes;
+        {error, blocked, Message} -> {blocked, Message};
+        {error, disconnect, _Message} -> disconnect
+    end.
+
+-spec publish2(emqx_types:message()) -> emqx_types:publish_result().
+publish2(#message{} = Msg) ->
+    publish2(Msg, _Opts = #{}).
+
+-spec publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
+publish2(#message{} = Msg, Opts) ->
     _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse inc_metrics('messages.publish', Msg),
     case maps:get(bypass_hook, Opts, false) of
@@ -325,14 +343,28 @@ persist_publish(Msg) ->
     end.
 
 %% Called internally
--spec safe_publish(emqx_types:message()) -> emqx_types:publish_result().
+-spec safe_publish(emqx_types:message()) ->
+    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
 safe_publish(Msg) ->
     safe_publish(Msg, _Opts = #{}).
 
--spec safe_publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
-safe_publish(#message{} = Msg, Opts) ->
+-spec safe_publish(emqx_types:message(), publish_opts()) ->
+    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
+safe_publish(Msg, Opts) ->
+    case safe_publish2(Msg, Opts) of
+        {ok, Routes, _Message} -> Routes;
+        {error, blocked, Message} -> {blocked, Message};
+        {error, disconnect, _Message} -> disconnect
+    end.
+
+-spec safe_publish2(emqx_types:message()) -> emqx_types:publish_result().
+safe_publish2(Msg) ->
+    safe_publish2(Msg, _Opts = #{}).
+
+-spec safe_publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
+safe_publish2(#message{} = Msg, Opts) ->
     try
-        publish(Msg, Opts)
+        publish2(Msg, Opts)
     catch
         Error:Reason:Stk ->
             ?SLOG(

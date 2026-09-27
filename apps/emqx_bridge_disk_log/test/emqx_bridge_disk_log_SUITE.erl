@@ -299,7 +299,7 @@ connector_resource_id(TCConfig) ->
 
 publish(Topic, Payload) ->
     Message = emqx_message:make(Topic, Payload),
-    emqx:publish(Message).
+    emqx:publish2(Message).
 
 publish_and_flush(TCConfig, Topic, Payload) ->
     {_, {ok, _}} =
@@ -455,7 +455,7 @@ t_smoke(Config) when is_list(Config) ->
         emqx_message:make(<<"c1">>, RuleTopic, <<"1">>),
         emqx_message:make(<<"c2">>, RuleTopic, <<"2">>)
     ],
-    lists:foreach(fun emqx:publish/1, Messages),
+    lists:foreach(fun emqx:publish2/1, Messages),
     %% `disk_log' flushes to disk asynchronously, even using `blog/2'.
     ?retry(
         500,
@@ -781,7 +781,7 @@ t_smoke_batch(Config) when is_list(Config) ->
     ),
     ?check_trace(
         begin
-            emqx_utils:pforeach(fun emqx:publish/1, Messages),
+            emqx_utils:pforeach(fun emqx:publish2/1, Messages),
             ExpectedPayloads = lists:sort(lists:map(fun emqx_message:payload/1, Messages)),
             ?retry(
                 500,

@@ -444,7 +444,7 @@ stop_async_publisher(Publisher) ->
 
 async_publisher_loop(Topic, N, Interval, Controller) ->
     Message = emqx_message:make(?MODULE, ?QOS_1, Topic, integer_to_binary(N)),
-    _ = emqx:publish(Message),
+    _ = emqx:publish2(Message),
     receive
         {Controller, stop} ->
             Controller ! {self(), N}

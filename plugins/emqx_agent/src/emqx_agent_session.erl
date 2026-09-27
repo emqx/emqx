@@ -1171,7 +1171,7 @@ publish_stream_frame(Sid, Iid, TraceId, Usage, Frame) ->
     ),
     Topic = ?OUT(Sid),
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1249,7 +1249,7 @@ publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, 
     ),
     Topic = ?OUT(Sid),
     Msg = emqx_message:make(?MODULE, ?QOS_0, Topic, emqx_utils_json:encode(Payload)),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ok.
 
 attachment_msgs([]) ->

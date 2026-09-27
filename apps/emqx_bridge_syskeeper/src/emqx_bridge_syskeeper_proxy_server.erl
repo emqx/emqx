@@ -255,7 +255,7 @@ do_forward(Ack, Messages, Data) ->
     lists:foreach(
         fun(Message) ->
             Msg = emqx_message:from_map(Message#{headers => #{}, extra => #{}}),
-            _ = emqx_broker:safe_publish(Msg)
+            _ = emqx_broker:safe_publish2(Msg)
         end,
         Messages
     ),

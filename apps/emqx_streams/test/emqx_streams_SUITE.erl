@@ -356,9 +356,9 @@ t_governance_hooks_run_before_streams(_Config) ->
     ),
 
     Dropped = emqx_message:make(<<"ct">>, ?QOS_1, <<"governed/drop">>, <<"invalid">>),
-    _ = emqx_broker:publish(Dropped),
+    _ = emqx_broker:publish2(Dropped),
     Original = emqx_message:make(<<"ct">>, ?QOS_1, <<"governed/transform">>, <<"secret">>),
-    _ = emqx_broker:publish(Original),
+    _ = emqx_broker:publish2(Original),
 
     ?assertEqual(
         [<<"redacted">>],

@@ -492,7 +492,7 @@ t_asleep_pingreq_dtls_mtls_identity(Config) ->
         ?assert(is_binary(StoredPeercert)),
         ok = ssl:send(Socket1, make_disconnect_msg(SleepDuration)),
         ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, ssl:recv(Socket1, 0, 1000)),
-        _ = emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        _ = emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         timer:sleep(100),
 
         ok = ssl:send(Socket2, make_pingreq_msg(ClientId)),
@@ -942,7 +942,7 @@ t_asleep_pingreq_resume_drains_takeover_deliveries(_) ->
         resume,
         fun(ClientInfo, Session) ->
             NSession = meck:passthrough([ClientInfo, Session]),
-            _ = emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+            _ = emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
             timer:sleep(50),
             NSession
         end
@@ -1001,7 +1001,7 @@ t_asleep_pingreq_resume_rolls_back_on_owner_down(_) ->
             resume,
             fun(ClientInfo, Session) ->
                 _ = meck:passthrough([ClientInfo, Session]),
-                _ = emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+                _ = emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
                 timer:sleep(50),
                 error(forced_resume_failure)
             end
@@ -2244,7 +2244,7 @@ t_delivery_qos1_register_invalid_topic_id(_) ->
     ),
 
     Payload = <<"test-registration-inconsistent">>,
-    _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"ab">>, Payload)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_1, <<"ab">>, Payload)),
 
     ?assertEqual(
         <<
@@ -2793,7 +2793,7 @@ t_asleep_test03_to_awake_qos1_dl_msg(_) ->
 
     timer:sleep(300),
 
-    emqx_broker:publish(
+    emqx_broker:publish2(
         emqx_message:make(<<"ct">>, QoS, TopicName1, Payload1)
     ),
 
@@ -2851,7 +2851,7 @@ t_asleep_pingreq_from_new_peer_resumes_legacy_udp(_) ->
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
 
         timer:sleep(100),
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         timer:sleep(100),
 
         send_pingreq_msg(Socket2, ClientId),
@@ -2898,7 +2898,7 @@ t_asleep_connect_from_new_peer_requires_authentication(_) ->
         send_disconnect_msg(Socket1, SleepDuration),
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
         ?retry(50, 20, #{conn_state := asleep} = emqx_gateway_cm:get_chan_info(mqttsn, ClientId)),
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         timer:sleep(100),
 
         ok = meck:new(emqx_access_control, [passthrough, no_history]),
@@ -2958,7 +2958,7 @@ t_connected_pingreq_after_source_tuple_change(_) ->
         send_pingreq_msg(Socket2, ClientId),
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket2)),
 
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         UdpData = receive_response(Socket1),
         _PubMsgId = check_publish_msg_on_udp(
             {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
@@ -3002,7 +3002,7 @@ t_stale_udp_proxy_detach_does_not_close_current_socket(_) ->
         ok = emqx_mqttsn_proxy_conn:detach(Pid, #{}),
         timer:sleep(100),
 
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         UdpData = receive_response(Socket),
         _PubMsgId = check_publish_msg_on_udp(
             {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
@@ -3044,7 +3044,7 @@ t_stale_udp_proxy_close_does_not_close_current_socket(_) ->
         ok = emqx_mqttsn_proxy_conn:close(Pid, #{}),
         timer:sleep(100),
 
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         UdpData = receive_response(Socket),
         _PubMsgId = check_publish_msg_on_udp(
             {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
@@ -3081,7 +3081,7 @@ t_current_udp_proxy_close_closes_current_socket(_) ->
         Pid ! {udp_proxy_closed, current_udp_proxy_id(Pid)},
         timer:sleep(100),
 
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         ?assertEqual(udp_receive_timeout, receive_response(Socket, 500))
     after
         _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
@@ -3124,7 +3124,7 @@ t_asleep_pingreq_after_proxy_close(_) ->
         _ = emqx_mqttsn_proxy_conn:close(Pid, current_udp_proxy_id(Pid), #{}),
         timer:sleep(100),
 
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         timer:sleep(100),
 
         send_pingreq_msg(Socket2, ClientId),
@@ -3175,7 +3175,7 @@ t_asleep_same_source_tuple_reused_by_other_clientid(_) ->
         send_connect_msg(Socket, ClientId2),
         ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
 
-        emqx_broker:publish(emqx_message:make(<<"ct">>, 1, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, 1, TopicName, Payload)),
         timer:sleep(100),
 
         send_pingreq_msg(Socket2, ClientId1),
@@ -3219,7 +3219,7 @@ t_connected_same_source_tuple_reused_by_other_clientid(_) ->
         send_connect_msg(Socket, ClientId2),
         ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
 
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         ?assertEqual(udp_receive_timeout, receive_response(Socket, 500))
     after
         _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId1),
@@ -3268,7 +3268,7 @@ t_connected_clean_session_false_same_source_tuple_reused_preserves_session(_) ->
             } = emqx_gateway_cm:get_chan_info(mqttsn, ClientId1)
         ),
         ?assertNot(received_connection_closed(ClientId1)),
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         timer:sleep(100),
 
         ?assertEqual(udp_receive_timeout, receive_response(Socket, 500)),
@@ -3322,7 +3322,7 @@ t_awake_same_source_tuple_reused_by_other_clientid(_) ->
         send_disconnect_msg(Socket, 5),
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload1)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload1)),
         timer:sleep(100),
 
         send_pingreq_msg(Socket, ClientId1),
@@ -3346,7 +3346,7 @@ t_awake_same_source_tuple_reused_by_other_clientid(_) ->
             } = emqx_gateway_cm:get_chan_info(mqttsn, ClientId1)
         ),
         ?assertNot(received_connection_closed(ClientId1)),
-        emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload2)),
+        emqx_broker:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload2)),
         timer:sleep(100),
 
         ?assertEqual(udp_receive_timeout, receive_response(Socket, 500)),
@@ -3825,7 +3825,7 @@ t_awake_transport_close_publishes_will(_) ->
         send_disconnect_msg(Socket, SleepDuration),
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
-        _ = emqx:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
+        _ = emqx:publish2(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
         send_pingreq_msg(Socket, ClientId),
         Publish = receive_response(Socket),
         _ = check_publish_msg_on_udp(
@@ -4100,10 +4100,10 @@ t_register_subs_resume_on(_) ->
     send_subscribe_msg_normal_topic(Socket, ?QOS_2, <<"topic-b">>, MsgId + 2),
     <<_, ?SN_SUBACK, 2#01000000, TopicIdB:16, _:16, ?SN_RC_ACCEPTED>> = receive_response(Socket),
 
-    _ = emqx:publish(
+    _ = emqx:publish2(
         emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"test-a">>)
     ),
-    _ = emqx:publish(
+    _ = emqx:publish2(
         emqx_message:make(test, ?QOS_1, <<"topic-b">>, <<"test-b">>)
     ),
 
@@ -4118,12 +4118,12 @@ t_register_subs_resume_on(_) ->
     gen_udp:close(Socket),
 
     %% offline messages will be queued into the MQTT-SN session
-    _ = emqx:publish(emqx_message:make(test, ?QOS_0, <<"topic-a">>, <<"m1">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m2">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_2, <<"topic-a">>, <<"m3">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_0, <<"topic-b">>, <<"m1">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"topic-b">>, <<"m2">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m3">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_0, <<"topic-a">>, <<"m1">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m2">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_2, <<"topic-a">>, <<"m3">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_0, <<"topic-b">>, <<"m1">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_1, <<"topic-b">>, <<"m2">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m3">>)),
 
     {ok, NSocket} = gen_udp:open(0, [binary]),
     send_connect_msg(NSocket, <<"test">>, 0),
@@ -4198,7 +4198,7 @@ t_register_subs_resume_on_same_source_tuple(_) ->
         ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
         timer:sleep(100),
-        _ = emqx:publish(
+        _ = emqx:publish2(
             emqx_message:make(test, ?QOS_1, TopicName, Payload)
         ),
         timer:sleep(100),
@@ -4237,10 +4237,10 @@ t_register_subs_resume_off(_) ->
     send_subscribe_msg_normal_topic(Socket, ?QOS_2, <<"topic-b">>, MsgId + 2),
     <<_, ?SN_SUBACK, 2#01000000, TopicIdB:16, _:16, ?SN_RC_ACCEPTED>> = receive_response(Socket),
 
-    _ = emqx:publish(
+    _ = emqx:publish2(
         emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"test-a">>)
     ),
-    _ = emqx:publish(
+    _ = emqx:publish2(
         emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"test-b">>)
     ),
 
@@ -4262,12 +4262,12 @@ t_register_subs_resume_off(_) ->
     gen_udp:close(Socket),
 
     %% offline messages will be queued into the MQTT-SN session
-    _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m1">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m2">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m3">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m1">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m2">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m3">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m1">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m2">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m3">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m1">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m2">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"m3">>)),
 
     {ok, NSocket} = gen_udp:open(0, [binary]),
     send_connect_msg(NSocket, <<"test">>, 0),
@@ -4429,8 +4429,8 @@ t_register_enqueue_delivering_messages(_) ->
     %% registered failured topic-name will be skipped
     <<_, ?SN_REGISTER, TopicIdA:16, RegMsgIdA:16, "topic-a">> = receive_response(NSocket),
 
-    _ = emqx:publish(emqx_message:make(test, ?QOS_0, <<"topic-a">>, <<"m1">>)),
-    _ = emqx:publish(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m2">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_0, <<"topic-a">>, <<"m1">>)),
+    _ = emqx:publish2(emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"m2">>)),
 
     send_regack_msg(NSocket, TopicIdA, RegMsgIdA, ?SN_RC_ACCEPTED),
 

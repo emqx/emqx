@@ -180,7 +180,7 @@ do_round_trip(FullTopic, MsgPayload, From, Qos, ResponseTopic, TimeoutMs, Contex
 
     Msg = emqx_message:make(From, Qos, FullTopic, MsgPayload),
     Msg2 = emqx_message:set_header(properties, #{'Response-Topic' => ResponseTopic}, Msg),
-    _ = emqx_broker:publish(Msg2),
+    _ = emqx_broker:publish2(Msg2),
 
     Result =
         receive

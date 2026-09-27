@@ -766,8 +766,8 @@ t_missing_field(TCConfig) ->
     Msg1 = emqx_message:make(ClientId1, Topic, emqx_utils_json:encode(#{})),
     ?check_trace(
         begin
-            emqx:publish(Msg0),
-            emqx:publish(Msg1),
+            emqx:publish2(Msg0),
+            emqx:publish2(Msg1),
             NEvents = 1,
             {ok, _} =
                 snabbkaffe:block_until(

@@ -416,7 +416,7 @@ t_publish_hooks_run_on_replay(_) ->
     ok = emqx_hooks:put(
         'message.publish', {?MODULE, capture_publish, [self()]}, ?HP_RULE_ENGINE
     ),
-    _ = emqx_broker:publish(Prepared),
+    _ = emqx_broker:publish2(Prepared),
     receive
         {publish_hook_called, _} -> ct:fail(publish_hook_called_while_scheduling)
     after 200 ->
@@ -456,7 +456,7 @@ t_delayed_will(_) ->
     ),
     ok = emqx_broker:subscribe(Topic),
     try
-        _ = emqx_broker:publish(Prepared),
+        _ = emqx_broker:publish2(Prepared),
         receive
             {deliver, Topic, #message{payload = <<"will">>}} -> ok
         after 5000 ->

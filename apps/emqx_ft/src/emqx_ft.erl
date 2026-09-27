@@ -339,7 +339,7 @@ publish_response(Result, #{
         #{},
         #{properties => response_properties(CorrelationData)}
     ),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ResultCode.
 
 response_properties(undefined) -> #{};

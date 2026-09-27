@@ -555,7 +555,7 @@ publish_downlink_text() ->
         <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
         <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
     MsgBody = <<Flag:8, Text/binary>>,
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 2,
@@ -934,7 +934,7 @@ t_case05(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
         <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
     %
     % client get downlink "send text"
     %
@@ -982,7 +982,7 @@ t_case06_downlink_retx(_) ->
         <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
         <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
     %
     % client get downlink "send text"
     %
@@ -1046,7 +1046,7 @@ t_case07_dl_0x8302_send_question(_) ->
             ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink "send text"
     MsgBody3 =
@@ -1107,7 +1107,7 @@ t_case08_dl_0x8500_vehicle_ctrl(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_VEHICLE_CONTROL},
         <<"body">> => #{<<"flag">> => Flag}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink "vehicle ctrl"
@@ -1187,7 +1187,7 @@ t_case09_dl_0x8103_set_client_param(_Config) ->
             ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink "vehicle ctrl"
@@ -1257,7 +1257,7 @@ t_case09_dl_0x8103_set_client_param_byte8(_Config) ->
             ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink "set client param"
     %% Body format: length(1) + [id(4) + len(1) + value(...)]
@@ -1303,7 +1303,7 @@ t_case11_ul_0x0104_query_param_ack_byte8(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_PARAM},
         <<"body">> => #{<<"length">> => 1, <<"ids">> => [16#0110]}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% Receive the query command
     {ok, _Packet3} = gen_tcp:recv(Socket, 0, 500),
@@ -1361,7 +1361,7 @@ t_case10_dl_0x8105_client_control(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_CLIENT_CONTROL},
         <<"body">> => #{<<"command">> => 200, <<"param">> => <<"ABCD">>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1406,7 +1406,7 @@ t_case11_dl_0x8106_query_client_param(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_PARAM},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [16#0092, 16#0031]}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1478,7 +1478,7 @@ t_case11_dl_0x8107_query_client_attrib(_Config) ->
     ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{<<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_ATTRIB}},
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1557,7 +1557,7 @@ t_case15_dl_0x8201_query_location(_Config) ->
     ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{<<"header">> => #{<<"msg_id">> => ?MS_QUERY_LOCATION}},
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1682,7 +1682,7 @@ t_case15_dl_0x8202_trace_location(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_TRACE_LOCATION},
         <<"body">> => #{<<"period">> => 23, <<"expiry">> => 183}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2071,7 +2071,7 @@ t_case16_dl_0x8301_set_event(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2119,7 +2119,7 @@ t_case17_dl_0x8303_set_menu(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 = <<3:8, 2:8, 56:8, 3:?WORD, <<"111">>/binary, 7:8, 7:?WORD, <<"nwKdmww">>/binary>>,
@@ -2157,7 +2157,7 @@ t_case18_dl_0x8304_info_content(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_INFO_CONTENT},
         <<"body">> => #{<<"type">> => 3, <<"length">> => 2, <<"info">> => <<"NY">>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 = <<3:8, 2:?WORD, <<"NY">>/binary>>,
@@ -2195,7 +2195,7 @@ t_case19_dl_0x8400_phone_callback(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_PHONE_CALLBACK},
         <<"body">> => #{<<"type">> => 0, <<"phone">> => <<"15632597856">>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 = <<0:8, <<"15632597856">>/binary>>,
@@ -2253,7 +2253,7 @@ t_case20_dl_0x8401_set_phone_number(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2323,7 +2323,7 @@ t_case21_dl_0x8600_set_circle_area(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 =
@@ -2367,7 +2367,7 @@ t_case22_dl_0x8601_del_circle_area(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_DEL_CIRCLE_AREA},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [3, 78]}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2437,7 +2437,7 @@ t_case23_dl_0x8602_set_rect_area(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2483,7 +2483,7 @@ t_case24_dl_0x8603_del_circle_area(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_DEL_RECT_AREA},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [3, 78]}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2537,7 +2537,7 @@ t_case25_dl_0x8604_set_poly_area(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2580,7 +2580,7 @@ t_case26_dl_0x8605_del_poly_area(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_DEL_POLY_AREA},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [3, 78]}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2653,7 +2653,7 @@ t_case27_dl_0x8606_set_path(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2697,7 +2697,7 @@ t_case26_dl_0x8607_del_path(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_DEL_PATH},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [3, 78]}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2742,7 +2742,7 @@ t_case27_dl_0x8700_drive_record_capture(_Config) ->
             <<"command">> => CaptureCmd, <<"param">> => base64:encode(<<"000123456789">>)
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2815,7 +2815,7 @@ t_case28_dl_0x8701_drive_record_param_send(_Config) ->
             <<"command">> => CaptureCmd, <<"param">> => base64:encode(<<"000123456789">>)
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2854,7 +2854,7 @@ t_case29_dl_0x8702_request_driver_id(_Config) ->
     ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{<<"header">> => #{<<"msg_id">> => ?MS_REQ_DRIVER_ID}},
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2945,7 +2945,7 @@ t_case30_dl_0x8801_camera_shot(_Config) ->
             <<"chromaticity">> => 7
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -3025,7 +3025,7 @@ t_case31_dl_0x8802_mm_data_search(_Config) ->
             <<"end_time">> => <<"170923145826">>
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -3122,7 +3122,7 @@ t_case32_dl_0x8803_mm_data_upload(_Config) ->
             <<"delete">> => 1
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -3169,7 +3169,7 @@ t_case33_dl_0x8804_voice_record(_Config) ->
             <<"rate">> => 4
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -3214,7 +3214,7 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
             <<"flag">> => 40
         }
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 = <<30:?DWORD, 40:8>>,
@@ -3303,10 +3303,10 @@ t_case_dl_invalid_msg(_Config) ->
         }
     },
 
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
     ?block_until(#{?snk_kind := invalid_dl_message}),
 
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, <<"invliad_json_str">>)),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, <<"invliad_json_str">>)),
     ?block_until(#{?snk_kind := invalid_dl_message}),
 
     ok = gen_tcp:close(Socket).
@@ -3965,7 +3965,7 @@ t_case_2019_query_attrib_mqtt_fields(_Config) ->
 
     %% Server sends query command
     DlCommand = #{<<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_ATTRIB}},
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC_2019, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC_2019, emqx_utils_json:encode(DlCommand))),
 
     %% Client receives downlink command
     timer:sleep(100),
@@ -4174,7 +4174,7 @@ t_case26_dl_0x8608_query_area_route(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_QUERY_AREA_ROUTE},
         <<"body">> => #{<<"type">> => QueryType, <<"count">> => QueryCount}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC_2019, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC_2019, emqx_utils_json:encode(DlCommand))),
 
     %% Client receives downlink 0x8608
     MsgBody3 = <<QueryType:8, QueryCount:?DWORD>>,
@@ -4308,8 +4308,8 @@ t_case_downlink_msg_sn_unique(_) ->
     },
 
     %% Publish both messages without delay (to trigger the msg_sn duplication bug)
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
 
     %% Receive first batch of data.
     %% Depending on timing, we may get 1 or 2 frames:
@@ -4418,7 +4418,7 @@ t_case_downlink_auto_msg_sn(_) ->
         <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
         <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% Receive the downlink message
     {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
@@ -4462,7 +4462,7 @@ t_case_downlink_custom_msg_sn(_) ->
         },
         <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% Receive the downlink message
     {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
@@ -4503,7 +4503,7 @@ t_case_downlink_mixed_msg_sn(_) ->
         <<"header">> => #{<<"msg_id">> => MsgId},
         <<"body">> => #{<<"flag">> => 1, <<"text">> => <<"first auto">>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
     {ok, Packet1} = gen_tcp:recv(Socket, 0, 1000),
     [Frame1 | _] = split_jt808_frames(Packet1),
     MsgSn1 = parse_msg_sn_from_frame(Frame1, PhoneBCD),
@@ -4524,7 +4524,7 @@ t_case_downlink_mixed_msg_sn(_) ->
         <<"header">> => #{<<"msg_id">> => MsgId, <<"msg_sn">> => CustomMsgSn},
         <<"body">> => #{<<"flag">> => 2, <<"text">> => <<"second custom">>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
     {ok, Packet2} = gen_tcp:recv(Socket, 0, 1000),
     [Frame2 | _] = split_jt808_frames(Packet2),
     MsgSn2 = parse_msg_sn_from_frame(Frame2, PhoneBCD),
@@ -4544,7 +4544,7 @@ t_case_downlink_mixed_msg_sn(_) ->
         <<"header">> => #{<<"msg_id">> => MsgId},
         <<"body">> => #{<<"flag">> => 3, <<"text">> => <<"third auto">>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand3))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand3))),
     {ok, Packet3} = gen_tcp:recv(Socket, 0, 1000),
     [Frame3 | _] = split_jt808_frames(Packet3),
     MsgSn3 = parse_msg_sn_from_frame(Frame3, PhoneBCD),
@@ -4580,7 +4580,7 @@ t_case_downlink_msg_sn_conflict_different_msg_types(_) ->
         <<"header">> => #{<<"msg_id">> => MsgId1, <<"msg_sn">> => CustomMsgSn},
         <<"body">> => #{<<"flag">> => 1, <<"text">> => <<"text message">>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
     {ok, Packet1} = gen_tcp:recv(Socket, 0, 1000),
     [Frame1 | _] = split_jt808_frames(Packet1),
     MsgSn1 = parse_msg_sn_from_frame(Frame1, PhoneBCD),
@@ -4593,7 +4593,7 @@ t_case_downlink_msg_sn_conflict_different_msg_types(_) ->
         <<"header">> => #{<<"msg_id">> => MsgId2, <<"msg_sn">> => CustomMsgSn},
         <<"body">> => #{<<"command">> => 1, <<"param">> => <<>>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
     {ok, Packet2} = gen_tcp:recv(Socket, 0, 1000),
     [Frame2 | _] = split_jt808_frames(Packet2),
     MsgSn2 = parse_msg_sn_from_frame(Frame2, PhoneBCD),
@@ -4629,7 +4629,7 @@ t_case_downlink_msg_sn_conflict_different_msg_types(_) ->
         <<"header">> => #{<<"msg_id">> => MsgId3},
         <<"body">> => #{<<"flag">> => 2, <<"text">> => <<"after conflict test">>}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand3))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand3))),
     {ok, Packet3} = gen_tcp:recv(Socket, 0, 1000),
     [Frame3 | _] = split_jt808_frames(Packet3),
     MsgSn3 = parse_msg_sn_from_frame(Frame3, PhoneBCD),
@@ -4671,7 +4671,7 @@ t_case_downlink_text_encoding_utf8(_) ->
         <<"header">> => #{<<"msg_id">> => MsgId},
         <<"body">> => #{<<"flag">> => 8, <<"text">> => ChineseText}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% Receive the downlink message
     {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
@@ -4718,7 +4718,7 @@ t_case_downlink_text_encoding_gbk(_) ->
         <<"header">> => #{<<"msg_id">> => MsgId},
         <<"body">> => #{<<"flag">> => 8, <<"text">> => ChineseText}
     },
-    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    emqx:publish2(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% Receive the downlink message
     {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_cluster_link_routerepl_SUITE).
@@ -175,7 +175,7 @@ h_restart_connection_on_actor_init_timeout(
                 _ ->
                     %% Accept the handshake:
                     MsgResp = emqx_cluster_link_mqtt:mk_actor_init_ack(Actor, true, Msg),
-                    emqx_broker:publish(MsgResp),
+                    emqx_broker:publish2(MsgResp),
                     {stop, Msg}
             end;
         {route_updates, _ActorInfo, _Ops} ->
@@ -265,7 +265,7 @@ h_graceful_retry_on_actor_error(
         {actor_init, #{actor := Actor}, _Info} ->
             %% Accept the handshake:
             MsgResp = emqx_cluster_link_mqtt:mk_actor_init_ack(Actor, true, Msg),
-            emqx_broker:publish(MsgResp),
+            emqx_broker:publish2(MsgResp),
             {stop, Msg};
         {route_updates, _ActorInfo, _Ops} ->
             {stop, Msg};
@@ -497,7 +497,7 @@ h_consistency_under_unstable_connectivity(
             %% Accept the handshake:
             PidPrev = hookst_get(ActorInfo, HSt),
             MsgResp = emqx_cluster_link_mqtt:mk_actor_init_ack(Actor, not is_pid(PidPrev), Msg),
-            emqx_broker:publish(MsgResp),
+            emqx_broker:publish2(MsgResp),
             hookst_put(ActorInfo, self(), HSt),
             ?tp(test_actor_init_ack, ActorInfo),
             {stop, Msg};

@@ -387,7 +387,7 @@ t_consume(TCConfig) when is_list(TCConfig) ->
         get_config(source_config, TCConfig),
     Payload = <<"hello">>,
     ProduceFn = fun() ->
-        emqx:publish(emqx_message:make(RemoteTopic, Payload))
+        emqx:publish2(emqx_message:make(RemoteTopic, Payload))
     end,
     CheckFn = fun(Message) ->
         ?assertMatch(#{topic := RemoteTopic, payload := Payload}, Message)
@@ -473,7 +473,7 @@ t_mqtt_conn_bridge_ingress_shared_subscription(TCConfig) ->
 
     Ns = lists:seq(1, 10),
     emqx_utils:pforeach(
-        fun emqx:publish/1,
+        fun emqx:publish2/1,
         [emqx_message:make(RemoteTopic, <<>>) || _ <- Ns]
     ),
     lists:foreach(fun(_) -> ?assertReceive({publish, _}) end, Ns),
@@ -1098,7 +1098,7 @@ t_reconnect_with_session(TCConfig) when is_list(TCConfig) ->
     C = start_client(TCConfig),
     {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
     %% Sanity check: source is initially working fine.
-    emqx:publish(emqx_message:make(RemoteTopic, <<"1">>)),
+    emqx:publish2(emqx_message:make(RemoteTopic, <<"1">>)),
     ?assertReceivePublish(#{payload := #{<<"payload">> := <<"1">>}}),
 
     %% Cut the connection
@@ -1109,7 +1109,7 @@ t_reconnect_with_session(TCConfig) when is_list(TCConfig) ->
     lists:foreach(
         fun(N) ->
             Payload = integer_to_binary(N),
-            emqx:publish(emqx_message:make(<<"me">>, 1, RemoteTopic, Payload))
+            emqx:publish2(emqx_message:make(<<"me">>, 1, RemoteTopic, Payload))
         end,
         lists:seq(2, 4)
     ),

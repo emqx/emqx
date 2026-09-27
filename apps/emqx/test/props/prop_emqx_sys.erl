@@ -87,12 +87,12 @@ mock(Module) ->
 do_mock(emqx_broker) ->
     meck:expect(
         emqx_broker,
-        publish,
+        publish2,
         fun(Msg) -> {node(), <<"test">>, Msg} end
     ),
     meck:expect(
         emqx_broker,
-        safe_publish,
+        safe_publish2,
         fun(Msg) -> {node(), <<"test">>, Msg} end
     );
 do_mock(emqx_stats) ->

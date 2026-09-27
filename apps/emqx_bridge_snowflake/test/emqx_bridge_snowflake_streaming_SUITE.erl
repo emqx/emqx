@@ -487,7 +487,7 @@ mk_message({ClientId, Topic, Payload}) ->
     emqx_message:make(bin(ClientId), bin(Topic), Payload).
 
 publish_messages(MessageEvents) ->
-    lists:foreach(fun emqx:publish/1, MessageEvents).
+    lists:foreach(fun emqx:publish2/1, MessageEvents).
 
 bin2hex(Bin) ->
     emqx_rule_funcs:bin2hexstr(Bin).

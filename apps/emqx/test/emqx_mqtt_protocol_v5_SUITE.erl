@@ -547,7 +547,7 @@ t_puback_not_lost_on_disconnect(Config) ->
             fun(I) ->
                 Payload = integer_to_binary(I),
                 Message = emqx_message:make(<<"from">>, 1, <<"t/1">>, Payload),
-                emqx_broker:publish(Message)
+                emqx_broker:publish2(Message)
             end,
             lists:seq(1, 100)
         )
@@ -1141,7 +1141,7 @@ t_connack_client_id_unavailable(Config) ->
         true = ets:delete(?CHAN_CONN_TAB, DeadPid)
     end,
     %% Assert no will message is published for server_busy CONNACK reason
-    emqx_broker:publish(NotWillMsg),
+    emqx_broker:publish2(NotWillMsg),
     ?assertReceive({deliver, WillTopic, #message{payload = <<"NotWillMsg">>}}, 1000),
     ?assertNotReceive({deliver, WillTopic, #message{payload = <<"WillMsg">>}}, 100),
     emqx_broker:subscriber_down(self()),
@@ -1910,7 +1910,7 @@ t_deliver_packet_too_large(Config) ->
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(ClientPid, Topic, ?QOS_1),
     Payload = lists:duplicate(MaxSize, $X),
     Message = emqx_message:make(<<?MODULE_STRING>>, ?QOS_1, Topic, Payload),
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx_broker:publish(Message)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx_broker:publish2(Message)),
     ?assertNotReceive({publish, #{topic := Topic}}),
     %% Verify stats were updated:
     ?assertMatch(

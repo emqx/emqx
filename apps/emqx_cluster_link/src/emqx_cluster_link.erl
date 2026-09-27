@@ -250,11 +250,11 @@ actor_init(ClusterName, Actor, Incarnation) ->
     Created.
 
 actor_init_ack(Actor, IsNew, MsgIn) when is_boolean(IsNew) ->
-    emqx_broker:publish(
+    emqx_broker:publish2(
         emqx_cluster_link_mqtt:mk_actor_init_ack(Actor, _NeedBootstrap = IsNew, MsgIn)
     );
 actor_init_ack(Actor, {error, _} = Error, MsgIn) ->
-    emqx_broker:publish(
+    emqx_broker:publish2(
         emqx_cluster_link_mqtt:mk_actor_init_ack_error(Actor, Error, MsgIn)
     ).
 
