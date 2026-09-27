@@ -123,7 +123,7 @@ t_build_matches_frame(_Config) ->
     {ok, _} = emqx:update_config([mqtt, strict_mode], true),
     FrameOpts = emqx_frame_opts:frame_opts(default),
     ?assertMatch(#{strict_mode := true, expect_connect := true}, FrameOpts),
-    #{pre_connect := PreConnect, common := Common} = persistent_term:get(?KEY(default)),
+    #{connect := PreConnect, common := Common} = persistent_term:get(?KEY(default)),
     InitialParseState = emqx_frame:initial_parse_state(FrameOpts),
     ?assertEqual(
         #{
@@ -235,7 +235,7 @@ has `strict_mode = false`.
 """.
 t_pre_connect_strict_mode(Config) ->
     {ok, _} = emqx:update_config([mqtt, strict_mode], true),
-    #{pre_connect := PreConnect} = persistent_term:get(?KEY(default)),
+    #{connect := PreConnect} = persistent_term:get(?KEY(default)),
     #{initial_parse_state := PreParseState, serialize_opts := PreSerialize} = PreConnect,
     ?assertMatch(#{strict_mode := true}, PreSerialize),
     {Sock, Pid} = raw_connect(Config),
@@ -313,10 +313,10 @@ t_zone_config_change(_Config) ->
 t_zone_removal(_Config) ->
     ?assertEqual(undefined, persistent_term:get(?KEY(tmpzone), undefined)),
     {ok, _} = emqx:update_config([zones], #{<<"tmpzone">> => #{}}),
-    ?assertMatch(#{pre_connect := _, common := _}, persistent_term:get(?KEY(tmpzone))),
+    ?assertMatch(#{connect := _, common := _}, persistent_term:get(?KEY(tmpzone))),
     {ok, _} = emqx:update_config([zones], #{}),
     ?assertEqual(undefined, persistent_term:get(?KEY(tmpzone), undefined)),
-    ?assertMatch(#{pre_connect := _, common := _}, persistent_term:get(?KEY(default))).
+    ?assertMatch(#{connect := _, common := _}, persistent_term:get(?KEY(default))).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -426,7 +426,7 @@ held_shared(Client, ProtoVer) ->
 
 held_pre_connect(Pid) ->
     held(Pid, fun() ->
-        #{pre_connect := Shared} = persistent_term:get(?KEY(default)),
+        #{connect := Shared} = persistent_term:get(?KEY(default)),
         Shared
     end).
 

@@ -11,7 +11,7 @@ between connections.
 Each zone has one `persistent_term` entry under the key
 `{frame_opts, Zone}`. Its value holds two groups of terms:
 
-- `pre_connect`: the initial parse state and the initial serializer options
+- `connect`: the initial parse state and the initial serializer options
   that a connection uses until it receives CONNECT.
 - `common`: for each MQTT protocol version, the initial parse state and the
   serializer options that a connection uses after CONNECT.
@@ -56,7 +56,7 @@ locally from zone config.
 }.
 
 -type value() :: #{
-    pre_connect := pre_connect(),
+    connect := pre_connect(),
     common := #{emqx_types:proto_ver() => connected()}
 }.
 
@@ -81,7 +81,7 @@ the zone.
 -spec pre_connect(emqx_types:zone()) -> pre_connect().
 pre_connect(Zone) ->
     case persistent_term:get(?KEY(Zone), undefined) of
-        #{pre_connect := PreConnect} ->
+        #{connect := PreConnect} ->
             PreConnect;
         undefined ->
             build_pre_connect(frame_opts(Zone))
@@ -162,7 +162,7 @@ build(FrameOpts) ->
     PreConnect = build_pre_connect(FrameOpts),
     #{initial_parse_state := ParseState} = PreConnect,
     #{
-        pre_connect => PreConnect,
+        connect => PreConnect,
         common => maps:from_list([
             {ProtoVer, #{
                 initial_parse_state => emqx_frame:connect_parsed(ProtoVer, ParseState),
