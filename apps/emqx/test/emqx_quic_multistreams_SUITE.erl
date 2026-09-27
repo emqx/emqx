@@ -1565,21 +1565,21 @@ t_client_conn_bump_streams(Config) ->
     ok = quicer:setopt(Conn, settings, #{peer_unidi_stream_count => 20}).
 
 t_olp_true(Config) ->
-    meck:new(emqx_olp, [passthrough, no_history]),
-    ok = meck:expect(emqx_olp, is_overloaded, fun() -> true end),
+    meck:new(load_ctl, [passthrough, no_history]),
+    ok = meck:expect(load_ctl, is_overloaded, fun() -> true end),
     {ok, C} = emqtt:start_link([
         {proto_ver, v5},
         {connect_timeout, 5}
         | Config
     ]),
     {ok, _} = emqtt:quic_connect(C),
-    ok = meck:unload(emqx_olp).
+    ok = meck:unload(load_ctl).
 
 t_olp_reject(Config) ->
     erlang:process_flag(trap_exit, true),
     emqx_config:put_zone_conf(default, [overload_protection, enable], true),
-    meck:new(emqx_olp, [passthrough, no_history]),
-    ok = meck:expect(emqx_olp, is_overloaded, fun() -> true end),
+    meck:new(load_ctl, [passthrough, no_history]),
+    ok = meck:expect(load_ctl, is_overloaded, fun() -> true end),
     {ok, C} = emqtt:start_link([
         {proto_ver, v5},
         {connect_timeout, 5}
@@ -1594,7 +1594,7 @@ t_olp_reject(Config) ->
             }}},
         emqtt:quic_connect(C)
     ),
-    ok = meck:unload(emqx_olp),
+    ok = meck:unload(load_ctl),
     emqx_config:put_zone_conf(default, [overload_protection, enable], false).
 
 t_conn_resume(Config) ->
