@@ -375,8 +375,7 @@ t_publish_and_consume_lastvalue(Config) ->
     %% Verify the messages
     ?assertEqual(10, length(Msgs)).
 
-%% Verify that the stream extsub stops consuming DS messages once there is
-%% a critical amount of unacked messages
+-doc "Backpressure defers stream acknowledgements as data and resumes delivery after ACKs.".
 t_backpressure(_Config) ->
     %% Set max_inflight to 0 to avoid nacking messages by the client's session
     emqx_config:put([mqtt, max_inflight], 0),
@@ -402,7 +401,8 @@ t_backpressure(_Config) ->
     emqx_streams_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
 
     %% Consume the messages from the stream
-    CSub = emqx_streams_test_utils:emqtt_connect([{auto_ack, false}]),
+    ClientId = <<"stream-backpressure">>,
+    CSub = emqx_streams_test_utils:emqtt_connect([{clientid, ClientId}, {auto_ack, false}]),
     emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_backpressure">>, [
         {<<"stream-offset">>, <<"earliest">>}
     ]),
@@ -421,6 +421,9 @@ t_backpressure(_Config) ->
             [length(Msgs0), BufferSize + DSStreamMaxUnacked * 2]
         )
     ),
+
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    emqx_extsub_test_utils:assert_no_retained_functions(ChanPid),
 
     %% Acknowledge the messages
     ok = emqx_streams_test_utils:emqtt_ack(Msgs0),

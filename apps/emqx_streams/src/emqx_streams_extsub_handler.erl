@@ -55,9 +55,13 @@ DS streams are explicity called `DS streams' here.
     on_subscription_down/4
 ]).
 
+-type unblock_action() ::
+    {complete_stream, emqx_ds:sub_ref()}
+    | {suback, ds_sub_id(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()}.
+
 -record(stream_status_unblocked, {}).
 -record(stream_status_blocked, {
-    unblock_fns :: [fun((handler()) -> handler())]
+    unblock_actions :: [unblock_action()]
 }).
 
 -type stream_status() :: #stream_status_unblocked{} | #stream_status_blocked{}.
@@ -391,13 +395,11 @@ handle_ds_info(
                 #status_blocked{} ->
                     StreamState = block_stream(
                         StreamState0,
-                        fun(Hndlr) ->
-                            complete_subscribed_dsstream(Hndlr, DSSubId, SubRef, DSStream)
-                        end
+                        {complete_stream, SubRef}
                     ),
                     {ok, update_stream_state(Handler, DSSubId, StreamState)};
                 #status_unblocked{} ->
-                    {ok, complete_subscribed_dsstream(Handler, DSSubId, SubRef, DSStream)}
+                    {ok, complete_subscribed_dsstream(Handler, SubRef)}
             end;
         #ds_sub_reply{payload = {ok, _It, TTVs}, seqno = SeqNo, size = _Size} ->
             case Status of
@@ -410,10 +412,7 @@ handle_ds_info(
                     StreamState1 = advance_shard_last_time(StreamState0, Shard, LastTimestampUs),
                     StreamState = block_stream(
                         StreamState1,
-                        fun(Hndlr) ->
-                            ok = suback(Hndlr, DSSubId, SubHandle, SeqNo),
-                            Hndlr
-                        end
+                        {suback, DSSubId, SubHandle, SeqNo}
                     ),
                     {ok, update_stream_state(Handler, DSSubId, StreamState), Messages};
                 #status_unblocked{} ->
@@ -451,11 +450,11 @@ unblock_streams(#h{state = #state{ds_subs = DSSubs}} = Handler) ->
                 HandlerAcc;
             (
                 DSSubId,
-                #stream_state{status = #stream_status_blocked{unblock_fns = UnblockFns}} =
+                #stream_state{status = #stream_status_blocked{unblock_actions = UnblockActions}} =
                     StreamState0,
                 HandlerAcc0
             ) ->
-                HandlerAcc = unblock_stream(HandlerAcc0, UnblockFns),
+                HandlerAcc = unblock_stream(HandlerAcc0, UnblockActions),
                 StreamState = StreamState0#stream_state{status = #stream_status_unblocked{}},
                 update_stream_state(HandlerAcc, DSSubId, StreamState)
         end,
@@ -463,20 +462,19 @@ unblock_streams(#h{state = #state{ds_subs = DSSubs}} = Handler) ->
         DSSubs
     ).
 
-unblock_stream(Handler, UnblockFns) ->
-    lists:foldl(
-        fun(UnblockFn, HandlerAcc) ->
-            UnblockFn(HandlerAcc)
-        end,
-        Handler,
-        UnblockFns
-    ).
+unblock_stream(Handler, UnblockActions) ->
+    lists:foldl(fun apply_unblock_action/2, Handler, UnblockActions).
+
+-spec apply_unblock_action(unblock_action(), handler()) -> handler().
+apply_unblock_action({complete_stream, SubRef}, Handler) ->
+    complete_subscribed_dsstream(Handler, SubRef);
+apply_unblock_action({suback, DSSubId, SubHandle, SeqNo}, Handler) ->
+    ok = suback(Handler, DSSubId, SubHandle, SeqNo),
+    Handler.
 
 %% Managament of DS streams in Stream states.
 
-complete_subscribed_dsstream(
-    #h{state = State0, ds_client = DSClient0} = Handler, _DSSubId, SubRef, _DSStream
-) ->
+complete_subscribed_dsstream(#h{state = State0, ds_client = DSClient0} = Handler, SubRef) ->
     {DSClient, State} = emqx_ds_client:complete_stream(DSClient0, SubRef, State0),
     Handler#h{ds_client = DSClient, state = State}.
 
@@ -526,14 +524,14 @@ get_shard_start_time_us(#stream_state{progress = Progress, start_time_us = Start
             StartTimeUs
     end.
 
-block_stream(#stream_state{status = #stream_status_unblocked{}} = StreamState, UnblockFn) ->
-    StreamState#stream_state{status = #stream_status_blocked{unblock_fns = [UnblockFn]}};
+block_stream(#stream_state{status = #stream_status_unblocked{}} = StreamState, UnblockAction) ->
+    StreamState#stream_state{status = #stream_status_blocked{unblock_actions = [UnblockAction]}};
 block_stream(
-    #stream_state{status = #stream_status_blocked{unblock_fns = UnblockFns}} = StreamState,
-    UnblockFn
+    #stream_state{status = #stream_status_blocked{unblock_actions = UnblockActions}} = StreamState,
+    UnblockAction
 ) ->
     StreamState#stream_state{
-        status = #stream_status_blocked{unblock_fns = [UnblockFn | UnblockFns]}
+        status = #stream_status_blocked{unblock_actions = [UnblockAction | UnblockActions]}
     }.
 
 %% Subscribe parsers and validators
