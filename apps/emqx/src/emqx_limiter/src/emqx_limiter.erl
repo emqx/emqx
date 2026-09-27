@@ -183,23 +183,6 @@ any_finite_limit(Group, Names) ->
             )
     end.
 
-any_finite_limit(Group, Names) ->
-    case emqx_limiter_registry:find_group(Group) of
-        undefined ->
-            false;
-        {_Module, LimiterOptions} ->
-            lists:any(
-                fun(Name) ->
-                    case lists:keyfind(Name, 1, LimiterOptions) of
-                        {_, #{capacity := infinity}} -> false;
-                        {_, _} -> true;
-                        false -> false
-                    end
-                end,
-                Names
-            )
-    end.
-
 -spec create_esockd_limiter_client(zone(), listener_id()) -> emqx_esockd_limiter:create_options().
 create_esockd_limiter_client(ZoneName, ListenerId) ->
     LimiterClient = create_listener_limiter(ZoneName, ListenerId, max_conn),

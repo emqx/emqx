@@ -1396,7 +1396,12 @@ handle_sock_error(Reason, State) ->
 %% against the CONNECT limit. The regular `{active, N}' takes over on the
 %% passive notification.
 activate_socket_for_connect(
-    #state{parser = {frame, _}, transport = Transport, socket = Socket, zone = Zone} = State
+    #state{
+        parser = {frame, _},
+        transport = Transport,
+        socket = Socket,
+        conf = #conf{zone = Zone}
+    } = State
 ) ->
     {Limit, MaxSize} = connect_packet_size_limits(Zone),
     Active =
@@ -1414,7 +1419,10 @@ activate_socket_for_connect(State) ->
 %% CONNECT has been received: raise `packet_size' to `max_packet_size' so
 %% the packets that follow are not held to the CONNECT limit.
 raise_packet_size_limit(#state{
-    parser = {frame, _}, transport = Transport, socket = Socket, zone = Zone
+    parser = {frame, _},
+    transport = Transport,
+    socket = Socket,
+    conf = #conf{zone = Zone}
 }) ->
     case connect_packet_size_limits(Zone) of
         {Limit, MaxSize} when Limit < MaxSize ->
@@ -1432,7 +1440,7 @@ connect_packet_size_limits(Zone) ->
     Limit = min(MaxSize, emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size])),
     {Limit, MaxSize}.
 
-active_n(#state{gc_tracker = {ActiveN, _, _}}) ->
+active_n(#state{conf = #conf{active_n = ActiveN}}) ->
     ActiveN.
 
 -doc """
@@ -1448,7 +1456,9 @@ on the transport, and the client's bytes stay out of the exit reason.
 Only the error tag is kept: whether the refused frame really was a CONNECT is
 not knowable here, and neither is it in the stream parser's case.
 """.
-connect_too_large_error(Reason, #state{parser = {frame, _}, channel = Channel, zone = Zone}) ->
+connect_too_large_error(Reason, #state{
+    parser = {frame, _}, channel = Channel, conf = #conf{zone = Zone}
+}) ->
     case transport_frame_too_large(Reason) andalso emqx_channel:info(conn_state, Channel) of
         idle ->
             Limit = emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
