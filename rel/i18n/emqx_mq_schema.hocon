@@ -8,7 +8,9 @@ emqx_mq_schema {
     regular_queue_retention_period {
         desc: """~
             The maximum retention period of messages in regular Message Queues.
-            Individual Message Queues may set a shorter retention period."""
+            Individual Message Queues may set a shorter retention period.
+            Longer retention increases disk usage.
+            Consumed messages remain on disk until generation garbage collection reclaims them."""
         label: "Regular Queue Retention Period"
     }
 
