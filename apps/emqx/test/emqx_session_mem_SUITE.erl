@@ -92,31 +92,59 @@ t_session_init(_) ->
     ?assert(is_integer(emqx_session_mem:info(created_at, Session))).
 
 -doc """
-Checks that a new session holds a lazy mqueue: nothing queued, and the queue
-limits come from the zone config.
+Checks that a new session holds a `{lazy, Zone}` mqueue, and that it reports
+the same info and stats as a session with an empty queue built from the zone
+config.
 """.
 t_session_init_lazy_mqueue(_) ->
     Session = session(),
-    ?assertEqual(emqx_mqueue:init_lazy(default), emqx_session_mem:info(mqueue, Session)),
+    ?assertMatch(#session{mqueue = {lazy, default}}, Session),
+    MQ = emqx_mqueue:init(zone_mqueue_opts(default)),
+    Built = emqx_session_mem:set_field(mqueue, MQ, Session),
+    ?assertEqual(emqx_session_mem:stats(Built), emqx_session_mem:stats(Session)),
+    ?assertEqual(MQ, emqx_session_mem:info(mqueue, Session)),
     ?assertEqual(
-        emqx_config:get_zone_conf(default, [mqtt, max_mqueue_len]),
-        emqx_session_mem:info(mqueue_max, Session)
+        emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Built),
+        emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Session)
     ),
-    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session)),
-    ?assertEqual(0, emqx_session_mem:info(mqueue_dropped, Session)),
-    ?assertEqual(0, emqx_session_mem:info(total_payload_bytes, Session)),
-    ?assertMatch({[], _}, emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Session)).
+    ?assertEqual({ok, [], Session}, emqx_session_mem:dequeue(clientinfo(), Session)),
+    ?assertEqual([], maps:get(mqueue, emqx_session_mem:export(Session))).
 
 -doc """
-Checks that a session in a zone with `mqueue_priorities` dequeues in priority
-order.
+Checks that a lazy mqueue reports the zone's current `max_mqueue_len`, stays
+lazy when a QoS 0 message is not stored, and that the first stored message
+builds the queue from the zone config.
 """.
-t_session_mqueue_priorities(_) ->
-    Old = emqx_config:get_zone_conf(default, [mqtt, mqueue_priorities]),
-    ?on_exit(emqx_config:put_zone_conf(default, [mqtt, mqueue_priorities], Old)),
-    ok = emqx_config:put_zone_conf(
-        default, [mqtt, mqueue_priorities], #{<<"t/high">> => 10, <<"t/low">> => 1}
+t_lazy_mqueue_zone_config(_) ->
+    set_zone_conf(max_mqueue_len, 2),
+    set_zone_conf(mqueue_store_qos0, false),
+    Session0 = session(),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session0)),
+    QoS0 = emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"0">>),
+    Session1 = emqx_session_mem:enqueue(clientinfo(), [QoS0], Session0),
+    ?assertMatch(#session{mqueue = {lazy, default}}, Session1),
+    Msgs = [emqx_message:make(clientid, ?QOS_1, <<"t">>, P) || P <- [<<"1">>, <<"2">>, <<"3">>]],
+    Session2 = emqx_session_mem:enqueue(clientinfo(), Msgs, Session1),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session2)),
+    ?assertEqual(1, emqx_session_mem:info(mqueue_dropped, Session2)),
+    ?assertEqual(2, emqx_session_mem:info(total_payload_bytes, Session2)),
+    ?assertEqual(
+        [<<"2">>, <<"3">>],
+        [
+            emqx_message:payload(M)
+         || M <- emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session2))
+        ]
     ),
+    set_zone_conf(max_mqueue_len, infinity),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_max, session())),
+    %% A built queue keeps the options it was built with.
+    ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session2)).
+
+-doc """
+Checks that the first enqueue applies the zone's `mqueue_priorities`.
+""".
+t_lazy_mqueue_priorities(_) ->
+    set_zone_conf(mqueue_priorities, #{<<"t/high">> => 10, <<"t/low">> => 1}),
     Session0 = session(),
     Low = emqx_message:make(clientid, ?QOS_1, <<"t/low">>, <<"low">>),
     High = emqx_message:make(clientid, ?QOS_1, <<"t/high">>, <<"high">>),
@@ -963,7 +991,7 @@ t_export_import_empty_mqueue(_) ->
         clientinfo(#{zone => default, listener => 'tcp:default'}),
         Persistent
     ),
-    ?assertEqual(emqx_mqueue:init_lazy(default), emqx_session_mem:info(mqueue, Session)).
+    ?assertMatch(#session{mqueue = {lazy, default}}, Session).
 
 t_replay(_) ->
     Session = session(),
@@ -1021,6 +1049,19 @@ t_obtain_next_pkt_id(_) ->
 
 %% Helper functions
 %%--------------------------------------------------------------------
+
+zone_mqueue_opts(Zone) ->
+    #{
+        max_len => emqx_config:get_zone_conf(Zone, [mqtt, max_mqueue_len]),
+        store_qos0 => emqx_config:get_zone_conf(Zone, [mqtt, mqueue_store_qos0]),
+        priorities => emqx_config:get_zone_conf(Zone, [mqtt, mqueue_priorities]),
+        default_priority => emqx_config:get_zone_conf(Zone, [mqtt, mqueue_default_priority])
+    }.
+
+set_zone_conf(Key, Value) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, Key]),
+    ?on_exit(emqx_config:put_zone_conf(default, [mqtt, Key], Old)),
+    ok = emqx_config:put_zone_conf(default, [mqtt, Key], Value).
 
 mqueue() -> mqueue(#{}).
 mqueue(Opts) ->

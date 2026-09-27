@@ -204,7 +204,7 @@ create(
         is_persistent = EI > 0,
         subscriptions = #{},
         inflight = emqx_inflight:new(ReceiveMax),
-        mqueue = emqx_mqueue:init_lazy(Zone),
+        mqueue = {lazy, Zone},
         quota = Limiter,
         next_pkt_id = 1,
         awaiting_rel = #{},
@@ -229,6 +229,27 @@ create_limiter(#{listener := ListenerId} = ClientInfo, _Conf) ->
     %% tenant with delivery limits under a listener with none) must not
     %% depend on that gate.
     emqx_hooks:run_fold('session.limiter_adjustment', [ClientInfo], {lazy, ListenerId}).
+
+%% Returns the queue itself, or a new empty queue for a `{lazy, Zone}`
+%% placeholder.
+build_mqueue({lazy, Zone}) ->
+    emqx_mqueue:init(get_mqueue_conf(Zone));
+build_mqueue(Q) ->
+    Q.
+
+get_mqueue_conf(Zone) ->
+    #{
+        max_len => get_mqtt_conf(Zone, max_mqueue_len, 1000),
+        store_qos0 => get_mqtt_conf(Zone, mqueue_store_qos0),
+        priorities => get_mqtt_conf(Zone, mqueue_priorities),
+        default_priority => get_mqtt_conf(Zone, mqueue_default_priority)
+    }.
+
+get_mqtt_conf(Zone, Key) ->
+    emqx_config:get_zone_conf(Zone, [mqtt, Key]).
+
+get_mqtt_conf(Zone, Key, Default) ->
+    emqx_config:get_zone_conf(Zone, [mqtt, Key], Default).
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(_Session) ->
@@ -270,6 +291,8 @@ apply_conf(ClientInfo, Conf, Session = #session{}) ->
         await_rel_timeout = maps:get(await_rel_timeout, Conf)
     }.
 
+filter_remote_session(Session = #session{mqueue = {lazy, _}}) ->
+    Session;
 filter_remote_session(Session = #session{mqueue = Q}) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
     Session#session{mqueue = Q1}.
@@ -296,6 +319,8 @@ export(#session{
         created_at => CreatedAt
     }.
 
+export_mqueue({lazy, _}) ->
+    [];
 export_mqueue(MQueue) ->
     emqx_mqueue:to_list(MQueue).
 
@@ -341,7 +366,7 @@ import(ClientInfo, #{
     }.
 
 import_mqueue(ClientInfo = #{zone := Zone}, Messages) ->
-    enqueue_messages(ClientInfo, Messages, emqx_mqueue:init_lazy(Zone)).
+    enqueue_messages(ClientInfo, Messages, {lazy, Zone}).
 
 import_inflight(Inflight) ->
     lists:foldl(fun import_inflight_entry/2, emqx_inflight:new(0), Inflight).
@@ -392,17 +417,27 @@ info({inflight_msgs, PagerParams}, #session{inflight = Inflight}) ->
 info(retry_interval, #session{retry_interval = Interval}) ->
     Interval;
 info(mqueue, #session{mqueue = MQueue}) ->
-    MQueue;
+    build_mqueue(MQueue);
+info(mqueue_len, #session{mqueue = {lazy, _}}) ->
+    0;
 info(mqueue_len, #session{mqueue = MQueue}) ->
     emqx_mqueue:len(MQueue);
+info(mqueue_max, #session{mqueue = {lazy, Zone}}) ->
+    %% Only max_len matters here; skip building the priority table.
+    MaxLen = get_mqtt_conf(Zone, max_mqueue_len, 1000),
+    emqx_mqueue:max_len(emqx_mqueue:init(#{max_len => MaxLen, store_qos0 => false}));
 info(mqueue_max, #session{mqueue = MQueue}) ->
     emqx_mqueue:max_len(MQueue);
+info(total_payload_bytes, #session{inflight = Inflight, mqueue = {lazy, _}}) ->
+    inflight_payload_bytes(Inflight);
 info(total_payload_bytes, #session{inflight = Inflight, mqueue = MQueue}) ->
     inflight_payload_bytes(Inflight) + emqx_mqueue:payload_bytes(MQueue);
+info(mqueue_dropped, #session{mqueue = {lazy, _}}) ->
+    0;
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
 info({mqueue_msgs, PagerParams}, #session{mqueue = MQueue}) ->
-    emqx_mqueue:query(MQueue, PagerParams);
+    emqx_mqueue:query(build_mqueue(MQueue), PagerParams);
 info(next_pkt_id, #session{next_pkt_id = PacketId}) ->
     PacketId;
 info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
@@ -614,6 +649,8 @@ pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
 %% Dequeue Msgs
 %%--------------------------------------------------------------------
 
+dequeue(_ClientInfo, Session = #session{mqueue = {lazy, _}}) ->
+    {ok, [], Session};
 dequeue(
     ClientInfo,
     Session = #session{inflight = Inflight, mqueue = Q, quota = L, next_pkt_id = PktId}
@@ -677,6 +714,8 @@ finish_delivery(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Replies = lists:reverse(Acc),
     {OkEffect, Replies, Session}.
 
+retry_dequeue_effect(_Reason, {lazy, _}) ->
+    ok;
 retry_dequeue_effect(Reason, Q) ->
     case emqx_mqueue:is_empty(Q) of
         true -> ok;
@@ -803,7 +842,8 @@ enqueue_messages(ClientInfo, Msgs, Q) when is_list(Msgs) ->
         Msgs
     ).
 
-enqueue_msg(ClientInfo, Msg, Q) ->
+enqueue_msg(ClientInfo, Msg, Q0) ->
+    Q = build_mqueue(Q0),
     case emqx_mqueue:in(Msg, Q) of
         {undefined, NQ} ->
             NQ;
@@ -824,11 +864,11 @@ enqueue_msg(ClientInfo, Msg, Q) ->
                     logctx => #{queue => emqx_mqueue:info(Q)}
                 }}
             ),
-            Q
+            Q0
     end.
 
 enqueue_msg_qos0(ClientInfo, Msg, Q) ->
-    case emqx_mqueue:in(Msg, Q) of
+    case emqx_mqueue:in(Msg, build_mqueue(Q)) of
         {undefined, NQ} ->
             NQ;
         {Dropped, NQ} ->
@@ -1138,7 +1178,7 @@ redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
             false
     end,
     InflightList = lists:filtermap(F, AllInflights),
-    emqx_shared_sub:redispatch(InflightList ++ emqx_mqueue:to_list(Q)).
+    emqx_shared_sub:redispatch(InflightList ++ emqx_mqueue:to_list(build_mqueue(Q))).
 
 %%--------------------------------------------------------------------
 %% Next Packet Id
