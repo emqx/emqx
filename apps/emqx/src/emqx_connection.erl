@@ -155,13 +155,6 @@
 
 -define(ACTIVE_N, 10).
 
--define(INFO_KEYS, [
-    socktype,
-    peername,
-    sockname,
-    sockstate
-]).
-
 -define(SOCK_STATS, [
     recv_oct,
     recv_cnt,
@@ -231,10 +224,8 @@ start_link(Transport, Socket, Options) ->
 -spec info(pid() | state()) -> emqx_types:infos().
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
-info(State = #state{channel = Channel}) ->
-    ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(info(?INFO_KEYS, State)),
-    ChanInfo#{sockinfo => SockInfo}.
+info(#state{channel = Channel}) ->
+    emqx_channel:info(Channel).
 
 -spec info([atom()] | atom() | tuple(), pid() | state()) -> term().
 info(Keys, State) when is_list(Keys) ->
