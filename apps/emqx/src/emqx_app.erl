@@ -43,7 +43,10 @@ prep_stop(_State) ->
         emqx_listeners:stop().
 
 stop(_State) ->
-    ok.
+    %% The supervision tree is down by now. Anything it left in persistent_term
+    %% would survive until the next start, which matters most in tests, where
+    %% the application starts and stops many times in one VM.
+    ok = emqx_limiter_bucket_registry:delete_all_buckets().
 
 -define(CONFIG_LOADER, config_loader).
 -define(DEFAULT_LOADER, emqx).
