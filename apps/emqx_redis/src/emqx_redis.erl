@@ -135,8 +135,18 @@ on_start(InstId, Config0) ->
             {pool_size, PoolSize},
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
         ] ++ sentinel_auth(Config) ++ database(Config),
-
-    State = #{pool_name => InstId, type => Type},
+    HCTimeout =
+        case Config of
+            #{resource_opts := #{health_check_timeout := HCTimeout0}} ->
+                HCTimeout0;
+            #{} ->
+                emqx_resource_pool:health_check_timeout()
+        end,
+    State = #{
+        health_check_timeout => HCTimeout,
+        pool_name => InstId,
+        type => Type
+    },
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, type, Type),
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, pool_name, InstId),
     case validate_sentinel_connection(Type, InstId, Config, BaseOptions) of
@@ -347,11 +357,15 @@ on_get_status(_InstId, #{type := cluster, pool_name := PoolName}) ->
         false ->
             ?status_disconnected
     end;
-on_get_status(_InstId, #{pool_name := PoolName}) ->
+on_get_status(_InstId, ConnState) ->
+    #{
+        health_check_timeout := HCTimeout,
+        pool_name := PoolName
+    } = ConnState,
     HealthCheckResoults = emqx_resource_pool:health_check_workers(
         PoolName,
         fun ?MODULE:do_get_status/1,
-        emqx_resource_pool:health_check_timeout(),
+        HCTimeout,
         #{return_values => true}
     ),
     case HealthCheckResoults of

@@ -264,7 +264,7 @@ defmodule EMQXUmbrella.MixProject do
       ## without this, snabbkaffe is compiled with `-define(snk_kind, '$kind')`, which
       ## will basically make events in tests never match any predicates.
       github: "kafka4beam/snabbkaffe",
-      tag: "1.0.10",
+      tag: "1.0.11",
       override: true,
       system_env: emqx_app_system_env()
     }

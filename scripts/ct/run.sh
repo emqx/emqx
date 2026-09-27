@@ -196,9 +196,9 @@ for dep in ${CT_DEPS}; do
         rabbitmq)
             FILES+=( '.ci/docker-compose-file/docker-compose-rabbitmq.yaml' )
             ;;
-        minio)
-            FILES+=( '.ci/docker-compose-file/docker-compose-minio-tcp.yaml'
-                     '.ci/docker-compose-file/docker-compose-minio-tls.yaml' )
+        s3)
+            FILES+=( '.ci/docker-compose-file/docker-compose-seaweedfs-tcp.yaml'
+                     '.ci/docker-compose-file/docker-compose-seaweedfs-tls.yaml' )
             ;;
         gcp_emulator)
             FILES+=( '.ci/docker-compose-file/docker-compose-gcp-emulator.yaml' )

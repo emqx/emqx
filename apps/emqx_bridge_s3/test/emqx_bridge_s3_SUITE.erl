@@ -16,7 +16,7 @@
 -define(ACTION_TYPE, <<"s3">>).
 -define(CONNECTOR_TYPE, <<"s3">>).
 
--define(PROXY_NAME, "minio_tcp").
+-define(PROXY_NAME, "seaweedfs_tcp").
 -define(CONTENT_TYPE, "application/x-emqx-payload").
 
 %% CT Setup
