@@ -122,6 +122,20 @@ t_smoke(_Config) ->
     ?assertEqual(10, length(AllMessages)),
     ok.
 
+-doc "A stream handler retains no closures while waiting for the stream to appear.".
+t_handler_state_has_no_closures(_Config) ->
+    ClientId = <<"stream-handler-state">>,
+    C = emqx_streams_test_utils:emqtt_connect([{clientid, ClientId}]),
+    try
+        emqx_streams_test_utils:emqtt_sub(C, <<"$stream/handler-state">>, [
+            {<<"stream-offset">>, <<"earliest">>}
+        ]),
+        [ChanPid] = emqx_cm:lookup_channels(ClientId),
+        emqx_extsub_test_utils:assert_no_retained_functions(ChanPid)
+    after
+        emqtt:disconnect(C)
+    end.
+
 %% Verify reading stream messages from the earliest timestamp.
 t_read_earliest(Config) ->
     %% Create a stream
@@ -830,16 +844,16 @@ t_sub_restoration(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub1).
 
-%% Verify that only MQTT v5 clients are allowed to subscribe to streams
+-doc "MQTT 3.1 and 3.1.1 clients cannot subscribe to streams.".
 t_allow_only_mqtt_v5(_Config) ->
-    %% Connect a client and subscribe to a queue
-    {ok, CSub} = emqtt:start_link([{proto_ver, v3}]),
+    lists:foreach(fun reject_legacy_protocol/1, [v3, v4]).
+
+reject_legacy_protocol(ProtoVer) ->
+    {ok, CSub} = emqtt:start_link([{proto_ver, ProtoVer}]),
     {ok, _} = emqtt:connect(CSub),
 
-    %% Try to subscribe to a queue with MQTT v3
     {ok, _, [?RC_UNSPECIFIED_ERROR]} = emqtt:subscribe(CSub, {<<"$stream/some_stream/t/#">>, 1}),
 
-    %% Clean up
     ok = emqtt:disconnect(CSub).
 
 t_subscribe_unsubscribe_to_many_streams(_Config) ->

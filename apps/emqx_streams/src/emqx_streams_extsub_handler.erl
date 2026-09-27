@@ -99,8 +99,7 @@ DS streams are explicity called `DS streams' here.
 -type stream_state() :: #stream_state{}.
 
 -record(state, {
-    send_fn :: function(),
-    send_after_fn :: function(),
+    message_target :: emqx_extsub_handler:message_target(),
     %% Global status of the handler, indicating whether the extsub wants more messages or not
     status :: status(),
     %% Subscriptions to streams by their subscription ID in emqx_ds_client
@@ -655,10 +654,9 @@ suback(#h{state = #state{ds_subs = DSSubs}}, DSSubId, SubHandle, SeqNo) ->
             ok
     end.
 
-init_handler(undefined, #{send_after := SendAfterFn, send := SendFn} = _Ctx) ->
+init_handler(undefined, #{message_target := MessageTarget} = _Ctx) ->
     State = #state{
-        send_fn = SendFn,
-        send_after_fn = SendAfterFn,
+        message_target = MessageTarget,
         status = #status_unblocked{},
         ds_subs = #{},
         by_topic_filter = #{},
@@ -738,10 +736,10 @@ schedule_check_stream_status(#state{check_stream_status_tref = TRef} = State, 0)
     _ = emqx_utils:cancel_timer(TRef),
     State#state{check_stream_status_tref = undefined};
 schedule_check_stream_status(
-    #state{check_stream_status_tref = undefined, send_after_fn = SendAfterFn} = State, N
+    #state{check_stream_status_tref = undefined, message_target = MessageTarget} = State, N
 ) when N > 0 ->
     Interval = emqx_streams_config:check_stream_status_interval(),
-    TRef = SendAfterFn(Interval, #check_stream_status{}),
+    TRef = emqx_extsub_handler:send_after(Interval, MessageTarget, #check_stream_status{}),
     State#state{check_stream_status_tref = TRef};
 schedule_check_stream_status(State, _N) ->
     State.
@@ -865,8 +863,7 @@ validate_name(Name) ->
             ?err_unrec({invalid_name, #{name => Name, reason => Reason}})
     end.
 
-validate_protocol(#{conninfo_fn := ConnInfoFn, clientinfo := ClientInfo} = _SubscribeCtx) ->
-    ProtoVer = ConnInfoFn(proto_ver),
+validate_protocol(#{proto_ver := ProtoVer, clientinfo := ClientInfo} = _SubscribeCtx) ->
     Protocol = maps:get(protocol, ClientInfo, undefined),
     case {Protocol, ProtoVer} of
         {mqtt, ?MQTT_PROTO_V5} ->

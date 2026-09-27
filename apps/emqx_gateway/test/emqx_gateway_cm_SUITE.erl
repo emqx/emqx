@@ -315,6 +315,7 @@ t_kick_session(_) ->
     ?assertMatch({error, not_found}, emqx_gateway_http:kickout_client(?GWNAME, <<"i-dont-exist">>)),
     meck:unload(emqx_gateway_cm_registry).
 
+-doc "Session creation exposes connection information as data in the hook context.".
 t_session_created_hook_ctx(_) ->
     Self = self(),
     ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
@@ -342,9 +343,7 @@ t_session_created_hook_ctx(_) ->
         ),
         receive
             {session_created_hook, Ctx, _Args} ->
-                ConnInfoFn = maps:get(conn_info_fn, Ctx),
-                ?assertEqual(?CLIENTID, ConnInfoFn(clientid)),
-                ?assertEqual(<<"1.2">>, ConnInfoFn(proto_ver))
+                ?assertEqual(#{conninfo => conninfo()}, Ctx)
         after 100 ->
             ?assert(false, "waiting session.created hook context timeout")
         end

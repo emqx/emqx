@@ -776,7 +776,7 @@ run_hook(Name, Args) ->
 run_hook_with_conninfo(Name, ConnInfo, Args) ->
     ok = emqx_metrics:inc_global(Name),
     Ctx = #{
-        conn_info_fn => fun(Prop) -> maps:get(Prop, ConnInfo) end
+        conninfo => ConnInfo
     },
     emqx_hooks:run(Name, Ctx, Args).
 
