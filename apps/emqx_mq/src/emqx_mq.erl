@@ -385,8 +385,8 @@ make_sub_topic(SubscriberRef) ->
 set_mq_supported(Ctx, SessionInfo) ->
     ProtoVer =
         case Ctx of
-            #{conn_info_fn := ConnInfoFn} ->
-                ConnInfoFn(proto_ver);
+            #{conninfo := ConnInfo} ->
+                maps:get(proto_ver, ConnInfo, undefined);
             _ ->
                 undefined
         end,

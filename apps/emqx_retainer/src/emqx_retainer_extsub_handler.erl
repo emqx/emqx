@@ -41,8 +41,7 @@
 -define(HEADER_SUB_TOPIC, sub_topic).
 
 -record(h, {
-    send_fn,
-    send_after_fn,
+    message_target :: emqx_extsub_handler:message_target(),
     topic_filter,
     context,
     mod,
@@ -141,7 +140,7 @@ handle_save_subopts(Handler0, _Context, _SubOpts) ->
 %%------------------------------------------------------------------------------
 
 subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
-    #{send_after := SendAfterFn, send := SendFn} = SubscribeCtx,
+    #{message_target := MessageTarget} = SubscribeCtx,
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     State = emqx_retainer:backend_state(Context),
@@ -154,8 +153,7 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
                 0
         end,
     Handler0 = #h{
-        send_fn = SendFn,
-        send_after_fn = SendAfterFn,
+        message_target = MessageTarget,
         topic_filter = TopicFilter,
         context = Context,
         mod = Mod,
@@ -351,15 +349,15 @@ do_fetch(#h{cursor = ?cursor(Cursor0)} = Handler, N) ->
 enqueue_nudge(#h{nudge_enqueued = true} = Handler0, _N, _Delay) ->
     Handler0;
 enqueue_nudge(#h{} = Handler0, N, now) ->
-    #h{send_fn = SendFn} = Handler0,
-    SendFn(#next{n = N}),
+    #h{message_target = MessageTarget} = Handler0,
+    emqx_extsub_handler:send(MessageTarget, #next{n = N}),
     Handler0#h{nudge_enqueued = true};
 enqueue_nudge(#h{} = Handler0, N, delay) ->
-    #h{send_after_fn = SendAfterFn, times_throttled = TimesThrottled} = Handler0,
+    #h{message_target = MessageTarget, times_throttled = TimesThrottled} = Handler0,
     Delay = min(
         ?MAX_RATE_LIMIT_DELAY_MS, max(?MIN_RATE_LIMIT_DELAY_MS, (1 bsl TimesThrottled) * 100)
     ),
-    SendAfterFn(Delay, #next{n = N}),
+    emqx_extsub_handler:send_after(Delay, MessageTarget, #next{n = N}),
     Handler0#h{nudge_enqueued = true}.
 
 batch_read_num() ->
