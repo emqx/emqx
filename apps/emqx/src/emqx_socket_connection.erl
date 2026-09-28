@@ -67,7 +67,7 @@
 ]).
 
 %% Internal callback
--export([wakeup_from_hib/2, recvloop/2, get_state/1]).
+-export([wakeup_from_hib/2, recvloop/2, drain_loop/2, get_state/1]).
 
 %% Export for CT
 -export([set_field/3]).
@@ -463,7 +463,7 @@ handle_recv_drain({system, From, Request}, Parent, State) ->
 handle_recv_drain(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
-            drain_loop(Parent, NewState);
+            ?MODULE:drain_loop(Parent, NewState);
         {stop, Reason, NewSate} ->
             terminate(Reason, NewSate)
     end.
