@@ -58,12 +58,34 @@ node tries to close the epoch using `update_epoch`.
 
 If this operation succeeds, the remote is considered down.
 If it fails it may be because the local node itself is isolated.
+
+### Error handling
+
+A big problem with handling errors in the durable timer callback modules stems from the combination of their inherent properties:
+
+1. Timers are durable,
+   so an erroneous timer will always stay in the DB,
+   surviving all restarts.
+
+2. They are executed in sequence within the shard.
+   An erroneous timer may block execution of the rest of the timers of the same type in the shard.
+
+To work around that,
+the default behavior when facing an exception in the business logic is to log it and *ignore* it,
+and continue execution of the other timers.
+This approach is deemed the least evil.
+
+If the CBM is certain that the error it faces will eventually recover,
+then it can use `emqx_durable_timer:retry(Reason)` API,
+which will throw a special type of error causing `emqx_durable_timer` workers to retry the callback after a while.
+However, due to the reasons stated above,
+this should be used with extreme care.
 """.
 
 -behaviour(gen_statem).
 
 %% API:
--export([register_type/1, dead_hand/4, apply_after/4, cancel/2]).
+-export([register_type/1, dead_hand/4, apply_after/4, cancel/2, retry/1]).
 
 -ifdef(TEST).
 -export([drop_tables/0]).
@@ -93,7 +115,8 @@ If it fails it may be because the local node itself is isolated.
     key/0,
     value/0,
     epoch/0,
-    delay/0
+    delay/0,
+    posix_time_ms/0
 ]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -103,6 +126,8 @@ If it fails it may be because the local node itself is isolated.
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type posix_time_ms() :: integer().
 
 -define(APP, emqx_durable_timer).
 -define(epoch_optvar, {?MODULE, epoch}).
@@ -130,6 +155,7 @@ If it fails it may be because the local node itself is isolated.
 -doc "Payload of the timer".
 -type value() :: binary().
 
+-doc "Delay, in milliseconds".
 -type delay() :: non_neg_integer().
 
 -type epoch() :: binary().
@@ -206,6 +232,10 @@ cancel(Type, Key) when Type >= 0, Type =< ?max_type, is_binary(Key) ->
     _Epoch = epoch(),
     emqx_durable_timer_dl:cancel(Type, Key).
 
+-spec retry(term()) -> no_return().
+retry(Reason) ->
+    throw(#emqx_durable_timer_retry{reason = Reason}).
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
@@ -262,7 +292,10 @@ terminate(_Reason, _State, _D) ->
 %% Internal exports
 %%================================================================================
 
--spec now_ms() -> integer().
+-doc """
+Return the monotonic approximation of POSIX epoch time in ms.
+""".
+-spec now_ms() -> posix_time_ms().
 now_ms() ->
     erlang:monotonic_time(millisecond) + erlang:time_offset(millisecond).
 
