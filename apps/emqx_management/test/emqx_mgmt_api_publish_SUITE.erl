@@ -159,6 +159,25 @@ mark_message_persisted(Message, TestPid) ->
     TestPid ! {persisted_message_id, emqx_message:id(Message)},
     {ok, emqx_message:set_header(message_persisted, true, Message)}.
 
+-doc "A message a publish hook marks as consumed is published with HTTP 200 without subscribers.".
+t_message_consumed({init, Config}) ->
+    ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_consumed, []}, ?HP_LOWEST),
+    Config;
+t_message_consumed({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, mark_message_consumed});
+t_message_consumed(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["publish"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Body = #{topic => <<"t_message_consumed">>, payload => <<"hello">>, qos => 1},
+    {ok, {Status, _Headers, Response}} = emqx_mgmt_api_test_util:request_api(
+        post, Path, "", Auth, Body, #{return_all => true}
+    ),
+    ?assertMatch({_, 200, _}, Status),
+    ?assertMatch(#{<<"id">> := _}, decode_json(Response)).
+
+mark_message_consumed(Message) ->
+    {ok, emqx_message:set_consumed(Message)}.
+
 t_publish_no_subscriber({init, Config}) ->
     Config;
 t_publish_no_subscriber({'end', _Config}) ->
