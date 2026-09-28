@@ -583,10 +583,11 @@ put_st(#st{} = St) ->
     _ = erlang:put(?ST_PD_KEY, St),
     ok.
 
-save_channel_info(#{conn_info_fn := ConnInfoFn} = _Ctx, SessionInfo) ->
+%% Channel-lifetime metadata contains values, never callbacks.
+save_channel_info(#{conninfo := ConnInfo} = _Ctx, SessionInfo) ->
     CanReceiveAcks = maps:get(impl, SessionInfo, undefined) =:= emqx_session_mem,
     _ = erlang:put(?CHANNEL_INFO_PD_KEY, #{
-        can_receive_acks => CanReceiveAcks, conninfo_fn => ConnInfoFn
+        can_receive_acks => CanReceiveAcks, proto_ver => maps:get(proto_ver, ConnInfo, undefined)
     }),
     ok.
 
