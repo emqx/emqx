@@ -14,6 +14,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/src/emqx_tracepoints.hrl").
+-include("../../emqx_extsub/src/emqx_extsub_internal.hrl").
 
 all() ->
     [
@@ -1431,20 +1432,13 @@ t_resume_and_resubscribe(_TCConfig) ->
     ),
     ok.
 
+-doc "Non-MQTT subscriptions do not start a retained-message handler.".
 t_extsub_ignore_non_mqtt(_Config) ->
-    SendTag = make_ref(),
-    SendAfterTag = make_ref(),
+    Ref = make_ref(),
     SubCtx = #{
         clientinfo => #{protocol => lwm2m},
         subopts => #{rh => 0},
-        send => fun(_Info) ->
-            self() ! {unexpected_send, SendTag},
-            ok
-        end,
-        send_after => fun(_Delay, _Info) ->
-            self() ! {unexpected_send_after, SendAfterTag},
-            ok
-        end
+        message_target => emqx_extsub_handler:message_target(Ref)
     },
     ?assertEqual(
         ignore,
@@ -1453,10 +1447,8 @@ t_extsub_ignore_non_mqtt(_Config) ->
         )
     ),
     receive
-        {unexpected_send, SendTag} ->
-            ?assert(false, unexpected_send);
-        {unexpected_send_after, SendAfterTag} ->
-            ?assert(false, unexpected_send_after)
+        #info_to_extsub{handler_ref = Ref} ->
+            ?assert(false, unexpected_handler_message)
     after 100 ->
         ok
     end.
