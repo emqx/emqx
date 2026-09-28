@@ -99,11 +99,11 @@ t_channel_info_created_and_resumed(Config) ->
         [{v4, ?MQTT_PROTO_V4}, {v5, ?MQTT_PROTO_V5}]
     ).
 
--doc "A delivery without cached channel information does not crash the caller.".
-t_missing_channel_info(_Config) ->
+-doc "Delivery requires channel metadata initialized by a session lifecycle hook.".
+t_channel_info_required(_Config) ->
     ?assertEqual(undefined, erlang:get(extsub_channel_info)),
     Msg = emqx_message:make(<<"test">>, ?QOS_1, <<"t">>, <<"payload">>),
-    ?assertEqual({ok, Msg}, emqx_extsub:on_message_delivered(#{}, Msg)),
+    ?assertError({badmatch, undefined}, emqx_extsub:on_message_delivered(#{}, Msg)),
     ?assertEqual(undefined, erlang:get(extsub_channel_info)).
 
 -doc "Handler messages keep their destination when sent from another process.".

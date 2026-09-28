@@ -592,10 +592,7 @@ save_channel_info(#{conninfo := ConnInfo} = _Ctx, SessionInfo) ->
     ok.
 
 get_channel_info() ->
-    case erlang:get(?CHANNEL_INFO_PD_KEY) of
-        undefined -> #{can_receive_acks => false, proto_ver => undefined};
-        Info -> Info
-    end.
+    #{} = erlang:get(?CHANNEL_INFO_PD_KEY).
 
 can_receive_acks() ->
     #{can_receive_acks := CanReceiveAcks} = get_channel_info(),
