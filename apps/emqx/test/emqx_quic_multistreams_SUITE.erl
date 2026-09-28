@@ -138,7 +138,8 @@ groups() ->
             t_client_probe_conn,
             t_data_stream_race_ctrl_stream,
             t_keep_alive,
-            t_keep_alive_idle_ctrl_stream
+            t_keep_alive_idle_ctrl_stream,
+            t_subscriptions_by_clientid_data_stream
         ]}
     ].
 
@@ -235,6 +236,28 @@ t_multi_streams_sub(Config) ->
         ct:fail("not received")
     end,
     ok = emqtt:disconnect(C).
+
+-doc """
+A QUIC client that subscribes on a data stream is found by clientid. The
+subscriber is the data stream process, not the channel registered in `emqx_cm`.
+""".
+t_subscriptions_by_clientid_data_stream(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"t/data_stream/subscriptions">>,
+    {ok, C} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+    try
+        {ok, _, [0]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [{Topic, [{qos, 0}]}]),
+        [ChanPid] = emqx_cm:lookup_channels(local, ClientId),
+        ?assertEqual([], emqx_broker:subscriptions(ChanPid)),
+        ?retry(
+            100,
+            20,
+            ?assertMatch([{Topic, _}], emqx_broker:subopts_by_clientid(ClientId))
+        )
+    after
+        ok = emqtt:disconnect(C)
+    end.
 
 t_multi_streams_pub_5x100(Config) ->
     PubQos = ?config(pub_qos, Config),
