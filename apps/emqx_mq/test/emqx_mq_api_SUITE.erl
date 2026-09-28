@@ -254,6 +254,34 @@ t_pagination(_Config) ->
         api_get([message_queues, queues, "?limit=6&cursor=" ++ urlencode(base64:encode(<<"{{{">>))])
     ).
 
+%% Verify retention accepts finite durations beyond the timer limit and preserves milliseconds.
+t_retention_period(_Config) ->
+    Field = <<"regular_queue_retention_period">>,
+    lists:foreach(
+        fun({Raw, Milliseconds}) ->
+            ?assertMatch({ok, 204}, api_put([message_queues, config], #{Field => Raw})),
+            ?assertMatch({ok, 200, #{Field := Raw}}, api_get([message_queues, config])),
+            ?assertEqual(Milliseconds, emqx_config:get([mq, regular_queue_retention_period]))
+        end,
+        [
+            {<<"0ms">>, 0},
+            {<<"7d">>, 604800000},
+            {<<"90d">>, 7776000000},
+            {<<"365d">>, 31536000000},
+            {7776000000, 7776000000}
+        ]
+    ),
+    lists:foreach(
+        fun(Raw) ->
+            ?assertMatch({ok, 400, _}, api_put([message_queues, config], #{Field => Raw}))
+        end,
+        [<<"-1ms">>, -1, <<"infinity">>]
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([message_queues, config], #{<<"gc_interval">> => <<"90d">>})
+    ).
+
 %% Verify MQ subsystem (re)configuration via API.
 t_config(_Config) ->
     ?assertMatch(
