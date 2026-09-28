@@ -18,23 +18,160 @@ The flag defaults to `true`: only the managed boot sequence
 once all applications (including plugins) are started.  Contexts that
 do not boot through `emqx_machine` (test suites) are therefore always
 ready.
+
+An application can keep the flag cleared past that point by
+registering a check from its `start/2` callback with
+`register_check/2`.  `mark_ready/0` starts a process that runs the
+registered checks in registration order and sets the flag once they
+all return `true`, running them again every second until they do.
+Setting the flag drops the checks, and so does `mark_not_ready/0`, so
+applications register them again when they restart.  `is_ready/0`
+never runs a check.
+
+A check that raises, or returns anything other than a boolean, counts
+as not passing and is reported through a throttled
+`readiness_check_failed` log.
 """.
 
+-include("logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([is_ready/0, mark_ready/0, mark_not_ready/0]).
+-export([register_check/2]).
+
+%% Internal exports
+-export([start_poller/0, poll/0]).
 
 -define(KEY, {?MODULE, ready}).
+-define(CHECKS, {?MODULE, checks}).
+%% Registered name of the process that runs the checks until they pass.
+-define(POLLER, ?MODULE).
+-define(POLL_INTERVAL, 1_000).
+
+-type check_name() :: atom() | binary() | {atom(), term()}.
+-type check() :: fun(() -> boolean()).
+
+-export_type([check_name/0, check/0]).
 
 -doc "Return `true` once this node has finished booting.".
 -spec is_ready() -> boolean().
 is_ready() ->
     persistent_term:get(?KEY, true).
 
--doc "Mark the node as fully booted.".
+-doc """
+Mark the node as fully booted.  Starts a process that runs the
+registered checks and sets the flag once they all return `true`,
+running them again every second until they do.  Returns without
+waiting for the checks, so `is_ready/0` can return `false` right after.
+""".
 -spec mark_ready() -> ok.
 mark_ready() ->
-    persistent_term:put(?KEY, true).
+    ensure_poller().
 
--doc "Mark the node as booting. Connection processes refuse to serve.".
+-doc """
+Mark the node as booting and drop all registered checks.  Connection
+processes refuse to serve.
+""".
 -spec mark_not_ready() -> ok.
 mark_not_ready() ->
-    persistent_term:put(?KEY, false).
+    ok = stop_poller(),
+    persistent_term:put(?KEY, false),
+    persistent_term:put(?CHECKS, []).
+
+-doc """
+Register a readiness check under `Name`, replacing any check already
+registered under it.  The flag is not set while the check returns
+anything but `true`.  Registration is a read-modify-write, so calls
+must not run concurrently; the boot sequence starts applications one
+at a time.
+""".
+-spec register_check(check_name(), check()) -> ok.
+register_check(Name, Check) when is_function(Check, 0) ->
+    persistent_term:put(?CHECKS, lists:keystore(Name, 1, checks(), {Name, Check})).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+checks() ->
+    persistent_term:get(?CHECKS, []).
+
+set_ready() ->
+    persistent_term:put(?KEY, true),
+    persistent_term:put(?CHECKS, []).
+
+%% The name is registered before the first run of the checks, so
+%% `mark_not_ready/0' can find and kill the poller before clearing the
+%% flag.
+ensure_poller() ->
+    case whereis(?POLLER) of
+        undefined ->
+            Pid = proc_lib:spawn(fun ?MODULE:start_poller/0),
+            true = register(?POLLER, Pid),
+            Pid ! start,
+            ok;
+        _Pid ->
+            ok
+    end.
+
+stop_poller() ->
+    case whereis(?POLLER) of
+        undefined ->
+            ok;
+        Pid ->
+            MRef = erlang:monitor(process, Pid),
+            exit(Pid, kill),
+            receive
+                {'DOWN', MRef, process, Pid, _} -> ok
+            end
+    end.
+
+%% Waits for the name to be registered: a first run that passes would
+%% otherwise exit before `register/2'.
+start_poller() ->
+    receive
+        start -> ?MODULE:poll()
+    end.
+
+poll() ->
+    case run_checks(checks()) of
+        ok ->
+            ok = set_ready(),
+            ?tp(debug, readiness_checks_passed, #{});
+        {pending, Name} ->
+            ?tp(debug, readiness_check_pending, #{check => Name}),
+            timer:sleep(?POLL_INTERVAL),
+            ?MODULE:poll()
+    end.
+
+run_checks([]) ->
+    ok;
+run_checks([{Name, _} = Check | Rest]) ->
+    case run_check(Check) of
+        true -> run_checks(Rest);
+        false -> {pending, Name}
+    end.
+
+run_check({Name, Check}) ->
+    try Check() of
+        true ->
+            true;
+        false ->
+            false;
+        Other ->
+            log_failed(Name, #{reason => unexpected_return, returned => Other}),
+            false
+    catch
+        Class:Reason:Stacktrace ->
+            log_failed(Name, #{
+                reason => Class, details => Reason, stacktrace => Stacktrace
+            }),
+            false
+    end.
+
+log_failed(Name, Details) ->
+    ?SLOG_THROTTLE(
+        error,
+        Details#{msg => readiness_check_failed, check => Name},
+        #{}
+    ).

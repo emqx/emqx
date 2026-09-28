@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(TCP_PORT, 20831).
 -define(WS_PORT, 20832).
@@ -56,10 +57,15 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_Case, Config) ->
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ok = emqx_node_readiness:mark_ready().
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = mark_ready_and_wait(),
+    snabbkaffe:stop(),
+    _ = [persistent_term:erase(K) || {{?MODULE, _} = K, _} <- persistent_term:get()],
+    ok.
 
 -doc "The readiness flag defaults to true and toggles with mark_not_ready/mark_ready.".
 t_readiness_flag(_Config) ->
@@ -67,7 +73,7 @@ t_readiness_flag(_Config) ->
     ?assert(emqx_node_readiness:is_ready()),
     ok = emqx_node_readiness:mark_not_ready(),
     ?assertNot(emqx_node_readiness:is_ready()),
-    ok = emqx_node_readiness:mark_ready(),
+    ok = mark_ready_and_wait(),
     ?assert(emqx_node_readiness:is_ready()).
 
 -doc """
@@ -88,7 +94,7 @@ t_gate_tcp_connection(_Config) ->
             )
         )
     ),
-    ok = emqx_node_readiness:mark_ready(),
+    ok = mark_ready_and_wait(),
     ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})).
 
 -doc """
@@ -110,14 +116,14 @@ t_gate_tcp_socket_backend_connection(_Config) ->
             )
         )
     ),
-    ok = emqx_node_readiness:mark_ready(),
+    ok = mark_ready_and_wait(),
     ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => ?TCP_SOCKET_PORT})).
 
 -doc "A WebSocket MQTT connection is refused while the node is not ready, accepted once ready.".
 t_gate_ws_connection(_Config) ->
     ok = emqx_node_readiness:mark_not_ready(),
     ?assertMatch({error, _}, try_connect(fun emqtt:ws_connect/1, #{port => ?WS_PORT})),
-    ok = emqx_node_readiness:mark_ready(),
+    ok = mark_ready_and_wait(),
     ?assertEqual(ok, try_connect(fun emqtt:ws_connect/1, #{port => ?WS_PORT})).
 
 -doc "A QUIC MQTT connection is refused while the node is not ready, accepted once ready.".
@@ -129,7 +135,7 @@ t_gate_quic_connection(_Config) ->
     },
     ok = emqx_node_readiness:mark_not_ready(),
     ?assertMatch({error, _}, try_connect(fun emqtt:quic_connect/1, QuicOpts)),
-    ok = emqx_node_readiness:mark_ready(),
+    ok = mark_ready_and_wait(),
     ?assertEqual(ok, try_connect(fun emqtt:quic_connect/1, QuicOpts)).
 
 -doc "A cluster join is refused on both the joining and the target node while not ready.".
@@ -140,8 +146,158 @@ t_gate_cluster_join(_Config) ->
         {error, "This node has not fully booted" ++ _},
         emqx_cluster:join('nosuchnode@127.0.0.1')
     ),
-    ok = emqx_node_readiness:mark_ready(),
+    ok = mark_ready_and_wait(),
     ?assertEqual(ok, emqx_cluster:can_i_join(node())).
+
+-doc """
+The flag is not set while a registered check does not return true, and is
+set once the check passes.  The check does not run after that.
+""".
+t_registered_check_holds_gate(_Config) ->
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = set_check(actions, false),
+    ok = mark_ready_and_wait(actions),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = set_answer(actions, true),
+    ?retry(100, 30, ?assert(emqx_node_readiness:is_ready())),
+    ok = set_answer(actions, false),
+    ?assert(emqx_node_readiness:is_ready()).
+
+-doc "The first run of the checks sets the flag when every registered check passes.".
+t_passing_check_sets_flag_at_once(_Config) ->
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = set_check(actions, true),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = mark_ready_and_wait(),
+    ?assert(emqx_node_readiness:is_ready()),
+    ?assertEqual([], ?of_kind(readiness_check_pending, snabbkaffe:collect_trace())).
+
+-doc "Registering the same name twice replaces the check rather than adding one.".
+t_register_check_replaces(_Config) ->
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = set_check(actions, false),
+    ok = emqx_node_readiness:register_check(actions, fun() -> true end),
+    ok = mark_ready_and_wait(),
+    ?assert(emqx_node_readiness:is_ready()).
+
+-doc "Checks run in registration order and stop at the first one that does not pass.".
+t_checks_run_in_registration_order(_Config) ->
+    Self = self(),
+    Check = fun(Name, Answer) ->
+        fun() ->
+            Self ! {ran, Name},
+            Answer
+        end
+    end,
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = emqx_node_readiness:register_check(c, Check(c, true)),
+    ok = emqx_node_readiness:register_check(a, Check(a, true)),
+    ok = emqx_node_readiness:register_check(b, Check(b, false)),
+    ok = emqx_node_readiness:register_check(d, Check(d, true)),
+    ok = mark_ready_and_wait(b),
+    %% The poller's messages arrive before its 'DOWN', which
+    %% `mark_not_ready/0' waits for.
+    ok = emqx_node_readiness:mark_not_ready(),
+    ?assertEqual([{ran, c}, {ran, a}, {ran, b}], ?drainMailbox()).
+
+-doc """
+`mark_not_ready/0` stops the process that runs pending checks and drops the
+checks, so the first run after the next `mark_ready/0` sets the flag.
+""".
+t_mark_not_ready_drops_checks(_Config) ->
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = set_check(actions, false),
+    ok = mark_ready_and_wait(actions),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    MRef = erlang:monitor(process, whereis(emqx_node_readiness)),
+    ok = emqx_node_readiness:mark_not_ready(),
+    ?assertReceive({'DOWN', MRef, process, _, _}),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = mark_ready_and_wait(),
+    ?assert(emqx_node_readiness:is_ready()).
+
+-doc """
+`mark_ready/0` returns while the first run of the checks is still in
+progress, and `mark_not_ready/0` called during that run (as on SIGTERM
+during boot) stops it, so the flag stays cleared.
+""".
+t_mark_not_ready_during_first_check(_Config) ->
+    Self = self(),
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = emqx_node_readiness:register_check(slow, fun() ->
+        Self ! {checking, self()},
+        receive
+            pass -> true
+        end
+    end),
+    ok = emqx_node_readiness:mark_ready(),
+    {checking, Poller} = ?assertReceive({checking, _}),
+    MRef = erlang:monitor(process, Poller),
+    ok = emqx_node_readiness:mark_not_ready(),
+    ?assertReceive({'DOWN', MRef, process, Poller, killed}),
+    ?assertNot(emqx_node_readiness:is_ready()).
+
+-doc "A check that raises, or returns a non-boolean, does not pass.".
+t_broken_check_holds_gate(_Config) ->
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = emqx_node_readiness:register_check(raising, fun() -> error(badcheck) end),
+    ok = mark_ready_and_wait(raising),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = emqx_node_readiness:register_check(bad_return, fun() -> maybe_ready end),
+    ok = mark_ready_and_wait(bad_return),
+    ?assertNot(emqx_node_readiness:is_ready()).
+
+-doc "A TCP MQTT connection is refused until every registered check has passed.".
+t_check_gates_tcp_connection(_Config) ->
+    ok = emqx_node_readiness:mark_not_ready(),
+    ok = set_check(actions, false),
+    ok = mark_ready_and_wait(actions),
+    ?assertMatch({error, _}, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})),
+    Bind = emqx_config:get([listeners, tcp, default, bind]),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {node_not_ready, _},
+            lists:keyfind(
+                node_not_ready, 1, emqx_listeners:shutdown_count(<<"tcp:default">>, Bind)
+            )
+        )
+    ),
+    ok = set_answer(actions, true),
+    ?retry(100, 30, ?assert(emqx_node_readiness:is_ready())),
+    ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})).
+
+%% Call `mark_ready/0' and wait until the checks pass.
+mark_ready_and_wait() ->
+    {ok, {ok, _}} = ?wait_async_action(
+        emqx_node_readiness:mark_ready(),
+        #{?snk_kind := readiness_checks_passed},
+        5_000
+    ),
+    ok.
+
+%% Call `mark_ready/0' and wait until its first run of the checks stops
+%% at the check registered under `Name'.
+mark_ready_and_wait(Name) ->
+    {ok, {ok, _}} = ?wait_async_action(
+        emqx_node_readiness:mark_ready(),
+        #{?snk_kind := readiness_check_pending, check := Name},
+        5_000
+    ),
+    ok.
+
+%% Register a check under `Name` that returns the answer kept in a
+%% persistent_term, and set that answer.
+set_check(Name, Answer) ->
+    ok = set_answer(Name, Answer),
+    emqx_node_readiness:register_check(Name, fun() ->
+        persistent_term:get({?MODULE, Name})
+    end).
+
+set_answer(Name, Answer) ->
+    persistent_term:put({?MODULE, Name}, Answer).
 
 try_connect(ConnFun, Opts0) ->
     Opts = maps:merge(#{host => "127.0.0.1", connect_timeout => 5}, Opts0),
