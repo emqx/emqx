@@ -313,9 +313,8 @@ t_delete_mfa(_) ->
 %% `/current_user/mfa' carries no username path segment, so an SSO
 %% username containing `@' (percent-encoded as `%40' by the HTTP layer)
 %% needs no decoding or comparison here. Over the full HTTP path this
-%% pins the contract: the self-MFA lock is driven by the per-user
-%% `admin_override' field, not by the SSO backend's live `force_mfa'
-%% flag, and it holds for an SSO identity whose name needs escaping.
+%% pins the `admin_override' part of the self-MFA lock for an SSO
+%% identity whose name needs escaping.
 t_delete_own_mfa_sso_admin_override_http(_) ->
     SsoBackend = saml,
     SsoUser = <<"jackson-http@example.com">>,
@@ -337,7 +336,7 @@ t_delete_own_mfa_sso_force_mfa(_) ->
     %% RBAC does not consult the SSO backend's live `force_mfa' flag for
     %% self-MFA: `/current_user/mfa' is allowed for any authenticated
     %% user and the decision belongs to the handler
-    %% (`authorize_self_mfa_disable/1', driven by `admin_override').
+    %% (`authorize_self_mfa_disable/1').
     %% Assert RBAC stays policy-independent across both values of the flag.
     SsoBackend = saml,
     SsoUser = <<"sso_viewermfa">>,
