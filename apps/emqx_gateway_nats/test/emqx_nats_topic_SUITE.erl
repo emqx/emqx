@@ -44,13 +44,13 @@ t_nats_to_mqtt(_) ->
     ?assertEqual(<<"foo/+/bar">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar">>)),
     ?assertEqual(<<"+/bar/baz">>, emqx_nats_topic:nats_to_mqtt(<<"*.bar.baz">>)),
     ?assertEqual(<<"foo/bar/+">>, emqx_nats_topic:nats_to_mqtt(<<"foo.bar.*">>)),
-    ?assertEqual(<<"foo/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.>">>)),
-    ?assertEqual(<<"#">>, emqx_nats_topic:nats_to_mqtt(<<">">>)),
+    ?assertEqual(<<"foo/+/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.>">>)),
+    ?assertEqual(<<"+/#">>, emqx_nats_topic:nats_to_mqtt(<<">">>)),
 
     %% Multiple wildcards
     ?assertEqual(<<"+/+/+">>, emqx_nats_topic:nats_to_mqtt(<<"*.*.*">>)),
     ?assertEqual(<<"foo/+/bar/+">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.*">>)),
-    ?assertEqual(<<"foo/+/bar/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.>">>)),
+    ?assertEqual(<<"foo/+/bar/+/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.>">>)),
 
     %% Unsupported subjects
     ?assertError({invalid_subject, empty_subject}, emqx_nats_topic:nats_to_mqtt(<<>>)),

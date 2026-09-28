@@ -594,6 +594,8 @@ required_caps(t_jwt_mqtt_reserved_permission_rejected) ->
     [jwt_auth, mqtt_subject_translation];
 required_caps(t_jwt_mqtt_ambiguous_delivery_dropped) ->
     [jwt_auth, mqtt_subject_translation];
+required_caps(t_mqtt_wildcard_gt_requires_child) ->
+    [mqtt_subject_translation];
 required_caps(t_mqtt_reserved_subject_rejected) ->
     [mqtt_subject_translation];
 required_caps(t_nkey_auth_priority_over_jwt) ->
@@ -1555,6 +1557,34 @@ t_receive_message(Config) ->
         },
         Msg
     ),
+    emqx_nats_client:stop(Client).
+
+t_mqtt_wildcard_gt_requires_child(Config) ->
+    lists:foreach(
+        fun({Filter, Parent, Child}) ->
+            assert_mqtt_wildcard_gt_requires_child(Config, Filter, Parent, Child)
+        end,
+        [
+            {<<"foo.>">>, <<"foo">>, <<"foo/bar">>},
+            {<<"foo.*.>">>, <<"foo/bar">>, <<"foo/bar/baz">>}
+        ]
+    ).
+
+assert_mqtt_wildcard_gt_requires_child(Config, Filter, Parent, Child) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, Filter, <<"sid-1">>),
+    recv_ok_frame(Client),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, Parent, <<"parent">>)),
+    assert_no_message(Client, emqx_nats_topic:mqtt_to_nats(Parent), 1000),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, Child, <<"child">>)),
+    Message = recv_non_ping_frame(Client),
+    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+    ?assertEqual(emqx_nats_topic:mqtt_to_nats(Child), emqx_nats_frame:subject(Message)),
+    ?assertEqual(<<"child">>, emqx_nats_frame:payload(Message)),
     emqx_nats_client:stop(Client).
 
 't_receive_message_with_wildcard_combined_*_>'(Config) ->

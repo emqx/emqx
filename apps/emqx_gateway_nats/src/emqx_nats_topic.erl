@@ -33,10 +33,10 @@ do_nats_to_mqtt(Subject) ->
         true ->
             case binary:last(Subject) of
                 $> ->
-                    %% Convert NATS '>' to MQTT '#'
+                    %% NATS '>' matches at least one token; MQTT '#' also matches zero.
                     Base = binary:part(Subject, 0, byte_size(Subject) - 1),
                     BaseMqtt = do_nats_to_mqtt(Base),
-                    <<BaseMqtt/binary, "#">>;
+                    <<BaseMqtt/binary, "+/#">>;
                 _ ->
                     %% Convert NATS '*' to MQTT '+'
                     Parts = binary:split(Subject, <<".">>, [global]),

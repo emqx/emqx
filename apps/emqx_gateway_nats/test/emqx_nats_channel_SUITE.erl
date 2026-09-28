@@ -255,6 +255,15 @@ t_invalid_jwt_permission_fails_closed(_) ->
     }),
     ?assertEqual(deny, emqx_nats_channel:authorize_publish(ClientInfo, Msg)).
 
+t_jwt_multi_level_wildcard_requires_child(_) ->
+    ClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [<<"foo.>">>], deny => []}
+    }),
+    ParentMsg = emqx_message:make(<<"client">>, <<"foo">>, <<"parent">>),
+    ChildMsg = emqx_message:make(<<"client">>, <<"foo/bar">>, <<"child">>),
+    ?assertEqual(deny, emqx_nats_channel:authorize_publish(ClientInfo, ParentMsg)),
+    ?assertMatch({allow, _}, emqx_nats_channel:authorize_publish(ClientInfo, ChildMsg)).
+
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
