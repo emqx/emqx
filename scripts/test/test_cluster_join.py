@@ -8,40 +8,11 @@ import pytest
 
 @pytest.fixture
 def run_join():
-    def run(docker_body, expected_error="", max_retries=1):
-        script = f"""
-source "$1"
-shift
-ready=false
-docker() {{
-    if [ "$*" = "logs node2" ]; then
-        echo container-logs
-        return 0
-    fi
-    if [ "$*" != "exec node2 emqx ctl cluster join node1" ]; then
-        echo "unexpected docker arguments: $*" >&2
-        return 1
-    fi
-    {docker_body}
-}}
-sleep() {{
-    ready=true
-    echo retry
-}}
-join_cluster "$@"
-"""
+    script = Path(__file__).with_name("cluster-join-test.sh")
+
+    def run(scenario):
         result = subprocess.run(
-            [
-                "bash",
-                "-euc",
-                script,
-                "test-cluster-join",
-                str(Path(__file__).with_name("cluster-join.sh")),
-                "node2",
-                "node1",
-                str(max_retries),
-                expected_error,
-            ],
+            ["bash", str(script), scenario],
             capture_output=True,
             text=True,
             timeout=10,
@@ -53,17 +24,14 @@ join_cluster "$@"
 
 
 def test_successful_join_does_not_retry(run_join):
-    result = run_join("echo joined")
+    result = run_join("success")
 
     assert result.returncode == 0
     assert result.stdout.splitlines() == ["joined"]
 
 
 def test_expected_rejection_captures_stderr_without_retrying(run_join):
-    result = run_join(
-        "echo license-rejection >&2; return 1",
-        expected_error="license-rejection",
-    )
+    result = run_join("expected-rejection")
 
     assert result.returncode == 0
     assert result.stdout.splitlines() == [
@@ -71,9 +39,15 @@ def test_expected_rejection_captures_stderr_without_retrying(run_join):
     ]
 
 
-@pytest.mark.parametrize("output", ["joined", "license-rejection"])
-def test_successful_command_fails_negative_test(run_join, output):
-    result = run_join(f"echo {output}", expected_error="license-rejection")
+@pytest.mark.parametrize(
+    "scenario, output",
+    [
+        ("unexpected-success", "joined"),
+        ("matching-output-success", "license-rejection"),
+    ],
+)
+def test_successful_command_fails_negative_test(run_join, scenario, output):
+    result = run_join(scenario)
 
     assert result.returncode == 1
     assert result.stdout.splitlines() == [
@@ -83,19 +57,15 @@ def test_successful_command_fails_negative_test(run_join, output):
 
 
 @pytest.mark.parametrize(
-    "output, expected_error",
+    "scenario, output",
     [
-        pytest.param("unrelated-error", "license-rejection", id="unrelated-error"),
-        pytest.param("license-rejection-extra", "license-rejection", id="substring"),
-        pytest.param("licenseXrejection", "license.rejection", id="regex-metacharacter"),
+        ("unrelated-error", "unrelated-error"),
+        ("substring-error", "license-rejection-extra"),
+        ("regex-error", "licenseXrejection"),
     ],
 )
-def test_other_errors_do_not_pass_negative_test(run_join, output, expected_error):
-    result = run_join(
-        f"echo {output}; return 1",
-        expected_error=expected_error,
-        max_retries=0,
-    )
+def test_other_errors_do_not_pass_negative_test(run_join, scenario, output):
+    result = run_join(scenario)
 
     assert result.returncode == 1
     assert result.stdout.splitlines() == [
@@ -106,19 +76,14 @@ def test_other_errors_do_not_pass_negative_test(run_join, output, expected_error
 
 
 def test_positive_test_retries_boot_failure(run_join):
-    result = run_join(
-        'if "$ready"; then echo joined; else echo booting; return 1; fi'
-    )
+    result = run_join("boot-then-success")
 
     assert result.returncode == 0
     assert result.stdout.splitlines() == ["booting", "retry", "joined"]
 
 
 def test_negative_test_retries_boot_failure(run_join):
-    result = run_join(
-        'if "$ready"; then echo license-rejection; else echo booting; fi; return 1',
-        expected_error="license-rejection",
-    )
+    result = run_join("boot-then-rejection")
 
     assert result.returncode == 0
     assert result.stdout.splitlines() == [
