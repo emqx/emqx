@@ -733,11 +733,12 @@ t_partially_invalid_batch(TCConfig) ->
     [Id1, Id2, Id3] = [emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- lists:seq(1, 3)],
     ?check_trace(
         begin
-            lists:foreach(
+            emqx_utils:pmap(
                 fun({Id, Value}) ->
                     emqx:publish(emqx_message:make(Id, Topic, json_encode(#{value => Value})))
                 end,
-                [{Id1, 101}, {Id2, 20.5}, {Id3, 303}]
+                [{Id1, 101}, {Id2, 20.5}, {Id3, 303}],
+                infinity
             ),
             ?retry(
                 200,
