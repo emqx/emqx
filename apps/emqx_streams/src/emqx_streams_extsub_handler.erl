@@ -30,9 +30,12 @@ DS streams are explicity called `DS streams' here.
 -behaviour(emqx_extsub_handler).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_streams_internal.hrl").
+
+-export([subscription_target/1]).
 
 %% ExtSub Handler callbacks
 
@@ -79,6 +82,11 @@ DS streams are explicity called `DS streams' here.
 
 -type subscribe_params() :: #subscribe_params{}.
 
+-record(finding_stream, {
+    subscribe_params :: subscribe_params(),
+    denied_stream_id :: emqx_streams_types:stream_id() | undefined
+}).
+
 -record(shard_progress, {
     generation :: emqx_ds:generation(),
     last_timestamp_us :: emqx_ds:time()
@@ -99,6 +107,7 @@ DS streams are explicity called `DS streams' here.
 -type stream_state() :: #stream_state{}.
 
 -record(state, {
+    clientinfo :: emqx_types:clientinfo(),
     send_fn :: function(),
     send_after_fn :: function(),
     %% Global status of the handler, indicating whether the extsub wants more messages or not
@@ -111,7 +120,7 @@ DS streams are explicity called `DS streams' here.
     by_topic_filter :: #{emqx_types:topic() => ds_sub_id()},
     %% Topics that correspond to unknown or deleted streams
     %% We always hope that the streams will be created eventually
-    unknown_topic_filters :: #{emqx_types:topic() => subscribe_params()},
+    unknown_topic_filters :: #{emqx_types:topic() => #finding_stream{}},
     check_stream_status_tref :: reference() | undefined
 }).
 
@@ -133,6 +142,25 @@ DS streams are explicity called `DS streams' here.
 -define(START_FROM_DEFAULT_VALUE, <<"latest">>).
 
 %%------------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------------
+
+-spec subscription_target(binary()) -> {ok, binary(), binary() | undefined} | {error, term()}.
+subscription_target(<<"$stream/", Rest/binary>>) ->
+    {Name, TargetTopic} = split_name_topic(Rest),
+    case emqx_streams_schema:validate_name(Name) of
+        ok -> {ok, Name, TargetTopic};
+        {error, _} = Error -> Error
+    end;
+subscription_target(<<"$s/", Rest/binary>>) ->
+    case split_topic_filter(Rest) of
+        {ok, _Offset, TargetTopic} ->
+            {ok, emqx_streams_prop:default_name_from_topic(TargetTopic), TargetTopic};
+        {error, unrecoverable, Reason} ->
+            {error, Reason}
+    end.
+
+%%------------------------------------------------------------------------------------
 %% ExtSub Handler callbacks
 %%------------------------------------------------------------------------------------
 
@@ -146,8 +174,14 @@ handle_subscribe(
     case check_stream_subscribe_topic_filter(SubscribeCtx, TopicFilter) of
         {ok, SubscribeParams} ->
             %% Topic filter is formally valid, try to subscribe
-            case subscribe(Handler1, SubscribeParams) of
+            FindingStream = #finding_stream{subscribe_params = SubscribeParams},
+            case subscribe(Handler1, FindingStream) of
                 {ok, Handler} ->
+                    {ok, schedule_check_stream_status(Handler)};
+                ?err_rec({not_authorized, StreamId}) ->
+                    Handler = add_unknown_stream(Handler1, FindingStream#finding_stream{
+                        denied_stream_id = StreamId
+                    }),
                     {ok, schedule_check_stream_status(Handler)};
                 ?err_unrec(Reason) ->
                     ?tp(error, streams_extsub_handler_subscribe_error, #{
@@ -164,7 +198,7 @@ handle_subscribe(
                     }),
                     %% Since the topic filter is formally valid, we add it to the unknown topic filters
                     %% to be checked later.
-                    Handler = add_unknown_stream(Handler1, SubscribeParams),
+                    Handler = add_unknown_stream(Handler1, FindingStream),
                     {ok, schedule_check_stream_status(Handler)}
             end;
         ignore ->
@@ -297,19 +331,22 @@ on_subscription_down(DSSubId, Slab, _DSStream, #state{ds_subs = DSSubs} = State)
 %%------------------------------------------------------------------------------------
 
 subscribe(
-    Handler,
-    #subscribe_params{
-        name = Name,
-        topic_filter = MaybeTopicFilter,
-        start_from = StartFromBin,
-        full_topic_filter = FullTopicFilter
-    } =
-        SubscribeParams
+    #h{state = #state{clientinfo = ClientInfo}} = Handler,
+    #finding_stream{
+        subscribe_params =
+            #subscribe_params{
+                name = Name,
+                topic_filter = MaybeTopicFilter,
+                start_from = StartFromBin,
+                full_topic_filter = FullTopicFilter
+            } = SubscribeParams
+    } = FindingStream
 ) ->
     maybe
         ok ?= validate_new_topic_filter(Handler, SubscribeParams),
         {ok, StartFrom} ?= parse_offset(StartFromBin),
         {ok, Stream} ?= find_stream(Name, MaybeTopicFilter),
+        ok ?= authorize_stream(ClientInfo, FindingStream, Stream),
         #h{
             state = #state{by_topic_filter = ByTopicFilter, ds_subs = DSSubs} = State0,
             ds_client = DSClient0
@@ -336,6 +373,30 @@ subscribe(
             Stream, DSClient0, DSSubId, State1
         ),
         {ok, Handler#h{state = State, ds_client = DSClient}}
+    end.
+
+authorize_stream(_ClientInfo, #finding_stream{denied_stream_id = Id}, #{id := Id}) ->
+    ?tp_debug(streams_target_topic_authz_cached, #{id => Id}),
+    ?err_rec({not_authorized, Id});
+authorize_stream(
+    ClientInfo,
+    _FindingStream,
+    #{id := Id, topic_filter := TargetTopic}
+) ->
+    case emqx_streams_config:target_topic_authz() of
+        false ->
+            ok;
+        true ->
+            Result = emqx_access_control:authorize(
+                ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_1), TargetTopic
+            ),
+            ?tp_debug(streams_target_topic_authorized, #{
+                id => Id, topic_filter => TargetTopic, result => Result
+            }),
+            case Result of
+                allow -> ok;
+                deny -> ?err_rec({not_authorized, Id})
+            end
     end.
 
 unsubscribe(
@@ -655,8 +716,11 @@ suback(#h{state = #state{ds_subs = DSSubs}}, DSSubId, SubHandle, SeqNo) ->
             ok
     end.
 
-init_handler(undefined, #{send_after := SendAfterFn, send := SendFn} = _Ctx) ->
+init_handler(
+    undefined, #{clientinfo := ClientInfo, send_after := SendAfterFn, send := SendFn} = _Ctx
+) ->
     State = #state{
+        clientinfo = ClientInfo,
         send_fn = SendFn,
         send_after_fn = SendAfterFn,
         status = #status_unblocked{},
@@ -667,8 +731,8 @@ init_handler(undefined, #{send_after := SendAfterFn, send := SendFn} = _Ctx) ->
     },
     DSClient = emqx_streams_message_db:create_client(?MODULE),
     #h{state = State, ds_client = DSClient};
-init_handler(#h{} = Handler, _Ctx) ->
-    Handler.
+init_handler(#h{state = State} = Handler, #{clientinfo := ClientInfo}) ->
+    Handler#h{state = State#state{clientinfo = ClientInfo}}.
 
 update_stream_state(#h{state = State} = Handler, DSSubId, StreamState) ->
     Handler#h{state = update_stream_state(State, DSSubId, StreamState)};
@@ -721,9 +785,11 @@ enrich_message(
 
 add_unknown_stream(
     #h{state = #state{unknown_topic_filters = UnknownTopicFilters0} = State0} = Handler,
-    #subscribe_params{full_topic_filter = FullTopicFilter} = SubscribeParams
+    #finding_stream{
+        subscribe_params = #subscribe_params{full_topic_filter = FullTopicFilter}
+    } = FindingStream
 ) ->
-    UnknownTopicFilters = UnknownTopicFilters0#{FullTopicFilter => SubscribeParams},
+    UnknownTopicFilters = UnknownTopicFilters0#{FullTopicFilter => FindingStream},
     State = State0#state{unknown_topic_filters = UnknownTopicFilters},
     Handler#h{state = State}.
 
@@ -761,10 +827,13 @@ check_unknown_stream_status(
     %% when trying to subscribe
     Handler1 = Handler0#h{state = State0#state{unknown_topic_filters = #{}}},
     {Handler, UnknownTopicFilters} = maps:fold(
-        fun(FullTopicFilter, SubscribeParams, {HandlerAcc0, UnknownTopicFiltersAcc}) ->
-            case subscribe(HandlerAcc0, SubscribeParams) of
+        fun(FullTopicFilter, FindingStream, {HandlerAcc0, UnknownTopicFiltersAcc}) ->
+            case subscribe(HandlerAcc0, FindingStream) of
                 {ok, HandlerAcc} ->
                     {HandlerAcc, UnknownTopicFiltersAcc};
+                ?err_rec({not_authorized, StreamId}) ->
+                    DeniedStream = FindingStream#finding_stream{denied_stream_id = StreamId},
+                    {HandlerAcc0, UnknownTopicFiltersAcc#{FullTopicFilter => DeniedStream}};
                 ?err_unrec(Reason) ->
                     ?tp(error, streams_extsub_handler_delayed_subscribe_error, #{
                         reason => Reason,
@@ -779,7 +848,7 @@ check_unknown_stream_status(
                         topic_filter => FullTopicFilter,
                         recoverable => true
                     }),
-                    {HandlerAcc0, UnknownTopicFiltersAcc#{FullTopicFilter => SubscribeParams}}
+                    {HandlerAcc0, UnknownTopicFiltersAcc#{FullTopicFilter => FindingStream}}
             end
         end,
         {Handler1, #{}},
@@ -807,7 +876,8 @@ check_active_streams_status(
                     {HandlerAcc0, UnknownTopicFiltersAcc};
                 _ ->
                     HandlerAcc = unsubscribe(HandlerAcc0, FullTopicFilter, DSSubId),
-                    {HandlerAcc, UnknownTopicFiltersAcc#{FullTopicFilter => SubscribeParams}}
+                    FindingStream = #finding_stream{subscribe_params = SubscribeParams},
+                    {HandlerAcc, UnknownTopicFiltersAcc#{FullTopicFilter => FindingStream}}
             end
         end,
         {Handler0, UnknownTopicFilters0},
@@ -816,7 +886,10 @@ check_active_streams_status(
     #h{state = State} = Handler,
     Handler#h{state = State#state{unknown_topic_filters = UnknownTopicFilters}}.
 
-check_stream_subscribe_topic_filter(Ctx, <<"$s/", TopicFilter0/binary>> = FullTopicFilter) ->
+check_stream_subscribe_topic_filter(
+    Ctx,
+    <<"$s/", TopicFilter0/binary>> = FullTopicFilter
+) ->
     maybe
         ok ?= validate_protocol(Ctx),
         {ok, StartFrom, TopicFilter} ?= split_topic_filter(TopicFilter0),
@@ -828,7 +901,10 @@ check_stream_subscribe_topic_filter(Ctx, <<"$s/", TopicFilter0/binary>> = FullTo
             full_topic_filter = FullTopicFilter
         }}
     end;
-check_stream_subscribe_topic_filter(Ctx, <<"$stream/", NameTopicFilter/binary>> = FullTopicFilter) ->
+check_stream_subscribe_topic_filter(
+    Ctx,
+    <<"$stream/", NameTopicFilter/binary>> = FullTopicFilter
+) ->
     SubOpts = maps:get(subopts, Ctx, #{}),
     SubProps = maps:get(sub_props, SubOpts, #{}),
     UserProperties = maps:get('User-Property', SubProps, []),

@@ -161,9 +161,7 @@ dispatch_to_sub(
                     EnrichedMsgs = enrich_messages(SubscriberRef, FullTopicFilter, Messages),
                     {ok, Handler#state{subs = Subs#{SubscriberRef => SubRec}}, EnrichedMsgs};
                 {error, recreate} ->
-                    {Name, MQTopic} = emqx_mq_sub:name_topic(Sub0),
-                    ok = emqx_mq_sub:handle_disconnect(Sub0),
-                    NewSub = emqx_mq_sub:handle_connect(ClientInfo, Name, MQTopic),
+                    NewSub = emqx_mq_sub:handle_reconnect(ClientInfo, Sub0),
                     NewRef = emqx_mq_sub:subscriber_ref(NewSub),
                     Subs1 = maps:remove(SubscriberRef, Subs),
                     {ok, Handler#state{

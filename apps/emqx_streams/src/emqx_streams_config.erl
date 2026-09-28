@@ -33,6 +33,7 @@ individual streams.
 %% Streams config accessors
 -export([
     enabled/0,
+    target_topic_authz/0,
     max_stream_count/0,
     auto_create/2,
     gc_interval/0,
@@ -89,6 +90,10 @@ update_config(UpdateRequest0) ->
 -spec enabled() -> boolean() | auto.
 enabled() ->
     emqx:get_config([?SCHEMA_ROOT, enable]).
+
+-spec target_topic_authz() -> boolean().
+target_topic_authz() ->
+    emqx:get_config([?SCHEMA_ROOT, target_topic_authz], false).
 
 -spec max_stream_count() -> pos_integer().
 max_stream_count() ->

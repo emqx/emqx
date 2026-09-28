@@ -37,6 +37,7 @@ fields(?SCHEMA_ROOT) ->
                 required => true,
                 desc => ?DESC(enable)
             })},
+        {target_topic_authz, mk(boolean(), #{default => false, desc => ?DESC(target_topic_authz)})},
         {max_stream_count,
             mk(non_neg_integer(), #{
                 default => 1000,

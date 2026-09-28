@@ -112,19 +112,66 @@ on_session_resumed(_ClientInfo, SessionInfo) ->
     ok = set_mq_supported(SessionResumedCtx, SessionInfo).
 
 on_client_authorize(
-    ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = Topic, Result
+    ClientInfo, #{action_type := publish} = Action, <<"$queue/", _/binary>> = FullTopic, Result
 ) ->
-    deny_if_mq_not_supported(ClientInfo, Topic, Result);
+    maybe_authorize_target(ClientInfo, Action, FullTopic, Result);
 on_client_authorize(
-    ClientInfo, #{action_type := subscribe} = _Action, <<"$queue/", _/binary>> = Topic, Result
+    ClientInfo, #{action_type := subscribe} = Action, <<"$q/", _/binary>> = FullTopic, Result
 ) ->
-    deny_if_mq_not_supported(ClientInfo, Topic, Result);
-on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
+    authorize_subscription(ClientInfo, Action, FullTopic, Result);
+on_client_authorize(
+    ClientInfo, #{action_type := subscribe} = Action, <<"$queue/", _/binary>> = FullTopic, Result
+) ->
+    authorize_subscription(ClientInfo, Action, FullTopic, Result);
+on_client_authorize(_ClientInfo, _Action, _FullTopic, Result) ->
     {ok, Result}.
 
-deny_if_mq_not_supported(_ClientInfo, _Topic, Result) ->
+authorize_subscription(ClientInfo, Action, FullTopic, Result) ->
+    case deny_if_mq_not_supported(ClientInfo, FullTopic, Result) of
+        {ok, Result} -> maybe_authorize_target(ClientInfo, Action, FullTopic, Result);
+        {stop, _} = Deny -> Deny
+    end.
+
+maybe_authorize_target(ClientInfo, Action, FullTopic, Result) ->
+    case emqx_mq_config:target_topic_authz() of
+        false ->
+            {ok, Result};
+        true ->
+            case subscription_target(FullTopic) of
+                {ok, TargetTopic} ->
+                    %% $queue prefix is stripped here, so we do not have infinite recursion
+                    case emqx_access_control:authorize(ClientInfo, Action, TargetTopic) of
+                        allow -> {ok, Result};
+                        deny -> {stop, #{result => deny, from => mq}}
+                    end;
+                error ->
+                    {stop, #{result => deny, from => mq, is_cacheable => false}}
+            end
+    end.
+
+subscription_target(<<"$q/", TargetTopic/binary>>) ->
+    subscription_target(emqx_mq_prop:default_name_from_topic(TargetTopic), TargetTopic);
+subscription_target(<<"$queue/", Rest/binary>>) ->
+    case split_name_topic(Rest) of
+        {ok, Name, TargetTopic} -> subscription_target(Name, TargetTopic);
+        {error, _} -> error
+    end.
+
+subscription_target(Name, RequestedTargetTopic) ->
+    case emqx_mq_registry:find(Name) of
+        {ok, #{topic_filter := TargetTopic}} when
+            RequestedTargetTopic =:= undefined; RequestedTargetTopic =:= TargetTopic
+        ->
+            {ok, TargetTopic};
+        not_found when is_binary(RequestedTargetTopic), RequestedTargetTopic =/= <<>> ->
+            {ok, RequestedTargetTopic};
+        _ ->
+            error
+    end.
+
+deny_if_mq_not_supported(_ClientInfo, _FullTopic, Result) ->
     ?tp_mq_client(mq_on_client_authorize, #{
-        client_info => _ClientInfo, topic => _Topic
+        client_info => _ClientInfo, topic => _FullTopic
     }),
     case validate_mq_supported() of
         ok ->
