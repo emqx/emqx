@@ -433,19 +433,11 @@ do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?API_K
 do_check_rbac(_, _, _) ->
     {error, <<"You don't have permission to access this resource">>}.
 
-%% Mirrors the `Accept' negotiation in `emqx_mgmt_api_configs:configs/3': it prefers
-%% `text/plain', and a missing `Accept' header (or `*/*') resolves to that first
-%% preference.
+%% Uses the handler's own negotiation, so RBAC and the handler cannot disagree
+%% on which requests get the `text/plain' export.
 wants_plaintext_config_dump(Req) ->
-    Accept = cowboy_req:header(<<"accept">>, Req, <<"*/*">>),
-    Accepts = [
-        begin
-            [T | _] = binary:split(string:trim(S), <<";">>),
-            T
-        end
-     || S <- re:split(Accept, ",")
-    ],
-    lists:member(<<"*/*">>, Accepts) orelse lists:member(<<"text/plain">>, Accepts).
+    Headers = cowboy_req:headers(Req),
+    emqx_mgmt_api_configs:configs_get_content_type(Headers) =:= {ok, <<"text/plain">>}.
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];

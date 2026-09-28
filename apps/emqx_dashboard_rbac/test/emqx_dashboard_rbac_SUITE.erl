@@ -937,9 +937,13 @@ t_configs_plaintext_export_requires_global_admin(_) ->
         configs_req(<<"*/*">>),
         configs_req(<<"text/plain">>),
         configs_req(<<"application/json, */*;q=0.8">>),
-        configs_req(<<"text/html, text/plain;q=0.9">>)
+        configs_req(<<"text/html, text/plain;q=0.9">>),
+        %% The handler prefers `text/plain' when both types are accepted.
+        configs_req(<<"application/json, text/plain">>)
     ],
     JsonReq = configs_req(<<"application/json">>),
+    %% No acceptable type: the handler answers 400 without any configuration.
+    UnacceptableReq = configs_req(<<"application/xml">>),
     Denied = {error, <<"The configuration export is only available to the global administrator">>},
     lists:foreach(
         fun(ActorContext) ->
@@ -953,10 +957,15 @@ t_configs_plaintext_export_requires_global_admin(_) ->
                 end,
                 PlaintextReqs
             ),
-            ?assertMatch(
-                {ok, _},
-                emqx_dashboard_rbac:check_rbac(JsonReq, HandlerInfo, ActorContext),
-                #{actor => ActorContext}
+            lists:foreach(
+                fun(Req) ->
+                    ?assertMatch(
+                        {ok, _},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext),
+                        #{actor => ActorContext, req => Req}
+                    )
+                end,
+                [JsonReq, UnacceptableReq]
             )
         end,
         [global_viewer_actor_context() | namespaced_actor_contexts()]
