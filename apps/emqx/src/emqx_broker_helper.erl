@@ -93,10 +93,13 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 Return the pid of the subscriber registered with `SubId`, or `undefined`.
 
 Subscribers registered with `no_monitor` are channels that `emqx_cm` monitors.
-They are found by a key lookup in the `emqx_cm` channel table. When several
-channels match, for example during a session takeover, return the most recently
-registered one: `ets:lookup/2` on a `bag` table returns objects with the same
-key in insertion order.
+They are found by a key lookup in the `emqx_cm` channel table. A channel that
+has not registered as a subscriber with `SubId` is skipped. For example, a QUIC
+client that subscribes on a data stream has a channel in `emqx_cm` with no
+subscriptions, and its data stream process is found in `emqx_subid` instead.
+When several channels match, for example during a session takeover, return the
+most recently registered one: `ets:lookup/2` on a `bag` table returns objects
+with the same key in insertion order.
 
 Subscribers registered with `monitor` are not in the `emqx_cm` channel table.
 Examples are gateway channels, including connectionless CoAP clients, QUIC
@@ -106,6 +109,9 @@ subscribers share one `SubId`, the most recent registration wins.
 """.
 -spec lookup_subpid(emqx_types:subid()) -> option(pid()).
 lookup_subpid(SubId) ->
+    %% Keep only channels that registered as a subscriber with SubId. A QUIC
+    %% client's channel is in emqx_cm, but when it subscribes on a data stream
+    %% the subscriber is the data stream process, which is found in ?SUBID.
     case [Pid || Pid <- emqx_cm:lookup_channels(local, SubId), lookup_subid(Pid) =:= SubId] of
         [] ->
             emqx_utils_ets:lookup_value(?SUBID, SubId);
@@ -319,6 +325,9 @@ handle_register({SubId, SubPid}) ->
     ok = monitor_subscriber(SubPid),
     %% Insert into ?SUBMON first: clean_down/1 finds the ?SUBID row through it.
     true = insert_submon(SubId, SubPid),
+    %% Only `monitor` registrations get here. emqx_cm does not index these
+    %% subscribers (gateway channels, QUIC data stream processes, plugin
+    %% processes), so ?SUBID is the only index from SubId to their pid.
     insert_subid(SubId, SubPid).
 
 insert_subid(undefined, _SubPid) ->
