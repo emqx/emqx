@@ -25,6 +25,7 @@
 -export([
     info/1,
     info/2,
+    restore_derivable_peer_fields/2,
     get_mqtt_conf/2,
     get_mqtt_conf/3,
     set_conn_state/2,
@@ -197,12 +198,37 @@ info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
     #{
         conninfo => maps:remove(conn_props, ConnInfo),
         conn_state => info(conn_state, Channel),
-        clientinfo => info(clientinfo, Channel),
+        clientinfo => drop_derivable_peer_fields(info(clientinfo, Channel)),
         session => emqx_utils:maybe_apply(fun chan_info_session/1, Session)
     }.
 
 chan_info_session(Session) ->
     maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session)).
+
+%% `clientinfo' keeps these so that authn, authz and hooks can reach them without
+%% `conninfo'. The info map already carries `conninfo', so a reader can derive them
+%% from `conninfo.peername' and `conninfo.sockname' instead.
+drop_derivable_peer_fields(ClientInfo) ->
+    maps:without([peerhost, peerport, peername, sockport], ClientInfo).
+
+%% @doc Put back the `clientinfo' fields that `info/1' leaves out.
+%% For code that rebuilds a channel from a stored info map, such as session
+%% eviction, so that hooks run by the new channel receive the same `clientinfo'
+%% the connection had.
+-spec restore_derivable_peer_fields(emqx_types:clientinfo(), emqx_types:conninfo()) ->
+    emqx_types:clientinfo().
+restore_derivable_peer_fields(
+    ClientInfo,
+    #{peername := {PeerHost, PeerPort} = PeerName, sockname := {_, SockPort}}
+) ->
+    ClientInfo#{
+        peername => PeerName,
+        peerhost => PeerHost,
+        peerport => PeerPort,
+        sockport => SockPort
+    };
+restore_derivable_peer_fields(ClientInfo, _ConnInfo) ->
+    ClientInfo.
 
 -spec info(list(atom()) | atom() | tuple(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
@@ -1877,9 +1903,7 @@ handle_cast(
     NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
-    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
-    ChanInfo1 = info(NChannel),
-    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    emqx_cm:set_chan_info(ClientId, info(NChannel)),
     reset_timer(keepalive, NChannel);
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),

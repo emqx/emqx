@@ -280,9 +280,7 @@ connection_count() ->
 
 channel_stream(any) ->
     emqx_utils_stream:map(
-        fun({ClientId, ChanPid, _, ConnInfo, ClientInfo}) ->
-            {ClientId, ChanPid, ConnInfo, ClientInfo}
-        end,
+        fun channel_stream_entry/1,
         emqx_cm:all_channels_stream(?CONN_MODULES)
     );
 channel_stream(RequiredConnState) ->
@@ -292,11 +290,15 @@ channel_stream(RequiredConnState) ->
             emqx_cm:all_channels_stream(?CONN_MODULES)
         ),
     emqx_utils_stream:map(
-        fun({ClientId, ChanPid, _, ConnInfo, ClientInfo}) ->
-            {ClientId, ChanPid, ConnInfo, ClientInfo}
-        end,
+        fun channel_stream_entry/1,
         WithRequiredConnStateStream
     ).
+
+%% The stored `clientinfo' omits the fields derivable from `conninfo'. Put them
+%% back before the snapshot leaves this node, so that the channel rebuilt on the
+%% receiving node runs its hooks with the `clientinfo' the connection had.
+channel_stream_entry({ClientId, ChanPid, _ConnState, ConnInfo, ClientInfo}) ->
+    {ClientId, ChanPid, ConnInfo, emqx_channel:restore_derivable_peer_fields(ClientInfo, ConnInfo)}.
 
 -spec all_channels_count() -> non_neg_integer().
 all_channels_count() ->
