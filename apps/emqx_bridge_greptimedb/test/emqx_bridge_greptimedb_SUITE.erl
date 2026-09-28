@@ -245,6 +245,10 @@ query_by_clientid(ClientId, TCConfig) ->
     SQL = <<"select * from \"mqtt\" where clientid='", ClientId/binary, "'">>,
     query_by_sql(SQL, TCConfig).
 
+action_metrics(TCConfig) ->
+    #{name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:get_metrics(#{type => ?ACTION_TYPE, name => Name}).
+
 query_by_clientid_and_int_key(ClientId, IntKey, TCConfig) ->
     IntCol = <<ClientId/binary, "_int_value">>,
     IntKeyBin = integer_to_binary(IntKey),
@@ -632,6 +636,109 @@ t_boolean_variants(TCConfig) ->
         IndexedVariants
     ),
     ok.
+
+t_auto_cast_integer_to_float() ->
+    [{matrix, true}].
+t_auto_cast_integer_to_float(matrix) ->
+    [[Transport, Mode, ?without_batch] || Transport <- [?tcp, ?tls], Mode <- [?sync, ?async]];
+t_auto_cast_integer_to_float(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> => <<"mqtt,clientid=${clientid} value=${payload.value}">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    FloatId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    IntegerId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    emqx:publish(emqx_message:make(FloatId, Topic, json_encode(#{value => 24.5}))),
+    emqx:publish(emqx_message:make(IntegerId, Topic, json_encode(#{value => 30}))),
+    ?retry(
+        200,
+        20,
+        begin
+            ?assertMatch(#{<<"value">> := 24.5}, query_by_clientid(FloatId, TCConfig)),
+            ?assertMatch(#{<<"value">> := 30.0}, query_by_clientid(IntegerId, TCConfig))
+        end
+    ).
+
+t_invalid_integer_does_not_block_worker() ->
+    [{matrix, true}].
+t_invalid_integer_does_not_block_worker(matrix) ->
+    [[Transport, Mode, ?without_batch] || Transport <- [?tcp, ?tls], Mode <- [?sync, ?async]];
+t_invalid_integer_does_not_block_worker(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> => <<"mqtt,clientid=${clientid} value=${payload.value}i">>
+        },
+        <<"resource_opts">> => #{
+            <<"worker_pool_size">> => 1,
+            <<"metrics_flush_interval">> => <<"100ms">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    InvalidId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ValidId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    emqx:publish(emqx_message:make(InvalidId, Topic, json_encode(#{value => 20.5}))),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            #{counters := #{matched := 1, failed := 1}, gauges := #{inflight := 0}},
+            action_metrics(TCConfig)
+        )
+    ),
+    emqx:publish(emqx_message:make(ValidId, Topic, json_encode(#{value => 42}))),
+    ?retry(200, 20, ?assertMatch(#{<<"value">> := 42}, query_by_clientid(ValidId, TCConfig))),
+    ?assertEqual(#{}, query_by_clientid(InvalidId, TCConfig)),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            #{counters := #{matched := 2, success := 1, failed := 1}},
+            action_metrics(TCConfig)
+        )
+    ).
+
+t_partially_invalid_batch() ->
+    [{matrix, true}].
+t_partially_invalid_batch(matrix) ->
+    [[Transport, Mode, ?with_batch] || Transport <- [?tcp, ?tls], Mode <- [?sync, ?async]];
+t_partially_invalid_batch(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> => <<"mqtt,clientid=${clientid} value=${payload.value}i">>
+        },
+        <<"resource_opts">> => #{
+            <<"batch_size">> => 3,
+            <<"batch_time">> => <<"5s">>,
+            <<"worker_pool_size">> => 1,
+            <<"metrics_flush_interval">> => <<"100ms">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    [Id1, Id2, Id3] = [emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- lists:seq(1, 3)],
+    lists:foreach(
+        fun({Id, Value}) ->
+            emqx:publish(emqx_message:make(Id, Topic, json_encode(#{value => Value})))
+        end,
+        [{Id1, 101}, {Id2, 20.5}, {Id3, 303}]
+    ),
+    ?retry(
+        200,
+        30,
+        begin
+            ?assertMatch(#{<<"value">> := 101}, query_by_clientid(Id1, TCConfig)),
+            ?assertEqual(#{}, query_by_clientid(Id2, TCConfig)),
+            ?assertMatch(#{<<"value">> := 303}, query_by_clientid(Id3, TCConfig)),
+            ?assertMatch(
+                #{counters := #{matched := 3, success := 2, failed := 1}},
+                action_metrics(TCConfig)
+            )
+        end
+    ).
 
 t_bad_timestamp() ->
     [{matrix, true}].
