@@ -133,7 +133,6 @@ mfa_enrollment_status.desc:
 """What the account has to do about MFA, derived from its stored state and the
 policy that applies to it.
 - `complete`: enrolled, and one authenticator code has been verified
-- `pending_enforced`: MFA is required and not complete, so the next login stops for setup
 - `pending_voluntary`: no MFA and nothing requires it, so the user may opt in
 - `disabled`: opted out, and nothing requires the user to opt back in"""
 
@@ -170,6 +169,9 @@ delete_current_user_mfa_api.desc:
 """Disable MFA for the signed-in user's own account. To reset or re-key TOTP, call the `POST` method."""
 delete_current_user_mfa_api.label:
 """Delete own MFA"""
+
+current_user_mfa_setup_required.desc:
+"""MFA is required for the account but not set up, because the MFA policy or the account's MFA changed after login. All of the account's sessions are ended, and the next login starts the MFA setup."""
 
 current_user_mfa_admin_required.desc:
 """MFA cannot be turned off on this account: either an administrator requires it, or `dashboard.default_mfa` requires it. Re-keying it is still allowed."""

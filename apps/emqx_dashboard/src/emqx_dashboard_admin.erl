@@ -1118,8 +1118,9 @@ format_mfa(Username) ->
 %% that applies to the account.
 %%
 %%   complete          enrolled, and one TOTP code has been verified
-%%   pending_enforced  not complete while MFA is required, so the next login
-%%                     stops for setup
+%%   pending_enforced  not complete while MFA is required. Login issues no
+%%                     token on it and `GET /current_user' ends the account's
+%%                     sessions on it, so no response reports it.
 %%   pending_voluntary no MFA and nothing requires it: the user may opt in
 %%   disabled          opted out, and nothing requires them to opt back in
 -spec mfa_status(dashboard_username()) -> mfa_status().
@@ -1144,19 +1145,13 @@ pending_or(Otherwise, Username) ->
         false -> Otherwise
     end.
 
-%% Whether anything requires this account to keep MFA. An SSO account follows
-%% the rule of its SSO login, `emqx_dashboard_sso_mfa:mfa_required_for_user/2'.
-%% A local account is covered by the admin's explicit per-user decision, or by
-%% the `dashboard.default_mfa' mandate.
-%%
-%% NOTE: `maybe_init_mfa_state/2' acts on the mandate only, so a local user
-%% carrying `admin_override = mfa_required' with no MFA state is reported here
-%% as required but is not actually stopped at a password login.
+%% Whether the next login of this account sets up MFA when it has none:
+%% `emqx_dashboard_sso_mfa:mfa_required_for_user/2' for an SSO account,
+%% `mfa_enforced_for/1' for a local one.
 mfa_required_for(?SSO_USERNAME(Backend, _Name) = Username) ->
     emqx_dashboard_sso_mfa:mfa_required_for_user(Username, Backend);
 mfa_required_for(Username) ->
-    admin_override_of(Username) =:= ?ADMIN_MFA_REQUIRED orelse
-        mfa_enforced_for(Username).
+    mfa_enforced_for(Username).
 
 -spec return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}.
 return({atomic, Result}) ->
@@ -1362,9 +1357,11 @@ sign_token(Username, Password, MfaToken) ->
         ok ?= emqx_dashboard_login_lock:verify(Username),
         {ok, User} ?= check(Username, Password, MfaToken),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
+        {ok, MfaStatus} ?= login_mfa_status(Username),
         {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
-        {ok,
-            add_mfa_status(Username, Result#{?role => Role, token => Token, namespace => Namespace})}
+        {ok, Result#{
+            ?role => Role, token => Token, namespace => Namespace, mfa_status => MfaStatus
+        }}
     end.
 
 -spec complete_scram_login(#?ADMIN{}, term()) ->
@@ -1377,15 +1374,26 @@ complete_scram_login(#?ADMIN{username = Username, pwdhash = PwdHash} = User, Mfa
         ok ?= check_mfa_pwd(MfaVerifyResult, true),
         ok ?= check_unchanged_default_credentials_hash(PwdHash),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
+        {ok, MfaStatus} ?= login_mfa_status(Username),
         {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
-        {ok,
-            add_mfa_status(Username, Result#{?role => Role, token => Token, namespace => Namespace})}
+        {ok, Result#{
+            ?role => Role, token => Token, namespace => Namespace, mfa_status => MfaStatus
+        }}
     end.
 
-%% Reached only after the first factor has been verified: both login paths
-%% attach the status to their response.
-add_mfa_status(Username, Result) ->
-    Result#{mfa_status => mfa_status(Username)}.
+%% An account still `pending_enforced' after the earlier MFA checks gets no token.
+login_mfa_status(Username) ->
+    case mfa_status(Username) of
+        pending_enforced ->
+            ?SLOG(error, #{
+                msg => "dashboard_login_refused",
+                username => Username,
+                reason => mfa_setup_required
+            }),
+            {error, mfa_setup_required};
+        MfaStatus ->
+            {ok, MfaStatus}
+    end.
 
 -spec verify_token(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     {ok, emqx_dashboard_rbac:actor_context()}
