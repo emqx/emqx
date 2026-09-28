@@ -55,9 +55,17 @@ DS streams are explicity called `DS streams' here.
     on_subscription_down/4
 ]).
 
--type unblock_action() ::
-    {complete_stream, emqx_ds:sub_ref()}
-    | {suback, ds_sub_id(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()}.
+-record(complete_stream, {
+    sub_ref :: emqx_ds:sub_ref()
+}).
+
+-record(suback, {
+    ds_sub_id :: ds_sub_id(),
+    sub_handle :: emqx_ds:subscription_handle(),
+    seqno :: emqx_ds:sub_seqno()
+}).
+
+-type unblock_action() :: #complete_stream{} | #suback{}.
 
 -record(stream_status_unblocked, {}).
 -record(stream_status_blocked, {
@@ -395,7 +403,7 @@ handle_ds_info(
                 #status_blocked{} ->
                     StreamState = block_stream(
                         StreamState0,
-                        {complete_stream, SubRef}
+                        #complete_stream{sub_ref = SubRef}
                     ),
                     {ok, update_stream_state(Handler, DSSubId, StreamState)};
                 #status_unblocked{} ->
@@ -412,7 +420,7 @@ handle_ds_info(
                     StreamState1 = advance_shard_last_time(StreamState0, Shard, LastTimestampUs),
                     StreamState = block_stream(
                         StreamState1,
-                        {suback, DSSubId, SubHandle, SeqNo}
+                        #suback{ds_sub_id = DSSubId, sub_handle = SubHandle, seqno = SeqNo}
                     ),
                     {ok, update_stream_state(Handler, DSSubId, StreamState), Messages};
                 #status_unblocked{} ->
@@ -466,9 +474,9 @@ unblock_stream(Handler, UnblockActions) ->
     lists:foldl(fun apply_unblock_action/2, Handler, UnblockActions).
 
 -spec apply_unblock_action(unblock_action(), handler()) -> handler().
-apply_unblock_action({complete_stream, SubRef}, Handler) ->
+apply_unblock_action(#complete_stream{sub_ref = SubRef}, Handler) ->
     complete_subscribed_dsstream(Handler, SubRef);
-apply_unblock_action({suback, DSSubId, SubHandle, SeqNo}, Handler) ->
+apply_unblock_action(#suback{ds_sub_id = DSSubId, sub_handle = SubHandle, seqno = SeqNo}, Handler) ->
     ok = suback(Handler, DSSubId, SubHandle, SeqNo),
     Handler.
 
