@@ -151,7 +151,7 @@ frozen_refs=$(
 # Prints the first version at or after MAJOR.MINOR.PATCH that is not frozen.
 next_unfrozen() {
     local major="$1" minor="$2" patch="$3"
-    local version sha line
+    local version sha line_version line_sha
     while :; do
         version="${major}.${minor}.${patch}"
         sha=""
