@@ -59,6 +59,14 @@
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
 
+-doc """
+Register `SubPid` as a subscriber with `SubId`.
+
+Pass `no_monitor` only when `emqx_cm` monitors `SubPid` and has registered it in
+the `emqx_cm` channel table under `SubId`. Such a subscriber writes no
+`emqx_subid` row, so `lookup_subpid/1` can find it only through `emqx_cm`.
+Pass `monitor` in all other cases.
+""".
 -spec register_sub(pid(), emqx_types:subid(), monitor | no_monitor) -> ok.
 register_sub(SubPid, SubId, Monitor) when is_pid(SubPid) ->
     case lookup_pid_to_id(SubPid) of
@@ -66,7 +74,7 @@ register_sub(SubPid, SubId, Monitor) when is_pid(SubPid) ->
             _ = erlang:send(?HELPER, {register_sub, SubPid, SubId}),
             ok;
         [] when Monitor =:= no_monitor ->
-            true = insert_tables(SubId, SubPid),
+            true = insert_submon(SubId, SubPid),
             ok;
         [{_, SubId}] ->
             ok;
@@ -81,9 +89,35 @@ lookup_pid_to_id(Pid) ->
 lookup_subid(SubPid) when is_pid(SubPid) ->
     emqx_utils_ets:lookup_value(?SUBMON, SubPid).
 
+-doc """
+Return the pid of the subscriber registered with `SubId`, or `undefined`.
+
+Subscribers registered with `no_monitor` are channels that `emqx_cm` monitors.
+They are found by a key lookup in the `emqx_cm` channel table. A channel that
+has not registered as a subscriber with `SubId` is skipped. For example, a QUIC
+client that subscribes on a data stream has a channel in `emqx_cm` with no
+subscriptions, and its data stream process is found in `emqx_subid` instead.
+When several channels match, for example during a session takeover, return the
+most recently registered one: `ets:lookup/2` on a `bag` table returns objects
+with the same key in insertion order.
+
+Subscribers registered with `monitor` are not in the `emqx_cm` channel table.
+Examples are gateway channels, including connectionless CoAP clients, QUIC
+stream processes and plugin processes. They are found by a key lookup in the
+`emqx_subid` table, which only this kind of subscriber writes to. When several
+subscribers share one `SubId`, the most recent registration wins.
+""".
 -spec lookup_subpid(emqx_types:subid()) -> option(pid()).
 lookup_subpid(SubId) ->
-    emqx_utils_ets:lookup_value(?SUBID, SubId).
+    %% Keep only channels that registered as a subscriber with SubId. A QUIC
+    %% client's channel is in emqx_cm, but when it subscribes on a data stream
+    %% the subscriber is the data stream process, which is found in ?SUBID.
+    case [Pid || Pid <- emqx_cm:lookup_channels(local, SubId), lookup_subid(Pid) =:= SubId] of
+        [] ->
+            emqx_utils_ets:lookup_value(?SUBID, SubId);
+        Pids ->
+            lists:last(Pids)
+    end.
 
 -doc """
 Assign `Topic` subscriber to some shard, where shard is simply a number between
@@ -223,7 +257,7 @@ init([]) ->
     process_flag(message_queue_data, off_heap),
     %% Helper table
     ok = emqx_utils_ets:new(?HELPER, [public, {read_concurrency, true}, {write_concurrency, true}]),
-    %% SubId: SubId -> SubPid
+    %% SubId: SubId -> SubPid, for subscribers registered with `monitor` only
     ok = emqx_utils_ets:new(?SUBID, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% SubMon: SubPid -> SubId
     ok = emqx_utils_ets:new(?SUBMON, [public, {read_concurrency, true}, {write_concurrency, true}]),
@@ -289,19 +323,19 @@ handle_registrations(Regs) ->
 
 handle_register({SubId, SubPid}) ->
     ok = monitor_subscriber(SubPid),
-    insert_tables(SubId, SubPid).
+    %% Insert into ?SUBMON first: clean_down/1 finds the ?SUBID row through it.
+    true = insert_submon(SubId, SubPid),
+    %% Only `monitor` registrations get here. emqx_cm does not index these
+    %% subscribers (gateway channels, QUIC data stream processes, plugin
+    %% processes), so ?SUBID is the only index from SubId to their pid.
+    insert_subid(SubId, SubPid).
 
-insert_tables(SubId, SubPid) ->
-    %% Must insert pid to ID first to ensure no leak
-    true = insert_pid_to_id(SubId, SubPid),
-    true = insert_id_to_pid(SubId, SubPid).
-
-insert_id_to_pid(undefined, _) ->
+insert_subid(undefined, _SubPid) ->
     true;
-insert_id_to_pid(SubId, SubPid) ->
+insert_subid(SubId, SubPid) ->
     ets:insert(?SUBID, {SubId, SubPid}).
 
-insert_pid_to_id(SubId, SubPid) ->
+insert_submon(SubId, SubPid) ->
     ets:insert(?SUBMON, {SubPid, SubId}).
 
 monitor_subscriber(SubPid) ->

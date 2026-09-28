@@ -485,6 +485,25 @@ t_subscriptions(_Config) ->
     %% subscriptions del <ClientId> <Topic>       # Delete a static subscription manually
     ok.
 
+-doc """
+`subscriptions show` finds a subscriber that is not in the `emqx_cm` channel
+table, as a gateway channel is not, and reports an unknown clientid as not found.
+""".
+t_subscriptions_show(_Config) ->
+    ClientId = <<"t_subscriptions_show">>,
+    Topic = <<"t/subscriptions/show">>,
+    ok = emqx_broker:subscribe(Topic, ClientId, #{qos => 1}),
+    %% Wait for emqx_broker_helper to process the registration.
+    ignored = gen_server:call(emqx_broker_helper, sync, infinity),
+    try
+        {_, Output} = capture_ctl(["subscriptions", "show", binary_to_list(ClientId)]),
+        ?assertEqual(match, re:run(Output, Topic, [{capture, none}])),
+        {_, NotFound} = capture_ctl(["subscriptions", "show", "no_such_client"]),
+        ?assertEqual(match, re:run(NotFound, <<"Not Found">>, [{capture, none}]))
+    after
+        emqx_broker:unsubscribe(Topic)
+    end.
+
 t_subscriptions_shared_topic_list(_Config) ->
     SubPid = self(),
     Topic =
