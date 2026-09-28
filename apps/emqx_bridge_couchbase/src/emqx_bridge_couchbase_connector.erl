@@ -108,20 +108,20 @@ on_start(ConnResId, ConnConfig) ->
         password => Password,
         username => Username
     },
+    TCPOpts = [{keepalive, true}],
     {Transport, TransportOpts0} =
         case maps:get(ssl, ConnConfig) of
             #{enable := true} = TLSConfig ->
                 TLSOpts = emqx_tls_lib:to_client_opts(TLSConfig),
-                {tls, TLSOpts};
+                {tls, TCPOpts ++ TLSOpts};
             _ ->
-                {tcp, []}
+                {tcp, TCPOpts}
         end,
     TransportOpts = emqx_utils:ipv6_probe(TransportOpts0),
     PoolOpts = [
         {host, Host},
         {port, Port},
         {connect_timeout, ConnectTimeout},
-        {keepalive, 30_000},
         {pool_type, random},
         {pool_size, PoolSize},
         {transport, Transport},

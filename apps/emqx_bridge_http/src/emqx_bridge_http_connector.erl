@@ -197,22 +197,22 @@ on_start(
         connector => InstId,
         config => redact(Config)
     }),
+    TCPOpts = [{keepalive, true}],
     {Transport, TransportOpts} =
         case Scheme of
             http ->
-                {tcp, []};
+                {tcp, TCPOpts};
             https ->
                 SSLConf = maps:get(ssl, Config),
                 %% force enable ssl
                 SSLOpts = emqx_tls_lib:to_client_opts(SSLConf#{enable => true}),
-                {tls, SSLOpts}
+                {tls, TCPOpts ++ SSLOpts}
         end,
     NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),
     PoolOpts = [
         {host, Host},
         {port, Port},
         {connect_timeout, ConnectTimeout},
-        {keepalive, 30_000},
         {pool_type, PoolType},
         {pool_size, PoolSize},
         {transport, Transport},

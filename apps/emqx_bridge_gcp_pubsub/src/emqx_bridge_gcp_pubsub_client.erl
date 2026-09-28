@@ -96,23 +96,23 @@ start(
     PoolType = random,
     TLSOpts0 = maps:get(ssl, Config, #{}),
     TLSOpts = emqx_utils_maps:deep_merge(#{enable => true, verify => verify_none}, TLSOpts0),
-    TransportOpts =
+    TransportOpts0 =
         case Transport of
             tls -> emqx_tls_lib:to_client_opts(TLSOpts);
             tcp -> []
         end,
-    NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),
+    TransportOpts1 = emqx_utils:ipv6_probe(TransportOpts0),
+    TransportOpts = [{keepalive, true} | TransportOpts1],
     Protocols = maps:get(protocols, Config, [http]),
     PoolOpts = [
         {host, Host},
         {port, Port},
         {protocols, Protocols},
         {connect_timeout, ConnectTimeout},
-        {keepalive, 30_000},
         {pool_type, PoolType},
         {pool_size, PoolSize},
         {transport, Transport},
-        {transport_opts, NTransportOpts},
+        {transport_opts, TransportOpts},
         {max_inactive, maps:get(max_inactive, Config, ?DEFAULT_MAX_INACTIVE)},
         {enable_pipelining, maps:get(pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
