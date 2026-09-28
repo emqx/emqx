@@ -277,7 +277,7 @@ publish(#message{} = Msg, Opts) ->
 
 -spec publish2(emqx_types:message()) -> emqx_types:publish_result2().
 publish2(#message{} = Msg) ->
-    publish2(Msg, _Opts = #{}).
+    publish2(#message{} = Msg, _Opts = #{}).
 
 -spec publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result2().
 publish2(#message{} = Msg, Opts) ->
@@ -354,8 +354,8 @@ safe_publish(#message{} = Msg, Opts) ->
     end.
 
 -spec safe_publish2(emqx_types:message()) -> emqx_types:publish_result2().
-safe_publish2(Msg) ->
-    safe_publish2(Msg, _Opts = #{}).
+safe_publish2(#message{} = Msg) ->
+    safe_publish2(#message{} = Msg, _Opts = #{}).
 
 -spec safe_publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result2().
 safe_publish2(#message{} = Msg, Opts) ->

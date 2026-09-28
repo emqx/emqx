@@ -228,6 +228,24 @@ t_publish_compatibility(_Config) ->
     ?assertMatch(
         {'EXIT', {function_clause, [{emqx_broker, safe_publish, _, _} | _]}},
         catch emqx_broker:safe_publish(invalid, #{})
+    ),
+
+    %% Invalid messages fail at the v2 API boundary.
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, publish2, [invalid], _} | _]}},
+        catch emqx_broker:publish2(invalid)
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, publish2, [invalid, #{}], _} | _]}},
+        catch emqx_broker:publish2(invalid, #{})
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, safe_publish2, [invalid], _} | _]}},
+        catch emqx_broker:safe_publish2(invalid)
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, safe_publish2, [invalid, #{}], _} | _]}},
+        catch emqx_broker:safe_publish2(invalid, #{})
     ).
 
 %% Check that safe publish keeps the legacy empty result when publishing fails.
