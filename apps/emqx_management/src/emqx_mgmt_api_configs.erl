@@ -18,6 +18,7 @@
     config/3,
     config_reset/3,
     configs/3,
+    configs_get_content_type/1,
     get_full_config/0,
     global_zone_configs/3,
     get_raw_config/1
@@ -308,7 +309,7 @@ config_reset(post, _Params, Req) ->
     end.
 
 configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
-    case find_suitable_accept(Headers, [<<"text/plain">>, <<"application/json">>]) of
+    case configs_get_content_type(Headers) of
         {ok, <<"application/json">>} -> get_configs_v1(QueryStr);
         {ok, <<"text/plain">>} -> get_configs_v2(QueryStr);
         {error, _} = Error -> {400, #{code => 'INVALID_ACCEPT', message => ?ERR_MSG(Error)}}
@@ -328,6 +329,16 @@ configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode} = QS}, _Req) 
             Msg = emqx_utils_json:best_effort_json_obj(#{errors => Errors}),
             {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
     end.
+
+-doc """
+Negotiate the response content type of `GET /configs` from the request headers.
+`emqx_dashboard_rbac` calls this function to allow the `text/plain` export to the
+global administrator only.
+""".
+-spec configs_get_content_type(#{binary() => binary()}) ->
+    {ok, binary()} | {error, no_suitable_accept}.
+configs_get_content_type(Headers) ->
+    find_suitable_accept(Headers, [<<"text/plain">>, <<"application/json">>]).
 
 find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Preferences) > 0 ->
     AcceptVal = maps:get(<<"accept">>, Headers, <<"*/*">>),
