@@ -341,10 +341,14 @@ resolve_host(#{host := {static, Host}}, _Values) ->
 resolve_host(#{host := {template, HostTemplate, AllowedHosts}}, Values) ->
     render_host(HostTemplate, AllowedHosts, Values).
 
--doc "Exported for mocking in tests; do not call directly.".
+-doc """
+Exported for mocking in tests; do not call directly.
+Response header names are returned in lower case, as on the pooled path.
+""".
 do_one_off_request(Method, Url, Headers, Body, ReqOpts) ->
     case hackney:request(Method, Url, Headers, Body, ReqOpts) of
-        {ok, StatusCode, RespHeaders, ClientRef} ->
+        {ok, StatusCode, RespHeaders0, ClientRef} ->
+            RespHeaders = lowercase_header_names(RespHeaders0),
             case hackney:body(ClientRef) of
                 {ok, _} when StatusCode =:= 204 ->
                     {ok, StatusCode, RespHeaders};
@@ -356,6 +360,9 @@ do_one_off_request(Method, Url, Headers, Body, ReqOpts) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+lowercase_header_names(Headers) ->
+    [{string:lowercase(Name), Value} || {Name, Value} <- Headers].
 
 request_path_query({PathQuery, _Headers}) -> PathQuery;
 request_path_query({PathQuery, _Headers, _Body}) -> PathQuery.
