@@ -57,8 +57,60 @@ jobs:
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
           aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }} packages
           aws s3 cp --recursive s3://$BUCKET/emqx-plugins/${{ env.ref_name }} packages/plugins
-      - name: update to emqx.io
+      - name: Decide whether to publish
+        id: gate
         if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts
+        run: echo "publish=true" >> "$GITHUB_OUTPUT"
+      # The manifest tool runs from the workflow's own commit. For a release event
+      # that is the tagged commit. For workflow_dispatch it lets a dry run inspect
+      # a tag that predates the tool.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: _manifest_tool
+          sparse-checkout: scripts/rel/package_manifests.py
+          sparse-checkout-cone-mode: false
+      - name: Fetch the release tag object
+        continue-on-error: true
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: git fetch --no-tags --depth=1 --force origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+      - name: Generate GitHub App token for emqx-package-manifests
+        id: app-token
+        if: steps.gate.outputs.publish == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AUTH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: emqx-package-manifests
+      # Runs before the pushes below, so that a failure there cannot leave a
+      # published release without its records. A failure here does not stop the
+      # pushes; the last step fails the job instead.
+      - name: Record package manifests
+        id: manifests
+        if: steps.gate.outputs.publish == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          VERSION: ${{ steps.profile.outputs.version }}
+        run: |
+          python3 _manifest_tool/scripts/rel/package_manifests.py \
+            --packages-dir packages --version "$VERSION" --tag "$TAG" --publish \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+      - name: Dry-run package manifests
+        if: steps.gate.outputs.publish != 'true' && github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ steps.profile.outputs.version }}
+        run: |
+          python3 _manifest_tool/scripts/rel/package_manifests.py \
+            --packages-dir packages --version "$VERSION" --tag "$TAG"
+      - name: update to emqx.io
+        if: steps.gate.outputs.publish == 'true'
         run: |
           set -eux
           curl -w %{http_code} \
@@ -69,7 +121,7 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - name: Push to packagecloud.io
-        if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts
+        if: steps.gate.outputs.publish == 'true'
         env:
           PROFILE: ${{ steps.profile.outputs.profile }}
           VERSION: ${{ steps.profile.outputs.version }}
@@ -98,7 +150,7 @@ jobs:
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-arm64.rpm"
 
       - name: Upload to snap store
-        if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts
+        if: steps.gate.outputs.publish == 'true'
         env:
           PROFILE: ${{ steps.profile.outputs.profile }}
           VERSION: ${{ steps.profile.outputs.version }}
@@ -107,3 +159,8 @@ jobs:
           sudo snap install snapcraft --classic
           snapcraft upload --release=stable "packages/${PROFILE}_${VERSION}_amd64.snap"
           snapcraft upload --release=stable "packages/${PROFILE}_${VERSION}_arm64.snap"
+      - name: Fail the job when package manifests were not recorded
+        if: ${{ !cancelled() && steps.manifests.outcome == 'failure' }}
+        run: |
+          echo "::error::Package manifests were not recorded. See the 'Record package manifests' step."
+          exit 1
