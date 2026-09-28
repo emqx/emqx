@@ -92,17 +92,18 @@ t_session_init(_) ->
     ?assert(is_integer(emqx_session_mem:info(created_at, Session))).
 
 -doc """
-Checks that a new session holds a `{lazy, Zone}` mqueue, and that it reports
-the same info and stats as a session with an empty queue built from the zone
+Checks that a new session holds an `{empty, MaxLen}` mqueue, and that it
+reports the same stats as a session with an empty queue built from the zone
 config.
 """.
 t_session_init_lazy_mqueue(_) ->
     Session = session(),
-    ?assertMatch(#session{mqueue = {lazy, default}}, Session),
+    ?assertMatch(#session{mqueue = {empty, 1000}}, Session),
     MQ = emqx_mqueue:init(zone_mqueue_opts(default)),
     Built = emqx_session_mem:set_field(mqueue, MQ, Session),
     ?assertEqual(emqx_session_mem:stats(Built), emqx_session_mem:stats(Session)),
-    ?assertEqual(MQ, emqx_session_mem:info(mqueue, Session)),
+    ?assert(emqx_mqueue:is_empty(emqx_session_mem:info(mqueue, Session))),
+    ?assertEqual(1000, emqx_mqueue:max_len(emqx_session_mem:info(mqueue, Session))),
     ?assertEqual(
         emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Built),
         emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Session)
@@ -111,21 +112,24 @@ t_session_init_lazy_mqueue(_) ->
     ?assertEqual([], maps:get(mqueue, emqx_session_mem:export(Session))).
 
 -doc """
-Checks that a lazy mqueue reports the zone's current `max_mqueue_len`, stays
-lazy when a QoS 0 message is not stored, and that the first stored message
-builds the queue from the zone config.
+Checks that an unbuilt mqueue keeps the `max_mqueue_len` of session creation,
+stays unbuilt when a QoS 0 message is not stored, and that the first stored
+message builds the queue with that limit and the zone's other options.
 """.
 t_lazy_mqueue_zone_config(_) ->
     set_zone_conf(max_mqueue_len, 2),
-    set_zone_conf(mqueue_store_qos0, false),
     Session0 = session(),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session0)),
+    set_zone_conf(max_mqueue_len, 5),
+    set_zone_conf(mqueue_store_qos0, false),
     ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session0)),
     QoS0 = emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"0">>),
     Session1 = emqx_session_mem:enqueue(clientinfo(), [QoS0], Session0),
-    ?assertMatch(#session{mqueue = {lazy, default}}, Session1),
+    ?assertMatch(#session{mqueue = {empty, 2}}, Session1),
     Msgs = [emqx_message:make(clientid, ?QOS_1, <<"t">>, P) || P <- [<<"1">>, <<"2">>, <<"3">>]],
     Session2 = emqx_session_mem:enqueue(clientinfo(), Msgs, Session1),
     ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session2)),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session2)),
     ?assertEqual(1, emqx_session_mem:info(mqueue_dropped, Session2)),
     ?assertEqual(2, emqx_session_mem:info(total_payload_bytes, Session2)),
     ?assertEqual(
@@ -137,7 +141,6 @@ t_lazy_mqueue_zone_config(_) ->
     ),
     set_zone_conf(max_mqueue_len, infinity),
     ?assertEqual(0, emqx_session_mem:info(mqueue_max, session())),
-    %% A built queue keeps the options it was built with.
     ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session2)).
 
 -doc """
@@ -982,7 +985,7 @@ t_export_import(_) ->
 
 -doc """
 Checks that exporting a session with nothing queued and importing it gives a
-lazy mqueue for the importing zone.
+placeholder mqueue for the importing zone.
 """.
 t_export_import_empty_mqueue(_) ->
     Persistent = emqx_session_mem:export(session()),
@@ -991,7 +994,7 @@ t_export_import_empty_mqueue(_) ->
         clientinfo(#{zone => default, listener => 'tcp:default'}),
         Persistent
     ),
-    ?assertMatch(#session{mqueue = {lazy, default}}, Session).
+    ?assertMatch(#session{mqueue = {empty, 1000}}, Session).
 
 t_replay(_) ->
     Session = session(),
@@ -1097,7 +1100,7 @@ clientinfo() -> clientinfo(#{}).
 clientinfo(Init) ->
     maps:merge(
         #{
-            zone => ?MODULE,
+            zone => default,
             clientid => <<"clientid">>,
             username => <<"username">>
         },
