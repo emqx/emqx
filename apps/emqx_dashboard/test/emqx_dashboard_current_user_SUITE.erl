@@ -273,8 +273,11 @@ t_own_mfa_write_ends_session(_Config) ->
     ?assertMatch({ok, 204, _}, setup_own_mfa(Token)),
     {ok, 401, Body} = get_current_user(Token),
     ?assertEqual(<<"BAD_TOKEN">>, error_code(Body)),
-    %% A fresh login is all it takes.
-    ?assertMatch({ok, 200, _}, get_current_user(token(<<"viewer">>))).
+    %% The next login sets up the new secret.
+    ?assertMatch(
+        {error, #{error := missing_mfa_token, secret := _}},
+        emqx_dashboard_admin:sign_token(<<"viewer">>, ?PASSWORD)
+    ).
 
 %% An SSO account's sessions end on a self MFA re-key just as a local
 %% account's do. A JWT row keeps the bare name and the backend in
@@ -290,7 +293,11 @@ t_own_mfa_write_ends_sso_session(_Config) ->
     ?assertMatch({ok, 204, _}, setup_own_mfa(Token)),
     {ok, 401, Body} = get_current_user(Token),
     ?assertEqual(<<"BAD_TOKEN">>, error_code(Body)),
-    ?assertMatch({ok, 200, _}, get_current_user(sso_token(SsoKey))).
+    %% The next SSO login sets up the new secret.
+    [User] = emqx_dashboard_admin:lookup_user(SsoKey),
+    ?assertMatch(
+        {mfa_setup, _, #{secret := _}}, emqx_dashboard_sso_mfa:check_sso_mfa(User, Backend)
+    ).
 
 %% A local account and an SSO account may carry the same name. Ending
 %% one account's sessions leaves the other's alone.
@@ -390,19 +397,17 @@ t_shim_is_marked_deprecated(_Config) ->
 %%--------------------------------------------------------------------
 
 sso_token(SsoKey) ->
-    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
-        SsoKey, <<>>, ?TRUSTED_MFA_TOKEN
-    ),
-    Token.
+    token(SsoKey).
 
 add_user(Username, Role) ->
     {ok, _} = emqx_dashboard_admin:add_user(Username, ?PASSWORD, Role, <<"desc">>),
     ok.
 
-token(Username) ->
-    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
-        Username, ?PASSWORD, ?TRUSTED_MFA_TOKEN
-    ),
+%% Signed without a login: several cases act right after an MFA re-key, when a
+%% login would need the new TOTP code.
+token(Key) ->
+    [Admin] = emqx_dashboard_admin:lookup_user(Key),
+    {ok, _Role, Token, _Namespace} = emqx_dashboard_token:sign(Admin),
     Token.
 
 get_current_user(Token) ->

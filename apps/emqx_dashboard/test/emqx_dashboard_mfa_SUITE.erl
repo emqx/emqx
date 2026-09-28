@@ -659,10 +659,11 @@ list_users() ->
     {ok, 200, List} = request_api(get, api_path(["users"]), auth_header()),
     emqx_utils_json:decode(List).
 
+%% Signed without a login: a case that sets `default_mfa' still has an admin
+%% session, like an admin who logged in before it was set.
 admin_jwt_token() ->
-    {ok, #{token := JwtToken}} = emqx_dashboard_admin:sign_token(
-        <<"admin1">>, <<"admin1pass">>, ?TRUSTED_MFA_TOKEN
-    ),
+    [Admin] = emqx_dashboard_admin:lookup_user(<<"admin1">>),
+    {ok, _Role, JwtToken, _Namespace} = emqx_dashboard_token:sign(Admin),
     JwtToken.
 
 %% An SSO account has an empty local password, see `add_sso_user/4'.
