@@ -64,6 +64,8 @@ case "$scenario" in
         ;;
 esac
 
+# Mock Docker for join_cluster: return fixed logs or the scenario's join result.
+# Boot-failure scenarios fail until the sleep mock marks the node ready.
 docker() {
     if [ "$*" = "logs node2" ]; then
         echo container-logs
