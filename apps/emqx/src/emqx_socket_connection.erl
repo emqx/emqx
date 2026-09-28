@@ -67,7 +67,7 @@
 ]).
 
 %% Internal callback
--export([wakeup_from_hib/2, recvloop/2, drain_loop/2, get_state/1]).
+-export([wakeup_from_hib/2, recvloop/2, drain_loop/3, get_state/1]).
 
 %% Export for CT
 -export([set_field/3]).
@@ -86,6 +86,8 @@
     active_n = 10 :: pos_integer(),
     %% Hibernate connection process if inactive for
     hibernate_after = infinity :: integer() | infinity,
+    %% Run a minor GC after this period of mailbox inactivity
+    minor_gc_after = 1 :: non_neg_integer(),
     %% Forced GC thresholds, `false` if disabled
     force_gc = false :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
     %% Forced shutdown policy
@@ -437,16 +439,19 @@ handle_recv({system, From, Request}, Parent, State) ->
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
-            drain_loop(Parent, NewState);
+            #state{conf = #conf{minor_gc_after = Timeout}} = NewState,
+            drain_loop(Parent, NewState, Timeout);
         {stop, Reason, NewSate} ->
             terminate(Reason, NewSate)
     end.
 
-drain_loop(Parent, State) ->
+drain_loop(Parent, State, infinity) ->
+    ?MODULE:recvloop(Parent, State);
+drain_loop(Parent, State, Timeout) ->
     receive
         Msg ->
-            handle_recv_drain(Msg, Parent, State)
-    after 1 ->
+            handle_recv_drain(Msg, Parent, State, Timeout)
+    after Timeout ->
         %% NOTE
         %% Run a minor GC after a minimal period of inactivity.
         %% This makes the next minor GC less likely to occur in the middle of
@@ -456,12 +461,12 @@ drain_loop(Parent, State) ->
         ?MODULE:recvloop(Parent, State)
     end.
 
-handle_recv_drain({system, From, Request}, Parent, State) ->
+handle_recv_drain({system, From, Request}, Parent, State, _Timeout) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
-handle_recv_drain(Msg, Parent, State) ->
+handle_recv_drain(Msg, Parent, State, Timeout) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
-            ?MODULE:drain_loop(Parent, NewState);
+            ?MODULE:drain_loop(Parent, NewState, Timeout);
         {stop, Reason, NewSate} ->
             terminate(Reason, NewSate)
     end.
@@ -1684,6 +1689,7 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
         zone = Zone,
         active_n = get_active_n(Conf0),
         hibernate_after = maps:get(hibernate_after, Opts, get_zone_hibernate_after(Zone)),
+        minor_gc_after = emqx_channel:get_mqtt_conf(Zone, minor_gc_after),
         force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
         force_gc = GcThresholds
     },
