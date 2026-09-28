@@ -221,8 +221,34 @@ parse_string([$\\, Char | Rest], Acc) when ?IS_ESCAPE_CHAR(Char) ->
     parse_string(Rest, [Char | Acc]);
 parse_string([Char | Rest], Acc) when ?IS_EXT_STRING_CHAR(Char) ->
     parse_string(Rest, [Char | Acc]);
+parse_string([Char | _] = String, Acc) when Char >= 16#80 andalso Char =< 16#FF ->
+    %% UTFMB: the bytes of one multi-byte UTF-8 character
+    case utf8_char(String) of
+        {ok, Bytes, Rest} ->
+            parse_string(Rest, lists:reverse(Bytes, Acc));
+        error ->
+            throw({invalid_string_char, Char})
+    end;
 parse_string([Char | _Rest], _Acc) ->
     throw({invalid_string_char, Char}).
+
+utf8_char([Lead | _] = String) ->
+    N = utf8_char_len(Lead),
+    maybe
+        true ?= length(String) >= N,
+        {Bytes, Rest} = lists:split(N, String),
+        true ?= lists:all(fun(B) -> B =< 16#FF end, Bytes),
+        [_] ?= unicode:characters_to_list(list_to_binary(Bytes)),
+        {ok, Bytes, Rest}
+    else
+        _ -> error
+    end.
+
+utf8_char_len(Lead) when Lead >= 16#F5 -> 1;
+utf8_char_len(Lead) when Lead >= 16#F0 -> 4;
+utf8_char_len(Lead) when Lead >= 16#E0 -> 3;
+utf8_char_len(Lead) when Lead >= 16#C2 -> 2;
+utf8_char_len(_Lead) -> 1.
 
 hex_char_to_int(HexChar) when HexChar >= $0 andalso HexChar =< $9 ->
     HexChar - $0;

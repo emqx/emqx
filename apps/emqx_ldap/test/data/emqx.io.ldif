@@ -236,3 +236,20 @@ uid: mqttuser0011
 isEnabled: TRUE
 mqttAclRule: {invalid-json
 userPassword: {SHA}znSPP0hz/0QGs88iiEB4D8qnwOw=
+
+## user whose memberOf values come from the groups in emqx.groups.ldif
+dn:ou=groupmember,dc=emqx,dc=io
+objectClass: top
+objectclass:organizationalUnit
+ou:groupmember
+
+## create user=mqttgroupuser,
+#         password=mqttgroupuser
+dn:uid=mqttgroupuser,ou=groupmember,dc=emqx,dc=io
+objectClass: top
+objectClass: mqttUser
+objectClass: mqttDevice
+objectClass: mqttSecurity
+uid: mqttgroupuser
+isEnabled: TRUE
+userPassword: {SHA}nKQj+Jic/oUo9HVfpeAg9sNrpW4=

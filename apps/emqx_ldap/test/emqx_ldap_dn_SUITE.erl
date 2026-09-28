@@ -67,6 +67,30 @@ t_parse_dn(_Config) ->
         emqx_ldap_dn:parse("cn=\\X")
     ).
 
+-doc "Checks that a value may contain unescaped multi-byte UTF-8 characters, and only those.".
+t_parse_dn_utf8(_Config) ->
+    %% "Grün", with the u-umlaut as UTF-8 bytes
+    Gruen = "Gr" ++ [16#C3, 16#BC] ++ "n",
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{"cn", Gruen}], [{"dc", "x"}]]}},
+        emqx_ldap_dn:parse(<<"cn=Gr", 16#C3, 16#BC, "n,dc=x">>)
+    ),
+    %% a four-byte character at the end of the value
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{"cn", "a" ++ [16#F0, 16#9F, 16#98, 16#80]}]]}},
+        emqx_ldap_dn:parse(<<"cn=a", 16#F0, 16#9F, 16#98, 16#80>>)
+    ),
+    %% a truncated sequence
+    ?assertMatch(
+        {error, {invalid_string_char, 16#C3}},
+        emqx_ldap_dn:parse(<<"cn=Gr", 16#C3, ",dc=x">>)
+    ),
+    %% a lone continuation byte
+    ?assertMatch(
+        {error, {invalid_string_char, 16#BC}},
+        emqx_ldap_dn:parse(<<"cn=Gr", 16#BC, "n">>)
+    ).
+
 t_to_string(_Config) ->
     ?assertEqual(
         "cn=John+sn=Doe,ou=Users+dc=c m",
