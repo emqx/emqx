@@ -256,13 +256,29 @@ t_invalid_jwt_permission_fails_closed(_) ->
     ?assertEqual(deny, emqx_nats_channel:authorize_publish(ClientInfo, Msg)).
 
 t_jwt_multi_level_wildcard_requires_child(_) ->
+    TestPid = self(),
+    ok = emqx_hooks:put(
+        'client.authorize',
+        {?MODULE, hook_authorize_order, [TestPid]},
+        ?HP_HIGHEST
+    ),
     ClientInfo = nats_authz_clientinfo(#{
         publish => #{allow => [<<"foo.>">>], deny => []}
     }),
     ParentMsg = emqx_message:make(<<"client">>, <<"foo">>, <<"parent">>),
     ChildMsg = emqx_message:make(<<"client">>, <<"foo/bar">>, <<"child">>),
     ?assertEqual(deny, emqx_nats_channel:authorize_publish(ClientInfo, ParentMsg)),
-    ?assertMatch({allow, _}, emqx_nats_channel:authorize_publish(ClientInfo, ChildMsg)).
+    receive
+        {emqx_authorize, Topic} -> ct:fail({unexpected_emqx_authorize, Topic})
+    after 100 ->
+        ok
+    end,
+    ?assertMatch({allow, _}, emqx_nats_channel:authorize_publish(ClientInfo, ChildMsg)),
+    receive
+        {emqx_authorize, <<"foo/bar">>} -> ok
+    after 1000 ->
+        ct:fail(emqx_authorize_hook_not_called)
+    end.
 
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
