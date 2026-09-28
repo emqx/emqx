@@ -156,7 +156,7 @@ serve_shot(BoxId, ImagePath) ->
                 <<"image_url">> => <<"data:image/png;base64,", B64/binary>>
             }),
             RespMsg = emqx_message:make(?MODULE, 0, ResponseTopic, Payload),
-            _ = emqx_broker:publish(RespMsg)
+            _ = emqx_broker:publish2(RespMsg)
     after ?LLM_TIMEOUT ->
         ct:fail("no shot request for box ~s within ~w ms", [BoxId, ?LLM_TIMEOUT])
     end.
@@ -194,7 +194,7 @@ publish_done(ConvId, BoxId, AppleCount) ->
         <<"conveyor_id">> => ConvId,
         <<"apple_count">> => AppleCount
     }),
-    _ = emqx_broker:publish(emqx_message:make(?MODULE, 0, Topic, Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(?MODULE, 0, Topic, Payload)),
     ok.
 
 %%--------------------------------------------------------------------

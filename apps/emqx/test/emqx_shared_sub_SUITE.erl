@@ -121,7 +121,7 @@ t_random_basic(Config) when is_list(Config) ->
     %% wait for the subscription to show up
     ct:sleep(200),
     ?assertEqual(true, subscribed(<<"group1">>, Topic, self())),
-    emqx:publish(MsgQoS2),
+    emqx:publish2(MsgQoS2),
     receive
         {deliver, Topic0, #message{
             from = ClientId0,
@@ -168,7 +168,7 @@ t_no_connection_nack(Config) when is_list(Config) ->
     end,
     SendF = fun(PacketId) ->
         M = emqx_message:make(Publisher, QoS, Topic, MkPayload(PacketId)),
-        emqx:publish(M#message{id = PacketId})
+        emqx:publish2(M#message{id = PacketId})
     end,
     SendF(1),
     timer:sleep(200),
@@ -376,10 +376,10 @@ t_sticky_unsubscribe(Config) when is_list(Config) ->
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
     ct:sleep(100),
 
-    emqx:publish(Message1),
+    emqx:publish2(Message1),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
     emqtt:unsubscribe(UsedSubPid1, ShareTopic),
-    emqx:publish(Message2),
+    emqx:publish2(Message2),
     {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1, ConnPid2]),
     ?assertNotEqual(UsedSubPid1, UsedSubPid2),
 
@@ -412,7 +412,7 @@ t_hash_topic(Config) when is_list(Config) ->
     emqtt:subscribe(ConnPid1, {<<"$share/group1/foo/#">>, 0}),
     emqtt:subscribe(ConnPid2, {<<"$share/group1/foo/#">>, 0}),
     ct:sleep(100),
-    emqx:publish(Message1),
+    emqx:publish2(Message1),
     Me = self(),
     WaitF = fun(ExpectedPayload) ->
         case last_message(ExpectedPayload, [ConnPid1, ConnPid2]) of
@@ -428,7 +428,7 @@ t_hash_topic(Config) when is_list(Config) ->
         receive
             {subscriber, P1} -> P1
         end,
-    emqx_broker:publish(Message2),
+    emqx_broker:publish2(Message2),
     WaitF(<<"hello2">>),
     UsedSubPid2 =
         receive
@@ -483,10 +483,10 @@ test_two_messages(Strategy, Group) ->
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
     wait_for_sub(Group, 2),
 
-    emqx:publish(Message1),
+    emqx:publish2(Message1),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
 
-    emqx:publish(Message2),
+    emqx:publish2(Message2),
     {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1, ConnPid2]),
 
     emqtt:stop(ConnPid1),
@@ -630,10 +630,10 @@ t_local(Config) when is_list(Config) ->
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
-    emqx:publish(Message1),
+    emqx:publish2(Message1),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
 
-    rpc:call(Node, emqx, publish, [Message2]),
+    rpc:call(Node, emqx, publish2, [Message2]),
     {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1, ConnPid2]),
     RemoteLocalGroupStrategy = rpc:call(Node, emqx_shared_sub, strategy, [<<"local_group">>]),
 
@@ -687,13 +687,13 @@ t_remote(Config) when is_list(Config) ->
         Message2 = emqx_message:make(ClientPidLocal, 1, Topic, <<"hello2">>),
         Message3 = emqx_message:make(ClientPidLocal, 2, Topic, <<"hello3">>),
 
-        emqx:publish(Message1),
+        emqx:publish2(Message1),
         {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPidRemote]),
 
-        emqx:publish(Message2),
+        emqx:publish2(Message2),
         {true, UsedSubPid1} = last_message(<<"hello2">>, [ConnPidRemote]),
 
-        emqx:publish(Message3),
+        emqx:publish2(Message3),
         {true, UsedSubPid1} = last_message(<<"hello3">>, [ConnPidRemote]),
 
         ok
@@ -725,10 +725,10 @@ t_010_local_fallback(Config) when is_list(Config) ->
         {ok, _, _} = emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
         emqx_cth_cluster:sync_routes([node(), Node]),
 
-        emqx:publish(Message1),
+        emqx:publish2(Message1),
         {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
 
-        {ok, [{share, Topic, {ok, _}}], #message{}} = rpc:call(Node, emqx, publish, [Message2]),
+        {ok, [{share, Topic, {ok, _}}], #message{}} = rpc:call(Node, emqx, publish2, [Message2]),
         {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 10_000),
         ?assertEqual(UsedSubPid1, UsedSubPid2)
     after
@@ -806,7 +806,7 @@ test_redispatch_qos1(_Config, AckEnabled) ->
 
     Message = emqx_message:make(ClientId1, 1, Topic, <<"hello1">>),
 
-    emqx:publish(Message),
+    emqx:publish2(Message),
 
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
     ok = emqtt:stop(UsedSubPid1),
@@ -908,10 +908,10 @@ t_dispatch_qos2(Config) when is_list(Config) ->
     ok = sys:suspend(ConnPid1),
 
     %% One message is inflight
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message1)),
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message2)),
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message3)),
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message4)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish2(Message1)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish2(Message2)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish2(Message3)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish2(Message4)),
 
     %% assert client 2 receives two messages, they are eiter 1,3 or 2,4 depending
     %% on if it's picked as the first one for round_robin
@@ -975,10 +975,10 @@ t_dispatch_qos0(Config) when is_list(Config) ->
 
     ok = sys:suspend(ConnPid1),
 
-    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message1)),
-    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message2)),
-    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message3)),
-    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message4)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish2(Message1)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish2(Message2)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish2(Message3)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish2(Message4)),
 
     MsgRec1 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P1}}, P1),
     MsgRec2 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P2}}, P2),
@@ -1016,18 +1016,18 @@ t_session_takeover(Config) when is_list(Config) ->
     Message3 = emqx_message:make(<<"dummypub">>, 2, Topic, <<"hello3">>),
     Message4 = emqx_message:make(<<"dummypub">>, 2, Topic, <<"hello4">>),
     %% Make sure client1 is functioning
-    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message1)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish2(Message1)),
     {true, _} = last_message(<<"hello1">>, [ConnPid1]),
     %% Kill client1
     emqtt:stop(ConnPid1),
     %% publish another message (should end up in client1's session)
-    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message2)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish2(Message2)),
     %% connect client2 (with the same clientid)
 
     %% should trigger session take over
     {ok, _} = emqtt:connect(ConnPid2),
-    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message3)),
-    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message4)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish2(Message3)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish2(Message4)),
     %% Messages published around the takeover are delivered by session
     %% redelivery, which can take longer than the default 1s under CI load.
     {true, _} = last_message(<<"hello2">>, [ConnPid2], 5_000),
@@ -1071,10 +1071,10 @@ t_session_kicked(Config) when is_list(Config) ->
     ok = sys:suspend(ConnPid1),
 
     %% One message is inflight
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message1)),
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message2)),
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message3)),
-    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message4)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish2(Message1)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish2(Message2)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish2(Message3)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish2(Message4)),
 
     %% assert client 2 receives two messages, they are eiter 1,3 or 2,4 depending
     %% on if it's picked as the first one for round_robin
@@ -1145,7 +1145,7 @@ t_different_groups_same_topic(Config) when is_list(Config) ->
     ),
 
     Message0 = emqx_message:make(ClientId, ?QOS_2, Topic, <<"hi">>),
-    emqx:publish(Message0),
+    emqx:publish2(Message0),
     ?assertMatch(
         [
             {publish, #{payload := <<"hi">>}},
@@ -1195,7 +1195,7 @@ t_different_groups_update_subopts(Config) when is_list(Config) ->
     ),
 
     Message0 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hi">>),
-    emqx:publish(Message0),
+    emqx:publish2(Message0),
     ?assertMatch(
         [
             {publish, #{payload := <<"hi">>}},
@@ -1243,7 +1243,7 @@ t_queue_subscription(Config) when is_list(Config) ->
 
     %% now publish to the underlying topic
     Message0 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hi">>),
-    emqx:publish(Message0),
+    emqx:publish2(Message0),
     ?assertMatch(
         [
             {publish, #{payload := <<"hi">>}},
@@ -1266,7 +1266,7 @@ t_queue_subscription(Config) when is_list(Config) ->
     ct:sleep(500),
 
     Message1 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hello">>),
-    emqx:publish(Message1),
+    emqx:publish2(Message1),
     %% we should *not* receive any messages.
     ?assertEqual([], collect_msgs(1_000), #{routes => emqx_router:match_routes(<<"#">>)}),
     ok.

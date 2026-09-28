@@ -855,10 +855,10 @@ set_result_schema() ->
     }.
 
 publish_evt(Topic, Event) ->
-    emqx_broker:publish(trigger_message(Topic, Event)).
+    emqx_broker:publish2(trigger_message(Topic, Event)).
 
 publish_frame(Topic, PayloadMap) ->
-    _ = emqx_broker:publish(
+    _ = emqx_broker:publish2(
         emqx_message:make(?MODULE, 0, Topic, emqx_utils_json:encode(PayloadMap))
     ),
     ok.

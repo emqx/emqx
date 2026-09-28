@@ -397,7 +397,7 @@ t_batch_insert(TCConfig) ->
                         second_ts => Ts + Idx + 5000
                     },
                     Payload = emqx_utils_json:encode(SentData),
-                    emqx:publish(emqx_message:make(Topic, Payload))
+                    emqx:publish2(emqx_message:make(Topic, Payload))
                 end,
                 lists:seq(1, Size)
             ),
@@ -505,7 +505,7 @@ t_auto_create_batch_insert(TCConfig) ->
                                 clientid => ClientId
                             },
                             Payload = emqx_utils_json:encode(SentData),
-                            emqx:publish(emqx_message:make(Topic, Payload))
+                            emqx:publish2(emqx_message:make(Topic, Payload))
                         end,
                         lists:seq(1, Size)
                     )

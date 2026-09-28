@@ -529,7 +529,7 @@ publish_delayed_message(Msg = #message{from = ClientId, topic = Topic, qos = Qos
 
 publish_delayed_message_legacy(Msg, ClientId, Topic) ->
     case emqx_banned:check_clientid(ClientId) of
-        false -> emqx:publish(remove_delayed_header(Msg));
+        false -> emqx:publish2(remove_delayed_header(Msg));
         true -> ignore_delayed_message_publish("client is banned", ClientId, Topic)
     end.
 
@@ -556,7 +556,7 @@ maybe_publish_authorized(AuthzContext, AuthzTopic, Msg, ClientId, Topic, Qos) ->
     case emqx_access_control:authorize(AuthzContext, Action, AuthzTopic, #{cache => false}) of
         allow ->
             case emqx_banned:check(AuthzContext) of
-                false -> emqx:publish(remove_delayed_header(Msg));
+                false -> emqx:publish2(remove_delayed_header(Msg));
                 true -> ignore_delayed_message_publish("client is banned", ClientId, Topic)
             end;
         deny ->

@@ -311,7 +311,7 @@ invoke_and_assert_response(_Config, Args, AssertFn) ->
         <<"mode">> => <<"unary">>,
         <<"args">> => Args
     }),
-    _ = emqx_broker:publish(emqx_message:make(?TOOL_ID, 0, invoke_topic(ReqId), Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(?TOOL_ID, 0, invoke_topic(ReqId), Payload)),
 
     Reply =
         receive

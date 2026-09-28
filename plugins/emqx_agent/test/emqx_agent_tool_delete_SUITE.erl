@@ -302,7 +302,7 @@ invoke(Type, ToolId, Args, ReqId, Extra) ->
             Extra
         )
     ),
-    _ = emqx_broker:publish(emqx_message:make(ToolId, 0, Topic, Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(ToolId, 0, Topic, Payload)),
     ok.
 
 recv_reply(ReqId) ->

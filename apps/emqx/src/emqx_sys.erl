@@ -354,7 +354,7 @@ safe_publish(Topic, Flags, Payload) ->
             maps:merge(#{sys => true}, Flags),
             emqx_message:make(?SYS, Topic, iolist_to_binary(Payload))
         ),
-    emqx_broker:safe_publish(maybe_set_retained_expiry(Msg)).
+    emqx_broker:safe_publish2(maybe_set_retained_expiry(Msg)).
 
 maybe_set_retained_expiry(Msg) ->
     case emqx_message:get_flag(retain, Msg, false) of

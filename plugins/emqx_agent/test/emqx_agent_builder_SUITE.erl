@@ -391,7 +391,7 @@ tool_type(Spec) ->
 publish_request(Message) ->
     Payload = emqx_utils_json:encode(#{<<"message">> => Message}),
     Msg = emqx_message:make(?MODULE, 0, ?REQUEST_TOPIC, Payload),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ok.
 
 await_reply() ->

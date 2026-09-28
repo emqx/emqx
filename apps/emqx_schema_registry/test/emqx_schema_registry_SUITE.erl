@@ -573,7 +573,7 @@ t_encode_decode(Config) ->
     } = test_params_for(SerdeType, encode_decode1),
     {ok, _} = create_rule_http(#{sql => SQL}),
     PayloadBin = emqx_utils_json:encode(Payload),
-    emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
+    emqx:publish2(emqx_message:make(<<"t">>, PayloadBin)),
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.
@@ -612,7 +612,7 @@ t_encode(Config) ->
     } = test_params_for(SerdeType, encode1),
     {ok, _} = create_rule_http(#{sql => SQL}, #{payload_template => PayloadTemplate}),
     PayloadBin = emqx_utils_json:encode(Payload),
-    emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
+    emqx:publish2(emqx_message:make(<<"t">>, PayloadBin)),
     Published = receive_published(?LINE),
     case SerdeType of
         json ->
@@ -657,7 +657,7 @@ t_decode(Config) ->
     {ok, _} = create_rule_http(#{sql => SQL}),
     {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
     EncodedBin = eval_encode(Serde, [Payload | ExtraArgs]),
-    emqx:publish(emqx_message:make(<<"t">>, EncodedBin)),
+    emqx:publish2(emqx_message:make(<<"t">>, EncodedBin)),
     Published = receive_published(?LINE),
     ?assertMatch(
         #{payload := #{<<"decoded">> := _}},
@@ -681,7 +681,7 @@ t_protobuf_union_encode(Config) ->
     {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
 
     EncodedBinA = eval_encode(Serde, [PayloadA | ExtraArgs]),
-    emqx:publish(emqx_message:make(<<"t">>, EncodedBinA)),
+    emqx:publish2(emqx_message:make(<<"t">>, EncodedBinA)),
     PublishedA = receive_published(?LINE),
     ?assertMatch(
         #{payload := #{<<"decoded">> := _}},
@@ -691,7 +691,7 @@ t_protobuf_union_encode(Config) ->
     ?assertEqual(PayloadA, DecodedA),
 
     EncodedBinB = eval_encode(Serde, [PayloadB | ExtraArgs]),
-    emqx:publish(emqx_message:make(<<"t">>, EncodedBinB)),
+    emqx:publish2(emqx_message:make(<<"t">>, EncodedBinB)),
     PublishedB = receive_published(?LINE),
     ?assertMatch(
         #{payload := #{<<"decoded">> := _}},
@@ -716,7 +716,7 @@ t_protobuf_union_decode(Config) ->
     {ok, Serde} = emqx_schema_registry:get_serde(SerdeName),
 
     EncodedBinA = emqx_utils_json:encode(PayloadA),
-    emqx:publish(emqx_message:make(<<"t">>, EncodedBinA)),
+    emqx:publish2(emqx_message:make(<<"t">>, EncodedBinA)),
     PublishedA = receive_published(?LINE),
     ?assertMatch(
         #{payload := #{<<"encoded">> := _}},
@@ -726,7 +726,7 @@ t_protobuf_union_decode(Config) ->
     ?assertEqual(PayloadA, eval_decode(Serde, [EncodedA | ExtraArgs])),
 
     EncodedBinB = emqx_utils_json:encode(PayloadB),
-    emqx:publish(emqx_message:make(<<"t">>, EncodedBinB)),
+    emqx:publish2(emqx_message:make(<<"t">>, EncodedBinB)),
     PublishedB = receive_published(?LINE),
     ?assertMatch(
         #{payload := #{<<"encoded">> := _}},
@@ -1063,7 +1063,7 @@ t_sparkplug_decode(_Config) ->
     ExpectedRuleOutput =
         #{<<"decoded">> => sparkplug_example_data()},
     wait_for_sparkplug_schema_registered(),
-    emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
+    emqx:publish2(emqx_message:make(<<"t">>, PayloadBin)),
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.
@@ -1081,7 +1081,7 @@ t_sparkplug_encode(_Config) ->
     ExpectedRuleOutput =
         #{<<"encoded">> => base64:decode(sparkplug_example_data_base64())},
     wait_for_sparkplug_schema_registered(),
-    emqx:publish(emqx_message:make(<<"t">>, PayloadJSONBin)),
+    emqx:publish2(emqx_message:make(<<"t">>, PayloadJSONBin)),
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.
@@ -1121,7 +1121,7 @@ t_sparkplug_decode_bytes(_TCConfig) ->
                 }
         },
     wait_for_sparkplug_schema_registered(),
-    emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
+    emqx:publish2(emqx_message:make(<<"t">>, PayloadBin)),
     Res = receive_action_results(),
     ?assertMatch(
         #{data := ExpectedRuleOutput},
@@ -1162,7 +1162,7 @@ t_sparkplug_encode_bytes(_TCConfig) ->
     >>,
     ExpectedRuleOutput = #{<<"encoded">> => binary:decode_hex(ResultHex)},
     wait_for_sparkplug_schema_registered(),
-    emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
+    emqx:publish2(emqx_message:make(<<"t">>, PayloadBin)),
     Res = receive_action_results(),
     ?assertMatch(
         #{data := ExpectedRuleOutput},
@@ -1196,7 +1196,7 @@ t_sparkplug_decode_encode_with_message_name(_Config) ->
     ExpectedRuleOutput =
         #{<<"encoded">> => PayloadBin},
     wait_for_sparkplug_schema_registered(),
-    emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
+    emqx:publish2(emqx_message:make(<<"t">>, PayloadBin)),
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.

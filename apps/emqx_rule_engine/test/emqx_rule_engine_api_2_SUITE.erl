@@ -1446,7 +1446,7 @@ t_alarm_events_hash(Config) ->
     do_t_alarm_events(Config),
     %% Message publish shouldn't match `$events/#`, but can match other events such as
     %% `$events/message_dropped`.
-    emqx:publish(emqx_message:make(<<"t">>, <<"hey">>)),
+    emqx:publish2(emqx_message:make(<<"t">>, <<"hey">>)),
     ?assertReceive(
         {rule_called, #{
             selected := #{event := 'message.dropped'},
@@ -1460,7 +1460,7 @@ t_alarm_events_hash(Config) ->
     ),
     {ok, _} = emqx_conf:remove([rule_engine, rules, RuleId], #{override_to => cluster}),
     %% Shouldn't match anymore.
-    emqx:publish(emqx_message:make(<<"t">>, <<"hey">>)),
+    emqx:publish2(emqx_message:make(<<"t">>, <<"hey">>)),
     ?assertNotReceive({rule_called, _}),
     ok.
 
@@ -2877,7 +2877,7 @@ t_direct_dispatch_empty_string(_Config) ->
                 ]
             }),
             emqx:subscribe(<<"rep">>),
-            emqx:publish(emqx_message:make(<<"t">>, <<"hey">>)),
+            emqx:publish2(emqx_message:make(<<"t">>, <<"hey">>)),
             ?assertReceive({deliver, <<"rep">>, _}),
             ok
         end,

@@ -308,12 +308,12 @@ mk_message({ClientId, Topic, Payload}) ->
     emqx_message:make(bin(ClientId), bin(Topic), Payload).
 
 publish_messages(MessageEvents) ->
-    lists:foreach(fun emqx:publish/1, MessageEvents).
+    lists:foreach(fun emqx:publish2/1, MessageEvents).
 
 publish_messages_delayed(MessageEvents, Delay) ->
     lists:foreach(
         fun(Msg) ->
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
             ct:sleep(Delay)
         end,
         MessageEvents

@@ -775,7 +775,7 @@ t_dispatch_rate_limit_non_wildcard(_) ->
     Payload = <<"a">>,
     Topic = <<"t/", Payload/binary>>,
     Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
-    emqx:publish(Msg),
+    emqx:publish2(Msg),
     %% Sanity check
     ?assertEqual(1, emqx_retainer:retained_count()),
 
@@ -820,7 +820,7 @@ t_dispatch_rate_limit_wildcard(_) ->
             Payload = integer_to_binary(N),
             Topic = <<"t/", Payload/binary>>,
             Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
-            emqx:publish(Msg)
+            emqx:publish2(Msg)
         end,
         lists:seq(1, NumMsgs)
     ),
@@ -863,7 +863,7 @@ t_shared_subscription(_TCConfig) ->
     Payload = <<"I shouldn't be delivered...">>,
     Topic = <<"smoke/shared_sub">>,
     Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
-    emqx:publish(Msg),
+    emqx:publish2(Msg),
 
     {ok, C} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
     {ok, _} = emqtt:connect(C),
@@ -1188,7 +1188,7 @@ t_deliver_when_banned(_) ->
             Topic = erlang:list_to_binary(io_lib:format("retained/~p", [I])),
             Msg = emqx_message:make(Client2, 0, Topic, <<"this is a retained message">>),
             Msg2 = emqx_message:set_flag(retain, Msg),
-            emqx:publish(Msg2)
+            emqx:publish2(Msg2)
         end,
         lists:seq(1, 3)
     ),

@@ -74,7 +74,7 @@ t_request_response(_Config) ->
     #deliver{message = ReqMsg} = await_deliver(DeviceTopic),
     ResponseTopic = response_topic(ReqMsg),
     RespMsg = emqx_message:make(<<"device-sim">>, 0, ResponseTopic, <<"pong">>),
-    _ = emqx_broker:publish(RespMsg),
+    _ = emqx_broker:publish2(RespMsg),
 
     %% Tool reply must carry the response payload and status=ok.
     Reply = decode_reply(await_deliver(ReplyTopic)),
@@ -108,7 +108,7 @@ t_json_response_autodiscovers_images(_Config) ->
         <<"image_url">> => <<"data:image/png;base64,abc123">>,
         <<"ok">> => true
     }),
-    _ = emqx_broker:publish(emqx_message:make(<<"camera">>, 0, ResponseTopic, Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(<<"camera">>, 0, ResponseTopic, Payload)),
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     Response = emqx_agent_tool_helpers:cap_response(Reply),
@@ -145,7 +145,7 @@ t_response_topic_in_properties(_Config) ->
     ?assert(binary:match(ResponseTopic, <<"$cap/tmp/response/">>) =/= nomatch),
 
     %% Clean up: respond so the spawned process terminates.
-    _ = emqx_broker:publish(emqx_message:make(<<"sim">>, 0, ResponseTopic, <<"ok">>)),
+    _ = emqx_broker:publish2(emqx_message:make(<<"sim">>, 0, ResponseTopic, <<"ok">>)),
     _ = await_deliver(ReplyTopic),
 
     ok = emqx:unsubscribe(DeviceTopic),
@@ -173,8 +173,8 @@ t_response_topics_are_unique(_Config) ->
 
     ?assertNotEqual(RT1, RT2),
 
-    _ = emqx_broker:publish(emqx_message:make(<<"sim">>, 0, RT1, <<"r1">>)),
-    _ = emqx_broker:publish(emqx_message:make(<<"sim">>, 0, RT2, <<"r2">>)),
+    _ = emqx_broker:publish2(emqx_message:make(<<"sim">>, 0, RT1, <<"r1">>)),
+    _ = emqx_broker:publish2(emqx_message:make(<<"sim">>, 0, RT2, <<"r2">>)),
     _ = await_deliver(ReplyTopic1),
     _ = await_deliver(ReplyTopic2),
 
@@ -220,7 +220,7 @@ t_topic_prefix_applied(_Config) ->
     ?assertEqual(FullTopic, ArrivedTopic),
 
     RT = response_topic(ReqMsg),
-    _ = emqx_broker:publish(emqx_message:make(<<"sim">>, 0, RT, <<"bye">>)),
+    _ = emqx_broker:publish2(emqx_message:make(<<"sim">>, 0, RT, <<"bye">>)),
     _ = await_deliver(ReplyTopic),
 
     ok = emqx:unsubscribe(FullTopic),
@@ -244,7 +244,7 @@ t_reply_correlation(_Config) ->
 
     #deliver{message = ReqMsg} = await_deliver(DeviceTopic),
     RT = response_topic(ReqMsg),
-    _ = emqx_broker:publish(emqx_message:make(<<"sim">>, 0, RT, <<"ack">>)),
+    _ = emqx_broker:publish2(emqx_message:make(<<"sim">>, 0, RT, <<"ack">>)),
 
     Reply = decode_reply(await_deliver(ReplyTopic)),
     ?assertMatch(
@@ -323,7 +323,7 @@ invoke(ToolId, Args, ReqId, Extra) ->
             Extra
         )
     ),
-    _ = emqx_broker:publish(emqx_message:make(ToolId, 0, Topic, Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(ToolId, 0, Topic, Payload)),
     ok.
 
 %% Extract the MQTT 5 Response-Topic property from a request message.

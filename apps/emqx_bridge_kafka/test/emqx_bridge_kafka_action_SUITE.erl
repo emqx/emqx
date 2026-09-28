@@ -2108,7 +2108,7 @@ t_metrics_out_of_service(TCConfig) ->
     }),
     #{topic := RuleTopic, id := RuleId} = simple_create_rule_api(TCConfig),
     %% Async query
-    emqx:publish(emqx_message:make(RuleTopic, <<"a">>)),
+    emqx:publish2(emqx_message:make(RuleTopic, <<"a">>)),
     ?retry(
         100,
         10,
@@ -2134,7 +2134,7 @@ t_metrics_out_of_service(TCConfig) ->
         TCConfig,
         #{<<"parameters">> => #{<<"query_mode">> => <<"sync">>}}
     ),
-    emqx:publish(emqx_message:make(RuleTopic, <<"a">>)),
+    emqx:publish2(emqx_message:make(RuleTopic, <<"a">>)),
     ?retry(
         100,
         10,
@@ -2172,7 +2172,7 @@ t_overflow_rule_metrics(TCConfig) ->
     }),
     #{topic := RuleTopic, id := RuleId} = simple_create_rule_api(TCConfig),
     %% Async
-    emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+    emqx:publish2(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
     ?retry(
         200,
         10,
@@ -2228,7 +2228,7 @@ t_overflow_rule_metrics(TCConfig) ->
         }
     ),
     ok = reset_rule_metrics(RuleId),
-    emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+    emqx:publish2(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
     ?retry(
         200,
         10,
@@ -2310,7 +2310,7 @@ t_fallback_actions(TCConfig) when is_list(TCConfig) ->
 
     emqx:subscribe(RepublishTopic),
     Payload = <<"aaaaaaaaaaaaaa">>,
-    emqx:publish(emqx_message:make(RuleTopic, Payload)),
+    emqx:publish2(emqx_message:make(RuleTopic, Payload)),
 
     ?assertReceive({deliver, RepublishTopic, #message{payload = Payload}}),
 

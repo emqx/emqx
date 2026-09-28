@@ -30,7 +30,7 @@ start(ClientId, Username, Password, _Channel, KeepaliveInterval) ->
 publish(Topic, Payload, Qos) ->
     ClientId = <<"lwm2m_test_suite">>,
     Msg = emqx_message:make(ClientId, Qos, Topic, Payload),
-    emqx:publish(Msg).
+    emqx:publish2(Msg).
 
 subscribe(Topic) ->
     gen_server:call(?MODULE, {subscribe, Topic, self()}).

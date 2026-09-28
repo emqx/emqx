@@ -70,7 +70,7 @@ t_invoke_queries_postgresql(_Config) ->
     },
     Payload = emqx_utils_json:encode(Invoke),
     Msg = emqx_message:make(?TOOL_ID, 0, ?INVOKE_TOPIC(ReqId), Payload),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
 
     Reply =
         receive

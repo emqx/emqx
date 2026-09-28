@@ -32,11 +32,23 @@
     purge_node/1
 ]).
 
+%% These functions wrap `publish2` and `safe_publish2` to preserve the legacy
+%% return format.
+%% A successful legacy result omits the message returned by the `message.publish` hook.
+%% Callers need that message for the `message.puback` and `message.pubrec` hooks.
+%% Use `publish2` or `safe_publish2` in new code.
 -export([
     publish/1,
     publish/2,
     safe_publish/1,
     safe_publish/2
+]).
+
+-export([
+    publish2/1,
+    publish2/2,
+    safe_publish2/1,
+    safe_publish2/2
 ]).
 
 -export([
@@ -259,12 +271,34 @@ do_unsubscribe_regular(Topic, SubPid, SubOpts) ->
 %% Publish
 %%--------------------------------------------------------------------
 
+-doc """
+Publish a message to the broker and return the legacy result.
+
+Use `publish2/1` to get the message returned by the `message.publish` hook.
+""".
 -spec publish(emqx_types:message()) -> emqx_types:publish_result().
 publish(#message{} = Msg) ->
     publish(#message{} = Msg, _Opts = #{}).
 
+-doc """
+Publish a message to the broker and return the legacy result.
+
+Use `publish2/2` to get the message returned by the `message.publish` hook.
+""".
 -spec publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
 publish(#message{} = Msg, Opts) ->
+    case publish2(Msg, Opts) of
+        {ok, Routes, _Message} -> Routes;
+        {error, blocked, Message} -> {blocked, Message};
+        {error, disconnect, _Message} -> disconnect
+    end.
+
+-spec publish2(emqx_types:message()) -> emqx_types:publish_result2().
+publish2(#message{} = Msg) ->
+    publish2(#message{} = Msg, _Opts = #{}).
+
+-spec publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result2().
+publish2(#message{} = Msg, Opts) ->
     _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse inc_metrics('messages.publish', Msg),
     case maps:get(bypass_hook, Opts, false) of
@@ -324,15 +358,36 @@ persist_publish(Msg) ->
             []
     end.
 
-%% Called internally
+-doc """
+Publish a message, suppress exceptions, and return the legacy result.
+
+Use `safe_publish2/1` to get a result that includes the message.
+""".
 -spec safe_publish(emqx_types:message()) -> emqx_types:publish_result().
 safe_publish(Msg) ->
     safe_publish(Msg, _Opts = #{}).
 
+-doc """
+Publish a message, suppress exceptions, and return the legacy result.
+
+Use `safe_publish2/2` to get a result that includes the message.
+""".
 -spec safe_publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
 safe_publish(#message{} = Msg, Opts) ->
+    case safe_publish2(Msg, Opts) of
+        {ok, Routes, _Message} -> Routes;
+        {error, blocked, Message} -> {blocked, Message};
+        {error, disconnect, _Message} -> disconnect
+    end.
+
+-spec safe_publish2(emqx_types:message()) -> emqx_types:publish_result2().
+safe_publish2(#message{} = Msg) ->
+    safe_publish2(#message{} = Msg, _Opts = #{}).
+
+-spec safe_publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result2().
+safe_publish2(#message{} = Msg, Opts) ->
     try
-        publish(Msg, Opts)
+        publish2(Msg, Opts)
     catch
         Error:Reason:Stk ->
             ?SLOG(

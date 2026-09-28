@@ -141,20 +141,20 @@ t_message_persisted(_Config) ->
     Msg = emqx_message:make(?MODULE, 1, Topic, <<"payload">>),
 
     %% An absent or false header does not count as persistence.
-    ?assertEqual({ok, [], Msg}, emqx_broker:publish(Msg)),
+    ?assertEqual({ok, [], Msg}, emqx_broker:publish2(Msg)),
     NotPersisted = emqx_message:set_header(message_persisted, false, Msg),
-    ?assertEqual({ok, [], NotPersisted}, emqx_broker:publish(NotPersisted)),
+    ?assertEqual({ok, [], NotPersisted}, emqx_broker:publish2(NotPersisted)),
 
     %% Hook-reported persistence prevents a no-subscriber drop.
     ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_persisted, []}, ?HP_LOWEST),
     Dropped = emqx_metrics:val_global('messages.dropped.no_subscribers'),
     Persisted = emqx_message:set_header(message_persisted, true, Msg),
-    ?assertEqual({ok, [persisted], Persisted}, emqx_broker:publish(Msg)),
+    ?assertEqual({ok, [persisted], Persisted}, emqx_broker:publish2(Msg)),
     ?assertEqual(Dropped, emqx_metrics:val_global('messages.dropped.no_subscribers')),
 
     %% Persisted messages still reach matching subscribers.
     ok = emqx_broker:subscribe(Topic),
-    ?assertMatch({ok, [{_, Topic, _}, persisted], Persisted}, emqx_broker:publish(Msg)),
+    ?assertMatch({ok, [{_, Topic, _}, persisted], Persisted}, emqx_broker:publish2(Msg)),
     receive
         {deliver, Topic, #message{payload = <<"payload">>}} -> ok
     after 1000 ->
@@ -165,19 +165,99 @@ t_message_persisted(_Config) ->
     %% Publish rejection takes precedence over the persistence header.
     Blocked = emqx_message:set_header(allow_publish, false, Msg),
     PersistedBlocked = emqx_message:set_header(message_persisted, true, Blocked),
-    ?assertEqual({ok, [], PersistedBlocked}, emqx_broker:publish(Blocked)),
+    ?assertEqual({ok, [], PersistedBlocked}, emqx_broker:publish2(Blocked)),
     ?assertEqual(
         {error, blocked, PersistedBlocked},
-        emqx_broker:publish(Blocked, #{hook_prohibition_as_error => true})
+        emqx_broker:publish2(Blocked, #{hook_prohibition_as_error => true})
     ),
 
     %% A disconnect request also takes precedence over the persistence header.
     Disconnect = emqx_message:set_header(should_disconnect, true, Msg),
     PersistedDisconnect = emqx_message:set_header(message_persisted, true, Disconnect),
-    ?assertEqual({error, disconnect, PersistedDisconnect}, emqx_broker:publish(Disconnect)).
+    ?assertEqual({error, disconnect, PersistedDisconnect}, emqx_broker:publish2(Disconnect)).
 
 mark_message_persisted(Message) ->
     {ok, emqx_message:set_header(message_persisted, true, Message)}.
+
+%% Check that the legacy and v2 publish APIs report the same outcomes in their own formats.
+t_publish_compatibility({init, Config}) ->
+    Config;
+t_publish_compatibility({'end', _Config}) ->
+    ok;
+t_publish_compatibility(_Config) ->
+    Msg = emqx_message:make(?MODULE, 1, <<"t_publish_compatibility">>, <<"payload">>),
+    ?assertEqual([], emqx_broker:publish(Msg)),
+    ?assertEqual([], emqx:publish(Msg)),
+    ?assertEqual([], emqx_broker:safe_publish(Msg)),
+    ?assertEqual({ok, [], Msg}, emqx_broker:publish2(Msg)),
+    ?assertEqual({ok, [], Msg}, emqx:publish2(Msg)),
+    ?assertEqual({ok, [], Msg}, emqx_broker:safe_publish2(Msg)),
+
+    Persisted = emqx_message:set_header(message_persisted, true, Msg),
+    ?assertEqual([persisted], emqx_broker:publish(Persisted)),
+    ?assertEqual({ok, [persisted], Persisted}, emqx_broker:publish2(Persisted)),
+
+    Blocked = emqx_message:set_header(allow_publish, false, Msg),
+    ?assertEqual([], emqx_broker:publish(Blocked)),
+    ?assertEqual({ok, [], Blocked}, emqx_broker:publish2(Blocked)),
+    Opts = #{hook_prohibition_as_error => true},
+    ?assertEqual({blocked, Blocked}, emqx_broker:publish(Blocked, Opts)),
+    ?assertEqual({blocked, Blocked}, emqx_broker:safe_publish(Blocked, Opts)),
+    ?assertEqual({error, blocked, Blocked}, emqx_broker:publish2(Blocked, Opts)),
+    ?assertEqual({error, blocked, Blocked}, emqx_broker:safe_publish2(Blocked, Opts)),
+
+    Disconnect = emqx_message:set_header(should_disconnect, true, Msg),
+    ?assertEqual(disconnect, emqx_broker:publish(Disconnect)),
+    ?assertEqual(disconnect, emqx_broker:safe_publish(Disconnect)),
+    ?assertEqual({error, disconnect, Disconnect}, emqx_broker:publish2(Disconnect)),
+    ?assertEqual({error, disconnect, Disconnect}, emqx_broker:safe_publish2(Disconnect)),
+
+    %% Invalid messages fail at the legacy API boundary.
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, publish, _, _} | _]}},
+        catch emqx_broker:publish(invalid)
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, publish, _, _} | _]}},
+        catch emqx_broker:publish(invalid, #{})
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, safe_publish, _, _} | _]}},
+        catch emqx_broker:safe_publish(invalid)
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, safe_publish, _, _} | _]}},
+        catch emqx_broker:safe_publish(invalid, #{})
+    ),
+
+    %% Invalid messages fail at the v2 API boundary.
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, publish2, [invalid], _} | _]}},
+        catch emqx_broker:publish2(invalid)
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, publish2, [invalid, #{}], _} | _]}},
+        catch emqx_broker:publish2(invalid, #{})
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, safe_publish2, [invalid], _} | _]}},
+        catch emqx_broker:safe_publish2(invalid)
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, safe_publish2, [invalid, #{}], _} | _]}},
+        catch emqx_broker:safe_publish2(invalid, #{})
+    ).
+
+%% Check that safe publish keeps the legacy empty result when publishing fails.
+t_safe_publish_compatibility({init, Config}) ->
+    Config;
+t_safe_publish_compatibility({'end', _Config}) ->
+    ok;
+t_safe_publish_compatibility(_Config) ->
+    Msg0 = emqx_message:make(?MODULE, 1, <<"t_safe_publish_compatibility">>, <<"payload">>),
+    Msg = Msg0#message{topic = invalid_topic},
+    ?assertEqual([], emqx_broker:safe_publish(Msg)),
+    ?assertEqual({ok, [], Msg}, emqx_broker:safe_publish2(Msg)).
 
 t_stats_fun({init, Config}) ->
     ok = emqx_stats:reset(),
@@ -271,7 +351,7 @@ t_sub_pub({init, Config}) ->
     Config;
 t_sub_pub(Config) when is_list(Config) ->
     ct:sleep(100),
-    emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
+    emqx_broker:safe_publish2(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
     ?assert(
         receive
             {deliver, <<"topic">>, #message{payload = <<"hello">>}} ->
@@ -291,7 +371,7 @@ t_nosub_pub({'end', _Config}) ->
     ok;
 t_nosub_pub(Config) when is_list(Config) ->
     Dropped = emqx_metrics:val_global('messages.dropped'),
-    emqx_broker:publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
+    emqx_broker:publish2(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
     ?assertEqual(Dropped + 1, emqx_metrics:val_global('messages.dropped')).
 
 t_shared_subscribe({init, Config}) ->
@@ -301,7 +381,7 @@ t_shared_subscribe({init, Config}) ->
     ct:sleep(100),
     Config;
 t_shared_subscribe(Config) when is_list(Config) ->
-    emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
+    emqx_broker:safe_publish2(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
     ?assert(
         receive
             {deliver, <<"topic">>, #message{
@@ -391,7 +471,7 @@ t_fanout(_Config) ->
         10,
         NSubscribers = emqx_stats:getstat('suboptions.count')
     ),
-    emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
+    emqx_broker:safe_publish2(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
     ?retry(
         200,
         10,

@@ -539,7 +539,7 @@ maybe_on_message_received(_Msg, undefined) ->
 
 maybe_publish_local(Msg, Local = #{topic := Topic}, Props) when Topic =/= undefined ->
     ?tp(mqtt_ingress_publish_local, #{msg => Msg, local => Local}),
-    emqx_broker:publish(to_broker_msg(Msg, Local, Props));
+    emqx_broker:publish2(to_broker_msg(Msg, Local, Props));
 maybe_publish_local(_Msg, _Local, _Props) ->
     ok.
 

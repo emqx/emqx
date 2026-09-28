@@ -693,7 +693,7 @@ t_aggreg_upload_rule(Config) ->
             >>
         })
     ),
-    ok = lists:foreach(fun emqx:publish/1, [
+    ok = lists:foreach(fun emqx:publish2/1, [
         emqx_message:make(?FUNCTION_NAME, T1 = <<"s3/m1">>, P1 = <<"[HELLO]">>),
         emqx_message:make(?FUNCTION_NAME, T2 = <<"s3/m2">>, P2 = <<"[WORLD]">>),
         emqx_message:make(?FUNCTION_NAME, T3 = <<"s3/empty">>, P3 = <<>>),

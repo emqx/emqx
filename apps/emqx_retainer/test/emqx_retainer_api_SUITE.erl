@@ -477,7 +477,7 @@ t_match_and_clean(Config) ->
 t_retained_sys_messages(_Config) ->
     Msg0 = emqx_message:make(emqx_sys, <<"$SYS/brokers">>, atom_to_binary(node())),
     Msg = emqx_message:set_flags(#{sys => true, retain => true}, Msg0),
-    _ = emqx:publish(Msg),
+    _ = emqx:publish2(Msg),
     API = api_path(["mqtt", "retainer", "messages"]),
     {ok, LookupJson} = request_api(get, API, "", auth_header_()),
     ?assertMatch(

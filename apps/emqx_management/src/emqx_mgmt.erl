@@ -661,7 +661,7 @@ publish(Message) ->
         fun(Msg) ->
             emqx_metrics:inc_msg(Msg),
             ok = ?EXT_TRACE_ADD_ATTRS(emqx_otel_trace:msg_attrs(Msg)),
-            emqx:publish(Msg)
+            emqx:publish2(Msg)
         end,
         [Message]
     ).

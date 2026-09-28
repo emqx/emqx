@@ -395,7 +395,7 @@ enable_path(Enable, ConnectorID) ->
 
 publish_message(Topic, Body, Config) ->
     Node = ?config(node, Config),
-    erpc:call(Node, emqx, publish, [emqx_message:make(Topic, Body)]).
+    erpc:call(Node, emqx, publish2, [emqx_message:make(Topic, Body)]).
 
 update_config(Path, Value, Config) ->
     Node = ?config(node, Config),

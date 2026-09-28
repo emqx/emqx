@@ -347,7 +347,7 @@ t_adjust_keepalive_timer(_Config) ->
             <<"status">> => <<"Accepted">>
         }
     }),
-    _ = emqx:publish(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
+    _ = emqx:publish2(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
     {ok, _Resp} = receive_msg(Client),
     %% assert: check the keepalive timer is adjusted
     ?assertMatch(
@@ -438,7 +438,7 @@ t_authz_denies_auto_subscribe(_Config) ->
         try
             timer:sleep(100),
             ?assertEqual(false, lists:member(BrokerTopic, get_subscriptions())),
-            _ = emqx:publish(emqx_message:make(BrokerTopic, ack_payload(UniqueId))),
+            _ = emqx:publish2(emqx_message:make(BrokerTopic, ack_payload(UniqueId))),
             ?assertMatch({error, {timeout, _}}, receive_msg(Client))
         after
             close(Client)
@@ -455,7 +455,7 @@ t_authz_allows_auto_subscribe(_Config) ->
         try
             timer:sleep(100),
             ?assertEqual(true, lists:member(BrokerTopic, get_subscriptions())),
-            _ = emqx:publish(emqx_message:make(BrokerTopic, ack_payload(UniqueId))),
+            _ = emqx:publish2(emqx_message:make(BrokerTopic, ack_payload(UniqueId))),
             ?assertMatch(
                 {ok, #{
                     type := ?OCPP_MSG_TYPE_ID_CALLRESULT,
@@ -494,7 +494,7 @@ t_update_not_restart_listener(_Config) ->
             <<"status">> => <<"Accepted">>
         }
     }),
-    _ = emqx:publish(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
+    _ = emqx:publish2(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
     %% receive the BootNotification.ack
     {ok, _Resp} = receive_msg(Client),
 
@@ -568,7 +568,7 @@ t_active_n(_Config) ->
     }),
     lists:foreach(
         fun(_) ->
-            _ = emqx:publish(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
+            _ = emqx:publish2(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
             {ok, _Resp} = receive_msg(Client)
         end,
         lists:seq(1, 20)

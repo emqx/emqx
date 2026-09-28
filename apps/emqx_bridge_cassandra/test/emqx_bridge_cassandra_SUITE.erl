@@ -460,7 +460,7 @@ t_insert_null_into_int_column(TCConfig) ->
     Msg = emqx_message:make(RuleTopic, Payload),
     {_, {ok, _}} =
         ?wait_async_action(
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
             #{?snk_kind := cassandra_connector_query_return},
             10_000
         ),
@@ -500,7 +500,7 @@ t_update_action_sql(TCConfig) ->
     Msg = emqx_message:make(RuleTopic, Payload),
     {_, {ok, _}} =
         ?wait_async_action(
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
             #{?snk_kind := cassandra_connector_query_return},
             10_000
         ),
@@ -527,7 +527,7 @@ t_update_action_sql(TCConfig) ->
 
     {_, {ok, _}} =
         ?wait_async_action(
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
             #{?snk_kind := cassandra_connector_query_return},
             10_000
         ),
@@ -583,7 +583,7 @@ t_update_action_sql(TCConfig) ->
 
     {_, {ok, _}} =
         ?wait_async_action(
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
             #{?snk_kind := cassandra_connector_query_return},
             10_000
         ),

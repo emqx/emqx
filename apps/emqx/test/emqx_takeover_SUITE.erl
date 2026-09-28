@@ -577,7 +577,7 @@ takeover_delayed_willmsg_no_session(Case, Config, ConnProps) ->
     ),
     %% THEN: the fresh session did not inherit the old session's subscription.
     Marker = <<"no_inherited_sub">>,
-    _ = emqx:publish(emqx_message:make(ct, ?QOS_1, SubTopic, Marker)),
+    _ = emqx:publish2(emqx_message:make(ct, ?QOS_1, SubTopic, Marker)),
     ?assertNotReceive({publish, #{payload := Marker}}, 1000),
     emqtt:stop(CPidSub),
     emqtt:stop(CPid2),
@@ -989,7 +989,7 @@ test_cluster_takeover(Protocol, OwnerNode, RequesterNode, Config) ->
             %% Publish 3 messages, 1 gets into inflight and 2 are queued:
             ok = emqx_cth_cluster:sync_routes([OwnerNode, RequesterNode]),
             ok = lists:foreach(
-                fun(Msg) -> ?ON(RequesterNode, emqx_broker:publish(Msg)) end,
+                fun(Msg) -> ?ON(RequesterNode, emqx_broker:publish2(Msg)) end,
                 Messages
             ),
             %% Receive single message that got into inflight:
@@ -1006,7 +1006,7 @@ test_cluster_takeover(Protocol, OwnerNode, RequesterNode, Config) ->
             ?assertReceive({publish, #{client_pid := CPid2, payload := QueuedPayload1}}),
             ?assertReceive({publish, #{client_pid := CPid2, payload := QueuedPayload2}}),
             %% Smoke test publishing continues to work:
-            ?ON(RequesterNode, emqx_broker:publish(SmokeMessage)),
+            ?ON(RequesterNode, emqx_broker:publish2(SmokeMessage)),
             ?assertReceive({publish, #{client_pid := CPid2, payload := SmokePayload}}),
             emqtt:stop(CPid2)
         end,
@@ -1156,7 +1156,7 @@ wait_subscription(Ctx = #{client := CPids}) ->
 
 publish_msg(Ctx, Msg) ->
     ok = timer:sleep(rand:uniform(?SLEEP)),
-    case emqx:publish(Msg#message{timestamp = emqx_message:timestamp_now()}) of
+    case emqx:publish2(Msg#message{timestamp = emqx_message:timestamp_now()}) of
         {ok, [], _PublishedMsg} -> publish_msg(Ctx, Msg);
         {ok, [_ | _], _PublishedMsg} -> Ctx
     end.

@@ -4508,7 +4508,7 @@ do_test_rule_metrics(QMode) ->
         emqx_metrics_worker:get_counters(rule_metrics, RuleId)
     ),
     MsgId = emqx_guid:gen(),
-    emqx:publish(#message{id = MsgId, topic = <<"topic/test">>, payload = <<"hello">>}),
+    emqx:publish2(#message{id = MsgId, topic = <<"topic/test">>, payload = <<"hello">>}),
     timer:sleep(100),
     on_exit(
         fun() ->

@@ -896,7 +896,7 @@ t_publish_success(TCConfig) ->
     assert_empty_metrics(TCConfig),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
-    emqx:publish(Message),
+    emqx:publish2(Message),
     DecodedMessages = assert_http_request(TCConfig),
     ?assertMatch(
         [
@@ -938,7 +938,7 @@ t_publish_success_infinity_timeout(TCConfig) ->
     #{topic := Topic, id := RuleId} = simple_create_rule_api(TCConfig),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
-    emqx:publish(Message),
+    emqx:publish2(Message),
     DecodedMessages = assert_http_request(TCConfig),
     ?assertMatch(
         [
@@ -974,7 +974,7 @@ t_publish_templated(TCConfig) ->
             #{'User-Property' => #{'Correlation-Data' => <<"321">>}},
             emqx_message:make(Topic, Payload)
         ),
-    emqx:publish(Message),
+    emqx:publish2(Message),
     DecodedMessages = assert_http_request(TCConfig),
     ?assertMatch(
         [
@@ -1032,7 +1032,7 @@ t_publish_success_batch(TCConfig) ->
     %% making 1-sized batches.  also important to note that the pool
     %% size for the resource (replayq buffering) must be set to 1 to
     %% avoid further segmentation of batches.
-    emqx_utils:pmap(fun emqx:publish/1, Messages),
+    emqx_utils:pmap(fun emqx:publish2/1, Messages),
     DecodedMessages0 = assert_http_request(TCConfig),
     ?assertEqual(BatchSize, length(DecodedMessages0)),
     DecodedMessages1 = assert_http_request(TCConfig),
@@ -2475,7 +2475,7 @@ t_bare_topic_paths(TCConfig) ->
         receive_request_method_and_path()
     ),
     #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
-    emqx:publish(emqx_message:make(RuleTopic, <<"payload">>)),
+    emqx:publish2(emqx_message:make(RuleTopic, <<"payload">>)),
     ?assertEqual(
         {<<"POST">>, <<"/v1/projects/myproject/topics/my-plain-topic:publish">>},
         receive_request_method_and_path()
@@ -2504,7 +2504,7 @@ t_cross_project_topic_paths(TCConfig) ->
         receive_request_method_and_path()
     ),
     #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
-    emqx:publish(emqx_message:make(RuleTopic, <<"payload">>)),
+    emqx:publish2(emqx_message:make(RuleTopic, <<"payload">>)),
     ?assertEqual(
         {<<"POST">>, <<"/v1/projects/other-project/topics/other-topic:publish">>},
         receive_request_method_and_path()

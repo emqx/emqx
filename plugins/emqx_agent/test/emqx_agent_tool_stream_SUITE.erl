@@ -255,7 +255,7 @@ invoke(Type, ToolId, Args) ->
         <<"sid">> => null,
         <<"args">> => Args
     }),
-    _ = emqx_broker:publish(emqx_message:make(ToolId, 0, Topic, Payload)),
+    _ = emqx_broker:publish2(emqx_message:make(ToolId, 0, Topic, Payload)),
     ok.
 
 response(Type, ToolId) ->

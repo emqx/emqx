@@ -1499,7 +1499,7 @@ t_client_replies_pubrec_when_qos1(Config) ->
     {ok, ?SUBACK_PACKET(PacketId1, [?RC_GRANTED_QOS_2])} = emqx_mqtt_test_client:receive_packet(),
     QoS = 1,
     QoS1Msg = emqx_message:make(<<"sender">>, QoS, Topic, <<"hey">>),
-    emqx:publish(QoS1Msg),
+    emqx:publish2(QoS1Msg),
     {ok, ?PUBLISH_PACKET(QoS, PacketId2)} = emqx_mqtt_test_client:receive_packet(),
     %% Now, reply this QoS1 message with a PUBREC instead of PUBACK.
     emqx_mqtt_test_client:pubrec(Client, PacketId2, ?RC_SUCCESS, _Props2 = #{}),
@@ -1527,7 +1527,7 @@ t_client_replies_pubcomp_when_qos1(Config) ->
     {ok, ?SUBACK_PACKET(PacketId1, [?RC_GRANTED_QOS_2])} = emqx_mqtt_test_client:receive_packet(),
     QoS = 1,
     QoS1Msg = emqx_message:make(<<"sender">>, QoS, Topic, <<"hey">>),
-    emqx:publish(QoS1Msg),
+    emqx:publish2(QoS1Msg),
     {ok, ?PUBLISH_PACKET(QoS, PacketId2)} = emqx_mqtt_test_client:receive_packet(),
     %% Now, reply this QoS1 message with a PUBREC instead of PUBACK.
     emqx_mqtt_test_client:pubcomp(Client, PacketId2, ?RC_SUCCESS, _Props2 = #{}),
@@ -1555,7 +1555,7 @@ t_client_replies_puback_when_qos2(Config) ->
     {ok, ?SUBACK_PACKET(PacketId1, [?RC_GRANTED_QOS_2])} = emqx_mqtt_test_client:receive_packet(),
     QoS = 2,
     QoS2Msg = emqx_message:make(<<"sender">>, QoS, Topic, <<"hey">>),
-    emqx:publish(QoS2Msg),
+    emqx:publish2(QoS2Msg),
     {ok, ?PUBLISH_PACKET(QoS, PacketId2)} = emqx_mqtt_test_client:receive_packet(),
     %% Now, reply this QoS2 message with a PUBACK instead of PUBREC.
     emqx_mqtt_test_client:puback(Client, PacketId2, ?RC_SUCCESS, _Props2 = #{}),

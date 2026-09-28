@@ -1352,7 +1352,7 @@ t_congestion_qos0_publish_storm(Config) ->
     emqx_utils_stream:foreach(
         fun
             (Msg = #message{}) ->
-                emqx:publish(Msg);
+                emqx:publish2(Msg);
             (sleep) ->
                 timer:sleep(1)
         end,
@@ -1473,7 +1473,7 @@ t_congestion_send_timeout(Config) ->
     %% Start filling up send buffers:
     Publisher = fun Publisher(N) ->
         Payload = binary:copy(<<N:64>>, PayloadSize div 8),
-        _ = emqx:publish(emqx_message:make(<<"publisher">>, ?QOS_1, Topic, Payload)),
+        _ = emqx:publish2(emqx_message:make(<<"publisher">>, ?QOS_1, Topic, Payload)),
         ok = timer:sleep(PublishInterval),
         Publisher(N + 1)
     end,
@@ -1556,7 +1556,7 @@ t_congestion_qos0_no_send_timeout(Config) ->
     %% Start filling up send buffers with QoS0 publishes:
     Publisher = fun Publisher(N) ->
         Payload = binary:copy(<<N:64>>, PayloadSize div 8),
-        _ = emqx:publish(emqx_message:make(<<"publisher">>, ?QOS_0, Topic, Payload)),
+        _ = emqx:publish2(emqx_message:make(<<"publisher">>, ?QOS_0, Topic, Payload)),
         ok = timer:sleep(PublishInterval),
         Publisher(N + 1)
     end,
@@ -1635,7 +1635,7 @@ t_congestion_decongested(Config) ->
     %% Start filling up send buffers:
     Publisher = fun Publisher(N) ->
         Payload = binary:copy(<<N:64>>, PayloadSize div 8),
-        _ = emqx:publish(emqx_message:make(<<"publisher">>, ?QOS_1, Topic, Payload)),
+        _ = emqx:publish2(emqx_message:make(<<"publisher">>, ?QOS_1, Topic, Payload)),
         ok = timer:sleep(PublishInterval),
         Publisher(N + 1)
     end,

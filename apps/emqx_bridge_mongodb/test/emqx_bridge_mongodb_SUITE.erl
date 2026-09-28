@@ -667,7 +667,7 @@ t_timeout_during_connector_health_check(TCConfig) ->
                     get_action_api(TCConfig)
                 )
             ),
-            emqx:publish(emqx_message:make(RuleTopic, <<"hey">>)),
+            emqx:publish2(emqx_message:make(RuleTopic, <<"hey">>)),
             ?retry(
                 1_000,
                 10,

@@ -831,7 +831,7 @@ t_non_batch_update_is_allowed(TCConfig) ->
             Message = emqx_message:make(RuleTopic, Payload),
             {_, {ok, _}} =
                 ?wait_async_action(
-                    emqx:publish(Message),
+                    emqx:publish2(Message),
                     #{?snk_kind := mysql_connector_query_return},
                     10_000
                 ),

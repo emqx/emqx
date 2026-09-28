@@ -1240,7 +1240,7 @@ maybe_publish_idle_negative_qos(Packet, Publish = {TopicName, _Flags, Data}, Cha
                         topic => TopicName,
                         data => Data
                     }),
-                    _ = emqx_broker:publish(Msg),
+                    _ = emqx_broker:publish2(Msg),
                     ok;
                 {error, RC, _} ->
                     ?tp(info, idle_negative_qos_publish_rejected, #{
@@ -1309,10 +1309,10 @@ get_corrected_qos(?QOS_NEG1) -> ?QOS_0;
 get_corrected_qos(QoS) -> QoS.
 
 do_publish(_TopicId, _MsgId, Msg = #message{qos = ?QOS_0}, Channel) ->
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     {ok, Channel};
 do_publish(TopicId, MsgId, Msg = #message{qos = ?QOS_1}, Channel) ->
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     handle_out(puback, {TopicId, MsgId, ?SN_RC_ACCEPTED}, Channel);
 do_publish(
     TopicId,

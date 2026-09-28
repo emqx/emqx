@@ -52,11 +52,11 @@ t_invalid_route_control(_Config) ->
     Expected = emqx_message:set_headers(
         #{allow_publish => false, should_disconnect => true}, emqx_message:clean_dup(Msg)
     ),
-    ?assertEqual({error, disconnect, Expected}, emqx_broker:publish(Msg)),
+    ?assertEqual({error, disconnect, Expected}, emqx_broker:publish2(Msg)),
     %% Check that disconnect takes precedence over the blocked-message option.
     ?assertEqual(
         {error, disconnect, Expected},
-        emqx_broker:publish(Msg, #{hook_prohibition_as_error => true})
+        emqx_broker:publish2(Msg, #{hook_prohibition_as_error => true})
     ),
     ?assertNotReceive({deliver, _, _}).
 
@@ -88,7 +88,7 @@ t_accepted_forwarded_message(_Config) ->
     end),
     %% Publish the transport message and check the decoded result.
     {ok, [{_, <<"forwarded/topic">>, _}], PublishedMsg} =
-        emqx_broker:publish(transport_message()),
+        emqx_broker:publish2(transport_message()),
     ?assertMatch(
         #message{
             topic = <<"forwarded/topic">>,
@@ -111,16 +111,16 @@ transport_message() ->
 
 assert_consumed(Msg) ->
     Expected = emqx_message:set_header(allow_publish, false, emqx_message:clean_dup(Msg)),
-    ?assertEqual({ok, [], Expected}, emqx_broker:publish(Msg)),
-    ?assertEqual({ok, [], Expected}, emqx_broker:publish(Msg, #{})),
-    ?assertEqual({ok, [], Expected}, emqx:publish(Msg)),
-    ?assertEqual({ok, [], Expected}, emqx_broker:safe_publish(Msg)),
+    ?assertEqual({ok, [], Expected}, emqx_broker:publish2(Msg)),
+    ?assertEqual({ok, [], Expected}, emqx_broker:publish2(Msg, #{})),
+    ?assertEqual({ok, [], Expected}, emqx:publish2(Msg)),
+    ?assertEqual({ok, [], Expected}, emqx_broker:safe_publish2(Msg)),
     ?assertEqual(
         {error, blocked, Expected},
-        emqx_broker:publish(Msg, #{hook_prohibition_as_error => true})
+        emqx_broker:publish2(Msg, #{hook_prohibition_as_error => true})
     ),
     ?assertEqual(
         {error, blocked, Expected},
-        emqx_broker:safe_publish(Msg, #{hook_prohibition_as_error => true})
+        emqx_broker:safe_publish2(Msg, #{hook_prohibition_as_error => true})
     ),
     ?assertNotReceive({deliver, _, _}).

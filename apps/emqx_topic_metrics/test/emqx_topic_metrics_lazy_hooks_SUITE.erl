@@ -112,7 +112,7 @@ t_reset_keeps_hooks(_Config) ->
 -doc "Counting still works once the hooks have been installed lazily.".
 t_counting_works_after_lazy_install(_Config) ->
     ok = emqx_topic_metrics2:register(<<"alpha">>, <<"alpha/#">>, ?global_ns),
-    emqx:publish(emqx_message:make(<<"alpha/1">>, <<"hello">>)),
+    emqx:publish2(emqx_message:make(<<"alpha/1">>, <<"hello">>)),
     {ok, #{metrics := #{'messages.in.count' := In}}} =
         emqx_topic_metrics2:lookup(<<"alpha">>, ?global_ns),
     ?assertEqual(1, In).

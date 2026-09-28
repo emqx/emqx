@@ -43,7 +43,7 @@ publish_reply(Type, ToolId, Request, Data) ->
     ),
     ReplyTopic = emqx_agent_topics:cap_response_topic(Type, ToolId, ReqId),
     Msg = emqx_message:make(ToolId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     ok.
 
 -spec cap_response(map()) -> map().

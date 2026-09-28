@@ -242,7 +242,7 @@ t_export_ram_retained_messages(_Config) ->
         #{retain => true},
         #{}
     ),
-    _ = emqx_broker:publish(Msg),
+    _ = emqx_broker:publish2(Msg),
     {ok, #{filename := BackupFileName}} = emqx_mgmt_data_backup:export(),
     ok = emqx_retainer:delete(Topic),
     ?assertEqual({ok, []}, emqx_retainer:read_message(Topic)),

@@ -451,7 +451,7 @@ stop_publisher(Pid) ->
     end.
 
 publisher(Topic, N, Delay, CtrlPid) ->
-    _ = emqx:publish(emqx_message:make(Topic, integer_to_binary(N))),
+    _ = emqx:publish2(emqx_message:make(Topic, integer_to_binary(N))),
     receive
         {CtrlPid, stop} ->
             CtrlPid ! {self(), N}
@@ -1158,7 +1158,7 @@ test_egress_clientid(Name, ClientIdPrefix, ExpectedClientId, TCConfig0) ->
     Payload = <<"hello">>,
     emqx:subscribe(RemoteTopic),
     timer:sleep(100),
-    emqx:publish(emqx_message:make(LocalTopic, Payload)),
+    emqx:publish2(emqx_message:make(LocalTopic, Payload)),
     {deliver, _, #message{from = From}} = ?assertReceive({deliver, _, _}),
     ?assertEqual(ExpectedClientId, From),
     ok.
@@ -1196,7 +1196,7 @@ t_mqtt_conn_bridge_egress_reconnect(TCConfig) ->
     ?wait_async_action(
         %% PUBLISH a message to the 'local' broker, as we have only one broker,
         %% the remote broker is also the local one.
-        emqx:publish(emqx_message:make(LocalTopic, Payload0)),
+        emqx:publish2(emqx_message:make(LocalTopic, Payload0)),
         #{?snk_kind := buffer_worker_flush_ack}
     ),
 
@@ -1242,8 +1242,8 @@ t_mqtt_conn_bridge_egress_reconnect(TCConfig) ->
     Payload2 = <<"hello3">>,
     %% We need to do it in other processes because it'll block due to
     %% the long timeout
-    spawn(fun() -> emqx:publish(emqx_message:make(LocalTopic, Payload1)) end),
-    spawn(fun() -> emqx:publish(emqx_message:make(LocalTopic, Payload2)) end),
+    spawn(fun() -> emqx:publish2(emqx_message:make(LocalTopic, Payload1)) end),
+    spawn(fun() -> emqx:publish2(emqx_message:make(LocalTopic, Payload2)) end),
     {ok, _} = snabbkaffe:receive_events(SRef),
 
     %% verify the metrics of the bridge, the message should be queued
@@ -1391,7 +1391,7 @@ t_egress_mqtt_bridge_with_dummy_rule(TCConfig) ->
     Payload = <<"hi">>,
     emqx:subscribe(RemoteTopic),
     timer:sleep(100),
-    emqx:publish(emqx_message:make(LocalTopic, Payload)),
+    emqx:publish2(emqx_message:make(LocalTopic, Payload)),
     %% we should receive a message on the "remote" broker, with specified topic
     ?assertReceive({deliver, RemoteTopic, _}),
     ok.
@@ -1420,7 +1420,7 @@ t_mqtt_conn_bridge_egress_no_payload_template(TCConfig) ->
     ?wait_async_action(
         %% PUBLISH a message to the 'local' broker, as we have only one broker,
         %% the remote broker is also the local one.
-        emqx:publish(emqx_message:make(LocalTopic, Payload)),
+        emqx:publish2(emqx_message:make(LocalTopic, Payload)),
         #{?snk_kind := buffer_worker_flush_ack}
     ),
     %% we should receive a message on the "remote" broker, with specified topic

@@ -198,7 +198,7 @@ t_dynamic_keepalive_non_client_publish_forbidden(_) ->
     {ok, C} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId)}]),
     {ok, _} = emqtt:connect(C),
     Msg = emqx_message:make(http_api, 0, <<"$SETOPTS/mqtt/keepalive">>, <<"10">>, #{}, #{}),
-    _ = emqx:publish(Msg),
+    _ = emqx:publish2(Msg),
     ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId, 5, 2000)),
     ok = emqtt:stop(C).
 

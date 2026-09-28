@@ -869,14 +869,14 @@ finalize_publish(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
     {ok, emqx_message_ingress:finalize(ClientInfo, Msg), Channel}.
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
-    case emqx_broker:publish(Msg) of
+    case emqx_broker:publish2(Msg) of
         {error, disconnect, _PublishedMsg} ->
             handle_out(disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel);
         _ ->
             {ok, Channel}
     end;
 do_publish(PacketId, Msg = #message{qos = ?QOS_1}, Channel) ->
-    PubRes = emqx_broker:publish(Msg),
+    PubRes = emqx_broker:publish2(Msg),
     RC = puback_reason_code(PacketId, PubRes),
     case RC of
         undefined ->

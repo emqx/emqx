@@ -429,7 +429,7 @@ do_t_heavy_batching(TCConfig) ->
                 <<"key">> => Key,
                 <<"data">> => <<"hey">>
             }),
-            emqx:publish(emqx_message:make(Topic, Payload))
+            emqx:publish2(emqx_message:make(Topic, Payload))
         end,
         lists:seq(1, NumberOfMessages)
     ),

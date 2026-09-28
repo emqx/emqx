@@ -179,7 +179,7 @@ publish_param_query_downlink() ->
         <<"Ids">> => [<<"0x01">>, <<"0x02">>]
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    _ = emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    _ = emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
     ok.
 
 assert_param_query_downlink(Packet) ->
@@ -1053,7 +1053,7 @@ t_case17_param_query(_Config) ->
         <<"Ids">> => [<<"0x01">>, <<"0x02">>]
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
 
     %
     % client get Command
@@ -1130,7 +1130,7 @@ t_case17_param_query(_Config) ->
         <<"Total">> => 16,
         <<"Ids">> => IdsMap
     },
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
 
     %
     % client get Command
@@ -1221,7 +1221,7 @@ t_case18_param_setting(_Config) ->
         ]
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
 
     %
     % client get Command
@@ -1302,7 +1302,7 @@ t_case18_param_setting(_Config) ->
         <<"Total">> => 16,
         <<"Params">> => ParamsMap
     },
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
 
     %
     % client get Command
@@ -1365,7 +1365,7 @@ t_case19_terminal_ctrl(_Config) ->
         <<"Command">> => "0x02"
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
 
     %
     % client get Command
@@ -1435,7 +1435,7 @@ t_case19_terminal_ctrl(_Config) ->
         <<"Command">> => <<"0x01">>,
         <<"Param">> => UpgradeMaps
     },
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
 
     %
     % client get Command
@@ -1500,7 +1500,7 @@ t_case19_terminal_ctrl(_Config) ->
         <<"Command">> => <<"0x06">>,
         <<"Param">> => AlarmMaps
     },
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req2))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req2))),
 
     %
     % client get Command
@@ -1579,10 +1579,10 @@ t_case20_proto_resend(_Config) ->
         <<"Command">> => <<"0x05">>
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req2))),
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req3))),
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req4))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req2))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req3))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req4))),
 
     %
     % client get Command
@@ -1634,7 +1634,7 @@ t_case20_proto_resend(_Config) ->
     % Now, how check the inflight-window and mqueue is empty?
     %
     %     send & receive immediately!!
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req1))),
     RecvAndCheck(Socket, <<2>>, 0),
     ReplyAck(Socket, <<2>>),
     {error, timeout} = gen_tcp:recv(Socket, 0, 500),
@@ -1665,16 +1665,16 @@ t_case21_proto_mqueue(_Config) ->
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
     [
-        emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req1)))
+        emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req1)))
      || _I <- lists:seq(1, 10)
     ],
 
     %% Wait the previous messages push to inflight
     timer:sleep(100),
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req2))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req2))),
 
     [
-        emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req3)))
+        emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req3)))
      || _I <- lists:seq(1, 10)
     ],
 
@@ -1727,7 +1727,7 @@ t_case21_proto_mqueue(_Config) ->
     % Now, the message queue should be empty!
     %
     %     send & receive immediately!!
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req4))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req4))),
     RecvAndCheck(Socket, <<5>>, 0),
     ReplyAck(Socket, <<5>>),
 
@@ -1874,7 +1874,7 @@ t_case25_param_query_2025(_Config) ->
         <<"Ids">> => [<<"0x02">>, <<"0x03">>]
     },
     Topic = <<"gbt32960/VIN12345678901234/dnstream">>,
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
 
     %
     % client get Command
@@ -1923,7 +1923,7 @@ t_case26_param_query_ack_fe(_Config) ->
         <<"Ids">> => [<<"0x01">>, <<"0x02">>]
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
     timer:sleep(200),
     {ok, _Packet} = gen_tcp:recv(Socket, 0, 500),
 
@@ -1949,7 +1949,7 @@ t_case27_param_setting_ack_fe(_Config) ->
         ]
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
     timer:sleep(200),
     {ok, _Packet} = gen_tcp:recv(Socket, 0, 500),
 
@@ -1971,7 +1971,7 @@ t_case28_terminal_ctrl_ack_fe(_Config) ->
         <<"Command">> => "0x02"
     },
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    emqx:publish(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
+    emqx:publish2(emqx_message:make(Topic, emqx_utils_json:encode(Req))),
     timer:sleep(200),
     {ok, _Packet} = gen_tcp:recv(Socket, 0, 500),
 

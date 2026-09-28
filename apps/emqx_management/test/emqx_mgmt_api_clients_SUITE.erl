@@ -1607,7 +1607,9 @@ client_with_inflight(ClientId, Topic, Count) ->
 publish_msgs(Topic, Count) ->
     lists:foreach(
         fun(Seq) ->
-            emqx_broker:publish(emqx_message:make(undefined, ?QOS_1, Topic, integer_to_binary(Seq)))
+            emqx_broker:publish2(
+                emqx_message:make(undefined, ?QOS_1, Topic, integer_to_binary(Seq))
+            )
         end,
         lists:seq(1, Count)
     ).

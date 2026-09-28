@@ -198,7 +198,7 @@ t_case_sn_subscribe(_) ->
 
                 timer:sleep(100),
                 Msg = emqx_message:make(Topic, Payload),
-                emqx:publish(Msg),
+                emqx:publish2(Msg),
 
                 timer:sleep(100),
 
@@ -292,7 +292,7 @@ t_case_sn_subscribe(_) ->
 
 %%             timer:sleep(200),
 %%             Msg = emqx_message:make(Topic, Payload),
-%%             emqx:publish(Msg),
+%%             emqx:publish2(Msg),
 
 %%             timer:sleep(200),
 %%             {ok, Data1} = gen_tcp:recv(Sock, 0, 10000),

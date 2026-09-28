@@ -642,7 +642,7 @@ t_send_message_through_rule(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Payload = <<"hello">>,
     Msg = emqx_message:make(ClientId, 0, <<"t/a">>, Payload),
-    emqx:publish(Msg),
+    emqx:publish2(Msg),
     ?assertReceive({query_called, #{message := #{payload := Payload}}}),
     ?assertMatch(
         #{
@@ -663,7 +663,7 @@ t_send_message_through_rule(_) ->
     {ok, _} = emqx_connector:create(?global_ns, con_type(), con_name(), (con_config())#{
         <<"enable">> := false
     }),
-    emqx:publish(Msg),
+    emqx:publish2(Msg),
     ?retry(
         100,
         10,
@@ -691,7 +691,7 @@ t_send_message_through_rule(_) ->
             #{<<"resource_opts">> => #{<<"query_mode">> => <<"sync">>}}
         ),
     {ok, _} = create(BridgeType, BridgeName, BridgeConfig1),
-    emqx:publish(Msg),
+    emqx:publish2(Msg),
     ?retry(
         100,
         10,
@@ -1355,7 +1355,7 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
             ),
 
             Msg = emqx_message:make(<<"t/a">>, <<"payload">>),
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
 
             ActionId = id(bridge_type(), ActionName, ConnectorName),
             ?assertEqual(1, emqx_resource_metrics:matched_get(ActionId)),
@@ -1432,7 +1432,7 @@ t_query_uses_action_query_mode(_Config) ->
             Msg = emqx_message:make(<<"t/a">>, <<"payload">>),
             {_, {ok, _}} =
                 ?wait_async_action(
-                    emqx:publish(Msg),
+                    emqx:publish2(Msg),
                     #{?snk_kind := call_query},
                     2_000
                 ),
@@ -1656,7 +1656,7 @@ t_fallback_actions(_Config) ->
             emqx:subscribe(RepublishTopic, #{qos => 1}),
             Payload = <<"payload">>,
             Msg = emqx_message:make(<<"t/a">>, Payload),
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
             ct:pal("waiting for fallback actions effects..."),
             ?assertReceive({query_called, #{message := #{payload := Payload}}}),
             ?assertReceive({deliver, RepublishTopic, #message{payload = Payload}}),
@@ -1756,7 +1756,7 @@ t_fallback_actions_cycles(_Config) ->
             ct:pal("publishing initial message"),
             Payload = <<"payload">>,
             Msg = emqx_message:make(<<"t/a">>, Payload),
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
 
             ct:pal("waiting for fallback actions effects..."),
             PrimaryResId = id(bridge_type(), PrimaryActionName),

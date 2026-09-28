@@ -1602,7 +1602,7 @@ t_sync_query_down(Config, Opts) ->
             try
                 {_, {ok, _}} =
                     snabbkaffe:wait_async_action(
-                        fun() -> spawn(fun() -> emqx:publish(MakeMessageFn(RuleTopic)) end) end,
+                        fun() -> spawn(fun() -> emqx:publish2(MakeMessageFn(RuleTopic)) end) end,
                         ErrorTPFilter,
                         infinity
                     )
@@ -2605,7 +2605,7 @@ snk_timetrap() ->
 publish_messages_delayed(MessageEvents, Delay) ->
     lists:foreach(
         fun(Msg) ->
-            emqx:publish(Msg),
+            emqx:publish2(Msg),
             ct:sleep(Delay)
         end,
         MessageEvents

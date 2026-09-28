@@ -461,7 +461,7 @@ t_batch_write(TCConfig) ->
         begin
             ?wait_async_action(
                 lists:foreach(
-                    fun(Payload) -> emqx:publish(emqx_message:make(Topic, Payload)) end,
+                    fun(Payload) -> emqx:publish2(emqx_message:make(Topic, Payload)) end,
                     Payloads
                 ),
                 #{?snk_kind := sqlserver_connector_query_return},

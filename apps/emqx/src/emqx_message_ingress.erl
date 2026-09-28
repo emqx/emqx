@@ -65,9 +65,9 @@ finalize(ClientInfo, Msg) ->
 
 -spec finalize_and_publish(
     emqx_types:clientinfo(), emqx_types:message()
-) -> emqx_types:publish_result().
+) -> emqx_types:publish_result2().
 finalize_and_publish(ClientInfo, Msg) ->
-    emqx_broker:publish(finalize(ClientInfo, Msg)).
+    emqx_broker:publish2(finalize(ClientInfo, Msg)).
 
 %%--------------------------------------------------------------------
 %% Internal functions

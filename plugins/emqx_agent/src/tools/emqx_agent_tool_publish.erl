@@ -196,7 +196,7 @@ do_publish(TopicPrefix, PayloadSchema, Request) ->
             try
                 MsgPayload = normalize_payload(Payload),
                 Msg = emqx_message:make(From, Qos, FullTopic, MsgPayload),
-                _ = emqx_broker:publish(Msg),
+                _ = emqx_broker:publish2(Msg),
                 {ok, #{<<"topic">> => FullTopic}}
             catch
                 Class:Reason ->

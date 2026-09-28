@@ -86,6 +86,7 @@
     deliver/0,
     delivery/0,
     publish_result/0,
+    publish_result2/0,
     publish_routes/0,
     deliver_result/0
 ]).
@@ -264,6 +265,12 @@
         | persisted
     ].
 -type publish_result() ::
+    publish_routes()
+    %% If schema validation failure action is set to `disconnect'.
+    | disconnect
+    %% If caller specifies `hook_prohibition_as_error => true'.
+    | {blocked, message()}.
+-type publish_result2() ::
     {ok, publish_routes(), message()}
     %% If schema validation failure action is set to `disconnect'.
     | {error, disconnect, message()}

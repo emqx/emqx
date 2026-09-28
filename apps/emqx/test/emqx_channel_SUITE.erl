@@ -405,19 +405,19 @@ t_handle_in_re_auth(_) ->
         ).
 
 t_handle_in_qos0_publish(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(Msg) -> {ok, [], Msg} end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) -> {ok, [], Msg} end),
     Channel = channel(#{conn_state => connected}),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
     {ok, _NChannel} = emqx_channel:handle_in(Publish, Channel).
 
 t_handle_in_qos1_publish(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(Msg) -> {ok, [], Msg} end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) -> {ok, [], Msg} end),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS)}, _Channel} =
         emqx_channel:handle_in(Publish, channel(#{conn_state => connected})).
 
 t_handle_in_qos2_publish(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
         {ok, [{node(), <<"topic">>, {ok, 1}}], Msg}
     end),
     Channel = channel(#{conn_state => connected, session => session()}),
@@ -426,7 +426,7 @@ t_handle_in_qos2_publish(_) ->
     Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_SUCCESS)}, Channel1} =
         emqx_channel:handle_in(Publish1, Channel),
-    ok = meck:expect(emqx_broker, publish, fun(Msg) -> {ok, [], Msg} end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) -> {ok, [], Msg} end),
     Publish2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
     {ok, {outgoing, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS)}, Channel2} =
         emqx_channel:handle_in(Publish2, Channel1),
@@ -434,7 +434,7 @@ t_handle_in_qos2_publish(_) ->
 
 %% Check that a publish hook can disconnect the client at every QoS level.
 t_publish_hook_disconnect(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(Msg) -> {error, disconnect, Msg} end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) -> {error, disconnect, Msg} end),
     lists:foreach(
         fun(QoS) ->
             Channel = channel(#{conn_state => connected, session => session()}),
@@ -455,7 +455,7 @@ t_publish_hook_disconnect(_) ->
 %% Check that rejected QoS 2 publishes release packet identifiers only for MQTT 5.
 t_rejected_qos2_publish(_) ->
     %% Reject publishes through the PUBREC hook while retaining the real session cleanup.
-    ok = meck:expect(emqx_broker, publish, fun(Msg) -> {ok, [], Msg} end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) -> {ok, [], Msg} end),
     ok = meck:delete(emqx_session, pubrel, 3),
     ok = emqx_hooks:add('message.pubrec', {?MODULE, reject_pubrec, []}, ?HP_LOWEST),
     on_exit(fun() -> emqx_hooks:del('message.pubrec', {?MODULE, reject_pubrec}) end),
@@ -478,7 +478,7 @@ reject_pubrec(_PacketId, _Msg, _PubRes, _RC) ->
     {stop, ?RC_IMPLEMENTATION_SPECIFIC_ERROR}.
 
 t_handle_in_qos2_publish_with_error_return(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(Msg) -> {ok, [], Msg} end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) -> {ok, [], Msg} end),
     Session = session(#{max_awaiting_rel => 2, awaiting_rel => #{1 => 1}}),
     Channel = channel(#{conn_state => connected, session => Session}),
     %% waiting limiter server
@@ -761,12 +761,12 @@ t_process_connect(_) ->
         emqx_channel:post_process_connect(#{}, channel(#{conn_state => idle})).
 
 t_process_publish_qos0(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(Msg) -> {ok, [], Msg} end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) -> {ok, [], Msg} end),
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
     {ok, _Channel} = emqx_channel:process_publish(Publish, channel()).
 
 t_process_publish_qos1(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(Msg) -> {ok, [], Msg} end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) -> {ok, [], Msg} end),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
     {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS)}, _Channel} =
         emqx_channel:process_publish(Publish, channel()).
@@ -782,7 +782,7 @@ t_process_publish_message_ingress(_) ->
         TestPid ! {authorized, AuthzContext, Action, Topic},
         allow
     end),
-    ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
         TestPid ! {published, Msg},
         {ok, [], Msg}
     end),
@@ -817,7 +817,7 @@ t_process_publish_message_ingress_error(_) ->
     on_exit(fun() ->
         emqx_hooks:del('message.ingress', {?MODULE, message_ingress_error})
     end),
-    ok = meck:expect(emqx_broker, publish, fun(_) -> ct:fail(message_was_published) end),
+    ok = meck:expect(emqx_broker, publish2, fun(_) -> ct:fail(message_was_published) end),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"source">>, 1, <<"payload">>),
     ?assertMatch(
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NOT_AUTHORIZED)}, _},
@@ -837,7 +837,7 @@ t_process_unsubscribe(_) ->
 
 t_quota_qos0(_) ->
     timer:sleep(1200),
-    ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
         {ok, [{node(), <<"topic">>, {ok, 4}}], Msg}
     end),
     Chann = channel(
@@ -864,7 +864,7 @@ t_quota_qos0(_) ->
 
 t_quota_qos1(_) ->
     timer:sleep(1200),
-    ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
         {ok, [{node(), <<"topic">>, {ok, 4}}], Msg}
     end),
     Chann = channel(
@@ -895,7 +895,7 @@ t_quota_qos1(_) ->
 
 t_quota_qos2(_) ->
     timer:sleep(1200),
-    ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
         {ok, [{node(), <<"topic">>, {ok, 4}}], Msg}
     end),
     Chann = channel(
@@ -929,7 +929,7 @@ t_quota_qos2(_) ->
 
 t_quota_bytes(_) ->
     timer:sleep(1200),
-    ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
         {ok, [{node(), <<"topic">>, {ok, 4}}], Msg}
     end),
     Chann = channel(
@@ -961,7 +961,7 @@ t_quota_lazy_stays_absent(_) ->
 -doc "Publish builds the limiter container on first use and the limit applies.".
 t_quota_lazy_build_on_publish(_) ->
     timer:sleep(1200),
-    ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
         {ok, [{node(), <<"topic">>, {ok, 4}}], Msg}
     end),
     Chann = channel(
@@ -985,7 +985,7 @@ t_quota_lazy_hot_update(_) ->
     emqx_config:put_listener_conf(tcp, lazy_hot_update, [], DefaultConf),
     ok = emqx_limiter:create_listener_limiters(ListenerId, #{}),
     try
-        ok = meck:expect(emqx_broker, publish, fun(Msg) ->
+        ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
             {ok, [{node(), <<"topic">>, {ok, 4}}], Msg}
         end),
         Chann = channel(
@@ -1035,7 +1035,7 @@ t_mount_will_msg(_) ->
     Msg = emqx_message:make(test, <<"will_topic">>, <<"will_payload">>),
     Channel = channel(#{clientinfo => ClientInfo, will_msg => Msg}),
 
-    ok = meck:expect(emqx_broker, publish, fun(M) -> Self ! {pub, M} end),
+    ok = meck:expect(emqx_broker, publish2, fun(M) -> Self ! {pub, M} end),
 
     {shutdown, kicked, ok, ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION), _} = emqx_channel:handle_call(
         kick, Channel
@@ -1185,7 +1185,7 @@ t_handle_call_kick(_) ->
 
 t_handle_kicked_publish_will_msg(_) ->
     Self = self(),
-    ok = meck:expect(emqx_broker, publish, fun(M) -> Self ! {pub, M} end),
+    ok = meck:expect(emqx_broker, publish2, fun(M) -> Self ! {pub, M} end),
 
     ClientId = test,
     WillTopic = <<"will_topic">>,

@@ -505,7 +505,7 @@ get_subscription(Topic, #session{subscriptions = Subs}) ->
 %%--------------------------------------------------------------------
 
 -spec publish(emqx_types:packet_id(), emqx_types:message(), session()) ->
-    {ok, emqx_types:publish_result(), session()}
+    {ok, emqx_types:publish_result2(), session()}
     | {error, emqx_types:reason_code()}.
 publish(
     PacketId,
@@ -524,14 +524,14 @@ publish(
                 true ->
                     {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED};
                 false ->
-                    Results = emqx_broker:publish(Msg),
+                    Results = emqx_broker:publish2(Msg),
                     AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
                     {ok, Results, Session#session{awaiting_rel = AwaitingRel1}}
             end
     end;
 %% Publish QoS0/1 directly
 publish(_PacketId, Msg, Session) ->
-    {ok, emqx_broker:publish(Msg), [], Session}.
+    {ok, emqx_broker:publish2(Msg), [], Session}.
 
 is_awaiting_full(#session{max_awaiting_rel = infinity}) ->
     false;
@@ -1179,7 +1179,7 @@ clear_will_message(#session{} = Session) ->
 
 -spec publish_will_message_now(session(), message()) -> session().
 publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
-    _ = emqx_broker:publish(WillMsg),
+    _ = emqx_broker:publish2(WillMsg),
     Session.
 
 %%--------------------------------------------------------------------

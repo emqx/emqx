@@ -201,7 +201,7 @@ t_session_taken(_) ->
         lists:foreach(
             fun(_) ->
                 Msg = emqx_message:make(ClientId2, Topic, <<"payload">>),
-                emqx_broker:safe_publish(Msg)
+                emqx_broker:safe_publish2(Msg)
             end,
             lists:seq(1, MsgNum)
         )

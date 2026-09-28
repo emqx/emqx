@@ -262,7 +262,7 @@ t_consume(TCConfig) when is_list(TCConfig) ->
         get_config(source_config, TCConfig),
     Payload = <<"hello">>,
     ProduceFn = fun() ->
-        emqx:publish(emqx_message:make(RemoteTopic, Payload))
+        emqx:publish2(emqx_message:make(RemoteTopic, Payload))
     end,
     CheckFn = fun(Message) ->
         ?assertMatch(#{topic := RemoteTopic, payload := Payload}, Message)
