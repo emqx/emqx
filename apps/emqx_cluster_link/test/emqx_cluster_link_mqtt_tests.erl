@@ -152,3 +152,25 @@ no_such_pool_is_recoverable_test() ->
 
 forwarded_message() ->
     (emqx_message:make(<<"t/link">>, <<"payload">>))#message{extra = <<"pick-key">>}.
+
+%%--------------------------------------------------------------------
+%% Forwarding
+%%--------------------------------------------------------------------
+
+%% A message forwarded to a remote cluster does not carry the local
+%% `message_persisted' header.
+forward_drops_persisted_header_test() ->
+    Msg = emqx_message:make(<<"t/link">>, <<"payload">>),
+    Persisted = emqx_message:set_header(message_persisted, true, Msg),
+    ok = meck:new(emqx_cluster_link_config, [no_link]),
+    ok = meck:new(emqx_resource, [no_link]),
+    try
+        ok = meck:expect(emqx_cluster_link_config, link, fun(<<"remote">>) ->
+            #{query_opts => #{}}
+        end),
+        ok = meck:expect(emqx_resource, query, fun(_ResId, Query, _QueryOpts) -> Query end),
+        FwdMsg = ?MOD:forward(<<"remote">>, #delivery{sender = self(), message = Persisted}),
+        ?assertEqual(Msg#message.headers, FwdMsg#message.headers)
+    after
+        ok = meck:unload([emqx_resource, emqx_cluster_link_config])
+    end.
