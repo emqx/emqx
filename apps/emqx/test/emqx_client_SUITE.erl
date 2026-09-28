@@ -504,8 +504,10 @@ t_chan_info_structure(Config) ->
     ),
     #{conninfo := ConnInfo, clientinfo := ClientInfo, session := SessionInfo} =
         Info = emqx_cm:get_chan_info(ClientId),
+    %% `sockinfo' is gone from the channel info map; its fields are derivable
+    %% from `conninfo'.
     ?assertEqual(
-        [clientinfo, conn_state, conninfo, session, sockinfo],
+        [clientinfo, conn_state, conninfo, session],
         lists:sort(maps:keys(Info))
     ),
     ?assertEqual(
