@@ -594,7 +594,11 @@ required_caps(t_jwt_mqtt_reserved_permission_rejected) ->
     [jwt_auth, mqtt_subject_translation];
 required_caps(t_jwt_mqtt_ambiguous_delivery_dropped) ->
     [jwt_auth, mqtt_subject_translation];
+required_caps(t_jwt_queue_group_cannot_change_filter) ->
+    [jwt_auth, mqtt_subject_translation];
 required_caps(t_mqtt_wildcard_gt_requires_child) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_reserved_queue_group_rejected) ->
     [mqtt_subject_translation];
 required_caps(t_mqtt_reserved_subject_rejected) ->
     [mqtt_subject_translation];
@@ -1423,6 +1427,16 @@ t_mqtt_reserved_subject_rejected(Config) ->
             <<"$queue.foo">>,
             <<"$exclusive.foo">>
         ]
+    ).
+
+t_mqtt_reserved_queue_group_rejected(Config) ->
+    lists:foreach(
+        fun(QGroup) ->
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_queue_sub(Client, <<"foo">>, QGroup, <<"sid-1">>)
+            end)
+        end,
+        [<<"group/secret">>, <<"group+">>, <<"group#">>]
     ).
 
 assert_raw_subject_rejected(Config, Send) ->
@@ -2373,6 +2387,29 @@ t_jwt_mqtt_reserved_permission_rejected(Config) ->
     assert_auth_failed(Msgs),
     emqx_nats_client:stop(Client).
 
+t_jwt_queue_group_cannot_change_filter(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_queue_group_cannot_change_filter('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_queue_group_cannot_change_filter(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"allow">> => [<<"foo">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    ok = send_raw_queue_sub(Client, <<"foo">>, <<"group/secret">>, <<"sid-1">>),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+    emqx_nats_client:stop(Client).
+
 t_jwt_mqtt_ambiguous_delivery_dropped(init, Config) ->
     jwt_auth_setup(Config);
 t_jwt_mqtt_ambiguous_delivery_dropped('end', Config) ->
@@ -2738,6 +2775,10 @@ send_raw_sub(Client, Subject, Sid) ->
         Sid,
         "\r\n"
     ]),
+    emqx_nats_client:send_invalid_frame(Client, Data).
+
+send_raw_queue_sub(Client, Subject, QGroup, Sid) ->
+    Data = iolist_to_binary(["SUB ", Subject, " ", QGroup, " ", Sid, "\r\n"]),
     emqx_nats_client:send_invalid_frame(Client, Data).
 
 send_raw_pub(Client, Subject, Payload) ->

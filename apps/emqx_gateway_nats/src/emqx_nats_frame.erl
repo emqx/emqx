@@ -207,6 +207,7 @@ serialize_message(?OP_SUB, Message) ->
         undefined ->
             [Subject, " ", Sid];
         QGroup ->
+            ok = validate_queue_group(QGroup),
             [Subject, " ", QGroup, " ", Sid]
     end;
 serialize_message(?OP_UNSUB, Message) ->
@@ -499,6 +500,7 @@ do_parse_args(sub, [Subject, Sid], Rest, State) ->
     {ok, Frame, Rest, reset(State)};
 do_parse_args(sub, [Subject, QGroup, Sid], Rest, State) ->
     ok = validate_subject(Subject),
+    ok = validate_queue_group(QGroup),
     Msg =
         case QGroup of
             <<>> ->
@@ -670,4 +672,10 @@ validate_subject(Subject) ->
             ok;
         {error, Reason} ->
             error({invalid_subject, Reason})
+    end.
+
+validate_queue_group(QGroup) ->
+    case binary:match(QGroup, [<<"/">>, <<"+">>, <<"#">>]) of
+        nomatch -> ok;
+        _ -> error({invalid_queue_group, mqtt_reserved_char})
     end.

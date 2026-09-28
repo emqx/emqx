@@ -280,6 +280,31 @@ t_jwt_multi_level_wildcard_requires_child(_) ->
         ct:fail(emqx_authorize_hook_not_called)
     end.
 
+t_jwt_subscription_checks_actual_filter(_) ->
+    ClientInfo = nats_authz_clientinfo(#{
+        subscribe => #{allow => [<<"foo">>], deny => []}
+    }),
+    Action = #{action_type => subscribe},
+    ?assertEqual(
+        allow,
+        emqx_nats_channel:jwt_permissions_authorize(ClientInfo, Action, <<"foo">>, <<"foo">>)
+    ),
+    ?assertEqual(
+        allow,
+        emqx_nats_channel:jwt_permissions_authorize(
+            ClientInfo, Action, emqx_topic:make_shared_record(<<"group">>, <<"foo">>), <<"foo">>
+        )
+    ),
+    ?assertEqual(
+        deny,
+        emqx_nats_channel:jwt_permissions_authorize(
+            ClientInfo,
+            Action,
+            emqx_topic:make_shared_record(<<"group">>, <<"secret/foo">>),
+            <<"foo">>
+        )
+    ).
+
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),

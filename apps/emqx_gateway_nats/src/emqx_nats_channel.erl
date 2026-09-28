@@ -36,7 +36,7 @@
 ]).
 
 -ifdef(TEST).
--export([authorize_publish/2]).
+-export([authorize_publish/2, jwt_permissions_authorize/4]).
 -endif.
 
 -record(channel, {
@@ -1379,15 +1379,15 @@ jwt_permission_decision(
     end;
 jwt_permission_decision(
     subscribe,
-    _Topic,
-    Subject,
+    Topic,
+    _Subject,
     #{
         allow_empty := AllowEmpty,
         allow_filters := AllowFilters,
         deny_filters := DenyFilters
     }
 ) ->
-    TopicFilter = nats_subject_to_filter(Subject),
+    TopicFilter = emqx_topic:get_shared_real_topic(Topic),
     case jwt_subscribe_match_any(TopicFilter, DenyFilters, intersection) of
         true ->
             deny;
