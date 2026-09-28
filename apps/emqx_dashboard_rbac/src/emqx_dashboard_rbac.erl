@@ -296,6 +296,11 @@ do_check_rbac(#{?role := Role}, Req, ?CONFIGS_API(get, configs)) when
         false ->
             true
     end;
+do_check_rbac(#{?role := ?ROLE_VIEWER}, _, ?DATA_BACKUP_API(get, data_file_by_name)) ->
+    %% A backup archive holds the configuration without redaction, so viewers
+    %% (global or namespaced, login users or API keys) may list backup files but
+    %% not download them.
+    {error, <<"Backup files are only available to administrators">>};
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong

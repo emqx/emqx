@@ -872,6 +872,46 @@ t_plugin_config_endpoints_require_global_admin(_) ->
     ).
 
 -doc """
+Downloading a backup file is denied to every viewer, global or namespaced, and to
+publishers. Administrators, global or namespaced, pass RBAC. Listing backup files
+stays readable by viewers.
+
+The API-key role macros are the same binaries as the login-user ones, so these
+actor contexts cover API keys too.
+""".
+t_backup_download_denied_to_viewers(_) ->
+    Req = #{},
+    Download = #{method => get, module => emqx_mgmt_api_data_backup, function => data_file_by_name},
+    List = #{method => get, module => emqx_mgmt_api_data_backup, function => data_files},
+    [NsAdmin, NsViewer, NsApiAdmin, NsApiViewer] = namespaced_actor_contexts(),
+    Denied = {error, <<"Backup files are only available to administrators">>},
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertEqual(
+                Denied,
+                emqx_dashboard_rbac:check_rbac(Req, Download, ActorContext),
+                ActorContext
+            ),
+            ?assertMatch({ok, _}, emqx_dashboard_rbac:check_rbac(Req, List, ActorContext))
+        end,
+        [global_viewer_actor_context(), NsViewer, NsApiViewer]
+    ),
+    ?assertMatch(
+        {error, _},
+        emqx_dashboard_rbac:check_rbac(Req, Download, global_publisher_actor_context())
+    ),
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, Download, ActorContext),
+                ActorContext
+            )
+        end,
+        [global_admin_actor_context(), NsAdmin, NsApiAdmin]
+    ).
+
+-doc """
 Over the real HTTP API, the plugin configuration endpoints answer 403
 `UNAUTHORIZED_ROLE` for viewers and namespaced administrators, while the global
 administrator still reaches the endpoint (404 for an unknown plugin rather than
