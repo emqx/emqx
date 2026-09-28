@@ -304,6 +304,31 @@ t_configs_plaintext_permission(_) ->
         emqx_conf:remove([sysmon, top, db_password], #{override_to => cluster})
     end.
 
+%% A backup archive holds the configuration without redaction, so viewers may
+%% list the backup files but not download one. Path aliases that reach the
+%% download handler must be denied as well.
+t_data_files_download_permission(_) ->
+    Viewer = #{role => ?ROLE_VIEWER},
+    Admin = #{role => ?ROLE_SUPERUSER},
+    Publisher = #{role => ?ROLE_API_PUBLISHER},
+    Check = fun(Path, Extra) ->
+        emqx_dashboard_rbac:check_rbac(rbac_req(<<"GET">>, Path), <<"u">>, Extra)
+    end,
+    ?assertNot(Check(<<"/data/files/backup.tar.gz">>, Viewer)),
+    ?assertNot(Check(<<"/data/%66iles/backup.tar.gz">>, Viewer)),
+    ?assertNot(Check(<<"/data/./files/backup.tar.gz">>, Viewer)),
+    ?assertNot(Check(<<"/data/x/../files/backup.tar.gz">>, Viewer)),
+    %% The listing stays readable, including with a trailing slash, which
+    %% `cowboy_router' routes to the listing handler.
+    ?assert(Check(<<"/data/files">>, Viewer)),
+    ?assert(Check(<<"/data/files/">>, Viewer)),
+    ?assert(Check(<<"/data/files/backup.tar.gz">>, Admin)),
+    ?assertNot(Check(<<"/data/files/backup.tar.gz">>, Publisher)),
+    ok.
+
+rbac_req(Method, Path) ->
+    #{method => Method, path => <<"/api/v5", Path/binary>>, headers => #{}}.
+
 configs_get(Auth, Accept, Query) ->
     configs_get_uri(
         emqx_mgmt_api_test_util:api_path(["configs" ++ query_string(Query)]), Auth, Accept
