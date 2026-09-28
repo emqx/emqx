@@ -72,10 +72,10 @@ Invariants:
 -record(call_apply_after, {
     k :: emqx_durable_timer:key(),
     v :: emqx_durable_timer:value(),
-    t :: integer()
+    t :: emqx_durable_timer:posix_time_ms()
 }).
 %% Note: here t is epoch time (not adjusted for delta):
--record(cast_wake_up, {t :: integer()}).
+-record(cast_wake_up, {t :: emqx_durable_timer:posix_time_ms()}).
 -define(try_select_self, try_select_self).
 -record(cast_became_leader, {pid :: pid()}).
 -define(replay_complete, replay_complete).
@@ -90,6 +90,8 @@ Invariants:
 -define(s_leader(KIND), {leader, KIND}).
 %%    Standby worker that becomes candidate when the leader dies:
 -define(s_standby(KIND, REF), {standby, KIND, REF}).
+
+-type state() :: ?s_active | ?s_candidate(_) | ?s_leader(_) | ?s_standby(_, _).
 
 %%================================================================================
 %% API functions
@@ -132,9 +134,11 @@ apply_after(Type, Epoch, Key, Val, NotEarlierThan) when
     shard :: emqx_ds:shard(),
     pending_tab :: ets:tid() | undefined,
     %% Iterator pointing at the beginning of un-replayed timers:
-    replay_pos :: emqx_ds:iterator() | undefined,
-    %% Remaining entries from the last replay (relevent for closed)
+    it_next :: emqx_ds:iterator() | undefined,
+    %% Remaining entries from the last replay (relevent when replaying closed epochs)
     tail = [] :: [emqx_ds:ttv()],
+    %% Iterator used to retrieve the last batch:
+    it_current :: emqx_ds:iterator() | undefined,
     %% Reference to the pending transaction that async-ly cleans up
     %% the replayed data:
     pending_del_tx :: reference() | undefined,
@@ -305,7 +309,7 @@ init_leader(?s_leader(Kind), Data0 = #s{epoch = Epoch}) ->
             end,
         Data1 = Data0#s{time_delta = Delta},
         {ok, It} ?= get_iterator(Data1),
-        Data = Data1#s{replay_pos = It},
+        Data = Data1#s{it_next = It},
         %% Broadcast the self-appointment to the peers:
         pg_bcast(Kind, Data, #cast_became_leader{pid = self()}),
         %% Start the replay loop:
@@ -332,8 +336,16 @@ handle_wake_up(
     DSBatchSize =
         case State of
             ?s_active ->
+                %% Active worker sets up wakeup timers, so it can rely
+                %% on time-bounded batches:
                 {time, Bound, emqx_durable_timer:cfg_batch_size()};
             _ ->
+                %% Unfortunately, we cannot use time-bounded batches
+                %% when replaying old epochs: in order to know when to
+                %% wake up next event, we have to look into the
+                %% future. As such, the most efficient way to replay
+                %% events is via regualar fixed-size batches and by
+                %% caching future events.
                 emqx_durable_timer:cfg_batch_size()
         end,
     Result = ?tp_span(
@@ -349,7 +361,7 @@ handle_wake_up(
             {keep_state, clean_replayed(schedule_next_wake_up(State, Data))};
         {retry, Data, Reason} ->
             ?tp(warning, ?tp_replay_failed, #{
-                from => Data0#s.replay_pos, to => Bound, reason => Reason
+                from => Data0#s.it_next, to => Bound, reason => Reason
             }),
             erlang:send_after(
                 emqx_durable_timer:cfg_replay_retry_interval(),
@@ -381,51 +393,94 @@ pg_bcast(LeaderKind, #s{type = Type, epoch = Epoch, shard = Shard}, Msg) ->
     ],
     ok.
 
+-spec replay_timers(state(), data(), emqx_durable_timer:posix_time_ms(), pos_integer()) ->
+    {end_of_stream, emqx_durable_timer:posix_time_ms()}
+    | {ok, data()}
+    | {retry, data(), term()}.
 replay_timers(
     State,
-    Data = #s{fully_replayed_ts = FullyReplayedTS0, replay_pos = It0, tail = Tail0},
+    D0 = #s{tail = [], it_next = ItCurrent, fully_replayed_ts = FullyReplayedTS},
     Bound,
-    DSBatchSize
+    BatchLimit
 ) ->
-    case do_replay_timers(Data, It0, Bound, DSBatchSize, FullyReplayedTS0, Tail0) of
-        {ok, FullyReplayedTS, _, []} when State =/= ?s_active ->
-            {end_of_stream, FullyReplayedTS};
-        {ok, FullyReplayedTS, It, Tail} ->
-            {ok, Data#s{replay_pos = It, fully_replayed_ts = FullyReplayedTS, tail = Tail}};
-        {retry, FullyReplayedTS1, It1, Reason} ->
-            {retry, Data#s{replay_pos = It1, fully_replayed_ts = FullyReplayedTS1, tail = []},
-                Reason}
-    end.
-
-do_replay_timers(D, It0, Bound, DSBatchSize, FullyReplayedTS, []) ->
-    case emqx_ds:next(?DB_GLOB, It0, DSBatchSize) of
-        {ok, It, []} ->
-            {ok, FullyReplayedTS, It, []};
-        {ok, It, Batch} ->
-            do_replay_timers(D, It, Bound, DSBatchSize, FullyReplayedTS, Batch);
+    case emqx_ds:next(?DB_GLOB, ItCurrent, BatchLimit) of
+        {ok, ItNext, Batch} ->
+            D = D0#s{
+                it_current = ItCurrent,
+                it_next = ItNext,
+                tail = Batch
+            },
+            case Batch of
+                [] when State =/= ?s_active ->
+                    %% We're in reply mode and there's no more data
+                    %% left. Terminate the replay:
+                    {end_of_stream, FullyReplayedTS};
+                [] ->
+                    %% We're active. Continue on wake-up:
+                    {ok, D};
+                _ ->
+                    replay_timers(State, D, Bound, BatchLimit)
+            end;
         ?err_rec(Reason) ->
-            {retry, FullyReplayedTS, It0, Reason}
+            {retry, D0, Reason}
     end;
-do_replay_timers(D, It, Bound, DSBatchSize, FullyReplayedTS0, Batch) ->
-    {FullyReplayedTS, Tail} = apply_timers_from_batch(D, Bound, FullyReplayedTS0, Batch),
-    case Tail of
-        [] ->
-            do_replay_timers(D, It, Bound, DSBatchSize, FullyReplayedTS, []);
-        _ ->
-            {ok, FullyReplayedTS, It, Tail}
+replay_timers(
+    State,
+    D0 = #s{tail = Batch, fully_replayed_ts = FullyReplayedTS0, it_current = ItCurrent},
+    Bound,
+    BatchLimit
+) ->
+    case apply_timers_from_batch(D0, Bound, FullyReplayedTS0, Batch) of
+        {ok, FullyReplayedTS, Tail} ->
+            D = D0#s{tail = Tail, fully_replayed_ts = FullyReplayedTS},
+            case Tail of
+                [] ->
+                    %% All timers have been consumed. Loop for more:
+                    replay_timers(State, D, Bound, BatchLimit);
+                _ ->
+                    %% Replay: some of the timers are in the future.
+                    %% Stop for now.
+                    {ok, D}
+            end;
+        {retry, FullyReplayedTS, Reason} ->
+            %% Business logic requested a retry. Important: we drop
+            %% the replay cache to handle the situation when the
+            %% offending timer is removed externally.
+            D = D0#s{fully_replayed_ts = FullyReplayedTS, tail = [], it_next = ItCurrent},
+            {retry, D, Reason}
     end.
 
+-spec apply_timers_from_batch(data(), Bound, FullyReplayedTS, Batch) ->
+    {ok, FullyReplayedTS, Batch}
+    | {retry, FullyReplayedTS, RetryReason}
+when
+    FullyReplayedTS :: emqx_durable_timer:posix_time_ms(),
+    Bound :: emqx_durable_timer:posix_time_ms(),
+    Batch :: [emqx_ds:ttv()],
+    RetryReason :: term().
 apply_timers_from_batch(
     D = #s{type = Type, cbm = CBM}, Bound, FullyReplayedTS, L
 ) ->
     case L of
         [] ->
-            {FullyReplayedTS, []};
+            {ok, FullyReplayedTS, []};
+        [{_Topic, Time, _Val} | Rest] when Time < FullyReplayedTS ->
+            %% Try to ignore already processed events during retry.
+            %% Since `clean_replayed' is async, we may still run into
+            %% old the records if retry timer fires before cleaning is
+            %% done.
+            apply_timers_from_batch(D, Bound, FullyReplayedTS, Rest);
         [{[_Root, _Type, _Epoch, Key], Time, Val} | Rest] when Time =< Bound ->
-            handle_timeout(Type, CBM, Time, Key, Val),
-            apply_timers_from_batch(D, Bound, Time, Rest);
+            %% Normal case:
+            case handle_timeout(Type, CBM, Time, Key, Val) of
+                ok ->
+                    apply_timers_from_batch(D, Bound, Time, Rest);
+                {retry, Reason} ->
+                    {retry, FullyReplayedTS, Reason}
+            end;
         _ ->
-            {FullyReplayedTS, L}
+            %% (Replay) Next timer is in the future. Stop now.
+            {ok, FullyReplayedTS, L}
     end.
 
 -spec clean_replayed(data()) -> data().
@@ -465,15 +520,29 @@ on_clean_complete(Ref, Reply, Data) ->
     integer(),
     emqx_durable_timer:key(),
     emqx_durable_timer:value()
-) -> ok.
+) -> ok | {retry, Reason} when
+    Reason :: term().
 handle_timeout(Type, CBM, Time, Key, Value) ->
     ?tp(debug, ?tp_fire, #{type => Type, key => Key, val => Value, t => Time}),
     try
         emqx_durable_timer:handle_durable_timeout(CBM, Key, Value),
         ok
     catch
-        _:_ ->
-            ok
+        EC:Err:Stack ->
+            ?tp(error, ?tp_handler_crash, #{
+                type => Type, key => Key, EC => Err, stacktrace => Stack
+            }),
+            case {EC, Err} of
+                {throw, #emqx_durable_timer_retry{reason = Reason}} ->
+                    %% Only retry when the CBM is deliberate about
+                    %% that.
+                    {retry, Reason};
+                _ ->
+                    %% NOTE: this should not happen. Durable timer
+                    %% implementations must handle errors according to
+                    %% the needs of the business logic.
+                    ok
+            end
     end.
 
 -doc """
@@ -548,10 +617,10 @@ active_safe_replay_pos(#s{pending_tab = Tab, fully_replayed_ts = FullyReplayed},
         end
     ).
 
-active_ensure_iterator(Data = #s{replay_pos = undefined}) ->
+active_ensure_iterator(Data = #s{it_next = undefined}) ->
     {ok, It} = get_iterator(Data),
     Data#s{
-        replay_pos = It
+        it_next = It
     };
 active_ensure_iterator(Data) ->
     Data.
