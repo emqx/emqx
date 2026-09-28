@@ -210,7 +210,25 @@ t_publish_compatibility(_Config) ->
     ?assertEqual(disconnect, emqx_broker:publish(Disconnect)),
     ?assertEqual(disconnect, emqx_broker:safe_publish(Disconnect)),
     ?assertEqual({error, disconnect, Disconnect}, emqx_broker:publish2(Disconnect)),
-    ?assertEqual({error, disconnect, Disconnect}, emqx_broker:safe_publish2(Disconnect)).
+    ?assertEqual({error, disconnect, Disconnect}, emqx_broker:safe_publish2(Disconnect)),
+
+    %% Invalid messages fail at the legacy API boundary.
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, publish, _, _} | _]}},
+        catch emqx_broker:publish(invalid)
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, publish, _, _} | _]}},
+        catch emqx_broker:publish(invalid, #{})
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, safe_publish, _, _} | _]}},
+        catch emqx_broker:safe_publish(invalid)
+    ),
+    ?assertMatch(
+        {'EXIT', {function_clause, [{emqx_broker, safe_publish, _, _} | _]}},
+        catch emqx_broker:safe_publish(invalid, #{})
+    ).
 
 %% Check that safe publish keeps the legacy empty result when publishing fails.
 t_safe_publish_compatibility({init, Config}) ->

@@ -264,11 +264,11 @@ do_unsubscribe_regular(Topic, SubPid, SubOpts) ->
 %%--------------------------------------------------------------------
 
 -spec publish(emqx_types:message()) -> emqx_types:publish_result().
-publish(Msg) ->
-    publish(Msg, _Opts = #{}).
+publish(#message{} = Msg) ->
+    publish(#message{} = Msg, _Opts = #{}).
 
 -spec publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
-publish(Msg, Opts) ->
+publish(#message{} = Msg, Opts) ->
     case publish2(Msg, Opts) of
         {ok, Routes, _Message} -> Routes;
         {error, blocked, Message} -> {blocked, Message};
@@ -346,7 +346,7 @@ safe_publish(Msg) ->
     safe_publish(Msg, _Opts = #{}).
 
 -spec safe_publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
-safe_publish(Msg, Opts) ->
+safe_publish(#message{} = Msg, Opts) ->
     case safe_publish2(Msg, Opts) of
         {ok, Routes, _Message} -> Routes;
         {error, blocked, Message} -> {blocked, Message};
