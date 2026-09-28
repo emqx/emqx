@@ -24,6 +24,7 @@
     set_mfa_state/2,
     get_mfa_state/1,
     mfa_enforced_for/1,
+    mfa_status/1,
     clear_login_lock/1,
     set_login_lock/2,
     get_login_lock/1,
@@ -1110,6 +1111,48 @@ format_mfa(Username) ->
         _ -> none
     end.
 
+-type mfa_status() :: complete | pending_enforced | pending_voluntary | disabled.
+
+%% @doc What the account has to do about MFA, as opposed to `format_mfa/1',
+%% which reports what is stored. Derived from the stored state plus the policy
+%% that applies to the account.
+%%
+%%   complete          enrolled, and one TOTP code has been verified
+%%   pending_enforced  not complete while MFA is required. Login issues no
+%%                     token on it and `GET /current_user' ends the account's
+%%                     sessions on it, so no response reports it.
+%%   pending_voluntary no MFA and nothing requires it: the user may opt in
+%%   disabled          opted out, and nothing requires them to opt back in
+-spec mfa_status(dashboard_username()) -> mfa_status().
+mfa_status(Username) ->
+    case get_mfa_state(Username) of
+        {ok, #{mechanism := _, first_verify_ts := _}} ->
+            complete;
+        {ok, #{mechanism := _}} ->
+            %% A secret was issued and never verified. Login stops on it
+            %% either way, so the enrollment being voluntary does not make
+            %% this state dismissible.
+            pending_enforced;
+        {ok, disabled} ->
+            pending_or(disabled, Username);
+        _ ->
+            pending_or(pending_voluntary, Username)
+    end.
+
+pending_or(Otherwise, Username) ->
+    case mfa_required_for(Username) of
+        true -> pending_enforced;
+        false -> Otherwise
+    end.
+
+%% Whether the next login of this account sets up MFA when it has none:
+%% `emqx_dashboard_sso_mfa:mfa_required_for_user/2' for an SSO account,
+%% `mfa_enforced_for/1' for a local one.
+mfa_required_for(?SSO_USERNAME(Backend, _Name) = Username) ->
+    emqx_dashboard_sso_mfa:mfa_required_for_user(Username, Backend);
+mfa_required_for(Username) ->
+    mfa_enforced_for(Username).
+
 -spec return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}.
 return({atomic, Result}) ->
     {ok, Result};
@@ -1314,8 +1357,11 @@ sign_token(Username, Password, MfaToken) ->
         ok ?= emqx_dashboard_login_lock:verify(Username),
         {ok, User} ?= check(Username, Password, MfaToken),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
+        {ok, MfaStatus} ?= login_mfa_status(Username),
         {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
-        {ok, Result#{?role => Role, token => Token, namespace => Namespace}}
+        {ok, Result#{
+            ?role => Role, token => Token, namespace => Namespace, mfa_status => MfaStatus
+        }}
     end.
 
 -spec complete_scram_login(#?ADMIN{}, term()) ->
@@ -1328,8 +1374,25 @@ complete_scram_login(#?ADMIN{username = Username, pwdhash = PwdHash} = User, Mfa
         ok ?= check_mfa_pwd(MfaVerifyResult, true),
         ok ?= check_unchanged_default_credentials_hash(PwdHash),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
+        {ok, MfaStatus} ?= login_mfa_status(Username),
         {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
-        {ok, Result#{?role => Role, token => Token, namespace => Namespace}}
+        {ok, Result#{
+            ?role => Role, token => Token, namespace => Namespace, mfa_status => MfaStatus
+        }}
+    end.
+
+%% An account still `pending_enforced' after the earlier MFA checks gets no token.
+login_mfa_status(Username) ->
+    case mfa_status(Username) of
+        pending_enforced ->
+            ?SLOG(error, #{
+                msg => "dashboard_login_refused",
+                username => Username,
+                reason => mfa_setup_required
+            }),
+            {error, mfa_setup_required};
+        MfaStatus ->
+            {ok, MfaStatus}
     end.
 
 -spec verify_token(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->

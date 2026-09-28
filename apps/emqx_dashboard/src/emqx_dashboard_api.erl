@@ -53,6 +53,7 @@
 -define(SERVICE_UNAVAILABLE, 'SERVICE_UNAVAILABLE').
 -define(MFA_ADMIN_REQUIRED, 'MFA_ADMIN_REQUIRED').
 -define(MFA_ENFORCED, 'MFA_ENFORCED').
+-define(MFA_SETUP_REQUIRED, 'MFA_SETUP_REQUIRED').
 
 namespace() -> "dashboard".
 
@@ -117,7 +118,7 @@ schema("/login") ->
             'requestBody' => fields([username, password, mfa_token]),
             responses => #{
                 200 => fields([
-                    role, token, version, license, password_expire_in_seconds
+                    role, token, version, license, password_expire_in_seconds, mfa_status
                 ]),
                 401 => emqx_dashboard_swagger:error_codes(ErrorCodes, ?DESC(login_failed401)),
                 403 => emqx_dashboard_swagger:error_codes(
@@ -156,7 +157,8 @@ schema("/login/verify") ->
                     version,
                     license,
                     password_expire_in_seconds,
-                    server_signature
+                    server_signature,
+                    mfa_status
                 ]),
                 400 => response_schema(400),
                 401 => emqx_dashboard_swagger:error_codes(
@@ -192,6 +194,9 @@ schema("/current_user") ->
             security => [#{'bearerAuth' => []}],
             responses => #{
                 200 => current_user_fields(),
+                401 => emqx_dashboard_swagger:error_codes(
+                    [?MFA_SETUP_REQUIRED], ?DESC(current_user_mfa_setup_required)
+                ),
                 404 => response_schema(404)
             }
         }
@@ -394,7 +399,8 @@ user_fields() ->
 %% with an explicit list. This endpoint is read-only and reports the
 %% permissions the current user actually has.
 current_user_fields() ->
-    fields([username, role, description, backend, effective_scopes_response]) ++ ee_user_fields().
+    fields([username, role, description, backend, effective_scopes_response, mfa_status]) ++
+        ee_user_fields().
 
 ee_user_fields() ->
     [
@@ -439,6 +445,12 @@ field(license) ->
                 #{desc => ?DESC(license), example => opensource}
             )}
     ]};
+field(mfa_status) ->
+    {mfa_status,
+        mk(
+            enum([complete, pending_voluntary, disabled]),
+            #{desc => ?DESC(mfa_enrollment_status), example => pending_voluntary}
+        )};
 field(version) ->
     {version, mk(string(), #{desc => ?DESC(version), example => <<"5.0.0">>})};
 field(old_pwd) ->
@@ -897,10 +909,28 @@ handle_delete_user(#{bindings := #{username := Username0}} = Req) ->
 
 current_user(get, Req) ->
     with_caller(Req, fun(#?ADMIN{username = Username} = Admin) ->
-        Profile = emqx_dashboard_admin:to_external_user(Admin),
-        %% `to_json_out/1' maps `?global_ns' to `null', so a global user
-        %% reports the same `"namespace": null' as `GET /users' does.
-        {200, to_json_out(Profile#{scopes => emqx_dashboard_admin:effective_scopes_of(Username)})}
+        case emqx_dashboard_admin:mfa_status(Username) of
+            pending_enforced ->
+                %% The MFA policy or the account's MFA changed after login, so
+                %% none of the account's sessions meets the policy. Other
+                %% endpoints do not run this check.
+                ok = emqx_dashboard_token:destroy_by_username(Username),
+                ?SLOG(info, #{
+                    msg => "dashboard_sessions_ended",
+                    username => Username,
+                    reason => mfa_setup_required
+                }),
+                {401, ?MFA_SETUP_REQUIRED, <<"MFA setup is required. Log in again to set it up.">>};
+            MfaStatus ->
+                Profile = emqx_dashboard_admin:to_external_user(Admin),
+                %% `to_json_out/1' maps `?global_ns' to `null', so a global user
+                %% reports the same `"namespace": null' as `GET /users' does.
+                {200,
+                    to_json_out(Profile#{
+                        scopes => emqx_dashboard_admin:effective_scopes_of(Username),
+                        mfa_status => MfaStatus
+                    })}
+        end
     end).
 
 current_user_change_pwd(post, #{body := Params} = Req) ->

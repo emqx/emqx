@@ -1211,7 +1211,7 @@ t_self_can_rotate_when_admin_override_required(_Config) ->
     ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)),
     %% Re-keying MFA invalidates the account's sessions, so the disable needs a
     %% fresh token; reusing the one that authorized the rotate answers 401.
-    {ok, 403, RespBody} = delete_own_mfa(jwt(<<"u">>, test_password())),
+    {ok, 403, RespBody} = delete_own_mfa(session(<<"u">>)),
     ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
 
 %% Required by an administrator: self-disable is denied.
@@ -1243,7 +1243,7 @@ t_self_with_mfa_mgmt_still_required(_Config) ->
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     ?assertMatch({ok, 204, _}, setup_own_mfa(jwt(<<"u">>, test_password()))),
     %% Fresh token: the rotate above invalidated the account's sessions.
-    {ok, 403, DeleteBody} = delete_own_mfa(jwt(<<"u">>, test_password())),
+    {ok, 403, DeleteBody} = delete_own_mfa(session(<<"u">>)),
     ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(DeleteBody)).
 
 %% A viewer with an explicitly emptied scope list still reaches its own
@@ -1257,7 +1257,7 @@ t_self_mfa_not_gated_by_scopes(_Config) ->
     ?assertMatch({ok, 204, _}, setup_own_mfa(jwt(<<"u">>, test_password()))),
     %% Re-keying MFA invalidates the account's sessions, so the disable
     %% needs a fresh token.
-    ?assertMatch({ok, 204, _}, delete_own_mfa(jwt(<<"u">>, test_password()))).
+    ?assertMatch({ok, 204, _}, delete_own_mfa(session(<<"u">>))).
 
 %%--------------------------------------------------------------------
 %% Administrator MFA routes (`/users/:username/mfa')
@@ -1496,6 +1496,13 @@ jwt(Username, Password) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
         Username, Password, ?TRUSTED_MFA_TOKEN
     ),
+    Token.
+
+%% A session signed without a login, for a case that acts right after an MFA
+%% re-key: a login would need the new TOTP code.
+session(Username) ->
+    [Admin] = emqx_dashboard_admin:lookup_user(Username),
+    {ok, _Role, Token, _Namespace} = emqx_dashboard_token:sign(Admin),
     Token.
 
 auth_header(JwtToken) ->
