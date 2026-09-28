@@ -264,10 +264,17 @@ on_message_publish(Message) ->
         )
     of
         {StopOrOk, #{message := NMessage}} ->
-            {StopOrOk, assign_to_message(NMessage, Message)};
+            {StopOrOk, mark_consumed(NMessage, assign_to_message(NMessage, Message))};
         ignore ->
             ignore
     end.
+
+%% The mark is set only: a server cannot clear a mark set by an earlier server
+%% or an earlier hook callback.
+mark_consumed(#{headers := #{<<"message_consumed">> := <<"true">>}}, Message) ->
+    emqx_message:set_consumed(Message);
+mark_consumed(_InMessage, Message) ->
+    Message.
 
 on_message_dropped(#message{topic = <<"$SYS/", _/binary>>}, _By, _Reason) ->
     ok;
@@ -517,10 +524,18 @@ merge_responsed_bool(_Req, Resp) ->
 merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
     ignore;
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
-    {ret(Type), Req#{message => NMessage}};
+    {ret(Type), Req#{message => keep_consumed(Req, NMessage)}};
 merge_responsed_message(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_response_value", resp => Resp}),
     ignore.
+
+%% A consumed mark set by an earlier server stays on the message passed to the
+%% next one.
+keep_consumed(#{message := #{headers := #{<<"message_consumed">> := <<"true">>}}}, NMessage) ->
+    Headers = maps:get(headers, NMessage, #{}),
+    NMessage#{headers => Headers#{<<"message_consumed">> => <<"true">>}};
+keep_consumed(_Req, NMessage) ->
+    NMessage.
 
 ret('CONTINUE') -> ok;
 ret('STOP_AND_RETURN') -> stop.
