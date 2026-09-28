@@ -1250,6 +1250,42 @@ t_peercert_pp2_cn_clean_accepted(_) ->
         emqx_channel:info(clientinfo, Channel)
     ).
 
+-doc "After CONNECT, the process label is `{clientid, ClientId}`.".
+t_connect_sets_clientid_label(_) ->
+    mock_cm_open_session(),
+    ok = proc_lib:set_label({{tcp, default}, {{127, 0, 0, 1}, 3456}}),
+    {continue, _, _} =
+        emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), channel(#{conn_state => idle})),
+    ?assertEqual({clientid, <<"clientid">>}, proc_lib:get_label(self())).
+
+-doc "A zero-length CONNECT clientid is replaced by a random one, which becomes the label.".
+t_connect_empty_clientid_sets_assigned_label(_) ->
+    mock_cm_open_session(),
+    ok = proc_lib:set_label({{tcp, default}, {{127, 0, 0, 1}, 3456}}),
+    IdleChannel = channel(clientinfo(#{clientid => undefined}), #{conn_state => idle}),
+    ConnPkt = (connpkt())#mqtt_packet_connect{clientid = <<>>},
+    {continue, _, Channel} = emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), IdleChannel),
+    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
+    ?assertNotEqual(<<>>, ClientId),
+    ?assertEqual({clientid, ClientId}, proc_lib:get_label(self())).
+
+-doc """
+With `peer_cert_as_clientid = cn` and an empty PROXY v2 SSL_CN, the clientid is `<<>>`.
+The connection keeps the label that the connection process set before CONNECT.
+""".
+t_connect_empty_peercert_clientid_keeps_label(_) ->
+    mock_cm_open_session(),
+    Old = emqx_config:get_zone_conf(default, [mqtt, peer_cert_as_clientid]),
+    on_exit(fun() -> emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], Old) end),
+    emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], cn),
+    Label = {{tcp, default}, {{127, 0, 0, 1}, 3456}},
+    ok = proc_lib:set_label(Label),
+    Opts = #{zone => default, limiter => undefined, listener => {tcp, default}},
+    IdleChannel = emqx_channel:init(pp2_conn_info([{pp2_ssl_cn, <<>>}]), Opts),
+    {continue, _, Channel} = emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
+    ?assertMatch(#{clientid := <<>>}, emqx_channel:info(clientinfo, Channel)),
+    ?assertEqual(Label, proc_lib:get_label(self())).
+
 t_peersni_with_crlf_rejected(_) ->
     %% `peersni' is sourced from the TLS handshake SNI or, when PROXY-Protocol
     %% v2 is used, from the `pp2_authority' TLV (attacker-controlled). It must
