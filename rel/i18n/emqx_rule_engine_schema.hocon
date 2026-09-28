@@ -232,6 +232,12 @@ rules_enable.desc:
 rules_enable.label:
 """Enable Or Disable Rule"""
 
+rules_mark_consumed.desc:
+"""Count a message this rule selects as delivered when no MQTT client subscribes to its topic. The rule selects a message in the cases counted in its `passed` metric: `FROM` matches the topic, `WHERE` is true and the SQL raises no error, and for a `FOREACH` rule at least one item remains. For such a message, MQTT 5 publishers get reason code 0 (Success) instead of 16 (No matching subscribers) in PUBACK and PUBREC, and the HTTP publish API returns 200 instead of 202. The message is counted in `messages.consumed` instead of `messages.dropped`, and no `$events/message/dropped` event is produced. The result of the rule's actions does not matter, and the message is still delivered to any subscriber. Only a rule in the global namespace or in the message's own namespace marks the message."""
+
+rules_mark_consumed.label:
+"""Mark Selected Messages as Consumed"""
+
 rules_metadata.desc:
 """Rule metadata, do not change manually"""
 

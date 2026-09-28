@@ -15,6 +15,7 @@
 -export([
     apply_rule/3,
     apply_rules/3,
+    apply_publish_rules/4,
     eval_action_reply_to/2,
     rule_namespace/0
 ]).
@@ -74,6 +75,52 @@ apply_rules([RichedRule | More], Columns, Envs) ->
 apply_rule_discard_result(RichedRule, Columns, Envs) ->
     _ = apply_rule(RichedRule, Columns, Envs),
     ok.
+
+-doc """
+Apply the rules to a published message like `apply_rules/3`, and return
+whether one of them marks the message as consumed: an enabled rule with
+`mark_consumed` set, in the global namespace or in `MsgNamespace`, that
+selected the message.
+""".
+-spec apply_publish_rules(
+    list(#{
+        rule => rule(),
+        trigger := binary(),
+        matched := binary()
+    }),
+    columns(),
+    envs(),
+    ?global_ns | binary()
+) -> boolean().
+apply_publish_rules(Rules, Columns, Envs, MsgNamespace) ->
+    apply_publish_rules(Rules, Columns, Envs, MsgNamespace, false).
+
+apply_publish_rules([], _Columns, _Envs, _MsgNamespace, IsConsumed) ->
+    ?tp("rule_engine_applied_all_rules", #{}),
+    IsConsumed;
+apply_publish_rules(
+    [#{rule := #{enable := false, id := RuleId}} | More], Columns, Envs, MsgNamespace, IsConsumed
+) ->
+    ?TRACE("RULE", "skip_apply_disabled_rule", #{rule_id => RuleId}),
+    apply_publish_rules(More, Columns, Envs, MsgNamespace, IsConsumed);
+apply_publish_rules(
+    [#{rule := #{mark_consumed := true, namespace := RuleNamespace} = Rule} = RichedRule | More],
+    Columns,
+    Envs,
+    MsgNamespace,
+    IsConsumed
+) when RuleNamespace =:= ?global_ns; RuleNamespace =:= MsgNamespace ->
+    Result = apply_rule(RichedRule, Columns, Envs),
+    Selected = is_selected(Rule, Result),
+    apply_publish_rules(More, Columns, Envs, MsgNamespace, IsConsumed orelse Selected);
+apply_publish_rules([RichedRule | More], Columns, Envs, MsgNamespace, IsConsumed) ->
+    apply_rule_discard_result(RichedRule, Columns, Envs),
+    apply_publish_rules(More, Columns, Envs, MsgNamespace, IsConsumed).
+
+%% A rule selects a message in exactly the cases counted as `passed'.
+is_selected(#{is_foreach := false}, {ok, _}) -> true;
+is_selected(#{is_foreach := true}, {ok, [_ | _]}) -> true;
+is_selected(_Rule, _Result) -> false.
 
 apply_rule(
     #{rule := #{id := RuleId, namespace := Namespace}} = RichedRule,
