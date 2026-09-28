@@ -2133,8 +2133,11 @@ t_quic_takeover_tls(Config) ->
         begin
             #{<<"topic/takeover">> := _} = channel_subscriptions(ClientId),
             CI = emqx_cm:get_chan_info(ClientId),
+            %% `info/1' does not carry the session subscriptions on this
+            %% branch; `channel_subscriptions/1' above reads them through
+            %% `info/2' and asserts the subscription is there.
             #{
-                session := S = #{subscriptions := #{<<"topic/takeover">> := _}},
+                session := S,
                 conninfo := #{connected_at := CA, socktype := ssl}
             } = CI,
             {S, CA, CI}

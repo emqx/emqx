@@ -194,9 +194,16 @@ Read them with `info/2`: `info(will_msg, Channel)`, `info(conninfo, Channel)` an
 `info({session, subscriptions}, Channel)`.
 """.
 -spec info(channel()) -> emqx_types:infos().
-info(Channel) ->
-    Infos = maps:from_list(info(?INFO_KEYS, Channel)),
-    maps:update_with(clientinfo, fun drop_derivable_peer_fields/1, Infos).
+info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
+    #{
+        conninfo => maps:remove(conn_props, ConnInfo),
+        conn_state => info(conn_state, Channel),
+        clientinfo => drop_derivable_peer_fields(info(clientinfo, Channel)),
+        session => emqx_utils:maybe_apply(fun chan_info_session/1, Session)
+    }.
+
+chan_info_session(Session) ->
+    maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session)).
 
 %% `clientinfo' keeps these so that authn, authz and hooks can reach them without
 %% `conninfo'. The info map already carries `conninfo', so a reader can derive them

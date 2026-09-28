@@ -79,6 +79,7 @@ groups() ->
         {mqttv5, [], [
             t_basic_with_props_v5,
             t_v5_receive_maximim_in_connack,
+            t_chan_info_structure,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client
         ]},
@@ -485,7 +486,7 @@ t_chan_info_structure(Config) ->
     #{conninfo := ConnInfo, clientinfo := ClientInfo, session := SessionInfo} =
         Info = emqx_cm:get_chan_info(ClientId),
     ?assertEqual(
-        [clientinfo, conn_state, conninfo, session, sockinfo],
+        [clientinfo, conn_state, conninfo, session],
         lists:sort(maps:keys(Info))
     ),
     ?assertEqual(
