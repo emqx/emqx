@@ -1216,10 +1216,8 @@ assert_idle_client_stats(Node, ClientId, Config) ->
     #{conninfo := #{conn_mod := ConnMod}} = Info,
     Dense = erpc:call(Node, ConnMod, stats, [ChanPid]),
     ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Dense), ConnMod),
-    Expected = emqx_utils_json:decode(
-        emqx_utils_json:encode(
-            erpc:call(Node, emqx_mgmt_api_clients, format_channel_info, [Node, {Chan, Info, Dense}])
-        )
+    Expected = emqx_utils_maps:binary_key_map(
+        erpc:call(Node, emqx_mgmt_api_clients, format_channel_info, [Node, {Chan, Info, Dense}])
     ),
     {ok, {?HTTP200, _, Client}} = get_client_request(ClientId, Config),
     ?assertEqual(lists:sort(maps:keys(Expected)), lists:sort(maps:keys(Client)), ConnMod),
