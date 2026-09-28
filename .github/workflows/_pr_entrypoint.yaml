@@ -87,7 +87,8 @@ jobs:
           pytest -v \
             scripts/test/test_find_apps.py \
             scripts/test/test_docker_entrypoint.py \
-            scripts/test/test_cluster_join.py
+            scripts/test/test_cluster_join.py \
+            scripts/test/test_package_manifests.py
       - name: Check workflow files
         env:
           ACTIONLINT_VSN: 1.6.25
