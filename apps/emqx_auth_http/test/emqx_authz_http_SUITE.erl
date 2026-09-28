@@ -1293,6 +1293,41 @@ t_dynamic_resolution_static_host(TCConfig) ->
         emqx_access_control:authorize(templated_host_client_info(), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
+-doc """
+With 'hostname_resolution = dynamic', authorization reads the response content
+type whether the server sends the header name as 'content-type' or
+'Content-Type'. The form-encoded case fails if the header is not found, because
+the content type then defaults to JSON.
+""".
+t_dynamic_resolution_content_type_name_case(TCConfig) ->
+    lists:foreach(
+        fun({HeaderName, ContentType, Body}) ->
+            ok = setup_handler_and_config(
+                TCConfig,
+                fun(Req0, State) ->
+                    Req = cowboy_req:reply(200, #{HeaderName => ContentType}, Body, Req0),
+                    {ok, Req, State}
+                end,
+                #{<<"hostname_resolution">> => <<"dynamic">>}
+            ),
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(
+                    templated_host_client_info(), ?AUTHZ_PUBLISH, <<"t">>
+                ),
+                {HeaderName, ContentType}
+            )
+        end,
+        [
+            {Name, CT, B}
+         || Name <- [<<"content-type">>, <<"Content-Type">>],
+            {CT, B} <- [
+                {<<"application/json; charset=utf-8">>, emqx_utils_json:encode(#{result => allow})},
+                {<<"application/x-www-form-urlencoded">>, <<"result=allow">>}
+            ]
+        ]
+    ).
+
 templated_host_client_info() ->
     #{
         clientid => <<"clientid">>,

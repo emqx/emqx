@@ -159,7 +159,10 @@ sources.label:
 """sources"""
 
 ignore_backend_failures.desc:
-"""When enabled, authorization backend failures are ignored even when the active security profile would deny them."""
+"""Decides what happens when an authorization backend fails, for example when the database is unreachable or the request times out.
+- `per_security_profile`: Follow the security profile. The `legacy` profile ignores the failure. The `hardened` profile denies the action.
+- `true`: Ignore the failure in both security profiles. Continue to the next authorization source.
+- `false`: Deny the action in both security profiles."""
 
 ignore_backend_failures.label:
 """Ignore Backend Failures"""

@@ -34,6 +34,7 @@ end_per_suite(Config) ->
 init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
+    TestCase =/= t_ws_malformed_subprotocol_header,
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin,
@@ -67,6 +68,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
+    TestCase =/= t_ws_malformed_subprotocol_header,
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_non_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
@@ -97,13 +99,15 @@ t_info(_) ->
                 gen_server:reply(From, ?ws_conn:info(st()))
         end
     end),
-    #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
+    #{conninfo := ConnInfo} = ?ws_conn:call(WsPid, info),
     #{
         socktype := ws,
         peername := {{127, 0, 0, 1}, 3456},
-        sockname := {{127, 0, 0, 1}, 18083},
-        sockstate := running
-    } = SockInfo.
+        sockname := {{127, 0, 0, 1}, 18083}
+    } = ConnInfo,
+    %% `sockstate' is not part of the channel info map; it is read from the
+    %% connection state.
+    ?assertEqual(running, ?ws_conn:info(sockstate, st())).
 
 set_ws_opts(Key, Val) ->
     emqx_config:put_listener_conf(ws, default, [websocket, Key], Val).
@@ -457,6 +461,67 @@ t_ws_sub_protocols_mqtt_equivalents(_) ->
         start_ws_client(#{protocols => [<<"not-mqtt">>]})
     ).
 
+t_ws_malformed_subprotocol_header(_) ->
+    OldFailIfNoSubprotocol = emqx_config:get_listener_conf(
+        ws,
+        default,
+        [websocket, fail_if_no_subprotocol]
+    ),
+    try
+        set_ws_opts(fail_if_no_subprotocol, true),
+
+        %% A `Sec-WebSocket-Protocol' value Cowboy cannot parse is treated as
+        %% absent: the request is answered with a 400 reply and the request
+        %% process does not crash.
+        Reports = emqx_cth_log_capture:capture(error, fun() ->
+            {ok, Socket} = gen_tcp:connect(
+                "127.0.0.1",
+                8083,
+                [binary, {active, false}]
+            ),
+            try
+                ok = gen_tcp:send(Socket, [
+                    "GET /mqtt HTTP/1.1\r\n"
+                    "Host: 127.0.0.1:8083\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                    "Sec-WebSocket-Version: 13\r\n"
+                    "Sec-WebSocket-Protocol: @@@\r\n"
+                    "\r\n"
+                ]),
+                {ok, StatusLine} = recv_http_status_line(Socket, <<>>),
+                ?assertMatch(<<"HTTP/1.1 400", _/binary>>, StatusLine)
+            after
+                gen_tcp:close(Socket)
+            end
+        end),
+
+        ?assertEqual(
+            [],
+            [R || #{label := {proc_lib, crash}} = R <- Reports],
+            #{expected => no_crash_report}
+        )
+    after
+        set_ws_opts(fail_if_no_subprotocol, OldFailIfNoSubprotocol)
+    end.
+
+recv_http_status_line(Socket, Acc) ->
+    case binary:split(Acc, <<"\r\n">>) of
+        [StatusLine, _Rest] ->
+            {ok, StatusLine};
+        [_] ->
+            case gen_tcp:recv(Socket, 0, 5000) of
+                {ok, Data} ->
+                    recv_http_status_line(
+                        Socket,
+                        <<Acc/binary, Data/binary>>
+                    );
+                Error ->
+                    Error
+            end
+    end.
+
 t_ws_check_origin(_) ->
     emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], true),
     emqx_config:put_listener_conf(
@@ -764,6 +829,7 @@ channel() -> channel(#{}).
 channel(InitFields) ->
     Listener = 'ws:default',
     ConnInfo = #{
+        socktype => ws,
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 18083},
         conn_mod => emqx_ws_connection,

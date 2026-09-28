@@ -2110,10 +2110,12 @@ t_quic_takeover_tls(Config) ->
         begin
             #{<<"topic/takeover">> := _} = channel_subscriptions(ClientId),
             CI = emqx_cm:get_chan_info(ClientId),
+            %% `info/1' does not carry the session subscriptions on this
+            %% branch; `channel_subscriptions/1' above reads them through
+            %% `info/2' and asserts the subscription is there.
             #{
                 session := S,
-                conninfo := #{connected_at := CA},
-                sockinfo := #{socktype := ssl}
+                conninfo := #{connected_at := CA, socktype := ssl}
             } = CI,
             {S, CA, CI}
         end
@@ -2250,8 +2252,7 @@ t_tls_takeover_quic(Config) ->
     ClientId = proplists:get_value(clientid, emqtt:info(C0)),
     #{
         session := Session,
-        conninfo := #{connected_at := QuicConnectedAT},
-        sockinfo := #{socktype := quic}
+        conninfo := #{connected_at := QuicConnectedAT, socktype := quic}
     } = _ChanQuic = emqx_cm:get_chan_info(ClientId),
 
     ?assertEqual(0, proplists:get_value(session_present, emqtt:info(C0))),
@@ -2274,8 +2275,7 @@ t_tls_takeover_quic(Config) ->
     %% THEN: server: session matches the TLS session and socktype is ssl
     #{
         session := Session,
-        conninfo := #{connected_at := TLSConnectedAT},
-        sockinfo := #{socktype := ssl}
+        conninfo := #{connected_at := TLSConnectedAT, socktype := ssl}
     } = _ChanTLS = emqx_cm:get_chan_info(ClientId),
     ?assert(QuicConnectedAT < TLSConnectedAT),
     receive
@@ -2310,8 +2310,7 @@ retry_get_chan_info(ClientId, SockType) ->
         begin
             #{
                 session := Session,
-                conninfo := #{connected_at := ConnectedAt},
-                sockinfo := #{socktype := SockType}
+                conninfo := #{connected_at := ConnectedAt, socktype := SockType}
             } = ChanInfo = emqx_cm:get_chan_info(ClientId),
             {Session, ConnectedAt, ChanInfo}
         end

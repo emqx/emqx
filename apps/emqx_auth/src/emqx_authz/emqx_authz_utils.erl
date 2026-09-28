@@ -176,8 +176,7 @@ parse_http_resp_body(ContentType = <<_/binary>>, _Body) ->
 
 -spec content_type(cow_http:headers()) -> binary().
 content_type(Headers) when is_list(Headers) ->
-    %% header name is lower case, see:
-    %% https://github.com/ninenines/cowlib/blob/ce6798c6b2e95b6a34c6a76d2489eaf159827d80/src/cow_http.erl#L192
+    %% Both the pooled and the one-off request paths return lower-case header names.
     proplists:get_value(
         <<"content-type">>,
         Headers,
@@ -249,14 +248,10 @@ backend_failure_result() ->
 
 -spec authz_backend_failure_policy() -> ignore | deny.
 authz_backend_failure_policy() ->
-    case emqx_security_profile:policy(authz_backend_failure) of
-        deny ->
-            case emqx:get_config([authorization, ignore_backend_failures], false) of
-                true -> ignore;
-                false -> deny
-            end;
-        ignore ->
-            ignore
+    case emqx:get_config([authorization, ignore_backend_failures], per_security_profile) of
+        true -> ignore;
+        false -> deny;
+        per_security_profile -> emqx_security_profile:policy(authz_backend_failure)
     end.
 
 -spec init_state(emqx_authz_source:source(), map()) -> emqx_authz_source:source_state().
