@@ -64,7 +64,9 @@ Also, ExtSub handlers may be registered as handling generic messages. In this ca
 
 If the handler wants to handle the topic, then it should return `{ok, state()}`. If the handler is not interested in the topic, it should return `ignore`.
 
-The `subscribe_ctx()` contains callback functions that the handler may use to send messages to self (optionally with delay).
+The `subscribe_ctx()` contains a `message_target` value that identifies the owning channel and handler.
+Use `emqx_extsub_handler:send/2` or `emqx_extsub_handler:send_after/3` to send a message to this target.
+Store the target in handler state, not a callback function. A callback function can retain old code after a module reload.
 
 `handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is always `undefined`. For a multi-topic handler, `state()` is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
 
