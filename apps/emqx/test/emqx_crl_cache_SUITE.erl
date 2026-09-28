@@ -13,18 +13,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% from ssl_manager.erl
--record(state, {
-    session_cache_client,
-    session_cache_client_cb,
-    session_lifetime,
-    certificate_db,
-    session_validation_timer,
-    session_cache_client_max,
-    session_client_invalidator,
-    options,
-    client_session_order
-}).
-
 -define(DEFAULT_URL, "http://localhost:9878/intermediate.crl.pem").
 
 %%--------------------------------------------------------------------
@@ -357,8 +345,13 @@ assert_http_get(URL) ->
         error({should_have_requested, URL})
     end.
 
+%% `certificate_db' is the fourth field of `ssl_manager''s `#state{}'. Read it by
+%% position: OTP adds fields at the end of the record (28.5 added
+%% `max_crl_cache_size'), so a copy of the record would stop matching.
 get_crl_cache_table() ->
-    #state{certificate_db = [_, _, _, {Ref, _}]} = sys:get_state(ssl_manager),
+    State = sys:get_state(ssl_manager),
+    state = element(1, State),
+    [_, _, _, {Ref, _}] = element(5, State),
     Ref.
 
 start_crl_server(Port, CRLPem) ->
