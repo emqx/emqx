@@ -1320,16 +1320,16 @@ t_conflicting_queues(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
-%% Verify that only MQTT v5 clients are allowed to subscribe to queues
+-doc "MQTT 3.1 and 3.1.1 clients cannot subscribe to queues.".
 t_allow_only_mqtt_v5(_Config) ->
-    %% Connect a client and subscribe to a queue
-    {ok, CSub} = emqtt:start_link([{proto_ver, v3}]),
+    lists:foreach(fun reject_legacy_protocol/1, [v3, v4]).
+
+reject_legacy_protocol(ProtoVer) ->
+    {ok, CSub} = emqtt:start_link([{proto_ver, ProtoVer}]),
     {ok, _} = emqtt:connect(CSub),
 
-    %% Try to subscribe to a queue with MQTT v3
     {ok, _, [?RC_UNSPECIFIED_ERROR]} = emqtt:subscribe(CSub, {<<"$queue/some_queue/t/#">>, 1}),
 
-    %% Clean up
     ok = emqtt:disconnect(CSub).
 
 %% Verify the situation when the consumer accumulates a large number of messages in the buffer
