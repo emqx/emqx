@@ -1727,14 +1727,6 @@ t_connect_too_many_user_properties(Config) ->
     ok = socket_send(Socket, connect_with_user_properties(Limit + 1)),
     ?assertEqual(ok, wait_socket_closed(Socket)).
 
-wait_socket_closed(Socket) ->
-    receive
-        {tcp_closed, RawSocket} when RawSocket =:= element(2, Socket) -> ok;
-        {ssl_closed, RawSocket} when RawSocket =:= element(2, Socket) -> ok
-    after 5000 ->
-        ct:fail("Expected socket to be closed")
-    end.
-
 %% A well-formed MQTT v5 CONNECT whose size exceeds `Limit`, padded with user
 %% properties. Sent in full so that the whole-frame transport also sees it.
 oversized_connect(Limit) ->
@@ -1752,11 +1744,6 @@ connect_with_user_properties(N) ->
     VarHeader = <<4:16, "MQTT", 5:8, 2:8, 60:16, PropsSection/binary>>,
     Body = <<VarHeader/binary, 0:16>>,
     <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
-
-encode_vbi(N) when N < 16#80 ->
-    <<N>>;
-encode_vbi(N) ->
-    <<1:1, (N rem 16#80):7, (encode_vbi(N div 16#80))/binary>>.
 
 t_first_packet_not_connect(Config) ->
     Socket = socket_connect(Config, [{active, true}, binary]),
@@ -2166,6 +2153,29 @@ connect_packet_size_limits() ->
     {Limit, MaxSize}.
 
 %% `tcp' or `tls', for the helpers that take a transport.
+connect_with_username(Transport, Username) ->
+    {ok, Client} = emqtt:start_link(transport_opts(Transport) ++ [{username, Username}]),
+    unlink(Client),
+    try
+        Result = emqtt:connect(Client),
+        case Result of
+            {ok, _} -> ok = emqtt:disconnect(Client);
+            {error, _} -> ok
+        end,
+        Result
+    after
+        catch emqtt:stop(Client)
+    end.
+
+transport_opts(tcp) ->
+    [];
+transport_opts(tls) ->
+    [
+        {port, 8883},
+        {ssl, true},
+        {ssl_opts, emqx_common_test_helpers:client_mtls(default)}
+    ].
+
 transport(Config) ->
     case ?config(listener_type, Config) of
         tcp -> tcp;

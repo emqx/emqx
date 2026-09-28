@@ -925,19 +925,6 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
 
-%% The listener accepts with `packet_size' set to the CONNECT limit. Now that the
-%% client is connected, raise it to `max_packet_size' so ordinary packets are not
-%% held to the CONNECT limit. Only the whole-frame parser reads `packet_size'.
-raise_packet_size_limit(#state{
-    parser = {frame, _}, transport = Transport, socket = Socket, conf = Conf
-}) ->
-    #conf{zone = Zone} = Conf,
-    MaxSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-    _ = Transport:setopts(Socket, [{packet_size, MaxSize}]),
-    ok;
-raise_packet_size_limit(_State) ->
-    ok.
-
 init_parser(Transport, Socket, FrameOpts) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
     case lists:keyfind(packet, 1, SocketOpts) of
