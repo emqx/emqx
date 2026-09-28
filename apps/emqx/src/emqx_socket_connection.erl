@@ -438,7 +438,7 @@ handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
     %% FIXME: it's not trapping exit, should never receive an EXIT
     terminate(Reason, State);
 handle_recv(Msg, Parent, State) ->
-    case process_msg(Msg, [], ensure_stats_timer(State)) of
+    case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
             drain_loop(Parent, NewState);
         {stop, Reason, NewSate} ->
@@ -538,16 +538,21 @@ get_zone_hibernate_after(Zone) ->
 %%--------------------------------------------------------------------
 %% Process next Msg
 
--compile({inline, [process_msg_tail/2, append_msgs/2]}).
+-compile({inline, [process_msg_tail/2, process_msg_cont/3, append_msgs/2]}).
 
-process_msg(Msg, Tail, State) ->
+process_msg(Msg, State) ->
+    %% NOTE: Optimized hot path.
     try handle_msg(Msg, State) of
         ok ->
-            process_msg_tail(Tail, State);
+            {ok, State};
         {ok, NState} ->
-            process_msg_tail(Tail, NState);
+            {ok, NState};
+        {ok, [], NState} ->
+            {ok, NState};
+        {ok, [NextMsg | Rest], NState} ->
+            process_msg_cont(NextMsg, Rest, NState);
         {ok, NextMsg, NState} ->
-            process_msg_cont(NextMsg, Tail, NState);
+            process_msg(NextMsg, NState);
         {stop, Reason, NState} ->
             {stop, Reason, NState}
     catch
@@ -557,15 +562,32 @@ process_msg(Msg, Tail, State) ->
             {stop, shutdown, State};
         exit:{shutdown, _} = Shutdown ->
             {stop, Shutdown, State};
-        Exception:Context:Stack ->
-            {stop,
-                #{
-                    exception => Exception,
-                    context => Context,
-                    stacktrace => Stack
-                },
-                State}
+        C:E:Stack ->
+            {stop, #{exception => C, context => E, stacktrace => Stack}, State}
     end.
+
+process_msg(Msg, [Next | Rest], State) ->
+    try handle_msg(Msg, State) of
+        ok ->
+            process_msg_cont(Next, Rest, State);
+        {ok, NState} ->
+            process_msg_cont(Next, Rest, NState);
+        {ok, NextMsg, NState} ->
+            process_msg_cont(NextMsg, [Next | Rest], NState);
+        {stop, Reason, NState} ->
+            {stop, Reason, NState}
+    catch
+        exit:normal ->
+            {stop, normal, State};
+        exit:shutdown ->
+            {stop, shutdown, State};
+        exit:{shutdown, _} = Shutdown ->
+            {stop, Shutdown, State};
+        C:E:Stack ->
+            {stop, #{exception => C, context => E, stacktrace => Stack}, State}
+    end;
+process_msg(Msg, [], State) ->
+    process_msg(Msg, State).
 
 process_msg_cont([], Tail, State) ->
     process_msg_tail(Tail, State);
@@ -582,7 +604,6 @@ process_msg_tail([NextMsg | Rest], State) ->
 append_msgs(Rest, []) -> Rest;
 append_msgs([], Tail) -> Tail;
 append_msgs([M1], Tail) -> [M1 | Tail];
-append_msgs([M1, M2], Tail) -> [M1, M2 | Tail];
 append_msgs(Rest, Tail) -> [Rest | Tail].
 
 %%--------------------------------------------------------------------
