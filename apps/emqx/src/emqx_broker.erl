@@ -263,13 +263,11 @@ do_unsubscribe_regular(Topic, SubPid, SubOpts) ->
 %% Publish
 %%--------------------------------------------------------------------
 
--spec publish(emqx_types:message()) ->
-    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
+-spec publish(emqx_types:message()) -> emqx_types:publish_result().
 publish(Msg) ->
     publish(Msg, _Opts = #{}).
 
--spec publish(emqx_types:message(), publish_opts()) ->
-    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
+-spec publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
 publish(Msg, Opts) ->
     case publish2(Msg, Opts) of
         {ok, Routes, _Message} -> Routes;
@@ -277,11 +275,11 @@ publish(Msg, Opts) ->
         {error, disconnect, _Message} -> disconnect
     end.
 
--spec publish2(emqx_types:message()) -> emqx_types:publish_result().
+-spec publish2(emqx_types:message()) -> emqx_types:publish_result2().
 publish2(#message{} = Msg) ->
     publish2(Msg, _Opts = #{}).
 
--spec publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
+-spec publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result2().
 publish2(#message{} = Msg, Opts) ->
     _ = emqx_trace:publish(Msg),
     emqx_message:is_sys(Msg) orelse inc_metrics('messages.publish', Msg),
@@ -343,13 +341,11 @@ persist_publish(Msg) ->
     end.
 
 %% Called internally
--spec safe_publish(emqx_types:message()) ->
-    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
+-spec safe_publish(emqx_types:message()) -> emqx_types:publish_result().
 safe_publish(Msg) ->
     safe_publish(Msg, _Opts = #{}).
 
--spec safe_publish(emqx_types:message(), publish_opts()) ->
-    emqx_types:publish_routes() | {blocked, emqx_types:message()} | disconnect.
+-spec safe_publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
 safe_publish(Msg, Opts) ->
     case safe_publish2(Msg, Opts) of
         {ok, Routes, _Message} -> Routes;
@@ -357,11 +353,11 @@ safe_publish(Msg, Opts) ->
         {error, disconnect, _Message} -> disconnect
     end.
 
--spec safe_publish2(emqx_types:message()) -> emqx_types:publish_result().
+-spec safe_publish2(emqx_types:message()) -> emqx_types:publish_result2().
 safe_publish2(Msg) ->
     safe_publish2(Msg, _Opts = #{}).
 
--spec safe_publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
+-spec safe_publish2(emqx_types:message(), publish_opts()) -> emqx_types:publish_result2().
 safe_publish2(#message{} = Msg, Opts) ->
     try
         publish2(Msg, Opts)

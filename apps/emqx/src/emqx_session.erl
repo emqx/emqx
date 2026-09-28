@@ -225,7 +225,7 @@
     | {error, emqx_types:reason_code()}.
 
 -callback publish(emqx_types:packet_id(), emqx_types:message(), t()) ->
-    {ok, emqx_types:publish_result(), t()}
+    {ok, emqx_types:publish_result2(), t()}
     | {error, emqx_types:reason_code()}.
 
 -callback puback(clientinfo(), emqx_types:packet_id(), t()) ->
@@ -395,7 +395,7 @@ unsubscribe(
 %%--------------------------------------------------------------------
 
 -spec publish(clientinfo(), emqx_types:packet_id(), emqx_types:message(), t()) ->
-    {ok, emqx_types:publish_result(), t()}
+    {ok, emqx_types:publish_result2(), t()}
     | {error, emqx_types:reason_code()}.
 publish(_ClientInfo, PacketId, Msg, Session) ->
     case ?IMPL(Session):publish(PacketId, Msg, Session) of

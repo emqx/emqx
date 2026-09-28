@@ -529,7 +529,7 @@ get_subscription(TopicFilter, #{s := S}) ->
 %%--------------------------------------------------------------------
 
 -spec publish(emqx_types:packet_id(), emqx_types:message(), session()) ->
-    {ok, emqx_types:publish_result(), session()}
+    {ok, emqx_types:publish_result2(), session()}
     | {error, emqx_types:reason_code()}.
 publish(
     PacketId,
