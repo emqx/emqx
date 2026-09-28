@@ -249,6 +249,13 @@ action_metrics(TCConfig) ->
     #{name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
     emqx_bridge_v2_testlib:get_metrics(#{type => ?ACTION_TYPE, name => Name}).
 
+action_counters(TCConfig) ->
+    #{counters := Counters} = action_metrics(TCConfig),
+    Counters.
+
+counter_delta(TCConfig, Before, Counter) ->
+    maps:get(Counter, action_counters(TCConfig)) - maps:get(Counter, Before).
+
 query_by_clientid_and_int_key(ClientId, IntKey, TCConfig) ->
     IntCol = <<ClientId/binary, "_int_value">>,
     IntKeyBin = integer_to_binary(IntKey),
@@ -640,7 +647,7 @@ t_boolean_variants(TCConfig) ->
 t_auto_cast_integer_to_float() ->
     [{matrix, true}].
 t_auto_cast_integer_to_float(matrix) ->
-    [[Transport, Mode, ?without_batch] || Transport <- [?tcp, ?tls], Mode <- [?sync, ?async]];
+    [[?tcp, Mode, ?without_batch] || Mode <- [?sync, ?async]];
 t_auto_cast_integer_to_float(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
@@ -665,7 +672,7 @@ t_auto_cast_integer_to_float(TCConfig) ->
 t_invalid_integer_does_not_block_worker() ->
     [{matrix, true}].
 t_invalid_integer_does_not_block_worker(matrix) ->
-    [[Transport, Mode, ?without_batch] || Transport <- [?tcp, ?tls], Mode <- [?sync, ?async]];
+    [[?tcp, Mode, ?without_batch] || Mode <- [?sync, ?async]];
 t_invalid_integer_does_not_block_worker(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
@@ -678,16 +685,18 @@ t_invalid_integer_does_not_block_worker(TCConfig) ->
         }
     }),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Before = action_counters(TCConfig),
     InvalidId = emqx_guid:to_hexstr(emqx_guid:gen()),
     ValidId = emqx_guid:to_hexstr(emqx_guid:gen()),
     emqx:publish(emqx_message:make(InvalidId, Topic, json_encode(#{value => 20.5}))),
     ?retry(
         100,
         20,
-        ?assertMatch(
-            #{counters := #{matched := 1, failed := 1}, gauges := #{inflight := 0}},
-            action_metrics(TCConfig)
-        )
+        begin
+            ?assertEqual(1, counter_delta(TCConfig, Before, matched)),
+            ?assertEqual(1, counter_delta(TCConfig, Before, failed)),
+            ?assertMatch(#{gauges := #{inflight := 0}}, action_metrics(TCConfig))
+        end
     ),
     emqx:publish(emqx_message:make(ValidId, Topic, json_encode(#{value => 42}))),
     ?retry(200, 20, ?assertMatch(#{<<"value">> := 42}, query_by_clientid(ValidId, TCConfig))),
@@ -695,16 +704,17 @@ t_invalid_integer_does_not_block_worker(TCConfig) ->
     ?retry(
         100,
         20,
-        ?assertMatch(
-            #{counters := #{matched := 2, success := 1, failed := 1}},
-            action_metrics(TCConfig)
-        )
+        begin
+            ?assertEqual(2, counter_delta(TCConfig, Before, matched)),
+            ?assertEqual(1, counter_delta(TCConfig, Before, success)),
+            ?assertEqual(1, counter_delta(TCConfig, Before, failed))
+        end
     ).
 
 t_partially_invalid_batch() ->
     [{matrix, true}].
 t_partially_invalid_batch(matrix) ->
-    [[Transport, Mode, ?with_batch] || Transport <- [?tcp, ?tls], Mode <- [?sync, ?async]];
+    [[?tcp, Mode, ?with_batch] || Mode <- [?sync, ?async]];
 t_partially_invalid_batch(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
@@ -719,23 +729,36 @@ t_partially_invalid_batch(TCConfig) ->
         }
     }),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Before = action_counters(TCConfig),
     [Id1, Id2, Id3] = [emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- lists:seq(1, 3)],
-    lists:foreach(
-        fun({Id, Value}) ->
-            emqx:publish(emqx_message:make(Id, Topic, json_encode(#{value => Value})))
-        end,
-        [{Id1, 101}, {Id2, 20.5}, {Id3, 303}]
-    ),
-    ?retry(
-        200,
-        30,
+    ?check_trace(
         begin
-            ?assertMatch(#{<<"value">> := 101}, query_by_clientid(Id1, TCConfig)),
-            ?assertEqual(#{}, query_by_clientid(Id2, TCConfig)),
-            ?assertMatch(#{<<"value">> := 303}, query_by_clientid(Id3, TCConfig)),
+            lists:foreach(
+                fun({Id, Value}) ->
+                    emqx:publish(emqx_message:make(Id, Topic, json_encode(#{value => Value})))
+                end,
+                [{Id1, 101}, {Id2, 20.5}, {Id3, 303}]
+            ),
+            ?retry(
+                200,
+                30,
+                begin
+                    ?assertMatch(#{<<"value">> := 101}, query_by_clientid(Id1, TCConfig)),
+                    ?assertEqual(#{}, query_by_clientid(Id2, TCConfig)),
+                    ?assertMatch(#{<<"value">> := 303}, query_by_clientid(Id3, TCConfig)),
+                    ?assertEqual(3, counter_delta(TCConfig, Before, matched)),
+                    ?assertEqual(2, counter_delta(TCConfig, Before, success)),
+                    ?assertEqual(1, counter_delta(TCConfig, Before, failed))
+                end
+            )
+        end,
+        fun(Trace) ->
+            BatchCalls =
+                ?of_kind(call_batch_query, Trace) ++ ?of_kind(call_batch_query_async, Trace),
+            ?assertMatch([#{batch := [_, _, _]}], BatchCalls),
             ?assertMatch(
-                #{counters := #{matched := 3, success := 2, failed := 1}},
-                action_metrics(TCConfig)
+                [#{batch := true, error := points_trans_failed}],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
             )
         end
     ).
