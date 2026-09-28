@@ -20,8 +20,8 @@ services:
     tmpfs:
       - /data
     volumes:
-      - ./certs/server.crt:/etc/certs/server.crt
-      - ./certs/server.key:/etc/certs/server.key
+      - ./certs/cert.pem:/etc/certs/server.crt
+      - ./certs/key.pem:/etc/certs/server.key
     expose:
       - "9100"
     ports:

@@ -10,7 +10,6 @@ elasticsearch
 haproxy
 jaeger.emqx.net
 ldap
-minio-tls
 mongo-tls
 mongo1
 mongo2
@@ -34,4 +33,5 @@ redis-sentinel-tls
 redis-sentinel-tls-master
 redis-sentinel-tls-slave
 redis-tls
+seaweedfs-tls
 toxiproxy
