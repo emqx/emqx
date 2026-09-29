@@ -58,9 +58,9 @@ parse_single_data(ConnResId, DbName, Data, SyntaxLines, DriverType) ->
     case data_to_points(Data, DbName, SyntaxLines, DriverType) of
         {ok, _Points} = Ok ->
             Ok;
-        {error, ErrorPoints} = Error ->
+        {error, ErrorPoints} ->
             log_error_points(ConnResId, ErrorPoints),
-            Error
+            {error, {points_trans_failed, #{last_error => last_error([ErrorPoints])}}}
     end.
 
 %% A message whose points do not all transform is reported on its own, and the
@@ -82,10 +82,21 @@ do_parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, DriverType) ->
         BatchData
     ),
     Points = lists:flatten(lists:reverse(Points0)),
-    case Errors of
-        [] ->
+    case {Errors, Points} of
+        {[], _} ->
             {ok, Points};
-        _ ->
+        {_, []} ->
+            %% Nothing transformed: report the failure, as this branch always has.
+            ?SLOG(error, #{
+                msg => "greptimedb_trans_point_failed",
+                last_error => last_error(Errors),
+                connector => ConnResId,
+                reason => points_trans_failed
+            }),
+            {error, {points_trans_failed, #{last_error => last_error(Errors)}}};
+        {_, _} ->
+            %% Some messages transformed: send those, and report the rest
+            %% alongside them instead of dropping the whole batch.
             ?SLOG(error, #{
                 msg => "greptimedb_trans_point_failed",
                 last_error => last_error(Errors),
@@ -272,15 +283,10 @@ maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType) ->
 %% unit conversion is rejected rather than written wrapped.
 convert_timestamp(Ts, Precision) ->
     Timestamp = maybe_convert_time_unit(Ts, Precision),
-    case is_int64(Timestamp) of
+    case Timestamp >= ?INT64_MIN andalso Timestamp =< ?INT64_MAX of
         true -> {ok, Timestamp};
         false -> {error, {bad_timestamp, Ts}}
     end.
-
-is_int64(Int) when is_integer(Int) ->
-    Int >= ?INT64_MIN andalso Int =< ?INT64_MAX;
-is_int64(_) ->
-    false.
 
 maybe_convert_time_unit(Ts, {FromPrecision, ToPrecision}) ->
     erlang:convert_time_unit(Ts, time_unit(FromPrecision), time_unit(ToPrecision)).

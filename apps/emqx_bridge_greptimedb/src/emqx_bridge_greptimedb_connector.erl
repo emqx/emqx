@@ -135,13 +135,6 @@ on_query(InstId, {Channel, Message}, State) ->
                 #{points => Points, batch => false, mode => sync}
             ),
             do_query(InstId, Channel, Client, Points);
-        {ok, _Points, [{error, _} = Error | _]} ->
-            %% A single message: its own transformation failed.
-            ?tp(
-                greptimedb_connector_send_query_error,
-                #{batch => false, mode => sync, error => points_trans_failed}
-            ),
-            Error;
         {error, ErrorPoints} ->
             ?tp(
                 greptimedb_connector_send_query_error,
@@ -168,17 +161,19 @@ on_batch_query(InstId, [{Channel, _} | _] = BatchData, State) ->
                 greptimedb_connector_send_query_error,
                 #{batch => true, mode => sync, error => points_trans_failed}
             ),
-            case Points of
-                [] ->
-                    merge_batch_result(ok, BatchResults);
-                _ ->
-                    ?tp(
-                        greptimedb_connector_send_query,
-                        #{points => Points, batch => true, mode => sync}
-                    ),
-                    Result = do_query(InstId, Channel, Client, Points),
-                    merge_batch_result(Result, BatchResults)
-            end
+            %% Some messages transformed; a batch where none did is an error.
+            ?tp(
+                greptimedb_connector_send_query,
+                #{points => Points, batch => true, mode => sync}
+            ),
+            Result = do_query(InstId, Channel, Client, Points),
+            merge_batch_result(Result, BatchResults);
+        {error, Reason} ->
+            ?tp(
+                greptimedb_connector_send_query_error,
+                #{batch => true, mode => sync, error => Reason}
+            ),
+            {error, {unrecoverable_error, Reason}}
     end.
 
 on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
@@ -194,14 +189,6 @@ on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
                 #{points => Points, batch => false, mode => async}
             ),
             do_async_query(Channel, Client, Points, {ReplyFun, Args});
-        {ok, _Points, [{error, _} = Error | _]} ->
-            %% A single message: its own transformation failed.
-            ?tp(
-                greptimedb_connector_send_query_error,
-                #{batch => false, mode => async, error => points_trans_failed}
-            ),
-            emqx_resource:apply_reply_fun({ReplyFun, Args}, Error),
-            ok;
         {error, ErrorPoints} ->
             ?tp(
                 greptimedb_connector_send_query_error,
@@ -229,19 +216,18 @@ on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, S
                 #{batch => true, mode => async, error => points_trans_failed}
             ),
             ReplyFunAndArgs = {ReplyFun, Args},
-            case Points of
-                [] ->
-                    emqx_resource:apply_reply_fun(
-                        ReplyFunAndArgs, merge_batch_result(ok, BatchResults)
-                    ),
-                    ok;
-                _ ->
-                    ?tp(
-                        greptimedb_connector_send_query,
-                        #{points => Points, batch => true, mode => async}
-                    ),
-                    do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs)
-            end
+            %% Some messages transformed; a batch where none did is an error.
+            ?tp(
+                greptimedb_connector_send_query,
+                #{points => Points, batch => true, mode => async}
+            ),
+            do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs);
+        {error, Reason} ->
+            ?tp(
+                greptimedb_connector_send_query_error,
+                #{batch => true, mode => async, error => Reason}
+            ),
+            {error, {unrecoverable_error, Reason}}
     end.
 
 on_get_status(_InstId, #{client := Client}) ->
@@ -683,7 +669,10 @@ integer_point_validation_test() ->
         client => unused,
         dbname => <<"public">>
     },
-    SingleInvalidResult = {error, {unrecoverable_error, InvalidErrorPoints}},
+    %% This branch reports a transformation failure as `points_trans_failed'
+    %% with the last error, rather than the list of error points.
+    TransFailed = {points_trans_failed, #{last_error => {invalid_integer_value, 470.5}}},
+    SingleInvalidResult = {error, {unrecoverable_error, TransFailed}},
     ?assertEqual(
         SingleInvalidResult,
         on_query(<<"connector:test">>, {channel, InvalidData}, State)
@@ -694,22 +683,17 @@ integer_point_validation_test() ->
             <<"connector:test">>, {channel, InvalidData}, ReplyFunAndArgs, State
         )
     ),
+    %% Nothing in the batch transformed, so the batch fails as a whole.
     ?assertEqual(
-        [InvalidResult, InvalidResult],
+        SingleInvalidResult,
         on_batch_query(<<"connector:test">>, AllInvalidBatch, State)
     ),
     ?assertEqual(
-        ok,
+        SingleInvalidResult,
         on_batch_query_async(
             <<"connector:test">>, AllInvalidBatch, ReplyFunAndArgs, State
         )
     ),
-    receive
-        AllInvalidResult ->
-            ?assertEqual([InvalidResult, InvalidResult], AllInvalidResult)
-    after 1_000 ->
-        error(callback_timeout)
-    end,
     ?assertEqual(
         {error, {invalid_string_value, [470.5, <<"x">>]}},
         emqx_bridge_greptimedb_utils:value_type([470.5, <<"x">>])
