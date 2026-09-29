@@ -451,9 +451,10 @@ drain_loop(Parent, State) ->
             handle_recv_drain(Msg, Parent, State)
     after 1 ->
         %% NOTE
-        %% Run a minor GC after a short idle period to make the next minor GC
-        %% less likely to occur in the middle of message processing, while
-        %% temporary terms are still live and could be promoted to the old heap.
+        %% Run a minor GC after a minimal period of inactivity.
+        %% This makes the next minor GC less likely to occur in the middle of
+        %% message processing, while temporary terms are still live and could
+        %% be promoted to the old heap.
         run_minor_gc(),
         ?MODULE:recvloop(Parent, State)
     end.
@@ -652,11 +653,17 @@ handle_msg({request_more_data, More}, State = #state{socket = Socket, sockstate 
             {ok, State}
     end;
 handle_msg({incoming, [Connect = ?PACKET(?CONNECT) | Rest]}, State) ->
+    %% NOTE
+    %% Technically, `Rest` may also contain CONNECT packets. This is protocol
+    %% violation anyway, and those CONNECTs skip `{incoming, ?PACKET(?CONNECT)}`
+    %% clause on purpose.
     {ok, [{incoming, Connect}, {incoming, Rest}], State};
 handle_msg({incoming, Packets}, State) when is_list(Packets) ->
     handle_incoming_packets(Packets, State, State#state.channel, []);
 handle_msg({incoming, Packet = ?PACKET(?CONNECT)}, State) ->
-    %% CONNECT is fully received; initialize before handling authentication or rejection.
+    %% NOTE
+    %% CONNECT is fully received: initialize before handling authentication or
+    %% rejection.
     ok = cancel_idle_timer(State),
     NState = State#state{
         serialize = emqx_frame:serialize_opts(Packet#mqtt_packet.variable),
