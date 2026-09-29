@@ -102,6 +102,29 @@ jobs:
         source env.sh
         echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
         echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
+    # mix.lock is not checked in, so the key hashes the dependency declarations instead.
+    # Bump the v1 prefix to invalidate every cached entry.
+    - name: Compute dependency cache key
+      id: deps-cache-key
+      env:
+        PREFIX: emqx-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-${{ matrix.profile }}
+        OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
+        ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
+        BUILD_INPUTS_HASH: ${{ hashFiles('env.sh', 'build', 'scripts/ensure-rebar3.sh', '.github/actions/package-macos/action.yaml') }}
+        DEPS_HASH: ${{ hashFiles('mix.exs', 'apps/*/mix.exs') }}
+      run: |
+        sdk_vsn="$(xcrun --sdk macosx --show-sdk-version)"
+        cc_hash="$(clang --version | head -1 | shasum -a 256 | cut -c1-16)"
+        echo "key=${PREFIX}-otp${OTP_VSN}-elixir${ELIXIR_VSN}-sdk${sdk_vsn}-cc${cc_hash}-build${BUILD_INPUTS_HASH:0:16}-deps${DEPS_HASH:0:16}" >> "$GITHUB_OUTPUT"
+    - name: Restore dependency cache
+      id: deps-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          deps
+          mix.lock
+          _build/${{ matrix.profile }}/lib
+        key: ${{ steps.deps-cache-key.outputs.key }}
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
@@ -113,3 +136,22 @@ jobs:
         name: ${{ matrix.os }}
         path: _packages/**/*
         retention-days: 7
+    # The cache holds dependencies only. Umbrella apps are always compiled from source.
+    - name: Remove umbrella apps from the dependency cache
+      if: success() && steps.deps-cache.outputs.cache-hit != 'true'
+      env:
+        PROFILE: ${{ matrix.profile }}
+      run: |
+        for app in apps/*/; do
+          rm -rf "_build/${PROFILE}/lib/$(basename "$app")"
+        done
+        du -sh deps "_build/${PROFILE}/lib"
+    - name: Save dependency cache
+      if: success() && steps.deps-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          deps
+          mix.lock
+          _build/${{ matrix.profile }}/lib
+        key: ${{ steps.deps-cache-key.outputs.key }}
