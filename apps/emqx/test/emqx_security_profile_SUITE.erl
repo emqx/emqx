@@ -100,6 +100,7 @@ t_uppercase_profile_rejected(_) ->
 assert_policies(legacy) ->
     ?assertEqual(ignore, emqx_security_profile:policy(authn_backend_failure)),
     ?assertEqual(ignore, emqx_security_profile:policy(authz_backend_failure)),
+    ?assertEqual(ignore, emqx_security_profile:policy(authz_rule_render_failure)),
     ?assertEqual(verify_none, emqx_security_profile:policy(outbound_tls_verify)),
     ?assertEqual(ignore, emqx_security_profile:policy(authn_jwt_missing)),
     ?assertEqual(false, emqx_security_profile:policy(internal_subscription_checks)),
@@ -133,6 +134,7 @@ assert_policies(legacy) ->
 assert_policies(hardened) ->
     ?assertEqual(deny, emqx_security_profile:policy(authn_backend_failure)),
     ?assertEqual(deny, emqx_security_profile:policy(authz_backend_failure)),
+    ?assertEqual(deny, emqx_security_profile:policy(authz_rule_render_failure)),
     ?assertEqual(verify_peer, emqx_security_profile:policy(outbound_tls_verify)),
     ?assertEqual(deny, emqx_security_profile:policy(authn_jwt_missing)),
     ?assertEqual(true, emqx_security_profile:policy(internal_subscription_checks)),
