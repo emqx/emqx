@@ -24,9 +24,6 @@
 /apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
 /apps/emqx_durable_storage/ @emqx/emqx-review-board @keynslug
 
-## CI
-/deploy/  @emqx/emqx-review-board @Rory-Z
-
 ## @Meggielqk owns all files in any i18n directory anywhere in the project
 /i18n/ @Meggielqk
 
