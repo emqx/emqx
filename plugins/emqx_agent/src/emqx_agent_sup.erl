@@ -29,14 +29,6 @@ init([]) ->
             modules => [emqx_agent_builder_tool_server]
         },
         #{
-            id => emqx_agent_tool_connection_reconciler,
-            start => {emqx_agent_tool_connection_reconciler, start_link, []},
-            restart => permanent,
-            shutdown => 5000,
-            type => worker,
-            modules => [emqx_agent_tool_connection_reconciler]
-        },
-        #{
             id => emqx_agent_tool_registry,
             start => {emqx_agent_tool_registry, start_link, []},
             restart => permanent,

@@ -33,12 +33,8 @@ deinit() ->
 
 -spec reconcile() -> ok.
 reconcile() ->
-    case required_apps_started() of
-        true ->
-            do_reconcile();
-        false ->
-            ok = emqx_agent_tool_connection_reconciler:retry()
-    end.
+    do_reconcile().
+
 -spec resource_id(connection_id()) -> binary().
 resource_id(ConnectionId) ->
     <<?RESOURCE_PREFIX, ConnectionId/binary>>.
@@ -175,13 +171,6 @@ stop_all_local() ->
 stop_local(ResourceId) ->
     _ = emqx_resource:remove_local(ResourceId),
     ok.
-
-required_apps_started() ->
-    Running = application:which_applications(),
-    lists:all(
-        fun(App) -> lists:keymember(App, 1, Running) end,
-        [emqx_resource, emqx_connector]
-    ).
 
 resource_opts() ->
     #{

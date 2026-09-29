@@ -47,11 +47,12 @@ defmodule Mix.Tasks.Emqx.Plugin do
     release_name = emqx_plugin[:name] || plugin_name
     release_vsn = emqx_plugin[:rel_vsn] || plugin_vsn
     release_apps = emqx_plugin[:rel_apps] || [String.to_atom(plugin_name)]
+    external_apps = MapSet.new(emqx_plugin[:external_apps] || [])
     metadata = emqx_plugin[:metadata] || []
 
     rel_apps =
       release_apps
-      |> expand_release_apps!()
+      |> expand_release_apps!(external_apps)
       |> Enum.map(&resolve_app_vsn!/1)
 
     plugrel_map = info_map(metadata)
@@ -124,9 +125,10 @@ defmodule Mix.Tasks.Emqx.Plugin do
   end
 
   # The package holds the applications listed in `rel_apps` and their
-  # dependencies, except the dependencies that the EMQX release provides.
-  defp expand_release_apps!(release_apps) do
-    emqx_apps = emqx_release_apps!()
+  # dependencies, except external applications and dependencies provided by EMQX.
+  defp expand_release_apps!(release_apps, external_apps) do
+    emqx_apps = MapSet.union(emqx_release_apps!(), external_apps)
+    release_apps = Enum.reject(release_apps, &MapSet.member?(external_apps, &1))
 
     expand_app_deps(release_apps, fn app ->
       app |> packageable_app_deps() |> Enum.reject(&MapSet.member?(emqx_apps, &1))
