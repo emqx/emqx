@@ -47,11 +47,12 @@ defmodule Mix.Tasks.Emqx.Plugin do
     release_name = emqx_plugin[:name] || plugin_name
     release_vsn = emqx_plugin[:rel_vsn] || plugin_vsn
     release_apps = emqx_plugin[:rel_apps] || [String.to_atom(plugin_name)]
+    external_apps = MapSet.new(emqx_plugin[:external_apps] || [])
     metadata = emqx_plugin[:metadata] || []
 
     rel_apps =
       release_apps
-      |> expand_release_apps!()
+      |> expand_release_apps!(external_apps)
       |> Enum.map(&resolve_app_vsn!/1)
 
     plugrel_map = info_map(metadata)
@@ -123,19 +124,19 @@ defmodule Mix.Tasks.Emqx.Plugin do
     to_bin([app_name, "-", to_string(vsn)])
   end
 
-  defp expand_release_apps!(release_apps) do
-    do_expand_release_apps!(release_apps, MapSet.new(), [])
+  defp expand_release_apps!(release_apps, external_apps) do
+    do_expand_release_apps!(release_apps, external_apps, MapSet.new(), [])
   end
 
-  defp do_expand_release_apps!([], _seen, acc), do: Enum.reverse(acc)
+  defp do_expand_release_apps!([], _external_apps, _seen, acc), do: Enum.reverse(acc)
 
-  defp do_expand_release_apps!([app | rest], seen, acc) do
-    if MapSet.member?(seen, app) do
-      do_expand_release_apps!(rest, seen, acc)
+  defp do_expand_release_apps!([app | rest], external_apps, seen, acc) do
+    if MapSet.member?(external_apps, app) or MapSet.member?(seen, app) do
+      do_expand_release_apps!(rest, external_apps, seen, acc)
     else
       app_name = Atom.to_string(app)
       deps = packageable_app_deps(app_name)
-      do_expand_release_apps!(rest ++ deps, MapSet.put(seen, app), [app | acc])
+      do_expand_release_apps!(rest ++ deps, external_apps, MapSet.put(seen, app), [app | acc])
     end
   end
 
