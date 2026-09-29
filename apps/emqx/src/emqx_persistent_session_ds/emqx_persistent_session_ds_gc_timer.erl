@@ -7,7 +7,7 @@
 
 %% API:
 -export([init/0]).
--export([on_connect/2, on_disconnect/2, delete/1]).
+-export([on_connect/3, on_disconnect/3, delete/1]).
 
 %% behavior callbacks:
 -export([durable_timer_type/0, handle_durable_timeout/2, timer_introduced_in/0]).
@@ -35,22 +35,24 @@ init() ->
 
 -spec on_connect(
     emqx_types:clientid(),
+    emqx_persistent_session_ds_state:guard(),
     non_neg_integer()
 ) ->
     ok | emqx_ds:error(_).
-on_connect(ClientId, ExpiryIntervalMS) ->
+on_connect(ClientId, Cookie, ExpiryIntervalMS) ->
     emqx_durable_timer:dead_hand(
-        durable_timer_type(), ClientId, <<>>, ExpiryIntervalMS
+        durable_timer_type(), ClientId, Cookie, ExpiryIntervalMS
     ).
 
 -spec on_disconnect(
     emqx_types:clientid(),
+    emqx_persistent_session_ds_state:guard(),
     non_neg_integer()
 ) -> ok.
-on_disconnect(ClientId, ExpiryIntervalMS) ->
+on_disconnect(ClientId, Cookie, ExpiryIntervalMS) ->
     warn_timeout(
         emqx_durable_timer:apply_after(
-            durable_timer_type(), ClientId, <<>>, ExpiryIntervalMS
+            durable_timer_type(), ClientId, Cookie, ExpiryIntervalMS
         )
     ).
 
@@ -66,9 +68,27 @@ durable_timer_type() -> 16#DEAD5E55.
 
 timer_introduced_in() -> "6.0.0".
 
-handle_durable_timeout(SessionId, ChannelCookie) ->
-    ?tp(debug, ?sessds_expired, #{id => SessionId, cookie => ChannelCookie}),
-    emqx_persistent_session_ds:destroy_session(SessionId).
+handle_durable_timeout(SessionId, Cookie) ->
+    ?tp(debug, ?sessds_expired, #{id => SessionId, cookie => Cookie}),
+    case Cookie of
+        <<>> ->
+            %% Legacy case: in the original version of the code (ca.
+            %% 6.0.0) the timer didn't hold the guard and would
+            %% destroy sessions indiscriminately. Emulate this
+            %% behavior for backward compatibility. New code must not
+            %% use this path.
+            emqx_persistent_session_ds_state:delete(SessionId, '_');
+        _ ->
+            case emqx_persistent_session_ds_state:delete(SessionId, Cookie) of
+                ok ->
+                    ok;
+                ?err_rec(Reason) ->
+                    emqx_durable_timer:retry(Reason);
+                ?err_unrec(_) ->
+                    %% Session conflicts are ok
+                    ok
+            end
+    end.
 
 %%================================================================================
 %% Internal exports
