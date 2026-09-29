@@ -41,12 +41,17 @@ runs:
       run: |
         set -euo pipefail
         shopt -s nullglob
-        sha() {
-          if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi | cut -c1-16
+        sha256() {
+          if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi
+        }
+        # Hash each file, then hash the "<hash>  <path>" lines sorted by path,
+        # so the result does not depend on argument order or glob collation.
+        hash_files() {
+          sha256 "$@" | LC_ALL=C sort -k 2 | sha256 | cut -c1-16
         }
         # shellcheck disable=SC2086
-        build_hash="$(cat env.sh build scripts/ensure-rebar3.sh $BUILD_INPUTS | sha)"
-        deps_hash="$(cat mix.exs apps/*/mix.exs | sha)"
+        build_hash="$(hash_files env.sh build scripts/ensure-rebar3.sh $BUILD_INPUTS)"
+        deps_hash="$(hash_files mix.exs apps/*/mix.exs)"
         toolchain_id="${TOOLCHAIN//[^A-Za-z0-9._-]/-}"
         profiles_id="${PROFILES// /-}"
         echo "key=${PREFIX}-${toolchain_id}-${profiles_id}-build${build_hash}-deps${deps_hash}" >> "$GITHUB_OUTPUT"
