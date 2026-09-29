@@ -665,10 +665,10 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState, channel =
             {[{frame_error, Reason} | Packets], State}
     end.
 
-update_state_on_parse_error(#{proto_ver := ProtoVer, parse_state := NParseState0}, State) ->
-    Serialize0 = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    {NParseState, Serialize} = share_frame_opts(ProtoVer, NParseState0, Serialize0, State),
-    State#state{parse_state = NParseState, serialize = Serialize};
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
 update_state_on_parse_error(_, State) ->
     State.
 

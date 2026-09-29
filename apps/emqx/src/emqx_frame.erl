@@ -8,11 +8,13 @@
 
 -include("emqx_mqtt.hrl").
 
+%% Parse state builders. Each one derives a state from options and a
+%% protocol version alone, never from a live connection, so
+%% `emqx_connection_conf' caches their results per zone.
 -export([
     initial_parse_state/0,
     initial_parse_state/1,
-    update_parse_state/2,
-    connect_parsed/2
+    post_connect_parse_state/2
 ]).
 
 -export([
@@ -438,7 +440,7 @@ packet(Header, Variable, Payload) ->
 parse_packet_complete(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
-    NOptions = connect_parsed(Variable#mqtt_packet_connect.proto_ver, Options),
+    NOptions = post_connect_parse_state(Variable#mqtt_packet_connect.proto_ver, Options),
     [Packet, NOptions];
 parse_packet_complete(Frame, Header, Options) ->
     parse_packet(Frame, Header, Options).
@@ -447,7 +449,7 @@ parse_packet_complete(Frame, Header, Options) ->
 parse_packet(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options, Rest) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
-    {Packet, Rest, connect_parsed(Variable#mqtt_packet_connect.proto_ver, Options)};
+    {Packet, Rest, post_connect_parse_state(Variable#mqtt_packet_connect.proto_ver, Options)};
 parse_packet(Frame, Header, Options, Rest) ->
     Packet = parse_packet(Frame, Header, Options),
     {Packet, Rest, Options}.
@@ -462,38 +464,24 @@ parse_connect(Frame, Options = #options{strict_mode = StrictMode}) ->
         do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, Options)
     catch
         throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
-            ?PARSE_ERR(
-                ReasonM#{
-                    proto_ver => ProtoVer,
-                    proto_name => ProtoName,
-                    parse_state => update_parse_state(ProtoVer, Options)
-                }
-            );
+            ?PARSE_ERR(ReasonM#{proto_ver => ProtoVer, proto_name => ProtoName});
         throw:{?FRAME_PARSE_ERROR, Reason} ->
-            ?PARSE_ERR(
-                #{
-                    cause => Reason,
-                    proto_ver => ProtoVer,
-                    proto_name => ProtoName,
-                    parse_state => update_parse_state(ProtoVer, Options)
-                }
-            )
+            ?PARSE_ERR(#{cause => Reason, proto_ver => ProtoVer, proto_name => ProtoName})
     end.
 
--spec update_parse_state(emqx_types:proto_ver(), parse_state_initial()) ->
-    parse_state_initial().
-update_parse_state(ProtoVer, Options) ->
-    Options#options{version = ProtoVer}.
-
 -doc """
-Return the parse state the parser moves to once it has parsed a CONNECT packet.
+Return the parse state the parser moves to once it has parsed a CONNECT packet
+of the given protocol version.
 
-The state records the protocol version and no longer requires a CONNECT.
-The parser itself returns this state together with the CONNECT packet.
+The state records the protocol version and no longer requires a CONNECT. It is
+a function of the initial state and the version only, not of any connection,
+so the same term serves every connection of a zone. The parser returns this
+state together with the CONNECT packet; `emqx_connection_conf` builds it ahead
+of time.
 """.
--spec connect_parsed(emqx_types:proto_ver(), parse_state_initial()) ->
+-spec post_connect_parse_state(emqx_types:proto_ver(), parse_state_initial()) ->
     parse_state_initial().
-connect_parsed(ProtoVer, Options) ->
+post_connect_parse_state(ProtoVer, Options) ->
     Options#options{version = ProtoVer, expect_connect = false}.
 
 do_parse_connect(

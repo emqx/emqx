@@ -881,7 +881,7 @@ parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
                     raw
                 )
             ),
-            NState = update_state_on_parse_error(Parser, NReason, State),
+            NState = update_state_on_parse_error(NReason, State),
             {0, [{frame_error, NReason}], NState};
         error:Reason:Stacktrace ->
             NReason = maybe_enrich_first_packet_error(Data, Reason, State),
@@ -932,19 +932,11 @@ init_parser(Transport, Socket, ParseState) ->
             ParseState
     end.
 
-update_state_on_parse_error(
-    ParseState0,
-    #{proto_ver := ProtoVer, parse_state := ParseState},
-    State
-) ->
-    case ParseState0 of
-        {frame, _Options} -> NParseState0 = {frame, ParseState};
-        _StreamParseState -> NParseState0 = ParseState
-    end,
-    Serialize0 = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    {NParseState, Serialize} = share_frame_opts(ProtoVer, NParseState0, Serialize0, State),
-    State#state{serialize = Serialize, parser = NParseState};
-update_state_on_parse_error(_, _, State) ->
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
+update_state_on_parse_error(_, State) ->
     State.
 
 run_parser(Data, {frame, Options}, State) ->

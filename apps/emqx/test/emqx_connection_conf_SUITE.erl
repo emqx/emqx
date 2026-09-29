@@ -142,7 +142,9 @@ t_build_matches_frame(_Config) ->
     ?assertEqual(
         #{
             ProtoVer => #{
-                initial_parse_state => emqx_frame:connect_parsed(ProtoVer, InitialParseState),
+                initial_parse_state => emqx_frame:post_connect_parse_state(
+                    ProtoVer, InitialParseState
+                ),
                 serialize_opts => emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)
             }
          || ProtoVer <- [?MQTT_PROTO_V3, ?MQTT_PROTO_V4, ?MQTT_PROTO_V5]
@@ -265,24 +267,18 @@ t_pre_connect_strict_mode(Config) ->
     ok = gen_tcp:close(Sock).
 
 -doc """
-A CONNECT that fails to parse after its protocol version is read takes the
-serializer options for that version through the shared terms, and the
-connection closes without a crash.
+A CONNECT that fails to parse after its protocol version is read closes the
+connection without a crash. The connection keeps its shared pre-CONNECT
+terms up to the end.
 """.
 t_parse_error(Config) ->
-    ok = meck:new(emqx_connection_conf, [passthrough, no_link]),
     {Sock, Pid} = raw_connect(Config),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_pre_connect(Pid)),
     MRef = monitor(process, Pid),
     %% MQTT 5 CONNECT with the reserved connect flag set.
     ok = gen_tcp:send(Sock, <<16, 10, 0, 4, "MQTT", 5, 1, 0, 60>>),
     ?assertReceive({'DOWN', MRef, process, Pid, _}, 5000),
-    ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0, 5000)),
-    #{common := #{?MQTT_PROTO_V5 := #{serialize_opts := Shared}}} =
-        persistent_term:get(?KEY(default)),
-    ?assertMatch(
-        [{_, {emqx_connection_conf, connected, [default, ?MQTT_PROTO_V5, _, Shared]}, {_, Shared}}],
-        [H || H = {P, {_, connected, _}, _} <- meck:history(emqx_connection_conf), P =:= Pid]
-    ).
+    ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0, 5000)).
 
 -doc """
 A change to the global `mqtt.max_packet_size` rebuilds the entry of every
@@ -427,7 +423,9 @@ assert_zone_entry(Zone, MaxSize, Old) ->
     ?assertMatch(#{max_size := MaxSize}, FrameOpts),
     #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := ParseState}}} = New,
     ?assertEqual(
-        emqx_frame:connect_parsed(?MQTT_PROTO_V5, emqx_frame:initial_parse_state(FrameOpts)),
+        emqx_frame:post_connect_parse_state(
+            ?MQTT_PROTO_V5, emqx_frame:initial_parse_state(FrameOpts)
+        ),
         ParseState
     ).
 

@@ -1023,10 +1023,10 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
 
-update_state_on_parse_error(#{proto_ver := ProtoVer, parse_state := ParseState0}, State) ->
-    Serialize0 = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    {ParseState, Serialize} = share_frame_opts(ProtoVer, ParseState0, Serialize0, State),
-    State#state{serialize = Serialize, parser = ParseState};
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
 update_state_on_parse_error(_, State) ->
     State.
 

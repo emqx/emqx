@@ -199,7 +199,7 @@ build_frame(#{
         connect => PreConnect,
         common => maps:from_list([
             {ProtoVer, #{
-                initial_parse_state => emqx_frame:connect_parsed(ProtoVer, ParseState),
+                initial_parse_state => emqx_frame:post_connect_parse_state(ProtoVer, ParseState),
                 serialize_opts => emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)
             }}
          || ProtoVer <- ?PROTO_VERS
