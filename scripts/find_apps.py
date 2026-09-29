@@ -170,7 +170,7 @@ def generate_matrix(apps: List[str], project_root: Path) -> List[dict]:
         runner = get_runner(app_path)
 
         if app == "apps/emqx":
-            entries.extend(format_app_entry(app, 10, runner))
+            entries.extend(format_app_entry(app, 9, runner))
         elif app == "apps/emqx_management":
             entries.extend(format_app_entry(app, 2, runner))
         elif app.startswith("apps/"):
