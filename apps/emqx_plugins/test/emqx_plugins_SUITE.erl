@@ -44,6 +44,7 @@ all() ->
     [
         {group, copy_plugin},
         {group, create_tar_copy_plugin},
+        {group, beam_preflight},
         emqx_common_test_helpers:all(?MODULE)
     ].
 
@@ -56,13 +57,16 @@ groups() ->
             group_t_cluster_force_sync_vsn,
             group_t_cluster_install
         ]},
-        {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
+        {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]},
+        {beam_preflight, [sequence], [group_t_beam_preflight]}
     ].
 
 init_per_group(copy_plugin, Config) ->
     Config;
 init_per_group(create_tar_copy_plugin, Config) ->
-    [{remove_tar, true} | Config].
+    [{remove_tar, true} | Config];
+init_per_group(beam_preflight, Config) ->
+    Config.
 
 end_per_group(_Group, _Config) ->
     ok.
@@ -957,9 +961,11 @@ t_temporary_serde_reports_structured_type_errors(_Config) ->
     ).
 
 assert_invalid_plugin_package(NameVsn) ->
-    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
+    Result = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({error, _}, Result),
     ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
-    ?assertNot(lists:member(plugin_ebin_dir(NameVsn), code:get_path())).
+    ?assertNot(lists:member(plugin_ebin_dir(NameVsn), code:get_path())),
+    Result.
 
 cleanup_invalid_plugin(NameVsn) ->
     _ = application:unload(invalid_plugin),
@@ -1017,6 +1023,258 @@ remove_tar_entry(NameVsn, Filename) ->
         fun({Path, _}) -> filename:basename(Path) =/= Filename end, TarContent
     ),
     erl_tar:create(Tar, NewTarContent, [compressed]).
+
+%% Add an entry (with its full path inside the package) to an existing tarball.
+add_tar_entry(NameVsn, EntryName, Content) ->
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarContent} = erl_tar:extract(Tar, [compressed, memory]),
+    erl_tar:create(Tar, TarContent ++ [{EntryName, Content}], [compressed]).
+
+%%--------------------------------------------------------------------
+%% Beam preflight and atomic loading
+%%
+%% These cases go through the real installation API, and overlap with the
+%% `emqx_plugins_apps_tests' unit tests.
+%%--------------------------------------------------------------------
+
+group_t_beam_preflight({init, Config}) ->
+    Config;
+group_t_beam_preflight({'end', _Config}) ->
+    ok;
+group_t_beam_preflight(_Config) ->
+    ok = bp_rejects_corrupt_beam(),
+    ok = bp_rejected_package_does_not_run_on_load(),
+    ok = bp_rejects_emqx_module_replacement(),
+    ok = bp_install_rolls_back_on_application_load_failure(),
+    ok = bp_install_failure_handler_still_restores_package(),
+    ok = bp_valid_package_still_installs_and_starts(),
+    ok = bp_install_new_version_while_old_loaded(),
+    ok.
+
+bp_rejects_corrupt_beam() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    Bin = bp_compile(ghost, bp_plain_src(ghost, ok)),
+    ok = bp_add_beam(NameVsn, ghost, bp_truncate(Bin)),
+    ok = replace_tar_entry(NameVsn, "invalid_plugin.app", bp_app_spec([ghost])),
+    Result = assert_invalid_plugin_package(NameVsn),
+    {error, #{msg := Msg}} = Result,
+    ?assert(lists:member(Msg, ["plugin_beam_truncated", "plugin_beam_not_loadable"])),
+    ?assertNot(code:is_loaded(ghost)),
+    ok.
+
+%% The regression which motivated the fix: an illegal package must not run any
+%% of its code, not even an early module's `-on_load'.
+bp_rejected_package_does_not_run_on_load() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    Marker = {a_onload, on_load_ran},
+    persistent_term:erase(Marker),
+    ok = make_plugin_tar(NameVsn),
+    OnLoad = bp_compile(a_onload, bp_onload_src(a_onload)),
+    Bad = bp_compile(z_bad, bp_plain_src(z_bad, ok)),
+    ok = bp_add_beam(NameVsn, a_onload, OnLoad),
+    ok = bp_add_beam(NameVsn, z_bad, bp_truncate(Bad)),
+    ok = replace_tar_entry(NameVsn, "invalid_plugin.app", bp_app_spec([a_onload, z_bad])),
+    Path0 = code:get_path(),
+    try
+        _ = assert_invalid_plugin_package(NameVsn),
+        ?assertEqual(undefined, persistent_term:get(Marker, undefined)),
+        ?assertNot(code:is_loaded(a_onload)),
+        ?assertEqual(Path0, code:get_path())
+    after
+        persistent_term:erase(Marker)
+    end,
+    ok.
+
+bp_rejects_emqx_module_replacement() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    Which0 = code:which(emqx_plugins_apps),
+    ok = make_plugin_tar(NameVsn),
+    Bin = bp_compile(emqx_plugins_apps, bp_plain_src(emqx_plugins_apps, ok)),
+    ok = bp_add_beam(NameVsn, emqx_plugins_apps, Bin),
+    ok = replace_tar_entry(
+        NameVsn, "invalid_plugin.app", bp_app_spec([emqx_plugins_apps])
+    ),
+    Result = assert_invalid_plugin_package(NameVsn),
+    ?assertMatch(
+        {error, #{msg := "plugin_beam_load_conflict", module := emqx_plugins_apps}},
+        Result
+    ),
+    {error, Conflict} = Result,
+    %% Under cover, `code:which/1' reports `cover_compiled' instead of the beam
+    %% path, so the same protection is reported with a different label.
+    ?assert(
+        lists:member(
+            maps:get(conflict, Conflict),
+            [loaded_outside_plugins, cover_compiled_module]
+        )
+    ),
+    ?assertEqual(Which0, code:which(emqx_plugins_apps)),
+    ok.
+
+bp_install_rolls_back_on_application_load_failure() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    Marker = {a_onload, on_load_ran},
+    persistent_term:erase(Marker),
+    ok = make_plugin_tar(NameVsn),
+    OnLoad = bp_compile(a_onload, bp_onload_src(a_onload)),
+    ok = bp_add_beam(NameVsn, a_onload, OnLoad),
+    ok = replace_tar_entry(
+        NameVsn,
+        "invalid_plugin.app",
+        %% `kernel' is loaded and running: the rollback must survive it.
+        bp_app_spec([a_onload], [{included_applications, [kernel, nonexistent_app_xyz]}])
+    ),
+    Path0 = code:get_path(),
+    try
+        Result = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+        ?assertMatch({error, #{msg := "failed_to_load_plugin_app"}}, Result),
+        ?assertEqual(undefined, persistent_term:get(Marker, undefined)),
+        ?assertNot(code:is_loaded(a_onload)),
+        ?assertEqual(Path0, code:get_path()),
+        ?assertNot(is_app_loaded(invalid_plugin)),
+        ?assertNot(lists:member(plugin_ebin_dir(NameVsn), code:get_path())),
+        ?assert(is_app_loaded(kernel)),
+        ?assertMatch([_ | _], application:which_applications())
+    after
+        persistent_term:erase(Marker),
+        cleanup_invalid_plugin(NameVsn)
+    end,
+    ok.
+
+%% The failure handler of the install API snapshots the package which is being
+%% replaced and puts it back when the installation fails.
+bp_install_failure_handler_still_restores_package() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    {ok, PreviousPackage} = emqx_plugins:backup_package(NameVsn),
+    try
+        ok = make_plugin_tar(NameVsn),
+        Bin = bp_compile(ghost, bp_plain_src(ghost, ok)),
+        ok = bp_add_beam(NameVsn, ghost, bp_truncate(Bin)),
+        ok = replace_tar_entry(NameVsn, "invalid_plugin.app", bp_app_spec([ghost])),
+        Path0 = code:get_path(),
+        ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
+        ok = emqx_plugins:restore_package(NameVsn, PreviousPackage),
+        ?assertNot(code:is_loaded(ghost)),
+        ?assertEqual(Path0, code:get_path()),
+        ?assert(filelib:is_regular(emqx_plugins_fs:tar_file_path(NameVsn)))
+    after
+        _ = emqx_plugins:purge(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end,
+    ok.
+
+%% A package built by the regular toolchain must still install and start.
+bp_valid_package_still_installs_and_starts() ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    try
+        ok = emqx_plugins:ensure_installed(NameVsn),
+        ok = emqx_plugins:ensure_started(NameVsn),
+        ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+        ok = emqx_plugins:ensure_stopped(NameVsn)
+    after
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn)
+    end,
+    ok.
+
+%% Upgrading a plugin leaves the modules of the old version in the code server
+%% (`unload' only soft purges), so the preflight must let the new version
+%% replace them.
+bp_install_new_version_while_old_loaded() ->
+    OldNameVsn = "invalid_plugin-1.0.0",
+    NewNameVsn = "invalid_plugin-2.0.0",
+    ok = make_plugin_tar(OldNameVsn),
+    OldBin = bp_compile(invalid_plugin, bp_plain_src(invalid_plugin, v1)),
+    ok = bp_add_beam(OldNameVsn, invalid_plugin, OldBin),
+    ok = replace_tar_entry(OldNameVsn, "invalid_plugin.app", bp_app_spec([invalid_plugin])),
+    ok = make_plugin_tar(NewNameVsn),
+    NewBin = bp_compile(invalid_plugin, bp_plain_src(invalid_plugin, v2)),
+    ok = bp_add_beam(NewNameVsn, invalid_plugin, NewBin),
+    ok = replace_tar_entry(NewNameVsn, "invalid_plugin.app", bp_app_spec([invalid_plugin])),
+    ok = replace_tar_entry(NewNameVsn, "release.json", bp_release_json("2.0.0")),
+    OldEbin = plugin_ebin_dir(OldNameVsn),
+    NewEbin = plugin_ebin_dir(NewNameVsn),
+    OldBeam = filename:join(OldEbin, "invalid_plugin.beam"),
+    NewBeam = filename:join(NewEbin, "invalid_plugin.beam"),
+    try
+        ok = emqx_plugins:ensure_installed(OldNameVsn, ?fresh_install),
+        ?assertEqual(v1, invalid_plugin:ping()),
+        ok = emqx_plugins:ensure_uninstalled(OldNameVsn),
+        ?assertNot(is_app_loaded(invalid_plugin)),
+        ?assertEqual(OldBeam, code:which(invalid_plugin)),
+        ok = emqx_plugins:ensure_installed(NewNameVsn, ?fresh_install),
+        ?assertEqual(NewBeam, code:which(invalid_plugin)),
+        ?assertEqual(v2, invalid_plugin:ping())
+    after
+        _ = emqx_plugins:ensure_stopped(NewNameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NewNameVsn),
+        _ = emqx_plugins:ensure_uninstalled(OldNameVsn),
+        _ = emqx_plugins:purge(OldNameVsn),
+        _ = emqx_plugins:purge(NewNameVsn),
+        _ = emqx_plugins:delete_package(OldNameVsn),
+        _ = emqx_plugins:delete_package(NewNameVsn)
+    end,
+    ok.
+
+bp_app_spec(Modules) ->
+    bp_app_spec(Modules, []).
+
+bp_app_spec(Modules, Extra) ->
+    iolist_to_binary(
+        io_lib:format(
+            "~p.~n",
+            [{application, invalid_plugin, [{vsn, "0.1.0"}, {modules, Modules} | Extra]}]
+        )
+    ).
+
+bp_release_json(RelVsn) ->
+    emqx_utils_json:encode(#{
+        <<"name">> => <<"invalid_plugin">>,
+        <<"rel_vsn">> => list_to_binary(RelVsn),
+        <<"rel_apps">> => [<<"invalid_plugin-0.1.0">>],
+        <<"description">> => <<"test">>,
+        <<"with_config_schema">> => true
+    }).
+
+bp_beam_entry(NameVsn, Mod) ->
+    filename:join([NameVsn, "invalid_plugin-0.1.0", "ebin", atom_to_list(Mod) ++ ".beam"]).
+
+bp_add_beam(NameVsn, Mod, Bin) ->
+    add_tar_entry(NameVsn, bp_beam_entry(NameVsn, Mod), Bin).
+
+bp_compile(Mod, Src) ->
+    Dir = filename:join(emqx_plugins_fs:install_dir(), "bp_src"),
+    ok = filelib:ensure_dir(filename:join(Dir, "dummy")),
+    SrcFile = filename:join(Dir, atom_to_list(Mod) ++ ".erl"),
+    ok = file:write_file(SrcFile, Src),
+    try
+        {ok, Forms} = epp:parse_file(SrcFile, [], []),
+        {ok, Mod, Bin} = compile:forms(Forms, [binary, return_errors]),
+        Bin
+    after
+        _ = file:delete(SrcFile)
+    end.
+
+bp_plain_src(Mod, Value) ->
+    lists:flatten(
+        io_lib:format("-module(~s).~n-export([ping/0]).~nping() -> ~p.~n", [Mod, Value])
+    ).
+
+bp_onload_src(Mod) ->
+    lists:flatten(
+        io_lib:format(
+            "-module(~s).~n-export([ping/0]).~n-on_load(init/0).~n"
+            "init() -> persistent_term:put({~s, on_load_ran}, true), ok.~n"
+            "ping() -> ok.~n",
+            [Mod, Mod]
+        )
+    ).
+
+bp_truncate(Bin) ->
+    binary:part(Bin, 0, byte_size(Bin) div 2).
 
 %% test that we even cleanup content that doesn't match the expected name-vsn
 %% pattern
