@@ -179,8 +179,6 @@
     awaiting_rel_max
 ]).
 
--define(DEFAULT_BATCH_N, 1000).
-
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
 
 -define(DEQUEUE_RETRY_TIMER, retry_dequeue).
