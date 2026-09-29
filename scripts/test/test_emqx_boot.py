@@ -1087,6 +1087,7 @@ def test_feature_gate_bad_preset(emqx_bin_path):
             "EMQX_LOG__CONSOLE__FORMATTER": "json",
             "EMQX_FEATURES": "UNKNOWN",
         },
+        timeout=120,
     )
     assert result.returncode != 0, "Expected emqx console to fail with bad preset"
     logs = json_outputs(result.stdout.splitlines())
@@ -1111,6 +1112,7 @@ def test_feature_gate_bad_feature(emqx_bin_path):
             "EMQX_LOG__CONSOLE__FORMATTER": "json",
             "EMQX_FEATURES": "data_integratio",
         },
+        timeout=120,
     )
     assert result.returncode != 0, "Expected emqx console to fail with bad preset"
     logs = json_outputs(result.stdout.splitlines())

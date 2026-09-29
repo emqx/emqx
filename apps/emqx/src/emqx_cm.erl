@@ -34,7 +34,8 @@
 -export([
     get_chan_stats/1,
     get_chan_stats/2,
-    set_chan_stats/2
+    set_chan_stats/2,
+    sparse_stats_defaults/0
 ]).
 
 -export([
@@ -131,6 +132,35 @@
 
 -define(CHAN_INFO_SELECT_LIMIT, 100).
 
+%% Stats that the channel info table omits when their value is 0.
+%% Every stats producer (TCP, socket and WebSocket connections, the memory
+%% and durable sessions, the eviction agent channel) must return all of
+%% these keys, so that a reader can restore the full list.
+-define(SPARSE_STATS_DEFAULTS, #{
+    subscriptions_cnt => 0,
+    inflight_cnt => 0,
+    mqueue_len => 0,
+    mqueue_dropped => 0,
+    awaiting_rel_cnt => 0,
+    total_payload_bytes => 0,
+    recv_pkt => 0,
+    recv_msg => 0,
+    'recv_msg.qos0' => 0,
+    'recv_msg.qos1' => 0,
+    'recv_msg.qos2' => 0,
+    'recv_msg.dropped' => 0,
+    'recv_msg.dropped.await_pubrel_timeout' => 0,
+    send_pkt => 0,
+    send_msg => 0,
+    'send_msg.qos0' => 0,
+    'send_msg.qos1' => 0,
+    'send_msg.qos2' => 0,
+    'send_msg.dropped' => 0,
+    'send_msg.dropped.expired' => 0,
+    'send_msg.dropped.queue_full' => 0,
+    'send_msg.dropped.too_large' => 0
+}).
+
 %% Server name
 -define(CM, ?MODULE).
 
@@ -161,7 +191,7 @@ start_link() ->
 ) -> ok.
 insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, self()},
-    true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
+    true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, sparse_stats(Stats)}),
     ?tp(debug, insert_channel_info, #{clientid => ClientId}),
     ok.
 
@@ -245,11 +275,24 @@ set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
         error:badarg -> false
     end.
 
-%% @doc Get channel's stats.
+-doc """
+Get the channel's stats as stored in the channel info table.
+The list omits the keys of `sparse_stats_defaults/0` whose value is 0.
+""".
 -spec get_chan_stats(emqx_types:clientid()) -> option(emqx_types:stats()).
 get_chan_stats(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
 
+-doc """
+Return the stats keys that the channel info table omits when their value
+is 0, each mapped to 0. Merge the stored stats into this map to get the full
+set of these keys.
+""".
+-spec sparse_stats_defaults() -> #{atom() => 0}.
+sparse_stats_defaults() ->
+    ?SPARSE_STATS_DEFAULTS.
+
+-doc "RPC target of `get_chan_stats/2`. Returns the stored, sparse stats list.".
 -spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 do_get_chan_stats(ClientId, ChanPid) ->
@@ -260,6 +303,7 @@ do_get_chan_stats(ClientId, ChanPid) ->
         error:badarg -> undefined
     end.
 
+-doc "Same as `get_chan_stats/1`, for a known channel pid, possibly on another node.".
 -spec get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 get_chan_stats(ClientId, ChanPid) ->
@@ -275,7 +319,7 @@ set_chan_stats(ClientId, Stats) when ?IS_CLIENTID(ClientId) ->
 set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, ChanPid},
     try
-        case ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats}) of
+        case ets:update_element(?CHAN_INFO_TAB, Chan, {3, sparse_stats(Stats)}) of
             true ->
                 ok = maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats),
                 true;
@@ -285,6 +329,9 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     catch
         error:badarg -> false
     end.
+
+sparse_stats(Stats) ->
+    [KV || {K, V} = KV <- Stats, not (V =:= 0 andalso is_map_key(K, ?SPARSE_STATS_DEFAULTS))].
 
 maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats) ->
     case emqx_config:get([sysmon, session, total_payload_bytes_high_watermark], 0) of

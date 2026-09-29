@@ -59,6 +59,7 @@ persistent_session_testcases() ->
         t_persistent_sessions_exact_clientid_query,
         t_persistent_sessions_filters,
         t_persistent_sessions_subscriptions1,
+        t_persistent_session_idle_client_stats,
         t_list_clients_v2,
         t_list_clients_v2_limit,
         t_list_clients_v2_limit2,
@@ -345,6 +346,21 @@ t_persistent_sessions1(Config) ->
         []
     ),
     ok.
+
+-doc """
+`GET /clients/:clientid` for an idle client with a durable session returns the
+same fields as a dense stats row would produce, with 0 for the stats that the
+channel info table does not store.
+""".
+t_persistent_session_idle_client_stats(Config) ->
+    [N1, _N2] = ?config(cluster_nodes, Config),
+    ClientId = <<"idle-durable">>,
+    C = connect_client(#{port => get_mqtt_port(N1, tcp), clientid => ClientId}),
+    try
+        assert_idle_client_stats(N1, ClientId, Config)
+    after
+        disconnect_and_destroy_session(C)
+    end.
 
 t_persistent_sessions2(Config) ->
     [N1, _N2] = ?config(cluster_nodes, Config),
@@ -1336,6 +1352,55 @@ t_list_clients_exact_lookup_pagination(Config) ->
         list_request(Page3Qs, Config)
     ),
     lists:foreach(fun emqtt:disconnect/1, Clients).
+
+-doc """
+`GET /clients/:clientid` for idle TCP and WebSocket clients returns the same
+fields as a dense stats row would produce, with 0 for the stats that the channel
+info table does not store.
+""".
+t_idle_client_stats(Config) ->
+    lists:foreach(
+        fun({ClientId, Connect, Opts}) ->
+            {ok, C} = emqtt:start_link([{clientid, ClientId} | Opts]),
+            {ok, _} = Connect(C),
+            try
+                assert_idle_client_stats(node(), ClientId, Config)
+            after
+                ok = emqtt:disconnect(C)
+            end
+        end,
+        [
+            {<<"idle-tcp">>, fun emqtt:connect/1, []},
+            {<<"idle-ws">>, fun emqtt:ws_connect/1, [{port, 8083}]}
+        ]
+    ).
+
+%% The REST response must have the fields that the formatter produces from the
+%% dense stats of the connection process. The values come from the stored row,
+%% with 0 for the omitted stats.
+assert_idle_client_stats(Node, ClientId, Config) ->
+    [ChanPid] = erpc:call(Node, emqx_cm, lookup_channels, [local, ClientId]),
+    Chan = {ClientId, ChanPid},
+    [{Chan, Info, Stored}] = erpc:call(Node, ets, lookup, [emqx_channel_info, Chan]),
+    Defaults = emqx_cm:sparse_stats_defaults(),
+    ?assertEqual([], [KV || {K, 0} = KV <- Stored, is_map_key(K, Defaults)]),
+    #{conninfo := #{conn_mod := ConnMod}} = Info,
+    Dense = erpc:call(Node, ConnMod, stats, [ChanPid]),
+    ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Dense), ConnMod),
+    Expected = emqx_utils_maps:binary_key_map(
+        erpc:call(Node, emqx_mgmt_api_clients, format_channel_info, [Node, {Chan, Info, Dense}])
+    ),
+    {ok, {?HTTP200, _, Client}} = get_client_request(ClientId, Config),
+    ?assertEqual(lists:sort(maps:keys(Expected)), lists:sort(maps:keys(Client)), ConnMod),
+    lists:foreach(
+        fun(K) ->
+            KBin = atom_to_binary(K),
+            ?assertEqual(
+                proplists:get_value(K, Stored, 0), maps:get(KBin, Client), {ConnMod, K}
+            )
+        end,
+        maps:keys(Defaults)
+    ).
 
 t_format_old_style_client_stats_defaults_total_payload_bytes(_) ->
     ClientId = <<"old-style-client-stats">>,
