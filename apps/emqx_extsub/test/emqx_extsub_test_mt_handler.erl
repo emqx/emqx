@@ -26,7 +26,7 @@
 
 handle_subscribe(
     _SubscribeType,
-    #{send_after := SendAfterFn, send := SendFn} = _SubscribeCtx,
+    #{message_target := MessageTarget} = _SubscribeCtx,
     State0,
     <<"extsub_mt_test/", Rest/binary>> = TopicFilter
 ) ->
@@ -37,7 +37,9 @@ handle_subscribe(
         IntervalMs = binary_to_integer(IntervalMsBin),
         ok = lists:foreach(
             fun(I) ->
-                SendAfterFn(IntervalMs * I, #fake_msg{n = I, topic_filter = TopicFilter})
+                emqx_extsub_handler:send_after(
+                    IntervalMs * I, MessageTarget, #fake_msg{n = I, topic_filter = TopicFilter}
+                )
             end,
             lists:seq(0, BatchCount - 1)
         ),
@@ -46,7 +48,7 @@ handle_subscribe(
                 undefined ->
                     #{
                         buffer => buffer_new(),
-                        send => SendFn,
+                        message_target => MessageTarget,
                         topic_filters => #{TopicFilter => BatchSize}
                     };
                 #{topic_filters := TopicFilters} ->
@@ -74,7 +76,7 @@ handle_terminate(_State) ->
     ok.
 
 handle_delivered(
-    #{send := SendFn} = State,
+    #{message_target := MessageTarget} = State,
     #{desired_message_count := DesiredCount} = _AckCtx,
     _Message,
     _Ack
@@ -83,7 +85,7 @@ handle_delivered(
         0 ->
             ok;
         _ ->
-            SendFn(#push_messages{})
+            emqx_extsub_handler:send(MessageTarget, #push_messages{})
     end,
     {ok, State}.
 

@@ -567,23 +567,10 @@ create_unsubscribe_ctx(SubOpts) ->
     }.
 
 create_subscribe_ctx(Ref, Module, SubOpts0, Ctx) ->
-    Pid = self(),
-    SendAfter = fun(Interval, Info) ->
-        erlang:send_after(Interval, Pid, #info_to_extsub{
-            handler_ref = Ref, info = Info
-        })
-    end,
-    Send = fun(Info) ->
-        _ = erlang:send(Pid, #info_to_extsub{
-            handler_ref = Ref, info = Info
-        }),
-        ok
-    end,
     SubOpts = emqx_extsub:filter_saved_subopts(Module, SubOpts0),
     Ctx#{
         subopts => SubOpts,
-        send_after => SendAfter,
-        send => Send
+        message_target => emqx_extsub_handler:message_target(Ref)
     }.
 
 to_subscribe_init_ctx(Ctx) ->

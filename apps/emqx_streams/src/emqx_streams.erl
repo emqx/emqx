@@ -190,9 +190,9 @@ publish_reason_code({error, invalid_name}) -> ?RC_TOPIC_NAME_INVALID;
 publish_reason_code({error, invalid_topic}) -> ?RC_TOPIC_NAME_INVALID;
 publish_reason_code({error, _}) -> ?RC_IMPLEMENTATION_SPECIFIC_ERROR.
 
-save_support_info(#{conn_info_fn := ConnInfoFn} = _Ctx, ClientInfo) ->
+save_support_info(#{conninfo := ConnInfo} = _Ctx, ClientInfo) ->
     Protocol = maps:get(protocol, ClientInfo, undefined),
-    ProtoVer = ConnInfoFn(proto_ver),
+    ProtoVer = maps:get(proto_ver, ConnInfo, undefined),
     Info =
         case {Protocol, ProtoVer} of
             {mqtt, ?MQTT_PROTO_V5} ->

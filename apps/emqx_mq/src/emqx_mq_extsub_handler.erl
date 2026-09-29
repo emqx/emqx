@@ -217,8 +217,7 @@ check_mq_topic_filter(Ctx, <<"$q/", TopicFilter/binary>>) ->
 check_mq_topic_filter(_Ctx, _TopicFilter) ->
     ignore.
 
-validate_protocol(#{conninfo_fn := ConnInfoFn, clientinfo := ClientInfo}) ->
-    ProtoVer = ConnInfoFn(proto_ver),
+validate_protocol(#{proto_ver := ProtoVer, clientinfo := ClientInfo}) ->
     Protocol = maps:get(protocol, ClientInfo, undefined),
     case {Protocol, ProtoVer} of
         {mqtt, ?MQTT_PROTO_V5} ->

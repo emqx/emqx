@@ -21,14 +21,6 @@
     'send_msg.dropped.too_large'
 ]).
 
--define(INFO_KEYS, [
-    conninfo,
-    conn_state,
-    clientinfo,
-    session,
-    will_msg
-]).
-
 %% The session attributes cached in the `emqx_channel_info` table.
 %%
 %% The counters live in the stats element of the same table row, and `subscriptions` is
