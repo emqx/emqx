@@ -72,6 +72,97 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+-doc "New and resumed sessions cache only the protocol version and ACK capability.".
+t_channel_info_created_and_resumed(Config) ->
+    Group = proplists:get_value(name, ?config(tc_group_properties, Config)),
+    CanReceiveAcks = Group =:= memory_sessions,
+    lists:foreach(
+        fun({ProtoVer, Version}) ->
+            ClientId = atom_to_binary(ProtoVer),
+            Opts = [
+                {clientid, ClientId},
+                {proto_ver, ProtoVer},
+                {clean_start, false},
+                {properties, #{'Session-Expiry-Interval' => 1000}}
+            ],
+            {ok, C0} = emqtt:start_link(Opts),
+            {ok, _} = emqtt:connect(C0),
+            ?assertEqual(0, proplists:get_value(session_present, emqtt:info(C0))),
+            assert_channel_info(ClientId, Version, CanReceiveAcks),
+            ok = emqtt:disconnect(C0),
+            {ok, C1} = emqtt:start_link(Opts),
+            {ok, _} = emqtt:connect(C1),
+            ?assertEqual(1, proplists:get_value(session_present, emqtt:info(C1))),
+            assert_channel_info(ClientId, Version, CanReceiveAcks),
+            ok = emqtt:disconnect(C1)
+        end,
+        [{v4, ?MQTT_PROTO_V4}, {v5, ?MQTT_PROTO_V5}]
+    ).
+
+-doc "Delivery requires channel metadata initialized by a session lifecycle hook.".
+t_channel_info_required(_Config) ->
+    ?assertEqual(undefined, erlang:get(extsub_channel_info)),
+    Msg = emqx_message:make(<<"test">>, ?QOS_1, <<"t">>, <<"payload">>),
+    ?assertError({badmatch, undefined}, emqx_extsub:on_message_delivered(#{}, Msg)),
+    ?assertEqual(undefined, erlang:get(extsub_channel_info)).
+
+-doc "Handler messages keep their destination when sent from another process.".
+t_message_target(_Config) ->
+    Ref = make_ref(),
+    Target = emqx_extsub_handler:message_target(Ref),
+    {Sender, Monitor} = spawn_monitor(fun() ->
+        ok = emqx_extsub_handler:send(Target, immediate),
+        ?assert(is_reference(emqx_extsub_handler:send_after(0, Target, delayed)))
+    end),
+    receive
+        #info_to_extsub{handler_ref = Ref, info = immediate} -> ok
+    after 1000 ->
+        ct:fail(immediate_message_not_received)
+    end,
+    receive
+        #info_to_extsub{handler_ref = Ref, info = delayed} -> ok
+    after 1000 ->
+        ct:fail(delayed_message_not_received)
+    end,
+    receive
+        {'DOWN', Monitor, process, Sender, normal} -> ok
+    after 1000 ->
+        ct:fail(sender_did_not_finish)
+    end.
+
+-doc "Active external subscriptions retain data instead of callback closures.".
+t_handler_state_has_no_closures(_Config) ->
+    ClientId = <<"handler-state">>,
+    C = emqx_extsub_test_utils:emqtt_connect([
+        {clientid, ClientId},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 1000}}
+    ]),
+    try
+        lists:foreach(
+            fun(TopicFilter) ->
+                ok = emqx_extsub_test_utils:emqtt_subscribe(C, TopicFilter)
+            end,
+            [<<"extsub_st_test/state/1/1/0">>, <<"extsub_mt_test/state/1/1/0">>]
+        ),
+        {ok, Msgs} = emqx_extsub_test_utils:emqtt_drain(2, 1000),
+        ?assertEqual(2, length(Msgs)),
+        [ChanPid] = emqx_cm:lookup_channels(ClientId),
+        emqx_extsub_test_utils:assert_no_retained_functions(ChanPid)
+    after
+        emqtt:disconnect(C)
+    end.
+
+assert_channel_info(ClientId, Version, CanReceiveAcks) ->
+    ?retry(20, 100, begin
+        [ChanPid] = emqx_cm:lookup_channels(ClientId),
+        {dictionary, Dict} = process_info(ChanPid, dictionary),
+        ?assertEqual(
+            #{proto_ver => Version, can_receive_acks => CanReceiveAcks},
+            proplists:get_value(extsub_channel_info, Dict)
+        )
+    end).
+
 %% We emulate different kinds of message flow into the external subscription handler.
 %% We deliver message by 1, in batches smaller and larger than the extsub buffer size.
 %% We expect the handler to deliver the messages into the channel correctly.
