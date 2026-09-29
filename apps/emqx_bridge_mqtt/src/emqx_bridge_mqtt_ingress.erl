@@ -448,20 +448,54 @@ downgrade_ingress_qos(QoS) ->
 info(Pid) ->
     emqtt:info(Pid).
 
+%% @doc Probes whether the client can still reach the remote broker.
+%%
+%% `emqtt:info/1' only reports the local client state, so a connection whose
+%% packets are silently dropped keeps looking healthy until `emqtt''s own
+%% keepalive gives up (1 to 2 keepalive intervals, 160 s by default).  Ask the
+%% remote end instead: send a PINGREQ and wait for its PINGRESP.
+%%
+%% `emqtt:ping/1' has no timeout argument and is a `gen_statem:call/2', which
+%% waits forever, so the caller (`emqx_bridge_mqtt_connector:on_get_status/2')
+%% bounds the wait through `emqx_utils:pmap/3'.
 -spec status(pid()) ->
     emqx_resource:resource_status().
 status(Pid) ->
-    try
-        case proplists:get_value(socket, info(Pid)) of
-            Socket when Socket /= undefined ->
-                ?status_connected;
-            undefined ->
-                ?status_connecting
-        end
+    try emqtt:status(Pid) of
+        connected ->
+            ping_status(Pid);
+        _State ->
+            %% `emqtt:info/1' is only answered in the `connected' state, so a
+            %% client that is not connected cannot be probed for liveness;
+            %% report it as connecting instead of waiting for the caller's
+            %% health check timeout.
+            ?status_connecting
     catch
         exit:{noproc, _} ->
+            ?status_disconnected;
+        exit:_Reason ->
             ?status_disconnected
     end.
+
+ping_status(Pid) ->
+    case ping(Pid) of
+        pong ->
+            ?status_connected;
+        {error, ack_timeout} ->
+            %% The client gave up on its own PINGRESP timeout: the connection is
+            %% still there, the remote just did not answer, which is what a
+            %% black-holed link looks like.
+            ?status_connecting;
+        {error, _Reason} ->
+            ?status_disconnected
+    end.
+
+%% `emqtt:ping/1' is specified as `pong', but a connection that stopped answering
+%% makes it reply `{error, ack_timeout}' and one that cannot send the packet
+%% replies `{error, Reason}'.  Call it through `apply/3' so that dialyzer does not
+%% report handling those replies as unreachable code.
+ping(Pid) ->
+    apply(emqtt, ping, [Pid]).
 
 %%
 

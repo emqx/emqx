@@ -709,11 +709,14 @@ t_connect_with_more_clients_than_the_broker_accepts(TCConfig) ->
     ?check_trace(
         #{timetrap => 10_000},
         begin
+            %% The listener rejects the extra connections, so the pool cannot be
+            %% started and the reason is the connection error itself.  It is not
+            %% explained as a listener capacity problem: the connector cannot know
+            %% why the peer closed the connection.
             ?assertMatch(
                 {201, #{
                     <<"status">> := <<"disconnected">>,
-                    <<"status_reason">> :=
-                        <<"Your MQTT connection attempt was unsuccessful", _/binary>>
+                    <<"status_reason">> := <<"tcp_closed">>
                 }},
                 create_connector_api(
                     TCConfig,
@@ -724,8 +727,7 @@ t_connect_with_more_clients_than_the_broker_accepts(TCConfig) ->
             ?assertMatch(
                 {200, #{
                     <<"status">> := <<"disconnected">>,
-                    <<"status_reason">> :=
-                        <<"Your MQTT connection attempt was unsuccessful", _/binary>>
+                    <<"status_reason">> := <<"tcp_closed">>
                 }},
                 get_connector_api(TCConfig)
             ),
