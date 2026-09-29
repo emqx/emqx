@@ -419,8 +419,8 @@ do_takeover(_DesireId, Msg, Channel) ->
 
 do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
     %% The pipeline below updates the channel clientinfo, so remember the
-    %% endpoint already bound to this connection.
-    Owner = maps:get(endpoint_name, OwnerInfo, undefined),
+    %% identity already bound to this connection.
+    Owner = bound_identity(OwnerInfo),
     case
         emqx_utils:pipeline(
             [
@@ -445,8 +445,9 @@ do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
                 undefined ->
                     process_connect(ensure_connected(NChannel), Req, Result, Iter);
                 _ ->
-                    %% The endpoint name must not change on re-registration.
-                    case maps:get(endpoint_name, NewClientInfo, undefined) of
+                    %% Re-registration may reuse the session only for the same
+                    %% authenticated EMQX client identity.
+                    case bound_identity(NewClientInfo) of
                         Owner ->
                             NewResult = emqx_lwm2m_session:reregister(Req, WithContext, Session),
                             iter(Iter, maps:merge(Result, NewResult), NChannel);
@@ -476,6 +477,13 @@ do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
                 Channel
             )
     end.
+
+bound_identity(ClientInfo) ->
+    %% `ep` is the LwM2M endpoint name. EMQX also accepts non-standard
+    %% `device_id` and `imei` registration parameters as clientid and
+    %% username. Keep all three bound to the session so a request with the
+    %% same `ep` cannot adopt another client's queued commands.
+    maps:with([endpoint_name, clientid, username], ClientInfo).
 
 check_lwm2m_version(
     #coap_message{options = Opts},

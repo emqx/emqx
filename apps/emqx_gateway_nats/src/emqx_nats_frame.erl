@@ -50,18 +50,19 @@ initial_parse_state(Opts) ->
         %% in parsing frame, the current frame is stored in iframe
         iframe => undefined,
         %% Configured limit for the frame currently being buffered
-        max_payload => max_payload_size(Opts)
+        max_frame => max_frame_size(Opts)
     }.
 
-%% The configured `max_payload_size` is the single source of truth; `Opts` only
-%% overrides it when it carries the key.
-max_payload_size(Opts) when is_map(Opts), is_map_key(max_payload_size, Opts) ->
+%% Accept the old parser option as an alias, with the new name taking priority.
+max_frame_size(Opts) when is_map(Opts), is_map_key(max_frame_size, Opts) ->
+    maps:get(max_frame_size, Opts);
+max_frame_size(Opts) when is_map(Opts), is_map_key(max_payload_size, Opts) ->
     maps:get(max_payload_size, Opts);
-max_payload_size(_Opts) ->
-    configured_max_payload_size().
+max_frame_size(_Opts) ->
+    configured_max_frame_size().
 
-configured_max_payload_size() ->
-    emqx_conf:get([gateway, nats, protocol, max_payload_size], ?DEFAULT_MAX_PAYLOAD).
+configured_max_frame_size() ->
+    emqx_conf:get([gateway, nats, protocol, max_frame_size], ?DEFAULT_MAX_FRAME).
 
 parse(Data0, ?INIT_STATE(State, Buffer)) ->
     Data = <<Buffer/binary, Data0/binary>>,
@@ -418,7 +419,8 @@ return_ok(Rest, State) ->
 parse_args(Data, State = #{state := args, iframe := #nats_frame{operation = Op}}) ->
     case split_to_first_linefeed(Data) of
         false ->
-            ok = check_size(control_line, byte_size(Data), State),
+            %% A trailing CR may be the first byte of the CRLF delimiter.
+            ok = check_size(control_line, incomplete_line_size(Data), State),
             {more, State#{buffer => Data}};
         {Line, Rest} ->
             %% Bound the control line while it is buffered.
@@ -617,14 +619,23 @@ split_to_first_linefeed(Bin) when is_binary(Bin) ->
             false
     end.
 
-%% Reject input above the configured payload budget instead of buffering it.
+incomplete_line_size(<<>>) ->
+    0;
+incomplete_line_size(Bin) ->
+    Size = byte_size(Bin),
+    case binary:last(Bin) of
+        $\r -> Size - 1;
+        _ -> Size
+    end.
+
+%% Reject input above the configured frame budget instead of buffering it.
 %% The position tells which part of the frame exceeded the limit.
-check_size(Position, Size, #{max_payload := Max}) when is_integer(Size), Size >= 0 ->
+check_size(Position, Size, #{max_frame := Max}) when is_integer(Size), Size >= 0 ->
     case Size > Max of
         true ->
             error(
                 {frame_too_large, #{
-                    max_payload_size => Max,
+                    max_frame_size => Max,
                     position => Position,
                     size => Size
                 }}

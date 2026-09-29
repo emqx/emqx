@@ -47,12 +47,14 @@ fields(nats) ->
     ] ++ emqx_gateway_schema:gateway_common_options();
 fields(protocol) ->
     [
-        {max_payload_size,
+        {max_frame_size,
             sc(
                 non_neg_integer(),
                 #{
-                    default => ?DEFAULT_MAX_PAYLOAD,
-                    desc => ?DESC(max_payload_size)
+                    default => ?DEFAULT_MAX_FRAME,
+                    aliases => [max_payload_size],
+                    validator => fun validate_max_frame_size/1,
+                    desc => ?DESC(max_frame_size)
                 }
             )}
     ];
@@ -120,3 +122,8 @@ ref(Mod, Field) ->
 
 map(Name, Type) ->
     hoconsc:map(Name, Type).
+
+validate_max_frame_size(Size) when Size >= 1024 ->
+    ok;
+validate_max_frame_size(_Size) ->
+    {error, #{reason => max_frame_size_too_small, minimum => 1024}}.

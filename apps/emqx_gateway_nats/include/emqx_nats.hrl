@@ -325,10 +325,10 @@
 -define(PACKET(Op), #nats_frame{operation = Op}).
 -define(PACKET(Op, Message), #nats_frame{operation = Op, message = Message}).
 
-%% Default max payload size
+%% Default maximum NATS frame size
 
 %% 1MB
--define(DEFAULT_MAX_PAYLOAD, 1048576).
+-define(DEFAULT_MAX_FRAME, 1048576).
 
 %% Log Tag
 -define(TAG, "GW-NATS").

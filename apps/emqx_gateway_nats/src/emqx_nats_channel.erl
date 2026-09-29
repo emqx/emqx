@@ -174,7 +174,7 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
         version => list_to_binary(Vsn),
         host => list_to_binary(inet:ntoa(SockHost)),
         port => SockPort,
-        max_payload => emqx_conf:get([gateway, nats, protocol, max_payload_size]),
+        max_payload => emqx_conf:get([gateway, nats, protocol, max_frame_size]),
         proto => 0,
         headers => true,
         auth_required => is_auth_required(ClientInfo),
@@ -1225,7 +1225,7 @@ nats_subject_to_pub_topic(Subject) ->
     end.
 
 check_max_payload(Frame, _Channel) ->
-    MaxPayload = emqx_conf:get([gateway, nats, protocol, max_payload_size]),
+    MaxPayload = emqx_conf:get([gateway, nats, protocol, max_frame_size]),
     PayloadSize = emqx_nats_frame:payload_total_size(Frame),
     case PayloadSize > MaxPayload of
         true ->

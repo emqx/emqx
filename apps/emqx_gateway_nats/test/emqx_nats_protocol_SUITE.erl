@@ -347,7 +347,7 @@ conf_default(TcpPort, WsPort, WssPort, SslPort) ->
             "  default_heartbeat_interval = 2s\n",
             "  heartbeat_wait_timeout = 1s\n",
             "  protocol {\n",
-            "    max_payload_size = 1024\n",
+            "    max_frame_size = 1024\n",
             "  }\n",
             "  listeners.tcp.default {\n",
             "    bind = ",
