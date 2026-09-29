@@ -830,6 +830,92 @@ t_081_retry_on_error(Config) ->
         end
     ).
 
+%% Verify business logic retry for closed epochs
+t_082_replay_retry({init, Config}) ->
+    Env = #{
+        <<"durable_storage">> =>
+            #{
+                <<"timers">> => #{<<"n_shards">> => 1}
+            },
+        <<"cluster">> =>
+            #{
+                <<"durable_timers">> => #{<<"batch_size">> => 2},
+                <<"heartbeat_interval">> => 100,
+                <<"missed_heartbeats">> => 3
+            }
+    },
+    Cluster = cluster(?FUNCTION_NAME, Config, 5, Env),
+    [{cluster, Cluster} | Config];
+t_082_replay_retry({stop, Config}) ->
+    Config;
+t_082_replay_retry(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    Key1 = <<"k1">>,
+    Key2 = <<"k2">>,
+    ExpectedRetries = 3,
+    ?check_trace(
+        #{timetrap => 60_000},
+        begin
+            %% Prepare system:
+            [N1 | Survivors] = Nodes = emqx_cth_cluster:start(Cluster),
+            [
+                ?ON(
+                    N,
+                    begin
+                        ok = emqx_durable_test_timer:init(),
+                        meck:new(emqx_durable_test_timer, [passthrough, no_history, no_link]),
+                        meck:expect(
+                            emqx_durable_test_timer,
+                            handle_durable_timeout,
+                            fun(_Key, _Value) ->
+                                emqx_durable_timer:retry(injected)
+                            end
+                        )
+                    end
+                )
+             || N <- Nodes
+            ],
+            %% Set up several timers, the first one will be removed,
+            %% while the second one will recover (by removing the
+            %% mock)
+            {ok, Sub1} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?tp_handler_crash, key := Key1}),
+                ExpectedRetries,
+                infinity
+            ),
+            {ok, Sub2} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?tp_handler_crash, key := Key2}),
+                ExpectedRetries,
+                infinity
+            ),
+            ?ON(
+                N1,
+                begin
+                    emqx_durable_test_timer:apply_after(Key1, <<>>, 5000),
+                    emqx_durable_test_timer:apply_after(Key2, <<>>, 5001)
+                end
+            ),
+            %% Stop N1:
+            emqx_cth_peer:stop(N1),
+            {ok, _} = snabbkaffe:receive_events(Sub1),
+            %% Now the first timer was retried at least 3 times.
+            %% Cancel it:
+            ok = ?ON(
+                hd(Survivors),
+                emqx_durable_test_timer:cancel(Key1)
+            ),
+            %% ...The system should be able to proceed to the second timer:
+            {ok, _} = snabbkaffe:receive_events(Sub2),
+            %% Fix it removing the mock:
+            [?ON(Node, meck:unload(emqx_durable_test_timer)) || Node <- Survivors],
+            %% Now we should recieve fire event from it:
+            ?block_until(#{?snk_kind := ?tp_test_fire, key := Key2})
+        end,
+        fun(Trace) ->
+            verify_retry_of_two_keys(ExpectedRetries, Key1, Key2, Trace)
+        end
+    ).
+
 %%------------------------------------------------------------------------------
 %% Trace specs
 %%------------------------------------------------------------------------------
