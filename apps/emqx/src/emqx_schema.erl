@@ -579,7 +579,7 @@ fields("force_gc") ->
             sc(
                 range(0, inf),
                 #{
-                    default => 16000,
+                    default => 64,
                     desc => ?DESC(force_gc_count)
                 }
             )},

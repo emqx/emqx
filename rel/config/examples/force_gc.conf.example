@@ -2,7 +2,7 @@
 
 force_gc {
     ## GC the process after this many received messages
-    count = 16000
+    count = 64
 
     ## GC the process after specified number of bytes have passed through
     bytes = 16MB

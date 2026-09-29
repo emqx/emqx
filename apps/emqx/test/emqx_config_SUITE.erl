@@ -268,6 +268,8 @@ t_init_load_emqx_schema(Config) when is_list(Config) ->
     FS = emqx_config:get([force_shutdown]),
     CC = emqx_config:get([conn_congestion]),
     FG = emqx_config:get([force_gc]),
+    ?assertEqual(64, maps:get(count, FG)),
+    ?assertEqual(64, emqx_config:get_zone_conf(default, [force_gc, count])),
     OP = emqx_config:get([overload_protection]),
     ?assertMatch(
         #{
@@ -565,7 +567,7 @@ zone_global_defaults() ->
         flapping_detect =>
             #{ban_time => 300000, max_count => 15, window_time => 60000, enable => false},
         force_gc =>
-            #{bytes => 16777216, count => 16000, enable => true},
+            #{bytes => 16777216, count => 64, enable => true},
         force_shutdown =>
             #{
                 enable => true,
