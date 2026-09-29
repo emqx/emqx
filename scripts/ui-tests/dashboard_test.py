@@ -169,11 +169,12 @@ def fetch_version(dashboard_url):
         headers={"Authorization": f"Bearer {token}"},
     )
     nodes_resp.raise_for_status()
-    version_str = nodes_resp.json()[0]["version"]
-    major, minor, _ = version_str.split(".", 2)
-    return major + "." + minor
+    return nodes_resp.json()[0]["version"]
 
 def test_docs_link(driver, dashboard_url):
+    version_str = fetch_version(dashboard_url)
+    if "-alpha" in version_str:
+        pytest.skip(f"The dashboard has no docs link for alpha release {version_str}")
     login(driver, dashboard_url)
     logger.info(f"Current URL: {driver.current_url}")
     xpath_link_help = "//div[@id='app']//div[@class='nav-header']//a[contains(@class, 'link-help')]"
@@ -188,7 +189,8 @@ def test_docs_link(driver, dashboard_url):
         raise AssertionError("Cannot find the help link")
     driver.execute_script("arguments[0].click();", link_help)
 
-    emqx_version = 'v' + fetch_version(dashboard_url)
+    major, minor, _ = version_str.split(".", 2)
+    emqx_version = f"v{major}.{minor}"
 
     docs_base_url = "https://docs.emqx.com/en/emqx"
 

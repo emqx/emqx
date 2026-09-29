@@ -8,7 +8,7 @@ defmodule EMQXBridgeGCPProtos.MixProject do
   def project do
     [
       app: :emqx_gcp_protos,
-      version: "6.3.0",
+      version: "7.0.0",
       build_path: "../../_build",
       compilers: [:elixir, :grpc, :erlang, :app, :copy_srcs],
       # used by our `Mix.Tasks.Compile.Grpc` compiler
