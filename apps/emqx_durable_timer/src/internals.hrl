@@ -41,6 +41,7 @@
 -define(tp_state_change, emqx_durable_timer_state_change).
 -define(tp_replay, emqx_durable_timer_replay).
 -define(tp_replay_failed, emqx_durable_timer_replay_failed).
+-define(tp_waker_scheduled, emqx_durable_timer_waker_scheduled).
 -define(tp_worker_started, emqx_durable_timer_worker_started).
 -define(tp_terminate, emqx_durable_timer_process_terminate).
 

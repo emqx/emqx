@@ -638,6 +638,75 @@ t_060_standby(Config) ->
         ]
     ).
 
+%% This testcase verifies that cancellation is observed when a closed
+%% epoch's timers have already been read ahead by the waker.
+t_080_closed_epoch_cancellation({init, Config}) ->
+    Env = #{
+        <<"durable_storage">> =>
+            #{
+                <<"timers">> =>
+                    #{
+                        <<"n_shards">> => 1,
+                        <<"replication_factor">> => 3
+                    }
+            },
+        <<"cluster">> =>
+            #{
+                <<"heartbeat_interval">> => 500,
+                <<"missed_heartbeats">> => 2,
+                <<"durable_timers">> => #{<<"batch_size">> => 2}
+            }
+    },
+    Cluster = cluster(?FUNCTION_NAME, Config, 3, Env),
+    [{cluster, Cluster} | Config];
+t_080_closed_epoch_cancellation({stop, Config}) ->
+    Config;
+t_080_closed_epoch_cancellation(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    ?check_trace(
+        #{timetrap => ?timetrap},
+        begin
+            [N1, N2 | _] = Nodes = emqx_cth_cluster:start(Cluster),
+            [?assertMatch(ok, ?ON(N, emqx_durable_test_timer:init())) || N <- Nodes],
+            wait_heartbeat(N1),
+            Epoch = ?ON(N1, emqx_durable_timer:epoch()),
+            StartedKey = <<"cancel-started">>,
+            DeadHandKey = <<"cancel-dead-hand">>,
+            Delay = 10_000,
+            ?ON(N1, emqx_durable_test_timer:apply_after(StartedKey, <<1>>, Delay)),
+            ?ON(N1, emqx_durable_test_timer:dead_hand(DeadHandKey, <<2>>, Delay)),
+            emqx_cth_cluster:stop([N1]),
+            ?block_until(
+                #{
+                    ?snk_kind := ?tp_waker_scheduled,
+                    ?snk_meta := #{topic := [?top_started, _, Epoch, '+']}
+                },
+                infinity,
+                0
+            ),
+            ?block_until(
+                #{
+                    ?snk_kind := ?tp_waker_scheduled,
+                    ?snk_meta := #{topic := [?top_deadhand, _, Epoch, '+']}
+                },
+                infinity,
+                0
+            ),
+            ?ON(N2, emqx_durable_test_timer:cancel(StartedKey)),
+            ?ON(N2, emqx_durable_test_timer:cancel(DeadHandKey)),
+            ct:sleep(11_000)
+        end,
+        [
+            fun ?MODULE:no_unexpected/1,
+            fun ?MODULE:no_abnormal_terminate/1,
+            fun ?MODULE:no_read_conflicts/1,
+            fun ?MODULE:no_replay_failures/1,
+            {"Canceled closed-epoch timers never fire", fun(Trace) ->
+                ?assertEqual([], ?of_kind(?tp_test_fire, Trace))
+            end}
+        ]
+    ).
+
 %% This testcase verifies sharding
 t_070_multiple_shards({init, Config}) ->
     Env = #{

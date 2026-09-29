@@ -142,6 +142,7 @@ apply_after(Type, Epoch, Key, Val, NotEarlierThan) when
     %% This value should be added to the timestamp of the timer TTV to
     %% convert it to the local time:
     time_delta :: integer() | undefined,
+    waker_pid :: pid() | undefined,
     %% Timeline (Note: here times are NOT adjusted for delta):
     del_up_to = -1 :: integer(),
     fully_replayed_ts = -1 :: integer()
@@ -218,6 +219,13 @@ handle_event(info, ?replay_complete, State, _Data) ->
         ?s_standby(_, _) -> ok
     end,
     {stop, normal};
+handle_event(
+    info,
+    replay_waker_finished,
+    ?s_leader(Kind),
+    Data = #s{fully_replayed_ts = FullyReplayedTS}
+) ->
+    complete_replay(Kind, clean_replayed(Data), max(0, FullyReplayedTS));
 handle_event(enter, From, State = ?s_standby(_, _), _) ->
     ?tp(debug, ?tp_state_change, #{from => From, to => State}),
     keep_state_and_data;
@@ -233,6 +241,10 @@ handle_event(info, {global_name_conflict, _}, _State, _Data) ->
     {stop, taken_over};
 handle_event(info, {'EXIT', _, shutdown}, _State, _Data) ->
     {stop, shutdown};
+handle_event(info, {'EXIT', Waker, normal}, _State, #s{waker_pid = Waker}) ->
+    keep_state_and_data;
+handle_event(info, {'EXIT', Waker, Reason}, _State, #s{waker_pid = Waker}) ->
+    {stop, {waker_exit, Reason}};
 handle_event(ET, Event, State, Data) ->
     ?tp(debug, ?tp_unknown_event, #{m => ?MODULE, ET => Event, state => State, data => Data}),
     keep_state_and_data.
@@ -305,12 +317,13 @@ init_leader(?s_leader(Kind), Data0 = #s{epoch = Epoch}) ->
                     LastHeartbeat0 + emqx_durable_timer:cfg_heartbeat_interval()
             end,
         Data1 = Data0#s{time_delta = Delta},
-        {ok, It} ?= get_iterator(Data1),
-        Data = Data1#s{replay_pos = It},
+        {ok, Stream} ?= get_stream(Data1),
+        {ok, Waker} = emqx_durable_timer_worker_waker:start_link(
+            self(), Stream, Data1#s.topic, Delta
+        ),
+        Data = Data1#s{waker_pid = Waker},
         %% Broadcast the self-appointment to the peers:
         pg_bcast(Kind, Data, #cast_became_leader{pid = self()}),
-        %% Start the replay loop:
-        wake_up(Data, 0),
         {keep_state, Data}
     else
         undefined ->
@@ -327,7 +340,7 @@ handle_wake_up(
     %% Ignore duplicate timers:
     keep_state_and_data;
 handle_wake_up(
-    State, Data0 = #s{fully_replayed_ts = FullyReplayedTS0}, Treached
+    State = ?s_active, Data0 = #s{fully_replayed_ts = FullyReplayedTS0}, Treached
 ) ->
     Bound = Treached + 1,
     DSBatchSize =
@@ -358,6 +371,53 @@ handle_wake_up(
                 #cast_wake_up{t = Treached}
             ),
             {keep_state, Data}
+    end.
+
+handle_wake_up(
+    ?s_leader(_Kind),
+    Data = #s{fully_replayed_ts = FullyReplayedTS0},
+    Treached
+) ->
+    replay_closed_timers(Data, FullyReplayedTS0, Treached).
+
+replay_closed_timers(Data, FullyReplayedTS0, Treached) ->
+    Bound = Treached + 1,
+    case get_iterator(Data, max(0, FullyReplayedTS0 + 1)) of
+        undefined ->
+            Updated = Data#s{fully_replayed_ts = max(FullyReplayedTS0, Treached)},
+            {keep_state, clean_replayed(Updated)};
+        {ok, It} ->
+            Result = ?tp_span(
+                ?tp_replay,
+                #{bound => Bound, fully_replayed_ts => FullyReplayedTS0},
+                do_replay_timers(
+                    Data,
+                    It,
+                    Bound,
+                    {time, Bound, emqx_durable_timer:cfg_batch_size()},
+                    FullyReplayedTS0,
+                    []
+                )
+            ),
+            case Result of
+                {ok, FullyReplayedTS, _ItNext, _Tail} ->
+                    Updated = Data#s{
+                        replay_pos = undefined,
+                        tail = [],
+                        fully_replayed_ts = max(FullyReplayedTS, Treached)
+                    },
+                    {keep_state, clean_replayed(Updated)};
+                {retry, _FullyReplayedTS, _ItNext, Reason} ->
+                    ?tp(warning, ?tp_replay_failed, #{
+                        from => FullyReplayedTS0, to => Bound, reason => Reason
+                    }),
+                    erlang:send_after(
+                        emqx_durable_timer:cfg_replay_retry_interval(),
+                        self(),
+                        #cast_wake_up{t = Treached}
+                    ),
+                    {keep_state, Data}
+            end
     end.
 
 schedule_next_wake_up(?s_active, Data) ->
@@ -478,15 +538,23 @@ handle_timeout(Type, CBM, Time, Key, Value) ->
     end.
 
 -doc """
-Get starting position for the replay.
-Either create a new iterator at the very beginning of the timer stream,
-or return the existing iterator that points at the beginning of un-replayed timers.
+Create a fresh iterator starting at the given time.
 """.
-get_iterator(#s{shard = Shard, topic = Topic}) ->
-    %% This is the first start of the worker. Start from the beginning:
+get_iterator(Data = #s{}, StartTime) when is_integer(StartTime) ->
+    case get_stream(Data) of
+        {ok, Stream} ->
+            emqx_ds:make_iterator(?DB_GLOB, Stream, Data#s.topic, StartTime);
+        undefined ->
+            undefined
+    end.
+
+get_iterator(Data) ->
+    get_iterator(Data, 0).
+
+get_stream(#s{shard = Shard, topic = Topic}) ->
     case emqx_ds:get_streams(?DB_GLOB, Topic, 0, #{shard => Shard}) of
         {[{_, Stream}], []} ->
-            emqx_ds:make_iterator(?DB_GLOB, Stream, Topic, 0);
+            {ok, Stream};
         {[], []} ->
             undefined;
         {_, Errors} ->
