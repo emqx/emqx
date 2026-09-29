@@ -799,6 +799,9 @@ deliver(
     PktId
 ) when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     maybe
+        %% NOTE
+        %% Earlier QoS1/2 may still await a limiter retry.
+        false ?= emqx_mqueue:num_qos12(Q0) > 0,
         false ?= emqx_inflight:is_full(Inflight0),
         case try_consume_delivery_rate_limit(Msg, L0) of
             {true, Limiter} ->
@@ -811,12 +814,15 @@ deliver(
                 NextPktId = next_pkt_id(PktId),
                 deliver(ClientInfo, Congested, S, More, Acc, Q0, Inflight, Limiter, NextPktId);
             {false, Limiter, Reason} ->
+                %% NOTE
+                %% Stopping at over-limit QoS1/2 and postpone the remaining batch,
+                %% including QoS0.
                 Q = enqueue_messages(ClientInfo, [Msg | More], Q0),
                 Effect = retry_dequeue_effect(Reason, Q),
                 finish_delivery(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
         end
     else
-        _InflightFull = true ->
+        _Blocked = true ->
             Q1 =
                 case maybe_nack(Msg) of
                     true -> Q0;
