@@ -1033,7 +1033,7 @@ init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
     }.
 
 init_parser_and_serializer(Zone) ->
-    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_connection_conf:pre_connect(
+    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(
         Zone
     ),
     {Parser, Serialize}.
@@ -1041,7 +1041,7 @@ init_parser_and_serializer(Zone) ->
 %% Swap in the zone's shared parse state and serializer options where they are
 %% equal to the connection's own.
 share_frame_opts(ProtoVer, ParseState, Serialize, #state{zone = Zone}) ->
-    emqx_connection_conf:connected(Zone, ProtoVer, ParseState, Serialize).
+    emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
 
 %%--------------------------------------------------------------------
 %% For CT tests

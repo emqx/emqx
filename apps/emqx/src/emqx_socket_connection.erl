@@ -1052,7 +1052,7 @@ describe_parser_state(ParseState) ->
 share_frame_opts(ProtoVer, ParseState, Serialize, #state{
     conf = #conf{zone = #zone_conf{name = Zone}}
 }) ->
-    emqx_connection_conf:connected(Zone, ProtoVer, ParseState, Serialize).
+    emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
@@ -1693,7 +1693,7 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
     }.
 
 init_parser_and_serializer(Zone) ->
-    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_connection_conf:pre_connect(
+    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(
         Zone
     ),
     {Parser, Serialize}.

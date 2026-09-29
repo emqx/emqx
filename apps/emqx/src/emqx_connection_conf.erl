@@ -41,31 +41,31 @@ locally from zone config.
 
 -export([
     frame_opts/1,
-    pre_connect/1,
-    connected/4,
+    pre_connect_codec/1,
+    post_connect_codec/4,
     zone_conf/1,
     post_zone_config_update/2
 ]).
 
--export_type([pre_connect/0, zone_conf/0]).
+-export_type([pre_connect_codec/0, zone_conf/0]).
 
 -define(FRAME_KEY(Zone), {?MODULE, Zone, frame}).
 -define(CONF_KEY(Zone), {?MODULE, Zone, conf}).
 -define(PROTO_VERS, [?MQTT_PROTO_V3, ?MQTT_PROTO_V4, ?MQTT_PROTO_V5]).
 
--type pre_connect() :: #{
+-type pre_connect_codec() :: #{
     initial_parse_state := emqx_frame:parse_state_initial(),
     serialize_opts := emqx_frame:serialize_opts()
 }.
 
--type connected() :: #{
+-type post_connect_codec() :: #{
     initial_parse_state := emqx_frame:parse_state_initial(),
     serialize_opts := emqx_frame:serialize_opts()
 }.
 
 -type frame() :: #{
-    connect := pre_connect(),
-    common := #{emqx_types:proto_ver() => connected()}
+    connect := pre_connect_codec(),
+    common := #{emqx_types:proto_ver() => post_connect_codec()}
 }.
 
 -type zone_conf() :: #zone_conf{}.
@@ -88,13 +88,13 @@ frame_opts(Zone) ->
 Return the parse state and the serializer options for a new connection in
 the zone.
 """.
--spec pre_connect(emqx_types:zone()) -> pre_connect().
-pre_connect(Zone) ->
+-spec pre_connect_codec(emqx_types:zone()) -> pre_connect_codec().
+pre_connect_codec(Zone) ->
     case persistent_term:get(?FRAME_KEY(Zone), undefined) of
         #{connect := PreConnect} ->
             PreConnect;
         undefined ->
-            build_pre_connect(frame_opts(Zone))
+            build_pre_connect_codec(frame_opts(Zone))
     end.
 
 -doc """
@@ -105,18 +105,20 @@ Each term is replaced only when the shared term is equal to it. Otherwise the
 given term is returned unchanged. For example, the serializer options of a
 client that sends `Maximum-Packet-Size` are never replaced.
 """.
--spec connected(
+-spec post_connect_codec(
     emqx_types:zone(),
     emqx_types:proto_ver(),
     emqx_frame:parse_state(),
     emqx_frame:serialize_opts()
 ) ->
     {emqx_frame:parse_state(), emqx_frame:serialize_opts()}.
-connected(Zone, ProtoVer, ParseState, SerializeOpts) ->
+post_connect_codec(Zone, ProtoVer, ParseState, SerializeOpts) ->
     case persistent_term:get(?FRAME_KEY(Zone), undefined) of
         #{common := #{ProtoVer := Shared}} ->
-            #{initial_parse_state := SharedParseState, serialize_opts := SharedSerializeOpts} =
-                Shared,
+            #{
+                initial_parse_state := SharedParseState,
+                serialize_opts := SharedSerializeOpts
+            } = Shared,
             {
                 same_or_given(SharedParseState, ParseState),
                 same_or_given(SharedSerializeOpts, SerializeOpts)
@@ -193,7 +195,7 @@ build_frame(#{
     }
 }) ->
     FrameOpts = frame_opts(StrictMode, MaxSize, MaxConnectSize, MaxConnectUserProps),
-    PreConnect = build_pre_connect(FrameOpts),
+    PreConnect = build_pre_connect_codec(FrameOpts),
     #{initial_parse_state := ParseState} = PreConnect,
     #{
         connect => PreConnect,
@@ -208,7 +210,7 @@ build_frame(#{
 build_frame(_ZoneConf) ->
     undefined.
 
-build_pre_connect(FrameOpts) ->
+build_pre_connect_codec(FrameOpts) ->
     #{
         initial_parse_state => emqx_frame:initial_parse_state(FrameOpts),
         serialize_opts => emqx_frame:initial_serialize_opts(FrameOpts)
