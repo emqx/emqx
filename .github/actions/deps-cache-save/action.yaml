@@ -1,0 +1,39 @@
+name: 'Save dependency cache'
+description: >-
+  Save the entry that deps-cache-restore missed. Call it only when the job
+  succeeded and the restore was not an exact hit, so a failed build never
+  writes a partial deps/ to the cache.
+inputs:
+  key:
+    description: 'The key output of deps-cache-restore.'
+    required: true
+  paths:
+    description: 'The paths output of deps-cache-restore.'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The cache holds dependencies only. Umbrella apps are always compiled from source.
+    - name: Remove umbrella apps from the dependency cache
+      shell: bash
+      env:
+        CACHE_PATHS: ${{ inputs.paths }}
+      run: |
+        set -euo pipefail
+        while read -r path; do
+          case "$path" in
+            _build/*/lib)
+              for app in apps/*/; do
+                rm -rf "${path:?}/$(basename "$app")"
+              done
+              ;;
+          esac
+        done <<< "$CACHE_PATHS"
+        # shellcheck disable=SC2086
+        du -sh $CACHE_PATHS
+    - name: Save dependency cache
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.paths }}
+        key: ${{ inputs.key }}
