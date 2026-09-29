@@ -581,14 +581,11 @@ t_deliver_when_inflight_is_full(_) ->
 t_deliver_qos0_when_inflight_is_full(_) ->
     Session = session(#{inflight => emqx_inflight:new(1)}),
     Delivers = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_0, <<"t0">>)], Session),
-    {ok, [{1, Msg1}], Session1} =
+    {ok, [{1, Msg1}, {undefined, Msg0}], Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
-    ?assertEqual(1, emqx_session_mem:info(mqueue_len, Session1)),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
-    {ok, Msg1T, [{undefined, Msg0}], Session2} =
-        emqx_session_mem:puback(clientinfo(), 1, Session1),
-    ?assertEqual(<<"t1">>, emqx_message:topic(Msg1T)),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg0)),
     ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session2)),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)).
