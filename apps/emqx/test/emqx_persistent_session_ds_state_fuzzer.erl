@@ -430,7 +430,7 @@ create_new(SessionId) ->
 
 delete(SessionId) ->
     print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
-    emqx_persistent_session_ds_state:delete(SessionId),
+    emqx_persistent_session_ds_state:delete(SessionId, '_'),
     ets:delete(?tab, SessionId).
 
 commit(SessionId) ->
