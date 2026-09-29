@@ -437,6 +437,51 @@ start_client() ->
 unique_payload() ->
     integer_to_binary(erlang:unique_integer()).
 
+%% Timeouts of the `SELECT 1' liveness probes observed at the driver boundary.
+probe_timeouts(Captured) ->
+    [Timeout || {probe, {<<"SELECT 1">>, Timeout}} <- ets:tab2list(Captured)].
+
+%% Publish one message through the REST-configured action while the ODBC driver
+%% boundary is mocked, and assert the error the connector reports in its trace
+%% point.  Only the collaborator (`emqx_odbc') is mocked: creating the connector,
+%% the action and the rule, and reading the outcome, all go through the public
+%% REST / rule-engine surface.
+assert_insert_error(TCConfig, DriverResultFun, ExpectedError) ->
+    meck:new(emqx_odbc, [passthrough, no_link]),
+    meck:expect(emqx_odbc, param_query, fun(_Conn, _SQL, _Params, _Timeout) ->
+        DriverResultFun()
+    end),
+    try
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{}),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        ?check_trace(
+            begin
+                ?wait_async_action(
+                    emqtt:publish(C, Topic, <<"payload">>),
+                    #{?snk_kind := dameng_connector_query_return},
+                    10_000
+                ),
+                ok
+            end,
+            fun(Trace) ->
+                Reported = [
+                    E
+                 || #{error := E} <- ?of_kind(dameng_connector_query_return, Trace)
+                ],
+                ?assert(
+                    lists:member(ExpectedError, Reported),
+                    #{expected => ExpectedError, reported => Reported}
+                ),
+                ok
+            end
+        ),
+        ok
+    after
+        meck:unload(emqx_odbc)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -608,10 +653,66 @@ t_health_check_return_error(TCConfig) ->
                 {200, #{<<"status">> := <<"connected">>}},
                 get_connector_api(TCConfig)
             )
+        ),
+        %% `do_get_status/2' also reports an unexpected result shape (anything
+        %% other than `{selected, _, [{1}]}') as disconnected; the cause must
+        %% reach the REST status_reason.
+        true = ets:insert(Ets, {result, {selected, [], []}}),
+        ?retry(
+            200,
+            10,
+            begin
+                {200, #{<<"status">> := <<"disconnected">>, <<"status_reason">> := Reason}} =
+                    get_connector_api(TCConfig),
+                ?assertNotEqual(
+                    nomatch,
+                    binary:match(Reason, <<"unexpected_SELECT_1_result">>),
+                    #{status_reason => Reason}
+                )
+            end
+        ),
+        true = ets:insert(Ets, {result, {selected, ["1"], [{1}]}}),
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                get_connector_api(TCConfig)
+            )
         )
     after
         meck:unload(emqx_odbc),
         ets:delete(Ets)
+    end,
+    ok.
+
+%% The liveness probe must use the configured `resource_opts.health_check_timeout';
+%% it used to be hardcoded to 5s.  The connector is driven through the REST API and
+%% the resource manager, and only the collaborator (`emqx_odbc') is observed.
+t_connector_health_check_timeout(TCConfig) ->
+    Captured = ets:new(dameng_health_check_timeout, [public, bag]),
+    meck:new(emqx_odbc, [passthrough, no_link, no_history]),
+    meck:expect(emqx_odbc, sql_query, fun(Conn, SQL, Timeout) ->
+        true = ets:insert(Captured, {probe, {SQL, Timeout}}),
+        meck:passthrough([Conn, SQL, Timeout])
+    end),
+    try
+        {201, _} = create_connector_api(TCConfig, #{
+            <<"resource_opts">> => #{<<"health_check_timeout">> => <<"7s">>}
+        }),
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                {ok, ?status_connected},
+                emqx_bridge_v2_testlib:health_check_connector(TCConfig)
+            )
+        ),
+        ?retry(200, 10, ?assertMatch([_ | _], probe_timeouts(Captured))),
+        ?assertEqual([7000], lists:usort(probe_timeouts(Captured)))
+    after
+        meck:unload(emqx_odbc),
+        ets:delete(Captured)
     end,
     ok.
 
@@ -648,6 +749,73 @@ t_missing_column_type(TCConfig) ->
 
 t_ecpool_workers_crash(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
+    ok.
+
+%% Regression: `extract_table/1' matched `insert into' case sensitively, so an
+%% upper case template was rejected with `table_not_found' while the channel was
+%% created.  The action must be created and must actually insert.
+t_uppercase_insert_template(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"sql">> => <<
+                "INSERT INTO SYSDBA.T_MQTT_MSG(msgid, topic, qos, payload)"
+                " VALUES ( ${id}, ${topic}, ${qos}, ${payload} )"
+            >>
+        }
+    }),
+    ?retry(
+        200,
+        10,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_action_api(TCConfig))
+    ),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Payload = unique_payload(),
+    C = start_client(),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                emqtt:publish(C, Topic, Payload),
+                #{?snk_kind := dameng_connector_query_return},
+                10_000
+            ),
+            ?retry(200, 10, ?assertEqual([{Payload}], connect_and_get_payload())),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([#{result := ok}], ?of_kind(dameng_connector_query_return, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+%% `request_ttl' belongs to the action, and it is the timeout of the `describe_table'
+%% probe run while the channel is created (the connector's resource_opts have no
+%% such field).
+t_channel_describe_timeout(TCConfig) ->
+    Captured = ets:new(dameng_describe_timeout, [public, bag]),
+    meck:new(emqx_odbc, [passthrough, no_link, no_history]),
+    meck:expect(emqx_odbc, describe_table, fun(Conn, Table, Timeout) ->
+        true = ets:insert(Captured, {describe, Timeout}),
+        meck:passthrough([Conn, Table, Timeout])
+    end),
+    try
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"resource_opts">> => #{<<"request_ttl">> => <<"3s">>}
+        }),
+        %% The channel is installed asynchronously (`add_channel_async/3' plus a
+        %% zero-delay nudge), so the `describe_table' probe may not have run yet
+        %% when the create API returns; retry until it appears.
+        ?retry(
+            200,
+            10,
+            ?assertEqual([3000], lists:usort([T || {describe, T} <- ets:tab2list(Captured)]))
+        )
+    after
+        meck:unload(emqx_odbc),
+        ets:delete(Captured)
+    end,
     ok.
 
 %% A message that does not provide a variable referenced by the SQL template
@@ -822,6 +990,43 @@ t_insert_parameter_binding(TCConfig) when is_list(TCConfig) ->
         end
     ),
     ok.
+
+%% `odbc:param_query/4' exits with `timeout' when the request TTL elapses
+%% (`odbc:call/3'): that is transient and must stay recoverable so the buffered
+%% messages are retried instead of dropped.
+t_insert_timeout_is_recoverable(TCConfig) ->
+    assert_insert_error(
+        TCConfig,
+        fun() -> exit(timeout) end,
+        {recoverable_error, <<"timeout">>}
+    ).
+
+%% A driver reported missing table is a config error: it must not be retried
+%% forever.
+t_insert_driver_error_is_unrecoverable(TCConfig) ->
+    assert_insert_error(
+        TCConfig,
+        fun() -> {error, <<"SQLSTATE IS: 42S02 table not found">>} end,
+        {unrecoverable_error, {invalid_request, <<"table_not_found">>}}
+    ).
+
+%% A broken connection is transient and must stay recoverable.
+t_insert_driver_error_is_recoverable(TCConfig) ->
+    assert_insert_error(
+        TCConfig,
+        fun() -> {error, <<"SQLSTATE IS: 08S01 connection broken">>} end,
+        {recoverable_error, <<"connection_closed">>}
+    ).
+
+%% An exception raised by the driver must be reported as an unrecoverable
+%% request error, never as a successful insert.  `emqx_odbc:classify_error/1'
+%% keeps the raw reason for errors it cannot classify.
+t_insert_crash_is_unrecoverable(TCConfig) ->
+    assert_insert_error(
+        TCConfig,
+        fun() -> error(boom) end,
+        {unrecoverable_error, {invalid_request, boom}}
+    ).
 
 %% Every supported column type is written and read back through the rule engine
 %% and the action: the values are converted with `odbc:param_query' according to
