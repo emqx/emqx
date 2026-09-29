@@ -21,12 +21,16 @@
     'send_msg.dropped.too_large'
 ]).
 
--define(INFO_KEYS, [
-    conninfo,
-    conn_state,
-    clientinfo,
-    session,
-    will_msg
+%% The session attributes cached in the `emqx_channel_info` table.
+%%
+%% The counters live in the stats element of the same table row, and `subscriptions` is
+%% left out because building that map costs O(number of subscriptions) on every refresh.
+%% `emqx_session:info/1` stays complete: it is the payload of the `session.created` and
+%% `session.resumed` hooks.
+-define(CHAN_INFO_SESSION_KEYS, [
+    created_at,
+    is_persistent,
+    impl
 ]).
 
 -define(REPLY_OUTGOING(Packets), {outgoing, Packets}).
