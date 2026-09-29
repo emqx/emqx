@@ -519,6 +519,122 @@ t_exclusive(_Config) ->
     emqx_ctl:run_command(["exclusive", "delete", "t/1"]),
     ok.
 
+-doc """
+`clients list` skips a channel that has a row in the channel table but no
+channel info, as a channel that disconnects during the listing has. The
+command prints the other clients and does not fail.
+""".
+t_clients_list_channel_gone(init, Config) ->
+    Pid = start_link_client(<<"test-list-alive">>),
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    [{clients, [Pid]} | Config];
+t_clients_list_channel_gone('end', Config) ->
+    meck:unload(emqx_ctl),
+    ets:match_delete(?CHAN_TAB, {<<"test-list-gone">>, '_'}),
+    lists:foreach(fun stop_client/1, ?config(clients, Config)),
+    ok.
+t_clients_list_channel_gone(_Config) ->
+    Tester = self(),
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun(Fmt, Args) ->
+            Tester ! {print, iolist_to_binary(io_lib:format(Fmt, Args))},
+            meck:passthrough([Fmt, Args])
+        end
+    ),
+    GonePid = spawn(fun() -> ok end),
+    true = ets:insert(?CHAN_TAB, {<<"test-list-gone">>, GonePid}),
+    ?assertEqual(ok, emqx_ctl:run_command(["clients", "list"])),
+    Printed = collect_printed([]),
+    ?assertMatch([_], [L || L <- Printed, binary:match(L, <<"test-list-alive">>) =/= nomatch]),
+    ?assertEqual([], [L || L <- Printed, binary:match(L, <<"test-list-gone">>) =/= nomatch]),
+    ok.
+
+-doc """
+`clients list` prints every client when each client's row is deleted from
+the channel table right after the command prints it, as happens when the
+client disconnects during the listing.
+""".
+t_clients_list_row_deleted_during_walk(init, Config) ->
+    Pids = [
+        start_link_client(<<"test-list-walk-", (integer_to_binary(I))/binary>>)
+     || I <- lists:seq(1, 3)
+    ],
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    [{clients, Pids} | Config];
+t_clients_list_row_deleted_during_walk('end', Config) ->
+    meck:unload(emqx_ctl),
+    lists:foreach(fun stop_client/1, ?config(clients, Config)),
+    ok.
+t_clients_list_row_deleted_during_walk(_Config) ->
+    Tester = self(),
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun
+            ("Client(" ++ _ = Fmt, [ClientId | _] = Args) ->
+                Tester ! {printed, ClientId},
+                true = ets:delete(?CHAN_TAB, ClientId),
+                meck:passthrough([Fmt, Args]);
+            (Fmt, Args) ->
+                meck:passthrough([Fmt, Args])
+        end
+    ),
+    ?assertEqual(ok, emqx_ctl:run_command(["clients", "list"])),
+    Printed = collect_printed_ids([]),
+    Expected = [<<"test-list-walk-", (integer_to_binary(I))/binary>> || I <- lists:seq(1, 3)],
+    ?assertEqual([], Expected -- Printed, Printed),
+    ok.
+
+-doc """
+`exclusive list` prints every topic when each topic's row is deleted from
+the exclusive subscription table right after the command prints it, as
+happens when the subscriber unsubscribes during the listing.
+""".
+t_exclusive_list_row_deleted_during_walk(init, Config) ->
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    Config;
+t_exclusive_list_row_deleted_during_walk('end', _Config) ->
+    meck:unload(emqx_ctl),
+    ok = emqx_exclusive_subscription:clear(),
+    ok.
+t_exclusive_list_row_deleted_during_walk(_Config) ->
+    Tester = self(),
+    Topics = [<<"t/walk/", (integer_to_binary(I))/binary>> || I <- lists:seq(1, 3)],
+    lists:foreach(
+        fun(Topic) ->
+            ok = mria:dirty_write(
+                emqx_exclusive_subscription,
+                {exclusive_subscription, Topic, <<"c-", Topic/binary>>}
+            )
+        end,
+        Topics
+    ),
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun
+            ("topic:" ++ _ = Fmt, [Topic | _] = Args) ->
+                Tester ! {printed, Topic},
+                ok = mria:dirty_delete(emqx_exclusive_subscription, Topic),
+                meck:passthrough([Fmt, Args]);
+            (Fmt, Args) ->
+                meck:passthrough([Fmt, Args])
+        end
+    ),
+    ?assertEqual(ok, emqx_ctl:run_command(["exclusive", "list"])),
+    Printed = collect_printed_ids([]),
+    ?assertEqual([], Topics -- Printed, Printed),
+    ok.
+
+collect_printed_ids(Acc) ->
+    receive
+        {printed, Id} -> collect_printed_ids([Id | Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
+
 %% Test default stats command
 t_clients_dump_stats_default(init, Config) ->
     %% Start a test client
