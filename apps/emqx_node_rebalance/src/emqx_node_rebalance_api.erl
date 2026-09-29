@@ -49,6 +49,7 @@
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
 -define(NODE_EVACUATING, 'NODE_EVACUATING').
+-define(NODE_OVERLOADED, 'NODE_OVERLOADED').
 -define(RPC_ERROR, 'RPC_ERROR').
 -define(TAGS, [<<"Load Rebalance">>]).
 
@@ -107,7 +108,7 @@ schema("/load_rebalance/availability_check") ->
             description => ?DESC("load_rebalance_availability_check"),
             responses => #{
                 200 => response_schema(),
-                503 => error_codes([?NODE_EVACUATING], ?DESC("node_evacuating"))
+                503 => error_codes([?NODE_EVACUATING, ?NODE_OVERLOADED], ?DESC("node_unavailable"))
             },
             security => []
         }
@@ -248,7 +249,9 @@ schema("/load_rebalance/:node/evacuation/stop") ->
         available ->
             {200, #{}};
         unavailable ->
-            error_response(503, ?NODE_EVACUATING, <<"Node Evacuating">>)
+            error_response(503, ?NODE_EVACUATING, <<"Node Evacuating">>);
+        overloaded ->
+            error_response(503, ?NODE_OVERLOADED, <<"Node Overloaded">>)
     end.
 
 '/load_rebalance/:node/start'(post, #{bindings := #{node := NodeBin}, body := Params0}) ->

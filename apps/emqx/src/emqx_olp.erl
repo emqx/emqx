@@ -10,7 +10,8 @@
     backoff/1,
     backoff_gc/1,
     backoff_hibernation/1,
-    backoff_new_conn/1
+    backoff_new_conn/1,
+    is_closing_new_conn/1
 ]).
 
 %% exports for O&M
@@ -72,15 +73,24 @@ backoff_hibernation(Zone) ->
     do_check(Zone, ?FUNCTION_NAME, 'overload_protection.hibernation').
 
 %% @doc Returns {error, overloaded} if new connection should be
-%%      closed when system is overloaded.
+%%      closed when system is overloaded or memory usage is high.
+%%      High memory does not skip GC or hibernation, since both free memory.
 -spec backoff_new_conn(Zone :: atom()) -> ok | {error, overloaded}.
 backoff_new_conn(Zone) ->
-    case do_check(Zone, ?FUNCTION_NAME, 'overload_protection.new_conn') of
+    case is_closing_new_conn(Zone) of
         true ->
+            emqx_metrics:inc_global('overload_protection.new_conn'),
             {error, overloaded};
         false ->
             ok
     end.
+
+%% @doc If new connections to the zone are closed right now.
+%%      Unlike backoff_new_conn/1, it does not count a closed connection.
+-spec is_closing_new_conn(Zone :: atom()) -> boolean().
+is_closing_new_conn(Zone) ->
+    IsLoaded = load_ctl:is_overloaded() orelse load_ctl:is_high_mem(),
+    IsLoaded andalso is_enabled(Zone, backoff_new_conn).
 
 -spec status() -> any().
 status() ->
@@ -106,16 +116,20 @@ enable() ->
 %%% Internals
 -spec do_check(Zone :: atom(), cfg_key(), cnt_name()) -> boolean().
 do_check(Zone, Key, CntName) ->
-    case load_ctl:is_overloaded() of
+    case load_ctl:is_overloaded() andalso is_enabled(Zone, Key) of
         true ->
-            case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
-                #{enable := true, Key := true} ->
-                    emqx_metrics:inc_global(CntName),
-                    true;
-                _ ->
-                    false
-            end;
+            emqx_metrics:inc_global(CntName),
+            true;
         false ->
+            false
+    end.
+
+-spec is_enabled(Zone :: atom(), cfg_key()) -> boolean().
+is_enabled(Zone, Key) ->
+    case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
+        #{enable := true, Key := true} ->
+            true;
+        _ ->
             false
     end.
 
