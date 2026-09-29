@@ -593,6 +593,83 @@ t_deliver_qos0_when_inflight_is_full(_) ->
     ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session2)),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)).
 
+t_deliver_qos0_with_qos12_queued(_) ->
+    Session = session(#{inflight => emqx_inflight:new(1)}),
+    Delivers = enrich(
+        [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>), delivery(?QOS_0, <<"t0">>)],
+        Session
+    ),
+    {ok, [{1, _Msg1}, {undefined, Msg0}], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
+    ?assertEqual(<<"t0">>, emqx_message:topic(Msg0)),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
+    ?assertEqual(1, emqx_session_mem:info(mqueue_len, Session1)).
+
+t_deliver_qos0_after_decongestion(_) ->
+    Session0 = session(#{inflight => emqx_inflight:new(1)}),
+    {ok, [{1, _}], Session} = emqx_session_mem:deliver(
+        clientinfo(), enrich([delivery(?QOS_1, <<"t1">>)], Session0), [], Session0
+    ),
+    Delivers = enrich(
+        [
+            delivery(?QOS_0, <<"t0">>, <<"first">>),
+            delivery(?QOS_1, <<"t2">>),
+            delivery(?QOS_0, <<"t0">>, <<"second">>),
+            delivery(?QOS_2, <<"t3">>),
+            delivery(?QOS_0, <<"t0">>, <<"third">>)
+        ],
+        Session
+    ),
+    {ok, [], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [congested], Session),
+    ?assertEqual(5, emqx_session_mem:info(mqueue_len, Session1)),
+    %% Decongestion drains the leading QoS0, then stops at the blocked QoS1.
+    {ok, [{undefined, First}], Session2} = emqx_session_mem:handle_signal(
+        clientinfo(), {connection, decongested, #{}}, Session1
+    ),
+    ?assertEqual(<<"first">>, emqx_message:payload(First)),
+    ?assertEqual(4, emqx_session_mem:info(mqueue_len, Session2)),
+    {ok, [], Session2} = emqx_session_mem:dequeue(clientinfo(), [], Session2),
+    Fresh = enrich([delivery(?QOS_0, <<"t0">>, <<"fourth">>)], Session2),
+    {ok, [], Session3} = emqx_session_mem:deliver(clientinfo(), Fresh, [], Session2),
+    {ok, _, [{2, #message{topic = <<"t2">>}}, {undefined, Second}], Session4} =
+        emqx_session_mem:puback(clientinfo(), 1, [], Session3),
+    ?assertEqual(<<"second">>, emqx_message:payload(Second)),
+    {ok, _, [{3, #message{topic = <<"t3">>}}, {undefined, Third}, {undefined, Fourth}], Session5} =
+        emqx_session_mem:puback(clientinfo(), 2, [], Session4),
+    ?assertEqual(<<"third">>, emqx_message:payload(Third)),
+    ?assertEqual(<<"fourth">>, emqx_message:payload(Fourth)),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session5)).
+
+t_deliver_qos0_after_rate_limited_decongestion(_) ->
+    ListenerId = 'tcp:qos0_decongestion',
+    create_limiters(ListenerId, #{<<"delivery_messages_rate">> => <<"2/1s">>}),
+    ?on_exit(delete_limiters(ListenerId)),
+    Session = session(#{listener => ListenerId}, #{inflight => emqx_inflight:new(1)}),
+    Delivers = enrich(
+        [
+            delivery(?QOS_0, <<"t0">>, <<"first">>),
+            delivery(?QOS_0, <<"t0">>, <<"second">>),
+            delivery(?QOS_0, <<"t0">>, <<"dropped">>),
+            delivery(?QOS_0, <<"t0">>, <<"third">>)
+        ],
+        Session
+    ),
+    {ok, [], Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, [congested], Session),
+    %% Enqueue did not materialize or consume the limiter. Only actual delivery
+    %% spends the two available tokens; the remaining QoS0 messages are dropped.
+    ?assertEqual(Session#session.quota, Session1#session.quota),
+    ?assertEqual(4, emqx_session_mem:info(mqueue_len, Session1)),
+    {ok, [{undefined, First}, {undefined, Second}], Session3} =
+        emqx_session_mem:handle_signal(clientinfo(), {connection, decongested, #{}}, Session1),
+    ?assertEqual(<<"first">>, emqx_message:payload(First)),
+    ?assertEqual(<<"second">>, emqx_message:payload(Second)),
+    ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session3)),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session3)),
+    {ok, [], Session3} = emqx_session_mem:handle_timeout(
+        clientinfo(), ?RETRY_DEQUEUE_TIMER, [], Session3
+    ).
+
 t_deliver_qos0_when_inflight_is_full_no_store_qos0(_) ->
     Session = session(#{
         inflight => emqx_inflight:new(1),
@@ -605,6 +682,140 @@ t_deliver_qos0_when_inflight_is_full_no_store_qos0(_) ->
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg0)).
+
+
+t_congestion_postpones_only_qos0_on_deliver(_) ->
+    S0 = session(#{inflight => emqx_inflight:new(2)}),
+    Pending = enrich(
+        [
+            delivery(?QOS_0, <<"q0">>, <<"first">>),
+            delivery(?QOS_1, <<"q1">>),
+            delivery(?QOS_0, <<"q0">>, <<"second">>),
+            delivery(?QOS_2, <<"q2">>)
+        ],
+        S0
+    ),
+    {ok, [{1, #message{qos = 1}}, {2, #message{qos = 2}}], S1} =
+        emqx_session_mem:deliver(clientinfo(), Pending, [congested], S0),
+    ?assertEqual(2, emqx_mqueue:num_qos0(S1#session.mqueue)),
+    {ok, [], S1} = emqx_session_mem:dequeue(clientinfo(), [congested], S1),
+    {ok,
+        [
+            {undefined, #message{payload = <<"first">>}},
+            {undefined, #message{payload = <<"second">>}}
+        ],
+        S2} =
+        emqx_session_mem:handle_signal(clientinfo(), {connection, decongested, #{}}, S1),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, S2)).
+
+t_congestion_shared_batch_on_ack(_) ->
+    S0 = session(#{inflight => emqx_inflight:new(1)}),
+    {ok, [{1, _}], S1} = emqx_session_mem:deliver(
+        clientinfo(),
+        enrich([delivery(?QOS_1, <<"q1">>)], S0),
+        [],
+        S0
+    ),
+    Pending = enrich(
+        [
+            delivery(?QOS_0, <<"q0">>, <<"first">>),
+            delivery(?QOS_1, <<"q1">>),
+            delivery(?QOS_0, <<"q0">>, <<"second">>),
+            delivery(?QOS_2, <<"q2">>)
+        ],
+        S1
+    ),
+    {ok, [], S2} = emqx_session_mem:deliver(clientinfo(), Pending, [congested], S1),
+    {ok, [], S2} = emqx_session_mem:dequeue(clientinfo(), [congested], S2),
+    %% QoS0 spends the single batch unit, but leaves inflight free: arrange continuation.
+    {
+        {set_timer, ?RETRY_DEQUEUE_TIMER, 1},
+        _,
+        [{undefined, #message{payload = <<"first">>}}],
+        S3
+    } =
+        emqx_session_mem:puback(clientinfo(), 1, [congested], S2),
+    %% Next QoS1 message fills only inflight slot on retry.
+    {ok, [{2, #message{qos = 1}}], S4} =
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [congested], S3),
+    %% Full inflight window stops even leading QoS0 while congested.
+    {ok, [], S4} = emqx_session_mem:dequeue(clientinfo(), [congested], S4),
+    {
+        {set_timer, ?RETRY_DEQUEUE_TIMER, 1},
+        _,
+        [{undefined, #message{payload = <<"second">>}}],
+        S5
+    } =
+        emqx_session_mem:puback(clientinfo(), 2, [congested], S4),
+    {ok, [{3, #message{qos = 2}}], S6} =
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [congested], S5),
+    {ok, _, S7} = emqx_session_mem:pubrec(3, S6),
+    {ok, _, [], S8} = emqx_session_mem:pubcomp(clientinfo(), 3, [congested], S7),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, S8)).
+
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)).
+
+t_dequeue_budget_stops_at_qos12(_) ->
+    %% Default batching budget is 1000.
+    S0 = session(#{
+        inflight => emqx_inflight:new(1),
+        mqueue => mqueue(#{max_len => 0, store_qos0 => true})
+    }),
+    Pending = enrich(
+        lists:append(
+            [delivery(?QOS_1, <<"q1">>)],
+            [delivery(?QOS_0, <<"q0">>) || _ <- lists:seq(1, 999)],
+            [
+                delivery(?QOS_2, <<"q2">>),
+                delivery(?QOS_0, <<"q0">>, <<"last">>)
+            ]
+        ),
+        S0
+    ),
+    S1 = emqx_session_mem:enqueue(clientinfo(), Pending, S0),
+    %% The outgoing cap is reached exactly before a blocked QoS2: wait for an ACK,
+    %% even though QoS0 remains elsewhere in the queue.
+    {ok, First, S2} = emqx_session_mem:dequeue(clientinfo(), [], S1),
+    ?assertEqual(1000, length(First)),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, S2)),
+    {ok, [], S2} =
+        emqx_session_mem:dequeue(clientinfo(), [], S2),
+    {ok, _, [{2, #message{qos = 2}}, {undefined, #message{payload = <<"last">>}}], S3} =
+        emqx_session_mem:puback(clientinfo(), 1, [], S2),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, S3)).
+
+t_dequeue_blocked_priority(_) ->
+    S0 = session(#{
+        inflight => emqx_inflight:new(1),
+        mqueue => mqueue(#{
+            store_qos0 => true,
+            priorities => #{<<"high">> => 1, <<"low">> => 0}
+        })
+    }),
+    {ok, [{1, _}], S1} = emqx_session_mem:deliver(
+        clientinfo(),
+        enrich([delivery(?QOS_1, <<"inflight">>)], S0),
+        [],
+        S0
+    ),
+    Pending = enrich(
+        [
+            delivery(?QOS_0, <<"low">>),
+            delivery(?QOS_1, <<"high">>)
+        ],
+        S1
+    ),
+    S2 = emqx_session_mem:enqueue(clientinfo(), Pending, S1),
+    %% Restore the original queue, including priority credit, when the head cannot fit.
+    {ok, [], S2} = emqx_session_mem:dequeue(clientinfo(), [], S2),
+    {ok, _,
+        [
+            {2, #message{topic = <<"high">>}},
+            {undefined, #message{topic = <<"low">>}}
+        ],
+        S3} =
+        emqx_session_mem:puback(clientinfo(), 1, [], S2),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, S3)).
 
 t_deliver_qos0_when_congested_no_store_qos0(_) ->
     DroppedBefore = emqx_metrics:val_global('delivery.dropped.qos0_msg'),
