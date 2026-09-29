@@ -919,6 +919,212 @@ t_namespaced_import_skips_global_roots(Config) ->
     ),
     ok.
 
+-doc """
+A namespaced backup carries the namespace's built-in authn users of the global
+chain, password and SCRAM, and its built-in authz rules, and nothing of another
+namespace. Importing it, namespaced or globally, restores them into that
+namespace, where the users authenticate again. Importing it over the same
+records stores each once.
+""".
+t_namespaced_builtin_auth_round_trip(_Config) ->
+    Ns = <<"ns1">>,
+    ok = setup_builtin_auth(),
+    ok = add_builtin_auth_data(Ns, <<"ns1_user">>),
+    ok = add_builtin_auth_data(<<"ns2">>, <<"ns2_user">>),
+    {ok, _} = emqx_authn_mnesia:add_user(
+        #{user_id => <<"listener_user">>, password => <<"p">>, namespace => Ns},
+        #{
+            user_group => 'tcp:default',
+            password_hash_algorithm => #{name => sha256, salt_position => suffix}
+        }
+    ),
+    {ok, #{filename := File}} = emqx_mgmt_data_backup:export(#{namespace => Ns}),
+    Data = ns_backup_data(File, Ns),
+    ?assertMatch(
+        #{
+            <<"builtin_authn_password">> := #{
+                <<"users">> := [#{<<"user_id">> := <<"ns1_user">>, <<"is_superuser">> := false}]
+            },
+            <<"builtin_authn_scram">> := #{<<"users">> := [#{<<"user_id">> := <<"ns1_user">>}]},
+            <<"builtin_authz">> := #{
+                <<"users">> := [#{<<"username">> := <<"ns1_user">>}],
+                <<"clients">> := [#{<<"clientid">> := <<"ns1_user">>}],
+                <<"all">> := [_]
+            }
+        },
+        Data
+    ),
+    ?assertEqual(
+        [<<"builtin_authn_password">>, <<"builtin_authn_scram">>, <<"builtin_authz">>],
+        lists:sort(maps:keys(Data))
+    ),
+
+    ok = purge_builtin_auth(Ns),
+    ?assertNotMatch({ok, _}, authenticate(Ns, <<"ns1_user">>)),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(basename(File), #{namespace => Ns})
+    ),
+    ?assertMatch({ok, _}, authenticate(Ns, <<"ns1_user">>)),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(basename(File), #{namespace => Ns})
+    ),
+    {ok, #{filename := File2}} = emqx_mgmt_data_backup:export(#{namespace => Ns}),
+    ?assertEqual(Data, ns_backup_data(File2, Ns)),
+    ?assertEqual(1, emqx_authn_mnesia:record_count(Ns)),
+    ?assertEqual(3, emqx_authz_mnesia:record_count(Ns)),
+    ?assertEqual(1, emqx_authn_mnesia:record_count(<<"ns2">>)),
+    ?assertEqual(3, emqx_authz_mnesia:record_count(<<"ns2">>)),
+
+    ok = purge_builtin_auth(Ns),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import_local(File)
+    ),
+    ?assertMatch({ok, _}, authenticate(Ns, <<"ns1_user">>)),
+    {ok, #{filename := File3}} = emqx_mgmt_data_backup:export(#{namespace => Ns}),
+    ?assertEqual(Data, ns_backup_data(File3, Ns)),
+    ok.
+
+-doc """
+A namespaced import writes none of a file's records when one of them is invalid:
+a superuser, a user group the REST API does not use, or an authz rule the REST
+API would refuse.
+""".
+t_namespaced_builtin_auth_invalid_records(Config) ->
+    Ns = <<"ns1">>,
+    ok = setup_builtin_auth(),
+    User = fun(UserId, IsSuperuser, Group) ->
+        #{
+            <<"user_group">> => Group,
+            <<"user_id">> => UserId,
+            <<"password_hash">> => base64:encode(<<"hash">>),
+            <<"salt">> => base64:encode(<<"salt">>),
+            <<"is_superuser">> => IsSuperuser
+        }
+    end,
+    ScramUser = fun(UserId, IsSuperuser, Group) ->
+        #{
+            <<"user_group">> => Group,
+            <<"user_id">> => UserId,
+            <<"stored_key">> => base64:encode(<<"stored">>),
+            <<"server_key">> => base64:encode(<<"server">>),
+            <<"salt">> => base64:encode(<<"salt">>),
+            <<"is_superuser">> => IsSuperuser
+        }
+    end,
+    ScramGroup = <<"scram:built_in_database">>,
+    Rule = #{
+        <<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"t">>
+    },
+    BadRule = Rule#{<<"permission">> => <<"maybe">>},
+    File1 = ns_data_backup(Config, "export-ns-invalid-auth", Ns, #{
+        <<"builtin_authn_password">> => #{
+            <<"version">> => 1,
+            <<"users">> => [
+                User(<<"u1">>, false, <<"mqtt:global">>), User(<<"u2">>, true, <<"mqtt:global">>)
+            ]
+        },
+        <<"builtin_authn_scram">> => #{
+            <<"version">> => 1,
+            <<"users">> => [
+                ScramUser(<<"u1">>, false, ScramGroup), ScramUser(<<"u2">>, true, ScramGroup)
+            ]
+        },
+        <<"builtin_authz">> => #{
+            <<"version">> => 1,
+            <<"users">> => [#{<<"username">> => <<"u1">>, <<"rules">> => [Rule, BadRule]}],
+            <<"clients">> => [],
+            <<"all">> => [Rule]
+        }
+    }),
+    ?assertMatch(
+        {ok, #{
+            config_errors := #{},
+            db_errors := #{
+                <<"builtin_authn_password">> := {error, {superuser_not_allowed, <<"u2">>}},
+                <<"builtin_authn_scram">> := {error, {superuser_not_allowed, <<"u2">>}},
+                <<"builtin_authz">> := {error, #{who := {username, <<"u1">>}}}
+            }
+        }},
+        emqx_mgmt_data_backup:import_local(File1, #{namespace => Ns})
+    ),
+    ?assertEqual(0, emqx_authn_mnesia:record_count(Ns)),
+    ?assertMatch(#{<<"users">> := []}, emqx_authn_scram_mnesia:export_namespace_backup(Ns)),
+    ?assertEqual(0, emqx_authz_mnesia:record_count(Ns)),
+
+    %% Groups of other chains, and a rule with several topics.
+    TopicsRule = (maps:remove(<<"topic">>, Rule))#{
+        <<"topics">> => [integer_to_binary(I) || I <- lists:seq(1, 101)]
+    },
+    File2 = ns_data_backup(Config, "export-ns-listener-group", Ns, #{
+        <<"builtin_authn_password">> => #{
+            <<"version">> => 1, <<"users">> => [User(<<"u1">>, false, <<"tcp:default">>)]
+        },
+        <<"builtin_authn_scram">> => #{
+            <<"version">> => 1, <<"users">> => [ScramUser(<<"u1">>, false, <<"mqtt:global">>)]
+        },
+        <<"builtin_authz">> => #{
+            <<"version">> => 1,
+            <<"users">> => [],
+            <<"clients">> => [
+                #{<<"clientid">> => <<"c1">>, <<"rules">> => [TopicsRule]}
+            ],
+            <<"all">> => []
+        }
+    }),
+    ?assertMatch(
+        {ok, #{
+            db_errors := #{
+                <<"builtin_authn_password">> :=
+                    {error, {unsupported_user_group, <<"tcp:default">>}},
+                <<"builtin_authn_scram">> :=
+                    {error, {unsupported_user_group, <<"mqtt:global">>}},
+                <<"builtin_authz">> :=
+                    {error, #{who := {clientid, <<"c1">>}, reason := #{reason := invalid_topic}}}
+            }
+        }},
+        emqx_mgmt_data_backup:import_local(File2, #{namespace => Ns})
+    ),
+    ?assertEqual(0, emqx_authn_mnesia:record_count(Ns)),
+    ?assertEqual(0, emqx_authz_mnesia:record_count(Ns)),
+
+    %% More rules than `max_rules' (100) for one client.
+    ManyRules = [Rule#{<<"topic">> => integer_to_binary(I)} || I <- lists:seq(1, 101)],
+    File3 = ns_data_backup(Config, "export-ns-too-many-rules", Ns, #{
+        <<"builtin_authz">> => #{
+            <<"version">> => 1,
+            <<"users">> => [],
+            <<"clients">> => [#{<<"clientid">> => <<"c1">>, <<"rules">> => ManyRules}],
+            <<"all">> => []
+        }
+    }),
+    ?assertMatch(
+        {ok, #{
+            db_errors := #{
+                <<"builtin_authz">> :=
+                    {error, #{who := {clientid, <<"c1">>}, reason := too_many_rules}}
+            }
+        }},
+        emqx_mgmt_data_backup:import_local(File3, #{namespace => Ns})
+    ),
+    ?assertEqual(0, emqx_authz_mnesia:record_count(Ns)),
+    ok.
+
+-doc """
+An entry under `ns/<NS>/data/' puts the archive in that namespace's scope.
+""".
+t_namespaced_data_entry_scope(Config) ->
+    Content = tar_bin(Config, [
+        {"b/META.hocon", backup_meta_bin()},
+        {"b/ns/ns2/data/builtin_authz.json", <<"{}">>}
+    ]),
+    ?assertEqual(
+        {ok, #{global => false, namespaces => [<<"ns2">>]}},
+        emqx_mgmt_data_backup:peek_backup_scope_of_content(Content)
+    ).
+
 t_cluster_links(_Config) ->
     Link = #{
         <<"name">> => <<"emqxcl_backup_test">>,
@@ -2022,6 +2228,97 @@ backup_meta_bin() ->
     unicode:characters_to_binary(
         hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
     ).
+
+setup_builtin_auth() ->
+    {ok, _} = emqx:update_config(
+        [authentication],
+        {create_authenticator, ?GLOBAL_AUTHN_CHAIN, #{
+            <<"mechanism">> => <<"password_based">>,
+            <<"backend">> => <<"built_in_database">>,
+            <<"user_id_type">> => <<"username">>,
+            <<"password_hash_algorithm">> => #{
+                <<"name">> => <<"sha256">>, <<"salt_position">> => <<"suffix">>
+            }
+        }}
+    ),
+    {ok, _} = emqx:update_config(
+        [authentication],
+        {create_authenticator, ?GLOBAL_AUTHN_CHAIN, #{
+            <<"mechanism">> => <<"scram">>,
+            <<"backend">> => <<"built_in_database">>,
+            <<"algorithm">> => <<"sha256">>,
+            <<"iteration_count">> => <<"4096">>
+        }}
+    ),
+    {ok, _} = emqx_authz:update(replace, [
+        #{<<"type">> => <<"built_in_database">>, <<"enable">> => true}
+    ]),
+    ok.
+
+add_builtin_auth_data(Namespace, Username) ->
+    UserInfo = #{user_id => Username, password => password(Username), namespace => Namespace},
+    {ok, _} = emqx_authn_chains:add_user(
+        ?GLOBAL_AUTHN_CHAIN, <<"password_based:built_in_database">>, UserInfo
+    ),
+    {ok, _} = emqx_authn_chains:add_user(
+        ?GLOBAL_AUTHN_CHAIN, <<"scram:built_in_database">>, UserInfo
+    ),
+    Rule = #{
+        <<"permission">> => <<"allow">>,
+        <<"action">> => <<"publish">>,
+        <<"topic">> => <<"t/", Username/binary>>
+    },
+    ok = emqx_authz_mnesia:store_rules(Namespace, {username, Username}, [Rule]),
+    ok = emqx_authz_mnesia:store_rules(Namespace, {clientid, Username}, [Rule]),
+    ok = emqx_authz_mnesia:store_rules(Namespace, all, [Rule]).
+
+purge_builtin_auth(Namespace) ->
+    ok = emqx_authn_mnesia:purge_namespace(Namespace),
+    ok = emqx_authn_scram_mnesia:purge_namespace(Namespace),
+    ok = emqx_authz_mnesia:purge_rules(Namespace).
+
+password(Username) ->
+    <<Username/binary, "_pass">>.
+
+authenticate(Namespace, Username) ->
+    emqx_access_control:authenticate(#{
+        zone => default,
+        listener => 'tcp:default',
+        protocol => mqtt,
+        peerhost => {127, 0, 0, 1},
+        clientid => Username,
+        username => Username,
+        password => password(Username),
+        client_attrs => #{<<"tns">> => Namespace}
+    }).
+
+%% The decoded `ns/<Namespace>/data/' files of an archive, by name.
+ns_backup_data(File, Namespace) ->
+    {ok, Entries} = erl_tar:extract(File, [compressed, memory]),
+    NsStr = binary_to_list(Namespace),
+    maps:from_list([
+        {list_to_binary(filename:rootname(Name)), emqx_utils_json:decode(Content)}
+     || {Path, Content} <- Entries,
+        [_Base, "ns", Ns, "data", Name] <- [filename:split(Path)],
+        Ns =:= NsStr
+    ]).
+
+%% An archive holding `ns/<Namespace>/data/<Name>.json' for each entry of `Data'.
+ns_data_backup(Config, BaseName, Namespace, Data) ->
+    File = filename:join(?config(priv_dir, Config), BaseName ++ ".tar.gz"),
+    Members = [
+        {
+            filename:join([
+                BaseName, "ns", binary_to_list(Namespace), "data", binary_to_list(Name) ++ ".json"
+            ]),
+            emqx_utils_json:encode(Content)
+        }
+     || Name := Content <- Data
+    ],
+    ok = erl_tar:create(
+        File, [{BaseName ++ "/META.hocon", backup_meta_bin()} | Members], [compressed]
+    ),
+    File.
 
 tar_bin(Config, Members) ->
     TmpFile = filename:join(

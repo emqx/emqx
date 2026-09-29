@@ -881,6 +881,28 @@ t_namespaced_import_foreign_content_forbidden(Config) ->
     ok.
 
 -doc """
+A namespaced import reports the errors of the namespace's built-in database
+records under that namespace, not under `global'.
+""".
+t_namespaced_import_db_errors(Config) ->
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Superuser = #{
+        <<"user_group">> => <<"mqtt:global">>,
+        <<"user_id">> => <<"u1">>,
+        <<"password_hash">> => base64:encode(<<"hash">>),
+        <<"salt">> => base64:encode(<<"salt">>),
+        <<"is_superuser">> => true
+    },
+    {LocalPath, Base} = forge_ns_data_backup(Config, "emqx-export-ns1-superuser", <<"ns1">>, #{
+        <<"builtin_authn_password">> => #{<<"version">> => 1, <<"users">> => [Superuser]}
+    }),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, Ns1Auth, LocalPath)),
+    {400, #{<<"message">> := Message}} = import_backup_full(?NODE1_PORT, Ns1Auth, Base),
+    ?assertMatch(#{<<"ns1">> := _}, Message),
+    ?assertNot(maps:is_key(<<"global">>, Message)),
+    ok.
+
+-doc """
 The global scope is a full-cluster artifact: importing a global archive
 restores every `ns/<NS>/cluster.hocon' entry into its own namespace, and a
 subsequent global export emits every namespace's configuration back into the
@@ -1047,18 +1069,34 @@ plant_ns_backup_file(Node, Namespace, Filename, Content) ->
 %% the layout of a global export of a cluster that has namespaces but no
 %% global configuration. Returns `{LocalPath, Basename}'.
 forge_backup(Config, BaseName, NsConfigs) ->
+    forge_archive(Config, BaseName, [
+        {["ns", to_list(Namespace), "cluster.hocon"], HoconBin}
+     || Namespace := HoconBin <- NsConfigs
+    ]).
+
+%% Forge a namespaced backup archive holding `ns/<Namespace>/data/<Name>.json'
+%% for each entry of `Data' plus a valid META file. Returns `{LocalPath, Basename}'.
+forge_ns_data_backup(Config, BaseName, Namespace, Data) ->
+    forge_archive(Config, BaseName, [
+        {
+            ["ns", to_list(Namespace), "data", to_list(Name) ++ ".json"],
+            emqx_utils_json:encode(Content)
+        }
+     || Name := Content <- Data
+    ]).
+
+%% An archive holding a valid META file and each `{PathUnderBase, Bin}' of
+%% `Members'. Returns `{LocalPath, Basename}'.
+forge_archive(Config, BaseName, Members) ->
     Filename = BaseName ++ ".tar.gz",
     LocalPath = filename:join(?config(priv_dir, Config), Filename),
     {ok, Tar} = erl_tar:open(LocalPath, [write, compressed]),
     Meta = #{version => emqx_release:version(), edition => emqx_release:edition()},
     MetaBin = iolist_to_binary(hocon_pp:do(Meta, #{})),
     ok = erl_tar:add(Tar, MetaBin, filename:join(BaseName, "META.hocon"), []),
-    maps:foreach(
-        fun(Namespace, HoconBin) ->
-            NameInArchive = filename:join([BaseName, "ns", to_list(Namespace), "cluster.hocon"]),
-            ok = erl_tar:add(Tar, HoconBin, NameInArchive, [])
-        end,
-        NsConfigs
+    lists:foreach(
+        fun({Path, Bin}) -> ok = erl_tar:add(Tar, Bin, filename:join([BaseName | Path]), []) end,
+        Members
     ),
     ok = erl_tar:close(Tar),
     {LocalPath, list_to_binary(Filename)}.
@@ -1552,7 +1590,8 @@ test_case_specific_apps_spec(TC) when
     TC =:= t_import_dashboard_token_allows_sensitive_tables;
     TC =:= t_import_restricted_dashboard_token_blocks_sensitive_tables;
     TC =:= t_import_dashboard_token_with_credential_scopes_allows_sensitive_tables;
-    TC =:= t_global_admin_upload_scoped_namespace
+    TC =:= t_global_admin_upload_scoped_namespace;
+    TC =:= t_namespaced_import_db_errors
 ->
     [
         emqx_auth,

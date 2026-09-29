@@ -36,7 +36,12 @@
     format_user_info/1
 ]).
 
--export([backup_tables/0]).
+-export([
+    backup_tables/0,
+    namespace_backup_name/0,
+    export_namespace_backup/1,
+    import_namespace_backup/2
+]).
 
 -export([purge_namespace/1]).
 
@@ -45,7 +50,8 @@
     do_destroy/1,
     do_add_user/1,
     do_delete_user/3,
-    do_update_user/4
+    do_update_user/4,
+    do_write_ns_records/1
 ]).
 
 -define(TAB, ?MODULE).
@@ -70,6 +76,9 @@
 
 -define(NS_TAB, emqx_authn_scram_mnesia_ns).
 -define(NS_KEY(NS, GROUP, ID), {NS, GROUP, ID}).
+%% Users are grouped by the authenticator ID, the same for every SCRAM built-in
+%% database authenticator.
+-define(NS_USER_GROUP, <<"scram:built_in_database">>).
 
 -record(?NS_TAB, {
     user_id :: ?NS_KEY(emqx_config:namespace(), user_group(), user_id()),
@@ -115,6 +124,34 @@ init_tables() ->
 %%------------------------------------------------------------------------------
 
 backup_tables() -> {<<"builtin_authn">>, [?TAB, ?NS_TAB]}.
+
+namespace_backup_name() -> <<"builtin_authn_scram">>.
+
+-spec export_namespace_backup(emqx_config:namespace()) -> map().
+export_namespace_backup(Namespace) ->
+    Records = mnesia:dirty_select(?NS_TAB, all_ns_group_match_spec(Namespace, '_')),
+    #{<<"version">> => 1, <<"users">> => lists:map(fun ns_user_to_backup/1, Records)}.
+
+-spec import_namespace_backup(emqx_config:namespace(), map()) -> ok | {error, term()}.
+import_namespace_backup(Namespace, #{<<"version">> := 1, <<"users">> := Users}) when
+    is_list(Users)
+->
+    maybe
+        {ok, Records} ?=
+            emqx_utils:foldl_while(
+                fun(User, {ok, Acc}) ->
+                    case ns_user_from_backup(Namespace, User) of
+                        {ok, Record} -> {cont, {ok, [Record | Acc]}};
+                        {error, _} = Error -> {halt, Error}
+                    end
+                end,
+                {ok, []},
+                Users
+            ),
+        trans(fun ?MODULE:do_write_ns_records/1, [Records])
+    end;
+import_namespace_backup(_Namespace, _Data) ->
+    {error, unsupported_backup_format}.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -515,6 +552,66 @@ rec_to_map(#?NS_TAB{} = Rec) ->
 
 table(?global_ns) -> ?TAB;
 table(Namespace) when is_binary(Namespace) -> ?NS_TAB.
+
+ns_user_to_backup(#?NS_TAB{} = Rec) ->
+    #?NS_TAB{
+        user_id = ?NS_KEY(_Namespace, UserGroup, UserId),
+        stored_key = StoredKey,
+        server_key = ServerKey,
+        salt = Salt,
+        is_superuser = IsSuperuser
+    } = Rec,
+    #{
+        <<"user_group">> => UserGroup,
+        <<"user_id">> => UserId,
+        <<"stored_key">> => base64:encode(StoredKey),
+        <<"server_key">> => base64:encode(ServerKey),
+        <<"salt">> => base64:encode(Salt),
+        <<"is_superuser">> => IsSuperuser
+    }.
+
+%% MQTT users in a non-global namespace are never superusers.
+ns_user_from_backup(Namespace, #{
+    <<"user_group">> := Group,
+    <<"user_id">> := UserId,
+    <<"stored_key">> := StoredKey,
+    <<"server_key">> := ServerKey,
+    <<"salt">> := Salt,
+    <<"is_superuser">> := IsSuperuser
+}) when
+    is_binary(Group),
+    is_binary(UserId),
+    is_binary(StoredKey),
+    is_binary(ServerKey),
+    is_binary(Salt),
+    is_boolean(IsSuperuser)
+->
+    maybe
+        false ?= IsSuperuser andalso {error, {superuser_not_allowed, UserId}},
+        true ?= Group =:= ?NS_USER_GROUP orelse {error, {unsupported_user_group, Group}},
+        {ok, StoredKeyBin} ?= decode_base64(StoredKey),
+        {ok, ServerKeyBin} ?= decode_base64(ServerKey),
+        {ok, SaltBin} ?= decode_base64(Salt),
+        {ok, #?NS_TAB{
+            user_id = ?NS_KEY(Namespace, Group, UserId),
+            stored_key = StoredKeyBin,
+            server_key = ServerKeyBin,
+            salt = SaltBin,
+            is_superuser = false
+        }}
+    end;
+ns_user_from_backup(_Namespace, _User) ->
+    {error, invalid_user}.
+
+decode_base64(Bin) ->
+    try
+        {ok, base64:decode(Bin)}
+    catch
+        error:_ -> {error, invalid_base64}
+    end.
+
+do_write_ns_records(Records) ->
+    lists:foreach(fun(Record) -> ok = mnesia:write(?NS_TAB, Record, write) end, Records).
 
 key(?global_ns, UserGroup, UserId) ->
     {UserGroup, UserId};

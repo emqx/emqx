@@ -72,7 +72,12 @@
     record_count_per_namespace/0
 ]).
 
--export([backup_tables/0]).
+-export([
+    backup_tables/0,
+    namespace_backup_name/0,
+    export_namespace_backup/1,
+    import_namespace_backup/2
+]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -130,6 +135,31 @@ authorize(
 %%--------------------------------------------------------------------
 
 backup_tables() -> {<<"builtin_authz">>, [?ACL_TABLE, ?AUTHZ_NS_TAB]}.
+
+namespace_backup_name() -> <<"builtin_authz">>.
+
+%% Rules take the shape the REST API uses: `users', `clients' and `all'.
+-spec export_namespace_backup(emqx_config:namespace()) -> map().
+export_namespace_backup(Namespace) ->
+    Records = mnesia:dirty_select(?AUTHZ_NS_TAB, [
+        {#?AUTHZ_NS_TAB{who = ?AUTHZ_WHO_NS(Namespace, '_'), _ = '_'}, [], ['$_']}
+    ]),
+    lists:foldl(
+        fun add_backup_rules/2,
+        #{<<"version">> => 1, <<"users">> => [], <<"clients">> => [], <<"all">> => []},
+        Records
+    ).
+
+%% Every rule list is validated as the REST API validates it before any is
+%% stored. A list replaces the one stored for the same user or client.
+-spec import_namespace_backup(emqx_config:namespace(), map()) -> ok | {error, term()}.
+import_namespace_backup(Namespace, #{<<"version">> := 1} = Data) ->
+    maybe
+        {ok, Entries} ?= backup_entries(Data),
+        import_backup_entries(Namespace, Entries)
+    end;
+import_namespace_backup(_Namespace, _Data) ->
+    {error, unsupported_backup_format}.
 
 %%--------------------------------------------------------------------
 %% Management API
@@ -350,6 +380,91 @@ get_namespace(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Namespace}} = _Client
     Namespace;
 get_namespace(_ClientInfo) ->
     ?global_ns.
+
+add_backup_rules(#?AUTHZ_NS_TAB{who = ?AUTHZ_WHO_NS(_Namespace, Who), rules = Rules0}, Acc) ->
+    Rules = [emqx_authz_rule_raw:format_rule(Rule) || Rule <- Rules0],
+    case Who of
+        ?ACL_TABLE_ALL ->
+            Acc#{<<"all">> := Rules};
+        {?ACL_TABLE_USERNAME, Username} ->
+            #{<<"users">> := Users} = Acc,
+            Acc#{<<"users">> := [#{<<"username">> => Username, <<"rules">> => Rules} | Users]};
+        {?ACL_TABLE_CLIENTID, Clientid} ->
+            #{<<"clients">> := Clients} = Acc,
+            Acc#{<<"clients">> := [#{<<"clientid">> => Clientid, <<"rules">> => Rules} | Clients]}
+    end.
+
+backup_entries(#{<<"users">> := Users, <<"clients">> := Clients, <<"all">> := AllRules}) when
+    is_list(Users), is_list(Clients), is_list(AllRules)
+->
+    maybe
+        {ok, UserEntries} ?= who_backup_entries(<<"username">>, username, Users),
+        {ok, ClientEntries} ?= who_backup_entries(<<"clientid">>, clientid, Clients),
+        AllEntries = [{all, AllRules} || AllRules =/= []],
+        {ok, AllEntries ++ UserEntries ++ ClientEntries}
+    end;
+backup_entries(_Data) ->
+    {error, invalid_rules}.
+
+who_backup_entries(Key, Type, Entries) ->
+    emqx_utils:foldl_while(
+        fun
+            (#{Key := Id, <<"rules">> := Rules}, {ok, Acc}) when is_binary(Id), is_list(Rules) ->
+                {cont, {ok, [{{Type, Id}, Rules} | Acc]}};
+            (_Entry, _Acc) ->
+                {halt, {error, invalid_rules}}
+        end,
+        {ok, []},
+        Entries
+    ).
+
+import_backup_entries(_Namespace, []) ->
+    ok;
+import_backup_entries(Namespace, Entries) ->
+    maybe
+        {ok, MaxRules} ?= max_rules(),
+        ok ?=
+            emqx_utils:foldl_while(
+                fun({Who, Rules}, ok) ->
+                    case validate_backup_rules(Rules, MaxRules) of
+                        ok -> {cont, ok};
+                        {error, Reason} -> {halt, {error, #{who => Who, reason => Reason}}}
+                    end
+                end,
+                ok,
+                Entries
+            ),
+        lists:foreach(fun({Who, Rules}) -> ok = store_rules(Namespace, Who, Rules) end, Entries)
+    end.
+
+validate_backup_rules(Rules, MaxRules) when length(Rules) > MaxRules ->
+    {error, too_many_rules};
+validate_backup_rules(Rules, _MaxRules) ->
+    emqx_utils:foldl_while(
+        fun(Rule, ok) ->
+            case validate_backup_rule(Rule) of
+                {ok, _} -> {cont, ok};
+                {error, _} = Error -> {halt, Error}
+            end
+        end,
+        ok,
+        Rules
+    ).
+
+%% A rule holds a single `topic', as in the REST API, so it is stored as one rule.
+validate_backup_rule(#{<<"topic">> := Topic} = Rule) when is_binary(Topic) ->
+    emqx_authz_rule_raw:parse_rule(Rule);
+validate_backup_rule(Rule) when is_map(Rule) ->
+    {error, #{reason => invalid_topic, value => Rule}};
+validate_backup_rule(Rule) ->
+    emqx_authz_rule_raw:parse_rule(Rule).
+
+max_rules() ->
+    Sources = emqx:get_config([authorization, sources], []),
+    case [Source || #{type := built_in_database} = Source <- Sources] of
+        [#{max_rules := MaxRules}] -> {ok, MaxRules};
+        [] -> {error, built_in_database_source_not_found}
+    end.
 
 inc_ns_rule_count(Namespace) when is_binary(Namespace) ->
     _ = ets:update_counter(?AUTHZ_NS_COUNT_TAB, Namespace, {2, 1}, {Namespace, 0}),

@@ -73,7 +73,7 @@ Table sets to export. Supported values are:
   - `dashboard_users`: Dashboard login users.
   - `mt`: Multi-tenancy tables.
   - `psk`: PSK authentication tables.
-Exports all table sets if omitted.~"""
+Exports all table sets if omitted. A namespaced export includes only the `builtin_authn` and `builtin_authz` table sets, limited to that namespace's records.~"""
 table_sets.label:
 """Table Sets"""
 
