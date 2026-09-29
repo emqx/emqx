@@ -355,7 +355,8 @@ is_connection_error(_) ->
 on_get_status(ResourceId, #{pool_name := PoolName} = _State) ->
     Workers = ecpool:workers(PoolName),
     DisconnectReasons = last_disconnect_reasons(ResourceId),
-    try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
+    PingTimeout = health_check_ping_timeout(ResourceId),
+    try emqx_utils:pmap(fun get_status/1, Workers, PingTimeout) of
         Statuses ->
             enrich_status(combine_status(Statuses), DisconnectReasons)
     catch
@@ -377,18 +378,91 @@ get_status({_Name, Worker}) ->
         {error, _} -> ?status_disconnected
     end.
 
+%% Probes whether the client can still reach the remote broker.
+%%
+%% `emqtt:info/1' only reports the local client state, so a connection whose
+%% packets are silently dropped keeps looking healthy until `emqtt''s own
+%% keepalive PINGREQ goes unanswered (1 to 2 keepalive intervals, 60 s by
+%% default) -- and ongoing traffic makes the client skip that PINGREQ altogether.
+%% Ask the remote end instead: send a PINGREQ and wait for its PINGRESP.
 status(Pid) ->
     try
-        case proplists:get_value(socket, emqtt:info(Pid)) of
-            Socket when Socket /= undefined ->
-                ?status_connected;
-            undefined ->
-                ?status_disconnected
+        case emqtt:status(Pid) of
+            connected ->
+                ping_status(Pid);
+            _EmqttState ->
+                %% `emqtt:info/1' is only answered in the `connected' state, so a
+                %% client that is not connected cannot be probed for liveness;
+                %% report it as `connecting' instead of holding up the health
+                %% check until its budget expires.
+                ?status_connecting
         end
     catch
         exit:{noproc, _} ->
+            ?status_disconnected;
+        exit:_Reason ->
             ?status_disconnected
     end.
+
+ping_status(Pid) ->
+    case ping(Pid) of
+        pong ->
+            ?status_connected;
+        {error, ack_timeout} ->
+            %% `emqtt' gave up on the PINGRESP while the connection was still
+            %% there: the remote is not answering, which is what a black-holed
+            %% link looks like.
+            ?status_connecting;
+        {error, _Reason} ->
+            ?status_disconnected
+    end.
+
+%% `emqtt:ping/1' is specified as `pong', but a connection that stopped answering
+%% makes it reply `{error, ack_timeout}' and one that cannot send the packet
+%% replies `{error, Reason}'.  Call it through `apply/3' so that dialyzer does not
+%% report handling those replies as unreachable code.  The call itself waits
+%% forever (`gen_statem:call/2' without a timeout), so it is the budget of
+%% `on_get_status/2' that bounds it.
+ping(Pid) ->
+    apply(emqtt, ping, [Pid]).
+
+%% How long one health check may wait for the PINGRESP of the pool workers.
+%%
+%% This bounds the whole `pmap' of `on_get_status/2', so it is a budget per
+%% health check, not per connection: `emqtt:ping/1' waits forever, so without
+%% this bound a remote that never answers would hold up the check until the
+%% framework's own `health_check_timeout'.  The budget stays at most half of
+%% that timeout, because the framework aborts the whole check at
+%% `health_check_timeout' and reports a generic result instead of our reason.
+%% `?HEALTH_CHECK_TIMEOUT' is the floor so that a very small
+%% `health_check_interval' (1 ms is allowed by the schema) cannot make a slow
+%% but alive link look unreachable; the floor only applies while it stays below
+%% that budget, and a `health_check_timeout' below it is left to the framework.
+%% A remote that does not answer within `emqtt''s own `ack_timeout' (30 s by
+%% default, not configurable from the link schema) replies `{error, ack_timeout}'
+%% first, which is reported as `connecting' as well.
+health_check_ping_timeout(ResourceId) ->
+    ?MSG_RES_ID(ClusterName) = ResourceId,
+    %% Read from the link configuration instead of carrying it in the resource
+    %% state: a state created before this budget existed (e.g. one taken over by a
+    %% hot upgrade) would otherwise have to guess it.
+    case emqx_cluster_link_config:get_link(ClusterName) of
+        #{resource_opts := ResourceOpts} ->
+            ping_timeout(ResourceOpts);
+        _ ->
+            %% The link is going away; the outcome of the check does not matter.
+            ?HEALTH_CHECK_TIMEOUT
+    end.
+
+ping_timeout(ResourceOpts) ->
+    Interval = maps:get(health_check_interval, ResourceOpts, ?HEALTHCHECK_INTERVAL),
+    FrameworkBudget =
+        case maps:get(health_check_timeout, ResourceOpts, ?HEALTHCHECK_TIMEOUT) of
+            infinity -> infinity;
+            Timeout -> Timeout div 2
+        end,
+    %% `infinity' compares greater than any integer, so `min/2' keeps the floor.
+    min(FrameworkBudget, max(?HEALTH_CHECK_TIMEOUT, Interval)).
 
 combine_status(Statuses) ->
     %% NOTE

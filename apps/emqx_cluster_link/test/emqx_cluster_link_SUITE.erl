@@ -67,12 +67,31 @@ merge_conf(C1, C2) ->
 conf_log() ->
     "log.file { enable = true, level = info, path = node.log }".
 
+%% Link configuration for the cases that exercise a sustained outage: a single pool worker
+%% with a long `request_ttl', so that everything published while the link is unusable has to
+%% be buffered instead of being dropped.
+outage_link_conf() ->
+    #{
+        <<"pool_size">> => 1,
+        <<"resource_opts">> => #{
+            <<"worker_pool_size">> => 1,
+            <<"inflight_window">> => 10,
+            <<"max_buffer_bytes">> => <<"10MB">>,
+            <<"request_ttl">> => <<"2m">>,
+            <<"resume_interval">> => <<"1s">>,
+            <<"health_check_interval">> => <<"1s">>
+        }
+    }.
+
 wait_link_online_on(Nodes) ->
+    wait_link_online_on(Nodes, 5000).
+
+wait_link_online_on(Nodes, Timeout) ->
     lists:foreach(
         fun(N) ->
             {ok, _} = ?block_until(
                 #{?snk_kind := "cluster_link_routerepl_online", ?snk_meta := #{node := N}},
-                5000
+                Timeout
             )
         end,
         Nodes
@@ -311,17 +330,7 @@ t_message_forwarding_adverse_network_conditions() ->
 
 t_message_forwarding_adverse_network_conditions('init', Config) ->
     ok = snabbkaffe:start_trace(),
-    LinkConf = #{
-        <<"pool_size">> => 1,
-        <<"resource_opts">> => #{
-            <<"worker_pool_size">> => 1,
-            <<"inflight_window">> => 10,
-            <<"max_buffer_bytes">> => <<"10MB">>,
-            <<"request_ttl">> => <<"2m">>,
-            <<"resume_interval">> => <<"1s">>,
-            <<"health_check_interval">> => <<"1s">>
-        }
-    },
+    LinkConf = outage_link_conf(),
     {SourceClusterSpec, TargetClusterSpec} =
         mk_interlinked_clusters(?FUNCTION_NAME, 1, 1, LinkConf, Config),
     SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
@@ -428,6 +437,164 @@ wait_forwarding_resource_connected(SourceNode, ResourceId) ->
             {ok, _, #{status := connected}},
             ?ON(SourceNode, emqx_resource:get_instance(ResourceId))
         )
+    ).
+
+%% Verifies that the message forwarding health check probes the remote broker.  The
+%% link is routed through a relay that the test freezes: the TCP connection stays open
+%% but nothing gets through it anymore, which is what a black-holed network looks like.
+%% The resource must stop being reported as connected within a couple of health check
+%% intervals, raise the alarm, and keep the messages published meanwhile until the
+%% remote answers again.
+t_message_forwarding_health_check_silent_remote() ->
+    [{timetrap, {minutes, 2}}].
+
+t_message_forwarding_health_check_silent_remote('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    SourceName = fmt("~p_s", [?FUNCTION_NAME]),
+    TargetName = fmt("~p_t", [?FUNCTION_NAME]),
+    LinkConf = outage_link_conf(),
+    %% Target cluster: replicates its routes to the source cluster so that the source
+    %% knows where to forward, and does so directly (the relay only sits in front of the
+    %% other direction).
+    TargetLink = emqx_cluster_link_cth:mk_link_conf(1, SourceName, LinkConf#{
+        <<"topics">> => [<<"#">>]
+    }),
+    TargetSpec = #{
+        apps => [
+            {emqx_conf, merge_conf(#{cluster => #{links => [TargetLink]}}, conf_log())}
+        ]
+    },
+    TargetNodes = emqx_cth_cluster:start(
+        emqx_cluster_link_cth:mk_cluster(2, TargetName, {1, TargetSpec}, Config)
+    ),
+    [TargetNode] = TargetNodes,
+    TargetPort = emqx_cluster_link_cth:tcp_port(TargetNode, clink, undefined),
+    {RelayPort, Relay} = emqx_cluster_link_cth:start_relay(TargetPort),
+    %% Source cluster: its link to the target goes through the relay.
+    SourceLink = emqx_cluster_link_cth:mk_link_conf(2, TargetName, LinkConf#{
+        <<"topics">> => [],
+        <<"server">> => fmt("localhost:~b", [RelayPort])
+    }),
+    SourceSpec = #{
+        apps => [
+            {emqx_conf, merge_conf(#{cluster => #{links => [SourceLink]}}, conf_log())}
+        ]
+    },
+    SourceNodes = emqx_cth_cluster:start(
+        emqx_cluster_link_cth:mk_cluster(1, SourceName, {1, SourceSpec}, Config)
+    ),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes, 30_000),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes},
+        {relay, Relay}
+        | Config
+    ];
+t_message_forwarding_health_check_silent_remote('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cluster_link_cth:stop_relay(?config(relay, Config)),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+t_message_forwarding_health_check_silent_remote(Config) ->
+    [SourceNode] = nodes_source(Config),
+    [TargetNode] = nodes_target(Config),
+    Relay = ?config(relay, Config),
+    TargetName = atom_to_binary(emqx_cluster_link_cth:cluster_name(TargetNode)),
+    ResourceId = emqx_cluster_link_mqtt:resource_id(TargetName),
+    Topic = <<"t/silent-remote">>,
+    TargetClient = emqx_cluster_link_cth:connect_client(
+        "t_silent_remote_target", TargetNode
+    ),
+    SourceClient = emqx_cluster_link_cth:connect_client(
+        "t_silent_remote_source", SourceNode
+    ),
+    try
+        %% 1. A link that answers the probe is reported as connected, and messages flow.
+        {ok, _, _} = emqtt:subscribe(TargetClient, Topic, qos1),
+        {ok, _} = ?block_until(
+            #{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TargetNode}},
+            10_000
+        ),
+        ?retry(
+            200, 25, ?assertEqual(connected, forwarding_resource_status(SourceNode, ResourceId))
+        ),
+        {ok, _} = emqtt:publish(SourceClient, Topic, <<"before">>, qos1),
+        ?assertReceive(
+            {publish, #{topic := Topic, payload := <<"before">>, client_pid := TargetClient}}
+        ),
+
+        %% 2. The remote end stops forwarding traffic in both directions, keeping the
+        %%    connection open: the probe must notice within a couple of intervals.
+        ok = emqx_cluster_link_cth:freeze_relay(Relay),
+        ?retry(
+            200,
+            25,
+            ?assertEqual(connecting, forwarding_resource_status(SourceNode, ResourceId))
+        ),
+        ?retry(200, 25, ?assert(is_forwarding_resource_down(SourceNode, ResourceId))),
+
+        %% 3. Messages published while the link is unusable must stay queued: they may
+        %%    not be counted as failed nor dropped, and the target must not see them.
+        {ok, _} = emqtt:publish(SourceClient, Topic, <<"during_hang">>, qos1),
+        ?retry(
+            200,
+            15,
+            ?assertMatch(
+                #{counters := #{dropped := 0, failed := 0}},
+                ?ON(SourceNode, emqx_resource:get_metrics(ResourceId))
+            )
+        ),
+        ct:sleep(2_000),
+        ?assertNotReceive({publish, #{topic := Topic, payload := <<"during_hang">>}}),
+
+        %% 4. Once the remote answers again the link must recover, and the message queued
+        %%    while it was silent must be delivered rather than dropped.
+        ok = emqx_cluster_link_cth:thaw_relay(Relay),
+        ?retry(
+            200,
+            25,
+            ?assertEqual(connected, forwarding_resource_status(SourceNode, ResourceId))
+        ),
+        ?assertReceive(
+            {publish, #{
+                topic := Topic, payload := <<"during_hang">>, client_pid := TargetClient
+            }},
+            15_000
+        ),
+        ?retry(
+            200,
+            25,
+            %% Both messages made it through, and the worker holds nothing back anymore.
+            %% How a send is accounted for is not the point here: a query that went
+            %% through the buffer retry path is counted as a retried success.
+            ?assertMatch(
+                #{
+                    counters := #{dropped := 0, failed := 0},
+                    gauges := #{inflight := 0, queuing := 0}
+                },
+                ?ON(SourceNode, emqx_resource:get_metrics(ResourceId))
+            )
+        )
+    after
+        ok = emqx_cluster_link_cth:thaw_relay(Relay),
+        ok = emqtt:stop(TargetClient),
+        ok = emqtt:stop(SourceClient)
+    end.
+
+forwarding_resource_status(Node, ResourceId) ->
+    {ok, _, #{status := Status}} = ?ON(Node, emqx_resource:get_instance(ResourceId)),
+    Status.
+
+is_forwarding_resource_down(Node, ResourceId) ->
+    lists:any(
+        fun
+            (#{details := #{resource_id := RId, reason := resource_down}}) ->
+                RId =:= ResourceId;
+            (_) ->
+                false
+        end,
+        ?ON(Node, emqx_alarm:get_alarms(activated))
     ).
 
 start_async_publisher(SourceNode, Topic, Interval) ->
