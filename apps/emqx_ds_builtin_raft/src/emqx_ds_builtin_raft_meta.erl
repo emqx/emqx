@@ -949,6 +949,8 @@ run_migrations() ->
     run_migrations(emqx_release:version()).
 
 run_migrations(_Version = "6." ++ _) ->
+    ok;
+run_migrations(_Version = "7." ++ _) ->
     ok.
 
 ensure_site() ->
