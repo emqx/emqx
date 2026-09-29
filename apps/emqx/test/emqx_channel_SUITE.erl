@@ -477,17 +477,16 @@ t_handle_in_puback_ok(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _PacketId, _ReasonCode, Session) -> {ok, Msg, [], Session} end
+        fun(_, _PacketId, _ReasonCode, [congested], Session) -> {ok, Msg, [], Session} end
     ),
-    Channel = channel(#{conn_state => connected}),
+    Channel = channel(#{conn_state => connected, conn_flags => [congested]}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
-% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
 
 t_handle_in_puback_id_in_use(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _, _ReasonCode, _Session) ->
+        fun(_, _, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
         end
     ),
@@ -498,12 +497,11 @@ t_handle_in_puback_id_not_found(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _, _ReasonCode, _Session) ->
+        fun(_, _, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
-% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_bad_receive_maximum(_) ->
     mock_cm_open_session(),
@@ -610,15 +608,21 @@ assert_ack_flood_bounded_log(Send, MsgStr) ->
     ?assertEqual(N, Count(debug)).
 
 t_handle_in_pubcomp_ok(_) ->
-    ok = meck:expect(emqx_session, pubcomp, fun(_, _, _ReasonCode, Session) -> {ok, [], Session} end),
-    {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
-% ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
+    ok = meck:expect(
+        emqx_session,
+        pubcomp,
+        fun(_, _, _ReasonCode, [congested], Session) ->
+            {ok, [], Session}
+        end
+    ),
+    Channel = channel(#{conn_state => connected, conn_flags => [congested]}),
+    {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubcomp_not_found_error(_) ->
     ok = meck:expect(
         emqx_session,
         pubcomp,
-        fun(_, _PacketId, _ReasonCode, _Session) ->
+        fun(_, _PacketId, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
@@ -1422,15 +1426,15 @@ handle_signal(_ClientInfo, {connection, decongested, #{retry := Timeout}}, {?MOD
 info(created_at, {?MODULE, _Session}) ->
     0.
 
-handle_timeout(_ClientInfo, signal1, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, signal1, [congested], {?MODULE, Session}) ->
     Msg = emqx_message:make(<<"a/b">>, <<"1">>),
     Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_LONG},
     {Effect, [{1, Msg}], {?MODULE, Session}};
-handle_timeout(_ClientInfo, retry_delivery, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, retry_delivery, [congested], {?MODULE, Session}) ->
     Msg = emqx_message:make(<<"c/d">>, <<"2">>),
     Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_SHORT},
     {Effect, [{2, Msg}], {?MODULE, Session}};
-handle_timeout(_ClientInfo, msg1, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, msg1, [congested], {?MODULE, Session}) ->
     Effect = {reset_timer, signal2, infinity},
     {Effect, [], {?MODULE, Session}}.
 

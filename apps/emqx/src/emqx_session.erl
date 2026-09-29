@@ -64,10 +64,10 @@
 
 -export([
     publish/4,
-    puback/4,
+    puback/5,
     pubrec/3,
     pubrel/3,
-    pubcomp/4,
+    pubcomp/5,
     replay/3
 ]).
 
@@ -75,7 +75,7 @@
     deliver/4,
     handle_info/3,
     handle_signal/3,
-    handle_timeout/3,
+    handle_timeout/4,
     disconnect/3,
     terminate/3
 ]).
@@ -196,10 +196,10 @@
 -callback publish_will_message_now(t(), message()) -> t().
 
 -callback handle_timeout
-    (clientinfo(), common_timer_name(), t()) ->
+    (clientinfo(), common_timer_name(), [connflag()], t()) ->
         {ok | effects(), replies(), t()}
         | {ok | effects(), replies(), timeout(), t()};
-    (clientinfo(), custom_timer_name(), t()) ->
+    (clientinfo(), custom_timer_name(), [connflag()], t()) ->
         {ok | effects(), replies(), t()}.
 
 -callback handle_info(clientinfo(), term(), t()) ->
@@ -228,7 +228,7 @@
     {ok, emqx_types:publish_result(), t()}
     | {error, emqx_types:reason_code()}.
 
--callback puback(clientinfo(), emqx_types:packet_id(), t()) ->
+-callback puback(clientinfo(), emqx_types:packet_id(), [connflag()], t()) ->
     {ok | effects(), emqx_types:message(), replies(), t()}
     | {error, emqx_types:reason_code()}.
 
@@ -240,7 +240,7 @@
     {ok, t()}
     | {error, emqx_types:reason_code()}.
 
--callback pubcomp(clientinfo(), emqx_types:packet_id(), t()) ->
+-callback pubcomp(clientinfo(), emqx_types:packet_id(), [connflag()], t()) ->
     {ok | effects(), emqx_types:message(), replies(), t()}
     | {error, emqx_types:reason_code()}.
 
@@ -407,11 +407,11 @@ publish(_ClientInfo, PacketId, Msg, Session) ->
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
--spec puback(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), t()) ->
+-spec puback(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), [connflag()], t()) ->
     {ok | effects(), message(), replies(), t()}
     | {error, emqx_types:reason_code()}.
-puback(ClientInfo, PacketId, ReasonCode, Session) ->
-    case ?IMPL(Session):puback(ClientInfo, PacketId, Session) of
+puback(ClientInfo, PacketId, ReasonCode, Flags, Session) ->
+    case ?IMPL(Session):puback(ClientInfo, PacketId, Flags, Session) of
         {_OkEffects, Msg, Replies, Session1} = Ok ->
             _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
             _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
@@ -446,11 +446,11 @@ pubrel(_ClientInfo, PacketId, Session) ->
             Error
     end.
 
--spec pubcomp(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), t()) ->
+-spec pubcomp(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), [connflag()], t()) ->
     {ok | effects(), replies(), t()}
     | {error, emqx_types:reason_code()}.
-pubcomp(ClientInfo, PacketId, ReasonCode, Session) ->
-    case ?IMPL(Session):pubcomp(ClientInfo, PacketId, Session) of
+pubcomp(ClientInfo, PacketId, ReasonCode, Flags, Session) ->
+    case ?IMPL(Session):pubcomp(ClientInfo, PacketId, Flags, Session) of
         {OkEffects, Msg, Replies, Session1} ->
             _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
             _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
@@ -606,12 +606,12 @@ clean_sub_filter_subopts(SubOpts) ->
 %% Timeouts
 %%--------------------------------------------------------------------
 
--spec handle_timeout(clientinfo(), common_timer_name() | custom_timer_name(), t()) ->
+-spec handle_timeout(clientinfo(), common_timer_name() | custom_timer_name(), [connflag()], t()) ->
     {ok | effects(), replies(), t()}
     %% NOTE: only relevant for `common_timer_name()`
     | {ok | effects(), replies(), timeout(), t()}.
-handle_timeout(ClientInfo, Timer, Session) ->
-    case ?IMPL(Session):handle_timeout(ClientInfo, Timer, Session) of
+handle_timeout(ClientInfo, Timer, Flags, Session) ->
+    case ?IMPL(Session):handle_timeout(ClientInfo, Timer, Flags, Session) of
         {_OkEffects, Replies, Session1} = Ok ->
             _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
             Ok;

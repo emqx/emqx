@@ -66,16 +66,16 @@
 
 -export([
     publish/3,
-    puback/3,
+    puback/4,
     pubrec/2,
     pubrel/2,
-    pubcomp/3
+    pubcomp/4
 ]).
 
 -export([
     deliver/4,
     replay/3,
-    handle_timeout/3,
+    handle_timeout/4,
     handle_info/3,
     handle_signal/3,
     disconnect/2,
@@ -94,7 +94,7 @@
     export/1,
     import/2,
     enqueue/3,
-    dequeue/2,
+    dequeue/3,
     replay/2,
     dedup/2
 ]).
@@ -582,15 +582,15 @@ dup_publish_result(#message{topic = Topic}) ->
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
--spec puback(clientinfo(), emqx_types:packet_id(), session()) ->
+-spec puback(clientinfo(), emqx_types:packet_id(), [emqx_session:connflag()], session()) ->
     {ok | effects(), emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
-puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
+puback(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_1} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
-            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Session1),
+            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Flags, Session1),
             {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
         {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
             {error, ?RC_PROTOCOL_ERROR};
@@ -641,15 +641,15 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
 %% Client -> Broker: PUBCOMP
 %%--------------------------------------------------------------------
 
--spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
+-spec pubcomp(clientinfo(), emqx_types:packet_id(), [emqx_session:connflag()], session()) ->
     {ok | effects(), emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
-pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
+pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_comp, message = #message{qos = ?QOS_2} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
-            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Session1),
+            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Flags, Session1),
             {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
         {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= ?QOS_2 ->
             {error, ?RC_PROTOCOL_ERROR};
@@ -667,6 +667,7 @@ dequeue(_ClientInfo, Session = #session{mqueue = {empty, _}}) ->
     {ok, [], Session};
 dequeue(
     ClientInfo,
+    Flags,
     Session = #session{inflight = Inflight, mqueue = Q, quota = L, next_pkt_id = PktId}
 ) ->
     case emqx_mqueue:is_empty(Q) of
@@ -898,15 +899,17 @@ mark_begin_deliver(Msg) ->
 %%--------------------------------------------------------------------
 
 %% @doc Handle timeout events
--spec handle_timeout(clientinfo(), emqx_session:common_timer_name(), session()) ->
+-spec handle_timeout(
+    clientinfo(), emqx_session:common_timer_name(), [emqx_session:connflag()], session()
+) ->
     {ok | effects(), replies(), session()}
     | {ok, replies(), timeout(), session()}.
-handle_timeout(ClientInfo, retry_delivery, Session) ->
+handle_timeout(ClientInfo, retry_delivery, _Flags, Session) ->
     retry(ClientInfo, Session);
-handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
+handle_timeout(ClientInfo, expire_awaiting_rel, _Flags, Session) ->
     expire(ClientInfo, Session);
-handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
-    dequeue(ClientInfo, Session).
+handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Flags, Session) ->
+    dequeue(ClientInfo, Flags, Session).
 
 %%--------------------------------------------------------------------
 %% Geneic messages
@@ -922,7 +925,7 @@ handle_info(_ClientInfo, _Msg, Session) ->
 -spec handle_signal(clientinfo(), term(), session()) ->
     {ok, session()} | {ok | effects(), replies(), session()}.
 handle_signal(ClientInfo, {connection, decongested, _Info}, Session) ->
-    dequeue(ClientInfo, Session);
+    dequeue(ClientInfo, [], Session);
 handle_signal(_ClientInfo, _Signal, Session) ->
     {ok, Session}.
 
@@ -1115,7 +1118,7 @@ filter_remote_pendings(ClientInfo, Session, Pendings) ->
     {ok | effects(), replies(), session()}.
 replay(ClientInfo, Session) ->
     %% Inflight messages are resent verbatim without an expiry check, unlike the
-    %% queued messages dropped on expiry by dequeue/4. This asymmetry is intentional:
+    %% queued messages dropped on expiry by dequeue/3. This asymmetry is intentional:
     %% per [MQTT-3.3.2-5] an expired message is only deleted if onward delivery has
     %% not started; an inflight message was already sent (awaiting PUBACK/PUBREC/
     %% PUBCOMP), so its delivery must be completed regardless of Message-Expiry-Interval.
@@ -1128,7 +1131,8 @@ replay(ClientInfo, Session) ->
         end,
         emqx_inflight:to_list(Session#session.inflight)
     ),
-    {OkEffect, More, Session1} = dequeue(ClientInfo, Session),
+    %% Replay runs on an uncongested connection.
+    {OkEffect, More, Session1} = dequeue(ClientInfo, [], Session),
     {OkEffect, append(PubsResend, More), Session1}.
 
 -spec dedup([emqx_types:message()], [emqx_types:message()]) ->

@@ -205,7 +205,7 @@ t_session_buffer_bytes_stats(_) ->
         emqx_session:get_session_conf(ClientInfo)
     ),
     Session1 = emqx_session_mem:enqueue(ClientInfo, [InflightMsg, MqueueMsg], Session0),
-    {ok, [{1, InflightMsg}], Session2} = emqx_session_mem:dequeue(ClientInfo, Session1),
+    {ok, [{1, InflightMsg}], Session2} = emqx_session_mem:dequeue(ClientInfo, [], Session1),
     Stats = maps:from_list(emqx_session_mem:stats(Session2)),
     ?assertMatch(#{mqueue_len := 1, inflight_cnt := 1}, Stats),
     MqueueBytes = emqx_message:payload_size(MqueueMsg),
@@ -398,7 +398,7 @@ t_puback(_) ->
     Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<>>),
     Inflight = emqx_inflight:insert(1, with_ts(wait_ack, Msg), emqx_inflight:new()),
     Session = session(#{inflight => Inflight, mqueue => mqueue()}),
-    {ok, Msg, [], Session1} = emqx_session_mem:puback(clientinfo(), 1, Session),
+    {ok, Msg, [], Session1} = emqx_session_mem:puback(clientinfo(), 1, [], Session),
     ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session1)).
 
 t_puback_with_dequeue(_) ->
@@ -407,7 +407,7 @@ t_puback_with_dequeue(_) ->
     Msg2 = emqx_message:make(clientid, ?QOS_1, <<"t2">>, <<"payload2">>),
     {_, Q} = emqx_mqueue:in(Msg2, mqueue(#{max_len => 10})),
     Session = session(#{inflight => Inflight, mqueue => Q}),
-    {ok, Msg1, [{_, Msg3}], Session1} = emqx_session_mem:puback(clientinfo(), 1, Session),
+    {ok, Msg1, [{_, Msg3}], Session1} = emqx_session_mem:puback(clientinfo(), 1, [], Session),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg3)).
@@ -415,10 +415,11 @@ t_puback_with_dequeue(_) ->
 t_puback_error_packet_id_in_use(_) ->
     Inflight = emqx_inflight:insert(1, with_ts(wait_comp, undefined), emqx_inflight:new()),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} =
-        emqx_session_mem:puback(clientinfo(), 1, session(#{inflight => Inflight})).
+        emqx_session_mem:puback(clientinfo(), 1, [], session(#{inflight => Inflight})).
 
 t_puback_error_packet_id_not_found(_) ->
-    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session_mem:puback(clientinfo(), 1, session()).
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} =
+        emqx_session_mem:puback(clientinfo(), 1, [], session()).
 
 t_pubrec(_) ->
     Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<>>),
@@ -450,17 +451,18 @@ t_pubcomp(_) ->
     Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<>>),
     Inflight = emqx_inflight:insert(1, with_ts(wait_comp, Msg), emqx_inflight:new()),
     Session = session(#{inflight => Inflight}),
-    {ok, Msg, [], Session1} = emqx_session_mem:pubcomp(clientinfo(), 1, Session),
+    {ok, Msg, [], Session1} = emqx_session_mem:pubcomp(clientinfo(), 1, [], Session),
     ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session1)).
 
 t_pubcomp_error_packetid_in_use(_) ->
     Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<>>),
     Inflight = emqx_inflight:insert(1, {Msg, ts(millisecond)}, emqx_inflight:new()),
     Session = session(#{inflight => Inflight}),
-    {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session_mem:pubcomp(clientinfo(), 1, Session).
+    {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session_mem:pubcomp(clientinfo(), 1, [], Session).
 
 t_pubcomp_error_packetid_not_found(_) ->
-    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session_mem:pubcomp(clientinfo(), 1, session()).
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} =
+        emqx_session_mem:pubcomp(clientinfo(), 1, [], session()).
 
 %%--------------------------------------------------------------------
 %% Test cases for deliver/retry
@@ -468,7 +470,7 @@ t_pubcomp_error_packetid_not_found(_) ->
 
 t_dequeue(_) ->
     Q = mqueue(#{store_qos0 => true}),
-    {ok, [], Session} = emqx_session_mem:dequeue(clientinfo(), session(#{mqueue => Q})),
+    {ok, [], Session} = emqx_session_mem:dequeue(clientinfo(), [], session(#{mqueue => Q})),
     Msgs = [
         emqx_message:make(clientid, ?QOS_0, <<"t0">>, <<"payload">>),
         emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload">>),
@@ -476,7 +478,7 @@ t_dequeue(_) ->
     ],
     Session1 = emqx_session_mem:enqueue(clientinfo(), Msgs, Session),
     {ok, [{undefined, Msg0}, {1, Msg1}, {2, Msg2}], Session2} =
-        emqx_session_mem:dequeue(clientinfo(), Session1),
+        emqx_session_mem:dequeue(clientinfo(), [], Session1),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)),
     ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session2)),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg0)),
@@ -535,10 +537,10 @@ t_deliver_qos1(_) ->
     ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg2)),
-    {ok, Msg1T, [], Session2} = emqx_session_mem:puback(clientinfo(), 1, Session1),
+    {ok, Msg1T, [], Session2} = emqx_session_mem:puback(clientinfo(), 1, [], Session1),
     ?assertEqual(Msg1, remove_deliver_flag(Msg1T)),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session2)),
-    {ok, Msg2T, [], Session3} = emqx_session_mem:puback(clientinfo(), 2, Session2),
+    {ok, Msg2T, [], Session3} = emqx_session_mem:puback(clientinfo(), 2, [], Session2),
     ?assertEqual(Msg2, remove_deliver_flag(Msg2T)),
     ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session3)).
 
@@ -572,7 +574,7 @@ t_deliver_when_inflight_is_full(_) ->
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(1, emqx_session_mem:info(mqueue_len, Session1)),
     {ok, Msg1, [{2, Msg2}], Session2} =
-        emqx_session_mem:puback(clientinfo(), 1, Session1),
+        emqx_session_mem:puback(clientinfo(), 1, [], Session1),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session2)),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
@@ -587,6 +589,9 @@ t_deliver_qos0_when_inflight_is_full(_) ->
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg0)),
+    {ok, Msg1T, [], Session2} =
+        emqx_session_mem:puback(clientinfo(), 1, [], Session1),
+    ?assertEqual(<<"t1">>, emqx_message:topic(Msg1T)),
     ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session2)),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)).
 
@@ -889,7 +894,7 @@ t_retry(_) ->
     ElapseMs = 1500,
     ok = timer:sleep(ElapseMs),
     {ok, PubsRetry, RetryIntervalMs, Session3} = emqx_session_mem:handle_timeout(
-        clientinfo(), retry_delivery, Session2
+        clientinfo(), retry_delivery, [], Session2
     ),
     ?assertEqual(
         [
@@ -931,12 +936,12 @@ t_retry_dequeue_qos0(_TCConfig) ->
     {ok, [_Pub1, _Pub2], Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
     %% Immediately retrying would yield no messages, if it were attempted.
-    {ok, [], Session2} = emqx_session_mem:dequeue(clientinfo(), Session1),
+    {ok, [], Session2} = emqx_session_mem:dequeue(clientinfo(), [], Session1),
     %% After rate tokens are restored, no more messages are returned, because QoS 0
     %% messages are dropped.
     Session3 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session2),
     {ok, [], _Session4} =
-        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session3).
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], Session3).
 
 t_retry_dequeue_qos1(TCConfig) ->
     test_retry_dequeue(?QOS_1, TCConfig).
@@ -970,16 +975,16 @@ test_retry_dequeue(QoS, _TCConfig) ->
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
     ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect1),
     %% Immediately retrying would yield no messages, if it were attempted.
-    {Effect2, [], Session2} = emqx_session_mem:dequeue(clientinfo(), Session1),
+    {Effect2, [], Session2} = emqx_session_mem:dequeue(clientinfo(), [], Session1),
     ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect2),
     %% After rate tokens are restored, it should yield more messages that were enqueued.
     Session3 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session2),
     {ok, [_Pub3, _Pub4], Session4} =
-        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session3),
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], Session3),
     %% Nothing left.
     Session5 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session4),
     {ok, [], _Session6} =
-        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session5).
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], Session5).
 
 -doc """
 The session keeps the compact limiter placeholder while no delivery limit is configured.
@@ -1056,7 +1061,7 @@ t_delivery_rate_limit_preserves_qos12_order(_TCConfig) ->
     %% After cooldown, both `t1` and `t2` should pass through.
     Session2 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session1),
     {ok, Publishes, _Session3} =
-        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session2),
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], Session2),
     ?assertMatch(
         [{_, #message{topic = <<"t1">>}}, {_, #message{topic = <<"t2">>}}],
         Publishes
@@ -1088,13 +1093,13 @@ t_delivery_rate_limit_puback(_TCConfig) ->
     %% Now, a puback comes in while limiter is still recovering.  It shouldn't yield more
     %% publishes.
     {Effect2, _, [], Session2} =
-        emqx_session_mem:puback(clientinfo(), PacketId1, Session1),
+        emqx_session_mem:puback(clientinfo(), PacketId1, [], Session1),
     ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect2),
 
     %% After limiter tokens are restored, should dequeue the rest.
     Limiter = limiter_client(ListenerId),
     Session3 = emqx_session_mem:set_field(quota, Limiter, Session2),
-    {ok, _, [_, _], _Session3} = emqx_session_mem:puback(clientinfo(), PacketId2, Session3),
+    {ok, _, [_, _], _Session3} = emqx_session_mem:puback(clientinfo(), PacketId2, [], Session3),
 
     ok.
 
@@ -1125,14 +1130,14 @@ t_delivery_rate_limit_pubcomp(_TCConfig) ->
     %% Now, a puback comes in while limiter is still recovering.  It shouldn't yield more
     %% publishes.
     {ok, _, Session2} = emqx_session_mem:pubrec(PacketId1, Session1),
-    {Effect2, _, [], Session3} = emqx_session_mem:pubcomp(clientinfo(), PacketId1, Session2),
+    {Effect2, _, [], Session3} = emqx_session_mem:pubcomp(clientinfo(), PacketId1, [], Session2),
     ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect2),
 
     %% After limiter tokens are restored, should dequeue the rest.
     {ok, _, Session4} = emqx_session_mem:pubrec(PacketId2, Session3),
     Limiter = limiter_client(ListenerId),
     Session5 = emqx_session_mem:set_field(quota, Limiter, Session4),
-    {ok, _, [_, _], _Session5} = emqx_session_mem:pubcomp(clientinfo(), PacketId2, Session5).
+    {ok, _, [_, _], _Session5} = emqx_session_mem:pubcomp(clientinfo(), PacketId2, [], Session5).
 
 %%--------------------------------------------------------------------
 %% Test cases for takeover/resume

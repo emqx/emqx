@@ -950,10 +950,11 @@ process_puback(
     ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
     Channel = #channel{
         clientinfo = ClientInfo,
-        session = Session
+        session = Session,
+        conn_flags = Flags
     }
 ) ->
-    case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
+    case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Flags, Session) of
         {ok, Msg, [], NSession} ->
             ok = after_message_acked(Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
@@ -1029,10 +1030,11 @@ process_pubcomp(
     ?PUBCOMP_PACKET(PacketId, ReasonCode),
     Channel = #channel{
         clientinfo = ClientInfo,
-        session = Session
+        session = Session,
+        conn_flags = Flags
     }
 ) ->
-    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
+    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Flags, Session) of
         {ok, [], NSession} ->
             {ok, Channel#channel{session = NSession}};
         {OkEffects, Publishes, NSession} ->
@@ -2155,7 +2157,7 @@ handle_timeout(
 handle_timeout(
     _TRef,
     TimerName,
-    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo, conn_flags = Flags}
 ) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
     %% NOTE
     %% Responsibility for these timers is smeared across both this module and the
@@ -2163,7 +2165,7 @@ handle_timeout(
     %% responsible for the actual timeout logic. Yet they are managed here, since
     %% they are kind of common to all session implementations.
     Channel1 = clean_timer(TimerName, Channel0),
-    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Flags, Session) of
         {OkEffects, Publishes, NSession} ->
             Channel = apply_session_effects(OkEffects, Channel1#channel{session = NSession}),
             handle_out(publish, Publishes, Channel);
@@ -2174,10 +2176,10 @@ handle_timeout(
 handle_timeout(
     _TRef,
     {emqx_session, TimerName} = Timer,
-    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo, conn_flags = Flags}
 ) ->
     Channel1 = clean_timer(Timer, Channel0),
-    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Flags, Session) of
         {ok, [], NSession} ->
             {ok, Channel1#channel{session = NSession}};
         {OkEffects, Replies, NSession} ->
