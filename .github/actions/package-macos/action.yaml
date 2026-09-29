@@ -25,7 +25,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: emqx/macos-erlang@1e65a0125f99969fd5623999fe52e49f4fa542d5 # v1.2.0
+    - uses: emqx/macos-erlang@10f04f0f2883d502946c32c643d57c84392c98d6 # v1.2.1
       with:
         otp-version: ${{ inputs.otp }}
         install-elixir: true
