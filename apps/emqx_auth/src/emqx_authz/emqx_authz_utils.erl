@@ -18,6 +18,7 @@
     vars_for_rule_query/2,
     authorize_with_row/6,
     authz_backend_failure_policy/0,
+    authz_rule_render_failure_policy/0,
     backend_failure_result/0,
     init_state/2,
     cleanup_resource_config/2
@@ -252,6 +253,14 @@ authz_backend_failure_policy() ->
         true -> ignore;
         false -> deny;
         per_security_profile -> emqx_security_profile:policy(authz_backend_failure)
+    end.
+
+-spec authz_rule_render_failure_policy() -> ignore | deny.
+authz_rule_render_failure_policy() ->
+    case emqx:get_config([authorization, ignore_rule_render_failures], per_security_profile) of
+        true -> ignore;
+        false -> deny;
+        per_security_profile -> emqx_security_profile:policy(authz_rule_render_failure)
     end.
 
 -spec init_state(emqx_authz_source:source(), map()) -> emqx_authz_source:source_state().

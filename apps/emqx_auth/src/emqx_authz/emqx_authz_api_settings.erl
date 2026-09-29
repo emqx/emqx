@@ -57,7 +57,11 @@ schema("/authorization/settings") ->
     }.
 
 ref_authz_schema() ->
-    emqx_schema:authz_fields() ++ [emqx_authz_schema:ignore_backend_failures_field()].
+    emqx_schema:authz_fields() ++
+        [
+            emqx_authz_schema:ignore_backend_failures_field(),
+            emqx_authz_schema:ignore_rule_render_failures_field()
+        ].
 
 settings(get, _Params) ->
     {200, authorization_settings()};
@@ -67,7 +71,8 @@ settings(put, #{body := Body}) ->
         <<"deny_action">> := DenyAction,
         <<"cache">> := Cache,
         <<"include_mountpoint">> := IncludeMountpoint,
-        <<"ignore_backend_failures">> := IgnoreBackendFailures
+        <<"ignore_backend_failures">> := IgnoreBackendFailures,
+        <<"ignore_rule_render_failures">> := IgnoreRuleRenderFailures
         %% We do not pass the body to emqx_conf:update_config/3 which
         %% fills the defaults. So we need to fill the defaults here
     } = emqx_schema:fill_defaults(ref_authz_schema(), Body),
@@ -85,6 +90,9 @@ settings(put, #{body := Body}) ->
     ),
     {ok, _} = emqx_authz_utils:update_config(
         [authorization, ignore_backend_failures], IgnoreBackendFailures
+    ),
+    {ok, _} = emqx_authz_utils:update_config(
+        [authorization, ignore_rule_render_failures], IgnoreRuleRenderFailures
     ),
 
     {200, authorization_settings()}.

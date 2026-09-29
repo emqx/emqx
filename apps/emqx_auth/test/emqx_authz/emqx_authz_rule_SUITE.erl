@@ -732,6 +732,39 @@ t_topic_template_allow_security_profile(_) ->
         emqx_config:put([authorization, topic_template_allow], Default)
     end.
 
+-doc """
+Checks that `ignore_rule_render_failures` decides the result of a topic template
+render failure in both security profiles, and that `ignore_backend_failures`
+does not affect it.
+""".
+t_rule_render_failure_setting(_) ->
+    Defaults = emqx_config:get([authorization]),
+    try
+        lists:foreach(
+            fun({Profile, Value, BackendValue, Policy}) ->
+                emqx_config:put([authorization, ignore_rule_render_failures], Value),
+                emqx_config:put([authorization, ignore_backend_failures], BackendValue),
+                emqx_common_test_helpers:with_security_profile(Profile, fun() ->
+                    ?assertEqual(
+                        {Profile, Value, Policy},
+                        {Profile, Value, emqx_authz_utils:authz_rule_render_failure_policy()}
+                    ),
+                    assert_rule_render_failure_result(Policy)
+                end)
+            end,
+            [
+                {"legacy", per_security_profile, false, ignore},
+                {"hardened", per_security_profile, true, deny},
+                {"legacy", true, false, ignore},
+                {"hardened", true, false, ignore},
+                {"legacy", false, true, deny},
+                {"hardened", false, true, deny}
+            ]
+        )
+    after
+        emqx_config:put([authorization], Defaults)
+    end.
+
 t_invalid_rule(_) ->
     ?assertThrow(
         #{reason := invalid_authorization_permission},
@@ -874,6 +907,31 @@ with_security_profile(Profile, Fun) ->
         os:unsetenv(?PROFILE_ENV_VAR),
         emqx_security_profile:clear_profile()
     end.
+
+assert_rule_render_failure_result(ignore) ->
+    do_assert_rule_render_failure_result(nomatch, {matched, allow});
+assert_rule_render_failure_result(deny) ->
+    do_assert_rule_render_failure_result({matched, deny}, {matched, deny}).
+
+do_assert_rule_render_failure_result(Expected, ExpectedWithFallbackFilter) ->
+    Action = #{action_type => publish, qos => 0, retain => false},
+    Match = fun(ClientInfoOverride, Topic, Filters) ->
+        emqx_authz_rule:match(
+            client_info(ClientInfoOverride),
+            Action,
+            Topic,
+            emqx_authz_rule:compile({allow, all, publish, Filters})
+        )
+    end,
+    ?assertEqual(
+        Expected,
+        Match(#{}, <<"cert/x/data">>, ["cert/${cert_common_name}/data"])
+    ),
+    assert_topic_template_injection_result(Expected),
+    ?assertEqual(
+        ExpectedWithFallbackFilter,
+        Match(#{username => <<"+">>}, <<"public/x">>, ["tenant/${username}/data", "public/#"])
+    ).
 
 assert_topic_template_injection_result(Expected) ->
     Action = #{action_type => publish, qos => 0, retain => false},
