@@ -29,7 +29,7 @@
     on_get_status/2,
     on_format_query_result/1
 ]).
--export([reply_callback/2]).
+-export([reply_callback/2, batch_reply_callback/3]).
 
 -export([
     roots/0,
@@ -49,6 +49,9 @@
 -define(greptime_client, greptime_client).
 
 -define(GREPTIMEDB_DEFAULT_PORT, 4001).
+-define(INT64_MIN, -16#8000000000000000).
+-define(INT64_MAX, 16#7FFFFFFFFFFFFFFF).
+-define(UINT64_MAX, 16#FFFFFFFFFFFFFFFF).
 
 -define(DEFAULT_DB, <<"public">>).
 
@@ -125,13 +128,20 @@ on_query(InstId, {Channel, Message}, State) ->
         client := Client,
         dbname := DbName
     } = State,
-    case parse_batch_data(InstId, DbName, [{Channel, Message}], SyntaxLines) of
+    case parse_single_data(InstId, DbName, Message, SyntaxLines) of
         {ok, Points} ->
             ?tp(
                 greptimedb_connector_send_query,
                 #{points => Points, batch => false, mode => sync}
             ),
             do_query(InstId, Channel, Client, Points);
+        {ok, _Points, [{error, _} = Error | _]} ->
+            %% A single message: its own transformation failed.
+            ?tp(
+                greptimedb_connector_send_query_error,
+                #{batch => false, mode => sync, error => points_trans_failed}
+            ),
+            Error;
         {error, ErrorPoints} ->
             ?tp(
                 greptimedb_connector_send_query_error,
@@ -140,8 +150,6 @@ on_query(InstId, {Channel, Message}, State) ->
             {error, {unrecoverable_error, ErrorPoints}}
     end.
 
-%% Once a Batched Data trans to points failed.
-%% This batch query failed
 on_batch_query(InstId, [{Channel, _} | _] = BatchData, State) ->
     #{
         channels := #{Channel := #{write_syntax := SyntaxLines}},
@@ -155,12 +163,22 @@ on_batch_query(InstId, [{Channel, _} | _] = BatchData, State) ->
                 #{points => Points, batch => true, mode => sync}
             ),
             do_query(InstId, Channel, Client, Points);
-        {error, Reason} ->
+        {ok, Points, BatchResults} ->
             ?tp(
                 greptimedb_connector_send_query_error,
-                #{batch => true, mode => sync, error => Reason}
+                #{batch => true, mode => sync, error => points_trans_failed}
             ),
-            {error, {unrecoverable_error, Reason}}
+            case Points of
+                [] ->
+                    merge_batch_result(ok, BatchResults);
+                _ ->
+                    ?tp(
+                        greptimedb_connector_send_query,
+                        #{points => Points, batch => true, mode => sync}
+                    ),
+                    Result = do_query(InstId, Channel, Client, Points),
+                    merge_batch_result(Result, BatchResults)
+            end
     end.
 
 on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
@@ -169,13 +187,21 @@ on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
         client := Client,
         dbname := DbName
     } = State,
-    case parse_batch_data(InstId, DbName, [{Channel, Message}], SyntaxLines) of
+    case parse_single_data(InstId, DbName, Message, SyntaxLines) of
         {ok, Points} ->
             ?tp(
                 greptimedb_connector_send_query,
                 #{points => Points, batch => false, mode => async}
             ),
-            do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
+            do_async_query(Channel, Client, Points, {ReplyFun, Args});
+        {ok, _Points, [{error, _} = Error | _]} ->
+            %% A single message: its own transformation failed.
+            ?tp(
+                greptimedb_connector_send_query_error,
+                #{batch => false, mode => async, error => points_trans_failed}
+            ),
+            emqx_resource:apply_reply_fun({ReplyFun, Args}, Error),
+            ok;
         {error, ErrorPoints} ->
             ?tp(
                 greptimedb_connector_send_query_error,
@@ -196,13 +222,26 @@ on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, S
                 greptimedb_connector_send_query,
                 #{points => Points, batch => true, mode => async}
             ),
-            do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
-        {error, Reason} ->
+            do_async_query(Channel, Client, Points, {ReplyFun, Args});
+        {ok, Points, BatchResults} ->
             ?tp(
                 greptimedb_connector_send_query_error,
-                #{batch => true, mode => async, error => Reason}
+                #{batch => true, mode => async, error => points_trans_failed}
             ),
-            {error, {unrecoverable_error, Reason}}
+            ReplyFunAndArgs = {ReplyFun, Args},
+            case Points of
+                [] ->
+                    emqx_resource:apply_reply_fun(
+                        ReplyFunAndArgs, merge_batch_result(ok, BatchResults)
+                    ),
+                    ok;
+                _ ->
+                    ?tp(
+                        greptimedb_connector_send_query,
+                        #{points => Points, batch => true, mode => async}
+                    ),
+                    do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs)
+            end
     end.
 
 on_get_status(_InstId, #{client := Client}) ->
@@ -462,7 +501,7 @@ do_query(InstId, Channel, Client, Points) ->
             ?SLOG(debug, #{
                 msg => "greptimedb_write_point_success",
                 connector => InstId,
-                points => Points
+                affected_rows => Rows
             }),
             {ok, {affected_rows, Rows}};
         {error, {unauth, _, _}} ->
@@ -493,37 +532,60 @@ on_format_query_result({ok, {affected_rows, Rows}}) ->
 on_format_query_result(Result) ->
     Result.
 
-do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs) ->
-    ?SLOG(info, #{
-        msg => "greptimedb_write_point_async",
-        connector => InstId,
-        points => Points
-    }),
+do_async_query(Channel, Client, Points, ReplyFunAndArgs) ->
     emqx_trace:rendered_action_template(Channel, #{points => Points}),
     WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
     ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
 
-reply_callback(ReplyFunAndArgs, {error, {unauth, _, _}}) ->
+do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs) ->
+    emqx_trace:rendered_action_template(Channel, #{points => Points}),
+    WrappedReplyFunAndArgs = {
+        fun ?MODULE:batch_reply_callback/3, [ReplyFunAndArgs, BatchResults]
+    },
+    ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
+
+reply_callback(ReplyFunAndArgs, Result0) ->
+    Result = classify_query_result(Result0),
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
+
+batch_reply_callback(ReplyFunAndArgs, BatchResults, Result0) ->
+    Result = classify_query_result(Result0),
+    emqx_resource:apply_reply_fun(
+        ReplyFunAndArgs, merge_batch_result(Result, BatchResults)
+    ).
+
+classify_query_result({error, {unauth, _, _}}) ->
     ?tp(greptimedb_connector_do_query_failure, #{error => <<"authorization failure">>}),
-    Result = {error, {unrecoverable_error, <<"authorization failure">>}},
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
-reply_callback(ReplyFunAndArgs, {error, Reason} = Error) ->
+    {error, {unrecoverable_error, <<"authorization failure">>}};
+classify_query_result({error, Reason} = Error) ->
     case is_unrecoverable_error(Error) of
         true ->
-            Result = {error, {unrecoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+            {error, {unrecoverable_error, Reason}};
         false ->
-            Result = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+            {error, {recoverable_error, Reason}}
     end;
-reply_callback(ReplyFunAndArgs, Result) ->
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
+classify_query_result(Result) ->
+    Result.
+
+merge_batch_result({error, _} = Error, _BatchResults) ->
+    Error;
+merge_batch_result(Result, BatchResults) ->
+    lists:map(
+        fun
+            (valid) -> Result;
+            ({error, _} = Error) -> Error
+        end,
+        BatchResults
+    ).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Data Trans
 
 parse_batch_data(InstId, DbName, BatchData, SyntaxLines) ->
     emqx_bridge_greptimedb_utils:parse_batch_data(InstId, DbName, BatchData, SyntaxLines, erlang).
+
+parse_single_data(InstId, DbName, Data, SyntaxLines) ->
+    emqx_bridge_greptimedb_utils:parse_single_data(InstId, DbName, Data, SyntaxLines, erlang).
 
 %% helper funcs
 
@@ -562,6 +624,150 @@ is_auth_key_test_() ->
         ?_assertNot(is_auth_key(<<"Something">>)),
         ?_assertNot(is_auth_key(89))
     ].
+
+integer_point_validation_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"rtc,channel=${channel} e2e_delay=${m.e2e_delay}i">>
+    ),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
+    Data0 = #{
+        <<"channel">> => <<"repro-channel">>,
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    ValidData = Data0#{<<"m">> => #{<<"e2e_delay">> => 470}},
+    InvalidData = Data0#{<<"m">> => #{<<"e2e_delay">> => 470.5}},
+    {ok, [{_, [#{fields := Fields}]}]} =
+        emqx_bridge_greptimedb_utils:data_to_points(ValidData, <<"public">>, SyntaxLines, erlang),
+    ?assertEqual(
+        #{value_data => {i64_value, 470}},
+        maps:get(<<"e2e_delay">>, Fields)
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {f64_value, 470.0}}}, emqx_bridge_greptimedb_utils:value_type([470])
+    ),
+    InvalidErrorPoints = [{error, {invalid_integer_value, 470.5}}],
+    ?assertEqual(
+        {error, InvalidErrorPoints},
+        emqx_bridge_greptimedb_utils:data_to_points(InvalidData, <<"public">>, SyntaxLines, erlang)
+    ),
+    {ok, ValidPoints, BatchResults} =
+        parse_batch_data(
+            <<"connector:test">>,
+            <<"public">>,
+            [{channel, ValidData}, {channel, InvalidData}],
+            SyntaxLines
+        ),
+    ?assertMatch([_], ValidPoints),
+    InvalidResult = {error, {unrecoverable_error, points_trans_failed}},
+    ?assertEqual([valid, InvalidResult], BatchResults),
+    ?assertEqual(
+        [{ok, written}, InvalidResult],
+        merge_batch_result({ok, written}, BatchResults)
+    ),
+    ?assertEqual(
+        {error, {recoverable_error, timeout}},
+        merge_batch_result({error, {recoverable_error, timeout}}, BatchResults)
+    ),
+    Self = self(),
+    ReplyFunAndArgs = {fun(Result) -> Self ! Result end, []},
+    ok = batch_reply_callback(ReplyFunAndArgs, BatchResults, {ok, written}),
+    receive
+        CallbackResult ->
+            ?assertEqual([{ok, written}, InvalidResult], CallbackResult)
+    after 1_000 ->
+        error(callback_timeout)
+    end,
+    AllInvalidBatch = [{channel, InvalidData}, {channel, InvalidData}],
+    State = #{
+        channels => #{channel => #{write_syntax => SyntaxLines}},
+        client => unused,
+        dbname => <<"public">>
+    },
+    SingleInvalidResult = {error, {unrecoverable_error, InvalidErrorPoints}},
+    ?assertEqual(
+        SingleInvalidResult,
+        on_query(<<"connector:test">>, {channel, InvalidData}, State)
+    ),
+    ?assertEqual(
+        SingleInvalidResult,
+        on_query_async(
+            <<"connector:test">>, {channel, InvalidData}, ReplyFunAndArgs, State
+        )
+    ),
+    ?assertEqual(
+        [InvalidResult, InvalidResult],
+        on_batch_query(<<"connector:test">>, AllInvalidBatch, State)
+    ),
+    ?assertEqual(
+        ok,
+        on_batch_query_async(
+            <<"connector:test">>, AllInvalidBatch, ReplyFunAndArgs, State
+        )
+    ),
+    receive
+        AllInvalidResult ->
+            ?assertEqual([InvalidResult, InvalidResult], AllInvalidResult)
+    after 1_000 ->
+        error(callback_timeout)
+    end,
+    ?assertEqual(
+        {error, {invalid_string_value, [470.5, <<"x">>]}},
+        emqx_bridge_greptimedb_utils:value_type([470.5, <<"x">>])
+    ).
+
+numeric_range_validation_test() ->
+    ?assertEqual(
+        {ok, #{value_data => {i64_value, ?INT64_MIN}}},
+        emqx_bridge_greptimedb_utils:value_type([?INT64_MIN, <<"i">>])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {i64_value, ?INT64_MAX}}},
+        emqx_bridge_greptimedb_utils:value_type([?INT64_MAX, <<"i">>])
+    ),
+    ?assertEqual(
+        {error, {invalid_integer_value, ?INT64_MIN - 1}},
+        emqx_bridge_greptimedb_utils:value_type([?INT64_MIN - 1, <<"i">>])
+    ),
+    ?assertEqual(
+        {error, {invalid_integer_value, ?INT64_MAX + 1}},
+        emqx_bridge_greptimedb_utils:value_type([?INT64_MAX + 1, <<"i">>])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {u64_value, ?UINT64_MAX}}},
+        emqx_bridge_greptimedb_utils:value_type([?UINT64_MAX, <<"u">>])
+    ),
+    ?assertEqual(
+        {error, {invalid_unsigned_integer_value, -1}},
+        emqx_bridge_greptimedb_utils:value_type([-1, <<"u">>])
+    ),
+    ?assertEqual(
+        {error, {invalid_unsigned_integer_value, ?UINT64_MAX + 1}},
+        emqx_bridge_greptimedb_utils:value_type([?UINT64_MAX + 1, <<"u">>])
+    ),
+    TooLargeForFloat64 = 1 bsl 1024,
+    ?assertEqual(
+        {error, {invalid_float_value, TooLargeForFloat64}},
+        emqx_bridge_greptimedb_utils:value_type([TooLargeForFloat64])
+    ),
+    ?assertEqual(
+        {ok, ?INT64_MIN}, emqx_bridge_greptimedb_utils:convert_timestamp(?INT64_MIN, {ns, ns})
+    ),
+    ?assertEqual(
+        {ok, ?INT64_MAX}, emqx_bridge_greptimedb_utils:convert_timestamp(?INT64_MAX, {ns, ns})
+    ),
+    ?assertEqual(
+        {error, {bad_timestamp, ?INT64_MIN - 1}},
+        emqx_bridge_greptimedb_utils:convert_timestamp(?INT64_MIN - 1, {ns, ns})
+    ),
+    ?assertEqual(
+        {error, {bad_timestamp, ?INT64_MAX + 1}},
+        emqx_bridge_greptimedb_utils:convert_timestamp(?INT64_MAX + 1, {ns, ns})
+    ),
+    MillisecondOverflow = ?INT64_MAX div 1_000_000 + 1,
+    ?assertEqual(
+        {error, {bad_timestamp, MillisecondOverflow}},
+        emqx_bridge_greptimedb_utils:convert_timestamp(MillisecondOverflow, {ms, ns})
+    ).
 
 %% for coverage
 desc_test_() ->
