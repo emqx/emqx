@@ -754,7 +754,8 @@ t_progress_restoration_acked_stream_from_old_gen(_Config) ->
     ok = emqx_mq_message_db:add_regular_db_generation(),
     %% Create a non-lastvalue Queue
     MQ =
-        emqx_mq_test_utils:create_mq(#{
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"acked_stream_from_old_gen">>,
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             consumer_max_inactive => 50
@@ -767,7 +768,7 @@ t_progress_restoration_acked_stream_from_old_gen(_Config) ->
     %% Consume and acknowledge all the messages
     emqx_mq_test_utils:populate(10, PopulateOpts#{payload_prefix => <<"payload-old-">>}),
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"acked_stream_from_old_gen">>),
     {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 500),
     ?assertEqual(10, length(Msgs0)),
 
@@ -781,7 +782,7 @@ t_progress_restoration_acked_stream_from_old_gen(_Config) ->
 
     %% Start the client and the consumer again
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"acked_stream_from_old_gen">>),
 
     %% Verify that we receive all new messages and no old ones
     {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 0, _Timeout1 = 500),
