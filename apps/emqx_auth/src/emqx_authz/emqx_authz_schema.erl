@@ -17,6 +17,7 @@
 -export([
     authz_fields/0,
     ignore_backend_failures_field/0,
+    ignore_rule_render_failures_field/0,
     api_source_type/0,
     source_types/0
 ]).
@@ -148,6 +149,7 @@ injected_fields(AuthzSchemaMods) ->
 authz_fields() ->
     [
         ignore_backend_failures_field(),
+        ignore_rule_render_failures_field(),
         {topic_template_allow,
             hoconsc:mk(?R_REF(topic_template_allow), #{
                 default => #{
@@ -171,6 +173,14 @@ ignore_backend_failures_field() ->
         hoconsc:mk(hoconsc:enum([per_security_profile, true, false]), #{
             default => per_security_profile,
             desc => ?DESC(ignore_backend_failures),
+            importance => ?IMPORTANCE_LOW
+        })}.
+
+ignore_rule_render_failures_field() ->
+    {ignore_rule_render_failures,
+        hoconsc:mk(hoconsc:enum([per_security_profile, true, false]), #{
+            default => per_security_profile,
+            desc => ?DESC(ignore_rule_render_failures),
             importance => ?IMPORTANCE_LOW
         })}.
 

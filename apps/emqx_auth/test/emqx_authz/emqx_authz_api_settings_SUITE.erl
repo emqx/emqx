@@ -61,7 +61,8 @@ t_api(_) ->
             <<"excludes">> => [<<"nocache/#">>]
         },
         <<"include_mountpoint">> => true,
-        <<"ignore_backend_failures">> => true
+        <<"ignore_backend_failures">> => true,
+        <<"ignore_rule_render_failures">> => false
     },
     Settings1Get = Settings1Put,
 
@@ -83,7 +84,8 @@ t_api(_) ->
     Settings2Get = Settings2Put#{
         <<"cache">> := Cache#{<<"excludes">> => []},
         <<"include_mountpoint">> => DefaultIncludeMountpoint,
-        <<"ignore_backend_failures">> => <<"per_security_profile">>
+        <<"ignore_backend_failures">> => <<"per_security_profile">>,
+        <<"ignore_rule_render_failures">> => <<"per_security_profile">>
     },
 
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2Put),
@@ -91,15 +93,19 @@ t_api(_) ->
     ?assertEqual(Settings2Get, emqx_utils_json:decode(Result2)),
 
     lists:foreach(
-        fun(Value) ->
-            Put = Settings2Get#{<<"ignore_backend_failures">> => Value},
+        fun({Key, Value}) ->
+            Put = Settings2Get#{Key => Value},
             {ok, 200, Result3} = request(put, uri(["authorization", "settings"]), Put),
             {ok, 200, Result3} = request(get, uri(["authorization", "settings"]), []),
             ?assertEqual(Put, emqx_utils_json:decode(Result3)),
             %% The GET response must be accepted back unchanged.
             {ok, 200, Result3} = request(put, uri(["authorization", "settings"]), Put)
         end,
-        [false, true, <<"per_security_profile">>]
+        [
+            {Key, Value}
+         || Key <- [<<"ignore_backend_failures">>, <<"ignore_rule_render_failures">>],
+            Value <- [false, true, <<"per_security_profile">>]
+        ]
     ),
 
     ok.

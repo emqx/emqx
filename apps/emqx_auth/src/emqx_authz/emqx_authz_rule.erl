@@ -354,6 +354,8 @@ match(AuthzContext, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) ->
         true -> {matched, Permission};
         _ -> nomatch
     catch
+        throw:{cannot_render_topic_template, _} ->
+            {matched, deny};
         throw:_Reason ->
             case emqx_authz_utils:authz_backend_failure_policy() of
                 ignore -> nomatch;
@@ -496,13 +498,13 @@ render_topic(Topic, AuthzContext) ->
             })
         )
     catch
-        error:Reason ->
+        Class:Reason when Class =:= error; Class =:= throw ->
             ?SLOG(debug, #{
                 msg => "failed_to_render_topic_template",
                 template => Topic,
                 reason => Reason
             }),
-            case emqx_authz_utils:authz_backend_failure_policy() of
+            case emqx_authz_utils:authz_rule_render_failure_policy() of
                 ignore -> error;
                 deny -> throw({cannot_render_topic_template, Reason})
             end

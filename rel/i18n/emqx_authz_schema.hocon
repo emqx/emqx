@@ -167,6 +167,15 @@ ignore_backend_failures.desc:
 ignore_backend_failures.label:
 """Ignore Backend Failures"""
 
+ignore_rule_render_failures.desc:
+"""Decides what happens when EMQX cannot render a topic template in an authorization rule. For example, a placeholder has no value for the client, or a substituted value contains a topic wildcard or a topic level separator (`+`, `#` or `/`).
+- `per_security_profile`: Follow the security profile. The `legacy` profile skips the topic filter. The `hardened` profile denies the action.
+- `true`: Skip the topic filter in both security profiles.
+- `false`: Deny the action in both security profiles."""
+
+ignore_rule_render_failures.label:
+"""Ignore Rule Render Failures"""
+
 topic_template_allow.desc:
 """Controls whether client-controlled values interpolated into authorization topic templates may contain MQTT topic-filter characters."""
 
