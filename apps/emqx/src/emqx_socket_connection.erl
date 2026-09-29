@@ -434,9 +434,6 @@ recvloop(Parent, State = #state{conf = Conf}) ->
 
 handle_recv({system, From, Request}, Parent, State) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
-handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
-    %% FIXME: it's not trapping exit, should never receive an EXIT
-    terminate(Reason, State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
