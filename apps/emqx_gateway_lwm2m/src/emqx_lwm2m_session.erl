@@ -305,7 +305,23 @@ send_cmd(Cmd, WithContext, Session) ->
 
 resume_pending(_, WithContext, #session{blockwise = BW0} = Session) ->
     BW1 = emqx_coap_blockwise:expire(erlang:monotonic_time(millisecond), BW0),
-    return(send_dl_msg(WithContext, Session#session{blockwise = BW1})).
+    Session1 = Session#session{blockwise = BW1},
+    case Session#session.wait_ack of
+        undefined ->
+            return(send_dl_msg(WithContext, Session1));
+        Ctx ->
+            case
+                emqx_coap_blockwise:has_active_client_exchange(Ctx, BW0) andalso
+                    not emqx_coap_blockwise:has_active_client_exchange(Ctx, BW1)
+            of
+                true ->
+                    Coap = emqx_coap_tm:abort_context(Ctx, Session1#session.coap),
+                    Session2 = Session1#session{coap = Coap},
+                    return(handle_ack_failure(Ctx, <<"coap_timeout">>, WithContext, Session2));
+                false ->
+                    return(send_dl_msg(WithContext, Session1))
+            end
+    end.
 
 set_subscriptions(Subs, Session) ->
     Session#session{subscriptions = Subs}.

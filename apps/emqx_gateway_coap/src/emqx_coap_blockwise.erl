@@ -15,6 +15,7 @@
     client_in_response/3,
     expire/2,
     has_active_client_tx/2,
+    has_active_client_exchange/2,
     block1_required/2,
     blockwise_size/1,
     max_body_size/1,
@@ -128,6 +129,10 @@ max_body_size(#{opts := Opts}) -> maps:get(max_body_size, Opts, ?DEFAULT_MAX_BOD
 -spec has_active_client_tx(term(), state()) -> boolean().
 has_active_client_tx(Ctx, #{client_tx_block1 := TxMap}) ->
     maps:is_key(client_tx_key(Ctx), TxMap).
+
+-spec has_active_client_exchange(term(), state()) -> boolean().
+has_active_client_exchange(Ctx, #{client_tx_block1 := TxMap, client_rx_block2 := RxMap}) ->
+    maps:is_key(client_tx_key(Ctx), TxMap) orelse maps:is_key(client_rx_key(Ctx), RxMap).
 
 -spec block1_required(coap_message(), state()) -> boolean().
 block1_required(#coap_message{payload = Payload, options = Opts}, State) ->

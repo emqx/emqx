@@ -302,3 +302,16 @@ t_tm_timer_cleanup(_) ->
     TMWithTimer = TM1#{SeqId => Machine#state_machine{state = wait_ack, timers = Timers}},
     _ = emqx_coap_tm:timeout({SeqId, state_timeout, ack_timeout}, TMWithTimer),
     ok.
+
+t_tm_abort_context(_) ->
+    Ctx1 = #{request_id => 1},
+    Ctx2 = #{request_id => 2},
+    TM0 = emqx_coap_tm:new(),
+    Req1 = #coap_message{type = con, method = get, token = <<"abort-1">>},
+    Req2 = #coap_message{type = con, method = get, token = <<"abort-2">>},
+    #{tm := TM1} = emqx_coap_tm:handle_out(Req1, Ctx1, TM0),
+    #{tm := TM2} = emqx_coap_tm:handle_out(Req2, Ctx2, TM1),
+    TM3 = emqx_coap_tm:abort_context(Ctx1, TM2),
+    ?assertEqual(false, maps:is_key({token, <<"abort-1">>}, TM3)),
+    ?assert(maps:is_key({token, <<"abort-2">>}, TM3)),
+    ?assertEqual(TM3, emqx_coap_tm:abort_context(Ctx1, TM3)).

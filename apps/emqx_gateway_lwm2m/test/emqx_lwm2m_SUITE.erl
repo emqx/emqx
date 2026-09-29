@@ -195,7 +195,8 @@ groups() ->
             case148_subscribe_mountpoint_after_authorization,
             case148_blockwise_downlink_limit_drains_queue,
             case149_blockwise_busy_resumes_after_expiry,
-            case150_blockwise_abort_resumes_pending
+            case150_blockwise_abort_resumes_pending,
+            case151_active_blockwise_downlink_expiry_resumes_pending
         ]}
     ].
 
@@ -5939,6 +5940,51 @@ case149_blockwise_busy_resumes_after_expiry(_Config) ->
         emqx_lwm2m_channel:handle_timeout(Ref, blockwise_expire, Channel1),
     ?assertEqual({0, true, 16}, maps:get(block1, FirstBlock#coap_message.options)),
     ?assertEqual(0, queue:len(element(3, element(5, Channel2)))).
+
+case151_active_blockwise_downlink_expiry_resumes_pending(_Config) ->
+    WithContext = capture_with_context(self()),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, exchange_lifetime => 50}),
+    Session0 = emqx_lwm2m_session:new(),
+    Session1 = setelement(15, setelement(7, Session0, #{<<"alternatePath">> => <<"/">>}), BW0),
+    Cmd1 = #{
+        <<"msgType">> => <<"write">>,
+        <<"requestID">> => 3020,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => binary:copy(<<"A">>, 64)
+        }
+    },
+    #{return := {[FirstReq], Session2}} = emqx_lwm2m_session:send_cmd(
+        Cmd1, WithContext, Session1
+    ),
+    ?assertEqual({0, true, 16}, maps:get(block1, FirstReq#coap_message.options)),
+    Cmd2 = Cmd1#{<<"requestID">> => 3021},
+    #{return := {[], Session3}} = emqx_lwm2m_session:send_cmd(Cmd2, WithContext, Session2),
+    ?assertEqual(1, queue:len(element(3, Session3))),
+    OldCoap = element(2, Session3),
+    OldSeqId = maps:get({out, FirstReq#coap_message.id}, OldCoap),
+    Ctx = #{gwname => lwm2m, cm => whereis(emqx_gateway_lwm2m_cm)},
+    ConnInfo = #{peername => {{127, 0, 0, 1}, 56830}, sockname => {{127, 0, 0, 1}, 56830}},
+    Channel0 = emqx_lwm2m_channel:init(ConnInfo, #{ctx => Ctx}),
+    Ref = make_ref(),
+    Channel1 = setelement(
+        8,
+        setelement(7, setelement(5, Channel0, Session3), #{blockwise_expire => Ref}),
+        WithContext
+    ),
+    timer:sleep(60),
+    {ok, [{outgoing, [NextReq]}], Channel2} =
+        emqx_lwm2m_channel:handle_timeout(Ref, blockwise_expire, Channel1),
+    ?assertEqual({0, true, 16}, maps:get(block1, NextReq#coap_message.options)),
+    Session4 = element(5, Channel2),
+    ?assertEqual(0, queue:len(element(3, Session4))),
+    ?assertEqual(Cmd2, element(4, Session4)),
+    NewCoap = element(2, Session4),
+    ?assertEqual(false, maps:is_key(OldSeqId, NewCoap)),
+    ?assertEqual(#{}, emqx_coap_tm:timeout({OldSeqId, state_timeout, ack_timeout}, NewCoap)),
+    ?assertEqual(<<"coap_timeout">>, maps:get(<<"msgType">>, wait_publish_payload())),
+    expect_no_publish().
 
 case150_blockwise_abort_resumes_pending(_Config) ->
     WithContext = capture_with_context(self()),
