@@ -220,9 +220,16 @@ build_zone_conf(Zone, #{
     force_gc := ForceGc,
     force_shutdown := ForceShutdown
 }) ->
-    zone_conf(Zone, HibernateAfter, MinorGcAfter, ForceGc, ForceShutdown);
+    case is_complete_force_gc(ForceGc) of
+        true -> zone_conf(Zone, HibernateAfter, MinorGcAfter, ForceGc, ForceShutdown);
+        false -> undefined
+    end;
 build_zone_conf(_Zone, _ZoneConf) ->
     undefined.
+
+is_complete_force_gc(#{enable := false}) -> true;
+is_complete_force_gc(#{enable := true, count := _, bytes := _}) -> true;
+is_complete_force_gc(_) -> false.
 
 zone_conf(Zone, HibernateAfter, MinorGcAfter, ForceGc, ForceShutdown) ->
     #zone_conf{

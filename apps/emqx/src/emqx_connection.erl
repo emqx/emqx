@@ -527,12 +527,10 @@ get_zone_idle_timeout(Zone) ->
 
 %% A QUIC listener passes its own `hibernate_after' in `Opts'.
 zone_conf(Zone, Opts) ->
-    ZoneConf = emqx_connection_conf:zone_conf(Zone),
-    case Opts of
-        #{hibernate_after := HibernateAfter} ->
-            ZoneConf#zone_conf{hibernate_after = HibernateAfter};
-        _ ->
-            ZoneConf
+    #zone_conf{hibernate_after = ZoneValue} = ZoneConf = emqx_connection_conf:zone_conf(Zone),
+    case maps:get(hibernate_after, Opts, ZoneValue) of
+        ZoneValue -> ZoneConf;
+        HibernateAfter -> ZoneConf#zone_conf{hibernate_after = HibernateAfter}
     end.
 
 %%--------------------------------------------------------------------
