@@ -773,7 +773,7 @@ t_081_retry_on_error(Config) ->
         #{timetrap => 60_000},
         begin
             %% Prepare system:
-            Nodes = emqx_cth_cluster:start(Cluster),
+            [N1 | _] = Nodes = emqx_cth_cluster:start(Cluster),
             [
                 ?ON(
                     N,
@@ -805,7 +805,7 @@ t_081_retry_on_error(Config) ->
                 infinity
             ),
             ?ON(
-                hd(Nodes),
+                N1,
                 begin
                     emqx_durable_test_timer:apply_after(Key1, <<>>, 1000),
                     emqx_durable_test_timer:apply_after(Key2, <<>>, 1001)
@@ -815,54 +815,18 @@ t_081_retry_on_error(Config) ->
             %% Now the first timer was retried at least 3 times.
             %% Cancel it:
             ok = ?ON(
-                hd(Nodes),
+                N1,
                 emqx_durable_test_timer:cancel(Key1)
             ),
             %% ...The system should be able to proceed to the second timer:
             {ok, _} = snabbkaffe:receive_events(Sub2),
             %% Fix it removing the mock:
-            [?ON(N, meck:unload(emqx_durable_test_timer)) || N <- Nodes],
+            ?ON(N1, meck:unload(emqx_durable_test_timer)),
             %% Now we should recieve fire event from it:
             ?block_until(#{?snk_kind := ?tp_test_fire, key := Key2})
         end,
         fun(Trace) ->
-            Go = fun
-                Go([], {K, NR, 1}) when K =:= Key2, NR >= ExpectedRetries ->
-                    ok;
-                Go([], State) ->
-                    error({unexpeced_end, State});
-                Go([Event | Rest], {Key, NRetries, NSuccess} = State0) ->
-                    case Event of
-                        #{?snk_kind := ?tp_handler_crash, key := Key} ->
-                            %% Current key was retried. Ok.
-                            Go(Rest, {Key, NRetries + 1, NSuccess});
-                        #{?snk_kind := ?tp_handler_crash, key := Other} when
-                            Other =:= Key2,
-                            NRetries >= ExpectedRetries,
-                            NSuccess =:= 0
-                        ->
-                            %% Switch from Key1 to Key2 after
-                            %% expected number of retries:
-                            Go(Rest, {Other, 1, NSuccess});
-                        #{?snk_kind := ?tp_handler_crash, key := BadKey} ->
-                            %% Not enough retries:
-                            error(#{
-                                unexpected_retry => BadKey,
-                                expected_key => Key,
-                                nr => NRetries,
-                                ns => NSuccess
-                            });
-                        #{?snk_kind := ?tp_test_fire} when
-                            Key =:= Key2,
-                            NRetries >= ExpectedRetries,
-                            NSuccess =:= 0
-                        ->
-                            Go(Rest, {Key, NRetries, 1});
-                        _ ->
-                            Go(Rest, State0)
-                    end
-            end,
-            Go(Trace, {Key1, 0, 0})
+            verify_retry_of_two_keys(ExpectedRetries, Key1, Key2, Trace)
         end
     ).
 
@@ -874,6 +838,61 @@ t_081_retry_on_error(Config) ->
 %% property should hold as long as DS state is not degraded.
 no_replay_failures(Trace) ->
     ?assertMatch([], ?of_kind(?tp_replay_failed, Trace)).
+
+%% Oddly specific trace spec that verifies error-recovery behavior
+%% with two keys, where the first key is recovered by deletion and the
+%% second by lifting the error condition.
+%%
+%% Essentially, it verifies that following sequence of events holds:
+%%
+%% {fail, Key1} (repeated at least ExpectedRetries times)
+%% {fail, Key2} (repeated at least ExpectedRetries times)
+%% {success, Key2} (repeated exactly once)
+verify_retry_of_two_keys(ExpectedRetries, Key1, Key2, Trace) ->
+    %% State: {CurrentKey, NRetriesForKey, NSuccesses}
+    Go = fun
+        Go([], {K, NR, 1}) when K =:= Key2, NR >= ExpectedRetries ->
+            ok;
+        Go([], State) ->
+            error({unexpeced_end, State});
+        Go([Event | Rest], {Key, NRetries, NSuccess} = State0) ->
+            case Event of
+                #{?snk_kind := ?tp_handler_crash, key := Key} when
+                    Key =:= Key1;
+                    Key =:= Key2
+                ->
+                    %% Current key was retried. Ok.
+                    Go(Rest, {Key, NRetries + 1, NSuccess});
+                #{?snk_kind := ?tp_handler_crash, key := Other} when
+                    Other =:= Key2,
+                    NRetries >= ExpectedRetries,
+                    NSuccess =:= 0
+                ->
+                    %% Switch from Key1 to Key2 after
+                    %% expected number of retries:
+                    Go(Rest, {Other, 1, NSuccess});
+                #{?snk_kind := ?tp_handler_crash, key := BadKey} when
+                    Key =:= Key1;
+                    Key =:= Key2
+                ->
+                    %% Not enough retries:
+                    error(#{
+                        unexpected_retry => BadKey,
+                        expected_key => Key,
+                        nr => NRetries,
+                        ns => NSuccess
+                    });
+                #{?snk_kind := ?tp_test_fire} when
+                    Key =:= Key2,
+                    NRetries >= ExpectedRetries,
+                    NSuccess =:= 0
+                ->
+                    Go(Rest, {Key, NRetries, 1});
+                _ ->
+                    Go(Rest, State0)
+            end
+    end,
+    Go(Trace, {Key1, 0, 0}).
 
 %% Verify that none of the workers encountered an unknwon message.
 %% This should always hold.
