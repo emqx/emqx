@@ -37,6 +37,7 @@
     list_sessions/0
 ]).
 -export([is_dirty/1, checkpoint_ref/1]).
+-export([get_guard/1]).
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
@@ -217,11 +218,11 @@ format(Rec = #{?id := Id}) ->
 list_sessions() ->
     emqx_persistent_session_ds_state_v2:list_sessions(generation()).
 
--spec delete(t()) -> ok.
+-spec delete(t()) -> ok | emqx_ds:error(_).
 delete(#{?id := SessId, ?collection_guard := Guard}) ->
     delete(SessId, Guard).
 
--spec delete(emqx_persistent_session_ds:id(), guard() | '_') -> ok.
+-spec delete(emqx_persistent_session_ds:id(), guard() | '_') -> ok | emqx_ds:error(_).
 delete(SessId, Guard) when
     is_binary(SessId),
     is_binary(Guard) orelse Guard =:= '_'
@@ -291,6 +292,10 @@ is_dirty(#{?collection_dirty := Dirty}) ->
 -spec checkpoint_ref(t()) -> undefined | reference().
 checkpoint_ref(#{?checkpoint_ref := Dirty}) ->
     Dirty.
+
+-spec get_guard(t()) -> guard() | undefined.
+get_guard(#{?collection_guard := Guard}) ->
+    Guard.
 
 -spec get_created_at(t()) -> emqx_persistent_session_ds:timestamp() | undefined.
 get_created_at(Rec) ->
