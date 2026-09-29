@@ -60,16 +60,16 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 
 -export([
     publish/3,
-    puback/3,
+    puback/4,
     pubrec/2,
     pubrel/2,
-    pubcomp/3
+    pubcomp/4
 ]).
 
 -export([
     deliver/4,
     replay/3,
-    handle_timeout/3,
+    handle_timeout/4,
     handle_info/3,
     handle_signal/3,
     disconnect/2,
@@ -601,10 +601,10 @@ do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
--spec puback(clientinfo(), emqx_types:packet_id(), session()) ->
+-spec puback(clientinfo(), emqx_types:packet_id(), [emqx_session:connflag()], session()) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
-puback(ClientInfo, PacketId, Session0) ->
+puback(ClientInfo, PacketId, _Flags, Session0) ->
     case update_seqno(puback, PacketId, Session0, ClientInfo) of
         {ok, Msg, Session} ->
             {ok, Msg, [], Session};
@@ -646,10 +646,10 @@ pubrel(PacketId, Session = #{s := S0}) ->
 %% Client -> Broker: PUBCOMP
 %%--------------------------------------------------------------------
 
--spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
+-spec pubcomp(clientinfo(), emqx_types:packet_id(), [emqx_session:connflag()], session()) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
-pubcomp(ClientInfo, PacketId, Session0) ->
+pubcomp(ClientInfo, PacketId, _Flags, Session0) ->
     case update_seqno(pubcomp, PacketId, Session0, ClientInfo) of
         {ok, Msg, Session} ->
             {ok, Msg, [], Session};
@@ -675,21 +675,21 @@ deliver(ClientInfo, Delivers, _Flags, Session0) ->
 %% Timeouts
 %%--------------------------------------------------------------------
 
--spec handle_timeout(clientinfo(), _Timeout, session()) ->
+-spec handle_timeout(clientinfo(), _Timeout, [emqx_session:connflag()], session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
-handle_timeout(_ClientInfo, ?TIMER_DRAIN_INFLIGHT, Session0) ->
+handle_timeout(_ClientInfo, ?TIMER_DRAIN_INFLIGHT, _Flags, Session0) ->
     %% This particular piece of code is responsible for sending
     %% messages queued up in the inflight to the client:
     {Publishes, Session} = drain_inflight(Session0),
     {ok, Publishes, Session};
-handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
+handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, _Flags, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], ensure_state_commit_timer(Session)};
-handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
+handle_timeout(_ClientInfo, ?TIMER_COMMIT, _Flags, Session) ->
     {ok, [], async_checkpoint(Session)};
-handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
+handle_timeout(ClientInfo, expire_awaiting_rel, _Flags, Session) ->
     expire(ClientInfo, Session);
-handle_timeout(_ClientInfo, Timeout, Session) ->
+handle_timeout(_ClientInfo, Timeout, _Flags, Session) ->
     ?tp(warning, ?sessds_unknown_timeout, #{timeout => Timeout}),
     {ok, [], Session}.
 
