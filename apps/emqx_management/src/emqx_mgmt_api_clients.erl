@@ -1880,7 +1880,7 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
         [memory, next_pkt_id, total_heap_size],
         maps:from_list(ClientStats)
     ),
-    StatsMap = maps:merge(#{total_payload_bytes => 0}, StatsMap0),
+    StatsMap = maps:merge(emqx_cm:sparse_stats_defaults(), StatsMap0),
     ClientInfo2 = maps:remove(will_msg, ClientInfo1),
     ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo2),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),

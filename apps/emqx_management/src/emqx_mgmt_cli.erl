@@ -1757,7 +1757,7 @@ print({client, {ClientId, ChanPid}}) ->
     Stats =
         case emqx_cm:get_chan_stats(ClientId, ChanPid) of
             undefined -> #{};
-            Stats0 -> maps:from_list(Stats0)
+            Stats0 -> maps:merge(emqx_cm:sparse_stats_defaults(), maps:from_list(Stats0))
         end,
     ClientInfo = maps:get(clientinfo, Attrs, #{}),
     ConnInfo = maps:get(conninfo, Attrs, #{}),
