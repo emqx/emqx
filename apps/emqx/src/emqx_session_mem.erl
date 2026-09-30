@@ -810,7 +810,7 @@ boolean_to_int(_) -> 0.
 
 dequeue_next(Allowance, Q) when Allowance > 0 ->
     emqx_mqueue:out(Q);
-dequeue_next(0, Q) ->
+dequeue_next(_, Q) ->
     %% Once inflight fills, drain only the following run of QoS0 in queue order.
     case emqx_mqueue:out(Q) of
         {{value, #message{qos = ?QOS_0}}, _} = Result ->
@@ -1442,8 +1442,13 @@ without_inflight_insert_ts(#message{extra = Extra} = Msg) ->
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of
-        0 -> ?DEFAULT_BATCH_N;
-        Sz -> Sz - emqx_inflight:size(Inflight)
+        0 ->
+            ?DEFAULT_BATCH_N;
+        Sz ->
+            %% NOTE
+            %% A connection inheriting existing session may advertise Receive-Maximum
+            %% lower than the number of outstanding publishes.
+            max(0, Sz - emqx_inflight:size(Inflight))
     end.
 
 with_ts(#message{extra = Extra} = Msg) ->
