@@ -1243,14 +1243,14 @@ t_retry(_) ->
         ],
         Session
     ),
-    {ok, Pubs, Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
+    {{set_timer, retry_delivery, RetryIntervalMs}, Pubs, Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
     [_Pub1, Pub2, _Pub3, Pub4] = Pubs,
     {ok, _Msg, Session2} = emqx_session_mem:pubrec(get_packet_id(Pub2), Session1),
     ElapseMs = 1500,
     ok = timer:sleep(ElapseMs),
-    {ok, PubsRetry, RetryIntervalMs, Session3} = emqx_session_mem:handle_timeout(
-        clientinfo(), retry_delivery, [], Session2
-    ),
+    {{set_timer, retry_delivery, RetryIntervalMs}, PubsRetry, Session3} =
+        emqx_session_mem:handle_timeout(clientinfo(), retry_delivery, [], Session2),
     ?assertEqual(
         [
             % Pub1 is expired
@@ -1519,7 +1519,7 @@ t_export_import(_) ->
         max_awaiting_rel => 2,
         await_rel_timeout => 43
     }),
-    {ok, [{PacketId, _InflightPub}], Session1} =
+    {{set_timer, retry_delivery, _}, [{PacketId, _InflightPub}], Session1} =
         emqx_session_mem:deliver(clientinfo(), [Msg1], [], Session0),
     Session2 = emqx_session_mem:enqueue(clientinfo(), [Msg2], Session1),
     Persistent = emqx_session_mem:export(Session2),

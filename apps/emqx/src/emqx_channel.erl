@@ -7,7 +7,6 @@
 
 -include("emqx.hrl").
 -include("emqx_channel.hrl").
--include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
 -include("emqx_access_control.hrl").
 -include("logger.hrl").
@@ -167,13 +166,7 @@
 ).
 
 %% Timers implemented by sessions
--define(IS_COMMON_SESSION_TIMER(N),
-    ((N == retry_delivery) orelse (N == expire_awaiting_rel))
-).
-%% Timers implemented by sessions that need to be handled only when the client is connected
--define(IS_COMMON_SESSION_ONLINE_TIMER(N),
-    (N == retry_delivery)
-).
+-define(IS_COMMON_SESSION_TIMER(N), (N == expire_awaiting_rel)).
 
 -define(chan_terminating, chan_terminating).
 -define(normal, normal).
@@ -1338,8 +1331,8 @@ process_maybe_shutdown(
             session = Session0
         }
 ) ->
-    {Intent, Session} = session_disconnect(ClientInfo, ConnInfo, Session0),
-    Channel1 = Channel0#channel{session = Session},
+    {Intent, Effects, Session} = session_disconnect(ClientInfo, ConnInfo, Session0),
+    Channel1 = apply_session_effects(Effects, Channel0#channel{session = Session}),
     Channel2 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel1)),
     case maybe_shutdown(Reason, Intent, Channel2) of
         {ok, Channel} -> {ok, ?REPLY_EVENT(disconnected), Channel};
@@ -1404,7 +1397,7 @@ do_handle_deliver(
             {ok, NChannel};
         {OkEffects, Publishes, NSession} ->
             NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
-            handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
+            handle_out(publish, Publishes, NChannel)
     end.
 
 %% Nack delivers from shared subscription
@@ -2147,13 +2140,6 @@ handle_timeout(
         {error, timeout} ->
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
-handle_timeout(
-    _TRef,
-    TimerName,
-    Channel = #channel{conn_state = disconnected}
-) when ?IS_COMMON_SESSION_ONLINE_TIMER(TimerName) ->
-    %% Skip session timers that require a connected client
-    {ok, Channel};
 handle_timeout(
     _TRef,
     TimerName,
@@ -3641,7 +3627,7 @@ ensure_disconnected(
 session_disconnect(ClientInfo, ConnInfo, Session) when Session /= undefined ->
     emqx_session:disconnect(ClientInfo, ConnInfo, Session);
 session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
-    {shutdown, undefined}.
+    {shutdown, [], undefined}.
 
 %%--------------------------------------------------------------------
 %% Maybe Publish will msg

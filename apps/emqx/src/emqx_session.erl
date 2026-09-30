@@ -638,7 +638,7 @@ handle_signal(ClientInfo, Signal, Session) ->
 %%--------------------------------------------------------------------
 
 -spec disconnect(clientinfo(), conninfo(), t()) ->
-    {idle | shutdown, t()}.
+    {idle | shutdown, effects(), t()}.
 disconnect(ClientInfo, ConnInfo, Session) ->
     run_hook('session.disconnected', [ClientInfo, info(Session)]),
     ?IMPL(Session):disconnect(Session, ConnInfo).

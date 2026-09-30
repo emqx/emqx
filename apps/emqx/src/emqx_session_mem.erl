@@ -38,7 +38,6 @@
 -include("emqx_mqtt.hrl").
 -include("emqx_session_mem.hrl").
 -include("logger.hrl").
--include("types.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -ifdef(TEST).
@@ -182,6 +181,7 @@
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
 
 -define(DEQUEUE_RETRY_TIMER, retry_dequeue).
+-define(DELIVER_RETRY_TIMER, retry_delivery).
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -665,7 +665,8 @@ pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     {inline, [
         dequeue_next/2,
         finish_dequeue/6,
-        finish_delivery/7,
+        reschedule_dequeue_timer_effect/0,
+        reply/7,
         boolean_to_int/1
     ]}
 ).
@@ -722,7 +723,7 @@ Current dequeue policy depends on congestion status:
 """.
 dequeue(_ClientInfo, _, _Congested = true, S, 0, _Budget, Acc, Q, Inflight, Limiter, PktId) ->
     %% Connection congested + batch consumed inflight allowance, time to stop.
-    finish_delivery(ok, S, Acc, Q, Inflight, Limiter, PktId);
+    reply(ok, S, Acc, Q, Inflight, Limiter, PktId);
 dequeue(_ClientInfo, _, _Congested, S, _Allowance, _Budget = 0, Acc, Q, Inflight, Limiter, PktId) ->
     %% Batch consumed whole budget, time to stop.
     finish_dequeue(S, Acc, Q, Inflight, Limiter, PktId);
@@ -797,12 +798,12 @@ dequeue(ClientInfo, Zone, Congested, S, Allowance, Budget, Acc0, Q0, Inflight0, 
                     _Qos12 ->
                         %% Stop at over-limit QoS1/2, retaining it and the remaining queue.
                         Retry = retry_dequeue_effect(Reason, Q0),
-                        finish_delivery(Retry, S, Acc0, Q0, Inflight0, Limiter, PktId)
+                        reply(Retry, S, Acc0, Q0, Inflight0, Limiter, PktId)
                 end
         end
     else
         _EmptyOrBlocked ->
-            finish_delivery(ok, S, Acc0, Q0, Inflight0, L0, PktId)
+            reply(ok, S, Acc0, Q0, Inflight0, L0, PktId)
     end.
 
 boolean_to_int(true) -> 1;
@@ -830,12 +831,12 @@ finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
         else
             _ -> ok
         end,
-    finish_delivery(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId).
+    reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId).
 
 reschedule_dequeue_timer_effect() ->
     {set_timer, ?DEQUEUE_RETRY_TIMER, 1}.
 
-finish_delivery(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
+reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Session = S0#session{
         mqueue = Q,
         inflight = Inflight,
@@ -855,6 +856,14 @@ retry_dequeue_effect(Reason, Q) ->
 %% Broker -> Client: Deliver
 %%--------------------------------------------------------------------
 
+-compile(
+    {inline, [
+        insert_inflight/3,
+        delivery_effect/2,
+        retry_delivery_effect/1
+    ]}
+).
+
 -spec deliver(clientinfo(), [emqx_types:deliver()], [emqx_session:connflag()], session()) ->
     {ok | effects(), replies(), session()}.
 deliver(
@@ -867,7 +876,8 @@ deliver(
     deliver(ClientInfo, Congested, Session, Msgs, [], Q, Inflight, L, PktId).
 
 deliver(_ClientInfo, _Congested, S0, [], Acc, Q, Inflight, Limiter, PktId) ->
-    finish_delivery(ok, S0, Acc, Q, Inflight, Limiter, PktId);
+    OkEffect = delivery_effect(S0, Acc),
+    reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId);
 deliver(
     ClientInfo,
     Congested,
@@ -908,13 +918,13 @@ deliver(
     ClientInfo,
     Congested,
     S,
-    [Msg = #message{qos = QoS} | More],
+    [Msg = #message{qos = _QoS12} | More],
     Acc0,
     Q0,
     Inflight0,
     L0,
     PktId
-) when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
+) ->
     maybe
         %% NOTE
         %% Earlier QoS1/2 may still await a limiter retry.
@@ -939,8 +949,11 @@ deliver(
                 %% Stopping at over-limit QoS1/2 and postpone the remaining batch,
                 %% including QoS0.
                 Q = enqueue_messages(ClientInfo, [Msg | More], Q0),
-                Effect = retry_dequeue_effect(Reason, Q),
-                finish_delivery(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
+                Effect = combine_effects(
+                    retry_dequeue_effect(Reason, Q),
+                    delivery_effect(S, Acc0)
+                ),
+                reply(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
         end
     else
         _Blocked = true ->
@@ -951,6 +964,16 @@ deliver(
                 end,
             deliver(ClientInfo, Congested, S, More, Acc0, Q1, Inflight0, L0, PktId)
     end.
+
+delivery_effect(_S, []) ->
+    ok;
+delivery_effect(#session{retry_interval = Interval}, _NonEmpty) when is_integer(Interval) ->
+    retry_delivery_effect(Interval);
+delivery_effect(_S, _NonEmpty) ->
+    ok.
+
+retry_delivery_effect(Timeout) ->
+    {set_timer, ?DELIVER_RETRY_TIMER, Timeout}.
 
 insert_inflight(PktId, Msg, Inflight) ->
     MarkedMsg = mark_begin_deliver(Msg),
@@ -1024,10 +1047,10 @@ mark_begin_deliver(Msg) ->
 ) ->
     {ok | effects(), replies(), session()}
     | {ok, replies(), timeout(), session()}.
-handle_timeout(ClientInfo, retry_delivery, _Flags, Session) ->
-    retry(ClientInfo, Session);
 handle_timeout(ClientInfo, expire_awaiting_rel, _Flags, Session) ->
     expire(ClientInfo, Session);
+handle_timeout(ClientInfo, ?DELIVER_RETRY_TIMER, _Flags, Session) ->
+    retry(ClientInfo, Session);
 handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Flags, Session) ->
     dequeue(ClientInfo, Flags, Session).
 
@@ -1054,7 +1077,7 @@ handle_signal(_ClientInfo, _Signal, Session) ->
 %%--------------------------------------------------------------------
 
 -spec retry(clientinfo(), session()) ->
-    {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
+    {ok | effects(), replies(), session()}.
 retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Interval}) ->
     case emqx_inflight:is_empty(Inflight) orelse Interval =:= infinity of
         true ->
@@ -1071,7 +1094,7 @@ retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Inter
     end.
 
 retry_delivery(_ClientInfo, [], Acc, _, Session = #session{retry_interval = Interval}) ->
-    {ok, lists:reverse(Acc), Interval, Session};
+    {retry_delivery_effect(Interval), lists:reverse(Acc), Session};
 retry_delivery(
     ClientInfo,
     [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
@@ -1085,7 +1108,7 @@ retry_delivery(
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
             retry_delivery(ClientInfo, More, Acc1, Now, Session#session{inflight = Inflight1});
         false ->
-            {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
+            {retry_delivery_effect(Interval - max(0, Age)), lists:reverse(Acc), Session}
     end.
 
 do_retry_delivery(
@@ -1203,13 +1226,7 @@ replay(ClientInfo, DeliversLocal, TakeoverState, Session) ->
             {OkReply, PubsResendQueued, Session1} = replay(ClientInfo, Session),
             {OkDeliver, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, [], Session1),
             Replies = append(PubsResendQueued, PubsPending),
-            case OkDeliver of
-                ok when OkReply =:= ok ->
-                    {ok, Replies, Session2};
-                _ ->
-                    Effects = [E || E <- [OkReply, OkDeliver], E =/= ok],
-                    {Effects, Replies, Session2}
-            end;
+            {combine_effects(OkReply, OkDeliver), Replies, Session2};
         {error, _} ->
             % TODO log error?
             replay(ClientInfo, Session)
@@ -1267,12 +1284,19 @@ dedup(Pendings, PendingsLocal) ->
 append(L1, []) -> L1;
 append(L1, L2) -> L1 ++ L2.
 
+combine_effects(ok, OkEffect) -> OkEffect;
+combine_effects(OkEffect, ok) -> OkEffect;
+combine_effects(E1, E2) -> lists:flatten([E1, E2]).
+
 %%--------------------------------------------------------------------
 
--spec disconnect(session(), emqx_types:conninfo()) -> {idle, session()}.
+-spec disconnect(session(), emqx_types:conninfo()) -> {idle, effects(), session()}.
 disconnect(Session = #session{}, _ConnInfo) ->
-    % TODO: isolate expiry timer / timeout handling here?
-    {idle, Session}.
+    Effects = [
+        {reset_timer, ?DELIVER_RETRY_TIMER, infinity},
+        {reset_timer, ?DEQUEUE_RETRY_TIMER, infinity}
+    ],
+    {idle, Effects, Session}.
 
 -spec terminate(emqx_types:clientinfo(), _Reason, session()) -> ok.
 terminate(_ClienInfo, Reason, Session) ->

@@ -1405,7 +1405,7 @@ t_handle_custom_timers(_) ->
         emqx_channel:handle_timeout(T1Ref, T1Msg, Chan3),
     %% Resets `msg1` timer to a shorter timeout:
     {ok, {outgoing, ?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"2">>)}, Chan5} =
-        emqx_channel:handle_timeout(make_ref(), retry_delivery, Chan4),
+        emqx_channel:handle_timeout(make_ref(), {emqx_session, retry_delivery}, Chan4),
     {timeout, T2Ref, T2Msg} =
         ?assertReceive({timeout, _, {emqx_session, msg1}}, ?CUSTOM_TIMER_TIMEOUT_SHORT * 2),
     %% Clears `signal2` timer:

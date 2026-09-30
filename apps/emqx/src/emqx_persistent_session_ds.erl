@@ -897,7 +897,7 @@ on_replay_complete(Session, ClientInfo) ->
 
 %%--------------------------------------------------------------------
 
--spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
+-spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, [], session()}.
 disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo) ->
     S1 = maybe_set_offline_info(S0, Id),
     S2 = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S1),
@@ -909,7 +909,7 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
                 S2
         end,
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_disconnect(S3, SharedSubS0),
-    {shutdown, async_checkpoint(Session#{s := S, shared_sub_s := SharedSubS})}.
+    {shutdown, [], async_checkpoint(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
 terminate(ClientInfo, Reason, Session = #{s := S, id := Id, will_msg := MaybeWillMsg}) ->
