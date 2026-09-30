@@ -61,7 +61,8 @@ If it fails it may be because the local node itself is isolated.
 
 ### Error handling
 
-A big problem with handling errors in the durable timer callback modules stems from the combination of their inherent properties:
+A big problem with handling errors in the durable timer callback modules stems
+from the combination of their inherent properties:
 
 1. Timers are durable,
    so an erroneous timer will always stay in the DB,
