@@ -107,6 +107,15 @@
 -define(HOCON_NS_INTERNAL_TAR_PATH_REV_PAT(NAMESPACE), [
     ?CLUSTER_HOCON_FILENAME, NAMESPACE, "ns" | _
 ]).
+%% A namespace's built-in database records, one JSON file per
+%% `emqx_db_backup' module.
+-define(NS_DATA_DIR, "data").
+-define(NS_DATA_INTERNAL_TAR_PATH(BASE_NAME, NAMESPACE, FILENAME), [
+    BASE_NAME, "ns", NAMESPACE, ?NS_DATA_DIR, FILENAME
+]).
+-define(NS_DATA_INTERNAL_TAR_PATH_REV_PAT(NAMESPACE), [
+    _, ?NS_DATA_DIR, NAMESPACE, "ns" | _
+]).
 
 -type backup_file_info() :: #{
     filename := binary(),
@@ -303,7 +312,7 @@ peek_backup_scope(Namespace, Filename) ->
 Classify the configuration scopes present in an in-memory backup archive:
 `global` is true when the archive holds global content (a top-level
 cluster.hocon or any mnesia table dump); `namespaces` lists every namespace
-with a `ns/<NS>/cluster.hocon` entry. The HTTP handlers use this to confine
+with a `ns/<NS>/cluster.hocon` or `ns/<NS>/data/` entry. The HTTP handlers use this to confine
 namespaced upload/import operations to archives holding only the resolved
 namespace's data.
 """.
@@ -324,6 +333,8 @@ scope_of_entries(Entries) ->
     ).
 
 classify_entry_scope(?HOCON_NS_INTERNAL_TAR_PATH_REV_PAT(Namespace), #{namespaces := NSs} = Acc) ->
+    Acc#{namespaces := lists:usort([bin(Namespace) | NSs])};
+classify_entry_scope(?NS_DATA_INTERNAL_TAR_PATH_REV_PAT(Namespace), #{namespaces := NSs} = Acc) ->
     Acc#{namespaces := lists:usort([bin(Namespace) | NSs])};
 classify_entry_scope([?CLUSTER_HOCON_FILENAME | _], Acc) ->
     Acc#{global := true};
@@ -752,7 +763,8 @@ do_export(BackupName, TarDescriptor, Opts) ->
             ok = export_all_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
             ok = export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts);
         _ when is_binary(Namespace) ->
-            ok = export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts)
+            ok = export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts),
+            ok = export_namespaced_data(TarDescriptor, BackupBaseName, Namespace, Opts)
     end,
     ok = format_tar_error(erl_tar:close(TarDescriptor)),
     {ok, #file_info{
@@ -804,6 +816,37 @@ add_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, RootConfi
     ),
     ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])),
     ok.
+
+%% A global export already holds every namespace's records in its table dumps.
+export_namespaced_data(TarDescriptor, BackupBaseName, Namespace, Opts) ->
+    FilterFn = maps:get(mnesia_table_filter, Opts, fun(_TableName) -> true end),
+    lists:foreach(
+        fun(Mod) ->
+            Name = Mod:namespace_backup_name(),
+            maybe_print("Exporting ~s for namespace ~s...~n", [Name, Namespace], Opts),
+            Data = emqx_utils_json:encode(Mod:export_namespace_backup(Namespace)),
+            NameInArchive = str(
+                filename:join(
+                    ?NS_DATA_INTERNAL_TAR_PATH(BackupBaseName, Namespace, ns_data_filename(Name))
+                )
+            ),
+            ok = format_tar_error(erl_tar:add(TarDescriptor, Data, NameInArchive, []))
+        end,
+        namespace_backup_modules(FilterFn)
+    ).
+
+namespace_backup_modules(FilterFn) ->
+    lists:filter(
+        fun(Mod) ->
+            {_Name, Tabs} = emqx_db_backup:backup_tables(Mod),
+            erlang:function_exported(Mod, export_namespace_backup, 1) andalso
+                lists:any(FilterFn, Tabs)
+        end,
+        tabs_to_backup()
+    ).
+
+ns_data_filename(Name) ->
+    str(<<Name/binary, ".json">>).
 
 export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts) ->
     maybe_print("Exporting built-in database...~n", [], Opts),
@@ -1039,7 +1082,10 @@ do_import_for_namespace(?global_ns, BackupDir, Opts) ->
     maybe
         {ok, GlobalConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
         {ok, NSConfErrors} ?= import_all_namespaced_cluster_hocon(BackupDir, Opts),
-        MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
+        MnesiaErrors = maps:merge(
+            import_mnesia_tabs(BackupDir, Opts),
+            import_all_namespaced_data(BackupDir, Opts)
+        ),
         ConfErrors0 =
             case map_size(GlobalConfErrors) of
                 0 -> #{};
@@ -1054,7 +1100,65 @@ do_import_for_namespace(?global_ns, BackupDir, Opts) ->
 do_import_for_namespace(Namespace, BackupDir, Opts) when is_binary(Namespace) ->
     maybe
         {ok, NSConfErrors} ?= import_namespaced_cluster_hocon(Namespace, BackupDir, Opts),
-        {ok, #{conf_errors => NSConfErrors, mnesia_errors => #{}}}
+        DataErrors = import_namespaced_data(Namespace, BackupDir, Opts),
+        {ok, #{conf_errors => NSConfErrors, mnesia_errors => DataErrors}}
+    end.
+
+%% A global import restores a namespaced archive's records into that namespace.
+import_all_namespaced_data(BackupDir, Opts) ->
+    Pattern = filename:join([BackupDir, "ns", "*", ?NS_DATA_DIR]),
+    lists:foldl(
+        fun(DataDir, Acc) ->
+            [?NS_DATA_DIR, Namespace | _] = lists:reverse(filename:split(DataDir)),
+            Errors = import_namespaced_data(bin(Namespace), BackupDir, Opts),
+            maps:merge(Acc, #{{bin(Namespace), Name} => Err || Name := Err <- Errors})
+        end,
+        #{},
+        filelib:wildcard(Pattern)
+    ).
+
+import_namespaced_data(Namespace, BackupDir, Opts) ->
+    lists:foldl(
+        fun(Mod, Acc) ->
+            Name = Mod:namespace_backup_name(),
+            File = filename:join(
+                ?NS_DATA_INTERNAL_TAR_PATH(BackupDir, Namespace, ns_data_filename(Name))
+            ),
+            case import_namespaced_data_file(Namespace, Mod, Name, File, Opts) of
+                ok ->
+                    Acc;
+                {error, Reason} = Error ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_import_namespace_backup",
+                        namespace => Namespace,
+                        name => Name,
+                        reason => Reason
+                    }),
+                    maybe_print_mnesia_import_err(Name, Error, Opts),
+                    Acc#{Name => Error}
+            end
+        end,
+        #{},
+        namespace_backup_modules(fun(_TableName) -> true end)
+    ).
+
+import_namespaced_data_file(Namespace, Mod, Name, File, Opts) ->
+    case file:read_file(File) of
+        {ok, Bin} ->
+            maybe_print("Importing ~s for namespace ~s...~n", [Name, Namespace], Opts),
+            case emqx_utils_json:safe_decode(Bin) of
+                {ok, Data} when is_map(Data) ->
+                    Mod:import_namespace_backup(Namespace, Data);
+                {ok, _} ->
+                    {error, not_a_json_object};
+                {error, _} = Error ->
+                    Error
+            end;
+        {error, enoent} ->
+            %% The archive predates this data, or its table set was not exported.
+            ok;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 import_mnesia_tabs(BackupDir, Opts) ->

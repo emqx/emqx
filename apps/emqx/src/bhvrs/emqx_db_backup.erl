@@ -28,7 +28,24 @@
 %% NOTE: currently, this is called only when the table has been restored successfully.
 -callback on_backup_table_imported(mria:table(), opts()) -> ok | {error, term()}.
 
--optional_callbacks([validate_mnesia_backup/1, migrate_mnesia_backup/1, on_backup_table_imported/2]).
+%% A namespaced backup holds a namespace's records as JSON, in
+%% `ns/<Namespace>/data/<Name>.json', one file per module.
+-callback namespace_backup_name() -> binary().
+
+-callback export_namespace_backup(emqx_config:namespace()) -> map().
+
+%% Writes nothing and returns an error when any record is invalid. Records of
+%% other namespaces are never touched.
+-callback import_namespace_backup(emqx_config:namespace(), map()) -> ok | {error, term()}.
+
+-optional_callbacks([
+    validate_mnesia_backup/1,
+    migrate_mnesia_backup/1,
+    on_backup_table_imported/2,
+    namespace_backup_name/0,
+    export_namespace_backup/1,
+    import_namespace_backup/2
+]).
 
 -export_type([traverse_break_reason/0]).
 

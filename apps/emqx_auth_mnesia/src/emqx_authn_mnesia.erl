@@ -46,12 +46,18 @@
     do_destroy/1,
     do_add_user/1,
     do_delete_user/3,
-    do_update_user/4
+    do_update_user/4,
+    do_write_ns_records/1
 ]).
 
 -export([init_tables/0]).
 
--export([backup_tables/0]).
+-export([
+    backup_tables/0,
+    namespace_backup_name/0,
+    export_namespace_backup/1,
+    import_namespace_backup/2
+]).
 
 -ifdef(TEST).
 -export([rec_to_map/1]).
@@ -112,6 +118,37 @@ init_tables() ->
 %%------------------------------------------------------------------------------
 
 backup_tables() -> {<<"builtin_authn">>, [?TAB, ?AUTHN_NS_TAB]}.
+
+namespace_backup_name() -> <<"builtin_authn_password">>.
+
+%% Only users of the global chain: users of other chains are managed by global
+%% administrators and are in the global backup.
+-spec export_namespace_backup(emqx_config:namespace()) -> map().
+export_namespace_backup(Namespace) ->
+    Records = mnesia:dirty_select(?AUTHN_NS_TAB, all_ns_group_match_spec(Namespace, ?GLOBAL)),
+    #{<<"version">> => 1, <<"users">> => lists:map(fun ns_user_to_backup/1, Records)}.
+
+-spec import_namespace_backup(emqx_config:namespace(), map()) -> ok | {error, term()}.
+import_namespace_backup(Namespace, #{<<"version">> := 1, <<"users">> := Users}) when
+    is_list(Users)
+->
+    maybe
+        {ok, Records} ?=
+            emqx_utils:foldl_while(
+                fun(User, {ok, Acc}) ->
+                    case ns_user_from_backup(Namespace, User) of
+                        {ok, Record} -> {cont, {ok, [Record | Acc]}};
+                        {error, _} = Error -> {halt, Error}
+                    end
+                end,
+                {ok, []},
+                Users
+            ),
+        {ok, NewCount} ?= trans(fun ?MODULE:do_write_ns_records/1, [Records]),
+        inc_ns_rule_count(Namespace, NewCount)
+    end;
+import_namespace_backup(_Namespace, _Data) ->
+    {error, unsupported_backup_format}.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -830,6 +867,69 @@ rec_to_map(#?AUTHN_NS_TAB{} = Rec) ->
 
 table(?global_ns) -> ?TAB;
 table(Namespace) when is_binary(Namespace) -> ?AUTHN_NS_TAB.
+
+ns_user_to_backup(#?AUTHN_NS_TAB{} = Rec) ->
+    #?AUTHN_NS_TAB{
+        user_id = ?AUTHN_NS_KEY(_Namespace, UserGroup, UserId),
+        password_hash = PasswordHash,
+        salt = Salt,
+        is_superuser = IsSuperuser
+    } = Rec,
+    #{
+        <<"user_group">> => atom_to_binary(UserGroup),
+        <<"user_id">> => UserId,
+        <<"password_hash">> => base64:encode(PasswordHash),
+        <<"salt">> => base64:encode(Salt),
+        <<"is_superuser">> => IsSuperuser
+    }.
+
+%% The REST API adds namespaced users to the global chain only.
+ns_user_from_backup(Namespace, #{
+    <<"user_group">> := Group,
+    <<"user_id">> := UserId,
+    <<"password_hash">> := PasswordHash,
+    <<"salt">> := Salt,
+    <<"is_superuser">> := IsSuperuser
+}) when
+    is_binary(Group),
+    is_binary(UserId),
+    is_binary(PasswordHash),
+    is_binary(Salt),
+    is_boolean(IsSuperuser)
+->
+    maybe
+        true ?= is_superuser_allowed(Namespace, IsSuperuser) orelse
+            {error, {superuser_not_allowed, UserId}},
+        true ?= Group =:= atom_to_binary(?GLOBAL) orelse {error, {unsupported_user_group, Group}},
+        {ok, Hash} ?= decode_base64(PasswordHash),
+        {ok, SaltBin} ?= decode_base64(Salt),
+        {ok, user_info_record(Namespace, ?GLOBAL, UserId, Hash, SaltBin, IsSuperuser)}
+    end;
+ns_user_from_backup(_Namespace, _User) ->
+    {error, invalid_user}.
+
+decode_base64(Bin) ->
+    try
+        {ok, base64:decode(Bin)}
+    catch
+        error:_ -> {error, invalid_base64}
+    end.
+
+%% Writes the records and returns how many of them are new.
+do_write_ns_records(Records) ->
+    NewCount = lists:foldl(
+        fun(#?AUTHN_NS_TAB{user_id = Key} = Record, Count) ->
+            IsNew = mnesia:read(?AUTHN_NS_TAB, Key, write) =:= [],
+            ok = mnesia:write(?AUTHN_NS_TAB, Record, write),
+            case IsNew of
+                true -> Count + 1;
+                false -> Count
+            end
+        end,
+        0,
+        Records
+    ),
+    {ok, NewCount}.
 
 key(?global_ns, UserGroup, UserId) ->
     {UserGroup, UserId};

@@ -336,10 +336,9 @@ mixed_cluster_msg(Versions) ->
 format_minor(unknown) -> <<"unknown">>;
 format_minor(Vsn) -> Vsn.
 
-%% Namespaced imports are scoped to the caller's own namespace and never write
-%% mnesia tables (only that namespace's configuration), so the sensitive-table
-%% guard -- which protects the global mnesia tables -- does not apply. Global
-%% imports keep the guard.
+%% Namespaced imports write only the namespace's configuration and built-in
+%% authn/authz records, never dashboard users or API keys, so the
+%% sensitive-table guard does not apply.
 data_import_checked(?global_ns, FileNode, Filename, AllowMismatch, Req) ->
     case check_no_sensitive_tables(Filename, auth_meta(Req)) of
         {forbidden, Sets} ->
@@ -402,7 +401,7 @@ do_data_import(FileNode, Filename, Namespace, AllowMismatch) ->
                 true ->
                     {204};
                 false ->
-                    Msg = format_import_errors(DbErrs, ConfErrs),
+                    Msg = format_import_errors(Namespace, DbErrs, ConfErrs),
                     {400, #{code => ?BAD_REQUEST, message => Msg}}
             end;
         {badrpc, Reason} ->
@@ -416,14 +415,15 @@ do_data_import(FileNode, Filename, Namespace, AllowMismatch) ->
             }}
     end.
 
-format_import_errors(DbErrs, ConfErrs) ->
+%% Database errors belong to the namespace being imported.
+format_import_errors(Namespace, DbErrs, ConfErrs) ->
     DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
     ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
-    GlobalConfErrs = maps:get(?global_ns, ConfErrs1, <<"">>),
+    NamespaceConfErrs = maps:get(Namespace, ConfErrs1, <<"">>),
     Msg0 = ConfErrs1#{
-        ?global_ns => [
+        Namespace => [
             DbErrs1,
-            GlobalConfErrs
+            NamespaceConfErrs
         ]
     },
     Msg1 = maps:map(fun(_Ns, IOData) -> iolist_to_binary(IOData) end, Msg0),
@@ -474,8 +474,7 @@ data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS
         ?global_ns ->
             do_download_file(Filename, QS, auth_meta(Req));
         Namespace when is_binary(Namespace) ->
-            %% Namespaced backups only ever contain that namespace's
-            %% configuration -- never global mnesia tables -- so the
+            %% Namespaced backups hold no dashboard users or API keys, so the
             %% sensitive-table download guard does not apply.
             do_namespaced_file_op(get, Namespace, Filename, QS)
     end;
