@@ -259,3 +259,17 @@ t_declared_content_length_too_long_rejected(_) ->
     Parser = emqx_stomp_frame:initial_parse_state(#{max_body_length => 16}),
     Bytes = <<"SEND\ncontent-length:1000000\n\n">>,
     ?assertError({too_long_body, _}, emqx_stomp_frame:parse(Bytes, Parser)).
+
+-doc "Negative content-length is rejected before parsing the body.".
+t_negative_content_length_rejected(_) ->
+    Parser = emqx_stomp_frame:initial_parse_state(#{}),
+    Bytes = <<"SEND\ncontent-length:-1\n\n">>,
+    ?assertError(
+        {invalid_content_length, <<"-1">>},
+        emqx_stomp_frame:parse(Bytes, Parser)
+    ).
+
+-doc "Zero content-length remains a valid empty body.".
+t_zero_content_length_accepted(_) ->
+    {ok, #stomp_frame{body = <<>>}, <<>>, _} =
+        parse_frame(<<"SEND\ncontent-length:0\n\n", 0>>).

@@ -967,6 +967,23 @@ t_unterminated_args_rejected(_Config) ->
         emqx_nats_frame:parse(<<"PUB ", (binary:copy(<<"a">>, 64))/binary>>, State)
     ).
 
+-doc "A control line at the limit parses identically when CRLF is split.".
+t_control_line_split_crlf_at_limit(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{max_control_line => 16, max_payload_size => 16}),
+    Frame = <<"PUB aaaaaaaaaa 0\r\n\r\n">>,
+    {ok, Whole, <<>>, _} = emqx_nats_frame:parse(Frame, State),
+    {more, SplitState} = emqx_nats_frame:parse(<<"PUB aaaaaaaaaa 0\r">>, State),
+    {ok, Split, <<>>, _} = emqx_nats_frame:parse(<<"\n\r\n">>, SplitState),
+    ?assertEqual(Whole, Split),
+    ?assertError(
+        {frame_too_large, #{position := control_line}},
+        emqx_nats_frame:parse(<<"PUB aaaaaaaaaaa 0\r\n\r\n">>, State)
+    ),
+    ?assertError(
+        {frame_too_large, #{position := control_line}},
+        emqx_nats_frame:parse(<<"PUB aaaaaaaaaaa 0\r">>, State)
+    ).
+
 -doc """
 A payload within max_payload_size is still buffered across chunks and parsed.
 """.

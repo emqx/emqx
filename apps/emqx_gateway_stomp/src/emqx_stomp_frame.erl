@@ -261,8 +261,15 @@ add_header(Name, Value, Headers) ->
 
 content_len(#parser_state{headers = Headers}) ->
     case lists:keyfind(<<"content-length">>, 1, Headers) of
-        {_, Val} -> list_to_integer(binary_to_list(Val));
-        false -> none
+        {_, Val} ->
+            try binary_to_integer(Val) of
+                Len when Len >= 0 -> Len;
+                _ -> error({invalid_content_length, Val})
+            catch
+                error:badarg -> error({invalid_content_length, Val})
+            end;
+        false ->
+            none
     end.
 
 new_frame(#parser_state{cmd = Cmd, headers = Headers, acc = Acc, limit = Limit}) ->
