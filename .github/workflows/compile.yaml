@@ -39,6 +39,13 @@ jobs:
       - name: Work around https://github.com/actions/checkout/issues/766
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Restore dependency cache
+        id: deps-cache
+        uses: ./.github/actions/deps-cache-restore
+        with:
+          profiles: ${{ inputs.build_type == 'test' && format('{0}-test', matrix.profile) || matrix.profile }}
+          toolchain: ${{ inputs.builder }}
+          build-inputs: .github/workflows/compile.yaml
       - id: compile
         env:
           PROFILE: ${{ matrix.profile }}
@@ -109,3 +116,9 @@ jobs:
             _build/docgen/${{ matrix.profile }}/*.hocon
           retention-days: 7
           if-no-files-found: error
+      - name: Save dependency cache
+        if: success() && steps.deps-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/deps-cache-save
+        with:
+          key: ${{ steps.deps-cache.outputs.key }}
+          paths: ${{ steps.deps-cache.outputs.paths }}

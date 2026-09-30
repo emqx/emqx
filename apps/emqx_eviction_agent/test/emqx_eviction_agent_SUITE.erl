@@ -423,7 +423,7 @@ t_session_serialization(_Config) ->
 
     ?assertPrinted(
         "client_with_session",
-        emqx_mgmt_cli:clients(["list"])
+        printed(fun() -> emqx_mgmt_cli:clients(["list"]) end)
     ),
 
     ?assertPrinted(
@@ -573,6 +573,11 @@ restart_emqx() ->
     _ = application:stop(emqx_eviction_agent),
     _ = application:start(emqx_eviction_agent),
     ok.
+
+printed(Fun) ->
+    ok = meck:reset(emqx_ctl),
+    _ = Fun(),
+    [Out || {_Pid, {emqx_ctl, print, _Args}, Out} <- meck:history(emqx_ctl)].
 
 mock_print() ->
     catch meck:unload(emqx_ctl),

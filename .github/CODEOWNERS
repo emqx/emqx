@@ -28,9 +28,6 @@
 /apps/emqx_ds_backends/ @ieQu1
 /apps/emqx/src/emqx_persistent_session_ds/ @ieQu1
 
-## CI
-/deploy/  @emqx/emqx-review-board @Rory-Z
-
 ## @Meggielqk owns all files in any i18n directory anywhere in the project
 /i18n/ @Meggielqk
 

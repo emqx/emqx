@@ -234,6 +234,17 @@ create_simple_table2(TableName, TCConfig) ->
     ]),
     query_by_sql(SQL, TCConfig).
 
+create_typed_table(TableName, TCConfig) ->
+    SQL = iolist_to_binary([
+        [<<"create table if not exists ">>, TableName, <<"(">>],
+        <<" ts timestamp time index,">>,
+        <<" clientid string,">>,
+        <<" v bigint,">>,
+        <<" primary key (clientid)">>,
+        <<")">>
+    ]),
+    query_by_sql(SQL, TCConfig).
+
 drop_table(TCConfig) ->
     drop_table(<<"mqtt">>, TCConfig).
 
@@ -565,6 +576,75 @@ t_multiple_tables_failure_in_the_middle(TCConfig) when is_list(TCConfig) ->
                                 ]
                             }
                         ],
+                        ?of_kind("greptime_rs_sync_batch_reply", Trace)
+                    )
+            end
+        end
+    ),
+    ok.
+
+-doc """
+Verifies that a batch where one message does not transform still writes the
+other messages, and reports the failure in that message's own position.
+
+The native driver hands raw values to the Rust client, so a value only fails
+once it reaches the NIF. A timestamp is checked while the point is built, which
+is what produces a batch of mixed valid and invalid messages here.
+""".
+t_batch_invalid_typed_value() ->
+    [{matrix, true}].
+t_batch_invalid_typed_value(matrix) ->
+    [
+        [?tcp, Sync, ?with_batch]
+     || Sync <- [?sync, ?async]
+    ];
+t_batch_invalid_typed_value(TCConfig) when is_list(TCConfig) ->
+    Table = <<"typed">>,
+    ?check_trace(
+        maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+            {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+            {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+                <<"parameters">> => #{
+                    <<"write_syntax">> => <<"${.payload.t} v=${.payload.v}i ${.payload.ts}">>
+                },
+                <<"resource_opts">> => #{
+                    %% So that all messages are buffered by the same worker
+                    <<"worker_pool_size">> => 1,
+                    <<"query_mode">> => <<"async">>
+                }
+            }),
+            #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            drop_table(Table, TCConfig),
+            {ok, _} = create_typed_table(Table, TCConfig),
+            %% The middle message carries a timestamp that is not a number, so
+            %% it is the only one that fails to transform.
+            Now = erlang:system_time(millisecond),
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    lists:foreach(
+                        fun({V, Ts}) ->
+                            Payload = json_encode(#{t => Table, v => V, ts => Ts}),
+                            emqtt:publish(C, RuleTopic, Payload, [{qos, 0}])
+                        end,
+                        [{1, Now}, {2, <<"not-a-timestamp">>}, {3, Now + 2}]
+                    ),
+                    #{?snk_kind := Kind} when
+                        Kind == handle_async_reply orelse Kind == "greptime_rs_sync_batch_reply",
+                    5_000
+                ),
+            ok
+        end),
+        fun(Trace) ->
+            case query_mode(TCConfig) of
+                ?async ->
+                    ?assertMatch(
+                        [#{result := [{ok, _}, {error, _}, {ok, _}]} | _],
+                        ?of_kind(handle_async_reply, Trace)
+                    );
+                ?sync ->
+                    ?assertMatch(
+                        [#{results := [{ok, _}, {error, _}, {ok, _}]} | _],
                         ?of_kind("greptime_rs_sync_batch_reply", Trace)
                     )
             end
