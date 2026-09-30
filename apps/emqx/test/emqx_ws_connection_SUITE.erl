@@ -392,16 +392,21 @@ t_websocket_info_deliver(_) ->
         ?ws_conn:websocket_info({deliver, <<"#">>, Msg0}, st()).
 
 t_websocket_info_timeout_keepalive(_) ->
-    {ok, _St} = ?ws_conn:websocket_info({timeout, make_ref(), keepalive}, st()).
+    {ok, _St, hibernate} = ?ws_conn:websocket_info({timeout, make_ref(), keepalive}, st()).
+
+-doc "A timer on an active connection does not hibernate it.".
+t_websocket_info_timeout_keepalive_active(_) ->
+    St = st(#{recently_active => true, hibernate_timer => make_ref()}),
+    {ok, _St} = ?ws_conn:websocket_info({timeout, make_ref(), keepalive}, St).
 
 t_websocket_info_timeout_emit_stats(_) ->
     Ref = make_ref(),
     St = st(#{stats_timer => Ref}),
-    {ok, St1} = ?ws_conn:websocket_info({timeout, Ref, emit_stats}, St),
+    {ok, St1, hibernate} = ?ws_conn:websocket_info({timeout, Ref, emit_stats}, St),
     ?assertEqual(undefined, ?ws_conn:info(stats_timer, St1)).
 
 t_websocket_info_timeout_retry(_) ->
-    {ok, _St} = ?ws_conn:websocket_info({timeout, make_ref(), retry_delivery}, st()).
+    {ok, _St, hibernate} = ?ws_conn:websocket_info({timeout, make_ref(), retry_delivery}, st()).
 
 t_websocket_info_close(_) ->
     {[{shutdown, sock_error}], _St} = ?ws_conn:websocket_info({sock_closed, sock_error}, st()).

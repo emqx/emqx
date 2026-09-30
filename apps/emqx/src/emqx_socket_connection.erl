@@ -67,7 +67,7 @@
 ]).
 
 %% Internal callback
--export([wakeup_from_hib/2, recvloop/2, get_state/1]).
+-export([wakeup_from_hib/2, recvloop/2, recvloop/3, get_state/1]).
 
 %% Export for CT
 -export([set_field/3]).
@@ -385,7 +385,7 @@ run_loop(
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             NState = start_idle_timer(State),
-            handle_recv({recv_more, Data}, Parent, NState);
+            handle_recv({recv_more, Data}, Parent, NState, active);
         {select, _SelectInfo} ->
             NState = start_idle_timer(State),
             hibernate(Parent, NState);
@@ -414,43 +414,54 @@ exit_on_sock_error(Reason) ->
 %%--------------------------------------------------------------------
 %% Recv Loop
 
-recvloop(Parent, State = #state{conf = Conf}) ->
-    #conf{
-        zone = Zone,
-        hibernate_after = HibernateTimeout
-    } = Conf,
+recvloop(Parent, State) ->
+    recvloop(Parent, State, active).
+
+%% `idle`: the connection has handled only timer messages since it woke up
+%% from hibernation, so it hibernates again as soon as its mailbox is empty.
+recvloop(Parent, State = #state{conf = #conf{zone = Zone}}, Activity) ->
     receive
         Msg ->
-            handle_recv(Msg, Parent, State)
-    after HibernateTimeout ->
+            handle_recv(Msg, Parent, State, Activity)
+    after hibernate_timeout(Activity, State) ->
         case emqx_olp:backoff_hibernation(Zone) of
             true ->
-                recvloop(Parent, State);
+                recvloop(Parent, State, active);
             false ->
                 _ = try_set_chan_stats(State),
                 hibernate(Parent, cancel_stats_timer(State))
         end
     end.
 
-handle_recv({system, From, Request}, Parent, State) ->
+hibernate_timeout(idle, #state{conf = #conf{hibernate_after = infinity}}) ->
+    infinity;
+hibernate_timeout(idle, _State) ->
+    0;
+hibernate_timeout(active, #state{conf = #conf{hibernate_after = HibernateTimeout}}) ->
+    HibernateTimeout.
+
+handle_recv({system, From, Request}, Parent, State, _Activity) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
-handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
+handle_recv({'EXIT', Parent, Reason}, Parent, State, _Activity) ->
     %% FIXME: it's not trapping exit, should never receive an EXIT
     terminate(Reason, State);
-handle_recv(Msg, Parent, State) ->
+handle_recv(Msg, Parent, State, Activity) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
-            ?MODULE:recvloop(Parent, NewState);
+            ?MODULE:recvloop(Parent, NewState, activity(Activity, Msg));
         {stop, Reason, NewSate} ->
             terminate(Reason, NewSate)
     end.
 
+%% A timer message is not activity.
+activity(idle, {timeout, _TRef, _TMsg}) -> idle;
+activity(_Activity, _Msg) -> active.
+
 hibernate(Parent, State) ->
     proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
 
-%% Maybe do something here later.
 wakeup_from_hib(Parent, State) ->
-    ?MODULE:recvloop(Parent, State).
+    ?MODULE:recvloop(Parent, State, idle).
 
 %%--------------------------------------------------------------------
 

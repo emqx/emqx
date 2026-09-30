@@ -41,10 +41,19 @@ end_per_group(_Group, Config) ->
 init_per_testcase(t_never_hibernates_when_infinity, Config) ->
     ok = emqx_config:put([zones, default, mqtt, hibernate_after], infinity),
     Config;
+init_per_testcase(t_hibernates_right_after_timer_wakeup, Config) ->
+    CheckInterval = emqx_config:get([zones, default, mqtt, keepalive_check_interval]),
+    ok = emqx_config:put([zones, default, mqtt, hibernate_after], 800),
+    ok = emqx_config:put([zones, default, mqtt, keepalive_check_interval], 1000),
+    [{keepalive_check_interval, CheckInterval} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_never_hibernates_when_infinity, _Config) ->
+    emqx_config:put([zones, default, mqtt, hibernate_after], ?HIBERNATE_AFTER_MS);
+end_per_testcase(t_hibernates_right_after_timer_wakeup, Config) ->
+    CheckInterval = ?config(keepalive_check_interval, Config),
+    ok = emqx_config:put([zones, default, mqtt, keepalive_check_interval], CheckInterval),
     emqx_config:put([zones, default, mqtt, hibernate_after], ?HIBERNATE_AFTER_MS);
 end_per_testcase(_TestCase, _Config) ->
     ok.
@@ -99,6 +108,25 @@ t_hibernates_after_timer_wakeup(Config) ->
     ?assertEqual(?HIBERNATED, await_hibernated(Pid)),
     ok = emqtt:disconnect(C).
 
+-doc """
+A connection that a timer wakes up hibernates again right after it handles the
+timer. It does not wait for `mqtt.hibernate_after`.
+""".
+t_hibernates_right_after_timer_wakeup(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    C = connect(ClientId, Config),
+    [Pid] = emqx_cm:lookup_channels(ClientId),
+    ?assertEqual(?HIBERNATED, await_hibernated(Pid)),
+    {reductions, Reductions0} = process_info(Pid, reductions),
+    %% The keepalive check timer wakes the connection up every second. When the
+    %% connection waits `mqtt.hibernate_after` (800 ms) after each wake-up, it is
+    %% hibernated in about 20 % of the samples.
+    Samples = sample_hibernated(Pid, 100, 20),
+    {reductions, Reductions1} = process_info(Pid, reductions),
+    ?assert(Reductions1 > Reductions0),
+    ?assertMatch(N when N >= 90, length([S || S <- Samples, S])),
+    ok = emqtt:disconnect(C).
+
 -doc "A connection never hibernates when `mqtt.hibernate_after` is `infinity`.".
 t_never_hibernates_when_infinity(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -134,3 +162,10 @@ await_hibernated(Pid, Retries) ->
             timer:sleep(?HIBERNATE_AFTER_MS div 3),
             await_hibernated(Pid, Retries - 1)
     end.
+
+sample_hibernated(_Pid, 0, _IntervalMs) ->
+    [];
+sample_hibernated(Pid, Count, IntervalMs) ->
+    Sample = process_info(Pid, current_function) =:= ?HIBERNATED,
+    timer:sleep(IntervalMs),
+    [Sample | sample_hibernated(Pid, Count - 1, IntervalMs)].

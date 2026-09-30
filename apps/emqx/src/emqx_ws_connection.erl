@@ -372,13 +372,15 @@ handle_ws_frame({Frame, _}, State) ->
     ?LOG(error, #{msg => "unexpected_frame", frame => Frame}),
     {[{shutdown, unexpected_ws_frame}], State}.
 
-%% A timer message is not activity. A connection that only wakes up for its own
-%% timers goes back to hibernation. Arm the hibernate timer again here, because
-%% a timer can fire while the connection is hibernated.
-websocket_info({timeout, TRef, hibernate}, State) ->
-    handle_timeout(TRef, hibernate, State);
+%% A timer message is not activity. When a timer wakes up a hibernated
+%% connection, the connection hibernates again right after it handles the timer.
+websocket_info(
+    {timeout, TRef, Msg},
+    State = #state{hibernate_timer = undefined, recently_active = false, hibernate_after = After}
+) when is_reference(TRef), After =/= infinity ->
+    hibernate_now(handle_timeout(TRef, Msg, State));
 websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
-    handle_timeout(TRef, Msg, ensure_hibernate_timer(State));
+    handle_timeout(TRef, Msg, State);
 websocket_info(Info, State) ->
     handle_ws_info(Info, mark_active(State)).
 
@@ -936,6 +938,13 @@ ensure_hibernate_timer(State = #state{hibernate_timer = undefined, hibernate_aft
     State#state{hibernate_timer = emqx_utils:start_timer(Timeout, hibernate)};
 ensure_hibernate_timer(State) ->
     State.
+
+hibernate_now({ok, State}) ->
+    {ok, State, hibernate};
+hibernate_now({Commands, State}) when is_list(Commands) ->
+    {Commands, State, hibernate};
+hibernate_now(Return) ->
+    Return.
 
 get_peer(Req, #{listener := {Type, Listener}}) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
