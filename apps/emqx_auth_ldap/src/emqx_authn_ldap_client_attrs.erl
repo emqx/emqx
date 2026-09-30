@@ -103,7 +103,7 @@ from_entry(Entry, #{client_attrs := Compiled, require_client_attrs := Require}) 
 
 compile_entry(#{attribute := Attr, set_as_attr := Name, select := Patterns} = Entry) ->
     #{
-        attribute => str(Attr),
+        attribute => binary_to_list(Attr),
         set_as_attr => iolist_to_binary(Name),
         select => lists:map(fun compile_pattern/1, Patterns),
         extract => maps:get(extract, Entry, value)
@@ -176,6 +176,3 @@ attribute_values(Attr, #eldap_entry{attributes = Attributes}) ->
         [iolist_to_binary(V) || V <- Values]
      || {Name, Values} <- Attributes, string:lowercase(Name) =:= Lower
     ]).
-
-str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
-str(Str) when is_list(Str) -> Str.

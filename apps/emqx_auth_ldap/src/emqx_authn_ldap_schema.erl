@@ -68,7 +68,7 @@ fields(bind_method) ->
 fields(client_attr) ->
     [
         {attribute,
-            ?HOCON(string(), #{
+            ?HOCON(binary(), #{
                 desc => ?DESC(client_attr_attribute),
                 required => true,
                 example => <<"memberOf">>
