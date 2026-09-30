@@ -1231,6 +1231,54 @@ t_enqueue_qos0(_) ->
     ),
     ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session1)).
 
+-doc "A QoS0-only delivery does not arm delivery retries when inflight is empty.".
+t_deliver_qos0_does_not_start_delivery_retry(_) ->
+    Session = session(#{retry_interval => 1000}),
+    Messages = enrich([delivery(?QOS_0, <<"qos0">>)], Session),
+    ?assertMatch({ok, [_], _}, emqx_session_mem:deliver(clientinfo(), Messages, [], Session)).
+
+-doc "QoS0-only dequeue batches arm only the continuation timer while messages remain.".
+t_dequeue_qos0_does_not_start_delivery_retry(_) ->
+    Session0 = session(#{retry_interval => 1000}),
+    Messages = enrich(
+        lists:duplicate(?DEFAULT_BATCH_N + 1, delivery(?QOS_0, <<"qos0">>)), Session0
+    ),
+    Session1 = emqx_session_mem:enqueue(clientinfo(), Messages, Session0),
+    {{set_timer, ?RETRY_DEQUEUE_TIMER, 1}, Publishes, Session2} =
+        emqx_session_mem:dequeue(clientinfo(), [], Session1),
+    ?assertEqual(?DEFAULT_BATCH_N, length(Publishes)),
+    ?assertMatch(
+        {ok, [_], _},
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], Session2)
+    ).
+
+-doc "Expiring the last inflight message during retry does not rearm the delivery timer.".
+t_retry_expired_empties_inflight(_) ->
+    {deliver, _, Msg} = delivery(?QOS_1, <<"expired">>, <<"payload">>, 1),
+    Expired = Msg#message{timestamp = 0},
+    Inflight = emqx_inflight:insert(1, with_ts(wait_ack, Expired, 0), emqx_inflight:new()),
+    Session0 = session(#{retry_interval => 1000, inflight => Inflight}),
+    {ok, [], Session1} = emqx_session_mem:handle_timeout(
+        clientinfo(), retry_delivery, [], Session0
+    ),
+    ?assertEqual(0, emqx_session_mem:info(inflight_cnt, Session1)).
+
+-doc "Disconnect cancels both session retry timers while preserving inflight messages.".
+t_disconnect_cancels_retry_timers(_) ->
+    Session0 = session(#{retry_interval => 1000}),
+    Messages = enrich([delivery(?QOS_1, <<"inflight">>)], Session0),
+    {{set_timer, retry_delivery, 1000}, [_Publish], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Messages, [], Session0),
+    ?assertEqual(
+        {idle,
+            [
+                {reset_timer, retry_delivery, infinity},
+                {reset_timer, retry_dequeue, infinity}
+            ],
+            Session1},
+        emqx_session_mem:disconnect(Session1, #{})
+    ).
+
 t_retry(_) ->
     RetryIntervalMs = 1000,
     Session = session(#{retry_interval => RetryIntervalMs}),

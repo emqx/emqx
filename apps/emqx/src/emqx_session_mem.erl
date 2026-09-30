@@ -161,6 +161,7 @@
 -type clientinfo() :: emqx_types:clientinfo().
 -type conninfo() :: emqx_session:conninfo().
 -type replies() :: emqx_session:replies().
+-type effect() :: emqx_session:effect().
 -type effects() :: emqx_session:effects().
 
 -define(STATS_KEYS, [
@@ -876,7 +877,7 @@ deliver(
     deliver(ClientInfo, Congested, Session, Msgs, [], Q, Inflight, L, PktId).
 
 deliver(_ClientInfo, _Congested, S0, [], Acc, Q, Inflight, Limiter, PktId) ->
-    OkEffect = delivery_effect(S0, Acc),
+    OkEffect = delivery_effect(S0, Inflight),
     reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId);
 deliver(
     ClientInfo,
@@ -949,10 +950,7 @@ deliver(
                 %% Stopping at over-limit QoS1/2 and postpone the remaining batch,
                 %% including QoS0.
                 Q = enqueue_messages(ClientInfo, [Msg | More], Q0),
-                Effect = combine_effects(
-                    retry_dequeue_effect(Reason, Q),
-                    delivery_effect(S, Acc0)
-                ),
+                Effect = retry_dequeue_effect(Reason, Q),
                 reply(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
         end
     else
@@ -965,12 +963,13 @@ deliver(
             deliver(ClientInfo, Congested, S, More, Acc0, Q1, Inflight0, L0, PktId)
     end.
 
-delivery_effect(_S, []) ->
-    ok;
-delivery_effect(#session{retry_interval = Interval}, _NonEmpty) when is_integer(Interval) ->
-    retry_delivery_effect(Interval);
-delivery_effect(_S, _NonEmpty) ->
-    ok.
+delivery_effect(#session{retry_interval = Interval}, Inflight) ->
+    case emqx_inflight:is_empty(Inflight) of
+        false when is_integer(Interval) andalso Interval > 0 ->
+            retry_delivery_effect(Interval);
+        _ ->
+            ok
+    end.
 
 retry_delivery_effect(Timeout) ->
     {set_timer, ?DELIVER_RETRY_TIMER, Timeout}.
@@ -1093,8 +1092,8 @@ retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Inter
             )
     end.
 
-retry_delivery(_ClientInfo, [], Acc, _, Session = #session{retry_interval = Interval}) ->
-    {retry_delivery_effect(Interval), lists:reverse(Acc), Session};
+retry_delivery(_ClientInfo, [], Acc, _, Session = #session{inflight = Inflight}) ->
+    {delivery_effect(Session, Inflight), lists:reverse(Acc), Session};
 retry_delivery(
     ClientInfo,
     [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
@@ -1270,6 +1269,7 @@ replay(ClientInfo, Session) ->
     ),
     %% Replay runs on an uncongested connection.
     {OkEffect, More, Session1} = dequeue(ClientInfo, [], Session),
+    %% TODO: Arm delivery retries for replayed inflight messages as well.
     {OkEffect, append(PubsResend, More), Session1}.
 
 -spec dedup([emqx_types:message()], [emqx_types:message()]) ->
@@ -1284,9 +1284,11 @@ dedup(Pendings, PendingsLocal) ->
 append(L1, []) -> L1;
 append(L1, L2) -> L1 ++ L2.
 
+-spec combine_effects(ok | effect(), ok | effects()) -> ok | effects().
 combine_effects(ok, OkEffect) -> OkEffect;
 combine_effects(OkEffect, ok) -> OkEffect;
-combine_effects(E1, E2) -> lists:flatten([E1, E2]).
+combine_effects(E1, Effects) when is_list(Effects) -> [E1 | Effects];
+combine_effects(E1, E2) -> [E1, E2].
 
 %%--------------------------------------------------------------------
 
