@@ -93,12 +93,12 @@ client_attr_set_as_attr.label:
 """Client Attribute Name"""
 
 client_attr_select.desc:
-"""An ordered list of regular expressions (PCRE syntax) that select one value of the directory attribute.
+"""An ordered list of regular expressions (Perl-compatible syntax) that select one value of the directory attribute.
 The patterns are tried in the configured order. For each pattern, the values are tried in the order the directory returned them. The first value that matches the current pattern is selected, and the remaining patterns are not tried.
 
 A pattern is matched against the whole attribute value. For `memberOf` this is the full DN of the group, for example `CN=GROUP-X,OU=Resource Groups,DC=example,DC=com`.
 Anchor the pattern at both ends of the group name: `^CN=GROUP-X,`.
-An unanchored pattern such as `CN=GROUP-X` also matches `CN=GROUP-X-ADMIN,OU=...` and grants that user the permissions of `GROUP-X`.
+A pattern without these anchors, such as `CN=GROUP-X`, also matches `CN=GROUP-X-ADMIN,OU=...` and grants that user the permissions of `GROUP-X`.
 
 Matching is case-sensitive. Active Directory compares names case-insensitively and can return a different casing than the one in your configuration. To match case-insensitively, start the pattern with `(?i)`, for example `(?i)^CN=group-x,`."""
 
