@@ -4,6 +4,8 @@
 
 -module(emqx_frame).
 
+-compile({inline, [validate_connect_first/2, validate_frame_len/3, parse_properties/3]}).
+
 -include("emqx_mqtt.hrl").
 
 -export([

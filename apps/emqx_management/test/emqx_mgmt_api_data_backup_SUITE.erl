@@ -607,9 +607,75 @@ t_download_viewer_forbidden(Config) ->
     ViewerAuth = ?config(viewer_auth, Config),
     {200, #{<<"filename">> := Filename}} =
         export_backup2(?NODE1_PORT, ApiAuth, #{}),
-    {Status, Body} = download_backup(?NODE1_PORT, ViewerAuth, Filename),
-    ?assertEqual(403, Status),
-    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    assert_download_denied(download_backup(?NODE1_PORT, ViewerAuth, Filename)),
+    ok.
+
+-doc """
+A global viewer API key and a publisher API key get 403 on a global backup that
+has no dashboard-user or API-key table sets. An administrator API key still
+downloads it, and the viewer API key can still list it.
+""".
+t_download_viewer_api_key_forbidden(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    ApiAuth = ?config(auth, Config),
+    ViewerKeyAuth = api_key_auth_header(Core1, <<"viewer_api_key_for_test">>, <<"viewer">>),
+    PublisherKeyAuth =
+        api_key_auth_header(Core1, <<"publisher_api_key_for_test">>, <<"publisher">>),
+    {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    assert_download_denied(download_backup(?NODE1_PORT, ViewerKeyAuth, Filename)),
+    assert_download_denied(download_backup(?NODE1_PORT, PublisherKeyAuth, Filename)),
+    ?assert(lists:member(Filename, list_filenames(?NODE1_PORT, ViewerKeyAuth))),
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, ApiAuth, Filename)),
+    ok.
+
+-doc """
+A namespaced viewer (login user or API key) gets 403 when it downloads a backup of
+its own namespace, and can still list it. The namespaced administrator (login user
+or API key) still downloads it.
+""".
+t_download_ns_viewer_forbidden(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    NsViewerRole = <<"ns:ns1::viewer">>,
+    NsViewerAuth =
+        dashboard_token_auth(Core1, <<"ns_viewer_for_test">>, ?VIEWER_PASS, NsViewerRole),
+    NsViewerKeyAuth = api_key_auth_header(Core1, <<"ns_viewer_api_key_for_test">>, NsViewerRole),
+    Ns1ApiKeyAuth = ns_api_key_auth_header(Core1),
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+    lists:foreach(
+        fun(Auth) ->
+            ?assertEqual([N1File], list_filenames(?NODE1_PORT, Auth)),
+            assert_download_denied(download_backup(?NODE1_PORT, Auth, N1File))
+        end,
+        [NsViewerAuth, NsViewerKeyAuth]
+    ),
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, Ns1Auth, N1File)),
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, Ns1ApiKeyAuth, N1File)),
+    ok.
+
+-doc """
+A global viewer (login user or API key) gets 403 when it downloads a namespaced
+backup with the `namespace` query parameter, and can still list it. The global
+administrator (login user or API key) still downloads it.
+""".
+t_download_global_viewer_scoped_namespace_forbidden(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    ApiAuth = ?config(auth, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    ViewerAuth = ?config(viewer_auth, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    ViewerKeyAuth = api_key_auth_header(Core1, <<"viewer_api_key_for_test">>, <<"viewer">>),
+    Ns1 = #{<<"namespace">> => <<"ns1">>},
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+    lists:foreach(
+        fun(Auth) ->
+            ?assertEqual([N1File], list_filenames(?NODE1_PORT, Auth, Ns1)),
+            assert_download_denied(download_backup(?NODE1_PORT, Auth, N1File, Ns1))
+        end,
+        [ViewerAuth, ViewerKeyAuth]
+    ),
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, DashboardAuth, N1File, Ns1)),
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, ApiAuth, N1File, Ns1)),
     ok.
 
 %% Namespaced administrators get an isolated backup space under
@@ -1428,15 +1494,20 @@ scoped_dashboard_token_auth(Node, User, Pass, Scopes) ->
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 ns_api_key_auth_header(Node) ->
-    Name = <<"ns_api_key_for_test">>,
+    api_key_auth_header(Node, <<"ns_api_key_for_test">>, <<"ns:ns1::administrator">>).
+
+api_key_auth_header(Node, Name, Role) ->
     {ok, #{api_key := Key, api_secret := Secret}} = erpc:call(Node, emqx_mgmt_auth, create, [
         Name,
         true,
         _NeverExpire = undefined,
-        <<"data backup test ns api key">>,
-        <<"ns:ns1::administrator">>
+        <<"data backup test api key">>,
+        Role
     ]),
     emqx_common_test_http:auth_header(binary_to_list(Key), binary_to_list(Secret)).
+
+assert_download_denied(Response) ->
+    ?assertMatch({403, #{<<"code">> := <<"UNAUTHORIZED_ROLE">>}}, Response).
 
 %% Return the basenames of the backups visible to `Auth'.
 list_filenames(Port, Auth) ->

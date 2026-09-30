@@ -17,6 +17,12 @@
 # The pre-release tag forms (6.2.2-rc.1, 6.0.0-alpha.1, ...) are excluded
 # from the lookup; the script computes "next patch after the most recent GA".
 #
+# A version in code freeze is skipped. Once rel-X.Y.Z is cut, that branch takes
+# only what is merged into it, so work landing on dev-X.Y afterwards misses the
+# release and ships in the next patch. With rel-6.0.4 cut, a pull request
+# against dev-60 is released in 6.0.5, not 6.0.4. Work built on the release
+# branch itself is the exception and still reports X.Y.Z.
+#
 # Branches in the forward-sync chain. The 6.x line ends at dev-63; there is no
 # 6.4 release, so dev-63 syncs forward into dev-70:
 #   dev-60 -> dev-61 -> dev-62 -> dev-63 -> dev-70
@@ -36,6 +42,9 @@ to. A line with no GA tag yet contributes its first release, M.N.0.
 
 No arguments. The starting point is determined by the most recent GA tag
 reachable from HEAD (e.g. 6.0.3 -> start from the v6.0 line).
+
+A version whose release branch (rel-X.Y.Z) is already cut is skipped, because a
+change merged into dev-X.Y after the cut ships in the next patch instead.
 EOF
 }
 
@@ -119,6 +128,53 @@ start_key="${start_major}${start_minor}"
 # collect the next patch version. A line with no GA tag yet (e.g. dev-63
 # before 6.3.0 ships) contributes its first GA version, M.N.0.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Versions in code freeze.
+#
+# A rel-X.Y.Z branch means X.Y.Z is cut: from then on it takes only what is
+# merged into that branch, so a change that lands on dev-X.Y afterwards is not
+# in it and ships in the next patch.
+#
+# A change built on the release branch itself does ship in X.Y.Z. That case is
+# recognised by HEAD already containing the tip of rel-X.Y.Z.
+#
+# Kept as newline separated "version<TAB>sha" records rather than an
+# associative array, so the script still runs under bash 3.2.
+# ---------------------------------------------------------------------------
+frozen_refs=$(
+    git ls-remote --heads "$REMOTE" 'refs/heads/rel-*' 2>/dev/null |
+        sed -n 's|^\([0-9a-f]*\)[[:space:]]*refs/heads/rel-\(.*\)$|\2\t\1|p' ||
+        true
+)
+
+# next_unfrozen MAJOR MINOR PATCH
+# Prints the first version at or after MAJOR.MINOR.PATCH that is not frozen.
+next_unfrozen() {
+    local major="$1" minor="$2" patch="$3"
+    local version sha line_version line_sha
+    while :; do
+        version="${major}.${minor}.${patch}"
+        sha=""
+        while IFS=$'\t' read -r line_version line_sha; do
+            if [[ "$line_version" == "$version" ]]; then
+                sha="$line_sha"
+                break
+            fi
+        done <<< "$frozen_refs"
+
+        if [[ -z "$sha" ]]; then
+            echo "$version"
+            return 0
+        fi
+        # HEAD contains the release branch, so this work is part of that release.
+        if git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+            echo "$version"
+            return 0
+        fi
+        patch=$((patch + 1))
+    done
+}
+
 versions=()
 seen_start=0
 for step in "${chain[@]}"; do
@@ -140,7 +196,7 @@ for step in "${chain[@]}"; do
     desc=$(git describe "$branch" --tags --match "${major}.${minor}.*" --exclude '*-*' --abbrev=0 2>/dev/null || true)
     if [[ -z "$desc" ]]; then
         # No GA tag on this line yet -> the first release will be M.N.0.
-        versions+=("${major}.${minor}.0")
+        versions+=("$(next_unfrozen "$major" "$minor" 0)")
         continue
     fi
 
@@ -150,8 +206,7 @@ for step in "${chain[@]}"; do
         continue
     fi
     patch="${BASH_REMATCH[3]}"
-    next_patch=$((patch + 1))
-    versions+=("${major}.${minor}.${next_patch}")
+    versions+=("$(next_unfrozen "$major" "$minor" $((patch + 1)))")
 done
 
 # Print all collected versions on a single comma-separated line.

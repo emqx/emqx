@@ -20,12 +20,10 @@ env LICENSE_KEY1='evaluation' \
 
 ## cannot join cluster if node1 does not have a license
 echo '======== Do not allow clustering with "default" license'
-! env LICENSE_KEY1='default' \
-      LICENSE_KEY2='default' \
-  ./start-two-nodes-in-docker.sh "${DOCKER_IMAGE_TAG}" || {
-    echo "ERROR: 'default' license allowed cluster join, but expected to fail"
-    exit 1
-}
+env LICENSE_KEY1='default' \
+    LICENSE_KEY2='default' \
+    EXPECTED_JOIN_ERROR='Failed to join the cluster: "Node emqx@node1.emqx.io has a single node license"' \
+./start-two-nodes-in-docker.sh "${DOCKER_IMAGE_TAG}"
 
 echo '======== Allow clustering with "default" license if peer node is before 5.9'
 ## new (>= 5.9.0) can join cluster with old (< 5.9.0)

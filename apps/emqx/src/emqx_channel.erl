@@ -2693,7 +2693,6 @@ fix_mountpoint(_PipelineOutput, #channel{clientinfo = ClientInfo0} = Channel0) -
 %% Set log metadata
 
 set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInfo}) ->
-    proc_lib:set_label(ClientId),
     Username = maps:get(username, ClientInfo, undefined),
     Tns = get_tenant_namespace(ClientInfo),
     emqx_logger:set_metadata_clientid(ClientId),
