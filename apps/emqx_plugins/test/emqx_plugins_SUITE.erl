@@ -669,6 +669,170 @@ t_ignores_emqx_plugins_dependency(Config) ->
     ?assertEqual({ok, [kernel, stdlib]}, application:get_key(invalid_plugin, applications)),
     ok = emqx_plugins:ensure_stopped(NameVsn).
 
+-doc """
+A package that bundles an application the release already loaded installs when
+the two `.app` files are identical. The release's copy stays running after the
+plugin is stopped, and loaded after it is uninstalled. No other application in
+the test node depends on `tftp`, so only the plugin could stop it.
+""".
+t_shares_release_app({init, Config}) ->
+    init_release_app(Config);
+t_shares_release_app({'end', Config}) ->
+    end_release_app(Config);
+t_shares_release_app(Config) ->
+    NameVsn = "bundler-1.0.0",
+    ReleaseAppDir = ?config(release_app_dir, Config),
+    ok = make_bundling_plugin_tar(NameVsn, [release_app_copy(Config)]),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(bundler)),
+    ?assertEqual(ReleaseAppDir, code:lib_dir(tftp)),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ?assert(is_app_running(tftp)),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ?assert(is_app_loaded(tftp)),
+    ?assertEqual(ReleaseAppDir, code:lib_dir(tftp)).
+
+-doc """
+A package that bundles an application the release already loaded is refused when
+its `.app` file differs from the release's.
+""".
+t_rejects_release_app_with_different_app_file({init, Config}) ->
+    init_release_app(Config);
+t_rejects_release_app_with_different_app_file({'end', Config}) ->
+    end_release_app(Config);
+t_rejects_release_app_with_different_app_file(Config) ->
+    NameVsn = "bundler-1.0.0",
+    {AppNameVsn, Files} = release_app_copy(Config),
+    AppSpec = {application, tftp, [{vsn, ?config(release_app_vsn, Config)}]},
+    AppFile = iolist_to_binary(io_lib:format("~p.~n", [AppSpec])),
+    Files1 = lists:keystore("tftp.app", 1, Files, {"tftp.app", AppFile}),
+    ok = make_bundling_plugin_tar(NameVsn, [{AppNameVsn, Files1}]),
+    ?assertMatch(
+        {error, #{msg := "plugin_app_loaded_outside_package", name := tftp}},
+        emqx_plugins:ensure_installed(NameVsn, ?fresh_install)
+    ),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ?assertEqual(?config(release_app_dir, Config), code:lib_dir(tftp)).
+
+-doc """
+A package that bundles an application already loaded from another plugin installs
+when the two `.app` files are identical, and is refused when they differ.
+""".
+t_shares_app_with_other_plugin({init, Config}) ->
+    Config;
+t_shares_app_with_other_plugin({'end', _Config}) ->
+    lists:foreach(
+        fun(NameVsn) ->
+            _ = emqx_plugins:ensure_stopped(NameVsn),
+            _ = emqx_plugins:ensure_uninstalled(NameVsn),
+            _ = emqx_plugins:purge(NameVsn),
+            _ = emqx_plugins:delete_package(NameVsn)
+        end,
+        ["bundler-1.0.0", "bundler2-1.0.0", "bundler3-1.0.0"]
+    ),
+    _ = application:unload(shared_dep),
+    ok;
+t_shares_app_with_other_plugin(_Config) ->
+    SharedApp = {"shared_dep-0.1.0", [{"shared_dep.app", app_file(shared_dep, [])}]},
+    ok = make_bundling_plugin_tar("bundler-1.0.0", [SharedApp]),
+    ok = emqx_plugins:ensure_installed("bundler-1.0.0", ?fresh_install),
+    ok = emqx_plugins:ensure_started("bundler-1.0.0"),
+    ?assert(is_app_loaded(shared_dep)),
+    %% identical `.app' file: the loaded copy is shared
+    ok = make_bundling_plugin_tar("bundler2-1.0.0", [SharedApp]),
+    ok = emqx_plugins:ensure_installed("bundler2-1.0.0", ?fresh_install),
+    %% different `.app' file: refused
+    OtherApp = {"shared_dep-0.1.0", [{"shared_dep.app", app_file(shared_dep, [crypto])}]},
+    ok = make_bundling_plugin_tar("bundler3-1.0.0", [OtherApp]),
+    ?assertMatch(
+        {error, #{msg := "plugin_app_loaded_outside_package", name := shared_dep}},
+        emqx_plugins:ensure_installed("bundler3-1.0.0", ?fresh_install)
+    ).
+
+%% `tftp' is an application of the Erlang/OTP installation, which is the
+%% release's lib directory in a test node.
+init_release_app(Config) ->
+    WasLoaded = is_app_loaded(tftp),
+    WasRunning = is_app_running(tftp),
+    [Ebin] = filelib:wildcard(filename:join([code:lib_dir(), "tftp-*", "ebin"])),
+    WasInPath = lists:member(Ebin, code:get_path()),
+    true = code:add_pathz(Ebin),
+    case application:load(tftp) of
+        ok -> ok;
+        {error, {already_loaded, tftp}} -> ok
+    end,
+    AppDir = code:lib_dir(tftp),
+    ?assertNotEqual(nomatch, string:prefix(AppDir, code:lib_dir() ++ "/")),
+    {ok, Vsn} = application:get_key(tftp, vsn),
+    [
+        {release_app_was_loaded, WasLoaded},
+        {release_app_was_running, WasRunning},
+        {release_app_was_in_path, WasInPath},
+        {release_app_dir, AppDir},
+        {release_app_vsn, Vsn}
+        | Config
+    ].
+
+end_release_app(Config) ->
+    NameVsn = "bundler-1.0.0",
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:purge(NameVsn),
+    _ = emqx_plugins:delete_package(NameVsn),
+    _ = application:unload(bundler),
+    ?config(release_app_was_running, Config) orelse application:stop(tftp),
+    ?config(release_app_was_loaded, Config) orelse application:unload(tftp),
+    ?config(release_app_was_in_path, Config) orelse
+        code:del_path(filename:join(?config(release_app_dir, Config), "ebin")),
+    ok.
+
+%% A byte copy of the release's `tftp' application, as a package bundles it.
+release_app_copy(Config) ->
+    Ebin = filename:join(?config(release_app_dir, Config), "ebin"),
+    Files = [
+        {filename:basename(Path), read_file(Path)}
+     || Path <- filelib:wildcard(filename:join(Ebin, "*"))
+    ],
+    {"tftp-" ++ ?config(release_app_vsn, Config), Files}.
+
+%% A plugin package `NameVsn' with the plugin application `<name>-0.1.0' and
+%% the bundled applications `Bundled'.
+make_bundling_plugin_tar(NameVsn, Bundled) ->
+    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    PluginApp = atom_to_list(Name) ++ "-0.1.0",
+    BundledNames = [
+        element(1, emqx_plugins_utils:parse_name_vsn(AppNameVsn))
+     || {AppNameVsn, _} <- Bundled
+    ],
+    Info = emqx_utils_json:encode(#{
+        name => bin(Name),
+        rel_vsn => <<"1.0.0">>,
+        rel_apps => [bin(PluginApp) | [bin(AppNameVsn) || {AppNameVsn, _} <- Bundled]],
+        description => <<"test">>
+    }),
+    Apps = [{PluginApp, [{atom_to_list(Name) ++ ".app", app_file(Name, BundledNames)}]} | Bundled],
+    Entries = [
+        {filename:join([NameVsn, AppNameVsn, "ebin", File]), Bin}
+     || {AppNameVsn, Files} <- Apps, {File, Bin} <- Files
+    ],
+    erl_tar:create(
+        emqx_plugins_fs:tar_file_path(NameVsn),
+        [{filename:join(NameVsn, "release.json"), Info} | Entries],
+        [compressed]
+    ).
+
+read_file(Path) ->
+    {ok, Bin} = file:read_file(Path),
+    Bin.
+
+app_file(Name, Deps) ->
+    iolist_to_binary(
+        io_lib:format("~p.~n", [
+            {application, Name, [{vsn, "0.1.0"}, {applications, [kernel, stdlib | Deps]}]}
+        ])
+    ).
+
 t_rejects_invalid_schema_on_reconfigure({init, Config}) ->
     NameVsn = "invalid_plugin-1.0.0",
     ok = make_plugin_tar(NameVsn),

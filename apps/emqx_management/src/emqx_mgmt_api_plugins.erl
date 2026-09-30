@@ -1315,7 +1315,9 @@ readable_error_msg(#{
     iolist_to_binary([
         "plugin_app_loaded_outside_package: Plugin application ",
         atom_to_binary(AppName),
-        " is already loaded outside this plugin package. Remove the conflicting code path or "
+        " is already loaded outside this plugin package. A package can bundle an application "
+        "that EMQX or another plugin has loaded only when the two .app files are identical. "
+        "Rebuild the plugin with the loaded version, or remove the conflicting code path and "
         "restart the node, then retry."
     ]);
 readable_error_msg(#{
