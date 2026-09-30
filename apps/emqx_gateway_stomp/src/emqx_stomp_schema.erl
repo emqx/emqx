@@ -77,6 +77,7 @@ fields(stomp_transaction) ->
                 emqx_schema:duration_ms(),
                 #{
                     default => <<"60s">>,
+                    validator => fun validate_transaction_timeout/1,
                     desc => ?DESC(stomp_transaction_timeout)
                 }
             )}
@@ -106,3 +107,8 @@ ref(StructName) ->
 
 ref(Mod, Field) ->
     hoconsc:ref(Mod, Field).
+
+validate_transaction_timeout(Timeout) when Timeout > 0 ->
+    ok;
+validate_transaction_timeout(_Timeout) ->
+    {error, #{reason => transaction_timeout_must_be_positive, minimum => 1}}.

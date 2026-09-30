@@ -26,6 +26,6 @@ stomp_transaction_max_retained_bytes.desc:
 """Maximum number of bytes retained by all open transactions on a connection"""
 
 stomp_transaction_timeout.desc:
-"""How long a transaction may stay open without being committed or aborted"""
+"""How long a transaction may stay open without being committed or aborted. Must be greater than zero."""
 
 }
