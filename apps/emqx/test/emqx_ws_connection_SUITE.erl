@@ -79,13 +79,15 @@ t_info(_) ->
                 gen_server:reply(From, ?ws_conn:info(st()))
         end
     end),
-    #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
+    #{conninfo := ConnInfo} = ?ws_conn:call(WsPid, info),
     #{
         socktype := ws,
         peername := {{127, 0, 0, 1}, 3456},
-        sockname := {{127, 0, 0, 1}, 18083},
-        sockstate := running
-    } = SockInfo.
+        sockname := {{127, 0, 0, 1}, 18083}
+    } = ConnInfo,
+    %% `sockstate' is not part of the channel info map; it is read from the
+    %% connection state.
+    ?assertEqual(running, ?ws_conn:info(sockstate, st())).
 
 set_ws_opts(Key, Val) ->
     emqx_config:put_listener_conf(ws, default, [websocket, Key], Val).
@@ -316,15 +318,16 @@ t_websocket_handle_packet_order(_) ->
         iolist_to_binary(emqx_frame:serialize(?PUBREC_PACKET(2)))
     ).
 
+%% The first frame marks the connection as active, which arms the hibernate
+%% timer. The frames themselves are ignored, so handling another one leaves the
+%% state as it is.
 t_websocket_handle_ping(_) ->
-    St = st(),
-    {ok, St} = ?ws_conn:websocket_handle(ping, St),
-    {ok, St} = ?ws_conn:websocket_handle({ping, <<>>}, St).
+    {ok, St} = ?ws_conn:websocket_handle(ping, st()),
+    ?assertEqual({ok, St}, ?ws_conn:websocket_handle({ping, <<>>}, St)).
 
 t_websocket_handle_pong(_) ->
-    St = st(),
-    {ok, St} = ?ws_conn:websocket_handle(pong, St),
-    {ok, St} = ?ws_conn:websocket_handle({pong, <<>>}, St).
+    {ok, St} = ?ws_conn:websocket_handle(pong, st()),
+    ?assertEqual({ok, St}, ?ws_conn:websocket_handle({pong, <<>>}, St)).
 
 t_websocket_handle_bad_frame(_) ->
     {[{shutdown, unexpected_ws_frame}], _St} = ?ws_conn:websocket_handle({badframe, <<>>}, st()).
@@ -554,6 +557,7 @@ channel() -> channel(#{}).
 channel(InitFields) ->
     Listener = 'ws:default',
     ConnInfo = #{
+        socktype => ws,
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 18083},
         conn_mod => emqx_ws_connection,

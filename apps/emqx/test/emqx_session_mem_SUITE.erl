@@ -91,6 +91,75 @@ t_session_init(_) ->
     ?assertEqual(300000, emqx_session_mem:info(await_rel_timeout, Session)),
     ?assert(is_integer(emqx_session_mem:info(created_at, Session))).
 
+-doc """
+Checks that a new session holds an `{empty, MaxLen}` mqueue, and that it
+reports the same stats as a session with an empty queue built from the zone
+config.
+""".
+t_session_init_lazy_mqueue(_) ->
+    Session = session(),
+    ?assertMatch(#session{mqueue = {empty, 1000}}, Session),
+    MQ = emqx_mqueue:init(zone_mqueue_opts(default)),
+    Built = emqx_session_mem:set_field(mqueue, MQ, Session),
+    ?assertEqual(emqx_session_mem:stats(Built), emqx_session_mem:stats(Session)),
+    ?assert(emqx_mqueue:is_empty(emqx_session_mem:info(mqueue, Session))),
+    ?assertEqual(1000, emqx_mqueue:max_len(emqx_session_mem:info(mqueue, Session))),
+    ?assertEqual(
+        emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Built),
+        emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Session)
+    ),
+    ?assertEqual({ok, [], Session}, emqx_session_mem:dequeue(clientinfo(), Session)),
+    ?assertEqual([], maps:get(mqueue, emqx_session_mem:export(Session))).
+
+-doc """
+Checks that an unbuilt mqueue keeps the `max_mqueue_len` of session creation,
+stays unbuilt when a QoS 0 message is not stored, and that the first stored
+message builds the queue with that limit and the zone's other options.
+""".
+t_lazy_mqueue_zone_config(_) ->
+    set_zone_conf(max_mqueue_len, 2),
+    Session0 = session(),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session0)),
+    set_zone_conf(max_mqueue_len, 5),
+    set_zone_conf(mqueue_store_qos0, false),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session0)),
+    QoS0 = emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"0">>),
+    Session1 = emqx_session_mem:enqueue(clientinfo(), [QoS0], Session0),
+    ?assertMatch(#session{mqueue = {empty, 2}}, Session1),
+    Msgs = [emqx_message:make(clientid, ?QOS_1, <<"t">>, P) || P <- [<<"1">>, <<"2">>, <<"3">>]],
+    Session2 = emqx_session_mem:enqueue(clientinfo(), Msgs, Session1),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session2)),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session2)),
+    ?assertEqual(1, emqx_session_mem:info(mqueue_dropped, Session2)),
+    ?assertEqual(2, emqx_session_mem:info(total_payload_bytes, Session2)),
+    ?assertEqual(
+        [<<"2">>, <<"3">>],
+        [
+            emqx_message:payload(M)
+         || M <- emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session2))
+        ]
+    ),
+    set_zone_conf(max_mqueue_len, infinity),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_max, session())),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_max, Session2)).
+
+-doc """
+Checks that the first enqueue applies the zone's `mqueue_priorities`.
+""".
+t_lazy_mqueue_priorities(_) ->
+    set_zone_conf(mqueue_priorities, #{<<"t/high">> => 10, <<"t/low">> => 1}),
+    Session0 = session(),
+    Low = emqx_message:make(clientid, ?QOS_1, <<"t/low">>, <<"low">>),
+    High = emqx_message:make(clientid, ?QOS_1, <<"t/high">>, <<"high">>),
+    Session1 = emqx_session_mem:enqueue(clientinfo(), [Low, High], Session0),
+    ?assertEqual(
+        [<<"high">>, <<"low">>],
+        [
+            emqx_message:payload(M)
+         || M <- emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session1))
+        ]
+    ).
+
 %%--------------------------------------------------------------------
 %% Test cases for session info/stats
 %%--------------------------------------------------------------------
@@ -914,6 +983,19 @@ t_export_import(_) ->
         emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session3))
     ).
 
+-doc """
+Checks that exporting a session with nothing queued and importing it gives a
+placeholder mqueue for the importing zone.
+""".
+t_export_import_empty_mqueue(_) ->
+    Persistent = emqx_session_mem:export(session()),
+    ?assertEqual([], maps:get(mqueue, Persistent)),
+    Session = emqx_session_mem:import(
+        clientinfo(#{zone => default, listener => 'tcp:default'}),
+        Persistent
+    ),
+    ?assertMatch(#session{mqueue = {empty, 1000}}, Session).
+
 t_replay(_) ->
     Session = session(),
     Messages = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)], Session),
@@ -971,6 +1053,19 @@ t_obtain_next_pkt_id(_) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
+zone_mqueue_opts(Zone) ->
+    #{
+        max_len => emqx_config:get_zone_conf(Zone, [mqtt, max_mqueue_len]),
+        store_qos0 => emqx_config:get_zone_conf(Zone, [mqtt, mqueue_store_qos0]),
+        priorities => emqx_config:get_zone_conf(Zone, [mqtt, mqueue_priorities]),
+        default_priority => emqx_config:get_zone_conf(Zone, [mqtt, mqueue_default_priority])
+    }.
+
+set_zone_conf(Key, Value) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, Key]),
+    ?on_exit(emqx_config:put_zone_conf(default, [mqtt, Key], Old)),
+    ok = emqx_config:put_zone_conf(default, [mqtt, Key], Value).
+
 mqueue() -> mqueue(#{}).
 mqueue(Opts) ->
     emqx_mqueue:init(maps:merge(#{max_len => 0, store_qos0 => false}, Opts)).
@@ -1005,7 +1100,7 @@ clientinfo() -> clientinfo(#{}).
 clientinfo(Init) ->
     maps:merge(
         #{
-            zone => ?MODULE,
+            zone => default,
             clientid => <<"clientid">>,
             username => <<"username">>
         },

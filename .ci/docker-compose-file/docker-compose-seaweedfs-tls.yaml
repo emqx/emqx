@@ -1,0 +1,35 @@
+services:
+  seaweedfs_tls:
+    hostname: seaweedfs-tls
+    image: chrislusf/seaweedfs:${SEAWEEDFS_TAG}
+    command:
+      - mini
+      - -dir=/data
+      - -s3.port=9100
+      - -s3.port.iceberg=0
+      - -s3.port.lance=0
+      - -s3.autoCreateBucket=false
+      - -s3.key.file=/etc/certs/server.key
+      - -s3.cert.file=/etc/certs/server.crt
+      - -webdav=false
+      - -admin.ui=false
+      - -master.telemetry=false
+    environment:
+      AWS_ACCESS_KEY_ID: seaweedfsadmin
+      AWS_SECRET_ACCESS_KEY: seaweedfsadmin
+    tmpfs:
+      - /data
+    volumes:
+      - ./certs/server.crt:/etc/certs/server.crt
+      - ./certs/server.key:/etc/certs/server.key
+    expose:
+      - "9100"
+    ports:
+      - "9100:9100"
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-sS", "-o", "/dev/null", "https://localhost:9100/"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    networks:
+      emqx_bridge:

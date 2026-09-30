@@ -4197,6 +4197,14 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_idle_timeout)
                 }
             )},
+        {"hibernate_after",
+            sc(
+                hoconsc:union([duration(), infinity]),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC(mqtt_hibernate_after)
+                }
+            )},
         {"max_packet_size",
             sc(
                 bytesize(),

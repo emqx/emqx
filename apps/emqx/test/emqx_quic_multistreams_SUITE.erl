@@ -138,7 +138,8 @@ groups() ->
             t_client_probe_conn,
             t_data_stream_race_ctrl_stream,
             t_keep_alive,
-            t_keep_alive_idle_ctrl_stream
+            t_keep_alive_idle_ctrl_stream,
+            t_subscriptions_by_clientid_data_stream
         ]}
     ].
 
@@ -235,6 +236,28 @@ t_multi_streams_sub(Config) ->
         ct:fail("not received")
     end,
     ok = emqtt:disconnect(C).
+
+-doc """
+A QUIC client that subscribes on a data stream is found by clientid. The
+subscriber is the data stream process, not the channel registered in `emqx_cm`.
+""".
+t_subscriptions_by_clientid_data_stream(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"t/data_stream/subscriptions">>,
+    {ok, C} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId} | Config]),
+    {ok, _} = emqtt:quic_connect(C),
+    try
+        {ok, _, [0]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [{Topic, [{qos, 0}]}]),
+        [ChanPid] = emqx_cm:lookup_channels(local, ClientId),
+        ?assertEqual([], emqx_broker:subscriptions(ChanPid)),
+        ?retry(
+            100,
+            20,
+            ?assertMatch([{Topic, _}], emqx_broker:subopts_by_clientid(ClientId))
+        )
+    after
+        ok = emqtt:disconnect(C)
+    end.
 
 t_multi_streams_pub_5x100(Config) ->
     PubQos = ?config(pub_qos, Config),
@@ -2108,11 +2131,14 @@ t_quic_takeover_tls(Config) ->
         _Interval0 = 100,
         _NAttempts0 = 30,
         begin
+            #{<<"topic/takeover">> := _} = channel_subscriptions(ClientId),
             CI = emqx_cm:get_chan_info(ClientId),
+            %% `info/1' does not carry the session subscriptions on this
+            %% branch; `channel_subscriptions/1' above reads them through
+            %% `info/2' and asserts the subscription is there.
             #{
-                session := S = #{subscriptions := #{<<"topic/takeover">> := _}},
-                conninfo := #{connected_at := CA},
-                sockinfo := #{socktype := ssl}
+                session := S,
+                conninfo := #{connected_at := CA, socktype := ssl}
             } = CI,
             {S, CA, CI}
         end
@@ -2216,10 +2242,11 @@ t_quic_takeover_tls_0rtt(Config) ->
     {Session3, QuicConnectedAT2, ChanQuic2} = retry_get_chan_info(ClientId, quic),
     ?assertEqual(1, proplists:get_value(session_present, emqtt:info(C1))),
     ?assert(ChanQuic2 =/= ChanQuic),
-    ?assert(maps:without([subscriptions], Session3) == maps:without([subscriptions], Session)),
+    ?assertEqual(Session, Session3),
     %% THEN (a): subscriptions are updated and takenover
     ?assertEqual(
-        [<<"topic/takeover">>, <<"topic/takeover2">>], maps:keys(maps:get(subscriptions, Session3))
+        [<<"topic/takeover">>, <<"topic/takeover2">>],
+        lists:sort(maps:keys(channel_subscriptions(ClientId)))
     ),
     ?assert(QuicConnectedAT2 > QuicConnectedAT),
     %% THEN: connection is resumed and session is takenover.
@@ -2248,8 +2275,7 @@ t_tls_takeover_quic(Config) ->
     ClientId = proplists:get_value(clientid, emqtt:info(C0)),
     #{
         session := Session,
-        conninfo := #{connected_at := QuicConnectedAT},
-        sockinfo := #{socktype := quic}
+        conninfo := #{connected_at := QuicConnectedAT, socktype := quic}
     } = _ChanQuic = emqx_cm:get_chan_info(ClientId),
 
     ?assertEqual(0, proplists:get_value(session_present, emqtt:info(C0))),
@@ -2272,8 +2298,7 @@ t_tls_takeover_quic(Config) ->
     %% THEN: server: session matches the TLS session and socktype is ssl
     #{
         session := Session,
-        conninfo := #{connected_at := TLSConnectedAT},
-        sockinfo := #{socktype := ssl}
+        conninfo := #{connected_at := TLSConnectedAT, socktype := ssl}
     } = _ChanTLS = emqx_cm:get_chan_info(ClientId),
     ?assert(QuicConnectedAT < TLSConnectedAT),
     receive
@@ -2289,6 +2314,14 @@ t_tls_takeover_quic(Config) ->
 %%--------------------------------------------------------------------
 
 -doc """
+Read the subscriptions of the client's session from the channel process.
+
+The `emqx_channel_info` table holds the session attributes without the subscriptions map.
+""".
+channel_subscriptions(ClientId) ->
+    emqx_cth_broker:connection_info({channel, {session, subscriptions}}, ClientId).
+
+-doc """
 Fetch channel info of ClientId, retrying until the registered channel has
 the expected socktype: both the initial channel info registration and the
 registry swap after a takeover are asynchronous.
@@ -2300,8 +2333,7 @@ retry_get_chan_info(ClientId, SockType) ->
         begin
             #{
                 session := Session,
-                conninfo := #{connected_at := ConnectedAt},
-                sockinfo := #{socktype := SockType}
+                conninfo := #{connected_at := ConnectedAt, socktype := SockType}
             } = ChanInfo = emqx_cm:get_chan_info(ClientId),
             {Session, ConnectedAt, ChanInfo}
         end

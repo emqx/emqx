@@ -155,13 +155,6 @@
 
 -define(ACTIVE_N, 10).
 
--define(INFO_KEYS, [
-    socktype,
-    peername,
-    sockname,
-    sockstate
-]).
-
 -define(SOCK_STATS, [
     recv_oct,
     recv_cnt,
@@ -231,10 +224,8 @@ start_link(Transport, Socket, Options) ->
 -spec info(pid() | state()) -> emqx_types:infos().
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
-info(State = #state{channel = Channel}) ->
-    ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(info(?INFO_KEYS, State)),
-    ChanInfo#{sockinfo => SockInfo}.
+info(#state{channel = Channel}) ->
+    emqx_channel:info(Channel).
 
 -spec info([atom()] | atom() | tuple(), pid() | state()) -> term().
 info(Keys, State) when is_list(Keys) ->
@@ -514,6 +505,10 @@ cancel_idle_timer(_State) ->
 -compile({inline, [get_zone_idle_timeout/1]}).
 get_zone_idle_timeout(Zone) ->
     emqx_channel:get_mqtt_conf(Zone, idle_timeout).
+
+-compile({inline, [get_zone_hibernate_after/1]}).
+get_zone_hibernate_after(Zone) ->
+    emqx_channel:get_mqtt_conf(Zone, hibernate_after).
 
 %%--------------------------------------------------------------------
 %% Process next Msg
@@ -1570,7 +1565,7 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         zone = Zone,
         active_n = get_active_n(Type, Listener),
         sendq_watermark = get_high_watermark(Type, Listener),
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
+        hibernate_after = maps:get(hibernate_after, Opts, get_zone_hibernate_after(Zone)),
         force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
         force_gc = GcThresholds
     },

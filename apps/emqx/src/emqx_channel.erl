@@ -25,6 +25,7 @@
 -export([
     info/1,
     info/2,
+    restore_derivable_peer_fields/2,
     get_mqtt_conf/2,
     get_mqtt_conf/3,
     set_conn_state/2,
@@ -184,10 +185,50 @@
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
 
-%% @doc Get infos of the channel.
+-doc """
+Channel attributes, as cached in the `emqx_channel_info` ETS table.
+
+The map omits `will_msg`, `conninfo.conn_props` and `session.subscriptions`. They are the
+largest attributes, they grow with client input, and no reader of the table uses them.
+Read them with `info/2`: `info(will_msg, Channel)`, `info(conninfo, Channel)` and
+`info({session, subscriptions}, Channel)`.
+""".
 -spec info(channel()) -> emqx_types:infos().
-info(Channel) ->
-    maps:from_list(info(?INFO_KEYS, Channel)).
+info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
+    #{
+        conninfo => maps:remove(conn_props, ConnInfo),
+        conn_state => info(conn_state, Channel),
+        clientinfo => drop_derivable_peer_fields(info(clientinfo, Channel)),
+        session => emqx_utils:maybe_apply(fun chan_info_session/1, Session)
+    }.
+
+chan_info_session(Session) ->
+    maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session)).
+
+%% `clientinfo' keeps these so that authn, authz and hooks can reach them without
+%% `conninfo'. The info map already carries `conninfo', so a reader can derive them
+%% from `conninfo.peername' and `conninfo.sockname' instead.
+drop_derivable_peer_fields(ClientInfo) ->
+    maps:without([peerhost, peerport, peername, sockport], ClientInfo).
+
+%% @doc Put back the `clientinfo' fields that `info/1' leaves out.
+%% For code that rebuilds a channel from a stored info map, such as session
+%% eviction, so that hooks run by the new channel receive the same `clientinfo'
+%% the connection had.
+-spec restore_derivable_peer_fields(emqx_types:clientinfo(), emqx_types:conninfo()) ->
+    emqx_types:clientinfo().
+restore_derivable_peer_fields(
+    ClientInfo,
+    #{peername := {PeerHost, PeerPort} = PeerName, sockname := {_, SockPort}}
+) ->
+    ClientInfo#{
+        peername => PeerName,
+        peerhost => PeerHost,
+        peerport => PeerPort,
+        sockport => SockPort
+    };
+restore_derivable_peer_fields(ClientInfo, _ConnInfo) ->
+    ClientInfo.
 
 -spec info(list(atom()) | atom() | tuple(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
@@ -698,15 +739,28 @@ post_process_connect(
 
 %% A hook callback may install a limiter container at connect time
 %% (e.g. multi-tenant limiters). Otherwise the field stays `undefined`
-%% and the container is built on first use; see ensure_quota/1.
+%% and the container is built on first use, once a finite limit is
+%% configured for the zone or the listener; see try_consume_quota/2.
 adjust_limiter(ClientInfo) ->
     emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], undefined).
 
-ensure_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+try_consume_quota(Needs, #channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
     #{zone := Zone, listener := ListenerId} = ClientInfo,
-    Channel#channel{quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)};
-ensure_quota(Channel) ->
-    Channel.
+    Names = [Name || {Name, _Amount} <- Needs],
+    case emqx_limiter:channel_limits_configured(Zone, ListenerId, Names) of
+        false ->
+            {true, Channel};
+        true ->
+            Container = emqx_limiter:create_channel_client_container(Zone, ListenerId),
+            try_consume_quota(Needs, Channel#channel{quota = Container})
+    end;
+try_consume_quota(Needs, #channel{quota = Quota0} = Channel) ->
+    case emqx_limiter_client_container:try_consume(Quota0, Needs) of
+        {true, Quota} ->
+            {true, Channel#channel{quota = Quota}};
+        {false, Quota, Reason} ->
+            {false, Channel#channel{quota = Quota}, Reason}
+    end.
 
 handle_zone_change(
     _Output,
@@ -1814,9 +1868,7 @@ handle_cast(
     NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
-    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
-    ChanInfo1 = info(NChannel),
-    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    emqx_cm:set_chan_info(ClientId, info(NChannel)),
     reset_timer(keepalive, NChannel);
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
@@ -2963,14 +3015,11 @@ packing_alias(Packet, Channel) ->
 check_quota_exceeded(
     ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), Chann0
 ) ->
-    #channel{quota = Quota} = Chann = ensure_quota(Chann0),
-    Result = emqx_limiter_client_container:try_consume(
-        Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
-    ),
-    case Result of
-        {true, Quota2} ->
-            {ok, Chann#channel{quota = Quota2}};
-        {false, Quota2, Reason} ->
+    Needs = [{bytes, erlang:byte_size(Payload)}, {messages, 1}],
+    case try_consume_quota(Needs, Chann0) of
+        {true, Chann} ->
+            {ok, Chann};
+        {false, Chann, Reason} ->
             ?SLOG_THROTTLE(
                 warning,
                 #{
@@ -2979,20 +3028,16 @@ check_quota_exceeded(
                 },
                 #{topic => Topic, tag => "QUOTA"}
             ),
-            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Quota2}}
+            {error, ?RC_QUOTA_EXCEEDED, Chann}
     end.
 
 check_subscribe_quota_exceeded(
     #subscribe_operation{topic_filters = TopicFilters}, Chann0
 ) ->
-    #channel{quota = Limiter0} = Chann = ensure_quota(Chann0),
-    Result = emqx_limiter_client_container:try_consume(
-        Limiter0, [{subscribes, 1}]
-    ),
-    case Result of
-        {true, Limiter} ->
-            {ok, Chann#channel{quota = Limiter}};
-        {false, Limiter, Reason} ->
+    case try_consume_quota([{subscribes, 1}], Chann0) of
+        {true, Chann} ->
+            {ok, Chann};
+        {false, Chann, Reason} ->
             ?tp("subscribe_rate_limit", #{reason => Reason}),
             ?SLOG_THROTTLE(
                 warning,
@@ -3002,7 +3047,7 @@ check_subscribe_quota_exceeded(
                 },
                 #{topics => TopicFilters, tag => "QUOTA"}
             ),
-            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Limiter}}
+            {error, ?RC_QUOTA_EXCEEDED, Chann}
     end.
 
 %%--------------------------------------------------------------------

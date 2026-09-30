@@ -104,29 +104,71 @@ internal_subscribe_test_profile(_) ->
 %% Test cases for channel info/stats/caps
 %%--------------------------------------------------------------------
 
+-doc """
+The stored channel info carries a `clientinfo` without the fields derivable from
+`conninfo`, while the channel's own `clientinfo` keeps them all.
+""".
 t_chan_info(_) ->
+    WillMsg = emqx_message:make(<<"clientid">>, <<"will">>, <<"payload">>),
+    Channel = channel(#{
+        will_msg => WillMsg,
+        session => session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}})
+    }),
     #{
         conn_state := connected,
-        clientinfo := ClientInfo
-    } = emqx_channel:info(channel()),
+        clientinfo := Stored,
+        conninfo := ConnInfo,
+        session := SessionInfo
+    } = Info = emqx_channel:info(Channel),
+    %% `info/1` omits the attributes that grow with client input.
+    ?assertNot(maps:is_key(will_msg, Info)),
+    ?assertNot(maps:is_key(conn_props, ConnInfo)),
+    ?assertNot(maps:is_key(subscriptions, SessionInfo)),
+    %% The session attributes are the ones the channel info table's readers use; the
+    %% counters come from the stats element of the same table row.
+    ?assertMatch(
+        #{created_at := _, is_persistent := _, impl := emqx_session_mem}, SessionInfo
+    ),
+    ?assertEqual([created_at, impl, is_persistent], lists:sort(maps:keys(SessionInfo))),
+    %% `info/2` still reads them from the channel.
+    ?assertEqual(emqx_message:to_map(WillMsg), emqx_channel:info(will_msg, Channel)),
+    ?assertMatch(#{conn_props := #{}}, emqx_channel:info(conninfo, Channel)),
+    ?assertMatch(
+        #{<<"t">> := _}, emqx_channel:info({session, subscriptions}, Channel)
+    ),
     ?assertMatch(
         #{
             zone := default,
             listener := 'tcp:default',
             protocol := mqtt,
-            peername := {{127, 0, 0, 1}, 3456},
-            peerhost := {127, 0, 0, 1},
-            peerport := 3456,
-            sockport := 1883,
             clientid := <<"clientid">>,
             username := <<"username">>,
             is_superuser := false,
             is_bridge := false,
             mountpoint := undefined
         },
-        ClientInfo
+        Stored
     ),
-    ?assertEqual(clientinfo(), ClientInfo).
+    ?assertEqual(
+        maps:without([peerhost, peerport, peername, sockport], clientinfo()),
+        Stored
+    ),
+    %% Hooks, authn and authz receive the channel's own clientinfo.
+    ?assertEqual(clientinfo(), emqx_channel:info(clientinfo, Channel)).
+
+-doc """
+`info/1` drops the `clientinfo` fields derivable from `conninfo`, and
+`restore_derivable_peer_fields/2` puts back exactly those, so that a channel rebuilt
+from a stored info map carries the `clientinfo` the connection had.
+""".
+t_restore_derivable_peer_fields(_) ->
+    #{conninfo := ConnInfo, clientinfo := Stored} = emqx_channel:info(channel()),
+    ?assertEqual(
+        clientinfo(),
+        emqx_channel:restore_derivable_peer_fields(Stored, ConnInfo)
+    ),
+    %% With nothing to derive from, the clientinfo is returned as is.
+    ?assertEqual(Stored, emqx_channel:restore_derivable_peer_fields(Stored, #{})).
 
 t_chan_caps(_) ->
     ?assertMatch(
@@ -898,23 +940,40 @@ t_quota_lazy_hot_update(_) ->
             #{listener => {tcp, lazy_hot_update}}
         ),
         Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
-        %% No limit configured: both publishes pass.
+        %% No limit configured: both publishes pass and no container is built.
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
             emqx_channel:handle_in(Pub, Chann),
+        ?assertEqual(undefined, emqx_channel:info(quota, Chann1)),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann2} =
             emqx_channel:handle_in(Pub, Chann1),
+        ?assertEqual(undefined, emqx_channel:info(quota, Chann2)),
         %% Configure a tight rate at runtime; the limit must apply without reconnect.
         {ok, MessagesRate} = emqx_limiter_schema:to_rate("1/s"),
         ok = emqx_limiter:update_listener_limiters(ListenerId, #{messages_rate => MessagesRate}),
         timer:sleep(1200),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
             emqx_channel:handle_in(Pub, Chann2),
+        ?assertNotEqual(undefined, emqx_channel:info(quota, Chann3)),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
             emqx_channel:handle_in(Pub, Chann3),
         ok
     after
         emqx_limiter:delete_listener_limiters(ListenerId)
     end.
+
+-doc "Subscribing without any finite channel limit builds no limiter container.".
+t_quota_stays_absent_on_subscribe(_) ->
+    ok = meck:expect(
+        emqx_session,
+        subscribe,
+        fun(_, _, _, Session) -> {ok, Session} end
+    ),
+    Chann = channel(#{conn_state => connected, quota => undefined}),
+    TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
+    Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
+    Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
+    {ok, Replies, Chann1} = emqx_channel:handle_in(Subscribe, Chann),
+    ?assertEqual(undefined, emqx_channel:info(quota, Chann1)).
 
 t_mount_will_msg(_) ->
     Self = self(),
@@ -1209,7 +1268,7 @@ t_internal_subscribe_checks_authz_and_runs_hook(_) ->
     ),
     snabbkaffe_diff:assert_lists_eq(
         lists:sort(AllowedTopics),
-        channel_subscriptions(ChannelPid)
+        channel_subscriptions(ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -1238,7 +1297,7 @@ t_internal_subscribe_checks_caps(_) ->
         ]},
     snabbkaffe_diff:assert_lists_eq(
         [SimpleTopic],
-        channel_subscriptions(ChannelPid)
+        channel_subscriptions(ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -1900,6 +1959,7 @@ on_client_subscribe(_ClientInfo, Properties, TopicFilters, TestPid) ->
     TestPid ! {client_subscribe, Properties, TopicFilters},
     {ok, TopicFilters}.
 
-channel_subscriptions(ChannelPid) ->
-    #{session := #{subscriptions := Subscriptions}} = emqx_connection:info(ChannelPid),
+channel_subscriptions(ClientId) ->
+    Subscriptions =
+        emqx_cth_broker:connection_info({channel, {session, subscriptions}}, ClientId),
     lists:sort(maps:keys(Subscriptions)).
