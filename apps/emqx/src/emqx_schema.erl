@@ -4199,7 +4199,7 @@ mqtt_general() ->
             )},
         {"hibernate_after",
             sc(
-                hoconsc:union([infinity, duration()]),
+                hoconsc:union([duration(), infinity]),
                 #{
                     default => <<"5s">>,
                     desc => ?DESC(mqtt_hibernate_after)

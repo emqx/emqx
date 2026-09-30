@@ -1919,8 +1919,8 @@ with_client_info_fields(ClientInfoMap, all) ->
             send_pend,
             conn_props,
             peercert,
-            %% No longer stored, but present in rows from nodes that predate its
-            %% removal, which this node may format during a rolling upgrade.
+            %% Not stored since 6.3.2, but present in rows from older nodes, which
+            %% this node may format during a rolling upgrade.
             sockstate,
             subscriptions,
             receive_maximum,
