@@ -341,6 +341,99 @@ t_plugins(_Config) ->
     ok.
 
 -doc """
+A plugin in `node.pinned_plugins` is listed with the pinned marker, can be
+stopped and started on this node, and every other lifecycle request returns
+409 `PLUGIN_PINNED`. Cluster calls from peers are skipped.
+""".
+t_pinned_plugin(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = list_to_binary(filename:basename(PackagePath, ?PACKAGE_SUFFIX)),
+    OtherVsn = <<?EMQX_PLUGIN_TEMPLATE_NAME, "-9.9.9">>,
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    ok = filelib:ensure_dir(Tar),
+    {ok, _} = file:copy(PackagePath, Tar),
+    emqx_config:put([node, pinned_plugins], [NameVsn]),
+    on_exit(fun() ->
+        _ = emqx_plugins:stop_pinned(NameVsn),
+        emqx_config:put([node, pinned_plugins], []),
+        application:unset_env(emqx_plugins, pinned_plugins_stopped),
+        emqx_plugins:put_configured([]),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = emqx_plugins:ensure_installed(),
+    ok = emqx_plugins:ensure_started(),
+    Node = atom_to_binary(node()),
+    ?assertMatch(
+        #{
+            <<"pinned">> := true,
+            <<"running_status">> := [
+                #{<<"node">> := Node, <<"status">> := <<"running">>, <<"pinned">> := true}
+            ]
+        },
+        describe_plugin(NameVsn)
+    ),
+    ?assertMatch([#{<<"pinned">> := true}], list_plugins()),
+    %% Stop and start act on this node only.
+    {ok, []} = update_plugin(NameVsn, "stop"),
+    ?assertMatch(
+        #{<<"running_status">> := [#{<<"status">> := <<"stopped">>}]},
+        describe_plugin(NameVsn)
+    ),
+    {ok, []} = update_plugin(NameVsn, "start"),
+    ?assertMatch(
+        #{<<"running_status">> := [#{<<"status">> := <<"running">>}]},
+        describe_plugin(NameVsn)
+    ),
+    %% The config is readable.
+    ?assertMatch(
+        {200, #{<<"hostname">> := <<"localhost">>}},
+        plugin_request(get, ["plugins", NameVsn, "config"], "")
+    ),
+    %% Every other operation is refused.
+    Refused = [
+        {delete, ["plugins", NameVsn], ""},
+        {put, ["plugins", OtherVsn, "stop"], ""},
+        {put, ["plugins", NameVsn, "config"], #{<<"port">> => 1}},
+        {post, ["plugins", NameVsn, "move"], #{<<"position">> => <<"front">>}},
+        {post, ["plugins", "cluster_sync"], #{<<"name">> => NameVsn}}
+    ],
+    lists:foreach(
+        fun({Method, Parts, Body}) ->
+            Response = plugin_request(Method, Parts, Body),
+            ct:pal("~p ~p: ~p", [Method, Parts, Response]),
+            ?assertMatch({409, #{<<"code">> := <<"PLUGIN_PINNED">>}}, Response)
+        end,
+        Refused
+    ),
+    ?assertMatch({_, {{_, 409, _}, _, _}}, install_plugin(PackagePath)),
+    %% Calls from peers for the pinned name do not touch the plugin.
+    ?assertEqual(ok, emqx_mgmt_api_plugins:ensure_action(OtherVsn, stop, #{})),
+    ?assertMatch(
+        [#{<<"name_vsn">> := _, <<"enable">> := false}],
+        emqx:get_raw_config([plugins, states])
+    ),
+    ?assertEqual(ok, emqx_mgmt_api_plugins:delete_package(OtherVsn, #{})),
+    ?assertEqual([], emqx:get_raw_config([plugins, states])),
+    ?assertEqual(ok, emqx_mgmt_api_plugins:sync_plugin_cluster(node(), OtherVsn)),
+    ?assertEqual(ok, emqx_mgmt_api_plugins:install_package_v4(OtherVsn, <<"not a package">>)),
+    ?assertEqual(ok, emqx_mgmt_api_plugins:do_update_plugin_config_v4(NameVsn, #{})),
+    ?assert(plugin_is_running(NameVsn)),
+    ok.
+
+plugin_request(Method, Parts, Body) ->
+    Path = emqx_mgmt_api_test_util:api_path(Parts),
+    Opts = #{return_all => true, httpc_req_opts => [{body_format, binary}]},
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Result = emqx_mgmt_api_test_util:request_api(Method, Path, "", Auth, Body, Opts),
+    case Result of
+        {ok, {{"HTTP/1.1", StatusCode, _}, _Headers, RespBody}} ->
+            {StatusCode, emqx_utils_json:decode(RespBody)};
+        {error, {{"HTTP/1.1", StatusCode, _}, _Headers, RespBody}} ->
+            {StatusCode, emqx_utils_json:decode(RespBody)}
+    end.
+
+-doc """
 `GET /plugins` tolerates unreachable nodes and remote crashes in the
 cluster-wide plugin listing RPC instead of crashing with badmatch.
 """.
