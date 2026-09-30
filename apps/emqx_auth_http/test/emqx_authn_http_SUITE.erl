@@ -1522,6 +1522,37 @@ t_dynamic_resolution_static_host(TCConfig) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
+-doc """
+With 'hostname_resolution = dynamic', authentication accepts a JSON response
+whether the server sends the header name as 'content-type' or 'Content-Type'.
+""".
+t_dynamic_resolution_content_type_name_case(TCConfig) ->
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"hostname_resolution">> => <<"dynamic">>
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    lists:foreach(
+        fun(HeaderName) ->
+            ok = emqx_utils_http_test_server:set_handler(
+                fun(Req0, State) ->
+                    Req = cowboy_req:reply(
+                        200,
+                        #{HeaderName => <<"application/json; charset=utf-8">>},
+                        ?SERVER_RESPONSE_JSON(allow),
+                        Req0
+                    ),
+                    {ok, Req, State}
+                end
+            ),
+            ?assertMatch(
+                {ok, #{is_superuser := false}},
+                emqx_access_control:authenticate(?CREDENTIALS),
+                HeaderName
+            )
+        end,
+        [<<"content-type">>, <<"Content-Type">>]
+    ).
+
 allow_handler() ->
     fun(Req0, State) ->
         Req = cowboy_req:reply(
