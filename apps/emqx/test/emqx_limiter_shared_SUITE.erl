@@ -354,5 +354,6 @@ wait_for_registry(OldPid, N) ->
             timer:sleep(100),
             wait_for_registry(OldPid, N - 1);
         NewPid ->
+            _ = sys:get_state(NewPid),
             NewPid
     end.
