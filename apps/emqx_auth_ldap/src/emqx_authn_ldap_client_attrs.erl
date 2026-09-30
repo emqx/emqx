@@ -157,9 +157,9 @@ extract(cn, Value) ->
 
 first_cn([]) ->
     none;
-first_cn([{Type, CN} | Rest]) when is_list(CN) ->
+first_cn([{Type, CN} | Rest]) when is_binary(CN) ->
     case string:lowercase(Type) of
-        "cn" -> non_empty(list_to_binary(CN));
+        <<"cn">> -> non_empty(CN);
         _ -> first_cn(Rest)
     end;
 first_cn([_HexString | Rest]) ->
