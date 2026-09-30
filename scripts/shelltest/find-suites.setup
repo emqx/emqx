@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+fixture=shelltest/find-suites.fixture
+rm -rf "$fixture"
+for n in 3 101; do
+    mkdir -p "$fixture/n$n/test"
+    i=1
+    while [ "$i" -le "$n" ]; do
+        touch "$fixture/n$n/test/$(printf 's%03d_SUITE.erl' "$i")"
+        i=$((i + 1))
+    done
+done

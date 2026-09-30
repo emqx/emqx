@@ -446,8 +446,10 @@ info(mqueue_dropped, #session{mqueue = {empty, _}}) ->
     0;
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
-info({mqueue_msgs, PagerParams}, #session{mqueue = {empty, _}} = Session) ->
-    emqx_mqueue:query(info(mqueue, Session), PagerParams);
+info({mqueue_msgs, #{limit := _} = PagerParams}, #session{mqueue = {empty, _}}) ->
+    %% What `emqx_mqueue:query/2' returns for an empty queue, including its
+    %% crash on pager params without a limit.
+    {[], #{position => maps:get(position, PagerParams, none), start => none}};
 info({mqueue_msgs, PagerParams}, #session{mqueue = MQueue}) ->
     emqx_mqueue:query(MQueue, PagerParams);
 info(next_pkt_id, #session{next_pkt_id = PacketId}) ->

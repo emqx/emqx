@@ -1389,6 +1389,15 @@ This setting does not affect how long a new connection may wait before it sends 
 mqtt_hibernate_after.label:
 """Hibernate After"""
 
+mqtt_minor_gc_after.desc:
+"""Run a minor garbage collection after this period of mailbox inactivity on TCP connections using the `socket` backend, or set to `infinity` to disable it.
+For finite values, the connection then starts waiting for the `hibernate_after` timeout.
+This option exposes a CPU-vs-memory tradeoff: setting this delay to lower values generally leads to smaller VM memory footprints under a range of synthetic workloads at the cost of minor increase in CPU usage.
+It does not affect the `gen_tcp` backend."""
+
+mqtt_minor_gc_after.label:
+"""Minor GC After"""
+
 fields_mqtt_quic_listener_conn_flow_control_window.desc:
 """Connection-wide flow control window. Default: 16777216"""
 
