@@ -49,25 +49,25 @@ initial_parse_state(Opts) ->
         state => init,
         %% in parsing frame, the current frame is stored in iframe
         iframe => undefined,
-        %% Configured limit for the frame currently being buffered
-        max_frame => max_frame_size(Opts)
+        max_payload => max_payload_size(Opts),
+        max_control_line => max_control_line(Opts)
     }.
 
-%% Accept the old parser option as an alias, with the new name taking priority.
-max_frame_size(Opts) when is_map(Opts), is_map_key(max_frame_size, Opts) ->
-    maps:get(max_frame_size, Opts);
-max_frame_size(Opts) when is_map(Opts), is_map_key(max_payload_size, Opts) ->
+max_payload_size(Opts) when is_map(Opts), is_map_key(max_payload_size, Opts) ->
     maps:get(max_payload_size, Opts);
-max_frame_size(_Opts) ->
-    configured_max_frame_size().
+max_payload_size(_Opts) ->
+    emqx_conf:get([gateway, nats, protocol, max_payload_size], ?DEFAULT_MAX_PAYLOAD).
 
-configured_max_frame_size() ->
-    emqx_conf:get([gateway, nats, protocol, max_frame_size], ?DEFAULT_MAX_FRAME).
+max_control_line(Opts) when is_map(Opts), is_map_key(max_control_line, Opts) ->
+    maps:get(max_control_line, Opts);
+max_control_line(_Opts) ->
+    emqx_conf:get([gateway, nats, protocol, max_control_line], ?DEFAULT_MAX_CONTROL_LINE).
 
 parse(Data0, ?INIT_STATE(State, Buffer)) ->
     Data = <<Buffer/binary, Data0/binary>>,
     parse_operation(Data, State);
 parse(Data0, ?ARGS_STATE(State, Buffer)) ->
+    ok = check_control_line_chunk(Buffer, Data0, State),
     Data = <<Buffer/binary, Data0/binary>>,
     parse_args(Data, State#{buffer => <<>>});
 parse(Data0, ?HEADERS_STATE(State, Buffer)) ->
@@ -160,7 +160,7 @@ is_prefix_of_any(Data, Ops) ->
 serialize_opts() ->
     #{}.
 
-serialize_pkt(#nats_frame{operation = Op, message = Message}, Opts) ->
+serialize_pkt(#nats_frame{operation = Op, message = Message} = Frame, Opts) ->
     UseLowerHeader = maps:get(use_lower_header, Opts, false),
     Bin1 = serialize_operation(Op, UseLowerHeader),
     Data =
@@ -171,23 +171,20 @@ serialize_pkt(#nats_frame{operation = Op, message = Message}, Opts) ->
                 Bin2 = serialize_message(Op, Message),
                 [Bin1, " ", Bin2, "\r\n"]
         end,
-    limit_server_frame_size(Op, Data, Opts).
+    limit_server_payload_size(Frame, Data, Opts).
 
-%% Client-only operations are serialized here by clients too. Incoming PUB/HPUB
-%% frames are bounded by the parser; bound server frames by their wire size.
-limit_server_frame_size(Op, Data, _Opts) when
-    Op =:= ?OP_CONNECT;
-    Op =:= ?OP_PUB;
-    Op =:= ?OP_HPUB;
-    Op =:= ?OP_SUB;
-    Op =:= ?OP_UNSUB
+%% Incoming PUB/HPUB frames are checked by the parser. Apply the same payload
+%% limit to server-to-client messages without counting their control lines.
+limit_server_payload_size(#nats_frame{operation = Op} = Frame, Data, Opts) when
+    Op =:= ?OP_MSG;
+    Op =:= ?OP_HMSG
 ->
-    Data;
-limit_server_frame_size(_Op, Data, Opts) ->
-    case iolist_size(Data) =< max_frame_size(Opts) of
+    case payload_total_size(Frame) =< max_payload_size(Opts) of
         true -> Data;
         false -> <<>>
-    end.
+    end;
+limit_server_payload_size(_Frame, Data, _Opts) ->
+    Data.
 
 serialize_operation(?OP_OK, _UseLowerHeader = false) ->
     [?OP_RAW_OK];
@@ -412,7 +409,12 @@ reset(State) ->
     State#{state => init, iframe => undefined, buffer => <<>>}.
 
 to_args_state(State = #{state := init}, Op) ->
-    State#{state => args, iframe => #nats_frame{operation = Op}}.
+    PrefixSize =
+        case Op of
+            ?OP_ERR -> 5;
+            _ -> byte_size(atom_to_binary(Op)) + 1
+        end,
+    State#{state => args, iframe => #nats_frame{operation = Op}, line_prefix_size => PrefixSize}.
 
 to_payload_state(State = #{state := S, iframe := Frame0}, M0) when
     S == args;
@@ -434,15 +436,21 @@ return_pong(Rest, State) ->
 return_ok(Rest, State) ->
     {ok, #nats_frame{operation = ?OP_OK}, Rest, reset(State)}.
 
-parse_args(Data, State = #{state := args, iframe := #nats_frame{operation = Op}}) ->
+parse_args(
+    Data,
+    State = #{
+        state := args,
+        iframe := #nats_frame{operation = Op},
+        line_prefix_size := PrefixSize
+    }
+) ->
     case split_to_first_linefeed(Data) of
         false ->
             %% A trailing CR may be the first byte of the CRLF delimiter.
-            ok = check_size(control_line, incomplete_line_size(Data), State),
+            ok = check_size(control_line, PrefixSize + incomplete_line_size(Data), State),
             {more, State#{buffer => Data}};
         {Line, Rest} ->
-            %% Bound the control line while it is buffered.
-            ok = check_size(control_line, byte_size(Line), State),
+            ok = check_size(control_line, PrefixSize + byte_size(Line), State),
             pre_do_parse_args(Op, Line, Rest, State)
     end.
 
@@ -646,14 +654,47 @@ incomplete_line_size(Bin) ->
         _ -> Size
     end.
 
-%% Reject input above the configured frame budget instead of buffering it.
-%% The position tells which part of the frame exceeded the limit.
-check_size(Position, Size, #{max_frame := Max}) when is_integer(Size), Size >= 0 ->
+%% Check the next chunk before copying it into the buffered control line.
+%% Bytes after the first CRLF belong to the next part of the frame.
+check_control_line_chunk(Buffer, Data, #{line_prefix_size := PrefixSize} = State) ->
+    Size =
+        case {ends_with_cr(Buffer), Data} of
+            {true, <<$\n, _/binary>>} ->
+                byte_size(Buffer) - 1;
+            _ ->
+                case binary:match(Data, <<"\r\n">>) of
+                    {Pos, 2} ->
+                        byte_size(Buffer) + Pos;
+                    nomatch ->
+                        PendingCR =
+                            case Data of
+                                <<>> -> ends_with_cr(Buffer);
+                                _ -> ends_with_cr(Data)
+                            end,
+                        byte_size(Buffer) + byte_size(Data) -
+                            case PendingCR of
+                                true -> 1;
+                                false -> 0
+                            end
+                end
+        end,
+    check_size(control_line, PrefixSize + Size, State).
+
+ends_with_cr(<<>>) -> false;
+ends_with_cr(Bin) -> binary:last(Bin) =:= $\r.
+
+%% Reject a control line or declared message size before buffering it.
+check_size(Position, Size, State) when is_integer(Size), Size >= 0 ->
+    {LimitKey, Max} =
+        case Position of
+            control_line -> {max_control_line, maps:get(max_control_line, State)};
+            _ -> {max_payload_size, maps:get(max_payload, State)}
+        end,
     case Size > Max of
         true ->
             error(
                 {frame_too_large, #{
-                    max_frame_size => Max,
+                    LimitKey => Max,
                     position => Position,
                     size => Size
                 }}

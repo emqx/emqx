@@ -19,8 +19,11 @@ if no heartbeat response is received within this period. Default: 5s."""
 protocol.desc:
 """A group of settings for NATS Server protocol."""
 
-max_frame_size.desc:
-"""Maximum size in bytes allowed for NATS control lines and message data. The minimum is 1024 bytes. The former max_payload_size setting is still accepted as an alias."""
+max_payload_size.desc:
+"""Maximum number of bytes allowed in a NATS PUB payload or HPUB headers and payload. This value is advertised as INFO.max_payload."""
+
+max_control_line.desc:
+"""Maximum length of a NATS protocol control line, excluding the CRLF delimiter. The default is 4096 bytes and the minimum is 1024 bytes."""
 
 tcp_ws_listeners.desc:
 """The gateway's Websocket listener adopts the same structure as the MQTT Websocket listener."""

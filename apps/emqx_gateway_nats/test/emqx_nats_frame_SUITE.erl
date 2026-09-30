@@ -959,9 +959,9 @@ t_declared_headers_larger_than_total_rejected(_Config) ->
         emqx_nats_frame:parse(<<"HPUB foo 100 10\r\n">>, State)
     ).
 
--doc "An unterminated control line is bounded by max_payload_size.".
+-doc "An unterminated control line is bounded by max_control_line.".
 t_unterminated_args_rejected(_Config) ->
-    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 16}),
+    State = emqx_nats_frame:initial_parse_state(#{max_control_line => 16}),
     ?assertError(
         {frame_too_large, #{position := control_line}},
         emqx_nats_frame:parse(<<"PUB ", (binary:copy(<<"a">>, 64))/binary>>, State)

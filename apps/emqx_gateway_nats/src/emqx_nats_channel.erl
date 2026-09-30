@@ -174,7 +174,7 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
         version => list_to_binary(Vsn),
         host => list_to_binary(inet:ntoa(SockHost)),
         port => SockPort,
-        max_payload => emqx_conf:get([gateway, nats, protocol, max_frame_size]),
+        max_payload => emqx_conf:get([gateway, nats, protocol, max_payload_size]),
         proto => 0,
         headers => true,
         auth_required => is_auth_required(ClientInfo),

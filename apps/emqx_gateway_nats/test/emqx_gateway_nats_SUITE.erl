@@ -307,7 +307,7 @@ nats_conf_list(Listeners) ->
         <<"server_name">> => <<"emqx_nats_gateway">>,
         <<"default_heartbeat_interval">> => <<"2s">>,
         <<"heartbeat_wait_timeout">> => <<"1s">>,
-        <<"protocol">> => #{<<"max_frame_size">> => 1024},
+        <<"protocol">> => #{<<"max_payload_size">> => 1024},
         <<"listeners">> => Listeners
     }.
 
@@ -324,7 +324,7 @@ nats_raw_conf(Port) ->
         <<"server_name">> => <<"emqx_nats_gateway">>,
         <<"default_heartbeat_interval">> => <<"2s">>,
         <<"heartbeat_wait_timeout">> => <<"1s">>,
-        <<"protocol">> => #{<<"max_frame_size">> => 1024},
+        <<"protocol">> => #{<<"max_payload_size">> => 1024},
         <<"listeners">> => #{
             <<"tcp">> => #{
                 <<"default">> => #{<<"bind">> => Port}
