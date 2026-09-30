@@ -459,17 +459,11 @@ apps_spec(APIPort, TC) ->
         app_spec_dashboard(APIPort) ++
         test_case_specific_apps_spec(TC).
 
-%% `log.audit' is defined by `emqx_enterprise_schema' (it redefines the `log'
-%% root), not by the `emqx_conf_schema' that `emqx_cth_suite' picks by app
-%% name, so the audit case names the schema explicitly. The cluster's own
-%% `emqx_conf' config (node, cluster, listeners) is deep-merged into this by
-%% `emqx_cth_cluster' and stays valid under the wider schema.
 common_apps_spec(t_export_import_audit_records_namespace) ->
     [
         emqx,
         {emqx_conf, #{
-            config => #{log => #{audit => #{enable => true, level => info}}},
-            schema_mod => emqx_enterprise_schema
+            config => #{log => #{audit => #{enable => true, level => info}}}
         }},
         emqx_management
     ];
