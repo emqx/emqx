@@ -36,6 +36,7 @@
 -define(tp_new_dead_hand, emqx_durable_timer_dead_hand).
 -define(tp_delete, emqx_durable_timer_delete).
 -define(tp_fire, emqx_durable_timer_fire).
+-define(tp_callback_failed, emqx_durable_timer_callback_failed).
 -define(tp_unknown_event, emqx_durable_timer_unknown_event).
 -define(tp_app_activation, emqx_durable_timer_app_activated).
 -define(tp_state_change, emqx_durable_timer_state_change).
