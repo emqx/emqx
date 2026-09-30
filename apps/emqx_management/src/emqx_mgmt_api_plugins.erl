@@ -122,7 +122,8 @@ schema("/plugins/install") ->
                         'BAD_FORM_DATA',
                         'FORBIDDEN'
                     ]
-                )
+                ),
+                409 => pinned_error()
             }
         }
     };
@@ -146,6 +147,7 @@ schema("/plugins/:name") ->
                 204 => ?DESC("uninstall_success"),
                 400 => emqx_dashboard_swagger:error_codes(['PARAM_ERROR'], ?DESC("bad_parameter")),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                409 => pinned_error(),
                 500 => emqx_dashboard_swagger:error_codes(
                     ['INTERNAL_ERROR'], ?DESC("internal_error")
                 )
@@ -169,6 +171,7 @@ schema("/plugins/:name/:action") ->
                     ['PARAM_ERROR', 'BAD_CONFIG'], ?DESC("bad_parameter")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                409 => pinned_error(),
                 500 => emqx_dashboard_swagger:error_codes(
                     ['INTERNAL_ERROR'], ?DESC("internal_error")
                 )
@@ -210,6 +213,7 @@ schema("/plugins/:name/config") ->
                     ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                409 => pinned_error(),
                 500 => emqx_dashboard_swagger:error_codes(
                     ['INTERNAL_ERROR'], ?DESC("internal_error")
                 )
@@ -258,6 +262,7 @@ schema("/plugins/:name/config/upload") ->
                     ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                409 => pinned_error(),
                 500 => emqx_dashboard_swagger:error_codes(
                     ['INTERNAL_ERROR'], ?DESC("internal_error")
                 )
@@ -292,7 +297,8 @@ schema("/plugins/:name/move") ->
             responses => #{
                 204 => ?DESC("boot_order_changed"),
                 400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], ?DESC("move_failed")),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                409 => pinned_error()
             }
         }
     };
@@ -310,10 +316,14 @@ schema("/plugins/cluster_sync") ->
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND'], ?DESC("plugin_not_found")
-                )
+                ),
+                409 => pinned_error()
             }
         }
     }.
+
+pinned_error() ->
+    emqx_dashboard_swagger:error_codes(['PLUGIN_PINNED'], ?DESC("plugin_pinned")).
 
 fields(plugin) ->
     [
@@ -388,6 +398,12 @@ fields(plugin) ->
                 hoconsc:array(hoconsc:ref(running_status)),
                 #{desc => ?DESC("running_status"), required => true}
             )},
+        {pinned,
+            hoconsc:mk(boolean(), #{
+                desc => ?DESC("pinned"),
+                required => false,
+                example => false
+            })},
         {readme,
             hoconsc:mk(binary(), #{
                 example => "This is an demo plugin.",
@@ -454,6 +470,11 @@ fields(running_status) ->
         {status,
             hoconsc:mk(hoconsc:enum([running, stopped]), #{
                 desc => ?DESC("status")
+            })},
+        {pinned,
+            hoconsc:mk(boolean(), #{
+                desc => ?DESC("node_pinned"),
+                example => false
             })}
     ].
 
@@ -521,7 +542,7 @@ get_plugins() ->
     {node(), lists:filter(fun api_visible_plugin/1, Plugins)}.
 
 upload_install(post, #{name := NameVsn, bin := Bin}) ->
-    do_upload_install(NameVsn, Bin);
+    unless_pinned_here(NameVsn, fun() -> do_upload_install(NameVsn, Bin) end);
 upload_install(post, #{}) ->
     {400, #{
         code => 'BAD_FORM_DATA',
@@ -651,33 +672,40 @@ plugin(get, #{bindings := #{name := NameVsn}}) ->
         [] -> {404, #{code => 'NOT_FOUND', message => NameVsn}}
     end;
 plugin(delete, #{bindings := #{name := NameVsn}}) ->
-    case api_visible_on_any_node(NameVsn) of
-        true ->
+    unless_pinned_here(NameVsn, fun() ->
+        with_managed_plugin(NameVsn, fun() ->
             Res = emqx_mgmt_api_plugins_proto_v4:delete_package(NameVsn),
-            operation_response(delete, Res);
-        false ->
-            {404, plugin_not_found_msg()}
-    end.
+            operation_response(delete, Res)
+        end)
+    end).
 
 update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
-    case api_visible_on_any_node(NameVsn) of
+    case emqx_plugins_pinned:is_pinned(NameVsn) of
         true ->
-            Res = ensure_cluster_action(NameVsn, Action),
-            operation_response(Action, Res);
+            %% A pinned plugin is started or stopped on this node only.
+            operation_response(Action, pinned_action(NameVsn, Action));
         false ->
-            {404, plugin_not_found_msg()}
+            with_managed_plugin(NameVsn, fun() ->
+                Res = ensure_cluster_action(NameVsn, Action),
+                operation_response(Action, Res)
+            end)
     end.
+
+pinned_action(NameVsn, start) ->
+    emqx_plugins:start_pinned(NameVsn);
+pinned_action(NameVsn, stop) ->
+    emqx_plugins:stop_pinned(NameVsn).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     get_plugin_config(NameVsn);
 plugin_config(put, #{bindings := #{name := NameVsn}, body := Config}) ->
-    put_plugin_config(NameVsn, Config).
+    unless_pinned_here(NameVsn, fun() -> put_plugin_config(NameVsn, Config) end).
 
 upload_plugin_config(post, #{
     bindings := #{name := NameVsn}, body := #{<<"config">> := #{type := _} = ConfigUpload}
 }) ->
     [{_FileName, ConfigBin}] = maps:to_list(maps:without([type], ConfigUpload)),
-    put_plugin_config(NameVsn, ConfigBin).
+    unless_pinned_here(NameVsn, fun() -> put_plugin_config(NameVsn, ConfigBin) end).
 
 download_plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case get_plugin_config(NameVsn) of
@@ -743,6 +771,9 @@ plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
     end.
 
 update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
+    unless_pinned_here(Name, fun() -> do_update_boot_order(Name, Body) end).
+
+do_update_boot_order(Name, Body) ->
     case describe_api_plugin(Name, #{}) of
         {ok, _Plugin} ->
             case parse_position(Body, Name) of
@@ -770,14 +801,16 @@ sync_plugin(post, #{body := Body}) ->
                 msg => "sync_plugin_to_cluster",
                 keep_namevsn => NameVsn
             }),
-            case describe_api_plugin(NameVsn, #{}) of
-                {ok, _Plugin} ->
-                    do_sync_plugin(NameVsn);
-                {error, stale_plugin} ->
-                    {404, plugin_not_found_msg()};
-                _ ->
-                    do_sync_plugin(NameVsn)
-            end;
+            unless_pinned_here(NameVsn, fun() ->
+                case describe_api_plugin(NameVsn, #{}) of
+                    {ok, _Plugin} ->
+                        do_sync_plugin(NameVsn);
+                    {error, stale_plugin} ->
+                        {404, plugin_not_found_msg()};
+                    _ ->
+                        do_sync_plugin(NameVsn)
+                end
+            end);
         {error, {plugin_error, Reason}} ->
             ?SLOG(warning, #{msg => "invalid_plugin_sync_name", reason => Reason}),
             {400, #{
@@ -810,21 +843,24 @@ install_package(FileName, Bin) ->
 
 install_package_v4(NameVsn, Bin) ->
     emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
-        case emqx_plugins:install_state(NameVsn) of
-            installed ->
-                %% The installation is already complete, and a complete
-                %% installation is not unpacked again (`ensure_installed_from_tar/2'
-                %% returns without touching the package), so writing the upload
-                %% would pair the new package with the files of the previous one.
-                %% Keep both as they are: a cluster install runs this callback on
-                %% every node, including the ones which hold the installation
-                %% already (the node which answers the request decides whether the
-                %% upload is refused, see `do_upload_install/2').
-                emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
-            _IncompleteOrAbsent ->
-                install_replacing_package(NameVsn, Bin)
-        end
+        unless_pinned(NameVsn, ok, fun() -> do_install_package_v4(NameVsn, Bin) end)
     end).
+
+do_install_package_v4(NameVsn, Bin) ->
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
+            %% The installation is already complete, and a complete
+            %% installation is not unpacked again (`ensure_installed_from_tar/2'
+            %% returns without touching the package), so writing the upload
+            %% would pair the new package with the files of the previous one.
+            %% Keep both as they are: a cluster install runs this callback on
+            %% every node, including the ones which hold the installation
+            %% already (the node which answers the request decides whether the
+            %% upload is refused, see `do_upload_install/2').
+            emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
+        _IncompleteOrAbsent ->
+            install_replacing_package(NameVsn, Bin)
+    end.
 
 %% Replace the package of an absent or incomplete installation with the
 %% uploaded one.
@@ -878,25 +914,40 @@ describe_package(NameVsn) ->
 delete_package(NameVsn) ->
     delete_package(NameVsn, #{}).
 
-%% For RPC plugin delete
+%% For RPC plugin delete.
+%% On a node that pins the plugin name, only the `plugins.states' entry is
+%% removed, and the pinned plugin is not touched.
 delete_package(NameVsn, _Opts) ->
-    emqx_plugins:safe_delete_package(NameVsn).
+    unless_pinned(
+        NameVsn,
+        fun() -> emqx_plugins:delete_state(NameVsn) end,
+        fun() -> emqx_plugins:safe_delete_package(NameVsn) end
+    ).
 
 %% Tip: Don't delete ensure_action/2, use before v571 cluster_rpc
 ensure_action(Name, Action) ->
     ensure_action(Name, Action, #{}).
 
-ensure_action(Name, start, _Opts) ->
+%% On a node that pins the plugin name, only the `plugins.states' change is
+%% applied, and the pinned plugin is not touched.
+ensure_action(Name, Action, _Opts) ->
+    unless_pinned(
+        Name,
+        fun() -> emqx_plugins:mirror_cluster_state(Name, Action =/= stop) end,
+        fun() -> do_ensure_action(Name, Action) end
+    ).
+
+do_ensure_action(Name, start) ->
     case emqx_plugins:ensure_started(Name) of
         ok -> emqx_plugins:ensure_enabled(Name);
         {error, _} = Error -> Error
     end;
-ensure_action(Name, stop, _Opts) ->
+do_ensure_action(Name, stop) ->
     case emqx_plugins:ensure_stopped(Name) of
         ok -> emqx_plugins:ensure_disabled(Name);
         {error, _} = Error -> Error
     end;
-ensure_action(Name, restart, _Opts) ->
+do_ensure_action(Name, restart) ->
     case emqx_plugins:restart(Name) of
         ok -> emqx_plugins:ensure_enabled(Name);
         {error, _} = Error -> Error
@@ -1045,7 +1096,7 @@ do_update_plugin_config(NameVsn, AvroJsonMap, _AvroValue) ->
 do_update_plugin_config_v4(NameVsn, AvroJsonMap) when is_binary(AvroJsonMap) ->
     do_update_plugin_config_v4(NameVsn, emqx_utils_json:decode(AvroJsonMap));
 do_update_plugin_config_v4(NameVsn, AvroJsonMap) ->
-    emqx_plugins:update_config(NameVsn, AvroJsonMap).
+    unless_pinned(NameVsn, ok, fun() -> emqx_plugins:update_config(NameVsn, AvroJsonMap) end).
 
 %% for RPC plugin ensure existed
 -spec ensure_existed(name_vsn()) -> ok | {error, term()}.
@@ -1057,10 +1108,13 @@ ensure_existed(NameVsn) ->
 
 %% for RPC plugin sync
 -spec sync_plugin_cluster(node(), name_vsn()) -> ok.
-sync_plugin_cluster(Node, NameVsn) when Node =:= node() ->
+sync_plugin_cluster(Node, NameVsn) ->
+    unless_pinned(NameVsn, ok, fun() -> do_sync_plugin_cluster(Node, NameVsn) end).
+
+do_sync_plugin_cluster(Node, NameVsn) when Node =:= node() ->
     _ = emqx_plugins:purge_other_versions(NameVsn),
     ok;
-sync_plugin_cluster(Node, NameVsn) ->
+do_sync_plugin_cluster(Node, NameVsn) ->
     _ = emqx_plugins:purge_other_versions(NameVsn),
     emqx_plugins:get_package_from_node(Node, NameVsn).
 
@@ -1136,6 +1190,13 @@ operation_response(start, {error, {plugin_start_failed, NodeErrors}}) ->
         #{node_errors => NodeErrors},
         format_node_errors(NodeErrors)
     );
+operation_response(_Operation, {error, #{kind := pinned} = Reason}) ->
+    {409, #{code => 'PLUGIN_PINNED', message => readable_error_msg(Reason)}};
+operation_response(start, {error, #{kind := Kind} = Reason}) when
+    Kind =:= invalid_config; Kind =:= invalid_package; Kind =:= conflicting_version
+->
+    %% A pinned plugin is started on this node only, so the error is not per node.
+    {400, #{code => start_error_code(Kind), message => readable_error_msg(Reason)}};
 operation_response(Operation, {error, #{reason := {enoent, Path} = Reason} = Error}) ->
     ?SLOG(warning, #{
         msg => "plugin_resource_not_found",
@@ -1165,6 +1226,9 @@ internal_error_response(Keyword, LogFields, Details) ->
         code => 'INTERNAL_ERROR',
         message => iolist_to_binary([Keyword, ": ", Details])
     }}.
+
+start_error_code(invalid_config) -> 'BAD_CONFIG';
+start_error_code(_Kind) -> 'PARAM_ERROR'.
 
 operation_error_keyword(start) -> "plugin_start_failed";
 operation_error_keyword(stop) -> "plugin_stop_failed";
@@ -1382,6 +1446,18 @@ readable_error_msg(#{
         ". Stop the active version and retry."
     ]);
 readable_error_msg(#{
+    msg := "plugin_pinned",
+    name_vsn := NameVsn,
+    pinned := Pinned
+}) ->
+    iolist_to_binary([
+        "plugin_pinned: Plugin name of ",
+        NameVsn,
+        " is pinned on this node as ",
+        Pinned,
+        ". Edit node.pinned_plugins and restart the node to change it."
+    ]);
+readable_error_msg(#{
     reason := invalid_type,
     path := Path,
     expected := Expected,
@@ -1461,10 +1537,62 @@ api_visible_plugin(#{config_status := not_configured, running_status := RunningS
 api_visible_plugin(_) ->
     true.
 
-api_visible_on_any_node(NameVsn) ->
+%% Run `Fun' when at least one node manages the plugin through the cluster.
+%% A plugin that only nodes pinning it report is managed on those nodes only.
+with_managed_plugin(NameVsn, Fun) ->
     Nodes = emqx:running_nodes(),
     {Plugins, _} = emqx_mgmt_api_plugins_proto_v4:describe_package(Nodes, NameVsn),
-    format_plugins(drop_bad_plugin_results(Plugins)) =/= [].
+    case format_plugins(drop_bad_plugin_results(Plugins)) of
+        [] ->
+            {404, plugin_not_found_msg()};
+        [#{pinned := true, running_status := Status} | _] ->
+            PinnedNodes = [Node || #{node := Node} <- Status],
+            {409, #{
+                code => 'PLUGIN_PINNED',
+                message => iolist_to_binary([
+                    "Plugin ",
+                    NameVsn,
+                    " is only on nodes that list it in node.pinned_plugins: ",
+                    lists:join(", ", [atom_to_binary(N) || N <- PinnedNodes]),
+                    ". Use the API of that node to start or stop it."
+                ])
+            }};
+        [_ | _] ->
+            Fun()
+    end.
+
+%% Refuse a request for a plugin name that this node pins.
+unless_pinned_here(NameVsn, Fun) ->
+    case emqx_plugins_pinned:is_pinned(NameVsn) of
+        true ->
+            #{pinned := Pinned} = emqx_plugins_pinned:refusal(NameVsn),
+            {409, #{
+                code => 'PLUGIN_PINNED',
+                message => iolist_to_binary([
+                    "Plugin name of ",
+                    NameVsn,
+                    " is pinned on node ",
+                    atom_to_binary(node()),
+                    " as ",
+                    Pinned,
+                    ". Edit node.pinned_plugins and restart the node to change it."
+                ])
+            }};
+        false ->
+            Fun()
+    end.
+
+%% On a node that pins the plugin name, an RPC from a peer returns `Skip'
+%% instead of acting on the pinned plugin.
+unless_pinned(NameVsn, Skip, Fun) ->
+    case
+        emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso
+            emqx_plugins_pinned:is_pinned(NameVsn)
+    of
+        true when is_function(Skip, 0) -> Skip();
+        true -> Skip;
+        false -> Fun()
+    end.
 
 %% A remote crash surfaces in the rpc:multicall result list as {badrpc, {'EXIT', _}}.
 drop_bad_plugin_results(Results) ->
@@ -1535,8 +1663,11 @@ pack_plugin_in_order([Plugin0 | Plugins], Acc, StatusAcc) ->
     #{name := Name, rel_vsn := Vsn} = Plugin0,
     case maps:find({Name, Vsn}, StatusAcc) of
         {ok, Status} ->
-            Plugin1 = maps:without([running_status, config_status], Plugin0),
-            Plugins2 = Plugin1#{running_status => Status},
+            Plugin1 = maps:without([running_status, config_status, pinned], Plugin0),
+            Plugins2 = Plugin1#{
+                running_status => Status,
+                pinned => lists:all(fun(#{pinned := Pinned}) -> Pinned end, Status)
+            },
             NewStatusAcc = maps:remove({Name, Vsn}, StatusAcc),
             pack_plugin_in_order(Plugins, [Plugins2 | Acc], NewStatusAcc);
         error ->
@@ -1555,7 +1686,8 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
                 Key = {Name, Vsn},
                 Value0 = #{
                     node => Node,
-                    status => plugin_status(Plugin)
+                    status => plugin_status(Plugin),
+                    pinned => maps:get(pinned, Plugin, false)
                 },
                 Value = add_health_status(Value0, Plugin),
                 SubAcc#{Key => [Value | maps:get(Key, Acc, [])]}

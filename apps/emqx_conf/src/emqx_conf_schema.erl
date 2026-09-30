@@ -39,6 +39,7 @@
 
 %% exported for testing
 -export([validate_tls_stateless_tickets_seed/1]).
+-export([pinned_plugins_converter/2, validate_pinned_plugins/1]).
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
@@ -556,6 +557,18 @@ fields("node") ->
                     %% TODO: change configurable data file paths to relative
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(node_data_dir)
+                }
+            )},
+        {"pinned_plugins",
+            sc(
+                hoconsc:array(binary()),
+                #{
+                    default => [],
+                    'readOnly' => true,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    converter => fun pinned_plugins_converter/2,
+                    validator => fun validate_pinned_plugins/1,
+                    desc => ?DESC(node_pinned_plugins)
                 }
             )},
         {"config_files",
@@ -1648,6 +1661,61 @@ validator_string_re(Val, RE, Error) ->
 
 node_array() ->
     hoconsc:union([emqx_schema:comma_separated_atoms(), hoconsc:array(atom())]).
+
+-doc """
+Normalize `node.pinned_plugins` to a list of name-vsn binaries.
+
+The value is either a comma-separated string or an array of strings. Spaces
+around each entry are trimmed, and empty entries are dropped.
+""".
+pinned_plugins_converter(undefined, _Opts) ->
+    undefined;
+pinned_plugins_converter(Str, Opts) when is_binary(Str) ->
+    pinned_plugins_converter(binary:split(Str, <<",">>, [global]), Opts);
+pinned_plugins_converter(List, _Opts) when is_list(List) ->
+    Trimmed = [trim_pinned_plugin(Item) || Item <- List],
+    [Item || Item <- Trimmed, Item =/= <<>>];
+pinned_plugins_converter(Other, _Opts) ->
+    Other.
+
+trim_pinned_plugin(Item) when is_binary(Item) ->
+    string:trim(Item, both, " \t");
+trim_pinned_plugin(Item) ->
+    Item.
+
+-doc """
+Check that each entry of `node.pinned_plugins` is a plugin name-vsn, and that no
+two entries have the same plugin name.
+
+The name-vsn format is the one that `emqx_plugins_utils:validate_name_vsn/1`
+accepts, with a non-empty version.
+""".
+validate_pinned_plugins(NameVsns) ->
+    case [NV || NV <- NameVsns, not is_pinned_plugin_name_vsn(NV)] of
+        [] ->
+            Names = [hd(binary:split(NV, <<"-">>)) || NV <- NameVsns],
+            case Names -- lists:usort(Names) of
+                [] ->
+                    ok;
+                Duplicates ->
+                    {error, #{
+                        reason => duplicate_plugin_names,
+                        names => lists:usort(Duplicates)
+                    }}
+            end;
+        Bad ->
+            {error, #{
+                reason => bad_plugin_name_vsn,
+                name_vsns => Bad,
+                hint => <<"Expected <name>-<vsn>, for example my_plugin-1.0.0">>
+            }}
+    end.
+
+is_pinned_plugin_name_vsn(NameVsn) when is_binary(NameVsn), byte_size(NameVsn) =< 256 ->
+    RE = "\\A[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9_.-]+\\z",
+    re:run(NameVsn, RE, [{capture, none}]) =:= match;
+is_pinned_plugin_name_vsn(_) ->
+    false.
 
 ensure_file_handlers(Conf, _Opts) ->
     FileFields = lists:flatmap(

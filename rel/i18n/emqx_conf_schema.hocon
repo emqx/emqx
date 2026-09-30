@@ -483,6 +483,31 @@ the old dir should be deleted first.<br/>
 node_data_dir.label:
 """Node Data Dir"""
 
+node_pinned_plugins.desc:
+"""Plugins that this node runs independently of the cluster plugin config.<br/>
+Set a comma-separated string, for example <code>"my_plugin-1.0.0,other_plugin-2.1.0"</code>,
+or an array of name-vsn strings. The list order is the start order.
+Pinned plugins start before the plugins in <code>plugins.states</code>.<br/>
+A pinned plugin:<br/>
+- Starts from the package in this node's <code>plugins.install_dir</code>.
+The package is never copied from or to other nodes.<br/>
+- Is always enabled, and needs no <code>plugins.states</code> entry and no <code>plugins allow</code> grant.<br/>
+- Takes its config from the default <code>config.hocon</code> in the package.
+When <code>etc/plugins/&lt;name&gt;.hocon</code> exists, its values override the default.
+The config is never copied from other nodes and can not be changed with the API.<br/>
+- Ignores any <code>plugins.states</code> entry with the same plugin name, in any version.<br/>
+The API and the CLI can stop and start a pinned plugin on this node only.
+A stop lasts until the node restarts. To remove a plugin from this node,
+edit this setting and restart the node.
+When a pinned package is missing or fails to start, the node logs an error,
+raises an alarm, and keeps running.<br/>
+Nodes of one cluster can run different versions of the same plugin this way.
+The plugin must then be compatible across these versions,
+for example in shared database tables, in RPC between its instances, and in its config."""
+
+node_pinned_plugins.label:
+"""Pinned Plugins"""
+
 cluster_k8s_suffix.desc:
 """Node name suffix.<br/>
 Note: this parameter is only relevant when <code>address_type</code> is <code>dns</code>

@@ -25,6 +25,8 @@
     running_status := running | stopped | loaded,
     config_status := enabled | disabled | not_configured,
     %% Optional fields
+    %% `true' when the name-vsn is listed in `node.pinned_plugins'
+    pinned => true,
     health_status => #{
         status := ok | error,
         message => binary()
@@ -87,11 +89,21 @@ populate_plugin_readme(_NameVsn, _Options, Info) ->
 
 populate_plugin_status(NameVsn, Info) ->
     RunningSt = emqx_plugins_apps:running_status(Info),
-    ConfSt = configured_status(NameVsn, configured()),
-    Info#{
-        running_status => RunningSt,
-        config_status => ConfSt
-    }.
+    case emqx_plugins_pinned:is_pinned_name_vsn(NameVsn) of
+        true ->
+            %% A pinned plugin is always enabled, whatever `plugins.states' holds.
+            Info#{
+                running_status => RunningSt,
+                config_status => enabled,
+                pinned => true
+            };
+        false ->
+            ConfSt = configured_status(NameVsn, configured()),
+            Info#{
+                running_status => RunningSt,
+                config_status => ConfSt
+            }
+    end.
 
 populate_plugin_health_status(
     NameVsn, #{health_check := true} = _Options, #{running_status := running} = Info
