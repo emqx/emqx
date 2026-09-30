@@ -499,10 +499,7 @@ handle_in(
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         allow ->
-            case check_max_payload(Frame, Channel) of
-                ok -> process_pub_frame(Frame, Channel);
-                {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
-            end
+            process_pub_frame(Frame, Channel)
     end;
 handle_in(
     Frame = ?PACKET(?OP_SUB),
@@ -1222,16 +1219,6 @@ nats_subject_to_pub_topic(Subject) ->
         {ok, true} -> emqx_nats_topic:nats_to_mqtt_publish(Subject);
         {ok, false} -> emqx_nats_topic:nats_to_mqtt(Subject);
         {error, _} -> emqx_nats_topic:nats_to_mqtt_publish(Subject)
-    end.
-
-check_max_payload(Frame, _Channel) ->
-    MaxPayload = emqx_conf:get([gateway, nats, protocol, max_frame_size]),
-    PayloadSize = emqx_nats_frame:payload_total_size(Frame),
-    case PayloadSize > MaxPayload of
-        true ->
-            {error, <<"Maximum Payload Violation">>};
-        false ->
-            ok
     end.
 
 find_sub_by_topic(_Topic, []) ->

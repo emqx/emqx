@@ -163,12 +163,30 @@ serialize_opts() ->
 serialize_pkt(#nats_frame{operation = Op, message = Message}, Opts) ->
     UseLowerHeader = maps:get(use_lower_header, Opts, false),
     Bin1 = serialize_operation(Op, UseLowerHeader),
-    case Message of
-        undefined ->
-            [Bin1, "\r\n"];
-        _ ->
-            Bin2 = serialize_message(Op, Message),
-            [Bin1, " ", Bin2, "\r\n"]
+    Data =
+        case Message of
+            undefined ->
+                [Bin1, "\r\n"];
+            _ ->
+                Bin2 = serialize_message(Op, Message),
+                [Bin1, " ", Bin2, "\r\n"]
+        end,
+    limit_server_frame_size(Op, Data, Opts).
+
+%% Client-only operations are serialized here by clients too. Incoming PUB/HPUB
+%% frames are bounded by the parser; bound server frames by their wire size.
+limit_server_frame_size(Op, Data, _Opts) when
+    Op =:= ?OP_CONNECT;
+    Op =:= ?OP_PUB;
+    Op =:= ?OP_HPUB;
+    Op =:= ?OP_SUB;
+    Op =:= ?OP_UNSUB
+->
+    Data;
+limit_server_frame_size(_Op, Data, Opts) ->
+    case iolist_size(Data) =< max_frame_size(Opts) of
+        true -> Data;
+        false -> <<>>
     end.
 
 serialize_operation(?OP_OK, _UseLowerHeader = false) ->
