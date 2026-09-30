@@ -16,6 +16,9 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(NATS_HOST, "nats-bridge-js").
+-define(NATS_PORT, 4222).
+-define(NATS_CA_CERT, "/emqx/.ci/docker-compose-file/certs/cacert.pem").
 
 all() -> [{group, local}].
 
@@ -27,51 +30,32 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    case os:find_executable("nats-server") of
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    ct:fail(nats_server_is_required_in_ci);
-                _ ->
-                    {skip, "nats-server executable is unavailable"}
-            end;
-        Executable ->
-            Port = free_port(),
-            Pid = start_nats(Executable, Port, true),
-            wait_for_port(Port),
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    emqx_conf,
-                    emqx_bridge_nats,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [
-                {apps, Apps},
-                {nats_pid, Pid},
-                {nats_executable, Executable},
-                {nats_port, Port}
-                | Config
-            ]
-    end.
+    wait_for_port(?NATS_HOST, ?NATS_PORT),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_nats,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)),
-    stop_nats(?config(nats_pid, Config)),
     ok.
 init_per_testcase(TestCase, Config) ->
     Name = atom_to_binary(TestCase),
-    Port = integer_to_binary(?config(nats_port, Config)),
     ConnectorConfig = emqx_bridge_v2_testlib:parse_and_check_connector(
         ?CONNECTOR_TYPE_BIN,
         Name,
         #{
             <<"enable">> => true,
-            <<"servers">> => <<"127.0.0.1:", Port/binary>>,
+            <<"servers">> => <<"nats-bridge-js:4222">>,
             <<"pool_size">> => 1,
             <<"connect_timeout">> => <<"2s">>,
             <<"authentication">> => <<"none">>,
@@ -118,6 +102,13 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 %% Core NATS publishing
 %%--------------------------------------------------------------------
+
+t_ssl_enabled_by_default(Config) ->
+    RawConfig = maps:remove(<<"ssl">>, ?config(connector_config, Config)),
+    CheckedConfig = emqx_bridge_v2_testlib:parse_and_check_connector(
+        ?CONNECTOR_TYPE_BIN, ?config(connector_name, Config), RawConfig
+    ),
+    ?assertMatch(#{<<"ssl">> := #{<<"enable">> := true}}, CheckedConfig).
 
 t_core_publish(Config) ->
     {ok, Client} = nats_client(Config),
@@ -255,6 +246,208 @@ t_invalid_authentication_is_redacted(Config) ->
         #{<<"authentication">> => #{<<"password">> => Secret}}
     ),
     ?assertEqual(nomatch, binary:match(Body, Secret)).
+
+t_core_batch_template_failure(Config) ->
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(Config, #{
+        <<"parameters">> => #{<<"subject">> => <<"${.missing}">>},
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"batch_size">> => 2,
+            <<"batch_time">> => <<"1s">>,
+            <<"worker_pool_size">> => 1
+        }
+    }),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt_concurrently(Publisher, <<"sensor/1/data">>, [<<"one">>, <<"two">>]),
+        {ok, #{result := Results}} = ?block_until(
+            #{?snk_kind := nats_connector_query_return, batch := true, batch_size := 2}, 5000
+        ),
+        ?assertMatch(
+            [
+                {error, {unrecoverable_error, {template_error, _}}},
+                {error, {unrecoverable_error, {template_error, _}}}
+            ],
+            Results
+        )
+    after
+        snabbkaffe:stop()
+    end.
+
+t_jetstream_batch_partial_failure(Config) ->
+    {ok, Client} = nats_client(Config),
+    on_exit(fun() -> enats_client:stop(Client) end),
+    ok = create_stream(Client),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(Config, #{
+        <<"parameters">> => #{
+            <<"subject">> => <<"${.topic}">>, <<"delivery_mode">> => <<"jetstream">>
+        },
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"batch_size">> => 3,
+            <<"batch_time">> => <<"1s">>,
+            <<"worker_pool_size">> => 1
+        }
+    }),
+    {ok, _} = create_rule(Config, <<"#">>),
+    Publisher = mqtt_client(),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt_concurrently(Publisher, [
+            {<<"emqx.events">>, <<"one">>},
+            {<<"bad subject">>, <<"bad">>},
+            {<<"emqx.events">>, <<"two">>}
+        ]),
+        ?assertEqual([<<"one">>, <<"two">>], lists:sort(receive_payloads(2, []))),
+        {ok, #{result := Results}} = ?block_until(
+            #{?snk_kind := nats_connector_query_return, batch := true, batch_size := 3}, 5000
+        ),
+        ?assertEqual(2, length([ok || ok <- Results])),
+        ?assertEqual(1, length([Error || Error <- Results, is_invalid_subject_result(Error)])),
+        ?assertEqual({ok, 2}, stream_last_sequence(Client))
+    after
+        snabbkaffe:stop()
+    end.
+
+t_jetstream_batch_puback_timeout(Config) ->
+    {ok, Client} = nats_client(Config),
+    on_exit(fun() -> enats_client:stop(Client) end),
+    ok = create_stream(Client),
+    {201, _} = create_connector(Config, #{
+        <<"servers">> => <<"toxiproxy:14223">>,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
+    }),
+    {201, _} = create_action(Config, #{
+        <<"parameters">> => #{<<"delivery_mode">> => <<"jetstream">>},
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"batch_size">> => 2,
+            <<"batch_time">> => <<"1s">>,
+            <<"worker_pool_size">> => 1,
+            <<"request_ttl">> => <<"5s">>
+        }
+    }),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = nats_proxy_toxic(post),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt_concurrently(Publisher, <<"sensor/1/data">>, [<<"one">>, <<"two">>]),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                batch := true,
+                batch_size := 2,
+                result := {error, {recoverable_error, #{reason := timeout}}}
+            },
+            10000
+        ),
+        {ok, Count} = stream_last_sequence(Client),
+        ?assert(Count >= 1)
+    after
+        ok = nats_proxy_toxic(delete),
+        snabbkaffe:stop()
+    end.
+
+t_pool_reconnect_error_preserved(Config) ->
+    ok = set_nats_proxy_enabled(true),
+    on_exit(fun() -> set_nats_proxy_enabled(true) end),
+    {ok, Subscriber} = nats_client_on_host("nats-noauth", 4222),
+    on_exit(fun() -> enats_client:stop(Subscriber) end),
+    {ok, _} = enats_client:subscribe(Subscriber, <<"emqx.events">>, #{}),
+    {201, _} = create_connector(Config, #{
+        <<"servers">> => <<"toxiproxy:14222">>,
+        <<"connect_timeout">> => <<"200ms">>,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
+    }),
+    {201, _} = create_action(Config, #{
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"batch_size">> => 1,
+            <<"batch_time">> => <<"0ms">>,
+            <<"request_ttl">> => <<"15s">>
+        }
+    }),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+    [{_, Worker}] = ecpool:workers(ResourceId),
+    Client = pool_client(ResourceId),
+    ok = set_nats_proxy_enabled(false),
+    exit(Client, kill),
+    ?retry(
+        10,
+        50,
+        ?assertMatch(
+            {error, {disconnected, #{reason := killed}}}, ecpool_worker:client(Worker)
+        )
+    ),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"client-killed">>),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result :=
+                    {error,
+                        {unrecoverable_error,
+                            {disconnected, #{
+                                reason := killed, time_since_observed_ms := _
+                            }}}}
+            },
+            2000
+        ),
+        ?retry(
+            100,
+            50,
+            ?assertMatch(
+                {error, {disconnected, #{reason := #{reason := connection_failed}}}},
+                ecpool_worker:client(Worker)
+            )
+        ),
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"pool-recovered">>),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result :=
+                    {error,
+                        {recoverable_error,
+                            {disconnected, #{
+                                reason := #{reason := connection_failed},
+                                time_since_observed_ms := _
+                            }}}}
+            },
+            7000
+        ),
+        ok = set_nats_proxy_enabled(true),
+        ?assertMatch(
+            {enats_client, Subscriber, {message, #{payload := <<"pool-recovered">>}}},
+            receive_message(7000)
+        )
+    after
+        ok = set_nats_proxy_enabled(true),
+        snabbkaffe:stop()
+    end.
+
+nats_proxy_toxic(post) ->
+    URL = "http://toxiproxy:8474/proxies/nats_bridge_js/toxics",
+    Body = emqx_utils_json:encode(#{
+        name => <<"drop_puback">>,
+        type => <<"timeout">>,
+        stream => <<"downstream">>,
+        attributes => #{timeout => 0}
+    }),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(post, {URL, [], "application/json", Body}, [], []),
+    ok;
+nats_proxy_toxic(delete) ->
+    URL = "http://toxiproxy:8474/proxies/nats_bridge_js/toxics/drop_puback",
+    {ok, {{_, 204, _}, _, _}} = httpc:request(delete, {URL, []}, [], []),
+    ok.
 
 t_core_batch_partial_failure(Config) ->
     {ok, Client} = nats_client(Config),
@@ -394,45 +587,42 @@ t_jetstream_batch_publish_all(Config) ->
 %%--------------------------------------------------------------------
 
 t_jetstream_no_responders(Config) ->
-    Port = free_port(),
-    Nats = start_nats(?config(nats_executable, Config), Port, false),
-    try
-        wait_for_port(Port),
-        ConnectorOverrides = #{
-            <<"servers">> => iolist_to_binary(["127.0.0.1:", integer_to_list(Port)])
-        },
-        {ok, 201, _} = create_connector_silent(Config, ConnectorOverrides),
-        {201, _} = create_action(
-            Config,
-            #{
-                <<"parameters">> => #{
-                    <<"delivery_mode">> => <<"jetstream">>,
-                    <<"msg_id_template">> => <<"stable-id">>
-                },
-                <<"resource_opts">> => #{
-                    <<"batch_size">> => 1,
-                    <<"batch_time">> => <<"0ms">>,
-                    <<"request_ttl">> => <<"5s">>
-                }
+    wait_for_port("nats-noauth", 4222),
+    ConnectorOverrides = #{<<"servers">> => <<"nats-noauth:4222">>},
+    {ok, 201, _} = create_connector_silent(Config, ConnectorOverrides),
+    {201, _} = create_action(
+        Config,
+        #{
+            <<"parameters">> => #{
+                <<"delivery_mode">> => <<"jetstream">>,
+                <<"msg_id_template">> => <<"stable-id">>
+            },
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 1,
+                <<"batch_time">> => <<"0ms">>,
+                <<"request_ttl">> => <<"5s">>
             }
-        ),
-        {ok, _} = create_rule(Config, <<"sensor/+/data">>),
-        Publisher = mqtt_client(),
-        ok = snabbkaffe:start_trace(),
-        try
-            publish_mqtt(Publisher, <<"sensor/1/data">>, <<"no-js">>),
-            {ok, _} = ?block_until(
-                #{
-                    ?snk_kind := nats_connector_query_return,
-                    result := {error, {recoverable_error, {jetstream, unavailable, <<"503">>}}}
-                },
-                10_000
-            )
-        after
-            snabbkaffe:stop()
-        end
+        }
+    ),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"no-js">>),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result :=
+                    {error,
+                        {unrecoverable_error, #{
+                            reason := server_error,
+                            details := #{source := jetstream, code := unavailable, status := 503}
+                        }}}
+            },
+            10_000
+        )
     after
-        stop_nats(Nats)
+        snabbkaffe:stop()
     end.
 
 t_template_error_details(Config) ->
@@ -482,48 +672,35 @@ t_publish_error_preserves_classification(Config) ->
     end.
 
 t_reconnect(Config) ->
-    Port = free_port(),
-    Nats = start_nats(?config(nats_executable, Config), Port, false),
-    try
-        wait_for_port(Port),
-        {ok, Client} = nats_client_on_port(Port),
-        on_exit(fun() -> enats_client:stop(Client) end),
-        {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
-        {201, _} = create_connector(Config, #{<<"servers">> => nats_server(Port)}),
-        {201, _} = create_action(Config),
-        {ok, _} = create_rule(Config, <<"sensor/+/data">>),
-        Publisher = mqtt_client(),
-        stop_nats(Nats),
-        receive
-            {enats_client, Client, disconnected, _Reason} -> ok
-        after 2000 -> ct:fail(nats_disconnect_not_observed)
-        end,
-        Parent = self(),
-        Restart = spawn(fun() ->
-            timer:sleep(200),
-            RestartedNats = start_nats(?config(nats_executable, Config), Port, false),
-            wait_for_port(Port),
-            Parent ! {nats_restarted, self()},
-            receive
-                stop -> stop_nats(RestartedNats)
-            end
-        end),
-        try
-            publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-during-outage">>),
-            receive
-                {nats_restarted, Restart} -> ok
-            after 10000 -> ct:fail(nats_restart_not_observed)
-            end,
-            ?assertMatch(
-                {enats_client, Client, {message, #{payload := <<"hello-during-outage">>}}},
-                receive_message(5000)
-            )
-        after
-            Restart ! stop
-        end
-    after
-        stop_nats(Nats)
-    end.
+    ok = set_nats_proxy_enabled(true),
+    on_exit(fun() -> set_nats_proxy_enabled(true) end),
+    {ok, Client} = nats_client_on_host("toxiproxy", 14222),
+    on_exit(fun() -> enats_client:stop(Client) end),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+    {201, _} = create_connector(Config, #{<<"servers">> => <<"toxiproxy:14222">>}),
+    {201, _} = create_action(Config),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = set_nats_proxy_enabled(false),
+    receive
+        {enats_client, Client, disconnected, _Reason} -> ok
+    after 2000 -> ct:fail(nats_disconnect_not_observed)
+    end,
+    Parent = self(),
+    Reenable = spawn(fun() ->
+        timer:sleep(200),
+        ok = set_nats_proxy_enabled(true),
+        Parent ! nats_proxy_reenabled
+    end),
+    publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-during-outage">>),
+    receive
+        nats_proxy_reenabled -> ok
+    after 10000 -> ct:fail({nats_proxy_not_reenabled, Reenable})
+    end,
+    ?assertMatch(
+        {enats_client, Client, {message, #{payload := <<"hello-during-outage">>}}},
+        receive_message(5000)
+    ).
 
 t_worker_client_restart(Config) ->
     {ok, Subscriber} = nats_client(Config),
@@ -586,42 +763,38 @@ t_health_check_timeout(Config) ->
 t_auth_user_password(Config) ->
     auth_publish_case(
         Config,
-        ["--user", "alice", "--pass", "secret"],
+        {"nats", 4222},
         #{
             <<"mechanism">> => <<"user_password">>,
-            <<"username">> => <<"alice">>,
-            <<"password">> => <<"secret">>
+            <<"username">> => <<"test_user">>,
+            <<"password">> => <<"password">>
         },
         #{
             mechanism => user_password,
-            username => <<"alice">>,
-            password => fun() -> <<"secret">> end
+            username => <<"test_user">>,
+            password => fun() -> <<"password">> end
         }
     ).
 
 t_auth_token(Config) ->
     auth_publish_case(
         Config,
-        ["--auth", "token"],
+        {"nats-token", 4222},
         #{
             <<"mechanism">> => <<"token">>,
-            <<"token">> => <<"token">>
+            <<"token">> => <<"nats_token">>
         },
-        #{mechanism => token, token => fun() -> <<"token">> end}
+        #{mechanism => token, token => fun() -> <<"nats_token">> end}
     ).
 
 t_auth_nkey(Config) ->
-    {PublicKey, PrivateKey} = crypto:generate_key(eddsa, ed25519),
+    PrivateKey = nkey_private_key(),
+    {PublicKey, _} = crypto:generate_key(eddsa, ed25519, PrivateKey),
     PublicNKey = enats_auth:encode_nkey_public(PublicKey),
-    ConfigFile = filename:join(?config(priv_dir, Config), "nats-connector-nkey.conf"),
-    ConfigText = iolist_to_binary([
-        "authorization { users = [{nkey: \"", PublicNKey, "\"}] }\n"
-    ]),
-    ok = file:write_file(ConfigFile, ConfigText),
     Seed = encode_seed(PrivateKey),
     auth_publish_case(
         Config,
-        ["-c", ConfigFile],
+        {"nats", 4222},
         #{
             <<"mechanism">> => <<"nkey">>,
             <<"nkey_seed">> => Seed
@@ -640,13 +813,9 @@ t_auth_nkey(Config) ->
     ).
 
 t_tls(Config) ->
-    PrivDir = ?config(priv_dir, Config),
-    CertFile = filename:join(PrivDir, "nats-connector-tls.crt"),
-    KeyFile = filename:join(PrivDir, "nats-connector-tls.key"),
-    generate_test_certificate(CertFile, KeyFile),
     auth_publish_case(
         Config,
-        ["--tls", "--tlscert", CertFile, "--tlskey", KeyFile],
+        {"nats-tls-noauth", 4422},
         none,
         none,
         #{tls => true, ssl_opts => [{verify, verify_none}]},
@@ -654,32 +823,15 @@ t_tls(Config) ->
             <<"ssl">> => #{
                 <<"enable">> => true,
                 <<"verify">> => <<"verify_peer">>,
-                <<"cacertfile">> => CertFile
+                <<"cacertfile">> => ?NATS_CA_CERT
             }
         }
     ).
 
 t_tls_first(Config) ->
-    PrivDir = ?config(priv_dir, Config),
-    CertFile = filename:join(PrivDir, "nats-connector-tls-first.crt"),
-    KeyFile = filename:join(PrivDir, "nats-connector-tls-first.key"),
-    ConfigFile = filename:join(PrivDir, "nats-connector-tls-first.conf"),
-    generate_test_certificate(CertFile, KeyFile),
-    ConfigText = iolist_to_binary([
-        "tls {\n",
-        "  cert_file: \"",
-        CertFile,
-        "\"\n",
-        "  key_file: \"",
-        KeyFile,
-        "\"\n",
-        "  handshake_first: true\n",
-        "}\n"
-    ]),
-    ok = file:write_file(ConfigFile, ConfigText),
     auth_publish_case(
         Config,
-        ["-c", ConfigFile],
+        {"nats-bridge-tls-first", 4222},
         none,
         none,
         #{tls => true, tls_handshake => first, ssl_opts => [{verify, verify_none}]},
@@ -687,7 +839,7 @@ t_tls_first(Config) ->
             <<"ssl">> => #{
                 <<"enable">> => true,
                 <<"verify">> => <<"verify_peer">>,
-                <<"cacertfile">> => CertFile
+                <<"cacertfile">> => ?NATS_CA_CERT
             },
             <<"tls_handshake">> => <<"first">>
         }
@@ -713,11 +865,11 @@ t_credentials_content_validation(_Config) ->
     ?assertMatch({error, _}, enats_auth:validate_credentials(InvalidContents)).
 
 t_cluster_credentials_content(Config) ->
-    {_Fixture, _NatsConfigFile, Credentials} = jwt_credentials_fixture(Config),
+    {_Fixture, Credentials} = jwt_credentials_fixture(),
     Name = atom_to_binary(?FUNCTION_NAME),
     ConnectorConfig = #{
         <<"enable">> => false,
-        <<"servers">> => <<"127.0.0.1:4222">>,
+        <<"servers">> => <<"nats-jwt:4222">>,
         <<"pool_size">> => 1,
         <<"connect_timeout">> => <<"2s">>,
         <<"authentication">> => #{
@@ -745,11 +897,11 @@ t_cluster_credentials_content(Config) ->
     end.
 
 t_auth_jwt_creds(Config) ->
-    {Fixture, ConfigFile, Credentials} = jwt_credentials_fixture(Config),
+    {Fixture, Credentials} = jwt_credentials_fixture(),
     #{user_public := UserPublic, user_private := UserPrivate, user_jwt := UserJWT} = Fixture,
     auth_publish_case(
         Config,
-        ["-c", ConfigFile],
+        {"nats-jwt", 4222},
         #{
             <<"mechanism">> => <<"jwt">>,
             <<"credentials_file_content">> => Credentials
@@ -772,12 +924,12 @@ t_auth_jwt_creds(Config) ->
 %% Test helpers
 %%--------------------------------------------------------------------
 
-auth_publish_case(Config, ServerArgs, Authentication, ClientAuth) ->
-    auth_publish_case(Config, ServerArgs, Authentication, ClientAuth, #{}, #{}, fun(_Body) -> ok end).
+auth_publish_case(Config, Server, Authentication, ClientAuth) ->
+    auth_publish_case(Config, Server, Authentication, ClientAuth, #{}, #{}, fun(_Body) -> ok end).
 
 auth_publish_case(
     Config,
-    ServerArgs,
+    Server,
     Authentication,
     ClientAuth,
     ClientOptions,
@@ -785,7 +937,7 @@ auth_publish_case(
 ) ->
     auth_publish_case(
         Config,
-        ServerArgs,
+        Server,
         Authentication,
         ClientAuth,
         ClientOptions,
@@ -795,53 +947,48 @@ auth_publish_case(
 
 auth_publish_case(
     Config,
-    ServerArgs,
+    {Host, Port},
     Authentication,
     ClientAuth,
     ClientOptions,
     ConnectorOverrides0,
     AfterConnector
 ) ->
-    Port = free_port(),
-    Pid = start_nats(?config(nats_executable, Config), Port, false, ServerArgs),
-    wait_for_port(Port),
-    try
-        {ok, Client} = connect_client(
-            enats_client:start_link(
-                maps:merge(
-                    #{
-                        host => "127.0.0.1",
-                        port => Port,
-                        auth => ClientAuth,
-                        owner => self()
-                    },
-                    ClientOptions
-                )
+    wait_for_port(Host, Port),
+    {ok, Client} = connect_client(
+        enats_client:start_link(
+            maps:merge(
+                #{
+                    host => Host,
+                    port => Port,
+                    auth => ClientAuth,
+                    owner => self()
+                },
+                ClientOptions
             )
-        ),
-        ConnectorOverrides = emqx_utils_maps:deep_merge(
-            #{
-                <<"servers">> => iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]),
-                <<"authentication">> => Authentication
-            },
-            ConnectorOverrides0
-        ),
-        {ok, 201, ConnectorBody} = create_connector_silent(Config, ConnectorOverrides),
-        #{<<"status">> := <<"connected">>} = emqx_utils_json:decode(ConnectorBody),
-        ok = AfterConnector(ConnectorBody),
-        {201, _} = create_action(Config),
-        {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
-        {ok, _} = create_rule(Config, <<"sensor/+/data">>),
-        Publisher = mqtt_client(),
-        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-auth">>),
-        ?assertMatch(
-            {enats_client, Client, {message, #{payload := <<"hello-auth">>}}},
-            receive_message(5000)
-        ),
-        ok = enats_client:stop(Client)
-    after
-        stop_nats(Pid)
-    end.
+        )
+    ),
+    on_exit(fun() -> enats_client:stop(Client) end),
+    ConnectorOverrides = emqx_utils_maps:deep_merge(
+        #{
+            <<"servers">> => nats_server(Host, Port),
+            <<"authentication">> => Authentication
+        },
+        ConnectorOverrides0
+    ),
+    {ok, 201, ConnectorBody} = create_connector_silent(Config, ConnectorOverrides),
+    #{<<"status">> := <<"connected">>} = emqx_utils_json:decode(ConnectorBody),
+    ok = AfterConnector(ConnectorBody),
+    {201, _} = create_action(Config),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-auth">>),
+    ?assertMatch(
+        {enats_client, Client, {message, #{payload := <<"hello-auth">>}}},
+        receive_message(5000)
+    ),
+    ok = enats_client:stop(Client).
 
 assert_credentials_not_exposed(ConnectorBody) ->
     ?assertEqual(nomatch, binary:match(ConnectorBody, <<"BEGIN NATS USER JWT">>)),
@@ -972,7 +1119,12 @@ is_mqtt_publish_success({ok, _PacketId}) ->
 is_mqtt_publish_success(_) ->
     false.
 
-is_invalid_subject_result({error, {unrecoverable_error, {invalid_subject, _}}}) ->
+is_invalid_subject_result(
+    {error,
+        {unrecoverable_error, #{
+            reason := badarg, details := #{field := subject, code := bad_value}
+        }}}
+) ->
     true;
 is_invalid_subject_result(_) ->
     false.
@@ -982,13 +1134,13 @@ has_invalid_subject_result(Results) when is_list(Results) ->
 has_invalid_subject_result(Result) ->
     is_invalid_subject_result(Result).
 
-nats_client(Config) ->
-    nats_client_on_port(?config(nats_port, Config)).
+nats_client(_Config) ->
+    nats_client_on_host(?NATS_HOST, ?NATS_PORT).
 
-nats_client_on_port(Port) ->
+nats_client_on_host(Host, Port) ->
     connect_client(
         enats_client:start_link(#{
-            host => "127.0.0.1",
+            host => Host,
             port => Port,
             owner => self(),
             reconnect => true,
@@ -996,8 +1148,8 @@ nats_client_on_port(Port) ->
         })
     ).
 
-nats_server(Port) ->
-    iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]).
+nats_server(Host, Port) ->
+    iolist_to_binary([Host, ":", integer_to_list(Port)]).
 
 pool_client(ResourceId) ->
     [{_, Worker}] = ecpool:workers(ResourceId),
@@ -1009,6 +1161,9 @@ connect_client({ok, Client}) ->
     {ok, Client}.
 
 create_stream(Client) ->
+    {ok, _} = enats_client:request(Client, <<"$JS.API.STREAM.DELETE.EMQX">>, <<>>, #{
+        timeout => 2000
+    }),
     Body = jsx:encode(#{<<"name">> => <<"EMQX">>, <<"subjects">> => [<<"emqx.events">>]}),
     {ok, _} = enats_client:request(Client, <<"$JS.API.STREAM.CREATE.EMQX">>, Body, #{
         timeout => 2000
@@ -1035,52 +1190,6 @@ receive_payloads(0, Acc) ->
 receive_payloads(N, Acc) ->
     {enats_client, _Client, {message, #{payload := Payload}}} = receive_message(5000),
     receive_payloads(N - 1, [Payload | Acc]).
-
-free_port() ->
-    {ok, Socket} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
-    {ok, {_Address, Port}} = inet:sockname(Socket),
-    gen_tcp:close(Socket),
-    Port.
-
-generate_test_certificate(CertFile, KeyFile) ->
-    Dir = filename:dirname(CertFile),
-    CAKeyFile = filename:join(Dir, "nats-test-ca.key"),
-    CACertFile = filename:join(Dir, "nats-test-ca.crt"),
-    CSRFile = filename:join(Dir, "nats-test-server.csr"),
-    ExtFile = filename:join(Dir, "nats-test-server.ext"),
-    ok = file:write_file(
-        ExtFile,
-        <<"basicConstraints=critical,CA:FALSE\n",
-            "keyUsage=critical,digitalSignature,keyEncipherment\n", "extendedKeyUsage=serverAuth\n",
-            "subjectAltName=IP:127.0.0.1\n">>
-    ),
-    Command = lists:flatten(
-        io_lib:format(
-            "openssl req -x509 -newkey rsa:2048 -nodes -keyout ~ts -out ~ts "
-            "-subj /CN=nats-test-ca -addext basicConstraints=critical,CA:TRUE "
-            "-addext keyUsage=critical,keyCertSign,cRLSign -days 1 >/dev/null 2>&1 && "
-            "openssl req -new -newkey rsa:2048 -nodes -keyout ~ts -out ~ts "
-            "-subj /CN=127.0.0.1 >/dev/null 2>&1 && "
-            "openssl x509 -req -in ~ts -CA ~ts -CAkey ~ts -CAcreateserial "
-            "-out ~ts -days 1 -sha256 -extfile ~ts >/dev/null 2>&1",
-            [
-                CAKeyFile,
-                CACertFile,
-                KeyFile,
-                CSRFile,
-                CSRFile,
-                CACertFile,
-                CAKeyFile,
-                CertFile,
-                ExtFile
-            ]
-        )
-    ),
-    _ = os:cmd(Command),
-    {ok, ServerCert} = file:read_file(CertFile),
-    {ok, CACert} = file:read_file(CACertFile),
-    ok = file:write_file(CertFile, [ServerCert, CACert]),
-    ok.
 
 encode_seed(PrivateSeed) ->
     Prefix = <<(16#90 bor (16#A0 bsr 5)), ((16#A0 band 31) bsl 3), PrivateSeed/binary>>,
@@ -1114,172 +1223,61 @@ encode_base32(Bits, Acc) when bit_size(Bits) > 0 ->
 encode_base32(<<>>, Acc) ->
     list_to_binary(lists:reverse(Acc)).
 
-jwt_credentials_fixture(Config) ->
-    OperatorPrivate =
-        <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-            26, 27, 28, 29, 30, 31, 32>>,
-    AccountPrivate =
-        <<33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
-            55, 56, 57, 58, 59, 60, 61, 62, 63, 64>>,
-    OperatorPublic = public_nkey(16#70, OperatorPrivate),
-    AccountPublic = public_nkey(16#00, AccountPrivate),
-    AccountJWT = sign_jwt(
-        #{
-            <<"iss">> => OperatorPublic,
-            <<"sub">> => AccountPublic,
-            <<"iat">> => erlang:system_time(second),
-            <<"nats">> => #{
-                <<"type">> => <<"account">>,
-                <<"version">> => 2,
-                <<"limits">> => #{
-                    <<"subs">> => -1,
-                    <<"data">> => -1,
-                    <<"payload">> => -1,
-                    <<"imports">> => -1,
-                    <<"exports">> => -1,
-                    <<"conn">> => -1,
-                    <<"leaf">> => -1,
-                    <<"wildcards">> => true
-                },
-                <<"default_permissions">> => #{
-                    <<"pub">> => #{},
-                    <<"sub">> => #{}
-                }
-            }
-        },
-        OperatorPrivate
-    ),
-    {_UserPublicRaw, UserPrivate} = crypto:generate_key(eddsa, ed25519),
-    UserPublic = public_nkey(16#A0, UserPrivate),
-    UserJWT = sign_jwt(
-        #{
-            <<"iss">> => AccountPublic,
-            <<"sub">> => UserPublic,
-            <<"iat">> => erlang:system_time(second),
-            <<"nats">> => #{
-                <<"type">> => <<"user">>,
-                <<"version">> => 2,
-                <<"subs">> => -1,
-                <<"data">> => -1,
-                <<"payload">> => -1,
-                <<"pub">> => #{<<"allow">> => [<<"emqx.events">>]},
-                <<"sub">> => #{<<"allow">> => [<<"emqx.events">>, <<"_INBOX.>">>]}
-            }
-        },
-        AccountPrivate
-    ),
-    Seed = encode_seed(UserPrivate),
+nkey_private_key() ->
+    <<205, 42, 56, 73, 83, 88, 159, 152, 35, 244, 15, 34, 196, 39, 226, 60, 111, 109, 0, 79, 72,
+        148, 60, 239, 181, 139, 118, 231, 215, 12, 158, 116>>.
+
+jwt_credentials_fixture() ->
+    UserPrivate = nats_jwt_private_key(),
+    {PublicKey, _} = crypto:generate_key(eddsa, ed25519, UserPrivate),
+    UserPublic = enats_auth:encode_nkey_public(PublicKey),
+    UserJWT = nats_jwt_token(),
     Credentials = iolist_to_binary([
         "-----BEGIN NATS USER JWT-----\n",
         UserJWT,
         "\n------END NATS USER JWT------\n",
         "-----BEGIN USER NKEY SEED-----\n",
-        Seed,
+        encode_seed(UserPrivate),
         "\n------END USER NKEY SEED------\n"
     ]),
-    ConfigFile = filename:join(?config(priv_dir, Config), "nats-connector-jwt.conf"),
-    ConfigText = iolist_to_binary([
-        "operator: ",
-        build_operator_jwt(OperatorPublic, OperatorPrivate),
-        "\n",
-        "resolver: MEMORY\n",
-        "resolver_preload: {\n  ",
-        AccountPublic,
-        ": ",
-        AccountJWT,
-        "\n}\n"
-    ]),
-    ok = file:write_file(ConfigFile, ConfigText),
-    {
-        #{
-            operator_public => OperatorPublic,
-            account_public => AccountPublic,
-            user_public => UserPublic,
-            user_private => UserPrivate,
-            user_jwt => UserJWT
-        },
-        ConfigFile,
-        Credentials
-    }.
+    {#{user_public => UserPublic, user_private => UserPrivate, user_jwt => UserJWT}, Credentials}.
 
-build_operator_jwt(OperatorPublic, OperatorPrivate) ->
-    sign_jwt(
-        #{
-            <<"iss">> => OperatorPublic,
-            <<"sub">> => OperatorPublic,
-            <<"iat">> => erlang:system_time(second),
-            <<"nats">> => #{<<"type">> => <<"operator">>, <<"version">> => 2}
-        },
-        OperatorPrivate
-    ).
+nats_jwt_token() ->
+    <<
+        "eyJ0eXAiOiJKV1QiLCJhbGciOiJlZDI1NTE5LW5rZXkifQ."
+        "eyJqdGkiOiJPMjU3WlA3NDdUQ1g3VUo2RkFVS0xHSzNJQTVGRFRXV01BTERaSEJNTUtQRlo1NTNPNlJRIiwia"
+        "WF0IjoxNzcwOTU0MjMyLCJpc3MiOiJBQURBQk5FRktMWVdaRENGQTVTUlJKMlRaWkFaTUNZNVdMR0FUTlg3V"
+        "1ZCQlJaRU9UWFZCTFI0TSIsIm5hbWUiOiJ0ZXN0Iiwic3ViIjoiVUNDNEdGUlJYVVVNS1ROUDY3VlFUQUJDT"
+        "ExPRFROQ05PQklVTlVIVUFNRUZQM09FRkgzUUQ3WUIiLCJuYXRzIjp7InB1YiI6e30sInN1YiI6e30sInN1Y"
+        "nMiOi0xLCJkYXRhIjotMSwicGF5bG9hZCI6LTEsInR5cGUiOiJ1c2VyIiwidmVyc2lvbiI6Mn19."
+        "-aoi_dRV83R-LmpKbUCTYpvHvBiuOlx_HdhDyD89ZV2ocTxtyFf4KCco5F0lUA7GsLQZo1kmX1Df9sLv4wIZDA"
+    >>.
 
-public_nkey(Prefix, PrivateKey) ->
-    {PublicKey, _} = crypto:generate_key(eddsa, ed25519, PrivateKey),
-    Payload = <<Prefix:8, PublicKey/binary>>,
-    encode_nkey(<<Payload/binary, (test_crc16(Payload)):16/little>>).
+nats_jwt_private_key() ->
+    <<153, 4, 163, 231, 183, 138, 62, 8, 137, 201, 217, 217, 31, 222, 119, 53, 165, 160, 35, 110,
+        172, 49, 225, 23, 186, 170, 182, 203, 170, 119, 70, 83>>.
 
-encode_nkey(Bin) ->
-    encode_base32(Bin).
-
-sign_jwt(Claims, PrivateKey) ->
-    Header = base64url_encode(
-        emqx_utils_json:encode(#{alg => <<"ed25519-nkey">>, typ => <<"JWT">>})
+set_nats_proxy_enabled(Enabled) ->
+    URL = "http://toxiproxy:8474/proxies/nats_bridge_reconnect",
+    Body = emqx_utils_json:encode(#{enabled => Enabled}),
+    {ok, {{_, 200, _}, _, _}} = httpc:request(
+        post, {URL, [], "application/json", Body}, [], []
     ),
-    Payload = base64url_encode(emqx_utils_json:encode(Claims)),
-    SigningInput = <<Header/binary, ".", Payload/binary>>,
-    Signature = base64url_encode(crypto:sign(eddsa, none, SigningInput, [PrivateKey, ed25519])),
-    <<SigningInput/binary, ".", Signature/binary>>.
-
-base64url_encode(Bin) ->
-    base64:encode(Bin, #{mode => urlsafe, padding => false}).
-
-start_nats(Executable, Port, JetStream) ->
-    start_nats(Executable, Port, JetStream, []).
-
-start_nats(Executable, Port, JetStream, ExtraArgs) ->
-    PidFile = filename:join(
-        "/tmp", "emqx-nats-" ++ integer_to_list(erlang:unique_integer([positive])) ++ ".pid"
-    ),
-    Args =
-        ["-a", "127.0.0.1", "-p", integer_to_list(Port), "-P", PidFile] ++ ExtraArgs ++
-            case JetStream of
-                true ->
-                    StoreDir = filename:join(
-                        "/tmp", "emqx-nats-" ++ integer_to_list(erlang:unique_integer([positive]))
-                    ),
-                    filelib:ensure_dir(filename:join(StoreDir, "placeholder")),
-                    ["-js", "-sd", StoreDir];
-                false ->
-                    []
-            end,
-    {open_port({spawn_executable, Executable}, [{args, Args}, exit_status]), Port, PidFile}.
-
-stop_nats({PortHandle, _Port, PidFile}) when is_port(PortHandle) ->
-    case file:read_file(PidFile) of
-        {ok, PidBin} -> os:cmd("kill -KILL " ++ string:trim(binary_to_list(PidBin)));
-        {error, _} -> ok
-    end,
-    %% Do not synchronously close the open_port here.  On some systems
-    %% port_close/1 waits for the nats-server port program and can delay the
-    %% restart until the action request TTL expires.
-    _ = file:delete(PidFile),
-    ok;
-stop_nats(_) ->
     ok.
 
-wait_for_port(Port) ->
-    wait_for_port(Port, 100).
+wait_for_port(Host, Port) ->
+    wait_for_port(Host, Port, 100).
 
-wait_for_port(_Port, 0) ->
+wait_for_port(_Host, _Port, 0) ->
     ct:fail(nats_port_not_ready);
-wait_for_port(Port, Attempts) ->
-    case gen_tcp:connect("127.0.0.1", Port, [], 100) of
+wait_for_port(Host, Port, Attempts) ->
+    case gen_tcp:connect(Host, Port, [], 100) of
         {ok, Socket} ->
             gen_tcp:close(Socket),
             ok;
         {error, _} ->
             timer:sleep(50),
-            wait_for_port(Port, Attempts - 1)
+            wait_for_port(Host, Port, Attempts - 1)
     end.
 
 wait_until(_Pred, Timeout) when Timeout =< 0 ->

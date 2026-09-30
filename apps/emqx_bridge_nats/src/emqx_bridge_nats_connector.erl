@@ -220,14 +220,21 @@ publish_core_batch(Client, #{request_ttl := RequestTTL} = Channel, Valid, Result
                 ok -> results_in_order(Results0);
                 {error, _} = Error -> Error
             end;
-        {error, {invalid_batch_message, BadIndex, Reason}} ->
-            {OriginalIndex, _Rendered} = lists:nth(BadIndex, Valid),
-            Valid1 = remove_nth(BadIndex, Valid),
-            Results1 = Results0#{OriginalIndex => {error, Reason}},
-            publish_core_batch(Client, Channel, Valid1, Results1);
+        {error, #{reason := badarg, details := #{index := BadIndex}} = Error} ->
+            retry_core_batch_without_invalid(Client, Channel, Valid, Results0, BadIndex, Error);
         {error, _} = Error ->
             Error
     end.
+
+retry_core_batch_without_invalid(
+    Client, Channel, Valid, Results0, BadIndex, #{details := Details} = Error
+) ->
+    {OriginalIndex, _Rendered} = lists:nth(BadIndex, Valid),
+    Valid1 = remove_nth(BadIndex, Valid),
+    Results1 = Results0#{
+        OriginalIndex => {error, Error#{details => Details#{index => OriginalIndex}}}
+    },
+    publish_core_batch(Client, Channel, Valid1, Results1).
 
 publish_jetstream_batch(Client, Channel, Batch) ->
     case publish_batch_messages(Client, Channel, Batch, []) of
@@ -280,10 +287,10 @@ publish_batch_messages(Client, Channel, [{_ChannelId, Message} | Rest], Acc) ->
         ok ->
             publish_batch_messages(Client, Channel, Rest, [ok | Acc]);
         {error, Reason} ->
-            case classify_error(Reason) of
-                {recoverable_error, _} ->
+            case classify_result(Result) of
+                {error, {recoverable_error, _}} ->
                     {recoverable, Reason};
-                {unrecoverable_error, _} ->
+                {error, {unrecoverable_error, _}} ->
                     publish_batch_messages(Client, Channel, Rest, [Result | Acc])
             end
     end.
@@ -417,68 +424,45 @@ classify_result(ok) ->
 classify_result(Results) when is_list(Results) ->
     [classify_result(Result) || Result <- Results];
 classify_result({error, ecpool_empty}) ->
-    {error, {recoverable_error, disconnected}};
+    {error, {recoverable_error, ecpool_empty}};
+%% ecpool 0.7.0 pick_and_do/3 propagates ecpool_worker:client/1 errors.
+classify_result({error, {disconnected, #{reason := Reason}} = PoolError}) ->
+    {error, {ecpool_error_kind(Reason), PoolError}};
+classify_result({error, {disconnected, client_not_yet_started} = PoolError}) ->
+    {error, {recoverable_error, PoolError}};
+classify_result({error, #{reason := Reason, details := Details} = Error}) ->
+    {error, {enats_client_error_kind(Reason, Details), Error}};
 classify_result({error, Reason}) ->
-    {error, classify_error(Reason)};
+    {error, {unrecoverable_error, Reason}};
 classify_result(Result) ->
     Result.
 
-classify_error(disconnected) ->
-    {recoverable_error, disconnected};
-classify_error(reconnecting) ->
-    {recoverable_error, reconnecting};
-classify_error(closed) ->
-    {recoverable_error, closed};
-classify_error(stale_connection) ->
-    {recoverable_error, stale_connection};
-classify_error(timeout) ->
-    {recoverable_error, timeout};
-classify_error(econnrefused) ->
-    {recoverable_error, econnrefused};
-classify_error({transport, _} = Reason) ->
-    {recoverable_error, Reason};
-classify_error({tls_upgrade_failed, _} = Reason) ->
-    {recoverable_error, Reason};
-classify_error({client_exit, _} = Reason) ->
-    {recoverable_error, Reason};
-classify_error({auth, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({protocol, _} = Reason) ->
-    {recoverable_error, Reason};
-classify_error({invalid_batch_message, _Index, _Reason} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({batch_too_large, _Kind, _Actual, _Limit} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({disconnected, #{reason := Reason} = Error}) ->
-    {Kind, _} = classify_error(Reason),
-    {Kind, Error};
-classify_error({disconnected, {server_error, ServerReason}}) ->
-    {unrecoverable_error, {server_error, ServerReason}};
-classify_error({disconnected, _} = Reason) ->
-    {recoverable_error, Reason};
-classify_error({payload_too_large, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error(headers_not_supported = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({invalid_subject, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({template_error, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({server_error, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({jetstream_unavailable, _} = Reason) ->
-    {recoverable_error, Reason};
-classify_error({jetstream_rejected, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({jetstream_error, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({invalid_msg_id, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({jetstream, unavailable, _} = Reason) ->
-    {recoverable_error, Reason};
-classify_error({jetstream, rejected, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error({jetstream, invalid_ack, _} = Reason) ->
-    {unrecoverable_error, Reason};
-classify_error(Reason) ->
-    {unrecoverable_error, Reason}.
+ecpool_error_kind(#{reason := Reason, details := Details}) ->
+    enats_client_error_kind(Reason, Details);
+ecpool_error_kind(Reason) when
+    Reason =:= disconnected;
+    Reason =:= closed;
+    Reason =:= stale_connection;
+    Reason =:= timeout;
+    Reason =:= econnrefused;
+    Reason =:= econnreset;
+    Reason =:= nxdomain
+->
+    recoverable_error;
+ecpool_error_kind(_) ->
+    unrecoverable_error.
+
+enats_client_error_kind(connection_failed, #{cause := Cause}) when
+    Cause =:= tls_not_available; Cause =:= tls_alert
+->
+    unrecoverable_error;
+enats_client_error_kind(connection_failed, _) ->
+    recoverable_error;
+enats_client_error_kind(timeout, _) ->
+    recoverable_error;
+enats_client_error_kind(bad_operation, #{code := Code}) when
+    Code =:= connecting; Code =:= draining
+->
+    recoverable_error;
+enats_client_error_kind(_, _) ->
+    unrecoverable_error.

@@ -3,7 +3,8 @@ emqx_bridge_nats_connector_schema {
 servers.desc:
 """A comma-separated failover list of NATS server addresses.<br/>
 Use <code>host[:port]</code>, for example <code>nats-1.example.com:4222,nats-2.example.com:4222</code>. The default port is <code>4222</code>.<br/>
-Each new pooled connection starts with the first configured server and advances through the list when connection, handshake, or reconnection attempts fail. The list does not distribute publishing load across NATS servers."""
+Each new pooled connection starts with the first configured server and advances through the list when connection, handshake, or reconnection attempts fail. The list does not distribute publishing load across NATS servers.<br/>
+TLS is enabled by default. Set <code>ssl.enable = false</code> when connecting to a server without TLS."""
 servers.label: "Servers"
 
 pool_size.desc:

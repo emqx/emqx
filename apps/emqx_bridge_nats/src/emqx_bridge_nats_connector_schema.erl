@@ -213,6 +213,6 @@ example(put) ->
         pool_size => 8,
         connect_timeout => <<"5s">>,
         authentication => none,
-        ssl => #{enable => false},
+        ssl => #{enable => true},
         resource_opts => #{health_check_interval => <<"30s">>}
     }.
