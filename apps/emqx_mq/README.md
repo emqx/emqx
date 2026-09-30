@@ -245,6 +245,13 @@ Delete Message Queue:
 curl -s -u key:secret -X DELETE http://localhost:18083/api/v5/message_queues/queues/t1%2F%23
 ```
 
+Delete the messages of a message queue, all of them or only the ones stored before a time, keeping the queue:
+
+```bash
+curl -s -u key:secret -X DELETE http://localhost:18083/api/v5/queue/q1/messages
+curl -s -u key:secret -X DELETE "http://localhost:18083/api/v5/queue/q1/messages?before=2026-09-30T12:00:00Z"
+```
+
 Configure Message Queue global settings:
 
 ```bash

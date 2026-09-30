@@ -22,6 +22,10 @@ emqx_mq_api {
         desc: "Delete message queue."
         label: "Delete Message Queue"
     }
+    message_queues_purge {
+        desc: "Delete the messages of a message queue, either all of them or only those stored before `before`. The queue, its settings and the consumer progress are kept. Delivery to the queue's subscribers pauses for about twice the queue's ping interval. Messages published while the request runs may or may not be deleted. Disk space is freed later, when the storage compacts."
+        label: "Delete Message Queue Messages"
+    }
     message_queues_config_get {
         desc: "Get message queue config."
         label: "Get Message Queue Config"
@@ -38,6 +42,12 @@ emqx_mq_api {
     }
     message_queues_delete_success {
         desc: "Message queue deleted successfully"
+    }
+    message_queues_purge_success {
+        desc: "Messages deleted successfully"
+    }
+    purge_before {
+        desc: "Delete only the messages written to storage before this time, given as an RFC 3339 timestamp or in milliseconds since the epoch. Without it, all messages are deleted."
     }
     cannot_create_message_queue {
         desc: "Cannot create message queue"

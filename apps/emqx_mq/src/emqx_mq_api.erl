@@ -22,6 +22,7 @@
 -export([
     '/queues'/2,
     '/queue/:name'/2,
+    '/queue/:name/messages'/2,
     '/queues/config'/2,
     %% Backward-compatible aliases (hidden from swagger)
     '/message_queues/queues'/2,
@@ -53,6 +54,7 @@ paths() ->
     [
         "/queues",
         "/queue/:name",
+        "/queue/:name/messages",
         "/queues/config",
         %% Backward-compatible aliases (hidden from swagger)
         "/message_queues/queues",
@@ -169,6 +171,25 @@ schema("/queue/:name") ->
             }
         }
     };
+schema("/queue/:name/messages") ->
+    #{
+        'operationId' => '/queue/:name/messages',
+        filter => fun ?MODULE:check_ready/2,
+        delete => #{
+            tags => ?TAGS,
+            description => ?DESC(message_queues_purge),
+            parameters => [name_param(), before_param()],
+            responses => #{
+                204 => ?DESC(message_queues_purge_success),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], ?DESC(message_queue_not_found)
+                ),
+                503 => emqx_dashboard_swagger:error_codes(
+                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                )
+            }
+        }
+    };
 schema("/queues/config") ->
     #{
         'operationId' => '/queues/config',
@@ -215,6 +236,14 @@ name_param() ->
             required => true,
             desc => ?DESC(name),
             in => path
+        })}.
+
+before_param() ->
+    {before,
+        hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
+            required => false,
+            desc => ?DESC(purge_before),
+            in => query
         })}.
 
 put_message_queue_example() ->
@@ -274,6 +303,23 @@ put_message_queue_config_example() ->
 
 '/queues/config'(Method, Params) ->
     '/message_queues/config'(Method, Params).
+
+'/queue/:name/messages'(delete, #{bindings := #{name := Name}, query_string := QString}) ->
+    Mode =
+        case QString of
+            #{<<"before">> := BeforeMs} ->
+                {before, erlang:convert_time_unit(BeforeMs, millisecond, microsecond)};
+            #{} ->
+                all
+        end,
+    case emqx_mq_registry:purge(Name, Mode) of
+        ok ->
+            ?NO_CONTENT;
+        not_found ->
+            ?NOT_FOUND(<<"Message queue not found">>);
+        {error, Reason} ->
+            ?SERVICE_UNAVAILABLE(Reason)
+    end.
 
 '/message_queues/queues'(get, #{query_string := QString}) ->
     Cursor = maps:get(<<"cursor">>, QString, undefined),

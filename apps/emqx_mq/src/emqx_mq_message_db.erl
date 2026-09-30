@@ -28,7 +28,8 @@ Facade for all operations with the message database.
     suback/3,
     create_client/1,
     subscribe/4,
-    drop/1
+    drop/1,
+    purge/2
 ]).
 
 -export([
@@ -266,6 +267,17 @@ insert(#{is_lastvalue := false} = MQHandle, false = _IsLimited, Message) ->
 drop(MQHandle) ->
     DB = db(MQHandle),
     delete(DB, delete_topics(DB, MQHandle)).
+
+-doc """
+Delete all messages of the MQ, or those stored before the given DS timestamp
+in microseconds. A cutoff keeps the quota index of a limited MQ: its counts are
+older than the cutoff and cannot move the GC limits deadline past kept messages.
+""".
+-spec purge(emqx_mq_types:mq(), all | {before, emqx_ds:time()}) -> ok | {error, term()}.
+purge(MQ, all) ->
+    drop(MQ);
+purge(MQ, {before, Before}) ->
+    delete(db(MQ), [mq_message_topic(MQ, '#')], Before).
 
 -spec delete_all() -> ok.
 delete_all() ->
@@ -531,6 +543,10 @@ need_reply(Message) ->
     end.
 
 delete(DB, Topics) ->
+    delete(DB, Topics, infinity).
+
+%% Delete the values stored in the topics with timestamps before `To'.
+delete(DB, Topics, To) ->
     {_Time, Errors} = timer:tc(fun() ->
         %% NOTE
         %% This is a temporary workaround for the behavior of the ds tx manager.
@@ -539,13 +555,14 @@ delete(DB, Topics) ->
         %% So we delete in groups with all different shards.
         lists:flatmap(
             fun(Slabs) ->
-                do_delete(DB, Topics, ?MQ_MESSAGE_DB_DELETE_RETRY + 1, Slabs, [])
+                do_delete(DB, Topics, To, ?MQ_MESSAGE_DB_DELETE_RETRY + 1, Slabs, [])
             end,
             slabs_by_generation(DB)
         )
     end),
     ?tp_debug(mq_message_db_delete, #{
         topic => Topics,
+        to => To,
         time => us_to_ms(_Time),
         errors => Errors
     }),
@@ -566,9 +583,9 @@ slabs_by_generation(DB) ->
     ),
     maps:values(ByGeneration).
 
-do_delete(_DB, _Topics, 0, _Slabs, Errors) ->
+do_delete(_DB, _Topics, _To, 0, _Slabs, Errors) ->
     Errors;
-do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
+do_delete(DB, Topics, To, Retries, Slabs0, _Errors0) ->
     Refs = lists:map(
         fun({Shard, Generation} = Slab) ->
             TxOpts = #{
@@ -580,7 +597,7 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
                     fun(Topic) ->
-                        emqx_ds:tx_del_topic(Topic)
+                        emqx_ds:tx_del_topic(Topic, 0, To)
                     end,
                     Topics
                 )
@@ -615,7 +632,7 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
         _ ->
             {Slabs, _} = lists:unzip(Errors),
             timer:sleep(?MQ_MESSAGE_DB_DELETE_RETRY_DELAY),
-            do_delete(DB, Topics, Retries - 1, Slabs, Errors)
+            do_delete(DB, Topics, To, Retries - 1, Slabs, Errors)
     end.
 
 mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, Key) ->

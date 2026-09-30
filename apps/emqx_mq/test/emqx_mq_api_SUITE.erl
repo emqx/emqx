@@ -635,9 +635,126 @@ t_queues_alias_config(_Config) ->
         api_get([queues, config])
     ).
 
+%% Verify that purging a queue deletes all its messages and no other queue's.
+t_purge_all(_Config) ->
+    lists:foreach(
+        fun(Kind) ->
+            MQ = emqx_mq_test_utils:ensure_mq_created(Kind#{
+                name => <<"q">>, topic_filter => <<"t/#">>
+            }),
+            Other = emqx_mq_test_utils:ensure_mq_created(Kind#{
+                name => <<"other">>, topic_filter => <<"o/#">>
+            }),
+            ok = populate(Kind, 3, <<"t/">>, <<"old-">>),
+            ok = populate(Kind, 3, <<"o/">>, <<"other-">>),
+            ?retry(20, 50, ?assertEqual(3, length(stored_payloads(MQ)))),
+            ?retry(20, 50, ?assertEqual(3, length(stored_payloads(Other)))),
+
+            ?assertMatch({ok, 204}, api_delete([queue, <<"q">>, messages])),
+            ?assertEqual([], stored_payloads(MQ)),
+            ?assertEqual(3, length(stored_payloads(Other))),
+            ?assertMatch({ok, 200, #{<<"name">> := <<"q">>}}, api_get([queue, <<"q">>])),
+
+            %% The queue still takes new messages.
+            ok = populate(Kind, 2, <<"t/">>, <<"new-">>),
+            ?retry(20, 50, ?assertEqual([<<"new-0">>, <<"new-1">>], stored_payloads(MQ))),
+            ok = emqx_mq_test_utils:cleanup_mqs()
+        end,
+        queue_kinds()
+    ).
+
+%% Verify that a purge with `before` deletes only the messages stored before that time.
+t_purge_before(_Config) ->
+    lists:foreach(
+        fun({Kind, Format}) ->
+            MQ = emqx_mq_test_utils:ensure_mq_created(Kind#{
+                name => <<"q">>, topic_filter => <<"t/#">>
+            }),
+            ok = populate(Kind, 3, <<"t/">>, <<"old-">>),
+            ?retry(20, 50, ?assertEqual(3, length(stored_payloads(MQ)))),
+            Before = erlang:system_time(millisecond) + 1,
+            ok = wait_until_after(Before),
+            ok = populate(Kind, 2, <<"t/">>, <<"new-">>),
+            ?retry(
+                20,
+                50,
+                ?assertMatch([_, _ | _], [P || <<"new-", _/binary>> = P <- stored_payloads(MQ)])
+            ),
+
+            ?assertMatch(
+                {ok, 204},
+                api_delete([queue, <<"q">>, "messages?before=" ++ format_time(Before, Format)])
+            ),
+            ?assertEqual([<<"new-0">>, <<"new-1">>], stored_payloads(MQ)),
+            ok = emqx_mq_test_utils:cleanup_mqs()
+        end,
+        lists:zip(queue_kinds(), [epoch, rfc3339, epoch, rfc3339])
+    ).
+
+%% Verify that messages dispatched before a purge and not acked are not dispatched again.
+t_purge_not_redispatched(_Config) ->
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"q">>, topic_filter => <<"t/#">>, ping_interval => 100
+    }),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"q">>),
+    ok = emqx_mq_test_utils:populate(5, #{topic_prefix => <<"t/">>, payload_prefix => <<"old-">>}),
+    {ok, [_ | _]} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 1, _Timeout0 = 500),
+
+    ?assertMatch({ok, 204}, api_delete([queue, <<"q">>, messages])),
+    %% Unacked messages of a disconnected subscriber are dispatched to others.
+    ok = emqtt:disconnect(CSub1),
+    CSub2 = emqx_mq_test_utils:emqtt_connect([]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(CSub2, <<"q">>),
+    ok = emqx_mq_test_utils:populate(2, #{topic_prefix => <<"t/">>, payload_prefix => <<"new-">>}),
+
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 2, _Timeout1 = 1000),
+    ?assertEqual(
+        [<<"new-0">>, <<"new-1">>],
+        lists:sort([Payload || #{payload := Payload} <- Msgs])
+    ),
+    ok = emqtt:disconnect(CSub2).
+
+%% Verify that purging an unknown queue returns 404.
+t_purge_not_found(_Config) ->
+    ?assertMatch({ok, 404, _}, api_delete([queue, <<"q">>, messages])).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 sort_by(Fun, List) ->
     lists:sort(fun(A, B) -> Fun(A) < Fun(B) end, List).
+
+queue_kinds() ->
+    Limits = #{max_shard_message_count => 1000, max_shard_message_bytes => infinity},
+    [
+        #{is_lastvalue => false},
+        #{is_lastvalue => false, limits => Limits},
+        #{is_lastvalue => true},
+        #{is_lastvalue => true, limits => Limits}
+    ].
+
+populate(#{is_lastvalue := true}, N, TopicPrefix, PayloadPrefix) ->
+    emqx_mq_test_utils:populate_lastvalue(N, #{
+        topic_prefix => TopicPrefix, payload_prefix => PayloadPrefix, n_keys => N
+    });
+populate(#{is_lastvalue := false}, N, TopicPrefix, PayloadPrefix) ->
+    emqx_mq_test_utils:populate(N, #{topic_prefix => TopicPrefix, payload_prefix => PayloadPrefix}).
+
+stored_payloads(MQ) ->
+    lists:sort([
+        emqx_message:payload(emqx_mq_message_db:decode_message(Bin))
+     || {_Topic, _Time, Bin} <- emqx_mq_message_db:dirty_read_all(MQ)
+    ]).
+
+wait_until_after(Ms) ->
+    case erlang:system_time(millisecond) > Ms of
+        true -> ok;
+        false -> wait_until_after(Ms)
+    end.
+
+format_time(Ms, epoch) ->
+    integer_to_list(Ms);
+format_time(Ms, rfc3339) ->
+    urlencode(calendar:system_time_to_rfc3339(Ms, [{unit, millisecond}, {offset, "Z"}])).

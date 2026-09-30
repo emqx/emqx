@@ -19,6 +19,7 @@ The module contains the registry of Message Queues.
     match/1,
     delete/1,
     update/2,
+    purge/2,
     list/0,
     list/2,
     queue_count/0
@@ -280,6 +281,25 @@ update_by_id(Id, UpdateFields0) ->
     end.
 
 -doc """
+Delete all messages of the MQ, or those stored before the given time in
+microseconds, then stop its consumer so that nothing it buffered or
+dispatched unacked is dispatched again.
+""".
+-spec purge(emqx_mq_types:mq_name(), all | {before, emqx_ds:time()}) ->
+    ok | not_found | {error, term()}.
+purge(Name, Mode) ->
+    maybe
+        {ok, MQ} ?= find(Name),
+        ok ?=
+            safe_with_log(
+                MQ,
+                fun() -> emqx_mq_message_db:purge(MQ, Mode) end,
+                mq_registry_purge_error
+            ),
+        stop_consumer(MQ)
+    end.
+
+-doc """
 List all MQs.
 """.
 -spec list() -> emqx_utils_stream:stream(emqx_mq_types:mq()).
@@ -343,18 +363,20 @@ drop_queue_data(MQ) ->
     ).
 
 drop_consumer_state(MQ) ->
-    Id = emqx_mq_prop:id(MQ),
-    case emqx_mq_consumer:find(Id) of
-        {ok, ConsumerRef} ->
-            emqx_mq_consumer:stop(ConsumerRef);
-        not_found ->
-            ok
-    end,
+    ok = stop_consumer(MQ),
     safe_with_log(
         MQ,
         fun() -> emqx_mq_state_storage:destroy_consumer_state(MQ) end,
         mq_registry_drop_consumer_error
     ).
+
+stop_consumer(MQ) ->
+    case emqx_mq_consumer:find(emqx_mq_prop:id(MQ)) of
+        {ok, ConsumerRef} ->
+            emqx_mq_consumer:stop(ConsumerRef);
+        not_found ->
+            ok
+    end.
 
 drop_queue_state(MQ) ->
     safe_with_log(
