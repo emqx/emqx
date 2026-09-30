@@ -1450,7 +1450,9 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
     ok = emqx_durable_will:on_connect(ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg),
     S = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
     ok = emqx_persistent_session_ds_gc_timer:on_connect(
-        ClientID, emqx_persistent_session_ds_state:get_guard(S), SessExpiryInterval
+        ClientID,
+        emqx_persistent_session_ds_state:get_guard(S),
+        SessExpiryInterval
     ),
     #{
         id => ClientID,
