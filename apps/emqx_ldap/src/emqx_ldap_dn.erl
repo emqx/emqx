@@ -21,7 +21,8 @@ Although the DN is passed as a string in LDAP protocol, we parse it:
     parse/1,
     mapfold_values/3,
     map_values/2,
-    to_string/1
+    to_string/1,
+    is_attribute_description/1
 ]).
 
 % distinguishedName = [ relativeDistinguishedName
@@ -116,6 +117,15 @@ parse(DN) ->
         throw:Reason ->
             {error, Reason}
     end.
+
+-doc """
+Returns `true` when the string is an LDAP attribute description (RFC 4512, section 2.5):
+a name or a numeric OID, optionally followed by options such as `;binary`.
+""".
+-spec is_attribute_description(string() | binary()) -> boolean().
+is_attribute_description(String) ->
+    {ok, RE} = re:compile(?ATTR_RE, [extended, dollar_endonly]),
+    match =:= re:run(String, RE, [{capture, none}]).
 
 -spec to_string(ldap_dn()) -> string().
 to_string(#ldap_dn{dn = DN}) ->

@@ -80,6 +80,7 @@ client_attr.desc:
 
 client_attr_attribute.desc:
 """The name of the directory attribute to read, for example `memberOf`.
+The name must be an LDAP attribute name: a letter followed by letters, digits and `-`, or a numeric OID such as `2.5.4.3`. It may be followed by options such as `;binary`.
 The name is matched case-insensitively. When the user's entry has no such attribute, this entry sets no client attribute."""
 
 client_attr_attribute.label:

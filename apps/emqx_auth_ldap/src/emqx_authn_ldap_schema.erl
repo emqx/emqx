@@ -71,7 +71,8 @@ fields(client_attr) ->
             ?HOCON(binary(), #{
                 desc => ?DESC(client_attr_attribute),
                 required => true,
-                example => <<"memberOf">>
+                example => <<"memberOf">>,
+                validator => fun attribute_description/1
             })},
         {set_as_attr,
             ?HOCON(binary(), #{
@@ -196,6 +197,12 @@ client_attrs_fields() ->
                 default => false
             })}
     ].
+
+attribute_description(Name) ->
+    case emqx_ldap_dn:is_attribute_description(Name) of
+        true -> ok;
+        false -> {error, <<"Invalid LDAP attribute name">>}
+    end.
 
 attr_name(Name) ->
     case emqx_utils:is_restricted_str(Name) of

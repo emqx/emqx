@@ -123,6 +123,27 @@ t_parse_dn_trim(_Config) ->
     DN = #ldap_dn{dn = [[{"cn", " John Doe "}]]},
     ?assertEqual({ok, DN}, emqx_ldap_dn:parse(dn_to_string(DN))).
 
+-doc "Checks which strings are accepted as LDAP attribute descriptions.".
+t_is_attribute_description(_Config) ->
+    lists:foreach(
+        fun(Name) -> ?assert(emqx_ldap_dn:is_attribute_description(Name), Name) end,
+        [<<"memberOf">>, "cn", <<"x-Custom-1">>, <<"2.5.4.3">>, <<"userCertificate;binary">>]
+    ),
+    lists:foreach(
+        fun(Name) -> ?assertNot(emqx_ldap_dn:is_attribute_description(Name), Name) end,
+        [
+            <<>>,
+            <<"member of">>,
+            <<" memberOf">>,
+            <<"memberOf\n">>,
+            <<"1member">>,
+            <<"member_of">>,
+            <<"2.5..3">>,
+            <<"memberOf;">>,
+            <<"gr", 16#C3, 16#BC, "ppe">>
+        ]
+    ).
+
 t_to_string(_Config) ->
     ?assertEqual(
         "cn=John+sn=Doe,ou=Users+dc=c m",

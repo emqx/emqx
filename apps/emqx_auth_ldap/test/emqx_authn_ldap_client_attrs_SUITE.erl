@@ -225,6 +225,21 @@ t_invalid_attr_name(Config) ->
         })
     ).
 
+-doc "Checks that a directory attribute name that is not an LDAP attribute name fails the config update.".
+t_invalid_attribute(Config) ->
+    lists:foreach(
+        fun(Name) ->
+            Entry = (entry(<<"grp_y">>, [<<"^cn=GROUP-Y,">>]))#{<<"attribute">> => Name},
+            Result = create_result(Config, #{<<"client_attrs">> => [Entry]}),
+            ?assertMatch({error, _}, Result, Name),
+            ErrorText = iolist_to_binary(io_lib:format("~0p", [Result])),
+            ?assertNotEqual(
+                nomatch, binary:match(ErrorText, <<"Invalid LDAP attribute name">>), ErrorText
+            )
+        end,
+        [<<"member of">>, <<"gr", 16#C3, 16#BC, "ppe">>, <<"memberOf\n">>]
+    ).
+
 -doc """
 Checks that an attribute absent from the user's entry sets no client attribute, and denies
 the client when `require_client_attrs` is true.
