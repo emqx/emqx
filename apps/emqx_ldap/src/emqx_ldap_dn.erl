@@ -112,6 +112,7 @@ parse(DN) when is_binary(DN) ->
     parse(binary_to_list(DN));
 parse(DN) ->
     try
+        ok = validate_utf8(DN),
         {ok, #ldap_dn{dn = parse_dn(DN)}}
     catch
         throw:Reason ->
@@ -249,34 +250,25 @@ parse_string([$\\, Char | Rest], Acc) when ?IS_ESCAPE_CHAR(Char) ->
     parse_string(Rest, [Char | Acc]);
 parse_string([Char | Rest], Acc) when ?IS_EXT_STRING_CHAR(Char) ->
     parse_string(Rest, [Char | Acc]);
-parse_string([Char | _] = String, Acc) when Char >= 16#80 andalso Char =< 16#FF ->
-    %% UTFMB: the bytes of one multi-byte UTF-8 character
-    case utf8_char(String) of
-        {ok, Bytes, Rest} ->
-            parse_string(Rest, lists:reverse(Bytes, Acc));
-        error ->
-            throw({invalid_string_char, Char})
-    end;
+%% UTFMB: a byte of a multi-byte UTF-8 character. parse/1 has checked that
+%% the whole DN is valid UTF-8.
+parse_string([Char | Rest], Acc) when Char >= 16#80 ->
+    parse_string(Rest, [Char | Acc]);
 parse_string([Char | _Rest], _Acc) ->
     throw({invalid_string_char, Char}).
 
-utf8_char([Lead | _] = String) ->
-    N = utf8_char_len(Lead),
-    maybe
-        true ?= length(String) >= N,
-        {Bytes, Rest} = lists:split(N, String),
-        true ?= lists:all(fun(B) -> B =< 16#FF end, Bytes),
-        [_] ?= unicode:characters_to_list(list_to_binary(Bytes)),
-        {ok, Bytes, Rest}
-    else
-        _ -> error
+%% The DN is a list of bytes. A list element above 16#FF is not a byte.
+validate_utf8(Bytes) ->
+    try list_to_binary(Bytes) of
+        Bin ->
+            case is_binary(unicode:characters_to_binary(Bin)) of
+                true -> ok;
+                false -> throw(invalid_utf8)
+            end
+    catch
+        error:badarg ->
+            throw(invalid_utf8)
     end.
-
-utf8_char_len(Lead) when Lead >= 16#F5 -> 1;
-utf8_char_len(Lead) when Lead >= 16#F0 -> 4;
-utf8_char_len(Lead) when Lead >= 16#E0 -> 3;
-utf8_char_len(Lead) when Lead >= 16#C2 -> 2;
-utf8_char_len(_Lead) -> 1.
 
 hex_char_to_int(HexChar) when HexChar >= $0 andalso HexChar =< $9 ->
     HexChar - $0;

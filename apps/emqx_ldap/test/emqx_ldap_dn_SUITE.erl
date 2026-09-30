@@ -59,8 +59,13 @@ t_parse_dn(_Config) ->
         emqx_ldap_dn:parse("cn=John,1.2.3;foo=#XY")
     ),
     ?assertMatch(
-        {error, {invalid_string_char, _}},
+        {error, invalid_utf8},
         emqx_ldap_dn:parse("cn=X" ++ [255])
+    ),
+    %% a list element that is not a byte
+    ?assertMatch(
+        {error, invalid_utf8},
+        emqx_ldap_dn:parse("cn=X" ++ [16#100])
     ),
     ?assertMatch(
         {error, {invalid_string_char, _}},
@@ -82,13 +87,22 @@ t_parse_dn_utf8(_Config) ->
     ),
     %% a truncated sequence
     ?assertMatch(
-        {error, {invalid_string_char, 16#C3}},
+        {error, invalid_utf8},
         emqx_ldap_dn:parse(<<"cn=Gr", 16#C3, ",dc=x">>)
     ),
     %% a lone continuation byte
     ?assertMatch(
-        {error, {invalid_string_char, 16#BC}},
+        {error, invalid_utf8},
         emqx_ldap_dn:parse(<<"cn=Gr", 16#BC, "n">>)
+    ),
+    %% an overlong encoding and a surrogate
+    ?assertMatch(
+        {error, invalid_utf8},
+        emqx_ldap_dn:parse(<<"cn=", 16#C0, 16#80>>)
+    ),
+    ?assertMatch(
+        {error, invalid_utf8},
+        emqx_ldap_dn:parse(<<"cn=", 16#ED, 16#A0, 16#80>>)
     ).
 
 -doc """
