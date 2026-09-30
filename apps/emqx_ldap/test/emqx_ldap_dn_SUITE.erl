@@ -91,6 +91,38 @@ t_parse_dn_utf8(_Config) ->
         emqx_ldap_dn:parse(<<"cn=Gr", 16#BC, "n">>)
     ).
 
+-doc """
+Checks that trimming a value strips only unescaped ASCII whitespace: a UTF-8 byte that is a
+Unicode whitespace code point (16#85, U+0085) and an escaped trailing space are kept.
+""".
+t_parse_dn_trim(_Config) ->
+    %% "Group-ą", with the a-ogonek as UTF-8 bytes C4 85
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{"CN", "Group-" ++ [16#C4, 16#85]}], [{"DC", "x"}]]}},
+        emqx_ldap_dn:parse(<<"CN=Group-", 16#C4, 16#85, ",DC=x">>)
+    ),
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{"CN", "Group-A "}], [{"DC", "x"}]]}},
+        emqx_ldap_dn:parse(<<"CN=Group-A\\ ,DC=x">>)
+    ),
+    %% an escaped space followed by an unescaped one
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{"CN", "Group-A "}], [{"DC", "x"}]]}},
+        emqx_ldap_dn:parse(<<"CN=Group-A\\  ,DC=x">>)
+    ),
+    %% an escaped backslash followed by an unescaped space
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{"CN", "Group-A\\"}], [{"DC", "x"}]]}},
+        emqx_ldap_dn:parse(<<"CN=Group-A\\\\ ,DC=x">>)
+    ),
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{"CN", " Group-A"}], [{"DC", "x"}]]}},
+        emqx_ldap_dn:parse(<<"CN= \\ Group-A\t,DC=x">>)
+    ),
+    %% to_string/1 escapes the spaces at both ends, and parse/1 reads them back
+    DN = #ldap_dn{dn = [[{"cn", " John Doe "}]]},
+    ?assertEqual({ok, DN}, emqx_ldap_dn:parse(dn_to_string(DN))).
+
 t_to_string(_Config) ->
     ?assertEqual(
         "cn=John+sn=Doe,ou=Users+dc=c m",

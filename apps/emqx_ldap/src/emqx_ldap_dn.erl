@@ -191,7 +191,7 @@ parse_attr(Attr0) ->
     end.
 
 parse_value(Value0) ->
-    Value = string:trim(Value0),
+    Value = trim_value(Value0),
     case Value of
         "" ->
             throw(empty_value);
@@ -203,6 +203,24 @@ parse_value(Value0) ->
         _ ->
             parse_string(Value, [])
     end.
+
+%% Strips ASCII whitespace around a value. The value is a list of bytes, so no
+%% byte of a UTF-8 sequence is stripped. A trailing space escaped by an odd
+%% number of backslashes is part of the value and is kept.
+trim_value(Value) ->
+    {RevSpaces, RevBody} =
+        lists:splitwith(fun is_space/1, lists:reverse(lists:dropwhile(fun is_space/1, Value))),
+    case RevSpaces =/= [] andalso is_escaped(RevBody) of
+        true -> lists:reverse(RevBody, [lists:last(RevSpaces)]);
+        false -> lists:reverse(RevBody)
+    end.
+
+%% RevBody is the value before its trailing spaces, reversed.
+is_escaped(RevBody) ->
+    length(lists:takewhile(fun(C) -> C =:= $\\ end, RevBody)) rem 2 =:= 1.
+
+is_space(C) ->
+    C =:= $\s orelse C =:= $\t orelse C =:= $\r orelse C =:= $\n.
 
 validate_hexstring([]) ->
     ok;
