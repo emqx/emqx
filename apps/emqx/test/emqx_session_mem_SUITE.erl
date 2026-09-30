@@ -108,7 +108,7 @@ t_session_init_lazy_mqueue(_) ->
         emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Built),
         emqx_session_mem:info({mqueue_msgs, #{limit => 10}}, Session)
     ),
-    ?assertEqual({ok, [], Session}, emqx_session_mem:dequeue(clientinfo(), Session)),
+    ?assertEqual({ok, [], Session}, emqx_session_mem:dequeue(clientinfo(), [], Session)),
     ?assertEqual([], maps:get(mqueue, emqx_session_mem:export(Session))).
 
 -doc """
@@ -781,51 +781,47 @@ t_congestion_postpones_only_qos0_on_deliver(_) ->
         emqx_session_mem:handle_signal(clientinfo(), {connection, decongested, #{}}, S1),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, S2)).
 
--doc "Congested batches share allowance across QoS levels and retry when no ACKs are expected.".
+-doc """
+Congested batches share allowance across QoS levels and wait for decongestion when no
+ACKs are expected.
+""".
 t_congestion_shared_batch_on_ack(_) ->
     S0 = session(#{inflight => emqx_inflight:new(1)}),
     {ok, [{1, _}], S1} = emqx_session_mem:deliver(
         clientinfo(),
-        enrich([delivery(?QOS_1, <<"q1">>)], S0),
+        enrich([delivery(?QOS_1, ~"q1")], S0),
         [],
         S0
     ),
     Pending = enrich(
         [
-            delivery(?QOS_0, <<"q0">>, <<"first">>),
-            delivery(?QOS_1, <<"q1">>),
-            delivery(?QOS_0, <<"q0">>, <<"second">>),
-            delivery(?QOS_2, <<"q2">>)
+            delivery(?QOS_0, ~"q0", ~"first"),
+            delivery(?QOS_1, ~"q1", ~"second"),
+            delivery(?QOS_0, ~"q0", ~"third"),
+            delivery(?QOS_2, ~"q2", ~"fourth")
         ],
         S1
     ),
     {ok, [], S2} = emqx_session_mem:deliver(clientinfo(), Pending, [congested], S1),
     {ok, [], S2} = emqx_session_mem:dequeue(clientinfo(), [congested], S2),
-    %% QoS0 spends the single batch unit, but leaves inflight free: arrange continuation.
-    {
-        {set_timer, ?RETRY_DEQUEUE_TIMER, 1},
-        _,
-        [{undefined, #message{payload = <<"first">>}}],
-        S3
-    } =
+    %% QoS0 spends the single batch unit, leaving inflight free: wait for decongestion.
+    {ok, _, [{undefined, #message{payload = ~"first"}}], S3} =
         emqx_session_mem:puback(clientinfo(), 1, [congested], S2),
-    %% Next QoS1 message fills only inflight slot on retry.
-    {ok, [{2, #message{qos = 1}}], S4} =
-        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [congested], S3),
-    %% Full inflight window stops even leading QoS0 while congested.
+    %% Decongestion sends the next QoS1 and its trailing QoS0 in order.
+    {ok,
+        [
+            {2, #message{qos = 1, payload = ~"second"}},
+            {undefined, #message{qos = 0, payload = ~"third"}}
+        ],
+        S4} =
+        emqx_session_mem:handle_signal(clientinfo(), {connection, decongested, #{}}, S3),
+    %% Congestion returns with the inflight window full; the ACK resumes draining.
     {ok, [], S4} = emqx_session_mem:dequeue(clientinfo(), [congested], S4),
-    {
-        {set_timer, ?RETRY_DEQUEUE_TIMER, 1},
-        _,
-        [{undefined, #message{payload = <<"second">>}}],
-        S5
-    } =
+    {ok, _, [{3, #message{qos = 2, payload = ~"fourth"}}], S5} =
         emqx_session_mem:puback(clientinfo(), 2, [congested], S4),
-    {ok, [{3, #message{qos = 2}}], S6} =
-        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [congested], S5),
-    {ok, _, S7} = emqx_session_mem:pubrec(3, S6),
-    {ok, _, [], S8} = emqx_session_mem:pubcomp(clientinfo(), 3, [congested], S7),
-    ?assertEqual(0, emqx_session_mem:info(mqueue_len, S8)).
+    {ok, _, S6} = emqx_session_mem:pubrec(3, S5),
+    {ok, _, [], S7} = emqx_session_mem:pubcomp(clientinfo(), 3, [congested], S6),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, S7)).
 
 -doc "Congested retries retain limiter-blocked QoS1/2 and drop over-limit QoS0 when it reaches the head.".
 t_congestion_limiter_retry(_) ->
@@ -897,6 +893,36 @@ t_congestion_bounded_dequeue(_) ->
         [M#message.payload || {_, M = #message{qos = 1}} <- Batch1 ++ Batch2 ++ Batch3]
     ),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, S5)).
+
+-doc "Congested QoS0 waits for decongestion after exhausting inflight allowance without scheduling a retry.".
+t_congestion_qos0_waits_for_decongestion(_) ->
+    test_congestion_qos0_waits_for_decongestion(1, 1).
+
+-doc "Congested QoS0 waits for decongestion when both allowance and outgoing budget are exhausted.".
+t_congestion_qos0_budget_waits_for_decongestion(_) ->
+    test_congestion_qos0_waits_for_decongestion(0, ?DEFAULT_BATCH_N).
+
+test_congestion_qos0_waits_for_decongestion(MaxInflight, BatchN) ->
+    S0 = session(#{
+        inflight => emqx_inflight:new(MaxInflight),
+        mqueue => mqueue(#{store_qos0 => true})
+    }),
+    Pending = enrich(
+        [delivery(?QOS_0, <<"q0">>, integer_to_binary(N)) || N <- lists:seq(1, BatchN + 1)],
+        S0
+    ),
+    S1 = emqx_session_mem:enqueue(clientinfo(), Pending, S0),
+    {ok, First, S2} = emqx_session_mem:dequeue(clientinfo(), [congested], S1),
+    ?assertEqual(
+        [integer_to_binary(N) || N <- lists:seq(1, BatchN)],
+        [M#message.payload || {undefined, M} <- First]
+    ),
+    ?assertEqual(0, emqx_session_mem:info(inflight_cnt, S2)),
+    ?assertEqual(1, emqx_session_mem:info(mqueue_len, S2)),
+    PayloadLast = integer_to_binary(BatchN + 1),
+    {ok, [{undefined, #message{payload = PayloadLast}}], S3} =
+        emqx_session_mem:handle_signal(clientinfo(), {connection, decongested, #{}}, S2),
+    ?assertEqual(0, emqx_session_mem:info(mqueue_len, S3)).
 
 -doc "Replay respects a blocked QoS1 head; ACKs drain trailing QoS0 in bounded batches without reordering.".
 t_replay_qos0_bounded_dequeue(_) ->

@@ -661,7 +661,14 @@ pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
 %% Dequeue Msgs
 %%--------------------------------------------------------------------
 
--compile({inline, [dequeue_next/3, boolean2int/1]}).
+-compile(
+    {inline, [
+        dequeue_next/2,
+        finish_dequeue/6,
+        finish_delivery/7,
+        boolean_to_int/1
+    ]}
+).
 
 dequeue(_ClientInfo, _Flags, Session = #session{mqueue = {empty, _}}) ->
     {ok, [], Session};
@@ -678,7 +685,7 @@ dequeue(
             %% `Budget` Bounds outgoing messages, excluding expired and over-limit
             %% messages.
             Zone = maps:get(zone, ClientInfo),
-            Count = batch_n(Inflight),
+            Allowance = batch_n(Inflight),
             Budget = max(emqx_inflight:max_size(Inflight), ?DEFAULT_BATCH_N),
             Congested = lists:member(congested, Flags),
             dequeue(
@@ -686,7 +693,7 @@ dequeue(
                 Zone,
                 Congested,
                 Session,
-                Count,
+                Allowance,
                 Budget,
                 [],
                 Q,
@@ -696,37 +703,32 @@ dequeue(
             )
     end.
 
-dequeue(_ClientInfo, _, Congested, S, Count, Budget, Acc, Q, Inflight, Limiter, PktId) when
-    (Budget =:= 0) orelse (Count =:= 0 andalso Congested)
-->
-    %% NOTE
-    %% Let outstanding ACKs drive further draining. Retry only when none can arrive.
-    case emqx_inflight:is_empty(Inflight) andalso not emqx_mqueue:is_empty(Q) of
-        true ->
-            OkEffect = {set_timer, ?DEQUEUE_RETRY_TIMER, 1};
-        false ->
-            OkEffect = ok
-    end,
-    finish_delivery(OkEffect, S, Acc, Q, Inflight, Limiter, PktId);
-dequeue(ClientInfo, Zone, Congested, S, Count, Budget, Acc0, Q0, Inflight0, L0, PktId) ->
-    %% NOTE
-    %% Current dequeue policy depends on congestion status:
-    %% * Total budget: no more than `max(MaxInflight, ?DEFAULT_BATCH_N)` outgoing
-    %%   messages in a single batch.
-    %% * Inflight allowance: number of free inflight slots or `?DEFAULT_BATCH_N`,
-    %%   whichever is higher.
-    %% * Expired and over-limit messages consume neither budget nor inflight slots.
-    %% * If uncongested, most common case:
-    %%   - QoS1/2 messages consume empty inflight slots.
-    %%   - QoS0 messages get into the batch.
-    %%   - once inflight is full a number of subsequent QoS0 messages gets into the
-    %%     batch, until next in queue is QoS1/2.
-    %%   - Batch contains messages up to total budget.
-    %% * If congested: every message (including QoS0) consumes inflight allowance
-    %%   (number of free slots) until the allowance is exhausted.
-    %%   - Batch contains messages up to inflight allowance.
+-doc """
+Current dequeue policy depends on congestion status:
+ * Total budget: no more than `max(MaxInflight, ?DEFAULT_BATCH_N)` outgoing messages
+   in a single batch.
+ * Inflight allowance: number of free inflight slots or `?DEFAULT_BATCH_N`, whichever
+   is higher.
+ * Expired and over-limit messages consume neither budget nor inflight allowance.
+ * If uncongested, most common case:
+   - QoS1/2 messages consume empty inflight slots.
+   - QoS0 messages get into the batch.
+   - Once inflight is full a number of subsequent QoS0 messages gets into the batch,
+     until next in queue is QoS1/2.
+   - Batch contains messages up to total budget.
+ * If congested: every message (including QoS0) consumes inflight allowance (number
+   of free slots) until the allowance is exhausted.
+   - Batch contains messages up to inflight allowance.
+""".
+dequeue(_ClientInfo, _, _Congested = true, S, 0, _Budget, Acc, Q, Inflight, Limiter, PktId) ->
+    %% Connection congested + batch consumed inflight allowance, time to stop.
+    finish_delivery(ok, S, Acc, Q, Inflight, Limiter, PktId);
+dequeue(_ClientInfo, _, _Congested, S, _Allowance, _Budget = 0, Acc, Q, Inflight, Limiter, PktId) ->
+    %% Batch consumed whole budget, time to stop.
+    finish_dequeue(S, Acc, Q, Inflight, Limiter, PktId);
+dequeue(ClientInfo, Zone, Congested, S, Allowance, Budget, Acc0, Q0, Inflight0, L0, PktId) ->
     maybe
-        {{value, Msg}, Q} ?= dequeue_next(Count, Congested, Q0),
+        {{value, Msg}, Q} ?= dequeue_next(Allowance, Q0),
         Expired = emqx_message:is_expired(Msg, Zone),
         case Expired orelse try_consume_delivery_rate_limit(Msg, L0) of
             true = _Expired ->
@@ -736,7 +738,7 @@ dequeue(ClientInfo, Zone, Congested, S, Count, Budget, Acc0, Q0, Inflight0, L0, 
                     Zone,
                     Congested,
                     S,
-                    Count,
+                    Allowance,
                     Budget,
                     Acc0,
                     Q,
@@ -749,12 +751,13 @@ dequeue(ClientInfo, Zone, Congested, S, Count, Budget, Acc0, Q0, Inflight0, L0, 
                     ?QOS_0 ->
                         Publish = {undefined, maybe_ack(Msg)},
                         Inflight = Inflight0,
-                        Left = Count - boolean2int(Congested),
+                        %% NOTE: QoS0 consumes inflight allowance under congestion.
+                        Left = Allowance - boolean_to_int(Congested),
                         NextPktId = PktId;
                     _Qos12 ->
                         Publish = {PktId, maybe_ack(Msg)},
                         Inflight = insert_inflight(PktId, Msg, Inflight0),
-                        Left = Count - 1,
+                        Left = Allowance - 1,
                         NextPktId = next_pkt_id(PktId)
                 end,
                 Acc = [Publish | Acc0],
@@ -783,7 +786,7 @@ dequeue(ClientInfo, Zone, Congested, S, Count, Budget, Acc0, Q0, Inflight0, L0, 
                             Zone,
                             Congested,
                             S,
-                            Count,
+                            Allowance,
                             Budget,
                             Acc0,
                             Q,
@@ -802,14 +805,12 @@ dequeue(ClientInfo, Zone, Congested, S, Count, Budget, Acc0, Q0, Inflight0, L0, 
             finish_delivery(ok, S, Acc0, Q0, Inflight0, L0, PktId)
     end.
 
-boolean2int(true) -> 1;
-boolean2int(_) -> 0.
+boolean_to_int(true) -> 1;
+boolean_to_int(_) -> 0.
 
-dequeue_next(Count, _Congested, Q) when Count > 0 ->
+dequeue_next(Allowance, Q) when Allowance > 0 ->
     emqx_mqueue:out(Q);
-dequeue_next(0, true, _Q) ->
-    blocked;
-dequeue_next(0, false, Q) ->
+dequeue_next(0, Q) ->
     %% Once inflight fills, drain only the following run of QoS0 in queue order.
     case emqx_mqueue:out(Q) of
         {{value, #message{qos = ?QOS_0}}, _} = Result ->
@@ -817,6 +818,22 @@ dequeue_next(0, false, Q) ->
         _ ->
             blocked
     end.
+
+finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
+    OkEffect =
+        maybe
+            %% When inflight is empty, no ACKs are expected to arrive:
+            true ?= emqx_inflight:is_empty(Inflight),
+            %% If mqueue is not empty yet, another dequeue needs to be scheduled:
+            false ?= emqx_mqueue:is_empty(Q),
+            reschedule_dequeue_timer_effect()
+        else
+            _ -> ok
+        end,
+    finish_delivery(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId).
+
+reschedule_dequeue_timer_effect() ->
+    {set_timer, ?DEQUEUE_RETRY_TIMER, 1}.
 
 finish_delivery(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Session = S0#session{
