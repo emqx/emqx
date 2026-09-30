@@ -152,42 +152,44 @@ t_sparse_chan_stats(_) ->
     end.
 
 -doc """
-Every stats producer returns all keys of `sparse_stats_defaults/0`, so a reader
-that merges the defaults restores exactly the keys a dense row had. Checked for
-TCP and WebSocket connections.
+The stats producer of a TCP connection returns all keys of
+`sparse_stats_defaults/0`, so a reader that merges the defaults restores exactly
+the keys a dense row had.
 """.
-t_sparse_chan_stats_keys_in_every_producer(_) ->
+t_sparse_chan_stats_keys_tcp(_) ->
+    assert_sparse_chan_stats_keys(<<"sparse-tcp">>, fun emqtt:connect/1, []).
+
+-doc """
+The stats producer of a WebSocket connection returns all keys of
+`sparse_stats_defaults/0`, so a reader that merges the defaults restores exactly
+the keys a dense row had.
+""".
+t_sparse_chan_stats_keys_ws(_) ->
+    assert_sparse_chan_stats_keys(<<"sparse-ws">>, fun emqtt:ws_connect/1, [{port, 8083}]).
+
+assert_sparse_chan_stats_keys(ClientId, Connect, Opts) ->
     Defaults = emqx_cm:sparse_stats_defaults(),
-    Clients = [
-        {<<"sparse-tcp">>, fun emqtt:connect/1, []},
-        {<<"sparse-ws">>, fun emqtt:ws_connect/1, [{port, 8083}]}
-    ],
-    lists:foreach(
-        fun({ClientId, Connect, Opts}) ->
-            {ok, C} = emqtt:start_link([{clientid, ClientId} | Opts]),
-            {ok, _} = Connect(C),
-            try
-                [ChanPid] = emqx_cm:lookup_channels(ClientId),
-                #{conninfo := #{conn_mod := ConnMod}} = emqx_cm:get_chan_info(ClientId),
-                Dense = ConnMod:stats(ChanPid),
-                ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Dense), ConnMod),
-                Stored = emqx_cm:get_chan_stats(ClientId),
-                ?assertEqual(
-                    [],
-                    [KV || {K, 0} = KV <- Stored, is_map_key(K, Defaults)],
-                    ConnMod
-                ),
-                ?assertEqual(
-                    lists:sort(proplists:get_keys(Dense)),
-                    lists:sort(maps:keys(maps:merge(Defaults, maps:from_list(Stored)))),
-                    ConnMod
-                )
-            after
-                ok = emqtt:disconnect(C)
-            end
-        end,
-        Clients
-    ).
+    {ok, C} = emqtt:start_link([{clientid, ClientId} | Opts]),
+    {ok, _} = Connect(C),
+    try
+        [ChanPid] = emqx_cm:lookup_channels(ClientId),
+        #{conninfo := #{conn_mod := ConnMod}} = emqx_cm:get_chan_info(ClientId),
+        Dense = ConnMod:stats(ChanPid),
+        ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Dense), ConnMod),
+        Stored = emqx_cm:get_chan_stats(ClientId),
+        ?assertEqual(
+            [],
+            [KV || {K, 0} = KV <- Stored, is_map_key(K, Defaults)],
+            ConnMod
+        ),
+        ?assertEqual(
+            lists:sort(proplists:get_keys(Dense)),
+            lists:sort(maps:keys(maps:merge(Defaults, maps:from_list(Stored)))),
+            ConnMod
+        )
+    after
+        ok = emqtt:disconnect(C)
+    end.
 
 t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
     ClientId = <<"session-buffer-check">>,
