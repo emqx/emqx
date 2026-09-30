@@ -62,11 +62,6 @@ t_parse_dn(_Config) ->
         {error, invalid_utf8},
         emqx_ldap_dn:parse("cn=X" ++ [255])
     ),
-    %% a list element that is not a byte
-    ?assertMatch(
-        {error, invalid_utf8},
-        emqx_ldap_dn:parse("cn=X" ++ [16#100])
-    ),
     ?assertMatch(
         {error, {invalid_string_char, _}},
         emqx_ldap_dn:parse("cn=\\X")

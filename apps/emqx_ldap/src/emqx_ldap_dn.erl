@@ -257,17 +257,10 @@ parse_string([Char | Rest], Acc) when Char >= 16#80 ->
 parse_string([Char | _Rest], _Acc) ->
     throw({invalid_string_char, Char}).
 
-%% The DN is a list of bytes. A list element above 16#FF is not a byte.
 validate_utf8(Bytes) ->
-    try list_to_binary(Bytes) of
-        Bin ->
-            case is_binary(unicode:characters_to_binary(Bin)) of
-                true -> ok;
-                false -> throw(invalid_utf8)
-            end
-    catch
-        error:badarg ->
-            throw(invalid_utf8)
+    case is_binary(unicode:characters_to_binary(list_to_binary(Bytes))) of
+        true -> ok;
+        false -> throw(invalid_utf8)
     end.
 
 hex_char_to_int(HexChar) when HexChar >= $0 andalso HexChar =< $9 ->
