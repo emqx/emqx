@@ -417,7 +417,10 @@ do_takeover(_DesireId, Msg, Channel) ->
     Reset = emqx_coap_message:reset(Msg),
     call_session(handle_out, Reset, Channel).
 
-do_connect(Req, Result, Channel, Iter) ->
+do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
+    %% The pipeline below updates the channel clientinfo, so remember the
+    %% identity already bound to this connection.
+    Owner = bound_identity(OwnerInfo),
     case
         emqx_utils:pipeline(
             [
@@ -435,24 +438,52 @@ do_connect(Req, Result, Channel, Iter) ->
         {ok, _Input,
             #channel{
                 session = Session,
+                clientinfo = NewClientInfo,
                 with_context = WithContext
             } = NChannel} ->
             case emqx_lwm2m_session:info(reg_info, Session) of
                 undefined ->
                     process_connect(ensure_connected(NChannel), Req, Result, Iter);
                 _ ->
-                    NewResult = emqx_lwm2m_session:reregister(Req, WithContext, Session),
-                    iter(Iter, maps:merge(Result, NewResult), NChannel)
+                    %% Re-registration may reuse the session only for the same
+                    %% authenticated EMQX client identity.
+                    case bound_identity(NewClientInfo) of
+                        Owner ->
+                            NewResult = emqx_lwm2m_session:reregister(Req, WithContext, Session),
+                            iter(Iter, maps:merge(Result, NewResult), NChannel);
+                        Requester ->
+                            ?SLOG(warning, #{
+                                msg => "reject_reregister_with_different_identity",
+                                owner => Owner,
+                                requester => Requester
+                            }),
+                            Payload =
+                                <<"Re-registration with a different identity is not allowed">>,
+                            %% Reply on the original channel, leaving the
+                            %% connection state unchanged.
+                            iter(
+                                Iter,
+                                reply({error, unauthorized}, Payload, Req, Result),
+                                Channel
+                            )
+                    end
             end;
-        {error, ReasonCode, NChannel} ->
+        {error, ReasonCode, _NChannel} ->
             ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
             Payload = erlang:list_to_binary(lists:flatten(ErrMsg)),
             iter(
                 Iter,
                 reply({error, bad_request}, Payload, Req, Result),
-                NChannel
+                Channel
             )
     end.
+
+bound_identity(ClientInfo) ->
+    %% `ep` is the LwM2M endpoint name. EMQX also accepts non-standard
+    %% `device_id` and `imei` registration parameters as clientid and
+    %% username. Keep all three bound to the session so a request with the
+    %% same `ep` cannot adopt another client's queued commands.
+    maps:with([endpoint_name, clientid, username], ClientInfo).
 
 check_lwm2m_version(
     #coap_message{options = Opts},

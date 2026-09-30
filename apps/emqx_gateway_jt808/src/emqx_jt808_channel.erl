@@ -278,13 +278,17 @@ handle_in(Frame, Channel = #channel{clientinfo = ClientInfo}) ->
             {shutdown, unexpected_frame, Channel}
     end.
 
+%% An oversized frame is never tolerated by `ignore_unsupported_frames`.
+handle_frame_error({frame_too_large, _} = Reason, Channel) ->
+    ?SLOG(warning, #{msg => "disconnect_client", reason => Reason}),
+    {shutdown, frame_too_large, Channel};
 handle_frame_error(Reason, Channel = #channel{clientinfo = ClientInfo}) ->
     case maps:get(ignore_unsupported_frames, ClientInfo, ?IGNORE_UNSUPPORTED_FRAMES) of
         true ->
             ?SLOG(warning, #{msg => "ignore_frame_error", reason => Reason}),
             {ok, Channel};
         false ->
-            ?SLOG(error, #{msg => "disconnect_client", reason => frame_error}),
+            ?SLOG(error, #{msg => "disconnect_client", reason => Reason}),
             {shutdown, frame_error, Channel}
     end.
 
