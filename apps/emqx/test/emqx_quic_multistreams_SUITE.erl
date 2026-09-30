@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 suite() ->
     [{timetrap, {seconds, 60}}].
@@ -36,6 +37,8 @@ all() ->
         t_manual_ack_qos2,
         t_session_resume_qos1,
         t_session_resume_qos2,
+        t_session_store_qos1,
+        t_session_store_qos2,
         t_mqtt_v5_basic,
         t_mqtt_v5_session,
         t_mqtt_v5_publish_properties,
@@ -182,6 +185,14 @@ init_per_group(pub_qos2, Config) ->
     [{pub_qos, 2} | Config];
 init_per_group(sub_qos2, Config) ->
     [{sub_qos, 2} | Config];
+init_per_group(graceful_shutdown, Config) ->
+    [{stream_shutdown_mode, "graceful"} | Config];
+init_per_group(abort_recv_shutdown, Config) ->
+    [{stream_shutdown_mode, "abort-receive"} | Config];
+init_per_group(abort_send_shutdown, Config) ->
+    [{stream_shutdown_mode, "abort-send"} | Config];
+init_per_group(abort_send_recv_shutdown, Config) ->
+    [{stream_shutdown_mode, "abort-both"} | Config];
 init_per_group(_, Config) ->
     Config.
 
@@ -204,13 +215,13 @@ t_wrong_stream_connect(Config) ->
     run_scenario("wrong-stream-connect", Config, []).
 
 t_zero_rtt_pubsub(Config) ->
-    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-pubsub", []).
+    run_zero_rtt(Config, "zero-rtt-pubsub", []).
 
 t_zero_rtt_large_payload(Config) ->
-    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-large-payload", ["--timeout-ms", "30000"]).
+    run_zero_rtt(Config, "zero-rtt-large-payload", ["--timeout-ms", "30000"]).
 
 t_zero_rtt_stream_continue(Config) ->
-    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-stream-continue", []).
+    run_zero_rtt(Config, "zero-rtt-stream-continue", []).
 
 t_conn_resume(Config) ->
     run_scenario("conn-resume", Config, []).
@@ -253,7 +264,13 @@ t_session_resume_qos1(Config) ->
     run_scenario("session-resume-qos1", Config, []).
 
 t_session_resume_qos2(Config) ->
-    maybe_skip_unsupported_qos2_resume(Config).
+    run_scenario("session-resume-qos2", Config, []).
+
+t_session_store_qos1(Config) ->
+    run_scenario("session-store-qos1", Config, []).
+
+t_session_store_qos2(Config) ->
+    run_scenario("session-store-qos2", Config, []).
 
 t_mqtt_v5_basic(Config) ->
     %% Covers the former QUIC executions of t_basic_test, t_basic_large_packets,
@@ -356,25 +373,87 @@ t_mqtt_v5_connack_client_id_unavailable(Config) ->
         true = ets:delete(?CHAN_CONN_TAB, DeadPid)
     end.
 
-t_mqtt_v5_connect_will_message(_Config) ->
-    skip_flowsdk_will_connect().
+t_mqtt_v5_connect_will_message(Config) ->
+    run_scenario("mqtt-v5-will-message", Config, [
+        "--will",
+        "--will-payload",
+        "will message"
+    ]).
 
-t_mqtt_v5_connect_will_retain(_Config) ->
-    skip_flowsdk_will_connect().
+t_mqtt_v5_connect_will_retain(Config) ->
+    lists:foreach(
+        fun(Retain) ->
+            run_scenario("mqtt-v5-will-retain", Config, [
+                "--will",
+                "--will-retain",
+                atom_to_list(Retain)
+            ])
+        end,
+        [false, true]
+    ).
 
-t_mqtt_v5_connect_packet_too_large(_Config) ->
-    skip_flowsdk_will_connect().
+t_mqtt_v5_connect_packet_too_large(Config) ->
+    OldMax = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
+    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], 1024),
+    try
+        run_scenario("mqtt-v5-connect-packet-too-large", Config, [
+            "--will",
+            "--will-payload",
+            lists:duplicate(1024, $a)
+        ])
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_packet_size], OldMax)
+    end.
 
-t_mqtt_v5_max_qos_will_rejection(_Config) ->
-    skip_flowsdk_will_connect().
+t_mqtt_v5_max_qos_will_rejection(Config) ->
+    OldMax = emqx_config:get_zone_conf(default, [mqtt, max_qos_allowed]),
+    try
+        lists:foreach(
+            fun(MaxQoS) ->
+                emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], MaxQoS),
+                run_scenario("mqtt-v5-will-qos-rejected", Config, [
+                    "--will", "--will-qos", "2"
+                ])
+            end,
+            [0, 1]
+        ),
+        emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 2),
+        run_scenario("connect", Config, ["--will", "--will-qos", "2"])
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], OldMax)
+    end.
 
-t_mqtt_v5_connack_unavailable_no_will(_Config) ->
-    skip_flowsdk_will_connect().
-
-skip_flowsdk_will_connect() ->
-    {skip,
-        "FlowSDK QuicMqttEngine CONNECT currently drops MqttClientOptions::will; "
-        "send_raw_on cannot replace the engine's automatically queued CONNECT"}.
+t_mqtt_v5_connack_unavailable_no_will(Config) ->
+    ClientId = unique_name("connack-unavailable-will"),
+    ClientIdBin = list_to_binary(ClientId),
+    WillTopic = list_to_binary("ct/quic/" ++ ClientId ++ "/will"),
+    DeadPid = spawn(fun() -> exit(normal) end),
+    true = ets:insert(?CHAN_CONN_TAB, #chan_conn{
+        pid = DeadPid,
+        mod = emqx_connection,
+        clientid = ClientIdBin
+    }),
+    ok = emqx_cm_registry:register_channel({ClientIdBin, DeadPid}),
+    emqx_broker:subscribe(WillTopic),
+    try
+        try
+            run_scenario_as("mqtt-v5-connack-unavailable", Config, ClientId, [
+                "--will",
+                "--will-topic",
+                binary_to_list(WillTopic),
+                "--will-payload",
+                "WillMsg"
+            ])
+        after
+            ok = emqx_cm_registry:unregister_channel({ClientIdBin, DeadPid}),
+            true = ets:delete(?CHAN_CONN_TAB, DeadPid)
+        end,
+        emqx_broker:publish(#message{topic = WillTopic, payload = <<"NotWillMsg">>}),
+        ?assertReceive({deliver, WillTopic, #message{payload = <<"NotWillMsg">>}}, 1000),
+        ?assertNotReceive({deliver, WillTopic, #message{payload = <<"WillMsg">>}}, 100)
+    after
+        emqx_broker:subscriber_down(self())
+    end.
 
 t_mqtt_v5_emit_stats_timeout(Config) ->
     OldIdleTimeout = emqx_config:get_zone_conf(default, [mqtt, idle_timeout]),
@@ -446,7 +525,10 @@ t_broker_connected_client_count_persistent(Config) ->
     ClientId = unique_name("broker-persistent"),
     ClientIdBin = list_to_binary(ClientId),
     Baseline = emqx_cm:get_connected_client_count(),
-    Client1 = start_async_client(Config, ClientId, [
+    SessionDir = filename:join(?config(priv_dir, Config), unique_name("session-store")),
+    Client1 = start_async_scenario(Config, "session-checkpoint", ClientId, [
+        "--session-store-dir",
+        SessionDir,
         "--clean-start",
         "false",
         "--session-expiry-interval",
@@ -459,7 +541,9 @@ t_broker_connected_client_count_persistent(Config) ->
     wait_async_client(Client1),
     ?retry(100, 30, ?assertEqual(Baseline, emqx_cm:get_connected_client_count())),
 
-    Client2 = start_async_client(Config, ClientId, [
+    Client2 = start_async_scenario(Config, "session-restore", ClientId, [
+        "--session-store-dir",
+        SessionDir,
         "--clean-start",
         "false",
         "--session-expiry-interval",
@@ -468,7 +552,9 @@ t_broker_connected_client_count_persistent(Config) ->
         "5000"
     ]),
     wait_async_client_ready(Client2),
-    Client3 = start_async_client(Config, ClientId, [
+    Client3 = start_async_scenario(Config, "session-restore", ClientId, [
+        "--session-store-dir",
+        SessionDir,
         "--clean-start",
         "false",
         "--session-expiry-interval",
@@ -550,7 +636,7 @@ t_source_bind(Config) ->
     run_scenario("source-bind", Config, ["--local-bind-addr", "127.0.0.1:0"]).
 
 t_source_rebind(Config) ->
-    maybe_skip_unsupported_source_rebind(Config).
+    run_source_rebind(Config).
 
 t_quic_sock(_Config) ->
     maybe_skip_missing_runner_scenario("raw emqtt_quic socket send/recv against test QUIC server").
@@ -559,10 +645,10 @@ t_quic_sock_fail(_Config) ->
     maybe_skip_missing_runner_scenario("raw emqtt_quic socket connection failure").
 
 t_0_rtt(Config) ->
-    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-pubsub", []).
+    run_zero_rtt(Config, "zero-rtt-pubsub", []).
 
-t_0_rtt_fail(Config) ->
-    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-invalid-ticket", []).
+t_0_rtt_fail(_Config) ->
+    maybe_skip_missing_runner_scenario("invalid externally supplied QUIC session ticket").
 
 t_keep_alive(Config) ->
     run_scenario("keepalive-data-only-timeout", Config, [
@@ -633,16 +719,20 @@ t_multi_streams_packet_too_large(Config) ->
     end.
 
 t_multi_streams_sub_0_rtt(Config) ->
-    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-pubsub", []).
+    run_zero_rtt(Config, "zero-rtt-pubsub", qos_args(Config)).
 
 t_multi_streams_sub_0_rtt_large_payload(Config) ->
-    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-large-payload", ["--timeout-ms", "30000"]).
+    run_zero_rtt(
+        Config,
+        "zero-rtt-large-payload",
+        qos_args(Config) ++ ["--timeout-ms", "30000"]
+    ).
 
 t_multi_streams_sub_0_rtt_stream_data_cont(Config) ->
-    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-stream-continue", []).
+    run_zero_rtt(Config, "zero-rtt-stream-continue", qos_args(Config)).
 
 t_conn_change_client_addr(Config) ->
-    maybe_skip_unsupported_source_rebind(Config).
+    run_source_rebind(Config).
 
 t_multi_streams_shutdown_pub_data_stream(Config) ->
     run_scenario("stream-finish", Config, qos_args(Config)).
@@ -650,23 +740,66 @@ t_multi_streams_shutdown_pub_data_stream(Config) ->
 t_multi_streams_shutdown_sub_data_stream(Config) ->
     run_scenario("stream-stop", Config, qos_args(Config)).
 
-t_multi_streams_shutdown_ctrl_stream(_Config) ->
-    maybe_skip_missing_runner_scenario("client control stream shutdown flags").
+t_multi_streams_shutdown_ctrl_stream(Config) ->
+    run_scenario(
+        "control-stream-shutdown",
+        Config,
+        qos_args(Config) ++ control_stream_shutdown_args(Config)
+    ).
 
-t_multi_streams_shutdown_ctrl_stream_then_reconnect(_Config) ->
-    maybe_skip_missing_runner_scenario("control stream shutdown followed by reconnect").
+t_multi_streams_shutdown_ctrl_stream_then_reconnect(Config) ->
+    run_scenario(
+        "control-stream-shutdown-reconnect",
+        Config,
+        qos_args(Config) ++ control_stream_shutdown_args(Config)
+    ).
 
-t_multi_streams_remote_shutdown(_Config) ->
-    maybe_skip_missing_runner_scenario("broker stop while QUIC client is connected").
+t_multi_streams_remote_shutdown(Config) ->
+    ClientId = unique_name("remote-shutdown"),
+    Client = start_async_scenario(Config, "wait-remote-shutdown", ClientId, qos_args(Config)),
+    wait_async_client_ready(Client),
+    ok = stop_emqx(Config),
+    try
+        wait_async_client(Client)
+    after
+        start_emqx_dirty(Config)
+    end.
 
-t_multi_streams_emqx_ctrl_kill(_Config) ->
-    maybe_skip_missing_runner_scenario("server-side control stream process kill").
+t_multi_streams_emqx_ctrl_kill(Config) ->
+    ClientId = unique_name("ctrl-kill"),
+    Client = start_async_scenario(Config, "wait-remote-shutdown", ClientId, qos_args(Config)),
+    wait_async_client_ready(Client),
+    [{_, TransPid}] = ets:lookup(?CHAN_TAB, list_to_binary(ClientId)),
+    exit(TransPid, kill),
+    wait_async_client(Client).
 
-t_multi_streams_emqx_ctrl_exit_normal(_Config) ->
-    maybe_skip_missing_runner_scenario("server-side control stream normal exit").
+t_multi_streams_emqx_ctrl_exit_normal(Config) ->
+    ClientId = unique_name("ctrl-exit-normal"),
+    Client = start_async_scenario(Config, "wait-remote-shutdown", ClientId, qos_args(Config)),
+    wait_async_client_ready(Client),
+    [{_, TransPid}] = ets:lookup(?CHAN_TAB, list_to_binary(ClientId)),
+    emqx_connection:stop(TransPid),
+    wait_async_client(Client).
 
-t_multi_streams_remote_shutdown_with_reconnect(_Config) ->
-    maybe_skip_missing_runner_scenario("broker restart with client reconnect and subscriptions").
+t_multi_streams_remote_shutdown_with_reconnect(Config) ->
+    ClientId = unique_name("remote-shutdown-reconnect"),
+    Client = start_async_scenario(
+        Config,
+        "wait-remote-shutdown-reconnect",
+        ClientId,
+        qos_args(Config) ++
+            [
+                "--clean-start",
+                "false",
+                "--session-expiry-interval",
+                "30",
+                "--timeout-ms",
+                "30000"
+            ]
+    ),
+    wait_async_client_ready(Client),
+    restart_emqx(Config),
+    wait_async_client(Client).
 
 t_conn_silent_close(Config) ->
     run_scenario("silent-close", Config, ["--keep-alive", "1", "--timeout-ms", "10000"]).
@@ -689,19 +822,77 @@ t_data_stream_race_ctrl_stream(Config) ->
     run_scenario("data-stream-race-control-stream", Config, []).
 
 t_listener_inval_settings(_Config) ->
-    maybe_skip_missing_runner_scenario("invalid low-level QUIC listener settings").
+    LPort = emqx_common_test_helpers:select_free_port(quic),
+    LowLevelTunings = #{stream_recv_buffer_default => 1024},
+    ?assertThrow(
+        {error, {failed_to_start, _}},
+        emqx_common_test_helpers:ensure_quic_listener(?FUNCTION_NAME, LPort, LowLevelTunings)
+    ).
 
-t_listener_with_lowlevel_settings(_Config) ->
-    maybe_skip_missing_runner_scenario("valid low-level QUIC listener settings with MQTT traffic").
+t_listener_with_lowlevel_settings(Config) ->
+    LPort = emqx_common_test_helpers:select_free_port(quic),
+    LowLevelTunings = #{
+        max_bytes_per_key => 274877906,
+        handshake_idle_timeout_ms => 2000,
+        idle_timeout_ms => 20000,
+        tls_server_max_send_buffer => 10240,
+        stream_recv_window_default => 16384 * 2,
+        stream_recv_buffer_default => 16384,
+        conn_flow_control_window => 1024,
+        max_stateless_operations => 16,
+        initial_window_packets => 1300,
+        send_idle_timeout_ms => 12000,
+        initial_rtt_ms => 300,
+        max_ack_delay_ms => 6000,
+        disconnect_timeout_ms => 60000,
+        keep_alive_interval_ms => 12000,
+        peer_bidi_stream_count => 100,
+        peer_unidi_stream_count => 100,
+        retry_memory_limit => 640,
+        load_balancing_mode => 1,
+        max_operations_per_drain => 32,
+        send_buffering_enabled => 1,
+        pacing_enabled => 0,
+        migration_enabled => 0,
+        datagram_receive_enabled => 1,
+        server_resumption_level => 0,
+        minimum_mtu => 1250,
+        maximum_mtu => 1600,
+        mtu_discovery_search_complete_timeout_us => 500000000,
+        mtu_discovery_missing_probe_count => 6,
+        max_binding_stateless_operations => 200,
+        stateless_operation_expiration_ms => 200
+    },
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:ensure_quic_listener(?FUNCTION_NAME, LPort, LowLevelTunings)
+    ),
+    try
+        ListenerConfig = [{port, LPort} | Config],
+        QoS2Args = ["--pub-qos", "2", "--sub-qos", "2"],
+        ok = run_scenario("pubsub", ListenerConfig, QoS2Args),
+        run_scenario("multistream", ListenerConfig, QoS2Args)
+    after
+        ok = emqx_listeners:stop_listener(
+            emqx_listeners:listener_id(quic, ?FUNCTION_NAME)
+        )
+    end.
 
-maybe_skip_unsupported_zero_rtt(_Config, _Scenario, _ExtraArgs) ->
-    {skip, "EMQX QUIC listener disables TLS early data/0-RTT"}.
+run_zero_rtt(Config, Scenario, ExtraArgs) ->
+    run_scenario(Scenario, Config, ExtraArgs).
 
-maybe_skip_unsupported_qos2_resume(_Config) ->
-    {skip, "EMQX rejects resumed QoS2 PUBREL for this QUIC runner scenario with 0x92"}.
-
-maybe_skip_unsupported_source_rebind(_Config) ->
-    {skip, "EMQX/quicer path does not complete source-address rebind migration in this setup"}.
+run_source_rebind(Config) ->
+    run_scenario(
+        "source-rebind",
+        Config,
+        qos_args(Config) ++
+            [
+                "--local-bind-addr",
+                "127.0.0.1:0",
+                "--rebind-addr",
+                "127.0.0.1:0"
+            ]
+    ).
 
 maybe_skip_missing_runner_scenario(Reason) ->
     {skip, "FlowSDK runner scenario missing: " ++ Reason}.
@@ -715,15 +906,31 @@ check_zone_config(ConfString) ->
 
 start_emqx(Config, Port) ->
     emqx_cth_suite:start(
-        [
-            {mria, #{
-                override_env => [{db_backend, mnesia}],
-                before_start => fun use_mria_mnesia_backend/0
-            }},
-            mk_emqx_spec(Port)
-        ],
+        emqx_specs(Port),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ).
+
+stop_emqx(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
+
+restart_emqx(Config) ->
+    ok = stop_emqx(Config),
+    start_emqx_dirty(Config).
+
+start_emqx_dirty(Config) ->
+    emqx_cth_suite:start(
+        emqx_specs(?config(port, Config)),
+        #{work_dir => emqx_cth_suite:work_dir(Config), work_dir_dirty => true}
+    ).
+
+emqx_specs(Port) ->
+    [
+        {mria, #{
+            override_env => [{db_backend, mnesia}],
+            before_start => fun use_mria_mnesia_backend/0
+        }},
+        mk_emqx_spec(Port)
+    ].
 
 use_mria_mnesia_backend() ->
     persistent_term:put({mria, db_backend}, mnesia).
@@ -737,6 +944,8 @@ mk_emqx_spec(Port) ->
             "\n   acceptors = 16"
             "\n   idle_timeout = 15s"
             "\n   datagram_receive_enabled = true"
+            "\n   migration_enabled = true"
+            "\n   server_resumption_level = 2"
             "\n   ssl_options.verify = verify_none"
             "\n }"}.
 
@@ -749,6 +958,14 @@ qos_args(Config) ->
         integer_to_list(proplists:get_value(pub_qos, Config, 1)),
         "--sub-qos",
         integer_to_list(proplists:get_value(sub_qos, Config, 1))
+    ].
+
+control_stream_shutdown_args(Config) ->
+    [
+        "--stream-shutdown-mode",
+        proplists:get_value(stream_shutdown_mode, Config, "graceful"),
+        "--stream-error-code",
+        "500"
     ].
 
 run_scenario(Scenario, Config, ExtraArgs) ->
@@ -801,6 +1018,11 @@ start_async_scenario(Config, Scenario, ClientId, ExtraArgs) ->
         unique_name("mqtt-quic-ready")
     ),
     Topic = "ct/quic/" ++ unique_name("async"),
+    TimeoutArgs =
+        case lists:member("--timeout-ms", ExtraArgs) of
+            true -> [];
+            false -> ["--timeout-ms", "15000"]
+        end,
     Args =
         [
             "--scenario",
@@ -817,10 +1039,8 @@ start_async_scenario(Config, Scenario, ClientId, ExtraArgs) ->
             Topic,
             "--ready-file",
             ReadyFile,
-            "--timeout-ms",
-            "15000",
             "--insecure"
-        ] ++ ExtraArgs,
+        ] ++ TimeoutArgs ++ ExtraArgs,
     Port = open_port({spawn_executable, Exe}, [
         binary,
         exit_status,

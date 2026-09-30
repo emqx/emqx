@@ -5,7 +5,7 @@
 
 -export([ensure/0]).
 
--define(RELEASE_TAG, "v0.3.0").
+-define(RELEASE_TAG, "v0.4.1").
 -define(RELEASE_BASE_URL, "https://github.com/qzhuyan/mqtt_quic_tests/releases/download/").
 
 ensure() ->
@@ -44,12 +44,12 @@ release_asset({unix, linux}, SystemArchitecture) ->
         x86_64 ->
             {
                 "mqtt_quic_test-linux-x86_64-musl",
-                "1937945ccb935d2c054fb904a0031ceb70ce76e545d17da57f2989bd2e92d445"
+                "78b472e5baf30e758569380fdb1da56c2a0a56e847ba9f20c0eb457eb7f40a85"
             };
         aarch64 ->
             {
                 "mqtt_quic_test-linux-aarch64-musl",
-                "9764b3d4f33c41bdd78478d5e38aa8471d263c906ef7a893dce52399712738ee"
+                "703691274b59ff1635662636ac8a62699f72254106aac086216a9da51eab79c7"
             }
     end;
 release_asset({unix, darwin}, SystemArchitecture) ->
@@ -57,12 +57,12 @@ release_asset({unix, darwin}, SystemArchitecture) ->
         x86_64 ->
             {
                 "mqtt_quic_test-macos-x86_64",
-                "6e9a9f1a3dfa7c89d3ab4705e384fbb08a77e6427a6262cd9884cf8b05806a0f"
+                "64fac27a6fed280f98e216220d837b5e8cbed9aadc3a3a132da9d32bae28aea3"
             };
         aarch64 ->
             {
                 "mqtt_quic_test-macos-aarch64",
-                "70c8e8c14824074a2931daa3e3fdcaef7e4ce8a6f87b018c3c26992342791a06"
+                "ca029329fd464b14287cd6a149f3e03cc752546bb0d0622792e845bd079d6794"
             }
     end;
 release_asset(OsType, SystemArchitecture) ->

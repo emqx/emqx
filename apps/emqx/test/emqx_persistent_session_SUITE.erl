@@ -156,7 +156,13 @@ init_per_group(quic_flowsdk, Config0) ->
         }
     },
     CTHOpts = CTHOpts0#{emqx_opts := EMQXOpts},
-    Config = emqx_common_test_helpers:start_apps_ds(Config0, _ExtraApps = [], CTHOpts),
+    ExtraApps = [
+        {mria, #{
+            override_env => [{db_backend, mnesia}],
+            before_start => fun use_mria_mnesia_backend/0
+        }}
+    ],
+    Config = emqx_common_test_helpers:start_apps_ds(Config0, ExtraApps, CTHOpts),
     [
         {port, get_listener_port(quic, test)},
         {conn_type, quic_flowsdk}
@@ -177,6 +183,9 @@ end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic_flows
 end_per_group(_, _Config) ->
     catch emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     ok.
+
+use_mria_mnesia_backend() ->
+    persistent_term:put({mria, db_backend}, mnesia).
 
 init_per_testcase(TestCase, Config) ->
     Config1 = preconfig_per_testcase(TestCase, Config),
@@ -407,22 +416,17 @@ t_quic_flowsdk_multiple_matches(Config) ->
 t_quic_flowsdk_sys_messages(Config) ->
     run_persistent_quic("persistent-sys-messages", Config, ["--timeout-ms", "30000"]).
 
-t_quic_flowsdk_no_will_message(_Config) ->
-    skip_flowsdk_will_connect().
+t_quic_flowsdk_no_will_message(Config) ->
+    run_persistent_quic("persistent-no-will", Config, []).
 
-t_quic_flowsdk_will_message1(_Config) ->
-    skip_flowsdk_will_connect().
+t_quic_flowsdk_will_message1(Config) ->
+    run_persistent_quic("persistent-will-delay-equal", Config, []).
 
-t_quic_flowsdk_will_message2(_Config) ->
-    skip_flowsdk_will_connect().
+t_quic_flowsdk_will_message2(Config) ->
+    run_persistent_quic("persistent-will-delay-zero", Config, []).
 
-t_quic_flowsdk_will_message3(_Config) ->
-    skip_flowsdk_will_connect().
-
-skip_flowsdk_will_connect() ->
-    {skip,
-        "FlowSDK QuicMqttEngine CONNECT currently drops MqttClientOptions::will; "
-        "send_raw_on cannot replace the engine's automatically queued CONNECT"}.
+t_quic_flowsdk_will_message3(Config) ->
+    run_persistent_quic("persistent-will-delay-expiry", Config, []).
 
 run_persistent_quic(Scenario, Config, ExtraArgs) ->
     SessionExpiryArgs =
