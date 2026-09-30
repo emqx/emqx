@@ -4078,11 +4078,11 @@ t_register_subs_resume_on(_) ->
     send_puback_msg(NSocket, TopicIdA, MsgIdA1, ?SN_RC_ACCEPTED),
 
     <<_, ?SN_PUBLISH, 2#01000000, TopicIdA:16, MsgIdA2:16, "m3">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, 2#00000000, TopicIdB:16, 0:16, "m1">> = receive_response(NSocket),
     send_pubrec_msg(NSocket, MsgIdA2),
+
     <<_, ?SN_PUBREL, MsgIdA2:16>> = receive_response(NSocket),
     send_pubcomp_msg(NSocket, MsgIdA2),
-
-    <<_, ?SN_PUBLISH, 2#00000000, TopicIdB:16, 0:16, "m1">> = receive_response(NSocket),
 
     <<_, ?SN_PUBLISH, 2#00100000, TopicIdB:16, MsgIdB1:16, "m2">> = receive_response(NSocket),
     send_puback_msg(NSocket, TopicIdB, MsgIdB1, ?SN_RC_ACCEPTED),

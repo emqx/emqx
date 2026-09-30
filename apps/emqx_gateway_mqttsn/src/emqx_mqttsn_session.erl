@@ -72,32 +72,32 @@ info(Key, #{session := Session}) ->
 stats(#{session := Session}) ->
     emqx_session:stats(Session).
 
-puback(ClientInfo, MsgId, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId, ?RC_SUCCESS], Session).
+puback(ClientInfo, MsgId, Session = #{session := S}) ->
+    wrap_result(emqx_session:puback(ClientInfo, MsgId, ?RC_SUCCESS, [], S), Session).
 
-pubrec(ClientInfo, MsgId, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId], Session).
+pubrec(ClientInfo, MsgId, Session = #{session := S}) ->
+    wrap_result(emqx_session:pubrec(ClientInfo, MsgId, S), Session).
 
-pubrel(ClientInfo, MsgId, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId], Session).
+pubrel(ClientInfo, MsgId, Session = #{session := S}) ->
+    wrap_result(emqx_session:pubrel(ClientInfo, MsgId, S), Session).
 
-pubcomp(ClientInfo, MsgId, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId, ?RC_SUCCESS], Session).
+pubcomp(ClientInfo, MsgId, Session = #{session := S}) ->
+    wrap_result(emqx_session:pubcomp(ClientInfo, MsgId, ?RC_SUCCESS, [], S), Session).
 
-publish(ClientInfo, MsgId, Msg, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId, Msg], Session).
+publish(ClientInfo, MsgId, Msg, Session = #{session := S}) ->
+    wrap_result(emqx_session:publish(ClientInfo, MsgId, Msg, S), Session).
 
-subscribe(ClientInfo, Topic, SubOpts, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, Topic, SubOpts], Session).
+subscribe(ClientInfo, Topic, SubOpts, Session = #{session := S}) ->
+    wrap_result(emqx_session:subscribe(ClientInfo, Topic, SubOpts, S), Session).
 
-unsubscribe(ClientInfo, Topic, SubOpts, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, Topic, SubOpts], Session).
+unsubscribe(ClientInfo, Topic, SubOpts, Session = #{session := S}) ->
+    wrap_result(emqx_session:unsubscribe(ClientInfo, Topic, SubOpts, S), Session).
 
-deliver(ClientInfo, Delivers, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, Delivers, []], Session).
+deliver(ClientInfo, Delivers, Session = #{session := S}) ->
+    wrap_result(emqx_session:deliver(ClientInfo, Delivers, [], S), Session).
 
-handle_timeout(ClientInfo, Name, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, Name], Session).
+handle_timeout(ClientInfo, Name, Session = #{session := S}) ->
+    wrap_result(emqx_session:handle_timeout(ClientInfo, Name, [], S), Session).
 
 obtain_next_pkt_id(Session = #{session := Sess}) ->
     {Id, Sess1} = emqx_session_mem:obtain_next_pkt_id(Sess),
@@ -141,18 +141,15 @@ enqueue(ClientInfo, Delivers, Session = #{session := Sess}) ->
 %%--------------------------------------------------------------------
 %% internal funcs
 
-with_sess(Fun, Args, Session = #{session := Sess}) ->
-    case apply(emqx_session, Fun, Args ++ [Sess]) of
-        %% for subscribe / unsubscribe / pubrel
-        {ok, Sess1} ->
-            {ok, Session#{session := Sess1}};
-        %% for publish / pubrec / pubcomp / deliver
-        {ok, ResultReplies, Sess1} ->
-            {ok, ResultReplies, Session#{session := Sess1}};
-        %% for puback / handle_timeout
-        {ok, Msgs, Replies, Sess1} ->
-            {ok, Msgs, Replies, Session#{session := Sess1}};
-        %% for any errors
-        {error, Reason} ->
-            {error, Reason}
-    end.
+%% for subscribe / unsubscribe / pubrel
+wrap_result({ok, S}, Session) ->
+    {ok, Session#{session := S}};
+%% for publish / pubrec / pubcomp / deliver
+wrap_result({ok, ResultReplies, S}, Session) ->
+    {ok, ResultReplies, Session#{session := S}};
+%% for puback / handle_timeout
+wrap_result({ok, Msgs, Replies, S}, Session) ->
+    {ok, Msgs, Replies, Session#{session := S}};
+%% for any errors
+wrap_result({error, Reason}, _Session) ->
+    {error, Reason}.
