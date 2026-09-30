@@ -160,31 +160,16 @@ is_prefix_of_any(Data, Ops) ->
 serialize_opts() ->
     #{}.
 
-serialize_pkt(#nats_frame{operation = Op, message = Message} = Frame, Opts) ->
+serialize_pkt(#nats_frame{operation = Op, message = Message}, Opts) ->
     UseLowerHeader = maps:get(use_lower_header, Opts, false),
     Bin1 = serialize_operation(Op, UseLowerHeader),
-    Data =
-        case Message of
-            undefined ->
-                [Bin1, "\r\n"];
-            _ ->
-                Bin2 = serialize_message(Op, Message),
-                [Bin1, " ", Bin2, "\r\n"]
-        end,
-    limit_server_payload_size(Frame, Data, Opts).
-
-%% Incoming PUB/HPUB frames are checked by the parser. Apply the same payload
-%% limit to server-to-client messages without counting their control lines.
-limit_server_payload_size(#nats_frame{operation = Op} = Frame, Data, Opts) when
-    Op =:= ?OP_MSG;
-    Op =:= ?OP_HMSG
-->
-    case payload_total_size(Frame) =< max_payload_size(Opts) of
-        true -> Data;
-        false -> <<>>
-    end;
-limit_server_payload_size(_Frame, Data, _Opts) ->
-    Data.
+    case Message of
+        undefined ->
+            [Bin1, "\r\n"];
+        _ ->
+            Bin2 = serialize_message(Op, Message),
+            [Bin1, " ", Bin2, "\r\n"]
+    end.
 
 serialize_operation(?OP_OK, _UseLowerHeader = false) ->
     [?OP_RAW_OK];
