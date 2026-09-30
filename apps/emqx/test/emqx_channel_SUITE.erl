@@ -1359,10 +1359,26 @@ t_handle_timeout_keepalive(_) ->
     Channel = emqx_channel:set_field(timers, #{keepalive => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(make_ref(), {keepalive, 10}, Channel).
 
+-doc "Delivery retries retransmit unacknowledged messages, rearm the timer, and stop after PUBACK.".
 t_handle_timeout_retry_delivery(_) ->
-    TRef = make_ref(),
-    Channel = emqx_channel:set_field(timers, #{retry_delivery => TRef}, channel()),
-    {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, Channel).
+    Session = session(#{retry_interval => ?CUSTOM_TIMER_TIMEOUT_SHORT}),
+    Channel = channel(#{session => Session, alias_maximum => #{outbound => 0}}),
+    Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
+    {ok, {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"t">>, PacketId, <<"payload">>)}, Chan1} =
+        emqx_channel:handle_deliver([{deliver, <<"t">>, Msg}], Channel),
+    Timer = {emqx_session, retry_delivery},
+    TRef1 = maps:get(Timer, emqx_channel:info(timers, Chan1)),
+    ?assertReceive({timeout, TRef1, Timer}),
+    {ok, {outgoing, Retry}, Chan2} = emqx_channel:handle_timeout(TRef1, Timer, Chan1),
+    ?assertMatch(?PUBLISH_PACKET(?QOS_1, <<"t">>, PacketId, <<"payload">>), Retry),
+    ?assertMatch(#mqtt_packet{header = #mqtt_packet_header{dup = true}}, Retry),
+    TRef2 = maps:get(Timer, emqx_channel:info(timers, Chan2)),
+    ?assertNotEqual(TRef1, TRef2),
+    {ok, Chan3} = emqx_channel:handle_in(?PUBACK_PACKET(PacketId), Chan2),
+    ?assertEqual(0, emqx_channel:info({session, inflight_cnt}, Chan3)),
+    ?assertReceive({timeout, TRef2, Timer}),
+    {ok, Chan4} = emqx_channel:handle_timeout(TRef2, Timer, Chan3),
+    ?assertNot(maps:is_key(Timer, emqx_channel:info(timers, Chan4))).
 
 t_handle_timeout_expire_awaiting_rel(_) ->
     TRef = make_ref(),
