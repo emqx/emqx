@@ -184,12 +184,7 @@ delete(TopicFilter) ->
         [#?MQ_REGISTRY_INDEX_TAB{} = Rec] ->
             #{id := Id} = MQHandle = record_to_mq_handle(Rec),
             ok = mria:dirty_delete_object(Rec),
-            case emqx_mq_consumer:find(Id) of
-                {ok, ConsumerRef} ->
-                    ok = emqx_mq_consumer:stop(ConsumerRef);
-                not_found ->
-                    ok
-            end,
+            ok = stop_consumer(Id),
             maybe
                 ok ?= emqx_mq_message_db:drop(MQHandle),
                 ok ?= emqx_mq_state_storage:destroy_consumer_state(MQHandle),
@@ -237,12 +232,12 @@ update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
                 _ when NeedUpdateIndex ->
                     case update_index(Key, Id, UpdateFields) of
                         ok ->
-                            emqx_mq_state_storage:update_mq_state(Id, UpdateFields);
+                            update_mq_state(Id, UpdateFields);
                         not_found ->
                             not_found
                     end;
                 _ ->
-                    emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
+                    update_mq_state(Id, UpdateFields)
             end
     end.
 
@@ -277,6 +272,26 @@ list(Cursor, Limit) when Limit >= 1 ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% A consumer keeps the settings it started with, so stop it if they changed.
+update_mq_state(Id, UpdateFields) ->
+    maybe
+        {ok, MQ0} ?= emqx_mq_state_storage:find_mq(Id),
+        {ok, MQ} ?= emqx_mq_state_storage:update_mq_state(Id, UpdateFields),
+        case MQ of
+            MQ0 -> ok;
+            _ -> ok = stop_consumer(Id)
+        end,
+        {ok, MQ}
+    end.
+
+stop_consumer(Id) ->
+    case emqx_mq_consumer:find(Id) of
+        {ok, ConsumerRef} ->
+            emqx_mq_consumer:stop(ConsumerRef);
+        not_found ->
+            ok
+    end.
 
 need_update_index(
     #{is_lastvalue := true, key_expression := OldKeyExpr} = _MQHandle,
