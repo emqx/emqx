@@ -40,15 +40,24 @@ init() ->
 ) ->
     ok | emqx_ds:error(_).
 on_connect(ClientId, Cookie, ExpiryIntervalMS) ->
-    emqx_durable_timer:dead_hand(
-        durable_timer_type(), ClientId, Cookie, ExpiryIntervalMS
-    ).
+    %% TODO: don't mask errors and do the whole thing async-ly, so the
+    %% session can install dead hand without blocking and with retry.
+    case emqx_durable_timer:dead_hand(durable_timer_type(), ClientId, Cookie, ExpiryIntervalMS) of
+        ok ->
+            ok;
+        Err ->
+            ?tp(warning, sessds_failed_to_set_up_gc_timer, #{
+                clientid => ClientId,
+                reason => Err
+            }),
+            ok
+    end.
 
 -spec on_disconnect(
     emqx_types:clientid(),
     emqx_persistent_session_ds_state:guard(),
     non_neg_integer()
-) -> ok.
+) -> ok | emqx_ds:error(_).
 on_disconnect(ClientId, Cookie, ExpiryIntervalMS) ->
     warn_timeout(
         emqx_durable_timer:apply_after(
