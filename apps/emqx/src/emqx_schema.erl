@@ -4205,6 +4205,15 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_hibernate_after)
                 }
             )},
+        {"minor_gc_after",
+            sc(
+                hoconsc:union([infinity, timeout_duration_ms()]),
+                #{
+                    default => <<"infinity">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(mqtt_minor_gc_after)
+                }
+            )},
         {"max_packet_size",
             sc(
                 bytesize(),
