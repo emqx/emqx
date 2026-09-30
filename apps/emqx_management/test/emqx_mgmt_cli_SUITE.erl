@@ -179,6 +179,58 @@ t_clients(_Config) ->
     %% clients kick <ClientId> # Kick out a client
     ok.
 
+-doc """
+`clients show` prints 0 for the stats of an idle client, which the channel info
+table does not store.
+""".
+t_clients_show_idle_client(_Config) ->
+    ClientId = <<"test-clients-show-idle">>,
+    C = start_link_client(ClientId),
+    try
+        {ok, Output} = capture_ctl(["clients", "show", binary_to_list(ClientId)]),
+        lists:foreach(
+            fun(Field) ->
+                ?assertEqual(
+                    match,
+                    re:run(Output, <<", ", Field/binary, "=0,">>, [{capture, none}]),
+                    {Field, Output}
+                )
+            end,
+            [
+                <<"subscriptions">>,
+                <<"inflight">>,
+                <<"awaiting_rel">>,
+                <<"delivered_msgs">>,
+                <<"enqueued_msgs">>,
+                <<"dropped_msgs">>
+            ]
+        )
+    after
+        stop_client(C)
+    end.
+
+-doc "`clients stats` writes 0 in the session columns of an idle client.".
+t_clients_dump_stats_idle_client(_Config) ->
+    ClientId = <<"test-clients-stats-idle">>,
+    C = start_link_client(ClientId),
+    TestFile = "/tmp/test_dump_stats_idle.csv",
+    _ = file:delete(TestFile),
+    try
+        ok = dump_client_stats(TestFile, 1000, 0),
+        {ok, Content} = file:read_file(TestFile),
+        [Row] = [
+            L
+         || L <- binary:split(Content, <<"\n">>, [global]),
+            binary:match(L, ClientId) =/= nomatch
+        ],
+        [_Ts, ClientId, _RecvOct, _RecvCnt, _SendOct, _SendCnt | SessionCols] =
+            binary:split(Row, <<",">>, [global]),
+        ?assertEqual([<<"0">>, <<"0">>, <<"0">>, <<"0">>], SessionCols)
+    after
+        _ = file:delete(TestFile),
+        stop_client(C)
+    end.
+
 t_a_session_top_status_idle(_Config) ->
     {ok, Output} = capture_ctl(["session-top", "status"]),
     ?assertEqual(match, re:run(Output, <<"Status: idle">>, [{capture, none}])),

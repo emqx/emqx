@@ -120,6 +120,91 @@ t_disconnected_sessions_stat(_) ->
     ok = emqx_cm:stats_fun(),
     ?assertEqual(Baseline, emqx_stats:getstat('disconnected_sessions.count')).
 
+-doc """
+The channel info table drops a stat only when its key is in
+`sparse_stats_defaults/0` and its value is 0. Other zeros and non-integer
+values stay.
+""".
+t_sparse_chan_stats(_) ->
+    ClientId = <<"sparse-stats">>,
+    Info = #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+    Stats = [
+        {recv_oct, 10},
+        {send_pend, 0},
+        {durable, false},
+        {subscriptions_max, infinity},
+        {subscriptions_cnt, 0},
+        {mqueue_len, 0},
+        {recv_pkt, 1},
+        {'send_msg.dropped', 0}
+    ],
+    Sparse = [
+        {recv_oct, 10},
+        {send_pend, 0},
+        {durable, false},
+        {subscriptions_max, infinity},
+        {recv_pkt, 1}
+    ],
+    try
+        ok = emqx_cm:insert_channel_info(ClientId, Info, Stats),
+        ?assertEqual(Sparse, emqx_cm:get_chan_stats(ClientId)),
+        ?assertEqual(Sparse, emqx_cm:get_chan_stats(ClientId, self())),
+        Stats1 = lists:keystore(mqueue_len, 1, Stats, {mqueue_len, 3}),
+        true = emqx_cm:set_chan_stats(ClientId, Stats1),
+        ?assertEqual(
+            [
+                {recv_oct, 10},
+                {send_pend, 0},
+                {durable, false},
+                {subscriptions_max, infinity},
+                {mqueue_len, 3},
+                {recv_pkt, 1}
+            ],
+            emqx_cm:get_chan_stats(ClientId)
+        )
+    after
+        ok = emqx_cm:unregister_channel(ClientId)
+    end.
+
+-doc """
+Every stats producer returns all keys of `sparse_stats_defaults/0`, so a reader
+that merges the defaults restores exactly the keys a dense row had. Checked for
+TCP and WebSocket connections.
+""".
+t_sparse_chan_stats_keys_in_every_producer(_) ->
+    Defaults = emqx_cm:sparse_stats_defaults(),
+    Clients = [
+        {<<"sparse-tcp">>, fun emqtt:connect/1, []},
+        {<<"sparse-ws">>, fun emqtt:ws_connect/1, [{port, 8083}]}
+    ],
+    lists:foreach(
+        fun({ClientId, Connect, Opts}) ->
+            {ok, C} = emqtt:start_link([{clientid, ClientId} | Opts]),
+            {ok, _} = Connect(C),
+            try
+                [ChanPid] = emqx_cm:lookup_channels(ClientId),
+                #{conninfo := #{conn_mod := ConnMod}} = emqx_cm:get_chan_info(ClientId),
+                Dense = ConnMod:stats(ChanPid),
+                ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Dense), ConnMod),
+                Stored = emqx_cm:get_chan_stats(ClientId),
+                ?assertEqual(
+                    [],
+                    [KV || {K, 0} = KV <- Stored, is_map_key(K, Defaults)],
+                    ConnMod
+                ),
+                ?assertEqual(
+                    lists:sort(proplists:get_keys(Dense)),
+                    lists:sort(maps:keys(maps:merge(Defaults, maps:from_list(Stored)))),
+                    ConnMod
+                )
+            after
+                ok = emqtt:disconnect(C)
+            end
+        end,
+        Clients
+    ).
+
 t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
     ClientId = <<"session-buffer-check">>,
     Stats = [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}],
