@@ -143,7 +143,7 @@ enrich(Bin, #{
         {send_pkt, SendPkt},
         {send_msg, SendMsg},
         {send_pend, 0},
-        {awaitin_rel_cnt, maps:size(AwaitingRel)},
+        {awaiting_rel_cnt, maps:size(AwaitingRel)},
         {'send_msg.qos0', SendMsgQos0},
         {'send_msg.qos1', SendMsgQos1},
         {'send_msg.qos2', SendMsgQos2},
@@ -171,8 +171,7 @@ enrich(Bin, #{
         {seqno_q2_comm, 0},
         {seqno_q2_dup, 0},
         {seqno_q2_rec, 0},
-        {seqno_q2_next, 0},
-        {awaiting_rel_cnt, 0}
+        {seqno_q2_next, 0}
     ],
     {ProtoName, ProtoVer} = dec_protocol(Protocol),
     PeerName =
