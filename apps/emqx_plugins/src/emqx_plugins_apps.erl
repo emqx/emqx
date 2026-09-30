@@ -315,6 +315,7 @@ validate_loaded_plugin_app(AppName, EbinDir, Props) ->
                 LoadedEbinDir ->
                     case
                         is_protected_app(AppName) orelse
+                            is_release_app(AppName) orelse
                             is_shared_plugin_app(AppName, Props, LoadedEbinDir)
                     of
                         true ->
@@ -331,13 +332,11 @@ validate_loaded_plugin_app(AppName, EbinDir, Props) ->
             end
     end.
 
-%% A plugin application that is already loaded from another plugin, or from the
-%% lib directory of the EMQX release, is shared when its `.app' file has the same
-%% content as the one in the package.
+%% A plugin application that is already loaded from another plugin is shared
+%% when its `.app' file has the same content as the one in the package.
 is_shared_plugin_app(AppName, Props, LoadedEbinDir) when is_list(LoadedEbinDir) ->
     EbinDir = filename:absname(LoadedEbinDir),
-    SharedDirs = [emqx_plugins_fs:install_dir(), release_lib_dir()],
-    case lists:any(fun(Dir) -> is_in_dir(EbinDir, Dir) end, SharedDirs) of
+    case is_in_dir(EbinDir, emqx_plugins_fs:install_dir()) of
         false ->
             false;
         true ->
@@ -348,6 +347,9 @@ is_shared_plugin_app(_AppName, _Props, _LoadedEbinDir) ->
     false.
 
 %% Whether the application's code is in the lib directory of the EMQX release.
+%% A plugin runs on the release's copy of such an application, whatever version
+%% the package bundles: `load_plugin_app/4' does not load the bundled copy, and
+%% the plugin never stops or unloads the release's copy.
 is_release_app(AppName) ->
     case code:lib_dir(AppName) of
         {error, _} -> false;

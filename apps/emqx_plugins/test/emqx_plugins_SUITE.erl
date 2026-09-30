@@ -670,8 +670,8 @@ t_ignores_emqx_plugins_dependency(Config) ->
     ok = emqx_plugins:ensure_stopped(NameVsn).
 
 -doc """
-A package that bundles an application the release already loaded installs when
-the two `.app` files are identical. The release's copy stays running after the
+A package that bundles a byte copy of an application the release already loaded
+installs. The release's copy stays running after the
 plugin is stopped, and loaded after it is uninstalled. No other application in
 the test node depends on `tftp`, so only the plugin could stop it.
 """.
@@ -694,26 +694,38 @@ t_shares_release_app(Config) ->
     ?assertEqual(ReleaseAppDir, code:lib_dir(tftp)).
 
 -doc """
-A package that bundles an application the release already loaded is refused when
-its `.app` file differs from the release's.
+A package that bundles another version of an application the release already
+loaded installs and starts. The plugin runs on the release's copy, and the
+bundled copy is not loaded.
 """.
-t_rejects_release_app_with_different_app_file({init, Config}) ->
+t_shares_release_app_of_other_version({init, Config}) ->
     init_release_app(Config);
-t_rejects_release_app_with_different_app_file({'end', Config}) ->
+t_shares_release_app_of_other_version({'end', Config}) ->
     end_release_app(Config);
-t_rejects_release_app_with_different_app_file(Config) ->
+t_shares_release_app_of_other_version(Config) ->
     NameVsn = "bundler-1.0.0",
-    {AppNameVsn, Files} = release_app_copy(Config),
-    AppSpec = {application, tftp, [{vsn, ?config(release_app_vsn, Config)}]},
+    ReleaseAppDir = ?config(release_app_dir, Config),
+    ReleaseVsn = ?config(release_app_vsn, Config),
+    {_AppNameVsn, Files} = release_app_copy(Config),
+    {ok, [{application, tftp, Props}]} = file:consult(
+        filename:join([ReleaseAppDir, "ebin", "tftp.app"])
+    ),
+    OtherVsn = "0.0.1",
+    AppSpec = {application, tftp, lists:keystore(vsn, 1, Props, {vsn, OtherVsn})},
     AppFile = iolist_to_binary(io_lib:format("~p.~n", [AppSpec])),
     Files1 = lists:keystore("tftp.app", 1, Files, {"tftp.app", AppFile}),
-    ok = make_bundling_plugin_tar(NameVsn, [{AppNameVsn, Files1}]),
-    ?assertMatch(
-        {error, #{msg := "plugin_app_loaded_outside_package", name := tftp}},
-        emqx_plugins:ensure_installed(NameVsn, ?fresh_install)
+    ok = make_bundling_plugin_tar(NameVsn, [{"tftp-" ++ OtherVsn, Files1}]),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(bundler)),
+    ?assertEqual({ok, ReleaseVsn}, application:get_key(tftp, vsn)),
+    ?assertEqual(ReleaseAppDir, code:lib_dir(tftp)),
+    ?assertEqual(
+        filename:join([ReleaseAppDir, "ebin", "tftp.beam"]),
+        code:which(tftp)
     ),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
-    ?assertEqual(?config(release_app_dir, Config), code:lib_dir(tftp)).
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ?assert(is_app_running(tftp)).
 
 -doc """
 A package that bundles an application already loaded from another plugin installs
