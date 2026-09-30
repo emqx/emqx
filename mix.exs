@@ -185,7 +185,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-3", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.5", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.6", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, "2.0.1", override: true}
 

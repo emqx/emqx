@@ -897,6 +897,46 @@ t_plugin_config_endpoints_require_global_admin(_) ->
     ).
 
 -doc """
+Downloading a backup file is denied to every viewer, global or namespaced, and to
+publishers. Administrators, global or namespaced, pass RBAC. Listing backup files
+stays readable by viewers.
+
+The API-key role macros are the same binaries as the login-user ones, so these
+actor contexts cover API keys too.
+""".
+t_backup_download_denied_to_viewers(_) ->
+    Req = #{},
+    Download = #{method => get, module => emqx_mgmt_api_data_backup, function => data_file_by_name},
+    List = #{method => get, module => emqx_mgmt_api_data_backup, function => data_files},
+    [NsAdmin, NsViewer, NsApiAdmin, NsApiViewer] = namespaced_actor_contexts(),
+    Denied = {error, <<"Backup files are only available to administrators">>},
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertEqual(
+                Denied,
+                emqx_dashboard_rbac:check_rbac(Req, Download, ActorContext),
+                ActorContext
+            ),
+            ?assertMatch({ok, _}, emqx_dashboard_rbac:check_rbac(Req, List, ActorContext))
+        end,
+        [global_viewer_actor_context(), NsViewer, NsApiViewer]
+    ),
+    ?assertMatch(
+        {error, _},
+        emqx_dashboard_rbac:check_rbac(Req, Download, global_publisher_actor_context())
+    ),
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, Download, ActorContext),
+                ActorContext
+            )
+        end,
+        [global_admin_actor_context(), NsAdmin, NsApiAdmin]
+    ).
+
+-doc """
 Over the real HTTP API, the plugin configuration endpoints answer 403
 `UNAUTHORIZED_ROLE` for viewers and namespaced administrators, while the global
 administrator still reaches the endpoint (404 for an unknown plugin rather than
@@ -949,6 +989,188 @@ t_plugin_config_endpoints_http_denied(_) ->
         end,
         Paths
     ).
+
+-doc """
+`GET /configs` negotiated to `text/plain` (no `Accept` header, `*/*`, or an explicit
+`text/plain`) is denied to every principal except the global administrator. The
+`application/json` variant stays readable by viewers and namespaced principals.
+""".
+t_configs_plaintext_export_requires_global_admin(_) ->
+    HandlerInfo = configs_get_handler(),
+    PlaintextReqs = [
+        configs_req(undefined),
+        configs_req(<<"*/*">>),
+        configs_req(<<"text/plain">>),
+        configs_req(<<"application/json, */*;q=0.8">>),
+        configs_req(<<"text/html, text/plain;q=0.9">>),
+        %% The handler prefers `text/plain' when both types are accepted.
+        configs_req(<<"application/json, text/plain">>)
+    ],
+    JsonReq = configs_req(<<"application/json">>),
+    %% No acceptable type: the handler answers 400 without any configuration.
+    UnacceptableReq = configs_req(<<"application/xml">>),
+    Denied = {error, <<"The configuration export is only available to the global administrator">>},
+    lists:foreach(
+        fun(ActorContext) ->
+            lists:foreach(
+                fun(Req) ->
+                    ?assertEqual(
+                        Denied,
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext),
+                        #{actor => ActorContext, req => Req}
+                    )
+                end,
+                PlaintextReqs
+            ),
+            lists:foreach(
+                fun(Req) ->
+                    ?assertMatch(
+                        {ok, _},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext),
+                        #{actor => ActorContext, req => Req}
+                    )
+                end,
+                [JsonReq, UnacceptableReq]
+            )
+        end,
+        [global_viewer_actor_context() | namespaced_actor_contexts()]
+    ),
+    lists:foreach(
+        fun(Req) ->
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_admin_actor_context())
+            )
+        end,
+        [JsonReq | PlaintextReqs]
+    ),
+    %% A publisher may not read `/configs' in either format.
+    lists:foreach(
+        fun(Req) ->
+            ?assertMatch(
+                {error, _},
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_publisher_actor_context())
+            )
+        end,
+        [JsonReq | PlaintextReqs]
+    ),
+    %% Scope check: `PUT /configs' is unchanged (global administrator only).
+    PutHandlerInfo = HandlerInfo#{method := put},
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertMatch(
+                {error, _},
+                emqx_dashboard_rbac:check_rbac(JsonReq, PutHandlerInfo, ActorContext)
+            )
+        end,
+        [global_viewer_actor_context() | namespaced_actor_contexts()]
+    ).
+
+-doc """
+Over the real HTTP API, `GET /configs` in `text/plain` answers 403
+`UNAUTHORIZED_ROLE` for a viewer, a namespaced administrator, a viewer API key and a
+namespaced administrator API key. The same principals still get the JSON variant, and
+the global administrator (login user or API key) still gets the `text/plain` export.
+""".
+t_configs_plaintext_export_http(_) ->
+    add_default_superuser(),
+    Password = <<"public_www1">>,
+    Viewer = <<"configs_viewer">>,
+    NsAdmin = <<"configs_ns_admin">>,
+    NsAdminRole = <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>,
+    {ok, _} = emqx_dashboard_admin:add_user(Viewer, Password, ?ROLE_VIEWER, ?ADD_DESCRIPTION),
+    {ok, _} = emqx_dashboard_admin:add_user(NsAdmin, Password, NsAdminRole, ?ADD_DESCRIPTION),
+    ViewerKey = create_api_key(<<"configs_viewer_key">>, ?ROLE_API_VIEWER),
+    NsAdminKey = create_api_key(<<"configs_ns_admin_key">>, NsAdminRole),
+    AdminKey = create_api_key(<<"configs_admin_key">>, ?ROLE_API_SUPERUSER),
+    try
+        Restricted = [
+            login_auth_header(Viewer, Password),
+            login_auth_header(NsAdmin, Password),
+            ViewerKey,
+            NsAdminKey
+        ],
+        lists:foreach(
+            fun(Auth) ->
+                lists:foreach(
+                    fun({Accept, Query}) ->
+                        {Code, _, Body} = configs_http_get(Auth, Accept, Query),
+                        ?assertEqual(403, Code, #{accept => Accept, query => Query}),
+                        ?assertMatch(
+                            #{<<"code">> := <<"UNAUTHORIZED_ROLE">>},
+                            emqx_utils_json:decode(Body)
+                        )
+                    end,
+                    [
+                        {"text/plain", ""},
+                        {no_accept, ""},
+                        {"*/*", ""},
+                        {"text/plain", "?key=sysmon"}
+                    ]
+                ),
+                ?assertMatch(
+                    {200, "application/json" ++ _, _},
+                    configs_http_get(Auth, "application/json", "")
+                )
+            end,
+            Restricted
+        ),
+        Admins = [
+            login_auth_header(
+                ?DEFAULT_SUPERUSER, ?DEFAULT_SUPERUSER_PASS
+            ),
+            AdminKey
+        ],
+        lists:foreach(
+            fun(Auth) ->
+                ?assertMatch({200, "text/plain" ++ _, _}, configs_http_get(Auth, no_accept, "")),
+                ?assertMatch(
+                    {200, "text/plain" ++ _, _}, configs_http_get(Auth, "text/plain", "")
+                ),
+                ?assertMatch(
+                    {200, "application/json" ++ _, _},
+                    configs_http_get(Auth, "application/json", "")
+                )
+            end,
+            Admins
+        )
+    after
+        lists:foreach(
+            fun emqx_mgmt_auth:delete/1,
+            [<<"configs_viewer_key">>, <<"configs_ns_admin_key">>, <<"configs_admin_key">>]
+        )
+    end.
+
+configs_get_handler() ->
+    #{method => get, module => emqx_mgmt_api_configs, function => configs}.
+
+configs_req(undefined) ->
+    #{headers => #{}};
+configs_req(Accept) ->
+    #{headers => #{<<"accept">> => Accept}}.
+
+configs_http_get(Auth, Accept, Query) ->
+    AcceptHeader =
+        case Accept of
+            no_accept -> [];
+            _ -> [{"accept", Accept}]
+        end,
+    Url = uri(["configs"]) ++ Query,
+    {ok, {{_, Code, _}, Headers, Body}} =
+        httpc:request(get, {Url, [Auth | AcceptHeader]}, [], [{body_format, binary}]),
+    {Code, proplists:get_value("content-type", Headers), Body}.
+
+login_auth_header(Username, Password) ->
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+create_api_key(Name, Role) ->
+    ApiKey = <<Name/binary, "_key">>,
+    ApiSecret = <<Name/binary, "_secret">>,
+    {ok, _} = emqx_mgmt_auth:create_with_key(
+        Name, ApiKey, ApiSecret, true, infinity, <<"configs rbac test">>, Role
+    ),
+    emqx_common_test_http:auth_header(binary_to_list(ApiKey), binary_to_list(ApiSecret)).
 
 plugin_config_endpoint_handlers() ->
     [
