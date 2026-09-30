@@ -57,6 +57,7 @@
 -define(FT_FS_API(METHOD, FN), ?API(emqx_ft_storage_exporter_fs_api, METHOD, FN)).
 -define(AUDIT_API(METHOD, FN), ?API(emqx_audit_api, METHOD, FN)).
 -define(PLUGINS_API(METHOD, FN), ?API(emqx_mgmt_api_plugins, METHOD, FN)).
+-define(CONFIGS_API(METHOD, FN), ?API(emqx_mgmt_api_configs, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -290,6 +291,24 @@ do_check_rbac(ActorContext, _, ?PLUGINS_API(get, Fn)) when
             %% plugin configuration either.
             {error, <<"Plugin configuration is only available to the global administrator">>}
     end;
+do_check_rbac(#{?role := Role}, Req, ?CONFIGS_API(get, configs)) when
+    Role == ?ROLE_SUPERUSER orelse Role == ?ROLE_VIEWER
+->
+    %% `GET /configs' negotiated to `text/plain' is the HOCON export that pairs with
+    %% `PUT /configs'. It is not fully redacted, so only the global administrator
+    %% (allowed by the first clause) may read it. The `application/json' variant stays
+    %% readable by every role that may `GET'.
+    case wants_plaintext_config_dump(Req) of
+        true ->
+            {error, <<"The configuration export is only available to the global administrator">>};
+        false ->
+            true
+    end;
+do_check_rbac(#{?role := ?ROLE_VIEWER}, _, ?DATA_BACKUP_API(get, data_file_by_name)) ->
+    %% A backup archive holds the configuration without redaction, so viewers
+    %% (global or namespaced, login users or API keys) may list backup files but
+    %% not download them.
+    {error, <<"Backup files are only available to administrators">>};
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
@@ -476,6 +495,12 @@ do_check_rbac(
     true;
 do_check_rbac(_, _, _) ->
     {error, <<"You don't have permission to access this resource">>}.
+
+%% Uses the handler's own negotiation, so RBAC and the handler cannot disagree
+%% on which requests get the `text/plain' export.
+wants_plaintext_config_dump(Req) ->
+    Headers = cowboy_req:headers(Req),
+    emqx_mgmt_api_configs:configs_get_content_type(Headers) =:= {ok, <<"text/plain">>}.
 
 role_list(dashboard) ->
     [?ROLE_VIEWER, ?ROLE_SUPERUSER];
