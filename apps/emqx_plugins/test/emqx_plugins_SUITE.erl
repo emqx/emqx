@@ -37,6 +37,7 @@
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN, "0.1.0").
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG, "0.1.0-2").
 -define(PACKAGE_SUFFIX, ".tar.gz").
+-define(PURGE_OTHER_NAME_VSN, <<"my_emqx_plugin-0.0.1">>).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
@@ -405,6 +406,78 @@ t_start_restart_and_stop(Config) ->
     ok = emqx_plugins:ensure_uninstalled(Bar2),
     ?assertEqual([], emqx_plugins:list()),
     ok.
+
+-doc """
+Check that `purge_other_versions/1` keeps the named version installed, enabled
+and running, and removes the other installed version of the same plugin.
+""".
+t_purge_other_versions_keeps_named_version({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_purge_other_versions_keeps_named_version({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_disabled(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(?PURGE_OTHER_NAME_VSN),
+    ok;
+t_purge_other_versions_keeps_named_version(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_enabled(NameVsn),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = write_info_file(Config, ?PURGE_OTHER_NAME_VSN, purge_other_version_info()),
+    ?assertEqual(
+        lists:sort([bin(NameVsn), ?PURGE_OTHER_NAME_VSN]), installed_name_vsns()
+    ),
+
+    ok = emqx_plugins:purge_other_versions(NameVsn),
+
+    ?assertEqual([bin(NameVsn)], installed_name_vsns()),
+    ?assertEqual([#{name_vsn => NameVsn, enable => true}], emqx_plugins:configured()),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ok.
+
+-doc """
+Check that `purge_other_versions/1` stops and uninstalls a disabled version of the
+plugin that is not the named one, and keeps the named version.
+""".
+t_purge_other_versions_removes_other_version({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_purge_other_versions_removes_other_version({'end', Config}) ->
+    _ = emqx_plugins:ensure_uninstalled(?config(name_vsn, Config)),
+    _ = emqx_plugins:ensure_uninstalled(?PURGE_OTHER_NAME_VSN),
+    ok;
+t_purge_other_versions_removes_other_version(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_disabled(NameVsn),
+    ok = write_info_file(Config, ?PURGE_OTHER_NAME_VSN, purge_other_version_info()),
+    ?assertEqual(
+        lists:sort([bin(NameVsn), ?PURGE_OTHER_NAME_VSN]), installed_name_vsns()
+    ),
+
+    ok = emqx_plugins:purge_other_versions(?PURGE_OTHER_NAME_VSN),
+
+    ?assertEqual([?PURGE_OTHER_NAME_VSN], installed_name_vsns()),
+    ?assertEqual([], emqx_plugins:configured()),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ok.
+
+purge_other_version_info() ->
+    """
+    name=my_emqx_plugin, rel_vsn="0.0.1", rel_apps=["my_emqx_plugin-0.0.1"],
+    description="another version of the demo plugin"
+    """.
+
+installed_name_vsns() ->
+    lists:sort([
+        emqx_plugins_utils:make_name_vsn_binary(Name, Vsn)
+     || #{name := Name, rel_vsn := Vsn} <- emqx_plugins:list()
+    ]).
 
 t_start_preinstalled_plugin_inits_config_cache({init, Config}) ->
     #{package := Package} = get_demo_plugin_package(),
