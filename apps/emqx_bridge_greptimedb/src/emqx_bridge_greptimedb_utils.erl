@@ -6,8 +6,17 @@
 %% API
 -export([
     parse_write_syntax/2,
-    parse_batch_data/5
+    parse_batch_data/5,
+    parse_single_data/5
 ]).
+
+-ifdef(TEST).
+-export([
+    convert_timestamp/2,
+    data_to_points/4,
+    value_type/1
+]).
+-endif.
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -16,6 +25,11 @@
 -include_lib("emqx/include/logger.hrl").
 
 -define(DEFAULT_TIMESTAMP_TMPL, "${timestamp}").
+
+%% Bounds greptimedb accepts for the `i' and `u' typed suffixes.
+-define(INT64_MIN, -16#8000000000000000).
+-define(INT64_MAX, 16#7FFFFFFFFFFFFFFF).
+-define(UINT64_MAX, 16#FFFFFFFFFFFFFFFF).
 
 -type ts_precision() :: ns | us | ms | s.
 
@@ -36,41 +50,64 @@ parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, DriverType) when
 %% Internal fns
 %%------------------------------------------------------------------------------
 
+%% One message on its own: the caller wants the error points, not the batch
+%% marker, so the failure names the values that could not be transformed.
+-spec parse_single_data(binary(), binary(), map(), list(), erlang | native) ->
+    {ok, [map()]} | {error, term()}.
+parse_single_data(ConnResId, DbName, Data, SyntaxLines, DriverType) ->
+    case data_to_points(Data, DbName, SyntaxLines, DriverType) of
+        {ok, _Points} = Ok ->
+            Ok;
+        {error, ErrorPoints} ->
+            log_error_points(ConnResId, ErrorPoints),
+            {error, {points_trans_failed, #{last_error => last_error([ErrorPoints])}}}
+    end.
+
+%% A message whose points do not all transform is reported on its own, and the
+%% batch keeps the points it could build: failing the whole batch would drop
+%% valid messages because of one bad neighbour.
 do_parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, DriverType) ->
-    {Points0, Errors} = lists:foldl(
-        fun({_, Data}, {ListOfPoints, ErrAccIn}) ->
+    {Points0, BatchResults0, Errors} = lists:foldl(
+        fun({_, Data}, {ListOfPoints, BatchResultsAcc, ErrAccIn}) ->
             case data_to_points(Data, DbName, SyntaxLines, DriverType) of
                 {ok, Points} ->
-                    {[Points | ListOfPoints], ErrAccIn};
+                    {[Points | ListOfPoints], [valid | BatchResultsAcc], ErrAccIn};
                 {error, ErrorPoints} ->
                     log_error_points(ConnResId, ErrorPoints),
-                    {ListOfPoints, [ErrorPoints | ErrAccIn]}
+                    Error = {error, {unrecoverable_error, points_trans_failed}},
+                    {ListOfPoints, [Error | BatchResultsAcc], [ErrorPoints | ErrAccIn]}
             end
         end,
-        {[], []},
+        {[], [], []},
         BatchData
     ),
-    case Errors of
-        [] ->
-            Points = lists:reverse(Points0),
-            {ok, lists:flatten(Points)};
-        [[{error, LastError} | _] | _] ->
+    Points = lists:flatten(lists:reverse(Points0)),
+    case {Errors, Points} of
+        {[], _} ->
+            {ok, Points};
+        {_, []} ->
+            %% Nothing transformed: report the failure, as this branch always has.
             ?SLOG(error, #{
                 msg => "greptimedb_trans_point_failed",
-                last_error => LastError,
+                last_error => last_error(Errors),
                 connector => ConnResId,
                 reason => points_trans_failed
             }),
-            {error, {points_trans_failed, #{last_error => LastError}}};
-        [LastError | _] ->
+            {error, {points_trans_failed, #{last_error => last_error(Errors)}}};
+        {_, _} ->
+            %% Some messages transformed: send those, and report the rest
+            %% alongside them instead of dropping the whole batch.
             ?SLOG(error, #{
                 msg => "greptimedb_trans_point_failed",
-                last_error => LastError,
+                last_error => last_error(Errors),
                 connector => ConnResId,
                 reason => points_trans_failed
             }),
-            {error, {points_trans_failed, #{last_error => LastError}}}
+            {ok, Points, lists:reverse(BatchResults0)}
     end.
+
+last_error([[{error, LastError} | _] | _]) -> LastError;
+last_error([LastError | _]) -> LastError.
 
 -spec data_to_points(
     map(),
@@ -125,13 +162,17 @@ lines_to_points(
 
 continue_lines_to_points(Data, DbName, DriverType, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
     case line_to_point(Data, DbName, DriverType, Item) of
-        {_, [#{fields := Fields}]} when map_size(Fields) =:= 0 ->
+        {ok, {_, [#{fields := Fields}]}} when map_size(Fields) =:= 0 ->
             %% greptimedb client doesn't like empty field maps...
             ErrorPointsAcc1 = [{error, no_fields} | ErrorPointsAcc],
             lines_to_points(Data, DbName, DriverType, Rest, ResultPointsAcc, ErrorPointsAcc1);
-        Point ->
+        {ok, Point} ->
             lines_to_points(
                 Data, DbName, DriverType, Rest, [Point | ResultPointsAcc], ErrorPointsAcc
+            );
+        {error, _} = Error ->
+            lines_to_points(
+                Data, DbName, DriverType, Rest, ResultPointsAcc, [Error | ErrorPointsAcc]
             )
     end.
 
@@ -150,17 +191,21 @@ line_to_point(
     FoldFn = fun(K, V, Acc) ->
         maps_config_to_data(K, V, Acc, DriverType)
     end,
-    {_, EncodedTags} = maps:fold(FoldFn, {Data, #{}}, Tags),
-    {_, EncodedFields} = maps:fold(FoldFn, {Data, #{}}, Fields),
-    TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
-    Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
-    {Metric, [
-        maps:without([precision, measurement], Item#{
-            tags => EncodedTags,
-            fields => EncodedFields,
-            timestamp => maybe_convert_time_unit(Ts, Precision)
-        })
-    ]}.
+    maybe
+        {ok, {_, EncodedTags}} ?= maps:fold(FoldFn, {ok, {Data, #{}}}, Tags),
+        {ok, {_, EncodedFields}} ?= maps:fold(FoldFn, {ok, {Data, #{}}}, Fields),
+        {ok, Timestamp} ?= convert_timestamp(Ts, Precision),
+        TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
+        Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
+        {ok,
+            {Metric, [
+                maps:without([precision, measurement], Item#{
+                    tags => EncodedTags,
+                    fields => EncodedFields,
+                    timestamp => Timestamp
+                })
+            ]}}
+    end.
 
 do_parse_write_syntax([], Acc, _Precision) ->
     lists:reverse(Acc);
@@ -208,25 +253,39 @@ to_maps_config(K, V, Res) ->
     NV = preproc_quoted(V),
     Res#{NK => NV}.
 
-maps_config_to_data(K, V, {Data, Res}, DriverType) ->
+maps_config_to_data(_K, _V, {error, _} = Error, _DriverType) ->
+    Error;
+maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
     NV = proc_quoted(V, Data, VTransOptions),
     case {NK0, NV} of
         {[undefined], _} ->
-            {Data, Res};
+            {ok, {Data, Res}};
         %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
         {_, [undefined | _]} ->
-            {Data, Res};
+            {ok, {Data, Res}};
         _ ->
             NK = list_to_binary(NK0),
             case DriverType of
                 erlang ->
-                    {Data, Res#{NK => value_type(NV)}};
+                    case value_type(NV) of
+                        {ok, Value} -> {ok, {Data, Res#{NK => Value}}};
+                        {error, _} = Error -> Error
+                    end;
                 native ->
-                    {Data, Res#{NK => to_raw_value(NV)}}
+                    {ok, {Data, Res#{NK => to_raw_value(NV)}}}
             end
+    end.
+
+%% greptimedb stores timestamps as int64, so a value that overflows after the
+%% unit conversion is rejected rather than written wrapped.
+convert_timestamp(Ts, Precision) ->
+    Timestamp = maybe_convert_time_unit(Ts, Precision),
+    case Timestamp >= ?INT64_MIN andalso Timestamp =< ?INT64_MAX of
+        true -> {ok, Timestamp};
+        false -> {error, {bad_timestamp, Ts}}
     end.
 
 maybe_convert_time_unit(Ts, {FromPrecision, ToPrecision}) ->
@@ -291,46 +350,56 @@ to_raw_value(Val0) ->
     end.
 
 value_type([Int, <<"i">>]) when
-    is_integer(Int)
+    is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX
 ->
-    greptimedb_values:int64_value(Int);
+    {ok, greptimedb_values:int64_value(Int)};
+value_type([Invalid, <<"i">>]) ->
+    {error, {invalid_integer_value, Invalid}};
 value_type([UInt, <<"u">>]) when
-    is_integer(UInt)
+    is_integer(UInt), UInt >= 0, UInt =< ?UINT64_MAX
 ->
-    greptimedb_values:uint64_value(UInt);
+    {ok, greptimedb_values:uint64_value(UInt)};
+value_type([Invalid, <<"u">>]) ->
+    {error, {invalid_unsigned_integer_value, Invalid}};
 value_type([<<"t">>]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"T">>]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([true]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"TRUE">>]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"True">>]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"f">>]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([<<"F">>]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([false]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([<<"FALSE">>]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([<<"False">>]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([Float]) when is_float(Float) ->
-    Float;
+    {ok, Float};
 value_type([Int]) when is_integer(Int) ->
-    greptimedb_values:float64_value(Int);
+    try
+        {ok, greptimedb_values:float64_value(float(Int))}
+    catch
+        error:badarg ->
+            {error, {invalid_float_value, Int}}
+    end;
 value_type(Val0) ->
-    Val =
-        case unicode:characters_to_binary(Val0, utf8) of
-            Val1 when is_binary(Val1) ->
-                Val1;
-            _Error ->
-                throw({unrecoverable_error, {non_utf8_string_value, Val0}})
-        end,
-    greptimedb_values:string_value(Val).
+    try unicode:characters_to_binary(Val0, utf8) of
+        Val1 when is_binary(Val1) ->
+            {ok, greptimedb_values:string_value(Val1)};
+        _Error ->
+            {error, {invalid_string_value, Val0}}
+    catch
+        error:badarg ->
+            {error, {invalid_string_value, Val0}}
+    end.
 
 bin(Data) -> emqx_utils_conv:bin(Data).
 
