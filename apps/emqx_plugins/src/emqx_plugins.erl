@@ -807,7 +807,8 @@ list(Type, Options) ->
         fun(NameVsn) ->
             case read_plugin_info(NameVsn, Options) of
                 {ok, Info} ->
-                    filter_plugin_of_type(Type, Info);
+                    is_ignored_version(NameVsn) =:= false andalso
+                        filter_plugin_of_type(Type, Info);
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_plugin_info"}),
                     false
@@ -1028,7 +1029,10 @@ do_start_pinned(NameVsn) ->
         ok ?= ensure_no_other_version_active(NameVsn),
         ok ?= ensure_pinned_extracted(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
-        ok ?= emqx_plugins_apps:load(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
+        LibDir = emqx_plugins_fs:lib_dir(NameVsn),
+        %% A pinned plugin is never installed, so its applications are checked here.
+        ok ?= emqx_plugins_apps:validate(Plugin, LibDir),
+        ok ?= emqx_plugins_apps:load(Plugin, LibDir),
         ok ?= configure_pinned(NameVsn, Plugin),
         ok ?= emqx_plugins_apps:start(Plugin),
         ?tp(pinned_plugin_started, #{name_vsn => NameVsn}),
@@ -1091,6 +1095,11 @@ stop_pinned_for_shutdown() ->
 %% Keep only the `plugins.states' entries whose plugin name is not pinned.
 managed(Configured) ->
     [Item || #{name_vsn := NameVsn} = Item <- Configured, not is_pinned_name(NameVsn)].
+
+%% Another version of a pinned plugin name, for example left in the install dir
+%% from before the node pinned the name. This node never runs it.
+is_ignored_version(NameVsn) ->
+    is_pinned_name(NameVsn) andalso not emqx_plugins_pinned:is_pinned_name_vsn(NameVsn).
 
 is_pinned_name(NameVsn) ->
     emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso

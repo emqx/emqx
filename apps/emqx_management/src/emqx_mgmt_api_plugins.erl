@@ -1495,7 +1495,18 @@ describe_api_plugin(NameVsn, Options) ->
             Error
     end.
 
-api_visible_plugin(#{config_status := not_configured, running_status := RunningStatus} = Plugin) ->
+api_visible_plugin(#{name := Name, rel_vsn := Vsn} = Plugin) when not is_map_key(pinned, Plugin) ->
+    %% This node never runs another version of a plugin name that it pins.
+    case emqx_plugins_pinned:is_pinned(emqx_plugins_utils:make_name_vsn_binary(Name, Vsn)) of
+        true -> false;
+        false -> api_visible_configured_plugin(Plugin)
+    end;
+api_visible_plugin(Plugin) ->
+    api_visible_configured_plugin(Plugin).
+
+api_visible_configured_plugin(
+    #{config_status := not_configured, running_status := RunningStatus} = Plugin
+) ->
     case RunningStatus of
         running ->
             true;
@@ -1503,7 +1514,7 @@ api_visible_plugin(#{config_status := not_configured, running_status := RunningS
             emqx_plugins:log_unconfigured_plugin(Plugin),
             false
     end;
-api_visible_plugin(_) ->
+api_visible_configured_plugin(_) ->
     true.
 
 %% Run `Fun' when at least one node manages the plugin through the cluster.

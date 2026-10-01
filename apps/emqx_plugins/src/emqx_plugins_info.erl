@@ -89,20 +89,37 @@ populate_plugin_readme(_NameVsn, _Options, Info) ->
 
 populate_plugin_status(NameVsn, Info) ->
     RunningSt = emqx_plugins_apps:running_status(Info),
-    case emqx_plugins_pinned:is_pinned_name_vsn(NameVsn) of
-        true ->
+    case pinned_status(NameVsn) of
+        pinned ->
             %% A pinned plugin is always enabled, whatever `plugins.states' holds.
             Info#{
                 running_status => RunningSt,
                 config_status => enabled,
                 pinned => true
             };
-        false ->
+        ignored ->
+            %% This node ignores `plugins.states' for another version of a pinned name.
+            Info#{
+                running_status => RunningSt,
+                config_status => not_configured
+            };
+        not_pinned ->
             ConfSt = configured_status(NameVsn, configured()),
             Info#{
                 running_status => RunningSt,
                 config_status => ConfSt
             }
+    end.
+
+pinned_status(NameVsn) ->
+    case emqx_plugins_pinned:is_pinned_name_vsn(NameVsn) of
+        true ->
+            pinned;
+        false ->
+            case emqx_plugins_pinned:is_pinned(NameVsn) of
+                true -> ignored;
+                false -> not_pinned
+            end
     end.
 
 populate_plugin_health_status(
