@@ -195,6 +195,9 @@ for dep in ${CT_DEPS}; do
         nats)
             FILES+=( '.ci/docker-compose-file/docker-compose-nats.yaml' )
             ;;
+        nats-bridge)
+            FILES+=( '.ci/docker-compose-file/docker-compose-nats-bridge.yaml' )
+            ;;
         pulsar)
             FILES+=( '.ci/docker-compose-file/docker-compose-pulsar.yaml' )
             ;;
