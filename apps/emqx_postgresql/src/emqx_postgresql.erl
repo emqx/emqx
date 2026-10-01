@@ -614,7 +614,7 @@ validate_table_existence([WorkerPid | Rest], SQL, Deadline) ->
             WorkerPid,
             fun(Conn) ->
                 Res = epgsql:parse2(Conn, "", SQL, []),
-                ok = epgsql:sync(Conn),
+                _ = epgsql:sync(Conn),
                 Res
             end,
             Timeout
