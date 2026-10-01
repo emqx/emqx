@@ -499,10 +499,7 @@ handle_in(
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         allow ->
-            case check_max_payload(Frame, Channel) of
-                ok -> process_pub_frame(Frame, Channel);
-                {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
-            end
+            process_pub_frame(Frame, Channel)
     end;
 handle_in(
     Frame = ?PACKET(?OP_SUB),
@@ -637,10 +634,24 @@ handle_in(Msg, Channel) ->
 
 handle_frame_error(Reason, Channel = #channel{conn_state = idle}) ->
     shutdown(to_atom_shutdown_reason(Reason), Channel);
+handle_frame_error(
+    {frame_too_large, #{position := Position}} = Reason,
+    Channel = #channel{conn_state = _ConnState}
+) ->
+    %% Reports which part of the frame exceeded the configured budget.
+    Frame = error_frame(frame_too_large_message(Position)),
+    shutdown(to_atom_shutdown_reason(Reason), Frame, Channel);
 handle_frame_error(Reason, Channel = #channel{conn_state = _ConnState}) ->
     ErrMsg = io_lib:format("Frame error: ~0p", [Reason]),
     Frame = error_frame(ErrMsg),
     shutdown(to_atom_shutdown_reason(Reason), Frame, Channel).
+
+frame_too_large_message(control_line) ->
+    <<"Maximum Control Line Exceeded">>;
+frame_too_large_message(headers) ->
+    <<"Maximum Headers Violation">>;
+frame_too_large_message(_) ->
+    <<"Maximum Payload Violation">>.
 
 to_atom_shutdown_reason(R) when is_atom(R) ->
     R;
@@ -1208,16 +1219,6 @@ nats_subject_to_pub_topic(Subject) ->
         {ok, true} -> emqx_nats_topic:nats_to_mqtt_publish(Subject);
         {ok, false} -> emqx_nats_topic:nats_to_mqtt(Subject);
         {error, _} -> emqx_nats_topic:nats_to_mqtt_publish(Subject)
-    end.
-
-check_max_payload(Frame, _Channel) ->
-    MaxPayload = emqx_conf:get([gateway, nats, protocol, max_payload_size]),
-    PayloadSize = emqx_nats_frame:payload_total_size(Frame),
-    case PayloadSize > MaxPayload of
-        true ->
-            {error, <<"Maximum Payload Violation">>};
-        false ->
-            ok
     end.
 
 find_sub_by_topic(_Topic, []) ->

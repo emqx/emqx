@@ -41,20 +41,33 @@
 %% API
 %%--------------------------------------------------------------------
 
-initial_parse_state(_) ->
+initial_parse_state(Opts) ->
     #{
         buffer => <<>>,
         headers => false,
         %% init | args | headers | payload
         state => init,
         %% in parsing frame, the current frame is stored in iframe
-        iframe => undefined
+        iframe => undefined,
+        max_payload => max_payload_size(Opts),
+        max_control_line => max_control_line(Opts)
     }.
+
+max_payload_size(Opts) when is_map(Opts), is_map_key(max_payload_size, Opts) ->
+    maps:get(max_payload_size, Opts);
+max_payload_size(_Opts) ->
+    emqx_conf:get([gateway, nats, protocol, max_payload_size], ?DEFAULT_MAX_PAYLOAD).
+
+max_control_line(Opts) when is_map(Opts), is_map_key(max_control_line, Opts) ->
+    maps:get(max_control_line, Opts);
+max_control_line(_Opts) ->
+    emqx_conf:get([gateway, nats, protocol, max_control_line], ?DEFAULT_MAX_CONTROL_LINE).
 
 parse(Data0, ?INIT_STATE(State, Buffer)) ->
     Data = <<Buffer/binary, Data0/binary>>,
     parse_operation(Data, State);
 parse(Data0, ?ARGS_STATE(State, Buffer)) ->
+    ok = check_control_line_chunk(Buffer, Data0, State),
     Data = <<Buffer/binary, Data0/binary>>,
     parse_args(Data, State#{buffer => <<>>});
 parse(Data0, ?HEADERS_STATE(State, Buffer)) ->
@@ -381,7 +394,12 @@ reset(State) ->
     State#{state => init, iframe => undefined, buffer => <<>>}.
 
 to_args_state(State = #{state := init}, Op) ->
-    State#{state => args, iframe => #nats_frame{operation = Op}}.
+    PrefixSize =
+        case Op of
+            ?OP_ERR -> 5;
+            _ -> byte_size(atom_to_binary(Op)) + 1
+        end,
+    State#{state => args, iframe => #nats_frame{operation = Op}, line_prefix_size => PrefixSize}.
 
 to_payload_state(State = #{state := S, iframe := Frame0}, M0) when
     S == args;
@@ -403,11 +421,21 @@ return_pong(Rest, State) ->
 return_ok(Rest, State) ->
     {ok, #nats_frame{operation = ?OP_OK}, Rest, reset(State)}.
 
-parse_args(Data, State = #{state := args, iframe := #nats_frame{operation = Op}}) ->
+parse_args(
+    Data,
+    State = #{
+        state := args,
+        iframe := #nats_frame{operation = Op},
+        line_prefix_size := PrefixSize
+    }
+) ->
     case split_to_first_linefeed(Data) of
         false ->
+            %% A trailing CR may be the first byte of the CRLF delimiter.
+            ok = check_size(control_line, PrefixSize + incomplete_line_size(Data), State),
             {more, State#{buffer => Data}};
         {Line, Rest} ->
+            ok = check_size(control_line, PrefixSize + byte_size(Line), State),
             pre_do_parse_args(Op, Line, Rest, State)
     end.
 
@@ -424,18 +452,23 @@ pre_do_parse_args(Op, Line, Rest, State) ->
     Args = binary:split(Line, <<" ">>, [global]),
     do_parse_args(Op, Args, Rest, State).
 
-do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
+do_parse_args(pub, [Subject, PayloadSize0], Rest, State) ->
     ok = validate_subject(Subject),
-    M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
+    PayloadSize = binary_to_integer(PayloadSize0),
+    ok = check_size(payload, PayloadSize, State),
+    M0 = #{subject => Subject, payload_size => PayloadSize},
     parse_payload(Rest, to_payload_state(State, M0));
-do_parse_args(pub, [Subject, ReplyTo, PayloadSize], Rest, State) ->
+do_parse_args(pub, [Subject, ReplyTo, PayloadSize0], Rest, State) ->
     ok = validate_subject(Subject),
-    M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => binary_to_integer(PayloadSize)},
+    PayloadSize = binary_to_integer(PayloadSize0),
+    ok = check_size(payload, PayloadSize, State),
+    M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => PayloadSize},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
     ok = validate_subject(Subject),
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
+    ok = check_declared_sizes(HeadersSize, TotalSize, State),
     M0 = #{
         subject => Subject,
         headers_size => HeadersSize,
@@ -446,6 +479,7 @@ do_parse_args(hpub, [Subject, ReplyTo, HeadersSize0, TotalSize0], Rest, State) -
     ok = validate_subject(Subject),
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
+    ok = check_declared_sizes(HeadersSize, TotalSize, State),
     M0 = #{
         subject => Subject,
         reply_to => ReplyTo,
@@ -477,20 +511,25 @@ do_parse_args(unsub, [Sid, MaxMsgs], Rest, State) ->
     Msg = #{sid => Sid, max_msgs => binary_to_integer(MaxMsgs)},
     Frame = #nats_frame{operation = ?OP_UNSUB, message = Msg},
     {ok, Frame, Rest, reset(State)};
-do_parse_args(msg, [Subject, Sid, PayloadSize], Rest, State) ->
-    M0 = #{subject => Subject, sid => Sid, payload_size => binary_to_integer(PayloadSize)},
+do_parse_args(msg, [Subject, Sid, PayloadSize0], Rest, State) ->
+    PayloadSize = binary_to_integer(PayloadSize0),
+    ok = check_size(payload, PayloadSize, State),
+    M0 = #{subject => Subject, sid => Sid, payload_size => PayloadSize},
     parse_payload(Rest, to_payload_state(State, M0));
-do_parse_args(msg, [Subject, Sid, ReplyTo, PayloadSize], Rest, State) ->
+do_parse_args(msg, [Subject, Sid, ReplyTo, PayloadSize0], Rest, State) ->
+    PayloadSize = binary_to_integer(PayloadSize0),
+    ok = check_size(payload, PayloadSize, State),
     M0 = #{
         subject => Subject,
         sid => Sid,
         reply_to => ReplyTo,
-        payload_size => binary_to_integer(PayloadSize)
+        payload_size => PayloadSize
     },
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(hmsg, [Subject, Sid, HeadersSize0, TotalSize0], Rest, State) ->
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
+    ok = check_declared_sizes(HeadersSize, TotalSize, State),
     M0 = #{
         subject => Subject,
         sid => Sid,
@@ -501,6 +540,7 @@ do_parse_args(hmsg, [Subject, Sid, HeadersSize0, TotalSize0], Rest, State) ->
 do_parse_args(hmsg, [Subject, Sid, ReplyTo, HeadersSize0, TotalSize0], Rest, State) ->
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
+    ok = check_declared_sizes(HeadersSize, TotalSize, State),
     M0 = #{
         subject => Subject,
         sid => Sid,
@@ -588,6 +628,76 @@ split_to_first_linefeed(Bin) when is_binary(Bin) ->
             {binary:part(Bin, 0, Pos), binary:part(Bin, Pos + 2, byte_size(Bin) - Pos - 2)};
         nomatch ->
             false
+    end.
+
+incomplete_line_size(<<>>) ->
+    0;
+incomplete_line_size(Bin) ->
+    Size = byte_size(Bin),
+    case binary:last(Bin) of
+        $\r -> Size - 1;
+        _ -> Size
+    end.
+
+%% Check the next chunk before copying it into the buffered control line.
+%% Bytes after the first CRLF belong to the next part of the frame.
+check_control_line_chunk(Buffer, Data, #{line_prefix_size := PrefixSize} = State) ->
+    Size =
+        case {ends_with_cr(Buffer), Data} of
+            {true, <<$\n, _/binary>>} ->
+                byte_size(Buffer) - 1;
+            _ ->
+                case binary:match(Data, <<"\r\n">>) of
+                    {Pos, 2} ->
+                        byte_size(Buffer) + Pos;
+                    nomatch ->
+                        PendingCR =
+                            case Data of
+                                <<>> -> ends_with_cr(Buffer);
+                                _ -> ends_with_cr(Data)
+                            end,
+                        byte_size(Buffer) + byte_size(Data) -
+                            case PendingCR of
+                                true -> 1;
+                                false -> 0
+                            end
+                end
+        end,
+    check_size(control_line, PrefixSize + Size, State).
+
+ends_with_cr(<<>>) -> false;
+ends_with_cr(Bin) -> binary:last(Bin) =:= $\r.
+
+%% Reject a control line or declared message size before buffering it.
+check_size(Position, Size, State) when is_integer(Size), Size >= 0 ->
+    {LimitKey, Max} =
+        case Position of
+            control_line -> {max_control_line, maps:get(max_control_line, State)};
+            _ -> {max_payload_size, maps:get(max_payload, State)}
+        end,
+    case Size > Max of
+        true ->
+            error(
+                {frame_too_large, #{
+                    LimitKey => Max,
+                    position => Position,
+                    size => Size
+                }}
+            );
+        false ->
+            ok
+    end;
+check_size(_Position, _Size, _State) ->
+    error(invalid_args).
+
+%% HPUB/HMSG declare `headers_size total_size`; each is bounded, and the header
+%% section must fit inside the total.
+check_declared_sizes(HeadersSize, TotalSize, State) ->
+    ok = check_size(headers, HeadersSize, State),
+    ok = check_size(payload, TotalSize, State),
+    case HeadersSize =< TotalSize of
+        true -> ok;
+        false -> error(invalid_args)
     end.
 
 validate_non_wildcard_subject(Subject) ->
