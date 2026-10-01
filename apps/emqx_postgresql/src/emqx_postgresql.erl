@@ -613,7 +613,9 @@ validate_table_existence([WorkerPid | Rest], SQL, Deadline) ->
         ecpool_worker:exec(
             WorkerPid,
             fun(Conn) ->
-                epgsql:parse2(Conn, "", SQL, [])
+                Res = epgsql:parse2(Conn, "", SQL, []),
+                ok = epgsql:sync(Conn),
+                Res
             end,
             Timeout
         )
