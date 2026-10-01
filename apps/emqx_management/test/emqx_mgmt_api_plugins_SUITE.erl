@@ -190,7 +190,7 @@ t_sync_plugin_keeps_running_version(_Config) ->
         _ = emqx_plugins:ensure_uninstalled(NameVsn),
         _ = emqx_plugins:delete_package(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     {ok, []} = update_plugin(NameVsn, "start"),
     ?assert(plugin_is_running(NameVsn)),
