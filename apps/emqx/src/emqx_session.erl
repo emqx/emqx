@@ -254,7 +254,8 @@
 
 -callback stats(t()) -> emqx_types:stats().
 
--callback disconnect(t(), conninfo()) -> {idle | shutdown, t()}.
+-callback disconnect(t(), conninfo()) ->
+    {idle | shutdown, effects(), t()}.
 
 -callback terminate(clientinfo(), _Reason, t()) -> ok.
 
