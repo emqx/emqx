@@ -484,27 +484,23 @@ node_data_dir.label:
 """Node Data Dir"""
 
 node_pinned_plugins.desc:
-"""Plugins that this node runs independently of the cluster plugin config.<br/>
-Set a comma-separated string, for example <code>"my_plugin-1.0.0,other_plugin-2.1.0"</code>,
-or an array of name-vsn strings. The list order is the start order.
-Pinned plugins start before the plugins in <code>plugins.states</code>.<br/>
-A pinned plugin:<br/>
-- Runs from the directory <code>&lt;plugins.install_dir&gt;/&lt;name-vsn&gt;</code>,
-which must already hold the extracted package, for example in the container image.
-Nothing is extracted from a package file, and nothing is copied from or to other nodes.<br/>
-- Is always enabled, and needs no <code>plugins.states</code> entry and no <code>plugins allow</code> grant.<br/>
-- Takes its config from the default <code>config.hocon</code> in the package.
-When <code>etc/plugins/&lt;name&gt;.hocon</code> exists, its values override the default.
-The config is never copied from other nodes and can not be changed with the API.<br/>
-- Ignores any <code>plugins.states</code> entry with the same plugin name, in any version.<br/>
+"""Plugins that this node runs independently of the cluster plugin config.
+Set a comma-separated string, for example `"my_plugin-1.0.0,other_plugin-2.1.0"`, or an array of name-vsn strings.
+The list order is the start order. Pinned plugins start before the plugins in `plugins.states`.
+
+A pinned plugin:
+- Runs from the directory `<plugins.install_dir>/<name-vsn>`, which must already hold the extracted package, for example in the container image. Nothing is extracted from a package file, and nothing is copied from or to other nodes.
+- Is always enabled, and needs no `plugins.states` entry and no `plugins allow` grant.
+- Takes its config from the default `config.hocon` in the package. When `etc/plugins/<name>.hocon` exists, its values override the default. The config is never copied from other nodes and can not be changed with the API.
+- Ignores any `plugins.states` entry with the same plugin name, in any version.
+
 Only the CLI can stop and start a pinned plugin, and only on its own node.
 A stop lasts until the node starts all its plugins again, at boot or after a cluster join.
 To remove a plugin from this node, edit this setting and restart the node.
-When a pinned package is missing or fails to start, the node logs an error,
-raises an alarm, and keeps running.<br/>
+When a pinned plugin directory is missing or the plugin fails to start, the node logs an error, raises an alarm, and keeps running.
+
 Nodes of one cluster can run different versions of the same plugin this way.
-The plugin must then be compatible across these versions,
-for example in shared database tables, in RPC between its instances, and in its config."""
+The plugin must then be compatible across these versions, for example in shared database tables, in RPC between its instances, and in its config."""
 
 node_pinned_plugins.label:
 """Pinned Plugins"""
