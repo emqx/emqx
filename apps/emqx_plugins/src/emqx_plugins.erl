@@ -472,6 +472,7 @@ purge_other_versions(NameVsn) ->
     emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
         {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
         AppNameBin = bin(AppName),
+        AppVsnBin = bin(AppVsn),
         ?SLOG(debug, #{
             msg => "purge_plugin_other_versions",
             keep_plugin => NameVsn,
@@ -480,7 +481,7 @@ purge_other_versions(NameVsn) ->
         lists:foreach(
             fun
                 (#{name := Name, rel_vsn := RelVsn}) when
-                    AppNameBin =:= Name, AppVsn =:= RelVsn
+                    AppNameBin =:= Name, AppVsnBin =:= RelVsn
                 ->
                     ok;
                 (#{name := Name, rel_vsn := RelVsn}) ->
@@ -488,7 +489,9 @@ purge_other_versions(NameVsn) ->
                         true ->
                             NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
                             maybe
-                                ok ?= ensure_stopped(NameVsn1),
+                                %% Stopping stops the applications by name, whatever
+                                %% their version, so stop only the version that runs.
+                                ok ?= maybe_stop_plugin(NameVsn1),
                                 ok ?= ensure_uninstalled(NameVsn1)
                             else
                                 {error, Reason} ->
