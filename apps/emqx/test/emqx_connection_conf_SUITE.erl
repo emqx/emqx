@@ -555,6 +555,7 @@ expected_zone_conf(Zone) ->
     #zone_conf{
         name = Zone,
         hibernate_after = emqx_config:get_zone_conf(Zone, [mqtt, hibernate_after]),
+        minor_gc_after = emqx_config:get_zone_conf(Zone, [mqtt, minor_gc_after]),
         force_gc =
             case emqx_config:get_zone_conf(Zone, [force_gc]) of
                 #{enable := false} -> false;
