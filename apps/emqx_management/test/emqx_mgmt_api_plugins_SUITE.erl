@@ -375,7 +375,9 @@ t_pinned_plugin(_Config) ->
     %% The config is readable.
     ?assertMatch(
         {200, #{<<"hostname">> := <<"localhost">>}},
-        plugin_request(get, ["plugins", NameVsn, "config"], "")
+        emqx_mgmt_api_test_util:simple_request(
+            get, emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config"]), ""
+        )
     ),
     %% Every other operation is refused.
     Refused = [
@@ -389,7 +391,8 @@ t_pinned_plugin(_Config) ->
     ],
     lists:foreach(
         fun({Method, Parts, Body}) ->
-            Response = plugin_request(Method, Parts, Body),
+            Path = emqx_mgmt_api_test_util:api_path(Parts),
+            Response = emqx_mgmt_api_test_util:simple_request(Method, Path, Body),
             ct:pal("~p ~p: ~p", [Method, Parts, Response]),
             ?assertMatch({409, #{<<"code">> := <<"PLUGIN_PINNED">>}}, Response)
         end,
@@ -409,18 +412,6 @@ t_pinned_plugin(_Config) ->
     ?assertEqual(ok, emqx_mgmt_api_plugins:do_update_plugin_config_v4(NameVsn, #{})),
     ?assert(plugin_is_running(NameVsn)),
     ok.
-
-plugin_request(Method, Parts, Body) ->
-    Path = emqx_mgmt_api_test_util:api_path(Parts),
-    Opts = #{return_all => true, httpc_req_opts => [{body_format, binary}]},
-    Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Result = emqx_mgmt_api_test_util:request_api(Method, Path, "", Auth, Body, Opts),
-    case Result of
-        {ok, {{"HTTP/1.1", StatusCode, _}, _Headers, RespBody}} ->
-            {StatusCode, emqx_utils_json:decode(RespBody)};
-        {error, {{"HTTP/1.1", StatusCode, _}, _Headers, RespBody}} ->
-            {StatusCode, emqx_utils_json:decode(RespBody)}
-    end.
 
 -doc """
 `GET /plugins` tolerates unreachable nodes and remote crashes in the
