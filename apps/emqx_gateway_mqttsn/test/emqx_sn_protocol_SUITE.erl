@@ -24,6 +24,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_session_mem.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -3379,6 +3380,220 @@ receive_publish(Socket) ->
     <<HeaderUdp:5/binary, _:16, _/binary>> = UdpData3,
     <<_:8, ?SN_PUBLISH, _/binary>> = HeaderUdp.
 
+-doc "Wake-up drains queued QoS0 across multiple session timer continuations before PINGRESP.".
+t_awake_qos0_batch_continuation(_) ->
+    ClientId = ?CLIENTID,
+    Socket = asleep_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    Count = 2 * ?DEFAULT_BATCH_N + 1,
+    queue_qos0_messages(ClientId, ?PREDEF_TOPIC_NAME1, 1, Count),
+    send_pingreq_msg(Socket, ClientId),
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(Socket).
+
+-doc "Reconnect applies replay timer effects and drains all queued QoS0 in order.".
+t_resume_qos0_batch_continuation(_) ->
+    ClientId = ?CLIENTID,
+    Socket = asleep_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    Count = 2 * ?DEFAULT_BATCH_N + 1,
+    queue_qos0_messages(ClientId, ?PREDEF_TOPIC_NAME1, 1, Count),
+    NSocket = ensure_connected_client(ClientId, 0),
+    receive_qos0_messages(NSocket, ?PREDEF_TOPIC_ID1, 1, Count),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(NSocket),
+    gen_udp:close(Socket).
+
+-doc "Wake-up and PUBACK drain queued QoS0 across multiple batches while QoS1 remains inflight.".
+t_puback_qos0_batch_continuation(_) ->
+    ClientId = ?CLIENTID,
+    Socket = asleep_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    emqx_broker:publish(msg(?QOS_1, ?PREDEF_TOPIC_NAME1, ~"first")),
+    Count = 2 * ?DEFAULT_BATCH_N + 1,
+    queue_qos0_messages(ClientId, ?PREDEF_TOPIC_NAME1, 1, Count),
+    emqx_broker:publish(msg(?QOS_1, ?PREDEF_TOPIC_NAME1, ~"second")),
+    queue_qos0_messages(ClientId, ?PREDEF_TOPIC_NAME1, Count + 1, 2 * Count),
+    ?assertMatch(
+        #{mqueue_len := L} when L =:= 2 * Count + 2,
+        channel_stats(ClientId)
+    ),
+    send_pingreq_msg(Socket, ClientId),
+    MsgId1 = check_publish_msg_on_udp(
+        {0, ?QOS_1, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"first"},
+        receive_response(Socket)
+    ),
+    %% Replay drains the first QoS0 run, then stops at the second QoS1/2.
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
+    send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId1),
+    MsgId2 = check_publish_msg_on_udp(
+        {0, ?QOS_1, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"second"},
+        receive_response(Socket)
+    ),
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, Count + 1, 2 * Count),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
+    send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId2),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(Socket).
+
+-doc "Wake-up and PUBCOMP drain queued QoS0 across multiple batches while QoS2 remains inflight.".
+t_pubcomp_qos0_batch_continuation(_) ->
+    ClientId = ?CLIENTID,
+    Socket = asleep_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    emqx_broker:publish(msg(?QOS_2, ?PREDEF_TOPIC_NAME1, ~"first")),
+    Count = 2 * ?DEFAULT_BATCH_N + 1,
+    queue_qos0_messages(ClientId, ?PREDEF_TOPIC_NAME1, 1, Count),
+    emqx_broker:publish(msg(?QOS_2, ?PREDEF_TOPIC_NAME1, ~"second")),
+    queue_qos0_messages(ClientId, ?PREDEF_TOPIC_NAME1, Count + 1, 2 * Count),
+    ?assertMatch(
+        #{mqueue_len := L} when L =:= 2 * Count + 2,
+        channel_stats(ClientId)
+    ),
+    send_pingreq_msg(Socket, ClientId),
+    MsgId1 = check_publish_msg_on_udp(
+        {0, ?QOS_2, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"first"},
+        receive_response(Socket)
+    ),
+    %% Replay drains the first QoS0 run, then stops at the second QoS1/2.
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
+    send_pubrec_msg(Socket, MsgId1),
+    ?assertEqual(<<4, ?SN_PUBREL, MsgId1:16>>, receive_response(Socket)),
+    send_pubcomp_msg(Socket, MsgId1),
+    MsgId2 = check_publish_msg_on_udp(
+        {0, ?QOS_2, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"second"},
+        receive_response(Socket)
+    ),
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, Count + 1, 2 * Count),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
+    send_pubrec_msg(Socket, MsgId2),
+    ?assertEqual(<<4, ?SN_PUBREL, MsgId2:16>>, receive_response(Socket)),
+    send_pubcomp_msg(Socket, MsgId2),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(Socket).
+
+-doc "Sleep cancels delivery retries and wake-up replays the unacknowledged message.".
+t_delivery_retry_pauses_during_sleep(_) ->
+    ClientId = ?CLIENTID,
+    RetryInveral = 250,
+    override_conf([mqtt, retry_interval], RetryInveral),
+    Socket = connected_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    emqx_broker:publish(msg(?QOS_1, ?PREDEF_TOPIC_NAME1, ~"retry")),
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "retry">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "retry">> = receive_response(Socket),
+    send_disconnect_msg(Socket, 60),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    %% Stay asleep for more than two retry intervals.
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 600)),
+    send_pingreq_msg(Socket, ClientId),
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "retry">> = receive_response(Socket),
+    send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(Socket).
+
+-doc "Disconnect cancels delivery retries and reconnect replays the unacknowledged message.".
+t_disconnect_cancels_delivery_retry(_) ->
+    ClientId = ?CLIENTID,
+    RetryInveral = 250,
+    override_conf([mqtt, retry_interval], RetryInveral),
+    Socket = connected_subscriber(ClientId, 0, ?PREDEF_TOPIC_ID1),
+    emqx_broker:publish(msg(?QOS_1, ?PREDEF_TOPIC_NAME1, ~"retry")),
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "retry">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "retry">> = receive_response(Socket),
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    %% Stay disconnected for several retry intervals.
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 3 * RetryInveral)),
+    NSocket = ensure_connected_client(ClientId, 0),
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "retry">> = receive_response(NSocket),
+    send_puback_msg(NSocket, ?PREDEF_TOPIC_ID1, MsgId),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(NSocket),
+    gen_udp:close(Socket).
+
+-doc "Takeover cancels delivery retries while the old channel continues processing ACKs.".
+t_takeover_cancels_delivery_retry(_) ->
+    ClientId = ?CLIENTID,
+    RetryInterval = 250,
+    override_conf([mqtt, retry_interval], RetryInterval),
+    Socket = connected_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    emqx_broker:publish(msg(?QOS_1, ?PREDEF_TOPIC_NAME1, ~"retry")),
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "retry">> = receive_response(Socket),
+    ChanPid = channel_pid(ClientId),
+    ?assertMatch(#{session := _}, emqx_gateway_conn:call(ChanPid, {takeover, 'begin'})),
+    %% Retries stop even though the message has not been acknowledged yet.
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 2 * RetryInterval)),
+    send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId),
+    ?retry(20, 50, ?assertMatch(#{inflight_cnt := 0}, channel_stats(ClientId))),
+    ?assertEqual([], emqx_gateway_conn:call(ChanPid, {takeover, 'end'})),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(Socket).
+
+-doc "Rollback replays unacknowledged messages and drains deliveries buffered during takeover.".
+t_session_timer_takeover_rollback(_) ->
+    TCRunner = self(),
+    ClientId = ?CLIENTID,
+    Socket = asleep_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    emqx_broker:publish(msg(?QOS_1, ?PREDEF_TOPIC_NAME1, ~"inflight")),
+    ?assertMatch(#{mqueue_len := 1}, channel_stats(ClientId)),
+    send_pingreq_msg(Socket, ClientId),
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "inflight">> = receive_response(Socket),
+    ChanPid = channel_pid(ClientId),
+    Owner = spawn_link(fun() ->
+        Result = emqx_gateway_conn:call(ChanPid, {takeover, 'begin', #{peercert => nossl}}),
+        TCRunner ! {self(), Result},
+        receive
+            stop -> ok
+        end
+    end),
+    ?assertReceive({Owner, {ok, #{session := _}}}),
+    Count = 2 * ?DEFAULT_BATCH_N + 1,
+    lists:foreach(
+        fun(N) -> emqx_broker:publish(msg(?QOS_0, ?PREDEF_TOPIC_NAME1, N)) end,
+        lists:seq(1, Count)
+    ),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
+    Owner ! stop,
+    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
+        "inflight">> = receive_response(Socket),
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count),
+    ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
+    send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId),
+    ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(Socket).
+
+queue_qos0_messages(ClientId, Topic, NStart, NEnd) ->
+    lists:foreach(
+        fun(N) -> emqx_broker:publish(msg(?QOS_0, Topic, N)) end,
+        lists:seq(NStart, NEnd)
+    ),
+    %% Synchronize with the channel before waking it up through the socket.
+    ?assertMatch(
+        #{mqueue_len := N} when N >= NEnd - NStart + 1,
+        channel_stats(ClientId)
+    ).
+
+receive_qos0_messages(Socket, TopicID, NStart, NEnd) ->
+    lists:foreach(
+        fun(N) ->
+            Publish = {0, ?QOS_0, 0, 0, 0, ?SN_PREDEFINED_TOPIC, TopicID, emqx_utils_conv:bin(N)},
+            ?assertEqual(0, check_publish_msg_on_udp(Publish, receive_response(Socket)))
+        end,
+        lists:seq(NStart, NEnd)
+    ).
+
 t_asleep_test05_to_awake_qos1_dl_msg(_) ->
     QoS = 1,
     Duration = 5,
@@ -4504,6 +4719,14 @@ t_update_info_after_subscribed_via_api(_) ->
 %% Helper funcs
 %%--------------------------------------------------------------------
 
+override_conf(Path, Config) ->
+    ConfigWas = emqx_config:get(Path),
+    emqx_common_test_helpers:on_exit(fun() -> emqx_config:put(Path, ConfigWas) end),
+    emqx_config:put(Path, Config).
+
+msg(QoS, Topic, Payload) ->
+    emqx_message:make(?MODULE, QoS, Topic, emqx_utils_conv:bin(Payload)).
+
 send_searchgw_msg(Socket) ->
     Length = 3,
     MsgType = ?SN_SEARCHGW,
@@ -5021,13 +5244,47 @@ flush(Msgs) ->
     after 0 -> lists:reverse(Msgs)
     end.
 
+asleep_subscriber(ClientId, TopicId) ->
+    asleep_subscriber(ClientId, 1, TopicId).
+
+asleep_subscriber(ClientId, CleanSession, TopicId) ->
+    Socket = connected_subscriber(ClientId, CleanSession, TopicId),
+    send_disconnect_msg(Socket, 60),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    Socket.
+
+connected_subscriber(ClientId, TopicId) ->
+    connected_subscriber(ClientId, 1, TopicId).
+
+connected_subscriber(ClientId, CleanSession, TopicId) ->
+    Socket = ensure_connected_client(ClientId, CleanSession),
+    emqx_common_test_helpers:on_exit(fun() -> ensure_channel_gone(ClientId) end),
+    send_subscribe_msg_predefined_topic(Socket, ?QOS_2, TopicId, 1),
+    ?assertMatch(<<8, ?SN_SUBACK, _, ?PREDEF_TOPIC_ID1:16, 1:16, 0>>, receive_response(Socket)),
+    Socket.
+
 ensure_connected_client(ClientId) ->
+    ensure_connected_client(ClientId, 1).
+
+ensure_connected_client(ClientId, CleanSession) ->
     {ok, Socket} = gen_udp:open(0, [binary]),
-    send_connect_msg(Socket, ClientId),
+    send_connect_msg(Socket, ClientId, CleanSession),
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
     Socket.
 
+channel_pid(ClientId) ->
+    [ChanPid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+    ChanPid.
+
+channel_stats(ClientId) ->
+    maps:from_list(emqx_gateway_conn:stats(channel_pid(ClientId))).
+
 resume_takeover_timer(Pid) ->
+    channel_timer(Pid, resume_takeover).
+
+channel_timer(Pid, Timer) ->
+    maps:get(Timer, channel_timers(Pid)).
+
+channel_timers(Pid) ->
     Channel = element(11, sys:get_state(Pid)),
-    Timers = element(15, Channel),
-    maps:get(resume_takeover, Timers).
+    element(15, Channel).
