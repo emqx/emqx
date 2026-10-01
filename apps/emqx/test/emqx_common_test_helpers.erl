@@ -470,9 +470,10 @@ under `Dir' and returns the paths as a map with the keys `cacertfile',
 files by path with a one-second mtime resolution, so a path reused for a new
 certificate within a second can serve the old one.
 
-`CN' is the name the certificate is issued for. It has no subject alternative
-names, so a client's hostname check falls back to the CN; a suite that wants
-verification against some other name to fail gets that by choosing the CN.
+`CN' is the name the certificate is issued for, as its CN and as its only DNS
+subject alternative name, so a client's hostname check matches it; a suite
+that wants verification against some other name to fail gets that by choosing
+the CN.
 The CA and the certificate use RSA keys, so suites that pin `ECDHE-RSA-*'
 cipher suites keep working and every TLS client accepts the chain.
 """.
@@ -483,8 +484,10 @@ mock_server_certs(Dir, CN) ->
         Ca = emqx_utils_certs:generate_ca(#{
             cn => "Mock Server CA", org => "EMQ", key_type => rsa
         }),
+    %% The CN is repeated as a DNS SAN: since OTP 28.5.0.1 (RFC 9525), hostname
+    %% verification no longer falls back to the CN.
     #{cert_pem := CertPem, key_pem := KeyPem} = emqx_utils_certs:generate_cert(Ca, #{
-        cn => CN, org => "EMQ", key_type => rsa
+        cn => CN, org => "EMQ", key_type => rsa, sans => [{dns, CN}]
     }),
     SetDir = filename:join(
         Dir, "mock-certs-" ++ integer_to_list(erlang:unique_integer([positive]))

@@ -2952,6 +2952,14 @@ client_ssl_opts_schema(Defaults) ->
                         desc => ?DESC(client_ssl_opts_schema_server_name_indication)
                     }
                 )},
+            {"hostname_check",
+                sc(
+                    hoconsc:enum([san_only, san_or_common_name]),
+                    #{
+                        default => san_only,
+                        desc => ?DESC(client_ssl_opts_schema_hostname_check)
+                    }
+                )},
             {"user_lookup_fun",
                 sc(
                     string(),

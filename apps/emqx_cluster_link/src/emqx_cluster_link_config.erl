@@ -165,7 +165,8 @@ mk_emqtt_options(#{server := Server, ssl := #{enable := EnableSsl} = Ssl} = Link
         proto_ver => v5,
         tcp_opts => TcpOpts,
         ssl => EnableSsl,
-        ssl_opts => maps:to_list(maps:remove(enable, Ssl))
+        ssl_opts => maps:to_list(maps:without([enable, hostname_check], Ssl)) ++
+            emqx_tls_lib:hostname_check_opts(Ssl)
     },
     with_password(Opts1, LinkConf).
 

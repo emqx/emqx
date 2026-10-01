@@ -67,7 +67,7 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '28.4.1-6'
+        default: '28.5.0.7-2'
       elixir_vsn:
         required: false
         type: string

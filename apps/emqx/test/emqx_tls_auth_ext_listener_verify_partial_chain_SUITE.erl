@@ -304,11 +304,13 @@ t_001_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_us
     fail_when_ssl_error(Socket),
     ssl:close(Socket).
 
-%% @doc: verify even if listener has old/new intermediate2 certs,
-%%       client1 should not able to connect with old intermediate2 cert.
-%%  In this case, listener verify_fun returns {trusted_ca, Oldintermediate2Cert} but
-%%  OTP should still fail the validation since the client1 cert is not signed by
-%%  Oldintermediate2Cert (trusted CA cert).
+%% @doc: verify even if listener has old/new intermediate2 certs, a client that
+%%       sends the all-CA bundle as its certificate chain cannot connect.
+%%  The first certificate in that bundle, which the server takes as the client's
+%%  own, is the self-signed root, so no path leads to a trusted intermediate2 cert.
+%%  Since OTP 28.5.0.7-2 (upstream ac76f676d8), a sent chain that forms no path is
+%%  validated as the peer certificate alone, which fails with `selfsigned_peer'
+%%  (alert bad_certificate). Earlier OTP versions reported unknown_ca.
 %% @end
 t_conn_fail_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_all_CAcerts(Config) ->
     Port = select_free_port(ssl),
@@ -334,7 +336,7 @@ t_conn_fail_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_all
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Res, unknown_ca).
+    fail_when_no_ssl_alert(Res, bad_certificate).
 
 t_conn_fail_with_renewed_intermediate_cacert_other_client(Config) ->
     Port = select_free_port(ssl),
