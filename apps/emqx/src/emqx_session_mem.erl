@@ -918,7 +918,7 @@ deliver(
     ClientInfo,
     Congested,
     S,
-    [Msg = #message{qos = _QoS12} | More],
+    [Msg = #message{qos = _Qos12} | More],
     Acc0,
     Q0,
     Inflight0,

@@ -1081,14 +1081,14 @@ t_dequeue_budget_uses_max_inflight(_) ->
     {_Rescedule = {set_timer, ?RETRY_DEQUEUE_TIMER, 1}, Batch1, S4} =
         emqx_session_mem:dequeue(clientinfo(), [], S3),
     ?assertEqual(
-        [integer_to_binary(N) || N <- lists:seq(1, MaxInflight)],
-        [M#message.payload || {undefined, M} <:- Batch1]
+        [{undefined, integer_to_binary(N)} || N <- lists:seq(1, MaxInflight)],
+        [{PktId, M#message.payload} || {PktId, M} <- Batch1]
     ),
     {ok, Batch2, S5} =
         emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], S4),
     ?assertEqual(
-        [integer_to_binary(MaxInflight + 1)],
-        [M#message.payload || {undefined, M} <:- Batch2]
+        [{undefined, integer_to_binary(MaxInflight + 1)}],
+        [{PktId, M#message.payload} || {PktId, M} <- Batch2]
     ),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, S5)).
 
