@@ -189,6 +189,38 @@ t_config_override_file(Config) ->
     ?assert(is_alarm_active(?ALARM(NameVsn))),
     ok.
 
+-doc """
+A pinned plugin does not start when one of its applications is already loaded
+from outside its directory, for example at another version.
+""".
+t_rejects_conflicting_loaded_app(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    %% The demo plugin bundles `map_sets-1.1.0'. Load a `map_sets-1.0.0' from elsewhere.
+    _ = application:stop(map_sets),
+    _ = application:unload(map_sets),
+    Ebin = filename:join([emqx_cth_suite:work_dir(?FUNCTION_NAME, Config), "map_sets-1.0.0", "ebin"]),
+    ok = filelib:ensure_path(Ebin),
+    ok = file:write_file(
+        filename:join(Ebin, "map_sets.app"),
+        <<"{application, map_sets, [{vsn, \"1.0.0\"}, {modules, []}, {applications, [kernel, stdlib]}]}.\n">>
+    ),
+    true = code:add_patha(Ebin),
+    on_exit(fun() ->
+        _ = application:unload(map_sets),
+        code:del_path(Ebin)
+    end),
+    ok = application:load(map_sets),
+    set_pinned([NameVsn]),
+    ?assertMatch(
+        {error, #{msg := "plugin_app_loaded_outside_package", name := map_sets}},
+        emqx_plugins:start_pinned(NameVsn)
+    ),
+    ?assertNot(is_app_running(?APP_NAME)),
+    ?assertEqual({ok, "1.0.0"}, application:get_key(map_sets, vsn)),
+    ok = boot(),
+    ?assert(is_alarm_active(?ALARM(NameVsn))),
+    ok.
+
 -doc "Lifecycle operations on a pinned name are refused, and calls from peers are skipped.".
 t_lifecycle_refusals(Config) ->
     NameVsn = ?config(name_vsn, Config),
@@ -309,10 +341,12 @@ t_cluster_mixed_versions(Config) ->
     %% The install dirs are outside the node work dirs, which must start empty.
     InstallDir1 = packages_dir(WorkDir, "node1"),
     InstallDir2 = packages_dir(WorkDir, "node2"),
-    #{name_vsn := OldNameVsn} = get_package(?OLD_VSN, InstallDir1),
+    #{name_vsn := OldNameVsn, package := OldPackage} = get_package(?OLD_VSN, InstallDir1),
     #{name_vsn := NewNameVsn, package := NewPackage} =
         get_package(?NEW_VSN, packages_dir(WorkDir, "pkgs")),
     ok = extract(NewPackage, InstallDir2),
+    %% Node 2 still holds the cluster-managed version from before it pinned the name.
+    ok = extract(OldPackage, InstallDir2),
     Apps = fun(InstallDir, Pinned) ->
         [
             emqx,
@@ -365,6 +399,11 @@ t_cluster_mixed_versions(Config) ->
             }
         ],
         lists:sort(fun(#{rel_vsn := A}, #{rel_vsn := B}) -> A =< B end, Listed)
+    ),
+    %% Node 2 ignores the retained cluster-managed version, so it does not report it.
+    ?assertEqual(
+        [],
+        ?ON(N2, element(2, emqx_mgmt_api_plugins:describe_package(OldNameVsn)))
     ),
     %% A plugin that only node 2 runs is managed on node 2.
     ?assertMatch(
