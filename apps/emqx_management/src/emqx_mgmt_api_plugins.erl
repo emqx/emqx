@@ -935,8 +935,11 @@ do_update_plugin_config_v4(NameVsn, AvroJsonMap) ->
 -spec ensure_existed(name_vsn()) -> ok | {error, term()}.
 ensure_existed(NameVsn) ->
     case emqx_plugins:ensure_installed(NameVsn) of
-        ok -> ok;
-        {error, _} -> {error, {plugin_error, <<"Plugin Not Found">>}}
+        ok ->
+            _ = emqx_plugins:publish_state(NameVsn),
+            ok;
+        {error, _} ->
+            {error, {plugin_error, <<"Plugin Not Found">>}}
     end.
 
 %% for RPC plugin sync
