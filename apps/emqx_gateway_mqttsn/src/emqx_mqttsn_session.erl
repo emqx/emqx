@@ -33,12 +33,13 @@
     takeover/1,
     resume/2,
     resume_clientinfo/2,
+    disconnect/2,
     enqueue/3
 ]).
 
 -type session() :: #{
     registry := emqx_mqttsn_registry:registry(),
-    session := emqx_session:session()
+    session := emqx_session_mem:session()
 }.
 
 -export_type([session/0]).
@@ -109,6 +110,9 @@ takeover(_Session = #{session := Sess}) ->
 resume(ClientInfo, Session = #{session := Sess}) ->
     Session#{session := emqx_session_mem:resume(ClientInfo, Sess)}.
 
+disconnect(ConnInfo, Session = #{session := S}) ->
+    wrap_result(emqx_session_mem:disconnect(S, ConnInfo), Session).
+
 -spec resume_clientinfo(
     emqx_types:clientinfo(),
     emqx_types:clientinfo()
@@ -130,9 +134,8 @@ resume_clientinfo(NewClientInfo, OldClientInfo) ->
     ],
     maps:merge(NewClientInfo, maps:with(PreservedKeys, OldClientInfo)).
 
-replay(ClientInfo, Session = #{session := Sess}) ->
-    {ok, Replies, NSess} = emqx_session_mem:replay(ClientInfo, Sess),
-    {ok, Replies, Session#{session := NSess}}.
+replay(ClientInfo, Session = #{session := S}) ->
+    wrap_result(emqx_session_mem:replay(ClientInfo, S), Session).
 
 enqueue(ClientInfo, Delivers, Session = #{session := Sess}) ->
     Msgs = emqx_session:enrich_delivers(ClientInfo, Delivers, Sess),
@@ -145,11 +148,11 @@ enqueue(ClientInfo, Delivers, Session = #{session := Sess}) ->
 wrap_result({ok, S}, Session) ->
     {ok, Session#{session := S}};
 %% for publish / pubrec / pubcomp / deliver
-wrap_result({ok, ResultReplies, S}, Session) ->
-    {ok, ResultReplies, Session#{session := S}};
+wrap_result({OkEffects, ResultReplies, S}, Session) ->
+    {OkEffects, ResultReplies, Session#{session := S}};
 %% for puback / handle_timeout
-wrap_result({ok, Msgs, Replies, S}, Session) ->
-    {ok, Msgs, Replies, Session#{session := S}};
+wrap_result({OkEffects, Msgs, Replies, S}, Session) ->
+    {OkEffects, Msgs, Replies, Session#{session := S}};
 %% for any errors
 wrap_result({error, Reason}, _Session) ->
     {error, Reason}.
