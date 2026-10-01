@@ -175,6 +175,15 @@ fields(protocol) ->
                     default => ?DEFAULT_MAX_PAYLOAD,
                     desc => ?DESC(max_payload_size)
                 }
+            )},
+        {max_control_line,
+            sc(
+                non_neg_integer(),
+                #{
+                    default => ?DEFAULT_MAX_CONTROL_LINE,
+                    validator => fun validate_max_control_line/1,
+                    desc => ?DESC(max_control_line)
+                }
             )}
     ];
 fields(tcp_ws_listeners) ->
@@ -886,3 +895,8 @@ jwt_resolver_union_member_selector({value, V0}) ->
                 expected => "memory | {type = memory, ...}"
             })
     end.
+
+validate_max_control_line(Size) when Size >= 1024 ->
+    ok;
+validate_max_control_line(_Size) ->
+    {error, #{reason => max_control_line_too_small, minimum => 1024}}.
