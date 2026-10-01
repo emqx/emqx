@@ -341,22 +341,20 @@ t_plugins(_Config) ->
     ok.
 
 -doc """
-A plugin in `node.pinned_plugins` is listed with the pinned marker, can be
-stopped and started on this node, and every other lifecycle request returns
-409 `PLUGIN_PINNED`. Cluster calls from peers are skipped.
+A plugin in `node.pinned_plugins` is listed with the pinned marker, and every
+lifecycle request, start and stop included, returns 409 `PLUGIN_PINNED`. Cluster calls from peers are skipped.
 """.
 t_pinned_plugin(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = list_to_binary(filename:basename(PackagePath, ?PACKAGE_SUFFIX)),
     OtherVsn = <<?EMQX_PLUGIN_TEMPLATE_NAME, "-9.9.9">>,
-    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
-    ok = filelib:ensure_dir(Tar),
-    {ok, _} = file:copy(PackagePath, Tar),
+    InstallDir = emqx_plugins_fs:install_dir(),
+    ok = filelib:ensure_path(InstallDir),
+    ok = erl_tar:extract(PackagePath, [compressed, {cwd, InstallDir}]),
     emqx_config:put([node, pinned_plugins], [NameVsn]),
     on_exit(fun() ->
         _ = emqx_plugins:stop_pinned(NameVsn),
         emqx_config:put([node, pinned_plugins], []),
-        application:unset_env(emqx_plugins, pinned_plugins_stopped),
         emqx_plugins:put_configured([]),
         _ = emqx_plugins:ensure_uninstalled(NameVsn),
         _ = emqx_plugins:delete_package(NameVsn)
@@ -374,17 +372,6 @@ t_pinned_plugin(_Config) ->
         describe_plugin(NameVsn)
     ),
     ?assertMatch([#{<<"pinned">> := true}], list_plugins()),
-    %% Stop and start act on this node only.
-    {ok, []} = update_plugin(NameVsn, "stop"),
-    ?assertMatch(
-        #{<<"running_status">> := [#{<<"status">> := <<"stopped">>}]},
-        describe_plugin(NameVsn)
-    ),
-    {ok, []} = update_plugin(NameVsn, "start"),
-    ?assertMatch(
-        #{<<"running_status">> := [#{<<"status">> := <<"running">>}]},
-        describe_plugin(NameVsn)
-    ),
     %% The config is readable.
     ?assertMatch(
         {200, #{<<"hostname">> := <<"localhost">>}},
@@ -393,6 +380,8 @@ t_pinned_plugin(_Config) ->
     %% Every other operation is refused.
     Refused = [
         {delete, ["plugins", NameVsn], ""},
+        {put, ["plugins", NameVsn, "stop"], ""},
+        {put, ["plugins", NameVsn, "start"], ""},
         {put, ["plugins", OtherVsn, "stop"], ""},
         {put, ["plugins", NameVsn, "config"], #{<<"port">> => 1}},
         {post, ["plugins", NameVsn, "move"], #{<<"position">> => <<"front">>}},

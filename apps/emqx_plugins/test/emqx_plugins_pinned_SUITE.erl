@@ -37,7 +37,9 @@ init_per_suite(Config) ->
         #{work_dir => WorkDir}
     ),
     ok = filelib:ensure_path(InstallDir),
-    #{name_vsn := NameVsn, package := Package} = get_package(?VSN, InstallDir),
+    %% The package file stays outside the install dir: a pinned plugin runs from
+    %% the extracted directory only.
+    #{name_vsn := NameVsn, package := Package} = get_package(?VSN, packages_dir(WorkDir, "suite")),
     [
         {suite_apps, Apps},
         {install_dir, InstallDir},
@@ -50,12 +52,12 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
+    ok = extract(?config(package, Config), ?config(install_dir, Config)),
     Config.
 
 end_per_testcase(_TestCase, Config) ->
     NameVsn = ?config(name_vsn, Config),
     _ = application:stop(?APP_NAME),
-    application:unset_env(emqx_plugins, pinned_plugins_stopped),
     set_pinned([]),
     emqx_plugins:put_configured([]),
     _ = emqx_plugins:purge(NameVsn),
@@ -76,7 +78,7 @@ t_setting_parse(_Config) ->
     ),
     ?assertEqual([<<"a-1.0">>, <<"b-2">>], Convert([<<" a-1.0 ">>, <<"b-2">>])),
     ?assertEqual([], Convert(<<"">>)),
-    Validate = fun emqx_conf_schema:validate_pinned_plugins/1,
+    Validate = fun emqx_plugins_utils:validate_pinned_plugins/1,
     ?assertEqual(ok, Validate([])),
     ?assertEqual(ok, Validate([<<"a-1.0">>, <<"b-1.0">>])),
     ?assertMatch(
@@ -132,13 +134,10 @@ t_boot_starts_without_states(Config) ->
     ?assertNot(filelib:is_regular(emqx_plugins_fs:config_file_path(NameVsn))),
     ok.
 
--doc "A missing pinned package raises an alarm, is never fetched from peers, and the boot continues.".
+-doc "A pinned plugin that is not extracted raises an alarm, is never fetched from peers, and the boot continues.".
 t_missing_package_no_peer_fetch(Config) ->
     NameVsn = ?config(name_vsn, Config),
-    Package = ?config(package, Config),
-    Aside = Package ++ ".aside",
-    ok = file:rename(Package, Aside),
-    on_exit(fun() -> file:rename(Aside, Package) end),
+    ok = emqx_plugins:purge(NameVsn),
     ok = meck:new(emqx_plugins_proto_v2, [passthrough, no_history]),
     ok = meck:expect(emqx_plugins_proto_v2, get_tar, fun(_, _, _) -> {badrpc, nodedown} end),
     ok = meck:expect(emqx_plugins_proto_v2, get_config, fun(_, _, _, _, _) ->
@@ -158,8 +157,8 @@ t_missing_package_no_peer_fetch(Config) ->
     ?assertEqual(0, meck:num_calls(emqx_plugins_proto_v2, get_config, '_')),
     ?assertNot(is_app_running(?APP_NAME)),
     ?assert(is_alarm_active(?ALARM(NameVsn))),
-    %% The package is back: the next start succeeds and clears the alarm.
-    ok = file:rename(Aside, Package),
+    %% The extracted directory is back: the next start succeeds and clears the alarm.
+    ok = extract(?config(package, Config), ?config(install_dir, Config)),
     ok = boot(),
     ?assert(is_app_running(?APP_NAME)),
     ?assertNot(is_alarm_active(?ALARM(NameVsn))),
@@ -244,32 +243,32 @@ t_lifecycle_refusals(Config) ->
     ?assertEqual([], emqx:get_config([plugins, states])),
     ok.
 
--doc "A temporary stop holds through later plugin starts and ends with an explicit start.".
-t_temporary_stop(Config) ->
+-doc """
+The CLI stops and starts a pinned plugin on this node. A stop lasts until the
+node starts all plugins again.
+""".
+t_cli_stop_start(Config) ->
     NameVsn = ?config(name_vsn, Config),
+    Name = binary_to_list(NameVsn),
     set_pinned([NameVsn]),
     ok = boot(),
-    ok = emqx_plugins:stop_pinned(NameVsn),
+    _ = cli(["stop", Name]),
     ?assertNot(is_app_running(?APP_NAME)),
     %% Still visible and still reported as enabled.
     {ok, Stopped} = emqx_plugins:describe(NameVsn),
     ?assertMatch(#{pinned := true, config_status := enabled}, Stopped),
     ?assertNotEqual(running, maps:get(running_status, Stopped)),
-    %% A plugin start after a cluster join does not start it again.
-    ok = emqx_plugins:ensure_started(),
-    ?assertNot(is_app_running(?APP_NAME)),
     %% A replicated `plugins.states' change for the same name does not start it.
     emqx_plugins:put_configured([#{name_vsn => NameVsn, enable => false}]),
     emqx_plugins:put_configured([#{name_vsn => NameVsn, enable => true}]),
     ?assertNot(is_app_running(?APP_NAME)),
-    %% The CLI starts, stops, and restarts it on this node.
-    Name = binary_to_list(NameVsn),
     _ = cli(["start", Name]),
     ?assert(is_app_running(?APP_NAME)),
-    _ = cli(["stop", Name]),
-    ?assertNot(is_app_running(?APP_NAME)),
     _ = cli(["restart", Name]),
     ?assert(is_app_running(?APP_NAME)),
+    %% The next start of all plugins, at boot or after a cluster join, starts it again.
+    _ = cli(["stop", Name]),
+    ?assertNot(is_app_running(?APP_NAME)),
     ok = emqx_plugins:ensure_started(),
     ?assert(is_app_running(?APP_NAME)),
     ok.
@@ -311,7 +310,9 @@ t_cluster_mixed_versions(Config) ->
     InstallDir1 = packages_dir(WorkDir, "node1"),
     InstallDir2 = packages_dir(WorkDir, "node2"),
     #{name_vsn := OldNameVsn} = get_package(?OLD_VSN, InstallDir1),
-    #{name_vsn := NewNameVsn} = get_package(?NEW_VSN, InstallDir2),
+    #{name_vsn := NewNameVsn, package := NewPackage} =
+        get_package(?NEW_VSN, packages_dir(WorkDir, "pkgs")),
+    ok = extract(NewPackage, InstallDir2),
     Apps = fun(InstallDir, Pinned) ->
         [
             emqx,
@@ -401,7 +402,7 @@ t_cluster_mixed_versions(Config) ->
     ?assertEqual({204}, UpdatePlugin(start)),
     AssertHealthy(started),
 
-    %% A temporary stop on node 2 ends when node 2 restarts.
+    %% A CLI stop on node 2 ends when node 2 restarts.
     ok = ?ON(N2, emqx_plugins:stop_pinned(NewNameVsn)),
     ?assertEqual([], ?ON(N2, emqx_plugins:list_active())),
     [N2] = emqx_cth_cluster:restart(Spec2),
@@ -415,6 +416,9 @@ t_cluster_mixed_versions(Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+extract(Package, InstallDir) ->
+    erl_tar:extract(Package, [compressed, {cwd, InstallDir}]).
 
 get_package(Vsn, Dir) ->
     emqx_plugins_test_helpers:get_demo_plugin_package(#{
