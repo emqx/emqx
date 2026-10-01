@@ -2263,6 +2263,7 @@ handle_deliver(
     Channel = #channel{
         ctx = Ctx,
         conn_state = ConnState,
+        takeover = false,
         session = Session,
         clientinfo = ClientInfo = #{clientid := ClientId}
     }
@@ -2290,7 +2291,7 @@ handle_deliver(
         clientinfo = #{clientid := ClientId}
     }
 ) when
-    Takeover == true; Resuming == true
+    Takeover orelse Resuming
 ->
     NPendings = lists:append(
         Pendings,
