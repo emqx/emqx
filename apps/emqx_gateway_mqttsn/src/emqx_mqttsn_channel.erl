@@ -2398,7 +2398,6 @@ handle_timeout(
         {OkEffects, Publishes, Timeout, NSession} ->
             Channel1 = reset_timer(TimerName, Timeout, Channel#channel{session = NSession}),
             NChannel = apply_session_effects(OkEffects, Channel1),
-            %% XXX: These replay messages should awaiting register acked?
             handle_out(publish, Publishes, NChannel)
     end;
 handle_timeout(
