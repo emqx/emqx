@@ -1242,6 +1242,50 @@ t_enqueue_qos0(_) ->
     ),
     ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session1)).
 
+-doc "Congested dequeue does not arm delivery retries / decongestion arms even under empty queue.".
+t_decongestion_arms_delivery_retry_empty_queue(_) ->
+    S0 = session(#{retry_interval => 1000, inflight => emqx_inflight:new(2)}),
+    S1 = emqx_session_mem:enqueue(clientinfo(), enrich([delivery(?QOS_1, <<"q1">>)], S0), S0),
+    {ok, [_], S2} = emqx_session_mem:dequeue(clientinfo(), [congested], S1),
+    ?assertMatch(
+        {{set_timer, retry_delivery, 1000}, [], _},
+        emqx_session_mem:handle_signal(clientinfo(), {connection, decongested, #{}}, S2)
+    ).
+
+-doc "Decongestion restores delivery retries when the queue is blocked by full inflight.".
+t_decongestion_arms_delivery_retry_blocked_queue(_) ->
+    S0 = session(#{retry_interval => 1000, inflight => emqx_inflight:new(1)}),
+    Messages = enrich([delivery(?QOS_1, <<"q1">>), delivery(?QOS_2, <<"q2">>)], S0),
+    S1 = emqx_session_mem:enqueue(clientinfo(), Messages, S0),
+    {ok, [_], S2} = emqx_session_mem:dequeue(clientinfo(), [congested], S1),
+    ?assertMatch(
+        {{set_timer, retry_delivery, 1000}, [], _},
+        emqx_session_mem:handle_signal(clientinfo(), {connection, decongested, #{}}, S2)
+    ).
+
+-doc "Decongestion arms delivery retries alongside continuation of queued QoS0 batches.".
+t_decongestion_arms_delivery_retry_with_continuation(_) ->
+    S0 = session(#{
+        retry_interval => 1000,
+        inflight => emqx_inflight:new(1),
+        mqueue => mqueue(#{max_len => 0, store_qos0 => true})
+    }),
+    Messages = enrich(
+        lists:append(
+            [delivery(?QOS_1, <<"q1">>)],
+            [delivery(?QOS_0, <<"q0">>) || _ <- lists:seq(1, ?DEFAULT_BATCH_N + 1)]
+        ),
+        S0
+    ),
+    S1 = emqx_session_mem:enqueue(clientinfo(), Messages, S0),
+    {ok, [_], S2} = emqx_session_mem:dequeue(clientinfo(), [congested], S1),
+    {Effects, Publishes, _S3} =
+        emqx_session_mem:handle_signal(clientinfo(), {connection, decongested, #{}}, S2),
+    ?assertEqual(?DEFAULT_BATCH_N, length(Publishes)),
+    ?assertEqual(
+        [{set_timer, retry_delivery, 1000}, {set_timer, ?RETRY_DEQUEUE_TIMER, 1}], Effects
+    ).
+
 -doc "A QoS0-only delivery does not arm delivery retries when inflight is empty.".
 t_deliver_qos0_does_not_start_delivery_retry(_) ->
     Session = session(#{retry_interval => 1000}),

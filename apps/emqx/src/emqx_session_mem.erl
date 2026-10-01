@@ -724,6 +724,7 @@ Current dequeue policy depends on congestion status:
 """.
 dequeue(_ClientInfo, _, _Congested = true, S, 0, _Budget, Acc, Q, Inflight, Limiter, PktId) ->
     %% Connection congested + batch consumed inflight allowance, time to stop.
+    %% Delivery retry is deliberately not scheduled.
     reply(ok, S, Acc, Q, Inflight, Limiter, PktId);
 dequeue(_ClientInfo, _, _Congested, S, _Allowance, _Budget = 0, Acc, Q, Inflight, Limiter, PktId) ->
     %% Batch consumed whole budget, time to stop.
@@ -803,8 +804,11 @@ dequeue(ClientInfo, Zone, Congested, S, Allowance, Budget, Acc0, Q0, Inflight0, 
                 end
         end
     else
+        _EmptyOrBlocked when Congested ->
+            reply(ok, S, Acc0, Q0, Inflight0, L0, PktId);
         _EmptyOrBlocked ->
-            reply(ok, S, Acc0, Q0, Inflight0, L0, PktId)
+            Effect = delivery_effect(S, Inflight0),
+            reply(Effect, S, Acc0, Q0, Inflight0, L0, PktId)
     end.
 
 boolean_to_int(true) -> 1;
@@ -822,12 +826,12 @@ dequeue_next(_, Q) ->
     end.
 
 finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
-    OkEffect =
+    Effect =
         case emqx_mqueue:is_empty(Q) of
-            true -> ok;
+            true -> delivery_effect(S0, Inflight);
             false -> reschedule_dequeue_timer_effect()
         end,
-    reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId).
+    reply(Effect, S0, Acc, Q, Inflight, Limiter, PktId).
 
 reschedule_dequeue_timer_effect() ->
     {set_timer, ?DEQUEUE_RETRY_TIMER, 1}.
@@ -943,7 +947,9 @@ deliver(
             {false, Limiter, Reason} ->
                 %% NOTE
                 %% Stopping at over-limit QoS1/2 and postpone the remaining batch,
-                %% including QoS0.
+                %% including QoS0. Delivery retries are not scheduled deliberately:
+                %% dequeue will schedule it once it pushes out complete under-limit
+                %% batch.
                 Q = enqueue_messages(ClientInfo, [Msg | More], Q0),
                 Effect = retry_dequeue_effect(Reason, Q),
                 reply(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
@@ -1062,7 +1068,11 @@ handle_info(_ClientInfo, _Msg, Session) ->
 -spec handle_signal(clientinfo(), term(), session()) ->
     {ok, session()} | {ok | effects(), replies(), session()}.
 handle_signal(ClientInfo, {connection, decongested, _Info}, Session) ->
-    dequeue(ClientInfo, [], Session);
+    %% Restart delivery retries even if dequeue has no queued messages to process.
+    {Effects, Publishes, NSession = #session{inflight = NInflight}} =
+        dequeue(ClientInfo, [], Session),
+    RetryEffect = delivery_effect(NSession, NInflight),
+    {combine_effects(RetryEffect, Effects), Publishes, NSession};
 handle_signal(_ClientInfo, _Signal, Session) ->
     {ok, Session}.
 
@@ -1303,6 +1313,7 @@ append(L1, L2) -> L1 ++ L2.
 -spec combine_effects(ok | effect(), ok | effects()) -> ok | effects().
 combine_effects(ok, OkEffect) -> OkEffect;
 combine_effects(OkEffect, ok) -> OkEffect;
+combine_effects(Effect, Effect) -> Effect;
 combine_effects(E1, Effects) when is_list(Effects) -> [E1 | Effects];
 combine_effects(E1, E2) -> [E1, E2].
 
