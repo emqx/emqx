@@ -584,21 +584,31 @@ do_check_prepares(_) ->
 
 -spec validate_table_existence([pid()], binary()) -> ok | {error, undefined_table}.
 validate_table_existence([WorkerPid | Rest], SQL) ->
-    try ecpool_worker:client(WorkerPid) of
-        {ok, Conn} ->
-            case epgsql:parse2(Conn, "", SQL, []) of
-                {error, {_, _, _, undefined_table, _, _}} ->
-                    {error, undefined_table};
-                Res when is_tuple(Res) andalso ok == element(1, Res) ->
-                    ok;
-                Res ->
-                    ?tp(postgres_connector_bad_parse2, #{result => Res}),
-                    validate_table_existence(Rest, SQL)
-            end;
-        _ ->
+    Timeout = emqx_resource_pool:health_check_timeout(),
+    try
+        ecpool_worker:exec(
+            WorkerPid,
+            fun(Conn) ->
+                Res = epgsql:parse2(Conn, "", SQL, []),
+                _ = epgsql:sync(Conn),
+                Res
+            end,
+            Timeout
+        )
+    of
+        {error, {_, _, _, undefined_table, _, _}} ->
+            {error, undefined_table};
+        Res when is_tuple(Res) andalso ok == element(1, Res) ->
+            ok;
+        Res ->
+            ?tp(postgres_connector_bad_parse2, #{result => Res}),
             validate_table_existence(Rest, SQL)
     catch
         exit:{noproc, _} ->
+            validate_table_existence(Rest, SQL);
+        exit:{timeout, _} ->
+            validate_table_existence(Rest, SQL);
+        exit:timeout ->
             validate_table_existence(Rest, SQL)
     end;
 validate_table_existence([], _SQL) ->
