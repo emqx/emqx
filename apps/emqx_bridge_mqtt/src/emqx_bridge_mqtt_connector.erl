@@ -280,12 +280,12 @@ on_remove_channel(
     end.
 
 on_get_channel_status(
-    _ResId,
+    ResId,
     ChannelId,
     #{
         ?available_clientid_info := AvailableClientidInfo,
         installed_channels := Channels
-    } = _State
+    } = State
 ) when is_map_key(ChannelId, Channels) ->
     case AvailableClientidInfo of
         [] ->
@@ -293,9 +293,28 @@ on_get_channel_status(
             %% alarm is raised.
             {?status_disconnected, {unhealthy_target, <<"No clientids assigned to this node">>}};
         [_ | _] ->
-            %% The channel should be ok as long as the MQTT client is ok
-            ?status_connected
+            %% The channel is only healthy when the connector can actually reach the
+            %% remote broker.  Reporting `connected' from the mere presence of a
+            %% clientid would make the resource manager resume the channel's buffer
+            %% workers while the pool has no connection, and the retry that follows
+            %% would fail against the dead pool.
+            channel_status(on_get_status(ResId, State))
     end.
+
+%% A channel whose pool has no connected client is `connecting', not `disconnected':
+%% a disconnected channel keeps the buffer workers from handing queries to the
+%% connector, and the cached channel status is only refreshed by the next channel
+%% health check, which can be later than `request_ttl'.  `connecting' lets those
+%% queries be retried until `request_ttl' while the manager still does not resume the
+%% channel's buffer workers (that requires `connected').  A status carrying a reason is
+%% translated as well, so a branch whose health check reports `{Status, Reason}' keeps
+%% the same behavior.
+channel_status({?status_disconnected, Reason}) ->
+    {?status_connecting, Reason};
+channel_status(?status_disconnected) ->
+    ?status_connecting;
+channel_status(Status) ->
+    Status.
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -489,10 +508,11 @@ classify_reply(Reply = #{reason_code := ?RC_PACKET_IDENTIFIER_IN_USE}) ->
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
 
-classify_error(disconnected = Reason) ->
-    {recoverable_error, Reason};
 classify_error(ecpool_empty) ->
     {recoverable_error, disconnected};
+classify_error(no_such_pool) ->
+    %% the pool is being (re)started by the resource manager.
+    {recoverable_error, no_such_pool};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error({shutdown, {frame_parse_error, _}}) ->
@@ -501,18 +521,48 @@ classify_error({frame_parse_error, _}) ->
     {unrecoverable_error, non_mqtt_data_explanation()};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
-classify_error(shutdown = Reason) ->
-    {recoverable_error, Reason};
-classify_error(closed = Reason) ->
-    {recoverable_error, Reason};
-classify_error(tcp_closed = Reason) ->
-    {recoverable_error, Reason};
-classify_error(einval = Reason) ->
-    {recoverable_error, Reason};
 classify_error({unrecoverable_error, _Reason} = Error) ->
     Error;
 classify_error(Reason) ->
-    {unrecoverable_error, Reason}.
+    case is_connection_error(Reason) of
+        true ->
+            {recoverable_error, Reason};
+        false ->
+            {unrecoverable_error, Reason}
+    end.
+
+%% Reasons that mean the connection to the remote broker is gone (or was never
+%% established).  The query may still be delivered once the broker is reachable
+%% again, so they must be retried instead of being dropped.
+is_connection_error(Reason) when
+    Reason =:= disconnected;
+    Reason =:= shutdown;
+    Reason =:= closed;
+    Reason =:= einval;
+    Reason =:= enotconn;
+    Reason =:= epipe;
+    Reason =:= tcp_closed;
+    Reason =:= tcp_error;
+    Reason =:= ssl_closed;
+    Reason =:= ssl_error;
+    Reason =:= quic_closed;
+    Reason =:= quic_error;
+    Reason =:= econnaborted;
+    Reason =:= econnrefused;
+    Reason =:= econnreset;
+    Reason =:= ehostdown;
+    Reason =:= ehostunreach;
+    Reason =:= enetdown;
+    Reason =:= enetreset;
+    Reason =:= enetunreach;
+    Reason =:= etimedout;
+    Reason =:= timeout;
+    Reason =:= nxdomain;
+    Reason =:= eaddrnotavail
+->
+    true;
+is_connection_error(_) ->
+    false.
 
 on_get_status(_ResourceId, State) ->
     Pools = maps:to_list(maps:with([pool_name], State)),
