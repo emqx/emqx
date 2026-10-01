@@ -198,6 +198,9 @@ jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Method) ->
         ok ?= verify_jwt_claims_time(Claims),
         {ok, Username} ?= verify_jwt_nonce_signature(Claims, NKey, Sig, ConnInfo),
         JWTPerms = extract_jwt_permissions(Claims),
+        %% Reject unsupported permissions during CONNECT: ignoring an untranslatable deny
+        %% rule could broaden access, while reinterpreting it could change its meaning.
+        ok ?= validate_jwt_permissions(JWTPerms),
         AuthExpireAt = jwt_claims_expire_at([Claims, AccountClaims]),
         {ok, ClientInfo#{
             username => Username,
@@ -752,6 +755,29 @@ normalize_subject_list(Values) when is_list(Values) ->
     );
 normalize_subject_list(_) ->
     [].
+
+validate_jwt_permissions(Permissions) ->
+    validate_jwt_permission_actions([publish, subscribe], Permissions).
+
+validate_jwt_permission_actions([], _Permissions) ->
+    ok;
+validate_jwt_permission_actions([Action | Rest], Permissions) ->
+    Permission = maps:get(Action, Permissions, #{}),
+    Subjects = maps:get(allow, Permission, []) ++ maps:get(deny, Permission, []),
+    case validate_jwt_permission_subjects(Subjects) of
+        ok -> validate_jwt_permission_actions(Rest, Permissions);
+        {error, _} = Error -> Error
+    end.
+
+validate_jwt_permission_subjects([]) ->
+    ok;
+validate_jwt_permission_subjects([Subject | Rest]) ->
+    case emqx_nats_topic:validate_nats_subject(Subject) of
+        {ok, _HasWildcard} ->
+            validate_jwt_permission_subjects(Rest);
+        {error, _Reason} ->
+            {error, unsupported_jwt_permission_subject}
+    end.
 
 token_authenticate(Token, ClientInfo, Method) ->
     case maps:get(token, Method, undefined) of

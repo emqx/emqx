@@ -247,6 +247,64 @@ t_jwt_before_emqx_authz_after_ingress(_) ->
         ct:fail(emqx_authorize_hook_not_called)
     end.
 
+t_invalid_jwt_permission_fails_closed(_) ->
+    Topic = <<"orders/created">>,
+    Msg = emqx_message:make(<<"client">>, Topic, <<"payload">>),
+    ClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [<<"orders.>">>], deny => [<<"orders/#">>]}
+    }),
+    ?assertEqual(deny, emqx_nats_channel:authorize_publish(ClientInfo, Msg)).
+
+t_jwt_multi_level_wildcard_requires_child(_) ->
+    TestPid = self(),
+    ok = emqx_hooks:put(
+        'client.authorize',
+        {?MODULE, hook_authorize_order, [TestPid]},
+        ?HP_HIGHEST
+    ),
+    ClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [<<"foo.>">>], deny => []}
+    }),
+    ParentMsg = emqx_message:make(<<"client">>, <<"foo">>, <<"parent">>),
+    ChildMsg = emqx_message:make(<<"client">>, <<"foo/bar">>, <<"child">>),
+    ?assertEqual(deny, emqx_nats_channel:authorize_publish(ClientInfo, ParentMsg)),
+    receive
+        {emqx_authorize, Topic} -> ct:fail({unexpected_emqx_authorize, Topic})
+    after 100 ->
+        ok
+    end,
+    ?assertMatch({allow, _}, emqx_nats_channel:authorize_publish(ClientInfo, ChildMsg)),
+    receive
+        {emqx_authorize, <<"foo/bar">>} -> ok
+    after 1000 ->
+        ct:fail(emqx_authorize_hook_not_called)
+    end.
+
+t_jwt_subscription_checks_actual_filter(_) ->
+    ClientInfo = nats_authz_clientinfo(#{
+        subscribe => #{allow => [<<"foo">>], deny => []}
+    }),
+    Action = #{action_type => subscribe},
+    ?assertEqual(
+        allow,
+        emqx_nats_channel:jwt_permissions_authorize(ClientInfo, Action, <<"foo">>, <<"foo">>)
+    ),
+    ?assertEqual(
+        allow,
+        emqx_nats_channel:jwt_permissions_authorize(
+            ClientInfo, Action, emqx_topic:make_shared_record(<<"group">>, <<"foo">>), <<"foo">>
+        )
+    ),
+    ?assertEqual(
+        deny,
+        emqx_nats_channel:jwt_permissions_authorize(
+            ClientInfo,
+            Action,
+            emqx_topic:make_shared_record(<<"group">>, <<"secret/foo">>),
+            <<"foo">>
+        )
+    ).
+
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),

@@ -125,6 +125,28 @@ t_sub(_Config) ->
     ?assertEqual(Subject, emqx_nats_frame:subject(Frame)),
     ?assertEqual(Sid, emqx_nats_frame:sid(Frame)).
 
+t_queue_group_rejects_mqtt_reserved_chars(Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{}),
+    SOpts = ?config(serialize_opts, Config),
+    lists:foreach(
+        fun(QGroup) ->
+            RawSub = <<"SUB foo ", QGroup/binary, " sid-1\r\n">>,
+            ?assertError(
+                {invalid_queue_group, mqtt_reserved_char},
+                emqx_nats_frame:parse(RawSub, State)
+            ),
+            Frame = #nats_frame{
+                operation = ?OP_SUB,
+                message = #{subject => <<"foo">>, queue_group => QGroup, sid => <<"sid-1">>}
+            },
+            ?assertError(
+                {invalid_queue_group, mqtt_reserved_char},
+                emqx_nats_frame:serialize_pkt(Frame, SOpts)
+            )
+        end,
+        [<<"group/secret">>, <<"group+">>, <<"group#">>]
+    ).
+
 t_unsub(_Config) ->
     State = emqx_nats_frame:initial_parse_state(#{}),
     Sid = <<"123">>,

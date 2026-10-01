@@ -548,6 +548,7 @@ target_caps(emqx, _Group) ->
         jwt_account_expiry,
         jwt_acl_intersection,
         mixed_auth_priority,
+        mqtt_subject_translation,
         security_profile
     ];
 target_caps(nats, Group) ->
@@ -589,6 +590,18 @@ required_caps(t_jwt_account_expire_disconnect) ->
     [jwt_account_expiry];
 required_caps(t_jwt_permissions_intersection_with_acl) ->
     [jwt_auth, jwt_acl_intersection];
+required_caps(t_jwt_mqtt_reserved_permission_rejected) ->
+    [jwt_auth, mqtt_subject_translation];
+required_caps(t_jwt_mqtt_ambiguous_delivery_dropped) ->
+    [jwt_auth, mqtt_subject_translation];
+required_caps(t_jwt_queue_group_cannot_change_filter) ->
+    [jwt_auth, mqtt_subject_translation];
+required_caps(t_mqtt_wildcard_gt_requires_child) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_reserved_queue_group_rejected) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_reserved_subject_rejected) ->
+    [mqtt_subject_translation];
 required_caps(t_nkey_auth_priority_over_jwt) ->
     [jwt_auth];
 required_caps(t_nkey_auth_fallback_to_jwt) ->
@@ -1396,6 +1409,47 @@ t_subscribe_invalid_subject(Config) ->
 
     emqx_nats_client:stop(Client).
 
+t_mqtt_reserved_subject_rejected(Config) ->
+    lists:foreach(
+        fun(Subject) ->
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_sub(Client, Subject, <<"sid-1">>)
+            end),
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_pub(Client, Subject, <<"payload">>)
+            end)
+        end,
+        [
+            <<"foo.+">>,
+            <<"foo.#">>,
+            <<"foo/bar">>,
+            <<"$share.group.foo">>,
+            <<"$queue.foo">>,
+            <<"$exclusive.foo">>
+        ]
+    ).
+
+t_mqtt_reserved_queue_group_rejected(Config) ->
+    lists:foreach(
+        fun(QGroup) ->
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_queue_sub(Client, <<"foo">>, QGroup, <<"sid-1">>)
+            end)
+        end,
+        [<<"group/secret">>, <<"group+">>, <<"group#">>]
+    ).
+
+assert_raw_subject_rejected(Config, Send) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = Send(Client),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+    emqx_nats_client:stop(Client).
+
 t_publish(Config) ->
     ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -1517,6 +1571,34 @@ t_receive_message(Config) ->
         },
         Msg
     ),
+    emqx_nats_client:stop(Client).
+
+t_mqtt_wildcard_gt_requires_child(Config) ->
+    lists:foreach(
+        fun({Filter, Parent, Child}) ->
+            assert_mqtt_wildcard_gt_requires_child(Config, Filter, Parent, Child)
+        end,
+        [
+            {<<"foo.>">>, <<"foo">>, <<"foo/bar">>},
+            {<<"foo.*.>">>, <<"foo/bar">>, <<"foo/bar/baz">>}
+        ]
+    ).
+
+assert_mqtt_wildcard_gt_requires_child(Config, Filter, Parent, Child) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, Filter, <<"sid-1">>),
+    recv_ok_frame(Client),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, Parent, <<"parent">>)),
+    assert_no_message(Client, emqx_nats_topic:mqtt_to_nats(Parent), 1000),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, Child, <<"child">>)),
+    Message = recv_non_ping_frame(Client),
+    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+    ?assertEqual(emqx_nats_topic:mqtt_to_nats(Child), emqx_nats_frame:subject(Message)),
+    ?assertEqual(<<"child">>, emqx_nats_frame:payload(Message)),
     emqx_nats_client:stop(Client).
 
 't_receive_message_with_wildcard_combined_*_>'(Config) ->
@@ -2283,6 +2365,80 @@ t_jwt_permissions_intersection_with_acl(Config) ->
     recv_ok_frame(Client),
     emqx_nats_client:stop(Client).
 
+t_jwt_mqtt_reserved_permission_rejected(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_mqtt_reserved_permission_rejected('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_mqtt_reserved_permission_rejected(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"deny">> => [<<"foo/#">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_queue_group_cannot_change_filter(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_queue_group_cannot_change_filter('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_queue_group_cannot_change_filter(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"allow">> => [<<"foo">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    ok = send_raw_queue_sub(Client, <<"foo">>, <<"group/secret">>, <<"sid-1">>),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_mqtt_ambiguous_delivery_dropped(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_mqtt_ambiguous_delivery_dropped('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_mqtt_ambiguous_delivery_dropped(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"allow">> => [<<"foo.*">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo.*">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/a.b">>, <<"ambiguous">>)),
+    assert_no_message(Client, <<"foo.a.b">>, 1000),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/bar">>, <<"valid">>)),
+    {ok, [Message]} = emqx_nats_client:receive_message(Client),
+    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+    ?assertEqual(<<"foo.bar">>, emqx_nats_frame:subject(Message)),
+    ?assertEqual(<<"valid">>, emqx_nats_frame:payload(Message)),
+    emqx_nats_client:stop(Client).
+
 t_publish_authz(init, Config) ->
     auth_setup(Config);
 t_publish_authz('end', Config) ->
@@ -2619,6 +2775,10 @@ send_raw_sub(Client, Subject, Sid) ->
         Sid,
         "\r\n"
     ]),
+    emqx_nats_client:send_invalid_frame(Client, Data).
+
+send_raw_queue_sub(Client, Subject, QGroup, Sid) ->
+    Data = iolist_to_binary(["SUB ", Subject, " ", QGroup, " ", Sid, "\r\n"]),
     emqx_nats_client:send_invalid_frame(Client, Data).
 
 send_raw_pub(Client, Subject, Payload) ->

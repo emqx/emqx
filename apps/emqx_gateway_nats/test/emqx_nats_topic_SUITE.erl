@@ -44,16 +44,34 @@ t_nats_to_mqtt(_) ->
     ?assertEqual(<<"foo/+/bar">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar">>)),
     ?assertEqual(<<"+/bar/baz">>, emqx_nats_topic:nats_to_mqtt(<<"*.bar.baz">>)),
     ?assertEqual(<<"foo/bar/+">>, emqx_nats_topic:nats_to_mqtt(<<"foo.bar.*">>)),
-    ?assertEqual(<<"foo/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.>">>)),
-    ?assertEqual(<<"#">>, emqx_nats_topic:nats_to_mqtt(<<">">>)),
+    ?assertEqual(<<"foo/+/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.>">>)),
+    ?assertEqual(<<"+/#">>, emqx_nats_topic:nats_to_mqtt(<<">">>)),
 
     %% Multiple wildcards
     ?assertEqual(<<"+/+/+">>, emqx_nats_topic:nats_to_mqtt(<<"*.*.*">>)),
     ?assertEqual(<<"foo/+/bar/+">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.*">>)),
-    ?assertEqual(<<"foo/+/bar/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.>">>)),
+    ?assertEqual(<<"foo/+/bar/+/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.>">>)),
 
-    %% Edge cases
-    ?assertEqual(<<>>, emqx_nats_topic:nats_to_mqtt(<<"">>)).
+    %% Unsupported subjects
+    ?assertError({invalid_subject, empty_subject}, emqx_nats_topic:nats_to_mqtt(<<>>)),
+    lists:foreach(
+        fun(Subject) ->
+            ?assertError(
+                {invalid_subject, mqtt_reserved_char},
+                emqx_nats_topic:nats_to_mqtt(Subject)
+            )
+        end,
+        [<<"foo.+">>, <<"foo.#">>, <<"foo/bar">>]
+    ),
+    lists:foreach(
+        fun(Subject) ->
+            ?assertError(
+                {invalid_subject, mqtt_reserved_prefix},
+                emqx_nats_topic:nats_to_mqtt(Subject)
+            )
+        end,
+        [<<"$share.group.foo">>, <<"$queue.foo">>, <<"$exclusive.foo">>]
+    ).
 
 t_mqtt_to_nats(_) ->
     %% Basic conversion
@@ -107,6 +125,24 @@ t_validate_nats_subject(_) ->
     ),
     ?assertEqual(
         {error, special_chars_in_middle}, emqx_nats_topic:validate_nats_subject(<<"foo.>bar">>)
+    ),
+    lists:foreach(
+        fun(Subject) ->
+            ?assertEqual(
+                {error, mqtt_reserved_char},
+                emqx_nats_topic:validate_nats_subject(Subject)
+            )
+        end,
+        [<<"foo.+">>, <<"foo.#">>, <<"foo/bar">>]
+    ),
+    lists:foreach(
+        fun(Subject) ->
+            ?assertEqual(
+                {error, mqtt_reserved_prefix},
+                emqx_nats_topic:validate_nats_subject(Subject)
+            )
+        end,
+        [<<"$share.group.foo">>, <<"$queue.foo">>, <<"$exclusive.foo">>]
     ),
 
     ?assertEqual(
