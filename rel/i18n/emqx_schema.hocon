@@ -378,7 +378,9 @@ fields_listeners_ws.label:
 """HTTP websocket listeners"""
 
 mqtt_retry_interval.desc:
-"""Retry interval for QoS 1/2 message delivering."""
+"""Interval between retransmissions of unacknowledged QoS 1/2 messages while connected.
+Set to `0` or `infinity` to disable periodic retransmissions.
+Unacknowledged messages are still replayed when the session resumes."""
 
 mqtt_retry_interval.label:
 """Retry Interval"""
