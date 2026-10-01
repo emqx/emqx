@@ -305,7 +305,6 @@ prune_expired(Allowed) ->
 %% @doc Start all configured plugins are started.
 -spec ensure_installed() -> ok.
 ensure_installed() ->
-    ok = ensure_pinned_installed(),
     Fun = fun(#{name_vsn := NameVsn}) ->
         case ensure_installed(NameVsn) of
             ok -> [];
@@ -717,15 +716,10 @@ restart(NameVsn) ->
         end
     end).
 
--doc """
-Start a pinned plugin on this node.
-
-It also ends a temporary stop made by `stop_pinned/1`.
-""".
+-doc "Start a pinned plugin on this node. The CLI calls it.".
 -spec start_pinned(name_vsn()) -> ok | {error, term()}.
 start_pinned(NameVsn) ->
     with_pinned_name_vsn(NameVsn, fun() ->
-        ok = emqx_plugins_pinned:unmark_stopped(NameVsn),
         case ?CATCH(do_start_pinned(NameVsn)) of
             ok ->
                 emqx_plugins_pinned:clear_alarm(NameVsn);
@@ -736,17 +730,14 @@ start_pinned(NameVsn) ->
     end).
 
 -doc """
-Stop a pinned plugin on this node until the node restarts.
+Stop a pinned plugin on this node. The CLI calls it.
 
-The stop is not written to any config. Other plugin starts on this node, for
-example after a cluster join, do not start the plugin again.
+The stop is not written to any config. The next start of all plugins, at boot
+or after a cluster join, starts the plugin again.
 """.
 -spec stop_pinned(name_vsn()) -> ok | {error, term()}.
 stop_pinned(NameVsn) ->
-    with_pinned_name_vsn(NameVsn, fun() ->
-        ok = emqx_plugins_pinned:mark_stopped(NameVsn),
-        ?CATCH(do_ensure_stopped(NameVsn))
-    end).
+    with_pinned_name_vsn(NameVsn, fun() -> ?CATCH(do_ensure_stopped(NameVsn)) end).
 
 %% @doc Return Name-Vsn list of currently running plugins.
 -spec list_active() -> [binary()].
@@ -1023,54 +1014,41 @@ do_ensure_started(NameVsn) ->
 %%--------------------------------------------------------------------
 %% Pinned plugins
 
-ensure_pinned_installed() ->
-    lists:foreach(
-        fun(NameVsn) ->
-            case ?CATCH(install_pinned(NameVsn)) of
-                ok -> ok;
-                {error, Reason} -> emqx_plugins_pinned:raise_alarm(NameVsn, Reason)
-            end
-        end,
-        emqx_plugins_pinned:list()
-    ).
-
-%% Install from the package in the local install dir only. A pinned plugin is
-%% never fetched from peers.
-install_pinned(NameVsn) ->
-    case install_state(NameVsn) of
-        installed ->
-            ok;
-        _IncompleteOrAbsent ->
-            maybe
-                ok ?= emqx_plugins_fs:prepare_replacement(NameVsn),
-                ok ?= purge(NameVsn),
-                install(NameVsn, ?fresh_install)
-            end
-    end.
-
 ensure_pinned_started() ->
     lists:foreach(fun ensure_pinned_started/1, emqx_plugins_pinned:list()).
 
 ensure_pinned_started(NameVsn) ->
-    case emqx_plugins_pinned:is_stopped(NameVsn) of
-        true ->
-            ?SLOG(info, #{msg => "pinned_plugin_stopped_until_restart", name_vsn => NameVsn});
-        false ->
-            case ?CATCH(do_start_pinned(NameVsn)) of
-                ok -> emqx_plugins_pinned:clear_alarm(NameVsn);
-                {error, Reason} -> emqx_plugins_pinned:raise_alarm(NameVsn, Reason)
-            end
+    case ?CATCH(do_start_pinned(NameVsn)) of
+        ok -> emqx_plugins_pinned:clear_alarm(NameVsn);
+        {error, Reason} -> emqx_plugins_pinned:raise_alarm(NameVsn, Reason)
     end.
 
 do_start_pinned(NameVsn) ->
     maybe
         ok ?= ensure_no_other_version_active(NameVsn),
-        ok ?= install(NameVsn, ?fresh_install),
+        ok ?= ensure_pinned_extracted(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        ok ?= emqx_plugins_apps:load(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
         ok ?= configure_pinned(NameVsn, Plugin),
         ok ?= emqx_plugins_apps:start(Plugin),
         ?tp(pinned_plugin_started, #{name_vsn => NameVsn}),
         ok
+    end.
+
+%% A pinned plugin runs from the directory that the image already holds in the
+%% install dir. Nothing is unpacked from a package file.
+ensure_pinned_extracted(NameVsn) ->
+    case emqx_plugins_fs:install_state(NameVsn) of
+        installed ->
+            ok;
+        State ->
+            {error, #{
+                msg => "pinned_plugin_not_extracted",
+                name_vsn => bin(NameVsn),
+                install_state => State,
+                dir => emqx_plugins_fs:plugin_dir(NameVsn),
+                hint => "Extract the plugin package into the install dir"
+            }}
     end.
 
 configure_pinned(NameVsn, Plugin) ->

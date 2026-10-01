@@ -680,21 +680,12 @@ plugin(delete, #{bindings := #{name := NameVsn}}) ->
     end).
 
 update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
-    case emqx_plugins_pinned:is_pinned(NameVsn) of
-        true ->
-            %% A pinned plugin is started or stopped on this node only.
-            operation_response(Action, pinned_action(NameVsn, Action));
-        false ->
-            with_managed_plugin(NameVsn, fun() ->
-                Res = ensure_cluster_action(NameVsn, Action),
-                operation_response(Action, Res)
-            end)
-    end.
-
-pinned_action(NameVsn, start) ->
-    emqx_plugins:start_pinned(NameVsn);
-pinned_action(NameVsn, stop) ->
-    emqx_plugins:stop_pinned(NameVsn).
+    unless_pinned_here(NameVsn, fun() ->
+        with_managed_plugin(NameVsn, fun() ->
+            Res = ensure_cluster_action(NameVsn, Action),
+            operation_response(Action, Res)
+        end)
+    end).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     get_plugin_config(NameVsn);
@@ -1190,13 +1181,6 @@ operation_response(start, {error, {plugin_start_failed, NodeErrors}}) ->
         #{node_errors => NodeErrors},
         format_node_errors(NodeErrors)
     );
-operation_response(_Operation, {error, #{kind := pinned} = Reason}) ->
-    {409, #{code => 'PLUGIN_PINNED', message => readable_error_msg(Reason)}};
-operation_response(start, {error, #{kind := Kind} = Reason}) when
-    Kind =:= invalid_config; Kind =:= invalid_package; Kind =:= conflicting_version
-->
-    %% A pinned plugin is started on this node only, so the error is not per node.
-    {400, #{code => start_error_code(Kind), message => readable_error_msg(Reason)}};
 operation_response(Operation, {error, #{reason := {enoent, Path} = Reason} = Error}) ->
     ?SLOG(warning, #{
         msg => "plugin_resource_not_found",
@@ -1226,9 +1210,6 @@ internal_error_response(Keyword, LogFields, Details) ->
         code => 'INTERNAL_ERROR',
         message => iolist_to_binary([Keyword, ": ", Details])
     }}.
-
-start_error_code(invalid_config) -> 'BAD_CONFIG';
-start_error_code(_Kind) -> 'PARAM_ERROR'.
 
 operation_error_keyword(start) -> "plugin_start_failed";
 operation_error_keyword(stop) -> "plugin_stop_failed";
@@ -1446,18 +1427,6 @@ readable_error_msg(#{
         ". Stop the active version and retry."
     ]);
 readable_error_msg(#{
-    msg := "plugin_pinned",
-    name_vsn := NameVsn,
-    pinned := Pinned
-}) ->
-    iolist_to_binary([
-        "plugin_pinned: Plugin name of ",
-        NameVsn,
-        " is pinned on this node as ",
-        Pinned,
-        ". Edit node.pinned_plugins and restart the node to change it."
-    ]);
-readable_error_msg(#{
     reason := invalid_type,
     path := Path,
     expected := Expected,
@@ -1554,7 +1523,7 @@ with_managed_plugin(NameVsn, Fun) ->
                     NameVsn,
                     " is only on nodes that list it in node.pinned_plugins: ",
                     lists:join(", ", [atom_to_binary(N) || N <- PinnedNodes]),
-                    ". Use the API of that node to start or stop it."
+                    ". Use the CLI on that node to start or stop it."
                 ])
             }};
         [_ | _] ->
@@ -1575,7 +1544,8 @@ unless_pinned_here(NameVsn, Fun) ->
                     atom_to_binary(node()),
                     " as ",
                     Pinned,
-                    ". Edit node.pinned_plugins and restart the node to change it."
+                    ". Use the CLI on that node to start or stop it,"
+                    " or edit node.pinned_plugins and restart the node."
                 ])
             }};
         false ->

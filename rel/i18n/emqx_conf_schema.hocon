@@ -489,16 +489,17 @@ Set a comma-separated string, for example <code>"my_plugin-1.0.0,other_plugin-2.
 or an array of name-vsn strings. The list order is the start order.
 Pinned plugins start before the plugins in <code>plugins.states</code>.<br/>
 A pinned plugin:<br/>
-- Starts from the package in this node's <code>plugins.install_dir</code>.
-The package is never copied from or to other nodes.<br/>
+- Runs from the directory <code>&lt;plugins.install_dir&gt;/&lt;name-vsn&gt;</code>,
+which must already hold the extracted package, for example in the container image.
+Nothing is extracted from a package file, and nothing is copied from or to other nodes.<br/>
 - Is always enabled, and needs no <code>plugins.states</code> entry and no <code>plugins allow</code> grant.<br/>
 - Takes its config from the default <code>config.hocon</code> in the package.
 When <code>etc/plugins/&lt;name&gt;.hocon</code> exists, its values override the default.
 The config is never copied from other nodes and can not be changed with the API.<br/>
 - Ignores any <code>plugins.states</code> entry with the same plugin name, in any version.<br/>
-The API and the CLI can stop and start a pinned plugin on this node only.
-A stop lasts until the node restarts. To remove a plugin from this node,
-edit this setting and restart the node.
+Only the CLI can stop and start a pinned plugin, and only on its own node.
+A stop lasts until the node starts all its plugins again, at boot or after a cluster join.
+To remove a plugin from this node, edit this setting and restart the node.
 When a pinned package is missing or fails to start, the node logs an error,
 raises an alarm, and keeps running.<br/>
 Nodes of one cluster can run different versions of the same plugin this way.

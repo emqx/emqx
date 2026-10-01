@@ -23,13 +23,6 @@ entry whose plugin name is pinned, whatever its version.
     refusal/1
 ]).
 
-%% Temporary stop
--export([
-    mark_stopped/1,
-    unmark_stopped/1,
-    is_stopped/1
-]).
-
 %% Config source
 -export([
     read_config/1,
@@ -42,8 +35,6 @@ entry whose plugin name is pinned, whatever its version.
     clear_alarm/1
 ]).
 
--define(APP, emqx_plugins).
--define(STOPPED_KEY, pinned_plugins_stopped).
 -define(ALARM_PREFIX, "pinned_plugin_unavailable:").
 
 %%--------------------------------------------------------------------
@@ -89,33 +80,6 @@ refusal(NameVsn) ->
                 "Edit node.pinned_plugins and restart the node to change it."
             >>
     }.
-
-%%--------------------------------------------------------------------
-%% Temporary stop
-%%--------------------------------------------------------------------
-
--doc """
-Record that a pinned plugin was stopped by the API or the CLI.
-
-The record lives in memory, so it ends when the node restarts.
-""".
--spec mark_stopped(name_vsn()) -> ok.
-mark_stopped(NameVsn) ->
-    Stopped = stopped(),
-    application:set_env(
-        ?APP, ?STOPPED_KEY, lists:usort([emqx_plugins_utils:bin(NameVsn) | Stopped])
-    ).
-
--spec unmark_stopped(name_vsn()) -> ok.
-unmark_stopped(NameVsn) ->
-    application:set_env(?APP, ?STOPPED_KEY, stopped() -- [emqx_plugins_utils:bin(NameVsn)]).
-
--spec is_stopped(name_vsn()) -> boolean().
-is_stopped(NameVsn) ->
-    lists:member(emqx_plugins_utils:bin(NameVsn), stopped()).
-
-stopped() ->
-    application:get_env(?APP, ?STOPPED_KEY, []).
 
 %%--------------------------------------------------------------------
 %% Config source
