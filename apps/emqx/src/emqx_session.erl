@@ -428,23 +428,13 @@ puback(ClientInfo, PacketId, ReasonCode, Flags, Session) ->
     {ok, message(), t()}
     | {error, emqx_types:reason_code()}.
 pubrec(_ClientInfo, PacketId, Session) ->
-    case ?IMPL(Session):pubrec(PacketId, Session) of
-        {ok, _Msg, _Session} = Ok ->
-            Ok;
-        {error, _} = Error ->
-            Error
-    end.
+    ?IMPL(Session):pubrec(PacketId, Session).
 
 -spec pubrel(clientinfo(), emqx_types:packet_id(), t()) ->
     {ok, t()}
     | {error, emqx_types:reason_code()}.
 pubrel(_ClientInfo, PacketId, Session) ->
-    case ?IMPL(Session):pubrel(PacketId, Session) of
-        {ok, _Session} = Ok ->
-            Ok;
-        {error, _} = Error ->
-            Error
-    end.
+    ?IMPL(Session):pubrel(PacketId, Session).
 
 -spec pubcomp(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), [connflag()], t()) ->
     {ok | effects(), replies(), t()}
