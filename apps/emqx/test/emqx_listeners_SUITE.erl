@@ -19,7 +19,17 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     generate_tls_certs(Config),
     WorkDir = emqx_cth_suite:work_dir(Config),
-    Apps = emqx_cth_suite:start([quicer, emqx], #{work_dir => WorkDir}),
+    Apps = emqx_cth_suite:start(
+        [
+            quicer,
+            {mria, #{
+                override_env => [{db_backend, mnesia}],
+                before_start => fun use_mria_mnesia_backend/0
+            }},
+            emqx
+        ],
+        #{work_dir => WorkDir}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -39,6 +49,9 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, _Config) ->
     ok.
+
+use_mria_mnesia_backend() ->
+    persistent_term:put({mria, db_backend}, mnesia).
 
 t_start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
@@ -331,6 +344,126 @@ t_quic_conn(Config) ->
             1000
         ),
         ok = quicer:close_connection(Conn)
+    end).
+
+t_quic_conn_with_verify_peer(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Port = emqx_common_test_helpers:select_free_port(quic),
+    ClientId = mqtt_quic_client_id("ct-listeners-peer"),
+    %% GIVEN: QUIC LISTENER verify_peer is set.
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"verify">> => <<"verify_peer">>,
+            <<"fail_if_no_peer_cert">> => true,
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key")
+        }
+    },
+    with_listener(quic, ?FUNCTION_NAME, Conf, fun() ->
+        mqtt_quic_test_fails(
+            Port,
+            [
+                "--scenario",
+                "connect",
+                "--server-name",
+                "server",
+                "--ca-file",
+                filename:join(PrivDir, "ca-next.pem")
+            ]
+        ),
+        mqtt_quic_test_while_connected(
+            Port,
+            Config,
+            [
+                "--scenario",
+                "connect",
+                "--server-name",
+                "server",
+                "--client-id",
+                ClientId,
+                "--ca-file",
+                filename:join(PrivDir, "ca-next.pem"),
+                "--cert-file",
+                filename:join(PrivDir, "client.pem"),
+                "--key-file",
+                filename:join(PrivDir, "client.key")
+            ],
+            fun() ->
+                Cid = list_to_binary(ClientId),
+                %% THEN: EMQX has the QUIC client connected.
+                ?retry(
+                    100,
+                    50,
+                    ?assertMatch(
+                        #{
+                            clientinfo := #{
+                                clientid := Cid,
+                                listener := 'quic:t_quic_conn_with_verify_peer'
+                            }
+                        },
+                        emqx_cm:get_chan_info(Cid)
+                    )
+                )
+            end
+        )
+    end).
+
+t_quic_conn_with_verify_none(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Port = emqx_common_test_helpers:select_free_port(quic),
+    ClientId = mqtt_quic_client_id("ct-listeners-none"),
+    %% GIVEN: QUIC LISTENER verify_none
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"verify">> => <<"verify_none">>,
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key")
+        }
+    },
+    with_listener(quic, ?FUNCTION_NAME, Conf, fun() ->
+        mqtt_quic_test_while_connected(
+            Port,
+            Config,
+            [
+                "--scenario",
+                "connect",
+                "--server-name",
+                "server",
+                "--client-id",
+                ClientId,
+                "--ca-file",
+                filename:join(PrivDir, "ca-next.pem"),
+                "--cert-file",
+                filename:join(PrivDir, "client.pem"),
+                "--key-file",
+                filename:join(PrivDir, "client.key")
+            ],
+            fun() ->
+                Cid = list_to_binary(ClientId),
+                %% THEN: EMQX has no info about the CN, DN from the cert.
+                ?retry(
+                    100,
+                    50,
+                    begin
+                        Info = emqx_cm:get_chan_info(Cid),
+                        ?assertMatch(#{clientinfo := _}, Info),
+                        ?assertNotMatch(
+                            #{
+                                clientinfo := #{
+                                    cn := _,
+                                    dn := _
+                                }
+                            },
+                            Info
+                        )
+                    end
+                )
+            end
+        )
     end).
 
 t_ssl_password_cert(Config) ->
@@ -636,225 +769,233 @@ t_wss_update_opts(Config) ->
 
 t_quic_update_opts(Config) ->
     ListenerType = quic,
-    ConnectFun = connect_fun(ListenerType),
     PrivDir = ?config(priv_dir, Config),
     Host = "127.0.0.1",
     Port = emqx_common_test_helpers:select_free_port(ListenerType),
     ok = emqx_config:put_zone_conf(?FUNCTION_NAME, [mqtt, max_topic_levels], 2),
-
+    Cacertfile = filename:join(PrivDir, "ca.pem"),
+    NextCacertfile = filename:join(PrivDir, "ca-next.pem"),
+    ClientCertfile = filename:join(PrivDir, "client.pem"),
+    ClientKeyfile = filename:join(PrivDir, "client.key"),
     Conf = #{
         <<"enable">> => true,
         <<"bind">> => format_bind({Host, Port}),
         <<"ssl_options">> => #{
-            <<"cacertfile">> => filename:join(PrivDir, "ca.pem"),
+            <<"cacertfile">> => Cacertfile,
             <<"password">> => ?SERVER_KEY_PASSWORD,
             <<"certfile">> => filename:join(PrivDir, "server-password.pem"),
             <<"keyfile">> => filename:join(PrivDir, "server-password.key"),
             <<"verify">> => verify_none
         }
     },
-    ClientSSLOpts = [
-        {verify, verify_peer},
-        {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
-    ],
     Name = ?FUNCTION_NAME,
     with_listener(ListenerType, Name, Conf, fun() ->
-        %% Client connects successfully.
-        C1 = ConnectFun(Host, Port, [
-            {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
-        ]),
-
-        %% Change the listener SSL configuration: another set of cert/key files.
-        {ok, _} = emqx:update_config(
-            [listeners, ListenerType, Name],
-            {update, #{
-                <<"ssl_options">> => #{
-                    <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
-                    <<"certfile">> => filename:join(PrivDir, "server.pem"),
-                    <<"keyfile">> => filename:join(PrivDir, "server.key")
-                }
-            }}
-        ),
-
-        %% Unable to connect with old SSL options, server's cert is signed by another CA.
-        ?assertError(
-            {transport_down, #{error := _, status := Status}} when
-                ((Status =:= bad_certificate orelse
-                    Status =:= cert_untrusted_root orelse
-                    Status =:= unknown_certificate orelse
-                    Status =:= handshake_failure)),
-            ConnectFun(Host, Port, [
-                {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
-            ])
-        ),
-
-        C2 = ConnectFun(Host, Port, [
-            {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
-        ]),
-
-        %% Change the listener SSL configuration: require peer certificate.
-        {ok, _} = emqx:update_config(
-            [listeners, ListenerType, Name],
-            {update, #{
-                <<"ssl_options">> => #{
-                    <<"verify">> => verify_peer,
-                    <<"fail_if_no_peer_cert">> => true
-                }
-            }}
-        ),
-
-        %% Unable to connect with old SSL options, certificate is now required.
-        ?assertExceptionOneOf(
-            {exit, _},
-            {error, _},
-            ConnectFun(Host, Port, [
-                {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
-            ])
-        ),
-
-        C3 = ConnectFun(Host, Port, [
-            {cacertfile, filename:join(PrivDir, "ca-next.pem")},
-            {certfile, filename:join(PrivDir, "client.pem")},
-            {keyfile, filename:join(PrivDir, "client.key")}
-            | ClientSSLOpts
-        ]),
-
-        %% Change the listener port and zone
-        NewPort = emqx_common_test_helpers:select_free_port(ListenerType),
-        {ok, _} = emqx:update_config(
-            [listeners, ListenerType, Name],
-            {update, #{
-                <<"bind">> => format_bind({Host, NewPort}),
-                <<"zone">> => ?FUNCTION_NAME
-            }}
-        ),
-
-        %% Connect to old port fail
-        ?assertExceptionOneOf(
-            {exit, _},
-            {error, _},
-            ConnectFun(Host, Port, [
-                {cacertfile, filename:join(PrivDir, "ca-next.pem")},
-                {certfile, filename:join(PrivDir, "client.pem")},
-                {keyfile, filename:join(PrivDir, "client.key")}
-                | ClientSSLOpts
-            ])
-        ),
-
-        %% Connect to new port successfully.
-        C4 = ConnectFun(Host, NewPort, [
-            {cacertfile, filename:join(PrivDir, "ca-next.pem")},
-            {certfile, filename:join(PrivDir, "client.pem")},
-            {keyfile, filename:join(PrivDir, "client.key")}
-            | ClientSSLOpts
-        ]),
-
-        %% Both pre- and post-update clients should be alive.
-        ?assertEqual(pong, emqtt:ping(C1)),
-        ?assertEqual(pong, emqtt:ping(C2)),
-        ?assertEqual(pong, emqtt:ping(C3)),
-        ?assertEqual(pong, emqtt:ping(C4)),
-
-        ?assertMatch({ok, _, [?RC_GRANTED_QOS_1]}, emqtt:subscribe(C1, <<"test/2/3">>, 1)),
-        ?assertMatch({ok, _, [?RC_UNSPECIFIED_ERROR]}, emqtt:subscribe(C4, <<"test/2/3">>, 1)),
-
-        ok = emqtt:stop(C1),
-        ok = emqtt:stop(C2),
-        ok = emqtt:stop(C3),
-        ok = emqtt:stop(C4)
+        Client1 = mqtt_quic_client_id("listener-before-cert-update"),
+        mqtt_quic_test_while_connected(
+            Port,
+            Config,
+            mqtt_quic_tls_args("server-password", Cacertfile) ++
+                ["--client-id", Client1],
+            fun() ->
+                %% Change the listener SSL configuration: another set of cert/key files.
+                {ok, _} = emqx:update_config(
+                    [listeners, ListenerType, Name],
+                    {update, #{
+                        <<"ssl_options">> => #{
+                            <<"cacertfile">> => NextCacertfile,
+                            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+                            <<"keyfile">> => filename:join(PrivDir, "server.key")
+                        }
+                    }}
+                ),
+                mqtt_quic_test_fails(
+                    Port,
+                    mqtt_quic_tls_args("server-password", Cacertfile)
+                ),
+                Client2 = mqtt_quic_client_id("listener-after-cert-update"),
+                mqtt_quic_test_while_connected(
+                    Port,
+                    Config,
+                    mqtt_quic_tls_args("server", NextCacertfile) ++
+                        ["--client-id", Client2],
+                    fun() ->
+                        %% Change the listener SSL configuration: require peer certificate.
+                        {ok, _} = emqx:update_config(
+                            [listeners, ListenerType, Name],
+                            {update, #{
+                                <<"ssl_options">> => #{
+                                    <<"verify">> => verify_peer,
+                                    <<"fail_if_no_peer_cert">> => true
+                                }
+                            }}
+                        ),
+                        mqtt_quic_test_fails(
+                            Port,
+                            mqtt_quic_tls_args("server", NextCacertfile)
+                        ),
+                        Client3 = mqtt_quic_client_id("listener-after-mtls-update"),
+                        mqtt_quic_test_while_connected(
+                            Port,
+                            Config,
+                            mqtt_quic_mtls_args(
+                                "server",
+                                NextCacertfile,
+                                ClientCertfile,
+                                ClientKeyfile
+                            ) ++ ["--client-id", Client3],
+                            fun() ->
+                                %% Change the listener port and zone.
+                                NewPort = emqx_common_test_helpers:select_free_port(ListenerType),
+                                {ok, _} = emqx:update_config(
+                                    [listeners, ListenerType, Name],
+                                    {update, #{
+                                        <<"bind">> => format_bind({Host, NewPort}),
+                                        <<"zone">> => ?FUNCTION_NAME
+                                    }}
+                                ),
+                                mqtt_quic_test_fails(
+                                    Port,
+                                    mqtt_quic_mtls_args(
+                                        "server",
+                                        NextCacertfile,
+                                        ClientCertfile,
+                                        ClientKeyfile
+                                    )
+                                ),
+                                Client4 = mqtt_quic_client_id("listener-after-port-update"),
+                                mqtt_quic_test_while_connected(
+                                    NewPort,
+                                    Config,
+                                    mqtt_quic_mtls_args(
+                                        "server",
+                                        NextCacertfile,
+                                        ClientCertfile,
+                                        ClientKeyfile
+                                    ) ++ ["--client-id", Client4],
+                                    fun() ->
+                                        assert_mqtt_quic_clients_connected([
+                                            Client1, Client2, Client3, Client4
+                                        ]),
+                                        mqtt_quic_test(
+                                            NewPort,
+                                            mqtt_quic_mtls_args(
+                                                "server",
+                                                NextCacertfile,
+                                                ClientCertfile,
+                                                ClientKeyfile
+                                            ) ++
+                                                [
+                                                    "--scenario",
+                                                    "pubsub",
+                                                    "--topic",
+                                                    "test/2"
+                                                ]
+                                        ),
+                                        mqtt_quic_test_fails(
+                                            NewPort,
+                                            mqtt_quic_mtls_args(
+                                                "server",
+                                                NextCacertfile,
+                                                ClientCertfile,
+                                                ClientKeyfile
+                                            ) ++
+                                                [
+                                                    "--scenario",
+                                                    "pubsub",
+                                                    "--topic",
+                                                    "test/2/3"
+                                                ]
+                                        )
+                                    end
+                                )
+                            end
+                        )
+                    end
+                )
+            end
+        )
     end).
 
 t_quic_update_opts_fail(Config) ->
     ListenerType = quic,
-    ConnectFun = connect_fun(ListenerType),
     PrivDir = ?config(priv_dir, Config),
     Host = "127.0.0.1",
     Port = emqx_common_test_helpers:select_free_port(ListenerType),
+    Cacertfile = filename:join(PrivDir, "ca.pem"),
+    NextCacertfile = filename:join(PrivDir, "ca-next.pem"),
     Conf = #{
         <<"enable">> => true,
         <<"bind">> => format_bind({Host, Port}),
         <<"ssl_options">> => #{
-            <<"cacertfile">> => filename:join(PrivDir, "ca.pem"),
+            <<"cacertfile">> => Cacertfile,
             <<"password">> => ?SERVER_KEY_PASSWORD,
             <<"certfile">> => filename:join(PrivDir, "server-password.pem"),
             <<"keyfile">> => filename:join(PrivDir, "server-password.key"),
             <<"verify">> => verify_none
         }
     },
-    ClientSSLOpts = [
-        {verify, verify_peer},
-        {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
-    ],
     Name = ?FUNCTION_NAME,
     with_listener(ListenerType, Name, Conf, fun() ->
-        %% GIVEN: an working Listener that client could connect to.
-        C1 = ConnectFun(Host, Port, [
-            {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
-        ]),
-
-        %% WHEN: reload the listener with invalid SSL options (certfile and keyfile missmatch).
-        UpdateResult1 = emqx:update_config(
-            [listeners, ListenerType, Name],
-            {update, #{
-                <<"ssl_options">> => #{
-                    <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
-                    <<"certfile">> => filename:join(PrivDir, "server.pem"),
-                    <<"keyfile">> => filename:join(PrivDir, "server-password.key")
-                }
-            }}
-        ),
-
-        %% THEN: Reload failed but old listener is rollbacked.
-        ?assertMatch(
-            {error, {post_config_update, emqx_listeners, {rollbacked, {error, tls_error}}}},
-            UpdateResult1
-        ),
-
-        %% THEN: Client with old TLS options could still connect
-        C2 = ConnectFun(Host, Port, [
-            {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
-        ]),
-
-        %% WHEN: Change the listener SSL configuration again
-        UpdateResult2 = emqx:update_config(
-            [listeners, ListenerType, Name],
-            {update, #{
-                <<"ssl_options">> => #{
-                    <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
-                    <<"certfile">> => filename:join(PrivDir, "server.pem"),
-                    <<"keyfile">> => filename:join(PrivDir, "server.key")
-                }
-            }}
-        ),
-        %% THEN: update should success
-        ?assertMatch({ok, _}, UpdateResult2),
-
-        %% THEN: Client with old TLS options could not connect
-        %% Unable to connect with old SSL options, server's cert is signed by another CA.
-        ?assertError(
-            {transport_down, #{error := _, status := Status}} when
-                ((Status =:= bad_certificate orelse
-                    Status =:= cert_untrusted_root orelse
-                    Status =:= unknown_certificate orelse
-                    Status =:= handshake_failure)),
-            ConnectFun(Host, Port, [
-                {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
-            ])
-        ),
-
-        %% THEN: Client with new TLS options could connect
-        C3 = ConnectFun(Host, Port, [
-            {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
-        ]),
-
-        %% Both pre- and post-update clients should be alive.
-        ?assertEqual(pong, emqtt:ping(C1)),
-        ?assertEqual(pong, emqtt:ping(C2)),
-        ?assertEqual(pong, emqtt:ping(C3)),
-
-        ok = emqtt:stop(C1),
-        ok = emqtt:stop(C2),
-        ok = emqtt:stop(C3)
+        Client1 = mqtt_quic_client_id("listener-before-rollback"),
+        mqtt_quic_test_while_connected(
+            Port,
+            Config,
+            mqtt_quic_tls_args("server-password", Cacertfile) ++
+                ["--client-id", Client1],
+            fun() ->
+                %% Reload with mismatched cert/key files.
+                UpdateResult1 = emqx:update_config(
+                    [listeners, ListenerType, Name],
+                    {update, #{
+                        <<"ssl_options">> => #{
+                            <<"cacertfile">> => NextCacertfile,
+                            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+                            <<"keyfile">> => filename:join(PrivDir, "server-password.key")
+                        }
+                    }}
+                ),
+                ?assertMatch(
+                    {error, {post_config_update, emqx_listeners, {rollbacked, {error, tls_error}}}},
+                    UpdateResult1
+                ),
+                Client2 = mqtt_quic_client_id("listener-after-rollback"),
+                mqtt_quic_test_while_connected(
+                    Port,
+                    Config,
+                    mqtt_quic_tls_args("server-password", Cacertfile) ++
+                        ["--client-id", Client2],
+                    fun() ->
+                        UpdateResult2 = emqx:update_config(
+                            [listeners, ListenerType, Name],
+                            {update, #{
+                                <<"ssl_options">> => #{
+                                    <<"cacertfile">> => NextCacertfile,
+                                    <<"certfile">> => filename:join(PrivDir, "server.pem"),
+                                    <<"keyfile">> => filename:join(PrivDir, "server.key")
+                                }
+                            }}
+                        ),
+                        ?assertMatch({ok, _}, UpdateResult2),
+                        mqtt_quic_test_fails(
+                            Port,
+                            mqtt_quic_tls_args("server-password", Cacertfile)
+                        ),
+                        Client3 = mqtt_quic_client_id("listener-after-rollback-update"),
+                        mqtt_quic_test_while_connected(
+                            Port,
+                            Config,
+                            mqtt_quic_tls_args("server", NextCacertfile) ++
+                                ["--client-id", Client3],
+                            fun() ->
+                                assert_mqtt_quic_clients_connected([
+                                    Client1, Client2, Client3
+                                ])
+                            end
+                        )
+                    end
+                )
+            end
+        )
     end).
 
 t_max_packet_size_update(_Config) ->
@@ -970,14 +1111,6 @@ emqtt_connect_ssl(Host, Port, SSLOpts) ->
         ssl_opts => SSLOpts
     }).
 
-emqtt_connect_quic(Host, Port, SSLOpts) ->
-    emqtt_connect(fun emqtt:quic_connect/1, #{
-        hosts => [{Host, Port}],
-        connect_timeout => 500,
-        ssl => true,
-        ssl_opts => SSLOpts
-    }).
-
 emqtt_connect_wss(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:ws_connect/1, #{
         hosts => [{Host, Port}],
@@ -999,6 +1132,167 @@ emqtt_connect(Connect, Opts) ->
             end;
         {error, Reason} ->
             error(Reason, [Opts])
+    end.
+
+mqtt_quic_test(Port, ExtraArgs) ->
+    Exe = ensure_mqtt_quic_runner(),
+    Args = mqtt_quic_base_args(Port) ++ ExtraArgs,
+    case run_mqtt_quic_executable(Exe, Args) of
+        {ok, Output} ->
+            ct:pal("mqtt_quic_test output:~n~s", [Output]),
+            ok;
+        {error, ExitStatus, Output} ->
+            ct:fail("mqtt_quic_test failed with status ~p:~n~s", [ExitStatus, Output])
+    end.
+
+mqtt_quic_test_fails(Port, ExtraArgs) ->
+    Exe = ensure_mqtt_quic_runner(),
+    Args = mqtt_quic_base_args(Port, "5000") ++ ExtraArgs,
+    case run_mqtt_quic_executable(Exe, Args) of
+        {error, ExitStatus, Output} ->
+            ct:pal("mqtt_quic_test failed as expected with status ~p:~n~s", [
+                ExitStatus,
+                Output
+            ]),
+            ok;
+        {ok, Output} ->
+            ct:fail("mqtt_quic_test unexpectedly succeeded:~n~s", [Output])
+    end.
+
+mqtt_quic_test_while_connected(Port, Config, ExtraArgs, Fun) ->
+    Exe = ensure_mqtt_quic_runner(),
+    ReadyFile = filename:join(
+        ?config(priv_dir, Config),
+        "mqtt_quic_ready_" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
+    Args =
+        mqtt_quic_base_args(Port) ++
+            [
+                "--hold-ms",
+                "60000",
+                "--ready-file",
+                ReadyFile
+            ] ++ ExtraArgs,
+    PortHandle = open_mqtt_quic_executable(Exe, Args),
+    try
+        wait_mqtt_quic_ready(PortHandle, ReadyFile, 100, []),
+        Fun()
+    after
+        close_mqtt_quic_port(PortHandle),
+        file:delete(ReadyFile)
+    end.
+
+mqtt_quic_client_id(Prefix) ->
+    Prefix ++ "-" ++ integer_to_list(erlang:unique_integer([positive])).
+
+assert_mqtt_quic_clients_connected(ClientIds) ->
+    lists:foreach(
+        fun(ClientId) ->
+            ?retry(
+                100,
+                30,
+                ?assertMatch(
+                    #{clientinfo := #{clientid := _}},
+                    emqx_cm:get_chan_info(list_to_binary(ClientId))
+                )
+            )
+        end,
+        ClientIds
+    ).
+
+mqtt_quic_base_args(Port) ->
+    mqtt_quic_base_args(Port, "15000").
+
+mqtt_quic_base_args(Port, TimeoutMs) ->
+    [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        integer_to_list(Port),
+        "--timeout-ms",
+        TimeoutMs
+    ].
+
+mqtt_quic_tls_args(ServerName, Cacertfile) ->
+    [
+        "--server-name",
+        ServerName,
+        "--ca-file",
+        Cacertfile
+    ].
+
+mqtt_quic_mtls_args(ServerName, Cacertfile, Certfile, Keyfile) ->
+    mqtt_quic_tls_args(ServerName, Cacertfile) ++
+        [
+            "--cert-file",
+            Certfile,
+            "--key-file",
+            Keyfile
+        ].
+
+ensure_mqtt_quic_runner() ->
+    emqx_mqtt_quic_test_runner:ensure().
+
+run_mqtt_quic_executable(Exe, Args) ->
+    Port = open_mqtt_quic_executable(Exe, Args),
+    collect_mqtt_quic_port(Port, []).
+
+open_mqtt_quic_executable(Exe, Args) ->
+    open_port({spawn_executable, Exe}, [
+        binary,
+        exit_status,
+        stderr_to_stdout,
+        use_stdio,
+        {args, Args}
+    ]).
+
+collect_mqtt_quic_port(Port, Acc) ->
+    receive
+        {Port, {data, Data}} ->
+            collect_mqtt_quic_port(Port, [Data | Acc]);
+        {Port, {exit_status, 0}} ->
+            {ok, unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc)))};
+        {Port, {exit_status, ExitStatus}} ->
+            {error, ExitStatus, unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc)))}
+    after 60000 ->
+        port_close(Port),
+        {error, timeout, unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc)))}
+    end.
+
+wait_mqtt_quic_ready(_Port, _ReadyFile, 0, Acc) ->
+    Output = unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc))),
+    ct:fail("mqtt_quic_test did not report a connected client:~n~s", [Output]);
+wait_mqtt_quic_ready(Port, ReadyFile, Attempts, Acc) ->
+    case filelib:is_regular(ReadyFile) of
+        true ->
+            ok;
+        false ->
+            receive
+                {Port, {data, Data}} ->
+                    wait_mqtt_quic_ready(Port, ReadyFile, Attempts, [Data | Acc]);
+                {Port, {exit_status, ExitStatus}} ->
+                    Output = unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc))),
+                    ct:fail("mqtt_quic_test exited with status ~p before reporting ready:~n~s", [
+                        ExitStatus,
+                        Output
+                    ])
+            after 100 ->
+                wait_mqtt_quic_ready(Port, ReadyFile, Attempts - 1, Acc)
+            end
+    end.
+
+close_mqtt_quic_port(Port) ->
+    catch port_close(Port),
+    drain_mqtt_quic_port(Port).
+
+drain_mqtt_quic_port(Port) ->
+    receive
+        {Port, {data, _Data}} ->
+            drain_mqtt_quic_port(Port);
+        {Port, {exit_status, _ExitStatus}} ->
+            ok
+    after 1000 ->
+        ok
     end.
 
 t_format_bind(_) ->
@@ -1042,7 +1336,5 @@ format_bind(Bind) ->
 
 connect_fun(ssl) ->
     fun emqtt_connect_ssl/3;
-connect_fun(quic) ->
-    fun emqtt_connect_quic/3;
 connect_fun(wss) ->
     fun emqtt_connect_wss/3.

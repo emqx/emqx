@@ -34,12 +34,10 @@ groups() ->
         {all_cases, [], OtherTCs},
         {connected_client_count_group, [
             {group, tcp},
-            {group, ws},
-            {group, quic}
+            {group, ws}
         ]},
         {tcp, [], ConnClientTCs},
-        {ws, [], ConnClientTCs},
-        {quic, [], ConnClientTCs}
+        {ws, [], ConnClientTCs}
     ].
 
 init_per_group(connected_client_count_group, Config) ->
@@ -61,27 +59,6 @@ init_per_group(ws, Config) ->
         {conn_fun, ws_connect},
         {port, 8083},
         {host, "localhost"},
-        {group_apps, Apps}
-        | Config
-    ];
-init_per_group(quic, Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx,
-                "listeners.quic.test {"
-                "\n enable = true"
-                "\n max_connections = 1024000"
-                "\n idle_timeout = 15s"
-                "\n ssl_options.verify = verify_peer"
-                "\n }"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [
-        {conn_fun, quic_connect},
-        {port, emqx_config:get([listeners, quic, test, bind])},
-        {ssl_opts, emqx_common_test_helpers:client_mtls()},
-        {ssl, true},
         {group_apps, Apps}
         | Config
     ];
