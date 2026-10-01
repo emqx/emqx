@@ -315,6 +315,7 @@ validate_loaded_plugin_app(AppName, EbinDir, Props) ->
                 LoadedEbinDir ->
                     case
                         is_protected_app(AppName) orelse
+                            is_release_app(AppName) orelse
                             is_shared_plugin_app(AppName, Props, LoadedEbinDir)
                     of
                         true ->
@@ -331,18 +332,37 @@ validate_loaded_plugin_app(AppName, EbinDir, Props) ->
             end
     end.
 
+%% A plugin application that is already loaded from another plugin is shared
+%% when its `.app' file has the same content as the one in the package.
 is_shared_plugin_app(AppName, Props, LoadedEbinDir) when is_list(LoadedEbinDir) ->
-    InstallDir = filename:absname(emqx_plugins_fs:install_dir()),
     EbinDir = filename:absname(LoadedEbinDir),
-    case string:prefix(EbinDir, InstallDir ++ "/") of
-        nomatch ->
+    case is_in_dir(EbinDir, emqx_plugins_fs:install_dir()) of
+        false ->
             false;
-        _ ->
+        true ->
             AppFile = filename:join(EbinDir, atom_to_list(AppName) ++ ".app"),
             file:consult(AppFile) =:= {ok, [{application, AppName, Props}]}
     end;
 is_shared_plugin_app(_AppName, _Props, _LoadedEbinDir) ->
     false.
+
+%% Whether the application's code is in the lib directory of the EMQX release.
+%% A plugin runs on the release's copy of such an application, whatever version
+%% the package bundles: `load_plugin_app/4' does not load the bundled copy, and
+%% the plugin never stops or unloads the release's copy.
+is_release_app(AppName) ->
+    case code:lib_dir(AppName) of
+        {error, _} -> false;
+        AppDir -> is_in_dir(filename:absname(AppDir), release_lib_dir())
+    end.
+
+%% The lib directory of the release the node runs.  In a test node it is the
+%% lib directory of the Erlang/OTP installation.
+release_lib_dir() ->
+    code:lib_dir().
+
+is_in_dir(Path, Dir) ->
+    string:prefix(Path, filename:absname(Dir) ++ "/") =/= nomatch.
 
 app_ebin_dir(AppName) ->
     case code:lib_dir(AppName) of
@@ -484,24 +504,22 @@ not_running_deps(App) ->
 is_protected_app(elixir) -> true;
 is_protected_app(iex) -> true;
 is_protected_app(_) -> false.
+%% ELSE ifdef(EMQX_ELIXIR)
+-else.
+is_protected_app(_) -> false.
+%% END ifdef(EMQX_ELIXIR)
+-endif.
 
+%% A plugin must not stop or unload the release's copy of an application it
+%% bundles: the release may depend on it.
 parse_name_vsn_for_stopping(NameVsn) ->
     {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    case is_protected_app(AppName) of
+    case is_protected_app(AppName) orelse is_release_app(AppName) of
         true ->
             false;
         false ->
             {true, AppName}
     end.
-%% ELSE ifdef(EMQX_ELIXIR)
--else.
-is_protected_app(_) -> false.
-
-parse_name_vsn_for_stopping(NameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    {true, AppName}.
-%% END ifdef(EMQX_ELIXIR)
--endif.
 
 stop_apps(Apps) ->
     RunningApps = running_apps(),

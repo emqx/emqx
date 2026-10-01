@@ -177,6 +177,37 @@ t_sync_plugin_keeps_name_textual(_Config) ->
     ),
     ?assertError(badarg, binary_to_existing_atom(Name, utf8)).
 
+-doc """
+`POST /plugins/cluster_sync` that names the running version keeps that version
+installed, running and enabled.
+""".
+t_sync_plugin_keeps_running_version(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_disabled(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    {ok, []} = update_plugin(NameVsn, "start"),
+    ?assert(plugin_is_running(NameVsn)),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "cluster_sync"]),
+    ?assertMatch(
+        {ok, _},
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", [], #{<<"name">> => list_to_binary(NameVsn)}
+        )
+    ),
+    ?assert(plugin_is_running(NameVsn)),
+    ?assertMatch(
+        #{<<"running_status">> := [#{<<"status">> := <<"running">>}]},
+        describe_plugin(NameVsn)
+    ),
+    ?assertEqual([#{name_vsn => NameVsn, enable => true}], emqx_plugins:configured()).
+
 %% Every route and method which carries the `:name' binding must validate it.
 %% The table below has to stay in sync with `paths/0' and `schema/1' of the
 %% module; the 400/404 pair asserted for each entry is what proves that the
