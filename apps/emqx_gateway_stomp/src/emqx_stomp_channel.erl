@@ -1382,6 +1382,8 @@ add_action(
 %% Bytes retained by a buffered SEND/ACK/NACK frame.
 action_bytes({_Fun, [Frame = #stomp_frame{}]}) ->
     frame_bytes(Frame);
+action_bytes({_Fun, [{Msg, _ReceiptId}]}) ->
+    message_bytes(Msg);
 action_bytes(_Action) ->
     0.
 
@@ -1389,6 +1391,19 @@ frame_bytes(#stomp_frame{command = Command, headers = Headers, body = Body}) ->
     iolist_size(Command) +
         iolist_size(Body) +
         lists:sum([iolist_size(Name) + iolist_size(Val) || {Name, Val} <- Headers]).
+
+%% A transactional SEND is retained as an authorized message, not as the frame
+%% it arrived in, so its size comes from the message.
+message_bytes(Msg) ->
+    StompHeaders = emqx_message:get_header(stomp_headers, Msg, []),
+    iolist_size(emqx_message:topic(Msg)) +
+        iolist_size(emqx_message:payload(Msg)) +
+        header_bytes(StompHeaders).
+
+header_bytes(Headers) when is_list(Headers) ->
+    lists:sum([iolist_size(Name) + iolist_size(Val) || {Name, Val} <- Headers]);
+header_bytes(_Headers) ->
+    0.
 
 %%--------------------------------------------------------------------
 %% Transaction Handle
