@@ -410,6 +410,14 @@ t_pinned_plugin(_Config) ->
     ?assertEqual(ok, emqx_mgmt_api_plugins:sync_plugin_cluster(node(), OtherVsn)),
     ?assertEqual(ok, emqx_mgmt_api_plugins:install_package_v4(OtherVsn, <<"not a package">>)),
     ?assertEqual(ok, emqx_mgmt_api_plugins:do_update_plugin_config_v4(NameVsn, #{})),
+    %% The config file is per plugin name, so an update for another version of
+    %% the pinned name must not write it or change the pinned config.
+    ?assertEqual(
+        ok,
+        emqx_mgmt_api_plugins:do_update_plugin_config_v4(OtherVsn, #{<<"hostname">> => <<"x">>})
+    ),
+    ?assertNot(filelib:is_regular(emqx_plugins_fs:config_file_path(NameVsn))),
+    ?assertMatch(#{<<"hostname">> := <<"localhost">>}, emqx_plugins:get_config(NameVsn)),
     ?assert(plugin_is_running(NameVsn)),
     ok.
 

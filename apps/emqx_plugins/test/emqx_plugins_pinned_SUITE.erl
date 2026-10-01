@@ -164,12 +164,20 @@ t_missing_package_no_peer_fetch(Config) ->
     ?assertNot(is_alarm_active(?ALARM(NameVsn))),
     ok.
 
--doc "The file `etc/plugins/<name>.hocon` overrides the package default config.".
+-doc """
+The file `etc/plugins/<name>.hocon` overrides the package default config, and
+the per-name file under `data/` is not used.
+""".
 t_config_override_file(Config) ->
     NameVsn = ?config(name_vsn, Config),
     Override = emqx_plugins_pinned:override_file_path(NameVsn),
     ok = filelib:ensure_dir(Override),
     ok = file:write_file(Override, <<"port = 3307\n">>),
+    %% The per-name file under `data/', which cluster config updates write, is ignored.
+    DataFile = emqx_plugins_fs:config_file_path(NameVsn),
+    ok = filelib:ensure_dir(DataFile),
+    ok = file:write_file(DataFile, <<"hostname = \"from-data-dir\"\n">>),
+    on_exit(fun() -> file:delete(DataFile) end),
     set_pinned([NameVsn]),
     ok = boot(),
     ?assert(is_app_running(?APP_NAME)),
