@@ -165,26 +165,23 @@ t_missing_package_no_peer_fetch(Config) ->
     ok.
 
 -doc """
-The file `etc/plugins/<name>.hocon` overrides the package default config, and
-the per-name file under `data/` is not used.
+The file `etc/plugins/<name>.hocon` overrides the package default config. A
+config saved through the API is stored in `data/plugins/<name>/config.hocon` and
+replaces that config at the next start.
 """.
-t_config_override_file(Config) ->
+t_config_sources(Config) ->
     NameVsn = ?config(name_vsn, Config),
     Override = emqx_plugins_pinned:override_file_path(NameVsn),
     ok = filelib:ensure_dir(Override),
     ok = file:write_file(Override, <<"port = 3307\n">>),
-    %% The per-name file under `data/', which cluster config updates write, is ignored.
     DataFile = emqx_plugins_fs:config_file_path(NameVsn),
-    ok = filelib:ensure_dir(DataFile),
-    ok = file:write_file(DataFile, <<"hostname = \"from-data-dir\"\n">>),
     on_exit(fun() -> file:delete(DataFile) end),
     set_pinned([NameVsn]),
     ok = boot(),
     ?assert(is_app_running(?APP_NAME)),
-    ?assertMatch(
-        #{<<"hostname">> := <<"localhost">>, <<"port">> := 3307},
-        emqx_plugins:get_config(NameVsn)
-    ),
+    Image = emqx_plugins:get_config(NameVsn),
+    ?assertMatch(#{<<"hostname">> := <<"localhost">>, <<"port">> := 3307}, Image),
+    ?assertNot(filelib:is_regular(DataFile)),
     %% A broken override file fails the start and raises the alarm.
     ok = emqx_plugins:stop_pinned(NameVsn),
     ok = file:write_file(Override, <<"port = {\n">>),
@@ -195,6 +192,42 @@ t_config_override_file(Config) ->
     ok = boot(),
     ?assertNot(is_app_running(?APP_NAME)),
     ?assert(is_alarm_active(?ALARM(NameVsn))),
+    %% A config saved through the API is used from then on, whatever the
+    %% override file holds.
+    ok = file:write_file(Override, <<"port = 3307\n">>),
+    ok = boot(),
+    Saved = Image#{<<"port">> => 3308},
+    ?assertEqual(ok, emqx_plugins:update_config(NameVsn, Saved)),
+    ?assertEqual(Saved, emqx_plugins:get_config(NameVsn)),
+    ?assert(filelib:is_regular(DataFile)),
+    ok = emqx_plugins:stop_pinned(NameVsn),
+    ok = emqx_plugins:start_pinned(NameVsn),
+    ?assertEqual(Saved, emqx_plugins:get_config(NameVsn)),
+    %% Another version of the pinned name can not change it.
+    ?assertMatch(
+        {error, #{msg := "plugin_pinned"}},
+        emqx_plugins:update_config(<<?RELEASE_NAME, "-9.9.9">>, #{})
+    ),
+    ok.
+
+-doc """
+The plugin API endpoint routes a request for the plugin name to the running
+pinned version.
+""".
+t_plugin_api_endpoint(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    set_pinned([NameVsn]),
+    ok = boot(),
+    ok = meck:new(emqx_plugins_apps, [passthrough, no_history]),
+    on_exit(fun() -> meck:unload(emqx_plugins_apps) end),
+    ok = meck:expect(emqx_plugins_apps, on_handle_api_call, fun(NV, _Request) ->
+        {ok, 200, #{}, #{<<"name_vsn">> => NV}}
+    end),
+    Request = #{method => get, path => [<<"status">>]},
+    ?assertMatch(
+        {200, _, #{<<"name_vsn">> := NameVsn}},
+        emqx_plugins:handle_api_call(<<?RELEASE_NAME>>, Request, 5_000)
+    ),
     ok.
 
 -doc """
@@ -243,7 +276,7 @@ t_lifecycle_refusals(Config) ->
         fun() -> emqx_plugins:ensure_enabled(OtherVsn, front, global) end,
         fun() -> emqx_plugins:ensure_disabled(NameVsn) end,
         fun() -> emqx_plugins:purge_other_versions(NameVsn) end,
-        fun() -> emqx_plugins:update_config(NameVsn, #{}) end,
+        fun() -> emqx_plugins:update_config(OtherVsn, #{}) end,
         fun() -> emqx_plugins:safe_delete_package(NameVsn) end,
         fun() -> emqx_plugins:start_pinned(OtherVsn) end
     ],
@@ -449,12 +482,45 @@ t_cluster_mixed_versions(Config) ->
     ?assertEqual({204}, UpdatePlugin(start)),
     AssertHealthy(started),
 
+    %% A config change for the pinned version, made on node 2, applies on node 2.
+    %% Node 1 does not run that version, so it is not asked.
+    NewConfig0 = ?ON(N2, emqx_plugins:get_config(NewNameVsn)),
+    NewConfig = NewConfig0#{<<"hostname">> => <<"127.0.0.3">>},
+    ?assertEqual(
+        {204},
+        ?ON(
+            N2,
+            emqx_mgmt_api_plugins:plugin_config(
+                put, #{bindings => #{name => NewNameVsn}, body => NewConfig}
+            )
+        )
+    ),
+    ?assertEqual(NewConfig, ?ON(N2, emqx_plugins:get_config(NewNameVsn))),
+    %% A config change for the cluster-managed version, made on node 1, does not
+    %% reach the pinned config on node 2, although both use the same file name.
+    OldConfig = (?ON(N1, emqx_plugins:get_config(OldNameVsn)))#{
+        <<"hostname">> => <<"127.0.0.4">>
+    },
+    ?assertEqual(
+        {204},
+        ?ON(
+            N1,
+            emqx_mgmt_api_plugins:plugin_config(
+                put, #{bindings => #{name => OldNameVsn}, body => OldConfig}
+            )
+        )
+    ),
+    ?assertEqual(OldConfig, ?ON(N1, emqx_plugins:get_config(OldNameVsn))),
+    ?assertEqual(NewConfig, ?ON(N2, emqx_plugins:get_config(NewNameVsn))),
+
     %% A CLI stop on node 2 ends when node 2 restarts.
     ok = ?ON(N2, emqx_plugins:stop_pinned(NewNameVsn)),
     ?assertEqual([], ?ON(N2, emqx_plugins:list_active())),
     [N2] = emqx_cth_cluster:restart(Spec2),
     ok = ?ON(N2, emqx_plugins:ensure_started()),
     AssertHealthy(restarted),
+    %% The config saved through the API survives the restart.
+    ?assertEqual(NewConfig, ?ON(N2, emqx_plugins:get_config(NewNameVsn))),
     [#{<<"name_vsn">> := StateNameVsn, <<"enable">> := true}] =
         ?ON(N1, emqx:get_raw_config([plugins, states])),
     ?assertEqual(OldNameVsn, bin(StateNameVsn)),

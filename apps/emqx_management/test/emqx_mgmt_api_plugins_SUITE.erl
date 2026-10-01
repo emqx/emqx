@@ -341,8 +341,9 @@ t_plugins(_Config) ->
     ok.
 
 -doc """
-A plugin in `node.pinned_plugins` is listed with the pinned marker, and every
-lifecycle request, start and stop included, returns 409 `PLUGIN_PINNED`. Cluster calls from peers are skipped.
+A plugin in `node.pinned_plugins` is listed with the pinned marker, its config
+can be read and changed, and every lifecycle request, start and stop included,
+returns 409 `PLUGIN_PINNED`. Cluster calls from peers are skipped.
 """.
 t_pinned_plugin(_Config) ->
     PackagePath = get_demo_plugin_package(),
@@ -354,6 +355,7 @@ t_pinned_plugin(_Config) ->
     emqx_config:put([node, pinned_plugins], [NameVsn]),
     on_exit(fun() ->
         _ = emqx_plugins:stop_pinned(NameVsn),
+        _ = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
         emqx_config:put([node, pinned_plugins], []),
         emqx_plugins:put_configured([]),
         _ = emqx_plugins:ensure_uninstalled(NameVsn),
@@ -372,20 +374,20 @@ t_pinned_plugin(_Config) ->
         describe_plugin(NameVsn)
     ),
     ?assertMatch([#{<<"pinned">> := true}], list_plugins()),
-    %% The config is readable.
-    ?assertMatch(
-        {200, #{<<"hostname">> := <<"localhost">>}},
-        emqx_mgmt_api_test_util:simple_request(
-            get, emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config"]), ""
-        )
-    ),
-    %% Every other operation is refused.
+    %% The config is readable and can be changed.
+    ConfigPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config"]),
+    {200, Config0} = emqx_mgmt_api_test_util:simple_request(get, ConfigPath, ""),
+    ?assertMatch(#{<<"hostname">> := <<"localhost">>}, Config0),
+    Config1 = Config0#{<<"port">> => 3308},
+    ?assertMatch({204, _}, emqx_mgmt_api_test_util:simple_request(put, ConfigPath, Config1)),
+    ?assertEqual({200, Config1}, emqx_mgmt_api_test_util:simple_request(get, ConfigPath, "")),
+    ?assert(filelib:is_regular(emqx_plugins_fs:config_file_path(NameVsn))),
+    %% The lifecycle operations are refused.
     Refused = [
         {delete, ["plugins", NameVsn], ""},
         {put, ["plugins", NameVsn, "stop"], ""},
         {put, ["plugins", NameVsn, "start"], ""},
         {put, ["plugins", OtherVsn, "stop"], ""},
-        {put, ["plugins", NameVsn, "config"], #{<<"port">> => 1}},
         {post, ["plugins", NameVsn, "move"], #{<<"position">> => <<"front">>}},
         {post, ["plugins", "cluster_sync"], #{<<"name">> => NameVsn}}
     ],
@@ -409,15 +411,13 @@ t_pinned_plugin(_Config) ->
     ?assertEqual([], emqx:get_raw_config([plugins, states])),
     ?assertEqual(ok, emqx_mgmt_api_plugins:sync_plugin_cluster(node(), OtherVsn)),
     ?assertEqual(ok, emqx_mgmt_api_plugins:install_package_v4(OtherVsn, <<"not a package">>)),
-    ?assertEqual(ok, emqx_mgmt_api_plugins:do_update_plugin_config_v4(NameVsn, #{})),
     %% The config file is per plugin name, so an update for another version of
-    %% the pinned name must not write it or change the pinned config.
+    %% the pinned name must not change the pinned config.
     ?assertEqual(
         ok,
         emqx_mgmt_api_plugins:do_update_plugin_config_v4(OtherVsn, #{<<"hostname">> => <<"x">>})
     ),
-    ?assertNot(filelib:is_regular(emqx_plugins_fs:config_file_path(NameVsn))),
-    ?assertMatch(#{<<"hostname">> := <<"localhost">>}, emqx_plugins:get_config(NameVsn)),
+    ?assertEqual(Config1, emqx_plugins:get_config(NameVsn)),
     ?assert(plugin_is_running(NameVsn)),
     ok.
 
