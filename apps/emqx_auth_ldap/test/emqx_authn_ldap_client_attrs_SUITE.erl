@@ -91,6 +91,39 @@ t_extract_value(Config) ->
     ?assertEqual({ok, #{<<"grp_y">> => ?DN("GROUP-Y")}}, client_attrs(?USER)).
 
 -doc """
+Checks that `extract = literal` sets the configured string when a pattern matches, and
+nothing when no pattern matches.
+""".
+t_extract_literal(Config) ->
+    Entry = (entry(<<"grp">>, [<<"^cn=GROUP-Y,">>]))#{
+        <<"extract">> => <<"literal">>, <<"literal">> => <<"grp123">>
+    },
+    ok = create(Config, #{<<"client_attrs">> => [Entry]}),
+    ?assertEqual({ok, #{<<"grp">> => <<"grp123">>}}, client_attrs(?USER)),
+    ok = update(Config, #{<<"client_attrs">> => [Entry#{<<"select">> => [<<"^cn=GROUP-X,">>]}]}),
+    ?assertEqual({ok, #{}}, client_attrs(?USER)).
+
+-doc """
+Checks that `extract = literal` and `literal` must be configured together, and that the
+literal must not be empty.
+""".
+t_literal_config(Config) ->
+    Base = entry(<<"grp">>, [<<"^cn=GROUP-Y,">>]),
+    lists:foreach(
+        fun({Entry, Reason}) ->
+            Result = create_result(Config, #{<<"client_attrs">> => [Entry]}),
+            ?assertMatch({error, _}, Result, Entry),
+            ErrorText = iolist_to_binary(io_lib:format("~0p", [Result])),
+            ?assertNotEqual(nomatch, binary:match(ErrorText, Reason), ErrorText)
+        end,
+        [
+            {Base#{<<"extract">> => <<"literal">>}, <<"missing_literal">>},
+            {Base#{<<"extract">> => <<"literal">>, <<"literal">> => <<>>}, <<"missing_literal">>},
+            {Base#{<<"literal">> => <<"grp123">>}, <<"unexpected_literal">>}
+        ]
+    ).
+
+-doc """
 Checks that several entries match at once and each sets its own attribute, and that an entry
 whose group the user is not in leaves its attribute unset.
 """.

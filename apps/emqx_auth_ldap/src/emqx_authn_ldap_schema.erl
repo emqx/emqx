@@ -89,9 +89,15 @@ fields(client_attr) ->
                 validator => fun emqx_authn_ldap_client_attrs:validate_patterns/1
             })},
         {extract,
-            ?HOCON(?ENUM([cn, value]), #{
+            ?HOCON(?ENUM([cn, value, literal]), #{
                 desc => ?DESC(client_attr_extract),
                 default => value
+            })},
+        {literal,
+            ?HOCON(binary(), #{
+                desc => ?DESC(client_attr_literal),
+                required => false,
+                example => <<"grp123">>
             })}
     ].
 

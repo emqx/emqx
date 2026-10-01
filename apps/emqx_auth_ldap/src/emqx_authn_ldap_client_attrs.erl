@@ -8,8 +8,8 @@
 Sets client attributes from the attributes of the LDAP entry that authenticated the client.
 
 Each mapping entry reads one directory attribute. It selects one value of that attribute
-with an ordered list of regular expressions, extracts a component of the selected value,
-and sets the result as one client attribute.
+with an ordered list of regular expressions, and sets one client attribute to a component
+of the selected value or to a configured literal.
 
 A value is selected as follows. The patterns are tried in the configured order. For each
 pattern, the values are tried in the order the directory returned them. The first value
@@ -29,12 +29,13 @@ When no value matches any pattern, the entry sets no attribute.
 
 -define(RE_OPTS, [unicode]).
 
--type extract() :: cn | value.
+-type extract() :: cn | value | literal.
 -type compiled() :: #{
     attribute := string(),
     set_as_attr := binary(),
     select := [re:mp()],
-    extract := extract()
+    extract := extract(),
+    literal := binary() | undefined
 }.
 
 -type ldap_entry() :: #eldap_entry{}.
@@ -102,12 +103,34 @@ from_entry(Entry, #{client_attrs := Compiled, require_client_attrs := Require}) 
 %%------------------------------------------------------------------------------
 
 compile_entry(#{attribute := Attr, set_as_attr := Name, select := Patterns} = Entry) ->
+    Extract = maps:get(extract, Entry, value),
+    Literal = maps:get(literal, Entry, undefined),
+    ok = check_literal(Name, Extract, Literal),
     #{
         attribute => binary_to_list(Attr),
         set_as_attr => iolist_to_binary(Name),
         select => lists:map(fun compile_pattern/1, Patterns),
-        extract => maps:get(extract, Entry, value)
+        extract => Extract,
+        literal => Literal
     }.
+
+check_literal(_Name, literal, Literal) when is_binary(Literal), Literal =/= <<>> ->
+    ok;
+check_literal(Name, literal, _Literal) ->
+    throw(#{
+        reason => missing_literal,
+        set_as_attr => Name,
+        explain => <<"extract is literal, but literal is not set or is empty">>
+    });
+check_literal(_Name, _Extract, undefined) ->
+    ok;
+check_literal(Name, Extract, _Literal) ->
+    throw(#{
+        reason => unexpected_literal,
+        set_as_attr => Name,
+        extract => Extract,
+        explain => <<"literal is set, but extract is not literal">>
+    }).
 
 compile_pattern(Pattern) ->
     case re:compile(Pattern, ?RE_OPTS) of
@@ -122,10 +145,10 @@ compile_pattern(Pattern) ->
             })
     end.
 
-map_entry(Entry, #{attribute := Attr, select := MPs, extract := Extract}) ->
+map_entry(Entry, #{attribute := Attr, select := MPs, extract := Extract, literal := Literal}) ->
     maybe
         {ok, Value} ?= select(MPs, attribute_values(Attr, Entry)),
-        extract(Extract, Value)
+        extract(Extract, Value, Literal)
     end.
 
 select([], _Values) ->
@@ -145,9 +168,11 @@ is_match(Value, MP) ->
         error:badarg -> false
     end.
 
-extract(value, Value) ->
+extract(literal, _Value, Literal) ->
+    {ok, Literal};
+extract(value, Value, _Literal) ->
     non_empty(Value);
-extract(cn, Value) ->
+extract(cn, Value, _Literal) ->
     case emqx_ldap_dn:parse(Value) of
         {ok, #ldap_dn{dn = [FirstRDN | _]}} ->
             first_cn(FirstRDN);

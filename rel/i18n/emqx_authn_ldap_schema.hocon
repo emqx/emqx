@@ -107,14 +107,22 @@ client_attr_select.label:
 """Select Patterns"""
 
 client_attr_extract.desc:
-"""The part of the selected value to set as the client attribute.
-- `value`: the whole value.
+"""What to set as the client attribute when a `select` pattern matches a value.
+- `value`: the whole selected value.
 - `cn`: the value of the `CN` in the first RDN of a DN value. For `CN=GROUP-X,OU=Resource Groups,DC=example,DC=com` this is `GROUP-X`. When the value is not a DN, or its first RDN has no `CN`, this entry sets no client attribute.
+- `literal`: the string in the `literal` field. The selected value only decides whether the attribute is set.
 
-The extracted value keeps the casing returned by the directory."""
+A value taken from the directory keeps the casing the directory returned."""
 
 client_attr_extract.label:
 """Extract"""
+
+client_attr_literal.desc:
+"""The string to set as the client attribute when `extract` is `literal`, for example `grp123`.
+Set it only when `extract` is `literal`."""
+
+client_attr_literal.label:
+"""Literal Value"""
 
 require_client_attrs.desc:
 """When `true`, deny a client for which no entry in `client_attrs` sets a client attribute.
