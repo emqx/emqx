@@ -51,10 +51,15 @@ do_authenticate(
     BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
     Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
     AclAttributes = emqx_auth_ldap_acl:acl_attributes(State),
+    ClientAttrsAttributes = client_attrs_attributes(State),
     Result = emqx_resource:simple_sync_query(
         ResourceId,
         {query, BaseDN, Filter, [
-            {attributes, [IsSuperuserAttribute, ClientIdOverrideAttribute | AclAttributes]},
+            {attributes, [
+                IsSuperuserAttribute,
+                ClientIdOverrideAttribute
+                | AclAttributes ++ ClientAttrsAttributes
+            ]},
             {timeout, Timeout}
         ]}
     ),
@@ -105,18 +110,33 @@ format_authentication_result(
     IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(
         IsSuperuserAttribute, Entry, false
     ),
-    case emqx_auth_ldap_acl:acl_from_entry(State, Entry) of
-        {ok, AclFields} ->
-            AuthResult0 = AclFields#{is_superuser => IsSuperuser},
-            AuthResult = maps:merge(AuthResult0, clientid_override(Entry, State)),
-            {ok, AuthResult};
-        {error, Reason} ->
+    maybe
+        {ok, AclFields} ?= acl_from_entry(State, Entry),
+        {ok, ClientAttrs} ?= emqx_authn_ldap_client_attrs:from_entry(Entry, State),
+        AuthResult0 = maps:merge(AclFields#{is_superuser => IsSuperuser}, ClientAttrs),
+        {ok, maps:merge(AuthResult0, clientid_override(Entry, State))}
+    else
+        {error, no_client_attrs} ->
+            ?TRACE_AUTHN_PROVIDER(info, "ldap_no_client_attrs_matched", #{
+                resource => ResourceId
+            }),
+            {error, not_authorized};
+        {error, {invalid_acl_rules, Reason}} ->
             ?TRACE_AUTHN_PROVIDER(error, "ldap_bind_invalid_acl_rules", #{
                 resource => ResourceId,
                 reason => Reason
             }),
             {error, bad_username_or_password}
     end.
+
+acl_from_entry(State, Entry) ->
+    case emqx_auth_ldap_acl:acl_from_entry(State, Entry) of
+        {ok, _} = Ok -> Ok;
+        {error, Reason} -> {error, {invalid_acl_rules, Reason}}
+    end.
+
+client_attrs_attributes(#{client_attrs := ClientAttrs}) ->
+    emqx_authn_ldap_client_attrs:attributes(ClientAttrs).
 
 clientid_override(Entry, #{method := #{clientid_override_attribute := Attr}} = _State) ->
     case emqx_auth_ldap_utils:get_bin_attribute(Attr, Entry, undefined) of

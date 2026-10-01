@@ -44,12 +44,13 @@ authenticate(
         BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
         Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
         AclAttributes = emqx_auth_ldap_acl:acl_attributes(State),
+        ClientAttrsAttributes = client_attrs_attributes(State),
         Attributes = [
             PasswordAttr,
             IsSuperuserAttr,
             ClientIdOverrideAttr,
             ?ISENABLED_ATTR
-            | AclAttributes
+            | AclAttributes ++ ClientAttrsAttributes
         ],
         {query, BaseDN, Filter, [{attributes, Attributes}, {timeout, Timeout}]}
     end,
@@ -74,8 +75,14 @@ do_authenticate(Password, Entry, #{resource_id := ResourceId} = State) ->
         ok ?= verify_user_enabled(Entry),
         ok ?= ensure_password(Password, Entry, State),
         {ok, AclFields} ?= emqx_auth_ldap_acl:acl_from_entry(State, Entry),
-        {ok, maps:merge(AclFields, authn_result(Entry, State))}
+        {ok, ClientAttrs} ?= emqx_authn_ldap_client_attrs:from_entry(Entry, State),
+        {ok, maps:merge(AclFields, maps:merge(ClientAttrs, authn_result(Entry, State)))}
     else
+        {error, no_client_attrs} ->
+            ?TRACE_AUTHN_PROVIDER(info, "ldap_no_client_attrs_matched", #{
+                resource => ResourceId
+            }),
+            {error, not_authorized};
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "ldap_authentication_failed", #{
                 resource => ResourceId,
@@ -172,6 +179,9 @@ verify_password(Algorithm, LDAPPasswordType, LDAPPassword, Salt, Position, Passw
         _ ->
             {error, bad_username_or_password}
     end.
+
+client_attrs_attributes(#{client_attrs := ClientAttrs}) ->
+    emqx_authn_ldap_client_attrs:attributes(ClientAttrs).
 
 is_superuser(Entry, #{method := #{is_superuser_attribute := Attr}} = _State) ->
     IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(Attr, Entry, false),

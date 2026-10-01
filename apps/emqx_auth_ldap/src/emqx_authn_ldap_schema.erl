@@ -64,6 +64,41 @@ fields(bind_method) ->
                     validator => fun emqx_schema:non_empty_string/1
                 }
             )}
+    ];
+fields(client_attr) ->
+    [
+        {attribute,
+            ?HOCON(binary(), #{
+                desc => ?DESC(client_attr_attribute),
+                required => true,
+                example => <<"memberOf">>,
+                validator => fun attribute_description/1
+            })},
+        {set_as_attr,
+            ?HOCON(binary(), #{
+                desc => ?DESC(client_attr_set_as_attr),
+                required => true,
+                example => <<"grp_x">>,
+                validator => fun attr_name/1
+            })},
+        {select,
+            ?HOCON(?ARRAY(binary()), #{
+                desc => ?DESC(client_attr_select),
+                required => true,
+                example => [<<"^CN=GROUP-X,">>],
+                validator => fun emqx_authn_ldap_client_attrs:validate_patterns/1
+            })},
+        {extract,
+            ?HOCON(?ENUM([cn, value, literal]), #{
+                desc => ?DESC(client_attr_extract),
+                default => value
+            })},
+        {literal,
+            ?HOCON(binary(), #{
+                desc => ?DESC(client_attr_literal),
+                required => false,
+                example => <<"grp123">>
+            })}
     ].
 
 common_fields() ->
@@ -73,6 +108,7 @@ common_fields() ->
         {query_timeout, fun query_timeout/1}
     ] ++
         acl_fields() ++
+        client_attrs_fields() ++
         emqx_ldap:fields(search_options) ++
         emqx_authn_schema:common_fields() ++
         emqx_ldap:fields(config).
@@ -83,6 +119,8 @@ desc(hash_method) ->
     ?DESC(hash_method);
 desc(bind_method) ->
     ?DESC(bind_method);
+desc(client_attr) ->
+    ?DESC(client_attr);
 desc(_) ->
     undefined.
 
@@ -151,6 +189,32 @@ acl_fields() ->
                 required => false
             })}
     ].
+
+client_attrs_fields() ->
+    [
+        {client_attrs,
+            ?HOCON(?ARRAY(?R_REF(client_attr)), #{
+                desc => ?DESC(client_attrs),
+                default => []
+            })},
+        {require_client_attrs,
+            ?HOCON(boolean(), #{
+                desc => ?DESC(require_client_attrs),
+                default => false
+            })}
+    ].
+
+attribute_description(Name) ->
+    case emqx_ldap_dn:is_attribute_description(Name) of
+        true -> ok;
+        false -> {error, <<"Invalid LDAP attribute name">>}
+    end.
+
+attr_name(Name) ->
+    case emqx_utils:is_restricted_str(Name) of
+        true -> ok;
+        false -> {error, <<"Invalid string for attribute name">>}
+    end.
 
 is_superuser_attribute() ->
     ?HOCON(
