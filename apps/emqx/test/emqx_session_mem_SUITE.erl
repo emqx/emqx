@@ -930,46 +930,51 @@ t_replay_qos0_bounded_dequeue(_) ->
         inflight => emqx_inflight:new(1),
         mqueue => mqueue(#{store_qos0 => true})
     }),
-    {ok, [{1, _}], S1} = emqx_session_mem:deliver(
+    Q1First = delivery(?QOS_1, <<"q1">>),
+    {ok, [{1, _Q1First}], S1} = emqx_session_mem:deliver(
         clientinfo(),
-        enrich([delivery(?QOS_1, <<"q1">>)], S0),
+        enrich([Q1First], S0),
         [],
         S0
     ),
     %% Offline backlog: a blocked QoS1 followed by more than one batch of QoS0.
-    Pending = enrich(
-        [
-            delivery(?QOS_1, <<"q1">>)
-            | [
-                delivery(?QOS_0, <<"q0">>, integer_to_binary(N))
-             || N <- lists:seq(1, ?DEFAULT_BATCH_N + 1)
-            ]
-        ],
+    Q1Second = delivery(?QOS_1, <<"q1">>),
+    Q0Sequence = [
+        delivery(?QOS_0, <<"q0">>, integer_to_binary(N))
+     || N <- lists:seq(1, ?DEFAULT_BATCH_N + 1)
+    ],
+    S2 = emqx_session_mem:enqueue(
+        clientinfo(),
+        enrich([Q1Second | Q0Sequence], S1),
         S1
     ),
-    S2 = emqx_session_mem:enqueue(clientinfo(), Pending, S1),
-    {ok, [{1, _Resent}], S3} = emqx_session_mem:replay(clientinfo(), S2),
+    {ok, [{1, _Q1Resent}], S3} = emqx_session_mem:replay(clientinfo(), S2),
     ?assertEqual(?DEFAULT_BATCH_N + 1, emqx_mqueue:num_qos0(S3#session.mqueue)),
     %% Once the queued QoS1 fits, continue into its trailing QoS0 run up to the outgoing cap.
-    {ok, _, [{2, _} | Publishes], S4} =
-        emqx_session_mem:puback(clientinfo(), 1, [], S3),
+    {
+        _Rescedule = {set_timer, ?RETRY_DEQUEUE_TIMER, 1},
+        _,
+        [{2, _Q1Second} | Publishes],
+        S4
+    } = emqx_session_mem:puback(clientinfo(), 1, [], S3),
     ?assertEqual(
         [integer_to_binary(N) || N <- lists:seq(1, ?DEFAULT_BATCH_N - 1)],
         [M#message.payload || {undefined, M} <- Publishes]
     ),
-    More = enrich([delivery(?QOS_0, <<"q0">>, <<"new">>)], S4),
-    {ok, [], S5} = emqx_session_mem:deliver(clientinfo(), More, [], S4),
-    %% Wait for the outstanding QoS1 ACK before draining the rest of QoS0.
+    %% Deliver one more QoS0: it should be queued as the mqueue still contains QoS0 messages.
+    Q0More = enrich([delivery(?QOS_0, <<"q0">>, <<"new">>)], S4),
+    {ok, [], S5} = emqx_session_mem:deliver(clientinfo(), Q0More, [], S4),
+    %% Continue draining QoS0 without waiting for the outstanding QoS1 ACK.
     PayloadNM1 = integer_to_binary(?DEFAULT_BATCH_N),
     PayloadNM0 = integer_to_binary(?DEFAULT_BATCH_N + 1),
-    {ok, _,
+    {ok,
         [
             {undefined, #message{payload = PayloadNM1}},
             {undefined, #message{payload = PayloadNM0}},
             {undefined, #message{payload = <<"new">>}}
         ],
         S6} =
-        emqx_session_mem:puback(clientinfo(), 2, [], S5),
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], S5),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, S6)).
 
 -doc "Expired messages do not consume outgoing budget and inflight allowance.".
@@ -1073,15 +1078,18 @@ t_dequeue_budget_uses_max_inflight(_) ->
     S3 = emqx_session_mem:enqueue(clientinfo(), QoS0, S2),
     %% Congestion still uses available slots, while the outgoing budget uses the maximum.
     {ok, [], S3} = emqx_session_mem:dequeue(clientinfo(), [congested], S3),
-    {ok, First, S4} =
+    {_Rescedule = {set_timer, ?RETRY_DEQUEUE_TIMER, 1}, Batch1, S4} =
         emqx_session_mem:dequeue(clientinfo(), [], S3),
     ?assertEqual(
         [integer_to_binary(N) || N <- lists:seq(1, MaxInflight)],
-        [M#message.payload || {undefined, M} <- First]
+        [M#message.payload || {undefined, M} <:- Batch1]
     ),
-    PayloadLast = integer_to_binary(MaxInflight + 1),
-    {ok, _, [{undefined, #message{payload = PayloadLast}}], S5} =
-        emqx_session_mem:puback(clientinfo(), 1, [], S4),
+    {ok, Batch2, S5} =
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], S4),
+    ?assertEqual(
+        [integer_to_binary(MaxInflight + 1)],
+        [M#message.payload || {undefined, M} <:- Batch2]
+    ),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, S5)).
 
 -doc "A long QoS0 prefix obeys the outgoing cap and schedules continuation when no ACKs are expected.".
@@ -1111,7 +1119,9 @@ t_dequeue_qos0_prefix_bounded(_) ->
         emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], S2),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, S3)).
 
--doc "Budget exhaustion before a blocked QoS1/2 waits for an ACK despite QoS0 remaining behind it.".
+-doc """
+Budget exhaustion schedules one continuation / blocked QoS1/2 schedules none until an ACK arrives.
+""".
 t_dequeue_budget_stops_at_qos12(_) ->
     S0 = session(#{
         inflight => emqx_inflight:new(1),
@@ -1129,13 +1139,14 @@ t_dequeue_budget_stops_at_qos12(_) ->
         S0
     ),
     S1 = emqx_session_mem:enqueue(clientinfo(), Pending, S0),
-    %% The outgoing cap is reached exactly before a blocked QoS2: wait for an ACK,
-    %% even though QoS0 remains elsewhere in the queue.
-    {ok, First, S2} = emqx_session_mem:dequeue(clientinfo(), [], S1),
-    ?assertEqual(?DEFAULT_BATCH_N, length(First)),
+    %% Exhausting batch budget schedules a continuation.
+    {_Rescedule = {set_timer, ?RETRY_DEQUEUE_TIMER, 1}, Batch1, S2} =
+        emqx_session_mem:dequeue(clientinfo(), [], S1),
+    ?assertEqual(?DEFAULT_BATCH_N, length(Batch1)),
     ?assertEqual(2, emqx_session_mem:info(mqueue_len, S2)),
+    %% Continuation encounters a blocked QoS2 and must not reschedule.
     {ok, [], S2} =
-        emqx_session_mem:dequeue(clientinfo(), [], S2),
+        emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, [], S2),
     {ok, _, [{2, #message{qos = 2}}, {undefined, #message{payload = <<"last">>}}], S3} =
         emqx_session_mem:puback(clientinfo(), 1, [], S2),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, S3)).

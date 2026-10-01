@@ -823,14 +823,9 @@ dequeue_next(_, Q) ->
 
 finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
     OkEffect =
-        maybe
-            %% When inflight is empty, no ACKs are expected to arrive:
-            true ?= emqx_inflight:is_empty(Inflight),
-            %% If mqueue is not empty yet, another dequeue needs to be scheduled:
-            false ?= emqx_mqueue:is_empty(Q),
-            reschedule_dequeue_timer_effect()
-        else
-            _ -> ok
+        case emqx_mqueue:is_empty(Q) of
+            true -> ok;
+            false -> reschedule_dequeue_timer_effect()
         end,
     reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId).
 
