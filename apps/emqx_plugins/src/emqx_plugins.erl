@@ -694,8 +694,14 @@ get_config(NameVsn, Default) ->
 %% NOTE
 %% This function assumes that the config is already validated
 %% by avro schema in case of its presence.
+%% A pinned plugin accepts the update. Another version of a pinned name is refused.
 update_config(NameVsn, Config) ->
-    with_unpinned_name(NameVsn, fun() -> do_update_config(NameVsn, Config) end).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case emqx_plugins_pinned:is_other_version(NameVsn) of
+            true -> {error, emqx_plugins_pinned:refusal(NameVsn)};
+            false -> do_update_config(NameVsn, Config)
+        end
+    end).
 
 do_update_config(NameVsn, Config) ->
     maybe
@@ -1099,7 +1105,8 @@ managed(Configured) ->
 %% Another version of a pinned plugin name, for example left in the install dir
 %% from before the node pinned the name. This node never runs it.
 is_ignored_version(NameVsn) ->
-    is_pinned_name(NameVsn) andalso not emqx_plugins_pinned:is_pinned_name_vsn(NameVsn).
+    emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso
+        emqx_plugins_pinned:is_other_version(NameVsn).
 
 is_pinned_name(NameVsn) ->
     emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso

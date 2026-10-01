@@ -20,6 +20,7 @@ entry whose plugin name is pinned, whatever its version.
     find/1,
     is_pinned/1,
     is_pinned_name_vsn/1,
+    is_other_version/1,
     refusal/1
 ]).
 
@@ -65,6 +66,14 @@ is_pinned(NameVsn) ->
 is_pinned_name_vsn(NameVsn) ->
     lists:member(emqx_plugins_utils:bin(NameVsn), list()).
 
+-doc """
+Return `true` when this node pins the plugin name of `NameVsn` at another
+version. This node never runs such a version.
+""".
+-spec is_other_version(name_vsn()) -> boolean().
+is_other_version(NameVsn) ->
+    is_pinned(NameVsn) andalso not is_pinned_name_vsn(NameVsn).
+
 -doc "Return the error for a lifecycle operation that a pinned plugin does not allow.".
 -spec refusal(name_vsn()) -> map().
 refusal(NameVsn) ->
@@ -88,12 +97,29 @@ refusal(NameVsn) ->
 -doc """
 Read the config of a pinned plugin.
 
-The source is the package default `priv/config.hocon`. The override file
-`etc/plugins/<name>.hocon` is merged on top of it when that file exists.
-Neither the per-plugin file under `data/` nor any peer node is read.
+A config saved through the API is stored in `data/plugins/<name>/config.hocon`.
+When that file exists, it is the whole config. Otherwise the source is the
+package default `priv/config.hocon`, with `etc/plugins/<name>.hocon` merged on
+top of it when that file exists. No peer node is read.
 """.
 -spec read_config(name_vsn()) -> {ok, map()} | {error, term()}.
 read_config(NameVsn) ->
+    case emqx_plugins_local_config:read(NameVsn) of
+        {ok, Config} ->
+            {ok, Config};
+        {error, #{reason := {enoent, _}}} ->
+            read_image_config(NameVsn);
+        {error, Reason} ->
+            {error, #{
+                kind => invalid_config,
+                msg => "bad_pinned_plugin_config_file",
+                name_vsn => emqx_plugins_utils:bin(NameVsn),
+                path => emqx_plugins_fs:config_file_path(NameVsn),
+                reason => Reason
+            }}
+    end.
+
+read_image_config(NameVsn) ->
     maybe
         {ok, Default} ?= read_default(NameVsn),
         {ok, Override} ?= read_override(NameVsn),

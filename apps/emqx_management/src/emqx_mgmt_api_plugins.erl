@@ -213,7 +213,6 @@ schema("/plugins/:name/config") ->
                     ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
-                409 => pinned_error(),
                 500 => emqx_dashboard_swagger:error_codes(
                     ['INTERNAL_ERROR'], ?DESC("internal_error")
                 )
@@ -262,7 +261,6 @@ schema("/plugins/:name/config/upload") ->
                     ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
-                409 => pinned_error(),
                 500 => emqx_dashboard_swagger:error_codes(
                     ['INTERNAL_ERROR'], ?DESC("internal_error")
                 )
@@ -690,13 +688,13 @@ update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     get_plugin_config(NameVsn);
 plugin_config(put, #{bindings := #{name := NameVsn}, body := Config}) ->
-    unless_pinned_here(NameVsn, fun() -> put_plugin_config(NameVsn, Config) end).
+    put_plugin_config(NameVsn, Config).
 
 upload_plugin_config(post, #{
     bindings := #{name := NameVsn}, body := #{<<"config">> := #{type := _} = ConfigUpload}
 }) ->
     [{_FileName, ConfigBin}] = maps:to_list(maps:without([type], ConfigUpload)),
-    unless_pinned_here(NameVsn, fun() -> put_plugin_config(NameVsn, ConfigBin) end).
+    put_plugin_config(NameVsn, ConfigBin).
 
 download_plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case get_plugin_config(NameVsn) of
@@ -727,20 +725,19 @@ get_plugin_config(NameVsn) ->
     end.
 
 put_plugin_config(NameVsn, Config) ->
-    Nodes = emqx:running_nodes(),
     case describe_api_plugin(NameVsn, #{}) of
         {ok, _} ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, Config) of
                 {ok, ?plugin_without_config_schema} ->
                     %% no plugin avro schema, just put the json map as-is
                     Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
-                        Nodes, NameVsn, Config
+                        config_nodes(NameVsn), NameVsn, Config
                     ),
                     return_config_update_result(Res);
                 {ok, _AvroValue} ->
                     %% cluster call with config in map (binary key-value)
                     Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
-                        Nodes, NameVsn, Config
+                        config_nodes(NameVsn), NameVsn, Config
                     ),
                     return_config_update_result(Res);
                 {error, Reason} ->
@@ -752,6 +749,14 @@ put_plugin_config(NameVsn, Config) ->
         _ ->
             {404, plugin_not_found_msg()}
     end.
+
+%% The nodes that report the plugin version, and the nodes that did not answer,
+%% so that an unreachable node is still reported as a failure. A node that pins
+%% another version of the plugin name does not report this one.
+config_nodes(NameVsn) ->
+    {Results, BadNodes} =
+        emqx_mgmt_api_plugins_proto_v4:describe_package(emqx:running_nodes(), NameVsn),
+    [Node || {Node, [_ | _]} <- drop_bad_plugin_results(Results)] ++ BadNodes.
 
 plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
     case describe_api_plugin(NameVsn, #{}) of
@@ -1087,7 +1092,15 @@ do_update_plugin_config(NameVsn, AvroJsonMap, _AvroValue) ->
 do_update_plugin_config_v4(NameVsn, AvroJsonMap) when is_binary(AvroJsonMap) ->
     do_update_plugin_config_v4(NameVsn, emqx_utils_json:decode(AvroJsonMap));
 do_update_plugin_config_v4(NameVsn, AvroJsonMap) ->
-    unless_pinned(NameVsn, ok, fun() -> emqx_plugins:update_config(NameVsn, AvroJsonMap) end).
+    %% A node that pins another version of the plugin name skips the update: the
+    %% config file is per plugin name, so it would overwrite the pinned config.
+    case
+        emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso
+            emqx_plugins_pinned:is_other_version(NameVsn)
+    of
+        true -> ok;
+        false -> emqx_plugins:update_config(NameVsn, AvroJsonMap)
+    end.
 
 %% for RPC plugin ensure existed
 -spec ensure_existed(name_vsn()) -> ok | {error, term()}.

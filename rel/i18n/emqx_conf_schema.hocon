@@ -491,7 +491,7 @@ The list order is the start order. Pinned plugins start before the plugins in `p
 A pinned plugin:
 - Runs from the directory `<plugins.install_dir>/<name-vsn>`, which must already hold the extracted package, for example in the container image. Nothing is extracted from a package file, and nothing is copied from or to other nodes.
 - Is always enabled, and needs no `plugins.states` entry and no `plugins allow` grant.
-- Takes its config from the default `config.hocon` in the package. When `etc/plugins/<name>.hocon` exists, its values override the default. The config is never copied from other nodes and can not be changed with the API.
+- Takes its config from the default `config.hocon` in the package. When `etc/plugins/<name>.hocon` exists, its values override the default. A config saved through the API or the Dashboard is stored in `data/plugins/<name>/config.hocon`, and from then on that file is the whole config. The config is never copied from other nodes.
 - Ignores any `plugins.states` entry with the same plugin name, in any version.
 
 Only the CLI can stop and start a pinned plugin, and only on its own node.
