@@ -1186,6 +1186,12 @@ save_subopts(#session{subscriptions = Subs0} = Session0) ->
     ),
     Session0#session{subscriptions = Subs}.
 
+-doc """
+Restores the session's broker subscriptions in the calling channel process.
+This lets the new channel receive broker deliveries while takeover is still
+in progress. Completing the handover and restarting message delivery are the
+responsibility of replay.
+""".
 -spec resume(emqx_types:clientinfo(), session()) ->
     session().
 resume(_ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = Subs}) ->
@@ -1198,6 +1204,12 @@ resume(_ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions =
     ),
     Session.
 
+-doc """
+Completes delivery handover from the old channel to the new channel.
+Reconciles pending deliveries received by either channel during the subscription
+overlap, removing duplicates. Continues the session's unfinished and queued
+deliveries before processing those pending deliveries.
+""".
 -spec replay(emqx_types:clientinfo(), replayctx(), session()) ->
     {ok | effects(), replies(), session()}.
 replay(ClientInfo, TakeoverState, Session) ->
@@ -1250,6 +1262,15 @@ filter_remote_pendings(ClientInfo, Session, Pendings) ->
     Pendings1 = emqx_session:enrich_delivers(ClientInfo, Pendings, Session),
     lists:filter(fun emqx_session:should_keep/1, Pendings1).
 
+-doc """
+Restarts delivery of messages already held by the session when a connection is ready
+again. Retransmits inflight PUBLISH and PUBREL messages, then resumes draining the
+message queue within dequeue limits.
+Assumes an uncongested connection.
+Also used when an MQTT-SN client wakes up.
+Takeover coordination and pending deliveries in channel mailboxes are the
+responsibility of the caller.
+""".
 -spec replay(emqx_types:clientinfo(), session()) ->
     {ok | effects(), replies(), session()}.
 replay(ClientInfo, Session) ->
