@@ -211,6 +211,37 @@ t_config_sources(Config) ->
     ok.
 
 -doc """
+A pinned plugin with a config schema registers the schema when it starts, so
+the config can be validated and changed through the API. The plugin is
+extracted after the plugins application started, so nothing else registered
+the schema.
+""".
+t_config_schema_registered(Config) ->
+    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+    #{package := Package, name_vsn := NameVsn} =
+        emqx_plugins_test_helpers:get_demo_plugin_package(#{
+            release_name => "my_emqx_plugin_avsc",
+            git_url => ?TEMPLATE_URL,
+            vsn => "5.9.0",
+            tag => "5.9.0",
+            shdir => packages_dir(WorkDir, "avsc")
+        }),
+    ok = extract(Package, ?config(install_dir, Config)),
+    on_exit(fun() ->
+        _ = emqx_plugins:stop_pinned(NameVsn),
+        _ = emqx_plugins:purge(NameVsn),
+        _ = file:delete(emqx_plugins_fs:config_file_path(NameVsn))
+    end),
+    _ = emqx_plugins_serde:delete_schema(NameVsn),
+    set_pinned([NameVsn]),
+    _ = cli(["start", binary_to_list(NameVsn)]),
+    ?assertMatch({ok, #{running_status := running}}, emqx_plugins:describe(NameVsn)),
+    PluginConfig = emqx_plugins:get_config(NameVsn),
+    ?assertMatch({ok, _}, emqx_plugins:decode_plugin_config_map(NameVsn, PluginConfig)),
+    ?assertEqual(ok, emqx_plugins:update_config(NameVsn, PluginConfig)),
+    ok.
+
+-doc """
 The plugin API endpoint routes a request for the plugin name to the running
 pinned version.
 """.

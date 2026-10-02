@@ -382,6 +382,23 @@ t_pinned_plugin(_Config) ->
     ?assertMatch({204, _}, emqx_mgmt_api_test_util:simple_request(put, ConfigPath, Config1)),
     ?assertEqual({200, Config1}, emqx_mgmt_api_test_util:simple_request(get, ConfigPath, "")),
     ?assert(filelib:is_regular(emqx_plugins_fs:config_file_path(NameVsn))),
+    %% A node whose plugin discovery call crashes is still asked to update, so
+    %% that a failure on it is reported instead of skipped.
+    ok = meck:new(emqx_mgmt_api_plugins_proto_v4, [passthrough]),
+    try
+        ok = meck:expect(emqx_mgmt_api_plugins_proto_v4, describe_package, fun(_Nodes, _NV) ->
+            {[{badrpc, {'EXIT', boom}}], []}
+        end),
+        ?assertMatch({204, _}, emqx_mgmt_api_test_util:simple_request(put, ConfigPath, Config1)),
+        ?assertEqual(
+            1,
+            meck:num_calls(
+                emqx_mgmt_api_plugins_proto_v4, update_plugin_config, [[node()], NameVsn, '_']
+            )
+        )
+    after
+        meck:unload(emqx_mgmt_api_plugins_proto_v4)
+    end,
     %% The lifecycle operations are refused.
     Refused = [
         {delete, ["plugins", NameVsn], ""},
