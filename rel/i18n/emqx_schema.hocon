@@ -1370,7 +1370,7 @@ sys_event_client_unsubscribed.desc:
 """Enable to publish event message that client unsubscribed a topic successfully."""
 
 overload_protection_backoff_new_conn.desc:
-"""When at high load, close new incoming connections."""
+"""When at high load or under high memory pressure, close new incoming connections on MQTT listeners. The high memory threshold is `sysmon.os.sysmem_high_watermark`."""
 
 overload_protection_backoff_new_conn.label:
 """Close new connections"""

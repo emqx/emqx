@@ -120,8 +120,8 @@ new_conn(
     end.
 
 do_new_conn(Conn, ConnInfo, #{zone := Zone} = S) ->
-    case emqx_olp:is_overloaded() andalso is_zone_olp_enabled(Zone) of
-        false ->
+    case emqx_olp:backoff_new_conn(Zone) of
+        ok ->
             %% Start control stream process
             StartOption = S,
             {ok, CtrlPid} = emqx_connection:start_link(
@@ -137,8 +137,7 @@ do_new_conn(Conn, ConnInfo, #{zone := Zone} = S) ->
                 {'EXIT', _Pid, _Reason} ->
                     {stop, stream_accept_error, S}
             end;
-        true ->
-            emqx_metrics:inc_global('overload_protection.new_conn'),
+        {error, overloaded} ->
             _ = quicer:async_shutdown_connection(
                 Conn,
                 ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
@@ -344,15 +343,6 @@ probe(Conn, Timeout) ->
 %%%
 %%%  Internals
 %%%
--spec is_zone_olp_enabled(emqx_types:zone()) -> boolean().
-is_zone_olp_enabled(Zone) ->
-    case emqx_config:get_zone_conf(Zone, [overload_protection]) of
-        #{enable := true} ->
-            true;
-        _ ->
-            false
-    end.
-
 -spec init_cb_state(map()) -> cb_state().
 init_cb_state(#{zone := _Zone} = Map) ->
     SS = #{
