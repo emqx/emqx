@@ -964,7 +964,10 @@ t_connect_will_delay_with_session_expiry_0(Config) ->
     ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
     ok = emqtt:disconnect(Client1),
 
-    receive {'EXIT', _, killed} -> ok after 100 -> ok end,
+    receive
+        {'EXIT', _, killed} -> ok
+    after 100 -> ok
+    end,
     process_flag(trap_exit, false).
 
 %% [MQTT-3.1.4-3]
