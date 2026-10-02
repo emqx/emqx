@@ -11,7 +11,11 @@ Entries are stored in a map. Integer keys in the MQTT packet id range
 (1..65535) are also recorded in a sparse bitmap index: a map from chunk
 number to a 32-bit integer of used ids, `Id bsr 5 => Bits`. A chunk whose
 bits become zero is removed, so an absent chunk means all its ids are free.
-`next_free_id/2` scans this index to find an unused packet id.
+
+The inflight also owns the packet id counter. `alloc/2` and `reserve/1`
+return the first unused packet id at or after the counter, wrapping from
+65535 to 1, and move the counter past it. `insert/3` with an explicit key
+does not move the counter.
 
 Keys outside the packet id range (gateways use other terms) are stored in
 the map only.
@@ -38,7 +42,10 @@ the map only.
     is_full/1,
     is_empty/1,
     window/1,
-    next_free_id/2
+    alloc/2,
+    reserve/1,
+    next_id/1,
+    set_next_id/2
 ]).
 
 -export_type([inflight/0]).
@@ -52,70 +59,76 @@ the map only.
 
 -type key() :: term().
 
--type max_size() :: pos_integer().
+-type max_size() :: non_neg_integer().
 
 -type packet_id() :: 1..?MAX_ID.
 
 %% Chunk number => bits of used packet ids. Zero chunks are never stored.
 -type index() :: #{non_neg_integer() => pos_integer()}.
 
--opaque inflight() :: {inflight, max_size(), #{key() => term()}, index()}.
+-record(inflight, {
+    %% 0 means no limit.
+    max_size :: max_size(),
+    entries = #{} :: #{key() => term()},
+    %% Packet id keys of `entries`.
+    index = #{} :: index(),
+    %% Where the next search for an unused packet id starts.
+    next_id = 1 :: packet_id()
+}).
+
+-opaque inflight() :: #inflight{}.
 
 -define(IS_PACKET_ID(Key), (is_integer(Key) andalso Key >= 1 andalso Key =< ?MAX_ID)).
-
--define(INFLIGHT(Map), {inflight, _MaxSize, Map, _Index}).
-
--define(INFLIGHT(MaxSize, Map, Index), {inflight, MaxSize, (Map), (Index)}).
 
 -spec new() -> inflight().
 new() -> new(0).
 
 -spec new(non_neg_integer()) -> inflight().
 new(MaxSize) when MaxSize >= 0 ->
-    ?INFLIGHT(MaxSize, #{}, #{}).
+    #inflight{max_size = MaxSize}.
 
 -spec contain(key(), inflight()) -> boolean().
-contain(Key, ?INFLIGHT(Map)) ->
-    is_map_key(Key, Map).
+contain(Key, #inflight{entries = Entries}) ->
+    is_map_key(Key, Entries).
 
 -spec lookup(key(), inflight()) -> {value, term()} | none.
-lookup(Key, ?INFLIGHT(Map)) ->
-    case Map of
+lookup(Key, #inflight{entries = Entries}) ->
+    case Entries of
         #{Key := Val} -> {value, Val};
         #{} -> none
     end.
 
 -spec insert(key(), Val :: term(), inflight()) -> inflight().
-insert(Key, _Val, ?INFLIGHT(Map)) when is_map_key(Key, Map) ->
+insert(Key, _Val, #inflight{entries = Entries}) when is_map_key(Key, Entries) ->
     erlang:error({key_exists, Key});
-insert(Key, Val, ?INFLIGHT(MaxSize, Map, Index)) ->
-    ?INFLIGHT(MaxSize, Map#{Key => Val}, mark(Key, Index)).
+insert(Key, Val, I = #inflight{entries = Entries, index = Index}) ->
+    I#inflight{entries = Entries#{Key => Val}, index = mark(Key, Index)}.
 
 -spec delete(key(), inflight()) -> inflight().
-delete(Key, ?INFLIGHT(MaxSize, Map, Index)) when is_map_key(Key, Map) ->
-    ?INFLIGHT(MaxSize, maps:remove(Key, Map), unmark(Key, Index)).
+delete(Key, I = #inflight{entries = Entries, index = Index}) when is_map_key(Key, Entries) ->
+    I#inflight{entries = maps:remove(Key, Entries), index = unmark(Key, Index)}.
 
 -spec update(key(), Val :: term(), inflight()) -> inflight().
-update(Key, Val, ?INFLIGHT(MaxSize, Map, Index)) when is_map_key(Key, Map) ->
-    ?INFLIGHT(MaxSize, Map#{Key := Val}, Index).
+update(Key, Val, I = #inflight{entries = Entries}) when is_map_key(Key, Entries) ->
+    I#inflight{entries = Entries#{Key := Val}}.
 
 -spec fold(fun((key(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
-fold(FoldFun, AccIn, ?INFLIGHT(Map)) ->
-    maps:fold(FoldFun, AccIn, Map).
+fold(FoldFun, AccIn, #inflight{entries = Entries}) ->
+    maps:fold(FoldFun, AccIn, Entries).
 
 -spec resize(integer(), inflight()) -> inflight().
-resize(MaxSize, ?INFLIGHT(_, Map, Index)) ->
-    ?INFLIGHT(MaxSize, Map, Index).
+resize(MaxSize, I = #inflight{}) ->
+    I#inflight{max_size = MaxSize}.
 
 -spec is_full(inflight()) -> boolean().
-is_full(?INFLIGHT(0, _Map, _Index)) ->
+is_full(#inflight{max_size = 0}) ->
     false;
-is_full(?INFLIGHT(MaxSize, Map, _Index)) ->
-    MaxSize =< map_size(Map).
+is_full(#inflight{max_size = MaxSize, entries = Entries}) ->
+    MaxSize =< map_size(Entries).
 
 -spec is_empty(inflight()) -> boolean().
-is_empty(?INFLIGHT(Map)) ->
-    map_size(Map) =:= 0.
+is_empty(#inflight{entries = Entries}) ->
+    map_size(Entries) =:= 0.
 
 -doc "Return the values, ordered by key.".
 -spec values(inflight()) -> list().
@@ -124,42 +137,76 @@ values(Inflight) ->
 
 -doc "Return the entries, ordered by key.".
 -spec to_list(inflight()) -> list({key(), term()}).
-to_list(?INFLIGHT(Map)) ->
-    lists:sort(maps:to_list(Map)).
+to_list(#inflight{entries = Entries}) ->
+    lists:sort(maps:to_list(Entries)).
 
 -spec to_list(fun(), inflight()) -> list({key(), term()}).
-to_list(SortFun, ?INFLIGHT(Map)) ->
-    lists:sort(SortFun, maps:to_list(Map)).
+to_list(SortFun, #inflight{entries = Entries}) ->
+    lists:sort(SortFun, maps:to_list(Entries)).
 
 -doc "Return the smallest and the largest key, or `[]` when empty.".
 -spec window(inflight()) -> list().
-window(?INFLIGHT(Map)) when map_size(Map) =:= 0 ->
+window(#inflight{entries = Entries}) when map_size(Entries) =:= 0 ->
     [];
-window(?INFLIGHT(Map)) ->
-    Keys = maps:keys(Map),
+window(#inflight{entries = Entries}) ->
+    Keys = maps:keys(Entries),
     [lists:min(Keys), lists:max(Keys)].
 
 -spec size(inflight()) -> non_neg_integer().
-size(?INFLIGHT(Map)) ->
-    map_size(Map).
+size(#inflight{entries = Entries}) ->
+    map_size(Entries).
 
 -spec max_size(inflight()) -> non_neg_integer().
-max_size(?INFLIGHT(MaxSize, _Map, _Index)) ->
+max_size(#inflight{max_size = MaxSize}) ->
     MaxSize.
 
 -doc """
-Return the first packet id at or after `From` that is not in the inflight,
-wrapping from 65535 to 1. Return `none` when all 65535 packet ids are in use.
+Insert `Val` under the first unused packet id at or after the counter, and
+move the counter past that id. Return `none` when all 65535 packet ids are
+in use.
 """.
--spec next_free_id(packet_id(), inflight()) -> {ok, packet_id()} | none.
-next_free_id(From, ?INFLIGHT(_MaxSize, _Map, Index)) when ?IS_PACKET_ID(From) ->
-    Chunk = From bsr ?CHUNK_SHIFT,
-    FromMask = ?CHUNK_MASK bxor ((1 bsl (From band ?OFFSET_MASK)) - 1),
-    scan(Chunk, FromMask, ?NUM_CHUNKS, Index).
+-spec alloc(Val :: term(), inflight()) -> {ok, packet_id(), inflight()} | none.
+alloc(Val, I = #inflight{entries = Entries, index = Index, next_id = NextId}) ->
+    case next_free_id(NextId, Index) of
+        {ok, Id} ->
+            {ok, Id, I#inflight{
+                entries = Entries#{Id => Val},
+                index = mark(Id, Index),
+                next_id = next(Id)
+            }};
+        none ->
+            none
+    end.
+
+-doc """
+Return the first unused packet id at or after the counter, and move the
+counter past it, without inserting an entry. Return `none` when all 65535
+packet ids are in use.
+""".
+-spec reserve(inflight()) -> {ok, packet_id(), inflight()} | none.
+reserve(I = #inflight{index = Index, next_id = NextId}) ->
+    case next_free_id(NextId, Index) of
+        {ok, Id} -> {ok, Id, I#inflight{next_id = next(Id)}};
+        none -> none
+    end.
+
+-doc "Return the packet id counter: where the next search for an unused id starts.".
+-spec next_id(inflight()) -> packet_id().
+next_id(#inflight{next_id = NextId}) ->
+    NextId.
+
+-spec set_next_id(packet_id(), inflight()) -> inflight().
+set_next_id(NextId, I = #inflight{}) when ?IS_PACKET_ID(NextId) ->
+    I#inflight{next_id = NextId}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+next_free_id(From, Index) ->
+    Chunk = From bsr ?CHUNK_SHIFT,
+    FromMask = ?CHUNK_MASK bxor ((1 bsl (From band ?OFFSET_MASK)) - 1),
+    scan(Chunk, FromMask, ?NUM_CHUNKS, Index).
 
 %% Steps counts the chunks left to visit after this one. The start chunk is
 %% visited twice: first from the `From` offset, last in full, so the ids
@@ -181,6 +228,9 @@ used_bits(0, Index) ->
     maps:get(0, Index, 0) bor 1;
 used_bits(Chunk, Index) ->
     maps:get(Chunk, Index, 0).
+
+next(?MAX_ID) -> 1;
+next(Id) -> Id + 1.
 
 next_chunk(?LAST_CHUNK) -> 0;
 next_chunk(Chunk) -> Chunk + 1.

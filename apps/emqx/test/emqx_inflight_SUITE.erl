@@ -116,55 +116,55 @@ t_to_list(_) ->
     ?assertEqual(ExpList, emqx_inflight:to_list(Inflight)).
 
 -doc """
-Check that `next_free_id/2` skips a used packet id at the wrap point, the
+Check that `reserve/1` skips a used packet id at the wrap point, the
 case where the session used to crash with `{key_exists, Id}`.
 """.
-t_next_free_id_wraparound(_) ->
+t_reserve_wraparound(_) ->
     Inflight = insert_ids([1, 2, 16#FFFF], emqx_inflight:new(50000)),
-    ?assertEqual({ok, 3}, emqx_inflight:next_free_id(16#FFFF, Inflight)),
-    ?assertEqual({ok, 3}, emqx_inflight:next_free_id(1, Inflight)),
-    ?assertEqual({ok, 16#FFFE}, emqx_inflight:next_free_id(16#FFFE, Inflight)).
+    ?assertEqual({ok, 3}, free_from(16#FFFF, Inflight)),
+    ?assertEqual({ok, 3}, free_from(1, Inflight)),
+    ?assertEqual({ok, 16#FFFE}, free_from(16#FFFE, Inflight)).
 
 -doc """
-Check that `next_free_id/2` returns `none` when all 65535 packet ids are in
+Check that `reserve/1` returns `none` when all 65535 packet ids are in
 use, and finds the only free id from any start point.
 """.
-t_next_free_id_full(_) ->
+t_reserve_full(_) ->
     Full = insert_ids(lists:seq(1, 16#FFFF), emqx_inflight:new(16#FFFF)),
     ?assert(emqx_inflight:is_full(Full)),
-    ?assertEqual(none, emqx_inflight:next_free_id(1, Full)),
-    ?assertEqual(none, emqx_inflight:next_free_id(16#FFFF, Full)),
+    ?assertEqual(none, free_from(1, Full)),
+    ?assertEqual(none, free_from(16#FFFF, Full)),
     OneFree = emqx_inflight:delete(1000, Full),
     lists:foreach(
-        fun(From) -> ?assertEqual({ok, 1000}, emqx_inflight:next_free_id(From, OneFree)) end,
+        fun(From) -> ?assertEqual({ok, 1000}, free_from(From, OneFree)) end,
         [1, 999, 1000, 1001, 16#FFFF]
     ).
 
 -doc """
-Check `next_free_id/2` when every other packet id is in use, which puts a
+Check `reserve/1` when every other packet id is in use, which puts a
 used id in every chunk of the index.
 """.
-t_next_free_id_alternating(_) ->
+t_reserve_alternating(_) ->
     Inflight = insert_ids(lists:seq(1, 16#FFFF, 2), emqx_inflight:new(0)),
     ?assertEqual(2048, map_size(index(Inflight))),
-    ?assertEqual({ok, 2}, emqx_inflight:next_free_id(1, Inflight)),
-    ?assertEqual({ok, 100}, emqx_inflight:next_free_id(99, Inflight)),
-    ?assertEqual({ok, 100}, emqx_inflight:next_free_id(100, Inflight)),
-    ?assertEqual({ok, 2}, emqx_inflight:next_free_id(16#FFFF, Inflight)).
+    ?assertEqual({ok, 2}, free_from(1, Inflight)),
+    ?assertEqual({ok, 100}, free_from(99, Inflight)),
+    ?assertEqual({ok, 100}, free_from(100, Inflight)),
+    ?assertEqual({ok, 2}, free_from(16#FFFF, Inflight)).
 
 -doc """
-Check `next_free_id/2` when one long block of packet ids is in use, which
+Check `reserve/1` when one long block of packet ids is in use, which
 makes the scan walk over many full chunks.
 """.
-t_next_free_id_contiguous_block(_) ->
+t_reserve_contiguous_block(_) ->
     Inflight = insert_ids(lists:seq(1, 65000), emqx_inflight:new(0)),
-    ?assertEqual({ok, 65001}, emqx_inflight:next_free_id(1, Inflight)),
-    ?assertEqual({ok, 65001}, emqx_inflight:next_free_id(32000, Inflight)),
-    ?assertEqual({ok, 16#FFFF}, emqx_inflight:next_free_id(16#FFFF, Inflight)),
+    ?assertEqual({ok, 65001}, free_from(1, Inflight)),
+    ?assertEqual({ok, 65001}, free_from(32000, Inflight)),
+    ?assertEqual({ok, 16#FFFF}, free_from(16#FFFF, Inflight)),
     Wrapped = emqx_inflight:insert(16#FFFF, v, Inflight),
-    ?assertEqual({ok, 65001}, emqx_inflight:next_free_id(16#FFFF, Wrapped)),
+    ?assertEqual({ok, 65001}, free_from(16#FFFF, Wrapped)),
     Hole = emqx_inflight:delete(30000, Inflight),
-    ?assertEqual({ok, 30000}, emqx_inflight:next_free_id(1, Hole)).
+    ?assertEqual({ok, 30000}, free_from(1, Hole)).
 
 -doc """
 Check that the index removes a chunk when its last used id is deleted, and
@@ -174,20 +174,20 @@ t_index_chunk_emptied_and_refilled(_) ->
     ChunkIds = lists:seq(32, 63),
     Filled = insert_ids(ChunkIds, emqx_inflight:new(0)),
     ?assertEqual(#{1 => 16#FFFFFFFF}, index(Filled)),
-    ?assertEqual({ok, 64}, emqx_inflight:next_free_id(32, Filled)),
+    ?assertEqual({ok, 64}, free_from(32, Filled)),
     Emptied = lists:foldl(fun emqx_inflight:delete/2, Filled, ChunkIds),
     ?assertEqual(#{}, index(Emptied)),
     ?assert(emqx_inflight:is_empty(Emptied)),
-    ?assertEqual({ok, 32}, emqx_inflight:next_free_id(32, Emptied)),
+    ?assertEqual({ok, 32}, free_from(32, Emptied)),
     Refilled = emqx_inflight:insert(40, v, Emptied),
     ?assertEqual(#{1 => 1 bsl 8}, index(Refilled)),
-    ?assertEqual({ok, 41}, emqx_inflight:next_free_id(40, Refilled)).
+    ?assertEqual({ok, 41}, free_from(40, Refilled)).
 
 -doc """
-Check that `next_free_id/2` returns the same id as a walk over `contain/2`,
+Check that `reserve/1` returns the same id as a walk over `contain/2`,
 for random sets of used packet ids of varying density.
 """.
-t_next_free_id_matches_walk(_) ->
+t_reserve_matches_walk(_) ->
     rand:seed(exsss, {17897, 1, 2}),
     lists:foreach(
         fun(Density) ->
@@ -198,7 +198,7 @@ t_next_free_id_matches_walk(_) ->
                     From = rand:uniform(16#FFFF),
                     ?assertEqual(
                         walk_free_id(From, Inflight, 16#FFFF),
-                        emqx_inflight:next_free_id(From, Inflight)
+                        free_from(From, Inflight)
                     )
                 end,
                 lists:seq(1, 100)
@@ -212,17 +212,58 @@ t_non_packet_id_keys_not_indexed(_) ->
     Inflight = insert_ids([0, 16#10000, -1, {1, 2}, <<"k">>], emqx_inflight:new(0)),
     ?assertEqual(5, emqx_inflight:size(Inflight)),
     ?assertEqual(#{}, index(Inflight)),
-    ?assertEqual({ok, 1}, emqx_inflight:next_free_id(1, Inflight)),
+    ?assertEqual({ok, 1}, free_from(1, Inflight)),
     ?assert(
         emqx_inflight:is_empty(
             lists:foldl(fun emqx_inflight:delete/2, Inflight, [0, 16#10000, -1, {1, 2}, <<"k">>])
         )
     ).
 
+-doc """
+Check that `alloc/2` inserts the value under the first free packet id at or
+after the counter and moves the counter past it, wrapping from 65535 to 1.
+""".
+t_alloc(_) ->
+    I0 = emqx_inflight:set_next_id(16#FFFE, insert_ids([16#FFFF, 1], emqx_inflight:new(0))),
+    {ok, 16#FFFE, I1} = emqx_inflight:alloc(a, I0),
+    ?assertEqual(16#FFFF, emqx_inflight:next_id(I1)),
+    {ok, 2, I2} = emqx_inflight:alloc(b, I1),
+    ?assertEqual(3, emqx_inflight:next_id(I2)),
+    ?assertEqual({value, a}, emqx_inflight:lookup(16#FFFE, I2)),
+    ?assertEqual({value, b}, emqx_inflight:lookup(2, I2)),
+    ?assertEqual(4, emqx_inflight:size(I2)),
+    Full = insert_ids(lists:seq(1, 16#FFFF), emqx_inflight:new(0)),
+    ?assertEqual(none, emqx_inflight:alloc(c, Full)).
+
+-doc """
+Check that `reserve/1` moves the counter without inserting, and that
+`insert/3` and `delete/2` leave the counter unchanged.
+""".
+t_reserve_counter(_) ->
+    I0 = emqx_inflight:new(0),
+    ?assertEqual(1, emqx_inflight:next_id(I0)),
+    {ok, 1, I1} = emqx_inflight:reserve(I0),
+    ?assertEqual(2, emqx_inflight:next_id(I1)),
+    ?assert(emqx_inflight:is_empty(I1)),
+    I2 = emqx_inflight:insert(2, v, I1),
+    ?assertEqual(2, emqx_inflight:next_id(I2)),
+    {ok, 3, I3} = emqx_inflight:reserve(I2),
+    ?assertEqual(4, emqx_inflight:next_id(emqx_inflight:delete(2, I3))),
+    {ok, 16#FFFF, I4} = emqx_inflight:reserve(emqx_inflight:set_next_id(16#FFFF, I3)),
+    ?assertEqual(1, emqx_inflight:next_id(I4)).
+
 insert_ids(Ids, Inflight) ->
     lists:foldl(fun(Id, Acc) -> emqx_inflight:insert(Id, v, Acc) end, Inflight, Ids).
 
-index({inflight, _MaxSize, _Map, Index}) ->
+%% Find a free packet id from `From`, through the public API.
+free_from(From, Inflight) ->
+    case emqx_inflight:reserve(emqx_inflight:set_next_id(From, Inflight)) of
+        {ok, Id, _} -> {ok, Id};
+        none -> none
+    end.
+
+%% Reads the packet id index of the opaque `#inflight{}` record.
+index({inflight, _MaxSize, _Entries, Index, _NextId}) ->
     Index.
 
 walk_free_id(_Id, _Inflight, 0) ->
