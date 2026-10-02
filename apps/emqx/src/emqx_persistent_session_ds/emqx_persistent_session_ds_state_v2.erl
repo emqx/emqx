@@ -31,7 +31,7 @@
 %% API:
 -export([
     open/2,
-    delete/2,
+    delete/3,
     commit/3,
 
     list_sessions/1,
@@ -317,11 +317,12 @@ get_offline_info(Generation, S = #{?id := ClientId}) ->
             []
     end.
 
--spec delete(emqx_ds:generation(), emqx_persistent_session_ds_state:t()) -> ok.
-delete(
-    Generation,
-    #{?collection_guard := Guard, ?id := ClientId}
-) ->
+-spec delete(
+    emqx_ds:generation(),
+    emqx_persistent_session_ds:id(),
+    emqx_persistent_session_ds_state:guard() | '_'
+) -> ok | emqx_ds:error(_).
+delete(Generation, ClientId, Guard) ->
     Opts = #{
         db => ?DB,
         shard => {auto, ClientId},
@@ -330,16 +331,22 @@ delete(
         retries => trans_retries(),
         retry_interval => trans_retry_interval()
     },
-    {atomic, _, _} =
-        emqx_ds:trans(
-            Opts,
-            fun() ->
-                emqx_ds_pmap:tx_assert_guard(ClientId, Guard),
-                tx_del_session_data(ClientId),
-                emqx_ds_pmap:tx_delete_guard(ClientId)
-            end
-        ),
-    ok.
+    Result = emqx_ds:trans(
+        Opts,
+        fun() ->
+            case Guard of
+                '_' -> ok;
+                _ -> emqx_ds_pmap:tx_assert_guard(ClientId, Guard)
+            end,
+            tx_del_session_data(ClientId),
+            emqx_ds_pmap:tx_delete_guard(ClientId)
+        end
+    ),
+    case Result of
+        {atomic, _, _} -> ok;
+        {nop, _} -> ok;
+        Err -> Err
+    end.
 
 tx_del_session_data(ClientId) ->
     emqx_ds_pmap:tx_destroy(ClientId, ?top_metadata),

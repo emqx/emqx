@@ -43,6 +43,7 @@
 -define(tp_replay_failed, emqx_durable_timer_replay_failed).
 -define(tp_worker_started, emqx_durable_timer_worker_started).
 -define(tp_terminate, emqx_durable_timer_process_terminate).
+-define(tp_handler_crash, emqx_durable_timer_handler_crash).
 
 -define(tp_apply_after_write_begin, emqx_durable_timer_apply_write_begin).
 -define(tp_apply_after_write_ok, emqx_durable_timer_apply_write_ok).
@@ -57,5 +58,7 @@
 ).
 
 -define(workers_pg, emqx_durable_timer_worker_pg).
+
+-record(emqx_durable_timer_retry, {reason}).
 
 -endif.

@@ -950,10 +950,11 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
     {shutdown, async_checkpoint(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
-terminate(ClientInfo, Reason, Session = #{s := S, id := Id, will_msg := MaybeWillMsg}) ->
-    _ = commit(Session#{s := S}, #{lifetime => terminate, sync => true}),
+terminate(ClientInfo, Reason, Session = #{s := S0, id := Id, will_msg := MaybeWillMsg}) ->
+    #{s := S} = commit(Session#{s := S0}, #{lifetime => terminate, sync => true}),
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S),
-    ok = emqx_persistent_session_ds_gc_timer:on_disconnect(Id, SessExpiryInterval),
+    Guard = emqx_persistent_session_ds_state:get_guard(S),
+    ok = emqx_persistent_session_ds_gc_timer:on_disconnect(Id, Guard, SessExpiryInterval),
     ok = emqx_durable_will:on_disconnect(Id, ClientInfo, SessExpiryInterval, MaybeWillMsg),
     ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
@@ -1443,9 +1444,16 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
             )
     end,
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S1),
-    ok = emqx_persistent_session_ds_gc_timer:on_connect(ClientID, SessExpiryInterval),
+    %% NOTE: these three operations (set will, commit session state,
+    %% set GC timer) are NOT atomic. If commit happens before timer is
+    %% set, session won't be garbage collected by normal needs.
     ok = emqx_durable_will:on_connect(ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg),
     S = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
+    ok = emqx_persistent_session_ds_gc_timer:on_connect(
+        ClientID,
+        emqx_persistent_session_ds_state:get_guard(S),
+        SessExpiryInterval
+    ),
     #{
         id => ClientID,
         s => S,
