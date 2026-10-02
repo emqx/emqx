@@ -154,7 +154,7 @@ wrapping from 65535 to 1. Return `none` when all 65535 packet ids are in use.
 -spec next_free_id(packet_id(), inflight()) -> {ok, packet_id()} | none.
 next_free_id(From, ?INFLIGHT(_MaxSize, _Map, Index)) when ?IS_PACKET_ID(From) ->
     Chunk = From bsr ?CHUNK_SHIFT,
-    FromMask = (?CHUNK_MASK bsl (From band ?OFFSET_MASK)) band ?CHUNK_MASK,
+    FromMask = ?CHUNK_MASK bxor ((1 bsl (From band ?OFFSET_MASK)) - 1),
     scan(Chunk, FromMask, ?NUM_CHUNKS, Index).
 
 %%--------------------------------------------------------------------
