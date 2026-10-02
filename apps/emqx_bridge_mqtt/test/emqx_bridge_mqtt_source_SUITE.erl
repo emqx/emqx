@@ -335,6 +335,58 @@ clean_start_of(TCConfig) ->
 proto_ver_of(TCConfig) ->
     emqx_common_test_helpers:get_matrix_prop(TCConfig, [?proto_v3, ?proto_v5], ?proto_v5).
 
+create_connector_with_session(TCConfig, ClientId) ->
+    NodeBin = atom_to_binary(node()),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"clean_start">> => false,
+        <<"proto_ver">> => <<"v3">>,
+        <<"static_clientids">> => [#{<<"node">> => NodeBin, <<"ids">> => [ClientId]}]
+    }),
+    on_exit(fun() -> emqx_cm:kick_session(ClientId) end),
+    ok.
+
+%% Removes the bridges from their connectors while the node is not ready, as
+%% `stop_apps/0' does, then stops the connector, which closes the connection to the
+%% remote broker.
+stop_bridges_as_on_shutdown(TCConfig) ->
+    stop_bridges_as_on_shutdown(node(), TCConfig).
+
+stop_bridges_as_on_shutdown(Node, TCConfig) ->
+    ConnResId = connector_resource_id(TCConfig),
+    on_exit(fun() -> ?ON(Node, emqx_node_readiness:mark_ready()) end),
+    on_exit(fun() -> ?ON(Node, application:ensure_all_started(emqx_bridge)) end),
+    ?ON(Node, begin
+        ok = emqx_node_readiness:mark_not_ready(),
+        ok = application:stop(emqx_bridge),
+        ?retry(
+            100,
+            20,
+            ?assertMatch(
+                {ok, _, #{added_channels := Channels}} when map_size(Channels) =:= 0,
+                emqx_resource_manager:lookup(ConnResId)
+            )
+        ),
+        ok = emqx_resource_manager:stop(ConnResId)
+    end).
+
+%% The node must be ready before the connector starts when it is also the remote broker:
+%% a node refuses connections while it is not ready.
+restart_bridges(TCConfig) ->
+    restart_bridges(node(), TCConfig).
+
+restart_bridges(Node, TCConfig) ->
+    ConnResId = connector_resource_id(TCConfig),
+    ?ON(Node, begin
+        ok = emqx_node_readiness:mark_ready(),
+        {ok, _} = application:ensure_all_started(emqx_bridge),
+        ok = emqx_resource_manager:start(ConnResId, #{})
+    end),
+    ?retry(
+        200,
+        10,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -1142,6 +1194,194 @@ t_reconnect_with_session(TCConfig) when is_list(TCConfig) ->
     ?assertReceivePublish(#{payload := #{<<"payload">> := <<"3">>}}),
     ?assertReceivePublish(#{payload := #{<<"payload">> := <<"4">>}}),
 
+    ok.
+
+-doc """
+With `clean_start = false`, stopping the node leaves the source's subscription in the
+remote session, so messages published while the node is down reach the rule once the
+source's bridges and connector start again.  Deleting the source on a ready node
+unsubscribes.
+""".
+t_shutdown_keeps_remote_subscription() ->
+    [{matrix, true}].
+t_shutdown_keeps_remote_subscription(matrix) ->
+    [[?local, ?proto_v3, ?unclean_start]];
+t_shutdown_keeps_remote_subscription(TCConfig) when is_list(TCConfig) ->
+    ok = create_connector_with_session(TCConfig, atom_to_binary(?FUNCTION_NAME)),
+    {201, #{<<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
+        create_source_api(TCConfig, #{}),
+    #{id := RuleId, topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(TCConfig),
+    {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
+    emqx:publish(emqx_message:make(RemoteTopic, <<"1">>)),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"1">>}}),
+
+    ok = stop_bridges_as_on_shutdown(TCConfig),
+    SubscribersWhileDown = emqx_broker:subscribers(RemoteTopic),
+    lists:foreach(
+        fun(N) ->
+            emqx:publish(emqx_message:make(<<"me">>, 1, RemoteTopic, integer_to_binary(N)))
+        end,
+        lists:seq(2, 4)
+    ),
+    restart_bridges(TCConfig),
+
+    ?assertMatch([_], SubscribersWhileDown),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"2">>}}),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"3">>}}),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"4">>}}),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{counters := #{'matched' := 4, 'actions.success' := 4}},
+            emqx_bridge_v2_testlib:get_rule_metrics(RuleId)
+        )
+    ),
+
+    {204, _} = delete_source_api(TCConfig),
+    ?retry(200, 10, ?assertEqual([], emqx_broker:subscribers(RemoteTopic))),
+    ok.
+
+-doc """
+With `clean_start = false` and no other cluster node running, stopping the node also
+leaves a shared subscription in the remote session, so a message published to the shared
+topic while the node is down reaches the rule once the source's bridges and connector
+start again.  Deleting the source on a ready node unsubscribes.
+""".
+t_shutdown_keeps_shared_subscription() ->
+    [{matrix, true}].
+t_shutdown_keeps_shared_subscription(matrix) ->
+    [[?local, ?proto_v3, ?unclean_start]];
+t_shutdown_keeps_shared_subscription(TCConfig) when is_list(TCConfig) ->
+    ok = create_connector_with_session(TCConfig, atom_to_binary(?FUNCTION_NAME)),
+    Topic = <<"remote/shared">>,
+    {201, _} = create_source_api(TCConfig, #{
+        <<"parameters">> => #{<<"topic">> => <<"$share/g/", Topic/binary>>}
+    }),
+    #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(TCConfig),
+    {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
+
+    ok = stop_bridges_as_on_shutdown(TCConfig),
+    SubscribersWhileDown = emqx_shared_sub:subscribers(<<"g">>, Topic),
+    emqx:publish(emqx_message:make(<<"me">>, 1, Topic, <<"1">>)),
+    restart_bridges(TCConfig),
+
+    ?assertMatch([_], SubscribersWhileDown),
+    ?assertReceivePublish(#{payload := #{<<"payload">> := <<"1">>}}),
+
+    {204, _} = delete_source_api(TCConfig),
+    ?retry(200, 10, ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, Topic))),
+    ok.
+
+-doc """
+With `clean_start = false`, a source disabled while the node is down does not run its
+rule for the messages that the remote session queued for it.
+""".
+t_shutdown_then_disable_source() ->
+    [{matrix, true}].
+t_shutdown_then_disable_source(matrix) ->
+    [[?local, ?proto_v3, ?unclean_start]];
+t_shutdown_then_disable_source(TCConfig) when is_list(TCConfig) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ok = create_connector_with_session(TCConfig, ClientId),
+    {201, #{<<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
+        create_source_api(TCConfig, #{}),
+    #{id := RuleId} = simple_create_rule_api(TCConfig),
+
+    ok = stop_bridges_as_on_shutdown(TCConfig),
+    emqx:publish(emqx_message:make(<<"me">>, 1, RemoteTopic, <<"1">>)),
+    [OfflineChanPid] = emqx_cm:lookup_channels(ClientId),
+    ?retry(
+        200,
+        10,
+        ?assertEqual(1, proplists:get_value(mqueue_len, emqx_connection:stats(OfflineChanPid)))
+    ),
+    ok = emqx_node_readiness:mark_ready(),
+    {ok, _} = application:ensure_all_started(emqx_bridge),
+    {200, _} = update_source_api(TCConfig, #{<<"enable">> => false}),
+    ok = emqx_resource_manager:start(connector_resource_id(TCConfig), #{}),
+    ?retry(
+        200,
+        10,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
+    ),
+
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{mqueue_len := 0, inflight_cnt := 0},
+            maps:from_list(emqx_connection:stats(ChanPid))
+        )
+    ),
+    ?assertMatch(
+        #{counters := #{'matched' := 0}},
+        emqx_bridge_v2_testlib:get_rule_metrics(RuleId)
+    ),
+    ok.
+
+-doc """
+With `clean_start = false` and other cluster nodes running, stopping a node removes its
+shared subscription from the remote session, so the members on the running nodes receive
+every message published to the shared topic.
+""".
+t_shutdown_removes_shared_subscription() ->
+    [{matrix, true}].
+t_shutdown_removes_shared_subscription(matrix) ->
+    [[?cluster, ?proto_v3, ?unclean_start]];
+t_shutdown_removes_shared_subscription(TCConfig) when is_list(TCConfig) ->
+    [N1, N2 | _] = Nodes = get_config(nodes, TCConfig),
+    ClientIds = [
+        <<(atom_to_binary(N))/binary, "-", (atom_to_binary(?FUNCTION_NAME))/binary>>
+     || N <- Nodes
+    ],
+    on_exit(fun() -> ?ON(N1, lists:foreach(fun emqx_cm:kick_session/1, ClientIds)) end),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(N1),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
+        <<"clean_start">> => false,
+        <<"proto_ver">> => <<"v3">>,
+        <<"static_clientids">> => [
+            #{<<"node">> => atom_to_binary(N), <<"ids">> => [Id]}
+         || {N, Id} <- lists:zip(Nodes, ClientIds)
+        ]
+    }),
+    Topic = <<"remote/shared">>,
+    {201, _} = create_source_api(TCConfig, #{
+        <<"parameters">> => #{<<"topic">> => <<"$share/g/", Topic/binary>>}
+    }),
+    #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(N1),
+    {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
+    emqx_cth_cluster:sync_routes(Nodes, 10_000),
+    GetSubscribers = fun() -> ?ON(N1, emqx_shared_sub:subscribers(<<"g">>, Topic)) end,
+    NumNodes = length(Nodes),
+    ?retry(200, 10, ?assertEqual(NumNodes, length(GetSubscribers()))),
+
+    ok = stop_bridges_as_on_shutdown(N2, TCConfig),
+    SubscribersWhileDown = GetSubscribers(),
+    %% The publisher's channel picks the group members in turn.
+    Payloads = [integer_to_binary(N) || N <- lists:seq(1, 6)],
+    lists:foreach(fun(P) -> {ok, _} = emqtt:publish(C, Topic, P, [{qos, 1}]) end, Payloads),
+    PublishesWhileDown = emqx_common_test_helpers:wait_publishes(length(Payloads), 3_000),
+    restart_bridges(N2, TCConfig),
+
+    ?assertEqual(NumNodes - 1, length(SubscribersWhileDown)),
+    ?assertEqual(
+        Payloads,
+        lists:sort(
+            lists:map(
+                fun(#{payload := Bin}) ->
+                    #{<<"payload">> := P} = emqx_utils_json:decode(Bin),
+                    P
+                end,
+                PublishesWhileDown
+            )
+        )
+    ),
     ok.
 
 -doc """
