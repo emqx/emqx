@@ -4,6 +4,19 @@
 
 -module(emqx_inflight).
 
+-moduledoc """
+Inflight window keyed by packet id.
+
+Entries are stored in a map. Integer keys in the MQTT packet id range
+(1..65535) are also recorded in a sparse bitmap index: a map from chunk
+number to a 32-bit integer of used ids, `Id bsr 5 => Bits`. A chunk whose
+bits become zero is removed, so an absent chunk means all its ids are free.
+`next_free_id/2` scans this index to find an unused packet id.
+
+Keys outside the packet id range (gateways use other terms) are stored in
+the map only.
+""".
+
 -compile(inline).
 
 %% APIs
@@ -24,27 +37,42 @@
     max_size/1,
     is_full/1,
     is_empty/1,
-    window/1
+    window/1,
+    next_free_id/2
 ]).
 
 -export_type([inflight/0]).
+
+-define(MAX_ID, 16#FFFF).
+-define(CHUNK_SHIFT, 5).
+-define(OFFSET_MASK, 31).
+-define(CHUNK_MASK, 16#FFFFFFFF).
+-define(LAST_CHUNK, (?MAX_ID bsr ?CHUNK_SHIFT)).
+-define(NUM_CHUNKS, (?LAST_CHUNK + 1)).
 
 -type key() :: term().
 
 -type max_size() :: pos_integer().
 
--opaque inflight() :: {inflight, max_size(), #{key() => term()}}.
+-type packet_id() :: 1..?MAX_ID.
 
--define(INFLIGHT(Map), {inflight, _MaxSize, Map}).
+%% Chunk number => bits of used packet ids. Zero chunks are never stored.
+-type index() :: #{non_neg_integer() => pos_integer()}.
 
--define(INFLIGHT(MaxSize, Map), {inflight, MaxSize, (Map)}).
+-opaque inflight() :: {inflight, max_size(), #{key() => term()}, index()}.
+
+-define(IS_PACKET_ID(Key), (is_integer(Key) andalso Key >= 1 andalso Key =< ?MAX_ID)).
+
+-define(INFLIGHT(Map), {inflight, _MaxSize, Map, _Index}).
+
+-define(INFLIGHT(MaxSize, Map, Index), {inflight, MaxSize, (Map), (Index)}).
 
 -spec new() -> inflight().
 new() -> new(0).
 
 -spec new(non_neg_integer()) -> inflight().
 new(MaxSize) when MaxSize >= 0 ->
-    ?INFLIGHT(MaxSize, #{}).
+    ?INFLIGHT(MaxSize, #{}, #{}).
 
 -spec contain(key(), inflight()) -> boolean().
 contain(Key, ?INFLIGHT(Map)) ->
@@ -60,29 +88,29 @@ lookup(Key, ?INFLIGHT(Map)) ->
 -spec insert(key(), Val :: term(), inflight()) -> inflight().
 insert(Key, _Val, ?INFLIGHT(Map)) when is_map_key(Key, Map) ->
     erlang:error({key_exists, Key});
-insert(Key, Val, ?INFLIGHT(MaxSize, Map)) ->
-    ?INFLIGHT(MaxSize, Map#{Key => Val}).
+insert(Key, Val, ?INFLIGHT(MaxSize, Map, Index)) ->
+    ?INFLIGHT(MaxSize, Map#{Key => Val}, mark(Key, Index)).
 
 -spec delete(key(), inflight()) -> inflight().
-delete(Key, ?INFLIGHT(MaxSize, Map)) when is_map_key(Key, Map) ->
-    ?INFLIGHT(MaxSize, maps:remove(Key, Map)).
+delete(Key, ?INFLIGHT(MaxSize, Map, Index)) when is_map_key(Key, Map) ->
+    ?INFLIGHT(MaxSize, maps:remove(Key, Map), unmark(Key, Index)).
 
 -spec update(key(), Val :: term(), inflight()) -> inflight().
-update(Key, Val, ?INFLIGHT(MaxSize, Map)) when is_map_key(Key, Map) ->
-    ?INFLIGHT(MaxSize, Map#{Key := Val}).
+update(Key, Val, ?INFLIGHT(MaxSize, Map, Index)) when is_map_key(Key, Map) ->
+    ?INFLIGHT(MaxSize, Map#{Key := Val}, Index).
 
 -spec fold(fun((key(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
 fold(FoldFun, AccIn, ?INFLIGHT(Map)) ->
     maps:fold(FoldFun, AccIn, Map).
 
 -spec resize(integer(), inflight()) -> inflight().
-resize(MaxSize, ?INFLIGHT(_, Map)) ->
-    ?INFLIGHT(MaxSize, Map).
+resize(MaxSize, ?INFLIGHT(_, Map, Index)) ->
+    ?INFLIGHT(MaxSize, Map, Index).
 
 -spec is_full(inflight()) -> boolean().
-is_full(?INFLIGHT(0, _Map)) ->
+is_full(?INFLIGHT(0, _Map, _Index)) ->
     false;
-is_full(?INFLIGHT(MaxSize, Map)) ->
+is_full(?INFLIGHT(MaxSize, Map, _Index)) ->
     MaxSize =< map_size(Map).
 
 -spec is_empty(inflight()) -> boolean().
@@ -116,5 +144,99 @@ size(?INFLIGHT(Map)) ->
     map_size(Map).
 
 -spec max_size(inflight()) -> non_neg_integer().
-max_size(?INFLIGHT(MaxSize, _Map)) ->
+max_size(?INFLIGHT(MaxSize, _Map, _Index)) ->
     MaxSize.
+
+-doc """
+Return the first packet id at or after `From` that is not in the inflight,
+wrapping from 65535 to 1. Return `none` when all 65535 packet ids are in use.
+""".
+-spec next_free_id(packet_id(), inflight()) -> {ok, packet_id()} | none.
+next_free_id(From, ?INFLIGHT(_MaxSize, _Map, Index)) when ?IS_PACKET_ID(From) ->
+    Chunk = From bsr ?CHUNK_SHIFT,
+    FromMask = (?CHUNK_MASK bsl (From band ?OFFSET_MASK)) band ?CHUNK_MASK,
+    scan(Chunk, FromMask, ?NUM_CHUNKS, Index).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+%% Steps counts the chunks left to visit after this one. The start chunk is
+%% visited twice: first from the `From` offset, last in full, so the ids
+%% below `From` in that chunk are checked after the wrap.
+scan(Chunk, Mask, Steps, Index) ->
+    Free = (used_bits(Chunk, Index) bxor ?CHUNK_MASK) band Mask,
+    case Free of
+        0 when Steps =:= 0 ->
+            none;
+        0 ->
+            scan(next_chunk(Chunk), ?CHUNK_MASK, Steps - 1, Index);
+        _ ->
+            Lowest = Free band -Free,
+            {ok, (Chunk bsl ?CHUNK_SHIFT) bor bit_offset(Lowest)}
+    end.
+
+%% Packet id 0 is not valid, so chunk 0 always reports it as used.
+used_bits(0, Index) ->
+    maps:get(0, Index, 0) bor 1;
+used_bits(Chunk, Index) ->
+    maps:get(Chunk, Index, 0).
+
+next_chunk(?LAST_CHUNK) -> 0;
+next_chunk(Chunk) -> Chunk + 1.
+
+mark(Key, Index) when ?IS_PACKET_ID(Key) ->
+    Chunk = Key bsr ?CHUNK_SHIFT,
+    Bit = 1 bsl (Key band ?OFFSET_MASK),
+    Index#{Chunk => maps:get(Chunk, Index, 0) bor Bit};
+mark(_Key, Index) ->
+    Index.
+
+%% A chunk is removed when its last bit is cleared, so that the index only
+%% holds chunks with at least one used id.
+unmark(Key, Index) when ?IS_PACKET_ID(Key) ->
+    Chunk = Key bsr ?CHUNK_SHIFT,
+    Bit = 1 bsl (Key band ?OFFSET_MASK),
+    case maps:get(Chunk, Index) band (bnot Bit) of
+        0 -> maps:remove(Chunk, Index);
+        Bits -> Index#{Chunk := Bits}
+    end;
+unmark(_Key, Index) ->
+    Index.
+
+%% Map a single-bit integer to its bit position.
+bit_offset(Bit) ->
+    maps:get(Bit, #{
+        16#1 => 0,
+        16#2 => 1,
+        16#4 => 2,
+        16#8 => 3,
+        16#10 => 4,
+        16#20 => 5,
+        16#40 => 6,
+        16#80 => 7,
+        16#100 => 8,
+        16#200 => 9,
+        16#400 => 10,
+        16#800 => 11,
+        16#1000 => 12,
+        16#2000 => 13,
+        16#4000 => 14,
+        16#8000 => 15,
+        16#10000 => 16,
+        16#20000 => 17,
+        16#40000 => 18,
+        16#80000 => 19,
+        16#100000 => 20,
+        16#200000 => 21,
+        16#400000 => 22,
+        16#800000 => 23,
+        16#1000000 => 24,
+        16#2000000 => 25,
+        16#4000000 => 26,
+        16#8000000 => 27,
+        16#10000000 => 28,
+        16#20000000 => 29,
+        16#40000000 => 30,
+        16#80000000 => 31
+    }).

@@ -688,21 +688,22 @@ dequeue(ClientInfo, Zone, S, Count, Acc0, Q0, Inflight0, L0, PktId) ->
             true = _Expired ->
                 emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
                 dequeue(ClientInfo, Zone, S, Count, Acc0, Q, Inflight0, L0, PktId);
+            {true, Limiter} when Msg#message.qos =:= ?QOS_0 ->
+                Acc = [{undefined, maybe_ack(Msg)} | Acc0],
+                dequeue(ClientInfo, Zone, S, Count, Acc, Q, Inflight0, Limiter, PktId);
             {true, Limiter} ->
-                case Msg#message.qos of
-                    ?QOS_0 ->
-                        Publish = {undefined, maybe_ack(Msg)},
-                        Inflight = Inflight0,
-                        Left = Count,
-                        NextPktId = PktId;
-                    _Qos12 ->
-                        Publish = {PktId, maybe_ack(Msg)},
-                        Inflight = insert_inflight(PktId, Msg, Inflight0),
-                        Left = Count - 1,
-                        NextPktId = next_pkt_id(PktId)
-                end,
-                Acc = [Publish | Acc0],
-                dequeue(ClientInfo, Zone, S, Left, Acc, Q, Inflight, Limiter, NextPktId);
+                case emqx_inflight:next_free_id(PktId, Inflight0) of
+                    {ok, UsePktId} ->
+                        Acc = [{UsePktId, maybe_ack(Msg)} | Acc0],
+                        Inflight = insert_inflight(UsePktId, Msg, Inflight0),
+                        NextPktId = next_pkt_id(UsePktId),
+                        dequeue(
+                            ClientInfo, Zone, S, Count - 1, Acc, Q, Inflight, Limiter, NextPktId
+                        );
+                    none ->
+                        %% Every packet id is inflight: keep the message in the mqueue.
+                        finish_delivery(ok, S, Acc0, Q0, Inflight0, Limiter, PktId)
+                end;
             {false, Limiter, Reason} ->
                 NQ =
                     case Msg#message.qos of
@@ -804,15 +805,16 @@ deliver(
 ) when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     maybe
         false ?= emqx_inflight:is_full(Inflight0),
+        {ok, UsePktId} ?= emqx_inflight:next_free_id(PktId, Inflight0),
         case try_consume_delivery_rate_limit(Msg, L0) of
             {true, Limiter} ->
                 %% Note that we publish message without shared ack header
                 %% But add to inflight with ack headers
                 %% This ack header is required for redispatch-on-terminate feature to work
-                Publish = {PktId, maybe_ack(Msg)},
-                Inflight = insert_inflight(PktId, Msg, Inflight0),
+                Publish = {UsePktId, maybe_ack(Msg)},
+                Inflight = insert_inflight(UsePktId, Msg, Inflight0),
                 Acc = [Publish | Acc0],
-                NextPktId = next_pkt_id(PktId),
+                NextPktId = next_pkt_id(UsePktId),
                 deliver(ClientInfo, Congested, S, More, Acc, Q0, Inflight, Limiter, NextPktId);
             {false, Limiter, Reason} ->
                 Q = enqueue_messages(ClientInfo, [Msg | More], Q0),
@@ -820,7 +822,8 @@ deliver(
                 finish_delivery(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
         end
     else
-        _InflightFull = true ->
+        %% The inflight is full, or every packet id is inflight.
+        NoRoom when NoRoom =:= true; NoRoom =:= none ->
             Q1 =
                 case maybe_nack(Msg) of
                     true -> Q0;
@@ -1196,8 +1199,16 @@ redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
 %% Next Packet Id
 %%--------------------------------------------------------------------
 
-obtain_next_pkt_id(Session = #session{next_pkt_id = PktId}) ->
-    {PktId, Session#session{next_pkt_id = next_pkt_id(PktId)}}.
+-doc """
+Return the first packet id at or after the session's `next_pkt_id` that is
+not inflight, or `none` when every packet id is inflight.
+""".
+-spec obtain_next_pkt_id(session()) -> {emqx_types:packet_id(), session()} | none.
+obtain_next_pkt_id(Session = #session{inflight = Inflight, next_pkt_id = PktId0}) ->
+    case emqx_inflight:next_free_id(PktId0, Inflight) of
+        {ok, PktId} -> {PktId, Session#session{next_pkt_id = next_pkt_id(PktId)}};
+        none -> none
+    end.
 
 next_pkt_id(?MAX_PACKET_ID) ->
     1;
