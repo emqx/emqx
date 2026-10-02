@@ -401,6 +401,7 @@ is_package_present(NameVsn) ->
 purge_other_versions(NameVsn) ->
     {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     AppNameBin = bin(AppName),
+    AppVsnBin = bin(AppVsn),
     ?SLOG(debug, #{
         msg => "purge_plugin_other_versions",
         keep_plugin => NameVsn,
@@ -409,17 +410,16 @@ purge_other_versions(NameVsn) ->
     lists:foreach(
         fun
             (#{name := Name, rel_vsn := RelVsn}) when
-                AppNameBin =:= Name, AppVsn =:= RelVsn
+                AppNameBin =:= Name, AppVsnBin =:= RelVsn
             ->
                 ok;
-            (#{name := Name, rel_vsn := RelVsn}) ->
+            (#{name := Name, rel_vsn := RelVsn} = Plugin) ->
                 case AppNameBin =:= Name of
                     true ->
                         NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
-                        maybe
-                            ok ?= ensure_stopped(NameVsn1),
-                            ok ?= ensure_uninstalled(NameVsn1)
-                        else
+                        case purge_other_version(NameVsn1, Plugin) of
+                            ok ->
+                                ok;
                             {error, Reason} ->
                                 ?SLOG(error, #{
                                     msg => "failed_to_purge_plugin",
@@ -433,6 +433,33 @@ purge_other_versions(NameVsn) ->
         end,
         emqx_plugins:list()
     ).
+
+%% Stopping and unloading a plugin act on its applications by name, whatever
+%% their version, and the running status of a plugin does not tell its versions
+%% apart.  Only one version of an application can be loaded, so when no code is
+%% loaded from the directory of this version, the loaded applications belong to
+%% another version: delete the files and the state of this version only.
+purge_other_version(NameVsn, Plugin) ->
+    case emqx_plugins_apps:loaded_apps_from(emqx_plugins_fs:plugin_dir(NameVsn)) of
+        [] ->
+            delete_files_and_state(NameVsn, Plugin);
+        [_ | _] ->
+            maybe
+                ok ?= ensure_stopped(NameVsn),
+                ensure_uninstalled(NameVsn)
+            end
+    end.
+
+delete_files_and_state(_NameVsn, #{config_status := enabled}) ->
+    {error, #{
+        msg => "bad_plugin_config_status",
+        hint => "disable_the_plugin_first"
+    }};
+delete_files_and_state(NameVsn, _Plugin) ->
+    maybe
+        ok ?= purge(NameVsn),
+        ensure_delete_state(NameVsn)
+    end.
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.

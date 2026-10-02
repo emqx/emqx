@@ -74,6 +74,40 @@ end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
     ok.
 
+-doc """
+`POST /plugins/cluster_sync` that names the running version keeps that version
+installed, running and enabled.
+""".
+t_sync_plugin_keeps_running_version(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_disabled(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    {ok, []} = update_plugin(NameVsn, "start"),
+    ?assert(is_app_running(?EMQX_PLUGIN_TEMPLATE_APP_NAME)),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "cluster_sync"]),
+    ?assertMatch(
+        {ok, _},
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", [], #{<<"name">> => list_to_binary(NameVsn)}
+        )
+    ),
+    ?assert(is_app_running(?EMQX_PLUGIN_TEMPLATE_APP_NAME)),
+    ?assertMatch(
+        #{<<"running_status">> := [#{<<"status">> := <<"running">>}]},
+        describe_plugin(NameVsn)
+    ),
+    ?assertEqual([#{name_vsn => NameVsn, enable => true}], emqx_plugins:configured()).
+
+is_app_running(Name) ->
+    lists:keymember(Name, 1, application:which_applications()).
+
 t_plugins(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
