@@ -36,8 +36,8 @@ payload_encoding.desc:
 
 publish_api.desc:
 """Possible HTTP status response codes are:<br/>
-<code>200</code>: The message is delivered to at least one subscriber;<br/>
-<code>202</code>: No matched subscribers;<br/>
+<code>200</code>: The message is delivered to at least one subscriber, or a hook or rule persisted it or marked it as consumed;<br/>
+<code>202</code>: No matched subscribers, and the message is neither persisted nor marked as consumed;<br/>
 <code>400</code>: Message is invalid. for example bad topic name, or QoS is out of range;<br/>
 <code>503</code>: Failed to deliver the message to subscriber(s)"""
 
@@ -46,8 +46,8 @@ publish_api.label:
 
 publish_bulk_api.desc:
 """Possible HTTP response status code are:<br/>
-200: All messages are delivered to at least one subscriber;<br/>
-202: At least one message was not delivered to any subscriber;<br/>
+200: Every message is delivered to at least one subscriber, persisted or marked as consumed;<br/>
+202: At least one message was not delivered to any subscriber, and is neither persisted nor marked as consumed;<br/>
 400: At least one message is invalid. For example bad topic name, or QoS is out of range;<br/>
 503: Failed to deliver at least one of the messages;<br/>
 

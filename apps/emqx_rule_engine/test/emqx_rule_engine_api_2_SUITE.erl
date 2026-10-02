@@ -1620,6 +1620,17 @@ t_remove_rule_with_wildcard(_Config) ->
     ?assertMatch([], ListRuleHooks()),
     ok.
 
+-doc "The rules API returns `mark_consumed`, which is `false` unless the rule sets it.".
+t_mark_consumed_field(_Config) ->
+    Id = <<"mark_consumed_field">>,
+    ?assertMatch({201, #{<<"mark_consumed">> := false}}, create_rule(#{<<"id">> => Id})),
+    ?assertMatch({200, #{<<"mark_consumed">> := false}}, get_rule(Id)),
+    ?assertMatch(
+        {200, #{<<"mark_consumed">> := true}},
+        update_rule(Id, rule_config(#{<<"mark_consumed">> => true}))
+    ),
+    ?assertMatch({200, #{<<"mark_consumed">> := true}}, get_rule(Id)).
+
 %% Smoke tests for `last_modified_at' field when creating/updating a rule.
 t_last_modified_at(_Config) ->
     Id = <<"last_mod_at">>,

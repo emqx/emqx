@@ -336,8 +336,21 @@ do_publish(#message{topic = Topic} = Msg) ->
     PersistRes = persist_publish(Msg),
     Routes = aggre(emqx_router:match_routes(Topic)),
     Delivery = delivery(Msg),
-    RouteRes = route(Routes, Delivery, PersistRes),
+    RouteRes = route(Routes, Delivery, consumed_result(Msg) ++ PersistRes),
     do_forward_external(Delivery, RouteRes).
+
+-doc """
+Return `[consumed]` when a publish hook marked the message with
+`emqx_message:set_consumed/1`, and `[]` otherwise.
+
+Where no subscriber receives a consumed message, the broker counts it in
+`messages.consumed` and does not run the `message.dropped` hook.
+""".
+consumed_result(Msg) ->
+    case emqx_message:is_consumed(Msg) of
+        true -> [consumed];
+        false -> []
+    end.
 
 -doc """
 Return `[persisted]` when built-in persistence accepts the message, or when
@@ -431,7 +444,7 @@ route_result({TF, Node}) when is_atom(Node) ->
 route_result({TF, Group}) ->
     #{group => Group, route => TF}.
 
--spec do_route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
+-spec do_route([emqx_types:route_entry()], emqx_types:delivery(), [consumed | persisted]) ->
     emqx_types:publish_routes().
 do_route([], #delivery{message = Msg}, _PersistRes = []) ->
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
@@ -450,6 +463,9 @@ do_route([], #delivery{message = Msg}, _PersistRes = []) ->
         end
     ),
     [];
+do_route([], #delivery{message = Msg}, PersistRes = [consumed]) ->
+    ok = inc_consumed_cnt(Msg),
+    PersistRes;
 do_route([], _Delivery, PersistRes = [_ | _]) ->
     PersistRes;
 do_route(Routes, Delivery, PersistRes) ->
@@ -580,6 +596,24 @@ inc_dropped_cnt(Msg) ->
         false ->
             ok = emqx_metrics:inc_global('messages.dropped'),
             emqx_metrics:inc_global('messages.dropped.no_subscribers')
+    end.
+
+-compile({inline, [inc_consumed_cnt/1]}).
+inc_consumed_cnt(Msg) ->
+    case emqx_message:is_sys(Msg) of
+        true ->
+            ok;
+        false ->
+            inc_metrics('messages.consumed', Msg)
+    end.
+
+on_no_subscribers(Msg) ->
+    case emqx_message:is_consumed(Msg) of
+        true ->
+            inc_consumed_cnt(Msg);
+        false ->
+            ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
+            inc_dropped_cnt(Msg)
     end.
 
 -compile({inline, [subscribers/1]}).
@@ -846,8 +880,7 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
-            ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
-            ok = inc_dropped_cnt(Msg),
+            ok = on_no_subscribers(Msg),
             {error, no_subscribers};
         _ ->
             {ok, DispN}
