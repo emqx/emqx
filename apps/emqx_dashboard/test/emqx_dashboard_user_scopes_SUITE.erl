@@ -10,6 +10,8 @@
 %% emqx_dashboard_api:authorize_self_mfa_disable/1):
 %%
 %%   setup / rotate             => allow (never gated)
+%%   disable, default_mfa set   => deny  MFA_ENFORCED (local, not exempted)
+%%   disable, force_mfa set     => deny  MFA_ENFORCED (SSO, not exempted)
 %%   disable, override=required => deny  MFA_ADMIN_REQUIRED
 %%   disable, otherwise         => allow
 %%
@@ -1160,6 +1162,8 @@ t_role_demotion_with_compatible_persisted_scopes_succeeds(_Config) ->
 %% the same identity:
 %%
 %%   setup / rotate             => allow  (never gated)
+%%   disable, default_mfa set   => deny   (MFA_ENFORCED, local, not exempted)
+%%   disable, force_mfa set     => deny   (MFA_ENFORCED, SSO, not exempted)
 %%   disable, override=required => deny   (MFA_ADMIN_REQUIRED)
 %%   disable, otherwise         => allow
 %%

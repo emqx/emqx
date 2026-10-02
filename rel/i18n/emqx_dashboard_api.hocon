@@ -174,7 +174,7 @@ current_user_mfa_setup_required.desc:
 """MFA is required for the account but not set up, because the MFA policy or the account's MFA changed after login. All of the account's sessions are ended, and the next login starts the MFA setup."""
 
 current_user_mfa_admin_required.desc:
-"""MFA cannot be turned off on this account: either an administrator requires it, or `dashboard.default_mfa` requires it. Re-keying it is still allowed."""
+"""MFA cannot be turned off on this account because an administrator, `dashboard.default_mfa` or the `force_mfa` of the account's SSO backend requires it. Re-keying it is still allowed."""
 
 effective_user_scopes_response.desc:
 """The permission scopes the user effectively holds. Unlike the `scopes` field of the user management endpoints, the role default is already expanded here, so this is always a concrete list."""

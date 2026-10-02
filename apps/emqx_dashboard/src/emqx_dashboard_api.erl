@@ -1051,6 +1051,8 @@ mfa_result({error, Reason}, LogMeta) ->
 %%   disable, default_mfa set   => denied on a local account that an
 %%                                 administrator has not exempted.
 %%                                 SSO accounts skip this rule.
+%%   disable, force_mfa set     => denied on an account of that SSO backend
+%%                                 that an administrator has not exempted.
 %%   disable, override=required => denied. An administrator requires MFA on
 %%                                 this account; only another administrator
 %%                                 or the CLI can lift it.
@@ -1059,6 +1061,11 @@ mfa_result({error, Reason}, LogMeta) ->
 %% `admin_override' is only ever written when an administrator acts on
 %% ANOTHER user (`emqx_dashboard_api:change_mfa/2' passes ByAdmin), so a
 %% user cannot lock themselves out by rotating their own MFA.
+authorize_self_mfa_disable(?SSO_USERNAME(Backend, _Name) = Username) ->
+    maybe
+        ok ?= authorize_self_mfa_disable_override(Username),
+        authorize_self_mfa_disable_sso(Username, Backend)
+    end;
 authorize_self_mfa_disable(Username) ->
     case emqx_dashboard_admin:mfa_enforced_for(Username) of
         true ->
@@ -1078,6 +1085,19 @@ authorize_self_mfa_disable_override(Username) ->
                 "cannot be turned off here. It can still be re-keyed."
             >>};
         _ ->
+            ok
+    end.
+
+%% Same rule as the SSO login: an admin exemption overrides `force_mfa'.
+authorize_self_mfa_disable_sso(Username, Backend) ->
+    case emqx_dashboard_sso_mfa:mfa_required_for_user(Username, Backend) of
+        true ->
+            {deny, 403, ?MFA_ENFORCED, <<
+                "MFA is required on this account by dashboard.sso.",
+                (atom_to_binary(Backend))/binary,
+                ".force_mfa. Only an administrator can exempt an account from it."
+            >>};
+        false ->
             ok
     end.
 
