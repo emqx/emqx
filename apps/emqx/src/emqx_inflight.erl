@@ -203,6 +203,7 @@ next_free_id(From, Index) ->
 %% visited twice: first from the `From` offset, last in full, so the ids
 %% below `From` in that chunk are checked after the wrap.
 scan(Chunk, Mask, Steps, Index) ->
+    %% 1 bits mean 'free' or 'unused'.
     Free = (used_bits(Chunk, Index) bxor ?CHUNK_MASK) band Mask,
     case Free of
         0 when Steps =:= 0 ->
@@ -210,8 +211,8 @@ scan(Chunk, Mask, Steps, Index) ->
         0 ->
             scan(next_chunk(Chunk), ?CHUNK_MASK, Steps - 1, Index);
         _ ->
-            Lowest = Free band -Free,
-            {ok, (Chunk bsl ?CHUNK_SHIFT) bor bit_offset(Lowest)}
+            Offset = offset(Free),
+            {ok, (Chunk bsl ?CHUNK_SHIFT) + Offset}
     end.
 
 %% Packet id 0 is not valid, so chunk 0 always reports it as used.
@@ -245,36 +246,42 @@ unmark(Key, Index) when ?IS_PACKET_ID(Key) ->
 unmark(_Key, Index) ->
     Index.
 
-%% Map a single-bit integer to its bit position.
-bit_offset(16#1) -> 0;
-bit_offset(16#2) -> 1;
-bit_offset(16#4) -> 2;
-bit_offset(16#8) -> 3;
-bit_offset(16#10) -> 4;
-bit_offset(16#20) -> 5;
-bit_offset(16#40) -> 6;
-bit_offset(16#80) -> 7;
-bit_offset(16#100) -> 8;
-bit_offset(16#200) -> 9;
-bit_offset(16#400) -> 10;
-bit_offset(16#800) -> 11;
-bit_offset(16#1000) -> 12;
-bit_offset(16#2000) -> 13;
-bit_offset(16#4000) -> 14;
-bit_offset(16#8000) -> 15;
-bit_offset(16#10000) -> 16;
-bit_offset(16#20000) -> 17;
-bit_offset(16#40000) -> 18;
-bit_offset(16#80000) -> 19;
-bit_offset(16#100000) -> 20;
-bit_offset(16#200000) -> 21;
-bit_offset(16#400000) -> 22;
-bit_offset(16#800000) -> 23;
-bit_offset(16#1000000) -> 24;
-bit_offset(16#2000000) -> 25;
-bit_offset(16#4000000) -> 26;
-bit_offset(16#8000000) -> 27;
-bit_offset(16#10000000) -> 28;
-bit_offset(16#20000000) -> 29;
-bit_offset(16#40000000) -> 30;
-bit_offset(16#80000000) -> 31.
+%% Offset of the lowest 1 bit.
+offset(Free) ->
+    tzc(Free band -Free).
+
+%% Trailing zero-bit count of a single-bit integer.
+%% Benchmarks show the 32-clause function is faster than bsr algorithms
+%% (binary search, and a shift loop is worse still).
+tzc(16#1) -> 0;
+tzc(16#2) -> 1;
+tzc(16#4) -> 2;
+tzc(16#8) -> 3;
+tzc(16#10) -> 4;
+tzc(16#20) -> 5;
+tzc(16#40) -> 6;
+tzc(16#80) -> 7;
+tzc(16#100) -> 8;
+tzc(16#200) -> 9;
+tzc(16#400) -> 10;
+tzc(16#800) -> 11;
+tzc(16#1000) -> 12;
+tzc(16#2000) -> 13;
+tzc(16#4000) -> 14;
+tzc(16#8000) -> 15;
+tzc(16#10000) -> 16;
+tzc(16#20000) -> 17;
+tzc(16#40000) -> 18;
+tzc(16#80000) -> 19;
+tzc(16#100000) -> 20;
+tzc(16#200000) -> 21;
+tzc(16#400000) -> 22;
+tzc(16#800000) -> 23;
+tzc(16#1000000) -> 24;
+tzc(16#2000000) -> 25;
+tzc(16#4000000) -> 26;
+tzc(16#8000000) -> 27;
+tzc(16#10000000) -> 28;
+tzc(16#20000000) -> 29;
+tzc(16#40000000) -> 30;
+tzc(16#80000000) -> 31.
