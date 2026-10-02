@@ -247,6 +247,8 @@ unmark(_Key, Index) ->
     Index.
 
 %% Offset of the lowest 1 bit.
+%% Replace with a count-trailing-zeros BIF once OTP has one:
+%% https://github.com/erlang/otp/issues/11757
 offset(Free) ->
     tzc(Free band -Free).
 
