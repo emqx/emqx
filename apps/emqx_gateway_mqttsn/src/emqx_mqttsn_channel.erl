@@ -452,9 +452,9 @@ validate_wakeup(
         asleep_timer_duration = SleepDuration
     }
 ) when
-    (ConnState =:= asleep orelse ConnState =:= awake),
-    is_integer(SleepDuration),
-    SleepDuration > 0
+    (ConnState =:= asleep orelse ConnState =:= awake) andalso
+        is_integer(SleepDuration) andalso
+        SleepDuration > 0
 ->
     OldPeercert = maps:get(peercert, OldConnInfo, undefined),
     case can_resume_with_peercert(OldPeercert, NewPeercert) of
@@ -1153,14 +1153,13 @@ send_next_register_or_replay_publish(
 %% Handle Publish
 
 check_negative_qos_enable(
-    ?SN_PUBLISH_MSG(Flags, _TopicId, _MsgId, _Data),
+    ?SN_PUBLISH_MSG(#mqtt_sn_flags{qos = QoS}, _TopicId, _MsgId, _Data),
     #channel{enable_negative_qos = EnableNegQoS}
 ) ->
-    #mqtt_sn_flags{qos = QoS} = Flags,
-    case EnableNegQoS =:= false andalso QoS =:= ?QOS_NEG1 of
-        true ->
+    case QoS of
+        ?QOS_NEG1 when not EnableNegQoS ->
             {error, ?SN_RC_NOT_SUPPORTED};
-        false ->
+        _ ->
             ok
     end.
 
@@ -2269,10 +2268,7 @@ handle_deliver(
         session = Session,
         clientinfo = ClientInfo = #{clientid := ClientId}
     }
-) when
-    ConnState =:= disconnected;
-    ConnState =:= asleep
-->
+) when ConnState =:= disconnected orelse ConnState =:= asleep ->
     NSession = emqx_mqttsn_session:enqueue(
         ClientInfo,
         ignore_local(maybe_nack(Delivers), ClientId, Session, Ctx),
