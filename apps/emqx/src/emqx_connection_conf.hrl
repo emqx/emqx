@@ -5,11 +5,18 @@
 -ifndef(EMQX_CONNECTION_CONF_HRL).
 -define(EMQX_CONNECTION_CONF_HRL, true).
 
-%% Connection settings derived from zone config. Connections of the same zone
-%% share one instance, see `emqx_connection_conf'.
--record(zone_conf, {
+%% Settings of a connection process, derived from its listener and zone
+%% config. Connections of the same listener and zone share one instance,
+%% see `emqx_connection_conf'.
+-record(conf, {
+    %% Listener Type and Name
+    listener :: {Type :: atom(), Name :: atom()},
     %% Zone name
-    name :: atom(),
+    zone :: atom(),
+    %% ActiveN
+    active_n :: pos_integer(),
+    %% Send queue high watermark in bytes
+    sendq_watermark :: non_neg_integer(),
     %% Hibernate connection process if inactive for
     hibernate_after :: integer() | infinity,
     %% Run a minor GC after this period of mailbox inactivity

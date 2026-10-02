@@ -14,7 +14,8 @@
 -include("../src/emqx_connection_conf.hrl").
 
 -define(FRAME_KEY(Zone), {emqx_connection_conf, Zone, frame}).
--define(CONF_KEY(Zone), {emqx_connection_conf, Zone, conf}).
+-define(CONN_KEY(Listener, Zone), {emqx_connection_conf, Listener, Zone, conf}).
+-define(SOCKET_LISTENER, {tcp, socket}).
 -define(PROTO_VERS, [v3, v4, v5]).
 
 -define(SOCKET_PORT, 21883).
@@ -50,6 +51,7 @@ all() ->
         t_global_config_change,
         t_zone_config_change,
         t_zone_conf_change_keeps_frame_shared,
+        t_listener_config_change,
         t_zone_removal,
         t_incomplete_zone_config
     ].
@@ -70,7 +72,7 @@ init_per_suite(Config) ->
     %% Captured before any case touches the config, for t_prebuilt_at_boot.
     BootEntries = {
         persistent_term:get(?FRAME_KEY(default), undefined),
-        persistent_term:get(?CONF_KEY(default), undefined)
+        persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default), undefined)
     },
     BootMqtt = maps:with(
         [<<"strict_mode">>, <<"max_packet_size">>], emqx_config:get_raw([<<"mqtt">>])
@@ -81,11 +83,29 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_group(socket, Config) ->
-    [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection} | Config];
+    [
+        {port, ?SOCKET_PORT},
+        {transport, tcp},
+        {conn_mod, emqx_socket_connection},
+        {listener, ?SOCKET_LISTENER}
+        | Config
+    ];
 init_per_group(gen_tcp_frame, Config) ->
-    [{port, ?GEN_TCP_FRAME_PORT}, {transport, tcp}, {conn_mod, emqx_connection} | Config];
+    [
+        {port, ?GEN_TCP_FRAME_PORT},
+        {transport, tcp},
+        {conn_mod, emqx_connection},
+        {listener, {tcp, frame}}
+        | Config
+    ];
 init_per_group(gen_tcp_chunk, Config) ->
-    [{port, ?GEN_TCP_CHUNK_PORT}, {transport, tcp}, {conn_mod, emqx_connection} | Config];
+    [
+        {port, ?GEN_TCP_CHUNK_PORT},
+        {transport, tcp},
+        {conn_mod, emqx_connection},
+        {listener, {tcp, chunk}}
+        | Config
+    ];
 init_per_group(ws, Config) ->
     [{port, ?WS_PORT}, {transport, ws}, {conn_mod, emqx_ws_connection} | Config].
 
@@ -145,18 +165,18 @@ t_prebuilt_at_boot(Config) ->
             map_size(Common) =:= 3,
         BootFrame
     ),
-    ?assertMatch(#zone_conf{name = default}, BootZoneConf),
+    ?assertMatch(#conf{listener = ?SOCKET_LISTENER, zone = default}, BootZoneConf),
     %% Earlier cases restore the config they change, so the entries still
     %% equal the boot ones.
     ?assertEqual(BootFrame, persistent_term:get(?FRAME_KEY(default))),
-    ?assertEqual(BootZoneConf, persistent_term:get(?CONF_KEY(default))),
-    ConnConfig = [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection}],
+    ?assertEqual(BootZoneConf, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))),
+    ConnConfig = socket_config(),
     C = connect(ConnConfig, v5),
     ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C, 5)),
-    ?assert(held_zone_conf(C, default)),
+    ?assert(held_conn_conf(C, ?SOCKET_LISTENER, default)),
     #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := ParseState}}} = BootFrame,
     ?assertMatch({ParseState, _}, frame_state(ConnConfig, C)),
-    ?assertEqual(BootZoneConf, zone_conf_of(C)),
+    ?assertEqual(BootZoneConf, conn_conf_of(C)),
     ok = emqtt:stop(C).
 
 -doc """
@@ -323,7 +343,7 @@ zone. An existing connection keeps working with its own terms, and a new
 connection shares the new terms.
 """.
 t_global_config_change(_Config) ->
-    Config = [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection}],
+    Config = socket_config(),
     {ok, _} = emqx:update_config([zones], #{<<"other">> => #{}}),
     Old = persistent_term:get(?FRAME_KEY(default)),
     OldOther = persistent_term:get(?FRAME_KEY(other)),
@@ -339,7 +359,7 @@ existing connection keeps working with its own terms, and a new connection
 shares the new terms.
 """.
 t_zone_config_change(_Config) ->
-    Config = [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection}],
+    Config = socket_config(),
     Old = persistent_term:get(?FRAME_KEY(default)),
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config(
@@ -349,18 +369,49 @@ t_zone_config_change(_Config) ->
     assert_zone_entry(default, 3 * 1024 * 1024, Old),
     assert_after_change(Config, C1, Old).
 
+-doc """
+A change to a listener setting held in `#conf{}` rebuilds the entry of that
+listener, and a new connection shares the new record.
+""".
+t_listener_config_change(_Config) ->
+    Config = socket_config(),
+    {tcp, Name} = ?SOCKET_LISTENER,
+    OldRaw = emqx_config:get_raw([listeners, tcp, Name]),
+    emqx_common_test_helpers:on_exit(fun() ->
+        {ok, _} = emqx:update_config([listeners, tcp, Name], {update, OldRaw})
+    end),
+    Old = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
+    ?assertNotMatch(#conf{active_n = 77}, Old),
+    TcpOpts = maps:get(<<"tcp_options">>, OldRaw, #{}),
+    {ok, _} = emqx:update_config(
+        [listeners, tcp, Name],
+        {update, OldRaw#{<<"tcp_options">> => TcpOpts#{<<"active_n">> => 77}}}
+    ),
+    New = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
+    ?assertMatch(#conf{active_n = 77}, New),
+    ?assertEqual(Old#conf{active_n = 77}, New),
+    C = connect(Config, v5),
+    ?assert(held_conn_conf(C, ?SOCKET_LISTENER, default)),
+    ?assertMatch(#conf{active_n = 77}, conn_conf_of(C)),
+    ok = emqtt:stop(C).
+
 -doc "Adding a zone creates its entries, and removing the zone deletes them.".
 t_zone_removal(_Config) ->
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(tmpzone), undefined)),
-    ?assertEqual(undefined, persistent_term:get(?CONF_KEY(tmpzone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, tmpzone), undefined)),
     {ok, _} = emqx:update_config([zones], #{<<"tmpzone">> => #{}}),
     ?assertMatch(#{connect := _, common := _}, persistent_term:get(?FRAME_KEY(tmpzone))),
-    ?assertMatch(#zone_conf{name = tmpzone}, persistent_term:get(?CONF_KEY(tmpzone))),
+    ?assertMatch(
+        #conf{listener = ?SOCKET_LISTENER, zone = tmpzone},
+        persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, tmpzone))
+    ),
+    ?assertMatch(#conf{zone = tmpzone}, persistent_term:get(?CONN_KEY({tcp, frame}, tmpzone))),
     {ok, _} = emqx:update_config([zones], #{}),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(tmpzone), undefined)),
-    ?assertEqual(undefined, persistent_term:get(?CONF_KEY(tmpzone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, tmpzone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?CONN_KEY({tcp, frame}, tmpzone), undefined)),
     ?assertMatch(#{connect := _, common := _}, persistent_term:get(?FRAME_KEY(default))),
-    ?assertMatch(#zone_conf{name = default}, persistent_term:get(?CONF_KEY(default))).
+    ?assertMatch(#conf{zone = default}, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))).
 
 -doc """
 A zones write whose zone config is not complete yet, as in an early write at
@@ -374,77 +425,82 @@ t_incomplete_zone_config(_Config) ->
     },
     ?assertEqual(ok, emqx_connection_conf:post_zone_config_update(#{}, #{partial => Incomplete})),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(partial), undefined)),
-    ?assertEqual(undefined, persistent_term:get(?CONF_KEY(partial), undefined)).
+    ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, partial), undefined)).
 
 -doc """
-Two connections in the same zone hold the same shared `#zone_conf{}`, and its
-fields match the zone config.
+Two connections on the same listener and zone hold the same shared `#conf{}`,
+and its fields match the listener and zone config.
 """.
 t_zone_conf_shared(Config) ->
+    Listener = ?config(listener, Config),
     C1 = connect(Config, v5),
     C2 = connect(Config, v4),
-    ?assert(held_zone_conf(C1, default)),
-    ?assert(held_zone_conf(C2, default)),
-    ?assertEqual(expected_zone_conf(default), zone_conf_of(C1)),
+    ?assert(held_conn_conf(C1, Listener, default)),
+    ?assert(held_conn_conf(C2, Listener, default)),
+    ?assertEqual(expected_conn_conf(Listener, default), conn_conf_of(C1)),
     ok = emqtt:stop(C1),
     ok = emqtt:stop(C2).
 
 -doc """
-A connection whose zone has no `#zone_conf{}` entry builds an equal record
-locally and behaves the same.
+A connection whose listener and zone have no `#conf{}` entry builds an equal
+record locally and behaves the same.
 """.
 t_zone_conf_absent_entry(Config) ->
-    _ = persistent_term:erase(?CONF_KEY(default)),
+    Listener = ?config(listener, Config),
+    _ = persistent_term:erase(?CONN_KEY(Listener, default)),
     C1 = connect(Config, v5),
     C2 = connect(Config, v5),
-    ?assertEqual(expected_zone_conf(default), zone_conf_of(C1)),
+    ?assertEqual(expected_conn_conf(Listener, default), conn_conf_of(C1)),
     ok = assert_pubsub(C1, C2),
     ok = emqtt:stop(C1),
     ok = emqtt:stop(C2).
 
 -doc """
-A zone change on a live connection moves it to the shared `#zone_conf{}` of
-the new zone.
+A zone change on a live connection moves it to the shared `#conf{}` of its
+listener and the new zone.
 """.
 t_zone_changed(Config) ->
     {ok, _} = emqx:update_config(
         [zones],
         #{<<"other">> => #{<<"force_gc">> => #{<<"count">> => 1234}}}
     ),
+    Listener = ?config(listener, Config),
     C = connect(Config, v5),
-    ?assert(held_zone_conf(C, default)),
+    ?assert(held_conn_conf(C, Listener, default)),
     conn_pid(C) ! {event, {zone_changed, other}},
-    ?retry(50, 20, ?assertMatch(#zone_conf{name = other}, zone_conf_of(C))),
-    ?assertMatch(#zone_conf{name = other, force_gc = {1234, _}}, zone_conf_of(C)),
-    ?assert(held_zone_conf(C, other)),
+    ?retry(50, 20, ?assertMatch(#conf{zone = other}, conn_conf_of(C))),
+    ?assertMatch(#conf{listener = Listener, zone = other, force_gc = {1234, _}}, conn_conf_of(C)),
+    ?assert(held_conn_conf(C, Listener, other)),
     ok = assert_pubsub(C, C),
     ok = emqtt:stop(C).
 
 -doc """
-A change to a zone setting held in `#zone_conf{}` replaces only that entry.
-Existing connections keep the shared frame terms, and new connections share
-the new `#zone_conf{}`.
+A change to a zone setting held in `#conf{}` replaces only the connection
+settings entries. Existing connections keep the shared frame terms, and new
+connections share the new `#conf{}`.
 """.
 t_zone_conf_change_keeps_frame_shared(_Config) ->
-    Config = [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection}],
+    Config = socket_config(),
     OldFrame = persistent_term:get(?FRAME_KEY(default)),
-    OldZoneConf = persistent_term:get(?CONF_KEY(default)),
+    OldZoneConf = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
     OldForceGc = emqx_config:get_raw([force_gc]),
     emqx_common_test_helpers:on_exit(fun() ->
         {ok, _} = emqx:update_config([force_gc], OldForceGc)
     end),
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config([force_gc], OldForceGc#{<<"count">> => 4321}),
-    ?assertMatch(#zone_conf{force_gc = {4321, _}}, persistent_term:get(?CONF_KEY(default))),
-    ?assertNotEqual(OldZoneConf, persistent_term:get(?CONF_KEY(default))),
+    ?assertMatch(
+        #conf{force_gc = {4321, _}}, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))
+    ),
+    ?assertNotEqual(OldZoneConf, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))),
     ?assert(erts_debug:same(OldFrame, persistent_term:get(?FRAME_KEY(default)))),
     %% The existing connection still shares the frame terms and keeps its own
     %% copy of the old zone settings.
     ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C1, 5)),
-    ?assertNot(held_zone_conf(C1, default)),
-    ?assertEqual(OldZoneConf, zone_conf_of(C1)),
+    ?assertNot(held_conn_conf(C1, ?SOCKET_LISTENER, default)),
+    ?assertEqual(OldZoneConf, conn_conf_of(C1)),
     C2 = connect(Config, v5),
-    ?assert(held_zone_conf(C2, default)),
+    ?assert(held_conn_conf(C2, ?SOCKET_LISTENER, default)),
     ok = assert_pubsub(C1, C2),
     ok = emqtt:stop(C1),
     ok = emqtt:stop(C2).
@@ -588,9 +644,21 @@ held(Client, GetShared) ->
     after 5000 -> error(timeout)
     end.
 
-expected_zone_conf(Zone) ->
-    #zone_conf{
-        name = Zone,
+socket_config() ->
+    [
+        {port, ?SOCKET_PORT},
+        {transport, tcp},
+        {conn_mod, emqx_socket_connection},
+        {listener, ?SOCKET_LISTENER}
+    ].
+
+expected_conn_conf({Type, Name} = Listener, Zone) ->
+    TcpOpts = emqx_config:get_listener_conf(Type, Name, [tcp_options]),
+    #conf{
+        listener = Listener,
+        zone = Zone,
+        active_n = emqx_listeners:clamp_active_n(maps:get(active_n, TcpOpts)),
+        sendq_watermark = maps:get(high_watermark, TcpOpts),
         hibernate_after = emqx_config:get_zone_conf(Zone, [mqtt, hibernate_after]),
         minor_gc_after = emqx_config:get_zone_conf(Zone, [mqtt, minor_gc_after]),
         force_gc =
@@ -601,27 +669,23 @@ expected_zone_conf(Zone) ->
         force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown])
     }.
 
-%% The `#zone_conf{}' held by a TCP connection process.
-zone_conf_of(Client) ->
-    find_zone_conf(sys:get_state(conn_pid(Client))).
+%% The `#conf{}' held by a TCP connection process.
+conn_conf_of(Client) ->
+    find_conf(sys:get_state(conn_pid(Client))).
 
-find_zone_conf(State) ->
-    [Conf] = [
-        E
-     || E <- tuple_to_list(State), is_tuple(E), tuple_size(E) > 0, element(1, E) =:= conf
-    ],
-    [ZoneConf] = [E || E <- tuple_to_list(Conf), is_record(E, zone_conf)],
-    ZoneConf.
+find_conf(State) ->
+    [Conf] = [E || E <- tuple_to_list(State), is_record(E, conf)],
+    Conf.
 
-%% Check inside the connection process whether it holds the shared
-%% `#zone_conf{}' of the zone itself, not an equal copy.
-held_zone_conf(Client, Zone) ->
+%% Check inside the connection process whether it holds the shared `#conf{}'
+%% of the listener and zone itself, not an equal copy.
+held_conn_conf(Client, Listener, Zone) ->
     Pid = conn_pid(Client),
     Self = self(),
     Ref = make_ref(),
     _ = sys:replace_state(Pid, fun(State) ->
-        Shared = persistent_term:get(?CONF_KEY(Zone)),
-        Self ! {Ref, erts_debug:same(find_zone_conf(State), Shared)},
+        Shared = persistent_term:get(?CONN_KEY(Listener, Zone)),
+        Self ! {Ref, erts_debug:same(find_conf(State), Shared)},
         State
     end),
     receive

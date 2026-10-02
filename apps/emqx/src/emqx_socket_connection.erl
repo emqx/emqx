@@ -78,15 +78,6 @@
     parser/0
 ]).
 
--record(conf, {
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
-    %% Zone settings, shared with other connections of the zone
-    zone :: undefined | #zone_conf{},
-    %% ActiveN
-    active_n = 10 :: pos_integer()
-}).
-
 -record(thresholds, {
     gc_packets,
     gc_bytes,
@@ -189,7 +180,7 @@ info(sockstate, #state{sockstate = SS}) ->
     end;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
-info(zone, #state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
+info(zone, #state{conf = #conf{zone = Zone}}) ->
     Zone;
 info(listener, #state{conf = #conf{listener = Listener}}) ->
     Listener;
@@ -369,7 +360,7 @@ run_loop(
     State = #state{
         socket = Socket,
         channel = Channel,
-        conf = #conf{listener = Listener, zone = #zone_conf{force_shutdown = ShutdownPolicy}}
+        conf = #conf{listener = Listener, force_shutdown = ShutdownPolicy}
     }
 ) ->
     emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
@@ -410,7 +401,7 @@ exit_on_sock_error(Reason) ->
 
 recvloop(Parent, State = #state{conf = Conf}) ->
     #conf{
-        zone = #zone_conf{name = Zone, hibernate_after = HibernateTimeout}
+        zone = Zone, hibernate_after = HibernateTimeout
     } = Conf,
     receive
         Msg ->
@@ -430,7 +421,7 @@ handle_recv({system, From, Request}, Parent, State) ->
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
-            #state{conf = #conf{zone = #zone_conf{minor_gc_after = Timeout}}} = NewState,
+            #state{conf = #conf{minor_gc_after = Timeout}} = NewState,
             drain_loop(Parent, NewState, Timeout);
         {stop, Reason, NewSate} ->
             terminate(Reason, NewSate)
@@ -489,7 +480,7 @@ sock_setopts(_Sock, []) ->
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
 
-init_stats_timer(#state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
+init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
     case emqx_config:get_zone_conf(Zone, [stats, enable]) of
         true -> undefined;
         false -> disabled
@@ -497,7 +488,7 @@ init_stats_timer(#state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
 
 -compile({inline, [ensure_stats_timer/1]}).
 ensure_stats_timer(
-    State = #state{stats_timer = undefined, conf = #conf{zone = #zone_conf{name = Zone}}}
+    State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}
 ) ->
     Timeout = get_zone_idle_timeout(Zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
@@ -513,7 +504,7 @@ cancel_stats_timer(State = #state{stats_timer = TRef}) when is_reference(TRef) -
 cancel_stats_timer(State) ->
     State.
 
-start_idle_timer(State = #state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
+start_idle_timer(State = #state{conf = #conf{zone = Zone}}) ->
     IdleTimeout = get_zone_idle_timeout(Zone),
     TimerRef = start_timer(IdleTimeout, idle_timeout),
     State#state{stats_timer = {idle, TimerRef}}.
@@ -527,11 +518,11 @@ cancel_idle_timer(_State) ->
 get_zone_idle_timeout(Zone) ->
     emqx_channel:get_mqtt_conf(Zone, idle_timeout).
 
-zone_conf(Zone, Opts) ->
-    #zone_conf{hibernate_after = ZoneValue} = ZoneConf = emqx_connection_conf:zone_conf(Zone),
+conn_conf(Listener, Zone, Opts) ->
+    #conf{hibernate_after = ZoneValue} = Conf = emqx_connection_conf:conn_conf(Listener, Zone),
     case maps:get(hibernate_after, Opts, ZoneValue) of
-        ZoneValue -> ZoneConf;
-        HibernateAfter -> ZoneConf#zone_conf{hibernate_after = HibernateAfter}
+        ZoneValue -> Conf;
+        HibernateAfter -> Conf#conf{hibernate_after = HibernateAfter}
     end.
 
 %%--------------------------------------------------------------------
@@ -1050,7 +1041,7 @@ describe_parser_state(ParseState) ->
 %% Swap in the zone's shared parse state and serializer options where they are
 %% equal to the connection's own.
 share_frame_opts(ProtoVer, ParseState, Serialize, #state{
-    conf = #conf{zone = #zone_conf{name = Zone}}
+    conf = #conf{zone = Zone}
 }) ->
     emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
 
@@ -1467,9 +1458,9 @@ trigger_oom(
 reset_thresholds(Conf, Thresholds) ->
     reset_oom_threshold(Conf, reset_gc_threshold(Conf, Thresholds)).
 
-reset_gc_threshold(#conf{zone = #zone_conf{force_gc = {Count, Bytes}}}, Thresholds) ->
+reset_gc_threshold(#conf{force_gc = {Count, Bytes}}, Thresholds) ->
     Thresholds#thresholds{gc_packets = Count, gc_bytes = Bytes};
-reset_gc_threshold(#conf{zone = #zone_conf{force_gc = false}}, Thresholds) ->
+reset_gc_threshold(#conf{force_gc = false}, Thresholds) ->
     Thresholds.
 
 reset_oom_threshold(#conf{active_n = ActiveN}, Thresholds) ->
@@ -1529,7 +1520,7 @@ handle_cast(Req, State) ->
 
 -compile({inline, [run_minor_gc/0]}).
 
-run_gc(#state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
+run_gc(#state{conf = #conf{zone = Zone}}) ->
     case emqx_olp:backoff_gc(Zone) of
         false -> erlang:garbage_collect();
         true -> ok
@@ -1538,7 +1529,7 @@ run_gc(#state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
 run_minor_gc() ->
     erlang:garbage_collect(self(), [{type, minor}]).
 
-check_oom(Pubs, Bytes, #state{conf = #conf{zone = #zone_conf{force_shutdown = ShutdownPolicy}}}) ->
+check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
     case emqx_utils:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
@@ -1681,10 +1672,7 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
                 {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
-    Conf = Conf0#conf{
-        zone = zone_conf(Zone, Opts),
-        active_n = get_active_n(Conf0)
-    },
+    Conf = conn_conf(Conf0#conf.listener, Zone, Opts),
     State0#state{
         parser = Parser,
         serialize = Serialize,
@@ -1697,11 +1685,6 @@ init_parser_and_serializer(Zone) ->
         Zone
     ),
     {Parser, Serialize}.
-
-get_active_n(#conf{listener = {Type, Listener}}) ->
-    emqx_listeners:clamp_active_n(
-        emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n])
-    ).
 
 get_send_timeout(#conf{listener = {Type, Listener}}) ->
     emqx_config:get_listener_conf(Type, Listener, [tcp_options, send_timeout], 15_000).

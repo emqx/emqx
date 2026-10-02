@@ -5,24 +5,27 @@
 -module(emqx_connection_conf).
 
 -moduledoc """
-Connection settings derived from zone config and shared between connections.
+Connection settings derived from listener and zone config, shared between
+connections.
 
-Each zone has two `persistent_term` entries:
+The module keeps two kinds of `persistent_term` entries:
 
 - `{emqx_connection_conf, Zone, frame}`: the frame parser and serializer
-  options. The value holds two groups of terms:
+  options of the zone. The value holds two groups of terms:
   - `connect`: the initial parse state and the initial serializer options that
     a connection uses until it receives CONNECT.
   - `common`: for each MQTT protocol version, the initial parse state and the
     serializer options that a connection uses after CONNECT.
-- `{emqx_connection_conf, Zone, conf}`: the `#zone_conf{}` record, which holds
-  the zone settings of the connection process: `hibernate_after`,
-  `minor_gc_after`, `force_gc` and `force_shutdown`.
+- `{emqx_connection_conf, Listener, Zone, conf}`: the `#conf{}` record of a
+  connection on that listener in that zone. It holds the listener settings
+  (`active_n`, `sendq_watermark`) and the zone settings (`hibernate_after`,
+  `minor_gc_after`, `force_gc`, `force_shutdown`). There is one entry for every
+  TCP, SSL and QUIC listener combined with every zone, so a connection whose
+  zone was overridden at authentication still finds its entry.
 
-The two groups are separate entries because replacing an entry makes the
+The two kinds are separate entries because replacing an entry makes the
 runtime copy the old terms into the heap of every process that still refers
-to them. With separate entries, a change to one group leaves the other group
-shared.
+to them. With separate entries, a change to one kind leaves the other shared.
 
 A term read out of `persistent_term` is not copied into the heap of the
 reading process. So every connection that stores one of these terms in its
@@ -31,9 +34,11 @@ the shared terms. `sys:get_state/1`, `erlang:external_size/1` and
 `erts_debug:flat_size/1` do count them, so they overstate the size of a
 connection state.
 
-Only `post_zone_config_update/2` writes the entries. Connection processes
-only read them. When an entry is absent, the functions here build the terms
-locally from zone config.
+Only the config update hooks write the entries: `post_zone_config_update/2`
+on every write of the zones config, and `post_listener_config_update/1` on
+every write of the listeners config. Connection processes only read them.
+When an entry is absent, the functions here build the terms locally from
+config.
 """.
 
 -include("emqx_mqtt.hrl").
@@ -43,15 +48,22 @@ locally from zone config.
     frame_opts/1,
     pre_connect_codec/1,
     post_connect_codec/4,
-    zone_conf/1,
-    post_zone_config_update/2
+    conn_conf/2,
+    post_zone_config_update/2,
+    post_listener_config_update/1
 ]).
 
--export_type([pre_connect_codec/0, zone_conf/0]).
+-export_type([pre_connect_codec/0, conn_conf/0, listener/0]).
 
 -define(FRAME_KEY(Zone), {?MODULE, Zone, frame}).
--define(CONF_KEY(Zone), {?MODULE, Zone, conf}).
+-define(CONN_KEY(Listener, Zone), {?MODULE, Listener, Zone, conf}).
 -define(PROTO_VERS, [?MQTT_PROTO_V3, ?MQTT_PROTO_V4, ?MQTT_PROTO_V5]).
+%% A QUIC stream has no socket to activate; the control stream keeps the
+%% default of `emqx_connection'.
+-define(QUIC_ACTIVE_N, 10).
+-define(CONF_LISTENER_TYPES, [tcp, ssl, quic]).
+
+-type listener() :: {Type :: atom(), Name :: atom()}.
 
 -type pre_connect_codec() :: #{
     initial_parse_state := emqx_frame:parse_state_initial(),
@@ -68,7 +80,7 @@ locally from zone config.
     common := #{emqx_types:proto_ver() => post_connect_codec()}
 }.
 
--type zone_conf() :: #zone_conf{}.
+-type conn_conf() :: #conf{}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -127,39 +139,54 @@ post_connect_codec(Zone, ProtoVer, ParseState, SerializeOpts) ->
             {ParseState, SerializeOpts}
     end.
 
--doc "Return the connection process settings of the zone.".
--spec zone_conf(emqx_types:zone()) -> zone_conf().
-zone_conf(Zone) ->
-    case persistent_term:get(?CONF_KEY(Zone), undefined) of
-        #zone_conf{} = ZoneConf ->
-            ZoneConf;
+-doc """
+Return the settings of a connection on the listener in the zone.
+
+Raises when the listener or the zone has no complete config.
+""".
+-spec conn_conf(listener(), emqx_types:zone()) -> conn_conf().
+conn_conf(Listener, Zone) ->
+    case persistent_term:get(?CONN_KEY(Listener, Zone), undefined) of
+        #conf{} = Conf ->
+            Conf;
         undefined ->
-            zone_conf(
-                Zone,
-                emqx_config:get_zone_conf(Zone, [mqtt, hibernate_after]),
-                emqx_config:get_zone_conf(Zone, [mqtt, minor_gc_after]),
-                emqx_config:get_zone_conf(Zone, [force_gc]),
-                emqx_config:get_zone_conf(Zone, [force_shutdown])
-            )
+            {Type, Name} = Listener,
+            ListenerConf = emqx_config:get_listener_conf(Type, Name, [], undefined),
+            ZoneConf = emqx_config:get([zones, Zone], undefined),
+            case build_conn_conf(Listener, Zone, ListenerConf, ZoneConf) of
+                #conf{} = Conf -> Conf;
+                undefined -> error({incomplete_connection_conf, Listener, Zone})
+            end
     end.
 
 -doc """
-Rebuild the entries of every zone in `NewZones` and delete the entries of the
-zones that are removed.
+Rebuild the frame entry of every zone in `NewZones`, delete the frame entries
+of the zones that are removed, and rebuild the connection settings of every
+listener and zone pair.
 
 `emqx_config_zones:post_update/2` calls this each time the zones config is
 written, including the first write at boot.
 """.
 -spec post_zone_config_update(emqx_config:config(), emqx_config:config()) -> ok.
 post_zone_config_update(OldZones, NewZones) ->
-    ok = maps:foreach(fun update_zone/2, NewZones),
+    ok = maps:foreach(fun update_zone_frame/2, NewZones),
     lists:foreach(
-        fun(Zone) ->
-            _ = persistent_term:erase(?FRAME_KEY(Zone)),
-            _ = persistent_term:erase(?CONF_KEY(Zone))
-        end,
+        fun(Zone) -> _ = persistent_term:erase(?FRAME_KEY(Zone)) end,
         maps:keys(maps:without(maps:keys(NewZones), OldZones))
-    ).
+    ),
+    refresh_conn_confs(NewZones, emqx_config:get([listeners], #{})).
+
+-doc """
+Rebuild the connection settings of every listener and zone pair from the
+given listeners config.
+
+`emqx_listeners:post_config_update/5` calls this each time the listeners
+config is written. It runs before the new config is stored, so the caller
+passes the new listeners config in.
+""".
+-spec post_listener_config_update(emqx_config:config()) -> ok.
+post_listener_config_update(Listeners) ->
+    refresh_conn_confs(emqx_config:get([zones], #{}), Listeners).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -170,12 +197,55 @@ same_or_given(Shared, Given) when Shared =:= Given ->
 same_or_given(_Shared, Given) ->
     Given.
 
-update_zone(Zone, ZoneConf) ->
-    ok = put_or_erase(?FRAME_KEY(Zone), build_frame(ZoneConf)),
-    ok = put_or_erase(?CONF_KEY(Zone), build_zone_conf(Zone, ZoneConf)).
+update_zone_frame(Zone, ZoneConf) ->
+    put_or_erase(?FRAME_KEY(Zone), build_frame(ZoneConf)).
+
+%% One entry per listener and zone. Entries of pairs that no longer exist
+%% are erased.
+refresh_conn_confs(Zones, Listeners) ->
+    Wanted = maps:from_list([
+        {?CONN_KEY(Listener, Zone), build_conn_conf(Listener, Zone, ListenerConf, ZoneConf)}
+     || {Listener, ListenerConf} <- conf_listeners(Listeners),
+        {Zone, ZoneConf} <- maps:to_list(Zones)
+    ]),
+    ok = maps:foreach(fun put_or_erase/2, Wanted),
+    lists:foreach(
+        fun
+            ({?CONN_KEY(_, _) = Key, _Value}) when not is_map_key(Key, Wanted) ->
+                _ = persistent_term:erase(Key);
+            (_Entry) ->
+                ok
+        end,
+        persistent_term:get()
+    ).
+
+%% The listeners whose connections use `#conf{}': TCP, SSL and QUIC.
+conf_listeners(Listeners) ->
+    maps:fold(
+        fun(Type, ByName, Acc) ->
+            case lists:member(Type, ?CONF_LISTENER_TYPES) of
+                true -> conf_listeners(Type, ByName, Acc);
+                false -> Acc
+            end
+        end,
+        [],
+        Listeners
+    ).
+
+conf_listeners(Type, ByName, Acc) ->
+    maps:fold(
+        fun
+            (Name, ListenerConf, Acc1) when is_map(ListenerConf) ->
+                [{{Type, Name}, ListenerConf} | Acc1];
+            (_Name, _Tombstone, Acc1) ->
+                Acc1
+        end,
+        Acc,
+        ByName
+    ).
 
 %% Write the entry only when its value changes. A value of `undefined' means
-%% the zone config is not complete yet.
+%% the config is not complete yet.
 put_or_erase(Key, undefined) ->
     _ = persistent_term:erase(Key),
     ok;
@@ -216,31 +286,48 @@ build_pre_connect_codec(FrameOpts) ->
         serialize_opts => emqx_frame:initial_serialize_opts(FrameOpts)
     }.
 
--spec build_zone_conf(emqx_types:zone(), map()) -> zone_conf() | undefined.
-build_zone_conf(Zone, #{
-    mqtt := #{hibernate_after := HibernateAfter, minor_gc_after := MinorGcAfter},
-    force_gc := ForceGc,
-    force_shutdown := ForceShutdown
-}) ->
-    case is_complete_force_gc(ForceGc) of
-        true -> zone_conf(Zone, HibernateAfter, MinorGcAfter, ForceGc, ForceShutdown);
-        false -> undefined
+-spec build_conn_conf(listener(), emqx_types:zone(), map() | undefined, map() | undefined) ->
+    conn_conf() | undefined.
+build_conn_conf(
+    Listener,
+    Zone,
+    ListenerConf,
+    #{
+        mqtt := #{hibernate_after := HibernateAfter, minor_gc_after := MinorGcAfter},
+        force_gc := ForceGc,
+        force_shutdown := ForceShutdown
+    }
+) ->
+    case {listener_settings(Listener, ListenerConf), is_complete_force_gc(ForceGc)} of
+        {{ActiveN, Watermark}, true} ->
+            #conf{
+                listener = Listener,
+                zone = Zone,
+                active_n = ActiveN,
+                sendq_watermark = Watermark,
+                hibernate_after = HibernateAfter,
+                minor_gc_after = MinorGcAfter,
+                force_gc = force_gc(ForceGc),
+                force_shutdown = ForceShutdown
+            };
+        _ ->
+            undefined
     end;
-build_zone_conf(_Zone, _ZoneConf) ->
+build_conn_conf(_Listener, _Zone, _ListenerConf, _ZoneConf) ->
+    undefined.
+
+%% `{ActiveN, SendQueueWatermark}' of a listener, or `undefined' when its
+%% config is not complete.
+listener_settings({quic, _Name}, _ListenerConf) ->
+    {?QUIC_ACTIVE_N, 0};
+listener_settings(_Listener, #{tcp_options := #{active_n := ActiveN, high_watermark := Watermark}}) ->
+    {emqx_listeners:clamp_active_n(ActiveN), Watermark};
+listener_settings(_Listener, _ListenerConf) ->
     undefined.
 
 is_complete_force_gc(#{enable := false}) -> true;
 is_complete_force_gc(#{enable := true, count := _, bytes := _}) -> true;
 is_complete_force_gc(_) -> false.
-
-zone_conf(Zone, HibernateAfter, MinorGcAfter, ForceGc, ForceShutdown) ->
-    #zone_conf{
-        name = Zone,
-        hibernate_after = HibernateAfter,
-        minor_gc_after = MinorGcAfter,
-        force_gc = force_gc(ForceGc),
-        force_shutdown = ForceShutdown
-    }.
 
 force_gc(#{enable := false}) ->
     false;

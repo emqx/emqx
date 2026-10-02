@@ -87,17 +87,6 @@
     parser/0
 ]).
 
--record(conf, {
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
-    %% Zone settings, shared with other connections of the zone
-    zone :: #zone_conf{},
-    %% ActiveN
-    active_n :: pos_integer(),
-    %% Send queue high watermark in bytes
-    sendq_watermark :: non_neg_integer()
-}).
-
 -record(thresholds, {
     gc_packets,
     gc_bytes,
@@ -147,8 +136,6 @@
     | _Stream :: emqx_frame:parse_state().
 
 -opaque state() :: #state{}.
-
--define(ACTIVE_N, 10).
 
 -define(SOCK_STATS, [
     recv_oct,
@@ -242,7 +229,7 @@ info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
-info(zone, #state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
+info(zone, #state{conf = #conf{zone = Zone}}) ->
     Zone;
 info(listener, #state{conf = #conf{listener = Listener}}) ->
     Listener;
@@ -403,7 +390,7 @@ run_loop(
         transport = Transport,
         socket = Socket,
         channel = Channel,
-        conf = #conf{listener = Listener, zone = #zone_conf{name = Zone}}
+        conf = #conf{listener = Listener, zone = Zone}
     }
 ) ->
     emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
@@ -455,7 +442,7 @@ recvloop(
     Parent,
     State = #state{
         conf = #conf{
-            zone = #zone_conf{name = Zone, hibernate_after = HibernateTimeout}
+            zone = Zone, hibernate_after = HibernateTimeout
         }
     }
 ) ->
@@ -492,7 +479,7 @@ wakeup_from_hib(Parent, State) ->
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
 
-init_stats_timer(#state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
+init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
     case emqx_config:get_zone_conf(Zone, [stats, enable]) of
         true -> undefined;
         false -> disabled
@@ -500,7 +487,7 @@ init_stats_timer(#state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
 
 -compile({inline, [ensure_stats_timer/1]}).
 ensure_stats_timer(
-    State = #state{stats_timer = undefined, conf = #conf{zone = #zone_conf{name = Zone}}}
+    State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}
 ) ->
     Timeout = get_zone_idle_timeout(Zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
@@ -526,11 +513,11 @@ get_zone_idle_timeout(Zone) ->
     emqx_channel:get_mqtt_conf(Zone, idle_timeout).
 
 %% A QUIC listener passes its own `hibernate_after' in `Opts'.
-zone_conf(Zone, Opts) ->
-    #zone_conf{hibernate_after = ZoneValue} = ZoneConf = emqx_connection_conf:zone_conf(Zone),
+conn_conf(Listener, Zone, Opts) ->
+    #conf{hibernate_after = ZoneValue} = Conf = emqx_connection_conf:conn_conf(Listener, Zone),
     case maps:get(hibernate_after, Opts, ZoneValue) of
-        ZoneValue -> ZoneConf;
-        HibernateAfter -> ZoneConf#zone_conf{hibernate_after = HibernateAfter}
+        ZoneValue -> Conf;
+        HibernateAfter -> Conf#conf{hibernate_after = HibernateAfter}
     end.
 
 %%--------------------------------------------------------------------
@@ -974,7 +961,7 @@ share_frame_opts(ProtoVer, {frame, Options0}, Serialize0, State) ->
     {Options, Serialize} = share_frame_opts(ProtoVer, Options0, Serialize0, State),
     {{frame, Options}, Serialize};
 share_frame_opts(ProtoVer, ParseState, Serialize, #state{
-    conf = #conf{zone = #zone_conf{name = Zone}}
+    conf = #conf{zone = Zone}
 }) ->
     emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
 
@@ -1231,9 +1218,9 @@ trigger_oom(
 reset_thresholds(Conf, Thresholds) ->
     reset_sendq_threshold(Conf, reset_oom_threshold(Conf, reset_gc_threshold(Conf, Thresholds))).
 
-reset_gc_threshold(#conf{zone = #zone_conf{force_gc = {Count, Bytes}}}, Thresholds) ->
+reset_gc_threshold(#conf{force_gc = {Count, Bytes}}, Thresholds) ->
     Thresholds#thresholds{gc_packets = Count, gc_bytes = Bytes};
-reset_gc_threshold(#conf{zone = #zone_conf{force_gc = false}}, Thresholds) ->
+reset_gc_threshold(#conf{force_gc = false}, Thresholds) ->
     Thresholds.
 
 reset_oom_threshold(#conf{active_n = ActiveN}, Thresholds) ->
@@ -1249,7 +1236,7 @@ dec_threshold(undefined, _) ->
 dec_threshold(T, N) ->
     T - N.
 
-run_gc(#state{conf = #conf{zone = #zone_conf{name = Zone}}}) ->
+run_gc(#state{conf = #conf{zone = Zone}}) ->
     case emqx_olp:backoff_gc(Zone) of
         false -> erlang:garbage_collect();
         true -> ok
@@ -1308,7 +1295,7 @@ signal_channel_congestion(Status, SQSize, State = #state{channel = Channel}) ->
             {Replies, State#state{channel = NChannel}}
     end.
 
-check_oom(Pubs, Bytes, #state{conf = #conf{zone = #zone_conf{force_shutdown = ShutdownPolicy}}}) ->
+check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
     case emqx_utils:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
@@ -1399,7 +1386,7 @@ activate_socket_for_connect(
         parser = {frame, _},
         transport = Transport,
         socket = Socket,
-        conf = #conf{zone = #zone_conf{name = Zone}}
+        conf = #conf{zone = Zone}
     } = State
 ) ->
     {Limit, MaxSize} = connect_packet_size_limits(Zone),
@@ -1421,7 +1408,7 @@ raise_packet_size_limit(#state{
     parser = {frame, _},
     transport = Transport,
     socket = Socket,
-    conf = #conf{zone = #zone_conf{name = Zone}}
+    conf = #conf{zone = Zone}
 }) ->
     case connect_packet_size_limits(Zone) of
         {Limit, MaxSize} when Limit < MaxSize ->
@@ -1456,7 +1443,7 @@ Only the error tag is kept: whether the refused frame really was a CONNECT is
 not knowable here, and neither is it in the stream parser's case.
 """.
 connect_too_large_error(Reason, #state{
-    parser = {frame, _}, channel = Channel, conf = #conf{zone = #zone_conf{name = Zone}}
+    parser = {frame, _}, channel = Channel, conf = #conf{zone = Zone}
 }) ->
     case transport_frame_too_large(Reason) andalso emqx_channel:info(conn_state, Channel) of
         idle ->
@@ -1688,7 +1675,6 @@ start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
 init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
-    #conf{listener = {Type, Listener}} = Conf,
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
@@ -1700,11 +1686,7 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
                 {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
-    NConf = Conf#conf{
-        zone = zone_conf(Zone, Opts),
-        active_n = get_active_n(Type, Listener),
-        sendq_watermark = get_high_watermark(Type, Listener)
-    },
+    NConf = conn_conf(Conf#conf.listener, Zone, Opts),
     State0#state{
         parser = Parser,
         serialize = Serialize,
@@ -1738,16 +1720,3 @@ get_state(Pid) ->
             tl(tuple_to_list(State))
         )
     ).
-
-get_active_n(quic, _Listener) ->
-    ?ACTIVE_N;
-get_active_n(Type, Listener) ->
-    emqx_listeners:clamp_active_n(
-        emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n])
-    ).
-
-get_high_watermark(quic, _Listener) ->
-    0;
-get_high_watermark(Type, Listener) ->
-    %% TODO protect against too small hwm
-    emqx_config:get_listener_conf(Type, Listener, [tcp_options, high_watermark]).
