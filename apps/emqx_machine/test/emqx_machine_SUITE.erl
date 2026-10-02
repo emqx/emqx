@@ -8,9 +8,12 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+-define(BRIDGE_NAME, <<"stop_sources">>).
 
 -define(APPS, [
     emqx_prometheus,
@@ -167,6 +170,65 @@ t_stop_apps_stops_listeners_first(Config) ->
         catch emqx_cth_cluster:stop([Node])
     end.
 
+-doc """
+Verify `emqx_machine_boot:stop_apps/0' removes every source from its connector
+before it stops the listeners, and leaves the actions and the source
+configuration in place.  Also verify `ensure_apps_started/0' installs the
+source again.
+""".
+t_stop_apps_stops_sources_before_listeners(Config) ->
+    [Node] = emqx_cth_cluster:start(
+        [{machine_sources_SUITE1, #{role => core, apps => app_specs() ++ [emqx_bridge_mqtt]}}],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    try
+        Port = emqx_cth_cluster:get_tcp_mqtt_port(Node),
+        {ConnectorResId, SourceId, ActionId} =
+            erpc:call(Node, fun() -> create_mqtt_source_and_action(Port) end),
+        ?assertEqual(lists:sort([SourceId, ActionId]), installed_channels(Node, ConnectorResId)),
+        TestPid = self(),
+        ?check_trace(
+            begin
+                %% `emqx_listeners:stop/0' runs again when the `emqx' app
+                %% stops; only the first call is inspected.
+                snabbkaffe_nemesis:inject_crash(
+                    ?match_event(#{?snk_kind := emqx_listeners_stopped}),
+                    fun
+                        (1) ->
+                            TestPid !
+                                {listeners_stopped, installed_channels(Node, ConnectorResId),
+                                    source_exists(Node)},
+                            false;
+                        (_) ->
+                            false
+                    end
+                ),
+                ok = erpc:call(Node, emqx_machine_boot, stop_apps, []),
+                receive
+                    {listeners_stopped, Channels, SourceExists} -> {Channels, SourceExists}
+                after 5_000 ->
+                    ct:fail(listeners_not_stopped)
+                end
+            end,
+            fun({Channels, SourceExists}, _Trace) ->
+                ?assertEqual([ActionId], Channels),
+                ?assert(SourceExists)
+            end
+        ),
+        %% The reboot path (cluster join/leave) installs the source again.
+        ok = erpc:call(Node, emqx_app, set_config_loader, [emqx_cth_suite]),
+        ok = erpc:call(Node, emqx_machine_boot, ensure_apps_started, []),
+        ?retry(
+            100,
+            50,
+            ?assertEqual(
+                lists:sort([SourceId, ActionId]), installed_channels(Node, ConnectorResId)
+            )
+        )
+    after
+        catch emqx_cth_cluster:stop([Node])
+    end.
+
 t_sorted_reboot_apps(_Config) ->
     Apps = emqx_machine_boot:sorted_reboot_apps(),
     SortApps = [App || App <- Apps, (App =:= emqx_dashboard orelse App =:= emqx_license)],
@@ -263,3 +325,47 @@ t_open_ports_check(Config) ->
         ok
     end),
     ok.
+
+create_mqtt_source_and_action(Port) ->
+    Name = ?BRIDGE_NAME,
+    ConnectorConfig = emqx_bridge_schema_testlib:mqtt_connector_config(#{
+        <<"server">> => iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]),
+        <<"pool_size">> => 1
+    }),
+    {ok, _} = emqx_connector:create(?global_ns, mqtt, Name, ConnectorConfig),
+    SourceConfig = emqx_bridge_schema_testlib:mqtt_source_config(#{
+        <<"connector">> => Name,
+        <<"parameters">> => #{<<"topic">> => <<"t/source">>}
+    }),
+    {ok, _} = emqx_bridge_v2:create(?global_ns, sources, mqtt, Name, SourceConfig),
+    ActionConfig = emqx_bridge_schema_testlib:mqtt_action_config(#{
+        <<"connector">> => Name,
+        <<"parameters">> => #{<<"topic">> => <<"t/action">>}
+    }),
+    {ok, _} = emqx_bridge_v2:create(?global_ns, actions, mqtt, Name, ActionConfig),
+    lists:foreach(
+        fun(Kind) ->
+            ?retry(
+                100,
+                50,
+                ?assertMatch(
+                    {ok, #{status := connected}},
+                    emqx_bridge_v2:lookup(?global_ns, Kind, mqtt, Name)
+                )
+            )
+        end,
+        [sources, actions]
+    ),
+    {
+        emqx_connector_resource:resource_id(?global_ns, mqtt, Name),
+        emqx_bridge_v2:lookup_chan_id_in_conf(?global_ns, sources, mqtt, Name),
+        emqx_bridge_v2:lookup_chan_id_in_conf(?global_ns, actions, mqtt, Name)
+    }.
+
+source_exists(Node) ->
+    erpc:call(Node, emqx_bridge_v2, is_source_exist, [?global_ns, mqtt, ?BRIDGE_NAME]).
+
+installed_channels(Node, ConnectorResId) ->
+    {ok, _, #{added_channels := Channels}} =
+        erpc:call(Node, emqx_resource, get_instance, [ConnectorResId]),
+    lists:sort(maps:keys(Channels)).

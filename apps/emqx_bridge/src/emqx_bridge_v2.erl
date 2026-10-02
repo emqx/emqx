@@ -29,7 +29,8 @@
 %% Loading and unloading config when EMQX starts and stops
 -export([
     load/0,
-    unload/0
+    unload/0,
+    stop_sources/0
 ]).
 
 %% CRUD API
@@ -180,18 +181,29 @@ unload() ->
     emqx_conf:remove_handler(config_key_path_leaf()),
     ok.
 
+-doc """
+Removes every installed source from its connector, waiting up to 5 seconds for
+each removal. The configuration is kept.
+""".
+-spec stop_sources() -> ok.
+stop_sources() ->
+    unload_bridges(?ROOT_KEY_SOURCES, sync).
+
 unload_bridges(RootName) ->
+    unload_bridges(RootName, async).
+
+unload_bridges(RootName, Mode) ->
     NamespaceToRoots = get_root_config_from_all_namespaces(RootName, #{}),
     emqx_utils:pforeach(
         fun({Namespace, RootConfig}) ->
-            do_unload_bridges(Namespace, RootName, RootConfig)
+            do_unload_bridges(Namespace, RootName, RootConfig, Mode)
         end,
         maps:to_list(NamespaceToRoots),
         infinity
     ),
     ok.
 
-do_unload_bridges(Namespace, RootName, RootConfig) ->
+do_unload_bridges(Namespace, RootName, RootConfig, Mode) ->
     emqx_utils:pforeach(
         fun
             ({?COMPUTED, _}) ->
@@ -199,7 +211,7 @@ do_unload_bridges(Namespace, RootName, RootConfig) ->
             ({Type, Bridge}) ->
                 emqx_utils:pmap(
                     fun({Name, BridgeConf}) ->
-                        uninstall_bridge_v2(Namespace, RootName, Type, Name, BridgeConf)
+                        uninstall_bridge_v2(Namespace, RootName, Type, Name, BridgeConf, Mode)
                     end,
                     maps:to_list(Bridge),
                     infinity
@@ -531,12 +543,16 @@ augment_channel_config(
 source_hookpoint(BridgeId) ->
     <<"$sources/", (bin(BridgeId))/binary>>.
 
+uninstall_bridge_v2(Namespace, ConfRootKey, BridgeV2Type, BridgeName, Config) ->
+    uninstall_bridge_v2(Namespace, ConfRootKey, BridgeV2Type, BridgeName, Config, async).
+
 uninstall_bridge_v2(
     _Namespace,
     _ConfRootKey,
     _BridgeType,
     _BridgeName,
-    #{enable := false}
+    #{enable := false},
+    _Mode
 ) ->
     %% Already not installed
     ok;
@@ -545,7 +561,8 @@ uninstall_bridge_v2(
     ConfRootKey,
     BridgeV2Type,
     BridgeName,
-    #{connector := ConnectorName} = Config
+    #{connector := ConnectorName} = Config,
+    Mode
 ) ->
     BridgeV2Id = id_with_root_and_connector_names(
         Namespace, ConfRootKey, BridgeV2Type, BridgeName, ConnectorName
@@ -560,7 +577,24 @@ uninstall_bridge_v2(
             ConnectorId = emqx_connector_resource:resource_id(
                 Namespace, connector_type(BridgeV2Type), ConnectorName
             ),
-            emqx_resource_manager:remove_channel_async(ConnectorId, BridgeV2Id)
+            remove_channel(Mode, ConnectorId, BridgeV2Id)
+    end.
+
+remove_channel(async, ConnectorId, BridgeV2Id) ->
+    emqx_resource_manager:remove_channel_async(ConnectorId, BridgeV2Id);
+remove_channel(sync, ConnectorId, BridgeV2Id) ->
+    case emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id) of
+        {error, timeout} ->
+            %% The resource manager still removes the channel.
+            ?SLOG(warning, #{
+                msg => "source_removal_timed_out",
+                connector_id => ConnectorId,
+                channel_id => BridgeV2Id
+            });
+        _ ->
+            %% `ok', `{error, not_found}' when the connector is not running, or a
+            %% callback error the resource manager has already logged.
+            ok
     end.
 
 combine_connector_and_bridge_v2_config(
