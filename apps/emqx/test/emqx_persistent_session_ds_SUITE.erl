@@ -1280,6 +1280,8 @@ t_session_replay_retry(_Config) ->
             ClientId = mk_clientid(?FUNCTION_NAME, sub),
             NClients = 10,
             ClientSubOpts = #{
+                %% important to use v5 as we rely on the reason code
+                proto_ver => v5,
                 clientid => ClientId,
                 auto_ack => never
             },
@@ -1297,14 +1299,19 @@ t_session_replay_retry(_Config) ->
                 })
              || I <- lists:seq(1, NClients)
             ],
-            lists:foreach(
-                fun(Client) ->
-                    Index = integer_to_binary(rand:uniform(NClients)),
-                    Topic = <<"t/", Index/binary>>,
-                    ?assertMatch({ok, #{}}, emqtt:publish(Client, Topic, Index, 1))
-                end,
-                ClientsPub
-            ),
+            Msgs0 =
+                lists:map(
+                    fun({I, Client}) ->
+                        Index = integer_to_binary(I),
+                        Topic = <<"t/", Index/binary>>,
+                        ?assertMatch(
+                            {ok, #{reason_code := ?RC_SUCCESS}},
+                            emqtt:publish(Client, Topic, Index, 1)
+                        ),
+                        Index
+                    end,
+                    lists:enumerate(ClientsPub)
+                ),
             %% 3. The subscriber receives them, but doesn't ack. This
             %% sets the stage for message replay. Delivery through the
             %% persistent-session DS stream-polling path can lag under CI load;
@@ -1314,7 +1321,21 @@ t_session_replay_retry(_Config) ->
             %% tail and costs nothing in the happy path:
             Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 30_000),
             NPubs = length(Pubs0),
-            ?assertEqual(NClients, NPubs, ?drainMailbox(2_500)),
+            MissingMsgs0 =
+                lists:filter(
+                    fun({_I, Payload}) ->
+                        case lists:search(fun(#{payload := P}) -> P == Payload end, Pubs0) of
+                            {value, _} ->
+                                false;
+                            false ->
+                                true
+                        end
+                    end,
+                    lists:enumerate(Msgs0)
+                ),
+            ?assertEqual(NClients, NPubs, #{
+                mailbox => ?drainMailbox(2_500), missing => MissingMsgs0
+            }),
 
             ok = emqtt:stop(ClientSub),
 
@@ -1322,10 +1343,25 @@ t_session_replay_retry(_Config) ->
             %% shards are unavailable.
             ?tp(notice, test_restart_client, #{}),
             meck:new(emqx_ds, [passthrough, no_history]),
+            %% we need to ensure _at least one_ iterator fails.  otherwise, the test might
+            %% get flaky and fail bellow with length(Pubs1) == length(Pubs0).
+            {ok, Agent} = emqx_utils_agent:start_link(undefined),
+            IsDoomed = fun(It) ->
+                emqx_utils_agent:get_and_update(Agent, fun(St) ->
+                    case St of
+                        undefined ->
+                            %% fist iterator we see is doomed
+                            {true, It};
+                        _ ->
+                            {St == It, St}
+                    end
+                end)
+            end,
             meck:expect(emqx_ds, next, fun(DB, It, NextLimit) ->
                 IsOk =
-                    DB =/= ?PERSISTENT_MESSAGE_DB orelse
-                        erlang:phash2(It, 1000) >= 500,
+                    not IsDoomed(It) andalso
+                        (DB =/= ?PERSISTENT_MESSAGE_DB orelse
+                            erlang:phash2(It, 1000) >= 500),
                 case IsOk of
                     true ->
                         meck:passthrough([DB, It, NextLimit]);
