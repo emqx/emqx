@@ -31,6 +31,10 @@ defmodule AppsVersionCheck do
      version at the next release must be `RMajor.RMinor.(APatch + 1)`.
   """
 
+  # Matches a changed line that is neither blank nor an Erlang comment, at any indentation.
+  # POSIX regex for `git diff -G`.
+  @code_line_re "^[[:space:]]*[^[:space:]%]"
+
   def latest_release!() do
     {out, 0} =
       System.cmd(
@@ -140,7 +144,7 @@ defmodule AppsVersionCheck do
           git_ref,
           "--ignore-blank-lines",
           "-G",
-          "(^[^\s?%])",
+          @code_line_re,
           "--",
           "#{app_path}/src",
           "--",
@@ -173,7 +177,7 @@ defmodule AppsVersionCheck do
           git_ref,
           "--ignore-blank-lines",
           "-G",
-          "(^[^\\s?%])",
+          @code_line_re,
           "--",
           "#{plugin_path}/src",
           "--",
