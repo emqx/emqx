@@ -72,7 +72,11 @@ service HookProvider {
 
   rpc OnClientSubscribe(ClientSubscribeRequest) returns (EmptySuccess) {};
 
+  rpc OnClientSubscribeValued(ClientSubscribeRequest) returns (ValuedResponse) {};
+
   rpc OnClientUnsubscribe(ClientUnsubscribeRequest) returns (EmptySuccess) {};
+
+  rpc OnClientUnsubscribeValued(ClientUnsubscribeRequest) returns (ValuedResponse) {};
 
   rpc OnSessionCreated(SessionCreatedRequest) returns (EmptySuccess) {};
 
