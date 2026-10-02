@@ -394,6 +394,25 @@ t_start_stop(Config) when is_list(Config) ->
 t_on_get_status(Config) when is_list(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config).
 
+%% A pooled connection has TCP keepalive on, with the connector's 30 second
+%% idle time before the first probe.
+t_tcp_keepalive(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertMatch({ok, 200, _, _}, ehttpc:request(ConnResId, get, {<<"/path">>, []}, 5_000, 0)),
+    {_Worker, #{client := Client}} = ehttpc:get_state(ConnResId),
+    #{socket := Socket} = gun:info(Client),
+    ?assertEqual({ok, [{keepalive, true}]}, inet:getopts(Socket, [keepalive])),
+    case os:type() of
+        {unix, linux} ->
+            %% TCP_KEEPIDLE
+            ?assertEqual(
+                {ok, [{raw, 6, 4, <<30:32/native>>}]}, inet:getopts(Socket, [{raw, 6, 4, 4}])
+            );
+        _ ->
+            ok
+    end.
+
 t_rule_action(Config) when is_list(Config) ->
     PostPublishFn = fun(Context) ->
         #{payload := Payload} = Context,
