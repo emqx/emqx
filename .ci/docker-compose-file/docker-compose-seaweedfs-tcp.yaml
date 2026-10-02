@@ -1,0 +1,36 @@
+services:
+  seaweedfs:
+    hostname: seaweedfs
+    image: chrislusf/seaweedfs:${SEAWEEDFS_TAG}
+    command:
+      - mini
+      - -dir=/data
+      - -s3.port=9000
+      - -s3.port.iceberg=0
+      - -s3.port.lance=0
+      - -s3.autoCreateBucket=false
+      - -s3.domainName=seaweedfs.net
+      - -webdav=false
+      - -admin.ui=false
+      - -master.telemetry=false
+    environment:
+      AWS_ACCESS_KEY_ID: seaweedfsadmin
+      AWS_SECRET_ACCESS_KEY: seaweedfsadmin
+    tmpfs:
+      - /data
+    expose:
+      - "9000"
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-sS", "-o", "/dev/null", "http://localhost:9000/"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    networks:
+      emqx_bridge:
+        aliases:
+          - seaweedfs.net
+          - test1.seaweedfs.net
+          - test2.seaweedfs.net
+          - test3.seaweedfs.net

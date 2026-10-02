@@ -99,6 +99,10 @@ check_rbac(?ROLE_SUPERUSER, _, _, _, _) ->
 %% The JSON variant of the same endpoint is redacted and stays available to viewers.
 check_rbac(?ROLE_VIEWER, <<"GET">>, <<"/configs">>, _Username, Req) ->
     not wants_plaintext_config_dump(Req);
+%% A backup archive holds the configuration without redaction, so viewers may
+%% list the backup files (`GET /data/files') but not download one.
+check_rbac(?ROLE_VIEWER, <<"GET">>, <<"/data/files/", _/binary>>, _Username, _Req) ->
+    false;
 check_rbac(?ROLE_VIEWER, <<"GET">>, _, _, _) ->
     true;
 check_rbac(?ROLE_API_PUBLISHER, <<"POST">>, <<"/publish">>, _, _) ->
