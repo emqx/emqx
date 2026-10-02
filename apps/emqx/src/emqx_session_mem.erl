@@ -1314,7 +1314,6 @@ append(L1, L2) -> L1 ++ L2.
 combine_effects(ok, OkEffect) -> OkEffect;
 combine_effects(OkEffect, ok) -> OkEffect;
 combine_effects(Effect, Effect) -> Effect;
-combine_effects(E1, Effects) when is_list(Effects) -> [E1 | Effects];
 combine_effects(E1, E2) -> [E1, E2].
 
 %%--------------------------------------------------------------------
