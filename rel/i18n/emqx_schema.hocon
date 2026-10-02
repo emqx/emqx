@@ -590,13 +590,23 @@ sysmon_vm_busy_dist_port.label:
 """Enable Busy Distribution Port monitoring"""
 
 mqtt_max_mqueue_len.desc:
-"""Maximum queue length. Enqueued messages when persistent client disconnected, or inflight window is full."""
+"""Maximum number of messages buffered in a non-durable session's in-memory queue. Messages may be queued:
+* while a persistent client is disconnected,
+* while QoS 1/2 messages wait for inflight capacity or delivery quota (when delivery limits are enabled),
+* during connection congestion to buffer incoming QoS 0 messages (when `mqueue_store_qos0` is enabled),
+* to preserve delivery order.
+
+When the queue exceeds this limit, the oldest QoS 0 message is dropped first. If the queue has no QoS 0 messages, the oldest QoS 1/2 message is dropped.
+
+Set to `0` or `infinity` for an unlimited queue."""
 
 mqtt_max_mqueue_len.label:
 """Max Message Queue Length"""
 
 mqtt_max_inflight.desc:
-"""Maximum number of QoS 1 and QoS 2 messages that are allowed to be delivered simultaneously before completing the acknowledgment."""
+"""Maximum number of QoS 1 and QoS 2 messages that are allowed to be delivered simultaneously before completing the acknowledgment. If an MQTT 5 client advertises a smaller Receive Maximum during connection setup, that limit is used.
+
+Note that on a congested connection, available inflight slots also limit the number of messages that may be delivered at once in response to client acknowledgments, irrespective of QoS level."""
 
 mqtt_max_inflight.label:
 """Max Inflight"""
@@ -1422,9 +1432,7 @@ shared_subscription_initial_sticky_pick_enum.desc:
  - `hash_topic`: Hash the publishing topic to select a subscriber."""
 
 mqtt_mqueue_store_qos0.desc: """~
-  Controls whether QoS 0 messages are buffered in a session’s message queue  while the client is disconnected or its connection is congested.
-  - When enabled, QoS 0 messages may also be queued behind QoS 1 and 2 messages to preserve delivery order when the inflight window is full.
-  - When disabled, QoS 0 messages are not stored.
+  Controls whether QoS 0 messages are buffered in a session’s message queue while the client is disconnected or its connection is congested. When enabled, QoS 0 messages may also be queued to preserve delivery order.
   Queue limits and message expiry still apply.
   This setting applies only to non-durable sessions.~"""
 
