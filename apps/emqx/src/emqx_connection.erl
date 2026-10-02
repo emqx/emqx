@@ -24,6 +24,7 @@
 -include("emqx_external_trace.hrl").
 -include("emqx_instr.hrl").
 -include("emqx_config.hrl").
+-include("emqx_connection_conf.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -86,23 +87,6 @@
     parser/0
 ]).
 
--record(conf, {
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
-    %% Zone name
-    zone :: atom(),
-    %% ActiveN
-    active_n :: pos_integer(),
-    %% Send queue high watermark in bytes
-    sendq_watermark :: non_neg_integer(),
-    %% Hibernate connection process if inactive for
-    hibernate_after :: integer() | infinity,
-    %% Forced GC thresholds, `false` if disabled
-    force_gc :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
-    %% Forced shutdown policy
-    force_shutdown :: emqx_types:oom_policy()
-}).
-
 -record(thresholds, {
     gc_packets,
     gc_bytes,
@@ -152,8 +136,6 @@
     | _Stream :: emqx_frame:parse_state().
 
 -opaque state() :: #state{}.
-
--define(ACTIVE_N, 10).
 
 -define(SOCK_STATS, [
     recv_oct,
@@ -387,20 +369,19 @@ init_state(
         sock => Socket
     },
     Channel = emqx_channel:init(ConnInfo, Opts),
+    Conf = conn_conf({Type, Listener}, Zone, Opts),
     State0 = #state{
         transport = Transport,
         socket = Socket,
         sockstate = idle,
         channel = Channel,
-        conf = #conf{
-            listener = {Type, Listener}
-        },
+        conf = Conf,
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
         namespace = ?global_ns,
         extra = []
     },
-    init_zone_specific_state(Zone, Opts, State0).
+    init_zone_specific_state(Conf, Zone, State0).
 
 run_loop(
     Parent,
@@ -460,8 +441,7 @@ recvloop(
     Parent,
     State = #state{
         conf = #conf{
-            hibernate_after = HibernateTimeout,
-            zone = Zone
+            zone = Zone, hibernate_after = HibernateTimeout
         }
     }
 ) ->
@@ -505,7 +485,9 @@ init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
     end.
 
 -compile({inline, [ensure_stats_timer/1]}).
-ensure_stats_timer(State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}) ->
+ensure_stats_timer(
+    State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}
+) ->
     Timeout = get_zone_idle_timeout(Zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
@@ -529,9 +511,13 @@ cancel_idle_timer(_State) ->
 get_zone_idle_timeout(Zone) ->
     emqx_channel:get_mqtt_conf(Zone, idle_timeout).
 
--compile({inline, [get_zone_hibernate_after/1]}).
-get_zone_hibernate_after(Zone) ->
-    emqx_channel:get_mqtt_conf(Zone, hibernate_after).
+%% A QUIC listener passes its own `hibernate_after' in `Opts'.
+conn_conf(Listener, Zone, Opts) ->
+    #conf{hibernate_after = ZoneValue} = Conf = emqx_connection_conf:conn_conf(Listener, Zone),
+    case maps:get(hibernate_after, Opts, ZoneValue) of
+        ZoneValue -> Conf;
+        HibernateAfter -> Conf#conf{hibernate_after = HibernateAfter}
+    end.
 
 %%--------------------------------------------------------------------
 %% Process next Msg
@@ -675,7 +661,7 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
 handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
-    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    State = init_zone_specific_state(NewZone, State0),
     {ok, State};
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
@@ -881,7 +867,7 @@ parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
                     raw
                 )
             ),
-            NState = update_state_on_parse_error(Parser, NReason, State),
+            NState = update_state_on_parse_error(NReason, State),
             {0, [{frame_error, NReason}], NState};
         error:Reason:Stacktrace ->
             NReason = maybe_enrich_first_packet_error(Data, Reason, State),
@@ -921,29 +907,22 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
 
-init_parser(Transport, Socket, FrameOpts) ->
+init_parser(Transport, Socket, ParseState) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
     case lists:keyfind(packet, 1, SocketOpts) of
         {packet, mqtt} ->
             %% Enable whole-frame packet parser.
-            {frame, emqx_frame:initial_parse_state(FrameOpts)};
+            {frame, ParseState};
         _Otherwise ->
             %% Go with regular streaming parser.
-            emqx_frame:initial_parse_state(FrameOpts)
+            ParseState
     end.
 
-update_state_on_parse_error(
-    ParseState0,
-    #{proto_ver := ProtoVer, parse_state := ParseState},
-    State
-) ->
-    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    case ParseState0 of
-        {frame, _Options} -> NParseState = {frame, ParseState};
-        _StreamParseState -> NParseState = ParseState
-    end,
-    State#state{serialize = Serialize, parser = NParseState};
-update_state_on_parse_error(_, _, State) ->
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
+update_state_on_parse_error(_, State) ->
     State.
 
 run_parser(Data, {frame, Options}, State) ->
@@ -975,6 +954,16 @@ run_frame_parser(Data, Options, State) ->
 describe_parser_state(ParseState) ->
     emqx_frame:describe_state(ParseState).
 
+%% Swap in the zone's shared parse state and serializer options where they are
+%% equal to the connection's own.
+share_frame_opts(ProtoVer, {frame, Options0}, Serialize0, State) ->
+    {Options, Serialize} = share_frame_opts(ProtoVer, Options0, Serialize0, State),
+    {{frame, Options}, Serialize};
+share_frame_opts(ProtoVer, ParseState, Serialize, #state{
+    conf = #conf{zone = Zone}
+}) ->
+    emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
+
 get_parser_state({frame, Options}) ->
     Options;
 get_parser_state(ParseState) ->
@@ -996,8 +985,16 @@ handle_incoming(Packet = ?PACKET(Type), #state{quic_conn_ss = QSS} = State) ->
             %% CONNECT packet is fully received, time to cancel idle timer.
             ok = cancel_idle_timer(State),
             ok = raise_packet_size_limit(State),
+            #mqtt_packet{variable = ConnPkt} = Packet,
+            {Parser, Serialize} = share_frame_opts(
+                ConnPkt#mqtt_packet_connect.proto_ver,
+                State#state.parser,
+                emqx_frame:serialize_opts(ConnPkt),
+                State
+            ),
             NState = State#state{
-                serialize = emqx_frame:serialize_opts(Packet#mqtt_packet.variable),
+                parser = Parser,
+                serialize = Serialize,
                 stats_timer = init_stats_timer(State)
             },
             with_channel(handle_in, [Packet], NState);
@@ -1676,43 +1673,22 @@ wait_for_quic_stream_close(
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
-    #conf{listener = {Type, Listener}} = Conf,
-    FrameOpts0 = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
-        %% zone will **not** take effect after the override.
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-        max_connect_size => emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
-        max_connect_user_properties => emqx_config:get_zone_conf(
-            Zone, [mqtt, max_connect_user_properties]
-        ),
-        %% Any packet received before CONNECT is rejected by the parser.
-        expect_connect => true
-    },
+%% A zone change on a live connection: `Opts' carries no override.
+init_zone_specific_state(Zone, #state{conf = Conf0} = State0) ->
+    init_zone_specific_state(conn_conf(Conf0#conf.listener, Zone, #{}), Zone, State0).
+
+init_zone_specific_state(NConf, Zone, State0) ->
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
-                init_parser_and_serializer(FrameOpts0, State0);
+                init_parser_and_serializer(Zone, State0);
             Parser1 ->
-                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+                %% zone will **not** take effect after the override.
+                FrameOpts = emqx_connection_conf:frame_opts(Zone),
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
-    GcThresholds =
-        case emqx_config:get_zone_conf(Zone, [force_gc]) of
-            #{enable := false} ->
-                false;
-            #{enable := true, count := Count, bytes := Bytes} ->
-                {Count, Bytes}
-        end,
-    NConf = Conf#conf{
-        zone = Zone,
-        active_n = get_active_n(Type, Listener),
-        sendq_watermark = get_high_watermark(Type, Listener),
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_hibernate_after(Zone)),
-        force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
-        force_gc = GcThresholds
-    },
     State0#state{
         parser = Parser,
         serialize = Serialize,
@@ -1720,14 +1696,15 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         conf = NConf
     }.
 
-init_parser_and_serializer(FrameOpts0, State0) ->
+init_parser_and_serializer(Zone, State0) ->
     #state{
         transport = Transport,
         socket = Socket
     } = State0,
-    Parser0 = init_parser(Transport, Socket, FrameOpts0),
-    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-    {Parser0, Serialize0}.
+    #{initial_parse_state := ParseState, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(
+        Zone
+    ),
+    {init_parser(Transport, Socket, ParseState), Serialize}.
 
 %%--------------------------------------------------------------------
 %% For CT tests
@@ -1745,16 +1722,3 @@ get_state(Pid) ->
             tl(tuple_to_list(State))
         )
     ).
-
-get_active_n(quic, _Listener) ->
-    ?ACTIVE_N;
-get_active_n(Type, Listener) ->
-    emqx_listeners:clamp_active_n(
-        emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n])
-    ).
-
-get_high_watermark(quic, _Listener) ->
-    0;
-get_high_watermark(Type, Listener) ->
-    %% TODO protect against too small hwm
-    emqx_config:get_listener_conf(Type, Listener, [tcp_options, high_watermark]).
