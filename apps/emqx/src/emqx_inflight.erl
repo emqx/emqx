@@ -41,7 +41,6 @@ the map only.
     max_size/1,
     is_full/1,
     is_empty/1,
-    window/1,
     alloc/2,
     reserve/1,
     next_id/1,
@@ -138,19 +137,11 @@ values(Inflight) ->
 -doc "Return the entries, ordered by key.".
 -spec to_list(inflight()) -> list({key(), term()}).
 to_list(#inflight{entries = Entries}) ->
-    lists:sort(maps:to_list(Entries)).
+    lists:keysort(1, maps:to_list(Entries)).
 
 -spec to_list(fun(), inflight()) -> list({key(), term()}).
 to_list(SortFun, #inflight{entries = Entries}) ->
     lists:sort(SortFun, maps:to_list(Entries)).
-
--doc "Return the smallest and the largest key, or `[]` when empty.".
--spec window(inflight()) -> list().
-window(#inflight{entries = Entries}) when map_size(Entries) =:= 0 ->
-    [];
-window(#inflight{entries = Entries}) ->
-    Keys = maps:keys(Entries),
-    [lists:min(Keys), lists:max(Keys)].
 
 -spec size(inflight()) -> non_neg_integer().
 size(#inflight{entries = Entries}) ->

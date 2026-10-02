@@ -93,17 +93,6 @@ t_is_empty(_) ->
     Inflight1 = emqx_inflight:delete(a, Inflight),
     ?assert(emqx_inflight:is_empty(Inflight1)).
 
-t_window(_) ->
-    ?assertEqual([], emqx_inflight:window(emqx_inflight:new(0))),
-    Inflight = emqx_inflight:insert(
-        b,
-        2,
-        emqx_inflight:insert(
-            a, 1, emqx_inflight:new(2)
-        )
-    ),
-    ?assertEqual([a, b], emqx_inflight:window(Inflight)).
-
 t_to_list(_) ->
     Inflight = lists:foldl(
         fun(Seq, InflightAcc) ->
