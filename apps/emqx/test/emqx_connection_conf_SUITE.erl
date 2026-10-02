@@ -11,7 +11,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include("../src/emqx_connection_conf.hrl").
+-include_lib("emqx/include/emqx_connection_conf.hrl").
 
 -define(FRAME_KEY(Zone), {emqx_connection_conf, Zone, frame}).
 -define(CONN_KEY(Listener, Zone), {emqx_connection_conf, Listener, Zone, conf}).
