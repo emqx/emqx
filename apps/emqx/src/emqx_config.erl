@@ -1266,13 +1266,17 @@ conf_key(?NS_CONF(_Namespace), RootName) ->
     atom(RootName).
 
 ensure_atom_conf_path(Path, OnFail) ->
-    case lists:all(fun erlang:is_atom/1, Path) of
+    case is_atom_path(Path) of
         true ->
             %% Do not try to build new atom PATH if it already is.
             Path;
-        _ ->
+        false ->
             to_atom_conf_path(Path, OnFail)
     end.
+
+is_atom_path([]) -> true;
+is_atom_path([Key | Path]) when is_atom(Key) -> is_atom_path(Path);
+is_atom_path(_) -> false.
 
 to_atom_conf_path(Path, OnFail) ->
     try
