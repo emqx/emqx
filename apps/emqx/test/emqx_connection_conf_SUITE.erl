@@ -13,7 +13,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include("../src/emqx_connection_conf.hrl").
 
--define(KEY(Zone), {emqx_connection_conf, Zone, frame}).
+-define(FRAME_KEY(Zone), {emqx_connection_conf, Zone, frame}).
 -define(CONF_KEY(Zone), {emqx_connection_conf, Zone, conf}).
 -define(PROTO_VERS, [v3, v4, v5]).
 
@@ -45,6 +45,7 @@ all() ->
         {group, gen_tcp_frame},
         {group, gen_tcp_chunk},
         {group, ws},
+        t_prebuilt_at_boot,
         t_build_matches_frame,
         t_global_config_change,
         t_zone_config_change,
@@ -66,7 +67,15 @@ init_per_suite(Config) ->
         [{emqx, listeners_conf()}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{apps, Apps} | Config].
+    %% Captured before any case touches the config, for t_prebuilt_at_boot.
+    BootEntries = {
+        persistent_term:get(?FRAME_KEY(default), undefined),
+        persistent_term:get(?CONF_KEY(default), undefined)
+    },
+    BootMqtt = maps:with(
+        [<<"strict_mode">>, <<"max_packet_size">>], emqx_config:get_raw([<<"mqtt">>])
+    ),
+    [{apps, Apps}, {boot_entries, BootEntries}, {boot_mqtt, BootMqtt} | Config].
 
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
@@ -86,11 +95,14 @@ end_per_group(_Group, _Config) ->
 init_per_testcase(_Case, Config) ->
     Config.
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(_Case, Config) ->
     catch meck:unload(),
     {ok, _} = emqx:update_config([zones], #{}),
-    {ok, _} = emqx:update_config([mqtt, max_packet_size], <<"1MB">>),
-    {ok, _} = emqx:update_config([mqtt, strict_mode], false),
+    #{<<"strict_mode">> := StrictMode, <<"max_packet_size">> := MaxSize} = ?config(
+        boot_mqtt, Config
+    ),
+    {ok, _} = emqx:update_config([mqtt, strict_mode], StrictMode),
+    {ok, _} = emqx:update_config([mqtt, max_packet_size], MaxSize),
     %% Restore an entry that a case erased.
     ok = emqx_connection_conf:post_zone_config_update(#{}, emqx_config:get([zones])),
     emqx_common_test_helpers:call_janitor(),
@@ -123,6 +135,31 @@ listeners_conf() ->
 %%--------------------------------------------------------------------
 
 -doc """
+Both entries of the default zone exist right after the application starts,
+before any config change, and a connection holds those same terms.
+""".
+t_prebuilt_at_boot(Config) ->
+    {BootFrame, BootZoneConf} = ?config(boot_entries, Config),
+    ?assertMatch(
+        #{connect := #{initial_parse_state := _, serialize_opts := _}, common := Common} when
+            map_size(Common) =:= 3,
+        BootFrame
+    ),
+    ?assertMatch(#zone_conf{name = default}, BootZoneConf),
+    %% Earlier cases restore the config they change, so the entries still
+    %% equal the boot ones.
+    ?assertEqual(BootFrame, persistent_term:get(?FRAME_KEY(default))),
+    ?assertEqual(BootZoneConf, persistent_term:get(?CONF_KEY(default))),
+    ConnConfig = [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection}],
+    C = connect(ConnConfig, v5),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C, 5)),
+    ?assert(held_zone_conf(C, default)),
+    #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := ParseState}}} = BootFrame,
+    ?assertMatch({ParseState, _}, frame_state(ConnConfig, C)),
+    ?assertEqual(BootZoneConf, zone_conf_of(C)),
+    ok = emqtt:stop(C).
+
+-doc """
 The cached terms match, term for term, what `emqx_frame` builds from the zone
 config: before CONNECT and after CONNECT for each protocol version.
 """.
@@ -130,7 +167,7 @@ t_build_matches_frame(_Config) ->
     {ok, _} = emqx:update_config([mqtt, strict_mode], true),
     FrameOpts = emqx_connection_conf:frame_opts(default),
     ?assertMatch(#{strict_mode := true, expect_connect := true}, FrameOpts),
-    #{connect := PreConnect, common := Common} = persistent_term:get(?KEY(default)),
+    #{connect := PreConnect, common := Common} = persistent_term:get(?FRAME_KEY(default)),
     InitialParseState = emqx_frame:initial_parse_state(FrameOpts),
     ?assertEqual(
         #{
@@ -198,7 +235,7 @@ t_absent_entry(Config) ->
         {ProtoVer, frame_state(Config, C), C}
      || ProtoVer <- ?PROTO_VERS, C <- [connect(Config, ProtoVer)]
     ],
-    _ = persistent_term:erase(?KEY(default)),
+    _ = persistent_term:erase(?FRAME_KEY(default)),
     lists:foreach(
         fun({ProtoVer, PresentState, PresentClient}) ->
             C = connect(Config, ProtoVer),
@@ -244,7 +281,7 @@ has `strict_mode = false`.
 """.
 t_pre_connect_strict_mode(Config) ->
     {ok, _} = emqx:update_config([mqtt, strict_mode], true),
-    #{connect := PreConnect} = persistent_term:get(?KEY(default)),
+    #{connect := PreConnect} = persistent_term:get(?FRAME_KEY(default)),
     #{initial_parse_state := PreParseState, serialize_opts := PreSerialize} = PreConnect,
     ?assertMatch(#{strict_mode := true}, PreSerialize),
     {Sock, Pid} = raw_connect(Config),
@@ -288,8 +325,8 @@ connection shares the new terms.
 t_global_config_change(_Config) ->
     Config = [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection}],
     {ok, _} = emqx:update_config([zones], #{<<"other">> => #{}}),
-    Old = persistent_term:get(?KEY(default)),
-    OldOther = persistent_term:get(?KEY(other)),
+    Old = persistent_term:get(?FRAME_KEY(default)),
+    OldOther = persistent_term:get(?FRAME_KEY(other)),
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config([mqtt, max_packet_size], <<"2MB">>),
     assert_zone_entry(default, 2 * 1024 * 1024, Old),
@@ -303,7 +340,7 @@ shares the new terms.
 """.
 t_zone_config_change(_Config) ->
     Config = [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection}],
-    Old = persistent_term:get(?KEY(default)),
+    Old = persistent_term:get(?FRAME_KEY(default)),
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config(
         [zones],
@@ -314,15 +351,15 @@ t_zone_config_change(_Config) ->
 
 -doc "Adding a zone creates its entries, and removing the zone deletes them.".
 t_zone_removal(_Config) ->
-    ?assertEqual(undefined, persistent_term:get(?KEY(tmpzone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(tmpzone), undefined)),
     ?assertEqual(undefined, persistent_term:get(?CONF_KEY(tmpzone), undefined)),
     {ok, _} = emqx:update_config([zones], #{<<"tmpzone">> => #{}}),
-    ?assertMatch(#{connect := _, common := _}, persistent_term:get(?KEY(tmpzone))),
+    ?assertMatch(#{connect := _, common := _}, persistent_term:get(?FRAME_KEY(tmpzone))),
     ?assertMatch(#zone_conf{name = tmpzone}, persistent_term:get(?CONF_KEY(tmpzone))),
     {ok, _} = emqx:update_config([zones], #{}),
-    ?assertEqual(undefined, persistent_term:get(?KEY(tmpzone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(tmpzone), undefined)),
     ?assertEqual(undefined, persistent_term:get(?CONF_KEY(tmpzone), undefined)),
-    ?assertMatch(#{connect := _, common := _}, persistent_term:get(?KEY(default))),
+    ?assertMatch(#{connect := _, common := _}, persistent_term:get(?FRAME_KEY(default))),
     ?assertMatch(#zone_conf{name = default}, persistent_term:get(?CONF_KEY(default))).
 
 -doc """
@@ -336,7 +373,7 @@ t_incomplete_zone_config(_Config) ->
         force_shutdown => #{enable => true}
     },
     ?assertEqual(ok, emqx_connection_conf:post_zone_config_update(#{}, #{partial => Incomplete})),
-    ?assertEqual(undefined, persistent_term:get(?KEY(partial), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(partial), undefined)),
     ?assertEqual(undefined, persistent_term:get(?CONF_KEY(partial), undefined)).
 
 -doc """
@@ -390,7 +427,7 @@ the new `#zone_conf{}`.
 """.
 t_zone_conf_change_keeps_frame_shared(_Config) ->
     Config = [{port, ?SOCKET_PORT}, {transport, tcp}, {conn_mod, emqx_socket_connection}],
-    OldFrame = persistent_term:get(?KEY(default)),
+    OldFrame = persistent_term:get(?FRAME_KEY(default)),
     OldZoneConf = persistent_term:get(?CONF_KEY(default)),
     OldForceGc = emqx_config:get_raw([force_gc]),
     emqx_common_test_helpers:on_exit(fun() ->
@@ -400,7 +437,7 @@ t_zone_conf_change_keeps_frame_shared(_Config) ->
     {ok, _} = emqx:update_config([force_gc], OldForceGc#{<<"count">> => 4321}),
     ?assertMatch(#zone_conf{force_gc = {4321, _}}, persistent_term:get(?CONF_KEY(default))),
     ?assertNotEqual(OldZoneConf, persistent_term:get(?CONF_KEY(default))),
-    ?assert(erts_debug:same(OldFrame, persistent_term:get(?KEY(default)))),
+    ?assert(erts_debug:same(OldFrame, persistent_term:get(?FRAME_KEY(default)))),
     %% The existing connection still shares the frame terms and keeps its own
     %% copy of the old zone settings.
     ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C1, 5)),
@@ -417,7 +454,7 @@ t_zone_conf_change_keeps_frame_shared(_Config) ->
 %%--------------------------------------------------------------------
 
 assert_zone_entry(Zone, MaxSize, Old) ->
-    New = persistent_term:get(?KEY(Zone)),
+    New = persistent_term:get(?FRAME_KEY(Zone)),
     ?assertNotEqual(Old, New),
     FrameOpts = emqx_connection_conf:frame_opts(Zone),
     ?assertMatch(#{max_size := MaxSize}, FrameOpts),
@@ -516,13 +553,13 @@ frame_state(_Config, Client) ->
 
 held_shared(Client, ProtoVer) ->
     held(Client, fun() ->
-        #{common := #{ProtoVer := Shared}} = persistent_term:get(?KEY(default)),
+        #{common := #{ProtoVer := Shared}} = persistent_term:get(?FRAME_KEY(default)),
         Shared
     end).
 
 held_pre_connect(Pid) ->
     held(Pid, fun() ->
-        #{connect := Shared} = persistent_term:get(?KEY(default)),
+        #{connect := Shared} = persistent_term:get(?FRAME_KEY(default)),
         Shared
     end).
 
