@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-elvis_version='3.2.6-emqx-1'
+elvis_version='5.0.4-emqx-1'
 
 base="${1:-}"
 repo="${2:-emqx/emqx}"
@@ -18,8 +18,8 @@ fi
 echo "elvis -v: $elvis_version"
 echo "git diff base: $base"
 
-if [ ! -f ./elvis ] || [ "$(./elvis -v | grep -oE '[1-9]+\.[0-9]+\.[0-9]+-emqx-[0-9]+')" != "$elvis_version" ]; then
-    curl  --silent --show-error -fLO "https://github.com/emqx/elvis/releases/download/$elvis_version/elvis"
+if [ ! -f ./elvis ] || [ "$(./elvis -v | sed -n 's/^Version: //p')" != "$elvis_version" ]; then
+    curl --silent --show-error -fLO "https://github.com/emqx/elvis/releases/download/$elvis_version/elvis"
     chmod +x ./elvis
 fi
 
