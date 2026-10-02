@@ -9,6 +9,7 @@ The module contains the registry of Message Queues.
 """.
 
 -include("emqx_mq_internal.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -26,9 +27,10 @@ The module contains the registry of Message Queues.
 
 -dialyzer(no_improper_lists).
 
-%% Only for testing/debugging.
+%% Only for testing/debugging/maintenance.
 -export([
     delete_all/0,
+    delete_legacy/0,
     create_pre_611_queue/1
 ]).
 
@@ -215,6 +217,45 @@ delete_all() ->
     _ = mria:clear_table(?MQ_REGISTRY_INDEX_TAB),
     _ = emqx_mq_state_storage:delete_all(),
     ok.
+
+-doc """
+Delete every legacy queue, that is, every queue created before 6.1.1 without
+a name of its own. Such a queue is listed with the name `/<topic-filter>`.
+Return the number of deleted queues. A queue that fails to delete is logged and
+skipped. Only for maintenance.
+""".
+-spec delete_legacy() -> non_neg_integer().
+delete_legacy() ->
+    Names = emqx_utils_stream:fold(
+        fun
+            (#{name := ?LEGACY_QUEUE_NAME(_) = Name}, Acc) -> [Name | Acc];
+            (_, Acc) -> Acc
+        end,
+        [],
+        list()
+    ),
+    lists:foldl(fun delete_legacy/2, 0, Names).
+
+delete_legacy(Name, Count) ->
+    try delete(Name) of
+        ok ->
+            Count + 1;
+        not_found ->
+            Count;
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "failed_to_delete_legacy_queue", name => Name, reason => Reason}),
+            Count
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "failed_to_delete_legacy_queue",
+                name => Name,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            Count
+    end.
 
 -doc """
 Update the MQ by its topic filter.

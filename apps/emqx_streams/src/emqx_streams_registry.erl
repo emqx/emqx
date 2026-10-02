@@ -12,6 +12,7 @@ NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid c
 """.
 
 -include("emqx_streams_internal.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -29,9 +30,10 @@ NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid c
 
 -dialyzer(no_improper_lists).
 
-%% Only for testing/debugging.
+%% Only for testing/debugging/maintenance.
 -export([
     delete_all/0,
+    delete_legacy/0,
     create_pre_611_stream/1,
     names/0
 ]).
@@ -259,6 +261,47 @@ delete_all() ->
     ok = emqx_streams_message_db:delete_all(),
     %% TODO Drop all consumer groups when they appear
     ok.
+
+-doc """
+Delete every legacy stream, that is, every stream created before 6.1.1 without
+a name of its own. Such a stream is listed with the name `/<topic-filter>`.
+Return the number of deleted streams. A stream that fails to delete is logged and
+skipped. Only for maintenance.
+""".
+-spec delete_legacy() -> non_neg_integer().
+delete_legacy() ->
+    Names = emqx_utils_stream:fold(
+        fun
+            (#{name := ?LEGACY_STREAM_NAME(_) = Name}, Acc) -> [Name | Acc];
+            (_, Acc) -> Acc
+        end,
+        [],
+        list()
+    ),
+    lists:foldl(fun delete_legacy/2, 0, Names).
+
+delete_legacy(Name, Count) ->
+    try delete(Name) of
+        ok ->
+            Count + 1;
+        not_found ->
+            Count;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_delete_legacy_stream", name => Name, reason => Reason
+            }),
+            Count
+    catch
+        Class:Reason:StackTrace ->
+            ?SLOG(warning, #{
+                msg => "failed_to_delete_legacy_stream",
+                name => Name,
+                exception => Class,
+                reason => Reason,
+                stacktrace => StackTrace
+            }),
+            Count
+    end.
 
 -doc """
 Update the Stream by its name.
