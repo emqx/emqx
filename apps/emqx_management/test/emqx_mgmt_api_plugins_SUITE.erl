@@ -341,6 +341,104 @@ t_plugins(_Config) ->
     ok.
 
 -doc """
+A plugin in `node.pinned_plugins` is listed with the pinned marker, its config
+can be read and changed, and every lifecycle request, start and stop included,
+returns 409 `PLUGIN_PINNED`. Cluster calls from peers are skipped.
+""".
+t_pinned_plugin(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = list_to_binary(filename:basename(PackagePath, ?PACKAGE_SUFFIX)),
+    OtherVsn = <<?EMQX_PLUGIN_TEMPLATE_NAME, "-9.9.9">>,
+    InstallDir = emqx_plugins_fs:install_dir(),
+    ok = filelib:ensure_path(InstallDir),
+    ok = erl_tar:extract(PackagePath, [compressed, {cwd, InstallDir}]),
+    emqx_config:put([node, pinned_plugins], [NameVsn]),
+    on_exit(fun() ->
+        _ = emqx_plugins:stop_pinned(NameVsn),
+        _ = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+        emqx_config:put([node, pinned_plugins], []),
+        emqx_plugins:put_configured([]),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = emqx_plugins:ensure_installed(),
+    ok = emqx_plugins:ensure_started(),
+    Node = atom_to_binary(node()),
+    ?assertMatch(
+        #{
+            <<"pinned">> := true,
+            <<"running_status">> := [
+                #{<<"node">> := Node, <<"status">> := <<"running">>, <<"pinned">> := true}
+            ]
+        },
+        describe_plugin(NameVsn)
+    ),
+    ?assertMatch([#{<<"pinned">> := true}], list_plugins()),
+    %% The config is readable and can be changed.
+    ConfigPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config"]),
+    {200, Config0} = emqx_mgmt_api_test_util:simple_request(get, ConfigPath, ""),
+    ?assertMatch(#{<<"hostname">> := <<"localhost">>}, Config0),
+    Config1 = Config0#{<<"port">> => 3308},
+    ?assertMatch({204, _}, emqx_mgmt_api_test_util:simple_request(put, ConfigPath, Config1)),
+    ?assertEqual({200, Config1}, emqx_mgmt_api_test_util:simple_request(get, ConfigPath, "")),
+    ?assert(filelib:is_regular(emqx_plugins_fs:config_file_path(NameVsn))),
+    %% A node whose plugin discovery call crashes is still asked to update, so
+    %% that a failure on it is reported instead of skipped.
+    ok = meck:new(emqx_mgmt_api_plugins_proto_v4, [passthrough]),
+    try
+        ok = meck:expect(emqx_mgmt_api_plugins_proto_v4, describe_package, fun(_Nodes, _NV) ->
+            {[{badrpc, {'EXIT', boom}}], []}
+        end),
+        ?assertMatch({204, _}, emqx_mgmt_api_test_util:simple_request(put, ConfigPath, Config1)),
+        ?assertEqual(
+            1,
+            meck:num_calls(
+                emqx_mgmt_api_plugins_proto_v4, update_plugin_config, [[node()], NameVsn, '_']
+            )
+        )
+    after
+        meck:unload(emqx_mgmt_api_plugins_proto_v4)
+    end,
+    %% The lifecycle operations are refused.
+    Refused = [
+        {delete, ["plugins", NameVsn], ""},
+        {put, ["plugins", NameVsn, "stop"], ""},
+        {put, ["plugins", NameVsn, "start"], ""},
+        {put, ["plugins", OtherVsn, "stop"], ""},
+        {post, ["plugins", NameVsn, "move"], #{<<"position">> => <<"front">>}},
+        {post, ["plugins", "cluster_sync"], #{<<"name">> => NameVsn}}
+    ],
+    lists:foreach(
+        fun({Method, Parts, Body}) ->
+            Path = emqx_mgmt_api_test_util:api_path(Parts),
+            Response = emqx_mgmt_api_test_util:simple_request(Method, Path, Body),
+            ct:pal("~p ~p: ~p", [Method, Parts, Response]),
+            ?assertMatch({409, #{<<"code">> := <<"PLUGIN_PINNED">>}}, Response)
+        end,
+        Refused
+    ),
+    ?assertMatch({_, {{_, 409, _}, _, _}}, install_plugin(PackagePath)),
+    %% Calls from peers for the pinned name do not touch the plugin.
+    ?assertEqual(ok, emqx_mgmt_api_plugins:ensure_action(OtherVsn, stop, #{})),
+    ?assertMatch(
+        [#{<<"name_vsn">> := _, <<"enable">> := false}],
+        emqx:get_raw_config([plugins, states])
+    ),
+    ?assertEqual(ok, emqx_mgmt_api_plugins:delete_package(OtherVsn, #{})),
+    ?assertEqual([], emqx:get_raw_config([plugins, states])),
+    ?assertEqual(ok, emqx_mgmt_api_plugins:sync_plugin_cluster(node(), OtherVsn)),
+    ?assertEqual(ok, emqx_mgmt_api_plugins:install_package_v4(OtherVsn, <<"not a package">>)),
+    %% The config file is per plugin name, so an update for another version of
+    %% the pinned name must not change the pinned config.
+    ?assertEqual(
+        ok,
+        emqx_mgmt_api_plugins:do_update_plugin_config_v4(OtherVsn, #{<<"hostname">> => <<"x">>})
+    ),
+    ?assertEqual(Config1, emqx_plugins:get_config(NameVsn)),
+    ?assert(plugin_is_running(NameVsn)),
+    ok.
+
+-doc """
 `GET /plugins` tolerates unreachable nodes and remote crashes in the
 cluster-wide plugin listing RPC instead of crashing with badmatch.
 """.
