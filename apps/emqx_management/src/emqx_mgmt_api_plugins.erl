@@ -750,13 +750,23 @@ put_plugin_config(NameVsn, Config) ->
             {404, plugin_not_found_msg()}
     end.
 
-%% The nodes that report the plugin version, and the nodes that did not answer,
-%% so that an unreachable node is still reported as a failure. A node that pins
-%% another version of the plugin name does not report this one.
+%% The nodes that report the plugin version, plus the nodes whose answer is not a
+%% plugin list (unreachable, or the call crashed), so that the update reports
+%% them as failures. A node that pins another version of the plugin name does
+%% not report this one, and is left out.
 config_nodes(NameVsn) ->
-    {Results, BadNodes} =
-        emqx_mgmt_api_plugins_proto_v4:describe_package(emqx:running_nodes(), NameVsn),
-    [Node || {Node, [_ | _]} <- drop_bad_plugin_results(Results)] ++ BadNodes.
+    Nodes = emqx:running_nodes(),
+    {Results, BadNodes} = emqx_mgmt_api_plugins_proto_v4:describe_package(Nodes, NameVsn),
+    %% `rpc:multicall' returns the results of the reachable nodes in node order.
+    GoodNodes = Nodes -- BadNodes,
+    [
+        Node
+     || {Node, Result} <- lists:zip(GoodNodes, Results),
+        not is_plugin_absent(Node, Result)
+    ] ++ BadNodes.
+
+is_plugin_absent(Node, {Node, []}) -> true;
+is_plugin_absent(_Node, _Result) -> false.
 
 plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
     case describe_api_plugin(NameVsn, #{}) of
