@@ -241,6 +241,37 @@ t_reserve_counter(_) ->
     {ok, 16#FFFF, I4} = emqx_inflight:reserve(emqx_inflight:set_next_id(16#FFFF, I3)),
     ?assertEqual(1, emqx_inflight:next_id(I4)).
 
+-doc """
+Check that `new/1` returns a placeholder that holds only the size limit, that
+the read functions work on it, and that the first insert builds the full
+structure.
+""".
+t_new_is_lazy(_) ->
+    I0 = emqx_inflight:new(32),
+    ?assertEqual({inflight, 32}, I0),
+    ?assertEqual(32, emqx_inflight:max_size(I0)),
+    ?assertEqual(0, emqx_inflight:size(I0)),
+    ?assert(emqx_inflight:is_empty(I0)),
+    ?assertNot(emqx_inflight:is_full(I0)),
+    ?assertNot(emqx_inflight:contain(1, I0)),
+    ?assertEqual(none, emqx_inflight:lookup(1, I0)),
+    ?assertEqual([], emqx_inflight:to_list(I0)),
+    ?assertEqual([], emqx_inflight:to_list(fun erlang:'<'/2, I0)),
+    ?assertEqual([], emqx_inflight:values(I0)),
+    ?assertEqual(acc, emqx_inflight:fold(fun(_, _, _) -> hit end, acc, I0)),
+    ?assertEqual(1, emqx_inflight:next_id(I0)),
+    ?assertEqual({inflight, 64}, emqx_inflight:resize(64, I0)),
+    ?assertEqual(I0, emqx_inflight:set_next_id(1, I0)),
+    ?assertError(function_clause, emqx_inflight:delete(1, I0)),
+    ?assertError(function_clause, emqx_inflight:update(1, v, I0)),
+    I1 = emqx_inflight:insert(1, v, I0),
+    ?assertMatch({inflight, 32, #{1 := v}, #{0 := 2}, 1}, I1),
+    ?assertMatch({inflight, 32, #{}, #{}, 7}, emqx_inflight:set_next_id(7, I0)),
+    {ok, 1, I2} = emqx_inflight:alloc(v, I0),
+    ?assertMatch({inflight, 32, #{1 := v}, #{0 := 2}, 2}, I2),
+    {ok, 1, I3} = emqx_inflight:reserve(I0),
+    ?assertMatch({inflight, 32, #{}, #{}, 2}, I3).
+
 insert_ids(Ids, Inflight) ->
     lists:foldl(fun(Id, Acc) -> emqx_inflight:insert(Id, v, Acc) end, Inflight, Ids).
 

@@ -19,6 +19,11 @@ does not move the counter.
 
 Keys outside the packet id range (gateways use other terms) are stored in
 the map only.
+
+`new/1` returns a placeholder that holds only the size limit. The record
+with the entries, the index and the counter is built on the first insert,
+`alloc/2`, `reserve/1` or `set_next_id/2`, so a client that never
+receives a QoS 1 or 2 message never pays for it.
 """.
 
 -compile(inline).
@@ -75,7 +80,10 @@ the map only.
     next_id = 1 :: packet_id()
 }).
 
--opaque inflight() :: #inflight{}.
+%% Placeholder returned by `new/1`, before any entry or counter change.
+-define(EMPTY(MaxSize), {inflight, MaxSize}).
+
+-opaque inflight() :: #inflight{} | ?EMPTY(max_size()).
 
 -define(IS_PACKET_ID(Key), (is_integer(Key) andalso Key >= 1 andalso Key =< ?MAX_ID)).
 
@@ -84,13 +92,17 @@ new() -> new(0).
 
 -spec new(non_neg_integer()) -> inflight().
 new(MaxSize) when MaxSize >= 0 ->
-    #inflight{max_size = MaxSize}.
+    ?EMPTY(MaxSize).
 
 -spec contain(key(), inflight()) -> boolean().
+contain(_Key, ?EMPTY(_)) ->
+    false;
 contain(Key, #inflight{entries = Entries}) ->
     is_map_key(Key, Entries).
 
 -spec lookup(key(), inflight()) -> {value, term()} | none.
+lookup(_Key, ?EMPTY(_)) ->
+    none;
 lookup(Key, #inflight{entries = Entries}) ->
     case Entries of
         #{Key := Val} -> {value, Val};
@@ -98,6 +110,8 @@ lookup(Key, #inflight{entries = Entries}) ->
     end.
 
 -spec insert(key(), Val :: term(), inflight()) -> inflight().
+insert(Key, Val, I = ?EMPTY(_)) ->
+    insert(Key, Val, materialize(I));
 insert(Key, _Val, #inflight{entries = Entries}) when is_map_key(Key, Entries) ->
     erlang:error({key_exists, Key});
 insert(Key, Val, I = #inflight{entries = Entries, index = Index}) ->
@@ -112,20 +126,28 @@ update(Key, Val, I = #inflight{entries = Entries}) when is_map_key(Key, Entries)
     I#inflight{entries = Entries#{Key := Val}}.
 
 -spec fold(fun((key(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
+fold(_FoldFun, AccIn, ?EMPTY(_)) ->
+    AccIn;
 fold(FoldFun, AccIn, #inflight{entries = Entries}) ->
     maps:fold(FoldFun, AccIn, Entries).
 
 -spec resize(integer(), inflight()) -> inflight().
+resize(MaxSize, ?EMPTY(_)) ->
+    ?EMPTY(MaxSize);
 resize(MaxSize, I = #inflight{}) ->
     I#inflight{max_size = MaxSize}.
 
 -spec is_full(inflight()) -> boolean().
+is_full(?EMPTY(_)) ->
+    false;
 is_full(#inflight{max_size = 0}) ->
     false;
 is_full(#inflight{max_size = MaxSize, entries = Entries}) ->
     MaxSize =< map_size(Entries).
 
 -spec is_empty(inflight()) -> boolean().
+is_empty(?EMPTY(_)) ->
+    true;
 is_empty(#inflight{entries = Entries}) ->
     map_size(Entries) =:= 0.
 
@@ -136,18 +158,26 @@ values(Inflight) ->
 
 -doc "Return the entries, ordered by key.".
 -spec to_list(inflight()) -> list({key(), term()}).
+to_list(?EMPTY(_)) ->
+    [];
 to_list(#inflight{entries = Entries}) ->
     lists:keysort(1, maps:to_list(Entries)).
 
 -spec to_list(fun(), inflight()) -> list({key(), term()}).
+to_list(_SortFun, ?EMPTY(_)) ->
+    [];
 to_list(SortFun, #inflight{entries = Entries}) ->
     lists:sort(SortFun, maps:to_list(Entries)).
 
 -spec size(inflight()) -> non_neg_integer().
+size(?EMPTY(_)) ->
+    0;
 size(#inflight{entries = Entries}) ->
     map_size(Entries).
 
 -spec max_size(inflight()) -> non_neg_integer().
+max_size(?EMPTY(MaxSize)) ->
+    MaxSize;
 max_size(#inflight{max_size = MaxSize}) ->
     MaxSize.
 
@@ -157,6 +187,8 @@ move the counter past that id. Return `none` when all 65535 packet ids are
 in use.
 """.
 -spec alloc(Val :: term(), inflight()) -> {ok, packet_id(), inflight()} | none.
+alloc(Val, I = ?EMPTY(_)) ->
+    alloc(Val, materialize(I));
 alloc(Val, I = #inflight{entries = Entries, index = Index, next_id = NextId}) ->
     case next_free_id(NextId, Index) of
         {ok, Id} ->
@@ -175,6 +207,8 @@ counter past it, without inserting an entry. Return `none` when all 65535
 packet ids are in use.
 """.
 -spec reserve(inflight()) -> {ok, packet_id(), inflight()} | none.
+reserve(I = ?EMPTY(_)) ->
+    reserve(materialize(I));
 reserve(I = #inflight{index = Index, next_id = NextId}) ->
     case next_free_id(NextId, Index) of
         {ok, Id} -> {ok, Id, I#inflight{next_id = next(Id)}};
@@ -183,16 +217,25 @@ reserve(I = #inflight{index = Index, next_id = NextId}) ->
 
 -doc "Return the packet id counter: where the next search for an unused id starts.".
 -spec next_id(inflight()) -> packet_id().
+next_id(?EMPTY(_)) ->
+    1;
 next_id(#inflight{next_id = NextId}) ->
     NextId.
 
 -spec set_next_id(packet_id(), inflight()) -> inflight().
+set_next_id(1, I = ?EMPTY(_)) ->
+    I;
+set_next_id(NextId, I = ?EMPTY(_)) ->
+    set_next_id(NextId, materialize(I));
 set_next_id(NextId, I = #inflight{}) when ?IS_PACKET_ID(NextId) ->
     I#inflight{next_id = NextId}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+materialize(?EMPTY(MaxSize)) ->
+    #inflight{max_size = MaxSize}.
 
 next_free_id(From, Index) ->
     Chunk = From bsr ?CHUNK_SHIFT,
