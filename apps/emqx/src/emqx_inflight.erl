@@ -33,96 +33,88 @@
 
 -type max_size() :: pos_integer().
 
--opaque inflight() :: {inflight, max_size(), gb_trees:tree()}.
+-opaque inflight() :: {inflight, max_size(), #{key() => term()}}.
 
--define(INFLIGHT(Tree), {inflight, _MaxSize, Tree}).
+-define(INFLIGHT(Map), {inflight, _MaxSize, Map}).
 
--define(INFLIGHT(MaxSize, Tree), {inflight, MaxSize, (Tree)}).
+-define(INFLIGHT(MaxSize, Map), {inflight, MaxSize, (Map)}).
 
 -spec new() -> inflight().
 new() -> new(0).
 
 -spec new(non_neg_integer()) -> inflight().
 new(MaxSize) when MaxSize >= 0 ->
-    ?INFLIGHT(MaxSize, gb_trees:empty()).
+    ?INFLIGHT(MaxSize, #{}).
 
 -spec contain(key(), inflight()) -> boolean().
-contain(Key, ?INFLIGHT(Tree)) ->
-    gb_trees:is_defined(Key, Tree).
+contain(Key, ?INFLIGHT(Map)) ->
+    is_map_key(Key, Map).
 
 -spec lookup(key(), inflight()) -> {value, term()} | none.
-lookup(Key, ?INFLIGHT(Tree)) ->
-    gb_trees:lookup(Key, Tree).
+lookup(Key, ?INFLIGHT(Map)) ->
+    case Map of
+        #{Key := Val} -> {value, Val};
+        #{} -> none
+    end.
 
 -spec insert(key(), Val :: term(), inflight()) -> inflight().
-insert(Key, Val, ?INFLIGHT(MaxSize, Tree)) ->
-    ?INFLIGHT(MaxSize, gb_trees:insert(Key, Val, Tree)).
+insert(Key, _Val, ?INFLIGHT(Map)) when is_map_key(Key, Map) ->
+    erlang:error({key_exists, Key});
+insert(Key, Val, ?INFLIGHT(MaxSize, Map)) ->
+    ?INFLIGHT(MaxSize, Map#{Key => Val}).
 
 -spec delete(key(), inflight()) -> inflight().
-delete(Key, ?INFLIGHT(MaxSize, Tree)) ->
-    ?INFLIGHT(MaxSize, gb_trees:delete(Key, Tree)).
+delete(Key, ?INFLIGHT(MaxSize, Map)) when is_map_key(Key, Map) ->
+    ?INFLIGHT(MaxSize, maps:remove(Key, Map)).
 
 -spec update(key(), Val :: term(), inflight()) -> inflight().
-update(Key, Val, ?INFLIGHT(MaxSize, Tree)) ->
-    ?INFLIGHT(MaxSize, gb_trees:update(Key, Val, Tree)).
+update(Key, Val, ?INFLIGHT(MaxSize, Map)) when is_map_key(Key, Map) ->
+    ?INFLIGHT(MaxSize, Map#{Key := Val}).
 
 -spec fold(fun((key(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
-fold(FoldFun, AccIn, ?INFLIGHT(Tree)) ->
-    fold_iterator(FoldFun, AccIn, gb_trees:iterator(Tree)).
-
-fold_iterator(FoldFun, Acc, It) ->
-    case gb_trees:next(It) of
-        {Key, Val, ItNext} ->
-            fold_iterator(FoldFun, FoldFun(Key, Val, Acc), ItNext);
-        none ->
-            Acc
-    end.
+fold(FoldFun, AccIn, ?INFLIGHT(Map)) ->
+    maps:fold(FoldFun, AccIn, Map).
 
 -spec resize(integer(), inflight()) -> inflight().
-resize(MaxSize, ?INFLIGHT(Tree)) ->
-    ?INFLIGHT(MaxSize, Tree).
+resize(MaxSize, ?INFLIGHT(_, Map)) ->
+    ?INFLIGHT(MaxSize, Map).
 
 -spec is_full(inflight()) -> boolean().
-is_full(?INFLIGHT(0, _Tree)) ->
+is_full(?INFLIGHT(0, _Map)) ->
     false;
-is_full(?INFLIGHT(MaxSize, Tree)) ->
-    MaxSize =< gb_trees:size(Tree).
+is_full(?INFLIGHT(MaxSize, Map)) ->
+    MaxSize =< map_size(Map).
 
 -spec is_empty(inflight()) -> boolean().
-is_empty(?INFLIGHT(Tree)) ->
-    gb_trees:is_empty(Tree).
+is_empty(?INFLIGHT(Map)) ->
+    map_size(Map) =:= 0.
 
--spec smallest(inflight()) -> {key(), term()}.
-smallest(?INFLIGHT(Tree)) ->
-    gb_trees:smallest(Tree).
-
--spec largest(inflight()) -> {key(), term()}.
-largest(?INFLIGHT(Tree)) ->
-    gb_trees:largest(Tree).
-
+-doc "Return the values, ordered by key.".
 -spec values(inflight()) -> list().
-values(?INFLIGHT(Tree)) ->
-    gb_trees:values(Tree).
+values(Inflight) ->
+    [Val || {_Key, Val} <- to_list(Inflight)].
 
+-doc "Return the entries, ordered by key.".
 -spec to_list(inflight()) -> list({key(), term()}).
-to_list(?INFLIGHT(Tree)) ->
-    gb_trees:to_list(Tree).
+to_list(?INFLIGHT(Map)) ->
+    lists:sort(maps:to_list(Map)).
 
 -spec to_list(fun(), inflight()) -> list({key(), term()}).
-to_list(SortFun, ?INFLIGHT(Tree)) ->
-    lists:sort(SortFun, gb_trees:to_list(Tree)).
+to_list(SortFun, ?INFLIGHT(Map)) ->
+    lists:sort(SortFun, maps:to_list(Map)).
 
+-doc "Return the smallest and the largest key, or `[]` when empty.".
 -spec window(inflight()) -> list().
-window(Inflight = ?INFLIGHT(Tree)) ->
-    case gb_trees:is_empty(Tree) of
-        true -> [];
-        false -> [Key || {Key, _Val} <- [smallest(Inflight), largest(Inflight)]]
-    end.
+window(?INFLIGHT(Map)) when map_size(Map) =:= 0 ->
+    [];
+window(?INFLIGHT(Map)) ->
+    Keys = maps:keys(Map),
+    [lists:min(Keys), lists:max(Keys)].
 
 -spec size(inflight()) -> non_neg_integer().
-size(?INFLIGHT(Tree)) ->
-    gb_trees:size(Tree).
+size(?INFLIGHT(Map)) ->
+    map_size(Map).
 
 -spec max_size(inflight()) -> non_neg_integer().
-max_size(?INFLIGHT(MaxSize, _Tree)) ->
+max_size(?INFLIGHT(MaxSize, _Map)) ->
     MaxSize.
