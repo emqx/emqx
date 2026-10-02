@@ -241,6 +241,34 @@ t_boot_start_tolerates_broken_plugin(Config) ->
     ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     ok.
 
+-doc """
+Restarting the plugins application with a configured plugin must not write
+`plugins.states` to the cluster config.
+""".
+t_app_restart_does_not_write_states({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_app_restart_does_not_write_states({'end', Config}) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    ok;
+t_app_restart_does_not_write_states(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_enabled(NameVsn, no_move, global),
+    States = emqx_plugins:configured(),
+    TnxId = emqx_cluster_rpc:latest_tnx_id(),
+    ok = restart_plugins_app(),
+    ?assertEqual(TnxId, emqx_cluster_rpc:latest_tnx_id()),
+    ?assertEqual(States, emqx_plugins:configured()),
+    ok.
+
+restart_plugins_app() ->
+    ok = application:stop(emqx_plugins),
+    {ok, _} = application:ensure_all_started(emqx_plugins),
+    ok.
+
 %% help function to create a info file.
 %% The file is in JSON format when built
 %% but since we are using hocon:load to load it
@@ -2017,4 +2045,50 @@ group_t_cluster_install(Config) ->
     %% Cleanup
     ok = erpc:call(N1, emqx_plugins, ensure_uninstalled, [NameVsn]),
     ok = erpc:call(N2, emqx_plugins, ensure_uninstalled, [NameVsn]),
+    ok.
+
+-doc """
+A node-local `plugins.states` override must not be published to the other
+nodes when the plugins application restarts on that node.
+""".
+t_app_restart_does_not_publish_local_states({init, Config}) ->
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_app_restart_no_publish1, #{role => core, apps => [emqx, emqx_conf, emqx_ctl]}},
+            {t_app_restart_no_publish2, #{role => core, apps => [emqx, emqx_conf, emqx_ctl]}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    InstallRelDir = "plugins_no_publish",
+    [_, InstallDir2] = [filename:join(WD, InstallRelDir) || #{work_dir := WD} <- Specs],
+    ok = filelib:ensure_path(InstallDir2),
+    #{package := Package} = get_demo_plugin_package(InstallDir2),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{ok, _}, {ok, _}] = erpc:multicall(Nodes, emqx_cth_suite, start_app, [
+        emqx_plugins,
+        #{config => #{plugins => #{install_dir => InstallRelDir}}}
+    ]),
+    [{nodes, Nodes}, {name_vsn, NameVsn} | Config];
+t_app_restart_does_not_publish_local_states({'end', Config}) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config));
+t_app_restart_does_not_publish_local_states(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    NameVsn = ?config(name_vsn, Config),
+    %% The plugin is installed on N2 only, and the cluster config has it disabled.
+    ok = ?ON(N2, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
+    ClusterStates = [#{name_vsn => NameVsn, enable => false}],
+    ?assertEqual(ClusterStates, ?ON(N1, emqx_plugins:configured())),
+    %% A node-local override on N2, as from `etc/emqx.conf' or an env var.
+    ok = ?ON(N2, begin
+        emqx_config:put([plugins, states], [#{name_vsn => NameVsn, enable => true}]),
+        emqx_config:put_raw(
+            [<<"plugins">>, <<"states">>],
+            [#{<<"name_vsn">> => bin(NameVsn), <<"enable">> => true}]
+        )
+    end),
+    TnxId = ?ON(N1, emqx_cluster_rpc:latest_tnx_id()),
+    ok = ?ON(N2, restart_plugins_app()),
+    ?assertEqual(TnxId, ?ON(N1, emqx_cluster_rpc:latest_tnx_id())),
+    ?assertEqual(ClusterStates, ?ON(N1, emqx_plugins:configured())),
     ok.

@@ -43,6 +43,7 @@
     ensure_enabled/2,
     ensure_enabled/3,
     ensure_disabled/1,
+    publish_state/1,
     purge/1,
     write_package/2,
     backup_package/1,
@@ -348,6 +349,19 @@ ensure_enabled(NameVsn, Position, ConfLocation) when
 -spec ensure_disabled(name_vsn()) -> ok | {error, any()}.
 ensure_disabled(NameVsn) ->
     ensure_state(NameVsn, no_move, false, _ConfLocation = local).
+
+-doc """
+Write the plugin's entry in the local `plugins.states` to the cluster config.
+Do nothing when the plugin is not configured.
+""".
+-spec publish_state(name_vsn()) -> ok | {error, any()}.
+publish_state(NameVsn) ->
+    case [S || #{name_vsn := NV} = S <- configured(), bin(NV) =:= bin(NameVsn)] of
+        [#{name_vsn := NV, enable := Bool} | _] ->
+            ensure_state(NV, no_move, Bool, global);
+        [] ->
+            ok
+    end.
 
 %% @doc Delete extracted dir
 %% In case one lib is shared by multiple plugins.
@@ -1061,27 +1075,20 @@ for_plugins(ActionFun) ->
             ok
     end.
 
+%% Record a plugin in `plugins.states' only when it is absent.
+%% A configured plugin is left as it is: this runs at boot for every configured
+%% plugin, and it must not write the cluster config.
 ensure_state(NameVsn) ->
-    EnsureStateFun = fun(#{name_vsn := NV, enable := Bool}, AccIn) ->
-        case NV of
-            NameVsn ->
-                %% Configured, using existed cluster config
-                _ = ensure_state(NV, no_move, Bool, global),
-                AccIn#{ensured => true};
-            _ ->
-                AccIn
-        end
-    end,
-    case lists:foldl(EnsureStateFun, #{ensured => false}, configured()) of
-        #{ensured := true} ->
+    IsConfigured = lists:any(fun(#{name_vsn := NV}) -> bin(NV) =:= bin(NameVsn) end, configured()),
+    case IsConfigured of
+        true ->
             ok;
-        #{ensured := false} ->
+        false ->
             ?SLOG(info, #{msg => "plugin_not_configured", name_vsn => NameVsn}),
             %% Clean installation, no config, ensure with `Enable = false`
             _ = ensure_state(NameVsn, no_move, false, global),
             ok
-    end,
-    ok.
+    end.
 
 ensure_local_config(NameVsn, Mode) ->
     case emqx_plugins_fs:ensure_config_dir(NameVsn) of
