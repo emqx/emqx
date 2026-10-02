@@ -1901,7 +1901,7 @@ handle_info(continue, Channel0) ->
             ok;
         {Publishes, Channel1} ->
             {Packets, Channel} = do_deliver_many(Publishes, Channel1),
-            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
+            Outgoing = [?REPLY_OUTGOING(Packets) || Packets =/= []],
             %% Refresh chan-info / chan-stats so the dashboard and REST API
             %% reflect post-replay inflight immediately, not on the next stats tick.
             {ok, Outgoing ++ [?REPLY_EVENT(updated)], Channel}
@@ -3796,9 +3796,7 @@ maybe_publish_will_msg(
             %% so the will message should won't pass the auth check.
             %% We want to publish the will message as it would be published at the very moment of auth expiration,
             %% so we inject the auth expiration time as the current time used for the auth check.
-            Channel1 = maybe_with_injected_now(Reason, Channel0, fun(Channel) ->
-                publish_will_msg(Channel)
-            end),
+            Channel1 = maybe_with_injected_now(Reason, Channel0, fun publish_will_msg/1),
             remove_willmsg(Channel1);
         I when I > 0 ->
             ?tp(debug, maybe_publish_will_msg_other_delay, #{clientid => ClientId, reason => Reason}),
