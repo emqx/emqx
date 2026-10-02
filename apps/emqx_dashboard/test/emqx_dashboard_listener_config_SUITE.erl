@@ -53,8 +53,8 @@ end_per_testcase(_TestCase, Config) ->
 t_change_i18n_lang(_Config) ->
     ?check_trace(
         {_, {ok, _}} = ?wait_async_action(
-            change_i18n_lang(zh),
-            #{?snk_kind := regenerate_dispatch, i18n_lang := zh},
+            change_i18n_lang('zh-TW'),
+            #{?snk_kind := regenerate_dispatch, i18n_lang := 'zh-TW'},
             10_000
         ),
         []
