@@ -7,7 +7,6 @@
 
 -include("emqx.hrl").
 -include("emqx_channel.hrl").
--include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
 -include("emqx_access_control.hrl").
 -include("logger.hrl").
@@ -167,13 +166,7 @@
 ).
 
 %% Timers implemented by sessions
--define(IS_COMMON_SESSION_TIMER(N),
-    ((N == retry_delivery) orelse (N == expire_awaiting_rel))
-).
-%% Timers implemented by sessions that need to be handled only when the client is connected
--define(IS_COMMON_SESSION_ONLINE_TIMER(N),
-    (N == retry_delivery)
-).
+-define(IS_COMMON_SESSION_TIMER(N), (N == expire_awaiting_rel)).
 
 -define(chan_terminating, chan_terminating).
 -define(normal, normal).
@@ -950,10 +943,11 @@ process_puback(
     ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
     Channel = #channel{
         clientinfo = ClientInfo,
-        session = Session
+        session = Session,
+        conn_flags = Flags
     }
 ) ->
-    case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
+    case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Flags, Session) of
         {ok, Msg, [], NSession} ->
             ok = after_message_acked(Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
@@ -1029,10 +1023,11 @@ process_pubcomp(
     ?PUBCOMP_PACKET(PacketId, ReasonCode),
     Channel = #channel{
         clientinfo = ClientInfo,
-        session = Session
+        session = Session,
+        conn_flags = Flags
     }
 ) ->
-    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
+    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Flags, Session) of
         {ok, [], NSession} ->
             {ok, Channel#channel{session = NSession}};
         {OkEffects, Publishes, NSession} ->
@@ -1336,8 +1331,8 @@ process_maybe_shutdown(
             session = Session0
         }
 ) ->
-    {Intent, Session} = session_disconnect(ClientInfo, ConnInfo, Session0),
-    Channel1 = Channel0#channel{session = Session},
+    {Intent, Effects, Session} = session_disconnect(ClientInfo, ConnInfo, Session0),
+    Channel1 = apply_session_effects(Effects, Channel0#channel{session = Session}),
     Channel2 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel1)),
     case maybe_shutdown(Reason, Intent, Channel2) of
         {ok, Channel} -> {ok, ?REPLY_EVENT(disconnected), Channel};
@@ -1402,7 +1397,7 @@ do_handle_deliver(
             {ok, NChannel};
         {OkEffects, Publishes, NSession} ->
             NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
-            handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
+            handle_out(publish, Publishes, NChannel)
     end.
 
 %% Nack delivers from shared subscription
@@ -2159,14 +2154,7 @@ handle_timeout(
 handle_timeout(
     _TRef,
     TimerName,
-    Channel = #channel{conn_state = disconnected}
-) when ?IS_COMMON_SESSION_ONLINE_TIMER(TimerName) ->
-    %% Skip session timers that require a connected client
-    {ok, Channel};
-handle_timeout(
-    _TRef,
-    TimerName,
-    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo, conn_flags = Flags}
 ) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
     %% NOTE
     %% Responsibility for these timers is smeared across both this module and the
@@ -2174,7 +2162,7 @@ handle_timeout(
     %% responsible for the actual timeout logic. Yet they are managed here, since
     %% they are kind of common to all session implementations.
     Channel1 = clean_timer(TimerName, Channel0),
-    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Flags, Session) of
         {OkEffects, Publishes, NSession} ->
             Channel = apply_session_effects(OkEffects, Channel1#channel{session = NSession}),
             handle_out(publish, Publishes, Channel);
@@ -2185,10 +2173,10 @@ handle_timeout(
 handle_timeout(
     _TRef,
     {emqx_session, TimerName} = Timer,
-    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo, conn_flags = Flags}
 ) ->
     Channel1 = clean_timer(Timer, Channel0),
-    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Flags, Session) of
         {ok, [], NSession} ->
             {ok, Channel1#channel{session = NSession}};
         {OkEffects, Replies, NSession} ->
@@ -3649,7 +3637,7 @@ ensure_disconnected(
 session_disconnect(ClientInfo, ConnInfo, Session) when Session /= undefined ->
     emqx_session:disconnect(ClientInfo, ConnInfo, Session);
 session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
-    {shutdown, undefined}.
+    {shutdown, [], undefined}.
 
 %%--------------------------------------------------------------------
 %% Maybe Publish will msg
