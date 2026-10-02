@@ -330,9 +330,7 @@ init_state(
         sock => Socket
     },
     Channel = emqx_channel:init(ConnInfo, Opts),
-    Conf = #conf{
-        listener = {Type, Listener}
-    },
+    Conf = conn_conf({Type, Listener}, Zone, Opts),
     State0 = #state{
         socket = Socket,
         sockstate = idle,
@@ -342,7 +340,7 @@ init_state(
         namespace = ?global_ns,
         extra = []
     },
-    init_zone_specific_state(Zone, Opts, State0).
+    init_zone_specific_state(Conf, Zone, State0).
 
 ensure_ok_or_exit(Result, Sock) ->
     case Result of
@@ -703,7 +701,7 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
 handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
-    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    State = init_zone_specific_state(NewZone, State0),
     {ok, State};
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
@@ -1660,7 +1658,11 @@ graceful_shutdown_transport(_Reason, S = #state{socket = Socket}) ->
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
+%% A zone change on a live connection: `Opts' carries no override.
+init_zone_specific_state(Zone, #state{conf = Conf0} = State0) ->
+    init_zone_specific_state(conn_conf(Conf0#conf.listener, Zone, #{}), Zone, State0).
+
+init_zone_specific_state(Conf, Zone, State0) ->
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
@@ -1672,7 +1674,6 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
                 {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
-    Conf = conn_conf(Conf0#conf.listener, Zone, Opts),
     State0#state{
         parser = Parser,
         serialize = Serialize,
