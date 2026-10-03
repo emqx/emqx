@@ -1720,13 +1720,23 @@ handle_out(
         register_inflight = undefined
     }
 ) ->
-    {MsgId, NSession} = emqx_mqttsn_session:obtain_next_pkt_id(Session),
-    Outgoing = {outgoing, ?SN_REGISTER_MSG(TopicId, MsgId, TopicName)},
-    NChannel = Channel#channel{
-        session = NSession,
-        register_inflight = {TopicId, MsgId, TopicName}
-    },
-    {ok, Outgoing, ensure_register_timer(NChannel)};
+    case emqx_mqttsn_session:obtain_next_pkt_id(Session) of
+        {MsgId, NSession} ->
+            Outgoing = {outgoing, ?SN_REGISTER_MSG(TopicId, MsgId, TopicName)},
+            NChannel = Channel#channel{
+                session = NSession,
+                register_inflight = {TopicId, MsgId, TopicName}
+            },
+            {ok, Outgoing, ensure_register_timer(NChannel)};
+        none ->
+            ?SLOG(warning, #{
+                msg => "skip_register_topic_name_to_client",
+                reason => no_free_packet_id,
+                topic_id => TopicId,
+                topic_name => TopicName
+            }),
+            {ok, Channel}
+    end;
 handle_out(
     register,
     {TopicId, TopicName},

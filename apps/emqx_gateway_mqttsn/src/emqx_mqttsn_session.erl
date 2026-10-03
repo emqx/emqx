@@ -100,8 +100,10 @@ handle_timeout(ClientInfo, Name, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, Name], Session).
 
 obtain_next_pkt_id(Session = #{session := Sess}) ->
-    {Id, Sess1} = emqx_session_mem:obtain_next_pkt_id(Sess),
-    {Id, Session#{session := Sess1}}.
+    case emqx_session_mem:obtain_next_pkt_id(Sess) of
+        {Id, Sess1} -> {Id, Session#{session := Sess1}};
+        none -> none
+    end.
 
 takeover(_Session = #{session := Sess}) ->
     emqx_session_mem:takeover(Sess).

@@ -75,7 +75,7 @@
     %% Auth
     auth :: emqx_jt808_auth:auth(),
     %% Inflight
-    inflight :: emqx_inflight:inflight(),
+    inflight :: emqx_gateway_inflight:inflight(),
     mqueue :: queue:queue(),
     max_mqueue_len,
     rsa_key,
@@ -153,8 +153,8 @@ stats(#channel{inflight = Inflight, mqueue = Queue}) ->
     [
         {subscriptions_cnt, 1},
         {subscriptions_max, 1},
-        {inflight_cnt, emqx_inflight:size(Inflight)},
-        {inflight_max, emqx_inflight:max_size(Inflight)},
+        {inflight_cnt, emqx_gateway_inflight:size(Inflight)},
+        {inflight_max, emqx_gateway_inflight:max_size(Inflight)},
         {mqueue_len, queue:len(Queue)},
         {mqueue_max, 0},
         {mqueue_dropped, 0},
@@ -222,7 +222,7 @@ init(
         dn_topic = maps:get(dn_topic, ProtoConf, ?DEFAULT_DN_TOPIC),
         up_topic = maps:get(up_topic, ProtoConf, ?DEFAULT_UP_TOPIC),
         auth = emqx_jt808_auth:init(Auth),
-        inflight = emqx_inflight:new(128),
+        inflight = emqx_gateway_inflight:new(128),
         mqueue = queue:new(),
         max_mqueue_len = MessageQueueLen,
         rsa_key = [0, <<0:1024>>],
@@ -643,11 +643,11 @@ handle_timeout(
 handle_timeout(
     _TRef, retry_delivery, Channel = #channel{inflight = Inflight, retx_interval = RetxInterval}
 ) ->
-    case emqx_inflight:is_empty(Inflight) of
+    case emqx_gateway_inflight:is_empty(Inflight) of
         true ->
             {ok, clean_timer(retry_timer, Channel)};
         false ->
-            Frames = lists:sort(sortfun(), emqx_inflight:to_list(Inflight)),
+            Frames = lists:sort(sortfun(), emqx_gateway_inflight:to_list(Inflight)),
             {Outgoings, NInflight} = retry_delivery(
                 Frames, erlang:system_time(millisecond), RetxInterval, Inflight, []
             ),
@@ -662,13 +662,13 @@ retry_delivery([], _Now, _Interval, Inflight, Acc) ->
     {lists:reverse(Acc), Inflight};
 retry_delivery([{Key, {_Frame, 0, _}} | Frames], Now, Interval, Inflight, Acc) ->
     %% todo    log(error, "has arrived max re-send times, drop ~p", [Frame]),
-    NInflight = emqx_inflight:delete(Key, Inflight),
+    NInflight = emqx_gateway_inflight:delete(Key, Inflight),
     retry_delivery(Frames, Now, Interval, NInflight, Acc);
 retry_delivery([{Key, {Frame, RetxCount, Ts}} | Frames], Now, Interval, Inflight, Acc) ->
     Diff = Now - Ts,
     case Diff >= Interval of
         true ->
-            NInflight = emqx_inflight:update(Key, {Frame, RetxCount - 1, Now}, Inflight),
+            NInflight = emqx_gateway_inflight:update(Key, {Frame, RetxCount - 1, Now}, Inflight),
             retry_delivery(Frames, Now, Interval, NInflight, [Frame | Acc]);
         _ ->
             retry_delivery(Frames, Now, Interval, Inflight, Acc)
@@ -681,7 +681,7 @@ dispatch_frame(
         retx_max_times = RetxMax
     }
 ) ->
-    case emqx_inflight:is_full(Inflight) orelse queue:is_empty(Queue) of
+    case emqx_gateway_inflight:is_full(Inflight) orelse queue:is_empty(Queue) of
         true ->
             {[], Channel};
         false ->
@@ -734,7 +734,7 @@ dispatch_and_reply(Channel) ->
 try_insert_inflight(MsgId, MsgSn, ?SN_AUTO, Frame, RetxMax, Inflight, _Channel) ->
     %% Auto msg_sn: standard insertion
     Key = set_msg_ack(MsgId, MsgSn),
-    NewInflight = emqx_inflight:insert(
+    NewInflight = emqx_gateway_inflight:insert(
         Key,
         {Frame, RetxMax, erlang:system_time(millisecond)},
         Inflight
@@ -746,7 +746,7 @@ try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight, Channel)
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
     %% Use AutoKey in OrderKey to distinguish different message types with same MsgSn
     OrderKey = {msg_sn_order, AutoKey},
-    case emqx_inflight:contain(CustomKey, Inflight) of
+    case emqx_gateway_inflight:contain(CustomKey, Inflight) of
         true ->
             %% Duplicate custom msg_sn detected, but still deliver
             %% (as a gateway should ensure message delivery as much as possible)
@@ -757,7 +757,7 @@ try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight, Channel)
             ),
             {ok_duplicate, Inflight};
         false ->
-            case emqx_inflight:contain(AutoKey, Inflight) of
+            case emqx_gateway_inflight:contain(AutoKey, Inflight) of
                 true ->
                     %% Auto msg sent first, record ordering
                     log(
@@ -766,7 +766,7 @@ try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight, Channel)
                         Channel
                     ),
                     put(OrderKey, ?SN_AUTO),
-                    NewInflight = emqx_inflight:insert(
+                    NewInflight = emqx_gateway_inflight:insert(
                         CustomKey,
                         {Frame, RetxMax, erlang:system_time(millisecond)},
                         Inflight
@@ -775,7 +775,7 @@ try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight, Channel)
                 false ->
                     %% Custom sent first (or alone), record ordering
                     put(OrderKey, ?SN_CUSTOM),
-                    NewInflight = emqx_inflight:insert(
+                    NewInflight = emqx_gateway_inflight:insert(
                         CustomKey,
                         {Frame, RetxMax, erlang:system_time(millisecond)},
                         Inflight
@@ -922,30 +922,30 @@ ack_msg(AckMsgId, KeyParam, Inflight, Channel) ->
     CustomKey = custom_get_msg_ack(AckMsgId, KeyParam),
     %% Use AutoKey in OrderKey to match the key used in try_insert_inflight
     OrderKey = {msg_sn_order, AutoKey},
-    HasAuto = emqx_inflight:contain(AutoKey, Inflight),
-    HasCustom = emqx_inflight:contain(CustomKey, Inflight),
+    HasAuto = emqx_gateway_inflight:contain(AutoKey, Inflight),
+    HasCustom = emqx_gateway_inflight:contain(CustomKey, Inflight),
     case {HasAuto, HasCustom} of
         {true, true} ->
             %% Both exist - race condition, check ordering
             case erase(OrderKey) of
                 ?SN_CUSTOM ->
                     %% Custom was sent first, delete it
-                    emqx_inflight:delete(CustomKey, Inflight);
+                    emqx_gateway_inflight:delete(CustomKey, Inflight);
                 ?SN_AUTO ->
                     %% Auto was sent first, delete it
-                    emqx_inflight:delete(AutoKey, Inflight);
+                    emqx_gateway_inflight:delete(AutoKey, Inflight);
                 undefined ->
                     %% No ordering info, delete auto first (default)
-                    emqx_inflight:delete(AutoKey, Inflight)
+                    emqx_gateway_inflight:delete(AutoKey, Inflight)
             end;
         {true, false} ->
             %% Only auto exists
             _ = erase(OrderKey),
-            emqx_inflight:delete(AutoKey, Inflight);
+            emqx_gateway_inflight:delete(AutoKey, Inflight);
         {false, true} ->
             %% Only custom exists
             _ = erase(OrderKey),
-            emqx_inflight:delete(CustomKey, Inflight);
+            emqx_gateway_inflight:delete(CustomKey, Inflight);
         {false, false} ->
             %% Neither exists - ACK for message not in inflight
             %% This can happen when duplicate messages are delivered and client sends multiple ACKs
@@ -1163,7 +1163,7 @@ is_general_response_needed(_) -> false.
 is_driver_id_req_exist(#channel{inflight = Inflight}) ->
     % if there is a MS_REQ_DRIVER_ID (0x8702) command in re-tx queue
     Key = get_msg_ack(?MC_DRIVER_ID_REPORT, none),
-    emqx_inflight:contain(Key, Inflight).
+    emqx_gateway_inflight:contain(Key, Inflight).
 
 register_(Frame = #{<<"header">> := #{<<"phone">> := Phone}}, Channel0) ->
     case emqx_jt808_auth:register(Frame, Channel0#channel.auth) of
@@ -1452,7 +1452,7 @@ make_test_channel() ->
         dn_topic = undefined,
         up_topic = undefined,
         auth = undefined,
-        inflight = emqx_inflight:new(128),
+        inflight = emqx_gateway_inflight:new(128),
         mqueue = queue:new(),
         max_mqueue_len = 100,
         rsa_key = undefined,

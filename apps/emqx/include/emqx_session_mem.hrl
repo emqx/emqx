@@ -29,8 +29,6 @@
     %% `{lazy, ListenerId}` is a placeholder: the container is built on
     %% first delivery, once a finite limit is configured.
     quota :: emqx_limiter_client_container:t() | false | {lazy, emqx_limiter:listener_id()},
-    %% Next packet id of the session
-    next_pkt_id = 1 :: emqx_types:packet_id(),
     %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
     retry_interval :: timeout(),
     %% Client -> Broker: QoS2 messages received from the client, but

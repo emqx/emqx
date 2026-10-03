@@ -1039,19 +1039,74 @@ t_expire_awaiting_rel_all(_) ->
 %% CT for utility functions
 %%--------------------------------------------------------------------
 
-t_next_pakt_id(_) ->
-    ?assertEqual(1, emqx_session_mem:next_pkt_id(16#FFFF)),
-    ?assertEqual(2, emqx_session_mem:next_pkt_id(1)).
-
 t_obtain_next_pkt_id(_) ->
-    Session = session(#{next_pkt_id => 16#FFFF}),
+    Session = set_next_pkt_id(16#FFFF, session()),
     {16#FFFF, Session1} = emqx_session_mem:obtain_next_pkt_id(Session),
     ?assertEqual(1, emqx_session_mem:info(next_pkt_id, Session1)),
     {1, Session2} = emqx_session_mem:obtain_next_pkt_id(Session1),
     ?assertEqual(2, emqx_session_mem:info(next_pkt_id, Session2)).
 
+-doc """
+Check that `deliver` skips a packet id that is still inflight when the
+packet id counter wraps onto it, instead of crashing the session.
+""".
+t_deliver_pkt_id_wraparound_skips_inflight(_) ->
+    Session0 = session(),
+    {ok, [{1, _}], Session1} =
+        emqx_session_mem:deliver(
+            clientinfo(), enrich([delivery(?QOS_1, <<"t0">>)], Session0), [], Session0
+        ),
+    Session2 = set_next_pkt_id(16#FFFF, Session1),
+    Delivers = enrich([delivery(?QOS_1, T) || T <- [<<"t1">>, <<"t2">>]], Session2),
+    {ok, [{16#FFFF, Msg1}, {2, Msg2}], Session3} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session2),
+    ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
+    ?assertEqual(<<"t2">>, emqx_message:topic(Msg2)),
+    ?assertEqual(3, emqx_session_mem:info(inflight_cnt, Session3)),
+    ?assertEqual(3, emqx_session_mem:info(next_pkt_id, Session3)).
+
+-doc """
+Check that `dequeue` (triggered by a PUBACK) skips a packet id that is
+still inflight when the packet id counter wraps onto it.
+""".
+t_dequeue_pkt_id_wraparound_skips_inflight(_) ->
+    Session0 = session(#{inflight => emqx_inflight:new(2)}),
+    {ok, [{1, _}], Session1} =
+        emqx_session_mem:deliver(
+            clientinfo(), enrich([delivery(?QOS_1, <<"t0">>)], Session0), [], Session0
+        ),
+    Session2 = set_next_pkt_id(16#FFFF, Session1),
+    Delivers = enrich([delivery(?QOS_1, T) || T <- [<<"t1">>, <<"t2">>, <<"t3">>]], Session2),
+    {ok, [{16#FFFF, _}], Session3} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session2),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session3)),
+    {ok, _, [{2, Msg2}], Session4} = emqx_session_mem:puback(clientinfo(), 16#FFFF, Session3),
+    ?assertEqual(<<"t2">>, emqx_message:topic(Msg2)),
+    ?assertEqual(3, emqx_session_mem:info(next_pkt_id, Session4)).
+
+-doc """
+Check that `obtain_next_pkt_id` skips inflight packet ids, and returns
+`none` when every packet id is inflight.
+""".
+t_obtain_next_pkt_id_skips_inflight(_) ->
+    Inflight1 = emqx_inflight:insert(1, v, emqx_inflight:new(0)),
+    Session1 = session(#{inflight => emqx_inflight:set_next_id(16#FFFF, Inflight1)}),
+    {16#FFFF, Session2} = emqx_session_mem:obtain_next_pkt_id(Session1),
+    {2, Session3} = emqx_session_mem:obtain_next_pkt_id(Session2),
+    ?assertEqual(3, emqx_session_mem:info(next_pkt_id, Session3)),
+    InflightFull = lists:foldl(
+        fun(Id, Acc) -> emqx_inflight:insert(Id, v, Acc) end,
+        emqx_inflight:new(0),
+        lists:seq(1, 16#FFFF)
+    ),
+    ?assertEqual(none, emqx_session_mem:obtain_next_pkt_id(session(#{inflight => InflightFull}))).
+
 %% Helper functions
 %%--------------------------------------------------------------------
+
+set_next_pkt_id(PktId, Session) ->
+    Inflight = emqx_session_mem:info(inflight, Session),
+    emqx_session_mem:set_field(inflight, emqx_inflight:set_next_id(PktId, Inflight), Session).
 
 zone_mqueue_opts(Zone) ->
     #{
