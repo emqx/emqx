@@ -1369,15 +1369,21 @@ t_subscription_filter(Config) ->
         catch emqtt:subscribe(QueueSub, <<"$queue/subscription/filter/topic?location=roomA">>, qos1)
     ),
 
-    {ok, QueueAliasSub} = emqtt:start_link([{proto_ver, v5} | Config]),
-    unlink(QueueAliasSub),
-    {ok, _} = emqtt:ConnFun(QueueAliasSub),
-    ?assertMatch(
-        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
-        catch emqtt:subscribe(
-            QueueAliasSub, <<"$q/subscription/filter/topic?location=roomA">>, qos1
-        )
+    {ok, QueueShortPrefixSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(QueueShortPrefixSub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(
+        QueueShortPrefixSub, <<"$q/subscription/filter/topic?location=roomA">>, qos1
     ),
+    ok = emqtt:publish(
+        Pub,
+        <<"$q/subscription/filter/topic">>,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}]},
+        <<"queue-prefix-match">>,
+        [{qos, ?QOS_0}]
+    ),
+    [QueuePrefixMatched] = receive_messages(1),
+    ?assertEqual(<<"queue-prefix-match">>, maps:get(payload, QueuePrefixMatched)),
+    ok = emqtt:disconnect(QueueShortPrefixSub),
 
     {ok, StreamSub} = emqtt:start_link([{proto_ver, v5} | Config]),
     unlink(StreamSub),
@@ -1389,15 +1395,21 @@ t_subscription_filter(Config) ->
         )
     ),
 
-    {ok, StreamAliasSub} = emqtt:start_link([{proto_ver, v5} | Config]),
-    unlink(StreamAliasSub),
-    {ok, _} = emqtt:ConnFun(StreamAliasSub),
-    ?assertMatch(
-        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
-        catch emqtt:subscribe(
-            StreamAliasSub, <<"$s/subscription/filter/topic?location=roomA">>, qos1
-        )
+    {ok, StreamShortPrefixSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(StreamShortPrefixSub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(
+        StreamShortPrefixSub, <<"$s/subscription/filter/topic?location=roomA">>, qos1
     ),
+    ok = emqtt:publish(
+        Pub,
+        <<"$s/subscription/filter/topic">>,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}]},
+        <<"stream-prefix-match">>,
+        [{qos, ?QOS_0}]
+    ),
+    [StreamPrefixMatched] = receive_messages(1),
+    ?assertEqual(<<"stream-prefix-match">>, maps:get(payload, StreamPrefixMatched)),
+    ok = emqtt:disconnect(StreamShortPrefixSub),
 
     emqx_config:put([mqtt, subscription_message_filter], disable),
     {ok, PlainSub} = emqtt:start_link([{proto_ver, v5} | Config]),

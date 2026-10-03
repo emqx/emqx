@@ -136,9 +136,46 @@ t_pre_611(_Config) ->
     ?assertEqual(not_found, emqx_mq_registry:find(<<"/a/b/c">>)),
     ?assertEqual([], emqx_mq_registry:match(<<"a/b/c">>)).
 
+-doc """
+Verify that `delete_legacy/0` deletes a pre-6.1.1 queue with its state and messages,
+keeps a named queue, and returns 0 on a second call.
+""".
+t_delete_legacy(_Config) ->
+    ok = emqx_mq_registry:create_pre_611_queue(
+        emqx_mq_test_utils:fill_mq_defaults(#{topic_filter => <<"a/b/c">>})
+    ),
+    {ok, #{id := LegacyId} = LegacyMQ} = emqx_mq_registry:find(<<"/a/b/c">>),
+    {ok, NamedMQ} = create_mq(<<"mq-1">>, <<"a/b/#">>),
+    ok = insert_message(LegacyMQ),
+    ok = insert_message(NamedMQ),
+    ?retry(100, 50, ?assertMatch([_], emqx_mq_message_db:dirty_read_all(LegacyMQ))),
+    ?assertEqual(1, emqx_mq_registry:delete_legacy()),
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"/a/b/c">>)),
+    ?assertEqual(not_found, emqx_mq_state_storage:find_mq(LegacyId)),
+    ?assertNot(lists:member(LegacyId, emqx_mq_state_storage:mq_ids())),
+    ?assertEqual([], emqx_mq_message_db:dirty_read_all(LegacyMQ)),
+    ?assertMatch({ok, #{name := <<"mq-1">>}}, emqx_mq_registry:find(<<"mq-1">>)),
+    ?assertMatch([_], emqx_mq_message_db:dirty_read_all(NamedMQ)),
+    ?assertMatch([#{topic_filter := <<"a/b/#">>}], emqx_mq_registry:match(<<"a/b/c">>)),
+    ?assertEqual(0, emqx_mq_registry:delete_legacy()).
+
+-doc """
+Verify that `delete_legacy/0` returns 0 and keeps all queues when no pre-6.1.1 queue exists.
+""".
+t_delete_legacy_none(_Config) ->
+    {ok, _} = create_mq(<<"mq-1">>, <<"a/b/c">>),
+    {ok, _} = create_mq(<<"mq-2">>, <<"a/#">>),
+    ?assertEqual(0, emqx_mq_registry:delete_legacy()),
+    ?assertMatch({ok, _}, emqx_mq_registry:find(<<"mq-1">>)),
+    ?assertMatch({ok, _}, emqx_mq_registry:find(<<"mq-2">>)).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
 create_mq(Name, TopicFilter) ->
     emqx_mq_test_utils:create_mq(#{name => Name, topic_filter => TopicFilter}).
+
+insert_message(MQ) ->
+    Message = emqx_message:make(<<"c1">>, 1, <<"a/b/c">>, <<"payload">>),
+    emqx_mq_message_db:insert(MQ, Message).

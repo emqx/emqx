@@ -523,11 +523,7 @@ is_subscription_message_filter_enabled(Opts) ->
 %% Do not allow filter of $queue and $stream topic because otherwise
 %% the dispatcher will not be able to make progress without puback.
 %% NOTE: making queue and stream prefix aware here is ugly but most straightforward.
-is_restricted_filtered_topic(<<"$q/", _/binary>>) ->
-    true;
 is_restricted_filtered_topic(<<"$queue/", _/binary>>) ->
-    true;
-is_restricted_filtered_topic(<<"$s/", _/binary>>) ->
     true;
 is_restricted_filtered_topic(<<"$stream/", _/binary>>) ->
     true;
