@@ -935,7 +935,11 @@ t_connect_will_delay_with_session_expiry_0(Config) ->
     process_flag(trap_exit, true),
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),
-    Payload = "will message",
+    Payload =
+        "will message " ++ atom_to_list(?FUNCTION_NAME) ++
+            integer_to_list(
+                erlang:system_time()
+            ),
 
     {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, _} = emqtt:ConnFun(Client1),
