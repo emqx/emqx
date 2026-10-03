@@ -86,6 +86,7 @@
 -export([
     validate_heap_size/1,
     validate_max_packet_size/1,
+    validate_ws_max_frame_size/1,
     validate_non_negative_bytesize/1,
     convert_max_packet_size/2,
     user_lookup_fun_tr/2,
@@ -1056,6 +1057,7 @@ fields("ws_opts") ->
                 hoconsc:union([infinity, pos_integer()]),
                 #{
                     default => infinity,
+                    validator => fun ?MODULE:validate_ws_max_frame_size/1,
                     desc => ?DESC(fields_ws_opts_max_frame_size)
                 }
             )},
@@ -3359,6 +3361,21 @@ validate_max_packet_size(Siz) when is_integer(Siz) ->
     ok;
 validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
+
+-doc """
+Validate a WebSocket `max_frame_size`. An explicit value must not exceed the
+largest MQTT packet size. `infinity` selects the listener's default limit.
+""".
+validate_ws_max_frame_size(infinity) ->
+    ok;
+validate_ws_max_frame_size(Siz) when is_integer(Siz), Siz >= 0, Siz =< ?MAX_INT_MQTT_PACKET_SIZE ->
+    ok;
+validate_ws_max_frame_size(_Siz) ->
+    {error, #{
+        cause => invalid_ws_max_frame_size,
+        minimum => 0,
+        maximum => ?MAX_INT_MQTT_PACKET_SIZE
+    }}.
 
 validate_non_negative_bytesize(Bytes) when is_integer(Bytes), Bytes >= 0 ->
     ok;

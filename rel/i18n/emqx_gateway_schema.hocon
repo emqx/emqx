@@ -151,7 +151,11 @@ fields_ws_opts_idle_timeout.label:
 """WebSocket Upgrade Timeout"""
 
 fields_ws_opts_max_frame_size.desc:
-"""The maximum length of a single MQTT packet."""
+"""The maximum size of a single WebSocket message, in bytes.
+The limit applies to the message after its fragments are joined, and after decompression when <code>compress</code> is enabled.
+When a client sends a larger message, the gateway closes the connection with WebSocket status code 1009.<br/>
+Set it larger than the largest message that the gateway protocol accepts. The maximum value is 268435455.
+The values <code>infinity</code> and <code>0</code> are accepted for backward compatibility. They select the default value, 2097152."""
 
 fields_ws_opts_max_frame_size.label:
 """Max frame size"""
