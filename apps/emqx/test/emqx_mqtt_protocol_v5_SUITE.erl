@@ -930,6 +930,50 @@ t_connect_keepalive_timeout(Config) ->
 %    end,
 %    process_flag(trap_exit, false).
 
+%% Over ws, expiry 0 + Will Delay must still publish the will immediately.
+t_connect_will_delay_with_session_expiry_0(Config) ->
+    process_flag(trap_exit, true),
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(1, ?TOPICS),
+    Payload =
+        "will message " ++ atom_to_list(?FUNCTION_NAME) ++
+            integer_to_list(
+                erlang:system_time()
+            ),
+
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, Topic, qos2),
+
+    {ok, Client2} = emqtt:start_link([
+        {clientid, <<"t_connect_will_delay_with_session_expiry_0">>},
+        {proto_ver, v5},
+        {clean_start, true},
+        {will_flag, true},
+        {will_qos, 2},
+        {will_topic, Topic},
+        {will_payload, Payload},
+        {will_props, #{'Will-Delay-Interval' => 30}},
+        {properties, #{'Session-Expiry-Interval' => 0}},
+        {keepalive, 2}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client2),
+    timer:sleep(50),
+    erlang:exit(Client2, kill),
+
+    %% Must arrive immediately; 30s delay must not apply.
+    [Msg | _] = receive_messages(1),
+    ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
+    ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
+    ok = emqtt:disconnect(Client1),
+
+    receive
+        {'EXIT', _, killed} -> ok
+    after 100 -> ok
+    end,
+    process_flag(trap_exit, false).
+
 %% [MQTT-3.1.4-3]
 t_connect_duplicate_clientid(Config) ->
     ConnFun = ?config(conn_fun, Config),
