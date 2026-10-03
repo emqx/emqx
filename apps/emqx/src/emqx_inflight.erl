@@ -5,7 +5,8 @@
 -module(emqx_inflight).
 
 -moduledoc """
-Inflight window keyed by packet id.
+Outgoing inflight window of the MQTT session, keyed by packet id. Gateway
+channels that retransmit frames under other keys use `emqx_gateway_inflight`.
 
 Entries are stored in a map. Integer keys in the MQTT packet id range
 (1..65535) are also recorded in a sparse bitmap index: a map from chunk
@@ -16,9 +17,6 @@ The inflight also owns the packet id counter. `alloc/2` and `reserve/1`
 return the first unused packet id at or after the counter, wrapping from
 65535 to 1, and move the counter past it. `insert/3` with an explicit key
 does not move the counter.
-
-Keys outside the packet id range (gateways use other terms) are stored in
-the map only.
 
 `new/1` returns a placeholder that holds only the size limit. The record
 with the entries, the index and the counter is built on the first insert,
@@ -61,8 +59,6 @@ receives a QoS 1 or 2 message never pays for it.
 -define(LAST_CHUNK, (?MAX_ID bsr ?CHUNK_SHIFT)).
 -define(NUM_CHUNKS, (?LAST_CHUNK + 1)).
 
--type key() :: term().
-
 -type max_size() :: non_neg_integer().
 
 -type packet_id() :: 1..?MAX_ID.
@@ -73,7 +69,7 @@ receives a QoS 1 or 2 message never pays for it.
 -record(inflight, {
     %% 0 means no limit.
     max_size :: max_size(),
-    entries = #{} :: #{key() => term()},
+    entries = #{} :: #{packet_id() => term()},
     %% Packet id keys of `entries`.
     index = #{} :: index(),
     %% Where the next search for an unused packet id starts.
@@ -94,13 +90,13 @@ new() -> new(0).
 new(MaxSize) when MaxSize >= 0 ->
     ?EMPTY(MaxSize).
 
--spec contain(key(), inflight()) -> boolean().
+-spec contain(packet_id(), inflight()) -> boolean().
 contain(_Key, ?EMPTY(_)) ->
     false;
 contain(Key, #inflight{entries = Entries}) ->
     is_map_key(Key, Entries).
 
--spec lookup(key(), inflight()) -> {value, term()} | none.
+-spec lookup(packet_id(), inflight()) -> {value, term()} | none.
 lookup(_Key, ?EMPTY(_)) ->
     none;
 lookup(Key, #inflight{entries = Entries}) ->
@@ -109,23 +105,23 @@ lookup(Key, #inflight{entries = Entries}) ->
         #{} -> none
     end.
 
--spec insert(key(), Val :: term(), inflight()) -> inflight().
-insert(Key, Val, I = ?EMPTY(_)) ->
+-spec insert(packet_id(), Val :: term(), inflight()) -> inflight().
+insert(Key, Val, I = ?EMPTY(_)) when ?IS_PACKET_ID(Key) ->
     insert(Key, Val, materialize(I));
 insert(Key, _Val, #inflight{entries = Entries}) when is_map_key(Key, Entries) ->
     erlang:error({key_exists, Key});
-insert(Key, Val, I = #inflight{entries = Entries, index = Index}) ->
+insert(Key, Val, I = #inflight{entries = Entries, index = Index}) when ?IS_PACKET_ID(Key) ->
     I#inflight{entries = Entries#{Key => Val}, index = mark(Key, Index)}.
 
--spec delete(key(), inflight()) -> inflight().
+-spec delete(packet_id(), inflight()) -> inflight().
 delete(Key, I = #inflight{entries = Entries, index = Index}) when is_map_key(Key, Entries) ->
     I#inflight{entries = maps:remove(Key, Entries), index = unmark(Key, Index)}.
 
--spec update(key(), Val :: term(), inflight()) -> inflight().
+-spec update(packet_id(), Val :: term(), inflight()) -> inflight().
 update(Key, Val, I = #inflight{entries = Entries}) when is_map_key(Key, Entries) ->
     I#inflight{entries = Entries#{Key := Val}}.
 
--spec fold(fun((key(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
+-spec fold(fun((packet_id(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
 fold(_FoldFun, AccIn, ?EMPTY(_)) ->
     AccIn;
 fold(FoldFun, AccIn, #inflight{entries = Entries}) ->
@@ -157,13 +153,13 @@ values(Inflight) ->
     [Val || {_Key, Val} <- to_list(Inflight)].
 
 -doc "Return the entries, ordered by key.".
--spec to_list(inflight()) -> list({key(), term()}).
+-spec to_list(inflight()) -> list({packet_id(), term()}).
 to_list(?EMPTY(_)) ->
     [];
 to_list(#inflight{entries = Entries}) ->
     lists:keysort(1, maps:to_list(Entries)).
 
--spec to_list(fun(), inflight()) -> list({key(), term()}).
+-spec to_list(fun(), inflight()) -> list({packet_id(), term()}).
 to_list(_SortFun, ?EMPTY(_)) ->
     [];
 to_list(SortFun, #inflight{entries = Entries}) ->
@@ -270,24 +266,20 @@ next(Id) -> Id + 1.
 next_chunk(?LAST_CHUNK) -> 0;
 next_chunk(Chunk) -> Chunk + 1.
 
-mark(Key, Index) when ?IS_PACKET_ID(Key) ->
+mark(Key, Index) ->
     Chunk = Key bsr ?CHUNK_SHIFT,
     Bit = 1 bsl (Key band ?OFFSET_MASK),
-    Index#{Chunk => maps:get(Chunk, Index, 0) bor Bit};
-mark(_Key, Index) ->
-    Index.
+    Index#{Chunk => maps:get(Chunk, Index, 0) bor Bit}.
 
 %% A chunk is removed when its last bit is cleared, so that the index only
 %% holds chunks with at least one used id.
-unmark(Key, Index) when ?IS_PACKET_ID(Key) ->
+unmark(Key, Index) ->
     Chunk = Key bsr ?CHUNK_SHIFT,
     Bit = 1 bsl (Key band ?OFFSET_MASK),
     case maps:get(Chunk, Index) band (bnot Bit) of
         0 -> maps:remove(Chunk, Index);
         Bits -> Index#{Chunk := Bits}
-    end;
-unmark(_Key, Index) ->
-    Index.
+    end.
 
 %% Offset of the lowest 1 bit.
 %% Replace with a count-trailing-zeros BIF once OTP has one:

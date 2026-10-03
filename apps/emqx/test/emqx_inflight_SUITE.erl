@@ -12,35 +12,35 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_contain(_) ->
-    Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
-    ?assert(emqx_inflight:contain(k, Inflight)),
-    ?assertNot(emqx_inflight:contain(badkey, Inflight)).
+    Inflight = emqx_inflight:insert(1, v, emqx_inflight:new()),
+    ?assert(emqx_inflight:contain(1, Inflight)),
+    ?assertNot(emqx_inflight:contain(99, Inflight)).
 
 t_lookup(_) ->
-    Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
-    ?assertEqual({value, v}, emqx_inflight:lookup(k, Inflight)),
-    ?assertEqual(none, emqx_inflight:lookup(badkey, Inflight)).
+    Inflight = emqx_inflight:insert(1, v, emqx_inflight:new()),
+    ?assertEqual({value, v}, emqx_inflight:lookup(1, Inflight)),
+    ?assertEqual(none, emqx_inflight:lookup(99, Inflight)).
 
 t_insert(_) ->
     Inflight = emqx_inflight:insert(
-        b,
+        2,
         2,
         emqx_inflight:insert(
-            a, 1, emqx_inflight:new()
+            1, 1, emqx_inflight:new()
         )
     ),
     ?assertEqual(2, emqx_inflight:size(Inflight)),
-    ?assertEqual({value, 1}, emqx_inflight:lookup(a, Inflight)),
-    ?assertEqual({value, 2}, emqx_inflight:lookup(b, Inflight)),
-    ?assertError({key_exists, a}, emqx_inflight:insert(a, 1, Inflight)).
+    ?assertEqual({value, 1}, emqx_inflight:lookup(1, Inflight)),
+    ?assertEqual({value, 2}, emqx_inflight:lookup(2, Inflight)),
+    ?assertError({key_exists, 1}, emqx_inflight:insert(1, 1, Inflight)).
 
 t_update(_) ->
-    Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
-    ?assertEqual(Inflight, emqx_inflight:update(k, v, Inflight)),
-    ?assertError(function_clause, emqx_inflight:update(badkey, v, Inflight)).
+    Inflight = emqx_inflight:insert(1, v, emqx_inflight:new()),
+    ?assertEqual(Inflight, emqx_inflight:update(1, v, Inflight)),
+    ?assertError(function_clause, emqx_inflight:update(99, v, Inflight)).
 
 t_resize(_) ->
-    Inflight = emqx_inflight:insert(k, v, emqx_inflight:new(2)),
+    Inflight = emqx_inflight:insert(1, v, emqx_inflight:new(2)),
     ?assertEqual(1, emqx_inflight:size(Inflight)),
     ?assertEqual(2, emqx_inflight:max_size(Inflight)),
     Inflight1 = emqx_inflight:resize(4, Inflight),
@@ -48,27 +48,27 @@ t_resize(_) ->
     ?assertEqual(1, emqx_inflight:size(Inflight)).
 
 t_delete(_) ->
-    Inflight = emqx_inflight:insert(k, v, emqx_inflight:new(2)),
-    Inflight1 = emqx_inflight:delete(k, Inflight),
+    Inflight = emqx_inflight:insert(1, v, emqx_inflight:new(2)),
+    Inflight1 = emqx_inflight:delete(1, Inflight),
     ?assert(emqx_inflight:is_empty(Inflight1)),
-    ?assertNot(emqx_inflight:contain(k, Inflight1)).
+    ?assertNot(emqx_inflight:contain(1, Inflight1)).
 
 t_values(_) ->
     Inflight = emqx_inflight:insert(
-        b,
+        2,
         2,
         emqx_inflight:insert(
-            a, 1, emqx_inflight:new()
+            1, 1, emqx_inflight:new()
         )
     ),
     ?assertEqual([1, 2], emqx_inflight:values(Inflight)),
-    ?assertEqual([{a, 1}, {b, 2}], emqx_inflight:to_list(Inflight)).
+    ?assertEqual([{1, 1}, {2, 2}], emqx_inflight:to_list(Inflight)).
 
 t_fold(_) ->
     Inflight = maps:fold(
         fun emqx_inflight:insert/3,
         emqx_inflight:new(),
-        #{a => 1, b => 2, c => 42}
+        #{1 => 1, 2 => 2, 3 => 42}
     ),
     ?assertEqual(
         emqx_inflight:fold(fun(_, V, S) -> S + V end, 0, Inflight),
@@ -76,21 +76,21 @@ t_fold(_) ->
     ).
 
 t_is_full(_) ->
-    Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
+    Inflight = emqx_inflight:insert(1, v, emqx_inflight:new()),
     ?assertNot(emqx_inflight:is_full(Inflight)),
     Inflight1 = emqx_inflight:insert(
-        b,
+        2,
         2,
         emqx_inflight:insert(
-            a, 1, emqx_inflight:new(2)
+            1, 1, emqx_inflight:new(2)
         )
     ),
     ?assert(emqx_inflight:is_full(Inflight1)).
 
 t_is_empty(_) ->
-    Inflight = emqx_inflight:insert(a, 1, emqx_inflight:new(2)),
+    Inflight = emqx_inflight:insert(1, 1, emqx_inflight:new(2)),
     ?assertNot(emqx_inflight:is_empty(Inflight)),
-    Inflight1 = emqx_inflight:delete(a, Inflight),
+    Inflight1 = emqx_inflight:delete(1, Inflight),
     ?assert(emqx_inflight:is_empty(Inflight1)).
 
 t_to_list(_) ->
@@ -196,16 +196,15 @@ t_reserve_matches_walk(_) ->
         [0.0, 0.1, 0.5, 0.9, 0.99, 0.9999]
     ).
 
--doc "Check that keys outside the packet id range are kept out of the index.".
-t_non_packet_id_keys_not_indexed(_) ->
-    Inflight = insert_ids([0, 16#10000, -1, {1, 2}, <<"k">>], emqx_inflight:new(0)),
-    ?assertEqual(5, emqx_inflight:size(Inflight)),
-    ?assertEqual(#{}, index(Inflight)),
-    ?assertEqual({ok, 1}, free_from(1, Inflight)),
-    ?assert(
-        emqx_inflight:is_empty(
-            lists:foldl(fun emqx_inflight:delete/2, Inflight, [0, 16#10000, -1, {1, 2}, <<"k">>])
-        )
+-doc "Check that `insert/3` rejects keys outside the packet id range.".
+t_insert_rejects_non_packet_id(_) ->
+    Inflight = emqx_inflight:insert(1, v, emqx_inflight:new(0)),
+    lists:foreach(
+        fun(Key) ->
+            ?assertError(function_clause, emqx_inflight:insert(Key, v, emqx_inflight:new(0))),
+            ?assertError(function_clause, emqx_inflight:insert(Key, v, Inflight))
+        end,
+        [0, 16#10000, -1, {1, 2}, <<"k">>, k]
     ).
 
 -doc """
