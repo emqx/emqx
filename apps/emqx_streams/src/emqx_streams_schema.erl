@@ -66,7 +66,7 @@ fields(?SCHEMA_ROOT) ->
                 desc => ?DESC(auto_create),
                 default => #{
                     <<"regular">> => false,
-                    <<"lastvalue">> => #{}
+                    <<"lastvalue">> => false
                 }
             })},
         {quota,
@@ -103,7 +103,7 @@ fields(auto_create) ->
         {lastvalue,
             mk(hoconsc:union([false, ref(auto_create_lastvalue)]), #{
                 required => true,
-                default => #{},
+                default => false,
                 converter => serialize_converter(
                     fun
                         (false) ->
