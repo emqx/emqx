@@ -104,8 +104,10 @@ t_qos_counts(_) ->
     {empty, Q10} = ?Q:out(Q10).
 
 t_qos_counts_priorities(_) ->
+    %% `max_len` applies to the whole queue, so it must hold all four messages
+    %% that this case pushes.
     Q = ?Q:init(#{
-        max_len => 3,
+        max_len => 4,
         store_qos0 => true,
         priorities => #{<<"high">> => 1, <<"low">> => 0},
         shift_multiplier => 1
