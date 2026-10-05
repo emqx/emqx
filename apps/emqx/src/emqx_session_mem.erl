@@ -38,7 +38,6 @@
 -include("emqx_mqtt.hrl").
 -include("emqx_session_mem.hrl").
 -include("logger.hrl").
--include("types.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -ifdef(TEST).
@@ -66,16 +65,16 @@
 
 -export([
     publish/3,
-    puback/3,
+    puback/4,
     pubrec/2,
     pubrel/2,
-    pubcomp/3
+    pubcomp/4
 ]).
 
 -export([
     deliver/4,
     replay/3,
-    handle_timeout/3,
+    handle_timeout/4,
     handle_info/3,
     handle_signal/3,
     disconnect/2,
@@ -94,7 +93,7 @@
     export/1,
     import/2,
     enqueue/3,
-    dequeue/2,
+    dequeue/3,
     replay/2,
     dedup/2
 ]).
@@ -162,6 +161,7 @@
 -type clientinfo() :: emqx_types:clientinfo().
 -type conninfo() :: emqx_session:conninfo().
 -type replies() :: emqx_session:replies().
+-type effect() :: emqx_session:effect().
 -type effects() :: emqx_session:effects().
 
 -define(STATS_KEYS, [
@@ -179,11 +179,10 @@
     awaiting_rel_max
 ]).
 
--define(DEFAULT_BATCH_N, 1000).
-
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
 
 -define(DEQUEUE_RETRY_TIMER, retry_dequeue).
+-define(DELIVER_RETRY_TIMER, retry_delivery).
 
 %%--------------------------------------------------------------------
 %% Init a Session
@@ -582,15 +581,15 @@ dup_publish_result(#message{topic = Topic} = Msg) ->
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
--spec puback(clientinfo(), emqx_types:packet_id(), session()) ->
+-spec puback(clientinfo(), emqx_types:packet_id(), [emqx_session:connflag()], session()) ->
     {ok | effects(), emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
-puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
+puback(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_1} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
-            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Session1),
+            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Flags, Session1),
             {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
         {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
             {error, ?RC_PROTOCOL_ERROR};
@@ -641,15 +640,15 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
 %% Client -> Broker: PUBCOMP
 %%--------------------------------------------------------------------
 
--spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
+-spec pubcomp(clientinfo(), emqx_types:packet_id(), [emqx_session:connflag()], session()) ->
     {ok | effects(), emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
-pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
+pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_comp, message = #message{qos = ?QOS_2} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
-            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Session1),
+            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Flags, Session1),
             {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
         {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= ?QOS_2 ->
             {error, ?RC_PROTOCOL_ERROR};
@@ -663,62 +662,181 @@ pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
 %% Dequeue Msgs
 %%--------------------------------------------------------------------
 
-dequeue(_ClientInfo, Session = #session{mqueue = {empty, _}}) ->
+-compile(
+    {inline, [
+        dequeue_next/2,
+        finish_dequeue/6,
+        reschedule_dequeue_timer_effect/0,
+        reply/7,
+        boolean_to_int/1
+    ]}
+).
+
+dequeue(_ClientInfo, _Flags, Session = #session{mqueue = {empty, _}}) ->
     {ok, [], Session};
 dequeue(
     ClientInfo,
+    Flags,
     Session = #session{inflight = Inflight, mqueue = Q, quota = L, next_pkt_id = PktId}
 ) ->
     case emqx_mqueue:is_empty(Q) of
         true ->
             {ok, [], Session};
         false ->
+            %% NOTE
+            %% `Budget` Bounds outgoing messages, excluding expired and over-limit
+            %% messages.
             Zone = maps:get(zone, ClientInfo),
-            Count = batch_n(Inflight),
-            dequeue(ClientInfo, Zone, Session, Count, [], Q, Inflight, L, PktId)
+            Allowance = batch_n(Inflight),
+            Budget = max(emqx_inflight:max_size(Inflight), ?DEFAULT_BATCH_N),
+            Congested = lists:member(congested, Flags),
+            dequeue(
+                ClientInfo,
+                Zone,
+                Congested,
+                Session,
+                Allowance,
+                Budget,
+                [],
+                Q,
+                Inflight,
+                L,
+                PktId
+            )
     end.
 
-dequeue(_ClientInfo, _Zone, S0, 0, Acc, Q, Inflight, Limiter, PktId) ->
-    finish_delivery(ok, S0, Acc, Q, Inflight, Limiter, PktId);
-dequeue(ClientInfo, Zone, S, Count, Acc0, Q0, Inflight0, L0, PktId) ->
+-doc """
+Current dequeue policy depends on congestion status:
+ * Total budget: no more than `max(MaxInflight, ?DEFAULT_BATCH_N)` outgoing messages
+   in a single batch.
+ * Inflight allowance: number of free inflight slots or `?DEFAULT_BATCH_N`, whichever
+   is higher.
+ * Expired and over-limit messages consume neither budget nor inflight allowance.
+ * If uncongested, most common case:
+   - QoS1/2 messages consume empty inflight slots.
+   - QoS0 messages get into the batch.
+   - Once inflight is full a number of subsequent QoS0 messages gets into the batch,
+     until next in queue is QoS1/2.
+   - Batch contains messages up to total budget.
+ * If congested: every message (including QoS0) consumes inflight allowance (number
+   of free slots) until the allowance is exhausted.
+   - Batch contains messages up to inflight allowance.
+""".
+dequeue(_ClientInfo, _, _Congested = true, S, 0, _Budget, Acc, Q, Inflight, Limiter, PktId) ->
+    %% Connection congested + batch consumed inflight allowance, time to stop.
+    %% Delivery retry is deliberately not scheduled.
+    reply(ok, S, Acc, Q, Inflight, Limiter, PktId);
+dequeue(_ClientInfo, _, _Congested, S, _Allowance, _Budget = 0, Acc, Q, Inflight, Limiter, PktId) ->
+    %% Batch consumed whole budget, time to stop.
+    finish_dequeue(S, Acc, Q, Inflight, Limiter, PktId);
+dequeue(ClientInfo, Zone, Congested, S, Allowance, Budget, Acc0, Q0, Inflight0, L0, PktId) ->
     maybe
-        {{value, Msg}, Q} ?= emqx_mqueue:out(Q0),
+        {{value, Msg}, Q} ?= dequeue_next(Allowance, Q0),
         Expired = emqx_message:is_expired(Msg, Zone),
         case Expired orelse try_consume_delivery_rate_limit(Msg, L0) of
             true = _Expired ->
                 emqx_session_events:handle_event(ClientInfo, {expired, Msg}),
-                dequeue(ClientInfo, Zone, S, Count, Acc0, Q, Inflight0, L0, PktId);
+                dequeue(
+                    ClientInfo,
+                    Zone,
+                    Congested,
+                    S,
+                    Allowance,
+                    Budget,
+                    Acc0,
+                    Q,
+                    Inflight0,
+                    L0,
+                    PktId
+                );
             {true, Limiter} ->
                 case Msg#message.qos of
                     ?QOS_0 ->
                         Publish = {undefined, maybe_ack(Msg)},
                         Inflight = Inflight0,
-                        Left = Count,
+                        %% NOTE: QoS0 consumes inflight allowance under congestion.
+                        Left = Allowance - boolean_to_int(Congested),
                         NextPktId = PktId;
                     _Qos12 ->
                         Publish = {PktId, maybe_ack(Msg)},
                         Inflight = insert_inflight(PktId, Msg, Inflight0),
-                        Left = Count - 1,
+                        Left = Allowance - 1,
                         NextPktId = next_pkt_id(PktId)
                 end,
                 Acc = [Publish | Acc0],
-                dequeue(ClientInfo, Zone, S, Left, Acc, Q, Inflight, Limiter, NextPktId);
+                dequeue(
+                    ClientInfo,
+                    Zone,
+                    Congested,
+                    S,
+                    Left,
+                    Budget - 1,
+                    Acc,
+                    Q,
+                    Inflight,
+                    Limiter,
+                    NextPktId
+                );
             {false, Limiter, Reason} ->
-                NQ =
-                    case Msg#message.qos of
-                        ?QOS_0 -> Q;
-                        %% Restore previous mqueue to keep current message in there
-                        _Qos12 -> Q0
-                    end,
-                Effect = retry_dequeue_effect(Reason, NQ),
-                finish_delivery(Effect, S, Acc0, NQ, Inflight0, Limiter, PktId)
+                case Msg#message.qos of
+                    ?QOS_0 ->
+                        %% NOTE
+                        %% Limiter policy is "drop and continue": a sequence of over-limit
+                        %% QoS0 messages may be lost. Mirrors `deliver/9` policy.
+                        _ = maybe_ack(Msg),
+                        dequeue(
+                            ClientInfo,
+                            Zone,
+                            Congested,
+                            S,
+                            Allowance,
+                            Budget,
+                            Acc0,
+                            Q,
+                            Inflight0,
+                            Limiter,
+                            PktId
+                        );
+                    _Qos12 ->
+                        %% Stop at over-limit QoS1/2, retaining it and the remaining queue.
+                        Retry = retry_dequeue_effect(Reason, Q0),
+                        reply(Retry, S, Acc0, Q0, Inflight0, Limiter, PktId)
+                end
         end
     else
-        {empty, _} ->
-            finish_delivery(ok, S, Acc0, Q0, Inflight0, L0, PktId)
+        _EmptyOrBlocked when Congested ->
+            reply(ok, S, Acc0, Q0, Inflight0, L0, PktId);
+        _EmptyOrBlocked ->
+            Effect = delivery_effect(S, Inflight0),
+            reply(Effect, S, Acc0, Q0, Inflight0, L0, PktId)
     end.
 
-finish_delivery(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
+boolean_to_int(true) -> 1;
+boolean_to_int(_) -> 0.
+
+dequeue_next(Allowance, Q) when Allowance > 0 ->
+    emqx_mqueue:out(Q);
+dequeue_next(_, Q) ->
+    %% Once inflight fills, drain only the following run of QoS0 in queue order.
+    case emqx_mqueue:out(Q) of
+        {{value, #message{qos = ?QOS_0}}, _} = Result ->
+            Result;
+        _ ->
+            blocked
+    end.
+
+finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
+    Effect =
+        case emqx_mqueue:is_empty(Q) of
+            true -> delivery_effect(S0, Inflight);
+            false -> reschedule_dequeue_timer_effect()
+        end,
+    reply(Effect, S0, Acc, Q, Inflight, Limiter, PktId).
+
+reschedule_dequeue_timer_effect() ->
+    {set_timer, ?DEQUEUE_RETRY_TIMER, 1}.
+
+reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Session = S0#session{
         mqueue = Q,
         inflight = Inflight,
@@ -738,6 +856,14 @@ retry_dequeue_effect(Reason, Q) ->
 %% Broker -> Client: Deliver
 %%--------------------------------------------------------------------
 
+-compile(
+    {inline, [
+        insert_inflight/3,
+        delivery_effect/2,
+        retry_delivery_effect/1
+    ]}
+).
+
 -spec deliver(clientinfo(), [emqx_types:deliver()], [emqx_session:connflag()], session()) ->
     {ok | effects(), replies(), session()}.
 deliver(
@@ -750,7 +876,8 @@ deliver(
     deliver(ClientInfo, Congested, Session, Msgs, [], Q, Inflight, L, PktId).
 
 deliver(_ClientInfo, _Congested, S0, [], Acc, Q, Inflight, Limiter, PktId) ->
-    finish_delivery(ok, S0, Acc, Q, Inflight, Limiter, PktId);
+    OkEffect = delivery_effect(S0, Inflight),
+    reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId);
 deliver(
     ClientInfo,
     Congested,
@@ -764,45 +891,48 @@ deliver(
 ) ->
     %% Ensure `maybe_ack` is called here, even if rate limit is hit.
     Publish = {undefined, maybe_ack(Msg)},
-    InflightFull = emqx_inflight:is_full(Inflight),
-    case try_consume_delivery_rate_limit(Msg, L0) of
-        {true, Limiter} when not Congested andalso not InflightFull ->
-            %% Push QoS0 directly to the channel if no queue ordering needs to be preserved.
-            Acc = [Publish | Acc0],
-            deliver(ClientInfo, Congested, S, More, Acc, Q0, Inflight, Limiter, PktId);
-        {true, Limiter} when Congested ->
-            %% Push QoS0 to the mqueue if connection is sendq-congested.
+    QoS0Queued =
+        case Q0 of
+            {empty, _} -> false;
+            _ -> emqx_mqueue:num_qos0(Q0) > 0
+        end,
+    case Congested orelse QoS0Queued of
+        true ->
+            %% Buffer without consuming delivery quota. Charge only when sent.
             Q = enqueue_msg(ClientInfo, Msg, Q0),
-            deliver(ClientInfo, Congested, S, More, Acc0, Q, Inflight, Limiter, PktId);
-        {true, Limiter} when InflightFull ->
-            %% Push QoS0 to the mqueue if inflight is full.
-            %% This is important because if it's full, the mqueue may contain QoS0
-            %% deliveries that were not drained by recent `dequeue/2`, and that should
-            %% be seen by the client earlier than `Msg` due to ordering requirements.
-            case enqueue_msg_qos0(ClientInfo, Msg, Q0) of
-                %% Mqueue does not keep QoS0 messages anyway, push to the channel:
-                false ->
-                    Q = Q0,
-                    Acc = [Publish | Acc0];
-                Q ->
-                    Acc = Acc0
-            end,
-            deliver(ClientInfo, Congested, S, More, Acc, Q, Inflight, Limiter, PktId);
-        {false, Limiter, _Reason} ->
-            deliver(ClientInfo, Congested, S, More, Acc0, Q0, Inflight, Limiter, PktId)
+            deliver(ClientInfo, Congested, S, More, Acc0, Q, Inflight, L0, PktId);
+        false ->
+            case try_consume_delivery_rate_limit(Msg, L0) of
+                {true, Limiter} ->
+                    Acc = [Publish | Acc0],
+                    deliver(ClientInfo, Congested, S, More, Acc, Q0, Inflight, Limiter, PktId);
+                {false, Limiter, _Reason} ->
+                    %% NOTE
+                    %% Limiter policy is "drop and continue": a sequence of over-limit
+                    %% QoS0 messages may be lost. Check each message: a smaller one may
+                    %% still fit the remaining quota.
+                    deliver(ClientInfo, Congested, S, More, Acc0, Q0, Inflight, Limiter, PktId)
+            end
     end;
 deliver(
     ClientInfo,
     Congested,
     S,
-    [Msg = #message{qos = QoS} | More],
+    [Msg = #message{qos = _Qos12} | More],
     Acc0,
     Q0,
     Inflight0,
     L0,
     PktId
-) when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
+) ->
     maybe
+        %% NOTE
+        %% Earlier QoS1/2 may still await a limiter retry.
+        false ?=
+            case Q0 of
+                {empty, _} -> false;
+                _ -> emqx_mqueue:num_qos12(Q0) > 0
+            end,
         false ?= emqx_inflight:is_full(Inflight0),
         case try_consume_delivery_rate_limit(Msg, L0) of
             {true, Limiter} ->
@@ -815,12 +945,17 @@ deliver(
                 NextPktId = next_pkt_id(PktId),
                 deliver(ClientInfo, Congested, S, More, Acc, Q0, Inflight, Limiter, NextPktId);
             {false, Limiter, Reason} ->
+                %% NOTE
+                %% Stopping at over-limit QoS1/2 and postpone the remaining batch,
+                %% including QoS0. Delivery retries are not scheduled deliberately:
+                %% dequeue will schedule it once it pushes out complete under-limit
+                %% batch.
                 Q = enqueue_messages(ClientInfo, [Msg | More], Q0),
                 Effect = retry_dequeue_effect(Reason, Q),
-                finish_delivery(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
+                reply(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
         end
     else
-        _InflightFull = true ->
+        _Blocked = true ->
             Q1 =
                 case maybe_nack(Msg) of
                     true -> Q0;
@@ -828,6 +963,17 @@ deliver(
                 end,
             deliver(ClientInfo, Congested, S, More, Acc0, Q1, Inflight0, L0, PktId)
     end.
+
+delivery_effect(#session{retry_interval = Interval}, Inflight) ->
+    case emqx_inflight:is_empty(Inflight) of
+        false when is_integer(Interval) andalso Interval > 0 ->
+            retry_delivery_effect(Interval);
+        _ ->
+            ok
+    end.
+
+retry_delivery_effect(Timeout) ->
+    {set_timer, ?DELIVER_RETRY_TIMER, Timeout}.
 
 insert_inflight(PktId, Msg, Inflight) ->
     MarkedMsg = mark_begin_deliver(Msg),
@@ -879,23 +1025,6 @@ enqueue_msg(ClientInfo, Msg, Q0) ->
             Q0
     end.
 
-enqueue_msg_qos0(ClientInfo, Msg, Q) ->
-    case emqx_mqueue:in(Msg, build_mqueue(ClientInfo, Q)) of
-        {undefined, NQ} ->
-            NQ;
-        {Dropped, NQ} ->
-            emqx_session_events:handle_event(
-                ClientInfo,
-                {dropped, Dropped, #{
-                    reason => queue_full,
-                    logctx => #{queue => emqx_mqueue:info(NQ)}
-                }}
-            ),
-            NQ;
-        false ->
-            false
-    end.
-
 maybe_ack(Msg) ->
     emqx_shared_sub:maybe_ack(Msg).
 
@@ -913,15 +1042,17 @@ mark_begin_deliver(Msg) ->
 %%--------------------------------------------------------------------
 
 %% @doc Handle timeout events
--spec handle_timeout(clientinfo(), emqx_session:common_timer_name(), session()) ->
+-spec handle_timeout(
+    clientinfo(), emqx_session:common_timer_name(), [emqx_session:connflag()], session()
+) ->
     {ok | effects(), replies(), session()}
     | {ok, replies(), timeout(), session()}.
-handle_timeout(ClientInfo, retry_delivery, Session) ->
-    retry(ClientInfo, Session);
-handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
+handle_timeout(ClientInfo, expire_awaiting_rel, _Flags, Session) ->
     expire(ClientInfo, Session);
-handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
-    dequeue(ClientInfo, Session).
+handle_timeout(ClientInfo, ?DELIVER_RETRY_TIMER, _Flags, Session) ->
+    retry(ClientInfo, Session);
+handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Flags, Session) ->
+    dequeue(ClientInfo, Flags, Session).
 
 %%--------------------------------------------------------------------
 %% Geneic messages
@@ -937,7 +1068,11 @@ handle_info(_ClientInfo, _Msg, Session) ->
 -spec handle_signal(clientinfo(), term(), session()) ->
     {ok, session()} | {ok | effects(), replies(), session()}.
 handle_signal(ClientInfo, {connection, decongested, _Info}, Session) ->
-    dequeue(ClientInfo, Session);
+    %% Restart delivery retries even if dequeue has no queued messages to process.
+    {Effects, Publishes, NSession = #session{inflight = NInflight}} =
+        dequeue(ClientInfo, [], Session),
+    RetryEffect = delivery_effect(NSession, NInflight),
+    {combine_effects(RetryEffect, Effects), Publishes, NSession};
 handle_signal(_ClientInfo, _Signal, Session) ->
     {ok, Session}.
 
@@ -946,7 +1081,7 @@ handle_signal(_ClientInfo, _Signal, Session) ->
 %%--------------------------------------------------------------------
 
 -spec retry(clientinfo(), session()) ->
-    {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
+    {ok | effects(), replies(), session()}.
 retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Interval}) ->
     case emqx_inflight:is_empty(Inflight) orelse Interval =:= infinity of
         true ->
@@ -962,8 +1097,8 @@ retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Inter
             )
     end.
 
-retry_delivery(_ClientInfo, [], Acc, _, Session = #session{retry_interval = Interval}) ->
-    {ok, lists:reverse(Acc), Interval, Session};
+retry_delivery(_ClientInfo, [], Acc, _, Session = #session{inflight = Inflight}) ->
+    {delivery_effect(Session, Inflight), lists:reverse(Acc), Session};
 retry_delivery(
     ClientInfo,
     [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
@@ -977,7 +1112,7 @@ retry_delivery(
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
             retry_delivery(ClientInfo, More, Acc1, Now, Session#session{inflight = Inflight1});
         false ->
-            {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
+            {retry_delivery_effect(Interval - max(0, Age)), lists:reverse(Acc), Session}
     end.
 
 do_retry_delivery(
@@ -1058,6 +1193,12 @@ save_subopts(#session{subscriptions = Subs0} = Session0) ->
     ),
     Session0#session{subscriptions = Subs}.
 
+-doc """
+Restores the session's broker subscriptions in the calling channel process.
+This lets the new channel receive broker deliveries while takeover is still
+in progress. Completing the handover and restarting message delivery are the
+responsibility of replay.
+""".
 -spec resume(emqx_types:clientinfo(), session()) ->
     session().
 resume(_ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = Subs}) ->
@@ -1070,6 +1211,12 @@ resume(_ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions =
     ),
     Session.
 
+-doc """
+Completes delivery handover from the old channel to the new channel.
+Reconciles pending deliveries received by either channel during the subscription
+overlap, removing duplicates. Continues the session's unfinished and queued
+deliveries before processing those pending deliveries.
+""".
 -spec replay(emqx_types:clientinfo(), replayctx(), session()) ->
     {ok | effects(), replies(), session()}.
 replay(ClientInfo, TakeoverState, Session) ->
@@ -1097,13 +1244,7 @@ replay(ClientInfo, DeliversLocal, TakeoverState, Session) ->
             {OkReply, PubsResendQueued, Session1} = replay(ClientInfo, Session),
             {OkDeliver, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, [], Session1),
             Replies = append(PubsResendQueued, PubsPending),
-            case OkDeliver of
-                ok when OkReply =:= ok ->
-                    {ok, Replies, Session2};
-                _ ->
-                    Effects = [E || E <- [OkReply, OkDeliver], E =/= ok],
-                    {Effects, Replies, Session2}
-            end;
+            {combine_effects(OkReply, OkDeliver), Replies, Session2};
         {error, _} ->
             % TODO log error?
             replay(ClientInfo, Session)
@@ -1128,11 +1269,20 @@ filter_remote_pendings(ClientInfo, Session, Pendings) ->
     Pendings1 = emqx_session:enrich_delivers(ClientInfo, Pendings, Session),
     lists:filter(fun emqx_session:should_keep/1, Pendings1).
 
+-doc """
+Restarts delivery of messages already held by the session when a connection is ready
+again. Retransmits inflight PUBLISH and PUBREL messages, then resumes draining the
+message queue within dequeue limits.
+Assumes an uncongested connection.
+Also used when an MQTT-SN client wakes up.
+Takeover coordination and pending deliveries in channel mailboxes are the
+responsibility of the caller.
+""".
 -spec replay(emqx_types:clientinfo(), session()) ->
     {ok | effects(), replies(), session()}.
 replay(ClientInfo, Session) ->
     %% Inflight messages are resent verbatim without an expiry check, unlike the
-    %% queued messages dropped on expiry by dequeue/4. This asymmetry is intentional:
+    %% queued messages dropped on expiry by dequeue/3. This asymmetry is intentional:
     %% per [MQTT-3.3.2-5] an expired message is only deleted if onward delivery has
     %% not started; an inflight message was already sent (awaiting PUBACK/PUBREC/
     %% PUBCOMP), so its delivery must be completed regardless of Message-Expiry-Interval.
@@ -1145,7 +1295,9 @@ replay(ClientInfo, Session) ->
         end,
         emqx_inflight:to_list(Session#session.inflight)
     ),
-    {OkEffect, More, Session1} = dequeue(ClientInfo, Session),
+    %% Replay runs on an uncongested connection.
+    {OkEffect, More, Session1} = dequeue(ClientInfo, [], Session),
+    %% TODO: Arm delivery retries for replayed inflight messages as well.
     {OkEffect, append(PubsResend, More), Session1}.
 
 -spec dedup([emqx_types:message()], [emqx_types:message()]) ->
@@ -1160,12 +1312,21 @@ dedup(Pendings, PendingsLocal) ->
 append(L1, []) -> L1;
 append(L1, L2) -> L1 ++ L2.
 
+-spec combine_effects(ok | effect(), ok | effects()) -> ok | effects().
+combine_effects(ok, OkEffect) -> OkEffect;
+combine_effects(OkEffect, ok) -> OkEffect;
+combine_effects(Effect, Effect) -> Effect;
+combine_effects(E1, E2) -> [E1, E2].
+
 %%--------------------------------------------------------------------
 
--spec disconnect(session(), emqx_types:conninfo()) -> {idle, session()}.
+-spec disconnect(session(), emqx_types:conninfo()) -> {idle, effects(), session()}.
 disconnect(Session = #session{}, _ConnInfo) ->
-    % TODO: isolate expiry timer / timeout handling here?
-    {idle, Session}.
+    Effects = [
+        {reset_timer, ?DELIVER_RETRY_TIMER, infinity},
+        {reset_timer, ?DEQUEUE_RETRY_TIMER, infinity}
+    ],
+    {idle, Effects, Session}.
 
 -spec terminate(emqx_types:clientinfo(), _Reason, session()) -> ok.
 terminate(_ClienInfo, Reason, Session) ->
@@ -1335,8 +1496,13 @@ without_inflight_insert_ts(#message{extra = Extra} = Msg) ->
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of
-        0 -> ?DEFAULT_BATCH_N;
-        Sz -> Sz - emqx_inflight:size(Inflight)
+        0 ->
+            ?DEFAULT_BATCH_N;
+        Sz ->
+            %% NOTE
+            %% A connection inheriting existing session may advertise Receive-Maximum
+            %% lower than the number of outstanding publishes.
+            max(0, Sz - emqx_inflight:size(Inflight))
     end.
 
 with_ts(#message{extra = Extra} = Msg) ->
