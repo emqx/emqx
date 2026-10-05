@@ -1312,17 +1312,26 @@ readable_error_msg(#{
 readable_error_msg(#{
     msg := "plugin_app_loaded_outside_package",
     name := AppName,
-    expected_ebin := _ExpectedEbin,
-    loaded_ebin := _LoadedEbin
+    expected_ebin := ExpectedEbin,
+    loaded_ebin := LoadedEbin
 }) ->
-    iolist_to_binary([
-        "plugin_app_loaded_outside_package: Plugin application ",
-        atom_to_binary(AppName),
-        " is already loaded outside this plugin package. A package can bundle an application "
-        "that another plugin has loaded only when the two .app files are identical. "
-        "Rebuild the plugin with the loaded version, or remove the conflicting code path and "
-        "restart the node, then retry."
-    ]);
+    case other_plugin_version(ExpectedEbin, LoadedEbin) of
+        {ok, OtherNameVsn} ->
+            iolist_to_binary([
+                "plugin_app_loaded_outside_package: Plugin ",
+                OtherNameVsn,
+                " is loaded. Uninstall it or restart the node, then retry."
+            ]);
+        error ->
+            iolist_to_binary([
+                "plugin_app_loaded_outside_package: Plugin application ",
+                atom_to_binary(AppName),
+                " is already loaded outside this plugin package. A package can bundle an "
+                "application that another plugin has loaded only when the two .app files are "
+                "identical. Rebuild the plugin with the loaded version, or remove the conflicting "
+                "code path and restart the node, then retry."
+            ])
+    end;
 readable_error_msg(#{
     msg := "bad_default_hocon_file",
     reason := _Reason
@@ -1414,6 +1423,29 @@ readable_error_msg(#{
     ]);
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).
+
+%% The name-vsn of the plugin that loaded the application, when it is another
+%% version of the plugin that is being installed.  `LoadedEbin' is
+%% `{error, bad_name}' when the loaded application has no directory in the
+%% code path.
+other_plugin_version(ExpectedEbin, LoadedEbin) when is_list(LoadedEbin) ->
+    maybe
+        {ok, NameVsn} ?= emqx_plugins_fs:name_vsn_of_path(ExpectedEbin),
+        {ok, LoadedNameVsn} ?= emqx_plugins_fs:name_vsn_of_path(LoadedEbin),
+        true ?= LoadedNameVsn =/= NameVsn,
+        true ?= plugin_name(LoadedNameVsn) =:= plugin_name(NameVsn),
+        {ok, LoadedNameVsn}
+    else
+        _ -> error
+    end;
+other_plugin_version(_ExpectedEbin, _LoadedEbin) ->
+    error.
+
+plugin_name(NameVsn) ->
+    case string:split(NameVsn, "-") of
+        [Name, _Vsn] -> Name;
+        _ -> NameVsn
+    end.
 
 -ifdef(TEST).
 
