@@ -2,7 +2,8 @@ name: 'Restore dependency cache'
 description: >-
   Restore deps/, mix.lock and the compiled dependencies under _build/<profile>/lib.
   mix.lock is not checked in, so the key hashes the dependency declarations
-  (mix.exs and apps/*/mix.exs) together with the toolchain and build inputs.
+  (mix.exs and apps/*/mix.exs, without the app version lines) together with the
+  toolchain and build inputs.
   Pair it with deps-cache-save.
 inputs:
   profiles:
@@ -49,9 +50,17 @@ runs:
         hash_files() {
           sha256 "$@" | LC_ALL=C sort -k 2 | sha256 | cut -c1-16
         }
+        # Same as hash_files, but skips the `version: "..."` line, so an app
+        # version bump does not change the key.
+        hash_mix_files() {
+          local f
+          for f in "$@"; do
+            printf '%s  %s\n' "$(grep -v '^[[:space:]]*version: "' "$f" | sha256 | cut -d' ' -f1)" "$f"
+          done | LC_ALL=C sort -k 2 | sha256 | cut -c1-16
+        }
         # shellcheck disable=SC2086
         build_hash="$(hash_files env.sh build scripts/ensure-rebar3.sh $BUILD_INPUTS)"
-        deps_hash="$(hash_files mix.exs apps/*/mix.exs)"
+        deps_hash="$(hash_mix_files mix.exs apps/*/mix.exs)"
         toolchain_id="${TOOLCHAIN//[^A-Za-z0-9._-]/-}"
         profiles_id="${PROFILES// /-}"
         echo "key=${PREFIX}-${toolchain_id}-${profiles_id}-build${build_hash}-deps${deps_hash}" >> "$GITHUB_OUTPUT"

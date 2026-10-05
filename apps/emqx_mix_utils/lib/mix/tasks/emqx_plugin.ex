@@ -123,24 +123,54 @@ defmodule Mix.Tasks.Emqx.Plugin do
     to_bin([app_name, "-", to_string(vsn)])
   end
 
+  # The package holds the applications listed in `rel_apps` and their
+  # dependencies, except the dependencies that the EMQX release provides.
   defp expand_release_apps!(release_apps) do
-    do_expand_release_apps!(release_apps, MapSet.new(), [])
+    emqx_apps = emqx_release_apps!()
+
+    expand_app_deps(release_apps, fn app ->
+      app |> packageable_app_deps() |> Enum.reject(&MapSet.member?(emqx_apps, &1))
+    end)
   end
 
-  defp do_expand_release_apps!([], _seen, acc), do: Enum.reverse(acc)
+  # The applications of the EMQX release that are built in the umbrella,
+  # including the dependencies they pull in.  A plugin shares the umbrella's
+  # dependencies, lock file and build directory, so each of them is the same
+  # version as the plugin would bundle.
+  defp emqx_release_apps!() do
+    if not Code.ensure_loaded?(EMQXUmbrella.MixProject) do
+      Mix.raise("The EMQX umbrella project is not loaded, can not list the release applications")
+    end
 
-  defp do_expand_release_apps!([app | rest], seen, acc) do
+    umbrella_root = Path.dirname(build_path())
+
+    top_apps =
+      File.cd!(umbrella_root, fn ->
+        EMQXUmbrella.MixProject.applications(:standard, :enterprise)
+      end)
+      |> Enum.map(fn {app, _mode} -> app end)
+      |> Enum.filter(&packageable_app?/1)
+
+    top_apps |> expand_app_deps(&packageable_app_deps/1) |> MapSet.new()
+  end
+
+  # `apps` and the applications reached from them through `deps_fun`.
+  defp expand_app_deps(apps, deps_fun) do
+    do_expand_app_deps(apps, deps_fun, MapSet.new(), [])
+  end
+
+  defp do_expand_app_deps([], _deps_fun, _seen, acc), do: Enum.reverse(acc)
+
+  defp do_expand_app_deps([app | rest], deps_fun, seen, acc) do
     if MapSet.member?(seen, app) do
-      do_expand_release_apps!(rest, seen, acc)
+      do_expand_app_deps(rest, deps_fun, seen, acc)
     else
-      app_name = Atom.to_string(app)
-      deps = packageable_app_deps(app_name)
-      do_expand_release_apps!(rest ++ deps, MapSet.put(seen, app), [app | acc])
+      do_expand_app_deps(rest ++ deps_fun.(app), deps_fun, MapSet.put(seen, app), [app | acc])
     end
   end
 
-  defp packageable_app_deps(app_name) do
-    props = compiled_app_props!(app_name)
+  defp packageable_app_deps(app) do
+    props = compiled_app_props!(Atom.to_string(app))
 
     deps =
       Keyword.get(props, :applications, []) ++
@@ -256,22 +286,17 @@ defmodule Mix.Tasks.Emqx.Plugin do
 
   defp plugin_build_lib_dir() do
     profile = System.get_env("PROFILE", "emqx-enterprise")
-
-    build_path =
-      Mix.Project.config()
-      |> Keyword.fetch!(:build_path)
-      |> Path.expand()
-
-    Path.join([build_path, profile, "lib"])
+    Path.join([build_path(), profile, "lib"])
   end
 
   defp plugin_pkg_out_dir() do
-    build_path =
-      Mix.Project.config()
-      |> Keyword.fetch!(:build_path)
-      |> Path.expand()
+    Path.join([build_path(), "plugins"])
+  end
 
-    Path.join([build_path, "plugins"])
+  defp build_path() do
+    Mix.Project.config()
+    |> Keyword.fetch!(:build_path)
+    |> Path.expand()
   end
 
   defp app_name_from_vsn(name_vsn) do

@@ -78,6 +78,7 @@
     ensure_enabled/2,
     ensure_enabled/3,
     ensure_disabled/1,
+    publish_state/1,
     delete_state/1,
     purge/1,
     write_package/2,
@@ -470,6 +471,19 @@ ensure_enabled(NameVsn, Position, ConfLocation) when
 ensure_disabled(NameVsn) ->
     ensure_state(NameVsn, no_move, false, _ConfLocation = local).
 
+-doc """
+Write this node's `plugins.states` entry of the plugin to the cluster config.
+Do nothing when the plugin is not configured.
+""".
+-spec publish_state(name_vsn()) -> ok | {error, any()}.
+publish_state(NameVsn) ->
+    case find_configured(NameVsn) of
+        {ok, #{name_vsn := NV, enable := Enable}} ->
+            ensure_state(NV, no_move, Enable, global);
+        error ->
+            ok
+    end.
+
 %% @doc Delete extracted dir
 %% In case one lib is shared by multiple plugins.
 %% it might be the case that purging one plugin's install dir
@@ -529,39 +543,39 @@ purge_other_versions(NameVsn) ->
     emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
         {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
         AppNameBin = bin(AppName),
+        AppVsnBin = bin(AppVsn),
         ?SLOG(debug, #{
             msg => "purge_plugin_other_versions",
             keep_plugin => NameVsn,
             reason => "cluster_sync"
         }),
         lists:foreach(
-            fun
-                (#{name := Name, rel_vsn := RelVsn}) when
-                    AppNameBin =:= Name, AppVsn =:= RelVsn
-                ->
-                    ok;
-                (#{name := Name, rel_vsn := RelVsn}) ->
-                    case AppNameBin =:= Name of
-                        true ->
-                            NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
-                            maybe
-                                ok ?= ensure_stopped(NameVsn1),
-                                ok ?= ensure_uninstalled(NameVsn1)
-                            else
-                                {error, Reason} ->
-                                    ?SLOG(error, #{
-                                        msg => "failed_to_purge_plugin",
-                                        name_vsn => NameVsn1,
-                                        reason => Reason
-                                    })
-                            end;
-                        false ->
-                            ok
-                    end
-            end,
+            fun(Plugin) -> purge_other_version(AppNameBin, AppVsnBin, Plugin) end,
             emqx_plugins:list()
         )
     end).
+
+%% Purge one installed plugin. Keep the given name and version, and keep every
+%% plugin with a different name.
+purge_other_version(NameBin, VsnBin, #{name := NameBin, rel_vsn := VsnBin}) ->
+    ok;
+purge_other_version(NameBin, _VsnBin, #{name := NameBin, rel_vsn := RelVsn}) ->
+    NameVsn = emqx_plugins_utils:make_name_vsn_string(NameBin, RelVsn),
+    maybe
+        %% Stopping stops the applications by name, whatever
+        %% their version, so stop only the version that runs.
+        ok ?= maybe_stop_plugin(NameVsn),
+        ok ?= ensure_uninstalled(NameVsn)
+    else
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_purge_plugin",
+                name_vsn => NameVsn,
+                reason => Reason
+            })
+    end;
+purge_other_version(_NameBin, _VsnBin, #{}) ->
+    ok.
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok | {error, term()}.
@@ -1551,27 +1565,24 @@ unload_other_versions([NameVsn | Rest]) ->
             {error, Reason}
     end.
 
+%% Record the plugin in `plugins.states' only when it is not configured yet.
+%% A configured plugin keeps its entry as it is, so starting the plugins
+%% application does not write to the cluster config.
 ensure_state(NameVsn) ->
-    EnsureStateFun = fun(#{name_vsn := NV, enable := Bool}, AccIn) ->
-        case NV of
-            NameVsn ->
-                %% Configured, using existed cluster config
-                _ = ensure_state(NV, no_move, Bool, global),
-                AccIn#{ensured => true};
-            _ ->
-                AccIn
-        end
-    end,
-    case lists:foldl(EnsureStateFun, #{ensured => false}, configured()) of
-        #{ensured := true} ->
+    case find_configured(NameVsn) of
+        {ok, _} ->
             ok;
-        #{ensured := false} ->
+        error ->
             ?SLOG(info, #{msg => "plugin_not_configured", name_vsn => NameVsn}),
-            %% Clean installation, no config, ensure with `Enable = false`
             _ = ensure_state(NameVsn, no_move, false, global),
             ok
-    end,
-    ok.
+    end.
+
+find_configured(NameVsn) ->
+    case lists:search(fun(#{name_vsn := NV}) -> bin(NV) =:= bin(NameVsn) end, configured()) of
+        {value, Item} -> {ok, Item};
+        false -> error
+    end.
 
 ensure_local_config(NameVsn, Mode) ->
     case emqx_plugins_fs:ensure_config_dir(NameVsn) of
@@ -1729,7 +1740,7 @@ ensure_config_bin(AvroJson) ->
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
 bin_key(List = [#{} | _]) ->
-    lists:map(fun(M) -> bin_key(M) end, List);
+    lists:map(fun bin_key/1, List);
 bin_key(Term) ->
     Term.
 
