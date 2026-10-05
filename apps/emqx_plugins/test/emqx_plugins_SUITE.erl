@@ -559,6 +559,35 @@ t_enable_disable(Config) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_disabled(NameVsn)),
     ok.
 
+-doc """
+`ensure_installed/0' runs when the plugins application starts.
+For a plugin that is already configured, it must not write `plugins.states'
+through cluster RPC.
+""".
+t_boot_install_does_not_write_states({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_boot_install_does_not_write_states({'end', Config}) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_disabled(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn);
+t_boot_install_does_not_write_states(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_enabled(NameVsn, no_move, global),
+    Configured = emqx_plugins:configured(),
+    TnxId = emqx_cluster_rpc:latest_tnx_id(),
+    ok = emqx_plugins:ensure_installed(),
+    ?assertEqual(TnxId, emqx_cluster_rpc:latest_tnx_id()),
+    ?assertEqual(Configured, emqx_plugins:configured()),
+    %% A binary name-vsn matches the configured string entry as well.
+    ok = emqx_plugins:ensure_installed(bin(NameVsn)),
+    ?assertEqual(TnxId, emqx_cluster_rpc:latest_tnx_id()),
+    ?assertEqual(Configured, emqx_plugins:configured()),
+    ok.
+
 %% The applications of the plugin that are running from its install directory.
 %% `emqx_plugins_apps:running_status/1' with a name-vsn compares the release vsn
 %% with the application vsn, which differ for the demo package, so check the
@@ -2244,6 +2273,59 @@ t_install_package_rpc(_Config) ->
     ),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok.
+
+-doc """
+A node-local `plugins.states' that differs from the cluster config must not
+be published to the other nodes when the plugins application starts on that
+node.
+""".
+t_boot_install_does_not_publish_local_states({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_boot_no_publish1, #{role => core, apps => [emqx, emqx_conf, emqx_ctl]}},
+            {t_boot_no_publish2, #{role => core, apps => [emqx, emqx_conf, emqx_ctl]}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    lists:foreach(
+        fun(#{work_dir := WorkDir}) ->
+            Destination = filename:join([WorkDir, "plugins", filename:basename(Package)]),
+            ok = filelib:ensure_dir(Destination),
+            {ok, _} = file:copy(Package, Destination)
+        end,
+        Specs
+    ),
+    [{ok, _}, {ok, _}] = erpc:multicall(Nodes, emqx_cth_suite, start_app, [
+        emqx_plugins,
+        #{config => #{plugins => #{install_dir => <<"plugins">>}}}
+    ]),
+    [{nodes, Nodes}, {name_vsn, NameVsn} | Config];
+t_boot_install_does_not_publish_local_states({'end', Config}) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config));
+t_boot_install_does_not_publish_local_states(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    NameVsn = ?config(name_vsn, Config),
+    ok = ?ON(N1, emqx_plugins:ensure_installed(NameVsn)),
+    Expected = [{bin(NameVsn), false}],
+    ?assertEqual(Expected, configured_states(N1)),
+    ?assertEqual(Expected, configured_states(N2)),
+    %% Node-local override on N2, as from `etc/emqx.conf' or an env var.
+    ok = ?ON(N2, emqx_config:put([plugins, states], [#{name_vsn => NameVsn, enable => true}])),
+    TnxId = ?ON(N1, emqx_cluster_rpc:latest_tnx_id()),
+    ok = ?ON(N2, emqx_plugins:ensure_installed()),
+    ?assertEqual(TnxId, ?ON(N1, emqx_cluster_rpc:latest_tnx_id())),
+    ?assertEqual(Expected, configured_states(N1)),
+    ?assertEqual([{bin(NameVsn), true}], configured_states(N2)),
+    ok.
+
+configured_states(Node) ->
+    [
+        {bin(NV), Enable}
+     || #{name_vsn := NV, enable := Enable} <- ?ON(Node, emqx_plugins:configured())
+    ].
 
 t_fresh_install_skips_peer_config({init, Config}) ->
     Config;

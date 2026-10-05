@@ -17,8 +17,13 @@ options:
 
   -b|--base:
     The base branch of current working branch if currently is not
-    on one of the supported branches: patch-*, release-5[5-9],
-    release-510, or release-6*.
+    on one of the supported branches: rel-M.N.P, patch-*,
+    release-5[5-9], release-510, or release-6*.
+
+    For a rel-M.N.P branch, which holds a release in code freeze, the
+    merge checks that branch against its own remote. The release line
+    is not merged in: it carries changes that ship in the next patch,
+    not in this release.
 
   -i|--interactive:
     With this option, the script will try to merge upstream
@@ -77,14 +82,19 @@ done
 CURRENT_BRANCH="$(git branch --show-current)"
 BASE_BRANCH="${BASE_BRANCH:-${CURRENT_BRANCH}}"
 
+## A release in code freeze lives on rel-M.N.P, cut from its line branch.
+is_freeze_branch() {
+    [[ "$1" =~ ^rel-[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
 is_supported_release_branch() {
     local branch="$1"
-    [[ "$branch" == patch-* ]] || [[ "$branch" =~ ^release-(5[5-9]|510|6[0-9]+)$ ]]
+    is_freeze_branch "$branch" || [[ "$branch" == patch-* ]] || [[ "$branch" =~ ^release-(5[5-9]|510|6[0-9]+)$ ]]
 }
 
 if ! is_supported_release_branch "$BASE_BRANCH"; then
     logerr "Cannot work with branch $BASE_BRANCH"
-    logerr "The release base branch must be patch-*, release-5[5-9], release-510, or release-6*"
+    logerr "The release base branch must be rel-M.N.P, patch-*, release-5[5-9], release-510, or release-6*"
     logerr "Change work branch to one of the above."
     logerr "OR: use -b|--base to specify from which base branch is current working branch created"
     exit 1
@@ -115,6 +125,11 @@ remote_ref() {
     local branch="$1"
     echo "${GIT_REMOTE}/${branch}"
 }
+
+if is_freeze_branch "$BASE_BRANCH"; then
+    logmsg "$BASE_BRANCH holds a release in code freeze."
+    logmsg "Checking it against its own remote only; the release line is expected to have moved on."
+fi
 
 REMOTE_REF="$(remote_ref "$BASE_BRANCH")"
 if [ "$DRYRUN" = 'yes' ]; then
