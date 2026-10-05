@@ -573,7 +573,7 @@ do_get_status(Conn, ConnState) ->
     end.
 
 -spec validate_table_existence([pid()], binary(), infinity | integer()) ->
-    ok | {error, {unhealthy_target, undefined_table}}.
+    ok | {error, {unhealthy_target, undefined_table} | term()}.
 validate_table_existence([WorkerPid | Rest], SQL, Deadline) ->
     Timeout = timeout(Deadline),
     try
@@ -600,7 +600,7 @@ validate_table_existence([WorkerPid | Rest], SQL, Deadline) ->
             validate_table_existence(Rest, SQL, Deadline)
     end;
 validate_table_existence([], _SQL, _Deadline) ->
-    %% All workers either replied an unexpected error; we will retry
+    %% All workers either replied an unexpected error, timed out or crashed; we will retry
     %% on the next health check.
     ok.
 
