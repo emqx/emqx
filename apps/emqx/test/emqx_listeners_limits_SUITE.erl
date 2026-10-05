@@ -11,6 +11,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     [{group, Group} || {Group, _} <- groups()].
@@ -66,6 +67,13 @@ t_max_conns(Config) ->
         assert_connect_refused("127.0.0.1", Port, Config),
         %% Cleanup:
         lists:foreach(fun emqtt:disconnect/1, Clients),
+        %% The listener frees a slot only once the connection process exits,
+        %% which happens after emqtt:disconnect/1 returns.
+        ?retry(
+            100,
+            20,
+            ?assertEqual(0, emqx_listeners:current_conns(ListenerId, {{127, 0, 0, 1}, Port}))
+        ),
         %% One more client is now allowed:
         ExtraClient = emqtt_connect("127.0.0.1", Port, Config),
         pong = emqtt:ping(ExtraClient),
