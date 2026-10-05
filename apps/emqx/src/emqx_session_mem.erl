@@ -92,6 +92,8 @@
     resume/2,
     export/1,
     import/2,
+    import/4,
+    new_mqueue/1,
     enqueue/3,
     dequeue/3,
     replay/2,
@@ -138,6 +140,8 @@
 -type replayctx() :: emqx_cm_takeover:channelref().
 
 -type exported() :: #{
+    %% See `emqx_session_mem_compat` for when to increase it.
+    vsn => pos_integer(),
     id := session_id(),
     is_persistent := boolean(),
     subscriptions := #{emqx_types:topic() => emqx_types:subopts()},
@@ -180,6 +184,9 @@
 ]).
 
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
+
+%% The version of the map that `export/1` returns.
+-define(EXPORT_VSN, 1).
 
 -define(DEQUEUE_RETRY_TIMER, retry_dequeue).
 -define(DELIVER_RETRY_TIMER, retry_delivery).
@@ -238,6 +245,11 @@ empty_mqueue(Zone) ->
         end,
     {empty, MaxLen}.
 
+-doc "Build an empty mqueue from the zone configuration of the client.".
+-spec new_mqueue(clientinfo()) -> emqx_mqueue:mqueue().
+new_mqueue(ClientInfo = #{zone := Zone}) ->
+    build_mqueue(ClientInfo, empty_mqueue(Zone)).
+
 %% Returns the queue itself, or builds one from the zone config for an
 %% `{empty, MaxLen}` placeholder.
 build_mqueue(#{zone := Zone}, {empty, MaxLen}) ->
@@ -274,15 +286,23 @@ destroy(_Session) ->
 open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, ChannelRef, ExportedSession} ->
-            SessionRemote = import(ClientInfo, ExportedSession),
-            Session0 = resume(ClientInfo, SessionRemote),
-            Session1 = resize_inflight(ConnInfo, Session0),
-            Session2 = apply_conf(ClientInfo, Conf, Session1),
-            Session = filter_remote_session(Session2),
+            Session0 = import(ClientInfo, ConnInfo, Conf, ExportedSession),
+            Session = resume(ClientInfo, Session0),
             {true, Session, ChannelRef};
         none ->
             false
     end.
+
+-doc """
+Import a session exported on another node, and give it this node's inflight
+window and session configuration.
+""".
+-spec import(clientinfo(), conninfo(), emqx_session:conf(), exported()) -> session().
+import(ClientInfo, ConnInfo, Conf, Exported) ->
+    Session0 = import(ClientInfo, Exported),
+    Session1 = resize_inflight(ConnInfo, Session0),
+    Session2 = apply_conf(ClientInfo, Conf, Session1),
+    filter_remote_session(Session2).
 
 resize_inflight(#{receive_maximum := ReceiveMax}, Session = #session{inflight = Inflight}) ->
     Session#session{
@@ -317,6 +337,7 @@ export(#session{
     created_at = CreatedAt
 }) ->
     #{
+        vsn => ?EXPORT_VSN,
         id => Id,
         is_persistent => IsPersistent,
         subscriptions => Subscriptions,

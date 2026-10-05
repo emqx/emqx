@@ -1,0 +1,40 @@
+%% Frozen `#session{}` terms of EMQX 6.3.0 to 6.3.2 (`v63` layout), as an MQTT-SN
+%% channel of those versions sends them, with the `#mqueue{}` of 6.3.0 and 6.3.1. The
+%% non-empty mqueue stores QoS 0 messages.
+%% Do not regenerate: these terms stand for what older nodes send.
+
+{nonempty,
+    {session, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 170>>, true,
+        #{<<"t/#">> => #{nl => 0, qos => 1, rap => 0, rh => 0}}, infinity, false,
+        {inflight, 1,
+            {1,
+                {1,
+                    {inflight_data, wait_ack,
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 1, <<"c1">>,
+                            #{dup => false}, #{}, <<"t/1">>, <<"inflight">>, 1759600000002, #{}},
+                        1759600000010},
+                    nil, nil}}},
+        {mqueue, true, 1000, 0, 8,
+            {qos0, default,
+                [
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 1, <<"c1">>,
+                        #{dup => false}, #{}, <<"t/2">>, <<"queued">>, 1759600000003, #{
+                            mqueue_insert_ts => 1791192710419889024
+                        }}
+                ],
+                [], ['$switch'],
+                [
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 0, <<"c1">>,
+                        #{dup => false}, #{}, <<"t/0">>, <<"q0">>, 1759600000001, #{
+                            mqueue_insert_ts => 1791192710416513322
+                        }}
+                ],
+                2},
+            disabled, undefined},
+        false, 2, 30000, #{}, 100, 300000, 1759600000000}}.
+
+{empty,
+    {session, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 171>>, false, #{}, infinity, false,
+        {inflight, 1, {0, nil}},
+        {mqueue, true, 1000, 0, 0, {queue, [], [], 0}, disabled, undefined}, false, 1, 30000, #{},
+        100, 300000, 1759600000000}}.

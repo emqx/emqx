@@ -1626,6 +1626,7 @@ t_export_import(_) ->
         emqx_session_mem:deliver(clientinfo(), [Msg1], [], Session0),
     Session2 = emqx_session_mem:enqueue(clientinfo(), [Msg2], Session1),
     Persistent = emqx_session_mem:export(Session2),
+    ?assertEqual(1, maps:get(vsn, Persistent)),
     ?assertNot(maps:is_key(clientid, Persistent)),
     ?assertNot(maps:is_key(max_subscriptions, Persistent)),
     ?assertNot(maps:is_key(upgrade_qos, Persistent)),
@@ -1660,12 +1661,34 @@ placeholder mqueue for the importing zone.
 """.
 t_export_import_empty_mqueue(_) ->
     Persistent = emqx_session_mem:export(session()),
+    ?assertEqual(1, maps:get(vsn, Persistent)),
     ?assertEqual([], maps:get(mqueue, Persistent)),
     Session = emqx_session_mem:import(
         clientinfo(#{zone => default, listener => 'tcp:default'}),
         Persistent
     ),
     ?assertMatch(#session{mqueue = {empty, 1000}}, Session).
+
+-doc """
+Check that `import/4` gives an imported session the inflight window and the
+session configuration of the importing node.
+""".
+t_import_with_conf(_) ->
+    Msg = emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload1">>),
+    Exported = emqx_session_mem:export(emqx_session_mem:enqueue(clientinfo(), [Msg], session())),
+    ClientInfo = clientinfo(#{zone => default, listener => 'tcp:default'}),
+    Conf = (emqx_session:get_session_conf(ClientInfo))#{
+        max_subscriptions => 7,
+        retry_interval => 42,
+        enable_quota => false
+    },
+    Session = emqx_session_mem:import(
+        ClientInfo, #{receive_maximum => 3, expiry_interval => 0}, Conf, Exported
+    ),
+    ?assertEqual(3, emqx_session_mem:info(inflight_max, Session)),
+    ?assertEqual(7, emqx_session_mem:info(subscriptions_max, Session)),
+    ?assertEqual(42, emqx_session_mem:info(retry_interval, Session)),
+    ?assertEqual([Msg], emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session))).
 
 t_replay(_) ->
     Session = session(),

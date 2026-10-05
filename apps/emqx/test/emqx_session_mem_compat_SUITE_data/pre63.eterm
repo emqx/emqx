@@ -1,0 +1,27 @@
+%% Frozen `#session{}` term of EMQX 5.8 to 6.2 (`pre63` layout).
+%% Do not regenerate: this term stands for what older nodes send.
+
+{nonempty,
+    {session, <<"c1">>, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 172>>, true,
+        #{<<"t/#">> => #{nl => 0, qos => 1, rap => 0, rh => 0}}, infinity, false,
+        {inflight, 1,
+            {1,
+                {1,
+                    {inflight_data, wait_ack,
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 1, <<"c1">>,
+                            #{dup => false}, #{}, <<"t/1">>, <<"inflight">>, 1759600000002, #{}},
+                        1759600000010},
+                    nil, nil}}},
+        {mqueue, true, 1000, 2, 0, disabled, 0,
+            {queue,
+                [
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 1, <<"c1">>,
+                        #{dup => false}, #{}, <<"t/2">>, <<"queued">>, 1759600000003, #{}}
+                ],
+                [
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 0, <<"c1">>,
+                        #{dup => false}, #{}, <<"t/0">>, <<"q0">>, 1759600000001, #{}}
+                ],
+                2},
+            {shift_opts, 10, 0}, undefined, undefined},
+        2, 30000, #{}, 100, 300000, 1759600000000}}.
