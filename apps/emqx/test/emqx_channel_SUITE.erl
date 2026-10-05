@@ -524,17 +524,16 @@ t_handle_in_puback_ok(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _PacketId, _ReasonCode, Session) -> {ok, Msg, [], Session} end
+        fun(_, _PacketId, _ReasonCode, [congested], Session) -> {ok, Msg, [], Session} end
     ),
-    Channel = channel(#{conn_state => connected}),
+    Channel = channel(#{conn_state => connected, conn_flags => [congested]}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
-% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
 
 t_handle_in_puback_id_in_use(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _, _ReasonCode, _Session) ->
+        fun(_, _, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
         end
     ),
@@ -545,12 +544,11 @@ t_handle_in_puback_id_not_found(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _, _ReasonCode, _Session) ->
+        fun(_, _, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
-% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_bad_receive_maximum(_) ->
     mock_cm_open_session(),
@@ -657,15 +655,21 @@ assert_ack_flood_bounded_log(Send, MsgStr) ->
     ?assertEqual(N, Count(debug)).
 
 t_handle_in_pubcomp_ok(_) ->
-    ok = meck:expect(emqx_session, pubcomp, fun(_, _, _ReasonCode, Session) -> {ok, [], Session} end),
-    {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
-% ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
+    ok = meck:expect(
+        emqx_session,
+        pubcomp,
+        fun(_, _, _ReasonCode, [congested], Session) ->
+            {ok, [], Session}
+        end
+    ),
+    Channel = channel(#{conn_state => connected, conn_flags => [congested]}),
+    {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubcomp_not_found_error(_) ->
     ok = meck:expect(
         emqx_session,
         pubcomp,
-        fun(_, _PacketId, _ReasonCode, _Session) ->
+        fun(_, _PacketId, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
@@ -1428,10 +1432,26 @@ t_handle_timeout_keepalive(_) ->
     Channel = emqx_channel:set_field(timers, #{keepalive => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(make_ref(), {keepalive, 10}, Channel).
 
+-doc "Delivery retries retransmit unacknowledged messages, rearm the timer, and stop after PUBACK.".
 t_handle_timeout_retry_delivery(_) ->
-    TRef = make_ref(),
-    Channel = emqx_channel:set_field(timers, #{retry_delivery => TRef}, channel()),
-    {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, Channel).
+    Session = session(#{retry_interval => ?CUSTOM_TIMER_TIMEOUT_SHORT}),
+    Channel = channel(#{session => Session, alias_maximum => #{outbound => 0}}),
+    Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
+    {ok, {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"t">>, PacketId, <<"payload">>)}, Chan1} =
+        emqx_channel:handle_deliver([{deliver, <<"t">>, Msg}], Channel),
+    Timer = {emqx_session, retry_delivery},
+    TRef1 = maps:get(Timer, emqx_channel:info(timers, Chan1)),
+    ?assertReceive({timeout, TRef1, Timer}),
+    {ok, {outgoing, Retry}, Chan2} = emqx_channel:handle_timeout(TRef1, Timer, Chan1),
+    ?assertMatch(?PUBLISH_PACKET(?QOS_1, <<"t">>, PacketId, <<"payload">>), Retry),
+    ?assertMatch(#mqtt_packet{header = #mqtt_packet_header{dup = true}}, Retry),
+    TRef2 = maps:get(Timer, emqx_channel:info(timers, Chan2)),
+    ?assertNotEqual(TRef1, TRef2),
+    {ok, Chan3} = emqx_channel:handle_in(?PUBACK_PACKET(PacketId), Chan2),
+    ?assertEqual(0, emqx_channel:info({session, inflight_cnt}, Chan3)),
+    ?assertReceive({timeout, TRef2, Timer}),
+    {ok, Chan4} = emqx_channel:handle_timeout(TRef2, Timer, Chan3),
+    ?assertNot(maps:is_key(Timer, emqx_channel:info(timers, Chan4))).
 
 t_handle_timeout_expire_awaiting_rel(_) ->
     TRef = make_ref(),
@@ -1474,7 +1494,7 @@ t_handle_custom_timers(_) ->
         emqx_channel:handle_timeout(T1Ref, T1Msg, Chan3),
     %% Resets `msg1` timer to a shorter timeout:
     {ok, {outgoing, ?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"2">>)}, Chan5} =
-        emqx_channel:handle_timeout(make_ref(), retry_delivery, Chan4),
+        emqx_channel:handle_timeout(make_ref(), {emqx_session, retry_delivery}, Chan4),
     {timeout, T2Ref, T2Msg} =
         ?assertReceive({timeout, _, {emqx_session, msg1}}, ?CUSTOM_TIMER_TIMEOUT_SHORT * 2),
     %% Clears `signal2` timer:
@@ -1495,15 +1515,15 @@ handle_signal(_ClientInfo, {connection, decongested, #{retry := Timeout}}, {?MOD
 info(created_at, {?MODULE, _Session}) ->
     0.
 
-handle_timeout(_ClientInfo, signal1, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, signal1, [congested], {?MODULE, Session}) ->
     Msg = emqx_message:make(<<"a/b">>, <<"1">>),
     Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_LONG},
     {Effect, [{1, Msg}], {?MODULE, Session}};
-handle_timeout(_ClientInfo, retry_delivery, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, retry_delivery, [congested], {?MODULE, Session}) ->
     Msg = emqx_message:make(<<"c/d">>, <<"2">>),
     Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_SHORT},
     {Effect, [{2, Msg}], {?MODULE, Session}};
-handle_timeout(_ClientInfo, msg1, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, msg1, [congested], {?MODULE, Session}) ->
     Effect = {reset_timer, signal2, infinity},
     {Effect, [], {?MODULE, Session}}.
 

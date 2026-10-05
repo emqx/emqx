@@ -175,7 +175,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.2", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.7", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.8", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.3", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -195,7 +195,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/grpc-erl", tag: "0.8.2", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
-    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-3", override: true}
+    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-4", override: true}
 
   def common_dep(:hackney),
     do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}

@@ -18,12 +18,14 @@ options:
   -h|--help:         Print this usage.
 
   -b|--base:         Specify the current release base branch, can be one of
+                     rel-M.N.P      (a release in code freeze, e.g. rel-6.0.4)
                      release-60
                      release-61
                      release-62
                      release-63
                      release-70
-                     NOTE: this option should be used when --dryrun.
+                     NOTE: not needed when the current branch is already the
+                     freeze branch of the tag, or the release branch.
 
   --dryrun:          Do not actually create the git tag.
 
@@ -31,10 +33,20 @@ options:
                      If this option is absent, the tag found by git describe will be used
 
 
-For 6.X series the current working branch must be 'release-6X'
-      --.--[  master  ]---------------------------.-----------.---
-         \\                                      /
-          \`---[release-6X]----------------- 6.0.0
+The tag is signed, so a signing key must be configured. See
+https://docs.github.com/en/authentication/managing-commit-signature-verification
+
+A patch release is prepared on its own freeze branch, and the tag is cut there.
+The release line keeps taking changes meanwhile, and those ship in the next
+patch, so the line branch is not merged into the freeze branch:
+
+      --.--[   dev-60   ]-----------------------------------------
+         \\                        \\
+          \\                        \`--[release-60]--------------
+           \`---[rel-6.0.4]--(6.0.4-rc.1, 6.0.4-rc.2, 6.0.4)
+
+Cutting straight from the release branch is still supported, for a line that
+is not using a freeze branch.
 EOF
 }
 
@@ -122,19 +134,43 @@ rel_branch() {
     esac
 }
 
-## Ensure the current work branch
+## The branch a patch release is prepared on while it is in code freeze.
+## A pre-release tag is cut from the same branch as its final tag:
+## 6.0.4-rc.2 comes from rel-6.0.4. Tags of the patch-* flow have no freeze
+## branch of their own.
+freeze_branch() {
+    local tag="$1"
+    case "$tag" in
+        *-patch.*)
+            echo ''
+            ;;
+        *)
+            echo "rel-${tag%%-*}"
+            ;;
+    esac
+}
+
+## Ensure the current work branch, and remember which branch it is, so that
+## the upstream check below looks at the same one.
+WORK_BRANCH=''
 assert_work_branch() {
     local tag="$1"
-    local release_branch
+    local release_branch freeze_branch base_branch
     release_branch="$(rel_branch "$tag")"
-    local base_branch
+    freeze_branch="$(freeze_branch "$tag")"
     base_branch="${BASE_BR:-$(git branch --show-current)}"
-    if [ "$base_branch" != "$release_branch" ]; then
+    if [ "$base_branch" != "$release_branch" ] && [ "$base_branch" != "$freeze_branch" ]; then
         logerr "Base branch: $base_branch"
-        logerr "Relase tag must be on the release branch: $release_branch"
+        if [ -n "$freeze_branch" ]; then
+            logerr "A release tag must be cut on the freeze branch $freeze_branch, or on $release_branch"
+        else
+            logerr "A release tag must be cut on the release branch: $release_branch"
+        fi
         logerr "or must use -b|--base option to specify which release branch is current branch based on"
         exit 1
     fi
+    WORK_BRANCH="$base_branch"
+    logmsg "Cutting $tag on $WORK_BRANCH"
 }
 assert_work_branch "$TAG"
 
@@ -163,6 +199,38 @@ assert_tag_absent() {
     fi
 }
 assert_tag_absent "$TAG"
+
+## Release tags are signed. Check for a usable key before the long checks
+## below, so a missing key is reported in a second rather than in a minute.
+assert_can_sign() {
+    local format key
+    format="$(git config --get gpg.format || echo 'openpgp')"
+    key="$(git config --get user.signingkey || true)"
+    case "$format" in
+        openpgp)
+            if [ -z "$key" ] && ! gpg --list-secret-keys --with-colons 2>/dev/null | grep -q '^sec'; then
+                logerr "The release tag is signed, but no OpenPGP secret key was found."
+                logerr "Configure one: git config --global user.signingkey <key-id>"
+                return 1
+            fi
+            ;;
+        *)
+            if [ -z "$key" ]; then
+                logerr "The release tag is signed, but user.signingkey is unset for gpg.format=$format."
+                logerr "Configure one: git config --global user.signingkey <key-or-path>"
+                return 1
+            fi
+            ;;
+    esac
+    logmsg "Signing with gpg.format=$format${key:+, user.signingkey=$key}"
+}
+if ! assert_can_sign; then
+    if [ "$DRYRUN" = 'yes' ]; then
+        logwarn 'Continuing because of --dryrun. The real cut will refuse to tag.'
+    else
+        exit 1
+    fi
+fi
 
 bump_vsn() {
     local new_version="$1"
@@ -202,9 +270,10 @@ assert_release_version() {
 }
 assert_release_version "$TAG"
 
-## Check if all upstream branches are merged
-SYNC_REMOTES_ARGS=
-[ -n "${BASE_BR:-}" ] && SYNC_REMOTES_ARGS="--base $BASE_BR $SYNC_REMOTES_ARGS"
+## Check that the work branch has everything its remote has. For a freeze
+## branch that is the only upstream to check: the release line carries changes
+## that are deliberately not in this release.
+SYNC_REMOTES_ARGS="--base $WORK_BRANCH"
 [ "$DRYRUN" = 'yes' ] && SYNC_REMOTES_ARGS="--dryrun $SYNC_REMOTES_ARGS"
 # shellcheck disable=SC2086
 ./scripts/rel/sync-remotes.sh $SYNC_REMOTES_ARGS
@@ -294,10 +363,11 @@ case "$TAG" in
 esac
 
 if [ "$DRYRUN" = 'yes' ]; then
-    logmsg "Release tag is ready to be created with command: git tag $TAG"
+    logmsg "Release tag is ready to be created with command: git tag --sign -m $TAG $TAG"
 else
-    git tag "$TAG"
-    logmsg "$TAG is created OK."
+    git tag --sign -m "$TAG" "$TAG"
+    logmsg "$TAG is created and signed OK."
+    logmsg "Verify it with: git tag --verify $TAG"
     logwarn "Don't forget to push the tag to emqx/emqx"
     echo "git push origin $TAG"
 fi

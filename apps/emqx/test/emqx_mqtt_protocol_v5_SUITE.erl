@@ -592,6 +592,106 @@ drain_messages_from(C) ->
     end.
 
 -doc """
+Lower Receive-Maximum on reconnect preserves inflight messages and blocks queued QoS1
+until space is available.
+""".
+t_inflight_resize_on_reconnect(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<ClientId/binary, "/q1">>,
+    ClientOpts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {auto_ack, false},
+        {clean_start, false}
+        | Config
+    ],
+    Props = #{
+        %% Make the session persistent:
+        'Session-Expiry-Interval' => 360,
+        %% Allow up to 3 messages in-flight initially:
+        'Receive-Maximum' => 3
+    },
+    {ok, C0} = emqtt:start_link([{properties, Props} | ClientOpts]),
+    {ok, _} = emqtt:ConnFun(C0),
+    {ok, _, [1]} = emqtt:subscribe(C0, Topic, 1),
+    lists:foreach(
+        fun(Payload) ->
+            emqx_broker:publish(emqx_message:make(test, ?QOS_1, Topic, Payload))
+        end,
+        [<<"1">>, <<"2">>, <<"3">>]
+    ),
+    Initial = lists:reverse(receive_messages(3)),
+    ?assertMatch(
+        [
+            #{client_pid := C0, payload := <<"1">>, dup := false},
+            #{client_pid := C0, payload := <<"2">>, dup := false},
+            #{client_pid := C0, payload := <<"3">>, dup := false}
+        ],
+        Initial
+    ),
+    ?assertMatch(
+        #{inflight_max := 3, inflight_cnt := 3},
+        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
+    ),
+
+    ok = emqtt:disconnect(C0),
+
+    {ok, C1} = emqtt:start_link([{properties, Props#{'Receive-Maximum' => 1}} | ClientOpts]),
+    {ok, _} = emqtt:ConnFun(C1),
+    ?assertEqual(1, client_info(session_present, C1)),
+    Replayed = lists:reverse(receive_messages(3)),
+    [PktId1, PktId2, PktId3] = [maps:get(packet_id, M) || M <- Initial],
+    ?assertMatch(
+        [
+            #{packet_id := PktId1, client_pid := C1, payload := <<"1">>, dup := true},
+            #{packet_id := PktId2, client_pid := C1, payload := <<"2">>, dup := true},
+            #{packet_id := PktId3, client_pid := C1, payload := <<"3">>, dup := true}
+        ],
+        Replayed
+    ),
+    ?assertMatch(
+        #{inflight_max := 1, inflight_cnt := 3},
+        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
+    ),
+    %% One more message goes into the mqueue:
+    emqx_broker:publish(emqx_message:make(?MODULE, ?QOS_1, Topic, <<"4">>)),
+    pong = emqtt:ping(C1),
+    ?assertMatch(
+        #{mqueue_len := 1},
+        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
+    ),
+    %% ACK 1 still leaves inflight above its new maximum:
+    ok = emqtt:puback(C1, PktId1),
+    pong = emqtt:ping(C1),
+    ?assertMatch(
+        #{inflight_cnt := 2, mqueue_len := 1},
+        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
+    ),
+    %% ACK 2 puts inflight at the new maximum, the queued message still waits:
+    ok = emqtt:puback(C1, PktId2),
+    pong = emqtt:ping(C1),
+    ?assertMatch(
+        #{inflight_cnt := 1, mqueue_len := 1},
+        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
+    ),
+    %% ACK 3 allows one more message to enter inflight:
+    ok = emqtt:puback(C1, PktId3),
+    {publish, #{client_pid := C1, payload := <<"4">>, packet_id := PktId4, dup := false}} =
+        ?assertReceive({publish, #{client_pid := C1}}),
+    ?assertMatch(
+        #{inflight_cnt := 1, mqueue_len := 0},
+        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
+    ),
+    ok = emqtt:puback(C1, PktId4),
+    pong = emqtt:ping(C1),
+    ?assertMatch(
+        #{inflight_cnt := 0, mqueue_len := 0},
+        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
+    ),
+    emqtt:stop(C1).
+
+-doc """
 An inflight (sent-but-unacked) QoS-1 message is retried at takeover even after
 its Message-Expiry-Interval elapsed: per [MQTT-3.3.2-5], expiry only drops
 messages whose onward delivery has not started.
@@ -929,6 +1029,50 @@ t_connect_keepalive_timeout(Config) ->
 %    after 100 -> ok
 %    end,
 %    process_flag(trap_exit, false).
+
+%% Over ws, expiry 0 + Will Delay must still publish the will immediately.
+t_connect_will_delay_with_session_expiry_0(Config) ->
+    process_flag(trap_exit, true),
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(1, ?TOPICS),
+    Payload =
+        "will message " ++ atom_to_list(?FUNCTION_NAME) ++
+            integer_to_list(
+                erlang:system_time()
+            ),
+
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _, [2]} = emqtt:subscribe(Client1, Topic, qos2),
+
+    {ok, Client2} = emqtt:start_link([
+        {clientid, <<"t_connect_will_delay_with_session_expiry_0">>},
+        {proto_ver, v5},
+        {clean_start, true},
+        {will_flag, true},
+        {will_qos, 2},
+        {will_topic, Topic},
+        {will_payload, Payload},
+        {will_props, #{'Will-Delay-Interval' => 30}},
+        {properties, #{'Session-Expiry-Interval' => 0}},
+        {keepalive, 2}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client2),
+    timer:sleep(50),
+    erlang:exit(Client2, kill),
+
+    %% Must arrive immediately; 30s delay must not apply.
+    [Msg | _] = receive_messages(1),
+    ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
+    ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
+    ok = emqtt:disconnect(Client1),
+
+    receive
+        {'EXIT', _, killed} -> ok
+    after 100 -> ok
+    end,
+    process_flag(trap_exit, false).
 
 %% [MQTT-3.1.4-3]
 t_connect_duplicate_clientid(Config) ->

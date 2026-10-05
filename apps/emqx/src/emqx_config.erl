@@ -1198,11 +1198,23 @@ do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     ok.
 
 do_deep_get(?CONF, AtomKeyPath, Map, Default) ->
-    emqx_utils_maps:deep_get(AtomKeyPath, Map, Default);
+    deep_get(AtomKeyPath, Map, Default);
 do_deep_get(?RAW_CONF, KeyPath, Map, Default) ->
     emqx_utils_maps:deep_get([bin(Key) || Key <- KeyPath], Map, Default);
 do_deep_get(?NS_CONF(_Namespace), AtomKeyPath, Map, Default) ->
-    emqx_utils_maps:deep_get(AtomKeyPath, Map, Default).
+    deep_get(AtomKeyPath, Map, Default).
+
+%% Same result as `emqx_utils_maps:deep_get/3': `Default' when a key is missing
+%% or an intermediate value is not a map.
+deep_get([], Value, _Default) ->
+    Value;
+deep_get([Key | KeyPath], Map, Default) when is_map(Map) ->
+    case Map of
+        #{Key := Value} -> deep_get(KeyPath, Value, Default);
+        #{} -> Default
+    end;
+deep_get(_KeyPath, _Value, Default) ->
+    Default.
 
 do_deep_put(?CONF, Putter, KeyPath, Map, Value) ->
     AtomKeyPath = ensure_atom_conf_path(KeyPath, {raise_error, {not_found, KeyPath}}),
@@ -1254,13 +1266,17 @@ conf_key(?NS_CONF(_Namespace), RootName) ->
     atom(RootName).
 
 ensure_atom_conf_path(Path, OnFail) ->
-    case lists:all(fun erlang:is_atom/1, Path) of
+    case is_atom_path(Path) of
         true ->
             %% Do not try to build new atom PATH if it already is.
             Path;
-        _ ->
+        false ->
             to_atom_conf_path(Path, OnFail)
     end.
+
+is_atom_path([]) -> true;
+is_atom_path([Key | Path]) when is_atom(Key) -> is_atom_path(Path);
+is_atom_path(_) -> false.
 
 to_atom_conf_path(Path, OnFail) ->
     try

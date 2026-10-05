@@ -37,7 +37,7 @@
 
 -module(emqx_mqueue).
 
--compile({inline, [payload_bytes/1]}).
+-compile({inline, [payload_bytes/1, qos0_count/1, inc_num_qos0/2]}).
 
 -include("emqx.hrl").
 -include("types.hrl").
@@ -52,6 +52,8 @@
 -export([
     is_empty/1,
     len/1,
+    num_qos0/1,
+    num_qos12/1,
     max_len/1,
     in/2,
     out/1,
@@ -98,7 +100,8 @@
 }).
 
 -record(mqueue, {
-    store_qos0 = false :: boolean(),
+    %% Number of QoS0 messages / `false` if QoS0 skips mqueue.
+    num_qos0 = false :: false | non_neg_integer(),
     max_len = ?MAX_LEN_INFINITY :: count(),
     dropped = 0 :: count(),
     payload_bytes = 0 :: count(),
@@ -129,9 +132,14 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
                     shift_base = Base
                 }
         end,
+    NumQoS0 =
+        case Qos0 of
+            true -> 0;
+            false -> false
+        end,
     #mqueue{
         max_len = MaxLen,
-        store_qos0 = Qos0,
+        num_qos0 = NumQoS0,
         prios = Prios
     }.
 
@@ -140,8 +148,8 @@ info(MQ) ->
     maps:from_list([{Key, info(Key, MQ)} || Key <- ?INFO_KEYS]).
 
 -spec info(atom(), mqueue()) -> term().
-info(store_qos0, #mqueue{store_qos0 = True}) ->
-    True;
+info(store_qos0, #mqueue{num_qos0 = NumQoS0}) ->
+    NumQoS0 =/= false;
 info(max_len, #mqueue{max_len = MaxLen}) ->
     MaxLen;
 info(len, #mqueue{q = Q}) ->
@@ -150,7 +158,17 @@ info(dropped, #mqueue{dropped = Dropped}) ->
     Dropped.
 
 is_empty(#mqueue{q = Q}) ->
-    emqx_pqueue:len(Q) =:= 0.
+    emqx_pqueue:is_empty(Q).
+
+-spec num_qos0(mqueue()) -> count().
+num_qos0(#mqueue{num_qos0 = false}) ->
+    0;
+num_qos0(#mqueue{num_qos0 = NumQoS0}) ->
+    NumQoS0.
+
+-spec num_qos12(mqueue()) -> count().
+num_qos12(MQ) ->
+    len(MQ) - num_qos0(MQ).
 
 len(#mqueue{q = Q}) ->
     emqx_pqueue:len(Q).
@@ -170,10 +188,16 @@ filter(Pred, #mqueue{q = Q, dropped = Dropped} = MQ) ->
         L0 ->
             MQ;
         L1 ->
+            {PayloadBytes, NumQoS0} = pqueue_stats(Q1),
             MQ#mqueue{
                 q = Q1,
+                num_qos0 =
+                    case MQ#mqueue.num_qos0 of
+                        false -> false;
+                        _ -> NumQoS0
+                    end,
                 dropped = Dropped + (L0 - L1),
-                payload_bytes = pqueue_payload_bytes(Q1)
+                payload_bytes = PayloadBytes
             }
     end.
 
@@ -277,7 +301,7 @@ stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
 
 %% @doc Enqueue a message.
 -spec in(message(), mqueue()) -> {option(message()), mqueue()} | false.
-in(#message{qos = ?QOS_0}, #mqueue{store_qos0 = false}) ->
+in(#message{qos = ?QOS_0}, #mqueue{num_qos0 = false}) ->
     false;
 in(
     Msg = #message{topic = Topic, qos = QoS},
@@ -287,6 +311,7 @@ in(
             q = Q0,
             max_len = MaxLen,
             dropped = Dropped,
+            num_qos0 = NumQoS0,
             payload_bytes = PayloadBytes
         } = MQ
 ) ->
@@ -312,6 +337,7 @@ in(
         false ->
             {_DroppedMsg = undefined, MQ#mqueue{
                 q = Q1,
+                num_qos0 = inc_num_qos0(NumQoS0, qos0_count(Msg1)),
                 payload_bytes = PayloadBytes + emqx_message:payload_size(Msg1)
             }};
         true ->
@@ -325,17 +351,26 @@ in(
                     emqx_message:payload_size(Msg1),
             {DroppedMsg, MQ#mqueue{
                 q = Q2,
+                num_qos0 = inc_num_qos0(NumQoS0, qos0_count(Msg1) - qos0_count(DroppedMsg)),
                 dropped = Dropped + 1,
                 payload_bytes = PayloadBytes1
             }}
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.
-out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, prios = ?NO_PRIORITY_TABLE}) ->
+out(
+    MQ = #mqueue{
+        q = Q,
+        payload_bytes = PayloadBytes,
+        num_qos0 = NumQoS0,
+        prios = ?NO_PRIORITY_TABLE
+    }
+) ->
     case emqx_pqueue:out(Q) of
         {{value, V}, Q1} ->
             {{value, without_ts(V)}, MQ#mqueue{
                 q = Q1,
+                num_qos0 = inc_num_qos0(NumQoS0, -qos0_count(V)),
                 payload_bytes = PayloadBytes - emqx_message:payload_size(V)
             }};
         {empty, _} ->
@@ -343,13 +378,18 @@ out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, prios = ?NO_PRIORITY_TABLE
     end;
 out(
     MQ = #mqueue{
-        q = Q, payload_bytes = PayloadBytes, p_credit = undefined, prios = Prios
+        q = Q,
+        payload_bytes = PayloadBytes,
+        num_qos0 = NumQoS0,
+        p_credit = undefined,
+        prios = Prios
     }
 ) ->
     case emqx_pqueue:out_p(Q) of
         {{value, V, Prio}, Q1} ->
             MQ1 = MQ#mqueue{
                 q = Q1,
+                num_qos0 = inc_num_qos0(NumQoS0, -qos0_count(V)),
                 payload_bytes = PayloadBytes - emqx_message:payload_size(V),
                 p_credit = get_credits(Prio, Prios)
             },
@@ -362,11 +402,12 @@ out(MQ = #mqueue{q = Q, p_credit = 0}) ->
         q = emqx_pqueue:shift(Q),
         p_credit = undefined
     });
-out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, p_credit = C}) ->
+out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, num_qos0 = NumQoS0, p_credit = C}) ->
     case emqx_pqueue:out(Q) of
         {{value, V}, Q1} ->
             {{value, without_ts(V)}, MQ#mqueue{
                 q = Q1,
+                num_qos0 = inc_num_qos0(NumQoS0, -qos0_count(V)),
                 payload_bytes = PayloadBytes - emqx_message:payload_size(V),
                 p_credit = C - 1
             }};
@@ -374,14 +415,20 @@ out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, p_credit = C}) ->
             {empty, MQ}
     end.
 
-pqueue_payload_bytes(Q) ->
+pqueue_stats(Q) ->
     emqx_pqueue:fold(
-        fun(Msg, _Priority, Acc) ->
-            Acc + emqx_message:payload_size(Msg)
+        fun(Msg, _Priority, {PayloadBytes, NumQoS0}) ->
+            {PayloadBytes + emqx_message:payload_size(Msg), NumQoS0 + qos0_count(Msg)}
         end,
-        0,
+        {0, 0},
         Q
     ).
+
+qos0_count(#message{qos = ?QOS_0}) -> 1;
+qos0_count(#message{}) -> 0.
+
+inc_num_qos0(false, _Delta) -> false;
+inc_num_qos0(NumQoS0, Delta) -> NumQoS0 + Delta.
 
 get_opt(Key, Opts, Default) ->
     case maps:get(Key, Opts, Default) of

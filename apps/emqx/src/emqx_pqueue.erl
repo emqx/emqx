@@ -132,7 +132,12 @@ len({queue, _R, _F, L}) ->
 len(?cqueue(_, _, L)) ->
     L;
 len({pqueue, Queues}) ->
-    lists:foldl(fun({_P, Q}, Acc) -> Acc + len(Q) end, 0, Queues).
+    len_queues(Queues, 0).
+
+len_queues([], Len) ->
+    Len;
+len_queues([{_, Q} | Queues], Len) ->
+    len_queues(Queues, Len + len(Q)).
 
 -spec plen(priority(), pqueue()) -> non_neg_integer().
 plen(P, {pqueue, Queues}) ->

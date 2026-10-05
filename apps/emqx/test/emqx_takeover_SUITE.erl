@@ -1139,14 +1139,23 @@ start_unlink_client(ClientId, Opts) ->
 wait_subscription(Ctx = #{client := CPids}) ->
     ok = lists:foreach(
         fun Wait(CPid) ->
-            try emqtt:subscriptions(CPid) of
+            Subscriptions =
+                try
+                    case emqtt:status(CPid) of
+                        initialized -> [];
+                        _Otherwise -> emqtt:subscriptions(CPid)
+                    end
+                catch
+                    exit:{noproc, _} ->
+                        noproc
+                end,
+            case Subscriptions of
                 [] ->
                     ok = timer:sleep(rand:uniform(?SLEEP)),
                     Wait(CPid);
                 [_ | _] ->
-                    ok
-            catch
-                exit:{noproc, _} ->
+                    ok;
+                noproc ->
                     ok
             end
         end,

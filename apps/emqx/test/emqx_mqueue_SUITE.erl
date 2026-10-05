@@ -47,7 +47,102 @@ t_in_qos0(_) ->
     Opts = #{max_len => 5, store_qos0 => false},
     Q = ?Q:init(Opts),
     false = ?Q:in(#message{qos = 0, payload = <<>>}, Q),
+    assert_qos_counts(0, 0, Q),
     ?assertEqual(0, ?Q:payload_bytes(Q)).
+
+t_qos_counts_disabled(_) ->
+    Q = ?Q:init(#{max_len => 2, store_qos0 => false}),
+    {undefined, Q1} = ?Q:in(#message{qos = 1, payload = <<"first">>}, Q),
+    {undefined, Q2} = ?Q:in(#message{qos = 2, payload = <<"second">>}, Q1),
+    {#message{qos = 1}, Q3} = ?Q:in(#message{qos = 1, payload = <<"third">>}, Q2),
+    assert_qos_counts(0, 2, Q3),
+    Filtered = ?Q:filter(fun(#message{qos = QoS}) -> QoS =:= 1 end, Q3),
+    assert_qos_counts(0, 1, Filtered),
+    ?assertEqual(5, ?Q:payload_bytes(Filtered)),
+    {{value, #message{qos = 1}}, Drained} = ?Q:out(Filtered),
+    Empty = ?Q:filter(fun(_) -> false end, Q3),
+    assert_qos_counts(0, 0, Drained),
+    assert_qos_counts(0, 0, Empty),
+    lists:foreach(
+        fun(MQ) ->
+            ?assertEqual(false, ?Q:info(store_qos0, MQ)),
+            ?assertEqual(false, ?Q:in(#message{qos = 0, payload = <<>>}, MQ))
+        end,
+        [Q, Q1, Q2, Q3, Filtered, Drained, Empty]
+    ).
+
+t_qos_counts(_) ->
+    Q = ?Q:init(#{max_len => 2, store_qos0 => true}),
+    assert_qos_counts(0, 0, Q),
+    {undefined, Q1} = ?Q:in(#message{qos = 0, payload = <<"first">>}, Q),
+    assert_qos_counts(1, 0, Q1),
+    {undefined, Q2} = ?Q:in(#message{qos = 1, payload = <<"second">>}, Q1),
+    assert_qos_counts(1, 1, Q2),
+    %% Replacing QoS0 with QoS0 does not change either count.
+    {#message{qos = 0, payload = <<"first">>}, Q3} =
+        ?Q:in(#message{qos = 0, payload = <<"third">>}, Q2),
+    assert_qos_counts(1, 1, Q3),
+    %% QoS2 evicts the queued QoS0.
+    {#message{qos = 0, payload = <<"third">>}, Q4} =
+        ?Q:in(#message{qos = 2, payload = <<"fourth">>}, Q3),
+    assert_qos_counts(0, 2, Q4),
+    %% An incoming QoS0 is itself evicted when the queue only contains QoS1/2.
+    {#message{qos = 0}, Q5} = ?Q:in(#message{qos = 0, payload = <<"fifth">>}, Q4),
+    assert_qos_counts(0, 2, Q5),
+    {#message{qos = 1, payload = <<"second">>}, Q6} =
+        ?Q:in(#message{qos = 1, payload = <<"sixth">>}, Q5),
+    assert_qos_counts(0, 2, Q6),
+    {{value, #message{qos = 2}}, Q7} = ?Q:out(Q6),
+    assert_qos_counts(0, 1, Q7),
+    {{value, #message{qos = 1}}, Q8} = ?Q:out(Q7),
+    assert_qos_counts(0, 0, Q8),
+    {undefined, Q9} = ?Q:in(#message{qos = 0, payload = <<>>}, Q8),
+    assert_qos_counts(1, 0, Q9),
+    {{value, #message{qos = 0}}, Q10} = ?Q:out(Q9),
+    assert_qos_counts(0, 0, Q10),
+    ?assertEqual(true, ?Q:info(store_qos0, Q10)),
+    {empty, Q10} = ?Q:out(Q10).
+
+t_qos_counts_priorities(_) ->
+    Q = ?Q:init(#{
+        max_len => 3,
+        store_qos0 => true,
+        priorities => #{<<"high">> => 1, <<"low">> => 0},
+        shift_multiplier => 1
+    }),
+    {undefined, Q1} = ?Q:in(#message{qos = 1, topic = <<"high">>, payload = <<"1">>}, Q),
+    {undefined, Q2} = ?Q:in(#message{qos = 0, topic = <<"high">>, payload = <<"0">>}, Q1),
+    {undefined, Q3} = ?Q:in(#message{qos = 2, topic = <<"high">>, payload = <<"2">>}, Q2),
+    {undefined, Q4} = ?Q:in(#message{qos = 0, topic = <<"low">>, payload = <<"0">>}, Q3),
+    assert_qos_counts(2, 2, Q4),
+    ?assertEqual(Q4, ?Q:filter(fun(_) -> true end, Q4)),
+    OnlyQoS0 = ?Q:filter(fun(#message{qos = QoS}) -> QoS =:= 0 end, Q4),
+    assert_qos_counts(2, 0, OnlyQoS0),
+    ?assertEqual(2, ?Q:payload_bytes(OnlyQoS0)),
+    OnlyQoS12 = ?Q:filter(fun(#message{qos = QoS}) -> QoS =/= 0 end, Q4),
+    assert_qos_counts(0, 2, OnlyQoS12),
+    ?assertEqual(2, ?Q:payload_bytes(OnlyQoS12)),
+    Empty = ?Q:filter(fun(_) -> false end, Q4),
+    assert_qos_counts(0, 0, Empty),
+    ?assertEqual(0, ?Q:payload_bytes(Empty)),
+    ?assertEqual(true, ?Q:info(store_qos0, Empty)),
+    {undefined, Refilled} = ?Q:in(#message{qos = 0, payload = <<>>}, Empty),
+    assert_qos_counts(1, 0, Refilled),
+    %% Exercise initial priority selection, credit consumption and rotation.
+    {{value, #message{qos = 1}}, Q5} = ?Q:out(Q4),
+    assert_qos_counts(2, 1, Q5),
+    {{value, #message{qos = 0, topic = <<"high">>}}, Q6} = ?Q:out(Q5),
+    assert_qos_counts(1, 1, Q6),
+    {{value, #message{qos = 0, topic = <<"low">>}}, Q7} = ?Q:out(Q6),
+    assert_qos_counts(0, 1, Q7),
+    {{value, #message{qos = 2}}, Q8} = ?Q:out(Q7),
+    assert_qos_counts(0, 0, Q8).
+
+assert_qos_counts(NumQoS0, NumQoS12, Q) ->
+    ?assertEqual(NumQoS0, ?Q:num_qos0(Q)),
+    ?assertEqual(NumQoS12, ?Q:num_qos12(Q)),
+    ?assertEqual(NumQoS0 + NumQoS12, ?Q:len(Q)),
+    ?assertEqual(NumQoS0 + NumQoS12 =:= 0, ?Q:is_empty(Q)).
 
 t_out(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
