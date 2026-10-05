@@ -8,7 +8,7 @@
 Connection settings derived from listener and zone config, shared between
 connections.
 
-The module keeps two kinds of `persistent_term` entries:
+The entries live in `persistent_term`, under two kinds of key:
 
 - `{emqx_connection_conf, Zone, frame}`: the frame parser and serializer
   options of the zone. The value holds two groups of terms:
@@ -19,13 +19,7 @@ The module keeps two kinds of `persistent_term` entries:
 - `{emqx_connection_conf, Listener, Zone, conf}`: the `#conf{}` record of a
   connection on that listener in that zone. It holds the listener settings
   (`active_n`, `sendq_watermark`) and the zone settings (`hibernate_after`,
-  `minor_gc_after`, `force_gc`, `force_shutdown`). There is one entry for every
-  TCP, SSL and QUIC listener combined with every zone, so a connection whose
-  zone was overridden at authentication still finds its entry.
-
-The two kinds are separate entries because replacing an entry makes the
-runtime copy the old terms into the heap of every process that still refers
-to them. With separate entries, a change to one kind leaves the other shared.
+  `minor_gc_after`, `force_gc`, `force_shutdown`).
 
 A term read out of `persistent_term` is not copied into the heap of the
 reading process. So every connection that stores one of these terms in its
@@ -34,15 +28,28 @@ the shared terms. `sys:get_state/1`, `erlang:external_size/1` and
 `erts_debug:flat_size/1` do count them, so they overstate the size of a
 connection state.
 
-Only the config update hooks write the entries: `post_zone_config_update/2`
-on every write of the zones config, and `post_listener_config_update/1` on
-every write of the listeners config. Connection processes only read them.
-When an entry is absent, the functions here build the terms locally from
-config.
+The `gen_server` of this module, a child of `emqx_kernel_sup`, owns the
+entries, and nothing else writes them. An entry is created on first use: a connection that finds no entry
+builds the terms from config, keeps its own copy, and sends them here, so the
+connections after it share one instance. On a zone config change the server
+rebuilds the entries it owns, and on a listener config change it erases the
+entries of that listener; the next connection registers them again.
+
+Replacing or erasing an entry makes the runtime copy the old terms into the
+heap of every process that still refers to them. The two kinds are separate
+entries, so a change to one kind leaves the other shared.
+
+After a restart the server takes its entries back from `persistent_term`. It
+never erases them when it stops.
 """.
+
+-behaviour(gen_server).
 
 -include("emqx_mqtt.hrl").
 -include("emqx_connection_conf.hrl").
+-include("logger.hrl").
+
+-export([start_link/0]).
 
 -export([
     frame_opts/1,
@@ -50,7 +57,16 @@ config.
     post_connect_codec/4,
     conn_conf/2,
     post_zone_config_update/2,
-    post_listener_config_update/1
+    listeners_changed/1,
+    sync/0
+]).
+
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2
 ]).
 
 -export_type([pre_connect_codec/0, conn_conf/0, listener/0]).
@@ -61,7 +77,7 @@ config.
 %% A QUIC stream has no socket to activate; the control stream keeps the
 %% default of `emqx_connection'.
 -define(QUIC_ACTIVE_N, 10).
--define(CONF_LISTENER_TYPES, [tcp, ssl, quic]).
+-define(CALL_TIMEOUT, 2000).
 
 -type listener() :: {Type :: atom(), Name :: atom()}.
 
@@ -82,9 +98,18 @@ config.
 
 -type conn_conf() :: #conf{}.
 
+-type key() :: {?MODULE, emqx_types:zone(), frame} | {?MODULE, listener(), emqx_types:zone(), conf}.
+
+-record(register, {key :: key(), value :: frame() | conn_conf()}).
+-record(zones_updated, {zones :: emqx_config:config()}).
+-record(listeners_changed, {listeners :: [listener()]}).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -doc "Return the frame options configured for the zone.".
 -spec frame_opts(emqx_types:zone()) -> emqx_frame:options().
@@ -106,7 +131,9 @@ pre_connect_codec(Zone) ->
         #{connect := PreConnect} ->
             PreConnect;
         undefined ->
-            build_pre_connect_codec(frame_opts(Zone))
+            Frame = build_frame(emqx_config:get([zones, Zone])),
+            ok = register_entry(?FRAME_KEY(Zone), Frame),
+            maps:get(connect, Frame)
     end.
 
 -doc """
@@ -148,100 +175,150 @@ conn_conf(Listener, Zone) ->
         undefined ->
             {Type, Name} = Listener,
             ListenerConf = emqx_config:get_listener_conf(Type, Name, []),
-            build_conn_conf(Listener, Zone, ListenerConf, emqx_config:get([zones, Zone]))
+            Conf = build_conn_conf(Listener, Zone, ListenerConf, emqx_config:get([zones, Zone])),
+            ok = register_entry(?CONN_KEY(Listener, Zone), Conf),
+            Conf
     end.
 
 -doc """
-Rebuild the frame entry of every zone in `NewZones`, delete the frame entries
-of the zones that are removed, and rebuild the connection settings of every
-listener and zone pair.
+Rebuild the entries of the zones in `NewZones` and delete the entries of the
+other zones.
 
 `emqx_config_zones:post_update/2` calls this each time the zones config is
-written, including the first write at boot.
+written. The first write at boot happens before this server starts, and
+nothing is registered by then.
 """.
 -spec post_zone_config_update(emqx_config:config(), emqx_config:config()) -> ok.
-post_zone_config_update(OldZones, NewZones) ->
-    ok = maps:foreach(fun update_zone_frame/2, NewZones),
-    lists:foreach(
-        fun(Zone) -> _ = persistent_term:erase(?FRAME_KEY(Zone)) end,
-        maps:keys(maps:without(maps:keys(NewZones), OldZones))
-    ),
-    refresh_conn_confs(NewZones, emqx_config:get([listeners], #{})).
+post_zone_config_update(_OldZones, NewZones) ->
+    safe_call(#zones_updated{zones = NewZones}).
 
 -doc """
-Rebuild the connection settings of every listener and zone pair from the
-given listeners config.
+Delete the entries of the given listeners. The next connection on such a
+listener registers them again.
 
-`emqx_listeners:post_config_update/5` calls this each time the listeners
-config is written. It runs before the new config is stored, so the caller
-passes the new listeners config in.
+`emqx_listeners:post_config_update/5` calls this with the listeners that are
+updated or deleted.
 """.
--spec post_listener_config_update(emqx_config:config()) -> ok.
-post_listener_config_update(Listeners) ->
-    refresh_conn_confs(emqx_config:get([zones], #{}), Listeners).
+-spec listeners_changed([listener()]) -> ok.
+listeners_changed([]) ->
+    ok;
+listeners_changed(Listeners) ->
+    safe_call(#listeners_changed{listeners = Listeners}).
+
+-doc """
+Return once the server has handled the registrations sent before the call.
+
+For tests only: a connection never waits for the server.
+""".
+-spec sync() -> ok.
+sync() ->
+    gen_server:call(?MODULE, sync, ?CALL_TIMEOUT).
+
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
+
+init([]) ->
+    %% After a restart, take the entries written before back.
+    Keys = [Key || {Key, _} <- persistent_term:get(), is_own_key(Key)],
+    {ok, #{keys => maps:from_keys(Keys, true)}}.
+
+handle_call(#zones_updated{zones = Zones}, _From, #{keys := Keys0} = State) ->
+    Keys = maps:filter(fun(Key, true) -> rebuild(Key, Zones) end, Keys0),
+    {reply, ok, State#{keys := Keys}};
+handle_call(#listeners_changed{listeners = Listeners}, _From, #{keys := Keys0} = State) ->
+    Keys = maps:filter(
+        fun
+            (?CONN_KEY(Listener, _Zone) = Key, true) ->
+                not lists:member(Listener, Listeners) orelse erase_entry(Key);
+            (_Key, true) ->
+                true
+        end,
+        Keys0
+    ),
+    {reply, ok, State#{keys := Keys}};
+handle_call(sync, _From, State) ->
+    {reply, ok, State};
+handle_call(Req, _From, State) ->
+    {reply, {error, {unknown_call, Req}}, State}.
+
+handle_cast(#register{key = Key, value = Value}, #{keys := Keys} = State) ->
+    %% An entry written before, or rebuilt from a later config, wins.
+    case persistent_term:get(Key, undefined) of
+        undefined -> persistent_term:put(Key, Value);
+        _ -> ok
+    end,
+    {noreply, State#{keys := Keys#{Key => true}}};
+handle_cast(_Req, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-same_or_given(Shared, Given) when Shared =:= Given ->
-    Shared;
-same_or_given(_Shared, Given) ->
-    Given.
+register_entry(Key, Value) ->
+    gen_server:cast(?MODULE, #register{key = Key, value = Value}).
 
-update_zone_frame(Zone, ZoneConf) ->
-    put_if_changed(?FRAME_KEY(Zone), build_frame(ZoneConf)).
+%% The config hooks run at boot before this server starts; nothing is
+%% registered by then, so there is nothing to do. A config update must not
+%% fail because this server is slow: the caller stops waiting, and the
+%% request stays queued for the server to handle when it gets to it.
+safe_call(Req) ->
+    try
+        gen_server:call(?MODULE, Req, ?CALL_TIMEOUT)
+    catch
+        exit:{noproc, _} ->
+            ok;
+        exit:{timeout, _} ->
+            ?SLOG(warning, #{
+                msg => "connection_conf_update_not_awaited",
+                request => element(1, Req),
+                hint => "shared connection setting updates might be delayed"
+            }),
+            ok
+    end.
 
-%% One entry per listener and zone. Entries of pairs that no longer exist
-%% are erased.
-refresh_conn_confs(Zones, Listeners) ->
-    Wanted = maps:from_list([
-        {?CONN_KEY(Listener, Zone), build_conn_conf(Listener, Zone, ListenerConf, ZoneConf)}
-     || {Listener, ListenerConf} <- conf_listeners(Listeners),
-        {Zone, ZoneConf} <- maps:to_list(Zones)
-    ]),
-    ok = maps:foreach(fun put_if_changed/2, Wanted),
-    lists:foreach(
-        fun
-            ({?CONN_KEY(_, _) = Key, _Value}) when not is_map_key(Key, Wanted) ->
-                _ = persistent_term:erase(Key);
-            (_Entry) ->
-                ok
-        end,
-        persistent_term:get()
-    ).
+is_own_key(?FRAME_KEY(_Zone)) -> true;
+is_own_key(?CONN_KEY(_Listener, _Zone)) -> true;
+is_own_key(_Key) -> false.
 
-%% The listeners whose connections use `#conf{}': TCP, SSL and QUIC.
-conf_listeners(Listeners) ->
-    maps:fold(
-        fun(Type, ByName, Acc) ->
-            case lists:member(Type, ?CONF_LISTENER_TYPES) of
-                true -> conf_listeners(Type, ByName, Acc);
-                false -> Acc
-            end
-        end,
-        [],
-        Listeners
-    ).
-
-conf_listeners(Type, ByName, Acc) ->
-    maps:fold(
-        fun
-            (Name, ListenerConf, Acc1) when is_map(ListenerConf) ->
-                [{{Type, Name}, ListenerConf} | Acc1];
-            (_Name, _Tombstone, Acc1) ->
-                Acc1
-        end,
-        Acc,
-        ByName
-    ).
+%% Rebuild the entry for the current config, or erase it when its zone or
+%% listener is gone. Returns whether the entry is kept.
+rebuild(?FRAME_KEY(Zone) = Key, Zones) ->
+    case Zones of
+        #{Zone := ZoneConf} -> put_if_changed(Key, build_frame(ZoneConf));
+        #{} -> erase_entry(Key)
+    end;
+rebuild(?CONN_KEY({Type, Name} = Listener, Zone) = Key, Zones) ->
+    case {Zones, emqx_config:get_listener_conf(Type, Name, [], undefined)} of
+        {#{Zone := ZoneConf}, #{} = ListenerConf} ->
+            put_if_changed(Key, build_conn_conf(Listener, Zone, ListenerConf, ZoneConf));
+        _ ->
+            erase_entry(Key)
+    end.
 
 %% Write the entry only when its value changes.
 put_if_changed(Key, Value) ->
     case persistent_term:get(Key, undefined) of
         Value -> ok;
         _ -> persistent_term:put(Key, Value)
-    end.
+    end,
+    true.
+
+erase_entry(Key) ->
+    _ = persistent_term:erase(Key),
+    false.
+
+same_or_given(Shared, Given) when Shared =:= Given ->
+    Shared;
+same_or_given(_Shared, Given) ->
+    Given.
 
 -spec build_frame(map()) -> frame().
 build_frame(#{
@@ -253,10 +330,12 @@ build_frame(#{
     }
 }) ->
     FrameOpts = frame_opts(StrictMode, MaxSize, MaxConnectSize, MaxConnectUserProps),
-    PreConnect = build_pre_connect_codec(FrameOpts),
-    #{initial_parse_state := ParseState} = PreConnect,
+    ParseState = emqx_frame:initial_parse_state(FrameOpts),
     #{
-        connect => PreConnect,
+        connect => #{
+            initial_parse_state => ParseState,
+            serialize_opts => emqx_frame:initial_serialize_opts(FrameOpts)
+        },
         common => maps:from_list([
             {ProtoVer, #{
                 initial_parse_state => emqx_frame:post_connect_parse_state(ProtoVer, ParseState),
@@ -264,12 +343,6 @@ build_frame(#{
             }}
          || ProtoVer <- ?PROTO_VERS
         ])
-    }.
-
-build_pre_connect_codec(FrameOpts) ->
-    #{
-        initial_parse_state => emqx_frame:initial_parse_state(FrameOpts),
-        serialize_opts => emqx_frame:initial_serialize_opts(FrameOpts)
     }.
 
 -spec build_conn_conf(listener(), emqx_types:zone(), map(), map()) -> conn_conf().

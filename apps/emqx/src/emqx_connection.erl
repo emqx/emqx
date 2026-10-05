@@ -33,7 +33,9 @@
 -endif.
 
 -elvis([{elvis_style, used_ignored_variable, disable}]).
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, #{ignore => [emqx_connection]}}]).
+%% Forced GC is this module's job.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 %% API
 -export([

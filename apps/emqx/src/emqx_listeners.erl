@@ -9,6 +9,9 @@
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% Listener names come from checked config, so the atoms exist.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %% APIs
 -export([
     list_raw/0,
@@ -686,16 +689,20 @@ pre_config_update([?ROOT_KEY], NewConf, OldConf) ->
 
 post_config_update(Path, Request, NewConf, OldConf, AppEnvs) ->
     Result = do_post_config_update(Path, Request, NewConf, OldConf, AppEnvs),
-    %% The new config is not stored yet when this callback runs.
-    ok = emqx_connection_conf:post_listener_config_update(new_listeners_conf(Path, NewConf)),
+    ok = emqx_connection_conf:listeners_changed(changed_listeners(Path, Request, NewConf, OldConf)),
     Result.
 
-new_listeners_conf([?ROOT_KEY], NewConf) ->
-    NewConf;
-new_listeners_conf([?ROOT_KEY, Type, Name], NewConf) ->
-    emqx_utils_maps:deep_put([Type, Name], emqx_config:get([?ROOT_KEY], #{}), NewConf);
-new_listeners_conf(_Path, _NewConf) ->
-    emqx_config:get([?ROOT_KEY], #{}).
+%% The listeners whose connection settings an update or a delete invalidates.
+changed_listeners([?ROOT_KEY, Type, Name], ?MARK_DEL, _NewConf, _OldConf) ->
+    [{Type, Name}];
+changed_listeners([?ROOT_KEY, Type, Name], {update, _Request}, _NewConf, _OldConf) ->
+    [{Type, Name}];
+changed_listeners([?ROOT_KEY], _Request, NewConf, OldConf) ->
+    #{removed := Removed, changed := Changed} = diff_confs(NewConf, OldConf),
+    [{Type, Name} || {Type, Name, _} <- Removed] ++
+        [{Type, Name} || {{Type, Name, _}, _} <- Changed];
+changed_listeners(_Path, _Request, _NewConf, _OldConf) ->
+    [].
 
 do_post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
     OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE

@@ -26,6 +26,11 @@
 -endif.
 
 -elvis([{elvis_style, used_ignored_variable, disable}]).
+%% Forced GC is this module's job.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+%% process_msg/2 and process_msg/3 share a shape on purpose: both are the
+%% tail-recursive message dispatch, one with and one without a queue.
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 %% API
 -export([
