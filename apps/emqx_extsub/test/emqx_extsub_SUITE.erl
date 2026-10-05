@@ -72,6 +72,13 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+-doc "Delivery to a channel without channel metadata does not raise.".
+t_missing_channel_info(_Config) ->
+    ?assertEqual(undefined, erlang:get(extsub_channel_info)),
+    Msg = emqx_message:make(<<"test">>, ?QOS_1, <<"t">>, <<"payload">>),
+    ?assertEqual({ok, Msg}, emqx_extsub:on_message_delivered(#{}, Msg)),
+    ?assertEqual(undefined, erlang:get(extsub_channel_info)).
+
 %% We emulate different kinds of message flow into the external subscription handler.
 %% We deliver message by 1, in batches smaller and larger than the extsub buffer size.
 %% We expect the handler to deliver the messages into the channel correctly.
