@@ -33,6 +33,8 @@
 
 -export([on_async_result/2]).
 
+-export([restart_when_ready/1]).
+
 -type name() :: term().
 
 -type option() ::
@@ -50,6 +52,7 @@
 -define(IS_NO_PREFIX(P), (P =:= undefined orelse P =:= ?NO_PREFIX)).
 -define(MAX_PREFIX_BYTES, 19).
 -define(AUTO_RECONNECT_INTERVAL_S, 2).
+-define(WAITING_FOR_NODE_READY_MSG, <<"Waiting for the node to be ready">>).
 
 -define(available_clientid_info, available_clientid_info).
 
@@ -78,7 +81,8 @@
     ?available_clientid_info := [clientid_info()],
     subscription_id_to_handler_index := undefined | ets:tid(),
     topic_to_handler_index := ets:table(),
-    server := string()
+    server := string(),
+    waiting_for_node_ready => true
 }.
 -type channel_state() :: _Todo :: map().
 
@@ -334,15 +338,66 @@ start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
+    State = #{
+        pool_name => PoolName,
+        pool_size => PoolSize,
+        ?available_clientid_info => AvailableClientidInfo
+    },
+    case is_waiting_for_node_ready(ResourceId, StartConf) of
+        true ->
+            Restart = {?MODULE, restart_when_ready, [ResourceId]},
+            case emqx_resource_ready_waiter:when_ready({?MODULE, ResourceId}, Restart) of
+                deferred ->
+                    ?tp(info, "mqtt_connector_waiting_for_node_ready", #{connector => ResourceId}),
+                    {ok, State#{waiting_for_node_ready => true}};
+                now ->
+                    start_pool(PoolName, Options, State)
+            end;
+        false ->
+            start_pool(PoolName, Options, State)
+    end.
+
+start_pool(PoolName, Options, State) ->
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
-            {ok, #{
-                pool_name => PoolName,
-                pool_size => PoolSize,
-                ?available_clientid_info => AvailableClientidInfo
-            }};
+            {ok, State};
         {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
+    end.
+
+%% A `clean_start = false' session delivers its queued messages right after CONNACK.
+%% Before the node is ready, rules may not be loaded and local clients cannot connect,
+%% so a connector with sources connects only once the node is ready.
+is_waiting_for_node_ready(ConnResId, #{clean_start := false}) ->
+    not emqx_node_readiness:is_ready() andalso has_sources(ConnResId);
+is_waiting_for_node_ready(_ConnResId, #{clean_start := true}) ->
+    false.
+
+has_sources(ConnResId) ->
+    lists:any(
+        fun({_ChannelId, #{config_root := Root}}) -> Root =:= sources end,
+        emqx_bridge_v2:get_channels_for_connector(ConnResId)
+    ).
+
+%% Called by `emqx_resource_ready_waiter' once the node is ready.
+%% `emqx_resource:restart/1' waits for the connector to restart and connect,
+%% and the waiter applies its starts one after another, so the restart runs in
+%% its own process.
+-spec restart_when_ready(connector_resource_id()) -> ok.
+restart_when_ready(ConnResId) ->
+    _ = proc_lib:spawn(fun() -> restart_connector(ConnResId) end),
+    ok.
+
+restart_connector(ConnResId) ->
+    case emqx_resource:restart(ConnResId) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "mqtt_connector_restart_after_node_ready_failed",
+                connector => ConnResId,
+                reason => Reason
+            })
     end.
 
 get_pool_size(#{static_clientids := [_ | _]} = Conf) ->
@@ -384,6 +439,7 @@ on_stop(ConnResId, _State) ->
         TopicToHandlerIndex ->
             ets_delete(TopicToHandlerIndex)
     end,
+    ok = emqx_resource_ready_waiter:cancel({?MODULE, ConnResId}),
     ok = stop_helper(Allocated),
     ?tp(mqtt_connector_stopped, #{instance_id => ConnResId}),
     ok.
@@ -514,6 +570,8 @@ classify_error({unrecoverable_error, _Reason} = Error) ->
 classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 
+on_get_status(_ResourceId, #{waiting_for_node_ready := true}) ->
+    {?status_connecting, ?WAITING_FOR_NODE_READY_MSG};
 on_get_status(_ResourceId, State) ->
     Pools = maps:to_list(maps:with([pool_name], State)),
     Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
