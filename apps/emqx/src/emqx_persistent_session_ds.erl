@@ -1464,7 +1464,7 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S1),
     %% NOTE: these three operations (set will, commit session state,
     %% set GC timer) are NOT atomic. If commit happens before timer is
-    %% set, session won't be garbage collected by normal needs.
+    %% set, session won't be garbage collected by normal means.
     ok = emqx_durable_will:on_connect(ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg),
     S = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
     ok = emqx_persistent_session_ds_gc_timer:on_connect(
@@ -1489,7 +1489,7 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
 
 %% This function triggers sending packets stored in the inflight to
 %% the client (provided there is something to send and the number of
-%% in-flight packets is less than `Recieve-Maximum'). Normally, this
+%% in-flight packets is less than `Receive-Maximum'). Normally, this
 %% function is called triggered when:
 %%
 %% - New messages (durable or transient) are enqueued

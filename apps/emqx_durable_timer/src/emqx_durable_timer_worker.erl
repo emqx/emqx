@@ -344,7 +344,7 @@ handle_wake_up(
                 %% when replaying old epochs: in order to know when to
                 %% wake up next event, we have to look into the
                 %% future. As such, the most efficient way to replay
-                %% events is via regualar fixed-size batches and by
+                %% events is via regular fixed-size batches and by
                 %% caching future events.
                 emqx_durable_timer:cfg_batch_size()
         end,
@@ -412,7 +412,7 @@ replay_timers(
             },
             case Batch of
                 [] when State =/= ?s_active ->
-                    %% We're in reply mode and there's no more data
+                    %% We're in replay mode and there's no more data
                     %% left. Terminate the replay:
                     {end_of_stream, FullyReplayedTS};
                 [] ->
@@ -467,7 +467,7 @@ apply_timers_from_batch(
         [{_Topic, Time, _Val} | Rest] when Time < FullyReplayedTS ->
             %% Try to ignore already processed events during retry.
             %% Since `clean_replayed' is async, we may still run into
-            %% old the records if retry timer fires before cleaning is
+            %% old records if retry timer fires before cleaning is
             %% done.
             apply_timers_from_batch(D, Bound, FullyReplayedTS, Rest);
         [{[_Root, _Type, _Epoch, Key], Time, Val} | Rest] when Time =< Bound ->

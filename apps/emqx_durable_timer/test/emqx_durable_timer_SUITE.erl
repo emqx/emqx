@@ -826,7 +826,7 @@ t_081_retry_on_error(Config) ->
             {ok, _} = snabbkaffe:receive_events(Sub2),
             %% Fix it removing the mock:
             ?ON(N1, meck:unload(emqx_durable_test_timer)),
-            %% Now we should recieve fire event from it:
+            %% Now we should receive fire event from it:
             ?block_until(#{?snk_kind := ?tp_test_fire, key := Key2})
         end,
         fun(Trace) ->
@@ -912,7 +912,7 @@ t_082_replay_retry(Config) ->
             {ok, _} = snabbkaffe:receive_events(Sub2),
             %% Fix it removing the mock:
             [?ON(Node, meck:unload(emqx_durable_test_timer)) || Node <- Survivors],
-            %% Now we should recieve fire event from it:
+            %% Now we should receive fire event from it:
             ?block_until(#{?snk_kind := ?tp_test_fire, key := Key2})
         end,
         fun(Trace) ->
@@ -944,7 +944,7 @@ verify_retry_of_two_keys(ExpectedRetries, Key1, Key2, Trace) ->
         Go([], {K, NR, 1}) when K =:= Key2, NR >= ExpectedRetries ->
             ok;
         Go([], State) ->
-            error({unexpeced_end, State});
+            error({unexpected_end, State});
         Go([Event | Rest], {Key, NRetries, NSuccess} = State0) ->
             case Event of
                 #{?snk_kind := ?tp_handler_crash, key := Key} when
