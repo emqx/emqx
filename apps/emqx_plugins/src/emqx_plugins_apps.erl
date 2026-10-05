@@ -285,10 +285,55 @@ validate_loaded_plugin_app(AppName, EbinDir, Props) ->
                                 msg => "plugin_app_loaded_outside_package",
                                 name => AppName,
                                 expected_ebin => ExpectedEbinDir,
-                                loaded_ebin => LoadedEbinDir
+                                loaded_ebin => LoadedEbinDir,
+                                hint => loaded_outside_package_hint(
+                                    AppName, ExpectedEbinDir, LoadedEbinDir
+                                )
                             }}
                     end
             end
+    end.
+
+loaded_outside_package_hint(AppName, ExpectedEbinDir, LoadedEbinDir) ->
+    case other_plugin_version(ExpectedEbinDir, LoadedEbinDir) of
+        {ok, OtherNameVsn} ->
+            iolist_to_binary([
+                "Plugin ",
+                OtherNameVsn,
+                " is loaded. Uninstall it or restart the node, then retry."
+            ]);
+        error ->
+            iolist_to_binary([
+                "Application ",
+                atom_to_binary(AppName),
+                " is already loaded outside this plugin package. A package can bundle an "
+                "application that another plugin has loaded only when the two .app files are "
+                "identical. Rebuild the plugin with the loaded version, or remove the conflicting "
+                "code path and restart the node, then retry."
+            ])
+    end.
+
+%% The name-vsn of the plugin that loaded the application, when it is another
+%% version of the plugin that is being installed.  `LoadedEbinDir' is
+%% `{error, bad_name}' when the loaded application has no directory in the
+%% code path.
+other_plugin_version(ExpectedEbinDir, LoadedEbinDir) when is_list(LoadedEbinDir) ->
+    maybe
+        {ok, NameVsn} ?= emqx_plugins_fs:name_vsn_of_path(ExpectedEbinDir),
+        {ok, LoadedNameVsn} ?= emqx_plugins_fs:name_vsn_of_path(LoadedEbinDir),
+        true ?= LoadedNameVsn =/= NameVsn,
+        true ?= plugin_name(LoadedNameVsn) =:= plugin_name(NameVsn),
+        {ok, LoadedNameVsn}
+    else
+        _ -> error
+    end;
+other_plugin_version(_ExpectedEbinDir, _LoadedEbinDir) ->
+    error.
+
+plugin_name(NameVsn) ->
+    case string:split(NameVsn, "-") of
+        [Name, _Vsn] -> Name;
+        _ -> NameVsn
     end.
 
 is_shared_plugin_app(AppName, Props, LoadedEbinDir) when is_list(LoadedEbinDir) ->

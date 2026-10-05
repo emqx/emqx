@@ -804,7 +804,54 @@ t_shares_app_with_other_plugin(_Config) ->
     ?assertMatch(
         {error, #{msg := "plugin_app_loaded_outside_package", name := shared_dep}},
         emqx_plugins:ensure_installed("bundler3-1.0.0", ?fresh_install)
+    ),
+    {error, #{hint := Hint}} = emqx_plugins:ensure_installed("bundler3-1.0.0", ?fresh_install),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(Hint, <<"only when the two .app files are identical">>),
+        Hint
     ).
+
+-doc """
+A package is refused when another version of the same plugin is loaded, and
+the hint of the error names that version. After that version is uninstalled,
+the package installs.
+""".
+t_install_other_version_hint({init, Config}) ->
+    Config;
+t_install_other_version_hint({'end', _Config}) ->
+    lists:foreach(
+        fun(NameVsn) ->
+            _ = emqx_plugins:ensure_stopped(NameVsn),
+            _ = emqx_plugins:ensure_uninstalled(NameVsn),
+            _ = emqx_plugins:purge(NameVsn),
+            _ = emqx_plugins:delete_package(NameVsn)
+        end,
+        ["upgrader-1.0.0", "upgrader-2.0.0"]
+    ),
+    _ = application:unload(upgrader),
+    ok;
+t_install_other_version_hint(_Config) ->
+    V1 = "upgrader-1.0.0",
+    V2 = "upgrader-2.0.0",
+    ok = make_bundling_plugin_tar(V1, "1.0.0", []),
+    ok = make_bundling_plugin_tar(V2, "2.0.0", []),
+    ok = emqx_plugins:ensure_installed(V1, ?fresh_install),
+    ok = emqx_plugins:ensure_started(V1),
+    ?assertMatch(
+        {error, #{
+            msg := "plugin_app_loaded_outside_package",
+            name := upgrader,
+            hint :=
+                <<"Plugin upgrader-1.0.0 is loaded. Uninstall it or restart the node, then retry.">>
+        }},
+        emqx_plugins:ensure_installed(V2, ?fresh_install)
+    ),
+    ok = emqx_plugins:ensure_stopped(V1),
+    ok = emqx_plugins:ensure_uninstalled(V1),
+    ok = emqx_plugins:ensure_installed(V2, ?fresh_install),
+    ok = emqx_plugins:ensure_started(V2),
+    ?assertEqual({ok, "2.0.0"}, application:get_key(upgrader, vsn)).
 
 %% `tftp' is an application of the Erlang/OTP installation, which is the
 %% release's lib directory in a test node.
@@ -855,19 +902,25 @@ release_app_copy(Config) ->
 %% A plugin package `NameVsn' with the plugin application `<name>-0.1.0' and
 %% the bundled applications `Bundled'.
 make_bundling_plugin_tar(NameVsn, Bundled) ->
-    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    PluginApp = atom_to_list(Name) ++ "-0.1.0",
+    make_bundling_plugin_tar(NameVsn, "0.1.0", Bundled).
+
+%% Same as `make_bundling_plugin_tar/2', with the plugin application of version
+%% `AppVsn'.
+make_bundling_plugin_tar(NameVsn, AppVsn, Bundled) ->
+    {Name, Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    PluginApp = atom_to_list(Name) ++ "-" ++ AppVsn,
     BundledNames = [
         element(1, emqx_plugins_utils:parse_name_vsn(AppNameVsn))
      || {AppNameVsn, _} <- Bundled
     ],
     Info = emqx_utils_json:encode(#{
         name => bin(Name),
-        rel_vsn => <<"1.0.0">>,
+        rel_vsn => bin(Vsn),
         rel_apps => [bin(PluginApp) | [bin(AppNameVsn) || {AppNameVsn, _} <- Bundled]],
         description => <<"test">>
     }),
-    Apps = [{PluginApp, [{atom_to_list(Name) ++ ".app", app_file(Name, BundledNames)}]} | Bundled],
+    PluginAppFile = app_file(Name, AppVsn, BundledNames),
+    Apps = [{PluginApp, [{atom_to_list(Name) ++ ".app", PluginAppFile}]} | Bundled],
     Entries = [
         {filename:join([NameVsn, AppNameVsn, "ebin", File]), Bin}
      || {AppNameVsn, Files} <- Apps, {File, Bin} <- Files
@@ -883,9 +936,12 @@ read_file(Path) ->
     Bin.
 
 app_file(Name, Deps) ->
+    app_file(Name, "0.1.0", Deps).
+
+app_file(Name, Vsn, Deps) ->
     iolist_to_binary(
         io_lib:format("~p.~n", [
-            {application, Name, [{vsn, "0.1.0"}, {applications, [kernel, stdlib | Deps]}]}
+            {application, Name, [{vsn, Vsn}, {applications, [kernel, stdlib | Deps]}]}
         ])
     ).
 
