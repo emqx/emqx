@@ -675,7 +675,10 @@ forward(ClusterName, #delivery{message = Msg}) ->
     %% Attaching pick key to the message to pick forwarding connection accordingly.
     #{query_opts := QueryOpts} = emqx_cluster_link_config:link(ClusterName),
     Key = choose_pick_key(QueryOpts),
-    FwdMsg = Msg#message{extra = Key},
+    %% Publish outcome headers describe this cluster: the remote cluster counts
+    %% its own deliveries, and an older remote cannot decode them.
+    FwdMsg0 = emqx_message:remove_header(message_persisted, Msg),
+    FwdMsg = FwdMsg0#message{extra = Key},
     emqx_resource:query(?MSG_RES_ID(ClusterName), FwdMsg, QueryOpts#{pick_key => Key}).
 
 choose_pick_key(#{buffer_worker_dispatch_strategy := random}) ->
