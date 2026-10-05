@@ -330,7 +330,7 @@ init_state(
         sock => Socket
     },
     Channel = emqx_channel:init(ConnInfo, Opts),
-    Conf = conn_conf({Type, Listener}, Zone, Opts),
+    Conf = emqx_connection_conf:conn_conf({Type, Listener}, Zone),
     State0 = #state{
         socket = Socket,
         sockstate = idle,
@@ -515,13 +515,6 @@ cancel_idle_timer(_State) ->
 -compile({inline, [get_zone_idle_timeout/1]}).
 get_zone_idle_timeout(Zone) ->
     emqx_channel:get_mqtt_conf(Zone, idle_timeout).
-
-conn_conf(Listener, Zone, Opts) ->
-    #conf{hibernate_after = ZoneValue} = Conf = emqx_connection_conf:conn_conf(Listener, Zone),
-    case maps:get(hibernate_after, Opts, ZoneValue) of
-        ZoneValue -> Conf;
-        HibernateAfter -> Conf#conf{hibernate_after = HibernateAfter}
-    end.
 
 %%--------------------------------------------------------------------
 %% Process next Msg
@@ -1658,9 +1651,11 @@ graceful_shutdown_transport(_Reason, S = #state{socket = Socket}) ->
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-%% A zone change on a live connection: `Opts' carries no override.
+%% A zone change on a live connection.
 init_zone_specific_state(Zone, #state{conf = Conf0} = State0) ->
-    init_zone_specific_state(conn_conf(Conf0#conf.listener, Zone, #{}), Zone, State0).
+    init_zone_specific_state(
+        emqx_connection_conf:conn_conf(Conf0#conf.listener, Zone), Zone, State0
+    ).
 
 init_zone_specific_state(Conf, Zone, State0) ->
     {Parser, Serialize} =
