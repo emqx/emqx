@@ -153,6 +153,21 @@ t_quic_data_stream_hibernates_when_idle(Config) ->
     ok = emqtt:disconnect(C).
 
 -doc """
+The QUIC listener config sets the deprecated `ssl_options.hibernate_after`.
+The node starts with it, the checked config drops it, and the control stream
+hibernates after the zone value.
+""".
+t_quic_listener_hibernate_after_ignored(Config) ->
+    ?assertNot(
+        maps:is_key(hibernate_after, emqx_config:get_listener_conf(quic, default, [ssl_options]))
+    ),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    C = connect(ClientId, Config),
+    [Pid] = emqx_cm:lookup_channels(ClientId),
+    ?assertEqual(?HIBERNATED, await_hibernated(Pid)),
+    ok = emqtt:disconnect(C).
+
+-doc """
 A change of `mqtt.hibernate_after` applies to the control stream and the data
 streams of a QUIC connection that starts after the change.
 """.

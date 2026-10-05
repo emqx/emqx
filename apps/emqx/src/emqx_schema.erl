@@ -1329,6 +1329,12 @@ fields("listener_quic_ssl_opts") ->
             case is_quic_ssl_opts(Name) of
                 true ->
                     {Name, Schema};
+                false when Name =:= "hibernate_after" ->
+                    {Name, Schema#{
+                        deprecated => {since, "6.3.3"},
+                        importance => ?IMPORTANCE_HIDDEN,
+                        desc => ?DESC(quic_ssl_opts_hibernate_after)
+                    }};
                 false ->
                     {Name, Schema#{
                         deprecated => {since, "5.0.20"}, importance => ?IMPORTANCE_HIDDEN
@@ -4036,8 +4042,7 @@ is_quic_ssl_opts(Name) ->
         "certfile",
         "keyfile",
         "verify",
-        "password",
-        "hibernate_after"
+        "password"
         %% Followings are planned
         %% , "fail_if_no_peer_cert"
         %% , "handshake_timeout"
