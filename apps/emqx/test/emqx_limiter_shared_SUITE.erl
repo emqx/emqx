@@ -354,5 +354,8 @@ wait_for_registry(OldPid, N) ->
             timer:sleep(100),
             wait_for_registry(OldPid, N - 1);
         NewPid ->
+            %% The name is registered before init/1 runs, so wait for init/1
+            %% to finish erasing the stale bucket keys.
+            _ = sys:get_state(NewPid),
             NewPid
     end.
