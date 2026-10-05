@@ -38,8 +38,7 @@
 
 -type state() :: session().
 
-%% FIXME
--type session_legacy() :: tuple().
+-type session_legacy() :: emqx_session_mem_compat:legacy_session().
 
 -define(BPAPI, emqx_cm).
 -define(BPAPI_VSN_BASELINE, 4).
@@ -137,9 +136,9 @@ from_begin_ret({ok, _ChanRef, _Session} = Ret) ->
 upgrade_begin_ret(none) ->
     none;
 upgrade_begin_ret({living, ConnMod, ChanPid, Session}) ->
-    %% NOTE: Convert pre-3.6.0 `#session{}` record into "exported" form.
+    %% NOTE: Convert pre-6.3.0 `#session{}` record into "exported" form.
     ChanRef = #chanref{proto = legacy, connmod = ConnMod, pid = ChanPid},
-    {ok, ChanRef, from_legacy_session(Session)};
+    {ok, ChanRef, emqx_session_mem_compat:to_exported(Session)};
 upgrade_begin_ret({expired, _} = Ret) ->
     %% NOTE: Unsupported pre-5.3.0 stuff.
     error({unsupported, Ret});
@@ -155,7 +154,8 @@ to_begin_ret(_RequesterProto, none) ->
 downgrade_begin_ret(ClientId, ChanInfo, {ok, ChanRef, Session}) ->
     %% NOTE: Turn back into pre-6.3.0 `#session{}` record.
     #chanref{connmod = ConnMod, pid = ChanPid} = ChanRef,
-    {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session)};
+    ClientInfo = (maps:get(clientinfo, ChanInfo))#{clientid => ClientId},
+    {living, ConnMod, ChanPid, emqx_session_mem_compat:from_exported(pre63, ClientInfo, Session)};
 downgrade_begin_ret(_ClientId, _ChanInfo, none) ->
     none.
 
@@ -237,155 +237,3 @@ to_finish_ret(_Proto, {ok, ReplayContext}) ->
     {ok, ReplayContext};
 to_finish_ret(_Proto, {error, Reason}) ->
     {error, Reason}.
-
-%% Compatibility
-
-%% Pre-6.3.0 in-memory session has the following shape:
-%% -record(session, {
-%%     clientid :: emqx_types:clientid(),
-%%     id :: emqx_session:session_id(),
-%%     is_persistent :: boolean(),
-%%     subscriptions :: map(),
-%%     max_subscriptions :: non_neg_integer() | infinity,
-%%     upgrade_qos = false :: boolean(),
-%%     inflight :: emqx_inflight:inflight(),
-%%     mqueue :: emqx_mqueue:mqueue(),
-%%     next_pkt_id = 1 :: emqx_types:packet_id(),
-%%     retry_interval :: timeout(),
-%%     awaiting_rel :: map(),
-%%     max_awaiting_rel :: non_neg_integer() | infinity,
-%%     await_rel_timeout :: timeout(),
-%%     created_at :: pos_integer()
-%% }).
-
-%% erlfmt-ignore
-to_legacy_session(ClientId, ChanInfo, Session) ->
-    {session,
-        ClientId,
-        _Id = maps:get(id, Session),
-        _IsPersistent = maps:get(is_persistent, Session),
-        _Subscriptions = maps:get(subscriptions, Session),
-        _MaxSubscriptions = infinity,
-        _UpgradeQoS = false,
-        _Inflight = to_legacy_inflight(maps:get(inflight, Session)),
-        _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session)),
-        _NextPktId = maps:get(next_pkt_id, Session),
-        _RetryInterval = infinity,
-        _AwaitingRel = maps:get(awaiting_rel, Session),
-        _MaxAwaitingRel = 100,
-        _AwaitRelTimeout = timer:seconds(300),
-        _CreatedAt = maps:get(created_at, Session)}.
-
-%% erlfmt-ignore
-from_legacy_session(Session) ->
-    {session,
-        _ClientId,
-        Id,
-        IsPersistent,
-        Subscriptions,
-        _MaxSubscriptions,
-        _UpgradeQoS,
-        Inflight,
-        MQueue,
-        NextPacketId,
-        _RetryInterval,
-        AwaitingRel,
-        _MaxAwaitingRel,
-        _AwaitRelTimeout,
-        CreatedAt
-    } = Session,
-    #{
-        id => Id,
-        is_persistent => IsPersistent,
-        subscriptions => Subscriptions,
-        inflight => export_legacy_inflight(Inflight),
-        mqueue => export_legacy_mqueue(MQueue),
-        next_pkt_id => NextPacketId,
-        awaiting_rel => AwaitingRel,
-        created_at => CreatedAt
-    }.
-
-%% -opaque inflight() :: {inflight, max_size(), gb_trees:tree()}.
-%% -record(inflight_data, {
-%%     phase :: inflight_data_phase(),
-%%     message :: emqx_types:message(),
-%%     timestamp :: non_neg_integer()
-%% }).
-
-to_legacy_inflight(Inflight) ->
-    Tree = lists:foldl(
-        fun(
-            #{
-                packet_id := PacketId,
-                phase := Phase,
-                message := Message,
-                timestamp := Timestamp
-            },
-            Acc
-        ) ->
-            gb_trees:insert(PacketId, {inflight_data, Phase, Message, Timestamp}, Acc)
-        end,
-        gb_trees:empty(),
-        Inflight
-    ),
-    {inflight, 0, Tree}.
-
-export_legacy_inflight({inflight, _, Tree}) ->
-    [
-        #{
-            packet_id => PacketId,
-            phase => Phase,
-            message => Message,
-            timestamp => Timestamp
-        }
-     || {PacketId, {inflight_data, Phase, Message, Timestamp}} <- gb_trees:to_list(Tree)
-    ].
-
-%% -type squeue() :: {queue, [any()], [any()], non_neg_integer()}.
-%% -record(shift_opts, {multiplier :: non_neg_integer(), base :: integer()}).
-%% -record(mqueue, {
-%%     store_qos0 = false :: boolean(),
-%%     max_len = ?MAX_LEN_INFINITY :: count(),
-%%     len = 0 :: count(),
-%%     dropped = 0 :: count(),
-%%     p_table = ?NO_PRIORITY_TABLE :: p_table(),
-%%     default_p = ?LOWEST_PRIORITY :: priority(),
-%%     q = emqx_pqueue:new() :: pq(),
-%%     shift_opts :: #shift_opts{},
-%%     last_prio :: non_neg_integer() | undefined,
-%%     p_credit :: non_neg_integer() | undefined
-%% }).
-
-to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue) ->
-    Len = length(Queue),
-    PQueue = {queue, [], Queue, length(Queue)},
-    MaxLen = emqx_config:get_zone_conf(Zone, [mqtt, max_mqueue_len]),
-    StoreQoS0 = emqx_config:get_zone_conf(Zone, [mqtt, mqueue_store_qos0]),
-    PTable =
-        case emqx_config:get_zone_conf(Zone, [mqtt, mqueue_priorities]) of
-            disabled ->
-                disabled;
-            Priorities ->
-                %% topic from mqtt.mqueue_priorities(map()) is atom.
-                emqx_utils_maps:binary_key_map(Priorities)
-        end,
-    DefaultPrio =
-        case emqx_config:get_zone_conf(Zone, [mqtt, mqueue_default_priority]) of
-            lowest -> 0;
-            highest -> infinity;
-            N -> N
-        end,
-    %% NOTE: Computing `#shift_opts{}` was subtly broken, just use baseline.
-    ShiftOpts = {shift_opts, 10, 0},
-    {mqueue, StoreQoS0, MaxLen, Len, _Dropped = 0, PTable, DefaultPrio, PQueue, ShiftOpts,
-        _LastPrio = undefined, _PCredit = undefined}.
-
-export_legacy_mqueue(MQueue) ->
-    {mqueue, _StoreQoS0, _MaxLen, _Len, _Dropped, _PTable, _DefaultP, PQueue, _ShitOpts, _LastPrio,
-        _PCredit} = MQueue,
-    case PQueue of
-        {queue, In, Out, _} ->
-            Out ++ lists:reverse(In);
-        {pqueue, Queues} ->
-            lists:append([Out ++ lists:reverse(In) || {_P, {queue, In, Out, _}} <- Queues])
-    end.
