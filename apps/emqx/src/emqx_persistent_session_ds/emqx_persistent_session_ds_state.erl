@@ -41,6 +41,7 @@
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
+-export([set_half_closed/1, is_half_closed/1]).
 -export([set_offline_info/2, get_offline_info/1]).
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
@@ -320,6 +321,14 @@ get_expiry_interval(Rec) ->
 -spec set_expiry_interval(non_neg_integer(), t()) -> t().
 set_expiry_interval(Val, Rec) ->
     set_meta(?expiry_interval, Val, Rec).
+
+-spec set_half_closed(t()) -> t().
+set_half_closed(Rec) ->
+    set_meta(?half_closed, 1, Rec).
+
+-spec is_half_closed(t()) -> boolean().
+is_half_closed(Rec) ->
+    get_meta(?half_closed, Rec) =/= undefined.
 
 -spec get_peername(t()) -> emqx_types:peername() | undefined.
 get_peername(Rec) ->

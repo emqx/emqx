@@ -274,15 +274,19 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         false ->
             false;
         State ->
-            case emqx_persistent_session_ds_state:get_expiry_interval(State) of
-                0 ->
-                    %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the
-                    %% session ended when its network connection closed. Drop it
-                    %% (this also cleans persistent routes) and report no
-                    %% session, so the caller creates a fresh one.
+            %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the
+            %% session ended when its network connection closed. Drop it
+            %% (this also cleans persistent routes) and report no
+            %% session, so the caller creates a fresh one:
+            Expired = emqx_persistent_session_ds_state:get_expiry_interval(State) =:= 0,
+            %% Check if Session deletion is in progress:
+            HalfClosed = emqx_persistent_session_ds_state:is_half_closed(State),
+            case Expired orelse HalfClosed of
+                true ->
+                    %% Drop existing session:
                     ok = do_drop_session(ClientID, State, expired),
                     false;
-                _ ->
+                false ->
                     Session = create_session(
                         takeover, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg, Conf
                     ),
@@ -315,12 +319,34 @@ session_drop(SessionId, ExpectedGuard, Reason) ->
             ok
     end.
 
--spec do_drop_session(id(), emqx_persistent_session_ds_state:t(), _Reason) -> ok.
+-spec do_drop_session(id(), emqx_persistent_session_ds_state:t(), _Reason) -> ok | emqx_ds:error(_).
 do_drop_session(SessionId, S0, Reason) ->
     ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
-    ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
-    ok = emqx_persistent_session_ds_state:delete(S0),
-    emqx_persistent_session_ds_gc_timer:delete(SessionId).
+    %% 1. Set "deletion is in progress flag" to prevent the subsequent
+    %% attempts to restore this session:
+    S =
+        case emqx_persistent_session_ds_state:is_half_closed(S0) of
+            true ->
+                S0;
+            false ->
+                emqx_persistent_session_ds_state:commit(
+                    emqx_persistent_session_ds_state:set_half_closed(S0),
+                    #{lifetime => up, sync => true}
+                )
+        end,
+    %% 2. Perform side effects:
+    ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S),
+    ok = emqx_persistent_session_ds_gc_timer:delete(SessionId),
+    %% 3. All done. Delete the session state:
+    case emqx_persistent_session_ds_state:delete(S) of
+        ok ->
+            ok;
+        {error, unrecoverable, {precondition_failed, _}} ->
+            %% Session was taken over. Ignore.
+            ok;
+        Err ->
+            Err
+    end.
 
 -spec kick_offline_session(emqx_types:clientid()) -> ok.
 kick_offline_session(ClientID) ->
