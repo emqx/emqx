@@ -44,4 +44,10 @@
     created_at :: pos_integer()
 }).
 
+-ifdef(TEST).
+-define(DEFAULT_BATCH_N, 10).
+-else.
+-define(DEFAULT_BATCH_N, 1000).
+-endif.
+
 -endif.
