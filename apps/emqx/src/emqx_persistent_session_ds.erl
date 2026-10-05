@@ -96,7 +96,7 @@
 
 -ifdef(TEST).
 -export([
-    open_session_state/3,
+    open_session_state/2,
     list_all_sessions/0,
     state_invariants/2,
     trace_specs/0
@@ -270,7 +270,7 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:takeover_kick(ClientID),
-    case open_session_state(ClientID, ConnInfo, '_') of
+    case open_session_state(ClientID, ConnInfo) of
         false ->
             false;
         State ->
@@ -300,9 +300,17 @@ destroy(#{clientid := ClientID}) ->
 %% during session GC
 -spec session_drop(id(), emqx_persistent_session_ds_state:guard() | '_', _Reason) -> ok.
 session_drop(SessionId, ExpectedGuard, Reason) ->
-    case emqx_persistent_session_ds_state:open(SessionId, ExpectedGuard) of
+    case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S} ->
-            do_drop_session(SessionId, S, Reason);
+            case
+                ExpectedGuard =:= '_' orelse
+                    ExpectedGuard =:= emqx_persistent_session_ds_state:get_guard(S)
+            of
+                true ->
+                    do_drop_session(SessionId, S, Reason);
+                false ->
+                    ok
+            end;
         undefined ->
             ok
     end.
@@ -1049,17 +1057,14 @@ sync(ClientID) ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec open_session_state(
-    id(), emqx_types:conninfo(), emqx_persistent_session_ds_state:guard() | '_'
-) ->
+-spec open_session_state(id(), emqx_types:conninfo()) ->
     emqx_persistent_session_ds_state:t() | false.
 open_session_state(
     SessionId,
-    NewConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer},
-    MaybeGuard
+    NewConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer}
 ) ->
     NowMs = now_ms(),
-    case emqx_persistent_session_ds_state:open(SessionId, MaybeGuard) of
+    case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
             EI = emqx_persistent_session_ds_state:get_expiry_interval(S0),
             ?tp(?sessds_open_session, #{ei => EI, now => NowMs}),
