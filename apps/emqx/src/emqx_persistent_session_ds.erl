@@ -296,13 +296,14 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID}) ->
-    session_drop(ClientID, '_', destroy);
+    ok = session_drop(ClientID, '_', destroy);
 destroy(#{clientid := ClientID}) ->
-    session_drop(ClientID, '_', destroy).
+    ok = session_drop(ClientID, '_', destroy).
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
--spec session_drop(id(), emqx_persistent_session_ds_state:guard() | '_', _Reason) -> ok.
+-spec session_drop(id(), emqx_persistent_session_ds_state:guard() | '_', _Reason) ->
+    ok | emqx_ds:error(_).
 session_drop(SessionId, ExpectedGuard, Reason) ->
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S} ->
@@ -322,8 +323,9 @@ session_drop(SessionId, ExpectedGuard, Reason) ->
 -spec do_drop_session(id(), emqx_persistent_session_ds_state:t(), _Reason) -> ok | emqx_ds:error(_).
 do_drop_session(SessionId, S0, Reason) ->
     ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
-    %% 1. Set "deletion is in progress flag" to prevent the subsequent
-    %% attempts to restore this session:
+    %% 1. Set "deletion is in progress flag" and change the guard to
+    %% prevent further attempts to restore the session (which may be
+    %% missing routes):
     S =
         case emqx_persistent_session_ds_state:is_half_closed(S0) of
             true ->
@@ -331,7 +333,7 @@ do_drop_session(SessionId, S0, Reason) ->
             false ->
                 emqx_persistent_session_ds_state:commit(
                     emqx_persistent_session_ds_state:set_half_closed(S0),
-                    #{lifetime => up, sync => true}
+                    #{lifetime => takeover, sync => true}
                 )
         end,
     %% 2. Perform side effects:
