@@ -2515,6 +2515,150 @@ t_will_case06(_) ->
 %% Reproduces a same-ClientId reconnect after the UDP source port is reused by a
 %% new proxy process. The new connection takes over the old disconnected session
 %% immediately.
+-doc """
+Check that a takeover request from a node of EMQX 6.3.0 or 6.3.1, which
+sends no options, gets the `#session{}` layout of those versions: the
+mqueue in the 6.3.1 shape, no limiter, and the inflight window of MQTT-SN.
+This node resumes that layout.
+""".
+t_takeover_replies_v63_session_to_v63_requester(_) ->
+    ClientId = <<"takeover-v63-layout">>,
+    Requester = 'emqx631@127.0.0.1',
+    mock_peer_bpapi(Requester, #{emqx_gateway_cm => 2, emqx_cm => 4}),
+    Socket = ensure_connected_client(ClientId),
+    try
+        Pid = channel_pid(ClientId),
+        {ok, _ConnMod, Pid, #{session := Legacy, registry := Registry}} =
+            emqx_gateway_cm:do_takeover_session(
+                mqttsn, ClientId, Pid, #{requester => Requester}
+            ),
+        ?assertEqual({legacy, v63}, emqx_session_mem_compat:detect(Legacy)),
+        ?assertMatch({inflight, 1, _}, element(7, Legacy)),
+        ?assertMatch({mqueue, true, _, 0, 0, _, _, _}, element(8, Legacy)),
+        ?assertEqual(false, element(9, Legacy)),
+        Resumed = emqx_mqttsn_session:resume(
+            takeover_clientinfo(ClientId), #{session => Legacy, registry => Registry}
+        ),
+        ?assertEqual(0, emqx_mqttsn_session:info(inflight_cnt, Resumed)),
+        ?assertEqual(1, emqx_mqttsn_session:info(inflight_max, Resumed)),
+        ?assertEqual(0, emqx_mqttsn_session:info(mqueue_len, Resumed))
+    after
+        gen_udp:close(Socket),
+        emqx_gateway_cm:kick_session(mqttsn, ClientId)
+    end.
+
+-doc """
+Check that a takeover request from a node of EMQX 5.8 to 6.2 gets the
+`#session{}` layout of those versions, with the client id first, and that
+this node resumes it.
+""".
+t_takeover_replies_pre63_session_to_pre63_requester(_) ->
+    ClientId = <<"takeover-pre63-layout">>,
+    Requester = 'emqx623@127.0.0.1',
+    mock_peer_bpapi(Requester, #{emqx_gateway_cm => 2, emqx_cm => 3}),
+    Socket = ensure_connected_client(ClientId),
+    try
+        Pid = channel_pid(ClientId),
+        {ok, _ConnMod, Pid, #{session := Legacy, registry := Registry}} =
+            emqx_gateway_cm:do_takeover_session(
+                mqttsn, ClientId, Pid, #{requester => Requester}
+            ),
+        ?assertEqual({legacy, pre63}, emqx_session_mem_compat:detect(Legacy)),
+        ?assertEqual(ClientId, element(2, Legacy)),
+        ?assertMatch({inflight, 1, _}, element(8, Legacy)),
+        ?assertMatch(
+            {mqueue, true, _, 0, 0, _, _, {queue, [], [], 0}, _, _, _}, element(9, Legacy)
+        ),
+        Resumed = emqx_mqttsn_session:resume(
+            takeover_clientinfo(ClientId), #{session => Legacy, registry => Registry}
+        ),
+        ?assertEqual(element(3, Legacy), emqx_mqttsn_session:info(id, Resumed)),
+        ?assertEqual(1, emqx_mqttsn_session:info(inflight_max, Resumed))
+    after
+        gen_udp:close(Socket),
+        emqx_gateway_cm:kick_session(mqttsn, ClientId)
+    end.
+
+-doc """
+Check that a takeover request with the options of this version gets the
+session as the map of `emqx_session_mem:export/1`, and that this node
+resumes it with its own session configuration.
+""".
+t_takeover_replies_exported_session_on_request(_) ->
+    ClientId = <<"takeover-exported-layout">>,
+    Socket = ensure_connected_client(ClientId),
+    try
+        {ok, _ConnMod, _Pid, #{session := Exported, registry := Registry}} =
+            emqx_gateway_cm:takeover_session(
+                mqttsn, ClientId, emqx_mqttsn_session:takeover_request()
+            ),
+        ?assertMatch(
+            #{vsn := 1, id := _, inflight := [], mqueue := [], subscriptions := #{}}, Exported
+        ),
+        Resumed = emqx_mqttsn_session:resume(
+            takeover_clientinfo(ClientId), #{session => Exported, registry => Registry}
+        ),
+        ?assertEqual(0, emqx_mqttsn_session:info(inflight_cnt, Resumed)),
+        ?assertEqual(1, emqx_mqttsn_session:info(inflight_max, Resumed))
+    after
+        gen_udp:close(Socket),
+        emqx_gateway_cm:kick_session(mqttsn, ClientId)
+    end.
+
+-doc """
+Check the asleep-client resume when the requester sends no session format,
+as a node of an earlier version does: the owner replies the layout of the
+requester's version, and the new channel resumes the session with its
+subscription.
+""".
+t_asleep_pingreq_resume_without_session_format(_) ->
+    ClientId = <<"asleep-resume-without-session-format">>,
+    TopicName = <<"asleep/resume/v63">>,
+    {ok, Socket1} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    ok = meck:new(emqx_mqttsn_session, [passthrough, no_link]),
+    ok = meck:expect(emqx_mqttsn_session, takeover_request, fun() -> #{} end),
+    ok = meck:new(emqx_session_mem_compat, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_session_mem_compat, layout_for_peer, fun(_Node) -> v63 end),
+    try
+        send_connect_msg(Socket1, ClientId, 0),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket1)),
+        send_subscribe_msg_normal_topic(Socket1, ?QOS_1, TopicName, 1),
+        ?assertMatch(
+            <<8, ?SN_SUBACK, _:8, _:16, 1:16, ?SN_RC_ACCEPTED>>, receive_response(Socket1)
+        ),
+        send_disconnect_msg(Socket1, 5),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
+        send_pingreq_msg(Socket2, ClientId),
+        ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket2)),
+        [SessionIn] = [
+            S
+         || {_, {emqx_mqttsn_session, resume, [_, #{session := S}]}, _} <-
+                meck:history(emqx_mqttsn_session)
+        ],
+        ?assertEqual({legacy, v63}, emqx_session_mem_compat:detect(SessionIn)),
+        ?assertMatch(
+            {ok, [{TopicName, _}]},
+            emqx_gateway_conn:call(channel_pid(ClientId), subscriptions)
+        )
+    after
+        _ = catch meck:unload([emqx_mqttsn_session, emqx_session_mem_compat]),
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket1),
+        gen_udp:close(Socket2)
+    end.
+
+takeover_clientinfo(ClientId) ->
+    #{clientid => ClientId, zone => default, listener => 'mqttsn:udp:default'}.
+
+mock_peer_bpapi(Node, Versions) ->
+    ok = meck:new(emqx_bpapi, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_bpapi, supported_version, fun
+        (N, API) when N =:= Node -> maps:get(API, Versions, undefined);
+        (N, API) -> meck:passthrough([N, API])
+    end),
+    emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_bpapi) end).
+
 t_takeover_on_udp_port_reuse(_) ->
     {ok, SockA} = gen_udp:open(0, [binary]),
     {ok, PortA} = inet:port(SockA),

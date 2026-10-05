@@ -31,6 +31,8 @@
     handle_timeout/3,
     obtain_next_pkt_id/1,
     takeover/1,
+    takeover_request/0,
+    export_for_takeover/3,
     resume/2,
     resume_clientinfo/2,
     disconnect/2,
@@ -42,21 +44,41 @@
     session := emqx_session_mem:session()
 }.
 
--export_type([session/0]).
+-doc """
+The session as it crosses nodes in a takeover: the inner session is the
+map of `emqx_session_mem:export/1`, or the `#session{}` of the version that
+asked for it.
+""".
+-type takeover_session() :: #{
+    registry := emqx_mqttsn_registry:registry(),
+    session :=
+        emqx_session_mem:exported()
+        | emqx_session_mem_compat:legacy_session()
+}.
+
+-type takeover_format() :: emqx_session_mem_compat:format().
+
+-export_type([session/0, takeover_session/0, takeover_format/0]).
 
 init(ClientInfo, MaybeWillMsg) ->
-    ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
-    SessionConf = maps:merge(
+    #{
+        registry => emqx_mqttsn_registry:init(),
+        session => emqx_session_mem:create(
+            ClientInfo, conn_info(), MaybeWillMsg, session_conf(ClientInfo)
+        )
+    }.
+
+conn_info() ->
+    #{receive_maximum => 1, expiry_interval => 0}.
+
+session_conf(ClientInfo) ->
+    maps:merge(
         emqx_session:get_session_conf(ClientInfo),
         #{
             %% TODO: Handle quota-related timer effects.
             enable_quota => false
         }
-    ),
-    #{
-        registry => emqx_mqttsn_registry:init(),
-        session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg, SessionConf)
-    }.
+    ).
 
 registry(#{registry := Registry}) ->
     Registry.
@@ -107,7 +129,36 @@ obtain_next_pkt_id(Session = #{session := Sess}) ->
 takeover(_Session = #{session := Sess}) ->
     emqx_session_mem:takeover(Sess).
 
-resume(ClientInfo, Session = #{session := Sess}) ->
+-doc "Options a channel of this version sends when it takes over a session.".
+-spec takeover_request() -> emqx_gateway_cm:takeover_opts().
+takeover_request() ->
+    #{session_format => exported}.
+
+-doc """
+The session as the channel replies it to a takeover, in the layout of
+`emqx_session_mem_compat:from_exported/4`. A `#session{}` layout gets the
+inflight window and the session configuration of an MQTT-SN session,
+because the receiving gateway uses the record as it is.
+""".
+-spec export_for_takeover(takeover_format(), emqx_types:clientinfo(), session()) ->
+    takeover_session().
+export_for_takeover(Format, ClientInfo, Session = #{session := Sess}) ->
+    #{receive_maximum := ReceiveMax} = conn_info(),
+    Opts = #{receive_maximum => ReceiveMax, conf => session_conf(ClientInfo)},
+    Exported = emqx_session_mem:export(Sess),
+    Session#{
+        session := emqx_session_mem_compat:from_exported(Format, ClientInfo, Exported, Opts)
+    }.
+
+-doc """
+Resume a session taken over from a channel, in any layout of
+`emqx_session_mem_compat`. The session gets this node's inflight window and
+session configuration.
+""".
+-spec resume(emqx_types:clientinfo(), takeover_session()) -> session().
+resume(ClientInfo, Session = #{session := SessIn}) ->
+    Exported = emqx_session_mem_compat:to_exported(SessIn),
+    Sess = emqx_session_mem:import(ClientInfo, conn_info(), session_conf(ClientInfo), Exported),
     Session#{session := emqx_session_mem:resume(ClientInfo, Sess)}.
 
 disconnect(ConnInfo, Session = #{session := S}) ->

@@ -17,6 +17,18 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-doc """
+Options the owning channel gets at `{takeover, 'begin', Opts}`. A session
+module sets `session_format` with an optional `takeover_request/0`
+callback. `requester` is the node of the requesting channel; the owner
+uses it to pick a layout for a requester that set no format.
+""".
+-type takeover_opts() :: #{session_format => exported, requester => node()}.
+
+-export_type([takeover_opts/0]).
+
+-define(BPAPI_NAME, emqx_gateway_cm).
+
 %% APIs
 -export([start_link/1]).
 
@@ -28,6 +40,7 @@
     kick_session/2,
     kick_session/3,
     takeover_session/2,
+    takeover_session/3,
     register_channel/4,
     unregister_channel/2,
     insert_channel_info/4,
@@ -77,6 +90,7 @@
     do_set_chan_stats/4,
     do_kick_session/4,
     do_takeover_session/3,
+    do_takeover_session/4,
     do_get_chann_conn_mod/3,
     do_call/4,
     do_call/5,
@@ -381,7 +395,7 @@ open_session(
                     ),
                     {ok, #{session => Session, present => false}}
                 end,
-            case takeover_session(GwName, ClientId) of
+            case takeover_session(GwName, ClientId, takeover_opts(SessionMod)) of
                 {ok, ConnMod, ChanPid, SessionIn} ->
                     Session = SessionMod:resume(ClientInfo, SessionIn),
                     case request_stepdown({takeover, 'end'}, ConnMod, ChanPid) of
@@ -437,7 +451,10 @@ resume_session(
     locker_trans(GwName, ClientId, Resume).
 
 resume_session_locked(GwName, ClientId, ClientInfo, ConnInfo, SessionMod, Self) ->
-    ResumeRequest = #{peercert => maps:get(peercert, ConnInfo, undefined)},
+    ResumeRequest = maps:merge(
+        takeover_opts(SessionMod),
+        #{peercert => maps:get(peercert, ConnInfo, undefined)}
+    ),
     maybe
         {ok, Candidate} ?= select_resume_candidate(GwName, ClientId),
         ChanPid = maps:get(pid, Candidate),
@@ -690,16 +707,30 @@ create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
             throw(Reason)
     end.
 
+takeover_opts(SessionMod) ->
+    _ = code:ensure_loaded(SessionMod),
+    case erlang:function_exported(SessionMod, takeover_request, 0) of
+        true -> SessionMod:takeover_request();
+        false -> #{}
+    end.
+
 %% @doc Try to takeover a session.
 -spec takeover_session(gateway_name(), emqx_types:clientid()) ->
     {error, term()}
     | {ok, atom(), pid(), emqx_session:session()}.
 takeover_session(GwName, ClientId) ->
+    takeover_session(GwName, ClientId, #{}).
+
+-doc "Like `takeover_session/2`, with options for the owning channel.".
+-spec takeover_session(gateway_name(), emqx_types:clientid(), takeover_opts()) ->
+    {error, term()}
+    | {ok, atom(), pid(), _Session}.
+takeover_session(GwName, ClientId, Opts) ->
     case lookup_channels(GwName, ClientId) of
         [] ->
             {error, not_found};
         [ChanPid] ->
-            do_takeover_session(GwName, ClientId, ChanPid);
+            do_takeover_session(GwName, ClientId, ChanPid, Opts);
         ChanPids ->
             [ChanPid | StalePids] = lists:reverse(ChanPids),
             ?SLOG(warning, #{
@@ -712,23 +743,43 @@ takeover_session(GwName, ClientId) ->
                 end,
                 StalePids
             ),
-            do_takeover_session(GwName, ClientId, ChanPid)
+            do_takeover_session(GwName, ClientId, ChanPid, Opts)
     end.
 
-do_takeover_session(GwName, ClientId, ChanPid) when node(ChanPid) == node() ->
+-doc """
+RPC target of `emqx_gateway_cm_proto_v1:takeover_session/3`. The caller set
+no options. `rpc:call/4` runs this function with the group leader of the
+caller, which names the node of the caller for the owning channel.
+""".
+do_takeover_session(GwName, ClientId, ChanPid) ->
+    do_takeover_session(GwName, ClientId, ChanPid, #{requester => node(group_leader())}).
+
+-doc "RPC target of `emqx_gateway_cm_proto_v3:takeover_session/4`.".
+do_takeover_session(GwName, ClientId, ChanPid, Opts) when node(ChanPid) == node() ->
     case get_chann_conn_mod(GwName, ClientId, ChanPid) of
         undefined ->
             {error, not_found};
         ConnMod when is_atom(ConnMod) ->
-            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
+            case request_stepdown(takeover_begin_request(Opts), ConnMod, ChanPid) of
                 {ok, Session} ->
                     {ok, ConnMod, ChanPid, Session};
                 {error, Reason} ->
                     {error, Reason}
             end
     end;
-do_takeover_session(GwName, ClientId, ChanPid) ->
-    wrap_rpc(emqx_gateway_cm_proto_v1:takeover_session(GwName, ClientId, ChanPid)).
+do_takeover_session(GwName, ClientId, ChanPid, Opts) when map_size(Opts) =:= 0 ->
+    wrap_rpc(emqx_gateway_cm_proto_v1:takeover_session(GwName, ClientId, ChanPid));
+do_takeover_session(GwName, ClientId, ChanPid, Opts) ->
+    case emqx_bpapi:supported_version(node(ChanPid), ?BPAPI_NAME) of
+        Vsn when is_integer(Vsn), Vsn >= 3 ->
+            wrap_rpc(emqx_gateway_cm_proto_v3:takeover_session(GwName, ClientId, ChanPid, Opts));
+        _ ->
+            %% The owner replies in the layout of its version.
+            wrap_rpc(emqx_gateway_cm_proto_v1:takeover_session(GwName, ClientId, ChanPid))
+    end.
+
+takeover_begin_request(Opts) when map_size(Opts) =:= 0 -> {takeover, 'begin'};
+takeover_begin_request(Opts) -> {takeover, 'begin', Opts}.
 
 %% @doc Discard all the sessions identified by the ClientId.
 -spec discard_session(GwName :: gateway_name(), binary()) -> ok | {error, not_found}.

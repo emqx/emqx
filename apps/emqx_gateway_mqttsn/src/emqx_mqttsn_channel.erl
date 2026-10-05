@@ -1953,15 +1953,14 @@ handle_call(
             MRef = erlang:monitor(process, OwnerPid),
             Channel1 = Channel#channel{takeover = true, takeover_owner = {OwnerPid, MRef}},
             Channel2 = disconnect_session(Channel1),
-            NChannel =
-                #channel{session = Session} = reset_timer(
-                    resume_takeover,
-                    ?DEFAULT_RESUME_TAKEOVER_TIMEOUT,
-                    Channel2
-                ),
+            NChannel = reset_timer(
+                resume_takeover,
+                ?DEFAULT_RESUME_TAKEOVER_TIMEOUT,
+                Channel2
+            ),
             reply(
                 {ok, #{
-                    session => Session,
+                    session => export_for_takeover(ResumeRequest, node(OwnerPid), NChannel),
                     conninfo => OldConnInfo,
                     clientinfo => OldClientInfo,
                     asleep_timer_duration => SleepDuration
@@ -1971,6 +1970,17 @@ handle_call(
         {error, Reason} ->
             reply({error, Reason}, Channel)
     end;
+handle_call(
+    {takeover, 'begin', Opts},
+    _From,
+    Channel = #channel{
+        takeover = false,
+        takeover_owner = undefined
+    }
+) when not is_map_key(peercert, Opts) ->
+    %% A takeover through `emqx_gateway_cm:do_takeover_session/4`.
+    NChannel = disconnect_session(Channel#channel{takeover = true}),
+    reply(export_for_takeover(Opts, node(), NChannel), NChannel);
 handle_call({takeover, 'begin', _ResumeRequest}, _From, Channel) ->
     reply({error, not_resumable}, Channel);
 handle_call(
@@ -2003,8 +2013,8 @@ handle_call(
     %% Will topic and the Will message. [6.3]
     %%
     %% FIXME: We need to reply WillMsg and Session
-    NChannel = #channel{session = NSession} = disconnect_session(Channel#channel{takeover = true}),
-    reply(NSession, NChannel);
+    NChannel = disconnect_session(Channel#channel{takeover = true}),
+    reply(export_for_takeover(#{}, node(), NChannel), NChannel);
 handle_call({takeover, 'begin'}, _From, Channel) ->
     reply({error, not_resumable}, Channel);
 handle_call(
@@ -2579,6 +2589,18 @@ ensure_register_timer(Channel) ->
 ensure_register_timer(RetryTimes, Channel = #channel{timers = Timers}) ->
     TRef = emqx_utils:start_timer(?REGISTER_TIMEOUT, {retry_register, RetryTimes}),
     Channel#channel{timers = Timers#{retry_register => TRef}}.
+
+%% The requester asks for a layout, or gets the one of its version.
+export_for_takeover(Opts, DefaultRequester, #channel{session = Session, clientinfo = ClientInfo}) ->
+    Format =
+        case Opts of
+            #{session_format := F} ->
+                F;
+            #{} ->
+                Requester = maps:get(requester, Opts, DefaultRequester),
+                emqx_session_mem_compat:layout_for_peer(Requester)
+        end,
+    emqx_mqttsn_session:export_for_takeover(Format, ClientInfo, Session).
 
 cancel_timer(Name, Channel = #channel{timers = Timers}) ->
     case maps:take(Name, Timers) of

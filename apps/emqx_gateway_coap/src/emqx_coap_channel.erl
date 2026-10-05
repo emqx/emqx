@@ -347,6 +347,11 @@ handle_call(discard, _From, Channel) ->
     shutdown_and_reply(discarded, ok, Channel);
 handle_call({takeover, 'begin'}, _From, Channel = #channel{session = Session}) ->
     {reply, Session, Channel};
+handle_call({takeover, 'begin', Opts}, _From, Channel = #channel{session = Session}) when
+    not is_map_key(peercert, Opts)
+->
+    %% `emqx_gateway_cm:takeover_opts()`: CoAP replies its session in one layout.
+    {reply, Session, Channel};
 handle_call({takeover, 'end'}, _From, Channel) ->
     NChannel = ensure_disconnected(takenover, Channel),
     shutdown_and_reply(takenover, [], NChannel);
