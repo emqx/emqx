@@ -263,13 +263,23 @@ on_remove_channel(
             case ChannelState of
                 #{config_root := sources} when IsTableValid ->
                     ok = emqx_bridge_mqtt_ingress:remove_reconnect_callback(PoolName, ChannelId),
-                    ok = emqx_bridge_mqtt_ingress:unsubscribe_channel(
-                        PoolName,
-                        ChannelState,
-                        ChannelId,
-                        SubscriptionIdToHandlerIndex,
-                        TopicToHandlerIndex
-                    );
+                    case should_keep_remote_subscription(OldState, ChannelState) of
+                        true ->
+                            ok = emqx_bridge_mqtt_ingress:delete_channel_from_handler_index(
+                                ChannelState,
+                                ChannelId,
+                                SubscriptionIdToHandlerIndex,
+                                TopicToHandlerIndex
+                            );
+                        false ->
+                            ok = emqx_bridge_mqtt_ingress:unsubscribe_channel(
+                                PoolName,
+                                ChannelState,
+                                ChannelId,
+                                SubscriptionIdToHandlerIndex,
+                                TopicToHandlerIndex
+                            )
+                    end;
                 _ ->
                     ok
             end,
@@ -782,7 +792,7 @@ mk_client_event_handler(Name, SubscriptionIdToHandlerIndex, TopicToHandlerIndex)
         disconnected => {fun ?MODULE:handle_disconnect/1, []}
     }.
 
-%% If we have `clean_start = false`, then we must add the sources' topics to the topic
+%% If we have `clean_start = false`, then we must add the enabled sources' topics to the topic
 %% handler index before starting the MQTT clients.  Otherwise, upon connecting, there
 %% might be some messages arriving that were queued in the session which will have no
 %% handler assigned, and thus will be lost.
@@ -796,7 +806,7 @@ maybe_add_sources_with_sessions_to_topic_handler(
 maybe_add_sources_with_sessions_to_topic_handler(ConnResId, #{} = _ConnConfig, PartialConnState) ->
     lists:foreach(
         fun
-            ({ChannelId, #{config_root := sources} = ChannelConfig}) ->
+            ({ChannelId, #{config_root := sources, enable := true} = ChannelConfig}) ->
                 do_add_sources_with_sessions_to_topic_handler(
                     ConnResId, PartialConnState, ChannelId, ChannelConfig
                 );
@@ -833,6 +843,21 @@ do_add_sources_with_sessions_to_topic_handler(
         SubscriptionIdToHandlerIndex,
         TopicToHandlerIndex
     ).
+
+%% While the node is not ready (boot, shutdown, cluster join, leave or heal), a
+%% `clean_start = false' session keeps its subscriptions.  A shared subscription is
+%% kept only when no other cluster node is running.
+should_keep_remote_subscription(#{clean_start := false}, #{remote := #{topic := Topic}}) ->
+    not emqx_node_readiness:is_ready() andalso
+        (not is_shared_subscription(Topic) orelse emqx:running_nodes() -- [node()] =:= []);
+should_keep_remote_subscription(#{clean_start := true}, #{}) ->
+    false.
+
+is_shared_subscription(Topic) ->
+    case emqx_topic:parse(Topic) of
+        {#share{}, _SubOpts} -> true;
+        {_Filter, _SubOpts} -> false
+    end.
 
 -spec connect(pid(), name()) ->
     {ok, pid()} | {error, _Reason}.
