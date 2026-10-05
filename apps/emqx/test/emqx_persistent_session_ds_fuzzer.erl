@@ -362,7 +362,7 @@ sample(Size) ->
 cleanup() ->
     catch emqtt:stop(client_pid()),
     emqx_cm:kick_session(?clientid),
-    emqx_persistent_session_ds:destroy_session(?clientid).
+    emqx_persistent_session_ds:session_drop(?clientid, '_', destroy).
 
 sut_state() ->
     emqx_persistent_session_ds:print_session(?clientid).

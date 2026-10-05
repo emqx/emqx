@@ -30,7 +30,7 @@
 
 %% API:
 -export([
-    open/2,
+    open/3,
     delete/3,
     commit/3,
 
@@ -110,9 +110,13 @@
 %%================================================================================
 
 %% @doc Open a session
--spec open(emqx_ds:generation(), emqx_types:clientid()) ->
-    {ok, emqx_persistent_session_ds_state:t()} | undefined.
-open(Generation, ClientId) ->
+-spec open(
+    emqx_ds:generation(), emqx_types:clientid(), emqx_persistent_session_ds_state:guard() | '_'
+) ->
+    {ok, emqx_persistent_session_ds_state:t()}
+    | {error, {guard_mismatch, emqx_persistent_session_ds_state:guard()}}
+    | undefined.
+open(Generation, ClientId, ExpectedGuard) ->
     Opts = #{
         db => ?DB,
         generation => Generation,
@@ -123,7 +127,7 @@ open(Generation, ClientId) ->
     },
     Ret = emqx_ds:trans(
         Opts,
-        fun() -> open_tx(ClientId) end
+        fun() -> open_tx(ClientId, ExpectedGuard) end
     ),
     case Ret of
         {atomic, _TXSerial, Result} ->
@@ -424,11 +428,11 @@ total_subscription_count(Generation) ->
 %% Internal functions
 %%================================================================================
 
-open_tx(ClientId) ->
+open_tx(ClientId, ExpectedGuard) ->
     case emqx_ds_pmap:tx_guard(ClientId) of
         undefined ->
             undefined;
-        Guard ->
+        Guard when Guard =:= ExpectedGuard; ExpectedGuard =:= '_' ->
             Ret = #{
                 ?id => ClientId,
                 ?collection_guard => Guard,
@@ -444,7 +448,9 @@ open_tx(ClientId) ->
                 ?ranks => emqx_ds_pmap:tx_restore(?MODULE, ?top_ranks, ClientId),
                 ?awaiting_rel => emqx_ds_pmap:tx_restore(?MODULE, ?top_awaiting_rel, ClientId)
             },
-            {ok, Ret}
+            {ok, Ret};
+        Guard ->
+            {error, {guard_mismatch, Guard}}
     end.
 
 -spec new_pmap(atom()) -> emqx_ds_pmap:pmap(_, _).

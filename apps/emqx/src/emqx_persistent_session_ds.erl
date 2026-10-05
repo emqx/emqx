@@ -42,6 +42,7 @@
     create/4,
     open/4,
     destroy/1,
+    session_drop/3,
     kick_offline_session/1
 ]).
 
@@ -88,9 +89,6 @@
 -export([sync/1]).
 -export([create_tables/0]).
 
-%% internal export used by session GC process
--export([destroy_session/1]).
-
 %% Time management:
 -export([now_ms/0, to_ds_time/1]).
 
@@ -98,7 +96,7 @@
 
 -ifdef(TEST).
 -export([
-    open_session_state/2,
+    open_session_state/3,
     list_all_sessions/0,
     state_invariants/2,
     trace_specs/0
@@ -272,7 +270,7 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:takeover_kick(ClientID),
-    case open_session_state(ClientID, ConnInfo) of
+    case open_session_state(ClientID, ConnInfo, '_') of
         false ->
             false;
         State ->
@@ -282,7 +280,7 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
                     %% session ended when its network connection closed. Drop it
                     %% (this also cleans persistent routes) and report no
                     %% session, so the caller creates a fresh one.
-                    ok = drop_ended_session(ClientID),
+                    ok = do_drop_session(ClientID, State, expired),
                     false;
                 _ ->
                     Session = create_session(
@@ -294,18 +292,33 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID}) ->
-    destroy_session(ClientID);
+    session_drop(ClientID, '_', destroy);
 destroy(#{clientid := ClientID}) ->
-    destroy_session(ClientID).
+    session_drop(ClientID, '_', destroy).
 
-destroy_session(ClientID) ->
-    session_drop(ClientID, destroy).
+%% @doc Called when a client reconnects with `clean session=true' or
+%% during session GC
+-spec session_drop(id(), emqx_persistent_session_ds_state:guard() | '_', _Reason) -> ok.
+session_drop(SessionId, ExpectedGuard, Reason) ->
+    case emqx_persistent_session_ds_state:open(SessionId, ExpectedGuard) of
+        {ok, S} ->
+            do_drop_session(SessionId, S, Reason);
+        undefined ->
+            ok
+    end.
+
+-spec do_drop_session(id(), emqx_persistent_session_ds_state:t(), _Reason) -> ok.
+do_drop_session(SessionId, S0, Reason) ->
+    ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
+    ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
+    ok = emqx_persistent_session_ds_state:delete(S0),
+    emqx_persistent_session_ds_gc_timer:delete(SessionId).
 
 -spec kick_offline_session(emqx_types:clientid()) -> ok.
 kick_offline_session(ClientID) ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
-            session_drop(ClientID, kicked);
+            session_drop(ClientID, '_', kicked);
         false ->
             ok
     end.
@@ -1036,14 +1049,17 @@ sync(ClientID) ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec open_session_state(id(), emqx_types:conninfo()) ->
+-spec open_session_state(
+    id(), emqx_types:conninfo(), emqx_persistent_session_ds_state:guard() | '_'
+) ->
     emqx_persistent_session_ds_state:t() | false.
 open_session_state(
     SessionId,
-    NewConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer}
+    NewConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer},
+    MaybeGuard
 ) ->
     NowMs = now_ms(),
-    case emqx_persistent_session_ds_state:open(SessionId) of
+    case emqx_persistent_session_ds_state:open(SessionId, MaybeGuard) of
         {ok, S0} ->
             EI = emqx_persistent_session_ds_state:get_expiry_interval(S0),
             ?tp(?sessds_open_session, #{ei => EI, now => NowMs}),
@@ -1086,35 +1102,6 @@ ensure_new_session_state(
         ]
     ),
     emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S).
-
-%% Drop a session that ended when its network connection closed (expiry
-%% interval 0). The session GC timer armed at that disconnect races this
-%% drop with its own `session_drop'; when the timer's delete wins, this
-%% one fails the collection-guard assertion. The session is gone either
-%% way, so tolerate exactly that failure.
--spec drop_ended_session(id()) -> ok.
-drop_ended_session(ClientID) ->
-    try
-        session_drop(ClientID, expired)
-    catch
-        error:{badmatch, {error, unrecoverable, {precondition_failed, _}}} ->
-            ?tp(debug, sessds_drop_ended_session_race, #{client_id => ClientID}),
-            ok
-    end.
-
-%% @doc Called when a client reconnects with `clean session=true' or
-%% during session GC
--spec session_drop(id(), _Reason) -> ok.
-session_drop(SessionId, Reason) ->
-    case emqx_persistent_session_ds_state:open(SessionId) of
-        {ok, S0} ->
-            ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
-            ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
-            ok = emqx_persistent_session_ds_state:delete(S0),
-            emqx_persistent_session_ds_gc_timer:delete(SessionId);
-        undefined ->
-            ok
-    end.
 
 %%--------------------------------------------------------------------
 %% Normal replay:

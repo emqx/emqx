@@ -25,7 +25,7 @@
 -export([open_db/0]).
 
 -export([
-    open/1,
+    open/2,
     create_new/1,
     delete/1,
     delete/2,
@@ -177,17 +177,18 @@ open_db() ->
         storage => Storage
     }).
 
--spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | emqx_ds:error(_) | undefined.
-open(SessionId) ->
+-spec open(emqx_persistent_session_ds:id(), guard() | '_') ->
+    {ok, t()} | emqx_ds:error(_) | undefined.
+open(SessionId, ExpectedGuard) ->
     ?tp_span(
         psds_open,
-        #{id => SessionId},
-        emqx_persistent_session_ds_state_v2:open(generation(), SessionId)
+        #{id => SessionId, guard => ExpectedGuard},
+        emqx_persistent_session_ds_state_v2:open(generation(), SessionId, ExpectedGuard)
     ).
 
 -spec print_session(emqx_persistent_session_ds:id()) -> map() | undefined.
 print_session(SessionId) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), SessionId) of
+    case emqx_persistent_session_ds_state_v2:open(generation(), SessionId, '_') of
         undefined ->
             undefined;
         {ok, Session} ->

@@ -79,25 +79,19 @@ timer_introduced_in() -> "6.0.0".
 
 handle_durable_timeout(SessionId, Cookie) ->
     ?tp(debug, ?sessds_expired, #{id => SessionId, cookie => Cookie}),
-    case Cookie of
-        <<>> ->
-            %% Legacy case: in the original version of the code (ca.
-            %% 6.0.0) the timer didn't hold the guard and would
-            %% destroy sessions indiscriminately. Emulate this
-            %% behavior for backward compatibility. New code must not
-            %% use this path.
-            emqx_persistent_session_ds_state:delete(SessionId, '_');
-        _ ->
-            case emqx_persistent_session_ds_state:delete(SessionId, Cookie) of
-                ok ->
-                    ok;
-                ?err_rec(Reason) ->
-                    emqx_durable_timer:retry(Reason);
-                ?err_unrec(_) ->
-                    %% Session conflicts are ok
-                    ok
-            end
-    end.
+    SessionGuard =
+        case Cookie of
+            <<>> ->
+                %% Legacy case: in the original version of the code (ca.
+                %% 6.0.0) the timer didn't hold the guard and would
+                %% destroy sessions indiscriminately. Emulate this
+                %% behavior for backward compatibility. New code must not
+                %% use this path.
+                '_';
+            _ ->
+                Cookie
+        end,
+    emqx_persistent_session_ds:session_drop(SessionId, SessionGuard, expired).
 
 %%================================================================================
 %% Internal exports
