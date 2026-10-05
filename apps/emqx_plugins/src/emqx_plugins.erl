@@ -78,6 +78,7 @@
     ensure_enabled/2,
     ensure_enabled/3,
     ensure_disabled/1,
+    publish_state/1,
     delete_state/1,
     purge/1,
     write_package/2,
@@ -469,6 +470,19 @@ ensure_enabled(NameVsn, Position, ConfLocation) when
 -spec ensure_disabled(name_vsn()) -> ok | {error, any()}.
 ensure_disabled(NameVsn) ->
     ensure_state(NameVsn, no_move, false, _ConfLocation = local).
+
+-doc """
+Write this node's `plugins.states` entry of the plugin to the cluster config.
+Do nothing when the plugin is not configured.
+""".
+-spec publish_state(name_vsn()) -> ok | {error, any()}.
+publish_state(NameVsn) ->
+    case find_configured(NameVsn) of
+        {ok, #{name_vsn := NV, enable := Enable}} ->
+            ensure_state(NV, no_move, Enable, global);
+        error ->
+            ok
+    end.
 
 %% @doc Delete extracted dir
 %% In case one lib is shared by multiple plugins.
@@ -1554,27 +1568,24 @@ unload_other_versions([NameVsn | Rest]) ->
             {error, Reason}
     end.
 
+%% Record the plugin in `plugins.states' only when it is not configured yet.
+%% A configured plugin keeps its entry as it is, so starting the plugins
+%% application does not write to the cluster config.
 ensure_state(NameVsn) ->
-    EnsureStateFun = fun(#{name_vsn := NV, enable := Bool}, AccIn) ->
-        case NV of
-            NameVsn ->
-                %% Configured, using existed cluster config
-                _ = ensure_state(NV, no_move, Bool, global),
-                AccIn#{ensured => true};
-            _ ->
-                AccIn
-        end
-    end,
-    case lists:foldl(EnsureStateFun, #{ensured => false}, configured()) of
-        #{ensured := true} ->
+    case find_configured(NameVsn) of
+        {ok, _} ->
             ok;
-        #{ensured := false} ->
+        error ->
             ?SLOG(info, #{msg => "plugin_not_configured", name_vsn => NameVsn}),
-            %% Clean installation, no config, ensure with `Enable = false`
             _ = ensure_state(NameVsn, no_move, false, global),
             ok
-    end,
-    ok.
+    end.
+
+find_configured(NameVsn) ->
+    case lists:search(fun(#{name_vsn := NV}) -> bin(NV) =:= bin(NameVsn) end, configured()) of
+        {value, Item} -> {ok, Item};
+        false -> error
+    end.
 
 ensure_local_config(NameVsn, Mode) ->
     case emqx_plugins_fs:ensure_config_dir(NameVsn) of

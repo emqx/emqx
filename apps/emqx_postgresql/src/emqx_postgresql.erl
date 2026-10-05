@@ -178,13 +178,7 @@ on_start(
         [{codecs, []} || Codecs /= undefined]
     ]),
     State1 = parse_sql_template(Config, <<"send_message">>),
-    HCTimeout =
-        case Config of
-            #{resource_opts := #{health_check_timeout := HCTimeout0}} ->
-                HCTimeout0;
-            #{} ->
-                emqx_resource_pool:health_check_timeout()
-        end,
+    HCTimeout = get_health_check_timeout(Config),
     State2 = State1#{installed_channels => #{}, health_check_timeout => HCTimeout},
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, ?conn_pool, InstId),
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
@@ -267,11 +261,13 @@ create_channel_state(
         pool_name := PoolName,
         prepares := Prepares
     } = _ConnectorState,
-    #{parameters := Parameters} = _ChannelConfig
+    #{parameters := Parameters} = ChannelConfig
 ) ->
+    HCTimeout = get_health_check_timeout(ChannelConfig),
     State1 = parse_sql_template(Parameters, ChannelId),
     {ok,
         init_prepare(State1#{
+            health_check_timeout => HCTimeout,
             pool_name => PoolName,
             prepares => Prepares,
             prepare_statement => #{}
@@ -348,11 +344,16 @@ on_get_channel_status(
 do_check_channel_sql(
     PoolName,
     ChannelId,
-    #{query_templates := ChannelQueryTemplates} = _ChannelState
+    ChannelState
 ) ->
+    #{
+        query_templates := ChannelQueryTemplates,
+        health_check_timeout := HCTimeout
+    } = ChannelState,
     {SQL, _RowTemplate} = maps:get(ChannelId, ChannelQueryTemplates),
     WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    validate_table_existence(WorkerPids, SQL).
+    Deadline = deadline(HCTimeout),
+    validate_table_existence(WorkerPids, SQL, Deadline).
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -604,11 +605,13 @@ do_get_status(Conn) ->
 do_check_prepares(
     #{
         pool_name := PoolName,
-        query_templates := #{<<"send_message">> := {SQL, _RowTemplate}}
+        query_templates := #{<<"send_message">> := {SQL, _RowTemplate}},
+        health_check_timeout := HCTimeout
     }
 ) ->
     WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    case validate_table_existence(WorkerPids, SQL) of
+    Deadline = deadline(HCTimeout),
+    case validate_table_existence(WorkerPids, SQL, Deadline) of
         ok ->
             ok;
         {error, Reason} ->
@@ -617,15 +620,19 @@ do_check_prepares(
 do_check_prepares(_) ->
     ok.
 
--spec validate_table_existence([pid()], binary()) -> ok | {error, undefined_table}.
-validate_table_existence([WorkerPid | Rest], SQL) ->
+-spec validate_table_existence([pid()], binary(), infinity | integer()) ->
+    ok | {error, undefined_table}.
+validate_table_existence([WorkerPid | Rest], SQL, Deadline) ->
+    Timeout = timeout(Deadline),
     try
         ecpool_worker:exec(
             WorkerPid,
             fun(Conn) ->
-                epgsql:parse2(Conn, "", SQL, [])
+                Res = epgsql:parse2(Conn, "", SQL, []),
+                _ = epgsql:sync(Conn),
+                Res
             end,
-            emqx_resource_pool:health_check_timeout()
+            Timeout
         )
     of
         {error, {_, _, _, undefined_table, _, _}} ->
@@ -634,21 +641,38 @@ validate_table_existence([WorkerPid | Rest], SQL) ->
             ok;
         Res ->
             ?tp(postgres_connector_bad_parse2, #{result => Res}),
-            validate_table_existence(Rest, SQL)
+            validate_table_existence(Rest, SQL, Deadline)
     catch
         exit:{noproc, _} ->
-            validate_table_existence(Rest, SQL);
+            validate_table_existence(Rest, SQL, Deadline);
         exit:{timeout, _} ->
-            validate_table_existence(Rest, SQL);
+            validate_table_existence(Rest, SQL, Deadline);
         exit:timeout ->
-            validate_table_existence(Rest, SQL)
+            validate_table_existence(Rest, SQL, Deadline)
     end;
-validate_table_existence([], _SQL) ->
+validate_table_existence([], _SQL, _Deadline) ->
     %% All workers either replied an unexpected error; we will retry
     %% on the next health check.
     ok.
 
 %% ===================================================================
+
+now_ms() ->
+    erlang:system_time(millisecond).
+
+deadline(infinity) -> infinity;
+deadline(TimeoutMs) -> now_ms() + TimeoutMs.
+
+timeout(infinity) -> infinity;
+timeout(Deadline) -> max(0, Deadline - now_ms()).
+
+get_health_check_timeout(Config) ->
+    case Config of
+        #{resource_opts := #{health_check_timeout := HCTimeout0}} ->
+            HCTimeout0;
+        #{} ->
+            emqx_resource_pool:health_check_timeout()
+    end.
 
 connect(Opts) ->
     Host = proplists:get_value(host, Opts),
