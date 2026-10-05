@@ -52,8 +52,7 @@ all() ->
         t_zone_config_change,
         t_zone_conf_change_keeps_frame_shared,
         t_listener_config_change,
-        t_zone_removal,
-        t_incomplete_zone_config
+        t_zone_removal
     ].
 
 groups() ->
@@ -412,20 +411,6 @@ t_zone_removal(_Config) ->
     ?assertEqual(undefined, persistent_term:get(?CONN_KEY({tcp, frame}, tmpzone), undefined)),
     ?assertMatch(#{connect := _, common := _}, persistent_term:get(?FRAME_KEY(default))),
     ?assertMatch(#conf{zone = default}, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))).
-
--doc """
-A zones write whose zone config is not complete yet, as in an early write at
-boot, leaves no entry for that zone and does not fail.
-""".
-t_incomplete_zone_config(_Config) ->
-    Incomplete = #{
-        mqtt => #{hibernate_after => 5000},
-        force_gc => #{enable => true},
-        force_shutdown => #{enable => true}
-    },
-    ?assertEqual(ok, emqx_connection_conf:post_zone_config_update(#{}, #{partial => Incomplete})),
-    ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(partial), undefined)),
-    ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, partial), undefined)).
 
 -doc """
 Two connections on the same listener and zone hold the same shared `#conf{}`,

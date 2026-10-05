@@ -139,11 +139,7 @@ post_connect_codec(Zone, ProtoVer, ParseState, SerializeOpts) ->
             {ParseState, SerializeOpts}
     end.
 
--doc """
-Return the settings of a connection on the listener in the zone.
-
-Raises when the listener or the zone has no complete config.
-""".
+-doc "Return the settings of a connection on the listener in the zone.".
 -spec conn_conf(listener(), emqx_types:zone()) -> conn_conf().
 conn_conf(Listener, Zone) ->
     case persistent_term:get(?CONN_KEY(Listener, Zone), undefined) of
@@ -151,12 +147,8 @@ conn_conf(Listener, Zone) ->
             Conf;
         undefined ->
             {Type, Name} = Listener,
-            ListenerConf = emqx_config:get_listener_conf(Type, Name, [], undefined),
-            ZoneConf = emqx_config:get([zones, Zone], undefined),
-            case build_conn_conf(Listener, Zone, ListenerConf, ZoneConf) of
-                #conf{} = Conf -> Conf;
-                undefined -> error({incomplete_connection_conf, Listener, Zone})
-            end
+            ListenerConf = emqx_config:get_listener_conf(Type, Name, []),
+            build_conn_conf(Listener, Zone, ListenerConf, emqx_config:get([zones, Zone]))
     end.
 
 -doc """
@@ -198,7 +190,7 @@ same_or_given(_Shared, Given) ->
     Given.
 
 update_zone_frame(Zone, ZoneConf) ->
-    put_or_erase(?FRAME_KEY(Zone), build_frame(ZoneConf)).
+    put_if_changed(?FRAME_KEY(Zone), build_frame(ZoneConf)).
 
 %% One entry per listener and zone. Entries of pairs that no longer exist
 %% are erased.
@@ -208,7 +200,7 @@ refresh_conn_confs(Zones, Listeners) ->
      || {Listener, ListenerConf} <- conf_listeners(Listeners),
         {Zone, ZoneConf} <- maps:to_list(Zones)
     ]),
-    ok = maps:foreach(fun put_or_erase/2, Wanted),
+    ok = maps:foreach(fun put_if_changed/2, Wanted),
     lists:foreach(
         fun
             ({?CONN_KEY(_, _) = Key, _Value}) when not is_map_key(Key, Wanted) ->
@@ -244,18 +236,14 @@ conf_listeners(Type, ByName, Acc) ->
         ByName
     ).
 
-%% Write the entry only when its value changes. A value of `undefined' means
-%% the config is not complete yet.
-put_or_erase(Key, undefined) ->
-    _ = persistent_term:erase(Key),
-    ok;
-put_or_erase(Key, Value) ->
+%% Write the entry only when its value changes.
+put_if_changed(Key, Value) ->
     case persistent_term:get(Key, undefined) of
         Value -> ok;
         _ -> persistent_term:put(Key, Value)
     end.
 
--spec build_frame(map()) -> frame() | undefined.
+-spec build_frame(map()) -> frame().
 build_frame(#{
     mqtt := #{
         strict_mode := StrictMode,
@@ -276,9 +264,7 @@ build_frame(#{
             }}
          || ProtoVer <- ?PROTO_VERS
         ])
-    };
-build_frame(_ZoneConf) ->
-    undefined.
+    }.
 
 build_pre_connect_codec(FrameOpts) ->
     #{
@@ -286,8 +272,7 @@ build_pre_connect_codec(FrameOpts) ->
         serialize_opts => emqx_frame:initial_serialize_opts(FrameOpts)
     }.
 
--spec build_conn_conf(listener(), emqx_types:zone(), map() | undefined, map() | undefined) ->
-    conn_conf() | undefined.
+-spec build_conn_conf(listener(), emqx_types:zone(), map(), map()) -> conn_conf().
 build_conn_conf(
     Listener,
     Zone,
@@ -298,36 +283,23 @@ build_conn_conf(
         force_shutdown := ForceShutdown
     }
 ) ->
-    case {listener_settings(Listener, ListenerConf), is_complete_force_gc(ForceGc)} of
-        {{ActiveN, Watermark}, true} ->
-            #conf{
-                listener = Listener,
-                zone = Zone,
-                active_n = ActiveN,
-                sendq_watermark = Watermark,
-                hibernate_after = HibernateAfter,
-                minor_gc_after = MinorGcAfter,
-                force_gc = force_gc(ForceGc),
-                force_shutdown = ForceShutdown
-            };
-        _ ->
-            undefined
-    end;
-build_conn_conf(_Listener, _Zone, _ListenerConf, _ZoneConf) ->
-    undefined.
+    {ActiveN, Watermark} = listener_settings(Listener, ListenerConf),
+    #conf{
+        listener = Listener,
+        zone = Zone,
+        active_n = ActiveN,
+        sendq_watermark = Watermark,
+        hibernate_after = HibernateAfter,
+        minor_gc_after = MinorGcAfter,
+        force_gc = force_gc(ForceGc),
+        force_shutdown = ForceShutdown
+    }.
 
-%% `{ActiveN, SendQueueWatermark}' of a listener, or `undefined' when its
-%% config is not complete.
+%% `{ActiveN, SendQueueWatermark}' of a listener.
 listener_settings({quic, _Name}, _ListenerConf) ->
     {?QUIC_ACTIVE_N, 0};
 listener_settings(_Listener, #{tcp_options := #{active_n := ActiveN, high_watermark := Watermark}}) ->
-    {emqx_listeners:clamp_active_n(ActiveN), Watermark};
-listener_settings(_Listener, _ListenerConf) ->
-    undefined.
-
-is_complete_force_gc(#{enable := false}) -> true;
-is_complete_force_gc(#{enable := true, count := _, bytes := _}) -> true;
-is_complete_force_gc(_) -> false.
+    {emqx_listeners:clamp_active_n(ActiveN), Watermark}.
 
 force_gc(#{enable := false}) ->
     false;
