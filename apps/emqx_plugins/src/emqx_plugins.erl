@@ -550,35 +550,32 @@ purge_other_versions(NameVsn) ->
             reason => "cluster_sync"
         }),
         lists:foreach(
-            fun
-                (#{name := Name, rel_vsn := RelVsn}) when
-                    AppNameBin =:= Name, AppVsnBin =:= RelVsn
-                ->
-                    ok;
-                (#{name := Name, rel_vsn := RelVsn}) ->
-                    case AppNameBin =:= Name of
-                        true ->
-                            NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
-                            maybe
-                                %% Stopping stops the applications by name, whatever
-                                %% their version, so stop only the version that runs.
-                                ok ?= maybe_stop_plugin(NameVsn1),
-                                ok ?= ensure_uninstalled(NameVsn1)
-                            else
-                                {error, Reason} ->
-                                    ?SLOG(error, #{
-                                        msg => "failed_to_purge_plugin",
-                                        name_vsn => NameVsn1,
-                                        reason => Reason
-                                    })
-                            end;
-                        false ->
-                            ok
-                    end
-            end,
+            fun(Plugin) -> purge_other_version(AppNameBin, AppVsnBin, Plugin) end,
             emqx_plugins:list()
         )
     end).
+
+%% Purge one installed plugin. Keep the given name and version, and keep every
+%% plugin with a different name.
+purge_other_version(NameBin, VsnBin, #{name := NameBin, rel_vsn := VsnBin}) ->
+    ok;
+purge_other_version(NameBin, _VsnBin, #{name := NameBin, rel_vsn := RelVsn}) ->
+    NameVsn = emqx_plugins_utils:make_name_vsn_string(NameBin, RelVsn),
+    maybe
+        %% Stopping stops the applications by name, whatever
+        %% their version, so stop only the version that runs.
+        ok ?= maybe_stop_plugin(NameVsn),
+        ok ?= ensure_uninstalled(NameVsn)
+    else
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_purge_plugin",
+                name_vsn => NameVsn,
+                reason => Reason
+            })
+    end;
+purge_other_version(_NameBin, _VsnBin, #{}) ->
+    ok.
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok | {error, term()}.
@@ -1743,7 +1740,7 @@ ensure_config_bin(AvroJson) ->
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
 bin_key(List = [#{} | _]) ->
-    lists:map(fun(M) -> bin_key(M) end, List);
+    lists:map(fun bin_key/1, List);
 bin_key(Term) ->
     Term.
 
