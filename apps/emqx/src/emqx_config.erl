@@ -4,7 +4,12 @@
 -module(emqx_config).
 
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([
+    {elvis_style, god_modules, disable},
+    %% unsafe_atom/1 and the unsafe hocon key maps create atoms on purpose. The
+    %% checked variants next to them use the *_to_existing_atom functions.
+    {elvis_style, no_common_caveats_call, disable}
+]).
 -include("logger.hrl").
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
@@ -438,9 +443,7 @@ force_put(KeyPath0, Config, Safety) ->
             safe -> KeyPath0;
             unsafe -> [unsafe_atom(Key) || Key <- KeyPath0]
         end,
-    Putter = fun(Path, Map, Value) ->
-        emqx_utils_maps:deep_force_put(Path, Map, Value)
-    end,
+    Putter = fun emqx_utils_maps:deep_force_put/3,
     do_put(?CONF, Putter, KeyPath, Config).
 
 -spec get_default_value(emqx_utils_maps:config_key_path()) -> {ok, term()} | {error, term()}.
@@ -497,9 +500,7 @@ put_raw(Config) ->
 -spec put_raw(emqx_utils_maps:config_key_path(), term()) -> ok.
 put_raw(KeyPath0, Config) ->
     KeyPath = [bin(K) || K <- KeyPath0],
-    Putter = fun(Path, Map, Value) ->
-        emqx_utils_maps:deep_force_put(Path, Map, Value)
-    end,
+    Putter = fun emqx_utils_maps:deep_force_put/3,
     do_put(?RAW_CONF, Putter, KeyPath, Config).
 
 -spec put_namespaced(binary(), map()) -> ok.

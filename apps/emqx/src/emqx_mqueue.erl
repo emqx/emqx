@@ -148,8 +148,10 @@ info(MQ) ->
     maps:from_list([{Key, info(Key, MQ)} || Key <- ?INFO_KEYS]).
 
 -spec info(atom(), mqueue()) -> term().
-info(store_qos0, #mqueue{num_qos0 = NumQoS0}) ->
-    NumQoS0 =/= false;
+info(store_qos0, #mqueue{num_qos0 = false}) ->
+    false;
+info(store_qos0, #mqueue{}) ->
+    true;
 info(max_len, #mqueue{max_len = MaxLen}) ->
     MaxLen;
 info(len, #mqueue{q = Q}) ->
