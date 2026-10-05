@@ -188,7 +188,6 @@ new_stream(
         parse_state := PS,
         channel := Channel,
         serialize := Serialize,
-        hibernate_after := HibernateAfterMs,
         conn_shared_state := SS
     } = S
 ) ->
@@ -202,6 +201,7 @@ new_stream(
         quic_event_mask => ?QUICER_STREAM_EVENT_MASK_START_COMPLETE,
         conn_shared_state => SS
     },
+    HibernateAfterMs = emqx_config:get_zone_conf(Zone, [mqtt, hibernate_after]),
     {ok, NewStreamOwner} = quicer_stream:start_link(
         emqx_quic_data_stream,
         Stream,
