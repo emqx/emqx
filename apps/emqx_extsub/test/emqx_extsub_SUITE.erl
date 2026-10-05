@@ -99,11 +99,11 @@ t_channel_info_created_and_resumed(Config) ->
         [{v4, ?MQTT_PROTO_V4}, {v5, ?MQTT_PROTO_V5}]
     ).
 
--doc "Delivery requires channel metadata initialized by a session lifecycle hook.".
-t_channel_info_required(_Config) ->
+-doc "Delivery to a channel without channel metadata does not raise.".
+t_missing_channel_info(_Config) ->
     ?assertEqual(undefined, erlang:get(extsub_channel_info)),
     Msg = emqx_message:make(<<"test">>, ?QOS_1, <<"t">>, <<"payload">>),
-    ?assertError({badmatch, undefined}, emqx_extsub:on_message_delivered(#{}, Msg)),
+    ?assertEqual({ok, Msg}, emqx_extsub:on_message_delivered(#{}, Msg)),
     ?assertEqual(undefined, erlang:get(extsub_channel_info)).
 
 -doc "Handler messages keep their destination when sent from another process.".
