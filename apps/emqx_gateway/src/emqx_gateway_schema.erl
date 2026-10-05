@@ -342,7 +342,7 @@ ws_opts(Override) when is_map(Override) ->
             )},
         {"max_frame_size",
             sc(
-                hoconsc:union([infinity, non_neg_integer()]),
+                hoconsc:union([infinity, pos_integer()]),
                 #{
                     default => ?DEFAULT_WS_MAX_FRAME_SIZE,
                     validator => fun emqx_schema:validate_ws_max_frame_size/1,

@@ -3370,12 +3370,12 @@ largest MQTT packet size. `infinity` selects the listener's default limit.
 """.
 validate_ws_max_frame_size(infinity) ->
     ok;
-validate_ws_max_frame_size(Siz) when is_integer(Siz), Siz >= 0, Siz =< ?MAX_INT_MQTT_PACKET_SIZE ->
+validate_ws_max_frame_size(Siz) when is_integer(Siz), Siz > 0, Siz =< ?MAX_INT_MQTT_PACKET_SIZE ->
     ok;
 validate_ws_max_frame_size(_Siz) ->
     {error, #{
         cause => invalid_ws_max_frame_size,
-        minimum => 0,
+        minimum => 1,
         maximum => ?MAX_INT_MQTT_PACKET_SIZE
     }}.
 
