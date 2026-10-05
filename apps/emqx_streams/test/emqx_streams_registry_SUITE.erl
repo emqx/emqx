@@ -95,6 +95,37 @@ t_pre_611(_Config) ->
     ?assertEqual(not_found, emqx_streams_registry:find(<<"/a/b/c">>)),
     ?assertEqual([], emqx_streams_registry:match(<<"a/b/c">>)).
 
+-doc """
+Verify that `delete_legacy/0` deletes a pre-6.1.1 stream with its messages,
+keeps a named stream, and returns 0 on a second call.
+""".
+t_delete_legacy(_Config) ->
+    {ok, _} = emqx_streams_registry:create_pre_611_stream(
+        emqx_streams_test_utils:fill_stream_defaults(#{topic_filter => <<"a/b/c">>})
+    ),
+    {ok, LegacyStream} = emqx_streams_registry:find(<<"/a/b/c">>),
+    {ok, NamedStream} = create_stream(<<"stream-1">>, <<"a/b/#">>),
+    ok = insert_message(LegacyStream),
+    ok = insert_message(NamedStream),
+    ?retry(100, 50, ?assertMatch([_], emqx_streams_message_db:dirty_read_all(LegacyStream))),
+    ?assertEqual(1, emqx_streams_registry:delete_legacy()),
+    ?assertEqual(not_found, emqx_streams_registry:find(<<"/a/b/c">>)),
+    ?assertEqual([], emqx_streams_message_db:dirty_read_all(LegacyStream)),
+    ?assertMatch({ok, #{name := <<"stream-1">>}}, emqx_streams_registry:find(<<"stream-1">>)),
+    ?assertMatch([_], emqx_streams_message_db:dirty_read_all(NamedStream)),
+    ?assertMatch([#{topic_filter := <<"a/b/#">>}], emqx_streams_registry:match(<<"a/b/c">>)),
+    ?assertEqual(0, emqx_streams_registry:delete_legacy()).
+
+-doc """
+Verify that `delete_legacy/0` returns 0 and keeps all streams when no pre-6.1.1 stream exists.
+""".
+t_delete_legacy_none(_Config) ->
+    {ok, _} = create_stream(<<"stream-1">>, <<"a/b/c">>),
+    {ok, _} = create_stream(<<"stream-2">>, <<"a/#">>),
+    ?assertEqual(0, emqx_streams_registry:delete_legacy()),
+    ?assertMatch({ok, _}, emqx_streams_registry:find(<<"stream-1">>)),
+    ?assertMatch({ok, _}, emqx_streams_registry:find(<<"stream-2">>)).
+
 t_validate_name(_Config) ->
     ?assertMatch(
         {ok, _},
@@ -119,3 +150,7 @@ t_validate_name(_Config) ->
 
 create_stream(Name, TopicFilter) ->
     emqx_streams_test_utils:create_stream(#{name => Name, topic_filter => TopicFilter}).
+
+insert_message(Stream) ->
+    Message = emqx_message:make(<<"c1">>, 1, <<"a/b/c">>, <<"payload">>),
+    emqx_streams_message_db:insert(Stream, Message).
