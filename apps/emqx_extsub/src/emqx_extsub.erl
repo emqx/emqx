@@ -45,6 +45,10 @@ The module:
 
 -define(ST_PD_KEY, extsub_st).
 -define(CHANNEL_INFO_PD_KEY, extsub_channel_info).
+%% A channel process that ran neither the `session.created' nor the
+%% `session.resumed' hook has no metadata. Gateway channels that resume a session
+%% take that path: `emqx_gateway_cm:resume_session/4' runs no session hook.
+-define(DEFAULT_CHANNEL_INFO, #{can_receive_acks => false, proto_ver => undefined}).
 
 -define(MAX_UNACKED_PT_KEY, extsub_max_unacked).
 
@@ -592,7 +596,10 @@ save_channel_info(#{conninfo := ConnInfo} = _Ctx, SessionInfo) ->
     ok.
 
 get_channel_info() ->
-    #{} = erlang:get(?CHANNEL_INFO_PD_KEY).
+    case erlang:get(?CHANNEL_INFO_PD_KEY) of
+        #{} = ChannelInfo -> ChannelInfo;
+        undefined -> ?DEFAULT_CHANNEL_INFO
+    end.
 
 can_receive_acks() ->
     #{can_receive_acks := CanReceiveAcks} = get_channel_info(),
