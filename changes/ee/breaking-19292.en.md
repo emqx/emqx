@@ -1,0 +1,1 @@
+Changed `DELETE /api/v5/current_user/mfa` to return `403` with `MFA_ENFORCED` for an SSO user whose backend sets `force_mfa`, unless an administrator has exempted the account. Previously, such a user could turn off their own MFA and was asked to set it up again at the next SSO login. Rotating to a new authenticator still works.

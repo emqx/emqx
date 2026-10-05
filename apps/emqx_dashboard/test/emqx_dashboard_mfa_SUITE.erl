@@ -502,8 +502,7 @@ t_current_user_mfa_setup_required(_Config) ->
     ok.
 
 %% An SSO session ends the same way when the backend's `force_mfa' covers the
-%% account or the user turns MFA off under it. An admin exemption takes the
-%% account out of `force_mfa'.
+%% account. An admin exemption takes the account out of `force_mfa'.
 t_mfa_status_sso_user({init, Config}) ->
     SsoUsername = ?SSO_USERNAME(ldap, <<"sso_viewer">>),
     {ok, ok} = emqx_dashboard_admin:clear_mfa_state(SsoUsername),
@@ -525,16 +524,38 @@ t_mfa_status_sso_user(_Config) ->
     ok = assert_return_code("MFA_SETUP_REQUIRED", Rsp1),
     {ok, 401, Rsp1b} = get_current_user(Token1),
     ok = assert_return_code("BAD_TOKEN", Rsp1b),
-    %% a self-disable under `force_mfa' records no exemption
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, ?ADMIN_MFA_EXEMPTED),
+    ?assertMatch(
+        #{<<"mfa_status">> := <<"pending_voluntary">>}, current_user(sso_jwt_token(SsoUsername))
+    ),
+    ok.
+
+%% The backend's `force_mfa' blocks an SSO user's self-disable unless an admin
+%% exempts the account; an admin requirement answers `MFA_ADMIN_REQUIRED' instead.
+t_disable_own_mfa_sso_force_mfa({init, Config}) ->
+    SsoUsername = ?SSO_USERNAME(ldap, <<"sso_viewer">>),
     MfaState = #{mechanism => totp, secret => <<"SECRET">>, first_verify_ts => 1000},
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(SsoUsername, MfaState),
-    Token2 = sso_jwt_token(SsoUsername),
-    ?assertMatch(#{<<"mfa_status">> := <<"complete">>}, current_user(Token2)),
-    ?assertMatch({ok, 204, _}, disable_own_mfa(Token2)),
-    {ok, 401, Rsp2} = get_current_user(Token2),
-    ok = assert_return_code("MFA_SETUP_REQUIRED", Rsp2),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, undefined),
+    emqx_config:put([dashboard, sso, ldap, force_mfa], true),
+    Config;
+t_disable_own_mfa_sso_force_mfa({'end', _Config}) ->
+    SsoUsername = ?SSO_USERNAME(ldap, <<"sso_viewer">>),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, undefined),
+    emqx_config:put([dashboard, sso, ldap, force_mfa], false);
+t_disable_own_mfa_sso_force_mfa(_Config) ->
+    SsoUsername = ?SSO_USERNAME(ldap, <<"sso_viewer">>),
+    Token = sso_jwt_token(SsoUsername),
+    {ok, 403, Rsp1} = disable_own_mfa(Token),
+    ok = assert_return_code("MFA_ENFORCED", Rsp1),
+    ?assertMatch({ok, #{mechanism := totp}}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
+    ?assertMatch(#{<<"mfa_status">> := <<"complete">>}, current_user(Token)),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, ?ADMIN_MFA_REQUIRED),
+    {ok, 403, Rsp2} = disable_own_mfa(Token),
+    ok = assert_return_code("MFA_ADMIN_REQUIRED", Rsp2),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, ?ADMIN_MFA_EXEMPTED),
-    ?assertMatch(#{<<"mfa_status">> := <<"disabled">>}, current_user(sso_jwt_token(SsoUsername))),
+    ?assertMatch({ok, 204, _}, disable_own_mfa(Token)),
+    ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(SsoUsername)),
     ok.
 
 %% Login issues no token to a `pending_enforced' account, even when
