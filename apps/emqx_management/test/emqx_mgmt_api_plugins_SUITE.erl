@@ -827,6 +827,100 @@ t_install_running_plugin_broken_metadata(Config) ->
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     ok.
 
+-doc """
+An upload of another version of a loaded plugin is refused with a message that
+names the loaded version. After that version is uninstalled, the upload
+succeeds and the new version starts.
+""".
+t_install_other_version_of_loaded_plugin(Config) ->
+    V1 = "invalid_plugin-1.0.0",
+    V2 = "invalid_plugin-2.0.0",
+    on_exit(fun() -> cleanup_test_plugins([V1, V2], [invalid_plugin]) end),
+    Schema = test_plugin_schema(),
+    DefaultConfig = <<"""
+    foo = "bar"
+    """>>,
+    V1Path = make_test_plugin_package(
+        Config, "1.0.0", "invalid_plugin", "1.0.0", Schema, DefaultConfig
+    ),
+    V2Path = make_test_plugin_package(
+        Config, "2.0.0", "invalid_plugin", "2.0.0", Schema, DefaultConfig
+    ),
+    ok = allow_installation(V1),
+    ok = install_plugin(V1Path),
+    {ok, _} = update_plugin(V1, "start"),
+    ok = allow_installation(V2),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin(V2Path),
+    #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(
+            Msg,
+            <<
+                "plugin_app_loaded_outside_package: Plugin invalid_plugin-1.0.0 is loaded. "
+                "Uninstall it or restart the node, then retry."
+            >>
+        ),
+        Msg
+    ),
+    {ok, _} = update_plugin(V1, "stop"),
+    {ok, _} = uninstall_plugin(V1),
+    ok = allow_installation(V2),
+    ok = install_plugin(V2Path),
+    {ok, _} = update_plugin(V2, "start"),
+    ?assertMatch(
+        #{<<"running_status">> := [#{<<"status">> := <<"running">>}]},
+        describe_plugin(V2)
+    ).
+
+-doc """
+An upload of a plugin that bundles an application loaded from a different
+plugin, with a different `.app` file, is refused with a message that explains
+when such an application can be shared.
+""".
+t_install_plugin_bundling_app_of_other_plugin(Config) ->
+    Loaded = "invalid_plugin-1.0.0",
+    Other = "other_plugin-1.0.0",
+    on_exit(fun() -> cleanup_test_plugins([Loaded, Other], [invalid_plugin]) end),
+    Schema = test_plugin_schema(),
+    DefaultConfig = <<"""
+    foo = "bar"
+    """>>,
+    LoadedPath = make_test_plugin_package(
+        Config, "1.0.0", "invalid_plugin", "1.0.0", Schema, DefaultConfig
+    ),
+    OtherAppFile = <<"""
+    {application, invalid_plugin, [{vsn, "1.0.0"}, {description, "other"}]}.
+    """>>,
+    OtherPath = make_test_plugin_package(
+        Config,
+        "other_plugin",
+        "1.0.0",
+        "invalid_plugin",
+        "1.0.0",
+        Schema,
+        DefaultConfig,
+        OtherAppFile
+    ),
+    ok = allow_installation(Loaded),
+    ok = install_plugin(LoadedPath),
+    {ok, _} = update_plugin(Loaded, "start"),
+    ok = allow_installation(Other),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin(OtherPath),
+    #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(
+            Msg,
+            <<
+                "plugin_app_loaded_outside_package: Plugin application invalid_plugin is already "
+                "loaded outside this plugin package. A package can bundle an application that "
+                "another plugin has loaded only when the two .app files are identical."
+            >>
+        ),
+        Msg
+    ).
+
 %% The package of the installation which is about to be replaced can not be
 %% read, so the snapshot a failed attempt would be recovered from can not be
 %% taken: the upload has to be refused before it overwrites the package.  The
@@ -1503,7 +1597,14 @@ make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig)
     make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig, AppFile).
 
 make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig, AppFile) ->
-    NameVsn = "invalid_plugin-" ++ RelVsn,
+    make_test_plugin_package(
+        Config, "invalid_plugin", RelVsn, AppName, AppVsn, Schema, DefaultConfig, AppFile
+    ).
+
+make_test_plugin_package(
+    Config, Name, RelVsn, AppName, AppVsn, Schema, DefaultConfig, AppFile
+) ->
+    NameVsn = Name ++ "-" ++ RelVsn,
     PluginApp = AppName ++ "-" ++ AppVsn,
     PrivDir = filename:join([NameVsn, PluginApp, "priv"]),
     PackagePath = filename:join(
@@ -1512,7 +1613,7 @@ make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig,
     ),
     ok = filelib:ensure_dir(PackagePath),
     Info = emqx_utils_json:encode(#{
-        <<"name">> => <<"invalid_plugin">>,
+        <<"name">> => list_to_binary(Name),
         <<"rel_vsn">> => list_to_binary(RelVsn),
         <<"rel_apps">> => [list_to_binary(PluginApp)],
         <<"description">> => <<"test">>,
@@ -1532,6 +1633,19 @@ make_test_plugin_package(Config, RelVsn, AppName, AppVsn, Schema, DefaultConfig,
         [compressed]
     ),
     PackagePath.
+
+cleanup_test_plugins(NameVsns, Apps) ->
+    lists:foreach(
+        fun(NameVsn) ->
+            _ = emqx_plugins:ensure_stopped(NameVsn),
+            _ = emqx_plugins:ensure_disabled(NameVsn),
+            _ = emqx_plugins:ensure_uninstalled(NameVsn),
+            _ = emqx_plugins:delete_package(NameVsn),
+            _ = disallow_installation(NameVsn)
+        end,
+        NameVsns
+    ),
+    lists:foreach(fun application:unload/1, Apps).
 
 test_plugin_schema() ->
     <<
