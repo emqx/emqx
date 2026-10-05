@@ -117,7 +117,7 @@
 -dialyzer({nowarn_function, [websocket_init/1, postpone/2, classify/4]}).
 
 -elvis([
-    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_ocpp_connection]}}
+    {elvis_style, no_invalid_dynamic_calls, #{ignore => [emqx_ocpp_connection]}}
 ]).
 
 %%--------------------------------------------------------------------

@@ -85,7 +85,9 @@ Utility functions for EMQX gateway.
     max_mailbox_size => 32000
 }).
 
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([{elvis_style, no_god_modules, disable}]).
+%% `listener_id/3' builds an atom from configured names, so the atoms cannot exist up front.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 -spec childspec(worker | supervisor, Mod :: atom()) ->
     supervisor:child_spec().
@@ -441,7 +443,7 @@ bin(L) when is_list(L); is_binary(L) ->
     iolist_to_binary(L).
 
 unix_ts_to_rfc3339(Keys, Map) when is_list(Keys) ->
-    lists:foldl(fun(K, Acc) -> unix_ts_to_rfc3339(K, Acc) end, Map, Keys);
+    lists:foldl(fun unix_ts_to_rfc3339/2, Map, Keys);
 unix_ts_to_rfc3339(Key, Map) ->
     case maps:get(Key, Map, undefined) of
         undefined ->
@@ -541,7 +543,7 @@ find_gateway_definitions() ->
 
 do_find_gateway_definitions() ->
     lists:flatmap(
-        fun(AppModule) -> find_gateway_attrs(AppModule) end,
+        fun find_gateway_attrs/1,
         ?GATEWAY_APP_MODULES
     ).
 

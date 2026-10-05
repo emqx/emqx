@@ -34,7 +34,7 @@
     ip_port/0
 ]).
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 

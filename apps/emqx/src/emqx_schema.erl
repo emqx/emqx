@@ -197,6 +197,8 @@
 %% that.
 -elvis([{elvis_style, export_used_types, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
+%% `to_atom/1' and `parse_user_lookup_fun/1' build atoms from configured strings.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 -define(BIT(Bits), (1 bsl (Bits))).
 -define(MAX_UINT(Bits), (?BIT(Bits) - 1)).
@@ -3779,7 +3781,7 @@ do_parse_server(Str, Opts) ->
     NotExpectingPort = maps:get(no_port, Opts, false),
     DefaultScheme = maps:get(default_scheme, Opts, undefined),
     SupportedSchemes = maps:get(supported_schemes, Opts, []),
-    NotExpectingScheme = (not is_list(DefaultScheme)) andalso length(SupportedSchemes) =:= 0,
+    NotExpectingScheme = (not is_list(DefaultScheme)) andalso SupportedSchemes =:= [],
     case is_integer(DefaultPort) andalso NotExpectingPort of
         true ->
             %% either provide a default port from schema,
@@ -4196,7 +4198,7 @@ convert_legacy_flapping_detect(Conf0) ->
     end.
 
 converted_by_clientid(Enable, LegacyParams) when
-    Enable =:= true; Enable =:= <<"true">>
+    Enable; Enable =:= <<"true">>
 ->
     LegacyParams;
 converted_by_clientid(_NotTrue, _LegacyParams) ->
