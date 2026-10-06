@@ -40,8 +40,9 @@ mount(undefined, Any) ->
     Any;
 mount(MountPoint, Topic) when ?IS_TOPIC(Topic) ->
     prefix_maybe_share(MountPoint, Topic);
-mount(MountPoint, Msg = #message{topic = Topic}) when is_binary(Topic) ->
-    Msg#message{topic = prefix_maybe_share(MountPoint, Topic)};
+mount(MountPoint, Msg = #message{topic = Topic, extra = Extra0}) when is_binary(Topic) ->
+    Extra = stash_mountpoint(Extra0, MountPoint),
+    Msg#message{topic = prefix_maybe_share(MountPoint, Topic), extra = Extra};
 mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
     [{prefix_maybe_share(MountPoint, Topic), SubOpts} || {Topic, SubOpts} <- TopicFilters].
 
@@ -113,3 +114,9 @@ parse(Template) ->
             Escaped = emqx_template:escape_disallowed(Parsed, ?ALLOWED_VARS),
             emqx_template:parse(Escaped)
     end.
+
+stash_mountpoint(#{} = Extra0, MountPoint) ->
+    Extra0#{mountpoint => MountPoint};
+stash_mountpoint(_OldExtra, MountPoint) ->
+    %% prior to 5.4.0, extra was `[]`
+    #{mountpoint => MountPoint}.
