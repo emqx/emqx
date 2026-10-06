@@ -85,6 +85,8 @@ t_info(_) ->
         },
         ConnInfo
     ),
+    %% The socket is only valid in the connection process.
+    ?assertNot(maps:is_key(sock, ConnInfo)),
     %% `sockstate' is not part of the channel info map; it is read from the
     %% connection state.
     ?assertEqual(idle, emqx_connection:info(sockstate, st())).
