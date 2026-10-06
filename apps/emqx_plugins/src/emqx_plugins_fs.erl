@@ -56,6 +56,8 @@
 -export([
     %% To load and start plugin's apps
     lib_dir/1,
+    %% To tell which plugin a loaded application comes from
+    name_vsn_of_path/1,
     %% To store plugin's configs
     default_config_file_path/1,
     config_file_path/1,
@@ -724,6 +726,24 @@ ensure_config_dir(NameVsn) ->
 -spec lib_dir(name_vsn()) -> string().
 lib_dir(NameVsn) ->
     wrap_to_list(filename:join([install_dir(), NameVsn])).
+
+-doc """
+The name-vsn of the plugin whose install directory holds `Path`.
+Return `error` when `Path` is not inside the install directory of a plugin.
+""".
+-spec name_vsn_of_path(file:filename_all()) -> {ok, binary()} | error.
+name_vsn_of_path(Path) ->
+    InstallDirParts = filename:split(filename:absname(wrap_to_list(install_dir()))),
+    PathParts = filename:split(filename:absname(wrap_to_list(Path))),
+    case lists:prefix(InstallDirParts, PathParts) of
+        true ->
+            case lists:nthtail(length(InstallDirParts), PathParts) of
+                [NameVsn, _ | _] -> {ok, iolist_to_binary(NameVsn)};
+                _ -> error
+            end;
+        false ->
+            error
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

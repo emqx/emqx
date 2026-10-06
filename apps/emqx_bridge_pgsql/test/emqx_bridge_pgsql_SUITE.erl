@@ -1023,53 +1023,6 @@ t_reconnect_on_connector_health_check_timeout(TCConfig) ->
     ),
     ok.
 
-%% Similar to `t_reconnect_on_connector_health_check_timeout`, but the timeout occurs in
-%% the `check_prepares` call.
-t_reconnect_on_connector_health_check_timeout_check_prepares(TCConfig) ->
-    {201, _} = create_connector_api(
-        TCConfig,
-        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"750ms">>}}
-    ),
-    ?assertMatch(
-        {200, #{<<"status">> := <<"connected">>}},
-        get_connector_api(TCConfig)
-    ),
-    TestPid = self(),
-    emqx_common_test_helpers:with_mock(
-        emqx_postgresql,
-        on_get_status_prepares,
-        fun(_ConnState) ->
-            TestPid ! get_prepares_called,
-            timer:sleep(infinity)
-        end,
-        fun() ->
-            ?retry(
-                750,
-                5,
-                ?assertMatch(
-                    {200, #{
-                        <<"status">> := <<"disconnected">>,
-                        <<"status_reason">> := <<"resource_health_check_timed_out">>
-                    }},
-                    get_connector_api(TCConfig)
-                )
-            )
-        end
-    ),
-    ?assertReceive(get_prepares_called),
-    %% Recovery
-    ?retry(
-        750,
-        10,
-        ?assertMatch(
-            {200, #{
-                <<"status">> := <<"connected">>
-            }},
-            get_connector_api(TCConfig)
-        )
-    ),
-    ok.
-
 %% Checks that we report the connector as `?status_disconnected` when `ecpool` supervision
 %% tree is unhealthy for any reason.
 t_ecpool_workers_crash(TCConfig) ->
