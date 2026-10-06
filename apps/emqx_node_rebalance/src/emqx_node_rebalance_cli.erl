@@ -26,33 +26,30 @@ cli(["start" | StartArgs]) ->
             case emqx_node_rebalance_evacuation:status() of
                 disabled ->
                     ok = emqx_node_rebalance_evacuation:start(Opts),
-                    emqx_ctl:print("Rebalance(evacuation) started~n"),
-                    true;
+                    emqx_ctl:print("Rebalance(evacuation) started~n");
                 {enabled, _} ->
                     emqx_ctl:print("Rebalance is already enabled~n"),
-                    false
+                    {error, already_enabled}
             end;
         {purge, Opts} ->
             case emqx_node_rebalance_purge:start(Opts) of
                 ok ->
-                    emqx_ctl:print("Rebalance(purge) started~n"),
-                    true;
-                {error, Reason} ->
+                    emqx_ctl:print("Rebalance(purge) started~n");
+                {error, Reason} = Error ->
                     emqx_ctl:print("Rebalance(purge) start error: ~p~n", [Reason]),
-                    false
+                    Error
             end;
         {rebalance, Opts} ->
             case emqx_node_rebalance:start(Opts) of
                 ok ->
-                    emqx_ctl:print("Rebalance started~n"),
-                    true;
-                {error, Reason} ->
+                    emqx_ctl:print("Rebalance started~n");
+                {error, Reason} = Error ->
                     emqx_ctl:print("Rebalance start error: ~p~n", [Reason]),
-                    false
+                    Error
             end;
-        {error, Error} ->
-            emqx_ctl:print("Rebalance start error: ~s~n", [Error]),
-            false
+        {error, Reason} = Error ->
+            emqx_ctl:print("Rebalance start error: ~s~n", [Reason]),
+            Error
     end;
 cli(["node-status", NodeStr]) ->
     case emqx_utils:safe_to_existing_atom(NodeStr, utf8) of
@@ -60,7 +57,7 @@ cli(["node-status", NodeStr]) ->
             node_status(emqx_node_rebalance_status:local_status(Node));
         {error, _} ->
             emqx_ctl:print("Node status error: invalid node~n"),
-            false
+            {error, invalid_node}
     end;
 cli(["node-status"]) ->
     node_status(emqx_node_rebalance_status:local_status());
@@ -115,16 +112,15 @@ cli(["stop"]) ->
         ],
     case do_stop(Checks) of
         ok ->
-            true;
+            ok;
         disabled ->
             case emqx_node_rebalance:status() of
                 {enabled, _} ->
                     ok = emqx_node_rebalance:stop(),
-                    emqx_ctl:print("Rebalance stopped~n"),
-                    true;
+                    emqx_ctl:print("Rebalance stopped~n");
                 disabled ->
                     emqx_ctl:print("Rebalance is already disabled~n"),
-                    false
+                    {error, already_disabled}
             end
     end;
 cli(_) ->
