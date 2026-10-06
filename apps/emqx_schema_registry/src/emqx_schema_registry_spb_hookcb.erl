@@ -43,9 +43,9 @@ unregister_hooks() ->
 %%------------------------------------------------------------------------------
 
 -spec on_message_publish(emqx_types:message()) -> ok.
-on_message_publish(#message{topic = Topic} = Message) ->
+on_message_publish(#message{} = Message) ->
     case
-        is_spb_message_topic(Topic) andalso
+        is_spb_message_topic(unmounted_topic(Message)) andalso
             emqx_schema_registry_config:is_alias_mapping_enabled() andalso
             is_client_process()
     of
@@ -90,7 +90,8 @@ is_spb_message_type(<<"DBIRTH/", _/binary>>) -> true;
 is_spb_message_type(<<"DDATA/", _/binary>>) -> true;
 is_spb_message_type(_) -> false.
 
-do_on_message_publish(#message{topic = Topic} = Message) ->
+do_on_message_publish(#message{} = Message) ->
+    Topic = unmounted_topic(Message),
     case emqx_schema_registry_spb_state:parse_spb_topic(Topic) of
         {ok, #nbirth{} = BirthMsg} ->
             emqx_schema_registry_spb_state:register_aliases(Message, BirthMsg);
@@ -103,3 +104,8 @@ do_on_message_publish(#message{topic = Topic} = Message) ->
         _ ->
             ok
     end.
+
+unmounted_topic(#message{topic = Topic0, extra = #{mountpoint := Mountpoint}}) ->
+    emqx_mountpoint:unmount(Mountpoint, Topic0);
+unmounted_topic(#message{topic = Topic}) ->
+    Topic.

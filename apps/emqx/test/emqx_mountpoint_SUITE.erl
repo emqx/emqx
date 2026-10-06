@@ -33,7 +33,7 @@ t_mount(_) ->
         mount(<<"device/1/">>, <<"topic">>)
     ),
     ?assertEqual(
-        Msg#message{topic = <<"device/1/topic">>},
+        Msg#message{topic = <<"device/1/topic">>, extra = #{mountpoint => <<"device/1/">>}},
         mount(<<"device/1/">>, Msg)
     ),
     ?assertEqual(
