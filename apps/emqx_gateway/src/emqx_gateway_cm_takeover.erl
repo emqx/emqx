@@ -5,6 +5,29 @@
 -module(emqx_gateway_cm_takeover).
 -moduledoc """
 Gateway counterpart of `emqx_cm_takeover`.
+
+Selects takeover transport and adapts session state. Channels manage rollback.
+
+* Local takeover
+  Functions `begin_local` / `finish_local` call the channel with an explicit owner
+  and attempt token.
+* Current remote
+  BPAPI `emqx_gateway_cm_takeover_proto_v1` calls `begin_rpc` / `finish_rpc`, which use the
+  local paths. Begin replies carry the server protocol for decoding.
+* Legacy owner
+  Force takeover begin phase uses `emqx_gateway_cm_proto_v1` BPAPI takeover.
+  Resume mode begin phase and both modes completion phase call the channel directly.
+  Resume takeover identifies its owner through `From`.
+  Adapter `from_begin_ret` converts legacy MQTT-SN records to exported maps, leaves
+  other gateway sessions opaque.
+* Legacy requester
+  Dispatched into `begin_rpc_legacy`, which downgrades force begin result to the old
+  tuple reply.
+  Direct MQTT-SN resume uses `to_legacy_reply` to downgrade the session while
+  preserving the reply envelope and metadata.
+
+Session conversion follows explicit protocol metadata, `to_*_ret` / `from_*_ret` adapt
+results at protocol boundaries.
 """.
 
 -export([
