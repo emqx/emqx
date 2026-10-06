@@ -501,7 +501,6 @@ t_chan_info_structure(Config) ->
             proto_name,
             proto_ver,
             receive_maximum,
-            sock,
             sockname,
             socktype,
             username
