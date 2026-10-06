@@ -97,7 +97,8 @@ connection_expire_interval(_Ctx, #{auth_expire_at := ExpireAt}) ->
     {ok, #{
         session := Session,
         present := boolean(),
-        pendings => list()
+        pendings => list(),
+        atom() => term()
     }}
     | {error, any()}.
 open_session(Ctx, Mode, ClientInfo, ConnInfo, CreateSessionFun) ->

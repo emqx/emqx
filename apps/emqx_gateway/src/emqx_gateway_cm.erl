@@ -339,7 +339,8 @@ connection_closed(_GwName, _ClientId) ->
     {ok, #{
         session := Session,
         present := boolean(),
-        pendings => list()
+        pendings => list(),
+        atom() => term()
     }}
     | {error, any()}.
 
