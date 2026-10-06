@@ -147,8 +147,6 @@ handle_call(list_acl_cache, _From, Channel) ->
     {reply, [], Channel};
 handle_call({quota, _Policy}, _From, Channel) ->
     {reply, ok, Channel};
-handle_call(evicting, _From, Channel) ->
-    {reply, ok, Channel};
 handle_call(Req, _From, Channel) ->
     ?SLOG(
         error,
@@ -162,6 +160,8 @@ handle_call(Req, _From, Channel) ->
 handle_info(Deliver = {deliver, _Topic, _Msg}, Channel) ->
     Delivers = [Deliver | emqx_utils:drain_deliver()],
     {noreply, handle_deliver(Delivers, Channel)};
+handle_info(evicting, Channel) ->
+    {noreply, Channel};
 handle_info(expire_session, Channel) ->
     {stop, expired, Channel};
 handle_info(Info, Channel) ->

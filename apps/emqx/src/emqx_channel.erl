@@ -1604,8 +1604,6 @@ handle_call(takeover_kick, Channel) ->
         end,
         []
     );
-handle_call(evicting, Channel) ->
-    reply(ok, clear_will_msg_on_eviction(Channel));
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 handle_call(

@@ -59,8 +59,6 @@
 
 -export_type([server_reference/0, kind/0, options/0]).
 
--define(CLEAR_WILL_MSG_TIMEOUT, 5000).
-
 -define(CONN_MODULES, [
     emqx_connection,
     emqx_socket_connection,
@@ -355,7 +353,9 @@ do_evict_sessions(Nodes, ChannelStream) ->
         fun({ClientId, ChanPid, ConnInfo, ClientInfo}) ->
             case is_session_evictable(ClientId, ChanPid) of
                 true ->
-                    ok = clear_will_msg(ClientId, ChanPid, ConnInfo),
+                    %% Sent before the takeover starts, so the channel clears its will
+                    %% message before it handles the takeover request.
+                    ChanPid ! evicting,
                     EvictResult = evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo),
                     case EvictResult of
                         {error, {badrpc, _Reason}} ->
@@ -486,22 +486,6 @@ do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
         }
     ),
     Result.
-
-%% The channel must clear its will message before the takeover starts, so this is
-%% a call: the takeover request reaches the channel from another process.
-clear_will_msg(ClientId, ChanPid, #{conn_mod := ConnMod}) ->
-    try apply(ConnMod, call, [ChanPid, evicting, ?CLEAR_WILL_MSG_TIMEOUT]) of
-        _ -> ok
-    catch
-        Class:Reason ->
-            ?SLOG(warning, #{
-                msg => "evict_session_clear_will_msg_failed",
-                client_id => ClientId,
-                class => Class,
-                reason => Reason
-            }),
-            ok
-    end.
 
 disconnect_channel(ChanPid, ServerReference) ->
     %% Sent before the disconnect request, so the channel processes it first.
