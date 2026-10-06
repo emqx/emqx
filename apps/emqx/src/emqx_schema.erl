@@ -86,6 +86,7 @@
 -export([
     validate_heap_size/1,
     validate_max_packet_size/1,
+    validate_ws_max_frame_size/1,
     validate_non_negative_bytesize/1,
     convert_max_packet_size/2,
     user_lookup_fun_tr/2,
@@ -196,6 +197,8 @@
 %% that.
 -elvis([{elvis_style, export_used_types, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
+%% `to_atom/1' and `parse_user_lookup_fun/1' build atoms from configured strings.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 -define(BIT(Bits), (1 bsl (Bits))).
 -define(MAX_UINT(Bits), (?BIT(Bits) - 1)).
@@ -1056,6 +1059,7 @@ fields("ws_opts") ->
                 hoconsc:union([infinity, pos_integer()]),
                 #{
                     default => infinity,
+                    validator => fun ?MODULE:validate_ws_max_frame_size/1,
                     desc => ?DESC(fields_ws_opts_max_frame_size)
                 }
             )},
@@ -3360,6 +3364,21 @@ validate_max_packet_size(Siz) when is_integer(Siz) ->
 validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
 
+-doc """
+Validate a WebSocket `max_frame_size`. An explicit value must not exceed the
+largest MQTT packet size. `infinity` selects the listener's default limit.
+""".
+validate_ws_max_frame_size(infinity) ->
+    ok;
+validate_ws_max_frame_size(Siz) when is_integer(Siz), Siz > 0, Siz =< ?MAX_INT_MQTT_PACKET_SIZE ->
+    ok;
+validate_ws_max_frame_size(_Siz) ->
+    {error, #{
+        cause => invalid_ws_max_frame_size,
+        minimum => 1,
+        maximum => ?MAX_INT_MQTT_PACKET_SIZE
+    }}.
+
 validate_non_negative_bytesize(Bytes) when is_integer(Bytes), Bytes >= 0 ->
     ok;
 validate_non_negative_bytesize(_Bytes) ->
@@ -3762,7 +3781,7 @@ do_parse_server(Str, Opts) ->
     NotExpectingPort = maps:get(no_port, Opts, false),
     DefaultScheme = maps:get(default_scheme, Opts, undefined),
     SupportedSchemes = maps:get(supported_schemes, Opts, []),
-    NotExpectingScheme = (not is_list(DefaultScheme)) andalso length(SupportedSchemes) =:= 0,
+    NotExpectingScheme = (not is_list(DefaultScheme)) andalso SupportedSchemes =:= [],
     case is_integer(DefaultPort) andalso NotExpectingPort of
         true ->
             %% either provide a default port from schema,
@@ -4179,7 +4198,7 @@ convert_legacy_flapping_detect(Conf0) ->
     end.
 
 converted_by_clientid(Enable, LegacyParams) when
-    Enable =:= true; Enable =:= <<"true">>
+    Enable; Enable =:= <<"true">>
 ->
     LegacyParams;
 converted_by_clientid(_NotTrue, _LegacyParams) ->

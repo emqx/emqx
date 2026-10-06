@@ -11,6 +11,9 @@
 -include("emqx_external_trace.hrl").
 -include("emqx_config.hrl").
 
+%% Fixed header: 1 byte packet type and flags + up to 4 bytes remaining length.
+-define(MAX_FIXED_HEADER_LEN, 5).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -239,7 +242,7 @@ upgrade(Type, Listener, Req, Opts, WsOpts) ->
         active_n => get_active_n(Type, Listener),
         compress => maps:get(compress, WsOpts),
         deflate_opts => maps:get(deflate_opts, WsOpts),
-        max_frame_size => maps:get(max_frame_size, WsOpts),
+        max_frame_size => max_frame_size(maps:get(max_frame_size, WsOpts), maps:get(zone, Opts)),
         idle_timeout => maps:get(idle_timeout, WsOpts),
         validate_utf8 => maps:get(validate_utf8, WsOpts)
     },
@@ -477,8 +480,6 @@ handle_event({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     State;
-handle_event({event, {zone_changed, NewZone}}, State0 = #state{}) ->
-    init_zone_specific_state(NewZone, _Opts = #{}, State0);
 handle_event({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State0#state{namespace = Namespace};
 handle_event({event, _Other}, State = #state{channel = Channel}) ->
@@ -743,6 +744,10 @@ handle_replies([{close, Reason} | Rest], FrameAcc, State) ->
     ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     Frame = handle_close(Reason),
     handle_replies(Rest, [Frame | FrameAcc], State);
+handle_replies([{event, {zone_changed, NewZone}} | Rest], FrameAcc, State0) ->
+    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    %% Let cowboy's message size limit follow the new zone, as the parser's does.
+    handle_replies(Rest, [set_max_frame_size(State) | FrameAcc], State);
 handle_replies([Event | Rest], FrameAcc, State) ->
     handle_replies(Rest, FrameAcc, handle_event(Event, State));
 handle_replies([], FrameAcc, State) ->
@@ -1031,6 +1036,21 @@ init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
         hibernate_after = emqx_channel:get_mqtt_conf(Zone, hibernate_after),
         zone = Zone
     }.
+
+%% Cowboy's WebSocket message size limit. `infinity' derives it from the zone's
+%% `max_packet_size'. The derived limit is twice the largest MQTT packet, so the
+%% parser still receives a packet that is a little too large and answers with
+%% DISCONNECT `packet_too_large'. `max_packet_size' is checked against the
+%% remaining length only, so the largest fixed header is added first.
+max_frame_size(infinity, Zone) ->
+    MaxPacketSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+    2 * (MaxPacketSize + ?MAX_FIXED_HEADER_LEN);
+max_frame_size(MaxFrameSize, _Zone) when is_integer(MaxFrameSize) ->
+    MaxFrameSize.
+
+set_max_frame_size(#state{listener = {Type, Listener}, zone = Zone}) ->
+    MaxFrameSize = max_frame_size(get_ws_opt(Type, Listener, max_frame_size), Zone),
+    {set_options, #{max_frame_size => MaxFrameSize}}.
 
 init_parser_and_serializer(Zone) ->
     #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(

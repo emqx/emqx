@@ -15,6 +15,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
+-include("emqx_gateway.hrl").
 
 -type ip_port() :: tuple() | integer().
 -type duration() :: non_neg_integer().
@@ -33,7 +34,7 @@
     ip_port/0
 ]).
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
@@ -341,9 +342,10 @@ ws_opts(Override) when is_map(Override) ->
             )},
         {"max_frame_size",
             sc(
-                hoconsc:union([infinity, integer()]),
+                hoconsc:union([infinity, pos_integer()]),
                 #{
-                    default => infinity,
+                    default => ?DEFAULT_WS_MAX_FRAME_SIZE,
+                    validator => fun emqx_schema:validate_ws_max_frame_size/1,
                     desc => ?DESC(fields_ws_opts_max_frame_size)
                 }
             )},
