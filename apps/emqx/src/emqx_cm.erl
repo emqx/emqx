@@ -171,8 +171,10 @@
 
 %% linting overrides
 -elvis([
-    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}},
-    {elvis_style, god_modules, #{ignore => [emqx_cm]}}
+    %% The channel manager calls the connection module of each channel, and
+    %% maybe_format/2 calls a formatter that the caller gives.
+    {elvis_style, no_invalid_dynamic_calls, disable},
+    {elvis_style, no_god_modules, disable}
 ]).
 
 %% @doc Start the channel manager.
@@ -1061,8 +1063,8 @@ get_connected_client_count() ->
     end.
 
 kick_session_chans(ClientId, ChanPids) ->
-    case length(ChanPids) > 1 of
-        true ->
+    case ChanPids of
+        [_, _ | _] ->
             ?SLOG(
                 warning,
                 #{
@@ -1071,7 +1073,7 @@ kick_session_chans(ClientId, ChanPids) ->
                 },
                 #{clientid => ClientId}
             );
-        false ->
+        _ ->
             ok
     end,
     lists:foreach(fun(Pid) -> kick_session(ClientId, Pid) end, ChanPids).

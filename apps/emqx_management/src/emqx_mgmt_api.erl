@@ -10,6 +10,8 @@
 
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
 -elvis([{elvis_style, no_catch_expressions, disable}]).
+%% to_atom/1 converts a query parameter that a query schema declares as an atom.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 -define(LONG_QUERY_TIMEOUT, 50000).
 
@@ -1094,6 +1096,6 @@ noderows_t() ->
     ).
 
 measure(NamedSamples, Test) ->
-    maps:fold(fun(Name, Sample, Acc) -> measure(Name, Sample, Acc) end, Test, NamedSamples).
+    maps:fold(fun proper:measure/3, Test, NamedSamples).
 
 -endif.
