@@ -421,7 +421,7 @@ with_tcp_listener(Conf0, Fn) ->
     try
         Fn(#{port => Port})
     after
-        ok = emqx_listeners:stop(),
+        %% Removing the config stops this listener through the config handler.
         emqx:remove_config([listeners, Type, Name])
     end.
 
