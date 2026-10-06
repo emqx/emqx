@@ -326,7 +326,7 @@ hook_publish(NodeOrDevice, MsgType, Payload0) ->
     Topic = spb_topic(NodeOrDevice, MsgType, _Opts = #{}),
     Payload = spb_encode(Payload0),
     Message = emqx_message:make(<<"from">>, Topic, Payload),
-    _ = emqx_schema_registry_spb_hookcb:on_message_publish(Message),
+    _ = emqx_schema_registry_spb_hookcb:on_message_publish_alias_mapping(Message),
     ok.
 
 create_connector_api(TCConfig, Overrides) ->

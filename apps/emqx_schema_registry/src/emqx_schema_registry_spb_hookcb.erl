@@ -11,7 +11,7 @@
 
 %% Hook callbacks
 -export([
-    on_message_publish/1
+    on_message_publish_alias_mapping/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -22,7 +22,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
--define(MSG_PUBLISH_HOOK, {?MODULE, on_message_publish, []}).
+-define(MSG_PUBLISH_HOOK, {?MODULE, on_message_publish_alias_mapping, []}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -42,8 +42,8 @@ unregister_hooks() ->
 %% Hook callbacks
 %%------------------------------------------------------------------------------
 
--spec on_message_publish(emqx_types:message()) -> ok.
-on_message_publish(#message{} = Message) ->
+-spec on_message_publish_alias_mapping(emqx_types:message()) -> ok.
+on_message_publish_alias_mapping(#message{} = Message) ->
     case emqx_schema_registry_config:is_alias_mapping_enabled() andalso is_client_process() of
         true ->
             do_on_message_publish(Message);
