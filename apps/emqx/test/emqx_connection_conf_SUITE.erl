@@ -112,6 +112,15 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
+    %% Start each case with the entries of the zone in place, as on a node
+    %% that has served a connection before. A case about the first connection
+    %% erases them itself.
+    _ = emqx_connection_conf:pre_connect_codec(default),
+    case proplists:get_value(listener, Config) of
+        undefined -> ok;
+        Listener -> _ = emqx_connection_conf:conn_conf(Listener, default)
+    end,
+    ok = emqx_connection_conf:sync(),
     Config.
 
 end_per_testcase(_Case, Config) ->
