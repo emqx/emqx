@@ -41,7 +41,7 @@
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
--export([set_half_closed/1, is_half_closed/1]).
+-export([set_half_closed/2, is_half_closed/1]).
 -export([set_offline_info/2, get_offline_info/1]).
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
@@ -124,6 +124,11 @@
     | ?dup(?QOS_2)
     | ?rec
     | ?committed(?QOS_2).
+
+-doc """
+Bitfield that signifies which side effects should be performed to dispose of the session.
+""".
+-type del_flags() :: non_neg_integer().
 
 -type guard() :: emqx_ds_pmap:guard().
 
@@ -322,13 +327,18 @@ get_expiry_interval(Rec) ->
 set_expiry_interval(Val, Rec) ->
     set_meta(?expiry_interval, Val, Rec).
 
--spec set_half_closed(t()) -> t().
-set_half_closed(Rec) ->
-    set_meta(?half_closed, 1, Rec).
+-spec set_half_closed(del_flags(), t()) -> t().
+set_half_closed(Flags, Rec) ->
+    set_meta(?half_closed, Flags, Rec).
 
--spec is_half_closed(t()) -> boolean().
+-spec is_half_closed(t()) -> false | {true, del_flags()}.
 is_half_closed(Rec) ->
-    get_meta(?half_closed, Rec) =/= undefined.
+    case get_meta(?half_closed, Rec) of
+        undefined ->
+            false;
+        Flags when is_integer(Flags) ->
+            {true, Flags}
+    end.
 
 -spec get_peername(t()) -> emqx_types:peername() | undefined.
 get_peername(Rec) ->

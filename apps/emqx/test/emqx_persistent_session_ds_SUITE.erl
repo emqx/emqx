@@ -982,13 +982,14 @@ t_fuzz(_Config) ->
             #{timetrap => 5_000 * length(Cmds) + 30_000},
             try
                 %% Print information about the run:
-                ct:pal("*** Commands:~n~s~n", [
-                    emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
-                ]),
                 %% Initialize the system:
+                ct:pal("*** Pre-test cleanup", []),
                 emqx_persistent_session_ds_fuzzer:cleanup(),
                 emqx_common_test_helpers:drop_all_ds_messages(),
                 %% Run test:
+                ct:pal("*** Commands:~n~s~n", [
+                    emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
+                ]),
                 {_History, State, Result} = proper_statem:run_commands(
                     emqx_persistent_session_ds_fuzzer, Cmds
                 ),
@@ -1002,6 +1003,7 @@ t_fuzz(_Config) ->
                 ct:log("*** Result:~n  ~p~n", [Result]),
                 Result =:= ok orelse error(Result)
             after
+                ct:pal("*** Post-test cleanup", []),
                 ok = emqx_persistent_session_ds_fuzzer:cleanup()
             end,
             [
