@@ -52,7 +52,8 @@ all() ->
         t_zone_config_change,
         t_zone_conf_change_keeps_frame_shared,
         t_listener_config_change,
-        t_zone_removal
+        t_zone_removal,
+        t_restart_rebuilds_entries
     ].
 
 groups() ->
@@ -502,6 +503,30 @@ t_zone_conf_change_keeps_frame_shared(_Config) ->
     ok = assert_pubsub(C1, C2),
     ok = emqtt:stop(C1),
     ok = emqtt:stop(C2).
+
+-doc """
+A restarted server rebuilds the entries it takes back from `persistent_term`
+for the current config, and drops the ones whose zone is gone. An entry left
+by an earlier application run with another config must not survive.
+""".
+t_restart_rebuilds_entries(_Config) ->
+    ok = ensure_entries(?SOCKET_LISTENER, [default]),
+    Conf = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
+    Frame = persistent_term:get(?FRAME_KEY(default)),
+    %% Plant entries of a config that is not the current one.
+    persistent_term:put(?CONN_KEY(?SOCKET_LISTENER, default), Conf#conf{sendq_watermark = 5}),
+    persistent_term:put(?FRAME_KEY(gone_zone), Frame),
+    persistent_term:put(?CONN_KEY(?SOCKET_LISTENER, gone_zone), Conf#conf{zone = gone_zone}),
+    ok = supervisor:terminate_child(emqx_kernel_sup, emqx_connection_conf),
+    {ok, _} = supervisor:restart_child(emqx_kernel_sup, emqx_connection_conf),
+    ?assertEqual(Conf, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))),
+    ?assert(erts_debug:same(Frame, persistent_term:get(?FRAME_KEY(default)))),
+    ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(gone_zone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, gone_zone), undefined)),
+    %% The rebuilt entries are the ones the server owns from now on.
+    C = connect(socket_config(), v5),
+    ?assert(held_conn_conf(C, ?SOCKET_LISTENER, default)),
+    ok = emqtt:stop(C).
 
 %%--------------------------------------------------------------------
 %% Helpers

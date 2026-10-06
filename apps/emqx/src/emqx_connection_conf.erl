@@ -39,8 +39,9 @@ Replacing or erasing an entry makes the runtime copy the old terms into the
 heap of every process that still refers to them. The two kinds are separate
 entries, so a change to one kind leaves the other shared.
 
-After a restart the server takes its entries back from `persistent_term`. It
-never erases them when it stops.
+After a restart the server takes its entries back from `persistent_term`
+and rebuilds each one from the current config, since an application restart
+can load a different config. It never erases them when it stops.
 """.
 
 -behaviour(gen_server).
@@ -219,8 +220,10 @@ sync() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    %% After a restart, take the entries written before back.
-    Keys = [Key || {Key, _} <- persistent_term:get(), is_own_key(Key)],
+    %% After a restart, take the entries written before back, rebuilt for
+    %% the current config: an application restart can load another config.
+    Zones = emqx_config:get([zones], #{}),
+    Keys = [Key || {Key, _} <- persistent_term:get(), is_own_key(Key), rebuild(Key, Zones)],
     {ok, #{keys => maps:from_keys(Keys, true)}}.
 
 handle_call(#zones_updated{zones = Zones}, _From, #{keys := Keys0} = State) ->
