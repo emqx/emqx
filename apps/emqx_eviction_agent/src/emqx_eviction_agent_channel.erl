@@ -147,6 +147,8 @@ handle_call(list_acl_cache, _From, Channel) ->
     {reply, [], Channel};
 handle_call({quota, _Policy}, _From, Channel) ->
     {reply, ok, Channel};
+handle_call(evicting, _From, Channel) ->
+    {reply, ok, Channel};
 handle_call(Req, _From, Channel) ->
     ?SLOG(
         error,

@@ -1604,6 +1604,8 @@ handle_call(takeover_kick, Channel) ->
         end,
         []
     );
+handle_call(evicting, Channel) ->
+    reply(ok, clear_will_msg_on_eviction(Channel));
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 handle_call(
@@ -1750,6 +1752,8 @@ handle_info(die_if_test = Info, Channel) ->
     die_if_test_compiled(),
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel};
+handle_info(evicting, Channel) ->
+    {ok, clear_will_msg_on_eviction(Channel)};
 handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
@@ -3462,6 +3466,23 @@ get_mqtt_conf(Zone, Key) ->
 
 get_mqtt_conf(Zone, Key, Default) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key], Default).
+
+%% Node evacuation or rebalance moves the session to another node, and the
+%% client is told to reconnect. The client does not go away, so the will
+%% message is cleared. A session with expiry interval 0 ends with the
+%% connection, so its will message is kept.
+clear_will_msg_on_eviction(Channel = #channel{conninfo = #{expiry_interval := 0}}) ->
+    Channel;
+clear_will_msg_on_eviction(Channel = #channel{will_msg = WillMsg, session = Session}) ->
+    ?tp(debug, channel_will_msg_cleared_on_eviction, #{
+        clientid => info(clientid, Channel), had_will_msg => WillMsg =/= undefined
+    }),
+    remove_willmsg(Channel#channel{session = maybe_clear_session_will_msg(Session)}).
+
+maybe_clear_session_will_msg(undefined) ->
+    undefined;
+maybe_clear_session_will_msg(Session) ->
+    emqx_session:clear_will_message(Session).
 
 %% @doc unset will_msg and cancel the will_message timer
 -spec remove_willmsg(Old :: channel()) -> New :: channel().
