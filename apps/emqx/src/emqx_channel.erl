@@ -77,7 +77,8 @@
 -export([
     dummy/0,
     set_field/3,
-    set_log_meta/2
+    set_log_meta/2,
+    to_map/1
 ]).
 -endif.
 
@@ -3163,6 +3164,10 @@ will_delay_interval(WillMsg) ->
         0
     ).
 
+publish_will_msg(#channel{session = undefined} = Channel) ->
+    %% race?  channel being taken over/kicker before the previous one even processed its
+    %% connect properly?
+    Channel;
 publish_will_msg(
     #channel{
         session = Session,
@@ -3322,6 +3327,10 @@ remove_willmsg(Channel = #channel{timers = Timers}) ->
             }
     end.
 
+is_durable_session(#channel{session = undefined}) ->
+    %% race?  channel being taken over/kicker before the previous one even processed its
+    %% connect properly?
+    false;
 is_durable_session(#channel{session = Session}) ->
     case emqx_session:info(impl, Session) of
         emqx_persistent_session_ds ->
@@ -3347,4 +3356,14 @@ dummy() -> #channel{}.
 set_field(Name, Value, Channel) ->
     Pos = emqx_utils:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).
+
+to_map(Channel) ->
+    lists:foldl(
+        fun({I, Name}, Acc) ->
+            V = element(I + 1, Channel),
+            Acc#{Name => V}
+        end,
+        #{},
+        lists:enumerate(record_info(fields, channel))
+    ).
 -endif.

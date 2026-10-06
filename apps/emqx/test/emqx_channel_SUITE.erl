@@ -780,6 +780,24 @@ t_handle_kicked_publish_will_msg(_) ->
         exit(will_message_not_published)
     end.
 
+t_sock_closed_with_undefined_session(_) ->
+    ClientId = test,
+    WillTopic = <<"will_topic">>,
+    WillPayload = <<"will_payload">>,
+    Msg = emqx_message:make(ClientId, WillTopic, WillPayload),
+    Chan = channel(#{will_msg => Msg, session => undefined}),
+    {shutdown, reason, ChanOut} =
+        emqx_channel:handle_info({sock_closed, reason}, Chan),
+    ?assertMatch(
+        #{
+            session := undefined,
+            will_msg := undefined,
+            conninfo := #{disconnected_at := _}
+        },
+        emqx_channel:to_map(ChanOut)
+    ),
+    ok.
+
 t_handle_call_discard(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
     {shutdown, discarded, ok, Packet, _Channel} =
@@ -792,6 +810,25 @@ t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
     {shutdown, takenover, [], _, _Chan} =
         emqx_channel:handle_call({takeover, 'end'}, channel()).
+
+t_handle_call_takeover_kick_undefined_session(_) ->
+    ClientId = test,
+    WillTopic = <<"will_topic">>,
+    WillPayload = <<"will_payload">>,
+    Msg = emqx_message:make(ClientId, WillTopic, WillPayload),
+    Chan = channel(#{will_msg => Msg, session => undefined}),
+    Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
+    {shutdown, takenover, ok, Packet, ChanOut} =
+        emqx_channel:handle_call(takeover_kick, Chan),
+    ?assertMatch(
+        #{
+            session := undefined,
+            will_msg := undefined,
+            conninfo := #{disconnected_at := _}
+        },
+        emqx_channel:to_map(ChanOut)
+    ),
+    ok.
 
 t_handle_call_unexpected(_) ->
     {reply, ignored, _Chan} = emqx_channel:handle_call(unexpected_req, channel()).
