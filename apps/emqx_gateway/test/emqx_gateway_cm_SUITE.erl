@@ -54,24 +54,41 @@ end_per_testcase(_TestCase, Conf) ->
 %% cases
 %%--------------------------------------------------------------------
 
+-doc "Resume-only opening does not create or register a session when no owner exists.".
+t_open_session_resume_only(_) ->
+    ?assertEqual(
+        {error, not_found},
+        emqx_gateway_cm:open_session(
+            ?GWNAME,
+            {takeover, {resume, #{}}},
+            clientinfo(),
+            conninfo(),
+            fun(_, _) -> error(unexpected_session_creation) end,
+            emqx_session
+        )
+    ),
+    ?assertEqual([], emqx_gateway_cm:lookup_channels(?GWNAME, ?CLIENTID)).
+
 t_open_session(_) ->
     {ok, #{
         present := false,
         session := #{}
     }} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        false,
+        {takeover, force},
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{} end
+        fun(_, _) -> #{} end,
+        emqx_session
     ),
 
     {ok, SessionRes} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     ?assertEqual(
         #{
@@ -96,10 +113,11 @@ t_open_session(_) ->
 
     {ok, SessionRes2} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 2} end
+        fun(_, _) -> #{no => 2} end,
+        emqx_session
     ),
     ?assertEqual(
         #{
@@ -145,10 +163,11 @@ t_open_session(_) ->
 t_get_set_chan_info_stats(_) ->
     {ok, SessionRes} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     ?assertEqual(
         #{
@@ -201,10 +220,11 @@ t_get_set_chan_info_stats(_) ->
 t_connection_closed_defers_cleanup_until_unregister(_) ->
     {ok, _} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     emqx_gateway_cm:insert_channel_info(
         ?GWNAME,
@@ -235,10 +255,11 @@ t_handle_process_down(Conf) ->
 
     {ok, SessionRes} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     ?assertEqual(
         #{
@@ -275,10 +296,11 @@ t_kick_session(_) ->
     %% session1
     {ok, _} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     emqx_gateway_cm:insert_channel_info(
         ?GWNAME,
@@ -335,10 +357,11 @@ t_session_created_hook_ctx(_) ->
             session := #{}
         }} = emqx_gateway_cm:open_session(
             ?GWNAME,
-            false,
+            {takeover, force},
             clientinfo(),
             conninfo(),
-            fun(_, _) -> #{} end
+            fun(_, _) -> #{} end,
+            emqx_session
         ),
         receive
             {session_created_hook, Ctx, _Args} ->

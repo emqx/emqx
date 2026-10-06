@@ -566,7 +566,6 @@ t_asleep_pingreq_resume_uses_selected_candidate_only(_) ->
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
         [LivePid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
         ok = meck:new(emqx_gateway_cm_registry, [passthrough, no_history]),
-        ok = meck:new(emqx_gateway_cm_proto_v1, [passthrough, no_history]),
         ok = meck:expect(
             emqx_gateway_cm_registry,
             lookup_channels,
@@ -577,19 +576,8 @@ t_asleep_pingreq_resume_uses_selected_candidate_only(_) ->
                     meck:passthrough([Gateway, OtherClientId])
             end
         ),
-        ok = meck:expect(
-            emqx_gateway_cm_proto_v1,
-            get_chann_conn_mod,
-            fun
-                (mqttsn, _ClientId0, FakePid0) when FakePid0 =:= FakePid ->
-                    undefined;
-                (Gateway, ClientId0, ChanPid) ->
-                    meck:passthrough([Gateway, ClientId0, ChanPid])
-            end
-        ),
         send_pingreq_msg(Socket2, ClientId),
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket2)),
-        ok = meck:unload(emqx_gateway_cm_proto_v1),
         ok = meck:unload(emqx_gateway_cm_registry),
         ?retry(
             50,
@@ -600,7 +588,6 @@ t_asleep_pingreq_resume_uses_selected_candidate_only(_) ->
             end
         )
     after
-        _ = catch meck:unload(emqx_gateway_cm_proto_v1),
         _ = catch meck:unload(emqx_gateway_cm_registry),
         FakePid ! stop,
         _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
@@ -623,7 +610,7 @@ t_asleep_pingreq_resume_rejects_malformed_end_reply(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'end'}, _Timeout) when
+                (OldPid0, {takeover, 'end', {_Owner, _Attempt}}, _Timeout) when
                     OldPid0 =:= OldPid
                 ->
                     malformed_end_reply;
@@ -694,8 +681,10 @@ t_asleep_pingreq_resume_end_timeout_preserves_pending_deliveries(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'end'}, _Timeout) when OldPid0 =:= OldPid ->
-                    exit({timeout, simulated_end_timeout});
+                (OldPid0, {takeover, 'end', {_Owner, _Attempt}}, _Timeout) when
+                    OldPid0 =:= OldPid
+                ->
+                    exit({timeout, {gen_server, call, [OldPid0, takeover_end, _Timeout]}});
                 (Pid, Req, Timeout) ->
                     meck:passthrough([Pid, Req, Timeout])
             end
@@ -802,7 +791,9 @@ t_asleep_pingreq_resume_rpc_failure_returns_disconnect(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout) when OldPid0 =:= OldPid ->
+                (OldPid0, {takeover, 'begin', _Owner, ResumeRequest}, _Timeout) when
+                    OldPid0 =:= OldPid
+                ->
                     ?assertEqual(#{peercert => nossl}, ResumeRequest),
                     exit({nodedown, node(OldPid0)});
                 (Pid, Req, Timeout) ->
@@ -954,41 +945,6 @@ t_asleep_pingreq_resume_rolls_back_on_owner_down(_) ->
         gen_udp:close(Socket2)
     end.
 
-t_asleep_pingreq_resume_rejects_legacy_authorized_begin(_) ->
-    SleepDuration = 5,
-    ClientId = <<"asleep-resume-legacy-node">>,
-    {ok, Socket1} = gen_udp:open(0, [binary]),
-    {ok, Socket2} = gen_udp:open(0, [binary]),
-    try
-        send_connect_msg(Socket1, ClientId),
-        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket1)),
-        send_disconnect_msg(Socket1, SleepDuration),
-        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
-        [OldPid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
-
-        ok = meck:new(emqx_gateway_conn, [passthrough, no_history]),
-        ok = meck:expect(
-            emqx_gateway_conn,
-            call,
-            fun
-                (OldPid0, {takeover, 'begin', #{peercert := _}}, _Timeout) when
-                    OldPid0 =:= OldPid
-                ->
-                    ignored;
-                (Pid, Req, Timeout) ->
-                    meck:passthrough([Pid, Req, Timeout])
-            end
-        ),
-        send_pingreq_msg(Socket2, ClientId),
-        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket2)),
-        ok = meck:unload(emqx_gateway_conn)
-    after
-        _ = catch meck:unload(emqx_gateway_conn),
-        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
-        gen_udp:close(Socket1),
-        gen_udp:close(Socket2)
-    end.
-
 t_asleep_pingreq_resume_recovers_after_lost_begin_reply(_) ->
     ClientId = <<"asleep-resume-lost-begin-reply">>,
     SleepDuration = 5,
@@ -1006,11 +962,11 @@ t_asleep_pingreq_resume_recovers_after_lost_begin_reply(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout) when
+                (OldPid0, {takeover, 'begin', Owner, ResumeRequest}, _Timeout) when
                     OldPid0 =:= OldPid
                 ->
                     Result = meck:passthrough([
-                        OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout
+                        OldPid0, {takeover, 'begin', Owner, ResumeRequest}, _Timeout
                     ]),
                     ?assertMatch(
                         {ok, #{session := _, conninfo := _, clientinfo := _}},
@@ -3530,12 +3486,56 @@ t_takeover_cancels_delivery_retry(_) ->
     <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
         "retry">> = receive_response(Socket),
     ChanPid = channel_pid(ClientId),
-    ?assertMatch(#{session := _}, emqx_gateway_conn:call(ChanPid, {takeover, 'begin'})),
+    ?assertMatch(
+        {ok, #{
+            session := #{registry := _, session := _},
+            clientinfo := #{clientid := ClientId}
+        }},
+        emqx_gateway_conn:call(ChanPid, {takeover, 'begin', {self(), make_ref()}, undefined})
+    ),
     %% Retries stop even though the message has not been acknowledged yet.
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 2 * RetryInterval)),
     send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId),
     ?retry(20, 50, ?assertMatch(#{inflight_cnt := 0}, channel_stats(ClientId))),
-    ?assertEqual([], emqx_gateway_conn:call(ChanPid, {takeover, 'end'})),
+    %% CONNECT takeovers ignore attempt identity.
+    ?assertEqual([], emqx_gateway_conn:call(ChanPid, {takeover, 'end', {self(), make_ref()}})),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(Socket).
+
+-doc "A completion from a rolled-back attempt cannot complete a subsequent takeover.".
+t_takeover_rejects_stale_completion(_) ->
+    ClientId = ?CLIENTID,
+    Socket = asleep_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    OldPid = channel_pid(ClientId),
+    Mode = {resume, #{peercert => nossl}},
+    ?assertEqual(
+        {error, no_takeover_in_progress}, emqx_gateway_conn:call(OldPid, {takeover, 'end'})
+    ),
+    FirstAttempt = make_ref(),
+    {ok, ChanRef, _} = emqx_gateway_cm_takeover:begin_(
+        mqttsn, ClientId, OldPid, Mode, FirstAttempt
+    ),
+    ?assertEqual(
+        {error, takeover_in_progress},
+        emqx_gateway_conn:call(OldPid, {takeover, 'begin', {self(), make_ref()}, undefined})
+    ),
+    ?assertEqual(
+        {error, takeover_in_progress},
+        emqx_gateway_cm_takeover:begin_(mqttsn, ClientId, OldPid, Mode, make_ref())
+    ),
+    TRef = resume_takeover_timer(OldPid),
+    OldPid ! {timeout, TRef, resume_takeover},
+    SecondAttempt = make_ref(),
+    {ok, ChanRef, _} = emqx_gateway_cm_takeover:begin_(
+        mqttsn, ClientId, OldPid, Mode, SecondAttempt
+    ),
+    ?assertEqual(
+        {error, not_takeover_owner},
+        emqx_gateway_cm_takeover:finish(mqttsn, ChanRef, Mode, FirstAttempt)
+    ),
+    ?assertEqual(
+        {ok, []}, emqx_gateway_cm_takeover:finish(mqttsn, ChanRef, Mode, SecondAttempt)
+    ),
     ensure_channel_gone(ClientId),
     gen_udp:close(Socket).
 

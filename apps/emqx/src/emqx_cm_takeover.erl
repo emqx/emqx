@@ -26,6 +26,9 @@
 
 -export_type([session_legacy/0]).
 
+%% Shared by gateway session takeover compatibility adapters.
+-export([from_legacy_session/1, to_legacy_session/4]).
+
 -record(chanref, {
     proto :: local | protocol() | legacy,
     connmod :: module(),
@@ -258,22 +261,26 @@ to_finish_ret(_Proto, {error, Reason}) ->
 %%     created_at :: pos_integer()
 %% }).
 
-%% erlfmt-ignore
 to_legacy_session(ClientId, ChanInfo, Session) ->
-    {session,
-        ClientId,
-        _Id = maps:get(id, Session),
+    to_legacy_session(ClientId, ChanInfo, Session, #{}).
+
+%% Gateways do not necessarily reapply configuration after importing a legacy session.
+to_legacy_session(ClientId, ChanInfo, Session, Conf) ->
+    {session, ClientId, _Id = maps:get(id, Session),
         _IsPersistent = maps:get(is_persistent, Session),
         _Subscriptions = maps:get(subscriptions, Session),
-        _MaxSubscriptions = infinity,
-        _UpgradeQoS = false,
-        _Inflight = to_legacy_inflight(maps:get(inflight, Session)),
+        _MaxSubscriptions = maps:get(max_subscriptions, Conf, infinity),
+        _UpgradeQoS = maps:get(upgrade_qos, Conf, false),
+        _Inflight = to_legacy_inflight(
+            maps:get(inflight, Session),
+            maps:get(receive_maximum, Conf, 0)
+        ),
         _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session)),
         _NextPktId = maps:get(next_pkt_id, Session),
-        _RetryInterval = infinity,
+        _RetryInterval = maps:get(retry_interval, Conf, infinity),
         _AwaitingRel = maps:get(awaiting_rel, Session),
-        _MaxAwaitingRel = 100,
-        _AwaitRelTimeout = timer:seconds(300),
+        _MaxAwaitingRel = maps:get(max_awaiting_rel, Conf, 100),
+        _AwaitRelTimeout = maps:get(await_rel_timeout, Conf, timer:seconds(300)),
         _CreatedAt = maps:get(created_at, Session)}.
 
 %% erlfmt-ignore
@@ -312,7 +319,7 @@ from_legacy_session(Session) ->
 %%     timestamp :: non_neg_integer()
 %% }).
 
-to_legacy_inflight(Inflight) ->
+to_legacy_inflight(Inflight, MaxInflight) ->
     Tree = lists:foldl(
         fun(
             #{
@@ -328,7 +335,7 @@ to_legacy_inflight(Inflight) ->
         gb_trees:empty(),
         Inflight
     ),
-    {inflight, 0, Tree}.
+    {inflight, MaxInflight, Tree}.
 
 export_legacy_inflight({inflight, _, Tree}) ->
     [
