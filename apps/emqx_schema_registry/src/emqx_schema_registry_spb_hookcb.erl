@@ -66,7 +66,8 @@ is_client_process() ->
         _ -> false
     end.
 
-do_on_message_publish(#message{topic = Topic} = Message) ->
+do_on_message_publish(#message{} = Message) ->
+    Topic = unmounted_topic(Message),
     case emqx_schema_registry_spb_state:parse_spb_topic(Topic) of
         {ok, #nbirth{} = BirthMsg} ->
             emqx_schema_registry_spb_state:register_aliases(Message, BirthMsg);
@@ -79,3 +80,8 @@ do_on_message_publish(#message{topic = Topic} = Message) ->
         _ ->
             ok
     end.
+
+unmounted_topic(#message{topic = Topic0, extra = #{mountpoint := Mountpoint}}) ->
+    emqx_mountpoint:unmount(Mountpoint, Topic0);
+unmounted_topic(#message{topic = Topic}) ->
+    Topic.
