@@ -692,15 +692,15 @@ post_config_update(Path, Request, NewConf, OldConf, AppEnvs) ->
     ok = emqx_connection_conf:listeners_changed(changed_listeners(Path, Request, NewConf, OldConf)),
     Result.
 
-%% The listeners whose connection settings an update or a delete invalidates.
+%% The updated listeners with their new config, and the deleted ones with `undefined'.
 changed_listeners([?ROOT_KEY, Type, Name], ?MARK_DEL, _NewConf, _OldConf) ->
-    [{Type, Name}];
-changed_listeners([?ROOT_KEY, Type, Name], {update, _Request}, _NewConf, _OldConf) ->
-    [{Type, Name}];
+    [{{Type, Name}, undefined}];
+changed_listeners([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, _OldConf) ->
+    [{{Type, Name}, NewConf}];
 changed_listeners([?ROOT_KEY], _Request, NewConf, OldConf) ->
     #{removed := Removed, changed := Changed} = diff_confs(NewConf, OldConf),
-    [{Type, Name} || {Type, Name, _} <- Removed] ++
-        [{Type, Name} || {{Type, Name, _}, _} <- Changed];
+    [{{Type, Name}, undefined} || {Type, Name, _} <- Removed] ++
+        [{{Type, Name}, New} || {_Old, {Type, Name, New}} <- Changed];
 changed_listeners(_Path, _Request, _NewConf, _OldConf) ->
     [].
 

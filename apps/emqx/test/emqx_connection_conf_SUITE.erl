@@ -12,6 +12,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_connection_conf.hrl").
+-include_lib("emqx/include/emqx_schema.hrl").
 
 -define(FRAME_KEY(Zone), {emqx_connection_conf, Zone, frame}).
 -define(CONN_KEY(Listener, Zone), {emqx_connection_conf, Listener, Zone, conf}).
@@ -52,7 +53,10 @@ all() ->
         t_zone_config_change,
         t_zone_conf_change_keeps_frame_shared,
         t_listener_config_change,
+        t_listener_unrelated_change_keeps_entry,
+        t_listener_delete_erases_entry,
         t_zone_removal,
+        t_shutdown_erases_entries,
         t_restart_rebuilds_entries
     ].
 
@@ -388,18 +392,53 @@ t_listener_config_change(_Config) ->
         [listeners, tcp, Name],
         {update, OldRaw#{<<"tcp_options">> => TcpOpts#{<<"active_n">> => 77}}}
     ),
-    %% The update erases the entry; the next connection registers the new record.
-    ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default), undefined)),
-    C1 = connect(Config, v5),
-    ok = emqx_connection_conf:sync(),
+    %% The update rebuilds the entry in place, before the call returns.
     New = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
-    ?assertMatch(#conf{active_n = 77}, New),
     ?assertEqual(Old#conf{active_n = 77}, New),
-    ?assertEqual(New, conn_conf_of(C1)),
-    C2 = connect(Config, v5),
-    ?assert(held_conn_conf(C2, ?SOCKET_LISTENER, default)),
-    ok = emqtt:stop(C1),
-    ok = emqtt:stop(C2).
+    C = connect(Config, v5),
+    ?assert(held_conn_conf(C, ?SOCKET_LISTENER, default)),
+    ok = emqtt:stop(C).
+
+-doc """
+A listener update that leaves every setting held in `#conf{}` as it was keeps
+the entry: the same instance stays shared, nothing is rewritten.
+""".
+t_listener_unrelated_change_keeps_entry(_Config) ->
+    Config = socket_config(),
+    {tcp, Name} = ?SOCKET_LISTENER,
+    OldRaw = emqx_config:get_raw([listeners, tcp, Name]),
+    emqx_common_test_helpers:on_exit(fun() ->
+        {ok, _} = emqx:update_config([listeners, tcp, Name], {update, OldRaw})
+    end),
+    ok = ensure_entries(?SOCKET_LISTENER, [default]),
+    Old = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
+    ?assertNotEqual(7777, maps:get(<<"max_connections">>, OldRaw, undefined)),
+    {ok, _} = emqx:update_config(
+        [listeners, tcp, Name],
+        {update, OldRaw#{<<"max_connections">> => 7777}}
+    ),
+    ?assert(erts_debug:same(Old, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)))),
+    C = connect(Config, v5),
+    ?assert(held_conn_conf(C, ?SOCKET_LISTENER, default)),
+    ok = emqtt:stop(C).
+
+-doc "Deleting a listener erases its entries. The entries of the other listeners stay.".
+t_listener_delete_erases_entry(_Config) ->
+    Listener = {tcp, tmp_listener},
+    {ok, _} = emqx:update_config(
+        [listeners, tcp, tmp_listener],
+        {create, #{<<"bind">> => <<"127.0.0.1:21887">>, <<"enable">> => false}}
+    ),
+    emqx_common_test_helpers:on_exit(fun() ->
+        _ = emqx:update_config([listeners, tcp, tmp_listener], ?TOMBSTONE_CONFIG_CHANGE_REQ)
+    end),
+    ok = ensure_entries(?SOCKET_LISTENER, [default]),
+    ok = ensure_entries(Listener, [default]),
+    Kept = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
+    ?assertMatch(#conf{listener = Listener}, persistent_term:get(?CONN_KEY(Listener, default))),
+    {ok, _} = emqx:update_config([listeners, tcp, tmp_listener], ?TOMBSTONE_CONFIG_CHANGE_REQ),
+    ?assertEqual(undefined, persistent_term:get(?CONN_KEY(Listener, default), undefined)),
+    ?assert(erts_debug:same(Kept, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)))).
 
 -doc """
 A new zone gets its entries on first use, and removing the zone deletes
@@ -504,10 +543,23 @@ t_zone_conf_change_keeps_frame_shared(_Config) ->
     ok = emqtt:stop(C1),
     ok = emqtt:stop(C2).
 
+-doc "An orderly stop of the server erases the entries it owns.".
+t_shutdown_erases_entries(_Config) ->
+    ok = ensure_entries(?SOCKET_LISTENER, [default]),
+    ok = supervisor:terminate_child(emqx_kernel_sup, emqx_connection_conf),
+    ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(default), undefined)),
+    {ok, _} = supervisor:restart_child(emqx_kernel_sup, emqx_connection_conf),
+    C = connect(socket_config(), v5),
+    ok = emqx_connection_conf:sync(),
+    ?assertEqual(expected_conn_conf(?SOCKET_LISTENER, default), conn_conf_of(C)),
+    ok = emqtt:stop(C).
+
 -doc """
-A restarted server rebuilds the entries it takes back from `persistent_term`
-for the current config, and drops the ones whose zone is gone. An entry left
-by an earlier application run with another config must not survive.
+A server restarted after a crash rebuilds the entries it takes back from
+`persistent_term` for the current config, and drops the ones whose zone is
+gone. An entry left by an earlier application run with another config must
+not survive.
 """.
 t_restart_rebuilds_entries(_Config) ->
     ok = ensure_entries(?SOCKET_LISTENER, [default]),
@@ -517,8 +569,9 @@ t_restart_rebuilds_entries(_Config) ->
     persistent_term:put(?CONN_KEY(?SOCKET_LISTENER, default), Conf#conf{sendq_watermark = 5}),
     persistent_term:put(?FRAME_KEY(gone_zone), Frame),
     persistent_term:put(?CONN_KEY(?SOCKET_LISTENER, gone_zone), Conf#conf{zone = gone_zone}),
-    ok = supervisor:terminate_child(emqx_kernel_sup, emqx_connection_conf),
-    {ok, _} = supervisor:restart_child(emqx_kernel_sup, emqx_connection_conf),
+    Pid = whereis(emqx_connection_conf),
+    exit(Pid, kill),
+    ?retry(50, 100, true = is_restarted(Pid)),
     ?assertEqual(Conf, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))),
     ?assert(erts_debug:same(Frame, persistent_term:get(?FRAME_KEY(default)))),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(gone_zone), undefined)),
@@ -665,6 +718,13 @@ held(Client, GetShared) ->
     receive
         {Ref, Result} -> Result
     after 5000 -> error(timeout)
+    end.
+
+is_restarted(OldPid) ->
+    case whereis(emqx_connection_conf) of
+        undefined -> false;
+        OldPid -> false;
+        _NewPid -> true
     end.
 
 %% Register the entries of the listener in each zone through the API, as a

@@ -31,17 +31,19 @@ connection state.
 The `gen_server` of this module, a child of `emqx_kernel_sup`, owns the
 entries, and nothing else writes them. An entry is created on first use: a connection that finds no entry
 builds the terms from config, keeps its own copy, and sends them here, so the
-connections after it share one instance. On a zone config change the server
-rebuilds the entries it owns, and on a listener config change it erases the
-entries of that listener; the next connection registers them again.
+connections after it share one instance. On a zone or listener config change
+the server rebuilds the entries it owns, and erases the entries of a deleted
+zone or listener; the next connection registers them again.
 
 Replacing or erasing an entry makes the runtime copy the old terms into the
-heap of every process that still refers to them. The two kinds are separate
-entries, so a change to one kind leaves the other shared.
+heap of every process that still refers to them. An entry is rewritten only
+when its value changes, so a config change that leaves the derived terms
+equal costs nothing. The two kinds are separate entries, so a change to one
+kind leaves the other shared.
 
-After a restart the server takes its entries back from `persistent_term`
-and rebuilds each one from the current config, since an application restart
-can load a different config. It never erases them when it stops.
+The server erases its entries when it stops in an orderly way. After a crash
+it takes its entries back from `persistent_term` and rebuilds each one from
+the current config, since an application restart can load a different config.
 """.
 
 -behaviour(gen_server).
@@ -103,7 +105,8 @@ can load a different config. It never erases them when it stops.
 
 -record(register, {key :: key(), value :: frame() | conn_conf()}).
 -record(zones_updated, {zones :: emqx_config:config()}).
--record(listeners_changed, {listeners :: [listener()]}).
+%% The checked config of a listener, or `undefined' for a deleted one.
+-record(listeners_changed, {listeners :: [{listener(), map() | undefined}]}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -194,13 +197,13 @@ post_zone_config_update(_OldZones, NewZones) ->
     safe_call(#zones_updated{zones = NewZones}).
 
 -doc """
-Delete the entries of the given listeners. The next connection on such a
-listener registers them again.
+Rebuild the entries of the given listeners from their new config, and delete
+the entries of the listeners given as `undefined`.
 
 `emqx_listeners:post_config_update/5` calls this with the listeners that are
-updated or deleted.
+updated or deleted, before the new config is stored.
 """.
--spec listeners_changed([listener()]) -> ok.
+-spec listeners_changed([{listener(), map() | undefined}]) -> ok.
 listeners_changed([]) ->
     ok;
 listeners_changed(Listeners) ->
@@ -220,8 +223,9 @@ sync() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    %% After a restart, take the entries written before back, rebuilt for
-    %% the current config: an application restart can load another config.
+    _ = process_flag(trap_exit, true),
+    %% After a crash, take the entries written before back, rebuilt for the
+    %% current config: an application restart can load another config.
     Zones = emqx_config:get([zones], #{}),
     Keys = [Key || {Key, _} <- persistent_term:get(), is_own_key(Key), rebuild(Key, Zones)],
     {ok, #{keys => maps:from_keys(Keys, true)}}.
@@ -230,10 +234,12 @@ handle_call(#zones_updated{zones = Zones}, _From, #{keys := Keys0} = State) ->
     Keys = maps:filter(fun(Key, true) -> rebuild(Key, Zones) end, Keys0),
     {reply, ok, State#{keys := Keys}};
 handle_call(#listeners_changed{listeners = Listeners}, _From, #{keys := Keys0} = State) ->
+    Changed = maps:from_list(Listeners),
+    Zones = emqx_config:get([zones], #{}),
     Keys = maps:filter(
         fun
-            (?CONN_KEY(Listener, _Zone) = Key, true) ->
-                not lists:member(Listener, Listeners) orelse erase_entry(Key);
+            (?CONN_KEY(Listener, _Zone) = Key, true) when is_map_key(Listener, Changed) ->
+                rebuild(Key, Zones, maps:get(Listener, Changed));
             (_Key, true) ->
                 true
         end,
@@ -248,18 +254,28 @@ handle_call(Req, _From, State) ->
 handle_cast(#register{key = Key, value = Value}, #{keys := Keys} = State) ->
     %% An entry written before, or rebuilt from a later config, wins.
     case persistent_term:get(Key, undefined) of
-        undefined -> persistent_term:put(Key, Value);
-        _ -> ok
-    end,
-    {noreply, State#{keys := Keys#{Key => true}}};
+        undefined ->
+            ok = persistent_term:put(Key, Value),
+            {noreply, State#{keys := Keys#{Key => true}}};
+        _ ->
+            {noreply, State}
+    end;
 handle_cast(_Req, State) ->
     {noreply, State}.
 
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(Reason, #{keys := Keys}) ->
+    case is_orderly(Reason) of
+        true -> lists:foreach(fun erase_entry/1, maps:keys(Keys));
+        false -> ok
+    end.
+
+is_orderly(normal) -> true;
+is_orderly(shutdown) -> true;
+is_orderly({shutdown, _}) -> true;
+is_orderly(_) -> false.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -298,9 +314,12 @@ rebuild(?FRAME_KEY(Zone) = Key, Zones) ->
         #{Zone := ZoneConf} -> put_if_changed(Key, build_frame(ZoneConf));
         #{} -> erase_entry(Key)
     end;
-rebuild(?CONN_KEY({Type, Name} = Listener, Zone) = Key, Zones) ->
-    case {Zones, emqx_config:get_listener_conf(Type, Name, [], undefined)} of
-        {#{Zone := ZoneConf}, #{} = ListenerConf} ->
+rebuild(?CONN_KEY({Type, Name}, _Zone) = Key, Zones) ->
+    rebuild(Key, Zones, emqx_config:get_listener_conf(Type, Name, [], undefined)).
+
+rebuild(?CONN_KEY(Listener, Zone) = Key, Zones, ListenerConf) ->
+    case {Zones, ListenerConf} of
+        {#{Zone := ZoneConf}, #{}} ->
             put_if_changed(Key, build_conn_conf(Listener, Zone, ListenerConf, ZoneConf));
         _ ->
             erase_entry(Key)
