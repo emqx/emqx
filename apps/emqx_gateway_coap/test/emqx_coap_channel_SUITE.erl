@@ -450,7 +450,7 @@ t_channel_takeover_resume_enriches_clientinfo(_) ->
         fun
             (
                 _Ctx,
-                false,
+                {takeover, force},
                 ClientInfo,
                 _ConnInfo0,
                 _CreateSessionFun,
@@ -461,10 +461,10 @@ t_channel_takeover_resume_enriches_clientinfo(_) ->
                 ?assertEqual(true, maps:get(is_superuser, ClientInfo)),
                 ?assertEqual(ExpireAt, maps:get(auth_expire_at, ClientInfo)),
                 {ok, #{session => emqx_coap_session:new(), present => true}};
-            (Ctx, CleanStart, ClientInfo, ConnInfo0, CreateSessionFun, SessionMod) ->
+            (Ctx, Mode, ClientInfo, ConnInfo0, CreateSessionFun, SessionMod) ->
                 meck:passthrough([
                     Ctx,
-                    CleanStart,
+                    Mode,
                     ClientInfo,
                     ConnInfo0,
                     CreateSessionFun,
@@ -547,17 +547,17 @@ t_channel_takeover_open_session_fallback_cleanup(_) ->
         fun
             (
                 _Ctx,
-                false,
+                {takeover, force},
                 _ClientInfo,
                 _ConnInfo0,
                 _CreateSessionFun,
                 emqx_coap_session
             ) ->
                 {ok, #{session => emqx_coap_session:new(), present => false}};
-            (Ctx, CleanStart, ClientInfo, ConnInfo0, CreateSessionFun, SessionMod) ->
+            (Ctx, Mode, ClientInfo, ConnInfo0, CreateSessionFun, SessionMod) ->
                 meck:passthrough([
                     Ctx,
-                    CleanStart,
+                    Mode,
                     ClientInfo,
                     ConnInfo0,
                     CreateSessionFun,

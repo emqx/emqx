@@ -345,8 +345,12 @@ handle_call(kick, _From, Channel) ->
     shutdown_and_reply(kicked, ok, NChannel);
 handle_call(discard, _From, Channel) ->
     shutdown_and_reply(discarded, ok, Channel);
+handle_call({takeover, 'begin', _Owner, undefined}, From, Channel) ->
+    handle_call({takeover, 'begin'}, From, Channel);
+handle_call({takeover, 'end', _Owner}, From, Channel) ->
+    handle_call({takeover, 'end'}, From, Channel);
 handle_call({takeover, 'begin'}, _From, Channel = #channel{session = Session}) ->
-    {reply, Session, Channel};
+    {reply, {ok, #{session => Session}}, Channel};
 handle_call({takeover, 'end'}, _From, Channel) ->
     NChannel = ensure_disconnected(takenover, Channel),
     shutdown_and_reply(takenover, [], NChannel);
@@ -571,10 +575,12 @@ try_takeover_with_token(Msg, ReqClientId, ReqToken, Channel) ->
 takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channel) ->
     #channel{ctx = Ctx, conninfo = ConnInfo, clientinfo = ClientInfo0} = Channel,
     NClientInfo = merge_takeover_clientinfo(ReqClientId, ClientInfo0, ResumeClientInfo),
+    Mode = {takeover, force},
     CreateSessionFun = fun(_, _) -> emqx_coap_session:new() end,
+    SessionMod = emqx_coap_session,
     case
         emqx_gateway_ctx:open_session(
-            Ctx, false, NClientInfo, ConnInfo, CreateSessionFun, emqx_coap_session
+            Ctx, Mode, NClientInfo, ConnInfo, CreateSessionFun, SessionMod
         )
     of
         {ok, #{session := Session, present := true}} ->
