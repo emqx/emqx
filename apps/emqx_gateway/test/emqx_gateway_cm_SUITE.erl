@@ -69,6 +69,81 @@ t_open_session_resume_only(_) ->
     ),
     ?assertEqual([], emqx_gateway_cm:lookup_channels(?GWNAME, ?CLIENTID)).
 
+t_open_session_force_discards_stale_on_begin_failure(_) ->
+    assert_stale_channels_on_failure(force, {error, timeout}, timeout).
+
+t_open_session_resume_preserves_stale_on_begin_failure(_) ->
+    assert_stale_channels_on_failure({resume, #{}}, {error, not_authorized}, not_authorized).
+
+t_open_session_force_discards_stale_on_resume_failure(_) ->
+    assert_stale_channels_on_failure(
+        force, {ok, unused, #{session => invalid_session}}, {resume_failed, invalid_session}
+    ).
+
+t_open_session_resume_preserves_stale_on_resume_failure(_) ->
+    assert_stale_channels_on_failure(
+        {resume, #{}}, {ok, unused, #{}}, {resume_failed, invalid_session}
+    ).
+
+assert_stale_channels_on_failure(Mode, BeginResult, Reason) ->
+    Self = self(),
+    Candidate = spawn_link(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    ok = emqx_gateway_cm:register_channel(?GWNAME, ?CLIENTID, Self, conninfo()),
+    ok = meck:new(emqx_gateway_cm_registry, [passthrough, no_history, no_link]),
+    ok = meck:new(emqx_gateway_cm_takeover, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_gateway_cm_registry, lookup_channels, fun(_, ?CLIENTID) ->
+        [Self, Candidate]
+    end),
+    ok = meck:expect(emqx_gateway_cm_takeover, begin_, fun(
+        ?GWNAME, ?CLIENTID, Pid, OpenMode, _Attempt
+    ) when
+        Pid =:= Candidate, OpenMode =:= Mode
+    ->
+        BeginResult
+    end),
+    try
+        Result = emqx_gateway_cm:open_session(
+            ?GWNAME,
+            {takeover, Mode},
+            clientinfo(),
+            conninfo(),
+            fun(_, _) -> #{} end,
+            ?MODULE
+        ),
+        case Mode of
+            force ->
+                ?assertMatch({ok, #{present := false}}, Result),
+                receive
+                    discard -> ok
+                after 100 ->
+                    ct:fail("Stale channel was not discarded after failed force takeover")
+                end;
+            {resume, _} ->
+                ?assertEqual({error, Reason}, Result),
+                receive
+                    discard -> ct:fail("Stale channel was discarded after failed resume")
+                after 100 ->
+                    ok
+                end
+        end
+    after
+        meck:unload(emqx_gateway_cm_takeover),
+        meck:unload(emqx_gateway_cm_registry),
+        emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID),
+        Candidate ! stop
+    end.
+
+%% Session callbacks for simulating a failed import after takeover begin succeeds.
+resume(_ClientInfo, invalid_session) ->
+    error(invalid_session).
+
+resume(_ClientInfo, _ConnInfo, _Data) ->
+    error(invalid_session).
+
 t_open_session(_) ->
     {ok, #{
         present := false,

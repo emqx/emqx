@@ -550,6 +550,10 @@ t_asleep_pingreq_resume_uses_live_channel_state(_) ->
         gen_udp:close(Socket2)
     end.
 
+-doc """
+An unavailable selected candidate causes DISCONNECT without falling back to another channel.
+Other sleeping channels remain registered and asleep after the failed resume attempt.
+""".
 t_asleep_pingreq_resume_uses_selected_candidate_only(_) ->
     ClientId = <<"asleep-resume-selected-candidate-only">>,
     {ok, Socket1} = gen_udp:open(0, [binary]),

@@ -376,25 +376,47 @@ create_register(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     {ok, #{session => Session, present => false}}.
 
 open_existing_session(GwName, Mode, ClientInfo = #{clientid := ClientId}, ConnInfo, SessionMod) ->
-    Attempt = make_ref(),
-    maybe
-        {ok, ChanPid, StalePids} ?= select_takeover_candidate(GwName, ClientId),
-        {ok, Takeover, Data} ?=
-            emqx_gateway_cm_takeover:begin_(GwName, ClientId, ChanPid, Mode, Attempt),
-        %% In resume-only mode authorization must succeed before discarding other channels.
-        ok = discard_stale_channels(GwName, ClientId, StalePids),
-        {ok, Resumption} ?= resume_session(GwName, Mode, ClientInfo, ConnInfo, SessionMod, Data),
-        case emqx_gateway_cm_takeover:finish(GwName, Takeover, Mode, Attempt) of
-            {ok, Pendings} ->
-                {ok, Resumption#{present => true, pendings => Pendings}};
-            {error, _} = FinishError ->
-                %% Preserve the old owner's registration so it can roll back.
-                cleanup_open_registration(GwName, ClientId),
-                FinishError
-        end
-    else
+    case select_takeover_candidate(GwName, ClientId) of
+        {ok, ChanPid, StalePids} ->
+            open_existing_session(
+                GwName, Mode, ClientInfo, ConnInfo, SessionMod, ChanPid, StalePids
+            );
         {error, _} = Error ->
             Error
+    end.
+
+open_existing_session(
+    GwName,
+    Mode,
+    ClientInfo = #{clientid := ClientId},
+    ConnInfo,
+    SessionMod,
+    ChanPid,
+    StalePids
+) ->
+    Attempt = make_ref(),
+    case emqx_gateway_cm_takeover:begin_(GwName, ClientId, ChanPid, Mode, Attempt) of
+        {ok, Takeover, Data} ->
+            case resume_session(GwName, Mode, ClientInfo, ConnInfo, SessionMod, Data) of
+                {ok, Resumption} ->
+                    discard_stale_channels(GwName, ClientId, StalePids),
+                    case emqx_gateway_cm_takeover:finish(GwName, Takeover, Mode, Attempt) of
+                        {ok, Pendings} ->
+                            {ok, Resumption#{present => true, pendings => Pendings}};
+                        {error, Reason} ->
+                            %% Preserve the old owner's registration so it can roll back.
+                            cleanup_open_registration(GwName, ClientId),
+                            {error, Reason}
+                    end;
+                {error, Reason} ->
+                    %% Discard duplicate registrations even if force-takeover fails:
+                    discard_stale_channels_on_failure(Mode, GwName, ClientId, StalePids),
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            %% Discard duplicate registrations even if force-takeover fails:
+            discard_stale_channels_on_failure(Mode, GwName, ClientId, StalePids),
+            {error, Reason}
     end.
 
 resume_session(GwName, force, ClientInfo, ConnInfo, SessionMod, Data) ->
@@ -443,6 +465,12 @@ select_takeover_candidate(GwName, ClientId) ->
                 ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             {ok, ChanPid, OtherPids}
     end.
+
+discard_stale_channels_on_failure(_Mode = force, GwName, ClientId, ChanPids) ->
+    %% Discard duplicate registrations even if force-takeover fails:
+    discard_stale_channels(GwName, ClientId, ChanPids);
+discard_stale_channels_on_failure(_Mode, _GwName, _ClientId, _ChanPids) ->
+    ok.
 
 discard_stale_channels(GwName, ClientId, ChanPids) ->
     lists:foreach(fun(ChanPid) -> _ = discard_session(GwName, ClientId, ChanPid) end, ChanPids).
