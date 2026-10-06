@@ -13,6 +13,13 @@ on:
       build_type:
         required: true
         type: string
+      warm-cache:
+        description: >-
+          Only fill the dependency cache: on an exact hit stop after the lookup,
+          on a miss compile and save the entry. Skip the checks and artifacts.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,7 +53,9 @@ jobs:
           profiles: ${{ inputs.build_type == 'test' && format('{0}-test', matrix.profile) || matrix.profile }}
           toolchain: ${{ inputs.builder }}
           build-inputs: .github/workflows/compile.yaml
+          lookup-only: ${{ inputs.warm-cache }}
       - id: compile
+        if: ${{ !inputs.warm-cache || steps.deps-cache.outputs.cache-hit != 'true' }}
         env:
           PROFILE: ${{ matrix.profile }}
           ENABLE_COVER_COMPILE: 1
@@ -65,7 +74,7 @@ jobs:
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore2 $ARTIFACT_NAME .
       - name: Check API scope coverage
-        if: inputs.build_type == 'test'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'test' }}
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
@@ -74,7 +83,7 @@ jobs:
           ## _build/${PROFILE}-test/lib, not _build/${PROFILE}/lib.
           ./scripts/check-api-scope-coverage.escript _build/${PROFILE}-test/lib
       - name: Check for unlisted CT cases
-        if: inputs.build_type == 'test'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'test' }}
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
@@ -82,13 +91,14 @@ jobs:
           ## exist in the test profile.
           ./scripts/check-unlisted-ct-cases.escript _build/${PROFILE}-test/lib
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !inputs.warm-cache }}
         with:
           name: ${{ matrix.profile }}-${{ inputs.build_type }}
           path: ${{ matrix.profile }}-${{ inputs.build_type }}.zip
           retention-days: 7
           if-no-files-found: error
       - name: build release with schema dump
-        if: inputs.build_type == 'release'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         env:
           PROFILE: ${{ matrix.profile }}
         run: make ${PROFILE}-rel
@@ -96,17 +106,17 @@ jobs:
       # built after it is zipped), so ship it separately for the jobs that need
       # to actually run a release, such as pytest_boot_tests.
       - name: package release dir
-        if: inputs.build_type == 'release'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         run: zip -ryq ${{ matrix.profile }}-rel.zip _build/${{ matrix.profile }}/rel/emqx
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: inputs.build_type == 'release'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         with:
           name: ${{ matrix.profile }}-rel
           path: ${{ matrix.profile }}-rel.zip
           retention-days: 7
           if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: inputs.build_type == 'release'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         with:
           name: "${{ matrix.profile }}-schema-dump"
           path: |
@@ -117,7 +127,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
       - name: Save dependency cache
-        if: success() && steps.deps-cache.outputs.cache-hit != 'true'
+        if: ${{ success() && inputs.warm-cache && steps.deps-cache.outputs.cache-hit != 'true' }}
         uses: ./.github/actions/deps-cache-save
         with:
           key: ${{ steps.deps-cache.outputs.key }}

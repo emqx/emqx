@@ -1,0 +1,91 @@
+name: Warm dependency cache
+
+# A pull request run can restore cache entries saved on its base branch.
+# The PR and push workflows only restore the dependency cache. This workflow
+# saves the entries on the dev-XX branches, so the first run of a pull
+# request to that branch can hit.
+
+concurrency:
+  group: warm-deps-cache-${{ github.ref }}
+  cancel-in-progress: false
+
+on:
+  push:
+    branches:
+      - 'dev-6[0-9]'
+      - 'dev-70'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  init:
+    runs-on: ubuntu-22.04
+    outputs:
+      BUILDER: ${{ steps.env.outputs.BUILDER }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up environment
+        id: env
+        run: |
+          source ./env.sh
+          echo "BUILDER=$EMQX_BUILDER" | tee -a "$GITHUB_OUTPUT"
+
+  compile:
+    needs:
+      - init
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type:
+          - test
+          - release
+    uses: ./.github/workflows/compile.yaml
+    with:
+      builder: ${{ needs.init.outputs.BUILDER }}
+      build_type: ${{ matrix.build_type }}
+      warm-cache: true
+
+  # Keep the matrix and the cache inputs the same as the mac job in
+  # build_slim_packages.yaml, which restores the entry this job saves.
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx-enterprise
+        os:
+          - macos-26
+    runs-on: ${{ matrix.os }}
+    env:
+      EMQX_NAME: ${{ matrix.profile }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up environment
+        id: env
+        run: |
+          source env.sh
+          echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
+          echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
+      - name: Look up dependency cache
+        id: deps-cache
+        uses: ./.github/actions/deps-cache-restore
+        with:
+          profiles: ${{ matrix.profile }}
+          toolchain: ${{ matrix.os }}
+          build-inputs: .github/actions/package-macos/action.yaml
+          lookup-only: 'true'
+      - uses: ./.github/actions/package-macos
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        with:
+          profile: ${{ matrix.profile }}
+          otp: ${{ steps.env.outputs.OTP_VSN }}
+          elixir: ${{ steps.env.outputs.ELIXIR_VSN }}
+          os: ${{ matrix.os }}
+      - name: Save dependency cache
+        if: success() && steps.deps-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/deps-cache-save
+        with:
+          key: ${{ steps.deps-cache.outputs.key }}
+          paths: ${{ steps.deps-cache.outputs.paths }}
