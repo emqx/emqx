@@ -10,6 +10,8 @@
 
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
 -elvis([{elvis_style, no_catch_expressions, disable}]).
+%% to_atom/1 converts a query parameter that a query schema declares as an atom.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 -define(LONG_QUERY_TIMEOUT, 50000).
 
@@ -553,14 +555,29 @@ do_select(
         {error, _} ->
             {[], mark_complete(QueryState)};
         {Rows, '$end_of_table'} ->
-            NRows = maybe_apply_fuzzy_filter(Rows, QueryState),
+            NRows = maybe_apply_fuzzy_filter(restore_sparse_stats(Tab, Rows), QueryState),
             {NRows, mark_complete(QueryState)};
         {Rows, NContinuation} ->
-            NRows = maybe_apply_fuzzy_filter(Rows, QueryState),
+            NRows = maybe_apply_fuzzy_filter(restore_sparse_stats(Tab, Rows), QueryState),
             {NRows, QueryState#{continuation => NContinuation}};
         '$end_of_table' ->
             {[], mark_complete(QueryState)}
     end.
+
+%% The query state comes from the coordinating node, which may run an
+%% earlier version that does not merge the omitted stats keys.
+restore_sparse_stats(emqx_channel_info, Rows) ->
+    [
+        case Row of
+            {Chan, Info, Stats} when is_list(Stats) ->
+                {Chan, Info, emqx_cm:restore_sparse_stats(Stats)};
+            _ ->
+                Row
+        end
+     || Row <- Rows
+    ];
+restore_sparse_stats(_Tab, Rows) ->
+    Rows.
 
 maybe_apply_fuzzy_filter(Rows, #{fuzzy_fun := undefined}) ->
     Rows;
@@ -1079,6 +1096,6 @@ noderows_t() ->
     ).
 
 measure(NamedSamples, Test) ->
-    maps:fold(fun(Name, Sample, Acc) -> measure(Name, Sample, Acc) end, Test, NamedSamples).
+    maps:fold(fun proper:measure/3, Test, NamedSamples).
 
 -endif.
