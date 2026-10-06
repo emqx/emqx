@@ -105,7 +105,7 @@ register_command(Cmd, MF, Opts) when is_atom(Cmd) ->
 unregister_command(Cmd) when is_atom(Cmd) ->
     cast({unregister_command, Cmd}).
 
-call(Req) -> gen_server:call(?SERVER, Req).
+call(Req) -> gen_server:call(?SERVER, Req, 5000).
 
 cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
