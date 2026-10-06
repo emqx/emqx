@@ -18,7 +18,7 @@ help() {
     echo '--only-up:              Only start the testbed but do not run CT'
     echo '--keep-up:              Keep the testbed running after CT'
     echo '--ci:                   Set this flag in GitHub action to enforce no tests are skipped'
-    echo '--:                     If any, all args is a conmand to be executed in the Erlang container'
+    echo '--:                     If any, all args is a command to be executed in the Erlang container'
     echo '                        otherwise it runs the entire app'\''s CT by mix'
     # shellcheck disable=SC2016
     echo '                        (will run `make ${WHICH_APP}-ct`)'
