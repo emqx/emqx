@@ -55,7 +55,9 @@ allow_installation(NameVsn, LogFun) ->
 allow_installation(NameVsn, Sha256, LogFun) ->
     try emqx_plugins_utils:parse_name_vsn(NameVsn) of
         {_AppName, _Vsn} ->
-            do_allow_installation(NameVsn, Sha256, LogFun)
+            unless_pinned(NameVsn, allow_installation, LogFun, fun() ->
+                do_allow_installation(NameVsn, Sha256, LogFun)
+            end)
     catch
         error:bad_name_vsn ->
             ?PRINT({error, bad_name_vsn}, LogFun)
@@ -146,6 +148,11 @@ do_disallow_installation(NameVsn, LogFun) ->
     ?PRINT(Result, LogFun).
 
 ensure_installed(NameVsn, LogFun) ->
+    unless_pinned(NameVsn, ensure_installed, LogFun, fun() ->
+        do_ensure_installed(NameVsn, LogFun)
+    end).
+
+do_ensure_installed(NameVsn, LogFun) ->
     case emqx_plugins:install_state(NameVsn) of
         installed ->
             ?PRINT(
@@ -161,6 +168,11 @@ ensure_installed(NameVsn, LogFun) ->
     end.
 
 ensure_installed_cluster(NameVsn, LogFun) ->
+    unless_pinned(NameVsn, ensure_installed_cluster, LogFun, fun() ->
+        do_ensure_installed_cluster(NameVsn, LogFun)
+    end).
+
+do_ensure_installed_cluster(NameVsn, LogFun) ->
     case emqx_plugins_fs:get_tar(NameVsn) of
         {ok, TarBin} ->
             Running = emqx:running_nodes(),
@@ -184,13 +196,44 @@ ensure_uninstalled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_uninstalled(NameVsn), LogFun).
 
 ensure_started(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_started(NameVsn), LogFun).
+    case is_pinned(NameVsn) of
+        true -> ?PRINT(emqx_plugins:start_pinned(NameVsn), LogFun);
+        false -> ?PRINT(emqx_plugins:ensure_started(NameVsn), LogFun)
+    end.
 
 ensure_stopped(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_stopped(NameVsn), LogFun).
+    case is_pinned(NameVsn) of
+        true -> ?PRINT(emqx_plugins:stop_pinned(NameVsn), LogFun);
+        false -> ?PRINT(emqx_plugins:ensure_stopped(NameVsn), LogFun)
+    end.
 
 restart(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:restart(NameVsn), LogFun).
+    case is_pinned(NameVsn) of
+        true -> ?PRINT(restart_pinned(NameVsn), LogFun);
+        false -> ?PRINT(emqx_plugins:restart(NameVsn), LogFun)
+    end.
+
+restart_pinned(NameVsn) ->
+    maybe
+        ok ?= emqx_plugins:stop_pinned(NameVsn),
+        emqx_plugins:start_pinned(NameVsn)
+    end.
+
+%% A pinned plugin is managed on its own node only: the CLI starts and stops it
+%% on this node, and refuses the other lifecycle commands.
+is_pinned(NameVsn) ->
+    emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso
+        emqx_plugins_pinned:is_pinned(NameVsn).
+
+unless_pinned(NameVsn, Action, LogFun, Fun) ->
+    case is_pinned(NameVsn) of
+        true ->
+            Result = {error, emqx_plugins_pinned:refusal(NameVsn)},
+            print(NameVsn, Result, LogFun, Action),
+            Result;
+        false ->
+            Fun()
+    end.
 
 ensure_enabled(NameVsn, Position, LogFun) ->
     ?PRINT(emqx_plugins:ensure_enabled(NameVsn, Position, _ConfLocation = global), LogFun).
