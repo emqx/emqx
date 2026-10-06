@@ -109,7 +109,7 @@ call(Req) -> gen_server:call(?SERVER, Req).
 
 cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
--spec run_command(list(string())) -> ok | {error, term()}.
+-spec run_command(list(string())) -> ok | {ok, term()} | {error, term()}.
 run_command([]) ->
     run_command(help, []);
 run_command([Cmd | Args]) ->
@@ -121,7 +121,7 @@ run_command([Cmd | Args]) ->
             {error, cmd_not_found}
     end.
 
--spec run_command(cmd(), list(string())) -> ok | {error, term()}.
+-spec run_command(cmd(), list(string())) -> ok | {ok, term()} | {error, term()}.
 run_command(help, []) ->
     help();
 run_command(Cmd, Args) when is_atom(Cmd) ->
@@ -138,7 +138,7 @@ execute_command(Cmd, Args, {Mod, Fun} = CliHandler, Start) ->
     _ = erase(?USAGE_PRINT_NO_AUDIT),
     Result =
         try
-            apply(Mod, Fun, [Args])
+            normalize_result(apply(Mod, Fun, [Args]))
         catch
             _:Reason:Stacktrace ->
                 ?LOG_ERROR(#{
@@ -458,6 +458,15 @@ prune_unnecessary_log(Log) ->
         #{args := [<<"emqx:is_running()">>]} -> false;
         Log1 -> {ok, Log1}
     end.
+
+%% Map a command handler's return value to the `run_command/2` result.
+%% `{ok, Value}` is kept because `bin/nodetool eval` prints `Value`.
+%% `{error, Reason}` is kept so that `bin/nodetool` exits 1.
+%% Any other value, such as the list returned by a print comprehension, means success.
+normalize_result(ok) -> ok;
+normalize_result({ok, _} = Result) -> Result;
+normalize_result({error, _} = Result) -> Result;
+normalize_result(_) -> ok.
 
 audit_level(ok, _Duration) -> info;
 audit_level({ok, _}, _Duration) -> info;

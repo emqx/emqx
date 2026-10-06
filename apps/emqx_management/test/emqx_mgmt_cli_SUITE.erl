@@ -64,12 +64,44 @@ t_audit_args_not_commands(_Config) ->
 
 t_broker(_Config) ->
     %% broker         # Show broker version, uptime and description
-    emqx_ctl:run_command(["broker"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["broker"])),
     %% broker stats   # Show broker statistics of clients, topics, subscribers
-    emqx_ctl:run_command(["broker", "stats"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["broker", "stats"])),
     %% broker metrics # Show broker metrics
-    emqx_ctl:run_command(["broker", "metrics"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["broker", "metrics"])),
     ok.
+
+-doc """
+`topics show` ends in a print comprehension. It returns `ok`, so that
+`emqx ctl topics show` exits 0.
+""".
+t_topics_show(_Config) ->
+    ?assertEqual(ok, emqx_ctl:run_command(["topics", "show", "no/such/topic"])).
+
+-doc """
+A successful `broker metrics`, whose handler ends in a print comprehension,
+is audited at `info` level, not `error`.
+""".
+t_print_command_audit_level(_Config) ->
+    Self = self(),
+    ok = meck:new(emqx_conf_cli, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_conf_cli, audit, fun(Level, _From, #{cmd := Cmd, args := Args}) ->
+        Self ! {audit, Level, Cmd, Args},
+        ok
+    end),
+    try
+        ?assertEqual(ok, emqx_ctl:run_command(["broker", "metrics"])),
+        receive
+            {audit, Level, broker, [<<"metrics">>]} -> ?assertEqual(info, Level)
+        after 1000 -> ct:fail(no_audit_log)
+        end
+    after
+        meck:unload(emqx_conf_cli)
+    end.
+
+-doc "An unknown command still returns an error, so `emqx ctl` exits 1.".
+t_unknown_command(_Config) ->
+    ?assertMatch({error, _}, emqx_ctl:run_command(["pr18794_unknown_command"])).
 
 t_cluster(_Config) ->
     SelfNode = node(),
@@ -548,9 +580,9 @@ t_subscriptions_show(_Config) ->
     %% Wait for emqx_broker_helper to process the registration.
     ignored = gen_server:call(emqx_broker_helper, sync, infinity),
     try
-        {_, Output} = capture_ctl(["subscriptions", "show", binary_to_list(ClientId)]),
+        {ok, Output} = capture_ctl(["subscriptions", "show", binary_to_list(ClientId)]),
         ?assertEqual(match, re:run(Output, Topic, [{capture, none}])),
-        {_, NotFound} = capture_ctl(["subscriptions", "show", "no_such_client"]),
+        {ok, NotFound} = capture_ctl(["subscriptions", "show", "no_such_client"]),
         ?assertEqual(match, re:run(NotFound, <<"Not Found">>, [{capture, none}]))
     after
         emqx_broker:unsubscribe(Topic)
@@ -595,22 +627,22 @@ t_plugins(_Config) ->
 
 t_vm(_Config) ->
     %% vm all     # Show info of Erlang VM
-    emqx_ctl:run_command(["vm", "all"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "all"])),
     %% vm load    # Show load of Erlang VM
-    emqx_ctl:run_command(["vm", "load"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "load"])),
     %% vm memory  # Show memory of Erlang VM
-    emqx_ctl:run_command(["vm", "memory"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "memory"])),
     %% vm process # Show process of Erlang VM
-    emqx_ctl:run_command(["vm", "process"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "process"])),
     %% vm io      # Show IO of Erlang VM
-    emqx_ctl:run_command(["vm", "io"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "io"])),
     %% vm ports   # Show Ports of Erlang VM
-    emqx_ctl:run_command(["vm", "ports"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "ports"])),
     ok.
 
 t_mnesia(_Config) ->
     %% mnesia # Mnesia system info
-    emqx_ctl:run_command(["mnesia"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["mnesia"])),
     ok.
 
 t_log(_Config) ->
@@ -641,7 +673,8 @@ t_trace(_Config) ->
 
 t_traces(_Config) ->
     %% traces list                             # List all cluster traces started
-    0 = emqx_ctl:run_command(["traces", "list"]),
+    0 = emqx_mgmt_cli:traces(["list"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["traces", "list"])),
     %% traces start <Name> client <ClientId>   # Traces for a client in cluster
     %% traces start <Name> topic <Topic>       # Traces for a topic in cluster
     %% traces start <Name> ip_address <IPAddr> # Traces for a IP in cluster
@@ -652,7 +685,7 @@ t_traces(_Config) ->
 t_traces_client(_Config) ->
     Name = "TraceNameClientID",
     ok = emqx_ctl:run_command(["traces", "start", Name, "client", "ClientID"]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    1 = emqx_mgmt_cli:traces(["list"]),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
@@ -660,28 +693,28 @@ t_traces_client_with_duration(_Config) ->
     Name = "TraceNameClientID",
     Duration = "1000",
     ok = emqx_ctl:run_command(["traces", "start", Name, "client", "ClientID", Duration]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    1 = emqx_mgmt_cli:traces(["list"]),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_topic(_Config) ->
     Name = "TraceNameTopic",
     ok = emqx_ctl:run_command(["traces", "start", Name, "topic", "a/b"]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    1 = emqx_mgmt_cli:traces(["list"]),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_ip(_Config) ->
     Name = "TraceNameIP",
     ok = emqx_ctl:run_command(["traces", "start", Name, "ip_address", "127.0.0.1"]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    1 = emqx_mgmt_cli:traces(["list"]),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_rule(_Config) ->
     Name = "TraceNameRule",
     ok = emqx_ctl:run_command(["traces", "start", Name, "ruleid", "rule:42"]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    1 = emqx_mgmt_cli:traces(["list"]),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
