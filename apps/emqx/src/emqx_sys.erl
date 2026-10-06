@@ -382,12 +382,12 @@ common_infos(
         sockport := SockPort,
         protocol := Protocol
     },
-    _ConnInfo = #{
+    ConnInfo = #{
         proto_name := ProtoName,
-        proto_ver := ProtoVer,
-        connected_at := ConnectedAt
+        proto_ver := ProtoVer
     }
 ) ->
+    ConnectedAt = maps:get(connected_at, ConnInfo, undefined),
     #{
         clientid => ClientId,
         username => Username,
