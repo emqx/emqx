@@ -483,6 +483,8 @@ export_legacy_inflight({inflight, _, Tree}) ->
 
 %% erlfmt-ignore
 to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue, 1) ->
+    %% NOTE
+    %% For simplicity, legacy conversion ignores message priorities and builds a simple queue.
     Len = length(Queue),
     PQueue = {queue, [], Queue, length(Queue)},
     MaxLen = emqx_config:get_zone_conf(Zone, [mqtt, max_mqueue_len]),

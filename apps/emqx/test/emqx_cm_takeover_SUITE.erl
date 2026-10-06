@@ -24,6 +24,11 @@ end_per_suite(Config) ->
 end_per_testcase(_, _) ->
     emqx_common_test_helpers:call_janitor().
 
+-doc "Decode a 6.3.0 priority queue, preserving priority and mixed-QoS lane order.".
+t_decode_630_priorities(_Config) ->
+    #{session := Session, exported := Expected} = fixture_630_priorities(),
+    ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, 2)).
+
 t_decode_631(_Config) ->
     #{session := Session, exported := Expected} = fixture(),
     ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, 2)).
@@ -50,6 +55,103 @@ t_encode_631(_Config) ->
         Old
     ),
     ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Old, 1)).
+
+%% Generated with emqx_session_mem, emqx_mqueue and emqx_pqueue from tag 6.3.0.
+%% Commit: 021c5ef13bf8c767058626ad9b760052c273736f.
+%% emqx_mqueue:in/2 enqueued low-1, high-0a, default-2, high-1, low-0, high-0b.
+%% Priorities: high = 10, low = 1, default = lowest; store_qos0 = true.
+%% The high and low priorities contain mixed QoS0/non-QoS0 class queues.
+%% Expected state comes from that release's emqx_session_mem:export/1.
+fixture_630_priorities() ->
+    #{
+        session =>
+            {session, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 118>>, true,
+                #{<<"#">> => #{qos => 2}}, 23, true, {inflight, 1, {0, nil}},
+                {mqueue, true, 1000, 0, 39,
+                    {pqueue, [
+                        {
+                            -10,
+                            {qos0, qos0,
+                                [
+                                    '$switch',
+                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4>>, 1,
+                                        fixture, #{}, #{}, <<"high">>, <<"high-1">>, 1000, #{
+                                            mqueue_insert_ts => 1791306814643797046
+                                        }}
+                                ],
+                                [],
+                                [
+                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6>>, 0,
+                                        fixture, #{}, #{}, <<"high">>, <<"high-0b">>, 1000, #{
+                                            mqueue_insert_ts => 1791306814643808487
+                                        }},
+                                    '$switch'
+                                ],
+                                [
+                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 0,
+                                        fixture, #{}, #{}, <<"high">>, <<"high-0a">>, 1000, #{
+                                            mqueue_insert_ts => 1791306814643795373
+                                        }}
+                                ],
+                                3}
+                        },
+                        {
+                            -1,
+                            {default, qos0,
+                                [
+                                    '$switch',
+                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 1,
+                                        fixture, #{}, #{}, <<"low">>, <<"low-1">>, 1000, #{
+                                            mqueue_insert_ts => 1791306814643791045
+                                        }}
+                                ],
+                                [],
+                                [
+                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5>>, 0,
+                                        fixture, #{}, #{}, <<"low">>, <<"low-0">>, 1000, #{
+                                            mqueue_insert_ts => 1791306814643807645
+                                        }}
+                                ],
+                                [], 2}
+                        },
+                        {0,
+                            {queue,
+                                [
+                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 2,
+                                        fixture, #{}, #{}, <<"other">>, <<"default-2">>, 1000, #{
+                                            mqueue_insert_ts => 1791306814643796435
+                                        }}
+                                ],
+                                [], 1}}
+                    ]},
+                    {prios, #{<<"high">> => 10, <<"low">> => 1}, 0, 10, 0}, undefined},
+                false, 43, 250, #{42 => 101}, 12, 5000, 1000},
+        exported =>
+            #{
+                id => <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 118>>,
+                mqueue =>
+                    [
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 0, fixture,
+                            #{}, #{}, <<"high">>, <<"high-0a">>, 1000, #{}},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4>>, 1, fixture,
+                            #{}, #{}, <<"high">>, <<"high-1">>, 1000, #{}},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6>>, 0, fixture,
+                            #{}, #{}, <<"high">>, <<"high-0b">>, 1000, #{}},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 1, fixture,
+                            #{}, #{}, <<"low">>, <<"low-1">>, 1000, #{}},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5>>, 0, fixture,
+                            #{}, #{}, <<"low">>, <<"low-0">>, 1000, #{}},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 2, fixture,
+                            #{}, #{}, <<"other">>, <<"default-2">>, 1000, #{}}
+                    ],
+                is_persistent => true,
+                subscriptions => #{<<"#">> => #{qos => 2}},
+                inflight => [],
+                next_pkt_id => 43,
+                awaiting_rel => #{42 => 101},
+                created_at => 1000
+            }
+    }.
 
 %% Generated using session_mem, mqueue and pqueue from tag 6.3.1.
 %% Commit: b0604926195f9372b0068b61f88d409d639a2401.
