@@ -578,8 +578,13 @@ plugins(_) ->
             {"plugins uninstall Name-Vsn",
                 "Uninstall a plugin. NOTE: it deletes\n"
                 "all files in install_dir/Name-Vsn"},
-            {"plugins start     Name-Vsn", "Start a plugin"},
-            {"plugins stop      Name-Vsn", "Stop a plugin"},
+            {"plugins start     Name-Vsn",
+                "Start a plugin.\n"
+                "A plugin in node.pinned_plugins starts on this node only"},
+            {"plugins stop      Name-Vsn",
+                "Stop a plugin.\n"
+                "A plugin in node.pinned_plugins stops on this node only,\n"
+                "until the node starts all plugins again (boot or cluster join)"},
             {"plugins restart   Name-Vsn", "Stop then start a plugin"},
             {"plugins disable   Name-Vsn", "Disable auto-boot"},
             {"plugins enable    Name-Vsn [Position]",
