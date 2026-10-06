@@ -25,7 +25,6 @@
     discard_session/2,
     kick_session/2,
     kick_session/3,
-    takeover_session/3,
     register_channel/4,
     unregister_channel/2,
     insert_channel_info/4,
@@ -493,18 +492,6 @@ create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
                 stacktrace => Stk
             }),
             throw(Reason)
-    end.
-
-%% @doc Try to take over an existing session.
--spec takeover_session(gateway_name(), emqx_types:clientid(), reference()) ->
-    {ok, emqx_gateway_cm_takeover:channelref(), map()} | {error, term()}.
-takeover_session(GwName, ClientId, Attempt) ->
-    case select_takeover_candidate(GwName, ClientId) of
-        {ok, ChanPid, StalePids} ->
-            ok = discard_stale_channels(GwName, ClientId, StalePids),
-            emqx_gateway_cm_takeover:begin_(GwName, ClientId, ChanPid, force, Attempt);
-        {error, _} = Error ->
-            Error
     end.
 
 %% Legacy takeover endpoint @ `emqx_gateway_cm_proto_v1`.
