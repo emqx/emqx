@@ -7,7 +7,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--elvis([{elvis_text_style, line_length, #{skip_comments => whole_line}}]).
+-elvis([{elvis_text_style, max_line_length, #{skip_comments => whole_line}}]).
 
 %% -import(emqx_common_test_helpers, [on_exit/1]).
 
