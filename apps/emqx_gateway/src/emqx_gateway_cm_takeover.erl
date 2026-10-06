@@ -43,7 +43,7 @@ results at protocol boundaries.
 
     from_session/3,
     to_session/4,
-    to_legacy_reply/1
+    to_legacy_reply/2
 ]).
 
 -export_type([mode/0, protocol/0, channelref/0, request/0]).
@@ -51,10 +51,11 @@ results at protocol boundaries.
 -type gateway_name() :: emqx_gateway_cm:gateway_name().
 -type mode() :: force | {resume, term()}.
 -type protocol() :: #{vsn := pos_integer(), atom() := _}.
+-type legacy_protocol() :: {legacy, emqx_cm_takeover:legacy_session_version()}.
 -type request() :: #{owner := pid(), attempt := reference(), mode := mode()}.
 
 -record(chanref, {
-    proto :: local | protocol() | legacy,
+    proto :: local | protocol() | legacy_protocol(),
     connmod :: module(),
     pid :: pid()
 }).
@@ -139,7 +140,8 @@ begin_local(GwName, ClientId, ChanPid, Request) when node(ChanPid) =:= node() ->
 begin_legacy(GwName, ClientId, ChanPid, #{mode := force}) ->
     case emqx_gateway_cm_proto_v1:takeover_session(GwName, ClientId, ChanPid) of
         {ok, ConnMod, ChanPid, Session} ->
-            ChanRef = #chanref{proto = legacy, connmod = ConnMod, pid = ChanPid},
+            ServerProto = legacy_protocol(node(ChanPid)),
+            ChanRef = #chanref{proto = ServerProto, connmod = ConnMod, pid = ChanPid},
             {ok, ChanRef, #{session => Session}};
         {error, _} = Error ->
             Error;
@@ -154,7 +156,8 @@ begin_legacy(GwName, ClientId, ChanPid, Request = #{mode := {resume, Info}}) ->
     %% implementation expects initiator channel `OwnerPid` to be in `From`.
     case emqx_gateway_cm_proto_v1:get_chann_conn_mod(GwName, ClientId, ChanPid) of
         ConnMod when is_atom(ConnMod) ->
-            ChanRef = #chanref{proto = legacy, connmod = ConnMod, pid = ChanPid},
+            ServerProto = legacy_protocol(node(ChanPid)),
+            ChanRef = #chanref{proto = ServerProto, connmod = ConnMod, pid = ChanPid},
             begin_channel(ChanRef, Request, {takeover, 'begin', Info});
         {badrpc, Reason} ->
             {error, Reason}
@@ -165,17 +168,23 @@ Legacy RPC target @ `emqx_gateway_cm:do_takeover_session/3`.
 Adapts takeover result to the legacy protocol.
 """.
 begin_rpc_legacy(GwName, ClientId, ChanPid) ->
+    %% Legacy RPCs do not carry requester metadata.
+    %% On supported OTP releases `rpc:call` uses `erpc` remote spawn, whose parent is
+    %% the original caller.
+    {parent, Caller} = process_info(self(), parent),
+    RequesterProto = legacy_protocol(node(Caller)),
     Request = takeover_request(force, make_ref()),
     Ret = begin_local(GwName, ClientId, ChanPid, Request),
-    downgrade_begin_ret(GwName, Ret).
+    downgrade_begin_ret(GwName, RequesterProto, Ret).
 
 downgrade_begin_ret(
     GwName,
+    RequesterProto,
     {ok, #chanref{connmod = ConnMod, pid = ChanPid}, Data = #{session := Session}}
 ) ->
     ClientInfo = maps:get(clientinfo, Data, #{}),
-    {ok, ConnMod, ChanPid, to_session(GwName, ClientInfo, legacy, Session)};
-downgrade_begin_ret(_GwName, {error, _} = Error) ->
+    {ok, ConnMod, ChanPid, to_session(GwName, ClientInfo, RequesterProto, Session)};
+downgrade_begin_ret(_GwName, _RequesterProto, {error, _} = Error) ->
     Error.
 
 -doc "Complete takeover from the initiating process with the same attempt token supplied at begin.".
@@ -205,9 +214,9 @@ finish(GwName, #chanref{proto = #{} = ServerProto, connmod = ConnMod, pid = Chan
         error:{exception, Reason, _Stack} ->
             {error, Reason}
     end;
-finish(_GwName, Ref = #chanref{proto = legacy}, Request) ->
+finish(_GwName, Ref = #chanref{proto = {legacy, _} = ServerProto}, Request) ->
     Ret = finish_channel(Ref, Request, {takeover, 'end'}),
-    from_finish_ret(legacy, Ret).
+    from_finish_ret(ServerProto, Ret).
 
 -doc """
 Direct RPC target @ `emqx_gateway_cm_takeover_proto_v1:takeover_finish/6`.
@@ -298,26 +307,32 @@ channel_call(#chanref{connmod = ConnMod, pid = ChanPid}, #{mode := Mode}, Reques
 
 %% Compatibility
 
+legacy_protocol(Node) ->
+    {legacy, emqx_cm_takeover:legacy_session_version(Node)}.
+
 -doc "Encode the legacy MQTT-SN begin reply, preserving only its supported fields.".
-to_legacy_reply(#{
-    session := Session,
-    conninfo := ConnInfo,
-    clientinfo := ClientInfo,
-    asleep_timer_duration := SleepDuration
-}) ->
+to_legacy_reply(
     #{
-        session => to_session(mqttsn, ClientInfo, legacy, Session),
+        session := Session,
+        conninfo := ConnInfo,
+        clientinfo := ClientInfo,
+        asleep_timer_duration := SleepDuration
+    },
+    Version
+) ->
+    #{
+        session => to_session(mqttsn, ClientInfo, {legacy, Version}, Session),
         conninfo => ConnInfo,
         clientinfo => ClientInfo,
         asleep_timer_duration => SleepDuration
     }.
 
 -doc "Decode received session state back to the local requester takeover protocol.".
--spec from_session(gateway_name(), protocol() | legacy, term()) -> term().
-from_session(mqttsn, _ServerProto = legacy, #{registry := Registry, session := Legacy}) ->
+-spec from_session(gateway_name(), protocol() | legacy_protocol(), term()) -> term().
+from_session(mqttsn, {legacy, Version}, #{registry := Registry, session := Legacy}) ->
     #{
         registry => Registry,
-        session => emqx_cm_takeover:from_legacy_session(Legacy)
+        session => emqx_cm_takeover:from_legacy_session(Legacy, Version)
     };
 from_session(mqttsn, #{vsn := _}, Session) ->
     Session;
@@ -325,9 +340,14 @@ from_session(_GwName, _ServerProto, Session) ->
     Session.
 
 -doc "Encode session state for the remote requester takeover protocol.".
--spec to_session(gateway_name(), emqx_types:clientinfo(), protocol() | legacy, term()) ->
+-spec to_session(
+    gateway_name(),
+    emqx_types:clientinfo(),
+    protocol() | legacy_protocol(),
+    term()
+) ->
     term().
-to_session(mqttsn, ClientInfo, _RequesterProto = legacy, #{
+to_session(mqttsn, ClientInfo, {legacy, Version}, #{
     registry := Registry,
     session := Exported
 }) ->
@@ -336,7 +356,7 @@ to_session(mqttsn, ClientInfo, _RequesterProto = legacy, #{
     Conf = (emqx_session:get_session_conf(ClientInfo))#{receive_maximum => 1},
     #{
         registry => Registry,
-        session => emqx_cm_takeover:to_legacy_session(ClientId, ChanInfo, Exported, Conf)
+        session => emqx_cm_takeover:to_legacy_session(ClientId, ChanInfo, Exported, Conf, Version)
     };
 to_session(mqttsn, _ClientInfo, #{vsn := _}, Session) ->
     Session;

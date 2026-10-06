@@ -123,6 +123,12 @@ t_asleep_pingreq_resumes_across_nodes(Config) ->
 
 -doc "Wakeup imports a remote legacy session and drains queued QoS0 messages in order.".
 t_asleep_pingreq_resume_legacy_session(Config) ->
+    test_asleep_pingreq_resume_legacy_session(Config, legacy).
+
+t_asleep_pingreq_resume_pre_63_session(Config) ->
+    test_asleep_pingreq_resume_legacy_session(Config, pre63).
+
+test_asleep_pingreq_resume_legacy_session(Config, Protocol) ->
     ClientId = <<"legacy-wakeup">>,
     Topic = <<"legacy/wakeup">>,
     Count = 2 * ?DEFAULT_BATCH_N + 1,
@@ -131,7 +137,7 @@ t_asleep_pingreq_resume_legacy_session(Config) ->
     {ok, Socket1} = gen_udp:open(0, [binary]),
     {ok, Socket2} = gen_udp:open(0, [binary]),
     try
-        select_takeover_protocol(Node1, Node2, legacy),
+        select_takeover_protocol(Node1, Node2, Protocol),
         send_connect_msg(Socket1, Port1, ClientId, 0),
         ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket1)),
         send_subscribe_msg_normal_topic(Socket1, Port1, 0, Topic, 1),
@@ -228,6 +234,9 @@ t_connect_takeover_exported(Config) ->
 t_connect_takeover_legacy(Config) ->
     test_connect_takeover(Config, legacy).
 
+t_connect_takeover_pre_63(Config) ->
+    test_connect_takeover(Config, pre63).
+
 test_connect_takeover(Config, Protocol) ->
     ClientId = atom_to_binary(Protocol),
     Topic = <<"takeover/topic">>,
@@ -254,7 +263,7 @@ test_connect_takeover(Config, Protocol) ->
         case Protocol of
             current ->
                 ok;
-            legacy ->
+            _Legacy ->
                 %% Ordinary legacy takeover receives raw session state through the old RPC endpoint.
                 ok = ?ON(Node2, meck:new(emqx_gateway_cm_proto_v1, [passthrough, no_link])),
                 ok = ?ON(
@@ -308,6 +317,26 @@ select_takeover_protocol(Node1, Node2, Protocol) ->
                 Node2,
                 meck:expect(emqx_bpapi, supported_version, fun
                     (N, emqx_gateway_cm_takeover) when N =:= Node1 -> undefined;
+                    (N, API) -> meck:passthrough([N, API])
+                end)
+            );
+        pre63 ->
+            ok = ?ON(Node2, meck:new(emqx_bpapi, [passthrough, no_link])),
+            ok = ?ON(
+                Node2,
+                meck:expect(emqx_bpapi, supported_version, fun
+                    (N, emqx_gateway_cm_takeover) when N =:= Node1 -> undefined;
+                    (N, emqx_cm) when N =:= Node1 -> 3;
+                    (N, API) -> meck:passthrough([N, API])
+                end)
+            ),
+            %% The old RPC carries no requester metadata. Verify that its worker
+            %% discovers Node2 through its parent, including the pre-6.3 branch.
+            ok = ?ON(Node1, meck:new(emqx_bpapi, [passthrough, no_link])),
+            ok = ?ON(
+                Node1,
+                meck:expect(emqx_bpapi, supported_version, fun
+                    (N, emqx_cm) when N =:= Node2 -> 3;
                     (N, API) -> meck:passthrough([N, API])
                 end)
             )

@@ -2077,7 +2077,8 @@ end_resume_takeover(_Owner, Channel) ->
 begin_legacy_resume_takeover(OwnerPid, Request, Channel) ->
     case begin_resume_takeover({OwnerPid, legacy}, Request, Channel) of
         {reply, {ok, Data}, NChannel} ->
-            DataCompat = emqx_gateway_cm_takeover:to_legacy_reply(Data),
+            Version = emqx_cm_takeover:legacy_session_version(node(OwnerPid)),
+            DataCompat = emqx_gateway_cm_takeover:to_legacy_reply(Data, Version),
             reply({ok, DataCompat}, NChannel);
         Other ->
             Other
