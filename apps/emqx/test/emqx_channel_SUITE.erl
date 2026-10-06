@@ -106,7 +106,8 @@ internal_subscribe_test_profile(_) ->
 
 -doc """
 The stored channel info carries a `clientinfo` without the fields derivable from
-`conninfo`, while the channel's own `clientinfo` keeps them all.
+`conninfo` and a `conninfo` without the socket, while the channel's own `clientinfo`
+and `conninfo` keep them all.
 """.
 t_chan_info(_) ->
     WillMsg = emqx_message:make(<<"clientid">>, <<"will">>, <<"payload">>),
@@ -124,6 +125,8 @@ t_chan_info(_) ->
     ?assertNot(maps:is_key(will_msg, Info)),
     ?assertNot(maps:is_key(conn_props, ConnInfo)),
     ?assertNot(maps:is_key(subscriptions, SessionInfo)),
+    %% `info/1` omits the socket, which is only valid in the connection process.
+    ?assertNot(maps:is_key(sock, ConnInfo)),
     %% The session attributes are the ones the channel info table's readers use; the
     %% counters come from the stats element of the same table row.
     ?assertMatch(
@@ -133,6 +136,7 @@ t_chan_info(_) ->
     %% `info/2` still reads them from the channel.
     ?assertEqual(emqx_message:to_map(WillMsg), emqx_channel:info(will_msg, Channel)),
     ?assertMatch(#{conn_props := #{}}, emqx_channel:info(conninfo, Channel)),
+    ?assertMatch(#{sock := _}, emqx_channel:info(conninfo, Channel)),
     ?assertMatch(
         #{<<"t">> := _}, emqx_channel:info({session, subscriptions}, Channel)
     ),
@@ -1354,6 +1358,44 @@ t_handle_info_sock_closed(_) ->
 -define(CUSTOM_TIMER_TIMEOUT, 100).
 -define(CUSTOM_TIMER_TIMEOUT_SHORT, 20).
 
+-doc """
+For a QUIC connection, `ensure_keepalive/2` sets the connection idle timeout from
+the socket in the channel's own `conninfo`.
+""".
+t_ensure_keepalive_quic_idle_timeout(_) ->
+    ok = meck:new(quicer, [non_strict, no_link]),
+    ok = meck:expect(quicer, setopt, fun(_, _, _, _) -> ok end),
+    try
+        Conn = make_ref(),
+        Channel = channel(#{conninfo => quic_conninfo(Conn)}),
+        _ = emqx_channel:ensure_keepalive(#{'Server-Keep-Alive' => 10}, Channel),
+        #{keepalive_multiplier := Mul} = emqx_config:get_zone_conf(default, [mqtt]),
+        ?assertEqual(
+            [[Conn, settings, #{idle_timeout_ms => timer:seconds(10 * Mul)}, false]],
+            [Args || {_, {quicer, setopt, Args}, _} <- meck:history(quicer)]
+        )
+    after
+        meck:unload(quicer)
+    end.
+
+-doc """
+For a TCP connection, `ensure_keepalive/2` does not touch QUIC settings.
+""".
+t_ensure_keepalive_tcp_no_quic_setopt(_) ->
+    ok = meck:new(quicer, [non_strict, no_link]),
+    ok = meck:expect(quicer, setopt, fun(_, _, _, _) -> ok end),
+    try
+        Channel = channel(),
+        _ = emqx_channel:ensure_keepalive(#{'Server-Keep-Alive' => 10}, Channel),
+        ?assertEqual(0, meck:num_calls(quicer, setopt, '_'))
+    after
+        meck:unload(quicer)
+    end.
+
+quic_conninfo(Conn) ->
+    ConnInfo = emqx_channel:info(conninfo, channel()),
+    ConnInfo#{socktype => quic, sock => {quic, Conn, make_ref(), #{}}}.
+
 t_handle_timeout_keepalive(_) ->
     TRef = make_ref(),
     Channel = emqx_channel:set_field(timers, #{keepalive => TRef}, channel()),
@@ -1900,7 +1942,8 @@ channel(ClientInfo, InitFields, ListenerOpts) ->
         username => maps:get(username, ClientInfo, <<"username">>),
         conn_props => #{},
         receive_maximum => 100,
-        expiry_interval => 0
+        expiry_interval => 0,
+        sock => self()
     },
     maps:fold(
         fun(Field, Value, Channel) ->

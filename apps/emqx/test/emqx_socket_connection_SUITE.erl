@@ -135,6 +135,22 @@ t_data_ready_handles_rearmed_select(_) ->
         ok = meck:unload(esockd_socket)
     end.
 
+-doc """
+The channel info map that `info/1` returns, which the connection stores in the
+channel info table, has no `conninfo.sock`. The channel keeps the socket.
+""".
+t_info_omits_sock(_) ->
+    ok = meck_esockd_socket([no_history]),
+    try
+        State = mk_connstate(),
+        #{conninfo := ConnInfo} = emqx_socket_connection:info(State),
+        ?assertMatch(#{socktype := tcp, peername := {{127, 0, 0, 1}, 3456}}, ConnInfo),
+        ?assertNot(maps:is_key(sock, ConnInfo)),
+        ?assertMatch(#{sock := sock}, emqx_socket_connection:info({channel, conninfo}, State))
+    after
+        meck:unload(esockd_socket)
+    end.
+
 t_parse_incoming_first_packet_hints(_) ->
     ok = meck_esockd_socket([no_history]),
     ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
