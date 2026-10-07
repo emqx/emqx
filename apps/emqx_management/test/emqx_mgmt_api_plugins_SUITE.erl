@@ -1006,10 +1006,10 @@ t_install_other_version_of_loaded_plugin(Config) ->
     V2Path = make_test_plugin_package(
         Config, "2.0.0", "invalid_plugin", "2.0.0", Schema, DefaultConfig
     ),
-    ok = allow_installation(V1),
+    ok = allow_package(V1Path),
     ok = install_plugin(V1Path),
     {ok, _} = update_plugin(V1, "start"),
-    ok = allow_installation(V2),
+    ok = allow_package(V2Path),
     {ok, {{_, 400, _}, _, Body}} = install_plugin(V2Path),
     #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
     ?assertNotEqual(
@@ -1025,7 +1025,7 @@ t_install_other_version_of_loaded_plugin(Config) ->
     ),
     {ok, _} = update_plugin(V1, "stop"),
     {ok, _} = uninstall_plugin(V1),
-    ok = allow_installation(V2),
+    ok = allow_package(V2Path),
     ok = install_plugin(V2Path),
     {ok, _} = update_plugin(V2, "start"),
     ?assertMatch(
@@ -1062,10 +1062,10 @@ t_install_plugin_bundling_app_of_other_plugin(Config) ->
         DefaultConfig,
         OtherAppFile
     ),
-    ok = allow_installation(Loaded),
+    ok = allow_package(LoadedPath),
     ok = install_plugin(LoadedPath),
     {ok, _} = update_plugin(Loaded, "start"),
-    ok = allow_installation(Other),
+    ok = allow_package(OtherPath),
     {ok, {{_, 400, _}, _, Body}} = install_plugin(OtherPath),
     #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
     ?assertNotEqual(
