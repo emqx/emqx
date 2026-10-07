@@ -36,7 +36,7 @@
 ]).
 
 %% exported for testing
--export([validate_tls_stateless_tickets_seed/1]).
+-export([validate_tls_stateless_tickets_seed/1, auto_schedulers/2]).
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
@@ -1538,18 +1538,31 @@ translation("vm_args") ->
 %% `logical_processors_available' reflects sched_getaffinity (and therefore
 %% the cgroup) on Linux; falls back to the static `logical_processors' count
 %% on platforms where the runtime can't determine availability.
+%% A CPU quota (`--cpus', k8s CPU limits) further caps the online count, the
+%% same way BEAM does by default when `+S' is not given.
 %% A user-specified `node.schedulers' overrides the auto-detected value.
 tr_vm_args_schedulers(Conf) ->
-    N = resolve_schedulers(conf_get("node.schedulers", Conf, auto)),
-    integer_to_list(N) ++ ":" ++ integer_to_list(N).
+    {Total, Online} = resolve_schedulers(conf_get("node.schedulers", Conf, auto)),
+    integer_to_list(Total) ++ ":" ++ integer_to_list(Online).
 
 resolve_schedulers(auto) ->
-    case erlang:system_info(logical_processors_available) of
-        X when is_integer(X), X >= 1 -> X;
-        _ -> erlang:system_info(logical_processors)
-    end;
+    Available =
+        case erlang:system_info(logical_processors_available) of
+            X when is_integer(X), X >= 1 -> X;
+            _ -> erlang:system_info(logical_processors)
+        end,
+    auto_schedulers(Available, erlang:system_info(cpu_quota));
 resolve_schedulers(N) when is_integer(N), N >= 1 ->
-    N.
+    {N, N}.
+
+-doc """
+Return `{Total, Online}` scheduler counts for `node.schedulers = auto`.
+`Quota` is the value of `erlang:system_info(cpu_quota)`.
+""".
+auto_schedulers(Available, Quota) when is_integer(Quota), Quota >= 1, Quota < Available ->
+    {Available, Quota};
+auto_schedulers(Available, _Quota) ->
+    {Available, Available}.
 
 %% `vm.args.cloud' used to hardcode `+SDio 8' unconditionally -- fine for the
 %% multi-core host the "cloud" defaults were sized for, but on a small
@@ -1563,7 +1576,7 @@ tr_vm_args_dirty_io_schedulers(Conf) ->
 
 resolve_dirty_io_schedulers(auto, Conf) ->
     case resolve_schedulers(conf_get("node.schedulers", Conf, auto)) of
-        Schedulers when Schedulers > 2 -> ?DEFAULT_DIRTY_IO_SCHEDULERS;
+        {_Total, Online} when Online > 2 -> ?DEFAULT_DIRTY_IO_SCHEDULERS;
         _ -> ?MIN_DIRTY_IO_SCHEDULERS
     end;
 resolve_dirty_io_schedulers(N, _Conf) when is_integer(N), N >= 1 ->
