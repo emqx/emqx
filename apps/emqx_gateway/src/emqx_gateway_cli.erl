@@ -39,7 +39,7 @@ load() ->
 -spec unload() -> ok.
 unload() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
-    lists:foreach(fun(Cmd) -> emqx_ctl:unregister_command(Cmd) end, Cmds).
+    lists:foreach(fun emqx_ctl:unregister_command/1, Cmds).
 
 is_cmd(Fun) ->
     Name = atom_to_list(Fun),

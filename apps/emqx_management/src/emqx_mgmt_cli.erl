@@ -110,8 +110,14 @@ status_audit_args(Args) -> Args.
 %% @doc Query broker
 
 broker([]) ->
-    Funs = [sysdescr, version, datetime],
-    [emqx_ctl:print("~-10s: ~ts~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs],
+    lists:foreach(
+        fun({Name, Value}) -> emqx_ctl:print("~-10s: ~ts~n", [Name, Value]) end,
+        [
+            {sysdescr, emqx_sys:sysdescr()},
+            {version, emqx_sys:version()},
+            {datetime, emqx_sys:datetime()}
+        ]
+    ),
     emqx_ctl:print("~-10s: ~ts~n", [
         uptime, emqx_utils_calendar:human_readable_duration_string(emqx_sys:uptime())
     ]);
@@ -154,8 +160,8 @@ cluster(["join", SNode]) ->
     end;
 cluster(["leave"]) ->
     Safeguards = cluster_leave_safeguards(),
-    case length(Safeguards) of
-        0 ->
+    case Safeguards of
+        [] ->
             _ = maybe_disable_autocluster(),
             case emqx_cluster:leave() of
                 ok ->
@@ -238,9 +244,7 @@ cluster_leave_safeguards() ->
 %% sort lists for deterministic output
 sort_map_list_fields(Map) when is_map(Map) ->
     lists:foldl(
-        fun(Field, Acc) ->
-            sort_map_list_field(Field, Acc)
-        end,
+        fun sort_map_list_field/2,
         Map,
         maps:keys(Map)
     ).
@@ -1776,9 +1780,7 @@ print_client(ClientId, ChanPid, Attrs) ->
             _ -> false
         end,
     Info = lists:foldl(
-        fun(Items, Acc) ->
-            maps:merge(Items, Acc)
-        end,
+        fun maps:merge/2,
         #{connected => Connected},
         [
             maps:with(
