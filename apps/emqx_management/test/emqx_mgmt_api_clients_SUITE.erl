@@ -620,7 +620,7 @@ t_persistent_sessions_filters(Config) ->
                 list_request("conn_state=connected", Config)
             ),
             ok = disconnect_and_destroy_session(C1),
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [DisconnectedId])
+            ok = erpc:call(N1, emqx_persistent_session_ds, expire_session, [DisconnectedId, '_'])
         end,
         []
     ),
@@ -1988,7 +1988,7 @@ t_list_clients_v2(Config) ->
 
             lists:foreach(
                 fun(ClientId) ->
-                    ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId])
+                    ok = erpc:call(N1, emqx_persistent_session_ds, expire_session, [ClientId, '_'])
                 end,
                 AllClientIds
             ),
@@ -2273,7 +2273,7 @@ t_list_clients_v2_regular_filters(Config) ->
             ),
 
             ?tp(warning, destroy_session, #{clientid => ClientId1}),
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId1])
+            ok = erpc:call(N1, emqx_persistent_session_ds, expire_session, [ClientId1, '_'])
         end,
         []
     ),
