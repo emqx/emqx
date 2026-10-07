@@ -9,6 +9,9 @@
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% Listener names come from checked config, so the atoms exist.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %% APIs
 -export([
     list_raw/0,
@@ -684,19 +687,36 @@ pre_config_update([?ROOT_KEY], NewConf, OldConf) ->
             Error
     end.
 
-post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
+post_config_update(Path, Request, NewConf, OldConf, AppEnvs) ->
+    Result = do_post_config_update(Path, Request, NewConf, OldConf, AppEnvs),
+    ok = emqx_connection_conf:listeners_changed(changed_listeners(Path, Request, NewConf, OldConf)),
+    Result.
+
+%% The updated listeners with their new config, and the deleted ones with `undefined'.
+changed_listeners([?ROOT_KEY, Type, Name], ?MARK_DEL, _NewConf, _OldConf) ->
+    [{{Type, Name}, undefined}];
+changed_listeners([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, _OldConf) ->
+    [{{Type, Name}, NewConf}];
+changed_listeners([?ROOT_KEY], _Request, NewConf, OldConf) ->
+    #{removed := Removed, changed := Changed} = diff_confs(NewConf, OldConf),
+    [{{Type, Name}, undefined} || {Type, Name, _} <- Removed] ++
+        [{{Type, Name}, New} || {_Old, {Type, Name, New}} <- Changed];
+changed_listeners(_Path, _Request, _NewConf, _OldConf) ->
+    [].
+
+do_post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
     OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE
 ->
     start_listener(Type, Name, NewConf);
-post_config_update([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
     update_listener(Type, Name, OldConf, NewConf);
-post_config_update([?ROOT_KEY, Type, Name], ?MARK_DEL, _, OldConf = #{}, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY, Type, Name], ?MARK_DEL, _, OldConf = #{}, _AppEnvs) ->
     stop_listener(Type, Name, OldConf);
-post_config_update([?ROOT_KEY, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
     update_listener(Type, Name, OldConf, NewConf);
-post_config_update([?ROOT_KEY], _Request, OldConf, OldConf, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY], _Request, OldConf, OldConf, _AppEnvs) ->
     ok;
-post_config_update([?ROOT_KEY], _Request, NewConf, OldConf, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY], _Request, NewConf, OldConf, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Changed} = diff_confs(NewConf, OldConf),
     %% TODO
     %% This currently lacks transactional semantics. If one of the changes fails,
@@ -706,7 +726,7 @@ post_config_update([?ROOT_KEY], _Request, NewConf, OldConf, _AppEnvs) ->
             [{stop, L} || L <- Removed] ++
             [{start, L} || L <- Added]
     );
-post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
+do_post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 post_zone_config_update(OldZones, NewZones) ->
