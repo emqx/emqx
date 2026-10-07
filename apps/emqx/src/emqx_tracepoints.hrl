@@ -22,6 +22,8 @@
 -define(sessds_ensure_new, sessds_ensure_new).
 -define(sessds_commit, sessds_commit).
 -define(sessds_commit_failure, sessds_commit_failure).
+-define(sessds_open_state, sessds_open_state).
+-define(sessds_takeover, sessds_takeover).
 
 -define(sessds_update_srs_ssid, sessds_update_srs_ssid).
 -define(sessds_do_enqueue, sessds_do_enqueue).

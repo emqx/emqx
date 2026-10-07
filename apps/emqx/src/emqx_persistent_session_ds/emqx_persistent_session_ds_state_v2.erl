@@ -243,7 +243,7 @@ commit(
             {precondition_failed, [#{topic := [<<"g">> | _], expected := Expected, got := Got}]}
         ) ->
             %% Translate common error to a more readable form:
-            ?err_unrec({session_state_conflict, #{expected => Expected, got => Got}});
+            ?err_unrec({takeover_conflict, #{expected => Expected, got => Got}});
         {error, _, _} = Err ->
             Err
     end.

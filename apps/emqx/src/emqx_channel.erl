@@ -1951,22 +1951,26 @@ interval(will_message, #channel{will_msg = WillMsg}) ->
 terminate(_, #channel{conn_state = idle} = _Channel) ->
     ok;
 terminate(normal, Channel) ->
-    run_terminate_hook(normal, Channel);
+    run_terminate_hook(normal, Channel),
+    ok;
 terminate({shutdown, Reason}, Channel) when
     Reason =:= expired orelse
         Reason =:= takenover orelse
         Reason =:= kicked orelse
         Reason =:= discarded
 ->
-    run_terminate_hook(Reason, Channel);
+    run_terminate_hook(Reason, Channel),
+    ok;
 terminate(Reason, Channel) ->
     Channel1 = maybe_publish_will_msg(?chan_terminating, Channel),
-    run_terminate_hook(Reason, Channel1).
+    run_terminate_hook(Reason, Channel1),
+    ok.
 
-run_terminate_hook(_Reason, #channel{session = undefined}) ->
-    ok;
-run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session}) ->
-    emqx_session:terminate(ClientInfo, Reason, Session).
+run_terminate_hook(_Reason, #channel{session = undefined} = Chan) ->
+    Chan;
+run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session} = Chan) ->
+    emqx_session:terminate(ClientInfo, Reason, Session),
+    Chan#channel{session = undefined}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -3404,15 +3408,22 @@ shutdown(success, Channel) ->
 shutdown(Reason, Channel) ->
     {shutdown, Reason, Channel}.
 
-shutdown(success, Reply, Channel) ->
-    shutdown(normal, Reply, Channel);
-shutdown(Reason, Reply, Channel) ->
-    {shutdown, Reason, Reply, Channel}.
+shutdown(Reason, Reply, Channel0) ->
+    ExitReason =
+        case Reason of
+            success -> normal;
+            _ -> Reason
+        end,
+    %% Important: session terminate hook should be called here, as
+    %% this function blocks `emqx_cm:takeover_kick' call used to take
+    %% over durable sessions. Blocking this call lets the old channel
+    %% flush its state to the storage before the new one steps in.
+    Channel = run_terminate_hook(Reason, Channel0),
+    {shutdown, ExitReason, Reply, Channel}.
 
-shutdown(success, Reply, Packet, Channel) ->
-    shutdown(normal, Reply, Packet, Channel);
-shutdown(Reason, Reply, Packet, Channel) ->
-    {shutdown, Reason, Reply, Packet, Channel}.
+shutdown(Reason, Reply, Packet, Channel0) ->
+    {shutdown, ExitReason, Reply, Channel} = shutdown(Reason, Reply, Channel0),
+    {shutdown, ExitReason, Reply, Packet, Channel}.
 
 shutdown_count(Kind, Reason, #channel{conninfo = ConnInfo}) ->
     Keys = [clientid, username, sockname, peername, proto_name, proto_ver],

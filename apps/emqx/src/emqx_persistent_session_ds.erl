@@ -267,18 +267,17 @@ create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
 open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
-    %% NOTE
-    %% The fact that we need to concern about discarding all live channels here
-    %% is essentially a consequence of the in-memory session design, where we
-    %% have disconnected channels holding onto session state. Ideally, we should
-    %% somehow isolate those idling not-yet-expired sessions into a separate process
-    %% space, and move this call back into `emqx_cm` where it belongs.
-    ok = emqx_cm:takeover_kick(ClientID),
+    ok = ?tp_span(
+        debug,
+        ?sessds_takeover,
+        #{id => ClientID, chan => self()},
+        emqx_cm:takeover_kick(ClientID)
+    ),
     case open_session_state(ClientID, ConnInfo) of
         false ->
             false;
         State ->
-            ?tp(debug, sessds_open_state, #{
+            ?tp(debug, ?sessds_open_state, #{
                 id => ClientID,
                 guard => emqx_persistent_session_ds_state:get_guard(State),
                 chan => self()
@@ -758,7 +757,7 @@ handle_info(
     ),
     Session#{s := S, stream_scheduler_s := SchedS};
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
-    Session = commit(Session0, #{lifetime => up, sync => true}),
+    {ok, Session} = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
     Session;
 handle_info(
@@ -1068,21 +1067,35 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
 terminate(ClientInfo, Reason, Session = #{id := Id, will_msg := MaybeWillMsg}) ->
     ?tp(debug, sessds_begin_terminate, #{id => Id, reason => Reason, chan => self()}),
-    #{s := S} = commit(Session, #{lifetime => terminate, sync => true}),
-    Guard = emqx_persistent_session_ds_state:get_guard(S),
-    SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S),
-    %% Arm will message if exists:
-    ok = emqx_durable_will:on_disconnect(Id, ClientInfo, SessExpiryInterval, MaybeWillMsg),
-    case SessExpiryInterval of
-        0 ->
-            %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the
-            %% session ended when its network connection closed:
-            ok = do_session_drop(Id, S, expired, true);
-        _ ->
-            %% Arm GC timer:
-            ok = emqx_persistent_session_ds_gc_timer:on_disconnect(Id, Guard, SessExpiryInterval)
+    maybe
+        {ok, #{s := S}} ?= commit(Session, #{lifetime => terminate, sync => true}),
+        Guard = emqx_persistent_session_ds_state:get_guard(S),
+        SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S),
+        %% Arm will message timer:
+        ok = emqx_durable_will:on_disconnect(
+            Id, ClientInfo, SessExpiryInterval, MaybeWillMsg
+        ),
+        case SessExpiryInterval of
+            0 ->
+                %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the
+                %% session ended when its network connection closed:
+                _ = do_session_drop(Id, S, expired, true),
+                ok;
+            _ ->
+                %% Arm GC timer:
+                ok = emqx_persistent_session_ds_gc_timer:on_disconnect(
+                    Id, Guard, SessExpiryInterval
+                )
+        end,
+        ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason, guard => Guard, chan => self()})
+    else
+        ?err_unrec(Reason) ->
+            ?tp(warning, sessds_terminate_conflict, #{
+                chan => self(),
+                session => Id,
+                reason => Reason
+            })
     end,
-    ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason, guard => Guard, chan => self()}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1963,16 +1976,20 @@ set_timer(Timer, Time, Session) ->
 %% Session commit, maintenance and batch jobs
 %%--------------------------------------------------------------------
 
-async_checkpoint(Session) ->
-    commit(Session, #{lifetime => up, sync => false}).
+async_checkpoint(Session0) ->
+    {ok, Session} = commit(Session0, #{lifetime => up, sync => false}),
+    Session.
 
--spec commit(session(), emqx_persistent_session_ds_state:commit_opts()) -> session().
+-spec commit(session(), emqx_persistent_session_ds_state:commit_opts()) ->
+    {ok, session()} | emqx_ds:error(_).
 commit(Session0 = #{s := S0}, Opts) ->
     ?tp(?sessds_commit, #{s => S0, opts => Opts}),
     S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0)),
-    {ok, S} = emqx_persistent_session_ds_state:commit(S1, Opts),
-    Session = Session0#{s := S},
-    cancel_state_commit_timer(Session).
+    maybe
+        {ok, S} ?= emqx_persistent_session_ds_state:commit(S1, Opts),
+        Session = Session0#{s := S},
+        {ok, cancel_state_commit_timer(Session)}
+    end.
 
 -spec ensure_state_commit_timer(session()) -> session().
 ensure_state_commit_timer(#{s := S} = Session) ->
