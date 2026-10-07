@@ -1874,6 +1874,15 @@ fields_tcp_opts_send_timeout_close.desc:
 fields_tcp_opts_send_timeout_close.label:
 """TCP send timeout close"""
 
+fields_tcp_socket_opts_buffer_alloc.desc:
+"""Receive buffer allocation policy for the `socket` TCP backend.
+
+- `packet`: Do not keep the receive buffer while waiting for the next packet.
+- `always`: Always keep the receive buffer while waiting for data."""
+
+fields_tcp_socket_opts_buffer_alloc.label:
+"""Receive Buffer Allocation Policy"""
+
 sysmon_os_cpu_check_interval.desc:
 """The time interval for the periodic CPU check. Disabled on Windows platform."""
 

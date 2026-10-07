@@ -825,7 +825,12 @@ esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
                 }
             ]}
     },
-    TcpOpts = emqx_utils:merge_opts(?MQTT_SOCKOPTS, PacketTcpOpts ++ tcp_opts(Opts0)),
+    TcpOpts0 =
+        case ConnMod of
+            emqx_socket_connection -> socket_tcp_opts(Opts0);
+            emqx_connection -> tcp_opts(Opts0)
+        end,
+    TcpOpts = emqx_utils:merge_opts(?MQTT_SOCKOPTS, PacketTcpOpts ++ TcpOpts0),
     maps:to_list(
         case Type of
             tcp ->
@@ -841,6 +846,13 @@ esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
                 }
         end
     ).
+
+socket_tcp_opts(#{socket_options := #{buffer_alloc := packet}} = Opts) ->
+    TcpOpts = tcp_opts(Opts),
+    Buffer = proplists:get_value(buffer, TcpOpts),
+    lists:keyreplace(buffer, 1, TcpOpts, {buffer, {false, Buffer}});
+socket_tcp_opts(Opts) ->
+    tcp_opts(Opts).
 
 ws_opts(Type, ListenerName, Opts) ->
     WsPath = emqx_utils_maps:deep_get([websocket, mqtt_path], Opts, "/mqtt"),
