@@ -44,10 +44,9 @@
 
 %% for ecpool workers usage
 -export([
-    do_get_status/1,
+    do_get_status/2,
     prepare_sql_to_conn/2,
-    get_reconnect_callback_signature/1,
-    on_get_status_prepares/1
+    get_reconnect_callback_signature/1
 ]).
 
 %% Allocatable resources
@@ -337,7 +336,7 @@ on_get_channel_status(
     of
         ok ->
             ?status_connected;
-        {error, undefined_table} ->
+        {error, {unhealthy_target, undefined_table}} ->
             {?status_disconnected, {unhealthy_target, <<"Table does not exist">>}}
     end.
 
@@ -568,80 +567,45 @@ on_get_status(_InstId, ConnState) ->
     } = ConnState,
     Opts = #{
         timeout => HCTimeout,
-        check_fn => fun ?MODULE:do_get_status/1,
+        check_fn => {?MODULE, do_get_status, [ConnState]},
+        run_on => worker,
         is_success_fn => fun
-            ({ok, _, _}) -> false;
+            (ok) -> false;
             (_) -> true
-        end,
-        on_success_fn => fun() -> do_on_get_status_prepares(ConnState) end
+        end
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
-do_on_get_status_prepares(ConnState) ->
-    %% TODO: this is a hot patch; when merging to 5.10, we have a new
-    %% `resource_opts.health_check_timeout` that supersedes the need for this, which
-    %% should be dropped.
-    Fn = fun() -> ?MODULE:on_get_status_prepares(ConnState) end,
-    try
-        emqx_utils:nolink_apply(Fn, emqx_resource_pool:health_check_timeout())
-    catch
-        exit:timeout ->
-            {?status_disconnected, <<"resource_health_check_timed_out">>}
+do_get_status(Conn, ConnState) ->
+    maybe
+        {ok, _, _} ?= epgsql:squery(Conn, "SELECT count(1) AS T"),
+        case ConnState of
+            #{query_templates := #{<<"send_message">> := {SQL, _RowTemplate}}} ->
+                do_validate_table_existence(Conn, SQL);
+            _ ->
+                ok
+        end
     end.
-
-on_get_status_prepares(ConnState) ->
-    case do_check_prepares(ConnState) of
-        ok ->
-            ?status_connected;
-        {error, undefined_table} ->
-            %% return error indicating that we are connected but the target table
-            %% is not created
-            {?status_disconnected, {unhealthy_target, undefined_table}}
-    end.
-
-do_get_status(Conn) ->
-    epgsql:squery(Conn, "SELECT count(1) AS T").
-
-do_check_prepares(
-    #{
-        pool_name := PoolName,
-        query_templates := #{<<"send_message">> := {SQL, _RowTemplate}},
-        health_check_timeout := HCTimeout
-    }
-) ->
-    WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    Deadline = deadline(HCTimeout),
-    case validate_table_existence(WorkerPids, SQL, Deadline) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            {error, Reason}
-    end;
-do_check_prepares(_) ->
-    ok.
 
 -spec validate_table_existence([pid()], binary(), infinity | integer()) ->
-    ok | {error, undefined_table}.
+    ok | {error, {unhealthy_target, undefined_table} | term()}.
 validate_table_existence([WorkerPid | Rest], SQL, Deadline) ->
     Timeout = timeout(Deadline),
     try
         ecpool_worker:exec(
             WorkerPid,
-            fun(Conn) ->
-                Res = epgsql:parse2(Conn, "", SQL, []),
-                _ = epgsql:sync(Conn),
-                Res
-            end,
+            fun(Conn) -> do_validate_table_existence(Conn, SQL) end,
             Timeout
         )
     of
-        {error, {_, _, _, undefined_table, _, _}} ->
-            {error, undefined_table};
-        Res when is_tuple(Res) andalso ok == element(1, Res) ->
-            ok;
-        Res ->
-            ?tp(postgres_connector_bad_parse2, #{result => Res}),
-            validate_table_existence(Rest, SQL, Deadline)
+        {error, {unexpected_parse_error, UnexpectedError}} ->
+            %% we will retry on the next health check.
+            ?tp(postgres_connector_bad_parse2, #{result => UnexpectedError}),
+            validate_table_existence(Rest, SQL, Deadline);
+        {error, Reason} ->
+            {error, Reason};
+        ok ->
+            ok
     catch
         exit:{noproc, _} ->
             validate_table_existence(Rest, SQL, Deadline);
@@ -651,9 +615,23 @@ validate_table_existence([WorkerPid | Rest], SQL, Deadline) ->
             validate_table_existence(Rest, SQL, Deadline)
     end;
 validate_table_existence([], _SQL, _Deadline) ->
-    %% All workers either replied an unexpected error; we will retry
+    %% All workers either replied an unexpected error, timed out or crashed; we will retry
     %% on the next health check.
     ok.
+
+%% must be executed inside ecpool worker to avoid concurrent requests messing up with the
+%% postgres api message flow.
+do_validate_table_existence(Conn, SQL) ->
+    Res = epgsql:parse2(Conn, "", SQL, []),
+    _ = epgsql:sync(Conn),
+    case Res of
+        {ok, _} ->
+            ok;
+        {error, #error{codename = undefined_table}} ->
+            {error, {unhealthy_target, undefined_table}};
+        {error, UnexpectedError} ->
+            {error, {unexpected_parse_error, UnexpectedError}}
+    end.
 
 %% ===================================================================
 

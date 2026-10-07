@@ -9,8 +9,43 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_gateway/include/emqx_gateway.hrl").
 
 -define(SOCK_PEER, {{127, 0, 0, 1}, 3456}).
+
+-doc """
+The gateway `websocket.max_frame_size` defaults to a finite value, accepts the
+legacy value `infinity`, and rejects zero, negative values and values above the
+largest MQTT packet size.
+""".
+t_ws_max_frame_size_schema(_Config) ->
+    Sc = #{roots => [ws], fields => #{ws => emqx_gateway_schema:ws_opts(#{})}},
+    Check = fun(Websocket) ->
+        #{<<"ws">> := #{<<"max_frame_size">> := Value}} =
+            hocon_tconf:check_plain(Sc, #{<<"ws">> => Websocket}, #{required => false}),
+        Value
+    end,
+    ?assertEqual(?DEFAULT_WS_MAX_FRAME_SIZE, Check(#{})),
+    ?assertEqual(infinity, Check(#{<<"max_frame_size">> => <<"infinity">>})),
+    ?assertEqual(1024, Check(#{<<"max_frame_size">> => 1024})),
+    ?assertThrow({_, [#{kind := validation_error}]}, Check(#{<<"max_frame_size">> => 0})),
+    ?assertThrow({_, [#{kind := validation_error}]}, Check(#{<<"max_frame_size">> => -1})),
+    ?assertThrow(
+        {_, [#{kind := validation_error}]},
+        Check(#{<<"max_frame_size">> => 300 * 1024 * 1024})
+    ).
+
+-doc """
+Cowboy always gets a finite WebSocket message size limit. The legacy value
+`infinity` selects the default limit.
+""".
+t_ws_max_frame_size_to_cowboy(_Config) ->
+    MaxFrameSize = fun(Value) ->
+        emqx_gateway_utils:ws_max_frame_size(#{websocket => #{max_frame_size => Value}})
+    end,
+    ?assertEqual(?DEFAULT_WS_MAX_FRAME_SIZE, MaxFrameSize(infinity)),
+    ?assertEqual(1024, MaxFrameSize(1024)),
+    ?assertEqual(?DEFAULT_WS_MAX_FRAME_SIZE, emqx_gateway_utils:ws_max_frame_size(#{})).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

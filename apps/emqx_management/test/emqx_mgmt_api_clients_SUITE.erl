@@ -1402,6 +1402,37 @@ assert_idle_client_stats(Node, ClientId, Config) ->
         maps:keys(Defaults)
     ).
 
+-doc """
+Check that `emqx_mgmt_api:do_query/2`, which other nodes call, returns the
+rows of the channel info table with the stats keys that the table omits,
+with the value 0.
+""".
+t_query_rows_restore_sparse_stats(_Config) ->
+    ClientId = <<"query-rows-sparse-stats">>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+    try
+        Defaults = emqx_cm:sparse_stats_defaults(),
+        [ChanPid] = emqx_cm:lookup_channels(ClientId),
+        Stored = ets:lookup_element(emqx_channel_info, {ClientId, ChanPid}, 3),
+        ?assertNotEqual([], maps:keys(Defaults) -- proplists:get_keys(Stored)),
+        QueryState = #{
+            table => emqx_channel_info,
+            match_spec => [{{{ClientId, '_'}, '_', '_'}, [], ['$_']}],
+            limit => 10,
+            complete => false,
+            fuzzy_fun => undefined
+        },
+        {[{_Chan, _Info, Stats}], _} = emqx_mgmt_api:do_query(node(), QueryState),
+        ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Stats)),
+        ?assertEqual(
+            maps:merge(Defaults, maps:from_list(Stored)),
+            maps:from_list(Stats)
+        )
+    after
+        ok = emqtt:disconnect(C)
+    end.
+
 t_format_old_style_client_stats_defaults_total_payload_bytes(_) ->
     ClientId = <<"old-style-client-stats">>,
     ChanInfo = old_style_chan_info(ClientId, _Stats = [{mqueue_len, 0}]),

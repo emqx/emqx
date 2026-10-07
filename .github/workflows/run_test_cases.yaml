@@ -194,6 +194,8 @@ jobs:
           path: logs.tar.gz
           compression-level: 0
           retention-days: 7
+  # note when syncing dev-62 -> dev-63: `ct_plugins` is supposed to be deleted, as each
+  # plugin is run independently like normal umbrella apps.
 
   pytest_boot_tests:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}

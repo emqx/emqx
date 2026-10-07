@@ -181,15 +181,16 @@
 -doc """
 Channel attributes, as cached in the `emqx_channel_info` ETS table.
 
-The map omits `will_msg`, `conninfo.conn_props` and `session.subscriptions`. They are the
-largest attributes, they grow with client input, and no reader of the table uses them.
+The map omits `will_msg`, `conninfo.conn_props`, `conninfo.sock` and
+`session.subscriptions`. No reader of the table uses them. The first three grow with
+client input, and `conninfo.sock` is only valid in the connection process.
 Read them with `info/2`: `info(will_msg, Channel)`, `info(conninfo, Channel)` and
 `info({session, subscriptions}, Channel)`.
 """.
 -spec info(channel()) -> emqx_types:infos().
 info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
     #{
-        conninfo => maps:remove(conn_props, ConnInfo),
+        conninfo => maps:without([conn_props, sock], ConnInfo),
         conn_state => info(conn_state, Channel),
         clientinfo => drop_derivable_peer_fields(info(clientinfo, Channel)),
         session => emqx_utils:maybe_apply(fun chan_info_session/1, Session)

@@ -76,23 +76,28 @@ t_evacuation(_Config) ->
     ok = emqx_node_rebalance_cli:cli(["node-status", atom_to_list(node())]),
 
     %% start with invalid args
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--evacuation", "--foo-bar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--evacuation", "--conn-evict-rate", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--evacuation", "--sess-evict-rate", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--evacuation", "--wait-takeover", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli([
             "start",
             "--evacuation",
@@ -100,7 +105,8 @@ t_evacuation(_Config) ->
             "nonexistent@node"
         ])
     ),
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli([
             "start",
             "--evacuation",
@@ -108,14 +114,16 @@ t_evacuation(_Config) ->
             ""
         ])
     ),
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli([
             "start",
             "--evacuation",
             "--unknown-arg"
         ])
     ),
-    ?assert(
+    ?assertEqual(
+        ok,
         emqx_node_rebalance_cli:cli([
             "start",
             "--evacuation",
@@ -143,7 +151,8 @@ t_evacuation(_Config) ->
     ),
 
     %% already enabled
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli([
             "start",
             "--evacuation",
@@ -155,9 +164,9 @@ t_evacuation(_Config) ->
     ),
 
     %% stop
-    true = emqx_node_rebalance_cli:cli(["stop"]),
+    ok = emqx_node_rebalance_cli:cli(["stop"]),
 
-    false = emqx_node_rebalance_cli:cli(["stop"]),
+    {error, _} = emqx_node_rebalance_cli:cli(["stop"]),
 
     ?assertEqual(
         disabled,
@@ -168,28 +177,34 @@ t_purge(_Config) ->
     process_flag(trap_exit, true),
 
     %% start with invalid args
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--purge", "--foo-bar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--purge", "--purge-rate", "foobar"])
     ),
 
     %% not used by this scenario
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--purge", "--conn-evict-rate", "1"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--purge", "--sess-evict-rate", "1"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--purge", "--wait-takeover", "1"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli([
             "start",
             "--purge",
@@ -200,7 +215,8 @@ t_purge(_Config) ->
 
     Conns = emqtt_connect_many(get_mqtt_port(node(), tcp), 100),
 
-    ?assert(
+    ?assertEqual(
+        ok,
         emqx_node_rebalance_cli:cli([
             "start",
             "--purge",
@@ -220,7 +236,8 @@ t_purge(_Config) ->
     ),
 
     %% already enabled
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli([
             "start",
             "--purge",
@@ -231,11 +248,11 @@ t_purge(_Config) ->
 
     %% stop
 
-    true = emqx_node_rebalance_cli:cli(["stop"]),
+    ok = emqx_node_rebalance_cli:cli(["stop"]),
 
     %% stop when not started
 
-    false = emqx_node_rebalance_cli:cli(["stop"]),
+    {error, _} = emqx_node_rebalance_cli:cli(["stop"]),
 
     ?assertEqual(
         disabled,
@@ -251,72 +268,87 @@ t_rebalance(Config) ->
     DonorPort = get_mqtt_port(DonorNode, tcp),
 
     %% start with invalid args
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--foo-bar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--conn-evict-rate", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--abs-conn-threshold", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--rel-conn-threshold", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--sess-evict-rate", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--abs-sess-threshold", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--rel-sess-threshold", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--wait-takeover", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start", "--wait-health-check", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--evacuation", "--conn-evict-rpc-timeout", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli:cli(["start", "--evacuation", "--sess-evict-rpc-timeout", "foobar"])
     ),
 
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, [
             "start",
             "--nodes",
             "nonexistent@node"
         ])
     ),
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, [
             "start",
             "--nodes",
             ""
         ])
     ),
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, [
             "start",
             "--nodes",
             atom_to_list(RecipientNode)
         ])
     ),
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, [
             "start",
             "--unknown-arg"
@@ -325,7 +357,8 @@ t_rebalance(Config) ->
 
     Conns = emqtt_connect_many(DonorPort, 20),
 
-    ?assert(
+    ?assertEqual(
+        ok,
         emqx_node_rebalance_cli(DonorNode, [
             "start",
             "--conn-evict-rate",
@@ -363,14 +396,15 @@ t_rebalance(Config) ->
     ),
 
     %% already enabled
-    ?assertNot(
+    ?assertMatch(
+        {error, _},
         emqx_node_rebalance_cli(DonorNode, ["start"])
     ),
 
     %% stop
-    true = emqx_node_rebalance_cli(DonorNode, ["stop"]),
+    ok = emqx_node_rebalance_cli(DonorNode, ["stop"]),
 
-    false = emqx_node_rebalance_cli(DonorNode, ["stop"]),
+    {error, _} = emqx_node_rebalance_cli(DonorNode, ["stop"]),
 
     ?assertEqual(
         disabled,
