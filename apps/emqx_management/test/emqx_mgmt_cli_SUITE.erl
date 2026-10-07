@@ -70,6 +70,24 @@ t_broker(_Config) ->
     emqx_ctl:run_command(["broker", "metrics"]),
     ok.
 
+-doc """
+`topics show` prints the route of a topic that has a subscriber.
+""".
+t_topics_show(_Config) ->
+    {ok, C} = emqtt:start_link([{clientid, <<"topics_show_test">>}]),
+    {ok, _} = emqtt:connect(C),
+    try
+        {ok, _, _} = emqtt:subscribe(C, <<"topics/show/test">>, 1),
+        {Res, Prints} = emqx_common_test_helpers:capture_io_format(fun() ->
+            emqx_ctl:run_command(["topics", "show", "topics/show/test"])
+        end),
+        Expected = iolist_to_binary(io_lib:format("topics/show/test -> ~ts~n", [node()])),
+        ?assertEqual(Expected, iolist_to_binary(Prints)),
+        ?assertEqual(ok, Res)
+    after
+        ok = emqtt:disconnect(C)
+    end.
+
 t_cluster(_Config) ->
     SelfNode = node(),
     FakeNode = 'fake@127.0.0.1',

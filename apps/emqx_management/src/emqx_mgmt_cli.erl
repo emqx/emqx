@@ -447,8 +447,8 @@ topics(["list"]) ->
         _ -> ok
     end;
 topics(["show", Topic]) ->
-    Routes = emqx_router:lookup_routes(Topic),
-    [print({emqx_topic, Route}) || Route <- Routes];
+    Routes = emqx_router:lookup_routes(bin(Topic)),
+    lists:foreach(fun(Route) -> print({emqx_topic, Route}) end, Routes);
 topics(_) ->
     emqx_ctl:usage([
         {"topics list", "List all topics"},
