@@ -117,7 +117,7 @@
 -dialyzer({nowarn_function, [websocket_init/1, postpone/2, classify/4]}).
 
 -elvis([
-    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_ocpp_connection]}}
+    {elvis_style, no_invalid_dynamic_calls, #{ignore => [emqx_ocpp_connection]}}
 ]).
 
 %%--------------------------------------------------------------------
@@ -192,15 +192,10 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 init(Req, Opts) ->
     %% WS Transport Idle Timeout
     IdleTimeout = maps:get(idle_timeout, Opts, 7200000),
-    MaxFrameSize =
-        case maps:get(max_frame_size, Opts, 0) of
-            0 -> infinity;
-            I -> I
-        end,
     Compress = emqx_utils_maps:deep_get([websocket, compress], Opts),
     WsOpts = #{
         compress => Compress,
-        max_frame_size => MaxFrameSize,
+        max_frame_size => emqx_gateway_utils:ws_max_frame_size(Opts),
         idle_timeout => IdleTimeout
     },
     case check_origin_header(Req, Opts) of
