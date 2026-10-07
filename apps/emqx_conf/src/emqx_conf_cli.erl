@@ -529,7 +529,7 @@ update_config_cluster(Namespace, Opts, RawConf) ->
 update_cluster_links(cluster, #{<<"cluster">> := #{<<"links">> := Links}}, Namespace, Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     Res = emqx_conf:update([<<"cluster">>, <<"links">>], Links, UpdateOpts),
-    check_cluster_res(?global_ns, <<"cluster.links">>, Res, Links, Opts);
+    check_cluster_res(Namespace, <<"cluster.links">>, Res, Links, Opts);
 update_cluster_links(local, #{<<"cluster">> := #{<<"links">> := Links}}, Namespace, Opts) ->
     UpdateOpts = with_namespace(?LOCAL_OPTIONS, Namespace),
     Res = emqx:update_config([<<"cluster">>, <<"links">>], Links, UpdateOpts),
@@ -601,7 +601,7 @@ update_config_cluster(
     %% Currently not a namespaced root, but nevertheless adding the option for consistency.
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     check_cluster_res(
-        ?global_ns, Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts
+        Namespace, Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts
     );
 update_config_cluster(
     ?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := replace} = Opts
@@ -609,7 +609,7 @@ update_config_cluster(
     %% Currently not a namespaced root, but nevertheless adding the option for consistency.
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     check_cluster_res(
-        ?global_ns, Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts
+        Namespace, Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts
     );
 update_config_cluster(
     ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts
@@ -617,7 +617,7 @@ update_config_cluster(
     %% Currently not a namespaced root, but nevertheless adding the option for consistency.
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     check_cluster_res(
-        ?global_ns, Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts
+        Namespace, Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts
     );
 update_config_cluster(
     ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := replace} = Opts
@@ -625,7 +625,7 @@ update_config_cluster(
     %% Currently not a namespaced root, but nevertheless adding the option for consistency.
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     check_cluster_res(
-        ?global_ns, Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts
+        Namespace, Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts
     );
 update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
@@ -636,7 +636,7 @@ update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mod
 update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, Value, Namespace, #{mode := replace} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     check_cluster_res(
-        ?global_ns, Key, emqx_conf:update([Key], {async_start, Value}, UpdateOpts), Value, Opts
+        Namespace, Key, emqx_conf:update([Key], {async_start, Value}, UpdateOpts), Value, Opts
     );
 update_config_cluster(Key, NewConf, Namespace, #{mode := merge} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
@@ -644,7 +644,7 @@ update_config_cluster(Key, NewConf, Namespace, #{mode := merge} = Opts) ->
     check_cluster_res(Namespace, Key, emqx_conf:update([Key], Merged, UpdateOpts), NewConf, Opts);
 update_config_cluster(Key, Value, Namespace, #{mode := replace} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    check_cluster_res(?global_ns, Key, emqx_conf:update([Key], Value, UpdateOpts), Value, Opts).
+    check_cluster_res(Namespace, Key, emqx_conf:update([Key], Value, UpdateOpts), Value, Opts).
 
 update_config_local(
     ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key,

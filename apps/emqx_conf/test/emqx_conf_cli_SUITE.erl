@@ -521,7 +521,31 @@ t_merge_namespaced_over_namespaced_config(Config) ->
     ok = load_conf(replace, #{<<"mqtt">> => MqttInit}, Config),
     ok.
 
+-doc """
+A namespaced `conf load --replace` that fails shows the namespace's stored
+config as the effective config, not the global one.
+""".
+t_load_namespaced_replace_error_shows_ns_config(_Config) ->
+    Ns = <<"replace_err_ns">>,
+    ok = emqx_common_test_helpers:seed_defaults_for_all_roots_namespaced_cluster(emqx_schema, Ns),
+    ok = load_ns_conf(Ns, merge, #{<<"mqtt">> => #{<<"max_inflight">> => 77}}),
+    ?assertNotEqual(77, emqx_conf:get([mqtt, max_inflight])),
+    ok = emqx_config_handler:add_handler([mqtt], ?MODULE),
+    try
+        {Res, Prints} = capture(fun() ->
+            load_ns_conf(Ns, replace, #{<<"mqtt">> => #{<<"max_inflight">> => 50}})
+        end),
+        ?assertMatch({error, _}, Res),
+        Output = iolist_to_binary(Prints),
+        ?assertNotEqual(nomatch, binary:match(Output, <<"Root key: mqtt">>), Output),
+        ?assertNotEqual(nomatch, binary:match(Output, <<"max_inflight = 77">>), Output)
+    after
+        emqx_config_handler:remove_handler([mqtt])
+    end.
+
 pre_config_update([cluster, links], _NewConf, _OldConf) ->
+    {error, rejected_by_test};
+pre_config_update([mqtt], _NewConf, _OldConf) ->
     {error, rejected_by_test}.
 
 %% Return a crash as a value, so that a failed assertion shows its reason.
