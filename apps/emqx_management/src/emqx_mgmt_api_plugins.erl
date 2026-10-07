@@ -210,7 +210,8 @@ schema("/plugins/:name/config") ->
             responses => #{
                 204 => ?DESC("config_updated"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
+                    ['BAD_CONFIG', 'BAD_FORM_DATA', 'UNEXPECTED_ERROR'],
+                    ?DESC("update_config_failed")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
                 500 => emqx_dashboard_swagger:error_codes(
@@ -527,6 +528,12 @@ validate_file_name(_Params, _Meta) ->
             <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
     }}.
 
+bad_config_form_data() ->
+    {400, #{
+        code => 'BAD_FORM_DATA',
+        message => <<"form-data should be `config=@config.json;type=application/json`">>
+    }}.
+
 %% API CallBack Begin
 list_plugins(get, _) ->
     Nodes = emqx:running_nodes(),
@@ -693,8 +700,14 @@ plugin_config(put, #{bindings := #{name := NameVsn}, body := Config}) ->
 upload_plugin_config(post, #{
     bindings := #{name := NameVsn}, body := #{<<"config">> := #{type := _} = ConfigUpload}
 }) ->
-    [{_FileName, ConfigBin}] = maps:to_list(maps:without([type], ConfigUpload)),
-    put_plugin_config(NameVsn, ConfigBin).
+    case maps:to_list(maps:without([type], ConfigUpload)) of
+        [{_FileName, ConfigBin}] ->
+            put_plugin_config(NameVsn, ConfigBin);
+        _ ->
+            bad_config_form_data()
+    end;
+upload_plugin_config(post, _Params) ->
+    bad_config_form_data().
 
 download_plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case get_plugin_config(NameVsn) of
