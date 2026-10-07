@@ -789,6 +789,25 @@ t_upload_config_stores_config(Config) ->
     ),
     ?assertEqual(#{<<"foo">> => <<"baz">>}, emqx_plugins:get_config(NameVsn)).
 
+-doc """
+Two `plugin` file parts with different filenames return 400 BAD_FORM_DATA, not 500.
+""".
+t_install_multiple_files_returns_400(_Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
+    {ok, 400, Body} = emqx_dashboard_api_test_helpers:multipart_formdata_request(Path, [], [
+        {plugin, "a-1.tar.gz", <<"not a package">>},
+        {plugin, "b-1.tar.gz", <<"not a package">>}
+    ]),
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_FORM_DATA">>,
+            <<"message">> =>
+                <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
+        },
+        emqx_utils_json:decode(iolist_to_binary(Body))
+    ),
+    ?assertEqual([], emqx_plugins_fs:list_name_vsn()).
+
 t_health_status(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),

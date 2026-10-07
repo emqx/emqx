@@ -210,8 +210,7 @@ schema("/plugins/:name/config") ->
             responses => #{
                 204 => ?DESC("config_updated"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_CONFIG', 'BAD_FORM_DATA', 'UNEXPECTED_ERROR'],
-                    ?DESC("update_config_failed")
+                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
                 500 => emqx_dashboard_swagger:error_codes(
@@ -259,7 +258,8 @@ schema("/plugins/:name/config/upload") ->
             responses => #{
                 204 => ?DESC("config_updated"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
+                    ['BAD_CONFIG', 'BAD_FORM_DATA', 'UNEXPECTED_ERROR'],
+                    ?DESC("update_config_failed")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
                 500 => emqx_dashboard_swagger:error_codes(
@@ -510,7 +510,16 @@ validate_name(Name) ->
     emqx_plugins_utils:validate_name_vsn(Name).
 
 validate_file_name(#{body := #{<<"plugin">> := Plugin}} = Params, _Meta) when is_map(Plugin) ->
-    [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
+    case maps:to_list(maps:without([type], Plugin)) of
+        [{FileName, Bin}] ->
+            validate_package_file_name(Params, FileName, Bin);
+        _ ->
+            bad_plugin_form_data()
+    end;
+validate_file_name(_Params, _Meta) ->
+    bad_plugin_form_data().
+
+validate_package_file_name(Params, FileName, Bin) ->
     NameVsn = string:trim(FileName, trailing, ".tar.gz"),
     case validate_name(NameVsn) of
         ok ->
@@ -520,8 +529,9 @@ validate_file_name(#{body := #{<<"plugin">> := Plugin}} = Params, _Meta) when is
                 code => 'BAD_PLUGIN_INFO',
                 message => iolist_to_binary(["Bad plugin file name: ", FileName, ". ", Reason])
             }}
-    end;
-validate_file_name(_Params, _Meta) ->
+    end.
+
+bad_plugin_form_data() ->
     {400, #{
         code => 'BAD_FORM_DATA',
         message =>
@@ -549,11 +559,7 @@ get_plugins() ->
 upload_install(post, #{name := NameVsn, bin := Bin}) ->
     unless_pinned_here(NameVsn, fun() -> do_upload_install(NameVsn, Bin) end);
 upload_install(post, #{}) ->
-    {400, #{
-        code => 'BAD_FORM_DATA',
-        message =>
-            <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
-    }}.
+    bad_plugin_form_data().
 
 do_upload_install(NameVsn, Bin) ->
     case emqx_plugins:install_state(NameVsn) of
