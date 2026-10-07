@@ -16,6 +16,9 @@
 
 -include("emqx_conf.hrl").
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+-elvis([{elvis_style, no_boolean_in_comparison, disable}]).
+
 -behaviour(hocon_schema).
 
 -export([

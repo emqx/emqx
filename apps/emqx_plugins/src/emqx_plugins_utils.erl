@@ -10,6 +10,8 @@
 
 -include_lib("emqx/include/logger.hrl").
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
     validate_name_vsn/1,
     validate_pinned_plugins/1,

@@ -8,6 +8,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+-elvis([{elvis_style, no_boolean_in_comparison, disable}]).
+
 %% Response headers that plugin API callbacks are allowed to set. An
 %% allow-list is used instead of a deny-list because a deny-list is doomed to
 %% be incomplete — every new browser security mechanism adds another header

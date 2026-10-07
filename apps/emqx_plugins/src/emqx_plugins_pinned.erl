@@ -15,6 +15,8 @@ entry whose plugin name is pinned, whatever its version.
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-elvis([{elvis_style, no_boolean_in_comparison, disable}]).
+
 -export([
     list/0,
     find/1,
