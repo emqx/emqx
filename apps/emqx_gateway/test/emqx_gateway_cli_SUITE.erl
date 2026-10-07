@@ -373,7 +373,7 @@ t_gateway_clients(_) ->
 
     Socket = sn_client_connect(<<"client1">>),
 
-    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    ok = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
     ClientDesc1 = acc_print(),
 
     _ = emqx_gateway_cli:'gateway-clients'(["lookup", "mqttsn", "client1"]),
@@ -389,7 +389,7 @@ t_gateway_clients(_) ->
     _ = emqx_gateway_cli:'gateway-clients'(["lookup", "bad-gw", "bad-client"]),
     ?assertEqual("Bad Gateway Name.\n", acc_print()),
 
-    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    ok = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
     %% no print for empty client list
 
     _ = emqx_gateway_cli:'gateway-clients'(["list", "bad-gw"]),
@@ -404,7 +404,7 @@ t_gateway_clients_kick(_) ->
 
     Socket = sn_client_connect(<<"client1">>),
 
-    _ = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
+    ok = emqx_gateway_cli:'gateway-clients'(["list", "mqttsn"]),
     _ = acc_print(),
 
     _ = emqx_gateway_cli:'gateway-clients'(["kick", "mqttsn", "bad-client"]),

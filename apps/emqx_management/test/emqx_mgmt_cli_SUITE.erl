@@ -673,8 +673,8 @@ t_trace(_Config) ->
 
 t_traces(_Config) ->
     %% traces list                             # List all cluster traces started
-    0 = emqx_mgmt_cli:traces(["list"]),
     ?assertEqual(ok, emqx_ctl:run_command(["traces", "list"])),
+    ?assertEqual(0, cluster_trace_count()),
     %% traces start <Name> client <ClientId>   # Traces for a client in cluster
     %% traces start <Name> topic <Topic>       # Traces for a topic in cluster
     %% traces start <Name> ip_address <IPAddr> # Traces for a IP in cluster
@@ -685,7 +685,8 @@ t_traces(_Config) ->
 t_traces_client(_Config) ->
     Name = "TraceNameClientID",
     ok = emqx_ctl:run_command(["traces", "start", Name, "client", "ClientID"]),
-    1 = emqx_mgmt_cli:traces(["list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
@@ -693,28 +694,32 @@ t_traces_client_with_duration(_Config) ->
     Name = "TraceNameClientID",
     Duration = "1000",
     ok = emqx_ctl:run_command(["traces", "start", Name, "client", "ClientID", Duration]),
-    1 = emqx_mgmt_cli:traces(["list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_topic(_Config) ->
     Name = "TraceNameTopic",
     ok = emqx_ctl:run_command(["traces", "start", Name, "topic", "a/b"]),
-    1 = emqx_mgmt_cli:traces(["list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_ip(_Config) ->
     Name = "TraceNameIP",
     ok = emqx_ctl:run_command(["traces", "start", Name, "ip_address", "127.0.0.1"]),
-    1 = emqx_mgmt_cli:traces(["list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_rule(_Config) ->
     Name = "TraceNameRule",
     ok = emqx_ctl:run_command(["traces", "start", Name, "ruleid", "rule:42"]),
-    1 = emqx_mgmt_cli:traces(["list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
@@ -1271,6 +1276,10 @@ dump_client_stats(File, Batch, Sleep) ->
         "--sleep",
         str(Sleep)
     ]).
+
+cluster_trace_count() ->
+    {200, List} = emqx_mgmt_api_trace:trace(get, #{}),
+    length(List).
 
 capture_ctl(Args) ->
     {Result, OutputChunks} =

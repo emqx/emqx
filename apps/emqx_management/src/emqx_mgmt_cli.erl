@@ -116,15 +116,15 @@ broker([]) ->
         uptime, emqx_utils_calendar:human_readable_duration_string(emqx_sys:uptime())
     ]);
 broker(["stats"]) ->
-    [
-        emqx_ctl:print("~-30s: ~w~n", [Stat, Val])
-     || {Stat, Val} <- lists:sort(emqx_stats:getstats())
-    ];
+    lists:foreach(
+        fun({Stat, Val}) -> emqx_ctl:print("~-30s: ~w~n", [Stat, Val]) end,
+        lists:sort(emqx_stats:getstats())
+    );
 broker(["metrics"]) ->
-    [
-        emqx_ctl:print("~-30s: ~w~n", [Metric, Val])
-     || {Metric, Val} <- lists:sort(emqx_metrics:all_global())
-    ];
+    lists:foreach(
+        fun({Metric, Val}) -> emqx_ctl:print("~-30s: ~w~n", [Metric, Val]) end,
+        lists:sort(emqx_metrics:all_global())
+    );
 broker(_) ->
     emqx_ctl:usage([
         {"broker", "Show broker version, uptime and description"},
@@ -679,7 +679,7 @@ topics(["list"]) ->
     end;
 topics(["show", Topic]) ->
     Routes = emqx_router:lookup_routes(Topic),
-    [print({emqx_topic, Route}) || Route <- Routes];
+    lists:foreach(fun(Route) -> print({emqx_topic, Route}) end, Routes);
 topics(_) ->
     emqx_ctl:usage([
         {"topics list", "List all topics"},
@@ -706,7 +706,9 @@ subscriptions(["show", ClientId0]) ->
         [] ->
             emqx_ctl:print("Not Found.~n");
         Subs ->
-            [print_subopts(ClientId, Topic, Options) || {Topic, Options} <- Subs]
+            lists:foreach(
+                fun({Topic, Options}) -> print_subopts(ClientId, Topic, Options) end, Subs
+            )
     end;
 subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, fun(IntQos) ->
@@ -754,27 +756,39 @@ if_valid_qos(QoS, Fun) ->
 vm([]) ->
     vm(["all"]);
 vm(["all"]) ->
-    [vm([Name]) || Name <- ["load", "memory", "process", "io", "ports"]];
+    lists:foreach(fun(Name) -> vm([Name]) end, ["load", "memory", "process", "io", "ports"]);
 vm(["load"]) ->
-    [emqx_ctl:print("cpu/~-20s: ~w~n", [L, V]) || {L, V} <- emqx_vm:loads()];
+    lists:foreach(
+        fun({L, V}) -> emqx_ctl:print("cpu/~-20s: ~w~n", [L, V]) end,
+        emqx_vm:loads()
+    );
 vm(["memory"]) ->
-    [emqx_ctl:print("memory/~-17s: ~w~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
+    lists:foreach(
+        fun({Cat, Val}) -> emqx_ctl:print("memory/~-17s: ~w~n", [Cat, Val]) end,
+        erlang:memory()
+    );
 vm(["process"]) ->
-    [
-        emqx_ctl:print("process/~-16s: ~w~n", [Name, erlang:system_info(Key)])
-     || {Name, Key} <- [{limit, process_limit}, {count, process_count}]
-    ];
+    lists:foreach(
+        fun({Name, Key}) ->
+            emqx_ctl:print("process/~-16s: ~w~n", [Name, erlang:system_info(Key)])
+        end,
+        [{limit, process_limit}, {count, process_count}]
+    );
 vm(["io"]) ->
     IoInfo = lists:usort(lists:flatten(erlang:system_info(check_io))),
-    [
-        emqx_ctl:print("io/~-21s: ~w~n", [Key, proplists:get_value(Key, IoInfo)])
-     || Key <- [max_fds, active_fds]
-    ];
+    lists:foreach(
+        fun(Key) ->
+            emqx_ctl:print("io/~-21s: ~w~n", [Key, proplists:get_value(Key, IoInfo)])
+        end,
+        [max_fds, active_fds]
+    );
 vm(["ports"]) ->
-    [
-        emqx_ctl:print("ports/~-18s: ~w~n", [Name, erlang:system_info(Key)])
-     || {Name, Key} <- [{count, port_count}, {limit, port_limit}]
-    ];
+    lists:foreach(
+        fun({Name, Key}) ->
+            emqx_ctl:print("ports/~-18s: ~w~n", [Name, erlang:system_info(Key)])
+        end,
+        [{count, port_count}, {limit, port_limit}]
+    );
 vm(_) ->
     emqx_ctl:usage([
         {"vm all", "Show info of Erlang VM"},
@@ -791,7 +805,8 @@ vm_audit_args(Args) -> Args.
 %% @doc mnesia Command
 
 mnesia([]) ->
-    mnesia:system_info();
+    _ = mnesia:system_info(),
+    ok;
 mnesia(_) ->
     emqx_ctl:usage([{"mnesia", "Mnesia system info"}]).
 
@@ -1134,8 +1149,7 @@ traces(["list"]) ->
                 end,
                 List
             )
-    end,
-    length(List);
+    end;
 traces(["stop", Name]) ->
     trace_cluster_off(Name);
 traces(["delete", Name]) ->

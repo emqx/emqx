@@ -217,13 +217,13 @@ atom(Id) ->
 bin(S) -> iolist_to_binary(S).
 
 dump(Table, Tag) ->
-    dump(Table, Tag, ets:first(Table), []).
+    dump(Table, Tag, ets:first(Table)).
 
-dump(_Table, _, '$end_of_table', Result) ->
-    lists:reverse(Result);
-dump(Table, Tag, Key, Result) ->
-    PrintValue = [print_record({Tag, Record}) || Record <- ets:lookup(Table, Key)],
-    dump(Table, Tag, ets:next(Table, Key), [PrintValue | Result]).
+dump(_Table, _, '$end_of_table') ->
+    ok;
+dump(Table, Tag, Key) ->
+    lists:foreach(fun(Record) -> print_record({Tag, Record}) end, ets:lookup(Table, Key)),
+    dump(Table, Tag, ets:next(Table, Key)).
 
 print_record({client, {_, Infos, Stats}}) ->
     ClientInfo = maps:get(clientinfo, Infos, #{}),
