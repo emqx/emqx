@@ -92,6 +92,7 @@
     resume/2,
     export/1,
     import/2,
+    import/4,
     enqueue/3,
     dequeue/3,
     replay/2,
@@ -274,11 +275,8 @@ destroy(_Session) ->
 open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, ChannelRef, ExportedSession} ->
-            SessionRemote = import(ClientInfo, ExportedSession),
-            Session0 = resume(ClientInfo, SessionRemote),
-            Session1 = resize_inflight(ConnInfo, Session0),
-            Session2 = apply_conf(ClientInfo, Conf, Session1),
-            Session = filter_remote_session(Session2),
+            Session0 = import(ClientInfo, ConnInfo, Conf, ExportedSession),
+            Session = resume(ClientInfo, Session0),
             {true, Session, ChannelRef};
         none ->
             false
@@ -330,7 +328,7 @@ export(#session{
 export_mqueue({empty, _}) ->
     [];
 export_mqueue(MQueue) ->
-    emqx_mqueue:to_list(MQueue).
+    emqx_mqueue:export(MQueue).
 
 export_inflight(Inflight) ->
     [export_inflight_entry(Entry) || Entry <- emqx_inflight:to_list(Inflight)].
@@ -372,6 +370,14 @@ import(ClientInfo, #{
         await_rel_timeout = infinity,
         created_at = CreatedAt
     }.
+
+-doc "Import transferred state with new connection limits and session configuration.".
+-spec import(clientinfo(), conninfo(), emqx_session:conf(), exported()) -> session().
+import(ClientInfo, ConnInfo, Conf, Exported) ->
+    Session0 = import(ClientInfo, Exported),
+    Session1 = resize_inflight(ConnInfo, Session0),
+    Session2 = apply_conf(ClientInfo, Conf, Session1),
+    filter_remote_session(Session2).
 
 import_mqueue(ClientInfo = #{zone := Zone}, Messages) ->
     enqueue_messages(ClientInfo, Messages, empty_mqueue(Zone)).
@@ -1351,7 +1357,13 @@ redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
             false
     end,
     InflightList = lists:filtermap(F, AllInflights),
-    emqx_shared_sub:redispatch(InflightList ++ export_mqueue(Q)).
+    %% Redispatched messages enter another queue as new entries.
+    emqx_shared_sub:redispatch(InflightList ++ redispatch_queue(Q)).
+
+redispatch_queue({empty, _}) ->
+    [];
+redispatch_queue(Q) ->
+    emqx_mqueue:to_list(Q).
 
 %%--------------------------------------------------------------------
 %% Next Packet Id

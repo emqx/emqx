@@ -1632,7 +1632,10 @@ t_export_import(_) ->
     ?assertNot(maps:is_key(retry_interval, Persistent)),
     ?assertNot(maps:is_key(max_awaiting_rel, Persistent)),
     ?assertNot(maps:is_key(await_rel_timeout, Persistent)),
-    ?assertEqual([Msg2], maps:get(mqueue, Persistent)),
+    [ExportedMsg2 = #message{extra = #{mqueue_insert_ts := InsertTs}}] =
+        maps:get(mqueue, Persistent),
+    ?assert(is_integer(InsertTs)),
+    ?assertEqual(Msg2#message{extra = #{mqueue_insert_ts => InsertTs}}, ExportedMsg2),
     [InflightEntry] = maps:get(inflight, Persistent),
     ?assertMatch(
         #{
@@ -1649,9 +1652,19 @@ t_export_import(_) ->
             Persistent
         ),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session3)),
+    ?assertEqual(Persistent, emqx_session_mem:export(Session3)),
+    Query = {mqueue_msgs, #{limit => 1}},
+    ?assertEqual(emqx_session_mem:info(Query, Session2), emqx_session_mem:info(Query, Session3)),
     ?assertEqual(
         [Msg2],
         emqx_mqueue:to_list(emqx_session_mem:info(mqueue, Session3))
+    ),
+    %% Older peers export messages without queue timestamps; importing attaches them.
+    Legacy = Persistent#{mqueue := [Msg2]},
+    Session4 = emqx_session_mem:import(clientinfo(), Legacy),
+    ?assertMatch(
+        #{mqueue := [#message{extra = #{mqueue_insert_ts := _}}]},
+        emqx_session_mem:export(Session4)
     ).
 
 -doc """

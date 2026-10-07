@@ -61,6 +61,7 @@
     dropped/1,
     payload_bytes/1,
     to_list/1,
+    export/1,
     filter/2,
     query/2
 ]).
@@ -179,6 +180,11 @@ max_len(#mqueue{max_len = MaxLen}) -> MaxLen.
 -spec to_list(mqueue()) -> list().
 to_list(MQ) ->
     to_list(MQ, []).
+
+%% Preserve queue metadata and order within each priority for session transfer.
+-spec export(mqueue()) -> [message()].
+export(#mqueue{q = Q}) ->
+    lists:reverse(emqx_pqueue:fold(fun(Msg, _Priority, Acc) -> [Msg | Acc] end, [], Q)).
 
 -spec filter(fun((any()) -> boolean()), mqueue()) -> mqueue().
 filter(Pred, #mqueue{q = Q, dropped = Dropped} = MQ) ->
@@ -480,6 +486,9 @@ p_table(PTab = #{}) ->
     ).
 
 %% This is used to sort/traverse messages in query/2
+%% Existing timestamp means an imported queue entry.
+with_ts(Msg = #message{extra = #{?INSERT_TS := _}}) ->
+    Msg;
 with_ts(#message{extra = Extra} = Msg) ->
     TsNano = erlang:system_time(nanosecond),
     Extra1 =
