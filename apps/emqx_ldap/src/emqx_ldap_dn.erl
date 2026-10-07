@@ -21,7 +21,8 @@ Although the DN is passed as a string in LDAP protocol, we parse it:
     parse/1,
     mapfold_values/3,
     map_values/2,
-    to_string/1
+    to_string/1,
+    is_attribute_description/1
 ]).
 
 % distinguishedName = [ relativeDistinguishedName
@@ -53,10 +54,10 @@ Although the DN is passed as a string in LDAP protocol, we parse it:
 % hexpair = HEX HEX
 
 -type ldap_dn(ValueType) :: #ldap_dn{dn :: dn(ValueType)}.
--type ldap_dn() :: ldap_dn(string()).
+-type ldap_dn() :: ldap_dn(binary()).
 
--type attribute() :: string().
--type attribute_value(ValueType) :: ValueType | {hexstring, string()}.
+-type attribute() :: binary().
+-type attribute_value(ValueType) :: ValueType | {hexstring, binary()}.
 -type attribute_and_value(ValueType) :: {attribute(), attribute_value(ValueType)}.
 
 -type dn(ValueType) ::
@@ -80,6 +81,8 @@ Although the DN is passed as a string in LDAP protocol, we parse it:
         (CH =:= $,) orelse (CH =:= $;) orelse (CH =:= $<) orelse
         (CH =:= $>))
 ).
+
+-define(IS_WS(CH), (CH =:= $\s orelse CH =:= $\t orelse CH =:= $\r orelse CH =:= $\n)).
 
 -define(IS_HEX_CHAR(CH),
     ((CH >= $0 andalso CH =< $9) orelse
@@ -106,10 +109,11 @@ Although the DN is passed as a string in LDAP protocol, we parse it:
 %% API functions
 %%--------------------------------------------------------------------
 
--spec parse(string() | binary()) -> {ok, ldap_dn()} | {error, term()}.
+-doc "Parses a DN. A list is taken as a list of bytes, which is how `eldap` returns values.".
+-spec parse(binary() | [byte()]) -> {ok, ldap_dn()} | {error, term()}.
+parse(DN) when is_list(DN) ->
+    parse(list_to_binary(DN));
 parse(DN) when is_binary(DN) ->
-    parse(binary_to_list(DN));
-parse(DN) ->
     try
         {ok, #ldap_dn{dn = parse_dn(DN)}}
     catch
@@ -117,9 +121,19 @@ parse(DN) ->
             {error, Reason}
     end.
 
--spec to_string(ldap_dn()) -> string().
+-doc """
+Returns `true` when the string is an LDAP attribute description (RFC 4512, section 2.5):
+a name or a numeric OID, optionally followed by options such as `;binary`.
+""".
+-spec is_attribute_description(string() | binary()) -> boolean().
+is_attribute_description(String) ->
+    {ok, RE} = re:compile(?ATTR_RE, [extended, dollar_endonly]),
+    match =:= re:run(String, RE, [{capture, none}]).
+
+-doc "Formats a DN as the string `eldap` takes. A value may be a binary or a string.".
+-spec to_string(ldap_dn(iodata())) -> string().
 to_string(#ldap_dn{dn = DN}) ->
-    lists:flatten(lists:join(",", lists:map(fun rdn_to_string/1, DN))).
+    binary_to_list(iolist_to_binary(lists:join(",", lists:map(fun rdn_to_string/1, DN)))).
 
 -spec mapfold_values(fun((ValueType, Acc) -> {NewValueType, Acc}), Acc, ldap_dn(ValueType)) ->
     {ldap_dn(NewValueType), Acc}.
@@ -165,63 +179,118 @@ map_values(Fun, LDAPDN0) ->
 %%--------------------------------------------------------------------
 
 parse_dn(DN) ->
-    RDNs = emqx_ldap_utils:split(DN, $,),
-    lists:map(fun parse_rdn/1, RDNs).
+    lists:map(fun parse_rdn/1, split(DN, $,)).
 
 parse_rdn(RDN) ->
-    AttrValuePairs = emqx_ldap_utils:split(RDN, $+),
-    lists:map(fun parse_attr_value_pair/1, AttrValuePairs).
+    lists:map(fun parse_attr_value_pair/1, split(RDN, $+)).
 
 parse_attr_value_pair(AttrValuePair) ->
-    case emqx_ldap_utils:split(AttrValuePair, $=) of
+    case split(AttrValuePair, $=) of
         [Attr, Value] ->
             {parse_attr(Attr), parse_value(Value)};
         _ ->
             throw({invalid_attr_value_pair, AttrValuePair})
     end.
 
+%% Splits on the separator, except where a backslash escapes it.
+split(Bin, Sep) ->
+    split(Bin, Sep, <<>>, []).
+
+split(<<Sep, Rest/binary>>, Sep, Cur, Acc) ->
+    split(Rest, Sep, <<>>, [Cur | Acc]);
+split(<<$\\, Char, Rest/binary>>, Sep, Cur, Acc) ->
+    split(Rest, Sep, <<Cur/binary, $\\, Char>>, Acc);
+split(<<Char, Rest/binary>>, Sep, Cur, Acc) ->
+    split(Rest, Sep, <<Cur/binary, Char>>, Acc);
+split(<<>>, _Sep, Cur, Acc) ->
+    lists:reverse([Cur | Acc]).
+
 parse_attr(Attr0) ->
-    Attr = string:trim(Attr0),
+    Attr = trim(Attr0),
     {ok, RE} = re:compile(?ATTR_RE, [extended]),
-    case re:run(Attr, RE) of
+    case re:run(Attr, RE, [{capture, none}]) of
         nomatch ->
             throw({invalid_attr, Attr});
-        _ ->
+        match ->
             Attr
     end.
 
 parse_value(Value0) ->
-    Value = string:trim(Value0),
-    case Value of
-        "" ->
+    case trim_value(Value0) of
+        <<>> ->
             throw(empty_value);
-        [$#] ->
+        <<$#>> ->
             throw(empty_hexstring);
-        [$# | Rest] ->
-            ok = validate_hexstring(Rest),
-            {hexstring, Rest};
-        _ ->
-            parse_string(Value, [])
+        <<$#, HexString/binary>> ->
+            ok = validate_hexstring(HexString),
+            {hexstring, HexString};
+        Value ->
+            parse_string(Value, <<>>)
     end.
 
-validate_hexstring([]) ->
+%% Strips ASCII whitespace around a value. A trailing space that a backslash
+%% escapes is part of the value and is kept.
+trim_value(Value0) ->
+    Value1 = trim_leading(Value0),
+    Value = trim_trailing(Value1),
+    case byte_size(Value) < byte_size(Value1) andalso ends_with_escape(Value) of
+        true -> <<Value/binary, $\s>>;
+        false -> Value
+    end.
+
+trim(Bin) ->
+    trim_trailing(trim_leading(Bin)).
+
+trim_leading(<<Char, Rest/binary>>) when ?IS_WS(Char) ->
+    trim_leading(Rest);
+trim_leading(Bin) ->
+    Bin.
+
+trim_trailing(Bin) ->
+    binary:part(Bin, 0, size_without_trailing_ws(Bin, byte_size(Bin))).
+
+size_without_trailing_ws(Bin, Size) when Size > 0 ->
+    case binary:at(Bin, Size - 1) of
+        Char when ?IS_WS(Char) -> size_without_trailing_ws(Bin, Size - 1);
+        _ -> Size
+    end;
+size_without_trailing_ws(_Bin, 0) ->
+    0.
+
+%% True when the value ends with a backslash that escapes the byte after it.
+%% A backslash and the byte it escapes are consumed as a pair, so an escaped
+%% backslash does not count.
+ends_with_escape(<<>>) ->
+    false;
+ends_with_escape(<<$\\>>) ->
+    true;
+ends_with_escape(<<$\\, _, Rest/binary>>) ->
+    ends_with_escape(Rest);
+ends_with_escape(<<_, Rest/binary>>) ->
+    ends_with_escape(Rest).
+
+validate_hexstring(<<>>) ->
     ok;
-validate_hexstring([CH1, CH2 | Rest]) when ?IS_HEX_CHAR(CH1) andalso ?IS_HEX_CHAR(CH2) ->
+validate_hexstring(<<CH1, CH2, Rest/binary>>) when ?IS_HEX_CHAR(CH1) andalso ?IS_HEX_CHAR(CH2) ->
     validate_hexstring(Rest);
 validate_hexstring(_) ->
     throw(invalid_hexstring).
 
-parse_string([], Acc) ->
-    lists:reverse(Acc);
-parse_string([$\\, HexChar1, HexChar2 | Rest], Acc) when
+parse_string(<<>>, Acc) ->
+    Acc;
+parse_string(<<$\\, HexChar1, HexChar2, Rest/binary>>, Acc) when
     ?IS_HEX_CHAR(HexChar1) andalso ?IS_HEX_CHAR(HexChar2)
 ->
-    parse_string(Rest, [hex_char_to_int(HexChar1) * 16 + hex_char_to_int(HexChar2) | Acc]);
-parse_string([$\\, Char | Rest], Acc) when ?IS_ESCAPE_CHAR(Char) ->
-    parse_string(Rest, [Char | Acc]);
-parse_string([Char | Rest], Acc) when ?IS_EXT_STRING_CHAR(Char) ->
-    parse_string(Rest, [Char | Acc]);
-parse_string([Char | _Rest], _Acc) ->
+    Byte = hex_char_to_int(HexChar1) * 16 + hex_char_to_int(HexChar2),
+    parse_string(Rest, <<Acc/binary, Byte>>);
+parse_string(<<$\\, Char, Rest/binary>>, Acc) when ?IS_ESCAPE_CHAR(Char) ->
+    parse_string(Rest, <<Acc/binary, Char>>);
+parse_string(<<Char, Rest/binary>>, Acc) when ?IS_EXT_STRING_CHAR(Char) ->
+    parse_string(Rest, <<Acc/binary, Char>>);
+%% UTFMB: a multi-byte UTF-8 character. The match fails on a malformed sequence.
+parse_string(<<Char/utf8, Rest/binary>>, Acc) when Char >= 16#80 ->
+    parse_string(Rest, <<Acc/binary, Char/utf8>>);
+parse_string(<<Char, _Rest/binary>>, _Acc) ->
     throw({invalid_string_char, Char}).
 
 hex_char_to_int(HexChar) when HexChar >= $0 andalso HexChar =< $9 ->
@@ -234,29 +303,28 @@ hex_char_to_int(HexChar) when HexChar >= $A andalso HexChar =< $F ->
 rdn_to_string(RDN) ->
     lists:join("+", lists:map(fun attr_value_to_string/1, RDN)).
 
+attr_value_to_string({Attr, {hexstring, HexString}}) ->
+    [Attr, "=#", HexString];
 attr_value_to_string({Attr, Value}) ->
-    [Attr, "=", value_to_string(Value)].
+    [Attr, "=", escape_value(iolist_to_binary(Value))].
 
-value_to_string({hexstring, HexString}) ->
-    [$# | HexString];
-value_to_string(" " ++ Rest) ->
-    [$\\, " " | do_value_to_string(Rest)];
-value_to_string(Value) ->
-    do_value_to_string(Value).
+%% A leading space, a trailing space, the special characters, and every byte
+%% outside the string character set are escaped.
+escape_value(<<$\s, Rest/binary>>) ->
+    [$\\, $\s | escape_chars(Rest)];
+escape_value(Value) ->
+    escape_chars(Value).
 
-do_value_to_string([]) ->
+escape_chars(<<>>) ->
     [];
-%% do not escape space in the middle of a value
-do_value_to_string([16#20, Char | Rest]) ->
-    [16#20 | do_value_to_string([Char | Rest])];
-do_value_to_string([Char | Rest]) when ?IS_ESCAPE_CHAR(Char) ->
-    [$\\, Char | do_value_to_string(Rest)];
-do_value_to_string([Char | Rest]) when ?IS_STRING_CHAR(Char) ->
-    [Char | do_value_to_string(Rest)];
-do_value_to_string([Char | Rest]) when Char >= 0 andalso Char =< 16#FF ->
-    [$\\, to_hex_char(Char div 16), to_hex_char(Char rem 16) | do_value_to_string(Rest)];
-do_value_to_string([Char | _Rest]) ->
-    throw({invalid_string_char, Char}).
+escape_chars(<<$\s, Rest/binary>>) when Rest =/= <<>> ->
+    [$\s | escape_chars(Rest)];
+escape_chars(<<Char, Rest/binary>>) when ?IS_ESCAPE_CHAR(Char) ->
+    [$\\, Char | escape_chars(Rest)];
+escape_chars(<<Char, Rest/binary>>) when ?IS_STRING_CHAR(Char) ->
+    [Char | escape_chars(Rest)];
+escape_chars(<<Char, Rest/binary>>) ->
+    [$\\, to_hex_char(Char div 16), to_hex_char(Char rem 16) | escape_chars(Rest)].
 
 to_hex_char(In) when In >= 0 andalso In =< 9 ->
     $0 + In;

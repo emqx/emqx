@@ -81,6 +81,7 @@ create_state(
         CacheKeyTemplate = emqx_auth_template:cache_key_template(
             lists:uniq(BaseDNVars ++ FilterVars ++ PasswordVars)
         ),
+        {ok, ClientAttrs} ?= compile_client_attrs(Config),
         AclAttributeNames = maps:with(
             [
                 publish_attribute,
@@ -100,7 +101,9 @@ create_state(
                 base_dn_template => BaseDNTemplate,
                 filter_template => FilterTemplate,
                 password_template => PasswordTemplate,
-                resource_id => ResourceId
+                resource_id => ResourceId,
+                client_attrs => ClientAttrs,
+                require_client_attrs => maps:get(require_client_attrs, Config, false)
             })
         ),
         ResourceConfig = emqx_authn_utils:cleanup_resource_config(
@@ -113,9 +116,19 @@ create_state(
                 subscribe_attribute,
                 all_attribute,
                 acl_rule_attribute,
-                acl_ttl_attribute
+                acl_ttl_attribute,
+                client_attrs,
+                require_client_attrs
             ],
             Config
         ),
         {ok, ResourceConfig, State}
     end.
+
+compile_client_attrs(#{require_client_attrs := true, client_attrs := []}) ->
+    {error, #{
+        reason => require_client_attrs_without_client_attrs,
+        explain => <<"require_client_attrs is true, but client_attrs has no entries">>
+    }};
+compile_client_attrs(Config) ->
+    emqx_authn_ldap_client_attrs:compile(maps:get(client_attrs, Config, [])).

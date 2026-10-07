@@ -13,3 +13,59 @@ member: uid=mqttuser0001,ou=testdevice,dc=emqx,dc=io
 member: uid=mqttuser0003,ou=testdevice,dc=emqx,dc=io
 member: uid=mqttuser0005,ou=testdevice,dc=emqx,dc=io
 
+
+## groups for mqttgroupuser, in the shape Active Directory returns in memberOf:
+## full DNs, a group name that is a prefix of another (GROUP-X and GROUP-X-ADMIN),
+## a mixed-case name, and OU paths of different depth.
+## mqttgroupuser is a member of every group below except GROUP-X.
+dn: ou=Resource Groups,ou=Groups,dc=emqx,dc=io
+objectclass: organizationalUnit
+objectclass: top
+ou: Resource Groups
+
+dn: ou=Tier-1,ou=Groups,dc=emqx,dc=io
+objectclass: organizationalUnit
+objectclass: top
+ou: Tier-1
+
+dn: cn=GROUP-X,ou=Resource Groups,ou=Groups,dc=emqx,dc=io
+cn: GROUP-X
+objectclass: groupOfNames
+objectclass: top
+member: uid=mqttuser0002,ou=testdevice,dc=emqx,dc=io
+
+dn: cn=Employees-T1,ou=Resource Groups,ou=Groups,dc=emqx,dc=io
+cn: Employees-T1
+objectclass: groupOfNames
+objectclass: top
+member: uid=mqttgroupuser,ou=groupmember,dc=emqx,dc=io
+
+dn: cn=GROUP-X-ADMIN,ou=Resource Groups,ou=Groups,dc=emqx,dc=io
+cn: GROUP-X-ADMIN
+objectclass: groupOfNames
+objectclass: top
+member: uid=mqttgroupuser,ou=groupmember,dc=emqx,dc=io
+
+dn: cn=GROUP-Y,ou=Resource Groups,ou=Groups,dc=emqx,dc=io
+cn: GROUP-Y
+objectclass: groupOfNames
+objectclass: top
+member: uid=mqttgroupuser,ou=groupmember,dc=emqx,dc=io
+
+dn: cn=GROUP-Z,ou=Resource Groups,ou=Groups,dc=emqx,dc=io
+cn: GROUP-Z
+objectclass: groupOfNames
+objectclass: top
+member: uid=mqttgroupuser,ou=groupmember,dc=emqx,dc=io
+
+dn: cn=Group-Mixed-Case,ou=Resource Groups,ou=Groups,dc=emqx,dc=io
+cn: Group-Mixed-Case
+objectclass: groupOfNames
+objectclass: top
+member: uid=mqttgroupuser,ou=groupmember,dc=emqx,dc=io
+
+dn: cn=GROUP-P,ou=Tier-1,ou=Groups,dc=emqx,dc=io
+cn: GROUP-P
+objectclass: groupOfNames
+objectclass: top
+member: uid=mqttgroupuser,ou=groupmember,dc=emqx,dc=io

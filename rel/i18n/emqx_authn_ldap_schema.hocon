@@ -51,4 +51,85 @@ acl_ttl_attribute.desc:
 acl_ttl_attribute.label:
 """ACL TTL Attribute"""
 
+client_attrs.desc:
+"""Set client attributes from the attributes of the user's LDAP entry.
+Each entry reads one directory attribute, selects one of its values, extracts a component of that value, and sets the result as one client attribute.
+Authorization rules can then match the client attribute, for example `{allow, {client_attr, "grp_x", "GROUP-X"}, all, ["plant1/#"]}`.
+
+Several entries can set attributes for the same client.
+To grant permissions per group, write one entry per group, each with its own `set_as_attr`:
+
+```
+client_attrs = [
+  {attribute = "memberOf", set_as_attr = "grp_x", select = ["^CN=GROUP-X,"], extract = cn}
+  {attribute = "memberOf", set_as_attr = "grp_y", select = ["^CN=GROUP-Y,"], extract = cn}
+]
+```
+
+An entry whose `select` patterns match no value sets no attribute. This is not an error. Use `require_client_attrs` to deny such clients.
+
+Limitations:
+- Nested groups are not resolved. In Active Directory, `memberOf` holds direct memberships only. Transitive membership needs a matching-rule-in-chain query (OID `1.2.840.113556.1.4.1941`), which this feature does not run.
+- Group membership must be an attribute of the user's entry, such as `memberOf`. A directory that records membership only in the group entries (`member` or `uniqueMember`) is not supported."""
+
+client_attrs.label:
+"""Client Attributes"""
+
+client_attr.desc:
+"""One client attribute set from a directory attribute."""
+
+client_attr_attribute.desc:
+"""The name of the directory attribute to read, for example `memberOf`.
+The name must be an LDAP attribute name: a letter followed by letters, digits and `-`, or a numeric OID such as `2.5.4.3`. It may be followed by options such as `;binary`.
+The name is matched case-insensitively. When the user's entry has no such attribute, this entry sets no client attribute."""
+
+client_attr_attribute.label:
+"""Directory Attribute"""
+
+client_attr_set_as_attr.desc:
+"""The name of the client attribute to set.
+It must begin with a letter or a digit and may contain letters, digits, `-` and `_`."""
+
+client_attr_set_as_attr.label:
+"""Client Attribute Name"""
+
+client_attr_select.desc:
+"""An ordered list of regular expressions (Perl-compatible syntax) that select one value of the directory attribute.
+The patterns are tried in the configured order. For each pattern, the values are tried in the order the directory returned them. The first value that matches the current pattern is selected, and the remaining patterns are not tried.
+
+A pattern is matched against the whole attribute value. For `memberOf` this is the full DN of the group, for example `CN=GROUP-X,OU=Resource Groups,DC=example,DC=com`.
+Anchor the pattern at both ends of the group name: `^CN=GROUP-X,`.
+A pattern without these anchors, such as `CN=GROUP-X`, also matches `CN=GROUP-X-ADMIN,OU=...` and grants that user the permissions of `GROUP-X`.
+
+Matching is case-sensitive. Active Directory compares names case-insensitively and can return a different casing than the one in your configuration. To match case-insensitively, start the pattern with `(?i)`, for example `(?i)^CN=group-x,`."""
+
+client_attr_select.label:
+"""Select Patterns"""
+
+client_attr_extract.desc:
+"""What to set as the client attribute when a `select` pattern matches a value.
+- `value`: the whole selected value.
+- `cn`: the value of the `CN` in the first RDN of a DN value. For `CN=GROUP-X,OU=Resource Groups,DC=example,DC=com` this is `GROUP-X`. When the value is not a DN, or its first RDN has no `CN`, this entry sets no client attribute.
+- `literal`: the string in the `literal` field. The selected value only decides whether the attribute is set.
+
+A value taken from the directory keeps the casing the directory returned."""
+
+client_attr_extract.label:
+"""Extract"""
+
+client_attr_literal.desc:
+"""The string to set as the client attribute when `extract` is `literal`, for example `grp123`.
+Set it only when `extract` is `literal`."""
+
+client_attr_literal.label:
+"""Literal Value"""
+
+require_client_attrs.desc:
+"""When `true`, deny a client for which no entry in `client_attrs` sets a client attribute.
+When `false`, authentication of such a client succeeds without client attributes from LDAP.
+The check applies to the `client_attrs` entries as a whole: a client is allowed when at least one entry sets an attribute."""
+
+require_client_attrs.label:
+"""Require Client Attributes"""
+
 }
