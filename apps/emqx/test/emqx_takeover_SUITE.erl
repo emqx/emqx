@@ -1046,7 +1046,7 @@ session takeover (instead of waiting up to 15s for the stats_timer).
 t_chan_info_refreshed_after_takeover_replay(Config) ->
     case ?config(persistence_enabled, Config) of
         true ->
-            {skip, "Classic session only — DS uses seqno_q*/n_streams stats"};
+            {skip, "Classic session only - DS uses seqno_q*/n_streams stats"};
         _ ->
             do_chan_info_refreshed_after_takeover_replay(Config)
     end.
