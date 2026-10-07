@@ -264,15 +264,20 @@ sha256_binding_ok(Sha256) when is_binary(Sha256) ->
     true.
 
 do_allow_installation(NameVsn0, Sha256) ->
-    NameVsn = bin(NameVsn0),
-    Entry = #{
-        expires_at => erlang:monotonic_time(millisecond) + allow_ttl_ms(),
-        sha256 => Sha256
-    },
-    Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
-    Allowed = (prune_expired(Allowed0))#{NameVsn => Entry},
-    application:set_env(?APP, ?allowed_installations, Allowed),
-    ok.
+    case sha256_binding_ok(Sha256) of
+        false ->
+            {error, sha256_required};
+        true ->
+            NameVsn = bin(NameVsn0),
+            Entry = #{
+                expires_at => erlang:monotonic_time(millisecond) + allow_ttl_ms(),
+                sha256 => Sha256
+            },
+            Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
+            Allowed = (prune_expired(Allowed0))#{NameVsn => Entry},
+            application:set_env(?APP, ?allowed_installations, Allowed),
+            ok
+    end.
 
 %% Note: this is only used for the HTTP API.
 %% Returns true iff a non-expired allow entry exists for `NameVsn'.
