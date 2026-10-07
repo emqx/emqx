@@ -103,7 +103,8 @@ t_audit_redaction(_) ->
             ),
 
             emqx_ctl:register_command(missing_callback, {lists, reverse}),
-            ok = emqx_ctl:run_command(["missing_callback", "plain", "value"]),
+            {error, {bad_cli_return, ["value", "plain"]}} =
+                emqx_ctl:run_command(["missing_callback", "plain", "value"]),
             ?assertMatch(
                 #{args := [<<"******">>, <<"******">>]},
                 get(audit_log)
@@ -169,16 +170,21 @@ t_usage_is_not_audited(_) ->
     ).
 
 -doc """
-A handler which ends in a print comprehension returns a list. `run_command/2`
-returns `ok` for it, so `bin/nodetool` exits 0, and audits it at `info` level.
+A handler which returns a value other than `ok`, `{ok, _}` or `{error, _}`,
+such as the list from a print comprehension, breaks the handler contract.
+`run_command/2` returns `{error, {bad_cli_return, Value}}` for it, so
+`bin/nodetool` exits 1, and audits it at `error` level.
 """.
-t_print_list_result_is_ok(_) ->
+t_bad_return_is_error(_) ->
     with_ctl_server(
         fun(_CtlSrv) ->
             emqx_ctl:register_command(audit, {?MODULE, audit_fun}),
             emqx_ctl:register_command(print_list, {?MODULE, print_list_fun}),
-            ?assertEqual(ok, emqx_ctl:run_command(["print_list", "arg"])),
-            ?assertEqual(info, get(audit_level))
+            ?assertEqual(
+                {error, {bad_cli_return, [ok, ok]}},
+                emqx_ctl:run_command(["print_list", "arg"])
+            ),
+            ?assertEqual(error, get(audit_level))
         end
     ).
 

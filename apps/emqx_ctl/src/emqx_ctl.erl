@@ -459,14 +459,13 @@ prune_unnecessary_log(Log) ->
         Log1 -> {ok, Log1}
     end.
 
-%% Map a command handler's return value to the `run_command/2` result.
+%% A command handler must return `ok` or `{error, Reason}`.
 %% `{ok, Value}` is kept because `bin/nodetool eval` prints `Value`.
-%% `{error, Reason}` is kept so that `bin/nodetool` exits 1.
-%% Any other value, such as the list returned by a print comprehension, means success.
+%% Any other value is a handler bug, so `bin/nodetool` exits 1.
 normalize_result(ok) -> ok;
 normalize_result({ok, _} = Result) -> Result;
 normalize_result({error, _} = Result) -> Result;
-normalize_result(_) -> ok.
+normalize_result(Other) -> {error, {bad_cli_return, Other}}.
 
 audit_level(ok, _Duration) -> info;
 audit_level({ok, _}, _Duration) -> info;
