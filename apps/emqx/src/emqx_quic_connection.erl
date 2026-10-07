@@ -13,6 +13,10 @@
 
 -behaviour(quicer_connection).
 
+%% `do_new_conn/3' traps exits and links to the control stream it starts, so
+%% the wait for that stream ends on its ready message or on its exit.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -export([
     init/1,
     new_conn/3,
@@ -339,7 +343,7 @@ cnt_id(control_packet) ->
 
 -spec probe(pid(), timeout()) -> quicer:probe_res().
 probe(Conn, Timeout) ->
-    gen_server:call(Conn, {probe, Timeout}).
+    gen_server:call(Conn, {probe, Timeout}, 5000).
 
 %%%
 %%%  Internals
