@@ -957,6 +957,84 @@ t_state_commit_conflict(_Config) ->
         []
     ).
 
+%% This testcase verifies what happens when session teardown is
+%% interrupted in the middle.
+%%
+%% Expected behavior: next connection continues to tear down the old
+%% session, then starts from scratch.
+t_restore_half_closed(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 1}).
+t_restore_half_closed(Config) ->
+    [Node1] = ?config(cluster_nodes, Config),
+    Port = get_mqtt_port(Node1, tcp),
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    ?check_trace(
+        begin
+            %% Inject an error that will leave session in half-closed state:
+            ?inject_crash(
+                #{?snk_kind := ?sessds_teardown_session},
+                snabbkaffe_nemesis:recover_after(1)
+            ),
+            %% 1. Start first incarnation of the client:
+            Cli1 = start_connect_client(#{
+                port => Port,
+                clientid => ClientId
+            }),
+            {ok, _, _} = emqtt:subscribe(Cli1, <<"foo/+">>, ?QOS_1),
+            ok = ?ON(Node1, emqx_persistent_session_ds:sync(ClientId)),
+            %% Verify that routes exist:
+            ?assertMatch(
+                [_],
+                ?ON(Node1, emqx_persistent_session_ds_router:topics())
+            ),
+            %% Disconnect session, while setting expiry interval to 0.
+            %% This should trigger session destruction:
+            RCSuccess = 0,
+            ok = emqtt:disconnect(Cli1, RCSuccess, #{'Session-Expiry-Interval' => 0}),
+            %% Session should end up as offline and half-closed:
+            %%
+            %% NOTE: `hc := 0' check means will message should not be
+            %% discarded, which is the case for normal terminate:
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    #{s := #{metadata := #{hc := 0}}, '_alive' := false},
+                    ?ON(Node1, emqx_persistent_session_ds:print_session(ClientId))
+                )
+            ),
+            %% Routes still linger (however, in reality their state is
+            %% undefined):
+            ?assertMatch(
+                [_],
+                ?ON(Node1, emqx_persistent_session_ds_router:topics())
+            ),
+            %% 2. Reconnect session. It should finish cleanups for the
+            %% previous incarnation and start from scratch:
+            {_Cli2, {ok, _}} = ?wait_async_action(
+                start_connect_client(#{
+                    port => Port,
+                    clientid => ClientId,
+                    clean_start => false
+                }),
+                #{?snk_kind := ?sessds_teardown_session}
+            ),
+            %% Old routes are gone:
+            ?assertMatch(
+                [],
+                ?ON(Node1, emqx_persistent_session_ds_router:topics())
+            ),
+            %% Session state is clean:
+            ok = ?ON(Node1, emqx_persistent_session_ds:sync(ClientId)),
+            #{s := #{subscriptions := Subs, metadata := Meta}, '_alive' := {true, _}} = ?ON(
+                Node1, emqx_persistent_session_ds:print_session(ClientId)
+            ),
+            ?assertNot(maps:is_key(hc, Meta)),
+            ?assertEqual(0, maps:size(Subs))
+        end,
+        []
+    ).
+
 t_fuzz(init, Config) ->
     start_local(?FUNCTION_NAME, Config).
 t_fuzz(_Config) ->

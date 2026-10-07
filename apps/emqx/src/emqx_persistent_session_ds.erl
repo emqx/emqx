@@ -303,16 +303,19 @@ NOTE: tnis function is called during takeover with clean start = 1.
 """.
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID, s := S}) ->
+    %% TODO: in both clauses KeepWillMessage=true flag was chosen
+    %% according to the "most likely" context. This should be decided
+    %% by the caller instead.
     warn_if_error(
         ClientID,
         sessds_failed_to_destroy_session,
-        do_session_drop(ClientID, S, destroy, false)
+        do_session_drop(ClientID, S, destroy, true)
     );
 destroy(#{clientid := ClientID}) ->
     warn_if_error(
         ClientID,
         sessds_failed_to_destroy_session,
-        session_drop(ClientID, '_', destroy, false)
+        session_drop(ClientID, '_', destroy, true)
     ).
 
 -doc """
@@ -843,6 +846,7 @@ delete its state record.
 """.
 -spec teardown_session(id(), emqx_persistent_session_ds_state:t()) -> ok | emqx_ds:error(_).
 teardown_session(SessionId, S) ->
+    ?tp(?sessds_teardown_session, #{client_id => SessionId}),
     {true, DelFlags} = emqx_persistent_session_ds_state:is_half_closed(S),
     ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S),
     ok = emqx_persistent_session_ds_gc_timer:delete(SessionId),
@@ -1083,9 +1087,10 @@ terminate(ClientInfo, Reason, Session = #{id := Id, s := S0, will_msg := MaybeWi
                 %% is 0 ... the original Session is ended on the
                 %% takeover.
                 %%
-                %% NOTE: we do it here instead of leaving it to CM as
-                %% to avoid creating the third process, racing with
-                %% both current and new channel processes.
+                %% NOTE: this branch is normally unreachable, as
+                %% channel logic checks session expiry interval as
+                %% well, and calls `session:destroy', bypassing
+                %% terminate.
                 do_session_drop(Id, S0, expired, true);
             _ ->
                 maybe

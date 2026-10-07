@@ -1951,7 +1951,7 @@ interval(will_message, #channel{will_msg = WillMsg}) ->
 terminate(_, #channel{conn_state = idle} = _Channel) ->
     ok;
 terminate(normal, Channel) ->
-    run_terminate_hook(normal, Channel),
+    _ = run_terminate_hook(normal, Channel),
     ok;
 terminate({shutdown, Reason}, Channel) when
     Reason =:= expired orelse
@@ -1959,11 +1959,11 @@ terminate({shutdown, Reason}, Channel) when
         Reason =:= kicked orelse
         Reason =:= discarded
 ->
-    run_terminate_hook(Reason, Channel),
+    _ = run_terminate_hook(Reason, Channel),
     ok;
 terminate(Reason, Channel) ->
     Channel1 = maybe_publish_will_msg(?chan_terminating, Channel),
-    run_terminate_hook(Reason, Channel1),
+    _ = run_terminate_hook(Reason, Channel1),
     ok.
 
 run_terminate_hook(_Reason, #channel{session = undefined} = Chan) ->
