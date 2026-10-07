@@ -870,7 +870,11 @@ log_bind_portability(Id, Ip, Bind) ->
     IsLocal = is_local_address(Ip),
     %% Count stopped nodes too: a stopped node applies the replicated config
     %% when it comes back, and then cannot bind the address either.
-    IsSingleNode = length(emqx:cluster_nodes(all)) =:= 1,
+    IsSingleNode =
+        case emqx:cluster_nodes(all) of
+            [_] -> true;
+            _ -> false
+        end,
     do_log_bind_portability(Id, Bind, IsLocal, IsSingleNode).
 
 do_log_bind_portability(Id, Bind, true = _IsLocal, true = _IsSingleNode) ->
