@@ -585,7 +585,7 @@ t_parse_incoming_fragment_then_bad_subqos_idle(_) ->
 
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
-    Serialize = #{version => 5, max_size => 16#FFFF, strict_mode => false},
+    Serialize = #{version => 5, max_size => 16#FFFF},
     {[{binary, IoData}, {close, <<"bad_qos">>}], _St} =
         ?ws_conn:handle_incoming([FrameError], st(#{serialize => Serialize})),
     ?assertEqual(<<224, 2, 129, 0>>, iolist_to_binary(IoData)).

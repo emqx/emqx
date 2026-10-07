@@ -247,11 +247,9 @@ t_build_matches_frame(_Config) ->
         },
         Common
     ),
-    %% Strict before CONNECT when the zone says so, never after.
-    ?assertMatch(#{strict_mode := true}, maps:get(serialize_opts, PreConnect)),
     maps:foreach(
         fun(_ProtoVer, #{serialize_opts := SerializeOpts}) ->
-            ?assertMatch(#{strict_mode := false, max_size := ?MAX_PACKET_SIZE}, SerializeOpts)
+            ?assertMatch(#{max_size := ?MAX_PACKET_SIZE}, SerializeOpts)
         end,
         Common
     ).
@@ -275,7 +273,7 @@ t_shared_after_connect(Config) ->
             ),
             {_ParseState, SerializeOpts} = frame_state(Config, C1),
             ?assertMatch(
-                #{version := V, strict_mode := false, max_size := ?MAX_PACKET_SIZE},
+                #{version := V, max_size := ?MAX_PACKET_SIZE},
                 SerializeOpts
             ),
             ok = assert_pubsub(C1, C2),
@@ -318,7 +316,7 @@ t_client_max_packet_size(Config) ->
     ?assertEqual(#{initial_parse_state => true, serialize_opts => false}, held_shared(Small, 5)),
     ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(Default, 5)),
     {_, SmallSerialize} = frame_state(Config, Small),
-    ?assertMatch(#{max_size := 1024, strict_mode := false}, SmallSerialize),
+    ?assertMatch(#{max_size := 1024}, SmallSerialize),
     {_, DefaultSerialize} = frame_state(Config, Default),
     ?assertMatch(#{max_size := ?MAX_PACKET_SIZE}, DefaultSerialize),
     Topic = <<"t/max_packet_size">>,
@@ -334,15 +332,15 @@ t_client_max_packet_size(Config) ->
     ok = emqtt:stop(Default).
 
 -doc """
-Before CONNECT a connection holds the shared pre-CONNECT terms, and the
-serializer takes `strict_mode` from the zone. After CONNECT the serializer
-has `strict_mode = false`.
+Before CONNECT a connection holds the shared pre-CONNECT terms: a parser that
+is strict when the zone says so, and a serializer without a strict mode.
 """.
 t_pre_connect_strict_mode(Config) ->
     {ok, _} = emqx:update_config([mqtt, strict_mode], true),
     #{connect := PreConnect} = persistent_term:get(?FRAME_KEY(default)),
     #{initial_parse_state := PreParseState, serialize_opts := PreSerialize} = PreConnect,
-    ?assertMatch(#{strict_mode := true}, PreSerialize),
+    ?assertMatch(#{strict_mode := true}, emqx_connection_conf:frame_opts(default)),
+    ?assertNot(is_map_key(strict_mode, PreSerialize)),
     {Sock, Pid} = raw_connect(Config),
     ?assertEqual({PreParseState, PreSerialize}, frame_state(Config, Pid)),
     ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_pre_connect(Pid)),
@@ -358,7 +356,7 @@ t_pre_connect_strict_mode(Config) ->
         emqx_frame:parse(ConnAckBin, emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}))
     ),
     {_, PostSerialize} = frame_state(Config, Pid),
-    ?assertMatch(#{strict_mode := false, version := ?MQTT_PROTO_V5}, PostSerialize),
+    ?assertMatch(#{version := ?MQTT_PROTO_V5}, PostSerialize),
     ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(Pid, 5)),
     ok = gen_tcp:close(Sock).
 
@@ -718,7 +716,7 @@ frame_state(_Config, Client) ->
     Pid = conn_pid(Client),
     Elements = state_elements(sys:get_state(Pid)),
     [ParseState] = [unwrap(E) || E <- Elements, is_parse_state(unwrap(E))],
-    [SerializeOpts] = [E || E = #{version := _, strict_mode := _} <- Elements],
+    [SerializeOpts] = [E || E = #{version := _, max_size := _} <- Elements],
     {ParseState, SerializeOpts}.
 
 held_shared(Client, ProtoVer) ->

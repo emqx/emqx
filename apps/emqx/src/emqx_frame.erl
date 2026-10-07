@@ -80,7 +80,11 @@
     %% There's a full packet.
     | {emqx_types:packet(), binary(), parse_state_initial()}.
 
--type serialize_opts() :: options().
+%% The serializer reads only these options.
+-type serialize_opts() :: #{
+    version := emqx_types:proto_ver(),
+    max_size := 1..?MAX_PACKET_SIZE
+}.
 
 -define(DEFAULT_OPTIONS, #{
     strict_mode => true,
@@ -90,6 +94,9 @@
     version => ?MQTT_PROTO_V4,
     expect_connect => false
 }).
+
+%% Never strict mode for serializer.
+-define(NON_STRICT, false).
 
 -define(PARSE_ERR(Reason), ?THROW_FRAME_ERROR(Reason)).
 -define(SERIALIZE_ERR(Reason), ?THROW_SERIALIZE_ERROR(Reason)).
@@ -1163,35 +1170,38 @@ serialize_fun() -> serialize_fun(?DEFAULT_OPTIONS).
 
 serialize_fun(#mqtt_packet_connect{proto_ver = ProtoVer, properties = ConnProps}) ->
     MaxSize = get_property('Maximum-Packet-Size', ConnProps, ?MAX_PACKET_SIZE),
-    serialize_fun(#{version => ProtoVer, max_size => MaxSize, strict_mode => false});
-serialize_fun(#{version := Ver, max_size := MaxSize, strict_mode := StrictMode}) ->
+    serialize_fun(#{version => ProtoVer, max_size => MaxSize});
+serialize_fun(#{version := Ver, max_size := MaxSize}) ->
     fun(Packet) ->
-        IoData = serialize(Packet, Ver, StrictMode),
+        IoData = serialize(Packet, Ver, ?NON_STRICT),
         case is_too_large(IoData, MaxSize) of
             true -> <<>>;
             false -> IoData
         end
     end.
 
+-doc "Return the serializer options of a connection that starts under the given parser options.".
+-spec initial_serialize_opts(options()) -> serialize_opts().
 initial_serialize_opts(Opts) ->
-    maps:merge(?DEFAULT_OPTIONS, Opts).
+    #{version := Ver, max_size := MaxSize} = maps:merge(?DEFAULT_OPTIONS, Opts),
+    #{version => Ver, max_size => MaxSize}.
 
 serialize_opts(ProtoVer, MaxSize) ->
-    #{version => ProtoVer, max_size => MaxSize, strict_mode => false}.
+    #{version => ProtoVer, max_size => MaxSize}.
 
 serialize_opts(#mqtt_packet_connect{proto_ver = ProtoVer, properties = ConnProps}) ->
     MaxSize = get_property('Maximum-Packet-Size', ConnProps, ?MAX_PACKET_SIZE),
-    #{version => ProtoVer, max_size => MaxSize, strict_mode => false}.
+    #{version => ProtoVer, max_size => MaxSize}.
 
-serialize_pkt(Packet, #{version := Ver, max_size := MaxSize, strict_mode := StrictMode}) ->
-    IoData = serialize(Packet, Ver, StrictMode),
+serialize_pkt(Packet, #{version := Ver, max_size := MaxSize}) ->
+    IoData = serialize(Packet, Ver, ?NON_STRICT),
     case is_too_large(IoData, MaxSize) of
         true -> <<>>;
         false -> IoData
     end.
 
-serialize_iovec(Packet, #{version := Ver, max_size := MaxSize, strict_mode := StrictMode}) ->
-    IoVec = serialize_iovec(Packet, Ver, StrictMode),
+serialize_iovec(Packet, #{version := Ver, max_size := MaxSize}) ->
+    IoVec = serialize_iovec(Packet, Ver, ?NON_STRICT),
     case is_too_large(IoVec, MaxSize) of
         true -> [];
         false -> IoVec
@@ -1199,10 +1209,10 @@ serialize_iovec(Packet, #{version := Ver, max_size := MaxSize, strict_mode := St
 
 -spec serialize(emqx_types:packet()) -> iodata().
 serialize(Packet) ->
-    serialize(Packet, ?MQTT_PROTO_V4, false).
+    serialize(Packet, ?MQTT_PROTO_V4, ?NON_STRICT).
 
 serialize(Packet, Ver) ->
-    serialize(Packet, Ver, false).
+    serialize(Packet, Ver, ?NON_STRICT).
 
 -spec serialize(emqx_types:packet(), emqx_types:proto_ver(), boolean()) -> iodata().
 serialize(
