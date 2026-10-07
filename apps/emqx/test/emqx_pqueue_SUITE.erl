@@ -156,10 +156,10 @@ t_filter_empty_cqueue(_) ->
     ?assertEqual([], ?PQ:to_list(Empty)),
     {empty, _} = ?PQ:out_p(Empty).
 
-t_highest(_) ->
-    0 = ?PQ:highest(?PQ:new()),
-    0 = ?PQ:highest(?PQ:from_list([{0, default, a}, {0, default, b}])),
-    2 = ?PQ:highest(
+t_active_p(_) ->
+    0 = ?PQ:active_p(?PQ:new()),
+    0 = ?PQ:active_p(?PQ:from_list([{0, default, a}, {0, default, b}])),
+    2 = ?PQ:active_p(
         ?PQ:from_list([
             {0, default, a},
             {0, default, b},
@@ -180,8 +180,8 @@ t_shift(_) ->
     PQ1 = ?PQ:shift(PQ0),
     ?assertEqual(3, ?PQ:len(PQ1)),
     %% Highest priority changes after rotation
-    ?assertEqual(2, ?PQ:highest(PQ0)),
-    ?assertEqual(1, ?PQ:highest(PQ1)),
+    ?assertEqual(2, ?PQ:active_p(PQ0)),
+    ?assertEqual(1, ?PQ:active_p(PQ1)),
     ?assertEqual([{1, a}, {0, c}, {2, b}], ?PQ:to_list(PQ1)).
 
 t_fold(_) ->

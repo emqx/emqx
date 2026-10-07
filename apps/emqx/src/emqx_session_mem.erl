@@ -715,14 +715,16 @@ dequeue(
 Current dequeue policy depends on congestion status:
  * Total budget: no more than `max(MaxInflight, ?DEFAULT_BATCH_N)` outgoing messages
    in a single batch.
- * Inflight allowance: number of free inflight slots or `?DEFAULT_BATCH_N`, whichever
-   is higher.
+ * Inflight allowance: number of free inflight slots, or `?DEFAULT_BATCH_N` when
+   inflight is unlimited.
  * Expired and over-limit messages consume neither budget nor inflight allowance.
  * If uncongested, most common case:
    - QoS1/2 messages consume empty inflight slots.
    - QoS0 messages get into the batch.
-   - Once inflight is full a number of subsequent QoS0 messages gets into the batch,
-     until next in queue is QoS1/2.
+   - Once inflight is full, extract QoS0 from the queue while total budget allows,
+     bypassing QoS1/2. Note that if topic priorities are enabled and mqueue is a
+     priority queue, extraction stops if currently drained priority lane has no more
+     QoS0 messages.
    - Batch contains messages up to total budget.
  * If congested: every message (including QoS0) consumes inflight allowance (number
    of free slots) until the allowance is exhausted.
@@ -823,13 +825,7 @@ boolean_to_int(_) -> 0.
 dequeue_next(Allowance, Q) when Allowance > 0 ->
     emqx_mqueue:out(Q);
 dequeue_next(_, Q) ->
-    %% Once inflight fills, drain only the following run of QoS0 in queue order.
-    case emqx_mqueue:out(Q) of
-        {{value, #message{qos = ?QOS_0}}, _} = Result ->
-            Result;
-        _ ->
-            blocked
-    end.
+    emqx_mqueue:out_qos0(Q).
 
 finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
     Effect =
