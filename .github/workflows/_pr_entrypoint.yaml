@@ -185,7 +185,8 @@ jobs:
       - sanity-checks
     uses: ./.github/workflows/build_slim_packages.yaml
 
-  build_docker:
+  # One call per architecture, so the image tests wait for the amd64 build only.
+  build_docker_amd64:
     needs:
       - init
       - sanity-checks
@@ -193,6 +194,18 @@ jobs:
     with:
       profile: emqx-enterprise
       publish: false
+      archs: '["amd64"]'
+    secrets: inherit
+
+  build_docker_arm64:
+    needs:
+      - init
+      - sanity-checks
+    uses: ./.github/workflows/build_and_push_docker_images.yaml
+    with:
+      profile: emqx-enterprise
+      publish: false
+      archs: '["arm64"]'
     secrets: inherit
 
   spellcheck:
@@ -221,12 +234,12 @@ jobs:
   run_docker_tests:
     needs:
       - sanity-checks
-      - build_docker
+      - build_docker_amd64
     uses: ./.github/workflows/run_docker_tests.yaml
 
   run_helm_tests:
     needs:
       - sanity-checks
-      - build_docker
+      - build_docker_amd64
     uses: ./.github/workflows/run_helm_tests.yaml
     secrets: inherit
