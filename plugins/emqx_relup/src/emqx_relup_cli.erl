@@ -11,10 +11,12 @@ cmd(["list-supported-paths"]) ->
         [] ->
             emqx_ctl:print("no supported upgrade paths in priv catalog~n");
         Paths ->
-            [
-                emqx_ctl:print("~s -> ~s~n", [F, T])
-             || #{from_version := F, target_version := T} <- Paths
-            ]
+            lists:foreach(
+                fun(#{from_version := F, target_version := T}) ->
+                    emqx_ctl:print("~s -> ~s~n", [F, T])
+                end,
+                Paths
+            )
     end;
 cmd(["status"]) ->
     case emqx_relup_main:get_latest_upgrade_status() of

@@ -105,11 +105,11 @@ register_command(Cmd, MF, Opts) when is_atom(Cmd) ->
 unregister_command(Cmd) when is_atom(Cmd) ->
     cast({unregister_command, Cmd}).
 
-call(Req) -> gen_server:call(?SERVER, Req).
+call(Req) -> gen_server:call(?SERVER, Req, 5000).
 
 cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
--spec run_command(list(string())) -> ok | {error, term()}.
+-spec run_command(list(string())) -> ok | {ok, term()} | {error, term()}.
 run_command([]) ->
     run_command(help, []);
 run_command([Cmd | Args]) ->
@@ -121,7 +121,7 @@ run_command([Cmd | Args]) ->
             {error, cmd_not_found}
     end.
 
--spec run_command(cmd(), list(string())) -> ok | {error, term()}.
+-spec run_command(cmd(), list(string())) -> ok | {ok, term()} | {error, term()}.
 run_command(help, []) ->
     help();
 run_command(Cmd, Args) when is_atom(Cmd) ->
@@ -138,7 +138,7 @@ execute_command(Cmd, Args, {Mod, Fun} = CliHandler, Start) ->
     _ = erase(?USAGE_PRINT_NO_AUDIT),
     Result =
         try
-            apply(Mod, Fun, [Args])
+            normalize_result(apply(Mod, Fun, [Args]))
         catch
             _:Reason:Stacktrace ->
                 ?LOG_ERROR(#{
@@ -458,6 +458,14 @@ prune_unnecessary_log(Log) ->
         #{args := [<<"emqx:is_running()">>]} -> false;
         Log1 -> {ok, Log1}
     end.
+
+%% A command handler must return `ok` or `{error, Reason}`.
+%% `{ok, Value}` is kept because `bin/nodetool eval` prints `Value`.
+%% Any other value is a handler bug, so `bin/nodetool` exits 1.
+normalize_result(ok) -> ok;
+normalize_result({ok, _} = Result) -> Result;
+normalize_result({error, _} = Result) -> Result;
+normalize_result(Other) -> {error, {bad_cli_return, Other}}.
 
 audit_level(ok, _Duration) -> info;
 audit_level({ok, _}, _Duration) -> info;
