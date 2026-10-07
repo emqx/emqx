@@ -10,8 +10,11 @@
 
 -include_lib("emqx/include/logger.hrl").
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
     validate_name_vsn/1,
+    validate_pinned_plugins/1,
     with_valid_name/2,
     bin/1,
     parse_name_vsn/1,
@@ -59,6 +62,39 @@ validate_name_vsn(Name) when is_binary(Name) ->
     {error, "Name Length must =< 256"};
 validate_name_vsn(_) ->
     {error, "Name must be a string"}.
+
+-doc """
+Validate the `node.pinned_plugins` list.
+
+Each entry must be a valid name-vsn with a non-empty version, and no two
+entries may have the same plugin name.
+""".
+-spec validate_pinned_plugins([binary()]) -> ok | {error, map()}.
+validate_pinned_plugins(NameVsns) ->
+    case [NV || NV <- NameVsns, not is_pinnable_name_vsn(NV)] of
+        [] ->
+            Names = [hd(binary:split(NV, <<"-">>)) || NV <- NameVsns],
+            case Names -- lists:usort(Names) of
+                [] ->
+                    ok;
+                Duplicates ->
+                    {error, #{
+                        reason => duplicate_plugin_names,
+                        names => lists:usort(Duplicates)
+                    }}
+            end;
+        Bad ->
+            {error, #{
+                reason => bad_plugin_name_vsn,
+                name_vsns => Bad,
+                hint => <<"Expected <name>-<vsn>, for example my_plugin-1.0.0">>
+            }}
+    end.
+
+is_pinnable_name_vsn(NameVsn) when is_binary(NameVsn) ->
+    validate_name_vsn(NameVsn) =:= ok andalso binary:last(NameVsn) =/= $-;
+is_pinnable_name_vsn(_) ->
+    false.
 
 %% @doc Validate a package identifier before running an operation.
 -spec with_valid_name(term(), fun(() -> T)) -> T | {error, map()}.
