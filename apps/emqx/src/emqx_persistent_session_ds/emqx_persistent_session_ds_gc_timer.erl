@@ -93,9 +93,12 @@ handle_durable_timeout(SessionId, Cookie) ->
         end,
     case emqx_persistent_session_ds:expire_session(SessionId, SessionGuard) of
         ok ->
+            ok;
+        ?err_rec(Reason) ->
+            emqx_durable_timer:retry(Reason);
+        ?err_unrec(_) ->
+            %% Taken over
             ok
-        %% ?err_rec(Reason) ->
-        %%     emqx_durable_timer:retry(Reason)
     end.
 
 %%================================================================================

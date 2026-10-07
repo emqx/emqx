@@ -137,7 +137,7 @@ open(Generation, ClientId) ->
     emqx_persistent_session_ds_state:t(),
     emqx_persistent_session_ds_state:commit_opts()
 ) ->
-    emqx_persistent_session_ds_state:t().
+    {ok, emqx_persistent_session_ds_state:t()} | emqx_ds:error(_).
 commit(Generation, Rec0 = #{?id := ClientId, ?checkpoint_ref := Ref}, Opts) when
     is_reference(Ref)
 ->
@@ -146,35 +146,36 @@ commit(Generation, Rec0 = #{?id := ClientId, ?checkpoint_ref := Ref}, Opts) when
     case Opts of
         #{sync := false} ->
             %% This is another async checkpoint. Just ignore it.
-            Rec0;
+            {ok, Rec0};
         #{sync := true} ->
             %% Wait for the checkpoint to conclude, then commit again:
             receive
                 ?ds_tx_commit_reply(Ref, Reply) ->
-                    Rec =
-                        case emqx_ds:tx_commit_outcome(?DB, Ref, Reply) of
-                            {ok, _} ->
-                                Rec0;
-                            ?err_rec(Reason) ->
-                                ?tp(
-                                    warning,
-                                    ?sessds_commit_failure,
-                                    #{
-                                        recoverable => true,
-                                        reason => Reason,
-                                        client => ClientId
-                                    }
-                                ),
-                                Rec0#{?set_dirty}
-                        end,
-                    commit(Generation, Rec#{?checkpoint_ref := undefined}, Opts)
+                    Rec = Rec0#{?checkpoint_ref := undefined},
+                    case emqx_ds:tx_commit_outcome(?DB, Ref, Reply) of
+                        {ok, _} ->
+                            commit(Generation, Rec, Opts);
+                        ?err_rec(Reason) ->
+                            ?tp(
+                                warning,
+                                ?sessds_commit_failure,
+                                #{
+                                    recoverable => true,
+                                    reason => Reason,
+                                    client => ClientId
+                                }
+                            ),
+                            commit(Generation, Rec#{?set_dirty}, Opts);
+                        ?err_unrec(_) = Err ->
+                            Err
+                    end
             end
     end;
 commit(_Generation, Rec = #{?collection_dirty := false}, #{lifetime := L}) when
     L =/= takeover, L =/= new
 ->
     %% There's nothing to checkpoint.
-    Rec;
+    {ok, Rec};
 commit(
     Generation,
     Rec0 = #{
@@ -231,30 +232,20 @@ commit(
         {atomic, TXSerial, Rec} when NewGuard ->
             %% This is a new incarnation of the client. Update the
             %% guard:
-            Rec#{?collection_guard := TXSerial};
+            {ok, Rec#{?collection_guard := TXSerial}};
         {atomic, _TXSerial, Rec} ->
-            Rec;
+            {ok, Rec};
         {nop, Rec} ->
-            Rec;
+            {ok, Rec};
         {async, Ref, Rec} ->
-            Rec#{?checkpoint_ref := Ref};
-        {error, unrecoverable, {precondition_failed, Conflict}} when
-            Lifetime =:= terminate
-        ->
-            %% Don't interrupt graceful channel shut down even when
-            %% the guard is invalidated:
-            ?tp(warning, ?sessds_takeover_conflict, #{
-                id => ClientId, conflict => Conflict, channel => self()
-            }),
-            Rec0;
-        {error, Class, Reason} ->
-            error(
-                {failed_to_commit_session, #{
-                    id => ClientId,
-                    lifetime => Lifetime,
-                    Class => Reason
-                }}
-            )
+            {ok, Rec#{?checkpoint_ref := Ref}};
+        ?err_unrec(
+            {precondition_failed, [#{topic := [<<"g">> | _], expected := Expected, got := Got}]}
+        ) ->
+            %% Translate common error to a more readable form:
+            ?err_unrec({session_state_conflict, #{expected => Expected, got => Got}});
+        {error, _, _} = Err ->
+            Err
     end.
 
 -spec pmap_dirty_read(emqx_ds:generation(), atom(), emqx_persistent_session_ds:id()) -> map().

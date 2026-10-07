@@ -236,10 +236,17 @@ delete(SessId, Guard) when
     emqx_persistent_session_ds_state_v2:delete(generation(), SessId, Guard).
 
 -spec commit(t(), commit_opts()) ->
-    t().
+    {ok, t()} | ?err_unrec(_).
 commit(Rec, Opts = #{lifetime := _, sync := _}) ->
     emqx_ds_pmap:collection_check_sequence(Rec),
-    emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts).
+    case emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts) of
+        ?err_rec(_) ->
+            %% FIXME:
+            timer:sleep(1000),
+            commit(Rec, Opts);
+        Other ->
+            Other
+    end.
 
 -spec on_commit_reply(term(), t()) -> {ok, t()} | ignore | {error, _}.
 on_commit_reply(

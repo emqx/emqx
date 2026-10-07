@@ -16,6 +16,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 -include("emqx_persistent_message.hrl").
 
@@ -898,7 +899,7 @@ t_state_commit_conflict(_Config) ->
             A1 = emqx_persistent_session_ds_state:create_new(Id),
             _B1 = emqx_persistent_session_ds_state:create_new(Id),
             %%   Commit the A (should succeed):
-            A2 = emqx_persistent_session_ds_state:commit(A1, #{lifetime => new, sync => true}),
+            {ok, A2} = emqx_persistent_session_ds_state:commit(A1, #{lifetime => new, sync => true}),
             %% %%   Now B should not be able to commit:
             %% ?assertError(
             %%     {failed_to_commit_session, _},
@@ -906,29 +907,35 @@ t_state_commit_conflict(_Config) ->
             %% ),
             %%   A is still the owner:
             {0, A3} = emqx_persistent_session_ds_state:new_id(A2),
-            A4 = emqx_persistent_session_ds_state:commit(A3, #{lifetime => up, sync => true}),
+            {ok, A4} = emqx_persistent_session_ds_state:commit(A3, #{lifetime => up, sync => true}),
             %% 2. Now C takes over the session. It should invalidate A's
             %% claim.
             {ok, C1} = emqx_persistent_session_ds_state:open(Id),
-            C2 = emqx_persistent_session_ds_state:commit(C1, #{lifetime => takeover, sync => true}),
+            {ok, C2} = emqx_persistent_session_ds_state:commit(C1, #{
+                lifetime => takeover, sync => true
+            }),
             %%   A loses:
             {1, A5} = emqx_persistent_session_ds_state:new_id(A4),
-            ?assertError(
-                {failed_to_commit_session, _},
+            ?assertMatch(
+                ?err_unrec(_),
                 emqx_persistent_session_ds_state:commit(A5, #{lifetime => up, sync => true})
             ),
             %% 3. Now we emulate the situation where C went down gracefully,
             %% and D and E take over simulataneously:
             {1, C3} = emqx_persistent_session_ds_state:new_id(C2),
-            _ = emqx_persistent_session_ds_state:commit(C3, #{lifetime => terminate, sync => true}),
+            {ok, _} = emqx_persistent_session_ds_state:commit(C3, #{
+                lifetime => terminate, sync => true
+            }),
             {ok, D1} = emqx_persistent_session_ds_state:open(Id),
             {ok, E1} = emqx_persistent_session_ds_state:open(Id),
             %%   E commits first:
             {2, E2} = emqx_persistent_session_ds_state:new_id(E1),
-            E3 = emqx_persistent_session_ds_state:commit(E2, #{lifetime => takeover, sync => true}),
+            {ok, E3} = emqx_persistent_session_ds_state:commit(E2, #{
+                lifetime => takeover, sync => true
+            }),
             %%   D loses:
-            ?assertError(
-                {failed_to_commit_session, _},
+            ?assertMatch(
+                ?err_unrec(_),
                 emqx_persistent_session_ds_state:commit(D1, #{lifetime => takeover, sync => true})
             ),
             %% 4. Verify that commit with `lifetime => terminate'
@@ -936,15 +943,18 @@ t_state_commit_conflict(_Config) ->
             %%
             %%   F takes over:
             {ok, F1} = emqx_persistent_session_ds_state:open(Id),
-            _F2 = emqx_persistent_session_ds_state:commit(F1, #{lifetime => takeover, sync => true}),
-            %%   E tries to commit, it silently fails with a warning:
+            {ok, _F2} = emqx_persistent_session_ds_state:commit(F1, #{
+                lifetime => takeover, sync => true
+            }),
+            %%   E tries to commit, it fails:
             {3, E4} = emqx_persistent_session_ds_state:new_id(E3),
-            _ = emqx_persistent_session_ds_state:commit(E4, #{lifetime => terminate, sync => true}),
+            ?assertMatch(
+                ?err_unrec(_),
+                emqx_persistent_session_ds_state:commit(E4, #{lifetime => terminate, sync => true})
+            ),
             ok
         end,
-        fun(Trace) ->
-            ?assertMatch([_], ?of_kind(?sessds_takeover_conflict, Trace))
-        end
+        []
     ).
 
 t_fuzz(init, Config) ->

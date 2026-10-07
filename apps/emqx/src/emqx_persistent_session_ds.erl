@@ -294,18 +294,28 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 
 -doc """
 `emqx_session` behavior callback.
+
+NOTE: tnis function is called during takeover with clean start = 1.
 """.
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID, s := S}) ->
-    ok = do_session_drop(ClientID, S, destroy, false);
+    warn_if_error(
+        ClientID,
+        sessds_failed_to_destroy_session,
+        do_session_drop(ClientID, S, destroy, false)
+    );
 destroy(#{clientid := ClientID}) ->
-    session_drop(ClientID, '_', destroy, false).
+    warn_if_error(
+        ClientID,
+        sessds_failed_to_destroy_session,
+        session_drop(ClientID, '_', destroy, false)
+    ).
 
 -doc """
 API used to delete sessions which is used by GC timer.
 This function selectively deletes session with the matching guard and leaves its will message intact.
 """.
--spec expire_session(id(), emqx_persistent_session_ds_state:guard() | '_') -> ok.
+-spec expire_session(id(), emqx_persistent_session_ds_state:guard() | '_') -> ok | emqx_ds:error(_).
 expire_session(ClientID, Guard) ->
     session_drop(ClientID, Guard, expired, false).
 
@@ -789,15 +799,16 @@ Perform both stages of session deletion.
     ok | emqx_ds:error(_).
 do_session_drop(SessionId, S0, Reason, KeepWillMessage) ->
     ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
-    S =
-        case emqx_persistent_session_ds_state:is_half_closed(S0) of
-            false ->
-                prep_drop_session(S0, KeepWillMessage);
-            {true, _} ->
-                %% The session is already marked for deletion:
-                S0
-        end,
-    teardown_session(SessionId, S).
+    case emqx_persistent_session_ds_state:is_half_closed(S0) of
+        false ->
+            maybe
+                {ok, S} ?= prep_drop_session(S0, KeepWillMessage),
+                teardown_session(SessionId, S)
+            end;
+        {true, _} ->
+            %% Already marked for deletion:
+            teardown_session(SessionId, S0)
+    end.
 
 -doc """
 Put session into "deletion is in progress" state and update its
@@ -809,7 +820,7 @@ can't be restored until the teardown is finished (possibly by a
 competing process)
 """.
 -spec prep_drop_session(emqx_persistent_session_ds_state:t(), boolean()) ->
-    emqx_persistent_session_ds_state:t().
+    {ok, emqx_persistent_session_ds_state:t()} | emqx_ds:error(_).
 prep_drop_session(S0, KeepWillMessage) ->
     Flags =
         case KeepWillMessage of
@@ -1528,7 +1539,7 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
     %% set GC timer) are NOT atomic. If commit happens before timer is
     %% set, session won't be garbage collected by normal means.
     ok = emqx_durable_will:on_connect(ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg),
-    S = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
+    {ok, S} = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
     ok = emqx_persistent_session_ds_gc_timer:on_connect(
         ClientID,
         emqx_persistent_session_ds_state:get_guard(S),
@@ -1949,10 +1960,11 @@ set_timer(Timer, Time, Session) ->
 async_checkpoint(Session) ->
     commit(Session, #{lifetime => up, sync => false}).
 
+-spec commit(session(), emqx_persistent_session_ds_state:commit_opts()) -> session().
 commit(Session0 = #{s := S0}, Opts) ->
     ?tp(?sessds_commit, #{s => S0, opts => Opts}),
     S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0)),
-    S = emqx_persistent_session_ds_state:commit(S1, Opts),
+    {ok, S} = emqx_persistent_session_ds_state:commit(S1, Opts),
     Session = Session0#{s := S},
     cancel_state_commit_timer(Session).
 
@@ -1970,6 +1982,12 @@ ensure_state_commit_timer(#{s := S} = Session) ->
 cancel_state_commit_timer(#{?TIMER_COMMIT := TRef} = Session) ->
     emqx_utils:cancel_timer(TRef),
     Session#{?TIMER_COMMIT := undefined}.
+
+-spec warn_if_error(id(), term(), ok | emqx_ds:error(_)) -> ok.
+warn_if_error(Id, Msg, {error, Class, Reason}) ->
+    ?tp(warning, Msg, #{Class => Reason, clientid => Id});
+warn_if_error(_, _, ok) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Tests
