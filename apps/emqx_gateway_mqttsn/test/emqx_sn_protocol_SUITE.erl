@@ -3382,15 +3382,14 @@ t_puback_qos0_batch_continuation(_) ->
         {0, ?QOS_1, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"first"},
         receive_response(Socket)
     ),
-    %% Replay drains the first QoS0 run, then stops at the second QoS1/2.
-    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count),
+    %% Replay drains every QoS0, stops at the second QoS1/2.
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, 2 * Count),
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
     send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId1),
     MsgId2 = check_publish_msg_on_udp(
         {0, ?QOS_1, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"second"},
         receive_response(Socket)
     ),
-    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, Count + 1, 2 * Count),
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
     send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId2),
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
@@ -3415,8 +3414,8 @@ t_pubcomp_qos0_batch_continuation(_) ->
         {0, ?QOS_2, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"first"},
         receive_response(Socket)
     ),
-    %% Replay drains the first QoS0 run, then stops at the second QoS1/2.
-    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count),
+    %% Replay drains every QoS0, then stops at the second QoS1/2.
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count * 2),
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
     send_pubrec_msg(Socket, MsgId1),
     ?assertEqual(<<4, ?SN_PUBREL, MsgId1:16>>, receive_response(Socket)),
@@ -3425,7 +3424,6 @@ t_pubcomp_qos0_batch_continuation(_) ->
         {0, ?QOS_2, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"second"},
         receive_response(Socket)
     ),
-    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, Count + 1, 2 * Count),
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
     send_pubrec_msg(Socket, MsgId2),
     ?assertEqual(<<4, ?SN_PUBREL, MsgId2:16>>, receive_response(Socket)),
@@ -4294,10 +4292,10 @@ t_register_subs_resume_on(_) ->
     <<_, ?SN_PUBLISH, 2#00000000, TopicIdA:16, 0:16, "m1">> = receive_response(NSocket),
 
     <<_, ?SN_PUBLISH, 2#00100000, TopicIdA:16, MsgIdA1:16, "m2">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, 2#00000000, TopicIdB:16, 0:16, "m1">> = receive_response(NSocket),
     send_puback_msg(NSocket, TopicIdA, MsgIdA1, ?SN_RC_ACCEPTED),
 
     <<_, ?SN_PUBLISH, 2#01000000, TopicIdA:16, MsgIdA2:16, "m3">> = receive_response(NSocket),
-    <<_, ?SN_PUBLISH, 2#00000000, TopicIdB:16, 0:16, "m1">> = receive_response(NSocket),
     send_pubrec_msg(NSocket, MsgIdA2),
 
     <<_, ?SN_PUBREL, MsgIdA2:16>> = receive_response(NSocket),
