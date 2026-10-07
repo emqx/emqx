@@ -329,6 +329,16 @@ t_listeners(_Config) ->
     %% listeners restart <Identifier> # Restart a listener
     ok.
 
+-doc """
+`listeners enable` on a listener that does not exist reports it as not found.
+""".
+t_listeners_enable_not_found(_Config) ->
+    {Res, Prints} = emqx_common_test_helpers:capture_io_format(fun() ->
+        emqx_ctl:run_command(["listeners", "enable", "tcp:nosuch", "true"])
+    end),
+    ?assertEqual(ok, Res),
+    ?assertEqual(<<"Not found listener: \"tcp:nosuch\"\n">>, iolist_to_binary(Prints)).
+
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", "all"])),

@@ -1035,7 +1035,7 @@ listeners(["enable", ListenerId, Enable0]) ->
             end,
         {ok, #{type := Type, name := Name}} ?= emqx_listeners:parse_listener_id(ListenerId),
         #{<<"enable">> := OldEnable} ?= RawConf = emqx_conf:get_raw(
-            [listeners, Type, Name], {error, nout_found}
+            [listeners, Type, Name], {error, not_found}
         ),
         {ok, AtomId} = emqx_utils:safe_to_existing_atom(ListenerId),
         ok ?=
