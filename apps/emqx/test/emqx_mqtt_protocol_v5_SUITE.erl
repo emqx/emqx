@@ -306,6 +306,46 @@ t_connect_will_message(Config) ->
     ?assertEqual([], MsgRecv),
     ok = emqtt:disconnect(Client4).
 
+%% A client that connected with a non-zero Session-Expiry-Interval sends
+%% DISCONNECT with reason code 0x04 (Disconnect with Will Message) and
+%% Session-Expiry-Interval = 0.
+%%
+%% Reason code 0x04 keeps the will message, because only 0x00 deletes it
+%% ([MQTT-3.14.4-3]), so the will message must still be published
+%% ([MQTT-3.1.2-8]).  Setting the expiry interval to 0 ends the session, and
+%% `emqx_channel:maybe_update_expiry_interval/2' then destroys it and sets
+%% `#channel.session' to `undefined'.  The will paths read the session to
+%% choose the session implementation module, so they fail on `undefined'.
+t_disconnect_will_with_zero_session_expiry(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(1, ?TOPICS),
+    Payload = <<"will message">>,
+
+    {ok, Watcher} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Watcher),
+    {ok, _, [0]} = emqtt:subscribe(Watcher, Topic, qos0),
+
+    {ok, Client} = emqtt:start_link([
+        {proto_ver, v5},
+        {clean_start, false},
+        {clientid, <<"will_zero_session_expiry">>},
+        {properties, #{'Session-Expiry-Interval' => 60}},
+        {will_flag, true},
+        {will_topic, Topic},
+        {will_payload, Payload}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client),
+
+    ok = emqtt:disconnect(Client, ?RC_DISCONNECT_WITH_WILL_MESSAGE, #{
+        'Session-Expiry-Interval' => 0
+    }),
+
+    [Msg | _] = receive_messages(1),
+    ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
+    ?assertEqual({ok, Payload}, maps:find(payload, Msg)),
+    ok = emqtt:disconnect(Watcher).
+
 t_batch_subscribe(init, Config) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
