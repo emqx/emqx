@@ -666,9 +666,10 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState, channel =
             {[{frame_error, Reason} | Packets], State}
     end.
 
-update_state_on_parse_error(#{proto_ver := ProtoVer, parse_state := NParseState}, State) ->
-    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    State#state{parse_state = NParseState, serialize = Serialize};
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
 update_state_on_parse_error(_, State) ->
     State.
 
@@ -677,8 +678,13 @@ update_state_on_parse_error(_, State) ->
 %%--------------------------------------------------------------------
 
 handle_incoming(Packets = [?CONNECT_PACKET(ConnPkt) | _], State) ->
-    Serialize = emqx_frame:serialize_opts(ConnPkt),
-    NState = cancel_idle_timer(State#state{serialize = Serialize}),
+    {ParseState, Serialize} = share_frame_opts(
+        ConnPkt#mqtt_packet_connect.proto_ver,
+        State#state.parse_state,
+        emqx_frame:serialize_opts(ConnPkt),
+        State
+    ),
+    NState = cancel_idle_timer(State#state{parse_state = ParseState, serialize = Serialize}),
     do_handle_incoming(Packets, NState);
 handle_incoming(Packets, State) ->
     do_handle_incoming(Packets, State).
@@ -1005,24 +1011,15 @@ inc_metrics(Name, State, Val) ->
 %%--------------------------------------------------------------------
 
 init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
-    FrameOpts0 = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
-        %% zone will **not** take effect after the override.
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-        max_connect_size => emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
-        max_connect_user_properties => emqx_config:get_zone_conf(
-            Zone, [mqtt, max_connect_user_properties]
-        ),
-        %% Any packet received before CONNECT is rejected by the parser.
-        expect_connect => true
-    },
     {Parser, Serialize} =
         case State0#state.parse_state of
             undefined ->
-                init_parser_and_serializer(FrameOpts0);
+                init_parser_and_serializer(Zone);
             Parser1 ->
-                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+                %% zone will **not** take effect after the override.
+                FrameOpts = emqx_connection_conf:frame_opts(Zone),
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
     GcState = get_force_gc(Zone),
@@ -1055,13 +1052,16 @@ set_max_frame_size(#state{listener = {Type, Listener}, zone = Zone}) ->
     MaxFrameSize = max_frame_size(get_ws_opt(Type, Listener, max_frame_size), Zone),
     {set_options, #{max_frame_size => MaxFrameSize}}.
 
-init_parser_and_serializer(FrameOpts0) ->
-    Parser0 = init_parser(FrameOpts0),
-    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-    {Parser0, Serialize0}.
+init_parser_and_serializer(Zone) ->
+    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(
+        Zone
+    ),
+    {Parser, Serialize}.
 
-init_parser(FrameOpts0) ->
-    emqx_frame:initial_parse_state(FrameOpts0).
+%% Swap in the zone's shared parse state and serializer options where they are
+%% equal to the connection's own.
+share_frame_opts(ProtoVer, ParseState, Serialize, #state{zone = Zone}) ->
+    emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
 
 %%--------------------------------------------------------------------
 %% For CT tests
