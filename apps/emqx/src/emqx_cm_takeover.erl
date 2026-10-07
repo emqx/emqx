@@ -305,6 +305,7 @@ legacy_session_version(Node) ->
 
 %% Legacy MQTT-SN peers resume raw session records without reapplying
 %% limits or timers. Populate these fields from Conf when encoding.
+%% erlfmt-ignore
 to_legacy_session(ClientId, ChanInfo, Session, Conf, 1) ->
     {session, ClientId, _Id = maps:get(id, Session),
         _IsPersistent = maps:get(is_persistent, Session),
@@ -333,9 +334,11 @@ to_legacy_session(_ClientId, ChanInfo, Session, Conf, 2) ->
         ),
         _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), 2),
         %% MQTT-SN uses quota = false:
-        _Quota = false, _NextPktId = maps:get(next_pkt_id, Session),
+        _Quota = false,
+        _NextPktId = maps:get(next_pkt_id, Session),
         _RetryInterval = maps:get(retry_interval, Conf, infinity),
-        _AwaitingRel = maps:get(awaiting_rel, Session), maps:get(max_awaiting_rel, Conf, 100),
+        _AwaitingRel = maps:get(awaiting_rel, Session),
+        _MaxAwaitingRel = maps:get(max_awaiting_rel, Conf, 100),
         _AwaitRelTimeout = maps:get(await_rel_timeout, Conf, timer:seconds(300)),
         _CreatedAt = maps:get(created_at, Session)}.
 
@@ -485,8 +488,9 @@ export_legacy_inflight({inflight, _, Tree}) ->
 to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue, 1) ->
     %% NOTE
     %% For simplicity, legacy conversion ignores message priorities and builds a simple queue.
+    %% Also need to recreate the timestamps required by their queue pagination.
     Len = length(Queue),
-    PQueue = {queue, [], Queue, length(Queue)},
+    PQueue = {queue, [], lists:map(fun mqueue_with_ts/1, Queue), Len},
     MaxLen = emqx_config:get_zone_conf(Zone, [mqtt, max_mqueue_len]),
     StoreQoS0 = emqx_config:get_zone_conf(Zone, [mqtt, mqueue_store_qos0]),
     PTable =
@@ -547,22 +551,17 @@ export_legacy_mqueue(MQueue, 1) ->
         _LastPrio,
         _PCredit
     } = MQueue,
-    case PQueue of
-        {queue, In, Out, _} ->
-            Out ++ lists:reverse(In);
-        {pqueue, Queues} ->
-            lists:append([Out ++ lists:reverse(In) || {_P, {queue, In, Out, _}} <- Queues])
-    end;
+    [mqueue_without_ts(Msg) || Msg <- export_legacy_pqueue(PQueue, 1)];
 export_legacy_mqueue(MQueue, 2) ->
     {mqueue, _StoreQoS0, _MaxLen, _Dropped, _Bytes, PQueue, _Prios, _Credit} = MQueue,
-    [without_legacy_mqueue_timestamp(Msg) || Msg <- export_legacy_pqueue(PQueue, 2)].
+    [mqueue_without_ts(Msg) || Msg <- export_legacy_pqueue(PQueue, 2)].
 
-%% Drain 6.3.0/6.3.1 pqueue representation.
+%% Drain the pre-6.3 and 6.3.0/6.3.1 pqueue representations.
 %% Flatten priorities in stored order, ignoring credits.
-export_legacy_pqueue({queue, In, Out, _Len}, 2) ->
+export_legacy_pqueue({queue, In, Out, _Len}, _Vsn) ->
     Out ++ lists:reverse(In);
-export_legacy_pqueue({pqueue, Queues}, 2) ->
-    lists:append([export_legacy_pqueue(Q, 2) || {_Priority, Q} <- Queues]);
+export_legacy_pqueue({pqueue, Queues}, Vsn) ->
+    lists:append([export_legacy_pqueue(Q, Vsn) || {_Priority, Q} <- Queues]);
 export_legacy_pqueue(CQueue = {_, _, _, _, _, _, _}, 2) ->
     export_legacy_cqueue(CQueue, 2).
 
@@ -574,9 +573,27 @@ export_legacy_cqueue(CQueue, 2) ->
             [Msg | export_legacy_cqueue(Rest, 2)]
     end.
 
-without_legacy_mqueue_timestamp(Msg = #message{extra = Extra}) when is_map(Extra) ->
-    Msg#message{extra = maps:remove(mqueue_insert_ts, Extra)};
-without_legacy_mqueue_timestamp(Msg) ->
+%% Copied verbatim from `emqx_mqueue` @ 6.3.0.
+%% Keep this copy independent of future queue implementation changes.
+
+-define(INSERT_TS, mqueue_insert_ts).
+
+%% This is used to sort/traverse messages in query/2
+mqueue_with_ts(#message{extra = Extra} = Msg) ->
+    TsNano = erlang:system_time(nanosecond),
+    Extra1 =
+        case is_map(Extra) of
+            true -> Extra;
+            %% extra field has not being used before EMQX 5.4.0
+            %% and defaulted to an empty list,
+            %% if it's not a map it's safe to overwrite it
+            false -> #{}
+        end,
+    Msg#message{extra = Extra1#{?INSERT_TS => TsNano}}.
+
+mqueue_without_ts(#message{extra = Extra} = Msg) ->
+    Msg#message{extra = maps:remove(?INSERT_TS, Extra)};
+mqueue_without_ts(Msg) ->
     Msg.
 
 %% 6.3.0/6.3.1 class-queue decoder, copied verbatim from `emqx_pqueue` @ 6.3.1.
