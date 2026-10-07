@@ -228,7 +228,7 @@ create_limiter(#{listener := ListenerId} = ClientInfo, _Conf) ->
     %% sees listener-level limits. A hook-installed container (e.g. a
     %% tenant with delivery limits under a listener with none) must not
     %% depend on that gate.
-    emqx_hooks:run_fold('session.limiter_adjustment', [ClientInfo], {lazy, ListenerId}).
+    emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId}).
 
 empty_mqueue(Zone) ->
     %% emqx_mqueue treats 0 as no limit.
@@ -1033,7 +1033,7 @@ maybe_ack(Msg) ->
 maybe_nack(Msg) ->
     maybe
         false ?= emqx_shared_sub:maybe_nack_dropped(Msg),
-        emqx_hooks:run_fold('message.nack', [Msg], false)
+        emqx_hooks:'message.nack'(Msg, false)
     end.
 
 mark_begin_deliver(Msg) ->
@@ -1183,11 +1183,7 @@ takeover(#session{subscriptions = Subs}) ->
 save_subopts(#session{subscriptions = Subs0} = Session0) ->
     Subs = maps:map(
         fun(TopicFilter, SubOpts0) ->
-            emqx_hooks:run_fold(
-                'session.save_subopts',
-                [#{topic_filter => TopicFilter}],
-                SubOpts0
-            )
+            emqx_hooks:'session.save_subopts'(#{topic_filter => TopicFilter}, SubOpts0)
         end,
         Subs0
     ),

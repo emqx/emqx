@@ -235,9 +235,8 @@ check_authorization_cache(AuthzContext, Action, Topic) ->
             end,
             {AuthzResult, Cacheable};
         AuthzResult ->
-            emqx_hooks:run(
-                'client.check_authz_complete',
-                [AuthzContext, Action, Topic, AuthzResult, cache]
+            emqx_hooks:'client.check_authz_complete'(
+                AuthzContext, Action, Topic, AuthzResult, cache
             ),
             inc_authz_metrics(cache_hit),
             {AuthzResult, true}
@@ -250,9 +249,8 @@ do_authorize_with_cache_policy(AuthzContext, Action, Topic) ->
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
             From = maps:get(from, AuthzResult, unknown),
             ok = log_result(Topic, Action, From, Result),
-            emqx_hooks:run(
-                'client.check_authz_complete',
-                [AuthzContext, Action, Topic, Result, From]
+            emqx_hooks:'client.check_authz_complete'(
+                AuthzContext, Action, Topic, Result, From
             ),
             {Result, should_cache_authz_result(AuthzResult)};
         Other ->
@@ -261,9 +259,8 @@ do_authorize_with_cache_policy(AuthzContext, Action, Topic) ->
                 expected_example => "#{result => allow, from => default}",
                 got => Other
             }),
-            emqx_hooks:run(
-                'client.check_authz_complete',
-                [AuthzContext, Action, Topic, deny, unknown_return_format]
+            emqx_hooks:'client.check_authz_complete'(
+                AuthzContext, Action, Topic, deny, unknown_return_format
             ),
             {deny, true}
     end.
@@ -384,26 +381,20 @@ on_authentication_complete_no_hooks(Credential, _Extra) ->
     {error, not_authorized}.
 
 on_authentication_complete_error(Credential, Reason) ->
-    emqx_hooks:run(
-        'client.check_authn_complete',
-        [
-            Credential,
-            #{
-                reason_code => Reason
-            }
-        ]
+    emqx_hooks:'client.check_authn_complete'(
+        Credential,
+        #{
+            reason_code => Reason
+        }
     ),
     inc_authn_metrics(error).
 
 on_authentication_complete_success(Credential, Result, Type) ->
-    emqx_hooks:run(
-        'client.check_authn_complete',
-        [
-            Credential,
-            Result#{
-                reason_code => success,
-                is_anonymous => (Type =:= anonymous)
-            }
-        ]
+    emqx_hooks:'client.check_authn_complete'(
+        Credential,
+        Result#{
+            reason_code => success,
+            is_anonymous => (Type =:= anonymous)
+        }
     ),
     inc_authn_metrics(Type).
