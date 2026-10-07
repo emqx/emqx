@@ -232,7 +232,6 @@ t_config_schema_registered(Config) ->
         _ = emqx_plugins:purge(NameVsn),
         _ = file:delete(emqx_plugins_fs:config_file_path(NameVsn))
     end),
-    _ = emqx_plugins_serde:delete_schema(NameVsn),
     set_pinned([NameVsn]),
     _ = cli(["start", binary_to_list(NameVsn)]),
     ?assertMatch({ok, #{running_status := running}}, emqx_plugins:describe(NameVsn)),

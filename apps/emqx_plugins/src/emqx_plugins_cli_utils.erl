@@ -288,7 +288,7 @@ ensure_installed(NameVsn, LogFun) ->
     unless_pinned(NameVsn, ensure_installed, LogFun, fun() ->
         case emqx_plugins:is_allowed_installation(NameVsn) of
             true ->
-                Result = do_ensure_installed(NameVsn, LogFun),
+                Result = do_ensure_installed(NameVsn),
                 maybe_forget_grant(NameVsn, Result),
                 ?PRINT(Result, LogFun);
             false ->
@@ -296,7 +296,7 @@ ensure_installed(NameVsn, LogFun) ->
         end
     end).
 
-do_ensure_installed(NameVsn, LogFun) ->
+do_ensure_installed(NameVsn) ->
     case emqx_plugins:install_state(NameVsn) of
         installed ->
             {error, #{

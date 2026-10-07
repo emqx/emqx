@@ -1111,7 +1111,8 @@ do_start_pinned(NameVsn) ->
     maybe
         ok ?= ensure_no_other_version_active(NameVsn),
         ok ?= ensure_pinned_extracted(NameVsn),
-        ok ?= load_config_schema(NameVsn),
+        %% note: in dev-62, this function is called `load_config_schema`...
+        ok ?= check_config_schema(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         LibDir = emqx_plugins_fs:lib_dir(NameVsn),
         %% A pinned plugin is never installed, so its applications are checked here.
