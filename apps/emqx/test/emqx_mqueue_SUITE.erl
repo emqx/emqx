@@ -17,6 +17,90 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
+-doc "Selective extraction preserves retained messages and queue accounting.".
+t_out_qos0(_) ->
+    Q0 = ?Q:init(#{max_len => 0, store_qos0 => true}),
+    {empty, Q0} = ?Q:out_qos0(Q0),
+    Q1Msg = #message{qos = 1, payload = <<"one">>},
+    Q2Msg = #message{qos = 2, payload = <<"two">>},
+    Q0Msg1 = #message{qos = 0, payload = <<"first">>, timestamp = 123, extra = #{keep => true}},
+    Q0Msg2 = #message{qos = 0, payload = <<"second">>},
+    {undefined, Q1} = ?Q:in(Q1Msg, Q0),
+    {empty, Q1} = ?Q:out_qos0(Q1),
+    {undefined, Q2} = ?Q:in(Q0Msg1, Q1),
+    {undefined, Q3} = ?Q:in(Q2Msg, Q2),
+    {undefined, Q4} = ?Q:in(Q0Msg2, Q3),
+    {{value, Q0Msg1}, Q5} = ?Q:out_qos0(Q4),
+    {{value, Q0Msg2}, Q6} = ?Q:out_qos0(Q5),
+    {empty, Q6} = ?Q:out_qos0(Q6),
+    assert_qos_counts(0, 2, Q6),
+    ?assertEqual(6, ?Q:payload_bytes(Q6)),
+    ?assertEqual(0, ?Q:dropped(Q6)),
+    {{value, Q1Msg}, Q7} = ?Q:out(Q6),
+    {{value, Q2Msg}, Q8} = ?Q:out(Q7),
+    {empty, Q8} = ?Q:out_qos0(Q8).
+
+-doc "Extraction stops at a priority without QoS0 and preserves state across attempted credit rotation.".
+t_out_qos0_stops_at_priority(_) ->
+    Q0 = ?Q:init(#{
+        max_len => 0,
+        store_qos0 => true,
+        priorities => #{<<"high">> => 2, <<"middle">> => 1, <<"low">> => 0},
+        shift_multiplier => 1
+    }),
+    MsgHigh = #message{qos = 1, topic = <<"high">>, payload = <<"high">>},
+    MsgMid = #message{qos = 1, topic = <<"middle">>, payload = <<"middle">>},
+    MsgLowQ0 = #message{qos = 0, topic = <<"low">>, payload = <<"low">>},
+    MsgHighQ0 = #message{qos = 0, topic = <<"high">>, payload = <<"zero">>},
+    {undefined, Q1} = ?Q:in(MsgHigh, Q0),
+    {undefined, Q2} = ?Q:in(MsgMid, Q1),
+    {undefined, Q3} = ?Q:in(MsgLowQ0, Q2),
+    %% With credit undefined, stop at high without searching for low QoS0.
+    {empty, Q3} = ?Q:out_qos0(Q3),
+    {undefined, Q4} = ?Q:in(MsgHighQ0, Q3),
+    {{value, MsgHighQ0}, Q5} = ?Q:out_qos0(Q4),
+    %% With credit still positive, stop without consuming credit or changing the queue.
+    {empty, Q5} = ?Q:out_qos0(Q5),
+    %% Use the remaining two high-priority credits.
+    {undefined, Q6} = ?Q:in(MsgHighQ0, Q5),
+    {undefined, Q7} = ?Q:in(MsgHighQ0, Q6),
+    {{value, MsgHighQ0}, Q8} = ?Q:out_qos0(Q7),
+    {{value, MsgHighQ0}, Q9} = ?Q:out_qos0(Q8),
+    %% With credit exhausted, attempt rotation to middle, then restore the original
+    %% queue because middle has no QoS0. Do not continue searching at low.
+    {empty, Q9} = ?Q:out_qos0(Q9),
+    %% Ordinary dequeue still rotates from high to middle after the failed extraction.
+    {{value, MsgMid}, Q10} = ?Q:out(Q9),
+    %% After ordinary dequeue advances the priority, low QoS0 becomes extractable.
+    {{value, MsgLowQ0}, Q11} = ?Q:out_qos0(Q10),
+    {{value, MsgHigh}, Q12} = ?Q:out(Q11),
+    ?assert(?Q:is_empty(Q12)).
+
+-doc "Successful extraction consumes priority credits and uses normal rotation.".
+t_out_qos0_priority_credit(_) ->
+    Q0 = ?Q:init(#{
+        max_len => 0,
+        store_qos0 => true,
+        priorities => #{<<"high">> => 1, <<"low">> => 0},
+        shift_multiplier => 1
+    }),
+    MsgQ1H = #message{qos = 1, topic = <<"high">>, payload = <<>>},
+    MsgQ0H1 = #message{qos = 0, topic = <<"high">>, payload = <<"1">>},
+    MsgQ0H2 = #message{qos = 0, topic = <<"high">>, payload = <<"2">>},
+    MsgQ0L = #message{qos = 0, topic = <<"low">>, payload = <<"low">>},
+    Q1 = lists:foldl(
+        fun(Msg, Q) ->
+            {undefined, NQ} = ?Q:in(Msg, Q),
+            NQ
+        end,
+        Q0,
+        [MsgQ1H, MsgQ0H1, MsgQ0H2, MsgQ0L]
+    ),
+    {{value, MsgQ0H1}, Q2} = ?Q:out_qos0(Q1),
+    {{value, MsgQ0H2}, Q3} = ?Q:out_qos0(Q2),
+    {{value, MsgQ0L}, Q4} = ?Q:out_qos0(Q3),
+    assert_qos_counts(0, 1, Q4).
+
 t_info(_) ->
     Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
     true = ?Q:info(store_qos0, Q),

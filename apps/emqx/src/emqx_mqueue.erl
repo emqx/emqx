@@ -57,6 +57,7 @@
     max_len/1,
     in/2,
     out/1,
+    out_qos0/1,
     stats/1,
     dropped/1,
     payload_bytes/1,
@@ -415,6 +416,69 @@ out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, num_qos0 = NumQoS0, p_cred
                 p_credit = C - 1
             }};
         {empty, _} ->
+            {empty, MQ}
+    end.
+
+-doc """
+Extract the oldest QoS0 message from the currently selected priority, bypassing
+QoS1/2 messages within that priority. Returns `empty` if that priority has no QoS0.
+Normal priority-credit rotation still applies after successful extraction.
+""".
+-spec out_qos0(mqueue()) -> {empty | {value, message()}, mqueue()}.
+out_qos0(MQ = #mqueue{num_qos0 = false}) ->
+    {empty, MQ};
+out_qos0(MQ = #mqueue{num_qos0 = 0}) ->
+    {empty, MQ};
+out_qos0(MQ0 = #mqueue{q = Q, p_credit = 0}) ->
+    MQ = MQ0#mqueue{q = emqx_pqueue:shift(Q), p_credit = undefined},
+    case out_qos0(MQ) of
+        {empty, _} ->
+            {empty, MQ0};
+        Out ->
+            Out
+    end;
+out_qos0(
+    MQ = #mqueue{
+        q = Q,
+        payload_bytes = PayloadBytes,
+        num_qos0 = NumQoS0,
+        prios = ?NO_PRIORITY_TABLE
+    }
+) ->
+    case emqx_pqueue:drop(0, Q) of
+        {{value, Msg = #message{qos = ?QOS_0}}, Q1} ->
+            {{value, without_ts(Msg)}, MQ#mqueue{
+                q = Q1,
+                num_qos0 = NumQoS0 - 1,
+                payload_bytes = PayloadBytes - emqx_message:payload_size(Msg)
+            }};
+        _EmptyOrQoS12 ->
+            {empty, MQ}
+    end;
+out_qos0(
+    MQ = #mqueue{
+        q = Q,
+        payload_bytes = PayloadBytes,
+        num_qos0 = NumQoS0,
+        p_credit = Credit,
+        prios = Prios
+    }
+) ->
+    %% NOTE: This is _currently drained_ priority lane.
+    P = emqx_pqueue:highest(Q),
+    case emqx_pqueue:drop(P, Q) of
+        {{value, Msg = #message{qos = ?QOS_0}}, Q1} ->
+            {{value, without_ts(Msg)}, MQ#mqueue{
+                q = Q1,
+                num_qos0 = NumQoS0 - 1,
+                payload_bytes = PayloadBytes - emqx_message:payload_size(Msg),
+                p_credit =
+                    case Credit of
+                        undefined -> get_credits(P, Prios);
+                        _ -> Credit - 1
+                    end
+            }};
+        _EmptyOrQoS12 ->
             {empty, MQ}
     end.
 

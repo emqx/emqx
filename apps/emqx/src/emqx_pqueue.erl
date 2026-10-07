@@ -364,6 +364,14 @@ fold(Fun, Init, Q) ->
         {{value, V, P}, Q1} -> fold(Fun, Fun(V, P, Init), Q1)
     end.
 
+-doc """
+Return the priority of the first subqueue in the current queue order, in O(1).
+Subqueues are initially ordered from highest to lowest priority, but `shift/1`
+rotates that order. After rotation, the returned priority can be lower than other
+priorities still present in the queue.
+This is the priority used by `out/1` and `out_p/1`.
+Returns 0 for an empty queue / queue with no priorities.
+""".
 -spec highest(pqueue()) -> priority().
 highest({pqueue, [{P, _} | _]}) ->
     maybe_negate_priority(P);
@@ -516,7 +524,7 @@ cqueue_drop(HL, TL, In, Out, Q0In, [], L) ->
             cqueue_drop(HL, TL, In, Out, [], lists:reverse(Q0In), L)
     end;
 cqueue_drop(HL, TL, In, Out, Q0In, Q0Out, L) ->
-    case cqueue_scan_q0out(Q0Out, 0) of
+    case cqueue_out_next(Q0Out, 0) of
         {Q0Switches, V, Q0Rest} ->
             %% Found an element in `qos0` out-list: emit it and push combined switch marker back.
             NQ0Out = cq_push_switches(Q0Switches, Q0Rest),
@@ -529,7 +537,7 @@ cqueue_drop(HL, TL, In, Out, Q0In, Q0Out, L) ->
         false ->
             %% Roll the `qos0` in-list over and try to find an element.
             NQ0Out = lists:reverse(Q0In),
-            case cqueue_scan_q0out(NQ0Out, 0) of
+            case cqueue_out_next(NQ0Out, 0) of
                 {Q0Switches, V, Q0Rest} ->
                     FQ0Out = Q0Out ++ cq_push_switches(Q0Switches, Q0Rest),
                     {{value, V}, {HL, TL, In, Out, [], FQ0Out, L - 1}};
@@ -538,16 +546,16 @@ cqueue_drop(HL, TL, In, Out, Q0In, Q0Out, L) ->
             end
     end.
 
-%% Find a next element on `qos0` out-list, skipping over switch markers.
+%% Find a next element on an out-list, skipping over switch markers.
 %% Return `{<number of skipped lane switches>, <element>, <out-list tail>}` or `false` if
 %% there are only switch markers left.
-cqueue_scan_q0out([?switch | Rest], NSwitches) ->
-    cqueue_scan_q0out(Rest, NSwitches + 1);
-cqueue_scan_q0out([?switch_(N) | Rest], NSwitches) ->
-    cqueue_scan_q0out(Rest, NSwitches + N);
-cqueue_scan_q0out([V | Rest], NSwitches) ->
+cqueue_out_next([?switch | Rest], NSwitches) ->
+    cqueue_out_next(Rest, NSwitches + 1);
+cqueue_out_next([?switch_(N) | Rest], NSwitches) ->
+    cqueue_out_next(Rest, NSwitches + N);
+cqueue_out_next([V | Rest], NSwitches) ->
     {NSwitches, V, Rest};
-cqueue_scan_q0out([], _) ->
+cqueue_out_next([], _) ->
     false.
 
 cq_rm_switches(L) ->
