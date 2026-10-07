@@ -228,12 +228,12 @@ parse_value(Value0) ->
             parse_string(Value, <<>>)
     end.
 
-%% Strips ASCII whitespace around a value. A trailing space escaped by an odd
-%% number of backslashes is part of the value and is kept.
+%% Strips ASCII whitespace around a value. A trailing space that a backslash
+%% escapes is part of the value and is kept.
 trim_value(Value0) ->
     Value1 = trim_leading(Value0),
     Value = trim_trailing(Value1),
-    case byte_size(Value) < byte_size(Value1) andalso ends_with_odd_backslashes(Value) of
+    case byte_size(Value) < byte_size(Value1) andalso ends_with_escape(Value) of
         true -> <<Value/binary, $\s>>;
         false -> Value
     end.
@@ -257,18 +257,17 @@ size_without_trailing_ws(Bin, Size) when Size > 0 ->
 size_without_trailing_ws(_Bin, 0) ->
     0.
 
-%% N is the length of the run of backslashes that ends at the current position.
-%% Any other byte resets it, so at the end of the value N is the length of the
-%% run that ends the value.
-ends_with_odd_backslashes(Bin) ->
-    ends_with_odd_backslashes(Bin, 0).
-
-ends_with_odd_backslashes(<<>>, N) ->
-    N rem 2 =:= 1;
-ends_with_odd_backslashes(<<$\\, Rest/binary>>, N) ->
-    ends_with_odd_backslashes(Rest, N + 1);
-ends_with_odd_backslashes(<<_, Rest/binary>>, _N) ->
-    ends_with_odd_backslashes(Rest, 0).
+%% True when the value ends with a backslash that escapes the byte after it.
+%% A backslash and the byte it escapes are consumed as a pair, so an escaped
+%% backslash does not count.
+ends_with_escape(<<>>) ->
+    false;
+ends_with_escape(<<$\\>>) ->
+    true;
+ends_with_escape(<<$\\, _, Rest/binary>>) ->
+    ends_with_escape(Rest);
+ends_with_escape(<<_, Rest/binary>>) ->
+    ends_with_escape(Rest).
 
 validate_hexstring(<<>>) ->
     ok;
