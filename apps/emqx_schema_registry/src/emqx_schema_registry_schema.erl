@@ -110,6 +110,11 @@ fields(sparkplugb) ->
             mk(boolean(), #{
                 default => true,
                 desc => ?DESC("sparkplugb_enable_alias_mapping")
+            })},
+        {enable_sparkplug_awareness,
+            mk(boolean(), #{
+                default => false,
+                desc => ?DESC("sparkplugb_enable_sparkplug_awareness")
             })}
     ];
 fields(avro) ->

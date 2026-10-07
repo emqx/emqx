@@ -27,4 +27,6 @@
     device_id
 }).
 
+-define(SPB_CERT_PREFIX, ~"$sparkplug/certificates").
+
 -endif.

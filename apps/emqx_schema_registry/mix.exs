@@ -34,6 +34,7 @@ defmodule EMQXSchemaRegistry.MixProject do
       {:emqx_utils, in_umbrella: true},
       {:emqx_bridge_http, in_umbrella: true},
       {:emqx_rule_engine, in_umbrella: true},
+      {:emqx_retainer, in_umbrella: true},
       :erlavro,
       :jesse,
       UMP.common_dep(:gpb, runtime: true),

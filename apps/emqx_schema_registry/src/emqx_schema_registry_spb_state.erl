@@ -9,7 +9,9 @@
     register_aliases/2,
     load_aliases/1,
 
-    get_current_alias_mapping/0
+    get_current_alias_mapping/0,
+
+    publish_birth_msg/2
 ]).
 
 %%------------------------------------------------------------------------------
@@ -121,6 +123,39 @@ get_current_alias_mapping() ->
         Mapping -> Mapping
     end.
 
+-spec publish_birth_msg(emqx_types:message(), spb_birth_message()) -> ok.
+publish_birth_msg(OriginalMsg, #nbirth{} = BirthMsg) ->
+    #nbirth{
+        namespace = Namespace,
+        group_id = GroupId,
+        edge_node_id = EdgeNodeId
+    } = BirthMsg,
+    #message{from = ClientId, payload = Payload} = OriginalMsg,
+    Topic0 = emqx_topic:join([?SPB_CERT_PREFIX, Namespace, GroupId, ~"NBIRTH", EdgeNodeId]),
+    Topic = maybe_mount(Topic0, OriginalMsg),
+    Flags = #{retain => true},
+    QoS = 2,
+    Headers = #{},
+    Msg = emqx_message:make(ClientId, QoS, Topic, Payload, Flags, Headers),
+    _ = emqx_broker:publish(Msg),
+    ok;
+publish_birth_msg(OriginalMsg, #dbirth{} = BirthMsg) ->
+    #dbirth{
+        namespace = Namespace,
+        group_id = GroupId,
+        edge_node_id = EdgeNodeId,
+        device_id = DeviceId
+    } = BirthMsg,
+    #message{from = ClientId, payload = Payload} = OriginalMsg,
+    Topic0 = emqx_topic:join([?SPB_CERT_PREFIX, Namespace, GroupId, ~"DBIRTH", EdgeNodeId, DeviceId]),
+    Topic = maybe_mount(Topic0, OriginalMsg),
+    Flags = #{retain => true},
+    QoS = 2,
+    Headers = #{},
+    Msg = emqx_message:make(ClientId, QoS, Topic, Payload, Flags, Headers),
+    _ = emqx_broker:publish(Msg),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
@@ -174,3 +209,8 @@ get_known_mappings_pd() ->
 put_known_mappings_pd(Mappings) ->
     _ = put(?ALL_MAPPINGS_PD_KEY, Mappings),
     ok.
+
+maybe_mount(Topic0, #message{extra = #{mountpoint := Mountpoint}}) ->
+    emqx_mountpoint:mount(Mountpoint, Topic0);
+maybe_mount(Topic, #message{}) ->
+    Topic.

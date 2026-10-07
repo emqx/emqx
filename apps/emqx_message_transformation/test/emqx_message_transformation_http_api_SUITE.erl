@@ -33,7 +33,7 @@ init_per_suite(Config) ->
                 emqx_message_transformation,
                 emqx_management,
                 emqx_mgmt_api_test_util:emqx_dashboard(),
-                emqx_schema_registry,
+                emqx_schema_registry_testlib:emqx_schema_registry_app_spec(),
                 emqx_rule_engine
             ]
         ),
@@ -48,6 +48,7 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_TestCase, Config) ->
+    emqx_retainer:clean(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
@@ -55,6 +56,7 @@ end_per_testcase(_TestCase, _Config) ->
     clear_all_transformations(),
     snabbkaffe:stop(),
     reset_all_global_metrics(),
+    emqx_retainer:clean(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -606,9 +608,6 @@ t_smoke_test(_Config) ->
                     }
                 }}
             ),
-            %% remember to clear retained message
-            on_exit(fun() -> emqx:publish2(emqx_message:make(<<"t/1/t">>, <<"">>)) end),
-
             %% test `disconnect' failure action
             Transformation2 = transformation(
                 Name1,
@@ -631,6 +630,9 @@ t_smoke_test(_Config) ->
             end,
             ?assertNotReceive({publish, _}),
             ?assertReceive({disconnected, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, _}),
+
+            %% remember to clear retained message
+            emqx_retainer:clean(),
 
             ok
         end,
