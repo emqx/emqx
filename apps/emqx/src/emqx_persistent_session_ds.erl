@@ -278,6 +278,11 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         false ->
             false;
         State ->
+            ?tp(debug, sessds_open_state, #{
+                id => ClientID,
+                guard => emqx_persistent_session_ds_state:get_guard(State),
+                chan => self()
+            }),
             case emqx_persistent_session_ds_state:is_half_closed(State) of
                 {true, _} ->
                     %% Continue to tear it down, then start afresh:
@@ -1062,7 +1067,9 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
 terminate(ClientInfo, Reason, Session = #{id := Id, will_msg := MaybeWillMsg}) ->
+    ?tp(debug, sessds_begin_terminate, #{id => Id, reason => Reason, chan => self()}),
     #{s := S} = commit(Session, #{lifetime => terminate, sync => true}),
+    Guard = emqx_persistent_session_ds_state:get_guard(S),
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S),
     %% Arm will message if exists:
     ok = emqx_durable_will:on_disconnect(Id, ClientInfo, SessExpiryInterval, MaybeWillMsg),
@@ -1072,11 +1079,10 @@ terminate(ClientInfo, Reason, Session = #{id := Id, will_msg := MaybeWillMsg}) -
             %% session ended when its network connection closed:
             ok = do_session_drop(Id, S, expired, true);
         _ ->
-            Guard = emqx_persistent_session_ds_state:get_guard(S),
             %% Arm GC timer:
             ok = emqx_persistent_session_ds_gc_timer:on_disconnect(Id, Guard, SessExpiryInterval)
     end,
-    ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
+    ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason, guard => Guard, chan => self()}),
     ok.
 
 %%--------------------------------------------------------------------
