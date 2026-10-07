@@ -1070,7 +1070,7 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
 terminate(ClientInfo, Reason, Session = #{id := Id, s := S0, will_msg := MaybeWillMsg}) ->
-    ?tp(debug, sessds_begin_terminate, #{id => Id, reason => Reason, chan => self()}),
+    ?tp(sessds_begin_terminate, #{id => Id, reason => Reason, chan => self()}),
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S0),
     %% Arm will message timer:
     _ = emqx_durable_will:on_disconnect(
