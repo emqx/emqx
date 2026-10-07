@@ -157,6 +157,16 @@ t_parse_dn_trim(_Config) ->
         {ok, #ldap_dn{dn = [[{<<"CN">>, <<" Group-A">>}], [{<<"DC">>, <<"x">>}]]}},
         emqx_ldap_dn:parse(<<"CN= \\ Group-A\t,DC=x">>)
     ),
+    %% only the run of backslashes at the end of the value counts: an escaped `+` earlier in
+    %% the value makes the total count even in the first case and odd in the second
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{<<"cn">>, <<"x+y ">>}], [{<<"dc">>, <<"a">>}]]}},
+        emqx_ldap_dn:parse(<<"cn=x\\+y\\ ,dc=a">>)
+    ),
+    ?assertEqual(
+        {ok, #ldap_dn{dn = [[{<<"cn">>, <<"x+y">>}], [{<<"dc">>, <<"a">>}]]}},
+        emqx_ldap_dn:parse(<<"cn=x\\+y ,dc=a">>)
+    ),
     %% to_string/1 escapes the spaces at both ends, and parse/1 reads them back
     DN = #ldap_dn{dn = [[{<<"cn">>, <<" John Doe ">>}]]},
     ?assertEqual({ok, DN}, emqx_ldap_dn:parse(emqx_ldap_dn:to_string(DN))).

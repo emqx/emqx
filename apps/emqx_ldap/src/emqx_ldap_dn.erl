@@ -257,6 +257,9 @@ size_without_trailing_ws(Bin, Size) when Size > 0 ->
 size_without_trailing_ws(_Bin, 0) ->
     0.
 
+%% N is the length of the run of backslashes that ends at the current position.
+%% Any other byte resets it, so at the end of the value N is the length of the
+%% run that ends the value.
 ends_with_odd_backslashes(Bin) ->
     ends_with_odd_backslashes(Bin, 0).
 
