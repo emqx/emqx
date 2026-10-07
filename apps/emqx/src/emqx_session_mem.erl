@@ -1357,7 +1357,13 @@ redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
             false
     end,
     InflightList = lists:filtermap(F, AllInflights),
-    emqx_shared_sub:redispatch(InflightList ++ export_mqueue(Q)).
+    %% Redispatched messages enter another queue as new entries.
+    emqx_shared_sub:redispatch(InflightList ++ redispatch_queue(Q)).
+
+redispatch_queue({empty, _}) ->
+    [];
+redispatch_queue(Q) ->
+    emqx_mqueue:to_list(Q).
 
 %%--------------------------------------------------------------------
 %% Next Packet Id
