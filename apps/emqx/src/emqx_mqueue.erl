@@ -464,8 +464,7 @@ out_qos0(
         prios = Prios
     }
 ) ->
-    %% NOTE: This is _currently drained_ priority lane.
-    P = emqx_pqueue:highest(Q),
+    P = emqx_pqueue:active_p(Q),
     case emqx_pqueue:drop(P, Q) of
         {{value, Msg = #message{qos = ?QOS_0}}, Q1} ->
             {{value, without_ts(Msg)}, MQ#mqueue{

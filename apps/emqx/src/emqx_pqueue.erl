@@ -55,7 +55,7 @@
     out_p/1,
     filter/2,
     fold/3,
-    highest/1,
+    active_p/1,
     shift/1
 ]).
 
@@ -367,15 +367,14 @@ fold(Fun, Init, Q) ->
 -doc """
 Return the priority of the first subqueue in the current queue order, in O(1).
 Subqueues are initially ordered from highest to lowest priority, but `shift/1`
-rotates that order. After rotation, the returned priority can be lower than other
-priorities still present in the queue.
+rotates that order.
 This is the priority used by `out/1` and `out_p/1`.
 Returns 0 for an empty queue / queue with no priorities.
 """.
--spec highest(pqueue()) -> priority().
-highest({pqueue, [{P, _} | _]}) ->
+-spec active_p(pqueue()) -> priority().
+active_p({pqueue, [{P, _} | _]}) ->
     maybe_negate_priority(P);
-highest(_Q) ->
+active_p(_Q) ->
     0.
 
 r2f([], 0) -> {queue, [], [], 0};
