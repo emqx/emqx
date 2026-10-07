@@ -1065,37 +1065,46 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
     {shutdown, async_checkpoint(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
-terminate(ClientInfo, Reason, Session = #{id := Id, will_msg := MaybeWillMsg}) ->
+terminate(ClientInfo, Reason, Session = #{id := Id, s := S0, will_msg := MaybeWillMsg}) ->
     ?tp(debug, sessds_begin_terminate, #{id => Id, reason => Reason, chan => self()}),
-    maybe
-        {ok, #{s := S}} ?= commit(Session, #{lifetime => terminate, sync => true}),
-        Guard = emqx_persistent_session_ds_state:get_guard(S),
-        SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S),
-        %% Arm will message timer:
-        ok = emqx_durable_will:on_disconnect(
-            Id, ClientInfo, SessExpiryInterval, MaybeWillMsg
-        ),
+    SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S0),
+    %% Arm will message timer:
+    _ = emqx_durable_will:on_disconnect(
+        Id, ClientInfo, SessExpiryInterval, MaybeWillMsg
+    ),
+    Result =
         case SessExpiryInterval of
             0 ->
                 %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the
-                %% session ended when its network connection closed:
-                _ = do_session_drop(Id, S, expired, true),
-                ok;
+                %% session ended when its network connection closed.
+                %%
+                %% 3.1.4.1 (non-normative comment): If the Session
+                %% Expiry Interval of the existing Network Connection
+                %% is 0 ... the original Session is ended on the
+                %% takeover.
+                %%
+                %% NOTE: we do it here instead of leaving it to CM as
+                %% to avoid creating the third process, racing with
+                %% both current and new channel processes.
+                do_session_drop(Id, S0, expired, true);
             _ ->
-                %% Arm GC timer:
-                ok = emqx_persistent_session_ds_gc_timer:on_disconnect(
-                    Id, Guard, SessExpiryInterval
-                )
+                maybe
+                    {ok, #{s := S}} ?= commit(Session, #{lifetime => terminate, sync => true}),
+                    Guard = emqx_persistent_session_ds_state:get_guard(S),
+                    %% Arm GC timer:
+                    emqx_persistent_session_ds_gc_timer:on_disconnect(
+                        Id, Guard, SessExpiryInterval
+                    )
+                end
         end,
-        ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason, guard => Guard, chan => self()})
-    else
-        ?err_unrec(Reason) ->
-            ?tp(warning, sessds_terminate_conflict, #{
-                chan => self(),
-                session => Id,
-                reason => Reason
-            })
-    end,
+    LogLevel =
+        case Result of
+            ok -> debug;
+            _ -> warning
+        end,
+    ?tp(LogLevel, ?sessds_terminate, #{
+        id => Id, reason => Reason, chan => self(), result => Result, ei => SessExpiryInterval
+    }),
     ok.
 
 %%--------------------------------------------------------------------
