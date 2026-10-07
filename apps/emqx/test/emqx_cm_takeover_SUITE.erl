@@ -8,6 +8,77 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
+
+%% Frozen session records provide field indexes; fixtures retain their wire tags.
+
+%% Copied from emqx_session_mem.hrl @ 6.2.2.
+-record(session_62x, {
+    clientid :: emqx_types:clientid(),
+    id :: emqx_session:session_id(),
+    is_persistent :: boolean(),
+    subscriptions :: map(),
+    max_subscriptions :: non_neg_integer() | infinity,
+    upgrade_qos = false :: boolean(),
+    inflight :: emqx_inflight:inflight(),
+    mqueue :: emqx_mqueue:mqueue(),
+    next_pkt_id = 1 :: emqx_types:packet_id(),
+    retry_interval :: timeout(),
+    awaiting_rel :: map(),
+    max_awaiting_rel :: non_neg_integer() | infinity,
+    await_rel_timeout :: timeout(),
+    created_at :: pos_integer()
+}).
+
+%% Copied from emqx_session_mem.hrl @ 6.3.0.
+-record(session_630, {
+    id :: emqx_session:session_id(),
+    is_persistent :: boolean(),
+    subscriptions :: emqx_session_mem:subscriptions(),
+    max_subscriptions :: non_neg_integer() | infinity,
+    upgrade_qos = false :: boolean(),
+    inflight :: emqx_inflight:inflight(),
+    mqueue :: emqx_mqueue:mqueue(),
+    quota :: emqx_limiter_client_container:t() | false,
+    next_pkt_id = 1 :: emqx_types:packet_id(),
+    retry_interval :: timeout(),
+    awaiting_rel :: emqx_session_mem:awaiting_rel(),
+    max_awaiting_rel :: non_neg_integer() | infinity,
+    await_rel_timeout :: timeout(),
+    created_at :: pos_integer()
+}).
+
+%% Copied from emqx_session_mem.hrl @ 6.3.1.
+-record(session_631, {
+    id :: emqx_session:session_id(),
+    is_persistent :: boolean(),
+    subscriptions :: emqx_session_mem:subscriptions(),
+    max_subscriptions :: non_neg_integer() | infinity,
+    upgrade_qos = false :: boolean(),
+    inflight :: emqx_inflight:inflight(),
+    mqueue :: emqx_mqueue:mqueue(),
+    quota :: emqx_limiter_client_container:t() | false | {lazy, emqx_limiter:listener_id()},
+    next_pkt_id = 1 :: emqx_types:packet_id(),
+    retry_interval :: timeout(),
+    awaiting_rel :: emqx_session_mem:awaiting_rel(),
+    max_awaiting_rel :: non_neg_integer() | infinity,
+    await_rel_timeout :: timeout(),
+    created_at :: pos_integer()
+}).
+
+%% Legacy mqueue record layouts
+
+-define(MQUEUE_62X(STOREQOS0, MAXLEN, LEN, DROPPED, PTAB, DEFPRIO, Q, SHIFTOPTS, LASTPRIO, PCRED),
+    {mqueue, STOREQOS0, MAXLEN, LEN, DROPPED, PTAB, DEFPRIO, Q, SHIFTOPTS, LASTPRIO, PCRED}
+).
+
+-define(MQUEUE_630(STOREQOS0, MAXLEN, DROPPED, PAYLOAD_BYTES, Q, PRIOS, PCRED),
+    {mqueue, STOREQOS0, MAXLEN, DROPPED, PAYLOAD_BYTES, Q, PRIOS, PCRED}
+).
+
+-define(MQUEUE_631(STOREQOS0, MAXLEN, DROPPED, PAYLOAD_BYTES, Q, PRIOS, PCRED),
+    ?MQUEUE_630(STOREQOS0, MAXLEN, DROPPED, PAYLOAD_BYTES, Q, PRIOS, PCRED)
+).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -34,27 +105,68 @@ t_decode_631(_Config) ->
     ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, 2)).
 
 t_encode_631(_Config) ->
+    ChanInfo = #{clientinfo => clientinfo()},
     #{session := Expected, exported := Exported, conf := Conf} = fixture(),
-    Session = emqx_cm_takeover:to_legacy_session(
-        <<"fixture">>, #{clientinfo => clientinfo()}, Exported, Conf, 2
-    ),
+    Session = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, 2),
     %% Keep the tagged session layout, but flatten its queue to delivery order.
     %% The three payloads total 16 bytes: "first", "second", "third".
-    Queue =
-        {mqueue, true, 1000, 0, 16, {queue, [], maps:get(mqueue, Exported), 3}, disabled,
-            undefined},
-    ?assertEqual(setelement(8, Expected, Queue), Session),
+    Messages = legacy_mqueue_messages(Session, 2),
+    Queue = ?MQUEUE_631(true, 1000, 0, 16, {queue, [], Messages, 3}, disabled, undefined),
+    ?assertEqual(setelement(#session_631.mqueue, Expected, Queue), Session),
     ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Session, 2)),
     %% The pre-6.3 codec remains available for MQTT BPAPI v3 and old gateways.
-    Old = emqx_cm_takeover:to_legacy_session(
-        <<"fixture">>, #{clientinfo => clientinfo()}, Exported, Conf, 1
-    ),
+    Old = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, 1),
+    ?assertEqual(session, element(1, Old)),
     ?assertMatch(
-        {session, <<"fixture">>, _, _, _, _, _, {inflight, 1, _},
-            {mqueue, _, _, _, _, _, _, _, _, _, _}, _, _, _, _, _, _},
-        Old
+        #session_62x{
+            clientid = <<"fixture">>,
+            inflight = {inflight, 1, _},
+            mqueue = ?MQUEUE_62X(_, _, _, _, _, _, _, _, _, _)
+        },
+        setelement(1, Old, session_62x)
     ),
     ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Old, 1)).
+
+-doc "6.2.x queues carry pagination timestamps without changing message metadata.".
+t_encode_mqueue_timestamps_62x(_Config) ->
+    assert_encode_mqueue_timestamps(1).
+
+-doc "6.3.1 queues carry pagination timestamps without changing message metadata.".
+t_encode_mqueue_timestamps_631(_Config) ->
+    assert_encode_mqueue_timestamps(2).
+
+assert_encode_mqueue_timestamps(Version) ->
+    ChanInfo = #{clientinfo => clientinfo()},
+    #{exported := Exported0 = #{mqueue := Messages0}, conf := Conf} = fixture(),
+    Messages = [Msg#message{extra = #{other_metadata => preserved}} || Msg <- Messages0],
+    Exported = Exported0#{mqueue := Messages},
+    Session = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, Version),
+    Stamped = legacy_mqueue_messages(Session, Version),
+    Timestamps = [Ts || #message{extra = #{mqueue_insert_ts := Ts}} <- Stamped],
+    ?assertEqual(length(Messages), length(Timestamps)),
+    ?assert(lists:all(fun is_integer/1, Timestamps)),
+    ?assertEqual(Timestamps, lists:sort(Timestamps)),
+    ?assertEqual(
+        Messages,
+        [
+            Msg#message{extra = maps:remove(mqueue_insert_ts, Extra)}
+         || Msg = #message{extra = Extra} <- Stamped
+        ]
+    ),
+    ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Session, Version)).
+
+legacy_mqueue_messages(Session, 1) ->
+    ?MQUEUE_62X(_, _, _, _, _, _, {queue, [], Messages, _}, _, _, _) = element(
+        #session_62x.mqueue,
+        Session
+    ),
+    Messages;
+legacy_mqueue_messages(Session, 2) ->
+    ?MQUEUE_631(_, _, _, _, {queue, [], Messages, _}, _, _) = element(
+        #session_630.mqueue,
+        Session
+    ),
+    Messages.
 
 %% Generated with emqx_session_mem, emqx_mqueue and emqx_pqueue from tag 6.3.0.
 %% Commit: 021c5ef13bf8c767058626ad9b760052c273736f.
