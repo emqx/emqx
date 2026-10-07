@@ -488,9 +488,9 @@ export_legacy_inflight({inflight, _, Tree}) ->
 to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue, 1) ->
     %% NOTE
     %% For simplicity, legacy conversion ignores message priorities and builds a simple queue.
-    %% Also need to recreate the timestamps required by their queue pagination.
+    %% Sort by insertion timestamp so pagination remains valid after flattening priorities.
     Len = length(Queue),
-    PQueue = {queue, [], lists:map(fun mqueue_with_ts/1, Queue), Len},
+    PQueue = {queue, [], sort_mqueue_by_timestamp(Queue), Len},
     MaxLen = emqx_config:get_zone_conf(Zone, [mqtt, max_mqueue_len]),
     StoreQoS0 = emqx_config:get_zone_conf(Zone, [mqtt, mqueue_store_qos0]),
     PTable =
@@ -551,10 +551,10 @@ export_legacy_mqueue(MQueue, 1) ->
         _LastPrio,
         _PCredit
     } = MQueue,
-    [mqueue_without_ts(Msg) || Msg <- export_legacy_pqueue(PQueue, 1)];
+    sort_mqueue_by_timestamp(export_legacy_pqueue(PQueue, 1));
 export_legacy_mqueue(MQueue, 2) ->
     {mqueue, _StoreQoS0, _MaxLen, _Dropped, _Bytes, PQueue, _Prios, _Credit} = MQueue,
-    [mqueue_without_ts(Msg) || Msg <- export_legacy_pqueue(PQueue, 2)].
+    sort_mqueue_by_timestamp(export_legacy_pqueue(PQueue, 2)).
 
 %% Drain the pre-6.3 and 6.3.0/6.3.1 pqueue representations.
 %% Flatten priorities in stored order, ignoring credits.
@@ -573,28 +573,11 @@ export_legacy_cqueue(CQueue, 2) ->
             [Msg | export_legacy_cqueue(Rest, 2)]
     end.
 
-%% Copied verbatim from `emqx_mqueue` @ 6.3.0.
-%% Keep this copy independent of future queue implementation changes.
+sort_mqueue_by_timestamp(Messages) ->
+    [Msg || {_, Msg} <- lists:keysort(1, [{mqueue_timestamp(Msg), Msg} || Msg <- Messages])].
 
--define(INSERT_TS, mqueue_insert_ts).
-
-%% This is used to sort/traverse messages in query/2
-mqueue_with_ts(#message{extra = Extra} = Msg) ->
-    TsNano = erlang:system_time(nanosecond),
-    Extra1 =
-        case is_map(Extra) of
-            true -> Extra;
-            %% extra field has not being used before EMQX 5.4.0
-            %% and defaulted to an empty list,
-            %% if it's not a map it's safe to overwrite it
-            false -> #{}
-        end,
-    Msg#message{extra = Extra1#{?INSERT_TS => TsNano}}.
-
-mqueue_without_ts(#message{extra = Extra} = Msg) ->
-    Msg#message{extra = maps:remove(?INSERT_TS, Extra)};
-mqueue_without_ts(Msg) ->
-    Msg.
+mqueue_timestamp(#message{extra = #{mqueue_insert_ts := Ts}}) ->
+    Ts.
 
 %% 6.3.0/6.3.1 class-queue decoder, copied verbatim from `emqx_pqueue` @ 6.3.1.
 %% Keep this copy independent of future queue implementation changes.

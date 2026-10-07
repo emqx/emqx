@@ -328,7 +328,7 @@ export(#session{
 export_mqueue({empty, _}) ->
     [];
 export_mqueue(MQueue) ->
-    emqx_mqueue:to_list(MQueue).
+    emqx_mqueue:export(MQueue).
 
 export_inflight(Inflight) ->
     [export_inflight_entry(Entry) || Entry <- emqx_inflight:to_list(Inflight)].

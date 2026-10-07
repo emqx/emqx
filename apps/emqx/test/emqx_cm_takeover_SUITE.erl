@@ -95,7 +95,7 @@ end_per_suite(Config) ->
 end_per_testcase(_, _) ->
     emqx_common_test_helpers:call_janitor().
 
--doc "Decode a 6.3.0 priority queue, preserving priority and mixed-QoS lane order.".
+-doc "Decode a 6.3.0 priority queue, preserving timestamps and restoring insertion order.".
 t_decode_630_priorities(_Config) ->
     #{session := Session, exported := Expected} = fixture_630_priorities(),
     ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, 2)).
@@ -138,22 +138,23 @@ t_encode_mqueue_timestamps_631(_Config) ->
 assert_encode_mqueue_timestamps(Version) ->
     ChanInfo = #{clientinfo => clientinfo()},
     #{exported := Exported0 = #{mqueue := Messages0}, conf := Conf} = fixture(),
-    Messages = [Msg#message{extra = #{other_metadata => preserved}} || Msg <- Messages0],
-    Exported = Exported0#{mqueue := Messages},
+    Messages = [
+        Msg#message{extra = Extra#{other_metadata => preserved}}
+     || Msg = #message{extra = Extra} <- Messages0
+    ],
+    %% Flattening must restore timestamp order, even when priorities changed traversal order.
+    Exported = Exported0#{mqueue := lists:reverse(Messages)},
     Session = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, Version),
     Stamped = legacy_mqueue_messages(Session, Version),
     Timestamps = [Ts || #message{extra = #{mqueue_insert_ts := Ts}} <- Stamped],
     ?assertEqual(length(Messages), length(Timestamps)),
     ?assert(lists:all(fun is_integer/1, Timestamps)),
     ?assertEqual(Timestamps, lists:sort(Timestamps)),
+    ?assertEqual(Messages, Stamped),
     ?assertEqual(
-        Messages,
-        [
-            Msg#message{extra = maps:remove(mqueue_insert_ts, Extra)}
-         || Msg = #message{extra = Extra} <- Stamped
-        ]
-    ),
-    ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Session, Version)).
+        Exported0#{mqueue := Messages},
+        emqx_cm_takeover:from_legacy_session(Session, Version)
+    ).
 
 legacy_mqueue_messages(Session, 1) ->
     ?MQUEUE_62X(_, _, _, _, _, _, {queue, [], Messages, _}, _, _, _) = element(
@@ -173,7 +174,7 @@ legacy_mqueue_messages(Session, 2) ->
 %% emqx_mqueue:in/2 enqueued low-1, high-0a, default-2, high-1, low-0, high-0b.
 %% Priorities: high = 10, low = 1, default = lowest; store_qos0 = true.
 %% The high and low priorities contain mixed QoS0/non-QoS0 class queues.
-%% Expected state comes from that release's emqx_session_mem:export/1.
+%% Expected state retains the raw queue timestamps and orders messages by insertion time.
 fixture_630_priorities() ->
     #{
         session =>
@@ -243,18 +244,30 @@ fixture_630_priorities() ->
                 id => <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 118>>,
                 mqueue =>
                     [
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 0, fixture,
-                            #{}, #{}, <<"high">>, <<"high-0a">>, 1000, #{}},
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4>>, 1, fixture,
-                            #{}, #{}, <<"high">>, <<"high-1">>, 1000, #{}},
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6>>, 0, fixture,
-                            #{}, #{}, <<"high">>, <<"high-0b">>, 1000, #{}},
                         {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 1, fixture,
-                            #{}, #{}, <<"low">>, <<"low-1">>, 1000, #{}},
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5>>, 0, fixture,
-                            #{}, #{}, <<"low">>, <<"low-0">>, 1000, #{}},
+                            #{}, #{}, <<"low">>, <<"low-1">>, 1000, #{
+                                mqueue_insert_ts => 1791306814643791045
+                            }},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 0, fixture,
+                            #{}, #{}, <<"high">>, <<"high-0a">>, 1000, #{
+                                mqueue_insert_ts => 1791306814643795373
+                            }},
                         {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 2, fixture,
-                            #{}, #{}, <<"other">>, <<"default-2">>, 1000, #{}}
+                            #{}, #{}, <<"other">>, <<"default-2">>, 1000, #{
+                                mqueue_insert_ts => 1791306814643796435
+                            }},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4>>, 1, fixture,
+                            #{}, #{}, <<"high">>, <<"high-1">>, 1000, #{
+                                mqueue_insert_ts => 1791306814643797046
+                            }},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5>>, 0, fixture,
+                            #{}, #{}, <<"low">>, <<"low-0">>, 1000, #{
+                                mqueue_insert_ts => 1791306814643807645
+                            }},
+                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6>>, 0, fixture,
+                            #{}, #{}, <<"high">>, <<"high-0b">>, 1000, #{
+                                mqueue_insert_ts => 1791306814643808487
+                            }}
                     ],
                 is_persistent => true,
                 subscriptions => #{<<"#">> => #{qos => 2}},
@@ -269,7 +282,7 @@ fixture_630_priorities() ->
 %% Commit: b0604926195f9372b0068b61f88d409d639a2401.
 %% * Quota disabled, one wait_comp entry and one awaiting_rel entry.
 %% * `enqueue/3` added QoS0, QoS1, QoS0 messages, exercising both queue lanes.
-%% * Expected exported map was produced by that release `export/1`.
+%% * Expected exported map retains the raw queue insertion timestamps.
 fixture() ->
     #{
         session =>
@@ -322,13 +335,19 @@ fixture() ->
                     [
                         {message,
                             <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 2>>, 0,
-                            fixture, #{}, #{}, <<"out">>, <<"first">>, 1791301268573, #{}},
+                            fixture, #{}, #{}, <<"out">>, <<"first">>, 1791301268573, #{
+                                mqueue_insert_ts => 1791301268573820816
+                            }},
                         {message,
                             <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 3>>, 1,
-                            fixture, #{}, #{}, <<"out">>, <<"second">>, 1791301268573, #{}},
+                            fixture, #{}, #{}, <<"out">>, <<"second">>, 1791301268573, #{
+                                mqueue_insert_ts => 1791301268573824212
+                            }},
                         {message,
                             <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 4>>, 0,
-                            fixture, #{}, #{}, <<"out">>, <<"third">>, 1791301268573, #{}}
+                            fixture, #{}, #{}, <<"out">>, <<"third">>, 1791301268573, #{
+                                mqueue_insert_ts => 1791301268573824733
+                            }}
                     ],
                 inflight =>
                     [

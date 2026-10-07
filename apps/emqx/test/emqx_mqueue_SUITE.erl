@@ -43,6 +43,52 @@ t_in(_) ->
     {_, Q5} = ?Q:in(#message{payload = <<>>}, Q4),
     ?assertEqual(5, ?Q:len(Q5)).
 
+t_export_import_timestamps(_) ->
+    Opts = #{max_len => 10, store_qos0 => true, priorities => #{<<"high">> => 10}},
+    Messages = [
+        #message{
+            qos = 0,
+            topic = <<"low">>,
+            payload = <<"first">>,
+            extra = #{mqueue_insert_ts => 10, other_metadata => preserved}
+        },
+        #message{
+            qos = 1,
+            topic = <<"high">>,
+            payload = <<"second">>,
+            extra = #{mqueue_insert_ts => 20}
+        },
+        #message{
+            qos = 1,
+            topic = <<"low">>,
+            payload = <<"third">>,
+            extra = #{mqueue_insert_ts => 30}
+        }
+    ],
+    Enqueue = fun(Msg, Q) ->
+        {undefined, Q1} = ?Q:in(Msg, Q),
+        Q1
+    end,
+    Original = lists:foldl(Enqueue, ?Q:init(Opts), Messages),
+    [First, Second, Third] = Messages,
+    Exported = [Second, First, Third],
+    ?assertEqual(Exported, ?Q:export(Original)),
+    Imported = lists:foldl(Enqueue, ?Q:init(Opts), ?Q:export(Original)),
+    ?assertEqual(Exported, ?Q:export(Imported)),
+    ?assertEqual(?Q:to_list(Original), ?Q:to_list(Imported)),
+    %% A cursor obtained before transfer still resumes at the same message.
+    {[_, _], #{position := Pos}} = ?Q:query(Original, #{limit => 2}),
+    ?assertEqual(
+        ?Q:query(Original, #{limit => 1, position => Pos}),
+        ?Q:query(Imported, #{limit => 1, position => Pos})
+    ),
+    ?assert(
+        lists:all(
+            fun(#message{extra = Extra}) -> not maps:is_key(mqueue_insert_ts, Extra) end,
+            ?Q:to_list(Imported)
+        )
+    ).
+
 t_in_qos0(_) ->
     Opts = #{max_len => 5, store_qos0 => false},
     Q = ?Q:init(Opts),
