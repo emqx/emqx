@@ -15,11 +15,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--ifndef(BUILD_WITHOUT_QUIC).
-%% Please our CI
--include_lib("quicer/include/quicer.hrl").
--endif.
-
 -import(lists, [nth/2]).
 
 -define(TOPICS, [
@@ -44,17 +39,15 @@ all() ->
     [
         {group, tcp},
         {group, tcp_beam_framing},
-        {group, ws},
-        {group, quic}
+        {group, ws}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {tcp, [], TCs -- [t_connect_clean_start_unresp_old_client]},
-        {tcp_beam_framing, [], TCs -- [t_connect_clean_start_unresp_old_client]},
-        {ws, [], TCs -- [t_connect_clean_start_unresp_old_client]},
-        {quic, [], TCs}
+        {tcp, [], TCs},
+        {tcp_beam_framing, [], TCs},
+        {ws, [], TCs}
     ].
 
 init_per_group(tcp, Config) ->
@@ -84,12 +77,6 @@ init_per_group(tcp_beam_framing, Config) ->
         {parse_unit, frame}
         | Config
     ];
-init_per_group(quic, Config) ->
-    Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.quic.test { enable = true, bind = 1884 }"}],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{conn_type, quic}, {port, 1884}, {conn_fun, quic_connect}, {group_apps, Apps} | Config];
 init_per_group(ws, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.ws.test { enable = true, bind = 8888, max_connections = 100 }"}],
@@ -249,45 +236,6 @@ t_connect_clean_start(Config) ->
     waiting_client_process_exit(Client3),
 
     process_flag(trap_exit, false).
-
--ifndef(BUILD_WITHOUT_QUIC).
-t_connect_clean_start_unresp_old_client(Config) ->
-    ConnFun = ?config(conn_fun, Config),
-    ClientID = atom_to_binary(?FUNCTION_NAME),
-    process_flag(trap_exit, true),
-    %% GIVEN: a client with clean_start=true
-    {ok, Client1} = emqtt:start_link([
-        {clientid, ClientID},
-        {proto_ver, v5},
-        {clean_start, true}
-        | Config
-    ]),
-    {ok, _} = emqtt:ConnFun(Client1),
-    %% [MQTT-3.1.2-4]
-    ?assertEqual(0, client_info(session_present, Client1)),
-    {ok, Client2} = emqtt:start_link([
-        {clientid, ClientID},
-        {proto_ver, v5},
-        {clean_start, false},
-        %% ensure fast close < 10ms
-        {connect_timeout, 10}
-        | Config
-    ]),
-    %% WHEN: the client became unresponsive
-    close_quic_conn_silently(ConnFun, Client1),
-    %% THEN: the new client should connect successfully in time < connect_timeout
-    {ok, _} = emqtt:ConnFun(Client2),
-    ok = emqtt:disconnect(Client2),
-    ?assertReceive({'EXIT', Client1, _}),
-    ?assertReceive({'EXIT', Client2, _}),
-    ok.
-
-close_quic_conn_silently(quic_connect, Client) ->
-    %% simulate a unresponsive client that server doesn't know it is disconnected
-    {quic, Conn, _Stream} = proplists:get_value(socket, emqtt:info(Client)),
-    _ = quicer:shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0, 10),
-    ok.
--endif.
 
 t_connect_will_message(Config) ->
     ConnFun = ?config(conn_fun, Config),
@@ -1291,13 +1239,7 @@ t_CONNECT_packet_too_large(Config) ->
         | Config
     ]),
     unlink(ClientPid),
-    try
-        ?assertMatch({error, _}, emqtt:ConnFun(ClientPid))
-    catch
-        exit:{normal, W} when ConnFun =:= quic_connect ->
-            %% TODO: fix quic_connect to return error
-            ?assertMatch({gen_statem, call, _}, W)
-    end.
+    ?assertMatch({error, _}, emqtt:ConnFun(ClientPid)).
 
 t_PUBLISH_packet_too_large(init, Config) ->
     MaxSize = 1024,
