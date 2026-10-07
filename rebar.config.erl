@@ -36,7 +36,7 @@ assert_otp() ->
     end.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.4.9"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.4.12"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.17"}}}.
