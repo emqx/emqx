@@ -1448,20 +1448,17 @@ to_quicer_listener_opts(Name, Opts) ->
     ListenOpts = maps:merge(Opts2, optional_quic_listener_opts(Opts)),
 
     %% Conn Opts
-    HibernateAfterMs = maps:get(hibernate_after, ListenOpts),
     ConnectionOpts = #{
         alpn => ["mqtt"],
         conn_callback => emqx_quic_connection,
         peer_unidi_stream_count => maps:get(peer_unidi_stream_count, Opts, 1),
         peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
         zone => zone(Opts),
-        listener => {quic, Name},
-        hibernate_after => HibernateAfterMs
+        listener => {quic, Name}
     },
     StreamOpts = #{
         stream_callback => emqx_quic_stream,
-        active => 1,
-        hibernate_after => HibernateAfterMs
+        active => 1
     },
     ?tp("quic_listener_opts", #{listen_opts => ListenOpts}),
     {ListenOpts, ConnectionOpts, StreamOpts}.

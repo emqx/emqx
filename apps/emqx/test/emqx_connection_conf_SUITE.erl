@@ -23,6 +23,7 @@
 -define(GEN_TCP_FRAME_PORT, 21884).
 -define(GEN_TCP_CHUNK_PORT, 21885).
 -define(WS_PORT, 21886).
+-define(QUIC_PORT, 21887).
 
 -define(TCP_CASES, [
     t_shared_after_connect,
@@ -32,6 +33,11 @@
     t_parse_error,
     t_zone_conf_shared,
     t_zone_conf_absent_entry,
+    t_zone_changed
+]).
+
+-define(QUIC_CASES, [
+    t_zone_conf_shared,
     t_zone_changed
 ]).
 
@@ -46,27 +52,36 @@ all() ->
         {group, socket},
         {group, gen_tcp_frame},
         {group, gen_tcp_chunk},
-        {group, ws},
-        t_first_connection_registers,
-        t_build_matches_frame,
-        t_global_config_change,
-        t_zone_config_change,
-        t_zone_conf_change_keeps_frame_shared,
-        t_listener_config_change,
-        t_listener_unrelated_change_keeps_entry,
-        t_listener_delete_erases_entry,
-        t_zone_removal,
-        t_shutdown_erases_entries,
-        t_restart_rebuilds_entries
-    ].
+        {group, ws}
+    ] ++ quic_groups() ++
+        [
+            t_first_connection_registers,
+            t_build_matches_frame,
+            t_global_config_change,
+            t_zone_config_change,
+            t_zone_conf_change_keeps_frame_shared,
+            t_listener_config_change,
+            t_listener_unrelated_change_keeps_entry,
+            t_listener_delete_erases_entry,
+            t_zone_removal,
+            t_shutdown_erases_entries,
+            t_restart_rebuilds_entries
+        ].
 
 groups() ->
     [
         {socket, [], ?TCP_CASES},
         {gen_tcp_frame, [], ?TCP_CASES},
         {gen_tcp_chunk, [], ?TCP_CASES},
-        {ws, [], ?WS_CASES}
+        {ws, [], ?WS_CASES},
+        {quic, [], ?QUIC_CASES}
     ].
+
+-ifndef(BUILD_WITHOUT_QUIC).
+quic_groups() -> [{group, quic}].
+-else.
+quic_groups() -> [].
+-endif.
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -103,6 +118,14 @@ init_per_group(gen_tcp_chunk, Config) ->
         {transport, tcp},
         {conn_mod, emqx_connection},
         {listener, {tcp, chunk}}
+        | Config
+    ];
+init_per_group(quic, Config) ->
+    [
+        {port, ?QUIC_PORT},
+        {transport, quic},
+        {conn_mod, emqx_connection},
+        {listener, {quic, default}}
         | Config
     ];
 init_per_group(ws, Config) ->
@@ -157,6 +180,11 @@ listeners_conf() ->
       parse_unit = chunk
     }
     listeners.ws.default.bind = "127.0.0.1:21886"
+    listeners.quic.default {
+      enable = true
+      bind = "127.0.0.1:21887"
+      ssl_options.hibernate_after = 1h
+    }
     """.
 
 %%--------------------------------------------------------------------
@@ -636,7 +664,8 @@ connect(Config, ProtoVer, Opts) ->
     {ok, _} =
         case ?config(transport, Config) of
             tcp -> emqtt:connect(C);
-            ws -> emqtt:ws_connect(C)
+            ws -> emqtt:ws_connect(C);
+            quic -> emqtt:quic_connect(C)
         end,
     C.
 
@@ -756,13 +785,13 @@ socket_config() ->
         {listener, ?SOCKET_LISTENER}
     ].
 
-expected_conn_conf({Type, Name} = Listener, Zone) ->
-    TcpOpts = emqx_config:get_listener_conf(Type, Name, [tcp_options]),
+expected_conn_conf(Listener, Zone) ->
+    {ActiveN, Watermark} = expected_listener_settings(Listener),
     #conf{
         listener = Listener,
         zone = Zone,
-        active_n = emqx_listeners:clamp_active_n(maps:get(active_n, TcpOpts)),
-        sendq_watermark = maps:get(high_watermark, TcpOpts),
+        active_n = ActiveN,
+        sendq_watermark = Watermark,
         hibernate_after = emqx_config:get_zone_conf(Zone, [mqtt, hibernate_after]),
         minor_gc_after = emqx_config:get_zone_conf(Zone, [mqtt, minor_gc_after]),
         force_gc =
@@ -773,7 +802,13 @@ expected_conn_conf({Type, Name} = Listener, Zone) ->
         force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown])
     }.
 
-%% The `#conf{}' held by a TCP connection process.
+expected_listener_settings({quic, _Name}) ->
+    {10, 0};
+expected_listener_settings({Type, Name}) ->
+    TcpOpts = emqx_config:get_listener_conf(Type, Name, [tcp_options]),
+    {emqx_listeners:clamp_active_n(maps:get(active_n, TcpOpts)), maps:get(high_watermark, TcpOpts)}.
+
+%% The `#conf{}' held by a TCP connection process or a QUIC control stream.
 conn_conf_of(Client) ->
     find_conf(sys:get_state(conn_pid(Client))).
 

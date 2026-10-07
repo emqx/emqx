@@ -1337,6 +1337,13 @@ Hibernating and waking up too often can cause CPU utilization to increase, as th
 common_ssl_opts_schema_hibernate_after.label:
 """Hibernate After"""
 
+quic_ssl_opts_hibernate_after.desc:
+"""Deprecated. This setting has no effect on a QUIC listener.
+A QUIC connection uses `mqtt.hibernate_after` of the listener's zone."""
+
+quic_ssl_opts_hibernate_after.label:
+"""Hibernate After"""
+
 fields_mqtt_quic_listener_send_buffering_enabled.desc:
 """Buffer send data instead of holding application buffers until sent data is acknowledged. Default: 1 (Enabled)"""
 

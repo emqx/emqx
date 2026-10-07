@@ -371,7 +371,7 @@ init_state(
         sock => Socket
     },
     Channel = emqx_channel:init(ConnInfo, Opts),
-    Conf = conn_conf({Type, Listener}, Zone, Opts),
+    Conf = emqx_connection_conf:conn_conf({Type, Listener}, Zone),
     State0 = #state{
         transport = Transport,
         socket = Socket,
@@ -512,14 +512,6 @@ cancel_idle_timer(_State) ->
 -compile({inline, [get_zone_idle_timeout/1]}).
 get_zone_idle_timeout(Zone) ->
     emqx_channel:get_mqtt_conf(Zone, idle_timeout).
-
-%% A QUIC listener passes its own `hibernate_after' in `Opts'.
-conn_conf(Listener, Zone, Opts) ->
-    #conf{hibernate_after = ZoneValue} = Conf = emqx_connection_conf:conn_conf(Listener, Zone),
-    case maps:get(hibernate_after, Opts, ZoneValue) of
-        ZoneValue -> Conf;
-        HibernateAfter -> Conf#conf{hibernate_after = HibernateAfter}
-    end.
 
 %%--------------------------------------------------------------------
 %% Process next Msg
@@ -1675,9 +1667,11 @@ wait_for_quic_stream_close(
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-%% A zone change on a live connection: `Opts' carries no override.
+%% A zone change on a live connection.
 init_zone_specific_state(Zone, #state{conf = Conf0} = State0) ->
-    init_zone_specific_state(conn_conf(Conf0#conf.listener, Zone, #{}), Zone, State0).
+    init_zone_specific_state(
+        emqx_connection_conf:conn_conf(Conf0#conf.listener, Zone), Zone, State0
+    ).
 
 init_zone_specific_state(NConf, Zone, State0) ->
     {Parser, Serialize} =
