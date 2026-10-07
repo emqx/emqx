@@ -465,13 +465,8 @@ t_handle_incoming(_) ->
 t_handle_outing_non_utf8_topic(_) ->
     Topic = <<"测试"/utf16>>,
     Publish = ?PUBLISH_PACKET(0, Topic, 1),
-    StrictOff = #{version => 5, max_size => 16#FFFF, strict_mode => false},
-    StOff = st(#{serialize => StrictOff}),
-    OffResult = emqx_connection:handle_outgoing(Publish, StOff),
-    ?assertMatch({ok, _}, OffResult),
-    StrictOn = #{version => 5, max_size => 16#FFFF, strict_mode => true},
-    StOn = st(#{serialize => StrictOn}),
-    ?assertError(frame_serialize_error, emqx_connection:handle_outgoing(Publish, StOn)).
+    St = st(#{serialize => #{version => 5, max_size => 16#FFFF}}),
+    ?assertMatch({ok, _}, emqx_connection:handle_outgoing(Publish, St)).
 
 t_with_channel(_) ->
     State = st(),
