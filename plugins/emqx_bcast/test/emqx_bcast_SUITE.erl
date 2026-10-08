@@ -5141,6 +5141,75 @@ t_ack_part_decrements_after_its_index_entry_is_gone(_Config) ->
     ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_meta, DeliveryId)).
 
+-doc "Index-shard ownership and claim targets must follow the cores whose\n"
+"plugin is actually running. A core that joined the cluster before the plugin\n"
+"was synced/loaded still appears in the mria core list; assigning it shards\n"
+"made its appends fail (deferred forever) and claims to it died with `undef`\n"
+"in the peer's log while the sender never learned - intake kept accepting and\n"
+"committing while delivered/acked froze and `queued` grew without bound.".
+t_core_nodes_follow_the_plugin_readiness(_Config) ->
+    %% This node runs the plugin, so it published itself as ready and owns
+    %% every shard on its own.
+    ?assert(lists:member(node(), emqx_bcast:ready_cores())),
+    ?assertEqual([node()], emqx_bcast:core_nodes()),
+    ?assertEqual([], emqx_bcast:unready_core_nodes()),
+    ?assert(emqx_bcast:is_ready_core(node())),
+    %% A peer that is not ready is dropped from ownership ...
+    Ready = [node()],
+    ?assertEqual(
+        [node()],
+        emqx_bcast:select_ready_cores([node(), 'peer@nohost'], Ready, node())
+    ),
+    %% ... while the local node is always kept (its plugin is running this
+    %% code) and an empty ready set falls back to the full list (startup).
+    ?assertEqual(
+        [node()],
+        emqx_bcast:select_ready_cores([node()], [], node())
+    ),
+    ?assertEqual(
+        ['a@nohost', 'b@nohost'],
+        emqx_bcast:select_ready_cores(['a@nohost', 'b@nohost'], [], 'a@nohost')
+    ),
+    ?assertEqual(
+        ['a@nohost', 'b@nohost'],
+        emqx_bcast:select_ready_cores(['a@nohost', 'b@nohost'], [], 'c@nohost')
+    ).
+
+-doc "The field symptom must not happen: with a core that has no running\n"
+"plugin in the cluster, messages are still delivered. Routing never picks\n"
+"that core (so no claim is cast into the void and no shard waits for it),\n"
+"and the delivery on the ready cores is indexed, acknowledged and completed\n"
+"instead of sitting in queued forever.".
+t_messages_still_flow_with_a_core_without_plugin(_Config) ->
+    %% Routing decisions: the core without the plugin is not an owner, the
+    %% ready cores keep every shard.
+    ?assertEqual(
+        [node()],
+        emqx_bcast:select_ready_cores([node(), 'new-node@nohost'], [node()], node())
+    ),
+    ?assertNot(emqx_bcast:is_ready_core('new-node@nohost')),
+    ?assertEqual([], emqx_bcast:unready_core_nodes()),
+    %% End to end: the delivery still reaches the device and completes.
+    PK = <<"PUNREADY">>,
+    DN = <<"DUNREADY">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"delivery with an unready core">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    ?assert(wait_until(fun() -> indexed_deliveries(PK, DN) =/= [] end, 100)),
+    counted = emqx_bcast_storage:process_ack(PK, DN, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
+    ?assertEqual([], indexed_deliveries(PK, DN)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)).
+
+-doc "The readiness gauge must be exported and report the number of cores\n"
+"without the plugin, so the state is visible to an operator (the test cluster\n"
+"has one node, so it is zero).".
+t_cores_without_plugin_gauge(_Config) ->
+    _ = emqx_bcast_metrics:collect(),
+    Text = iolist_to_binary(emqx_bcast_metrics:collect()),
+    ?assertMatch({_, _}, binary:match(Text, <<"bcast_cores_without_plugin 0">>)),
+    ?assertEqual(0, gauge(<<"cores_without_plugin">>)).
+
 -doc "A promotion that keeps aborting must hand the batch back for a later\n"
 "retry instead of dropping it: the request was already acknowledged to the\n"
 "caller, and a crash path can reach the same state after the mria commit, so\n"

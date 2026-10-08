@@ -17,13 +17,15 @@
     intake_enqueued/0,
     intake_rejected/0,
     qos1_promote_error/0,
-    qos1_deferred/1
+    qos1_deferred/1,
+    qos1_claim_unready_core/0
 ]).
 -export([broadcast_in/0, broadcast_error/0]).
 -export([register_in/0, register_refresh/0, register_error/0]).
 -export([collect/0, reset/0, check_guarded/0, reset_guarded/0, reset_cluster/0]).
 
 -include("emqx_bcast.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -define(NS, <<"bcast">>).
 
@@ -164,6 +166,10 @@ declare_counters() ->
             "QoS=1 batches handed back to the intake queue for a later retry after the "
             "in-worker budget ran out - index append, promotion or batch processing kept "
             "failing (intake scope; retried until they succeed, never dropped)"},
+        {"batch_pub_qos1_claim_unready_core",
+            "QoS=1 claim batches that were not dispatched because their target core does not "
+            "run the plugin (plugin not synced/loaded or stopped there). The marks are released "
+            "instead, so the devices are claimed again once that core is ready"},
         {"broadcast_pub_in", "PubBroadcast API requests"},
         {"broadcast_pub_error", "PubBroadcast errors"},
         {"register_message_in", "RegisterMessage API requests"},
@@ -194,6 +200,11 @@ declare_gauges() ->
             {"intake_deferred_depth",
                 "QoS1 committed batches on this node waiting out an index-append retry "
                 "backoff, i.e. not yet takeable by the promoter (intake scope)"},
+            {"cores_without_plugin",
+                "Cluster cores that do not run this plugin (package not synced/loaded or plugin "
+                "stopped). Their share of the index shards is reassigned to the ready cores until "
+                "they publish themselves as ready; while this is non-zero, batches for those "
+                "partitions wait in the intake queue and claims to them cannot be dispatched."},
             {"batch_pub_qos1_queued",
                 "QoS1 committed logical deliveries queued but not yet claimed on this node's "
                 "shards (index scope; cores only; sum() over nodes)"},
@@ -213,12 +224,42 @@ report_business_gauges() ->
     prometheus_gauge:set(
         ?BCAST_REGISTRY, mname("intake_deferred_depth"), [], emqx_bcast_intake:deferred_depth()
     ),
+    Unready = emqx_bcast:unready_core_nodes(),
+    prometheus_gauge:set(?BCAST_REGISTRY, mname("cores_without_plugin"), [], length(Unready)),
+    log_new_unready_cores(Unready),
     {Queued, Inflight} = emqx_bcast_index_owner:gauge_sample(),
     prometheus_gauge:set(?BCAST_REGISTRY, mname("batch_pub_qos1_queued"), [], Queued),
     prometheus_gauge:set(?BCAST_REGISTRY, mname("batch_pub_qos1_inflight"), [], Inflight),
     ok.
 
 %% helpers
+%% Report a core that joined the cluster without a running plugin. Logged once
+%% per change of the set (not per scrape), because this state silently stalls
+%% the partitions it owns: appends are deferred and claims to it die with
+%% `undef` in that node's log.
+log_new_unready_cores(Unready) ->
+    Key = {?APP, unready_cores_logged},
+    Previous = persistent_term:get(Key, []),
+    case Unready of
+        Previous ->
+            ok;
+        _ ->
+            persistent_term:put(Key, Unready),
+            case Unready of
+                [] ->
+                    ?SLOG(warning, #{
+                        msg => "bcast_all_cores_have_the_plugin",
+                        previously_unready => Previous
+                    });
+                _ ->
+                    ?SLOG(error, #{
+                        msg => "bcast_core_without_plugin",
+                        cores => Unready,
+                        note => "their index shards are not used until their plugin is running"
+                    })
+            end
+    end.
+
 c(N) -> prometheus_counter:inc(?BCAST_REGISTRY, mname(N), [], 1).
 c(N, V) -> prometheus_counter:inc(?BCAST_REGISTRY, mname(N), [], V).
 
@@ -253,6 +294,8 @@ intake_rejected() -> c("batch_pub_qos1_intake_rejected").
 qos1_promote_error() -> c("batch_pub_qos1_promote_error").
 -spec qos1_deferred(non_neg_integer()) -> ok.
 qos1_deferred(N) -> c("batch_pub_qos1_deferred", N).
+-spec qos1_claim_unready_core() -> ok.
+qos1_claim_unready_core() -> c("batch_pub_qos1_claim_unready_core").
 
 -spec broadcast_in() -> ok.
 broadcast_in() -> c("broadcast_pub_in").

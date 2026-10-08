@@ -28,6 +28,10 @@
     on_client_ping/3,
     on_message_acked/2,
     msg_epoch/1,
+    ready_cores/0,
+    unready_core_nodes/0,
+    is_ready_core/1,
+    select_ready_cores/3,
     bump_msg_epoch/1,
     epoch_bump_timeout_ms/0,
     bump_msg_epoch_everywhere/1
@@ -88,7 +92,97 @@ probe_role(Attempts) ->
     end.
 
 -spec core_nodes() -> [node()].
+%% Nodes that may own index shards and be chosen as claim targets. Both
+%% decisions used to follow the mria core list alone, which silently broke the
+%% partitions of a core that joined the cluster before the plugin was
+%% installed/loaded there: appends to its shards got {badrpc, _}/{noproc} (the
+%% batch is then retried with backoff and never counted) and a claim
+%% dispatched to it died with `undef` inside that node's log, because the
+%% dispatch is a fire-and-forget `emqx_rpc:cast` that tells the sender nothing.
+%% A 200k-client rolling upgrade showed exactly that: `in` kept rising while
+%% delivered/acked froze and `queued` grew, with
+%% `emqx_bcast_pull_server_pool:want_next_async undef` only in the new nodes'
+%% logs.
+%%
+%% Only cores that can serve a claim are used: the local node (this code runs
+%% there) plus peers whose plugin module answers a cached probe. A core whose
+%% plugin is missing, not loaded or stopped is left out until it is back, and
+%% an inconclusive probe keeps the peer rather than reassigning its shards.
 core_nodes() ->
+    select_ready_cores(mria_core_nodes(), ready_cores(), node()).
+
+select_ready_cores(All, Ready, Local) ->
+    case Ready of
+        [] ->
+            All;
+        _ ->
+            case [N || N <- All, N =:= Local orelse lists:member(N, Ready)] of
+                [] -> All;
+                Keep -> Keep
+            end
+    end.
+
+ready_cores() ->
+    [
+        N
+     || N <- mria_core_nodes(),
+        N =:= node() orelse plugin_present(N)
+    ].
+
+-define(PEER_PROBE_MS, 3000).
+-define(PEER_PROBE_TIMEOUT_MS, 2000).
+
+%% Cached: the probe is an RPC and this runs on the shard-routing path.
+plugin_present(Node) ->
+    Key = {?MODULE, peer_plugin_present, Node},
+    Now = erlang:monotonic_time(millisecond),
+    case persistent_term:get(Key, undefined) of
+        {Ts, Ready} when Now - Ts < ?PEER_PROBE_MS ->
+            Ready;
+        _ ->
+            Ready =
+                case probe_peer_plugin(Node) of
+                    unknown -> true;
+                    Answer -> Answer
+                end,
+            persistent_term:put(Key, {Now, Ready}),
+            Ready
+    end.
+
+%% true  - the module is loaded and exports what this build calls;
+%% false - loaded without it (an older/other plugin version): not usable;
+%% unknown - the probe could not answer (node down, dist hiccup): keep the
+%%           peer, the checked claim dispatch still protects the claim path.
+probe_peer_plugin(Node) ->
+    try
+        erpc:call(
+            Node,
+            erlang,
+            function_exported,
+            [emqx_bcast_pull_server_pool, want_next_async, 4],
+            ?PEER_PROBE_TIMEOUT_MS
+        )
+    of
+        true -> true;
+        false -> false;
+        _ -> unknown
+    catch
+        _:_ -> unknown
+    end.
+
+unready_core_nodes() ->
+    Ready = ready_cores(),
+    [
+        N
+     || N <- mria_core_nodes(),
+        N =/= node(),
+        not lists:member(N, Ready)
+    ].
+
+is_ready_core(Node) ->
+    Node =:= node() orelse lists:member(Node, ready_cores()).
+
+mria_core_nodes() ->
     try mria_membership:running_core_nodelist() of
         [] -> fallback_core_nodes();
         Nodes -> Nodes

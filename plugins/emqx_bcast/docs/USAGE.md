@@ -204,3 +204,25 @@ window (`msg_ttl`); devices that never return are accounted for by
 (`queued`+`inflight`) stall while `wanted` keeps growing, the delivery
 pipeline (pull pools, index owner) is not draining - check node health
 rather than `msg_ttl`.
+
+
+## Rolling upgrade and joining nodes
+
+A client's pending deliveries are held with the **node the client is connected
+to** (its pull state), so a node that is not running the plugin yet cannot
+deliver to the clients attached to it: those clients stay silent until the
+plugin is ready there.
+
+- Probe a node's readiness before sending it traffic: the plugin API answers
+  only while the plugin runs, for example
+  `GET /api/v5/plugin_api/emqx_bcast/metrics` -> `200` when ready, `404`
+  before that. Do not add the node to the load balancer, and do not send
+  BatchPub API traffic to it, until that probe passes.
+- The rest of the cluster is protected while a node is not ready: a core
+  without the plugin is not used as an index-shard owner and is never chosen
+  as a claim target, so the partitions it would have owned are served by the
+  cores that are ready (watch `bcast_cores_without_plugin`; the error log
+  `bcast_core_without_plugin` names such cores).
+- After the plugin becomes ready on that node, the deferred/queued work drains
+  by itself (deferred batches are retried with a backoff; unclaimed index
+  entries are claimed again).

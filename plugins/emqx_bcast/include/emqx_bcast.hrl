@@ -47,6 +47,12 @@
 -define(TAB_QUOTA_ETS, bcast_quota_ets).
 -define(TAB_DEV_REGISTRY, bcast_device_registry).
 
+%% pg group every node's plugin supervisor joins while the plugin is alive.
+%% Index-shard ownership and claim targets only follow cores that are in it,
+%% so a core that joined without the plugin loaded cannot silently take a
+%% share of the partitions.
+-define(BCAST_READY_GROUP, bcast_node_ready).
+
 %% Node-local delete epoch per content hash. A Delete Message bumps it on
 %% every core, and each intake entry records the epoch it was admitted
 %% under: promotion drops an entry whose epoch is older than the current

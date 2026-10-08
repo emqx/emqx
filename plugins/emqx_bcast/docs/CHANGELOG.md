@@ -2,6 +2,40 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
+## Unreleased
+
+### Upgrade notes
+
+- **Rolling upgrade: do not route traffic to a node whose plugin is not ready
+  yet.** A client's pending deliveries are held with the node it is connected
+  to, so a node that is not running the plugin cannot deliver to its clients
+  until it is ready. Probe readiness before sending traffic - the plugin API
+  answers only while the plugin runs, e.g.
+  `GET /api/v5/plugin_api/emqx_bcast/metrics` returns 200 when ready and 404
+  before that - and only then add the node to the load balancer or send
+  BatchPub traffic to it.
+
+### Fixed
+
+- **A core without a running plugin no longer breaks the partitions and the
+  claims routed to it.** Index-shard ownership and claim targets followed the
+  mria core list alone, so a core that joined the cluster before the plugin was
+  installed/loaded (package not synced yet, or plugin stopped) still owned its
+  share of the 48 shards and was still chosen as a claim target. Appends to its
+  shards failed with `{badrpc, _}`/`{noproc}` and were retried with backoff
+  without ever being counted, and a claim dispatched to it died with `undef`
+  inside that node's log because the dispatch is a fire-and-forget
+  `emqx_rpc:cast`. Observed in a rolling upgrade as intake still accepting and
+  committing while `delivered`/`acked` froze, `queued` grew to 1.25M and EMQX's
+  own `messages.sent` stopped, with
+  `emqx_bcast_pull_server_pool:want_next_async undef` only in the new nodes'
+  logs. Ownership and claim targeting now follow only cores that can serve a
+  claim (cached probe of the plugin module on the peer; the local node is
+  always kept and an inconclusive probe keeps the peer rather than reassigning
+  its shards), the claim dispatch checks the target before casting, and the new
+  `bcast_cores_without_plugin` gauge plus the `bcast_core_without_plugin` error
+  log report the state.
+
 ## 0.4.2
 
 A follow-up to 0.4.1 for the subscription hooks, for the promoter's index-append

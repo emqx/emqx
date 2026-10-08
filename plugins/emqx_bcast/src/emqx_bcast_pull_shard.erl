@@ -354,12 +354,30 @@ do_want_next(Shard, Core, Entries) ->
             true ->
                 emqx_bcast_pull_server_pool:want_next_async(Shard, node(), Entries1, Marks);
             false ->
-                emqx_rpc:cast(
-                    Core,
-                    emqx_bcast_pull_server_pool,
-                    want_next_async,
-                    [Shard, node(), Entries1, Marks]
-                )
+                %% Ownership already excludes cores without a running plugin
+                %% (see emqx_bcast:core_nodes/0), but a peer can stop between
+                %% that decision and this cast. Checked dispatch instead of
+                %% fire-and-forget: casting into a node whose module is gone
+                %% raises `undef` only in the peer's log, and the marks would
+                %% stay pinned until their lease expired.
+                case emqx_bcast:is_ready_core(Core) of
+                    true ->
+                        emqx_rpc:cast(
+                            Core,
+                            emqx_bcast_pull_server_pool,
+                            want_next_async,
+                            [Shard, node(), Entries1, Marks]
+                        );
+                    false ->
+                        emqx_bcast_metrics:qos1_claim_unready_core(),
+                        ?SLOG(warning, #{
+                            msg => "bcast_claim_target_without_plugin",
+                            core => Core,
+                            note =>
+                                "marks released; the device is claimed again when the core is ready"
+                        }),
+                        gen_server:cast(shard_name(Shard), {deliver_results, [], Marks})
+                end
         end
     catch
         Error:Reason ->
