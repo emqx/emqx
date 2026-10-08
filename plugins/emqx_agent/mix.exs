@@ -37,6 +37,7 @@ defmodule EMQXAgent.MixProject do
 
   def application do
     [
+      extra_applications: [:emqx_resource, :emqx_connector],
       mod: {:emqx_agent_app, []}
     ]
   end
@@ -54,6 +55,7 @@ defmodule EMQXAgent.MixProject do
   defp emqx_plugin do
     [
       rel_vsn: version(),
+      external_apps: [:emqx_resource, :emqx_connector],
       metadata: [
         authors: ["EMQX"],
         builder: [
