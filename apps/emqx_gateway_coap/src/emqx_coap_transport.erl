@@ -220,7 +220,7 @@ wait_ack(
                 }
             );
         _ ->
-            proto_out({ack_failure, Msg}, #{next => stop})
+            proto_out({ack_failure, {req_context(Transport), Msg}}, #{next => stop})
     end.
 
 observe(

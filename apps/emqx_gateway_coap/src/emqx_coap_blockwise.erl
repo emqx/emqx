@@ -13,6 +13,7 @@
     server_prepare_out_response/4,
     client_prepare_out_request/3,
     client_in_response/3,
+    clear_client_exchange/2,
     expire/2,
     has_active_client_tx/2,
     has_active_client_exchange/2,
@@ -906,6 +907,7 @@ clear_client_rx(Ctx, State) ->
     RxMap = maps:get(client_rx_block2, State),
     State#{client_rx_block2 => maps:remove(Key, RxMap)}.
 
+-spec clear_client_exchange(term(), state()) -> state().
 clear_client_exchange(Ctx, State0) ->
     State1 = clear_client_tx(Ctx, State0),
     State2 = clear_client_rx(Ctx, State1),

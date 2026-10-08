@@ -198,6 +198,8 @@ handle_timeout(
 ) ->
     NChannel = ensure_disconnected(timeout, Channel),
     {shutdown, timeout, NChannel};
+handle_timeout(_, {state_machine, Msg}, Channel) ->
+    call_session(timeout, {transport, Msg}, Channel);
 handle_timeout(_, {transport, _} = Msg, Channel) ->
     call_session(timeout, Msg, Channel);
 handle_timeout(Ref, blockwise_expire, #channel{timers = Timers} = Channel) ->
@@ -866,25 +868,23 @@ process_reply(
 
 schedule_blockwise_timer(#channel{timers = Timers, session = Session} = Channel, Immediate) ->
     OldRef = maps:get(blockwise_expire, Timers, undefined),
-    _ =
-        case OldRef of
-            undefined -> ok;
-            _ -> erlang:cancel_timer(OldRef)
-        end,
+    ok = emqx_utils:cancel_timer(OldRef),
     Timers1 = maps:remove(blockwise_expire, Timers),
-    case emqx_lwm2m_session:has_pending(Session) of
+    HasActiveDownlink = emqx_lwm2m_session:has_active_blockwise_downlink(Session),
+    case emqx_lwm2m_session:has_pending(Session) orelse HasActiveDownlink of
         false ->
             Channel#channel{timers = Timers1};
         true ->
             BW = emqx_lwm2m_session:blockwise(Session),
-            case {Immediate, emqx_coap_blockwise:next_expiry(BW)} of
-                {false, undefined} ->
+            case {Immediate, emqx_coap_blockwise:next_expiry(BW), HasActiveDownlink} of
+                {false, undefined, false} ->
                     Channel#channel{timers = Timers1};
-                {_, Expiry} ->
+                {_, Expiry, _} ->
                     Delay =
-                        case Immediate of
-                            true -> 1;
-                            false -> max(1, Expiry - erlang:monotonic_time(millisecond))
+                        case {Immediate, Expiry} of
+                            {true, _} -> 1;
+                            {_, undefined} -> 1;
+                            {false, _} -> max(1, Expiry - erlang:monotonic_time(millisecond))
                         end,
                     Ref = emqx_utils:start_timer(Delay, blockwise_expire),
                     Channel#channel{timers = Timers1#{blockwise_expire => Ref}}

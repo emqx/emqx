@@ -1033,19 +1033,19 @@ process_reply(
     PeerKey = maps:get(peername, ConnInfo, undefined),
     {Reply1, BW1} = maybe_prepare_block2_reply(Req, Reply, PeerKey, Ctx, BW0),
     Session2 = emqx_coap_session:set_reply(Reply1, Session),
-    Outs = maps:get(out, Result, []),
+    DrainResult = emqx_coap_session:drain_pending_observe_notifications(Session2, BW1),
+    Session3 = maps:get(session, DrainResult),
+    BW2 = maps:get(blockwise, DrainResult),
+    Result1 = merge_observe_drain_result(Result, DrainResult),
+    Outs = maps:get(out, Result1, []),
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    Channel1 = Channel#channel{session = Session2, blockwise = BW1},
+    Channel1 = Channel#channel{session = Session3, blockwise = BW2},
     {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, schedule_blockwise_timer(Channel1)}.
 
 schedule_blockwise_timer(#channel{timers = Timers, session = Session, blockwise = BW} = Channel) ->
     OldRef = maps:get(blockwise_expire, Timers, undefined),
-    _ =
-        case OldRef of
-            undefined -> ok;
-            _ -> erlang:cancel_timer(OldRef)
-        end,
+    ok = emqx_utils:cancel_timer(OldRef),
     Timers1 = maps:remove(blockwise_expire, Timers),
     case Session =/= undefined andalso emqx_coap_session:info(mqueue_len, Session) > 0 of
         false ->

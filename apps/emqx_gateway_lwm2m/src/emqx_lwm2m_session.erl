@@ -21,7 +21,8 @@
     find_cmd_record/3,
     blockwise/1,
     set_blockwise/2,
-    has_pending/1
+    has_pending/1,
+    has_active_blockwise_downlink/1
 ]).
 
 %% Info & Stats
@@ -215,6 +216,14 @@ set_blockwise(Blockwise, Session) ->
 has_pending(#session{queue = Queue}) ->
     not queue:is_empty(Queue).
 
+has_active_blockwise_downlink(#session{wait_ack = undefined}) ->
+    false;
+has_active_blockwise_downlink(#session{
+    wait_ack = Ctx, blockwise = BW, blockwise_downlink = ActiveKey
+}) ->
+    ActiveKey =:= downlink_ctx_key(Ctx) orelse
+        emqx_coap_blockwise:has_active_client_exchange(Ctx, BW).
+
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
@@ -303,23 +312,34 @@ set_reply(Msg, #session{coap = Coap} = Session) ->
 send_cmd(Cmd, WithContext, Session) ->
     return(send_cmd_impl(Cmd, WithContext, Session)).
 
-resume_pending(_, WithContext, #session{blockwise = BW0} = Session) ->
+resume_pending(_, WithContext, Session) ->
+    Session1 = expire_blockwise_downlink(WithContext, Session),
+    case is_cache_mode(Session1) of
+        true -> return(Session1);
+        false -> return(send_dl_msg(WithContext, Session1))
+    end.
+
+expire_blockwise_downlink(WithContext, #session{blockwise = BW0} = Session) ->
     BW1 = emqx_coap_blockwise:expire(erlang:monotonic_time(millisecond), BW0),
     Session1 = Session#session{blockwise = BW1},
     case Session#session.wait_ack of
         undefined ->
-            return(send_dl_msg(WithContext, Session1));
+            Session1;
         Ctx ->
             case
-                emqx_coap_blockwise:has_active_client_exchange(Ctx, BW0) andalso
+                has_active_blockwise_downlink(Session) andalso
                     not emqx_coap_blockwise:has_active_client_exchange(Ctx, BW1)
             of
                 true ->
                     Coap = emqx_coap_tm:abort_context(Ctx, Session1#session.coap),
-                    Session2 = Session1#session{coap = Coap},
-                    return(handle_ack_failure(Ctx, <<"coap_timeout">>, WithContext, Session2));
+                    Session2 = clear_blockwise_downlink(Ctx, Session1#session{
+                        coap = Coap,
+                        wait_ack = undefined,
+                        blockwise = emqx_coap_blockwise:clear_client_exchange(Ctx, BW1)
+                    }),
+                    report_ack_failure(Ctx, <<"coap_timeout">>, WithContext, Session2);
                 false ->
-                    return(send_dl_msg(WithContext, Session1))
+                    Session1
             end
     end.
 
@@ -458,12 +478,15 @@ update(
     UpdateRegInfo = drop_sensitive_reg_info(maps:merge(OldRegInfo, RegInfo)),
     LifeTime = get_lifetime(UpdateRegInfo, OldRegInfo),
 
-    NewSession = Session#session{
-        reg_info = UpdateRegInfo,
-        is_cache_mode =
-            is_psm(UpdateRegInfo) orelse is_qmode(UpdateRegInfo),
-        lifetime = LifeTime
-    },
+    NewSession = expire_blockwise_downlink(
+        WithContext,
+        Session#session{
+            reg_info = UpdateRegInfo,
+            is_cache_mode =
+                is_psm(UpdateRegInfo) orelse is_qmode(UpdateRegInfo),
+            lifetime = LifeTime
+        }
+    ),
 
     Session2 = proto_subscribe(WithContext, NewSession),
     Session3 = send_dl_msg(WithContext, Session2),
@@ -731,10 +754,15 @@ handle_ack_failure({Ctx, _}, WithContext, Session) ->
 handle_ack_reset({Ctx, _}, WithContext, Session) ->
     handle_ack_failure(Ctx, <<"coap_reset">>, WithContext, Session).
 
-handle_ack_failure(Ctx, MsgType, WithContext, Session) ->
-    Session2 = may_send_dl_msg(coap_timeout, Ctx, WithContext, Session),
+handle_ack_failure(Ctx, MsgType, WithContext, #session{blockwise = BW0} = Session) ->
+    BW1 = emqx_coap_blockwise:clear_client_exchange(Ctx, BW0),
+    Session1 = clear_blockwise_downlink(Ctx, Session#session{blockwise = BW1}),
+    Session2 = may_send_dl_msg(coap_timeout, Ctx, WithContext, Session1),
+    report_ack_failure(Ctx, MsgType, WithContext, Session2).
+
+report_ack_failure(Ctx, MsgType, WithContext, Session) ->
     MqttPayload = emqx_lwm2m_cmd:coap_failure_to_mqtt(Ctx, MsgType),
-    send_to_mqtt(Ctx, MsgType, MqttPayload, WithContext, Session2).
+    send_to_mqtt(Ctx, MsgType, MqttPayload, WithContext, Session).
 
 %%--------------------------------------------------------------------
 %% Send To CoAP
@@ -824,7 +852,7 @@ send_to_coap(Ctx, Req, WithContext, ExpiryTime, #session{blockwise = BW0} = Sess
     case emqx_coap_blockwise:client_prepare_out_request(Ctx, Req, BW0) of
         {single, Req2, BW1} ->
             ActiveKey =
-                case emqx_coap_blockwise:has_active_client_tx(Ctx, BW1) of
+                case emqx_coap_blockwise:has_active_client_exchange(Ctx, BW1) of
                     true -> downlink_ctx_key(Ctx);
                     false -> Session#session.blockwise_downlink
                 end,

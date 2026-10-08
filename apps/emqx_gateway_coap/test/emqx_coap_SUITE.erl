@@ -1790,6 +1790,55 @@ t_observe_pending_block2_respects_session_total_size(_) ->
         )
     end).
 
+t_observe_pending_block2_resumes_after_block1_completion(_) ->
+    with_notify_type(qos, fun() ->
+        with_blockwise_opts(
+            #{
+                <<"max_block_size">> => 16,
+                <<"max_concurrent_exchanges">> => 1,
+                <<"exchange_lifetime">> => <<"30s">>
+            },
+            fun() ->
+                with_connection(fun(Channel, Token) ->
+                    Topic = <<"coap/observe_notify_upload_completion">>,
+                    ObserveToken = <<"obsupl">>,
+                    observe_topic(Channel, Token, Topic, ObserveToken),
+                    URI = pubsub_uri("coap/block1_upload", Token),
+                    Upload = block1_start_request(binary:copy(<<"U">>, 16), <<"upload">>),
+                    ?assertMatch({ok, continue, _}, do_message_request(Channel, URI, Upload)),
+
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"a">>, <<"1">>)),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                    Last = Upload#coap_message{
+                        payload = <<"last">>, options = [{block1, {1, false, 16}}]
+                    },
+                    ?assertMatch({ok, changed, _}, do_message_request(Channel, URI, Last)),
+                    Notify = assert_notify(Channel, non, binary:copy(<<"A">>, 16)),
+                    ?assertEqual({0, true, 16}, coap_option(block2, Notify, undefined)),
+                    NotifyURI = pubsub_uri(binary_to_list(Topic), Token),
+                    _ = assert_block2_followup(
+                        Channel,
+                        NotifyURI,
+                        Notify#coap_message.token,
+                        1,
+                        binary:copy(<<"a">>, 16),
+                        {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel,
+                        NotifyURI,
+                        Notify#coap_message.token,
+                        2,
+                        binary:copy(<<"1">>, 8),
+                        {2, false, 16}
+                    ),
+                    true
+                end)
+            end
+        )
+    end).
+
 t_observe_pending_block2_resumes_after_expiry(_) ->
     with_notify_type(qos, fun() ->
         with_blockwise_opts(
