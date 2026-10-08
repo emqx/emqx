@@ -198,27 +198,26 @@ t_tm_paths(_) ->
 
 t_tm_cancel_state_timer(_) ->
     TM0 = emqx_coap_tm:new(),
-    Msg = #coap_message{type = con, method = get, token = <<"ctok">>, id = 10},
-    #{tm := TM1} = emqx_coap_tm:handle_out(Msg, TM0),
+    Msg = #coap_message{type = con, method = get, token = <<"ctok">>, options = #{observe => 0}},
+    #{tm := TM1, out := [Out]} = emqx_coap_tm:handle_out(Msg, TM0),
     TokenKey = {token, <<"ctok">>},
     SeqId = maps:get(TokenKey, TM1),
     Machine = maps:get(SeqId, TM1),
-    Timers = (Machine#state_machine.timers)#{state_timer => make_ref()},
-    TM2 = TM1#{SeqId => Machine#state_machine{timers = Timers}},
+    Ref = maps:get(state_timeout, Machine#state_machine.timers),
+    ?assert(is_integer(erlang:read_timer(Ref))),
     Resp = #coap_message{
         type = ack,
         method = {ok, content},
-        id = Msg#coap_message.id,
-        token = <<"ctok">>
+        id = Out#coap_message.id,
+        token = <<"ctok">>,
+        options = #{observe => 0}
     },
-    Result = emqx_coap_tm:handle_response(Resp, TM2),
-    TM3 = maps:get(tm, Result, TM2),
-    case maps:get(SeqId, TM3, undefined) of
-        undefined ->
-            ok;
-        Machine2 ->
-            ?assertEqual(false, maps:is_key(state_timer, Machine2#state_machine.timers))
-    end,
+    #{tm := TM2} = emqx_coap_tm:handle_response(Resp, TM1),
+    Machine2 = maps:get(SeqId, TM2),
+    ?assertEqual(observe, Machine2#state_machine.state),
+    ?assertEqual(false, maps:is_key(state_timeout, Machine2#state_machine.timers)),
+    ?assertEqual(false, erlang:read_timer(Ref)),
+    ?assertEqual(#{}, emqx_coap_tm:timeout({SeqId, state_timeout, ack_timeout}, TM2)),
     ok.
 
 t_tm_observe_delete_token(_) ->
@@ -280,7 +279,7 @@ t_tm_cancel_state_timer_manual(_) ->
         seq_id = 1,
         id = {in, MsgId},
         state = idle,
-        timers = #{state_timer => make_ref()},
+        timers = #{state_timeout => make_ref()},
         transport = emqx_coap_transport:new()
     },
     TM1 = TM0#{seq_id := 2, 1 => Machine, {in, MsgId} => 1},
@@ -288,7 +287,7 @@ t_tm_cancel_state_timer_manual(_) ->
     Result = emqx_coap_tm:handle_request(Msg, TM1),
     TM2 = maps:get(tm, Result, TM1),
     Machine2 = maps:get(1, TM2),
-    ?assertEqual(false, maps:is_key(state_timer, Machine2#state_machine.timers)),
+    ?assertEqual(false, maps:is_key(state_timeout, Machine2#state_machine.timers)),
     ok.
 
 t_tm_timer_cleanup(_) ->
@@ -298,7 +297,7 @@ t_tm_timer_cleanup(_) ->
     TokenKey = {token, <<"tok">>},
     SeqId = maps:get(TokenKey, TM1),
     Machine = maps:get(SeqId, TM1),
-    Timers = #{state_timeout => make_ref(), state_timer => make_ref()},
+    Timers = #{state_timeout => make_ref()},
     TMWithTimer = TM1#{SeqId => Machine#state_machine{state = wait_ack, timers = Timers}},
     _ = emqx_coap_tm:timeout({SeqId, state_timeout, ack_timeout}, TMWithTimer),
     ok.

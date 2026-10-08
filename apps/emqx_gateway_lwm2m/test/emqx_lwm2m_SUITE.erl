@@ -1565,7 +1565,9 @@ case09_auto_observe_list_multi_order(Config) ->
     Epn = "urn:oma:lwm2m:oma:4",
     MsgId1 = 20,
     RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    NotifyTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/notify"),
     emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    emqtt:subscribe(?config(emqx_c, Config), NotifyTopic, qos0),
     timer:sleep(200),
 
     std_register(
@@ -1587,16 +1589,57 @@ case09_auto_observe_list_multi_order(Config) ->
         "127.0.0.1",
         ?PORT,
         {ok, content},
-        #coap_content{content_format = <<"text/plain">>, payload = <<"1">>},
+        #coap_content{
+            content_format = <<"application/vnd.oma.lwm2m+tlv">>, payload = <<16#C1, 0, $A>>
+        },
         Request1
     ),
     timer:sleep(100),
 
-    #coap_message{method = Method2, options = Options2} = test_recv_coap_request(UdpSock),
+    Request2 =
+        #coap_message{method = Method2, options = Options2} = test_recv_coap_request(UdpSock),
     ?assertEqual(get, Method2),
     ?assertEqual(0, get_coap_observe(Options2)),
     ?assertEqual(<<"/1/0">>, get_coap_path(Options2)),
-    ?assertEqual(timeout_test_recv_coap_request, test_recv_coap_request(UdpSock)).
+    test_send_coap_observe_ack(
+        UdpSock,
+        "127.0.0.1",
+        ?PORT,
+        {ok, content},
+        #coap_content{
+            content_format = <<"application/vnd.oma.lwm2m+tlv">>, payload = <<16#C1, 1, 10>>
+        },
+        Request2
+    ),
+    lists:foreach(
+        fun(_) ->
+            Observed = emqx_utils_json:decode(test_recv_mqtt_response(RespTopic)),
+            ?assertEqual(<<"observe">>, maps:get(<<"msgType">>, Observed)),
+            ?assertEqual(<<"2.05">>, maps:get(<<"code">>, maps:get(<<"data">>, Observed)))
+        end,
+        [1, 2]
+    ),
+    %% Both Observe requests are acknowledged; wait beyond the maximum initial ACK timeout.
+    ?assertEqual({error, timeout}, gen_udp:recv(UdpSock, 0, 3500)),
+    [Pid] = emqx_gateway_cm:lookup_channels(lwm2m, list_to_binary(Epn)),
+    ?assert(is_process_alive(Pid)),
+    test_send_coap_notif_con(
+        UdpSock,
+        "127.0.0.1",
+        ?PORT,
+        #coap_content{
+            content_format = <<"application/vnd.oma.lwm2m+tlv">>, payload = <<16#C1, 0, $B>>
+        },
+        1,
+        Request1
+    ),
+    ?assertMatch(#coap_message{type = ack}, test_recv_coap_response(UdpSock)),
+    Notify = emqx_utils_json:decode(test_recv_mqtt_response(NotifyTopic)),
+    ?assertEqual(<<"notify">>, maps:get(<<"msgType">>, Notify)),
+    ?assertEqual(
+        [#{<<"path">> => <<"/3/0/0">>, <<"value">> => <<"B">>}],
+        maps:get(<<"content">>, maps:get(<<"data">>, Notify))
+    ).
 
 case10_read(Config) ->
     UdpSock = ?config(sock, Config),

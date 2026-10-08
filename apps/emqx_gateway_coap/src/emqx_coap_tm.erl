@@ -292,12 +292,12 @@ maybe_mark_observe_notification_done(false, _Machine, Result) ->
     Result.
 
 cancel_state_timer(#state_machine{timers = Timers} = Machine) ->
-    case maps:get(state_timer, Timers, undefined) of
+    case maps:get(state_timeout, Timers, undefined) of
         undefined ->
             Machine;
         Ref ->
             _ = emqx_utils:cancel_timer(Ref),
-            Machine#state_machine{timers = maps:remove(state_timer, Timers)}
+            Machine#state_machine{timers = maps:remove(state_timeout, Timers)}
     end.
 
 process_timer(SeqId, {Type, Interval, Msg}, Timers) ->
