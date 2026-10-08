@@ -182,6 +182,7 @@ serialize_message(?OP_PUB, Message) ->
         undefined ->
             [Subject, " ", PayloadSize, "\r\n", Payload];
         ReplyTo ->
+            ok = validate_non_wildcard_subject(ReplyTo),
             [Subject, " ", ReplyTo, " ", PayloadSize, "\r\n", Payload]
     end;
 serialize_message(?OP_HPUB, Message) ->
@@ -197,6 +198,7 @@ serialize_message(?OP_HPUB, Message) ->
         undefined ->
             [Subject, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload];
         ReplyTo ->
+            ok = validate_non_wildcard_subject(ReplyTo),
             [Subject, " ", ReplyTo, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload]
     end;
 serialize_message(?OP_SUB, Message) ->
@@ -437,6 +439,7 @@ do_parse_pub_args(Line, Rest, State) ->
                     case binary:match(PayloadSize, <<" ">>) of
                         nomatch ->
                             ok = validate_subject(Subject),
+                            ok = validate_non_wildcard_subject(ReplyTo),
                             M0 = #{
                                 subject => Subject,
                                 reply_to => ReplyTo,
@@ -482,6 +485,7 @@ do_parse_hpub_sizes(Subject, A, Tail2, Rest, State) ->
         {pair, B, C} ->
             ok = ensure_no_space(C),
             ok = validate_subject(Subject),
+            ok = validate_non_wildcard_subject(A),
             HeadersSize = binary_to_integer(B),
             TotalSize = binary_to_integer(C),
             M0 = #{

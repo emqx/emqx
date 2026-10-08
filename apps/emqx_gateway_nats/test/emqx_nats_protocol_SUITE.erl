@@ -10,6 +10,7 @@
 -include("emqx_nats.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(NKEY_ACCOUNT_PREFIX, 16#00).
 -define(NKEY_OPERATOR_PREFIX, 16#70).
@@ -601,6 +602,10 @@ required_caps(t_mqtt_wildcard_gt_requires_child) ->
 required_caps(t_mqtt_reserved_queue_group_rejected) ->
     [mqtt_subject_translation];
 required_caps(t_mqtt_reserved_subject_rejected) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_reserved_reply_subject_rejected) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_unrepresentable_delivery_dropped) ->
     [mqtt_subject_translation];
 required_caps(t_nkey_auth_priority_over_jwt) ->
     [jwt_auth];
@@ -1439,6 +1444,110 @@ t_mqtt_reserved_queue_group_rejected(Config) ->
         [<<"group/secret">>, <<"group+">>, <<"group#">>]
     ).
 
+t_mqtt_reserved_reply_subject_rejected(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Subscriber} = emqx_nats_client:start_link(ClientOpts),
+    try
+        recv_info_frame(Subscriber),
+        ok = emqx_nats_client:connect(Subscriber),
+        recv_ok_frame(Subscriber),
+        ok = emqx_nats_client:subscribe(Subscriber, <<"reply.service">>, <<"sid-service">>),
+        recv_ok_frame(Subscriber),
+        lists:foreach(
+            fun({Op, Subject, ReplyTo}) ->
+                {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+                try
+                    recv_info_frame(Client),
+                    ok = emqx_nats_client:connect(Client),
+                    recv_ok_frame(Client),
+                    ok = send_raw_reply_request(Client, Op, Subject, ReplyTo),
+                    ?assertMatch(#nats_frame{operation = ?OP_ERR}, recv_non_ping_frame(Client))
+                after
+                    emqx_nats_client:stop(Client)
+                end
+            end,
+            [
+                {Op, Subject, ReplyTo}
+             || Op <- [?OP_PUB, ?OP_HPUB],
+                Subject <- [<<"reply.service">>, <<"reply.unsubscribed">>],
+                ReplyTo <- [
+                    <<"reply/a">>,
+                    <<>>,
+                    <<"reply.+">>,
+                    <<"reply.#">>,
+                    <<"$share.group.reply">>,
+                    <<"$queue.reply">>,
+                    <<"$exclusive.reply">>,
+                    <<"reply.*">>,
+                    <<"reply.>">>,
+                    <<"reply..a">>
+                ]
+            ]
+        ),
+        assert_no_message(Subscriber, <<"reply.service">>, 200)
+    after
+        emqx_nats_client:stop(Subscriber)
+    end.
+
+t_mqtt_unrepresentable_delivery_dropped(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    try
+        recv_info_frame(Client),
+        ok = emqx_nats_client:connect(Client),
+        recv_ok_frame(Client),
+        ok = emqx_nats_client:subscribe(Client, <<"foo.>">>, <<"sid-1">>),
+        recv_ok_frame(Client),
+        ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>, 1),
+        recv_ok_frame(Client),
+        Before = emqx_gateway_metrics:lookup(nats),
+        Topics = [
+            <<"foo/a.b">>,
+            <<"foo/">>,
+            <<"foo//bar">>,
+            <<"foo/*">>,
+            <<"foo/>">>,
+            <<"foo/bar baz">>
+        ],
+        lists:foreach(
+            fun(Topic) ->
+                emqx:publish(emqx_message:make(<<"mqtt-client">>, Topic, <<"unsupported">>))
+            end,
+            Topics
+        ),
+        After = ?retry(
+            100,
+            20,
+            begin
+                Metrics = emqx_gateway_metrics:lookup(nats),
+                ?assertEqual(
+                    proplists:get_value('delivery.dropped', Before, 0) + length(Topics),
+                    proplists:get_value('delivery.dropped', Metrics, 0)
+                ),
+                Metrics
+            end
+        ),
+        assert_no_message(Client, <<"foo.a.b">>, 200),
+        ?assertEqual(
+            proplists:get_value('messages.delivered', Before, 0),
+            proplists:get_value('messages.delivered', After, 0)
+        ),
+        emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/bar">>, <<"valid">>)),
+        Message = recv_non_ping_frame(Client),
+        ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+        ?assertEqual(<<"foo.bar">>, emqx_nats_frame:subject(Message)),
+        ?assertEqual(<<"valid">>, emqx_nats_frame:payload(Message)),
+        Delivered = emqx_gateway_metrics:lookup(nats),
+        ?assertEqual(
+            proplists:get_value('messages.delivered', Before, 0) + 1,
+            proplists:get_value('messages.delivered', Delivered, 0)
+        ),
+        emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/again">>, <<"after-limit">>)),
+        assert_no_message(Client, <<"foo.again">>, 200)
+    after
+        emqx_nats_client:stop(Client)
+    end.
+
 assert_raw_subject_rejected(Config, Send) ->
     ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -1791,6 +1900,30 @@ t_reply_to(Config) ->
 
     emqx_nats_client:stop(Publisher),
     emqx_nats_client:stop(Subscriber).
+
+t_reply_to_hpub(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true, headers => true}),
+    {ok, Subscriber} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Publisher} = emqx_nats_client:start_link(ClientOpts),
+    try
+        recv_info_frame(Subscriber),
+        ok = emqx_nats_client:connect(Subscriber),
+        recv_ok_frame(Subscriber),
+        ok = emqx_nats_client:subscribe(Subscriber, <<"reply.service">>, <<"sid-service">>),
+        recv_ok_frame(Subscriber),
+        recv_info_frame(Publisher),
+        ok = emqx_nats_client:connect(Publisher),
+        recv_ok_frame(Publisher),
+        ok = send_raw_reply_request(Publisher, ?OP_HPUB, <<"reply.service">>, <<"reply.a">>),
+        recv_ok_frame(Publisher),
+        Message = recv_non_ping_frame(Subscriber),
+        ?assertEqual(<<"reply.service">>, emqx_nats_frame:subject(Message)),
+        ?assertEqual(<<"reply.a">>, emqx_nats_frame:reply_to(Message)),
+        ?assertEqual(<<"x">>, emqx_nats_frame:payload(Message))
+    after
+        emqx_nats_client:stop(Publisher),
+        emqx_nats_client:stop(Subscriber)
+    end.
 
 t_reply_to_with_no_responders(Config) ->
     ClientOpts = maps:merge(
@@ -2802,6 +2935,15 @@ send_raw_hpub(Client, Subject, Headers, Payload) ->
     Data = iolist_to_binary(
         emqx_nats_frame:serialize_pkt(Frame, emqx_nats_frame:serialize_opts())
     ),
+    emqx_nats_client:send_invalid_frame(Client, Data).
+
+send_raw_reply_request(Client, ?OP_PUB, Subject, ReplyTo) ->
+    Data = iolist_to_binary(["PUB ", Subject, " ", ReplyTo, " 1\r\nx\r\n"]),
+    emqx_nats_client:send_invalid_frame(Client, Data);
+send_raw_reply_request(Client, ?OP_HPUB, Subject, ReplyTo) ->
+    Data = iolist_to_binary([
+        "HPUB ", Subject, " ", ReplyTo, " 12 13\r\nNATS/1.0\r\n\r\nx\r\n"
+    ]),
     emqx_nats_client:send_invalid_frame(Client, Data).
 
 assert_permissions_violation(#nats_frame{operation = ?OP_ERR, message = Msg}, Kind, Subject) ->
