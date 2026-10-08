@@ -16,6 +16,9 @@
 
 -include("emqx_conf.hrl").
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+-elvis([{elvis_style, no_boolean_in_comparison, disable}]).
+
 -behaviour(hocon_schema).
 
 -export([
@@ -37,6 +40,7 @@
 
 %% exported for testing
 -export([validate_tls_stateless_tickets_seed/1]).
+-export([pinned_plugins_converter/2]).
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
@@ -713,6 +717,18 @@ fields("node") ->
                     desc => ?DESC(node_data_dir)
                 }
             )},
+        {"pinned_plugins",
+            sc(
+                hoconsc:array(binary()),
+                #{
+                    default => [],
+                    'readOnly' => true,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    converter => fun pinned_plugins_converter/2,
+                    validator => fun emqx_plugins_utils:validate_pinned_plugins/1,
+                    desc => ?DESC(node_pinned_plugins)
+                }
+            )},
         {"config_files",
             sc(
                 hoconsc:array(string()),
@@ -1019,6 +1035,26 @@ fields("rpc") ->
                     mapping => "gen_rpc.max_batch_size",
                     default => 256,
                     desc => ?DESC(rpc_async_batch_size)
+                }
+            )},
+        {"compress_level",
+            sc(
+                range(0, 9),
+                #{
+                    mapping => "gen_rpc.compress",
+                    default => 0,
+                    desc => ?DESC(rpc_compress_level),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
+        {"compress_threshold",
+            sc(
+                emqx_schema:bytesize(),
+                #{
+                    mapping => "gen_rpc.compression_threshold",
+                    default => <<"1KB">>,
+                    desc => ?DESC(rpc_compress_threshold),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"port_discovery",
@@ -1947,6 +1983,27 @@ validator_string_re(Val, RE, Error) ->
 
 node_array() ->
     hoconsc:union([emqx_schema:comma_separated_atoms(), hoconsc:array(atom())]).
+
+-doc """
+Normalize `node.pinned_plugins` to a list of name-vsn binaries.
+
+The value is either a comma-separated string or an array of strings. Spaces
+around each entry are trimmed, and empty entries are dropped.
+""".
+pinned_plugins_converter(undefined, _Opts) ->
+    undefined;
+pinned_plugins_converter(Str, Opts) when is_binary(Str) ->
+    pinned_plugins_converter(binary:split(Str, <<",">>, [global]), Opts);
+pinned_plugins_converter(List, _Opts) when is_list(List) ->
+    Trimmed = [trim_pinned_plugin(Item) || Item <- List],
+    [Item || Item <- Trimmed, Item =/= <<>>];
+pinned_plugins_converter(Other, _Opts) ->
+    Other.
+
+trim_pinned_plugin(Item) when is_binary(Item) ->
+    string:trim(Item, both, " \t");
+trim_pinned_plugin(Item) ->
+    Item.
 
 ensure_file_handlers(Conf, _Opts) ->
     FileFields = lists:flatmap(

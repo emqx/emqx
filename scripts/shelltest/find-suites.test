@@ -1,0 +1,48 @@
+./find-suites.sh scripts/shelltest/find-suites.fixture/n3
+>>>
+scripts/shelltest/find-suites.fixture/n3/test/s001_SUITE.erl,scripts/shelltest/find-suites.fixture/n3/test/s002_SUITE.erl,scripts/shelltest/find-suites.fixture/n3/test/s003_SUITE.erl
+>>>= 0
+
+SUITEGROUP=2_2 ./find-suites.sh --relative scripts/shelltest/find-suites.fixture/n3
+>>>
+test/s002_SUITE.erl
+>>>= 0
+
+SUITEGROUP=1_10 ./find-suites.sh --relative scripts/shelltest/find-suites.fixture/n101
+>>>
+test/s001_SUITE.erl,test/s011_SUITE.erl,test/s021_SUITE.erl,test/s031_SUITE.erl,test/s041_SUITE.erl,test/s051_SUITE.erl,test/s061_SUITE.erl,test/s071_SUITE.erl,test/s081_SUITE.erl,test/s091_SUITE.erl,test/s101_SUITE.erl
+>>>= 0
+
+SUITEGROUP=10_10 ./find-suites.sh --relative scripts/shelltest/find-suites.fixture/n101
+>>>
+test/s010_SUITE.erl,test/s020_SUITE.erl,test/s030_SUITE.erl,test/s040_SUITE.erl,test/s050_SUITE.erl,test/s060_SUITE.erl,test/s070_SUITE.erl,test/s080_SUITE.erl,test/s090_SUITE.erl,test/s100_SUITE.erl
+>>>= 0
+
+SUITEGROUP=5_5 ./find-suites.sh scripts/shelltest/find-suites.fixture/n3
+>>>
+
+>>>= 0
+
+for g in 1 2 3 4 5 6 7 8 9 10; do SUITEGROUP=${g}_10 ./find-suites.sh scripts/shelltest/find-suites.fixture/n101 | tr ',' '\n'; done | grep . | sort | uniq -c | awk '$1 != 1 {bad++} END {print NR, bad + 0}'
+>>>
+101 0
+>>>= 0
+
+for g in 1 2 3 4 5; do SUITEGROUP=${g}_5 ./find-suites.sh scripts/shelltest/find-suites.fixture/n3 | tr ',' '\n'; done | grep . | sort | uniq -c | awk '$1 != 1 {bad++} END {print NR, bad + 0}'
+>>>
+3 0
+>>>= 0
+
+SUITEGROUP=1_1 ./find-suites.sh scripts/shelltest/find-suites.fixture/n101 | tr ',' '\n' | sort | uniq -c | awk '$1 != 1 {bad++} END {print NR, bad + 0}'
+>>>
+101 0
+>>>= 0
+
+for g in 1 2 3 4 5 6 7 8 9 10; do SUITEGROUP=${g}_10 ./find-suites.sh scripts/shelltest/find-suites.fixture/n101 | tr ',' '\n' | sed 's|.*/s||; s|_SUITE.erl||' | awk 'NR > 1 && $1 - prev == 1 {print "adjacent:", prev, $1} {prev = $1}'; done
+>>>
+>>>= 0
+
+SUITEGROUP=11_10 ./find-suites.sh scripts/shelltest/find-suites.fixture/n3
+>>>
+Error: SUITEGROUP in the format of M_N, M must be not greater than M
+>>>= 1

@@ -524,6 +524,28 @@ the old dir should be deleted first.<br/>
 node_data_dir.label:
 """Node Data Dir"""
 
+node_pinned_plugins.desc:
+"""Plugins that this node runs independently of the cluster plugin config.
+Set a comma-separated string, for example `"my_plugin-1.0.0,other_plugin-2.1.0"`, or an array of name-vsn strings.
+The list order is the start order. Pinned plugins start before the plugins in `plugins.states`.
+
+A pinned plugin:
+- Runs from the directory `<plugins.install_dir>/<name-vsn>`, which must already hold the extracted package, for example in the container image. Nothing is extracted from a package file, and nothing is copied from or to other nodes.
+- Is always enabled, and needs no `plugins.states` entry and no `plugins allow` grant.
+- Takes its config from the default `config.hocon` in the package. When `etc/plugins/<name>.hocon` exists, its values override the default. A config saved through the API or the Dashboard is stored in `data/plugins/<name>/config.hocon`, and from then on that file is the whole config. The config is never copied from other nodes.
+- Ignores any `plugins.states` entry with the same plugin name, in any version.
+
+Only the CLI can stop and start a pinned plugin, and only on its own node.
+A stop lasts until the node starts all its plugins again, at boot or after a cluster join.
+To remove a plugin from this node, edit this setting and restart the node.
+When a pinned plugin directory is missing or the plugin fails to start, the node logs an error, raises an alarm, and keeps running.
+
+Nodes of one cluster can run different versions of the same plugin this way.
+The plugin must then be compatible across these versions, for example in shared database tables, in RPC between its instances, and in its config."""
+
+node_pinned_plugins.label:
+"""Pinned Plugins"""
+
 cluster_k8s_suffix.desc:
 """Node name suffix.<br/>
 Note: this parameter is only relevant when <code>address_type</code> is <code>dns</code>
@@ -879,6 +901,29 @@ rpc_async_batch_size.desc:
 
 rpc_async_batch_size.label:
 """Async Batch Size"""
+
+rpc_compress_level.desc:
+"""The compression level for data that nodes send to each other over RPC, including forwarded MQTT messages.
+<code>0</code> disables compression. <code>1</code> is the fastest level and <code>9</code> gives the smallest output.
+
+Compression uses CPU on both the sending and the receiving node to reduce the traffic between them.
+Enable it when the bandwidth between nodes is limited or billed, for example when a cluster spans availability zones.
+Level <code>1</code> gives most of the size reduction at the lowest CPU cost.
+Higher levels reduce the size only slightly more and cost much more CPU for large messages.
+Payloads that are already compressed or encrypted do not get smaller, so for them compression only adds CPU cost."""
+
+rpc_compress_level.label:
+"""RPC Compression Level"""
+
+rpc_compress_threshold.desc:
+"""The minimum size of an RPC packet to compress. Smaller packets are sent uncompressed.
+A packet can carry several messages, because RPC batches messages that are sent to the same node.
+<code>0</code> compresses every packet.
+Compressing a small packet costs much more CPU than it saves in bandwidth.
+This option has an effect only when <code>rpc.compress_level</code> is greater than <code>0</code>."""
+
+rpc_compress_threshold.label:
+"""RPC Compression Threshold"""
 
 cluster_call_max_history.desc:
 """Retain the maximum number of completed transactions (for queries)."""

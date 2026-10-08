@@ -103,7 +103,8 @@ t_audit_redaction(_) ->
             ),
 
             emqx_ctl:register_command(missing_callback, {lists, reverse}),
-            ["value", "plain"] = emqx_ctl:run_command(["missing_callback", "plain", "value"]),
+            {error, {bad_cli_return, ["value", "plain"]}} =
+                emqx_ctl:run_command(["missing_callback", "plain", "value"]),
             ?assertMatch(
                 #{args := [<<"******">>, <<"******">>]},
                 get(audit_log)
@@ -165,6 +166,63 @@ t_usage_is_not_audited(_) ->
             erase(audit_log),
             ok = emqx_ctl:run_command(["cmd3"]),
             ?assertMatch(#{cmd := cmd3, args := []}, get(audit_log))
+        end
+    ).
+
+-doc """
+A handler which returns a value other than `ok`, `{ok, _}` or `{error, _}`,
+such as the list from a print comprehension, breaks the handler contract.
+`run_command/2` returns `{error, {bad_cli_return, Value}}` for it, so
+`bin/nodetool` exits 1, and audits it at `error` level.
+""".
+t_bad_return_is_error(_) ->
+    with_ctl_server(
+        fun(_CtlSrv) ->
+            emqx_ctl:register_command(audit, {?MODULE, audit_fun}),
+            emqx_ctl:register_command(print_list, {?MODULE, print_list_fun}),
+            ?assertEqual(
+                {error, {bad_cli_return, [ok, ok]}},
+                emqx_ctl:run_command(["print_list", "arg"])
+            ),
+            ?assertEqual(error, get(audit_level))
+        end
+    ).
+
+-doc """
+A handler which returns `{error, Reason}` keeps that result, so `bin/nodetool`
+exits 1, and is audited at `error` level.
+""".
+t_error_result_is_kept(_) ->
+    with_ctl_server(
+        fun(_CtlSrv) ->
+            emqx_ctl:register_command(audit, {?MODULE, audit_fun}),
+            emqx_ctl:register_command(error_cmd, {?MODULE, error_fun}),
+            ?assertEqual({error, failed}, emqx_ctl:run_command(["error_cmd", "arg"])),
+            ?assertEqual(error, get(audit_level))
+        end
+    ).
+
+-doc """
+`eval_erl` with parsed expressions returns `{ok, Value}`, which `bin/nodetool eval`
+prints. `run_command/2` keeps that value and audits it at `info` level.
+""".
+t_eval_ok_value_is_kept(_) ->
+    with_ctl_server(
+        fun(_CtlSrv) ->
+            emqx_ctl:register_command(audit, {?MODULE, audit_fun}),
+            ?assertEqual({ok, 3}, emqx_ctl:run_command(eval_erl, parse_exprs("1 + 2."))),
+            ?assertEqual(info, get(audit_level))
+        end
+    ).
+
+-doc "An unknown command returns `{error, cmd_not_found}`, so `bin/nodetool` exits 1.".
+t_unknown_command(_) ->
+    with_ctl_server(
+        fun(_CtlSrv) ->
+            ?assertEqual(
+                {error, cmd_not_found},
+                emqx_ctl:run_command(["pr18794_unknown_command"])
+            )
         end
     ).
 
@@ -294,10 +352,23 @@ cmd5_fun(_Args) ->
 cmd5_fun_audit_args(Args) ->
     Args.
 
+print_list_fun(_Args) ->
+    [emqx_ctl:print("~p~n", [I]) || I <- [1, 2]].
+
+print_list_fun_audit_args(Args) ->
+    Args.
+
+error_fun(_Args) ->
+    {error, failed}.
+
+error_fun_audit_args(Args) ->
+    Args.
+
 audit_fun(usage) ->
     ok.
 
-audit_fun(_Level, _From, Log) ->
+audit_fun(Level, _From, Log) ->
+    put(audit_level, Level),
     put(audit_log, Log),
     ok.
 

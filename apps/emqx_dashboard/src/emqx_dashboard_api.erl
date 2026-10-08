@@ -57,7 +57,7 @@ api_spec() ->
 %% API key auth is rejected at the minirest layer for these paths
 %% (security => [#{bearerAuth => []}] excludes basic auth). The scope
 %% map below applies to dashboard LOGIN users -- checked in
-%% emqx_dashboard_rbac:check_login_user_scopes/2.
+%% emqx_dashboard_rbac:check_login_user_scopes/3.
 %%
 %% ?SCOPE_PUBLIC marks paths that are intentionally unscoped:
 %%   * /login -- pre-login (security => []).
@@ -65,15 +65,15 @@ api_spec() ->
 %%   * /user_scopes -- static catalog endpoint, no tenant data.
 scopes() ->
     #{
-        <<"/login">> => ?SCOPE_PUBLIC,
-        <<"/login/challenge">> => ?SCOPE_PUBLIC,
-        <<"/login/verify">> => ?SCOPE_PUBLIC,
-        <<"/logout">> => ?SCOPE_PUBLIC,
-        <<"/user_scopes">> => ?SCOPE_PUBLIC,
-        <<"/users">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username/change_pwd">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username/mfa">> => ?SCOPE_MFA_MGMT
+        "/login" => ?SCOPE_PUBLIC,
+        "/login/challenge" => ?SCOPE_PUBLIC,
+        "/login/verify" => ?SCOPE_PUBLIC,
+        "/logout" => ?SCOPE_PUBLIC,
+        "/user_scopes" => ?SCOPE_PUBLIC,
+        "/users" => ?SCOPE_USER_MGMT,
+        "/users/:username" => ?SCOPE_USER_MGMT,
+        "/users/:username/change_pwd" => ?SCOPE_USER_MGMT,
+        "/users/:username/mfa" => ?SCOPE_MFA_MGMT
     }.
 
 paths() ->
@@ -1021,6 +1021,17 @@ validate_role_scope_compat(Role, Scopes) ->
                     {error,
                         iolist_to_binary([
                             <<"Namespaced administrators cannot hold scopes: ">>, Names
+                        ])}
+            end;
+        {ok, #{?namespace := Namespace}} when is_binary(Namespace) ->
+            case [S || S <- Scopes, not lists:member(S, ?NS_VIEWER_ALLOWED_SCOPES)] of
+                [] ->
+                    ok;
+                Forbidden ->
+                    Names = lists:join(<<", ">>, Forbidden),
+                    {error,
+                        iolist_to_binary([
+                            <<"Namespaced viewers cannot hold scopes: ">>, Names
                         ])}
             end;
         {ok, _} ->

@@ -10,6 +10,9 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
+
+-define(CHURN_DUMP_KEY, {<<"test-churn-dump-15">>, undefined}).
 
 -define(ON(NODES, BODY),
     emqx_ds_test_helpers:on(NODES, fun() -> BODY end)
@@ -61,12 +64,44 @@ t_audit_args_not_commands(_Config) ->
 
 t_broker(_Config) ->
     %% broker         # Show broker version, uptime and description
-    emqx_ctl:run_command(["broker"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["broker"])),
     %% broker stats   # Show broker statistics of clients, topics, subscribers
-    emqx_ctl:run_command(["broker", "stats"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["broker", "stats"])),
     %% broker metrics # Show broker metrics
-    emqx_ctl:run_command(["broker", "metrics"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["broker", "metrics"])),
     ok.
+
+-doc """
+`topics show` ends in a print comprehension. It returns `ok`, so that
+`emqx ctl topics show` exits 0.
+""".
+t_topics_show(_Config) ->
+    ?assertEqual(ok, emqx_ctl:run_command(["topics", "show", "no/such/topic"])).
+
+-doc """
+A successful `broker metrics`, whose handler ends in a print comprehension,
+is audited at `info` level, not `error`.
+""".
+t_print_command_audit_level(_Config) ->
+    Self = self(),
+    ok = meck:new(emqx_conf_cli, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_conf_cli, audit, fun(Level, _From, #{cmd := Cmd, args := Args}) ->
+        Self ! {audit, Level, Cmd, Args},
+        ok
+    end),
+    try
+        ?assertEqual(ok, emqx_ctl:run_command(["broker", "metrics"])),
+        receive
+            {audit, Level, broker, [<<"metrics">>]} -> ?assertEqual(info, Level)
+        after 1000 -> ct:fail(no_audit_log)
+        end
+    after
+        meck:unload(emqx_conf_cli)
+    end.
+
+-doc "An unknown command still returns an error, so `emqx ctl` exits 1.".
+t_unknown_command(_Config) ->
+    ?assertMatch({error, _}, emqx_ctl:run_command(["pr18794_unknown_command"])).
 
 t_cluster(_Config) ->
     SelfNode = node(),
@@ -175,6 +210,58 @@ t_clients(_Config) ->
     %% clients show <ClientId> # Show a client
     %% clients kick <ClientId> # Kick out a client
     ok.
+
+-doc """
+`clients show` prints 0 for the stats of an idle client, which the channel info
+table does not store.
+""".
+t_clients_show_idle_client(_Config) ->
+    ClientId = <<"test-clients-show-idle">>,
+    C = start_link_client(ClientId),
+    try
+        {ok, Output} = capture_ctl(["clients", "show", binary_to_list(ClientId)]),
+        lists:foreach(
+            fun(Field) ->
+                ?assertEqual(
+                    match,
+                    re:run(Output, <<", ", Field/binary, "=0,">>, [{capture, none}]),
+                    {Field, Output}
+                )
+            end,
+            [
+                <<"subscriptions">>,
+                <<"inflight">>,
+                <<"awaiting_rel">>,
+                <<"delivered_msgs">>,
+                <<"enqueued_msgs">>,
+                <<"dropped_msgs">>
+            ]
+        )
+    after
+        stop_client(C)
+    end.
+
+-doc "`clients stats` writes 0 in the session columns of an idle client.".
+t_clients_dump_stats_idle_client(_Config) ->
+    ClientId = <<"test-clients-stats-idle">>,
+    C = start_link_client(ClientId),
+    TestFile = "/tmp/test_dump_stats_idle.csv",
+    _ = file:delete(TestFile),
+    try
+        ok = dump_client_stats(TestFile, 1000, 0),
+        {ok, Content} = file:read_file(TestFile),
+        [Row] = [
+            L
+         || L <- binary:split(Content, <<"\n">>, [global]),
+            binary:match(L, ClientId) =/= nomatch
+        ],
+        [_Ts, ClientId, _RecvOct, _RecvCnt, _SendOct, _SendCnt | SessionCols] =
+            binary:split(Row, <<",">>, [global]),
+        ?assertEqual([<<"0">>, <<"0">>, <<"0">>, <<"0">>], SessionCols)
+    after
+        _ = file:delete(TestFile),
+        stop_client(C)
+    end.
 
 t_a_session_top_status_idle(_Config) ->
     {ok, Output} = capture_ctl(["session-top", "status"]),
@@ -482,6 +569,25 @@ t_subscriptions(_Config) ->
     %% subscriptions del <ClientId> <Topic>       # Delete a static subscription manually
     ok.
 
+-doc """
+`subscriptions show` finds a subscriber that is not in the `emqx_cm` channel
+table, as a gateway channel is not, and reports an unknown clientid as not found.
+""".
+t_subscriptions_show(_Config) ->
+    ClientId = <<"t_subscriptions_show">>,
+    Topic = <<"t/subscriptions/show">>,
+    ok = emqx_broker:subscribe(Topic, ClientId, #{qos => 1}),
+    %% Wait for emqx_broker_helper to process the registration.
+    ignored = gen_server:call(emqx_broker_helper, sync, infinity),
+    try
+        {ok, Output} = capture_ctl(["subscriptions", "show", binary_to_list(ClientId)]),
+        ?assertEqual(match, re:run(Output, Topic, [{capture, none}])),
+        {ok, NotFound} = capture_ctl(["subscriptions", "show", "no_such_client"]),
+        ?assertEqual(match, re:run(NotFound, <<"Not Found">>, [{capture, none}]))
+    after
+        emqx_broker:unsubscribe(Topic)
+    end.
+
 t_subscriptions_shared_topic_list(_Config) ->
     SubPid = self(),
     Topic =
@@ -521,22 +627,22 @@ t_plugins(_Config) ->
 
 t_vm(_Config) ->
     %% vm all     # Show info of Erlang VM
-    emqx_ctl:run_command(["vm", "all"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "all"])),
     %% vm load    # Show load of Erlang VM
-    emqx_ctl:run_command(["vm", "load"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "load"])),
     %% vm memory  # Show memory of Erlang VM
-    emqx_ctl:run_command(["vm", "memory"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "memory"])),
     %% vm process # Show process of Erlang VM
-    emqx_ctl:run_command(["vm", "process"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "process"])),
     %% vm io      # Show IO of Erlang VM
-    emqx_ctl:run_command(["vm", "io"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "io"])),
     %% vm ports   # Show Ports of Erlang VM
-    emqx_ctl:run_command(["vm", "ports"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["vm", "ports"])),
     ok.
 
 t_mnesia(_Config) ->
     %% mnesia # Mnesia system info
-    emqx_ctl:run_command(["mnesia"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["mnesia"])),
     ok.
 
 t_log(_Config) ->
@@ -567,7 +673,8 @@ t_trace(_Config) ->
 
 t_traces(_Config) ->
     %% traces list                             # List all cluster traces started
-    0 = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(ok, emqx_ctl:run_command(["traces", "list"])),
+    ?assertEqual(0, cluster_trace_count()),
     %% traces start <Name> client <ClientId>   # Traces for a client in cluster
     %% traces start <Name> topic <Topic>       # Traces for a topic in cluster
     %% traces start <Name> ip_address <IPAddr> # Traces for a IP in cluster
@@ -578,7 +685,8 @@ t_traces(_Config) ->
 t_traces_client(_Config) ->
     Name = "TraceNameClientID",
     ok = emqx_ctl:run_command(["traces", "start", Name, "client", "ClientID"]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
@@ -586,28 +694,32 @@ t_traces_client_with_duration(_Config) ->
     Name = "TraceNameClientID",
     Duration = "1000",
     ok = emqx_ctl:run_command(["traces", "start", Name, "client", "ClientID", Duration]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_topic(_Config) ->
     Name = "TraceNameTopic",
     ok = emqx_ctl:run_command(["traces", "start", Name, "topic", "a/b"]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_ip(_Config) ->
     Name = "TraceNameIP",
     ok = emqx_ctl:run_command(["traces", "start", Name, "ip_address", "127.0.0.1"]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
 t_traces_rule(_Config) ->
     Name = "TraceNameRule",
     ok = emqx_ctl:run_command(["traces", "start", Name, "ruleid", "rule:42"]),
-    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "list"]),
+    ?assertEqual(1, cluster_trace_count()),
     ok = emqx_ctl:run_command(["traces", "stop", Name]),
     ok = emqx_ctl:run_command(["traces", "delete", Name]).
 
@@ -822,6 +934,122 @@ t_exclusive(_Config) ->
     emqx_ctl:run_command(["exclusive", "delete", "t/1"]),
     ok.
 
+-doc """
+`clients list` skips a channel that has a row in the channel table but no
+channel info, as a channel that disconnects during the listing has. The
+command prints the other clients and does not fail.
+""".
+t_clients_list_channel_gone(init, Config) ->
+    Pid = start_link_client(<<"test-list-alive">>),
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    [{clients, [Pid]} | Config];
+t_clients_list_channel_gone('end', Config) ->
+    meck:unload(emqx_ctl),
+    ets:match_delete(?CHAN_TAB, {<<"test-list-gone">>, '_'}),
+    lists:foreach(fun stop_client/1, ?config(clients, Config)),
+    ok.
+t_clients_list_channel_gone(_Config) ->
+    Tester = self(),
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun(Fmt, Args) ->
+            Tester ! {print, iolist_to_binary(io_lib:format(Fmt, Args))},
+            meck:passthrough([Fmt, Args])
+        end
+    ),
+    GonePid = spawn(fun() -> ok end),
+    true = ets:insert(?CHAN_TAB, {<<"test-list-gone">>, GonePid}),
+    ?assertEqual(ok, emqx_ctl:run_command(["clients", "list"])),
+    Printed = collect_printed([]),
+    ?assertMatch([_], [L || L <- Printed, binary:match(L, <<"test-list-alive">>) =/= nomatch]),
+    ?assertEqual([], [L || L <- Printed, binary:match(L, <<"test-list-gone">>) =/= nomatch]),
+    ok.
+
+-doc """
+`clients list` prints every client when each client's row is deleted from
+the channel table right after the command prints it, as happens when the
+client disconnects during the listing.
+""".
+t_clients_list_row_deleted_during_walk(init, Config) ->
+    Pids = [
+        start_link_client(<<"test-list-walk-", (integer_to_binary(I))/binary>>)
+     || I <- lists:seq(1, 3)
+    ],
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    [{clients, Pids} | Config];
+t_clients_list_row_deleted_during_walk('end', Config) ->
+    meck:unload(emqx_ctl),
+    lists:foreach(fun stop_client/1, ?config(clients, Config)),
+    ok.
+t_clients_list_row_deleted_during_walk(_Config) ->
+    Tester = self(),
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun
+            ("Client(" ++ _ = Fmt, [ClientId | _] = Args) ->
+                Tester ! {printed, ClientId},
+                true = ets:delete(?CHAN_TAB, ClientId),
+                meck:passthrough([Fmt, Args]);
+            (Fmt, Args) ->
+                meck:passthrough([Fmt, Args])
+        end
+    ),
+    ?assertEqual(ok, emqx_ctl:run_command(["clients", "list"])),
+    Printed = collect_printed_ids([]),
+    Expected = [<<"test-list-walk-", (integer_to_binary(I))/binary>> || I <- lists:seq(1, 3)],
+    ?assertEqual([], Expected -- Printed, Printed),
+    ok.
+
+-doc """
+`exclusive list` prints every topic when each topic's row is deleted from
+the exclusive subscription table right after the command prints it, as
+happens when the subscriber unsubscribes during the listing.
+""".
+t_exclusive_list_row_deleted_during_walk(init, Config) ->
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    Config;
+t_exclusive_list_row_deleted_during_walk('end', _Config) ->
+    meck:unload(emqx_ctl),
+    ok = emqx_exclusive_subscription:clear(),
+    ok.
+t_exclusive_list_row_deleted_during_walk(_Config) ->
+    Tester = self(),
+    Topics = [<<"t/walk/", (integer_to_binary(I))/binary>> || I <- lists:seq(1, 3)],
+    lists:foreach(
+        fun(Topic) ->
+            ok = mria:dirty_write(
+                emqx_exclusive_subscription,
+                {exclusive_subscription, Topic, <<"c-", Topic/binary>>}
+            )
+        end,
+        Topics
+    ),
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun
+            ("topic:" ++ _ = Fmt, [Topic | _] = Args) ->
+                Tester ! {printed, Topic},
+                ok = mria:dirty_delete(emqx_exclusive_subscription, Topic),
+                meck:passthrough([Fmt, Args]);
+            (Fmt, Args) ->
+                meck:passthrough([Fmt, Args])
+        end
+    ),
+    ?assertEqual(ok, emqx_ctl:run_command(["exclusive", "list"])),
+    Printed = collect_printed_ids([]),
+    ?assertEqual([], Topics -- Printed, Printed),
+    ok.
+
+collect_printed_ids(Acc) ->
+    receive
+        {printed, Id} -> collect_printed_ids([Id | Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
+
 %% Test default stats command
 t_clients_dump_stats_default(init, Config) ->
     %% Start a test client
@@ -916,6 +1144,70 @@ t_clients_dump_stats_with_sleep(_Config) ->
     ok = file:delete(TestFile),
     ok.
 
+-doc """
+A client connects while the dump sleeps between two batches. The dump
+continues from the key after the last written row, so it writes the new
+client and every client that was already in the table.
+""".
+t_clients_dump_stats_table_changes_during_sleep(init, Config) ->
+    Pids = [
+        start_link_client(<<"test-churn-dump-", (integer_to_binary(I))/binary>>)
+     || I <- lists:seq(1, 3)
+    ],
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    [{clients, Pids} | Config];
+t_clients_dump_stats_table_changes_during_sleep('end', Config) ->
+    meck:unload(emqx_ctl),
+    true = ets:delete(?CHAN_INFO_TAB, ?CHURN_DUMP_KEY),
+    lists:foreach(fun stop_client/1, ?config(clients, Config)),
+    ok.
+t_clients_dump_stats_table_changes_during_sleep(_Config) ->
+    Tester = self(),
+    %% The command prints a progress line right before it sleeps. On the
+    %% first one, insert a row whose key sorts between the first two
+    %% clients, as a client connecting during the sleep would.
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun(Fmt, Args) ->
+            Line = iolist_to_binary(io_lib:format(Fmt, Args)),
+            Tester ! {print, Line},
+            case Line of
+                <<"Progress: 1/", _/binary>> ->
+                    true = ets:insert(?CHAN_INFO_TAB, {?CHURN_DUMP_KEY, #{}, []});
+                _ ->
+                    ok
+            end,
+            meck:passthrough([Fmt, Args])
+        end
+    ),
+    TestFile = "/tmp/test_dump_stats_churn.csv",
+    _ = file:delete(TestFile),
+    ok = dump_client_stats(TestFile, 1, 10),
+    Printed = collect_printed([]),
+    ?assertEqual([], [L || <<"[error]", _/binary>> = L <- Printed]),
+    {ok, Content} = file:read_file(TestFile),
+    ClientIds = [
+        lists:nth(2, binary:split(Line, <<",">>, [global]))
+     || Line <- tl(binary:split(Content, <<"\n">>, [global, trim_all]))
+    ],
+    Expected = [
+        <<"test-churn-dump-1">>,
+        <<"test-churn-dump-15">>,
+        <<"test-churn-dump-2">>,
+        <<"test-churn-dump-3">>
+    ],
+    ?assertEqual([], Expected -- ClientIds, ClientIds),
+    ok = file:delete(TestFile),
+    ok.
+
+collect_printed(Acc) ->
+    receive
+        {print, Line} -> collect_printed([Line | Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
+
 %% Test error handling for invalid batch size
 t_clients_dump_stats_invalid_args(init, Config) ->
     meck:new(emqx_ctl, [passthrough, no_link]),
@@ -984,6 +1276,10 @@ dump_client_stats(File, Batch, Sleep) ->
         "--sleep",
         str(Sleep)
     ]).
+
+cluster_trace_count() ->
+    {200, List} = emqx_mgmt_api_trace:trace(get, #{}),
+    length(List).
 
 capture_ctl(Args) ->
     {Result, OutputChunks} =

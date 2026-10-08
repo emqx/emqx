@@ -22,7 +22,9 @@
     %% or QoS1/2 messages pending transmission to the Client.
     %%
     %% Optionally, QoS0 messages pending transmission to the Client.
-    mqueue :: emqx_mqueue:mqueue(),
+    %% `{empty, MaxLen}` is a placeholder for an empty queue: the queue is
+    %% built from the zone config on the first enqueue.
+    mqueue :: emqx_mqueue:mqueue() | {empty, non_neg_integer()},
     %% Delivery rate limiters.
     %% `{lazy, ListenerId}` is a placeholder: the container is built on
     %% first delivery, once a finite limit is configured.
@@ -41,5 +43,11 @@
     %% Created at
     created_at :: pos_integer()
 }).
+
+-ifdef(TEST).
+-define(DEFAULT_BATCH_N, 10).
+-else.
+-define(DEFAULT_BATCH_N, 1000).
+-endif.
 
 -endif.

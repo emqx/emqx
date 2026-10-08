@@ -34,7 +34,9 @@
 -export([
     get_chan_stats/1,
     get_chan_stats/2,
-    set_chan_stats/2
+    set_chan_stats/2,
+    sparse_stats_defaults/0,
+    restore_sparse_stats/1
 ]).
 
 -export([
@@ -131,6 +133,35 @@
 
 -define(CHAN_INFO_SELECT_LIMIT, 100).
 
+%% Stats that the channel info table omits when their value is 0.
+%% Every stats producer (TCP, socket and WebSocket connections, the memory
+%% and durable sessions, the eviction agent channel) must return all of
+%% these keys, so that a reader can restore the full list.
+-define(SPARSE_STATS_DEFAULTS, #{
+    subscriptions_cnt => 0,
+    inflight_cnt => 0,
+    mqueue_len => 0,
+    mqueue_dropped => 0,
+    awaiting_rel_cnt => 0,
+    total_payload_bytes => 0,
+    recv_pkt => 0,
+    recv_msg => 0,
+    'recv_msg.qos0' => 0,
+    'recv_msg.qos1' => 0,
+    'recv_msg.qos2' => 0,
+    'recv_msg.dropped' => 0,
+    'recv_msg.dropped.await_pubrel_timeout' => 0,
+    send_pkt => 0,
+    send_msg => 0,
+    'send_msg.qos0' => 0,
+    'send_msg.qos1' => 0,
+    'send_msg.qos2' => 0,
+    'send_msg.dropped' => 0,
+    'send_msg.dropped.expired' => 0,
+    'send_msg.dropped.queue_full' => 0,
+    'send_msg.dropped.too_large' => 0
+}).
+
 %% Server name
 -define(CM, ?MODULE).
 
@@ -140,8 +171,10 @@
 
 %% linting overrides
 -elvis([
-    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}},
-    {elvis_style, god_modules, #{ignore => [emqx_cm]}}
+    %% The channel manager calls the connection module of each channel, and
+    %% maybe_format/2 calls a formatter that the caller gives.
+    {elvis_style, no_invalid_dynamic_calls, disable},
+    {elvis_style, no_god_modules, disable}
 ]).
 
 %% @doc Start the channel manager.
@@ -161,7 +194,7 @@ start_link() ->
 ) -> ok.
 insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, self()},
-    true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
+    true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, sparse_stats(Stats)}),
     ?tp(debug, insert_channel_info, #{clientid => ClientId}),
     ok.
 
@@ -245,21 +278,49 @@ set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
         error:badarg -> false
     end.
 
-%% @doc Get channel's stats.
+-doc """
+Get the channel's stats from the channel info table. The table omits the
+keys of `sparse_stats_defaults/0` whose value is 0; the returned list has
+them, with the value 0.
+""".
 -spec get_chan_stats(emqx_types:clientid()) -> option(emqx_types:stats()).
 get_chan_stats(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
 
+-doc """
+Return the stats keys that the channel info table omits when their value
+is 0, each mapped to 0. Merge the stored stats into this map to get the full
+set of these keys.
+""".
+-spec sparse_stats_defaults() -> #{atom() => 0}.
+sparse_stats_defaults() ->
+    ?SPARSE_STATS_DEFAULTS.
+
+-doc """
+Add the keys of `sparse_stats_defaults/0` that a stats list omits, each
+with the value 0. Use it on stats that leave this node: a reader of an
+earlier version does not merge the defaults.
+""".
+-spec restore_sparse_stats(emqx_types:stats()) -> emqx_types:stats().
+restore_sparse_stats(Stats) ->
+    Stats ++
+        [
+            {K, V}
+         || {K, V} <- maps:to_list(?SPARSE_STATS_DEFAULTS), not lists:keymember(K, 1, Stats)
+        ].
+
+-doc "RPC target of `get_chan_stats/2`. Returns the stats list with all keys.".
 -spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 do_get_chan_stats(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
-    try
-        ets:lookup_element(?CHAN_INFO_TAB, Chan, 3)
+    try ets:lookup_element(?CHAN_INFO_TAB, Chan, 3) of
+        Stats -> restore_sparse_stats(Stats)
     catch
         error:badarg -> undefined
     end.
 
+-doc "Same as `get_chan_stats/1`, for a known channel pid, possibly on another node.".
 -spec get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 get_chan_stats(ClientId, ChanPid) ->
@@ -275,7 +336,7 @@ set_chan_stats(ClientId, Stats) when ?IS_CLIENTID(ClientId) ->
 set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, ChanPid},
     try
-        case ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats}) of
+        case ets:update_element(?CHAN_INFO_TAB, Chan, {3, sparse_stats(Stats)}) of
             true ->
                 ok = maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats),
                 true;
@@ -285,6 +346,9 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     catch
         error:badarg -> false
     end.
+
+sparse_stats(Stats) ->
+    [KV || {K, V} = KV <- Stats, not (V =:= 0 andalso is_map_key(K, ?SPARSE_STATS_DEFAULTS))].
 
 maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats) ->
     case emqx_config:get([sysmon, session, total_payload_bytes_high_watermark], 0) of
@@ -743,24 +807,32 @@ lookup_channels(global, ClientId) ->
 lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
 
+-doc """
+Look up the channel info rows of a client. The stats of each row have all
+keys (see `restore_sparse_stats/1`), because other nodes call this function
+through `emqx_cm_proto_v3:lookup_client/2`.
+""".
 -spec lookup_client(
     {clientid, emqx_types:clientid()}
     | {username, emqx_types:username()}
     | {chan_pid, chan_pid()}
 ) ->
     [channel_info()].
-lookup_client({username, Username}) ->
+lookup_client(Key) ->
+    [{Chan, Info, restore_sparse_stats(Stats)} || {Chan, Info, Stats} <- select_client(Key)].
+
+select_client({username, Username}) ->
     MatchSpec = [
         {{'_', #{clientinfo => #{username => '$1'}}, '_'}, [{'=:=', '$1', Username}], ['$_']}
     ],
     ets:select(?CHAN_INFO_TAB, MatchSpec);
-lookup_client({clientid, ClientId}) ->
+select_client({clientid, ClientId}) ->
     [
         Rec
      || Key <- ets:lookup(?CHAN_TAB, ClientId),
         Rec <- ets:lookup(?CHAN_INFO_TAB, Key)
     ];
-lookup_client({chan_pid, ChanPid}) ->
+select_client({chan_pid, ChanPid}) ->
     MatchSpec = [{{{'_', '$1'}, '_', '_'}, [{'=:=', '$1', ChanPid}], ['$_']}],
     ets:select(?CHAN_INFO_TAB, MatchSpec).
 
@@ -991,8 +1063,8 @@ get_connected_client_count() ->
     end.
 
 kick_session_chans(ClientId, ChanPids) ->
-    case length(ChanPids) > 1 of
-        true ->
+    case ChanPids of
+        [_, _ | _] ->
             ?SLOG(
                 warning,
                 #{
@@ -1001,7 +1073,7 @@ kick_session_chans(ClientId, ChanPids) ->
                 },
                 #{clientid => ClientId}
             );
-        false ->
+        _ ->
             ok
     end,
     lists:foreach(fun(Pid) -> kick_session(ClientId, Pid) end, ChanPids).

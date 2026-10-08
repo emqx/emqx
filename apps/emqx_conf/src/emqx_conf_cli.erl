@@ -382,6 +382,7 @@ print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_utils_json:best_effort_json(Json)]).
 
 print_hocon(Hocon) when is_map(Hocon) ->
+    %% Keep secrets intact because `conf show` output is intended to be usable as a configuration backup.
     emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]);
 print_hocon(undefined) ->
     emqx_ctl:print("No value~n", []);
@@ -467,7 +468,7 @@ load_config_from_raw(Namespace, RawConf0, Opts) ->
     end,
     SchemaMod = emqx_conf:schema_module(),
     RawConf1 = emqx_config:upgrade_raw_conf(SchemaMod, RawConf0),
-    case check_config(RawConf1, Opts) of
+    case check_loaded_config(RawConf1, Namespace, Opts) of
         {ok, RawConf} ->
             case update_cluster_links(cluster, RawConf, Namespace, Opts) of
                 ok ->
@@ -619,15 +620,17 @@ update_config_cluster(
     check_res(Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts);
 update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    Merged = merge_conf(Key, NewConf),
-    check_res(Key, emqx_conf:update([Key], {async_start, Merged}, UpdateOpts), NewConf, Opts);
+    Merged = merge_conf(Namespace, Key, NewConf),
+    check_res(
+        Namespace, Key, emqx_conf:update([Key], {async_start, Merged}, UpdateOpts), NewConf, Opts
+    );
 update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, Value, Namespace, #{mode := replace} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     check_res(Key, emqx_conf:update([Key], {async_start, Value}, UpdateOpts), Value, Opts);
 update_config_cluster(Key, NewConf, Namespace, #{mode := merge} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    Merged = merge_conf(Key, NewConf),
-    check_res(Key, emqx_conf:update([Key], Merged, UpdateOpts), NewConf, Opts);
+    Merged = merge_conf(Namespace, Key, NewConf),
+    check_res(Namespace, Key, emqx_conf:update([Key], Merged, UpdateOpts), NewConf, Opts);
 update_config_cluster(Key, Value, Namespace, #{mode := replace} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     check_res(Key, emqx_conf:update([Key], Value, UpdateOpts), Value, Opts).
@@ -645,16 +648,20 @@ update_config_local(
 ) ->
     check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
 update_config_local(Key, NewConf, #{mode := merge} = Opts) ->
-    Merged = merge_conf(Key, NewConf),
+    Merged = merge_conf(?global_ns, Key, NewConf),
     check_res(node(), Key, emqx:update_config([Key], Merged, ?LOCAL_OPTIONS), NewConf, Opts);
 update_config_local(Key, Value, #{mode := replace} = Opts) ->
     check_res(node(), Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Opts).
 
-check_res(Key, Res, Conf, Opts) -> check_res(cluster, Key, Res, Conf, Opts).
-check_res(Node, Key, {ok, _}, _Conf, Opts) ->
+check_res(Key, Res, Conf, Opts) ->
+    check_res(?global_ns, Key, Res, Conf, Opts).
+
+check_res(Namespace, Key, Res, Conf, Opts) ->
+    check_res(Namespace, cluster, Key, Res, Conf, Opts).
+check_res(_Namespace, Node, Key, {ok, _}, _Conf, Opts) ->
     print(Opts, "load ~ts on ~p ok~n", [Key, Node]),
     ok;
-check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
+check_res(Namespace, _Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
     Warning =
         "Can't ~ts the new configurations!~n"
         "Root key: ~ts~n"
@@ -665,7 +672,9 @@ check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
         "~ts```~n~n",
     %% `Key` may be a dotted path such as `cluster.links`.
     KeyPath = binary:split(Key, <<".">>, [global]),
-    ActiveMsg = io_lib:format(ActiveMsg0, [hocon_pp:do(#{Key => emqx_conf:get_raw(KeyPath)}, #{})]),
+    ActiveMsg = io_lib:format(ActiveMsg0, [
+        hocon_pp:do(#{Key => get_raw_config(Namespace, KeyPath, #{})}, #{})
+    ]),
     FailedMsg0 =
         "Try to ~ts with:~n"
         "```~n"
@@ -692,15 +701,63 @@ suggest_msg(#{kind := validation_error, reason := unknown_fields}, Mode) ->
 suggest_msg(_, _) ->
     <<"">>.
 
-check_config(Conf0, Opts) ->
+check_loaded_config(Conf0, Namespace, Opts) ->
     maybe
         {ok, Conf1} ?= check_keys_is_not_readonly(Conf0, Opts),
         {ok, Conf2} ?= check_cluster_keys(Conf1, Opts),
-        ok ?= check_config_schema(Conf2),
-        {ok, emqx_config:fill_defaults(Conf2)}
+        check_config_for_mode(Conf2, Namespace, Opts)
     else
         Error -> Error
     end.
+
+-doc """
+In `merge` mode, the loaded config is normalized but not filled with
+defaults, so that the merge does not overwrite stored values. Each root
+that is merged with `merge_conf/2` is validated as the merge result.
+In `replace` mode, omitted fields are filled with defaults.
+""".
+check_config_for_mode(Conf0, Namespace, #{mode := merge}) ->
+    maybe
+        {ok, Conf} ?= normalize_config(Conf0),
+        ToCheck = maps:map(
+            fun(Key, NewConf) -> config_to_check_for_merge(Namespace, Key, NewConf) end,
+            Conf
+        ),
+        ok ?= check_config_schema(ToCheck),
+        {ok, Conf}
+    end;
+check_config_for_mode(Conf0, _Namespace, _Opts) ->
+    Conf = emqx_config:fill_defaults(Conf0),
+    maybe
+        ok ?= check_config_schema(Conf),
+        {ok, Conf}
+    end.
+
+normalize_config(Conf) ->
+    Fold = fun(Key, Value, {Acc, Errors}) ->
+        try emqx_config:normalize_raw_conf(#{Key => Value}) of
+            Normalized -> {maps:merge(Acc, Normalized), Errors}
+        catch
+            throw:{_SchemaMod, Reason} -> {Acc, [{Key, Reason} | Errors]}
+        end
+    end,
+    case maps:fold(Fold, {#{}, []}, Conf) of
+        {Normalized, []} -> {ok, Normalized};
+        {_, Errors} -> {error, Errors}
+    end.
+
+config_to_check_for_merge(Namespace, Key, NewConf) ->
+    case is_merged_by_handler(Key) of
+        true -> NewConf;
+        false -> merge_conf(Namespace, Key, NewConf)
+    end.
+
+%% These roots are merged by their config handlers, not by `merge_conf/2`.
+is_merged_by_handler(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY) -> true;
+is_merged_by_handler(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY) -> true;
+is_merged_by_handler(?SCHEMA_VALIDATION_CONF_ROOT_BIN) -> true;
+is_merged_by_handler(?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN) -> true;
+is_merged_by_handler(_) -> false.
 
 check_keys_is_not_readonly(Conf, Opts) ->
     IgnoreReadonly = maps:get(ignore_readonly, Opts, false),
@@ -853,8 +910,8 @@ split_high_priority_conf([Key | Keys], Conf0, Acc) ->
             split_high_priority_conf(Keys, Conf1, [{Key, Value} | Acc])
     end.
 
-merge_conf(Key, NewConf) ->
-    OldConf = emqx_conf:get_raw([Key]),
+merge_conf(Namespace, Key, NewConf) ->
+    OldConf = get_raw_config(Namespace, [Key], #{}),
     do_merge_conf(OldConf, NewConf).
 
 do_merge_conf(OldConf = #{}, NewConf = #{}) ->

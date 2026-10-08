@@ -11,6 +11,9 @@
 -include("emqx_external_trace.hrl").
 -include("emqx_config.hrl").
 
+%% Fixed header: 1 byte packet type and flags + up to 4 bytes remaining length.
+-define(MAX_FIXED_HEADER_LEN, 5).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -64,6 +67,13 @@
     stats_timer :: paused | disabled | option(reference()),
     %% Idle Timer
     idle_timer :: option(reference()),
+    %% Hibernate the connection after this period without activity
+    hibernate_after = infinity :: timeout(),
+    %% Hibernate Timer
+    hibernate_timer :: option(reference()),
+    %% Set when the connection handles a frame or a message, cleared when the
+    %% hibernate timer fires
+    recently_active = false :: boolean(),
     %% Zone name
     zone :: atom(),
     %% Listener Type and Name
@@ -78,7 +88,6 @@
 
 -type state() :: #state{}.
 
--define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(ENABLED(X), (X =/= undefined)).
@@ -100,12 +109,8 @@
 -spec info(pid() | state()) -> emqx_types:infos().
 info(WsPid) when is_pid(WsPid) ->
     call(WsPid, info);
-info(State = #state{channel = Channel}) ->
-    ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(
-        info(?INFO_KEYS, State)
-    ),
-    ChanInfo#{sockinfo => SockInfo}.
+info(#state{channel = Channel}) ->
+    emqx_channel:info(Channel).
 
 -spec info
     (info(), state()) -> _Value;
@@ -194,7 +199,7 @@ negotiate_protocol(Type, Listener, Req, Opts, WsOpts) ->
         fail_if_no_subprotocol := FailIfNoSubprotocol,
         supported_subprotocols := SupportedSubprotocols
     } = WsOpts,
-    case cowboy_req:parse_header(Header, Req) of
+    case parse_ws_protocol_header(Req) of
         undefined when not FailIfNoSubprotocol ->
             upgrade(Type, Listener, Req, Opts, WsOpts);
         undefined ->
@@ -207,6 +212,17 @@ negotiate_protocol(Type, Listener, Req, Opts, WsOpts) ->
                 {error, no_supported_subprotocol} ->
                     {ok, cowboy_req:reply(400, Req), #{}}
             end
+    end.
+
+%% Cowboy raises `exit({request_error, {header, _}, _})' when a header value
+%% cannot be parsed, which crashes the request process before any reply is
+%% sent. Treat such a value as if the header were absent.
+parse_ws_protocol_header(Req) ->
+    try
+        cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req)
+    catch
+        exit:{request_error, {header, <<"sec-websocket-protocol">>}, _} ->
+            undefined
     end.
 
 upgrade(Type, Listener, Req, Opts, WsOpts) ->
@@ -226,7 +242,7 @@ upgrade(Type, Listener, Req, Opts, WsOpts) ->
         active_n => get_active_n(Type, Listener),
         compress => maps:get(compress, WsOpts),
         deflate_opts => maps:get(deflate_opts, WsOpts),
-        max_frame_size => maps:get(max_frame_size, WsOpts),
+        max_frame_size => max_frame_size(maps:get(max_frame_size, WsOpts), maps:get(zone, Opts)),
         idle_timeout => maps:get(idle_timeout, WsOpts),
         validate_utf8 => maps:get(validate_utf8, WsOpts)
     },
@@ -354,36 +370,47 @@ get_peer_info(Type, Listener, Req, Opts) ->
             {get_peer(Req, Opts), cowboy_req:cert(Req), Host}
     end.
 
-websocket_handle({binary, Data}, State) ->
+websocket_handle(Frame, State) ->
+    handle_ws_frame(Frame, mark_active(State)).
+
+handle_ws_frame({binary, Data}, State) ->
     on_frame_in(Data, State);
 %% Pings should be replied with pongs, cowboy does it automatically
 %% Pongs can be safely ignored. Clause here simply prevents crash.
-websocket_handle(Frame, State) when Frame =:= ping; Frame =:= pong ->
+handle_ws_frame(Frame, State) when Frame =:= ping; Frame =:= pong ->
     {ok, State};
-websocket_handle({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
+handle_ws_frame({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
     {ok, State};
-websocket_handle({Frame, _}, State) ->
+handle_ws_frame({Frame, _}, State) ->
     %% TODO: should not close the ws connection
     ?LOG(error, #{msg => "unexpected_frame", frame => Frame}),
     {[{shutdown, unexpected_ws_frame}], State}.
 
-websocket_info({call, From, Req}, State) ->
+%% A timer message is not activity. A connection that only wakes up for its own
+%% timers goes back to hibernation. Arm the hibernate timer again here, because
+%% a timer can fire while the connection is hibernated.
+websocket_info({timeout, TRef, hibernate}, State) ->
+    handle_timeout(TRef, hibernate, State);
+websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
+    handle_timeout(TRef, Msg, ensure_hibernate_timer(State));
+websocket_info(Info, State) ->
+    handle_ws_info(Info, mark_active(State)).
+
+handle_ws_info({call, From, Req}, State) ->
     handle_call(From, Req, State);
-websocket_info({gc, Which}, State = #state{listener = {Type, Listener}}) ->
+handle_ws_info({gc, Which}, State = #state{listener = {Type, Listener}}) ->
     Metrics = rotate_gc_metrics(Which, get_active_n(Type, Listener)),
     check_oom(run_gc(Metrics, State));
-websocket_info(
+handle_ws_info(
     Deliver = {deliver, _Topic, _Msg},
     State = #state{listener = {Type, Listener}}
 ) ->
     ActiveN = get_active_n(Type, Listener),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     commands(with_channel(handle_deliver, [Delivers], {[], State}));
-websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
-    handle_timeout(TRef, Msg, State);
-websocket_info({stop, Reason}, State) ->
+handle_ws_info({stop, Reason}, State) ->
     {[{shutdown, Reason}], State};
-websocket_info(Info, State) ->
+handle_ws_info(Info, State) ->
     handle_info(Info, State).
 
 websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
@@ -453,8 +480,6 @@ handle_event({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     State;
-handle_event({event, {zone_changed, NewZone}}, State0 = #state{}) ->
-    init_zone_specific_state(NewZone, _Opts = #{}, State0);
 handle_event({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State0#state{namespace = Namespace};
 handle_event({event, _Other}, State = #state{channel = Channel}) ->
@@ -474,6 +499,17 @@ handle_event({event, _Other}, State = #state{channel = Channel}) ->
 
 handle_timeout(TRef, idle_timeout, State = #state{idle_timer = TRef}) ->
     {[{shutdown, idle_timeout}], State};
+handle_timeout(
+    TRef,
+    hibernate,
+    State = #state{hibernate_timer = TRef, recently_active = true}
+) ->
+    NState = State#state{hibernate_timer = undefined, recently_active = false},
+    {ok, ensure_hibernate_timer(NState)};
+handle_timeout(TRef, hibernate, State = #state{hibernate_timer = TRef}) ->
+    {ok, State#state{hibernate_timer = undefined}, hibernate};
+handle_timeout(_TRef, hibernate, State) ->
+    {ok, State};
 handle_timeout(
     TRef,
     emit_stats,
@@ -630,9 +666,10 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState, channel =
             {[{frame_error, Reason} | Packets], State}
     end.
 
-update_state_on_parse_error(#{proto_ver := ProtoVer, parse_state := NParseState}, State) ->
-    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    State#state{parse_state = NParseState, serialize = Serialize};
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
 update_state_on_parse_error(_, State) ->
     State.
 
@@ -641,8 +678,13 @@ update_state_on_parse_error(_, State) ->
 %%--------------------------------------------------------------------
 
 handle_incoming(Packets = [?CONNECT_PACKET(ConnPkt) | _], State) ->
-    Serialize = emqx_frame:serialize_opts(ConnPkt),
-    NState = cancel_idle_timer(State#state{serialize = Serialize}),
+    {ParseState, Serialize} = share_frame_opts(
+        ConnPkt#mqtt_packet_connect.proto_ver,
+        State#state.parse_state,
+        emqx_frame:serialize_opts(ConnPkt),
+        State
+    ),
+    NState = cancel_idle_timer(State#state{parse_state = ParseState, serialize = Serialize}),
     do_handle_incoming(Packets, NState);
 handle_incoming(Packets, State) ->
     do_handle_incoming(Packets, State).
@@ -702,6 +744,10 @@ handle_replies([{close, Reason} | Rest], FrameAcc, State) ->
     ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     Frame = handle_close(Reason),
     handle_replies(Rest, [Frame | FrameAcc], State);
+handle_replies([{event, {zone_changed, NewZone}} | Rest], FrameAcc, State0) ->
+    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    %% Let cowboy's message size limit follow the new zone, as the parser's does.
+    handle_replies(Rest, [set_max_frame_size(State) | FrameAcc], State);
 handle_replies([Event | Rest], FrameAcc, State) ->
     handle_replies(Rest, FrameAcc, handle_event(Event, State));
 handle_replies([], FrameAcc, State) ->
@@ -895,6 +941,24 @@ resume_stats_timer(State = #state{stats_timer = paused}) ->
 resume_stats_timer(State = #state{stats_timer = disabled}) ->
     State.
 
+%%--------------------------------------------------------------------
+%% Hibernate after a period without activity
+%%
+%% One timer covers a whole period, however many frames and messages arrive in
+%% it. When the timer fires on an active connection, it starts another period.
+
+mark_active(State = #state{recently_active = true}) ->
+    State;
+mark_active(State) ->
+    ensure_hibernate_timer(State#state{recently_active = true}).
+
+ensure_hibernate_timer(State = #state{hibernate_after = infinity}) ->
+    State;
+ensure_hibernate_timer(State = #state{hibernate_timer = undefined, hibernate_after = Timeout}) ->
+    State#state{hibernate_timer = emqx_utils:start_timer(Timeout, hibernate)};
+ensure_hibernate_timer(State) ->
+    State.
+
 get_peer(Req, #{listener := {Type, Listener}}) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
     AddrHeaderName = get_ws_header_opt(Type, Listener, proxy_address_header),
@@ -947,23 +1011,15 @@ inc_metrics(Name, State, Val) ->
 %%--------------------------------------------------------------------
 
 init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
-    FrameOpts0 = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
-        %% zone will **not** take effect after the override.
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-        max_connect_user_properties => emqx_config:get_zone_conf(
-            Zone, [mqtt, max_connect_user_properties]
-        ),
-        %% Any packet received before CONNECT is rejected by the parser.
-        expect_connect => true
-    },
     {Parser, Serialize} =
         case State0#state.parse_state of
             undefined ->
-                init_parser_and_serializer(FrameOpts0);
+                init_parser_and_serializer(Zone);
             Parser1 ->
-                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+                %% zone will **not** take effect after the override.
+                FrameOpts = emqx_connection_conf:frame_opts(Zone),
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
     GcState = get_force_gc(Zone),
@@ -977,16 +1033,35 @@ init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
         gc_state = GcState,
         stats_timer = StatsTimer,
         idle_timer = IdleTimer,
+        hibernate_after = emqx_channel:get_mqtt_conf(Zone, hibernate_after),
         zone = Zone
     }.
 
-init_parser_and_serializer(FrameOpts0) ->
-    Parser0 = init_parser(FrameOpts0),
-    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-    {Parser0, Serialize0}.
+%% Cowboy's WebSocket message size limit. `infinity' derives it from the zone's
+%% `max_packet_size'. The derived limit is twice the largest MQTT packet, so the
+%% parser still receives a packet that is a little too large and answers with
+%% DISCONNECT `packet_too_large'. `max_packet_size' is checked against the
+%% remaining length only, so the largest fixed header is added first.
+max_frame_size(infinity, Zone) ->
+    MaxPacketSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+    2 * (MaxPacketSize + ?MAX_FIXED_HEADER_LEN);
+max_frame_size(MaxFrameSize, _Zone) when is_integer(MaxFrameSize) ->
+    MaxFrameSize.
 
-init_parser(FrameOpts0) ->
-    emqx_frame:initial_parse_state(FrameOpts0).
+set_max_frame_size(#state{listener = {Type, Listener}, zone = Zone}) ->
+    MaxFrameSize = max_frame_size(get_ws_opt(Type, Listener, max_frame_size), Zone),
+    {set_options, #{max_frame_size => MaxFrameSize}}.
+
+init_parser_and_serializer(Zone) ->
+    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(
+        Zone
+    ),
+    {Parser, Serialize}.
+
+%% Swap in the zone's shared parse state and serializer options where they are
+%% equal to the connection's own.
+share_frame_opts(ProtoVer, ParseState, Serialize, #state{zone = Zone}) ->
+    emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
 
 %%--------------------------------------------------------------------
 %% For CT tests

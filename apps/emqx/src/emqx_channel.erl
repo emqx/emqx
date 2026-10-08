@@ -7,7 +7,6 @@
 
 -include("emqx.hrl").
 -include("emqx_channel.hrl").
--include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
 -include("emqx_access_control.hrl").
 -include("logger.hrl").
@@ -25,6 +24,7 @@
 -export([
     info/1,
     info/2,
+    restore_derivable_peer_fields/2,
     get_mqtt_conf/2,
     get_mqtt_conf/3,
     set_conn_state/2,
@@ -166,13 +166,7 @@
 ).
 
 %% Timers implemented by sessions
--define(IS_COMMON_SESSION_TIMER(N),
-    ((N == retry_delivery) orelse (N == expire_awaiting_rel))
-).
-%% Timers implemented by sessions that need to be handled only when the client is connected
--define(IS_COMMON_SESSION_ONLINE_TIMER(N),
-    (N == retry_delivery)
-).
+-define(IS_COMMON_SESSION_TIMER(N), (N == expire_awaiting_rel)).
 
 -define(chan_terminating, chan_terminating).
 -define(normal, normal).
@@ -184,10 +178,51 @@
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
 
-%% @doc Get infos of the channel.
+-doc """
+Channel attributes, as cached in the `emqx_channel_info` ETS table.
+
+The map omits `will_msg`, `conninfo.conn_props`, `conninfo.sock` and
+`session.subscriptions`. No reader of the table uses them. The first three grow with
+client input, and `conninfo.sock` is only valid in the connection process.
+Read them with `info/2`: `info(will_msg, Channel)`, `info(conninfo, Channel)` and
+`info({session, subscriptions}, Channel)`.
+""".
 -spec info(channel()) -> emqx_types:infos().
-info(Channel) ->
-    maps:from_list(info(?INFO_KEYS, Channel)).
+info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
+    #{
+        conninfo => maps:without([conn_props, sock], ConnInfo),
+        conn_state => info(conn_state, Channel),
+        clientinfo => drop_derivable_peer_fields(info(clientinfo, Channel)),
+        session => emqx_utils:maybe_apply(fun chan_info_session/1, Session)
+    }.
+
+chan_info_session(Session) ->
+    maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session)).
+
+%% `clientinfo' keeps these so that authn, authz and hooks can reach them without
+%% `conninfo'. The info map already carries `conninfo', so a reader can derive them
+%% from `conninfo.peername' and `conninfo.sockname' instead.
+drop_derivable_peer_fields(ClientInfo) ->
+    maps:without([peerhost, peerport, peername, sockport], ClientInfo).
+
+%% @doc Put back the `clientinfo' fields that `info/1' leaves out.
+%% For code that rebuilds a channel from a stored info map, such as session
+%% eviction, so that hooks run by the new channel receive the same `clientinfo'
+%% the connection had.
+-spec restore_derivable_peer_fields(emqx_types:clientinfo(), emqx_types:conninfo()) ->
+    emqx_types:clientinfo().
+restore_derivable_peer_fields(
+    ClientInfo,
+    #{peername := {PeerHost, PeerPort} = PeerName, sockname := {_, SockPort}}
+) ->
+    ClientInfo#{
+        peername => PeerName,
+        peerhost => PeerHost,
+        peerport => PeerPort,
+        sockport => SockPort
+    };
+restore_derivable_peer_fields(ClientInfo, _ConnInfo) ->
+    ClientInfo.
 
 -spec info(list(atom()) | atom() | tuple(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
@@ -698,15 +733,28 @@ post_process_connect(
 
 %% A hook callback may install a limiter container at connect time
 %% (e.g. multi-tenant limiters). Otherwise the field stays `undefined`
-%% and the container is built on first use; see ensure_quota/1.
+%% and the container is built on first use, once a finite limit is
+%% configured for the zone or the listener; see try_consume_quota/2.
 adjust_limiter(ClientInfo) ->
     emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], undefined).
 
-ensure_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+try_consume_quota(Needs, #channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
     #{zone := Zone, listener := ListenerId} = ClientInfo,
-    Channel#channel{quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)};
-ensure_quota(Channel) ->
-    Channel.
+    Names = [Name || {Name, _Amount} <- Needs],
+    case emqx_limiter:channel_limits_configured(Zone, ListenerId, Names) of
+        false ->
+            {true, Channel};
+        true ->
+            Container = emqx_limiter:create_channel_client_container(Zone, ListenerId),
+            try_consume_quota(Needs, Channel#channel{quota = Container})
+    end;
+try_consume_quota(Needs, #channel{quota = Quota0} = Channel) ->
+    case emqx_limiter_client_container:try_consume(Quota0, Needs) of
+        {true, Quota} ->
+            {true, Channel#channel{quota = Quota}};
+        {false, Quota, Reason} ->
+            {false, Channel#channel{quota = Quota}, Reason}
+    end.
 
 handle_zone_change(
     _Output,
@@ -896,10 +944,11 @@ process_puback(
     ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
     Channel = #channel{
         clientinfo = ClientInfo,
-        session = Session
+        session = Session,
+        conn_flags = Flags
     }
 ) ->
-    case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
+    case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Flags, Session) of
         {ok, Msg, [], NSession} ->
             ok = after_message_acked(Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
@@ -975,10 +1024,11 @@ process_pubcomp(
     ?PUBCOMP_PACKET(PacketId, ReasonCode),
     Channel = #channel{
         clientinfo = ClientInfo,
-        session = Session
+        session = Session,
+        conn_flags = Flags
     }
 ) ->
-    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
+    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Flags, Session) of
         {ok, [], NSession} ->
             {ok, Channel#channel{session = NSession}};
         {OkEffects, Publishes, NSession} ->
@@ -1282,8 +1332,8 @@ process_maybe_shutdown(
             session = Session0
         }
 ) ->
-    {Intent, Session} = session_disconnect(ClientInfo, ConnInfo, Session0),
-    Channel1 = Channel0#channel{session = Session},
+    {Intent, Effects, Session} = session_disconnect(ClientInfo, ConnInfo, Session0),
+    Channel1 = apply_session_effects(Effects, Channel0#channel{session = Session}),
     Channel2 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel1)),
     case maybe_shutdown(Reason, Intent, Channel2) of
         {ok, Channel} -> {ok, ?REPLY_EVENT(disconnected), Channel};
@@ -1348,7 +1398,7 @@ do_handle_deliver(
             {ok, NChannel};
         {OkEffects, Publishes, NSession} ->
             NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
-            handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
+            handle_out(publish, Publishes, NChannel)
     end.
 
 %% Nack delivers from shared subscription
@@ -1388,6 +1438,17 @@ handle_frame_error(
         _ ->
             shutdown(ShutdownCount, Channel)
     end;
+%% A CONNECT larger than `max_connect_packet_size'. Counted on its own, so an
+%% operator can tell clients hitting a configured limit from clients sending
+%% garbage.
+handle_frame_error(
+    Reason = #{cause := connect_packet_too_large},
+    Channel = #channel{conn_state = idle}
+) ->
+    shutdown(
+        shutdown_count(connect_packet_too_large, Reason, Channel),
+        Channel
+    );
 %% Frame error before CONNECT is parsed (conn_state still idle).
 %% This happens when the first packet is not a valid MQTT CONNECT,
 %% e.g. an HTTP request or other non-MQTT protocol sent to the MQTT port.
@@ -1814,9 +1875,7 @@ handle_cast(
     NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
-    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
-    ChanInfo1 = info(NChannel),
-    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    emqx_cm:set_chan_info(ClientId, info(NChannel)),
     reset_timer(keepalive, NChannel);
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
@@ -1838,7 +1897,7 @@ handle_info(continue, Channel0) ->
             ok;
         {Publishes, Channel1} ->
             {Packets, Channel} = do_deliver_many(Publishes, Channel1),
-            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
+            Outgoing = [?REPLY_OUTGOING(Packets) || Packets =/= []],
             %% Refresh chan-info / chan-stats so the dashboard and REST API
             %% reflect post-replay inflight immediately, not on the next stats tick.
             {ok, Outgoing ++ [?REPLY_EVENT(updated)], Channel}
@@ -2096,14 +2155,7 @@ handle_timeout(
 handle_timeout(
     _TRef,
     TimerName,
-    Channel = #channel{conn_state = disconnected}
-) when ?IS_COMMON_SESSION_ONLINE_TIMER(TimerName) ->
-    %% Skip session timers that require a connected client
-    {ok, Channel};
-handle_timeout(
-    _TRef,
-    TimerName,
-    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo, conn_flags = Flags}
 ) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
     %% NOTE
     %% Responsibility for these timers is smeared across both this module and the
@@ -2111,7 +2163,7 @@ handle_timeout(
     %% responsible for the actual timeout logic. Yet they are managed here, since
     %% they are kind of common to all session implementations.
     Channel1 = clean_timer(TimerName, Channel0),
-    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Flags, Session) of
         {OkEffects, Publishes, NSession} ->
             Channel = apply_session_effects(OkEffects, Channel1#channel{session = NSession}),
             handle_out(publish, Publishes, Channel);
@@ -2122,10 +2174,10 @@ handle_timeout(
 handle_timeout(
     _TRef,
     {emqx_session, TimerName} = Timer,
-    Channel0 = #channel{session = Session, clientinfo = ClientInfo}
+    Channel0 = #channel{session = Session, clientinfo = ClientInfo, conn_flags = Flags}
 ) ->
     Channel1 = clean_timer(Timer, Channel0),
-    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Flags, Session) of
         {ok, [], NSession} ->
             {ok, Channel1#channel{session = NSession}};
         {OkEffects, Replies, NSession} ->
@@ -2606,7 +2658,6 @@ fix_mountpoint(_PipelineOutput, #channel{clientinfo = ClientInfo0} = Channel0) -
 %% Set log metadata
 
 set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInfo}) ->
-    proc_lib:set_label(ClientId),
     Username = maps:get(username, ClientInfo, undefined),
     Tns = get_tenant_namespace(ClientInfo),
     emqx_logger:set_metadata_clientid(ClientId),
@@ -2963,14 +3014,11 @@ packing_alias(Packet, Channel) ->
 check_quota_exceeded(
     ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), Chann0
 ) ->
-    #channel{quota = Quota} = Chann = ensure_quota(Chann0),
-    Result = emqx_limiter_client_container:try_consume(
-        Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
-    ),
-    case Result of
-        {true, Quota2} ->
-            {ok, Chann#channel{quota = Quota2}};
-        {false, Quota2, Reason} ->
+    Needs = [{bytes, erlang:byte_size(Payload)}, {messages, 1}],
+    case try_consume_quota(Needs, Chann0) of
+        {true, Chann} ->
+            {ok, Chann};
+        {false, Chann, Reason} ->
             ?SLOG_THROTTLE(
                 warning,
                 #{
@@ -2979,20 +3027,16 @@ check_quota_exceeded(
                 },
                 #{topic => Topic, tag => "QUOTA"}
             ),
-            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Quota2}}
+            {error, ?RC_QUOTA_EXCEEDED, Chann}
     end.
 
 check_subscribe_quota_exceeded(
     #subscribe_operation{topic_filters = TopicFilters}, Chann0
 ) ->
-    #channel{quota = Limiter0} = Chann = ensure_quota(Chann0),
-    Result = emqx_limiter_client_container:try_consume(
-        Limiter0, [{subscribes, 1}]
-    ),
-    case Result of
-        {true, Limiter} ->
-            {ok, Chann#channel{quota = Limiter}};
-        {false, Limiter, Reason} ->
+    case try_consume_quota([{subscribes, 1}], Chann0) of
+        {true, Chann} ->
+            {ok, Chann};
+        {false, Chann, Reason} ->
             ?tp("subscribe_rate_limit", #{reason => Reason}),
             ?SLOG_THROTTLE(
                 warning,
@@ -3002,7 +3046,7 @@ check_subscribe_quota_exceeded(
                 },
                 #{topics => TopicFilters, tag => "QUOTA"}
             ),
-            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Limiter}}
+            {error, ?RC_QUOTA_EXCEEDED, Chann}
     end.
 
 %%--------------------------------------------------------------------
@@ -3594,7 +3638,7 @@ ensure_disconnected(
 session_disconnect(ClientInfo, ConnInfo, Session) when Session /= undefined ->
     emqx_session:disconnect(ClientInfo, ConnInfo, Session);
 session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
-    {shutdown, undefined}.
+    {shutdown, [], undefined}.
 
 %%--------------------------------------------------------------------
 %% Maybe Publish will msg
@@ -3741,9 +3785,7 @@ maybe_publish_will_msg(
             %% so the will message should won't pass the auth check.
             %% We want to publish the will message as it would be published at the very moment of auth expiration,
             %% so we inject the auth expiration time as the current time used for the auth check.
-            Channel1 = maybe_with_injected_now(Reason, Channel0, fun(Channel) ->
-                publish_will_msg(Channel)
-            end),
+            Channel1 = maybe_with_injected_now(Reason, Channel0, fun publish_will_msg/1),
             remove_willmsg(Channel1);
         I when I > 0 ->
             ?tp(debug, maybe_publish_will_msg_other_delay, #{clientid => ClientId, reason => Reason}),

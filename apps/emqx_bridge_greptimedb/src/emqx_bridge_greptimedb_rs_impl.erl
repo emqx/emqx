@@ -210,8 +210,8 @@ on_query(
     #{ChanResId := ActionState} = InstalledChannels,
     #{?write_syntax := WriteSyntax} = ActionState,
     case parse_batch_data(ConnResId, Database, [{ChanResId, Data}], WriteSyntax) of
-        {ok, TablesToPoints} ->
-            [Result] = do_insert_sync(TablesToPoints, ConnState),
+        {ok, TablesToPoints, _Failed = []} ->
+            [Result] = do_insert_sync(TablesToPoints, ConnState, []),
             Result;
         {error, ErrorPoints} ->
             {error, ErrorPoints}
@@ -237,8 +237,8 @@ on_query_async(
     #{ChanResId := ActionState} = InstalledChannels,
     #{?write_syntax := WriteSyntax} = ActionState,
     case parse_batch_data(ConnResId, Database, [{ChanResId, Data}], WriteSyntax) of
-        {ok, TablesToPoints} ->
-            do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs);
+        {ok, TablesToPoints, _Failed = []} ->
+            do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs, []);
         {error, ErrorPoints} ->
             {error, ErrorPoints}
     end;
@@ -258,8 +258,8 @@ on_batch_query(
     #{ChanResId := ActionState} = InstalledChannels,
     #{?write_syntax := WriteSyntax} = ActionState,
     case parse_batch_data(ConnResId, Database, Batch, WriteSyntax) of
-        {ok, TablesToPoints} ->
-            do_insert_sync(TablesToPoints, ConnState);
+        {ok, TablesToPoints, Failed} ->
+            do_insert_sync(TablesToPoints, ConnState, Failed);
         {error, ErrorPoints} ->
             {error, ErrorPoints}
     end;
@@ -285,8 +285,8 @@ on_batch_query_async(
     #{ChanResId := ActionState} = InstalledChannels,
     #{?write_syntax := WriteSyntax} = ActionState,
     case parse_batch_data(ConnResId, Database, Batch, WriteSyntax) of
-        {ok, TablesToPoints} ->
-            do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs);
+        {ok, TablesToPoints, Failed} ->
+            do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs, Failed);
         {error, ErrorPoints} ->
             {error, ErrorPoints}
     end;
@@ -317,29 +317,50 @@ reply_callback(Context0, Result) ->
 
 bin(X) -> emqx_utils_conv:bin(X).
 
+%% `Failed' carries the messages whose points did not transform, each keyed by
+%% its position in the batch. The points keep their own positions too, so the
+%% results the caller assembles line up with the queries even when only some of
+%% them produced points.
 parse_batch_data(ConnResId, Database, Batch, WriteSyntax) ->
-    maybe
-        {ok, Points0} ?=
-            emqx_bridge_greptimedb_utils:parse_batch_data(
-                ConnResId, Database, Batch, WriteSyntax, native
-            ),
-        %% We need to reassemble the results later in the same order.
-        Points1 = lists:enumerate(Points0),
-        TablesToPoints0 = maps:groups_from_list(
-            fun({_, {#{table := Table}, _}}) -> Table end,
-            fun({I, {_, Points}}) ->
-                lists:map(fun(P) -> {I, P} end, Points)
-            end,
-            Points1
-        ),
-        TablesToPoints = maps:map(
-            fun(_, Pss) -> lists:append(Pss) end,
-            TablesToPoints0
-        ),
-        {ok, TablesToPoints}
+    case
+        emqx_bridge_greptimedb_utils:parse_batch_data(
+            ConnResId, Database, Batch, WriteSyntax, native
+        )
+    of
+        {ok, Points} ->
+            ValidIndices = lists:seq(1, length(Batch)),
+            {ok, group_points_by_table(index_points(ValidIndices, Points, WriteSyntax)), []};
+        {ok, Points, BatchResults} ->
+            Indexed = lists:enumerate(BatchResults),
+            ValidIndices = [I || {I, valid} <- Indexed],
+            Failed = [{I, Error} || {I, {error, _} = Error} <- Indexed],
+            {ok, group_points_by_table(index_points(ValidIndices, Points, WriteSyntax)), Failed};
+        {error, _} = Error ->
+            Error
     end.
 
-do_insert_sync(TablesToPoints, ConnState) ->
+%% Every message renders against the same syntax lines, so a message whose
+%% points transformed contributes one group per line. Repeat its batch position
+%% that many times to key each group by the message it came from.
+index_points(ValidIndices, Points, WriteSyntax) ->
+    GroupsPerMessage = length(WriteSyntax),
+    Indices = lists:append([lists:duplicate(GroupsPerMessage, I) || I <- ValidIndices]),
+    lists:zip(Indices, Points).
+
+group_points_by_table(IndexedPoints) ->
+    TablesToPoints0 = maps:groups_from_list(
+        fun({_, {#{table := Table}, _}}) -> Table end,
+        fun({I, {_, Points}}) ->
+            lists:map(fun(P) -> {I, P} end, Points)
+        end,
+        IndexedPoints
+    ),
+    maps:map(
+        fun(_, Pss) -> lists:append(Pss) end,
+        TablesToPoints0
+    ).
+
+do_insert_sync(TablesToPoints, ConnState, Failed) ->
     #{?client := Client} = ConnState,
     Results0 =
         maps:fold(
@@ -349,7 +370,7 @@ do_insert_sync(TablesToPoints, ConnState) ->
                 Res = lists:map(fun(I) -> {I, Res0} end, Indices),
                 [Res | Acc0]
             end,
-            [],
+            [Failed],
             TablesToPoints
         ),
     Results1 = lists:flatten(Results0),
@@ -358,21 +379,21 @@ do_insert_sync(TablesToPoints, ConnState) ->
     ?tp("greptime_rs_sync_batch_reply", #{results => Results}),
     Results.
 
-do_insert_async(_ChanResId, TablesToPoints, _ConnState, ReplyFnAndArgs) when
+do_insert_async(_ChanResId, TablesToPoints, _ConnState, ReplyFnAndArgs, _Failed) when
     map_size(TablesToPoints) == 0
 ->
     %% Should be impossible, since we only trigger action with non-empty batches.
     emqx_resource:apply_reply_fun(ReplyFnAndArgs, {ok, #{}}),
     {ok, self()};
-do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0) ->
+do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0, Failed) ->
     #{?client := Client} = ConnState,
     Iter0 = maps:iterator(TablesToPoints),
     %% Already checked that map is non-empty.
     {Table, PointsWithIndices, Iter} = maps:next(Iter0),
     {Indices, Points} = lists:unzip(PointsWithIndices),
     IsBatch =
-        case {map_size(TablesToPoints), PointsWithIndices} of
-            {1, [_]} ->
+        case {map_size(TablesToPoints), PointsWithIndices, Failed} of
+            {1, [_], []} ->
                 false;
             _ ->
                 true
@@ -382,7 +403,7 @@ do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0) ->
         iter => Iter,
         last_indices => Indices,
         final_cont => ReplyFnAndArgs0,
-        final_res => [],
+        final_res => Failed,
         client => Client,
         is_batch => IsBatch
     },

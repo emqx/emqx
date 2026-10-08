@@ -84,7 +84,11 @@ jobs:
           source venv/bin/activate
           pip install --upgrade pip
           pip install pytest
-          pytest scripts/test/test_find_apps.py scripts/test/test_docker_entrypoint.py scripts/test/test_verify_docker_attestations.py -v
+          pytest -v \
+            scripts/test/test_find_apps.py \
+            scripts/test/test_docker_entrypoint.py \
+            scripts/test/test_verify_docker_attestations.py \
+            scripts/test/test_cluster_join.py
       - name: Check workflow files
         env:
           ACTIONLINT_VSN: 1.7.12
@@ -114,9 +118,6 @@ jobs:
       - name: Check static umbrella application list file
         run: |
           ./scripts/check-umbrella-apps.exs
-      - name: Run elvis check
-        run: |
-          ./scripts/elvis-check.sh $GITHUB_BASE_REF
       - name: Generate CT Matrix
         id: matrix
         env:
@@ -135,6 +136,24 @@ jobs:
           echo "ct-matrix=${CT_MATRIX}" | tee -a $GITHUB_OUTPUT
           echo "ct-host=${CT_HOST}"     | tee -a $GITHUB_OUTPUT
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: init
+    container: ${{ needs.init.outputs.BUILDER }}
+    env:
+      BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.inputs.ref }}
+      - name: Work around https://github.com/actions/checkout/issues/766
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Fetch comparison base
+        # Depth 2 includes the PR merge commit parents so base...HEAD can find the merge base:
+        run: git fetch --no-tags --depth=2 origin "$GITHUB_SHA" "$BEFORE_REF"
+      - name: Run elvis check
+        run: ./scripts/elvis-check.sh "$BEFORE_REF"
 
   compile:
     needs:

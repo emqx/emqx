@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("minirest/include/minirest.hrl").
 
 -import(emqx_dashboard_api_test_helpers, [uri/1]).
 
@@ -408,7 +409,7 @@ test_mfa(VerifyFn) ->
     ok.
 
 %%--------------------------------------------------------------------
-%% check_login_user_scopes/2 — scope-deny main path coverage.
+%% check_login_user_scopes/3 — scope-deny main path coverage.
 %%
 %% Tests live here (and not in emqx_dashboard_user_scopes_SUITE) because
 %% emqx_dashboard does not depend on emqx_dashboard_rbac, so the predicate
@@ -430,12 +431,12 @@ t_check_login_user_scopes_undefined_falls_back(_) ->
     %% Viewer default = common scopes only (no user_management).
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+        login_scope_check(Username, users)
     ),
     %% /clients is mapped to connections — viewer default holds it.
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+        login_scope_check(Username, clients)
     ).
 
 %% Self-targeted user endpoints (own change_pwd, own MFA) bypass the
@@ -450,22 +451,16 @@ t_check_login_user_scopes_self_user_endpoints_bypass(_) ->
     %% but self-targeted paths are still allowed.
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/change_pwd">>
-        )
+        login_scope_check(Username, {change_pwd, Username})
     ),
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/mfa">>
-        )
+        login_scope_check(Username, {change_mfa, Username})
     ),
     %% Other users' endpoints still respect scope rules.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/somebody_else/mfa">>
-        )
+        login_scope_check(Username, {change_mfa, <<"somebody_else">>})
     ).
 
 %% Self-bypass is restricted to change_pwd and mfa. PUT /users/<self>
@@ -481,23 +476,19 @@ t_check_login_user_scopes_self_user_record_not_bypassed(_) ->
     %% Self change_pwd / mfa still allowed.
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/change_pwd">>
-        )
+        login_scope_check(Username, {change_pwd, Username})
     ),
     %% But PUT /users/<self> (the record itself) is NOT bypassed —
     %% the user record path maps to user_management which the user
     %% explicitly does not hold.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary>>
-        )
+        login_scope_check(Username, {user, Username})
     ),
     %% Likewise GET /users (list) is not bypassed.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+        login_scope_check(Username, users)
     ).
 
 %% scopes=[] denies every mapped path (semantically: "explicitly no
@@ -512,15 +503,13 @@ t_check_login_user_scopes_explicit_empty_denies(_) ->
     %% A path mapped to a known scope is denied.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+        login_scope_check(Username, users)
     ),
     %% Unmapped paths fail closed for scope-restricted login users (here
     %% an explicit []): a path that maps to no known scope is denied.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/some/unmapped/path">>
-        )
+        login_scope_check(Username, unmapped)
     ).
 
 %% scopes=[user_management] grants /users access; a path mapped to
@@ -536,14 +525,12 @@ t_check_login_user_scopes_user_mgmt_grants_users(_) ->
     ),
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+        login_scope_check(Username, users)
     ),
     %% Another user's mfa endpoint — denied (scope mfa_management not held).
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/somebody_else/mfa">>
-        )
+        login_scope_check(Username, {change_mfa, <<"somebody_else">>})
     ).
 
 %% scopes=[mfa_management] grants MFA paths but not /users.
@@ -557,13 +544,11 @@ t_check_login_user_scopes_mfa_mgmt_grants_only_mfa(_) ->
     ),
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/mfa">>
-        )
+        login_scope_check(Username, {change_mfa, Username})
     ),
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+        login_scope_check(Username, users)
     ).
 
 %%--------------------------------------------------------------------
@@ -572,7 +557,7 @@ t_check_login_user_scopes_mfa_mgmt_grants_only_mfa(_) ->
 %% Login users may hold any common catalog scope alongside the
 %% login-only scopes. The scope predicate is uniform — there is
 %% no role-based or scope-class-based branching in
-%% check_login_user_scopes/2 — so a viewer or administrator carrying
+%% check_login_user_scopes/3 — so a viewer or administrator carrying
 %% scopes=[<<"connections">>] should be allowed on /clients and denied
 %% on every endpoint mapped to a different scope. These tests guard
 %% that uniformity.
@@ -590,15 +575,13 @@ t_check_login_user_scopes_connections_grants_clients(_) ->
     %% Direct top-level resource.
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+        login_scope_check(Username, clients)
     ),
-    %% Concrete clientid concretizes the /clients/:clientid template
-    %% via match_template/2; should still resolve to connections.
+    %% The per-client handler is a different function of the same
+    %% module; it must resolve to connections too.
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/clients/test-client-id">>
-        )
+        login_scope_check(Username, {client, <<"test-client-id">>})
     ).
 
 %% scopes=[connections] denies paths mapped to other scopes.
@@ -613,13 +596,13 @@ t_check_login_user_scopes_connections_denies_other_scopes(_) ->
     %% /alarms is mapped to monitoring, not connections.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
+        login_scope_check(Username, alarms)
     ),
     %% /users is mapped to user_management — generic scope cannot
     %% reach a login-only-mapped path.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+        login_scope_check(Username, users)
     ).
 
 %% scopes=[monitoring] grants /alarms but denies /clients.
@@ -633,11 +616,11 @@ t_check_login_user_scopes_monitoring_grants_alarms(_) ->
     ),
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
+        login_scope_check(Username, alarms)
     ),
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+        login_scope_check(Username, clients)
     ).
 
 %% A generic scope on a login user must NOT grant access to login-only
@@ -652,23 +635,21 @@ t_check_login_user_scopes_generic_does_not_grant_login_only_paths(_) ->
     ),
     %% NOTE: /sso/* paths are not asserted here because
     %% emqx_dashboard_sso is not in this SUITE's app start list, so
-    %% those paths do not appear in the path_to_scope cache and would
+    %% those handlers do not appear in the scope cache and would
     %% fall through to the unmapped fail-closed branch (false). The cross-
     %% module assertion that /sso is mapped to sso_management lives in
     %% emqx_dashboard_sso/test/emqx_dashboard_sso_mfa_SUITE.erl.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+        login_scope_check(Username, users)
     ),
     %% Another user's mfa path — generic scope does not grant it.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/somebody_else/mfa">>
-        )
+        login_scope_check(Username, {change_mfa, <<"somebody_else">>})
     ).
 
-%% scopes=[] denies every mapped path including generic ones.
+%% scopes=[] denies every mapped endpoint including generic ones.
 t_check_login_user_scopes_explicit_empty_denies_generic_paths(_) ->
     Username = <<"login_user_scopes_empty_gen">>,
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -677,11 +658,11 @@ t_check_login_user_scopes_explicit_empty_denies_generic_paths(_) ->
     {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, []),
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+        login_scope_check(Username, clients)
     ),
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
+        login_scope_check(Username, alarms)
     ).
 
 %% scopes=undefined falls back to RBAC default (allow), including for
@@ -695,11 +676,11 @@ t_check_login_user_scopes_undefined_allows_generic_paths(_) ->
     ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Username)),
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
+        login_scope_check(Username, clients)
     ),
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/alarms">>)
+        login_scope_check(Username, alarms)
     ).
 
 %%--------------------------------------------------------------------
@@ -725,11 +706,11 @@ t_check_login_user_scopes_sso_explicit_empty_denies(_) ->
     %% Predicate fed the proper key: explicit empty scopes deny.
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/clients">>)
+        login_scope_check(SsoKey, clients)
     ),
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/users">>)
+        login_scope_check(SsoKey, users)
     ).
 
 t_check_login_user_scopes_sso_explicit_scope_grants_only_that_path(_) ->
@@ -740,11 +721,11 @@ t_check_login_user_scopes_sso_explicit_scope_grants_only_that_path(_) ->
     {ok, ok} = emqx_dashboard_admin:set_user_scopes(SsoKey, [?SCOPE_CONNECTIONS]),
     ?assertEqual(
         true,
-        emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/clients">>)
+        login_scope_check(SsoKey, clients)
     ),
     ?assertEqual(
         false,
-        emqx_dashboard_rbac:check_login_user_scopes(SsoKey, <<"/alarms">>)
+        login_scope_check(SsoKey, alarms)
     ).
 
 t_global_only_message_endpoints_reject_namespaced_actors(_) ->
@@ -856,6 +837,354 @@ t_tracing_config_update_rejects_namespaced_actors(_) ->
         emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_viewer_actor_context())
     ).
 
+-doc """
+The plugin configuration is global, so its read endpoints are restricted to the
+global administrator: all namespaced actors (any role) and the remaining global
+principals such as viewers are rejected.  The other plugin GET endpoints are not
+affected.
+
+The actor contexts here are role/namespace pairs, and the API-key role macros are
+the same binaries as the login-user ones, so this matrix cannot distinguish a
+namespaced API key from a namespaced login user of the same role; the API-key
+specific gating lives in `emqx_mgmt_auth`.
+""".
+t_plugin_config_endpoints_require_global_admin(_) ->
+    Req = #{},
+    lists:foreach(
+        fun(HandlerInfo) ->
+            lists:foreach(
+                fun(ActorContext) ->
+                    ?assertEqual(
+                        {error, <<"Plugin configuration is not available to namespaced users">>},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+                    )
+                end,
+                namespaced_actor_contexts()
+            ),
+            lists:foreach(
+                fun(ActorContext) ->
+                    ?assertEqual(
+                        {error,
+                            <<"Plugin configuration is only available to the global administrator">>},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+                    )
+                end,
+                [global_viewer_actor_context(), global_publisher_actor_context()]
+            ),
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_admin_actor_context())
+            )
+        end,
+        plugin_config_endpoint_handlers()
+    ),
+    %% Scope check: the new clause must only cover the two configuration
+    %% endpoints, leaving the other plugin GET endpoints readable.
+    lists:foreach(
+        fun(HandlerInfo) ->
+            lists:foreach(
+                fun(ActorContext) ->
+                    ?assertMatch(
+                        {ok, _},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+                    )
+                end,
+                namespaced_actor_contexts() ++
+                    [global_admin_actor_context(), global_viewer_actor_context()]
+            )
+        end,
+        other_plugin_get_handlers()
+    ).
+
+-doc """
+Downloading a backup file is denied to every viewer, global or namespaced, and to
+publishers. Administrators, global or namespaced, pass RBAC. Listing backup files
+stays readable by viewers.
+
+The API-key role macros are the same binaries as the login-user ones, so these
+actor contexts cover API keys too.
+""".
+t_backup_download_denied_to_viewers(_) ->
+    Req = #{},
+    Download = #{method => get, module => emqx_mgmt_api_data_backup, function => data_file_by_name},
+    List = #{method => get, module => emqx_mgmt_api_data_backup, function => data_files},
+    [NsAdmin, NsViewer, NsApiAdmin, NsApiViewer] = namespaced_actor_contexts(),
+    Denied = {error, <<"Backup files are only available to administrators">>},
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertEqual(
+                Denied,
+                emqx_dashboard_rbac:check_rbac(Req, Download, ActorContext),
+                ActorContext
+            ),
+            ?assertMatch({ok, _}, emqx_dashboard_rbac:check_rbac(Req, List, ActorContext))
+        end,
+        [global_viewer_actor_context(), NsViewer, NsApiViewer]
+    ),
+    ?assertMatch(
+        {error, _},
+        emqx_dashboard_rbac:check_rbac(Req, Download, global_publisher_actor_context())
+    ),
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, Download, ActorContext),
+                ActorContext
+            )
+        end,
+        [global_admin_actor_context(), NsAdmin, NsApiAdmin]
+    ).
+
+-doc """
+Over the real HTTP API, the plugin configuration endpoints answer 403
+`UNAUTHORIZED_ROLE` for viewers and namespaced administrators, while the global
+administrator still reaches the endpoint (404 for an unknown plugin rather than
+403).
+""".
+t_plugin_config_endpoints_http_denied(_) ->
+    add_default_superuser(),
+    Password = <<"public_www1">>,
+    Viewer = <<"plugin_cfg_viewer">>,
+    NsAdmin = <<"plugin_cfg_ns_admin">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Viewer, Password, ?ROLE_VIEWER, ?ADD_DESCRIPTION),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        NsAdmin, Password, <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>, ?ADD_DESCRIPTION
+    ),
+    NameVsn = <<"plugin_cfg_probe-1.0">>,
+    Paths = [
+        uri(["plugins", NameVsn, "config"]),
+        uri(["plugins", NameVsn, "config", "download"])
+    ],
+    Denied = [
+        {Viewer, <<"Plugin configuration is only available to the global administrator">>},
+        {NsAdmin, <<"Plugin configuration is not available to namespaced users">>}
+    ],
+    lists:foreach(
+        fun(Url) ->
+            lists:foreach(
+                fun({Username, ExpectedMessage}) ->
+                    {ok, DeniedCode, DeniedBody} = emqx_dashboard_api_test_helpers:request(
+                        Username, Password, get, Url, []
+                    ),
+                    ?assertEqual(403, DeniedCode),
+                    ?assertMatch(
+                        #{
+                            <<"code">> := <<"UNAUTHORIZED_ROLE">>,
+                            <<"message">> := ExpectedMessage
+                        },
+                        emqx_utils_json:decode(DeniedBody)
+                    )
+                end,
+                Denied
+            ),
+            %% The probe plugin is not installed, so the administrator reaches the
+            %% handler and gets plugin_not_found instead of a denial.
+            ?assertMatch(
+                {ok, 404, _},
+                emqx_dashboard_api_test_helpers:request(
+                    ?DEFAULT_SUPERUSER, ?DEFAULT_SUPERUSER_PASS, get, Url, []
+                )
+            )
+        end,
+        Paths
+    ).
+
+-doc """
+`GET /configs` negotiated to `text/plain` (no `Accept` header, `*/*`, or an explicit
+`text/plain`) is denied to every principal except the global administrator. The
+`application/json` variant stays readable by viewers and namespaced principals.
+""".
+t_configs_plaintext_export_requires_global_admin(_) ->
+    HandlerInfo = configs_get_handler(),
+    PlaintextReqs = [
+        configs_req(undefined),
+        configs_req(<<"*/*">>),
+        configs_req(<<"text/plain">>),
+        configs_req(<<"application/json, */*;q=0.8">>),
+        configs_req(<<"text/html, text/plain;q=0.9">>),
+        %% The handler prefers `text/plain' when both types are accepted.
+        configs_req(<<"application/json, text/plain">>)
+    ],
+    JsonReq = configs_req(<<"application/json">>),
+    %% No acceptable type: the handler answers 400 without any configuration.
+    UnacceptableReq = configs_req(<<"application/xml">>),
+    Denied = {error, <<"The configuration export is only available to the global administrator">>},
+    lists:foreach(
+        fun(ActorContext) ->
+            lists:foreach(
+                fun(Req) ->
+                    ?assertEqual(
+                        Denied,
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext),
+                        #{actor => ActorContext, req => Req}
+                    )
+                end,
+                PlaintextReqs
+            ),
+            lists:foreach(
+                fun(Req) ->
+                    ?assertMatch(
+                        {ok, _},
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext),
+                        #{actor => ActorContext, req => Req}
+                    )
+                end,
+                [JsonReq, UnacceptableReq]
+            )
+        end,
+        [global_viewer_actor_context() | namespaced_actor_contexts()]
+    ),
+    lists:foreach(
+        fun(Req) ->
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_admin_actor_context())
+            )
+        end,
+        [JsonReq | PlaintextReqs]
+    ),
+    %% A publisher may not read `/configs' in either format.
+    lists:foreach(
+        fun(Req) ->
+            ?assertMatch(
+                {error, _},
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_publisher_actor_context())
+            )
+        end,
+        [JsonReq | PlaintextReqs]
+    ),
+    %% Scope check: `PUT /configs' is unchanged (global administrator only).
+    PutHandlerInfo = HandlerInfo#{method := put},
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertMatch(
+                {error, _},
+                emqx_dashboard_rbac:check_rbac(JsonReq, PutHandlerInfo, ActorContext)
+            )
+        end,
+        [global_viewer_actor_context() | namespaced_actor_contexts()]
+    ).
+
+-doc """
+Over the real HTTP API, `GET /configs` in `text/plain` answers 403
+`UNAUTHORIZED_ROLE` for a viewer, a namespaced administrator, a viewer API key and a
+namespaced administrator API key. The same principals still get the JSON variant, and
+the global administrator (login user or API key) still gets the `text/plain` export.
+""".
+t_configs_plaintext_export_http(_) ->
+    add_default_superuser(),
+    Password = <<"public_www1">>,
+    Viewer = <<"configs_viewer">>,
+    NsAdmin = <<"configs_ns_admin">>,
+    NsAdminRole = <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>,
+    {ok, _} = emqx_dashboard_admin:add_user(Viewer, Password, ?ROLE_VIEWER, ?ADD_DESCRIPTION),
+    {ok, _} = emqx_dashboard_admin:add_user(NsAdmin, Password, NsAdminRole, ?ADD_DESCRIPTION),
+    ViewerKey = create_api_key(<<"configs_viewer_key">>, ?ROLE_API_VIEWER),
+    NsAdminKey = create_api_key(<<"configs_ns_admin_key">>, NsAdminRole),
+    AdminKey = create_api_key(<<"configs_admin_key">>, ?ROLE_API_SUPERUSER),
+    try
+        Restricted = [
+            login_auth_header(Viewer, Password),
+            login_auth_header(NsAdmin, Password),
+            ViewerKey,
+            NsAdminKey
+        ],
+        lists:foreach(
+            fun(Auth) ->
+                lists:foreach(
+                    fun({Accept, Query}) ->
+                        {Code, _, Body} = configs_http_get(Auth, Accept, Query),
+                        ?assertEqual(403, Code, #{accept => Accept, query => Query}),
+                        ?assertMatch(
+                            #{<<"code">> := <<"UNAUTHORIZED_ROLE">>},
+                            emqx_utils_json:decode(Body)
+                        )
+                    end,
+                    [
+                        {"text/plain", ""},
+                        {no_accept, ""},
+                        {"*/*", ""},
+                        {"text/plain", "?key=sysmon"}
+                    ]
+                ),
+                ?assertMatch(
+                    {200, "application/json" ++ _, _},
+                    configs_http_get(Auth, "application/json", "")
+                )
+            end,
+            Restricted
+        ),
+        Admins = [
+            login_auth_header(
+                ?DEFAULT_SUPERUSER, ?DEFAULT_SUPERUSER_PASS
+            ),
+            AdminKey
+        ],
+        lists:foreach(
+            fun(Auth) ->
+                ?assertMatch({200, "text/plain" ++ _, _}, configs_http_get(Auth, no_accept, "")),
+                ?assertMatch(
+                    {200, "text/plain" ++ _, _}, configs_http_get(Auth, "text/plain", "")
+                ),
+                ?assertMatch(
+                    {200, "application/json" ++ _, _},
+                    configs_http_get(Auth, "application/json", "")
+                )
+            end,
+            Admins
+        )
+    after
+        lists:foreach(
+            fun emqx_mgmt_auth:delete/1,
+            [<<"configs_viewer_key">>, <<"configs_ns_admin_key">>, <<"configs_admin_key">>]
+        )
+    end.
+
+configs_get_handler() ->
+    #{method => get, module => emqx_mgmt_api_configs, function => configs}.
+
+configs_req(undefined) ->
+    #{headers => #{}};
+configs_req(Accept) ->
+    #{headers => #{<<"accept">> => Accept}}.
+
+configs_http_get(Auth, Accept, Query) ->
+    AcceptHeader =
+        case Accept of
+            no_accept -> [];
+            _ -> [{"accept", Accept}]
+        end,
+    Url = uri(["configs"]) ++ Query,
+    {ok, {{_, Code, _}, Headers, Body}} =
+        httpc:request(get, {Url, [Auth | AcceptHeader]}, [], [{body_format, binary}]),
+    {Code, proplists:get_value("content-type", Headers), Body}.
+
+login_auth_header(Username, Password) ->
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+create_api_key(Name, Role) ->
+    ApiKey = <<Name/binary, "_key">>,
+    ApiSecret = <<Name/binary, "_secret">>,
+    {ok, _} = emqx_mgmt_auth:create_with_key(
+        Name, ApiKey, ApiSecret, true, infinity, <<"configs rbac test">>, Role
+    ),
+    emqx_common_test_http:auth_header(binary_to_list(ApiKey), binary_to_list(ApiSecret)).
+
+plugin_config_endpoint_handlers() ->
+    [
+        #{method => get, module => emqx_mgmt_api_plugins, function => plugin_config},
+        #{method => get, module => emqx_mgmt_api_plugins, function => download_plugin_config}
+    ].
+
+other_plugin_get_handlers() ->
+    [
+        #{method => get, module => emqx_mgmt_api_plugins, function => list_plugins},
+        #{method => get, module => emqx_mgmt_api_plugins, function => plugin},
+        #{method => get, module => emqx_mgmt_api_plugins, function => plugin_schema}
+    ].
+
 global_only_message_endpoint_handlers() ->
     [
         #{method => get, module => emqx_mgmt_api_clients, function => mqueue_msgs},
@@ -898,6 +1227,9 @@ global_admin_actor_context() ->
 
 global_viewer_actor_context() ->
     #{?actor => <<"global_viewer">>, ?role => ?ROLE_VIEWER, ?namespace => ?global_ns}.
+
+global_publisher_actor_context() ->
+    #{?actor => <<"global_publisher">>, ?role => ?ROLE_API_PUBLISHER, ?namespace => ?global_ns}.
 
 assert_global_viewer_rbac(Req, #{method := get} = HandlerInfo) ->
     ?assertMatch(
@@ -949,3 +1281,44 @@ add_default_superuser() ->
         ?ROLE_SUPERUSER,
         ?ADD_DESCRIPTION
     ).
+
+%%--------------------------------------------------------------------
+%% Login-user scope check helpers
+%%--------------------------------------------------------------------
+
+%% Run the login-user scope check for `Username' against the handler
+%% that serves an endpoint. The handler and the path bindings come from
+%% the dashboard's live cowboy router, the table minirest dispatches
+%% on, so the check sees what a real request would carry.
+login_scope_check(Username, Endpoint) ->
+    {HandlerInfo, Req} = dispatch(endpoint_path(Endpoint)),
+    emqx_dashboard_rbac:check_login_user_scopes(Username, Req, HandlerInfo).
+
+endpoint_path(users) -> <<"/users">>;
+endpoint_path({user, Target}) -> <<"/users/", Target/binary>>;
+endpoint_path({change_pwd, Target}) -> <<"/users/", Target/binary, "/change_pwd">>;
+endpoint_path({change_mfa, Target}) -> <<"/users/", Target/binary, "/mfa">>;
+endpoint_path(clients) -> <<"/clients">>;
+endpoint_path({client, ClientId}) -> <<"/clients/", ClientId/binary>>;
+endpoint_path(alarms) -> <<"/alarms">>;
+endpoint_path(unmapped) -> unmapped.
+
+%% Match a concrete request path against the dashboard's dispatch table
+%% and build the HandlerInfo minirest passes to the authorize callback
+%% (`minirest_handler:do_authorize/3'), plus a request carrying the
+%% bindings cowboy decoded. No route serves `unmapped', so the router
+%% would answer 404 before any scope check; that handler is synthetic
+%% and exists only to pin the fail-closed rule for an unmapped handler.
+dispatch(unmapped) ->
+    HandlerInfo = #{method => get, module => no_such_api_module, function => no_such_function},
+    {HandlerInfo, #{bindings => #{}}};
+dispatch(RelPath) ->
+    AbsPath = iolist_to_binary(emqx_dashboard_swagger:relative_uri(binary_to_list(RelPath))),
+    Req0 = #{host => <<"localhost">>, path => AbsPath},
+    Env0 = #{dispatch => {persistent_term, 'http:dashboard'}},
+    {ok, Req, #{handler := minirest_handler, handler_opts := State}} =
+        cowboy_router:execute(Req0, Env0),
+    #{path := Template, methods := Methods} = State,
+    [#handler{module = Module, function = Function} | _] = maps:values(Methods),
+    HandlerInfo = #{method => get, module => Module, function => Function, path => Template},
+    {HandlerInfo, Req}.

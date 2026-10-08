@@ -11,7 +11,7 @@
 
 %% Hook callbacks
 -export([
-    on_message_publish/1
+    on_message_publish_alias_mapping/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -22,7 +22,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
--define(MSG_PUBLISH_HOOK, {?MODULE, on_message_publish, []}).
+-define(MSG_PUBLISH_HOOK, {?MODULE, on_message_publish_alias_mapping, []}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -42,8 +42,8 @@ unregister_hooks() ->
 %% Hook callbacks
 %%------------------------------------------------------------------------------
 
--spec on_message_publish(emqx_types:message()) -> ok.
-on_message_publish(#message{} = Message) ->
+-spec on_message_publish_alias_mapping(emqx_types:message()) -> ok.
+on_message_publish_alias_mapping(#message{} = Message) ->
     case emqx_schema_registry_config:is_alias_mapping_enabled() andalso is_client_process() of
         true ->
             do_on_message_publish(Message);
@@ -66,7 +66,8 @@ is_client_process() ->
         _ -> false
     end.
 
-do_on_message_publish(#message{topic = Topic} = Message) ->
+do_on_message_publish(#message{} = Message) ->
+    Topic = unmounted_topic(Message),
     case emqx_schema_registry_spb_state:parse_spb_topic(Topic) of
         {ok, #nbirth{} = BirthMsg} ->
             emqx_schema_registry_spb_state:register_aliases(Message, BirthMsg);
@@ -79,3 +80,8 @@ do_on_message_publish(#message{topic = Topic} = Message) ->
         _ ->
             ok
     end.
+
+unmounted_topic(#message{topic = Topic0, extra = #{mountpoint := Mountpoint}}) ->
+    emqx_mountpoint:unmount(Mountpoint, Topic0);
+unmounted_topic(#message{topic = Topic}) ->
+    Topic.

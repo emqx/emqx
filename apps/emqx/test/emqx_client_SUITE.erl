@@ -42,11 +42,13 @@ groups() ->
             {group, mqttv5},
             {group, others},
             {group, socket},
-            {group, misbehaving}
+            {group, misbehaving},
+            {group, connect_packet_limit}
         ]},
         {ssl_listener, [], [
             {group, socket},
-            {group, misbehaving}
+            {group, misbehaving},
+            {group, connect_packet_limit}
         ]},
         {socket_listener, [], [
             {group, mqttv3},
@@ -54,7 +56,8 @@ groups() ->
             {group, mqttv5},
             {group, others},
             {group, socket},
-            {group, misbehaving}
+            {group, misbehaving},
+            {group, connect_packet_limit}
         ]},
         {mqttv3, [], [
             t_basic,
@@ -76,6 +79,7 @@ groups() ->
         {mqttv5, [], [
             t_basic_with_props_v5,
             t_v5_receive_maximim_in_connack,
+            t_chan_info_structure,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client
         ]},
@@ -115,6 +119,7 @@ groups() ->
             t_frame_error_shutdown_count_is_bounded,
             t_sock_closed_incomplete_qos2_transmission,
             t_connect_user_property_limit,
+            t_connect_packet_too_large,
             t_large_connect_with_few_user_properties
         ]},
         {socket, [], [
@@ -124,7 +129,14 @@ groups() ->
             t_sock_keepalive,
             t_sock_async_set_keepalive,
             t_sock_closed_reason_normal,
-            t_sock_closed_force_closed_by_client
+            t_sock_closed_force_closed_by_client,
+            t_large_publish_after_connect,
+            t_pipelined_large_publish
+        ]},
+        {connect_packet_limit, [], [
+            t_transport_refuses_oversized_connect,
+            t_packet_size_raised_after_connect,
+            t_pipelined_publish_larger_than_connect_limit
         ]}
     ].
 
@@ -153,7 +165,9 @@ init_per_group(gen_tcp_listener, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{group_apps, Apps}, {listener_type, tcp} | Config];
+    %% With `parse_unit = frame' the gen_tcp transport refuses an oversized
+    %% first packet itself.
+    [{group_apps, Apps}, {listener_type, tcp}, {connect_refusal, {transport, emsgsize}} | Config];
 init_per_group(ssl_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -161,7 +175,12 @@ init_per_group(ssl_listener, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{group_apps, Apps}, {listener_type, ssl} | Config];
+    [
+        {group_apps, Apps},
+        {listener_type, ssl},
+        {connect_refusal, {transport, invalid_packet}}
+        | Config
+    ];
 init_per_group(socket_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -171,7 +190,9 @@ init_per_group(socket_listener, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{group_apps, Apps}, {listener_type, tcp} | Config];
+    %% The socket backend runs the stream parser, which refuses it from the
+    %% fixed header.
+    [{group_apps, Apps}, {listener_type, tcp}, {connect_refusal, parser} | Config];
 init_per_group(mqttv3, Config) ->
     [{proto_ver, v3} | Config];
 init_per_group(mqttv4, Config) ->
@@ -204,6 +225,9 @@ emqx_config() ->
                     }
         ssl_options { verify = verify_peer }
     }
+    # connect_packet_limit: below max_packet_size (1MB), above the largest CONNECT
+    # the other cases send
+    mqtt.max_connect_packet_size = 128KB
     """.
 
 end_per_group(GroupName, Config) when
@@ -434,6 +458,61 @@ t_v5_receive_maximim_in_connack(Config) ->
     ?assertMatch(#{'Receive-Maximum' := ReceiveMaximum}, Props),
     ok = emqtt:disconnect(C),
     ok.
+
+-doc """
+The channel info table holds exactly the attributes its readers use.
+
+The client connects with CONNECT properties, a will message and a subscription. None of
+the three reaches the table: they grow with client input and nothing reads them there.
+""".
+t_chan_info_structure(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"TopicA">>,
+    {ok, C} = emqtt:start_link([
+        {clientid, ClientId},
+        {properties, #{'User-Property' => [{<<"k">>, <<"v">>}]}},
+        {will_topic, <<"will">>},
+        {will_payload, <<"bye">>}
+        | Config
+    ]),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
+    ?WAIT(
+        ?assertEqual(
+            1, proplists:get_value(subscriptions_cnt, emqx_cm:get_chan_stats(ClientId))
+        ),
+        2
+    ),
+    #{conninfo := ConnInfo, clientinfo := ClientInfo, session := SessionInfo} =
+        Info = emqx_cm:get_chan_info(ClientId),
+    ?assertEqual(
+        [clientinfo, conn_state, conninfo, session],
+        lists:sort(maps:keys(Info))
+    ),
+    ?assertEqual(
+        [
+            clean_start,
+            clientid,
+            conn_mod,
+            connected_at,
+            expiry_interval,
+            keepalive,
+            peername,
+            proto_name,
+            proto_ver,
+            receive_maximum,
+            sockname,
+            socktype,
+            username
+        ],
+        lists:sort(maps:keys(ConnInfo))
+    ),
+    ?assertEqual([created_at, impl, is_persistent], lists:sort(maps:keys(SessionInfo))),
+    ?assertMatch(#{clientid := ClientId, proto_ver := ?MQTT_PROTO_V5}, ConnInfo),
+    ?assertMatch(#{clientid := ClientId, zone := default}, ClientInfo),
+    ?assertMatch(#{impl := emqx_session_mem, is_persistent := false}, SessionInfo),
+    ?assertMatch(#{conn_state := connected}, Info),
+    ok = emqtt:disconnect(C).
 
 %%--------------------------------------------------------------------
 %% General test cases.
@@ -1918,6 +1997,56 @@ assert_connect_accepted(Transport, NConnect, NWill) ->
 assert_connect_rejected(Transport, NConnect, NWill) ->
     ?assertMatch({error, _}, connect_with_user_properties(Transport, NConnect, NWill)).
 
+-doc """
+A CONNECT larger than `mqtt.max_connect_packet_size' is refused on TCP, TLS and
+WebSocket listeners and counted as `connect_packet_too_large'. A CONNECT within
+the limit connects.
+""".
+t_connect_packet_too_large(_) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    try
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], 1024),
+        CountBefore = listener_shutdown_count(connect_packet_too_large),
+        lists:foreach(
+            fun(Transport) ->
+                ?assertMatch(
+                    {error, _},
+                    connect_with_username(Transport, binary:copy(<<"u">>, 2048)),
+                    #{transport => Transport}
+                ),
+                ?assertMatch(
+                    {ok, _}, connect_with_username(Transport, <<"u">>), #{transport => Transport}
+                )
+            end,
+            [tcp, tls, ws]
+        ),
+        %% The counter is per listener; the tcp one is the one read here.
+        ?WAIT(
+            ?assertEqual(CountBefore + 1, listener_shutdown_count(connect_packet_too_large)),
+            5
+        )
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], Old)
+    end.
+
+connect_with_username(Transport, Username) ->
+    {ok, Client} = emqtt:start_link(transport_opts(Transport) ++ [{username, Username}]),
+    unlink(Client),
+    try
+        Result =
+            case Transport of
+                ws -> emqtt:ws_connect(Client);
+                _ -> emqtt:connect(Client)
+            end,
+        case Result of
+            {ok, _} -> ok = emqtt:disconnect(Client);
+            {error, _} -> ok
+        end,
+        Result
+    after
+        catch emqtt:stop(Client)
+    end.
+
 connect_with_user_properties(Transport, NConnect, NWill) ->
     ConnectProps = #{'User-Property' => client_user_properties(NConnect)},
     WillProps = #{'User-Property' => client_user_properties(NWill)},
@@ -1964,6 +2093,272 @@ client_user_properties(N) ->
 listener_shutdown_count(Cause) ->
     Counts = emqx_listeners:shutdown_count('tcp:default', 1883),
     proplists:get_value(Cause, Counts, 0).
+
+%%--------------------------------------------------------------------
+%% Test cases for `mqtt.max_connect_packet_size' (group `connect_packet_limit',
+%% run on the gen_tcp, socket-backend and ssl listeners, whose zone sets the
+%% limit below `max_packet_size')
+%%--------------------------------------------------------------------
+
+-doc """
+A first packet larger than `mqtt.max_connect_packet_size` is refused from its
+fixed header and counted as `connect_packet_too_large`. With `parse_unit =
+frame` the transport refuses it (gen_tcp reports `emsgsize`, ssl
+`{invalid_packet, _}`) before the body is buffered and before the parser sees
+it; the socket backend's stream parser refuses it itself. A CONNECT within the
+limit still connects.
+""".
+t_transport_refuses_oversized_connect(Config) ->
+    {Limit, MaxSize} = connect_packet_size_limits(),
+    Connect = oversized_connect_frame(Limit * 2),
+    ?assert(byte_size(Connect) > Limit),
+    ?assert(byte_size(Connect) < MaxSize),
+    CountBefore = listener_shutdown_count(Config, connect_packet_too_large),
+    {ok, {ok, #{reason := {shutdown, Reason}}}} = ?wait_async_action(
+        begin
+            Socket = raw_connect(Config),
+            ok = raw_send(Socket, Connect),
+            ?assertEqual(ok, wait_socket_closed(Socket))
+        end,
+        #{?snk_kind := terminate, reason := {shutdown, #{cause := connect_packet_too_large}}},
+        5000
+    ),
+    ?assertMatch(#{cause := connect_packet_too_large, limit := Limit}, Reason),
+    case ?config(connect_refusal, Config) of
+        {transport, TransportError} ->
+            ?assertMatch(#{transport_error := TransportError}, Reason);
+        parser ->
+            ?assertNot(is_map_key(transport_error, Reason), Reason)
+    end,
+    ?WAIT(
+        ?assertEqual(CountBefore + 1, listener_shutdown_count(Config, connect_packet_too_large)), 5
+    ),
+    ?assertMatch({ok, _}, connect_with_username(transport(Config), <<"u">>)).
+
+-doc """
+Once the client is connected the limit goes back to `mqtt.max_packet_size`: a
+PUBLISH larger than `mqtt.max_connect_packet_size` still round-trips.
+""".
+t_packet_size_raised_after_connect(Config) ->
+    {Limit, MaxSize} = connect_packet_size_limits(),
+    Payload = binary:copy(<<"x">>, Limit * 2),
+    ?assert(byte_size(Payload) < MaxSize),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {ok, Client} = emqtt:start_link([{clientid, Topic} | transport_opts(transport(Config))]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Client, Topic, ?QOS_1),
+    {ok, _} = emqtt:publish(Client, Topic, Payload, ?QOS_1),
+    ?assertReceive({publish, #{topic := Topic, payload := Payload}}, 5000),
+    ok = emqtt:disconnect(Client).
+
+-doc """
+A client may send packets right behind CONNECT without waiting for CONNACK.
+A PUBLISH larger than `mqtt.max_connect_packet_size` sent in the same write as
+CONNECT is framed against `mqtt.max_packet_size`, not refused against the
+CONNECT limit: the transport is asked for one packet first, and the limit is
+raised on the CONNECT before the rest is parsed.
+""".
+t_pipelined_publish_larger_than_connect_limit(Config) ->
+    {Limit, MaxSize} = connect_packet_size_limits(),
+    Payload = binary:copy(<<"p">>, Limit * 2),
+    ?assert(byte_size(Payload) < MaxSize),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Connect = emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = Topic})),
+    Subscribe = emqx_frame:serialize(
+        ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => ?QOS_1}}])
+    ),
+    Publish = emqx_frame:serialize(?PUBLISH_PACKET(?QOS_1, Topic, 2, Payload)),
+    Socket = raw_connect(Config),
+    ok = raw_send(Socket, [Connect, Subscribe, Publish]),
+    Packets = recv_packets(Socket, 4),
+    Types = [Type || #mqtt_packet{header = #mqtt_packet_header{type = Type}} <- Packets],
+    ?assertEqual([?CONNACK, ?SUBACK], lists:sublist(Types, 2), #{packets => Packets}),
+    ?assertEqual(lists:sort([?PUBACK, ?PUBLISH]), lists:sort(lists:nthtail(2, Types)), #{
+        packets => Packets
+    }),
+    ?assertMatch(
+        [#mqtt_packet{payload = Payload}],
+        [P || #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH}} = P <- Packets]
+    ),
+    ok = raw_close(Socket).
+
+connect_packet_size_limits() ->
+    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    MaxSize = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
+    ?assert(Limit < MaxSize),
+    {Limit, MaxSize}.
+
+%% `tcp' or `tls', for the helpers that take a transport.
+transport(Config) ->
+    case ?config(listener_type, Config) of
+        tcp -> tcp;
+        ssl -> tls
+    end.
+
+listener_shutdown_count(Config, Cause) ->
+    Id =
+        case ?config(listener_type, Config) of
+            tcp -> 'tcp:default';
+            ssl -> 'ssl:default'
+        end,
+    [ListenOn] = [L || {{I, L}, _Pid} <- esockd:listeners(), I =:= Id],
+    proplists:get_value(Cause, emqx_listeners:shutdown_count(Id, ListenOn), 0).
+
+%% Receive `N' MQTT packets from a raw socket in active mode.
+recv_packets(Socket, N) ->
+    recv_packets(Socket, N, [], emqx_frame:initial_parse_state(#{})).
+
+recv_packets(_Socket, N, Acc, _PState) when length(Acc) >= N ->
+    lists:sublist(Acc, N);
+recv_packets({_Mod, Socket} = S, N, Acc, PState) ->
+    receive
+        {Tag, Socket, Data} when Tag =:= tcp; Tag =:= ssl ->
+            {Packets, NPState} = parse_packets(Data, PState, []),
+            recv_packets(S, N, Acc ++ Packets, NPState)
+    after 5000 ->
+        ct:fail({timeout_receiving_packets, N, Acc})
+    end.
+
+parse_packets(Data, PState, Acc) ->
+    case emqx_frame:parse(Data, PState) of
+        {Packet, Rest, NPState} ->
+            parse_packets(Rest, NPState, [Packet | Acc]);
+        {_More, NPState} ->
+            {lists:reverse(Acc), NPState}
+    end.
+
+raw_connect(Config) when is_list(Config) ->
+    raw_connect(transport(Config));
+raw_connect(tcp) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    {gen_tcp, Socket};
+raw_connect(tls) ->
+    Opts = emqx_common_test_helpers:client_mtls(default) ++ [{active, true}, binary],
+    {ok, Socket} = ssl:connect({127, 0, 0, 1}, 8883, Opts, 5000),
+    {ssl, Socket}.
+
+raw_send({Mod, Socket}, Data) ->
+    Mod:send(Socket, Data).
+
+raw_close({Mod, Socket}) ->
+    Mod:close(Socket).
+
+wait_socket_closed({_Mod, Socket}) ->
+    receive
+        {tcp_closed, Socket} -> ok;
+        {ssl_closed, Socket} -> ok
+    after 5000 ->
+        ct:fail("Expected socket to be closed")
+    end.
+
+%% A well-formed MQTT v5 CONNECT of at least `MinSize' bytes, padded with user
+%% properties, so that a whole-frame transport sees a complete packet.
+oversized_connect_frame(MinSize) ->
+    Props = iolist_to_binary([
+        begin
+            V = integer_to_binary(I),
+            <<16#26, 0:16, (byte_size(V)):16, V/binary>>
+        end
+     || I <- lists:seq(1, MinSize div 8)
+    ]),
+    PropsSection = <<(encode_vbi(byte_size(Props)))/binary, Props/binary>>,
+    VarHeader = <<4:16, "MQTT", 5:8, 2:8, 60:16, PropsSection/binary>>,
+    Body = <<VarHeader/binary, 0:16>>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
+
+encode_vbi(N) when N < 16#80 ->
+    <<N>>;
+encode_vbi(N) ->
+    <<1:1, (N rem 16#80):7, (encode_vbi(N div 16#80))/binary>>.
+
+%%--------------------------------------------------------------------
+%% Test cases for reading a large packet on a listener with a small `recbuf'
+%% (both listener groups set `tcp_options.recbuf = 4KB')
+%%--------------------------------------------------------------------
+
+-define(LARGE_PAYLOAD_SIZE, 256 * 1024).
+
+-doc """
+A PUBLISH much larger than `tcp_options.recbuf' is read, acknowledged and
+echoed back to the subscriber without stalling the connection.
+""".
+t_large_publish_after_connect(_) ->
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {Socket, State0} = raw_connect_and_subscribe(Topic),
+    try
+        ok = gen_tcp:send(Socket, large_publish(Topic)),
+        {Types, _} = recv_packet_types(Socket, 2, State0),
+        ?assertEqual(lists:sort([?PUBACK, ?PUBLISH]), lists:sort(Types))
+    after
+        gen_tcp:close(Socket)
+    end.
+
+-doc """
+A client may send packets right behind CONNECT without waiting for CONNACK. A
+PUBLISH much larger than `tcp_options.recbuf', written together with CONNECT
+and SUBSCRIBE, is read to the end, acknowledged and echoed back.
+""".
+t_pipelined_large_publish(_) ->
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    try
+        ok = gen_tcp:send(Socket, [
+            raw_connect_frame(Topic), raw_subscribe_frame(Topic), large_publish(Topic)
+        ]),
+        {Types, _} = recv_packet_types(Socket, 4, emqx_frame:initial_parse_state(#{})),
+        ?assertEqual([?CONNACK, ?SUBACK], lists:sublist(Types, 2), #{types => Types}),
+        ?assertEqual(lists:sort([?PUBACK, ?PUBLISH]), lists:sort(lists:nthtail(2, Types)))
+    after
+        gen_tcp:close(Socket)
+    end.
+
+raw_connect_and_subscribe(Topic) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    ok = gen_tcp:send(Socket, raw_connect_frame(Topic)),
+    {[?CONNACK], State1} = recv_packet_types(Socket, 1, emqx_frame:initial_parse_state(#{})),
+    ok = gen_tcp:send(Socket, raw_subscribe_frame(Topic)),
+    {[?SUBACK], State2} = recv_packet_types(Socket, 1, State1),
+    {Socket, State2}.
+
+raw_connect_frame(ClientId) ->
+    emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = ClientId})).
+
+raw_subscribe_frame(Topic) ->
+    emqx_frame:serialize(
+        ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => ?QOS_1}}])
+    ).
+
+large_publish(Topic) ->
+    Payload = binary:copy(<<"p">>, ?LARGE_PAYLOAD_SIZE),
+    emqx_frame:serialize(?PUBLISH_PACKET(?QOS_1, Topic, 2, Payload)).
+
+%% Read `N' MQTT packets from a raw socket in active mode and return their
+%% types, in arrival order, together with the parser state left over.
+recv_packet_types(Socket, N, ParseState) ->
+    recv_packet_types(Socket, N, [], ParseState).
+
+recv_packet_types(_Socket, N, Acc, ParseState) when length(Acc) >= N ->
+    {lists:sublist(Acc, N), ParseState};
+recv_packet_types(Socket, N, Acc, ParseState) ->
+    receive
+        {tcp, Socket, Data} ->
+            {Types, NParseState} = parse_packet_types(Data, ParseState, []),
+            recv_packet_types(Socket, N, Acc ++ Types, NParseState)
+    after 5000 ->
+        ct:fail({timeout_receiving_packets, N, Acc})
+    end.
+
+parse_packet_types(Data, ParseState, Acc) ->
+    case emqx_frame:parse(Data, ParseState) of
+        {#mqtt_packet{header = #mqtt_packet_header{type = Type}}, Rest, NParseState} ->
+            parse_packet_types(Rest, NParseState, [Type | Acc]);
+        {_More, NParseState} ->
+            {lists:reverse(Acc), NParseState}
+    end.
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
 
 recv_msgs(Count) ->
     recv_msgs(Count, []).

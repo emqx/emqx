@@ -17,7 +17,10 @@
     get_options/1,
     get_option/2,
     get_option/3,
-    get_module/1
+    get_module/1,
+    message_target/1,
+    send/2,
+    send_after/3
 ]).
 
 -type state() :: term().
@@ -25,16 +28,17 @@
 -type subscribe_type() :: subscribe | resume.
 -type unsubscribe_type() :: unsubscribe | disconnect.
 
+-opaque message_target() :: {pid(), emqx_extsub_types:handler_ref()}.
+
 -type subscribe_ctx() :: #{
     %% Different info about the enclosing channel
     clientinfo := emqx_types:clientinfo(),
-    conninfo_fn := fun((atom()) -> term()),
+    proto_ver := emqx_types:proto_ver() | undefined,
     subopts := emqx_types:subopts(),
     can_receive_acks := boolean(),
 
-    %% Functions to send messages to the handler itself
-    send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
-    send := fun((term()) -> ok),
+    %% Use send/2 and send_after/3 to send messages to the handler itself.
+    message_target := message_target(),
     _ => _
 }.
 
@@ -73,7 +77,8 @@
     subscribe_ctx/0,
     info_ctx/0,
     ack_ctx/0,
-    state/0
+    state/0,
+    message_target/0
 ]).
 
 %% Handler callbacks
@@ -114,6 +119,22 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+-doc "Create a message target for a handler owned by the calling channel.".
+-spec message_target(emqx_extsub_types:handler_ref()) -> message_target().
+message_target(Ref) ->
+    {self(), Ref}.
+
+-doc "Send a message to the channel that owns the handler.".
+-spec send(message_target(), term()) -> ok.
+send({Pid, Ref}, Info) ->
+    _ = erlang:send(Pid, #info_to_extsub{handler_ref = Ref, info = Info}),
+    ok.
+
+-doc "Schedule a message for the channel that owns the handler.".
+-spec send_after(non_neg_integer(), message_target(), term()) -> reference().
+send_after(Interval, {Pid, Ref}, Info) ->
+    erlang:send_after(Interval, Pid, #info_to_extsub{handler_ref = Ref, info = Info}).
 
 %% Handler options
 

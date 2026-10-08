@@ -202,8 +202,13 @@ handle_ds_reply(
         upper_seqno => undefined,
         last_message_id => LastMessageId
     },
-    SB = suback(SB0, Handle, SeqNo),
-    {ok, TTVs, SB};
+    SB1 = suback(SB0, Handle, SeqNo),
+    case compact(SB1) of
+        finished ->
+            finished;
+        {ok, SB} ->
+            {ok, TTVs, SB}
+    end;
 handle_ds_reply(#{status := restoring} = SB0, Handle, #ds_sub_reply{
     payload = {ok, It, NewTTVs}, seqno = SeqNo, size = _Size
 }) ->

@@ -8,7 +8,14 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-include_lib("emqx/include/logger.hrl").
+
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
+    validate_name_vsn/1,
+    validate_pinned_plugins/1,
+    with_valid_name/2,
     bin/1,
     parse_name_vsn/1,
     plugin_name/1,
@@ -22,6 +29,88 @@
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+%% `is_list/1' is true for an improper list as well, which `lists:all/2' would
+%% crash on, so the ASCII check walks the list itself and stays total.
+is_ascii_list([]) ->
+    true;
+is_ascii_list([Char | Rest]) when is_integer(Char), Char >= 0, Char < 128 ->
+    is_ascii_list(Rest);
+is_ascii_list(_) ->
+    false.
+
+%% @doc Validate the textual package identifier used by plugin operations.
+-spec validate_name_vsn(term()) -> ok | {error, string()}.
+validate_name_vsn(Name) when is_list(Name) ->
+    case is_ascii_list(Name) of
+        true -> validate_name_vsn(list_to_binary(Name));
+        false -> {error, "Name must be an ASCII string"}
+    end;
+validate_name_vsn(Name) when is_binary(Name), byte_size(Name) > 0, byte_size(Name) =< 256 ->
+    case re:run(Name, "\\A[A-Za-z]+[A-Za-z0-9_]*-[A-Za-z0-9_.-]*\\z", [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            {error,
+                "Name should be an application name"
+                " (starting with a letter, containing letters, digits and underscores)"
+                " followed with a dash and a version string "
+                " (can contain letters, digits, dots, and dashes), "
+                " e.g. emqx_plugin_template-5.0-rc.1"}
+    end;
+validate_name_vsn(Name) when is_binary(Name) ->
+    {error, "Name Length must =< 256"};
+validate_name_vsn(_) ->
+    {error, "Name must be a string"}.
+
+-doc """
+Validate the `node.pinned_plugins` list.
+
+Each entry must be a valid name-vsn with a non-empty version, and no two
+entries may have the same plugin name.
+""".
+-spec validate_pinned_plugins([binary()]) -> ok | {error, map()}.
+validate_pinned_plugins(NameVsns) ->
+    case [NV || NV <- NameVsns, not is_pinnable_name_vsn(NV)] of
+        [] ->
+            Names = [hd(binary:split(NV, <<"-">>)) || NV <- NameVsns],
+            case Names -- lists:usort(Names) of
+                [] ->
+                    ok;
+                Duplicates ->
+                    {error, #{
+                        reason => duplicate_plugin_names,
+                        names => lists:usort(Duplicates)
+                    }}
+            end;
+        Bad ->
+            {error, #{
+                reason => bad_plugin_name_vsn,
+                name_vsns => Bad,
+                hint => <<"Expected <name>-<vsn>, for example my_plugin-1.0.0">>
+            }}
+    end.
+
+is_pinnable_name_vsn(NameVsn) when is_binary(NameVsn) ->
+    validate_name_vsn(NameVsn) =:= ok andalso binary:last(NameVsn) =/= $-;
+is_pinnable_name_vsn(_) ->
+    false.
+
+%% @doc Validate a package identifier before running an operation.
+-spec with_valid_name(term(), fun(() -> T)) -> T | {error, map()}.
+with_valid_name(NameVsn, Fun) ->
+    case validate_name_vsn(NameVsn) of
+        ok ->
+            Fun();
+        {error, Hint} ->
+            %% The API validates before it dispatches and answers 400, so this is
+            %% reached by callers which take the identifier as-is (CLI, peer RPC,
+            %% the configured plugin list); the operation is refused rather than
+            %% crashing, so a warning is enough.
+            Error = #{msg => "bad_plugin_package_name", name_vsn => NameVsn, hint => Hint},
+            ?SLOG(warning, Error),
+            {error, Error}
+    end.
 
 parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
     parse_name_vsn(binary_to_list(NameVsn));
@@ -114,6 +203,55 @@ compare_segment({string, _}, {int, _}) ->
     older.
 
 -ifdef(TEST).
+
+validate_name_vsn_test_() ->
+    Valid = ["plugin-1.0", "my_plugin-5.9.0-beta.3", "Plugin2-", "p-" ++ lists:duplicate(254, $a)],
+    Invalid = [
+        "",
+        ".",
+        "..",
+        ".emqx-plugin-staging",
+        "..-1",
+        ".-1",
+        "-1",
+        "plugin",
+        "../plugin-1",
+        "/plugin-1",
+        "plugin-1/",
+        "plugin-1/child",
+        "plugin-1\\child",
+        "plugin-1\n",
+        "plugin-1\r",
+        "plugin-1" ++ [0],
+        "p-" ++ lists:duplicate(255, $a)
+    ],
+    [
+        [?_assertEqual(ok, validate_name_vsn(N)) || N <- [Name, list_to_binary(Name)]]
+     || Name <- Valid
+    ] ++
+        [
+            [?_assertMatch({error, _}, validate_name_vsn(N)) || N <- [Name, list_to_binary(Name)]]
+         || Name <- Invalid
+        ] ++
+        [
+            ?_assertMatch({error, _}, validate_name_vsn(N))
+         || N <- [undefined, 1, #{}, [<<"p-1">>], [256], [$p, $-, $1 | bad_tail]]
+        ].
+
+with_valid_name_test_() ->
+    [
+        ?_assertEqual(ok, with_valid_name("plugin-1", fun() -> ok end)),
+        %% An improper list is refused instead of crashing, and the closure
+        %% must not run for a refused identifier.
+        ?_assertMatch(
+            {error, #{msg := "bad_plugin_package_name"}},
+            with_valid_name([$p, $-, $1 | bad_tail], fun() -> erlang:error(closure_ran) end)
+        ),
+        ?_assertMatch(
+            {error, #{msg := "bad_plugin_package_name"}},
+            with_valid_name(123, fun() -> erlang:error(closure_ran) end)
+        )
+    ].
 
 parse_name_vsn_test_() ->
     [

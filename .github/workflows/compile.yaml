@@ -39,6 +39,13 @@ jobs:
       - name: Work around https://github.com/actions/checkout/issues/766
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Restore dependency cache
+        id: deps-cache
+        uses: ./.github/actions/deps-cache-restore
+        with:
+          profiles: ${{ inputs.build_type == 'test' && format('{0}-test', matrix.profile) || matrix.profile }}
+          toolchain: ${{ inputs.builder }}
+          build-inputs: .github/workflows/compile.yaml
       - id: compile
         env:
           PROFILE: ${{ matrix.profile }}
@@ -85,6 +92,19 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
         run: make ${PROFILE}-rel
+      # The release directory is not part of the workspace artifact above (it is
+      # built after it is zipped), so ship it separately for the jobs that need
+      # to actually run a release, such as pytest_boot_tests.
+      - name: package release dir
+        if: inputs.build_type == 'release'
+        run: zip -ryq ${{ matrix.profile }}-rel.zip _build/${{ matrix.profile }}/rel/emqx
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: inputs.build_type == 'release'
+        with:
+          name: ${{ matrix.profile }}-rel
+          path: ${{ matrix.profile }}-rel.zip
+          retention-days: 7
+          if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: inputs.build_type == 'release'
         with:
@@ -96,3 +116,9 @@ jobs:
             _build/docgen/${{ matrix.profile }}/*.hocon
           retention-days: 7
           if-no-files-found: error
+      - name: Save dependency cache
+        if: success() && steps.deps-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/deps-cache-save
+        with:
+          key: ${{ steps.deps-cache.outputs.key }}
+          paths: ${{ steps.deps-cache.outputs.paths }}

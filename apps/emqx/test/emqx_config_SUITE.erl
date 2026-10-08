@@ -474,6 +474,30 @@ t_zone_update_with_new_zone(Config) when is_list(Config) ->
         emqx_config:get([zones, myzone, mqtt])
     ).
 
+-doc """
+`emqx_config:get/1,2` and `emqx:get_config/1,2` return the stored value, or the
+default when a key is missing or an intermediate value is not a map.
+""".
+t_get_deep_path(Config) when is_list(Config) ->
+    ok = emqx_config:put([config_get_test], #{a => #{b => 1}, c => 2}),
+    try
+        ?assertEqual(1, emqx_config:get([config_get_test, a, b])),
+        ?assertEqual(#{b => 1}, emqx_config:get([config_get_test, a])),
+        ?assertEqual(dflt, emqx_config:get([config_get_test, a, x], dflt)),
+        ?assertEqual(dflt, emqx_config:get([config_get_test, c, x], dflt)),
+        ?assertEqual(dflt, emqx_config:get([config_get_test, a, b, x], dflt)),
+        ?assertEqual(dflt, emqx_config:get([config_get_test_no_root, a], dflt)),
+        ?assertError(
+            {config_not_found, [config_get_test, c, x]},
+            emqx_config:get([config_get_test, c, x])
+        ),
+        ?assertEqual(1, emqx:get_config([config_get_test, a, b], dflt)),
+        ?assertEqual(1, emqx:get_config([<<"config_get_test">>, <<"a">>, b])),
+        ?assertEqual(dflt, emqx:get_config([config_get_test, <<"no_such_atom_cfg_get">>], dflt))
+    after
+        emqx_config:erase(config_get_test)
+    end.
+
 -doc "The CONNECT user-property limit accepts zero and `infinity' in zone configuration.".
 t_max_connect_user_properties(Config) when is_list(Config) ->
     emqx_config:erase_all(),
@@ -587,6 +611,7 @@ zone_global_defaults() ->
             #{
                 await_rel_timeout => 300000,
                 exclusive_subscription => false,
+                hibernate_after => 5000,
                 idle_timeout => 15000,
                 ignore_loop_deliver => false,
                 keepalive_backoff => 0.75,
@@ -594,6 +619,7 @@ zone_global_defaults() ->
                 keepalive_check_interval => 30000,
                 max_awaiting_rel => 100,
                 max_clientid_len => 65535,
+                max_connect_packet_size => 1048576,
                 max_connect_user_properties => 100,
                 max_inflight => 32,
                 max_mqueue_len => 1000,
@@ -602,6 +628,7 @@ zone_global_defaults() ->
                 max_subscriptions => infinity,
                 max_topic_alias => 65535,
                 max_topic_levels => 128,
+                minor_gc_after => infinity,
                 mqueue_default_priority => lowest,
                 mqueue_priorities => disabled,
                 mqueue_store_qos0 => true,

@@ -1,0 +1,81 @@
+name: 'Restore dependency cache'
+description: >-
+  Restore deps/, mix.lock and the compiled dependencies under _build/<profile>/lib.
+  mix.lock is not checked in, so the key hashes the dependency declarations
+  (mix.exs and apps/*/mix.exs, without the app version lines) together with the
+  toolchain and build inputs.
+  Pair it with deps-cache-save.
+inputs:
+  profiles:
+    description: 'Space-separated mix profiles whose _build/<profile>/lib is cached.'
+    required: true
+  toolchain:
+    description: 'Identifies the compiler toolchain, for example the builder image or the OTP, Elixir and SDK versions.'
+    required: true
+  build-inputs:
+    description: 'Space-separated extra files that affect the build output, hashed into the key.'
+    required: false
+    default: ''
+outputs:
+  key:
+    description: 'The cache key.'
+    value: ${{ steps.key.outputs.key }}
+  paths:
+    description: 'The cached paths. Pass them to deps-cache-save unchanged.'
+    value: ${{ steps.key.outputs.paths }}
+  cache-hit:
+    description: "'true' when an entry with the exact key was restored."
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute dependency cache key
+      id: key
+      shell: bash
+      env:
+        # Bump the version to invalidate every entry.
+        PREFIX: emqx-deps-v1-${{ runner.os }}-${{ runner.arch }}
+        PROFILES: ${{ inputs.profiles }}
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        BUILD_INPUTS: ${{ inputs.build-inputs }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        sha256() {
+          if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi
+        }
+        # Hash each file, then hash the "<hash>  <path>" lines sorted by path,
+        # so the result does not depend on argument order or glob collation.
+        hash_files() {
+          sha256 "$@" | LC_ALL=C sort -k 2 | sha256 | cut -c1-16
+        }
+        # Same as hash_files, but skips the `version: "..."` line, so an app
+        # version bump does not change the key.
+        hash_mix_files() {
+          local f
+          for f in "$@"; do
+            printf '%s  %s\n' "$(grep -v '^[[:space:]]*version: "' "$f" | sha256 | cut -d' ' -f1)" "$f"
+          done | LC_ALL=C sort -k 2 | sha256 | cut -c1-16
+        }
+        # shellcheck disable=SC2086
+        build_hash="$(hash_files env.sh build scripts/ensure-rebar3.sh $BUILD_INPUTS)"
+        deps_hash="$(hash_mix_files mix.exs apps/*/mix.exs)"
+        toolchain_id="${TOOLCHAIN//[^A-Za-z0-9._-]/-}"
+        profiles_id="${PROFILES// /-}"
+        echo "key=${PREFIX}-${toolchain_id}-${profiles_id}-build${build_hash}-deps${deps_hash}" >> "$GITHUB_OUTPUT"
+        {
+          echo 'paths<<EOF'
+          echo deps
+          echo mix.lock
+          for profile in $PROFILES; do
+            echo "_build/${profile}/lib"
+          done
+          echo EOF
+        } >> "$GITHUB_OUTPUT"
+    - name: Restore dependency cache
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.key.outputs.paths }}
+        key: ${{ steps.key.outputs.key }}

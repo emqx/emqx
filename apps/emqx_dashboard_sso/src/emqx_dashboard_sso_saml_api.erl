@@ -83,7 +83,7 @@ schema("/sso/saml/metadata") ->
             %% artifact fetched by the IdP to configure the trust
             %% relationship. Mark it `security => []' so minirest
             %% bypasses auth — without this, the dashboard JWT path
-            %% reaches `check_login_user_scopes', the path maps to
+            %% reaches `check_login_user_scopes', the handler maps to
             %% `?SCOPE_DENIED' via `scopes/0', and bearer admins get
             %% 403. The companion endpoint `/sso/saml/acs' is already
             %% marked public for the same reason.

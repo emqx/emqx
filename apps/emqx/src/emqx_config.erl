@@ -22,6 +22,7 @@
     check_config/2,
     fill_defaults/1,
     fill_defaults/2,
+    normalize_raw_conf/1,
     fill_defaults/3,
     save_configs/5,
     save_to_app_env/1,
@@ -866,6 +867,32 @@ fill_defaults(RawConf, Opts) ->
         RawConf
     ).
 
+-doc """
+Normalize a fragment of raw config: rename aliases to their canonical
+names and apply converters. Omitted fields are neither filled with
+defaults nor required.
+""".
+-spec normalize_raw_conf(raw_config()) -> raw_config().
+normalize_raw_conf(RawConf) ->
+    RootNames = get_root_names(),
+    maps:fold(
+        fun(Key, Conf, Acc) ->
+            SubMap = #{Key => Conf},
+            Normalized =
+                case lists:member(Key, RootNames) of
+                    true -> normalize_raw_root(get_schema_mod(Key), SubMap);
+                    false -> SubMap
+                end,
+            maps:merge(Acc, Normalized)
+        end,
+        #{},
+        RawConf
+    ).
+
+normalize_raw_root(SchemaMod, RawConf) ->
+    Opts = #{partial => true, make_serializable => true},
+    hocon_tconf:check_plain(SchemaMod, RawConf, Opts, root_names_from_conf(RawConf)).
+
 -spec fill_defaults(module(), raw_config(), hocon_tconf:opts()) -> map().
 fill_defaults(SchemaMod, RawConf = #{<<"durable_storage">> := Ds}, Opts) ->
     %% FIXME: kludge to prevent `emqx_config' module from filling in
@@ -1171,11 +1198,23 @@ do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     ok.
 
 do_deep_get(?CONF, AtomKeyPath, Map, Default) ->
-    emqx_utils_maps:deep_get(AtomKeyPath, Map, Default);
+    deep_get(AtomKeyPath, Map, Default);
 do_deep_get(?RAW_CONF, KeyPath, Map, Default) ->
     emqx_utils_maps:deep_get([bin(Key) || Key <- KeyPath], Map, Default);
 do_deep_get(?NS_CONF(_Namespace), AtomKeyPath, Map, Default) ->
-    emqx_utils_maps:deep_get(AtomKeyPath, Map, Default).
+    deep_get(AtomKeyPath, Map, Default).
+
+%% Same result as `emqx_utils_maps:deep_get/3': `Default' when a key is missing
+%% or an intermediate value is not a map.
+deep_get([], Value, _Default) ->
+    Value;
+deep_get([Key | KeyPath], Map, Default) when is_map(Map) ->
+    case Map of
+        #{Key := Value} -> deep_get(KeyPath, Value, Default);
+        #{} -> Default
+    end;
+deep_get(_KeyPath, _Value, Default) ->
+    Default.
 
 do_deep_put(?CONF, Putter, KeyPath, Map, Value) ->
     AtomKeyPath = ensure_atom_conf_path(KeyPath, {raise_error, {not_found, KeyPath}}),
@@ -1227,13 +1266,17 @@ conf_key(?NS_CONF(_Namespace), RootName) ->
     atom(RootName).
 
 ensure_atom_conf_path(Path, OnFail) ->
-    case lists:all(fun erlang:is_atom/1, Path) of
+    case is_atom_path(Path) of
         true ->
             %% Do not try to build new atom PATH if it already is.
             Path;
-        _ ->
+        false ->
             to_atom_conf_path(Path, OnFail)
     end.
+
+is_atom_path([]) -> true;
+is_atom_path([Key | Path]) when is_atom(Key) -> is_atom_path(Path);
+is_atom_path(_) -> false.
 
 to_atom_conf_path(Path, OnFail) ->
     try

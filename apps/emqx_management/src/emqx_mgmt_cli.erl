@@ -16,6 +16,7 @@
 -define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
 -define(EXCLUSIVE_TAB, emqx_exclusive_subscription).
 -define(LOG_UPDATE_OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
+-define(DUMP_CHUNK_SIZE, 100).
 
 -export([load/0, unload/0]).
 
@@ -109,21 +110,27 @@ status_audit_args(Args) -> Args.
 %% @doc Query broker
 
 broker([]) ->
-    Funs = [sysdescr, version, datetime],
-    [emqx_ctl:print("~-10s: ~ts~n", [Fun, emqx_sys:Fun()]) || Fun <- Funs],
+    lists:foreach(
+        fun({Name, Value}) -> emqx_ctl:print("~-10s: ~ts~n", [Name, Value]) end,
+        [
+            {sysdescr, emqx_sys:sysdescr()},
+            {version, emqx_sys:version()},
+            {datetime, emqx_sys:datetime()}
+        ]
+    ),
     emqx_ctl:print("~-10s: ~ts~n", [
         uptime, emqx_utils_calendar:human_readable_duration_string(emqx_sys:uptime())
     ]);
 broker(["stats"]) ->
-    [
-        emqx_ctl:print("~-30s: ~w~n", [Stat, Val])
-     || {Stat, Val} <- lists:sort(emqx_stats:getstats())
-    ];
+    lists:foreach(
+        fun({Stat, Val}) -> emqx_ctl:print("~-30s: ~w~n", [Stat, Val]) end,
+        lists:sort(emqx_stats:getstats())
+    );
 broker(["metrics"]) ->
-    [
-        emqx_ctl:print("~-30s: ~w~n", [Metric, Val])
-     || {Metric, Val} <- lists:sort(emqx_metrics:all_global())
-    ];
+    lists:foreach(
+        fun({Metric, Val}) -> emqx_ctl:print("~-30s: ~w~n", [Metric, Val]) end,
+        lists:sort(emqx_metrics:all_global())
+    );
 broker(_) ->
     emqx_ctl:usage([
         {"broker", "Show broker version, uptime and description"},
@@ -153,8 +160,8 @@ cluster(["join", SNode]) ->
     end;
 cluster(["leave"]) ->
     Safeguards = cluster_leave_safeguards(),
-    case length(Safeguards) of
-        0 ->
+    case Safeguards of
+        [] ->
             _ = maybe_disable_autocluster(),
             case emqx_cluster:leave() of
                 ok ->
@@ -237,9 +244,7 @@ cluster_leave_safeguards() ->
 %% sort lists for deterministic output
 sort_map_list_fields(Map) when is_map(Map) ->
     lists:foldl(
-        fun(Field, Acc) ->
-            sort_map_list_field(Field, Acc)
-        end,
+        fun sort_map_list_field/2,
         Map,
         maps:keys(Map)
     ).
@@ -588,37 +593,32 @@ traverse_chain_info(Config, ProcessedCount, BatchCount, Key) ->
         batch_size := BatchSize,
         sleep_ms := SleepMs
     } = Config,
-    % Process current row
-    NextKey = ets:next(?CHAN_INFO_TAB, Key),
+    %% The table is an ordered_set, so ets:next/2 works even when `Key'
+    %% was deleted while this batch slept.
     case ets:lookup(?CHAN_INFO_TAB, Key) of
         [{Key, Info, Stats}] ->
             _ = write_client_stats_row({Key, Info, Stats}, FileHandle),
             NewProcessedCount = ProcessedCount + 1,
             NewBatchCount = BatchCount + 1,
-            % Check if we need to print progress and add delay
             case NewBatchCount >= BatchSize of
                 true ->
-                    % Print progress
-                    ProgressPercent = (NewProcessedCount * 100) div TotalRows,
+                    %% Clients may connect during the dump, so cap the
+                    %% progress at 100%.
+                    ProgressPercent = min(100, (NewProcessedCount * 100) div TotalRows),
                     emqx_ctl:print("Progress: ~w/~w (~w%)~n", [
                         NewProcessedCount, TotalRows, ProgressPercent
                     ]),
-
-                    % Add delay to reduce CPU load
-
-                    % Configurable delay between batches
+                    %% Sleep between batches to reduce CPU load
                     timer:sleep(SleepMs),
-
-                    % Continue with next batch
                     NextKey = ets:next(?CHAN_INFO_TAB, Key),
                     traverse_chain_info(Config, NewProcessedCount, 0, NextKey);
                 false ->
-                    % Continue processing current batch
                     NextKey = ets:next(?CHAN_INFO_TAB, Key),
                     traverse_chain_info(Config, NewProcessedCount, NewBatchCount, NextKey)
             end;
         [] ->
-            % Key not found, skip to next
+            %% Key not found, skip to next
+            NextKey = ets:next(?CHAN_INFO_TAB, Key),
             traverse_chain_info(Config, ProcessedCount, BatchCount, NextKey)
     end.
 
@@ -683,7 +683,7 @@ topics(["list"]) ->
     end;
 topics(["show", Topic]) ->
     Routes = emqx_router:lookup_routes(Topic),
-    [print({emqx_topic, Route}) || Route <- Routes];
+    lists:foreach(fun(Route) -> print({emqx_topic, Route}) end, Routes);
 topics(_) ->
     emqx_ctl:usage([
         {"topics list", "List all topics"},
@@ -704,15 +704,15 @@ subscriptions(["list"]) ->
                 ets:tab2list(?SUBOPTION)
             )
     end;
-subscriptions(["show", ClientId]) ->
-    case ets:lookup(emqx_subid, bin(ClientId)) of
+subscriptions(["show", ClientId0]) ->
+    ClientId = bin(ClientId0),
+    case emqx_broker:subopts_by_clientid(ClientId) of
         [] ->
             emqx_ctl:print("Not Found.~n");
-        [{_, Pid}] ->
-            case ets:match_object(?SUBOPTION, {{'_', Pid}, '_'}) of
-                [] -> emqx_ctl:print("Not Found.~n");
-                SubOption -> [print({?SUBOPTION, Sub}) || Sub <- SubOption]
-            end
+        Subs ->
+            lists:foreach(
+                fun({Topic, Options}) -> print_subopts(ClientId, Topic, Options) end, Subs
+            )
     end;
 subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, fun(IntQos) ->
@@ -760,27 +760,39 @@ if_valid_qos(QoS, Fun) ->
 vm([]) ->
     vm(["all"]);
 vm(["all"]) ->
-    [vm([Name]) || Name <- ["load", "memory", "process", "io", "ports"]];
+    lists:foreach(fun(Name) -> vm([Name]) end, ["load", "memory", "process", "io", "ports"]);
 vm(["load"]) ->
-    [emqx_ctl:print("cpu/~-20s: ~w~n", [L, V]) || {L, V} <- emqx_vm:loads()];
+    lists:foreach(
+        fun({L, V}) -> emqx_ctl:print("cpu/~-20s: ~w~n", [L, V]) end,
+        emqx_vm:loads()
+    );
 vm(["memory"]) ->
-    [emqx_ctl:print("memory/~-17s: ~w~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
+    lists:foreach(
+        fun({Cat, Val}) -> emqx_ctl:print("memory/~-17s: ~w~n", [Cat, Val]) end,
+        erlang:memory()
+    );
 vm(["process"]) ->
-    [
-        emqx_ctl:print("process/~-16s: ~w~n", [Name, erlang:system_info(Key)])
-     || {Name, Key} <- [{limit, process_limit}, {count, process_count}]
-    ];
+    lists:foreach(
+        fun({Name, Key}) ->
+            emqx_ctl:print("process/~-16s: ~w~n", [Name, erlang:system_info(Key)])
+        end,
+        [{limit, process_limit}, {count, process_count}]
+    );
 vm(["io"]) ->
     IoInfo = lists:usort(lists:flatten(erlang:system_info(check_io))),
-    [
-        emqx_ctl:print("io/~-21s: ~w~n", [Key, proplists:get_value(Key, IoInfo)])
-     || Key <- [max_fds, active_fds]
-    ];
+    lists:foreach(
+        fun(Key) ->
+            emqx_ctl:print("io/~-21s: ~w~n", [Key, proplists:get_value(Key, IoInfo)])
+        end,
+        [max_fds, active_fds]
+    );
 vm(["ports"]) ->
-    [
-        emqx_ctl:print("ports/~-18s: ~w~n", [Name, erlang:system_info(Key)])
-     || {Name, Key} <- [{count, port_count}, {limit, port_limit}]
-    ];
+    lists:foreach(
+        fun({Name, Key}) ->
+            emqx_ctl:print("ports/~-18s: ~w~n", [Name, erlang:system_info(Key)])
+        end,
+        [{count, port_count}, {limit, port_limit}]
+    );
 vm(_) ->
     emqx_ctl:usage([
         {"vm all", "Show info of Erlang VM"},
@@ -797,7 +809,8 @@ vm_audit_args(Args) -> Args.
 %% @doc mnesia Command
 
 mnesia([]) ->
-    mnesia:system_info();
+    _ = mnesia:system_info(),
+    ok;
 mnesia(_) ->
     emqx_ctl:usage([{"mnesia", "Mnesia system info"}]).
 
@@ -1140,8 +1153,7 @@ traces(["list"]) ->
                 end,
                 List
             )
-    end,
-    length(List);
+    end;
 traces(["stop", Name]) ->
     trace_cluster_off(Name);
 traces(["delete", Name]) ->
@@ -1739,27 +1751,25 @@ string_to_ds_dbs(DBStr) ->
 %% Dump ETS
 %%--------------------------------------------------------------------
 
+-doc """
+Print every object in `Table`. The walk reads the table in chunks with an
+`ets:select/3` continuation, so it does not fail when objects are inserted
+or deleted during the walk. Such objects may be printed or skipped.
+""".
 dump(Table, Tag) ->
-    dump(Table, Tag, ets:first(Table), []).
+    dump_chunk(Tag, ets:select(Table, [{'_', [], ['$_']}], ?DUMP_CHUNK_SIZE)).
 
-dump(_Table, _, '$end_of_table', Result) ->
-    lists:reverse(Result);
-dump(Table, Tag, Key, Result) ->
-    PrintValue = [print({Tag, Record}) || Record <- ets:lookup(Table, Key)],
-    dump(Table, Tag, ets:next(Table, Key), [PrintValue | Result]).
-
-print({_, []}) ->
+dump_chunk(_Tag, '$end_of_table') ->
     ok;
-print({client, {ClientId, ChanPid}}) ->
-    Attrs =
-        case emqx_cm:get_chan_info(ClientId, ChanPid) of
-            undefined -> #{};
-            Attrs0 -> Attrs0
-        end,
+dump_chunk(Tag, {Records, Cont}) ->
+    lists:foreach(fun(Record) -> print({Tag, Record}) end, Records),
+    dump_chunk(Tag, ets:select(Cont)).
+
+print_client(ClientId, ChanPid, Attrs) ->
     Stats =
         case emqx_cm:get_chan_stats(ClientId, ChanPid) of
             undefined -> #{};
-            Stats0 -> maps:from_list(Stats0)
+            Stats0 -> maps:merge(emqx_cm:sparse_stats_defaults(), maps:from_list(Stats0))
         end,
     ClientInfo = maps:get(clientinfo, Attrs, #{}),
     ConnInfo = maps:get(conninfo, Attrs, #{}),
@@ -1770,9 +1780,7 @@ print({client, {ClientId, ChanPid}}) ->
             _ -> false
         end,
     Info = lists:foldl(
-        fun(Items, Acc) ->
-            maps:merge(Items, Acc)
-        end,
+        fun maps:merge/2,
         #{connected => Connected},
         [
             maps:with(
@@ -1834,22 +1842,33 @@ print({client, {ClientId, ChanPid}}) ->
                 false -> ")~n"
             end,
         [format(K, maps:get(K, Info1)) || K <- InfoKeys]
-    );
+    ).
+
+print({_, []}) ->
+    ok;
+print({client, {ClientId, ChanPid}}) ->
+    %% The channel is gone when it has no info. Print nothing for it.
+    case emqx_cm:get_chan_info(ClientId, ChanPid) of
+        undefined -> ok;
+        Attrs -> print_client(ClientId, ChanPid, Attrs)
+    end;
 print({emqx_topic, #route{topic = Topic, dest = {_, Node}}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({emqx_topic, #route{topic = Topic, dest = Node}}) ->
     emqx_ctl:print("~ts -> ~ts~n", [Topic, Node]);
 print({?SUBOPTION, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
-    SubId = maps:get(subid, Options),
+    print_subopts(maps:get(subid, Options), Topic, Options);
+print({exclusive, {exclusive_subscription, Topic, ClientId}}) ->
+    emqx_ctl:print("topic:~ts -> ClientId:~ts~n", [Topic, ClientId]).
+
+print_subopts(SubId, Topic, Options) ->
     QoS = maps:get(qos, Options, 0),
     NL = maps:get(nl, Options, 0),
     RH = maps:get(rh, Options, 0),
     RAP = maps:get(rap, Options, 0),
     emqx_ctl:print("~ts -> topic:~ts qos:~p nl:~p rh:~p rap:~p~n", [
         SubId, emqx_topic:maybe_format_share(Topic), QoS, NL, RH, RAP
-    ]);
-print({exclusive, {exclusive_subscription, Topic, ClientId}}) ->
-    emqx_ctl:print("topic:~ts -> ClientId:~ts~n", [Topic, ClientId]).
+    ]).
 
 format(_, undefined) ->
     undefined;

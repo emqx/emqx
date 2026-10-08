@@ -130,6 +130,47 @@ end_per_testcase(Case, Config) ->
 %% PubSub Test
 %%--------------------------------------------------------------------
 
+%% Verify that a publish hook can report persistence through `message_persisted` message header
+t_message_persisted({init, Config}) ->
+    Config;
+t_message_persisted({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, mark_message_persisted});
+t_message_persisted(_Config) ->
+    Topic = <<"t_message_persisted">>,
+    Msg = emqx_message:make(?MODULE, 1, Topic, <<"payload">>),
+
+    %% An absent or false header does not count as persistence.
+    ?assertEqual([], emqx_broker:publish(Msg)),
+    ?assertEqual([], emqx_broker:publish(emqx_message:set_header(message_persisted, false, Msg))),
+
+    %% Hook-reported persistence prevents a no-subscriber drop.
+    ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_persisted, []}, ?HP_LOWEST),
+    Dropped = emqx_metrics:val_global('messages.dropped.no_subscribers'),
+    ?assertEqual([persisted], emqx_broker:publish(Msg)),
+    ?assertEqual(Dropped, emqx_metrics:val_global('messages.dropped.no_subscribers')),
+
+    %% Persisted messages still reach matching subscribers.
+    ok = emqx_broker:subscribe(Topic),
+    ?assertMatch([{_, Topic, _}, persisted], emqx_broker:publish(Msg)),
+    receive
+        {deliver, Topic, #message{payload = <<"payload">>}} -> ok
+    after 1000 ->
+        ct:fail(message_not_delivered)
+    end,
+    ok = emqx_broker:unsubscribe(Topic),
+
+    %% Publish rejection takes precedence over the persistence header.
+    Blocked = emqx_message:set_header(allow_publish, false, Msg),
+    ?assertEqual([], emqx_broker:publish(Blocked)),
+    ?assertMatch({blocked, _}, emqx_broker:publish(Blocked, #{hook_prohibition_as_error => true})),
+
+    %% A disconnect request also takes precedence over the persistence header.
+    Disconnect = emqx_message:set_header(should_disconnect, true, Msg),
+    ?assertEqual(disconnect, emqx_broker:publish(Disconnect)).
+
+mark_message_persisted(Message) ->
+    {ok, emqx_message:set_header(message_persisted, true, Message)}.
+
 t_stats_fun({init, Config}) ->
     ok = emqx_stats:reset(),
     Config;
@@ -217,6 +258,77 @@ t_subscriptions(Config) when is_list(Config) ->
 t_subscriptions({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).
 
+-doc """
+An MQTT client writes no `emqx_subid` row, and `subscriptions/1` returns the same
+list for its clientid as for its channel pid.
+""".
+t_subscriptions_by_clientid({init, Config}) ->
+    Config;
+t_subscriptions_by_clientid({'end', _Config}) ->
+    ok;
+t_subscriptions_by_clientid(Config) when is_list(Config) ->
+    ClientId = <<"t_subscriptions_by_clientid">>,
+    {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    try
+        {ok, _, [1, 0]} = emqtt:subscribe(C, [{<<"t/1">>, 1}, {<<"t/2">>, 0}]),
+        [ChanPid] = emqx_cm:lookup_channels(local, ClientId),
+        %% The channel registers with `no_monitor`, so it writes no emqx_subid row
+        %% and is found through the emqx_cm channel table.
+        ?assertEqual(ClientId, emqx_broker_helper:lookup_subid(ChanPid)),
+        ?assertEqual([], ets:lookup(emqx_subid, ClientId)),
+        Subs = emqx_broker:subscriptions(ChanPid),
+        ?assertEqual([<<"t/1">>, <<"t/2">>], lists:sort(proplists:get_keys(Subs))),
+        ?assertEqual(Subs, emqx_broker:subscriptions(ClientId)),
+        ?assertEqual(Subs, emqx_broker:subopts_by_clientid(ClientId))
+    after
+        ok = emqtt:disconnect(C)
+    end.
+
+-doc """
+When two channels are registered for one clientid, as during a session takeover,
+`subscriptions/1` returns the subscriptions of the channel registered last,
+even when that channel has the smaller pid.
+""".
+t_subscriptions_by_clientid_takeover({init, Config}) ->
+    Config;
+t_subscriptions_by_clientid_takeover({'end', _Config}) ->
+    ok;
+t_subscriptions_by_clientid_takeover(Config) when is_list(Config) ->
+    ClientId = <<"t_subscriptions_by_clientid_takeover">>,
+    StartChan = fun() ->
+        spawn_link(fun() ->
+            receive
+                {subscribe, Topic, From} ->
+                    ok = emqx_broker:subscribe(Topic, ClientId, #{qos => 0}, no_monitor),
+                    From ! {subscribed, self()}
+            end,
+            receive
+                stop -> ok
+            end
+        end)
+    end,
+    %% The channel registered last gets the smaller pid.
+    [NewPid, OldPid] = lists:sort([StartChan(), StartChan()]),
+    ok = emqx_cm:register_channel(ClientId, OldPid, #{conn_mod => emqx_connection}),
+    ok = emqx_cm:register_channel(ClientId, NewPid, #{conn_mod => emqx_connection}),
+    lists:foreach(
+        fun({Pid, Topic}) ->
+            Pid ! {subscribe, Topic, self()},
+            receive
+                {subscribed, Pid} -> ok
+            after 5000 -> ct:fail({subscribe_timeout, Pid})
+            end
+        end,
+        [{OldPid, <<"t/old">>}, {NewPid, <<"t/new">>}]
+    ),
+    try
+        ?assertEqual([<<"t/new">>], proplists:get_keys(emqx_broker:subscriptions(ClientId)))
+    after
+        OldPid ! stop,
+        NewPid ! stop
+    end.
+
 t_sub_pub({init, Config}) ->
     ok = emqx_broker:subscribe(<<"topic">>),
     Config;
@@ -241,9 +353,9 @@ t_nosub_pub({init, Config}) ->
 t_nosub_pub({'end', _Config}) ->
     ok;
 t_nosub_pub(Config) when is_list(Config) ->
-    ?assertEqual(0, emqx_metrics:val_global('messages.dropped')),
+    Dropped = emqx_metrics:val_global('messages.dropped'),
     emqx_broker:publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
-    ?assertEqual(1, emqx_metrics:val_global('messages.dropped')).
+    ?assertEqual(Dropped + 1, emqx_metrics:val_global('messages.dropped')).
 
 t_shared_subscribe({init, Config}) ->
     emqx_broker:subscribe(

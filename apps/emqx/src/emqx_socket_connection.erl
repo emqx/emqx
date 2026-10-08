@@ -17,6 +17,7 @@
 -include("emqx_external_trace.hrl").
 -include("emqx_instr.hrl").
 -include("emqx_config.hrl").
+-include("emqx_connection_conf.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -25,6 +26,11 @@
 -endif.
 
 -elvis([{elvis_style, used_ignored_variable, disable}]).
+%% Forced GC is this module's job.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+%% process_msg/2 and process_msg/3 share a shape on purpose: both are the
+%% tail-recursive message dispatch, one with and one without a queue.
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 %% API
 -export([
@@ -67,7 +73,7 @@
 ]).
 
 %% Internal callback
--export([wakeup_from_hib/2, recvloop/2, get_state/1]).
+-export([wakeup_from_hib/2, recvloop/2, drain_loop/3, get_state/1]).
 
 %% Export for CT
 -export([set_field/3]).
@@ -76,21 +82,6 @@
     state/0,
     parser/0
 ]).
-
--record(conf, {
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
-    %% Zone name
-    zone :: atom(),
-    %% ActiveN
-    active_n = 10 :: pos_integer(),
-    %% Hibernate connection process if inactive for
-    hibernate_after = infinity :: integer() | infinity,
-    %% Forced GC thresholds, `false` if disabled
-    force_gc = false :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
-    %% Forced shutdown policy
-    force_shutdown :: undefined | emqx_types:oom_policy()
-}).
 
 -record(thresholds, {
     gc_packets,
@@ -142,13 +133,6 @@
 
 -opaque state() :: #state{}.
 
--define(INFO_KEYS, [
-    socktype,
-    peername,
-    sockname,
-    sockstate
-]).
-
 -define(SOCK_STATS, [
     recv_oct,
     recv_cnt,
@@ -182,10 +166,8 @@ start_link(Transport, Socket, Options) ->
 -spec info(pid() | state()) -> emqx_types:infos().
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
-info(State = #state{channel = Channel}) ->
-    ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(info(?INFO_KEYS, State)),
-    ChanInfo#{sockinfo => SockInfo}.
+info(#state{channel = Channel}) ->
+    emqx_channel:info(Channel).
 
 -spec info([atom()] | atom() | tuple(), pid() | state()) -> term().
 info(Keys, State) when is_list(Keys) ->
@@ -353,10 +335,7 @@ init_state(
         sock => Socket
     },
     Channel = emqx_channel:init(ConnInfo, Opts),
-    Conf = #conf{
-        zone = Zone,
-        listener = {Type, Listener}
-    },
+    Conf = emqx_connection_conf:conn_conf({Type, Listener}, Zone),
     State0 = #state{
         socket = Socket,
         sockstate = idle,
@@ -366,7 +345,7 @@ init_state(
         namespace = ?global_ns,
         extra = []
     },
-    init_zone_specific_state(Zone, Opts, State0).
+    init_zone_specific_state(Conf, Zone, State0).
 
 ensure_ok_or_exit(Result, Sock) ->
     case Result of
@@ -425,8 +404,7 @@ exit_on_sock_error(Reason) ->
 
 recvloop(Parent, State = #state{conf = Conf}) ->
     #conf{
-        zone = Zone,
-        hibernate_after = HibernateTimeout
+        zone = Zone, hibernate_after = HibernateTimeout
     } = Conf,
     receive
         Msg ->
@@ -443,13 +421,37 @@ recvloop(Parent, State = #state{conf = Conf}) ->
 
 handle_recv({system, From, Request}, Parent, State) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
-handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
-    %% FIXME: it's not trapping exit, should never receive an EXIT
-    terminate(Reason, State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
-            ?MODULE:recvloop(Parent, NewState);
+            #state{conf = #conf{minor_gc_after = Timeout}} = NewState,
+            drain_loop(Parent, NewState, Timeout);
+        {stop, Reason, NewSate} ->
+            terminate(Reason, NewSate)
+    end.
+
+drain_loop(Parent, State, infinity) ->
+    ?MODULE:recvloop(Parent, State);
+drain_loop(Parent, State, Timeout) ->
+    receive
+        Msg ->
+            handle_recv_drain(Msg, Parent, State, Timeout)
+    after Timeout ->
+        %% NOTE
+        %% Run a minor GC after a minimal period of inactivity.
+        %% This makes the next minor GC less likely to occur in the middle of
+        %% message processing, while temporary terms are still live and could
+        %% be promoted to the old heap.
+        run_minor_gc(),
+        ?MODULE:recvloop(Parent, State)
+    end.
+
+handle_recv_drain({system, From, Request}, Parent, State, _Timeout) ->
+    sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
+handle_recv_drain(Msg, Parent, State, Timeout) ->
+    case process_msg(Msg, ensure_stats_timer(State)) of
+        {ok, NewState} ->
+            ?MODULE:drain_loop(Parent, NewState, Timeout);
         {stop, Reason, NewSate} ->
             terminate(Reason, NewSate)
     end.
@@ -488,7 +490,9 @@ init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
     end.
 
 -compile({inline, [ensure_stats_timer/1]}).
-ensure_stats_timer(State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}) ->
+ensure_stats_timer(
+    State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}
+) ->
     Timeout = get_zone_idle_timeout(Zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
@@ -520,31 +524,19 @@ get_zone_idle_timeout(Zone) ->
 %%--------------------------------------------------------------------
 %% Process next Msg
 
-process_msgs([], State) ->
-    {ok, State};
-process_msgs([Msgs | More], State) when is_list(Msgs) ->
-    case process_msgs(Msgs, State) of
-        {ok, NState} ->
-            process_msgs(More, NState);
-        Stop ->
-            Stop
-    end;
-process_msgs([Msg | More], State) ->
-    case process_msg(Msg, State) of
-        {ok, NState} ->
-            process_msgs(More, NState);
-        Stop ->
-            Stop
-    end.
+-compile({inline, [process_msg_tail/2, process_msg_cont/3, append_msgs/2]}).
 
 process_msg(Msg, State) ->
+    %% NOTE: Optimized hot path.
     try handle_msg(Msg, State) of
         ok ->
             {ok, State};
         {ok, NState} ->
             {ok, NState};
-        {ok, NextMsgs, NState} when is_list(NextMsgs) ->
-            process_msgs(NextMsgs, NState);
+        {ok, [], NState} ->
+            {ok, NState};
+        {ok, [NextMsg | Rest], NState} ->
+            process_msg_cont(NextMsg, Rest, NState);
         {ok, NextMsg, NState} ->
             process_msg(NextMsg, NState);
         {stop, Reason, NState} ->
@@ -556,15 +548,49 @@ process_msg(Msg, State) ->
             {stop, shutdown, State};
         exit:{shutdown, _} = Shutdown ->
             {stop, Shutdown, State};
-        Exception:Context:Stack ->
-            {stop,
-                #{
-                    exception => Exception,
-                    context => Context,
-                    stacktrace => Stack
-                },
-                State}
+        C:E:Stack ->
+            {stop, #{exception => C, context => E, stacktrace => Stack}, State}
     end.
+
+process_msg(Msg, [Next | Rest], State) ->
+    try handle_msg(Msg, State) of
+        ok ->
+            process_msg_cont(Next, Rest, State);
+        {ok, NState} ->
+            process_msg_cont(Next, Rest, NState);
+        {ok, NextMsg, NState} ->
+            process_msg_cont(NextMsg, [Next | Rest], NState);
+        {stop, Reason, NState} ->
+            {stop, Reason, NState}
+    catch
+        exit:normal ->
+            {stop, normal, State};
+        exit:shutdown ->
+            {stop, shutdown, State};
+        exit:{shutdown, _} = Shutdown ->
+            {stop, Shutdown, State};
+        C:E:Stack ->
+            {stop, #{exception => C, context => E, stacktrace => Stack}, State}
+    end;
+process_msg(Msg, [], State) ->
+    process_msg(Msg, State).
+
+process_msg_cont([], Tail, State) ->
+    process_msg_tail(Tail, State);
+process_msg_cont([Msg | Rest], Tail, State) ->
+    process_msg_cont(Msg, append_msgs(Rest, Tail), State);
+process_msg_cont(Msg, Tail, State) ->
+    process_msg(Msg, Tail, State).
+
+process_msg_tail([], State) ->
+    {ok, State};
+process_msg_tail([NextMsg | Rest], State) ->
+    process_msg_cont(NextMsg, Rest, State).
+
+append_msgs(Rest, []) -> Rest;
+append_msgs([], Tail) -> Tail;
+append_msgs([M1], Tail) -> [M1 | Tail];
+append_msgs(Rest, Tail) -> [Rest | Tail].
 
 %%--------------------------------------------------------------------
 %% Handle a Msg
@@ -611,31 +637,53 @@ handle_msg({request_more_data, More}, State = #state{socket = Socket, sockstate 
         false ->
             {ok, State}
     end;
+handle_msg({incoming, [Connect = ?PACKET(?CONNECT) | Rest]}, State) ->
+    %% NOTE
+    %% Technically, `Rest` may also contain CONNECT packets. This is protocol
+    %% violation anyway, and those CONNECTs skip `{incoming, ?PACKET(?CONNECT)}`
+    %% clause on purpose.
+    {ok, [{incoming, Connect}, {incoming, Rest}], State};
+handle_msg({incoming, Packets}, State) when is_list(Packets) ->
+    handle_incoming_packets(Packets, State, State#state.channel, []);
+handle_msg({incoming, Packet = ?PACKET(?CONNECT)}, State) ->
+    %% NOTE
+    %% CONNECT is fully received: initialize before handling authentication or
+    %% rejection.
+    ok = cancel_idle_timer(State),
+    #mqtt_packet{variable = ConnPkt} = Packet,
+    {Parser, Serialize} = share_frame_opts(
+        ConnPkt#mqtt_packet_connect.proto_ver,
+        State#state.parser,
+        emqx_frame:serialize_opts(ConnPkt),
+        State
+    ),
+    NState = State#state{
+        parser = Parser,
+        serialize = Serialize,
+        stats_timer = init_stats_timer(State)
+    },
+    with_channel_result(handle_incoming(Packet, NState), NState);
 handle_msg({incoming, Packet}, State) ->
-    ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
-    handle_incoming(Packet, State);
+    with_channel_result(handle_incoming(Packet, State), State);
 handle_msg({outgoing, Packets}, State) ->
     case handle_outgoing(Packets, State) of
         {ok, NState} ->
             case maybe_signal_congestion(NState) of
                 {ok, FState} ->
-                    {ok, run_minor_gc, FState};
+                    {ok, FState};
                 {ok, Msgs, FState} ->
-                    {ok, [Msgs, run_minor_gc], FState}
+                    {ok, Msgs, FState}
             end;
         {ok, {sock_error, _}, _State} = Error ->
             Error
     end;
-handle_msg(run_minor_gc, State) ->
-    run_minor_gc(),
-    {ok, State};
 handle_msg(
     Deliver = #deliver{message = _Msg},
-    #state{conf = #conf{active_n = ActiveN}} = State
+    #state{conf = #conf{active_n = ActiveN}, channel = Channel} = State
 ) ->
     ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
-    with_channel(handle_deliver, [Delivers], State);
+    with_channel_result(emqx_channel:handle_deliver(Delivers, Channel), State);
 handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 handle_msg({close, Reason}, State) ->
@@ -651,7 +699,7 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
 handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
-    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    State = init_zone_specific_state(NewZone, State0),
     {ok, State};
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
@@ -783,10 +831,10 @@ handle_timeout(
         disconnected ->
             {ok, State};
         _ ->
-            with_channel(handle_timeout, [TRef, keepalive], State)
+            with_channel_result(emqx_channel:handle_timeout(TRef, keepalive, Channel), State)
     end;
-handle_timeout(TRef, Msg, State) ->
-    with_channel(handle_timeout, [TRef, Msg], State).
+handle_timeout(TRef, Msg, State = #state{channel = Channel}) ->
+    with_channel_result(emqx_channel:handle_timeout(TRef, Msg, Channel), State).
 
 try_set_chan_stats(State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
@@ -832,7 +880,7 @@ handle_data(
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
     NeedMore = RequestMore andalso SS =/= closed,
-    Tail = [run_minor_gc || N > 0] ++ [{request_more_data, More} || NeedMore],
+    Tail = [{request_more_data, More} || NeedMore],
     Msgs = next_incoming_msgs(Tail, Packets),
     {ok, Msgs, State}.
 
@@ -893,13 +941,14 @@ handle_data_ready(Socket, State) ->
             handle_info({sock_error, Reason}, State)
     end.
 
-%% @doc: return a reversed Msg list
+%% The parser accumulates packets in reverse wire order.
 -compile({inline, [next_incoming_msgs/2]}).
 next_incoming_msgs(Tail, [Packet]) ->
     [{incoming, Packet} | Tail];
+next_incoming_msgs(Tail, []) ->
+    Tail;
 next_incoming_msgs(Tail, Packets) ->
-    Fun = fun(Packet, Acc) -> [{incoming, Packet} | Acc] end,
-    lists:foldl(Fun, Tail, Packets).
+    [{incoming, lists:reverse(Packets)} | Tail].
 
 parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
     try
@@ -961,13 +1010,10 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
 
-init_parser(FrameOpts) ->
-    %% Go with regular streaming parser.
-    emqx_frame:initial_parse_state(FrameOpts).
-
-update_state_on_parse_error(#{proto_ver := ProtoVer, parse_state := ParseState}, State) ->
-    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    State#state{serialize = Serialize, parser = ParseState};
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
 update_state_on_parse_error(_, State) ->
     State.
 
@@ -988,31 +1034,106 @@ run_stream_parser(Data, Acc, N, ParseState, State) ->
 describe_parser_state(ParseState) ->
     emqx_frame:describe_state(ParseState).
 
+%% Swap in the zone's shared parse state and serializer options where they are
+%% equal to the connection's own.
+share_frame_opts(ProtoVer, ParseState, Serialize, #state{
+    conf = #conf{zone = Zone}
+}) ->
+    emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
+
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 
-handle_incoming(Packet = ?PACKET(Type), State) ->
+handle_incoming(Packet, State = #state{channel = Channel}) ->
+    handle_incoming(Packet, State, Channel).
+
+handle_incoming(Packet = ?PACKET(_), State, Channel) ->
+    ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     inc_incoming_stats(Packet, State),
-    case Type of
-        ?CONNECT ->
-            %% CONNECT packet is fully received, time to cancel idle timer.
-            ok = cancel_idle_timer(State),
-            NState = State#state{
-                serialize = emqx_frame:serialize_opts(Packet#mqtt_packet.variable),
-                stats_timer = init_stats_timer(State)
-            },
-            with_channel(handle_in, [Packet], NState);
-        _ ->
-            with_channel(handle_in, [Packet], State)
+    emqx_channel:handle_in(Packet, Channel);
+handle_incoming(FrameError, _State, Channel) ->
+    ?TRACE("MQTT", "mqtt_packet_received", #{packet => FrameError}),
+    emqx_channel:handle_in(FrameError, Channel).
+
+handle_incoming_packets([], State, Channel, []) ->
+    NState = State#state{channel = Channel},
+    {ok, NState};
+handle_incoming_packets([], State, Channel, Outgoing) ->
+    Batch = mk_batch(Outgoing, []),
+    NState = State#state{channel = Channel},
+    {ok, {outgoing, Batch}, NState};
+handle_incoming_packets([Packet | Rest], State, Channel, Outgoing) ->
+    case handle_incoming(Packet, State, Channel) of
+        {ok, NChannel} ->
+            handle_incoming_packets(Rest, State, NChannel, Outgoing);
+        {ok, Replies, NChannel} ->
+            case collect_outgoing_replies(Replies, Outgoing) of
+                NOutgoing when is_list(NOutgoing) ->
+                    handle_incoming_packets(Rest, State, NChannel, NOutgoing);
+                unbatchable ->
+                    handle_unbatchable([Replies], Rest, State, NChannel, Outgoing)
+            end;
+        {continue, Replies, NChannel} ->
+            %% Run the continuation before processing the remaining packets.
+            handle_unbatchable([Replies, continue], Rest, State, NChannel, Outgoing);
+        {shutdown, Reason, NChannel} = Shutdown ->
+            case Outgoing of
+                [] ->
+                    with_channel_result(Shutdown, State);
+                _ ->
+                    Batch = mk_batch(Outgoing, []),
+                    with_channel_result({shutdown, Reason, Batch, NChannel}, State)
+            end;
+        {shutdown, Reason, OutPacket, NChannel} = Shutdown ->
+            case Outgoing of
+                [] ->
+                    with_channel_result(Shutdown, State);
+                _ ->
+                    Batch = mk_batch(Outgoing, ensure_list(OutPacket)),
+                    with_channel_result({shutdown, Reason, Batch, NChannel}, State)
+            end
+    end.
+
+handle_unbatchable(Replies, Rest, State, Channel, Outgoing) ->
+    Pending = [{outgoing, mk_batch(Outgoing, [])} || Outgoing =/= []],
+    Remaining = [{incoming, P} || P <- Rest],
+    NState = State#state{channel = Channel},
+    {ok, Pending ++ Replies ++ Remaining, NState}.
+
+collect_outgoing_replies([], Outgoing) ->
+    Outgoing;
+collect_outgoing_replies([Reply | Rest], Outgoing) ->
+    case collect_outgoing_replies(Reply, Outgoing) of
+        NOutgoing when is_list(NOutgoing) ->
+            collect_outgoing_replies(Rest, NOutgoing);
+        unbatchable ->
+            unbatchable
     end;
-handle_incoming(FrameError, State) ->
-    with_channel(handle_in, [FrameError], State).
+collect_outgoing_replies({outgoing, []}, Outgoing) ->
+    Outgoing;
+collect_outgoing_replies({outgoing, PacketOrPackets}, Outgoing) ->
+    [PacketOrPackets | Outgoing];
+collect_outgoing_replies(_Reply, _Outgoing) ->
+    unbatchable.
+
+%% Accumulated packets are in reverse order; preserve order within each list.
+mk_batch([List | Rest], Tail) when is_list(List) ->
+    mk_batch(Rest, List ++ Tail);
+mk_batch([Item | Rest], Tail) ->
+    mk_batch(Rest, [Item | Tail]);
+mk_batch([], Tail) ->
+    Tail.
+
+ensure_list(L) when is_list(L) ->
+    L;
+ensure_list(X) ->
+    [X].
 
 %%--------------------------------------------------------------------
 %% With Channel
 
-with_channel(Fun, Args, State = #state{channel = Channel}) ->
-    case erlang:apply(emqx_channel, Fun, Args ++ [Channel]) of
+with_channel_result(Result, State) ->
+    case Result of
         ok ->
             {ok, State};
         {ok, NChannel} ->
@@ -1059,7 +1180,7 @@ do_handle_outgoing(Packet, State) ->
     pos_integer(), [emqx_types:packet()], state(), non_neg_integer(), non_neg_integer(), iolist()
 ) -> {ok, state()} | {ok, {sock_error, _}, state()}.
 do_handle_outgoing_loop(_, [], State, N, _BufOctets, Buf) ->
-    send(N, flatten_reverse_iovec(Buf, []), State);
+    send(N, append_reversed_iovec(Buf, []), State);
 do_handle_outgoing_loop(MaxBufFize, [Packet | Rest], State, N, BufOctets, Buf0) when
     BufOctets =< MaxBufFize
 ->
@@ -1074,17 +1195,18 @@ do_handle_outgoing_loop(MaxBufFize, [Packet | Rest], State, N, BufOctets, Buf0) 
         Buf
     );
 do_handle_outgoing_loop(MaxBufSize, Rest, State0, N, _BufOctets, Buf) ->
-    case send(N, flatten_reverse_iovec(Buf, []), State0) of
+    case send(N, append_reversed_iovec(Buf, []), State0) of
         {ok, State} ->
             do_handle_outgoing_loop(MaxBufSize, Rest, State, 0, 0, []);
         {ok, {sock_error, _}, _State} = Error ->
             Error
     end.
 
-flatten_reverse_iovec([IoVec | Rest], Acc) ->
-    flatten_reverse_iovec(Rest, IoVec ++ Acc);
-flatten_reverse_iovec([], Acc) ->
-    Acc.
+%% Append the inner lists in reverse outer order, preserving their element order.
+append_reversed_iovec([List | Rest], Tail) ->
+    append_reversed_iovec(Rest, List ++ Tail);
+append_reversed_iovec([], Tail) ->
+    Tail.
 
 serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
     try emqx_frame:serialize_iovec(Packet, Serialize) of
@@ -1182,7 +1304,7 @@ handle_send_ready(
     Socket,
     State = #state{sockstate = SS = #congested{sendq = SQ, watermark = WM}}
 ) ->
-    IoVec = flatten_reverse_iovec(SQ, []),
+    IoVec = append_reversed_iovec(SQ, []),
     Handle = make_ref(),
     case send_iovec(Socket, IoVec, Handle) of
         ok ->
@@ -1358,8 +1480,8 @@ handle_info({sock_error, Reason}, State) ->
             ?SLOG(warning, #{msg => "socket_error", reason => Reason})
     end,
     handle_info({sock_closed, Reason}, ensure_close_socket(Reason, State));
-handle_info(Info, State) ->
-    with_channel(handle_info, [Info], State).
+handle_info(Info, State = #state{channel = Channel}) ->
+    with_channel_result(emqx_channel:handle_info(Info, Channel), State).
 
 %%--------------------------------------------------------------------
 %% Handle Info
@@ -1534,40 +1656,24 @@ graceful_shutdown_transport(_Reason, S = #state{socket = Socket}) ->
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
-    FrameOpts0 = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
-        %% zone will **not** take effect after the override.
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-        max_connect_user_properties => emqx_config:get_zone_conf(
-            Zone, [mqtt, max_connect_user_properties]
-        ),
-        %% Any packet received before CONNECT is rejected by the parser.
-        expect_connect => true
-    },
+%% A zone change on a live connection.
+init_zone_specific_state(Zone, #state{conf = Conf0} = State0) ->
+    init_zone_specific_state(
+        emqx_connection_conf:conn_conf(Conf0#conf.listener, Zone), Zone, State0
+    ).
+
+init_zone_specific_state(Conf, Zone, State0) ->
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
-                init_parser_and_serializer(FrameOpts0);
+                init_parser_and_serializer(Zone);
             Parser1 ->
-                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+                %% zone will **not** take effect after the override.
+                FrameOpts = emqx_connection_conf:frame_opts(Zone),
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
-    GcThresholds =
-        case emqx_config:get_zone_conf(Zone, [force_gc]) of
-            #{enable := false} ->
-                false;
-            #{enable := true, count := Count, bytes := Bytes} ->
-                {Count, Bytes}
-        end,
-    Conf = Conf0#conf{
-        zone = Zone,
-        active_n = get_active_n(Conf0),
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
-        force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
-        force_gc = GcThresholds
-    },
     State0#state{
         parser = Parser,
         serialize = Serialize,
@@ -1575,15 +1681,11 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
         thresholds = reset_thresholds(Conf, #thresholds{})
     }.
 
-init_parser_and_serializer(FrameOpts0) ->
-    Parser0 = init_parser(FrameOpts0),
-    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-    {Parser0, Serialize0}.
-
-get_active_n(#conf{listener = {Type, Listener}}) ->
-    emqx_listeners:clamp_active_n(
-        emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n])
-    ).
+init_parser_and_serializer(Zone) ->
+    #{initial_parse_state := Parser, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(
+        Zone
+    ),
+    {Parser, Serialize}.
 
 get_send_timeout(#conf{listener = {Type, Listener}}) ->
     emqx_config:get_listener_conf(Type, Listener, [tcp_options, send_timeout], 15_000).

@@ -9,7 +9,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 
--define(S3_HOST, <<"minio">>).
+-define(S3_HOST, <<"seaweedfs">>).
 -define(S3_PORT, 9000).
 
 config(Storage) ->

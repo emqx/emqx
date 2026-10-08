@@ -274,6 +274,39 @@ t_real_clients_scannable(_Config) ->
         lists:foreach(fun(C) -> catch emqtt:stop(C) end, Clients)
     end.
 
+-doc """
+An idle client ranks with value 0, and its zero stats extras read as 0, although
+the channel info table does not store them.
+""".
+t_idle_client_zero_stats(_Config) ->
+    clear_table(),
+    ClientId = <<"idle-1">>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    try
+        Rows = emqx_session_tool:top_by(mqueue_len, #{
+            top_k => 10,
+            min_value => 0,
+            extra_stats => [subscriptions_cnt, mqueue_len, 'send_msg.dropped']
+        }),
+        ?assertMatch(
+            [
+                #{
+                    clientid := ClientId,
+                    value := 0,
+                    extras := #{
+                        subscriptions_cnt := 0,
+                        mqueue_len := 0,
+                        'send_msg.dropped' := 0
+                    }
+                }
+            ],
+            Rows
+        )
+    after
+        emqtt:stop(C)
+    end.
+
 %%--------------------------------------------------------------------
 %% Cluster test case
 %%--------------------------------------------------------------------

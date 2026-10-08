@@ -104,29 +104,75 @@ internal_subscribe_test_profile(_) ->
 %% Test cases for channel info/stats/caps
 %%--------------------------------------------------------------------
 
+-doc """
+The stored channel info carries a `clientinfo` without the fields derivable from
+`conninfo` and a `conninfo` without the socket, while the channel's own `clientinfo`
+and `conninfo` keep them all.
+""".
 t_chan_info(_) ->
+    WillMsg = emqx_message:make(<<"clientid">>, <<"will">>, <<"payload">>),
+    Channel = channel(#{
+        will_msg => WillMsg,
+        session => session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}})
+    }),
     #{
         conn_state := connected,
-        clientinfo := ClientInfo
-    } = emqx_channel:info(channel()),
+        clientinfo := Stored,
+        conninfo := ConnInfo,
+        session := SessionInfo
+    } = Info = emqx_channel:info(Channel),
+    %% `info/1` omits the attributes that grow with client input.
+    ?assertNot(maps:is_key(will_msg, Info)),
+    ?assertNot(maps:is_key(conn_props, ConnInfo)),
+    ?assertNot(maps:is_key(subscriptions, SessionInfo)),
+    %% `info/1` omits the socket, which is only valid in the connection process.
+    ?assertNot(maps:is_key(sock, ConnInfo)),
+    %% The session attributes are the ones the channel info table's readers use; the
+    %% counters come from the stats element of the same table row.
+    ?assertMatch(
+        #{created_at := _, is_persistent := _, impl := emqx_session_mem}, SessionInfo
+    ),
+    ?assertEqual([created_at, impl, is_persistent], lists:sort(maps:keys(SessionInfo))),
+    %% `info/2` still reads them from the channel.
+    ?assertEqual(emqx_message:to_map(WillMsg), emqx_channel:info(will_msg, Channel)),
+    ?assertMatch(#{conn_props := #{}}, emqx_channel:info(conninfo, Channel)),
+    ?assertMatch(#{sock := _}, emqx_channel:info(conninfo, Channel)),
+    ?assertMatch(
+        #{<<"t">> := _}, emqx_channel:info({session, subscriptions}, Channel)
+    ),
     ?assertMatch(
         #{
             zone := default,
             listener := 'tcp:default',
             protocol := mqtt,
-            peername := {{127, 0, 0, 1}, 3456},
-            peerhost := {127, 0, 0, 1},
-            peerport := 3456,
-            sockport := 1883,
             clientid := <<"clientid">>,
             username := <<"username">>,
             is_superuser := false,
             is_bridge := false,
             mountpoint := undefined
         },
-        ClientInfo
+        Stored
     ),
-    ?assertEqual(clientinfo(), ClientInfo).
+    ?assertEqual(
+        maps:without([peerhost, peerport, peername, sockport], clientinfo()),
+        Stored
+    ),
+    %% Hooks, authn and authz receive the channel's own clientinfo.
+    ?assertEqual(clientinfo(), emqx_channel:info(clientinfo, Channel)).
+
+-doc """
+`info/1` drops the `clientinfo` fields derivable from `conninfo`, and
+`restore_derivable_peer_fields/2` puts back exactly those, so that a channel rebuilt
+from a stored info map carries the `clientinfo` the connection had.
+""".
+t_restore_derivable_peer_fields(_) ->
+    #{conninfo := ConnInfo, clientinfo := Stored} = emqx_channel:info(channel()),
+    ?assertEqual(
+        clientinfo(),
+        emqx_channel:restore_derivable_peer_fields(Stored, ConnInfo)
+    ),
+    %% With nothing to derive from, the clientinfo is returned as is.
+    ?assertEqual(Stored, emqx_channel:restore_derivable_peer_fields(Stored, #{})).
 
 t_chan_caps(_) ->
     ?assertMatch(
@@ -435,17 +481,16 @@ t_handle_in_puback_ok(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _PacketId, _ReasonCode, Session) -> {ok, Msg, [], Session} end
+        fun(_, _PacketId, _ReasonCode, [congested], Session) -> {ok, Msg, [], Session} end
     ),
-    Channel = channel(#{conn_state => connected}),
+    Channel = channel(#{conn_state => connected, conn_flags => [congested]}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
-% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, NChannel)).
 
 t_handle_in_puback_id_in_use(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _, _ReasonCode, _Session) ->
+        fun(_, _, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
         end
     ),
@@ -456,12 +501,11 @@ t_handle_in_puback_id_not_found(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _, _ReasonCode, _Session) ->
+        fun(_, _, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
     {ok, _Channel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel()).
-% ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_bad_receive_maximum(_) ->
     mock_cm_open_session(),
@@ -568,15 +612,21 @@ assert_ack_flood_bounded_log(Send, MsgStr) ->
     ?assertEqual(N, Count(debug)).
 
 t_handle_in_pubcomp_ok(_) ->
-    ok = meck:expect(emqx_session, pubcomp, fun(_, _, _ReasonCode, Session) -> {ok, [], Session} end),
-    {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
-% ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
+    ok = meck:expect(
+        emqx_session,
+        pubcomp,
+        fun(_, _, _ReasonCode, [congested], Session) ->
+            {ok, [], Session}
+        end
+    ),
+    Channel = channel(#{conn_state => connected, conn_flags => [congested]}),
+    {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubcomp_not_found_error(_) ->
     ok = meck:expect(
         emqx_session,
         pubcomp,
-        fun(_, _PacketId, _ReasonCode, _Session) ->
+        fun(_, _PacketId, _ReasonCode, _Flags, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
@@ -898,23 +948,40 @@ t_quota_lazy_hot_update(_) ->
             #{listener => {tcp, lazy_hot_update}}
         ),
         Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
-        %% No limit configured: both publishes pass.
+        %% No limit configured: both publishes pass and no container is built.
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
             emqx_channel:handle_in(Pub, Chann),
+        ?assertEqual(undefined, emqx_channel:info(quota, Chann1)),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann2} =
             emqx_channel:handle_in(Pub, Chann1),
+        ?assertEqual(undefined, emqx_channel:info(quota, Chann2)),
         %% Configure a tight rate at runtime; the limit must apply without reconnect.
         {ok, MessagesRate} = emqx_limiter_schema:to_rate("1/s"),
         ok = emqx_limiter:update_listener_limiters(ListenerId, #{messages_rate => MessagesRate}),
         timer:sleep(1200),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
             emqx_channel:handle_in(Pub, Chann2),
+        ?assertNotEqual(undefined, emqx_channel:info(quota, Chann3)),
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
             emqx_channel:handle_in(Pub, Chann3),
         ok
     after
         emqx_limiter:delete_listener_limiters(ListenerId)
     end.
+
+-doc "Subscribing without any finite channel limit builds no limiter container.".
+t_quota_stays_absent_on_subscribe(_) ->
+    ok = meck:expect(
+        emqx_session,
+        subscribe,
+        fun(_, _, _, Session) -> {ok, Session} end
+    ),
+    Chann = channel(#{conn_state => connected, quota => undefined}),
+    TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
+    Subscribe = ?SUBSCRIBE_PACKET(1, #{}, TopicFilters),
+    Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
+    {ok, Replies, Chann1} = emqx_channel:handle_in(Subscribe, Chann),
+    ?assertEqual(undefined, emqx_channel:info(quota, Chann1)).
 
 t_mount_will_msg(_) ->
     Self = self(),
@@ -1209,7 +1276,7 @@ t_internal_subscribe_checks_authz_and_runs_hook(_) ->
     ),
     snabbkaffe_diff:assert_lists_eq(
         lists:sort(AllowedTopics),
-        channel_subscriptions(ChannelPid)
+        channel_subscriptions(ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -1238,7 +1305,7 @@ t_internal_subscribe_checks_caps(_) ->
         ]},
     snabbkaffe_diff:assert_lists_eq(
         [SimpleTopic],
-        channel_subscriptions(ChannelPid)
+        channel_subscriptions(ClientId)
     ),
     emqtt:disconnect(Client).
 
@@ -1291,15 +1358,69 @@ t_handle_info_sock_closed(_) ->
 -define(CUSTOM_TIMER_TIMEOUT, 100).
 -define(CUSTOM_TIMER_TIMEOUT_SHORT, 20).
 
+-doc """
+For a QUIC connection, `ensure_keepalive/2` sets the connection idle timeout from
+the socket in the channel's own `conninfo`.
+""".
+t_ensure_keepalive_quic_idle_timeout(_) ->
+    ok = meck:new(quicer, [non_strict, no_link]),
+    ok = meck:expect(quicer, setopt, fun(_, _, _, _) -> ok end),
+    try
+        Conn = make_ref(),
+        Channel = channel(#{conninfo => quic_conninfo(Conn)}),
+        _ = emqx_channel:ensure_keepalive(#{'Server-Keep-Alive' => 10}, Channel),
+        #{keepalive_multiplier := Mul} = emqx_config:get_zone_conf(default, [mqtt]),
+        ?assertEqual(
+            [[Conn, settings, #{idle_timeout_ms => timer:seconds(10 * Mul)}, false]],
+            [Args || {_, {quicer, setopt, Args}, _} <- meck:history(quicer)]
+        )
+    after
+        meck:unload(quicer)
+    end.
+
+-doc """
+For a TCP connection, `ensure_keepalive/2` does not touch QUIC settings.
+""".
+t_ensure_keepalive_tcp_no_quic_setopt(_) ->
+    ok = meck:new(quicer, [non_strict, no_link]),
+    ok = meck:expect(quicer, setopt, fun(_, _, _, _) -> ok end),
+    try
+        Channel = channel(),
+        _ = emqx_channel:ensure_keepalive(#{'Server-Keep-Alive' => 10}, Channel),
+        ?assertEqual(0, meck:num_calls(quicer, setopt, '_'))
+    after
+        meck:unload(quicer)
+    end.
+
+quic_conninfo(Conn) ->
+    ConnInfo = emqx_channel:info(conninfo, channel()),
+    ConnInfo#{socktype => quic, sock => {quic, Conn, make_ref(), #{}}}.
+
 t_handle_timeout_keepalive(_) ->
     TRef = make_ref(),
     Channel = emqx_channel:set_field(timers, #{keepalive => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(make_ref(), {keepalive, 10}, Channel).
 
+-doc "Delivery retries retransmit unacknowledged messages, rearm the timer, and stop after PUBACK.".
 t_handle_timeout_retry_delivery(_) ->
-    TRef = make_ref(),
-    Channel = emqx_channel:set_field(timers, #{retry_delivery => TRef}, channel()),
-    {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, Channel).
+    Session = session(#{retry_interval => ?CUSTOM_TIMER_TIMEOUT_SHORT}),
+    Channel = channel(#{session => Session, alias_maximum => #{outbound => 0}}),
+    Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
+    {ok, {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"t">>, PacketId, <<"payload">>)}, Chan1} =
+        emqx_channel:handle_deliver([{deliver, <<"t">>, Msg}], Channel),
+    Timer = {emqx_session, retry_delivery},
+    TRef1 = maps:get(Timer, emqx_channel:info(timers, Chan1)),
+    ?assertReceive({timeout, TRef1, Timer}),
+    {ok, {outgoing, Retry}, Chan2} = emqx_channel:handle_timeout(TRef1, Timer, Chan1),
+    ?assertMatch(?PUBLISH_PACKET(?QOS_1, <<"t">>, PacketId, <<"payload">>), Retry),
+    ?assertMatch(#mqtt_packet{header = #mqtt_packet_header{dup = true}}, Retry),
+    TRef2 = maps:get(Timer, emqx_channel:info(timers, Chan2)),
+    ?assertNotEqual(TRef1, TRef2),
+    {ok, Chan3} = emqx_channel:handle_in(?PUBACK_PACKET(PacketId), Chan2),
+    ?assertEqual(0, emqx_channel:info({session, inflight_cnt}, Chan3)),
+    ?assertReceive({timeout, TRef2, Timer}),
+    {ok, Chan4} = emqx_channel:handle_timeout(TRef2, Timer, Chan3),
+    ?assertNot(maps:is_key(Timer, emqx_channel:info(timers, Chan4))).
 
 t_handle_timeout_expire_awaiting_rel(_) ->
     TRef = make_ref(),
@@ -1342,7 +1463,7 @@ t_handle_custom_timers(_) ->
         emqx_channel:handle_timeout(T1Ref, T1Msg, Chan3),
     %% Resets `msg1` timer to a shorter timeout:
     {ok, {outgoing, ?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"2">>)}, Chan5} =
-        emqx_channel:handle_timeout(make_ref(), retry_delivery, Chan4),
+        emqx_channel:handle_timeout(make_ref(), {emqx_session, retry_delivery}, Chan4),
     {timeout, T2Ref, T2Msg} =
         ?assertReceive({timeout, _, {emqx_session, msg1}}, ?CUSTOM_TIMER_TIMEOUT_SHORT * 2),
     %% Clears `signal2` timer:
@@ -1363,15 +1484,15 @@ handle_signal(_ClientInfo, {connection, decongested, #{retry := Timeout}}, {?MOD
 info(created_at, {?MODULE, _Session}) ->
     0.
 
-handle_timeout(_ClientInfo, signal1, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, signal1, [congested], {?MODULE, Session}) ->
     Msg = emqx_message:make(<<"a/b">>, <<"1">>),
     Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_LONG},
     {Effect, [{1, Msg}], {?MODULE, Session}};
-handle_timeout(_ClientInfo, retry_delivery, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, retry_delivery, [congested], {?MODULE, Session}) ->
     Msg = emqx_message:make(<<"c/d">>, <<"2">>),
     Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_SHORT},
     {Effect, [{2, Msg}], {?MODULE, Session}};
-handle_timeout(_ClientInfo, msg1, {?MODULE, Session}) ->
+handle_timeout(_ClientInfo, msg1, [congested], {?MODULE, Session}) ->
     Effect = {reset_timer, signal2, infinity},
     {Effect, [], {?MODULE, Session}}.
 
@@ -1714,6 +1835,42 @@ t_peercert_pp2_cn_clean_accepted(_) ->
         emqx_channel:info(clientinfo, Channel)
     ).
 
+-doc "After CONNECT, the process label is `{clientid, ClientId}`.".
+t_connect_sets_clientid_label(_) ->
+    mock_cm_open_session(),
+    ok = proc_lib:set_label({{tcp, default}, {{127, 0, 0, 1}, 3456}}),
+    {continue, _, _} =
+        emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), channel(#{conn_state => idle})),
+    ?assertEqual({clientid, <<"clientid">>}, proc_lib:get_label(self())).
+
+-doc "A zero-length CONNECT clientid is replaced by a random one, which becomes the label.".
+t_connect_empty_clientid_sets_assigned_label(_) ->
+    mock_cm_open_session(),
+    ok = proc_lib:set_label({{tcp, default}, {{127, 0, 0, 1}, 3456}}),
+    IdleChannel = channel(clientinfo(#{clientid => undefined}), #{conn_state => idle}),
+    ConnPkt = (connpkt())#mqtt_packet_connect{clientid = <<>>},
+    {continue, _, Channel} = emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), IdleChannel),
+    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
+    ?assertNotEqual(<<>>, ClientId),
+    ?assertEqual({clientid, ClientId}, proc_lib:get_label(self())).
+
+-doc """
+With `peer_cert_as_clientid = cn` and an empty PROXY v2 SSL_CN, the clientid is `<<>>`.
+The connection keeps the label that the connection process set before CONNECT.
+""".
+t_connect_empty_peercert_clientid_keeps_label(_) ->
+    mock_cm_open_session(),
+    Old = emqx_config:get_zone_conf(default, [mqtt, peer_cert_as_clientid]),
+    on_exit(fun() -> emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], Old) end),
+    emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], cn),
+    Label = {{tcp, default}, {{127, 0, 0, 1}, 3456}},
+    ok = proc_lib:set_label(Label),
+    Opts = #{zone => default, limiter => undefined, listener => {tcp, default}},
+    IdleChannel = emqx_channel:init(pp2_conn_info([{pp2_ssl_cn, <<>>}]), Opts),
+    {continue, _, Channel} = emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
+    ?assertMatch(#{clientid := <<>>}, emqx_channel:info(clientinfo, Channel)),
+    ?assertEqual(Label, proc_lib:get_label(self())).
+
 t_peersni_with_crlf_rejected(_) ->
     %% `peersni' is sourced from the TLS handshake SNI or, when PROXY-Protocol
     %% v2 is used, from the `pp2_authority' TLV (attacker-controlled). It must
@@ -1785,7 +1942,8 @@ channel(ClientInfo, InitFields, ListenerOpts) ->
         username => maps:get(username, ClientInfo, <<"username">>),
         conn_props => #{},
         receive_maximum => 100,
-        expiry_interval => 0
+        expiry_interval => 0,
+        sock => self()
     },
     maps:fold(
         fun(Field, Value, Channel) ->
@@ -1900,6 +2058,7 @@ on_client_subscribe(_ClientInfo, Properties, TopicFilters, TestPid) ->
     TestPid ! {client_subscribe, Properties, TopicFilters},
     {ok, TopicFilters}.
 
-channel_subscriptions(ChannelPid) ->
-    #{session := #{subscriptions := Subscriptions}} = emqx_connection:info(ChannelPid),
+channel_subscriptions(ClientId) ->
+    Subscriptions =
+        emqx_cth_broker:connection_info({channel, {session, subscriptions}}, ClientId),
     lists:sort(maps:keys(Subscriptions)).

@@ -173,6 +173,14 @@ t_sorted_reboot_apps(_Config) ->
     %% make sure emqx_license start early than emqx_dashboard
     ?assertEqual([emqx_license, emqx_dashboard], SortApps).
 
+-doc """
+`gproc` holds the registry `mria` reads, so restarting it when the node joins or
+leaves the cluster crashes `mria`. It must stay out of the reboot list: it is
+started once, from the OTP application list in `reboot_lists.eterm`.
+""".
+t_gproc_is_not_a_reboot_app(_Config) ->
+    ?assertNot(lists:member(gproc, emqx_machine_boot:sorted_reboot_apps())).
+
 t_custom_shard_transports(_Config) ->
     %% used to ensure the atom exists
     Shard = test_shard,

@@ -274,14 +274,12 @@ backend_failure_result() ->
 
 -spec authn_backend_failure_policy() -> ignore | deny.
 authn_backend_failure_policy() ->
-    case emqx_security_profile:policy(authn_backend_failure) of
-        deny ->
-            case emqx:get_config([authentication_settings, ignore_backend_failures], false) of
-                true -> ignore;
-                false -> deny
-            end;
-        ignore ->
-            ignore
+    case
+        emqx:get_config([authentication_settings, ignore_backend_failures], per_security_profile)
+    of
+        true -> ignore;
+        false -> deny;
+        per_security_profile -> emqx_security_profile:policy(authn_backend_failure)
     end.
 
 %%--------------------------------------------------------------------

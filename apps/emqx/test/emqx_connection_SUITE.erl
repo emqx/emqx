@@ -76,16 +76,20 @@ t_info(_) ->
         after 100 -> error("error")
         end
     end),
-    #{sockinfo := SockInfo} = emqx_connection:info(CPid),
+    #{conninfo := ConnInfo} = emqx_connection:info(CPid),
     ?assertMatch(
         #{
             peername := {{127, 0, 0, 1}, 3456},
             sockname := {{127, 0, 0, 1}, 18083},
-            sockstate := idle,
             socktype := tcp
         },
-        SockInfo
-    ).
+        ConnInfo
+    ),
+    %% The socket is only valid in the connection process.
+    ?assertNot(maps:is_key(sock, ConnInfo)),
+    %% `sockstate' is not part of the channel info map; it is read from the
+    %% connection state.
+    ?assertEqual(idle, emqx_connection:info(sockstate, st())).
 
 t_stats(_) ->
     CPid = spawn(fun() ->
@@ -461,13 +465,8 @@ t_handle_incoming(_) ->
 t_handle_outing_non_utf8_topic(_) ->
     Topic = <<"测试"/utf16>>,
     Publish = ?PUBLISH_PACKET(0, Topic, 1),
-    StrictOff = #{version => 5, max_size => 16#FFFF, strict_mode => false},
-    StOff = st(#{serialize => StrictOff}),
-    OffResult = emqx_connection:handle_outgoing(Publish, StOff),
-    ?assertMatch({ok, _}, OffResult),
-    StrictOn = #{version => 5, max_size => 16#FFFF, strict_mode => true},
-    StOn = st(#{serialize => StrictOn}),
-    ?assertError(frame_serialize_error, emqx_connection:handle_outgoing(Publish, StOn)).
+    St = st(#{serialize => #{version => 5, max_size => 16#FFFF}}),
+    ?assertMatch({ok, _}, emqx_connection:handle_outgoing(Publish, St)).
 
 t_with_channel(_) ->
     State = st(),
@@ -607,15 +606,14 @@ t_start_link_exit_on_activate(_) ->
 
 t_get_conn_info(_) ->
     with_conn(fun(CPid) ->
-        #{sockinfo := SockInfo} = emqx_connection:info(CPid),
-        ?assertEqual(
+        #{conninfo := ConnInfo} = emqx_connection:info(CPid),
+        ?assertMatch(
             #{
-                peername => {{127, 0, 0, 1}, 3456},
-                sockname => {{127, 0, 0, 1}, 1883},
-                sockstate => running,
-                socktype => tcp
+                peername := {{127, 0, 0, 1}, 3456},
+                sockname := {{127, 0, 0, 1}, 1883},
+                socktype := tcp
             },
-            SockInfo
+            ConnInfo
         )
     end).
 
@@ -781,6 +779,7 @@ st(InitFields, ChannelFields) when is_map(InitFields) ->
 channel() -> channel(#{}).
 channel(InitFields) ->
     ConnInfo = #{
+        socktype => tcp,
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 18083},
         conn_mod => emqx_connection,

@@ -674,7 +674,7 @@ create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
                     end
             end,
         Ctx = #{
-            conn_info_fn => fun(Prop) -> maps:get(Prop, ConnInfo) end
+            conninfo => ConnInfo
         },
         ok = emqx_hooks:run('session.created', Ctx, [ClientInfo, SessionInfo]),
         Session

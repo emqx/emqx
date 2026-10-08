@@ -383,11 +383,14 @@ find_first(Key, [Map | Rest]) ->
     end.
 
 read_stat_extra(Key, Stats) when is_list(Stats) ->
-    proplists:get_value(Key, Stats, undefined);
+    proplists:get_value(Key, Stats, sparse_stat_default(Key));
 read_stat_extra(Key, Stats) when is_map(Stats) ->
-    maps:get(Key, Stats, undefined);
+    maps:get(Key, Stats, sparse_stat_default(Key));
 read_stat_extra(_Key, _Stats) ->
     undefined.
+
+sparse_stat_default(Key) ->
+    maps:get(Key, emqx_cm:sparse_stats_defaults(), undefined).
 
 %%--------------------------------------------------------------------
 %% Cluster-wide scan

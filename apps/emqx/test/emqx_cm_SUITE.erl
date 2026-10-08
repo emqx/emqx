@@ -91,10 +91,10 @@ t_get_set_chan_stats(_) ->
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, Stats),
 
-    ?assertEqual(Stats, emqx_cm:get_chan_stats(<<"clientid">>)),
+    ?assertEqual(emqx_cm:restore_sparse_stats(Stats), emqx_cm:get_chan_stats(<<"clientid">>)),
     Stats1 = [{recv_oct, 10} | Stats],
     true = emqx_cm:set_chan_stats(<<"clientid">>, Stats1),
-    ?assertEqual(Stats1, emqx_cm:get_chan_stats(<<"clientid">>)),
+    ?assertEqual(emqx_cm:restore_sparse_stats(Stats1), emqx_cm:get_chan_stats(<<"clientid">>)),
 
     ?assertError(
         function_clause,
@@ -103,6 +103,129 @@ t_get_set_chan_stats(_) ->
 
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
+
+-doc """
+The channel info table drops a stat only when its key is in
+`sparse_stats_defaults/0` and its value is 0. Other zeros and non-integer
+values stay. `get_chan_stats/1,2`, which other nodes call, return the
+dropped keys with the value 0.
+""".
+t_sparse_chan_stats(_) ->
+    ClientId = <<"sparse-stats">>,
+    Info = #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+    Stats = [
+        {recv_oct, 10},
+        {send_pend, 0},
+        {durable, false},
+        {subscriptions_max, infinity},
+        {subscriptions_cnt, 0},
+        {mqueue_len, 0},
+        {recv_pkt, 1},
+        {'send_msg.dropped', 0}
+    ],
+    Sparse = [
+        {recv_oct, 10},
+        {send_pend, 0},
+        {durable, false},
+        {subscriptions_max, infinity},
+        {recv_pkt, 1}
+    ],
+    try
+        ok = emqx_cm:insert_channel_info(ClientId, Info, Stats),
+        ?assertEqual(Sparse, stored_chan_stats(ClientId)),
+        Restored = emqx_cm:restore_sparse_stats(Sparse),
+        ?assertEqual(Sparse, lists:sublist(Restored, length(Sparse))),
+        ?assertEqual(
+            maps:merge(emqx_cm:sparse_stats_defaults(), maps:from_list(Stats)),
+            maps:from_list(Restored)
+        ),
+        ?assertEqual(Restored, emqx_cm:get_chan_stats(ClientId)),
+        ?assertEqual(Restored, emqx_cm:get_chan_stats(ClientId, self())),
+        Stats1 = lists:keystore(mqueue_len, 1, Stats, {mqueue_len, 3}),
+        true = emqx_cm:set_chan_stats(ClientId, Stats1),
+        ?assertEqual(
+            [
+                {recv_oct, 10},
+                {send_pend, 0},
+                {durable, false},
+                {subscriptions_max, infinity},
+                {mqueue_len, 3},
+                {recv_pkt, 1}
+            ],
+            stored_chan_stats(ClientId)
+        )
+    after
+        ok = emqx_cm:unregister_channel(ClientId)
+    end.
+
+-doc """
+`lookup_client/1`, which other nodes call, returns rows whose stats have
+the keys that the channel info table omits, with the value 0. The table
+keeps the sparse stats.
+""".
+t_lookup_client_restores_sparse_stats(_) ->
+    ClientId = <<"sparse-stats-lookup">>,
+    Info = #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+    Stats = [{recv_oct, 10}, {mqueue_len, 0}],
+    try
+        ok = emqx_cm:insert_channel_info(ClientId, Info, Stats),
+        ?assertEqual([{recv_oct, 10}], stored_chan_stats(ClientId)),
+        Expected = maps:merge(emqx_cm:sparse_stats_defaults(), maps:from_list(Stats)),
+        lists:foreach(
+            fun(Key) ->
+                [{{ClientId, _}, _Info, Found}] = emqx_cm:lookup_client(Key),
+                ?assertEqual(Expected, maps:from_list(Found), Key)
+            end,
+            [{clientid, ClientId}, {chan_pid, self()}]
+        )
+    after
+        ok = emqx_cm:unregister_channel(ClientId)
+    end.
+
+stored_chan_stats(ClientId) ->
+    ets:lookup_element(emqx_channel_info, {ClientId, self()}, 3).
+
+-doc """
+The stats producer of a TCP connection returns all keys of
+`sparse_stats_defaults/0`, so a reader that merges the defaults restores exactly
+the keys a dense row had.
+""".
+t_sparse_chan_stats_keys_tcp(_) ->
+    assert_sparse_chan_stats_keys(<<"sparse-tcp">>, fun emqtt:connect/1, []).
+
+-doc """
+The stats producer of a WebSocket connection returns all keys of
+`sparse_stats_defaults/0`, so a reader that merges the defaults restores exactly
+the keys a dense row had.
+""".
+t_sparse_chan_stats_keys_ws(_) ->
+    assert_sparse_chan_stats_keys(<<"sparse-ws">>, fun emqtt:ws_connect/1, [{port, 8083}]).
+
+assert_sparse_chan_stats_keys(ClientId, Connect, Opts) ->
+    Defaults = emqx_cm:sparse_stats_defaults(),
+    {ok, C} = emqtt:start_link([{clientid, ClientId} | Opts]),
+    {ok, _} = Connect(C),
+    try
+        [ChanPid] = emqx_cm:lookup_channels(ClientId),
+        #{conninfo := #{conn_mod := ConnMod}} = emqx_cm:get_chan_info(ClientId),
+        Dense = ConnMod:stats(ChanPid),
+        ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Dense), ConnMod),
+        Stored = ets:lookup_element(emqx_channel_info, {ClientId, ChanPid}, 3),
+        ?assertEqual(
+            [],
+            [KV || {K, 0} = KV <- Stored, is_map_key(K, Defaults)],
+            ConnMod
+        ),
+        ?assertEqual(
+            lists:sort(proplists:get_keys(Dense)),
+            lists:sort(maps:keys(maps:merge(Defaults, maps:from_list(Stored)))),
+            ConnMod
+        )
+    after
+        ok = emqtt:disconnect(C)
+    end.
 
 t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
     ClientId = <<"session-buffer-check">>,

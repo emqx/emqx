@@ -38,6 +38,8 @@
     handle_info/2
 ]).
 
+-define(SESSION_TIMER(N), {emqx_session, N}).
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -66,7 +68,7 @@
     %% Duration for asleep
     asleep_timer_duration :: integer() | undefined,
     %% Timer
-    timers :: #{atom() => disable | undefined | reference()},
+    timers :: #{atom() | ?SESSION_TIMER(atom()) => disable | undefined | reference()},
     %%% Takeover
     takeover :: boolean(),
     %% Owner and monitor reference of the authorized resume takeover.
@@ -198,7 +200,9 @@ set_peercert_infos(Peercert, ClientInfo) ->
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec info(list(atom()) | atom(), channel()) -> term().
+-spec info
+    (atom(), channel()) -> term();
+    ([atom()], channel()) -> [{atom(), term()}].
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
@@ -448,9 +452,9 @@ validate_wakeup(
         asleep_timer_duration = SleepDuration
     }
 ) when
-    (ConnState =:= asleep orelse ConnState =:= awake),
-    is_integer(SleepDuration),
-    SleepDuration > 0
+    (ConnState =:= asleep orelse ConnState =:= awake) andalso
+        is_integer(SleepDuration) andalso
+        SleepDuration > 0
 ->
     OldPeercert = maps:get(peercert, OldConnInfo, undefined),
     case can_resume_with_peercert(OldPeercert, NewPeercert) of
@@ -860,18 +864,12 @@ handle_in(
     case ReturnCode of
         ?SN_RC_ACCEPTED ->
             case emqx_mqttsn_session:puback(ClientInfo, MsgId, Session) of
-                {ok, Msg, NSession} ->
-                    ok = after_message_acked(ClientInfo, Msg, Channel),
-                    {Replies, NChannel} = goto_asleep_if_buffered_msgs_sent(
-                        Channel#channel{session = NSession}
-                    ),
-                    {ok, Replies, NChannel};
-                {ok, Msg, Publishes, NSession} ->
+                {OkEffects, Msg, Publishes, NSession} ->
                     ok = after_message_acked(ClientInfo, Msg, Channel),
                     handle_out(
                         publish,
                         Publishes,
-                        Channel#channel{session = NSession}
+                        apply_session_effects(OkEffects, Channel#channel{session = NSession})
                     );
                 {error, ?RC_PROTOCOL_ERROR} ->
                     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
@@ -962,16 +960,11 @@ handle_in(
     Channel = #channel{ctx = Ctx, session = Session, clientinfo = ClientInfo}
 ) ->
     case emqx_mqttsn_session:pubcomp(ClientInfo, MsgId, Session) of
-        {ok, NSession} ->
-            {Replies, NChannel} = goto_asleep_if_buffered_msgs_sent(
-                Channel#channel{session = NSession}
-            ),
-            {ok, Replies, NChannel};
-        {ok, Publishes, NSession} ->
+        {OkEffects, Publishes, NSession} ->
             handle_out(
                 publish,
                 Publishes,
-                Channel#channel{session = NSession}
+                apply_session_effects(OkEffects, Channel#channel{session = NSession})
             );
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{
@@ -1160,14 +1153,13 @@ send_next_register_or_replay_publish(
 %% Handle Publish
 
 check_negative_qos_enable(
-    ?SN_PUBLISH_MSG(Flags, _TopicId, _MsgId, _Data),
+    ?SN_PUBLISH_MSG(#mqtt_sn_flags{qos = QoS}, _TopicId, _MsgId, _Data),
     #channel{enable_negative_qos = EnableNegQoS}
 ) ->
-    #mqtt_sn_flags{qos = QoS} = Flags,
-    case EnableNegQoS =:= false andalso QoS =:= ?QOS_NEG1 of
-        true ->
+    case QoS of
+        ?QOS_NEG1 when not EnableNegQoS ->
             {error, ?SN_RC_NOT_SUPPORTED};
-        false ->
+        _ ->
             ok
     end.
 
@@ -1594,29 +1586,24 @@ awake(
         clientid => ClientId,
         previous_state => ConnState
     }),
-    {Publishes, NSession} = replay_with_pendings(ClientInfo, Pendings, Session),
-    Channel1 = cancel_timer(expire_asleep, Channel#channel{pendings = []}),
-    {Replies0, NChannel0} = outgoing_deliver_and_register(
-        do_deliver(
-            Publishes,
-            Channel1#channel{
-                conn_state = awake, session = NSession
-            }
-        )
-    ),
+    {OkEffects, Publishes, NSession} = replay_with_pendings(ClientInfo, Pendings, Session),
+    Channel1 = Channel#channel{
+        conn_state = awake,
+        pendings = [],
+        session = NSession
+    },
+    Channel2 = cancel_timer(expire_asleep, Channel1),
+    Channel3 = apply_session_effects(OkEffects, Channel2),
+    Replies0 = outgoing_deliver_and_register(do_deliver(Publishes, Channel3)),
     Replies1 = [{event, awake} | Replies0],
-
-    {Replies2, NChannel} = goto_asleep_if_buffered_msgs_sent(NChannel0),
+    {Replies2, NChannel} = goto_asleep_if_buffered_msgs_sent(Channel3),
     {ok, Replies1 ++ Replies2, NChannel}.
 
 replay_with_pendings(ClientInfo, Pendings, Session) ->
-    {ok, Publishes, Session1} = emqx_mqttsn_session:replay(ClientInfo, Session),
-    case emqx_mqttsn_session:deliver(ClientInfo, Pendings, Session1) of
-        {ok, Session2} ->
-            {Publishes, Session2};
-        {ok, More, Session2} ->
-            {lists:append(Publishes, More), Session2}
-    end.
+    {ReplayEffects, Publishes, Session1} = emqx_mqttsn_session:replay(ClientInfo, Session),
+    {DeliverEffects, More, NSession} = emqx_mqttsn_session:deliver(ClientInfo, Pendings, Session1),
+    Effects = combine_effects(ReplayEffects, DeliverEffects),
+    {Effects, lists:append(Publishes, More), NSession}.
 
 goto_asleep_if_buffered_msgs_sent(
     Channel = #channel{
@@ -1639,7 +1626,7 @@ goto_asleep_if_buffered_msgs_sent(
                 {outgoing, ?SN_PINGRESP_MSG()},
                 {event, asleep}
             ],
-            {Replies, ensure_asleep_timer(Channel#channel{conn_state = asleep})};
+            {Replies, ensure_asleep(Channel)};
         false ->
             {[], Channel}
     end;
@@ -1662,7 +1649,22 @@ asleep(Duration, Channel = #channel{conn_state = connected}) ->
         msg => "goto_asleep_state",
         duration => Duration
     }),
-    ensure_asleep_timer(Duration, Channel#channel{conn_state = asleep}).
+    ensure_asleep(Duration, Channel).
+
+ensure_asleep(Channel = #channel{asleep_timer_duration = Duration}) ->
+    ensure_asleep(Duration, Channel).
+
+ensure_asleep(Duration, Channel) ->
+    %% NOTE
+    %% Disconnecting session here to pause scheduled activity, namely delivery
+    %% retries and postponed dequeues.
+    NChannel = disconnect_session(Channel#channel{conn_state = asleep}),
+    case is_integer(Duration) of
+        true ->
+            ensure_asleep_timer(Duration, NChannel);
+        false ->
+            NChannel
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
@@ -1698,12 +1700,13 @@ handle_out(
     _ = run_hooks(Ctx, 'client.connack', [ConnInfo, Reason], #{}),
     AckPacket = ?SN_CONNACK_MSG(ReasonCode),
     shutdown(Reason, AckPacket, Channel);
+handle_out(publish, [], Channel) ->
+    {Replies, NChannel} = goto_asleep_if_buffered_msgs_sent(Channel),
+    {ok, Replies, NChannel};
 handle_out(publish, Publishes, Channel) ->
-    {Replies1, NChannel} = outgoing_deliver_and_register(
-        do_deliver(Publishes, Channel)
-    ),
-    {Replies2, NChannel2} = goto_asleep_if_buffered_msgs_sent(NChannel),
-    {ok, Replies1 ++ Replies2, NChannel2};
+    Replies1 = outgoing_deliver_and_register(do_deliver(Publishes, Channel)),
+    {Replies2, NChannel} = goto_asleep_if_buffered_msgs_sent(Channel),
+    {ok, Replies1 ++ Replies2, NChannel};
 handle_out(puback, {TopicId, MsgId, RC}, Channel) ->
     {ok, {outgoing, ?SN_PUBACK_MSG(TopicId, MsgId, RC)}, Channel};
 handle_out(pubrec, MsgId, Channel) ->
@@ -1814,29 +1817,24 @@ maybe_resume_session(
 resume_or_replay_messages(
     Channel = #channel{
         resuming = Resuming,
-        pendings = Pendings,
-        session = Session,
-        clientinfo = ClientInfo
+        pendings = Pendings
     }
 ) ->
-    {NPendings, NChannel} =
+    {NPendings, Channel1} =
         case Resuming of
             true ->
                 {Pendings, Channel#channel{resuming = false, pendings = []}};
             false ->
                 {[], Channel}
         end,
-    {ok, Publishes, Session1} = emqx_mqttsn_session:replay(ClientInfo, Session),
-    {NPublishes, NSession} =
-        case emqx_mqttsn_session:deliver(ClientInfo, NPendings, Session1) of
-            {ok, Session2} ->
-                {Publishes, Session2};
-            {ok, More, Session2} ->
-                {lists:append(Publishes, More), Session2}
-        end,
-    outgoing_deliver_and_register(
-        do_deliver(NPublishes, NChannel#channel{session = NSession})
-    ).
+    {Publishes, NChannel} = replay_messages(NPendings, Channel1),
+    Replies = outgoing_deliver_and_register(do_deliver(Publishes, NChannel)),
+    {Replies, NChannel}.
+
+replay_messages(Pendings, Channel = #channel{session = Session, clientinfo = ClientInfo}) ->
+    {OkEffects, Publishes, NSession} = replay_with_pendings(ClientInfo, Pendings, Session),
+    NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
+    {Publishes, NChannel}.
 
 subs_resume() ->
     emqx:get_config([gateway, mqttsn, subs_resume]).
@@ -1845,8 +1843,8 @@ subs_resume() ->
 %% Deliver publish: broker -> client
 %%--------------------------------------------------------------------
 
-do_deliver({pubrel, MsgId}, Channel) ->
-    {[?SN_PUBREC_MSG(?SN_PUBREL, MsgId)], Channel};
+do_deliver({pubrel, MsgId}, _Channel) ->
+    ?SN_PUBREC_MSG(?SN_PUBREL, MsgId);
 do_deliver(
     {MsgId, Msg},
     Channel = #channel{
@@ -1864,23 +1862,11 @@ do_deliver(
         emqx_message:update_expiry(Msg)
     ),
     Msg2 = emqx_mountpoint:unmount(Mountpoint, Msg1),
-    Packet = message_to_packet(MsgId, Msg2, Channel),
-    {[Packet], Channel};
-do_deliver([Publish], Channel) ->
-    do_deliver(Publish, Channel);
+    message_to_packet(MsgId, Msg2, Channel);
 do_deliver(Publishes, Channel) when is_list(Publishes) ->
-    {Packets, NChannel} =
-        lists:foldl(
-            fun(Publish, {Acc, Chann}) ->
-                {Packets, NChann} = do_deliver(Publish, Chann),
-                {Packets ++ Acc, NChann}
-            end,
-            {[], Channel},
-            Publishes
-        ),
-    {lists:reverse(Packets), NChannel}.
+    [do_deliver(Publish, Channel) || Publish <- Publishes].
 
-outgoing_deliver_and_register({Packets, Channel}) ->
+outgoing_deliver_and_register(Packets) ->
     {NPackets, NRegisters} =
         lists:foldl(
             fun(P, {Acc0, Acc1}) ->
@@ -1894,7 +1880,7 @@ outgoing_deliver_and_register({Packets, Channel}) ->
             {[], []},
             Packets
         ),
-    {[{outgoing, lists:reverse(NPackets)}] ++ lists:reverse(NRegisters), Channel}.
+    [{outgoing, lists:reverse(NPackets)} | lists:reverse(NRegisters)].
 
 message_to_packet(
     MsgId,
@@ -1955,7 +1941,6 @@ handle_call(
     {takeover, 'begin', ResumeRequest = #{peercert := _}},
     {OwnerPid, _Tag},
     Channel = #channel{
-        session = Session,
         clientinfo = OldClientInfo,
         conninfo = OldConnInfo,
         asleep_timer_duration = SleepDuration,
@@ -1965,15 +1950,15 @@ handle_call(
 ) when is_pid(OwnerPid) ->
     case validate_wakeup(ResumeRequest, Channel) of
         ok ->
-            MonitorRef = erlang:monitor(process, OwnerPid),
-            NChannel = reset_timer(
-                resume_takeover,
-                ?DEFAULT_RESUME_TAKEOVER_TIMEOUT,
-                Channel#channel{
-                    takeover = true,
-                    takeover_owner = {OwnerPid, MonitorRef}
-                }
-            ),
+            MRef = erlang:monitor(process, OwnerPid),
+            Channel1 = Channel#channel{takeover = true, takeover_owner = {OwnerPid, MRef}},
+            Channel2 = disconnect_session(Channel1),
+            NChannel =
+                #channel{session = Session} = reset_timer(
+                    resume_takeover,
+                    ?DEFAULT_RESUME_TAKEOVER_TIMEOUT,
+                    Channel2
+                ),
             reply(
                 {ok, #{
                     session => Session,
@@ -2009,7 +1994,6 @@ handle_call(
     {takeover, 'begin'},
     _From,
     Channel = #channel{
-        session = Session,
         takeover = false,
         takeover_owner = undefined
     }
@@ -2019,7 +2003,8 @@ handle_call(
     %% Will topic and the Will message. [6.3]
     %%
     %% FIXME: We need to reply WillMsg and Session
-    reply(Session, Channel#channel{takeover = true});
+    NChannel = #channel{session = NSession} = disconnect_session(Channel#channel{takeover = true}),
+    reply(NSession, NChannel);
 handle_call({takeover, 'begin'}, _From, Channel) ->
     reply({error, not_resumable}, Channel);
 handle_call(
@@ -2062,15 +2047,20 @@ rollback_resume_takeover(
 ) ->
     _ = erlang:demonitor(MonitorRef, [flush]),
     NSession = emqx_mqttsn_session:enqueue(ClientInfo, Pendings, Session),
-    cancel_timer(
-        resume_takeover,
-        Channel#channel{
-            takeover = false,
-            takeover_owner = undefined,
-            pendings = [],
-            session = NSession
-        }
-    ).
+    Channel1 = Channel#channel{
+        takeover = false,
+        takeover_owner = undefined,
+        pendings = [],
+        session = NSession
+    },
+    NChannel = cancel_timer(resume_takeover, Channel1),
+    case NChannel of
+        #channel{conn_state = CS} when CS =:= connected orelse CS =:= awake ->
+            {Publishes, FChannel} = replay_messages([], NChannel),
+            handle_out(publish, Publishes, FChannel);
+        _ ->
+            {ok, NChannel}
+    end.
 
 clear_takeover_owner(
     Channel = #channel{takeover_owner = {_, MonitorRef}},
@@ -2163,7 +2153,7 @@ handle_info(
         takeover_owner = {OwnerPid, MonitorRef}
     }
 ) ->
-    {ok, rollback_resume_takeover(Channel)};
+    rollback_resume_takeover(Channel);
 handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
@@ -2231,7 +2221,13 @@ ensure_disconnected(
         'client.disconnected',
         [ClientInfo, Reason, NConnInfo]
     ),
-    Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
+    disconnect_session(Channel#channel{conninfo = NConnInfo, conn_state = disconnected}).
+
+disconnect_session(Channel = #channel{session = undefined}) ->
+    Channel;
+disconnect_session(Channel = #channel{conninfo = ConnInfo, session = Session}) ->
+    {idle, Effects, NSession} = emqx_mqttsn_session:disconnect(ConnInfo, Session),
+    apply_session_effects(Effects, Channel#channel{session = NSession}).
 
 mabye_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
@@ -2268,13 +2264,11 @@ handle_deliver(
     Channel = #channel{
         ctx = Ctx,
         conn_state = ConnState,
+        takeover = false,
         session = Session,
         clientinfo = ClientInfo = #{clientid := ClientId}
     }
-) when
-    ConnState =:= disconnected;
-    ConnState =:= asleep
-->
+) when ConnState =:= disconnected orelse ConnState =:= asleep ->
     NSession = emqx_mqttsn_session:enqueue(
         ClientInfo,
         ignore_local(maybe_nack(Delivers), ClientId, Session, Ctx),
@@ -2295,7 +2289,7 @@ handle_deliver(
         clientinfo = #{clientid := ClientId}
     }
 ) when
-    Takeover == true; Resuming == true
+    Takeover orelse Resuming
 ->
     NPendings = lists:append(
         Pendings,
@@ -2303,37 +2297,24 @@ handle_deliver(
     ),
     {ok, Channel#channel{pendings = NPendings}};
 handle_deliver(
-    Delivers,
+    DeliversIn,
     Channel = #channel{
         ctx = Ctx,
         session = Session,
         clientinfo = ClientInfo = #{clientid := ClientId}
     }
 ) ->
-    case
-        emqx_mqttsn_session:deliver(
-            ClientInfo,
-            ignore_local(Delivers, ClientId, Session, Ctx),
-            Session
-        )
-    of
-        {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(
-                publish,
-                Publishes,
-                ensure_timer(retry_delivery, NChannel)
-            );
-        {ok, NSession} ->
-            {ok, Channel#channel{session = NSession}}
-    end.
+    Delivers = ignore_local(DeliversIn, ClientId, Session, Ctx),
+    {Effects, Publishes, NSession} = emqx_mqttsn_session:deliver(ClientInfo, Delivers, Session),
+    NChannel = apply_session_effects(Effects, Channel#channel{session = NSession}),
+    handle_out(publish, Publishes, NChannel).
 
 ignore_local(Delivers, Subscriber, Session, Ctx) ->
     Subs = emqx_mqttsn_session:info(subscriptions, Session),
     lists:filter(
         fun({deliver, Topic, #message{from = Publisher}}) ->
-            case maps:find(Topic, Subs) of
-                {ok, #{nl := 1}} when Subscriber =:= Publisher ->
+            case Subs of
+                #{Topic := #{nl := 1}} when Subscriber =:= Publisher ->
                     ok = metrics_inc(Ctx, 'delivery.dropped'),
                     ok = metrics_inc(Ctx, 'delivery.dropped.no_local'),
                     false;
@@ -2392,18 +2373,6 @@ handle_timeout(
     end;
 handle_timeout(
     _TRef,
-    retry_delivery,
-    Channel = #channel{conn_state = disconnected}
-) ->
-    {ok, Channel};
-handle_timeout(
-    _TRef,
-    retry_delivery = TimerName,
-    Channel = #channel{conn_state = asleep}
-) ->
-    {ok, reset_timer(TimerName, Channel)};
-handle_timeout(
-    _TRef,
     expire_awaiting_rel,
     Channel = #channel{conn_state = disconnected}
 ) ->
@@ -2416,17 +2385,18 @@ handle_timeout(
     {ok, reset_timer(TimerName, Channel)};
 handle_timeout(
     _TRef,
-    TimerName,
+    expire_awaiting_rel = TimerName,
     Channel = #channel{session = Session, clientinfo = ClientInfo}
-) when TimerName == retry_delivery; TimerName == expire_awaiting_rel ->
+) ->
     case emqx_mqttsn_session:handle_timeout(ClientInfo, TimerName, Session) of
-        {ok, Publishes, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, clean_timer(TimerName, NChannel));
-        {ok, Publishes, Timeout, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            %% XXX: These replay messages should awaiting register acked?
-            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, NChannel))
+        {OkEffects, Publishes, NSession} ->
+            Channel1 = clean_timer(TimerName, Channel#channel{session = NSession}),
+            NChannel = apply_session_effects(OkEffects, Channel1),
+            handle_out(publish, Publishes, NChannel);
+        {OkEffects, Publishes, Timeout, NSession} ->
+            Channel1 = reset_timer(TimerName, Timeout, Channel#channel{session = NSession}),
+            NChannel = apply_session_effects(OkEffects, Channel1),
+            handle_out(publish, Publishes, NChannel)
     end;
 handle_timeout(
     _TRef,
@@ -2454,10 +2424,10 @@ handle_timeout(
     resume_takeover,
     Channel = #channel{takeover = true, takeover_owner = {_, _}, timers = Timers}
 ) ->
-    case maps:get(resume_takeover, Timers, undefined) of
-        TRef ->
+    case maps:take(resume_takeover, Timers) of
+        {TRef, NTimers} ->
             ?SLOG(warning, #{msg => "mqttsn_resume_takeover_timeout"}),
-            {ok, rollback_resume_takeover(Channel)};
+            rollback_resume_takeover(Channel#channel{timers = NTimers});
         _ ->
             {ok, Channel}
     end;
@@ -2485,15 +2455,25 @@ handle_timeout(_TRef, expire_asleep, Channel) ->
 handle_timeout(_TRef, connection_expire, Channel) ->
     NChannel = clean_timer(connection_expire, Channel),
     handle_out(disconnect, expired, NChannel);
+handle_timeout(TRef, ?SESSION_TIMER(TimerName) = Timer, Channel = #channel{timers = Timers}) ->
+    case maps:take(Timer, Timers) of
+        {TRef, NTimers} ->
+            handle_session_timeout(TimerName, Channel#channel{timers = NTimers});
+        _Stale ->
+            {ok, Channel}
+    end;
 handle_timeout(_TRef, Msg, Channel) ->
-    %% NOTE
-    %% We do not expect `emqx_mqttsn_session` to set up any custom timers (i.e with
-    %% `emqx_session:ensure_timer/3`), because `emqx_session_mem` doesn't use any.
     ?SLOG(error, #{
         msg => "unexpected_timeout",
         timeout_msg => Msg
     }),
     {ok, Channel}.
+
+handle_session_timeout(TimerName, Channel = #channel{clientinfo = ClientInfo, session = Session}) ->
+    {OkEffects, Publishes, NSession} =
+        emqx_mqttsn_session:handle_timeout(ClientInfo, TimerName, Session),
+    NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
+    handle_out(publish, Publishes, NChannel).
 
 %%--------------------------------------------------------------------
 %% Terminate
@@ -2546,16 +2526,51 @@ update_will_msg(Will, Payload) ->
 %%--------------------------------------------------------------------
 %% Timer
 
-ensure_asleep_timer(Channel = #channel{asleep_timer_duration = Duration}) when
-    is_integer(Duration)
-->
-    ensure_asleep_timer(Duration, Channel).
+-compile({inline, [apply_session_effects/2, apply_session_effect/2]}).
 
-ensure_asleep_timer(Durtion, Channel) ->
+combine_effects(ok, Effects) ->
+    Effects;
+combine_effects(Effects, ok) ->
+    Effects;
+combine_effects(Effects1, Effects2) ->
+    lists:flatten([Effects1, Effects2]).
+
+apply_session_effects(ok, Channel) ->
+    Channel;
+apply_session_effects(Effect, Channel) when not is_list(Effect) ->
+    apply_session_effect(Effect, Channel);
+apply_session_effects([E | Rest], Channel) ->
+    apply_session_effects(Rest, apply_session_effect(E, Channel));
+apply_session_effects([], Channel) ->
+    Channel.
+
+apply_session_effect({set_timer, Name, Time}, Channel) ->
+    set_session_timer(Name, Time, Channel);
+apply_session_effect({reset_timer, Name, Time}, Channel) ->
+    reset_session_timer(Name, Time, Channel).
+
+set_session_timer(Name, Time, Channel) when is_integer(Time) ->
+    Timer = {emqx_session, Name},
+    case Channel#channel.timers of
+        #{Timer := _TRef} ->
+            Channel;
+        #{} ->
+            ensure_timer(Timer, Time, Channel)
+    end;
+set_session_timer(_Name, _Infinity, Channel) ->
+    Channel.
+
+reset_session_timer(Name, Time, Channel) when is_integer(Time) ->
+    Timer = {emqx_session, Name},
+    ensure_timer(Timer, Time, cancel_timer(Timer, Channel));
+reset_session_timer(Name, _Infinity, Channel) ->
+    cancel_timer({emqx_session, Name}, Channel).
+
+ensure_asleep_timer(Duration, Channel) ->
     ensure_timer(
         expire_asleep,
-        timer:seconds(Durtion),
-        Channel#channel{asleep_timer_duration = Durtion}
+        timer:seconds(Duration),
+        Channel#channel{asleep_timer_duration = Duration}
     ).
 
 ensure_register_timer(Channel) ->
@@ -2566,12 +2581,12 @@ ensure_register_timer(RetryTimes, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = Timers#{retry_register => TRef}}.
 
 cancel_timer(Name, Channel = #channel{timers = Timers}) ->
-    case maps:get(Name, Timers, undefined) of
-        undefined ->
+    case maps:take(Name, Timers) of
+        error ->
             Channel;
-        TRef ->
+        {TRef, NTimers} ->
             emqx_utils:cancel_timer(TRef),
-            Channel#channel{timers = maps:without([Name], Timers)}
+            Channel#channel{timers = NTimers}
     end.
 
 ensure_timer(Name, Channel = #channel{timers = Timers}) ->
@@ -2598,8 +2613,6 @@ clean_timer(Name, Channel = #channel{timers = Timers}) ->
 
 interval(keepalive, #channel{keepalive = Keepalive}) ->
     emqx_keepalive:info(check_interval, Keepalive);
-interval(retry_delivery, #channel{session = Session}) ->
-    emqx_mqttsn_session:info(retry_interval, Session);
 interval(expire_awaiting_rel, #channel{session = Session}) ->
     emqx_mqttsn_session:info(await_rel_timeout, Session).
 %%--------------------------------------------------------------------

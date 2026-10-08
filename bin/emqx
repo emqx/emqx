@@ -481,7 +481,7 @@ gen_node_id() {
 }
 
 call_nodetool() {
-    ## Emulator and -kernel flags come from the %%! line in bin/nodetool.
+    ## Release assembly precompiles bin/nodetool and embeds its emulator flags.
     "$ERTS_DIR/bin/escript" "$RUNNER_ROOT_DIR/bin/nodetool" "$@"
 }
 

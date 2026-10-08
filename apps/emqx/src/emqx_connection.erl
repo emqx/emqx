@@ -24,6 +24,7 @@
 -include("emqx_external_trace.hrl").
 -include("emqx_instr.hrl").
 -include("emqx_config.hrl").
+-include("emqx_connection_conf.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -32,7 +33,9 @@
 -endif.
 
 -elvis([{elvis_style, used_ignored_variable, disable}]).
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, #{ignore => [emqx_connection]}}]).
+%% Forced GC is this module's job.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 %% API
 -export([
@@ -86,23 +89,6 @@
     parser/0
 ]).
 
--record(conf, {
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
-    %% Zone name
-    zone :: atom(),
-    %% ActiveN
-    active_n :: pos_integer(),
-    %% Send queue high watermark in bytes
-    sendq_watermark :: non_neg_integer(),
-    %% Hibernate connection process if inactive for
-    hibernate_after :: integer() | infinity,
-    %% Forced GC thresholds, `false` if disabled
-    force_gc :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
-    %% Forced shutdown policy
-    force_shutdown :: emqx_types:oom_policy()
-}).
-
 -record(thresholds, {
     gc_packets,
     gc_bytes,
@@ -153,15 +139,6 @@
 
 -opaque state() :: #state{}.
 
--define(ACTIVE_N, 10).
-
--define(INFO_KEYS, [
-    socktype,
-    peername,
-    sockname,
-    sockstate
-]).
-
 -define(SOCK_STATS, [
     recv_oct,
     recv_cnt,
@@ -201,8 +178,15 @@
     ]}
 ).
 -dialyzer({no_missing_calls, [handle_msg/2]}).
-%% For unknown reasons, dialyzer thinks that this function is never called...
--compile({nowarn_unused_function, [set_tcp_keepalive/1]}).
+%% For unknown reasons, dialyzer thinks that these functions are never called...
+-compile(
+    {nowarn_unused_function, [
+        activate_socket_for_connect/1,
+        active_n/1,
+        pending_transport_error/0,
+        set_tcp_keepalive/1
+    ]}
+).
 
 -ifndef(BUILD_WITHOUT_QUIC).
 -spec start_link
@@ -231,10 +215,8 @@ start_link(Transport, Socket, Options) ->
 -spec info(pid() | state()) -> emqx_types:infos().
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
-info(State = #state{channel = Channel}) ->
-    ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(info(?INFO_KEYS, State)),
-    ChanInfo#{sockinfo => SockInfo}.
+info(#state{channel = Channel}) ->
+    emqx_channel:info(Channel).
 
 -spec info([atom()] | atom() | tuple(), pid() | state()) -> term().
 info(Keys, State) when is_list(Keys) ->
@@ -389,20 +371,19 @@ init_state(
         sock => Socket
     },
     Channel = emqx_channel:init(ConnInfo, Opts),
+    Conf = emqx_connection_conf:conn_conf({Type, Listener}, Zone),
     State0 = #state{
         transport = Transport,
         socket = Socket,
         sockstate = idle,
         channel = Channel,
-        conf = #conf{
-            listener = {Type, Listener}
-        },
+        conf = Conf,
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
         namespace = ?global_ns,
         extra = []
     },
-    init_zone_specific_state(Zone, Opts, State0).
+    init_zone_specific_state(Conf, Zone, State0).
 
 run_loop(
     Parent,
@@ -416,14 +397,33 @@ run_loop(
     emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     emqx_utils:tune_heap_size(ShutdownPolicy),
-    case activate_socket(State) of
+    case activate_socket_for_connect(State) of
         {ok, NState} ->
             ok = set_tcp_keepalive(Listener),
             IdleTimer = start_timer(get_zone_idle_timeout(Zone), idle_timeout),
             hibernate(Parent, NState#state{stats_timer = {idle, IdleTimer}});
         {error, Reason} ->
-            ok = Transport:fast_close(Socket),
-            exit_on_sock_error(Reason)
+            case pending_transport_error() of
+                {ok, ErrorMsg} ->
+                    %% The data ssl had buffered did not frame within
+                    %% `packet_size': ssl delivered the error and stopped the
+                    %% connection, and the activation returned `closed'.
+                    %% Handle the error it left in the mailbox, so that an
+                    %% oversized first packet is reported and counted as such
+                    %% rather than as a plain close.
+                    handle_recv(ErrorMsg, Parent, State);
+                none ->
+                    ok = Transport:fast_close(Socket),
+                    exit_on_sock_error(Reason)
+            end
+    end.
+
+pending_transport_error() ->
+    receive
+        {Error, _Sock, _Reason} = Msg when Error == tcp_error; Error == ssl_error ->
+            {ok, Msg}
+    after 0 ->
+        none
     end.
 
 -spec exit_on_sock_error(any()) -> no_return().
@@ -443,8 +443,7 @@ recvloop(
     Parent,
     State = #state{
         conf = #conf{
-            hibernate_after = HibernateTimeout,
-            zone = Zone
+            zone = Zone, hibernate_after = HibernateTimeout
         }
     }
 ) ->
@@ -463,9 +462,6 @@ recvloop(
 
 handle_recv({system, From, Request}, Parent, State) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
-handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
-    %% FIXME: it's not trapping exit, should never receive an EXIT
-    terminate(Reason, State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
@@ -491,7 +487,9 @@ init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
     end.
 
 -compile({inline, [ensure_stats_timer/1]}).
-ensure_stats_timer(State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}) ->
+ensure_stats_timer(
+    State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}
+) ->
     Timeout = get_zone_idle_timeout(Zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
@@ -657,7 +655,7 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
 handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
-    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    State = init_zone_specific_state(NewZone, State0),
     {ok, State};
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
@@ -863,7 +861,7 @@ parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
                     raw
                 )
             ),
-            NState = update_state_on_parse_error(Parser, NReason, State),
+            NState = update_state_on_parse_error(NReason, State),
             {0, [{frame_error, NReason}], NState};
         error:Reason:Stacktrace ->
             NReason = maybe_enrich_first_packet_error(Data, Reason, State),
@@ -903,29 +901,22 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
 
-init_parser(Transport, Socket, FrameOpts) ->
+init_parser(Transport, Socket, ParseState) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
     case lists:keyfind(packet, 1, SocketOpts) of
         {packet, mqtt} ->
             %% Enable whole-frame packet parser.
-            {frame, emqx_frame:initial_parse_state(FrameOpts)};
+            {frame, ParseState};
         _Otherwise ->
             %% Go with regular streaming parser.
-            emqx_frame:initial_parse_state(FrameOpts)
+            ParseState
     end.
 
-update_state_on_parse_error(
-    ParseState0,
-    #{proto_ver := ProtoVer, parse_state := ParseState},
-    State
-) ->
-    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    case ParseState0 of
-        {frame, _Options} -> NParseState = {frame, ParseState};
-        _StreamParseState -> NParseState = ParseState
-    end,
-    State#state{serialize = Serialize, parser = NParseState};
-update_state_on_parse_error(_, _, State) ->
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
+update_state_on_parse_error(_, State) ->
     State.
 
 run_parser(Data, {frame, Options}, State) ->
@@ -957,6 +948,16 @@ run_frame_parser(Data, Options, State) ->
 describe_parser_state(ParseState) ->
     emqx_frame:describe_state(ParseState).
 
+%% Swap in the zone's shared parse state and serializer options where they are
+%% equal to the connection's own.
+share_frame_opts(ProtoVer, {frame, Options0}, Serialize0, State) ->
+    {Options, Serialize} = share_frame_opts(ProtoVer, Options0, Serialize0, State),
+    {{frame, Options}, Serialize};
+share_frame_opts(ProtoVer, ParseState, Serialize, #state{
+    conf = #conf{zone = Zone}
+}) ->
+    emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
+
 get_parser_state({frame, Options}) ->
     Options;
 get_parser_state(ParseState) ->
@@ -977,8 +978,17 @@ handle_incoming(Packet = ?PACKET(Type), #state{quic_conn_ss = QSS} = State) ->
         ?CONNECT ->
             %% CONNECT packet is fully received, time to cancel idle timer.
             ok = cancel_idle_timer(State),
+            ok = raise_packet_size_limit(State),
+            #mqtt_packet{variable = ConnPkt} = Packet,
+            {Parser, Serialize} = share_frame_opts(
+                ConnPkt#mqtt_packet_connect.proto_ver,
+                State#state.parser,
+                emqx_frame:serialize_opts(ConnPkt),
+                State
+            ),
             NState = State#state{
-                serialize = emqx_frame:serialize_opts(Packet#mqtt_packet.variable),
+                parser = Parser,
+                serialize = Serialize,
                 stats_timer = init_stats_timer(State)
             },
             with_channel(handle_in, [Packet], NState);
@@ -1314,15 +1324,17 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
             handle_info({sock_error, Reason}, State)
     end;
 handle_info({sock_error, Reason}, State) ->
-    %% Do not log warning for econnreset
-    maybe_log_first_packet_non_mqtt(Reason, State),
-    case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
-        true ->
-            ok;
+    case connect_too_large_error(Reason, State) of
+        {true, FrameError} ->
+            %% The transport has already closed the socket with the error:
+            %% gen_tcp closes the port after `tcp_error', ssl stops the
+            %% connection after `invalid_packet'. There is nothing to close,
+            %% and `ssl:close/1' on a stopping connection would block for
+            %% esockd's close timeout.
+            handle_incoming(FrameError, State#state{sockstate = closed});
         false ->
-            ?SLOG(warning, #{msg => "socket_error", reason => Reason})
-    end,
-    handle_info({sock_closed, Reason}, close_socket(State));
+            handle_sock_error(Reason, State)
+    end;
 %% handle QUIC control stream events
 handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
     case emqx_quic_stream:Event(Handle, Prop, State) of
@@ -1333,6 +1345,120 @@ handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
     end;
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
+
+handle_sock_error(Reason, State) ->
+    %% Do not log warning for econnreset
+    maybe_log_first_packet_non_mqtt(Reason, State),
+    case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{msg => "socket_error", reason => Reason})
+    end,
+    handle_info({sock_closed, Reason}, close_socket(State)).
+
+%% The first activation of a whole-frame transport.
+%%
+%% The listener accepts with `packet_size' set to the CONNECT limit
+%% (`emqx_listeners:choose_packet_opts/1'), which bounds what the transport
+%% buffers for a client that has not connected yet. It is set again here
+%% because `ssl' does not carry `packet_size' over from the TCP socket when it
+%% upgrades the connection (`ssl:emulated_options/4' merges the socket's
+%% options into the defaults with `lists:ukeymerge/3' on lists that are not
+%% key-sorted; `packet' survives, `packet_size' comes out as 0).
+%%
+%% While the CONNECT limit is below `max_packet_size', ask for one packet
+%% only. The transport then delivers CONNECT and goes passive with whatever
+%% follows still unparsed, so a packet the client pipelined behind CONNECT
+%% (allowed before CONNACK) is framed against `max_packet_size' once
+%% `raise_packet_size_limit/1' has run on the CONNECT, rather than refused
+%% against the CONNECT limit. The regular `{active, N}' takes over on the
+%% passive notification.
+activate_socket_for_connect(
+    #state{
+        parser = {frame, _},
+        transport = Transport,
+        socket = Socket,
+        conf = #conf{zone = Zone}
+    } = State
+) ->
+    {Limit, MaxSize} = connect_packet_size_limits(Zone),
+    Active =
+        case Limit < MaxSize of
+            true -> 1;
+            false -> active_n(State)
+        end,
+    case Transport:setopts(Socket, [{packet_size, Limit}, {active, Active}]) of
+        ok -> {ok, State#state{sockstate = running}};
+        Error -> Error
+    end;
+activate_socket_for_connect(State) ->
+    activate_socket(State).
+
+%% CONNECT has been received: raise `packet_size' to `max_packet_size' so
+%% the packets that follow are not held to the CONNECT limit.
+raise_packet_size_limit(#state{
+    parser = {frame, _},
+    transport = Transport,
+    socket = Socket,
+    conf = #conf{zone = Zone}
+}) ->
+    case connect_packet_size_limits(Zone) of
+        {Limit, MaxSize} when Limit < MaxSize ->
+            _ = Transport:setopts(Socket, [{packet_size, MaxSize}]),
+            ok;
+        _ ->
+            ok
+    end;
+raise_packet_size_limit(_State) ->
+    ok.
+
+%% `{ConnectLimit, MaxSize}', with the CONNECT limit never above `MaxSize'.
+connect_packet_size_limits(Zone) ->
+    MaxSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+    Limit = min(MaxSize, emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size])),
+    {Limit, MaxSize}.
+
+active_n(#state{conf = #conf{active_n = ActiveN}}) ->
+    ActiveN.
+
+-doc """
+Recognise a first frame the transport refused for being over `packet_size'.
+
+Before CONNECT, the whole-frame transports are set up with `packet_size' equal
+to `max_connect_packet_size', so they reject an oversized CONNECT before the
+parser sees a byte of it. `gen_tcp' reports `emsgsize'; `ssl' reports
+`{invalid_packet, Data}', carrying the client's bytes. Report both the way the
+stream parser reports the same packet, so the shutdown counter does not depend
+on the transport, and the client's bytes stay out of the exit reason.
+
+Only the error tag is kept: whether the refused frame really was a CONNECT is
+not knowable here, and neither is it in the stream parser's case.
+""".
+connect_too_large_error(Reason, #state{
+    parser = {frame, _}, channel = Channel, conf = #conf{zone = Zone}
+}) ->
+    case transport_frame_too_large(Reason) andalso emqx_channel:info(conn_state, Channel) of
+        idle ->
+            Limit = emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
+            {true,
+                {frame_error, #{
+                    cause => connect_packet_too_large,
+                    limit => Limit,
+                    transport_error => transport_error_tag(Reason)
+                }}};
+        _ ->
+            false
+    end;
+connect_too_large_error(_Reason, _State) ->
+    false.
+
+transport_frame_too_large(emsgsize) -> true;
+transport_frame_too_large({invalid_packet, _Data}) -> true;
+transport_frame_too_large(_) -> false.
+
+transport_error_tag({invalid_packet, _Data}) -> invalid_packet;
+transport_error_tag(Reason) -> Reason.
 
 maybe_log_first_packet_non_mqtt(emsgsize, #state{channel = Channel}) ->
     case emqx_channel:info(conn_state, Channel) of
@@ -1541,42 +1667,24 @@ wait_for_quic_stream_close(
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
-    #conf{listener = {Type, Listener}} = Conf,
-    FrameOpts0 = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
-        %% zone will **not** take effect after the override.
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-        max_connect_user_properties => emqx_config:get_zone_conf(
-            Zone, [mqtt, max_connect_user_properties]
-        ),
-        %% Any packet received before CONNECT is rejected by the parser.
-        expect_connect => true
-    },
+%% A zone change on a live connection.
+init_zone_specific_state(Zone, #state{conf = Conf0} = State0) ->
+    init_zone_specific_state(
+        emqx_connection_conf:conn_conf(Conf0#conf.listener, Zone), Zone, State0
+    ).
+
+init_zone_specific_state(NConf, Zone, State0) ->
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
-                init_parser_and_serializer(FrameOpts0, State0);
+                init_parser_and_serializer(Zone, State0);
             Parser1 ->
-                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+                %% zone will **not** take effect after the override.
+                FrameOpts = emqx_connection_conf:frame_opts(Zone),
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
-    GcThresholds =
-        case emqx_config:get_zone_conf(Zone, [force_gc]) of
-            #{enable := false} ->
-                false;
-            #{enable := true, count := Count, bytes := Bytes} ->
-                {Count, Bytes}
-        end,
-    NConf = Conf#conf{
-        zone = Zone,
-        active_n = get_active_n(Type, Listener),
-        sendq_watermark = get_high_watermark(Type, Listener),
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
-        force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
-        force_gc = GcThresholds
-    },
     State0#state{
         parser = Parser,
         serialize = Serialize,
@@ -1584,14 +1692,15 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         conf = NConf
     }.
 
-init_parser_and_serializer(FrameOpts0, State0) ->
+init_parser_and_serializer(Zone, State0) ->
     #state{
         transport = Transport,
         socket = Socket
     } = State0,
-    Parser0 = init_parser(Transport, Socket, FrameOpts0),
-    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-    {Parser0, Serialize0}.
+    #{initial_parse_state := ParseState, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(
+        Zone
+    ),
+    {init_parser(Transport, Socket, ParseState), Serialize}.
 
 %%--------------------------------------------------------------------
 %% For CT tests
@@ -1609,16 +1718,3 @@ get_state(Pid) ->
             tl(tuple_to_list(State))
         )
     ).
-
-get_active_n(quic, _Listener) ->
-    ?ACTIVE_N;
-get_active_n(Type, Listener) ->
-    emqx_listeners:clamp_active_n(
-        emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n])
-    ).
-
-get_high_watermark(quic, _Listener) ->
-    0;
-get_high_watermark(Type, Listener) ->
-    %% TODO protect against too small hwm
-    emqx_config:get_listener_conf(Type, Listener, [tcp_options, high_watermark]).

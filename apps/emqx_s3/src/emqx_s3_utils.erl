@@ -35,6 +35,11 @@ map_error_details(Error) ->
 
 -spec map_aws_error_details(_AWSError) ->
     unicode:chardata().
+map_aws_error_details({http_error, Status, _, undefined}) ->
+    %% `undefined` is returned when no body was indeed returned by hackney, or when an
+    %% error occurs when calling `hackney:body/1`, such as it returning `{error,
+    %% req_not_found}`
+    ["response status ", integer_to_binary(Status), " and no body"];
 map_aws_error_details({http_error, _Status, _, Body}) ->
     try xmerl_scan:string(unicode:characters_to_list(Body), [{quiet, true}]) of
         {Error = #xmlElement{name = 'Error'}, _} ->

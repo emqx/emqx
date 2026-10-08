@@ -37,13 +37,15 @@ payload_template.label:
 """Payload template"""
 
 aws_access_key_id.desc:
-"""Access Key ID for connecting to Amazon Kinesis."""
+"""Access Key ID for connecting to Amazon Kinesis.
+If both the Access Key ID and the Secret Access Key are omitted, credentials are obtained from the ECS task role or EC2 instance metadata."""
 
 aws_access_key_id.label:
 """AWS Access Key ID"""
 
 aws_secret_access_key.desc:
-"""AWS Secret Access Key for connecting to Amazon Kinesis."""
+"""AWS Secret Access Key for connecting to Amazon Kinesis.
+If both the Access Key ID and the Secret Access Key are omitted, credentials are obtained from the ECS task role or EC2 instance metadata."""
 
 aws_secret_access_key.label:
 """AWS Secret Access Key"""

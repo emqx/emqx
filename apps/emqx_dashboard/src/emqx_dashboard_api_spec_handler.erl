@@ -212,15 +212,16 @@ verify_bearer(Req, Token) ->
         _ -> unauthorized
     end.
 
-%% Synthetic HandlerInfo for the auth primitives. The path is the route
-%% pattern rather than the request URL so `emqx_mgmt_auth:check_scopes/2`
-%% treats it as an unmapped path (allow). The module/function are real so
-%% dialyzer can see them.
+%% Synthetic HandlerInfo for the auth primitives. The scope check looks up
+%% `{?MODULE, handle_get}', which `emqx_mgmt_api_key_scopes' maps to
+%% `?SCOPE_PUBLIC', so any authenticated caller passes it whatever scopes
+%% it holds. `method' is the lowercase atom minirest sets, which the RBAC
+%% rules match on. The module/function are real so dialyzer can see them.
 handler_info(Req) ->
     #{
         module => ?MODULE,
         function => handle_get,
-        method => 'GET',
+        method => get,
         path => binary_to_list(cowboy_req:path(Req))
     }.
 

@@ -9,6 +9,9 @@
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% Listener names come from checked config, so the atoms exist.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %% APIs
 -export([
     list_raw/0,
@@ -684,19 +687,36 @@ pre_config_update([?ROOT_KEY], NewConf, OldConf) ->
             Error
     end.
 
-post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
+post_config_update(Path, Request, NewConf, OldConf, AppEnvs) ->
+    Result = do_post_config_update(Path, Request, NewConf, OldConf, AppEnvs),
+    ok = emqx_connection_conf:listeners_changed(changed_listeners(Path, Request, NewConf, OldConf)),
+    Result.
+
+%% The updated listeners with their new config, and the deleted ones with `undefined'.
+changed_listeners([?ROOT_KEY, Type, Name], ?MARK_DEL, _NewConf, _OldConf) ->
+    [{{Type, Name}, undefined}];
+changed_listeners([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, _OldConf) ->
+    [{{Type, Name}, NewConf}];
+changed_listeners([?ROOT_KEY], _Request, NewConf, OldConf) ->
+    #{removed := Removed, changed := Changed} = diff_confs(NewConf, OldConf),
+    [{{Type, Name}, undefined} || {Type, Name, _} <- Removed] ++
+        [{{Type, Name}, New} || {_Old, {Type, Name, New}} <- Changed];
+changed_listeners(_Path, _Request, _NewConf, _OldConf) ->
+    [].
+
+do_post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
     OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE
 ->
     start_listener(Type, Name, NewConf);
-post_config_update([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
     update_listener(Type, Name, OldConf, NewConf);
-post_config_update([?ROOT_KEY, Type, Name], ?MARK_DEL, _, OldConf = #{}, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY, Type, Name], ?MARK_DEL, _, OldConf = #{}, _AppEnvs) ->
     stop_listener(Type, Name, OldConf);
-post_config_update([?ROOT_KEY, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
     update_listener(Type, Name, OldConf, NewConf);
-post_config_update([?ROOT_KEY], _Request, OldConf, OldConf, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY], _Request, OldConf, OldConf, _AppEnvs) ->
     ok;
-post_config_update([?ROOT_KEY], _Request, NewConf, OldConf, _AppEnvs) ->
+do_post_config_update([?ROOT_KEY], _Request, NewConf, OldConf, _AppEnvs) ->
     #{added := Added, removed := Removed, changed := Changed} = diff_confs(NewConf, OldConf),
     %% TODO
     %% This currently lacks transactional semantics. If one of the changes fails,
@@ -706,7 +726,7 @@ post_config_update([?ROOT_KEY], _Request, NewConf, OldConf, _AppEnvs) ->
             [{stop, L} || L <- Removed] ++
             [{start, L} || L <- Added]
     );
-post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
+do_post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 post_zone_config_update(OldZones, NewZones) ->
@@ -733,15 +753,22 @@ do_post_zone_config_update(true, OldZones, NewZones) ->
             )
     end.
 
+%% Zone settings that `choose_packet_opts/1' bakes into the listener socket
+%% options, and so require the listener to be updated when they change.
+-define(PACKET_OPT_KEYS, [max_packet_size, max_connect_packet_size]).
+
 find_zones_with_relevant_changes([], _OldZones, _NewZones, Acc) ->
     Acc;
 find_zones_with_relevant_changes([Zone | Zones], OldZones, NewZones, Acc) ->
-    OldConfig = emqx_utils_maps:deep_get([Zone, mqtt, max_packet_size], OldZones, none),
-    NewConfig = emqx_utils_maps:deep_get([Zone, mqtt, max_packet_size], NewZones, none),
-    case OldConfig =:= NewConfig of
-        true ->
-            find_zones_with_relevant_changes(Zones, OldZones, NewZones, Acc);
+    Read = fun(Config, Key) -> emqx_utils_maps:deep_get([Zone, mqtt, Key], Config, none) end,
+    Changed = lists:any(
+        fun(Key) -> Read(OldZones, Key) =/= Read(NewZones, Key) end,
+        ?PACKET_OPT_KEYS
+    ),
+    case Changed of
         false ->
+            find_zones_with_relevant_changes(Zones, OldZones, NewZones, Acc);
+        true ->
             find_zones_with_relevant_changes(Zones, OldZones, NewZones, [Zone | Acc])
     end.
 
@@ -871,7 +898,14 @@ choose_packet_opts(Opts) ->
     HasPacketParser = is_packet_parser_available(mqtt),
     case ParseUnit of
         frame when HasPacketParser ->
-            PacketSize = emqx_config:get_zone_conf(zone(Opts), [mqtt, max_packet_size]),
+            %% Accept with the CONNECT limit, so the kernel does not buffer a
+            %% whole `max_packet_size' frame for a client that has not connected
+            %% yet. `emqx_connection' raises it once the client is connected.
+            Zone = zone(Opts),
+            PacketSize = min(
+                emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+                emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size])
+            ),
             [{packet, mqtt}, {packet_size, PacketSize}, {mode, binary}];
         frame ->
             %% NOTE: Silently ignoring the setting if BEAM does not provide `mqtt` parser.
@@ -1414,20 +1448,17 @@ to_quicer_listener_opts(Name, Opts) ->
     ListenOpts = maps:merge(Opts2, optional_quic_listener_opts(Opts)),
 
     %% Conn Opts
-    HibernateAfterMs = maps:get(hibernate_after, ListenOpts),
     ConnectionOpts = #{
         alpn => ["mqtt"],
         conn_callback => emqx_quic_connection,
         peer_unidi_stream_count => maps:get(peer_unidi_stream_count, Opts, 1),
         peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
         zone => zone(Opts),
-        listener => {quic, Name},
-        hibernate_after => HibernateAfterMs
+        listener => {quic, Name}
     },
     StreamOpts = #{
         stream_callback => emqx_quic_stream,
-        active => 1,
-        hibernate_after => HibernateAfterMs
+        active => 1
     },
     ?tp("quic_listener_opts", #{listen_opts => ListenOpts}),
     {ListenOpts, ConnectionOpts, StreamOpts}.

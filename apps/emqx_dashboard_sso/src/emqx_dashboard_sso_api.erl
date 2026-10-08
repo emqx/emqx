@@ -64,11 +64,11 @@ scopes() ->
     %% dashboard pre-auth login page to render the "Log in with X"
     %% button list. All three must remain anonymously accessible.
     #{
-        <<"/sso">> => ?SCOPE_SSO_MGMT,
-        <<"/sso/:backend">> => ?SCOPE_SSO_MGMT,
-        <<"/sso/running">> => ?SCOPE_PUBLIC,
-        <<"/sso/login/:backend">> => ?SCOPE_PUBLIC,
-        <<"/sso/token_exchange">> => ?SCOPE_PUBLIC
+        "/sso" => ?SCOPE_SSO_MGMT,
+        "/sso/:backend" => ?SCOPE_SSO_MGMT,
+        "/sso/running" => ?SCOPE_PUBLIC,
+        "/sso/login/:backend" => ?SCOPE_PUBLIC,
+        "/sso/token_exchange" => ?SCOPE_PUBLIC
     }.
 
 paths() ->

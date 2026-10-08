@@ -157,7 +157,9 @@ allow_installation(NameVsn, LogFun) ->
 allow_installation(NameVsn, Sha256, LogFun) ->
     try emqx_plugins_utils:parse_name_vsn(NameVsn) of
         {_AppName, _Vsn} ->
-            do_allow_installation(NameVsn, Sha256, LogFun)
+            unless_pinned(NameVsn, allow_installation, LogFun, fun() ->
+                do_allow_installation(NameVsn, Sha256, LogFun)
+            end)
     catch
         error:bad_name_vsn ->
             ?PRINT({error, bad_name_vsn}, LogFun)
@@ -283,14 +285,16 @@ ensure_installed(NameVsn, LogFun) ->
     %% a tarball that landed in the install dir (e.g. via cluster replication
     %% or manual placement) must not be installable without an explicit
     %% `plugins allow' grant from the admin.
-    case emqx_plugins:is_allowed_installation(NameVsn) of
-        true ->
-            Result = do_ensure_installed(NameVsn),
-            maybe_forget_grant(NameVsn, Result),
-            ?PRINT(Result, LogFun);
-        false ->
-            ?PRINT({error, not_allowed}, LogFun)
-    end.
+    unless_pinned(NameVsn, ensure_installed, LogFun, fun() ->
+        case emqx_plugins:is_allowed_installation(NameVsn) of
+            true ->
+                Result = do_ensure_installed(NameVsn),
+                maybe_forget_grant(NameVsn, Result),
+                ?PRINT(Result, LogFun);
+            false ->
+                ?PRINT({error, not_allowed}, LogFun)
+        end
+    end).
 
 do_ensure_installed(NameVsn) ->
     case emqx_plugins:install_state(NameVsn) of
@@ -325,17 +329,19 @@ ensure_installed_cluster(NameVsn, LogFun) ->
     %% Same allow gate as the single-node CLI install: the tarball is read
     %% from the local install dir and pushed to all nodes, so it must not be
     %% installable without an explicit `plugins allow' grant either.
-    case emqx_plugins:is_allowed_installation(NameVsn) of
-        true ->
-            Result = do_ensure_installed_cluster(NameVsn, LogFun),
-            maybe_forget_grant(NameVsn, Result),
-            %% Return the outcome: `emqx_ctl' derives both the audit level and
-            %% the CLI exit code from it, so a failed cluster install must not
-            %% be reported as a success.
-            Result;
-        false ->
-            ?PRINT({error, not_allowed}, LogFun)
-    end.
+    unless_pinned(NameVsn, ensure_installed_cluster, LogFun, fun() ->
+        case emqx_plugins:is_allowed_installation(NameVsn) of
+            true ->
+                Result = do_ensure_installed_cluster(NameVsn, LogFun),
+                maybe_forget_grant(NameVsn, Result),
+                %% Return the outcome: `emqx_ctl' derives both the audit level and
+                %% the CLI exit code from it, so a failed cluster install must not
+                %% be reported as a success.
+                Result;
+            false ->
+                ?PRINT({error, not_allowed}, LogFun)
+        end
+    end).
 
 %% Consume the grant only on success; retain it on failure so the admin can
 %% retry after fixing the underlying problem. Mirroring the HTTP upload
@@ -384,13 +390,44 @@ ensure_uninstalled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_uninstalled(NameVsn), LogFun).
 
 ensure_started(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_started(NameVsn), LogFun).
+    case is_pinned(NameVsn) of
+        true -> ?PRINT(emqx_plugins:start_pinned(NameVsn), LogFun);
+        false -> ?PRINT(emqx_plugins:ensure_started(NameVsn), LogFun)
+    end.
 
 ensure_stopped(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_stopped(NameVsn), LogFun).
+    case is_pinned(NameVsn) of
+        true -> ?PRINT(emqx_plugins:stop_pinned(NameVsn), LogFun);
+        false -> ?PRINT(emqx_plugins:ensure_stopped(NameVsn), LogFun)
+    end.
 
 restart(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:restart(NameVsn), LogFun).
+    case is_pinned(NameVsn) of
+        true -> ?PRINT(restart_pinned(NameVsn), LogFun);
+        false -> ?PRINT(emqx_plugins:restart(NameVsn), LogFun)
+    end.
+
+restart_pinned(NameVsn) ->
+    maybe
+        ok ?= emqx_plugins:stop_pinned(NameVsn),
+        emqx_plugins:start_pinned(NameVsn)
+    end.
+
+%% A pinned plugin is managed on its own node only: the CLI starts and stops it
+%% on this node, and refuses the other lifecycle commands.
+is_pinned(NameVsn) ->
+    emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso
+        emqx_plugins_pinned:is_pinned(NameVsn).
+
+unless_pinned(NameVsn, Action, LogFun, Fun) ->
+    case is_pinned(NameVsn) of
+        true ->
+            Result = {error, emqx_plugins_pinned:refusal(NameVsn)},
+            print(NameVsn, Result, LogFun, Action),
+            Result;
+        false ->
+            Fun()
+    end.
 
 ensure_enabled(NameVsn, Position, LogFun) ->
     ?PRINT(emqx_plugins:ensure_enabled(NameVsn, Position, _ConfLocation = global), LogFun).

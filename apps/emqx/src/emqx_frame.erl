@@ -4,12 +4,17 @@
 
 -module(emqx_frame).
 
+-compile({inline, [validate_connect_first/2, validate_frame_len/3, parse_properties/3]}).
+
 -include("emqx_mqtt.hrl").
 
+%% Parse state builders. Each one derives a state from options and a
+%% protocol version alone, never from a live connection, so
+%% `emqx_connection_conf' caches their results per zone.
 -export([
     initial_parse_state/0,
     initial_parse_state/1,
-    update_parse_state/2
+    post_connect_parse_state/2
 ]).
 
 -export([
@@ -42,6 +47,7 @@
 -type options() :: #{
     strict_mode => boolean(),
     max_size => 1..?MAX_PACKET_SIZE,
+    max_connect_size => 1..?MAX_PACKET_SIZE,
     max_connect_user_properties => non_neg_integer() | infinity,
     version => emqx_types:proto_ver(),
     expect_connect => boolean()
@@ -50,6 +56,8 @@
 -record(options, {
     strict_mode :: boolean(),
     max_size :: 1..?MAX_PACKET_SIZE,
+    %% Size limit for a CONNECT packet, on top of `max_size'.
+    max_connect_size :: 1..?MAX_PACKET_SIZE,
     %% Limit on the number of 'User-Property' pairs in a CONNECT packet.
     %% Applies to the CONNECT properties and the will properties separately.
     max_connect_user_properties :: non_neg_integer() | infinity,
@@ -72,15 +80,23 @@
     %% There's a full packet.
     | {emqx_types:packet(), binary(), parse_state_initial()}.
 
--type serialize_opts() :: options().
+%% The serializer reads only these options.
+-type serialize_opts() :: #{
+    version := emqx_types:proto_ver(),
+    max_size := 1..?MAX_PACKET_SIZE
+}.
 
 -define(DEFAULT_OPTIONS, #{
     strict_mode => true,
     max_size => ?MAX_PACKET_SIZE,
+    max_connect_size => ?MAX_PACKET_SIZE,
     max_connect_user_properties => infinity,
     version => ?MQTT_PROTO_V4,
     expect_connect => false
 }).
+
+%% Never strict mode for serializer.
+-define(NON_STRICT, false).
 
 -define(PARSE_ERR(Reason), ?THROW_FRAME_ERROR(Reason)).
 -define(SERIALIZE_ERR(Reason), ?THROW_SERIALIZE_ERROR(Reason)).
@@ -180,6 +196,7 @@ initial_parse_state(Options) when is_map(Options) ->
     #options{
         strict_mode = maps:get(strict_mode, Effective),
         max_size = maps:get(max_size, Effective),
+        max_connect_size = maps:get(max_connect_size, Effective),
         max_connect_user_properties = maps:get(max_connect_user_properties, Effective),
         version = maps:get(version, Effective),
         expect_connect = maps:get(expect_connect, Effective)
@@ -249,7 +266,8 @@ parse_complete(
         <<0:8>> ->
             parse_bodyless_packet(Header);
         _ ->
-            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            {RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            ok = validate_frame_len(RemLen, Header, Options),
             parse_packet_complete(Rest2, Header, Options)
     end.
 
@@ -359,13 +377,26 @@ parse_remaining_len(
     Header,
     Multiplier,
     Value,
-    Options = #options{max_size = MaxSize}
+    Options
 ) ->
     FrameLen = Value + Len * Multiplier,
-    case FrameLen > MaxSize of
-        true -> ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
-        false -> parse_body_frame(Rest, Header, FrameLen, <<>>, Options)
-    end.
+    ok = validate_frame_len(FrameLen, Header, Options),
+    parse_body_frame(Rest, Header, FrameLen, <<>>, Options).
+
+%% A CONNECT packet is held to `max_connect_size' as well as `max_size'. Both
+%% limits are checked on the Remaining Length.
+validate_frame_len(
+    FrameLen,
+    #mqtt_packet_header{type = ?CONNECT},
+    #options{max_connect_size = MaxConnectSize}
+) when FrameLen > MaxConnectSize ->
+    ?PARSE_ERR(#{
+        cause => connect_packet_too_large, limit => MaxConnectSize, received => FrameLen
+    });
+validate_frame_len(FrameLen, _Header, #options{max_size = MaxSize}) when FrameLen > MaxSize ->
+    ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
+validate_frame_len(_FrameLen, _Header, _Options) ->
+    ok.
 
 -compile({inline, [parse_bodyless_packet/1]}).
 
@@ -416,7 +447,7 @@ packet(Header, Variable, Payload) ->
 parse_packet_complete(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
-    NOptions = connect_parsed(Variable#mqtt_packet_connect.proto_ver, Options),
+    NOptions = post_connect_parse_state(Variable#mqtt_packet_connect.proto_ver, Options),
     [Packet, NOptions];
 parse_packet_complete(Frame, Header, Options) ->
     parse_packet(Frame, Header, Options).
@@ -425,7 +456,7 @@ parse_packet_complete(Frame, Header, Options) ->
 parse_packet(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options, Rest) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
-    {Packet, Rest, connect_parsed(Variable#mqtt_packet_connect.proto_ver, Options)};
+    {Packet, Rest, post_connect_parse_state(Variable#mqtt_packet_connect.proto_ver, Options)};
 parse_packet(Frame, Header, Options, Rest) ->
     Packet = parse_packet(Frame, Header, Options),
     {Packet, Rest, Options}.
@@ -440,33 +471,24 @@ parse_connect(Frame, Options = #options{strict_mode = StrictMode}) ->
         do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, Options)
     catch
         throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
-            ?PARSE_ERR(
-                ReasonM#{
-                    proto_ver => ProtoVer,
-                    proto_name => ProtoName,
-                    parse_state => update_parse_state(ProtoVer, Options)
-                }
-            );
+            ?PARSE_ERR(ReasonM#{proto_ver => ProtoVer, proto_name => ProtoName});
         throw:{?FRAME_PARSE_ERROR, Reason} ->
-            ?PARSE_ERR(
-                #{
-                    cause => Reason,
-                    proto_ver => ProtoVer,
-                    proto_name => ProtoName,
-                    parse_state => update_parse_state(ProtoVer, Options)
-                }
-            )
+            ?PARSE_ERR(#{cause => Reason, proto_ver => ProtoVer, proto_name => ProtoName})
     end.
 
--spec update_parse_state(emqx_types:proto_ver(), parse_state_initial()) ->
-    parse_state_initial().
-update_parse_state(ProtoVer, Options) ->
-    Options#options{version = ProtoVer}.
+-doc """
+Return the parse state the parser moves to once it has parsed a CONNECT packet
+of the given protocol version.
 
-%% CONNECT is parsed: record the protocol version and stop requiring CONNECT.
--spec connect_parsed(emqx_types:proto_ver(), parse_state_initial()) ->
+The state records the protocol version and no longer requires a CONNECT. It is
+a function of the initial state and the version only, not of any connection,
+so the same term serves every connection of a zone. The parser returns this
+state together with the CONNECT packet; `emqx_connection_conf` builds it ahead
+of time.
+""".
+-spec post_connect_parse_state(emqx_types:proto_ver(), parse_state_initial()) ->
     parse_state_initial().
-connect_parsed(ProtoVer, Options) ->
+post_connect_parse_state(ProtoVer, Options) ->
     Options#options{version = ProtoVer, expect_connect = false}.
 
 do_parse_connect(
@@ -1148,35 +1170,38 @@ serialize_fun() -> serialize_fun(?DEFAULT_OPTIONS).
 
 serialize_fun(#mqtt_packet_connect{proto_ver = ProtoVer, properties = ConnProps}) ->
     MaxSize = get_property('Maximum-Packet-Size', ConnProps, ?MAX_PACKET_SIZE),
-    serialize_fun(#{version => ProtoVer, max_size => MaxSize, strict_mode => false});
-serialize_fun(#{version := Ver, max_size := MaxSize, strict_mode := StrictMode}) ->
+    serialize_fun(#{version => ProtoVer, max_size => MaxSize});
+serialize_fun(#{version := Ver, max_size := MaxSize}) ->
     fun(Packet) ->
-        IoData = serialize(Packet, Ver, StrictMode),
+        IoData = serialize(Packet, Ver, ?NON_STRICT),
         case is_too_large(IoData, MaxSize) of
             true -> <<>>;
             false -> IoData
         end
     end.
 
+-doc "Return the serializer options of a connection that starts under the given parser options.".
+-spec initial_serialize_opts(options()) -> serialize_opts().
 initial_serialize_opts(Opts) ->
-    maps:merge(?DEFAULT_OPTIONS, Opts).
+    #{version := Ver, max_size := MaxSize} = maps:merge(?DEFAULT_OPTIONS, Opts),
+    #{version => Ver, max_size => MaxSize}.
 
 serialize_opts(ProtoVer, MaxSize) ->
-    #{version => ProtoVer, max_size => MaxSize, strict_mode => false}.
+    #{version => ProtoVer, max_size => MaxSize}.
 
 serialize_opts(#mqtt_packet_connect{proto_ver = ProtoVer, properties = ConnProps}) ->
     MaxSize = get_property('Maximum-Packet-Size', ConnProps, ?MAX_PACKET_SIZE),
-    #{version => ProtoVer, max_size => MaxSize, strict_mode => false}.
+    #{version => ProtoVer, max_size => MaxSize}.
 
-serialize_pkt(Packet, #{version := Ver, max_size := MaxSize, strict_mode := StrictMode}) ->
-    IoData = serialize(Packet, Ver, StrictMode),
+serialize_pkt(Packet, #{version := Ver, max_size := MaxSize}) ->
+    IoData = serialize(Packet, Ver, ?NON_STRICT),
     case is_too_large(IoData, MaxSize) of
         true -> <<>>;
         false -> IoData
     end.
 
-serialize_iovec(Packet, #{version := Ver, max_size := MaxSize, strict_mode := StrictMode}) ->
-    IoVec = serialize_iovec(Packet, Ver, StrictMode),
+serialize_iovec(Packet, #{version := Ver, max_size := MaxSize}) ->
+    IoVec = serialize_iovec(Packet, Ver, ?NON_STRICT),
     case is_too_large(IoVec, MaxSize) of
         true -> [];
         false -> IoVec
@@ -1184,10 +1209,10 @@ serialize_iovec(Packet, #{version := Ver, max_size := MaxSize, strict_mode := St
 
 -spec serialize(emqx_types:packet()) -> iodata().
 serialize(Packet) ->
-    serialize(Packet, ?MQTT_PROTO_V4, false).
+    serialize(Packet, ?MQTT_PROTO_V4, ?NON_STRICT).
 
 serialize(Packet, Ver) ->
-    serialize(Packet, Ver, false).
+    serialize(Packet, Ver, ?NON_STRICT).
 
 -spec serialize(emqx_types:packet(), emqx_types:proto_ver(), boolean()) -> iodata().
 serialize(

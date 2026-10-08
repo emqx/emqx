@@ -8,6 +8,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+-elvis([{elvis_style, no_boolean_in_comparison, disable}]).
+
 %% Response headers that plugin API callbacks are allowed to set. An
 %% allow-list is used instead of a deny-list because a deny-list is doomed to
 %% be incomplete — every new browser security mechanism adds another header
@@ -78,7 +80,9 @@
     ensure_enabled/2,
     ensure_enabled/3,
     ensure_disabled/1,
+    publish_state/1,
     delete_state/1,
+    mirror_cluster_state/2,
     purge/1,
     write_package/2,
     backup_package/1,
@@ -98,6 +102,8 @@
     ensure_stopped/0,
     ensure_stopped/1,
     restart/1,
+    start_pinned/1,
+    stop_pinned/1,
     list/0,
     list/1,
     list/2,
@@ -244,7 +250,25 @@ allow_installation(NameVsn) ->
 -spec allow_installation(binary() | string(), binary() | undefined) ->
     ok | {error, sha256_required}.
 allow_installation(NameVsn0, Sha256) when Sha256 =:= undefined; is_binary(Sha256) ->
+    case emqx_plugins_pinned:is_pinned(NameVsn0) of
+        true ->
+            %% A grant from a peer is not stored: this node never installs a
+            %% package of a pinned plugin name.
+            ok;
+        false ->
+            do_allow_installation(NameVsn0, Sha256)
+    end.
+
+%% `undefined' is only acceptable when the security profile makes the binding optional.
+sha256_binding_ok(undefined) ->
+    emqx_security_profile:policy(plugin_install_sha256_binding) =:= optional;
+sha256_binding_ok(Sha256) when is_binary(Sha256) ->
+    true.
+
+do_allow_installation(NameVsn0, Sha256) ->
     case sha256_binding_ok(Sha256) of
+        false ->
+            {error, sha256_required};
         true ->
             NameVsn = bin(NameVsn0),
             Entry = #{
@@ -254,16 +278,8 @@ allow_installation(NameVsn0, Sha256) when Sha256 =:= undefined; is_binary(Sha256
             Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
             Allowed = (prune_expired(Allowed0))#{NameVsn => Entry},
             application:set_env(?APP, ?allowed_installations, Allowed),
-            ok;
-        false ->
-            {error, sha256_required}
+            ok
     end.
-
-%% `undefined' is only acceptable when the security profile makes the binding optional.
-sha256_binding_ok(undefined) ->
-    emqx_security_profile:policy(plugin_install_sha256_binding) =:= optional;
-sha256_binding_ok(Sha256) when is_binary(Sha256) ->
-    true.
 
 %% Note: this is only used for the HTTP API.
 %% Returns true iff a non-expired allow entry exists for `NameVsn'.
@@ -355,22 +371,24 @@ ensure_installed() ->
             {error, Reason} -> [{NameVsn, Reason}]
         end
     end,
-    ok = for_plugins(Fun).
+    ok = for_plugins(managed(configured()), Fun).
 
 %% @doc
 %% * Install a .tar.gz package placed in install_dir
 %% * Configure the plugin
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
-    case install_state(NameVsn) of
-        installed ->
-            maybe
-                {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
-                configure(NameVsn, ?normal, RunningSt)
-            end;
-        _IncompleteOrAbsent ->
-            reinstall(NameVsn)
-    end.
+    with_unpinned_name(NameVsn, fun() ->
+        case install_state(NameVsn) of
+            installed ->
+                maybe
+                    {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
+                    configure(NameVsn, ?normal, RunningSt)
+                end;
+            _IncompleteOrAbsent ->
+                reinstall(NameVsn)
+        end
+    end).
 
 %% @doc Replace whatever the install dir holds with the package found in the
 %% install dir (or copied from another node).
@@ -387,11 +405,13 @@ reinstall(NameVsn) ->
     end.
 
 ensure_installed(NameVsn, ?fresh_install = Mode) ->
-    %% TODO
-    %% Additionally check if the plugin is actually stopped/uninstalled.
-    %% Currently, external layers (API, CLI) are responsible for
-    %% not allowing to install a plugin that is already installed.
-    install_and_configure(NameVsn, Mode, stopped).
+    with_unpinned_name(NameVsn, fun() ->
+        %% TODO
+        %% Additionally check if the plugin is actually stopped/uninstalled.
+        %% Currently, external layers (API, CLI) are responsible for
+        %% not allowing to install a plugin that is already installed.
+        install_and_configure(NameVsn, Mode, stopped)
+    end).
 
 %% @doc Classify the plugin's installation on this node.
 %%
@@ -422,26 +442,28 @@ install_state(NameVsn) ->
 %% If a plugin is running, or enabled, an error is returned.
 -spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
 ensure_uninstalled(NameVsn) ->
-    case read_plugin_info(NameVsn, #{}) of
-        {ok, #{running_status := running}} ->
-            {error, #{
-                msg => "bad_plugin_running_status",
-                hint => "stop_the_plugin_first"
-            }};
-        {ok, #{config_status := enabled}} ->
-            {error, #{
-                msg => "bad_plugin_config_status",
-                hint => "disable_the_plugin_first"
-            }};
-        {ok, Plugin} ->
-            maybe
-                ok ?= emqx_plugins_apps:unload(Plugin),
-                ok ?= purge(NameVsn),
+    with_unpinned_name(NameVsn, fun() ->
+        case read_plugin_info(NameVsn, #{}) of
+            {ok, #{running_status := running}} ->
+                {error, #{
+                    msg => "bad_plugin_running_status",
+                    hint => "stop_the_plugin_first"
+                }};
+            {ok, #{config_status := enabled}} ->
+                {error, #{
+                    msg => "bad_plugin_config_status",
+                    hint => "disable_the_plugin_first"
+                }};
+            {ok, Plugin} ->
+                maybe
+                    ok ?= emqx_plugins_apps:unload(Plugin),
+                    ok ?= purge(NameVsn),
+                    ensure_delete_state(NameVsn)
+                end;
+            {error, _Reason} ->
                 ensure_delete_state(NameVsn)
-            end;
-        {error, _Reason} ->
-            ensure_delete_state(NameVsn)
-    end.
+        end
+    end).
 
 %% @doc Ensure a plugin is enabled to the end of the plugins list.
 -spec ensure_enabled(name_vsn()) -> ok | {error, any()}.
@@ -451,18 +473,49 @@ ensure_enabled(NameVsn) ->
 %% @doc Ensure a plugin is enabled at the given position of the plugin list.
 -spec ensure_enabled(name_vsn(), position()) -> ok | {error, any()}.
 ensure_enabled(NameVsn, Position) ->
-    ensure_state(NameVsn, Position, _Enabled = true, _ConfLocation = local).
+    with_unpinned_name(NameVsn, fun() ->
+        ensure_state(NameVsn, Position, _Enabled = true, _ConfLocation = local)
+    end).
 
 -spec ensure_enabled(name_vsn(), position(), local | global) -> ok | {error, any()}.
 ensure_enabled(NameVsn, Position, ConfLocation) when
     ConfLocation =:= local; ConfLocation =:= global
 ->
-    ensure_state(NameVsn, Position, _Enabled = true, ConfLocation).
+    with_unpinned_name(NameVsn, fun() ->
+        ensure_state(NameVsn, Position, _Enabled = true, ConfLocation)
+    end).
 
 %% @doc Ensure a plugin is disabled.
 -spec ensure_disabled(name_vsn()) -> ok | {error, any()}.
 ensure_disabled(NameVsn) ->
-    ensure_state(NameVsn, no_move, false, _ConfLocation = local).
+    with_unpinned_name(NameVsn, fun() ->
+        ensure_state(NameVsn, no_move, false, _ConfLocation = local)
+    end).
+
+-doc """
+Apply a `plugins.states` change that a peer made for a plugin name that this
+node pins.
+
+Only the local copy of the cluster config changes, so it stays equal to the
+copy on the other nodes. The pinned plugin itself is not touched.
+""".
+-spec mirror_cluster_state(name_vsn(), boolean()) -> ok | {error, any()}.
+mirror_cluster_state(NameVsn, Enable) when is_boolean(Enable) ->
+    Item = #{name_vsn => str(NameVsn), enable => Enable},
+    ?CATCH(ensure_configured(Item, no_move, _ConfLocation = local)).
+
+-doc """
+Write this node's `plugins.states` entry of the plugin to the cluster config.
+Do nothing when the plugin is not configured.
+""".
+-spec publish_state(name_vsn()) -> ok | {error, any()}.
+publish_state(NameVsn) ->
+    case find_configured(NameVsn) of
+        {ok, #{name_vsn := NV, enable := Enable}} ->
+            ensure_state(NV, no_move, Enable, global);
+        error ->
+            ok
+    end.
 
 %% @doc Delete extracted dir
 %% In case one lib is shared by multiple plugins.
@@ -472,20 +525,22 @@ ensure_disabled(NameVsn) ->
 %% reside in all the plugin install dirs.
 -spec purge(name_vsn()) -> ok | {error, map()}.
 purge(NameVsn) ->
-    ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
-    ok = delete_cached_config(NameVsn),
-    case emqx_plugins_fs:purge_installed(NameVsn) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            %% The leftovers can not be removed, so the installation can not be
-            %% replaced: report it instead of failing with a `badmatch'.
-            {error, #{
-                msg => "failed_to_purge_plugin_dir",
-                name_vsn => NameVsn,
-                reason => Reason
-            }}
-    end.
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
+        ok = delete_cached_config(NameVsn),
+        case emqx_plugins_fs:purge_installed(NameVsn) of
+            ok ->
+                ok;
+            {error, Reason} ->
+                %% The leftovers can not be removed, so the installation can not be
+                %% replaced: report it instead of failing with a `badmatch'.
+                {error, #{
+                    msg => "failed_to_purge_plugin_dir",
+                    name_vsn => NameVsn,
+                    reason => Reason
+                }}
+        end
+    end).
 
 -spec delete_state(name_vsn()) -> ok.
 delete_state(NameVsn) ->
@@ -516,47 +571,51 @@ restore_package(NameVsn, Backup) ->
 is_package_present(NameVsn) ->
     emqx_plugins_fs:is_tar_present(NameVsn).
 
--spec purge_other_versions(name_vsn()) -> ok.
+-spec purge_other_versions(name_vsn()) -> ok | {error, map()}.
 purge_other_versions(NameVsn) ->
-    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    AppNameBin = bin(AppName),
-    ?SLOG(debug, #{
-        msg => "purge_plugin_other_versions",
-        keep_plugin => NameVsn,
-        reason => "cluster_sync"
-    }),
-    lists:foreach(
-        fun
-            (#{name := Name, rel_vsn := RelVsn}) when
-                AppNameBin =:= Name, AppVsn =:= RelVsn
-            ->
-                ok;
-            (#{name := Name, rel_vsn := RelVsn}) ->
-                case AppNameBin =:= Name of
-                    true ->
-                        NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
-                        maybe
-                            ok ?= ensure_stopped(NameVsn1),
-                            ok ?= ensure_uninstalled(NameVsn1)
-                        else
-                            {error, Reason} ->
-                                ?SLOG(error, #{
-                                    msg => "failed_to_purge_plugin",
-                                    name_vsn => NameVsn1,
-                                    reason => Reason
-                                })
-                        end;
-                    false ->
-                        ok
-                end
-        end,
-        emqx_plugins:list()
-    ).
+    with_unpinned_name(NameVsn, fun() ->
+        {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+        AppNameBin = bin(AppName),
+        AppVsnBin = bin(AppVsn),
+        ?SLOG(debug, #{
+            msg => "purge_plugin_other_versions",
+            keep_plugin => NameVsn,
+            reason => "cluster_sync"
+        }),
+        lists:foreach(
+            fun(Plugin) -> purge_other_version(AppNameBin, AppVsnBin, Plugin) end,
+            emqx_plugins:list()
+        )
+    end).
+
+%% Purge one installed plugin. Keep the given name and version, and keep every
+%% plugin with a different name.
+purge_other_version(NameBin, VsnBin, #{name := NameBin, rel_vsn := VsnBin}) ->
+    ok;
+purge_other_version(NameBin, _VsnBin, #{name := NameBin, rel_vsn := RelVsn}) ->
+    NameVsn = emqx_plugins_utils:make_name_vsn_string(NameBin, RelVsn),
+    maybe
+        %% Stopping stops the applications by name, whatever
+        %% their version, so stop only the version that runs.
+        ok ?= maybe_stop_plugin(NameVsn),
+        ok ?= ensure_uninstalled(NameVsn)
+    else
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_purge_plugin",
+                name_vsn => NameVsn,
+                reason => Reason
+            })
+    end;
+purge_other_version(_NameBin, _VsnBin, #{}) ->
+    ok.
 
 %% @doc Delete the package file.
--spec delete_package(name_vsn()) -> ok.
+-spec delete_package(name_vsn()) -> ok | {error, term()}.
 delete_package(NameVsn) ->
-    emqx_plugins_fs:delete_tar(NameVsn).
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        emqx_plugins_fs:delete_tar(NameVsn)
+    end).
 
 %% @doc Safely delete a plugin package.
 %% If another version of the same plugin is currently active,
@@ -564,24 +623,26 @@ delete_package(NameVsn) ->
 %% Otherwise, stop and uninstall the plugin before deleting.
 -spec safe_delete_package(name_vsn()) -> ok | {error, any()}.
 safe_delete_package(NameVsn) ->
-    _ = forget_allowed_installation(NameVsn),
-    case has_other_active_version(NameVsn) of
-        true ->
-            ok = delete_state(NameVsn),
-            ok = purge(NameVsn),
-            _ = delete_package(NameVsn),
-            ok;
-        false ->
-            case maybe_stop_plugin(NameVsn) of
-                ok ->
-                    ok = maybe_disable_plugin(NameVsn),
-                    ok = maybe_uninstall_plugin(NameVsn),
-                    _ = delete_package(NameVsn),
-                    ok;
-                Error ->
-                    Error
-            end
-    end.
+    with_unpinned_name(NameVsn, fun() ->
+        _ = forget_allowed_installation(NameVsn),
+        case has_other_active_version(NameVsn) of
+            true ->
+                ok = delete_state(NameVsn),
+                ok = purge(NameVsn),
+                _ = delete_package(NameVsn),
+                ok;
+            false ->
+                case maybe_stop_plugin(NameVsn) of
+                    ok ->
+                        ok = maybe_disable_plugin(NameVsn),
+                        ok = maybe_uninstall_plugin(NameVsn),
+                        _ = delete_package(NameVsn),
+                        ok;
+                    Error ->
+                        Error
+                end
+        end
+    end).
 
 %%--------------------------------------------------------------------
 %% Plugin runtime management
@@ -589,6 +650,7 @@ safe_delete_package(NameVsn) ->
 %% @doc Start all configured plugins are started.
 -spec ensure_started() -> ok.
 ensure_started() ->
+    ok = ensure_pinned_started(),
     Configured0 = configured(),
     Configured = normalize_enabled_versions(Configured0),
     maybe_persist_normalized_config(Configured0, Configured),
@@ -602,12 +664,17 @@ ensure_started() ->
             ?SLOG(debug, #{msg => "plugin_disabled", name_vsn => NameVsn}),
             []
     end,
-    ok = for_plugins(Configured, Fun).
+    ok = for_plugins(managed(Configured), Fun).
 
 %% @doc Start a plugin from Management API or CLI.
 %% the input is a <name>-<vsn> string.
+%% A pinned plugin name is skipped: cluster-wide lifecycle calls do not act on
+%% it. `start_pinned/1' starts a pinned plugin.
 -spec ensure_started(name_vsn()) -> ok | {error, term()}.
 ensure_started(NameVsn) ->
+    unless_pinned(NameVsn, ok, fun() -> do_ensure_started_logged(NameVsn) end).
+
+do_ensure_started_logged(NameVsn) ->
     case ?CATCH(do_ensure_started(NameVsn)) of
         ok ->
             ok;
@@ -622,15 +689,16 @@ ensure_started(NameVsn) ->
 %% @doc Ensure that a plugin package is available and extracted locally.
 -spec ensure_start_package(name_vsn()) -> ok | {error, term()}.
 ensure_start_package(NameVsn) ->
-    ?CATCH(do_ensure_start_package(NameVsn)).
+    unless_pinned(NameVsn, ok, fun() -> ?CATCH(do_ensure_start_package(NameVsn)) end).
 
 %% @doc Validate that a plugin can be started without changing runtime state.
 %% The returned status is a rollback hint only.  Validation and start are not
 %% atomic with concurrent lifecycle or configuration operations, so
 %% `ensure_started/1' must validate the current local configuration again.
+%% A pinned plugin name reports `running', so a rollback does not stop it.
 -spec validate_start(name_vsn()) -> {ok, running | not_running} | {error, term()}.
 validate_start(NameVsn) ->
-    ?CATCH(do_validate_start(NameVsn)).
+    unless_pinned(NameVsn, {ok, running}, fun() -> ?CATCH(do_validate_start(NameVsn)) end).
 
 %% @doc Stop all plugins before broker stops.
 -spec ensure_stopped() -> ok.
@@ -647,12 +715,14 @@ ensure_stopped() ->
             ?SLOG(debug, #{msg => "plugin_disabled", action => stop_plugin, name_vsn => NameVsn}),
             []
     end,
-    ok = for_plugins(Fun).
+    ok = for_plugins(managed(configured()), Fun),
+    ok = stop_pinned_for_shutdown().
 
 %% @doc Stop a plugin from Management API or CLI.
+%% A pinned plugin name is skipped. `stop_pinned/1' stops a pinned plugin.
 -spec ensure_stopped(name_vsn()) -> ok | {error, term()}.
 ensure_stopped(NameVsn) ->
-    ?CATCH(do_ensure_stopped(NameVsn)).
+    unless_pinned(NameVsn, ok, fun() -> ?CATCH(do_ensure_stopped(NameVsn)) end).
 
 do_ensure_stopped(NameVsn) ->
     case emqx_plugins_info:read(NameVsn) of
@@ -693,7 +763,16 @@ get_config(NameVsn, Default) ->
 %% NOTE
 %% This function assumes that the config is already validated
 %% by avro schema in case of its presence.
+%% A pinned plugin accepts the update. Another version of a pinned name is refused.
 update_config(NameVsn, Config) ->
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case emqx_plugins_pinned:is_other_version(NameVsn) of
+            true -> {error, emqx_plugins_pinned:refusal(NameVsn)};
+            false -> do_update_config(NameVsn, Config)
+        end
+    end).
+
+do_update_config(NameVsn, Config) ->
     maybe
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn, #{}),
         ok ?= request_config_change(NameVsn, Plugin, Config),
@@ -702,12 +781,38 @@ update_config(NameVsn, Config) ->
     end.
 
 %% @doc Stop and then start the plugin.
+%% A pinned plugin name is skipped.
 restart(NameVsn) ->
-    maybe
-        {ok, _RunningStatus} ?= validate_start(NameVsn),
-        ok ?= ensure_stopped(NameVsn),
-        ensure_started(NameVsn)
-    end.
+    unless_pinned(NameVsn, ok, fun() ->
+        maybe
+            {ok, _RunningStatus} ?= validate_start(NameVsn),
+            ok ?= ensure_stopped(NameVsn),
+            ensure_started(NameVsn)
+        end
+    end).
+
+-doc "Start a pinned plugin on this node. The CLI calls it.".
+-spec start_pinned(name_vsn()) -> ok | {error, term()}.
+start_pinned(NameVsn) ->
+    with_pinned_name_vsn(NameVsn, fun() ->
+        case ?CATCH(do_start_pinned(NameVsn)) of
+            ok ->
+                emqx_plugins_pinned:clear_alarm(NameVsn);
+            {error, Reason} = Error ->
+                log_start_error(Reason),
+                Error
+        end
+    end).
+
+-doc """
+Stop a pinned plugin on this node. The CLI calls it.
+
+The stop is not written to any config. The next start of all plugins, at boot
+or after a cluster join, starts the plugin again.
+""".
+-spec stop_pinned(name_vsn()) -> ok | {error, term()}.
+stop_pinned(NameVsn) ->
+    with_pinned_name_vsn(NameVsn, fun() -> ?CATCH(do_ensure_stopped(NameVsn)) end).
 
 %% @doc Return Name-Vsn list of currently running plugins.
 -spec list_active() -> [binary()].
@@ -732,7 +837,13 @@ log_unconfigured_plugins() ->
         list(?normal, #{})
     ).
 
-log_unconfigured_plugin(#{
+log_unconfigured_plugin(#{name := Name} = Plugin) ->
+    case emqx_plugins_pinned:is_pinned(<<Name/binary, "-">>) of
+        true -> ok;
+        false -> do_log_unconfigured_plugin(Plugin)
+    end.
+
+do_log_unconfigured_plugin(#{
     config_status := not_configured,
     name := Name,
     rel_vsn := RelVsn,
@@ -752,7 +863,7 @@ log_unconfigured_plugin(#{
             "`, or delete the plugin package."
         ])
     });
-log_unconfigured_plugin(_Plugin) ->
+do_log_unconfigured_plugin(_Plugin) ->
     ok.
 
 %% @doc List all installed plugins.
@@ -771,7 +882,8 @@ list(Type, Options) ->
         fun(NameVsn) ->
             case read_plugin_info(NameVsn, Options) of
                 {ok, Info} ->
-                    filter_plugin_of_type(Type, Info);
+                    is_ignored_version(NameVsn) =:= false andalso
+                        filter_plugin_of_type(Type, Info);
                 {error, Reason} ->
                     ?SLOG(warning, Reason#{msg => "failed_to_read_plugin_info"}),
                     false
@@ -779,7 +891,8 @@ list(Type, Options) ->
         end,
         emqx_plugins_fs:list_name_vsn()
     ),
-    do_list(configured(), All).
+    Pinned = [#{name_vsn => NameVsn} || NameVsn <- emqx_plugins_pinned:list()],
+    do_list(Pinned ++ managed(configured()), All).
 
 filter_plugin_of_type(all, Info) ->
     {true, Info};
@@ -984,6 +1097,135 @@ do_ensure_started(NameVsn) ->
             {error, Reason}
     end.
 
+%%--------------------------------------------------------------------
+%% Pinned plugins
+
+ensure_pinned_started() ->
+    lists:foreach(fun ensure_pinned_started/1, emqx_plugins_pinned:list()).
+
+ensure_pinned_started(NameVsn) ->
+    case ?CATCH(do_start_pinned(NameVsn)) of
+        ok -> emqx_plugins_pinned:clear_alarm(NameVsn);
+        {error, Reason} -> emqx_plugins_pinned:raise_alarm(NameVsn, Reason)
+    end.
+
+do_start_pinned(NameVsn) ->
+    maybe
+        ok ?= ensure_no_other_version_active(NameVsn),
+        ok ?= ensure_pinned_extracted(NameVsn),
+        %% note: in dev-62, this function is called `load_config_schema`...
+        ok ?= check_config_schema(NameVsn),
+        {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        LibDir = emqx_plugins_fs:lib_dir(NameVsn),
+        %% A pinned plugin is never installed, so its applications are checked here.
+        ok ?= emqx_plugins_apps:validate(Plugin, LibDir),
+        ok ?= emqx_plugins_apps:load(Plugin, LibDir),
+        ok ?= configure_pinned(NameVsn, Plugin),
+        ok ?= emqx_plugins_apps:start(Plugin),
+        ?tp(pinned_plugin_started, #{name_vsn => NameVsn}),
+        ok
+    end.
+
+%% A pinned plugin runs from the directory that the image already holds in the
+%% install dir. Nothing is unpacked from a package file.
+ensure_pinned_extracted(NameVsn) ->
+    case emqx_plugins_fs:install_state(NameVsn) of
+        installed ->
+            ok;
+        State ->
+            {error, #{
+                msg => "pinned_plugin_not_extracted",
+                name_vsn => bin(NameVsn),
+                install_state => State,
+                dir => emqx_plugins_fs:plugin_dir(NameVsn),
+                hint => "Extract the plugin package into the install dir"
+            }}
+    end.
+
+configure_pinned(NameVsn, Plugin) ->
+    maybe
+        {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
+        {ok, Config} ?= emqx_plugins_pinned:read_config(NameVsn),
+        Source =
+            case map_size(Config) of
+                0 -> empty;
+                _ -> pinned
+            end,
+        ok ?= validate_start_config(NameVsn, Schema, Source, Config),
+        put_cached_config(NameVsn, Config)
+    end.
+
+stop_pinned_for_shutdown() ->
+    lists:foreach(
+        fun(NameVsn) ->
+            case emqx_plugins_info:read(NameVsn) of
+                {ok, #{running_status := stopped}} ->
+                    ok;
+                {ok, Plugin} ->
+                    case emqx_plugins_apps:stop(Plugin) of
+                        ok ->
+                            ok;
+                        {error, Reason} ->
+                            ?SLOG(warning, #{
+                                msg => "failed_to_stop_pinned_plugin",
+                                name_vsn => NameVsn,
+                                reason => Reason
+                            })
+                    end;
+                {error, _} ->
+                    ok
+            end
+        end,
+        lists:reverse(emqx_plugins_pinned:list())
+    ).
+
+%% Keep only the `plugins.states' entries whose plugin name is not pinned.
+managed(Configured) ->
+    [Item || #{name_vsn := NameVsn} = Item <- Configured, not is_pinned_name(NameVsn)].
+
+%% Another version of a pinned plugin name, for example left in the install dir
+%% from before the node pinned the name. This node never runs it.
+is_ignored_version(NameVsn) ->
+    emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso
+        emqx_plugins_pinned:is_other_version(NameVsn).
+
+is_pinned_name(NameVsn) ->
+    emqx_plugins_utils:validate_name_vsn(NameVsn) =:= ok andalso
+        emqx_plugins_pinned:is_pinned(NameVsn).
+
+%% Run `Fun' unless this node pins the plugin name. A pinned name returns
+%% `SkipResult', so a cluster-wide call from a peer does not fail on this node.
+unless_pinned(NameVsn, SkipResult, Fun) ->
+    case is_pinned_name(NameVsn) of
+        true -> SkipResult;
+        false -> Fun()
+    end.
+
+%% Refuse an operation that a pinned plugin name does not allow.
+with_unpinned_name(NameVsn, Fun) ->
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case emqx_plugins_pinned:is_pinned(NameVsn) of
+            true -> {error, emqx_plugins_pinned:refusal(NameVsn)};
+            false -> Fun()
+        end
+    end).
+
+%% Run `Fun' only for a name-vsn that is listed in `node.pinned_plugins'.
+with_pinned_name_vsn(NameVsn, Fun) ->
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        case emqx_plugins_pinned:is_pinned_name_vsn(NameVsn) of
+            true ->
+                Fun();
+            false ->
+                case emqx_plugins_pinned:is_pinned(NameVsn) of
+                    true ->
+                        {error, emqx_plugins_pinned:refusal(NameVsn)};
+                    false ->
+                        {error, #{msg => "plugin_not_pinned", name_vsn => bin(NameVsn)}}
+                end
+        end
+    end).
+
 do_ensure_start_package(NameVsn) ->
     case emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end) of
         {error, #{reason := plugin_tarball_not_found}} ->
@@ -1118,27 +1360,33 @@ maybe_initialize_cached_config(NameVsn) ->
 %% Redundant arguments are kept for backward compatibility.
 -spec get_config(name_vsn(), ?CONFIG_FORMAT_MAP, any()) ->
     {ok, plugin_config_map() | term()}.
+%% The config of a pinned plugin name is never sent to peers.
 get_config(NameVsn, ?CONFIG_FORMAT_MAP, Default) ->
-    {ok, get_config(NameVsn, Default)}.
+    unless_pinned(NameVsn, {ok, Default}, fun() -> {ok, get_config(NameVsn, Default)} end).
 
+%% The package of a pinned plugin name is never sent to peers.
 get_tar(NameVsn) ->
-    emqx_plugins_fs:get_tar(NameVsn).
+    case emqx_plugins_pinned:is_pinned(NameVsn) of
+        true -> {error, emqx_plugins_pinned:refusal(NameVsn)};
+        false -> emqx_plugins_fs:get_tar(NameVsn)
+    end.
 
 -spec install_package(name_vsn(), binary()) -> ok | {error, term()}.
 install_package(NameVsn, Bin) ->
-    case write_package(NameVsn, Bin) of
-        ok ->
-            case ensure_installed(NameVsn, ?fresh_install) of
-                {error, #{reason := plugin_not_found}} = NotFound ->
-                    NotFound;
-                {error, _} = Error ->
-                    _ = delete_package(NameVsn),
-                    Error;
-                Result ->
-                    Result
-            end;
-        {error, Reason} ->
-            {error, Reason}
+    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
+        unless_pinned(NameVsn, ok, fun() -> do_install_package(NameVsn, Bin) end)
+    end).
+
+do_install_package(NameVsn, Bin) ->
+    ok = write_package(NameVsn, Bin),
+    case ensure_installed(NameVsn, ?fresh_install) of
+        {error, #{reason := plugin_not_found}} = NotFound ->
+            NotFound;
+        {error, _} = Error ->
+            _ = delete_package(NameVsn),
+            Error;
+        Result ->
+            Result
     end.
 
 %%--------------------------------------------------------------------
@@ -1325,6 +1573,7 @@ post_config_update([?CONF_ROOT], _Req, #{states := NewStates}, #{states := OldSt
     NewStatesIndex = maps:from_list([{NV, S} || S = #{name_vsn := NV} <- NewStates]),
     OldStatesIndex = maps:from_list([{NV, S} || S = #{name_vsn := NV} <- OldStates]),
     #{changed := Changed} = emqx_utils_maps:diff_maps(NewStatesIndex, OldStatesIndex),
+    %% `ensure_started/1' and `ensure_stopped/1' skip pinned plugin names.
     maps:foreach(fun enable_disable_plugin/2, Changed),
     ok;
 post_config_update(_Path, _Req, _NewConf, _OldConf, _Envs) ->
@@ -1353,9 +1602,6 @@ put_configured(Configured, ConfLocation) ->
 
 configured() ->
     lists:map(fun emqx_plugins_utils:normalize_state_item/1, get_config_internal(states, [])).
-
-for_plugins(ActionFun) ->
-    for_plugins(configured(), ActionFun).
 
 for_plugins(Plugins, ActionFun) ->
     case lists:flatmap(ActionFun, Plugins) of
@@ -1535,27 +1781,24 @@ unload_other_versions([NameVsn | Rest]) ->
             {error, Reason}
     end.
 
+%% Record the plugin in `plugins.states' only when it is not configured yet.
+%% A configured plugin keeps its entry as it is, so starting the plugins
+%% application does not write to the cluster config.
 ensure_state(NameVsn) ->
-    EnsureStateFun = fun(#{name_vsn := NV, enable := Bool}, AccIn) ->
-        case NV of
-            NameVsn ->
-                %% Configured, using existed cluster config
-                _ = ensure_state(NV, no_move, Bool, global),
-                AccIn#{ensured => true};
-            _ ->
-                AccIn
-        end
-    end,
-    case lists:foldl(EnsureStateFun, #{ensured => false}, configured()) of
-        #{ensured := true} ->
+    case find_configured(NameVsn) of
+        {ok, _} ->
             ok;
-        #{ensured := false} ->
+        error ->
             ?SLOG(info, #{msg => "plugin_not_configured", name_vsn => NameVsn}),
-            %% Clean installation, no config, ensure with `Enable = false`
             _ = ensure_state(NameVsn, no_move, false, global),
             ok
-    end,
-    ok.
+    end.
+
+find_configured(NameVsn) ->
+    case lists:search(fun(#{name_vsn := NV}) -> bin(NV) =:= bin(NameVsn) end, configured()) of
+        {value, Item} -> {ok, Item};
+        false -> error
+    end.
 
 ensure_local_config(NameVsn, Mode) ->
     case emqx_plugins_fs:ensure_config_dir(NameVsn) of
@@ -1713,13 +1956,16 @@ ensure_config_bin(AvroJson) ->
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
 bin_key(List = [#{} | _]) ->
-    lists:map(fun(M) -> bin_key(M) end, List);
+    lists:map(fun bin_key/1, List);
 bin_key(Term) ->
     Term.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+str(B) when is_binary(B) -> binary_to_list(B);
+str(L) when is_list(L) -> L.
 
 has_other_active_version(NameVsn) ->
     PluginName = emqx_plugins_utils:plugin_name(NameVsn),

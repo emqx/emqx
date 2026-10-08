@@ -47,6 +47,7 @@
 %% PubSub Infos
 -export([
     subscriptions/1,
+    subopts_by_clientid/1,
     subscriptions_via_topic/1,
     subscribers/1,
     subscribed/2
@@ -311,11 +312,23 @@ do_publish(#message{topic = Topic} = Msg) ->
     RouteRes = route(Routes, Delivery, PersistRes),
     do_forward_external(Delivery, RouteRes).
 
+-doc """
+Return `[persisted]` when built-in persistence accepts the message, or when
+a publish hook sets the internal `message_persisted` header
+to `true` after storing it. Return `[]` otherwise.
+
+The broker includes `persisted` in the publish result alongside any subscriber
+delivery results. The primary purpose of this result is to help `publish` callers
+detect that the message was not completely dropped.
+""".
 persist_publish(Msg) ->
-    case emqx_persistent_message:persist(Msg, #{sync => noreply}) of
-        noreply ->
+    case {emqx_persistent_message:persist(Msg, #{sync => noreply}), Msg} of
+        {noreply, _} ->
             [persisted];
-        {skipped, _} ->
+        %% Persisted by some subsystem via hook
+        {{skipped, _}, #message{headers = #{message_persisted := true}}} ->
+            [persisted];
+        {{skipped, _}, _} ->
             []
     end.
 
@@ -575,6 +588,13 @@ purge_node(Node) ->
 %% Management APIs
 %%--------------------------------------------------------------------
 
+-doc """
+Return the subscriptions of a subscriber, given its pid or its subscription id.
+
+The subscription id form calls `subopts_by_clientid/1`, which resolves the id
+to a pid with several ETS lookups. Do not use it on a hot path. Pass the pid
+when the caller has it.
+""".
 -spec subscriptions(pid() | emqx_types:subid()) ->
     [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}].
 subscriptions(SubPid) when is_pid(SubPid) ->
@@ -583,7 +603,20 @@ subscriptions(SubPid) when is_pid(SubPid) ->
      || Topic <- lookup_value(?SUBSCRIPTION, SubPid, [])
     ];
 subscriptions(SubId) ->
-    case emqx_broker_helper:lookup_subpid(SubId) of
+    subopts_by_clientid(SubId).
+
+-doc """
+Return the subscriptions of the subscriber registered with `ClientId` as its
+subscription id, or `[]` when there is no such subscriber on this node.
+
+This resolves `ClientId` to a pid with several ETS lookups
+(`emqx_broker_helper:lookup_subpid/1`). Do not use it on a hot path. Call
+`subscriptions/1` with the pid when the caller has it.
+""".
+-spec subopts_by_clientid(emqx_types:subid()) ->
+    [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}].
+subopts_by_clientid(ClientId) ->
+    case emqx_broker_helper:lookup_subpid(ClientId) of
         SubPid when is_pid(SubPid) ->
             subscriptions(SubPid);
         undefined ->
