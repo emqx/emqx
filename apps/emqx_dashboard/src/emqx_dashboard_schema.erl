@@ -330,7 +330,7 @@ swagger_support(_) -> undefined.
 
 %% TODO: change it to string type
 %% It will be up to the dashboard package which languages to support
-i18n_lang(type) -> ?ENUM([en, zh]);
+i18n_lang(type) -> ?ENUM([en, zh, 'zh-TW']);
 i18n_lang(default) -> en;
 i18n_lang('readOnly') -> true;
 i18n_lang(desc) -> ?DESC(i18n_lang);

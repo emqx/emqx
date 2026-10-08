@@ -133,7 +133,7 @@ dump_schema(Dir, SchemaModule) ->
         fun(Lang) ->
             ok = gen_schema_json(Dir, SchemaModule, Lang)
         end,
-        ["en", "zh"]
+        ["en", "zh", "zh-TW"]
     ).
 
 load(Lib) ->
