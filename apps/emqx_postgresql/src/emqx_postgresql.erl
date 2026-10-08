@@ -582,13 +582,16 @@ do_check_prepares(_) ->
 
 -spec validate_table_existence([pid()], binary()) -> ok | {error, undefined_table}.
 validate_table_existence([WorkerPid | Rest], SQL) ->
+    Timeout = emqx_resource_pool:health_check_timeout(),
     try
         ecpool_worker:exec(
             WorkerPid,
             fun(Conn) ->
-                epgsql:parse2(Conn, "", SQL, [])
+                Res = epgsql:parse2(Conn, "", SQL, []),
+                _ = epgsql:sync(Conn),
+                Res
             end,
-            emqx_resource_pool:health_check_timeout()
+            Timeout
         )
     of
         {error, {_, _, _, undefined_table, _, _}} ->

@@ -24,6 +24,10 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 -import(emqx_utils_conv, [bin/1]).
 
+-define(DATABASE, <<"mqtt">>).
+-define(USERNAME, <<"root">>).
+-define(PASSWORD, <<"public">>).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -257,6 +261,40 @@ with_failure(FailureType, Fn) ->
     emqx_common_test_helpers:with_failure(
         FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn
     ).
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
+connect_direct_pgsql(Config) ->
+    Opts = #{
+        host => get_config(postgres_host, Config, "toxiproxy"),
+        port => get_config(postgres_port, Config, 5432),
+        username => ?USERNAME,
+        password => ?PASSWORD,
+        database => ?DATABASE
+    },
+    SslOpts =
+        case get_config(enable_tls, Config, false) of
+            true ->
+                Opts#{
+                    ssl => true,
+                    ssl_opts => emqx_tls_lib:to_client_opts(#{enable => true})
+                };
+            false ->
+                Opts
+        end,
+    {ok, Conn} = epgsql:connect(SslOpts),
+    Conn.
+
+get_active_transactions(TCConfig) ->
+    SQL = <<"SELECT state, query FROM pg_stat_activity where application_name = 'emqx'">>,
+    Conn = connect_direct_pgsql(TCConfig),
+    try
+        {ok, _, Results} = epgsql:squery(Conn, SQL),
+        maps:groups_from_list(fun({State, _}) -> State end, fun({_, Query}) -> Query end, Results)
+    after
+        ok = epgsql:close(Conn)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -535,4 +573,24 @@ t_reconnect_on_connector_health_check_timeout_check_prepares(Config) ->
 %% tree is unhealthy for any reason.
 t_ecpool_workers_crash(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
+    ok.
+
+%% Checks that we don't leave an open transaction when validating table existence during
+%% health check.
+%%
+%% Prior to the fix, an active transaction would remain active due to parsing the SQL
+%% template, which would take an unnecessary lock on the targe table.
+t_no_active_hc_transactions(TCConfig) ->
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(
+        TCConfig,
+        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"5s">>}}
+    ),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(
+        TCConfig,
+        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"5s">>}}
+    ),
+    ?assertNotMatch(
+        #{active := [_ | _]},
+        get_active_transactions(TCConfig)
+    ),
     ok.
