@@ -903,7 +903,7 @@ fields("rpc") ->
                 boolean(),
                 #{
                     mapping => "gen_rpc.insecure_auth_fallback_allowed",
-                    default => true,
+                    default => false,
                     desc => ?DESC(rpc_insecure_fallback)
                 }
             )},

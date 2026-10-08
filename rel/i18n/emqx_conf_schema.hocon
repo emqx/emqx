@@ -201,7 +201,13 @@ cluster_etcd_ssl.label:
 """Cluster Etcd SSL Option"""
 
 rpc_insecure_fallback.desc:
-"""Enable compatibility with old RPC authentication."""
+"""Allow a cluster node to authenticate a backplane (RPC) connection with the old
+handshake, which sends the Erlang cookie to the peer, when the challenge-response
+handshake fails.
+
+Set this to <code>true</code> only to cluster with EMQX releases older than 5.3.0,
+which do not speak the challenge-response handshake. A cluster whose nodes all run
+5.3.0 or later does not need it."""
 
 rpc_insecure_fallback.label:
 """RPC insecure fallback"""
