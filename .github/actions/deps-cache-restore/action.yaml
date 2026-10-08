@@ -4,7 +4,8 @@ description: >-
   mix.lock is not checked in, so the key hashes the dependency declarations
   (mix.exs and apps/*/mix.exs, without the app version lines) together with the
   toolchain and build inputs.
-  Pair it with deps-cache-save.
+  Only the warm_deps_cache workflow saves entries, on the dev-XX branches, so
+  that every pull request to that branch can restore them.
 inputs:
   profiles:
     description: 'Space-separated mix profiles whose _build/<profile>/lib is cached.'
@@ -16,6 +17,10 @@ inputs:
     description: 'Space-separated extra files that affect the build output, hashed into the key.'
     required: false
     default: ''
+  lookup-only:
+    description: "'true' to only check whether the entry exists, without downloading it."
+    required: false
+    default: 'false'
 outputs:
   key:
     description: 'The cache key.'
@@ -24,7 +29,7 @@ outputs:
     description: 'The cached paths. Pass them to deps-cache-save unchanged.'
     value: ${{ steps.key.outputs.paths }}
   cache-hit:
-    description: "'true' when an entry with the exact key was restored."
+    description: "'true' when an entry with the exact key exists (and, unless lookup-only, was restored)."
     value: ${{ steps.restore.outputs.cache-hit }}
 
 runs:
@@ -61,6 +66,12 @@ runs:
         # shellcheck disable=SC2086
         build_hash="$(hash_files env.sh build scripts/ensure-rebar3.sh $BUILD_INPUTS)"
         deps_hash="$(hash_mix_files mix.exs apps/*/mix.exs)"
+        # Native dependencies on macOS link against the SDK of the runner image.
+        if [ "$RUNNER_OS" = macOS ]; then
+          sdk_vsn="$(xcrun --sdk macosx --show-sdk-version)"
+          cc_hash="$(clang --version | head -1 | sha256 | cut -c1-16)"
+          TOOLCHAIN="${TOOLCHAIN}-sdk${sdk_vsn}-cc${cc_hash}"
+        fi
         toolchain_id="${TOOLCHAIN//[^A-Za-z0-9._-]/-}"
         profiles_id="${PROFILES// /-}"
         echo "key=${PREFIX}-${toolchain_id}-${profiles_id}-build${build_hash}-deps${deps_hash}" >> "$GITHUB_OUTPUT"
@@ -79,3 +90,4 @@ runs:
       with:
         path: ${{ steps.key.outputs.paths }}
         key: ${{ steps.key.outputs.key }}
+        lookup-only: ${{ inputs.lookup-only }}

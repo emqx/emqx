@@ -2,7 +2,8 @@ name: 'Save dependency cache'
 description: >-
   Save the entry that deps-cache-restore missed. Call it only when the job
   succeeded and the restore was not an exact hit, so a failed build never
-  writes a partial deps/ to the cache.
+  writes a partial deps/ to the cache. Only the warm_deps_cache workflow
+  calls it.
 inputs:
   key:
     description: 'The key output of deps-cache-restore.'
