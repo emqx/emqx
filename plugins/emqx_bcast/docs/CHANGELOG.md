@@ -2,7 +2,7 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
-## Unreleased
+## 0.4.3
 
 ### Upgrade notes
 
