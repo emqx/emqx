@@ -33,4 +33,6 @@ else
     fi
 fi
 
-./scripts/check-umbrella-apps.exs
+if [ -f "./scripts/check-umbrella-apps.exs" ]; then
+    ./scripts/check-umbrella-apps.exs
+fi
