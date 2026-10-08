@@ -44,6 +44,8 @@ runs:
         APPLE_DEVELOPER_ID_BUNDLE: ${{ inputs.apple_developer_id_bundle }}
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
         QUICER_TLS_VER: quictls
+        HOMEBREW_NO_AUTO_UPDATE: 1
+        HOMEBREW_NO_INSTALL_CLEANUP: 1
       run: |
         erl -s init stop
         elixir -e "System.version() |> IO.puts()"
