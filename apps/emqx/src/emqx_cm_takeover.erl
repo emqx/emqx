@@ -5,6 +5,7 @@
 -module(emqx_cm_takeover).
 
 -include("emqx_cm.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -25,6 +26,21 @@
 ]).
 
 -export_type([session_legacy/0]).
+
+%% Shared by gateway session takeover compatibility adapters.
+-export([
+    legacy_session_version/1,
+    from_legacy_session/2,
+    to_legacy_session/5
+]).
+
+-export_type([legacy_session_version/0]).
+
+-type legacy_session_version() ::
+    %% Pre-6.3 sessions:
+    1
+    %% Gateway sessions in 6.3.0/6.3.1:
+    | 2.
 
 -record(chanref, {
     proto :: local | protocol() | legacy,
@@ -137,9 +153,9 @@ from_begin_ret({ok, _ChanRef, _Session} = Ret) ->
 upgrade_begin_ret(none) ->
     none;
 upgrade_begin_ret({living, ConnMod, ChanPid, Session}) ->
-    %% NOTE: Convert pre-3.6.0 `#session{}` record into "exported" form.
+    %% NOTE: Convert pre-6.3.0 `#session{}` record into "exported" form.
     ChanRef = #chanref{proto = legacy, connmod = ConnMod, pid = ChanPid},
-    {ok, ChanRef, from_legacy_session(Session)};
+    {ok, ChanRef, from_legacy_session(Session, 1)};
 upgrade_begin_ret({expired, _} = Ret) ->
     %% NOTE: Unsupported pre-5.3.0 stuff.
     error({unsupported, Ret});
@@ -155,7 +171,7 @@ to_begin_ret(_RequesterProto, none) ->
 downgrade_begin_ret(ClientId, ChanInfo, {ok, ChanRef, Session}) ->
     %% NOTE: Turn back into pre-6.3.0 `#session{}` record.
     #chanref{connmod = ConnMod, pid = ChanPid} = ChanRef,
-    {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session)};
+    {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session, #{}, 1)};
 downgrade_begin_ret(_ClientId, _ChanInfo, none) ->
     none.
 
@@ -240,6 +256,17 @@ to_finish_ret(_Proto, {error, Reason}) ->
 
 %% Compatibility
 
+-spec legacy_session_version(node()) -> legacy_session_version().
+legacy_session_version(Node) ->
+    %% The MQTT takeover BPAPI was introduced together with the 6.3 record layout.
+    %% Gateway takeover continued transferring raw records in 6.3.0 and 6.3.1.
+    case emqx_bpapi:supported_version(Node, ?BPAPI) of
+        Vsn when is_integer(Vsn), Vsn >= ?BPAPI_VSN_BASELINE ->
+            2;
+        _ ->
+            1
+    end.
+
 %% Pre-6.3.0 in-memory session has the following shape:
 %% -record(session, {
 %%     clientid :: emqx_types:clientid(),
@@ -258,26 +285,65 @@ to_finish_ret(_Proto, {error, Reason}) ->
 %%     created_at :: pos_integer()
 %% }).
 
+%% 6.3.0/6.3.1 in-memory session has the following shape:
+%% -record(session, {
+%%     id :: emqx_session:session_id(),
+%%     is_persistent :: boolean(),
+%%     subscriptions :: emqx_session_mem:subscriptions(),
+%%     max_subscriptions :: non_neg_integer() | infinity,
+%%     upgrade_qos = false :: boolean(),
+%%     inflight :: emqx_inflight:inflight(),
+%%     mqueue :: emqx_mqueue:mqueue(),
+%%     quota :: emqx_limiter_client_container:t() | false | {lazy, emqx_limiter:listener_id()},
+%%     next_pkt_id = 1 :: emqx_types:packet_id(),
+%%     retry_interval :: timeout(),
+%%     awaiting_rel :: emqx_session_mem:awaiting_rel(),
+%%     max_awaiting_rel :: non_neg_integer() | infinity,
+%%     await_rel_timeout :: timeout(),
+%%     created_at :: pos_integer()
+%% }).
+
+%% Legacy MQTT-SN peers resume raw session records without reapplying
+%% limits or timers. Populate these fields from Conf when encoding.
 %% erlfmt-ignore
-to_legacy_session(ClientId, ChanInfo, Session) ->
-    {session,
-        ClientId,
-        _Id = maps:get(id, Session),
+to_legacy_session(ClientId, ChanInfo, Session, Conf, 1) ->
+    {session, ClientId, _Id = maps:get(id, Session),
         _IsPersistent = maps:get(is_persistent, Session),
         _Subscriptions = maps:get(subscriptions, Session),
-        _MaxSubscriptions = infinity,
-        _UpgradeQoS = false,
-        _Inflight = to_legacy_inflight(maps:get(inflight, Session)),
-        _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session)),
+        _MaxSubscriptions = maps:get(max_subscriptions, Conf, infinity),
+        _UpgradeQoS = maps:get(upgrade_qos, Conf, false),
+        _Inflight = to_legacy_inflight(
+            maps:get(inflight, Session),
+            maps:get(receive_maximum, Conf, 0)
+        ),
+        _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), 1),
         _NextPktId = maps:get(next_pkt_id, Session),
-        _RetryInterval = infinity,
+        _RetryInterval = maps:get(retry_interval, Conf, infinity),
         _AwaitingRel = maps:get(awaiting_rel, Session),
-        _MaxAwaitingRel = 100,
-        _AwaitRelTimeout = timer:seconds(300),
+        _MaxAwaitingRel = maps:get(max_awaiting_rel, Conf, 100),
+        _AwaitRelTimeout = maps:get(await_rel_timeout, Conf, timer:seconds(300)),
+        _CreatedAt = maps:get(created_at, Session)};
+to_legacy_session(_ClientId, ChanInfo, Session, Conf, 2) ->
+    {session, maps:get(id, Session), _IsPersistent = maps:get(is_persistent, Session),
+        _Subscriptions = maps:get(subscriptions, Session),
+        _MaxSubscriptions = maps:get(max_subscriptions, Conf, infinity),
+        _UpgradeQoS = maps:get(upgrade_qos, Conf, false),
+        _Inflight = to_legacy_inflight(
+            maps:get(inflight, Session),
+            maps:get(receive_maximum, Conf, 0)
+        ),
+        _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), 2),
+        %% MQTT-SN uses quota = false:
+        _Quota = false,
+        _NextPktId = maps:get(next_pkt_id, Session),
+        _RetryInterval = maps:get(retry_interval, Conf, infinity),
+        _AwaitingRel = maps:get(awaiting_rel, Session),
+        _MaxAwaitingRel = maps:get(max_awaiting_rel, Conf, 100),
+        _AwaitRelTimeout = maps:get(await_rel_timeout, Conf, timer:seconds(300)),
         _CreatedAt = maps:get(created_at, Session)}.
 
 %% erlfmt-ignore
-from_legacy_session(Session) ->
+from_legacy_session(Session, 1) ->
     {session,
         _ClientId,
         Id,
@@ -299,7 +365,34 @@ from_legacy_session(Session) ->
         is_persistent => IsPersistent,
         subscriptions => Subscriptions,
         inflight => export_legacy_inflight(Inflight),
-        mqueue => export_legacy_mqueue(MQueue),
+        mqueue => export_legacy_mqueue(MQueue, 1),
+        next_pkt_id => NextPacketId,
+        awaiting_rel => AwaitingRel,
+        created_at => CreatedAt
+    };
+from_legacy_session(Session, 2) ->
+    {session,
+        Id,
+        IsPersistent,
+        Subscriptions,
+        _MaxSubscriptions,
+        _UpgradeQoS,
+        Inflight,
+        MQueue,
+        _Quota,
+        NextPacketId,
+        _RetryInterval,
+        AwaitingRel,
+        _MaxAwaitingRel,
+        _AwaitRelTimeout,
+        CreatedAt
+    } = Session,
+    #{
+        id => Id,
+        is_persistent => IsPersistent,
+        subscriptions => Subscriptions,
+        inflight => export_legacy_inflight(Inflight),
+        mqueue => export_legacy_mqueue(MQueue, 2),
         next_pkt_id => NextPacketId,
         awaiting_rel => AwaitingRel,
         created_at => CreatedAt
@@ -312,7 +405,7 @@ from_legacy_session(Session) ->
 %%     timestamp :: non_neg_integer()
 %% }).
 
-to_legacy_inflight(Inflight) ->
+to_legacy_inflight(Inflight, MaxInflight) ->
     Tree = lists:foldl(
         fun(
             #{
@@ -328,7 +421,7 @@ to_legacy_inflight(Inflight) ->
         gb_trees:empty(),
         Inflight
     ),
-    {inflight, 0, Tree}.
+    {inflight, MaxInflight, Tree}.
 
 export_legacy_inflight({inflight, _, Tree}) ->
     [
@@ -341,7 +434,10 @@ export_legacy_inflight({inflight, _, Tree}) ->
      || {PacketId, {inflight_data, Phase, Message, Timestamp}} <- gb_trees:to_list(Tree)
     ].
 
-%% -type squeue() :: {queue, [any()], [any()], non_neg_integer()}.
+%% Pre-6.3.0 mqueue (version 1) has the following shape:
+%% -type squeue() :: {queue, _In :: [any()], _Out :: [any()], _Len :: non_neg_integer()}.
+%%  ^ `In` holds newest messages first, `Out` holds oldest messages first.
+%% -type pq() :: squeue() | {pqueue, [{priority(), squeue()}]}.
 %% -record(shift_opts, {multiplier :: non_neg_integer(), base :: integer()}).
 %% -record(mqueue, {
 %%     store_qos0 = false :: boolean(),
@@ -356,9 +452,45 @@ export_legacy_inflight({inflight, _, Tree}) ->
 %%     p_credit :: non_neg_integer() | undefined
 %% }).
 
-to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue) ->
+%% 6.3.0/6.3.1 mqueue (version 2) has the following shape:
+%% -record(prios, {
+%%     t :: p_table(),
+%%     default :: priority(),
+%%     shift_mult :: non_neg_integer(),
+%%     shift_base :: integer()
+%% }).
+%% -type pq() :: squeue() | cqueue() | {pqueue, [{priority(), squeue() | cqueue()}]}.
+%% -record(mqueue, {
+%%     store_qos0 = false :: boolean(),
+%%     max_len = ?MAX_LEN_INFINITY :: count(),
+%%     dropped = 0 :: count(),
+%%     payload_bytes = 0 :: count(),
+%%     q = emqx_pqueue:new() :: pq(),
+%%     prios = ?NO_PRIORITY_TABLE :: #prios{} | ?NO_PRIORITY_TABLE,
+%%     p_credit :: non_neg_integer() | undefined
+%% }).
+%% ^ Length is stored in q
+%% ^ `payload_bytes` counts queued message payload bytes.
+%% ^ Priority configuration and shift options moved into prios (or disabled).
+%%
+%% Version 2 also supports two-lane queues to distinguish QoS0 messages:
+%% -type cqueue() :: {
+%%     _HeadLane :: default | qos0,
+%%     _TailLane :: default | qos0,
+%%     _DefaultIn :: [any()],
+%%     _DefaultOut :: [any()],
+%%     _QoS0In :: [any()],
+%%     _QoS0Out :: [any()],
+%%     _Len :: non_neg_integer()
+%% }.
+
+%% erlfmt-ignore
+to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue, 1) ->
+    %% NOTE
+    %% For simplicity, legacy conversion ignores message priorities and builds a simple queue.
+    %% Sort by insertion timestamp so pagination remains valid after flattening priorities.
     Len = length(Queue),
-    PQueue = {queue, [], Queue, length(Queue)},
+    PQueue = {queue, [], sort_mqueue_by_timestamp(Queue), Len},
     MaxLen = emqx_config:get_zone_conf(Zone, [mqtt, max_mqueue_len]),
     StoreQoS0 = emqx_config:get_zone_conf(Zone, [mqtt, mqueue_store_qos0]),
     PTable =
@@ -378,14 +510,121 @@ to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue) ->
     %% NOTE: Computing `#shift_opts{}` was subtly broken, just use baseline.
     ShiftOpts = {shift_opts, 10, 0},
     {mqueue, StoreQoS0, MaxLen, Len, _Dropped = 0, PTable, DefaultPrio, PQueue, ShiftOpts,
-        _LastPrio = undefined, _PCredit = undefined}.
+        _LastPrio = undefined, _PCredit = undefined};
+to_legacy_mqueue(ChanInfo, Messages, 2) ->
+    %% NOTE
+    %% 6.3.0/6.3.1 queues store a boolean instead of the current QoS0 count.
+    %% Their remaining fields and priority/class queue representation are unchanged.
+    {mqueue,
+        StoreQoS0,
+        MaxLen,
+        _Len,
+        Dropped,
+        PTable,
+        DefaultPrio,
+        PQueue,
+        {shift_opts, ShiftMult, ShiftBase},
+        _LastPrio,
+        PCredit
+    } = to_legacy_mqueue(ChanInfo, Messages, 1),
+    Bytes = lists:sum([emqx_message:payload_size(Msg) || Msg <- Messages]),
+    Prios =
+        case PTable of
+            disabled ->
+                disabled;
+            #{} ->
+                {prios, PTable, DefaultPrio, ShiftMult, ShiftBase}
+        end,
+    {mqueue, StoreQoS0, MaxLen, Dropped, Bytes, PQueue, Prios, PCredit}.
 
-export_legacy_mqueue(MQueue) ->
-    {mqueue, _StoreQoS0, _MaxLen, _Len, _Dropped, _PTable, _DefaultP, PQueue, _ShitOpts, _LastPrio,
-        _PCredit} = MQueue,
-    case PQueue of
-        {queue, In, Out, _} ->
-            Out ++ lists:reverse(In);
-        {pqueue, Queues} ->
-            lists:append([Out ++ lists:reverse(In) || {_P, {queue, In, Out, _}} <- Queues])
+%% erlfmt-ignore
+export_legacy_mqueue(MQueue, 1) ->
+    {mqueue,
+        _StoreQoS0,
+        _MaxLen,
+        _Len,
+        _Dropped,
+        _PTable,
+        _DefaultP,
+        PQueue,
+        _ShitOpts,
+        _LastPrio,
+        _PCredit
+    } = MQueue,
+    sort_mqueue_by_timestamp(export_legacy_pqueue(PQueue, 1));
+export_legacy_mqueue(MQueue, 2) ->
+    {mqueue, _StoreQoS0, _MaxLen, _Dropped, _Bytes, PQueue, _Prios, _Credit} = MQueue,
+    sort_mqueue_by_timestamp(export_legacy_pqueue(PQueue, 2)).
+
+%% Drain the pre-6.3 and 6.3.0/6.3.1 pqueue representations.
+%% Flatten priorities in stored order, ignoring credits.
+export_legacy_pqueue({queue, In, Out, _Len}, _Vsn) ->
+    Out ++ lists:reverse(In);
+export_legacy_pqueue({pqueue, Queues}, Vsn) ->
+    lists:append([export_legacy_pqueue(Q, Vsn) || {_Priority, Q} <- Queues]);
+export_legacy_pqueue(CQueue = {_, _, _, _, _, _, _}, 2) ->
+    export_legacy_cqueue(CQueue, 2).
+
+export_legacy_cqueue(CQueue, 2) ->
+    case cqueue_out(CQueue) of
+        {empty, _} ->
+            [];
+        {{value, Msg}, Rest} ->
+            [Msg | export_legacy_cqueue(Rest, 2)]
     end.
+
+sort_mqueue_by_timestamp(Messages) ->
+    [Msg || {_, Msg} <- lists:keysort(1, [{mqueue_timestamp(Msg), Msg} || Msg <- Messages])].
+
+mqueue_timestamp(#message{extra = #{mqueue_insert_ts := Ts}}) ->
+    Ts.
+
+%% 6.3.0/6.3.1 class-queue decoder, copied verbatim from `emqx_pqueue` @ 6.3.1.
+%% Keep this copy independent of future queue implementation changes.
+
+-define(switch, '$switch').
+-define(switch_(N), {'$switch', N}).
+
+cqueue_new() ->
+    {default, default, [], [], [], [], 0}.
+
+cqueue_out({_HeadLane, _TailLane, _, _, _, _, 0} = Q) ->
+    {empty, Q};
+cqueue_out({HeadLane, TailLane, In, Out, Q0In, Q0Out, L}) ->
+    cqueue_out(HeadLane, TailLane, In, Out, Q0In, Q0Out, L).
+
+cqueue_out(_HeadLane, _TailLane, _, _, _, _, 0) ->
+    {empty, cqueue_new()};
+cqueue_out(default, TL, In, Out, Q0In, Q0Out, L) ->
+    case Out of
+        [?switch | Rest] ->
+            cqueue_out(qos0, TL, In, Rest, Q0In, Q0Out, L);
+        [?switch_(N) | Rest] ->
+            cqueue_out(qos0, TL, In, [cq_mk_switch(N - 1) | Rest], Q0In, Q0Out, L);
+        [V | Rest] ->
+            {{value, V}, {default, TL, In, Rest, Q0In, Q0Out, L - 1}};
+        [] when In =:= [] ->
+            cqueue_out(qos0, TL, In, Out, Q0In, Q0Out, L);
+        [] ->
+            NOut = lists:reverse(In, []),
+            cqueue_out(default, TL, [], NOut, Q0In, Q0Out, L)
+    end;
+cqueue_out(qos0, TL, In, Out, Q0In, Q0Out, L) ->
+    case Q0Out of
+        [?switch | Rest] ->
+            cqueue_out(default, TL, In, Out, Q0In, Rest, L);
+        [?switch_(N) | Rest] ->
+            cqueue_out(default, TL, In, Out, Q0In, [cq_mk_switch(N - 1) | Rest], L);
+        [V | Rest] ->
+            {{value, V}, {qos0, TL, In, Out, Q0In, Rest, L - 1}};
+        [] when Q0In =:= [] ->
+            cqueue_out(default, TL, In, Out, Q0In, Q0Out, L);
+        [] ->
+            NOut = lists:reverse(Q0In, []),
+            cqueue_out(qos0, TL, In, Out, [], NOut, L)
+    end.
+
+cq_mk_switch(1) ->
+    ?switch;
+cq_mk_switch(N) ->
+    ?switch_(N).

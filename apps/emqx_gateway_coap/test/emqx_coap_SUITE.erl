@@ -644,7 +644,12 @@ t_token_takeover_across_udp_sessions(_) ->
     er_coap_channel:close(Channel1),
     er_coap_udp_socket:close(Sock1),
     timer:sleep(100),
-    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+    [OldPid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+    %% The shared legacy RPC preserves CoAP's opaque session without clientinfo metadata.
+    #{session := SessionInfo} = emqx_gateway_conn:info(OldPid),
+    {ok, emqx_gateway_conn, OldPid, LegacySession} =
+        emqx_gateway_cm:do_takeover_session(coap, <<"client1">>, OldPid),
+    ?assertEqual(SessionInfo, emqx_coap_session:info(LegacySession)),
 
     {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     URI = compose_uri(
