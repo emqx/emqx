@@ -529,11 +529,11 @@ update_config_cluster(Namespace, Opts, RawConf) ->
 update_cluster_links(cluster, #{<<"cluster">> := #{<<"links">> := Links}}, Namespace, Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     Res = emqx_conf:update([<<"cluster">>, <<"links">>], Links, UpdateOpts),
-    check_res(<<"cluster.links">>, Res, Links, Opts);
+    check_cluster_res(?global_ns, <<"cluster.links">>, Res, Links, Opts);
 update_cluster_links(local, #{<<"cluster">> := #{<<"links">> := Links}}, Namespace, Opts) ->
     UpdateOpts = with_namespace(?LOCAL_OPTIONS, Namespace),
     Res = emqx:update_config([<<"cluster">>, <<"links">>], Links, UpdateOpts),
-    check_res(node(), <<"cluster.links">>, Res, Links, Opts);
+    check_local_res(Namespace, <<"cluster.links">>, Res, Links, Opts);
 update_cluster_links(_, _, _, _) ->
     ok.
 
@@ -586,7 +586,7 @@ update_config_cluster(
     #{mode := merge} = Opts
 ) ->
     %% Currently, authn/authz are not namespaced roots.
-    check_res(Key, emqx_authz:merge(Conf), Conf, Opts);
+    check_cluster_res(?global_ns, Key, emqx_authz:merge(Conf), Conf, Opts);
 update_config_cluster(
     ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key,
     Conf,
@@ -594,71 +594,90 @@ update_config_cluster(
     #{mode := merge} = Opts
 ) ->
     %% Currently, authn/authz are not namespaced roots.
-    check_res(Key, emqx_authn:merge_config(Conf), Conf, Opts);
+    check_cluster_res(?global_ns, Key, emqx_authn:merge_config(Conf), Conf, Opts);
 update_config_cluster(
     ?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts
 ) ->
     %% Currently not a namespaced root, but nevertheless adding the option for consistency.
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    check_res(Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts);
+    check_cluster_res(
+        ?global_ns, Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts
+    );
 update_config_cluster(
     ?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := replace} = Opts
 ) ->
     %% Currently not a namespaced root, but nevertheless adding the option for consistency.
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    check_res(Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts);
+    check_cluster_res(
+        ?global_ns, Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts
+    );
 update_config_cluster(
     ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts
 ) ->
     %% Currently not a namespaced root, but nevertheless adding the option for consistency.
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    check_res(Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts);
+    check_cluster_res(
+        ?global_ns, Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts
+    );
 update_config_cluster(
     ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := replace} = Opts
 ) ->
     %% Currently not a namespaced root, but nevertheless adding the option for consistency.
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    check_res(Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts);
+    check_cluster_res(
+        ?global_ns, Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts
+    );
 update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     Merged = merge_conf(Namespace, Key, NewConf),
-    check_res(
+    check_cluster_res(
         Namespace, Key, emqx_conf:update([Key], {async_start, Merged}, UpdateOpts), NewConf, Opts
     );
 update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, Value, Namespace, #{mode := replace} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    check_res(Key, emqx_conf:update([Key], {async_start, Value}, UpdateOpts), Value, Opts);
+    check_cluster_res(
+        ?global_ns, Key, emqx_conf:update([Key], {async_start, Value}, UpdateOpts), Value, Opts
+    );
 update_config_cluster(Key, NewConf, Namespace, #{mode := merge} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
     Merged = merge_conf(Namespace, Key, NewConf),
-    check_res(Namespace, Key, emqx_conf:update([Key], Merged, UpdateOpts), NewConf, Opts);
+    check_cluster_res(Namespace, Key, emqx_conf:update([Key], Merged, UpdateOpts), NewConf, Opts);
 update_config_cluster(Key, Value, Namespace, #{mode := replace} = Opts) ->
     UpdateOpts = with_namespace(?OPTIONS, Namespace),
-    check_res(Key, emqx_conf:update([Key], Value, UpdateOpts), Value, Opts).
+    check_cluster_res(?global_ns, Key, emqx_conf:update([Key], Value, UpdateOpts), Value, Opts).
 
 update_config_local(
     ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key,
     Conf,
     #{mode := merge} = Opts
 ) ->
-    check_res(node(), Key, emqx_authz:merge_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
+    check_local_res(?global_ns, Key, emqx_authz:merge_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
 update_config_local(
     ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key,
     Conf,
     #{mode := merge} = Opts
 ) ->
-    check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
+    check_local_res(
+        ?global_ns, Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS), Conf, Opts
+    );
 update_config_local(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(?global_ns, Key, NewConf),
-    check_res(node(), Key, emqx:update_config([Key], Merged, ?LOCAL_OPTIONS), NewConf, Opts);
+    check_local_res(
+        ?global_ns, Key, emqx:update_config([Key], Merged, ?LOCAL_OPTIONS), NewConf, Opts
+    );
 update_config_local(Key, Value, #{mode := replace} = Opts) ->
-    check_res(node(), Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Opts).
+    check_local_res(
+        ?global_ns, Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Opts
+    ).
 
-check_res(Key, Res, Conf, Opts) ->
-    check_res(?global_ns, Key, Res, Conf, Opts).
-
-check_res(Namespace, Key, Res, Conf, Opts) ->
+-doc "Report the result of a cluster-wide update of `Key` in `Namespace`.".
+check_cluster_res(Namespace, Key, Res, Conf, Opts) ->
     check_res(Namespace, cluster, Key, Res, Conf, Opts).
+
+-doc "Report the result of an update of `Key` in `Namespace` on the local node.".
+check_local_res(Namespace, Key, Res, Conf, Opts) ->
+    check_res(Namespace, node(), Key, Res, Conf, Opts).
+
 check_res(_Namespace, Node, Key, {ok, _}, _Conf, Opts) ->
     print(Opts, "load ~ts on ~p ok~n", [Key, Node]),
     ok;
