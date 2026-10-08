@@ -355,7 +355,7 @@ t_listeners_enable_not_found(_Config) ->
         emqx_ctl:run_command(["listeners", "enable", "tcp:nosuch", "true"])
     end),
     ?assertEqual(ok, Res),
-    ?assertEqual(<<"Not found listener: \"tcp:nosuch\"\n">>, iolist_to_binary(Prints)).
+    ?assertEqual(<<"Listener not found: \"tcp:nosuch\"\n">>, iolist_to_binary(Prints)).
 
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes

@@ -1064,7 +1064,7 @@ listeners(["enable", ListenerId, Enable0]) ->
         {error, {invalid_listener_id, _Id}} ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId]);
         {error, not_found} ->
-            emqx_ctl:print("Not found listener: ~0p~n", [ListenerId]);
+            emqx_ctl:print("Listener not found: ~0p~n", [ListenerId]);
         {error, {already_started, _Pid}} ->
             emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable0]);
         {error, Reason} ->
