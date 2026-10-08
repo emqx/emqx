@@ -42,7 +42,7 @@
 build_authn_ctx(MethodConfs0, GatewayAuthEnabled) ->
     #{
         methods => normalize_authn_methods(MethodConfs0),
-        gateway_auth_enabled => GatewayAuthEnabled =:= true
+        gateway_auth_enabled => GatewayAuthEnabled
     }.
 
 -spec is_auth_required(map(), authn_ctx()) -> boolean().
@@ -843,8 +843,10 @@ jwt_has_resolver_accounts(Config) ->
 nonce_auth_enabled(Authn) ->
     lists:any(fun nonce_method_enabled/1, maps:get(methods, Authn, [])).
 
-gateway_auth_enabled(Authn) ->
-    maps:get(gateway_auth_enabled, Authn, false) =:= true.
+gateway_auth_enabled(#{gateway_auth_enabled := true}) ->
+    true;
+gateway_auth_enabled(_Authn) ->
+    false.
 
 authn_not_configured_requires_authn() ->
     emqx_security_profile:policy(authn_not_configured) =:= deny.

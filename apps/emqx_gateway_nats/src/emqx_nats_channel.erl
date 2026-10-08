@@ -590,7 +590,7 @@ handle_in(
 handle_in(
     Packet = ?PACKET(?OP_CONNECT),
     Channel = #channel{conn_state = ConnState}
-) when ConnState =:= anonymous; ConnState =:= idle ->
+) when ConnState =:= anonymous orelse ConnState =:= idle ->
     case
         emqx_utils:pipeline(
             [
@@ -737,7 +737,7 @@ handle_in(
 handle_in(
     ?PACKET(Op),
     Channel
-) when Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB; Op =:= ?OP_SUB orelse Op =:= ?OP_UNSUB ->
+) when Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB orelse Op =:= ?OP_SUB orelse Op =:= ?OP_UNSUB ->
     handle_out(error, <<"Must be connected to publish or subscribe">>, Channel);
 handle_in(Frame = ?PACKET(?OP_OK), Channel) ->
     ?SLOG(info, #{
@@ -1447,9 +1447,9 @@ jwt_subscribe_match_any_unsafe(TopicFilter, [RuleFilter | Rest], subset) ->
         false -> jwt_subscribe_match_any_unsafe(TopicFilter, Rest, subset)
     end;
 jwt_subscribe_match_any_unsafe(TopicFilter, [RuleFilter | Rest], intersection) ->
-    case emqx_topic:intersection(TopicFilter, RuleFilter) =/= false of
-        true -> true;
-        false -> jwt_subscribe_match_any_unsafe(TopicFilter, Rest, intersection)
+    case emqx_topic:intersection(TopicFilter, RuleFilter) of
+        false -> jwt_subscribe_match_any_unsafe(TopicFilter, Rest, intersection);
+        _Intersection -> true
     end.
 
 jwt_rule_filters(JWTPerms, Action) ->
