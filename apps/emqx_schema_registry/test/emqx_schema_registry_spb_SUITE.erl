@@ -65,6 +65,7 @@ init_per_suite(TCConfig) ->
                     }
                 }
             }),
+            emqx_mt,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -441,6 +442,82 @@ drop_first_level(Topic) ->
 
 all_certificates_topic() ->
     emqx_topic:join([?SPB_CERT_PREFIX, ~"#"]).
+
+setup_spb_awareness_limit_selects_in_namespace() ->
+    OldValue = emqx_conf:get([rule_engine, limit_selects_in_namespace]),
+    on_exit(fun() ->
+        {ok, _} = emqx_conf:update(
+            [rule_engine, limit_selects_in_namespace],
+            OldValue,
+            #{override_to => cluster}
+        ),
+        {ok, _} = emqx_conf:update(
+            [mqtt, client_attrs_init],
+            [],
+            #{override_to => cluster}
+        ),
+        {ok, _} = emqx_conf:update(
+            [mqtt, namespace_as_mountpoint],
+            false,
+            #{override_to => cluster}
+        ),
+        ok
+    end),
+    {ok, _} = emqx_conf:update(
+        [rule_engine, limit_selects_in_namespace],
+        true,
+        #{override_to => cluster}
+    ),
+    {ok, _} = emqx_conf:update(
+        [mqtt, client_attrs_init],
+        [
+            #{
+                <<"expression">> => <<"username">>,
+                <<"set_as_attr">> => <<"tns">>
+            }
+        ],
+        #{override_to => cluster}
+    ),
+    {ok, _} = emqx_conf:update(
+        [mqtt, namespace_as_mountpoint],
+        true,
+        #{override_to => cluster}
+    ),
+
+    RepublishArgs = #{
+        ~"topic" => ~"${.ns}/rep/${.topic}",
+        ~"qos" => 1,
+        ~"retain" => false,
+        ~"payload" => ~"${payload}",
+        ~"mqtt_properties" => #{},
+        ~"user_properties" => ~"${pub_props.'User-Property'}",
+        ~"direct_dispatch" => false
+    },
+    RepublishAction = #{
+        ~"function" => ~"republish",
+        ~"args" => RepublishArgs
+    },
+    %% will only see messages from ns1
+    Ns = ~"ns1",
+    emqx_bridge_v2_testlib:ensure_managed_ns(Ns),
+    AuthHeaderNs = emqx_bridge_v2_testlib:ensure_namespaced_api_key(#{namespace => Ns}),
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
+        #{
+            ~"sql" => fmt(
+                ~"select *, client_attrs.tns as ns from \"${ns}/${certs}\" ",
+                #{ns => Ns, certs => all_certificates_topic()}
+            ),
+            ~"id" => ~"spb",
+            ~"actions" => [RepublishAction]
+        },
+        #{auth_header => AuthHeaderNs}
+    ),
+
+    #{
+        namespace => Ns,
+        auth_header => AuthHeaderNs,
+        republish_topic_wildcard => ~"rep/#"
+    }.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1219,6 +1296,59 @@ t_spb_awareness_tracks_non_clients(_TCConfig) ->
             retain := true
         }}
     ),
+    ok.
+
+-doc """
+Checks that we correctly prepend the mountpoint when using the namespace feature and
+`rule_engine.limit_selects_in_namespace`.  Meaning that, if said option is enabled, and a
+rule selects from `$sparkplug/certificates/`, we use the client attributes of the original
+client to namespace the message.
+""".
+t_spb_awareness_limit_selects_in_namespace(_TCConfig) ->
+    #{
+        namespace := Ns1,
+        republish_topic_wildcard := Topic
+    } = setup_spb_awareness_limit_selects_in_namespace(),
+
+    ClientOpts = #{proto_ver => v5},
+    Ns2 = ~"another_ns",
+    C1 = start_client(ClientOpts#{username => Ns1}),
+    C2 = start_client(ClientOpts#{username => Ns2}),
+    Ctx = #{c1 => C1, c2 => C2},
+
+    {ok, _, _} = emqtt:subscribe(C1, Topic, [{qos, 1}]),
+    {ok, _, _} = emqtt:subscribe(C2, Topic, [{qos, 1}]),
+
+    BirthBin = spb_encode(sample_birth_payload1()),
+    NBirthTopic = nbirth_topic(),
+    DBirthTopic = dbirth_topic(),
+    %% those should only reach C1's subscription.
+    {ok, _} = emqtt:publish(C1, NBirthTopic, BirthBin, [{qos, 1}]),
+    {ok, _} = emqtt:publish(C1, DBirthTopic, BirthBin, [{qos, 1}]),
+
+    SizeNs1 = byte_size(Ns1),
+    ?assertReceive(
+        {publish, #{
+            client_pid := C1,
+            topic :=
+                <<"rep/", Ns1:SizeNs1/binary, "/$sparkplug/certificates/", NBirthTopic/binary>>,
+            retain := false
+        }},
+        1_000,
+        Ctx
+    ),
+    ?assertReceive(
+        {publish, #{
+            client_pid := C1,
+            topic :=
+                <<"rep/", Ns1:SizeNs1/binary, "/$sparkplug/certificates/", DBirthTopic/binary>>,
+            retain := false
+        }},
+        1_000,
+        Ctx
+    ),
+    ?assertNotReceive({publish, #{client_pid := C2}}),
+
     ok.
 
 -doc """

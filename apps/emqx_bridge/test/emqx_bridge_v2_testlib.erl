@@ -471,6 +471,20 @@ create_namespaced_admin_headers(Opts) ->
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).
 
+ensure_managed_ns(Ns) ->
+    URL = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns]),
+    Res = simple_request(#{
+        method => post,
+        url => URL,
+        body => <<"">>
+    }),
+    case Res of
+        {204, _} ->
+            ok;
+        {400, #{<<"message">> := <<"already_exists">>}} ->
+            ok
+    end.
+
 ensure_namespaced_api_key(Opts) ->
     #{namespace := Namespace} = Opts,
     Enabled = true,

@@ -130,12 +130,12 @@ publish_birth_msg(OriginalMsg, #nbirth{} = BirthMsg) ->
         group_id = GroupId,
         edge_node_id = EdgeNodeId
     } = BirthMsg,
-    #message{from = ClientId, payload = Payload} = OriginalMsg,
+    #message{from = ClientId, payload = Payload, headers = Headers0} = OriginalMsg,
     Topic0 = emqx_topic:join([?SPB_CERT_PREFIX, Namespace, GroupId, ~"NBIRTH", EdgeNodeId]),
     Topic = maybe_mount(Topic0, OriginalMsg),
     Flags = #{retain => true},
     QoS = 2,
-    Headers = #{},
+    Headers = maps:with([client_attrs], Headers0),
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload, Flags, Headers),
     _ = emqx_broker:publish(Msg),
     ok;
@@ -146,12 +146,12 @@ publish_birth_msg(OriginalMsg, #dbirth{} = BirthMsg) ->
         edge_node_id = EdgeNodeId,
         device_id = DeviceId
     } = BirthMsg,
-    #message{from = ClientId, payload = Payload} = OriginalMsg,
+    #message{from = ClientId, payload = Payload, headers = Headers0} = OriginalMsg,
     Topic0 = emqx_topic:join([?SPB_CERT_PREFIX, Namespace, GroupId, ~"DBIRTH", EdgeNodeId, DeviceId]),
     Topic = maybe_mount(Topic0, OriginalMsg),
     Flags = #{retain => true},
     QoS = 2,
-    Headers = #{},
+    Headers = maps:with([client_attrs], Headers0),
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload, Flags, Headers),
     _ = emqx_broker:publish(Msg),
     ok.
