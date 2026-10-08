@@ -440,6 +440,7 @@ classify_result(Result) ->
 ecpool_error_kind(#{reason := Reason, details := Details}) ->
     enats_client_error_kind(Reason, Details);
 ecpool_error_kind(Reason) when
+    Reason =:= killed;
     Reason =:= disconnected;
     Reason =:= closed;
     Reason =:= stale_connection;

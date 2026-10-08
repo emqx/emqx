@@ -20,17 +20,21 @@
 -define(NATS_PORT, 4222).
 -define(NATS_CA_CERT, "/emqx/.ci/docker-compose-file/certs/cacert.pem").
 
-all() -> [{group, local}].
+all() -> [{group, local}, {group, cluster}].
 
 suite() -> [{timetrap, {seconds, 60}}].
 
 groups() ->
-    [
-        {local, [], emqx_common_test_helpers:all(?MODULE)}
-    ].
+    emqx_bridge_v2_testlib:local_and_cluster_groups(?MODULE, local, cluster).
 
 init_per_suite(Config) ->
     wait_for_port(?NATS_HOST, ?NATS_PORT),
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(local, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -43,12 +47,38 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{apps, Apps} | Config].
+    [{apps, Apps} | Config];
+init_per_group(cluster, Config) ->
+    emqx_cth_suite:load_apps([emqx_bridge_nats]),
+    Nodes = emqx_cth_cluster:start(
+        [
+            {nats_credentials_1, #{
+                apps => cluster_app_specs() ++ [emqx_mgmt_api_test_util:emqx_dashboard()]
+            }},
+            {nats_credentials_2, #{apps => cluster_app_specs()}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{cluster_nodes, Nodes} | Config].
 
-end_per_suite(Config) ->
+end_per_group(local, Config) ->
     emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
+    ok;
+end_per_group(cluster, Config) ->
+    emqx_cth_cluster:stop(?config(cluster_nodes, Config)).
+
 init_per_testcase(TestCase, Config) ->
+    case ?config(cluster_nodes, Config) of
+        undefined ->
+            on_exit(fun emqx_bridge_v2_testlib:delete_all_bridges_and_connectors/0);
+        [Node | _] ->
+            emqx_bridge_v2_testlib:set_auth_header_getter(fun() ->
+                ?ON(Node, emqx_mgmt_api_test_util:auth_header_())
+            end),
+            on_exit(fun() ->
+                ?ON(Node, emqx_bridge_v2_testlib:delete_all_bridges_and_connectors())
+            end)
+    end,
     Name = atom_to_binary(TestCase),
     ConnectorConfig = emqx_bridge_v2_testlib:parse_and_check_connector(
         ?CONNECTOR_TYPE_BIN,
@@ -83,7 +113,6 @@ init_per_testcase(TestCase, Config) ->
             }
         }
     ),
-    on_exit(fun emqx_bridge_v2_testlib:delete_all_bridges_and_connectors/0),
     [
         {bridge_kind, action},
         {connector_type, ?CONNECTOR_TYPE},
@@ -95,8 +124,16 @@ init_per_testcase(TestCase, Config) ->
         | Config
     ].
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:call_janitor(),
+    emqx_bridge_v2_testlib:clear_auth_header_getter(),
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual([], ?ON(Node, emqx_bridge_v2:list(?global_ns, actions))),
+            ?assertEqual([], ?ON(Node, emqx_connector:list(?global_ns)))
+        end,
+        proplists:get_value(cluster_nodes, Config, [])
+    ),
     ok.
 
 %%--------------------------------------------------------------------
@@ -395,7 +432,7 @@ t_pool_reconnect_error_preserved(Config) ->
                 ?snk_kind := nats_connector_query_return,
                 result :=
                     {error,
-                        {unrecoverable_error,
+                        {recoverable_error,
                             {disconnected, #{
                                 reason := killed, time_since_observed_ms := _
                             }}}}
@@ -425,9 +462,9 @@ t_pool_reconnect_error_preserved(Config) ->
             7000
         ),
         ok = set_nats_proxy_enabled(true),
-        ?assertMatch(
-            {enats_client, Subscriber, {message, #{payload := <<"pool-recovered">>}}},
-            receive_message(7000)
+        ?assertEqual(
+            [<<"client-killed">>, <<"pool-recovered">>],
+            lists:sort(receive_payloads(2, []))
         )
     after
         ok = set_nats_proxy_enabled(true),
@@ -864,37 +901,59 @@ t_credentials_content_validation(_Config) ->
     >>,
     ?assertMatch({error, _}, enats_auth:validate_credentials(InvalidContents)).
 
+t_cluster_credentials_content() ->
+    [{cluster, true}].
 t_cluster_credentials_content(Config) ->
-    {_Fixture, Credentials} = jwt_credentials_fixture(),
-    Name = atom_to_binary(?FUNCTION_NAME),
-    ConnectorConfig = #{
-        <<"enable">> => false,
+    {Fixture, Credentials} = jwt_credentials_fixture(),
+    #{user_public := UserPublic, user_private := UserPrivate, user_jwt := UserJWT} = Fixture,
+    {ok, Subscriber} = connect_client(
+        enats_client:start_link(#{
+            host => "nats-jwt",
+            port => 4222,
+            owner => self(),
+            auth => #{
+                mechanism => jwt,
+                public_key => UserPublic,
+                jwt => fun() -> UserJWT end,
+                sign_fun => enats_auth:nkey_signer(UserPublic, UserPrivate)
+            }
+        })
+    ),
+    on_exit(fun() -> enats_client:stop(Subscriber) end),
+    {ok, _} = enats_client:subscribe(Subscriber, <<"emqx.events">>, #{}),
+    ok = enats_client:flush(Subscriber, 2000),
+    Name = ?config(connector_name, Config),
+    ConnectorOverrides = #{
         <<"servers">> => <<"nats-jwt:4222">>,
-        <<"pool_size">> => 1,
-        <<"connect_timeout">> => <<"2s">>,
         <<"authentication">> => #{
             <<"mechanism">> => <<"jwt">>,
             <<"credentials_file_content">> => Credentials
-        },
-        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
+        }
     },
-    Cluster = [
-        {nats_credentials_1, #{apps => cluster_app_specs()}},
-        {nats_credentials_2, #{apps => cluster_app_specs()}}
-    ],
-    Nodes = emqx_cth_cluster:start(
-        Cluster,
-        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
-    ),
+    Nodes = ?config(cluster_nodes, Config),
     [N1, N2] = Nodes,
-    try
-        {ok, _} = ?ON(N1, emqx_connector:create(?global_ns, nats, Name, ConnectorConfig)),
-        assert_cluster_credentials_content(N1, Name),
-        assert_cluster_credentials_content(N2, Name),
-        ok
-    after
-        ok = emqx_cth_cluster:stop(Nodes)
-    end.
+    {201, Connector} = create_connector(Config, ConnectorOverrides),
+    assert_credentials_not_exposed(emqx_utils_json:encode(Connector)),
+    assert_cluster_credentials_content(N1, Name),
+    assert_cluster_credentials_content(N2, Name),
+    {201, _} = create_action(Config),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    ?retry(
+        100,
+        100,
+        begin
+            {200, #{<<"node_status">> := NodeStatuses}} = get_connector(Config),
+            ?assertEqual(2, length(NodeStatuses)),
+            ?assert(
+                lists:all(
+                    fun(#{<<"status">> := Status}) -> Status =:= <<"connected">> end,
+                    NodeStatuses
+                )
+            )
+        end
+    ),
+    lists:foreach(fun(Node) -> cluster_credentials_publish(Node, Subscriber) end, Nodes),
+    ok.
 
 t_auth_jwt_creds(Config) ->
     {Fixture, Credentials} = jwt_credentials_fixture(),
@@ -1035,6 +1094,22 @@ cluster_emqx_before_start(App, AppConfig) ->
     emqx_config:init_load(emqx_connector_schema, <<>>),
     emqx_config:add_allowed_namespaced_config_root(<<"connectors">>),
     emqx_cth_suite:inhibit_config_loader(App, AppConfig).
+
+cluster_credentials_publish(Node, Subscriber) ->
+    Port = emqx_common_test_helpers:listener_port(
+        ?ON(Node, emqx_config:get([listeners, tcp, default, bind]))
+    ),
+    {ok, Publisher} = emqtt:start_link(#{port => Port}),
+    try
+        {ok, _} = emqtt:connect(Publisher),
+        Payload = atom_to_binary(Node),
+        publish_mqtt(Publisher, <<"sensor/1/data">>, Payload),
+        ?assertMatch(
+            {enats_client, Subscriber, {message, #{payload := Payload}}}, receive_message(5000)
+        )
+    after
+        emqtt:stop(Publisher)
+    end.
 
 create_connector_silent(Config, Overrides) ->
     ConnectorConfig0 = proplists:get_value(connector_config, Config),
