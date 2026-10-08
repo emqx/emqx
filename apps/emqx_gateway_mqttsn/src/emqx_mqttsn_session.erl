@@ -32,9 +32,16 @@
     obtain_next_pkt_id/1,
     takeover/1,
     resume/2,
-    resume_clientinfo/2,
+    resume/3,
+    export/1,
+    import/2,
     disconnect/2,
     enqueue/3
+]).
+
+-export_type([
+    session/0,
+    exported/0
 ]).
 
 -type session() :: #{
@@ -42,17 +49,14 @@
     session := emqx_session_mem:session()
 }.
 
--export_type([session/0]).
+-type exported() :: #{
+    registry := emqx_mqttsn_registry:registry(),
+    session := emqx_session_mem:exported()
+}.
 
 init(ClientInfo, MaybeWillMsg) ->
     ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
-    SessionConf = maps:merge(
-        emqx_session:get_session_conf(ClientInfo),
-        #{
-            %% TODO: Handle quota-related timer effects.
-            enable_quota => false
-        }
-    ),
+    SessionConf = session_conf(ClientInfo),
     #{
         registry => emqx_mqttsn_registry:init(),
         session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg, SessionConf)
@@ -107,8 +111,53 @@ obtain_next_pkt_id(Session = #{session := Sess}) ->
 takeover(_Session = #{session := Sess}) ->
     emqx_session_mem:takeover(Sess).
 
-resume(ClientInfo, Session = #{session := Sess}) ->
-    Session#{session := emqx_session_mem:resume(ClientInfo, Sess)}.
+-spec resume(emqx_types:clientinfo(), exported()) -> session().
+resume(ClientInfo, Exported) ->
+    Session = #{session := S} = import(ClientInfo, Exported),
+    Session#{session := emqx_session_mem:resume(ClientInfo, S)}.
+
+-doc "Restore the sleeping session and its association metadata.".
+-spec resume(emqx_types:clientinfo(), emqx_types:conninfo(), map()) -> map().
+resume(ClientInfo = #{clientid := ClientId}, ConnInfo, #{
+    session := Exported,
+    clientinfo := OldClientInfo = #{clientid := ClientId},
+    conninfo := OldConnInfo = #{},
+    asleep_timer_duration := SleepDuration
+}) when is_integer(SleepDuration) andalso SleepDuration > 0 ->
+    ResumeClientInfo = resume_clientinfo(ClientInfo, OldClientInfo),
+    #{
+        session => ?MODULE:resume(ResumeClientInfo, Exported),
+        clientinfo => ResumeClientInfo,
+        conninfo => maps:merge(OldConnInfo, ConnInfo),
+        asleep_timer_duration => SleepDuration
+    };
+resume(_ClientInfo, _ConnInfo, _Data) ->
+    error(malformed_takeover_reply).
+
+-spec export(session()) -> exported().
+export(#{registry := Registry, session := Sess}) ->
+    #{
+        registry => Registry,
+        session => emqx_session_mem:export(Sess)
+    }.
+
+-spec import(emqx_types:clientinfo(), exported()) -> session().
+import(ClientInfo, #{registry := Registry, session := Exported}) ->
+    #{
+        registry => Registry,
+        session => emqx_session_mem:import(
+            ClientInfo,
+            #{receive_maximum => 1},
+            session_conf(ClientInfo),
+            Exported
+        )
+    }.
+
+session_conf(ClientInfo) ->
+    (emqx_session:get_session_conf(ClientInfo))#{
+        %% TODO: Handle quota-related timer effects.
+        enable_quota => false
+    }.
 
 disconnect(ConnInfo, Session = #{session := S}) ->
     wrap_result(emqx_session_mem:disconnect(S, ConnInfo), Session).
