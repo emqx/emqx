@@ -33,7 +33,6 @@
     connection_expire_interval/2,
     open_session/5,
     open_session/6,
-    resume_session/4,
     insert_channel_info/4,
     set_chan_info/3,
     set_chan_stats/3,
@@ -84,10 +83,11 @@ connection_expire_interval(_Ctx, #{auth_expire_at := ExpireAt}) ->
 %%  successfully so that the client can be managed in the cluster.
 -spec open_session(
     context(),
-    boolean(),
+    true | emqx_gateway_cm:open_mode(),
     emqx_types:clientinfo(),
     emqx_types:conninfo(),
-    fun(
+    undefined
+    | fun(
         (
             emqx_types:clientinfo(),
             emqx_types:conninfo()
@@ -97,22 +97,26 @@ connection_expire_interval(_Ctx, #{auth_expire_at := ExpireAt}) ->
     {ok, #{
         session := Session,
         present := boolean(),
-        pendings => list()
+        pendings => list(),
+        atom() => term()
     }}
     | {error, any()}.
-open_session(Ctx, CleanStart, ClientInfo, ConnInfo, CreateSessionFun) ->
+open_session(Ctx, Mode, ClientInfo, ConnInfo, CreateSessionFun) ->
     open_session(
         Ctx,
-        CleanStart,
+        Mode,
         ClientInfo,
         ConnInfo,
         CreateSessionFun,
         emqx_session
     ).
 
+%% Compatibility for existing gateway callers that use `true` for clean sessions.
+open_session(Ctx, true, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
+    open_session(Ctx, clean, ClientInfo, ConnInfo, CreateSessionFun, SessionMod);
 open_session(
     _Ctx = #{gwname := GwName},
-    CleanStart,
+    Mode,
     ClientInfo,
     ConnInfo,
     CreateSessionFun,
@@ -120,23 +124,10 @@ open_session(
 ) ->
     emqx_gateway_cm:open_session(
         GwName,
-        CleanStart,
+        Mode,
         ClientInfo,
         ConnInfo,
         CreateSessionFun,
-        SessionMod
-    ).
-
-resume_session(
-    _Ctx = #{gwname := GwName},
-    ClientInfo,
-    ConnInfo,
-    SessionMod
-) ->
-    emqx_gateway_cm:resume_session(
-        GwName,
-        ClientInfo,
-        ConnInfo,
         SessionMod
     ).
 

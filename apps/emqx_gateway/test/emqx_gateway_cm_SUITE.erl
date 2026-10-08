@@ -54,24 +54,116 @@ end_per_testcase(_TestCase, Conf) ->
 %% cases
 %%--------------------------------------------------------------------
 
+-doc "Resume-only opening does not create or register a session when no owner exists.".
+t_open_session_resume_only(_) ->
+    ?assertEqual(
+        {error, not_found},
+        emqx_gateway_cm:open_session(
+            ?GWNAME,
+            {takeover, {resume, #{}}},
+            clientinfo(),
+            conninfo(),
+            fun(_, _) -> error(unexpected_session_creation) end,
+            emqx_session
+        )
+    ),
+    ?assertEqual([], emqx_gateway_cm:lookup_channels(?GWNAME, ?CLIENTID)).
+
+t_open_session_force_discards_stale_on_begin_failure(_) ->
+    assert_stale_channels_on_failure(force, {error, timeout}, timeout).
+
+t_open_session_resume_preserves_stale_on_begin_failure(_) ->
+    assert_stale_channels_on_failure({resume, #{}}, {error, not_authorized}, not_authorized).
+
+t_open_session_force_discards_stale_on_resume_failure(_) ->
+    assert_stale_channels_on_failure(
+        force, {ok, unused, #{session => invalid_session}}, {resume_failed, invalid_session}
+    ).
+
+t_open_session_resume_preserves_stale_on_resume_failure(_) ->
+    assert_stale_channels_on_failure(
+        {resume, #{}}, {ok, unused, #{}}, {resume_failed, invalid_session}
+    ).
+
+assert_stale_channels_on_failure(Mode, BeginResult, Reason) ->
+    Self = self(),
+    Candidate = spawn_link(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    ok = emqx_gateway_cm:register_channel(?GWNAME, ?CLIENTID, Self, conninfo()),
+    ok = meck:new(emqx_gateway_cm_registry, [passthrough, no_history, no_link]),
+    ok = meck:new(emqx_gateway_cm_takeover, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_gateway_cm_registry, lookup_channels, fun(_, ?CLIENTID) ->
+        [Self, Candidate]
+    end),
+    ok = meck:expect(emqx_gateway_cm_takeover, begin_, fun(
+        ?GWNAME, ?CLIENTID, Pid, OpenMode, _Attempt
+    ) when
+        Pid =:= Candidate, OpenMode =:= Mode
+    ->
+        BeginResult
+    end),
+    try
+        Result = emqx_gateway_cm:open_session(
+            ?GWNAME,
+            {takeover, Mode},
+            clientinfo(),
+            conninfo(),
+            fun(_, _) -> #{} end,
+            ?MODULE
+        ),
+        case Mode of
+            force ->
+                ?assertMatch({ok, #{present := false}}, Result),
+                receive
+                    discard -> ok
+                after 100 ->
+                    ct:fail("Stale channel was not discarded after failed force takeover")
+                end;
+            {resume, _} ->
+                ?assertEqual({error, Reason}, Result),
+                receive
+                    discard -> ct:fail("Stale channel was discarded after failed resume")
+                after 100 ->
+                    ok
+                end
+        end
+    after
+        meck:unload(emqx_gateway_cm_takeover),
+        meck:unload(emqx_gateway_cm_registry),
+        emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID),
+        Candidate ! stop
+    end.
+
+%% Session callbacks for simulating a failed import after takeover begin succeeds.
+resume(_ClientInfo, invalid_session) ->
+    error(invalid_session).
+
+resume(_ClientInfo, _ConnInfo, _Data) ->
+    error(invalid_session).
+
 t_open_session(_) ->
     {ok, #{
         present := false,
         session := #{}
     }} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        false,
+        {takeover, force},
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{} end
+        fun(_, _) -> #{} end,
+        emqx_session
     ),
 
     {ok, SessionRes} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     ?assertEqual(
         #{
@@ -96,10 +188,11 @@ t_open_session(_) ->
 
     {ok, SessionRes2} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 2} end
+        fun(_, _) -> #{no => 2} end,
+        emqx_session
     ),
     ?assertEqual(
         #{
@@ -145,10 +238,11 @@ t_open_session(_) ->
 t_get_set_chan_info_stats(_) ->
     {ok, SessionRes} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     ?assertEqual(
         #{
@@ -201,10 +295,11 @@ t_get_set_chan_info_stats(_) ->
 t_connection_closed_defers_cleanup_until_unregister(_) ->
     {ok, _} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     emqx_gateway_cm:insert_channel_info(
         ?GWNAME,
@@ -235,10 +330,11 @@ t_handle_process_down(Conf) ->
 
     {ok, SessionRes} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     ?assertEqual(
         #{
@@ -275,10 +371,11 @@ t_kick_session(_) ->
     %% session1
     {ok, _} = emqx_gateway_cm:open_session(
         ?GWNAME,
-        true,
+        clean,
         clientinfo(),
         conninfo(),
-        fun(_, _) -> #{no => 1} end
+        fun(_, _) -> #{no => 1} end,
+        emqx_session
     ),
     emqx_gateway_cm:insert_channel_info(
         ?GWNAME,
@@ -336,10 +433,11 @@ t_session_created_hook_ctx(_) ->
             session := #{}
         }} = emqx_gateway_cm:open_session(
             ?GWNAME,
-            false,
+            {takeover, force},
             clientinfo(),
             conninfo(),
-            fun(_, _) -> #{} end
+            fun(_, _) -> #{} end,
+            emqx_session
         ),
         receive
             {session_created_hook, Ctx, _Args} ->

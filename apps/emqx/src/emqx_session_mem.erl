@@ -92,6 +92,7 @@
     resume/2,
     export/1,
     import/2,
+    import/4,
     enqueue/3,
     dequeue/3,
     replay/2,
@@ -274,11 +275,8 @@ destroy(_Session) ->
 open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, ChannelRef, ExportedSession} ->
-            SessionRemote = import(ClientInfo, ExportedSession),
-            Session0 = resume(ClientInfo, SessionRemote),
-            Session1 = resize_inflight(ConnInfo, Session0),
-            Session2 = apply_conf(ClientInfo, Conf, Session1),
-            Session = filter_remote_session(Session2),
+            Session0 = import(ClientInfo, ConnInfo, Conf, ExportedSession),
+            Session = resume(ClientInfo, Session0),
             {true, Session, ChannelRef};
         none ->
             false
@@ -330,7 +328,7 @@ export(#session{
 export_mqueue({empty, _}) ->
     [];
 export_mqueue(MQueue) ->
-    emqx_mqueue:to_list(MQueue).
+    emqx_mqueue:export(MQueue).
 
 export_inflight(Inflight) ->
     [export_inflight_entry(Entry) || Entry <- emqx_inflight:to_list(Inflight)].
@@ -372,6 +370,14 @@ import(ClientInfo, #{
         await_rel_timeout = infinity,
         created_at = CreatedAt
     }.
+
+-doc "Import transferred state with new connection limits and session configuration.".
+-spec import(clientinfo(), conninfo(), emqx_session:conf(), exported()) -> session().
+import(ClientInfo, ConnInfo, Conf, Exported) ->
+    Session0 = import(ClientInfo, Exported),
+    Session1 = resize_inflight(ConnInfo, Session0),
+    Session2 = apply_conf(ClientInfo, Conf, Session1),
+    filter_remote_session(Session2).
 
 import_mqueue(ClientInfo = #{zone := Zone}, Messages) ->
     enqueue_messages(ClientInfo, Messages, empty_mqueue(Zone)).
@@ -709,14 +715,16 @@ dequeue(
 Current dequeue policy depends on congestion status:
  * Total budget: no more than `max(MaxInflight, ?DEFAULT_BATCH_N)` outgoing messages
    in a single batch.
- * Inflight allowance: number of free inflight slots or `?DEFAULT_BATCH_N`, whichever
-   is higher.
+ * Inflight allowance: number of free inflight slots, or `?DEFAULT_BATCH_N` when
+   inflight is unlimited.
  * Expired and over-limit messages consume neither budget nor inflight allowance.
  * If uncongested, most common case:
    - QoS1/2 messages consume empty inflight slots.
    - QoS0 messages get into the batch.
-   - Once inflight is full a number of subsequent QoS0 messages gets into the batch,
-     until next in queue is QoS1/2.
+   - Once inflight is full, extract QoS0 from the queue while total budget allows,
+     bypassing QoS1/2. Note that if topic priorities are enabled and mqueue is a
+     priority queue, extraction stops if currently drained priority lane has no more
+     QoS0 messages.
    - Batch contains messages up to total budget.
  * If congested: every message (including QoS0) consumes inflight allowance (number
    of free slots) until the allowance is exhausted.
@@ -817,13 +825,7 @@ boolean_to_int(_) -> 0.
 dequeue_next(Allowance, Q) when Allowance > 0 ->
     emqx_mqueue:out(Q);
 dequeue_next(_, Q) ->
-    %% Once inflight fills, drain only the following run of QoS0 in queue order.
-    case emqx_mqueue:out(Q) of
-        {{value, #message{qos = ?QOS_0}}, _} = Result ->
-            Result;
-        _ ->
-            blocked
-    end.
+    emqx_mqueue:out_qos0(Q).
 
 finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
     Effect =
@@ -1353,7 +1355,13 @@ redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
             false
     end,
     InflightList = lists:filtermap(F, AllInflights),
-    emqx_shared_sub:redispatch(InflightList ++ export_mqueue(Q)).
+    %% Redispatched messages enter another queue as new entries.
+    emqx_shared_sub:redispatch(InflightList ++ redispatch_queue(Q)).
+
+redispatch_queue({empty, _}) ->
+    [];
+redispatch_queue(Q) ->
+    emqx_mqueue:to_list(Q).
 
 %%--------------------------------------------------------------------
 %% Next Packet Id
