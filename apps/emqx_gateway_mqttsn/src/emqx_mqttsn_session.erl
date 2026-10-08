@@ -29,7 +29,6 @@
     replay/2,
     deliver/3,
     handle_timeout/3,
-    obtain_next_pkt_id/1,
     takeover/1,
     resume/2,
     resume/3,
@@ -103,10 +102,6 @@ deliver(ClientInfo, Delivers, Session = #{session := S}) ->
 
 handle_timeout(ClientInfo, Name, Session = #{session := S}) ->
     wrap_result(emqx_session:handle_timeout(ClientInfo, Name, [], S), Session).
-
-obtain_next_pkt_id(Session = #{session := Sess}) ->
-    {Id, Sess1} = emqx_session_mem:obtain_next_pkt_id(Sess),
-    {Id, Session#{session := Sess1}}.
 
 takeover(_Session = #{session := Sess}) ->
     emqx_session_mem:takeover(Sess).

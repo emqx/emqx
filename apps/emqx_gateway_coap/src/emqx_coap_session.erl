@@ -115,7 +115,7 @@ info(subscriptions_max, _) ->
 info(upgrade_qos, _) ->
     ?QOS_0;
 info(inflight, _) ->
-    emqx_inflight:new();
+    emqx_gateway_inflight:new();
 info(inflight_cnt, #session{observe_inflight = Inflight}) ->
     Inflight;
 info(inflight_max, _) ->
