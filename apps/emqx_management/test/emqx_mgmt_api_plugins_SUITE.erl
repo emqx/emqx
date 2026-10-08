@@ -711,6 +711,103 @@ t_upload_download_config(_Config) ->
     %% Clean up
     {ok, []} = uninstall_plugin(NameVsn).
 
+-doc """
+A JSON body on the config upload endpoint returns 400 BAD_FORM_DATA, not 500.
+""".
+t_upload_config_json_body_returns_400(Config) ->
+    NameVsn = install_test_plugin(Config),
+    OldConfig = emqx_plugins:get_config(NameVsn),
+    assert_bad_config_form_data(
+        emqx_mgmt_api_test_util:request_api_with_body(post, config_upload_path(NameVsn), #{})
+    ),
+    ?assertEqual(OldConfig, emqx_plugins:get_config(NameVsn)).
+
+-doc """
+A `config` part without a filename returns 400 BAD_FORM_DATA, not 500.
+""".
+t_upload_config_without_filename_returns_400(Config) ->
+    NameVsn = install_test_plugin(Config),
+    OldConfig = emqx_plugins:get_config(NameVsn),
+    assert_bad_config_form_data(
+        emqx_dashboard_api_test_helpers:multipart_formdata_request(
+            config_upload_path(NameVsn),
+            [{config, emqx_utils_json:encode(#{<<"foo">> => <<"baz">>})}],
+            []
+        )
+    ),
+    ?assertEqual(OldConfig, emqx_plugins:get_config(NameVsn)).
+
+-doc """
+Two `config` file parts with different filenames return 400 BAD_FORM_DATA, not 500.
+""".
+t_upload_config_multiple_files_returns_400(Config) ->
+    NameVsn = install_test_plugin(Config),
+    OldConfig = emqx_plugins:get_config(NameVsn),
+    assert_bad_config_form_data(
+        emqx_dashboard_api_test_helpers:multipart_formdata_request(
+            config_upload_path(NameVsn), [], [
+                {config, "a.json", emqx_utils_json:encode(#{<<"foo">> => <<"a">>})},
+                {config, "b.json", emqx_utils_json:encode(#{<<"foo">> => <<"b">>})}
+            ]
+        )
+    ),
+    ?assertEqual(OldConfig, emqx_plugins:get_config(NameVsn)).
+
+-doc """
+A malformed config upload for an absent plugin returns 400: the body is checked first.
+""".
+t_upload_config_malformed_for_absent_plugin_returns_400(_Config) ->
+    assert_bad_config_form_data(
+        emqx_mgmt_api_test_util:request_api_with_body(
+            post, config_upload_path("missing_plugin-1"), #{}
+        )
+    ).
+
+-doc """
+A well-formed config upload for an absent plugin returns 404.
+""".
+t_upload_config_absent_plugin_returns_404(_Config) ->
+    ?assertMatch(
+        {ok, 404, _},
+        emqx_dashboard_api_test_helpers:multipart_formdata_request(
+            config_upload_path("missing_plugin-1"), [], [{config, "config.json", <<"{}">>}]
+        )
+    ).
+
+-doc """
+A well-formed config upload for an installed plugin returns 204 and stores the config.
+""".
+t_upload_config_stores_config(Config) ->
+    NameVsn = install_test_plugin(Config),
+    ?assertMatch(
+        {ok, 204, _},
+        emqx_dashboard_api_test_helpers:multipart_formdata_request(
+            config_upload_path(NameVsn), [], [
+                {config, "config.json", emqx_utils_json:encode(#{<<"foo">> => <<"baz">>})}
+            ]
+        )
+    ),
+    ?assertEqual(#{<<"foo">> => <<"baz">>}, emqx_plugins:get_config(NameVsn)).
+
+-doc """
+Two `plugin` file parts with different filenames return 400 BAD_FORM_DATA, not 500.
+""".
+t_install_multiple_files_returns_400(_Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
+    {ok, 400, Body} = emqx_dashboard_api_test_helpers:multipart_formdata_request(Path, [], [
+        {plugin, "a-1.tar.gz", <<"not a package">>},
+        {plugin, "b-1.tar.gz", <<"not a package">>}
+    ]),
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_FORM_DATA">>,
+            <<"message">> =>
+                <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
+        },
+        emqx_utils_json:decode(iolist_to_binary(Body))
+    ),
+    ?assertEqual([], emqx_plugins_fs:list_name_vsn()).
+
 t_health_status(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
@@ -1569,6 +1666,19 @@ update_boot_order(Name, MoveBody, Config) ->
 uninstall_plugin(Name) ->
     DeletePath = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath).
+
+config_upload_path(NameVsn) ->
+    emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config", "upload"]).
+
+assert_bad_config_form_data(Result) ->
+    {ok, 400, Body} = Result,
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_FORM_DATA">>,
+            <<"message">> => <<"form-data should be `config=@config.json;type=application/json`">>
+        },
+        emqx_utils_json:decode(iolist_to_binary(Body))
+    ).
 
 install_test_plugin(Config) ->
     PackagePath = make_test_plugin_package(
