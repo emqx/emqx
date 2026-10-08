@@ -1859,6 +1859,8 @@ subs_resume() ->
 %% Deliver publish: broker -> client
 %%--------------------------------------------------------------------
 
+-compile({inline, [mk_mqtt_sn_flags/3]}).
+
 do_deliver({pubrel, MsgId}, _Channel) ->
     ?SN_PUBREC_MSG(?SN_PUBREL, MsgId);
 do_deliver(
@@ -1900,12 +1902,9 @@ outgoing_deliver_and_register(Packets) ->
 
 message_to_packet(
     MsgId,
-    Message,
+    #message{topic = Topic, qos = QoS, payload = Payload, flags = MsgFlags},
     #channel{session = Session}
 ) ->
-    QoS = emqx_message:qos(Message),
-    Topic = emqx_message:topic(Message),
-    Payload = emqx_message:payload(Message),
     NMsgId =
         case QoS of
             ?QOS_0 -> 0;
@@ -1914,17 +1913,25 @@ message_to_packet(
     Registry = emqx_mqttsn_session:registry(Session),
     case emqx_mqttsn_registry:lookup_topic_id(Topic, Registry) of
         {predef, PredefTopicId} ->
-            Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = ?SN_PREDEFINED_TOPIC},
+            Flags = mk_mqtt_sn_flags(QoS, ?SN_PREDEFINED_TOPIC, MsgFlags),
             ?SN_PUBLISH_MSG(Flags, PredefTopicId, NMsgId, Payload);
         TopicId when is_integer(TopicId) ->
-            Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = ?SN_NORMAL_TOPIC},
+            Flags = mk_mqtt_sn_flags(QoS, ?SN_NORMAL_TOPIC, MsgFlags),
             ?SN_PUBLISH_MSG(Flags, TopicId, NMsgId, Payload);
         undefined when byte_size(Topic) =:= 2 ->
-            Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = ?SN_SHORT_TOPIC},
+            Flags = mk_mqtt_sn_flags(QoS, ?SN_SHORT_TOPIC, MsgFlags),
             ?SN_PUBLISH_MSG(Flags, Topic, NMsgId, Payload);
         undefined ->
             {register, Topic}
     end.
+
+mk_mqtt_sn_flags(QoS, TopicType, MsgFlags) ->
+    #mqtt_sn_flags{
+        qos = QoS,
+        topic_id_type = TopicType,
+        dup = maps:get(dup, MsgFlags, false),
+        retain = maps:get(retain, MsgFlags, false)
+    }.
 
 %%--------------------------------------------------------------------
 %% Handle call
