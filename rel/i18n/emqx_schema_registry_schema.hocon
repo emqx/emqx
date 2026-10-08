@@ -157,6 +157,13 @@ confluent_schema_registry_auth_basic_password.desc:
       Note: any `NBIRTH` and `DBIRTH` messages received while alias-name mapping is disabled will not take effect after this config is later enabled.~"""
   }
 
+  sparkplugb_enable_sparkplug_awareness {
+    label: "Enable Sparkplug Awareness"
+    desc: """~
+     Whether to retain `NBIRTH` and `DBIRTH` messages and serve them under as retained messages under the `$sparkplug/certificates/` prefix stipulated by the [Sparkplug 3.0 specification](https://sparkplug.eclipse.org/specification/version/3.0/documents/sparkplug-specification-3.0.0.pdf), section 10.1.4.  Currently, `NDEATH` message timestamps are not replaced.
+
+     Note that this requires retained messages to be enabled to work properly.~"""
+  }
 
 external_registry_name.desc:
 """Name of the external schema registry."""

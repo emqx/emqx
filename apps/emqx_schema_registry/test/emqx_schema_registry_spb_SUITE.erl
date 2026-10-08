@@ -10,6 +10,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include("emqx_schema_registry_internal_spb.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -56,7 +58,14 @@ init_per_suite(TCConfig) ->
             emqx_bridge_mqtt,
             emqx_bridge,
             emqx_rule_engine,
-            emqx_schema_registry_testlib:emqx_schema_registry_app_spec(),
+            emqx_schema_registry_testlib:emqx_schema_registry_app_spec(#{
+                config => #{
+                    ~"schema_registry" => #{
+                        ~"sparkplugb" => #{~"enable_sparkplug_awareness" => true}
+                    }
+                }
+            }),
+            emqx_mt,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -70,11 +79,13 @@ end_per_suite(TCConfig) ->
     ok.
 
 init_per_testcase(_TestCase, TCConfig) ->
+    emqx_retainer:clean(),
     ok = snabbkaffe:start_trace(),
     TCConfig.
 
 end_per_testcase(_TestCase, _TCConfig) ->
     ok = snabbkaffe:stop(),
+    emqx_retainer:clean(),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_common_test_helpers:call_janitor(),
     ok.
@@ -428,6 +439,85 @@ with_tcp_listener(Conf0, Fn) ->
 drop_first_level(Topic) ->
     [_ | Rest] = emqx_topic:words(Topic),
     emqx_topic:join(Rest).
+
+all_certificates_topic() ->
+    emqx_topic:join([?SPB_CERT_PREFIX, ~"#"]).
+
+setup_spb_awareness_limit_selects_in_namespace() ->
+    OldValue = emqx_conf:get([rule_engine, limit_selects_in_namespace]),
+    on_exit(fun() ->
+        {ok, _} = emqx_conf:update(
+            [rule_engine, limit_selects_in_namespace],
+            OldValue,
+            #{override_to => cluster}
+        ),
+        {ok, _} = emqx_conf:update(
+            [mqtt, client_attrs_init],
+            [],
+            #{override_to => cluster}
+        ),
+        {ok, _} = emqx_conf:update(
+            [mqtt, namespace_as_mountpoint],
+            false,
+            #{override_to => cluster}
+        ),
+        ok
+    end),
+    {ok, _} = emqx_conf:update(
+        [rule_engine, limit_selects_in_namespace],
+        true,
+        #{override_to => cluster}
+    ),
+    {ok, _} = emqx_conf:update(
+        [mqtt, client_attrs_init],
+        [
+            #{
+                <<"expression">> => <<"username">>,
+                <<"set_as_attr">> => <<"tns">>
+            }
+        ],
+        #{override_to => cluster}
+    ),
+    {ok, _} = emqx_conf:update(
+        [mqtt, namespace_as_mountpoint],
+        true,
+        #{override_to => cluster}
+    ),
+
+    RepublishArgs = #{
+        ~"topic" => ~"${.ns}/rep/${.topic}",
+        ~"qos" => 1,
+        ~"retain" => false,
+        ~"payload" => ~"${payload}",
+        ~"mqtt_properties" => #{},
+        ~"user_properties" => ~"${pub_props.'User-Property'}",
+        ~"direct_dispatch" => false
+    },
+    RepublishAction = #{
+        ~"function" => ~"republish",
+        ~"args" => RepublishArgs
+    },
+    %% will only see messages from ns1
+    Ns = ~"ns1",
+    emqx_bridge_v2_testlib:ensure_managed_ns(Ns),
+    AuthHeaderNs = emqx_bridge_v2_testlib:ensure_namespaced_api_key(#{namespace => Ns}),
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
+        #{
+            ~"sql" => fmt(
+                ~"select *, client_attrs.tns as ns from \"${ns}/${certs}\" ",
+                #{ns => Ns, certs => all_certificates_topic()}
+            ),
+            ~"id" => ~"spb",
+            ~"actions" => [RepublishAction]
+        },
+        #{auth_header => AuthHeaderNs}
+    ),
+
+    #{
+        namespace => Ns,
+        auth_header => AuthHeaderNs,
+        republish_topic_wildcard => ~"rep/#"
+    }.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -969,6 +1059,296 @@ t_alias_cache_isolated_per_process(_TCConfig) ->
         emqx_schema_registry_spb_state:get_current_alias_mapping()
     end),
     ?assertEqual(#{}, Mapping),
+    ok.
+
+-doc """
+Smoke test for keeping track of published `NBIRTH` and `DBIRTH` messages and making them
+available under `$sparkplug/certificates`.
+""".
+t_spb_awareness(TCConfig) ->
+    Port = 1883,
+    do_test_spb_awareness(Port, no_mountpoint, TCConfig).
+
+-doc """
+Smoke test for keeping track of published `NBIRTH` and `DBIRTH` messages and making them
+available under `$sparkplug/certificates`, when using mountpoints.
+""".
+t_spb_awareness_with_mountpoint(TCConfig) ->
+    Conf0 = #{~"mountpoint" => ~"${username}/"},
+    with_tcp_listener(Conf0, fun(#{port := Port}) ->
+        do_test_spb_awareness(Port, mounted, TCConfig)
+    end).
+
+do_test_spb_awareness(Port, IsMounted, _TCConfig) ->
+    ClientOpts = #{proto_ver => v5, clean_start => true, port => Port, username => ~"u1"},
+    S1 = start_client(ClientOpts),
+    %% this one shouldn't get anything when mounted.
+    S2 = start_client(ClientOpts#{username := ~"u2"}),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(S1, all_certificates_topic(), [{qos, 1}]),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(S2, all_certificates_topic(), [{qos, 1}]),
+    ct:pal("subscribers:\n  ~p", [[emqx_cm:get_chan_info(CId) || CId <- emqx_cm:all_client_ids()]]),
+    ct:pal("subscriptions:\n  ~p", [
+        [
+            emqx_cth_broker:connection_info({channel, {session, subscriptions}}, CId)
+         || CId <- emqx_cm:all_client_ids()
+        ]
+    ]),
+
+    %% both under the `u1` mountpoint (when mounted)
+    P1 = start_client(ClientOpts),
+    P2 = start_client(ClientOpts),
+    BirthBin = spb_encode(sample_birth_payload1()),
+    NBirthTopic1 = nbirth_topic(),
+    NBirthTopic2 = nbirth_topic(#{edge_node_id => ~"eon_id2"}),
+    DBirthTopic1 = dbirth_topic(),
+    DBirthTopic2 = dbirth_topic(#{edge_node_id => ~"eon_id2", device_id => ~"dev_id2"}),
+    ct:pal("publishing nbirth 1"),
+    {ok, _} = emqtt:publish(P1, NBirthTopic1, BirthBin, [{qos, 1}]),
+    ?assertReceive(
+        {publish, #{
+            client_pid := S1,
+            payload := BirthBin,
+            topic := <<"$sparkplug/certificates/", NBirthTopic1/binary>>,
+            %% received in real time
+            retain := false,
+            qos := 1
+        }}
+    ),
+    %% when mounted, only S1 gets the messages, because it's in the same mount namespace.
+    case IsMounted of
+        no_mountpoint ->
+            ?assertReceive(
+                {publish, #{
+                    client_pid := S2,
+                    payload := BirthBin,
+                    topic := <<"$sparkplug/certificates/", NBirthTopic1/binary>>,
+                    %% received in real time
+                    retain := false,
+                    qos := 1
+                }}
+            );
+        mounted ->
+            ?assertNotReceive({publish, #{client_pid := S2}})
+    end,
+    ct:pal("publishing nbirth 2 (different edge node)"),
+    {ok, _} = emqtt:publish(P2, NBirthTopic2, BirthBin, [{qos, 1}]),
+    ?assertReceive(
+        {publish, #{
+            client_pid := S1,
+            payload := BirthBin,
+            topic := <<"$sparkplug/certificates/", NBirthTopic2/binary>>,
+            %% received in real time
+            retain := false,
+            qos := 1
+        }}
+    ),
+    case IsMounted of
+        no_mountpoint ->
+            ?assertReceive(
+                {publish, #{
+                    client_pid := S2,
+                    payload := BirthBin,
+                    topic := <<"$sparkplug/certificates/", NBirthTopic2/binary>>,
+                    %% received in real time
+                    retain := false,
+                    qos := 1
+                }}
+            );
+        mounted ->
+            ?assertNotReceive({publish, #{client_pid := S2}})
+    end,
+    ct:pal("publishing dbirth 1"),
+    {ok, _} = emqtt:publish(P1, DBirthTopic1, BirthBin, [{qos, 1}]),
+    ?assertReceive(
+        {publish, #{
+            client_pid := S1,
+            payload := BirthBin,
+            topic := <<"$sparkplug/certificates/", DBirthTopic1/binary>>,
+            %% received in real time
+            retain := false,
+            qos := 1
+        }}
+    ),
+    case IsMounted of
+        no_mountpoint ->
+            ?assertReceive(
+                {publish, #{
+                    client_pid := S2,
+                    payload := BirthBin,
+                    topic := <<"$sparkplug/certificates/", DBirthTopic1/binary>>,
+                    %% received in real time
+                    retain := false,
+                    qos := 1
+                }}
+            );
+        mounted ->
+            ?assertNotReceive({publish, #{client_pid := S2}})
+    end,
+    ct:pal("publishing dbirth 2 (different edge node)"),
+    {ok, _} = emqtt:publish(P2, DBirthTopic2, BirthBin, [{qos, 1}]),
+    ?assertReceive(
+        {publish, #{
+            client_pid := S1,
+            payload := BirthBin,
+            topic := <<"$sparkplug/certificates/", DBirthTopic2/binary>>,
+            %% received in real time
+            retain := false,
+            qos := 1
+        }}
+    ),
+    case IsMounted of
+        no_mountpoint ->
+            ?assertReceive(
+                {publish, #{
+                    client_pid := S2,
+                    payload := BirthBin,
+                    topic := <<"$sparkplug/certificates/", DBirthTopic2/binary>>,
+                    %% received in real time
+                    retain := false,
+                    qos := 1
+                }}
+            );
+        mounted ->
+            ?assertNotReceive({publish, #{client_pid := S2}})
+    end,
+    emqtt:stop(P1),
+    emqtt:stop(P2),
+    emqtt:stop(S1),
+    emqtt:stop(S2),
+    %% receive retained birth messages
+    lists:foreach(
+        fun(QoS) ->
+            ct:pal("checking retained messages (qos ~b)", [QoS]),
+            S3 = start_client(ClientOpts),
+            {ok, _, [_]} = emqtt:subscribe(S3, all_certificates_topic(), [{qos, QoS}]),
+            ?assertReceive(
+                {publish, #{
+                    client_pid := S3,
+                    payload := BirthBin,
+                    topic := <<"$sparkplug/certificates/", NBirthTopic1/binary>>,
+                    retain := true,
+                    qos := QoS
+                }}
+            ),
+            ?assertReceive(
+                {publish, #{
+                    client_pid := S3,
+                    payload := BirthBin,
+                    topic := <<"$sparkplug/certificates/", NBirthTopic2/binary>>,
+                    retain := true,
+                    qos := QoS
+                }}
+            ),
+            ?assertReceive(
+                {publish, #{
+                    client_pid := S3,
+                    payload := BirthBin,
+                    topic := <<"$sparkplug/certificates/", DBirthTopic1/binary>>,
+                    retain := true,
+                    qos := QoS
+                }}
+            ),
+            ?assertReceive(
+                {publish, #{
+                    client_pid := S3,
+                    payload := BirthBin,
+                    topic := <<"$sparkplug/certificates/", DBirthTopic2/binary>>,
+                    retain := true,
+                    qos := QoS
+                }}
+            ),
+            emqtt:stop(S3)
+        end,
+        lists:seq(0, 2)
+    ),
+    ok.
+
+-doc """
+Verifies that we track birth messages even from non-channel processes (e.g.: fallback
+actions, mqtt sources).
+
+Alias mapping does the distinction by checking if there's a `{clientid, _}` process label,
+which the test process doesn't have, so it's currently enough to publish from it.
+""".
+t_spb_awareness_tracks_non_clients(_TCConfig) ->
+    %% sanity check
+    ?assertNotMatch({clientid, _}, proc_lib:get_label(self())),
+    NBirthTopic = nbirth_topic(),
+    DBirthTopic = dbirth_topic(),
+    BirthBin = spb_encode(sample_birth_payload1()),
+    NBirthMsg = emqx_message:make(NBirthTopic, BirthBin),
+    DBirthMsg = emqx_message:make(DBirthTopic, BirthBin),
+    {ok, _, _} = emqx:publish2(NBirthMsg),
+    {ok, _, _} = emqx:publish2(DBirthMsg),
+    C = start_client(),
+    {ok, _, _} = emqtt:subscribe(C, all_certificates_topic(), [{qos, 1}]),
+    ?assertReceive(
+        {publish, #{
+            payload := BirthBin,
+            topic := <<"$sparkplug/certificates/", NBirthTopic/binary>>,
+            retain := true
+        }}
+    ),
+    ?assertReceive(
+        {publish, #{
+            payload := BirthBin,
+            topic := <<"$sparkplug/certificates/", DBirthTopic/binary>>,
+            retain := true
+        }}
+    ),
+    ok.
+
+-doc """
+Checks that we correctly prepend the mountpoint when using the namespace feature and
+`rule_engine.limit_selects_in_namespace`.  Meaning that, if said option is enabled, and a
+rule selects from `$sparkplug/certificates/`, we use the client attributes of the original
+client to namespace the message.
+""".
+t_spb_awareness_limit_selects_in_namespace(_TCConfig) ->
+    #{
+        namespace := Ns1,
+        republish_topic_wildcard := Topic
+    } = setup_spb_awareness_limit_selects_in_namespace(),
+
+    ClientOpts = #{proto_ver => v5},
+    Ns2 = ~"another_ns",
+    C1 = start_client(ClientOpts#{username => Ns1}),
+    C2 = start_client(ClientOpts#{username => Ns2}),
+    Ctx = #{c1 => C1, c2 => C2},
+
+    {ok, _, _} = emqtt:subscribe(C1, Topic, [{qos, 1}]),
+    {ok, _, _} = emqtt:subscribe(C2, Topic, [{qos, 1}]),
+
+    BirthBin = spb_encode(sample_birth_payload1()),
+    NBirthTopic = nbirth_topic(),
+    DBirthTopic = dbirth_topic(),
+    %% those should only reach C1's subscription.
+    {ok, _} = emqtt:publish(C1, NBirthTopic, BirthBin, [{qos, 1}]),
+    {ok, _} = emqtt:publish(C1, DBirthTopic, BirthBin, [{qos, 1}]),
+
+    SizeNs1 = byte_size(Ns1),
+    ?assertReceive(
+        {publish, #{
+            client_pid := C1,
+            topic :=
+                <<"rep/", Ns1:SizeNs1/binary, "/$sparkplug/certificates/", NBirthTopic/binary>>,
+            retain := false
+        }},
+        1_000,
+        Ctx
+    ),
+    ?assertReceive(
+        {publish, #{
+            client_pid := C1,
+            topic :=
+                <<"rep/", Ns1:SizeNs1/binary, "/$sparkplug/certificates/", DBirthTopic/binary>>,
+            retain := false
+        }},
+        1_000,
+        Ctx
+    ),
+    ?assertNotReceive({publish, #{client_pid := C2}}),
+
     ok.
 
 -doc """
