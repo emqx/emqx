@@ -103,7 +103,8 @@
 -define(T_TAKEOVER, 15000).
 -define(DEFAULT_BATCH_SIZE, 10000).
 
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -115,7 +116,7 @@ start_link(Options) ->
     gen_server:start_link({local, procname(GwName)}, ?MODULE, Options, []).
 
 procname(GwName) ->
-    list_to_atom(lists:concat([emqx_gateway_, GwName, '_cm'])).
+    list_to_atom(lists:concat(['emqx_gateway_', GwName, '_cm'])).
 
 -spec cmtabs(GwName :: gateway_name()) ->
     {ChanTab :: atom(), ConnTab :: atom(), ChannInfoTab :: atom()}.
@@ -130,14 +131,14 @@ cmtabs(GwName) ->
     }.
 
 tabname(chan, GwName) ->
-    list_to_atom(lists:concat([emqx_gateway_, GwName, '_channel']));
+    list_to_atom(lists:concat(['emqx_gateway_', GwName, '_channel']));
 tabname(conn, GwName) ->
-    list_to_atom(lists:concat([emqx_gateway_, GwName, '_channel_conn']));
+    list_to_atom(lists:concat(['emqx_gateway_', GwName, '_channel_conn']));
 tabname(info, GwName) ->
-    list_to_atom(lists:concat([emqx_gateway_, GwName, '_channel_info'])).
+    list_to_atom(lists:concat(['emqx_gateway_', GwName, '_channel_info'])).
 
 lockername(GwName) ->
-    list_to_atom(lists:concat([emqx_gateway_, GwName, '_locker'])).
+    list_to_atom(lists:concat(['emqx_gateway_', GwName, '_locker'])).
 
 -spec register_channel(
     gateway_name(),
@@ -461,7 +462,7 @@ select_takeover_candidate(GwName, ClientId) ->
             {error, not_found};
         ChanPids ->
             [ChanPid | OtherPids] = lists:reverse(ChanPids),
-            length(ChanPids) > 1 andalso
+            OtherPids =/= [] andalso
                 ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             {ok, ChanPid, OtherPids}
     end.
@@ -543,8 +544,8 @@ kick_session(GwName, ClientId) ->
     case lookup_channels(GwName, ClientId) of
         [] ->
             {error, not_found};
-        ChanPids ->
-            length(ChanPids) > 1 andalso
+        ChanPids = [_ | OtherPids] ->
+            OtherPids =/= [] andalso
                 begin
                     ?SLOG(
                         warning,

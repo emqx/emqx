@@ -151,7 +151,7 @@ info(MQ) ->
 
 -spec info(atom(), mqueue()) -> term().
 info(store_qos0, #mqueue{num_qos0 = NumQoS0}) ->
-    NumQoS0 =/= false;
+    is_integer(NumQoS0);
 info(max_len, #mqueue{max_len = MaxLen}) ->
     MaxLen;
 info(len, #mqueue{q = Q}) ->

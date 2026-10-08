@@ -2064,7 +2064,7 @@ begin_resume_takeover(
     _Owner,
     _ResumeRequest,
     Channel = #channel{takeover = Takeover}
-) when Takeover =/= false ->
+) when is_record(Takeover, resumption) orelse Takeover ->
     reply({error, takeover_in_progress}, Channel).
 
 -doc "Complete wakeup takeover for the matching owner and attempt.".
@@ -2350,7 +2350,7 @@ handle_deliver(
         clientinfo = #{clientid := ClientId}
     }
 ) when
-    Takeover =/= false orelse Resuming
+    is_record(Takeover, resumption) orelse Takeover orelse Resuming
 ->
     NPendings = lists:append(
         Pendings,

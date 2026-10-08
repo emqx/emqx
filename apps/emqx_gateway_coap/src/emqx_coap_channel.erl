@@ -6,6 +6,8 @@
 
 -behaviour(emqx_gateway_channel).
 
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
+
 %% API
 -export([
     info/1,
@@ -904,7 +906,7 @@ do_call_handler_request(Msg, Result, Channel, Iter) ->
     HandlerResult =
         case emqx_coap_message:get_option(uri_path, Msg) of
             [<<"ps">> | RestPath] ->
-                IsConnectionless = ConnectionRequired =:= false,
+                IsConnectionless = not ConnectionRequired,
                 emqx_coap_pubsub_handler:handle_request(
                     RestPath, Msg, Ctx, ClientInfo, IsConnectionless
                 );
@@ -961,7 +963,7 @@ merge_session_drain_result(Result0, DrainResult) ->
 
 add_outs(Outs, Result) ->
     lists:foldl(
-        fun(Out, Acc) -> emqx_coap_medium:out(Out, Acc) end,
+        fun emqx_coap_medium:out/2,
         Result,
         Outs
     ).
