@@ -102,22 +102,13 @@ jobs:
         source env.sh
         echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
         echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
-    - name: Identify macOS toolchain
-      id: toolchain
-      env:
-        OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
-        ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
-        MACOS: ${{ matrix.os }}
-      run: |
-        sdk_vsn="$(xcrun --sdk macosx --show-sdk-version)"
-        cc_hash="$(clang --version | head -1 | shasum -a 256 | cut -c1-16)"
-        echo "toolchain=${MACOS}-otp${OTP_VSN}-elixir${ELIXIR_VSN}-sdk${sdk_vsn}-cc${cc_hash}" >> "$GITHUB_OUTPUT"
+    # Keep these inputs the same as the mac job in warm_deps_cache.yaml,
+    # which saves the entry this step restores.
     - name: Restore dependency cache
-      id: deps-cache
       uses: ./.github/actions/deps-cache-restore
       with:
         profiles: ${{ matrix.profile }}
-        toolchain: ${{ steps.toolchain.outputs.toolchain }}
+        toolchain: ${{ matrix.os }}
         build-inputs: .github/actions/package-macos/action.yaml
     - uses: ./.github/actions/package-macos
       with:
@@ -130,9 +121,3 @@ jobs:
         name: ${{ matrix.os }}
         path: _packages/**/*
         retention-days: 7
-    - name: Save dependency cache
-      if: success() && steps.deps-cache.outputs.cache-hit != 'true'
-      uses: ./.github/actions/deps-cache-save
-      with:
-        key: ${{ steps.deps-cache.outputs.key }}
-        paths: ${{ steps.deps-cache.outputs.paths }}
