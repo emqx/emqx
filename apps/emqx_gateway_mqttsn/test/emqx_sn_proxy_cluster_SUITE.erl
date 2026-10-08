@@ -16,6 +16,7 @@
 
 -define(HOST, {127, 0, 0, 1}).
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(DUP(FLAG), (FLAG):1).
 
 all() ->
     [{group, legacy}, {group, hardened}].
@@ -49,7 +50,6 @@ t_asleep_pingreq_resumes_across_nodes(Config) ->
     Payload1 = <<"cluster-queued-before-reroute">>,
     Payload2 = <<"cluster-queued-after-stale-old-tuple">>,
     MsgId = 41,
-    Dup = 0,
     Retain = 0,
     WillBit = 0,
     CleanSession = 0,
@@ -64,11 +64,11 @@ t_asleep_pingreq_resumes_across_nodes(Config) ->
         send_subscribe_msg_normal_topic(Socket1, Port1, QoS, TopicName, MsgId),
         SubAck = receive_response(Socket1),
         ?assertMatch(
-            <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
-                _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+            <<8, ?SN_SUBACK, ?DUP(0), QoS:2, Retain:1, WillBit:1, CleanSession:1,
+                ?SN_NORMAL_TOPIC:2, _TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
             SubAck
         ),
-        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+        <<8, ?SN_SUBACK, ?DUP(0), QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
             TopicId:16, MsgId:16,
             ?SN_RC_ACCEPTED>> =
             SubAck,
@@ -88,7 +88,7 @@ t_asleep_pingreq_resumes_across_nodes(Config) ->
 
         send_pingreq_msg(Socket2, Port2, ClientId),
         PubMsgId1 = receive_publish(
-            Socket2, Dup, QoS, Retain, WillBit, CleanSession, TopicId, Payload1
+            Socket2, _Dup = 0, QoS, Retain, WillBit, CleanSession, TopicId, Payload1
         ),
         send_puback_msg(Socket2, Port2, TopicId, PubMsgId1),
         ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket2)),
@@ -108,7 +108,7 @@ t_asleep_pingreq_resumes_across_nodes(Config) ->
         send_pingreq_msg(Socket2, Port2, ClientId),
         UdpData2 = receive_response(Socket2),
         PubMsgId2 = emqx_sn_protocol_SUITE:check_publish_msg_on_udp(
-            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload2},
+            {0, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload2},
             UdpData2
         ),
         send_puback_msg(Socket2, Port2, TopicId, PubMsgId2),
@@ -284,9 +284,14 @@ test_connect_takeover(Config, Protocol) ->
         end,
         send_connect_msg(Socket2, Port2, ClientId, 0),
         ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket2)),
-        %% MQTT-SN currently does not propagate the DUP flag from the session.
-        ?assertEqual(MsgId, receive_publish(Socket2, 0, 1, 0, 0, 0, TopicId, <<"inflight">>)),
-        ?assertEqual(udp_receive_timeout, receive_response(Socket2, 100)),
+        ?assertEqual(
+            MsgId,
+            receive_publish(Socket2, _Dup = 1, 1, 0, 0, 0, TopicId, <<"inflight">>)
+        ),
+        ?assertEqual(
+            udp_receive_timeout,
+            receive_response(Socket2, 100)
+        ),
         send_puback_msg(Socket2, Port2, TopicId, MsgId),
         NextMsgId = receive_publish(Socket2, 0, 1, 0, 0, 0, TopicId, <<"queued">>),
         send_puback_msg(Socket2, Port2, TopicId, NextMsgId)
