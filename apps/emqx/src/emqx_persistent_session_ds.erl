@@ -47,6 +47,7 @@
 
 -export([
     expire_session/2,
+    purge_session/1,
     session_drop/4
 ]).
 
@@ -299,7 +300,8 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 -doc """
 `emqx_session` behavior callback.
 
-NOTE: tnis function is called during takeover with clean start = 1.
+NOTE: this function is called during takeover with clean start = 1
+or when the old session's expiry interval = 0.
 """.
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID, s := S}) ->
@@ -319,12 +321,19 @@ destroy(#{clientid := ClientID}) ->
     ).
 
 -doc """
-API used to delete sessions which is used by GC timer.
+API used to delete sessions, which is used by GC timer.
 This function selectively deletes session with the matching guard and leaves its will message intact.
 """.
 -spec expire_session(id(), emqx_persistent_session_ds_state:guard() | '_') -> ok | emqx_ds:error(_).
 expire_session(ClientID, Guard) ->
-    session_drop(ClientID, Guard, expired, false).
+    session_drop(ClientID, Guard, expired, true).
+
+-doc """
+API used to purge the session and discard its pending will message.
+""".
+-spec purge_session(id()) -> ok | emqx_ds:error(_).
+purge_session(ClientID) ->
+    session_drop(ClientID, '_', purge, false).
 
 -doc """
 Generic API for discarding the sessions.
