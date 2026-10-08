@@ -345,7 +345,7 @@ handle_deliver(
             metrics_inc('messages.delivered', Channel, erlang:length(NMessages)),
             discard_downlink_messages(Dropped, Channel),
             Frames = msgs2frame(NMessages, ClientId, ProtoVer, Channel),
-            NQueue = lists:foldl(fun(F, Q) -> queue:in(F, Q) end, Queue, Frames),
+            NQueue = lists:foldl(fun queue:in/2, Queue, Frames),
             {Outgoings, NChannel} = dispatch_frame(Channel#channel{mqueue = NQueue}),
             {ok, [{outgoing, Outgoings}], NChannel}
     end.

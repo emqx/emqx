@@ -299,48 +299,40 @@ do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = I
     dispatch_and_reply(Channel#channel{inflight = NewInflight});
 do_handle_in(Frame = ?MSG(?MC_REGISTER), Channel0) ->
     #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
-    case
-        emqx_utils:pipeline(
-            [
-                fun enrich_conninfo/2,
-                fun enrich_clientinfo/2,
-                fun set_log_meta/2
-            ],
-            Frame,
-            Channel0
-        )
-    of
-        {ok, _NFrame, Channel} ->
-            case register_(Frame, Channel) of
-                {ok, NChannel} ->
-                    handle_out({?MS_REGISTER_ACK, 0}, MsgSn, NChannel);
-                {error, ResCode} ->
-                    handle_out({?MS_REGISTER_ACK, ResCode}, MsgSn, Channel)
-            end
+    {ok, _NFrame, Channel} = emqx_utils:pipeline(
+        [
+            fun enrich_conninfo/2,
+            fun enrich_clientinfo/2,
+            fun set_log_meta/2
+        ],
+        Frame,
+        Channel0
+    ),
+    case register_(Frame, Channel) of
+        {ok, NChannel} ->
+            handle_out({?MS_REGISTER_ACK, 0}, MsgSn, NChannel);
+        {error, ResCode} ->
+            handle_out({?MS_REGISTER_ACK, ResCode}, MsgSn, Channel)
     end;
 do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
     #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
-    case
-        emqx_utils:pipeline(
-            [
-                fun enrich_conninfo/2,
-                fun run_conn_hooks/2,
-                fun enrich_clientinfo/2,
-                fun set_log_meta/2
-            ],
-            Frame,
-            Channel0
-        )
-    of
-        {ok, _NFrame, Channel} ->
-            case authenticate(Frame, Channel) of
-                true ->
-                    NChannel0 = normalize_authenticated_phone(Frame, Channel),
-                    NChannel = process_connect(Frame, ensure_connected(NChannel0)),
-                    authack({0, MsgSn, NChannel});
-                false ->
-                    authack({1, MsgSn, Channel})
-            end
+    {ok, _NFrame, Channel} = emqx_utils:pipeline(
+        [
+            fun enrich_conninfo/2,
+            fun run_conn_hooks/2,
+            fun enrich_clientinfo/2,
+            fun set_log_meta/2
+        ],
+        Frame,
+        Channel0
+    ),
+    case authenticate(Frame, Channel) of
+        true ->
+            NChannel0 = normalize_authenticated_phone(Frame, Channel),
+            NChannel = process_connect(Frame, ensure_connected(NChannel0)),
+            authack({0, MsgSn, NChannel});
+        false ->
+            authack({1, MsgSn, Channel})
     end;
 do_handle_in(Frame = ?MSG(?MC_HEARTBEAT), Channel) ->
     handle_out({?MS_GENERAL_RESPONSE, 0, ?MC_HEARTBEAT}, msgsn(Frame), Channel);
@@ -465,7 +457,7 @@ handle_deliver(
             metrics_inc('messages.delivered', Channel, erlang:length(NMessages)),
             discard_downlink_messages(Dropped, Channel),
             {Frames, NChannel1} = msgs2frame(NMessages, Channel),
-            NQueue = lists:foldl(fun(F, Q) -> queue:in(F, Q) end, Queue, Frames),
+            NQueue = lists:foldl(fun queue:in/2, Queue, Frames),
             {Outgoings, NChannel} = dispatch_frame(NChannel1#channel{mqueue = NQueue}),
             {ok, [{outgoing, Outgoings}], NChannel}
     end.
