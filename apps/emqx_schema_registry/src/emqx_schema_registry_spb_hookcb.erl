@@ -57,7 +57,7 @@ on_message_publish_alias_mapping(#message{} = Message) ->
 
 -spec on_message_publish_spb_aware(emqx_types:message()) -> ok.
 on_message_publish_spb_aware(#message{} = Message) ->
-    case emqx_schema_registry_config:is_spb_awareness_enabled() andalso is_client_process() of
+    case emqx_schema_registry_config:is_spb_awareness_enabled() of
         true ->
             do_on_message_publish_spb_aware(Message);
         false ->

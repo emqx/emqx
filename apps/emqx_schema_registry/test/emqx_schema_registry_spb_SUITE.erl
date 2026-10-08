@@ -1187,6 +1187,41 @@ do_test_spb_awareness(Port, IsMounted, _TCConfig) ->
     ok.
 
 -doc """
+Verifies that we track birth messages even from non-channel processes (e.g.: fallback
+actions, mqtt sources).
+
+Alias mapping does the distinction by checking if there's a `{clientid, _}` process label,
+which the test process doesn't have, so it's currently enough to publish from it.
+""".
+t_spb_awareness_tracks_non_clients(_TCConfig) ->
+    %% sanity check
+    ?assertNotMatch({clientid, _}, proc_lib:get_label(self())),
+    NBirthTopic = nbirth_topic(),
+    DBirthTopic = dbirth_topic(),
+    BirthBin = spb_encode(sample_birth_payload1()),
+    NBirthMsg = emqx_message:make(NBirthTopic, BirthBin),
+    DBirthMsg = emqx_message:make(DBirthTopic, BirthBin),
+    {ok, _, _} = emqx:publish2(NBirthMsg),
+    {ok, _, _} = emqx:publish2(DBirthMsg),
+    C = start_client(),
+    {ok, _, _} = emqtt:subscribe(C, all_certificates_topic(), [{qos, 1}]),
+    ?assertReceive(
+        {publish, #{
+            payload := BirthBin,
+            topic := <<"$sparkplug/certificates/", NBirthTopic/binary>>,
+            retain := true
+        }}
+    ),
+    ?assertReceive(
+        {publish, #{
+            payload := BirthBin,
+            topic := <<"$sparkplug/certificates/", DBirthTopic/binary>>,
+            retain := true
+        }}
+    ),
+    ok.
+
+-doc """
 Verifies that clients under mountpoints behave the same as those that are not.
 """.
 t_mountpoints(_TCConfig) ->
