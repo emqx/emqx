@@ -86,16 +86,16 @@ dirty_io_schedulers_test() ->
     ),
     ok.
 
-%% `node.schedulers = auto' creates one scheduler per available logical
-%% processor and puts at most the CPU quota online.
+%% `node.schedulers = auto' resolves to the smaller of the available logical
+%% processors and the CPU quota.
 auto_schedulers_test() ->
     Cases = [
-        %% {logical_processors_available, cpu_quota, expected {Total, Online}}
-        {20, unknown, {20, 20}},
-        {20, 4, {20, 4}},
-        {20, 1, {20, 1}},
-        {4, 4, {4, 4}},
-        {4, 8, {4, 4}}
+        %% {logical_processors_available, cpu_quota, expected}
+        {20, unknown, 20},
+        {20, 4, 4},
+        {20, 1, 1},
+        {4, 4, 4},
+        {4, 8, 4}
     ],
     lists:foreach(
         fun({Available, Quota, Expected}) ->

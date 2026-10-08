@@ -1538,12 +1538,13 @@ translation("vm_args") ->
 %% `logical_processors_available' reflects sched_getaffinity (and therefore
 %% the cgroup) on Linux; falls back to the static `logical_processors' count
 %% on platforms where the runtime can't determine availability.
-%% A CPU quota (`--cpus', k8s CPU limits) further caps the online count, the
-%% same way BEAM does by default when `+S' is not given.
+%% A CPU quota (`--cpus', k8s CPU limits) further caps the count: BEAM puts
+%% only the quota online when `+S' is not given, and an explicit `+S' turns
+%% that off.
 %% A user-specified `node.schedulers' overrides the auto-detected value.
 tr_vm_args_schedulers(Conf) ->
-    {Total, Online} = resolve_schedulers(conf_get("node.schedulers", Conf, auto)),
-    integer_to_list(Total) ++ ":" ++ integer_to_list(Online).
+    N = resolve_schedulers(conf_get("node.schedulers", Conf, auto)),
+    integer_to_list(N) ++ ":" ++ integer_to_list(N).
 
 resolve_schedulers(auto) ->
     Available =
@@ -1553,16 +1554,16 @@ resolve_schedulers(auto) ->
         end,
     auto_schedulers(Available, erlang:system_info(cpu_quota));
 resolve_schedulers(N) when is_integer(N), N >= 1 ->
-    {N, N}.
+    N.
 
 -doc """
-Return `{Total, Online}` scheduler counts for `node.schedulers = auto`.
+Return the scheduler count for `node.schedulers = auto`.
 `Quota` is the value of `erlang:system_info(cpu_quota)`.
 """.
-auto_schedulers(Available, Quota) when is_integer(Quota), Quota >= 1, Quota < Available ->
-    {Available, Quota};
+auto_schedulers(Available, Quota) when is_integer(Quota), Quota >= 1 ->
+    min(Available, Quota);
 auto_schedulers(Available, _Quota) ->
-    {Available, Available}.
+    Available.
 
 %% `vm.args.cloud' used to hardcode `+SDio 8' unconditionally -- fine for the
 %% multi-core host the "cloud" defaults were sized for, but on a small
@@ -1576,7 +1577,7 @@ tr_vm_args_dirty_io_schedulers(Conf) ->
 
 resolve_dirty_io_schedulers(auto, Conf) ->
     case resolve_schedulers(conf_get("node.schedulers", Conf, auto)) of
-        {_Total, Online} when Online > 2 -> ?DEFAULT_DIRTY_IO_SCHEDULERS;
+        Schedulers when Schedulers > 2 -> ?DEFAULT_DIRTY_IO_SCHEDULERS;
         _ -> ?MIN_DIRTY_IO_SCHEDULERS
     end;
 resolve_dirty_io_schedulers(N, _Conf) when is_integer(N), N >= 1 ->
