@@ -57,10 +57,12 @@
     max_len/1,
     in/2,
     out/1,
+    out_qos0/1,
     stats/1,
     dropped/1,
     payload_bytes/1,
     to_list/1,
+    export/1,
     filter/2,
     query/2
 ]).
@@ -179,6 +181,11 @@ max_len(#mqueue{max_len = MaxLen}) -> MaxLen.
 -spec to_list(mqueue()) -> list().
 to_list(MQ) ->
     to_list(MQ, []).
+
+%% Preserve queue metadata and order within each priority for session transfer.
+-spec export(mqueue()) -> [message()].
+export(#mqueue{q = Q}) ->
+    lists:reverse(emqx_pqueue:fold(fun(Msg, _Priority, Acc) -> [Msg | Acc] end, [], Q)).
 
 -spec filter(fun((any()) -> boolean()), mqueue()) -> mqueue().
 filter(Pred, #mqueue{q = Q, dropped = Dropped} = MQ) ->
@@ -412,6 +419,68 @@ out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, num_qos0 = NumQoS0, p_cred
             {empty, MQ}
     end.
 
+-doc """
+Extract the oldest QoS0 message from the currently selected priority, bypassing
+QoS1/2 messages within that priority. Returns `empty` if that priority has no QoS0.
+Normal priority-credit rotation still applies after successful extraction.
+""".
+-spec out_qos0(mqueue()) -> {empty | {value, message()}, mqueue()}.
+out_qos0(MQ = #mqueue{num_qos0 = false}) ->
+    {empty, MQ};
+out_qos0(MQ = #mqueue{num_qos0 = 0}) ->
+    {empty, MQ};
+out_qos0(MQ0 = #mqueue{q = Q, p_credit = 0}) ->
+    MQ = MQ0#mqueue{q = emqx_pqueue:shift(Q), p_credit = undefined},
+    case out_qos0(MQ) of
+        {empty, _} ->
+            {empty, MQ0};
+        Out ->
+            Out
+    end;
+out_qos0(
+    MQ = #mqueue{
+        q = Q,
+        payload_bytes = PayloadBytes,
+        num_qos0 = NumQoS0,
+        prios = ?NO_PRIORITY_TABLE
+    }
+) ->
+    case emqx_pqueue:drop(0, Q) of
+        {{value, Msg = #message{qos = ?QOS_0}}, Q1} ->
+            {{value, without_ts(Msg)}, MQ#mqueue{
+                q = Q1,
+                num_qos0 = NumQoS0 - 1,
+                payload_bytes = PayloadBytes - emqx_message:payload_size(Msg)
+            }};
+        _EmptyOrQoS12 ->
+            {empty, MQ}
+    end;
+out_qos0(
+    MQ = #mqueue{
+        q = Q,
+        payload_bytes = PayloadBytes,
+        num_qos0 = NumQoS0,
+        p_credit = Credit,
+        prios = Prios
+    }
+) ->
+    P = emqx_pqueue:active_p(Q),
+    case emqx_pqueue:drop(P, Q) of
+        {{value, Msg = #message{qos = ?QOS_0}}, Q1} ->
+            {{value, without_ts(Msg)}, MQ#mqueue{
+                q = Q1,
+                num_qos0 = NumQoS0 - 1,
+                payload_bytes = PayloadBytes - emqx_message:payload_size(Msg),
+                p_credit =
+                    case Credit of
+                        undefined -> get_credits(P, Prios);
+                        _ -> Credit - 1
+                    end
+            }};
+        _EmptyOrQoS12 ->
+            {empty, MQ}
+    end.
+
 pqueue_stats(Q) ->
     emqx_pqueue:fold(
         fun(Msg, _Priority, {PayloadBytes, NumQoS0}) ->
@@ -480,6 +549,9 @@ p_table(PTab = #{}) ->
     ).
 
 %% This is used to sort/traverse messages in query/2
+%% Existing timestamp means an imported queue entry.
+with_ts(Msg = #message{extra = #{?INSERT_TS := _}}) ->
+    Msg;
 with_ts(#message{extra = Extra} = Msg) ->
     TsNano = erlang:system_time(nanosecond),
     Extra1 =

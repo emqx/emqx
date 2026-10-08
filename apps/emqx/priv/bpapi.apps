@@ -35,6 +35,7 @@
 {emqx_ft_storage_fs_reader,emqx_ft}.
 {emqx_gateway_api_listeners,emqx_gateway}.
 {emqx_gateway_cm,emqx_gateway}.
+{emqx_gateway_cm_takeover,emqx_gateway}.
 {emqx_gateway_http,emqx_gateway}.
 {emqx_license,emqx_license}.
 {emqx_management,emqx_management}.

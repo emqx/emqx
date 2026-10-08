@@ -41,8 +41,11 @@
     #{<<"id">> => ?PREDEF_TOPIC_ID1, <<"topic">> => ?PREDEF_TOPIC_NAME1},
     #{<<"id">> => ?PREDEF_TOPIC_ID2, <<"topic">> => ?PREDEF_TOPIC_NAME2}
 ]).
+
 % FLAG NOT USED
 -define(FNU, 0).
+
+-define(DUP(FLAG), (FLAG):1).
 
 %% erlang:system_time should be unique and random enough
 -define(CLIENTID,
@@ -623,6 +626,10 @@ t_asleep_pingreq_resume_uses_live_channel_state(_) ->
         gen_udp:close(Socket2)
     end.
 
+-doc """
+An unavailable selected candidate causes DISCONNECT without falling back to another channel.
+Other sleeping channels remain registered and asleep after the failed resume attempt.
+""".
 t_asleep_pingreq_resume_uses_selected_candidate_only(_) ->
     ClientId = <<"asleep-resume-selected-candidate-only">>,
     {ok, Socket1} = gen_udp:open(0, [binary]),
@@ -639,7 +646,6 @@ t_asleep_pingreq_resume_uses_selected_candidate_only(_) ->
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
         [LivePid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
         ok = meck:new(emqx_gateway_cm_registry, [passthrough, no_history]),
-        ok = meck:new(emqx_gateway_cm_proto_v1, [passthrough, no_history]),
         ok = meck:expect(
             emqx_gateway_cm_registry,
             lookup_channels,
@@ -650,19 +656,8 @@ t_asleep_pingreq_resume_uses_selected_candidate_only(_) ->
                     meck:passthrough([Gateway, OtherClientId])
             end
         ),
-        ok = meck:expect(
-            emqx_gateway_cm_proto_v1,
-            get_chann_conn_mod,
-            fun
-                (mqttsn, _ClientId0, FakePid0) when FakePid0 =:= FakePid ->
-                    undefined;
-                (Gateway, ClientId0, ChanPid) ->
-                    meck:passthrough([Gateway, ClientId0, ChanPid])
-            end
-        ),
         send_pingreq_msg(Socket2, ClientId),
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket2)),
-        ok = meck:unload(emqx_gateway_cm_proto_v1),
         ok = meck:unload(emqx_gateway_cm_registry),
         ?retry(
             50,
@@ -673,7 +668,6 @@ t_asleep_pingreq_resume_uses_selected_candidate_only(_) ->
             end
         )
     after
-        _ = catch meck:unload(emqx_gateway_cm_proto_v1),
         _ = catch meck:unload(emqx_gateway_cm_registry),
         FakePid ! stop,
         _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
@@ -696,7 +690,7 @@ t_asleep_pingreq_resume_rejects_malformed_end_reply(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'end'}, _Timeout) when
+                (OldPid0, {takeover, 'end', {_Owner, _Attempt}}, _Timeout) when
                     OldPid0 =:= OldPid
                 ->
                     malformed_end_reply;
@@ -767,8 +761,10 @@ t_asleep_pingreq_resume_end_timeout_preserves_pending_deliveries(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'end'}, _Timeout) when OldPid0 =:= OldPid ->
-                    exit({timeout, simulated_end_timeout});
+                (OldPid0, {takeover, 'end', {_Owner, _Attempt}}, _Timeout) when
+                    OldPid0 =:= OldPid
+                ->
+                    exit({timeout, {gen_server, call, [OldPid0, takeover_end, _Timeout]}});
                 (Pid, Req, Timeout) ->
                     meck:passthrough([Pid, Req, Timeout])
             end
@@ -875,7 +871,9 @@ t_asleep_pingreq_resume_rpc_failure_returns_disconnect(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout) when OldPid0 =:= OldPid ->
+                (OldPid0, {takeover, 'begin', _Owner, ResumeRequest}, _Timeout) when
+                    OldPid0 =:= OldPid
+                ->
                     ?assertEqual(#{peercert => nossl}, ResumeRequest),
                     exit({nodedown, node(OldPid0)});
                 (Pid, Req, Timeout) ->
@@ -1027,41 +1025,6 @@ t_asleep_pingreq_resume_rolls_back_on_owner_down(_) ->
         gen_udp:close(Socket2)
     end.
 
-t_asleep_pingreq_resume_rejects_legacy_authorized_begin(_) ->
-    SleepDuration = 5,
-    ClientId = <<"asleep-resume-legacy-node">>,
-    {ok, Socket1} = gen_udp:open(0, [binary]),
-    {ok, Socket2} = gen_udp:open(0, [binary]),
-    try
-        send_connect_msg(Socket1, ClientId),
-        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket1)),
-        send_disconnect_msg(Socket1, SleepDuration),
-        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
-        [OldPid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
-
-        ok = meck:new(emqx_gateway_conn, [passthrough, no_history]),
-        ok = meck:expect(
-            emqx_gateway_conn,
-            call,
-            fun
-                (OldPid0, {takeover, 'begin', #{peercert := _}}, _Timeout) when
-                    OldPid0 =:= OldPid
-                ->
-                    ignored;
-                (Pid, Req, Timeout) ->
-                    meck:passthrough([Pid, Req, Timeout])
-            end
-        ),
-        send_pingreq_msg(Socket2, ClientId),
-        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket2)),
-        ok = meck:unload(emqx_gateway_conn)
-    after
-        _ = catch meck:unload(emqx_gateway_conn),
-        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
-        gen_udp:close(Socket1),
-        gen_udp:close(Socket2)
-    end.
-
 t_asleep_pingreq_resume_recovers_after_lost_begin_reply(_) ->
     ClientId = <<"asleep-resume-lost-begin-reply">>,
     SleepDuration = 5,
@@ -1079,11 +1042,11 @@ t_asleep_pingreq_resume_recovers_after_lost_begin_reply(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout) when
+                (OldPid0, {takeover, 'begin', Owner, ResumeRequest}, _Timeout) when
                     OldPid0 =:= OldPid
                 ->
                     Result = meck:passthrough([
-                        OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout
+                        OldPid0, {takeover, 'begin', Owner, ResumeRequest}, _Timeout
                     ]),
                     ?assertMatch(
                         {ok, #{session := _, conninfo := _, clientinfo := _}},
@@ -2225,8 +2188,11 @@ t_publish_mountpoint_from_authn_client_attrs(_) ->
         gen_udp:close(Socket)
     end.
 
+-doc """
+QoS1 delivery recovers from an unknown topic ID through topic registration,
+preserving the message identity and marking retransmissions clearly.
+""".
 t_delivery_qos1_register_invalid_topic_id(_) ->
-    Dup = 0,
     QoS = 1,
     Retain = 0,
     Will = 0,
@@ -2239,7 +2205,7 @@ t_delivery_qos1_register_invalid_topic_id(_) ->
 
     send_subscribe_msg_normal_topic(Socket, QoS, <<"ab">>, MsgId),
     ?assertEqual(
-        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+        <<8, ?SN_SUBACK, ?DUP(0), QoS:2, Retain:1, Will:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
             TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>>,
         receive_response(Socket)
     ),
@@ -2251,7 +2217,7 @@ t_delivery_qos1_register_invalid_topic_id(_) ->
         <<
             (7 + byte_size(Payload)),
             ?SN_PUBLISH,
-            Dup:1,
+            ?DUP(0),
             QoS:2,
             Retain:1,
             Will:1,
@@ -2277,7 +2243,7 @@ t_delivery_qos1_register_invalid_topic_id(_) ->
         <<
             (7 + byte_size(Payload)),
             ?SN_PUBLISH,
-            Dup:1,
+            ?DUP(1),
             QoS:2,
             Retain:1,
             Will:1,
@@ -3369,6 +3335,10 @@ t_awake_same_source_tuple_reused_by_other_clientid(_) ->
         meck:unload(emqx_gateway_ctx)
     end.
 
+-doc """
+* Buffered delivery to a client in wake-up requires an acknowledged topic registration.
+* PINGRESP confirms completion of delivery, including QoS1 acknowledgements.
+""".
 t_asleep_test04_to_awake_qos1_dl_msg(_) ->
     QoS = 1,
     Duration = 5,
@@ -3388,13 +3358,12 @@ t_asleep_test04_to_awake_qos1_dl_msg(_) ->
     MsgId1 = 25,
     TopicId0 = 0,
     WillBit = 0,
-    Dup = 0,
     Retain = 0,
     CleanSession = 0,
     ReturnCode = 0,
     send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
     ?assertEqual(
-        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+        <<8, ?SN_SUBACK, ?DUP(0), QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
             TopicId0:16, MsgId1:16, ReturnCode>>,
         receive_response(Socket)
     ),
@@ -3432,13 +3401,14 @@ t_asleep_test04_to_awake_qos1_dl_msg(_) ->
 
     UdpData2 = receive_response(Socket),
     MsgId_udp2 = check_publish_msg_on_udp(
-        {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload1}, UdpData2
+        {_Dup = 1, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload1},
+        UdpData2
     ),
     send_puback_msg(Socket, TopicIdNew, MsgId_udp2),
 
     UdpData3 = receive_response(Socket),
     MsgId_udp3 = check_publish_msg_on_udp(
-        {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData3
+        {0, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData3
     ),
     send_puback_msg(Socket, TopicIdNew, MsgId_udp3),
 
@@ -3497,15 +3467,14 @@ t_puback_qos0_batch_continuation(_) ->
         {0, ?QOS_1, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"first"},
         receive_response(Socket)
     ),
-    %% Replay drains the first QoS0 run, then stops at the second QoS1/2.
-    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count),
+    %% Replay drains every QoS0, stops at the second QoS1/2.
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, 2 * Count),
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
     send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId1),
     MsgId2 = check_publish_msg_on_udp(
         {0, ?QOS_1, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"second"},
         receive_response(Socket)
     ),
-    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, Count + 1, 2 * Count),
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
     send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId2),
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
@@ -3530,8 +3499,8 @@ t_pubcomp_qos0_batch_continuation(_) ->
         {0, ?QOS_2, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"first"},
         receive_response(Socket)
     ),
-    %% Replay drains the first QoS0 run, then stops at the second QoS1/2.
-    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count),
+    %% Replay drains every QoS0, then stops at the second QoS1/2.
+    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, 1, Count * 2),
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
     send_pubrec_msg(Socket, MsgId1),
     ?assertEqual(<<4, ?SN_PUBREL, MsgId1:16>>, receive_response(Socket)),
@@ -3540,7 +3509,6 @@ t_pubcomp_qos0_batch_continuation(_) ->
         {0, ?QOS_2, 0, 0, 0, ?SN_PREDEFINED_TOPIC, ?PREDEF_TOPIC_ID1, ~"second"},
         receive_response(Socket)
     ),
-    receive_qos0_messages(Socket, ?PREDEF_TOPIC_ID1, Count + 1, 2 * Count),
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 100)),
     send_pubrec_msg(Socket, MsgId2),
     ?assertEqual(<<4, ?SN_PUBREL, MsgId2:16>>, receive_response(Socket)),
@@ -3549,47 +3517,53 @@ t_pubcomp_qos0_batch_continuation(_) ->
     ensure_channel_gone(ClientId),
     gen_udp:close(Socket).
 
--doc "Sleep cancels delivery retries and wake-up replays the unacknowledged message.".
+-doc """
+Sleep cancels delivery retries and wake-up replays unacknowledged messages, clearly
+marked as retransmissions.
+""".
 t_delivery_retry_pauses_during_sleep(_) ->
     ClientId = ?CLIENTID,
     RetryInveral = 250,
     override_conf([mqtt, retry_interval], RetryInveral),
     Socket = connected_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
     emqx_broker:publish(msg(?QOS_1, ?PREDEF_TOPIC_NAME1, ~"retry")),
-    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
-        "retry">> = receive_response(Socket),
-    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
-        "retry">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16,
+        MsgId:16, "retry">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, ?DUP(1), ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16,
+        MsgId:16, "retry">> = receive_response(Socket),
     send_disconnect_msg(Socket, 60),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     %% Stay asleep for more than two retry intervals.
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 600)),
     send_pingreq_msg(Socket, ClientId),
-    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
-        "retry">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, ?DUP(1), ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16,
+        MsgId:16, "retry">> = receive_response(Socket),
     send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId),
     ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
     ensure_channel_gone(ClientId),
     gen_udp:close(Socket).
 
--doc "Disconnect cancels delivery retries and reconnect replays the unacknowledged message.".
+-doc """
+Disconnect cancels delivery retries and reconnect replays unacknowledged messages,
+clearly marked as retransmissions.
+""".
 t_disconnect_cancels_delivery_retry(_) ->
     ClientId = ?CLIENTID,
     RetryInveral = 250,
     override_conf([mqtt, retry_interval], RetryInveral),
     Socket = connected_subscriber(ClientId, 0, ?PREDEF_TOPIC_ID1),
     emqx_broker:publish(msg(?QOS_1, ?PREDEF_TOPIC_NAME1, ~"retry")),
-    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
-        "retry">> = receive_response(Socket),
-    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
-        "retry">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16,
+        MsgId:16, "retry">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, ?DUP(1), ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16,
+        MsgId:16, "retry">> = receive_response(Socket),
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     %% Stay disconnected for several retry intervals.
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 3 * RetryInveral)),
     NSocket = ensure_connected_client(ClientId, 0),
-    <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
-        "retry">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, ?DUP(1), ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16,
+        MsgId:16, "retry">> = receive_response(NSocket),
     send_puback_msg(NSocket, ?PREDEF_TOPIC_ID1, MsgId),
     ensure_channel_gone(ClientId),
     gen_udp:close(NSocket),
@@ -3605,12 +3579,56 @@ t_takeover_cancels_delivery_retry(_) ->
     <<_, ?SN_PUBLISH, _:1, ?QOS_1:2, 0:3, ?SN_PREDEFINED_TOPIC:2, ?PREDEF_TOPIC_ID1:16, MsgId:16,
         "retry">> = receive_response(Socket),
     ChanPid = channel_pid(ClientId),
-    ?assertMatch(#{session := _}, emqx_gateway_conn:call(ChanPid, {takeover, 'begin'})),
+    ?assertMatch(
+        {ok, #{
+            session := #{registry := _, session := _},
+            clientinfo := #{clientid := ClientId}
+        }},
+        emqx_gateway_conn:call(ChanPid, {takeover, 'begin', {self(), make_ref()}, undefined})
+    ),
     %% Retries stop even though the message has not been acknowledged yet.
     ?assertEqual(udp_receive_timeout, receive_response(Socket, 2 * RetryInterval)),
     send_puback_msg(Socket, ?PREDEF_TOPIC_ID1, MsgId),
     ?retry(20, 50, ?assertMatch(#{inflight_cnt := 0}, channel_stats(ClientId))),
-    ?assertEqual([], emqx_gateway_conn:call(ChanPid, {takeover, 'end'})),
+    %% CONNECT takeovers ignore attempt identity.
+    ?assertEqual([], emqx_gateway_conn:call(ChanPid, {takeover, 'end', {self(), make_ref()}})),
+    ensure_channel_gone(ClientId),
+    gen_udp:close(Socket).
+
+-doc "A completion from a rolled-back attempt cannot complete a subsequent takeover.".
+t_takeover_rejects_stale_completion(_) ->
+    ClientId = ?CLIENTID,
+    Socket = asleep_subscriber(ClientId, ?PREDEF_TOPIC_ID1),
+    OldPid = channel_pid(ClientId),
+    Mode = {resume, #{peercert => nossl}},
+    ?assertEqual(
+        {error, no_takeover_in_progress}, emqx_gateway_conn:call(OldPid, {takeover, 'end'})
+    ),
+    FirstAttempt = make_ref(),
+    {ok, ChanRef, _} = emqx_gateway_cm_takeover:begin_(
+        mqttsn, ClientId, OldPid, Mode, FirstAttempt
+    ),
+    ?assertEqual(
+        {error, takeover_in_progress},
+        emqx_gateway_conn:call(OldPid, {takeover, 'begin', {self(), make_ref()}, undefined})
+    ),
+    ?assertEqual(
+        {error, takeover_in_progress},
+        emqx_gateway_cm_takeover:begin_(mqttsn, ClientId, OldPid, Mode, make_ref())
+    ),
+    TRef = resume_takeover_timer(OldPid),
+    OldPid ! {timeout, TRef, resume_takeover},
+    SecondAttempt = make_ref(),
+    {ok, ChanRef, _} = emqx_gateway_cm_takeover:begin_(
+        mqttsn, ClientId, OldPid, Mode, SecondAttempt
+    ),
+    ?assertEqual(
+        {error, not_takeover_owner},
+        emqx_gateway_cm_takeover:finish(mqttsn, ChanRef, Mode, FirstAttempt)
+    ),
+    ?assertEqual(
+        {ok, []}, emqx_gateway_cm_takeover:finish(mqttsn, ChanRef, Mode, SecondAttempt)
+    ),
     ensure_channel_gone(ClientId),
     gen_udp:close(Socket).
 
@@ -3669,6 +3687,10 @@ receive_qos0_messages(Socket, TopicID, NStart, NEnd) ->
         lists:seq(NStart, NEnd)
     ).
 
+-doc """
+* Client receives buffered QoS1 messages in order on wake-up, before returning to sleep.
+* Gateway retains the sleeping session only for the negotiated sleep duration.
+""".
 t_asleep_test05_to_awake_qos1_dl_msg(_) ->
     QoS = 1,
     Duration = 5,
@@ -3694,7 +3716,7 @@ t_asleep_test05_to_awake_qos1_dl_msg(_) ->
     ReturnCode = 0,
     send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
     ?assertEqual(
-        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+        <<8, ?SN_SUBACK, ?DUP(Dup), QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
             TopicId0:16, MsgId1:16, ReturnCode>>,
         receive_response(Socket)
     ),
@@ -3729,9 +3751,11 @@ t_asleep_test05_to_awake_qos1_dl_msg(_) ->
     {TopicIdNew, MsgId_reg} = check_register_msg_on_udp(TopicName_test5, UdpData_reg),
     send_regack_msg(Socket, TopicIdNew, MsgId_reg),
 
+    %% REGACK replays the inflight message with DUP set
     UdpData2 = receive_response(Socket),
     MsgId2 = check_publish_msg_on_udp(
-        {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload2}, UdpData2
+        {_Dup = 1, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload2},
+        UdpData2
     ),
     send_puback_msg(Socket, TopicIdNew, MsgId2),
     timer:sleep(50),
@@ -4119,6 +4143,10 @@ t_connect_from_asleep_restarts_keepalive(_) ->
         gen_udp:close(Socket)
     end.
 
+-doc """
+* Successive wake-ups deliver only outstanding buffered messages.
+* Empty buffer is confirmed by PINGRESP without redelivering acknowledged messages.
+""".
 t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
     QoS = 1,
     Duration = 5,
@@ -4138,13 +4166,12 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
     MsgId1 = 25,
     TopicId0 = 0,
     WillBit = 0,
-    Dup = 0,
     Retain = 0,
     CleanSession = 0,
     ReturnCode = 0,
     send_subscribe_msg_normal_topic(Socket, QoS, TopicName1, MsgId1),
     ?assertEqual(
-        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+        <<8, ?SN_SUBACK, ?DUP(0), QoS:2, Retain:1, WillBit:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
             TopicId0:16, MsgId1:16, ReturnCode>>,
         receive_response(Socket)
     ),
@@ -4177,10 +4204,12 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
     {TopicIdNew, MsgId_reg} = check_register_msg_on_udp(TopicName_test9, UdpData_reg),
     send_regack_msg(Socket, TopicIdNew, MsgId_reg),
 
+    %% REGACK replays the inflight message with DUP set
     case wrap_receive_response(Socket) of
         udp_receive_timeout ->
             ok;
         UdpData2 ->
+            Dup = 1,
             MsgId2 = check_publish_msg_on_udp(
                 {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload2},
                 UdpData2
@@ -4194,7 +4223,7 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
             ok;
         UdpData3 ->
             MsgId3 = check_publish_msg_on_udp(
-                {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload3},
+                {0, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload3},
                 UdpData3
             ),
             send_puback_msg(Socket, TopicIdNew, MsgId3)
@@ -4206,7 +4235,7 @@ t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
             ok;
         UdpData4 ->
             MsgId4 = check_publish_msg_on_udp(
-                {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload4},
+                {0, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicIdNew, Payload4},
                 UdpData4
             ),
             send_puback_msg(Socket, TopicIdNew, MsgId4)
@@ -4365,10 +4394,10 @@ t_register_subs_resume_on(_) ->
     <<_, ?SN_PUBLISH, 2#00000000, TopicIdA:16, 0:16, "m1">> = receive_response(NSocket),
 
     <<_, ?SN_PUBLISH, 2#00100000, TopicIdA:16, MsgIdA1:16, "m2">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, 2#00000000, TopicIdB:16, 0:16, "m1">> = receive_response(NSocket),
     send_puback_msg(NSocket, TopicIdA, MsgIdA1, ?SN_RC_ACCEPTED),
 
     <<_, ?SN_PUBLISH, 2#01000000, TopicIdA:16, MsgIdA2:16, "m3">> = receive_response(NSocket),
-    <<_, ?SN_PUBLISH, 2#00000000, TopicIdB:16, 0:16, "m1">> = receive_response(NSocket),
     send_pubrec_msg(NSocket, MsgIdA2),
 
     <<_, ?SN_PUBREL, MsgIdA2:16>> = receive_response(NSocket),
@@ -4443,6 +4472,12 @@ t_register_subs_resume_on_same_source_tuple(_) ->
         update_mqttsn_with_subs_resume_off()
     end.
 
+-doc """
+* With automatic topic re-registration disabled, persistent session resumes unfinished
+  QoS2 exchanges and buffered delivery.
+* Unknown topic IDs are recovered on demand, preserve QoS1/2 message identity and
+  distinguish retransmissions from new deliveries.
+""".
 t_register_subs_resume_off(_) ->
     MsgId = 1,
     {ok, Socket} = gen_udp:open(0, [binary]),
@@ -4453,10 +4488,12 @@ t_register_subs_resume_off(_) ->
     ),
 
     send_subscribe_msg_normal_topic(Socket, ?QOS_1, <<"topic-a">>, MsgId + 1),
-    <<_, ?SN_SUBACK, 2#00100000, TopicIdA:16, _:16, ?SN_RC_ACCEPTED>> = receive_response(Socket),
+    <<_, ?SN_SUBACK, ?DUP(0), ?QOS_1:2, 0:5, TopicIdA:16, _:16, ?SN_RC_ACCEPTED>> =
+        receive_response(Socket),
 
     send_subscribe_msg_normal_topic(Socket, ?QOS_2, <<"topic-b">>, MsgId + 2),
-    <<_, ?SN_SUBACK, 2#01000000, TopicIdB:16, _:16, ?SN_RC_ACCEPTED>> = receive_response(Socket),
+    <<_, ?SN_SUBACK, ?DUP(0), ?QOS_2:2, 0:5, TopicIdB:16, _:16, ?SN_RC_ACCEPTED>> =
+        receive_response(Socket),
 
     _ = emqx:publish(
         emqx_message:make(test, ?QOS_1, <<"topic-a">>, <<"test-a">>)
@@ -4465,15 +4502,14 @@ t_register_subs_resume_off(_) ->
         emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"test-b">>)
     ),
 
-    QoS1Flags = 2#00100000,
-    QoS2Flags = 2#01000000,
-
     %% This is a QoS 1 message
-    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgId1:16, "test-a">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_1:2, 0:5, TopicIdA:16, MsgId1:16, "test-a">> =
+        receive_response(Socket),
     send_puback_msg(Socket, TopicIdA, MsgId1, ?SN_RC_ACCEPTED),
 
     %% This is a QoS 2 message
-    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgId2:16, "test-b">> = receive_response(Socket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_2:2, 0:5, TopicIdB:16, MsgId2:16, "test-b">> =
+        receive_response(Socket),
     send_pubrec_msg(Socket, MsgId2),
     %% discard PUBREL message
     <<_, ?SN_PUBREL, MsgId2:16>> = receive_response(Socket),
@@ -4503,43 +4539,53 @@ t_register_subs_resume_off(_) ->
     <<_, ?SN_PUBREL, MsgId2:16>> = receive_response(NSocket),
     send_pubcomp_msg(NSocket, MsgId2),
     %% received the resume messages
-    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgIdA0:16, "m1">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_1:2, 0:5, TopicIdA:16, MsgIdA0:16, "m1">> =
+        receive_response(NSocket),
     %% only one qos1/qos2 inflight
     ?assertEqual(udp_receive_timeout, receive_response(NSocket)),
     send_puback_msg(NSocket, TopicIdA, MsgIdA0, ?SN_RC_INVALID_TOPIC_ID),
     %% recv register
     <<_, ?SN_REGISTER, TopicIdA:16, RegMsgIdA:16, "topic-a">> = receive_response(NSocket),
     send_regack_msg(NSocket, TopicIdA, RegMsgIdA),
-    %% received the replay messages
-    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgIdA1:16, "m1">> = receive_response(NSocket),
+    %% Replay preserves the packet ID and sets DUP.
+    <<_, ?SN_PUBLISH, ?DUP(1), ?QOS_1:2, 0:5, TopicIdA:16, MsgIdA1:16, "m1">> =
+        receive_response(NSocket),
+    ?assertEqual(MsgIdA0, MsgIdA1),
     send_puback_msg(NSocket, TopicIdA, MsgIdA1, ?SN_RC_ACCEPTED),
 
-    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgIdA2:16, "m2">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_1:2, 0:5, TopicIdA:16, MsgIdA2:16, "m2">> =
+        receive_response(NSocket),
     send_puback_msg(NSocket, TopicIdA, MsgIdA2, ?SN_RC_ACCEPTED),
 
-    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgIdA3:16, "m3">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_1:2, 0:5, TopicIdA:16, MsgIdA3:16, "m3">> =
+        receive_response(NSocket),
     send_puback_msg(NSocket, TopicIdA, MsgIdA3, ?SN_RC_ACCEPTED),
 
     %% qos2
-    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgIdB0:16, "m1">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_2:2, 0:5, TopicIdB:16, MsgIdB0:16, "m1">> =
+        receive_response(NSocket),
     %% only one qos1/qos2 inflight
     ?assertEqual(udp_receive_timeout, receive_response(NSocket)),
     send_puback_msg(NSocket, TopicIdB, MsgIdB0, ?SN_RC_INVALID_TOPIC_ID),
     %% recv register
     <<_, ?SN_REGISTER, TopicIdB:16, RegMsgIdB:16, "topic-b">> = receive_response(NSocket),
     send_regack_msg(NSocket, TopicIdB, RegMsgIdB),
-    %% received the replay messages
-    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgIdB1:16, "m1">> = receive_response(NSocket),
+    %% Replay preserves the packet ID and sets DUP.
+    <<_, ?SN_PUBLISH, ?DUP(1), ?QOS_2:2, 0:5, TopicIdB:16, MsgIdB1:16, "m1">> =
+        receive_response(NSocket),
+    ?assertEqual(MsgIdB0, MsgIdB1),
     send_pubrec_msg(NSocket, MsgIdB1),
     <<_, ?SN_PUBREL, MsgIdB1:16>> = receive_response(NSocket),
     send_pubcomp_msg(NSocket, MsgIdB1),
 
-    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgIdB2:16, "m2">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_2:2, 0:5, TopicIdB:16, MsgIdB2:16, "m2">> =
+        receive_response(NSocket),
     send_pubrec_msg(NSocket, MsgIdB2),
     <<_, ?SN_PUBREL, MsgIdB2:16>> = receive_response(NSocket),
     send_pubcomp_msg(NSocket, MsgIdB2),
 
-    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgIdB3:16, "m3">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, ?DUP(0), ?QOS_2:2, 0:5, TopicIdB:16, MsgIdB3:16, "m3">> =
+        receive_response(NSocket),
     send_pubrec_msg(NSocket, MsgIdB3),
     <<_, ?SN_PUBREL, MsgIdB3:16>> = receive_response(NSocket),
     send_pubcomp_msg(NSocket, MsgIdB3),

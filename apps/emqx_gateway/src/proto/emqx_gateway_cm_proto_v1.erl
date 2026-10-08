@@ -91,7 +91,7 @@ get_chann_conn_mod(GwName, ClientId, ChanPid) ->
     emqx_gateway_cm:gateway_name(),
     emqx_types:clientid(),
     pid()
-) -> boolean() | {badrpc, _}.
+) -> {ok, module(), pid(), term()} | {error, term()} | {badrpc, term()}.
 takeover_session(GwName, ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_gateway_cm, do_takeover_session, [GwName, ClientId, ChanPid]).
 
