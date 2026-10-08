@@ -837,6 +837,168 @@ t_connack_client_id_unavailable(Config) ->
 %% Publish
 %%--------------------------------------------------------------------
 
+t_negative_pubrec(Config) ->
+    %% Given an ordinary QoS 2 subscription.
+    Topic = <<"negative_pubrec">>,
+    check_negative_pubrec(Topic, Topic, Config).
+
+t_shared_negative_pubrec(Config) ->
+    %% Given a shared QoS 2 subscription with one member.
+    Topic = <<"shared_negative_pubrec">>,
+    check_negative_pubrec(Topic, <<"$share/g/", Topic/binary>>, Config).
+
+check_negative_pubrec(Topic, Filter, Config) ->
+    with_pubrec_clients(Filter, [], Config, fun(Sub, Pub) ->
+        %% Given the subscriber has received a QoS 2 message.
+        {ok, _} = emqtt:publish(Pub, Topic, <<"x">>, ?QOS_2),
+        {publish, #{packet_id := PacketId}} = ?assertReceive(
+            {publish, #{client_pid := Sub, topic := Topic, qos := ?QOS_2, payload := <<"x">>}}
+        ),
+        %% When the subscriber rejects it with a negative PUBREC.
+        ok = emqtt:pubrec(Sub, PacketId, ?RC_UNSPECIFIED_ERROR),
+        %% Then the connection stays open and the exchange completes without
+        %% PUBREL/PUBCOMP, removing the message from inflight state.
+        ?assertEqual(pong, emqtt:ping(Sub)),
+        ?assertNotReceive({pubrel, #{packet_id := PacketId}}, 3000),
+        [ChanPid] = emqx_cm:lookup_channels(client_info(clientid, Sub)),
+        ?assertEqual(0, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config))
+    end).
+
+t_negative_pubrec_unknown_id(Config) ->
+    %% Given a connected subscriber with no inflight messages.
+    with_pubrec_clients(<<"negative_pubrec_unknown_id">>, [], Config, fun(Sub, _Pub) ->
+        %% When it sends a negative PUBREC for an unknown packet identifier.
+        ok = emqtt:pubrec(Sub, 42, ?RC_UNSPECIFIED_ERROR),
+        %% Then the broker keeps the connection open and sends no PUBREL.
+        ?assertEqual(pong, emqtt:ping(Sub)),
+        ?assertNotReceive({pubrel, _})
+    end).
+
+t_negative_pubrec_after_success(Config) ->
+    %% Given a QoS 2 exchange that has reached the PUBCOMP stage.
+    Topic = <<"negative_pubrec_after_success">>,
+    with_pubrec_clients(Topic, [], Config, fun(Sub, Pub) ->
+        {ok, _} = emqtt:publish(Pub, Topic, <<"x">>, ?QOS_2),
+        {publish, #{packet_id := PacketId}} = ?assertReceive(
+            {publish, #{client_pid := Sub, qos := ?QOS_2, payload := <<"x">>}}
+        ),
+        ok = emqtt:pubrec(Sub, PacketId),
+        ?assertReceive({pubrel, #{packet_id := PacketId, reason_code := ?RC_SUCCESS}}),
+        %% When the subscriber sends a negative PUBREC for the same message.
+        ok = emqtt:pubrec(Sub, PacketId, ?RC_UNSPECIFIED_ERROR),
+        %% Then the broker sends no additional PUBREL and still awaits PUBCOMP.
+        ?assertEqual(pong, emqtt:ping(Sub)),
+        ?assertNotReceive({pubrel, _}),
+        [ChanPid] = emqx_cm:lookup_channels(client_info(clientid, Sub)),
+        ?assertEqual(1, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config)),
+        %% When the subscriber completes the original exchange.
+        ok = emqtt:pubcomp(Sub, PacketId),
+        %% Then the connection stays open and the inflight message is removed.
+        ?assertEqual(pong, emqtt:ping(Sub)),
+        ?assertEqual(0, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config))
+    end).
+
+t_negative_pubrec_with_pending_pubcomp(Config) ->
+    %% Given two QoS 2 messages, the first awaiting PUBCOMP and the second PUBREC.
+    Topic = <<"negative_pubrec_with_pending_pubcomp">>,
+    with_pubrec_clients(Topic, [], Config, fun(Sub, Pub) ->
+        {ok, _} = emqtt:publish(Pub, Topic, <<"a">>, ?QOS_2),
+        {publish, #{packet_id := PacketId}} = ?assertReceive(
+            {publish, #{client_pid := Sub, qos := ?QOS_2, payload := <<"a">>}}
+        ),
+        ok = emqtt:pubrec(Sub, PacketId),
+        ?assertReceive({pubrel, #{packet_id := PacketId}}),
+        {ok, _} = emqtt:publish(Pub, Topic, <<"b">>, ?QOS_2),
+        {publish, #{packet_id := RejectedPacketId}} = ?assertReceive(
+            {publish, #{client_pid := Sub, qos := ?QOS_2, payload := <<"b">>}}
+        ),
+        %% When the subscriber rejects the second message.
+        ok = emqtt:pubrec(Sub, RejectedPacketId, ?RC_QUOTA_EXCEEDED),
+        %% Then no PUBREL is sent and only the first message remains inflight.
+        ?assertEqual(pong, emqtt:ping(Sub)),
+        ?assertNotReceive({pubrel, _}),
+        [ChanPid] = emqx_cm:lookup_channels(client_info(clientid, Sub)),
+        ?assertEqual(1, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config)),
+        %% When the subscriber completes the first exchange.
+        ok = emqtt:pubcomp(Sub, PacketId),
+        %% Then the connection stays open and no messages remain inflight.
+        ?assertEqual(pong, emqtt:ping(Sub)),
+        ?assertEqual(0, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config))
+    end).
+
+t_negative_pubrec_releases_quota(init, Config) ->
+    MQTT = emqx_config:get_zone_conf(default, [mqtt]),
+    emqx_config:put_zone_conf(default, [mqtt, max_inflight], 1),
+    emqx_config:put_zone_conf(default, [mqtt, max_awaiting_rel], 1),
+    emqx_config:put_zone_conf(default, [mqtt, retry_interval], infinity),
+    [{saved_mqtt, MQTT} | Config];
+t_negative_pubrec_releases_quota('end', Config) ->
+    emqx_config:put_zone_conf(default, [mqtt], ?config(saved_mqtt, Config)).
+
+t_negative_pubrec_releases_quota(Config) ->
+    %% Given Receive Maximum 1, one inflight message, and a second queued message.
+    Topic = <<"negative_pubrec_quota">>,
+    Opts = [{properties, #{'Receive-Maximum' => 1}}],
+    with_pubrec_clients(Topic, Opts, Config, fun(Sub, Pub) ->
+        {ok, _} = emqtt:publish(Pub, Topic, <<"a">>, ?QOS_2),
+        {publish, #{packet_id := PacketId}} = ?assertReceive(
+            {publish, #{client_pid := Sub, qos := ?QOS_2, payload := <<"a">>}}
+        ),
+        {ok, _} = emqtt:publish(Pub, Topic, <<"b">>, ?QOS_2),
+        %% Receive Maximum 1 holds the second message until the first completes.
+        ?assertNotReceive({publish, #{client_pid := Sub}}),
+        %% When the subscriber rejects the first message with a negative PUBREC.
+        ok = emqtt:pubrec(Sub, PacketId, ?RC_UNSPECIFIED_ERROR),
+        %% Then the connection stays open and the second message is delivered
+        %% without requiring PUBCOMP or sending PUBREL for the rejected message.
+        ?assertEqual(pong, emqtt:ping(Sub)),
+        {publish, #{packet_id := NextPacketId}} = ?assertReceive(
+            {publish, #{client_pid := Sub, qos := ?QOS_2, payload := <<"b">>}}, 3000
+        ),
+        ?assertNotReceive({pubrel, #{packet_id := PacketId}}),
+        %% When the subscriber accepts the second message.
+        ok = emqtt:pubrec(Sub, NextPacketId),
+        %% Then its normal QoS 2 exchange can complete.
+        ?assertReceive({pubrel, #{packet_id := NextPacketId, reason_code := ?RC_SUCCESS}}),
+        ok = emqtt:pubcomp(Sub, NextPacketId),
+        ?assertEqual(pong, emqtt:ping(Sub))
+    end).
+
+t_successful_pubrec(Config) ->
+    %% Given a subscriber that has received a QoS 2 message.
+    Topic = <<"successful_pubrec">>,
+    with_pubrec_clients(Topic, [], Config, fun(Sub, Pub) ->
+        {ok, _} = emqtt:publish(Pub, Topic, <<"x">>, ?QOS_2),
+        {publish, #{packet_id := PacketId}} = ?assertReceive(
+            {publish, #{client_pid := Sub, qos := ?QOS_2, payload := <<"x">>}}
+        ),
+        %% When the subscriber acknowledges it with a successful PUBREC.
+        ok = emqtt:pubrec(Sub, PacketId),
+        %% Then the broker sends PUBREL and the normal exchange can complete.
+        ?assertReceive({pubrel, #{packet_id := PacketId, reason_code := ?RC_SUCCESS}}),
+        ok = emqtt:pubcomp(Sub, PacketId),
+        ?assertEqual(pong, emqtt:ping(Sub))
+    end).
+
+with_pubrec_clients(Filter, SubOpts, Config, Test) ->
+    ConnFun = ?config(conn_fun, Config),
+    %% `false` still sends successful PUBREC automatically; `never` lets the
+    %% test control the whole exchange and observe any PUBREL from the broker.
+    {ok, Sub} = emqtt:start_link([{proto_ver, v5}, {auto_ack, never} | SubOpts ++ Config]),
+    try
+        {ok, _} = emqtt:ConnFun(Sub),
+        {ok, _, [?QOS_2]} = emqtt:subscribe(Sub, Filter, qos2),
+        {ok, Pub} = emqtt:start_link([{proto_ver, v5} | Config]),
+        try
+            {ok, _} = emqtt:ConnFun(Pub),
+            Test(Sub, Pub)
+        after
+            catch emqtt:stop(Pub)
+        end
+    after
+        catch emqtt:stop(Sub)
+    end.
+
 t_publish_rap(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),
