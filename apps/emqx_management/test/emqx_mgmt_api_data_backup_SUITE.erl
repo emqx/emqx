@@ -339,7 +339,23 @@ t_download_viewer_forbidden(Config) ->
     {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, ApiAuth, #{}),
     {Status, Body} = download_backup(?NODE1_PORT, ViewerAuth, Filename),
     ?assertEqual(403, Status),
-    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED_ROLE">>}, Body),
+    ok.
+
+%% Viewer API keys must be rejected with 403 when downloading a backup file,
+%% even one exported through an API key (no dashboard users or API-key
+%% records inside). They may still list the backup files.
+t_download_viewer_api_key_forbidden(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    ApiAuth = ?config(auth, Config),
+    ViewerKeyAuth = api_key_auth_header(Core1, <<"backup-viewer-key">>, <<"viewer">>),
+    {200, #{<<"filename">> := Filename}} = export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {Status, Body} = download_backup(?NODE1_PORT, ViewerKeyAuth, Filename),
+    ?assertEqual(403, Status),
+    ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED_ROLE">>}, Body),
+    %% Without the role check, the same archive is downloadable by an API key.
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, ApiAuth, Filename)),
+    ?assertMatch({ok, _}, list_backups(?NODE1_PORT, ViewerKeyAuth, <<"1">>, <<"100">>)),
     ok.
 
 %% Dashboard administrators must still be able to download a backup file.
@@ -647,6 +663,13 @@ node_name(TC, Role, N) ->
 
 auth_header(Node) ->
     {ok, API} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    emqx_common_test_http:auth_header(API).
+
+api_key_auth_header(Node, Name, Role) ->
+    ExpiredAt = erlang:system_time(second) + 600,
+    {ok, API} = erpc:call(Node, emqx_mgmt_auth, create, [
+        Name, true, ExpiredAt, <<"data backup test key">>, Role
+    ]),
     emqx_common_test_http:auth_header(API).
 
 dashboard_auth_header(Node) ->
