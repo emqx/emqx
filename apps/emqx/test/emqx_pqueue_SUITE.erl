@@ -201,7 +201,7 @@ t_drop_lowest(_) ->
     {{value, b}, PQ1} = ?PQ:drop_lowest(PQ0),
     ?assertEqual([{2, a}, {1, c}], ?PQ:to_list(PQ1)),
     {{value, c}, PQ2} = ?PQ:drop_lowest(PQ1),
-    ?assertEqual(2, ?PQ:highest(PQ2)),
+    ?assertEqual(2, ?PQ:active_p(PQ2)),
     ?assertEqual(2, ?PQ:lowest(PQ2)),
     ?assertEqual([{2, a}], ?PQ:to_list(PQ2)).
 
