@@ -82,7 +82,6 @@ jobs:
           - master
           - release-58
         os:
-          - macos-14
           - macos-15
 
     steps:
