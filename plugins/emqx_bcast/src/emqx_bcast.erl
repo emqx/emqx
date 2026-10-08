@@ -105,7 +105,7 @@ probe_role(Attempts) ->
 %% logs.
 %%
 %% Only cores that can serve a claim are used: the local node (this code runs
-%% there) plus peers whose plugin module answers a cached probe. A core whose
+%% there) plus peers whose plugin app answers a cached probe. A core whose
 %% plugin is missing, not loaded or stopped is left out until it is back, and
 %% an inconclusive probe keeps the peer rather than reassigning its shards.
 core_nodes() ->
@@ -149,19 +149,33 @@ plugin_present(Node) ->
             Ready
     end.
 
-%% true  - the module is loaded and exports what this build calls;
-%% false - loaded without it (an older/other plugin version): not usable;
+%% A peer is only ready when its plugin app is actually serving. Asking the
+%% code server is not enough: `emqx ctl plugins stop` (and an uninstall) stops
+%% the supervision tree but leaves the modules loaded, so function_exported/3
+%% keeps answering true for a node whose shard processes are gone - a state a
+%% rolling upgrade passes through. Routing to such a node defers every append
+%% and kills the claims it is handed.
+%%
+%% true  - the plugin's supervision tree is up and exports what this build calls;
+%% false - plugin not running/installed, or an older build without that call;
 %% unknown - the probe could not answer (node down, dist hiccup): keep the
 %%           peer, the checked claim dispatch still protects the claim path.
 probe_peer_plugin(Node) ->
     try
-        erpc:call(
-            Node,
-            erlang,
-            function_exported,
-            [emqx_bcast_pull_server_pool, want_next_async, 4],
-            ?PEER_PROBE_TIMEOUT_MS
-        )
+        %% The supervision tree is the liveness of the plugin: it exists
+        %% exactly while the plugin app runs, on every released version.
+        case erpc:call(Node, erlang, whereis, [emqx_bcast_sup], ?PEER_PROBE_TIMEOUT_MS) of
+            Pid when is_pid(Pid) ->
+                erpc:call(
+                    Node,
+                    erlang,
+                    function_exported,
+                    [emqx_bcast_pull_server_pool, want_next_async, 4],
+                    ?PEER_PROBE_TIMEOUT_MS
+                );
+            _ ->
+                false
+        end
     of
         true -> true;
         false -> false;
@@ -559,7 +573,13 @@ bump_msg_epoch(Hash) ->
 %% in flight against that content at that moment.
 -spec bump_msg_epoch_everywhere(binary()) -> ok | {error, term()}.
 bump_msg_epoch_everywhere(Hash) ->
-    Nodes = lists:usort([node() | core_nodes()]),
+    %% Every *running* core, not only the ready ones: the epoch is what stops
+    %% an in-flight intake entry from re-creating the content we are deleting.
+    %% A core whose plugin is not ready cannot be told about it, and skipping
+    %% it would let a stale plugin recreate the message behind a "successful"
+    %% delete - so it must make the delete fail loudly (the documented 500)
+    %% instead of being silently left out.
+    Nodes = lists:usort([node() | mria_core_nodes()]),
     %% Every leg runs concurrently and each one is bounded by the request
     %% budget (emqx_bcast_utils:api_rpc_timeout_ms/0), not by the generic 15s
     %% RPC timeout: this runs on the synchronous management-delete path, where

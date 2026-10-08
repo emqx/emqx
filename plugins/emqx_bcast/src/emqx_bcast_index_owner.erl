@@ -1671,7 +1671,13 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(maybe_activate, State = #{active := false, shard := 0}) ->
-    {noreply, drive_and_apply(ensure, State)};
+    %% The poll must survive this branch even though nothing is armed here:
+    %% start_drive_now/3 re-arms on the owner poll when this node is not (or
+    %% not yet) the quota owner, and a drive that starts re-arms from its own
+    %% epilogue. Arming a second timer here would stack one activation poll per
+    %% pass on top of it, and identical timers that each arm the next one
+    %% multiply the poll rate instead of sustaining it.
+    {noreply, drive_and_apply(ensure, remember_owner_set(State))};
 handle_info({drive_result, Pid, Result}, State = #{shard := 0}) ->
     %% The coordinator reports once and exits. Only the drive this shard is
     %% waiting for is applied, and only while this shard still owns partition 0:
@@ -1741,16 +1747,41 @@ handle_info(maybe_activate, State) ->
     %% decrements the remaining-ack count twice and can complete a delivery
     %% while never-acked devices no longer hold an entry.
     Shard = maps:get(shard, State),
+    %% Only the activation leader tracks the set of ready cores: it is the only
+    %% shard that drives, and a change of that set is what moves partitions
+    %% between cores.
+    OwnersChanged = Shard =:= 0 andalso owners_changed(State),
+    State0 =
+        case Shard of
+            0 -> remember_owner_set(State);
+            _ -> State
+        end,
     case shard_owner(Shard) =:= node() of
         true ->
-            case Shard =:= 0 andalso maps:get(activation_pending, State, false) of
+            case
+                OwnersChanged orelse
+                    (Shard =:= 0 andalso maps:get(activation_pending, State0, false))
+            of
                 true ->
-                    %% The last drive left activation work this node can still
-                    %% do: retry it while this shard owns its own partition.
-                    {noreply, drive_and_apply(ensure, State)};
+                    %% Either the last drive left activation work this node can
+                    %% still do, or the set of ready cores changed. A partition
+                    %% that changed hands is dormant on its new owner until a
+                    %% drive loads it; it also asks for itself on its own poll,
+                    %% but that ask is a fire-and-forget cast that a full
+                    %% distribution buffer can drop, and it is answered by the
+                    %% leader's partition 0 - which is exactly the partition
+                    %% this branch runs in. The leader noticing the change makes
+                    %% the rebuild happen without depending on either.
+                    ?SLOG(warning, #{
+                        msg => "bcast_index_ownership_changed",
+                        node => node(),
+                        owners => lists:sort(emqx_bcast:core_nodes()),
+                        redrive => true
+                    }),
+                    {noreply, drive_and_apply(ensure, State0)};
                 false ->
                     erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
-                    {noreply, State}
+                    {noreply, State0}
             end;
         false ->
             Owner = shard_owner(Shard),
@@ -1891,6 +1922,24 @@ drive_and_apply(Mode, State) ->
     %% callers: the poll comes back anyway, a targeted request only needs the
     %% drive to be running, and a manual rebuild answers ok for all three.
     start_and_keep(Mode, #{}, State).
+
+%% Fingerprint of the ready-core set, so the leader can tell when the set of
+%% index-shard owners changed and drive a rebuild for the partitions that
+%% changed hands.
+remember_owner_set(State) ->
+    State#{owner_fingerprint => lists:sort(emqx_bcast:core_nodes())}.
+
+%% Did the ready-core set change since the last poll? A core that joins without
+%% the plugin, or one whose plugin stops, remaps part of the 48 partitions, and
+%% every partition that changed hands is dormant on its new owner until a drive
+%% loads it - a dormant partition cannot serve appends (they are deferred) or
+%% claims. Absent on the first poll after activation: the drive that just
+%% activated this shard already ran against the current set.
+owners_changed(State) ->
+    case maps:find(owner_fingerprint, State) of
+        {ok, Last} -> Last =/= lists:sort(emqx_bcast:core_nodes());
+        error -> false
+    end.
 
 start_and_keep(Mode, Extra, State) ->
     {_Tag, State1} = start_drive(Mode, Extra, State),
@@ -3093,7 +3142,11 @@ maybe_count_ttl_expired(N) ->
 %%--------------------------------------------------------------------
 
 group_entries(Entries) ->
-    lists:foldl(
+    %% Order preserving on purpose: the promoter appends each group in the
+    %% order it arrives and the shard inserts in that order, so the old
+    %% foldl-with-prepend grouped the entries of one shard *reversed* and two
+    %% publishes for the same device could enter its queue newest-first.
+    lists:foldr(
         fun(Entry = {PK, DN, _Did}, Acc) ->
             Shard = shard_of({PK, DN}),
             case lists:keyfind(Shard, 1, Acc) of

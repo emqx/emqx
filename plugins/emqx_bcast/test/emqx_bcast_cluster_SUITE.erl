@@ -430,3 +430,84 @@ mnesia_safe_rows(Node) ->
     catch
         _:_ -> -1
     end.
+
+-doc "A core whose plugin is stopped must hand its shards over instead of\n"
+"keeping them on dead processes: stopping the plugin leaves its modules loaded\n"
+"in that node's code server, so readiness has to follow the plugin's\n"
+"supervision tree and the surviving core has to rebuild the partitions that\n"
+"changed hands.".
+t_core_with_a_stopped_plugin_hands_its_shards_over(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
+    ?assertEqual([N1, N2], lists:sort(erpc:call(N1, emqx_bcast, core_nodes, []))),
+    %% Stop the plugin the way the plugin framework does it: the supervision
+    %% tree goes down, the modules stay loaded.
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    ?assertEqual(undefined, erpc:call(N2, erlang, whereis, [emqx_bcast_sup])),
+    ?assert(
+        erpc:call(N2, erlang, function_exported, [
+            emqx_bcast_pull_server_pool, want_next_async, 4
+        ])
+    ),
+    %% A module probe would still call this node ready; it must leave shard
+    %% ownership and claim targeting instead.
+    ?assert(
+        wait_until(
+            fun() -> not erpc:call(N1, emqx_bcast, is_ready_core, [N2]) end,
+            100
+        )
+    ),
+    ?assertEqual([N1], erpc:call(N1, emqx_bcast, core_nodes, [])),
+    ?assertEqual([N2], erpc:call(N1, emqx_bcast, unready_core_nodes, [])),
+    Shards = lists:seq(0, erpc:call(N1, emqx_bcast_index_owner, shard_count, []) - 1),
+    Owners = [erpc:call(N1, emqx_bcast_index_owner, shard_owner, [S]) || S <- Shards],
+    ?assertEqual([N1], lists:usort(Owners)),
+    %% The partitions that changed hands are dormant on the surviving core
+    %% until a drive loads them: without that rebuild the survivor defers every
+    %% append and no claim can be served.
+    ?assert(wait_until(fun() -> all_partitions_active(N1, Shards) end, 200)),
+    %% End to end: a QoS=1 delivery to a device on the surviving core still
+    %% reaches the device and completes.
+    DN = <<"cl_dn_stopped_plugin">>,
+    C = connect(N1, DN),
+    sub(C, topic(DN)),
+    Subscribed = wait_until(fun() -> node_client_subscribed(N1, DN, topic(DN)) end, 50),
+    ?assert(Subscribed),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
+    Completed =
+        wait_until(
+            fun() ->
+                {ok, []} =:=
+                    erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [
+                        {<<"default">>, DN}
+                    ])
+            end,
+            100
+        ),
+    ?assert(Completed),
+    emqtt:stop(C).
+
+%% Every partition the cluster assigns to Node answers as serving.
+all_partitions_active(Node, Shards) ->
+    lists:all(
+        fun(Shard) ->
+            case
+                erpc:call(Node, emqx_bcast_index_owner, local_handle, [
+                    Shard, {shard_status}, 5000
+                ])
+            of
+                {true, _, _} -> true;
+                _ -> false
+            end
+        end,
+        Shards
+    ).

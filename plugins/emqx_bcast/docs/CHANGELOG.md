@@ -30,11 +30,34 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
   own `messages.sent` stopped, with
   `emqx_bcast_pull_server_pool:want_next_async undef` only in the new nodes'
   logs. Ownership and claim targeting now follow only cores that can serve a
-  claim (cached probe of the plugin module on the peer; the local node is
-  always kept and an inconclusive probe keeps the peer rather than reassigning
-  its shards), the claim dispatch checks the target before casting, and the new
+  claim (cached probe of the peer's plugin; the local node is always kept and an
+  inconclusive probe keeps the peer rather than reassigning its shards), the
+  claim dispatch checks the target before casting, and the new
   `bcast_cores_without_plugin` gauge plus the `bcast_core_without_plugin` error
   log report the state.
+- **A stopped plugin is no longer mistaken for a ready one.** `plugins stop`
+  (and an uninstall) stops the supervision tree but leaves the plugin's modules
+  loaded, so probing the code server kept answering "ready" for a node whose
+  shard processes were gone: appends to its shards were deferred forever and
+  every claim handed to it died, which froze `wanted`/`delivered` for as long
+  as it stayed stopped. The probe now asks for the plugin's supervision tree,
+  so the node is dropped from shard ownership and claim targeting until its
+  plugin runs again.
+- **The activation leader re-drives when the set of ready cores changes.** The
+  partitions that changed hands after a core joined or left are dormant on
+  their new owners until a drive loads them; the leader now notices the change
+  (and logs `bcast_index_ownership_changed`) instead of waiting for each
+  partition to ask for itself, so intake and claims resume on the surviving
+  cores without a plugin restart.
+- **A management delete still fails loudly on a core without the plugin.** The
+  delete-generation fan-out had been narrowed to the ready cores, which let a
+  delete answer 200 while a core whose plugin was not running could still
+  rebuild the deleted content. It covers every running core again, so an
+  unprepared node makes the delete answer the documented 500 instead of
+  silently skipping it.
+- **A batch keeps the publisher's order per device.** Grouping the entries of
+  one shard reversed them, so two publishes for the same device in one batch
+  could enter its queue newest-first and be delivered out of order.
 
 ## 0.4.2
 
