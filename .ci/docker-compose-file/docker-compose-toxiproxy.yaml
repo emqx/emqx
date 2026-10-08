@@ -47,6 +47,8 @@ services:
       - 19000:19000
       # S3 TLS
       - 19100:19100
+      # S3 for the Iceberg warehouse
+      - 19001:19001
       # IOTDB (3 total)
       - 14242:4242
       - 28080:18080

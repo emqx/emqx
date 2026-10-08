@@ -33,7 +33,7 @@
 %% -define(S3_HOST, <<"minio">>).
 %% -define(S3_PORT, 9000).
 -define(S3_HOST, <<"toxiproxy">>).
--define(S3_PORT, 19000).
+-define(S3_PORT, 19001).
 -define(PROXY_NAME, "iceberg_rest").
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).

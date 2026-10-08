@@ -223,6 +223,12 @@
     "enabled": true
   },
   {
+    "name": "iceberg_s3",
+    "listen": "0.0.0.0:19001",
+    "upstream": "minio:9000",
+    "enabled": true
+  },
+  {
     "name": "seaweedfs_tls",
     "listen": "0.0.0.0:19100",
     "upstream": "seaweedfs-tls:9100",
