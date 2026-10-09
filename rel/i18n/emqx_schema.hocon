@@ -677,8 +677,9 @@ fields_mqtt_opts_tcp_backend.desc:
 
 - `gen_tcp`: The default backend. Available on every system.
 
-- `socket`: Available on Unix/Linux only, with improved message latency and compute resource usage.
-    Its memory usage per connection is still being worked on, so it is not the default.
+- `socket`: Available on Unix/Linux only. It improves message latency and compute resource usage,
+    at the cost of higher memory use per connection. So far only tests that open connections without
+    message traffic have measured that cost; tests with message traffic have not.
     Some `tcp_options` have backend-specific behavior. For example, `high_watermark` is used by EMQX for send-queue congestion handling, while `send_timeout_close` has no effect with this backend.
 
 Changing the backend require restarting the listener, which will terminate all its active connections."""
