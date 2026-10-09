@@ -744,9 +744,9 @@ line_to_point(
         precision := {_, ToPrecision} = Precision
     } = Item
 ) ->
-    case config_to_data(Data, Tags) of
+    case config_to_data(Data, Tags, tag) of
         {ok, EncodedTags} ->
-            case config_to_data(Data, Fields) of
+            case config_to_data(Data, Fields, field) of
                 {ok, EncodedFields} ->
                     case convert_timestamp(Ts, Precision) of
                         {ok, Timestamp} ->
@@ -787,16 +787,16 @@ time_unit(ms) -> millisecond;
 time_unit(us) -> microsecond;
 time_unit(ns) -> nanosecond.
 
-config_to_data(Data, Config) ->
+config_to_data(Data, Config, Kind) ->
     maps:fold(
-        fun(K, V, Acc) -> maps_config_to_data(K, V, Data, Acc) end,
+        fun(K, V, Acc) -> maps_config_to_data(K, V, Data, Kind, Acc) end,
         {ok, #{}},
         Config
     ).
 
-maps_config_to_data(_K, _V, _Data, {error, _} = Error) ->
+maps_config_to_data(_K, _V, _Data, _Kind, {error, _} = Error) ->
     Error;
-maps_config_to_data(K, V, Data, {ok, Res}) ->
+maps_config_to_data(K, V, Data, Kind, {ok, Res}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
@@ -809,7 +809,7 @@ maps_config_to_data(K, V, Data, {ok, Res}) ->
             {ok, Res};
         _ ->
             NK = list_to_binary(NK0),
-            case value_type(NV) of
+            case value_type(NV, Kind) of
                 {ok, Value} ->
                     {ok, Res#{NK => Value}};
                 {error, _} = Error ->
@@ -868,6 +868,13 @@ value_type(Val0) ->
         error:badarg ->
             {error, {invalid_string_value, Val0}}
     end.
+
+%% Only an unsuffixed integer tag is rendered in decimal form; `i`/`u`-suffixed and
+%% boolean tags keep their types via value_type/1.
+value_type([Int], tag) when is_integer(Int) ->
+    {ok, greptimedb_values:string_value([integer_to_binary(Int)])};
+value_type(NV, _Kind) ->
+    value_type(NV).
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
