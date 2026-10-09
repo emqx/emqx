@@ -73,15 +73,30 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Detect docs-only change
         id: docs_only
+        env:
+          # docs-only=true when every changed file matches one of these patterns.
+          # A listed file must not be used by the package, image or deps-integrity builds.
+          # A listed script is either run only by jobs that still run, or run only by hand.
+          ALLOW: |
+            ^changes/
+            ^[^/]+\.md$
+            ^apps/[^/]+/[^/]+\.md$
+            ^apps/[^/]+/(docs?|test)/.+\.md$
+            ^scripts/rel-versions$
+            ^scripts/(check-api-scopes|check-changes-filename-pattern|check-format|check-nl-at-eof)\.sh$
+            ^scripts/(elvis-check|elvis-check1)\.sh$
+            ^scripts/(check-api-scope-coverage|check-unlisted-ct-cases|cover-to-cobertura)\.escript$
+            ^scripts/(generate-changelog\.sh|rerun-apps-version-check\.py)$
+            ^scripts/(bump-actions-versions|dev-cluster-host|gen-elp-build-info|gen-erlang-ls-config)\.sh$
+            ^scripts/(get-elixir-vsn|pr-sanity-checks|rerun-failed-checks|run-plugin-dev)\.sh$
+            ^scripts/(test-node-discovery-dns|update-bsl-license-convert-year|update-copyright-years)\.sh$
+            ^scripts/(sca-pkg\.sh|sca-hyg\.py)$
         run: |
-          # docs-only=true when every changed file matches this allow list.
-          # These files cannot change a package, an image or the dependency set.
-          ALLOW='^(changes/.+|[^/]+\.md|apps/[^/]+/([^/]+\.md|(docs?|test)/.+\.md)|scripts/rel-versions)$'
           DOCS_ONLY=false
           if [ "${GITHUB_EVENT_NAME}" = pull_request ] && git rev-parse --verify "${BEFORE_REF}^{commit}" >/dev/null 2>&1; then
             CHANGED="$(git diff --name-only "${BEFORE_REF}" "${AFTER_REF}")"
             echo "${CHANGED}"
-            if [ -n "${CHANGED}" ] && ! grep -qvE "${ALLOW}" <<< "${CHANGED}"; then
+            if [ -n "${CHANGED}" ] && ! grep -qvE -f <(grep -v '^$' <<< "${ALLOW}") <<< "${CHANGED}"; then
               DOCS_ONLY=true
             fi
           fi
