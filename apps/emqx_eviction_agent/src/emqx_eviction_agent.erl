@@ -353,6 +353,9 @@ do_evict_sessions(Nodes, ChannelStream) ->
         fun({ClientId, ChanPid, ConnInfo, ClientInfo}) ->
             case is_session_evictable(ClientId, ChanPid) of
                 true ->
+                    %% Sent before the takeover starts, so the channel clears its will
+                    %% message before it handles the takeover request.
+                    ChanPid ! evicting,
                     EvictResult = evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo),
                     case EvictResult of
                         {error, {badrpc, _Reason}} ->
@@ -412,6 +415,7 @@ evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo) ->
             client_info => ClientInfo
         }
     ),
+    %% An evicted session does not keep its will message, so none moves with it.
     EvictResult = emqx_eviction_agent_proto_v3:evict_session_channel(
         Node, ClientId, ConnInfo, ClientInfo, _WillMsg = undefined
     ),
@@ -484,6 +488,8 @@ do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
     Result.
 
 disconnect_channel(ChanPid, ServerReference) ->
+    %% Sent before the disconnect request, so the channel processes it first.
+    ChanPid ! evicting,
     ChanPid !
         {disconnect, ?RC_USE_ANOTHER_SERVER, use_another_server, #{
             'Server-Reference' => ServerReference

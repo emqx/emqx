@@ -160,6 +160,8 @@ handle_call(Req, _From, Channel) ->
 handle_info(Deliver = {deliver, _Topic, _Msg}, Channel) ->
     Delivers = [Deliver | emqx_utils:drain_deliver()],
     {noreply, handle_deliver(Delivers, Channel)};
+handle_info(evicting, Channel) ->
+    {noreply, Channel};
 handle_info(expire_session, Channel) ->
     {stop, expired, Channel};
 handle_info(Info, Channel) ->
