@@ -591,6 +591,10 @@ required_caps(t_jwt_account_expire_disconnect) ->
     [jwt_account_expiry];
 required_caps(t_jwt_permissions_intersection_with_acl) ->
     [jwt_auth, jwt_acl_intersection];
+required_caps(t_jwt_nats_publish_permissions) ->
+    [jwt_auth, jwt_acl_intersection];
+required_caps(t_jwt_nats_subscribe_permissions) ->
+    [jwt_auth, jwt_acl_intersection];
 required_caps(t_jwt_mqtt_reserved_permission_rejected) ->
     [jwt_auth, mqtt_subject_translation];
 required_caps(t_jwt_mqtt_ambiguous_delivery_dropped) ->
@@ -2511,6 +2515,134 @@ t_jwt_permissions_intersection_with_acl(Config) ->
     ok = emqx_nats_client:subscribe(Client, <<"bar.topic">>, <<"sid-allow">>),
     recv_ok_frame(Client),
     emqx_nats_client:stop(Client).
+
+t_jwt_nats_publish_permissions(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_nats_publish_permissions('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_nats_publish_permissions(Config) ->
+    ok = allow_pubsub_all(),
+    Observer = nats_permission_client(Config, [<<">">>], []),
+    try
+        lists:foreach(
+            fun({Allow, Deny, Allowed, Denied}) ->
+                Client = nats_permission_client(Config, Allow, Deny),
+                try
+                    ok = emqx_nats_client:subscribe(Observer, Allowed, <<"observer">>),
+                    recv_permission_ok(Observer),
+                    ok = emqx_nats_client:publish(Client, Allowed, <<"allowed">>),
+                    recv_permission_ok(Client),
+                    Message = recv_non_ping_frame(Observer),
+                    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+                    ?assertEqual(Allowed, emqx_nats_frame:subject(Message)),
+                    ?assertEqual(<<"allowed">>, emqx_nats_frame:payload(Message)),
+                    ok = emqx_nats_client:unsubscribe(Observer, <<"observer">>),
+                    recv_permission_ok(Observer),
+                    ok = emqx_nats_client:subscribe(Observer, Denied, <<"observer">>),
+                    recv_permission_ok(Observer),
+                    ok = emqx_nats_client:publish(Client, Denied, <<"denied">>),
+                    assert_permissions_violation(recv_non_ping_frame(Client), publish, Denied),
+                    assert_no_message(Observer, Denied, 200),
+                    ok = emqx_nats_client:unsubscribe(Observer, <<"observer">>),
+                    recv_permission_ok(Observer)
+                after
+                    emqx_nats_client:stop(Client)
+                end
+            end,
+            [
+                {
+                    [<<"$private.>">>],
+                    [<<"*.secret">>],
+                    <<"$private.public">>,
+                    <<"$private.secret">>
+                },
+                {[], [<<"*.secret">>], <<"$private.public">>, <<"$private.secret">>},
+                {[<<">">>], [<<"$private.>">>], <<"$private">>, <<"$private.secret">>},
+                {[<<"*.public">>], [], <<"$private.public">>, <<"$private.public.extra">>}
+            ]
+        )
+    after
+        emqx_nats_client:stop(Observer)
+    end.
+
+t_jwt_nats_subscribe_permissions(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_nats_subscribe_permissions('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_nats_subscribe_permissions(Config) ->
+    ok = allow_pubsub_all(),
+    Publisher = nats_permission_client(Config, [<<">">>], []),
+    try
+        lists:foreach(
+            fun({Allow, Deny, Allowed, DeniedFilters}) ->
+                Client = nats_permission_client(Config, Allow, Deny),
+                try
+                    ok = emqx_nats_client:subscribe(Client, Allowed, <<"allowed">>),
+                    recv_permission_ok(Client),
+                    ok = emqx_nats_client:publish(Publisher, Allowed, <<"allowed">>),
+                    recv_permission_ok(Publisher),
+                    Message = recv_non_ping_frame(Client),
+                    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+                    ?assertEqual(Allowed, emqx_nats_frame:subject(Message)),
+                    ?assertEqual(<<"allowed">>, emqx_nats_frame:payload(Message)),
+                    ok = emqx_nats_client:unsubscribe(Client, <<"allowed">>),
+                    recv_permission_ok(Client),
+                    lists:foreach(
+                        fun(Filter) ->
+                            ok = emqx_nats_client:subscribe(Client, Filter, <<"denied">>),
+                            assert_permissions_violation(
+                                recv_non_ping_frame(Client), subscribe, Filter
+                            )
+                        end,
+                        DeniedFilters
+                    ),
+                    ok = emqx_nats_client:publish(Publisher, <<"$private.secret">>, <<"denied">>),
+                    recv_permission_ok(Publisher),
+                    assert_no_message(Client, <<"$private.secret">>, 200)
+                after
+                    emqx_nats_client:stop(Client)
+                end
+            end,
+            [
+                {[<<"$private.>">>], [<<"*.secret">>], <<"$private.public">>, [
+                    <<"$private.secret">>, <<"$private.*">>, <<"$private.>">>, <<">">>
+                ]},
+                {[], [<<"*.secret">>], <<"$private.public">>, [
+                    <<"$private.secret">>, <<"$private.*">>, <<"$private.>">>
+                ]},
+                {[<<">">>], [<<"$private.>">>], <<"$private">>, [
+                    <<"$private.secret">>, <<"$private.*">>, <<"*.secret">>, <<">">>
+                ]},
+                {[<<"*.public">>], [], <<"$private.public">>, [
+                    <<"$private.*">>, <<"$private.>">>, <<"$private.public.extra">>
+                ]}
+            ]
+        )
+    after
+        emqx_nats_client:stop(Publisher)
+    end.
+
+nats_permission_client(Config, Allow, Deny) ->
+    Permission = #{<<"allow">> => Allow, <<"deny">> => Deny},
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"pub">> => Permission,
+            <<"sub">> => Permission,
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_permission_ok(Client),
+    Client.
+
+recv_permission_ok(Client) ->
+    ?assertEqual(?OP_OK, emqx_nats_frame:type(recv_non_ping_frame(Client))).
 
 t_jwt_mqtt_reserved_permission_rejected(init, Config) ->
     jwt_auth_setup(Config);
