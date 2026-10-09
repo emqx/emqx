@@ -551,8 +551,8 @@ do_handle_server_block1(Num, More, Size, Msg, PeerKey, State) ->
             handle_first_server_block1(More, Size, Msg, Key, ServerMap, State);
         {_Num, undefined} ->
             {error, error_reply({error, request_entity_incomplete}, Msg), State};
-        {_Num, Tx = #{next_num := Expected, size := TxSize, payload := Acc}} ->
-            handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, Acc, State)
+        {_Num, Tx = #{next_num := Expected, size := TxSize}} ->
+            handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, State)
     end.
 
 handle_first_server_block1(More, Size, Msg, Key, ServerMap, State) ->
@@ -570,7 +570,8 @@ handle_first_server_block1(More, Size, Msg, Key, ServerMap, State) ->
             }};
         false ->
             Tx = #{
-                payload => Payload,
+                chunks => [Payload],
+                total_size => Total,
                 next_num => 1,
                 size => Size,
                 expires_at => expires_at(State)
@@ -585,7 +586,7 @@ handle_first_server_block1(More, Size, Msg, Key, ServerMap, State) ->
             end
     end.
 
-handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, Acc, State) ->
+handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, State) ->
     ServerMap = maps:get(server_rx_block1, State),
     case Num =:= Expected andalso Size =:= TxSize of
         false ->
@@ -593,21 +594,23 @@ handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, Acc, 
                 server_rx_block1 => maps:remove(Key, ServerMap)
             }};
         true ->
-            Payload = Msg#coap_message.payload,
-            NewPayload = <<Acc/binary, Payload/binary>>,
-            append_server_block1(Num, More, Size, Msg, Key, Tx, NewPayload, State)
+            append_server_block1(Num, More, Size, Msg, Key, Tx, State)
     end.
 
-append_server_block1(Num, More, Size, Msg, Key, Tx, NewPayload, State) ->
+append_server_block1(Num, More, Size, Msg, Key, Tx, State) ->
+    #{chunks := Chunks, total_size := TotalSize} = Tx,
+    Payload = Msg#coap_message.payload,
+    NewTotal = TotalSize + byte_size(Payload),
     ServerMap = maps:get(server_rx_block1, State),
-    case byte_size(NewPayload) > max_body_size(State) of
+    case NewTotal > max_body_size(State) of
         true ->
             {error, too_large_block1_reply(Msg, State), State#{
                 server_rx_block1 => maps:remove(Key, ServerMap)
             }};
         false ->
             Tx2 = Tx#{
-                payload => NewPayload,
+                chunks => [Payload | Chunks],
+                total_size => NewTotal,
                 next_num => Num + 1,
                 expires_at => expires_at(State)
             },
@@ -615,6 +618,7 @@ append_server_block1(Num, More, Size, Msg, Key, Tx, NewPayload, State) ->
                 {ok, State1} when More ->
                     {continue, continue_reply(Msg, Num, Size), State1};
                 {ok, State1} ->
+                    NewPayload = iolist_to_binary(lists:reverse([Payload | Chunks])),
                     Full = clear_block1(Msg#coap_message{payload = NewPayload}),
                     {complete, Full, State1#{
                         server_rx_block1 => maps:remove(
@@ -1049,8 +1053,13 @@ resource_usage(State) ->
     ServerTx = maps:get(server_tx_block2, State),
     ClientContexts = client_contexts(State),
     ExchangeCount = map_size(ServerRx) + map_size(ServerTx) + length(ClientContexts),
+    ServerRxSize = maps:fold(
+        fun(_Key, #{total_size := Size}, Acc) -> Acc + Size end,
+        0,
+        ServerRx
+    ),
     TotalSize =
-        map_payload_size(ServerRx, payload) +
+        ServerRxSize +
             map_payload_size(ServerTx, payload) +
             lists:sum([client_context_size(Ctx, State) || Ctx <- ClientContexts]),
     {ExchangeCount, TotalSize}.

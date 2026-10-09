@@ -219,9 +219,15 @@ t_blockwise_session_limits_unauthenticated_uplink(_) ->
     end).
 
 t_blockwise_final_block_respects_session_total_size(_) ->
+    assert_blockwise_final_block_limit(<<"max_total_size">>).
+
+t_blockwise_final_block_respects_body_size(_) ->
+    assert_blockwise_final_block_limit(<<"max_body_size">>).
+
+assert_blockwise_final_block_limit(Limit) ->
     with_connection_required(false, fun() ->
         with_blockwise_opts(
-            #{<<"max_block_size">> => 16, <<"max_total_size">> => <<"64B">>},
+            #{<<"max_block_size">> => 16, Limit => <<"64B">>},
             fun() ->
                 {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
                 try
@@ -249,6 +255,59 @@ t_blockwise_final_block_respects_session_total_size(_) ->
             end
         )
     end).
+
+t_blockwise_upload_reassembly(_) ->
+    with_blockwise_opts(
+        #{
+            <<"max_block_size">> => 16,
+            <<"max_concurrent_exchanges">> => 1,
+            <<"max_total_size">> => <<"40B">>,
+            <<"max_body_size">> => <<"40B">>
+        },
+        fun() ->
+            with_connection(fun(Channel, Token) ->
+                Topic = <<"coap/blockwise_upload_reassembly">>,
+                URI = pubsub_uri(binary_to_list(Topic), Token),
+                emqx:subscribe(Topic),
+                try
+                    %% Repeat with the same token to verify completed uploads release their capacity.
+                    lists:foreach(
+                        fun({First, Second, Last}) ->
+                            Upload = block1_start_request(First, <<"upload">>),
+                            ?assertMatch(
+                                {ok, continue, _}, do_message_request(Channel, URI, Upload)
+                            ),
+                            Middle = Upload#coap_message{
+                                payload = Second, options = [{block1, {1, true, 16}}]
+                            },
+                            ?assertMatch(
+                                {ok, continue, _}, do_message_request(Channel, URI, Middle)
+                            ),
+                            ?assertEqual({error, timeout}, receive_deliver(100)),
+                            Final = Upload#coap_message{
+                                payload = Last, options = [{block1, {2, false, 16}}]
+                            },
+                            ?assertMatch(
+                                {ok, changed, _}, do_message_request(Channel, URI, Final)
+                            ),
+                            ExpectedPayload = <<First/binary, Second/binary, Last/binary>>,
+                            ?assertMatch(
+                                #message{topic = Topic, payload = ExpectedPayload},
+                                receive_deliver(1000)
+                            )
+                        end,
+                        [
+                            {binary:copy(<<"A">>, 16), binary:copy(<<"B">>, 16), <<"12345678">>},
+                            {binary:copy(<<"C">>, 16), binary:copy(<<"D">>, 16), <<"87654321">>}
+                        ]
+                    )
+                after
+                    emqx:unsubscribe(Topic)
+                end,
+                true
+            end)
+        end
+    ).
 
 raw_block1_reply(Sock, Req0, Id) ->
     raw_block1_reply(Sock, Req0, Id, {0, true, 16}).
