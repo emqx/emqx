@@ -50,6 +50,7 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
+      docs-only: ${{ steps.docs_only.outputs.docs-only }}
     env:
       BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
       AFTER_REF: ${{ github.sha }}
@@ -70,6 +71,36 @@ jobs:
           fetch-depth: 0
       - name: Work around https://github.com/actions/checkout/issues/766
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Detect docs-only change
+        id: docs_only
+        env:
+          # docs-only=true when every changed file matches one of these patterns.
+          # A listed file must not be used by the package, image or deps-integrity builds.
+          # A listed script is either run only by jobs that still run, or run only by hand.
+          ALLOW: |
+            ^changes/
+            ^[^/]+\.md$
+            ^apps/[^/]+/[^/]+\.md$
+            ^apps/[^/]+/(docs?|test)/.+\.md$
+            ^scripts/rel-versions$
+            ^scripts/(check-api-scopes|check-changes-filename-pattern|check-format|check-nl-at-eof)\.sh$
+            ^scripts/(elvis-check|elvis-check1)\.sh$
+            ^scripts/(check-api-scope-coverage|check-unlisted-ct-cases|cover-to-cobertura)\.escript$
+            ^scripts/(generate-changelog\.sh|rerun-apps-version-check\.py)$
+            ^scripts/(bump-actions-versions|dev-cluster-host|gen-elp-build-info|gen-erlang-ls-config)\.sh$
+            ^scripts/(get-elixir-vsn|pr-sanity-checks|rerun-failed-checks|run-plugin-dev)\.sh$
+            ^scripts/(test-node-discovery-dns|update-bsl-license-convert-year|update-copyright-years)\.sh$
+            ^scripts/(sca-pkg\.sh|sca-hyg\.py)$
+        run: |
+          DOCS_ONLY=false
+          if [ "${GITHUB_EVENT_NAME}" = pull_request ] && git rev-parse --verify "${BEFORE_REF}^{commit}" >/dev/null 2>&1; then
+            CHANGED="$(git diff --name-only "${BEFORE_REF}" "${AFTER_REF}")"
+            echo "${CHANGED}"
+            if [ -n "${CHANGED}" ] && ! grep -qvE -f <(grep -v '^$' <<< "${ALLOW}") <<< "${CHANGED}"; then
+              DOCS_ONLY=true
+            fi
+          fi
+          echo "docs-only=${DOCS_ONLY}" | tee -a "$GITHUB_OUTPUT"
       - name: Run gitlint
         run: gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
       - name: Check changelog file name pattern
@@ -181,12 +212,14 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
 
   build_slim_packages:
+    if: needs.sanity-checks.outputs.docs-only != 'true'
     needs:
       - sanity-checks
     uses: ./.github/workflows/build_slim_packages.yaml
 
   # One call per architecture, so the image tests wait for the amd64 build only.
   build_docker_amd64:
+    if: needs.sanity-checks.outputs.docs-only != 'true'
     needs:
       - init
       - sanity-checks
@@ -198,6 +231,7 @@ jobs:
     secrets: inherit
 
   build_docker_arm64:
+    if: needs.sanity-checks.outputs.docs-only != 'true'
     needs:
       - init
       - sanity-checks
@@ -224,6 +258,7 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
 
   check_deps_integrity:
+    if: needs.sanity-checks.outputs.docs-only != 'true'
     needs:
       - init
       - sanity-checks
