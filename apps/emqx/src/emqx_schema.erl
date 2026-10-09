@@ -4209,7 +4209,7 @@ mqtt_general() ->
             sc(
                 hoconsc:union([infinity, timeout_duration_ms()]),
                 #{
-                    default => <<"infinity">>,
+                    default => <<"10ms">>,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(mqtt_minor_gc_after)
                 }
