@@ -148,26 +148,20 @@ on_query(InstanceId, {ChannelId, Message}, #{channels := Channels}) ->
 on_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_query, Query}}}.
 
-on_batch_query(InstanceId, [{_ChannelId, _Message} | _] = Batch, State) ->
-    [{ChannelId, _} | _] = Batch,
+on_batch_query(InstanceId, [{ChannelId, _Message} | _] = Batch, State) ->
     case maps:find(ChannelId, maps:get(channels, State)) of
         {ok, Channel} ->
-            case lists:all(fun({ChannelId0, _}) -> ChannelId0 =:= ChannelId end, Batch) of
-                true ->
-                    RawResult = ecpool:pick_and_do(
-                        InstanceId, {?MODULE, publish_batch, [Channel, Batch]}, no_handover
-                    ),
-                    Result = classify_result(RawResult),
-                    ?tp(nats_connector_query_return, #{
-                        instance_id => InstanceId,
-                        batch => true,
-                        batch_size => length(Batch),
-                        result => Result
-                    }),
-                    Result;
-                false ->
-                    {error, {unrecoverable_error, mixed_channels_in_batch}}
-            end;
+            RawResult = ecpool:pick_and_do(
+                InstanceId, {?MODULE, publish_batch, [Channel, Batch]}, no_handover
+            ),
+            Result = classify_result(RawResult),
+            ?tp(nats_connector_query_return, #{
+                instance_id => InstanceId,
+                batch => true,
+                batch_size => length(Batch),
+                result => Result
+            }),
+            Result;
         error ->
             {error, {unrecoverable_error, {invalid_channel, ChannelId}}}
     end;
@@ -237,11 +231,22 @@ retry_core_batch_without_invalid(
     publish_core_batch(Client, Channel, Valid1, Results1).
 
 publish_jetstream_batch(Client, Channel, Batch) ->
-    case publish_batch_messages(Client, Channel, Batch, []) of
-        {recoverable, Reason} ->
-            {error, Reason};
-        {ok, Results} ->
-            Results
+    publish_jetstream_batch(Client, Channel, Batch, []).
+
+publish_jetstream_batch(_Client, _Channel, [], Acc) ->
+    lists:reverse(Acc);
+publish_jetstream_batch(Client, Channel, [{_ChannelId, Message} | Rest], Acc) ->
+    Result = normalize_batch_result(publish_message(Client, Channel, Message, false)),
+    case Result of
+        ok ->
+            publish_jetstream_batch(Client, Channel, Rest, [ok | Acc]);
+        {error, _} ->
+            case classify_result(Result) of
+                {error, {recoverable_error, _}} = Error ->
+                    Error;
+                {error, {unrecoverable_error, _}} = Error ->
+                    publish_jetstream_batch(Client, Channel, Rest, [Error | Acc])
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -278,22 +283,6 @@ request_deadline(Timeout) -> erlang:monotonic_time(millisecond) + Timeout.
 
 remaining_timeout(infinity) -> infinity;
 remaining_timeout(Deadline) -> max(Deadline - erlang:monotonic_time(millisecond), 0).
-
-publish_batch_messages(_Client, _Channel, [], Acc) ->
-    {ok, lists:reverse(Acc)};
-publish_batch_messages(Client, Channel, [{_ChannelId, Message} | Rest], Acc) ->
-    Result = normalize_batch_result(publish_message(Client, Channel, Message, false)),
-    case Result of
-        ok ->
-            publish_batch_messages(Client, Channel, Rest, [ok | Acc]);
-        {error, Reason} ->
-            case classify_result(Result) of
-                {error, {recoverable_error, _}} ->
-                    {recoverable, Reason};
-                {error, {unrecoverable_error, _}} ->
-                    publish_batch_messages(Client, Channel, Rest, [Result | Acc])
-            end
-    end.
 
 normalize_batch_result(ok) ->
     ok;
@@ -423,6 +412,10 @@ classify_result(ok) ->
     ok;
 classify_result(Results) when is_list(Results) ->
     [classify_result(Result) || Result <- Results];
+classify_result({error, {Kind, _}} = Error) when
+    Kind =:= recoverable_error; Kind =:= unrecoverable_error
+->
+    Error;
 classify_result({error, ecpool_empty}) ->
     {error, {recoverable_error, ecpool_empty}};
 %% ecpool 0.7.0 pick_and_do/3 propagates ecpool_worker:client/1 errors.

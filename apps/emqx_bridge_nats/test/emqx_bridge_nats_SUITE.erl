@@ -19,6 +19,10 @@
 -define(NATS_HOST, "nats-bridge-js").
 -define(NATS_PORT, 4222).
 -define(NATS_CA_CERT, "/emqx/.ci/docker-compose-file/certs/cacert.pem").
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(RECONNECT_PROXY, "nats_bridge_reconnect").
+-define(JETSTREAM_PROXY, "nats_bridge_js").
 
 all() -> [{group, local}, {group, cluster}].
 
@@ -68,6 +72,7 @@ end_per_group(cluster, Config) ->
     emqx_cth_cluster:stop(?config(cluster_nodes, Config)).
 
 init_per_testcase(TestCase, Config) ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
     case ?config(cluster_nodes, Config) of
         undefined ->
             on_exit(fun emqx_bridge_v2_testlib:delete_all_bridges_and_connectors/0);
@@ -125,6 +130,7 @@ init_per_testcase(TestCase, Config) ->
     ].
 
 end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
     emqx_common_test_helpers:call_janitor(),
     emqx_bridge_v2_testlib:clear_auth_header_getter(),
     lists:foreach(
@@ -200,26 +206,7 @@ t_core_concurrent_publish(Config) ->
     {ok, _} = create_rule(Config, <<"nats/concurrent">>),
     Publisher = mqtt_client(),
     Payloads = [integer_to_binary(N) || N <- lists:seq(1, 32)],
-    Parent = self(),
-    _ = [
-        spawn(fun() ->
-            Result = emqtt:publish(Publisher, <<"nats/concurrent">>, Payload, [{qos, 1}]),
-            Parent ! {sent, Payload, Result}
-        end)
-     || Payload <- Payloads
-    ],
-    Results = [
-        receive
-            {sent, Payload, Result} -> {Payload, Result}
-        after 10000 ->
-            ct:fail(concurrent_send_timeout)
-        end
-     || _ <- Payloads
-    ],
-    ?assertEqual(
-        [],
-        [{Payload, Result} || {Payload, Result} <- Results, not is_mqtt_publish_success(Result)]
-    ),
+    publish_mqtt_concurrently(Publisher, <<"nats/concurrent">>, Payloads),
     ?assertEqual(lists:sort(Payloads), lists:sort(receive_payloads(length(Payloads), []))),
     ok = enats_client:stop(Client).
 
@@ -270,19 +257,22 @@ t_core_batch_callback_mode(Config) ->
     end.
 
 t_invalid_connector_config(Config) ->
-    {ok, 400, Body} = create_connector_silent(
+    {400, Response} = create_connector(
         Config,
         #{<<"authentication">> => #{<<"mechanism">> => <<"unsupported">>}}
     ),
-    ?assertNotEqual(nomatch, binary:match(Body, <<"authentication">>)).
+    ?assertMatch(
+        #{<<"message">> := #{<<"field_name">> := <<"mechanism">>}},
+        Response
+    ).
 
 t_invalid_authentication_is_redacted(Config) ->
     Secret = <<"nats-authentication-must-not-leak">>,
-    {ok, 400, Body} = create_connector_silent(
+    {400, Response} = create_connector(
         Config,
         #{<<"authentication">> => #{<<"password">> => Secret}}
     ),
-    ?assertEqual(nomatch, binary:match(Body, Secret)).
+    ?assertEqual(nomatch, binary:match(emqx_utils_json:encode(Response), Secret)).
 
 t_core_batch_template_failure(Config) ->
     {201, _} = create_connector(Config),
@@ -371,29 +361,33 @@ t_jetstream_batch_puback_timeout(Config) ->
     }),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
     Publisher = mqtt_client(),
-    ok = nats_proxy_toxic(post),
     ok = snabbkaffe:start_trace(),
     try
-        publish_mqtt_concurrently(Publisher, <<"sensor/1/data">>, [<<"one">>, <<"two">>]),
-        {ok, _} = ?block_until(
-            #{
-                ?snk_kind := nats_connector_query_return,
-                batch := true,
-                batch_size := 2,
-                result := {error, {recoverable_error, #{reason := timeout}}}
-            },
-            10000
-        ),
-        {ok, Count} = stream_last_sequence(Client),
-        ?assert(Count >= 1)
+        emqx_common_test_helpers:with_failure(
+            timeout_downstream,
+            ?JETSTREAM_PROXY,
+            ?PROXY_HOST,
+            ?PROXY_PORT,
+            fun() ->
+                publish_mqtt_concurrently(Publisher, <<"sensor/1/data">>, [<<"one">>, <<"two">>]),
+                {ok, _} = ?block_until(
+                    #{
+                        ?snk_kind := nats_connector_query_return,
+                        batch := true,
+                        batch_size := 2,
+                        result := {error, {recoverable_error, #{reason := timeout}}}
+                    },
+                    10000
+                ),
+                {ok, Count} = stream_last_sequence(Client),
+                ?assert(Count >= 1)
+            end
+        )
     after
-        ok = nats_proxy_toxic(delete),
         snabbkaffe:stop()
     end.
 
 t_pool_reconnect_error_preserved(Config) ->
-    ok = set_nats_proxy_enabled(true),
-    on_exit(fun() -> set_nats_proxy_enabled(true) end),
     {ok, Subscriber} = nats_client_on_host("nats-noauth", 4222),
     on_exit(fun() -> enats_client:stop(Subscriber) end),
     {ok, _} = enats_client:subscribe(Subscriber, <<"emqx.events">>, #{}),
@@ -407,6 +401,7 @@ t_pool_reconnect_error_preserved(Config) ->
             <<"query_mode">> => <<"async">>,
             <<"batch_size">> => 1,
             <<"batch_time">> => <<"0ms">>,
+            <<"resume_interval">> => <<"1s">>,
             <<"request_ttl">> => <<"15s">>
         }
     }),
@@ -415,7 +410,7 @@ t_pool_reconnect_error_preserved(Config) ->
     ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
     [{_, Worker}] = ecpool:workers(ResourceId),
     Client = pool_client(ResourceId),
-    ok = set_nats_proxy_enabled(false),
+    emqx_common_test_helpers:enable_failure(down, ?RECONNECT_PROXY, ?PROXY_HOST, ?PROXY_PORT),
     exit(Client, kill),
     ?retry(
         10,
@@ -461,30 +456,15 @@ t_pool_reconnect_error_preserved(Config) ->
             },
             7000
         ),
-        ok = set_nats_proxy_enabled(true),
+        emqx_common_test_helpers:heal_failure(down, ?RECONNECT_PROXY, ?PROXY_HOST, ?PROXY_PORT),
         ?assertEqual(
             [<<"client-killed">>, <<"pool-recovered">>],
             lists:sort(receive_payloads(2, []))
         )
     after
-        ok = set_nats_proxy_enabled(true),
+        emqx_common_test_helpers:heal_failure(down, ?RECONNECT_PROXY, ?PROXY_HOST, ?PROXY_PORT),
         snabbkaffe:stop()
     end.
-
-nats_proxy_toxic(post) ->
-    URL = "http://toxiproxy:8474/proxies/nats_bridge_js/toxics",
-    Body = emqx_utils_json:encode(#{
-        name => <<"drop_puback">>,
-        type => <<"timeout">>,
-        stream => <<"downstream">>,
-        attributes => #{timeout => 0}
-    }),
-    {ok, {{_, 200, _}, _, _}} = httpc:request(post, {URL, [], "application/json", Body}, [], []),
-    ok;
-nats_proxy_toxic(delete) ->
-    URL = "http://toxiproxy:8474/proxies/nats_bridge_js/toxics/drop_puback",
-    {ok, {{_, 204, _}, _, _}} = httpc:request(delete, {URL, []}, [], []),
-    ok.
 
 t_core_batch_partial_failure(Config) ->
     {ok, Client} = nats_client(Config),
@@ -567,8 +547,7 @@ t_jetstream_publish(Config) ->
     Publisher = mqtt_client(),
     publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-js">>),
     publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-js">>),
-    ok = wait_until(fun() -> stream_last_sequence(Client) =:= {ok, InitialCount + 1} end, 5000),
-    ?assertEqual({ok, InitialCount + 1}, stream_last_sequence(Client)),
+    ?retry(50, 100, ?assertEqual({ok, InitialCount + 1}, stream_last_sequence(Client))),
     ok = enats_client:stop(Client).
 
 t_jetstream_batch_publish_all(Config) ->
@@ -602,7 +581,7 @@ t_jetstream_batch_publish_all(Config) ->
             <<"sensor/1/data">>,
             [<<"js-batch-1">>, <<"js-batch-2">>, <<"js-batch-3">>]
         ),
-        ok = wait_until(fun() -> stream_last_sequence(Client) =:= {ok, InitialCount + 3} end, 5000),
+        ?retry(50, 100, ?assertEqual({ok, InitialCount + 3}, stream_last_sequence(Client))),
         ?assertEqual(
             lists:sort([<<"js-batch-1">>, <<"js-batch-2">>, <<"js-batch-3">>]),
             lists:sort(receive_payloads(3, []))
@@ -626,7 +605,7 @@ t_jetstream_batch_publish_all(Config) ->
 t_jetstream_no_responders(Config) ->
     wait_for_port("nats-noauth", 4222),
     ConnectorOverrides = #{<<"servers">> => <<"nats-noauth:4222">>},
-    {ok, 201, _} = create_connector_silent(Config, ConnectorOverrides),
+    {201, _} = create_connector(Config, ConnectorOverrides),
     {201, _} = create_action(
         Config,
         #{
@@ -709,8 +688,6 @@ t_publish_error_preserves_classification(Config) ->
     end.
 
 t_reconnect(Config) ->
-    ok = set_nats_proxy_enabled(true),
-    on_exit(fun() -> set_nats_proxy_enabled(true) end),
     {ok, Client} = nats_client_on_host("toxiproxy", 14222),
     on_exit(fun() -> enats_client:stop(Client) end),
     {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
@@ -718,7 +695,7 @@ t_reconnect(Config) ->
     {201, _} = create_action(Config),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
     Publisher = mqtt_client(),
-    ok = set_nats_proxy_enabled(false),
+    emqx_common_test_helpers:enable_failure(down, ?RECONNECT_PROXY, ?PROXY_HOST, ?PROXY_PORT),
     receive
         {enats_client, Client, disconnected, _Reason} -> ok
     after 2000 -> ct:fail(nats_disconnect_not_observed)
@@ -726,7 +703,7 @@ t_reconnect(Config) ->
     Parent = self(),
     Reenable = spawn(fun() ->
         timer:sleep(200),
-        ok = set_nats_proxy_enabled(true),
+        emqx_common_test_helpers:heal_failure(down, ?RECONNECT_PROXY, ?PROXY_HOST, ?PROXY_PORT),
         Parent ! nats_proxy_reenabled
     end),
     publish_mqtt(Publisher, <<"sensor/1/data">>, <<"hello-during-outage">>),
@@ -1035,9 +1012,10 @@ auth_publish_case(
         },
         ConnectorOverrides0
     ),
-    {ok, 201, ConnectorBody} = create_connector_silent(Config, ConnectorOverrides),
-    #{<<"status">> := <<"connected">>} = emqx_utils_json:decode(ConnectorBody),
-    ok = AfterConnector(ConnectorBody),
+    {201, #{<<"status">> := <<"connected">>} = Connector} = create_connector(
+        Config, ConnectorOverrides
+    ),
+    ok = AfterConnector(emqx_utils_json:encode(Connector)),
     {201, _} = create_action(Config),
     {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
@@ -1111,28 +1089,6 @@ cluster_credentials_publish(Node, Subscriber) ->
         emqtt:stop(Publisher)
     end.
 
-create_connector_silent(Config, Overrides) ->
-    ConnectorConfig0 = proplists:get_value(connector_config, Config),
-    ConnectorConfig = emqx_utils_maps:deep_merge(ConnectorConfig0, Overrides),
-    Params = ConnectorConfig#{
-        <<"type">> => ?CONNECTOR_TYPE_BIN,
-        <<"name">> => proplists:get_value(connector_name, Config)
-    },
-    Path = emqx_mgmt_api_test_util:api_path(["connectors"]),
-    Body = emqx_utils_json:encode(Params),
-    Headers = [
-        {"authorization", "Basic ZGVmYXVsdF9hcHBfa2V5OmRlZmF1bHRfYXBwX3NlY3JldA=="},
-        {"content-type", "application/json"}
-    ],
-    case
-        httpc:request(post, {Path, Headers, "application/json", Body}, [], [{body_format, binary}])
-    of
-        {ok, {{_, Code, _}, _ResponseHeaders, ResponseBody}} ->
-            {ok, Code, ResponseBody};
-        Error ->
-            Error
-    end.
-
 create_connector(Config) ->
     create_connector(Config, #{}).
 
@@ -1172,21 +1128,20 @@ publish_mqtt_concurrently(Client, Topic, Payloads) ->
     publish_mqtt_concurrently(Client, [{Topic, Payload} || Payload <- Payloads]).
 
 publish_mqtt_concurrently(Client, Messages) ->
-    Parent = self(),
-    _ = [
-        spawn(fun() ->
-            Parent ! {mqtt_publish_result, emqtt:publish(Client, Topic, Payload, [{qos, 1}])}
-        end)
-     || {Topic, Payload} <- Messages
-    ],
-    [
-        receive
-            {mqtt_publish_result, {ok, _}} -> ok
-        after 5_000 ->
-            ct:fail(mqtt_publish_timeout)
-        end
-     || _ <- Messages
-    ],
+    Results = emqx_utils:pmap(
+        fun({Topic, Payload}) ->
+            {Topic, Payload, emqtt:publish(Client, Topic, Payload, [{qos, 1}])}
+        end,
+        Messages,
+        10_000
+    ),
+    ?assertEqual(
+        [],
+        [
+            {Topic, Payload, Result}
+         || {Topic, Payload, Result} <- Results, not is_mqtt_publish_success(Result)
+        ]
+    ),
     ok.
 
 is_mqtt_publish_success({ok, _PacketId}) ->
@@ -1255,8 +1210,7 @@ stream_last_sequence(Client) ->
 receive_message() -> receive_message(2000).
 receive_message(Timeout) ->
     receive
-        {enats_client, Client, {message, _} = Message} -> {enats_client, Client, Message};
-        _Other -> receive_message(Timeout)
+        {enats_client, Client, {message, _} = Message} -> {enats_client, Client, Message}
     after Timeout -> ct:fail(nats_message_timeout)
     end.
 
@@ -1332,14 +1286,6 @@ nats_jwt_private_key() ->
     <<153, 4, 163, 231, 183, 138, 62, 8, 137, 201, 217, 217, 31, 222, 119, 53, 165, 160, 35, 110,
         172, 49, 225, 23, 186, 170, 182, 203, 170, 119, 70, 83>>.
 
-set_nats_proxy_enabled(Enabled) ->
-    URL = "http://toxiproxy:8474/proxies/nats_bridge_reconnect",
-    Body = emqx_utils_json:encode(#{enabled => Enabled}),
-    {ok, {{_, 200, _}, _, _}} = httpc:request(
-        post, {URL, [], "application/json", Body}, [], []
-    ),
-    ok.
-
 wait_for_port(Host, Port) ->
     wait_for_port(Host, Port, 100).
 
@@ -1353,15 +1299,4 @@ wait_for_port(Host, Port, Attempts) ->
         {error, _} ->
             timer:sleep(50),
             wait_for_port(Host, Port, Attempts - 1)
-    end.
-
-wait_until(_Pred, Timeout) when Timeout =< 0 ->
-    ct:fail(wait_until_timeout);
-wait_until(Pred, Timeout) ->
-    case catch Pred() of
-        true ->
-            ok;
-        _ ->
-            timer:sleep(50),
-            wait_until(Pred, Timeout - 50)
     end.

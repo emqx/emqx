@@ -920,14 +920,16 @@ with_failure(FailureType, Name, ProxyHost, ProxyPort, Fun) ->
 enable_failure(FailureType, Name, ProxyHost, ProxyPort) ->
     case FailureType of
         down -> switch_proxy(off, Name, ProxyHost, ProxyPort);
-        timeout -> timeout_proxy(on, Name, ProxyHost, ProxyPort);
+        timeout -> timeout_proxy(on, Name, ProxyHost, ProxyPort, <<"upstream">>);
+        timeout_downstream -> timeout_proxy(on, Name, ProxyHost, ProxyPort, <<"downstream">>);
         latency_up -> latency_up_proxy(on, Name, ProxyHost, ProxyPort)
     end.
 
 heal_failure(FailureType, Name, ProxyHost, ProxyPort) ->
     case FailureType of
         down -> switch_proxy(on, Name, ProxyHost, ProxyPort);
-        timeout -> timeout_proxy(off, Name, ProxyHost, ProxyPort);
+        timeout -> timeout_proxy(off, Name, ProxyHost, ProxyPort, <<"upstream">>);
+        timeout_downstream -> timeout_proxy(off, Name, ProxyHost, ProxyPort, <<"downstream">>);
         latency_up -> latency_up_proxy(off, Name, ProxyHost, ProxyPort)
     end.
 
@@ -946,15 +948,14 @@ switch_proxy(Switch, Name, ProxyHost, ProxyPort) ->
         [{body_format, binary}]
     ).
 
-timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
+timeout_proxy(on, Name, ProxyHost, ProxyPort, Stream) ->
     Url =
         toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies/" ++ Name ++
             "/toxics",
-    NameBin = list_to_binary(Name),
     Body = #{
-        <<"name">> => <<NameBin/binary, "_timeout">>,
+        <<"name">> => list_to_binary(timeout_toxic_name(Name, Stream)),
         <<"type">> => <<"timeout">>,
-        <<"stream">> => <<"upstream">>,
+        <<"stream">> => Stream,
         <<"toxicity">> => 1.0,
         <<"attributes">> => #{<<"timeout">> => 0}
     },
@@ -965,8 +966,8 @@ timeout_proxy(on, Name, ProxyHost, ProxyPort) ->
         [],
         [{body_format, binary}]
     );
-timeout_proxy(off, Name, ProxyHost, ProxyPort) ->
-    ToxicName = Name ++ "_timeout",
+timeout_proxy(off, Name, ProxyHost, ProxyPort, Stream) ->
+    ToxicName = timeout_toxic_name(Name, Stream),
     Url =
         toxiproxy_base_uri(ProxyHost, ProxyPort) ++ "/proxies/" ++ Name ++
             "/toxics/" ++ ToxicName,
@@ -977,6 +978,11 @@ timeout_proxy(off, Name, ProxyHost, ProxyPort) ->
         [],
         [{body_format, binary}]
     ).
+
+timeout_toxic_name(Name, <<"upstream">>) ->
+    Name ++ "_timeout";
+timeout_toxic_name(Name, <<"downstream">>) ->
+    Name ++ "_timeout_downstream".
 
 latency_up_proxy(on, Name, ProxyHost, ProxyPort) ->
     Url =
