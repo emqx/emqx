@@ -948,6 +948,119 @@ t_auto_cast_integer_to_float(Config) ->
     ),
     ok.
 
+%% An unsuffixed integer placeholder written to a tag must arrive as its exact decimal
+%% representation, while a field placeholder keeps the InfluxDB typing.
+t_integer_tag_as_string(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    BatchSize = ?config(batch_size, Config),
+    {ok, _} = create_bridge(Config, integer_tag_overrides(BatchSize)),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Cases = integer_tag_cases(),
+    Samples = lists:zip([emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- Cases], Cases),
+    SendSample = fun(Sample) -> send_integer_tag_sample(Config, Topic, Sample) end,
+    AssertSample = fun(Sample) -> assert_integer_tag_sample(Config, Sample) end,
+    case BatchSize of
+        1 ->
+            assert_send_results(QueryMode, [SendSample(Sample) || Sample <- Samples]),
+            lists:foreach(AssertSample, Samples);
+        _ ->
+            %% Read back inside the trace block: in async query mode a batch is only
+            %% dispatched once the buffer worker flushes it.
+            ?check_trace(
+                begin
+                    Results = emqx_utils:pmap(SendSample, Samples, infinity),
+                    assert_send_results(QueryMode, Results),
+                    lists:foreach(AssertSample, Samples),
+                    ok
+                end,
+                fun(Trace) ->
+                    BatchEvents =
+                        ?of_kind(call_batch_query, Trace) ++
+                            ?of_kind(call_batch_query_async, Trace),
+                    ?assertMatch(
+                        [
+                            #{batch := [_, _, _]},
+                            #{batch := [_, _, _]},
+                            #{batch := [_, _, _]}
+                        ],
+                        BatchEvents
+                    )
+                end
+            )
+    end,
+    ok.
+
+assert_send_results(sync, Results) ->
+    lists:foreach(fun(Result) -> ?assertMatch({ok, _}, Result) end, Results);
+assert_send_results(async, Results) ->
+    ?assert(lists:all(fun(Result) -> Result =:= ok end, Results)).
+
+integer_tag_cases() ->
+    [
+        {0, <<"0">>},
+        {11, <<"11">>},
+        {65, <<"65">>},
+        {-7, <<"-7">>},
+        {1790667500572, <<"1790667500572">>},
+        %% 2^53 + 1 is not exactly representable as a float64
+        {9007199254740993, <<"9007199254740993">>},
+        {1 bsl 1024, integer_to_binary(1 bsl 1024)},
+        {<<"abc">>, <<"abc">>},
+        {<<"65">>, <<"65">>}
+    ].
+
+integer_tag_overrides(BatchSize) ->
+    Overrides = #{
+        <<"write_syntax">> =>
+            <<
+                "mqtt,clientid=${clientid},int_tag=${payload.int_tag},"
+                "i_tag=${payload.i_tag}i,u_tag=${payload.u_tag}u,"
+                "bool_tag=${payload.bool_tag} value=${payload.value}"
+            >>
+    },
+    case BatchSize of
+        1 ->
+            Overrides;
+        _ ->
+            %% Batching is exercised by sending every sample in one burst below.
+            Overrides#{
+                <<"resource_opts">> => #{
+                    <<"batch_size">> => 3,
+                    <<"batch_time">> => <<"5s">>,
+                    <<"worker_pool_size">> => 1
+                }
+            }
+    end.
+
+send_integer_tag_sample(Config, Topic, {ClientId, {TagValue, _Expected}}) ->
+    Data = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => Topic,
+        <<"payload">> => #{
+            <<"int_tag">> => TagValue,
+            <<"i_tag">> => 123,
+            <<"u_tag">> => 456,
+            <<"bool_tag">> => true,
+            <<"value">> => 1
+        },
+        <<"timestamp">> => erlang:system_time(millisecond)
+    },
+    send_message(Config, Data).
+
+assert_integer_tag_sample(Config, {ClientId, {_TagValue, ExpectedTag}}) ->
+    ?retry(
+        500,
+        20,
+        begin
+            Row = query_by_clientid(ClientId, Config),
+            ?assertMatch(#{<<"int_tag">> := ExpectedTag}, Row),
+            ?assertMatch(#{<<"i_tag">> := 123}, Row),
+            ?assertMatch(#{<<"u_tag">> := 456}, Row),
+            ?assertMatch(#{<<"bool_tag">> := true}, Row),
+            ?assertEqual(1.0, maps:get(<<"value">>, Row, undefined))
+        end
+    ).
+
 t_partially_invalid_batch(Config) ->
     case ?config(batch_size, Config) of
         1 ->
