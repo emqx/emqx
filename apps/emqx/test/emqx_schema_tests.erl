@@ -172,10 +172,7 @@ mqtt_tcp_listener_backend_default_test() ->
     ).
 
 default_mqtt_tcp_backend() ->
-    case os:type() of
-        {unix, _} -> socket;
-        {win32, _} -> gen_tcp
-    end.
+    gen_tcp.
 
 fail_if_no_peer_cert_test_() ->
     Sc = #{
