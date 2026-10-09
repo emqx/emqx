@@ -852,6 +852,9 @@ prep_drop_session(S0, KeepWillMessage) ->
 -doc """
 Perform side effects necessary to tear down the session and finally
 delete its state record.
+
+NOTE: this function is not thread-safe.
+A process calling it must exclusively own the session.
 """.
 -spec teardown_session(id(), emqx_persistent_session_ds_state:t()) -> ok | emqx_ds:error(_).
 teardown_session(SessionId, S) ->
@@ -865,16 +868,13 @@ teardown_session(SessionId, S) ->
         _ ->
             ok = emqx_durable_will:clear(SessionId)
     end,
-    %% All done. Delete the session state:
-    case emqx_persistent_session_ds_state:delete(S) of
-        ok ->
-            ok;
-        {error, unrecoverable, {precondition_failed, _}} ->
-            %% Session was taken over again. Ignore.
-            ok;
-        Err ->
-            Err
-    end.
+    %% All done. Delete the session state. NOTE: here deletion is NOT
+    %% protected by the guard, and will drop ANY existing session.
+    %% This is intentional: if this function is called while another
+    %% process is using the session (which should NOT happen), then
+    %% the other process will at least get its ownership invalidated
+    %% and get killed.
+    emqx_persistent_session_ds_state:delete(SessionId, '_').
 
 %%--------------------------------------------------------------------
 %% Shared subscription outgoing messages
