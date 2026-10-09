@@ -14,6 +14,15 @@
 
 -define(READONLY_ROOT_KEYS, [rpc, node]).
 
+-define(REDACTED, <<"******">>).
+-define(JWT_SECRET, <<"conf-cli-jwt-secret">>).
+-define(HTTP_AUTHORIZATION, <<"Bearer conf-cli-http-authorization">>).
+-define(LDAP_BIND_PASSWORD, <<"conf-cli-ldap-bind-password">>).
+-define(LDAP_BASE_DN, <<"ou=conf-cli,dc=emqx,dc=io">>).
+-define(VISIBLE_HEADER_VALUE, <<"conf-cli-visible-header">>).
+-define(FILE_SECRET_CONTENT, <<"conf-cli-file-secret-content">>).
+-define(NS_NAME, <<"conf_cli_ns">>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -29,7 +38,11 @@ init_per_suite(Config) ->
             emqx_conf,
             emqx_auth_redis,
             emqx_schema_registry,
+            emqx_connector,
             {emqx_auth, #{after_start => fun() -> ok end}},
+            emqx_auth_jwt,
+            emqx_auth_http,
+            emqx_auth_ldap,
             emqx_management
         ],
         #{
@@ -484,3 +497,457 @@ changed(node) ->
     };
 changed(rpc) ->
     #{<<"mode">> => <<"sync">>}.
+
+%%------------------------------------------------------------------------------
+%% `conf show' output modes
+%%------------------------------------------------------------------------------
+
+-doc """
+`conf show` redacts sensitive values by default and prints them unchanged only
+with `--no-secret-redaction`, for both the full config and a single root.
+""".
+t_show_redacts_sensitive_values(Config) ->
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    SecretFile = filename:join(?config(priv_dir, Config), "conf-cli-secret"),
+    ok = file:write_file(SecretFile, ?FILE_SECRET_CONTENT),
+    SecretURI = iolist_to_binary(["file://", SecretFile]),
+    try
+        ok = load_conf(replace, authn_conf(SecretURI), Config),
+        Cookie = to_bin(emqx:get_config([node, cookie])),
+        RedactedFull = capture_show(["show"]),
+        RawFull = capture_show(["show", "--no-secret-redaction"]),
+        ?assertMatch(<<"#", _/binary>>, RedactedFull),
+        ?assertNotMatch(<<"#", _/binary>>, RawFull),
+        assert_absent(RedactedFull, authn_secrets(SecretURI, Cookie)),
+        assert_present(RawFull, authn_secrets(SecretURI, Cookie)),
+        %% A `file://` source is never expanded into the output.
+        assert_absent(RawFull, [?FILE_SECRET_CONTENT]),
+        {ok, Redacted} = hocon:binary(RedactedFull),
+        {ok, Raw} = hocon:binary(RawFull),
+        assert_redacted_authn(maps:get(<<"authentication">>, Redacted)),
+        assert_raw_authn(maps:get(<<"authentication">>, Raw), SecretURI),
+        %% `node.cookie` is only covered by the schema-level redaction.
+        ?assertEqual(?REDACTED, maps:get(<<"cookie">>, maps:get(<<"node">>, Redacted))),
+        ?assertEqual(Cookie, maps:get(<<"cookie">>, maps:get(<<"node">>, Raw))),
+        RedactedKeyed = capture_show(["show", "authentication"]),
+        RawKeyed = capture_show(["show", "--no-secret-redaction", "authentication"]),
+        ?assertMatch(<<"#", _/binary>>, RedactedKeyed),
+        ?assertNotMatch(<<"#", _/binary>>, RawKeyed),
+        {ok, RedactedKeyedConf} = hocon:binary(RedactedKeyed),
+        {ok, RawKeyedConf} = hocon:binary(RawKeyed),
+        assert_redacted_authn(maps:get(<<"authentication">>, RedactedKeyedConf)),
+        assert_raw_authn(maps:get(<<"authentication">>, RawKeyedConf), SecretURI)
+    after
+        _ = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
+        _ = file:delete(SecretFile)
+    end.
+
+-doc """
+Sensitive schema defaults are redacted too: an LDAP authenticator that keeps the
+default `${password}` bind password shows `******` by default and the template
+only with `--no-secret-redaction`.
+""".
+t_show_redacts_sensitive_defaults(Config) ->
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    Ldap = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"ldap">>,
+        <<"enable">> => false,
+        <<"server">> => <<"127.0.0.1:1">>,
+        <<"base_dn">> => ?LDAP_BASE_DN,
+        <<"filter">> => <<"(uid=${username})">>,
+        <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
+        <<"method">> => #{<<"type">> => <<"bind">>}
+    },
+    try
+        ok = load_conf(replace, #{<<"authentication">> => [Ldap]}, Config),
+        Redacted = capture_show(["show", "authentication"]),
+        {ok, #{<<"authentication">> := [#{<<"method">> := RedactedMethod}]}} =
+            hocon:binary(Redacted),
+        ?assertEqual(?REDACTED, maps:get(<<"bind_password">>, RedactedMethod)),
+        Raw = capture_show(["show", "--no-secret-redaction", "authentication"]),
+        {ok, #{<<"authentication">> := [#{<<"method">> := RawMethod}]}} = hocon:binary(Raw),
+        ?assertEqual(<<"${password}">>, maps:get(<<"bind_password">>, RawMethod))
+    after
+        _ = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config)
+    end.
+
+-doc """
+Namespaced `conf show` redacts in the same way, only reports the selected
+namespace, accepts the opt-out flag in either order, and keeps the public
+readers raw.
+""".
+t_show_namespaced_redacts_sensitive_values(Config) ->
+    Ns = ?NS_NAME,
+    Globals0 = emqx_conf:get_raw([connectors], undefined),
+    NsPassword = <<"conf-cli-ns-connector-password">>,
+    GlobalPassword = <<"conf-cli-global-connector-password">>,
+    ok = load_ns_conf(Ns, replace, connector_conf(<<"ns">>, NsPassword)),
+    try
+        ok = load_conf(replace, connector_conf(<<"global">>, GlobalPassword), Config),
+        NsHeader = scope_value(<<"ns">>, <<"authorization">>),
+        NsHeaderLower = scope_value(<<"ns">>, <<"authorization-lower">>),
+        GlobalHeader = scope_value(<<"global">>, <<"authorization">>),
+        NsFull = capture_show(["show", "--namespace", Ns]),
+        NsFullRaw = capture_show(["show", "--namespace", Ns, "--no-secret-redaction"]),
+        Redacted = capture_show(["show", "--namespace", Ns, "connectors"]),
+        Raw = capture_show(["show", "--namespace", Ns, "--no-secret-redaction", "connectors"]),
+        RawAlt = capture_show(["show", "--no-secret-redaction", "--namespace", Ns, "connectors"]),
+        RawRepeated = capture_show([
+            "show",
+            "--no-secret-redaction",
+            "--no-secret-redaction",
+            "--namespace",
+            Ns,
+            "connectors"
+        ]),
+        ?assertMatch(<<"#", _/binary>>, NsFull),
+        ?assertMatch(<<"#", _/binary>>, Redacted),
+        ?assertEqual(Raw, RawAlt),
+        ?assertEqual(Raw, RawRepeated),
+        %% The full output is scoped to the namespace, and never leaks global values.
+        assert_absent(NsFull, [NsHeader, NsHeaderLower, NsPassword, GlobalHeader, GlobalPassword]),
+        assert_present(NsFullRaw, [NsHeader, NsHeaderLower, NsPassword]),
+        assert_absent(NsFullRaw, [GlobalHeader, GlobalPassword]),
+        assert_absent(Redacted, [NsHeader, NsHeaderLower, NsPassword, GlobalHeader, GlobalPassword]),
+        assert_present(Raw, [
+            NsHeader, NsHeaderLower, NsPassword, scope_value(<<"ns">>, <<"visible">>)
+        ]),
+        %% The namespace does not leak the same-named global connector.
+        assert_absent(Raw, [GlobalHeader, GlobalPassword]),
+        assert_absent(capture_show(["show"]), [NsHeader, NsHeaderLower, NsPassword]),
+        {ok, NsFullConf} = hocon:binary(NsFull),
+        assert_connector_redacted(maps:get(<<"connectors">>, NsFullConf)),
+        {ok, NsFullRawConf} = hocon:binary(NsFullRaw),
+        assert_connector_scope(
+            maps:get(<<"connectors">>, NsFullRawConf), NsHeader, NsHeaderLower, NsPassword
+        ),
+        {ok, RawConf} = hocon:binary(Raw),
+        #{<<"connectors">> := RawConnectors} = RawConf,
+        assert_connector_scope(RawConnectors, NsHeader, NsHeaderLower, NsPassword),
+        {ok, RedactedConf} = hocon:binary(Redacted),
+        #{<<"connectors">> := RedactedConnectors} = RedactedConf,
+        assert_connector_redacted(RedactedConnectors),
+        %% `get_config_namespaced/1,2` stay raw for the RPC callers.
+        #{<<"connectors">> := RawViaRpc} = emqx_conf_cli:get_config_namespaced(
+            Ns, <<"connectors">>
+        ),
+        assert_connector_scope(RawViaRpc, NsHeader, NsHeaderLower, NsPassword)
+    after
+        _ = load_conf(replace, #{<<"connectors">> => restore_connectors(Globals0)}, Config),
+        _ = load_ns_conf(Ns, replace, #{<<"connectors">> => #{}})
+    end.
+
+-doc """
+A raw namespaced export can be loaded back with `conf load --namespace`,
+restoring the exported values in that namespace only.
+""".
+t_show_namespaced_raw_round_trip(Config) ->
+    Ns = ?NS_NAME,
+    Globals0 = emqx_conf:get_raw([connectors], undefined),
+    NsPassword = <<"conf-cli-ns-round-trip-password">>,
+    ChainedPassword = <<"conf-cli-ns-changed-password">>,
+    ok = load_ns_conf(Ns, replace, connector_conf(<<"ns">>, NsPassword)),
+    try
+        NsHeader = scope_value(<<"ns">>, <<"authorization">>),
+        Export = capture_show(["show", "--namespace", Ns, "--no-secret-redaction", "connectors"]),
+        assert_present(Export, [NsHeader, NsPassword]),
+        ok = load_ns_conf(Ns, replace, connector_conf(<<"changed">>, ChainedPassword)),
+        assert_present(
+            capture_show(["show", "--namespace", Ns, "--no-secret-redaction", "connectors"]),
+            [scope_value(<<"changed">>, <<"authorization">>)]
+        ),
+        ExportFile = prepare_conf_file(?FUNCTION_NAME, Export, Config),
+        ok = emqx_conf_cli:conf(["load", "--namespace", Ns, "--replace", ExportFile]),
+        Restored = capture_show([
+            "show", "--namespace", Ns, "--no-secret-redaction", "connectors"
+        ]),
+        assert_present(Restored, [NsHeader, NsPassword]),
+        assert_absent(Restored, [scope_value(<<"changed">>, <<"authorization">>), ChainedPassword])
+    after
+        _ = load_conf(replace, #{<<"connectors">> => restore_connectors(Globals0)}, Config),
+        _ = load_ns_conf(Ns, replace, #{<<"connectors">> => #{}})
+    end.
+
+-doc """
+A raw `conf show` export of a writable root can be loaded back, restoring the
+literal secrets and the `file://` reference it contained.
+""".
+t_show_raw_round_trip(Config) ->
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    SecretFile = filename:join(?config(priv_dir, Config), "conf-cli-round-trip-secret"),
+    ok = file:write_file(SecretFile, ?FILE_SECRET_CONTENT),
+    SecretURI = iolist_to_binary(["file://", SecretFile]),
+    try
+        ok = load_conf(replace, authn_conf(SecretURI), Config),
+        Export = capture_show(["show", "--no-secret-redaction", "authentication"]),
+        %% Replace the secrets with different values before restoring the export.
+        ok = load_conf(replace, changed_authn_conf(), Config),
+        [JwtChanged | _] = emqx_conf:get_raw([authentication]),
+        ?assertEqual(<<"changed-jwt-secret">>, maps:get(<<"secret">>, JwtChanged)),
+        ExportFile = prepare_conf_file(?FUNCTION_NAME, Export, Config),
+        ok = emqx_conf_cli:conf(["load", "--replace", ExportFile]),
+        [Jwt, _Http, Ldap] = emqx_conf:get_raw([authentication]),
+        ?assertEqual(?JWT_SECRET, maps:get(<<"secret">>, Jwt)),
+        ?assertEqual(
+            ?LDAP_BIND_PASSWORD, maps:get(<<"bind_password">>, maps:get(<<"method">>, Ldap))
+        ),
+        ?assertEqual(SecretURI, maps:get(<<"password">>, Ldap))
+    after
+        _ = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
+        _ = file:delete(SecretFile)
+    end.
+
+-doc """
+The opt-out flag is rejected by `conf load` and `conf remove` before they read
+the path or touch the config, and the help text documents both output modes.
+""".
+t_show_flag_is_rejected_by_load_and_remove(_Config) ->
+    Mqtt = emqx_conf:get_raw([mqtt]),
+    {Result, Usage0} = capture_conf(["show", "mqtt", "--no-secret-redaction"]),
+    Usage = iolist_to_binary(Usage0),
+    ?assertMatch({error, _}, Result),
+    ?assertNotEqual(nomatch, binary:match(Usage, <<"--no-secret-redaction">>)),
+    ?assertNotEqual(nomatch, binary:match(Usage, <<"Sensitive values are redacted by default">>)),
+    %% Rejected before reading a path: the error is not `not_a_file`.
+    ?assertEqual(
+        {error, "bad arguments: --no-secret-redaction is not supported by this command"},
+        emqx_conf_cli:conf(["load", "--no-secret-redaction", "not-an-existing-file"])
+    ),
+    ?assertMatch(
+        {error, _},
+        emqx_conf_cli:conf(["remove", "--no-secret-redaction", "mqtt.keepalive_multiplier"])
+    ),
+    %% No positional argument either: the flag alone is rejected, not crashed on.
+    ?assertMatch({error, _}, emqx_conf_cli:conf(["load", "--no-secret-redaction"])),
+    ?assertMatch({error, _}, emqx_conf_cli:conf(["remove", "--no-secret-redaction"])),
+    ?assertEqual(Mqtt, emqx_conf:get_raw([mqtt])),
+    %% A missing namespace value and a flag after the key stay bad arguments.
+    ?assertMatch({error, _}, emqx_conf_cli:conf(["show", "--namespace"])),
+    ?assertMatch({error, _}, emqx_conf_cli:conf(["show", "--no-secret-redaction", "--namespace"])),
+    ?assertMatch({error, _}, emqx_conf_cli:conf(["show", "mqtt", "--no-secret-redaction"])),
+    ok.
+
+-doc """
+The public readers keep returning raw values, hidden roots and the cluster
+strategy filter are unchanged, and a binary `"all"` is not the full config.
+""".
+t_get_config_namespaced_stays_raw(Config) ->
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    try
+        ok = load_conf(replace, authn_conf(<<"rpc-reader-password">>), Config),
+        Before = emqx_conf_cli:get_config_namespaced(global, <<"authentication">>),
+        _ = capture_show(["show", "authentication"]),
+        ?assertEqual(Before, emqx_conf_cli:get_config_namespaced(global, <<"authentication">>)),
+        [Jwt | _] = maps:get(<<"authentication">>, Before),
+        ?assertEqual(?JWT_SECRET, maps:get(<<"secret">>, Jwt)),
+        Full = emqx_conf_cli:get_config_namespaced(global),
+        ?assertEqual([], [
+            Root
+         || Root <- [<<"stats">>, <<"broker">>, <<"plugins">>, <<"zones">>],
+            maps:is_key(Root, Full)
+        ]),
+        Cluster = maps:get(<<"cluster">>, Full),
+        Strategy = maps:get(<<"discovery_strategy">>, Cluster),
+        %% `filter_cluster_conf/1` drops every discovery strategy but the selected one.
+        ?assertEqual(
+            [],
+            [
+                S
+             || S <- [<<"manual">>, <<"static">>, <<"dns">>, <<"etcd">>, <<"k8s">>],
+                S =/= Strategy,
+                maps:is_key(S, Cluster)
+            ]
+        ),
+        ?assertEqual(
+            {error, "key_not_found"},
+            emqx_conf_cli:get_config_namespaced(global, <<"no_such_root">>)
+        ),
+        %% A binary "all" selects the root named `all`, not the full config.
+        ?assertEqual(
+            {error, "key_not_found"}, emqx_conf_cli:get_config_namespaced(global, <<"all">>)
+        )
+    after
+        _ = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config)
+    end.
+
+-doc """
+A keyed `conf show` still reports a hidden root, while the full config drops it.
+""".
+t_show_keyed_keeps_hidden_roots(Config) ->
+    Zone = <<"conf_cli_hidden_root_zone">>,
+    Conf = #{
+        <<"zones">> => #{Zone => #{<<"mqtt">> => #{<<"keepalive_multiplier">> => 10}}}
+    },
+    ok = load_conf(replace, Conf, Config),
+    try
+        Redacted = capture_show(["show", "zones"]),
+        ?assertMatch(<<"#", _/binary>>, Redacted),
+        {ok, #{<<"zones">> := #{Zone := _}}} = hocon:binary(Redacted),
+        ?assertEqual(nomatch, binary:match(capture_show(["show"]), Zone)),
+        #{<<"zones">> := #{Zone := _}} = emqx_conf_cli:get_config_namespaced(global, <<"zones">>),
+        ?assertNot(maps:is_key(<<"zones">>, emqx_conf_cli:get_config_namespaced(global)))
+    after
+        _ = emqx_conf_cli:conf(["remove", "zones." ++ binary_to_list(Zone)])
+    end.
+
+capture_show(Args) ->
+    {Result, Prints} = capture_conf(Args),
+    ?assertEqual(ok, Result),
+    iolist_to_binary(Prints).
+
+capture_conf(Args) ->
+    emqx_common_test_helpers:capture_io_format(fun() -> emqx_conf_cli:conf(Args) end).
+
+authn_conf(LdapPassword) ->
+    #{
+        <<"authentication">> => [
+            #{
+                <<"mechanism">> => <<"jwt">>,
+                <<"use_jwks">> => false,
+                <<"algorithm">> => <<"hmac-based">>,
+                <<"secret">> => ?JWT_SECRET,
+                <<"secret_base64_encoded">> => false
+            },
+            #{
+                <<"mechanism">> => <<"password_based">>,
+                <<"backend">> => <<"http">>,
+                <<"enable">> => false,
+                <<"method">> => <<"get">>,
+                <<"url">> => <<"http://127.0.0.1:1/auth">>,
+                <<"headers">> => #{
+                    <<"Authorization">> => ?HTTP_AUTHORIZATION,
+                    <<"X-Test-Header">> => ?VISIBLE_HEADER_VALUE
+                }
+            },
+            #{
+                <<"mechanism">> => <<"password_based">>,
+                <<"backend">> => <<"ldap">>,
+                <<"enable">> => false,
+                <<"server">> => <<"127.0.0.1:1">>,
+                <<"base_dn">> => ?LDAP_BASE_DN,
+                <<"filter">> => <<"(uid=${username})">>,
+                <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
+                <<"password">> => LdapPassword,
+                <<"method">> => #{
+                    <<"type">> => <<"bind">>,
+                    <<"bind_password">> => ?LDAP_BIND_PASSWORD
+                }
+            }
+        ]
+    }.
+
+changed_authn_conf() ->
+    AuthN = authn_conf(<<"changed-ldap-password">>),
+    [Jwt, Http, Ldap] = maps:get(<<"authentication">>, AuthN),
+    AuthN#{
+        <<"authentication">> => [
+            Jwt#{<<"secret">> => <<"changed-jwt-secret">>},
+            Http,
+            Ldap#{
+                <<"method">> => #{
+                    <<"type">> => <<"bind">>,
+                    <<"bind_password">> => <<"changed-bind-password">>
+                }
+            }
+        ]
+    }.
+
+authn_secrets(SecretURI, Cookie) ->
+    [?JWT_SECRET, ?HTTP_AUTHORIZATION, ?LDAP_BIND_PASSWORD, SecretURI, Cookie].
+
+assert_redacted_authn([Jwt, Http, Ldap]) ->
+    ?assertEqual(?REDACTED, maps:get(<<"secret">>, Jwt)),
+    ?assertEqual(<<"hmac-based">>, maps:get(<<"algorithm">>, Jwt)),
+    Headers = maps:get(<<"headers">>, Http),
+    ?assertNot(lists:member(?HTTP_AUTHORIZATION, maps:values(Headers))),
+    ?assertEqual(?REDACTED, authz_header(Headers)),
+    ?assert(lists:member(?VISIBLE_HEADER_VALUE, maps:values(Headers))),
+    ?assertEqual(?REDACTED, maps:get(<<"password">>, Ldap)),
+    ?assertEqual(?REDACTED, maps:get(<<"bind_password">>, maps:get(<<"method">>, Ldap))),
+    ?assertEqual(?LDAP_BASE_DN, maps:get(<<"base_dn">>, Ldap)).
+
+assert_raw_authn([Jwt, Http, Ldap], SecretURI) ->
+    ?assertEqual(?JWT_SECRET, maps:get(<<"secret">>, Jwt)),
+    Headers = maps:get(<<"headers">>, Http),
+    ?assertEqual(?HTTP_AUTHORIZATION, authz_header(Headers)),
+    ?assert(lists:member(?VISIBLE_HEADER_VALUE, maps:values(Headers))),
+    ?assertEqual(SecretURI, maps:get(<<"password">>, Ldap)),
+    ?assertEqual(?LDAP_BIND_PASSWORD, maps:get(<<"bind_password">>, maps:get(<<"method">>, Ldap))),
+    ?assertEqual(?LDAP_BASE_DN, maps:get(<<"base_dn">>, Ldap)).
+
+authz_header(Headers) ->
+    Values = [
+        V
+     || {K, V} <- maps:to_list(Headers),
+        string:lowercase(emqx_utils_conv:str(K)) =:= "authorization"
+    ],
+    case Values of
+        [Value] -> Value;
+        _ -> undefined
+    end.
+
+connector_conf(Scope, MqttPassword) ->
+    #{
+        <<"connectors">> => #{
+            <<"http">> => #{
+                <<"conf_cli_http">> => #{
+                    <<"url">> => <<"http://127.0.0.1:1/">>,
+                    <<"enable">> => false,
+                    <<"headers">> => #{
+                        <<"Authorization">> => scope_value(Scope, <<"authorization">>),
+                        <<"authorization">> => scope_value(Scope, <<"authorization-lower">>),
+                        <<"X-Test-Header">> => scope_value(Scope, <<"visible">>)
+                    }
+                }
+            },
+            <<"mqtt">> => #{
+                <<"conf_cli_mqtt">> => #{
+                    <<"server">> => <<"127.0.0.1:1">>,
+                    <<"username">> => <<"conf-cli-user">>,
+                    <<"enable">> => false,
+                    <<"password">> => MqttPassword
+                }
+            }
+        }
+    }.
+
+scope_value(Scope, Kind) ->
+    case Kind of
+        <<"authorization">> -> <<"Bearer conf-cli-", Scope/binary, "-authorization">>;
+        <<"authorization-lower">> -> <<"Bearer conf-cli-", Scope/binary, "-authorization-lower">>;
+        <<"visible">> -> <<"conf-cli-", Scope/binary, "-visible">>
+    end.
+
+assert_connector_scope(Connectors, HttpAuthz, HttpAuthzLower, MqttPassword) ->
+    #{<<"http">> := #{<<"conf_cli_http">> := Http}, <<"mqtt">> := #{<<"conf_cli_mqtt">> := Mqtt}} =
+        Connectors,
+    Headers = maps:get(<<"headers">>, Http),
+    ?assertEqual(HttpAuthz, maps:get(<<"Authorization">>, Headers)),
+    ?assertEqual(HttpAuthzLower, maps:get(<<"authorization">>, Headers)),
+    ?assertEqual(MqttPassword, maps:get(<<"password">>, Mqtt)).
+
+assert_connector_redacted(Connectors) ->
+    #{<<"http">> := #{<<"conf_cli_http">> := Http}, <<"mqtt">> := #{<<"conf_cli_mqtt">> := Mqtt}} =
+        Connectors,
+    Headers = maps:get(<<"headers">>, Http),
+    ?assertEqual(?REDACTED, maps:get(<<"Authorization">>, Headers)),
+    ?assertEqual(?REDACTED, maps:get(<<"authorization">>, Headers)),
+    ?assertEqual(?REDACTED, maps:get(<<"password">>, Mqtt)).
+
+restore_connectors(undefined) -> #{};
+restore_connectors(Connectors) -> Connectors.
+
+assert_absent(Output, Values) ->
+    lists:foreach(
+        fun(Value) -> ?assertEqual(nomatch, binary:match(Output, Value), Value) end,
+        Values
+    ).
+
+assert_present(Output, Values) ->
+    lists:foreach(
+        fun(Value) -> ?assertNotEqual(nomatch, binary:match(Output, Value), Value) end,
+        Values
+    ).
+
+to_bin(Value) -> iolist_to_binary(Value).
