@@ -236,17 +236,14 @@ delete(SessId, Guard) when
     emqx_persistent_session_ds_state_v2:delete(generation(), SessId, Guard).
 
 -spec commit(t(), commit_opts()) ->
-    {ok, t()} | ?err_unrec(_).
+    {ok, t()} | emqx_ds:error(_).
 commit(Rec, Opts = #{lifetime := _, sync := _}) ->
     emqx_ds_pmap:collection_check_sequence(Rec),
-    case emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts) of
-        ?err_rec(_) ->
-            %% FIXME:
-            timer:sleep(1000),
-            commit(Rec, Opts);
-        Other ->
-            Other
-    end.
+    %% NOTE: `emqx_ds:trans' already does the retry for sync commits.
+    %% If `?err_rec' is returned it means retry failed.
+    %%
+    %% For async commits retry is done implicitly, by resetting dirty flag.
+    emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts).
 
 -spec on_commit_reply(term(), t()) -> {ok, t()} | ignore | {error, _}.
 on_commit_reply(
