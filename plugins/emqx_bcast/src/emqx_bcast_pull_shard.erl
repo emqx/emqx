@@ -846,10 +846,10 @@ handle_cast({qos1_core_trigger, ProductKey, DeviceNames, _TopicTemplate}, State)
     %% subscription matching is intentionally deferred to the claim path.
     State1 = lists:foldl(
         fun(DeviceName, St) ->
-            case emqx_bcast:lookup_device({ProductKey, DeviceName}) of
+            case trigger_device_pid(ProductKey, DeviceName, St) of
                 {ok, Pid} ->
                     claim_next(DeviceName, Pid, ProductKey, St);
-                {error, not_found} ->
+                error ->
                     St
             end
         end,
@@ -1299,6 +1299,61 @@ claim_next(ClientId, Pid, ProductKey, State) ->
                 false ->
                     State
             end
+    end.
+
+%% Resolve the pid a claim trigger should hand to claim_next/4.
+%%
+%% The device registry is written by the client hooks (connect / subscribe /
+%% resume / ping), so a client that connected while this node's plugin was not
+%% running yet has no entry: a node that just joined the cluster and is still
+%% syncing and starting the plugin, or one that received evacuated clients
+%% before its plugin was ready. The trigger used to skip such a device
+%% silently - no log, no metric, no retry - and the deliveries stayed in the
+%% index queue until the client's own next keepalive. At a 600s keepalive that
+%% reads as a permanently frozen drain: clients connected, `queued` growing,
+%% nothing delivered, on every node.
+%%
+%% Ask the authoritative *local* channel state instead. If this node hosts the
+%% client, arm it here and now (registry entry + client state row) so the
+%% claim can proceed; the cached subscription filters are filled from EMQX's
+%% own subscription tables by the first claim (see cached_topics/2).
+trigger_device_pid(ProductKey, DeviceName, State) ->
+    case emqx_bcast:lookup_device({ProductKey, DeviceName}) of
+        {ok, Pid} ->
+            {ok, Pid};
+        {error, not_found} ->
+            case local_channel(DeviceName) of
+                {ok, Pid} ->
+                    emqx_bcast:register_device(ProductKey, DeviceName, Pid),
+                    ensure_row(ProductKey, DeviceName, Pid, State#state.shard),
+                    emqx_bcast_metrics:qos1_armed_on_trigger(),
+                    ?SLOG(debug, #{
+                        msg => "bcast_trigger_armed_unregistered_device",
+                        node => node(),
+                        product_key => ProductKey,
+                        device => DeviceName
+                    }),
+                    {ok, Pid};
+                error ->
+                    error
+            end
+    end.
+
+%% The client's channel on THIS node, if any. The global variant would return
+%% a pid on another node, and the per-node design (registry, subscription
+%% filters, delivery) is node-local: a claim decided here must belong to a
+%% client attached here.
+local_channel(DeviceName) ->
+    try emqx_cm:lookup_channels(local, DeviceName) of
+        [Pid | _] when is_pid(Pid) ->
+            case node(Pid) =:= node() of
+                true -> {ok, Pid};
+                false -> error
+            end;
+        _ ->
+            error
+    catch
+        _:_ -> error
     end.
 
 %% Write the claim round to the row and queue it for submission.

@@ -15,6 +15,19 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
   before that - and only then add the node to the load balancer or send
   BatchPub traffic to it.
 
+- **Rolling upgrade: clients that reconnect onto a node whose plugin is still
+  starting are served as soon as the plugin is up.** Evacuating a node makes
+  EMQX disconnect its connections (`use_another_server`), and the clients
+  reconnect through the load balancer - which can put them on a node that has
+  just joined the cluster and has not finished syncing/starting the plugin
+  yet. Those clients are never announced to the plugin (no connect or
+  subscribe event fires for them), so before this release they stayed
+  undelivered until their own next keepalive - minutes at a 600s keepalive -
+  while their backlog grew. The claim trigger now checks such a device against
+  the node's own channel state and arms it, so the next trigger drains its
+  whole backlog. Keep the readiness probe in front of MQTT and API traffic:
+  this makes the plugin recover by itself, it does not replace the probe.
+
 ### Fixed
 
 - **A core without a running plugin no longer breaks the partitions and the
@@ -58,6 +71,22 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 - **A batch keeps the publisher's order per device.** Grouping the entries of
   one shard reversed them, so two publishes for the same device in one batch
   could enter its queue newest-first and be delivered out of order.
+- **A claim trigger no longer skips a device it has not been told about.** The
+  per-device work of a trigger was one registry lookup, and a miss was dropped
+  silently: no log, no metric, no retry. That is the state a client is in when
+  it connected while the plugin on its node was not running yet - a node that
+  just joined the cluster, or one that received evacuated clients before its
+  plugin was ready. The trigger now falls back to the node's authoritative
+  local channel state (`emqx_cm:lookup_channels(local, ClientId)`), arms the
+  device on the spot and claims it; the new
+  `bcast_batch_pub_qos1_armed_on_trigger` counter reports it. Nothing of that
+  device's backlog was lost: it stayed in its index queue.
+- **Plugin broadcasts no longer target nodes that do not run the plugin.** The
+  QoS1 claim trigger went to every running node, so a node that had just joined
+  the cluster and was still syncing/starting its plugin logged
+  `{undef, [{emqx_bcast_pull_shard, qos1_core_trigger_local, ...}]}` for every
+  trigger it received and lost that trigger. Triggers and QoS0 fanouts are now
+  sent only to nodes that actually run the plugin.
 
 ## 0.4.2
 

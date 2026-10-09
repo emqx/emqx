@@ -286,13 +286,19 @@ route_notify(Origin, Notify) ->
     emqx_rpc:cast(Origin, emqx_bcast_pull_shard, ack_applied, [Notify]).
 
 broadcast_to_pull_pools({Fun, Args}) ->
-    broadcast_to_pull_pools_on(emqx:running_nodes(), {Fun, Args}).
+    broadcast_to_pull_pools_on(emqx_bcast:plugin_running_nodes(), {Fun, Args}).
 broadcast_to_pull_pools_on(Nodes0, {Fun, Args}) ->
+    %% Only nodes that run the plugin: casting into a node that is still
+    %% syncing/starting its plugin crashes there with `undef` in a spawned
+    %% process (the trigger is a fire-and-forget cast, so the sender never
+    %% learns about it). The local node always runs this code, and a targeted
+    %% fanout (QoS0 with an explicit device list) can name such a node too.
+    Serving = emqx_bcast:plugin_running_nodes(),
     Nodes =
-        case lists:member(node(), Nodes0) of
-            true -> Nodes0;
-            false -> [node() | Nodes0]
-        end,
+        lists:usort([
+            node()
+            | [N || N <- Nodes0, lists:member(N, Serving)]
+        ]),
     lists:foreach(
         fun(Node) ->
             case Node =:= node() of

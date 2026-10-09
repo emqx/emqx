@@ -18,7 +18,8 @@
     intake_rejected/0,
     qos1_promote_error/0,
     qos1_deferred/1,
-    qos1_claim_unready_core/0
+    qos1_claim_unready_core/0,
+    qos1_armed_on_trigger/0
 ]).
 -export([broadcast_in/0, broadcast_error/0]).
 -export([register_in/0, register_refresh/0, register_error/0]).
@@ -170,6 +171,12 @@ declare_counters() ->
             "QoS=1 claim batches that were not dispatched because their target core does not "
             "run the plugin (plugin not synced/loaded or stopped there). The marks are released "
             "instead, so the devices are claimed again once that core is ready"},
+        {"batch_pub_qos1_armed_on_trigger",
+            "QoS=1 devices a claim trigger armed on this node even though no connection or "
+            "subscription event had registered them - clients that connected while this node's "
+            "plugin was not running yet (a node that just joined, or a node that received "
+            "evacuated clients before its plugin was ready). Without this the device would stay "
+            "unclaimed until its next keepalive (device scope)"},
         {"broadcast_pub_in", "PubBroadcast API requests"},
         {"broadcast_pub_error", "PubBroadcast errors"},
         {"register_message_in", "RegisterMessage API requests"},
@@ -296,6 +303,7 @@ qos1_promote_error() -> c("batch_pub_qos1_promote_error").
 qos1_deferred(N) -> c("batch_pub_qos1_deferred", N).
 -spec qos1_claim_unready_core() -> ok.
 qos1_claim_unready_core() -> c("batch_pub_qos1_claim_unready_core").
+qos1_armed_on_trigger() -> c("batch_pub_qos1_armed_on_trigger").
 
 -spec broadcast_in() -> ok.
 broadcast_in() -> c("broadcast_pub_in").

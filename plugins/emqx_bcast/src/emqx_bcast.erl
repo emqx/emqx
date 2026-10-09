@@ -31,6 +31,7 @@
     ready_cores/0,
     unready_core_nodes/0,
     is_ready_core/1,
+    plugin_running_nodes/0,
     select_ready_cores/3,
     bump_msg_epoch/1,
     epoch_bump_timeout_ms/0,
@@ -195,6 +196,30 @@ unready_core_nodes() ->
 
 is_ready_core(Node) ->
     Node =:= node() orelse lists:member(Node, ready_cores()).
+
+%% Every running node whose plugin is actually there, this node included.
+%% The pull-pool broadcasts (QoS0 fanout, QoS1 claim trigger) must reach every
+%% node that hosts clients, replicants included - but only nodes that can serve
+%% the cast: a node that just joined the cluster and is still syncing and
+%% starting the plugin has not loaded emqx_bcast_pull_shard yet, and the cast
+%% then dies as `{undef, [{emqx_bcast_pull_shard, qos1_core_trigger_local, ...}]}`
+%% in a spawned process on that node - logged there, invisible to the sender.
+%% Skipping that node costs nothing: the trigger is re-sent by the next
+%% request, and by then the node is either ready or still not serving.
+plugin_running_nodes() ->
+    [
+        N
+     || N <- running_nodes_list(),
+        N =:= node() orelse plugin_present(N)
+    ].
+
+running_nodes_list() ->
+    try emqx:running_nodes() of
+        [] -> [node()];
+        Nodes -> Nodes
+    catch
+        _:_ -> [node()]
+    end.
 
 mria_core_nodes() ->
     try mria_membership:running_core_nodelist() of

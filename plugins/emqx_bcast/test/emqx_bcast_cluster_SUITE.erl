@@ -511,3 +511,52 @@ all_partitions_active(Node, Shards) ->
         end,
         Shards
     ).
+
+-doc "A claim trigger must arm a client that connected while this node's\n"
+"plugin was not running. A node that has just joined the cluster is still\n"
+"syncing and starting the plugin, and a node that receives evacuated clients\n"
+"can host them before its plugin is ready: both have no registry entry for\n"
+"those clients, and the deliveries used to stay queued until the client's next\n"
+"keepalive (minutes at a 600s keepalive, and forever if it never pings).".
+t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
+    DN = <<"cl_arm_dn">>,
+    PK = <<"default">>,
+    %% N2's plugin goes away, the client attaches there, and only then does the
+    %% plugin come back: exactly the window the rolling upgrade passes through.
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    %% The readiness probe is cached for a few seconds, so give it time to
+    %% notice that the node stopped serving.
+    NotServing = wait_until(
+        fun() -> not lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, [])) end, 50
+    ),
+    ?assert(NotServing),
+    C = connect(N2, DN),
+    sub(C, topic(DN)),
+    Subscribed = wait_until(fun() -> node_client_subscribed(N2, DN, topic(DN)) end, 50),
+    ?assert(Subscribed),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
+    Ready = wait_until(
+        fun() -> lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, [])) end, 50
+    ),
+    ?assert(Ready),
+    %% The plugin never saw the connect or the subscribe of this client.
+    ?assertEqual(0, erpc:call(N2, ets, info, [bcast_device_registry, size])),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => PK,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    %% One trigger is enough: the node verifies the client locally, arms it and
+    %% claims its deliveries instead of skipping the device silently.
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
+    ?assert(
+        wait_until(fun() -> node_metric(N2, <<"batch_pub_qos1_armed_on_trigger">>) > 0 end, 50)
+    ),
+    ?assert(erpc:call(N2, ets, info, [bcast_device_registry, size]) > 0),
+    emqtt:stop(C).
