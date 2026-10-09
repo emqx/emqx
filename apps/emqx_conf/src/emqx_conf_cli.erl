@@ -51,6 +51,7 @@
 -define(namespace, namespace).
 -define(path, path).
 -define(raw_config, raw_config).
+-define(redact, redact).
 -define(single_arg, single_arg).
 -define(vararg, vararg).
 
@@ -89,10 +90,8 @@ conf(["show_keys" | _]) ->
     print_keys(keys());
 conf(["show" | Args]) ->
     case show_args(Args) of
-        {ok, #{?key := all, ?namespace := Namespace}} ->
-            print_hocon(get_config_namespaced(Namespace));
-        {ok, #{?key := Key, ?namespace := Namespace}} ->
-            print_hocon(get_config_namespaced(Namespace, Key));
+        {ok, #{?key := Key, ?namespace := Namespace, ?redact := Redact}} ->
+            print_show_output(read_config_for_output(Namespace, Key, Redact), Redact);
         {error, Reason} = Error ->
             print_error(Reason),
             conf_usage(),
@@ -279,9 +278,14 @@ usage_conf() ->
         {"----------------------------------", "------------"},
         {"conf show_keys", "print all the currently used configuration keys."},
         {"----------------------------------", "------------"},
-        {"conf show [--namespace <ns>] [<key>]",
+        {"conf show [--namespace <ns>] [--no-secret-redaction] [<key>]",
             "Print in-use configs (including default values) under the given key."},
         {"", "Print ALL keys if key is not provided"},
+        {"", "Sensitive values are redacted by default."},
+        {"",
+            "Use the --no-secret-redaction flag to export a configuration that can be loaded back."},
+        {"", "Exports exclude hidden roots and keep `file://` references without their contents;"},
+        {"", "store exported configurations as secrets."},
         NamespaceOptLine,
         {"----------------------------------", "------------"},
         {"conf load [--namespace <ns>] --replace|--merge <path>",
@@ -382,12 +386,24 @@ print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_utils_json:best_effort_json(Json)]).
 
 print_hocon(Hocon) when is_map(Hocon) ->
-    %% Keep secrets intact because `conf show` output is intended to be usable as a configuration backup.
     emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]);
 print_hocon(undefined) ->
     emqx_ctl:print("No value~n", []);
 print_hocon({error, Error}) ->
     emqx_ctl:warning("~ts~n", [Error]).
+
+print_show_output(Result, Redact) ->
+    print_show_notice(Result, Redact),
+    print_hocon(Result).
+
+%% The notice is a HOCON comment so that the whole output remains a valid HOCON document.
+%% `conf load` does not de-obfuscate, so a redacted export cannot be loaded back.
+print_show_notice(Conf, true) when is_map(Conf) ->
+    emqx_ctl:print(
+        "# Sensitive values are redacted; use --no-secret-redaction to export them unchanged.~n"
+    );
+print_show_notice(_Result, _Redact) ->
+    ok.
 
 %% Deprecated RPC target (`emqx_conf_proto_v{3,4}`)
 get_config() ->
@@ -398,14 +414,25 @@ get_config(Key) ->
     get_config_namespaced(?global_ns, Key).
 
 get_config_namespaced(Namespace) ->
-    AllConf = fill_defaults(get_raw_config(Namespace, [], #{})),
-    drop_hidden_roots(AllConf).
+    read_config_for_output(Namespace, all, false).
 
 get_config_namespaced(Namespace, Key) ->
+    read_config_for_output(Namespace, Key, false).
+
+%% `all' (atom) selects the whole config, a binary selects the single root key it names.
+read_config_for_output(Namespace, all, Redact) ->
+    AllConf = fill_defaults(get_raw_config(Namespace, [], #{}), Redact),
+    maybe_redact(Redact, drop_hidden_roots(AllConf));
+read_config_for_output(Namespace, Key, Redact) ->
     case get_raw_config(Namespace, [Key], undefined) of
         undefined -> {error, "key_not_found"};
-        Value -> fill_defaults(#{Key => Value})
+        Value -> maybe_redact(Redact, fill_defaults(#{Key => Value}, Redact))
     end.
+
+maybe_redact(false, Conf) ->
+    Conf;
+maybe_redact(true, Conf) ->
+    emqx_utils:redact(Conf).
 
 get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
     emqx:get_raw_namespaced_config(Namespace, KeyPath, Default);
@@ -920,8 +947,12 @@ do_merge_conf(_OldConf, NewConf) ->
     NewConf.
 
 fill_defaults(Conf) ->
-    Conf1 = emqx_config:fill_defaults(Conf),
-    filter_cluster_conf(Conf1).
+    fill_defaults(Conf, false).
+
+%% `Redact' obfuscates the sensitive schema fields while defaults are filled in.
+fill_defaults(Conf, Redact) ->
+    Opts = #{obfuscate_sensitive_values => Redact},
+    filter_cluster_conf(emqx_config:fill_defaults(Conf, Opts)).
 
 -define(ALL_STRATEGY, [<<"manual">>, <<"static">>, <<"dns">>, <<"etcd">>, <<"k8s">>]).
 
@@ -1330,19 +1361,20 @@ remove_identical_value(New, Old) ->
 show_args(Args) ->
     maybe
         {ok, Collected} ?= collect_conf_args(Args),
+        Namespace = maps:get("--namespace", Collected, ?global_ns),
+        Redact = maps:get(?redact, Collected, true),
         case Collected of
             #{?single_arg := Key} ->
-                Namespace = maps:get("--namespace", Collected, ?global_ns),
-                {ok, #{?key => Key, ?namespace => Namespace}};
+                {ok, #{?key => Key, ?namespace => Namespace, ?redact => Redact}};
             #{} ->
-                Namespace = maps:get("--namespace", Collected, ?global_ns),
-                {ok, #{?key => all, ?namespace => Namespace}}
+                {ok, #{?key => all, ?namespace => Namespace, ?redact => Redact}}
         end
     end.
 
 load_args(Args) ->
     maybe
         {ok, Collected} ?= collect_conf_args(Args),
+        ok ?= reject_secret_redaction_flag(Collected),
         #{?single_arg := Path} = Collected,
         Namespace = maps:get("--namespace", Collected, ?global_ns),
         Mode = maps:get(?mode, Collected, merge),
@@ -1353,10 +1385,17 @@ load_args(Args) ->
 remove_args(Args) ->
     maybe
         {ok, Collected} ?= collect_conf_args(Args),
+        ok ?= reject_secret_redaction_flag(Collected),
         #{?single_arg := Path} = Collected,
         Namespace = maps:get("--namespace", Collected, ?global_ns),
         {ok, #{?path => Path, ?namespace => Namespace}}
     end.
+
+%% `--no-secret-redaction` only selects the output of `conf show`.
+reject_secret_redaction_flag(#{?redact := false}) ->
+    {error, "bad arguments: --no-secret-redaction is not supported by this command"};
+reject_secret_redaction_flag(_Collected) ->
+    ok.
 
 collect_conf_args(Args) ->
     do_collect_conf_args(Args, #{}).
@@ -1369,6 +1408,8 @@ do_collect_conf_args(["--merge" | Rest], Acc) ->
 do_collect_conf_args(["--replace" | Rest], Acc) ->
     do_collect_conf_args(Rest, Acc#{?mode => replace});
 %% Common
+do_collect_conf_args(["--no-secret-redaction" | Rest], Acc) ->
+    do_collect_conf_args(Rest, Acc#{?redact => false});
 do_collect_conf_args([KeyOrPath], Acc) when KeyOrPath /= "--namespace" ->
     do_collect_conf_args([], Acc#{?single_arg => bin(KeyOrPath)});
 do_collect_conf_args(["--namespace", Namespace | Rest], Acc) ->
