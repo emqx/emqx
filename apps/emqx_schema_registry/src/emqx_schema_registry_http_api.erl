@@ -91,7 +91,7 @@ schema("/schema_registry") ->
                             emqx_schema_registry_schema:api_schema("post"),
                             post_examples()
                         ),
-                    400 => error_schema('ALREADY_EXISTS', ?DESC("schema_already_exists"))
+                    400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTS', 'BAD_REQUEST'])
                 }
         }
     };
@@ -113,7 +113,8 @@ schema("/schema_registry_protobuf/bundle") ->
                     400 => emqx_dashboard_swagger:error_codes(
                         [
                             'ALREADY_EXISTS',
-                            'BAD_FORM_DATA'
+                            'BAD_FORM_DATA',
+                            'BAD_REQUEST'
                         ]
                     )
                 }
@@ -130,7 +131,7 @@ schema("/schema_registry_protobuf/bundle") ->
                             put_examples()
                         ),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found")),
-                    400 => emqx_dashboard_swagger:error_codes(['BAD_FORM_DATA'])
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_FORM_DATA', 'BAD_REQUEST'])
                 }
         }
     };
@@ -166,6 +167,7 @@ schema("/schema_registry/:name") ->
                             emqx_schema_registry_schema:api_schema("put"),
                             post_examples()
                         ),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
@@ -176,6 +178,7 @@ schema("/schema_registry/:name") ->
             responses =>
                 #{
                     204 => ?DESC("schema_deleted"),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         }
@@ -214,7 +217,7 @@ schema("/schema_registry_external") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(get)
                         ),
-                    400 => error_schema('ALREADY_EXISTS', ?DESC("schema_already_exists"))
+                    400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTS', 'BAD_REQUEST'])
                 }
         }
     };
@@ -250,6 +253,7 @@ schema("/schema_registry_external/registry/:name") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(put)
                         ),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
@@ -257,7 +261,10 @@ schema("/schema_registry_external/registry/:name") ->
             tags => ?TAGS,
             description => ?DESC("external_registry_delete"),
             parameters => [param_path_external_registry_name()],
-            responses => #{204 => ?DESC("deleted")}
+            responses => #{
+                204 => ?DESC("deleted"),
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
+            }
         }
     }.
 
