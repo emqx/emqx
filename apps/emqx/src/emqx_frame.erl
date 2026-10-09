@@ -214,12 +214,14 @@ parse_remaining_len(
     0,
     Options
 ) ->
+    ok = check_packet_size(2, Options),
     Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
     {ok, Packet, Rest, ?NONE(Options)};
 %% Match PINGREQ.
 parse_remaining_len(
     <<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?PINGREQ}, 1, 0, Options
 ) ->
+    ok = check_packet_size(2, Options),
     parse_frame(Rest, Header, 0, Options);
 parse_remaining_len(
     <<0:8, _Rest/binary>>, _Header = #mqtt_packet_header{type = ?PINGRESP}, 1, 0, _Options
@@ -232,6 +234,7 @@ parse_remaining_len(
     ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Header#mqtt_packet_header.type});
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
+    ok = check_packet_size(4, Options),
     parse_frame(Rest, Header, 2, Options);
 parse_remaining_len(<<1:1, _Len:7, _Rest/binary>>, _Header, Multiplier, _Value, _Options) when
     Multiplier > ?MULTIPLIER_MAX
@@ -244,13 +247,32 @@ parse_remaining_len(
     Header,
     Multiplier,
     Value,
-    Options = #{max_size := MaxSize}
+    Options
 ) ->
     FrameLen = Value + Len * Multiplier,
-    case FrameLen > MaxSize of
-        true -> ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
-        false -> parse_frame(Rest, Header, FrameLen, Options)
-    end.
+    %% Maximum Packet Size includes the control byte and every encoded
+    %% Remaining Length byte, including those received in earlier chunks.
+    PacketSize = 1 + remaining_len_size(Multiplier) + FrameLen,
+    ok = check_packet_size(PacketSize, Options),
+    parse_frame(Rest, Header, FrameLen, Options).
+
+-compile({inline, [remaining_len_size/1]}).
+remaining_len_size(1) ->
+    1;
+remaining_len_size(16#80) ->
+    2;
+remaining_len_size(16#4000) ->
+    3;
+remaining_len_size(16#200000) ->
+    4;
+remaining_len_size(_Multiplier) ->
+    ?PARSE_ERR(malformed_variable_byte_integer).
+
+-compile({inline, [check_packet_size/2]}).
+check_packet_size(Size, #{max_size := MaxSize}) when Size > MaxSize ->
+    ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => Size});
+check_packet_size(_Size, _Options) ->
+    ok.
 
 body_bytes(B) when is_binary(B) -> size(B);
 body_bytes(?Q(Bytes, _)) -> Bytes.

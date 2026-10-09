@@ -1321,3 +1321,142 @@ t_share_subscribe_no_local(Config) ->
     end,
 
     process_flag(trap_exit, false).
+
+t_PUBLISH_packet_size_limit(init, Config) ->
+    MQTT = emqx_config:get_zone_conf(default, [mqtt]),
+    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], 128),
+    emqx_config:put_zone_conf(default, [mqtt, strict_mode], true),
+    [{saved_mqtt, MQTT} | Config];
+t_PUBLISH_packet_size_limit('end', Config) ->
+    emqx_config:put_zone_conf(default, [mqtt], ?config(saved_mqtt, Config)).
+
+t_PUBLISH_packet_size_limit(Config) ->
+    %% Given a broker advertising Maximum Packet Size 128 and a QoS 1 subscriber
+    %% whose receive limit allows it to observe an oversized packet if forwarded.
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"size">>,
+    {ok, Sub} = emqtt:start_link([
+        {proto_ver, v5},
+        {properties, #{'Maximum-Packet-Size' => 1024}}
+        | Config
+    ]),
+    try
+        {ok, _} = emqtt:ConnFun(Sub),
+        {ok, _, [?QOS_1]} = emqtt:subscribe(Sub, Topic, qos1),
+        {ok, Pub} = emqtt:start_link([{proto_ver, v5} | Config]),
+        unlink(Pub),
+        Ref = monitor(process, Pub),
+        try
+            {ok, Props} = emqtt:ConnFun(Pub),
+            ?assertMatch(#{'Maximum-Packet-Size' := 128}, Props),
+            %% When the publisher sends a packet exactly at the limit.
+            AtLimit = binary:copy(<<"x">>, 117),
+            ?assertEqual(
+                128,
+                iolist_size(
+                    emqx_frame:serialize(
+                        ?PUBLISH_PACKET(?QOS_1, Topic, 1, AtLimit), ?MQTT_PROTO_V5
+                    )
+                )
+            ),
+            %% Then the broker acknowledges and delivers it.
+            ?assertMatch({ok, _}, emqtt:publish(Pub, Topic, AtLimit, ?QOS_1)),
+            ?assertReceive({publish, #{client_pid := Sub, topic := Topic, payload := AtLimit}}),
+            %% When the next packet is 129 bytes, with Remaining Length 127.
+            TooLarge = binary:copy(<<"x">>, 118),
+            ?assertEqual(
+                <<16#32, 16#7f, 0, 4, "size", 0, 7, 0, TooLarge/binary>>,
+                iolist_to_binary(
+                    emqx_frame:serialize(
+                        ?PUBLISH_PACKET(?QOS_1, Topic, 7, TooLarge), ?MQTT_PROTO_V5
+                    )
+                )
+            ),
+            Result = emqtt:publish(Pub, Topic, TooLarge, ?QOS_1),
+            %% Then the subscriber remains connected but receives no oversized publication.
+            ?assertEqual(pong, emqtt:ping(Sub)),
+            ?assertNotReceive(
+                {publish, #{client_pid := Sub, topic := Topic, payload := TooLarge}},
+                1000
+            ),
+            %% And the publisher is disconnected, optionally with Packet Too Large,
+            %% without receiving a successful acknowledgement.
+            case Result of
+                {error, tcp_closed} -> ok;
+                _ -> ?assertMatch({error, {disconnected, ?RC_PACKET_TOO_LARGE, _}}, Result)
+            end,
+            ?assertReceive({'DOWN', Ref, process, Pub, _}, 3000)
+        after
+            demonitor(Ref, [flush]),
+            catch emqtt:stop(Pub)
+        end
+    after
+        catch emqtt:stop(Sub)
+    end.
+
+t_deliver_packet_size_limit(init, Config) ->
+    MQTT = emqx_config:get_zone_conf(default, [mqtt]),
+    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], 1024),
+    [{saved_mqtt, MQTT} | Config];
+t_deliver_packet_size_limit('end', Config) ->
+    emqx_config:put_zone_conf(default, [mqtt], ?config(saved_mqtt, Config)).
+
+t_deliver_packet_size_limit(Config) ->
+    %% Given a subscriber with Maximum Packet Size 128 and a broker accepting up to 1024.
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"size">>,
+    {ok, Sub} = emqtt:start_link([
+        {proto_ver, v5},
+        {properties, #{'Maximum-Packet-Size' => 128}}
+        | Config
+    ]),
+    try
+        {ok, _} = emqtt:ConnFun(Sub),
+        {ok, _, [?QOS_1]} = emqtt:subscribe(Sub, Topic, qos1),
+        {ok, Pub} = emqtt:start_link([{proto_ver, v5} | Config]),
+        try
+            {ok, Props} = emqtt:ConnFun(Pub),
+            ?assertMatch(#{'Maximum-Packet-Size' := 1024}, Props),
+            %% When a 127-byte publication is sent, below the subscriber's limit.
+            BelowLimit = binary:copy(<<"x">>, 116),
+            ?assertEqual(
+                127,
+                iolist_size(
+                    emqx_frame:serialize(
+                        ?PUBLISH_PACKET(?QOS_1, Topic, 1, BelowLimit), ?MQTT_PROTO_V5
+                    )
+                )
+            ),
+            ?assertMatch({ok, _}, emqtt:publish(Pub, Topic, BelowLimit, ?QOS_1)),
+            %% Then the subscriber receives it.
+            ?assertReceive({publish, #{client_pid := Sub, topic := Topic, payload := BelowLimit}}),
+            %% When a 129-byte publication exceeds only the subscriber's limit.
+            TooLarge = binary:copy(<<"x">>, 118),
+            ?assertEqual(
+                129,
+                iolist_size(
+                    emqx_frame:serialize(
+                        ?PUBLISH_PACKET(?QOS_1, Topic, 2, TooLarge), ?MQTT_PROTO_V5
+                    )
+                )
+            ),
+            ?assertMatch({ok, _}, emqtt:publish(Pub, Topic, TooLarge, ?QOS_1)),
+            %% Then the subscriber remains connected but never receives the oversized message.
+            ?assertEqual(pong, emqtt:ping(Sub)),
+            ?assertNotReceive(
+                {publish, #{client_pid := Sub, topic := Topic, payload := TooLarge}},
+                1000
+            ),
+            ClientId = client_info(clientid, Sub),
+            [ChanPid] = emqx_cm:lookup_channels(ClientId),
+            ConnMod = emqx_cm:do_get_chann_conn_mod(ClientId, ChanPid),
+            ?assertMatch(
+                #{'send_msg.dropped.too_large' := 1},
+                maps:from_list(ConnMod:stats(ChanPid))
+            )
+        after
+            catch emqtt:stop(Pub)
+        end
+    after
+        catch emqtt:stop(Sub)
+    end.
