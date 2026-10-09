@@ -259,6 +259,96 @@ t_safe_publish_compatibility(_Config) ->
     ?assertEqual([], emqx_broker:safe_publish(Msg)),
     ?assertEqual({ok, [], Msg}, emqx_broker:safe_publish2(Msg)).
 
+-doc """
+A message a publish hook marks as consumed is counted in `messages.consumed`
+instead of being dropped when no subscriber receives it, including on a stale
+route, and is still delivered to subscribers.
+""".
+t_message_consumed({init, Config}) ->
+    Config;
+t_message_consumed({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, mark_message_consumed}),
+    emqx_hooks:del('message.dropped', {?MODULE, notify_dropped});
+t_message_consumed(_Config) ->
+    Topic = <<"t_message_consumed">>,
+    Msg = emqx_message:make(?MODULE, 1, Topic, <<"payload">>),
+    Consumed = emqx_message:set_consumed(Msg),
+    ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_consumed, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('message.dropped', {?MODULE, notify_dropped, [self()]}, ?HP_LOWEST),
+
+    %% No route: counted as consumed, not dropped.
+    Counters0 = consumed_counters(),
+    ?assertEqual({ok, [consumed], Consumed}, emqx_broker:publish2(Msg)),
+    ?assertEqual(bump(consumed, Counters0), consumed_counters()),
+    ?assertNot(dropped_hook_ran()),
+
+    %% A stale route: dispatched to nobody, counted as consumed, not dropped.
+    ok = emqx_router:do_add_route(Topic, node()),
+    Counters1 = consumed_counters(),
+    Node = node(),
+    ?assertEqual(
+        {ok, [{Node, Topic, {error, no_subscribers}}, consumed], Consumed},
+        emqx_broker:publish2(Msg)
+    ),
+    ?assertEqual(bump(consumed, Counters1), consumed_counters()),
+    ?assertNot(dropped_hook_ran()),
+    ok = emqx_router:do_delete_route(Topic, node()),
+
+    %% A consumed message still reaches matching subscribers and is not counted.
+    ok = emqx_broker:subscribe(Topic),
+    Counters2 = consumed_counters(),
+    ?assertMatch({ok, [{_, Topic, {ok, 1}}, consumed], Consumed}, emqx_broker:publish2(Msg)),
+    receive
+        {deliver, Topic, #message{payload = <<"payload">>}} -> ok
+    after 1000 ->
+        ct:fail(message_not_delivered)
+    end,
+    ?assertEqual(Counters2, consumed_counters()),
+    ok = emqx_broker:unsubscribe(Topic),
+
+    %% A persisted message without a route is not counted as consumed. It uses
+    %% another topic, since the route of the unsubscribed one is removed
+    %% asynchronously.
+    Counters3 = consumed_counters(),
+    Persisted = emqx_message:set_header(
+        message_persisted, true, Msg#message{topic = <<"t_message_consumed/persisted">>}
+    ),
+    ?assertEqual(
+        {ok, [consumed, persisted], emqx_message:set_consumed(Persisted)},
+        emqx_broker:publish2(Persisted)
+    ),
+    ?assertEqual(Counters3, consumed_counters()),
+
+    %% Publish rejection takes precedence over the consumed mark.
+    Blocked = emqx_message:set_header(allow_publish, false, Msg),
+    ?assertEqual({ok, [], emqx_message:set_consumed(Blocked)}, emqx_broker:publish2(Blocked)),
+    ?assertEqual(Counters3, consumed_counters()).
+
+mark_message_consumed(Message) ->
+    {ok, emqx_message:set_consumed(Message)}.
+
+notify_dropped(Message, _ByNode, Reason, Pid) ->
+    Pid ! {dropped, Message, Reason},
+    ok.
+
+%% The message.dropped hook runs inside publish, so its notification is
+%% already in the mailbox when publish returns.
+dropped_hook_ran() ->
+    receive
+        {dropped, _, _} -> true
+    after 0 -> false
+    end.
+
+consumed_counters() ->
+    #{
+        consumed => emqx_metrics:val_global('messages.consumed'),
+        dropped => emqx_metrics:val_global('messages.dropped'),
+        no_subscribers => emqx_metrics:val_global('messages.dropped.no_subscribers')
+    }.
+
+bump(Key, Counters) ->
+    maps:update_with(Key, fun(V) -> V + 1 end, Counters).
+
 t_stats_fun({init, Config}) ->
     ok = emqx_stats:reset(),
     Config;

@@ -195,19 +195,26 @@ on_alarm_deactivated(AlarmDeactivatedContext, Conf) ->
 on_message_publish(Message = #message{}, _Conf) ->
     case ignore_sys_message(Message) of
         true ->
-            ok;
+            {ok, Message};
         false ->
             case get_rules_for_topic(Message) of
                 [] ->
-                    ok;
+                    {ok, Message};
                 EnrichedRules ->
                     %% ENVs are the fields that can't be refereced by the SQL, but can be used
                     %% from actions. e.g. The 'headers' field in the internal record `#message{}`.
                     {Columns, Envs} = eventmsg_publish(Message),
-                    emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
+                    Namespace = get_namespace_from_message(Message),
+                    case
+                        emqx_rule_runtime:apply_publish_rules(
+                            EnrichedRules, Columns, Envs, Namespace
+                        )
+                    of
+                        true -> {ok, emqx_message:set_consumed(Message)};
+                        false -> {ok, Message}
+                    end
             end
-    end,
-    {ok, Message}.
+    end.
 
 on_bridge_message_received(Message, Namespace, Conf = #{event_topic := BridgeTopic}) ->
     apply_event_namespaced(
