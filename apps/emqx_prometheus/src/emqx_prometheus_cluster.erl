@@ -63,6 +63,7 @@ raw_data_ns(Module, Namespace, Mode) ->
     RPCResults0 = emqx_prometheus_proto_v3:raw_prom_data(
         Nodes, Module, fetch_namespaced_metrics_v1, [Namespace, Mode], Timeout
     ),
+    ok = log_skipped_nodes(Module, Nodes, RPCResults0),
     {InitAcc, RPCResults} = initial_acc(RPCResults0, Module),
     Metrics =
         case Mode of
@@ -168,13 +169,7 @@ deep_sum(Metric, MetricAcc) when is_map(Metric) andalso is_map(MetricAcc) ->
 deep_sum(Metric, MetricAcc) when
     is_list(Metric) andalso is_list(MetricAcc) andalso length(Metric) == length(MetricAcc)
 ->
-    lists:zipwith(
-        fun(V1, V2) ->
-            deep_sum(V1, V2)
-        end,
-        Metric,
-        MetricAcc
-    );
+    lists:zipwith(fun deep_sum/2, Metric, MetricAcc);
 deep_sum(Metric, MetricAcc) when
     is_tuple(Metric) andalso is_tuple(MetricAcc) andalso tuple_size(Metric) == tuple_size(MetricAcc) andalso
         tuple_size(Metric) > 0 andalso element(1, Metric) == element(1, MetricAcc)
@@ -238,3 +233,41 @@ status_to_number(_) -> 0.
 
 metric_names(MetricWithType) when is_list(MetricWithType) ->
     [Name || {Name, _Type} <- MetricWithType].
+
+%% A node whose namespaced metrics call could not be used is skipped so
+%% one bad peer does not fail the whole scrape.  Reports are bounded to
+%% node and failure class: never the raw reason, a collection, a topic
+%% filter or credential data.  The node comes from the node list, since
+%% `erpc:multicall/5' answers positionally and its error terms carry no
+%% node; a collaborator answering with a different length is tolerated.
+log_skipped_nodes(Module, [Node | Nodes], [Result | Results]) ->
+    maybe_log_skipped_node(Module, Node, Result),
+    log_skipped_nodes(Module, Nodes, Results);
+log_skipped_nodes(_Module, _Nodes, _Results) ->
+    ok.
+
+maybe_log_skipped_node(_Module, _Node, {ok, _Result}) ->
+    ok;
+maybe_log_skipped_node(Module, Node, {Class, Reason}) when
+    Class =:= error; Class =:= exit; Class =:= throw
+->
+    ?SLOG(warning, #{
+        msg => "prometheus_namespaced_metrics_node_skipped",
+        collector => Module,
+        node => Node,
+        class => failure_class(Reason)
+    });
+maybe_log_skipped_node(_Module, _Node, _Unexpected) ->
+    ok.
+
+%% Coarse class only: the raw reason can embed internal function names
+%% and their arguments.
+failure_class({exception, undef, _}) -> unsupported;
+failure_class({undef, _}) -> unsupported;
+failure_class({erpc, noconnection}) -> unreachable;
+failure_class({erpc, timeout}) -> timeout;
+failure_class({signal, Reason}) -> failure_class(Reason);
+failure_class({nodedown, _}) -> unreachable;
+failure_class(nodedown) -> unreachable;
+failure_class(noconnection) -> unreachable;
+failure_class(_) -> error.
