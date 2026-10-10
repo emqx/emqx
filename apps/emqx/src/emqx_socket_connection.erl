@@ -383,11 +383,16 @@ run_loop(
     emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
+    %% A nowait recv that returns data also arms the next read select.
+    _ = socket:setopt(Socket, {otp, select_read}, true),
     %% Not possible to get {select, {Info, Partial}} because length is 0
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             NState = start_idle_timer(State),
             handle_recv({recv_more, Data}, Parent, NState);
+        {select_read, {_SelectInfo, Data}} ->
+            NState = start_idle_timer(State),
+            handle_recv({recv_armed, Data}, Parent, NState);
         {select, _SelectInfo} ->
             NState = start_idle_timer(State),
             hibernate(Parent, NState);
@@ -647,6 +652,8 @@ handle_msg({recv, Data}, State) ->
     handle_data(Data, false, State);
 handle_msg({recv_more, Data}, State) ->
     handle_data(Data, true, State);
+handle_msg({recv_armed, Data}, State) ->
+    handle_data(Data, armed, State);
 handle_msg({request_more_data, More}, State = #state{socket = Socket, sockstate = SS}) ->
     case SS =/= closed of
         true ->
@@ -888,10 +895,25 @@ handle_data(
         gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
-    NeedMore = RequestMore andalso SS =/= closed,
-    Tail = [{request_more_data, More} || NeedMore],
+    Tail = request_more_data_msgs(RequestMore, More, SS),
     Msgs = next_incoming_msgs(Tail, Packets),
     {ok, Msgs, State}.
+
+%% `RequestMore':
+%% - `true': the last read did not arm a select, so read again.
+%% - `false': a select is armed, wait for it.
+%% - `armed': a select is armed. When the parser is inside a packet body and
+%%   knows how many bytes it still needs, read them now with one call of that
+%%   length. Otherwise wait for the select.
+-compile({inline, [request_more_data_msgs/3]}).
+request_more_data_msgs(_RequestMore, _More, closed) ->
+    [];
+request_more_data_msgs(true, More, _SS) ->
+    [{request_more_data, More}];
+request_more_data_msgs(armed, More, _SS) when is_integer(More), More > 0 ->
+    [{request_more_data, More}];
+request_more_data_msgs(_RequestMore, _More, _SS) ->
+    [].
 
 %% Dialyzer warns that {error, {closed, DataMore}} can never match, but this pattern
 %% can occur at runtime in OTP 27 or under certain error conditions where the socket
@@ -899,10 +921,11 @@ handle_data(
 -dialyzer({nowarn_function, request_more_data/3}).
 -compile({inline, [request_more_data/3]}).
 request_more_data(Socket, More, State) ->
-    %% TODO: `{otp, select_read}`.
     case sock_async_recv(Socket, More) of
         {ok, DataMore} ->
             {ok, {recv_more, DataMore}, State};
+        {select_read, {_Info, DataMore}} ->
+            {ok, {recv_armed, DataMore}, State};
         {select, {_Info, DataMore}} ->
             {ok, {recv, DataMore}, State};
         {select, _Info} ->
@@ -935,6 +958,8 @@ handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             handle_data(Data, true, State);
+        {select_read, {_Info, Data}} ->
+            handle_data(Data, armed, State);
         {select, {_Info, Data}} ->
             handle_data(Data, false, State);
         {select, _Info} ->
