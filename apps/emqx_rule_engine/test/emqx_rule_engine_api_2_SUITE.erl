@@ -3350,15 +3350,12 @@ t_limit_selects_in_namespace(TCConfig0) when is_list(TCConfig0) ->
             ],
             #{override_to => cluster}
         ),
-        %% N.B.: in 6.0.x, we don't have the `namespace_as_mountpoint` config, so we have
-        %% to set it in the listener.  We should switch here to using the new config when
-        %% syncing this to 6.1+.
         {ok, _} = emqx_conf:update(
-            [listeners, tcp, default, mountpoint],
-            <<"${client_attrs.tns}/">>,
+            [mqtt, namespace_as_mountpoint],
+            true,
             #{override_to => cluster}
         ),
-        ok = emqx_listeners:restart_listener('tcp:default')
+        ok
     end),
 
     {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),

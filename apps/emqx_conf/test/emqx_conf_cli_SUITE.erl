@@ -248,6 +248,70 @@ t_reload_etc_emqx_conf_not_persistent(Config) ->
     ),
     ok.
 
+-doc """
+`conf reload` that fails to update a root on the local node prints the
+effective config, the attempted config and the reason, and returns an error.
+""".
+t_reload_local_update_error(Config) ->
+    Listeners = #{
+        <<"listeners">> => #{
+            <<"ssl">> => #{<<"default">> => #{<<"ssl_options">> => #{<<"keyfile">> => <<"">>}}}
+        }
+    },
+    ConfBin = hocon_pp:do(maps:merge(base_conf(), Listeners), #{}),
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
+    application:set_env(emqx, config_files, [ConfFile]),
+    {Res, Prints} = capture(fun() -> emqx_conf_cli:conf(["reload"]) end),
+    ?assertMatch({error, [{<<"listeners">>, {error, _}}]}, Res),
+    Output = iolist_to_binary(Prints),
+    ?assertNotEqual(nomatch, binary:match(Output, <<"The effective configurations:">>), Output),
+    ?assertNotEqual(nomatch, binary:match(Output, <<"Try to merge with:">>), Output),
+    ?assertNotEqual(
+        nomatch, binary:match(Output, <<"Can't merge the new configurations!">>), Output
+    ),
+    ?assertNotEqual(
+        nomatch, binary:match(Output, <<"pem_file_path_or_string_is_required">>), Output
+    ),
+    ok.
+
+-doc """
+`conf reload` that updates a root on the local node reports the node name,
+not `cluster`.
+""".
+t_reload_local_update_ok_prints_node(Config) ->
+    Mqtt = emqx_conf:get_raw([mqtt]),
+    Conf = (base_conf())#{<<"mqtt">> => Mqtt},
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, hocon_pp:do(Conf, #{}), Config),
+    application:set_env(emqx, config_files, [ConfFile]),
+    {Res, Prints} = capture(fun() -> emqx_conf_cli:conf(["reload"]) end),
+    ?assertEqual(ok, Res),
+    Output = iolist_to_binary(Prints),
+    Expected = iolist_to_binary(io_lib:format("load mqtt on ~p ok", [node()])),
+    ?assertNotEqual(nomatch, binary:match(Output, Expected), Output),
+    ?assertEqual(nomatch, binary:match(Output, <<"on cluster ok">>), Output),
+    ok.
+
+-doc """
+`conf reload` that fails to update `cluster.links` on the local node prints
+the formatted error and returns it.
+""".
+t_reload_local_cluster_links_error(Config) ->
+    ok = emqx_config_handler:add_handler([cluster, links], ?MODULE),
+    try
+        Base = base_conf(),
+        Cluster = maps:get(<<"cluster">>, Base),
+        Conf = Base#{<<"cluster">> => Cluster#{<<"links">> => []}},
+        ConfFile = prepare_conf_file(?FUNCTION_NAME, hocon_pp:do(Conf, #{}), Config),
+        application:set_env(emqx, config_files, [ConfFile]),
+        {Res, Prints} = capture(fun() -> emqx_conf_cli:conf(["reload"]) end),
+        ?assertMatch({error, <<_/binary>>}, Res),
+        Output = iolist_to_binary(Prints),
+        ?assertNotEqual(nomatch, binary:match(Output, <<"Root key: cluster.links">>), Output),
+        ?assertNotEqual(nomatch, binary:match(Output, <<"rejected_by_test">>), Output)
+    after
+        emqx_config_handler:remove_handler([cluster, links])
+    end.
+
 t_update_cluster_readonly(Config) ->
     ConfBin = hocon_pp:do(
         #{
@@ -456,6 +520,43 @@ t_merge_namespaced_over_namespaced_config(Config) ->
     ),
     ok = load_conf(replace, #{<<"mqtt">> => MqttInit}, Config),
     ok.
+
+-doc """
+A namespaced `conf load --replace` that fails shows the namespace's stored
+config as the effective config, not the global one.
+""".
+t_load_namespaced_replace_error_shows_ns_config(_Config) ->
+    Ns = <<"replace_err_ns">>,
+    ok = emqx_common_test_helpers:seed_defaults_for_all_roots_namespaced_cluster(emqx_schema, Ns),
+    ok = load_ns_conf(Ns, merge, #{<<"mqtt">> => #{<<"max_inflight">> => 77}}),
+    ?assertNotEqual(77, emqx_conf:get([mqtt, max_inflight])),
+    ok = emqx_config_handler:add_handler([mqtt], ?MODULE),
+    try
+        {Res, Prints} = capture(fun() ->
+            load_ns_conf(Ns, replace, #{<<"mqtt">> => #{<<"max_inflight">> => 50}})
+        end),
+        ?assertMatch({error, _}, Res),
+        Output = iolist_to_binary(Prints),
+        ?assertNotEqual(nomatch, binary:match(Output, <<"Root key: mqtt">>), Output),
+        ?assertNotEqual(nomatch, binary:match(Output, <<"max_inflight = 77">>), Output)
+    after
+        emqx_config_handler:remove_handler([mqtt])
+    end.
+
+pre_config_update([cluster, links], _NewConf, _OldConf) ->
+    {error, rejected_by_test};
+pre_config_update([mqtt], _NewConf, _OldConf) ->
+    {error, rejected_by_test}.
+
+%% Return a crash as a value, so that a failed assertion shows its reason.
+capture(Fun) ->
+    emqx_common_test_helpers:capture_io_format(fun() ->
+        try
+            Fun()
+        catch
+            Class:Reason:Stacktrace -> {Class, Reason, Stacktrace}
+        end
+    end).
 
 load_ns_conf(Ns, Mode, Conf) ->
     Bin = iolist_to_binary(hocon_pp:do(Conf, #{})),

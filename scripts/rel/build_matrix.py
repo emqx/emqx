@@ -20,9 +20,10 @@ debugging). Run with ``--github`` it prints ``key=<json-array>`` lines for
 $GITHUB_OUTPUT.
 
 NOTE: the macOS os tokens differ between the two worlds. GitHub runner labels
-(and therefore the workflow matrix) use ``macos-14``; package *filenames*
-produced by scripts/get-distro.sh drop the dash (``macos14``). MAC_OS below
-holds the runner labels; the download-links view strips the dash.
+(and therefore the workflow matrix) contain a dash, such as ``macos-15``;
+package *filenames* produced by scripts/get-distro.sh drop the dash, such as
+``macos15``. MAC_OS below holds the runner labels; the download-links view
+strips the dash.
 """
 
 import json
@@ -48,7 +49,7 @@ LINUX_ARCH = ["amd64", "arm64"]
 LINUX_EXCLUDE = [{"os": "el7", "arch": "arm64"}]
 
 # macOS: runner labels (workflow matrix). Both hosted runners are arm64 today.
-MAC_OS = ["macos-14", "macos-15", "macos-26"]
+MAC_OS = ["macos-15", "macos-26"]
 MAC_ARCH = "arm64"
 
 
@@ -63,7 +64,7 @@ def linux_rows():
 
 
 def mac_rows():
-    """macOS rows in package-filename form (macos14, dash stripped)."""
+    """macOS rows in package-filename form (dash stripped)."""
     return [{"os": os.replace("-", ""), "arch": MAC_ARCH} for os in MAC_OS]
 
 

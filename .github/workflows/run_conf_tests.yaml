@@ -14,8 +14,17 @@ on:
 permissions:
   contents: read
 
+# Every job below sets `timeout-minutes: 30`.
+#
+# The slowest test job measured takes 18 minutes and the 90th percentile is
+# under 10, so 30 minutes is a wide margin. Without it a job inherits the
+# GitHub default of 360 minutes, and a hung suite holds a runner for hours.
+#
+# When a job that passes needs more than 30 minutes, split or refactor the
+# suite. Do not raise the limit.
 jobs:
   run_conf_tests:
+    timeout-minutes: 30
     runs-on: ubuntu-22.04
     container: ${{ inputs.builder }}
     env:
