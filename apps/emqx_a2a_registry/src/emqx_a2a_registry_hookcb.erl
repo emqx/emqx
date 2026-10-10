@@ -46,29 +46,13 @@ unregister_hooks() ->
 %% Hook callbacks
 %%------------------------------------------------------------------------------
 
-on_message_publish(Msg = #message{topic = Topic}) ->
-    case is_a2a_topic(Topic) andalso emqx_a2a_registry_config:is_enabled() of
+on_message_publish(Msg = #message{}) ->
+    case emqx_a2a_registry_config:is_enabled() of
         false ->
             {ok, Msg};
         true ->
             do_on_message_publish(Msg)
     end.
-
-%% True when the first or the second topic level is `$a2a'. This is a cheap pre-check
-%% that never rejects a topic `parse_a2a_discovery_topic/1' accepts.
-is_a2a_topic(Topic) ->
-    starts_with_a2a_level(Topic) orelse starts_with_a2a_level(skip_level(Topic)).
-
-starts_with_a2a_level(Topic) ->
-    Size = byte_size(?A2A_TOPIC_NS),
-    case Topic of
-        <<Level:Size/binary, "/", _/binary>> -> Level =:= ?A2A_TOPIC_NS;
-        _ -> false
-    end.
-
-skip_level(<<"/", Rest/binary>>) -> Rest;
-skip_level(<<_, Rest/binary>>) -> skip_level(Rest);
-skip_level(<<>>) -> <<>>.
 
 do_on_message_publish(Msg = #message{topic = Topic, flags = Flags}) ->
     IsRetained = maps:get(retain, Flags, false),
