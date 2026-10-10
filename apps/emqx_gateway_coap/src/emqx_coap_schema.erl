@@ -103,6 +103,24 @@ fields(coap_blockwise) ->
                     importance => ?IMPORTANCE_LOW
                 }
             )},
+        {max_concurrent_exchanges,
+            sc(
+                pos_integer(),
+                #{
+                    default => 16,
+                    desc => ?DESC(coap_blockwise_max_concurrent_exchanges),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
+        {max_total_size,
+            sc(
+                emqx_schema:bytesize(),
+                #{
+                    default => <<"16MB">>,
+                    desc => ?DESC(coap_blockwise_max_total_size),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {exchange_lifetime,
             sc(
                 emqx_schema:timeout_duration_ms(),
