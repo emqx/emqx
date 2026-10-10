@@ -70,11 +70,6 @@ example_confluent.desc:
 example_confluent.label:
 """Confluent Example"""
 
-schema_already_exists.desc:
-"""Schema already exists."""
-schema_already_exists.label:
-"""Schema Already Exists"""
-
 schema_not_found.desc:
 """Schema not found."""
 schema_not_found.label:
