@@ -9,13 +9,17 @@ feature. Exposes one counter series per (collection, counter) pair
 with labels `name`, `topic_filter`, and `namespace`. Honors the same
 `?mode=` query parameter as the sibling `/prometheus/*` endpoints
 (`node` default, `all_nodes_aggregated`, `all_nodes_unaggregated`),
-implemented via the `emqx_prometheus_cluster` behaviour.
+implemented via the `emqx_prometheus_cluster` behaviour. When
+`collect_ns/2' sets a scope, the rendered row set is limited to that
+owner namespace; otherwise every namespace is rendered.
 
 v2 keeps plain counters only — there are no MMA-derived `.rate`
 series. Consumers compute rates externally using `rate()`.
 """.
 
-%% Cluster fan-out callbacks fan out via emqx_prometheus_proto_v2.
+%% Namespaced reads fan out through `emqx_prometheus_proto_v3'.
+%% `fetch_from_local_node/1' is kept as the proto v2 RPC entry point for
+%% peers that only advertise the older API.
 -behaviour(emqx_prometheus_cluster).
 
 %% prometheus uses this attribute to auto-register collectors.
@@ -29,13 +33,15 @@ series. Consumers compute rates externally using `rate()`.
 -define(REGISTRY, ?PROMETHEUS_TOPIC_METRICS_REGISTRY).
 -define(MG(K, MAP), maps:get(K, MAP)).
 
-%% data-key under which the per-metric points are stored in the
-%% map returned by fetch_from_local_node/1.
+%% data-key under which the per-metric points are stored in the map
+%% returned by `fetch_namespaced_metrics_v1/2' (and by the legacy
+%% `fetch_from_local_node/1' entry point).
 -define(metrics_data_key, topic_metrics_data).
 
 -export([
     registry/0,
-    collect/1
+    collect/1,
+    collect_ns/2
 ]).
 
 %% prometheus_collector callbacks
@@ -49,6 +55,8 @@ series. Consumers compute rates externally using `rate()`.
 -export([
     fetch_from_local_node/1,
     fetch_cluster_consistented_data/0,
+    fetch_namespaced_metrics_v1/2,
+    fetch_cluster_wide_namespaced_metrics/2,
     aggre_or_zip_init_acc/0,
     logic_sum_metrics/0
 ]).
@@ -69,21 +77,56 @@ registry() -> ?REGISTRY.
 
 -spec collect(binary()) -> binary().
 collect(<<"prometheus">>) ->
-    prometheus_text_format:format(?REGISTRY).
+    %% Entry point for callers that render this registry without a
+    %% resolved namespace.  An already selected `?mode=' is preserved so
+    %% the caller keeps getting the mode it asked for.
+    Mode =
+        case ?GET_PROM_DATA_MODE() of
+            undefined -> ?PROM_DATA_MODE__NODE;
+            Selected -> Selected
+        end,
+    collect_ns(all, Mode).
+
+%% Render this registry for one namespace scope: `all' (every owner) or
+%% a concrete owner namespace.  The scope is carried to `collect_mf/2'
+%% in the process dictionary because the prometheus collector callback
+%% arity is fixed.
+-spec collect_ns(all | emqx_config:namespace(), atom()) -> binary().
+collect_ns(Namespace, Mode) ->
+    try
+        ?PUT_PROM_DATA_MODE(Mode),
+        put_namespace_pd(Namespace),
+        prometheus_text_format:format(?REGISTRY)
+    after
+        _ = erase(?PROM_DATA_MODE_KEY__),
+        _ = erase_namespace_pd()
+    end.
 
 %%--------------------------------------------------------------------
 %% emqx_prometheus_cluster callbacks
 %%--------------------------------------------------------------------
 
+%% Legacy proto v2 RPC entry point: that API has no namespace concept,
+%% so it returns points for every namespace.
 fetch_from_local_node(Mode) ->
-    Rows = emqx_topic_metrics2:list(all_ns),
-    {node(), #{
-        ?metrics_data_key => to_points(Mode, Rows)
-    }}.
+    fetch_namespaced_metrics_v1(all, Mode).
 
 %% No cluster-consistent metadata for this endpoint — the row set
 %% is per-node ETS, fan-out happens above us in the framework.
 fetch_cluster_consistented_data() ->
+    #{}.
+
+-spec fetch_namespaced_metrics_v1(all | emqx_config:namespace(), atom()) -> {node(), map()}.
+fetch_namespaced_metrics_v1(Namespace, Mode) ->
+    Rows = emqx_topic_metrics2:list(registry_scope(Namespace)),
+    {node(), #{
+        ?metrics_data_key => to_points(Mode, Rows)
+    }}.
+
+%% Counters are per-node atomics, so there is nothing cluster-wide to
+%% add to the rows collected from each node.
+-spec fetch_cluster_wide_namespaced_metrics(all | emqx_config:namespace(), atom()) -> map().
+fetch_cluster_wide_namespaced_metrics(_Namespace, _Mode) ->
     #{}.
 
 aggre_or_zip_init_acc() ->
@@ -104,7 +147,9 @@ logic_sum_metrics() ->
 deregister_cleanup(_Registry) -> ok.
 
 collect_mf(?REGISTRY, Callback) ->
-    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
+    RawData = emqx_prometheus_cluster:raw_data_ns(
+        ?MODULE, get_namespace_pd(), ?GET_PROM_DATA_MODE()
+    ),
     Points = ?MG(?metrics_data_key, RawData),
     lists:foreach(
         fun(MetricName) ->
@@ -119,6 +164,34 @@ collect_mf(_Registry, _Callback) ->
 
 collect_metrics(MetricName, Points) ->
     counter_metrics(?MG(MetricName, Points)).
+
+%%--------------------------------------------------------------------
+%% Internal — namespace scope
+%%--------------------------------------------------------------------
+
+%% `all' is EMQX's "every namespace" scope, spelled `all_ns' by the
+%% registry API.  A concrete owner (`?global_ns' or a tenant binary) is
+%% passed through as-is: here `?global_ns' means "only global-owned
+%% collections", unlike `emqx_topic_metrics2_api:list_scope/1', which
+%% widens it to `all_ns' for a global admin.
+registry_scope(all) -> all_ns;
+registry_scope(?global_ns) -> ?global_ns;
+registry_scope(Namespace) when is_binary(Namespace) -> Namespace.
+
+put_namespace_pd(Namespace) when
+    is_binary(Namespace);
+    Namespace == ?global_ns;
+    Namespace == all
+->
+    _ = put({?MODULE, ns}, Namespace),
+    ok.
+
+erase_namespace_pd() ->
+    _ = erase({?MODULE, ns}),
+    ok.
+
+get_namespace_pd() ->
+    get({?MODULE, ns}).
 
 %%--------------------------------------------------------------------
 %% Internal — sample construction
