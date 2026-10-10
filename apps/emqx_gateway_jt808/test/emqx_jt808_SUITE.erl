@@ -76,22 +76,6 @@ gateway.jt808 {
 ">>).
 
 %% erlfmt-ignore
--define(CONF_INVALID_AUTH_SERVER, <<"
-gateway.jt808 {
-  listeners.tcp.default {
-    bind = ", ?PORT_STR, "
-  }
-  proto {
-    auth {
-      allow_anonymous = false
-      registry = \"abc://abc\"
-      authentication = \"abc://abc\"
-    }
-  }
-}
-">>).
-
-%% erlfmt-ignore
 -define(CONF_GBK_ENCODING, <<"
 gateway.jt808 {
   listeners.tcp.default {
@@ -135,9 +119,6 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(Case = t_case_invalid_auth_reg_server, Config) ->
-    Apps = boot_apps(Case, ?CONF_INVALID_AUTH_SERVER, Config),
-    [{suite_apps, Apps} | Config];
 init_per_testcase(Case, Config) when
     Case =:= t_case02_anonymous_register_and_auth;
     Case =:= t_jt808_reject_anonymous_auth_with_unregistered_phone
@@ -3313,50 +3294,34 @@ t_case_dl_invalid_msg(_Config) ->
     ok = gen_tcp:close(Socket).
 
 t_case_invalid_auth_reg_server(_Config) ->
-    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
-    %
-    % send REGISTER
-    %
-    Manuf = <<"examp">>,
-    Model = <<"33333333333333333333">>,
-    DevId = <<"1234567">>,
-
-    Color = 3,
-    Plate = <<"ujvl239">>,
-    RegisterPacket =
-        <<58:?WORD, 59:?WORD, Manuf/binary, Model/binary, DevId/binary, Color, Plate/binary>>,
-    MsgId = ?MC_REGISTER,
-    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
-    MsgSn = 78,
-    Size = size(RegisterPacket),
-    Header =
-        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
-            MsgSn:?WORD>>,
-    S1 = gen_packet(Header, RegisterPacket),
-
-    %% Send REGISTER Packet
-    ok = gen_tcp:send(Socket, S1),
-    %% Receive REGISTER_ACK Packet
-    {ok, RecvPacket} = gen_tcp:recv(Socket, 0, 50_000),
-
-    %% No AuthCode when register failed
-    AuthCode = <<>>,
-
-    AckPacket = <<MsgSn:?WORD, 1, AuthCode/binary>>,
-    Size2 = size(AckPacket),
-    MsgId2 = ?MS_REGISTER_ACK,
-    MsgSn2 = 0,
-    Header2 =
-        <<MsgId2:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
-            PhoneBCD/binary, MsgSn2:?WORD>>,
-    S2 = gen_packet(Header2, AckPacket),
-
-    ?LOGT("S1=~p", [binary_to_hex_string(S1)]),
-    ?LOGT("S2=~p", [binary_to_hex_string(S2)]),
-    ?LOGT("Received REGISTER_ACK Packet=~p", [binary_to_hex_string(RecvPacket)]),
-
-    ?assertEqual(S2, RecvPacket),
-    ok.
+    %% Invalid registry/authentication URLs are now rejected at config time.
+    Base = raw_jt808_config(false),
+    Invalid1 = emqx_utils_maps:deep_put(
+        [<<"proto">>, <<"auth">>],
+        Base,
+        #{
+            <<"allow_anonymous">> => false,
+            <<"registry">> => <<"abc://abc">>,
+            <<"authentication">> => <<?PROTO_REG_SERVER_HOST, ?PROTO_REG_AUTH_PATH>>
+        }
+    ),
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:update_gateway(jt808, Invalid1)
+    ),
+    Invalid2 = emqx_utils_maps:deep_put(
+        [<<"proto">>, <<"auth">>],
+        Base,
+        #{
+            <<"allow_anonymous">> => false,
+            <<"registry">> => <<?PROTO_REG_SERVER_HOST, ?PROTO_REG_REGISTRY_PATH>>,
+            <<"authentication">> => <<"not a url">>
+        }
+    ),
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:update_gateway(jt808, Invalid2)
+    ).
 
 t_create_ALLOW_invalid_auth_config(_Config) ->
     test_invalid_config(create, true).

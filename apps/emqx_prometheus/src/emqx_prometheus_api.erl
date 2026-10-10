@@ -262,10 +262,17 @@ setting(put, #{body := Body}) ->
     case emqx_prometheus_config:update(Deobfuscated) of
         {ok, NewConfig} ->
             {200, emqx_utils:redact(NewConfig)};
+        {error, #{kind := validation_error, reason := Reason}} ->
+            {400, #{code => 'BAD_REQUEST', message => validation_msg(Reason)}};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
             {500, 'INTERNAL_ERROR', Message}
     end.
+
+validation_msg(Reason) when is_binary(Reason) ->
+    Reason;
+validation_msg(Reason) ->
+    list_to_binary(io_lib:format("~p", [Reason])).
 
 stats(get, #{query_string := Qs}) ->
     collect(emqx_prometheus, collect_opts(Qs)).
