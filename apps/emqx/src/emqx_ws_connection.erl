@@ -699,12 +699,29 @@ handle_incoming_packets([Packet = #mqtt_packet{} | Packets], ResAcc) ->
     ?TRACE("WS-MQTT", "mqtt_packet_received", #{packet => Packet}),
     {_FrameAcc, State} = ResAcc,
     ok = inc_incoming_stats(Packet, State),
-    handle_incoming_packets(Packets, with_channel(handle_in, [Packet], ResAcc));
+    Next = with_channel(handle_in, [Packet], ResAcc),
+    %% A close frame ends this websocket. MQTT packets already parsed after
+    %% DISCONNECT in the same binary must not run.
+    case replies_include_close(Next) of
+        true ->
+            Next;
+        false ->
+            handle_incoming_packets(Packets, Next)
+    end;
 handle_incoming_packets([FrameError], ResAcc) ->
     %% NOTE: If there was a frame parsing error, it always goes last in the list.
     with_channel(handle_in, [FrameError], ResAcc);
 handle_incoming_packets([], ResAcc) ->
     ResAcc.
+
+replies_include_close({FrameAcc, _State}) ->
+    lists:any(
+        fun
+            ({close, _}) -> true;
+            (_) -> false
+        end,
+        lists:flatten(FrameAcc)
+    ).
 
 %%--------------------------------------------------------------------
 %% With Channel

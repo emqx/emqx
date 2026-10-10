@@ -584,6 +584,11 @@ t_close_socket(_) ->
     State1 = emqx_connection:close_socket(st()),
     ?assertEqual(closed, emqx_connection:info(sockstate, State1)).
 
+t_incoming_after_close_is_ignored(_) ->
+    State = st(#{sockstate => closed}),
+    Packet = ?CONNECT_PACKET(#mqtt_packet_connect{}),
+    ?assertEqual({ok, State}, emqx_connection:handle_msg({incoming, Packet}, State)).
+
 t_system_code_change(_) ->
     State = st(),
     ?assertEqual({ok, State}, emqx_connection:system_code_change(State, [], [], [])).

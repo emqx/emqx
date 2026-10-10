@@ -589,6 +589,10 @@ handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
 handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
     ok = inc_metrics('bytes.received', State, Len),
     on_bytes_in(Len, Data, State);
+%% The socket is already closed. A packet from the same read, such as CONNECT
+%% after DISCONNECT, must not run on the parked session.
+handle_msg({incoming, _Packet}, #state{sockstate = closed} = State) ->
+    {ok, State};
 handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);

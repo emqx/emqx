@@ -201,6 +201,33 @@ t_parse_incoming_first_packet_hints(_) ->
         ok = meck:unload(esockd_socket)
     end.
 
+%% DISCONNECT and CONNECT in one parsed batch must close the socket and must
+%% not hand the CONNECT to the channel. Doing so takes over this process.
+t_disconnect_then_connect_drops_the_trailing_connect(_) ->
+    ok = meck_esockd_socket([no_history]),
+    Channel = channel(connected),
+    State = connstate_after_connect(Channel),
+    Disconnect = ?PACKET(?DISCONNECT),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"st-self">>}),
+    ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
+    try
+        ok = meck:expect(emqx_channel, handle_in, fun
+            (?PACKET(?DISCONNECT), Ch) ->
+                {ok, {close, normal}, Ch};
+            (_Packet, Ch) ->
+                erlang:put(handled_trailing_packet, true),
+                {ok, Ch}
+        end),
+        ?assertMatch(
+            {ok, [{close, normal}], _},
+            emqx_socket_connection:handle_msg({incoming, [Disconnect, Connect]}, State)
+        ),
+        ?assertEqual(undefined, erlang:get(handled_trailing_packet))
+    after
+        meck:unload(emqx_channel),
+        meck:unload(esockd_socket)
+    end.
+
 mk_connstate() ->
     emqx_socket_connection:init_state(sock, #{
         zone => default,
