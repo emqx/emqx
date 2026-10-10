@@ -422,7 +422,7 @@ initial_state() ->
 
 create_new(SessionId) ->
     print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
-    S = emqx_persistent_session_ds_state:commit(
+    {ok, S} = emqx_persistent_session_ds_state:commit(
         emqx_persistent_session_ds_state:create_new(SessionId),
         #{lifetime => new, sync => true}
     ),
@@ -430,7 +430,7 @@ create_new(SessionId) ->
 
 delete(SessionId) ->
     print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
-    emqx_persistent_session_ds_state:delete(SessionId),
+    ok = emqx_persistent_session_ds_state:delete(SessionId, '_'),
     ets:delete(?tab, SessionId).
 
 commit(SessionId) ->
@@ -483,12 +483,15 @@ gen_get(SessionId, {Idx, Fun, Key}) ->
 %%================================================================================
 
 do_commit(SessionId, Opts) ->
-    S = get_state(SessionId),
+    S0 = get_state(SessionId),
     ?tp_span(
         test_commit,
-        #{id => SessionId, s => S, opts => Opts},
-        %% Commit previous state normally:
-        emqx_persistent_session_ds_state:commit(S, Opts)
+        #{id => SessionId, s => S0, opts => Opts},
+        begin
+            %% Commit previous state normally:
+            {ok, S} = emqx_persistent_session_ds_state:commit(S0, Opts),
+            S
+        end
     ).
 
 do_takeover(SessionId) ->
@@ -497,7 +500,7 @@ do_takeover(SessionId) ->
         #{sessid => SessionId},
         maybe
             {ok, S} ?= emqx_persistent_session_ds_state:open(SessionId),
-            {ok, emqx_persistent_session_ds_state:commit(S, #{lifetime => takeover, sync => true})}
+            emqx_persistent_session_ds_state:commit(S, #{lifetime => takeover, sync => true})
         end
     ).
 

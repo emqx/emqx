@@ -1046,7 +1046,7 @@ session takeover (instead of waiting up to 15s for the stats_timer).
 t_chan_info_refreshed_after_takeover_replay(Config) ->
     case ?config(persistence_enabled, Config) of
         true ->
-            {skip, "Classic session only — DS uses seqno_q*/n_streams stats"};
+            {skip, "Classic session only - DS uses seqno_q*/n_streams stats"};
         _ ->
             do_chan_info_refreshed_after_takeover_replay(Config)
     end.
@@ -1406,9 +1406,7 @@ verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, Expec
         ?assertEqual(
             4,
             length(ClientEvents),
-            io_lib:format("Expected exactly 4 events for client ~p, got: ~p", [
-                ClientId, ClientEvents
-            ])
+            {unexpected_n_events, ClientId, ClientEvents}
         ),
 
         ConnectTs = [
@@ -1422,12 +1420,12 @@ verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, Expec
         ?assertEqual(
             2,
             length(ConnectTs),
-            io_lib:format("Expected 2 connect events, got: ~p", [ClientEvents])
+            {expected_2_connects, ClientEvents}
         ),
         ?assertEqual(
             2,
             length(Disconnects),
-            io_lib:format("Expected 2 disconnect events, got: ~p", [ClientEvents])
+            {expected_2_disconnects, ClientEvents}
         ),
         [{T1ForT2, T2, ExpectedReason}] = [
             D
@@ -1445,26 +1443,24 @@ verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, Expec
         %% connect(T1), disconnect(T2), connect(T3), disconnect(T4)
         ?assert(
             T1 =< T2 andalso T2 =< T3 andalso T3 =< T4,
-            io_lib:format("Expected non-decreasing T1..T4, got: ~p", [ClientEvents])
+            {unexpectedly_decreasing, ClientEvents}
         ),
         %% 3): T1 is associated with T2 (disconnect.connected_at == T1)
         ?assertEqual(
             T1,
             T1ForT2,
-            io_lib:format("Expected T1 associated with T2 record, got: ~p", [ClientEvents])
+            {unexpected_t2_association, ClientEvents}
         ),
         %% 4): T3 is associated with T4 (disconnect.connected_at == T3)
         ?assertEqual(
             T3,
             T3ForT4,
-            io_lib:format("Expected T3 associated with T4 record, got: ~p", [ClientEvents])
+            {unexpected_t3_association, ClientEvents}
         ),
         %% 5): T4 reason must not be takenover/discarded
         ?assert(
             Reason4 =/= discarded andalso Reason4 =/= takenover,
-            io_lib:format("Final disconnect reason must not be discarded/takenover: ~p", [
-                ClientEvents
-            ])
+            {unexpected_final_disconnect_reason, ClientEvents}
         )
     after
         emqx_hooks:del('client.connected', {?MODULE, hook_fun_connected}),

@@ -502,7 +502,7 @@ do_purge_durable_sessions(N) when N > 0 ->
     {Sessions, _NewIterator} = emqx_persistent_session_ds_state:session_iterator_next(Iterator, N),
     lists:foreach(
         fun({ClientId, _Metadata}) ->
-            emqx_persistent_session_ds:destroy_session(ClientId)
+            emqx_persistent_session_ds:purge_session(ClientId)
         end,
         Sessions
     ),
