@@ -64,7 +64,19 @@ only_once_testcases() ->
         t_json_schema_2019_09,
         t_json_schema_2020_12,
         t_json_schema_draft04_unicode_ref,
-        t_json_schema_draft06_unicode_source
+        t_json_schema_draft06_unicode_source,
+        t_protobuf_bundle_bundle_as_data_part_post,
+        t_protobuf_bundle_bundle_as_data_part_put,
+        t_protobuf_bundle_root_proto_file_as_file_part_post,
+        t_protobuf_bundle_root_proto_file_as_file_part_put,
+        t_protobuf_bundle_name_as_file_part_post,
+        t_protobuf_bundle_name_as_file_part_put,
+        t_protobuf_bundle_description_as_file_part_post,
+        t_protobuf_bundle_description_as_file_part_put,
+        t_protobuf_bundle_two_bundle_file_parts,
+        t_protobuf_bundle_missing_name,
+        t_protobuf_bundle_missing_root_proto_file,
+        t_protobuf_bundle_missing_bundle
     ].
 
 init_per_suite(Config) ->
@@ -309,28 +321,54 @@ create_schema_protobuf_bundle(Params) ->
 update_schema_protobuf_bundle(Params) ->
     do_create_or_update_schema_protobuf_bundle(Params#{method => put}).
 
+%% `name`, `root_proto_path` and `description` are sent as data parts when present.
+%% `extra_params` adds more data parts; `files` holds the file parts.
 do_create_or_update_schema_protobuf_bundle(Params) ->
     #{
-        name := Name,
         files := Files,
-        root_proto_path := RootPath,
         method := Method
     } = Params,
+    Name = maps:get(name, Params, undefined),
+    RootPath = maps:get(root_proto_path, Params, undefined),
     Description = maps:get(description, Params, undefined),
+    ExtraParams = maps:get(extra_params, Params, []),
     URL = uri(["schema_registry_protobuf", "bundle"]),
     Res = emqx_mgmt_api_test_util:upload_request(#{
         url => URL,
         files => Files,
         mime_type => <<"application/octet-stream">>,
         other_params => lists:flatten([
-            {<<"name">>, Name},
-            {<<"root_proto_file">>, RootPath},
-            [{<<"description">>, Description} || Description /= undefined]
+            [{<<"name">>, Name} || Name /= undefined],
+            [{<<"root_proto_file">>, RootPath} || RootPath /= undefined],
+            [{<<"description">>, Description} || Description /= undefined],
+            ExtraParams
         ]),
         auth_token => emqx_mgmt_api_test_util:auth_header_(),
         method => Method
     }),
     emqx_mgmt_api_test_util:simplify_decode_result(Res).
+
+bundle_file_part(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Filename = filename:join([PrivDir, "bundle.tar.gz"]),
+    FileList = [
+        {"a.proto", emqx_schema_registry_SUITE:proto_file(<<"a.proto">>)},
+        {"nested/b.proto", emqx_schema_registry_SUITE:proto_file(<<"b.proto">>)},
+        {"c.proto", emqx_schema_registry_SUITE:proto_file(<<"c.proto">>)}
+    ],
+    on_exit(fun() -> file:delete(Filename) end),
+    ok = erl_tar:create(Filename, FileList, [compressed]),
+    {ok, Data} = file:read_file(Filename),
+    {<<"bundle">>, Filename, Data}.
+
+dummy_bundle_file_part() ->
+    {<<"bundle">>, <<"bundle.tar.gz">>, zlib:gzip(<<"not a tar">>)}.
+
+assert_bad_form_data(ExpectedMsg, Res) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_FORM_DATA">>, <<"message">> := ExpectedMsg}},
+        Res
+    ).
 
 delete_schema(Name) ->
     case request({delete, Name}) of
@@ -1442,6 +1480,191 @@ t_protobuf_bundle_update_without_bundle(Config) ->
         })
     ),
     ok.
+
+-doc """
+A `bundle` sent as a data part on create returns 400 BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_bundle_as_data_part_post(_Config) ->
+    assert_bad_form_data(
+        <<"`bundle` must be a file">>,
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            root_proto_path => <<"a.proto">>,
+            files => [],
+            extra_params => [{<<"bundle">>, <<"not a file">>}]
+        })
+    ).
+
+-doc """
+A `bundle` sent as a data part on update returns 400 BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_bundle_as_data_part_put(_Config) ->
+    assert_bad_form_data(
+        <<"`bundle` must be a file">>,
+        update_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            root_proto_path => <<"a.proto">>,
+            files => [],
+            extra_params => [{<<"bundle">>, <<"not a file">>}]
+        })
+    ).
+
+-doc """
+A `root_proto_file` sent as a file part on create returns 400 BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_root_proto_file_as_file_part_post(_Config) ->
+    assert_bad_form_data(
+        <<"`root_proto_file` must be a text field, not a file">>,
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            files => [
+                {<<"root_proto_file">>, <<"root.txt">>, <<"a.proto">>},
+                dummy_bundle_file_part()
+            ]
+        })
+    ).
+
+-doc """
+A `root_proto_file` sent as a file part on an update without a bundle returns 400
+BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_root_proto_file_as_file_part_put(_Config) ->
+    assert_bad_form_data(
+        <<"`root_proto_file` must be a text field, not a file">>,
+        update_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            files => [{<<"root_proto_file">>, <<"root.txt">>, <<"a.proto">>}]
+        })
+    ).
+
+-doc """
+A `name` sent as a file part on create returns 400 BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_name_as_file_part_post(_Config) ->
+    assert_bad_form_data(
+        <<"`name` must be a text field, not a file">>,
+        create_schema_protobuf_bundle(#{
+            root_proto_path => <<"a.proto">>,
+            files => [
+                {<<"name">>, <<"name.txt">>, <<"myserde">>},
+                dummy_bundle_file_part()
+            ]
+        })
+    ).
+
+-doc """
+A `name` sent as a file part on an update without a bundle returns 400 BAD_FORM_DATA,
+not 500.
+""".
+t_protobuf_bundle_name_as_file_part_put(_Config) ->
+    assert_bad_form_data(
+        <<"`name` must be a text field, not a file">>,
+        update_schema_protobuf_bundle(#{
+            root_proto_path => <<"a.proto">>,
+            files => [{<<"name">>, <<"name.txt">>, <<"myserde">>}]
+        })
+    ).
+
+-doc """
+A `description` sent as a file part on create returns 400 BAD_FORM_DATA.
+""".
+t_protobuf_bundle_description_as_file_part_post(Config) ->
+    Name = <<"myserde">>,
+    assert_bad_form_data(
+        <<"`description` must be a text field, not a file">>,
+        create_schema_protobuf_bundle(#{
+            name => Name,
+            root_proto_path => <<"a.proto">>,
+            files => [
+                {<<"description">>, <<"desc.txt">>, <<"my bundle">>},
+                bundle_file_part(Config)
+            ]
+        })
+    ),
+    ?assertEqual({error, not_found}, emqx_schema_registry:get_schema(Name)).
+
+-doc """
+A `description` sent as a file part on an update without a bundle returns 400
+BAD_FORM_DATA.
+""".
+t_protobuf_bundle_description_as_file_part_put(Config) ->
+    Name = <<"myserde">>,
+    ?assertMatch(
+        {201, _},
+        create_schema_protobuf_bundle(#{
+            name => Name,
+            root_proto_path => <<"a.proto">>,
+            description => <<"my bundle">>,
+            files => [bundle_file_part(Config)]
+        })
+    ),
+    assert_bad_form_data(
+        <<"`description` must be a text field, not a file">>,
+        update_schema_protobuf_bundle(#{
+            name => Name,
+            root_proto_path => <<"c.proto">>,
+            files => [{<<"description">>, <<"desc.txt">>, <<"new description">>}]
+        })
+    ),
+    ?assertMatch(
+        {ok, #{description := <<"my bundle">>}}, emqx_schema_registry:get_schema(Name)
+    ).
+
+-doc """
+Two `bundle` file parts with different filenames return the existing 400 BAD_FORM_DATA.
+""".
+t_protobuf_bundle_two_bundle_file_parts(_Config) ->
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"BAD_FORM_DATA">>,
+            <<"message">> := <<"form-data should be `name=@schema-name;bundle=@filename.tar.gz`">>
+        }},
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            root_proto_path => <<"a.proto">>,
+            files => [
+                {<<"bundle">>, <<"a.tar.gz">>, zlib:gzip(<<"a">>)},
+                {<<"bundle">>, <<"b.tar.gz">>, zlib:gzip(<<"b">>)}
+            ]
+        })
+    ).
+
+-doc """
+A create request without `name` returns 400 with the existing message.
+""".
+t_protobuf_bundle_missing_name(_Config) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := <<"Missing `name`">>}},
+        create_schema_protobuf_bundle(#{
+            root_proto_path => <<"a.proto">>,
+            files => [dummy_bundle_file_part()]
+        })
+    ).
+
+-doc """
+A create request without `root_proto_file` returns 400 with the existing message.
+""".
+t_protobuf_bundle_missing_root_proto_file(_Config) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := <<"Missing `root_proto_file`">>}},
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            files => [dummy_bundle_file_part()]
+        })
+    ).
+
+-doc """
+A create request without `bundle` returns 400 with the existing message.
+""".
+t_protobuf_bundle_missing_bundle(_Config) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := <<"Missing `bundle`">>}},
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            root_proto_path => <<"a.proto">>,
+            files => []
+        })
+    ).
 
 -doc """
 Verifies that we refuse to delete a serde which is referenced by a schema validation.
