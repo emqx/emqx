@@ -489,10 +489,11 @@ classify_reply(Reply = #{reason_code := ?RC_PACKET_IDENTIFIER_IN_USE}) ->
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
 
-classify_error(disconnected = Reason) ->
-    {recoverable_error, Reason};
 classify_error(ecpool_empty) ->
     {recoverable_error, disconnected};
+classify_error(no_such_pool) ->
+    %% the pool is being (re)started by the resource manager.
+    {recoverable_error, no_such_pool};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error({shutdown, {frame_parse_error, _}}) ->
@@ -501,18 +502,52 @@ classify_error({frame_parse_error, _}) ->
     {unrecoverable_error, non_mqtt_data_explanation()};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
-classify_error(shutdown = Reason) ->
-    {recoverable_error, Reason};
-classify_error(closed = Reason) ->
-    {recoverable_error, Reason};
-classify_error(tcp_closed = Reason) ->
-    {recoverable_error, Reason};
-classify_error(einval = Reason) ->
-    {recoverable_error, Reason};
 classify_error({unrecoverable_error, _Reason} = Error) ->
     Error;
 classify_error(Reason) ->
-    {unrecoverable_error, Reason}.
+    case is_connection_error(Reason) of
+        true ->
+            {recoverable_error, Reason};
+        false ->
+            {unrecoverable_error, Reason}
+    end.
+
+%% Reasons that mean the connection to the remote broker is gone (or was never
+%% established).  The query may still be delivered once the broker is reachable
+%% again, so they must be retried instead of being dropped.
+%% `pingresp_timeout' is how `emqtt' reports that no PINGRESP arrived within a
+%% keepalive period, whether the peer went silent or the connection was dropped
+%% without the socket noticing.
+is_connection_error(Reason) when
+    Reason =:= disconnected;
+    Reason =:= shutdown;
+    Reason =:= pingresp_timeout;
+    Reason =:= closed;
+    Reason =:= einval;
+    Reason =:= enotconn;
+    Reason =:= epipe;
+    Reason =:= tcp_closed;
+    Reason =:= tcp_error;
+    Reason =:= ssl_closed;
+    Reason =:= ssl_error;
+    Reason =:= quic_closed;
+    Reason =:= quic_error;
+    Reason =:= econnaborted;
+    Reason =:= econnrefused;
+    Reason =:= econnreset;
+    Reason =:= ehostdown;
+    Reason =:= ehostunreach;
+    Reason =:= enetdown;
+    Reason =:= enetreset;
+    Reason =:= enetunreach;
+    Reason =:= etimedout;
+    Reason =:= timeout;
+    Reason =:= nxdomain;
+    Reason =:= eaddrnotavail
+->
+    true;
+is_connection_error(_) ->
+    false.
 
 on_get_status(_ResourceId, State) ->
     Pools = maps:to_list(maps:with([pool_name], State)),
