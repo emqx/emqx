@@ -43,8 +43,12 @@ unregister_hooks() ->
 %%------------------------------------------------------------------------------
 
 -spec on_message_publish(emqx_types:message()) -> ok.
-on_message_publish(#message{} = Message) ->
-    case emqx_schema_registry_config:is_alias_mapping_enabled() andalso is_client_process() of
+on_message_publish(#message{topic = Topic} = Message) ->
+    case
+        is_spb_message_topic(Topic) andalso
+            emqx_schema_registry_config:is_alias_mapping_enabled() andalso
+            is_client_process()
+    of
         true ->
             do_on_message_publish(Message);
         false ->
@@ -65,6 +69,26 @@ is_client_process() ->
         {clientid, _} -> true;
         _ -> false
     end.
+
+%% True when the third topic level is one that `parse_spb_topic/1' accepts and a fourth
+%% level follows. This is a cheap pre-check that never rejects a topic the parser accepts.
+is_spb_message_topic(Topic) ->
+    is_spb_message_topic(Topic, 0).
+
+is_spb_message_topic(<<"/", Rest/binary>>, 1) ->
+    is_spb_message_type(Rest);
+is_spb_message_topic(<<"/", Rest/binary>>, Level) ->
+    is_spb_message_topic(Rest, Level + 1);
+is_spb_message_topic(<<_, Rest/binary>>, Level) ->
+    is_spb_message_topic(Rest, Level);
+is_spb_message_topic(<<>>, _Level) ->
+    false.
+
+is_spb_message_type(<<"NBIRTH/", _/binary>>) -> true;
+is_spb_message_type(<<"NDATA/", _/binary>>) -> true;
+is_spb_message_type(<<"DBIRTH/", _/binary>>) -> true;
+is_spb_message_type(<<"DDATA/", _/binary>>) -> true;
+is_spb_message_type(_) -> false.
 
 do_on_message_publish(#message{topic = Topic} = Message) ->
     case emqx_schema_registry_spb_state:parse_spb_topic(Topic) of
