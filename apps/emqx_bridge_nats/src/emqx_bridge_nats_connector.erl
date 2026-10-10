@@ -188,15 +188,18 @@ connect(Options) ->
     end.
 
 publish(Client, Channel, Message) ->
-    publish_message(Client, Channel, Message, true).
-
-publish_batch(Client, #{delivery_mode := DeliveryMode} = Channel, Batch) ->
-    case DeliveryMode of
-        core ->
-            publish_core_batch(Client, Channel, Batch);
-        jetstream ->
-            publish_jetstream_batch(Client, Channel, Batch)
+    maybe
+        {ok, Rendered} ?= render_message(Channel, Message),
+        Result = publish_rendered(Client, Channel, Rendered),
+        maybe_flush_core(Client, Channel, Result)
+    else
+        {error, _} = Error -> Error
     end.
+
+publish_batch(Client, #{delivery_mode := core} = Channel, Batch) ->
+    publish_core_batch(Client, Channel, Batch);
+publish_batch(_Client, #{delivery_mode := jetstream}, _Batch) ->
+    {error, {unrecoverable_error, jetstream_batch_not_supported}}.
 
 publish_core_batch(Client, Channel, Batch) ->
     IndexedBatch = lists:enumerate(Batch),
@@ -229,25 +232,6 @@ retry_core_batch_without_invalid(
         OriginalIndex => {error, Error#{details => Details#{index => OriginalIndex}}}
     },
     publish_core_batch(Client, Channel, Valid1, Results1).
-
-publish_jetstream_batch(Client, Channel, Batch) ->
-    publish_jetstream_batch(Client, Channel, Batch, []).
-
-publish_jetstream_batch(_Client, _Channel, [], Acc) ->
-    lists:reverse(Acc);
-publish_jetstream_batch(Client, Channel, [{_ChannelId, Message} | Rest], Acc) ->
-    Result = normalize_batch_result(publish_message(Client, Channel, Message, false)),
-    case Result of
-        ok ->
-            publish_jetstream_batch(Client, Channel, Rest, [ok | Acc]);
-        {error, _} ->
-            case classify_result(Result) of
-                {error, {recoverable_error, _}} = Error ->
-                    Error;
-                {error, {unrecoverable_error, _}} = Error ->
-                    publish_jetstream_batch(Client, Channel, Rest, [Error | Acc])
-            end
-    end.
 
 %%--------------------------------------------------------------------
 %% Message rendering and batch handling
@@ -284,22 +268,6 @@ request_deadline(Timeout) -> erlang:monotonic_time(millisecond) + Timeout.
 remaining_timeout(infinity) -> infinity;
 remaining_timeout(Deadline) -> max(Deadline - erlang:monotonic_time(millisecond), 0).
 
-normalize_batch_result(ok) ->
-    ok;
-normalize_batch_result({ok, _Result}) ->
-    ok;
-normalize_batch_result(Result) ->
-    Result.
-
-publish_message(Client, Channel, Message, FlushCore) ->
-    maybe
-        {ok, Rendered} ?= render_message(Channel, Message),
-        Result = publish_rendered(Client, Channel, Rendered),
-        maybe_flush_core(Client, Channel, FlushCore, Result)
-    else
-        {error, _} = Error -> Error
-    end.
-
 render_message(
     #{subject := SubjectTemplate, payload := PayloadTemplate, headers := HeaderTemplates} = Channel,
     Message
@@ -328,11 +296,11 @@ render_msg_id(#{delivery_mode := jetstream, msg_id := MsgIdTemplate}, Message) -
 render_msg_id(_Channel, _Message) ->
     undefined.
 
-maybe_flush_core(_Client, _Channel, _FlushCore, {error, _} = Error) ->
+maybe_flush_core(_Client, _Channel, {error, _} = Error) ->
     Error;
-maybe_flush_core(Client, #{request_ttl := RequestTTL}, true, ok) ->
+maybe_flush_core(Client, #{delivery_mode := core, request_ttl := RequestTTL}, ok) ->
     enats_client:flush(Client, RequestTTL);
-maybe_flush_core(_Client, _Channel, _FlushCore, Result) ->
+maybe_flush_core(_Client, _Channel, Result) ->
     Result.
 
 publish_rendered(Client, #{delivery_mode := DeliveryMode, request_ttl := RequestTTL}, #{

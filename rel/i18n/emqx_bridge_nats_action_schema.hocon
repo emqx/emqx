@@ -37,7 +37,8 @@ headers.label: "Headers"
 delivery_mode.desc:
 """Publishing mode:<br/>
 <code>core</code> publishes through Core NATS and confirms the batch with a flush barrier.<br/>
-<code>jetstream</code> publishes through Jet Stream and waits for a PubAck for each message."""
+<code>jetstream</code> publishes through Jet Stream and waits for a PubAck for each message.
+This mode currently requires <code>resource_opts.batch_size = 1</code>."""
 delivery_mode.label: "Delivery Mode"
 
 msg_id_template.desc:

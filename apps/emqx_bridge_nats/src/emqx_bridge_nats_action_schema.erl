@@ -48,7 +48,8 @@ fields(action) ->
             hoconsc:map(name, hoconsc:ref(?MODULE, ?ACTION_TYPE)),
             #{
                 desc => <<"NATS Action Config">>,
-                required => false
+                required => false,
+                validator => fun validate_actions/1
             }
         )
     };
@@ -133,6 +134,31 @@ desc(header) ->
     ?DESC("header");
 desc(_) ->
     undefined.
+
+validate_actions(#{
+    <<"parameters">> := #{<<"delivery_mode">> := DeliveryMode},
+    <<"resource_opts">> := #{<<"batch_size">> := BatchSize}
+}) ->
+    validate_batch_size(DeliveryMode, BatchSize);
+validate_actions(Actions) ->
+    maps:fold(
+        fun
+            (_Name, _Action, {error, _} = Error) -> Error;
+            (_Name, Action, ok) -> validate_actions(Action)
+        end,
+        ok,
+        Actions
+    ).
+
+%% The client currently exposes only synchronous JetStream publishing.
+%% NATS Server 2.12+ supports atomic batches via Nats-Batch-* headers (JetStream API level 2).
+%% That requires stream allow_atomic and server capability checks to retain NATS 2.10 compatibility.
+%% See https://github.com/nats-io/nats-architecture-and-design/blob/main/adr/ADR-50.md.
+%% Keep batching disabled until the client supports pipelined PubAcks or version-gated atomic batches.
+validate_batch_size(jetstream, BatchSize) when BatchSize > 1 ->
+    {error, <<"JetStream publishing requires resource_opts.batch_size = 1">>};
+validate_batch_size(_DeliveryMode, _BatchSize) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Action examples

@@ -304,44 +304,58 @@ t_core_batch_template_failure(Config) ->
         snabbkaffe:stop()
     end.
 
-t_jetstream_batch_partial_failure(Config) ->
-    {ok, Client} = nats_client(Config),
-    on_exit(fun() -> enats_client:stop(Client) end),
-    ok = create_stream(Client),
-    {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+t_jetstream_batch_size_validation(Config) ->
     {201, _} = create_connector(Config),
-    {201, _} = create_action(Config, #{
-        <<"parameters">> => #{
-            <<"subject">> => <<"${.topic}">>, <<"delivery_mode">> => <<"jetstream">>
+    JetStream = #{<<"parameters">> => #{<<"delivery_mode">> => <<"jetstream">>}},
+    lists:foreach(
+        fun(QueryMode) ->
+            {400, Response} = create_action(Config, JetStream#{
+                <<"resource_opts">> => #{
+                    <<"query_mode">> => QueryMode, <<"batch_size">> => 2
+                }
+            }),
+            ?assertMatch(
+                #{
+                    <<"message">> := #{
+                        <<"reason">> :=
+                            <<"JetStream publishing requires resource_opts.batch_size = 1">>
+                    }
+                },
+                Response
+            )
+        end,
+        [<<"sync">>, <<"async">>]
+    ),
+    {201, _} = create_action(Config),
+    {400, Response} = emqx_bridge_v2_testlib:update_bridge_api2(Config, JetStream),
+    ?assertMatch(
+        #{
+            <<"message">> := #{
+                <<"reason">> :=
+                    <<"JetStream publishing requires resource_opts.batch_size = 1">>
+            }
         },
-        <<"resource_opts">> => #{
-            <<"query_mode">> => <<"async">>,
-            <<"batch_size">> => 3,
-            <<"batch_time">> => <<"1s">>,
-            <<"worker_pool_size">> => 1
-        }
+        Response
+    ),
+    {200, _} = emqx_bridge_v2_testlib:update_bridge_api2(Config, JetStream#{
+        <<"resource_opts">> => #{<<"batch_size">> => 1}
     }),
-    {ok, _} = create_rule(Config, <<"#">>),
-    Publisher = mqtt_client(),
-    ok = snabbkaffe:start_trace(),
-    try
-        publish_mqtt_concurrently(Publisher, [
-            {<<"emqx.events">>, <<"one">>},
-            {<<"bad subject">>, <<"bad">>},
-            {<<"emqx.events">>, <<"two">>}
-        ]),
-        ?assertEqual([<<"one">>, <<"two">>], lists:sort(receive_payloads(2, []))),
-        {ok, #{result := Results}} = ?block_until(
-            #{?snk_kind := nats_connector_query_return, batch := true, batch_size := 3}, 5000
-        ),
-        ?assertEqual(2, length([ok || ok <- Results])),
-        ?assertEqual(1, length([Error || Error <- Results, is_invalid_subject_result(Error)])),
-        ?assertEqual({ok, 2}, stream_last_sequence(Client))
-    after
-        snabbkaffe:stop()
-    end.
+    {400, _} = emqx_bridge_v2_testlib:update_bridge_api2(Config, JetStream#{
+        <<"resource_opts">> => #{<<"batch_size">> => 2}
+    }),
+    {200, Action} = emqx_bridge_v2_testlib:get_action_api2(Config),
+    ?assertMatch(#{<<"resource_opts">> := #{<<"batch_size">> := 1}}, Action).
 
-t_jetstream_batch_puback_timeout(Config) ->
+t_jetstream_default_batch_size(Config) ->
+    {201, _} = create_connector(Config),
+    ActionConfig = maps:remove(<<"resource_opts">>, ?config(action_config, Config)),
+    DefaultConfig = lists:keystore(action_config, 1, Config, {action_config, ActionConfig}),
+    {201, Action} = create_action(DefaultConfig, #{
+        <<"parameters">> => #{<<"delivery_mode">> => <<"jetstream">>}
+    }),
+    ?assertMatch(#{<<"resource_opts">> := #{<<"batch_size">> := 1}}, Action).
+
+t_jetstream_puback_timeout(Config) ->
     {ok, Client} = nats_client(Config),
     on_exit(fun() -> enats_client:stop(Client) end),
     ok = create_stream(Client),
@@ -353,8 +367,8 @@ t_jetstream_batch_puback_timeout(Config) ->
         <<"parameters">> => #{<<"delivery_mode">> => <<"jetstream">>},
         <<"resource_opts">> => #{
             <<"query_mode">> => <<"async">>,
-            <<"batch_size">> => 2,
-            <<"batch_time">> => <<"1s">>,
+            <<"batch_size">> => 1,
+            <<"batch_time">> => <<"0ms">>,
             <<"worker_pool_size">> => 1,
             <<"request_ttl">> => <<"5s">>
         }
@@ -369,12 +383,10 @@ t_jetstream_batch_puback_timeout(Config) ->
             ?PROXY_HOST,
             ?PROXY_PORT,
             fun() ->
-                publish_mqtt_concurrently(Publisher, <<"sensor/1/data">>, [<<"one">>, <<"two">>]),
+                publish_mqtt(Publisher, <<"sensor/1/data">>, <<"one">>),
                 {ok, _} = ?block_until(
                     #{
                         ?snk_kind := nats_connector_query_return,
-                        batch := true,
-                        batch_size := 2,
                         result := {error, {recoverable_error, #{reason := timeout}}}
                     },
                     10000
@@ -550,7 +562,7 @@ t_jetstream_publish(Config) ->
     ?retry(50, 100, ?assertEqual({ok, InitialCount + 1}, stream_last_sequence(Client))),
     ok = enats_client:stop(Client).
 
-t_jetstream_batch_publish_all(Config) ->
+t_jetstream_publish_all(Config) ->
     {ok, Client} = nats_client(Config),
     ok = create_stream(Client),
     {ok, InitialCount} = stream_last_sequence(Client),
@@ -566,8 +578,8 @@ t_jetstream_batch_publish_all(Config) ->
         },
         <<"resource_opts">> => #{
             <<"query_mode">> => <<"async">>,
-            <<"batch_size">> => 3,
-            <<"batch_time">> => <<"1s">>,
+            <<"batch_size">> => 1,
+            <<"batch_time">> => <<"0ms">>,
             <<"worker_pool_size">> => 1
         }
     },
@@ -587,12 +599,8 @@ t_jetstream_batch_publish_all(Config) ->
             lists:sort(receive_payloads(3, []))
         ),
         Trace = snabbkaffe:collect_trace(),
-        ?assert(
-            lists:any(
-                fun(#{batch := Batch}) -> length(Batch) =:= 3 end,
-                ?of_kind(call_batch_query, Trace) ++ ?of_kind(call_batch_query_async, Trace)
-            )
-        )
+        ?assertEqual([], ?of_kind(call_batch_query, Trace)),
+        ?assertEqual([], ?of_kind(call_batch_query_async, Trace))
     after
         snabbkaffe:stop(),
         ok = enats_client:stop(Client)
