@@ -1561,6 +1561,9 @@ validate_utf8(Bin) ->
 %% i.e. does the string contains control characters?
 %% Note: this is under the assumption that the string is already validated by `unicode:characters_to_binary/1`
 %% hence there is no need to validate utf8 byte sequence integrity
+%% Printable ASCII bytes are checked one byte at a time without UTF-8 decoding.
+validate_mqtt_utf8_char(<<C, Rest/binary>>) when C >= 16#20, C < 16#7F ->
+    validate_mqtt_utf8_char(Rest);
 validate_mqtt_utf8_char(<<>>) ->
     true;
 validate_mqtt_utf8_char(<<H/utf8, _Rest/binary>>) when
