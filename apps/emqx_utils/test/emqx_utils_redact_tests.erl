@@ -314,6 +314,20 @@ redact_sso_mfa_secret_fields_test() ->
         })
     ).
 
+redact_nats_authentication_material_test() ->
+    ?assertEqual(
+        #{
+            <<"credentials_file_content">> => <<"******">>,
+            <<"nkey_seed">> => <<"******">>,
+            <<"password">> => <<"******">>
+        },
+        redact(#{
+            <<"credentials_file_content">> => <<"SECRET_CREDS">>,
+            <<"nkey_seed">> => <<"SECRET_SEED">>,
+            <<"password">> => <<"SECRET_PASSWORD">>
+        })
+    ).
+
 deobfuscate_file_path_secrets_test_() ->
     Original1 = #{foo => #{bar => #{headers => #{"authorization" => "file://a"}}}},
     Original2 = #{foo => #{bar => #{headers => #{"authorization" => "a"}}}},

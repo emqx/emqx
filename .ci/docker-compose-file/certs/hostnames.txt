@@ -16,6 +16,8 @@ mongo2
 mongo3
 mysql-tls
 nats
+nats-bridge-tls-first
+nats-tls-noauth
 node1.emqx.io
 node2.emqx.io
 otel-collector-tls.emqx.net

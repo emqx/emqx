@@ -1,0 +1,430 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
+-module(emqx_bridge_nats_connector).
+
+-behaviour(emqx_resource).
+-behaviour(ecpool_worker).
+
+-include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_bridge_nats.hrl").
+
+-define(AUTO_RECONNECT_INTERVAL, 2).
+
+-export([
+    resource_type/0,
+    callback_mode/0,
+    on_start/2,
+    on_stop/2,
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3,
+    on_query/3,
+    on_batch_query/3
+]).
+-export([connect/1, publish/3, publish_batch/3]).
+
+%%--------------------------------------------------------------------
+%% Connector lifecycle
+%%--------------------------------------------------------------------
+
+resource_type() -> ?CONNECTOR_TYPE.
+callback_mode() -> always_sync.
+
+on_start(
+    InstanceId,
+    #{
+        pool_size := PoolSize,
+        resource_opts := #{health_check_timeout := HealthCheckTimeout}
+    } = Config
+) ->
+    case client_options(Config) of
+        {error, Reason} ->
+            {error, {invalid_config, Reason}};
+        ClientOpts ->
+            PoolOpts = [
+                {pool, InstanceId},
+                {pool_size, PoolSize},
+                {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
+                {config, ClientOpts}
+            ],
+            case emqx_resource_pool:start(InstanceId, ?MODULE, PoolOpts) of
+                ok ->
+                    {ok, #{
+                        pool => InstanceId,
+                        health_check_timeout => HealthCheckTimeout,
+                        channels => #{}
+                    }};
+                {error, Reason} ->
+                    {error, Reason}
+            end
+    end.
+
+on_stop(InstanceId, _State) ->
+    emqx_resource_pool:stop(InstanceId).
+
+on_get_channels(InstanceId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+
+on_add_channel(
+    _InstanceId,
+    #{channels := Channels} = State,
+    ChannelId,
+    #{
+        parameters := #{
+            subject := Subject,
+            payload_template := PayloadTemplate,
+            headers := Headers,
+            delivery_mode := DeliveryMode,
+            msg_id_template := MsgIdTemplate
+        },
+        resource_opts := #{request_ttl := RequestTTL}
+    }
+) ->
+    HeaderTemplates = [
+        {
+            emqx_template:parse(Key),
+            emqx_template:parse(Value)
+        }
+     || #{key := Key, value := Value} <- Headers
+    ],
+    Channel = #{
+        subject => emqx_template:parse(Subject),
+        payload => emqx_template:parse(PayloadTemplate),
+        headers => HeaderTemplates,
+        delivery_mode => DeliveryMode,
+        msg_id => emqx_template:parse(MsgIdTemplate),
+        request_ttl => RequestTTL
+    },
+    {ok, State#{channels => maps:put(ChannelId, Channel, Channels)}}.
+
+on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
+    {ok, State#{channels => maps:remove(ChannelId, Channels)}}.
+
+on_get_channel_status(_InstanceId, _ChannelId, _State) ->
+    ?status_connected.
+
+on_get_status(_InstanceId, #{pool := Pool, health_check_timeout := HealthCheckTimeout}) ->
+    emqx_resource_pool:common_health_check_workers(
+        Pool,
+        #{
+            timeout => HealthCheckTimeout,
+            check_fn => fun(Client) -> health_check(Client, HealthCheckTimeout) end,
+            is_success_fn => fun
+                (ok) -> false;
+                (_) -> true
+            end
+        }
+    ).
+
+health_check(Client, Timeout) ->
+    enats_client:flush(Client, Timeout).
+
+%%--------------------------------------------------------------------
+%% Resource callbacks
+%%--------------------------------------------------------------------
+
+on_query(InstanceId, {ChannelId, Message}, #{channels := Channels}) ->
+    case maps:find(ChannelId, Channels) of
+        {ok, Channel} ->
+            RawResult = ecpool:pick_and_do(
+                InstanceId, {?MODULE, publish, [Channel, Message]}, no_handover
+            ),
+            Result = classify_result(RawResult),
+            ?tp(
+                nats_connector_query_return,
+                #{instance_id => InstanceId, result => Result}
+            ),
+            Result;
+        error ->
+            {error, {unrecoverable_error, {invalid_channel, ChannelId}}}
+    end;
+on_query(_InstanceId, Query, _State) ->
+    {error, {unrecoverable_error, {invalid_query, Query}}}.
+
+on_batch_query(InstanceId, [{ChannelId, _Message} | _] = Batch, State) ->
+    case maps:find(ChannelId, maps:get(channels, State)) of
+        {ok, Channel} ->
+            RawResult = ecpool:pick_and_do(
+                InstanceId, {?MODULE, publish_batch, [Channel, Batch]}, no_handover
+            ),
+            Result = classify_result(RawResult),
+            ?tp(nats_connector_query_return, #{
+                instance_id => InstanceId,
+                batch => true,
+                batch_size => length(Batch),
+                result => Result
+            }),
+            Result;
+        error ->
+            {error, {unrecoverable_error, {invalid_channel, ChannelId}}}
+    end;
+on_batch_query(_InstanceId, Batch, _State) ->
+    {error, {unrecoverable_error, {invalid_batch, Batch}}}.
+
+%%--------------------------------------------------------------------
+%% NATS connection and publishing
+%%--------------------------------------------------------------------
+
+connect(Options) ->
+    ClientOpts = proplists:get_value(config, Options),
+    case enats_client:start_link(ClientOpts#{owner => self(), reconnect => true}) of
+        {ok, Client} ->
+            case enats_client:connect(Client, maps:get(connect_timeout, ClientOpts)) of
+                ok ->
+                    {ok, Client};
+                {error, Reason} ->
+                    _ = enats_client:stop(Client),
+                    {error, Reason}
+            end;
+        Error ->
+            Error
+    end.
+
+publish(Client, Channel, Message) ->
+    maybe
+        {ok, Rendered} ?= render_message(Channel, Message),
+        Result = publish_rendered(Client, Channel, Rendered),
+        maybe_flush_core(Client, Channel, Result)
+    else
+        {error, _} = Error -> Error
+    end.
+
+publish_batch(Client, #{delivery_mode := core} = Channel, Batch) ->
+    publish_core_batch(Client, Channel, Batch);
+publish_batch(_Client, #{delivery_mode := jetstream}, _Batch) ->
+    {error, {unrecoverable_error, jetstream_batch_not_supported}}.
+
+publish_core_batch(Client, Channel, Batch) ->
+    IndexedBatch = lists:enumerate(Batch),
+    {Valid, Results0} = render_batch(IndexedBatch, Channel, [], #{}),
+    publish_core_batch(Client, Channel, Valid, Results0).
+
+publish_core_batch(_Client, _Channel, [], Results) ->
+    results_in_order(Results);
+publish_core_batch(Client, #{request_ttl := RequestTTL} = Channel, Valid, Results0) ->
+    Deadline = request_deadline(RequestTTL),
+    WireMessages = [rendered_to_batch_message(Rendered) || {_Index, Rendered} <- Valid],
+    case enats_client:publish_batch(Client, WireMessages, remaining_timeout(Deadline)) of
+        ok ->
+            case enats_client:flush(Client, remaining_timeout(Deadline)) of
+                ok -> results_in_order(Results0);
+                {error, _} = Error -> Error
+            end;
+        {error, #{reason := badarg, details := #{index := BadIndex}} = Error} ->
+            retry_core_batch_without_invalid(Client, Channel, Valid, Results0, BadIndex, Error);
+        {error, _} = Error ->
+            Error
+    end.
+
+retry_core_batch_without_invalid(
+    Client, Channel, Valid, Results0, BadIndex, #{details := Details} = Error
+) ->
+    {OriginalIndex, _Rendered} = lists:nth(BadIndex, Valid),
+    Valid1 = remove_nth(BadIndex, Valid),
+    Results1 = Results0#{
+        OriginalIndex => {error, Error#{details => Details#{index => OriginalIndex}}}
+    },
+    publish_core_batch(Client, Channel, Valid1, Results1).
+
+%%--------------------------------------------------------------------
+%% Message rendering and batch handling
+%%--------------------------------------------------------------------
+
+render_batch([], _Channel, Valid, Results) ->
+    {lists:reverse(Valid), Results};
+render_batch([{Index, {_ChannelId, Message}} | Rest], Channel, Valid, Results0) ->
+    case render_message(Channel, Message) of
+        {ok, Rendered} ->
+            render_batch(Rest, Channel, [{Index, Rendered} | Valid], Results0#{Index => ok});
+        {error, Reason} ->
+            render_batch(
+                Rest,
+                Channel,
+                Valid,
+                Results0#{Index => {error, Reason}}
+            )
+    end.
+
+rendered_to_batch_message(#{subject := Subject, payload := Payload, headers := Headers}) ->
+    #{subject => Subject, payload => Payload, headers => Headers}.
+
+results_in_order(Results) ->
+    [maps:get(Index, Results) || Index <- lists:seq(1, map_size(Results))].
+
+remove_nth(Index, List) ->
+    {Prefix, [_ | Suffix]} = lists:split(Index - 1, List),
+    Prefix ++ Suffix.
+
+request_deadline(infinity) -> infinity;
+request_deadline(Timeout) -> erlang:monotonic_time(millisecond) + Timeout.
+
+remaining_timeout(infinity) -> infinity;
+remaining_timeout(Deadline) -> max(Deadline - erlang:monotonic_time(millisecond), 0).
+
+render_message(
+    #{subject := SubjectTemplate, payload := PayloadTemplate, headers := HeaderTemplates} = Channel,
+    Message
+) ->
+    try
+        Subject = render_template(SubjectTemplate, Message),
+        Payload = render_template(PayloadTemplate, Message),
+        Headers = [
+            {
+                render_template(Key, Message),
+                render_template(Value, Message)
+            }
+         || {Key, Value} <- HeaderTemplates
+        ],
+        MsgId = render_msg_id(Channel, Message),
+        {ok, #{subject => Subject, payload => Payload, headers => Headers, msg_id => MsgId}}
+    catch
+        Class:Reason -> {error, {template_error, #{class => Class, reason => Reason}}}
+    end.
+
+render_template(Template, Message) ->
+    iolist_to_binary(emqx_template:render_strict(Template, {emqx_jsonish, Message})).
+
+render_msg_id(#{delivery_mode := jetstream, msg_id := MsgIdTemplate}, Message) ->
+    render_template(MsgIdTemplate, Message);
+render_msg_id(_Channel, _Message) ->
+    undefined.
+
+maybe_flush_core(_Client, _Channel, {error, _} = Error) ->
+    Error;
+maybe_flush_core(Client, #{delivery_mode := core, request_ttl := RequestTTL}, ok) ->
+    enats_client:flush(Client, RequestTTL);
+maybe_flush_core(_Client, _Channel, Result) ->
+    Result.
+
+publish_rendered(Client, #{delivery_mode := DeliveryMode, request_ttl := RequestTTL}, #{
+    subject := Subject, payload := Payload, headers := Headers, msg_id := MsgId
+}) ->
+    Options = #{
+        headers => Headers,
+        timeout => RequestTTL
+    },
+    case DeliveryMode of
+        core ->
+            enats_client:publish(Client, Subject, Payload, Options);
+        jetstream ->
+            case MsgId of
+                <<>> ->
+                    enats_client:jetstream_publish(Client, Subject, Payload, Options);
+                Value ->
+                    enats_client:jetstream_publish(Client, Subject, Payload, Options#{
+                        msg_id => Value
+                    })
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% Connector configuration and authentication
+%%--------------------------------------------------------------------
+
+client_options(#{
+    servers := ServersConfig,
+    connect_timeout := ConnectTimeout,
+    authentication := Authentication,
+    tls_handshake := TLSHandshake,
+    ssl := #{enable := TLSEnabled} = SSL
+}) ->
+    Servers0 = emqx_schema:parse_servers(ServersConfig, #{default_port => 4222}),
+    Servers = [{maps:get(hostname, Server), maps:get(port, Server)} || Server <- Servers0],
+    case auth_options(Authentication) of
+        {error, _} = Error ->
+            Error;
+        Auth ->
+            #{
+                servers => Servers,
+                connect_timeout => ConnectTimeout,
+                tls => TLSEnabled,
+                tls_handshake => TLSHandshake,
+                ssl_opts => emqx_tls_lib:to_client_opts(SSL),
+                auth => Auth,
+                reconnect => true,
+                notify => false
+            }
+    end.
+
+auth_options(none) ->
+    none;
+auth_options(#{mechanism := token, token := Token}) ->
+    #{mechanism => token, token => secret_provider(Token)};
+auth_options(#{mechanism := user_password, username := Username, password := Password}) ->
+    #{mechanism => user_password, username => Username, password => secret_provider(Password)};
+auth_options(#{mechanism := nkey, nkey_seed := Seed}) ->
+    #{mechanism => nkey_seed, seed => secret_provider(Seed)};
+auth_options(#{mechanism := jwt, credentials_file_content := Secret}) ->
+    #{
+        mechanism => credentials,
+        provider => fun() -> {ok, emqx_secret:unwrap(Secret)} end
+    };
+auth_options(_Authentication) ->
+    {error, {invalid_authentication, bad_value}}.
+
+secret_provider(Secret) ->
+    fun() -> emqx_secret:unwrap(Secret) end.
+
+%%--------------------------------------------------------------------
+%% Result and error classification
+%%--------------------------------------------------------------------
+
+classify_result(ok) ->
+    ok;
+classify_result(Results) when is_list(Results) ->
+    [classify_result(Result) || Result <- Results];
+classify_result({error, {Kind, _}} = Error) when
+    Kind =:= recoverable_error; Kind =:= unrecoverable_error
+->
+    Error;
+classify_result({error, ecpool_empty}) ->
+    {error, {recoverable_error, ecpool_empty}};
+%% ecpool 0.7.0 pick_and_do/3 propagates ecpool_worker:client/1 errors.
+classify_result({error, {disconnected, #{reason := Reason}} = PoolError}) ->
+    {error, {ecpool_error_kind(Reason), PoolError}};
+classify_result({error, {disconnected, client_not_yet_started} = PoolError}) ->
+    {error, {recoverable_error, PoolError}};
+classify_result({error, #{reason := Reason, details := Details} = Error}) ->
+    {error, {enats_client_error_kind(Reason, Details), Error}};
+classify_result({error, Reason}) ->
+    {error, {unrecoverable_error, Reason}};
+classify_result(Result) ->
+    Result.
+
+ecpool_error_kind(#{reason := Reason, details := Details}) ->
+    enats_client_error_kind(Reason, Details);
+ecpool_error_kind(Reason) when
+    Reason =:= killed;
+    Reason =:= disconnected;
+    Reason =:= closed;
+    Reason =:= stale_connection;
+    Reason =:= timeout;
+    Reason =:= econnrefused;
+    Reason =:= econnreset;
+    Reason =:= nxdomain
+->
+    recoverable_error;
+ecpool_error_kind(_) ->
+    unrecoverable_error.
+
+enats_client_error_kind(connection_failed, #{cause := Cause}) when
+    Cause =:= tls_not_available; Cause =:= tls_alert
+->
+    unrecoverable_error;
+enats_client_error_kind(connection_failed, _) ->
+    recoverable_error;
+enats_client_error_kind(timeout, _) ->
+    recoverable_error;
+enats_client_error_kind(bad_operation, #{code := Code}) when
+    Code =:= connecting; Code =:= draining
+->
+    recoverable_error;
+enats_client_error_kind(_, _) ->
+    unrecoverable_error.
