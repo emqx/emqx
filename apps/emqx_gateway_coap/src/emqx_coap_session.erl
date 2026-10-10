@@ -115,7 +115,7 @@ info(subscriptions_max, _) ->
 info(upgrade_qos, _) ->
     ?QOS_0;
 info(inflight, _) ->
-    emqx_inflight:new();
+    emqx_gateway_inflight:new();
 info(inflight_cnt, #session{observe_inflight = Inflight}) ->
     Inflight;
 info(inflight_max, _) ->
@@ -242,7 +242,7 @@ call_transport_manager(
     Msg,
     #session{transport_manager = TM} = Session
 ) ->
-    Result = emqx_coap_tm:Fun(Msg, TM),
+    Result = erlang:apply(emqx_coap_tm, Fun, [Msg, TM]),
     iter(
         [tm, fun process_tm/4, fun process_session/3],
         Result,
@@ -599,7 +599,7 @@ merge_blockwise_entry(Key, Value, Acc) ->
 
 add_outs(Outs, Result) ->
     lists:foldl(
-        fun(Out, Acc) -> emqx_coap_medium:out(Out, Acc) end,
+        fun emqx_coap_medium:out/2,
         Result,
         Outs
     ).
