@@ -262,6 +262,13 @@ with_channel(Fun, Args, #{channel := Channel, task_queue := Q} = S) when
         %% @FIXME WTH?
         {ok, {outgoing, _} = Msg, NewChannel} ->
             {{continue, handle_appl_msg}, S#{task_queue := queue:in(Msg, Q), channel := NewChannel}};
+        %% A close ends this stream. MQTT packets already queued behind
+        %% DISCONNECT are not a new connection on this process.
+        {ok, {close, Reason}, NewChannel} ->
+            {{continue, handle_appl_msg}, S#{
+                task_queue := queue:in({close, Reason}, drop_queued_incoming(Q)),
+                channel := NewChannel
+            }};
         {ok, NewChannel} ->
             {{continue, handle_appl_msg}, S#{channel := NewChannel}};
         %% @TODO optimisation for shutdown wrap
@@ -279,6 +286,15 @@ with_channel(Fun, Args, #{channel := Channel, task_queue := Q} = S) when
                 task_queue := queue:in(Msg, Q)
             }}
     end.
+
+drop_queued_incoming(Q) ->
+    queue:filter(
+        fun
+            ({incoming, _}) -> false;
+            (_) -> true
+        end,
+        Q
+    ).
 
 handle_outgoing(#mqtt_packet{} = P, S) ->
     handle_outgoing([P], S);

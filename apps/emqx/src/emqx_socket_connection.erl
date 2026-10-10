@@ -637,6 +637,10 @@ handle_msg({request_more_data, More}, State = #state{socket = Socket, sockstate 
         false ->
             {ok, State}
     end;
+%% The socket is already closed. A packet from the same read, such as CONNECT
+%% after DISCONNECT, must not run on the parked session.
+handle_msg({incoming, _}, #state{sockstate = closed} = State) ->
+    {ok, State};
 handle_msg({incoming, [Connect = ?PACKET(?CONNECT) | Rest]}, State) ->
     %% NOTE
     %% Technically, `Rest` may also contain CONNECT packets. This is protocol
@@ -1096,9 +1100,24 @@ handle_incoming_packets([Packet | Rest], State, Channel, Outgoing) ->
 
 handle_unbatchable(Replies, Rest, State, Channel, Outgoing) ->
     Pending = [{outgoing, mk_batch(Outgoing, [])} || Outgoing =/= []],
-    Remaining = [{incoming, P} || P <- Rest],
+    %% `{close, _}` ends this TCP connection. Bytes already parsed after
+    %% DISCONNECT are not a new MQTT connection on this channel.
+    Remaining =
+        case replies_include_close(Replies) of
+            true -> [];
+            false -> [{incoming, P} || P <- Rest]
+        end,
     NState = State#state{channel = Channel},
     {ok, Pending ++ Replies ++ Remaining, NState}.
+
+replies_include_close(Replies) ->
+    lists:any(
+        fun
+            ({close, _}) -> true;
+            (_) -> false
+        end,
+        lists:flatten(Replies)
+    ).
 
 collect_outgoing_replies([], Outgoing) ->
     Outgoing;

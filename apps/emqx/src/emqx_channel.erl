@@ -475,6 +475,12 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
     ?TRACE("MQTT", "unexpected_connect_packet", #{conn_state => connecting}),
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
+handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = disconnected}) ->
+    %% This channel already finished its connection and is the session holder.
+    %% A second CONNECT, including one read with DISCONNECT, must not open a
+    %% session here: takeover would call this process and exit `calling_self`.
+    ?TRACE("MQTT", "unexpected_connect_packet", #{conn_state => disconnected}),
+    {ok, Channel};
 handle_in(?PACKET(?CONNECT) = Packet, Channel) ->
     ?EXT_TRACE_CLIENT_CONNECT(
         ?EXT_TRACE_ATTR(connect_attrs(Packet, Channel)),

@@ -235,6 +235,13 @@ t_handle_in_unexpected_connect_packet(_) ->
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel).
 
+t_handle_in_connect_while_disconnected_keeps_session(_) ->
+    Channel = emqx_channel:set_field(conn_state, disconnected, channel()),
+    ?assertEqual(
+        {ok, Channel},
+        emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel)
+    ).
+
 t_handle_in_extended_reauthentication(_) ->
     try
         {ok, Agent} = emqx_utils_agent:start_link({stop, ok}),
