@@ -10,6 +10,7 @@
 -include("emqx_nats.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(NKEY_ACCOUNT_PREFIX, 16#00).
 -define(NKEY_OPERATOR_PREFIX, 16#70).
@@ -548,6 +549,7 @@ target_caps(emqx, _Group) ->
         jwt_account_expiry,
         jwt_acl_intersection,
         mixed_auth_priority,
+        mqtt_subject_translation,
         security_profile
     ];
 target_caps(nats, Group) ->
@@ -589,6 +591,26 @@ required_caps(t_jwt_account_expire_disconnect) ->
     [jwt_account_expiry];
 required_caps(t_jwt_permissions_intersection_with_acl) ->
     [jwt_auth, jwt_acl_intersection];
+required_caps(t_jwt_nats_publish_permissions) ->
+    [jwt_auth, jwt_acl_intersection];
+required_caps(t_jwt_nats_subscribe_permissions) ->
+    [jwt_auth, jwt_acl_intersection];
+required_caps(t_jwt_mqtt_reserved_permission_rejected) ->
+    [jwt_auth, mqtt_subject_translation];
+required_caps(t_jwt_mqtt_ambiguous_delivery_dropped) ->
+    [jwt_auth, mqtt_subject_translation];
+required_caps(t_jwt_queue_group_cannot_change_filter) ->
+    [jwt_auth, mqtt_subject_translation];
+required_caps(t_mqtt_wildcard_gt_requires_child) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_reserved_queue_group_rejected) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_reserved_subject_rejected) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_reserved_reply_subject_rejected) ->
+    [mqtt_subject_translation];
+required_caps(t_mqtt_unrepresentable_delivery_dropped) ->
+    [mqtt_subject_translation];
 required_caps(t_nkey_auth_priority_over_jwt) ->
     [jwt_auth];
 required_caps(t_nkey_auth_fallback_to_jwt) ->
@@ -1396,6 +1418,151 @@ t_subscribe_invalid_subject(Config) ->
 
     emqx_nats_client:stop(Client).
 
+t_mqtt_reserved_subject_rejected(Config) ->
+    lists:foreach(
+        fun(Subject) ->
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_sub(Client, Subject, <<"sid-1">>)
+            end),
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_pub(Client, Subject, <<"payload">>)
+            end)
+        end,
+        [
+            <<"foo.+">>,
+            <<"foo.#">>,
+            <<"foo/bar">>,
+            <<"$share.group.foo">>,
+            <<"$queue.foo">>,
+            <<"$exclusive.foo">>
+        ]
+    ).
+
+t_mqtt_reserved_queue_group_rejected(Config) ->
+    lists:foreach(
+        fun(QGroup) ->
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_queue_sub(Client, <<"foo">>, QGroup, <<"sid-1">>)
+            end)
+        end,
+        [<<"group/secret">>, <<"group+">>, <<"group#">>]
+    ).
+
+t_mqtt_reserved_reply_subject_rejected(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Subscriber} = emqx_nats_client:start_link(ClientOpts),
+    try
+        recv_info_frame(Subscriber),
+        ok = emqx_nats_client:connect(Subscriber),
+        recv_ok_frame(Subscriber),
+        ok = emqx_nats_client:subscribe(Subscriber, <<"reply.service">>, <<"sid-service">>),
+        recv_ok_frame(Subscriber),
+        lists:foreach(
+            fun({Op, Subject, ReplyTo}) ->
+                {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+                try
+                    recv_info_frame(Client),
+                    ok = emqx_nats_client:connect(Client),
+                    recv_ok_frame(Client),
+                    ok = send_raw_reply_request(Client, Op, Subject, ReplyTo),
+                    ?assertMatch(#nats_frame{operation = ?OP_ERR}, recv_non_ping_frame(Client))
+                after
+                    emqx_nats_client:stop(Client)
+                end
+            end,
+            [
+                {Op, Subject, ReplyTo}
+             || Op <- [?OP_PUB, ?OP_HPUB],
+                Subject <- [<<"reply.service">>, <<"reply.unsubscribed">>],
+                ReplyTo <- [
+                    <<"reply/a">>,
+                    <<>>,
+                    <<"reply.+">>,
+                    <<"reply.#">>,
+                    <<"$share.group.reply">>,
+                    <<"$queue.reply">>,
+                    <<"$exclusive.reply">>,
+                    <<"reply.*">>,
+                    <<"reply.>">>,
+                    <<"reply..a">>
+                ]
+            ]
+        ),
+        assert_no_message(Subscriber, <<"reply.service">>, 200)
+    after
+        emqx_nats_client:stop(Subscriber)
+    end.
+
+t_mqtt_unrepresentable_delivery_dropped(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    try
+        recv_info_frame(Client),
+        ok = emqx_nats_client:connect(Client),
+        recv_ok_frame(Client),
+        ok = emqx_nats_client:subscribe(Client, <<"foo.>">>, <<"sid-1">>),
+        recv_ok_frame(Client),
+        ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>, 1),
+        recv_ok_frame(Client),
+        Before = emqx_gateway_metrics:lookup(nats),
+        Topics = [
+            <<"foo/a.b">>,
+            <<"foo/">>,
+            <<"foo//bar">>,
+            <<"foo/*">>,
+            <<"foo/>">>,
+            <<"foo/bar baz">>
+        ],
+        lists:foreach(
+            fun(Topic) ->
+                emqx:publish(emqx_message:make(<<"mqtt-client">>, Topic, <<"unsupported">>))
+            end,
+            Topics
+        ),
+        After = ?retry(
+            100,
+            20,
+            begin
+                Metrics = emqx_gateway_metrics:lookup(nats),
+                ?assertEqual(
+                    proplists:get_value('delivery.dropped', Before, 0) + length(Topics),
+                    proplists:get_value('delivery.dropped', Metrics, 0)
+                ),
+                Metrics
+            end
+        ),
+        assert_no_message(Client, <<"foo.a.b">>, 200),
+        ?assertEqual(
+            proplists:get_value('messages.delivered', Before, 0),
+            proplists:get_value('messages.delivered', After, 0)
+        ),
+        emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/bar">>, <<"valid">>)),
+        Message = recv_non_ping_frame(Client),
+        ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+        ?assertEqual(<<"foo.bar">>, emqx_nats_frame:subject(Message)),
+        ?assertEqual(<<"valid">>, emqx_nats_frame:payload(Message)),
+        Delivered = emqx_gateway_metrics:lookup(nats),
+        ?assertEqual(
+            proplists:get_value('messages.delivered', Before, 0) + 1,
+            proplists:get_value('messages.delivered', Delivered, 0)
+        ),
+        emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/again">>, <<"after-limit">>)),
+        assert_no_message(Client, <<"foo.again">>, 200)
+    after
+        emqx_nats_client:stop(Client)
+    end.
+
+assert_raw_subject_rejected(Config, Send) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = Send(Client),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+    emqx_nats_client:stop(Client).
+
 t_publish(Config) ->
     ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -1531,6 +1698,34 @@ t_receive_message(Config) ->
         },
         Msg
     ),
+    emqx_nats_client:stop(Client).
+
+t_mqtt_wildcard_gt_requires_child(Config) ->
+    lists:foreach(
+        fun({Filter, Parent, Child}) ->
+            assert_mqtt_wildcard_gt_requires_child(Config, Filter, Parent, Child)
+        end,
+        [
+            {<<"foo.>">>, <<"foo">>, <<"foo/bar">>},
+            {<<"foo.*.>">>, <<"foo/bar">>, <<"foo/bar/baz">>}
+        ]
+    ).
+
+assert_mqtt_wildcard_gt_requires_child(Config, Filter, Parent, Child) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, Filter, <<"sid-1">>),
+    recv_ok_frame(Client),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, Parent, <<"parent">>)),
+    assert_no_message(Client, emqx_nats_topic:mqtt_to_nats(Parent), 1000),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, Child, <<"child">>)),
+    Message = recv_non_ping_frame(Client),
+    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+    ?assertEqual(emqx_nats_topic:mqtt_to_nats(Child), emqx_nats_frame:subject(Message)),
+    ?assertEqual(<<"child">>, emqx_nats_frame:payload(Message)),
     emqx_nats_client:stop(Client).
 
 't_receive_message_with_wildcard_combined_*_>'(Config) ->
@@ -1723,6 +1918,30 @@ t_reply_to(Config) ->
 
     emqx_nats_client:stop(Publisher),
     emqx_nats_client:stop(Subscriber).
+
+t_reply_to_hpub(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true, headers => true}),
+    {ok, Subscriber} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Publisher} = emqx_nats_client:start_link(ClientOpts),
+    try
+        recv_info_frame(Subscriber),
+        ok = emqx_nats_client:connect(Subscriber),
+        recv_ok_frame(Subscriber),
+        ok = emqx_nats_client:subscribe(Subscriber, <<"reply.service">>, <<"sid-service">>),
+        recv_ok_frame(Subscriber),
+        recv_info_frame(Publisher),
+        ok = emqx_nats_client:connect(Publisher),
+        recv_ok_frame(Publisher),
+        ok = send_raw_reply_request(Publisher, ?OP_HPUB, <<"reply.service">>, <<"reply.a">>),
+        recv_ok_frame(Publisher),
+        Message = recv_non_ping_frame(Subscriber),
+        ?assertEqual(<<"reply.service">>, emqx_nats_frame:subject(Message)),
+        ?assertEqual(<<"reply.a">>, emqx_nats_frame:reply_to(Message)),
+        ?assertEqual(<<"x">>, emqx_nats_frame:payload(Message))
+    after
+        emqx_nats_client:stop(Publisher),
+        emqx_nats_client:stop(Subscriber)
+    end.
 
 t_reply_to_with_no_responders(Config) ->
     ClientOpts = maps:merge(
@@ -2297,6 +2516,208 @@ t_jwt_permissions_intersection_with_acl(Config) ->
     recv_ok_frame(Client),
     emqx_nats_client:stop(Client).
 
+t_jwt_nats_publish_permissions(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_nats_publish_permissions('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_nats_publish_permissions(Config) ->
+    ok = allow_pubsub_all(),
+    Observer = nats_permission_client(Config, [<<">">>], []),
+    try
+        lists:foreach(
+            fun({Allow, Deny, Allowed, Denied}) ->
+                Client = nats_permission_client(Config, Allow, Deny),
+                try
+                    ok = emqx_nats_client:subscribe(Observer, Allowed, <<"observer">>),
+                    recv_permission_ok(Observer),
+                    ok = emqx_nats_client:publish(Client, Allowed, <<"allowed">>),
+                    recv_permission_ok(Client),
+                    Message = recv_non_ping_frame(Observer),
+                    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+                    ?assertEqual(Allowed, emqx_nats_frame:subject(Message)),
+                    ?assertEqual(<<"allowed">>, emqx_nats_frame:payload(Message)),
+                    ok = emqx_nats_client:unsubscribe(Observer, <<"observer">>),
+                    recv_permission_ok(Observer),
+                    ok = emqx_nats_client:subscribe(Observer, Denied, <<"observer">>),
+                    recv_permission_ok(Observer),
+                    ok = emqx_nats_client:publish(Client, Denied, <<"denied">>),
+                    assert_permissions_violation(recv_non_ping_frame(Client), publish, Denied),
+                    assert_no_message(Observer, Denied, 200),
+                    ok = emqx_nats_client:unsubscribe(Observer, <<"observer">>),
+                    recv_permission_ok(Observer)
+                after
+                    emqx_nats_client:stop(Client)
+                end
+            end,
+            [
+                {
+                    [<<"$private.>">>],
+                    [<<"*.secret">>],
+                    <<"$private.public">>,
+                    <<"$private.secret">>
+                },
+                {[], [<<"*.secret">>], <<"$private.public">>, <<"$private.secret">>},
+                {[<<">">>], [<<"$private.>">>], <<"$private">>, <<"$private.secret">>},
+                {[<<"*.public">>], [], <<"$private.public">>, <<"$private.public.extra">>}
+            ]
+        )
+    after
+        emqx_nats_client:stop(Observer)
+    end.
+
+t_jwt_nats_subscribe_permissions(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_nats_subscribe_permissions('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_nats_subscribe_permissions(Config) ->
+    ok = allow_pubsub_all(),
+    Publisher = nats_permission_client(Config, [<<">">>], []),
+    try
+        lists:foreach(
+            fun({Allow, Deny, Allowed, DeniedFilters}) ->
+                Client = nats_permission_client(Config, Allow, Deny),
+                try
+                    ok = emqx_nats_client:subscribe(Client, Allowed, <<"allowed">>),
+                    recv_permission_ok(Client),
+                    ok = emqx_nats_client:publish(Publisher, Allowed, <<"allowed">>),
+                    recv_permission_ok(Publisher),
+                    Message = recv_non_ping_frame(Client),
+                    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+                    ?assertEqual(Allowed, emqx_nats_frame:subject(Message)),
+                    ?assertEqual(<<"allowed">>, emqx_nats_frame:payload(Message)),
+                    ok = emqx_nats_client:unsubscribe(Client, <<"allowed">>),
+                    recv_permission_ok(Client),
+                    lists:foreach(
+                        fun(Filter) ->
+                            ok = emqx_nats_client:subscribe(Client, Filter, <<"denied">>),
+                            assert_permissions_violation(
+                                recv_non_ping_frame(Client), subscribe, Filter
+                            )
+                        end,
+                        DeniedFilters
+                    ),
+                    ok = emqx_nats_client:publish(Publisher, <<"$private.secret">>, <<"denied">>),
+                    recv_permission_ok(Publisher),
+                    assert_no_message(Client, <<"$private.secret">>, 200)
+                after
+                    emqx_nats_client:stop(Client)
+                end
+            end,
+            [
+                {[<<"$private.>">>], [<<"*.secret">>], <<"$private.public">>, [
+                    <<"$private.secret">>, <<"$private.*">>, <<"$private.>">>, <<">">>
+                ]},
+                {[], [<<"*.secret">>], <<"$private.public">>, [
+                    <<"$private.secret">>, <<"$private.*">>, <<"$private.>">>
+                ]},
+                {[<<">">>], [<<"$private.>">>], <<"$private">>, [
+                    <<"$private.secret">>, <<"$private.*">>, <<"*.secret">>, <<">">>
+                ]},
+                {[<<"*.public">>], [], <<"$private.public">>, [
+                    <<"$private.*">>, <<"$private.>">>, <<"$private.public.extra">>
+                ]}
+            ]
+        )
+    after
+        emqx_nats_client:stop(Publisher)
+    end.
+
+nats_permission_client(Config, Allow, Deny) ->
+    Permission = #{<<"allow">> => Allow, <<"deny">> => Deny},
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"pub">> => Permission,
+            <<"sub">> => Permission,
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_permission_ok(Client),
+    Client.
+
+recv_permission_ok(Client) ->
+    ?assertEqual(?OP_OK, emqx_nats_frame:type(recv_non_ping_frame(Client))).
+
+t_jwt_mqtt_reserved_permission_rejected(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_mqtt_reserved_permission_rejected('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_mqtt_reserved_permission_rejected(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"deny">> => [<<"foo/#">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_queue_group_cannot_change_filter(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_queue_group_cannot_change_filter('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_queue_group_cannot_change_filter(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"allow">> => [<<"foo">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    ok = send_raw_queue_sub(Client, <<"foo">>, <<"group/secret">>, <<"sid-1">>),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_mqtt_ambiguous_delivery_dropped(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_mqtt_ambiguous_delivery_dropped('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_mqtt_ambiguous_delivery_dropped(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"allow">> => [<<"foo.*">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo.*">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/a.b">>, <<"ambiguous">>)),
+    assert_no_message(Client, <<"foo.a.b">>, 1000),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/bar">>, <<"valid">>)),
+    {ok, [Message]} = emqx_nats_client:receive_message(Client),
+    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+    ?assertEqual(<<"foo.bar">>, emqx_nats_frame:subject(Message)),
+    ?assertEqual(<<"valid">>, emqx_nats_frame:payload(Message)),
+    emqx_nats_client:stop(Client).
+
 t_publish_authz(init, Config) ->
     auth_setup(Config);
 t_publish_authz('end', Config) ->
@@ -2635,6 +3056,10 @@ send_raw_sub(Client, Subject, Sid) ->
     ]),
     emqx_nats_client:send_invalid_frame(Client, Data).
 
+send_raw_queue_sub(Client, Subject, QGroup, Sid) ->
+    Data = iolist_to_binary(["SUB ", Subject, " ", QGroup, " ", Sid, "\r\n"]),
+    emqx_nats_client:send_invalid_frame(Client, Data).
+
 send_raw_pub(Client, Subject, Payload) ->
     PayloadSize = integer_to_list(byte_size(Payload)),
     Data = iolist_to_binary([
@@ -2656,6 +3081,15 @@ send_raw_hpub(Client, Subject, Headers, Payload) ->
     Data = iolist_to_binary(
         emqx_nats_frame:serialize_pkt(Frame, emqx_nats_frame:serialize_opts())
     ),
+    emqx_nats_client:send_invalid_frame(Client, Data).
+
+send_raw_reply_request(Client, ?OP_PUB, Subject, ReplyTo) ->
+    Data = iolist_to_binary(["PUB ", Subject, " ", ReplyTo, " 1\r\nx\r\n"]),
+    emqx_nats_client:send_invalid_frame(Client, Data);
+send_raw_reply_request(Client, ?OP_HPUB, Subject, ReplyTo) ->
+    Data = iolist_to_binary([
+        "HPUB ", Subject, " ", ReplyTo, " 12 13\r\nNATS/1.0\r\n\r\nx\r\n"
+    ]),
     emqx_nats_client:send_invalid_frame(Client, Data).
 
 assert_permissions_violation(#nats_frame{operation = ?OP_ERR, message = Msg}, Kind, Subject) ->

@@ -36,7 +36,7 @@
 ]).
 
 -ifdef(TEST).
--export([authorize_publish/2]).
+-export([jwt_permissions_authorize/4]).
 -endif.
 
 -record(channel, {
@@ -95,7 +95,7 @@
     username => <<"${Packet.user}">>,
     password => <<"${Packet.pass}">>
 }).
--define(JWT_RULE_FILTERS_CACHE_KEY, {?MODULE, jwt_rule_filters_cache}).
+-define(JWT_RULE_FILTERS_CACHE_KEY, {?MODULE, jwt_rule_tokens_cache}).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 -define(RAND_CLIENTID_BYETS, 16).
@@ -590,7 +590,7 @@ handle_in(
 handle_in(
     Packet = ?PACKET(?OP_CONNECT),
     Channel = #channel{conn_state = ConnState}
-) when ConnState =:= anonymous; ConnState =:= idle ->
+) when ConnState =:= anonymous orelse ConnState =:= idle ->
     case
         emqx_utils:pipeline(
             [
@@ -614,15 +614,10 @@ handle_in(
     end;
 handle_in(
     Frame = ?PACKET(Op),
-    Channel = #channel{
-        clientinfo = ClientInfo,
-        conn_state = ConnState
-    }
+    Channel = #channel{conn_state = ConnState}
 ) when (Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB) andalso ?ALLOW_PUB_SUB(ConnState) ->
     Subject = emqx_nats_frame:subject(Frame),
-    Topic = nats_subject_to_pub_topic(Subject),
-    Msg = frame2message(Frame, Topic, Channel),
-    case authorize_publish(ClientInfo, Msg) of
+    case authorize_publish(Frame, Channel) of
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         {error, _Reason} ->
@@ -737,7 +732,7 @@ handle_in(
 handle_in(
     ?PACKET(Op),
     Channel
-) when Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB; Op =:= ?OP_SUB orelse Op =:= ?OP_UNSUB ->
+) when Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB orelse Op =:= ?OP_SUB orelse Op =:= ?OP_UNSUB ->
     handle_out(error, <<"Must be connected to publish or subscribe">>, Channel);
 handle_in(Frame = ?PACKET(?OP_OK), Channel) ->
     ?SLOG(info, #{
@@ -830,7 +825,6 @@ check_sub_acl(
         clientinfo = ClientInfo
     }
 ) ->
-    %% QoS is not supported in stomp
     Action = ?AUTHZ_SUBSCRIBE,
     case authorize_with_jwt_first(Ctx, ClientInfo, Action, ParsedTopic, Subject) of
         deny -> {error, acl_denied};
@@ -1064,8 +1058,7 @@ ensure_disconnected(
 handle_deliver(
     Delivers,
     Channel = #channel{
-        ctx = Ctx,
-        clientinfo = ClientInfo = #{clientid := ClientId, mountpoint := Mountpoint},
+        clientinfo = #{clientid := ClientId},
         subscriptions = Subs
     }
 ) ->
@@ -1076,30 +1069,9 @@ handle_deliver(
                 true ->
                     {FrameAcc, SubsAcc};
                 false ->
-                    ReplyTo = emqx_message:get_header(reply_to, Message),
                     case find_sub_by_topic(SubTopic, SubsAcc) of
                         #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
-                            Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
-                            metrics_inc('messages.delivered', Channel),
-                            NMessage = run_hooks_without_metrics(
-                                Ctx,
-                                'message.delivered',
-                                [ClientInfo],
-                                Message1
-                            ),
-                            MsgContent = #{
-                                subject => emqx_nats_topic:mqtt_to_nats(
-                                    emqx_message:topic(NMessage)
-                                ),
-                                sid => SId,
-                                reply_to => ReplyTo,
-                                payload => emqx_message:payload(NMessage)
-                            },
-                            Frame = #nats_frame{
-                                operation = ?OP_MSG,
-                                message = MsgContent
-                            },
-                            {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+                            deliver_to_subscriber(Message, SId, {FrameAcc, SubsAcc}, Channel);
                         #{max_msgs := 0} ->
                             metrics_inc('delivery.dropped', Channel),
                             metrics_inc('delivery.dropped.max_msgs', Channel),
@@ -1135,6 +1107,34 @@ handle_deliver(
     ),
 
     {ok, [{outgoing, lists:reverse(Frames0)}, {event, updated}], Channel2}.
+
+deliver_to_subscriber(
+    Message,
+    SId,
+    {FrameAcc, SubsAcc},
+    Channel = #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo = #{mountpoint := Mountpoint}
+    }
+) ->
+    ReplyTo = emqx_message:get_header(reply_to, Message),
+    Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
+    NMessage = run_hooks_without_metrics(Ctx, 'message.delivered', [ClientInfo], Message1),
+    case emqx_nats_topic:mqtt_to_nats_publish(emqx_message:topic(NMessage)) of
+        {ok, Subject} ->
+            metrics_inc('messages.delivered', Channel),
+            MsgContent = #{
+                subject => Subject,
+                sid => SId,
+                reply_to => ReplyTo,
+                payload => emqx_message:payload(NMessage)
+            },
+            Frame = #nats_frame{operation = ?OP_MSG, message = MsgContent},
+            {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+        {error, invalid_topic} ->
+            metrics_inc('delivery.dropped', Channel),
+            {FrameAcc, SubsAcc}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -1306,16 +1306,15 @@ authorize_with_jwt_first(Ctx, ClientInfo, Action, Topic, Subject) ->
             authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic)
     end.
 
-authorize_publish(ClientInfo, Msg) ->
-    case emqx_message_ingress:ingress(ClientInfo, Msg) of
-        {ok, NMsg = #message{topic = Topic}} ->
-            Subject = emqx_nats_topic:mqtt_to_nats(Topic),
-            case jwt_permissions_authorize(ClientInfo, ?AUTHZ_PUBLISH, Topic, Subject) of
-                deny -> deny;
-                _ -> emqx_message_ingress:authorize(ClientInfo, NMsg)
-            end;
-        {error, _} = Error ->
-            Error
+authorize_publish(Frame, Channel = #channel{clientinfo = ClientInfo}) ->
+    Subject = emqx_nats_frame:subject(Frame),
+    case jwt_permissions_authorize(ClientInfo, ?AUTHZ_PUBLISH, undefined, Subject) of
+        deny ->
+            deny;
+        _ ->
+            Topic = nats_subject_to_pub_topic(Subject),
+            Msg = frame2message(Frame, Topic, Channel),
+            emqx_message_ingress:ingress_and_authorize(ClientInfo, Msg)
     end.
 
 authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic) ->
@@ -1333,12 +1332,16 @@ jwt_permissions_authorize(
     Subject
 ) when is_map(JWTPerms) ->
     JWTPermAction = action_to_jwt_permission(Action),
-    do_jwt_permissions_authorize(
-        JWTPermAction,
-        Topic,
-        Subject,
-        jwt_rule_filters(JWTPerms, JWTPermAction)
-    );
+    try
+        do_jwt_permissions_authorize(
+            JWTPermAction,
+            Topic,
+            Subject,
+            jwt_rule_filters(JWTPerms, JWTPermAction)
+        )
+    catch
+        error:{invalid_subject, _Reason} -> deny
+    end;
 jwt_permissions_authorize(_ClientInfo, _Action, _Topic, _Subject) ->
     ignore.
 
@@ -1355,35 +1358,20 @@ do_jwt_permissions_authorize(
 ) ->
     ignore;
 do_jwt_permissions_authorize(Action, Topic, Subject, RuleFilters) ->
-    jwt_permission_decision(Action, Topic, Subject, RuleFilters).
+    case Action of
+        subscribe ->
+            %% Queue/shared parsing must not change the subject being authorized.
+            ActualFilter = emqx_topic:get_shared_real_topic(Topic),
+            case ActualFilter =:= emqx_nats_topic:nats_to_mqtt(Subject) of
+                true -> jwt_permission_decision(Action, Subject, RuleFilters);
+                false -> deny
+            end;
+        publish ->
+            jwt_permission_decision(Action, Subject, RuleFilters)
+    end.
 
 jwt_permission_decision(
     publish,
-    Topic,
-    _Subject,
-    #{
-        allow_empty := AllowEmpty,
-        allow_filters := AllowFilters,
-        deny_filters := DenyFilters
-    }
-) ->
-    case jwt_publish_match_any(Topic, DenyFilters) of
-        true ->
-            deny;
-        false ->
-            case AllowEmpty of
-                true ->
-                    allow;
-                false ->
-                    case jwt_publish_match_any(Topic, AllowFilters) of
-                        true -> allow;
-                        false -> deny
-                    end
-            end
-    end;
-jwt_permission_decision(
-    subscribe,
-    _Topic,
     Subject,
     #{
         allow_empty := AllowEmpty,
@@ -1391,7 +1379,31 @@ jwt_permission_decision(
         deny_filters := DenyFilters
     }
 ) ->
-    TopicFilter = nats_subject_to_filter(Subject),
+    Tokens = emqx_nats_subject:tokens(Subject),
+    case jwt_publish_match_any(Tokens, DenyFilters) of
+        true ->
+            deny;
+        false ->
+            case AllowEmpty of
+                true ->
+                    allow;
+                false ->
+                    case jwt_publish_match_any(Tokens, AllowFilters) of
+                        true -> allow;
+                        false -> deny
+                    end
+            end
+    end;
+jwt_permission_decision(
+    subscribe,
+    Subject,
+    #{
+        allow_empty := AllowEmpty,
+        allow_filters := AllowFilters,
+        deny_filters := DenyFilters
+    }
+) ->
+    TopicFilter = emqx_nats_subject:tokens(Subject),
     case jwt_subscribe_match_any(TopicFilter, DenyFilters, intersection) of
         true ->
             deny;
@@ -1407,40 +1419,13 @@ jwt_permission_decision(
             end
     end.
 
-jwt_publish_match_any(Topic, RuleFilters) ->
-    try jwt_publish_match_any_unsafe(Topic, RuleFilters) of
-        Result -> Result
-    catch
-        _:_ -> false
-    end.
+jwt_publish_match_any(Subject, RuleFilters) ->
+    lists:any(fun(Rule) -> emqx_nats_subject:matches(Subject, Rule) end, RuleFilters).
 
-jwt_publish_match_any_unsafe(_Topic, []) ->
-    false;
-jwt_publish_match_any_unsafe(Topic, [RuleFilter | Rest]) ->
-    case emqx_topic:match(Topic, RuleFilter) of
-        true -> true;
-        false -> jwt_publish_match_any_unsafe(Topic, Rest)
-    end.
-
-jwt_subscribe_match_any(TopicFilter, RuleFilters, Mode) ->
-    try jwt_subscribe_match_any_unsafe(TopicFilter, RuleFilters, Mode) of
-        Result -> Result
-    catch
-        _:_ -> false
-    end.
-
-jwt_subscribe_match_any_unsafe(_TopicFilter, [], _Mode) ->
-    false;
-jwt_subscribe_match_any_unsafe(TopicFilter, [RuleFilter | Rest], subset) ->
-    case emqx_topic:is_subset(TopicFilter, RuleFilter) of
-        true -> true;
-        false -> jwt_subscribe_match_any_unsafe(TopicFilter, Rest, subset)
-    end;
-jwt_subscribe_match_any_unsafe(TopicFilter, [RuleFilter | Rest], intersection) ->
-    case emqx_topic:intersection(TopicFilter, RuleFilter) =/= false of
-        true -> true;
-        false -> jwt_subscribe_match_any_unsafe(TopicFilter, Rest, intersection)
-    end.
+jwt_subscribe_match_any(Subject, RuleFilters, subset) ->
+    lists:any(fun(Rule) -> emqx_nats_subject:is_subset(Subject, Rule) end, RuleFilters);
+jwt_subscribe_match_any(Subject, RuleFilters, intersection) ->
+    lists:any(fun(Rule) -> emqx_nats_subject:intersects(Subject, Rule) end, RuleFilters).
 
 jwt_rule_filters(JWTPerms, Action) ->
     RuleFiltersByAction =
@@ -1480,26 +1465,7 @@ default_jwt_rule_filters() ->
     }.
 
 normalize_rule_filters(Rules) ->
-    lists:filtermap(
-        fun(Rule) ->
-            case safe_nats_subject_to_filter(Rule) of
-                {ok, RuleFilter} -> {true, RuleFilter};
-                error -> false
-            end
-        end,
-        Rules
-    ).
-
-safe_nats_subject_to_filter(Subject) ->
-    try
-        {ok, nats_subject_to_filter(Subject)}
-    catch
-        _:_ ->
-            error
-    end.
-
-nats_subject_to_filter(Subject) ->
-    emqx_nats_topic:nats_to_mqtt(Subject).
+    lists:map(fun emqx_nats_subject:tokens/1, Rules).
 
 %%--------------------------------------------------------------------
 %% Helper functions

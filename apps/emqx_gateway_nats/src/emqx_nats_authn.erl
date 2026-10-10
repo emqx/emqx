@@ -42,7 +42,7 @@
 build_authn_ctx(MethodConfs0, GatewayAuthEnabled) ->
     #{
         methods => normalize_authn_methods(MethodConfs0),
-        gateway_auth_enabled => GatewayAuthEnabled =:= true
+        gateway_auth_enabled => GatewayAuthEnabled
     }.
 
 -spec is_auth_required(map(), authn_ctx()) -> boolean().
@@ -198,6 +198,9 @@ jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Method) ->
         ok ?= verify_jwt_claims_time(Claims),
         {ok, Username} ?= verify_jwt_nonce_signature(Claims, NKey, Sig, ConnInfo),
         JWTPerms = extract_jwt_permissions(Claims),
+        %% Reject unsupported permissions during CONNECT: ignoring an untranslatable deny
+        %% rule could broaden access, while reinterpreting it could change its meaning.
+        ok ?= validate_jwt_permissions(JWTPerms),
         AuthExpireAt = jwt_claims_expire_at([Claims, AccountClaims]),
         {ok, ClientInfo#{
             username => Username,
@@ -753,6 +756,29 @@ normalize_subject_list(Values) when is_list(Values) ->
 normalize_subject_list(_) ->
     [].
 
+validate_jwt_permissions(Permissions) ->
+    validate_jwt_permission_actions([publish, subscribe], Permissions).
+
+validate_jwt_permission_actions([], _Permissions) ->
+    ok;
+validate_jwt_permission_actions([Action | Rest], Permissions) ->
+    Permission = maps:get(Action, Permissions, #{}),
+    Subjects = maps:get(allow, Permission, []) ++ maps:get(deny, Permission, []),
+    case validate_jwt_permission_subjects(Subjects) of
+        ok -> validate_jwt_permission_actions(Rest, Permissions);
+        {error, _} = Error -> Error
+    end.
+
+validate_jwt_permission_subjects([]) ->
+    ok;
+validate_jwt_permission_subjects([Subject | Rest]) ->
+    case emqx_nats_topic:validate_nats_subject(Subject) of
+        {ok, _HasWildcard} ->
+            validate_jwt_permission_subjects(Rest);
+        {error, _Reason} ->
+            {error, unsupported_jwt_permission_subject}
+    end.
+
 token_authenticate(Token, ClientInfo, Method) ->
     case maps:get(token, Method, undefined) of
         undefined ->
@@ -817,8 +843,10 @@ jwt_has_resolver_accounts(Config) ->
 nonce_auth_enabled(Authn) ->
     lists:any(fun nonce_method_enabled/1, maps:get(methods, Authn, [])).
 
-gateway_auth_enabled(Authn) ->
-    maps:get(gateway_auth_enabled, Authn, false) =:= true.
+gateway_auth_enabled(#{gateway_auth_enabled := true}) ->
+    true;
+gateway_auth_enabled(_Authn) ->
+    false.
 
 authn_not_configured_requires_authn() ->
     emqx_security_profile:policy(authn_not_configured) =:= deny.
