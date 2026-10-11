@@ -35,7 +35,7 @@ t_recv_metrics_flush_before_drain_wait(_) ->
     Parent = self(),
     ok = meck_esockd_socket([no_history]),
     ok = meck:new(emqx_metrics, [passthrough, no_history]),
-    ok = meck:expect(emqx_metrics, flush_recv, fun() ->
+    ok = meck:expect(emqx_metrics, flush_connection, fun() ->
         ok = meck:passthrough([]),
         Parent ! {recv_metrics_flushed, self()},
         ok

@@ -417,12 +417,12 @@ exit_on_sock_error(Reason) ->
 %% Recv Loop
 
 recvloop(Parent, State) ->
-    emqx_metrics:maybe_flush_recv(),
+    emqx_metrics:maybe_flush_connection(),
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
     after 0 ->
-        emqx_metrics:flush_recv(),
+        emqx_metrics:flush_connection(),
         recvloop_idle(Parent, State)
     end.
 
@@ -445,7 +445,7 @@ recvloop_idle(Parent, State = #state{conf = Conf}) ->
     end.
 
 handle_recv({system, From, Request}, Parent, State) ->
-    emqx_metrics:flush_recv(),
+    emqx_metrics:flush_connection(),
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
@@ -459,12 +459,12 @@ handle_recv(Msg, Parent, State) ->
 drain_loop(Parent, State, infinity) ->
     ?MODULE:recvloop(Parent, State);
 drain_loop(Parent, State, Timeout) ->
-    emqx_metrics:maybe_flush_recv(),
+    emqx_metrics:maybe_flush_connection(),
     receive
         Msg ->
             handle_recv_drain(Msg, Parent, State, Timeout)
     after 0 ->
-        emqx_metrics:flush_recv(),
+        emqx_metrics:flush_connection(),
         drain_loop_idle(Parent, State, Timeout)
     end.
 
@@ -483,7 +483,7 @@ drain_loop_idle(Parent, State, Timeout) ->
     end.
 
 handle_recv_drain({system, From, Request}, Parent, State, _Timeout) ->
-    emqx_metrics:flush_recv(),
+    emqx_metrics:flush_connection(),
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv_drain(Msg, Parent, State, Timeout) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
@@ -494,7 +494,7 @@ handle_recv_drain(Msg, Parent, State, Timeout) ->
     end.
 
 hibernate(Parent, State) ->
-    emqx_metrics:flush_recv(),
+    emqx_metrics:flush_connection(),
     proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
 
 %% Maybe do something here later.
@@ -762,7 +762,7 @@ terminate(
     State = #state{channel = Channel}
 ) ->
     try
-        emqx_metrics:flush_recv(),
+        emqx_metrics:flush_connection(),
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
         emqx_channel:terminate(Reason, Channel1),
@@ -1251,8 +1251,7 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
             [];
         IoVec ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
-            emqx_metrics:inc_sent(Packet, State#state.namespace),
-            inc_outgoing_stats(Packet),
+            emqx_metrics:inc_sent_deferred(Packet, State#state.namespace),
             IoVec
     catch
         %% Maybe Never happen.
@@ -1429,7 +1428,7 @@ sent(
     State = #state{thresholds = Thresholds0}
 ) ->
     %% TODO: Not actually "sent", as is `emqx_metrics:inc_sent/1`.
-    inc_metrics('bytes.sent', State, Oct),
+    emqx_metrics:inc_sent_bytes(Oct, State#state.namespace),
     Thresholds = Thresholds0#thresholds{
         gc_bytes = dec_threshold(Thresholds0#thresholds.gc_bytes, Oct),
         gc_packets = dec_threshold(Thresholds0#thresholds.gc_packets, Num),
@@ -1603,40 +1602,6 @@ inc_incoming_stats(Packet, State) ->
 inc_dropped_stats() ->
     inc_counter('send_msg.dropped', 1),
     inc_counter('send_msg.dropped.too_large', 1).
-
--compile({inline, [inc_outgoing_stats/1]}).
-inc_outgoing_stats(Packet = ?PACKET(Type)) ->
-    inc_counter(send_pkt, 1),
-    case Type of
-        ?PUBLISH ->
-            inc_counter(send_msg, 1),
-            inc_qos_stats(send_msg, Packet);
-        _ ->
-            ok
-    end.
-
--compile({inline, [inc_qos_stats/2]}).
-inc_qos_stats(Type, Packet) ->
-    case emqx_packet:qos(Packet) of
-        ?QOS_0 when Type =:= send_msg -> inc_counter('send_msg.qos0', 1);
-        ?QOS_1 when Type =:= send_msg -> inc_counter('send_msg.qos1', 1);
-        ?QOS_2 when Type =:= send_msg -> inc_counter('send_msg.qos2', 1);
-        ?QOS_0 when Type =:= recv_msg -> inc_counter('recv_msg.qos0', 1);
-        ?QOS_1 when Type =:= recv_msg -> inc_counter('recv_msg.qos1', 1);
-        ?QOS_2 when Type =:= recv_msg -> inc_counter('recv_msg.qos2', 1);
-        %% for bad qos
-        _ -> ok
-    end.
-
-inc_metrics(Name, State, Val) ->
-    emqx_metrics:inc(?global_ns, Name, Val),
-    case State#state.namespace of
-        ?global_ns ->
-            ok;
-        Namespace ->
-            _ = emqx_metrics:inc_safe(Namespace, Name, Val),
-            ok
-    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions

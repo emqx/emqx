@@ -431,12 +431,12 @@ exit_on_sock_error(Reason) ->
 %% Recv Loop
 
 recvloop(Parent, State) ->
-    emqx_metrics:maybe_flush_recv(),
+    emqx_metrics:maybe_flush_connection(),
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
     after 0 ->
-        emqx_metrics:flush_recv(),
+        emqx_metrics:flush_connection(),
         recvloop_idle(Parent, State)
     end.
 
@@ -463,7 +463,7 @@ recvloop_idle(
     end.
 
 handle_recv({system, From, Request}, Parent, State) ->
-    emqx_metrics:flush_recv(),
+    emqx_metrics:flush_connection(),
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
@@ -474,7 +474,7 @@ handle_recv(Msg, Parent, State) ->
     end.
 
 hibernate(Parent, State) ->
-    emqx_metrics:flush_recv(),
+    emqx_metrics:flush_connection(),
     proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
 
 %% Maybe do something here later.
@@ -694,7 +694,7 @@ terminate(
     }
 ) ->
     try
-        emqx_metrics:flush_recv(),
+        emqx_metrics:flush_connection(),
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
         emqx_channel:terminate(Reason, Channel1),
@@ -1082,8 +1082,7 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
             <<>>;
         Data ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
-            emqx_metrics:inc_sent(Packet, State#state.namespace),
-            inc_outgoing_stats(Packet),
+            emqx_metrics:inc_sent_deferred(Packet, State#state.namespace),
             Data
     catch
         %% Maybe Never happen.
@@ -1108,7 +1107,7 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
 -spec send(non_neg_integer(), non_neg_integer(), iodata(), state()) ->
     {ok, state()} | {ok, {sock_error, _}, state()}.
 send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) ->
-    inc_metrics('bytes.sent', State, Oct),
+    emqx_metrics:inc_sent_bytes(Oct, State#state.namespace),
     case Transport:send(Socket, IoData) of
         ok ->
             %% NOTE: for Transport=emqx_quic_stream, it's actually an
@@ -1429,40 +1428,6 @@ inc_incoming_stats(Packet, State) ->
 inc_dropped_stats() ->
     inc_counter('send_msg.dropped', 1),
     inc_counter('send_msg.dropped.too_large', 1).
-
--compile({inline, [inc_outgoing_stats/1]}).
-inc_outgoing_stats(Packet = ?PACKET(Type)) ->
-    inc_counter(send_pkt, 1),
-    case Type of
-        ?PUBLISH ->
-            inc_counter(send_msg, 1),
-            inc_qos_stats(send_msg, Packet);
-        _ ->
-            ok
-    end.
-
--compile({inline, [inc_qos_stats/2]}).
-inc_qos_stats(Type, Packet) ->
-    case emqx_packet:qos(Packet) of
-        ?QOS_0 when Type =:= send_msg -> inc_counter('send_msg.qos0', 1);
-        ?QOS_1 when Type =:= send_msg -> inc_counter('send_msg.qos1', 1);
-        ?QOS_2 when Type =:= send_msg -> inc_counter('send_msg.qos2', 1);
-        ?QOS_0 when Type =:= recv_msg -> inc_counter('recv_msg.qos0', 1);
-        ?QOS_1 when Type =:= recv_msg -> inc_counter('recv_msg.qos1', 1);
-        ?QOS_2 when Type =:= recv_msg -> inc_counter('recv_msg.qos2', 1);
-        %% for bad qos
-        _ -> ok
-    end.
-
-inc_metrics(Name, State, Val) ->
-    case State#state.namespace of
-        ?global_ns ->
-            emqx_metrics:inc(?global_ns, Name, Val);
-        Namespace ->
-            emqx_metrics:inc(?global_ns, Name, Val),
-            _ = emqx_metrics:inc_safe(Namespace, Name, Val),
-            ok
-    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions

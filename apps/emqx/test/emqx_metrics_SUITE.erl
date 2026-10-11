@@ -211,7 +211,7 @@ t_recv_deltas(_) ->
         ?assertEqual(0, emqx_metrics:val_global('messages.received')),
         ?assertEqual(1, emqx_metrics:val_global('packets.received')),
         ?assertEqual(1, emqx_metrics:val_global('packets.pingreq.received')),
-        ok = emqx_metrics:flush_recv(),
+        ok = emqx_metrics:flush_connection(),
         ?assertEqual(384, emqx_metrics:val_global('bytes.received')),
         ?assertEqual(7, emqx_metrics:val_global('packets.received')),
         ?assertEqual(6, emqx_metrics:val_global('messages.received')),
@@ -222,7 +222,7 @@ t_recv_deltas(_) ->
         ?assertEqual(384, get(recv_oct)),
         ?assertEqual(7, get(recv_pkt)),
         ?assertEqual(6, get(recv_msg)),
-        ok = emqx_metrics:flush_recv(),
+        ok = emqx_metrics:flush_connection(),
         ?assertEqual(6, emqx_metrics:val_global('messages.received'))
     end).
 
@@ -241,51 +241,130 @@ t_recv_deltas_namespace(_) ->
         ok = emqx_metrics:unregister_namespace(Namespace),
         ok = emqx_metrics:inc_recv_bytes(20, Namespace),
         ok = emqx_metrics:inc_recv_deferred(?PUBLISH_PACKET(2, 0), Namespace),
-        ok = emqx_metrics:flush_recv(),
+        ok = emqx_metrics:flush_connection(),
         ?assertEqual(30, emqx_metrics:val_global('bytes.received')),
         ?assertEqual(2, emqx_metrics:val_global('messages.received'))
+    end).
+
+-doc "Batch send metrics while retaining system traffic in local counters and byte totals.".
+t_sent_deltas(_) ->
+    with_metrics_server(fun() ->
+        Packets = [
+            ?PUBLISH_PACKET(0, 0),
+            ?PUBLISH_PACKET(0, <<"$SYS/first">>, 0, <<>>),
+            ?PUBLISH_PACKET(1, <<"$SYS/second">>, 1, <<>>),
+            ?PUBLISH_PACKET(1, 0),
+            ?PUBLISH_PACKET(2, 0),
+            ?PACKET(?PINGRESP)
+        ],
+        lists:foreach(
+            fun(Packet) ->
+                ok = emqx_metrics:inc_sent_deferred(Packet, ?global_ns)
+            end,
+            Packets
+        ),
+        ok = emqx_metrics:inc_sent_bytes(10, ?global_ns),
+        ok = emqx_metrics:inc_sent_bytes(20, ?global_ns),
+        ?assertEqual(6, emqx_pd:get_counter(send_pkt)),
+        ?assertEqual(5, emqx_pd:get_counter(send_msg)),
+        ?assertEqual(2, emqx_pd:get_counter('send_msg.qos0')),
+        ?assertEqual(2, emqx_pd:get_counter('send_msg.qos1')),
+        ?assertEqual(1, emqx_pd:get_counter('send_msg.qos2')),
+        ?assertEqual(0, emqx_metrics:val_global('messages.sent')),
+        ?assertEqual(1, emqx_metrics:val_global('packets.sent')),
+        ?assertEqual(1, emqx_metrics:val_global('packets.pingresp.sent')),
+        ok = emqx_metrics:flush_connection(),
+        ?assertEqual(30, emqx_metrics:val_global('bytes.sent')),
+        ?assertEqual(4, emqx_metrics:val_global('packets.sent')),
+        ?assertEqual(3, emqx_metrics:val_global('messages.sent')),
+        ?assertEqual(3, emqx_metrics:val_global('packets.publish.sent')),
+        ?assertEqual(1, emqx_metrics:val_global('messages.qos0.sent')),
+        ?assertEqual(1, emqx_metrics:val_global('messages.qos1.sent')),
+        ?assertEqual(1, emqx_metrics:val_global('messages.qos2.sent')),
+        ?assertEqual(6, get(send_pkt)),
+        ?assertEqual(5, get(send_msg)),
+        ok = emqx_metrics:inc_sent_deferred(
+            ?PUBLISH_PACKET(0, <<"$SYS/after-flush">>, 0, <<>>), ?global_ns
+        ),
+        ?assertEqual(6, get(send_msg)),
+        ok = emqx_metrics:flush_connection(),
+        ?assertEqual(3, emqx_metrics:val_global('messages.sent'))
+    end).
+
+-doc "Keep namespace sends immediate and exclude system PUBLISH packets before namespace updates.".
+t_sent_deltas_namespace(_) ->
+    with_metrics_server(fun() ->
+        Namespace = <<"sent-deltas">>,
+        ok = emqx_metrics:register_namespace(Namespace),
+        ok = emqx_metrics:inc_sent_deferred(?PUBLISH_PACKET(0, 0), Namespace),
+        ok = emqx_metrics:inc_sent_deferred(
+            ?PUBLISH_PACKET(0, <<"$SYS/test">>, 0, <<>>), Namespace
+        ),
+        ok = emqx_metrics:inc_sent_bytes(20, Namespace),
+        ?assertEqual(0, emqx_metrics:val_global('messages.sent')),
+        ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.sent')),
+        ?assertEqual(1, emqx_metrics:val(Namespace, 'packets.sent')),
+        ?assertEqual(20, emqx_metrics:val(Namespace, 'bytes.sent')),
+        ok = emqx_metrics:unregister_namespace(Namespace),
+        ok = emqx_metrics:inc_sent_deferred(?PUBLISH_PACKET(1, 0), Namespace),
+        ok = emqx_metrics:inc_sent_bytes(10, Namespace),
+        ok = emqx_metrics:flush_connection(),
+        ?assertEqual(2, emqx_metrics:val_global('messages.sent')),
+        ?assertEqual(30, emqx_metrics:val_global('bytes.sent'))
     end).
 
 -doc "Throttle busy-loop flushes and let an explicit idle flush report the final delta.".
 t_recv_deltas_throttle(_) ->
     with_metrics_server(fun() ->
         ok = emqx_metrics:inc_recv_deferred(?PUBLISH_PACKET(0, 0), ?global_ns),
-        ok = emqx_metrics:maybe_flush_recv(1000),
-        ok = emqx_metrics:maybe_flush_recv(1099),
+        ok = emqx_metrics:inc_sent_deferred(?PUBLISH_PACKET(0, 0), ?global_ns),
+        ok = emqx_metrics:maybe_flush_connection(1000),
+        ok = emqx_metrics:maybe_flush_connection(1099),
         ?assertEqual(0, emqx_metrics:val_global('messages.received')),
-        ok = emqx_metrics:maybe_flush_recv(1100),
+        ?assertEqual(0, emqx_metrics:val_global('messages.sent')),
+        ok = emqx_metrics:maybe_flush_connection(1100),
         ?assertEqual(1, emqx_metrics:val_global('messages.received')),
+        ?assertEqual(1, emqx_metrics:val_global('messages.sent')),
         ?assertEqual(1, emqx_pd:get_counter(recv_pkt)),
         ok = emqx_metrics:inc_recv_deferred(?PUBLISH_PACKET(0, 0), ?global_ns),
-        ok = emqx_metrics:maybe_flush_recv(1101),
+        ok = emqx_metrics:inc_sent_deferred(?PUBLISH_PACKET(0, 0), ?global_ns),
+        ok = emqx_metrics:maybe_flush_connection(1101),
         ?assertEqual(1, emqx_metrics:val_global('messages.received')),
         ?assertEqual(2, emqx_pd:get_counter(recv_pkt)),
-        ok = emqx_metrics:flush_recv(),
-        ?assertEqual(2, emqx_metrics:val_global('messages.received'))
+        ok = emqx_metrics:flush_connection(),
+        ?assertEqual(2, emqx_metrics:val_global('messages.received')),
+        ?assertEqual(2, emqx_metrics:val_global('messages.sent'))
     end).
 
 -doc "Resolve the current counter reference when metrics restart with pending receive deltas.".
 t_recv_deltas_restart(_) ->
     with_metrics_server(fun() ->
         ok = emqx_metrics:inc_recv_deferred(?PUBLISH_PACKET(0, 0), ?global_ns),
-        ok = emqx_metrics:flush_recv(),
+        ok = emqx_metrics:inc_sent_deferred(?PUBLISH_PACKET(0, 0), ?global_ns),
+        ok = emqx_metrics:flush_connection(),
         ok = emqx_metrics:inc_recv_deferred(?PUBLISH_PACKET(1, 0), ?global_ns),
+        ok = emqx_metrics:inc_sent_deferred(?PUBLISH_PACKET(2, 0), ?global_ns),
         ok = emqx_metrics:stop(),
         {ok, _} = emqx_metrics:start_link(),
-        ok = emqx_metrics:flush_recv(),
+        ok = emqx_metrics:flush_connection(),
         ?assertEqual(1, emqx_metrics:val_global('messages.received')),
         ?assertEqual(0, emqx_metrics:val_global('messages.qos0.received')),
         ?assertEqual(1, emqx_metrics:val_global('messages.qos1.received')),
+        ?assertEqual(1, emqx_metrics:val_global('messages.sent')),
+        ?assertEqual(0, emqx_metrics:val_global('messages.qos0.sent')),
+        ?assertEqual(1, emqx_metrics:val_global('messages.qos2.sent')),
         ?assertEqual(2, emqx_pd:get_counter(recv_msg))
     end).
 
 -doc "An idle process with no deltas needs no metrics server or dictionary allocation.".
 t_recv_deltas_empty(_) ->
-    ok = emqx_metrics:maybe_flush_recv(),
-    ok = emqx_metrics:flush_recv(),
+    ok = emqx_metrics:maybe_flush_connection(),
+    ok = emqx_metrics:flush_connection(),
     ?assertEqual(undefined, get(recv_oct)),
     ?assertEqual(undefined, get(recv_msg)),
-    ?assertEqual(undefined, get({emqx_metrics, recv_flush_time})).
+    ?assertEqual(undefined, get(send_oct)),
+    ?assertEqual(undefined, get(send_msg)),
+    ?assertEqual(undefined, get({emqx_metrics, connection_flush_time})).
 
 with_metrics_server(Fun) ->
     try

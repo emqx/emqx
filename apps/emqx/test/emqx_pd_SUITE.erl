@@ -20,7 +20,7 @@ t_update_counter(_) ->
     ?assertEqual(3, emqx_pd:reset_counter(bytes)),
     ?assertEqual(0, emqx_pd:get_counter(bytes)).
 
--doc "Keep pending deltas separate from increments that were already reported.".
+-doc "Keep pending deltas separate from ordinary counter increments.".
 t_counter_delta(_) ->
     ?assertEqual(0, emqx_pd:take_counter_delta(bytes)),
     ?assertEqual(undefined, get(bytes)),

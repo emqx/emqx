@@ -66,7 +66,7 @@ end_per_testcase(TestCase, Config) ->
 t_recv_metrics_flush_before_wait(_) ->
     Parent = self(),
     ok = meck:new(emqx_metrics, [passthrough, no_history]),
-    ok = meck:expect(emqx_metrics, flush_recv, fun() ->
+    ok = meck:expect(emqx_metrics, flush_connection, fun() ->
         ok = meck:passthrough([]),
         Parent ! {recv_metrics_flushed, self()},
         ok

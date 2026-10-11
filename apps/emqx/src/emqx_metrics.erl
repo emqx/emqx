@@ -61,13 +61,15 @@
     inc_recv/2,
     inc_recv_deferred/2,
     inc_recv_bytes/2,
-    maybe_flush_recv/0,
-    flush_recv/0,
+    maybe_flush_connection/0,
+    flush_connection/0,
+    inc_sent_deferred/2,
+    inc_sent_bytes/2,
     inc_sent/2
 ]).
 
 -ifdef(TEST).
--export([maybe_flush_recv/1]).
+-export([maybe_flush_connection/1]).
 -endif.
 
 %% gen_server callbacks
@@ -97,8 +99,8 @@
 
 -define(MAX_SIZE, 256).
 -define(RESERVED_IDX, 128).
--define(RECV_FLUSH_INTERVAL, 100).
--define(RECV_FLUSH_TIME, {?MODULE, recv_flush_time}).
+-define(CONNECTION_FLUSH_INTERVAL, 100).
+-define(CONNECTION_FLUSH_TIME, {?MODULE, connection_flush_time}).
 
 -opaque metric_idx() :: 1..?MAX_SIZE.
 
@@ -379,57 +381,67 @@ inc_recv_bytes(Bytes, Namespace) ->
             ok
     end.
 
--doc "Flush pending receive metrics at most once per 100 ms while processing a busy mailbox.".
--spec maybe_flush_recv() -> ok.
-maybe_flush_recv() ->
-    case has_recv_delta() of
-        true -> maybe_flush_recv(erlang:monotonic_time(millisecond));
+-doc "Flush pending connection metrics at most once per 100 ms while processing a busy mailbox.".
+-spec maybe_flush_connection() -> ok.
+maybe_flush_connection() ->
+    case has_connection_delta() of
+        true -> maybe_flush_connection(erlang:monotonic_time(millisecond));
         false -> ok
     end.
 
-maybe_flush_recv(Now) ->
-    case get(?RECV_FLUSH_TIME) of
+maybe_flush_connection(Now) ->
+    case get(?CONNECTION_FLUSH_TIME) of
         undefined ->
-            put(?RECV_FLUSH_TIME, Now),
+            put(?CONNECTION_FLUSH_TIME, Now),
             ok;
-        Last when Now - Last >= ?RECV_FLUSH_INTERVAL ->
-            flush_recv(),
-            put(?RECV_FLUSH_TIME, Now),
+        Last when Now - Last >= ?CONNECTION_FLUSH_INTERVAL ->
+            flush_connection(),
+            put(?CONNECTION_FLUSH_TIME, Now),
             ok;
         _ ->
             ok
     end.
 
--doc "Flush and compact receive deltas before the connection waits, hibernates or terminates.".
--spec flush_recv() -> ok.
-flush_recv() ->
-    case has_recv_delta() of
-        true -> flush_recv_deltas(get_counters_ref(?global_ns));
+-doc "Flush and compact connection deltas before the connection waits, hibernates or terminates.".
+-spec flush_connection() -> ok.
+flush_connection() ->
+    case has_connection_delta() of
+        true -> flush_connection_deltas(get_counters_ref(?global_ns));
         false -> ok
     end,
-    erase(?RECV_FLUSH_TIME),
+    erase(?CONNECTION_FLUSH_TIME),
     ok.
 
-has_recv_delta() ->
+has_connection_delta() ->
     emqx_pd:get_counter_delta(recv_oct) =/= 0 orelse
-        emqx_pd:get_counter_delta(recv_msg) =/= 0.
+        emqx_pd:get_counter_delta(recv_msg) =/= 0 orelse
+        emqx_pd:get_counter_delta(send_oct) =/= 0 orelse
+        emqx_pd:get_counter_delta(send_msg) =/= 0.
 
-flush_recv_deltas(CRef) ->
-    flush_recv_counter(CRef, recv_oct, 'bytes.received'),
-    flush_recv_counter(CRef, recv_pkt, 'packets.received'),
+flush_connection_deltas(CRef) ->
+    flush_connection_counter(CRef, recv_oct, 'bytes.received'),
+    flush_connection_counter(CRef, recv_pkt, 'packets.received'),
     Messages = emqx_pd:take_counter_delta(recv_msg),
-    add_recv_delta(CRef, 'messages.received', Messages),
-    add_recv_delta(CRef, 'packets.publish.received', Messages),
-    flush_recv_counter(CRef, 'recv_msg.qos0', 'messages.qos0.received'),
-    flush_recv_counter(CRef, 'recv_msg.qos1', 'messages.qos1.received'),
-    flush_recv_counter(CRef, 'recv_msg.qos2', 'messages.qos2.received').
+    add_connection_delta(CRef, 'messages.received', Messages),
+    add_connection_delta(CRef, 'packets.publish.received', Messages),
+    flush_connection_counter(CRef, 'recv_msg.qos0', 'messages.qos0.received'),
+    flush_connection_counter(CRef, 'recv_msg.qos1', 'messages.qos1.received'),
+    flush_connection_counter(CRef, 'recv_msg.qos2', 'messages.qos2.received'),
+    flush_connection_counter(CRef, send_oct, 'bytes.sent'),
+    flush_connection_counter(CRef, send_pkt, 'packets.sent'),
+    SentMessages = emqx_pd:take_counter_delta(send_msg),
+    add_connection_delta(CRef, 'messages.sent', SentMessages),
+    add_connection_delta(CRef, 'packets.publish.sent', SentMessages),
+    flush_connection_counter(CRef, 'send_msg.qos0', 'messages.qos0.sent'),
+    flush_connection_counter(CRef, 'send_msg.qos1', 'messages.qos1.sent'),
+    flush_connection_counter(CRef, 'send_msg.qos2', 'messages.qos2.sent').
 
-flush_recv_counter(CRef, Key, Metric) ->
-    add_recv_delta(CRef, Metric, emqx_pd:take_counter_delta(Key)).
+flush_connection_counter(CRef, Key, Metric) ->
+    add_connection_delta(CRef, Metric, emqx_pd:take_counter_delta(Key)).
 
-add_recv_delta(_CRef, _Metric, 0) ->
+add_connection_delta(_CRef, _Metric, 0) ->
     ok;
-add_recv_delta(CRef, Metric, Delta) ->
+add_connection_delta(CRef, Metric, Delta) ->
     counters:add(CRef, reserved_idx(Metric), Delta).
 
 do_inc_recv(?PACKET(?CONNECT), Namespace) ->
@@ -471,6 +483,9 @@ inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _), _Namespace) ->
 inc_sent(Packet, Namespace) ->
     inc(?global_ns, 'packets.sent'),
     do_inc_sent(Packet, ?global_ns),
+    inc_sent_namespace(Packet, Namespace).
+
+inc_sent_namespace(Packet, Namespace) ->
     try
         case is_binary(Namespace) of
             true ->
@@ -483,6 +498,51 @@ inc_sent(Packet, Namespace) ->
         error:badarg ->
             %% Not an explicitly managed namespace or race condition while creating or
             %% deleting namespace.
+            ok
+    end.
+
+-doc "Keep local send totals complete while excluding system PUBLISH packets from global deltas.".
+-spec inc_sent_deferred(emqx_types:packet(), maybe_namespace()) -> ok.
+inc_sent_deferred(Packet = ?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _), _Namespace) ->
+    inc_sent_local(Packet, immediate);
+inc_sent_deferred(Packet = ?PUBLISH_PACKET(_QoS), Namespace) ->
+    inc_sent_local(Packet, deferred),
+    inc_sent_namespace(Packet, Namespace);
+inc_sent_deferred(Packet, Namespace) ->
+    inc_sent_local(Packet, immediate),
+    inc_sent(Packet, Namespace).
+
+-compile({inline, [inc_sent_local/2, inc_local_counter/2]}).
+inc_sent_local(?PUBLISH_PACKET(QoS), Mode) ->
+    inc_local_counter(send_pkt, Mode),
+    inc_local_counter(send_msg, Mode),
+    case QoS of
+        ?QOS_0 -> inc_local_counter('send_msg.qos0', Mode);
+        ?QOS_1 -> inc_local_counter('send_msg.qos1', Mode);
+        ?QOS_2 -> inc_local_counter('send_msg.qos2', Mode);
+        _ -> ok
+    end;
+inc_sent_local(_Packet, Mode) ->
+    inc_local_counter(send_pkt, Mode).
+
+inc_local_counter(Key, immediate) ->
+    _ = emqx_pd:inc_counter(Key, 1),
+    ok;
+inc_local_counter(Key, deferred) ->
+    _ = emqx_pd:inc_counter_with_delta(Key, 1),
+    ok.
+
+-doc "Accumulate global send bytes while updating namespace bytes immediately.".
+-spec inc_sent_bytes(non_neg_integer(), maybe_namespace()) -> ok.
+inc_sent_bytes(0, _Namespace) ->
+    ok;
+inc_sent_bytes(Bytes, Namespace) ->
+    _ = emqx_pd:inc_counter_with_delta(send_oct, Bytes),
+    case is_binary(Namespace) of
+        true ->
+            _ = inc_safe(Namespace, 'bytes.sent', Bytes),
+            ok;
+        false ->
             ok
     end.
 
