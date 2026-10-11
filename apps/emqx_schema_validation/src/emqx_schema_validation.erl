@@ -103,6 +103,7 @@ delete(Name) ->
 %% Hooks
 %%------------------------------------------------------------------------------
 
+-doc "Install the publish hook before indexing topics. Keep it until the application stops.".
 -spec register_hooks() -> ok.
 register_hooks() ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_SCHEMA_VALIDATION).

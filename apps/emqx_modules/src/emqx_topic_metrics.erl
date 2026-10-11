@@ -103,7 +103,14 @@ keeps its own gen_server, ETS table, hooks, and moving-average rates.
 max_limit() ->
     ?MAX_TOPICS.
 
+-doc "Install the hooks when a topic is registered. Keep them until the module is disabled.".
 enable() ->
+    case number_of_registered_topics() of
+        0 -> ok;
+        _ -> register_hooks()
+    end.
+
+register_hooks() ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_TOPIC_METRICS),
     emqx_hooks:put('message.dropped', {?MODULE, on_message_dropped, []}, ?HP_TOPIC_METRICS),
     emqx_hooks:put('message.delivered', {?MODULE, on_message_delivered, []}, ?HP_TOPIC_METRICS).
@@ -326,6 +333,7 @@ do_register(Topic, Speeds) ->
                         counter_ref => CRef,
                         create_time => CreateTime
                     },
+                    ok = register_hooks(),
                     true = ets:insert(?TAB, {Topic, Data}),
                     NSpeeds = lists:foldl(
                         fun(Metric, Acc) ->
