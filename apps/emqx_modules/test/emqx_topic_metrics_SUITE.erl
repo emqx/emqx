@@ -182,3 +182,40 @@ t_metrics_not_started(_Config) ->
     ok = supervisor:terminate_child(emqx_modules_sup, emqx_topic_metrics),
     ?assertNot(emqx_topic_metrics:is_registered(<<"a/b/c">>)),
     {ok, _} = supervisor:restart_child(emqx_modules_sup, emqx_topic_metrics).
+
+-doc """
+Legacy topic metrics installs hooks on the first registration. Counters work on the
+first publish. Configured topics restore the hooks when the worker restarts.
+""".
+t_lazy_hooks(_Config) ->
+    ok = emqx_topic_metrics:disable(),
+    ok = emqx_topic_metrics:enable(),
+    ?assertEqual([], topic_metrics_hookpoints()),
+    Topic = <<"lazy/metrics">>,
+    ok = emqx_topic_metrics:register(Topic),
+    ?assertEqual(
+        ['message.publish', 'message.delivered', 'message.dropped'], topic_metrics_hookpoints()
+    ),
+    emqx:publish(emqx_message:make(Topic, <<"payload">>)),
+    ?assertEqual(1, emqx_topic_metrics:val(Topic, 'messages.in')),
+    ok = emqx_topic_metrics:deregister_all(),
+    ?assertEqual(
+        ['message.publish', 'message.delivered', 'message.dropped'], topic_metrics_hookpoints()
+    ),
+    ok = emqx_topic_metrics:disable(),
+    emqx_config:put([topic_metrics], [#{topic => Topic}]),
+    ok = supervisor:terminate_child(emqx_modules_sup, emqx_topic_metrics),
+    {ok, _} = supervisor:restart_child(emqx_modules_sup, emqx_topic_metrics),
+    ?assertEqual(
+        ['message.publish', 'message.delivered', 'message.dropped'], topic_metrics_hookpoints()
+    ),
+    ok.
+
+topic_metrics_hookpoints() ->
+    [
+        Hookpoint
+     || Hookpoint <- ['message.publish', 'message.delivered', 'message.dropped'],
+        Callback <- emqx_hooks:lookup(Hookpoint),
+        {Mod, _, _} <- [emqx_hooks:callback_action(Callback)],
+        Mod == emqx_topic_metrics
+    ].
