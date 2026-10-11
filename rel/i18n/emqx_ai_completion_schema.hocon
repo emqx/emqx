@@ -121,6 +121,12 @@ openai_response_provider.desc:
 openai_response_provider.label:
 """OpenAI `response' Provider"""
 
+openai_decisions_provider.desc:
+"""OpenAI compatible provider using the Decisions API."""
+
+openai_decisions_provider.label:
+"""OpenAI Decisions Provider"""
+
 openai_completion_profile.desc:
 """AI completion profile for OpenAI."""
 
@@ -139,6 +145,94 @@ openai_response_completion_profile.desc:
 openai_response_completion_profile.label:
 """OpenAI `response' Completion Profile"""
 
+openai_decisions_completion_profile.desc:
+"""Completion profile for the OpenAI Decisions API. Use a provider of type `openai_decisions` and configure named questions. The result is a JSON object containing an answers array."""
 
+openai_decisions_completion_profile.label:
+"""OpenAI Decisions Completion Profile"""
+
+decision_questions.desc:
+"""Questions to evaluate against the input. Configure at least one question. Question names must be unique."""
+
+decision_questions.label:
+"""Questions"""
+
+decision_question_type.desc:
+"""Question type: predicate, choice, or score."""
+
+decision_question_type.label:
+"""Question Type"""
+
+decision_question_name.desc:
+"""Unique name that identifies the question in the answers array."""
+
+decision_question_name.label:
+"""Question Name"""
+
+decision_instructions.desc:
+"""Instructions that define what the question evaluates."""
+
+decision_instructions.label:
+"""Instructions"""
+
+decision_choices.desc:
+"""Allowed choices. Configure at least one choice. Choice values must be unique."""
+
+decision_choices.label:
+"""Choices"""
+
+decision_levels.desc:
+"""Score levels ordered from lowest to highest. Configure at least one level. Level indices start at zero."""
+
+decision_levels.label:
+"""Score Levels"""
+
+decision_choice_value.desc:
+"""String or boolean value returned when this choice is selected."""
+
+decision_choice_value.label:
+"""Choice Value"""
+
+decision_option_description.desc:
+"""Criteria for selecting this choice or score level."""
+
+decision_option_description.label:
+"""Description"""
+
+decision_level_label.desc:
+"""Name of the score level."""
+
+decision_level_label.label:
+"""Level Label"""
+
+decision_predicate.desc:
+"""Question that returns the probability that a condition is true."""
+
+decision_predicate.label:
+"""Predicate Question"""
+
+decision_choice.desc:
+"""Question that selects one of the configured choices."""
+
+decision_choice.label:
+"""Choice Question"""
+
+decision_score.desc:
+"""Question that returns a probability-weighted average of the score level indices."""
+
+decision_score.label:
+"""Score Question"""
+
+decision_choice_option.desc:
+"""Allowed value and optional criteria for a choice question."""
+
+decision_choice_option.label:
+"""Choice Option"""
+
+decision_score_level.desc:
+"""Label and optional criteria for a score level."""
+
+decision_score_level.label:
+"""Score Level"""
 
 }

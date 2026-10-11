@@ -52,7 +52,7 @@
     max_connections => pos_integer()
 }.
 
--type ai_type() :: openai | openai_response | anthropic.
+-type ai_type() :: openai | openai_response | openai_decisions | anthropic.
 -type model() :: binary().
 
 -type provider() :: #{
