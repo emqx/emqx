@@ -70,24 +70,12 @@ is_client_process() ->
         _ -> false
     end.
 
--doc "Check the third level of the original topic for a birth or data message type.".
+-doc "Check whether the original topic uses the Sparkplug B namespace.".
 is_spb_topic(Message) ->
-    is_spb_topic(unmounted_topic(Message), 0).
-
-is_spb_topic(<<"/", Rest/binary>>, 1) ->
-    is_spb_message_type(Rest);
-is_spb_topic(<<"/", Rest/binary>>, Level) ->
-    is_spb_topic(Rest, Level + 1);
-is_spb_topic(<<_, Rest/binary>>, Level) ->
-    is_spb_topic(Rest, Level);
-is_spb_topic(<<>>, _Level) ->
-    false.
-
-is_spb_message_type(<<"NBIRTH/", _/binary>>) -> true;
-is_spb_message_type(<<"NDATA/", _/binary>>) -> true;
-is_spb_message_type(<<"DBIRTH/", _/binary>>) -> true;
-is_spb_message_type(<<"DDATA/", _/binary>>) -> true;
-is_spb_message_type(_) -> false.
+    case unmounted_topic(Message) of
+        <<"spBv1.0/", _/binary>> -> true;
+        _ -> false
+    end.
 
 do_on_message_publish(#message{} = Message) ->
     Topic = unmounted_topic(Message),
