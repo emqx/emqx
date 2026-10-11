@@ -416,7 +416,17 @@ exit_on_sock_error(Reason) ->
 %%--------------------------------------------------------------------
 %% Recv Loop
 
-recvloop(Parent, State = #state{conf = Conf}) ->
+recvloop(Parent, State) ->
+    emqx_metrics:maybe_flush_recv(),
+    receive
+        Msg ->
+            handle_recv(Msg, Parent, State)
+    after 0 ->
+        emqx_metrics:flush_recv(),
+        recvloop_idle(Parent, State)
+    end.
+
+recvloop_idle(Parent, State = #state{conf = Conf}) ->
     #conf{
         zone = Zone,
         hibernate_after = HibernateTimeout
@@ -435,6 +445,7 @@ recvloop(Parent, State = #state{conf = Conf}) ->
     end.
 
 handle_recv({system, From, Request}, Parent, State) ->
+    emqx_metrics:flush_recv(),
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
@@ -448,6 +459,16 @@ handle_recv(Msg, Parent, State) ->
 drain_loop(Parent, State, infinity) ->
     ?MODULE:recvloop(Parent, State);
 drain_loop(Parent, State, Timeout) ->
+    emqx_metrics:maybe_flush_recv(),
+    receive
+        Msg ->
+            handle_recv_drain(Msg, Parent, State, Timeout)
+    after 0 ->
+        emqx_metrics:flush_recv(),
+        drain_loop_idle(Parent, State, Timeout)
+    end.
+
+drain_loop_idle(Parent, State, Timeout) ->
     receive
         Msg ->
             handle_recv_drain(Msg, Parent, State, Timeout)
@@ -462,6 +483,7 @@ drain_loop(Parent, State, Timeout) ->
     end.
 
 handle_recv_drain({system, From, Request}, Parent, State, _Timeout) ->
+    emqx_metrics:flush_recv(),
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv_drain(Msg, Parent, State, Timeout) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
@@ -472,6 +494,7 @@ handle_recv_drain(Msg, Parent, State, Timeout) ->
     end.
 
 hibernate(Parent, State) ->
+    emqx_metrics:flush_recv(),
     proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
 
 %% Maybe do something here later.
@@ -739,6 +762,7 @@ terminate(
     State = #state{channel = Channel}
 ) ->
     try
+        emqx_metrics:flush_recv(),
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
         emqx_channel:terminate(Reason, Channel1),
@@ -875,7 +899,7 @@ handle_data(
     }
 ) ->
     Oct = iolist_size(Data),
-    inc_metrics('bytes.received', State0, Oct),
+    emqx_metrics:inc_recv_bytes(Oct, State0#state.namespace),
     ?LOG(
         debug,
         emqx_packet_data_logger:add_packet_data(
@@ -1572,16 +1596,8 @@ socket_closed(State) ->
 %% Inc incoming/outgoing stats
 
 -compile({inline, [inc_incoming_stats/2]}).
-inc_incoming_stats(Packet = ?PACKET(Type), State) ->
-    inc_counter(recv_pkt, 1),
-    case Type of
-        ?PUBLISH ->
-            inc_counter(recv_msg, 1),
-            inc_qos_stats(recv_msg, Packet);
-        _ ->
-            ok
-    end,
-    emqx_metrics:inc_recv(Packet, State#state.namespace).
+inc_incoming_stats(Packet, State) ->
+    emqx_metrics:inc_recv_deferred(Packet, State#state.namespace).
 
 -compile({inline, [inc_dropped_stats/0]}).
 inc_dropped_stats() ->

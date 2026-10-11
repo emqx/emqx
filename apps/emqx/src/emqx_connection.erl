@@ -430,7 +430,17 @@ exit_on_sock_error(Reason) ->
 %%--------------------------------------------------------------------
 %% Recv Loop
 
-recvloop(
+recvloop(Parent, State) ->
+    emqx_metrics:maybe_flush_recv(),
+    receive
+        Msg ->
+            handle_recv(Msg, Parent, State)
+    after 0 ->
+        emqx_metrics:flush_recv(),
+        recvloop_idle(Parent, State)
+    end.
+
+recvloop_idle(
     Parent,
     State = #state{
         conf = #conf{
@@ -453,6 +463,7 @@ recvloop(
     end.
 
 handle_recv({system, From, Request}, Parent, State) ->
+    emqx_metrics:flush_recv(),
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
@@ -463,6 +474,7 @@ handle_recv(Msg, Parent, State) ->
     end.
 
 hibernate(Parent, State) ->
+    emqx_metrics:flush_recv(),
     proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
 
 %% Maybe do something here later.
@@ -578,10 +590,10 @@ handle_msg({'$gen_cast', Req}, State) ->
     {ok, NewState};
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
-    inc_metrics('bytes.received', State, Oct),
+    emqx_metrics:inc_recv_bytes(Oct, State#state.namespace),
     on_bytes_in(Oct, Data, State);
 handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
-    ok = inc_metrics('bytes.received', State, Len),
+    ok = emqx_metrics:inc_recv_bytes(Len, State#state.namespace),
     on_bytes_in(Len, Data, State);
 handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
@@ -682,6 +694,7 @@ terminate(
     }
 ) ->
     try
+        emqx_metrics:flush_recv(),
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
         emqx_channel:terminate(Reason, Channel1),
@@ -1409,16 +1422,8 @@ close_socket(State = #state{transport = Transport, socket = Socket}) ->
 %% Inc incoming/outgoing stats
 
 -compile({inline, [inc_incoming_stats/2]}).
-inc_incoming_stats(Packet = ?PACKET(Type), State) ->
-    inc_counter(recv_pkt, 1),
-    case Type of
-        ?PUBLISH ->
-            inc_counter(recv_msg, 1),
-            inc_qos_stats(recv_msg, Packet);
-        _ ->
-            ok
-    end,
-    emqx_metrics:inc_recv(Packet, State#state.namespace).
+inc_incoming_stats(Packet, State) ->
+    emqx_metrics:inc_recv_deferred(Packet, State#state.namespace).
 
 -compile({inline, [inc_dropped_stats/0]}).
 inc_dropped_stats() ->

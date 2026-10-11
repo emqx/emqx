@@ -30,6 +30,40 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
+-doc "Report pending PUBLISH metrics before the socket drain loop waits for more traffic.".
+t_recv_metrics_flush_before_drain_wait(_) ->
+    Parent = self(),
+    ok = meck_esockd_socket([no_history]),
+    ok = meck:new(emqx_metrics, [passthrough, no_history]),
+    ok = meck:expect(emqx_metrics, flush_recv, fun() ->
+        ok = meck:passthrough([]),
+        Parent ! {recv_metrics_flushed, self()},
+        ok
+    end),
+    State = mk_connstate(),
+    Before = emqx_metrics:val_global('messages.received'),
+    {Pid, MRef} = spawn_monitor(fun() ->
+        ok = emqx_socket_connection:inc_incoming_stats(?PUBLISH_PACKET(0, 0), State),
+        emqx_socket_connection:drain_loop(Parent, State, 60000)
+    end),
+    try
+        receive
+            {recv_metrics_flushed, Pid} ->
+                ?assertEqual(Before + 1, emqx_metrics:val_global('messages.received'))
+        after 5000 ->
+            ct:fail(recv_metrics_not_flushed)
+        end
+    after
+        exit(Pid, kill),
+        receive
+            {'DOWN', MRef, process, Pid, _} -> ok
+        after 5000 ->
+            ct:fail(connection_not_stopped)
+        end,
+        meck:unload(emqx_metrics),
+        meck:unload(esockd_socket)
+    end.
+
 t_send_congestion_times_out(_) ->
     Self = self(),
     ok = meck_esockd_socket([no_history]),

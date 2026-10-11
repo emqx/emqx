@@ -62,6 +62,38 @@ end_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+-doc "Report the final PUBLISH delta before the connection blocks on an empty mailbox.".
+t_recv_metrics_flush_before_wait(_) ->
+    Parent = self(),
+    ok = meck:new(emqx_metrics, [passthrough, no_history]),
+    ok = meck:expect(emqx_metrics, flush_recv, fun() ->
+        ok = meck:passthrough([]),
+        Parent ! {recv_metrics_flushed, self()},
+        ok
+    end),
+    State = st_after_connect(),
+    Before = emqx_metrics:val_global('messages.received'),
+    {Pid, MRef} = spawn_monitor(fun() ->
+        ok = emqx_connection:inc_incoming_stats(?PUBLISH_PACKET(0, 0), State),
+        emqx_connection:recvloop(Parent, State)
+    end),
+    try
+        receive
+            {recv_metrics_flushed, Pid} ->
+                ?assertEqual(Before + 1, emqx_metrics:val_global('messages.received'))
+        after 5000 ->
+            ct:fail(recv_metrics_not_flushed)
+        end
+    after
+        exit(Pid, kill),
+        receive
+            {'DOWN', MRef, process, Pid, _} -> ok
+        after 5000 ->
+            ct:fail(connection_not_stopped)
+        end,
+        meck:unload(emqx_metrics)
+    end.
+
 t_ws_pingreq_before_connected(_) ->
     ?assertMatch(
         {ok, [_, {close, protocol_error}], _},
