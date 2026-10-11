@@ -92,7 +92,10 @@ groups() ->
             t_first_packet_not_connect,
             t_connect_user_property_limit,
             t_connect_packet_too_large,
-            t_large_connect_with_few_user_properties
+            t_large_connect_with_few_user_properties,
+            t_connect_after_disconnect_keeps_session,
+            t_connect_after_disconnect_then_clean_start,
+            t_disconnect_keeps_session
         ]},
         {socket, [], [
             t_sock_keepalive,
@@ -1036,6 +1039,101 @@ t_large_connect_with_few_user_properties(_) ->
         ok = emqtt:disconnect(Client)
     after
         catch emqtt:stop(Client)
+    end.
+
+-doc """
+DISCONNECT and CONNECT in one TCP send. The broker drops the CONNECT. The
+channel does not take over its own session, and the next connection finds
+the session.
+""".
+t_connect_after_disconnect_keeps_session(_) ->
+    ClientId = <<"t_connect_after_disconnect_keeps_session">>,
+    ?check_trace(
+        begin
+            disconnect_then_connect_in_one_send(ClientId),
+            Sock = raw_connect_v4(ClientId, _CleanStart = false),
+            %% Session present
+            ?assertEqual(<<32, 2, 1, 0>>, recv_raw_connack(Sock)),
+            ok = gen_tcp:close(Sock)
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("session_stepdown_request_exception", Trace))
+        end
+    ),
+    ok = emqx_cm:kick_session(ClientId).
+
+-doc """
+DISCONNECT and CONNECT in one TCP send. A next connection with the same
+client ID and Clean Session = true is accepted.
+""".
+t_connect_after_disconnect_then_clean_start(_) ->
+    ClientId = <<"t_connect_after_disconnect_then_clean_start">>,
+    ?check_trace(
+        begin
+            disconnect_then_connect_in_one_send(ClientId),
+            Sock = raw_connect_v4(ClientId, _CleanStart = true),
+            ?assertEqual(<<32, 2, 0, 0>>, recv_raw_connack(Sock)),
+            ok = gen_tcp:close(Sock)
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("session_stepdown_request_exception", Trace))
+        end
+    ).
+
+-doc """
+A DISCONNECT with Clean Session = false keeps the session for the next
+connection.
+""".
+t_disconnect_keeps_session(_) ->
+    ClientId = <<"t_disconnect_keeps_session">>,
+    Sock0 = raw_connect_v4(ClientId, _CleanStart0 = false),
+    ?assertEqual(<<32, 2, 0, 0>>, recv_raw_connack(Sock0)),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    ok = gen_tcp:send(Sock0, emqx_frame:serialize(?DISCONNECT_PACKET())),
+    ok = recv_raw_closed(Sock0),
+    ?assertMatch(#{conn_state := disconnected}, emqx_connection:info(ChanPid)),
+    Sock = raw_connect_v4(ClientId, _CleanStart = false),
+    ?assertEqual(<<32, 2, 1, 0>>, recv_raw_connack(Sock)),
+    ok = gen_tcp:close(Sock),
+    ok = emqx_cm:kick_session(ClientId).
+
+disconnect_then_connect_in_one_send(ClientId) ->
+    Sock = raw_connect_v4(ClientId, _CleanStart = false),
+    ?assertEqual(<<32, 2, 0, 0>>, recv_raw_connack(Sock)),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    Disconnect = emqx_frame:serialize(?DISCONNECT_PACKET()),
+    Connect = raw_connect_packet_v4(ClientId, false),
+    ok = gen_tcp:send(Sock, [Disconnect, Connect]),
+    ok = recv_raw_closed(Sock),
+    %% The call returns after the channel has handled both packets.
+    ?assertMatch(#{conn_state := disconnected}, emqx_connection:info(ChanPid)),
+    ?assertEqual([ChanPid], emqx_cm:lookup_channels(ClientId)),
+    ok.
+
+raw_connect_v4(ClientId, CleanStart) ->
+    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary, {nodelay, true}]),
+    ok = gen_tcp:send(Sock, raw_connect_packet_v4(ClientId, CleanStart)),
+    Sock.
+
+raw_connect_packet_v4(ClientId, CleanStart) ->
+    emqx_frame:serialize(
+        ?CONNECT_PACKET(#mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V4,
+            clean_start = CleanStart,
+            clientid = ClientId
+        })
+    ).
+
+recv_raw_connack(Sock) ->
+    receive
+        {tcp, Sock, ConnAck} -> ConnAck
+    after 3000 -> ct:fail({connack_not_received, process_info(self(), messages)})
+    end.
+
+recv_raw_closed(Sock) ->
+    receive
+        {tcp_closed, Sock} -> ok
+    after 3000 -> ct:fail({socket_not_closed, process_info(self(), messages)})
     end.
 
 assert_connect_accepted(Transport, NConnect, NWill) ->

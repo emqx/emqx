@@ -395,6 +395,13 @@ take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
     | {continue, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
+%% The socket is closed. Drop packets that were read before the close,
+%% for example packets that follow a DISCONNECT in the same read.
+%% The process stays alive to keep the session until it expires or
+%% a new connection takes it over.
+handle_in(?PACKET(Type), Channel = #channel{conn_state = disconnected}) ->
+    ?TRACE("MQTT", "packet_dropped_when_disconnected", #{type => Type}),
+    {ok, Channel};
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->

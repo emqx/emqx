@@ -165,6 +165,22 @@ t_handle_in_unexpected_connect_packet(_) ->
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel).
 
+-doc "A packet handled after the channel is disconnected is dropped.".
+t_handle_in_packet_when_disconnected(_) ->
+    Channel = emqx_channel:set_field(conn_state, disconnected, channel()),
+    lists:foreach(
+        fun(Packet) ->
+            ?assertEqual({ok, Channel}, emqx_channel:handle_in(Packet, Channel))
+        end,
+        [
+            ?CONNECT_PACKET(connpkt()),
+            ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
+            ?SUBSCRIBE_PACKET(1, [{<<"t">>, ?DEFAULT_SUBOPTS}]),
+            ?PACKET(?PINGREQ),
+            ?DISCONNECT_PACKET()
+        ]
+    ).
+
 t_handle_in_extended_reauthentication(_) ->
     try
         {ok, Agent} = emqx_utils_agent:start_link({stop, ok}),
