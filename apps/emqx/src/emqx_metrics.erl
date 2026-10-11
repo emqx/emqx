@@ -356,12 +356,13 @@ inc_recv_namespace(Packet, Namespace) ->
 inc_recv_deferred(Packet = ?PUBLISH_PACKET(QoS), Namespace) ->
     _ = emqx_pd:inc_counter_with_delta(recv_pkt, 1),
     _ = emqx_pd:inc_counter_with_delta(recv_msg, 1),
-    case QoS of
-        ?QOS_0 -> emqx_pd:inc_counter_with_delta('recv_msg.qos0', 1);
-        ?QOS_1 -> emqx_pd:inc_counter_with_delta('recv_msg.qos1', 1);
-        ?QOS_2 -> emqx_pd:inc_counter_with_delta('recv_msg.qos2', 1);
-        _ -> ok
-    end,
+    _ =
+        case QoS of
+            ?QOS_0 -> emqx_pd:inc_counter_with_delta('recv_msg.qos0', 1);
+            ?QOS_1 -> emqx_pd:inc_counter_with_delta('recv_msg.qos1', 1);
+            ?QOS_2 -> emqx_pd:inc_counter_with_delta('recv_msg.qos2', 1);
+            _ -> ok
+        end,
     inc_recv_namespace(Packet, Namespace);
 inc_recv_deferred(Packet, Namespace) ->
     _ = emqx_pd:inc_counter(recv_pkt, 1),
