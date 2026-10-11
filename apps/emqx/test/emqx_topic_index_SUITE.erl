@@ -67,6 +67,18 @@ t_match(Config) ->
         [topic(X) || X <- matches(M, <<"sensor/1">>, Tab)]
     ).
 
+-doc "Check that an empty index matches nothing, also after its last entry is deleted.".
+t_match_empty_index(Config) ->
+    M = get_module(Config),
+    Tab = M:new(),
+    ?assertEqual(false, match(M, <<"sensor/1">>, Tab)),
+    ?assertEqual([], matches(M, <<"sensor/1">>, Tab)),
+    true = M:insert(<<"sensor/+">>, t_match_empty_index, <<>>, Tab),
+    ?assertEqual([<<"sensor/+">>], [topic(X) || X <- matches(M, <<"sensor/1">>, Tab)]),
+    _ = M:delete(<<"sensor/+">>, t_match_empty_index, Tab),
+    ?assertEqual(false, match(M, <<"sensor/1">>, Tab)),
+    ?assertEqual([], matches(M, <<"sensor/1">>, Tab)).
+
 t_match2(Config) ->
     M = get_module(Config),
     Tab = M:new(),
