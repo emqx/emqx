@@ -45,7 +45,7 @@ unregister_hooks() ->
 -spec on_message_publish_alias_mapping(emqx_types:message()) -> ok.
 on_message_publish_alias_mapping(#message{} = Message) ->
     case
-        is_spb_message_topic(unmounted_topic(Message)) andalso
+        is_spb_topic(Message) andalso
             emqx_schema_registry_config:is_alias_mapping_enabled() andalso
             is_client_process()
     of
@@ -70,25 +70,12 @@ is_client_process() ->
         _ -> false
     end.
 
-%% True when the third topic level is one that `parse_spb_topic/1' accepts and a fourth
-%% level follows. This is a cheap pre-check that never rejects a topic the parser accepts.
-is_spb_message_topic(Topic) ->
-    is_spb_message_topic(Topic, 0).
-
-is_spb_message_topic(<<"/", Rest/binary>>, 1) ->
-    is_spb_message_type(Rest);
-is_spb_message_topic(<<"/", Rest/binary>>, Level) ->
-    is_spb_message_topic(Rest, Level + 1);
-is_spb_message_topic(<<_, Rest/binary>>, Level) ->
-    is_spb_message_topic(Rest, Level);
-is_spb_message_topic(<<>>, _Level) ->
-    false.
-
-is_spb_message_type(<<"NBIRTH/", _/binary>>) -> true;
-is_spb_message_type(<<"NDATA/", _/binary>>) -> true;
-is_spb_message_type(<<"DBIRTH/", _/binary>>) -> true;
-is_spb_message_type(<<"DDATA/", _/binary>>) -> true;
-is_spb_message_type(_) -> false.
+-doc "Check whether the original topic uses the Sparkplug B namespace.".
+is_spb_topic(Message) ->
+    case unmounted_topic(Message) of
+        <<"spBv1.0/", _/binary>> -> true;
+        _ -> false
+    end.
 
 do_on_message_publish(#message{} = Message) ->
     Topic = unmounted_topic(Message),
