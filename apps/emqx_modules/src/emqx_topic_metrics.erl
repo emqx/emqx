@@ -223,8 +223,9 @@ init([Opts]) ->
                     error("max topic metrics quota exceeded")
             end
         end,
+    Speeds = lists:foldl(Fun, #{}, Opts),
     ?tp(debug, emqx_topic_metrics_started, #{}),
-    {ok, #state{speeds = lists:foldl(Fun, #{}, Opts)}, hibernate}.
+    {ok, #state{speeds = Speeds}, hibernate}.
 
 handle_call({register, Topic}, _From, State = #state{speeds = Speeds}) ->
     case do_register(Topic, Speeds) of
