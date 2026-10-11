@@ -174,13 +174,13 @@ metrics(Topic) ->
     end.
 
 register(Topic) when is_binary(Topic) ->
-    gen_server:call(?MODULE, {register, Topic}).
+    gen_server:call(?MODULE, {register, Topic}, 5_000).
 
 deregister(Topic) when is_binary(Topic) ->
-    gen_server:call(?MODULE, {deregister, Topic}).
+    gen_server:call(?MODULE, {deregister, Topic}, 5_000).
 
 deregister_all() ->
-    gen_server:call(?MODULE, {deregister, all}).
+    gen_server:call(?MODULE, {deregister, all}, 5_000).
 
 is_registered(Topic) ->
     try
@@ -196,13 +196,13 @@ all_registered_topics() ->
 reset(Topic) ->
     case is_registered(Topic) of
         true ->
-            gen_server:call(?MODULE, {reset, Topic});
+            gen_server:call(?MODULE, {reset, Topic}, 5_000);
         false ->
             {error, topic_not_found}
     end.
 
 reset() ->
-    gen_server:call(?MODULE, {reset, all}).
+    gen_server:call(?MODULE, {reset, all}, 5_000).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -252,11 +252,8 @@ handle_call({deregister, Topic}, _From, State = #state{speeds = Speeds}) ->
             {reply, ok, State#state{speeds = NSpeeds}}
     end;
 handle_call({reset, all}, _From, State = #state{speeds = Speeds}) ->
-    Fun =
-        fun(T, NSpeeds) ->
-            reset_topic(T, NSpeeds)
-        end,
-    {reply, ok, State#state{speeds = lists:foldl(Fun, Speeds, ets:tab2list(?TAB))}};
+    NSpeeds = lists:foldl(fun reset_topic/2, Speeds, ets:tab2list(?TAB)),
+    {reply, ok, State#state{speeds = NSpeeds}};
 handle_call({reset, Topic}, _From, State = #state{speeds = Speeds}) ->
     NSpeeds = reset_topic(Topic, Speeds),
     {reply, ok, State#state{speeds = NSpeeds}};
@@ -405,7 +402,7 @@ val(Topic, Metric) ->
     end.
 
 rate(Topic, Metric) ->
-    case gen_server:call(?MODULE, {get_rates, Topic, Metric}) of
+    case gen_server:call(?MODULE, {get_rates, Topic, Metric}, 5_000) of
         #{short := Last} ->
             Last;
         {error, Reason} ->
