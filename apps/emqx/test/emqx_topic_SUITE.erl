@@ -259,12 +259,35 @@ t_prepend(_) ->
 
 t_levels(_) ->
     ?assertEqual(3, emqx_topic:levels(<<"a/+/#">>)),
-    ?assertEqual(4, emqx_topic:levels(<<"a/b/c/d">>)).
+    ?assertEqual(4, emqx_topic:levels(<<"a/b/c/d">>)),
+    ?assertEqual(1, emqx_topic:levels(<<"a">>)),
+    ?assertEqual(2, emqx_topic:levels(<<"/">>)),
+    ?assertEqual(3, emqx_topic:levels(<<"a//">>)).
 
 t_tokens(_) ->
     ?assertEqual(
         [<<"a">>, <<"b">>, <<"+">>, <<"#">>],
         emqx_topic:tokens(<<"a/b/+/#">>)
+    ).
+
+-doc "Check that tokens/1 and levels/1 agree with binary:split/3 on empty levels.".
+t_tokens_empty_levels(_) ->
+    lists:foreach(
+        fun(Topic) ->
+            Expected = binary:split(Topic, <<"/">>, [global]),
+            ?assertEqual(Expected, emqx_topic:tokens(Topic), Topic),
+            ?assertEqual(length(Expected), emqx_topic:levels(Topic), Topic)
+        end,
+        [
+            <<>>,
+            <<"/">>,
+            <<"//">>,
+            <<"a/">>,
+            <<"/a">>,
+            <<"a//b">>,
+            <<"/a//b/">>,
+            <<"中/文/"/utf8>>
+        ]
     ).
 
 t_words(_) ->

@@ -326,13 +326,25 @@ bin(L) when is_list(L) -> list_to_binary(L).
 levels(#share{topic = Topic}) when is_binary(Topic) ->
     levels(Topic);
 levels(Topic) when is_binary(Topic) ->
-    length(tokens(Topic)).
+    count_levels(Topic, 1).
 
--compile({inline, [tokens/1]}).
+count_levels(<<$/, Rest/binary>>, N) -> count_levels(Rest, N + 1);
+count_levels(<<_, Rest/binary>>, N) -> count_levels(Rest, N);
+count_levels(<<>>, N) -> N.
+
 %% @doc Split topic to tokens.
 -spec tokens(topic()) -> list(binary()).
 tokens(Topic) ->
-    binary:split(Topic, <<"/">>, [global]).
+    split_levels(Topic, 0, Topic, []).
+
+%% `Level` is the binary from the start of the current level, `N` is the number of bytes
+%% of the current level seen so far.
+split_levels(<<$/, Rest/binary>>, N, Level, Acc) ->
+    split_levels(Rest, 0, Rest, [binary:part(Level, 0, N) | Acc]);
+split_levels(<<_, Rest/binary>>, N, Level, Acc) ->
+    split_levels(Rest, N + 1, Level, Acc);
+split_levels(<<>>, _N, Level, Acc) ->
+    lists:reverse(Acc, [Level]).
 
 %% @doc Split Topic Path to Words
 -spec words(topic() | share()) -> words().
