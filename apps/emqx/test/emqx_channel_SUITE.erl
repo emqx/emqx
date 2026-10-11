@@ -228,6 +228,18 @@ t_handle_in_unexpected_packet(_) ->
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?PUBLISH_PACKET(?QOS_0), Channel).
 
+-doc """
+A PUBLISH received while the channel is connecting, for example during
+enhanced authentication, is a protocol error.
+""".
+t_handle_in_unexpected_packet_when_connecting(_) ->
+    Channel = emqx_channel:set_field(conn_state, connecting, channel()),
+    Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
+    ?assertEqual(
+        {ok, [{outgoing, Packet}, {close, protocol_error}], Channel},
+        emqx_channel:handle_in(?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>), Channel)
+    ).
+
 t_handle_in_publish_with_subscription_identifier(_) ->
     Channel = channel(#{conn_state => connected}),
     Publish = ?PUBLISH_PACKET(
