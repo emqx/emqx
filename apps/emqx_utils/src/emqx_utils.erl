@@ -195,11 +195,10 @@ foldl_while(Fun, Acc, [X | Xs]) ->
     end.
 
 -compile({inline, [apply_fun/3]}).
-apply_fun(Fun, Input, State) ->
-    case erlang:fun_info(Fun, arity) of
-        {arity, 1} -> Fun(Input);
-        {arity, 2} -> Fun(Input, State)
-    end.
+apply_fun(Fun, Input, _State) when is_function(Fun, 1) ->
+    Fun(Input);
+apply_fun(Fun, Input, State) when is_function(Fun, 2) ->
+    Fun(Input, State).
 
 -spec start_timer(integer() | atom(), term()) -> option(reference()).
 start_timer(Interval, Msg) ->
