@@ -44,7 +44,11 @@ unregister_hooks() ->
 
 -spec on_message_publish_alias_mapping(emqx_types:message()) -> ok.
 on_message_publish_alias_mapping(#message{} = Message) ->
-    case emqx_schema_registry_config:is_alias_mapping_enabled() andalso is_client_process() of
+    case
+        is_spb_topic(Message) andalso
+            emqx_schema_registry_config:is_alias_mapping_enabled() andalso
+            is_client_process()
+    of
         true ->
             do_on_message_publish(Message);
         false ->
@@ -65,6 +69,25 @@ is_client_process() ->
         {clientid, _} -> true;
         _ -> false
     end.
+
+-doc "Check the third level of the original topic for a birth or data message type.".
+is_spb_topic(Message) ->
+    is_spb_topic(unmounted_topic(Message), 0).
+
+is_spb_topic(<<"/", Rest/binary>>, 1) ->
+    is_spb_message_type(Rest);
+is_spb_topic(<<"/", Rest/binary>>, Level) ->
+    is_spb_topic(Rest, Level + 1);
+is_spb_topic(<<_, Rest/binary>>, Level) ->
+    is_spb_topic(Rest, Level);
+is_spb_topic(<<>>, _Level) ->
+    false.
+
+is_spb_message_type(<<"NBIRTH/", _/binary>>) -> true;
+is_spb_message_type(<<"NDATA/", _/binary>>) -> true;
+is_spb_message_type(<<"DBIRTH/", _/binary>>) -> true;
+is_spb_message_type(<<"DDATA/", _/binary>>) -> true;
+is_spb_message_type(_) -> false.
 
 do_on_message_publish(#message{} = Message) ->
     Topic = unmounted_topic(Message),
