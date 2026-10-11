@@ -333,7 +333,7 @@ count_levels(<<_, Rest/binary>>, N) -> count_levels(Rest, N);
 count_levels(<<>>, N) -> N.
 
 %% @doc Split topic to tokens.
--spec tokens(topic()) -> list(binary()).
+-spec tokens(topic()) -> [binary(), ...].
 tokens(Topic) ->
     split_levels(Topic, 0, Topic, []).
 
