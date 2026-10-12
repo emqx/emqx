@@ -447,8 +447,8 @@ topics(["list"]) ->
         _ -> ok
     end;
 topics(["show", Topic]) ->
-    Routes = emqx_router:lookup_routes(Topic),
-    [print({emqx_topic, Route}) || Route <- Routes];
+    Routes = emqx_router:lookup_routes(bin(Topic)),
+    lists:foreach(fun(Route) -> print({emqx_topic, Route}) end, Routes);
 topics(_) ->
     emqx_ctl:usage([
         {"topics list", "List all topics"},
@@ -1035,7 +1035,7 @@ listeners(["enable", ListenerId, Enable0]) ->
             end,
         {ok, #{type := Type, name := Name}} ?= emqx_listeners:parse_listener_id(ListenerId),
         #{<<"enable">> := OldEnable} ?= RawConf = emqx_conf:get_raw(
-            [listeners, Type, Name], {error, nout_found}
+            [listeners, Type, Name], {error, not_found}
         ),
         {ok, AtomId} = emqx_utils:safe_to_existing_atom(ListenerId),
         ok ?=
@@ -1064,7 +1064,7 @@ listeners(["enable", ListenerId, Enable0]) ->
         {error, {invalid_listener_id, _Id}} ->
             emqx_ctl:print("Invalid listener: ~0p~n", [ListenerId]);
         {error, not_found} ->
-            emqx_ctl:print("Not found listener: ~0p~n", [ListenerId]);
+            emqx_ctl:print("Listener not found: ~0p~n", [ListenerId]);
         {error, {already_started, _Pid}} ->
             emqx_ctl:print("Updated 'enable' to: '~0p' successfully.~n", [Enable0]);
         {error, Reason} ->

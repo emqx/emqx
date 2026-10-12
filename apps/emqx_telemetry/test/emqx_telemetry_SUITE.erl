@@ -60,10 +60,40 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
-init_per_testcase(t_get_telemetry_without_memsup, Config) ->
+%% Every case shares the application stack started in `init_per_suite/1'.
+%% Check it before and after each case, so that the case that destroys it
+%% fails, and not the case that runs next.
+init_per_testcase(TestCase, Config) ->
+    case check_app_stack() of
+        ok -> do_init_per_testcase(TestCase, Config);
+        {error, Reason} -> {fail, {app_stack_down_before_case, Reason}}
+    end.
+
+end_per_testcase(TestCase, Config) ->
+    Result = do_end_per_testcase(TestCase, Config),
+    case check_app_stack() of
+        ok -> Result;
+        {error, Reason} -> {fail, {app_stack_down_after_case, Reason}}
+    end.
+
+check_app_stack() ->
+    Running = [App || {App, _, _} <- application:which_applications()],
+    Missing =
+        [
+            {app_not_running, App}
+         || App <- [mria, emqx, emqx_conf, emqx_dashboard], not lists:member(App, Running)
+        ] ++
+            [{no_process, emqx_config_handler} || whereis(emqx_config_handler) =:= undefined] ++
+            [{no_ets_table, emqx_stats} || ets:whereis(emqx_stats) =:= undefined],
+    case Missing of
+        [] -> ok;
+        _ -> {error, Missing}
+    end.
+
+do_init_per_testcase(t_get_telemetry_without_memsup, Config) ->
     ok = application:stop(os_mon),
-    init_per_testcase(t_get_telemetry, Config);
-init_per_testcase(t_get_telemetry, Config) ->
+    do_init_per_testcase(t_get_telemetry, Config);
+do_init_per_testcase(t_get_telemetry, Config) ->
     DataDir = ?config(data_dir, Config),
     mock_httpc(),
     ok = meck:new(emqx_telemetry, [non_strict, passthrough, no_history, no_link]),
@@ -95,36 +125,36 @@ init_per_testcase(t_get_telemetry, Config) ->
     ),
     ok = emqx_gateway_SUITE:setup_fake_usage_data(Lwm2mDataDir),
     Config;
-init_per_testcase(t_advanced_mqtt_features, Config) ->
+do_init_per_testcase(t_advanced_mqtt_features, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     {atomic, ok} = mria:clear_table(emqx_delayed),
     mock_advanced_mqtt_features(),
     Config;
-init_per_testcase(t_authn_authz_info, Config) ->
+do_init_per_testcase(t_authn_authz_info, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     create_authn('mqtt:global', built_in_database),
     create_authn('tcp:default', redis),
     create_authn('ws:default', redis),
     create_authz(postgresql),
     Config;
-init_per_testcase(t_enable, Config) ->
+do_init_per_testcase(t_enable, Config) ->
     ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
     emqx_telemetry_config:set_default_status(true),
     mock_httpc(),
     Config;
-init_per_testcase(t_send_after_enable, Config) ->
+do_init_per_testcase(t_send_after_enable, Config) ->
     ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
     emqx_telemetry_config:set_default_status(true),
     mock_httpc(),
     Config;
-init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
+do_init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     ok = emqx_bridge_v2_SUITE:setup_fake_telemetry_data(),
     ok = setup_fake_rule_engine_data(),
     Config;
-init_per_testcase(t_exhook_info, Config) ->
+do_init_per_testcase(t_exhook_info, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     {ok, _} = emqx_exhook_demo_svr:start(),
     ExhookConf = #{
@@ -135,40 +165,40 @@ init_per_testcase(t_exhook_info, Config) ->
     {ok, Sock} = gen_tcp:connect("localhost", 9000, [], 3000),
     _ = gen_tcp:close(Sock),
     Config;
-init_per_testcase(t_cluster_uuid, Config) ->
+do_init_per_testcase(t_cluster_uuid, Config) ->
     Node = start_peer(n1),
     [{n1, Node} | Config];
-init_per_testcase(t_uuid_restored_from_file, Config) ->
+do_init_per_testcase(t_uuid_restored_from_file, Config) ->
     Config;
-init_per_testcase(t_uuid_saved_to_file, Config) ->
+do_init_per_testcase(t_uuid_saved_to_file, Config) ->
     DataDir = emqx:data_dir(),
     NodeUUIDFile = filename:join(DataDir, "node.uuid"),
     ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
     file:delete(NodeUUIDFile),
     file:delete(ClusterUUIDFile),
     Config;
-init_per_testcase(t_num_clients, Config) ->
+do_init_per_testcase(t_num_clients, Config) ->
     ok = snabbkaffe:start_trace(),
     Config;
-init_per_testcase(_Testcase, Config) ->
+do_init_per_testcase(_Testcase, Config) ->
     mock_httpc(),
     Config.
 
-end_per_testcase(t_get_telemetry_without_memsup, Config) ->
+do_end_per_testcase(t_get_telemetry_without_memsup, Config) ->
     application:start(os_mon),
-    end_per_testcase(t_get_telemetry, Config);
-end_per_testcase(t_get_telemetry, _Config) ->
+    do_end_per_testcase(t_get_telemetry, Config);
+do_end_per_testcase(t_get_telemetry, _Config) ->
     meck:unload([httpc, emqx_telemetry]),
     application:stop(emqx_gateway),
     ok;
-end_per_testcase(t_advanced_mqtt_features, _Config) ->
+do_end_per_testcase(t_advanced_mqtt_features, _Config) ->
     process_flag(trap_exit, true),
     ok = emqx_retainer:clean(),
     {ok, _} = emqx_auto_subscribe:update([]),
     ok = emqx_rewrite:update([]),
     {atomic, ok} = mria:clear_table(emqx_delayed),
     ok;
-end_per_testcase(t_authn_authz_info, _Config) ->
+do_end_per_testcase(t_authn_authz_info, _Config) ->
     emqx_authz:update({delete, postgresql}, #{}),
     lists:foreach(
         fun(ChainName) ->
@@ -180,23 +210,23 @@ end_per_testcase(t_authn_authz_info, _Config) ->
         ['mqtt:global', 'tcp:default', 'ws:default']
     ),
     ok;
-end_per_testcase(t_enable, _Config) ->
+do_end_per_testcase(t_enable, _Config) ->
     meck:unload([httpc, emqx_telemetry_config]);
-end_per_testcase(t_send_after_enable, _Config) ->
+do_end_per_testcase(t_send_after_enable, _Config) ->
     meck:unload([httpc, emqx_telemetry_config]);
-end_per_testcase(t_rule_engine_and_data_bridge_info, _Config) ->
+do_end_per_testcase(t_rule_engine_and_data_bridge_info, _Config) ->
     ok;
-end_per_testcase(t_exhook_info, _Config) ->
+do_end_per_testcase(t_exhook_info, _Config) ->
     emqx_exhook_demo_svr:stop(),
     application:stop(emqx_exhook),
     ok;
-end_per_testcase(t_cluster_uuid, Config) ->
+do_end_per_testcase(t_cluster_uuid, Config) ->
     Node = proplists:get_value(n1, Config),
     ok = stop_peer(Node);
-end_per_testcase(t_num_clients, Config) ->
+do_end_per_testcase(t_num_clients, Config) ->
     ok = snabbkaffe:stop(),
     Config;
-end_per_testcase(_Testcase, _Config) ->
+do_end_per_testcase(_Testcase, _Config) ->
     case catch meck:unload([httpc]) of
         _ -> ok
     end,
@@ -804,8 +834,7 @@ stop_peer(Node) ->
     ok = emqx_cth_peer:stop(Node),
     ?assertEqual([node()], mria:running_nodes()),
     ?assertEqual([], nodes()),
-    _ = application:stop(mria),
-    ok = application:start(mria).
+    ok.
 
 leave_cluster() ->
     try mnesia_hook:module_info(module) of

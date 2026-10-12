@@ -70,6 +70,24 @@ t_broker(_Config) ->
     emqx_ctl:run_command(["broker", "metrics"]),
     ok.
 
+-doc """
+`topics show` prints the route of a topic that has a subscriber.
+""".
+t_topics_show(_Config) ->
+    {ok, C} = emqtt:start_link([{clientid, <<"topics_show_test">>}]),
+    {ok, _} = emqtt:connect(C),
+    try
+        {ok, _, _} = emqtt:subscribe(C, <<"topics/show/test">>, 1),
+        {Res, Prints} = emqx_common_test_helpers:capture_io_format(fun() ->
+            emqx_ctl:run_command(["topics", "show", "topics/show/test"])
+        end),
+        Expected = iolist_to_binary(io_lib:format("topics/show/test -> ~ts~n", [node()])),
+        ?assertEqual(Expected, iolist_to_binary(Prints)),
+        ?assertEqual(ok, Res)
+    after
+        ok = emqtt:disconnect(C)
+    end.
+
 t_cluster(_Config) ->
     SelfNode = node(),
     FakeNode = 'fake@127.0.0.1',
@@ -328,6 +346,16 @@ t_listeners(_Config) ->
     %% listeners start   <Identifier> # Start a listener
     %% listeners restart <Identifier> # Restart a listener
     ok.
+
+-doc """
+`listeners enable` on a listener that does not exist reports it as not found.
+""".
+t_listeners_enable_not_found(_Config) ->
+    {Res, Prints} = emqx_common_test_helpers:capture_io_format(fun() ->
+        emqx_ctl:run_command(["listeners", "enable", "tcp:nosuch", "true"])
+    end),
+    ?assertEqual(ok, Res),
+    ?assertEqual(<<"Listener not found: \"tcp:nosuch\"\n">>, iolist_to_binary(Prints)).
 
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes

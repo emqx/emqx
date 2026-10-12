@@ -424,7 +424,12 @@ t_asleep_pingreq_dtls_without_peer_cert_resumes(Config) ->
     end.
 
 t_asleep_pingreq_dtls_mtls_identity(Config) ->
-    ClientId = <<"asleep-dtls-mtls-identity">>,
+    %% The gateway answers a refused resume with DISCONNECT and then closes.
+    %% Over DTLS the close can reach the client first, see t_connect_dtls.
+    ?retrying(Config, 3, fun do_t_asleep_pingreq_dtls_mtls_identity/1).
+
+do_t_asleep_pingreq_dtls_mtls_identity(Config) ->
+    ClientId = ?CLIENTID,
     TopicName = <<"asleep/dtls/mtls/identity">>,
     SleepDuration = 5,
     MsgId = 36,

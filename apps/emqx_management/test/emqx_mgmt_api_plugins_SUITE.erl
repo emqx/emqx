@@ -53,7 +53,7 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(t_cluster_update_order = TestCase, Config0) ->
-    Config = [{api_port, 18085} | Config0],
+    Config = [{api_port, emqx_common_test_helpers:select_free_port(tcp)} | Config0],
     Cluster = [Node1 | _] = cluster(TestCase, Config),
     {ok, API} = init_api(Node1),
     [
@@ -62,7 +62,7 @@ init_per_testcase(t_cluster_update_order = TestCase, Config0) ->
         | Config
     ];
 init_per_testcase(t_cluster_rejects_invalid_local_config_on_start = TestCase, Config0) ->
-    Config = [{api_port, 28085} | Config0],
+    Config = [{api_port, emqx_common_test_helpers:select_free_port(tcp)} | Config0],
     Cluster = [Node1 | _] = cluster(TestCase, Config),
     {ok, API} = init_api(Node1),
     [
@@ -71,7 +71,7 @@ init_per_testcase(t_cluster_rejects_invalid_local_config_on_start = TestCase, Co
         | Config
     ];
 init_per_testcase(t_cluster_rolls_back_partial_start_failure = TestCase, Config0) ->
-    Config = [{api_port, 38085} | Config0],
+    Config = [{api_port, emqx_common_test_helpers:select_free_port(tcp)} | Config0],
     Cluster = [Node1 | _] = cluster(TestCase, Config),
     {ok, API} = init_api(Node1),
     [

@@ -72,7 +72,11 @@ jobs:
           make ${MAKE_TARGET}
           echo "export PROFILE=${PROFILE}" | tee -a env.sh
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
-          zip -ryq -x@.github/workflows/.zipignore2 $ARTIFACT_NAME .
+          # .zipignore drops build-time caches under deps/ that CT does not
+          # read: git pack files, rebar3 plugin caches, prebuilt NIF tarballs
+          # and cargo targets. It keeps deps/*/.git/HEAD and config, which mix
+          # reads to check git deps against mix.lock.
+          zip -ryq -x@.github/workflows/.zipignore $ARTIFACT_NAME .
       - name: Check API scope coverage
         if: ${{ !inputs.warm-cache && inputs.build_type == 'test' }}
         env:
