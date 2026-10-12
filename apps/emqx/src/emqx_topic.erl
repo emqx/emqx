@@ -340,7 +340,8 @@ tokens(Topic) ->
 %% `Level` is the binary from the start of the current level, `N` is the number of bytes
 %% of the current level seen so far.
 split_levels(<<$/, Rest/binary>>, N, Level, Acc) ->
-    split_levels(Rest, 0, Rest, [binary:part(Level, 0, N) | Acc]);
+    <<Token:N/binary, _/binary>> = Level,
+    split_levels(Rest, 0, Rest, [Token | Acc]);
 split_levels(<<_, Rest/binary>>, N, Level, Acc) ->
     split_levels(Rest, N + 1, Level, Acc);
 split_levels(<<>>, _N, Level, Acc) ->
