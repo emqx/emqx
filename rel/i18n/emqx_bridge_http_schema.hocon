@@ -27,6 +27,7 @@ config_headers.label:
 
 config_max_retries.desc:
 """Maximum number of retries for failed HTTP requests within a single action query.
+Retries for normal connection shutdown races do not consume this budget.
 The action buffer may retry recoverable errors independently until the request TTL expires."""
 
 config_max_retries.label:

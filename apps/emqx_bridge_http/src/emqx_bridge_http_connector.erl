@@ -429,6 +429,12 @@ on_query(
         {ok, NRequest} ->
             trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
             Worker = resolve_pool_worker(State, KeyOrNum),
+            ?tp(http_connector_request, #{
+                connector => InstId,
+                query_mode => sync,
+                attempt => 1,
+                max_attempts => max_attempts(Retry)
+            }),
             Result0 = ehttpc:request(
                 Worker,
                 Method,
@@ -566,6 +572,9 @@ on_query_async(
                 timeout => Timeout,
                 trace_metadata => logger:get_process_metadata()
             },
+            ?tp(http_connector_request, #{
+                connector => InstId, query_mode => async, attempt => 1, max_attempts => MaxAttempts
+            }),
             ok = ehttpc:request_async(
                 Worker,
                 Method,
@@ -1086,7 +1095,11 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
             true -> Context;
             false -> Context#{attempt := Attempt + 1}
         end,
-    ?tp(http_will_retry_async, #{}),
+    ?tp(http_will_retry_async, #{
+        connector => maps:get(pool_name, State),
+        attempt => maps:get(attempt, NContext),
+        max_attempts => maps:get(max_attempts, NContext)
+    }),
     case prepare_request(Method, Request, State) of
         {ok, NRequest} ->
             Worker = resolve_pool_worker(State, KeyOrNum),

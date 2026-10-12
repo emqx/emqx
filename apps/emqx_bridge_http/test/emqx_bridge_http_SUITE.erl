@@ -957,38 +957,72 @@ t_max_retries(TCConfig) when is_list(TCConfig) ->
             default_retries -> {#{}, 2};
             more_retries -> {#{<<"max_retries">> => 5}, 5}
         end,
-    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
+    }),
     {201, _} = create_action_api(TCConfig, #{
         <<"parameters">> => Params#{<<"body">> => <<"${payload}">>},
         <<"resource_opts">> => #{
             <<"query_mode">> => atom_to_binary(http_query_mode(TCConfig)),
-            %% Keep buffer retries outside the request-counting window.
+            %% Keep automatic buffer retries outside the request-counting window.
             <<"resume_interval">> => <<"1m">>,
-            <<"request_ttl">> => <<"1m">>
+            <<"request_ttl">> => <<"1m">>,
+            <<"health_check_interval">> => <<"1m">>
         }
     }),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
     Client = start_client(),
     Payload = unique_payload(),
-    {_, {ok, QueryResult}} = ?wait_async_action(
-        emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
-        #{?snk_kind := Kind, result := {error, _}} when
-            Kind =:= buffer_worker_flush_ack;
-            Kind =:= buffer_worker_flush_nack;
-            Kind =:= handle_async_reply,
-        10_000
-    ),
+    QueryMode = http_query_mode(TCConfig),
+    QueryResult = exercise_http_retry(QueryMode, Client, Topic, Payload),
     ?assertReceive({http_attempt, Payload}, 5_000),
     Attempts = count_http_attempts(Payload, 1),
     %% A retry can fail while the previous connection is still closing, before reaching the server.
     ?assert(Attempts =< Retries + 1, #{attempts => Attempts, query_result => QueryResult}),
-    case http_query_mode(TCConfig) of
-        async ->
-            Trace = snabbkaffe:collect_trace(),
-            ?assert(length(?of_kind(http_will_retry_async, Trace)) >= Retries);
-        sync ->
-            ok
-    end.
+    ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    assert_http_retry_budget(QueryMode, ConnectorId, Retries, snabbkaffe:collect_trace()).
+
+exercise_http_retry(sync, Client, Topic, Payload) ->
+    %% Initial submissions use async callbacks even in sync query mode. Buffer retries force sync.
+    {_, {ok, #{buffer_worker := Worker}}} = ?wait_async_action(
+        emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+        #{?snk_kind := buffer_worker_enter_blocked},
+        10_000
+    ),
+    ?assertReceive({http_attempt, Payload}, 5_000),
+    _ = count_http_attempts(Payload, 1),
+    {_, {ok, Result}} = ?wait_async_action(
+        emqx_resource_buffer_worker:resume(Worker),
+        #{?snk_kind := buffer_worker_retry_inflight_failed, result := {error, _}},
+        10_000
+    ),
+    Result;
+exercise_http_retry(async, Client, Topic, Payload) ->
+    {_, {ok, Result}} = ?wait_async_action(
+        emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+        #{?snk_kind := handle_async_reply, result := {error, _}},
+        10_000
+    ),
+    Result.
+
+assert_http_retry_budget(sync, ConnectorId, Retries, Trace) ->
+    Attempts = [
+        {N, Max}
+     || #{query_mode := sync, connector := Id, attempt := N, max_attempts := Max} <-
+            ?of_kind(http_connector_request, Trace),
+        Id =:= ConnectorId
+    ],
+    ?assertEqual([{1, Retries + 1}], Attempts);
+assert_http_retry_budget(async, ConnectorId, Retries, Trace) ->
+    Events = ?of_kind(http_connector_request, Trace) ++ ?of_kind(http_will_retry_async, Trace),
+    Attempts = [
+        {N, Max}
+     || #{connector := Id, attempt := N, max_attempts := Max} <- Events,
+        Id =:= ConnectorId
+    ],
+    %% Free retries repeat an attempt without consuming the budget.
+    Expected = [{N, Retries + 1} || N <- lists:seq(1, Retries + 1)],
+    ?assertEqual(Expected, lists:usort(Attempts)).
 
 count_http_attempts(Payload, Count) ->
     receive
