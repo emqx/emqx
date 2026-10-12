@@ -97,6 +97,9 @@ end).
 %% APIs
 %%--------------------------------------------------------------------
 
+%% Keep defensive rejection of unexpected hook callback results.
+-dialyzer({no_match, [authenticate/1]}).
+
 -spec authenticate(emqx_types:clientinfo()) ->
     {ok, authn_result()}
     | {ok, authn_result(), authn_data()}
