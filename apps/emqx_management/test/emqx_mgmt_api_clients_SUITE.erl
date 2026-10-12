@@ -620,7 +620,7 @@ t_persistent_sessions_filters(Config) ->
                 list_request("conn_state=connected", Config)
             ),
             ok = disconnect_and_destroy_session(C1),
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [DisconnectedId])
+            ok = erpc:call(N1, emqx_persistent_session_ds, purge_session, [DisconnectedId])
         end,
         []
     ),
@@ -1739,23 +1739,23 @@ t_list_clients_v2(Config) ->
     [N1, N2] = ?config(cluster_nodes, Config),
     Port1 = get_mqtt_port(N1, tcp),
     Port2 = get_mqtt_port(N2, tcp),
+    ClientId1 = <<"ca1">>,
+    ClientId2 = <<"c2">>,
+    ClientId3 = <<"c3">>,
+    ClientId4 = <<"ca4">>,
+    ClientId5 = <<"ca5">>,
+    ClientId6 = <<"c6">>,
+    AllClientIds = [
+        ClientId1,
+        ClientId2,
+        ClientId3,
+        ClientId4,
+        ClientId5,
+        ClientId6
+    ],
 
     ?check_trace(
-        begin
-            ClientId1 = <<"ca1">>,
-            ClientId2 = <<"c2">>,
-            ClientId3 = <<"c3">>,
-            ClientId4 = <<"ca4">>,
-            ClientId5 = <<"ca5">>,
-            ClientId6 = <<"c6">>,
-            AllClientIds = [
-                ClientId1,
-                ClientId2,
-                ClientId3,
-                ClientId4,
-                ClientId5,
-                ClientId6
-            ],
+        try
             C1 = connect_client(#{port => Port1, clientid => ClientId1, clean_start => true}),
             C2 = connect_client(#{port => Port2, clientid => ClientId2, clean_start => true}),
             C3 = connect_client(#{port => Port1, clientid => ClientId3, clean_start => true}),
@@ -1984,16 +1984,14 @@ t_list_clients_v2(Config) ->
             ?assertEqual(
                 [<<"clean_start">>, <<"clientid">>, <<"connected_at">>],
                 lists:sort(maps:keys(ResFields2))
-            ),
-
+            )
+        after
             lists:foreach(
                 fun(ClientId) ->
-                    ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId])
+                    erpc:call(N1, emqx_persistent_session_ds, purge_session, [ClientId])
                 end,
                 AllClientIds
-            ),
-
-            ok
+            )
         end,
         []
     ),
@@ -2220,11 +2218,11 @@ t_list_clients_v2_regular_filters(Config) ->
     [N1, _N2] = ?config(cluster_nodes, Config),
     Port1 = get_mqtt_port(N1, tcp),
     Id = fun(Bin) -> iolist_to_binary([atom_to_binary(?FUNCTION_NAME), <<"-">>, Bin]) end,
+    ClientId1 = Id(<<"ps1-offline">>),
+    Username1 = Id(<<"u1">>),
     ?check_trace(
-        begin
+        try
             ConnectedAt = binary_to_list(emqx_utils_calendar:now_to_rfc3339()),
-            ClientId1 = Id(<<"ps1-offline">>),
-            Username1 = Id(<<"u1">>),
             C1 = connect_client(#{
                 port => Port1,
                 clientid => ClientId1,
@@ -2270,10 +2268,10 @@ t_list_clients_v2_regular_filters(Config) ->
                     }
                 ],
                 Res3
-            ),
-
+            )
+        after
             ?tp(warning, destroy_session, #{clientid => ClientId1}),
-            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId1])
+            erpc:call(N1, emqx_persistent_session_ds, purge_session, [ClientId1])
         end,
         []
     ),

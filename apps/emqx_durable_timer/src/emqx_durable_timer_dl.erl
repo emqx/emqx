@@ -244,7 +244,7 @@ delete_epoch_if_empty(Epoch) ->
     emqx_durable_timer:key(),
     emqx_durable_timer:value(),
     emqx_durable_timer:delay()
-) -> ok.
+) -> ok | emqx_ds:error(_).
 insert_dead_hand(Type, Epoch, Key, Val, Delay) when
     ?is_valid_timer(Type, Key, Val, Delay) andalso is_binary(Epoch)
 ->

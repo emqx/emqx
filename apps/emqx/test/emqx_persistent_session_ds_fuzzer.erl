@@ -123,7 +123,7 @@
 -define(sessds_test_out_pubrec, sessds_test_out_pubrec).
 -define(sessds_test_out_pubcomp, sessds_test_out_pubcomp).
 
-%% Traces for messages recieved from the SUT:
+%% Traces for messages received from the SUT:
 -define(sessds_test_in_publish, sessds_test_in_publish).
 -define(sessds_test_in_pubrel, sessds_test_in_pubrel).
 -define(sessds_test_in_garbage, sessds_test_in_garbage).
@@ -362,7 +362,7 @@ sample(Size) ->
 cleanup() ->
     catch emqtt:stop(client_pid()),
     emqx_cm:kick_session(?clientid),
-    emqx_persistent_session_ds:destroy_session(?clientid).
+    emqx_persistent_session_ds:session_drop(?clientid, '_', destroy, false).
 
 sut_state() ->
     emqx_persistent_session_ds:print_session(?clientid).

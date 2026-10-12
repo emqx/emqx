@@ -1176,7 +1176,7 @@ do_t_transient(QoSNormal, Config) ->
     publish(Topic1, <<"1">>, QoSNormal),
     Msgs1 = receive_messages(1),
     [#{payload := <<"1">>, packet_id := PI1}] = Msgs1,
-    %% 3. Publish and recieve transient messages:
+    %% 3. Publish and receive transient messages:
     Deliver(Topic2, <<"2">>, ?QOS_0),
     Deliver(Topic2, <<"3">>, ?QOS_1),
     Deliver(Topic2, <<"4">>, ?QOS_2),
@@ -1198,7 +1198,7 @@ do_t_transient(QoSNormal, Config) ->
     {ok, Sub1} = emqtt_start_and_connect(ConnFun, [
         {clean_start, false}, {auto_ack, true} | ClientOpts
     ]),
-    %% 6. Recieve the historic messages and check that their packet IDs didn't change:
+    %% 6. Receive the historic messages and check that their packet IDs didn't change:
     %% Note: durable session currenty WON'T replay transient messages.
     ProcessMessage = fun(#{payload := P, packet_id := ID}) -> {ID, P} end,
     ?assertMatch(

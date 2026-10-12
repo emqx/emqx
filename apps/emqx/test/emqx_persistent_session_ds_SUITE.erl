@@ -16,6 +16,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 -include("emqx_persistent_message.hrl").
 
@@ -898,7 +899,7 @@ t_state_commit_conflict(_Config) ->
             A1 = emqx_persistent_session_ds_state:create_new(Id),
             _B1 = emqx_persistent_session_ds_state:create_new(Id),
             %%   Commit the A (should succeed):
-            A2 = emqx_persistent_session_ds_state:commit(A1, #{lifetime => new, sync => true}),
+            {ok, A2} = emqx_persistent_session_ds_state:commit(A1, #{lifetime => new, sync => true}),
             %% %%   Now B should not be able to commit:
             %% ?assertError(
             %%     {failed_to_commit_session, _},
@@ -906,29 +907,35 @@ t_state_commit_conflict(_Config) ->
             %% ),
             %%   A is still the owner:
             {0, A3} = emqx_persistent_session_ds_state:new_id(A2),
-            A4 = emqx_persistent_session_ds_state:commit(A3, #{lifetime => up, sync => true}),
+            {ok, A4} = emqx_persistent_session_ds_state:commit(A3, #{lifetime => up, sync => true}),
             %% 2. Now C takes over the session. It should invalidate A's
             %% claim.
             {ok, C1} = emqx_persistent_session_ds_state:open(Id),
-            C2 = emqx_persistent_session_ds_state:commit(C1, #{lifetime => takeover, sync => true}),
+            {ok, C2} = emqx_persistent_session_ds_state:commit(C1, #{
+                lifetime => takeover, sync => true
+            }),
             %%   A loses:
             {1, A5} = emqx_persistent_session_ds_state:new_id(A4),
-            ?assertError(
-                {failed_to_commit_session, _},
+            ?assertMatch(
+                ?err_unrec(_),
                 emqx_persistent_session_ds_state:commit(A5, #{lifetime => up, sync => true})
             ),
             %% 3. Now we emulate the situation where C went down gracefully,
             %% and D and E take over simulataneously:
             {1, C3} = emqx_persistent_session_ds_state:new_id(C2),
-            _ = emqx_persistent_session_ds_state:commit(C3, #{lifetime => terminate, sync => true}),
+            {ok, _} = emqx_persistent_session_ds_state:commit(C3, #{
+                lifetime => terminate, sync => true
+            }),
             {ok, D1} = emqx_persistent_session_ds_state:open(Id),
             {ok, E1} = emqx_persistent_session_ds_state:open(Id),
             %%   E commits first:
             {2, E2} = emqx_persistent_session_ds_state:new_id(E1),
-            E3 = emqx_persistent_session_ds_state:commit(E2, #{lifetime => takeover, sync => true}),
+            {ok, E3} = emqx_persistent_session_ds_state:commit(E2, #{
+                lifetime => takeover, sync => true
+            }),
             %%   D loses:
-            ?assertError(
-                {failed_to_commit_session, _},
+            ?assertMatch(
+                ?err_unrec(_),
                 emqx_persistent_session_ds_state:commit(D1, #{lifetime => takeover, sync => true})
             ),
             %% 4. Verify that commit with `lifetime => terminate'
@@ -936,14 +943,255 @@ t_state_commit_conflict(_Config) ->
             %%
             %%   F takes over:
             {ok, F1} = emqx_persistent_session_ds_state:open(Id),
-            _F2 = emqx_persistent_session_ds_state:commit(F1, #{lifetime => takeover, sync => true}),
-            %%   E tries to commit, it silently fails with a warning:
+            {ok, _F2} = emqx_persistent_session_ds_state:commit(F1, #{
+                lifetime => takeover, sync => true
+            }),
+            %%   E tries to commit, it fails:
             {3, E4} = emqx_persistent_session_ds_state:new_id(E3),
-            _ = emqx_persistent_session_ds_state:commit(E4, #{lifetime => terminate, sync => true}),
+            ?assertMatch(
+                ?err_unrec(_),
+                emqx_persistent_session_ds_state:commit(E4, #{lifetime => terminate, sync => true})
+            ),
             ok
         end,
+        []
+    ).
+
+%% This testcase verifies what happens when session teardown is
+%% interrupted in the middle.
+%%
+%% Expected behavior: next connection continues to tear down the old
+%% session, then starts from scratch.
+t_restore_half_closed(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 1}).
+t_restore_half_closed(Config) ->
+    [Node1] = ?config(cluster_nodes, Config),
+    Port = get_mqtt_port(Node1, tcp),
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    ?check_trace(
+        begin
+            %% Inject an error that will leave session in half-closed state:
+            ?inject_crash(
+                #{?snk_kind := ?sessds_teardown_session},
+                snabbkaffe_nemesis:recover_after(1)
+            ),
+            %% 1. Start first incarnation of the client:
+            Cli1 = start_connect_client(#{
+                port => Port,
+                clientid => ClientId
+            }),
+            {ok, _, _} = emqtt:subscribe(Cli1, <<"foo/+">>, ?QOS_1),
+            ok = ?ON(Node1, emqx_persistent_session_ds:sync(ClientId)),
+            %% Verify that routes exist:
+            ?assertMatch(
+                [_],
+                ?ON(Node1, emqx_persistent_session_ds_router:topics())
+            ),
+            %% Disconnect session, while setting expiry interval to 0.
+            %% This should trigger immediate session destruction:
+            RCSuccess = 0,
+            ok = emqtt:disconnect(Cli1, RCSuccess, #{'Session-Expiry-Interval' => 0}),
+            %% Session should end up as offline and half-closed:
+            %%
+            %% NOTE: `hc := 0' means will message timer (if exists)
+            %% should not be disarmed:
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    #{s := #{metadata := #{hc := 0}}, '_alive' := false},
+                    ?ON(Node1, emqx_persistent_session_ds:print_session(ClientId))
+                )
+            ),
+            %% Routes still linger (however, in reality their state
+            %% would be undefined):
+            ?assertMatch(
+                [_],
+                ?ON(Node1, emqx_persistent_session_ds_router:topics())
+            ),
+            %% 2. Reconnect session. It should finish cleanups for the
+            %% previous incarnation and start from scratch:
+            {_Cli2, {ok, _}} = ?wait_async_action(
+                start_connect_client(#{
+                    port => Port,
+                    clientid => ClientId,
+                    clean_start => false
+                }),
+                #{?snk_kind := ?sessds_teardown_session}
+            ),
+            %% Old routes are gone:
+            ?assertMatch(
+                [],
+                ?ON(Node1, emqx_persistent_session_ds_router:topics())
+            ),
+            %% Session state is clean:
+            ok = ?ON(Node1, emqx_persistent_session_ds:sync(ClientId)),
+            #{s := #{subscriptions := Subs, metadata := Meta}, '_alive' := {true, _}} = ?ON(
+                Node1, emqx_persistent_session_ds:print_session(ClientId)
+            ),
+            ?assertNot(maps:is_key(hc, Meta)),
+            ?assertEqual(0, maps:size(Subs))
+        end,
+        []
+    ).
+
+%% This testcase focuses on the synchronization between the channel
+%% processes channels during the takeover. In particular, it verifies
+%% that the new channel waits until the old one commits and releases
+%% the session state, before claiming it. To rule out "lucky" timings,
+%% this testcase injects sufficiently long delays into the old
+%% channel's terminate callback.
+t_takeover(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 2}).
+t_takeover(Config) ->
+    [Node1, Node2] = ?config(cluster_nodes, Config),
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    Connect = fun(Node, CleanStart) ->
+        Port = get_mqtt_port(Node, tcp),
+        start_connect_client(#{
+            port => Port,
+            clientid => ClientId,
+            clean_start => CleanStart
+        })
+    end,
+    %% Block saving of the state by the old channel:
+    Delay = 1000,
+    InjectDelay = fun(N) ->
+        ?force_ordering(
+            #{?snk_kind := test_begin_terminate, n := N},
+            #{?snk_kind := K} when
+                K =:= sessds_begin_terminate orelse
+                    K =:= ?sessds_drop
+        ),
+        proc_lib:spawn_link(
+            fun() ->
+                %% Delay before unblocking the old client client:
+                ct:sleep(Delay),
+                ?tp(notice, test_begin_terminate, #{n => N})
+            end
+        )
+    end,
+    ?check_trace(
+        begin
+            ?tp(notice, test_stage, #{}),
+            Cli1 = Connect(Node1, false),
+            %% 1. Takeover on the same node:
+            ?tp(notice, test_stage, #{}),
+            {ok, _, _} = emqtt:subscribe(Cli1, <<"foo">>, ?QOS_1),
+            InjectDelay(1),
+            Cli2 = Connect(Node1, false),
+            {ok, _, _} = emqtt:subscribe(Cli2, <<"bar">>, ?QOS_1),
+            %% 2. Takeover on another node:
+            ?tp(notice, test_stage, #{}),
+            InjectDelay(2),
+            _ = Connect(Node2, false),
+            ok = ?ON(Node2, emqx_persistent_session_ds:sync(ClientId)),
+            ?assertMatch(
+                #{
+                    s := #{subscriptions := #{<<"foo">> := _, <<"bar">> := _}},
+                    '_alive' := {true, _}
+                },
+                ?ON(Node2, emqx_persistent_session_ds:print_session(ClientId))
+            ),
+            %% 3. Takeover with clean start = true
+            ?tp(notice, test_stage, #{}),
+            InjectDelay(3),
+            _ = Connect(Node1, true),
+            ?assertMatch(
+                #{
+                    s := #{subscriptions := Subs},
+                    '_alive' := {true, _}
+                } when map_size(Subs) =:= 0,
+                ?ON(Node1, emqx_persistent_session_ds:print_session(ClientId))
+            )
+        end,
         fun(Trace) ->
-            ?assertMatch([_], ?of_kind(?sessds_takeover_conflict, Trace))
+            Events = ?of_kind(
+                [
+                    test_begin_terminate,
+                    sessds_begin_terminate,
+                    ?sessds_terminate,
+                    ?sessds_takeover,
+                    ?sessds_open_state,
+                    ?sessds_ensure_new,
+                    test_stage
+                ],
+                Trace
+            ),
+            [Stage1, Stage2, Stage3, Stage4] = snabbkaffe:splitr(
+                fun(#{?snk_kind := K}) ->
+                    K =/= test_stage
+                end,
+                Events
+            ),
+            ?assertMatch(
+                [
+                    #{?snk_kind := test_stage},
+                    #{?snk_kind := ?sessds_takeover, ?snk_span := start},
+                    #{?snk_kind := ?sessds_takeover, ?snk_span := {complete, _}},
+                    #{?snk_kind := ?sessds_ensure_new}
+                ],
+                Stage1
+            ),
+            ?assertMatch(
+                [
+                    #{?snk_kind := test_stage},
+                    #{
+                        ?snk_kind := ?sessds_takeover,
+                        ?snk_span := start,
+                        ?snk_meta := #{time := T1}
+                    },
+                    #{?snk_kind := test_begin_terminate, n := 1},
+                    #{
+                        ?snk_kind := sessds_begin_terminate,
+                        ?snk_meta := #{time := T2},
+                        reason := takenover
+                    },
+                    #{?snk_kind := ?sessds_terminate},
+                    #{?snk_kind := ?sessds_takeover, ?snk_span := {complete, _}},
+                    #{?snk_kind := ?sessds_open_state}
+                ] when T2 - T1 >= Delay,
+                Stage2
+            ),
+            ?assertMatch(
+                [
+                    #{?snk_kind := test_stage},
+                    #{
+                        ?snk_kind := ?sessds_takeover,
+                        ?snk_span := start,
+                        ?snk_meta := #{time := T1}
+                    },
+                    #{?snk_kind := test_begin_terminate, n := 2},
+                    #{
+                        ?snk_kind := sessds_begin_terminate,
+                        ?snk_meta := #{time := T2},
+                        reason := takenover
+                    },
+                    #{?snk_kind := ?sessds_terminate},
+                    #{?snk_kind := ?sessds_takeover, ?snk_span := {complete, _}},
+                    #{?snk_kind := ?sessds_open_state}
+                ] when T2 - T1 >= Delay,
+                Stage3
+            ),
+            %% NOTE: when the session is taken over with clean start =
+            %% true, the channel logic omits `emqx_session:open',
+            %% instead doing explicit `emqx_session:destroy' followed
+            %% by `create'. Hence `sessds_takeover' events are
+            %% missing:
+            ?assertMatch(
+                [
+                    #{?snk_kind := test_stage, ?snk_meta := #{time := T1}},
+                    #{?snk_kind := test_begin_terminate, n := 3},
+                    #{
+                        ?snk_kind := sessds_begin_terminate,
+                        reason := discarded,
+                        ?snk_meta := #{time := T2}
+                    },
+                    #{?snk_kind := ?sessds_terminate},
+                    #{?snk_kind := ?sessds_ensure_new}
+                ] when T2 - T1 >= Delay,
+                Stage4
+            )
         end
     ).
 
@@ -982,13 +1230,14 @@ t_fuzz(_Config) ->
             #{timetrap => 5_000 * length(Cmds) + 30_000},
             try
                 %% Print information about the run:
-                ct:pal("*** Commands:~n~s~n", [
-                    emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
-                ]),
                 %% Initialize the system:
+                ct:pal("*** Pre-test cleanup", []),
                 emqx_persistent_session_ds_fuzzer:cleanup(),
                 emqx_common_test_helpers:drop_all_ds_messages(),
                 %% Run test:
+                ct:pal("*** Commands:~n~s~n", [
+                    emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
+                ]),
                 {_History, State, Result} = proper_statem:run_commands(
                     emqx_persistent_session_ds_fuzzer, Cmds
                 ),
@@ -1002,6 +1251,7 @@ t_fuzz(_Config) ->
                 ct:log("*** Result:~n  ~p~n", [Result]),
                 Result =:= ok orelse error(Result)
             after
+                ct:pal("*** Post-test cleanup", []),
                 ok = emqx_persistent_session_ds_fuzzer:cleanup()
             end,
             [

@@ -5,7 +5,7 @@
 
 -behaviour(gen_server).
 
-%% Replication layer API:
+%% API:
 -export([
     create_db_group/2,
     update_db_group/3,
@@ -524,14 +524,15 @@ handle_continue(
         [_ | _] ->
             lists:foreach(
                 fun({CFName, CFHandle}) ->
-                    Result = rocksdb:drop_column_family(DB, CFHandle),
+                    Result1 = rocksdb:drop_column_family(DB, CFHandle),
+                    Result2 = rocksdb:destroy_column_family(DB, CFHandle),
                     ?tp(
                         warning,
                         ds_storage_layer_dropped_orphaned_column_family,
                         #{
                             shard => ShardId,
                             orphan => CFName,
-                            result => Result,
+                            result => {Result1, Result2},
                             s => format_state(S)
                         }
                     )

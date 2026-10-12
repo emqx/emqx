@@ -69,6 +69,9 @@
 
 -define(TIMER_SCHEDULER_RETRY, timer_scheduler_retry).
 
+%%% Session deletion bit flags
+-define(sessds_del_will, 1).
+
 -include("../emqx_tracepoints.hrl").
 
 -endif.

@@ -13,6 +13,10 @@
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
+-define(timetrap, 60_000).
+
+suite() -> [{timetrap, {minutes, 2}}].
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -47,7 +51,7 @@ t_010_lazy_initialization({stop, Config}) ->
 t_010_lazy_initialization(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         begin
             [Node] = emqx_cth_cluster:start(Cluster),
             %% Application is started but dormant. Databases don't exist yet:
@@ -260,7 +264,7 @@ t_020_normal_execution(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     Type = emqx_durable_test_timer:durable_timer_type(),
     ?check_trace(
-        #{timetrap => 15_000},
+        #{timetrap => ?timetrap},
         begin
             [Node] = emqx_cth_cluster:start(Cluster),
             ?assertMatch(ok, ?ON(Node, emqx_durable_test_timer:init())),
@@ -369,7 +373,7 @@ t_030_cancellation({stop, Config}) ->
 t_030_cancellation(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         try
             [Node] = emqx_cth_cluster:start(Cluster),
             ?assertMatch(ok, ?ON(Node, emqx_durable_test_timer:init())),
@@ -451,7 +455,7 @@ t_040_dead_hand({stop, Config}) ->
 t_040_dead_hand(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         begin
             %% Prepare system:
             [N1, _N2, _N3] = Nodes = emqx_cth_cluster:start(Cluster),
@@ -512,7 +516,7 @@ t_050_apply_after_postmortem_replay({stop, Config}) ->
 t_050_apply_after_postmortem_replay(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         begin
             %% Prepare system:
             [N1, _N2, _N3] = Nodes = emqx_cth_cluster:start(Cluster),
@@ -576,7 +580,7 @@ t_060_standby({stop, Config}) ->
 t_060_standby(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         begin
             %% Prepare system:
             [N1 | _] = Nodes = emqx_cth_cluster:start(Cluster),
@@ -652,7 +656,7 @@ t_070_multiple_shards({stop, Config}) ->
 t_070_multiple_shards(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 60_000},
+        #{timetrap => ?timetrap},
         begin
             %% Prepare system:
             Nodes = emqx_cth_cluster:start(Cluster),
@@ -679,6 +683,243 @@ t_070_multiple_shards(Config) ->
         end
     ).
 
+%% This testcase verifies that normal errors (i.e. not thrown by
+%% `emqx_durable_timer:retry' API) are ignored, and the timer worker
+%% proceed afterwards.
+t_080_default_error_handling({init, Config}) ->
+    Env = #{
+        <<"durable_storage">> =>
+            #{
+                <<"timers">> => #{<<"n_shards">> => 1}
+            },
+        <<"cluster">> =>
+            #{<<"durable_timers">> => #{<<"batch_size">> => 2}}
+    },
+    Cluster = cluster(?FUNCTION_NAME, Config, 5, Env),
+    [{cluster, Cluster} | Config];
+t_080_default_error_handling({stop, Config}) ->
+    Config;
+t_080_default_error_handling(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    BadKey = <<"badkey">>,
+    GoodKey = <<"goodkey">>,
+    ?check_trace(
+        #{timetrap => ?timetrap},
+        begin
+            %% Prepare system:
+            Nodes = emqx_cth_cluster:start(Cluster),
+            [
+                ?ON(
+                    N,
+                    begin
+                        ok = emqx_durable_test_timer:init(),
+                        meck:new(emqx_durable_test_timer, [passthrough, no_history, no_link]),
+                        meck:expect(
+                            emqx_durable_test_timer,
+                            handle_durable_timeout,
+                            fun(Key, Value) ->
+                                case Key of
+                                    BadKey -> error(injected);
+                                    _ -> meck:passthrough([Key, Value])
+                                end
+                            end
+                        )
+                    end
+                )
+             || N <- Nodes
+            ],
+            %% Set up several timers, the first one should fail, the following one should succeed:
+            ?ON(
+                hd(Nodes),
+                begin
+                    emqx_durable_test_timer:apply_after(BadKey, <<>>, 1000),
+                    emqx_durable_test_timer:apply_after(GoodKey, <<>>, 2000)
+                end
+            ),
+            ?block_until(#{?snk_kind := ?tp_test_fire, key := GoodKey})
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{?snk_kind := ?tp_handler_crash, error := injected, key := BadKey},
+                    #{?snk_kind := ?tp_test_fire, key := GoodKey}
+                ],
+                ?of_kind([?tp_test_fire, ?tp_handler_crash], Trace)
+            )
+        end
+    ).
+
+%% This testcase verifies that
+%%
+%% 1. Special errors thrown by `emqx_durable_timer:retry' API are
+%% retried
+%%
+%% 2. Deletion of offending timers unblocks the replay
+t_081_retry_on_error({init, Config}) ->
+    Env = #{
+        <<"durable_storage">> =>
+            #{
+                <<"timers">> => #{<<"n_shards">> => 1}
+            },
+        <<"cluster">> =>
+            #{<<"durable_timers">> => #{<<"batch_size">> => 2}}
+    },
+    Cluster = cluster(?FUNCTION_NAME, Config, 5, Env),
+    [{cluster, Cluster} | Config];
+t_081_retry_on_error({stop, Config}) ->
+    Config;
+t_081_retry_on_error(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    Key1 = <<"k1">>,
+    Key2 = <<"k2">>,
+    ExpectedRetries = 3,
+    ?check_trace(
+        #{timetrap => ?timetrap},
+        begin
+            %% Prepare system:
+            [N1 | _] = Nodes = emqx_cth_cluster:start(Cluster),
+            [
+                ?ON(
+                    N,
+                    begin
+                        ok = emqx_durable_test_timer:init(),
+                        meck:new(emqx_durable_test_timer, [passthrough, no_history, no_link]),
+                        meck:expect(
+                            emqx_durable_test_timer,
+                            handle_durable_timeout,
+                            fun(_Key, _Value) ->
+                                emqx_durable_timer:retry(injected)
+                            end
+                        )
+                    end
+                )
+             || N <- Nodes
+            ],
+            %% Set up several timers, the first one will be removed,
+            %% while the second one will recover (by removing the
+            %% mock)
+            {ok, Sub1} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?tp_handler_crash, key := Key1}),
+                ExpectedRetries,
+                infinity
+            ),
+            {ok, Sub2} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?tp_handler_crash, key := Key2}),
+                ExpectedRetries,
+                infinity
+            ),
+            ?ON(
+                N1,
+                begin
+                    emqx_durable_test_timer:apply_after(Key1, <<>>, 1000),
+                    emqx_durable_test_timer:apply_after(Key2, <<>>, 1001)
+                end
+            ),
+            {ok, _} = snabbkaffe:receive_events(Sub1),
+            %% Now the first timer was retried at least 3 times.
+            %% Cancel it:
+            ok = ?ON(
+                N1,
+                emqx_durable_test_timer:cancel(Key1)
+            ),
+            %% ...The system should be able to proceed to the second timer:
+            {ok, _} = snabbkaffe:receive_events(Sub2),
+            %% Fix it removing the mock:
+            ?ON(N1, meck:unload(emqx_durable_test_timer)),
+            %% Now we should receive fire event from it:
+            ?block_until(#{?snk_kind := ?tp_test_fire, key := Key2})
+        end,
+        fun(Trace) ->
+            verify_retry_of_two_keys(ExpectedRetries, Key1, Key2, Trace)
+        end
+    ).
+
+%% Verify business logic retry for closed epochs
+t_082_replay_retry({init, Config}) ->
+    Env = #{
+        <<"durable_storage">> =>
+            #{
+                <<"timers">> => #{<<"n_shards">> => 1}
+            },
+        <<"cluster">> =>
+            #{
+                <<"durable_timers">> => #{<<"batch_size">> => 2},
+                <<"heartbeat_interval">> => 100,
+                <<"missed_heartbeats">> => 3
+            }
+    },
+    Cluster = cluster(?FUNCTION_NAME, Config, 5, Env),
+    [{cluster, Cluster} | Config];
+t_082_replay_retry({stop, Config}) ->
+    Config;
+t_082_replay_retry(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    Key1 = <<"k1">>,
+    Key2 = <<"k2">>,
+    ExpectedRetries = 3,
+    ?check_trace(
+        #{timetrap => ?timetrap},
+        begin
+            %% Prepare system:
+            [N1 | Survivors] = Nodes = emqx_cth_cluster:start(Cluster),
+            [
+                ?ON(
+                    N,
+                    begin
+                        ok = emqx_durable_test_timer:init(),
+                        meck:new(emqx_durable_test_timer, [passthrough, no_history, no_link]),
+                        meck:expect(
+                            emqx_durable_test_timer,
+                            handle_durable_timeout,
+                            fun(_Key, _Value) ->
+                                emqx_durable_timer:retry(injected)
+                            end
+                        )
+                    end
+                )
+             || N <- Nodes
+            ],
+            %% Set up several timers, the first one will be removed,
+            %% while the second one will recover (by removing the
+            %% mock)
+            {ok, Sub1} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?tp_handler_crash, key := Key1}),
+                ExpectedRetries,
+                infinity
+            ),
+            {ok, Sub2} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?tp_handler_crash, key := Key2}),
+                ExpectedRetries,
+                infinity
+            ),
+            ?ON(
+                N1,
+                begin
+                    emqx_durable_test_timer:apply_after(Key1, <<>>, 5000),
+                    emqx_durable_test_timer:apply_after(Key2, <<>>, 5001)
+                end
+            ),
+            %% Stop N1:
+            emqx_cth_peer:stop(N1),
+            {ok, _} = snabbkaffe:receive_events(Sub1),
+            %% Now the first timer was retried at least 3 times.
+            %% Cancel it:
+            ok = ?ON(
+                hd(Survivors),
+                emqx_durable_test_timer:cancel(Key1)
+            ),
+            %% ...The system should be able to proceed to the second timer:
+            {ok, _} = snabbkaffe:receive_events(Sub2),
+            %% Fix it removing the mock:
+            [?ON(Node, meck:unload(emqx_durable_test_timer)) || Node <- Survivors],
+            %% Now we should receive fire event from it:
+            ?block_until(#{?snk_kind := ?tp_test_fire, key := Key2})
+        end,
+        fun(Trace) ->
+            verify_retry_of_two_keys(ExpectedRetries, Key1, Key2, Trace)
+        end
+    ).
+
 %%------------------------------------------------------------------------------
 %% Trace specs
 %%------------------------------------------------------------------------------
@@ -687,6 +928,61 @@ t_070_multiple_shards(Config) ->
 %% property should hold as long as DS state is not degraded.
 no_replay_failures(Trace) ->
     ?assertMatch([], ?of_kind(?tp_replay_failed, Trace)).
+
+%% Oddly specific trace spec that verifies error-recovery behavior
+%% with two keys, where the first key is recovered by deletion and the
+%% second by lifting the error condition.
+%%
+%% Essentially, it verifies that following sequence of events holds:
+%%
+%% {fail, Key1} (repeated at least ExpectedRetries times)
+%% {fail, Key2} (repeated at least ExpectedRetries times)
+%% {success, Key2} (repeated exactly once)
+verify_retry_of_two_keys(ExpectedRetries, Key1, Key2, Trace) ->
+    %% State: {CurrentKey, NRetriesForKey, NSuccesses}
+    Go = fun
+        Go([], {K, NR, 1}) when K =:= Key2, NR >= ExpectedRetries ->
+            ok;
+        Go([], State) ->
+            error({unexpected_end, State});
+        Go([Event | Rest], {Key, NRetries, NSuccess} = State0) ->
+            case Event of
+                #{?snk_kind := ?tp_handler_crash, key := Key} when
+                    Key =:= Key1;
+                    Key =:= Key2
+                ->
+                    %% Current key was retried. Ok.
+                    Go(Rest, {Key, NRetries + 1, NSuccess});
+                #{?snk_kind := ?tp_handler_crash, key := Other} when
+                    Other =:= Key2,
+                    NRetries >= ExpectedRetries,
+                    NSuccess =:= 0
+                ->
+                    %% Switch from Key1 to Key2 after
+                    %% expected number of retries:
+                    Go(Rest, {Other, 1, NSuccess});
+                #{?snk_kind := ?tp_handler_crash, key := BadKey} when
+                    Key =:= Key1;
+                    Key =:= Key2
+                ->
+                    %% Not enough retries:
+                    error(#{
+                        unexpected_retry => BadKey,
+                        expected_key => Key,
+                        nr => NRetries,
+                        ns => NSuccess
+                    });
+                #{?snk_kind := ?tp_test_fire} when
+                    Key =:= Key2,
+                    NRetries >= ExpectedRetries,
+                    NSuccess =:= 0
+                ->
+                    Go(Rest, {Key, NRetries, 1});
+                _ ->
+                    Go(Rest, State0)
+            end
+    end,
+    Go(Trace, {Key1, 0, 0}).
 
 %% Verify that none of the workers encountered an unknwon message.
 %% This should always hold.
@@ -910,8 +1206,6 @@ db_dump(Node) ->
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
-
-suite() -> [{timetrap, {minutes, 1}}].
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

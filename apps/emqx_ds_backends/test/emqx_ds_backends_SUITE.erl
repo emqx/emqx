@@ -482,7 +482,7 @@ t_sub_mqtt_worker_down_notify(Config) ->
             %% Publish some messages to trigger stream scan leading up
             %% to the crash:
             publish_seq(DB, <<"t">>, 1, 1),
-            %% Recieve notification:
+            %% Receive notification:
             receive
                 {'DOWN', MRef, process, Pid, Reason} ->
                     ?assertMatch(worker_crash, Reason),
@@ -2713,7 +2713,7 @@ opts_mqtt(Config) ->
 
 %% Subscription-related helper functions:
 
-%% @doc Recieve poll replies with given SubRef:
+%% @doc Receive poll replies with given SubRef:
 recv(SubRef, N) ->
     recv(SubRef, N, 5000).
 
