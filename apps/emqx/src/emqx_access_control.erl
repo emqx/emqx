@@ -113,7 +113,7 @@ authenticate(Credential) ->
             on_authentication_complete_success(Credential, NotSuperUser, anonymous),
             {ok, NotSuperUser};
         continue ->
-            case run_hooks('client.authenticate', [Credential], default_authn_result()) of
+            case client_authenticate(Credential, default_authn_result()) of
                 ignore ->
                     on_authentication_complete_no_hooks(Credential, NotSuperUser);
                 ok ->
@@ -245,7 +245,7 @@ check_authorization_cache(AuthzContext, Action, Topic) ->
 do_authorize_with_cache_policy(AuthzContext, Action, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], deny),
     Default = #{result => NoMatch, from => default},
-    case run_hooks('client.authorize', [AuthzContext, Action, Topic], Default) of
+    case client_authorize(AuthzContext, Action, Topic, Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
             From = maps:get(from, AuthzResult, unknown),
             ok = log_result(Topic, Action, From, Result),
@@ -324,35 +324,55 @@ format_retain_flag(true) ->
 format_retain_flag(false) ->
     "R0".
 
-run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.authorize' ->
-    ok = emqx_metrics:inc_global(Name),
-    {Time, Value} =
-        case emqx_security_profile:policy(access_control_hook_failure) of
+client_authenticate(ClientInfo, Acc) ->
+    Policy = emqx_security_profile:policy(access_control_hook_failure),
+    ok = emqx_metrics:inc_global('client.authenticate'),
+    T1 = erlang:monotonic_time(),
+    Value =
+        case Policy of
             ignore ->
-                timer:tc(fun() -> {ok, emqx_hooks:run_fold(Name, Args, Acc)} end);
+                {ok, emqx_hooks:'client.authenticate'(ClientInfo, Acc)};
             interrupt ->
-                timer:tc(fun() -> emqx_hooks:run_fold_strict(Name, Args, Acc) end)
+                emqx_hooks:'client.authenticate_strict'(ClientInfo, Acc)
         end,
+    T2 = erlang:monotonic_time(),
+    observe_hook_timing('client.authenticate', T1, T2),
+    case Value of
+        {ok, Result} -> Result;
+        {error, _Reason} -> ignore
+    end.
+
+client_authorize(Context, Action, Topic, Acc) ->
+    Policy = emqx_security_profile:policy(access_control_hook_failure),
+    ok = emqx_metrics:inc_global('client.authorize'),
+    T1 = erlang:monotonic_time(),
+    Value =
+        case Policy of
+            ignore ->
+                {ok, emqx_hooks:'client.authorize'(Context, Action, Topic, Acc)};
+            interrupt ->
+                emqx_hooks:'client.authorize_strict'(Context, Action, Topic, Acc)
+        end,
+    T2 = erlang:monotonic_time(),
+    observe_hook_timing('client.authorize', T1, T2),
+    case Value of
+        {ok, Result} -> Result;
+        {error, _Reason} -> #{result => deny, from => default_on_fail}
+    end.
+
+-compile({inline, [observe_hook_timing/3]}).
+observe_hook_timing(Name, T1, T2) ->
     try
         emqx_metrics_worker:observe_hist(
             ?ACCESS_CONTROL_METRICS_WORKER,
             Name,
             total_latency,
-            erlang:convert_time_unit(Time, microsecond, millisecond)
+            erlang:convert_time_unit(T2 - T1, native, millisecond)
         )
     catch
         _:_ ->
             ok
-    end,
-    case Value of
-        {ok, Result} -> Result;
-        {error, _Reason} -> fail_close_result(Name)
     end.
-
-fail_close_result('client.authenticate') ->
-    ignore;
-fail_close_result('client.authorize') ->
-    #{result => deny, from => default_on_fail}.
 
 -compile({inline, [inc_authz_metrics/1]}).
 inc_authz_metrics(allow) ->
