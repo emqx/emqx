@@ -1043,13 +1043,9 @@ process_pubcomp(
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(Msg, PubAckProps, Channel) ->
     ok = inc_metrics('messages.acked', Channel),
-    run_hook_with_context(
-        'message.acked',
-        [
-            Channel#channel.clientinfo,
-            emqx_message:set_header(puback_props, PubAckProps, Msg)
-        ],
-        Channel
+    emqx_hooks:'message.acked'(
+        Channel#channel.clientinfo,
+        emqx_message:set_header(puback_props, PubAckProps, Msg)
     ).
 
 %%--------------------------------------------------------------------
@@ -3848,11 +3844,7 @@ reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile({inline, [run_hook_with_context/3, run_fold_with_context/4]}).
-run_hook_with_context(Name, Args, Channel) ->
-    HookContext = mk_common_hook_context(Channel),
-    emqx_hooks:run(Name, HookContext, Args).
-
+-compile({inline, [run_fold_with_context/4]}).
 run_fold_with_context(Name, Args, Acc, Channel) ->
     HookContext = mk_common_hook_context(Channel),
     emqx_hooks:run_fold(Name, HookContext, Args, Acc).

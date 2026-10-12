@@ -46,7 +46,6 @@
     'message.dropped'/3,
     'message.delivered'/2,
     'message.acked'/2,
-    'message.acked'/3,
     'message.nack'/2,
     'delivery.dropped'/3,
     'delivery.completed'/2,
@@ -637,12 +636,6 @@ when
     ok.
 'message.acked'(ClientInfo, Message) ->
     do_run(lookup('message.acked'), [ClientInfo, Message]).
-
--spec 'message.acked'(context(), emqx_types:clientinfo(), emqx_types:message()) -> ok.
-'message.acked'(HookContext, ClientInfo, Message) ->
-    with_context('message.acked', HookContext, fun() ->
-        'message.acked'(ClientInfo, Message)
-    end).
 
 -spec 'message.nack'(emqx_types:message(), boolean()) ->
     boolean().
