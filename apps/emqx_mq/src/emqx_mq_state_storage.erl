@@ -212,7 +212,7 @@ create_mq_state(MQ) ->
     format_tx_result(TxRes, failed_to_create_mq_state).
 
 -spec update_mq_state(emqx_mq_types:mqid(), map()) ->
-    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+    {ok, emqx_mq_types:mq(), Changed :: boolean()} | not_found | {error, term()}.
 update_mq_state(MQId, MQFields) ->
     Id = mq_state_id(MQId),
     TransOpts = trans_opts(Id),
@@ -229,7 +229,7 @@ update_mq_state(MQId, MQFields) ->
                     Pmap = emqx_ds_pmap:put(?mq_key, MQ, Pmap0),
                     emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
                     _ = emqx_ds_pmap:tx_commit(Id, Pmap),
-                    {ok, MQ}
+                    {ok, MQ, MQ =/= MQ0}
             end
         end
     ),
