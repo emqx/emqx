@@ -173,7 +173,7 @@ ensure_installed_cluster(NameVsn, LogFun) ->
     end).
 
 do_ensure_installed_cluster(NameVsn, LogFun) ->
-    case emqx_plugins_fs:get_tar(NameVsn) of
+    case package_snapshot(NameVsn) of
         {ok, TarBin} ->
             Running = emqx:running_nodes(),
             V5Nodes = nodes_supporting_bpapi_version(5),
@@ -191,6 +191,14 @@ do_ensure_installed_cluster(NameVsn, LogFun) ->
         {error, Reason} ->
             ?PRINT({error, Reason}, LogFun)
     end.
+
+%% The package file is also written by uploads and by the installations of this
+%% node: read it under the installation lock so that one consistent package is
+%% shipped to every node.
+package_snapshot(NameVsn) ->
+    emqx_plugins:with_installation_lock(NameVsn, fun() ->
+        emqx_plugins_fs:get_tar(NameVsn)
+    end).
 
 ensure_uninstalled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_uninstalled(NameVsn), LogFun).
