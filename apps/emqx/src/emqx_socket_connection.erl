@@ -828,7 +828,9 @@ handle_timeout(
     ClientId = emqx_channel:info(clientid, Channel),
     maybe_set_chan_stats(ClientId, State),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, State),
-    check_send_timeout(SS, State#state{stats_timer = undefined});
+    check_send_timeout(SS, State#state{
+        channel = emqx_channel:refresh_quota(Channel), stats_timer = undefined
+    });
 handle_timeout(
     TRef,
     keepalive,

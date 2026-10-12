@@ -39,6 +39,7 @@ groups() ->
             t_serialize_frame_at_max_size,
             t_parse_frame_malformed_variable_byte_integer,
             t_parse_malformed_utf8_string,
+            t_parse_utf8_topic_byte_positions,
             t_default_parse_state_is_strict,
             t_parse_bad_v5_publish_packet,
             t_guess_first_packet_protocol,
@@ -79,6 +80,7 @@ groups() ->
         ]},
         {publish, [parallel], [
             t_parse_sticky_frames,
+            t_parse_complete_publish_with_connect_limits,
             t_serialize_parse_qos0_publish,
             t_serialize_parse_qos1_publish,
             t_serialize_parse_qos2_publish,
@@ -266,6 +268,51 @@ t_parse_malformed_utf8_string(_) ->
             98, 108, 105, 99>>,
     ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?ASSERT_FRAME_THROW(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
+
+-doc """
+In strict mode, a PUBLISH topic with one invalid character fails to parse at each
+position. The same topic with a valid character at that position parses. The
+positions cover the 7-byte ASCII check and the byte-by-byte check after it.
+""".
+t_parse_utf8_topic_byte_positions(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    Parse = fun(Topic) ->
+        Len = byte_size(Topic),
+        emqx_frame:parse(<<?PUBLISH:4, 0:4, (Len + 2), Len:16, Topic/binary>>, ParseState)
+    end,
+    Size = 23,
+    Invalid = [<<0>>, <<16#01>>, <<16#1F>>, <<16#7F>>, <<16#C2, 16#80>>, <<16#C2, 16#9F>>],
+    Valid = [<<16#20>>, <<16#7E>>, <<"a">>, <<16#C3, 16#A9>>, <<16#E4, 16#B8, 16#AD>>],
+    lists:foreach(
+        fun(Pos) ->
+            Prefix = binary:copy(<<"a">>, Pos),
+            Suffix = binary:copy(<<"b">>, Size - Pos - 1),
+            lists:foreach(
+                fun(C) ->
+                    ?ASSERT_FRAME_THROW(
+                        utf8_string_invalid,
+                        Parse(<<Prefix/binary, C/binary, Suffix/binary>>)
+                    )
+                end,
+                Invalid
+            ),
+            lists:foreach(
+                fun(C) ->
+                    Topic = <<Prefix/binary, C/binary, Suffix/binary>>,
+                    ?assertMatch(
+                        {
+                            #mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
+                            <<>>,
+                            _
+                        },
+                        Parse(Topic)
+                    )
+                end,
+                Valid
+            )
+        end,
+        lists:seq(0, Size - 1)
+    ).
 
 %% Verifies that `initial_parse_state/0` (no options) defaults to strict mode,
 %% so a CONNECT with an invalid-UTF-8 client ID is rejected out of the box.
@@ -1330,6 +1377,31 @@ t_invalid_will_qos(_) ->
             cause := invalid_will_qos, proto_ver := ?MQTT_PROTO_V5, proto_name := <<"MQTT">>
         }},
         emqx_frame:parse(ConnectBinFun(Will_T_WillQoS3))
+    ),
+    ok.
+
+-doc "Complete-frame PUBLISH parsing preserves properties and ignores CONNECT-only limits.".
+t_parse_complete_publish_with_connect_limits(_Config) ->
+    Props = #{'User-Property' => [{<<"key">>, <<"one">>}, {<<"key">>, <<"two">>}]},
+    lists:foreach(
+        fun({QoS, Strict}) ->
+            PacketId =
+                case QoS of
+                    ?QOS_0 -> undefined;
+                    _ -> 1
+                end,
+            Packet = ?PUBLISH_PACKET(QoS, <<"ordinary/topic">>, PacketId, Props, payload(1024)),
+            Bin = serialize_to_binary(Packet, ?MQTT_PROTO_V5),
+            State = emqx_frame:initial_parse_state(#{
+                version => ?MQTT_PROTO_V5,
+                strict_mode => Strict,
+                max_connect_size => 1,
+                max_connect_user_properties => 0
+            }),
+            ?assertEqual(Packet, emqx_frame:parse_complete(Bin, State)),
+            ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(Bin, State))
+        end,
+        [{QoS, Strict} || QoS <- [?QOS_0, ?QOS_1, ?QOS_2], Strict <- [false, true]]
     ),
     ok.
 

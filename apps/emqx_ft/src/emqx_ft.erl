@@ -139,7 +139,7 @@ on_file_command(Mode, From, PacketId, Msg, Topic) ->
                 validate([{fileid, FileIdIn}], fun([FileId]) ->
                     do_on_file_command(TopicReplyData, FileId, Msg, Rest)
                 end);
-            [] ->
+            _ ->
                 ?ACK_AND_PUBLISH({error, {invalid_topic, Topic}})
         end,
     maybe_publish_response(Result, TopicReplyData).

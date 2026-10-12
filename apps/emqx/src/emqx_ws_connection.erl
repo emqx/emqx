@@ -508,7 +508,7 @@ handle_timeout(
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
     maybe_set_chan_stats(ClientId, State),
-    {ok, State#state{stats_timer = undefined}};
+    {ok, State#state{channel = emqx_channel:refresh_quota(Channel), stats_timer = undefined}};
 handle_timeout(TRef, TMsg, State) ->
     commands(with_channel(handle_timeout, [TRef, TMsg], {[], State})).
 
