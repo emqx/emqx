@@ -271,24 +271,39 @@ propagated_post_config_update(
 
 on_config_update(_Path, {update, Backend, _RawConfig}, Config) ->
     Provider = provider(Backend),
-    update_last_error(Backend, ?NO_ERROR),
-    Result =
-        case lookup_state(Backend) of
-            undefined ->
-                emqx_dashboard_sso:create(Provider, Config);
-            State ->
-                emqx_dashboard_sso:update(Provider, Config, State)
-        end,
-    on_backend_updated(Backend, Result, fun(NewState) -> update_state(Backend, NewState) end);
+    case lookup(Backend) of
+        undefined ->
+            on_backend_updated(
+                Backend,
+                emqx_dashboard_sso:create(Provider, Config),
+                fun(State) ->
+                    update_state(Backend, State)
+                end
+            );
+        Data ->
+            update_last_error(Backend, ?NO_ERROR),
+            on_backend_updated(
+                Backend,
+                emqx_dashboard_sso:update(Provider, Config, Data#?MOD_TAB.state),
+                fun(State) ->
+                    update_state(Backend, State)
+                end
+            )
+    end;
 on_config_update(_Path, {delete, Backend}, _NewConf) ->
-    Result =
-        case lookup_state(Backend) of
-            undefined ->
-                ok;
-            State ->
-                emqx_dashboard_sso:destroy(provider(Backend), State)
-        end,
-    on_backend_updated(Backend, Result, fun() -> ets:delete(?MOD_TAB, Backend) end);
+    case lookup(Backend) of
+        undefined ->
+            on_backend_updated(Backend, {error, not_exists}, undefined);
+        Data ->
+            Provider = provider(Backend),
+            on_backend_updated(
+                Backend,
+                emqx_dashboard_sso:destroy(Provider, Data#?MOD_TAB.state),
+                fun() ->
+                    ets:delete(?MOD_TAB, Backend)
+                end
+            )
+    end;
 on_config_update([dashboard, sso, BackendAtom] = Path, '$remove', Undefined) ->
     on_config_update(Path, {delete, BackendAtom}, Undefined);
 on_config_update(_Path, _Req, _Conf) ->
