@@ -26,7 +26,8 @@ config_headers.label:
 """HTTP Header"""
 
 config_max_retries.desc:
-"""HTTP request max retry times if failed."""
+"""Maximum number of retries for failed HTTP requests within a single action query.
+The action buffer may retry recoverable errors independently until the request TTL expires."""
 
 config_max_retries.label:
 """HTTP Request Max Retries"""

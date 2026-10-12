@@ -49,6 +49,13 @@
 -define(DEFAULT_REQUEST_TIMEOUT_MS, 30_000).
 -define(DEFAULT_MAX_INACTIVE, 10_000).
 
+-define(IS_RECOVERABLE_STATUS_CODE(StatusCode),
+    StatusCode =:= 429;
+    StatusCode =:= 502;
+    StatusCode =:= 503;
+    StatusCode =:= 504
+).
+
 -define(READACT_REQUEST_NOTE, "the request body is redacted due to security reasons").
 
 %%=====================================================================
@@ -386,10 +393,9 @@ on_query(
                 path := Path,
                 body := Body,
                 headers := Headers,
-                request_timeout := Timeout
+                request_timeout := Timeout,
+                max_retries := Retry
             } = process_request_and_action(Request, ActionState, Msg),
-            %% bridge buffer worker has retry, do not let ehttpc retry
-            Retry = 2,
             ClientId = clientid(Msg),
             on_query(
                 InstId,
@@ -476,12 +482,13 @@ on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
                 path := Path,
                 body := Body,
                 headers := Headers,
-                request_timeout := Timeout
+                request_timeout := Timeout,
+                max_retries := Retry
             } = process_request(Request, Msg),
             ClientId = maps:get(clientid, Msg, undefined),
             on_query_async(
                 InstId,
-                {undefined, ClientId, Method, {Path, Headers, Body}, Timeout},
+                {undefined, ClientId, Method, {Path, Headers, Body}, Timeout, max_attempts(Retry)},
                 ReplyFunAndArgs,
                 State
             )
@@ -506,12 +513,13 @@ on_query_async(
                 path := Path,
                 body := Body,
                 headers := Headers,
-                request_timeout := Timeout
+                request_timeout := Timeout,
+                max_retries := Retry
             } = process_request_and_action(Request, ActionState, Msg),
             ClientId = clientid(Msg),
             on_query_async(
                 InstId,
-                {ActionId, ClientId, Method, {Path, Headers, Body}, Timeout},
+                {ActionId, ClientId, Method, {Path, Headers, Body}, Timeout, max_attempts(Retry)},
                 ReplyFunAndArgs,
                 State
             )
@@ -519,6 +527,18 @@ on_query_async(
 on_query_async(
     InstId,
     {ActionId, KeyOrNum, Method, Request0, Timeout},
+    ReplyFunAndArgs,
+    State
+) ->
+    on_query_async(
+        InstId,
+        {ActionId, KeyOrNum, Method, Request0, Timeout, 3},
+        ReplyFunAndArgs,
+        State
+    );
+on_query_async(
+    InstId,
+    {ActionId, KeyOrNum, Method, Request0, Timeout, MaxAttempts},
     ReplyFunAndArgs,
     #{host := Host, port := Port, scheme := Scheme} = State
 ) ->
@@ -536,7 +556,6 @@ on_query_async(
         {ok, NRequest} ->
             Worker = resolve_pool_worker(State, KeyOrNum),
             trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
-            MaxAttempts = maps:get(max_attempts, State, 3),
             Context = #{
                 attempt => 1,
                 max_attempts => MaxAttempts,
@@ -775,6 +794,9 @@ render_headers(HeadersTemplate) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+max_attempts(MaxRetries) ->
+    MaxRetries + 1.
+
 preprocess_request(undefined) ->
     undefined;
 preprocess_request(Req) when map_size(Req) == 0 ->
@@ -868,7 +890,8 @@ process_request_and_action(Request, ActionState, Msg) ->
         path => Path,
         body => Body,
         headers => Headers,
-        request_timeout => maps:get(request_timeout, ActionState)
+        request_timeout => maps:get(request_timeout, ActionState),
+        max_retries => maps:get(max_retries, ActionState)
     }.
 
 merge_headers([], Result) ->
@@ -1002,6 +1025,7 @@ transform_result(Result) ->
             {error, drop_ehttpc_worker_down_call_args(Reason)};
         {error, Reason} when
             Reason =:= econnrefused;
+            Reason =:= nxdomain;
             Reason =:= timeout;
             Reason =:= normal;
             Reason =:= closed;
@@ -1012,22 +1036,15 @@ transform_result(Result) ->
             {error, {recoverable_error, Reason}};
         {error, _Reason} ->
             Result;
-        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+        {ok, StatusCode, _} when StatusCode >= 200, StatusCode < 300 ->
             Result;
-        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+        {ok, StatusCode, _, _} when StatusCode >= 200, StatusCode < 300 ->
             Result;
-        {ok, _TooManyRequests = StatusCode = 429, Headers} ->
-            {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
-        {ok, _ServiceUnavailable = StatusCode = 503, Headers} ->
+        {ok, StatusCode, Headers} when ?IS_RECOVERABLE_STATUS_CODE(StatusCode) ->
             {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
         {ok, StatusCode, Headers} ->
             {error, {unrecoverable_error, #{status_code => StatusCode, headers => Headers}}};
-        {ok, _TooManyRequests = StatusCode = 429, Headers, Body} ->
-            {error,
-                {recoverable_error, #{
-                    status_code => StatusCode, headers => Headers, body => Body
-                }}};
-        {ok, _ServiceUnavailable = StatusCode = 503, Headers, Body} ->
+        {ok, StatusCode, Headers, Body} when ?IS_RECOVERABLE_STATUS_CODE(StatusCode) ->
             {error,
                 {recoverable_error, #{
                     status_code => StatusCode, headers => Headers, body => Body
