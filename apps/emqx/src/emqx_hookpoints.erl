@@ -199,8 +199,10 @@ when
 when
     Replies :: #{deliver := list(emqx_types:deliver()), replies := emqx_channel:replies()}.
 
--callback 'client.ping'(emqx_types:clientinfo(), _SessionInfo :: emqx_types:infos()) ->
-    callback_result().
+-callback 'client.ping'(emqx_types:clientinfo(), emqx_types:conninfo(), Acc) ->
+    fold_callback_result(Acc)
+when
+    Acc :: term().
 
 -callback 'session.created'(emqx_types:clientinfo(), _SessionInfo :: emqx_types:infos()) ->
     callback_result().
