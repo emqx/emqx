@@ -57,28 +57,19 @@ make_key(TopicOrFilter, ID) ->
 %% no match is found.
 -spec match(emqx_types:topic(), ets:table()) -> match(_ID) | false.
 match(Topic, Tab) ->
-    case is_empty(Tab) of
-        true -> false;
-        false -> emqx_trie_search:match(Topic, make_nextf(Tab))
-    end.
+    emqx_trie_search:match(Topic, make_nextf(Tab)).
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
 -spec matches(emqx_types:topic(), ets:table(), emqx_trie_search:opts()) -> [match(_ID)].
 matches(Topic, Tab, Opts) ->
-    case is_empty(Tab) of
-        true -> [];
-        false -> emqx_trie_search:matches(Topic, make_nextf(Tab), Opts)
-    end.
+    emqx_trie_search:matches(Topic, make_nextf(Tab), Opts).
 
 %% @doc Match given topic filter against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
 -spec matches_filter(emqx_types:topic(), ets:table(), emqx_trie_search:opts()) -> [match(_ID)].
 matches_filter(TopicFilter, Tab, Opts) ->
-    case is_empty(Tab) of
-        true -> [];
-        false -> emqx_trie_search:matches_filter(TopicFilter, make_nextf(Tab), Opts)
-    end.
+    emqx_trie_search:matches_filter(TopicFilter, make_nextf(Tab), Opts).
 
 %% @doc Extract record ID from the match.
 -spec get_id(match(ID)) -> ID.
@@ -104,7 +95,3 @@ get_record(K, Tab) ->
 
 make_nextf(Tab) ->
     fun(Key) -> ets:next(Tab, Key) end.
-
--compile({inline, [is_empty/1]}).
-is_empty(Tab) ->
-    ets:first(Tab) =:= '$end_of_table'.
