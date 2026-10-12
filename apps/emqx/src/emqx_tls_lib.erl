@@ -778,7 +778,7 @@ resolve_managed_certs(undefined, Opts) ->
         {password, Password},
         {keyfile, Keyfile},
         {certfile, resolve_certfile(certfile, Opts)},
-        {cacertfile, resolve_certfile(cacertfile, Opts)}
+        {cacertfile, absolute_path(resolve_certfile(cacertfile, Opts))}
     ];
 resolve_managed_certs([FirstCertOpts | _] = ManagedCertOpts, Opts) ->
     DefaultOpts = resolve_managed_certs(FirstCertOpts, Opts),
@@ -795,7 +795,7 @@ resolve_managed_certs(#{} = ManagedCertOpts, _Opts) ->
             CertOpts = maps:fold(
                 fun
                     (?FILE_KIND_CA, #{path := CAPath}, Acc) ->
-                        [{cacertfile, ensure_str(CAPath)} | Acc];
+                        [{cacertfile, absolute_path(ensure_str(CAPath))} | Acc];
                     (?FILE_KIND_CHAIN, #{path := ChainPath}, Acc) ->
                         [{certfile, ensure_str(ChainPath)} | Acc];
                     (?FILE_KIND_KEY, #{path := KeyPath}, Acc) ->
@@ -1078,6 +1078,13 @@ resolve_certfile(Key, Options) ->
                     undefined
             end
     end.
+
+%% `ssl` takes an absolute `cacertfile` path as it is.
+%% It makes a relative path absolute again on each handshake.
+absolute_path(undefined) ->
+    undefined;
+absolute_path(Path) ->
+    filename:absname(Path).
 
 conf_get_password(Name, Opts) ->
     ensure_password(conf_get_opt(Name, Opts)).
