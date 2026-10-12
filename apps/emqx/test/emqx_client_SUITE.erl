@@ -117,6 +117,7 @@ groups() ->
             t_frame_error_shutdown_count_idle,
             t_frame_error_shutdown_count_connected,
             t_frame_error_shutdown_count_is_bounded,
+            t_oom_shutdown_count,
             t_sock_closed_incomplete_qos2_transmission,
             t_connect_user_property_limit,
             t_connect_packet_too_large,
@@ -248,7 +249,8 @@ init_per_testcase(Case, Config) ->
 end_per_testcase(_Case, Config) ->
     ok = snabbkaffe:stop(),
     restore_conf(Config),
-    restore_listener_conf(Config).
+    restore_listener_conf(Config),
+    proplists:get_bool(refresh_conn_conf, Config) andalso refresh_conn_conf().
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v4
@@ -1753,6 +1755,74 @@ t_frame_error_shutdown_count_is_bounded(Config) ->
     ),
     %% ... while an atom cause keeps its own.
     ?WAIT(?assertEqual(NamedBefore + 1, shutdown_count(Config, bad_subqos)), 5).
+
+t_oom_shutdown_count(init, Config0) ->
+    ForceShutdown = emqx_config:get([force_shutdown]),
+    Config1 = override_conf(
+        [force_shutdown], ForceShutdown#{enable => true, max_mailbox_size => 10}, Config0
+    ),
+    %% Run the OOM check after each packet sent to the client.
+    Config = override_listener_conf(default, [tcp_options, active_n], 1, Config1),
+    ok = refresh_conn_conf(),
+    [{refresh_conn_conf, true} | Config].
+
+-doc """
+A connection force-shut down on mailbox overflow is counted under the
+`mailbox_overflow` listener shutdown counter, which esockd keeps only for its
+info-level branch. EMQX still logs the shutdown at warning level.
+""".
+t_oom_shutdown_count(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
+        proto_ver = ?MQTT_PROTO_V5,
+        clientid = ClientId
+    }),
+    ok = socket_send(Socket, emqx_frame:serialize(ConnPacket)),
+    receive
+        {tcp, _, <<32, _/binary>>} -> ok;
+        {ssl, _, <<32, _/binary>>} -> ok
+    after 5000 -> ct:fail({connack_not_received, process_info(self(), messages)})
+    end,
+    [ConnPid] = emqx_cm:lookup_channels(ClientId),
+    CountBefore = shutdown_count(Config, mailbox_overflow),
+    MRef = erlang:monitor(process, ConnPid),
+    Reports = emqx_cth_log_capture:capture(warning, fun() ->
+        %% The PINGREQ reaches the mailbox first, and its PINGRESP triggers
+        %% the OOM check while the filler messages are still queued.
+        ok = sys:suspend(ConnPid),
+        ok = socket_send(Socket, emqx_frame:serialize(?PACKET(?PINGREQ))),
+        ?retry(
+            100,
+            50,
+            ?assertMatch(
+                {message_queue_len, N} when N > 0, process_info(ConnPid, message_queue_len)
+            )
+        ),
+        [ConnPid ! {oom_filler, I} || I <- lists:seq(1, 20)],
+        ok = sys:resume(ConnPid),
+        receive
+            {'DOWN', MRef, process, ConnPid, ExitReason} ->
+                ?assertMatch(
+                    {shutdown, #{shutdown_count := mailbox_overflow, reason := mailbox_overflow}},
+                    ExitReason
+                )
+        after 5000 -> ct:fail(connection_not_shutdown)
+        end
+    end),
+    ?assertMatch(
+        [_ | _],
+        [R || #{?snk_kind := check_oom_shutdown} = R <- Reports]
+    ),
+    %% Counter only moves on the info-level branch, so this also proves no
+    %% error-level supervisor report was emitted.
+    ?WAIT(?assertEqual(CountBefore + 1, shutdown_count(Config, mailbox_overflow)), 5),
+    socket_close(Socket).
+
+%% Rebuild the shared connection settings from the current config, so new
+%% connections use the overridden zone and listener settings.
+refresh_conn_conf() ->
+    emqx_connection_conf:post_zone_config_update(#{}, emqx_config:get([zones])).
 
 send_malformed_when_connected(Config, Malformed) ->
     Socket = socket_connect(Config, [{active, true}, binary]),

@@ -286,7 +286,10 @@ do_check_oom([]) ->
     ok;
 do_check_oom([{Val, Max, Reason} | Rest]) ->
     case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
-        true -> {shutdown, #{reason => Reason, value => Val, max => Max}};
+        %% `shutdown_count' makes esockd count the exit under `Reason' and log
+        %% it at info level. esockd drops the key from that log line, so
+        %% `reason' keeps the name in it.
+        true -> {shutdown, #{shutdown_count => Reason, reason => Reason, value => Val, max => Max}};
         false -> do_check_oom(Rest)
     end.
 
