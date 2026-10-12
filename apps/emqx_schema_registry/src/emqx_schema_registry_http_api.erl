@@ -91,7 +91,7 @@ schema("/schema_registry") ->
                             emqx_schema_registry_schema:api_schema("post"),
                             post_examples()
                         ),
-                    400 => error_schema('ALREADY_EXISTS', ?DESC("schema_already_exists"))
+                    400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTS', 'BAD_REQUEST'])
                 }
         }
     };
@@ -113,7 +113,8 @@ schema("/schema_registry_protobuf/bundle") ->
                     400 => emqx_dashboard_swagger:error_codes(
                         [
                             'ALREADY_EXISTS',
-                            'BAD_FORM_DATA'
+                            'BAD_FORM_DATA',
+                            'BAD_REQUEST'
                         ]
                     )
                 }
@@ -130,7 +131,7 @@ schema("/schema_registry_protobuf/bundle") ->
                             put_examples()
                         ),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found")),
-                    400 => emqx_dashboard_swagger:error_codes(['BAD_FORM_DATA'])
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_FORM_DATA', 'BAD_REQUEST'])
                 }
         }
     };
@@ -166,6 +167,7 @@ schema("/schema_registry/:name") ->
                             emqx_schema_registry_schema:api_schema("put"),
                             post_examples()
                         ),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
@@ -176,6 +178,7 @@ schema("/schema_registry/:name") ->
             responses =>
                 #{
                     204 => ?DESC("schema_deleted"),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         }
@@ -214,7 +217,7 @@ schema("/schema_registry_external") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(get)
                         ),
-                    400 => error_schema('ALREADY_EXISTS', ?DESC("schema_already_exists"))
+                    400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTS', 'BAD_REQUEST'])
                 }
         }
     };
@@ -250,6 +253,7 @@ schema("/schema_registry_external/registry/:name") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(put)
                         ),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
@@ -257,7 +261,10 @@ schema("/schema_registry_external/registry/:name") ->
             tags => ?TAGS,
             description => ?DESC("external_registry_delete"),
             parameters => [param_path_external_registry_name()],
-            responses => #{204 => ?DESC("deleted")}
+            responses => #{
+                204 => ?DESC("deleted"),
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
+            }
         }
     }.
 
@@ -289,11 +296,14 @@ validate_protobuf_bundle_request(#{body := #{<<"bundle">> := _}} = Params0, #{me
 validate_protobuf_bundle_request(#{body := #{} = Body} = Params0, #{method := put}) ->
     %% Update only root proto file and/or description.
     maybe
-        {ok, Name} ?= find_or(<<"name">>, Body, <<"Missing `name`">>),
+        {ok, Name} ?= find_text_part(<<"name">>, Body, {error, <<"Missing `name`">>}),
         ok ?= safe_validate_name(Name),
-        {ok, RootFile} ?= find_or(<<"root_proto_file">>, Body, <<"Missing `root_proto_file`">>),
+        {ok, RootFile} ?=
+            find_text_part(
+                <<"root_proto_file">>, Body, {error, <<"Missing `root_proto_file`">>}
+            ),
         {ok, RootPath} ?= validate_root_filename(RootFile),
-        Description = maps:get(<<"description">>, Body, <<"">>),
+        {ok, Description} ?= find_text_part(<<"description">>, Body, {ok, <<"">>}),
         Params = Params0#{
             name => Name,
             description => Description,
@@ -301,6 +311,8 @@ validate_protobuf_bundle_request(#{body := #{} = Body} = Params0, #{method := pu
         },
         {ok, Params}
     else
+        {error, {bad_form_data, Msg}} ->
+            ?BAD_REQUEST('BAD_FORM_DATA', Msg);
         {error, Reason} ->
             ?BAD_REQUEST(Reason);
         _ ->
@@ -313,12 +325,15 @@ validate_protobuf_bundle_request(_Params, _Meta) ->
 
 validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
     maybe
-        {ok, Name} ?= find_or(<<"name">>, Body, <<"Missing `name`">>),
+        {ok, Name} ?= find_text_part(<<"name">>, Body, {error, <<"Missing `name`">>}),
         ok ?= safe_validate_name(Name),
-        {ok, RootFile} ?= find_or(<<"root_proto_file">>, Body, <<"Missing `root_proto_file`">>),
+        {ok, RootFile} ?=
+            find_text_part(
+                <<"root_proto_file">>, Body, {error, <<"Missing `root_proto_file`">>}
+            ),
         {ok, RootPath} ?= validate_root_filename(RootFile),
-        Description = maps:get(<<"description">>, Body, <<"">>),
-        {ok, Bundle} ?= find_or(<<"bundle">>, Body, <<"Missing `bundle`">>),
+        {ok, Description} ?= find_text_part(<<"description">>, Body, {ok, <<"">>}),
+        {ok, Bundle} ?= find_file_part(<<"bundle">>, Body, {error, <<"Missing `bundle`">>}),
         [{_Filename, Bin}] ?= maps:to_list(maps:without([type], Bundle)),
         ok ?= validate_gzip_magic_number(Bin),
         Params = Params0#{
@@ -329,6 +344,8 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
         },
         {ok, Params}
     else
+        {error, {bad_form_data, Msg}} ->
+            ?BAD_REQUEST('BAD_FORM_DATA', Msg);
         {error, Reason} ->
             ?BAD_REQUEST(Reason);
         _ ->
@@ -790,10 +807,25 @@ schema_not_found_error() ->
 schema_already_exists_error() ->
     ?BAD_REQUEST('ALREADY_EXISTS', <<"Schema already exists">>).
 
-find_or(Key, Map, Error) ->
-    maybe
-        error ?= maps:find(Key, Map),
-        {error, Error}
+%% A data part is a binary. A file part is a map of `type` and filename to content.
+find_text_part(Key, Body, IfMissing) ->
+    case maps:find(Key, Body) of
+        {ok, Value} when is_binary(Value) ->
+            {ok, Value};
+        {ok, _} ->
+            {error, {bad_form_data, <<"`", Key/binary, "` must be a text field, not a file">>}};
+        error ->
+            IfMissing
+    end.
+
+find_file_part(Key, Body, IfMissing) ->
+    case maps:find(Key, Body) of
+        {ok, #{} = File} ->
+            {ok, File};
+        {ok, _} ->
+            {error, {bad_form_data, <<"`", Key/binary, "` must be a file">>}};
+        error ->
+            IfMissing
     end.
 
 safe_validate_name(Name) ->
