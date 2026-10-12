@@ -84,6 +84,24 @@ t_crud(_Config) ->
         emqx_mq_registry:match(<<"a/x/d">>)
     ).
 
+%% Verify that a stale queue read cannot suppress a restart after stored settings change.
+t_update_after_stale_read(_Config) ->
+    {ok, #{id := Id} = MQ0} = create_mq(<<"update_stale_read">>, <<"a/b/c">>),
+    UpdateFields = MQ0#{data_retention_period => 600_000},
+    {ok, MQ1} = emqx_mq_registry:update(<<"update_stale_read">>, UpdateFields),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ1, alias(), <<"client">>),
+
+    %% Simulate an update that read MQ0 before another update stored MQ1.
+    ok = meck:new(emqx_mq_state_storage, [passthrough, no_history]),
+    ok = meck:expect(emqx_mq_state_storage, find_mq, fun(Id0) when Id0 =:= Id -> {ok, MQ0} end),
+    Result = emqx_mq_registry:update(<<"update_stale_read">>, MQ0),
+    ok = meck:unload(emqx_mq_state_storage),
+
+    %% Restoring MQ0 changes the stored settings and must stop the MQ1 consumer.
+    ?assertEqual({ok, MQ0}, Result),
+    ?assertEqual({ok, MQ0}, emqx_mq_state_storage:find_mq(Id)),
+    ?retry(10, 100, ?assertNot(is_process_alive(ConsumerRef))).
+
 t_validate_name(_Config) ->
     ?assertMatch(
         {ok, _},

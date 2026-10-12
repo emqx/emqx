@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -import(
     emqx_mq_api_helpers,
@@ -216,6 +217,57 @@ t_legacy_queues_crud(_Config) ->
     ),
 
     ?assertEqual(not_found, emqx_mq_registry:find(<<"/t/#">>)).
+
+%% Verify that an update of a queue applies to its running consumer.
+t_update_running_queue(_Config) ->
+    Name = <<"update_running_queue">>,
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_queues, queues], #{
+            <<"name">> => Name,
+            <<"topic_filter">> => <<"t/#">>,
+            <<"is_lastvalue">> => false,
+            <<"ping_interval">> => 100,
+            <<"data_retention_period">> => 86_400_000
+        })
+    ),
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(CSub, Name),
+    ok = emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+    %% The consumer is running.
+    {ok, [_]} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 1, _Timeout0 = 1000),
+
+    %% An unchanged update keeps the consumer running.
+    {ok, #{id := Id}} = emqx_mq_registry:find(Name),
+    {ok, ConsumerRef} = emqx_mq_consumer:find(Id),
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_queues, queues, Name], #{
+            <<"is_lastvalue">> => false,
+            <<"ping_interval">> => 100,
+            <<"data_retention_period">> => 86_400_000
+        })
+    ),
+    ?assertEqual({ok, ConsumerRef}, emqx_mq_consumer:find(Id)),
+
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_queues, queues, Name], #{
+            <<"is_lastvalue">> => false,
+            <<"ping_interval">> => 100,
+            <<"data_retention_period">> => 600_000
+        })
+    ),
+    %% One hour old, so within the old retention period but not the new one.
+    %% Both messages are from one client, so they are read in order.
+    Stale = emqx_message:make(<<"pub">>, 1, <<"t/1">>, <<"stale">>),
+    Fresh = emqx_message:make(<<"pub">>, 1, <<"t/1">>, <<"fresh">>),
+    _ = emqx:publish(Stale#message{timestamp = erlang:system_time(millisecond) - 3_600_000}),
+    _ = emqx:publish(Fresh),
+
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 1000),
+    ?assertEqual([<<"fresh">>], [Payload || #{payload := Payload} <- Msgs]),
+    ok = emqtt:disconnect(CSub).
 
 %% Verify pagination logic of message queue listing.
 t_pagination(_Config) ->
