@@ -948,17 +948,17 @@ t_auto_cast_integer_to_float(Config) ->
     ),
     ok.
 
-%% An unsuffixed integer placeholder written to a tag must arrive as its exact decimal
-%% representation, while a field placeholder keeps the InfluxDB typing.
-t_integer_tag_as_string(Config) ->
+%% A numeric placeholder written to a tag must arrive as its string form, including floats
+%% and templates that mix literals with numbers; a field placeholder keeps the InfluxDB typing.
+t_tag_values_as_string(Config) ->
     QueryMode = ?config(query_mode, Config),
     BatchSize = ?config(batch_size, Config),
-    {ok, _} = create_bridge(Config, integer_tag_overrides(BatchSize)),
+    {ok, _} = create_bridge(Config, tag_value_overrides(BatchSize)),
     Topic = atom_to_binary(?FUNCTION_NAME),
-    Cases = integer_tag_cases(),
+    Cases = tag_value_cases(),
     Samples = lists:zip([emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- Cases], Cases),
-    SendSample = fun(Sample) -> send_integer_tag_sample(Config, Topic, Sample) end,
-    AssertSample = fun(Sample) -> assert_integer_tag_sample(Config, Sample) end,
+    SendSample = fun(Sample) -> send_tag_value_sample(Config, Topic, Sample) end,
+    AssertSample = fun(Sample) -> assert_tag_value_sample(Config, Sample) end,
     case BatchSize of
         1 ->
             assert_send_results(QueryMode, [SendSample(Sample) || Sample <- Samples]),
@@ -995,7 +995,7 @@ assert_send_results(sync, Results) ->
 assert_send_results(async, Results) ->
     ?assert(lists:all(fun(Result) -> Result =:= ok end, Results)).
 
-integer_tag_cases() ->
+tag_value_cases() ->
     [
         {0, <<"0">>},
         {11, <<"11">>},
@@ -1009,11 +1009,14 @@ integer_tag_cases() ->
         {<<"65">>, <<"65">>}
     ].
 
-integer_tag_overrides(BatchSize) ->
+tag_value_overrides(BatchSize) ->
     Overrides = #{
         <<"write_syntax">> =>
             <<
                 "mqtt,clientid=${clientid},int_tag=${payload.int_tag},"
+                "id_tag=id_${payload.pair_a},pair_tag=${payload.pair_a}${payload.pair_b},"
+                "float_tag=pre_${payload.float_tag},big_float_tag=${payload.big_float},"
+                "tiny_float_tag=${payload.tiny_float},"
                 "i_tag=${payload.i_tag}i,u_tag=${payload.u_tag}u,"
                 "bool_tag=${payload.bool_tag} value=${payload.value}"
             >>
@@ -1032,12 +1035,17 @@ integer_tag_overrides(BatchSize) ->
             }
     end.
 
-send_integer_tag_sample(Config, Topic, {ClientId, {TagValue, _Expected}}) ->
+send_tag_value_sample(Config, Topic, {ClientId, {TagValue, _Expected}}) ->
     Data = #{
         <<"clientid">> => ClientId,
         <<"topic">> => Topic,
         <<"payload">> => #{
             <<"int_tag">> => TagValue,
+            <<"pair_a">> => 65,
+            <<"pair_b">> => 66,
+            <<"float_tag">> => 1.5,
+            <<"big_float">> => 1.0e300,
+            <<"tiny_float">> => 1.0e-11,
             <<"i_tag">> => 123,
             <<"u_tag">> => 456,
             <<"bool_tag">> => true,
@@ -1047,13 +1055,19 @@ send_integer_tag_sample(Config, Topic, {ClientId, {TagValue, _Expected}}) ->
     },
     send_message(Config, Data).
 
-assert_integer_tag_sample(Config, {ClientId, {_TagValue, ExpectedTag}}) ->
+assert_tag_value_sample(Config, {ClientId, {_TagValue, ExpectedTag}}) ->
     ?retry(
         500,
         20,
         begin
             Row = query_by_clientid(ClientId, Config),
             ?assertMatch(#{<<"int_tag">> := ExpectedTag}, Row),
+            %% Templates that mix literals with numbers, and bare floats of any magnitude
+            ?assertMatch(#{<<"id_tag">> := <<"id_65">>}, Row),
+            ?assertMatch(#{<<"pair_tag">> := <<"6566">>}, Row),
+            ?assertMatch(#{<<"float_tag">> := <<"pre_1.5">>}, Row),
+            ?assertMatch(#{<<"big_float_tag">> := <<"1.0e300">>}, Row),
+            ?assertMatch(#{<<"tiny_float_tag">> := <<"1.0e-11">>}, Row),
             ?assertMatch(#{<<"i_tag">> := 123}, Row),
             ?assertMatch(#{<<"u_tag">> := 456}, Row),
             ?assertMatch(#{<<"bool_tag">> := true}, Row),
