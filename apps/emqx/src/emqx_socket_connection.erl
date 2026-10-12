@@ -384,9 +384,14 @@ run_loop(
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
     %% A nowait recv that returns data also arms the next read select.
+    %% A failure is not fatal: without the option, recv returns `{ok, Data}'
+    %% and the connection reads again until it gets `{select, _}'.
+    %% On a closed socket, the recv below returns the error.
     _ = socket:setopt(Socket, {otp, select_read}, true),
     %% Not possible to get {select, {Info, Partial}} because length is 0
     case sock_async_recv(Socket, 0) of
+        %% Only when `select_read' is not set, or when `{otp, rcvbuf}' has a
+        %% read count above 0. No select is armed, so read again.
         {ok, Data} ->
             NState = start_idle_timer(State),
             handle_recv({recv_more, Data}, Parent, NState);
