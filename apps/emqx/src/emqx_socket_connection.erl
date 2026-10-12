@@ -395,9 +395,7 @@ fast_close(_, Socket) ->
 exit_on_sock_error(Reason) when ?IS_NORMAL_SOCKET_ERROR(Reason) ->
     erlang:exit(normal);
 exit_on_sock_error(Reason) ->
-    %% econnreset falls here so it shows up in shutdown-counters
-    %% of the listener
-    erlang:exit({shutdown, Reason}).
+    erlang:exit({shutdown, emqx_connection_util:sock_error_shutdown(Reason)}).
 
 %%--------------------------------------------------------------------
 %% Recv Loop

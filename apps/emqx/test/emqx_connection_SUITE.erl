@@ -598,6 +598,23 @@ t_start_link_exit_on_wait(_) ->
     ok = exit_on_wait_error(timeout, {shutdown, ssl_upgrade_timeout}),
     ok = exit_on_wait_error(enetdown, {shutdown, enetdown}).
 
+-doc """
+A wait error that is not an atom exits with a reason that the listener counts:
+`{ssl_error, _}` is unchanged, a TLS alert counts under its kind, and any other
+error counts under `sock_error`.
+""".
+t_start_link_exit_on_wait_countable(_) ->
+    SslError = {ssl_error, {tls_alert, {unknown_ca, "TLS server: ..."}}},
+    ok = exit_on_wait_error(SslError, {shutdown, SslError}),
+    Alert = {tls_alert, {user_canceled, "TLS server: ..."}},
+    ok = exit_on_wait_error(
+        Alert, {shutdown, #{shutdown_count => user_canceled, reason => Alert}}
+    ),
+    ProxyError = {invalid_proxy_info, <<"GET / HTTP/1.1\r\n">>},
+    ok = exit_on_wait_error(
+        ProxyError, {shutdown, #{shutdown_count => sock_error, reason => ProxyError}}
+    ).
+
 t_start_link_exit_on_activate(_) ->
     ok = exit_on_activate_error(enotconn, normal),
     ok = exit_on_activate_error(einval, normal),
