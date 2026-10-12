@@ -1075,6 +1075,61 @@ assert_tag_value_sample(Config, {ClientId, {_TagValue, ExpectedTag}}) ->
         end
     ).
 
+t_quoted_field_values(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} = create_bridge(Config, quoted_field_overrides()),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Data = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+        <<"payload">> => #{
+            <<"text">> => <<"abc">>,
+            <<"n">> => 65,
+            <<"f">> => 1.0e300,
+            <<"tiny">> => 1.0e-11,
+            <<"ok">> => true,
+            <<"value">> => 1
+        },
+        <<"timestamp">> => erlang:system_time(millisecond)
+    },
+    assert_send_results(QueryMode, [send_message(Config, Data)]),
+    ?retry(
+        500,
+        20,
+        begin
+            Row = query_by_clientid(ClientId, Config),
+            ?assertMatch(#{<<"literal_field">> := <<"abc">>}, Row),
+            ?assertMatch(#{<<"text_field">> := <<"pre_abc">>}, Row),
+            ?assertMatch(#{<<"number_field">> := <<"n_65">>}, Row),
+            ?assertMatch(#{<<"float_field">> := <<"f_1.0e300">>}, Row),
+            ?assertMatch(#{<<"tiny_field">> := <<"t_1.0e-11">>}, Row),
+            ?assertMatch(#{<<"bool_field">> := <<"true">>}, Row),
+            %% text that spells a boolean literal stays a string
+            ?assertMatch(#{<<"literal_bool_field">> := <<"T">>}, Row),
+            %% the field whose placeholder stays unset is not written
+            ?assertNot(maps:is_key(<<"unset_field">>, Row)),
+            ?assertEqual(1.0, maps:get(<<"value">>, Row, undefined))
+        end
+    ),
+    ok.
+
+quoted_field_overrides() ->
+    #{
+        <<"write_syntax">> =>
+            <<
+                "mqtt,clientid=${clientid} "
+                "literal_field=\"abc\","
+                "text_field=\"pre_${payload.text}\","
+                "number_field=\"n_${payload.n}\","
+                "float_field=\"f_${payload.f}\","
+                "tiny_field=\"t_${payload.tiny}\","
+                "bool_field=\"${payload.ok}\","
+                "literal_bool_field=\"T\","
+                "unset_field=\"x${payload.unset}\","
+                "value=${payload.value}"
+            >>
+    }.
+
 t_partially_invalid_batch(Config) ->
     case ?config(batch_size, Config) of
         1 ->

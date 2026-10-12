@@ -807,14 +807,25 @@ maps_config_to_data(K, V, Data, Kind, {ok, Res}) ->
         %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
         {_, [undefined | _]} ->
             {ok, Res};
+        %% a quoted value is a single string, so it is skipped when any placeholder is unset
+        {_, {quoted, Tokens}} when is_list(Tokens) ->
+            case lists:member(undefined, Tokens) of
+                true ->
+                    {ok, Res};
+                false ->
+                    convert_config_value(NK0, NV, Kind, Res)
+            end;
         _ ->
-            NK = list_to_binary(NK0),
-            case value_type(NV, Kind) of
-                {ok, Value} ->
-                    {ok, Res#{NK => Value}};
-                {error, _} = Error ->
-                    Error
-            end
+            convert_config_value(NK0, NV, Kind, Res)
+    end.
+
+convert_config_value(NK0, NV, Kind, Res) ->
+    NK = list_to_binary(NK0),
+    case value_type(NV, Kind) of
+        {ok, Value} ->
+            {ok, Res#{NK => Value}};
+        {error, _} = Error ->
+            Error
     end.
 
 value_type([Int, <<"i">>]) when
@@ -858,7 +869,14 @@ value_type([Int]) when is_integer(Int) ->
         error:badarg ->
             {error, {invalid_float_value, Int}}
     end;
+%% A quoted field value is a string, so every token is rendered as text and the result is
+%% not dispatched by type again.
+value_type({quoted, Tokens}) when is_list(Tokens) ->
+    string_value([render_text_token(Token) || Token <- Tokens]);
 value_type(Val0) ->
+    string_value(Val0).
+
+string_value(Val0) ->
     try unicode:characters_to_binary(Val0, utf8) of
         Val1 when is_binary(Val1) ->
             {ok, greptimedb_values:string_value([Val1])};
@@ -874,16 +892,21 @@ value_type(Val0) ->
 value_type([_, Suffix] = NV, tag) when Suffix =:= <<"i">>; Suffix =:= <<"u">> ->
     value_type(NV);
 value_type(NV, tag) when is_list(NV) ->
-    value_type([render_tag_token(Token) || Token <- NV]);
+    value_type([render_number_token(Token) || Token <- NV]);
 value_type(NV, _Kind) ->
     value_type(NV).
 
-render_tag_token(Token) when is_integer(Token) ->
+render_number_token(Token) when is_integer(Token) ->
     integer_to_binary(Token);
-render_tag_token(Token) when is_float(Token) ->
+render_number_token(Token) when is_float(Token) ->
     float_to_binary(Token, [short]);
-render_tag_token(Token) ->
+render_number_token(Token) ->
     Token.
+
+render_text_token(Token) when is_atom(Token) ->
+    atom_to_binary(Token, utf8);
+render_text_token(Token) ->
+    render_number_token(Token).
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
@@ -1030,6 +1053,56 @@ integer_point_validation_test() ->
     ?assertEqual(
         {error, {invalid_string_value, [470.5, <<"x">>]}},
         value_type([470.5, <<"x">>])
+    ).
+
+quoted_field_value_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<
+            "mqtt,clientid=${clientid} "
+            "text=\"abc\","
+            "number=\"n_${payload.n}\","
+            "float=\"f_${payload.f}\","
+            "bool=\"${payload.bool}\","
+            "literal_bool=\"T\","
+            "quoted_number=\"${payload.n}\","
+            "empty=\"\","
+            "unset=\"x${payload.unset}\""
+        >>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"n">> => 65, <<"f">> => 1.0e300, <<"bool">> => true},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    {ok, [{_, [#{fields := Fields}]}]} = data_to_points(Data, <<"public">>, SyntaxLines),
+    ?assertEqual(#{value_data => {string_value, [<<"abc">>]}}, maps:get(<<"text">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, [<<"n_65">>]}}, maps:get(<<"number">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, [<<"f_1.0e300">>]}}, maps:get(<<"float">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, [<<"true">>]}}, maps:get(<<"bool">>, Fields)),
+    %% text that spells a boolean literal and a fully quoted number both stay strings
+    ?assertEqual(#{value_data => {string_value, [<<"T">>]}}, maps:get(<<"literal_bool">>, Fields)),
+    ?assertEqual(
+        #{value_data => {string_value, [<<"65">>]}}, maps:get(<<"quoted_number">>, Fields)
+    ),
+    ?assertEqual(#{value_data => {string_value, [<<>>]}}, maps:get(<<"empty">>, Fields)),
+    %% a quoted value with an unset placeholder is dropped
+    ?assertNot(maps:is_key(<<"unset">>, Fields)).
+
+quoted_field_value_utf8_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,clientid=${clientid} text=\"x${payload.text}\"">>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"text">> => <<255, 255>>},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    %% a quoted value that is not valid UTF-8 is rejected for that point only
+    ?assertEqual(
+        {error, [{error, {invalid_string_value, [<<"x">>, <<255, 255>>]}}]},
+        data_to_points(Data, <<"public">>, SyntaxLines)
     ).
 
 numeric_range_validation_test() ->
