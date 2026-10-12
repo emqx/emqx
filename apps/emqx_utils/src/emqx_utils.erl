@@ -18,7 +18,12 @@
 
 -compile(inline).
 %% [TODO] Cleanup so the instruction below is not necessary.
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([
+    {elvis_style, no_god_modules, disable},
+    {elvis_style, no_common_caveats_call, disable},
+    {elvis_style, guard_operators, disable},
+    {elvis_style, no_receive_without_timeout, disable}
+]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
