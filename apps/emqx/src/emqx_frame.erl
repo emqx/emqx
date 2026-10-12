@@ -1551,6 +1551,23 @@ fixqos(?SUBSCRIBE, 0) -> 1;
 fixqos(?UNSUBSCRIBE, 0) -> 1;
 fixqos(_Type, QoS) -> QoS.
 
+%% True when each of the 7 bytes of the 56-bit integer W is in 16#20..16#7E.
+%% A 56-bit integer is a small integer, so the guard needs no bignum arithmetic.
+%% 1. No byte has the high bit set (each byte is below 16#80).
+%% 2. No byte borrows when 16#20 is subtracted from it (each byte is 16#20 or more).
+%% 3. No byte is zero after XOR with 16#7F (no byte is 16#7F).
+%% A borrow starts only at a byte that fails check 2 or 3, so the guard never accepts
+%% a word with an invalid byte. A word that fails goes to the byte-by-byte clauses.
+-define(SWAR_M80, 16#80808080808080).
+-define(SWAR_M01, 16#01010101010101).
+-define(SWAR_M20, 16#20202020202020).
+-define(SWAR_M7F, 16#7F7F7F7F7F7F7F).
+-define(IS_PRINTABLE_ASCII7(W),
+    ((W) band ?SWAR_M80 =:= 0 andalso
+        ((W) - ?SWAR_M20) band ?SWAR_M80 =:= 0 andalso
+        (((W) bxor ?SWAR_M7F) - ?SWAR_M01) band ?SWAR_M80 =:= 0)
+).
+
 validate_utf8(Bin) ->
     case validate_mqtt_utf8_char(Bin) of
         true -> Bin;
@@ -1561,7 +1578,10 @@ validate_utf8(Bin) ->
 %% i.e. does the string contains control characters?
 %% Note: this is under the assumption that the string is already validated by `unicode:characters_to_binary/1`
 %% hence there is no need to validate utf8 byte sequence integrity
-%% Printable ASCII bytes are checked one byte at a time without UTF-8 decoding.
+%% Printable ASCII bytes are checked 7 bytes at a time, then one byte at a time,
+%% without UTF-8 decoding.
+validate_mqtt_utf8_char(<<W:56, Rest/binary>>) when ?IS_PRINTABLE_ASCII7(W) ->
+    validate_mqtt_utf8_char(Rest);
 validate_mqtt_utf8_char(<<C, Rest/binary>>) when C >= 16#20, C < 16#7F ->
     validate_mqtt_utf8_char(Rest);
 validate_mqtt_utf8_char(<<>>) ->
