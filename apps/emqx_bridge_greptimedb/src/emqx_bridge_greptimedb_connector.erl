@@ -869,12 +869,21 @@ value_type(Val0) ->
             {error, {invalid_string_value, Val0}}
     end.
 
-%% Only an unsuffixed integer tag is rendered in decimal form; `i`/`u`-suffixed and
-%% boolean tags keep their types via value_type/1.
-value_type([Int], tag) when is_integer(Int) ->
-    {ok, greptimedb_values:string_value([integer_to_binary(Int)])};
+%% Bare numbers in a tag template are rendered as strings; a trailing `i`/`u` suffix keeps
+%% the field typing of the value.
+value_type([_, Suffix] = NV, tag) when Suffix =:= <<"i">>; Suffix =:= <<"u">> ->
+    value_type(NV);
+value_type(NV, tag) when is_list(NV) ->
+    value_type([render_tag_token(Token) || Token <- NV]);
 value_type(NV, _Kind) ->
     value_type(NV).
+
+render_tag_token(Token) when is_integer(Token) ->
+    integer_to_binary(Token);
+render_tag_token(Token) when is_float(Token) ->
+    float_to_binary(Token, [short]);
+render_tag_token(Token) ->
+    Token.
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
