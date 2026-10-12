@@ -82,6 +82,15 @@ fields(openai_response_provider_api_get) ->
 fields(openai_response_provider_api_put) ->
     without_fields([name], fields(openai_response_provider));
 %%
+%% OpenAI /decisions provider
+%%
+fields(openai_decisions_provider) ->
+    fields(openai_provider);
+fields(openai_decisions_provider_api_get) ->
+    fields(openai_decisions_provider);
+fields(openai_decisions_provider_api_put) ->
+    without_fields([name], fields(openai_decisions_provider));
+%%
 %% Anthropic provider
 %%
 fields(anthropic_provider) ->
@@ -137,6 +146,67 @@ fields(openai_response_completion_profile_api_get) ->
     fields(openai_response_completion_profile);
 fields(openai_response_completion_profile_api_put) ->
     without_fields([name], fields(openai_response_completion_profile));
+fields(openai_decisions_completion_profile) ->
+    without_fields([type, system_prompt, model], fields(openai_completion_profile)) ++
+        [
+            {type,
+                mk(openai_decisions, #{
+                    default => openai_decisions, required => true, desc => ?DESC(type)
+                })},
+            {model, mk(binary(), #{default => <<"gpt-6-luna">>, desc => ?DESC(model)})},
+            {questions,
+                mk(hoconsc:array(decision_question_sctype()), #{
+                    required => true,
+                    validator => fun validate_decision_questions/1,
+                    desc => ?DESC(decision_questions)
+                })}
+        ];
+fields(openai_decisions_completion_profile_api_get) ->
+    fields(openai_decisions_completion_profile);
+fields(openai_decisions_completion_profile_api_put) ->
+    without_fields([name], fields(openai_decisions_completion_profile));
+fields(decision_predicate) ->
+    decision_question_fields(predicate);
+fields(decision_choice) ->
+    decision_question_fields(choice) ++
+        [
+            {choices,
+                mk(hoconsc:array(ref(decision_choice_option)), #{
+                    required => true,
+                    validator => fun validate_decision_choices/1,
+                    desc => ?DESC(decision_choices)
+                })}
+        ];
+fields(decision_score) ->
+    decision_question_fields(score) ++
+        [
+            {levels,
+                mk(hoconsc:array(ref(decision_score_level)), #{
+                    required => true,
+                    validator => fun validate_non_empty/1,
+                    desc => ?DESC(decision_levels)
+                })}
+        ];
+fields(decision_choice_option) ->
+    [
+        {value,
+            mk(hoconsc:union([binary(), boolean()]), #{
+                required => true, desc => ?DESC(decision_choice_value)
+            })},
+        {description,
+            mk(binary(), #{required => false, desc => ?DESC(decision_option_description)})}
+    ];
+fields(decision_score_level) ->
+    [
+        {label,
+            mk(binary(), #{
+                required => true,
+                validator => fun validate_non_empty/1,
+                desc => ?DESC(decision_level_label)
+            })},
+        {description,
+            mk(binary(), #{required => false, desc => ?DESC(decision_option_description)})}
+    ];
 %%
 %% Anthropic completion profile
 %%
@@ -214,7 +284,7 @@ base_provider_fields() ->
                 validator => fun validate_name/1
             })},
         {type,
-            mk(hoconsc:enum([openai, openai_response, anthropic]), #{
+            mk(hoconsc:enum([openai, openai_response, openai_decisions, anthropic]), #{
                 default => openai, required => true, desc => ?DESC(type)
             })},
         {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
@@ -232,12 +302,26 @@ desc(openai_provider) ->
     ?DESC(openai_provider);
 desc(openai_response_provider) ->
     ?DESC(openai_response_provider);
+desc(openai_decisions_provider) ->
+    ?DESC(openai_decisions_provider);
 desc(anthropic_provider) ->
     ?DESC(anthropic_provider);
 desc(openai_completion_profile) ->
     ?DESC(openai_completion_profile);
 desc(openai_response_completion_profile) ->
     ?DESC(openai_response_completion_profile);
+desc(openai_decisions_completion_profile) ->
+    ?DESC(openai_decisions_completion_profile);
+desc(decision_predicate) ->
+    ?DESC(decision_predicate);
+desc(decision_choice) ->
+    ?DESC(decision_choice);
+desc(decision_score) ->
+    ?DESC(decision_score);
+desc(decision_choice_option) ->
+    ?DESC(decision_choice_option);
+desc(decision_score_level) ->
+    ?DESC(decision_score_level);
 desc(anthropic_completion_profile) ->
     ?DESC(anthropic_completion_profile);
 desc(transport_options) ->
@@ -251,6 +335,7 @@ completion_profile_sctype() ->
         #{
             <<"openai">> => ref(openai_completion_profile),
             <<"openai_response">> => ref(openai_response_completion_profile),
+            <<"openai_decisions">> => ref(openai_decisions_completion_profile),
             <<"anthropic">> => ref(anthropic_completion_profile)
         },
         <<"openai">>
@@ -262,6 +347,7 @@ completion_profile_sctype_api(get) ->
         #{
             <<"openai">> => ref(openai_completion_profile_api_get),
             <<"openai_response">> => ref(openai_response_completion_profile_api_get),
+            <<"openai_decisions">> => ref(openai_decisions_completion_profile_api_get),
             <<"anthropic">> => ref(anthropic_completion_profile_api_get)
         },
         <<"openai">>
@@ -272,6 +358,7 @@ completion_profile_sctype_api(put) ->
         #{
             <<"openai">> => ref(openai_completion_profile_api_put),
             <<"openai_response">> => ref(openai_response_completion_profile_api_put),
+            <<"openai_decisions">> => ref(openai_decisions_completion_profile_api_put),
             <<"anthropic">> => ref(anthropic_completion_profile_api_put)
         },
         <<"openai">>
@@ -285,6 +372,7 @@ provider_sctype() ->
         #{
             <<"openai">> => ref(openai_provider),
             <<"openai_response">> => ref(openai_response_provider),
+            <<"openai_decisions">> => ref(openai_decisions_provider),
             <<"anthropic">> => ref(anthropic_provider)
         },
         <<"openai">>
@@ -296,6 +384,7 @@ provider_sctype_api(put) ->
         #{
             <<"openai">> => ref(openai_provider_api_put),
             <<"openai_response">> => ref(openai_response_provider_api_put),
+            <<"openai_decisions">> => ref(openai_decisions_provider_api_put),
             <<"anthropic">> => ref(anthropic_provider_api_put)
         },
         <<"openai">>
@@ -306,6 +395,7 @@ provider_sctype_api(get) ->
         #{
             <<"openai">> => ref(openai_provider_api_get),
             <<"openai_response">> => ref(openai_response_provider_api_get),
+            <<"openai_decisions">> => ref(openai_decisions_provider_api_get),
             <<"anthropic">> => ref(anthropic_provider_api_get)
         },
         <<"openai">>
@@ -329,6 +419,53 @@ check_provider(ProviderRaw) ->
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
+
+decision_question_sctype() ->
+    emqx_schema:mkunion(type, #{
+        <<"predicate">> => ref(decision_predicate),
+        <<"choice">> => ref(decision_choice),
+        <<"score">> => ref(decision_score)
+    }).
+
+decision_question_fields(Type) ->
+    [
+        {type, mk(Type, #{required => true, desc => ?DESC(decision_question_type)})},
+        {name,
+            mk(binary(), #{
+                required => true,
+                validator => fun validate_non_empty/1,
+                desc => ?DESC(decision_question_name)
+            })},
+        {instructions,
+            mk(binary(), #{
+                required => true,
+                validator => fun validate_non_empty/1,
+                desc => ?DESC(decision_instructions)
+            })}
+    ].
+
+validate_decision_questions(Questions) ->
+    validate_unique_values(<<"name">>, Questions).
+
+validate_decision_choices(Choices) ->
+    validate_unique_values(<<"value">>, Choices).
+
+validate_unique_values(Key, Items) ->
+    maybe
+        ok ?= validate_non_empty(Items),
+        Values = [Value || #{Key := Value} <- emqx_utils_maps:binary_key_map(Items)],
+        case length(Values) =:= length(lists:usort(Values)) of
+            true -> ok;
+            false -> {error, {duplicate_values, Key}}
+        end
+    end.
+
+validate_non_empty([]) ->
+    {error, must_not_be_empty};
+validate_non_empty(<<>>) ->
+    {error, must_not_be_empty};
+validate_non_empty(_) ->
+    ok.
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Name) -> hoconsc:ref(?MODULE, Name).
