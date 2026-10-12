@@ -264,6 +264,32 @@ t_levels(_) ->
     ?assertEqual(2, emqx_topic:levels(<<"/">>)),
     ?assertEqual(3, emqx_topic:levels(<<"a//">>)).
 
+-doc """
+Check that levels/1 agrees with binary:split/3 when $/ is at each position, and with
+the bytes 16#2E, 16#30 and 16#AF next to it. The positions cover the 7-byte count
+and the byte-by-byte count after it.
+""".
+t_levels_byte_positions(_) ->
+    Size = 23,
+    Fillers = [<<"a">>, <<16#2E>>, <<16#30>>, <<16#AF>>, <<16#FF>>],
+    lists:foreach(
+        fun({Pos, Filler}) ->
+            Body = binary:copy(Filler, Size),
+            OneSlash = <<
+                (binary:copy(Filler, Pos))/binary, $/, (binary:copy(Filler, Size - Pos - 1))/binary
+            >>,
+            EveryOther = binary:copy(<<Filler/binary, $/>>, Pos),
+            lists:foreach(
+                fun(Topic) ->
+                    Expected = length(binary:split(Topic, <<"/">>, [global])),
+                    ?assertEqual(Expected, emqx_topic:levels(Topic), Topic)
+                end,
+                [Body, OneSlash, EveryOther]
+            )
+        end,
+        [{Pos, F} || Pos <- lists:seq(0, Size - 1), F <- Fillers]
+    ).
+
 t_tokens(_) ->
     ?assertEqual(
         [<<"a">>, <<"b">>, <<"+">>, <<"#">>],
