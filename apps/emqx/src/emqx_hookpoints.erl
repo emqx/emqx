@@ -123,7 +123,7 @@
     callback_result().
 
 -callback 'client.connect'(emqx_types:conninfo(), Props) ->
-    fold_callback_result(Props)
+    fold_callback_result(Props | {error, term()})
 when
     Props :: emqx_types:properties().
 

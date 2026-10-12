@@ -364,7 +364,7 @@ unstash_context(Name) ->
     do_run(lookup('alarm.deactivated'), [Context]).
 
 -spec 'client.connect'(emqx_types:conninfo(), Props) ->
-    Props
+    Props | {error, term()}
 when
     Props :: emqx_types:properties().
 'client.connect'(ConnInfo, Props) ->
