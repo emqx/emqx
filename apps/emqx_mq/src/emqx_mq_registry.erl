@@ -356,12 +356,12 @@ update_by_id(Id, UpdateFields0) ->
             _ when NeedUpdateIndex ->
                 case update_index(Key, Id, UpdateFields) of
                     ok ->
-                        emqx_mq_state_storage:update_mq_state(Id, UpdateFields);
+                        update_mq_state(Id, UpdateFields);
                     not_found ->
                         not_found
                 end;
             _ ->
-                emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
+                update_mq_state(Id, UpdateFields)
         end
     end.
 
@@ -436,6 +436,18 @@ queue_count() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% A consumer keeps the settings it started with, so stop it if they changed.
+%% TODO: Apply queue updates without restarting the consumer.
+update_mq_state(Id, UpdateFields) ->
+    maybe
+        {ok, MQ, Changed} ?= emqx_mq_state_storage:update_mq_state(Id, UpdateFields),
+        case Changed of
+            false -> ok;
+            true -> ok = stop_consumer(Id)
+        end,
+        {ok, MQ}
+    end.
 
 drop_queue_data(MQ) ->
     safe_with_log(
