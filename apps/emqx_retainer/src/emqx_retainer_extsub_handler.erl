@@ -144,7 +144,9 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     State = emqx_retainer:backend_state(Context),
-    case emqx_topic:wildcard(TopicFilter) orelse has_retained_message(Mod, State, TopicFilter) of
+    %% A topic without wildcards matches at most one retained message, so a handler is
+    %% needed only when that message exists.
+    case emqx_topic:wildcard(TopicFilter) orelse Mod:has_message(State, TopicFilter) of
         true ->
             new_handler(SubscribeCtx, TopicFilter, SubOpts, Context, Mod, State);
         false ->
@@ -152,12 +154,6 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
     end;
 subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
     {ok, Handler}.
-
-%% A topic without wildcards matches at most one retained message, so one read tells
-%% whether a handler is needed.
-has_retained_message(Mod, State, Topic) ->
-    {ok, Messages} = Mod:read_message(State, Topic),
-    Messages =/= [].
 
 new_handler(SubscribeCtx, TopicFilter, SubOpts, Context, Mod, State) ->
     #{send_after := SendAfterFn, send := SendFn} = SubscribeCtx,

@@ -42,6 +42,9 @@ groups() ->
             t_extsub_no_handler_no_wildcard_empty,
             t_extsub_handler_no_wildcard_retained,
             t_extsub_handler_wildcard_empty,
+            t_has_message_none,
+            t_has_message_stored,
+            t_has_message_expired,
             t_extsub_no_leak_wildcard_multi_batch,
             t_extsub_no_leak_wildcard_single_batch,
             t_extsub_no_leak_wildcard_empty,
@@ -72,6 +75,9 @@ index_related_tests() ->
             t_extsub_no_handler_no_wildcard_empty,
             t_extsub_handler_no_wildcard_retained,
             t_extsub_handler_wildcard_empty,
+            t_has_message_none,
+            t_has_message_stored,
+            t_has_message_expired,
             t_extsub_no_leak_wildcard_multi_batch,
             t_extsub_no_leak_wildcard_single_batch,
             t_extsub_no_leak_wildcard_empty,
@@ -1501,6 +1507,40 @@ t_extsub_handler_wildcard_empty(_Config) ->
         )
     ),
     ?assertReceive({extsub_send, Ref}, 1000).
+
+-doc "`has_message/2` of the built-in backend returns false for a topic without a retained message.".
+t_has_message_none(_Config) ->
+    ?assertNot(emqx_retainer_mnesia:has_message(backend_state(), <<"has_message/none">>)).
+
+-doc "`has_message/2` of the built-in backend returns true for a topic with a retained message.".
+t_has_message_stored(_Config) ->
+    Topic = <<"has_message/stored">>,
+    ok = emqx_retainer_publisher:store_retained(emqx_message:make(Topic, <<"payload">>)),
+    try
+        ?assert(emqx_retainer_mnesia:has_message(backend_state(), Topic))
+    after
+        ok = emqx_retainer_publisher:delete_message(Topic)
+    end.
+
+-doc "`has_message/2` of the built-in backend returns false for an expired retained message.".
+t_has_message_expired(_Config) ->
+    Topic = <<"has_message/expired">>,
+    Msg0 = emqx_message:make(Topic, <<"payload">>),
+    Msg = Msg0#message{
+        timestamp = erlang:system_time(millisecond) - 60_000,
+        headers = #{properties => #{'Message-Expiry-Interval' => 1}}
+    },
+    State = backend_state(),
+    ok = emqx_retainer_mnesia:store_retained(State, Msg),
+    try
+        ?assertEqual({ok, []}, emqx_retainer_mnesia:read_message(State, Topic)),
+        ?assertNot(emqx_retainer_mnesia:has_message(State, Topic))
+    after
+        ok = emqx_retainer_mnesia:delete_message(State, Topic)
+    end.
+
+backend_state() ->
+    emqx_retainer:backend_state(emqx_retainer:context()).
 
 extsub_sub_ctx(Ref) ->
     Self = self(),
