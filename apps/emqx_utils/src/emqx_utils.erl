@@ -21,6 +21,7 @@
 -elvis([
     {elvis_style, no_god_modules, disable},
     {elvis_style, no_common_caveats_call, disable},
+    {elvis_style, guard_operators, disable},
     {elvis_style, no_receive_without_timeout, disable}
 ]).
 
@@ -289,7 +290,10 @@ do_check_oom([]) ->
     ok;
 do_check_oom([{Val, Max, Reason} | Rest]) ->
     case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
-        true -> {shutdown, #{reason => Reason, value => Val, max => Max}};
+        %% `shutdown_count' makes esockd count the exit under `Reason' and log
+        %% it at info level. esockd drops the key from that log line, so
+        %% `reason' keeps the name in it.
+        true -> {shutdown, #{shutdown_count => Reason, reason => Reason, value => Val, max => Max}};
         false -> do_check_oom(Rest)
     end.
 
