@@ -77,14 +77,23 @@ init_per_testcase(TestCase, TCConfig) ->
                     ] ++ certs(),
                 {ServerSSLOpts0, <<"https">>}
         end,
+    Host = get_tc_prop(TestCase, http_host, "localhost"),
+    ServerOpts = #{
+        mode => get_tc_prop(TestCase, http_server_mode, normal),
+        dns_control => get_tc_prop(TestCase, dns_control, false),
+        host => Host,
+        notify => self()
+    },
     {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
-        _Port = random, HTTPPath, ServerSSLOpts
+        _Port = random, HTTPPath, ServerSSLOpts, ServerOpts
     ),
+    on_exit(fun emqx_bridge_http_connector_test_server:stop/0),
     ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
     ConnectorName = atom_to_binary(TestCase),
     ConnectorConfig = connector_config(#{
-        <<"url">> => emqx_bridge_v2_testlib:fmt(<<"${s}://localhost:${p}">>, #{
+        <<"url">> => emqx_bridge_v2_testlib:fmt(<<"${s}://${host}:${p}">>, #{
             s => Scheme,
+            host => Host,
             p => HTTPPort
         })
     }),
@@ -101,7 +110,7 @@ init_per_testcase(TestCase, TCConfig) ->
         {action_type, ?ACTION_TYPE},
         {action_name, ActionName},
         {action_config, ActionConfig},
-        {http_server, #{port => HTTPPort, path => Path}}
+        {http_server, #{port => HTTPPort, path => Path, host => Host}}
         | TCConfig
     ].
 
@@ -865,22 +874,192 @@ t_service_unavailable(Config) ->
     ok = emqx_bridge_http_connector_test_server:set_handler(service_unavailable_http_handler()),
     check_send_is_retried(Config).
 
+t_gateway_error() ->
+    [{matrix, true}].
+t_gateway_error(matrix) ->
+    [[Mode, Status] || Mode <- [sync, async], Status <- [bad_gateway, gateway_timeout]];
+t_gateway_error(TCConfig) when is_list(TCConfig) ->
+    Status =
+        case
+            emqx_common_test_helpers:get_matrix_prop(
+                TCConfig, [bad_gateway, gateway_timeout], bad_gateway
+            )
+        of
+            bad_gateway -> 502;
+            gateway_timeout -> 504
+        end,
+    ok = emqx_bridge_http_connector_test_server:set_handler(fail_then_success_http_handler(Status)),
+    check_send_is_retried(TCConfig, http_query_mode(TCConfig)).
+
+t_nxdomain() ->
+    [{matrix, true}, {http_host, "http-retry.test"}, {dns_control, true}].
+t_nxdomain(matrix) ->
+    [[Mode, Outcome] || Mode <- [sync, async], Outcome <- [recover, expire]];
+t_nxdomain(TCConfig) when is_list(TCConfig) ->
+    QueryMode = http_query_mode(TCConfig),
+    Outcome = emqx_common_test_helpers:get_matrix_prop(TCConfig, [recover, expire], recover),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
+    }),
+    TTL =
+        case Outcome of
+            recover -> <<"15s">>;
+            expire -> <<"1s">>
+        end,
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"body">> => <<"${payload}">>},
+        <<"resource_opts">> => #{
+            <<"query_mode">> => atom_to_binary(QueryMode),
+            <<"request_ttl">> => TTL,
+            <<"resume_interval">> => <<"200ms">>,
+            <<"metrics_flush_interval">> => <<"100ms">>,
+            <<"health_check_interval">> => <<"1m">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Client = start_client(),
+    ok = emqx_bridge_http_connector_test_server:set_dns_available(false),
+    Payload = unique_payload(),
+    {_, {ok, _}} = ?wait_async_action(
+        emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+        #{result := {error, {recoverable_error, nxdomain}}},
+        5_000
+    ),
+    case Outcome of
+        recover ->
+            ok = emqx_bridge_http_connector_test_server:set_dns_available(true),
+            ?assertReceive({http, _, Payload}, 5_000),
+            assert_http_metrics(TCConfig, #{
+                <<"success">> => 1, <<"failed">> => 0, <<"dropped">> => 0
+            });
+        expire ->
+            assert_http_metrics(TCConfig, #{
+                <<"success">> => 0, <<"failed">> => 0, <<"dropped.expired">> => 1
+            }),
+            ok = emqx_bridge_http_connector_test_server:set_dns_available(true),
+            ?assertNotReceive({http, _, Payload}, 500)
+    end.
+
+t_max_retries() ->
+    [{matrix, true}, {http_host, "127.0.0.1"}, {http_server_mode, close_after_request}].
+t_max_retries(matrix) ->
+    [
+        [Mode, Retries]
+     || Mode <- [sync, async], Retries <- [no_retries, default_retries, more_retries]
+    ];
+t_max_retries(TCConfig) when is_list(TCConfig) ->
+    RetryConfig = emqx_common_test_helpers:get_matrix_prop(
+        TCConfig, [no_retries, default_retries, more_retries], default_retries
+    ),
+    {Params, Retries} =
+        case RetryConfig of
+            no_retries -> {#{<<"max_retries">> => 0}, 0};
+            default_retries -> {#{}, 2};
+            more_retries -> {#{<<"max_retries">> => 5}, 5}
+        end,
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
+    }),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => Params#{<<"body">> => <<"${payload}">>},
+        <<"resource_opts">> => #{
+            <<"query_mode">> => atom_to_binary(http_query_mode(TCConfig)),
+            %% Keep automatic buffer retries outside the request-counting window.
+            <<"resume_interval">> => <<"1m">>,
+            <<"request_ttl">> => <<"1m">>,
+            <<"health_check_interval">> => <<"1m">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Client = start_client(),
+    Payload = unique_payload(),
+    QueryMode = http_query_mode(TCConfig),
+    QueryResult = exercise_http_retry(QueryMode, Client, Topic, Payload),
+    ?assertReceive({http_attempt, Payload}, 5_000),
+    Attempts = count_http_attempts(Payload, 1),
+    %% A retry can fail while the previous connection is still closing, before reaching the server.
+    ?assert(Attempts =< Retries + 1, #{attempts => Attempts, query_result => QueryResult}),
+    ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    assert_http_retry_budget(QueryMode, ConnectorId, Retries, snabbkaffe:collect_trace()).
+
+exercise_http_retry(sync, Client, Topic, Payload) ->
+    %% Initial submissions use async callbacks even in sync query mode. Buffer retries force sync.
+    {_, {ok, #{buffer_worker := Worker}}} = ?wait_async_action(
+        emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+        #{?snk_kind := buffer_worker_enter_blocked},
+        10_000
+    ),
+    ?assertReceive({http_attempt, Payload}, 5_000),
+    _ = count_http_attempts(Payload, 1),
+    {_, {ok, Result}} = ?wait_async_action(
+        emqx_resource_buffer_worker:resume(Worker),
+        #{?snk_kind := buffer_worker_retry_inflight_failed, result := {error, _}},
+        10_000
+    ),
+    Result;
+exercise_http_retry(async, Client, Topic, Payload) ->
+    {_, {ok, Result}} = ?wait_async_action(
+        emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+        #{?snk_kind := handle_async_reply, result := {error, _}},
+        10_000
+    ),
+    Result.
+
+assert_http_retry_budget(sync, ConnectorId, Retries, Trace) ->
+    Attempts = [
+        {N, Max}
+     || #{query_mode := sync, connector := Id, attempt := N, max_attempts := Max} <-
+            ?of_kind(http_connector_request, Trace),
+        Id =:= ConnectorId
+    ],
+    ?assertEqual([{1, Retries + 1}], Attempts);
+assert_http_retry_budget(async, ConnectorId, Retries, Trace) ->
+    Events = ?of_kind(http_connector_request, Trace) ++ ?of_kind(http_will_retry_async, Trace),
+    Attempts = [
+        {N, Max}
+     || #{connector := Id, attempt := N, max_attempts := Max} <- Events,
+        Id =:= ConnectorId
+    ],
+    %% Free retries repeat an attempt without consuming the budget.
+    Expected = [{N, Retries + 1} || N <- lists:seq(1, Retries + 1)],
+    ?assertEqual(Expected, lists:usort(Attempts)).
+
+count_http_attempts(Payload, Count) ->
+    receive
+        {http_attempt, Payload} -> count_http_attempts(Payload, Count + 1)
+    after 500 ->
+        Count
+    end.
+
+http_query_mode(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(TCConfig, [sync, async], sync).
+
+assert_http_metrics(TCConfig, Expected) ->
+    ?retry(100, 100, begin
+        {200, #{<<"metrics">> := Metrics}} = get_action_metrics_api(TCConfig),
+        ?assertEqual(Expected, maps:with(maps:keys(Expected), Metrics))
+    end).
+
 check_send_is_retried(TCConfig) ->
+    check_send_is_retried(TCConfig, async).
+
+check_send_is_retried(TCConfig, QueryMode) ->
     ?check_trace(
         begin
             {201, _} = create_connector_api(TCConfig, #{}),
             {201, _} = create_action_api(TCConfig, #{
                 <<"resource_opts">> => #{
-                    <<"query_mode">> => <<"async">>,
+                    <<"query_mode">> => atom_to_binary(QueryMode),
                     <<"metrics_flush_interval">> => <<"300ms">>,
                     <<"resume_interval">> => <<"200ms">>,
-                    <<"request_ttl">> => <<"infinity">>
+                    <<"request_ttl">> => <<"15s">>
                 }
             }),
             #{topic := Topic} = simple_create_rule_api(TCConfig),
             C = start_client(),
             emqtt:publish(C, Topic, <<"timeout">>, [{qos, 1}]),
             %% should retry
+            ?assertReceive({http, _, _}),
             ?assertReceive({http, _, _}),
             ?assertReceive({http, _, _}),
             ?retry(
@@ -901,7 +1080,10 @@ check_send_is_retried(TCConfig) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_ | _], ?of_kind(http_will_retry_async, Trace)),
+            case QueryMode of
+                async -> ?assertMatch([_ | _], ?of_kind(http_will_retry_async, Trace));
+                sync -> ok
+            end,
             ok
         end
     ),
