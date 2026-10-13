@@ -141,10 +141,26 @@ handle_save_subopts(Handler0, _Context, _SubOpts) ->
 %%------------------------------------------------------------------------------
 
 subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
-    #{send_after := SendAfterFn, send := SendFn} = SubscribeCtx,
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     State = emqx_retainer:backend_state(Context),
+    case emqx_topic:wildcard(TopicFilter) orelse has_retained_message(Mod, State, TopicFilter) of
+        true ->
+            new_handler(SubscribeCtx, TopicFilter, SubOpts, Context, Mod, State);
+        false ->
+            ignore
+    end;
+subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
+    {ok, Handler}.
+
+%% A topic without wildcards matches at most one retained message, so one read tells
+%% whether a handler is needed.
+has_retained_message(Mod, State, Topic) ->
+    {ok, Messages} = Mod:read_message(State, Topic),
+    Messages =/= [].
+
+new_handler(SubscribeCtx, TopicFilter, SubOpts, Context, Mod, State) ->
+    #{send_after := SendAfterFn, send := SendFn} = SubscribeCtx,
     Limiter = get_limiter(),
     Delivered =
         case SubOpts of
@@ -166,8 +182,6 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
         delivered = Delivered
     },
     Handler = enqueue_nudge(Handler0, batch_read_num(), now),
-    {ok, Handler};
-subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
     {ok, Handler}.
 
 handle_next(#h{cursor = ?done} = Handler0, _N, _InfoCtx) ->
