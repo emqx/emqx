@@ -1324,19 +1324,51 @@ trigger_device_pid(ProductKey, DeviceName, State) ->
         {error, not_found} ->
             case local_channel(DeviceName) of
                 {ok, Pid} ->
-                    emqx_bcast:register_device(ProductKey, DeviceName, Pid),
-                    ensure_row(ProductKey, DeviceName, Pid, State#state.shard),
-                    emqx_bcast_metrics:qos1_armed_on_trigger(),
-                    ?SLOG(debug, #{
-                        msg => "bcast_trigger_armed_unregistered_device",
-                        node => node(),
-                        product_key => ProductKey,
-                        device => DeviceName
-                    }),
-                    {ok, Pid};
+                    %% local_channel/1 resolves by client id ALONE, so this can
+                    %% land on a channel of another product/namespace. Arming
+                    %% it under this request's ProductKey would deliver across
+                    %% products and bypass the filter the connection hooks
+                    %% apply; leave such a client to its own keepalive, which
+                    %% registers it under the product it really belongs to.
+                    case channel_product_key(DeviceName, Pid) of
+                        ProductKey ->
+                            emqx_bcast:register_device(ProductKey, DeviceName, Pid),
+                            ensure_row(ProductKey, DeviceName, Pid, State#state.shard),
+                            emqx_bcast_metrics:qos1_armed_on_trigger(),
+                            ?SLOG(debug, #{
+                                msg => "bcast_trigger_armed_unregistered_device",
+                                node => node(),
+                                product_key => ProductKey,
+                                device => DeviceName
+                            }),
+                            {ok, Pid};
+                        Other ->
+                            ?SLOG(debug, #{
+                                msg => "bcast_trigger_device_not_in_product",
+                                node => node(),
+                                product_key => ProductKey,
+                                channel_product_key => Other,
+                                device => DeviceName
+                            }),
+                            error
+                    end;
                 error ->
                     error
             end
+    end.
+
+%% The product the client's own channel belongs to, read from the same
+%% `client_attrs.tns` the connection hooks use (emqx_bcast:get_product_key/1).
+%% `undefined` when the channel info cannot be read: callers must treat that as
+%% "not this product" instead of arming on a guess.
+channel_product_key(DeviceName, Pid) ->
+    try emqx_cm:get_chan_info(DeviceName, Pid) of
+        #{clientinfo := ClientInfo} when is_map(ClientInfo) ->
+            emqx_bcast:get_product_key(ClientInfo);
+        _ ->
+            undefined
+    catch
+        _:_ -> undefined
     end.
 
 %% The client's channel on THIS node, if any. The global variant would return
