@@ -5,7 +5,7 @@
 
 -behaviour(gen_server).
 
-%% Replication layer API:
+%% API:
 -export([
     create_db_group/2,
     update_db_group/3,
