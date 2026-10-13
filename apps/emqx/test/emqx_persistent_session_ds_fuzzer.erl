@@ -379,7 +379,17 @@ sample(Size) ->
 cleanup() ->
     catch emqtt:stop(client_pid()),
     emqx_cm:kick_session(?clientid),
-    emqx_persistent_session_ds:session_drop(?clientid, '_', destroy, false).
+    emqx_persistent_session_ds:session_drop(?clientid, '_', destroy, false),
+    cleanup_shared_subs().
+
+cleanup_shared_subs() ->
+    %% Stop all shared subs:
+    [
+        emqx_ds_shared_sub_registry:stop_local(Share)
+     || {Share, _Pid} <- emqx_ds_shared_sub_registry:list_local()
+    ],
+    %% Purge the persistent data, which now should be fully committed:
+    emqx_ds_shared_sub_registry:purge().
 
 sut_state() ->
     emqx_persistent_session_ds:print_session(?clientid).

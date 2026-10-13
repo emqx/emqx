@@ -1651,7 +1651,7 @@ t_ds_resubscribe(init, Config) ->
     %% Disable state checkpointing for the duration of the test:
     meck:new(emqx_persistent_session_ds_state, [passthrough, no_history]),
     meck:expect(emqx_persistent_session_ds_state, commit, fun(Rec, _) ->
-        Rec#{?collection_guard := <<"mocked tx serial">>}
+        {ok, Rec#{?collection_guard := <<"mocked tx serial">>}}
     end),
     Cleanup = fun() ->
         meck:unload(emqx_persistent_session_ds_state)
