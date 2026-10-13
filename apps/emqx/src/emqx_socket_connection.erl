@@ -1524,7 +1524,7 @@ run_minor_gc() ->
     erlang:garbage_collect(self(), [{type, minor}]).
 
 check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
-    case emqx_utils:check_oom(ShutdownPolicy) of
+    case emqx_connection_util:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
             ?tp(warning, check_oom_shutdown, #{

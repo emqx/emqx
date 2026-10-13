@@ -637,16 +637,16 @@ t_get_conn_info(_) ->
 t_oom_shutdown(init, Config) ->
     ok = snabbkaffe:stop(),
     ok = snabbkaffe:start_trace(),
-    ok = meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:new(emqx_connection_util, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
-        emqx_utils,
+        emqx_connection_util,
         check_oom,
         fun(_) -> {shutdown, "fake_oom"} end
     ),
     Config;
 t_oom_shutdown('end', _Config) ->
     snabbkaffe:stop(),
-    meck:unload(emqx_utils),
+    meck:unload(emqx_connection_util),
     ok.
 
 t_oom_shutdown(_) ->
