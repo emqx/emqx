@@ -20,8 +20,22 @@
 %% [TODO] Cleanup so the instruction below is not necessary.
 -elvis([
     {elvis_style, no_god_modules, disable},
-    {elvis_style, no_common_caveats_call, disable},
-    {elvis_style, guard_operators, disable},
+    %% proc_name/2 builds registered names with list_to_atom/1.
+    {elvis_style, no_common_caveats_call, #{
+        caveat_functions => [
+            {timer, send_after, 2},
+            {timer, send_after, 3},
+            {timer, send_interval, 2},
+            {timer, send_interval, 3},
+            {erlang, size, 1},
+            {gen_statem, call, 2},
+            {gen_server, call, 2},
+            {gen_event, call, 3},
+            {erlang, binary_to_atom, 1},
+            {erlang, binary_to_atom, 2},
+            {erlang, garbage_collect, 0}
+        ]
+    }},
     {elvis_style, no_receive_without_timeout, disable}
 ]).
 
@@ -473,9 +487,9 @@ pmap(Fun, List) when is_function(Fun, 1), is_list(List) ->
 
 -spec pmap(fun((A) -> B), list(A), timeout()) -> list(B).
 pmap(Fun, List, Timeout) when
-    is_function(Fun, 1),
-    is_list(List),
-    (is_integer(Timeout) andalso Timeout >= 0 orelse Timeout =:= infinity)
+    is_function(Fun, 1) andalso
+        is_list(List) andalso
+        (is_integer(Timeout) andalso Timeout >= 0 orelse Timeout =:= infinity)
 ->
     nolink_apply(fun() -> do_parallel_map(Fun, List) end, Timeout).
 
