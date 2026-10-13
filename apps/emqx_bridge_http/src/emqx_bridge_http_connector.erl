@@ -607,13 +607,13 @@ request_with_oauth_retry(Worker, Method, Request, Timeout, Retry, State, TokenRe
 
 retry_oauth_request(Worker, Method, Request, Timeout, Retry, State, TokenRef) ->
     maybe
-        ok ?= refresh_oauth_token(State, TokenRef),
+        ok ?= ensure_oauth_token_for_retry(State, TokenRef),
         {ok, NRequest, _Ref} ?= prepare_request(Method, Request, State),
         ehttpc:request(Worker, Method, NRequest, Timeout, Retry)
     end.
 
-refresh_oauth_token(#{pool_name := ResourceId}, TokenRef) ->
-    case emqx_connector_oauth2:refresh_token(ResourceId, TokenRef) of
+ensure_oauth_token_for_retry(#{pool_name := ResourceId}, TokenRef) ->
+    case emqx_connector_oauth2:get_token_for_retry(ResourceId, TokenRef) of
         {ok, _Token} -> ok;
         {error, Reason} -> {error, {recoverable_error, {oauth2_token_unavailable, Reason}}}
     end.
@@ -1101,7 +1101,7 @@ maybe_retry(
     #{oauth2_token_ref := TokenRef, oauth2_retried := false, state := State} = Context,
     ReplyFunAndArgs
 ) when TokenRef =/= undefined ->
-    case refresh_oauth_token(State, TokenRef) of
+    case ensure_oauth_token_for_retry(State, TokenRef) of
         ok ->
             retry_async(Context#{oauth2_retried := true}, ReplyFunAndArgs);
         {error, _Reason} = Error ->
