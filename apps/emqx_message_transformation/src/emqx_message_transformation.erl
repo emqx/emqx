@@ -727,7 +727,7 @@ trace_failure(#{log_failure := #{level := Level}} = Transformation, Msg, Meta0) 
 run_message_transformation_failed_hook(Message, Transformation) ->
     #{name := Name} = Transformation,
     TransformationContext = #{name => Name},
-    emqx_hooks:run('message.transformation_failed', [Message, TransformationContext]).
+    emqx_hooks:'message.transformation_failed'(Message, TransformationContext).
 
 is_payload_properly_encoded(#message{payload = Payload}) ->
     try iolist_size(Payload) of

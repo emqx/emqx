@@ -2239,11 +2239,7 @@ do_save_subopts(S0) ->
                 SS0 =
                 emqx_persistent_session_ds_state:get_subscription_state(SSID, S1),
             SubOpts =
-                emqx_hooks:run_fold(
-                    'session.save_subopts',
-                    [#{topic_filter => TopicFilter}],
-                    SubOpts0
-                ),
+                emqx_hooks:'session.save_subopts'(#{topic_filter => TopicFilter}, SubOpts0),
             SS = SS0#{subopts := SubOpts},
             emqx_persistent_session_ds_state:put_subscription_state(SSID, SS, S1)
         end,

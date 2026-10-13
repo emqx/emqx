@@ -276,7 +276,7 @@ publish(#message{} = Msg, Opts) ->
     end.
 
 eval_hook_and_publish(Msg, Opts) ->
-    case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
+    case emqx_hooks:'message.publish'(emqx_message:clean_dup(Msg)) of
         #message{headers = #{should_disconnect := true}, topic = Topic} ->
             ?TRACE("MQTT", "msg_publish_not_allowed_disconnect", #{
                 message => emqx_message:to_log_map(Msg),
@@ -374,7 +374,7 @@ route_result({TF, Group}) ->
 -spec do_route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_result().
 do_route([], #delivery{message = Msg}, _PersistRes = []) ->
-    ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
+    ok = emqx_hooks:'message.dropped'(Msg, #{node => node()}, no_subscribers),
     ok = inc_dropped_cnt(Msg),
     ?EXT_TRACE_ADD_ATTRS(
         begin
@@ -786,7 +786,7 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
-            ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
+            ok = emqx_hooks:'message.dropped'(Msg, #{node => node()}, no_subscribers),
             ok = inc_dropped_cnt(Msg),
             {error, no_subscribers};
         _ ->

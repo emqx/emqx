@@ -244,7 +244,7 @@ do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     true = ets:delete(?CHAN_CONN_TAB, ChanPid),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan),
-    ok = emqx_hooks:run('cm.channel.unregistered', [ChanPid]).
+    ok = emqx_hooks:'cm.channel.unregistered'(ChanPid).
 
 %% @doc Get info of a channel.
 -spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
