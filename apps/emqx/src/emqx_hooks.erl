@@ -353,6 +353,8 @@ unstash_context(Name) ->
 %%
 %% By default, callbacks are executed in the channel process context.
 
+-compile({inline, [lookup/1]}).
+
 -spec 'alarm.activated'(alarm_activated_context()) ->
     ok.
 'alarm.activated'(Context) ->
