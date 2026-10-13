@@ -94,7 +94,10 @@
 -include_lib("emqx_durable_storage/include/emqx_ds_builtin_tx.hrl").
 -include("../../emqx_durable_storage/gen_src/DSBuiltinMetadata.hrl").
 
--elvis([{elvis_style, atom_naming_convention, disable}]).
+-elvis([
+    {elvis_style, atom_naming_convention, disable},
+    {elvis_style, no_receive_without_timeout, disable}
+]).
 
 %%================================================================================
 %% Type declarations

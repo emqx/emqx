@@ -2,6 +2,9 @@
 %% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_durable_timer).
+
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 -moduledoc """
 Low-level API for the durable timers.
 

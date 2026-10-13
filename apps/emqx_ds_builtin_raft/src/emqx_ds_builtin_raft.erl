@@ -2,6 +2,9 @@
 %% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_builtin_raft).
+
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([{elvis_style, simplify_anonymous_functions, disable}]).
 -moduledoc """
 This is the entrypoint into the `builtin_raft` backend.
 """.

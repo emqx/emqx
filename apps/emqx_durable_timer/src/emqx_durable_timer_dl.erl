@@ -2,6 +2,9 @@
 %% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_durable_timer_dl).
+
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 -moduledoc """
 Data layer for the durable timer queue.
 

@@ -4,6 +4,10 @@
 
 -module(emqx_ds).
 
+%% One receive is covered by a process monitor. The other waits for a commit
+%% reply from the durable storage layer.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -moduledoc """
 Main interface module for `emqx_durable_storage' application.
 

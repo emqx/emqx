@@ -4,6 +4,9 @@
 
 -module(emqx_plugins_apps).
 
+%% The timeout is implemented with a timer message, not with an after clause.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").

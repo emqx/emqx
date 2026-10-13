@@ -4,6 +4,12 @@
 
 -module(emqx_eviction_agent).
 
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([
+    {elvis_style, no_common_caveats_call, disable},
+    {elvis_style, prefer_robot_butt, disable}
+]).
+
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").

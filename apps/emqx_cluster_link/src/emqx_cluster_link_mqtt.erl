@@ -3,6 +3,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_cluster_link_mqtt).
 
+%% The resource id variable is spelled both Id and ID in this module.
+-elvis([{elvis_style, consistent_variable_naming, disable}]).
+
 -include("emqx_cluster_link.hrl").
 -include("emqx_cluster_link_internal.hrl").
 
