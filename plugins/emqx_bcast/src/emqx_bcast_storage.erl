@@ -14,7 +14,7 @@
 ]).
 
 %% Promotion primitives for the async intake path (emqx_bcast_promoter).
--export([promote_batch/1, promote_entry_tx/1]).
+-export([promote_batch/1, promote_entry_tx/1, committed_delivery_ids/1]).
 
 %% Delivery / index facade: the per-device pending index lives in the
 %% in-memory state of the ?SHARD_COUNT emqx_bcast_index_owner shard
@@ -252,24 +252,65 @@ promote_group_tx(Entries) ->
                 Entries
             ),
             Dropped = [{delivery_id(Entry), deleted} || Entry <- Stale],
-            case Live of
+            %% An entry whose rows were already committed is never written
+            %% again, whatever removed them since. Every purge path (the TTL
+            %% reaper, a completed delivery, a management delete) deletes the
+            %% meta row, so a retried batch that trusted "no meta row = never
+            %% promoted" would re-create the delivery and deliver a message
+            %% that already expired, was already delivered, or was deleted.
+            {Committed, Fresh} = lists:partition(
+                fun(Entry) -> maps:get(promoted, Entry, false) end,
+                Live
+            ),
+            CommittedResults = committed_results(Committed),
+            case Fresh of
                 [] ->
-                    Dropped;
+                    Dropped ++ CommittedResults;
                 _ ->
                     {Creators, Reusers} = lists:partition(
                         fun(Entry) -> maps:get(can_create, Entry, true) end,
-                        Live
+                        Fresh
                     ),
                     case {message_row_exists(HashRow), Creators} of
                         {true, _} ->
-                            Dropped ++ promote_entries(Live);
+                            Dropped ++ CommittedResults ++ promote_entries(Fresh);
                         {false, []} ->
-                            Dropped ++ dropped_results(Live);
+                            Dropped ++ CommittedResults ++ dropped_results(Fresh);
                         {false, _} ->
-                            Dropped ++ dropped_results(Reusers) ++ promote_entries(Creators)
+                            Dropped ++ CommittedResults ++ dropped_results(Reusers) ++
+                                promote_entries(Creators)
                     end
             end
     end.
+
+%% An entry that already wrote its rows: report what is still durable, so the
+%% promoter keeps appending and triggering a delivery that survived, and report
+%% one whose rows are gone as `deleted` - there is nothing left to append and
+%% its admission reservation has to be released.
+committed_results(Entries) ->
+    [
+        case mnesia:wread({?TAB_MSG_META, delivery_id(Entry)}) of
+            [_] -> {delivery_id(Entry), already_promoted};
+            [] -> {delivery_id(Entry), deleted}
+        end
+     || Entry <- Entries
+    ].
+
+%% Which of these entries already have their delivery rows committed. The
+%% promoter uses it on the crash path, where the per-entry results are lost and
+%% the durable rows are the only evidence of what was written.
+-spec committed_delivery_ids([map()]) -> [delivery_id()].
+committed_delivery_ids(Entries) ->
+    lists:filtermap(
+        fun(Entry) ->
+            DeliveryId = delivery_id(Entry),
+            case mnesia:dirty_read(?TAB_MSG_META, DeliveryId) of
+                [_] -> {true, DeliveryId};
+                [] -> false
+            end
+        end,
+        Entries
+    ).
 
 dropped_results(Entries) ->
     [{delivery_id(Entry), deleted} || Entry <- Entries].

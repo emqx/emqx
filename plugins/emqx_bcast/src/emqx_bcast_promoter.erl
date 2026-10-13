@@ -104,9 +104,9 @@ handle_info(drain, State = #{failures := Failures, pending := Pending}) ->
                 {done, F} ->
                     erlang:send_after(0, self(), drain),
                     {noreply, State#{failures => F, pending => undefined}};
-                {retry, F} ->
+                {retry, F, Batch1} ->
                     erlang:send_after(?RETRY_BACKOFF_MS, self(), drain),
-                    {noreply, State#{failures => F, pending => Batch}}
+                    {noreply, State#{failures => F, pending => Batch1}}
             end
     end;
 handle_info(_Info, State) ->
@@ -128,9 +128,9 @@ worker_process(Batch, Failures) ->
     case process_batch_guarded(Batch, Failures) of
         {done, F} ->
             worker_loop(F);
-        {retry, F} ->
+        {retry, F, Batch1} ->
             timer:sleep(?RETRY_BACKOFF_MS),
-            worker_process(Batch, F)
+            worker_process(Batch1, F)
     end.
 
 handle_call(_Req, _From, State) ->
@@ -173,11 +173,11 @@ process_batch_guarded(Batch, Failures) ->
                 true ->
                     defer_batch(
                         "bcast_promoter_crash_deferred",
-                        [Entry || {_Seq, Entry} <- Batch],
+                        batch_entries(mark_committed(Batch)),
                         {Error, Reason}
                     );
                 false ->
-                    {retry, Failures + 1}
+                    {retry, Failures + 1, mark_committed(Batch)}
             end
     end.
 
@@ -235,6 +235,14 @@ process_batch(Batch, Failures) ->
                 Entry
              || {Result, Entry} <- lists:zip(Results, Entries), Result =:= deleted
             ],
+            %% Everything that committed must never be created again. The mark
+            %% rides along with the entry through this retry and through a
+            %% requeue, so a later promotion of the same entry can no longer
+            %% write back rows that were purged in the meantime - which the
+            %% storage would otherwise read as "never promoted".
+            RetryBatch = mark_promoted(
+                Batch, [maps:get(delivery_id, Entry) || Entry <- Promoted ++ AlreadyPromoted]
+            ),
             ok = release_deleted_admits(Deleted),
             %% The batch was already dequeued by the atomic take; the append
             %% completes the promotion. On failure the worker retries the
@@ -281,7 +289,7 @@ process_batch(Batch, Failures) ->
                     }),
                     case Attempts >= ?APPEND_RETRY_MAX of
                         false ->
-                            {retry, Attempts};
+                            {retry, Attempts, RetryBatch};
                         true ->
                             %% Out of in-worker budget: hand the batch back to
                             %% the intake queue with a backoff and free this
@@ -289,7 +297,11 @@ process_batch(Batch, Failures) ->
                             %% module comment), and holding the worker is what
                             %% wedges the whole drain path once every worker
                             %% holds a permanently failing batch.
-                            defer_batch("bcast_promoter_append_deferred", Entries, Error)
+                            defer_batch(
+                                "bcast_promoter_append_deferred",
+                                batch_entries(RetryBatch),
+                                Error
+                            )
                     end
             end;
         {error, Reason} ->
@@ -306,9 +318,34 @@ process_batch(Batch, Failures) ->
                     %% a backoff instead of dropping accepted requests.
                     defer_batch("bcast_promoter_promote_deferred", Entries, Reason);
                 false ->
-                    {retry, Failures + 1}
+                    %% Nothing was written by this attempt, so no new mark: the
+                    %% batch already carries the marks of earlier attempts.
+                    {retry, Failures + 1, Batch}
             end
     end.
+
+%% The entries of a batch, in order.
+batch_entries(Batch) ->
+    [Entry || {_Seq, Entry} <- Batch].
+
+%% Mark the entries whose delivery rows are already committed, so a later retry
+%% or re-take of this batch can no longer create them (the storage then reads a
+%% missing row as "gone", not as "never promoted").
+mark_promoted(Batch, DeliveryIds) ->
+    Committed = maps:from_list([{DeliveryId, true} || DeliveryId <- DeliveryIds]),
+    [
+        case maps:is_key(maps:get(delivery_id, Entry), Committed) of
+            true -> {Seq, emqx_bcast_intake:mark_promoted(Entry)};
+            false -> {Seq, Entry}
+        end
+     || {Seq, Entry} <- Batch
+    ].
+
+%% A crash can land after the mria commit and before the append (see the module
+%% comment), so on that path the durable rows - not the results we never got -
+%% decide which entries committed.
+mark_committed(Batch) ->
+    mark_promoted(Batch, emqx_bcast_storage:committed_delivery_ids(batch_entries(Batch))).
 
 %% Hand a batch the worker cannot finish back to the intake queue for a later
 %% retry, and free the worker. Used for three faults that share the same
