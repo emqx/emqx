@@ -113,7 +113,7 @@ end_per_testcase(TestCase, Config) ->
 t_ws_pingreq_before_connected(_) ->
     ?assertMatch(
         {ok, [_, {close, protocol_error}], _},
-        handle_msg({incoming, ?PACKET(?PINGREQ)}, st(#{}, #{conn_state => disconnected}))
+        handle_msg({incoming, ?PACKET(?PINGREQ)}, st(#{}, #{conn_state => idle}))
     ).
 
 t_info(_) ->
