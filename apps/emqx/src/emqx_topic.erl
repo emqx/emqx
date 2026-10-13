@@ -59,6 +59,9 @@
 %%--------------------------------------------------------------------
 
 %% @doc Is wildcard topic?
+%% A level is a wildcard when it is +, or when it is # and the last level. The function does
+%% not validate the topic. A caller that gets the topic from a client or a user must call
+%% validate/1 or validate/2.
 -spec wildcard(topic() | share() | words()) -> true | false.
 wildcard(#share{topic = Topic}) when is_binary(Topic) ->
     wildcard(Topic);
@@ -66,7 +69,7 @@ wildcard(Topic) when is_binary(Topic) ->
     is_wildcard(Topic);
 wildcard([]) ->
     false;
-wildcard(['#' | _]) ->
+wildcard(['#']) ->
     true;
 wildcard(['+' | _]) ->
     true;

@@ -233,6 +233,16 @@ t_bad_reqs(_) ->
         )
     ),
 
+    %% # before the last level
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            post,
+            uri(["mqtt", "topic_metrics"]),
+            #{<<"topic">> => <<"foo/#/bar">>}
+        )
+    ),
+
     {ok, 200, _} = request(
         post,
         uri(["mqtt", "topic_metrics"]),

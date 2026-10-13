@@ -472,6 +472,9 @@ reason2httpresp(#{cause := wildcard_not_supported, topic := Topic}) when is_bina
         Topic
     ]),
     {400, #{code => ?BAD_TOPIC, message => Msg}};
+reason2httpresp(#{cause := invalid_topic_name, topic := Topic}) when is_binary(Topic) ->
+    Msg = iolist_to_binary(["Invalid topic name for topic metrics: ", Topic]),
+    {400, #{code => ?BAD_TOPIC, message => Msg}};
 reason2httpresp(already_existed) ->
     Msg = <<"Topic already registered">>,
     {400, #{code => ?BAD_TOPIC, message => Msg}};

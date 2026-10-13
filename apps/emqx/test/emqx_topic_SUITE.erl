@@ -79,14 +79,14 @@ t_wildcard_binary_levels(_) ->
     ).
 
 -doc """
-A `#` level that is not the last level does not make a binary topic a wildcard, because `#` is
-valid only as the last level. The word-list form still returns true for these topics.
+A `#` level that is not the last level does not make a topic a wildcard, because `#` is valid
+only as the last level. The binary form and the word-list form give the same result.
 """.
-t_wildcard_binary_hash_not_last(_) ->
+t_wildcard_hash_not_last(_) ->
     lists:foreach(
         fun(Topic) ->
             ?assertEqual({Topic, false}, {Topic, wildcard(Topic)}),
-            ?assertEqual({Topic, true}, {Topic, wildcard(words(Topic))})
+            ?assertEqual({Topic, false}, {Topic, wildcard(words(Topic))})
         end,
         [<<"#/a">>, <<"a/#/b">>, <<"abcdefghijklm/#/opqrstu">>]
     ).
