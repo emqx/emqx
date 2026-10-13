@@ -201,51 +201,155 @@ t_message_ingress(Config) ->
     end,
     emqx_nats_client:stop(Client).
 
-t_jwt_before_emqx_authz_after_ingress(_) ->
-    SourceTopic = <<"source">>,
-    RewrittenTopic = <<"target">>,
-    TestPid = self(),
+t_jwt_before_ingress_and_emqx_authz(Config) ->
+    JWTConfig = emqx_nats_protocol_SUITE:jwt_auth_setup([
+        {client_opts, maps:merge(tcp_client_opts(Config), #{headers => true})} | Config
+    ]),
+    RewrittenTopic = <<"target/a.b">>,
+    ok = emqx:subscribe(RewrittenTopic),
+    emqx_common_test_helpers:on_exit(fun() -> emqx:unsubscribe(RewrittenTopic) end),
     ok = emqx_hooks:put(
         'message.ingress',
-        {?MODULE, hook_message_ingress, [TestPid, RewrittenTopic]},
+        {?MODULE, hook_message_ingress, [self(), RewrittenTopic]},
         ?HP_HIGHEST
     ),
+    try
+        lists:foreach(
+            fun(Op) ->
+                assert_jwt_ingress_publish(JWTConfig, Op, <<"source.blocked">>, allow, jwt_deny),
+                assert_jwt_ingress_publish(JWTConfig, Op, <<"source.allowed">>, allow, allow),
+                assert_jwt_ingress_publish(JWTConfig, Op, <<"source.allowed">>, deny, acl_deny)
+            end,
+            [pub, hpub]
+        )
+    after
+        emqx_nats_protocol_SUITE:jwt_auth_cleanup(JWTConfig)
+    end.
+
+assert_jwt_ingress_publish(Config, Op, Subject, ACLDecision, Expected) ->
     ok = emqx_hooks:put(
         'client.authorize',
-        {?MODULE, hook_authorize_order, [TestPid]},
+        {?MODULE, hook_authorize_order, [self(), ACLDecision]},
         ?HP_HIGHEST
     ),
-    Msg = emqx_message:make(<<"client">>, SourceTopic, <<"payload">>),
-    DenyingClientInfo = nats_authz_clientinfo(#{
-        publish => #{allow => [SourceTopic], deny => [RewrittenTopic]}
-    }),
-    deny = emqx_nats_channel:authorize_publish(DenyingClientInfo, Msg),
-    receive
-        {message_ingress, _, #message{topic = SourceTopic}} -> ok
-    after 1000 ->
-        ct:fail(message_ingress_hook_not_called)
-    end,
-    receive
-        {emqx_authorize, Topic} -> ct:fail({unexpected_emqx_authorize, Topic})
-    after 100 ->
-        ok
-    end,
-
-    AllowingClientInfo = nats_authz_clientinfo(#{
-        publish => #{allow => [RewrittenTopic], deny => []}
-    }),
-    {allow, #message{topic = RewrittenTopic}} =
-        emqx_nats_channel:authorize_publish(AllowingClientInfo, Msg),
-    receive
-        {message_ingress, _, #message{topic = SourceTopic}} -> ok
-    after 1000 ->
-        ct:fail(message_ingress_hook_not_called)
-    end,
-    receive
-        {emqx_authorize, RewrittenTopic} -> ok
-    after 1000 ->
-        ct:fail(emqx_authorize_hook_not_called)
+    %% The JWT controls the original subject, including a deny for the rewrite's namespace.
+    Client = emqx_nats_protocol_SUITE:nats_permission_client(
+        Config, [<<"source.>">>], [<<"source.blocked">>, <<"target.>">>]
+    ),
+    try
+        case Op of
+            pub ->
+                ok = emqx_nats_client:publish(Client, Subject, <<"payload">>);
+            hpub ->
+                ok = send_hpub(
+                    Client, Subject, undefined, #{<<"test">> => <<"header">>}, <<"payload">>
+                )
+        end,
+        Frame = emqx_nats_protocol_SUITE:recv_non_ping_frame(Client),
+        case Expected of
+            jwt_deny ->
+                emqx_nats_protocol_SUITE:assert_permissions_violation(Frame, publish, Subject);
+            _ ->
+                receive
+                    {message_ingress, _, IngressMsg} ->
+                        ?assertEqual(
+                            emqx_nats_topic:nats_to_mqtt_publish(Subject),
+                            emqx_message:topic(IngressMsg)
+                        ),
+                        ?assertEqual(<<"payload">>, emqx_message:payload(IngressMsg))
+                after 1000 ->
+                    ct:fail(message_ingress_hook_not_called)
+                end,
+                receive
+                    {emqx_authorize, <<"target/a.b">>} -> ok
+                after 1000 ->
+                    ct:fail(emqx_authorize_hook_not_called)
+                end,
+                case Expected of
+                    allow ->
+                        ?assertEqual(?OP_OK, emqx_nats_frame:type(Frame)),
+                        receive
+                            {deliver, <<"target/a.b">>, PublishedMsg} ->
+                                ?assertEqual(<<"payload">>, emqx_message:payload(PublishedMsg)),
+                                ?assertEqual(true, emqx_message:get_header(ingress, PublishedMsg)),
+                                case Op of
+                                    hpub ->
+                                        ?assertEqual(
+                                            #{<<"test">> => <<"header">>},
+                                            emqx_message:get_header(nats_headers, PublishedMsg)
+                                        );
+                                    pub ->
+                                        ok
+                                end
+                        after 1000 ->
+                            ct:fail(message_not_published)
+                        end;
+                    acl_deny ->
+                        emqx_nats_protocol_SUITE:assert_permissions_violation(
+                            Frame, publish, Subject
+                        )
+                end
+        end,
+        receive
+            {message_ingress, _, _} -> ct:fail(unexpected_ingress);
+            {emqx_authorize, Topic} -> ct:fail({unexpected_emqx_authorize, Topic});
+            {deliver, Topic, _} -> ct:fail({unexpected_publish, Topic})
+        after 100 ->
+            ok
+        end
+    after
+        emqx_nats_client:stop(Client)
     end.
+
+t_invalid_jwt_permission_fails_closed(_) ->
+    ClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [<<"orders.>">>], deny => [<<"orders/#">>]}
+    }),
+    ?assertEqual(
+        deny,
+        emqx_nats_channel:jwt_permissions_authorize(
+            ClientInfo, #{action_type => publish}, undefined, <<"orders.created">>
+        )
+    ).
+
+t_jwt_multi_level_wildcard_requires_child(_) ->
+    ClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [<<"foo.>">>], deny => []}
+    }),
+    Action = #{action_type => publish},
+    ?assertEqual(
+        deny,
+        emqx_nats_channel:jwt_permissions_authorize(ClientInfo, Action, undefined, <<"foo">>)
+    ),
+    ?assertEqual(
+        allow,
+        emqx_nats_channel:jwt_permissions_authorize(ClientInfo, Action, undefined, <<"foo.bar">>)
+    ).
+
+t_jwt_subscription_checks_actual_filter(_) ->
+    ClientInfo = nats_authz_clientinfo(#{
+        subscribe => #{allow => [<<"foo">>], deny => []}
+    }),
+    Action = #{action_type => subscribe},
+    ?assertEqual(
+        allow,
+        emqx_nats_channel:jwt_permissions_authorize(ClientInfo, Action, <<"foo">>, <<"foo">>)
+    ),
+    ?assertEqual(
+        allow,
+        emqx_nats_channel:jwt_permissions_authorize(
+            ClientInfo, Action, emqx_topic:make_shared_record(<<"group">>, <<"foo">>), <<"foo">>
+        )
+    ),
+    ?assertEqual(
+        deny,
+        emqx_nats_channel:jwt_permissions_authorize(
+            ClientInfo,
+            Action,
+            emqx_topic:make_shared_record(<<"group">>, <<"secret/foo">>),
+            <<"foo">>
+        )
+    ).
 
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
@@ -484,9 +588,9 @@ hook_message_ingress(Ctx, Msg, TestPid, RewrittenTopic) ->
     TestPid ! {message_ingress, Ctx, Msg},
     {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
 
-hook_authorize_order(_AuthzContext, _Action, Topic, _Default, TestPid) ->
+hook_authorize_order(_AuthzContext, _Action, Topic, _Default, TestPid, Decision) ->
     TestPid ! {emqx_authorize, Topic},
-    {stop, #{result => allow, from => test}}.
+    {stop, #{result => Decision, from => test}}.
 
 %%--------------------------------------------------------------------
 %% Helpers

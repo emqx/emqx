@@ -86,6 +86,25 @@ dirty_io_schedulers_test() ->
     ),
     ok.
 
+%% `node.schedulers = auto' resolves to the smaller of the available logical
+%% processors and the CPU quota.
+auto_schedulers_test() ->
+    Cases = [
+        %% {logical_processors_available, cpu_quota, expected}
+        {20, unknown, 20},
+        {20, 4, 4},
+        {20, 1, 1},
+        {4, 4, 4},
+        {4, 8, 4}
+    ],
+    lists:foreach(
+        fun({Available, Quota, Expected}) ->
+            ?assertEqual(Expected, emqx_conf_schema:auto_schedulers(Available, Quota))
+        end,
+        Cases
+    ),
+    ok.
+
 get_dirty_io_schedulers_from_conf(Schedulers, DirtyIo) ->
     Extra = to_bin("node { schedulers = ~p, dirty_io_schedulers = ~p }", [Schedulers, DirtyIo]),
     BaseConf = to_bin(?BASE_CONF, [["emqx1@127.0.0.1"]]),

@@ -160,8 +160,10 @@ t_cancel_lock_with_cli(_Config) ->
     ).
 
 t_cleanup(_) ->
-    %% Set small timeouts for records
-    emqx_config:put([dashboard, unsuccessful_login_lock_duration], 1),
+    %% Short interval, so the attempt records this case asserts on are
+    %% cleaned up quickly. The lock deadline is truncated to whole seconds,
+    %% so a 1s lock can expire before the assertion below; keep it long.
+    emqx_config:put([dashboard, unsuccessful_login_lock_duration], 60),
     emqx_config:put([dashboard, unsuccessful_login_interval], 1),
 
     %% make 5 unsuccessful logins to lock the account
