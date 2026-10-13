@@ -268,7 +268,8 @@ run_conn_hooks(
 ) ->
     %% XXX: Assign headers of Packet to ConnProps
     ConnProps = #{},
-    case run_hooks(Ctx, 'client.connect', [ConnInfo], ConnProps) of
+    emqx_gateway_ctx:metrics_inc(Ctx, 'client.connect'),
+    case emqx_hooks:'client.connect'(ConnInfo, ConnProps) of
         Error = {error, _Reason} -> Error;
         _NConnProps -> {ok, Packet, Channel}
     end.
@@ -369,7 +370,8 @@ ensure_connected(
     }
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
-    ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
+    emqx_gateway_ctx:metrics_inc(Ctx, 'client.connected'),
+    emqx_hooks:'client.connected'(ClientInfo, NConnInfo),
     schedule_connection_expire(Channel#channel{
         conninfo = NConnInfo,
         conn_state = connected
@@ -1139,11 +1141,7 @@ handle_frame_error(Reason, Channel) ->
 
 after_message_acked(ClientInfo, Msg, #channel{ctx = Ctx}) ->
     ok = metrics_inc(Ctx, 'messages.acked'),
-    run_hooks_without_metrics(
-        Ctx,
-        'message.acked',
-        [ClientInfo, emqx_message:set_header(puback_props, #{}, Msg)]
-    ).
+    emqx_hooks:'message.acked'(ClientInfo, emqx_message:set_header(puback_props, #{}, Msg)).
 
 outgoing_and_update(Pkt) ->
     [{outgoing, Pkt}, {event, update}].
@@ -1435,14 +1433,8 @@ run_client_subs_hook(
 ) ->
     {TopicName1, SubOpts0} = emqx_topic:parse(TopicName),
     TopicFilters = [{TopicName1, SubOpts0#{qos => QoS}}],
-    case
-        run_hooks(
-            Ctx,
-            'client.subscribe',
-            [ClientInfo, #{}],
-            TopicFilters
-        )
-    of
+    emqx_gateway_ctx:metrics_inc(Ctx, 'client.subscribe'),
+    case emqx_hooks:'client.subscribe'(ClientInfo, #{}, TopicFilters) of
         [] ->
             ?SLOG(warning, #{
                 msg => "skip_to_subscribe",
@@ -1524,14 +1516,8 @@ run_client_unsub_hook(
     }
 ) ->
     TopicFilters = [emqx_topic:parse(TopicName)],
-    case
-        run_hooks(
-            Ctx,
-            'client.unsubscribe',
-            [ClientInfo, #{}],
-            TopicFilters
-        )
-    of
+    emqx_gateway_ctx:metrics_inc(Ctx, 'client.unsubscribe'),
+    case emqx_hooks:'client.unsubscribe'(ClientInfo, #{}, TopicFilters) of
         [] ->
             {ok, [], Channel};
         NTopicFilters ->
@@ -1697,12 +1683,8 @@ handle_out(
     ?SN_RC_ACCEPTED,
     Channel = #channel{ctx = Ctx, conninfo = ConnInfo}
 ) ->
-    _ = run_hooks(
-        Ctx,
-        'client.connack',
-        [ConnInfo, returncode_name(?SN_RC_ACCEPTED)],
-        #{}
-    ),
+    Reason = returncode_name(?SN_RC_ACCEPTED),
+    _ = run_connack_hooks(Ctx, ConnInfo, Reason),
     return_connack(
         ?SN_CONNACK_MSG(?SN_RC_ACCEPTED),
         ensure_keepalive(Channel)
@@ -1713,7 +1695,7 @@ handle_out(
     Channel = #channel{ctx = Ctx, conninfo = ConnInfo}
 ) ->
     Reason = returncode_name(ReasonCode),
-    _ = run_hooks(Ctx, 'client.connack', [ConnInfo, Reason], #{}),
+    _ = run_connack_hooks(Ctx, ConnInfo, Reason),
     AckPacket = ?SN_CONNACK_MSG(ReasonCode),
     shutdown(Reason, AckPacket, Channel);
 handle_out(publish, [], Channel) ->
@@ -1873,12 +1855,7 @@ do_deliver(
     }
 ) ->
     metrics_inc(Ctx, 'messages.delivered'),
-    Msg1 = run_hooks_without_metrics(
-        Ctx,
-        'message.delivered',
-        [ClientInfo],
-        emqx_message:update_expiry(Msg)
-    ),
+    Msg1 = emqx_hooks:'message.delivered'(ClientInfo, emqx_message:update_expiry(Msg)),
     Msg2 = emqx_mountpoint:unmount(Mountpoint, Msg1),
     message_to_packet(MsgId, Msg2, Channel);
 do_deliver(Publishes, Channel) when is_list(Publishes) ->
@@ -2277,11 +2254,8 @@ ensure_disconnected(
     }
 ) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
-    ok = run_hooks(
-        Ctx,
-        'client.disconnected',
-        [ClientInfo, Reason, NConnInfo]
-    ),
+    emqx_gateway_ctx:metrics_inc(Ctx, 'client.disconnected'),
+    emqx_hooks:'client.disconnected'(ClientInfo, Reason, NConnInfo),
     disconnect_session(Channel#channel{conninfo = NConnInfo, conn_state = disconnected}).
 
 disconnect_session(Channel = #channel{session = undefined}) ->
@@ -2680,19 +2654,9 @@ interval(expire_awaiting_rel, #channel{session = Session}) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-run_hooks(Ctx, Name, Args) ->
-    emqx_gateway_ctx:metrics_inc(Ctx, Name),
-    emqx_hooks:run(Name, Args).
-
-run_hooks(Ctx, Name, Args, Acc) ->
-    emqx_gateway_ctx:metrics_inc(Ctx, Name),
-    emqx_hooks:run_fold(Name, Args, Acc).
-
-run_hooks_without_metrics(_Ctx, Name, Args) ->
-    emqx_hooks:run(Name, Args).
-
-run_hooks_without_metrics(_Ctx, Name, Args, Acc) ->
-    emqx_hooks:run_fold(Name, Args, Acc).
+run_connack_hooks(Ctx, ConnInfo, Reason) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, 'client.connack'),
+    emqx_hooks:'client.connack'(ConnInfo, Reason, #{}).
 
 metrics_inc(Ctx, Name) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).

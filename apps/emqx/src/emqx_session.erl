@@ -352,9 +352,10 @@ subscribe(ClientInfo, TopicFilter, SubOpts, Session) ->
     SubOpts0 = ?IMPL(Session):get_subscription(TopicFilter, Session),
     case ?IMPL(Session):subscribe(ClientInfo, TopicFilter, SubOpts, Session) of
         {ok, Session1} ->
-            ok = emqx_hooks:run(
-                'session.subscribed',
-                [ClientInfo, TopicFilter, SubOpts#{is_new => (SubOpts0 == undefined)}]
+            ok = emqx_hooks:'session.subscribed'(
+                ClientInfo,
+                TopicFilter,
+                SubOpts#{is_new => (SubOpts0 == undefined)}
             ),
             {ok, Session1};
         {error, RC} ->
@@ -376,9 +377,10 @@ unsubscribe(
 ) ->
     case ?IMPL(Session):unsubscribe(ClientInfo, TopicFilter, Session) of
         {ok, Session1, SubOpts} ->
-            ok = emqx_hooks:run(
-                'session.unsubscribed',
-                [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]
+            ok = emqx_hooks:'session.unsubscribed'(
+                ClientInfo,
+                TopicFilter,
+                maps:merge(SubOpts, UnSubOpts)
             ),
             {ok, Session1};
         {error, RC} ->
@@ -631,7 +633,8 @@ handle_signal(ClientInfo, Signal, Session) ->
 -spec disconnect(clientinfo(), conninfo(), t()) ->
     {idle | shutdown, effects(), t()}.
 disconnect(ClientInfo, ConnInfo, Session) ->
-    run_hook('session.disconnected', [ClientInfo, info(Session)]),
+    emqx_metrics:inc_global('session.disconnected'),
+    emqx_hooks:'session.disconnected'(ClientInfo, info(Session)),
     ?IMPL(Session):disconnect(Session, ConnInfo).
 
 -spec terminate(clientinfo(), Reason :: term(), t()) ->
@@ -642,11 +645,14 @@ terminate(ClientInfo, Reason, Session) ->
     ok.
 
 run_terminate_hooks(ClientInfo, discarded, Session) ->
-    run_hook('session.discarded', [ClientInfo, info(Session)]);
+    emqx_metrics:inc_global('session.discarded'),
+    emqx_hooks:'session.discarded'(ClientInfo, info(Session));
 run_terminate_hooks(ClientInfo, takenover, Session) ->
-    run_hook('session.takenover', [ClientInfo, info(Session)]);
+    emqx_metrics:inc_global('session.takenover'),
+    emqx_hooks:'session.takenover'(ClientInfo, info(Session));
 run_terminate_hooks(ClientInfo, Reason, Session) ->
-    run_hook('session.terminated', [ClientInfo, Reason, info(Session)]).
+    emqx_metrics:inc_global('session.terminated'),
+    emqx_hooks:'session.terminated'(ClientInfo, Reason, info(Session)).
 
 %%--------------------------------------------------------------------
 %% Session Info
@@ -675,16 +681,13 @@ stats(Session) ->
 %%--------------------------------------------------------------------
 
 on_delivery_completed(Msg, ReasonCode, #{clientid := ClientId}, Session) ->
-    emqx_hooks:run(
-        'delivery.completed',
-        [
-            Msg,
-            #{
-                session_birth_time => ?IMPL(Session):info(created_at, Session),
-                clientid => ClientId,
-                reason_code => ReasonCode
-            }
-        ]
+    emqx_hooks:'delivery.completed'(
+        Msg,
+        #{
+            session_birth_time => ?IMPL(Session):info(created_at, Session),
+            clientid => ClientId,
+            reason_code => ReasonCode
+        }
     ).
 
 %% NOTE
@@ -697,15 +700,12 @@ on_maybe_delivery_completed_qos0(Replies, #{clientid := ClientId}, Session) ->
         fun({_PacketId, Msg}) ->
             case Msg of
                 #message{qos = ?QOS_0} ->
-                    emqx_hooks:run(
-                        'delivery.completed',
-                        [
-                            Msg,
-                            #{
-                                session_birth_time => ?IMPL(Session):info(created_at, Session),
-                                clientid => ClientId
-                            }
-                        ]
+                    emqx_hooks:'delivery.completed'(
+                        Msg,
+                        #{
+                            session_birth_time => ?IMPL(Session):info(created_at, Session),
+                            clientid => ClientId
+                        }
                     );
                 _ ->
                     ok
@@ -725,7 +725,7 @@ on_dropped_qos2_msg(PacketId, Msg, RC) ->
         #{topic => Msg#message.topic}
     ),
     ok = emqx_metrics:inc_global('messages.dropped'),
-    ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, emqx_reason_codes:name(RC)]),
+    ok = emqx_hooks:'message.dropped'(Msg, #{node => node()}, emqx_reason_codes:name(RC)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -776,11 +776,6 @@ choose_impl_candidates(#{zone := Zone}, #{expiry_interval := EI}) ->
                     [emqx_persistent_session_ds]
             end
     end.
-
--compile({inline, [run_hook/2]}).
-run_hook(Name, Args) ->
-    ok = emqx_metrics:inc_global(Name),
-    emqx_hooks:run(Name, Args).
 
 -compile({inline, [run_hook_with_conninfo/3]}).
 run_hook_with_conninfo(Name, ConnInfo, Args) ->

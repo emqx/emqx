@@ -139,7 +139,7 @@ on_file_command(Mode, From, PacketId, Msg, Topic) ->
                 validate([{fileid, FileIdIn}], fun([FileId]) ->
                     do_on_file_command(TopicReplyData, FileId, Msg, Rest)
                 end);
-            [] ->
+            _ ->
                 ?ACK_AND_PUBLISH({error, {invalid_topic, Topic}})
         end,
     maybe_publish_response(Result, TopicReplyData).
@@ -154,7 +154,9 @@ do_on_file_command(TopicReplyData, FileId, Msg, FileCommand) ->
                     on_init(TopicReplyData, Msg, Transfer, Meta)
                 end
             );
-        [<<"fin">>, FinalSizeBin | MaybeChecksum] when length(MaybeChecksum) =< 1 ->
+        [<<"fin">>, FinalSizeBin | MaybeChecksum] when
+            MaybeChecksum =:= [] orelse tl(MaybeChecksum) =:= []
+        ->
             ChecksumBin = emqx_maybe:from_list(MaybeChecksum),
             validate(
                 [{size, FinalSizeBin}, {{option, checksum}, ChecksumBin}],

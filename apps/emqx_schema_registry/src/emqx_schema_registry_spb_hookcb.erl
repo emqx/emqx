@@ -44,7 +44,11 @@ unregister_hooks() ->
 
 -spec on_message_publish_alias_mapping(emqx_types:message()) -> ok.
 on_message_publish_alias_mapping(#message{} = Message) ->
-    case emqx_schema_registry_config:is_alias_mapping_enabled() andalso is_client_process() of
+    case
+        is_spb_topic(Message) andalso
+            emqx_schema_registry_config:is_alias_mapping_enabled() andalso
+            is_client_process()
+    of
         true ->
             do_on_message_publish(Message);
         false ->
@@ -63,6 +67,13 @@ on_message_publish_alias_mapping(#message{} = Message) ->
 is_client_process() ->
     case proc_lib:get_label(self()) of
         {clientid, _} -> true;
+        _ -> false
+    end.
+
+-doc "Check whether the original topic uses the Sparkplug B namespace.".
+is_spb_topic(Message) ->
+    case unmounted_topic(Message) of
+        <<"spBv1.0/", _/binary>> -> true;
         _ -> false
     end.
 

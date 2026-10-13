@@ -34,10 +34,9 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = meck:new(
-        [emqx_broker, emqx_hooks, emqx_cm],
+        [emqx_broker, emqx_cm],
         [passthrough, no_history, no_link]
     ),
-    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
     Apps = emqx_cth_suite:start(
         [
             {emqx, #{
@@ -343,13 +342,9 @@ t_publish_qos2(_) ->
 
 t_publish_qos2_with_error_return(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
-    ok = meck:expect(emqx_hooks, run, fun
-        ('message.dropped', [Msg, _By, ReasonName]) ->
-            self() ! {'message.dropped', ReasonName, Msg},
-            ok;
-        (_Hook, _Arg) ->
-            ok
-    end),
+    Action = {?MODULE, on_message_dropped, [self()]},
+    ok = emqx_hooks:add('message.dropped', Action, 0),
+    ?on_exit(emqx_hooks:del('message.dropped', Action)),
 
     PacketId1 = 1,
     Session = session(#{max_awaiting_rel => 2, awaiting_rel => #{PacketId1 => ts(millisecond)}}),
@@ -379,9 +374,7 @@ t_publish_qos2_with_error_return(_) ->
             ?assertEqual(RecMsg2, Msg2)
     after 1000 ->
         ct:fail(?FUNCTION_NAME)
-    end,
-
-    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end).
+    end.
 
 t_is_awaiting_full_false(_) ->
     Session = session(#{max_awaiting_rel => infinity}),
@@ -1737,6 +1730,10 @@ t_obtain_next_pkt_id(_) ->
 
 %% Helper functions
 %%--------------------------------------------------------------------
+
+on_message_dropped(Msg, _By, ReasonName, TestPid) ->
+    TestPid ! {'message.dropped', ReasonName, Msg},
+    ok.
 
 zone_mqueue_opts(Zone) ->
     #{

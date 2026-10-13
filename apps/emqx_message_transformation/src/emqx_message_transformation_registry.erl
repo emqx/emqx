@@ -298,6 +298,7 @@ drop_metrics(Name) ->
     ok = emqx_metrics_worker:clear_metrics(?METRIC_NAME, Name).
 
 upsert_topic_index(Name, Pos, Topics) ->
+    ok = emqx_message_transformation:register_hooks(),
     lists:foreach(
         fun(Topic) ->
             true = emqx_topic_index:insert(Topic, Pos, Name, ?TRANSFORMATION_TOPIC_INDEX)
