@@ -28,7 +28,8 @@
 -export([
     get_chan_info/1,
     get_chan_info/2,
-    set_chan_info/2
+    set_chan_info/2,
+    set_chan_info_stats/3
 ]).
 
 -export([
@@ -272,6 +273,27 @@ set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, self()},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {2, Info})
+    catch
+        error:badarg -> false
+    end.
+
+-doc """
+Update the info and the stats of the channel in one table write.
+Return `false` when the channel has no row in the channel info table.
+""".
+-spec set_chan_info_stats(emqx_types:clientid(), emqx_types:channel_attrs(), emqx_types:stats()) ->
+    boolean().
+set_chan_info_stats(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
+    ChanPid = self(),
+    Chan = {ClientId, ChanPid},
+    try
+        case ets:update_element(?CHAN_INFO_TAB, Chan, [{2, Info}, {3, sparse_stats(Stats)}]) of
+            true ->
+                ok = maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats),
+                true;
+            false ->
+                false
+        end
     catch
         error:badarg -> false
     end.

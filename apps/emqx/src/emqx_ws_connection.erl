@@ -476,8 +476,7 @@ handle_event({event, _Other}, State = #state{channel = Channel}) ->
         undefined ->
             ok;
         ClientId ->
-            emqx_cm:set_chan_info(ClientId, info(State)),
-            maybe_set_chan_stats(ClientId, State)
+            set_chan_info_stats(ClientId, State)
     end,
     State.
 
@@ -511,6 +510,14 @@ handle_timeout(
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(TRef, TMsg, State) ->
     commands(with_channel(handle_timeout, [TRef, TMsg], {[], State})).
+
+%% Write the info and, when the client-info REST API is enabled, the stats
+%% of the channel in one table write.
+set_chan_info_stats(ClientId, State) ->
+    case emqx_features:client_info_enabled() of
+        true -> emqx_cm:set_chan_info_stats(ClientId, info(State), stats(State));
+        false -> emqx_cm:set_chan_info(ClientId, info(State))
+    end.
 
 %% Report per-connection stats to the client-info table, unless the client-info
 %% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
