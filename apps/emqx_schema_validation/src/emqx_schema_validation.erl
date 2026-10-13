@@ -304,4 +304,4 @@ trace_failure(#{log_failure := #{level := Level}} = Validation, Msg, Meta) when 
 run_schema_validation_failed_hook(Message, Validation) ->
     #{name := Name} = Validation,
     ValidationContext = #{name => Name},
-    emqx_hooks:run('schema.validation_failed', [Message, ValidationContext]).
+    emqx_hooks:'schema.validation_failed'(Message, ValidationContext).

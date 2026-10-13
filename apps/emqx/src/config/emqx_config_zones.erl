@@ -60,10 +60,4 @@ assert_zone_exists(Name) when is_atom(Name) ->
     end.
 
 run_update_hook(OldZones, NewZones) ->
-    try
-        emqx_hooks:run('config.zones_updated', [OldZones, NewZones])
-    catch
-        error:{invalid_hookpoint, _} ->
-            %% hooks are not registered yet
-            ok
-    end.
+    emqx_hooks:'config.zones_updated'(OldZones, NewZones).

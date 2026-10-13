@@ -369,11 +369,21 @@ run_loop(
     emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
+    %% A nowait recv that returns data also arms the next read select.
+    %% A failure is not fatal: without the option, recv returns `{ok, Data}'
+    %% and the connection reads again until it gets `{select, _}'.
+    %% On a closed socket, the recv below returns the error.
+    _ = socket:setopt(Socket, {otp, select_read}, true),
     %% Not possible to get {select, {Info, Partial}} because length is 0
     case sock_async_recv(Socket, 0) of
+        %% Only when `select_read' is not set, or when `{otp, rcvbuf}' has a
+        %% read count above 0. No select is armed, so read again.
         {ok, Data} ->
             NState = start_idle_timer(State),
             handle_recv({recv_more, Data}, Parent, NState);
+        {select_read, {_SelectInfo, Data}} ->
+            NState = start_idle_timer(State),
+            handle_recv({recv_armed, Data}, Parent, NState);
         {select, _SelectInfo} ->
             NState = start_idle_timer(State),
             hibernate(Parent, NState);
@@ -630,6 +640,8 @@ handle_msg({recv, Data}, State) ->
     handle_data(Data, false, State);
 handle_msg({recv_more, Data}, State) ->
     handle_data(Data, true, State);
+handle_msg({recv_armed, Data}, State) ->
+    handle_data(Data, armed, State);
 handle_msg({request_more_data, More}, State = #state{socket = Socket, sockstate = SS}) ->
     case SS =/= closed of
         true ->
@@ -710,8 +722,7 @@ handle_msg({event, _Other}, State = #state{channel = Channel}) ->
         undefined ->
             ok;
         ClientId ->
-            emqx_cm:set_chan_info(ClientId, info(State)),
-            maybe_set_chan_stats(ClientId, State)
+            set_chan_info_stats(ClientId, State)
     end,
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
@@ -845,6 +856,14 @@ try_set_chan_stats(State = #state{channel = Channel}) ->
         ClientId -> maybe_set_chan_stats(ClientId, State)
     end.
 
+%% Write the info and, when the client-info REST API is enabled, the stats
+%% of the channel in one table write.
+set_chan_info_stats(ClientId, State) ->
+    case emqx_features:client_info_enabled() of
+        true -> emqx_cm:set_chan_info_stats(ClientId, info(State), stats(State));
+        false -> emqx_cm:set_chan_info(ClientId, info(State))
+    end.
+
 %% Report per-connection stats to the client-info table, unless the client-info
 %% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
 %% the stats gathering and the ETS write. The stats timer itself keeps running,
@@ -881,10 +900,25 @@ handle_data(
         gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
-    NeedMore = RequestMore andalso SS =/= closed,
-    Tail = [{request_more_data, More} || NeedMore],
+    Tail = request_more_data_msgs(RequestMore, More, SS),
     Msgs = next_incoming_msgs(Tail, Packets),
     {ok, Msgs, State}.
+
+%% `RequestMore':
+%% - `true': the last read did not arm a select, so read again.
+%% - `false': a select is armed, wait for it.
+%% - `armed': a select is armed. When the parser is inside a packet body and
+%%   knows how many bytes it still needs, read them now with one call of that
+%%   length. Otherwise wait for the select.
+-compile({inline, [request_more_data_msgs/3]}).
+request_more_data_msgs(_RequestMore, _More, closed) ->
+    [];
+request_more_data_msgs(true, More, _SS) ->
+    [{request_more_data, More}];
+request_more_data_msgs(armed, More, _SS) when is_integer(More), More > 0 ->
+    [{request_more_data, More}];
+request_more_data_msgs(_RequestMore, _More, _SS) ->
+    [].
 
 %% Dialyzer warns that {error, {closed, DataMore}} can never match, but this pattern
 %% can occur at runtime in OTP 27 or under certain error conditions where the socket
@@ -892,10 +926,11 @@ handle_data(
 -dialyzer({nowarn_function, request_more_data/3}).
 -compile({inline, [request_more_data/3]}).
 request_more_data(Socket, More, State) ->
-    %% TODO: `{otp, select_read}`.
     case sock_async_recv(Socket, More) of
         {ok, DataMore} ->
             {ok, {recv_more, DataMore}, State};
+        {select_read, {_Info, DataMore}} ->
+            {ok, {recv_armed, DataMore}, State};
         {select, {_Info, DataMore}} ->
             {ok, {recv, DataMore}, State};
         {select, _Info} ->
@@ -928,6 +963,8 @@ handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             handle_data(Data, true, State);
+        {select_read, {_Info, Data}} ->
+            handle_data(Data, armed, State);
         {select, {_Info, Data}} ->
             handle_data(Data, false, State);
         {select, _Info} ->

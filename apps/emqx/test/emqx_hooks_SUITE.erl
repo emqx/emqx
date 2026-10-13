@@ -13,28 +13,29 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, _} = emqx_hooks:start_link(),
+    {ok, _} = emqx_hook_manager:start_link(),
+    TestHookpoints = [
+        test_hook,
+        emqx_hook,
+        foldl_hook,
+        foldl_hook2,
+        foreach_hook,
+        foreach_stop_hook,
+        foreach_filter1_hook,
+        foldl_filter2_hook,
+        foldl_strict_hook,
+        foldl_crash_hook,
+        foldl_strict_crash_hook,
+        foldl_strict_context_hook
+    ],
     ok = emqx_hookpoints:register_hookpoints(
-        [
-            test_hook,
-            emqx_hook,
-            foldl_hook,
-            foldl_hook2,
-            foreach_hook,
-            foreach_stop_hook,
-            foreach_filter1_hook,
-            foldl_filter2_hook,
-            foldl_strict_hook,
-            foldl_crash_hook,
-            foldl_strict_crash_hook,
-            foldl_strict_context_hook
-        ]
+        maps:merge(emqx_hookpoints:default_hookpoints(), maps:from_keys(TestHookpoints, valid))
     ),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_hookpoints:register_hookpoints(),
-    catch emqx_hooks:stop().
+    catch emqx_hook_manager:stop().
 
 t_add_hook_order(_) ->
     ?assert(
@@ -56,7 +57,7 @@ add_hook_order_prop() ->
         Hooks,
         hooks(),
         try
-            _ = emqx_hooks:start_link(),
+            _ = emqx_hook_manager:start_link(),
             ok = emqx_hookpoints:register_hookpoints([prop_hook]),
             [ok = emqx_hooks:add(prop_hook, {M, F, []}, Prio) || {Prio, M, F} <- Hooks],
             Callbacks = emqx_hooks:lookup(prop_hook),
@@ -67,7 +68,7 @@ add_hook_order_prop() ->
             ),
             true
         after
-            emqx_hooks:stop()
+            emqx_hook_manager:stop()
         end
     ).
 
@@ -224,16 +225,118 @@ t_run_fold_strict_with_context(_) ->
     ),
     ?assertEqual(undefined, emqx_hooks:context(foldl_strict_context_hook)).
 
+t_named_notification(_) ->
+    ok = emqx_hooks:add('client.check_authn_complete', {?MODULE, authn_complete, [self()]}, 0),
+    ClientInfo = #{clientid => <<"client">>},
+    Result = #{reason_code => success},
+    ok = emqx_hookpoints:register_hookpoints([]),
+    ?assertError(
+        {invalid_hookpoint, 'client.check_authn_complete'},
+        emqx_hooks:run('client.check_authn_complete', [ClientInfo, Result])
+    ),
+    ?assertEqual(ok, emqx_hooks:'client.check_authn_complete'(ClientInfo, Result)),
+    receive
+        {authn_complete, ClientInfo, Result} -> ok
+    after 1000 ->
+        ct:fail(missing_notification)
+    end.
+
+t_named_folds(_) ->
+    ok = emqx_hooks:add('client.ping', {?MODULE, client_ping, []}, 0),
+    ?assertEqual(
+        ping_seen,
+        emqx_hooks:'client.ping'(#{clientid => <<"client">>}, #{}, ok)
+    ),
+    ok = emqx_hooks:add('api_actor.pre_create', {?MODULE, actor_pre_create, []}, 0),
+    ?assertEqual(
+        {error, unknown_namespace},
+        emqx_hooks:'api_actor.pre_create'(#{namespace => <<"missing">>}, ok)
+    ),
+    ok = emqx_hooks:add('namespace.resource_pre_create', {?MODULE, resource_pre_create, []}, 0),
+    ?assertEqual(
+        #{exists => true},
+        emqx_hooks:'namespace.resource_pre_create'(#{namespace => <<"known">>}, #{exists => false})
+    ),
+    Message = emqx_message:make(<<"client">>, <<"topic">>, <<"payload">>),
+    ?assertEqual(Message, emqx_hooks:'message.publish'(Message)),
+    ok = emqx_hooks:add('message.publish', {?MODULE, publish_many, []}, 0),
+    ?assertEqual([Message, Message], emqx_hooks:'message.publish'(Message)).
+
+t_named_strict_folds(_) ->
+    Message = emqx_message:make(<<"client">>, <<"topic">>, <<"payload">>),
+    ?assertEqual({ok, Message}, emqx_hooks:'message.ingress'(#{}, Message)),
+    ok = emqx_hooks:add('message.ingress', {?MODULE, ingress_reject, []}, 0),
+    ?assertEqual({ok, {error, rejected}}, emqx_hooks:'message.ingress'(#{}, Message)),
+    ok = emqx_hooks:add('message.ingress', {?MODULE, hook_crash, []}, 1),
+    ?assertEqual({error, strict_fold_crashed}, emqx_hooks:'message.ingress'(#{}, Message)),
+    ?assertEqual({ok, ignore}, emqx_hooks:'client.authenticate_strict'(#{}, ignore)),
+    ok = emqx_hooks:add('client.authenticate', {?MODULE, hook_crash, []}, 0),
+    ?assertEqual(ignore, emqx_hooks:'client.authenticate'(#{}, ignore)),
+    ?assertEqual(
+        {error, strict_fold_crashed},
+        emqx_hooks:'client.authenticate_strict'(#{}, ignore)
+    ),
+    Default = #{result => deny, from => default},
+    ?assertEqual(
+        {ok, Default}, emqx_hooks:'client.authorize_strict'(#{}, publish, <<"t">>, Default)
+    ),
+    ok = emqx_hooks:add('client.authorize', {?MODULE, authorize_crash, []}, 0),
+    ?assertEqual(
+        Default, emqx_hooks:'client.authorize'(#{}, publish, <<"t">>, Default)
+    ),
+    ?assertEqual(
+        {error, strict_fold_crashed},
+        emqx_hooks:'client.authorize_strict'(#{}, publish, <<"t">>, Default)
+    ).
+
+t_named_context(_) ->
+    ok = emqx_hooks:add('client.timeout', {?MODULE, timeout_context, []}, 0),
+    Context = #{chan_info_fn => fun(clientid) -> <<"client">> end},
+    TRef = make_ref(),
+    ?assertEqual([{event, updated}], emqx_hooks:'client.timeout'(Context, TRef, timeout, [])),
+    ?assertEqual(undefined, emqx_hooks:context('client.timeout')),
+    ?assertEqual([], emqx_hooks:'client.timeout'(TRef, timeout, [])).
+
 t_uncovered_func(_) ->
-    Pid = erlang:whereis(emqx_hooks),
+    Pid = erlang:whereis(emqx_hook_manager),
     gen_server:call(Pid, test),
     gen_server:cast(Pid, test),
     Pid ! test,
-    ok = emqx_hooks:stop().
+    ok = emqx_hook_manager:stop().
 
 %%--------------------------------------------------------------------
 %% Hook fun
 %%--------------------------------------------------------------------
+
+client_ping(#{clientid := <<"client">>}, #{}, ok) ->
+    {ok, ping_seen}.
+
+authn_complete(ClientInfo, Result, Pid) ->
+    Pid ! {authn_complete, ClientInfo, Result}.
+
+actor_pre_create(#{namespace := <<"missing">>}, ok) ->
+    {stop, {error, unknown_namespace}}.
+
+resource_pre_create(#{namespace := <<"known">>}, Result) ->
+    {stop, Result#{exists := true}}.
+
+publish_many(Message) ->
+    {stop, [Message, Message]}.
+
+ingress_reject(_Context, _Message) ->
+    {stop, {error, rejected}}.
+
+authorize_crash(_Context, _Action, _Topic, _Result) ->
+    error(strict_fold_crashed).
+
+timeout_context(TRef, timeout, Replies) when is_reference(TRef) ->
+    case emqx_hooks:context('client.timeout') of
+        #{chan_info_fn := InfoFn} ->
+            ?assertEqual(<<"client">>, InfoFn(clientid)),
+            {ok, [{event, updated} | Replies]};
+        undefined ->
+            {ok, Replies}
+    end.
 
 hook_fun1(arg) -> ok;
 hook_fun1(_) -> error.

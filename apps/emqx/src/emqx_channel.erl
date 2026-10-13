@@ -619,12 +619,8 @@ handle_in(
 handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = KeepAlive}) ->
     {ok, NKeepAlive} = emqx_keepalive:check(KeepAlive),
     NChannel = Channel#channel{keepalive = NKeepAlive},
-    _ = run_hooks(
-        'client.ping',
-        [NChannel#channel.clientinfo, NChannel#channel.conninfo],
-        ok,
-        NChannel
-    ),
+    inc_metrics('client.ping', Channel),
+    _ = emqx_hooks:'client.ping'(NChannel#channel.clientinfo, NChannel#channel.conninfo, ok),
     {ok, ?REPLY_OUTGOING(?PACKET(?PINGRESP)), reset_timer(keepalive, NChannel)};
 handle_in(
     ?PACKET(?DISCONNECT, _PktVar) = Packet,
@@ -736,7 +732,7 @@ post_process_connect(
 %% (e.g. multi-tenant limiters). Otherwise the field stays `undefined`
 %% until refresh_quota/1 finds a finite limit for the zone or the listener.
 adjust_limiter(ClientInfo) ->
-    emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], undefined).
+    emqx_hooks:'channel.limiter_adjustment'(ClientInfo, undefined).
 
 -doc """
 Build the limiter container when the channel has none and a finite limit is
@@ -942,9 +938,9 @@ pubrec_reason_code([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
 pubrec_reason_code([_ | _]) -> ?RC_SUCCESS.
 
 puback_reason_code(PacketId, Msg, [] = PubRes) ->
-    emqx_hooks:run_fold('message.puback', [PacketId, Msg, PubRes], ?RC_NO_MATCHING_SUBSCRIBERS);
+    emqx_hooks:'message.puback'(PacketId, Msg, PubRes, ?RC_NO_MATCHING_SUBSCRIBERS);
 puback_reason_code(PacketId, Msg, [_ | _] = PubRes) ->
-    emqx_hooks:run_fold('message.puback', [PacketId, Msg, PubRes], ?RC_SUCCESS);
+    emqx_hooks:'message.puback'(PacketId, Msg, PubRes, ?RC_SUCCESS);
 puback_reason_code(_PacketId, _Msg, disconnect) ->
     disconnect.
 
@@ -1060,13 +1056,9 @@ process_pubcomp(
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(Msg, PubAckProps, Channel) ->
     ok = inc_metrics('messages.acked', Channel),
-    run_hook_with_context(
-        'message.acked',
-        [
-            Channel#channel.clientinfo,
-            emqx_message:set_header(puback_props, PubAckProps, Msg)
-        ],
-        Channel
+    emqx_hooks:'message.acked'(
+        Channel#channel.clientinfo,
+        emqx_message:set_header(puback_props, PubAckProps, Msg)
     ).
 
 %%--------------------------------------------------------------------
@@ -1199,12 +1191,9 @@ process_unsubscribe(
         )
     of
         ok ->
-            TopicFilters1 = run_hooks(
-                'client.unsubscribe',
-                [ClientInfo, Properties],
-                parse_raw_topic_filters(TopicFilters, Channel),
-                Channel
-            ),
+            inc_metrics('client.unsubscribe', Channel),
+            TopicFilters0 = parse_raw_topic_filters(TopicFilters, Channel),
+            TopicFilters1 = emqx_hooks:'client.unsubscribe'(ClientInfo, Properties, TopicFilters0),
             {ReasonCodes, NChannel} = post_process_unsubscribe(TopicFilters1, Properties, Channel),
             handle_out(unsuback, {PacketId, ReasonCodes}, NChannel);
         {error, ReasonCode} ->
@@ -1430,7 +1419,7 @@ not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
 not_nacked_by_hook({deliver, _Topic, Msg}) ->
     %% NOTE if a callback nacks a message, it returns `true`
     %% nack'ed messages will be dropped from the session.
-    not emqx_hooks:run_fold('message.nack', [Msg], false).
+    not emqx_hooks:'message.nack'(Msg, false).
 
 %%--------------------------------------------------------------------
 %% Handle Frame Error
@@ -1565,10 +1554,10 @@ handle_out(connack, {ReasonCode, ReasonString}, Channel = #channel{conninfo = Co
     Reason = emqx_reason_codes:name(ReasonCode),
     AckProps0 = emqx_mqtt_props:new(),
     AckProps1 =
-        case ReasonString =:= <<>> of
-            true ->
+        case ReasonString of
+            <<>> ->
                 AckProps0;
-            false ->
+            _NonEmpty ->
                 emqx_mqtt_props:set('Reason-String', ReasonString, AckProps0)
         end,
     AckProps = run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps1),
@@ -1692,11 +1681,7 @@ do_deliver(
     }
 ) ->
     ok = inc_metrics('messages.delivered', Channel),
-    Msg1 = emqx_hooks:run_fold(
-        'message.delivered',
-        [ClientInfo],
-        emqx_message:update_expiry(Msg)
-    ),
+    Msg1 = emqx_hooks:'message.delivered'(ClientInfo, emqx_message:update_expiry(Msg)),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     Packet = emqx_message:to_packet(PacketId, Msg2),
     {NPacket, NChannel} = packing_alias(Packet, Channel),
@@ -2404,8 +2389,9 @@ receive_maximum(Zone, ConnProps) ->
 %% Run Connect Hooks
 
 run_conn_hooks(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
+    inc_metrics('client.connect', Channel),
     ConnProps = emqx_packet:info(properties, ConnPkt),
-    case run_hooks('client.connect', [ConnInfo], ConnProps, Channel) of
+    case emqx_hooks:'client.connect'(ConnInfo, ConnProps) of
         Error = {error, _Reason} -> Error;
         NConnProps -> {ok, emqx_packet:set_props(NConnProps, ConnPkt), Channel}
     end.
@@ -2856,13 +2842,14 @@ do_authenticate(Credential, #channel{clientinfo = ClientInfo} = Channel) ->
     end.
 
 %% Runs the 'client.post_authn' hook. The accumulator is a context map
-%% (`emqx_hookpoints:post_authn_context()'); a callback may return
+%% (`emqx_hooks:post_authn_context()'); a callback may return
 %% `{ok, NewContext}' to replace it, or `{stop, {error, Reason}}' to reject
 %% the client (treated like an authn failure). Using a map leaves room to
 %% pass additional inputs/outputs in the future without breaking callbacks.
 with_post_authn(#channel{clientinfo = ClientInfo} = Channel, Properties) ->
     Ctx0 = #{client_info => ClientInfo},
-    case run_hooks('client.post_authn', [], Ctx0, Channel) of
+    inc_metrics('client.post_authn', Channel),
+    case emqx_hooks:'client.post_authn'(Ctx0) of
         {error, Reason} ->
             log_auth_failure(Reason),
             {error, emqx_reason_codes:connack_error(Reason)};
@@ -3293,11 +3280,9 @@ run_sub_hooks(
     #subscribe_operation{properties = Properties, topic_filters = TopicFilters0},
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
-    TopicFilters = [
-        TopicFilter
-     || {TopicFilter, ?RC_SUCCESS} <- TopicFilters0
-    ],
-    _NTopicFilters = run_hooks('client.subscribe', [ClientInfo, Properties], TopicFilters, Channel).
+    TopicFilters = [TopicFilter || {TopicFilter, ?RC_SUCCESS} <- TopicFilters0],
+    inc_metrics('client.subscribe', Channel),
+    emqx_hooks:'client.subscribe'(ClientInfo, Properties, TopicFilters).
 
 %%--------------------------------------------------------------------
 %% Enrich SubOpts
@@ -3461,7 +3446,8 @@ ensure_connected(
     }
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
-    ok = run_hooks('client.connected', [ClientInfo, NConnInfo], Channel),
+    inc_metrics('client.connected', Channel),
+    emqx_hooks:'client.connected'(ClientInfo, NConnInfo),
     schedule_connection_auth_expire(Channel#channel{
         conninfo = trim_conninfo(NConnInfo),
         conn_state = connected
@@ -3642,9 +3628,9 @@ ensure_disconnected(
             true -> ConnInfo;
             false -> ConnInfo#{disconnected_at => erlang:system_time(millisecond)}
         end,
-    ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo], Channel),
-    ChanPid = self(),
-    emqx_cm:mark_channel_disconnected(ChanPid),
+    inc_metrics('client.disconnected', Channel),
+    emqx_hooks:'client.disconnected'(ClientInfo, Reason, NConnInfo),
+    emqx_cm:mark_channel_disconnected(self()),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 session_disconnect(ClientInfo, ConnInfo, Session) when Session /= undefined ->
@@ -3879,30 +3865,16 @@ reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile({inline, [run_hooks/3, run_hooks/4, run_hook_with_context/3, run_fold_with_context/4]}).
-run_hooks(Name, Args, Channel) ->
-    ok = inc_metrics(Name, Channel),
-    emqx_hooks:run(Name, Args).
-
-run_hooks(Name, Args, Acc, Channel) ->
-    ok = inc_metrics(Name, Channel),
-    emqx_hooks:run_fold(Name, Args, Acc).
-
-run_hook_with_context(Name, Args, Channel) ->
-    HookContext = mk_common_hook_context(Channel),
-    emqx_hooks:run(Name, HookContext, Args).
-
+-compile({inline, [run_fold_with_context/4]}).
 run_fold_with_context(Name, Args, Acc, Channel) ->
     HookContext = mk_common_hook_context(Channel),
     emqx_hooks:run_fold(Name, HookContext, Args, Acc).
 
 run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps) ->
-    Name = 'client.connack',
     Ns = get_tenant_namespace(Channel#channel.clientinfo),
     Ctx0 = mk_common_hook_context(Channel),
     Ctx = Ctx0#{namespace => Ns},
-    Args = [ConnInfo, Reason],
-    emqx_hooks:run_fold(Name, Ctx, Args, AckProps).
+    emqx_hooks:'client.connack'(Ctx, ConnInfo, Reason, AckProps).
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 
@@ -4063,6 +4035,7 @@ mk_common_hook_context(#channel{session = Session} = Channel) ->
         session_info_fn => fun(Prop) -> emqx_session:info(Prop, Session) end
     }.
 
+-compile({inline, [inc_metrics/2]}).
 inc_metrics(Name, _Channel) ->
     emqx_metrics:inc_global(Name).
 

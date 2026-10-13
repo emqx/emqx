@@ -269,13 +269,15 @@ has_metrics(Name, Id) ->
 
 -spec get(handler_name(), metric_id(), metric_name() | integer()) -> number().
 get(Name, Id, Metric) ->
-    case get_ref(Name, Id) of
-        not_found ->
-            0;
-        Ref when is_atom(Metric) ->
-            counters:get(Ref, idx_metric(Name, Id, counter, Metric));
-        Ref when is_integer(Metric) ->
-            counters:get(Ref, Metric)
+    case get_pterm(Name) of
+        #{Id := #{ref := Ref, counter := #{Metric := Index}}} when is_atom(Metric) ->
+            counters:get(Ref, Index);
+        #{Id := #{counter := Indexes}} when is_atom(Metric) ->
+            maps:get(Metric, Indexes);
+        #{Id := #{ref := Ref}} when is_integer(Metric) ->
+            counters:get(Ref, Metric);
+        #{} ->
+            0
     end.
 
 -spec get_rate(handler_name(), metric_id()) -> map().
@@ -284,12 +286,12 @@ get_rate(Name, Id) ->
 
 -spec get_counters(handler_name(), metric_id()) -> map().
 get_counters(Name, Id) ->
-    maps:map(
-        fun(_Metric, Index) ->
-            get(Name, Id, Index)
-        end,
-        get_indexes(Name, counter, Id)
-    ).
+    case get_pterm(Name) of
+        #{Id := #{ref := Ref, counter := Indexes}} ->
+            maps:map(fun(_Metric, Index) -> counters:get(Ref, Index) end, Indexes);
+        #{} ->
+            #{}
+    end.
 
 -spec get_slide(handler_name(), metric_id()) -> map().
 get_slide(Name, Id) ->
@@ -715,33 +717,9 @@ delete_counters(Name, Id) ->
     persistent_term:put(?CntrRef(Name), maps:remove(Id, get_pterm(Name))).
 
 get_ref(Name, Id) ->
-    case maps:find(Id, get_pterm(Name)) of
-        {ok, #{ref := Ref}} -> Ref;
-        error -> not_found
-    end.
-
-idx_metric(Name, Id, Type, Metric) ->
-    maps:get(Metric, get_indexes(Name, Type, Id)).
-
-get_indexes(Name, Type, Id) ->
-    case maps:get(Id, get_pterm(Name), #{}) of
-        #{Type := Indexes} -> Indexes;
-        #{} -> #{}
-    end.
-
-idx_metric_safe(Name, Id, Type, Metric) ->
-    Metrics = get_pterm(Name),
-    case maps:find(Id, Metrics) of
-        {ok, #{Type := #{Metric := Idx}}} ->
-            {ok, Idx};
-        {ok, #{Type := _}} ->
-            {error, metric_not_found};
-        {ok, _} ->
-            {error, type_not_found};
-        error when map_size(Metrics) == 0 ->
-            {error, empty_metrics_in_pt};
-        error ->
-            {error, id_not_found}
+    case get_pterm(Name) of
+        #{Id := #{ref := Ref}} -> Ref;
+        #{} -> not_found
     end.
 
 get_pterm(Name) ->
@@ -800,8 +778,10 @@ get_slide_window(StartTime, [#slide_datapoint{samples = N, sum = S} | Rest], Acc
     get_slide_window(StartTime, Rest, AccN + N, AccS + S).
 
 get_slide_datapoint(Name, Id, Metric) ->
-    CRef = get_ref(Name, Id),
-    Index = idx_metric(Name, Id, slide, Metric),
+    #{Id := #{ref := CRef, slide := #{Metric := Index}}} = get_pterm(Name),
+    get_slide_datapoint(CRef, Index).
+
+get_slide_datapoint(CRef, Index) ->
     Total = counters:get(CRef, Index),
     N = counters:get(CRef, Index + 1),
     #slide_datapoint{
@@ -811,10 +791,9 @@ get_slide_datapoint(Name, Id, Metric) ->
     }.
 
 update_slide(Name, Id, Metric, Slide0 = #slide{n_samples = NSamples, datapoints = DPs}) ->
-    Datapoint = get_slide_datapoint(Name, Id, Metric),
+    #{Id := #{ref := CRef, slide := #{Metric := Index}}} = get_pterm(Name),
+    Datapoint = get_slide_datapoint(CRef, Index),
     %% Reset counters:
-    CRef = get_ref(Name, Id),
-    Index = idx_metric(Name, Id, slide, Metric),
     counters:put(CRef, Index, 0),
     counters:put(CRef, Index + 1, 0),
     Slide0#slide{
@@ -823,8 +802,7 @@ update_slide(Name, Id, Metric, Slide0 = #slide{n_samples = NSamples, datapoints 
     }.
 
 do_get_hist(Name, Id, Metric, #hist{buckets = Buckets}) ->
-    CRef = get_ref(Name, Id),
-    {Index, _} = idx_metric(Name, Id, hist, Metric),
+    #{Id := #{ref := CRef, hist := #{Metric := {Index, _}}}} = get_pterm(Name),
     Sum = counters:get(CRef, Index),
     {BucketCounts, TotalCount} = get_incremental_bucket_counts(CRef, Index + 1, Buckets, 0, []),
     #{
@@ -985,14 +963,11 @@ handle_ensure_metrics(#state{name = Name} = State0, Id, Metrics, RateMetrics) ->
     end.
 
 get_counter_ref_and_idx(Name, Id, Metric) ->
-    case get_ref(Name, Id) of
-        not_found ->
-            {error, no_ref};
-        CounterRef ->
-            case idx_metric_safe(Name, Id, counter, Metric) of
-                {ok, Idx} ->
-                    {ok, CounterRef, Idx};
-                {error, _} = Error ->
-                    Error
-            end
+    case get_pterm(Name) of
+        #{Id := #{ref := CounterRef, counter := #{Metric := Idx}}} ->
+            {ok, CounterRef, Idx};
+        #{Id := #{ref := _CounterRef, counter := _Indexes}} ->
+            {error, metric_not_found};
+        #{} ->
+            {error, no_ref}
     end.
