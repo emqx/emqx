@@ -11,6 +11,7 @@
     handle_response/2,
     handle_out/2,
     handle_out/3,
+    abort_context/2,
     set_reply/2,
     timeout/2
 ]).
@@ -140,6 +141,15 @@ handle_out(#coap_message{token = Token} = MsgT, Ctx, TM) ->
             %% ignore repeat send
             empty()
     end.
+
+-spec abort_context(any(), manager()) -> manager().
+abort_context(Ctx, TM) ->
+    SeqIds = [
+        SeqId
+     || {SeqId, #state_machine{id = {out, _}, transport = Transport}} <- maps:to_list(TM),
+        emqx_coap_transport:req_context(Transport) =:= Ctx
+    ],
+    lists:foldl(fun delete_machine/2, TM, SeqIds).
 
 set_reply(#coap_message{id = MsgId} = Msg, TM) ->
     Id = {in, MsgId},
@@ -282,12 +292,12 @@ maybe_mark_observe_notification_done(false, _Machine, Result) ->
     Result.
 
 cancel_state_timer(#state_machine{timers = Timers} = Machine) ->
-    case maps:get(state_timer, Timers, undefined) of
+    case maps:get(state_timeout, Timers, undefined) of
         undefined ->
             Machine;
         Ref ->
             _ = emqx_utils:cancel_timer(Ref),
-            Machine#state_machine{timers = maps:remove(state_timer, Timers)}
+            Machine#state_machine{timers = maps:remove(state_timeout, Timers)}
     end.
 
 process_timer(SeqId, {Type, Interval, Msg}, Timers) ->

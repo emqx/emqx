@@ -100,13 +100,12 @@ t_session_notify_block2_prepare_error_mapping(_) ->
         options = #{}
     },
     BW = emqx_coap_blockwise:new(#{max_block_size => 16}),
-    {MappedMsg, MappedBW} = emqx_coap_session:map_notify_block2_prepare_result(
+    {too_large, MappedBW} = emqx_coap_session:map_notify_block2_prepare_result(
         {error, fake_reply, BW},
         Msg,
         {peer, 8},
         coap_ctx()
     ),
-    ?assertEqual(Msg, MappedMsg),
     ?assertEqual(BW, MappedBW).
 
 coap_ctx() ->
