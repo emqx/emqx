@@ -379,12 +379,23 @@ run_loop(
         %% Only when `select_read' is not set, or when `{otp, rcvbuf}' has a
         %% read count above 0. No select is armed, so read again.
         {ok, Data} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             NState = start_idle_timer(State),
             handle_recv({recv_more, Data}, Parent, NState);
         {select_read, {_SelectInfo, Data}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             NState = start_idle_timer(State),
             handle_recv({recv_armed, Data}, Parent, NState);
         {select, _SelectInfo} ->
+            ?BROKER_INSTR_SOCKPACKET(
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            ),
             NState = start_idle_timer(State),
             hibernate(Parent, NState);
         {error, {Reason, _}} ->
@@ -475,8 +486,6 @@ wakeup_from_hib(Parent, State) ->
 
 -compile({inline, [sock_async_recv/2]}).
 
-sock_async_recv(Socket, some_more) ->
-    socket:recv(Socket, 0, [], nowait);
 sock_async_recv(Socket, Len) ->
     socket:recv(Socket, Len, [], nowait).
 
@@ -901,6 +910,9 @@ handle_data(
     State = trigger_gc(State1#state{thresholds = Thresholds}),
     Tail = request_more_data_msgs(RequestMore, More, SS),
     Msgs = next_incoming_msgs(Tail, Packets),
+    ?BROKER_INSTR_SOCKPACKET(
+        ?BROKER_INSTR_OBSERVE_BS(socket_packets, packet_remaining_bytes, More)
+    ),
     {ok, Msgs, State}.
 
 %% `RequestMore':
@@ -925,14 +937,53 @@ request_more_data_msgs(_RequestMore, _More, _SS) ->
 -dialyzer({nowarn_function, request_more_data/3}).
 -compile({inline, [request_more_data/3]}).
 request_more_data(Socket, More, State) ->
-    case sock_async_recv(Socket, More) of
+    Len =
+        case More of
+            some_more -> 0;
+            _ -> More
+        end,
+    case sock_async_recv(Socket, Len) of
         {ok, DataMore} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(DataMore)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, Len),
+                ?BROKER_INSTR_OBSERVE_BS(
+                    socket_packets,
+                    recv_shortfall_bytes,
+                    max(0, Len - byte_size(DataMore)),
+                    Len > 0
+                )
+            end),
             {ok, {recv_more, DataMore}, State};
         {select_read, {_Info, DataMore}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(DataMore)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, Len),
+                ?BROKER_INSTR_OBSERVE_BS(
+                    socket_packets,
+                    recv_shortfall_bytes,
+                    max(0, Len - byte_size(DataMore)),
+                    Len > 0
+                )
+            end),
             {ok, {recv_armed, DataMore}, State};
         {select, {_Info, DataMore}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(DataMore)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, Len),
+                ?BROKER_INSTR_OBSERVE_BS(
+                    socket_packets,
+                    recv_shortfall_bytes,
+                    max(0, Len - byte_size(DataMore)),
+                    Len > 0
+                )
+            end),
             {ok, {recv, DataMore}, State};
         {select, _Info} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, Len),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_shortfall_bytes, Len, Len > 0)
+            end),
             {ok, State};
         {error, {closed, DataMore}} ->
             %% This is dead code starting from OTP 28
@@ -961,12 +1012,27 @@ request_more_data(Socket, More, State) ->
 handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             handle_data(Data, true, State);
         {select_read, {_Info, Data}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             handle_data(Data, armed, State);
         {select, {_Info, Data}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             handle_data(Data, false, State);
         {select, _Info} ->
+            ?BROKER_INSTR_SOCKPACKET(
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            ),
             {ok, State};
         {error, {closed, Data}} ->
             %% This is dead code starting from OTP 28

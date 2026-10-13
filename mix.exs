@@ -362,7 +362,10 @@ defmodule EMQXUmbrella.MixProject do
 
   # EMQX_BROKER_INSTR accepts comma-separated feature names; "1" enables all features.
   defp broker_instr_options() do
-    features = %{"message_latency" => :EMQX_BROKER_INSTR_MESSAGE_LATENCY}
+    features = %{
+      "message_latency" => :EMQX_BROKER_INSTR_MESSAGE_LATENCY,
+      "socket_packets" => :EMQX_BROKER_INSTR_SOCKET_PACKETS
+    }
 
     enabled =
       case System.get_env("EMQX_BROKER_INSTR", "") do
