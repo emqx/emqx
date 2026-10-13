@@ -63,7 +63,7 @@
 wildcard(#share{topic = Topic}) when is_binary(Topic) ->
     wildcard(Topic);
 wildcard(Topic) when is_binary(Topic) ->
-    wildcard(words(Topic));
+    is_wildcard(Topic);
 wildcard([]) ->
     false;
 wildcard(['#' | _]) ->
@@ -72,6 +72,94 @@ wildcard(['+' | _]) ->
     true;
 wildcard([_H | T]) ->
     wildcard(T).
+
+-define(IS_WILDCARD_BYTE(C), (C =:= $+ orelse C =:= $#)).
+
+%% The byte $+ or $# in each of the 7 bytes of a 56-bit word.
+-define(PLUS_BYTES7, 16#2B2B2B2B2B2B2B).
+-define(HASH_BYTES7, 16#23232323232323).
+
+%% True when the 56-bit integer V has a zero byte. For each byte B,
+%% ((B band 16#7F) + 16#7F) bor B has the high bit set when B is not zero. The sum is at most
+%% 16#FE, so no carry goes into the next byte.
+-define(HAS_ZERO_BYTE7(V),
+    (((((V) band 16#7F7F7F7F7F7F7F) + 16#7F7F7F7F7F7F7F) bor (V)) band 16#80808080808080 =/=
+        16#80808080808080)
+).
+
+%% True when the byte C is not +, # or NUL, and not above 127.
+-define(IS_PLAIN_BYTE(C), (C > 0 andalso C < 16#80 andalso C =/= $+ andalso C =/= $#)).
+
+%% True when the 56-bit integer W has no +, # or NUL byte and no byte above 127.
+-define(IS_PLAIN7(W),
+    ((W) band 16#80808080808080 =:= 0 andalso
+        not ?HAS_ZERO_BYTE7(W) andalso
+        not ?HAS_ZERO_BYTE7((W) bxor ?PLUS_BYTES7) andalso
+        not ?HAS_ZERO_BYTE7((W) bxor ?HASH_BYTES7))
+).
+
+%% A level is a wildcard when it is exactly +, or when it is # and the last level.
+is_wildcard(<<>>) ->
+    false;
+is_wildcard(<<C>>) ->
+    ?IS_WILDCARD_BYTE(C);
+is_wildcard(Topic) ->
+    ends_with_wildcard_level(Topic) orelse has_plus_level(Topic).
+
+%% Topic has at least 2 bytes.
+-compile({inline, [ends_with_wildcard_level/1]}).
+ends_with_wildcard_level(Topic) ->
+    Size = byte_size(Topic) - 2,
+    case Topic of
+        <<_:Size/binary, $/, C>> -> ?IS_WILDCARD_BYTE(C);
+        _ -> false
+    end.
+
+%% Topic has at least 2 bytes, and ends_with_wildcard_level/1 checked the last level.
+-compile({inline, [has_plus_level/1]}).
+has_plus_level(<<$+, $/, _/binary>>) ->
+    true;
+has_plus_level(Topic) ->
+    find_plus_level(Topic).
+
+%% Find "/+/". Skip 6 bytes when a 7-byte word has no + byte. When it has one, check the 5
+%% three-byte windows of the word at once, and step 5 bytes.
+find_plus_level(<<W:56, _/binary>> = Bin) ->
+    case ?HAS_ZERO_BYTE7(W bxor ?PLUS_BYTES7) of
+        false ->
+            <<_:48, Rest/binary>> = Bin,
+            find_plus_level(Rest);
+        true ->
+            has_slash_plus_slash7(W) orelse
+                begin
+                    <<_:40, Rest/binary>> = Bin,
+                    find_plus_level(Rest)
+                end
+    end;
+find_plus_level(Bin) ->
+    check_plus_level(Bin).
+
+check_plus_level(<<$/, $+, $/, _/binary>>) ->
+    true;
+check_plus_level(<<_, Rest/binary>>) ->
+    check_plus_level(Rest);
+check_plus_level(<<>>) ->
+    false.
+
+%% Return true when the 56-bit integer W has "/+/" in its bytes.
+%% Byte K of V (K = 0..4) is zero when bytes K+2, K+1 and K of W are $/, $+ and $/.
+%% Byte K+2 comes first in the topic. The zero-byte test is the one in ?HAS_ZERO_BYTE7.
+-compile({inline, [has_slash_plus_slash7/1]}).
+has_slash_plus_slash7(W) ->
+    Mask = 16#FFFFFFFFFF,
+    V =
+        (((W bsr 16) bxor 16#2F2F2F2F2F) bor
+            ((W bsr 8) bxor 16#2B2B2B2B2B) bor
+            (W bxor 16#2F2F2F2F2F)) band Mask,
+    M7 = 16#7F7F7F7F7F,
+    M8 = 16#8080808080,
+    NonZero = (((V band M7) + M7) bor V) band M8,
+    NonZero =/= M8.
 
 %% @doc Match Topic name with filter.
 -spec match(Name, Filter) -> boolean() when
@@ -247,12 +335,54 @@ validate(_, Topic) when is_binary(Topic) andalso (size(Topic) > ?MAX_TOPIC_LEN) 
 validate(filter, SharedFilter = <<?SHARE, "/", _Rest/binary>>) ->
     validate_share(SharedFilter);
 validate(filter, Filter) when is_binary(Filter) ->
-    validate2(words(Filter));
+    is_valid_filter($/, Filter) orelse validate2(words(Filter));
 validate(name, Topic) when is_binary(Topic) ->
+    is_valid_name(Topic) orelse validate_name(Topic).
+
+validate_name(Topic) ->
     Words = words(Topic),
     validate2(Words) andalso
         (not wildcard(Words)) orelse
         error(topic_name_error).
+
+%% Return true when Filter is a valid topic filter. Return false when it is not valid; the
+%% caller then runs the full check, which raises the error.
+%% Prev is the byte before Filter, or $/ at the start of the topic.
+%% A + level is valid when it is a whole level. A # level is valid only as the whole last
+%% level. NUL is not valid. Other bytes must be valid UTF-8.
+is_valid_filter(_Prev, <<W:56, Rest/binary>>) when ?IS_PLAIN7(W) ->
+    is_valid_filter(W band 16#FF, Rest);
+is_valid_filter(_Prev, <<C, Rest/binary>>) when ?IS_PLAIN_BYTE(C) ->
+    is_valid_filter(C, Rest);
+is_valid_filter($/, <<$+>>) ->
+    true;
+is_valid_filter($/, <<$+, $/, Rest/binary>>) ->
+    is_valid_filter($/, Rest);
+is_valid_filter($/, <<$#>>) ->
+    true;
+is_valid_filter(_Prev, <<C, _/binary>>) when C < 16#80 ->
+    false;
+is_valid_filter(_Prev, <<_/utf8, Rest/binary>>) ->
+    is_valid_filter(16#80, Rest);
+is_valid_filter(_Prev, <<>>) ->
+    true;
+is_valid_filter(_Prev, _) ->
+    false.
+
+%% Return true when Topic is a valid topic name: no +, # or NUL byte, and valid UTF-8.
+%% Return false when it is not valid; the caller then runs the full check.
+is_valid_name(<<W:56, Rest/binary>>) when ?IS_PLAIN7(W) ->
+    is_valid_name(Rest);
+is_valid_name(<<C, Rest/binary>>) when ?IS_PLAIN_BYTE(C) ->
+    is_valid_name(Rest);
+is_valid_name(<<C, _/binary>>) when C < 16#80 ->
+    false;
+is_valid_name(<<_/utf8, Rest/binary>>) ->
+    is_valid_name(Rest);
+is_valid_name(<<>>) ->
+    true;
+is_valid_name(_) ->
+    false.
 
 validate2([]) ->
     true;
@@ -298,7 +428,7 @@ validate_share(_, <<?SHARE, "/", _Rest/binary>>) ->
 validate_share(ShareName, Filter) ->
     case binary:match(ShareName, [<<"+">>, <<"#">>]) of
         %% MQTT-5.0 [MQTT-4.8.2-2]
-        nomatch -> validate2(words(Filter));
+        nomatch -> is_valid_filter($/, Filter) orelse validate2(words(Filter));
         _ -> error(?SHARE_NAME_INVALID_CHAR)
     end.
 
@@ -374,9 +504,19 @@ split_levels(<<>>, _N, Level, Acc) ->
 words(#share{topic = Topic}) when is_binary(Topic) ->
     words(Topic);
 words(Topic) when is_binary(Topic) ->
-    [word(W) || W <- tokens(Topic)].
+    split_words(Topic, 0, Topic, []).
+
+%% The same scan as split_levels/4, but each level becomes a word.
+split_words(<<$/, Rest/binary>>, N, Level, Acc) ->
+    <<Token:N/binary, _/binary>> = Level,
+    split_words(Rest, 0, Rest, [word(Token) | Acc]);
+split_words(<<_, Rest/binary>>, N, Level, Acc) ->
+    split_words(Rest, N + 1, Level, Acc);
+split_words(<<>>, _N, Level, Acc) ->
+    lists:reverse(Acc, [word(Level)]).
 
 -spec word(binary()) -> word().
+-compile({inline, [word/1]}).
 word(<<>>) -> '';
 word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';

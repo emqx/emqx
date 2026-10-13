@@ -38,6 +38,59 @@ t_wildcard(_) ->
     false = wildcard(<<"">>),
     false = wildcard(<<"a/b/c">>).
 
+-doc """
+`wildcard/1` on a binary is true when a level is `+`, or when the last level is `#`. The
+cases put the wildcard level at the start, in the middle, at the end and across the 7-byte
+words of the scan.
+""".
+t_wildcard_binary_levels(_) ->
+    Cases = [
+        {<<"+">>, true},
+        {<<"#">>, true},
+        {<<"+/a">>, true},
+        {<<"a/+">>, true},
+        {<<"a/#">>, true},
+        {<<"a/+/b">>, true},
+        {<<"/+">>, true},
+        {<<"+/">>, true},
+        {<<"/#">>, true},
+        {<<"abcdef/+/x">>, true},
+        {<<"abcdefg/+">>, true},
+        {<<"abcdefghijklmn/+/o">>, true},
+        {<<"abcdefghijklmn/opq/#">>, true},
+        {<<>>, false},
+        {<<"a">>, false},
+        {<<"/">>, false},
+        {<<"//">>, false},
+        {<<"a+">>, false},
+        {<<"+a">>, false},
+        {<<"a/+b">>, false},
+        {<<"a/b#">>, false},
+        {<<"a/b+/c">>, false},
+        {<<"abcdefg/++/hijklmn">>, false},
+        {<<"abcdefghijklmn/opq#">>, false}
+    ],
+    lists:foreach(
+        fun({Topic, Expected}) ->
+            ?assertEqual({Topic, Expected}, {Topic, wildcard(Topic)}),
+            ?assertEqual({Topic, Expected}, {Topic, wildcard(words(Topic))})
+        end,
+        Cases
+    ).
+
+-doc """
+A `#` level that is not the last level does not make a binary topic a wildcard, because `#` is
+valid only as the last level. The word-list form still returns true for these topics.
+""".
+t_wildcard_binary_hash_not_last(_) ->
+    lists:foreach(
+        fun(Topic) ->
+            ?assertEqual({Topic, false}, {Topic, wildcard(Topic)}),
+            ?assertEqual({Topic, true}, {Topic, wildcard(words(Topic))})
+        end,
+        [<<"#/a">>, <<"a/#/b">>, <<"abcdefghijklm/#/opqrstu">>]
+    ).
+
 t_match1(_) ->
     true = match(<<"a/b/c">>, <<"a/b/+">>),
     true = match(<<"a/b/c">>, <<"a/#">>),
@@ -199,6 +252,55 @@ t_union_sys(_) ->
         [<<"$SYS/+">>, <<"$SYS/cluster/#">>, <<"+/#">>],
         Union([<<"+/#">>, <<"t/1/2">>, <<"$SYS/cluster">>, <<"$SYS/cluster/#">>, <<"$SYS/+">>])
     ).
+
+-doc """
+`validate/2` checks a topic in one scan when the topic is valid: `+` as a whole level, `#` as
+the whole last level, no NUL, valid UTF-8. An invalid topic gives the same error as the full
+check. The cases put the special byte before, inside and after the first 7-byte word.
+""".
+t_validate_fast_path(_) ->
+    lists:foreach(
+        fun(Topic) ->
+            ?assertEqual({Topic, true}, {Topic, validate({name, Topic})}),
+            ?assertEqual({Topic, true}, {Topic, validate({filter, Topic})})
+        end,
+        [
+            <<"a">>,
+            <<"/">>,
+            <<"//">>,
+            <<"abcdefg">>,
+            <<"abcdefgh/ijklmno/p">>,
+            <<"$SYS/x">>,
+            <<"a", 1, "b">>,
+            <<"abcdefg", 16#C3, 16#A9>>,
+            <<"abcdefghijklmn/", 16#E2, 16#82, 16#AC>>
+        ]
+    ),
+    lists:foreach(
+        fun(Filter) -> ?assertEqual({Filter, true}, {Filter, validate({filter, Filter})}) end,
+        [
+            <<"+">>,
+            <<"#">>,
+            <<"+/+">>,
+            <<"+/#">>,
+            <<"/#">>,
+            <<"abcdefgh/#">>,
+            <<"abcdefg/+/hijklmn/+">>,
+            <<"caf", 16#C3, 16#A9, "/+/#">>,
+            <<"$share/g/abcdefg/+/#">>
+        ]
+    ),
+    ?assertError(topic_name_error, validate({name, <<"abcdefgh/#">>})),
+    ?assertError(topic_name_error, validate({name, <<"abcdefgh/+">>})),
+    ?assertError(topic_invalid_char, validate({name, <<"abcdefg", 0, "h">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"abcdefgh#">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"abcdefg/+h">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"abc#/#">>})),
+    ?assertError('topic_invalid_#', validate({filter, <<"abcdefg/#/h">>})),
+    ?assertError('topic_invalid_#', validate({filter, <<"#/+">>})),
+    ?assertError('topic_invalid_#', validate({filter, <<"$share/g/a/#/b">>})),
+    ?assertError(function_clause, validate({name, <<"abcdefg", 16#FF>>})),
+    ?assertError(function_clause, validate({filter, <<"abcdefg/+/", 16#C3>>})).
 
 t_validate(_) ->
     true = validate(<<"a/+/#">>),
