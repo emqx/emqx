@@ -17,6 +17,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_pmap.hrl").
 
 -include("emqx_persistent_message.hrl").
 

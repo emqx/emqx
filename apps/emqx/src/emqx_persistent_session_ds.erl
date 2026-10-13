@@ -838,7 +838,9 @@ A process calling it must exclusively own the session.
 teardown_session(SessionId, S) ->
     ?tp(?sessds_teardown_session, #{client_id => SessionId}),
     {true, DelFlags} = emqx_persistent_session_ds_state:is_half_closed(S),
-    ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S),
+    %% NOTE: this returns the updated state, which is discarded: the
+    %% whole session state is deleted below.
+    _ = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S),
     ok = emqx_persistent_session_ds_gc_timer:delete(SessionId),
     case DelFlags band ?sessds_del_will of
         0 ->
@@ -853,13 +855,6 @@ teardown_session(SessionId, S) ->
     %% the other process will at least get its ownership invalidated
     %% and get killed.
     emqx_persistent_session_ds_state:delete(SessionId, '_').
-
-%%--------------------------------------------------------------------
-%% Shared subscription outgoing messages
-%%--------------------------------------------------------------------
-
-shared_sub_opts(SessionId) ->
-    #{session_id => SessionId}.
 
 %%--------------------------------------------------------------------
 %% Replay of old messages during session restart
