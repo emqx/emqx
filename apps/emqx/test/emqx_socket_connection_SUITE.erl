@@ -146,28 +146,23 @@ t_recv_packet_sizes(_) ->
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [?QOS_0]} = emqtt:subscribe(Sub, Topic, ?QOS_0),
     {ok, Sock} = gen_tcp:connect("127.0.0.1", 1883, [binary, {active, false}, {nodelay, true}]),
-    try
-        Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"recv_packet_sizes_pub">>}),
-        ok = gen_tcp:send(Sock, emqx_frame:serialize(Connect)),
-        ?assertEqual({ok, <<16#20, 2, 0, 0>>}, gen_tcp:recv(Sock, 4, 5000)),
-        Sizes = [1, 1000, 4090, 4096, 4100, 6144, 16384, 20480, 65536, 262144],
-        Payloads = [crypto:strong_rand_bytes(Size) || Size <- Sizes],
-        Packets = [
-            iolist_to_binary(emqx_frame:serialize(?PUBLISH_PACKET(?QOS_0, Topic, undefined, P)))
-         || P <- Payloads
-        ],
-        lists:foreach(fun(Packet) -> ok = gen_tcp:send(Sock, Packet) end, Packets),
-        ok = gen_tcp:send(Sock, Packets),
-        lists:foreach(fun(Packet) -> send_in_chunks(Sock, Packet, 1500) end, Packets),
-        Expected = Payloads ++ Payloads ++ Payloads,
-        Received = receive_payloads(length(Expected)),
-        ?assertEqual([byte_size(P) || P <- Expected], [byte_size(P) || P <- Received]),
-        ?assert(Expected =:= Received),
-        ?assertNotReceive({publish, _})
-    after
-        gen_tcp:close(Sock),
-        emqtt:stop(Sub)
-    end.
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"recv_packet_sizes_pub">>}),
+    ok = gen_tcp:send(Sock, emqx_frame:serialize(Connect)),
+    ?assertEqual({ok, <<16#20, 2, 0, 0>>}, gen_tcp:recv(Sock, 4, 5000)),
+    Sizes = [1, 1000, 4090, 4096, 4100, 6144, 16384, 20480, 65536, 262144],
+    Payloads = [crypto:strong_rand_bytes(Size) || Size <- Sizes],
+    Packets = [
+        iolist_to_binary(emqx_frame:serialize(?PUBLISH_PACKET(?QOS_0, Topic, undefined, P)))
+     || P <- Payloads
+    ],
+    lists:foreach(fun(Packet) -> ok = gen_tcp:send(Sock, Packet) end, Packets),
+    ok = gen_tcp:send(Sock, Packets),
+    lists:foreach(fun(Packet) -> send_in_chunks(Sock, Packet, 1500) end, Packets),
+    Expected = Payloads ++ Payloads ++ Payloads,
+    Received = receive_payloads(length(Expected)),
+    ?assertEqual([byte_size(P) || P <- Expected], [byte_size(P) || P <- Received]),
+    ?assert(Expected =:= Received),
+    ?assertNotReceive({publish, _}).
 
 receive_payloads(0) ->
     [];
