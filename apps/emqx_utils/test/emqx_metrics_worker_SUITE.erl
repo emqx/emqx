@@ -357,6 +357,74 @@ t_recreate_metrics(_) ->
     ),
     ok = emqx_metrics_worker:clear_metrics(?NAME, Id).
 
+-doc """
+* Named, indexed and bulk reads agree after setting and incrementing counters.
+* Unknown metric names and invalid indexes retain their errors.
+""".
+t_counter_access(_) ->
+    Id = <<"testid">>,
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [a, b]),
+    ok = emqx_metrics_worker:set(?NAME, Id, a, 42),
+    ok = emqx_metrics_worker:inc(?NAME, Id, a, -5),
+    ok = emqx_metrics_worker:set(?NAME, Id, b, 11),
+    ?assertEqual(37, emqx_metrics_worker:get(?NAME, Id, a)),
+    ?assertEqual(37, emqx_metrics_worker:get(?NAME, Id, 1)),
+    ?assertEqual(11, emqx_metrics_worker:get(?NAME, Id, 2)),
+    ?assertEqual(#{a => 37, b => 11}, emqx_metrics_worker:get_counters(?NAME, Id)),
+    ?assertError({badkey, unknown_metric}, emqx_metrics_worker:get(?NAME, Id, unknown_metric)),
+    ?assertError(badarg, emqx_metrics_worker:get(?NAME, Id, 0)).
+
+-doc """
+Reads return zero or an empty map when the handler or metric ID is absent, including
+before metrics are created and after they are cleared.
+""".
+t_missing_counter_reads(_) ->
+    Id = <<"testid">>,
+    Check = fun(Name, MissingId) ->
+        ?assertEqual(0, emqx_metrics_worker:get(Name, MissingId, a)),
+        ?assertEqual(0, emqx_metrics_worker:get(Name, MissingId, 1)),
+        ?assertEqual(#{}, emqx_metrics_worker:get_counters(Name, MissingId)),
+        ?assertNot(emqx_metrics_worker:has_metrics(Name, MissingId))
+    end,
+    Check(unknown_name, Id),
+    Check(?NAME, Id),
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [a]),
+    Check(?NAME, <<"missing">>),
+    ok = emqx_metrics_worker:clear_metrics(?NAME, Id),
+    Check(?NAME, Id).
+
+-doc """
+Verifies recreation when metric indexes move and histogram bucket counts change.
+* Counter values are preserved by name and restored at their new indexes.
+* Slides are reset, accepting the loss of current-interval samples.
+* Histograms are reset because their bucket definitions may change, and consumers
+  must handle that reset.
+Subsequent reads and writes use the new indexes for those metric types.
+""".
+t_recreate_metrics_reordered(_) ->
+    Id = <<"testid">>,
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [a, {slide, s}, {hist, h, [10]}, b]),
+    ok = emqx_metrics_worker:set(?NAME, Id, a, 11),
+    ok = emqx_metrics_worker:set(?NAME, Id, b, 22),
+    ok = emqx_metrics_worker:observe(?NAME, Id, s, 100),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, h, 100),
+    %% Move every metric and change histogram size to exercise the replacement indexes.
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [b, {hist, h, [5, 10]}, {slide, s}, a]),
+    ?assertEqual(#{a => 11, b => 22}, emqx_metrics_worker:get_counters(?NAME, Id)),
+    ?assertMatch(#{s := #{current := 0}}, emqx_metrics_worker:get_slide(?NAME, Id)),
+    ?assertMatch(#{h := #{count := 0, sum := 0}}, emqx_metrics_worker:get_hists(?NAME, Id)),
+    ok = emqx_metrics_worker:inc(?NAME, Id, a, 3),
+    ok = emqx_metrics_worker:set(?NAME, Id, b, 44),
+    ok = emqx_metrics_worker:observe(?NAME, Id, s, 20),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, h, 7),
+    ?assertEqual(14, emqx_metrics_worker:get(?NAME, Id, a)),
+    ?assertEqual(44, emqx_metrics_worker:get(?NAME, Id, b)),
+    ?assertEqual(#{s => 20}, emqx_metrics_worker:get_slide(?NAME, Id, 5)),
+    ?assertEqual(
+        #{h => #{bucket_counts => [{5, 0}, {10, 1}, {infinity, 1}], count => 1, sum => 7}},
+        emqx_metrics_worker:get_hists(?NAME, Id)
+    ).
+
 t_inc_matched(_) ->
     Metrics = ['rules.matched'],
     ok = emqx_metrics_worker:create_metrics(?NAME, <<"rule1">>, Metrics),
@@ -628,11 +696,18 @@ t_unknown_metrics(_TCConfig) ->
     lists:foreach(
         fun({Name, Id, Metric}) ->
             ct:pal("~p", [#{name => Name, id => Id, metric => Metric}]),
+            Reason =
+                case Name of
+                    ?NAME when Id == Id0 ->
+                        metric_not_found;
+                    _ ->
+                        no_ref
+                end,
             ?assertThrow(
                 {failed_to_update_counter, #{
                     action := inc,
                     val := 1,
-                    reason := _,
+                    reason := Reason,
                     name := Name,
                     id := Id,
                     metric := Metric
@@ -643,7 +718,7 @@ t_unknown_metrics(_TCConfig) ->
                 {failed_to_update_counter, #{
                     action := set,
                     val := 0,
-                    reason := _,
+                    reason := Reason,
                     name := Name,
                     id := Id,
                     metric := Metric
