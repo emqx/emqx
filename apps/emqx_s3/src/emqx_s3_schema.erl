@@ -62,6 +62,14 @@ fields(s3_client) ->
                     required => true
                 }
             )},
+        {region,
+            mk(
+                string(),
+                #{
+                    desc => ?DESC("region"),
+                    required => false
+                }
+            )},
         {access_method,
             mk(
                 hoconsc:enum([path, vhost]),
