@@ -428,7 +428,6 @@ on_query(
     case prepare_request(Method, Request0, State) of
         {ok, NRequest, TokenRef} ->
             trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
-            Worker = resolve_pool_worker(State, KeyOrNum),
             ?tp(http_connector_request, #{
                 connector => InstId,
                 query_mode => sync,
@@ -436,7 +435,7 @@ on_query(
                 max_attempts => max_attempts(Retry)
             }),
             Result0 = request_with_oauth_retry(
-                Worker, Method, NRequest, Timeout, Retry, State, TokenRef
+                KeyOrNum, Method, NRequest, Timeout, Retry, State, TokenRef
             ),
             Result = transform_result(Result0),
             case Result of
@@ -592,23 +591,26 @@ maybe_add_oauth_context(Context, TokenRef) ->
         oauth2_retried => maps:get(oauth2_retried, Context, false)
     }.
 
-request_with_oauth_retry(Worker, Method, Request, Timeout, Retry, _State, undefined) ->
+request_with_oauth_retry(KeyOrNum, Method, Request, Timeout, Retry, State, undefined) ->
+    Worker = resolve_pool_worker(State, KeyOrNum),
     ehttpc:request(Worker, Method, Request, Timeout, Retry);
-request_with_oauth_retry(Worker, Method, Request, Timeout, Retry, State, TokenRef) ->
+request_with_oauth_retry(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef) ->
+    Worker = resolve_pool_worker(State, KeyOrNum),
     Result = ehttpc:request(Worker, Method, Request, Timeout, Retry),
     case Result of
         {ok, 401, _Headers} ->
-            retry_oauth_request(Worker, Method, Request, Timeout, Retry, State, TokenRef);
+            retry_oauth_request(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef);
         {ok, 401, _Headers, _Body} ->
-            retry_oauth_request(Worker, Method, Request, Timeout, Retry, State, TokenRef);
+            retry_oauth_request(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef);
         _ ->
             Result
     end.
 
-retry_oauth_request(Worker, Method, Request, Timeout, Retry, State, TokenRef) ->
+retry_oauth_request(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef) ->
     maybe
         ok ?= ensure_oauth_token_for_retry(State, TokenRef),
         {ok, NRequest, _Ref} ?= prepare_request(Method, Request, State),
+        Worker = resolve_pool_worker(State, KeyOrNum),
         ehttpc:request(Worker, Method, NRequest, Timeout, Retry)
     end.
 
