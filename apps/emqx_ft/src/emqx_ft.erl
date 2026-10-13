@@ -155,7 +155,7 @@ do_on_file_command(TopicReplyData, FileId, Msg, FileCommand) ->
                 end
             );
         [<<"fin">>, FinalSizeBin | MaybeChecksum] when
-            MaybeChecksum =:= []; tl(MaybeChecksum) =:= []
+            MaybeChecksum =:= [] orelse tl(MaybeChecksum) =:= []
         ->
             ChecksumBin = emqx_maybe:from_list(MaybeChecksum),
             validate(
