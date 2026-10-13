@@ -170,7 +170,7 @@ match(<<$$, _/binary>>, <<$+, _/binary>>) ->
 match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
 match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
-    match_words(words(Name), words(Filter));
+    match_levels(Filter, Name);
 match(#share{} = Name, Filter) ->
     match_share(Name, Filter);
 match(Name, #share{} = Filter) ->
@@ -181,6 +181,52 @@ match(Name, Filter) when is_binary(Filter) ->
     match_words(Name, words(Filter));
 match(Name, Filter) ->
     match_words(Name, Filter).
+
+%% Match the binary Name against the binary Filter level by level, without splitting them.
+%% Name is `done` when all its levels are matched. The order of the checks is the same as in
+%% match_tokens/2: a filter level equal to the name level is matched first, then + and #.
+match_levels(<<"#">>, <<"#/", _/binary>>) ->
+    false;
+match_levels(<<"#">>, _Name) ->
+    true;
+match_levels(_Filter, done) ->
+    false;
+match_levels(<<"+">>, Name) ->
+    is_last_level(Name);
+match_levels(<<"+/", FilterRest/binary>>, Name) ->
+    match_levels(FilterRest, skip_level(Name));
+match_levels(Filter, Name) ->
+    match_level(Filter, Name).
+
+%% Compare one level, then go on with the next level. 7 equal bytes with no + or # byte are
+%% skipped at once: a level they cut is not a wildcard level, so it must match byte by byte.
+%% When the 7 bytes end with $/, the next level starts.
+match_level(<<W:56, FilterRest/binary>>, <<W:56, NameRest/binary>>) when
+    not ?HAS_ZERO_BYTE7(W bxor ?PLUS_BYTES7), not ?HAS_ZERO_BYTE7(W bxor ?HASH_BYTES7)
+->
+    case W band 16#FF of
+        $/ -> match_levels(FilterRest, NameRest);
+        _ -> match_level(FilterRest, NameRest)
+    end;
+match_level(<<$/, FilterRest/binary>>, <<$/, NameRest/binary>>) ->
+    match_levels(FilterRest, NameRest);
+match_level(<<C, FilterRest/binary>>, <<C, NameRest/binary>>) ->
+    match_level(FilterRest, NameRest);
+match_level(<<>>, <<>>) ->
+    true;
+match_level(<<$/, FilterRest/binary>>, <<>>) ->
+    match_levels(FilterRest, done);
+match_level(_Filter, _Name) ->
+    false.
+
+is_last_level(<<$/, _/binary>>) -> false;
+is_last_level(<<_, Rest/binary>>) -> is_last_level(Rest);
+is_last_level(<<>>) -> true.
+
+%% Return the levels after the first one, or `done` when there is only one.
+skip_level(<<$/, Rest/binary>>) -> Rest;
+skip_level(<<_, Rest/binary>>) -> skip_level(Rest);
+skip_level(<<>>) -> done.
 
 match_words([<<$$, _/binary>> | _], [W | _]) when ?IS_WILDCARD(W) ->
     false;
@@ -543,15 +589,15 @@ feed_var(Var, Val, [W | Words], Acc) ->
 join([]) ->
     <<>>;
 join([Word | Words]) ->
-    do_join(bin(Word), Words).
+    iolist_to_binary([bin(Word) | join_rest(Words)]).
 
-do_join(TopicAcc, []) ->
-    TopicAcc;
+join_rest([]) ->
+    [];
 %% MQTT-5.0 [MQTT-4.7.1-1]
-do_join(_TopicAcc, [C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
+join_rest([C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
     error('topic_invalid_#');
-do_join(TopicAcc, [Word | Words]) ->
-    do_join(<<TopicAcc/binary, "/", (bin(Word))/binary>>, Words).
+join_rest([Word | Words]) ->
+    [$/, bin(Word) | join_rest(Words)].
 
 -spec parse(TF | {TF, map()}) -> {TF, map()} when
     TF :: topic() | share().

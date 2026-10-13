@@ -91,6 +91,40 @@ t_wildcard_binary_hash_not_last(_) ->
         [<<"#/a">>, <<"a/#/b">>, <<"abcdefghijklm/#/opqrstu">>]
     ).
 
+-doc """
+`match/2` on two binaries gives the same results as on word lists. The cases put wildcard
+levels before, at and after the end of the 7-byte words that are compared at once.
+""".
+t_match_binary_levels(_) ->
+    Cases = [
+        {<<"a">>, <<"a/#">>, true},
+        {<<"a/">>, <<"a/+">>, true},
+        {<<"a">>, <<"a/+">>, false},
+        {<<"a/b">>, <<"a/">>, false},
+        {<<"#/x">>, <<"#">>, false},
+        {<<"#">>, <<"#">>, true},
+        {<<"$SYS/x">>, <<"#">>, false},
+        {<<"$SYS/x">>, <<"+/x">>, false},
+        {<<"$SYS/x">>, <<"$SYS/+">>, true},
+        {<<"abcdef/xyz">>, <<"abcdef/#">>, true},
+        {<<"abcdef/xyz/q">>, <<"abcdef/+/q">>, true},
+        {<<"abcde/+a/b">>, <<"abcde/+/b">>, true},
+        {<<"abcde/+a/b">>, <<"abcde/+a/c">>, false},
+        {<<"abcdefghijklmn/opq">>, <<"abcdefghijklmn/opq">>, true},
+        {<<"abcdefghijklmn/opq">>, <<"abcdefghijklmn/opr">>, false},
+        {<<"abcdefghijklmn">>, <<"abcdefghijklmn/#">>, true},
+        {<<"abcdefghijklmn/">>, <<"abcdefghijklmn/+">>, true}
+    ],
+    lists:foreach(
+        fun({Name, Filter, Expected}) ->
+            ?assertEqual({Name, Filter, Expected}, {Name, Filter, match(Name, Filter)}),
+            ?assertEqual(
+                {Name, Filter, Expected}, {Name, Filter, match(words(Name), words(Filter))}
+            )
+        end,
+        Cases
+    ).
+
 t_match1(_) ->
     true = match(<<"a/b/c">>, <<"a/b/+">>),
     true = match(<<"a/b/c">>, <<"a/#">>),
@@ -434,6 +468,7 @@ t_join(_) ->
     ?assertEqual(<<"x/y/z/+">>, join([<<"x">>, <<"y">>, <<"z">>, '+'])),
     ?assertEqual(<<"/ab/cd/ef/">>, join(words(<<"/ab/cd/ef/">>))),
     ?assertEqual(<<"ab/+/#">>, join(words(<<"ab/+/#">>))),
+    ?assertEqual(<<"li/x">>, join(["li", <<"x">>])),
     %% MQTT-5.0 [MQTT-4.7.1-1]
     ?assertError('topic_invalid_#', join(['+', <<"a">>, '#', <<"b">>, '', '+'])),
     ?assertError('topic_invalid_#', join(['+', <<"c">>, <<"#">>, <<"d">>, '', '+'])).
