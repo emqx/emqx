@@ -36,6 +36,8 @@ all() ->
     [
         t_bad_create,
         t_start_timeout,
+        t_recreate_after_repeated_delete,
+        t_repeated_delete,
         t_create,
         t_update,
         t_get,
@@ -158,6 +160,53 @@ t_start_timeout(_) ->
         ),
         catch meck:unload(emqx_resource)
     end.
+
+t_recreate_after_repeated_delete({init, Config}) ->
+    Config;
+t_recreate_after_repeated_delete({'end', _Config}) ->
+    ok;
+t_recreate_after_repeated_delete(_) ->
+    Path = uri(["sso", "ldap"]),
+    {ok, 200, _} = request(put, Path, ldap_config()),
+    {ok, 204, _} = request(delete, Path),
+    %% The second DELETE used to leave an error record that broke the next PUT.
+    {ok, 404, _} = request(delete, Path),
+    {ok, 404, _} = request(get, Path),
+    {ok, 200, _} = request(put, Path, ldap_config(#{<<"enable">> => true})),
+    ?assertMatch([#{running := true, last_error := <<>>}], get_sso()),
+    check_running([<<"ldap">>]),
+    {ok, 200, LoginBody} = request_without_authorization(
+        post,
+        uri(["sso", "login", "ldap"]),
+        #{
+            <<"backend">> => <<"ldap">>,
+            <<"username">> => ?LDAP_USER,
+            <<"password">> => ?LDAP_USER_PASSWORD
+        }
+    ),
+    ?assertMatch(#{token := _, role := ?ROLE_VIEWER}, decode_json(LoginBody)),
+    ?assertMatch([_], emqx_resource_manager:list_group(?RESOURCE_GROUP)),
+    {ok, 204, _} = request(delete, Path),
+    ?assertEqual([], emqx_resource_manager:list_group(?RESOURCE_GROUP)).
+
+t_repeated_delete({init, Config}) ->
+    Config;
+t_repeated_delete({'end', _Config}) ->
+    ok;
+t_repeated_delete(_) ->
+    Path = uri(["sso", "ldap"]),
+    {ok, 200, _} = request(put, Path, ldap_config()),
+    {ok, 204, _} = request(delete, Path),
+    lists:foreach(
+        fun(_) ->
+            {ok, 404, _} = request(delete, Path),
+            {ok, 404, _} = request(get, Path),
+            ?assertEqual([], get_sso()),
+            ?assertEqual([], emqx_resource_manager:list_group(?RESOURCE_GROUP)),
+            check_running([])
+        end,
+        lists:seq(1, 3)
+    ).
 
 t_create({init, Config}) ->
     Config;

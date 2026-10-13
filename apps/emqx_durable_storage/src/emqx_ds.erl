@@ -28,6 +28,7 @@ It takes care of forwarding calls to the underlying DBMS.
     which_dbs/0,
     update_db_config/2,
     add_generation/1,
+    add_generation/2,
     shard_of/2,
     list_shards/1,
     list_slabs/1,
@@ -369,9 +370,9 @@ Options for the `subscribe` API.
 -type db_group_stats() :: map().
 
 -type slab_info() :: #{
-    created_at := time_ms(),
-    since := time_ms(),
-    until := time_ms() | undefined
+    created_at := time(),
+    since := time(),
+    until := time() | undefined
 }.
 
 %% Subscription:
@@ -578,7 +579,7 @@ must not assume the default values.
 
 -callback close_db(db()) -> ok.
 
--callback add_generation(db()) -> ok | {error, _}.
+-callback add_generation(db(), shard()) -> ok | error(_).
 
 -callback update_db_config(db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
     {ok, emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()} | {error, _}.
@@ -804,12 +805,31 @@ change the default layout, followed by `add_generation/1`.
   process that moves and transforms data to the new generation.
 
 """.
+-spec add_generation(db(), shard()) -> ok | error(_).
+add_generation(DB, Shard) ->
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:add_generation(DB, Shard)
+    ).
+
+-doc """
+Add a new generation within each shard.
+""".
 -spec add_generation(db()) -> ok | error(_).
 add_generation(DB) ->
     ?with_dsch(
         DB,
         #{cbm := Mod},
-        Mod:add_generation(DB)
+        begin
+            Shards = Mod:list_shards(DB),
+            lists:foreach(
+                fun(Shard) ->
+                    Mod:add_generation(DB, Shard)
+                end,
+                Shards
+            )
+        end
     ).
 
 -doc """
