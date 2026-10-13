@@ -355,13 +355,33 @@ defmodule EMQXUmbrella.MixProject do
       singleton(not test_env?(), :deterministic) ++
       singleton(test_env?(), {:d, :TEST}) ++
       singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
-      singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
+      broker_instr_options() ++
       singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
       singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
   end
 
-  defp enable_broker_instr?() do
-    "1" == System.get_env("EMQX_BROKER_INSTR")
+  # EMQX_BROKER_INSTR accepts comma-separated feature names; "1" enables all features.
+  defp broker_instr_options() do
+    features = %{"message_latency" => :EMQX_BROKER_INSTR_MESSAGE_LATENCY}
+
+    enabled =
+      case System.get_env("EMQX_BROKER_INSTR", "") do
+        "1" -> Map.keys(features)
+        value when value in ["", "0"] -> []
+        value -> String.split(value, ",", trim: true) |> Enum.map(&String.trim/1)
+      end
+
+    defines =
+      enabled
+      |> Enum.uniq()
+      |> Enum.map(fn feature ->
+        case Map.fetch(features, feature) do
+          {:ok, define} -> {:d, define}
+          :error -> raise "Unknown EMQX_BROKER_INSTR feature: #{inspect(feature)}"
+        end
+      end)
+
+    singleton(defines != [], {:d, :EMQX_BROKER_INSTR}) ++ defines
   end
 
   defp store_state_in_ds?() do

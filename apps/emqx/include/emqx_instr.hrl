@@ -7,7 +7,8 @@
 -define(BROKER_INSTR_HEADER, '$broker_instr').
 -define(BROKER_INSTR_MARK(T0, TDISPATCH), {T0, TDISPATCH}).
 
--ifdef(EMQX_BROKER_INSTR).
+%% Feature selection is supplied by mix.exs via EMQX_BROKER_INSTR.
+-ifdef(EMQX_BROKER_INSTR_MESSAGE_LATENCY).
 
 -define(BROKER_INSTR_METRICS, [broker, connection]).
 -define(BROKER_INSTR_METRICS_DECL, [
@@ -72,7 +73,7 @@
     500000
 ]).
 
--ifdef(EMQX_BROKER_INSTR).
+-ifdef(EMQX_BROKER_INSTR_MESSAGE_LATENCY).
 
 -define(BROKER_INSTR_OBSERVE_HIST(METRIC, NAME, V),
     (emqx_metrics_worker:observe_hist(
