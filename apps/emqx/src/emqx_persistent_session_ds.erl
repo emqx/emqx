@@ -43,8 +43,13 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
     create/4,
     open/4,
     destroy/1,
-    destroy_session/2,
     kick_offline_session/1
+]).
+
+-export([
+    expire_session/2,
+    purge_session/1,
+    session_drop/4
 ]).
 
 -export([
@@ -89,9 +94,6 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 %% session table operations
 -export([sync/1]).
 -export([create_tables/0]).
-
-%% internal export used by session GC process
--export([destroy_session/1]).
 
 %% Time management:
 -export([now_ms/0, to_ds_time/1]).
@@ -299,26 +301,28 @@ create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
 open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
-    %% NOTE
-    %% The fact that we need to concern about discarding all live channels here
-    %% is essentially a consequence of the in-memory session design, where we
-    %% have disconnected channels holding onto session state. Ideally, we should
-    %% somehow isolate those idling not-yet-expired sessions into a separate process
-    %% space, and move this call back into `emqx_cm` where it belongs.
-    ok = emqx_cm:takeover_kick(ClientID),
+    ok = ?tp_span(
+        debug,
+        ?sessds_takeover,
+        #{id => ClientID, chan => self()},
+        emqx_cm:takeover_kick(ClientID)
+    ),
     case open_session_state(ClientID, ConnInfo) of
         false ->
             false;
         State ->
-            case emqx_persistent_session_ds_state:get_expiry_interval(State) of
-                0 ->
-                    %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the
-                    %% session ended when its network connection closed. Drop it
-                    %% (this also cleans persistent routes) and report no
-                    %% session, so the caller creates a fresh one.
-                    ok = drop_ended_session(ClientID),
+            ?tp(debug, ?sessds_open_state, #{
+                id => ClientID,
+                guard => emqx_persistent_session_ds_state:get_guard(State),
+                chan => self()
+            }),
+            case emqx_persistent_session_ds_state:is_half_closed(State) of
+                {true, _} ->
+                    %% Continue to tear it down, then start afresh:
+                    ok = teardown_session(ClientID, State),
                     false;
-                _ ->
+                false ->
+                    %% Session state is valid, restore:
                     Session = create_session(
                         takeover, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg, Conf
                     ),
@@ -326,30 +330,71 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
             end
     end.
 
--spec destroy(session() | clientinfo()) -> ok | emqx_ds:error(_).
-destroy(#{id := ClientID}) ->
-    destroy_session(ClientID);
-destroy(#{clientid := ClientID}) ->
-    destroy_session(ClientID).
+-doc """
+`emqx_session` behavior callback.
 
--spec destroy_session(emqx_types:clientid()) -> ok.
-destroy_session(ClientID) ->
-    destroy_session(ClientID, '_').
+NOTE: this function is called during takeover with clean start = 1
+or when the old session's expiry interval = 0.
+""".
+-spec destroy(session() | clientinfo()) -> ok.
+destroy(#{id := ClientID, s := S}) ->
+    %% TODO: in both clauses KeepWillMessage=true flag was chosen
+    %% according to the "most likely" context. This should be decided
+    %% by the caller instead.
+    warn_if_error(
+        ClientID,
+        sessds_failed_to_destroy_session,
+        do_session_drop(ClientID, S, destroy, true)
+    );
+destroy(#{clientid := ClientID}) ->
+    warn_if_error(
+        ClientID,
+        sessds_failed_to_destroy_session,
+        session_drop(ClientID, '_', destroy, true)
+    ).
 
 -doc """
-Destroy a session for the `ClientId` if its guard is equal to the argument `Guard`.
-`Guard` can be set to '_' to destroy any session with the given `ClientID`.
+API used to delete sessions, which is used by GC timer.
+This function selectively deletes session with the matching guard and leaves its will message intact.
 """.
--spec destroy_session(emqx_types:clientid(), emqx_persistent_session_ds_state:guard() | '_') ->
+-spec expire_session(id(), emqx_persistent_session_ds_state:guard() | '_') -> ok | emqx_ds:error(_).
+expire_session(ClientID, Guard) ->
+    session_drop(ClientID, Guard, expired, true).
+
+-doc """
+API used to purge the session and discard its pending will message.
+""".
+-spec purge_session(id()) -> ok | emqx_ds:error(_).
+purge_session(ClientID) ->
+    session_drop(ClientID, '_', purge, false).
+
+-doc """
+Generic API for discarding the sessions.
+""".
+-spec session_drop(id(), emqx_persistent_session_ds_state:guard() | '_', _Reason, boolean()) ->
     ok | emqx_ds:error(_).
-destroy_session(ClientID, MaybeGuard) ->
-    session_drop(ClientID, MaybeGuard, destroy).
+session_drop(SessionId, ExpectedGuard, Reason, KeepWillMessage) ->
+    case emqx_persistent_session_ds_state:open(SessionId) of
+        {ok, S} ->
+            case
+                ExpectedGuard =:= '_' orelse
+                    ExpectedGuard =:= emqx_persistent_session_ds_state:get_guard(S)
+            of
+                true ->
+                    do_session_drop(SessionId, S, Reason, KeepWillMessage);
+                false ->
+                    %% Taken over, ignore:
+                    ok
+            end;
+        undefined ->
+            ok
+    end.
 
 -spec kick_offline_session(emqx_types:clientid()) -> ok.
 kick_offline_session(ClientID) ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
-            session_drop(ClientID, '_', kicked);
+            session_drop(ClientID, '_', kicked, false);
         false ->
             ok
     end.
@@ -703,7 +748,7 @@ handle_info(
 ) ->
     schedule_delivery(emqx_persistent_session_ds_shared_subs:on_info(Msg, Session, ClientInfo));
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
-    Session = commit(Session0, #{lifetime => up, sync => true}),
+    {ok, Session} = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
     Session;
 handle_info(Message, Session0 = #{dscli := DSCli0}, ClientInfo) ->
@@ -736,6 +781,85 @@ handle_info1(
             ?tp(debug, ?sessds_unknown_message, #{message => Info}),
             Session
     end.
+
+%%--------------------------------------------------------------------
+%% Two-stage session deletion
+%%--------------------------------------------------------------------
+
+-doc """
+Perform both stages of session deletion.
+""".
+-spec do_session_drop(id(), emqx_persistent_session_ds_state:t(), _Reason, boolean()) ->
+    ok | emqx_ds:error(_).
+do_session_drop(SessionId, S0, Reason, KeepWillMessage) ->
+    ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
+    case emqx_persistent_session_ds_state:is_half_closed(S0) of
+        false ->
+            maybe
+                {ok, S} ?= prep_drop_session(S0, KeepWillMessage),
+                teardown_session(SessionId, S)
+            end;
+        {true, _} ->
+            %% Already marked for deletion:
+            teardown_session(SessionId, S0)
+    end.
+
+-doc """
+Put session into "deletion is in progress" state and update its
+guard.
+
+Once this change is committed, the session's external resources
+(routes, will message, timers, ...) may be discarded. Such sessions
+can't be restored until the teardown is finished (possibly by a
+competing process)
+""".
+-spec prep_drop_session(emqx_persistent_session_ds_state:t(), boolean()) ->
+    {ok, emqx_persistent_session_ds_state:t()} | emqx_ds:error(_).
+prep_drop_session(S0, KeepWillMessage) ->
+    Flags =
+        case KeepWillMessage of
+            true -> 0;
+            false -> ?sessds_del_will
+        end,
+    S = emqx_persistent_session_ds_state:set_half_closed(Flags, S0),
+    emqx_persistent_session_ds_state:commit(
+        S,
+        #{lifetime => takeover, sync => true}
+    ).
+
+-doc """
+Perform side effects necessary to tear down the session and finally
+delete its state record.
+
+NOTE: this function is not thread-safe.
+A process calling it must exclusively own the session.
+""".
+-spec teardown_session(id(), emqx_persistent_session_ds_state:t()) -> ok | emqx_ds:error(_).
+teardown_session(SessionId, S) ->
+    ?tp(?sessds_teardown_session, #{client_id => SessionId}),
+    {true, DelFlags} = emqx_persistent_session_ds_state:is_half_closed(S),
+    ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S),
+    ok = emqx_persistent_session_ds_gc_timer:delete(SessionId),
+    case DelFlags band ?sessds_del_will of
+        0 ->
+            ok;
+        _ ->
+            ok = emqx_durable_will:clear(SessionId)
+    end,
+    %% All done. Delete the session state. NOTE: here deletion is NOT
+    %% protected by the guard, and will drop ANY existing session.
+    %% This is intentional: if this function is called while another
+    %% process is using the session (which should NOT happen), then
+    %% the other process will at least get its ownership invalidated
+    %% and get killed.
+    emqx_persistent_session_ds_state:delete(SessionId, '_').
+
+%%--------------------------------------------------------------------
+%% Shared subscription outgoing messages
+%%--------------------------------------------------------------------
+
+shared_sub_opts(SessionId) ->
+    #{session_id => SessionId}.
 
 %%--------------------------------------------------------------------
 %% Replay of old messages during session restart
@@ -902,13 +1026,47 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
     {shutdown, async_checkpoint(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
-terminate(ClientInfo, Reason, Session = #{s := S, id := Id, will_msg := MaybeWillMsg}) ->
-    Guard = emqx_persistent_session_ds_state:get_guard(S),
-    _ = commit(Session#{s := S}, #{lifetime => terminate, sync => true}),
-    SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S),
-    ok = emqx_durable_will:on_disconnect(Id, ClientInfo, SessExpiryInterval, MaybeWillMsg),
-    ok = emqx_persistent_session_ds_gc_timer:on_disconnect(Id, Guard, SessExpiryInterval),
-    ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
+terminate(ClientInfo, Reason, Session = #{id := Id, s := S0, will_msg := MaybeWillMsg}) ->
+    ?tp(sessds_begin_terminate, #{id => Id, reason => Reason, chan => self()}),
+    SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S0),
+    %% Arm will message timer:
+    _ = emqx_durable_will:on_disconnect(
+        Id, ClientInfo, SessExpiryInterval, MaybeWillMsg
+    ),
+    Result =
+        case SessExpiryInterval of
+            0 ->
+                %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the
+                %% session ended when its network connection closed.
+                %%
+                %% 3.1.4.1 (non-normative comment): If the Session
+                %% Expiry Interval of the existing Network Connection
+                %% is 0 ... the original Session is ended on the
+                %% takeover.
+                %%
+                %% NOTE: this branch is normally unreachable, as
+                %% channel logic checks session expiry interval as
+                %% well, and calls `session:destroy', bypassing
+                %% terminate.
+                do_session_drop(Id, S0, expired, true);
+            _ ->
+                maybe
+                    {ok, #{s := S}} ?= commit(Session, #{lifetime => terminate, sync => true}),
+                    Guard = emqx_persistent_session_ds_state:get_guard(S),
+                    %% Arm GC timer:
+                    emqx_persistent_session_ds_gc_timer:on_disconnect(
+                        Id, Guard, SessExpiryInterval
+                    )
+                end
+        end,
+    LogLevel =
+        case Result of
+            ok -> debug;
+            _ -> warning
+        end,
+    ?tp(LogLevel, ?sessds_terminate, #{
+        id => Id, reason => Reason, chan => self(), result => Result, ei => SessExpiryInterval
+    }),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1141,38 +1299,6 @@ ensure_new_session_state(
         ]
     ),
     emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S).
-
-%% Drop a session that ended when its network connection closed (expiry
-%% interval 0). The session GC timer armed at that disconnect races this
-%% drop with its own `session_drop'; when the timer's delete wins, this
-%% one fails the collection-guard assertion. The session is gone either
-%% way, so tolerate exactly that failure.
--spec drop_ended_session(id()) -> ok.
-drop_ended_session(ClientID) ->
-    try
-        session_drop(ClientID, '_', expired)
-    catch
-        error:{badmatch, {error, unrecoverable, {precondition_failed, _}}} ->
-            ?tp(debug, sessds_drop_ended_session_race, #{client_id => ClientID}),
-            ok
-    end.
-
-%% @doc Called when a client reconnects with `clean session=true' or
-%% during session GC
--spec session_drop(id(), emqx_persistent_session_ds_state:guard() | '_', _Reason) ->
-    ok | emqx_ds:error(_).
-session_drop(SessionId, MaybeGuard, Reason) ->
-    case emqx_persistent_session_ds_state:open(SessionId, MaybeGuard) of
-        {ok, S0} ->
-            ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
-            S1 = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
-            emqx_persistent_session_ds_gc_timer:delete(SessionId),
-            emqx_persistent_session_ds_state:delete(S1);
-        undefined ->
-            ok;
-        {error, _, _} = Err ->
-            Err
-    end.
 
 %%--------------------------------------------------------------------
 %% Normal replay:
@@ -1513,7 +1639,7 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
     ),
     %% Create durable timers for clean-up and will messages:
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S0),
-    S = emqx_persistent_session_ds_state:commit(S0, #{lifetime => Lifetime, sync => true}),
+    {ok, S} = emqx_persistent_session_ds_state:commit(S0, #{lifetime => Lifetime, sync => true}),
     ok = emqx_persistent_session_ds_gc_timer:on_connect(
         ClientID,
         emqx_persistent_session_ds_state:get_guard(S),
@@ -1539,7 +1665,7 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
 
 %% This function triggers sending packets stored in the inflight to
 %% the client (provided there is something to send and the number of
-%% in-flight packets is less than `Recieve-Maximum'). Normally, this
+%% in-flight packets is less than `Receive-Maximum'). Normally, this
 %% function is called triggered when:
 %%
 %% - New messages (durable or transient) are enqueued
@@ -2206,16 +2332,21 @@ srs_compare(
 %% Session commit, maintenance and batch jobs
 %%--------------------------------------------------------------------
 
-async_checkpoint(Session) ->
-    commit(Session, #{lifetime => up, sync => false}).
+async_checkpoint(Session0) ->
+    {ok, Session} = commit(Session0, #{lifetime => up, sync => false}),
+    Session.
 
+-spec commit(session(), emqx_persistent_session_ds_state:commit_opts()) ->
+    {ok, session()} | emqx_ds:error(_).
 commit(Session0 = #{s := S0}, Opts) ->
     ?tp(?sessds_commit, #{s => S0, opts => Opts}),
     S1 = emqx_persistent_session_ds_subs:gc(streams_gc(S0)),
     S2 = maybe_augment_subopts(Session0, S1, Opts),
-    S = emqx_persistent_session_ds_state:commit(S2, Opts),
-    Session = Session0#{s := S},
-    cancel_state_commit_timer(Session).
+    maybe
+        {ok, S} ?= emqx_persistent_session_ds_state:commit(S2, Opts),
+        Session = Session0#{s := S},
+        {ok, cancel_state_commit_timer(Session)}
+    end.
 
 maybe_augment_subopts(_Session, S0, #{lifetime := terminate}) ->
     do_save_subopts(S0);
@@ -2264,6 +2395,11 @@ dscli_retry_interval() ->
 dscli_retry_interval() ->
     100.
 -endif.
+-spec warn_if_error(id(), term(), ok | emqx_ds:error(_)) -> ok.
+warn_if_error(Id, Msg, {error, Class, Reason}) ->
+    ?tp(warning, Msg, #{Class => Reason, clientid => Id});
+warn_if_error(_, _, ok) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Tests

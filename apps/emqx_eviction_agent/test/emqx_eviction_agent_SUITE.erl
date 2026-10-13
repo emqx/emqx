@@ -298,7 +298,7 @@ t_explicit_session_takeover(Config) ->
     ct:sleep(100),
 
     %% Session is on Node2, but we connect the subscribed client to Node1
-    %% It should take over the session for the third time and recieve
+    %% It should take over the session for the third time and receive
     %% previously published messages
     {ok, C3} = emqtt_connect([
         {clientid, <<"client_with_session">>},
