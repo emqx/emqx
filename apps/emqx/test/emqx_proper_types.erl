@@ -137,7 +137,6 @@ sessioninfo() ->
             upgrade_qos = boolean(),
             inflight = inflight(),
             mqueue = mqueue(),
-            next_pkt_id = packet_id(),
             retry_interval = safty_timeout(),
             awaiting_rel = awaiting_rel(),
             max_awaiting_rel = non_neg_integer(),

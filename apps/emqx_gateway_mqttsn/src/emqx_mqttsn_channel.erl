@@ -86,7 +86,9 @@
     %% Resume
     resuming :: boolean(),
     %% Pending delivers when takeovering
-    pendings :: list()
+    pendings :: list(),
+    %% MsgId for the next REGISTER sent to the client
+    register_msg_id = 1 :: 1..16#FFFF
 }).
 
 -type channel() :: #channel{}.
@@ -1735,15 +1737,14 @@ handle_out(
     register,
     {TopicId, TopicName},
     Channel = #channel{
-        session = Session,
-        register_inflight = undefined
+        register_inflight = undefined,
+        register_msg_id = MsgId
     }
 ) ->
-    {MsgId, NSession} = emqx_mqttsn_session:obtain_next_pkt_id(Session),
     Outgoing = {outgoing, ?SN_REGISTER_MSG(TopicId, MsgId, TopicName)},
     NChannel = Channel#channel{
-        session = NSession,
-        register_inflight = {TopicId, MsgId, TopicName}
+        register_inflight = {TopicId, MsgId, TopicName},
+        register_msg_id = next_register_msg_id(MsgId)
     },
     {ok, Outgoing, ensure_register_timer(NChannel)};
 handle_out(
@@ -2636,6 +2637,9 @@ ensure_asleep_timer(Duration, Channel) ->
 
 ensure_register_timer(Channel) ->
     ensure_register_timer(0, Channel).
+
+next_register_msg_id(16#FFFF) -> 1;
+next_register_msg_id(MsgId) -> MsgId + 1.
 
 ensure_register_timer(RetryTimes, Channel = #channel{timers = Timers}) ->
     TRef = emqx_utils:start_timer(?REGISTER_TIMEOUT, {retry_register, RetryTimes}),

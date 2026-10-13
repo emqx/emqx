@@ -52,7 +52,7 @@ end_per_testcase(_Case, _Config) ->
 
 %% Test: Auto msg_sn insertion should always succeed
 t_insert_auto_msg_sn(_Config) ->
-    Inflight = emqx_inflight:new(128),
+    Inflight = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -66,11 +66,11 @@ t_insert_auto_msg_sn(_Config) ->
 
     %% Verify the key is in inflight
     AutoKey = set_msg_ack(MsgId, MsgSn),
-    ?assert(emqx_inflight:contain(AutoKey, NewInflight)).
+    ?assert(emqx_gateway_inflight:contain(AutoKey, NewInflight)).
 
 %% Test: Custom msg_sn insertion should succeed when no conflict
 t_insert_custom_msg_sn_no_conflict(_Config) ->
-    Inflight = emqx_inflight:new(128),
+    Inflight = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -84,7 +84,7 @@ t_insert_custom_msg_sn_no_conflict(_Config) ->
 
     %% Verify the custom key is in inflight
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
-    ?assert(emqx_inflight:contain(CustomKey, NewInflight)),
+    ?assert(emqx_gateway_inflight:contain(CustomKey, NewInflight)),
 
     %% Verify ordering was recorded as custom (sent first)
     AutoKey = set_msg_ack(MsgId, MsgSn),
@@ -94,7 +94,7 @@ t_insert_custom_msg_sn_no_conflict(_Config) ->
 %% Test: Custom msg_sn insertion returns ok_duplicate when duplicate detected
 %% The message should still be delivered (not discarded) to ensure message delivery
 t_insert_custom_msg_sn_duplicate(_Config) ->
-    Inflight0 = emqx_inflight:new(128),
+    Inflight0 = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -114,7 +114,7 @@ t_insert_custom_msg_sn_duplicate(_Config) ->
 
 %% Test: Race condition - auto first, then custom with same msg_sn
 t_race_auto_first_then_custom(_Config) ->
-    Inflight0 = emqx_inflight:new(128),
+    Inflight0 = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -134,8 +134,8 @@ t_race_auto_first_then_custom(_Config) ->
     %% Verify both keys exist
     AutoKey = set_msg_ack(MsgId, MsgSn),
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
-    ?assert(emqx_inflight:contain(AutoKey, Inflight2)),
-    ?assert(emqx_inflight:contain(CustomKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(AutoKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(CustomKey, Inflight2)),
 
     %% Verify ordering was recorded as auto (auto sent first)
     OrderKey = {msg_sn_order, AutoKey},
@@ -143,7 +143,7 @@ t_race_auto_first_then_custom(_Config) ->
 
 %% Test: Custom first, then auto with same msg_sn (through separate channel usage)
 t_race_custom_first_then_auto(_Config) ->
-    Inflight0 = emqx_inflight:new(128),
+    Inflight0 = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -167,8 +167,8 @@ t_race_custom_first_then_auto(_Config) ->
 
     %% Verify both keys exist
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
-    ?assert(emqx_inflight:contain(AutoKey, Inflight2)),
-    ?assert(emqx_inflight:contain(CustomKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(AutoKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(CustomKey, Inflight2)),
 
     %% Ordering should still be custom (first insertion wins)
     ?assertEqual(?SN_CUSTOM, get(OrderKey)).
@@ -179,7 +179,7 @@ t_race_custom_first_then_auto(_Config) ->
 
 %% Test: ACK when only auto msg exists
 t_ack_only_auto(_Config) ->
-    Inflight0 = emqx_inflight:new(128),
+    Inflight0 = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -198,11 +198,11 @@ t_ack_only_auto(_Config) ->
 
     %% Verify auto key was removed
     AutoKey = set_msg_ack(MsgId, MsgSn),
-    ?assertNot(emqx_inflight:contain(AutoKey, Inflight2)).
+    ?assertNot(emqx_gateway_inflight:contain(AutoKey, Inflight2)).
 
 %% Test: ACK when only custom msg exists
 t_ack_only_custom(_Config) ->
-    Inflight0 = emqx_inflight:new(128),
+    Inflight0 = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -221,11 +221,11 @@ t_ack_only_custom(_Config) ->
 
     %% Verify custom key was removed
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
-    ?assertNot(emqx_inflight:contain(CustomKey, Inflight2)).
+    ?assertNot(emqx_gateway_inflight:contain(CustomKey, Inflight2)).
 
 %% Test: ACK when both exist and auto was first - should remove auto
 t_ack_race_auto_first(_Config) ->
-    Inflight0 = emqx_inflight:new(128),
+    Inflight0 = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -244,26 +244,26 @@ t_ack_race_auto_first(_Config) ->
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
 
     %% Verify both exist before ACK
-    ?assert(emqx_inflight:contain(AutoKey, Inflight2)),
-    ?assert(emqx_inflight:contain(CustomKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(AutoKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(CustomKey, Inflight2)),
 
     %% First ACK should remove auto (it was first)
     AckMsgId = ?MC_GENERAL_RESPONSE,
     KeyParam = {MsgId, MsgSn},
     Inflight3 = ack_msg(AckMsgId, KeyParam, Inflight2, Channel),
 
-    ?assertNot(emqx_inflight:contain(AutoKey, Inflight3)),
-    ?assert(emqx_inflight:contain(CustomKey, Inflight3)),
+    ?assertNot(emqx_gateway_inflight:contain(AutoKey, Inflight3)),
+    ?assert(emqx_gateway_inflight:contain(CustomKey, Inflight3)),
 
     %% Second ACK should remove custom
     Inflight4 = ack_msg(AckMsgId, KeyParam, Inflight3, Channel),
 
-    ?assertNot(emqx_inflight:contain(AutoKey, Inflight4)),
-    ?assertNot(emqx_inflight:contain(CustomKey, Inflight4)).
+    ?assertNot(emqx_gateway_inflight:contain(AutoKey, Inflight4)),
+    ?assertNot(emqx_gateway_inflight:contain(CustomKey, Inflight4)).
 
 %% Test: ACK when both exist and custom was first - should remove custom
 t_ack_race_custom_first(_Config) ->
-    Inflight0 = emqx_inflight:new(128),
+    Inflight0 = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Frame = make_frame(MsgId, MsgSn),
@@ -284,27 +284,27 @@ t_ack_race_custom_first(_Config) ->
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
 
     %% Verify both exist before ACK
-    ?assert(emqx_inflight:contain(AutoKey, Inflight2)),
-    ?assert(emqx_inflight:contain(CustomKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(AutoKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(CustomKey, Inflight2)),
 
     %% First ACK should remove custom (it was first)
     AckMsgId = ?MC_GENERAL_RESPONSE,
     KeyParam = {MsgId, MsgSn},
     Inflight3 = ack_msg(AckMsgId, KeyParam, Inflight2, Channel),
 
-    ?assert(emqx_inflight:contain(AutoKey, Inflight3)),
-    ?assertNot(emqx_inflight:contain(CustomKey, Inflight3)),
+    ?assert(emqx_gateway_inflight:contain(AutoKey, Inflight3)),
+    ?assertNot(emqx_gateway_inflight:contain(CustomKey, Inflight3)),
 
     %% Second ACK should remove auto
     Inflight4 = ack_msg(AckMsgId, KeyParam, Inflight3, Channel),
 
-    ?assertNot(emqx_inflight:contain(AutoKey, Inflight4)),
-    ?assertNot(emqx_inflight:contain(CustomKey, Inflight4)).
+    ?assertNot(emqx_gateway_inflight:contain(AutoKey, Inflight4)),
+    ?assertNot(emqx_gateway_inflight:contain(CustomKey, Inflight4)).
 
 %% Test: ACK when neither exists (edge case)
 %% This can happen when duplicate messages are delivered and client sends multiple ACKs
 t_ack_neither_exists(_Config) ->
-    Inflight = emqx_inflight:new(128),
+    Inflight = emqx_gateway_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
     Channel = make_test_channel(),
@@ -315,7 +315,7 @@ t_ack_neither_exists(_Config) ->
     KeyParam = {MsgId, MsgSn},
     ResultInflight = ack_msg(AckMsgId, KeyParam, Inflight, Channel),
 
-    ?assertEqual(emqx_inflight:size(Inflight), emqx_inflight:size(ResultInflight)).
+    ?assertEqual(emqx_gateway_inflight:size(Inflight), emqx_gateway_inflight:size(ResultInflight)).
 
 %%--------------------------------------------------------------------
 %% Test Cases for different message types
@@ -323,7 +323,7 @@ t_ack_neither_exists(_Config) ->
 
 %% Test: Query param message type (different ACK key format)
 t_query_param_msg_type(_Config) ->
-    Inflight0 = emqx_inflight:new(128),
+    Inflight0 = emqx_gateway_inflight:new(128),
     MsgId = ?MS_QUERY_CLIENT_PARAM,
     MsgSn = 200,
     Frame = make_frame(MsgId, MsgSn),
@@ -347,8 +347,8 @@ t_query_param_msg_type(_Config) ->
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
     ?assertEqual({custom, ?MC_QUERY_PARAM_ACK, MsgSn}, CustomKey),
 
-    ?assert(emqx_inflight:contain(AutoKey, Inflight2)),
-    ?assert(emqx_inflight:contain(CustomKey, Inflight2)).
+    ?assert(emqx_gateway_inflight:contain(AutoKey, Inflight2)),
+    ?assert(emqx_gateway_inflight:contain(CustomKey, Inflight2)).
 
 %%--------------------------------------------------------------------
 %% Test Cases for normalize_queue_item (hot upgrade compatibility)

@@ -50,7 +50,7 @@
     %% Timers
     timers :: #{atom() => undefined | disabled | reference()},
     %% Inflight
-    inflight :: emqx_inflight:inflight(),
+    inflight :: emqx_gateway_inflight:inflight(),
     %% Message Queue
     mqueue :: queue:queue(),
     %% Subscriptions
@@ -121,8 +121,8 @@ stats(#channel{inflight = Inflight, mqueue = Queue}) ->
     [
         {subscriptions_cnt, 1},
         {subscriptions_max, 1},
-        {inflight_cnt, emqx_inflight:size(Inflight)},
-        {inflight_max, emqx_inflight:max_size(Inflight)},
+        {inflight_cnt, emqx_gateway_inflight:size(Inflight)},
+        {inflight_max, emqx_gateway_inflight:max_size(Inflight)},
         {mqueue_len, queue:len(Queue)},
         {mqueue_max, 0},
         {mqueue_dropped, 0},
@@ -185,7 +185,7 @@ init(
         ctx = Ctx,
         conninfo = ConnInfo,
         clientinfo = ClientInfo,
-        inflight = emqx_inflight:new(1),
+        inflight = emqx_gateway_inflight:new(1),
         mqueue = queue:new(),
         subscriptions = #{},
         timers = #{},
@@ -345,7 +345,7 @@ handle_deliver(
             metrics_inc('messages.delivered', Channel, erlang:length(NMessages)),
             discard_downlink_messages(Dropped, Channel),
             Frames = msgs2frame(NMessages, ClientId, ProtoVer, Channel),
-            NQueue = lists:foldl(fun(F, Q) -> queue:in(F, Q) end, Queue, Frames),
+            NQueue = lists:foldl(fun queue:in/2, Queue, Frames),
             {Outgoings, NChannel} = dispatch_frame(Channel#channel{mqueue = NQueue}),
             {ok, [{outgoing, Outgoings}], NChannel}
     end.
@@ -487,11 +487,11 @@ handle_timeout(
     retry_delivery,
     Channel = #channel{inflight = Inflight, retx_interval = RetxInterv}
 ) ->
-    case emqx_inflight:is_empty(Inflight) of
+    case emqx_gateway_inflight:is_empty(Inflight) of
         true ->
             {ok, clean_timer(retry_timer, Channel)};
         false ->
-            Frames = emqx_inflight:to_list(Inflight),
+            Frames = emqx_gateway_inflight:to_list(Inflight),
             {Outgoings, NInflight} = retry_delivery(
                 Frames, erlang:system_time(millisecond), RetxInterv, Inflight, []
             ),
@@ -739,13 +739,13 @@ retry_delivery([], _Now, _Interval, Inflight, Acc) ->
     {lists:reverse(Acc), Inflight};
 retry_delivery([{Key, {_Frame, 0, _}} | Frames], Now, Interval, Inflight, Acc) ->
     %% todo    log(error, "has arrived max re-send times, drop ~p", [Frame]),
-    NInflight = emqx_inflight:delete(Key, Inflight),
+    NInflight = emqx_gateway_inflight:delete(Key, Inflight),
     retry_delivery(Frames, Now, Interval, NInflight, Acc);
 retry_delivery([{Key, {Frame, RetxCount, Ts}} | Frames], Now, Interval, Inflight, Acc) ->
     Diff = Now - Ts,
     case Diff >= Interval of
         true ->
-            NInflight = emqx_inflight:update(Key, {Frame, RetxCount - 1, Now}, Inflight),
+            NInflight = emqx_gateway_inflight:update(Key, {Frame, RetxCount - 1, Now}, Inflight),
             retry_delivery(Frames, Now, Interval, NInflight, [Frame | Acc]);
         _ ->
             retry_delivery(Frames, Now, Interval, Inflight, Acc)
@@ -815,8 +815,8 @@ ack(Code, Frame = #frame{data = Data, ack = ?ACK_IS_CMD}) ->
     Frame#frame{ack = Code, data = Data#{<<"Time">> => gentime()}}.
 
 ack_frame(Key, Inflight) ->
-    case emqx_inflight:contain(Key, Inflight) of
-        true -> emqx_inflight:delete(Key, Inflight);
+    case emqx_gateway_inflight:contain(Key, Inflight) of
+        true -> emqx_gateway_inflight:delete(Key, Inflight);
         false -> Inflight
     end.
 
@@ -827,7 +827,7 @@ dispatch_frame(
         retx_max_times = RetxMax
     }
 ) ->
-    case emqx_inflight:is_full(Inflight) orelse queue:is_empty(Queue) of
+    case emqx_gateway_inflight:is_full(Inflight) orelse queue:is_empty(Queue) of
         true ->
             {[], Channel};
         false ->
@@ -835,7 +835,7 @@ dispatch_frame(
 
             log(debug, #{msg => "delivery", frame => Frame}, Channel),
 
-            NewInflight = emqx_inflight:insert(
+            NewInflight = emqx_gateway_inflight:insert(
                 Frame#frame.cmd, {Frame, RetxMax, erlang:system_time(millisecond)}, Inflight
             ),
             NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
