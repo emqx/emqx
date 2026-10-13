@@ -596,8 +596,15 @@ request_with_oauth_retry(KeyOrNum, Method, Request, Timeout, Retry, State, undef
     ehttpc:request(Worker, Method, Request, Timeout, Retry);
 request_with_oauth_retry(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef) ->
     Worker = resolve_pool_worker(State, KeyOrNum),
-    Result = ehttpc:request(Worker, Method, Request, Timeout, Retry),
+    %% Keep the remaining transport budget visible when a 401 triggers an OAuth2 retry.
+    Result = ehttpc:request(Worker, Method, Request, Timeout, 0),
     case Result of
+        {error, {ehttpc_worker_down, _}} ->
+            Result;
+        {error, _} when Retry > 0 ->
+            request_with_oauth_retry(
+                KeyOrNum, Method, Request, Timeout, Retry - 1, State, TokenRef
+            );
         {ok, 401, _Headers} ->
             retry_oauth_request(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef);
         {ok, 401, _Headers, _Body} ->

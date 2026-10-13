@@ -758,6 +758,73 @@ t_oauth2_sync_retry_after_worker_restart(TCConfig) ->
     assert_oauth2_query_mode(TCConfig),
     ?assertNotReceive({oauth2_token_request, _}, 200).
 
+t_oauth2_retry_budget() ->
+    [{matrix, true}, {http_host, "127.0.0.1"}, {http_server_mode, raw}].
+t_oauth2_retry_budget(matrix) ->
+    [
+        [Mode, Scenario]
+     || Mode <- [sync, async], Scenario <- [spent_before_401, available_after_401, no_retries]
+    ];
+t_oauth2_retry_budget(TCConfig) when is_list(TCConfig) ->
+    Scenario = emqx_common_test_helpers:get_matrix_prop(
+        TCConfig, [spent_before_401, available_after_401, no_retries], spent_before_401
+    ),
+    {Responses, Retries, Success} =
+        case Scenario of
+            spent_before_401 -> {[bad_response, unauthorized, bad_response, ok], 1, 0};
+            available_after_401 -> {[unauthorized, bad_response, ok], 1, 1};
+            no_retries -> {[unauthorized, bad_response, ok], 0, 0}
+        end,
+    %% The raw socket server sends malformed responses to exercise actual transport retries.
+    Counter = atomics:new(2, []),
+    TestPid = self(),
+    ok = emqx_bridge_http_connector_test_server:set_raw_handler(fun(Body) ->
+        Response =
+            case atomics:get(Counter, 1) of
+                0 ->
+                    service_unavailable;
+                1 ->
+                    N = atomics:add_get(Counter, 2, 1),
+                    TestPid ! {oauth2_budget_request, N, Body},
+                    lists:nth(min(N, length(Responses)), Responses)
+            end,
+        oauth2_budget_response(Response)
+    end),
+    {_, _, Client, Topic} = setup_oauth2_revocation(
+        TCConfig,
+        #{},
+        #{<<"resume_interval">> => <<"1m">>},
+        #{<<"max_retries">> => Retries}
+    ),
+    Payload = <<"retry-budget">>,
+    Requests = [{Client, Topic, Payload}],
+    BufferWorkers = buffer_oauth2_requests(TCConfig, Requests),
+    atomics:put(Counter, 1, 1),
+    send_oauth2_requests(TCConfig, BufferWorkers, Requests),
+    wait_oauth2_metrics(TCConfig, #{
+        <<"success">> => Success, <<"failed">> => 1 - Success, <<"dropped">> => 0
+    }),
+    %% One initial request, the configured transport retries, and one free OAuth2 retry.
+    ExpectedRequests = Retries + 2,
+    ?assertEqual(ExpectedRequests, atomics:get(Counter, 2)),
+    lists:foreach(
+        fun(N) -> _ = ?assertReceive({oauth2_budget_request, N, Payload}, 2_000) end,
+        lists:seq(1, ExpectedRequests)
+    ),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    ?assertNotReceive({oauth2_token_request, _}, 200),
+    ?assertNotReceive({oauth2_budget_request, _, _}, 200),
+    assert_oauth2_query_mode(TCConfig).
+
+oauth2_budget_response(bad_response) ->
+    <<"HTTP/1.1 invalid\r\n\r\n">>;
+oauth2_budget_response(unauthorized) ->
+    <<"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n">>;
+oauth2_budget_response(service_unavailable) ->
+    <<"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n">>;
+oauth2_budget_response(ok) ->
+    <<"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n">>.
+
 buffer_oauth2_requests(TCConfig, Requests) ->
     case oauth2_query_mode(TCConfig) of
         async ->
@@ -817,6 +884,9 @@ setup_oauth2_revocation(TCConfig) ->
     setup_oauth2_revocation(TCConfig, #{}, #{}).
 
 setup_oauth2_revocation(TCConfig, ConnectorOverrides, ResourceOptsOverrides) ->
+    setup_oauth2_revocation(TCConfig, ConnectorOverrides, ResourceOptsOverrides, #{}).
+
+setup_oauth2_revocation(TCConfig, ConnectorOverrides, ResourceOptsOverrides, Parameters) ->
     {TokenEndpoint, FirstToken} = start_oauth2_token_server(self()),
     OAuth2 = #{
         <<"enable">> => true,
@@ -829,7 +899,7 @@ setup_oauth2_revocation(TCConfig, ConnectorOverrides, ResourceOptsOverrides) ->
     ),
     _ = ?assertReceive({oauth2_token_request, _}, 2_000),
     {201, _} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{<<"body">> => <<"${payload}">>},
+        <<"parameters">> => Parameters#{<<"body">> => <<"${payload}">>},
         <<"resource_opts">> => maps:merge(
             #{
                 <<"query_mode">> => atom_to_binary(oauth2_query_mode(TCConfig)),
