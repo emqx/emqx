@@ -255,6 +255,8 @@ drop(#s{trie = Trie, db = DBHandle, data_cf = DataCF, trie_cf = TrieCF}) ->
     emqx_ds_lts:destroy(Trie),
     ok = rocksdb:drop_column_family(DBHandle, DataCF),
     ok = rocksdb:drop_column_family(DBHandle, TrieCF),
+    ok = rocksdb:destroy_column_family(DBHandle, DataCF),
+    ok = rocksdb:destroy_column_family(DBHandle, TrieCF),
     ok.
 
 %% @doc Low-level API for writing data and indexes to the column

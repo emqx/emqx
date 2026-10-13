@@ -379,7 +379,7 @@ sample(Size) ->
 cleanup() ->
     catch emqtt:stop(client_pid()),
     emqx_cm:kick_session(?clientid),
-    emqx_persistent_session_ds:destroy_session(?clientid),
+    emqx_persistent_session_ds:session_drop(?clientid, '_', destroy, false),
     cleanup_shared_subs().
 
 cleanup_shared_subs() ->
