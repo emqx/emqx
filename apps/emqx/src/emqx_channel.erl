@@ -34,6 +34,7 @@
 
 -export([
     init/2,
+    refresh_quota/1,
     handle_in/2,
     handle_deliver/2,
     handle_out/3,
@@ -708,9 +709,9 @@ post_process_connect(
         will_msg = MaybeWillMsg
     }
 ) ->
-    Channel = Channel0#channel{
+    Channel = refresh_quota(Channel0#channel{
         quota = adjust_limiter(ClientInfo)
-    },
+    }),
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
@@ -733,21 +734,32 @@ post_process_connect(
 
 %% A hook callback may install a limiter container at connect time
 %% (e.g. multi-tenant limiters). Otherwise the field stays `undefined`
-%% and the container is built on first use, once a finite limit is
-%% configured for the zone or the listener; see try_consume_quota/2.
+%% until refresh_quota/1 finds a finite limit for the zone or the listener.
 adjust_limiter(ClientInfo) ->
     emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], undefined).
 
-try_consume_quota(Needs, #channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+-doc """
+Build the limiter container when the channel has none and a finite limit is
+configured for its zone or listener. The connection calls this at CONNECT and
+on each stats timer, so a limit configured at runtime applies after at most
+one stats interval.
+""".
+-spec refresh_quota(channel()) -> channel().
+refresh_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
     #{zone := Zone, listener := ListenerId} = ClientInfo,
-    Names = [Name || {Name, _Amount} <- Needs],
-    case emqx_limiter:channel_limits_configured(Zone, ListenerId, Names) of
+    case emqx_limiter:channel_limits_configured(Zone, ListenerId) of
         false ->
-            {true, Channel};
+            Channel;
         true ->
-            Container = emqx_limiter:create_channel_client_container(Zone, ListenerId),
-            try_consume_quota(Needs, Channel#channel{quota = Container})
+            Channel#channel{
+                quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)
+            }
     end;
+refresh_quota(Channel) ->
+    Channel.
+
+try_consume_quota(_Needs, #channel{quota = undefined} = Channel) ->
+    {true, Channel};
 try_consume_quota(Needs, #channel{quota = Quota0} = Channel) ->
     case emqx_limiter_client_container:try_consume(Quota0, Needs) of
         {true, Quota} ->
@@ -769,7 +781,7 @@ handle_zone_change(_Output, Channel) ->
 recreate_limiter(#channel{quota = undefined} = Channel) ->
     Channel;
 recreate_limiter(#channel{clientinfo = ClientInfo} = Channel) ->
-    Channel#channel{quota = adjust_limiter(ClientInfo)}.
+    refresh_quota(Channel#channel{quota = adjust_limiter(ClientInfo)}).
 
 handle_session_zone_change(#channel{session = undefined} = Channel) ->
     Channel;

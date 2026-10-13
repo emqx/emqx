@@ -22,7 +22,6 @@ start(_Type, _Args) ->
     ok = emqx_variform:inject_allowed_module(emqx_message_transformation_bif),
     ok = emqx_message_transformation_config:add_handler(),
     ok = emqx_message_transformation_config:load(),
-    ok = emqx_message_transformation:register_hooks(),
     {ok, Sup}.
 
 -spec prep_stop(term()) -> term().

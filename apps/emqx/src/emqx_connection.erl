@@ -780,7 +780,10 @@ handle_timeout(
     {Msgs, NState} = check_sendq_congestion(State),
     maybe_set_chan_stats(ClientId, NState),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, NState),
-    {ok, Msgs, NState#state{stats_timer = undefined}};
+    #state{channel = NChannel} = NState,
+    {ok, Msgs, NState#state{
+        channel = emqx_channel:refresh_quota(NChannel), stats_timer = undefined
+    }};
 handle_timeout(
     TRef,
     keepalive,
