@@ -135,6 +135,53 @@ t_data_ready_handles_rearmed_select(_) ->
         ok = meck:unload(esockd_socket)
     end.
 
+-doc """
+PUBLISH packets smaller than, equal to and larger than the 4 KiB receive buffer
+arrive complete and in order. The publisher sends them one packet per write,
+all in one write, and each packet split over several writes.
+""".
+t_recv_packet_sizes(_) ->
+    Topic = <<"t/recv_packet_sizes">>,
+    {ok, Sub} = emqtt:start_link([{clientid, <<"recv_packet_sizes_sub">>}]),
+    {ok, _} = emqtt:connect(Sub),
+    {ok, _, [?QOS_0]} = emqtt:subscribe(Sub, Topic, ?QOS_0),
+    {ok, Sock} = gen_tcp:connect("127.0.0.1", 1883, [binary, {active, false}, {nodelay, true}]),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"recv_packet_sizes_pub">>}),
+    ok = gen_tcp:send(Sock, emqx_frame:serialize(Connect)),
+    ?assertEqual({ok, <<16#20, 2, 0, 0>>}, gen_tcp:recv(Sock, 4, 5000)),
+    Sizes = [1, 1000, 4090, 4096, 4100, 6144, 16384, 20480, 65536, 262144],
+    Payloads = [crypto:strong_rand_bytes(Size) || Size <- Sizes],
+    Packets = [
+        iolist_to_binary(emqx_frame:serialize(?PUBLISH_PACKET(?QOS_0, Topic, undefined, P)))
+     || P <- Payloads
+    ],
+    lists:foreach(fun(Packet) -> ok = gen_tcp:send(Sock, Packet) end, Packets),
+    ok = gen_tcp:send(Sock, Packets),
+    lists:foreach(fun(Packet) -> send_in_chunks(Sock, Packet, 1500) end, Packets),
+    Expected = Payloads ++ Payloads ++ Payloads,
+    Received = receive_payloads(length(Expected)),
+    ?assertEqual([byte_size(P) || P <- Expected], [byte_size(P) || P <- Received]),
+    ?assert(Expected =:= Received),
+    ?assertNotReceive({publish, _}).
+
+receive_payloads(0) ->
+    [];
+receive_payloads(N) ->
+    receive
+        {publish, #{payload := Payload}} ->
+            [Payload | receive_payloads(N - 1)]
+    after 10000 ->
+        []
+    end.
+
+send_in_chunks(Sock, Bin, Size) when byte_size(Bin) > Size ->
+    <<Chunk:Size/binary, Rest/binary>> = Bin,
+    ok = gen_tcp:send(Sock, Chunk),
+    ok = timer:sleep(1),
+    send_in_chunks(Sock, Rest, Size);
+send_in_chunks(Sock, Bin, _Size) ->
+    ok = gen_tcp:send(Sock, Bin).
+
 t_parse_incoming_first_packet_hints(_) ->
     ok = meck_esockd_socket([no_history]),
     ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
