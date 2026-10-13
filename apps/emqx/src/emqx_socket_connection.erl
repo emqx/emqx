@@ -691,7 +691,8 @@ handle_msg(
     Deliver = #deliver{message = _Msg},
     #state{conf = #conf{active_n = ActiveN}, channel = Channel} = State
 ) ->
-    ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
+    ?BROKER_INSTR_EXTRACT_MARK(_Mark, _Msg),
+    ?BROKER_INSTR_SETMARK(t0_deliver, {_Mark, ?BROKER_INSTR_TS()}),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel_result(emqx_channel:handle_deliver(Delivers, Channel), State);
 handle_msg({connack, ConnAck}, State) ->
@@ -1444,11 +1445,17 @@ sent(
         oom_packets = dec_threshold(Thresholds0#thresholds.oom_packets, Num)
     },
     NState = trigger_oom(trigger_gc(State#state{thresholds = Thresholds})),
-    ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
-        TSent = ?BROKER_INSTR_TS(),
-        ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
-        ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
-    end),
+    ?BROKER_INSTR_TS(TSent),
+    ?BROKER_INSTR_WMARK(
+        t0_deliver,
+        {?BROKER_INSTR_MARK(T0, TDisp), TDeliver},
+        begin
+            ?BROKER_INSTR_OBSERVE_INTERVAL(connection, deliver_delay_us, TDisp, TDeliver),
+            ?BROKER_INSTR_OBSERVE_INTERVAL(connection, deliver_total_lat_us, TDisp, TSent),
+            ?BROKER_INSTR_OBSERVE_INTERVAL(connection, brokerage_delay_us, T0, TDeliver),
+            ?BROKER_INSTR_OBSERVE_INTERVAL(connection, brokerage_latency_us, T0, TSent)
+        end
+    ),
     NState.
 
 -compile({inline, [trigger_gc/1, trigger_oom/1]}).
