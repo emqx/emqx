@@ -69,7 +69,7 @@
     scheme := string(),
     host := string(),
     port := part_number(),
-    region => string() | undefined,
+    region => binary() | undefined,
     access_method := path | vhost,
     headers := headers(),
     url_expire_time := pos_integer(),
@@ -322,8 +322,9 @@ aws_config(
 %% With `undefined', erlcloud infers the signing region from `s3_host'.
 aws_region(Config) ->
     case maps:get(region, Config, undefined) of
-        "" -> undefined;
-        Region -> Region
+        undefined -> undefined;
+        <<>> -> undefined;
+        Region -> binary_to_list(Region)
     end.
 
 ensure_aws_credentials(

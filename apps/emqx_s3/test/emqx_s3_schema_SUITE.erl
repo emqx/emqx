@@ -42,7 +42,7 @@ t_minimal_config(_Config) ->
 -doc "A config with a signing region parses.".
 t_region(_Config) ->
     ?assertMatch(
-        #{host := "s3.us-east-1.endpoint.com", region := "eu-central-1"},
+        #{host := "s3.us-east-1.endpoint.com", region := <<"eu-central-1">>},
         emqx_s3_schema:translate(#{
             <<"bucket">> => <<"bucket">>,
             <<"host">> => <<"s3.us-east-1.endpoint.com">>,

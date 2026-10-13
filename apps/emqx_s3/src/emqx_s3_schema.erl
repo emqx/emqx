@@ -65,7 +65,7 @@ fields(s3_client) ->
             )},
         {region,
             mk(
-                string(),
+                binary(),
                 #{
                     desc => ?DESC("region"),
                     required => false

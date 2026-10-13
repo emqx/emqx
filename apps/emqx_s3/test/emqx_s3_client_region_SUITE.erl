@@ -51,7 +51,7 @@ t_aws_config_no_region(_Config) ->
     AWSConfig = emqx_s3_client:aws_config(Config),
     ?assertEqual(undefined, AWSConfig#aws_config.aws_region),
     %% Apart from the region, the aws_config is the same as with an explicit region.
-    AWSConfigWithRegion = emqx_s3_client:aws_config(Config#{region => "eu-central-1"}),
+    AWSConfigWithRegion = emqx_s3_client:aws_config(Config#{region => <<"eu-central-1">>}),
     ?assertEqual(AWSConfig, AWSConfigWithRegion#aws_config{aws_region = undefined}).
 
 -doc "An empty region is the same as no region: the region is inferred from the host.".
