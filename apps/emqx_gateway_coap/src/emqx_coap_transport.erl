@@ -27,6 +27,7 @@
 
 -export([
     new/0, new/1,
+    req_context/1,
     idle/3,
     maybe_reset/3,
     set_cache/2,
@@ -64,6 +65,10 @@ new(ReqCtx) ->
         retry_count = 0,
         req_context = ReqCtx
     }.
+
+-spec req_context(transport()) -> request_context().
+req_context(#transport{req_context = ReqCtx}) ->
+    ReqCtx.
 
 idle(
     in,
@@ -215,7 +220,7 @@ wait_ack(
                 }
             );
         _ ->
-            proto_out({ack_failure, Msg}, #{next => stop})
+            proto_out({ack_failure, {req_context(Transport), Msg}}, #{next => stop})
     end.
 
 observe(
