@@ -2011,6 +2011,40 @@ t_batch_pub_messageid_reuse(_Config) ->
     ?assert(maps:get(<<"Success">>, Resp)),
     ?assertEqual(ApiMsgId, maps:get(<<"MessageId">>, Resp)).
 
+-doc "The MessageId BatchPub answers with for inline content must be the id the\n"
+"message really gets. Both creation paths derive the API id from the content\n"
+"hash, so a RegisterMessage that commits the same content first can no longer\n"
+"leave the caller holding an id that resolves to nothing (404 on GET, 400\n"
+"MessageNotFound when it is reused).".
+t_inline_batch_pub_id_is_the_id_of_the_stored_message(_Config) ->
+    Payload = <<"inline content keeps one identity">>,
+    {ExpectedId, _} = emqx_bcast_id:generate_message_id_from_hash(
+        emqx_bcast_utils:sha256(Payload)
+    ),
+    %% RegisterMessage landing first is the ordering that used to store the
+    %% message under a second, random API id.
+    {ok, 200, _, Registered} = emqx_bcast_api:handle(post, [<<"pub">>], #{
+        body => #{
+            <<"Action">> => <<"RegisterMessage">>,
+            <<"MessageContent">> => base64:encode(Payload)
+        }
+    }),
+    ?assertEqual(ExpectedId, maps:get(<<"MessageId">>, Registered)),
+    {ok, 200, _, Published} = emqx_bcast_api:handle(post, [<<"pub">>], #{
+        body => #{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => <<"PIDIDENT">>,
+            <<"DeviceName">> => [<<"DPIDIDENT">>],
+            <<"MessageContent">> => base64:encode(Payload),
+            <<"Qos">> => 1
+        }
+    }),
+    Id = maps:get(<<"MessageId">>, Published),
+    ?assertEqual(ExpectedId, Id),
+    %% The id the caller holds addresses the stored message, so GET and reuse
+    %% both work after promotion commits.
+    ?assertMatch({ok, _}, emqx_bcast_id:resolve_message_id(Id)).
+
 -doc "BatchPub with an unknown MessageId returns 400 MessageNotFound.".
 t_batch_pub_messageid_not_found(_Config) ->
     Body = #{
