@@ -154,7 +154,9 @@ do_on_file_command(TopicReplyData, FileId, Msg, FileCommand) ->
                     on_init(TopicReplyData, Msg, Transfer, Meta)
                 end
             );
-        [<<"fin">>, FinalSizeBin | MaybeChecksum] when length(MaybeChecksum) =< 1 ->
+        [<<"fin">>, FinalSizeBin | MaybeChecksum] when
+            MaybeChecksum =:= []; tl(MaybeChecksum) =:= []
+        ->
             ChecksumBin = emqx_maybe:from_list(MaybeChecksum),
             validate(
                 [{size, FinalSizeBin}, {{option, checksum}, ChecksumBin}],

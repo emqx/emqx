@@ -6,6 +6,8 @@
 
 -module(emqx_limiter).
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -include("logger.hrl").
 
 -export([
