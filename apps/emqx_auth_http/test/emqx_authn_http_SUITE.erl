@@ -243,6 +243,58 @@ t_oauth2_client_credentials(TCConfig) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
+t_oauth2_refresh_on_401(TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    TestPid = self(),
+    Counter = counters:new(1, []),
+    Handler = fun(Req0, State) ->
+        {ok, _, Req1} = cowboy_req:read_body(Req0),
+        case cowboy_req:path(Req1) of
+            <<"/auth/token">> ->
+                counters:add(Counter, 1, 1),
+                Token = integer_to_binary(counters:get(Counter, 1)),
+                Body = emqx_utils_json:encode(#{access_token => Token, expires_in => 3600}),
+                {ok,
+                    cowboy_req:reply(
+                        200, #{<<"content-type">> => <<"application/json">>}, Body, Req1
+                    ),
+                    State};
+            <<"/auth/check">> ->
+                Header = cowboy_req:header(<<"authorization">>, Req1),
+                Status =
+                    case Header of
+                        <<"Bearer 1">> -> 401;
+                        <<"Bearer 2">> -> 200
+                    end,
+                TestPid ! {oauth2_response, Header, Status},
+                Body = emqx_utils_json:encode(#{result => allow}),
+                {ok,
+                    cowboy_req:reply(
+                        Status, #{<<"content-type">> => <<"application/json">>}, Body, Req1
+                    ),
+                    State}
+        end
+    end,
+    ok = emqx_utils_http_test_server:set_handler(Handler),
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"url">> => <<BaseURL/binary, "/auth/check">>,
+        <<"oauth2">> => oauth2_config(<<BaseURL/binary, "/auth/token">>)
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    {ok, Client} = emqtt:start_link([{username, <<"plain">>}, {password, <<"plain">>}]),
+    emqx_common_test_helpers:on_exit(fun() -> emqtt:stop(Client) end),
+    {ok, _} = emqtt:connect(Client),
+
+    receive
+        {oauth2_response, <<"Bearer 1">>, 401} -> ok
+    after 2_000 -> ct:fail(no_401)
+    end,
+    receive
+        {oauth2_response, <<"Bearer 2">>, 200} -> ok
+    after 2_000 -> ct:fail(no_retry)
+    end,
+    ?assertEqual(2, counters:get(Counter, 1)).
+
 t_oauth2_ssl_certs_are_saved(TCConfig) ->
     BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
     ok = set_oauth2_token_handler(<<"/auth/token">>),

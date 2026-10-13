@@ -236,6 +236,70 @@ t_concurrent_get_token_fetches_once(TCConfig) ->
     ?assertEqual(1, token_request_count(TCConfig)),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
+t_rejected_token_refresh_is_shared(TCConfig) ->
+    ResourceId = <<"res:rejected">>,
+    Token = <<"same-token-value">>,
+    ok = set_token_response(TCConfig, Token, 3600),
+    ok = register_oauth2(ResourceId, oauth2_config(TCConfig)),
+    {ok, Token, OldRef} = emqx_connector_oauth2:get_token_with_ref(ResourceId),
+    TestPid = self(),
+    ok = set_token_handler(TCConfig, fun(_Request) ->
+        TestPid ! {fetch_started, self()},
+        receive
+            continue -> token_response(Token, 3600)
+        end
+    end),
+    spawn(fun() ->
+        Responses = emqx_utils:pmap(
+            fun(_) -> emqx_connector_oauth2:refresh_token(ResourceId, OldRef) end,
+            lists:seq(1, 10)
+        ),
+        TestPid ! {responses, Responses}
+    end),
+    {fetch_started, FetchWorker} = ?assertReceive({fetch_started, _}, 1_000),
+    %% Requests arriving after rejection must wait instead of using the old token.
+    spawn(fun() ->
+        TestPid ! {token, emqx_connector_oauth2:get_token_with_ref(ResourceId)}
+    end),
+    ?assertNotReceive({token, _}, 100),
+    FetchWorker ! continue,
+    {responses, Responses} = ?assertReceive({responses, _}, 2_000),
+    ?assertEqual(lists:duplicate(10, {ok, Token}), Responses),
+    {token, {ok, Token, NewRef}} = ?assertReceive({token, _}, 2_000),
+    ?assertNotEqual(OldRef, NewRef),
+    %% A late 401 must not refresh again, including when the endpoint reused the token value.
+    ?assertEqual({ok, Token}, emqx_connector_oauth2:refresh_token(ResourceId, OldRef)),
+    ?assertEqual(2, token_request_count(TCConfig)).
+
+t_rejected_token_refresh_failure(TCConfig) ->
+    ResourceId = <<"res:rejected-failure">>,
+    ok = set_token_response(TCConfig, <<"old-token">>, 3600),
+    ok = register_oauth2(ResourceId, oauth2_config(TCConfig)),
+    {ok, _, Ref} = emqx_connector_oauth2:get_token_with_ref(ResourceId),
+    ok = set_token_handler(TCConfig, fun(_) -> {503, #{}, <<"unavailable">>} end),
+    ?assertMatch({error, _}, emqx_connector_oauth2:refresh_token(ResourceId, Ref)),
+    ?assertMatch({error, _}, emqx_connector_oauth2:get_token(ResourceId)),
+    ?assertMatch({error, _}, emqx_connector_oauth2:refresh_token(ResourceId, Ref)),
+    ?assertEqual(2, token_request_count(TCConfig)),
+    ok = set_token_response(TCConfig, <<"new-token">>, 3600),
+    ok = wait_for(
+        fun() -> emqx_connector_oauth2:get_token(ResourceId) =:= {ok, <<"new-token">>} end, 3_000
+    ).
+
+t_legacy_cached_token_can_be_refreshed(TCConfig) ->
+    ResourceId = <<"res:legacy-rejected">>,
+    ok = register_oauth2(ResourceId, oauth2_config(TCConfig)),
+    %% Simulate a token cached before the hot upgrade added token references.
+    Deadline = erlang:monotonic_time(millisecond) + 60_000,
+    ets:insert(emqx_connector_oauth2_tokens, {ResourceId, Deadline, {ok, <<"legacy-token">>}}),
+    ?assertEqual({ok, <<"legacy-token">>}, emqx_connector_oauth2:get_token(ResourceId)),
+    {ok, <<"legacy-token">>, Ref} = emqx_connector_oauth2:get_token_with_ref(ResourceId),
+    ok = set_token_response(TCConfig, <<"new-token">>, 3600),
+    ?assertEqual(
+        {ok, <<"new-token">>}, emqx_connector_oauth2:refresh_token(ResourceId, Ref)
+    ),
+    ?assertEqual(1, token_request_count(TCConfig)).
+
 t_scope_is_omitted_when_undefined(TCConfig) ->
     ResourceId = <<"res:no-scope">>,
     TestPid = self(),

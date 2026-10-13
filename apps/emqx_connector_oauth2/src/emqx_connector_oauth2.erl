@@ -11,6 +11,8 @@
     start_link/0,
     register/2,
     get_token/1,
+    get_token_with_ref/1,
+    refresh_token/2,
     unregister/1,
     clear_cache/0,
     clear_cache/1
@@ -55,6 +57,7 @@
 
 -record(register, {resource_id, params}).
 -record(fetch, {resource_id}).
+-record(refresh_token, {resource_id, token_ref}).
 -record(unregister, {resource_id}).
 -record(refresh, {resource_id}).
 
@@ -88,13 +91,24 @@ get_token(ResourceId) ->
         {ok, Response} ->
             Response;
         error ->
-            try
-                call(#fetch{resource_id = ResourceId})
-            catch
-                exit:Reason ->
-                    {error, {oauth2_manager_unavailable, Reason}}
+            token_call(#fetch{resource_id = ResourceId})
+    end.
+
+-spec get_token_with_ref(term()) -> {ok, binary(), term()} | {error, term()}.
+get_token_with_ref(ResourceId) ->
+    case get_cached_with_ref(ResourceId) of
+        {ok, Response} ->
+            Response;
+        error ->
+            maybe
+                {ok, _Token} ?= token_call(#fetch{resource_id = ResourceId}),
+                get_token_with_ref(ResourceId)
             end
     end.
+
+-spec refresh_token(term(), term()) -> {ok, binary()} | {error, term()}.
+refresh_token(ResourceId, TokenRef) ->
+    token_call(#refresh_token{resource_id = ResourceId, token_ref = TokenRef}).
 
 %% Removes the cached token and cancels the refresh timer for a connector
 %% instance.  Called from the connector `on_stop'.
@@ -171,6 +185,21 @@ handle_call(#fetch{resource_id = ResourceId}, From, State0) ->
         error ->
             fetch_or_enqueue(ResourceId, From, State0)
     end;
+handle_call(#refresh_token{resource_id = ResourceId, token_ref = TokenRef}, From, State0) ->
+    case get_cached_with_ref(ResourceId) of
+        {ok, {ok, _Token, TokenRef}} ->
+            %% Only invalidate the token used by the rejected request. Late 401s
+            %% must reuse a newer token, even if its value has not changed.
+            clear_cache(ResourceId),
+            State = clear_refresh_timer(ResourceId, State0),
+            fetch_or_enqueue(ResourceId, From, State);
+        {ok, {ok, Token, _NewRef}} ->
+            {reply, {ok, Token}, State0};
+        {ok, {error, _Reason} = Error} ->
+            {reply, Error, State0};
+        error ->
+            fetch_or_enqueue(ResourceId, From, State0)
+    end;
 handle_call(#unregister{resource_id = ResourceId}, _From, State0) ->
     State = handle_unregister(ResourceId, State0),
     {reply, ok, State};
@@ -207,12 +236,32 @@ handle_info(_Info, State) ->
 call(Call) ->
     gen_server:call(?MODULE, Call, infinity).
 
+token_call(Call) ->
+    try
+        call(Call)
+    catch
+        exit:Reason -> {error, {oauth2_manager_unavailable, Reason}}
+    end.
+
 get_cached(ResourceId) ->
+    case get_cached_with_ref(ResourceId) of
+        {ok, {ok, Token, _Ref}} -> {ok, {ok, Token}};
+        Response -> Response
+    end.
+
+get_cached_with_ref(ResourceId) ->
     NowMS = now_ms(),
     try
         case ets:lookup(?OAUTH2_TOKEN_TAB, ?KEY(ResourceId)) of
-            [?TOKEN_ROW(?KEY(ResourceId), Deadline, Response)] when Deadline > NowMS ->
-                {ok, Response};
+            [{ResourceId, Deadline, {ok, Token}, Ref}] when Deadline > NowMS ->
+                {ok, {ok, Token, Ref}};
+            [{ResourceId, Deadline, {error, _} = Error, _Ref}] when Deadline > NowMS ->
+                {ok, Error};
+            %% Keep tokens cached by the previous version usable during upgrades.
+            [?TOKEN_ROW(ResourceId, Deadline, {ok, Token})] when Deadline > NowMS ->
+                {ok, {ok, Token, {legacy, Deadline}}};
+            [?TOKEN_ROW(ResourceId, Deadline, {error, _} = Error)] when Deadline > NowMS ->
+                {ok, Error};
             _ ->
                 error
         end
@@ -415,7 +464,7 @@ store_token_and_schedule_refresh(ExpiryMS, ResourceId, Response, State0) ->
 
 store_row(ResourceId, Deadline, Response) ->
     try
-        true = ets:insert(?OAUTH2_TOKEN_TAB, ?TOKEN_ROW(?KEY(ResourceId), Deadline, Response))
+        true = ets:insert(?OAUTH2_TOKEN_TAB, {ResourceId, Deadline, Response, make_ref()})
     catch
         error:badarg ->
             ok
