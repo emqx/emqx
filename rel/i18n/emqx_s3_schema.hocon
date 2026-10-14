@@ -45,7 +45,7 @@ region.desc:
   The region used to sign requests to the S3 endpoint, for example `us-west-2`.
 
   When this field is set, its value takes precedence over the region inferred from the endpoint host.
-  When this field is not set, the region is inferred from the endpoint host. When no region can be inferred, `us-east-1` is used.
+  Otherwise, the region is inferred from the endpoint host, and `us-east-1` is used if no region can be inferred.
 
   Set this field when the endpoint host does not contain the region, for example a custom domain name.~"""
 
