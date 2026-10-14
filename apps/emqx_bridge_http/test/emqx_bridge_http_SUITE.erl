@@ -577,6 +577,377 @@ t_oauth2_async_retry_uses_latest_token(TCConfig) ->
         maps:get(<<"authorization">>, SecondHeaders)
     ).
 
+t_oauth2_refresh_on_401() -> [{matrix, true}].
+t_oauth2_refresh_on_401(matrix) ->
+    [[sync], [async]];
+t_oauth2_refresh_on_401(TCConfig) when is_list(TCConfig) ->
+    {FirstToken, SecondToken, Client, Topic} = setup_oauth2_revocation(
+        TCConfig, #{}, #{<<"resume_interval">> => <<"1m">>}
+    ),
+    %% Independent actions let both sync and async requests reach the HTTP barrier.
+    SecondName = <<(get_config(action_name, TCConfig))/binary, "_second">>,
+    SecondConfig = [{action_name, SecondName} | proplists:delete(action_name, TCConfig)],
+    {201, _} = create_action_api(SecondConfig, #{
+        <<"parameters">> => #{<<"body">> => <<"${payload}">>},
+        <<"resource_opts">> => #{
+            <<"query_mode">> => atom_to_binary(oauth2_query_mode(TCConfig)),
+            <<"resume_interval">> => <<"1m">>
+        }
+    }),
+    #{topic := SecondTopic} = simple_create_rule_api(SecondConfig),
+    SecondClient = start_client(),
+    Requests = [{Client, Topic, <<"first">>}, {SecondClient, SecondTopic, <<"second">>}],
+    BufferWorkers = buffer_oauth2_requests(TCConfig, Requests),
+    TestPid = self(),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        <<"Bearer ", Token/binary>> = cowboy_req:header(<<"authorization">>, Req1),
+        Status =
+            case Token of
+                FirstToken ->
+                    #{pid := ConnectionPid, streamid := StreamId} = Req1,
+                    TestPid ! {revoked_request, {ConnectionPid, StreamId}, self()},
+                    receive
+                        continue -> ok
+                    end,
+                    401;
+                SecondToken ->
+                    200
+            end,
+        TestPid ! {oauth2_http, Token, Body, Status},
+        {ok, cowboy_req:reply(Status, #{}, <<"response">>, Req1), State}
+    end),
+    send_oauth2_requests(TCConfig, BufferWorkers, Requests),
+    Request1 = ?assertReceive({revoked_request, _, _}, 2_000),
+    Request2 = ?assertReceive({revoked_request, _, _}, 2_000),
+    %% HTTP/1.1 pipelined responses must follow stream order, regardless of notification order.
+    [{revoked_request, _, FirstRequest}, {revoked_request, _, LateRequest}] =
+        lists:sort([Request1, Request2]),
+    FirstRequest ! continue,
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, SecondToken}, emqx_connector_oauth2:get_token(ConnectorResId)),
+    %% Deliver the second old-token 401 after the new token has been cached.
+    LateRequest ! continue,
+    lists:foreach(
+        fun(Cfg) ->
+            wait_oauth2_metrics(Cfg, #{<<"success">> => 1, <<"failed">> => 0, <<"dropped">> => 0})
+        end,
+        [TCConfig, SecondConfig]
+    ),
+    lists:foreach(
+        fun(Payload) ->
+            _ = ?assertReceive({oauth2_http, SecondToken, Payload, 200}, 2_000),
+            _ = ?assertReceive({published, {ok, _}}, 2_000)
+        end,
+        [<<"first">>, <<"second">>]
+    ),
+    ?assertNotReceive({oauth2_token_request, _}, 200),
+    assert_oauth2_query_mode(TCConfig).
+
+t_oauth2_second_401_fails() -> [{matrix, true}].
+t_oauth2_second_401_fails(matrix) ->
+    [[sync], [async]];
+t_oauth2_second_401_fails(TCConfig) when is_list(TCConfig) ->
+    {FirstToken, SecondToken, Client, Topic} = setup_oauth2_revocation(
+        TCConfig, #{}, #{<<"resume_interval">> => <<"1m">>}
+    ),
+    Requests = [{Client, Topic, <<"permanent-401">>}],
+    BufferWorkers = buffer_oauth2_requests(TCConfig, Requests),
+    set_oauth2_resource_handler(<<"never-accepted">>),
+    send_oauth2_requests(TCConfig, BufferWorkers, Requests),
+    wait_oauth2_metrics(TCConfig, #{<<"success">> => 0, <<"failed">> => 1}),
+    _ = ?assertReceive({oauth2_http, FirstToken, _, 401}, 2_000),
+    _ = ?assertReceive({oauth2_http, SecondToken, _, 401}, 2_000),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    ?assertNotReceive({oauth2_http, _, _, _}, 200),
+    ?assertNotReceive({oauth2_token_request, _}, 200),
+    assert_oauth2_query_mode(TCConfig).
+
+t_oauth2_refresh_failure_recovers() -> [{matrix, true}].
+t_oauth2_refresh_failure_recovers(matrix) ->
+    [[sync], [async]];
+t_oauth2_refresh_failure_recovers(TCConfig) when is_list(TCConfig) ->
+    ResourceOpts =
+        case oauth2_query_mode(TCConfig) of
+            sync -> #{<<"resume_interval">> => <<"1m">>};
+            async -> #{}
+        end,
+    {FirstToken, SecondToken, Client, Topic} = setup_oauth2_revocation(
+        TCConfig, #{}, ResourceOpts
+    ),
+    Requests = [{Client, Topic, <<"buffered">>}],
+    BufferWorkers = buffer_oauth2_requests(TCConfig, Requests),
+    set_oauth2_resource_handler(SecondToken),
+    set_oauth2_token_mode(self(), unavailable),
+    send_oauth2_requests(TCConfig, BufferWorkers, Requests),
+    _ = ?assertReceive({oauth2_http, FirstToken, _, 401}, 2_000),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertMatch({error, _}, emqx_connector_oauth2:get_token(ConnectorResId)),
+    ?assertMatch(
+        {disconnected, {oauth2_token_unavailable, _}},
+        emqx_bridge_http_connector:on_get_status(ConnectorResId, #{
+            pool_name => ConnectorResId, connect_timeout => 1_000, oauth2 => #{enable => true}
+        })
+    ),
+    set_oauth2_token(self(), SecondToken),
+    case oauth2_query_mode(TCConfig) of
+        sync ->
+            %% Retry the buffer until the short token-fetch failure cache expires.
+            ?retry(100, 50, begin
+                lists:foreach(fun emqx_resource_buffer_worker:resume/1, BufferWorkers),
+                {200, #{<<"metrics">> := Metrics}} = get_action_metrics_api(TCConfig),
+                ?assertEqual(1, maps:get(<<"success">>, Metrics))
+            end);
+        async ->
+            ok
+    end,
+    wait_oauth2_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"dropped">> => 0}),
+    _ = ?assertReceive({oauth2_http, SecondToken, _, 200}, 2_000),
+    _ = ?assertReceive({published, {ok, _}}, 2_000),
+    assert_oauth2_query_mode(TCConfig).
+
+t_oauth2_sync_retry_after_worker_restart(TCConfig) ->
+    {FirstToken, SecondToken, Client, Topic} = setup_oauth2_revocation(
+        TCConfig,
+        #{<<"pool_type">> => <<"hash">>, <<"pool_size">> => 2},
+        #{<<"resume_interval">> => <<"1m">>}
+    ),
+    Payload = <<"restart-during-refresh">>,
+    Requests = [{Client, Topic, Payload}],
+    BufferWorkers = buffer_oauth2_requests(TCConfig, Requests),
+    TestPid = self(),
+    set_oauth2_resource_handler(SecondToken, fun(Token, Req) ->
+        TestPid ! {oauth2_http_peer, Token, cowboy_req:peer(Req)}
+    end),
+    ok = emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        {ok, RequestBody, Req1} = cowboy_req:read_body(Req0),
+        TestPid ! {oauth2_token_request, RequestBody},
+        TestPid ! {fetch_started, self()},
+        receive
+            continue -> ok
+        end,
+        Body = emqx_utils_json:encode(#{access_token => SecondToken, expires_in => 3600}),
+        {ok, cowboy_req:reply(200, #{<<"content-type">> => <<"application/json">>}, Body, Req1),
+            State}
+    end),
+    ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ClientId = proplists:get_value(clientid, emqtt:info(Client)),
+    HTTPWorker = ehttpc_pool:pick_worker(ConnectorId, ClientId),
+    send_oauth2_requests(TCConfig, BufferWorkers, Requests),
+    {fetch_started, FetchHandler} = ?assertReceive({fetch_started, _}, 2_000),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    _ = ?assertReceive({oauth2_http, FirstToken, Payload, 401}, 2_000),
+    %% Restart the actual pool worker while the synchronous query waits for a token.
+    exit(HTTPWorker, kill),
+    ?retry(100, 50, begin
+        Worker = ehttpc_pool:pick_worker(ConnectorId, ClientId),
+        ?assert(is_pid(Worker) andalso Worker =/= HTTPWorker andalso is_process_alive(Worker))
+    end),
+    NewWorker = ehttpc_pool:pick_worker(ConnectorId, ClientId),
+    FetchHandler ! continue,
+    wait_oauth2_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"dropped">> => 0}),
+    _ = ?assertReceive({oauth2_http, SecondToken, Payload, 200}, 2_000),
+    %% The replacement request must retain the client-ID hash, rather than choose another worker.
+    {oauth2_http_peer, SecondToken, {PeerIP, PeerPort}} =
+        ?assertReceive({oauth2_http_peer, SecondToken, _}, 2_000),
+    #{client := GunClient} = ehttpc:get_state(NewWorker),
+    GunInfo = gun:info(GunClient),
+    ?assertEqual({PeerIP, PeerPort}, {maps:get(sock_ip, GunInfo), maps:get(sock_port, GunInfo)}),
+    assert_oauth2_query_mode(TCConfig),
+    ?assertNotReceive({oauth2_token_request, _}, 200).
+
+t_oauth2_retry_budget() ->
+    [{matrix, true}, {http_host, "127.0.0.1"}, {http_server_mode, raw}].
+t_oauth2_retry_budget(matrix) ->
+    [
+        [Mode, Scenario]
+     || Mode <- [sync, async], Scenario <- [spent_before_401, available_after_401, no_retries]
+    ];
+t_oauth2_retry_budget(TCConfig) when is_list(TCConfig) ->
+    Scenario = emqx_common_test_helpers:get_matrix_prop(
+        TCConfig, [spent_before_401, available_after_401, no_retries], spent_before_401
+    ),
+    {Responses, Retries, Success} =
+        case Scenario of
+            spent_before_401 -> {[bad_response, unauthorized, bad_response, ok], 1, 0};
+            available_after_401 -> {[unauthorized, bad_response, ok], 1, 1};
+            no_retries -> {[unauthorized, bad_response, ok], 0, 0}
+        end,
+    %% The raw socket server sends malformed responses to exercise actual transport retries.
+    Counter = atomics:new(2, []),
+    TestPid = self(),
+    ok = emqx_bridge_http_connector_test_server:set_raw_handler(fun(Body) ->
+        Response =
+            case atomics:get(Counter, 1) of
+                0 ->
+                    service_unavailable;
+                1 ->
+                    N = atomics:add_get(Counter, 2, 1),
+                    TestPid ! {oauth2_budget_request, N, Body},
+                    lists:nth(min(N, length(Responses)), Responses)
+            end,
+        oauth2_budget_response(Response)
+    end),
+    {_, _, Client, Topic} = setup_oauth2_revocation(
+        TCConfig,
+        #{},
+        #{<<"resume_interval">> => <<"1m">>},
+        #{<<"max_retries">> => Retries}
+    ),
+    Payload = <<"retry-budget">>,
+    Requests = [{Client, Topic, Payload}],
+    BufferWorkers = buffer_oauth2_requests(TCConfig, Requests),
+    atomics:put(Counter, 1, 1),
+    send_oauth2_requests(TCConfig, BufferWorkers, Requests),
+    wait_oauth2_metrics(TCConfig, #{
+        <<"success">> => Success, <<"failed">> => 1 - Success, <<"dropped">> => 0
+    }),
+    %% One initial request, the configured transport retries, and one free OAuth2 retry.
+    ExpectedRequests = Retries + 2,
+    ?assertEqual(ExpectedRequests, atomics:get(Counter, 2)),
+    lists:foreach(
+        fun(N) -> _ = ?assertReceive({oauth2_budget_request, N, Payload}, 2_000) end,
+        lists:seq(1, ExpectedRequests)
+    ),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    ?assertNotReceive({oauth2_token_request, _}, 200),
+    ?assertNotReceive({oauth2_budget_request, _, _}, 200),
+    assert_oauth2_query_mode(TCConfig).
+
+oauth2_budget_response(bad_response) ->
+    <<"HTTP/1.1 invalid\r\n\r\n">>;
+oauth2_budget_response(unauthorized) ->
+    <<"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n">>;
+oauth2_budget_response(service_unavailable) ->
+    <<"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n">>;
+oauth2_budget_response(ok) ->
+    <<"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n">>.
+
+buffer_oauth2_requests(TCConfig, Requests) ->
+    case oauth2_query_mode(TCConfig) of
+        async ->
+            [];
+        sync ->
+            %% Initial MQTT submissions use async callbacks. A buffered retry forces on_query.
+            ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+                {ok, _, Req1} = cowboy_req:read_body(Req0),
+                {ok, cowboy_req:reply(503, #{}, <<>>, Req1), State}
+            end),
+            TestPid = self(),
+            lists:map(
+                fun({Client, Topic, Payload}) ->
+                    {_, {ok, #{buffer_worker := Worker}}} = ?wait_async_action(
+                        emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(Result) ->
+                            TestPid ! {published, Result}
+                        end),
+                        #{?snk_kind := buffer_worker_enter_blocked},
+                        10_000
+                    ),
+                    Worker
+                end,
+                Requests
+            )
+    end.
+
+send_oauth2_requests(TCConfig, BufferWorkers, Requests) ->
+    case oauth2_query_mode(TCConfig) of
+        sync ->
+            lists:foreach(fun emqx_resource_buffer_worker:resume/1, BufferWorkers);
+        async ->
+            TestPid = self(),
+            lists:foreach(
+                fun({Client, Topic, Payload}) ->
+                    spawn(fun() ->
+                        TestPid ! {published, emqtt:publish(Client, Topic, Payload, [{qos, 2}])}
+                    end)
+                end,
+                Requests
+            )
+    end.
+
+assert_oauth2_query_mode(TCConfig) ->
+    ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    QueryMode = oauth2_query_mode(TCConfig),
+    Trace = snabbkaffe:collect_trace(),
+    ?assert(
+        lists:any(
+            fun(#{connector := Id, query_mode := Mode}) ->
+                Id =:= ConnectorId andalso Mode =:= QueryMode
+            end,
+            ?of_kind(http_connector_request, Trace)
+        )
+    ).
+
+setup_oauth2_revocation(TCConfig) ->
+    setup_oauth2_revocation(TCConfig, #{}, #{}).
+
+setup_oauth2_revocation(TCConfig, ConnectorOverrides, ResourceOptsOverrides) ->
+    setup_oauth2_revocation(TCConfig, ConnectorOverrides, ResourceOptsOverrides, #{}).
+
+setup_oauth2_revocation(TCConfig, ConnectorOverrides, ResourceOptsOverrides, Parameters) ->
+    {TokenEndpoint, FirstToken} = start_oauth2_token_server(self()),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(
+        TCConfig, ConnectorOverrides#{<<"oauth2">> => OAuth2}
+    ),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => Parameters#{<<"body">> => <<"${payload}">>},
+        <<"resource_opts">> => maps:merge(
+            #{
+                <<"query_mode">> => atom_to_binary(oauth2_query_mode(TCConfig)),
+                <<"resume_interval">> => <<"100ms">>,
+                <<"metrics_flush_interval">> => <<"100ms">>
+            },
+            ResourceOptsOverrides
+        )
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    SecondToken = <<"new-access-token">>,
+    set_oauth2_token(self(), SecondToken),
+    set_oauth2_resource_handler(SecondToken),
+    {FirstToken, SecondToken, start_client(), Topic}.
+
+oauth2_query_mode(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(TCConfig, [sync, async], sync).
+
+set_oauth2_resource_handler(AcceptedToken) ->
+    set_oauth2_resource_handler(AcceptedToken, fun(_Token, _Req) -> ok end).
+
+set_oauth2_resource_handler(AcceptedToken, ObserveRequest) ->
+    TestPid = self(),
+    emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        <<"Bearer ", Token/binary>> = cowboy_req:header(<<"authorization">>, Req1),
+        Status =
+            case Token =:= AcceptedToken of
+                true -> 200;
+                false -> 401
+            end,
+        TestPid ! {oauth2_http, Token, Body, Status},
+        ObserveRequest(Token, Req1),
+        %% Exercise both response forms handled by ehttpc (with and without body).
+        ResponseBody =
+            case Body of
+                <<"permanent-401">> -> <<>>;
+                _ -> <<"response">>
+            end,
+        {ok, cowboy_req:reply(Status, #{}, ResponseBody, Req1), State}
+    end).
+
+wait_oauth2_metrics(TCConfig, Expected) ->
+    ?retry(100, 100, begin
+        {200, #{<<"metrics">> := Metrics}} = get_action_metrics_api(TCConfig),
+        ?assertEqual(Expected, maps:with(maps:keys(Expected), Metrics))
+    end).
+
 t_oauth2_rejects_action_authorization_header(TCConfig) ->
     {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
     OAuth2 = #{

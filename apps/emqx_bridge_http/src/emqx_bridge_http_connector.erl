@@ -328,6 +328,12 @@ on_stop(InstId, _State) ->
     ?tp(emqx_connector_http_stopped, #{instance_id => InstId}),
     Res.
 
+prepare_request(Method, Request, State) ->
+    case maybe_inject_oauth_token(Request, State) of
+        {ok, RequestWithToken, Ref} -> {ok, formalize_request(Method, RequestWithToken), Ref};
+        {error, _Reason} = Error -> Error
+    end.
+
 %% Injects the OAuth2 `Authorization: Bearer <token>' header into the request
 %% just before it is sent.  Called from the sync and async query chokepoints
 %% so it covers bridge V1/V2 actions as well as `authn_http'/`authz_http'
@@ -335,20 +341,14 @@ on_stop(InstId, _State) ->
 %% validator already rejects a conflicting header at the connector / authn /
 %% authz level; this also defends against action-level headers).
 maybe_inject_oauth_token(Request, #{oauth2 := #{enable := true}, pool_name := ResourceId}) ->
-    case emqx_connector_oauth2:get_token(ResourceId) of
-        {ok, Token} ->
-            {ok, inject_authorization(Request, Token)};
+    case emqx_connector_oauth2:get_token_with_ref(ResourceId) of
+        {ok, Token, Ref} ->
+            {ok, inject_authorization(Request, Token), Ref};
         {error, Reason} ->
             {error, {recoverable_error, {oauth2_token_unavailable, Reason}}}
     end;
 maybe_inject_oauth_token(Request, _State) ->
-    {ok, Request}.
-
-prepare_request(Method, Request, State) ->
-    case maybe_inject_oauth_token(Request, State) of
-        {ok, RequestWithToken} -> {ok, formalize_request(Method, RequestWithToken)};
-        {error, _Reason} = Error -> Error
-    end.
+    {ok, Request, undefined}.
 
 inject_authorization({Path, Headers}, Token) ->
     {Path, set_authorization_header(Headers, Token)};
@@ -426,21 +426,16 @@ on_query(
         }
     ),
     case prepare_request(Method, Request0, State) of
-        {ok, NRequest} ->
+        {ok, NRequest, TokenRef} ->
             trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
-            Worker = resolve_pool_worker(State, KeyOrNum),
             ?tp(http_connector_request, #{
                 connector => InstId,
                 query_mode => sync,
                 attempt => 1,
                 max_attempts => max_attempts(Retry)
             }),
-            Result0 = ehttpc:request(
-                Worker,
-                Method,
-                NRequest,
-                Timeout,
-                Retry
+            Result0 = request_with_oauth_retry(
+                KeyOrNum, Method, NRequest, Timeout, Retry, State, TokenRef
             ),
             Result = transform_result(Result0),
             case Result of
@@ -559,10 +554,10 @@ on_query_async(
         }
     ),
     case prepare_request(Method, Request0, State) of
-        {ok, NRequest} ->
+        {ok, NRequest, TokenRef} ->
             Worker = resolve_pool_worker(State, KeyOrNum),
             trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
-            Context = #{
+            Context0 = #{
                 attempt => 1,
                 max_attempts => MaxAttempts,
                 state => State,
@@ -572,6 +567,7 @@ on_query_async(
                 timeout => Timeout,
                 trace_metadata => logger:get_process_metadata()
             },
+            Context = maybe_add_oauth_context(Context0, TokenRef),
             ?tp(http_connector_request, #{
                 connector => InstId, query_mode => async, attempt => 1, max_attempts => MaxAttempts
             }),
@@ -585,6 +581,50 @@ on_query_async(
             {ok, Worker};
         {error, _Reason} = Error ->
             Error
+    end.
+
+maybe_add_oauth_context(Context, undefined) ->
+    Context;
+maybe_add_oauth_context(Context, TokenRef) ->
+    Context#{
+        oauth2_token_ref => TokenRef,
+        oauth2_retried => maps:get(oauth2_retried, Context, false)
+    }.
+
+request_with_oauth_retry(KeyOrNum, Method, Request, Timeout, Retry, State, undefined) ->
+    Worker = resolve_pool_worker(State, KeyOrNum),
+    ehttpc:request(Worker, Method, Request, Timeout, Retry);
+request_with_oauth_retry(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef) ->
+    Worker = resolve_pool_worker(State, KeyOrNum),
+    %% Keep the remaining transport budget visible when a 401 triggers an OAuth2 retry.
+    Result = ehttpc:request(Worker, Method, Request, Timeout, 0),
+    case Result of
+        {error, {ehttpc_worker_down, _}} ->
+            Result;
+        {error, _} when Retry > 0 ->
+            request_with_oauth_retry(
+                KeyOrNum, Method, Request, Timeout, Retry - 1, State, TokenRef
+            );
+        {ok, 401, _Headers} ->
+            retry_oauth_request(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef);
+        {ok, 401, _Headers, _Body} ->
+            retry_oauth_request(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef);
+        _ ->
+            Result
+    end.
+
+retry_oauth_request(KeyOrNum, Method, Request, Timeout, Retry, State, TokenRef) ->
+    maybe
+        ok ?= ensure_oauth_token_for_retry(State, TokenRef),
+        {ok, NRequest, _Ref} ?= prepare_request(Method, Request, State),
+        Worker = resolve_pool_worker(State, KeyOrNum),
+        ehttpc:request(Worker, Method, NRequest, Timeout, Retry)
+    end.
+
+ensure_oauth_token_for_retry(#{pool_name := ResourceId}, TokenRef) ->
+    case emqx_connector_oauth2:get_token_for_retry(ResourceId, TokenRef) of
+        {ok, _Token} -> ok;
+        {error, Reason} -> {error, {recoverable_error, {oauth2_token_unavailable, Reason}}}
     end.
 
 trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout) ->
@@ -1065,6 +1105,17 @@ transform_result(Result) ->
                 }}}
     end.
 
+maybe_retry(
+    {error, {unrecoverable_error, #{status_code := 401}}},
+    #{oauth2_token_ref := TokenRef, oauth2_retried := false, state := State} = Context,
+    ReplyFunAndArgs
+) when TokenRef =/= undefined ->
+    case ensure_oauth_token_for_retry(State, TokenRef) of
+        ok ->
+            retry_async(Context#{oauth2_retried := true}, ReplyFunAndArgs);
+        {error, _Reason} = Error ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Error)
+    end;
 maybe_retry(Result, _Context = #{attempt := N, max_attempts := Max}, ReplyFunAndArgs) when
     N >= Max
 ->
@@ -1075,14 +1126,7 @@ maybe_retry(
     %% request was successful, but we got an error response; no need to retry
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
-    #{
-        state := State,
-        attempt := Attempt,
-        key_or_num := KeyOrNum,
-        method := Method,
-        request := Request,
-        timeout := Timeout
-    } = Context,
+    #{attempt := Attempt, state := State} = Context,
     %% TODO: reset the expiration time for free retries?
     IsFreeRetry =
         case Reason of
@@ -1100,9 +1144,22 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
         attempt => maps:get(attempt, NContext),
         max_attempts => maps:get(max_attempts, NContext)
     }),
+    retry_async(NContext, ReplyFunAndArgs);
+maybe_retry(Result, _Context, ReplyFunAndArgs) ->
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
+
+retry_async(Context, ReplyFunAndArgs) ->
+    #{
+        state := State,
+        key_or_num := KeyOrNum,
+        method := Method,
+        request := Request,
+        timeout := Timeout
+    } = Context,
     case prepare_request(Method, Request, State) of
-        {ok, NRequest} ->
+        {ok, NRequest, TokenRef} ->
             Worker = resolve_pool_worker(State, KeyOrNum),
+            NContext = maybe_add_oauth_context(Context, TokenRef),
             ok = ehttpc:request_async(
                 Worker,
                 Method,
@@ -1113,9 +1170,7 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
         {error, _Reason} = Error ->
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Error)
     end,
-    ok;
-maybe_retry(Result, _Context, ReplyFunAndArgs) ->
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
+    ok.
 
 %% Function that will do a deep traversal of Data and remove sensitive
 %% information (i.e., passwords)

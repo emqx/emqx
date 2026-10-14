@@ -17,18 +17,26 @@
 start_link(Port, Path) ->
     start_link(Port, Path, false).
 
-start_link(Ref, Transport, #{mode := close_after_request, notify := TestPid}) ->
+start_link(Ref, Transport, #{mode := Mode, notify := TestPid}) when
+    Mode =:= close_after_request; Mode =:= raw
+->
     Pid = proc_lib:spawn_link(fun() ->
         {ok, Socket} = ranch:handshake(Ref),
         ok = Transport:setopts(Socket, [{packet, http_bin}]),
         case read_request(Transport, Socket, 0) of
             {ok, Body} ->
-                TestPid ! {http_attempt, Body};
+                TestPid ! {http_attempt, Body},
+                case Mode of
+                    close_after_request ->
+                        ok;
+                    raw ->
+                        [{raw_handler, Handler}] = ets:lookup(?MODULE, raw_handler),
+                        ok = Transport:send(Socket, Handler(Body))
+                end;
             {error, _} ->
                 %% Health checks can open idle connections without sending a request.
                 ok
         end,
-        %% Close after reading the request, without sending an HTTP response.
         Transport:close(Socket)
     end),
     {ok, Pid};
@@ -59,6 +67,10 @@ stop() ->
 
 set_handler(F) when is_function(F, 2) ->
     true = ets:insert(?MODULE, {handler, F}),
+    ok.
+
+set_raw_handler(F) when is_function(F, 1) ->
+    true = ets:insert(?MODULE, {raw_handler, F}),
     ok.
 
 set_dns_available(Available) ->
@@ -100,8 +112,10 @@ init(Req, State) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-protocol_settings(_Path, _CowboyModule, #{mode := close_after_request, notify := TestPid}) ->
-    {?MODULE, #{mode => close_after_request, notify => TestPid}, worker};
+protocol_settings(_Path, _CowboyModule, #{mode := Mode, notify := TestPid}) when
+    Mode =:= close_after_request; Mode =:= raw
+->
+    {?MODULE, #{mode => Mode, notify => TestPid}, worker};
 protocol_settings(Path, CowboyModule, _Opts) ->
     Dispatch = cowboy_router:compile([{'_', [{Path, ?MODULE, []}]}]),
     {CowboyModule, #{env => #{dispatch => Dispatch}}, supervisor}.
