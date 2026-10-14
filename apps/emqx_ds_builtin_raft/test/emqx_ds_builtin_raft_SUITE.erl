@@ -185,6 +185,133 @@ t_leader_otx_supervion(Config) ->
         []
     ).
 
+t_stale_otx_started(init, Config) ->
+    t_leader_otx_supervion(init, Config);
+t_stale_otx_started('end', Config) ->
+    t_leader_otx_supervion('end', Config).
+
+%% A delayed OTX startup completion must not crash the Raft server while OTX is stopping.
+t_stale_otx_started(Config) ->
+    DB = ?FUNCTION_NAME,
+    Shard = <<"0">>,
+    Nodes = ?config(nodes, Config),
+    DBOpts = #{
+        backend => builtin_raft,
+        n_shards => 1,
+        n_sites => 1,
+        replication_factor => 3,
+        replication_options => #{}
+    },
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            [ok = ?ON(N, emqx_ds:open_db(DB, DBOpts)) || N <- Nodes],
+            %% Wait until OTX is running and use its node as the leader.
+            {ok, #{?snk_meta := #{node := LeaderNode}}} = ?block_until(#{
+                ?snk_kind := ds_otx_up, db := DB, shard := Shard
+            }),
+            [Leader = {Name, LeaderNode}, Next | _] = ?ON(
+                LeaderNode, emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred)
+            ),
+            RaPid = ?ON(LeaderNode, whereis(Name)),
+
+            %% Wait for the first OTX start call to return before delaying the next one.
+            {ok, _} = ?block_until(#{
+                ?snk_kind := dsraft_start_otx_leader,
+                ?snk_span := {complete, {ok, _}},
+                db := DB,
+                shard := Shard,
+                ?snk_meta := #{node := LeaderNode}
+            }),
+            %% Pause the next startup reply until the test emits test_release_otx_start.
+            %% The OTX process can run, but Raft will not receive its startup reply yet.
+            ?force_ordering(
+                #{?snk_kind := test_release_otx_start},
+                #{
+                    ?snk_kind := dsraft_start_otx_leader,
+                    ?snk_span := {complete, {ok, _}},
+                    db := DB,
+                    shard := Shard,
+                    ?snk_meta := #{node := LeaderNode}
+                }
+            ),
+            %% Pause the shutdown worker before it stops OTX.
+            %% Resume it when the test emits test_release_otx_stop.
+            ?force_ordering(
+                #{?snk_kind := test_release_otx_stop},
+                #{
+                    ?snk_kind := dsraft_stop_otx_leader,
+                    db := DB,
+                    shard := Shard,
+                    ?snk_meta := #{node := LeaderNode}
+                }
+            ),
+            %% Stop the current OTX process and wait for its replacement to start.
+            %% Subscribe before stopping it so an earlier ds_otx_up event cannot match.
+            {_, {ok, #{?snk_meta := #{pid := OtxPid}}}} = ?wait_async_action(
+                ?ON(LeaderNode, kill_leader(DB, Shard, shutdown)),
+                #{
+                    ?snk_kind := ds_otx_up,
+                    db := DB,
+                    shard := Shard,
+                    ?snk_meta := #{node := LeaderNode}
+                },
+                5_000
+            ),
+
+            %% Make a tick notice the new OTX process.
+            %% Transfer leadership and wait for OTX shutdown to be requested.
+            {ok, {ok, _}} = ?wait_async_action(
+                ?ON(
+                    LeaderNode,
+                    begin
+                        ok = ra:cast_aux_command(Leader, tick),
+                        ra:transfer_leadership(Leader, Next)
+                    end
+                ),
+                #{
+                    ?snk_kind := dsraft_shut_down_otx,
+                    db := DB,
+                    shard := Shard,
+                    ?snk_meta := #{node := LeaderNode}
+                },
+                5_000
+            ),
+            %% Keep checking until the old leader reports that it is a follower.
+            ?retry(100, 50, ?assertEqual({pong, follower}, ra:ping(Leader, 5_000))),
+            %% Release the delayed startup reply.
+            %% Check that the follower handles it while OTX shutdown is still paused.
+            {_, {ok, _}} = ?wait_async_action(
+                ?tp(test_release_otx_start, #{}),
+                #{
+                    ?snk_kind := dsraft_otx_event_handled,
+                    db := DB,
+                    shard := Shard,
+                    event := {cast_otx_started, {ok, OtxPid}},
+                    state := follower
+                },
+                5_000
+            ),
+
+            %% Allow shutdown to continue and wait for this OTX process to terminate.
+            {_, {ok, _}} = ?wait_async_action(
+                ?tp(test_release_otx_stop, #{}),
+                #{?snk_kind := ds_otx_terminate, ?snk_meta := #{pid := OtxPid}},
+                5_000
+            ),
+            %% Wait until the stopped OTX process is no longer registered.
+            ?retry(
+                100,
+                50,
+                ?assertEqual(undefined, ?ON(LeaderNode, emqx_ds_optimistic_tx:where(DB, Shard)))
+            ),
+            %% Check that the same Raft process is alive and still responds as a follower.
+            ?assertEqual(RaPid, ?ON(LeaderNode, whereis(Name))),
+            ?assertEqual({pong, follower}, ra:ping(Leader, 5_000))
+        end,
+        []
+    ).
+
 t_metadata(_Config) ->
     DB = ?FUNCTION_NAME,
     NShards = 1,
