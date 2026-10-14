@@ -452,7 +452,8 @@ pmap_encode_val(
         dataRetentionPeriod = DataRetentionPeriod,
         keyExpression = key_expression_to_asn1(KeyExpression),
         limits = limits_to_asn1(Limits),
-        name = name_to_asn1(Name)
+        name = name_to_asn1(Name),
+        deliverCutoffDate = to_asn1_optional_integer(maps:get(deliver_cutoff_date, MQ, undefined))
     });
 pmap_encode_val(?pn_id, ?id_key, MQId) ->
     MQId.
@@ -505,7 +506,8 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         dataRetentionPeriod = DataRetentionPeriod,
         keyExpression = KeyExpression,
         limits = Limits,
-        name = Name
+        name = Name,
+        deliverCutoffDate = DeliverCutoffDate
     } = 'MessageQueue':decode('MQ', ValBin),
     MQ0 = #{
         id => Id,
@@ -523,8 +525,9 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         data_retention_period => DataRetentionPeriod,
         limits => limits_from_asn1(Limits)
     },
-    MQ = key_expression_from_asn1(MQ0, KeyExpression),
-    name_from_asn1(MQ, Name);
+    MQ1 = key_expression_from_asn1(MQ0, KeyExpression),
+    MQ = name_from_asn1(MQ1, Name),
+    deliver_cutoff_date_from_asn1(MQ, DeliverCutoffDate);
 pmap_decode_val(?pn_id, ?id_key, IdKeyBin) ->
     IdKeyBin.
 
@@ -627,6 +630,11 @@ name_from_asn1(#{topic_filter := TopicFilter} = MQ, asn1_NOVALUE) ->
     MQ#{name => emqx_mq_prop:default_name_from_topic(TopicFilter)};
 name_from_asn1(MQ, Name) ->
     MQ#{name => Name}.
+
+deliver_cutoff_date_from_asn1(MQ, asn1_NOVALUE) ->
+    MQ;
+deliver_cutoff_date_from_asn1(MQ, Timestamp) ->
+    MQ#{deliver_cutoff_date => Timestamp}.
 
 limit_from_asn1_optional_integer(asn1_NOVALUE) ->
     infinity;

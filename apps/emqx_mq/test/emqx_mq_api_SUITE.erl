@@ -269,6 +269,58 @@ t_update_running_queue(_Config) ->
     ?assertEqual([<<"fresh">>], [Payload || #{payload := Payload} <- Msgs]),
     ok = emqtt:disconnect(CSub).
 
+%% Verify an unset cutoff stays absent and configured timestamps persist for both queue types.
+t_deliver_cutoff_date(_Config) ->
+    lists:foreach(
+        fun(IsLastvalue) ->
+            Name = <<"deliver_cutoff_date">>,
+            {ok, 200, Created} = api_post([message_queues, queues], #{
+                <<"name">> => Name,
+                <<"topic_filter">> => <<"t/#">>,
+                <<"is_lastvalue">> => IsLastvalue
+            }),
+            ?assertNot(maps:is_key(<<"deliver_cutoff_date">>, Created)),
+            {ok, 200, Stored} = api_get([message_queues, queues, Name]),
+            ?assertNot(maps:is_key(<<"deliver_cutoff_date">>, Stored)),
+            {ok, MQ} = emqx_mq_registry:find(Name),
+            ?assertNot(maps:is_key(deliver_cutoff_date, MQ)),
+            lists:foreach(
+                fun({Raw, Expected}) ->
+                    ?assertMatch(
+                        {ok, 200, _},
+                        api_put([message_queues, queues, Name], #{
+                            <<"is_lastvalue">> => IsLastvalue,
+                            <<"deliver_cutoff_date">> => Raw
+                        })
+                    ),
+                    ?assertMatch(
+                        {ok, 200, #{<<"deliver_cutoff_date">> := Expected}},
+                        api_get([message_queues, queues, Name])
+                    )
+                end,
+                [
+                    {<<"1970-01-01T00:00:01.234Z">>, 1234},
+                    {1_790_000_000_123, 1_790_000_000_123},
+                    {0, 0}
+                ]
+            ),
+            lists:foreach(
+                fun(Invalid) ->
+                    ?assertMatch(
+                        {ok, 400, _},
+                        api_put([message_queues, queues, Name], #{
+                            <<"is_lastvalue">> => IsLastvalue,
+                            <<"deliver_cutoff_date">> => Invalid
+                        })
+                    )
+                end,
+                [-1, <<"none">>, <<"not-a-date">>, <<"1969-12-31T23:59:59Z">>]
+            ),
+            ?assertMatch({ok, 204}, api_delete([message_queues, queues, Name]))
+        end,
+        [false, true]
+    ).
+
 %% Verify pagination logic of message queue listing.
 t_pagination(_Config) ->
     %% Create 10 MQs and fetch them in batches of 6.
