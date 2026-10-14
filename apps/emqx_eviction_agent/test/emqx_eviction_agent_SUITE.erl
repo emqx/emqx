@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
@@ -72,6 +73,7 @@ start_peer(_Case, Config) ->
 end_per_testcase(TestCase, Config) ->
     emqx_eviction_agent:disable(test_eviction),
     ok = snabbkaffe:stop(),
+    ok = kick_all_sessions(),
     stop_peer(TestCase, Config).
 
 stop_peer(Case, Config) when
@@ -442,41 +444,134 @@ t_session_serialization(_Config) ->
         emqx_eviction_agent:session_count()
     ).
 
+-doc "A connection eviction does not publish the will message of an MQTT 5.0 client.".
 t_will_msg(_Config) ->
     erlang:process_flag(trap_exit, true),
-
-    WillMsg = <<"will_msg">>,
     WillTopic = <<"will_topic">>,
-    ClientId = <<"client_with_will">>,
-
-    _ = emqtt_connect([
+    ok = emqx:subscribe(WillTopic),
+    {ok, _} = emqtt_connect([
         {clean_start, false},
-        {clientid, ClientId},
-        {will_payload, WillMsg},
+        {clientid, <<"client_with_will">>},
+        {will_payload, <<"will_msg">>},
         {will_topic, WillTopic}
     ]),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    ok = evict_connection(<<"client_with_will">>),
+    ?assertNotReceive({deliver, WillTopic, _}, 1000),
+    ok = emqx:unsubscribe(WillTopic).
 
-    {ok, C} = emqtt_connect(),
-    {ok, _, _} = emqtt:subscribe(C, WillTopic),
+-doc "A connection eviction does not publish the will message of an MQTT 3.1.1 client.".
+t_will_msg_v3_conn_eviction(_Config) ->
+    erlang:process_flag(trap_exit, true),
+    ClientId = <<"v3_conn_evicted">>,
+    WillTopic = will_topic(ClientId),
+    ok = emqx:subscribe(WillTopic),
+    {ok, _} = connect_with_will(ClientId, v4, false, []),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    ok = evict_connection(ClientId),
+    ?assertNotReceive({deliver, WillTopic, _}, 1000),
+    %% The session is still on the node, and evicting it does not publish either.
+    ok = evict_session(ClientId),
+    ?assertNotReceive({deliver, WillTopic, _}, 1000),
+    ok = emqx:unsubscribe(WillTopic).
 
-    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+-doc """
+A session eviction of a connected MQTT 3.1.1 client does not publish the will message.
+The session keeps working after the eviction.
+""".
+t_will_msg_v3_session_eviction(_Config) ->
+    erlang:process_flag(trap_exit, true),
+    ClientId = <<"v3_session_evicted">>,
+    WillTopic = will_topic(ClientId),
+    ok = emqx:subscribe(WillTopic),
+    {ok, C0} = connect_with_will(ClientId, v4, false, []),
+    {ok, _, _} = emqtt:subscribe(C0, <<"t/v3">>, qos1),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    ok = evict_session(ClientId),
+    ?assertNotReceive({deliver, WillTopic, _}, 1000),
+    ?assertEqual(1, emqx_eviction_agent:session_count()),
+    ok = emqx_eviction_agent:disable(test_eviction),
+    _ = emqx:publish(emqx_message:make(<<"test">>, 1, <<"t/v3">>, <<"to_evicted_session">>)),
+    {ok, C1} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v4}, {clean_start, false}]),
+    {ok, _} = emqtt:connect(C1),
+    ok = assert_receive_publish([#{payload => <<"to_evicted_session">>, topic => <<"t/v3">>}]),
+    ok = emqtt:disconnect(C1),
+    ok = emqx:unsubscribe(WillTopic).
 
-    ChanPid !
-        {disconnect, ?RC_USE_ANOTHER_SERVER, use_another_server, #{
-            'Server-Reference' => <<>>
-        }},
+-doc "A session eviction of a connected MQTT 5.0 client with will delay 0 does not publish the will message.".
+t_will_msg_v5_session_eviction(_Config) ->
+    erlang:process_flag(trap_exit, true),
+    ClientId = <<"v5_session_evicted">>,
+    WillTopic = will_topic(ClientId),
+    ok = emqx:subscribe(WillTopic),
+    {ok, _} = connect_with_will(ClientId, v5, false, [
+        {properties, #{'Session-Expiry-Interval' => 600}}
+    ]),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    ok = evict_session(ClientId),
+    ?assertNotReceive({deliver, WillTopic, _}, 1000),
+    ok = emqx:unsubscribe(WillTopic).
 
-    receive
-        {publish, #{
-            payload := WillMsg,
-            topic := WillTopic
-        }} ->
-            ok
-    after 1000 ->
-        ct:fail("Will message not received")
-    end,
+-doc "A connection eviction cancels a delayed will message of an MQTT 5.0 client.".
+t_will_msg_v5_delayed_conn_eviction(_Config) ->
+    erlang:process_flag(trap_exit, true),
+    ClientId = <<"v5_delayed_will_evicted">>,
+    WillTopic = will_topic(ClientId),
+    ok = emqx:subscribe(WillTopic),
+    {ok, _} = connect_with_will(ClientId, v5, false, [
+        {properties, #{'Session-Expiry-Interval' => 600}},
+        {will_props, #{'Will-Delay-Interval' => 1}}
+    ]),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    ok = evict_connection(ClientId),
+    ?assertNotReceive({deliver, WillTopic, _}, 2500),
+    ok = emqx:unsubscribe(WillTopic).
 
-    ok = emqtt:disconnect(C).
+-doc """
+A connection eviction publishes the will message of an MQTT 3.1.1 clean session client.
+The session ends with the connection, so the client goes away from the point of view of
+the will message.
+""".
+t_will_msg_v3_clean_session_conn_eviction(_Config) ->
+    erlang:process_flag(trap_exit, true),
+    ClientId = <<"v3_clean_conn_evicted">>,
+    WillTopic = will_topic(ClientId),
+    ok = emqx:subscribe(WillTopic),
+    {ok, _} = connect_with_will(ClientId, v4, true, []),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    ok = evict_connection(ClientId),
+    ?assertReceive({deliver, WillTopic, #message{payload = <<"will">>}}, 2000),
+    ok = emqx:unsubscribe(WillTopic).
+
+-doc """
+A session eviction publishes the will message of a connected MQTT 5.0 client with
+session expiry interval 0, because the session ends instead of moving.
+""".
+t_will_msg_v5_expiry_zero_session_eviction(_Config) ->
+    erlang:process_flag(trap_exit, true),
+    ClientId = <<"v5_expiry0_evicted">>,
+    WillTopic = will_topic(ClientId),
+    ok = emqx:subscribe(WillTopic),
+    {ok, _} = connect_with_will(ClientId, v5, true, [
+        {properties, #{'Session-Expiry-Interval' => 0}}
+    ]),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    ok = emqx_eviction_agent:evict_sessions(1, node()),
+    ?assertReceive({deliver, WillTopic, #message{payload = <<"will">>}}, 2000),
+    ok = emqx:unsubscribe(WillTopic).
+
+-doc "A client takeover of an MQTT 3.1.1 session still publishes the will message.".
+t_will_msg_v3_client_takeover(_Config) ->
+    erlang:process_flag(trap_exit, true),
+    ClientId = <<"v3_taken_over">>,
+    WillTopic = will_topic(ClientId),
+    ok = emqx:subscribe(WillTopic),
+    {ok, _} = connect_with_will(ClientId, v4, false, []),
+    {ok, C1} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v4}, {clean_start, false}]),
+    {ok, _} = emqtt:connect(C1),
+    ?assertReceive({deliver, WillTopic, #message{payload = <<"will">>}}, 2000),
+    ok = emqtt:disconnect(C1),
+    ok = emqx:unsubscribe(WillTopic).
 
 t_ws_conn(_Config) ->
     erlang:process_flag(trap_exit, true),
@@ -586,3 +681,41 @@ mock_print() ->
     meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
     meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
     meck:expect(emqx_ctl, usage, fun(Cmd, Descr) -> emqx_ctl:format_usage(Cmd, Descr) end).
+
+will_topic(ClientId) ->
+    <<"will/", ClientId/binary>>.
+
+connect_with_will(ClientId, ProtoVer, CleanStart, Opts) ->
+    {ok, C} = emqtt:start_link(
+        [
+            {clientid, ClientId},
+            {proto_ver, ProtoVer},
+            {clean_start, CleanStart},
+            {will_topic, will_topic(ClientId)},
+            {will_payload, <<"will">>}
+        ] ++ Opts
+    ),
+    {ok, _} = emqtt:connect(C),
+    {ok, C}.
+
+evict_connection(ClientId) ->
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    ?assertWaitEvent(
+        ok = emqx_eviction_agent:evict_connections(1),
+        #{?snk_kind := emqx_cm_connected_client_count_dec, chan_pid := ChanPid},
+        2000
+    ),
+    ok.
+
+evict_session(ClientId) ->
+    ?assertWaitEvent(
+        ok = emqx_eviction_agent:evict_sessions(1, node()),
+        #{?snk_kind := emqx_channel_takeover_end, clientid := ClientId},
+        2000
+    ),
+    ok.
+
+kick_all_sessions() ->
+    lists:foreach(fun emqx_cm:try_kick_session/1, emqx_cm:all_client_ids()),
+    ?retry(100, 50, ?assertEqual([], emqx_cm:all_client_ids())),
+    ok.
