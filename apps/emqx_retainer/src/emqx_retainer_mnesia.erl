@@ -19,7 +19,6 @@
     delete_message/2,
     store_retained/2,
     read_message/2,
-    has_message/2,
     page_read/5,
     match_messages/4,
     delete_cursor/2,
@@ -276,14 +275,6 @@ delete_message(_State, Topic) ->
 
 read_message(_State, Topic) ->
     {ok, read_messages(Topic)}.
-
-%% Read only the expiry time, so that the message is not copied out of the table.
-has_message(_State, Topic) ->
-    Tokens = topic_to_tokens(Topic),
-    case ets:lookup_element(?TAB_MESSAGE, Tokens, #retained_message.expiry_time, undefined) of
-        undefined -> false;
-        Et -> Et =:= 0 orelse Et >= erlang:system_time(millisecond)
-    end.
 
 match_messages(State, Topic, undefined, Opts) ->
     Tokens = topic_to_tokens(Topic),

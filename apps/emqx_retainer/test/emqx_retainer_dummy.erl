@@ -17,7 +17,6 @@
     delete_message/2,
     store_retained/2,
     read_message/2,
-    has_message/2,
     page_read/5,
     match_messages/4,
     delete_cursor/2,
@@ -50,8 +49,6 @@ delete_message(_Context, _Topic) -> ok.
 store_retained(_Context, _Message) -> ok.
 
 read_message(_Context, _Topic) -> {ok, []}.
-
-has_message(_Context, _Topic) -> false.
 
 page_read(_Context, _Topic, _Deadline, _Offset, _Limit) -> {ok, false, []}.
 
