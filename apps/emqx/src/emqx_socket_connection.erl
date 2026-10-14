@@ -697,11 +697,11 @@ handle_msg({outgoing, Packets}, State) ->
             Error
     end;
 handle_msg(
-    Deliver = #deliver{message = _Msg},
+    Deliver = #deliver{},
     #state{conf = #conf{active_n = ActiveN}, channel = Channel} = State
 ) ->
-    ?BROKER_INSTR_EXTRACT_MARK(_Mark, _Msg),
-    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_SETMARK(t0_deliver, {_Mark, ?BROKER_INSTR_TS()})),
+    ?BROKER_INSTR_EXTRACT_MARK(Mark, Deliver#deliver.message),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_SETMARK(t0_deliver, {Mark, ?BROKER_INSTR_TS()})),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel_result(emqx_channel:handle_deliver(Delivers, Channel), State);
 handle_msg({connack, ConnAck}, State) ->

@@ -619,12 +619,12 @@ handle_msg({Passive, _Sock}, State0) when
             {ok, append_msgs(Msgs1, Msgs2), State}
     end;
 handle_msg(
-    Deliver = #deliver{message = _Msg},
+    Deliver = #deliver{},
     #state{conf = #conf{active_n = ActiveN}} = State
 ) ->
     ?BROKER_INSTR_MSGLATENCY(begin
-        ?BROKER_INSTR_EXTRACT_MARK(_Mark, _Msg),
-        ?BROKER_INSTR_SETMARK(t0_deliver, {_Mark, ?BROKER_INSTR_TS()})
+        ?BROKER_INSTR_EXTRACT_MARK(Mark, Deliver#deliver.message),
+        ?BROKER_INSTR_SETMARK(t0_deliver, {Mark, ?BROKER_INSTR_TS()})
     end),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
