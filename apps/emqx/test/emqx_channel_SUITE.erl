@@ -235,6 +235,22 @@ t_handle_in_unexpected_connect_packet(_) ->
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), Channel).
 
+-doc "A packet handled after the channel is disconnected is dropped.".
+t_handle_in_packet_when_disconnected(_) ->
+    Channel = emqx_channel:set_field(conn_state, disconnected, channel()),
+    lists:foreach(
+        fun(Packet) ->
+            ?assertEqual({ok, Channel}, emqx_channel:handle_in(Packet, Channel))
+        end,
+        [
+            ?CONNECT_PACKET(connpkt()),
+            ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
+            ?SUBSCRIBE_PACKET(1, [{<<"t">>, ?DEFAULT_SUBOPTS}]),
+            ?PACKET(?PINGREQ),
+            ?DISCONNECT_PACKET()
+        ]
+    ).
+
 t_handle_in_extended_reauthentication(_) ->
     try
         {ok, Agent} = emqx_utils_agent:start_link({stop, ok}),
@@ -335,6 +351,18 @@ t_handle_in_unexpected_packet(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?PUBLISH_PACKET(?QOS_0), Channel).
+
+-doc """
+A PUBLISH received while the channel is connecting, for example during
+enhanced authentication, is a protocol error.
+""".
+t_handle_in_unexpected_packet_when_connecting(_) ->
+    Channel = emqx_channel:set_field(conn_state, connecting, channel()),
+    Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
+    ?assertEqual(
+        {ok, [{outgoing, Packet}, {close, protocol_error}], Channel},
+        emqx_channel:handle_in(?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>), Channel)
+    ).
 
 t_handle_in_publish_with_subscription_identifier(_) ->
     Channel = channel(#{conn_state => connected}),
@@ -985,8 +1013,8 @@ t_quota_lazy_stays_absent(_) ->
         emqx_channel:handle_in(?PACKET(?PINGREQ), Chann),
     ?assertEqual(undefined, emqx_channel:info(quota, Chann1)).
 
--doc "Publish builds the limiter container on first use and the limit applies.".
-t_quota_lazy_build_on_publish(_) ->
+-doc "refresh_quota/1 builds the limiter container when a limit is set, and the limit applies.".
+t_quota_lazy_build_on_refresh(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
         {ok, [{node(), <<"topic">>, {ok, 4}}], Msg}
@@ -997,13 +1025,27 @@ t_quota_lazy_build_on_publish(_) ->
         #{listener => {tcp, low_message_rate}}
     ),
     ?assertEqual(undefined, emqx_channel:info(quota, Chann)),
+    Chann1 = emqx_channel:refresh_quota(Chann),
+    ?assertNotEqual(undefined, emqx_channel:info(quota, Chann1)),
+    Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann2} =
+        emqx_channel:handle_in(Pub, Chann1),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub, Chann2),
+    ok.
+
+-doc "Publish does not check the limiter config while the channel has no container.".
+t_quota_lazy_publish_skips_config(_) ->
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+    Chann = channel(
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected, quota => undefined},
+        #{listener => {tcp, low_message_rate}}
+    ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
         emqx_channel:handle_in(Pub, Chann),
-    ?assertNotEqual(undefined, emqx_channel:info(quota, Chann1)),
-    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
-        emqx_channel:handle_in(Pub, Chann1),
-    ok.
+    ?assertEqual(undefined, emqx_channel:info(quota, Chann1)).
 
 -doc "A rate limit configured after connect applies to a channel that built its container lazily.".
 t_quota_lazy_hot_update(_) ->
@@ -1028,15 +1070,18 @@ t_quota_lazy_hot_update(_) ->
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann2} =
             emqx_channel:handle_in(Pub, Chann1),
         ?assertEqual(undefined, emqx_channel:info(quota, Chann2)),
-        %% Configure a tight rate at runtime; the limit must apply without reconnect.
+        ?assertEqual(undefined, emqx_channel:info(quota, emqx_channel:refresh_quota(Chann2))),
+        %% Configure a tight rate at runtime; the limit applies after the next refresh,
+        %% which the connection runs on its stats timer.
         {ok, MessagesRate} = emqx_limiter_schema:to_rate("1/s"),
         ok = emqx_limiter:update_listener_limiters(ListenerId, #{messages_rate => MessagesRate}),
         timer:sleep(1200),
-        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
-            emqx_channel:handle_in(Pub, Chann2),
+        Chann3 = emqx_channel:refresh_quota(Chann2),
         ?assertNotEqual(undefined, emqx_channel:info(quota, Chann3)),
-        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann4} =
             emqx_channel:handle_in(Pub, Chann3),
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+            emqx_channel:handle_in(Pub, Chann4),
         ok
     after
         emqx_limiter:delete_listener_limiters(ListenerId)

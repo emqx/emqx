@@ -4,6 +4,12 @@
 
 -module(emqx_eviction_agent).
 
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([
+    {elvis_style, no_common_caveats_call, disable},
+    {elvis_style, prefer_robot_butt, disable}
+]).
+
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
@@ -504,7 +510,7 @@ do_purge_durable_sessions(N) when N > 0 ->
     {Sessions, _NewIterator} = emqx_persistent_session_ds_state:session_iterator_next(Iterator, N),
     lists:foreach(
         fun({ClientId, _Metadata}) ->
-            emqx_persistent_session_ds:destroy_session(ClientId)
+            emqx_persistent_session_ds:purge_session(ClientId)
         end,
         Sessions
     ),

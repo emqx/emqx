@@ -25,18 +25,18 @@
 -spec handle_event(emqx_session:clientinfo(), event()) ->
     ok.
 handle_event(ClientInfo, {expired, Msg}) ->
-    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, expired]),
+    ok = emqx_hooks:'delivery.dropped'(ClientInfo, Msg, expired),
     ok = inc_delivery_expired_cnt(1);
 handle_event(ClientInfo, {dropped, Msg, no_local}) ->
-    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, no_local]),
+    ok = emqx_hooks:'delivery.dropped'(ClientInfo, Msg, no_local),
     ok = emqx_metrics:inc_global('delivery.dropped'),
     ok = emqx_metrics:inc_global('delivery.dropped.no_local');
 handle_event(ClientInfo, {dropped, Msg, subscription_filter}) ->
-    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, subscription_filter]),
+    ok = emqx_hooks:'delivery.dropped'(ClientInfo, Msg, subscription_filter),
     ok = emqx_metrics:inc_global('delivery.dropped'),
     ok = emqx_metrics:inc_global('delivery.dropped.filter');
 handle_event(ClientInfo, {dropped, Msg, #{reason := qos0_msg, logctx := Ctx}}) ->
-    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, qos0_msg]),
+    ok = emqx_hooks:'delivery.dropped'(ClientInfo, Msg, qos0_msg),
     ok = emqx_metrics:inc_global('delivery.dropped'),
     ok = emqx_metrics:inc_global('delivery.dropped.qos0_msg'),
     ok = inc_pd('send_msg.dropped', 1),
@@ -49,7 +49,7 @@ handle_event(ClientInfo, {dropped, Msg, #{reason := qos0_msg, logctx := Ctx}}) -
         #{topic => Msg#message.topic}
     );
 handle_event(ClientInfo, {dropped, Msg, #{reason := queue_full, logctx := Ctx}}) ->
-    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, queue_full]),
+    ok = emqx_hooks:'delivery.dropped'(ClientInfo, Msg, queue_full),
     ok = emqx_metrics:inc_global('delivery.dropped'),
     ok = emqx_metrics:inc_global('delivery.dropped.queue_full'),
     ok = inc_pd('send_msg.dropped', 1),

@@ -326,13 +326,48 @@ bin(L) when is_list(L) -> list_to_binary(L).
 levels(#share{topic = Topic}) when is_binary(Topic) ->
     levels(Topic);
 levels(Topic) when is_binary(Topic) ->
-    length(tokens(Topic)).
+    count_levels(Topic, 1).
 
--compile({inline, [tokens/1]}).
+%% Count the $/ bytes 7 at a time, then one at a time.
+count_levels(<<W:56, Rest/binary>>, N) -> count_levels(Rest, N + count_slashes7(W));
+count_levels(<<$/, Rest/binary>>, N) -> count_levels(Rest, N + 1);
+count_levels(<<_, Rest/binary>>, N) -> count_levels(Rest, N);
+count_levels(<<>>, N) -> N.
+
+%% Return the number of $/ bytes in the 56-bit integer W.
+%% 1. XOR with 16#2F in each byte makes each $/ byte zero.
+%% 2. For each byte B, ((B band 16#7F) + 16#7F) bor B has the high bit set when B is not
+%%    zero. The sum is at most 16#FE, so no carry goes into the next byte.
+%% 3. Move the high bit of each zero byte to bit 0 of that byte, and add the 7 bytes.
+%% All values are below 2^57, so they are small integers.
+-compile({inline, [count_slashes7/1]}).
+count_slashes7(W) ->
+    V = W bxor 16#2F2F2F2F2F2F2F,
+    NonZero = (((V band 16#7F7F7F7F7F7F7F) + 16#7F7F7F7F7F7F7F) bor V) band 16#80808080808080,
+    case NonZero bxor 16#80808080808080 of
+        0 ->
+            0;
+        Zero ->
+            X = Zero bsr 7,
+            S1 = X + (X bsr 8),
+            S2 = S1 + (S1 bsr 16),
+            (S2 + (S2 bsr 32)) band 16#FF
+    end.
+
 %% @doc Split topic to tokens.
--spec tokens(topic()) -> list(binary()).
+-spec tokens(topic()) -> [binary(), ...].
 tokens(Topic) ->
-    binary:split(Topic, <<"/">>, [global]).
+    split_levels(Topic, 0, Topic, []).
+
+%% `Level` is the binary from the start of the current level, `N` is the number of bytes
+%% of the current level seen so far.
+split_levels(<<$/, Rest/binary>>, N, Level, Acc) ->
+    <<Token:N/binary, _/binary>> = Level,
+    split_levels(Rest, 0, Rest, [Token | Acc]);
+split_levels(<<_, Rest/binary>>, N, Level, Acc) ->
+    split_levels(Rest, N + 1, Level, Acc);
+split_levels(<<>>, _N, Level, Acc) ->
+    lists:reverse(Acc, [Level]).
 
 %% @doc Split Topic Path to Words
 -spec words(topic() | share()) -> words().

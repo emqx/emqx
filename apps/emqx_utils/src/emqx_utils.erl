@@ -18,7 +18,26 @@
 
 -compile(inline).
 %% [TODO] Cleanup so the instruction below is not necessary.
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([
+    {elvis_style, no_god_modules, disable},
+    %% proc_name/2 builds registered names with list_to_atom/1.
+    {elvis_style, no_common_caveats_call, #{
+        caveat_functions => [
+            {timer, send_after, 2},
+            {timer, send_after, 3},
+            {timer, send_interval, 2},
+            {timer, send_interval, 3},
+            {erlang, size, 1},
+            {gen_statem, call, 2},
+            {gen_server, call, 2},
+            {gen_event, call, 3},
+            {erlang, binary_to_atom, 1},
+            {erlang, binary_to_atom, 2},
+            {erlang, garbage_collect, 0}
+        ]
+    }},
+    {elvis_style, no_receive_without_timeout, disable}
+]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -195,11 +214,10 @@ foldl_while(Fun, Acc, [X | Xs]) ->
     end.
 
 -compile({inline, [apply_fun/3]}).
-apply_fun(Fun, Input, State) ->
-    case erlang:fun_info(Fun, arity) of
-        {arity, 1} -> Fun(Input);
-        {arity, 2} -> Fun(Input, State)
-    end.
+apply_fun(Fun, Input, _State) when is_function(Fun, 1) ->
+    Fun(Input);
+apply_fun(Fun, Input, State) when is_function(Fun, 2) ->
+    Fun(Input, State).
 
 -spec start_timer(integer() | atom(), term()) -> option(reference()).
 start_timer(Interval, Msg) ->
@@ -286,7 +304,10 @@ do_check_oom([]) ->
     ok;
 do_check_oom([{Val, Max, Reason} | Rest]) ->
     case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
-        true -> {shutdown, #{reason => Reason, value => Val, max => Max}};
+        %% `shutdown_count' makes esockd count the exit under `Reason' and log
+        %% it at info level. esockd drops the key from that log line, so
+        %% `reason' keeps the name in it.
+        true -> {shutdown, #{shutdown_count => Reason, reason => Reason, value => Val, max => Max}};
         false -> do_check_oom(Rest)
     end.
 
@@ -466,9 +487,9 @@ pmap(Fun, List) when is_function(Fun, 1), is_list(List) ->
 
 -spec pmap(fun((A) -> B), list(A), timeout()) -> list(B).
 pmap(Fun, List, Timeout) when
-    is_function(Fun, 1),
-    is_list(List),
-    (is_integer(Timeout) andalso Timeout >= 0 orelse Timeout =:= infinity)
+    is_function(Fun, 1) andalso
+        is_list(List) andalso
+        (is_integer(Timeout) andalso Timeout >= 0 orelse Timeout =:= infinity)
 ->
     nolink_apply(fun() -> do_parallel_map(Fun, List) end, Timeout).
 

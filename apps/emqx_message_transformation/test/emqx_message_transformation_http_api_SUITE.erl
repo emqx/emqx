@@ -2271,3 +2271,36 @@ is_publish_hook_registered(Mod) ->
         end,
         emqx_hooks:lookup('message.publish')
     ).
+
+-doc """
+The publish hook is absent until an entry is enabled. Restart restores the hook only
+when an enabled entry is configured. Deleting the entry keeps the hook until shutdown.
+""".
+t_lazy_publish_hook(_Config) ->
+    clear_all_transformations(),
+    on_exit(fun() -> application:ensure_all_started(emqx_message_transformation) end),
+    restart_feature_app(),
+    ?assertNot(is_publish_hook_registered(emqx_message_transformation)),
+    Entry = transformation(<<"lazy_hook">>, [dummy_operation()], #{<<"enable">> => false}),
+    {201, _} = insert(Entry),
+    ?assertNot(is_publish_hook_registered(emqx_message_transformation)),
+    restart_feature_app(),
+    ?assertNot(is_publish_hook_registered(emqx_message_transformation)),
+    {200, _} = update(Entry#{<<"enable">> := true}),
+    ?assert(is_publish_hook_registered(emqx_message_transformation)),
+    ?assertMatch(
+        [#{name := <<"lazy_hook">>}],
+        emqx_message_transformation_registry:matching_transformations(<<"t/1">>)
+    ),
+    restart_feature_app(),
+    ?assert(is_publish_hook_registered(emqx_message_transformation)),
+    {204, _} = delete(<<"lazy_hook">>),
+    ?assert(is_publish_hook_registered(emqx_message_transformation)),
+    restart_feature_app(),
+    ?assertNot(is_publish_hook_registered(emqx_message_transformation)),
+    ok.
+
+restart_feature_app() ->
+    ok = application:stop(emqx_message_transformation),
+    {ok, _} = application:ensure_all_started(emqx_message_transformation),
+    ok.

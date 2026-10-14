@@ -1485,3 +1485,50 @@ t_mountpoints(_TCConfig) ->
         ok
     end),
     ok.
+
+-doc """
+The topic check skips the config lookup unless the original topic starts with
+spBv1.0/. Mountpoints do not affect the namespace check.
+""".
+t_topic_check_before_config(_TCConfig) ->
+    ConfigModule = emqx_schema_registry_config,
+    ok = meck:new(ConfigModule, [passthrough, no_link]),
+    on_exit(fun() -> meck:unload(ConfigModule) end),
+    ok = meck:expect(ConfigModule, is_alias_mapping_enabled, fun() -> false end),
+    Mountpoints = [undefined, <<>>, <<"tenant/">>, <<"tenant/site/">>, <<"spBv1.0/">>],
+    OtherTopics = [
+        <<"telemetry">>,
+        <<"ordinary/topic">>,
+        <<"spBv1.0">>,
+        <<"spBv1.0x/group/NBIRTH/node">>,
+        <<"custom/group/NBIRTH/node">>,
+        <<"/group/NDATA/node">>
+    ],
+    lists:foreach(
+        fun emqx_schema_registry_spb_hookcb:on_message_publish_alias_mapping/1,
+        mounted_messages(OtherTopics, Mountpoints)
+    ),
+    ?assertEqual(0, meck:num_calls(ConfigModule, is_alias_mapping_enabled, [])),
+    SPBTopics = [
+        <<"spBv1.0/group/NBIRTH/node">>,
+        <<"spBv1.0/group/NDATA/node">>,
+        <<"spBv1.0/group/DBIRTH/node/device">>,
+        <<"spBv1.0/group/DDATA/node/device">>,
+        <<"spBv1.0/group/NDEATH/node">>,
+        <<"spBv1.0/">>
+    ],
+    lists:foreach(
+        fun emqx_schema_registry_spb_hookcb:on_message_publish_alias_mapping/1,
+        mounted_messages(SPBTopics, Mountpoints)
+    ),
+    ?assertEqual(
+        length(SPBTopics) * length(Mountpoints),
+        meck:num_calls(ConfigModule, is_alias_mapping_enabled, [])
+    ),
+    ok.
+
+mounted_messages(Topics, Mountpoints) ->
+    [
+        emqx_mountpoint:mount(Mountpoint, emqx_message:make(Topic, <<>>))
+     || Topic <- Topics, Mountpoint <- Mountpoints
+    ].

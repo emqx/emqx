@@ -465,3 +465,45 @@ t_registry_disabled(_TCConfig) ->
     emqtt:stop(C),
 
     ok.
+
+-doc """
+A2A hooks are absent at disabled startup. Root and leaf config updates install them
+before enabling the feature. Repeated updates do not duplicate the hooks.
+""".
+t_lazy_hooks(_TCConfig) ->
+    on_exit(fun() ->
+        {ok, _} = application:ensure_all_started(emqx_a2a_registry),
+        {ok, _} = emqx_conf:update([a2a_registry, enable], true, #{override_to => cluster})
+    end),
+    {ok, _} = emqx_conf:update([a2a_registry, enable], false, #{override_to => cluster}),
+    restart_registry_app(),
+    ?assertEqual([], registry_hookpoints()),
+    {ok, _} = emqx_conf:update([a2a_registry, enable], true, #{override_to => cluster}),
+    ?assertEqual(['message.publish', 'message.delivered'], registry_hookpoints()),
+    {ok, _} = emqx_conf:update([a2a_registry, enable], true, #{override_to => cluster}),
+    ?assertEqual(['message.publish', 'message.delivered'], registry_hookpoints()),
+    restart_registry_app(),
+    ?assertEqual(['message.publish', 'message.delivered'], registry_hookpoints()),
+    {ok, _} = emqx_conf:update([a2a_registry, enable], false, #{override_to => cluster}),
+    ?assertEqual(['message.publish', 'message.delivered'], registry_hookpoints()),
+    restart_registry_app(),
+    ?assertEqual([], registry_hookpoints()),
+    {ok, _} = emqx_conf:update(
+        [a2a_registry], #{<<"enable">> => true}, #{override_to => cluster}
+    ),
+    ?assertEqual(['message.publish', 'message.delivered'], registry_hookpoints()),
+    ok.
+
+restart_registry_app() ->
+    ok = application:stop(emqx_a2a_registry),
+    {ok, _} = application:ensure_all_started(emqx_a2a_registry),
+    ok.
+
+registry_hookpoints() ->
+    [
+        Hookpoint
+     || Hookpoint <- ['message.publish', 'message.delivered'],
+        Callback <- emqx_hooks:lookup(Hookpoint),
+        {Mod, _, _} <- [emqx_hooks:callback_action(Callback)],
+        Mod == emqx_a2a_registry_hookcb
+    ].

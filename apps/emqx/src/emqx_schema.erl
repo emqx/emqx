@@ -710,11 +710,7 @@ fields("mqtt_tcp_listener") ->
                         {win32, _} -> hoconsc:enum([gen_tcp])
                     end,
                     #{
-                        default =>
-                            case os:type() of
-                                {unix, _} -> <<"socket">>;
-                                {win32, _} -> <<"gen_tcp">>
-                            end,
+                        default => <<"gen_tcp">>,
                         desc => ?DESC(fields_mqtt_opts_tcp_backend),
                         importance => ?IMPORTANCE_LOW
                     }
@@ -4251,7 +4247,7 @@ mqtt_general() ->
             sc(
                 hoconsc:union([infinity, timeout_duration_ms()]),
                 #{
-                    default => <<"infinity">>,
+                    default => <<"10ms">>,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(mqtt_minor_gc_after)
                 }

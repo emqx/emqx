@@ -1715,3 +1715,36 @@ t_app_stop_unregisters_hooks(_Config) ->
     end,
     ?assert(is_publish_hook_registered(emqx_schema_validation)),
     ok.
+
+-doc """
+The publish hook is absent until an entry is enabled. Restart restores the hook only
+when an enabled entry is configured. Deleting the entry keeps the hook until shutdown.
+""".
+t_lazy_publish_hook(_Config) ->
+    clear_all_validations(),
+    on_exit(fun() -> application:ensure_all_started(emqx_schema_validation) end),
+    restart_feature_app(),
+    ?assertNot(is_publish_hook_registered(emqx_schema_validation)),
+    Entry = validation(<<"lazy_hook">>, [sql_check()], #{<<"enable">> => false}),
+    {201, _} = insert(Entry),
+    ?assertNot(is_publish_hook_registered(emqx_schema_validation)),
+    restart_feature_app(),
+    ?assertNot(is_publish_hook_registered(emqx_schema_validation)),
+    {200, _} = update(Entry#{<<"enable">> := true}),
+    ?assert(is_publish_hook_registered(emqx_schema_validation)),
+    ?assertMatch(
+        [#{name := <<"lazy_hook">>}],
+        emqx_schema_validation_registry:matching_validations(<<"t/1">>)
+    ),
+    restart_feature_app(),
+    ?assert(is_publish_hook_registered(emqx_schema_validation)),
+    {204, _} = delete(<<"lazy_hook">>),
+    ?assert(is_publish_hook_registered(emqx_schema_validation)),
+    restart_feature_app(),
+    ?assertNot(is_publish_hook_registered(emqx_schema_validation)),
+    ok.
+
+restart_feature_app() ->
+    ok = application:stop(emqx_schema_validation),
+    {ok, _} = application:ensure_all_started(emqx_schema_validation),
+    ok.

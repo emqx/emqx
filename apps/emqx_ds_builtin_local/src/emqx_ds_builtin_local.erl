@@ -22,7 +22,7 @@
     shard_of/2,
     list_shards/1,
 
-    add_generation/1,
+    add_generation/2,
     drop_slab/2,
     list_slabs/2,
 
@@ -94,7 +94,10 @@
 -include_lib("emqx_durable_storage/include/emqx_ds_builtin_tx.hrl").
 -include("../../emqx_durable_storage/gen_src/DSBuiltinMetadata.hrl").
 
--elvis([{elvis_style, atom_naming_convention, disable}]).
+-elvis([
+    {elvis_style, atom_naming_convention, disable},
+    {elvis_style, no_receive_without_timeout, disable}
+]).
 
 %%================================================================================
 %% Type declarations
@@ -213,16 +216,10 @@ update_db_group(Id, Opts, Grp) ->
 destroy_db_group(Id, Group) ->
     emqx_ds_storage_layer:destroy_db_group(Id, Group).
 
--spec add_generation(emqx_ds:db()) -> ok | {error, _}.
-add_generation(DB) ->
-    Shards = emqx_ds_builtin_local_meta:shards(DB),
-    lists:foreach(
-        fun(Shard) ->
-            Leader = otx_get_leader(DB, Shard),
-            ok = emqx_ds_optimistic_tx:add_generation(Leader)
-        end,
-        Shards
-    ).
+-spec add_generation(emqx_ds:db(), emqx_ds:shard()) -> ok | emqx_ds:error(_).
+add_generation(DB, Shard) ->
+    Leader = otx_get_leader(DB, Shard),
+    emqx_ds_optimistic_tx:add_generation(Leader).
 
 otx_add_generation(DB, Shard, Since) ->
     DBShard = {DB, Shard},
