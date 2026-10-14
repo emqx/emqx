@@ -546,9 +546,17 @@ join([Word | Words]) ->
 
 join_rest([]) ->
     [];
+join_rest([C]) when C =:= '#'; C =:= <<"#">> ->
+    [<<"/#">>];
 %% MQTT-5.0 [MQTT-4.7.1-1]
-join_rest([C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
+join_rest([C | _]) when C =:= '#'; C =:= <<"#">> ->
     error('topic_invalid_#');
+join_rest(['+' | Words]) ->
+    [<<"/+">> | join_rest(Words)];
+join_rest(['' | Words]) ->
+    [$/ | join_rest(Words)];
+join_rest([Word | Words]) when is_binary(Word) ->
+    [$/, Word | join_rest(Words)];
 join_rest([Word | Words]) ->
     [$/, bin(Word) | join_rest(Words)].
 
