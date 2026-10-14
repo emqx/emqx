@@ -2405,6 +2405,49 @@ transport(Config) ->
         ssl -> tls
     end.
 
+%% Helpers for the user-property and connect-packet-size cases.
+assert_connect_accepted(Transport, NConnect, NWill) ->
+    ?assertMatch({ok, _}, connect_with_user_properties(Transport, NConnect, NWill)).
+
+assert_connect_rejected(Transport, NConnect, NWill) ->
+    ?assertMatch({error, _}, connect_with_user_properties(Transport, NConnect, NWill)).
+
+connect_with_user_properties(Transport, NConnect, NWill) ->
+    ConnectProps = #{'User-Property' => client_user_properties(NConnect)},
+    WillProps = #{'User-Property' => client_user_properties(NWill)},
+    Opts =
+        transport_opts(Transport) ++
+            [
+                {proto_ver, v5},
+                {properties, ConnectProps},
+                {will_topic, <<"will">>},
+                {will_payload, <<"payload">>},
+                {will_props, WillProps}
+            ],
+    {ok, Client} = emqtt:start_link(Opts),
+    unlink(Client),
+    try
+        Result =
+            case Transport of
+                ws -> emqtt:ws_connect(Client);
+                _ -> emqtt:connect(Client)
+            end,
+        case Result of
+            {ok, _} -> ok = emqtt:disconnect(Client);
+            {error, _} -> ok
+        end,
+        Result
+    after
+        catch emqtt:stop(Client)
+    end.
+
+client_user_properties(N) ->
+    [{<<"key">>, integer_to_binary(I)} || I <- lists:seq(1, N)].
+
+listener_shutdown_count(Cause) ->
+    Counts = emqx_listeners:shutdown_count('tcp:default', 1883),
+    proplists:get_value(Cause, Counts, 0).
+
 listener_shutdown_count(Config, Cause) ->
     Id =
         case ?config(listener_type, Config) of
