@@ -140,8 +140,6 @@ match(Name, Filter) ->
 %% match_tokens/2: a filter level equal to the name level is matched first, then + and #.
 %% Both arguments must be valid topic names or filters (see validate/1): a + or # byte that is
 %% not a whole level can give a different result than match_tokens/2.
-match_levels(<<"#">>, <<"#/", _/binary>>) ->
-    false;
 match_levels(<<"#">>, _Name) ->
     true;
 match_levels(_Filter, done) ->
