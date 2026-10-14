@@ -1966,6 +1966,22 @@ t_publish_qos1_case05(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
+-doc "A PUBLISH to the short topic #/ is rejected, because # before the last level is not valid.".
+t_publish_short_topic_hash_not_last(_) ->
+    QoS = 1,
+    MsgId = 7,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, ?CLIENTID),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+    send_publish_msg_short_topic(Socket, QoS, MsgId, <<"#/">>, <<20, 21, 22, 23>>),
+    <<TopicIdShort:16>> = <<"#/">>,
+    ?assertEqual(
+        <<7, ?SN_PUBACK, TopicIdShort:16, MsgId:16, ?SN_RC_NOT_SUPPORTED>>, receive_response(Socket)
+    ),
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
 t_publish_qos1_case06(_) ->
     Dup = 0,
     QoS = 1,

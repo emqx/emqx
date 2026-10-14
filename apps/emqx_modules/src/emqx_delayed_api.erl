@@ -349,12 +349,8 @@ make_maybe(X, Error, Fun) ->
     end.
 
 validate_topic_name(Topic) ->
-    case emqx_topic:wildcard(Topic) of
-        true ->
-            error(badarg);
-        false ->
-            Topic
-    end.
+    true = emqx_topic:validate({name, Topic}),
+    Topic.
 
 with_maybe(Maybes, Cont) ->
     with_maybe(Maybes, Cont, []).

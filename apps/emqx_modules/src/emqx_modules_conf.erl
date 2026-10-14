@@ -263,9 +263,11 @@ validate_topic_metrics_entry(_Entry) ->
     ok.
 
 validate_topic_metric(Topic) ->
-    case emqx_topic:wildcard(Topic) of
-        true ->
+    try emqx_topic:validate({name, Topic}) of
+        true -> ok
+    catch
+        error:topic_name_error ->
             {error, #{cause => wildcard_not_supported, topic => Topic}};
-        false ->
-            ok
+        error:Reason ->
+            {error, #{cause => invalid_topic_name, reason => Reason, topic => Topic}}
     end.
