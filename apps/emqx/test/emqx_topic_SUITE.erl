@@ -92,8 +92,8 @@ t_wildcard_hash_not_last(_) ->
     ).
 
 -doc """
-`match/2` on two binaries gives the same results as on word lists. The cases put wildcard
-levels before, at and after the end of the 7-byte words that are compared at once.
+`match/2` on two binaries gives the same results as on word lists for valid topics. The cases
+put wildcard levels before, at and after the end of the 7-byte words that are compared at once.
 """.
 t_match_binary_levels(_) ->
     Cases = [
@@ -108,12 +108,20 @@ t_match_binary_levels(_) ->
         {<<"$SYS/x">>, <<"$SYS/+">>, true},
         {<<"abcdef/xyz">>, <<"abcdef/#">>, true},
         {<<"abcdef/xyz/q">>, <<"abcdef/+/q">>, true},
-        {<<"abcde/+a/b">>, <<"abcde/+/b">>, true},
-        {<<"abcde/+a/b">>, <<"abcde/+a/c">>, false},
+        {<<"abcde/xa/b">>, <<"abcde/+/b">>, true},
+        {<<"abcde/xa/b">>, <<"abcde/xa/c">>, false},
         {<<"abcdefghijklmn/opq">>, <<"abcdefghijklmn/opq">>, true},
         {<<"abcdefghijklmn/opq">>, <<"abcdefghijklmn/opr">>, false},
         {<<"abcdefghijklmn">>, <<"abcdefghijklmn/#">>, true},
-        {<<"abcdefghijklmn/">>, <<"abcdefghijklmn/+">>, true}
+        {<<"abcdefghijklmn/">>, <<"abcdefghijklmn/+">>, true},
+        %% A filter as the name: + and # at the end of the 7 bytes compared at once.
+        {<<"abcde/+">>, <<"abcde/+">>, true},
+        {<<"abcde/+/x">>, <<"abcde/+/x">>, true},
+        {<<"abcde/+/x">>, <<"abcde/+/y">>, false},
+        {<<"abcde/+/x">>, <<"abcde/+/+">>, true},
+        {<<"abcde/#">>, <<"abcde/#">>, true},
+        {<<"abcde/#">>, <<"abcde/+">>, true},
+        {<<"abcde/+">>, <<"abcde/#">>, true}
     ],
     lists:foreach(
         fun({Name, Filter, Expected}) ->

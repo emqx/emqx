@@ -78,27 +78,37 @@ wildcard([_H | T]) ->
 
 -define(IS_WILDCARD_BYTE(C), (C =:= $+ orelse C =:= $#)).
 
-%% The byte $+ or $# in each of the 7 bytes of a 56-bit word.
+%% SWAR constants: the same byte in each of the 7 bytes of a 56-bit word, or in each of the
+%% 5 bytes of a 40-bit word.
 -define(PLUS_BYTES7, 16#2B2B2B2B2B2B2B).
 -define(HASH_BYTES7, 16#23232323232323).
+-define(SLASH_BYTES7, 16#2F2F2F2F2F2F2F).
+-define(LOW7_BYTES7, 16#7F7F7F7F7F7F7F).
+-define(HIGH_BYTES7, 16#80808080808080).
+-define(PLUS_BYTES5, 16#2B2B2B2B2B).
+-define(SLASH_BYTES5, 16#2F2F2F2F2F).
+-define(LOW7_BYTES5, 16#7F7F7F7F7F).
+-define(HIGH_BYTES5, 16#8080808080).
+-define(MASK_BYTES5, 16#FFFFFFFFFF).
 
 %% True when the 56-bit integer V has a zero byte. For each byte B,
 %% ((B band 16#7F) + 16#7F) bor B has the high bit set when B is not zero. The sum is at most
 %% 16#FE, so no carry goes into the next byte.
 -define(HAS_ZERO_BYTE7(V),
-    (((((V) band 16#7F7F7F7F7F7F7F) + 16#7F7F7F7F7F7F7F) bor (V)) band 16#80808080808080 =/=
-        16#80808080808080)
+    (((((V) band ?LOW7_BYTES7) + ?LOW7_BYTES7) bor (V)) band ?HIGH_BYTES7 =/= ?HIGH_BYTES7)
 ).
+-define(HAS_PLUS_BYTE7(W), ?HAS_ZERO_BYTE7((W) bxor ?PLUS_BYTES7)).
+-define(HAS_HASH_BYTE7(W), ?HAS_ZERO_BYTE7((W) bxor ?HASH_BYTES7)).
 
 %% True when the byte C is not +, # or NUL, and not above 127.
 -define(IS_PLAIN_BYTE(C), (C > 0 andalso C < 16#80 andalso C =/= $+ andalso C =/= $#)).
 
 %% True when the 56-bit integer W has no +, # or NUL byte and no byte above 127.
 -define(IS_PLAIN7(W),
-    ((W) band 16#80808080808080 =:= 0 andalso
+    ((W) band ?HIGH_BYTES7 =:= 0 andalso
         not ?HAS_ZERO_BYTE7(W) andalso
-        not ?HAS_ZERO_BYTE7((W) bxor ?PLUS_BYTES7) andalso
-        not ?HAS_ZERO_BYTE7((W) bxor ?HASH_BYTES7))
+        not ?HAS_PLUS_BYTE7(W) andalso
+        not ?HAS_HASH_BYTE7(W))
 ).
 
 %% A level is a wildcard when it is exactly +, or when it is # and the last level.
@@ -128,7 +138,7 @@ has_plus_level(Topic) ->
 %% Find "/+/". Skip 6 bytes when a 7-byte word has no + byte. When it has one, check the 5
 %% three-byte windows of the word at once, and step 5 bytes.
 find_plus_level(<<W:56, _/binary>> = Bin) ->
-    case ?HAS_ZERO_BYTE7(W bxor ?PLUS_BYTES7) of
+    case ?HAS_PLUS_BYTE7(W) of
         false ->
             <<_:48, Rest/binary>> = Bin,
             find_plus_level(Rest);
@@ -154,15 +164,12 @@ check_plus_level(<<>>) ->
 %% Byte K+2 comes first in the topic. The zero-byte test is the one in ?HAS_ZERO_BYTE7.
 -compile({inline, [has_slash_plus_slash7/1]}).
 has_slash_plus_slash7(W) ->
-    Mask = 16#FFFFFFFFFF,
     V =
-        (((W bsr 16) bxor 16#2F2F2F2F2F) bor
-            ((W bsr 8) bxor 16#2B2B2B2B2B) bor
-            (W bxor 16#2F2F2F2F2F)) band Mask,
-    M7 = 16#7F7F7F7F7F,
-    M8 = 16#8080808080,
-    NonZero = (((V band M7) + M7) bor V) band M8,
-    NonZero =/= M8.
+        (((W bsr 16) bxor ?SLASH_BYTES5) bor
+            ((W bsr 8) bxor ?PLUS_BYTES5) bor
+            (W bxor ?SLASH_BYTES5)) band ?MASK_BYTES5,
+    NonZero = (((V band ?LOW7_BYTES5) + ?LOW7_BYTES5) bor V) band ?HIGH_BYTES5,
+    NonZero =/= ?HIGH_BYTES5.
 
 %% @doc Match Topic name with filter.
 -spec match(Name, Filter) -> boolean() when
@@ -188,6 +195,8 @@ match(Name, Filter) ->
 %% Match the binary Name against the binary Filter level by level, without splitting them.
 %% Name is `done` when all its levels are matched. The order of the checks is the same as in
 %% match_tokens/2: a filter level equal to the name level is matched first, then + and #.
+%% Both arguments must be valid topic names or filters (see validate/1): a + or # byte that is
+%% not a whole level can give a different result than match_tokens/2.
 match_levels(<<"#">>, <<"#/", _/binary>>) ->
     false;
 match_levels(<<"#">>, _Name) ->
@@ -201,12 +210,10 @@ match_levels(<<"+/", FilterRest/binary>>, Name) ->
 match_levels(Filter, Name) ->
     match_level(Filter, Name).
 
-%% Compare one level, then go on with the next level. 7 equal bytes with no + or # byte are
-%% skipped at once: a level they cut is not a wildcard level, so it must match byte by byte.
-%% When the 7 bytes end with $/, the next level starts.
-match_level(<<W:56, FilterRest/binary>>, <<W:56, NameRest/binary>>) when
-    not ?HAS_ZERO_BYTE7(W bxor ?PLUS_BYTES7), not ?HAS_ZERO_BYTE7(W bxor ?HASH_BYTES7)
-->
+%% Compare one level, then go on with the next level. 7 equal bytes are skipped at once: in a
+%% valid topic filter, + and # are whole levels, so 7 equal bytes in the filter and the name
+%% are literal bytes of both. When the 7 bytes end with $/, the next level starts.
+match_level(<<W:56, FilterRest/binary>>, <<W:56, NameRest/binary>>) ->
     case W band 16#FF of
         $/ -> match_levels(FilterRest, NameRest);
         _ -> match_level(FilterRest, NameRest)
@@ -222,14 +229,16 @@ match_level(<<$/, FilterRest/binary>>, <<>>) ->
 match_level(_Filter, _Name) ->
     false.
 
-is_last_level(<<$/, _/binary>>) -> false;
-is_last_level(<<_, Rest/binary>>) -> is_last_level(Rest);
-is_last_level(<<>>) -> true.
+is_last_level(Name) ->
+    skip_level(Name) =:= done.
 
 %% Return the levels after the first one, or `done` when there is only one.
-skip_level(<<$/, Rest/binary>>) -> Rest;
-skip_level(<<_, Rest/binary>>) -> skip_level(Rest);
-skip_level(<<>>) -> done.
+skip_level(<<$/, Rest/binary>>) ->
+    Rest;
+skip_level(<<_, Rest/binary>>) ->
+    skip_level(Rest);
+skip_level(<<>>) ->
+    done.
 
 match_words([<<$$, _/binary>> | _], [W | _]) when ?IS_WILDCARD(W) ->
     false;
@@ -521,9 +530,9 @@ count_levels(<<>>, N) -> N.
 %% All values are below 2^57, so they are small integers.
 -compile({inline, [count_slashes7/1]}).
 count_slashes7(W) ->
-    V = W bxor 16#2F2F2F2F2F2F2F,
-    NonZero = (((V band 16#7F7F7F7F7F7F7F) + 16#7F7F7F7F7F7F7F) bor V) band 16#80808080808080,
-    case NonZero bxor 16#80808080808080 of
+    V = W bxor ?SLASH_BYTES7,
+    NonZero = (((V band ?LOW7_BYTES7) + ?LOW7_BYTES7) bor V) band ?HIGH_BYTES7,
+    case NonZero bxor ?HIGH_BYTES7 of
         0 ->
             0;
         Zero ->
