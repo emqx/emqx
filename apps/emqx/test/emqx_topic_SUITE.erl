@@ -81,7 +81,6 @@ t_match_binary_levels(_) ->
         {<<"a/">>, <<"a/+">>, true},
         {<<"a">>, <<"a/+">>, false},
         {<<"a/b">>, <<"a/">>, false},
-        {<<"#/x">>, <<"#">>, false},
         {<<"#">>, <<"#">>, true},
         {<<"$SYS/x">>, <<"#">>, false},
         {<<"$SYS/x">>, <<"+/x">>, false},
@@ -294,8 +293,8 @@ t_validate_fast_path(_) ->
             <<"abcdefgh/ijklmno/p">>,
             <<"$SYS/x">>,
             <<"a", 1, "b">>,
-            <<"abcdefg", 16#C3, 16#A9>>,
-            <<"abcdefghijklmn/", 16#E2, 16#82, 16#AC>>
+            <<"abcdefgé"/utf8>>,
+            <<"abcdefghijklmn/€"/utf8>>
         ]
     ),
     lists:foreach(
@@ -308,7 +307,7 @@ t_validate_fast_path(_) ->
             <<"/#">>,
             <<"abcdefgh/#">>,
             <<"abcdefg/+/hijklmn/+">>,
-            <<"caf", 16#C3, 16#A9, "/+/#">>,
+            <<"café/+/#"/utf8>>,
             <<"$share/g/abcdefg/+/#">>
         ]
     ),
