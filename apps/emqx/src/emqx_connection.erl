@@ -622,8 +622,10 @@ handle_msg(
     Deliver = #deliver{message = _Msg},
     #state{conf = #conf{active_n = ActiveN}} = State
 ) ->
-    ?BROKER_INSTR_EXTRACT_MARK(_Mark, _Msg),
-    ?BROKER_INSTR_SETMARK(t0_deliver, {_Mark, ?BROKER_INSTR_TS()}),
+    ?BROKER_INSTR_MSGLATENCY(begin
+        ?BROKER_INSTR_EXTRACT_MARK(_Mark, _Msg),
+        ?BROKER_INSTR_SETMARK(t0_deliver, {_Mark, ?BROKER_INSTR_TS()})
+    end),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 handle_msg({connack, ConnAck}, State) ->
@@ -1133,16 +1135,18 @@ send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) -
             %% {quic, send_complete, _Stream, true | false} is received,
             %% but it is handled early for simplicity
             Ok = sent(Num, Oct, State),
-            ?BROKER_INSTR_TS(TSent),
-            ?BROKER_INSTR_WMARK(
-                t0_deliver,
-                {?BROKER_INSTR_MARK(T0, TDisp), TDeliver},
-                begin
-                    ?BROKER_INSTR_OBSERVE_INTERVAL(connection, deliver_delay_us, TDisp, TDeliver),
-                    ?BROKER_INSTR_OBSERVE_INTERVAL(connection, deliver_total_lat_us, TDisp, TSent),
-                    ?BROKER_INSTR_OBSERVE_INTERVAL(connection, brokerage_delay_us, T0, TDeliver),
-                    ?BROKER_INSTR_OBSERVE_INTERVAL(connection, brokerage_latency_us, T0, TSent)
-                end
+            ?BROKER_INSTR_MSGLATENCY(
+                ?BROKER_INSTR_WMARK(
+                    t0_deliver,
+                    {?BROKER_INSTR_MARK(T0, TDisp), TDeliver},
+                    begin
+                        TSent = ?BROKER_INSTR_TS(),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, deliver_delay_us, TDisp, TDeliver),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, deliver_total_lat_us, TDisp, TSent),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, brokerage_delay_us, T0, TDeliver),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, brokerage_latency_us, T0, TSent)
+                    end
+                )
             ),
             Ok;
         {error, timeout} ->

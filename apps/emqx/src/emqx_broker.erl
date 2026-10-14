@@ -727,7 +727,7 @@ handle_call(Req, _From, State) ->
     {reply, ignored, State}.
 
 handle_cast({dispatch, Topic, I, Msg}, State) ->
-    ?BROKER_INSTR_TS(T),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_TS(T)),
     Deliver = #deliver{topic = Topic, message = Msg},
     _ = do_dispatch_chans(Deliver, subscribers({shard, Topic, I}), 0),
     ?BROKER_INSTR_MSGLATENCY(
@@ -790,7 +790,7 @@ code_change(_OldVsn, State, _Extra) ->
 -spec do_dispatch2(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
 do_dispatch2(Topic, #delivery{message = MsgIn}) ->
-    ?BROKER_INSTR_TS(T0),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_TS(T0)),
     ?BROKER_INSTR_EXTRACT_MARK(?BROKER_INSTR_MARK(TFirst, _), MsgIn),
     Msg = ?BROKER_INSTR_UPDATE_MARK(?BROKER_INSTR_MARK(TFirst, T0), MsgIn),
     AsyncDispatch = persistent_term:get(?PT_FLAG_ASYNC_SHARD_DISPATCH, false),

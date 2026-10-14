@@ -120,7 +120,17 @@
 
 -ifdef(EMQX_BROKER_INSTR).
 
+-define(BROKER_INSTR_TS(), (os:perf_counter())).
+-define(BROKER_INSTR_TS(BIND), (BIND = os:perf_counter())).
 -define(BROKER_INSTR_BIND(BIND, _, X), (BIND = X)).
+
+-define(BROKER_INSTR_SETMARK(X, Y), (erlang:put(X, Y))).
+-define(BROKER_INSTR_WMARK(X, MATCH, EXPR),
+    (case erlang:erase(X) of
+        MATCH -> EXPR;
+        _ -> ok
+    end)
+).
 
 -define(BROKER_INSTR_OBSERVE_HIST(METRIC, NAME, V),
     (emqx_metrics_worker:observe_hist(
@@ -131,7 +141,7 @@
     ))
 ).
 
--define(BROKER_INSTR_OBSERVE_INTERVAL(METRIC, NAME, START, END),
+-define(BROKER_INSTR_OBSERVE_INTVL(METRIC, NAME, START, END),
     (case is_integer(START) of
         true -> ?BROKER_INSTR_OBSERVE_HIST(METRIC, NAME, ?US(END - START));
         false -> ok
@@ -155,9 +165,13 @@
 
 -else.
 
--define(BROKER_INSTR_OBSERVE_HIST(METRIC, NAME, V), stub).
+-define(BROKER_INSTR_TS(), stub).
+-define(BROKER_INSTR_TS(BIND), stub).
+-define(BROKER_INSTR_SETMARK(X, Y), stub).
+-define(BROKER_INSTR_WMARK(X, MATCH, EXPR), stub).
 -define(BROKER_INSTR_BIND(BIND, X, _), (BIND = X)).
--define(BROKER_INSTR_OBSERVE_INTERVAL(METRIC, NAME, START, END), stub).
+-define(BROKER_INSTR_OBSERVE_HIST(METRIC, NAME, V), stub).
+-define(BROKER_INSTR_OBSERVE_INTVL(METRIC, NAME, START, END), stub).
 -define(BROKER_INSTR_OBSERVE_BS(METRIC, NAME, VALUE), stub).
 -define(BROKER_INSTR_OBSERVE_BS(METRIC, NAME, VALUE, VALUEGUARD), stub).
 -define(BROKER_INSTR_INC(METRIC, NAME), stub).
@@ -168,16 +182,6 @@
 
 -define(BROKER_INSTR_MSGLATENCY(EXPR), EXPR).
 
--define(BROKER_INSTR_SETMARK(X, Y), (erlang:put(X, Y))).
--define(BROKER_INSTR_WMARK(X, MATCH, EXPR),
-    (case erlang:erase(X) of
-        MATCH -> EXPR;
-        _ -> ok
-    end)
-).
-
--define(BROKER_INSTR_TS(), (os:perf_counter())).
--define(BROKER_INSTR_TS(BIND), (BIND = os:perf_counter())).
 -define(BROKER_INSTR_HEADERS(MARK), #{?BROKER_INSTR_HEADER => MARK}).
 
 -define(BROKER_INSTR_EXTRACT_MARK(BIND, MSG),
@@ -194,13 +198,8 @@
 -else.
 
 -define(BROKER_INSTR_MSGLATENCY(EXPR), stub).
--define(BROKER_INSTR_SETMARK(X, Y), stub).
--define(BROKER_INSTR_WMARK(X, MATCH, EXPR), stub).
 
--define(BROKER_INSTR_TS(), stub).
--define(BROKER_INSTR_TS(BIND), stub).
 -define(BROKER_INSTR_HEADERS(MARK), #{}).
-
 -define(BROKER_INSTR_EXTRACT_MARK(BIND, MSG), stub).
 -define(BROKER_INSTR_UPDATE_MARK(MARK, MSG), MSG).
 
