@@ -71,7 +71,10 @@
 
 -import(emqx_coap_medium, [empty/0, iter/4, reset/1, proto_out/2]).
 
--elvis([{elvis_style, no_if_expression, disable}]).
+-elvis([
+    {elvis_style, no_if_expression, disable},
+    {elvis_style, no_invalid_dynamic_calls, disable}
+]).
 
 %%--------------------------------------------------------------------
 %% API

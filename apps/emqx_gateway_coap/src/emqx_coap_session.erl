@@ -3,6 +3,12 @@
 %%--------------------------------------------------------------------
 -module(emqx_coap_session).
 
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([
+    {elvis_style, no_invalid_dynamic_calls, disable},
+    {elvis_style, simplify_anonymous_functions, disable}
+]).
+
 -include("emqx_coap.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").

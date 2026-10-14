@@ -3,6 +3,12 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_lwm2m_channel).
+
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([
+    {elvis_style, no_common_caveats_call, disable},
+    {elvis_style, no_invalid_dynamic_calls, disable}
+]).
 -behaviour(emqx_gateway_channel).
 
 -include("emqx_lwm2m.hrl").
