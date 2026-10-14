@@ -598,6 +598,23 @@ t_start_link_exit_on_wait(_) ->
     ok = exit_on_wait_error(timeout, {shutdown, ssl_upgrade_timeout}),
     ok = exit_on_wait_error(enetdown, {shutdown, enetdown}).
 
+-doc """
+A wait error that is not an atom exits with a reason that the listener counts:
+`{ssl_error, _}` is unchanged, a TLS alert counts under its kind, and any other
+error counts under `sock_error`.
+""".
+t_start_link_exit_on_wait_countable(_) ->
+    SslError = {ssl_error, {tls_alert, {unknown_ca, "TLS server: ..."}}},
+    ok = exit_on_wait_error(SslError, {shutdown, SslError}),
+    Alert = {tls_alert, {user_canceled, "TLS server: ..."}},
+    ok = exit_on_wait_error(
+        Alert, {shutdown, #{shutdown_count => user_canceled, reason => Alert}}
+    ),
+    ProxyError = {invalid_proxy_info, <<"GET / HTTP/1.1\r\n">>},
+    ok = exit_on_wait_error(
+        ProxyError, {shutdown, #{shutdown_count => sock_error, reason => ProxyError}}
+    ).
+
 t_start_link_exit_on_activate(_) ->
     ok = exit_on_activate_error(enotconn, normal),
     ok = exit_on_activate_error(einval, normal),
@@ -620,16 +637,16 @@ t_get_conn_info(_) ->
 t_oom_shutdown(init, Config) ->
     ok = snabbkaffe:stop(),
     ok = snabbkaffe:start_trace(),
-    ok = meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:new(emqx_connection_util, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
-        emqx_utils,
+        emqx_connection_util,
         check_oom,
         fun(_) -> {shutdown, "fake_oom"} end
     ),
     Config;
 t_oom_shutdown('end', _Config) ->
     snabbkaffe:stop(),
-    meck:unload(emqx_utils),
+    meck:unload(emqx_connection_util),
     ok.
 
 t_oom_shutdown(_) ->
