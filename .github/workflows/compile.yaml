@@ -119,6 +119,22 @@ jobs:
           path: ${{ matrix.profile }}-rel.zip
           retention-days: 7
           if-no-files-found: error
+      # The plugin CT suites install a plugin package. Build the packages here,
+      # where the production profile is already compiled, and ship them. A CT
+      # job then installs a prebuilt package, and it does not compile the deps
+      # again. That keeps the deps caches out of the workspace artifact.
+      - name: build plugin packages
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: ./scripts/build-plugins.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
+        with:
+          name: ${{ matrix.profile }}-plugin-packages
+          path: _build/plugins/*.tar.gz
+          retention-days: 7
+          if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         with:
