@@ -1036,7 +1036,9 @@ t_quota_lazy_build_on_refresh(_) ->
 
 -doc "Publish does not check the limiter config while the channel has no container.".
 t_quota_lazy_publish_skips_config(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+    ok = meck:expect(emqx_broker, publish2, fun(Msg) ->
+        {ok, [{node(), <<"topic">>, {ok, 4}}], Msg}
+    end),
     Chann = channel(
         clientinfo(#{listener => 'tcp:low_message_rate'}),
         #{conn_state => connected, quota => undefined},

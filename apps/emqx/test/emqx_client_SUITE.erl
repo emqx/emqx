@@ -1887,7 +1887,7 @@ t_oom_shutdown_count(init, Config0) ->
 -doc """
 A connection force-shut down on mailbox overflow is counted under the
 `mailbox_overflow` listener shutdown counter, which esockd keeps only for its
-info-level branch. EMQX still logs the shutdown at warning level.
+info-level branch. EMQX still logs the shutdown at error level.
 """.
 t_oom_shutdown_count(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -1905,7 +1905,7 @@ t_oom_shutdown_count(Config) ->
     [ConnPid] = emqx_cm:lookup_channels(ClientId),
     CountBefore = shutdown_count(Config, mailbox_overflow),
     MRef = erlang:monitor(process, ConnPid),
-    Reports = emqx_cth_log_capture:capture(warning, fun() ->
+    Reports = emqx_cth_log_capture:capture(error, fun() ->
         %% The PINGREQ reaches the mailbox first, and its PINGRESP triggers
         %% the OOM check while the filler messages are still queued.
         ok = sys:suspend(ConnPid),
@@ -1921,19 +1921,18 @@ t_oom_shutdown_count(Config) ->
         ok = sys:resume(ConnPid),
         receive
             {'DOWN', MRef, process, ConnPid, ExitReason} ->
-                ?assertMatch(
-                    {shutdown, #{shutdown_count := mailbox_overflow, reason := mailbox_overflow}},
-                    ExitReason
-                )
+                %% The connection destructures the detail map and exits with
+                %% the reason only.
+                ?assertMatch({shutdown, mailbox_overflow}, ExitReason)
         after 5000 -> ct:fail(connection_not_shutdown)
         end
     end),
     ?assertMatch(
         [_ | _],
-        [R || #{?snk_kind := check_oom_shutdown} = R <- Reports]
+        [R || #{msg := connection_shutdown_due_to_oom} = R <- Reports]
     ),
-    %% Counter only moves on the info-level branch, so this also proves no
-    %% error-level supervisor report was emitted.
+    %% esockd counts the shutdown only on its info-level branch, so the counter
+    %% moving also proves esockd emitted no error-level crash report.
     ?WAIT(?assertEqual(CountBefore + 1, shutdown_count(Config, mailbox_overflow)), 5),
     socket_close(Socket).
 
@@ -2074,11 +2073,10 @@ t_connect_user_property_limit(_) ->
     Limit = 2,
     try
         emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], Limit),
-        %% The limit is hit while the CONNECT packet is parsed, so the
-        %% shutdown is counted as `invalid_connect_packet': a map-shaped frame
-        %% error keeps its cause in the shutdown reason, and shares the counter
-        %% of its connection state (see `emqx_channel:frame_error_kind/2').
-        CountBefore = listener_shutdown_count(invalid_connect_packet),
+        %% The cause has its own shutdown counter, so an operator can tell
+        %% clients that hit a configured limit from clients that send garbage
+        %% (see `emqx_channel:frame_error_kind/2').
+        CountBefore = listener_shutdown_count(too_many_user_properties),
         lists:foreach(
             fun(Transport) ->
                 assert_connect_accepted(Transport, Limit, Limit),
@@ -2088,7 +2086,7 @@ t_connect_user_property_limit(_) ->
             [tcp, tls, ws]
         ),
         ?WAIT(
-            ?assert(listener_shutdown_count(invalid_connect_packet) >= CountBefore + 2),
+            ?assert(listener_shutdown_count(too_many_user_properties) >= CountBefore + 2),
             5
         ),
         emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], infinity),
@@ -2397,7 +2395,9 @@ transport_opts(tls) ->
         {port, 8883},
         {ssl, true},
         {ssl_opts, emqx_common_test_helpers:client_mtls(default)}
-    ].
+    ];
+transport_opts(ws) ->
+    [{port, 8083}].
 
 transport(Config) ->
     case ?config(listener_type, Config) of
