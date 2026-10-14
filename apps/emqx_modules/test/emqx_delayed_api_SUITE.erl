@@ -233,6 +233,15 @@ t_delete_messages_via_topic(_) ->
         )
     ),
 
+    %% assert: return 400 if the topic has # before the last level
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            delete,
+            uri(["mqtt", "delayed", "messages", uri_string:quote(<<"t/#/a">>)])
+        )
+    ),
+
     %% assert: return 404 if no messages found for the topic
     ?assertMatch(
         {ok, 404, _},
