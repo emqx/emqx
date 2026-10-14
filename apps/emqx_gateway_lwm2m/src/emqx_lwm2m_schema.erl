@@ -60,6 +60,16 @@ fields(lwm2m) ->
                     desc => ?DESC(lwm2m_qmode_time_window)
                 }
             )},
+        {max_pending_commands,
+            sc(
+                pos_integer(),
+                #{default => 1000, desc => ?DESC(lwm2m_max_pending_commands)}
+            )},
+        {max_pending_bytes,
+            sc(
+                emqx_gateway_schema:bytesize(),
+                #{default => <<"16MB">>, desc => ?DESC(lwm2m_max_pending_bytes)}
+            )},
         %% TODO: Support config resource path
         {auto_observe,
             sc(

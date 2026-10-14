@@ -56,7 +56,7 @@
 -type request_context() :: map().
 
 -type timestamp() :: non_neg_integer().
--type queued_request() :: {timestamp(), request_context(), coap_message()}.
+-type queued_request() :: {timestamp(), request_context(), coap_message(), non_neg_integer()}.
 
 -type cmd_path() :: binary().
 -type cmd_type() :: binary().
@@ -80,18 +80,21 @@
     lifetime :: non_neg_integer() | undefined,
     is_cache_mode :: boolean(),
     mountpoint :: binary(),
-    last_active_at :: non_neg_integer(),
+    last_active_at :: integer(),
     created_at :: non_neg_integer(),
     cmd_record :: cmd_record(),
     subscriptions :: map(),
     blockwise :: emqx_coap_blockwise:state(),
-    blockwise_downlink :: term() | undefined
+    blockwise_downlink :: term() | undefined,
+    queue_len = 0 :: non_neg_integer(),
+    queue_bytes = 0 :: non_neg_integer(),
+    queue_dropped = 0 :: non_neg_integer()
 }).
 
 -type session() :: #session{}.
 
 -define(PREFIX, <<"rd">>).
--define(NOW, erlang:system_time(second)).
+-define(NOW, erlang:monotonic_time(millisecond)).
 -define(IGNORE_OBJECT, [
     <<"0">>,
     <<"1">>,
@@ -182,7 +185,9 @@ init(
         lifetime = LifeTime,
         mountpoint = MountPoint,
         is_cache_mode = is_psm(RegInfo) orelse is_qmode(RegInfo),
-        queue = queue:new()
+        queue = queue:new(),
+        queue_len = 0,
+        queue_bytes = 0
     },
 
     Result = return(register_init(WithContext, NewSession)),
@@ -268,12 +273,12 @@ stats(inflight_cnt, _) ->
     0;
 stats(inflight_max, _) ->
     infinity;
-stats(mqueue_len, _) ->
-    0;
+stats(mqueue_len, #session{queue_len = Len}) ->
+    Len;
 stats(mqueue_max, _) ->
-    infinity;
-stats(mqueue_dropped, _) ->
-    0;
+    emqx:get_config([gateway, lwm2m, max_pending_commands], 1000);
+stats(mqueue_dropped, #session{queue_dropped = Dropped}) ->
+    Dropped;
 stats(next_pkt_id, _) ->
     0;
 stats(awaiting_rel_cnt, _) ->
@@ -289,8 +294,8 @@ stats(latency_stats, _) ->
 handle_coap_in(Msg, _WithContext, Session) ->
     call_coap(
         case emqx_coap_message:is_request(Msg) of
-            true -> handle_request;
-            _ -> handle_response
+            true -> fun emqx_coap_tm:handle_request/2;
+            _ -> fun emqx_coap_tm:handle_response/2
         end,
         Msg,
         Session#session{last_active_at = ?NOW}
@@ -303,7 +308,7 @@ handle_out(Msg, _WithContext, Session) ->
     return(out_to_coap(Msg, Session)).
 
 timeout({transport, Msg}, _, Session) ->
-    call_coap(timeout, Msg, Session).
+    call_coap(fun emqx_coap_tm:timeout/2, Msg, Session).
 
 set_reply(Msg, #session{coap = Coap} = Session) ->
     Coap2 = emqx_coap_tm:set_reply(Msg, Coap),
@@ -364,9 +369,7 @@ handle_protocol_in({reset, CtxMsg}, WithContext, Session) ->
 append_object_list(Query, Payload) ->
     RegInfo = drop_sensitive_reg_info(append_object_list2(Query, Payload)),
     lists:foldl(
-        fun(Key, Acc) ->
-            fix_reg_info(Key, Acc)
-        end,
+        fun fix_reg_info/2,
         RegInfo,
         [<<"lt">>]
     ).
@@ -787,7 +790,7 @@ is_cache_mode(#session{
 }) ->
     IsCacheMode andalso
         ((?NOW - LastActiveAt) >=
-            emqx:get_config([gateway, lwm2m, qmode_time_window])).
+            timer:seconds(emqx:get_config([gateway, lwm2m, qmode_time_window]))).
 
 is_psm(#{<<"apn">> := APN}) when
     APN =:= <<"Ctnb">>;
@@ -832,19 +835,27 @@ send_dl_msg(Ctx, WithContext, Session) ->
 
 send_to_coap(WithContext, #session{queue = Queue} = Session) ->
     case queue:out(Queue) of
-        {{value, {Timestamp, Ctx, Req}}, Q2} ->
-            Now = ?NOW,
+        {{value, {Timestamp, Ctx, Req, Bytes}}, Q2} ->
+            Session1 = Session#session{
+                queue = Q2,
+                queue_len = Session#session.queue_len - 1,
+                queue_bytes = Session#session.queue_bytes - Bytes
+            },
+            Now = erlang:system_time(millisecond),
             case Timestamp =:= 0 orelse Timestamp > Now of
                 true ->
-                    send_to_coap(Ctx, Req, WithContext, Timestamp, Session#session{queue = Q2});
+                    send_to_coap(Ctx, Req, WithContext, Timestamp, Bytes, Session1);
                 false ->
-                    send_to_coap(WithContext, Session#session{queue = Q2})
+                    send_to_coap(WithContext, Session1)
             end;
         {empty, _} ->
             Session
     end.
 
-send_to_coap(Ctx, Req, WithContext, ExpiryTime, #session{blockwise = BW0} = Session) ->
+send_to_coap(Ctx, Req, WithContext, ExpiryTime, Session) ->
+    send_to_coap(Ctx, Req, WithContext, ExpiryTime, undefined, Session).
+
+send_to_coap(Ctx, Req, WithContext, ExpiryTime, QueuedBytes, #session{blockwise = BW0} = Session) ->
     ?SLOG(debug, #{
         msg => "deliver_to_coap",
         coap_request => Req
@@ -876,10 +887,13 @@ send_to_coap(Ctx, Req, WithContext, ExpiryTime, #session{blockwise = BW0} = Sess
                 }
             );
         {busy, _Reason, BW1} ->
-            Session#session{
-                blockwise = BW1,
-                queue = queue:in_r({ExpiryTime, Ctx, Req}, Session#session.queue)
-            };
+            Session1 = Session#session{blockwise = BW1},
+            case QueuedBytes of
+                undefined ->
+                    enqueue_command(Ctx, Req, ExpiryTime, front, WithContext, Session1);
+                _ ->
+                    put_pending_command({ExpiryTime, Ctx, Req, QueuedBytes}, front, Session1)
+            end;
         {error, too_large, BW1} ->
             ?SLOG(warning, #{
                 msg => "lwm2m_blockwise_downlink_too_large"
@@ -1037,7 +1051,7 @@ maybe_do_deliver_to_coap(
 ) ->
     case is_blockwise_downlink_busy(Ctx, Req, Session) of
         true ->
-            Session#session{queue = queue:in({ExpiryTime, Ctx, Req}, Queue)};
+            enqueue_command(Ctx, Req, ExpiryTime, rear, WithContext, Session);
         false ->
             MHeaders = normalize_mheaders(Ctx),
             TTL = maps:get(<<"ttl">>, MHeaders, maps:get(ttl, MHeaders, 7200)),
@@ -1053,10 +1067,90 @@ maybe_do_deliver_to_coap(
                         true ->
                             send_to_coap(Ctx, Req, WithContext, ExpiryTime, Session);
                         false ->
-                            Session#session{queue = queue:in({ExpiryTime, Ctx, Req}, Queue)}
+                            enqueue_command(Ctx, Req, ExpiryTime, rear, WithContext, Session)
                     end
             end
     end.
+
+enqueue_command(Ctx, Req, ExpiryTime, Position, WithContext, Session0) ->
+    MaxCount = emqx:get_config([gateway, lwm2m, max_pending_commands], 1000),
+    MaxBytes = emqx:get_config([gateway, lwm2m, max_pending_bytes], 16 * 1024 * 1024),
+    Bytes = erlang:external_size({Ctx, Req}),
+    Session =
+        case pending_capacity(Bytes, MaxCount, MaxBytes, Session0) of
+            ok -> Session0;
+            _ -> remove_expired_commands(Session0)
+        end,
+    case pending_capacity(Bytes, MaxCount, MaxBytes, Session) of
+        ok ->
+            {Ctx1, Req1} = compact_pending_term({Ctx, Req}),
+            put_pending_command({ExpiryTime, Ctx1, Req1, Bytes}, Position, Session);
+        {error, Code} ->
+            ?SLOG(warning, #{msg => "lwm2m_pending_queue_full", reason => Code}),
+            WithContext(metrics, 'delivery.dropped'),
+            EventType = maps:get(<<"msgType">>, Ctx),
+            Payload = emqx_lwm2m_cmd:cmd_error_to_mqtt(Code, Ctx),
+            Session1 = record_response(EventType, Payload, Session#session{
+                queue_dropped = Session#session.queue_dropped + 1
+            }),
+            send_to_mqtt(Ctx, EventType, Payload, WithContext, Session1)
+    end.
+
+put_pending_command({_, _, _, Bytes} = Item, Position, Session) ->
+    Queue =
+        case Position of
+            rear -> queue:in(Item, Session#session.queue);
+            front -> queue:in_r(Item, Session#session.queue)
+        end,
+    Session#session{
+        queue = Queue,
+        queue_len = Session#session.queue_len + 1,
+        queue_bytes = Session#session.queue_bytes + Bytes
+    }.
+
+pending_capacity(_, MaxCount, _, #session{queue_len = Count}) when Count >= MaxCount ->
+    {error, too_many_requests};
+pending_capacity(Bytes, _, MaxBytes, #session{queue_bytes = QueuedBytes}) when
+    QueuedBytes + Bytes > MaxBytes
+->
+    {error, request_entity_too_large};
+pending_capacity(_, _, _, _) ->
+    ok.
+
+remove_expired_commands(#session{queue = Queue} = Session) ->
+    Now = erlang:system_time(millisecond),
+    {Queue1, Count, Bytes} = lists:foldl(
+        fun
+            ({Expiry, _, _, Size} = Item, {Q, N, B}) when Expiry =:= 0; Expiry > Now ->
+                {queue:in(Item, Q), N + 1, B + Size};
+            (_, Acc) ->
+                Acc
+        end,
+        {queue:new(), 0, 0},
+        queue:to_list(Queue)
+    ),
+    Session#session{queue = Queue1, queue_len = Count, queue_bytes = Bytes}.
+
+%% Keep sub-binaries from pinning their parents or charging the same parent repeatedly.
+compact_pending_term(Bin) when is_binary(Bin) ->
+    case binary:referenced_byte_size(Bin) > byte_size(Bin) of
+        true -> binary:copy(Bin);
+        false -> Bin
+    end;
+compact_pending_term(Map) when is_map(Map) ->
+    maps:fold(
+        fun(Key, Value, Acc) ->
+            Acc#{compact_pending_term(Key) => compact_pending_term(Value)}
+        end,
+        #{},
+        Map
+    );
+compact_pending_term(Tuple) when is_tuple(Tuple) ->
+    list_to_tuple(compact_pending_term(tuple_to_list(Tuple)));
+compact_pending_term([Head | Tail]) ->
+    [compact_pending_term(Head) | compact_pending_term(Tail)];
+compact_pending_term(Other) ->
+    Other.
 
 is_blockwise_downlink_busy(Ctx, Req, #session{blockwise = BW, blockwise_downlink = ActiveKey}) ->
     NeedBlockwise = emqx_coap_blockwise:block1_required(Req, BW),
@@ -1117,7 +1211,7 @@ send_cmd_impl(Cmd, WithContext, #session{reg_info = RegInfo} = Session) ->
 call_coap(Fun, Msg, #session{coap = Coap} = Session) ->
     iter(
         [tm, fun process_tm/4, fun process_session/3],
-        emqx_coap_tm:Fun(Msg, Coap),
+        Fun(Msg, Coap),
         Session
     ).
 
@@ -1175,7 +1269,11 @@ record_response(EventType, #{<<"data">> := Data}, Session) ->
 record_cmd(Path, Type, Result, #session{cmd_record = #{queue := Queue} = Record} = Session) ->
     Key = ?CMD_KEY(Path, Type),
     Record2 = Record#{Key => Result},
-    Queue2 = queue:in(Key, Queue),
+    Queue2 =
+        case maps:is_key(Key, Record) of
+            true -> Queue;
+            false -> queue:in(Key, Queue)
+        end,
     Record3 = check_record_size(Record2, Queue2),
     Session#session{cmd_record = Record3}.
 
