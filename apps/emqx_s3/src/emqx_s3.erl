@@ -52,6 +52,7 @@
     secret_access_key => emqx_secret:t(string()),
     host := string(),
     port := pos_integer(),
+    region => binary(),
     url_expire_time := pos_integer(),
     acl => acl(),
     min_part_size => pos_integer(),
