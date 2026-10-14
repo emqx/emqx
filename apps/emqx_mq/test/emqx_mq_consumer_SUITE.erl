@@ -15,7 +15,33 @@
 -include("../src/emqx_mq_internal.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    Standalone = emqx_common_test_helpers:all(?MODULE) -- queue_type_cases(),
+    Standalone ++ [{group, Group} || {Group, _, _} <- groups()].
+
+groups() ->
+    [
+        {regular, [], queue_type_cases()},
+        {limited_regular, [], queue_type_cases()},
+        {lastvalue, [], queue_type_cases()},
+        {limited_lastvalue, [], queue_type_cases()}
+    ].
+
+queue_type_cases() ->
+    [t_deliver_cutoff_date].
+
+init_per_group(Group, Config) ->
+    {IsLastvalue, MaxCount} =
+        case Group of
+            regular -> {false, infinity};
+            limited_regular -> {false, 100};
+            lastvalue -> {true, infinity};
+            limited_lastvalue -> {true, 100}
+        end,
+    Limits = #{max_shard_message_count => MaxCount, max_shard_message_bytes => infinity},
+    [{is_lastvalue, IsLastvalue}, {limits, Limits} | Config].
+
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -119,6 +145,83 @@ t_delivery_start_time_replay(_Config) ->
     {[<<"unacked">>, <<"acked">>], _} = consume_messages(MQ1, #{}, 2, []),
     ?assertEqual(2, ds_received_messages() - Received1),
     ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ0))).
+
+%% Verify cutoff boundaries, message timestamps, and persisted auto-acks for the group's queue type.
+t_deliver_cutoff_date(Config) ->
+    IsLastvalue = ?config(is_lastvalue, Config),
+    Name = <<"deliver_cutoff_date">>,
+    Now = erlang:system_time(millisecond),
+    Cutoff = Now - 60_000,
+    CutoffUs = erlang:convert_time_unit(Cutoff, millisecond, microsecond),
+    MQOpts0 = #{
+        name => Name,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => IsLastvalue,
+        limits => ?config(limits, Config),
+        deliver_cutoff_date => Cutoff,
+        stream_max_buffer_size => 1,
+        stream_max_unacked => 1
+    },
+    MQOpts =
+        case IsLastvalue of
+            true -> MQOpts0#{key_expression => <<"message.payload">>};
+            false -> MQOpts0
+        end,
+    MQ = emqx_mq_test_utils:ensure_mq_created(MQOpts),
+    #{id := Id} = MQ,
+    DB =
+        case emqx_mq_prop:is_append_only(MQ) of
+            true -> ?MQ_MESSAGE_REGULAR_DB;
+            false -> ?MQ_MESSAGE_LASTVALUE_DB
+        end,
+    [Shard | _] = emqx_ds:list_shards(DB),
+    #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ),
+
+    %% Put storage and message timestamps on opposite sides of the cutoff.
+    Records = [
+        begin
+            Message = emqx_message:make(<<"publisher">>, 1, <<"t/1">>, Payload),
+            {
+                [<<"topic">>, <<"t/#">>, Id, <<"key">>, Payload],
+                StoredAt,
+                emqx_mq_message_db:encode_message(Message#message{timestamp = PublishedAt})
+            }
+        end
+     || {Payload, StoredAt, PublishedAt} <- [
+            {<<"old-1">>, CutoffUs - 6, Cutoff - 3},
+            {<<"old-2">>, CutoffUs - 5, Cutoff - 2},
+            {<<"old-3">>, CutoffUs - 4, Cutoff - 1},
+            {<<"boundary">>, CutoffUs - 3, Cutoff},
+            {<<"fresh">>, CutoffUs - 2, Cutoff + 1},
+            {<<"late-old">>, CutoffUs + 1, Cutoff - 1},
+            {<<"expired">>, CutoffUs + 2, Now - 7_200_000}
+        ]
+    ],
+    ?assertMatch(
+        {atomic, _, ok},
+        emqx_ds:trans(#{db => DB, shard => Shard, generation => Generation}, fun() ->
+            lists:foreach(fun emqx_ds:tx_write/1, Records)
+        end)
+    ),
+
+    %% Auto-acks must advance past more old messages than the stream buffer can hold.
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(CSub0, Name),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(2, 1000),
+    ?assertEqual([<<"boundary">>, <<"fresh">>], [P || #{payload := P} <- Msgs0]),
+    ok = emqtt:disconnect(CSub0),
+    ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
+
+    %% Lower the cutoff and restart the consumer without replaying acknowledged messages.
+    {ok, MQ1} = emqx_mq_registry:update(Name, MQ#{deliver_cutoff_date => 0}),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(CSub1, Name),
+    Marker = emqx_message:make(<<"publisher">>, 1, <<"t/1">>, <<"marker">>),
+    ok = emqx_mq_message_db:insert(MQ1, Marker),
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(1, 1000),
+    ?assertEqual([<<"marker">>], [P || #{payload := P} <- Msgs1]),
+    ok = emqtt:disconnect(CSub1),
+    ok = emqx_mq_registry:delete(Name).
 
 t_restore_empty_stream_buffer(_Config) ->
     MQ = #{stream_max_buffer_size => 100},
