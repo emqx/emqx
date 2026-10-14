@@ -540,7 +540,7 @@ do_authorize(
         true ->
             do_authorize_with_source(AuthzContext, Action, Topic, SourceState, SourceStates);
         Other ->
-            Type = type(SourceState),
+            Type = state_type(SourceState),
             emqx_metrics_worker:inc(authz_metrics, Type, total),
             emqx_metrics_worker:inc(authz_metrics, Type, ignore),
             ?TRACE("AUTHZ", "authorization_precondition_not_met", #{
@@ -562,7 +562,7 @@ do_authorize_with_source(
     SourceState,
     SourceStates
 ) ->
-    Type = type(SourceState),
+    Type = state_type(SourceState),
     Module = authz_module(Type),
     emqx_metrics_worker:inc(authz_metrics, Type, total),
     Result = ?EXT_TRACE_CLIENT_AUTHZ_BACKEND(
@@ -802,6 +802,12 @@ type(#{<<"type">> := Type}) ->
 %% Extracts type from source or source_state
 type(#{type := Type}) ->
     to_type(Type).
+
+%% The type of a source state was validated when the state was created.
+state_type(#{type := Type}) when is_atom(Type) ->
+    Type;
+state_type(SourceState) ->
+    type(SourceState).
 
 %% Converts to authorizer type and validates it
 to_type(Type) when is_atom(Type) ->

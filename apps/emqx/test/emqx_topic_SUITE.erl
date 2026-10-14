@@ -38,6 +38,80 @@ t_wildcard(_) ->
     false = wildcard(<<"">>),
     false = wildcard(<<"a/b/c">>).
 
+-doc """
+`wildcard/1` on a binary is true when a level is `+` or `#`. The cases put the wildcard level
+at the start, in the middle, at the end and across the 7-byte words of the scan.
+""".
+t_wildcard_binary_levels(_) ->
+    Cases = [
+        {<<"+">>, true},
+        {<<"#">>, true},
+        {<<"+/a">>, true},
+        {<<"a/+">>, true},
+        {<<"a/#">>, true},
+        {<<"a/+/b">>, true},
+        {<<"/+">>, true},
+        {<<"+/">>, true},
+        {<<"/#">>, true},
+        {<<"abcdef/+/x">>, true},
+        {<<"abcdefg/+">>, true},
+        {<<"abcdefghijklmn/+/o">>, true},
+        {<<"abcdefghijklmn/opq/#">>, true},
+        {<<>>, false},
+        {<<"a">>, false},
+        {<<"/">>, false},
+        {<<"//">>, false},
+        {<<"abcdefghijklmn/opq">>, false}
+    ],
+    lists:foreach(
+        fun({Topic, Expected}) ->
+            ?assertEqual({Topic, Expected}, {Topic, wildcard(Topic)}),
+            ?assertEqual({Topic, Expected}, {Topic, wildcard(words(Topic))})
+        end,
+        Cases
+    ).
+
+-doc """
+`match/2` on two binaries gives the same results as on word lists for valid topics. The cases
+put wildcard levels before, at and after the end of the 7-byte words that are compared at once.
+""".
+t_match_binary_levels(_) ->
+    Cases = [
+        {<<"a">>, <<"a/#">>, true},
+        {<<"a/">>, <<"a/+">>, true},
+        {<<"a">>, <<"a/+">>, false},
+        {<<"a/b">>, <<"a/">>, false},
+        {<<"#">>, <<"#">>, true},
+        {<<"$SYS/x">>, <<"#">>, false},
+        {<<"$SYS/x">>, <<"+/x">>, false},
+        {<<"$SYS/x">>, <<"$SYS/+">>, true},
+        {<<"abcdef/xyz">>, <<"abcdef/#">>, true},
+        {<<"abcdef/xyz/q">>, <<"abcdef/+/q">>, true},
+        {<<"abcde/xa/b">>, <<"abcde/+/b">>, true},
+        {<<"abcde/xa/b">>, <<"abcde/xa/c">>, false},
+        {<<"abcdefghijklmn/opq">>, <<"abcdefghijklmn/opq">>, true},
+        {<<"abcdefghijklmn/opq">>, <<"abcdefghijklmn/opr">>, false},
+        {<<"abcdefghijklmn">>, <<"abcdefghijklmn/#">>, true},
+        {<<"abcdefghijklmn/">>, <<"abcdefghijklmn/+">>, true},
+        %% A filter as the name: + and # at the end of the 7 bytes compared at once.
+        {<<"abcde/+">>, <<"abcde/+">>, true},
+        {<<"abcde/+/x">>, <<"abcde/+/x">>, true},
+        {<<"abcde/+/x">>, <<"abcde/+/y">>, false},
+        {<<"abcde/+/x">>, <<"abcde/+/+">>, true},
+        {<<"abcde/#">>, <<"abcde/#">>, true},
+        {<<"abcde/#">>, <<"abcde/+">>, true},
+        {<<"abcde/+">>, <<"abcde/#">>, true}
+    ],
+    lists:foreach(
+        fun({Name, Filter, Expected}) ->
+            ?assertEqual({Name, Filter, Expected}, {Name, Filter, match(Name, Filter)}),
+            ?assertEqual(
+                {Name, Filter, Expected}, {Name, Filter, match(words(Name), words(Filter))}
+            )
+        end,
+        Cases
+    ).
+
 t_match1(_) ->
     true = match(<<"a/b/c">>, <<"a/b/+">>),
     true = match(<<"a/b/c">>, <<"a/#">>),
@@ -200,6 +274,55 @@ t_union_sys(_) ->
         Union([<<"+/#">>, <<"t/1/2">>, <<"$SYS/cluster">>, <<"$SYS/cluster/#">>, <<"$SYS/+">>])
     ).
 
+-doc """
+`validate/2` checks a topic in one scan when the topic is valid: `+` as a whole level, `#` as
+the whole last level, no NUL, valid UTF-8. An invalid topic gives the same error as the full
+check. The cases put the special byte before, inside and after the first 7-byte word.
+""".
+t_validate_fast_path(_) ->
+    lists:foreach(
+        fun(Topic) ->
+            ?assertEqual({Topic, true}, {Topic, validate({name, Topic})}),
+            ?assertEqual({Topic, true}, {Topic, validate({filter, Topic})})
+        end,
+        [
+            <<"a">>,
+            <<"/">>,
+            <<"//">>,
+            <<"abcdefg">>,
+            <<"abcdefgh/ijklmno/p">>,
+            <<"$SYS/x">>,
+            <<"a", 1, "b">>,
+            <<"abcdefgé"/utf8>>,
+            <<"abcdefghijklmn/€"/utf8>>
+        ]
+    ),
+    lists:foreach(
+        fun(Filter) -> ?assertEqual({Filter, true}, {Filter, validate({filter, Filter})}) end,
+        [
+            <<"+">>,
+            <<"#">>,
+            <<"+/+">>,
+            <<"+/#">>,
+            <<"/#">>,
+            <<"abcdefgh/#">>,
+            <<"abcdefg/+/hijklmn/+">>,
+            <<"café/+/#"/utf8>>,
+            <<"$share/g/abcdefg/+/#">>
+        ]
+    ),
+    ?assertError(topic_name_error, validate({name, <<"abcdefgh/#">>})),
+    ?assertError(topic_name_error, validate({name, <<"abcdefgh/+">>})),
+    ?assertError(topic_invalid_char, validate({name, <<"abcdefg", 0, "h">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"abcdefgh#">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"abcdefg/+h">>})),
+    ?assertError(topic_invalid_char, validate({filter, <<"abc#/#">>})),
+    ?assertError('topic_invalid_#', validate({filter, <<"abcdefg/#/h">>})),
+    ?assertError('topic_invalid_#', validate({filter, <<"#/+">>})),
+    ?assertError('topic_invalid_#', validate({filter, <<"$share/g/a/#/b">>})),
+    ?assertError(function_clause, validate({name, <<"abcdefg", 16#FF>>})),
+    ?assertError(function_clause, validate({filter, <<"abcdefg/+/", 16#C3>>})).
+
 t_validate(_) ->
     true = validate(<<"a/+/#">>),
     true = validate(<<"a/b/c/d">>),
@@ -259,12 +382,61 @@ t_prepend(_) ->
 
 t_levels(_) ->
     ?assertEqual(3, emqx_topic:levels(<<"a/+/#">>)),
-    ?assertEqual(4, emqx_topic:levels(<<"a/b/c/d">>)).
+    ?assertEqual(4, emqx_topic:levels(<<"a/b/c/d">>)),
+    ?assertEqual(1, emqx_topic:levels(<<"a">>)),
+    ?assertEqual(2, emqx_topic:levels(<<"/">>)),
+    ?assertEqual(3, emqx_topic:levels(<<"a//">>)).
+
+-doc """
+Check that levels/1 agrees with binary:split/3 when $/ is at each position, and with
+the bytes 16#2E, 16#30 and 16#AF next to it. The positions cover the 7-byte count
+and the byte-by-byte count after it.
+""".
+t_levels_byte_positions(_) ->
+    Size = 23,
+    Fillers = [<<"a">>, <<16#2E>>, <<16#30>>, <<16#AF>>, <<16#FF>>],
+    lists:foreach(
+        fun({Pos, Filler}) ->
+            Body = binary:copy(Filler, Size),
+            OneSlash = <<
+                (binary:copy(Filler, Pos))/binary, $/, (binary:copy(Filler, Size - Pos - 1))/binary
+            >>,
+            EveryOther = binary:copy(<<Filler/binary, $/>>, Pos),
+            lists:foreach(
+                fun(Topic) ->
+                    Expected = length(binary:split(Topic, <<"/">>, [global])),
+                    ?assertEqual(Expected, emqx_topic:levels(Topic), Topic)
+                end,
+                [Body, OneSlash, EveryOther]
+            )
+        end,
+        [{Pos, F} || Pos <- lists:seq(0, Size - 1), F <- Fillers]
+    ).
 
 t_tokens(_) ->
     ?assertEqual(
         [<<"a">>, <<"b">>, <<"+">>, <<"#">>],
         emqx_topic:tokens(<<"a/b/+/#">>)
+    ).
+
+-doc "Check that tokens/1 and levels/1 agree with binary:split/3 on empty levels.".
+t_tokens_empty_levels(_) ->
+    lists:foreach(
+        fun(Topic) ->
+            Expected = binary:split(Topic, <<"/">>, [global]),
+            ?assertEqual(Expected, emqx_topic:tokens(Topic), Topic),
+            ?assertEqual(length(Expected), emqx_topic:levels(Topic), Topic)
+        end,
+        [
+            <<>>,
+            <<"/">>,
+            <<"//">>,
+            <<"a/">>,
+            <<"/a">>,
+            <<"a//b">>,
+            <<"/a//b/">>,
+            <<"中/文/"/utf8>>
+        ]
     ).
 
 t_words(_) ->
@@ -283,6 +455,7 @@ t_join(_) ->
     ?assertEqual(<<"x/y/z/+">>, join([<<"x">>, <<"y">>, <<"z">>, '+'])),
     ?assertEqual(<<"/ab/cd/ef/">>, join(words(<<"/ab/cd/ef/">>))),
     ?assertEqual(<<"ab/+/#">>, join(words(<<"ab/+/#">>))),
+    ?assertEqual(<<"li/x">>, join(["li", <<"x">>])),
     %% MQTT-5.0 [MQTT-4.7.1-1]
     ?assertError('topic_invalid_#', join(['+', <<"a">>, '#', <<"b">>, '', '+'])),
     ?assertError('topic_invalid_#', join(['+', <<"c">>, <<"#">>, <<"d">>, '', '+'])).

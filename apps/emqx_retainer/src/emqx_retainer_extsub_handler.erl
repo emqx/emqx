@@ -49,6 +49,8 @@
     state,
     limiter,
     cursor,
+    %% The retained message of a topic without wildcards, read at subscribe time.
+    messages = [],
     nudge_enqueued = false,
     times_throttled = 0,
     fetched = 0,
@@ -141,10 +143,37 @@ handle_save_subopts(Handler0, _Context, _SubOpts) ->
 %%------------------------------------------------------------------------------
 
 subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
-    #{send_after := SendAfterFn, send := SendFn} = SubscribeCtx,
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     State = emqx_retainer:backend_state(Context),
+    case emqx_topic:wildcard(TopicFilter) of
+        true ->
+            new_handler(SubscribeCtx, TopicFilter, SubOpts, Context, Mod, State, ?init, []);
+        false ->
+            %% A topic without wildcards matches at most one retained message. Without
+            %% one, no handler is needed. With one, the handler delivers the message
+            %% read here.
+            case Mod:read_message(State, TopicFilter) of
+                {ok, []} ->
+                    ignore;
+                {ok, Messages} ->
+                    new_handler(
+                        SubscribeCtx,
+                        TopicFilter,
+                        SubOpts,
+                        Context,
+                        Mod,
+                        State,
+                        ?no_wildcard,
+                        Messages
+                    )
+            end
+    end;
+subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
+    {ok, Handler}.
+
+new_handler(SubscribeCtx, TopicFilter, SubOpts, Context, Mod, State, Cursor, Messages) ->
+    #{send_after := SendAfterFn, send := SendFn} = SubscribeCtx,
     Limiter = get_limiter(),
     Delivered =
         case SubOpts of
@@ -161,28 +190,21 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
         mod = Mod,
         state = State,
         limiter = Limiter,
-        cursor = ?init,
+        cursor = Cursor,
+        messages = Messages,
         fetched = 0,
         delivered = Delivered
     },
     Handler = enqueue_nudge(Handler0, batch_read_num(), now),
-    {ok, Handler};
-subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
     {ok, Handler}.
 
 handle_next(#h{cursor = ?done} = Handler0, _N, _InfoCtx) ->
     %% Impossible?
     {ok, Handler0};
 handle_next(#h{cursor = ?init} = Handler0, N, InfoCtx) ->
-    #h{topic_filter = TopicFilter} = Handler0,
-    case emqx_topic:wildcard(TopicFilter) of
-        true ->
-            Handler = Handler0#h{cursor = ?cursor(?no_cursor)},
-            handle_next(Handler, N, InfoCtx);
-        false ->
-            Handler = Handler0#h{cursor = ?no_wildcard},
-            handle_next(Handler, N, InfoCtx)
-    end;
+    %% Only a wildcard filter starts with ?init; see subscribe/4.
+    Handler = Handler0#h{cursor = ?cursor(?no_cursor)},
+    handle_next(Handler, N, InfoCtx);
 handle_next(#h{cursor = ?no_wildcard} = Handler0, _N, _InfoCtx) ->
     case try_consume(Handler0, 1) of
         {ok, Handler, []} ->
@@ -267,6 +289,7 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             Handler = Handler0#h{
                 limiter = Limiter,
                 cursor = Cursor,
+                messages = [],
                 fetched = Handler0#h.fetched + NumFetchedMessages,
                 times_throttled = 0
             },
@@ -321,15 +344,8 @@ min_batch_backoff(N) ->
             min(Capacity, max(1, floor(0.2 * N)))
     end.
 
-do_fetch(#h{cursor = ?no_wildcard} = Handler, _N) ->
-    #h{
-        topic_filter = TopicFilter,
-        mod = Mod,
-        state = State
-    } = Handler,
-    %% TODO: how could this fail?
-    {ok, Messages0} = Mod:read_message(State, TopicFilter),
-    {Messages0, ?no_wildcard};
+do_fetch(#h{cursor = ?no_wildcard, messages = Messages}, _N) ->
+    {Messages, ?no_wildcard};
 do_fetch(#h{cursor = ?cursor(Cursor0)} = Handler, N) ->
     #h{
         topic_filter = TopicFilter,
