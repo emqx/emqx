@@ -53,6 +53,7 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+-doc "Manages AI providers and completion profiles through the API.".
 t_crud(_Config) ->
     %% Fail to create invalid providers
     ?assertMatch(
@@ -255,6 +256,7 @@ t_crud(_Config) ->
         api_delete([ai, providers, <<"test-provider">>])
     ).
 
+-doc "Keeps the stored API key when an update sends its redacted value.".
 t_api_key_redact(_Config) ->
     ?assertMatch(
         {ok, 204},
@@ -334,7 +336,9 @@ t_api_key_redact(_Config) ->
         emqx_ai_completion_config:get_providers_raw()
     ).
 
+-doc "Lists models for a stored provider through the API.".
 t_models(_Config) ->
+    {ok, BaseURL} = emqx_ai_completion_provider_mock:start_link(openai_models),
     %% Create provider
     ?assertMatch(
         {ok, 204},
@@ -342,12 +346,9 @@ t_models(_Config) ->
             name => <<"test-provider">>,
             type => <<"openai">>,
             api_key => <<"test-api-key">>,
-            base_url => <<"http://localhost:33330/v1">>
+            base_url => BaseURL
         })
     ),
-
-    %% Setup mock
-    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_models),
 
     %% Succeed to fetch models of the provider
     ?assertMatch(
@@ -361,9 +362,10 @@ t_models(_Config) ->
         api_get([ai, providers, <<"non-existent-provider">>, models])
     ).
 
+-doc "Lists models from provider settings that are not stored.".
 t_models_no_provider(_Config) ->
     %% Setup mock
-    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_models),
+    {ok, BaseURL} = emqx_ai_completion_provider_mock:start_link(openai_models),
 
     %% Succeed to fetch models of the test provider
     ?assertMatch(
@@ -371,7 +373,7 @@ t_models_no_provider(_Config) ->
         api_post([ai, models], #{
             type => <<"openai">>,
             api_key => <<"test-api-key">>,
-            base_url => <<"http://localhost:33330/v1">>
+            base_url => BaseURL
         })
     ),
 
