@@ -39,9 +39,8 @@ t_wildcard(_) ->
     false = wildcard(<<"a/b/c">>).
 
 -doc """
-`wildcard/1` on a binary is true when a level is `+`, or when the last level is `#`. The
-cases put the wildcard level at the start, in the middle, at the end and across the 7-byte
-words of the scan.
+`wildcard/1` on a binary is true when a level is `+` or `#`. The cases put the wildcard level
+at the start, in the middle, at the end and across the 7-byte words of the scan.
 """.
 t_wildcard_binary_levels(_) ->
     Cases = [
@@ -62,13 +61,7 @@ t_wildcard_binary_levels(_) ->
         {<<"a">>, false},
         {<<"/">>, false},
         {<<"//">>, false},
-        {<<"a+">>, false},
-        {<<"+a">>, false},
-        {<<"a/+b">>, false},
-        {<<"a/b#">>, false},
-        {<<"a/b+/c">>, false},
-        {<<"abcdefg/++/hijklmn">>, false},
-        {<<"abcdefghijklmn/opq#">>, false}
+        {<<"abcdefghijklmn/opq">>, false}
     ],
     lists:foreach(
         fun({Topic, Expected}) ->
@@ -76,19 +69,6 @@ t_wildcard_binary_levels(_) ->
             ?assertEqual({Topic, Expected}, {Topic, wildcard(words(Topic))})
         end,
         Cases
-    ).
-
--doc """
-A `#` level that is not the last level does not make a topic a wildcard, because `#` is valid
-only as the last level. The binary form and the word-list form give the same result.
-""".
-t_wildcard_hash_not_last(_) ->
-    lists:foreach(
-        fun(Topic) ->
-            ?assertEqual({Topic, false}, {Topic, wildcard(Topic)}),
-            ?assertEqual({Topic, false}, {Topic, wildcard(words(Topic))})
-        end,
-        [<<"#/a">>, <<"a/#/b">>, <<"abcdefghijklm/#/opqrstu">>]
     ).
 
 -doc """

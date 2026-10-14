@@ -59,17 +59,18 @@
 %%--------------------------------------------------------------------
 
 %% @doc Is wildcard topic?
-%% A level is a wildcard when it is +, or when it is # and the last level. The function does
-%% not validate the topic. A caller that gets the topic from a client or a user must call
-%% validate/1 or validate/2.
+%% The topic must be a valid topic name or filter (see validate/1), where + and # are whole
+%% levels. So a binary topic is a wildcard when it has a + or a # byte. The function does not
+%% validate the topic: a caller that gets the topic from a client or a user must call validate/1
+%% or validate/2 first.
 -spec wildcard(topic() | share() | words()) -> true | false.
 wildcard(#share{topic = Topic}) when is_binary(Topic) ->
     wildcard(Topic);
 wildcard(Topic) when is_binary(Topic) ->
-    is_wildcard(Topic);
+    has_wildcard_byte(Topic);
 wildcard([]) ->
     false;
-wildcard(['#']) ->
+wildcard(['#' | _]) ->
     true;
 wildcard(['+' | _]) ->
     true;
@@ -78,18 +79,12 @@ wildcard([_H | T]) ->
 
 -define(IS_WILDCARD_BYTE(C), (C =:= $+ orelse C =:= $#)).
 
-%% SWAR constants: the same byte in each of the 7 bytes of a 56-bit word, or in each of the
-%% 5 bytes of a 40-bit word.
+%% SWAR constants: the same byte in each of the 7 bytes of a 56-bit word.
 -define(PLUS_BYTES7, 16#2B2B2B2B2B2B2B).
--define(HASH_BYTES7, 16#23232323232323).
 -define(SLASH_BYTES7, 16#2F2F2F2F2F2F2F).
+-define(BIT3_BYTES7, 16#08080808080808).
 -define(LOW7_BYTES7, 16#7F7F7F7F7F7F7F).
 -define(HIGH_BYTES7, 16#80808080808080).
--define(PLUS_BYTES5, 16#2B2B2B2B2B).
--define(SLASH_BYTES5, 16#2F2F2F2F2F).
--define(LOW7_BYTES5, 16#7F7F7F7F7F).
--define(HIGH_BYTES5, 16#8080808080).
--define(MASK_BYTES5, 16#FFFFFFFFFF).
 
 %% True when the 56-bit integer V has a zero byte. For each byte B,
 %% ((B band 16#7F) + 16#7F) bor B has the high bit set when B is not zero. The sum is at most
@@ -97,79 +92,27 @@ wildcard([_H | T]) ->
 -define(HAS_ZERO_BYTE7(V),
     (((((V) band ?LOW7_BYTES7) + ?LOW7_BYTES7) bor (V)) band ?HIGH_BYTES7 =/= ?HIGH_BYTES7)
 ).
--define(HAS_PLUS_BYTE7(W), ?HAS_ZERO_BYTE7((W) bxor ?PLUS_BYTES7)).
--define(HAS_HASH_BYTE7(W), ?HAS_ZERO_BYTE7((W) bxor ?HASH_BYTES7)).
-
-%% True when the byte C is not +, # or NUL, and not above 127.
--define(IS_PLAIN_BYTE(C), (C > 0 andalso C < 16#80 andalso C =/= $+ andalso C =/= $#)).
+%% $+ is 2#0010_1011 and $# is 2#0010_0011: with bit 3 set, both bytes are $+ and no other
+%% byte is.
+-define(HAS_WILDCARD_BYTE7(W), ?HAS_ZERO_BYTE7(((W) bor ?BIT3_BYTES7) bxor ?PLUS_BYTES7)).
 
 %% True when the 56-bit integer W has no +, # or NUL byte and no byte above 127.
 -define(IS_PLAIN7(W),
     ((W) band ?HIGH_BYTES7 =:= 0 andalso
         not ?HAS_ZERO_BYTE7(W) andalso
-        not ?HAS_PLUS_BYTE7(W) andalso
-        not ?HAS_HASH_BYTE7(W))
+        not ?HAS_WILDCARD_BYTE7(W))
 ).
 
-%% A level is a wildcard when it is exactly +, or when it is # and the last level.
-is_wildcard(<<>>) ->
-    false;
-is_wildcard(<<C>>) ->
-    ?IS_WILDCARD_BYTE(C);
-is_wildcard(Topic) ->
-    ends_with_wildcard_level(Topic) orelse has_plus_level(Topic).
+%% True when the byte C is not +, # or NUL, and not above 127.
+-define(IS_PLAIN_BYTE(C), (C > 0 andalso C < 16#80 andalso C =/= $+ andalso C =/= $#)).
 
-%% Topic has at least 2 bytes.
--compile({inline, [ends_with_wildcard_level/1]}).
-ends_with_wildcard_level(Topic) ->
-    Size = byte_size(Topic) - 2,
-    case Topic of
-        <<_:Size/binary, $/, C>> -> ?IS_WILDCARD_BYTE(C);
-        _ -> false
-    end.
-
-%% Topic has at least 2 bytes, and ends_with_wildcard_level/1 checked the last level.
--compile({inline, [has_plus_level/1]}).
-has_plus_level(<<$+, $/, _/binary>>) ->
-    true;
-has_plus_level(Topic) ->
-    find_plus_level(Topic).
-
-%% Find "/+/". Skip 6 bytes when a 7-byte word has no + byte. When it has one, check the 5
-%% three-byte windows of the word at once, and step 5 bytes.
-find_plus_level(<<W:56, _/binary>> = Bin) ->
-    case ?HAS_PLUS_BYTE7(W) of
-        false ->
-            <<_:48, Rest/binary>> = Bin,
-            find_plus_level(Rest);
-        true ->
-            has_slash_plus_slash7(W) orelse
-                begin
-                    <<_:40, Rest/binary>> = Bin,
-                    find_plus_level(Rest)
-                end
-    end;
-find_plus_level(Bin) ->
-    check_plus_level(Bin).
-
-check_plus_level(<<$/, $+, $/, _/binary>>) ->
-    true;
-check_plus_level(<<_, Rest/binary>>) ->
-    check_plus_level(Rest);
-check_plus_level(<<>>) ->
+%% Return true when the topic has a + or a # byte, 7 bytes at a time.
+has_wildcard_byte(<<W:56, Rest/binary>>) ->
+    ?HAS_WILDCARD_BYTE7(W) orelse has_wildcard_byte(Rest);
+has_wildcard_byte(<<C, Rest/binary>>) ->
+    ?IS_WILDCARD_BYTE(C) orelse has_wildcard_byte(Rest);
+has_wildcard_byte(<<>>) ->
     false.
-
-%% Return true when the 56-bit integer W has "/+/" in its bytes.
-%% Byte K of V (K = 0..4) is zero when bytes K+2, K+1 and K of W are $/, $+ and $/.
-%% Byte K+2 comes first in the topic. The zero-byte test is the one in ?HAS_ZERO_BYTE7.
--compile({inline, [has_slash_plus_slash7/1]}).
-has_slash_plus_slash7(W) ->
-    V =
-        (((W bsr 16) bxor ?SLASH_BYTES5) bor
-            ((W bsr 8) bxor ?PLUS_BYTES5) bor
-            (W bxor ?SLASH_BYTES5)) band ?MASK_BYTES5,
-    NonZero = (((V band ?LOW7_BYTES5) + ?LOW7_BYTES5) bor V) band ?HIGH_BYTES5,
-    NonZero =/= ?HIGH_BYTES5.
 
 %% @doc Match Topic name with filter.
 -spec match(Name, Filter) -> boolean() when
