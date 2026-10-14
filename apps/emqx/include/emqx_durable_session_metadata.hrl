@@ -12,6 +12,7 @@
 -define(last_alive_at, last_alive_at).
 -define(node_epoch_id, node_epoch_id).
 -define(expiry_interval, expiry_interval).
+-define(half_closed, hc).
 %% Unique integer used to create unique identities:
 -define(last_id, last_id).
 %% Connection info (relevent for the dashboard):

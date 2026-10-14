@@ -300,74 +300,96 @@ t_publish_empty_topic_levels(_Config) ->
         emqtt:stop(Pub)
     end.
 
-t_message_gc_too_young(_Config) ->
-    %% Check that GC doesn't attempt to create a new generation if there are fresh enough
-    %% generations around.  The stability of this test relies on the default value for
-    %% message retention being long enough.  Currently, the default is 1 hour.
+%% This testcase verifies functions of
+%% emqx_persistent_message_ds_gc_worker. To avoid racing with this
+%% process, it gets suspended for the duration of the test.
+t_rotate_generations(_Config) ->
+    Ls = fun(Shard) ->
+        {Slabs, []} = emqx_ds:list_slabs(?PERSISTENT_MESSAGE_DB, #{shard => Shard}),
+        lists:sort([{Slab, Info} || Slab := Info <- Slabs])
+    end,
     ?check_trace(
-        ok = emqx_persistent_message_ds_gc_worker:gc(),
-        fun(Trace) ->
-            ?assertMatch([_], ?of_kind(ps_message_gc_too_early, Trace)),
-            ok
-        end
-    ),
-    ok.
-
-t_message_gc(Config) ->
-    %% Check that, after GC runs, a new generation is created, retaining messages, and
-    %% older messages no longer are accessible.
-    NShards = ?config(n_shards, Config),
-    ?check_trace(
-        #{timetrap => 10_000},
-        begin
-            %% ensure some messages are in the first generation
-            ?force_ordering(
-                #{?snk_kind := inserted_batch},
-                #{?snk_kind := ps_message_gc_added_gen}
+        try
+            ok = sys:suspend(emqx_persistent_message_ds_gc_worker, 5_000),
+            Shards = emqx_ds:list_shards(?PERSISTENT_MESSAGE_DB),
+            Now1 = erlang:system_time(microsecond),
+            %% This operation should leave only two generations for each shard:
+            ?assertMatch(
+                ok,
+                emqx_persistent_message_ds_gc_worker:manage_shards(Now1, 0, 1)
             ),
-            Msgs0 = [
-                message(<<"foo/bar">>, <<"1">>, 0),
-                message(<<"foo/baz">>, <<"2">>, 1)
-            ],
-            ok = emqx_persistent_message:store_batch(Msgs0, #{sync => true}),
-            ?tp(inserted_batch, #{}),
-            {ok, _} = ?block_until(#{?snk_kind := ps_message_gc_added_gen}),
-
-            Now = emqx_message:timestamp_now(),
-            Msgs1 = [
-                message(<<"foo/bar">>, <<"3">>, Now + 100),
-                message(<<"foo/baz">>, <<"4">>, Now + 101)
-            ],
-            ok = emqx_persistent_message:store_batch(Msgs1, #{sync => true}),
-
-            {ok, _} = snabbkaffe:block_until(
-                ?match_n_events(NShards, #{?snk_kind := message_gc_generation_dropped}),
-                infinity
-            ),
-
-            TopicFilter = emqx_topic:words(<<"#">>),
-            StartTime = 0,
-            Msgs = consume(TopicFilter, StartTime),
-            %% "1" and "2" should have been GC'ed
-            PresentMessages = sets:from_list(
-                [emqx_message:payload(Msg) || Msg <- Msgs],
-                [{version, 2}]
-            ),
-            ?assert(
-                sets:is_empty(
-                    sets:intersection(
-                        PresentMessages,
-                        sets:from_list([<<"1">>, <<"2">>], [{version, 2}])
+            Dt1 = erlang:system_time(microsecond) - Now1,
+            Data1 = #{Shard => Ls(Shard) || Shard <- Shards},
+            maps:foreach(
+                fun(Shard, Slabs) ->
+                    ?assertMatch(
+                        [{_, #{until := U}}, {_, #{created_at := C}}] when
+                            C >= Now1 andalso U >= Now1,
+                        Slabs,
+                        {Shard, Now1}
                     )
-                ),
-                #{present_messages => PresentMessages}
+                end,
+                Data1
             ),
-
-            ok
+            %% Calling the same function with the same parameters
+            %% should not change anything:
+            ?assertMatch(
+                ok,
+                emqx_persistent_message_ds_gc_worker:manage_shards(Now1, 0, 1)
+            ),
+            ?assertEqual(
+                Data1,
+                #{Shard => Ls(Shard) || Shard <- Shards}
+            ),
+            %% Check that retention period gets split into several generations if requested:
+            RetentionPeriod = 10_000_000,
+            Now2 = Now1 + RetentionPeriod div 2 + Dt1,
+            ?assertMatch(
+                ok,
+                emqx_persistent_message_ds_gc_worker:manage_shards(Now2, RetentionPeriod, 2)
+            ),
+            Dt2 = erlang:system_time(microsecond) - Now2,
+            %% This should add another generation:
+            Data2 = #{Shard => Ls(Shard) || Shard <- Shards},
+            maps:foreach(
+                fun(Shard, Slabs) ->
+                    #{Shard := [{S1, _}, {S2, _}]} = Data1,
+                    ?assertMatch(
+                        [{S1, _}, {S2, _}, _],
+                        Slabs,
+                        {Shard, Now2}
+                    )
+                end,
+                Data2
+            ),
+            %% Now "pass" enough time to drop more generations:
+            Now3 = Now2 + Dt2,
+            ?assertMatch(
+                ok,
+                emqx_persistent_message_ds_gc_worker:manage_shards(Now3, 0, 2)
+            ),
+            Data3 = #{Shard => Ls(Shard) || Shard <- Shards},
+            maps:foreach(
+                fun(Shard, Slabs) ->
+                    #{Shard := [_, _, {S3, _}]} = Data2,
+                    ?assertMatch(
+                        [{S3, _}, _],
+                        Slabs,
+                        {Shard, Now3}
+                    )
+                end,
+                Data3
+            )
+        after
+            sys:resume(emqx_persistent_message_ds_gc_worker, 5_000)
         end,
-        []
-    ),
-    ok.
+        fun(Trace) ->
+            ?assertMatch(
+                [],
+                ?of_kind("Failed to rotate DS generations", Trace)
+            )
+        end
+    ).
 
 t_metrics_not_dropped(_Config) ->
     %% Asserts that, if only persisted sessions are subscribed to a topic being published
