@@ -1472,22 +1472,29 @@ t_extsub_no_handler_no_wildcard_empty(_Config) ->
             subscribe, extsub_sub_ctx(Ref), undefined, <<"skip_empty/none">>
         )
     ),
-    ?assertNotReceive({extsub_send, Ref}, 100).
+    ?assertNotReceive({extsub_send, Ref, _}, 100).
 
--doc "A subscription to a topic without wildcards that has a retained message starts a handler.".
+-doc """
+A subscription to a topic without wildcards that has a retained message starts a handler.
+The handler delivers the message that was read at subscribe time: the backend is read once.
+""".
 t_extsub_handler_no_wildcard_retained(_Config) ->
     Topic = <<"skip_empty/retained">>,
     ok = emqx_retainer_publisher:store_retained(emqx_message:make(Topic, <<"payload">>)),
     Ref = make_ref(),
+    ok = meck:new(emqx_retainer_mnesia, [passthrough, no_link]),
     try
-        ?assertMatch(
-            {ok, _},
-            emqx_retainer_extsub_handler:handle_subscribe(
-                subscribe, extsub_sub_ctx(Ref), undefined, Topic
-            )
+        {ok, Handler} = emqx_retainer_extsub_handler:handle_subscribe(
+            subscribe, extsub_sub_ctx(Ref), undefined, Topic
         ),
-        ?assertReceive({extsub_send, Ref}, 1000)
+        {extsub_send, Ref, Next} = ?assertReceive({extsub_send, Ref, _}, 1000),
+        ?assertMatch(
+            {ok, _, [#message{topic = Topic, payload = <<"payload">>}]},
+            emqx_retainer_extsub_handler:handle_info(Handler, #{}, Next)
+        ),
+        ?assertEqual(1, meck:num_calls(emqx_retainer_mnesia, read_message, '_'))
     after
+        meck:unload(emqx_retainer_mnesia),
         ok = emqx_retainer_publisher:delete_message(Topic)
     end.
 
@@ -1500,19 +1507,19 @@ t_extsub_handler_wildcard_empty(_Config) ->
             subscribe, extsub_sub_ctx(Ref), undefined, <<"skip_empty/none/+">>
         )
     ),
-    ?assertReceive({extsub_send, Ref}, 1000).
+    ?assertReceive({extsub_send, Ref, _}, 1000).
 
 extsub_sub_ctx(Ref) ->
     Self = self(),
     #{
         clientinfo => #{protocol => mqtt},
         subopts => #{rh => 0},
-        send => fun(_Info) ->
-            Self ! {extsub_send, Ref},
+        send => fun(Info) ->
+            Self ! {extsub_send, Ref, Info},
             ok
         end,
-        send_after => fun(_Delay, _Info) ->
-            Self ! {extsub_send, Ref},
+        send_after => fun(_Delay, Info) ->
+            Self ! {extsub_send, Ref, Info},
             make_ref()
         end
     }.
