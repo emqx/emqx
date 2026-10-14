@@ -82,6 +82,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:esockd),
       common_dep(:rocksdb),
       common_dep(:ekka),
+      common_dep(:mria),
       common_dep(:gen_rpc),
       common_dep(:grpc),
       common_dep(:minirest),
@@ -175,6 +176,8 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.1", override: true}
+  # pinned above the version ekka 1.0.1 pulls in; drop when ekka moves to 1.0.3
+  def common_dep(:mria), do: {:mria, github: "emqx/mria", tag: "1.0.2", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.8", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.5", override: true}
