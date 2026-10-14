@@ -263,6 +263,7 @@
         | {share, topic(), deliver_result()}
         | {emqx_external_broker:dest(), topic(), deliver_result()}
         | persisted
+        | consumed
     ].
 -type publish_result() ::
     publish_routes()

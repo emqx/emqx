@@ -34,6 +34,7 @@ all() ->
         {group, metrics_simple},
         {group, metrics_fail},
         {group, metrics_fail_simple},
+        {group, mark_consumed},
         {group, tracing},
         {group, command_line}
     ].
@@ -153,6 +154,13 @@ groups() ->
         {metrics_fail_simple, [], [
             t_rule_metrics_sync_fail,
             t_rule_metrics_async_fail
+        ]},
+        {mark_consumed, [], [
+            t_mark_consumed,
+            t_mark_consumed_foreach_no_items,
+            t_mark_consumed_disabled_rule,
+            t_mark_consumed_other_namespace,
+            t_mark_consumed_own_namespace
         ]},
         {tracing, [], [
             t_trace_rule_id,
@@ -4929,9 +4937,124 @@ t_failed_rule_metrics(_Config) ->
     emqtt:stop(C),
     ok.
 
+-doc """
+A message that a `mark_consumed` rule selects is acknowledged with reason code 0
+and counted as consumed when nobody subscribes. A message the rule does not
+select is still acknowledged with 16 and counted as dropped.
+""".
+t_mark_consumed(_Config) ->
+    {ok, _} = create_mark_consumed_rule(
+        ?FUNCTION_NAME, <<"select * from \"mc/#\" where payload = 'take'">>
+    ),
+    C = connect_v5(),
+    Counters0 = drop_counters(),
+    ?assertMatch({ok, #{reason_code := 0}}, emqtt:publish(C, <<"mc/1">>, <<"take">>, 1)),
+    ?assertMatch({ok, #{reason_code := 0}}, emqtt:publish(C, <<"mc/1">>, <<"take">>, 2)),
+    ?assertEqual(#{consumed => 2, no_subscribers => 0}, changes_since(Counters0)),
+    ?assertMatch({ok, #{reason_code := 16}}, emqtt:publish(C, <<"mc/1">>, <<"leave">>, 1)),
+    ?assertEqual(#{consumed => 2, no_subscribers => 1}, changes_since(Counters0)),
+    ok = emqtt:stop(C).
+
+-doc "A `FOREACH` rule whose collection is empty does not mark the message as consumed.".
+t_mark_consumed_foreach_no_items(_Config) ->
+    {ok, _} = create_mark_consumed_rule(
+        ?FUNCTION_NAME, <<"foreach payload.items as item from \"mc/#\"">>
+    ),
+    C = connect_v5(),
+    Counters0 = drop_counters(),
+    ?assertMatch(
+        {ok, #{reason_code := 16}}, emqtt:publish(C, <<"mc/1">>, <<"{\"items\": []}">>, 1)
+    ),
+    ?assertMatch(
+        {ok, #{reason_code := 0}}, emqtt:publish(C, <<"mc/1">>, <<"{\"items\": [1]}">>, 1)
+    ),
+    ?assertEqual(#{consumed => 1, no_subscribers => 1}, changes_since(Counters0)),
+    ok = emqtt:stop(C).
+
+-doc "A disabled rule, or a rule without `mark_consumed`, does not mark the message as consumed.".
+t_mark_consumed_disabled_rule(_Config) ->
+    {ok, _} = create_mark_consumed_rule(
+        <<"disabled">>, <<"select * from \"mc/#\"">>, #{enable => false}
+    ),
+    {ok, _} = create_rule(make_simple_rule(<<"plain">>, <<"select * from \"mc/#\"">>)),
+    C = connect_v5(),
+    Counters0 = drop_counters(),
+    ?assertMatch({ok, #{reason_code := 16}}, emqtt:publish(C, <<"mc/1">>, <<"payload">>, 1)),
+    ?assertEqual(#{consumed => 0, no_subscribers => 1}, changes_since(Counters0)),
+    ok = emqtt:stop(C).
+
+-doc """
+A namespaced `mark_consumed` rule that selects a message from another namespace
+does not mark it as consumed.
+""".
+t_mark_consumed_other_namespace(_Config) ->
+    %% The suite runs with `limit_selects_in_namespace = false', so the rule
+    %% selects messages from every namespace.
+    {ok, Rule} = create_mark_consumed_rule(
+        ?FUNCTION_NAME, <<"select * from \"mc/#\"">>, #{namespace => <<"other_ns">>}
+    ),
+    on_exit(fun() -> ok = delete_rule(Rule) end),
+    C = connect_v5(),
+    Counters0 = drop_counters(),
+    ?assertMatch({ok, #{reason_code := 16}}, emqtt:publish(C, <<"mc/1">>, <<"payload">>, 1)),
+    ?assertEqual(#{consumed => 0, no_subscribers => 1}, changes_since(Counters0)),
+    ?assertMatch(
+        #{matched := 1, passed := 1}, get_counters(emqx_rule_engine:rule_resource_id(Rule))
+    ),
+    ok = emqtt:stop(C).
+
+-doc """
+A namespaced `mark_consumed` rule marks a message from its own namespace as
+consumed.
+""".
+t_mark_consumed_own_namespace(_Config) ->
+    ok = setup_namespace_as_mountpoint(false),
+    {ok, Rule} = create_mark_consumed_rule(
+        ?FUNCTION_NAME, <<"select * from \"mc/#\"">>, #{namespace => <<"ns1">>}
+    ),
+    on_exit(fun() -> ok = delete_rule(Rule) end),
+    Own = connect_v5(<<"ns1">>),
+    Other = connect_v5(<<"ns2">>),
+    Counters0 = drop_counters(),
+    ?assertMatch({ok, #{reason_code := 0}}, emqtt:publish(Own, <<"mc/1">>, <<"payload">>, 1)),
+    ?assertMatch({ok, #{reason_code := 16}}, emqtt:publish(Other, <<"mc/1">>, <<"payload">>, 1)),
+    ?assertEqual(#{consumed => 1, no_subscribers => 1}, changes_since(Counters0)),
+    ok = emqtt:stop(Own),
+    ok = emqtt:stop(Other).
+
 %%------------------------------------------------------------------------------
 %% Internal helpers
 %%------------------------------------------------------------------------------
+
+create_mark_consumed_rule(Id, SQL) ->
+    create_mark_consumed_rule(Id, SQL, #{}).
+
+create_mark_consumed_rule(Id, SQL, Overrides) ->
+    Rule = make_simple_rule(emqx_utils_conv:bin(Id), SQL),
+    create_rule(maps:merge(Rule#{mark_consumed => true}, Overrides)).
+
+connect_v5() ->
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | emqtt_client_config()]),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+connect_v5(Namespace) ->
+    {ok, C} = emqtt:start_link([
+        {clientid, <<"client-", Namespace/binary>>},
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"namespace">>, Namespace}]}}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+drop_counters() ->
+    #{
+        consumed => emqx_metrics:val_global('messages.consumed'),
+        no_subscribers => emqx_metrics:val_global('messages.dropped.no_subscribers')
+    }.
+
+changes_since(Counters0) ->
+    maps:map(fun(Key, Value) -> Value - maps:get(Key, Counters0) end, drop_counters()).
 
 is_ee() ->
     emqx_release:edition() == ee.

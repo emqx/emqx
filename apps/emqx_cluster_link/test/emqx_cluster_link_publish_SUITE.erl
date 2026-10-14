@@ -101,6 +101,22 @@ t_accepted_forwarded_message(_Config) ->
     ?assertReceive({deliver, <<"forwarded/topic">>, PublishedMsg}),
     ?assertNotReceive({deliver, _, _}).
 
+-doc "A message forwarded to a remote cluster does not carry the local consumed mark.".
+t_forward_drops_consumed_mark(_Config) ->
+    ok = meck:expect(emqx_cluster_link_config, link, fun(<<"remote">>) ->
+        #{query_opts => #{}}
+    end),
+    Msg = emqx_message:make(<<"publisher">>, 1, <<"forwarded/topic">>, <<"payload">>),
+    Delivery = #delivery{sender = self(), message = emqx_message:set_consumed(Msg)},
+    FwdMsg = emqx_common_test_helpers:with_mock(
+        emqx_resource,
+        query,
+        fun(_ResId, Query, _QueryOpts) -> Query end,
+        fun() -> emqx_cluster_link_mqtt:forward(<<"remote">>, Delivery) end
+    ),
+    ?assertNot(emqx_message:is_consumed(FwdMsg)),
+    ?assertEqual(Msg#message.headers, FwdMsg#message.headers).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

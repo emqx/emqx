@@ -70,6 +70,8 @@ fields("rules") ->
                 }
             )},
         {"enable", ?HOCON(boolean(), #{desc => ?DESC("rules_enable"), default => true})},
+        {"mark_consumed",
+            ?HOCON(boolean(), #{desc => ?DESC("rules_mark_consumed"), default => false})},
         {"description",
             ?HOCON(
                 binary(),

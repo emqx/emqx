@@ -652,6 +652,7 @@ format_rule_info_resp(
         actions := Actions,
         sql := SQL,
         enable := Enable,
+        mark_consumed := MarkConsumed,
         description := Descr
     },
     Context
@@ -665,6 +666,7 @@ format_rule_info_resp(
         action_details => format_action_details(Actions, Context),
         sql => SQL,
         enable => Enable,
+        mark_consumed => MarkConsumed,
         created_at => format_datetime(CreatedAt, millisecond),
         last_modified_at => format_datetime(LastModifiedAt, millisecond),
         description => Descr

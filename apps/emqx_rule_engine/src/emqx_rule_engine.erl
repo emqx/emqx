@@ -132,6 +132,7 @@
         sql := binary(),
         actions := [action()],
         enable := boolean(),
+        mark_consumed := boolean(),
         description => binary(),
         %% epoch in millisecond precision
         created_at := integer(),
@@ -597,6 +598,7 @@ with_parsed_rule(
                 updated_at => LastModifiedAt,
                 sql => Sql,
                 actions => parse_actions(RuleId, Actions),
+                mark_consumed => maps:get(mark_consumed, Params, false),
                 description => maps:get(description, Params, ""),
                 %% -- calculated fields:
                 from => emqx_rule_sqlparser:select_from(Select),

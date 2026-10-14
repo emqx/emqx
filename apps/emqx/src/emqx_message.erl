@@ -51,7 +51,9 @@
     get_header/3,
     set_header/3,
     set_headers/2,
-    remove_header/2
+    remove_header/2,
+    set_consumed/1,
+    is_consumed/1
 ]).
 
 -export([
@@ -278,6 +280,21 @@ remove_header(Hdr, Msg = #message{headers = Headers}) ->
         true -> Msg#message{headers = maps:remove(Hdr, Headers)};
         false -> Msg
     end.
+
+-doc """
+Mark the message as consumed, for a `message.publish` hook callback that
+takes the message over. When no subscriber receives a consumed message, the
+broker counts it in `messages.consumed` instead of dropping it.
+""".
+-spec set_consumed(emqx_types:message()) -> emqx_types:message().
+set_consumed(Msg) ->
+    set_header(message_consumed, true, Msg).
+
+-spec is_consumed(emqx_types:message()) -> boolean().
+is_consumed(#message{headers = #{message_consumed := true}}) ->
+    true;
+is_consumed(#message{}) ->
+    false.
 
 -spec is_expired(emqx_types:message(), atom()) -> boolean().
 is_expired(

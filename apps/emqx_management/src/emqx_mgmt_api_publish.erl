@@ -236,10 +236,13 @@ make_bad_req_reply(packet_too_large) ->
 make_bad_req_reply(Reason) ->
     make_publish_error_response(?RC_IMPLEMENTATION_SPECIFIC_ERROR, to_binary(Reason)).
 
--spec is_ok_deliver({_NodeOrShare, _MatchedTopic, emqx_types:deliver_result()}) -> boolean().
+-spec is_ok_deliver(
+    {_NodeOrShare, _MatchedTopic, emqx_types:deliver_result()} | persisted | consumed
+) -> boolean().
 is_ok_deliver({_NodeOrShare, _MatchedTopic, ok}) -> true;
 is_ok_deliver({_NodeOrShare, _MatchedTopic, {ok, _}}) -> true;
 is_ok_deliver(persisted) -> true;
+is_ok_deliver(consumed) -> true;
 is_ok_deliver({_NodeOrShare, _MatchedTopic, {error, _}}) -> false.
 
 %% @hidden Map MQTT publish result reason code to HTTP status code.
@@ -276,7 +279,7 @@ publish_result_to_http_reply(_Message, {error, Reason, _PublishedMsg}) ->
 publish_result_to_http_reply(Message, {ok, PublishResult, _PublishedMsg}) ->
     case lists:any(fun is_ok_deliver/1, PublishResult) of
         true ->
-            %% delivered to at least one subscriber
+            %% delivered to at least one subscriber, persisted or consumed
             OkBody = make_publish_response(Message),
             {?ALL_IS_WELL, OkBody};
         false ->

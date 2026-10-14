@@ -2188,6 +2188,48 @@ t_namespaced_metrics_dropped_no_subscribers(Config) when is_list(Config) ->
     ok.
 
 -doc """
+`messages.consumed' is bumped per namespace and globally when a publish from a
+namespaced client is marked as consumed and matches no subscribers, and the
+dropped counters stay at zero.
+""".
+t_namespaced_metrics_consumed({init, Config}) ->
+    Namespace = <<"explicit_ns_consumed">>,
+    ok = emqx_mt_config:create_managed_ns(Namespace),
+    ok = emqx_hooks:add('message.publish', {?MODULE, mark_consumed, []}, ?HP_LOWEST),
+    reset_global_metrics(),
+    [{explicit_ns, Namespace} | Config];
+t_namespaced_metrics_consumed({'end', Config}) ->
+    Namespace = ?config(explicit_ns, Config),
+    ok = emqx_hooks:del('message.publish', {?MODULE, mark_consumed}),
+    ok = emqx_mt_config:delete_managed_ns(Namespace),
+    ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Namespace))),
+    reset_global_metrics(),
+    delete_all_namespaces(),
+    ok;
+t_namespaced_metrics_consumed(Config) when is_list(Config) ->
+    Namespace = ?config(explicit_ns, Config),
+    Pid = connect(?NEW_CLIENTID(), Namespace),
+    {ok, _} = emqtt:publish(Pid, <<"no_one_here">>, <<"hey">>, [{qos, 1}]),
+    ?retry(
+        100,
+        10,
+        ?assertEqual(
+            {1, 1, 0, 0},
+            {
+                emqx_metrics:val_global('messages.consumed'),
+                emqx_metrics:val(Namespace, 'messages.consumed'),
+                emqx_metrics:val_global('messages.dropped'),
+                emqx_metrics:val(Namespace, 'messages.dropped')
+            }
+        )
+    ),
+    ok = emqtt:stop(Pid),
+    ok.
+
+mark_consumed(Message) ->
+    {ok, emqx_message:set_consumed(Message)}.
+
+-doc """
 `messages.dropped' from a client without a tenant-namespace must only move
 the global counters; per-namespace counters are not touched (no Ns to attach
 to).

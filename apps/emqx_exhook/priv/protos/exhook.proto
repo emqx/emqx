@@ -472,6 +472,12 @@ message Message {
   //    * Writable
   //    * Whether to allow the message to be published by emqx
   //    * Value type: string enum with "true", "false", default is "true"
+  //  - message_consumed:
+  //    * Writable, in the OnMessagePublish response only
+  //    * "true" marks the message as consumed: if no client subscribes to
+  //      its topic, emqx acknowledges it as delivered and counts it in
+  //      `messages.consumed` instead of dropping it
+  //    * Value type: string "true"; any other value leaves the mark unchanged
   //
   // Notes: All header may be missing, which means that the message does not
   //   carry these headers. We can guarantee that clients coming from MQTT,

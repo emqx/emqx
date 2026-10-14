@@ -329,6 +329,31 @@ t_message_ingress(_) ->
         emqx_message_ingress:ingress(AuthzContext, InvalidMessage)
     ).
 
+-doc """
+An `OnMessagePublish` response with the `message_consumed` header set to "true"
+marks the message as consumed, and any other value, from the same or a later
+server, leaves the mark unchanged.
+""".
+t_message_publish_consumed(_) ->
+    Consumer = emqx_message:make(<<"consumer">>, 0, <<"t/1">>, <<"payload">>),
+    {ok, Consumed} = emqx_exhook_handler:on_message_publish(Consumer),
+    ?assert(emqx_message:is_consumed(Consumed)),
+    NotConsumer = emqx_message:make(<<"not_consumer">>, 0, <<"t/1">>, <<"payload">>),
+    {ok, NotConsumed} = emqx_exhook_handler:on_message_publish(NotConsumer),
+    ?assertNot(emqx_message:is_consumed(NotConsumed)),
+    {ok, StillConsumed} =
+        emqx_exhook_handler:on_message_publish(emqx_message:set_consumed(NotConsumer)),
+    ?assert(emqx_message:is_consumed(StillConsumed)),
+    %% The fold over several servers keeps the mark of an earlier server.
+    Response = fun(Value) ->
+        #{type => 'CONTINUE', value => {message, #{headers => #{<<"message_consumed">> => Value}}}}
+    end,
+    {ok, Req1} = emqx_exhook_handler:merge_responsed_message(#{}, Response(<<"true">>)),
+    ?assertMatch(
+        {ok, #{message := #{headers := #{<<"message_consumed">> := <<"true">>}}}},
+        emqx_exhook_handler:merge_responsed_message(Req1, Response(<<"false">>))
+    ).
+
 t_lookup(_) ->
     Result = emqx_exhook_mgr:lookup(<<"default">>),
     ?assertMatch(#{name := <<"default">>, status := _}, Result),

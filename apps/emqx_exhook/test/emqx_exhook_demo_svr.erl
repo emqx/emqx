@@ -421,9 +421,17 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
                     value => {message, NMsg}
                 },
                 Md};
+        <<"consumer">> ->
+            {ok, #{type => 'CONTINUE', value => {message, consumed(Msg, <<"true">>)}}, Md};
+        <<"not_consumer">> ->
+            {ok, #{type => 'CONTINUE', value => {message, consumed(Msg, <<"false">>)}}, Md};
         _ ->
             {ok, #{type => 'IGNORE'}, Md}
     end.
+
+consumed(Msg, Value) ->
+    NHeader = maps:put(<<"message_consumed">>, Value, maps:get(headers, Msg, #{})),
+    maps:put(headers, NHeader, Msg).
 
 deny(Msg) ->
     NHeader = maps:put(
