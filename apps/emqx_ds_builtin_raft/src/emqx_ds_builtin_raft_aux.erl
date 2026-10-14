@@ -84,6 +84,13 @@ handle_aux(ServerState, _, Event, Aux0 = #aux{otx_leader = Otx0}, IntState) ->
     case manage_otx(DB, Shard, ServerState, Event, Otx0) of
         {ok, Otx, Effects} ->
             Aux = Aux0#aux{otx_leader = Otx},
+            ?tp(dsraft_otx_event_handled, #{
+                db => DB,
+                shard => Shard,
+                state => ServerState,
+                event => Event,
+                optimistic_leader => Otx
+            }),
             {no_reply, Aux, IntState, Effects};
         ignore ->
             {no_reply, Aux0, IntState, []}
@@ -200,6 +207,11 @@ manage_otx(_DB, _Shard, _State, #cast_otx_started{}, Otx = #running{}) ->
 manage_otx(_DB, _Shard, _State, #cast_otx_started{}, Otx = ?stopped) ->
     %% Already updated on last tick. Ignore.
     {ok, Otx, []};
+manage_otx(
+    _DB, _Shard, _State, #cast_otx_started{result = {ok, Pid}}, Otx = #stopping{pid = Pid}
+) ->
+    %% A tick discovered this process and shutdown started before its startup completion arrived.
+    {ok, Otx, []};
 manage_otx(DB, Shard, State, #cast_manage_otx{}, #running{pid = Pid}) when
     State =/= leader
 ->
@@ -207,6 +219,7 @@ manage_otx(DB, Shard, State, #cast_manage_otx{}, #running{pid = Pid}) when
     AsyncStopper =
         spawn_link(
             fun() ->
+                ?tp(dsraft_stop_otx_leader, #{db => DB, shard => Shard}),
                 %% Parent is notfied via monitor:
                 emqx_ds_builtin_raft_db_sup:stop_otx_leader(DB, Shard)
             end
