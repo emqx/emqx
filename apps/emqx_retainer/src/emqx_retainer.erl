@@ -106,7 +106,8 @@
     {ok, has_next(), list(message())}.
 -callback read_message(backend_state(), topic()) -> {ok, list(message())}.
 %% Return true when Topic has a retained message that is not expired, without reading the
-%% message.
+%% message. The check runs for every SUBSCRIBE to a topic without wildcards, so it must be an
+%% index lookup, not a read of the message.
 -callback has_message(backend_state(), topic()) -> boolean().
 -callback match_messages(backend_state(), topic(), cursor(), match_opts()) ->
     {ok, list(message()), cursor()}.
