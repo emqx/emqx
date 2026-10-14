@@ -55,12 +55,14 @@ make_key(TopicOrFilter, ID) ->
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
+%% Binary topics must be valid MQTT topic names, see `emqx_trie_topic:match/2`.
 -spec match(emqx_types:topic(), ets:table()) -> match(_ID) | false.
 match(Topic, Tab) ->
     emqx_trie_search:match(Topic, make_nextf(Tab)).
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
+%% Binary topics must be valid MQTT topic names, see `emqx_trie_topic:matches/3`.
 -spec matches(emqx_types:topic(), ets:table(), emqx_trie_search:opts()) -> [match(_ID)].
 matches(Topic, Tab, Opts) ->
     emqx_trie_search:matches(Topic, make_nextf(Tab), Opts).
