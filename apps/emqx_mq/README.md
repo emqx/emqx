@@ -104,7 +104,7 @@ The threshold and some other settings are configured via the `quota` section of 
 
 ## Queue auto creation
 
-Message Queues are automatically created when subscribing to a queue topic `$q/some/topic`. The auto creation is configured via the `auto_create` section of the global Message Queue configuration. By default, the queues are auto created as last-value queues.
+Message Queues can be automatically created when subscribing to a queue topic `$q/some/topic`. The auto creation is configured via the `auto_create` section of the global Message Queue configuration. Auto creation is disabled by default: subscribing to a queue topic does not create a queue.
 ```hocon
 ...
 auto_create {
@@ -115,7 +115,7 @@ auto_create {
 }
 ...
 ```
-One may change the auto creation settings to regular queues, or disable the auto creation. Obviously, one may not autocreate queues as regular and last-value at the same time.
+The example above enables auto creation of last-value queues. Set `regular` to a settings object instead to auto create regular queues. A queue cannot be auto created as regular and last-value at the same time.
 
 ## QoS handling
 
