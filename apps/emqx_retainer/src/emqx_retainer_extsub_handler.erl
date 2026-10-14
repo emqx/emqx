@@ -18,7 +18,7 @@
 ]).
 
 %% This module is `emqx_retainer` companion
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations

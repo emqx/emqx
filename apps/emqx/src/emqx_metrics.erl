@@ -13,6 +13,10 @@
 -include("emqx_config.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
+%% create/2 calls the metrics server without a timeout, by design: it is a
+%% startup-time call and a stuck server must not be masked by a timeout.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
     start_link/0,
     stop/0
@@ -350,7 +354,7 @@ do_inc_recv(?PUBLISH_PACKET(QoS), CRef) ->
         ?QOS_0 -> inc_reserved(CRef, 'messages.qos0.received');
         ?QOS_1 -> inc_reserved(CRef, 'messages.qos1.received');
         ?QOS_2 -> inc_reserved(CRef, 'messages.qos2.received');
-        _other -> ok
+        _Other -> ok
     end,
     inc_reserved(CRef, 'packets.publish.received');
 do_inc_recv(?PACKET(?PUBACK), CRef) ->
@@ -413,7 +417,7 @@ do_inc_sent(?PUBLISH_PACKET(QoS), CRef) ->
         ?QOS_0 -> inc_reserved(CRef, 'messages.qos0.sent');
         ?QOS_1 -> inc_reserved(CRef, 'messages.qos1.sent');
         ?QOS_2 -> inc_reserved(CRef, 'messages.qos2.sent');
-        _other -> ok
+        _Other -> ok
     end,
     inc_reserved(CRef, 'packets.publish.sent');
 do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode), CRef) ->
