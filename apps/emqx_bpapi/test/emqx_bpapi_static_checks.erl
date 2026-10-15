@@ -70,7 +70,10 @@
     emqx_license_proto_v1,
     emqx_mgmt_trace_proto_v1,
     emqx_mgmt_api_relup_proto_v1,
-    %% Superseded before 5.8.0; no supported peer selects these versions:
+    %% Superseded before 5.8.0. Version negotiation never selects these
+    %% versions, but released call sites can still name the deleted proto
+    %% modules directly, so their RPC targets must stay exported.
+    %% `scripts/check-bpapi-targets.exs' checks that they do:
     emqx_cm_proto_v1,
     emqx_cm_proto_v2,
     emqx_conf_proto_v1,
@@ -116,7 +119,10 @@
     {emqx_license, 1},
     {emqx_mgmt_trace, 1},
     {emqx_mgmt_api_relup, 1},
-    %% Superseded before 5.8.0; no supported peer selects these versions:
+    %% Superseded before 5.8.0. Version negotiation never selects these
+    %% versions, but released call sites can still name the deleted proto
+    %% modules directly, so their RPC targets must stay exported.
+    %% `scripts/check-bpapi-targets.exs' checks that they do:
     {emqx_cm, 1},
     {emqx_cm, 2},
     {emqx_conf, 1},

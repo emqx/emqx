@@ -114,6 +114,13 @@ ct: $(REBAR) merge-config render-test-env
 check-bpapi-baselines:
 	./scripts/check-bpapi-baselines.exs
 
+## Checks that this tree exports every RPC target that a committed BPAPI baseline
+## or a proto module at a released tag calls. Needs git tags, not a build; CI runs
+## it in the sanity-checks job.
+.PHONY: check-bpapi-targets
+check-bpapi-targets:
+	./scripts/check-bpapi-targets.exs
+
 .PHONY: static_checks
 static_checks: $(ELIXIR_COMMON_DEPS)
 	@# the cluster-rpc check reads plugin beams from the shared build tree
