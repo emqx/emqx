@@ -13,6 +13,10 @@
 -include("emqx_config.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
+%% create/2 calls the metrics server without a timeout, by design: it is a
+%% startup-time call and a stuck server must not be masked by a timeout.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
     start_link/0,
     stop/0
@@ -81,7 +85,7 @@
 
 -compile({inline, [inc_global/1, inc_global/2, dec_global/1, dec_global/2]}).
 -compile({inline, [inc/2, inc/3, dec/2, dec/3]}).
--compile({inline, [inc_recv/2, inc_sent/2]}).
+-compile({inline, [inc_recv/2, inc_sent/2, inc_reserved/2]}).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -297,6 +301,10 @@ update_counter(Namespace, Name, Value) ->
         end,
     counters:add(CRef, CIdx, Value).
 
+-doc "Increment a reserved metric with the supplied counter reference.".
+inc_reserved(CRef, Name) ->
+    counters:add(CRef, reserved_idx(Name), 1).
+
 register_namespace(Namespace) when is_binary(Namespace) ->
     gen_server:call(?MODULE, #register_namespace{namespace = Namespace}, infinity).
 
@@ -319,13 +327,15 @@ inc_msg(Msg) ->
 %% @doc Inc packets received.
 -spec inc_recv(emqx_types:packet(), emqx_config:maybe_namespace()) -> ok.
 inc_recv(Packet, Namespace) ->
-    inc(?global_ns, 'packets.received'),
-    do_inc_recv(Packet, ?global_ns),
+    CRef = get_counters_ref(?global_ns),
+    inc_reserved(CRef, 'packets.received'),
+    do_inc_recv(Packet, CRef),
     try
         case is_binary(Namespace) of
             true ->
-                inc(Namespace, 'packets.received'),
-                do_inc_recv(Packet, Namespace);
+                NamespaceCRef = get_counters_ref(Namespace),
+                inc_reserved(NamespaceCRef, 'packets.received'),
+                do_inc_recv(Packet, NamespaceCRef);
             false ->
                 ok
         end
@@ -336,36 +346,36 @@ inc_recv(Packet, Namespace) ->
             ok
     end.
 
-do_inc_recv(?PACKET(?CONNECT), Namespace) ->
-    inc(Namespace, 'packets.connect.received');
-do_inc_recv(?PUBLISH_PACKET(QoS), Namespace) ->
-    inc(Namespace, 'messages.received'),
+do_inc_recv(?PACKET(?CONNECT), CRef) ->
+    inc_reserved(CRef, 'packets.connect.received');
+do_inc_recv(?PUBLISH_PACKET(QoS), CRef) ->
+    inc_reserved(CRef, 'messages.received'),
     case QoS of
-        ?QOS_0 -> inc(Namespace, 'messages.qos0.received');
-        ?QOS_1 -> inc(Namespace, 'messages.qos1.received');
-        ?QOS_2 -> inc(Namespace, 'messages.qos2.received');
-        _other -> ok
+        ?QOS_0 -> inc_reserved(CRef, 'messages.qos0.received');
+        ?QOS_1 -> inc_reserved(CRef, 'messages.qos1.received');
+        ?QOS_2 -> inc_reserved(CRef, 'messages.qos2.received');
+        _Other -> ok
     end,
-    inc(Namespace, 'packets.publish.received');
-do_inc_recv(?PACKET(?PUBACK), Namespace) ->
-    inc(Namespace, 'packets.puback.received');
-do_inc_recv(?PACKET(?PUBREC), Namespace) ->
-    inc(Namespace, 'packets.pubrec.received');
-do_inc_recv(?PACKET(?PUBREL), Namespace) ->
-    inc(Namespace, 'packets.pubrel.received');
-do_inc_recv(?PACKET(?PUBCOMP), Namespace) ->
-    inc(Namespace, 'packets.pubcomp.received');
-do_inc_recv(?PACKET(?SUBSCRIBE), Namespace) ->
-    inc(Namespace, 'packets.subscribe.received');
-do_inc_recv(?PACKET(?UNSUBSCRIBE), Namespace) ->
-    inc(Namespace, 'packets.unsubscribe.received');
-do_inc_recv(?PACKET(?PINGREQ), Namespace) ->
-    inc(Namespace, 'packets.pingreq.received');
-do_inc_recv(?PACKET(?DISCONNECT), Namespace) ->
-    inc(Namespace, 'packets.disconnect.received');
-do_inc_recv(?PACKET(?AUTH), Namespace) ->
-    inc(Namespace, 'packets.auth.received');
-do_inc_recv(_Packet, _Namespace) ->
+    inc_reserved(CRef, 'packets.publish.received');
+do_inc_recv(?PACKET(?PUBACK), CRef) ->
+    inc_reserved(CRef, 'packets.puback.received');
+do_inc_recv(?PACKET(?PUBREC), CRef) ->
+    inc_reserved(CRef, 'packets.pubrec.received');
+do_inc_recv(?PACKET(?PUBREL), CRef) ->
+    inc_reserved(CRef, 'packets.pubrel.received');
+do_inc_recv(?PACKET(?PUBCOMP), CRef) ->
+    inc_reserved(CRef, 'packets.pubcomp.received');
+do_inc_recv(?PACKET(?SUBSCRIBE), CRef) ->
+    inc_reserved(CRef, 'packets.subscribe.received');
+do_inc_recv(?PACKET(?UNSUBSCRIBE), CRef) ->
+    inc_reserved(CRef, 'packets.unsubscribe.received');
+do_inc_recv(?PACKET(?PINGREQ), CRef) ->
+    inc_reserved(CRef, 'packets.pingreq.received');
+do_inc_recv(?PACKET(?DISCONNECT), CRef) ->
+    inc_reserved(CRef, 'packets.disconnect.received');
+do_inc_recv(?PACKET(?AUTH), CRef) ->
+    inc_reserved(CRef, 'packets.auth.received');
+do_inc_recv(_Packet, _CRef) ->
     ok.
 
 %% @doc Inc packets sent. Will not count $SYS PUBLISH.
@@ -373,13 +383,15 @@ do_inc_recv(_Packet, _Namespace) ->
 inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _), _Namespace) ->
     ok;
 inc_sent(Packet, Namespace) ->
-    inc(?global_ns, 'packets.sent'),
-    do_inc_sent(Packet, ?global_ns),
+    CRef = get_counters_ref(?global_ns),
+    inc_reserved(CRef, 'packets.sent'),
+    do_inc_sent(Packet, CRef),
     try
         case is_binary(Namespace) of
             true ->
-                inc(Namespace, 'packets.sent'),
-                do_inc_sent(Packet, Namespace);
+                NamespaceCRef = get_counters_ref(Namespace),
+                inc_reserved(NamespaceCRef, 'packets.sent'),
+                do_inc_sent(Packet, NamespaceCRef);
             false ->
                 ok
         end
@@ -390,51 +402,51 @@ inc_sent(Packet, Namespace) ->
             ok
     end.
 
-do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent), Namespace) ->
-    (ReasonCode == ?RC_SUCCESS) orelse inc(Namespace, 'packets.connack.error'),
+do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent), CRef) ->
+    (ReasonCode == ?RC_SUCCESS) orelse inc_reserved(CRef, 'packets.connack.error'),
     ((ReasonCode == ?RC_NOT_AUTHORIZED) orelse
         (ReasonCode == ?CONNACK_AUTH)) andalso
-        inc(Namespace, 'packets.connack.auth_error'),
+        inc_reserved(CRef, 'packets.connack.auth_error'),
     ((ReasonCode == ?RC_BAD_USER_NAME_OR_PASSWORD) orelse
         (ReasonCode == ?CONNACK_CREDENTIALS)) andalso
-        inc(Namespace, 'packets.connack.auth_error'),
-    inc(Namespace, 'packets.connack.sent');
-do_inc_sent(?PUBLISH_PACKET(QoS), Namespace) ->
-    inc(Namespace, 'messages.sent'),
+        inc_reserved(CRef, 'packets.connack.auth_error'),
+    inc_reserved(CRef, 'packets.connack.sent');
+do_inc_sent(?PUBLISH_PACKET(QoS), CRef) ->
+    inc_reserved(CRef, 'messages.sent'),
     case QoS of
-        ?QOS_0 -> inc(Namespace, 'messages.qos0.sent');
-        ?QOS_1 -> inc(Namespace, 'messages.qos1.sent');
-        ?QOS_2 -> inc(Namespace, 'messages.qos2.sent');
-        _other -> ok
+        ?QOS_0 -> inc_reserved(CRef, 'messages.qos0.sent');
+        ?QOS_1 -> inc_reserved(CRef, 'messages.qos1.sent');
+        ?QOS_2 -> inc_reserved(CRef, 'messages.qos2.sent');
+        _Other -> ok
     end,
-    inc(Namespace, 'packets.publish.sent');
-do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode), Namespace) ->
-    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc(Namespace, 'packets.publish.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc(Namespace, 'packets.publish.auth_error'),
-    inc(Namespace, 'packets.puback.sent');
-do_inc_sent(?PUBREC_PACKET(_PacketId, ReasonCode), Namespace) ->
-    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc(Namespace, 'packets.publish.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc(Namespace, 'packets.publish.auth_error'),
-    inc(Namespace, 'packets.pubrec.sent');
-do_inc_sent(?PACKET(?PUBREL), Namespace) ->
-    inc(Namespace, 'packets.pubrel.sent');
-do_inc_sent(?PACKET(?PUBCOMP), Namespace) ->
-    inc(Namespace, 'packets.pubcomp.sent');
-do_inc_sent(?SUBACK_PACKET(_PacketId, ReasonCodes), Namespace) ->
+    inc_reserved(CRef, 'packets.publish.sent');
+do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode), CRef) ->
+    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc_reserved(CRef, 'packets.publish.error'),
+    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc_reserved(CRef, 'packets.publish.auth_error'),
+    inc_reserved(CRef, 'packets.puback.sent');
+do_inc_sent(?PUBREC_PACKET(_PacketId, ReasonCode), CRef) ->
+    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc_reserved(CRef, 'packets.publish.error'),
+    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc_reserved(CRef, 'packets.publish.auth_error'),
+    inc_reserved(CRef, 'packets.pubrec.sent');
+do_inc_sent(?PACKET(?PUBREL), CRef) ->
+    inc_reserved(CRef, 'packets.pubrel.sent');
+do_inc_sent(?PACKET(?PUBCOMP), CRef) ->
+    inc_reserved(CRef, 'packets.pubcomp.sent');
+do_inc_sent(?SUBACK_PACKET(_PacketId, ReasonCodes), CRef) ->
     lists:any(fun(Code) -> Code >= ?RC_UNSPECIFIED_ERROR end, ReasonCodes) andalso
-        inc(Namespace, 'packets.subscribe.error'),
+        inc_reserved(CRef, 'packets.subscribe.error'),
     lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) andalso
-        inc(Namespace, 'packets.subscribe.auth_error'),
-    inc(Namespace, 'packets.suback.sent');
-do_inc_sent(?PACKET(?UNSUBACK), Namespace) ->
-    inc(Namespace, 'packets.unsuback.sent');
-do_inc_sent(?PACKET(?PINGRESP), Namespace) ->
-    inc(Namespace, 'packets.pingresp.sent');
-do_inc_sent(?PACKET(?DISCONNECT), Namespace) ->
-    inc(Namespace, 'packets.disconnect.sent');
-do_inc_sent(?PACKET(?AUTH), Namespace) ->
-    inc(Namespace, 'packets.auth.sent');
-do_inc_sent(_Packet, _Namespace) ->
+        inc_reserved(CRef, 'packets.subscribe.auth_error'),
+    inc_reserved(CRef, 'packets.suback.sent');
+do_inc_sent(?PACKET(?UNSUBACK), CRef) ->
+    inc_reserved(CRef, 'packets.unsuback.sent');
+do_inc_sent(?PACKET(?PINGRESP), CRef) ->
+    inc_reserved(CRef, 'packets.pingresp.sent');
+do_inc_sent(?PACKET(?DISCONNECT), CRef) ->
+    inc_reserved(CRef, 'packets.disconnect.sent');
+do_inc_sent(?PACKET(?AUTH), CRef) ->
+    inc_reserved(CRef, 'packets.auth.sent');
+do_inc_sent(_Packet, _CRef) ->
     ok.
 
 %%--------------------------------------------------------------------

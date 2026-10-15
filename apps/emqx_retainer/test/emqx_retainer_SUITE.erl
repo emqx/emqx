@@ -40,6 +40,9 @@ groups() ->
             %% disabled__t_resume,
             t_resume_and_resubscribe,
             t_extsub_ignore_non_mqtt,
+            t_extsub_no_handler_no_wildcard_empty,
+            t_extsub_handler_no_wildcard_retained,
+            t_extsub_handler_wildcard_empty,
             t_extsub_no_leak_wildcard_multi_batch,
             t_extsub_no_leak_wildcard_single_batch,
             t_extsub_no_leak_wildcard_empty,
@@ -67,6 +70,9 @@ index_related_tests() ->
             t_disabled,
             t_start_stop_on_setting_change,
             t_extsub_ignore_non_mqtt,
+            t_extsub_no_handler_no_wildcard_empty,
+            t_extsub_handler_no_wildcard_retained,
+            t_extsub_handler_wildcard_empty,
             t_extsub_no_leak_wildcard_multi_batch,
             t_extsub_no_leak_wildcard_single_batch,
             t_extsub_no_leak_wildcard_empty,
@@ -1448,6 +1454,61 @@ t_extsub_ignore_non_mqtt(_Config) ->
     after 100 ->
         ok
     end.
+
+-doc "A subscription to a topic without wildcards and without a retained message starts no handler.".
+t_extsub_no_handler_no_wildcard_empty(_Config) ->
+    Ref = make_ref(),
+    ?assertEqual(
+        ignore,
+        emqx_retainer_extsub_handler:handle_subscribe(
+            subscribe, extsub_sub_ctx(Ref), undefined, <<"skip_empty/none">>
+        )
+    ),
+    ?assertNotReceive(#info_to_extsub{handler_ref = Ref}, 100).
+
+-doc """
+A subscription to a topic without wildcards that has a retained message starts a handler.
+The handler delivers the message that was read at subscribe time: the backend is read once.
+""".
+t_extsub_handler_no_wildcard_retained(_Config) ->
+    Topic = <<"skip_empty/retained">>,
+    ok = emqx_retainer_publisher:store_retained(emqx_message:make(Topic, <<"payload">>)),
+    Ref = make_ref(),
+    ok = meck:new(emqx_retainer_mnesia, [passthrough, no_link]),
+    try
+        {ok, Handler} = emqx_retainer_extsub_handler:handle_subscribe(
+            subscribe, extsub_sub_ctx(Ref), undefined, Topic
+        ),
+        #info_to_extsub{info = Next} = ?assertReceive(
+            #info_to_extsub{handler_ref = Ref}, 1000
+        ),
+        ?assertMatch(
+            {ok, _, [#message{topic = Topic, payload = <<"payload">>}]},
+            emqx_retainer_extsub_handler:handle_info(Handler, #{}, Next)
+        ),
+        ?assertEqual(1, meck:num_calls(emqx_retainer_mnesia, read_message, '_'))
+    after
+        meck:unload(emqx_retainer_mnesia),
+        ok = emqx_retainer_publisher:delete_message(Topic)
+    end.
+
+-doc "A wildcard subscription starts a handler also when no retained message matches.".
+t_extsub_handler_wildcard_empty(_Config) ->
+    Ref = make_ref(),
+    ?assertMatch(
+        {ok, _},
+        emqx_retainer_extsub_handler:handle_subscribe(
+            subscribe, extsub_sub_ctx(Ref), undefined, <<"skip_empty/none/+">>
+        )
+    ),
+    ?assertReceive(#info_to_extsub{handler_ref = Ref}, 1000).
+
+extsub_sub_ctx(Ref) ->
+    #{
+        clientinfo => #{protocol => mqtt},
+        subopts => #{rh => 0},
+        message_target => emqx_extsub_handler:message_target(Ref)
+    }.
 
 -doc """
 Checks that the extsub handler removes itself after it finishes iterating over wildcard

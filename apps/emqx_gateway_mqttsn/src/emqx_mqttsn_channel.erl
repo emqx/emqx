@@ -1191,13 +1191,20 @@ preproc_pub_pkt(
             TopicIndicator = {id, Topic0},
             {ok, {TopicIndicator, Flags, Data}, Channel};
         ?SN_SHORT_TOPIC ->
-            case emqx_topic:wildcard(Topic0) of
+            case is_topic_name(Topic0) of
                 true ->
-                    {error, ?SN_RC_NOT_SUPPORTED};
-                false ->
                     TopicIndicator = {name, Topic0},
-                    {ok, {TopicIndicator, Flags, Data}, Channel}
+                    {ok, {TopicIndicator, Flags, Data}, Channel};
+                false ->
+                    {error, ?SN_RC_NOT_SUPPORTED}
             end
+    end.
+
+is_topic_name(TopicName) ->
+    try
+        emqx_topic:validate({name, TopicName})
+    catch
+        error:_ -> false
     end.
 
 convert_topic_id_to_name({{name, TopicName}, Flags, Data}, Channel) ->

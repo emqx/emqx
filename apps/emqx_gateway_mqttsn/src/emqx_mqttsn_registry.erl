@@ -83,8 +83,8 @@ reg(
     TopicName,
     Registry
 ) when is_binary(TopicName) ->
-    case emqx_topic:wildcard(TopicName) of
-        false ->
+    case is_topic_name(TopicName) of
+        true ->
             case lookup_topic_id(TopicName, Registry) of
                 {predef, TopicId} when is_integer(TopicId) ->
                     {ok, TopicId, Registry};
@@ -97,8 +97,16 @@ reg(
         %% id by the gateway when sending PUBLISH messages to the client (not
         %% relevant in case of subscriptions to a short topic name or to a topic
         %% name which contains wildcard characters)
-        true ->
+        false ->
             {error, wildcard_topic}
+    end.
+
+%% A topic filter with wildcards is not a topic name, and neither is an invalid topic.
+is_topic_name(TopicName) ->
+    try
+        emqx_topic:validate({name, TopicName})
+    catch
+        error:_ -> false
     end.
 
 do_reg(

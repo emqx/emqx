@@ -405,9 +405,7 @@ fast_close(_, Socket) ->
 exit_on_sock_error(Reason) when ?IS_NORMAL_SOCKET_ERROR(Reason) ->
     erlang:exit(normal);
 exit_on_sock_error(Reason) ->
-    %% econnreset falls here so it shows up in shutdown-counters
-    %% of the listener
-    erlang:exit({shutdown, Reason}).
+    erlang:exit({shutdown, emqx_connection_util:sock_error_shutdown(Reason)}).
 
 %%--------------------------------------------------------------------
 %% Recv Loop
@@ -1565,7 +1563,7 @@ run_minor_gc() ->
     erlang:garbage_collect(self(), [{type, minor}]).
 
 check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
-    case emqx_utils:check_oom(ShutdownPolicy) of
+    case emqx_connection_util:check_oom(ShutdownPolicy) of
         {shutdown, #{reason := OomReason} = Detail} ->
             ?SLOG(error, Detail#{msg => connection_shutdown_due_to_oom}),
             ?tp_ignore_side_effects_in_prod(check_oom_shutdown, #{

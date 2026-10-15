@@ -574,7 +574,7 @@ run_gc(Cnt, Oct, State = #state{gc_state = GcSt}) ->
     end.
 
 check_oom(State = #state{oom_policy = OomPolicy}) ->
-    case ?ENABLED(OomPolicy) andalso emqx_utils:check_oom(OomPolicy) of
+    case ?ENABLED(OomPolicy) andalso emqx_connection_util:check_oom(OomPolicy) of
         {shutdown, #{reason := OomReason} = Detail} ->
             ?SLOG(error, Detail#{msg => connection_shutdown_due_to_oom}),
             postpone({shutdown, OomReason}, State);

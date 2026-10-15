@@ -72,6 +72,18 @@ t_deny_wildcard_topic(_) ->
     ?assertEqual({error, wildcard_topic}, ?REGISTRY:reg(<<"/TopicA/#">>, Reg)),
     ?assertEqual({error, wildcard_topic}, ?REGISTRY:reg(<<"/+/TopicB">>, Reg)).
 
+-doc "A topic that is not a valid topic name gets no topic ID, also when it has # before the last level.".
+t_deny_invalid_topic_name(_) ->
+    Reg = ?REGISTRY:init(),
+    lists:foreach(
+        fun(TopicName) ->
+            ?assertEqual(
+                {TopicName, {error, wildcard_topic}}, {TopicName, ?REGISTRY:reg(TopicName, Reg)}
+            )
+        end,
+        [<<"a/#/b">>, <<"#/">>, <<"a", 0, "b">>, <<"a+b">>, <<>>]
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper funcs
 %%--------------------------------------------------------------------
