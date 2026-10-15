@@ -635,8 +635,19 @@ plugin_package() ->
     Root = emqx_common_test_helpers:proj_root(),
     Vsn = string:trim(read_file(filename:join([Root, "plugins", "emqx_maptabs", "VERSION"]))),
     Package = filename:join([Root, "_build", "plugins", "emqx_maptabs-" ++ Vsn ++ ".tar.gz"]),
-    _ = file:delete(Package),
-    build_in_tree_plugin_package(Root, Package).
+    case os:getenv("IS_CI") of
+        "yes" ->
+            %% The package must already exist. A missing package is an error,
+            %% not a skip, so that the job does not report success without
+            %% running the cases.
+            case filelib:is_regular(Package) of
+                true -> Package;
+                false -> error({missing_prebuilt_plugin_package, Package})
+            end;
+        _ ->
+            _ = file:delete(Package),
+            build_in_tree_plugin_package(Root, Package)
+    end.
 
 build_in_tree_plugin_package(Root, Package) ->
     Output = os:cmd(
