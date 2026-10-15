@@ -24,7 +24,6 @@ init_per_group(Schema, Config) ->
             {emqx, #{
                 override_env => [{boot_modules, [broker]}],
                 config => #{
-                    <<"node">> => #{<<"broker_pool_size">> => 1},
                     <<"broker">> => #{
                         <<"routing">> => #{
                             <<"storage_schema">> => atom_to_binary(Schema),
@@ -43,13 +42,12 @@ end_per_group(_Group, Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_Case, Config) ->
-    [Worker] = emqx_broker_sup:get_broker_pool_workers(),
+    [Worker | _] = emqx_broker_sup:get_broker_pool_workers(),
     meck:new(emqx_router, [passthrough, no_link]),
     [{worker, Worker} | Config].
 
 end_per_testcase(_Case, Config) ->
     Worker = ?config(worker, Config),
-    Worker ! continue_batch,
     _ = catch sys:resume(Worker),
     _ = sys:get_state(Worker),
     meck:unload(emqx_router),
@@ -90,18 +88,21 @@ t_subscribe_batch(Config) ->
             request(Worker, Existing, self())
         ]
     end),
-    receive
-        {route_batch, Worker, Topics} ->
-            ?assertEqual(lists:sort([Plain, Wildcard]), lists:sort(Topics))
-    after 5000 ->
-        ct:fail(no_route_batch)
+    try
+        receive
+            {route_batch, Worker, Topics} ->
+                ?assertEqual(lists:sort([Plain, Wildcard]), lists:sort(Topics))
+        after 5000 ->
+            ct:fail(no_route_batch)
+        end,
+        lists:foreach(
+            fun(Request) -> ?assertEqual(timeout, gen_server:wait_response(Request, 0)) end,
+            Requests
+        ),
+        ?assertEqual([], emqx_broker:subscribers(Plain))
+    after
+        Worker ! continue_batch
     end,
-    lists:foreach(
-        fun(Request) -> ?assertEqual(timeout, gen_server:wait_response(Request, 0)) end,
-        Requests
-    ),
-    ?assertEqual([], emqx_broker:subscribers(Plain)),
-    Worker ! continue_batch,
     await_replies(Requests),
     ?assertEqual(lists:sort([self(), Worker]), lists:sort(emqx_broker:subscribers(Plain))),
     ?assertEqual([self()], emqx_broker:subscribers(Wildcard)),
