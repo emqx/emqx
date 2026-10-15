@@ -11,6 +11,8 @@
     start_link/0,
     register/2,
     get_token/1,
+    get_token_with_ref/1,
+    get_token_for_retry/2,
     unregister/1,
     clear_cache/0,
     clear_cache/1
@@ -51,10 +53,11 @@
 -define(MIN_REFRESH_MS, 1_000).
 
 -define(KEY(ResourceId), ResourceId).
--define(TOKEN_ROW(KEY, Deadline, Result), {KEY, Deadline, Result}).
+-define(TOKEN_ROW(Key, Deadline, Result, Ref), {Key, Deadline, Result, Ref}).
 
 -record(register, {resource_id, params}).
 -record(fetch, {resource_id}).
+-record(get_token_for_retry, {resource_id, rejected_token_ref}).
 -record(unregister, {resource_id}).
 -record(refresh, {resource_id}).
 
@@ -88,13 +91,29 @@ get_token(ResourceId) ->
         {ok, Response} ->
             Response;
         error ->
-            try
-                call(#fetch{resource_id = ResourceId})
-            catch
-                exit:Reason ->
-                    {error, {oauth2_manager_unavailable, Reason}}
+            safe_call(#fetch{resource_id = ResourceId})
+    end.
+
+-spec get_token_with_ref(term()) -> {ok, binary(), term()} | {error, term()}.
+get_token_with_ref(ResourceId) ->
+    case get_cached_with_ref(ResourceId) of
+        {ok, Response} ->
+            Response;
+        error ->
+            maybe
+                {ok, _Token} ?= safe_call(#fetch{resource_id = ResourceId}),
+                get_token_with_ref(ResourceId)
             end
     end.
+
+%% Returns a token for retrying a request whose token was rejected by the resource server.
+%% RejectedTokenRef must be the generation returned by `get_token_with_ref/1' for that request.
+%% Invalidates only that generation; reuses a replacement token or shares an ongoing fetch.
+-spec get_token_for_retry(term(), term()) -> {ok, binary()} | {error, term()}.
+get_token_for_retry(ResourceId, RejectedTokenRef) ->
+    safe_call(#get_token_for_retry{
+        resource_id = ResourceId, rejected_token_ref = RejectedTokenRef
+    }).
 
 %% Removes the cached token and cancels the refresh timer for a connector
 %% instance.  Called from the connector `on_stop'.
@@ -171,6 +190,32 @@ handle_call(#fetch{resource_id = ResourceId}, From, State0) ->
         error ->
             fetch_or_enqueue(ResourceId, From, State0)
     end;
+handle_call(
+    #get_token_for_retry{resource_id = ResourceId, rejected_token_ref = RejectedTokenRef},
+    From,
+    State0
+) ->
+    case get_cached_with_ref(ResourceId) of
+        {ok, {ok, _Token, RejectedTokenRef}} ->
+            %% The rejected generation is still cached, even if its TTL has not expired.
+            %% Remove it so new callers wait for a replacement. A proactive fetch may
+            %% already be running; fetch_or_enqueue shares it instead of starting another.
+            clear_cache(ResourceId),
+            State = clear_refresh_timer(ResourceId, State0),
+            fetch_or_enqueue(ResourceId, From, State);
+        {ok, {ok, Token, _NewRef}} ->
+            %% Another fetch has replaced the rejected generation. Reuse its result
+            %% for this late rejection, even if the endpoint returned the same token value.
+            {reply, {ok, Token}, State0};
+        {ok, {error, _Reason} = Error} ->
+            %% A recent fetch failed. Honor the short failure cache so concurrent
+            %% rejections do not repeatedly hit an unavailable token endpoint.
+            {reply, Error, State0};
+        error ->
+            %% No usable cached result: the token expired or was cleared, possibly
+            %% by another rejection. Start a fetch or join one already in progress.
+            fetch_or_enqueue(ResourceId, From, State0)
+    end;
 handle_call(#unregister{resource_id = ResourceId}, _From, State0) ->
     State = handle_unregister(ResourceId, State0),
     {reply, ok, State};
@@ -207,12 +252,27 @@ handle_info(_Info, State) ->
 call(Call) ->
     gen_server:call(?MODULE, Call, infinity).
 
+safe_call(Call) ->
+    try
+        call(Call)
+    catch
+        exit:Reason -> {error, {oauth2_manager_unavailable, Reason}}
+    end.
+
 get_cached(ResourceId) ->
+    case get_cached_with_ref(ResourceId) of
+        {ok, {ok, Token, _Ref}} -> {ok, {ok, Token}};
+        Response -> Response
+    end.
+
+get_cached_with_ref(ResourceId) ->
     NowMS = now_ms(),
     try
         case ets:lookup(?OAUTH2_TOKEN_TAB, ?KEY(ResourceId)) of
-            [?TOKEN_ROW(?KEY(ResourceId), Deadline, Response)] when Deadline > NowMS ->
-                {ok, Response};
+            [?TOKEN_ROW(ResourceId, Deadline, {ok, Token}, Ref)] when Deadline > NowMS ->
+                {ok, {ok, Token, Ref}};
+            [?TOKEN_ROW(ResourceId, Deadline, {error, _} = Error, _Ref)] when Deadline > NowMS ->
+                {ok, Error};
             _ ->
                 error
         end
@@ -415,7 +475,7 @@ store_token_and_schedule_refresh(ExpiryMS, ResourceId, Response, State0) ->
 
 store_row(ResourceId, Deadline, Response) ->
     try
-        true = ets:insert(?OAUTH2_TOKEN_TAB, ?TOKEN_ROW(?KEY(ResourceId), Deadline, Response))
+        true = ets:insert(?OAUTH2_TOKEN_TAB, ?TOKEN_ROW(ResourceId, Deadline, Response, make_ref()))
     catch
         error:badarg ->
             ok

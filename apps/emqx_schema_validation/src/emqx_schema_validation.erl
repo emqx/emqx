@@ -103,6 +103,7 @@ delete(Name) ->
 %% Hooks
 %%------------------------------------------------------------------------------
 
+-doc "Install the publish hook before indexing topics. Keep it until the application stops.".
 -spec register_hooks() -> ok.
 register_hooks() ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_SCHEMA_VALIDATION).
@@ -303,4 +304,4 @@ trace_failure(#{log_failure := #{level := Level}} = Validation, Msg, Meta) when 
 run_schema_validation_failed_hook(Message, Validation) ->
     #{name := Name} = Validation,
     ValidationContext = #{name => Name},
-    emqx_hooks:run('schema.validation_failed', [Message, ValidationContext]).
+    emqx_hooks:'schema.validation_failed'(Message, ValidationContext).

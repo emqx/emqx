@@ -151,7 +151,12 @@ t_check(_) ->
     ?assertEqual(ok, emqx_utils:check_oom(Policy)),
     [self() ! {msg, I} || I <- lists:seq(1, 6)],
     ?assertMatch(
-        {shutdown, #{reason := mailbox_overflow, value := 11, max := 10}},
+        {shutdown, #{
+            shutdown_count := mailbox_overflow,
+            reason := mailbox_overflow,
+            value := 11,
+            max := 10
+        }},
         emqx_utils:check_oom(Policy)
     ).
 
@@ -179,6 +184,7 @@ t_check_oom_with_label(_) ->
     [Pid ! {msg, I} || I <- lists:seq(1, 11)],
     ?assertEqual(
         {shutdown, #{
+            shutdown_count => mailbox_overflow,
             reason => mailbox_overflow,
             value => 11,
             max => 10,
@@ -190,7 +196,8 @@ t_check_oom_with_label(_) ->
 
 -doc """
 When the checked process has no label, the shutdown reason contains no
-`label` key and keeps the `reason`, `value` and `max` keys unchanged.
+`label` key and keeps the `shutdown_count`, `reason`, `value` and `max` keys
+unchanged.
 """.
 t_check_oom_without_label(_) ->
     Policy = #{
@@ -205,8 +212,37 @@ t_check_oom_without_label(_) ->
     end),
     [Pid ! {msg, I} || I <- lists:seq(1, 11)],
     ?assertEqual(
-        {shutdown, #{reason => mailbox_overflow, value => 11, max => 10}},
+        {shutdown, #{
+            shutdown_count => mailbox_overflow,
+            reason => mailbox_overflow,
+            value => 11,
+            max => 10
+        }},
         emqx_utils:check_oom(Pid, Policy)
+    ),
+    Pid ! stop.
+
+-doc """
+Each OOM shutdown reason carries `shutdown_count` set to the exceeded limit, so
+esockd counts the exit under that name instead of reporting an unidentified
+shutdown at error level.
+""".
+t_check_oom_shutdown_count(_) ->
+    Pid = spawn_link(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    [Pid ! {msg, I} || I <- lists:seq(1, 11)],
+    ?assertMatch(
+        {shutdown, #{shutdown_count := mailbox_overflow, reason := mailbox_overflow}},
+        emqx_utils:check_oom(Pid, #{
+            enable => true, max_mailbox_size => 10, max_heap_size => 1024 * 1024 * 8
+        })
+    ),
+    ?assertMatch(
+        {shutdown, #{shutdown_count := proc_heap_too_large, reason := proc_heap_too_large}},
+        emqx_utils:check_oom(Pid, #{enable => true, max_mailbox_size => 1000, max_heap_size => 1})
     ),
     Pid ! stop.
 

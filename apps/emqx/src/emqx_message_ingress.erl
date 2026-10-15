@@ -74,7 +74,7 @@ finalize_and_publish(ClientInfo, Msg) ->
 %%--------------------------------------------------------------------
 
 run_hooks(Ctx, Msg) ->
-    case emqx_hooks:run_fold_strict('message.ingress', [Ctx], Msg) of
+    case emqx_hooks:'message.ingress'(Ctx, Msg) of
         {ok, {error, Reason}} ->
             {error, Reason};
         {ok, NMsg} ->

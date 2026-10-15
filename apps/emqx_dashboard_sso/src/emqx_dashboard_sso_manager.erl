@@ -241,7 +241,7 @@ update_config(Backend, UpdateReq) ->
 
 pre_config_update(_, {update, _Backend, Config}, _OldConf) ->
     {ok, maybe_write_certs(Config)};
-pre_config_update(_, {delete, _Backend}, undefined) ->
+pre_config_update(_, {delete, _Backend}, OldConf) when OldConf =:= undefined; OldConf =:= null ->
     throw(not_exists);
 pre_config_update(_, {delete, _Backend}, _OldConf) ->
     {ok, null}.

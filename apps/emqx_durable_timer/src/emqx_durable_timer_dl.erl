@@ -2,6 +2,9 @@
 %% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_durable_timer_dl).
+
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 -moduledoc """
 Data layer for the durable timer queue.
 
@@ -271,7 +274,7 @@ delete_epoch_if_empty(Epoch) ->
     emqx_durable_timer:key(),
     emqx_durable_timer:value(),
     emqx_durable_timer:delay()
-) -> ok.
+) -> ok | emqx_ds:error(_).
 insert_dead_hand(Type, Epoch, Key, Val, Delay) when
     ?is_valid_timer(Type, Key, Val, Delay) andalso is_binary(Epoch)
 ->

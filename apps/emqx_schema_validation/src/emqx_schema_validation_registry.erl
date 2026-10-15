@@ -292,6 +292,7 @@ drop_metrics(Name) ->
     ok = emqx_metrics_worker:clear_metrics(?METRIC_NAME, Name).
 
 update_topic_index(Name, Pos, Topics) ->
+    ok = emqx_schema_validation:register_hooks(),
     lists:foreach(
         fun(Topic) ->
             true = emqx_topic_index:insert(Topic, Pos, Name, ?VALIDATION_TOPIC_INDEX)

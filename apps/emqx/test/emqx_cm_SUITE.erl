@@ -121,6 +121,29 @@ t_disconnected_sessions_stat(_) ->
     ?assertEqual(Baseline, emqx_stats:getstat('disconnected_sessions.count')).
 
 -doc """
+`set_chan_info_stats/3` writes the info and the sparse stats of a channel in
+one call. It does not create a row for a channel that has no row.
+""".
+t_set_chan_info_stats(_) ->
+    ClientId = <<"info-stats">>,
+    Info = #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(ClientId, Info, [{recv_oct, 10}]),
+    Info1 = Info#{proto_ver => 5},
+    Stats1 = [{recv_oct, 20}, {mqueue_len, 0}, {subscriptions_cnt, 1}],
+    ?assert(emqx_cm:set_chan_info_stats(ClientId, Info1, Stats1)),
+    ?assertEqual(Info1, emqx_cm:get_chan_info(ClientId)),
+    ?assertEqual([{recv_oct, 20}, {subscriptions_cnt, 1}], stored_chan_stats(ClientId)),
+    ?assertEqual(
+        maps:from_list(emqx_cm:restore_sparse_stats(Stats1)),
+        maps:from_list(emqx_cm:get_chan_stats(ClientId))
+    ),
+    ok = emqx_cm:unregister_channel(ClientId),
+    ?assertNot(emqx_cm:set_chan_info_stats(ClientId, Info1, Stats1)),
+    ?assertEqual(undefined, emqx_cm:get_chan_info(ClientId)),
+    ?assertError(function_clause, emqx_cm:set_chan_info_stats(undefined, #{}, [])).
+
+-doc """
 The channel info table drops a stat only when its key is in
 `sparse_stats_defaults/0` and its value is 0. Other zeros and non-integer
 values stay. `get_chan_stats/1,2`, which other nodes call, return the

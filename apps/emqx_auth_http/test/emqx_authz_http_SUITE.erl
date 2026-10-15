@@ -8,6 +8,7 @@
 -compile(export_all).
 
 -include_lib("emqx_auth/include/emqx_authz.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
@@ -1094,6 +1095,66 @@ t_oauth2_client_credentials(TCConfig) ->
         listener => 'tcp:default'
     },
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)).
+
+t_oauth2_refresh_on_401(TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    TestPid = self(),
+    Counter = counters:new(1, []),
+    Handler = fun(Req0, State) ->
+        {ok, _, Req1} = cowboy_req:read_body(Req0),
+        case cowboy_req:path(Req1) of
+            <<"/authz/token">> ->
+                counters:add(Counter, 1, 1),
+                Token = integer_to_binary(counters:get(Counter, 1)),
+                Body = emqx_utils_json:encode(#{access_token => Token, expires_in => 3600}),
+                {ok,
+                    cowboy_req:reply(
+                        200, #{<<"content-type">> => <<"application/json">>}, Body, Req1
+                    ),
+                    State};
+            <<"/authz/check">> ->
+                Header = cowboy_req:header(<<"authorization">>, Req1),
+                Status =
+                    case Header of
+                        <<"Bearer 1">> -> 401;
+                        <<"Bearer 2">> -> 200
+                    end,
+                TestPid ! {oauth2_response, Header, Status},
+                Body = emqx_utils_json:encode(#{result => allow}),
+                {ok,
+                    cowboy_req:reply(
+                        Status, #{<<"content-type">> => <<"application/json">>}, Body, Req1
+                    ),
+                    State}
+        end
+    end,
+
+    ok = setup_handler_and_config(TCConfig, Handler, #{
+        <<"url">> => <<BaseURL/binary, "/authz/check">>,
+        <<"oauth2">> => oauth2_config(<<BaseURL/binary, "/authz/token">>)
+    }),
+    Topic = <<"oauth2/test">>,
+    Payload = <<"payload">>,
+    %% An internal subscription observes delivery without consuming the stale token on SUBSCRIBE.
+    ok = emqx:subscribe(Topic),
+    {ok, Client} = emqtt:start_link([{username, <<"plain">>}, {password, <<"plain">>}]),
+    emqx_common_test_helpers:on_exit(fun() -> emqtt:stop(Client) end),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _} = emqtt:publish(Client, Topic, Payload, [{qos, 1}]),
+    receive
+        {oauth2_response, <<"Bearer 1">>, 401} -> ok
+    after 2_000 -> ct:fail(no_401)
+    end,
+    receive
+        {oauth2_response, <<"Bearer 2">>, 200} -> ok
+    after 2_000 -> ct:fail(no_retry)
+    end,
+    ?assertEqual(2, counters:get(Counter, 1)),
+    receive
+        {deliver, Topic, #message{topic = Topic, payload = Payload}} -> ok
+    after 2_000 -> ct:fail(message_not_delivered)
+    end,
+    ok = emqx:unsubscribe(Topic).
 
 t_oauth2_ssl_certs_are_saved(TCConfig) ->
     BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,

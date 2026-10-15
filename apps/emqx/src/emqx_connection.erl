@@ -667,8 +667,7 @@ handle_msg({event, _Other}, State = #state{channel = Channel}) ->
         undefined ->
             ok;
         ClientId ->
-            emqx_cm:set_chan_info(ClientId, info(State)),
-            maybe_set_chan_stats(ClientId, State)
+            set_chan_info_stats(ClientId, State)
     end,
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
@@ -781,7 +780,10 @@ handle_timeout(
     {Msgs, NState} = check_sendq_congestion(State),
     maybe_set_chan_stats(ClientId, NState),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, NState),
-    {ok, Msgs, NState#state{stats_timer = undefined}};
+    #state{channel = NChannel} = NState,
+    {ok, Msgs, NState#state{
+        channel = emqx_channel:refresh_quota(NChannel), stats_timer = undefined
+    }};
 handle_timeout(
     TRef,
     keepalive,
@@ -803,6 +805,14 @@ try_set_chan_stats(State = #state{channel = Channel}) ->
         %% ClientID is not yet known, nothing to report.
         undefined -> false;
         ClientId -> maybe_set_chan_stats(ClientId, State)
+    end.
+
+%% Write the info and, when the client-info REST API is enabled, the stats
+%% of the channel in one table write.
+set_chan_info_stats(ClientId, State) ->
+    case emqx_features:client_info_enabled() of
+        true -> emqx_cm:set_chan_info_stats(ClientId, info(State), stats(State));
+        false -> emqx_cm:set_chan_info(ClientId, info(State))
     end.
 
 %% Report per-connection stats to the client-info table, unless the client-info

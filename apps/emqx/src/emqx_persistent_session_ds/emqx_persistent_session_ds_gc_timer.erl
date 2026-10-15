@@ -39,24 +39,29 @@ init() ->
     non_neg_integer()
 ) ->
     ok | emqx_ds:error(_).
-on_connect(ClientId, Guard, ExpiryIntervalMS) when
-    is_binary(ClientId), is_binary(Guard), is_integer(ExpiryIntervalMS)
-->
-    emqx_durable_timer:dead_hand(
-        durable_timer_type(), ClientId, Guard, ExpiryIntervalMS
-    ).
+on_connect(ClientId, Cookie, ExpiryIntervalMS) ->
+    %% TODO: don't mask errors and do the whole thing async-ly, so the
+    %% session can install dead hand without blocking and with retry.
+    case emqx_durable_timer:dead_hand(durable_timer_type(), ClientId, Cookie, ExpiryIntervalMS) of
+        ok ->
+            ok;
+        Err ->
+            ?tp(warning, sessds_failed_to_set_up_gc_timer, #{
+                clientid => ClientId,
+                reason => Err
+            }),
+            ok
+    end.
 
 -spec on_disconnect(
     emqx_types:clientid(),
     emqx_persistent_session_ds_state:guard(),
     non_neg_integer()
-) -> ok.
-on_disconnect(ClientId, Guard, ExpiryIntervalMS) when
-    is_binary(ClientId), is_binary(Guard), is_integer(ExpiryIntervalMS)
-->
+) -> ok | emqx_ds:error(_).
+on_disconnect(ClientId, Cookie, ExpiryIntervalMS) ->
     warn_timeout(
         emqx_durable_timer:apply_after(
-            durable_timer_type(), ClientId, Guard, ExpiryIntervalMS
+            durable_timer_type(), ClientId, Cookie, ExpiryIntervalMS
         )
     ).
 
@@ -72,20 +77,29 @@ durable_timer_type() -> 16#DEAD5E55.
 
 timer_introduced_in() -> "6.0.0".
 
-handle_durable_timeout(SessionId, MaybeGuard) ->
-    ?tp(debug, ?sessds_expired, #{id => SessionId, guard => MaybeGuard}),
-    Guard =
-        case MaybeGuard of
+handle_durable_timeout(SessionId, Cookie) ->
+    ?tp(debug, ?sessds_expired, #{id => SessionId, cookie => Cookie}),
+    SessionGuard =
+        case Cookie of
             <<>> ->
-                %% Handle timers created on versions older than 6.1.x:
-                %% those didn't check the guard and kept this value
-                %% empty. This branch should not be triggered by the
-                %% new code.
+                %% Legacy case: in the original version of the code (ca.
+                %% 6.0.0) the timer didn't hold the guard and would
+                %% destroy sessions indiscriminately. Emulate this
+                %% behavior for backward compatibility. New code must not
+                %% use this path.
                 '_';
             _ ->
-                MaybeGuard
+                Cookie
         end,
-    emqx_persistent_session_ds:destroy_session(SessionId, Guard).
+    case emqx_persistent_session_ds:expire_session(SessionId, SessionGuard) of
+        ok ->
+            ok;
+        ?err_rec(Reason) ->
+            emqx_durable_timer:retry(Reason);
+        ?err_unrec(_) ->
+            %% Taken over
+            ok
+    end.
 
 %%================================================================================
 %% Internal exports
