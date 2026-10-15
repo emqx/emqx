@@ -204,7 +204,72 @@ t_gateway_lookup_redacts_credentials(Config) ->
     ).
 
 assert_gateway_lookup_redacts_credentials(Authentication, Secrets, VisibleValues) ->
-    Conf = #{
+    JSON = binary_to_list(emqx_utils_json:encode(mqttsn_conf(Authentication))),
+    emqx_gateway_cli:gateway(["load", "mqttsn", JSON]),
+    ?assertEqual("ok\n", acc_print()),
+    try
+        emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
+        assert_safe_gateway_output(acc_print(), Secrets, VisibleValues)
+    after
+        emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+        _ = acc_print(),
+        ok = emqx_authn_chains:delete_chain(emqx_gateway_utils:global_chain(mqttsn))
+    end.
+
+-doc """
+`conf show` redacts the gateway credentials, including
+`clientinfo_override.password` and the `file://` bind password, and prints them
+unchanged only when the opt-out flag is given.
+""".
+t_gateway_conf_show_redacts_credentials(Config) ->
+    BindPasswordFile = filename:join(?config(priv_dir, Config), "conf-show-bind-password"),
+    ok = file:write_file(BindPasswordFile, ?LDAP_BIND_PASSWORD),
+    BindPasswordFileURI = iolist_to_binary(["file://", BindPasswordFile]),
+    Cases = [
+        {jwt_authentication(), [?AUTH_SECRET], [<<"hmac-based">>]},
+        {http_authentication(), [?HTTP_AUTHORIZATION], [
+            <<"gateway-cli-visible-header">>
+        ]},
+        {
+            ldap_authentication(BindPasswordFileURI),
+            [
+                ?LDAP_PASSWORD, BindPasswordFileURI
+            ],
+            [
+                <<"gateway-cli-ldap-base">>, <<"bind_password">>
+            ]
+        }
+    ],
+    lists:foreach(
+        fun({Authentication, Secrets, VisibleValues}) ->
+            assert_gateway_conf_show_redacts_credentials(
+                Authentication, Secrets ++ [?OVERRIDE_PASSWORD], VisibleValues
+            )
+        end,
+        Cases
+    ).
+
+assert_gateway_conf_show_redacts_credentials(Authentication, Secrets, VisibleValues) ->
+    JSON = binary_to_list(emqx_utils_json:encode(mqttsn_conf(Authentication))),
+    emqx_gateway_cli:gateway(["load", "mqttsn", JSON]),
+    ?assertEqual("ok\n", acc_print()),
+    try
+        emqx_conf_cli:conf(["show", "gateway"]),
+        assert_safe_gateway_output(acc_print(), Secrets, VisibleValues),
+        emqx_conf_cli:conf(["show", "--no-secret-redaction", "gateway"]),
+        Raw = iolist_to_binary(acc_print()),
+        lists:foreach(
+            fun(Secret) -> ?assertNotEqual(nomatch, binary:match(Raw, Secret), Secret) end,
+            Secrets
+        )
+    after
+        emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+        _ = acc_print(),
+        ok = emqx_authn_chains:delete_chain(emqx_gateway_utils:global_chain(mqttsn))
+    end.
+
+mqttsn_conf(Authentication) ->
+    #{
         <<"idle_timeout">> => <<"30s">>,
         <<"mountpoint">> => <<"mqttsn/">>,
         <<"clientinfo_override">> => #{<<"password">> => ?OVERRIDE_PASSWORD},
@@ -216,18 +281,7 @@ assert_gateway_lookup_redacts_credentials(Authentication, Secrets, VisibleValues
                 <<"bind">> => <<"1884">>
             }
         ]
-    },
-    JSON = binary_to_list(emqx_utils_json:encode(Conf)),
-    emqx_gateway_cli:gateway(["load", "mqttsn", JSON]),
-    ?assertEqual("ok\n", acc_print()),
-    try
-        emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
-        assert_safe_gateway_output(acc_print(), Secrets, VisibleValues)
-    after
-        emqx_gateway_cli:gateway(["unload", "mqttsn"]),
-        _ = acc_print(),
-        ok = emqx_authn_chains:delete_chain(emqx_gateway_utils:global_chain(mqttsn))
-    end.
+    }.
 
 assert_safe_gateway_output(Output0, Secrets, VisibleValues) ->
     Output = iolist_to_binary(Output0),
