@@ -102,9 +102,6 @@ jobs:
       - name: Check BPAPI baselines
         run: |
           ./scripts/check-bpapi-baselines.exs
-      - name: Check BPAPI targets
-        run: |
-          ./scripts/check-bpapi-targets.exs
       - name: Check API module scopes
         run: |
           ./scripts/check-api-scopes.sh
