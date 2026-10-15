@@ -21,7 +21,8 @@
     add_route/1,
     add_route/2,
     do_add_route/1,
-    do_add_route/2
+    do_add_route/2,
+    do_add_routes/1
 ]).
 
 -export([
@@ -258,6 +259,25 @@ do_add_route(Topic) when is_binary(Topic) ->
 do_add_route(Topic, Dest) when is_binary(Topic) ->
     ok = emqx_router_helper:monitor(Dest),
     mria_insert_route_v2(Topic, Dest, single).
+
+-doc "Add local routes in one Mria activity. Each dirty write replicates separately.".
+-spec do_add_routes([emqx_types:topic()]) -> ok.
+do_add_routes([]) ->
+    ok;
+do_add_routes([Topic]) ->
+    do_add_route(Topic);
+do_add_routes(Topics) ->
+    Dest = node(),
+    ok = emqx_router_helper:monitor(Dest),
+    Batch = maps:from_list([{{Topic, Dest}, {add}} || Topic <- Topics]),
+    Shard =
+        case get_schema_vsn() of
+            v2 -> ?ROUTE_SHARD_V2;
+            v3 -> ?ROUTE_SHARD_V3
+        end,
+    Errors = mria:async_dirty(Shard, fun ?MODULE:mria_batch_run/2, [v2, Batch]),
+    0 = map_size(Errors),
+    ok.
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic
 %% filters associated with route destination.

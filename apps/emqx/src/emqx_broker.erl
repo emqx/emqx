@@ -67,6 +67,7 @@
 -export([
     init/1,
     handle_call/3,
+    handle_continue/2,
     handle_cast/2,
     handle_info/2,
     terminate/2,
@@ -84,6 +85,8 @@
 -define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).
 
 -define(PT_FLAG_ASYNC_SHARD_DISPATCH, '$emqx_broker__async_fanout_shard_dispatch').
+
+-define(MAX_SUBSCRIBE_BATCH_SIZE, 1000).
 
 -define(cast_or_eval(PICK, Msg, Expr),
     case PICK of
@@ -674,12 +677,14 @@ init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
-handle_call({subscribe, Topic, SubPid, 0}, {From, _Tag}, State) ->
-    Existed = ets:member(?SUBSCRIBER, Topic),
-    Result = maybe_add_route(Existed, Topic, From),
-    assert_ok_result(Result),
-    true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
-    {reply, Result, State};
+handle_call({subscribe, Topic, SubPid, 0}, From, State) ->
+    case ets:member(?SUBSCRIBER, Topic) of
+        true ->
+            true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
+            {reply, ok, State};
+        false ->
+            handle_new_subscription(Topic, SubPid, From, State)
+    end;
 handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
     Existed = ets:member(?SUBSCRIBER, {shard, Topic, I}),
     Recs = [{{shard, Topic, I}, SubPid}],
@@ -713,6 +718,14 @@ handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
+
+-doc "Handle the broker request that ended a subscription batch.".
+handle_continue({'$gen_call', From, Request}, State) ->
+    {reply, Reply, NewState} = handle_call(Request, From, State),
+    gen_server:reply(From, Reply),
+    {noreply, NewState};
+handle_continue({'$gen_cast', Request}, State) ->
+    handle_cast(Request, State).
 
 handle_cast({dispatch, Topic, I, Msg}, State) ->
     ?BROKER_INSTR_TS(TDisp),
@@ -823,10 +836,66 @@ do_dispatch_shards_async(_Topic, _Msg, [], N) ->
 assert_ok_result(ok) -> ok;
 assert_ok_result(Ref) when is_reference(Ref) -> ok.
 
-maybe_add_route(_Existed = false, Topic, ReplyTo) ->
-    sync_route(add, Topic, #{reply => ReplyTo});
-maybe_add_route(_Existed = true, _Topic, _ReplyTo) ->
-    ok.
+-doc "Add a subscription whose topic is absent from the subscriber table.".
+handle_new_subscription(Topic, SubPid, From = {ReplyTo, _Tag}, State) ->
+    case use_syncer_process() of
+        true ->
+            Result = push_sync_route(add, Topic, #{reply => ReplyTo}),
+            _ = external_sync_route(add, Topic),
+            assert_ok_result(Result),
+            true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
+            {reply, Result, State};
+        false ->
+            {Requests, Next} = collect_subscriptions(
+                [{Topic, SubPid, From}], ?MAX_SUBSCRIBE_BATCH_SIZE - 1
+            ),
+            ok = add_subscriptions(Topic, Requests),
+            case Next of
+                none -> {noreply, State};
+                Message -> {noreply, State, {continue, Message}}
+            end
+    end.
+
+-doc "Collect queued subscriptions without passing other broker calls or casts.".
+collect_subscriptions(Requests, 0) ->
+    {Requests, none};
+collect_subscriptions(Requests, Remaining) ->
+    receive
+        {'$gen_call', From, {subscribe, Topic, SubPid, 0}} ->
+            collect_subscriptions([{Topic, SubPid, From} | Requests], Remaining - 1);
+        %% Process other broker requests before collecting later subscriptions.
+        {'$gen_call', _From, _Request} = Message ->
+            {Requests, Message};
+        {'$gen_cast', _Request} = Message ->
+            {Requests, Message}
+    after 0 ->
+        {Requests, none}
+    end.
+
+-doc "Install new routes and subscribers before replying to the collected calls.".
+add_subscriptions(Topic, [{Topic, SubPid, From}]) ->
+    ok = emqx_router:do_add_routes([Topic]),
+    _ = external_sync_route(add, Topic),
+    true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
+    gen_server:reply(From, ok);
+add_subscriptions(InitialTopic, Requests) ->
+    {NewTopics, Subscribers, Callers} = lists:foldl(
+        fun({Topic, SubPid, From}, {Topics, Subs, Froms}) ->
+            UpdatedTopics =
+                case ets:member(?SUBSCRIBER, Topic) of
+                    true -> Topics;
+                    false -> Topics#{Topic => true}
+                end,
+            {UpdatedTopics, [{Topic, SubPid} | Subs], [From | Froms]}
+        end,
+        {#{InitialTopic => true}, [], []},
+        Requests
+    ),
+    Topics = maps:keys(NewTopics),
+    ok = emqx_router:do_add_routes(Topics),
+    lists:foreach(fun(Topic) -> external_sync_route(add, Topic) end, Topics),
+    true = ets:insert(?SUBSCRIBER, Subscribers),
+    lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Callers).
 
 maybe_delete_route(Topic) ->
     case ets:member(?SUBSCRIBER, Topic) of
