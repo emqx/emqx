@@ -34,10 +34,6 @@
 %% RPC targets
 -export([
     all_local_channels_count/0,
-    %% Called through `emqx_eviction_agent_proto_v1' and `_v2' by 5.8 to 5.10,
-    %% 6.0.0 to 6.0.3, 6.1.0 to 6.1.4, 6.2.0 to 6.2.3 and 6.3.0. These call
-    %% sites name the proto module and do not negotiate a version. Keep this
-    %% export while any of those releases can be a peer.
     evict_session_channel/3,
     do_evict_session_channel_v3/4
 ]).
