@@ -13,14 +13,30 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    [t_byte_limit_regular, t_delete_all, {group, lastvalue10}, {group, lastvalue1000}].
+    [
+        {group, with_legacy},
+        {group, without_legacy}
+    ].
 
 groups() ->
+    Cases = [
+        t_byte_limit_regular,
+        t_delete_all,
+        t_consistency_property,
+        {group, lastvalue10},
+        {group, lastvalue1000}
+    ],
     [
+        {with_legacy, [], Cases},
+        {without_legacy, [], Cases},
         {lastvalue10, [], [t_byte_limit_lastvalue]},
         {lastvalue1000, [], [t_byte_limit_lastvalue]}
     ].
 
+init_per_group(with_legacy, Config) ->
+    [{legacy_updates, true} | Config];
+init_per_group(without_legacy, Config) ->
+    [{legacy_updates, false} | Config];
 init_per_group(lastvalue10, Config) ->
     [{key_count, 10} | Config];
 init_per_group(lastvalue1000, Config) ->
@@ -29,15 +45,10 @@ init_per_group(lastvalue1000, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
-%% We have:
-%% Each payload is 1 - 2000 bytes, i.e 1000 bytes average
-%% The size limit is 1000 * 1000 / 4 = 250000 bytes
-%%
-%% The Threshold is 10% of the max, i.e 25000 bytes
-%% In the end of test, we should have < 250000 * 1.1 = 275000 bytes.
-t_byte_limit_regular(_Config) ->
-    Index0 = emqx_mq_quota_index:new(
-        #{bytes => 250000, threshold_percentage => 10}, now_us()
+%% Check that repeated inserts leave fewer than 300000 indexed bytes in at most 11 buckets.
+t_byte_limit_regular(Config) ->
+    Index0 = new_index(
+        #{bytes => 250000, threshold_percentage => 10}, now_us(), Config
     ),
     NowTime = now_us(),
     EndTime = NowTime + 2_000_000,
@@ -56,24 +67,78 @@ t_byte_limit_regular(_Config) ->
     ),
     Info = emqx_mq_quota_index:inspect(Index),
     ct:pal("Index: ~p", [Info]),
-    #{bytes := #{total := BytesTotal, size := BytesIndexSize}} = Info,
+    #{common := #{total := #{bytes := BytesTotal}, size := BytesIndexSize}} = Info,
     ?assert(BytesTotal < 250000 * 1.2),
     ?assert(BytesIndexSize =< 11),
+    case ?config(legacy_updates, Config) of
+        true ->
+            #{bytes := #{total := LegacyTotal, size := LegacySize}} = Info,
+            ?assert(LegacyTotal < 250000 * 1.2),
+            ?assert(LegacySize =< 11);
+        false ->
+            ?assertMatch(#{bytes := undefined, count := undefined}, Info)
+    end,
     ok.
 
-%% We have:
-%% Each payload is 1 - 2000 bytes, i.e 1000 bytes average
-%% The size limit is 1000 * 1000 / 4 = 250000 bytes, thus allowing ~250 distinct keys.
-%% We test with 1000 and 10 keys.
-%% With 1000 keys, the index should be full in the end of the test.
-%% With 10 keys, it should be almost empty.
-%%
-%% The Threshold is 10% of the max, i.e 25000 bytes
-%% In the end of test, we should have < 250000 * 1.1 = 275000 bytes.
+%% Check that removing every inserted message leaves zero indexed bytes and two buckets.
+t_delete_all(Config) ->
+    KeyCount = 10000,
+    PayloadSize = 200,
+    Index0 = new_index(
+        #{bytes => 250000, threshold_percentage => 10}, now_us(), Config
+    ),
+    %% Insert enough messages to create at least ten buckets.
+    {Index1, DB} = lists:foldl(
+        fun(Key, {IndexAcc0, DBAcc0}) ->
+            TsUs = now_us(),
+            Update = ?QUOTA_INDEX_UPDATE(TsUs, payload_size(PayloadSize), 0),
+            IndexAcc = emqx_mq_quota_index:apply_update(
+                IndexAcc0,
+                Update
+            ),
+            DBAcc = DBAcc0#{Key => Update},
+            {IndexAcc, DBAcc}
+        end,
+        {Index0, #{}},
+        lists:seq(1, KeyCount)
+    ),
+    Info1 = #{common := #{size := BytesIndexSize1}} = emqx_mq_quota_index:inspect(Index1),
+    ct:pal("Index before delete: ~p", [Info1]),
+    ?assert(BytesIndexSize1 >= 10),
+    Index2 = maps:fold(
+        fun(_Key, ?QUOTA_INDEX_UPDATE(TsUs, Bytes, Count), IndexAcc) ->
+            DeleteUpdate = ?QUOTA_INDEX_UPDATE(TsUs, -Bytes, -Count),
+            emqx_mq_quota_index:apply_update(IndexAcc, DeleteUpdate)
+        end,
+        Index1,
+        DB
+    ),
+    Info2 =
+        #{
+            common := #{
+                size := BytesIndexSize2,
+                total := #{bytes := BytesTotal2}
+            }
+        } = emqx_mq_quota_index:inspect(Index2),
+    ct:pal("Index after delete: ~p", [Info2]),
+    ?assertEqual(0, BytesTotal2),
+    ?assertEqual(2, BytesIndexSize2),
+    case ?config(legacy_updates, Config) of
+        true ->
+            #{bytes := #{size := LegacySize1}} = Info1,
+            ?assert(LegacySize1 >= 10),
+            ?assertMatch(#{bytes := #{total := 0, size := 2}}, Info2);
+        false ->
+            ?assertMatch(#{bytes := undefined, count := undefined}, Info1),
+            ?assertMatch(#{bytes := undefined, count := undefined}, Info2)
+    end,
+    ok.
+
+%% Check that repeated message replacements leave fewer than 300000 indexed bytes in at most 21 buckets.
 t_byte_limit_lastvalue(Config) ->
     KeyCount = ?config(key_count, Config),
-    Index0 = emqx_mq_quota_index:new(
-        #{bytes => 250000, threshold_percentage => 10}, now_us()
+    Index0 = new_index(
+        #{bytes => 250000, threshold_percentage => 10}, now_us(), Config
     ),
     NowTime = now_us(),
     EndTime = NowTime + 2_000_000,
@@ -101,59 +166,34 @@ t_byte_limit_lastvalue(Config) ->
     ),
     Info = emqx_mq_quota_index:inspect(Index),
     ct:pal("Index: ~p", [Info]),
-    #{bytes := #{total := BytesTotal, size := BytesIndexSize}} = Info,
+    #{common := #{total := #{bytes := BytesTotal}, size := BytesIndexSize}} = Info,
     ?assert(BytesTotal < 250000 * 1.2),
     ?assert(BytesIndexSize =< 21),
+    case ?config(legacy_updates, Config) of
+        true ->
+            #{bytes := #{total := LegacyTotal, size := LegacySize}} = Info,
+            ?assert(LegacyTotal < 250000 * 1.2),
+            ?assert(LegacySize =< 21);
+        false ->
+            ?assertMatch(#{bytes := undefined, count := undefined}, Info)
+    end,
     ok.
 
-%% Verify that after deleting all messages, the index shrinks.
-t_delete_all(_Config) ->
-    KeyCount = 10000,
-    PayloadSize = 200,
-    Index0 = emqx_mq_quota_index:new(
-        #{bytes => 250000, threshold_percentage => 10}, now_us()
-    ),
-    %% Fill the index with messages
-    {Index1, DB} = lists:foldl(
-        fun(Key, {IndexAcc0, DBAcc0}) ->
-            TsUs = now_us(),
-            Update = ?QUOTA_INDEX_UPDATE(TsUs, payload_size(PayloadSize), 0),
-            IndexAcc = emqx_mq_quota_index:apply_update(
-                IndexAcc0,
-                Update
-            ),
-            DBAcc = DBAcc0#{Key => Update},
-            {IndexAcc, DBAcc}
-        end,
-        {Index0, #{}},
-        lists:seq(1, KeyCount)
-    ),
-    Info1 = #{bytes := #{size := BytesIndexSize1}} = emqx_mq_quota_index:inspect(Index1),
-    ct:pal("Index before delete: ~p", [Info1]),
-    ?assert(BytesIndexSize1 >= 10),
-    Index2 = maps:fold(
-        fun(_Key, ?QUOTA_INDEX_UPDATE(TsUs, Bytes, Count), IndexAcc) ->
-            DeleteUpdate = ?QUOTA_INDEX_UPDATE(TsUs, -Bytes, -Count),
-            emqx_mq_quota_index:apply_update(IndexAcc, DeleteUpdate)
-        end,
-        Index1,
-        DB
-    ),
-    Info2 =
-        #{
-            bytes := #{
-                size := BytesIndexSize2,
-                total := BytesTotal2
-            }
-        } = emqx_mq_quota_index:inspect(Index2),
-    ct:pal("Index after delete: ~p", [Info2]),
-    ?assertEqual(0, BytesTotal2),
-    ?assertEqual(2, BytesIndexSize2),
-    ok.
+%% Check that randomized replacements followed by zero-byte replacements leave zero bytes and one message per key.
+t_consistency_property(Config) ->
+    Property = emqx_mq_quota_index:t_consistency(?config(legacy_updates, Config)),
+    ?assert(proper:quickcheck(Property, [{numtests, 1000}, {to_file, user}])).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+new_index(Opts, TsUs, Config) ->
+    Index = emqx_mq_quota_index:new(Opts, TsUs),
+    case ?config(legacy_updates, Config) of
+        true -> Index;
+        false -> emqx_mq_quota_index:drop_legacy(Index)
+    end.
 
 loop_insert(Index, GenF, GenSt, EndTime) ->
     NowUs = now_us(),
