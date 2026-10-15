@@ -37,6 +37,7 @@ init_per_testcase(_TestCase, Config) ->
     [{profile_config, ProfileConfig} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
+    meck:unload(),
     ok = snabbkaffe:stop(),
     _ = emqx_s3:stop_profile(profile_id()).
 
