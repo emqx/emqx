@@ -22,7 +22,7 @@
     add_route/2,
     do_add_route/1,
     do_add_route/2,
-    do_add_routes/1
+    do_add_routes/2
 ]).
 
 -export([
@@ -261,17 +261,17 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
     mria_insert_route_v2(Topic, Dest, single).
 
 -doc "Add local routes in one Mria activity. Each dirty write replicates separately.".
--spec do_add_routes([emqx_types:topic()]) -> ok.
-do_add_routes([]) ->
+-spec do_add_routes(schemavsn(), [emqx_types:topic()]) -> ok.
+do_add_routes(_SchemaVsn, []) ->
     ok;
-do_add_routes([Topic]) ->
+do_add_routes(_SchemaVsn, [Topic]) ->
     do_add_route(Topic);
-do_add_routes(Topics) ->
+do_add_routes(SchemaVsn, Topics) ->
     Dest = node(),
     ok = emqx_router_helper:monitor(Dest),
     Batch = maps:from_list([{{Topic, Dest}, {add}} || Topic <- Topics]),
     Shard =
-        case get_schema_vsn() of
+        case SchemaVsn of
             v2 -> ?ROUTE_SHARD_V2;
             v3 -> ?ROUTE_SHARD_V3
         end,

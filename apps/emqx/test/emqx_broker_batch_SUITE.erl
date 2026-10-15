@@ -15,7 +15,7 @@ all() ->
     [{group, v2}, {group, v3}].
 
 groups() ->
-    Cases = [t_subscribe_batch, t_unsubscribe_order, t_other_call_order],
+    Cases = [t_subscribe_batch, t_unsubscribe_order, t_other_call_order, t_routing_config],
     [{v2, [], Cases ++ [t_syncer]}, {v3, [], Cases}].
 
 init_per_group(Schema, Config) ->
@@ -61,7 +61,8 @@ end_per_testcase(_Case, Config) ->
         end,
         emqx_router:topics()
     ),
-    emqx_config:put([broker, routing, batch_sync, enable_on], none).
+    {ok, _} = emqx:update_config([broker, routing, batch_sync], #{<<"enable_on">> => <<"none">>}),
+    ok.
 
 -doc "Queued subscriptions share a route activity and receive replies after all routes exist.".
 t_subscribe_batch(Config) ->
@@ -72,10 +73,10 @@ t_subscribe_batch(Config) ->
     ok = gen_server:call(Worker, {subscribe, Existing, self(), 0}),
     meck:reset(emqx_router),
     TestPid = self(),
-    meck:expect(emqx_router, do_add_routes, fun(Topics) ->
+    meck:expect(emqx_router, do_add_routes, fun(SchemaVsn, Topics) ->
         TestPid ! {route_batch, self(), Topics},
         receive
-            continue_batch -> meck:passthrough([Topics])
+            continue_batch -> meck:passthrough([SchemaVsn, Topics])
         after 5000 ->
             error(batch_not_released)
         end
@@ -148,7 +149,7 @@ t_other_call_order(Config) ->
 -doc "Schema v2 keeps router-syncer acknowledgements when batch_sync is enabled.".
 t_syncer(Config) ->
     Worker = ?config(worker, Config),
-    ok = emqx_config:put([broker, routing, batch_sync, enable_on], all),
+    {ok, _} = emqx:update_config([broker, routing, batch_sync], #{<<"enable_on">> => <<"all">>}),
     Topics = [<<"batch/syncer/1">>, <<"batch/syncer/2">>],
     Requests = with_suspended(Worker, fun() ->
         [request(Worker, Topic, self()) || Topic <- Topics]
@@ -163,6 +164,28 @@ t_syncer(Config) ->
     ),
     [?assert(emqx_router:has_route(Topic, node())) || Topic <- Topics],
     ?assertEqual(0, meck:num_calls(emqx_router, do_add_routes, '_')).
+
+-doc "Leaf and parent config updates refresh the cached routing mode.".
+t_routing_config(Config) ->
+    Worker = ?config(worker, Config),
+    {ok, _} = emqx:update_config([broker, routing, batch_sync, enable_on], <<"all">>),
+    Result = gen_server:call(Worker, {subscribe, <<"batch/config/enabled">>, self(), 0}),
+    case emqx_router:get_schema_vsn() of
+        v2 ->
+            ?assert(is_reference(Result)),
+            ?assertEqual(ok, emqx_router_syncer:wait(Result));
+        v3 ->
+            ?assertEqual(ok, Result)
+    end,
+    {ok, _} = emqx:update_config(
+        [broker, routing], #{<<"batch_sync">> => #{<<"enable_on">> => <<"none">>}}
+    ),
+    meck:reset(emqx_router),
+    Requests = with_suspended(Worker, fun() ->
+        [request(Worker, Topic, self()) || Topic <- [<<"batch/config/1">>, <<"batch/config/2">>]]
+    end),
+    await_replies(Requests),
+    ?assertEqual(1, meck:num_calls(emqx_router, do_add_routes, '_')).
 
 request(Worker, Topic, SubPid) ->
     gen_server:send_request(Worker, {subscribe, Topic, SubPid, 0}).

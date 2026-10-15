@@ -5,6 +5,7 @@
 -module(emqx_broker).
 
 -behaviour(gen_server).
+-behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
 -include("emqx_router.hrl").
@@ -16,6 +17,8 @@
 -include("emqx_mqtt.hrl").
 
 -export([start_link/2, create_tabs/0, init_config/0]).
+-export([add_handler/0, remove_handler/0]).
+-export([post_config_update/5, propagated_post_config_update/5]).
 
 %% PubSub
 -export([
@@ -87,6 +90,7 @@
 -define(PT_FLAG_ASYNC_SHARD_DISPATCH, '$emqx_broker__async_fanout_shard_dispatch').
 
 -define(MAX_SUBSCRIBE_BATCH_SIZE, 1000).
+-define(ROUTING_CONF_PATH, [broker, routing, batch_sync, enable_on]).
 
 -define(cast_or_eval(PICK, Msg, Expr),
     case PICK of
@@ -145,6 +149,23 @@ init_config() ->
         ?PT_FLAG_ASYNC_SHARD_DISPATCH,
         emqx:get_config([broker, perf, async_fanout_shard_dispatch], false)
     ).
+
+-doc "Register the handler for router-syncer configuration updates.".
+add_handler() ->
+    emqx_config_handler:add_handler(?ROUTING_CONF_PATH, ?MODULE).
+
+remove_handler() ->
+    emqx_config_handler:remove_handler(?ROUTING_CONF_PATH).
+
+post_config_update(_Path, _Req, EnableOn, _OldConf, _AppEnvs) ->
+    lists:foreach(
+        fun(Worker) -> ok = call(Worker, {update_route_config, EnableOn}) end,
+        emqx_broker_sup:get_broker_pool_workers()
+    ),
+    ok.
+
+propagated_post_config_update(Path, Req, NewConf, OldConf, AppEnvs) ->
+    post_config_update(Path, Req, NewConf, OldConf, AppEnvs).
 
 %%------------------------------------------------------------------------------
 %% Subscribe API
@@ -675,16 +696,25 @@ pick_pub(TopicShard) ->
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #{pool => Pool, id => Id}}.
+    {ok, init_routing_state(#{pool => Pool, id => Id})}.
 
-handle_call({subscribe, Topic, SubPid, 0}, From, State) ->
+handle_call({subscribe, Topic, SubPid, 0}, From, State = #{use_syncer_process := false}) ->
     case ets:member(?SUBSCRIBER, Topic) of
         true ->
             true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
             {reply, ok, State};
         false ->
-            handle_new_subscription(Topic, SubPid, From, State)
+            handle_new_subscription([{Topic, SubPid, From}], State)
     end;
+handle_call({subscribe, Topic, SubPid, 0}, {ReplyTo, _Tag}, State) ->
+    Result =
+        case ets:member(?SUBSCRIBER, Topic) of
+            true -> ok;
+            false -> sync_route(add, Topic, #{reply => ReplyTo}, State)
+        end,
+    assert_ok_result(Result),
+    true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
+    {reply, Result, State};
 handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
     Existed = ets:member(?SUBSCRIBER, {shard, Topic, I}),
     Recs = [{{shard, Topic, I}, SubPid}],
@@ -707,7 +737,7 @@ handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
                 ?cast_or_eval(
                     pick_sub({Topic, 0}),
                     {subscribed, Topic, shard, I},
-                    sync_route(add, Topic, #{})
+                    sync_route(add, Topic, #{}, State)
                 ),
                 [{{shard, Topic}, I} | Recs];
             true ->
@@ -715,6 +745,8 @@ handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
         end,
     true = ets:insert(?SUBSCRIBER, Recs1),
     {reply, ok, State};
+handle_call({update_route_config, EnableOn}, _From, State = #{schema_vsn := SchemaVsn}) ->
+    {reply, ok, State#{use_syncer_process := use_syncer_process(SchemaVsn, EnableOn)}};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -737,14 +769,14 @@ handle_cast({dispatch, Topic, I, Msg}, State) ->
 handle_cast({subscribed, Topic, shard, _I}, State) ->
     %% Do not need to 'maybe add' (i.e. to check if the route exists).
     %% It was already checked that this shard is newely added.
-    _ = sync_route(add, Topic, #{}),
+    _ = sync_route(add, Topic, #{}, State),
     {noreply, State};
 handle_cast({unsubscribed, Topic, shard, _I}, State) ->
-    _ = maybe_delete_route(Topic),
+    _ = maybe_delete_route(Topic, State),
     {noreply, State};
 handle_cast({unsubscribed, Topic, SubPid, 0}, State) ->
     true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
-    _ = maybe_delete_route(Topic),
+    _ = maybe_delete_route(Topic, State),
     {noreply, State};
 handle_cast({unsubscribed, Topic, SubPid, I}, State) ->
     true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
@@ -757,7 +789,7 @@ handle_cast({unsubscribed, Topic, SubPid, I}, State) ->
             ?cast_or_eval(
                 pick_sub({Topic, 0}),
                 {unsubscribed, Topic, shard, I},
-                maybe_delete_route(Topic)
+                maybe_delete_route(Topic, State)
             );
         true ->
             ok
@@ -775,7 +807,7 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+    {ok, init_routing_state(State)}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -836,24 +868,13 @@ do_dispatch_shards_async(_Topic, _Msg, [], N) ->
 assert_ok_result(ok) -> ok;
 assert_ok_result(Ref) when is_reference(Ref) -> ok.
 
--doc "Add a subscription whose topic is absent from the subscriber table.".
-handle_new_subscription(Topic, SubPid, From = {ReplyTo, _Tag}, State) ->
-    case use_syncer_process() of
-        true ->
-            Result = push_sync_route(add, Topic, #{reply => ReplyTo}),
-            _ = external_sync_route(add, Topic),
-            assert_ok_result(Result),
-            true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
-            {reply, Result, State};
-        false ->
-            {Requests, Next} = collect_subscriptions(
-                [{Topic, SubPid, From}], ?MAX_SUBSCRIBE_BATCH_SIZE - 1
-            ),
-            ok = add_subscriptions(Topic, Requests),
-            case Next of
-                none -> {noreply, State};
-                Message -> {noreply, State, {continue, Message}}
-            end
+-doc "Collect subscriptions after finding a topic absent from the subscriber table.".
+handle_new_subscription([{Topic, _SubPid, _From}] = InitialRequests, State) ->
+    {Requests, Next} = collect_subscriptions(InitialRequests, ?MAX_SUBSCRIBE_BATCH_SIZE - 1),
+    ok = add_subscriptions(Topic, Requests, maps:get(schema_vsn, State)),
+    case Next of
+        none -> {noreply, State};
+        Message -> {noreply, State, {continue, Message}}
     end.
 
 -doc "Collect queued subscriptions without passing other broker calls or casts.".
@@ -873,12 +894,12 @@ collect_subscriptions(Requests, Remaining) ->
     end.
 
 -doc "Install new routes and subscribers before replying to the collected calls.".
-add_subscriptions(Topic, [{Topic, SubPid, From}]) ->
-    ok = emqx_router:do_add_routes([Topic]),
+add_subscriptions(Topic, [{Topic, SubPid, From}], SchemaVsn) ->
+    ok = emqx_router:do_add_routes(SchemaVsn, [Topic]),
     _ = external_sync_route(add, Topic),
     true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
     gen_server:reply(From, ok);
-add_subscriptions(InitialTopic, Requests) ->
+add_subscriptions(InitialTopic, Requests, SchemaVsn) ->
     {NewTopics, Subscribers, Callers} = lists:foldl(
         fun({Topic, SubPid, From}, {Topics, Subs, Froms}) ->
             UpdatedTopics =
@@ -892,20 +913,20 @@ add_subscriptions(InitialTopic, Requests) ->
         Requests
     ),
     Topics = maps:keys(NewTopics),
-    ok = emqx_router:do_add_routes(Topics),
+    ok = emqx_router:do_add_routes(SchemaVsn, Topics),
     lists:foreach(fun(Topic) -> external_sync_route(add, Topic) end, Topics),
     true = ets:insert(?SUBSCRIBER, Subscribers),
     lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Callers).
 
-maybe_delete_route(Topic) ->
+maybe_delete_route(Topic, State) ->
     case ets:member(?SUBSCRIBER, Topic) of
         true -> ok;
-        false -> sync_route(delete, Topic, #{})
+        false -> sync_route(delete, Topic, #{}, State)
     end.
 
-sync_route(Action, Topic, ReplyTo) ->
+sync_route(Action, Topic, ReplyTo, #{use_syncer_process := UseSyncer}) ->
     Res =
-        case use_syncer_process() of
+        case UseSyncer of
             false ->
                 regular_sync_route(Action, Topic);
             true ->
@@ -914,27 +935,20 @@ sync_route(Action, Topic, ReplyTo) ->
     _ = external_sync_route(Action, Topic),
     Res.
 
-%% Decide whether to use `emqx_router_syncer' process (`true') or
-%% modify the routing table directly (`false').
-use_syncer_process() ->
-    case emqx_router:get_schema_vsn() of
-        v3 ->
-            %% `emqx_router_syncer' was introduced as a workaround for
-            %% potentially high latency between core and replicant
-            %% nodes. Since `v3' router schema uses Mria merge tables,
-            %% where writes on both cores and replicants are local,
-            %% this is no longer needed:
-            false;
-        v2 ->
-            case emqx_config:get([broker, routing, batch_sync, enable_on]) of
-                all ->
-                    true;
-                none ->
-                    false;
-                Role ->
-                    Role =:= mria_config:whoami()
-            end
-    end.
+init_routing_state(State) ->
+    SchemaVsn = emqx_router:get_schema_vsn(),
+    EnableOn = emqx_config:get(?ROUTING_CONF_PATH),
+    State#{schema_vsn => SchemaVsn, use_syncer_process => use_syncer_process(SchemaVsn, EnableOn)}.
+
+-doc "Use the router syncer only for enabled schema v2 nodes.".
+use_syncer_process(v3, _EnableOn) ->
+    false;
+use_syncer_process(v2, all) ->
+    true;
+use_syncer_process(v2, none) ->
+    false;
+use_syncer_process(v2, Role) ->
+    Role =:= mria_config:whoami().
 
 external_sync_route(add, Topic) ->
     emqx_external_broker:add_route(Topic);
