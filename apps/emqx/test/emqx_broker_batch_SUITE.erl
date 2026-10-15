@@ -15,7 +15,7 @@ all() ->
     [{group, v2}, {group, v3}, {group, v2_syncer}].
 
 groups() ->
-    Cases = [t_subscribe_batch, t_unsubscribe_order, t_other_call_order],
+    Cases = [t_subscribe_batch, t_same_topic, t_unsubscribe_order, t_other_call_order],
     [{v2, [], Cases}, {v3, [], Cases}, {v2_syncer, [], [t_syncer]}].
 
 init_per_group(Group, Config) ->
@@ -88,10 +88,10 @@ t_subscribe_batch(Config) ->
     end),
     Requests = with_suspended(Worker, fun() ->
         [
+            request(Worker, Existing, self()),
             request(Worker, Plain, self()),
             request(Worker, Wildcard, self()),
-            request(Worker, Plain, Worker),
-            request(Worker, Existing, self())
+            request(Worker, Plain, Worker)
         ]
     end),
     try
@@ -119,6 +119,25 @@ t_subscribe_batch(Config) ->
     ),
     ?assert(emqx_router:has_route(Plain, node())),
     ?assertEqual(1, meck:num_calls(emqx_router, do_add_routes, '_')).
+
+-doc "Repeated subscriptions add one route, and existing subscriptions do not add it again.".
+t_same_topic(Config) ->
+    Worker = ?config(worker, Config),
+    Topic = <<"batch/repeated">>,
+    SchemaVsn = emqx_router:get_schema_vsn(),
+    Subscribe = fun() ->
+        Requests = with_suspended(Worker, fun() ->
+            [request(Worker, Topic, SubPid) || SubPid <- [self(), Worker, self(), Worker]]
+        end),
+        await_replies(Requests),
+        ?assertEqual(lists:sort([self(), Worker]), lists:sort(emqx_broker:subscribers(Topic))),
+        ?assert(emqx_router:has_route(Topic, node()))
+    end,
+    Subscribe(),
+    ?assertEqual(1, meck:num_calls(emqx_router, do_add_routes, [SchemaVsn, [Topic]])),
+    meck:reset(emqx_router),
+    Subscribe(),
+    ?assertEqual(1, meck:num_calls(emqx_router, do_add_routes, [SchemaVsn, []])).
 
 -doc "An unsubscribe queued before a resubscribe must not remove the new subscription.".
 t_unsubscribe_order(Config) ->

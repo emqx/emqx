@@ -678,12 +678,13 @@ init([Pool, Id]) ->
     {ok, init_routing_state(#{pool => Pool, id => Id})}.
 
 handle_call({subscribe, Topic, SubPid, 0}, From, State = #{use_syncer_process := false}) ->
-    case ets:member(?SUBSCRIBER, Topic) of
-        true ->
-            true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
-            {reply, ok, State};
-        false ->
-            handle_new_subscription([{Topic, SubPid, From}], State)
+    {Requests, Next} = collect_subscriptions(
+        [{Topic, SubPid, From}], ?MAX_SUBSCRIBE_BATCH_SIZE - 1
+    ),
+    ok = add_subscriptions(Requests, maps:get(schema_vsn, State)),
+    case Next of
+        none -> {noreply, State};
+        Message -> {noreply, State, {continue, Message}}
     end;
 handle_call({subscribe, Topic, SubPid, 0}, {ReplyTo, _Tag}, State) ->
     Result =
@@ -845,15 +846,6 @@ do_dispatch_shards_async(_Topic, _Msg, [], N) ->
 assert_ok_result(ok) -> ok;
 assert_ok_result(Ref) when is_reference(Ref) -> ok.
 
--doc "Collect subscriptions after finding a topic absent from the subscriber table.".
-handle_new_subscription([{Topic, _SubPid, _From}] = InitialRequests, State) ->
-    {Requests, Next} = collect_subscriptions(InitialRequests, ?MAX_SUBSCRIBE_BATCH_SIZE - 1),
-    ok = add_subscriptions(Topic, Requests, maps:get(schema_vsn, State)),
-    case Next of
-        none -> {noreply, State};
-        Message -> {noreply, State, {continue, Message}}
-    end.
-
 -doc "Collect queued subscriptions without passing other broker calls or casts.".
 collect_subscriptions(Requests, 0) ->
     {Requests, none};
@@ -871,29 +863,39 @@ collect_subscriptions(Requests, Remaining) ->
     end.
 
 -doc "Install new routes and subscribers before replying to the collected calls.".
-add_subscriptions(Topic, [{Topic, SubPid, From}], SchemaVsn) ->
-    ok = emqx_router:do_add_routes(SchemaVsn, [Topic]),
-    _ = external_sync_route(add, Topic),
-    true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
-    gen_server:reply(From, ok);
-add_subscriptions(InitialTopic, Requests, SchemaVsn) ->
-    {NewTopics, Subscribers, Callers} = lists:foldl(
-        fun({Topic, SubPid, From}, {Topics, Subs, Froms}) ->
-            UpdatedTopics =
-                case ets:member(?SUBSCRIBER, Topic) of
-                    true -> Topics;
-                    false -> Topics#{Topic => true}
-                end,
-            {UpdatedTopics, [{Topic, SubPid} | Subs], [From | Froms]}
+add_subscriptions(Requests, SchemaVsn) ->
+    add_subscriptions(Requests, none, [], [], SchemaVsn).
+
+add_subscriptions([{Topic, SubPid, From} | Rest], Topics, Subscribers, Callers, SchemaVsn) ->
+    NewTopics =
+        case ets:member(?SUBSCRIBER, Topic) of
+            true -> Topics;
+            false -> add_new_topic(Topic, Topics)
         end,
-        {#{InitialTopic => true}, [], []},
-        Requests
-    ),
-    Topics = maps:keys(NewTopics),
+    add_subscriptions(
+        Rest, NewTopics, [{Topic, SubPid} | Subscribers], [From | Callers], SchemaVsn
+    );
+add_subscriptions([], NewTopics, Subscribers, Callers, SchemaVsn) ->
+    Topics =
+        case NewTopics of
+            none -> [];
+            SingleTopic when is_binary(SingleTopic) -> [SingleTopic];
+            _ -> maps:keys(NewTopics)
+        end,
     ok = emqx_router:do_add_routes(SchemaVsn, Topics),
     lists:foreach(fun(Topic) -> external_sync_route(add, Topic) end, Topics),
     true = ets:insert(?SUBSCRIBER, Subscribers),
     lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Callers).
+
+-doc "Keep one topic as a binary and use a map for multiple distinct topics.".
+add_new_topic(Topic, none) ->
+    Topic;
+add_new_topic(Topic, Topic) ->
+    Topic;
+add_new_topic(Topic, OtherTopic) when is_binary(OtherTopic) ->
+    #{OtherTopic => true, Topic => true};
+add_new_topic(Topic, Topics) ->
+    Topics#{Topic => true}.
 
 maybe_delete_route(Topic, State) ->
     case ets:member(?SUBSCRIBER, Topic) of
