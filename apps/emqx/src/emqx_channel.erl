@@ -1765,24 +1765,32 @@ handle_info(heal_cluster_partition, Channel) ->
     handle_heal_partition(Channel),
     {ok, Channel};
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
-    Session = emqx_session:handle_info(Info, Session0, ClientInfo),
-    Channel1 = Channel0#channel{session = Session},
-    Acc0 = #{deliver => [], replies => []},
-    Acc = emqx_hooks:run_fold('client.handle_info', [ClientInfo, Info], Acc0),
-    Delivers = maps:get(deliver, Acc, []),
-    Replies = maps:get(replies, Acc, []),
-    {AllReplies, Channel} =
-        case handle_deliver(Delivers, Channel1) of
-            {ok, Channel2} ->
-                {Replies, Channel2};
-            {ok, DeliverReplies, Channel2} ->
-                {append_replies(DeliverReplies, Replies), Channel2}
-        end,
-    case AllReplies of
-        [] ->
-            {ok, Channel};
-        _ ->
-            {ok, AllReplies, Channel}
+    maybe
+        {ok, Session} ?= emqx_session:handle_info(Info, Session0, ClientInfo),
+        Channel1 = Channel0#channel{session = Session},
+        Acc0 = #{deliver => [], replies => []},
+        Acc = emqx_hooks:run_fold('client.handle_info', [ClientInfo, Info], Acc0),
+        Delivers = maps:get(deliver, Acc, []),
+        Replies = maps:get(replies, Acc, []),
+        {AllReplies, Channel} =
+            case handle_deliver(Delivers, Channel1) of
+                {ok, Channel2} ->
+                    {Replies, Channel2};
+                {ok, DeliverReplies, Channel2} ->
+                    {append_replies(DeliverReplies, Replies), Channel2}
+            end,
+        case AllReplies of
+            [] ->
+                {ok, Channel};
+            _ ->
+                {ok, AllReplies, Channel}
+        end
+    else
+        {shutdown, Reason, Session1} ->
+            {shutdown, ExitReason, _Reply, Packet, SChannel} = disconnect_and_shutdown(
+                Reason, ok, Channel0#channel{session = Session1}
+            ),
+            {shutdown, ExitReason, Packet, SChannel}
     end.
 
 append_replies(Replies1, Replies2) ->
@@ -1955,6 +1963,12 @@ interval(will_message, #channel{will_msg = WillMsg}) ->
 %%--------------------------------------------------------------------
 
 -spec terminate(any(), channel()) -> ok.
+terminate(_, #channel{session = undefined}) ->
+    %% Session can become `undefined' after:
+    %%
+    %% 1. Durable session takeover
+    %% 2. `handle_info' returns `{shutdown, ...}'
+    ok;
 terminate(_, #channel{conn_state = idle} = _Channel) ->
     ok;
 terminate(normal, Channel) ->
@@ -3365,7 +3379,8 @@ disconnect_reason(?RC_SUCCESS) -> ?normal;
 disconnect_reason(ReasonCode) -> emqx_reason_codes:name(ReasonCode).
 
 reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
-reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
+reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
+reason_code(_) -> ?RC_UNSPECIFIED_ERROR.
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -3425,7 +3440,7 @@ shutdown(Reason, Reply, Channel0) ->
     %% this function blocks `emqx_cm:takeover_kick' call used to take
     %% over durable sessions. Blocking this call lets the old channel
     %% flush its state to the storage before the new one steps in.
-    Channel = run_terminate_hook(Reason, Channel0),
+    Channel = run_terminate_hook(Reason, maybe_publish_will_msg(Reason, Channel0)),
     {shutdown, ExitReason, Reply, Channel}.
 
 shutdown(Reason, Reply, Packet, Channel0) ->

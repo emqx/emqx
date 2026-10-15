@@ -493,8 +493,8 @@ handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
             ?MODULE:recvloop(Parent, NewState);
-        {stop, Reason, NewSate} ->
-            terminate(Reason, NewSate)
+        {stop, Reason, NewState} ->
+            terminate(Reason, NewState)
     end.
 
 hibernate(Parent, State) ->
