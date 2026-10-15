@@ -1267,7 +1267,7 @@ record_response(EventType, #{<<"data">> := Data}, Session) ->
     record_cmd(ReqPath, EventType, {Code, CodeMsg, Content}, Session).
 
 record_cmd(Path, Type, Result, #session{cmd_record = #{queue := Queue} = Record} = Session) ->
-    Key = ?CMD_KEY(Path, Type),
+    Key = compact_pending_term(?CMD_KEY(Path, Type)),
     Record2 = Record#{Key => Result},
     Queue2 =
         case maps:is_key(Key, Record) of

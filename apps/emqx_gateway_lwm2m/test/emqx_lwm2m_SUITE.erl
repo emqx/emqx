@@ -160,7 +160,8 @@ groups() ->
             case164_pending_queue_cmd_record_bound,
             case165_pending_queue_expiry_releases_capacity,
             case166_pending_queue_compacts_sub_binaries,
-            case167_pending_queue_retries_preserve_admission
+            case167_pending_queue_retries_preserve_admission,
+            case168_pending_queue_compacts_cmd_record_keys
         ]},
         {test_grp_10_rest_api, [RepeatOpt], [
             case100_clients_api,
@@ -312,6 +313,7 @@ init_per_testcase(TestCase, Config) ->
             case165_pending_queue_expiry_releases_capacity,
             case166_pending_queue_compacts_sub_binaries,
             case167_pending_queue_retries_preserve_admission,
+            case168_pending_queue_compacts_cmd_record_keys,
             case152_blockwise_expiry_preserves_queue_mode,
             case153_blockwise_reset_resumes_pending,
             case154_blockwise_retransmission_failure_resumes_pending,
@@ -6730,6 +6732,50 @@ case167_pending_queue_retries_preserve_admission(Config) ->
     ),
     Session1 = assert_pending_queue(0),
     ?assertEqual(1, emqx_lwm2m_session:stats(mqueue_dropped, Session1)).
+
+case168_pending_queue_compacts_cmd_record_keys(Config) ->
+    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 1),
+    ok = emqx_config:force_put([gateway, lwm2m, max_pending_bytes], 64 * 1024),
+    Location = register_pending_queue_device(Config, true),
+    %% Trailing slashes keep the recorded path long while addressing ordinary resources.
+    Suffix = binary:copy(<<"/">>, 128),
+    Paths = [<<"/3/0/0", Suffix/binary>>, <<"/3/0/1", Suffix/binary>>],
+    Padding = binary:copy(<<" ">>, 512 * 1024),
+    lists:foreach(
+        fun({Id, Path}) ->
+            Cmd = (pending_read(Id))#{<<"data">> := #{<<"path">> => Path}},
+            Json = emqx_utils_json:encode(Cmd),
+            {ok, _} = emqtt:publish(
+                ?config(emqx_c, Config),
+                <<"lwm2m/pending-queue/dn/dm">>,
+                <<Json/binary, Padding/binary>>,
+                1
+            )
+        end,
+        lists:zip([1, 2], Paths)
+    ),
+    assert_pending_response(2, <<"4.29">>),
+    Session = assert_pending_queue(1),
+    ?assert(element(18, Session) < 64 * 1024),
+    AssertCompactKeys = fun(S) ->
+        Record = element(13, S),
+        Keys = maps:keys(maps:remove(queue, Record)),
+        ?assertEqual(lists:sort([{P, <<"read">>} || P <- Paths]), lists:sort(Keys)),
+        lists:foreach(
+            fun({Path, Type}) ->
+                ?assertEqual(byte_size(Path), binary:referenced_byte_size(Path)),
+                ?assert(binary:referenced_byte_size(Type) =< 64)
+            end,
+            Keys ++ queue:to_list(maps:get(queue, Record))
+        ),
+        ?assertEqual(2, queue:len(maps:get(queue, Record)))
+    end,
+    AssertCompactKeys(Session),
+    wake_pending_queue_device(Config, Location, 1901),
+    Req = test_recv_coap_request(?config(sock, Config)),
+    ?assertEqual([<<"3">>, <<"0">>, <<"0">>], maps:get(uri_path, Req#coap_message.options)),
+    reply_pending_read(Config, 1, Req),
+    AssertCompactKeys(assert_pending_queue(0)).
 
 register_pending_queue_device(Config, Sleeping) ->
     ok = emqx_config:force_put([gateway, lwm2m, qmode_time_window], 1),
