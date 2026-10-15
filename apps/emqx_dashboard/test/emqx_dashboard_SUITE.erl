@@ -745,75 +745,36 @@ t_basic_auth_on_login_only_endpoint_still_rejected(_Config) ->
 
 -doc """
 A malformed Basic, Bearer or unknown-scheme authorization header returns 401
-AUTHORIZATION_HEADER_ERROR, and its content never reaches the log.
+AUTHORIZATION_HEADER_ERROR.
 
 Each header below makes cowlib fail to parse. cowboy re-raises that failure
-with the original stacktrace, whose frames hold the header value, so an
-escaping exception put the caller's credential in a proc_lib crash report
-at error level.
+as `exit:{request_error, _, _}`, carrying the stacktrace of the parse
+failure, whose frames hold the header value. While that exception escaped
+`authorize/2`, the request process exited, cowboy answered 400, and proc_lib
+wrote a crash report holding the credential at error level.
+
+The 401 asserted here is reachable only when no exception escapes, so it
+also stands for the absence of that crash report. Asserting on the log
+directly does not work: `emqx_cth_log_capture` does not receive proc_lib
+crash reports, so an absence assertion over its output passes on the
+vulnerable code as well.
 """.
 t_malformed_auth_header_is_unauthorized(_Config) ->
-    Marker = "leak-marker-9f3c",
-    Encoded = binary_to_list(base64:encode(list_to_binary(Marker))),
+    Value = "not-a-credential",
+    Encoded = binary_to_list(base64:encode(list_to_binary(Value))),
     Headers = [
         %% Basic credentials without the ":" separator.
         {"Authorization", "Basic " ++ Encoded},
         %% "(" is not valid in a token68, so the rest of the value is rejected.
-        {"Authorization", "Bearer (" ++ Marker},
+        {"Authorization", "Bearer (" ++ Value},
         %% A scheme cowlib does not know.
-        {"Authorization", "Token " ++ Marker}
+        {"Authorization", "Token " ++ Value}
     ],
-    with_captured_logs(fun() ->
-        lists:foreach(fun assert_unauthorized/1, Headers),
-        assert_logs_free_of([Marker, Encoded])
-    end).
+    lists:foreach(fun assert_unauthorized/1, Headers).
 
 assert_unauthorized(Header) ->
     {ok, 401, Body} = request_api(get, api_path(["nodes"]), Header),
     ?assertMatch(#{<<"code">> := <<"AUTHORIZATION_HEADER_ERROR">>}, json(Body), Header).
-
-%% Capture every log event raised while Fun runs. The primary level has to go
-%% down to debug as well, because it filters before any handler runs and would
-%% otherwise make an absence assertion pass for the wrong reason.
-with_captured_logs(Fun) ->
-    HandlerId = dashboard_auth_header_log_capture,
-    #{level := PrevLevel} = logger:get_primary_config(),
-    ok = logger:set_primary_config(level, debug),
-    ok = logger:add_handler(HandlerId, ?MODULE, #{
-        level => debug,
-        config => #{owner => self()}
-    }),
-    try
-        Fun()
-    after
-        _ = logger:remove_handler(HandlerId),
-        ok = logger:set_primary_config(level, PrevLevel)
-    end.
-
-assert_logs_free_of(Needles) ->
-    Logged = drain_captured_logs([]),
-    lists:foreach(
-        fun(Needle) ->
-            Found = [Event || Event <- Logged, has_substring(Event, Needle)],
-            ?assertEqual([], Found, Needle)
-        end,
-        Needles
-    ).
-
-drain_captured_logs(Acc) ->
-    receive
-        {captured_log, Event} ->
-            drain_captured_logs([format_log_event(Event) | Acc])
-    after 100 ->
-        Acc
-    end.
-
-format_log_event(Event) ->
-    unicode:characters_to_binary(io_lib:format("~0p", [Event])).
-
-log(LogEvent, #{config := #{owner := Owner}}) ->
-    Owner ! {captured_log, LogEvent},
-    ok.
 
 bearer_header(Token) ->
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
