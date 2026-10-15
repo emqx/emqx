@@ -5,7 +5,6 @@
 -module(emqx_broker).
 
 -behaviour(gen_server).
--behaviour(emqx_config_handler).
 
 -include("emqx.hrl").
 -include("emqx_router.hrl").
@@ -17,8 +16,6 @@
 -include("emqx_mqtt.hrl").
 
 -export([start_link/2, create_tabs/0, init_config/0]).
--export([add_handler/0, remove_handler/0]).
--export([post_config_update/5, propagated_post_config_update/5]).
 
 %% PubSub
 -export([
@@ -90,7 +87,6 @@
 -define(PT_FLAG_ASYNC_SHARD_DISPATCH, '$emqx_broker__async_fanout_shard_dispatch').
 
 -define(MAX_SUBSCRIBE_BATCH_SIZE, 1000).
--define(ROUTING_CONF_PATH, [broker, routing, batch_sync, enable_on]).
 
 -define(cast_or_eval(PICK, Msg, Expr),
     case PICK of
@@ -149,23 +145,6 @@ init_config() ->
         ?PT_FLAG_ASYNC_SHARD_DISPATCH,
         emqx:get_config([broker, perf, async_fanout_shard_dispatch], false)
     ).
-
--doc "Register the handler for router-syncer configuration updates.".
-add_handler() ->
-    emqx_config_handler:add_handler(?ROUTING_CONF_PATH, ?MODULE).
-
-remove_handler() ->
-    emqx_config_handler:remove_handler(?ROUTING_CONF_PATH).
-
-post_config_update(_Path, _Req, EnableOn, _OldConf, _AppEnvs) ->
-    lists:foreach(
-        fun(Worker) -> ok = call(Worker, {update_route_config, EnableOn}) end,
-        emqx_broker_sup:get_broker_pool_workers()
-    ),
-    ok.
-
-propagated_post_config_update(Path, Req, NewConf, OldConf, AppEnvs) ->
-    post_config_update(Path, Req, NewConf, OldConf, AppEnvs).
 
 %%------------------------------------------------------------------------------
 %% Subscribe API
@@ -745,8 +724,6 @@ handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
         end,
     true = ets:insert(?SUBSCRIBER, Recs1),
     {reply, ok, State};
-handle_call({update_route_config, EnableOn}, _From, State = #{schema_vsn := SchemaVsn}) ->
-    {reply, ok, State#{use_syncer_process := use_syncer_process(SchemaVsn, EnableOn)}};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -935,9 +912,10 @@ sync_route(Action, Topic, ReplyTo, #{use_syncer_process := UseSyncer}) ->
     _ = external_sync_route(Action, Topic),
     Res.
 
+-doc "Cache the routing schema and startup configuration in worker state.".
 init_routing_state(State) ->
     SchemaVsn = emqx_router:get_schema_vsn(),
-    EnableOn = emqx_config:get(?ROUTING_CONF_PATH),
+    EnableOn = emqx_config:get([broker, routing, batch_sync, enable_on]),
     State#{schema_vsn => SchemaVsn, use_syncer_process => use_syncer_process(SchemaVsn, EnableOn)}.
 
 -doc "Use the router syncer only for enabled schema v2 nodes.".
