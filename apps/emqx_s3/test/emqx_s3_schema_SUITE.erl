@@ -39,6 +39,27 @@ t_minimal_config(_Config) ->
         })
     ).
 
+-doc "A config with a signing region parses.".
+t_region(_Config) ->
+    ?assertMatch(
+        #{host := "s3.us-east-1.endpoint.com", region := <<"eu-central-1">>},
+        emqx_s3_schema:translate(#{
+            <<"bucket">> => <<"bucket">>,
+            <<"host">> => <<"s3.us-east-1.endpoint.com">>,
+            <<"port">> => 443,
+            <<"region">> => <<"eu-central-1">>
+        })
+    ).
+
+-doc "A config without a signing region parses, and has no region.".
+t_no_region(_Config) ->
+    Conf = emqx_s3_schema:translate(#{
+        <<"bucket">> => <<"bucket">>,
+        <<"host">> => <<"s3.us-east-1.endpoint.com">>,
+        <<"port">> => 443
+    }),
+    ?assertNot(maps:is_key(region, Conf)).
+
 t_full_config(_Config) ->
     ?assertMatch(
         #{

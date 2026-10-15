@@ -187,6 +187,7 @@ client_config(ProfileConfig, PoolName) ->
         scheme => scheme(HTTPOpts),
         host => maps:get(host, ProfileConfig),
         port => maps:get(port, ProfileConfig),
+        region => maps:get(region, ProfileConfig, undefined),
         access_method => maps:get(access_method, ProfileConfig, path),
         url_expire_time => maps:get(url_expire_time, ProfileConfig),
         headers => maps:get(headers, HTTPOpts, #{}),

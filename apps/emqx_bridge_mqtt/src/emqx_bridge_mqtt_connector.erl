@@ -542,15 +542,15 @@ classify_error({unrecoverable_error, _Reason} = Error) ->
 classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 
-on_get_status(_ResourceId, State) ->
+on_get_status(ResourceId, State) ->
     Pools = maps:to_list(maps:with([pool_name], State)),
     Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
-    try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
+    try emqx_utils:pmap(fun get_status/1, Workers, health_check_ping_timeout(ResourceId)) of
         Statuses ->
             combine_status(Statuses, State)
     catch
         exit:timeout ->
-            ?status_connecting
+            {?status_disconnected, pingresp_timeout}
     end.
 
 get_status({_Pool, Worker}) ->
@@ -559,6 +559,30 @@ get_status({_Pool, Worker}) ->
             emqx_bridge_mqtt_ingress:status(Client);
         {error, _} ->
             ?status_disconnected
+    end.
+
+%% Budget of one health check's PINGREQ round trip.
+%%
+%% This bounds the whole `pmap' of `on_get_status/2', so it is a budget per health
+%% check, not per connection.  It is half of the configured
+%% `health_check_timeout', so that the probe reports a status of its own before the
+%% framework aborts the whole check at that timeout.  The value is read from the
+%% resource configuration on every check instead of being kept in the state.
+health_check_ping_timeout(ResourceId) ->
+    case emqx_resource:get_instance(ResourceId) of
+        {ok, _Group, #{config := Config}} ->
+            half_health_check_timeout(maps:get(resource_opts, Config, #{}));
+        {error, not_found} ->
+            %% The resource is going away; the outcome of the check does not matter.
+            ?HEALTH_CHECK_TIMEOUT
+    end.
+
+half_health_check_timeout(ResourceOpts) ->
+    case maps:get(health_check_timeout, ResourceOpts, ?HEALTHCHECK_TIMEOUT) of
+        infinity ->
+            infinity;
+        Timeout ->
+            Timeout div 2
     end.
 
 combine_status(Statuses, ConnState) ->
@@ -880,8 +904,7 @@ log_connect_error_reason(Level, {tcp_closed, _} = Reason, Name) ->
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
         reason => Reason,
-        name => Name,
-        explain => explain_error(Reason)
+        name => Name
     });
 log_connect_error_reason(Level, econnrefused = Reason, Name) ->
     ?tp(emqx_bridge_mqtt_connector_econnrefused_error, #{}),
@@ -906,8 +929,7 @@ log_connect_error_reason(Level, tcp_closed = Reason, Name) ->
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
         reason => Reason,
-        name => Name,
-        explain => explain_error(Reason)
+        name => Name
     });
 log_connect_error_reason(Level, Reason, Name) ->
     ?SLOG(Level, #{
@@ -926,17 +948,13 @@ explain_error(econnrefused) ->
         "running at all or you might have provided the wrong address "
         "or port number for the server."
     >>;
-explain_error(tcp_closed) ->
-    listener_max_limit_explanation();
-explain_error({tcp_closed, _}) ->
-    listener_max_limit_explanation();
-explain_error(closed) ->
-    listener_max_limit_explanation();
 explain_error({shutdown, {frame_parse_error, _}}) ->
     non_mqtt_data_explanation();
 explain_error({frame_parse_error, _}) ->
     non_mqtt_data_explanation();
 explain_error(_Reason) ->
+    %% The reason is surfaced as it is; the connector does not claim a cause it
+    %% cannot observe.
     undefined.
 
 non_mqtt_data_explanation() ->
@@ -947,14 +965,6 @@ non_mqtt_data_explanation() ->
         "(e.g. an mqtts:// port while SSL is disabled for this connector), "
         "or the port may not serve MQTT at all. "
         "Please check the server address and the SSL settings."
-    >>.
-
-listener_max_limit_explanation() ->
-    <<
-        "Your MQTT connection attempt was unsuccessful. "
-        "It might be at its maximum capacity for handling new connections. "
-        "To diagnose the issue further, you can check the server logs for "
-        "any specific messages related to the unavailability or connection limits."
     >>.
 
 handle_disconnect(_Reason) ->
