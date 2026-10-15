@@ -869,10 +869,9 @@ value_type([Int]) when is_integer(Int) ->
         error:badarg ->
             {error, {invalid_float_value, Int}}
     end;
-%% A quoted field value is a string, so every token is rendered as text and the result is
-%% not dispatched by type again.
+%% A quoted field value is one string: every token is rendered as text.
 value_type({quoted, Tokens}) when is_list(Tokens) ->
-    string_value([render_text_token(Token) || Token <- Tokens]);
+    string_value([render_token(Token) || Token <- Tokens]);
 value_type(Val0) ->
     string_value(Val0).
 
@@ -887,26 +886,25 @@ string_value(Val0) ->
             {error, {invalid_string_value, Val0}}
     end.
 
-%% Bare numbers in a tag template are rendered as strings; a trailing `i`/`u` suffix keeps
-%% the field typing of the value.
+%% Line protocol tag values are text: token types are dropped, except an `i`/`u` suffix and a
+%% boolean from the payload, which stay typed.
 value_type([_, Suffix] = NV, tag) when Suffix =:= <<"i">>; Suffix =:= <<"u">> ->
     value_type(NV);
+value_type([Bool], tag) when is_boolean(Bool) ->
+    value_type([Bool]);
 value_type(NV, tag) when is_list(NV) ->
-    value_type([render_number_token(Token) || Token <- NV]);
+    string_value([render_token(Token) || Token <- NV]);
 value_type(NV, _Kind) ->
     value_type(NV).
 
-render_number_token(Token) when is_integer(Token) ->
-    integer_to_binary(Token);
-render_number_token(Token) when is_float(Token) ->
-    float_to_binary(Token, [short]);
-render_number_token(Token) ->
-    Token.
-
-render_text_token(Token) when is_atom(Token) ->
+render_token(Token) when is_boolean(Token) ->
     atom_to_binary(Token, utf8);
-render_text_token(Token) ->
-    render_number_token(Token).
+render_token(Token) when is_integer(Token) ->
+    integer_to_binary(Token);
+render_token(Token) when is_float(Token) ->
+    float_to_binary(Token, [short]);
+render_token(Token) ->
+    Token.
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
@@ -1154,6 +1152,35 @@ numeric_range_validation_test() ->
         {error, {bad_timestamp, MillisecondOverflow}},
         convert_timestamp(MillisecondOverflow, {ms, ns})
     ).
+
+tag_value_typing_test() ->
+    %% text in a tag stays a string even when it spells a boolean literal
+    ?assertEqual(
+        {ok, #{value_data => {string_value, [<<"T">>]}}},
+        value_type([<<"T">>], tag)
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, [<<"FALSE">>]}}},
+        value_type([<<"FALSE">>], tag)
+    ),
+    %% a boolean from the payload keeps its type in a tag and in a field
+    ?assertEqual({ok, #{value_data => {bool_value, true}}}, value_type([true], tag)),
+    ?assertEqual({ok, #{value_data => {bool_value, false}}}, value_type([false], tag)),
+    ?assertEqual({ok, #{value_data => {bool_value, true}}}, value_type([<<"T">>])),
+    %% a number or boolean inside a longer tag template is rendered as text
+    ?assertEqual({ok, #{value_data => {string_value, [<<"65">>]}}}, value_type([65], tag)),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, [<<"pre_1.5">>]}}},
+        value_type([<<"pre_">>, 1.5], tag)
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, [<<"pre_true">>]}}},
+        value_type([<<"pre_">>, true], tag)
+    ),
+    %% an `i`/`u` suffix keeps its type, a field keeps its typing
+    ?assertEqual({ok, #{value_data => {i64_value, 65}}}, value_type([65, <<"i">>], tag)),
+    ?assertEqual({ok, #{value_data => {u64_value, 65}}}, value_type([65, <<"u">>], tag)),
+    ?assertEqual({ok, #{value_data => {f64_value, 65.0}}}, value_type([65])).
 
 %% for coverage
 desc_test_() ->

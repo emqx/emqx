@@ -948,8 +948,10 @@ t_auto_cast_integer_to_float(Config) ->
     ),
     ok.
 
-%% A numeric placeholder written to a tag must arrive as its string form, including floats
-%% and templates that mix literals with numbers; a field placeholder keeps the InfluxDB typing.
+%% A numeric placeholder written to a tag must arrive as its string form, including floats and
+%% templates that mix literals with numbers; text in a tag that spells a boolean literal stays
+%% a string, a boolean from the payload keeps its type, and a field placeholder keeps the
+%% InfluxDB typing.
 t_tag_values_as_string(Config) ->
     QueryMode = ?config(query_mode, Config),
     BatchSize = ?config(batch_size, Config),
@@ -1018,6 +1020,7 @@ tag_value_overrides(BatchSize) ->
                 "float_tag=pre_${payload.float_tag},big_float_tag=${payload.big_float},"
                 "tiny_float_tag=${payload.tiny_float},"
                 "i_tag=${payload.i_tag}i,u_tag=${payload.u_tag}u,"
+                "lit_bool_tag=T,lit_false_tag=F,pre_bool_tag=pre_${payload.bool_tag},"
                 "bool_tag=${payload.bool_tag} value=${payload.value}"
             >>
     },
@@ -1070,6 +1073,10 @@ assert_tag_value_sample(Config, {ClientId, {_TagValue, ExpectedTag}}) ->
             ?assertMatch(#{<<"tiny_float_tag">> := <<"1.0e-11">>}, Row),
             ?assertMatch(#{<<"i_tag">> := 123}, Row),
             ?assertMatch(#{<<"u_tag">> := 456}, Row),
+            %% text that spells a boolean literal stays a string, a payload boolean keeps its type
+            ?assertMatch(#{<<"lit_bool_tag">> := <<"T">>}, Row),
+            ?assertMatch(#{<<"lit_false_tag">> := <<"F">>}, Row),
+            ?assertMatch(#{<<"pre_bool_tag">> := <<"pre_true">>}, Row),
             ?assertMatch(#{<<"bool_tag">> := true}, Row),
             ?assertEqual(1.0, maps:get(<<"value">>, Row, undefined))
         end
