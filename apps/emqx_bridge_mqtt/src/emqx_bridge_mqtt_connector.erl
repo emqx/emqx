@@ -597,7 +597,7 @@ combine_status(Statuses, ConnState) ->
     #{?available_clientid_info := AvailableClientidInfo} = ConnState,
     ExpectedNoClientids =
         case AvailableClientidInfo of
-            _ when length(AvailableClientidInfo) == 0 ->
+            [] ->
                 true;
             _ ->
                 false
