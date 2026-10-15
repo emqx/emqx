@@ -862,24 +862,28 @@ collect_subscriptions(Requests, Remaining) ->
         {Requests, none}
     end.
 
--doc "Install new routes and subscribers before replying to the collected calls.".
+-doc "Insert subscribers before replying, and batch route additions for new topics.".
 add_subscriptions(Requests, SchemaVsn) ->
-    add_subscriptions(Requests, none, [], [], SchemaVsn).
+    add_subscriptions(Requests, [], [], [], SchemaVsn).
 
 add_subscriptions([{Topic, SubPid, From} | Rest], Topics, Subscribers, Callers, SchemaVsn) ->
-    NewTopics =
-        case ets:member(?SUBSCRIBER, Topic) of
-            true -> Topics;
-            false -> add_new_topic(Topic, Topics)
-        end,
-    add_subscriptions(
-        Rest, NewTopics, [{Topic, SubPid} | Subscribers], [From | Callers], SchemaVsn
-    );
+    case ets:member(?SUBSCRIBER, Topic) of
+        true ->
+            true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
+            gen_server:reply(From, ok),
+            add_subscriptions(Rest, Topics, Subscribers, Callers, SchemaVsn);
+        false ->
+            NewTopics = add_new_topic(Topic, Topics),
+            add_subscriptions(
+                Rest, NewTopics, [{Topic, SubPid} | Subscribers], [From | Callers], SchemaVsn
+            )
+    end;
+add_subscriptions([], [], [], [], _SchemaVsn) ->
+    ok;
 add_subscriptions([], NewTopics, Subscribers, Callers, SchemaVsn) ->
     Topics =
         case NewTopics of
-            none -> [];
-            SingleTopic when is_binary(SingleTopic) -> [SingleTopic];
+            [_] -> NewTopics;
             _ -> maps:keys(NewTopics)
         end,
     ok = emqx_router:do_add_routes(SchemaVsn, Topics),
@@ -887,12 +891,12 @@ add_subscriptions([], NewTopics, Subscribers, Callers, SchemaVsn) ->
     true = ets:insert(?SUBSCRIBER, Subscribers),
     lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Callers).
 
--doc "Keep one topic as a binary and use a map for multiple distinct topics.".
-add_new_topic(Topic, none) ->
-    Topic;
-add_new_topic(Topic, Topic) ->
-    Topic;
-add_new_topic(Topic, OtherTopic) when is_binary(OtherTopic) ->
+-doc "Keep one topic in a list and use a map for multiple distinct topics.".
+add_new_topic(Topic, []) ->
+    [Topic];
+add_new_topic(Topic, [Topic] = Topics) ->
+    Topics;
+add_new_topic(Topic, [OtherTopic]) ->
     #{OtherTopic => true, Topic => true};
 add_new_topic(Topic, Topics) ->
     Topics#{Topic => true}.

@@ -69,7 +69,7 @@ end_per_testcase(_Case, Config) ->
     ),
     ok.
 
--doc "Queued subscriptions share a route activity and receive replies after all routes exist.".
+-doc "Existing topics receive replies while subscriptions to new topics wait for route insertion.".
 t_subscribe_batch(Config) ->
     Worker = ?config(worker, Config),
     Existing = <<"batch/existing">>,
@@ -86,9 +86,9 @@ t_subscribe_batch(Config) ->
             error(batch_not_released)
         end
     end),
-    Requests = with_suspended(Worker, fun() ->
+    [ExistingRequest | NewRequests] = with_suspended(Worker, fun() ->
         [
-            request(Worker, Existing, self()),
+            request(Worker, Existing, Worker),
             request(Worker, Plain, self()),
             request(Worker, Wildcard, self()),
             request(Worker, Plain, Worker)
@@ -101,18 +101,20 @@ t_subscribe_batch(Config) ->
         after 5000 ->
             ct:fail(no_route_batch)
         end,
+        ?assertEqual({reply, ok}, gen_server:receive_response(ExistingRequest, 0)),
+        ?assertEqual(lists:sort([self(), Worker]), lists:sort(emqx_broker:subscribers(Existing))),
         lists:foreach(
             fun(Request) -> ?assertEqual(timeout, gen_server:wait_response(Request, 0)) end,
-            Requests
+            NewRequests
         ),
         ?assertEqual([], emqx_broker:subscribers(Plain))
     after
         Worker ! continue_batch
     end,
-    await_replies(Requests),
+    await_replies(NewRequests),
     ?assertEqual(lists:sort([self(), Worker]), lists:sort(emqx_broker:subscribers(Plain))),
     ?assertEqual([self()], emqx_broker:subscribers(Wildcard)),
-    ?assertEqual([self()], emqx_broker:subscribers(Existing)),
+    ?assertEqual(lists:sort([self(), Worker]), lists:sort(emqx_broker:subscribers(Existing))),
     ?assertEqual(
         [#route{topic = Wildcard, dest = node()}],
         emqx_router:match_routes(<<"batch/x/wild">>)
@@ -137,7 +139,7 @@ t_same_topic(Config) ->
     ?assertEqual(1, meck:num_calls(emqx_router, do_add_routes, [SchemaVsn, [Topic]])),
     meck:reset(emqx_router),
     Subscribe(),
-    ?assertEqual(1, meck:num_calls(emqx_router, do_add_routes, [SchemaVsn, []])).
+    ?assertEqual(0, meck:num_calls(emqx_router, do_add_routes, '_')).
 
 -doc "An unsubscribe queued before a resubscribe must not remove the new subscription.".
 t_unsubscribe_order(Config) ->
