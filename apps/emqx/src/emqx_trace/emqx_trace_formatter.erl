@@ -122,6 +122,8 @@ format_payload(Payload, #{payload_encode := Type}) ->
 
 format_term(undefined, #{payload_encode := Type}) ->
     {"", #{payload_encode => Type}};
+format_term(_Term, #{payload_encode := hidden}) ->
+    {"Encoded(hidden)=******", #{payload_encode => hidden}};
 format_term(Term, PayloadFmtOpts) ->
     BinTerm = iolist_to_binary(to_iolist(Term)),
     Type = maps:get(payload_encode, PayloadFmtOpts),
