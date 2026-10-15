@@ -92,7 +92,7 @@ fields(s3_client_params) ->
     FieldsToRemove = [access_key_id, secret_access_key],
     lists:filtermap(
         fun
-            ({K, Sc}) when K == host; K == port ->
+            ({K, Sc}) when K == host; K == port; K == region ->
                 Override = #{
                     required => false,
                     importance => ?IMPORTANCE_HIDDEN
