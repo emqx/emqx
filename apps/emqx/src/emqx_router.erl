@@ -361,11 +361,11 @@ cleanup_routes(NodeOrExtDest) ->
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
-    fold_routes_v2(foldl, FoldFun, AccIn).
+    fold_routes_v2(fun ets:foldl/3, FoldFun, AccIn).
 
 -spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
-    fold_routes_v2(foldr, FoldFun, AccIn).
+    fold_routes_v2(fun ets:foldr/3, FoldFun, AccIn).
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
@@ -572,10 +572,10 @@ mk_route_stream(Tab, {MTopic, MDest}) when
 list_route_tab_topics() ->
     mnesia:dirty_all_keys(route_table()).
 
-fold_routes_v2(FunName, FoldFun, AccIn) ->
+fold_routes_v2(Fold, FoldFun, AccIn) ->
     FilterFoldFun = mk_filtertab_fold_fun(FoldFun),
-    Acc = ets:FunName(FoldFun, AccIn, route_table()),
-    ets:FunName(FilterFoldFun, Acc, route_filters_table()).
+    Acc = Fold(FoldFun, AccIn, route_table()),
+    Fold(FilterFoldFun, Acc, route_filters_table()).
 
 mk_filtertab_fold_fun(FoldFun) ->
     fun(#routeidx{entry = K}, Acc) -> FoldFun(match_to_route(K), Acc) end.
