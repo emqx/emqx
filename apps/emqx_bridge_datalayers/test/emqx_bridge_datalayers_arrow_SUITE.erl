@@ -386,6 +386,131 @@ t_reconnect_and_write(Config) ->
     {ok, _} = emqx_resource:simple_sync_query(ResourceId, {BridgeId, make_message()}),
     ok.
 
+-doc """
+A half-open connection must not leave the action's inflight window permanently
+occupied.
+
+`toxiproxy`'s `timeout` toxic freezes the stream.  With the NIF per-stage
+timeout in place the pending operation fails bounded (15s by default) and the
+reply reaches the buffer worker, which acks the inflight entry; without it the
+NIF call blocks the socket until the transport eventually gives up (~45s in this
+testbed, unbounded in general), so the inflight window stays occupied.
+""".
+t_half_open_inflight_recovers(Config) ->
+    case ?config(query_mode, Config) of
+        async -> do_half_open_inflight_recovers(Config);
+        sync -> ok
+    end.
+
+do_half_open_inflight_recovers(Config) ->
+    %% The connector health check must not run (and restart the resource) while we
+    %% observe the frozen window: a restart would clear inflight even without the
+    %% fix and turn this into a false pass.
+    HealthCheckInterval = <<"300s">>,
+    ConnectorOverrides = #{
+        <<"resource_opts">> => #{<<"health_check_interval">> => HealthCheckInterval}
+    },
+    ActionOverrides = #{
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => HealthCheckInterval,
+            %% Longer than the NIF per-stage timeout (15s by default), so the bounded
+            %% failure is delivered while the request is still alive.  With a shorter
+            %% `request_ttl` the very same reply would be dropped as a late reply
+            %% instead (the inflight entry is reclaimed either way).
+            <<"request_ttl">> => <<"30s">>,
+            %% A single slot: the second round below can only be sent once the frozen
+            %% request has been reclaimed, so it proves the window was really freed.
+            <<"inflight_window">> => 1,
+            <<"max_buffer_bytes">> => <<"10MB">>
+        }
+    },
+    Config1 = [
+        {connector_overrides, ConnectorOverrides},
+        {action_overrides, ActionOverrides}
+        | Config
+    ],
+    ProxyHost = ?config(proxy_host, Config1),
+    ProxyPort = ?config(proxy_port, Config1),
+    ProxyName = ?config(proxy_name, Config1),
+    ?assertMatch(
+        {201, _}, emqx_bridge_v2_testlib:create_connector_api2(Config1, ConnectorOverrides)
+    ),
+    ?assertMatch({201, _}, emqx_bridge_v2_testlib:create_action_api2(Config1, ActionOverrides)),
+    ActionResId = emqx_bridge_v2_testlib:bridge_id(Config1),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(Config1),
+    ?retry(
+        _Sleep0 = 200,
+        _Attempts0 = 100,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ConnResId))
+    ),
+    %% Sanity: the action works before the failure is injected.
+    {ok, _} = emqx_resource:simple_sync_query(ConnResId, {ActionResId, make_message()}),
+
+    %% The toxic is removed by this suite's `end_per_testcase/1', which resets the
+    %% proxy, so no explicit `on_exit' cleanup is registered here.
+    {ok, _} = emqx_common_test_helpers:enable_failure(timeout, ProxyName, ProxyHost, ProxyPort),
+
+    %% Two rounds while the stream stays frozen.  Each request must fail bounded
+    %% instead of blocking in the NIF forever; the inflight window has a single
+    %% slot, so round 2 is only sent once round 1 has been reclaimed.
+    ok = assert_bounded_failure(Config1, ActionResId, 1),
+    ok = assert_bounded_failure(Config1, ActionResId, 2),
+
+    %% The window is drained again once the last reply was acked.
+    ?retry(
+        _Sleep3 = 200,
+        _Attempts3 = 50,
+        ?assertEqual(0, action_inflight(ActionResId))
+    ),
+    ok.
+
+%% Push one request and require the caller to be answered by the NIF per-stage
+%% timeout, well before the transport itself gives up (which is what happens
+%% without the fix).
+assert_bounded_failure(Config, ActionResId, Round) ->
+    TestPid = self(),
+    StartedAt = erlang:monotonic_time(millisecond),
+    _ = emqx_bridge_v2:query(
+        ?global_ns,
+        ?config(action_type, Config),
+        ?config(action_name, Config),
+        {ActionResId, make_message()},
+        #{
+            query_mode => async,
+            async_reply_fun => {fun(_Pid, Reply) -> TestPid ! {async_reply, Reply} end, [TestPid]}
+        }
+    ),
+    ?retry(
+        _Sleep1 = 200,
+        _Attempts1 = 50,
+        ?assert(action_inflight(ActionResId) > 0)
+    ),
+    Reply =
+        receive
+            {async_reply, R} -> R
+        after _TooLate = 25_000 ->
+            ct:fail(
+                "round ~p: no async reply within 25s while the stream was frozen "
+                "(inflight=~p); the NIF did not fail bounded",
+                [Round, action_inflight(ActionResId)]
+            )
+        end,
+    %% `emqx_bridge_v2:query/5` answers with `#{result := Result}`.
+    ?assertMatch(#{result := {error, _}}, Reply),
+    #{result := {error, Reason}} = Reply,
+    ?assert(is_binary(Reason)),
+    %% The failure must come from the NIF per-stage timeout, not from the transport
+    %% finally breaking up nor from a generic emqx-level timeout.
+    ?assertNotEqual(nomatch, binary:match(Reason, <<"timed out after">>)),
+    ct:pal("half-open round ~p answered after ~pms: ~0p", [
+        Round, erlang:monotonic_time(millisecond) - StartedAt, Reply
+    ]),
+    ok.
+
+action_inflight(ActionResId) ->
+    #{gauges := Gauges} = emqx_resource:get_metrics(ActionResId),
+    maps:get(inflight, Gauges, 0).
+
 t_start_action_or_source_with_disabled_connector(Config) ->
     ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(Config),
     ok.
