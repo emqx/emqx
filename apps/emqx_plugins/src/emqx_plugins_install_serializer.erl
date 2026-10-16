@@ -43,7 +43,7 @@ child_spec() ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%% @doc Run the callback while holding the installation lock of `NameVsn''s
+%% @doc Run the callback while holding the installation lock of NameVsn's
 %% plugin, or report that another process holds it.
 -spec run(name_vsn(), fun(() -> T)) -> T | {error, map()}.
 run(NameVsn, Fun) ->
@@ -136,7 +136,7 @@ busy_error(Plugin) ->
         reason => installation_in_progress
     }}.
 
-%% `parse_name_vsn/1' creates an atom and the identifier may come from a
+%% `parse_name_vsn/1' in emqx_plugins_utils creates an atom and the identifier may come from a
 %% request, so the textual split is used here: every version of a plugin shares
 %% one lock, which is what keeps two versions of it from installing at the same
 %% time.

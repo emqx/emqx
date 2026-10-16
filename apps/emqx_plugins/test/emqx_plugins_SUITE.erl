@@ -1740,7 +1740,12 @@ t_install_real_packages_are_staged(Config) ->
             %% put it anywhere else would have been refused
             ?assert(filelib:is_regular(emqx_plugins_fs:info_file_path(NameVsn))),
             ?assertEqual([], staging_attempts(NameVsn)),
-            ?assert(lists:member(bin(NameVsn), NameVsns))
+            ?assert(lists:member(bin(NameVsn), NameVsns)),
+            %% `ensure_installed/1' loads the applications of the package; these
+            %% templates share the application name, so the next one would be
+            %% refused while the modules of this one are loaded.
+            {ok, Plugin} = emqx_plugins_info:read(NameVsn, #{}),
+            ok = emqx_plugins_apps:unload(Plugin)
         end,
         Packages
     ),

@@ -50,7 +50,7 @@ validate_name_vsn(Name) when is_list(Name) ->
 validate_name_vsn(Name) when is_binary(Name), byte_size(Name) > 0, byte_size(Name) =< 256 ->
     case re:run(Name, "\\A[A-Za-z]+[A-Za-z0-9_]*-[A-Za-z0-9_.-]*\\z", [{capture, none}]) of
         match ->
-            ok;
+            check_not_package_file_name(Name);
         nomatch ->
             {error,
                 "Name should be an application name"
@@ -63,6 +63,25 @@ validate_name_vsn(Name) when is_binary(Name) ->
     {error, "Name Length must =< 256"};
 validate_name_vsn(_) ->
     {error, "Name must be a string"}.
+
+%% The installation directory of a name-vsn is also the path of the package file
+%% (or of its checksum) of the plugin whose name-vsn it extends: `foo-1.tar.gz'
+%% would take the place of the archive of `foo-1'.
+check_not_package_file_name(Name) ->
+    case is_package_file_name(Name) of
+        true ->
+            {error,
+                "Name must not end with .tar.gz or .tar.gz.md5sum,"
+                " which are the package file names of another plugin"};
+        false ->
+            ok
+    end.
+
+is_package_file_name(Name) ->
+    lists:any(
+        fun(Suffix) -> binary:longest_common_suffix([Name, Suffix]) =:= byte_size(Suffix) end,
+        [<<".tar.gz">>, <<".tar.gz.md5sum">>]
+    ).
 
 -doc """
 Validate the `node.pinned_plugins` list.

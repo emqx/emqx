@@ -93,6 +93,15 @@ init_per_testcase(t_cluster_rolls_back_partial_start_failure = TestCase, Config0
         {cluster, Cluster}
         | Config
     ];
+init_per_testcase(t_cluster_sync_reports_a_busy_peer = TestCase, Config0) ->
+    Config = [{api_port, emqx_common_test_helpers:select_free_port(tcp)} | Config0],
+    Cluster = [Node1 | _] = cluster(TestCase, Config),
+    {ok, API} = init_api(Node1),
+    [
+        {api, API},
+        {cluster, Cluster}
+        | Config
+    ];
 init_per_testcase(TestCase, Config) ->
     ToInstallDir = filename:join(emqx_cth_suite:work_dir(TestCase, Config), "emqx_plugins"),
     emqx_plugins:put_config_internal(install_dir, ToInstallDir),
@@ -101,7 +110,8 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(TestCase, Config) when
     TestCase =:= t_cluster_update_order;
     TestCase =:= t_cluster_rejects_invalid_local_config_on_start;
-    TestCase =:= t_cluster_rolls_back_partial_start_failure
+    TestCase =:= t_cluster_rolls_back_partial_start_failure;
+    TestCase =:= t_cluster_sync_reports_a_busy_peer
 ->
     Cluster = ?config(cluster, Config),
     emqx_cth_cluster:stop(Cluster),
@@ -971,9 +981,11 @@ t_install_orphan_package_requires_allow(Config) ->
     {ok, []} = uninstall_plugin(NameVsn),
     ok.
 
-%% A complete installation is still an installation: uploading the same package
-%% again is refused with ALREADY_INSTALLED and the installed files are kept.
-t_install_over_complete_install_dir(_Config) ->
+%% A complete installation is still an installation: the package which is
+%% installed may be uploaded again (the retry of a cluster installation which
+%% did not finish on some node) and the installed files are kept, while another
+%% package is refused with ALREADY_INSTALLED.
+t_install_over_complete_install_dir(Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
@@ -990,8 +1002,21 @@ t_install_over_complete_install_dir(_Config) ->
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     AppFiles = emqx_plugins_test_helpers:plugin_app_files(NameVsn),
     ?assertMatch([_ | _], AppFiles),
-    {ok, {{_, 400, _}, _, Body}} = install_plugin(PackagePath),
-    #{<<"code">> := <<"ALREADY_INSTALLED">>} = emqx_utils_json:decode(Body),
+    %% the same package again: accepted, and the installation is left alone
+    ok = allow_package(PackagePath),
+    ok = install_plugin(PackagePath),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    emqx_plugins_test_helpers:assert_files_exist(AppFiles),
+    %% another package for the same name-vsn: refused
+    OtherPackagePath = create_modified_package(Config, PackagePath),
+    ok = allow_package(OtherPackagePath),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin(OtherPackagePath),
+    #{
+        <<"code">> := <<"ALREADY_INSTALLED">>,
+        <<"message">> := Message
+    } = emqx_utils_json:decode(Body),
+    %% the caller is told how to replace the installation which is in the way
+    ?assertNotEqual(nomatch, binary:match(Message, <<"uninstall">>)),
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     emqx_plugins_test_helpers:assert_files_exist(AppFiles),
     {ok, []} = uninstall_plugin(NameVsn),
@@ -1028,6 +1053,139 @@ t_install_over_manifest_only_install_dir(_Config) ->
     ?assertMatch(#{<<"name">> := <<"my_emqx_plugin">>}, describe_plugin(NameVsn)),
     ?assertMatch([_ | _], emqx_plugins_test_helpers:plugin_app_files(NameVsn)),
     {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
+%% The configuration stored for the plugin on this node is validated while the
+%% newly published tree can still be rolled back: a configuration which the
+%% package can not read is refused, and the package which was installed is put
+%% back.
+t_install_refuses_a_package_the_stored_config_cannot_follow(Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ConfigFile = emqx_plugins_fs:config_file_path(NameVsn),
+    _ = file:delete(ConfigFile),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = file:delete(ConfigFile),
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_package(PackagePath),
+    ok = install_plugin(PackagePath),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, InstalledPackage} = file:read_file(TarFile),
+
+    %% the configuration can not be read by the package, and the installation
+    %% holds the leftovers of an interrupted unpack, so the upload replaces it
+    ok = file:write_file(ConfigFile, <<"foo = {{{">>),
+    ok = emqx_plugins_test_helpers:delete_plugin_app_dirs(NameVsn),
+    ?assertEqual(incomplete, emqx_plugins:install_state(NameVsn)),
+    OtherPackagePath = create_modified_package(Config, PackagePath),
+    ok = allow_package(OtherPackagePath),
+    {ok, {{"HTTP/1.1", 400, _}, _, Body}} = install_plugin(OtherPackagePath),
+    #{
+        <<"code">> := <<"BAD_PLUGIN_INFO">>,
+        <<"message">> := Message
+    } = emqx_utils_json:decode(Body),
+    ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_plugin_config">>)),
+    %% the message names the file which has to be fixed, and does not suggest the
+    %% uninstall which keeps that file
+    ?assertNotEqual(nomatch, binary:match(Message, <<"config.hocon">>)),
+    ?assertEqual(nomatch, binary:match(Message, <<"uninstall">>)),
+    %% the uploaded package left nothing behind, and the previous one is back
+    ?assertEqual({ok, InstalledPackage}, file:read_file(TarFile)),
+    ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
+    ?assertEqual([], staging_attempts(NameVsn)),
+    ok.
+
+%% A failure after the package was published keeps the package which was
+%% uploaded: the files on disk come from it, so the node reports the
+%% installation as not ready instead of reporting the package as invalid, and
+%% the next attempt repeats the failing step without unpacking again.
+t_install_keeps_the_written_package_when_the_installation_cannot_finish(Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    _ = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_package(PackagePath),
+    ok = install_plugin(PackagePath),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    ok = emqx_plugins_test_helpers:delete_plugin_app_dirs(NameVsn),
+    ?assertEqual(incomplete, emqx_plugins:install_state(NameVsn)),
+
+    OtherPackagePath = create_modified_package(Config, PackagePath),
+    {ok, OtherPackage} = file:read_file(OtherPackagePath),
+    ok = allow_package(OtherPackagePath),
+    ok = meck:new(emqx_plugins_local_config, [passthrough]),
+    try
+        %% the configuration which follows the publication fails
+        ok = meck:expect(emqx_plugins_local_config, copy_default, fun(_NameVsn) ->
+            {error, eacces}
+        end),
+        {ok, {{"HTTP/1.1", 500, _}, _, Body}} = install_plugin(OtherPackagePath),
+        #{
+            <<"code">> := <<"INTERNAL_ERROR">>,
+            <<"message">> := Message
+        } = emqx_utils_json:decode(Body),
+        ?assertNotEqual(nomatch, binary:match(Message, <<"plugin_installed_but_not_ready">>)),
+        ?assertNotEqual(nomatch, binary:match(Message, <<"uninstall">>))
+    after
+        ok = meck:unload(emqx_plugins_local_config)
+    end,
+    %% the uploaded package stays, and the files on disk are the ones it holds
+    TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
+    ?assertEqual({ok, OtherPackage}, file:read_file(TarFile)),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    ?assert(
+        filelib:is_regular(
+            filename:join([emqx_plugins_fs:plugin_dir(NameVsn), "REVIEW_EXTRA.md"])
+        )
+    ),
+    %% with the cause fixed, uploading the same package finishes the
+    %% installation instead of reporting it as already installed
+    ok = install_plugin(OtherPackagePath),
+    ?assertMatch(#{<<"name">> := <<"my_emqx_plugin">>}, describe_plugin(NameVsn)),
+    ok.
+
+%% A package file which can not be written is a storage failure of the node, not
+%% a package the caller has to fix, so the upload can be retried.
+t_install_write_failure_is_a_server_error(Config) ->
+    PackagePath = make_test_plugin_package(Config, test_plugin_schema(), <<"foo = \"bar\"\n">>),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_package(PackagePath),
+    ok = meck:new(emqx_plugins_fs, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_fs, write_tar, fun(_NameVsn, _Content) ->
+            {error, #{
+                msg => "failed_to_write_plugin_package",
+                path => "/nonexistent/emqx_plugin-1.0.0.tar.gz",
+                reason => enospc
+            }}
+        end),
+        {ok, {{"HTTP/1.1", 500, _}, _, Body}} = install_plugin(PackagePath),
+        #{<<"code">> := <<"INTERNAL_ERROR">>} = emqx_utils_json:decode(Body)
+    after
+        ok = meck:unload(emqx_plugins_fs)
+    end,
+    ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
     ok.
 
 %% The files of a plugin whose applications are running must not be replaced by
@@ -1712,6 +1870,55 @@ t_cluster_update_order(Config) ->
 
     ok.
 
+%% A peer which is installing the plugin holds its installation lock, so it can
+%% not purge its other versions: the synchronization reports that as a
+%% transient failure instead of answering 204.
+t_cluster_sync_reports_a_busy_peer(Config) ->
+    [Initiator, Peer] = ?config(cluster, Config),
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ?ON(Initiator, ok = allow_package(PackagePath)),
+    ok = install_plugin_into_cluster(Config, PackagePath),
+    Parent = self(),
+    Holder = ?ON(
+        Peer,
+        spawn(fun() ->
+            ok = emqx_plugins_fs:with_installation_lock(NameVsn, fun() ->
+                Parent ! {locked, self()},
+                receive
+                    release -> ok
+                end
+            end)
+        end)
+    ),
+    Monitor = erlang:monitor(process, Holder),
+    receive
+        {locked, Holder} -> ok
+    after 5000 ->
+        error(installation_lock_not_held)
+    end,
+    try
+        #{host := Host, auth := Auth} = get_host_and_auth(Config),
+        Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins", "cluster_sync"]),
+        {error, {{"HTTP/1.1", 500, _}, _, Body}} = emqx_mgmt_api_test_util:request_api(
+            post,
+            Path,
+            "",
+            Auth,
+            #{<<"name">> => list_to_binary(NameVsn)},
+            #{return_all => true}
+        ),
+        ?assertMatch(#{<<"code">> := <<"INTERNAL_ERROR">>}, emqx_utils_json:decode(Body))
+    after
+        Holder ! release,
+        receive
+            {'DOWN', Monitor, process, Holder, _} -> ok
+        after 5000 ->
+            error(installation_lock_not_released)
+        end
+    end,
+    ok.
+
 t_cluster_rejects_invalid_local_config_on_start(Config) ->
     [Initiator, InvalidNode] = ?config(cluster, Config),
     PackagePath = make_test_plugin_package(
@@ -2164,7 +2371,8 @@ cluster_cases() ->
     [
         t_cluster_update_order,
         t_cluster_rejects_invalid_local_config_on_start,
-        t_cluster_rolls_back_partial_start_failure
+        t_cluster_rolls_back_partial_start_failure,
+        t_cluster_sync_reports_a_busy_peer
     ].
 
 app_specs(_Config) ->

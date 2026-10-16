@@ -113,15 +113,30 @@ read_plugin_test() ->
         fun(_Dir) ->
             NameVsn = "bar-5",
             InfoFile = emqx_plugins_fs:info_file_path(NameVsn),
-            FakeInfo =
-                "name=bar, rel_vsn=\"5\", rel_apps=[justname_no_vsn],"
-                "description=\"desc bar\"",
+            Info = fun(RelApps) ->
+                "name=bar, rel_vsn=\"5\", rel_apps=" ++ RelApps ++
+                    ", description=\"desc bar\""
+            end,
+            %% The entries name the directories of the package's applications,
+            %% so an entry which is not a single path component must not be
+            %% accepted: a directory built from it would leave the plugin's
+            %% install directory.
+            BadRelApps = ["[justname_no_vsn]", "[\"../escape-1.0\"]", "[\"a/dep-1.0\"]"],
             try
-                ok = write_file(InfoFile, FakeInfo),
-                ?assertMatch(
-                    {error, #{msg := "bad_rel_apps"}},
-                    emqx_plugins:read_plugin_info(NameVsn, #{})
-                )
+                lists:foreach(
+                    fun(RelApps) ->
+                        ok = write_file(InfoFile, Info(RelApps)),
+                        ?assertMatch(
+                            {error, #{msg := "bad_rel_apps"}},
+                            emqx_plugins:read_plugin_info(NameVsn, #{})
+                        )
+                    end,
+                    BadRelApps
+                ),
+                %% A bundled application may carry a version which the plugin
+                %% package identifier syntax does not allow.
+                ok = write_file(InfoFile, Info("[\"dep-1.2.3+build.4\"]")),
+                ?assertMatch({ok, _}, emqx_plugins:read_plugin_info(NameVsn, #{}))
             after
                 emqx_plugins:purge(NameVsn)
             end
@@ -197,7 +212,16 @@ package_operations_validate_names_test() ->
                 fun emqx_plugins_fs:ensure_config_dir/1
             ],
             Names = [
-                "../kept-1", filename:absname(Kept), "valid-1/../../kept-1", "..-1", ".-1", "-1"
+                "../kept-1",
+                filename:absname(Kept),
+                "valid-1/../../kept-1",
+                "..-1",
+                ".-1",
+                "-1",
+                %% the installation directory of such a name is the package file
+                %% (or the checksum) of `kept-1'
+                "kept-1.tar.gz",
+                "kept-1.tar.gz.md5sum"
             ],
             lists:foreach(
                 fun(Name) ->
@@ -806,6 +830,100 @@ install_package_restores_the_previous_package_on_failure_test() ->
                 ),
                 ?assertEqual({ok, Before}, emqx_plugins:backup_package(NameVsn)),
                 ?assertNot(emqx_plugins_fs:is_installed(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The configuration stored for the plugin on this node is validated while the
+%% newly unpacked tree can still be rolled back: a configuration which the package
+%% can not read would otherwise fail the installation after that point, when the
+%% previous tree is already gone.
+install_package_rejects_a_config_which_the_package_cannot_read_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "bad_stored_config-0.1.0",
+                ok = emqx_plugins:write_package(NameVsn, <<"previous package">>),
+                ConfigFile = emqx_plugins_fs:config_file_path(NameVsn),
+                ok = write_file(ConfigFile, <<"foo = {{{">>),
+                try
+                    ?assertMatch(
+                        {error, #{msg := "invalid_plugin_config"}},
+                        emqx_plugins:install_package(NameVsn, plugin_package(NameVsn, []))
+                    ),
+                    %% nothing was published, and the package which was there is back
+                    ?assertNot(emqx_plugins_fs:is_installed(NameVsn)),
+                    ?assertEqual({ok, <<"previous package">>}, emqx_plugins_fs:get_tar(NameVsn)),
+                    ?assertEqual({ok, <<"foo = {{{">>}, file:read_file(ConfigFile))
+                after
+                    _ = file:del_dir_r(filename:dirname(ConfigFile))
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% Only a fresh installation keeps the configuration which is stored on this
+%% node: a normal installation replaces it with the configuration of a peer, so
+%% a stored configuration which does not fit the package must not keep the
+%% repair from happening.
+validate_stored_local_config_depends_on_the_install_mode_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "mode_config-0.1.0",
+                ConfigFile = emqx_plugins_fs:config_file_path(NameVsn),
+                ok = write_file(ConfigFile, <<"foo = {{{">>),
+                try
+                    ?assertMatch(
+                        {error, #{msg := "invalid_plugin_config"}},
+                        emqx_plugins:validate_stored_local_config(NameVsn, fresh_install)
+                    ),
+                    ?assertEqual(
+                        ok, emqx_plugins:validate_stored_local_config(NameVsn, normal)
+                    )
+                after
+                    _ = file:del_dir_r(filename:dirname(ConfigFile))
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A failure after the tree was published keeps the package which was written:
+%% the files on disk come from it, and the next attempt repeats the failing step
+%% without unpacking the package again.
+install_package_keeps_the_written_package_when_finalization_fails_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "keep_written-0.1.0",
+                ok = emqx_plugins:write_package(NameVsn, <<"previous package">>),
+                Package = plugin_package(NameVsn, []),
+                ConfigDir = filename:dirname(emqx_plugins_fs:config_file_path(NameVsn)),
+                ok = meck:new(emqx_plugins_local_config, [passthrough]),
+                try
+                    %% the configuration which follows the publication fails
+                    ok = meck:expect(emqx_plugins_local_config, copy_default, fun(_NameVsn) ->
+                        {error, eacces}
+                    end),
+                    ?assertMatch(
+                        {error, #{msg := "plugin_installed_but_not_ready"}},
+                        emqx_plugins:install_package(NameVsn, Package)
+                    ),
+                    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+                    ?assertEqual({ok, Package}, emqx_plugins_fs:get_tar(NameVsn))
+                after
+                    ok = meck:unload(emqx_plugins_local_config),
+                    _ = file:del_dir_r(ConfigDir)
+                end
             end
         )
     after
