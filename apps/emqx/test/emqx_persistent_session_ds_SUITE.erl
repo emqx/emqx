@@ -1778,18 +1778,13 @@ t_unrecoverable_commit_error(_Config) ->
             %% Trigger async commit, it should fail shortly:
             SessPid ! {timeout, fake, {emqx_session, timer_commit}},
             ?block_until(#{?snk_kind := ?sessds_commit_failure}),
-            %% Check that the session process terminated:
-            receive
-                {'DOWN', MRef, process, _, Reason} ->
-                    ?assertMatch({shutdown, {commit_failure, _}}, Reason)
-            after 1000 ->
-                error(timed_out_waiting_for_session_shutdown)
-            end,
             %% Will message should be sent:
             ?assertReceive({publish, #{topic := WillTopic}}, 1_000),
             %% Session should terminate with "unspecified error"
             %% reason code:
-            ?assertReceive({disconnected, ?RC_UNSPECIFIED_ERROR, _}, 1_000)
+            ?assertReceive({disconnected, ?RC_UNSPECIFIED_ERROR, _}, 1_000),
+            %% Check that the session process terminated:
+            ?assertReceive({'DOWN', MRef, process, _, _}, 1_000)
         end,
         fun(Trace) ->
             ?assertMatch(

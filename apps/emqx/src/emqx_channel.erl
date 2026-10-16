@@ -1787,10 +1787,12 @@ handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInf
         end
     else
         {shutdown, Reason, Session1} ->
-            {shutdown, ExitReason, _Reply, Packet, SChannel} = disconnect_and_shutdown(
-                Reason, ok, Channel0#channel{session = Session1}
-            ),
-            {shutdown, ExitReason, Packet, SChannel}
+            case disconnect_and_shutdown(Reason, ok, Channel0#channel{session = Session1}) of
+                {shutdown, ExitReason, _Reply, Packet, SChannel} ->
+                    {shutdown, ExitReason, Packet, SChannel};
+                {shutdown, ExitReason, _Reply, SChannel} ->
+                    {shutdown, ExitReason, SChannel}
+            end
     end.
 
 append_replies(Replies1, Replies2) ->
