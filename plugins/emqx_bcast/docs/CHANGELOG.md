@@ -2,6 +2,20 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
+## 0.4.4
+
+### Fixed
+
+- Check the connected client's product before arming it through the QoS1
+  trigger fallback, preventing a request for another product from delivering
+  to that client.
+- Preserve committed-delivery state across promoter retries and deferred
+  batches, so a retry does not recreate delivery rows that were already
+  reclaimed after expiry, completion, or deletion.
+- Derive new RegisterMessage IDs from the content hash, consistently with
+  inline BatchPub, so requests for the same content do not return competing
+  IDs when the two creation paths race.
+
 ## 0.4.3
 
 ### Upgrade notes
