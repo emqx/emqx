@@ -135,6 +135,12 @@ desc(header) ->
 desc(_) ->
     undefined.
 
+%% Configuration validation uses binary keys; action probes also validate with atom keys.
+validate_actions(#{
+    parameters := #{delivery_mode := DeliveryMode},
+    resource_opts := #{batch_size := BatchSize}
+}) ->
+    validate_batch_size(DeliveryMode, BatchSize);
 validate_actions(#{
     <<"parameters">> := #{<<"delivery_mode">> := DeliveryMode},
     <<"resource_opts">> := #{<<"batch_size">> := BatchSize}

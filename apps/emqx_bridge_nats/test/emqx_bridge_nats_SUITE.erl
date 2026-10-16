@@ -355,7 +355,47 @@ t_jetstream_default_batch_size(Config) ->
     }),
     ?assertMatch(#{<<"resource_opts">> := #{<<"batch_size">> := 1}}, Action).
 
+t_action_probe_batch_size(Config) ->
+    {201, _} = create_connector(Config),
+    lists:foreach(
+        fun({DeliveryMode, BatchSize}) ->
+            ?assertMatch(
+                {204, _},
+                emqx_bridge_v2_testlib:probe_bridge_api_simple(Config, #{
+                    <<"parameters">> => #{<<"delivery_mode">> => DeliveryMode},
+                    <<"resource_opts">> => #{<<"batch_size">> => BatchSize}
+                })
+            )
+        end,
+        [{<<"core">>, 1}, {<<"core">>, 10}, {<<"jetstream">>, 1}]
+    ),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"TEST_FAILED">>}},
+        emqx_bridge_v2_testlib:probe_bridge_api_simple(Config, #{
+            <<"parameters">> => #{<<"delivery_mode">> => <<"jetstream">>},
+            <<"resource_opts">> => #{<<"batch_size">> => 2}
+        })
+    ).
+
 t_jetstream_puback_timeout(Config) ->
+    publish_timeout_case(Config, jetstream, 1, <<"infinity">>, 5000).
+
+t_jetstream_short_request_ttl(Config) ->
+    publish_timeout_case(Config, jetstream, 1, <<"1s">>, 1000).
+
+t_core_publish_timeout(Config) ->
+    publish_timeout_case(Config, core, 1, <<"infinity">>, 5000).
+
+t_core_batch_publish_timeout(Config) ->
+    publish_timeout_case(Config, core, 2, <<"60s">>, 5000).
+
+t_core_publish_shared_deadline(Config) ->
+    publish_timeout_case(Config, core, 1, <<"infinity">>, 5000, 3000).
+
+publish_timeout_case(Config, DeliveryMode, BatchSize, RequestTTL, ExpectedTimeout) ->
+    publish_timeout_case(Config, DeliveryMode, BatchSize, RequestTTL, ExpectedTimeout, 0).
+
+publish_timeout_case(Config, DeliveryMode, BatchSize, RequestTTL, ExpectedTimeout, ClientDelay) ->
     {ok, Client} = nats_client(Config),
     on_exit(fun() -> enats_client:stop(Client) end),
     ok = create_stream(Client),
@@ -364,13 +404,17 @@ t_jetstream_puback_timeout(Config) ->
         <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
     }),
     {201, _} = create_action(Config, #{
-        <<"parameters">> => #{<<"delivery_mode">> => <<"jetstream">>},
+        <<"parameters">> => #{
+            <<"delivery_mode">> => atom_to_binary(DeliveryMode),
+            <<"msg_id_template">> => <<"${.payload}">>
+        },
         <<"resource_opts">> => #{
             <<"query_mode">> => <<"async">>,
-            <<"batch_size">> => 1,
-            <<"batch_time">> => <<"0ms">>,
+            <<"batch_size">> => BatchSize,
+            <<"batch_time">> => <<"1s">>,
             <<"worker_pool_size">> => 1,
-            <<"request_ttl">> => <<"5s">>
+            <<"resume_interval">> => <<"1s">>,
+            <<"request_ttl">> => RequestTTL
         }
     }),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
@@ -383,7 +427,26 @@ t_jetstream_puback_timeout(Config) ->
             ?PROXY_HOST,
             ?PROXY_PORT,
             fun() ->
-                publish_mqtt(Publisher, <<"sensor/1/data">>, <<"one">>),
+                case ClientDelay of
+                    0 ->
+                        ok;
+                    _ ->
+                        ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+                        PoolClient = pool_client(ResourceId),
+                        ok = sys:suspend(PoolClient),
+                        on_exit(fun() -> _ = catch sys:resume(PoolClient) end),
+                        %% Delay the write; flush must consume only the remaining budget.
+                        spawn_link(fun() ->
+                            timer:sleep(ClientDelay),
+                            _ = catch sys:resume(PoolClient)
+                        end)
+                end,
+                StartedAt = erlang:monotonic_time(millisecond),
+                publish_mqtt_concurrently(
+                    Publisher,
+                    <<"sensor/1/data">>,
+                    [integer_to_binary(N) || N <- lists:seq(1, BatchSize)]
+                ),
                 {ok, _} = ?block_until(
                     #{
                         ?snk_kind := nats_connector_query_return,
@@ -391,10 +454,23 @@ t_jetstream_puback_timeout(Config) ->
                     },
                     10000
                 ),
+                Elapsed = erlang:monotonic_time(millisecond) - StartedAt,
+                ?assert(Elapsed >= ExpectedTimeout - 250, #{elapsed => Elapsed}),
+                ?assert(Elapsed < ExpectedTimeout + 2500, #{elapsed => Elapsed}),
                 {ok, Count} = stream_last_sequence(Client),
-                ?assert(Count >= 1)
+                ?assert(Count >= BatchSize)
             end
-        )
+        ),
+        case RequestTTL of
+            <<"1s">> ->
+                ok;
+            _ ->
+                {ok, _} = ?block_until(
+                    #{?snk_kind := nats_connector_query_return, result := Success} when
+                        Success =:= ok; Success =:= [ok, ok]; element(1, Success) =:= ok,
+                    10000
+                )
+        end
     after
         snabbkaffe:stop()
     end.
@@ -638,13 +714,349 @@ t_jetstream_no_responders(Config) ->
                 ?snk_kind := nats_connector_query_return,
                 result :=
                     {error,
-                        {unrecoverable_error, #{
+                        {recoverable_error, #{
                             reason := server_error,
                             details := #{source := jetstream, code := unavailable, status := 503}
                         }}}
             },
             10_000
         )
+    after
+        snabbkaffe:stop()
+    end.
+
+t_jetstream_unavailable_recovery(Config) ->
+    {ok, Client} = nats_client(Config),
+    on_exit(fun() -> enats_client:stop(Client) end),
+    {ok, _} = enats_client:request(Client, <<"$JS.API.STREAM.DELETE.EMQX">>, <<>>, #{
+        timeout => 2000
+    }),
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(Config, #{
+        <<"parameters">> => #{
+            <<"delivery_mode">> => <<"jetstream">>,
+            <<"msg_id_template">> => <<"unavailable-recovery">>
+        },
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"batch_size">> => 1,
+            <<"worker_pool_size">> => 1,
+            <<"resume_interval">> => <<"1s">>,
+            <<"request_ttl">> => <<"15s">>
+        }
+    }),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"retry-when-stream-appears">>),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result :=
+                    {error,
+                        {recoverable_error, #{
+                            reason := server_error,
+                            details := #{source := jetstream, code := unavailable, status := 503}
+                        }}}
+            },
+            5000
+        ),
+        ok = create_stream(Client),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result := {ok, #{stream := <<"EMQX">>}}
+            },
+            10000
+        ),
+        ?assertEqual({ok, 1}, stream_last_sequence(Client))
+    after
+        snabbkaffe:stop()
+    end.
+
+t_jetstream_account_quota_recovery(Config) ->
+    Host = "nats",
+    wait_for_port(Host, ?NATS_PORT),
+    {ok, Client} = connect_client(
+        enats_client:start_link(#{
+            host => Host,
+            port => ?NATS_PORT,
+            auth => #{
+                mechanism => user_password,
+                username => <<"test_user">>,
+                password => fun() -> <<"password">> end
+            }
+        })
+    ),
+    on_exit(fun() ->
+        _ = enats_client:request(Client, <<"$JS.API.STREAM.DELETE.QUOTA">>, <<>>, #{timeout => 2000}),
+        enats_client:stop(Client)
+    end),
+    Body = jsx:encode(#{
+        name => <<"QUOTA">>, subjects => [<<"quota.events">>], storage => <<"memory">>
+    }),
+    {ok, #{payload := Created}} = enats_client:request(
+        Client, <<"$JS.API.STREAM.CREATE.QUOTA">>, Body, #{timeout => 2000}
+    ),
+    ?assertMatch(#{<<"config">> := #{}}, jsx:decode(Created, [return_maps])),
+    {ok, #{payload := AccountInfo}} = enats_client:request(
+        Client, <<"$JS.API.INFO">>, <<>>, #{timeout => 2000}
+    ),
+    #{<<"limits">> := #{<<"max_memory">> := MemoryLimit}} = jsx:decode(AccountInfo, [return_maps]),
+    ?assertEqual(1024 * 1024, MemoryLimit),
+    %% Fill the shared fixture's quota only in this case; cleanup removes our stream.
+    SeedPayload = binary:copy(<<"a">>, 700),
+    SeedCount = fill_jetstream_account_quota(
+        Client, SeedPayload, MemoryLimit div byte_size(SeedPayload) + 1, 0
+    ),
+    {201, _} = create_connector(Config, #{
+        <<"servers">> => nats_server(Host, ?NATS_PORT),
+        <<"authentication">> => #{
+            <<"mechanism">> => <<"user_password">>,
+            <<"username">> => <<"test_user">>,
+            <<"password">> => <<"password">>
+        }
+    }),
+    {201, _} = create_action(Config, #{
+        <<"parameters">> => #{
+            <<"subject">> => <<"quota.events">>,
+            <<"delivery_mode">> => <<"jetstream">>,
+            <<"msg_id_template">> => <<"quota-recovery">>
+        },
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"batch_size">> => 1,
+            <<"worker_pool_size">> => 1,
+            <<"resume_interval">> => <<"1s">>,
+            <<"request_ttl">> => <<"15s">>
+        }
+    }),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    Payload = binary:copy(<<"b">>, 700),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt(Publisher, <<"sensor/1/data">>, Payload),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result :=
+                    {error,
+                        {recoverable_error, #{
+                            reason := server_error,
+                            details := #{source := jetstream, code := rejected, err_code := 10002}
+                        }}}
+            },
+            5000
+        ),
+        {ok, #{payload := Purged}} = enats_client:request(
+            Client, <<"$JS.API.STREAM.PURGE.QUOTA">>, <<>>, #{timeout => 2000}
+        ),
+        ?assertMatch(
+            #{<<"success">> := true, <<"purged">> := SeedCount}, jsx:decode(Purged, [return_maps])
+        ),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result := {ok, #{stream := <<"QUOTA">>}}
+            },
+            10000
+        ),
+        {ok, #{payload := Info}} = enats_client:request(
+            Client, <<"$JS.API.STREAM.INFO.QUOTA">>, <<>>, #{timeout => 2000}
+        ),
+        ?assertMatch(#{<<"state">> := #{<<"messages">> := 1}}, jsx:decode(Info, [return_maps])),
+        {ok, #{payload := Stored}} = enats_client:request(
+            Client,
+            <<"$JS.API.STREAM.MSG.GET.QUOTA">>,
+            jsx:encode(#{last_by_subj => <<"quota.events">>}),
+            #{timeout => 2000}
+        ),
+        #{<<"message">> := #{<<"data">> := Encoded}} = jsx:decode(Stored, [return_maps]),
+        ?assertEqual(Payload, base64:decode(Encoded))
+    after
+        snabbkaffe:stop()
+    end.
+
+fill_jetstream_account_quota(_Client, _Payload, 0, _Count) ->
+    ct:fail(account_quota_not_reached);
+fill_jetstream_account_quota(Client, Payload, Remaining, Count) ->
+    case enats_client:jetstream_publish(Client, <<"quota.events">>, Payload, #{timeout => 2000}) of
+        {ok, _} ->
+            fill_jetstream_account_quota(Client, Payload, Remaining - 1, Count + 1);
+        {error, #{reason := server_error, details := #{err_code := 10002}}} ->
+            Count
+    end.
+
+t_jetstream_duplicate_inflight_recovery(Config) ->
+    jetstream_rejected_recovery(Config, 409, 10158, []).
+
+t_jetstream_overload_recovery(Config) ->
+    jetstream_rejected_recovery(Config, 429, 10167, []).
+
+t_jetstream_overload_status_recovery(Config) ->
+    jetstream_rejected_recovery(Config, 429, 10167, [{<<"Status">>, <<"429">>}]).
+
+jetstream_rejected_recovery(Config, Status, ErrorCode, Headers) ->
+    {ok, Client} = nats_client(Config),
+    on_exit(fun() -> enats_client:stop(Client) end),
+    {ok, _} = enats_client:request(Client, <<"$JS.API.STREAM.DELETE.EMQX">>, <<>>, #{
+        timeout => 2000
+    }),
+    %% Return a deterministic wire-level rejection without racing cluster commits or
+    %% overloading the test server. Afterward, retries go to a real JetStream stream.
+    {ok, Subscription} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+    ok = enats_client:flush(Client, 2000),
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(Config, #{
+        <<"parameters">> => #{
+            <<"delivery_mode">> => <<"jetstream">>,
+            <<"msg_id_template">> => <<"rejected-recovery">>
+        },
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"batch_size">> => 1,
+            <<"worker_pool_size">> => 1,
+            <<"resume_interval">> => <<"1s">>,
+            <<"request_ttl">> => <<"15s">>
+        }
+    }),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"retry-rejected-publish">>),
+        {enats_client, Client, {message, #{reply_to := ReplyTo}}} = receive_message(5000),
+        Response = jsx:encode(#{error => #{code => Status, err_code => ErrorCode}}),
+        ok = enats_client:publish(Client, ReplyTo, Response, #{headers => Headers}),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result :=
+                    {error,
+                        {recoverable_error, #{
+                            reason := server_error,
+                            details := #{source := jetstream, code := rejected, status := Status}
+                        }}}
+            },
+            5000
+        ),
+        ok = enats_client:unsubscribe(Client, Subscription),
+        ok = create_stream(Client),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result := {ok, #{stream := <<"EMQX">>}}
+            },
+            10000
+        ),
+        ?assertEqual({ok, 1}, stream_last_sequence(Client))
+    after
+        snabbkaffe:stop()
+    end.
+
+t_jetstream_wrong_last_sequence(Config) ->
+    {ok, Client} = nats_client(Config),
+    on_exit(fun() -> enats_client:stop(Client) end),
+    ok = create_stream(Client),
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(Config, #{
+        <<"parameters">> => #{
+            <<"delivery_mode">> => <<"jetstream">>,
+            <<"headers">> => [
+                #{
+                    <<"key">> => <<"Nats-Expected-Last-Sequence">>, <<"value">> => <<"1">>
+                }
+            ]
+        },
+        <<"resource_opts">> => #{<<"batch_size">> => 1}
+    }),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ok = snabbkaffe:start_trace(),
+    try
+        publish_mqtt(Publisher, <<"sensor/1/data">>, <<"wrong-last-sequence">>),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result :=
+                    {error,
+                        {unrecoverable_error, #{
+                            reason := server_error,
+                            details := #{source := jetstream, code := rejected, err_code := 10071}
+                        }}}
+            },
+            5000
+        ),
+        ?assertEqual({ok, 0}, stream_last_sequence(Client))
+    after
+        snabbkaffe:stop()
+    end.
+
+t_jetstream_client_exit_during_publish(Config) ->
+    {ok, Client} = nats_client(Config),
+    on_exit(fun() -> enats_client:stop(Client) end),
+    ok = create_stream(Client),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+    ok = enats_client:flush(Client, 2000),
+    {201, _} = create_connector(Config, #{
+        <<"servers">> => <<"toxiproxy:14223">>,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
+    }),
+    {201, _} = create_action(Config, #{
+        <<"parameters">> => #{
+            <<"delivery_mode">> => <<"jetstream">>,
+            <<"msg_id_template">> => <<"client-exit-recovery">>
+        },
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"batch_size">> => 1,
+            <<"worker_pool_size">> => 1,
+            <<"resume_interval">> => <<"1s">>,
+            <<"request_ttl">> => <<"15s">>
+        }
+    }),
+    {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+    Publisher = mqtt_client(),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+    OldClient = pool_client(ResourceId),
+    ok = snabbkaffe:start_trace(),
+    try
+        emqx_common_test_helpers:with_failure(
+            timeout_downstream,
+            ?JETSTREAM_PROXY,
+            ?PROXY_HOST,
+            ?PROXY_PORT,
+            fun() ->
+                publish_mqtt(Publisher, <<"sensor/1/data">>, <<"retry-after-client-exit">>),
+                %% Receipt proves the publish reached NATS while its PubAck is blocked.
+                ?assertMatch(
+                    {enats_client, Client, {message, #{payload := <<"retry-after-client-exit">>}}},
+                    receive_message(5000)
+                ),
+                exit(OldClient, kill),
+                {ok, _} = ?block_until(
+                    #{
+                        ?snk_kind := nats_connector_query_return,
+                        result :=
+                            {error,
+                                {recoverable_error, #{
+                                    reason := internal_error, details := #{code := client_exit}
+                                }}}
+                    },
+                    5000
+                )
+            end
+        ),
+        {ok, _} = ?block_until(
+            #{
+                ?snk_kind := nats_connector_query_return,
+                result := {ok, #{stream := <<"EMQX">>, duplicate := true}}
+            },
+            10000
+        ),
+        ?assertEqual({ok, 1}, stream_last_sequence(Client))
     after
         snabbkaffe:stop()
     end.
@@ -1023,6 +1435,7 @@ auth_publish_case(
     {201, #{<<"status">> := <<"connected">>} = Connector} = create_connector(
         Config, ConnectorOverrides
     ),
+    ok = assert_authentication_roundtrip(Config, Authentication),
     ok = AfterConnector(emqx_utils_json:encode(Connector)),
     {201, _} = create_action(Config),
     {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
@@ -1034,6 +1447,27 @@ auth_publish_case(
         receive_message(5000)
     ),
     ok = enats_client:stop(Client).
+
+assert_authentication_roundtrip(_Config, none) ->
+    ok;
+assert_authentication_roundtrip(Config, Authentication) ->
+    RedactedAuthentication = emqx_utils:redact(Authentication),
+    ?assertNotEqual(Authentication, RedactedAuthentication),
+    {200, Connector} = get_connector(Config),
+    ?assertEqual(RedactedAuthentication, maps:get(<<"authentication">>, Connector)),
+    WritableKeys = [
+        atom_to_binary(Key)
+     || {Key, _Schema} <- emqx_bridge_nats_connector_schema:fields("put_connector")
+    ],
+    RoundtripConfig = lists:keystore(
+        connector_config, 1, Config, {connector_config, maps:with(WritableKeys, Connector)}
+    ),
+    {200, _} = emqx_bridge_v2_testlib:update_connector_api_simple(RoundtripConfig, #{}),
+    Name = ?config(connector_name, Config),
+    ?assertEqual(Authentication, emqx:get_raw_config([connectors, nats, Name, authentication])),
+    {200, UpdatedConnector} = get_connector(Config),
+    ?assertEqual(RedactedAuthentication, maps:get(<<"authentication">>, UpdatedConnector)),
+    ok.
 
 assert_credentials_not_exposed(ConnectorBody) ->
     ?assertEqual(nomatch, binary:match(ConnectorBody, <<"BEGIN NATS USER JWT">>)),

@@ -14,6 +14,7 @@
 -include("emqx_bridge_nats.hrl").
 
 -define(AUTO_RECONNECT_INTERVAL, 2).
+-define(PUBLISH_TIMEOUT, 5000).
 
 -export([
     resource_type/0,
@@ -115,11 +116,7 @@ on_get_status(_InstanceId, #{pool := Pool, health_check_timeout := HealthCheckTi
         Pool,
         #{
             timeout => HealthCheckTimeout,
-            check_fn => fun(Client) -> health_check(Client, HealthCheckTimeout) end,
-            is_success_fn => fun
-                (ok) -> false;
-                (_) -> true
-            end
+            check_fn => fun(Client) -> health_check(Client, HealthCheckTimeout) end
         }
     ).
 
@@ -187,11 +184,12 @@ connect(Options) ->
             Error
     end.
 
-publish(Client, Channel, Message) ->
+publish(Client, #{request_ttl := RequestTTL} = Channel, Message) ->
+    Deadline = publish_deadline(RequestTTL),
     maybe
         {ok, Rendered} ?= render_message(Channel, Message),
-        Result = publish_rendered(Client, Channel, Rendered),
-        maybe_flush_core(Client, Channel, Result)
+        Result = publish_rendered(Client, Channel, Rendered, remaining_timeout(Deadline)),
+        maybe_flush_core(Client, Channel, Result, Deadline)
     else
         {error, _} = Error -> Error
     end.
@@ -201,37 +199,44 @@ publish_batch(Client, #{delivery_mode := core} = Channel, Batch) ->
 publish_batch(_Client, #{delivery_mode := jetstream}, _Batch) ->
     {error, {unrecoverable_error, jetstream_batch_not_supported}}.
 
-publish_core_batch(Client, Channel, Batch) ->
+publish_core_batch(Client, #{request_ttl := RequestTTL} = Channel, Batch) ->
+    Deadline = publish_deadline(RequestTTL),
     IndexedBatch = lists:enumerate(Batch),
     {Valid, Results0} = render_batch(IndexedBatch, Channel, [], #{}),
-    publish_core_batch(Client, Channel, Valid, Results0).
+    publish_core_batch(Client, Channel, Valid, Results0, Deadline).
 
-publish_core_batch(_Client, _Channel, [], Results) ->
+publish_core_batch(_Client, _Channel, [], Results, _Deadline) ->
     results_in_order(Results);
-publish_core_batch(Client, #{request_ttl := RequestTTL} = Channel, Valid, Results0) ->
-    Deadline = request_deadline(RequestTTL),
+publish_core_batch(Client, Channel, Valid, Results0, Deadline) ->
     WireMessages = [rendered_to_batch_message(Rendered) || {_Index, Rendered} <- Valid],
-    case enats_client:publish_batch(Client, WireMessages, remaining_timeout(Deadline)) of
-        ok ->
-            case enats_client:flush(Client, remaining_timeout(Deadline)) of
-                ok -> results_in_order(Results0);
-                {error, _} = Error -> Error
-            end;
-        {error, #{reason := badarg, details := #{index := BadIndex}} = Error} ->
-            retry_core_batch_without_invalid(Client, Channel, Valid, Results0, BadIndex, Error);
-        {error, _} = Error ->
-            Error
+    case remaining_timeout(Deadline) of
+        0 ->
+            {error, {recoverable_error, timeout}};
+        Timeout ->
+            case enats_client:publish_batch(Client, WireMessages, Timeout) of
+                ok ->
+                    case flush_before_deadline(Client, Deadline) of
+                        ok -> results_in_order(Results0);
+                        {error, _} = Error -> Error
+                    end;
+                {error, #{reason := badarg, details := #{index := BadIndex}} = Error} ->
+                    retry_core_batch_without_invalid(
+                        Client, Channel, Valid, Results0, BadIndex, Error, Deadline
+                    );
+                {error, _} = Error ->
+                    Error
+            end
     end.
 
 retry_core_batch_without_invalid(
-    Client, Channel, Valid, Results0, BadIndex, #{details := Details} = Error
+    Client, Channel, Valid, Results0, BadIndex, #{details := Details} = Error, Deadline
 ) ->
     {OriginalIndex, _Rendered} = lists:nth(BadIndex, Valid),
     Valid1 = remove_nth(BadIndex, Valid),
     Results1 = Results0#{
         OriginalIndex => {error, Error#{details => Details#{index => OriginalIndex}}}
     },
-    publish_core_batch(Client, Channel, Valid1, Results1).
+    publish_core_batch(Client, Channel, Valid1, Results1, Deadline).
 
 %%--------------------------------------------------------------------
 %% Message rendering and batch handling
@@ -262,10 +267,11 @@ remove_nth(Index, List) ->
     {Prefix, [_ | Suffix]} = lists:split(Index - 1, List),
     Prefix ++ Suffix.
 
-request_deadline(infinity) -> infinity;
-request_deadline(Timeout) -> erlang:monotonic_time(millisecond) + Timeout.
+publish_deadline(infinity) ->
+    publish_deadline(?PUBLISH_TIMEOUT);
+publish_deadline(RequestTTL) ->
+    erlang:monotonic_time(millisecond) + min(RequestTTL, ?PUBLISH_TIMEOUT).
 
-remaining_timeout(infinity) -> infinity;
 remaining_timeout(Deadline) -> max(Deadline - erlang:monotonic_time(millisecond), 0).
 
 render_message(
@@ -296,19 +302,32 @@ render_msg_id(#{delivery_mode := jetstream, msg_id := MsgIdTemplate}, Message) -
 render_msg_id(_Channel, _Message) ->
     undefined.
 
-maybe_flush_core(_Client, _Channel, {error, _} = Error) ->
+maybe_flush_core(_Client, _Channel, {error, _} = Error, _Deadline) ->
     Error;
-maybe_flush_core(Client, #{delivery_mode := core, request_ttl := RequestTTL}, ok) ->
-    enats_client:flush(Client, RequestTTL);
-maybe_flush_core(_Client, _Channel, Result) ->
+maybe_flush_core(Client, #{delivery_mode := core}, ok, Deadline) ->
+    flush_before_deadline(Client, Deadline);
+maybe_flush_core(_Client, _Channel, Result, _Deadline) ->
     Result.
 
-publish_rendered(Client, #{delivery_mode := DeliveryMode, request_ttl := RequestTTL}, #{
-    subject := Subject, payload := Payload, headers := Headers, msg_id := MsgId
-}) ->
+flush_before_deadline(Client, Deadline) ->
+    case remaining_timeout(Deadline) of
+        0 -> {error, {recoverable_error, timeout}};
+        Timeout -> enats_client:flush(Client, Timeout)
+    end.
+
+publish_rendered(_Client, _Channel, _Message, 0) ->
+    {error, {recoverable_error, timeout}};
+publish_rendered(
+    Client,
+    #{delivery_mode := DeliveryMode},
+    #{
+        subject := Subject, payload := Payload, headers := Headers, msg_id := MsgId
+    },
+    Timeout
+) ->
     Options = #{
         headers => Headers,
-        timeout => RequestTTL
+        timeout => Timeout
     },
     case DeliveryMode of
         core ->
@@ -421,6 +440,22 @@ enats_client_error_kind(connection_failed, #{cause := Cause}) when
 enats_client_error_kind(connection_failed, _) ->
     recoverable_error;
 enats_client_error_kind(timeout, _) ->
+    recoverable_error;
+enats_client_error_kind(internal_error, #{code := client_exit}) ->
+    recoverable_error;
+enats_client_error_kind(server_error, #{source := jetstream, code := unavailable}) ->
+    recoverable_error;
+enats_client_error_kind(server_error, #{
+    source := jetstream, code := rejected, err_code := 10002
+}) ->
+    %% Account storage quota can become available as retained messages are removed.
+    recoverable_error;
+enats_client_error_kind(server_error, #{
+    source := jetstream, code := rejected, err_code := 10158
+}) ->
+    %% The previous publish with this message ID has not finished yet.
+    recoverable_error;
+enats_client_error_kind(server_error, #{source := jetstream, code := rejected, status := 429}) ->
     recoverable_error;
 enats_client_error_kind(bad_operation, #{code := Code}) when
     Code =:= connecting; Code =:= draining
