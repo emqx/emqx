@@ -601,7 +601,7 @@ check_oom(State = #state{zone = Zone}) ->
         #{enable := false} ->
             {ok, State};
         #{enable := true} ->
-            case emqx_utils:check_oom(ShutdownPolicy) of
+            case emqx_connection_util:check_oom(ShutdownPolicy) of
                 {shutdown, #{reason := OomReason} = Detail} ->
                     ?SLOG(error, Detail#{msg => connection_shutdown_due_to_oom}),
                     {[{shutdown, OomReason}], State};

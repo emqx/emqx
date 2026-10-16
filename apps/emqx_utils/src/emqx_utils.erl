@@ -55,8 +55,6 @@
     drain_deliver/0,
     drain_deliver/1,
     drain_down/1,
-    check_oom/1,
-    check_oom/2,
     tune_heap_size/1,
     proc_name/2,
     proc_stats/0,
@@ -273,52 +271,6 @@ drain_down(Cnt, Acc) ->
             drain_down(Cnt - 1, [Pid | Acc])
     after 0 ->
         lists:reverse(Acc)
-    end.
-
-%% @doc Check process's mailbox and heapsize against OOM policy,
-%% return `ok | {shutdown, Reason}' accordingly.
-%% `ok': There is nothing out of the ordinary.
-%% `shutdown': Some numbers (message queue length hit the limit),
-%%             hence shutdown for greater good (system stability).
-check_oom(Policy) ->
-    check_oom(self(), Policy).
-
-check_oom(_Pid, #{enable := false}) ->
-    ok;
-check_oom(Pid, #{
-    max_mailbox_size := MaxQLen,
-    max_heap_size := MaxHeapSize
-}) ->
-    case process_info(Pid, [message_queue_len, total_heap_size]) of
-        undefined ->
-            ok;
-        [{message_queue_len, QLen}, {total_heap_size, HeapSize}] ->
-            Result = do_check_oom([
-                {QLen, MaxQLen, mailbox_overflow},
-                {HeapSize, MaxHeapSize, proc_heap_too_large}
-            ]),
-            add_proc_label(Pid, Result)
-    end.
-
-do_check_oom([]) ->
-    ok;
-do_check_oom([{Val, Max, Reason} | Rest]) ->
-    case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
-        %% `shutdown_count' makes esockd count the exit under `Reason' and log
-        %% it at info level. esockd drops the key from that log line, so
-        %% `reason' keeps the name in it.
-        true -> {shutdown, #{shutdown_count => Reason, reason => Reason, value => Val, max => Max}};
-        false -> do_check_oom(Rest)
-    end.
-
-%% Add the process label (e.g. `{clientid, ClientId}') to the shutdown
-%% reason so the supervisor report identifies the offending process.
-add_proc_label(_Pid, ok) ->
-    ok;
-add_proc_label(Pid, {shutdown, Reason}) ->
-    case proc_lib:get_label(Pid) of
-        undefined -> {shutdown, Reason};
-        Label -> {shutdown, Reason#{label => Label}}
     end.
 
 tune_heap_size(#{enable := false}) ->

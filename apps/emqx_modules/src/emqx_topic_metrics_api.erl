@@ -18,6 +18,10 @@ swagger spec is now marked `deprecated`.
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_modules.hrl").
+
+%% The i18n description keys are built from a fixed set of metric names, not
+%% from user input, so binary_to_atom/2 cannot grow the atom table here.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -import(
@@ -471,6 +475,9 @@ reason2httpresp(#{cause := wildcard_not_supported, topic := Topic}) when is_bina
         "Wildcard topic filters are not allowed for topic metrics: ",
         Topic
     ]),
+    {400, #{code => ?BAD_TOPIC, message => Msg}};
+reason2httpresp(#{cause := invalid_topic_name, topic := Topic}) when is_binary(Topic) ->
+    Msg = iolist_to_binary(["Invalid topic name for topic metrics: ", Topic]),
     {400, #{code => ?BAD_TOPIC, message => Msg}};
 reason2httpresp(already_existed) ->
     Msg = <<"Topic already registered">>,

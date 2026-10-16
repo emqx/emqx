@@ -10,12 +10,15 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_schema.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(WAIT(EXPR, ATTEMPTS), ?retry(1000, ATTEMPTS, EXPR)).
+-define(TLS_ALERT_WARNING, 1).
+-define(TLS_ALERT_FATAL, 2).
 
 all() ->
     %% TODO:
@@ -48,7 +51,8 @@ groups() ->
         {ssl_listener, [], [
             {group, socket},
             {group, misbehaving},
-            {group, connect_packet_limit}
+            {group, connect_packet_limit},
+            {group, tls_alert}
         ]},
         {socket_listener, [], [
             {group, mqttv3},
@@ -124,6 +128,7 @@ groups() ->
             t_frame_error_shutdown_count_connected,
             t_frame_error_shutdown_count_is_bounded,
             t_oom_shutdown_count,
+            t_sock_error_shutdown_count_fallback,
             t_sock_closed_incomplete_qos2_transmission,
             t_connect_user_property_limit,
             t_large_connect_with_few_user_properties,
@@ -142,6 +147,11 @@ groups() ->
             t_sock_closed_force_closed_by_client,
             t_large_publish_after_connect,
             t_pipelined_large_publish
+        ]},
+        {tls_alert, [], [
+            t_tls_alert_shutdown_count_client_alert,
+            t_tls_alert_shutdown_count_server_alert,
+            t_tls_alert_shutdown_count_is_bounded
         ]},
         {connect_packet_limit, [], [
             t_transport_refuses_oversized_connect,
@@ -1940,6 +1950,181 @@ t_oom_shutdown_count(Config) ->
 %% connections use the overridden zone and listener settings.
 refresh_conn_conf() ->
     emqx_connection_conf:post_zone_config_update(#{}, emqx_config:get([zones])).
+
+-doc """
+A socket error that is neither an atom nor a TLS alert shuts the connection down
+under the fixed `sock_error` counter, rather than being reported as an
+unidentified shutdown at error level. Garbage sent to a proxy protocol listener
+produces such an error, and the bytes stay in the shutdown reason only.
+""".
+t_sock_error_shutdown_count_fallback(Config) ->
+    Type = ?config(listener_type, Config),
+    Name = ?FUNCTION_NAME,
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    RawConf = maps:merge(
+        emqx:get_raw_config([listeners, Type, default]),
+        #{
+            <<"bind">> => iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]),
+            <<"proxy_protocol">> => true
+        }
+    ),
+    {ok, _} = emqx:update_config([listeners, Type, Name], {create, RawConf}),
+    try
+        Id = emqx_listeners:listener_id(Type, Name),
+        Bind = emqx_config:get([listeners, Type, Name, bind]),
+        Counts = fun() -> emqx_listeners:shutdown_count(Id, Bind) end,
+        {Reports, {ok, #{reason := Logged}}} = capture_supervisor_reports(fun() ->
+            {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, Port, [binary, {active, false}]),
+            ok = gen_tcp:send(Sock, <<"GET / HTTP/1.1\r\n\r\n">>),
+            ?block_until(#{?snk_kind := esockd_connection_sup_report}, 5000)
+        end),
+        ?assertMatch(#{reason := {invalid_proxy_info, _}}, Logged),
+        ?assertMatch([{notice, _}], Reports),
+        ?WAIT(?assertEqual([{sock_error, 1}], Counts()), 5)
+    after
+        {ok, _} = emqx:update_config([listeners, Type, Name], ?TOMBSTONE_CONFIG_CHANGE_REQ)
+    end.
+
+-doc """
+A TLS alert that the client sends after the handshake shuts the connection down
+under a listener counter named by the alert kind. esockd logs it at notice
+level, and no error-level supervisor report is emitted.
+""".
+t_tls_alert_shutdown_count_client_alert(Config) ->
+    %% Warning-level `user_canceled' (90): the most frequent alert on public
+    %% brokers. The client sends it before any MQTT packet.
+    SslSocket = tls_connect_ready(Config),
+    assert_tls_alert_shutdown(Config, user_canceled, fun() ->
+        send_tls_alert(SslSocket, ?TLS_ALERT_WARNING, 90)
+    end).
+
+-doc """
+A TLS alert that the broker generates, here `bad_record_mac` for a record that
+fails to decrypt, shuts an MQTT-connected client down under a listener counter
+named by the alert kind, with no error-level supervisor report.
+""".
+t_tls_alert_shutdown_count_server_alert(Config) ->
+    {Tcp, SslSocket} = tls_connect_over_tcp(),
+    ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
+        proto_ver = ?MQTT_PROTO_V5,
+        clientid = atom_to_binary(?FUNCTION_NAME)
+    }),
+    ok = ssl:send(SslSocket, emqx_frame:serialize(ConnPacket)),
+    receive
+        {ssl, _, <<32, _/binary>>} -> ok
+    after 5000 -> ct:fail({connack_not_received, process_info(self(), messages)})
+    end,
+    assert_tls_alert_shutdown(Config, bad_record_mac, fun() ->
+        %% An application data record of random bytes, written under the TLS
+        %% layer, fails to decrypt on the broker.
+        ok = gen_tcp:send(Tcp, <<23, 3, 3, 0, 32, (crypto:strong_rand_bytes(32))/binary>>)
+    end).
+
+-doc """
+Alert codes that the TLS stack does not know share the
+`'unsupported/unknown_alert'` counter, so a peer cannot mint counter names by
+sending made-up codes.
+""".
+t_tls_alert_shutdown_count_is_bounded(Config) ->
+    Key = 'unsupported/unknown_alert',
+    KeysBefore = shutdown_count_keys(Config),
+    CountBefore = shutdown_count(Config, Key),
+    UnknownCodes = [200, 201],
+    lists:foreach(
+        fun(Code) ->
+            SslSocket = tls_connect_ready(Config),
+            ok = send_tls_alert(SslSocket, ?TLS_ALERT_FATAL, Code)
+        end,
+        UnknownCodes
+    ),
+    ?WAIT(?assertEqual(CountBefore + length(UnknownCodes), shutdown_count(Config, Key)), 5),
+    ?assertEqual([], shutdown_count_keys(Config) -- [Key | KeysBefore]).
+
+%% Connect over TLS and return the client socket once the connection process
+%% has finished its init and runs its receive loop.
+tls_connect_ready(Config) ->
+    {{ssl, SslSocket}, {ok, #{?snk_meta := #{pid := CPid}}}} = ?wait_async_action(
+        socket_connect(Config, [{active, true}, binary]),
+        #{?snk_kind := connection_started}
+    ),
+    _ = sys:get_state(CPid),
+    SslSocket.
+
+%% Run `Fun' that causes one connection to close on a TLS alert of `Kind', and
+%% assert that esockd counts it under `Kind' and reports it at notice level only.
+assert_tls_alert_shutdown(Config, Kind, Fun) ->
+    CountBefore = shutdown_count(Config, Kind),
+    {Reports, {ok, #{reason := Logged}}} = capture_supervisor_reports(fun() ->
+        ok = Fun(),
+        ?block_until(#{?snk_kind := esockd_connection_sup_report}, 5000)
+    end),
+    ?assertMatch(#{reason := {tls_alert, {Kind, _}}}, Logged),
+    %% esockd's info branch goes through `error_logger:info_report/2', which
+    %% logs at notice level.
+    ?assertMatch([{notice, _}], Reports),
+    ?WAIT(?assertEqual(CountBefore + 1, shutdown_count(Config, Kind)), 5).
+
+%% Run `Fun' while capturing the supervisor reports of `esockd_connection_sup'.
+%% Each report is also emitted as a snabbkaffe event, so `Fun' can wait for it.
+%% Returns `{[{Level, Reason}], Result}'.
+capture_supervisor_reports(Fun) ->
+    Self = self(),
+    HandlerId = ?FUNCTION_NAME,
+    ok = logger:add_handler(HandlerId, ?MODULE, #{
+        level => notice,
+        config => #{test_pid => Self},
+        filter_default => log,
+        filters => []
+    }),
+    PrevLevel = emqx_logger:get_primary_log_level(),
+    ok = emqx_logger:set_primary_log_level(notice),
+    try
+        Result = Fun(),
+        {collect_supervisor_reports([]), Result}
+    after
+        ok = emqx_logger:set_primary_log_level(PrevLevel),
+        ok = logger:remove_handler(HandlerId)
+    end.
+
+%% logger handler callback for `capture_supervisor_reports/1'.
+log(
+    #{level := Level, msg := {report, #{label := {error_logger, _}, report := Report}}},
+    #{config := #{test_pid := Pid}}
+) when is_list(Report) ->
+    case proplists:get_value(supervisor, Report) of
+        {esockd_connection_sup, _} ->
+            Reason = proplists:get_value(reason, Report),
+            Pid ! {?MODULE, supervisor_report, Level, Reason},
+            ?tp(esockd_connection_sup_report, #{level => Level, reason => Reason});
+        _ ->
+            ok
+    end;
+log(_Event, _Config) ->
+    ok.
+
+collect_supervisor_reports(Acc) ->
+    receive
+        {?MODULE, supervisor_report, Level, Reason} ->
+            collect_supervisor_reports([{Level, Reason} | Acc])
+    after 200 -> lists:reverse(Acc)
+    end.
+
+%% Connect TLS over a TCP socket that the test keeps, so it can write bytes
+%% under the TLS layer.
+tls_connect_over_tcp() ->
+    {ok, Tcp} = gen_tcp:connect({127, 0, 0, 1}, listener_port(ssl), [binary, {active, false}]),
+    {ok, SslSocket} = ssl:connect(
+        Tcp, emqx_common_test_helpers:client_mtls() ++ [{active, true}, binary], 5000
+    ),
+    {Tcp, SslSocket}.
+
+%% Send a TLS alert through the record layer of an established connection, so
+%% the broker receives it encrypted, after the handshake. `ssl' has no API for
+%% this. `#sslsocket.payload_sender' is element 4, and the alert record is
+%% `#alert{level, description, where, role, reason}'.
+send_tls_alert(SslSocket, Level, Description) ->
+    Sender = element(4, SslSocket),
+    tls_sender:send_alert(Sender, {alert, Level, Description, undefined, undefined, undefined}).
 
 send_malformed_when_connected(Config, Malformed) ->
     Socket = socket_connect(Config, [{active, true}, binary]),

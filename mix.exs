@@ -174,7 +174,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.2", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.3", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.8", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.3", override: true}
@@ -236,7 +236,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.5.5", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.5.6", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),
@@ -295,7 +295,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:erlavro),
     do: {:erlavro, github: "emqx/erlavro", tag: "2.11.2-emqx-1", override: true}
 
-  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.2"}
+  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.3"}
 
   # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
   def common_dep(:murmerl3),

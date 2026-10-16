@@ -58,6 +58,11 @@
     maybe_nack/1
 ]).
 
+%% Export for connection modules
+-export([
+    shutdown_count/2
+]).
+
 %% Export for DS session GC worker and session implementations
 -export([
     will_delay_interval/1,

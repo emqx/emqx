@@ -432,9 +432,7 @@ exit_on_sock_error(Reason) when ?IS_NORMAL_SOCKET_ERROR(Reason) ->
 exit_on_sock_error(timeout) ->
     erlang:exit({shutdown, ssl_upgrade_timeout});
 exit_on_sock_error(Reason) ->
-    %% econnreset falls here so it shows up in shutdown-counters
-    %% of the listener
-    erlang:exit({shutdown, Reason}).
+    erlang:exit({shutdown, emqx_connection_util:sock_error_shutdown(Reason)}).
 
 %%--------------------------------------------------------------------
 %% Recv Loop
@@ -722,6 +720,9 @@ maybe_raise_exception(normal) ->
     ok;
 maybe_raise_exception(shutdown) ->
     ok;
+%% A TLS alert after the handshake arrives here through `{sock_closed, _}'.
+maybe_raise_exception({shutdown, {tls_alert, _} = Alert}) ->
+    exit({shutdown, emqx_connection_util:sock_error_shutdown(Alert)});
 maybe_raise_exception(Reason) ->
     exit(Reason).
 
@@ -1300,7 +1301,7 @@ signal_channel_congestion(Status, SQSize, State = #state{channel = Channel}) ->
     end.
 
 check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
-    case emqx_utils:check_oom(ShutdownPolicy) of
+    case emqx_connection_util:check_oom(ShutdownPolicy) of
         {shutdown, #{reason := OomReason} = Detail} ->
             ?SLOG(error, Detail#{msg => connection_shutdown_due_to_oom}),
             ?tp_ignore_side_effects_in_prod(check_oom_shutdown, #{
