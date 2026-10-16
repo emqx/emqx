@@ -3210,10 +3210,9 @@ maybe_publish_will_msg(
     }
 ) when
     ConnState =:= idle orelse
-        ConnState =:= connecting orelse
-        ConnState =:= reauthenticating
+        ConnState =:= connecting
 ->
-    %% Wrong state to publish, they are intermediate state
+    %% Wrong state to publish: the session is not open yet.
     ?tp(debug, willmsg_wrong_state, #{clientid => ClientId}),
     Channel;
 maybe_publish_will_msg(
