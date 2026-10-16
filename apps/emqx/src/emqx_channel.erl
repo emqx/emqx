@@ -1645,7 +1645,8 @@ handle_call(Req, Channel) ->
     ok
     | {ok, channel()}
     | {ok, replies(), channel()}
-    | {shutdown, Reason :: term(), channel()}.
+    | {shutdown, Reason :: term(), channel()}
+    | {shutdown, Reason :: term(), Packet :: term(), channel()}.
 
 handle_info(continue, Channel) ->
     case maybe_resume_session(Channel) of
@@ -1964,30 +1965,28 @@ interval(will_message, #channel{will_msg = WillMsg}) ->
 %% Terminate
 %%--------------------------------------------------------------------
 
--spec terminate(any(), channel()) -> ok.
-terminate(_, #channel{session = undefined}) ->
+%% NOTE: this function can be safely called more than once.
+-spec terminate(any(), channel()) -> channel().
+terminate(_, #channel{session = undefined} = Channel) ->
     %% Session can become `undefined' after:
     %%
     %% 1. Durable session takeover
     %% 2. `handle_info' returns `{shutdown, ...}'
-    ok;
-terminate(_, #channel{conn_state = idle} = _Channel) ->
-    ok;
+    Channel;
+terminate(_, #channel{conn_state = idle} = Channel) ->
+    Channel;
 terminate(normal, Channel) ->
-    _ = run_terminate_hook(normal, Channel),
-    ok;
+    run_terminate_hook(normal, Channel);
 terminate({shutdown, Reason}, Channel) when
     Reason =:= expired orelse
         Reason =:= takenover orelse
         Reason =:= kicked orelse
         Reason =:= discarded
 ->
-    _ = run_terminate_hook(Reason, Channel),
-    ok;
+    run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel) ->
     Channel1 = maybe_publish_will_msg(?chan_terminating, Channel),
-    _ = run_terminate_hook(Reason, Channel1),
-    ok.
+    run_terminate_hook(Reason, Channel1).
 
 run_terminate_hook(_Reason, #channel{session = undefined} = Chan) ->
     Chan;
@@ -3442,7 +3441,7 @@ shutdown(Reason, Reply, Channel0) ->
     %% this function blocks `emqx_cm:takeover_kick' call used to take
     %% over durable sessions. Blocking this call lets the old channel
     %% flush its state to the storage before the new one steps in.
-    Channel = run_terminate_hook(Reason, maybe_publish_will_msg(Reason, Channel0)),
+    Channel = terminate(ExitReason, Channel0),
     {shutdown, ExitReason, Reply, Channel}.
 
 shutdown(Reason, Reply, Packet, Channel0) ->
