@@ -152,9 +152,19 @@ check_plugin(
             try
                 %% assert
                 [_ | _] = Apps,
-                %% validate if the list is all <app>-<vsn> strings
+                %% Each entry names the directory of one of the package's
+                %% applications: it must be an `<app>-<vsn>' string -- the
+                %% version may carry characters which the plugin package
+                %% identifier syntax does not allow, `+' for example -- and a
+                %% single path component, so that the directory built from it
+                %% stays inside the plugin's installation directory.
                 lists:foreach(
-                    fun(App) -> _ = emqx_plugins_utils:parse_name_vsn(App) end, Apps
+                    fun(App) ->
+                        %% assert
+                        _ = emqx_plugins_utils:parse_name_vsn(App),
+                        true = is_app_dir_entry(App)
+                    end,
+                    Apps
                 )
             catch
                 _:_ ->
@@ -181,6 +191,22 @@ check_plugin(PluginInfo, NameVsn) ->
         info => PluginInfo,
         path => emqx_plugins_fs:info_file_path(NameVsn)
     }}.
+
+%% Whether the entry is one directory name below the plugin's installation
+%% directory.  The path is resolved against a directory which does not exist, so
+%% that the check stays lexical.
+is_app_dir_entry(App) ->
+    case filelib:safe_relative_path(App, "/nonexistent-emqx-plugin-app") of
+        unsafe ->
+            false;
+        [] ->
+            false;
+        Safe ->
+            case filename:split(Safe) of
+                [_Component] -> true;
+                _Nested -> false
+            end
+    end.
 
 configured() ->
     configured(emqx_conf:get([?CONF_ROOT, states])).

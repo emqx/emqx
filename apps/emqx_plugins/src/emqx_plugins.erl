@@ -1480,21 +1480,73 @@ install_written_package(NameVsn, PreviousPackage) ->
     try ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
-        {error, Reason} = Error ->
+        {error, Reason} ->
+            fail_written_package(NameVsn, PreviousPackage, Reason);
+        Result ->
+            Result
+    catch
+        Class:Reason:Stacktrace ->
+            _ = fail_written_package(NameVsn, PreviousPackage, Reason),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
+
+%% Fail the attempt, keeping the package written by it when the installation
+%% moved forward: the files on disk then come from this package, and the failure
+%% is a step which runs after the tree was published (loading or configuring the
+%% plugin).  The next attempt repeats those steps without unpacking again, so
+%% rolling the package back would leave the installation without the package it
+%% can be repaired from.
+fail_written_package(NameVsn, PreviousPackage, Reason) ->
+    case tree_replaced(NameVsn, Reason) of
+        true ->
+            ?SLOG(error, #{
+                msg => "plugin_installed_but_not_ready",
+                name_vsn => NameVsn,
+                reason => Reason,
+                hint =>
+                    <<
+                        "the plugin files are installed, but the plugin could not be loaded or "
+                        "configured; fix the cause and retry"
+                    >>
+            }),
+            {error, installation_not_ready_error(NameVsn, Reason)};
+        false ->
             ?SLOG(error, #{
                 msg => "failed_to_install_plugin",
                 name_vsn => NameVsn,
                 reason => Reason
             }),
             _ = restore_written_package(NameVsn, PreviousPackage),
-            Error;
-        Result ->
-            Result
-    catch
-        Class:Reason:Stacktrace ->
-            _ = restore_written_package(NameVsn, PreviousPackage),
-            erlang:raise(Class, Reason, Stacktrace)
+            {error, Reason}
     end.
+
+%% Whether the staged tree replaced the previous one, so that the package
+%% written by this attempt is the one the files on disk came from.
+%%
+%% Only an absent or incomplete installation is replaced (`do_install_package/2'),
+%% and the installation lock is held from that classification to this point, so a
+%% complete installation now was published by this attempt.  A rollback which did
+%% not happen leaves the published tree behind: the files on disk may be the new
+%% ones even when the tree is not complete, so the package is kept then as well.
+tree_replaced(NameVsn, Reason) ->
+    install_state(NameVsn) =:= installed orelse rollback_did_not_happen(Reason).
+
+rollback_did_not_happen(#{msg := "failed_to_rollback_plugin_install"}) -> true;
+rollback_did_not_happen(_) -> false.
+
+installation_not_ready_error(NameVsn, Reason) ->
+    #{
+        msg => "plugin_installed_but_not_ready",
+        name_vsn => bin(NameVsn),
+        reason => installation_not_ready,
+        cause => Reason,
+        hint =>
+            <<
+                "fix the cause and retry: the installed files are kept and the package is not "
+                "unpacked again; to replace the installation with this package, uninstall the "
+                "plugin first and upload the package again"
+            >>
+    }.
 
 restore_written_package(NameVsn, PreviousPackage) ->
     case restore_package(NameVsn, PreviousPackage) of
@@ -1537,11 +1589,11 @@ catch_errors(Label, F) ->
 read_plugin_info(NameVsn, Options) ->
     emqx_plugins_info:read(NameVsn, Options).
 
-ensure_installed_locally(NameVsn) ->
+ensure_installed_locally(NameVsn, Mode) ->
     maybe
         ok ?=
             emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
-                validate_installation(NameVsn)
+                validate_installation_for_publish(NameVsn, Mode)
             end),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         emqx_plugins_apps:load(Plugin, emqx_plugins_fs:lib_dir(NameVsn))
@@ -1554,6 +1606,36 @@ validate_installation(NameVsn) ->
         ok ?= check_config_schema(NameVsn),
         ok ?= validate_default_config(NameVsn)
     end.
+
+%% Validator of the newly published tree.  It runs before the installation which
+%% was there is discarded (`emqx_plugins_fs:validate_published_package/3'), so a
+%% refusal still puts that installation back.  The checks which the configuration
+%% of this node can fail are done here instead of after that point: a fresh
+%% installation keeps the configuration which is stored for the plugin, so that
+%% configuration has to fit the package, otherwise the plugin can not be
+%% configured at all and the previous installation would already be gone when
+%% that is found out.
+validate_installation_for_publish(NameVsn, Mode) ->
+    maybe
+        ok ?= validate_installation(NameVsn),
+        ok ?= emqx_plugins_fs:ensure_config_dir(NameVsn),
+        validate_stored_local_config(NameVsn, Mode)
+    end.
+
+%% Only a fresh installation keeps the configuration which is stored on this
+%% node (`configure/3' -> `do_ensure_local_config/2'): a normal installation
+%% replaces it with the configuration of a peer when there is one, and a
+%% configuration which does not fit the package must not keep such a repair from
+%% happening.
+validate_stored_local_config(NameVsn, ?fresh_install) ->
+    case validated_local_config(NameVsn) of
+        {ok, _Config} ->
+            ok;
+        {error, Reason} ->
+            {error, invalid_plugin_config_error(NameVsn, Reason)}
+    end;
+validate_stored_local_config(_NameVsn, _Mode) ->
+    ok.
 
 validate_default_config(NameVsn) ->
     case emqx_plugins_fs:read_default_hocon(NameVsn) of
@@ -1598,13 +1680,13 @@ install(NameVsn, Mode) ->
     with_installation_lock(NameVsn, fun() -> do_install(NameVsn, Mode) end).
 
 do_install(NameVsn, Mode) ->
-    case {ensure_installed_locally(NameVsn), Mode} of
+    case {ensure_installed_locally(NameVsn, Mode), Mode} of
         {ok, _} ->
             ok;
         {{error, #{reason := plugin_tarball_not_found}}, ?normal} ->
             case get_from_cluster(NameVsn) of
                 ok ->
-                    ensure_installed_locally(NameVsn);
+                    ensure_installed_locally(NameVsn, Mode);
                 {error, Reason} ->
                     {error, Reason}
             end;

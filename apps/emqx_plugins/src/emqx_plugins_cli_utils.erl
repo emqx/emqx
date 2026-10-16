@@ -306,7 +306,14 @@ do_ensure_installed(NameVsn) ->
         case emqx_plugins:install_state(NameVsn) of
             installed ->
                 {error, #{
-                    msg => "plugin_already_installed", name_vsn => NameVsn
+                    msg => "plugin_already_installed",
+                    name_vsn => NameVsn,
+                    hint =>
+                        <<
+                            "uninstall the plugin first (`emqx ctl plugins uninstall ",
+                            (emqx_plugins_utils:bin(NameVsn))/binary,
+                            "`) to install another package"
+                        >>
                 }};
             _IncompleteOrAbsent ->
                 %% Nothing usable is installed: leftovers of an interrupted
