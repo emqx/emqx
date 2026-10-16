@@ -24,17 +24,6 @@ lwm2m_qmode_time_window.desc:
 Inside window: send messages directly.
 Outside window: buffer messages in memory until client is reachable."""
 
-lwm2m_max_pending_commands.desc:
-"""Maximum pending downlink commands per client session.
-When full, new commands receive a 4.29 response over MQTT.
-Accepted commands keep their FIFO order, including when the limit is reduced."""
-
-lwm2m_max_pending_bytes.desc:
-"""Maximum estimated bytes retained by pending downlink commands per client session.
-Estimated from encoded command contexts and CoAP requests.
-Reducing the limit preserves commands already queued.
-When exceeded, new commands receive a 4.13 response over MQTT."""
-
 lwm2m_translators.desc:
 """MQTT topic mappings between LwM2M events and MQTT commands."""
 

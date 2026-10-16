@@ -154,14 +154,7 @@ groups() ->
         ]},
         {test_grp_pending_queue, [RepeatOpt], [
             case160_pending_queue_count_limit,
-            case161_pending_queue_byte_limit,
-            case162_pending_queue_wait_ack_limit,
-            case163_pending_queue_blockwise_limit,
-            case164_pending_queue_cmd_record_bound,
-            case165_pending_queue_expiry_releases_capacity,
-            case166_pending_queue_compacts_sub_binaries,
-            case167_pending_queue_retries_preserve_admission,
-            case168_pending_queue_compacts_cmd_record_keys
+            case163_pending_queue_blockwise_limit
         ]},
         {test_grp_10_rest_api, [RepeatOpt], [
             case100_clients_api,
@@ -292,12 +285,7 @@ init_per_testcase(TestCase, Config) ->
     {ok, C} = emqtt:start_link([
         {host, "localhost"},
         {port, 1883},
-        {clientid, <<"c1">>},
-        {proto_ver,
-            case TestCase of
-                case165_pending_queue_expiry_releases_capacity -> v5;
-                _ -> v4
-            end}
+        {clientid, <<"c1">>}
     ]),
     {ok, _} = emqtt:connect(C),
     timer:sleep(100),
@@ -306,14 +294,7 @@ init_per_testcase(TestCase, Config) ->
     case
         lists:member(TestCase, [
             case160_pending_queue_count_limit,
-            case161_pending_queue_byte_limit,
-            case162_pending_queue_wait_ack_limit,
             case163_pending_queue_blockwise_limit,
-            case164_pending_queue_cmd_record_bound,
-            case165_pending_queue_expiry_releases_capacity,
-            case166_pending_queue_compacts_sub_binaries,
-            case167_pending_queue_retries_preserve_admission,
-            case168_pending_queue_compacts_cmd_record_keys,
             case152_blockwise_expiry_preserves_queue_mode,
             case153_blockwise_reset_resumes_pending,
             case154_blockwise_retransmission_failure_resumes_pending,
@@ -6484,214 +6465,34 @@ case152_blockwise_expiry_preserves_queue_mode(Config) ->
     ?assertEqual(1602, maps:get(<<"requestID">>, Completed)).
 
 case160_pending_queue_count_limit(Config) ->
-    ?assertEqual(1000, emqx:get_config([gateway, lwm2m, max_pending_commands])),
-    ?assertEqual(16 * 1024 * 1024, emqx:get_config([gateway, lwm2m, max_pending_bytes])),
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 3),
     Location = register_pending_queue_device(Config, true),
-    lists:foreach(fun(Id) -> publish_pending_command(Config, pending_read(Id)) end, [1, 2, 3]),
-    _ = assert_pending_queue(3),
-    publish_pending_command(Config, pending_read(4)),
-    assert_pending_response(4, <<"4.29">>),
-    Session = assert_pending_queue(3),
-    ?assertEqual(1, emqx_lwm2m_session:stats(mqueue_dropped, Session)),
+    lists:foreach(
+        fun(Id) -> publish_pending_command(Config, pending_read(Id)) end, lists:seq(1, 1000)
+    ),
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_read(1001)),
+    assert_pending_response(1001, <<"4.29">>),
+    Session = assert_pending_queue(1000),
     ?assertEqual(1, queue:len(maps:get(queue, element(13, Session)))),
     ?assertEqual({error, timeout}, gen_udp:recv(?config(sock, Config), 0, 100)),
     wake_pending_queue_device(Config, Location, 1901),
-    complete_pending_read(Config, 1),
-    _ = assert_pending_queue(1),
-    publish_pending_command(Config, pending_read(5)),
-    _ = assert_pending_queue(2),
-    lists:foreach(fun(Id) -> complete_pending_read(Config, Id) end, [2, 3, 5]),
-    _ = assert_pending_queue(0),
-    ok.
-
-case161_pending_queue_byte_limit(Config) ->
-    Location = register_pending_queue_device(Config, true),
-    Cmd = (pending_read(1))#{<<"metadata">> => binary:copy(<<"M">>, 1024)},
-    publish_pending_command(Config, Cmd),
-    Session = assert_pending_queue(1),
-    [{_, _, Req, Bytes}] = queue:to_list(element(3, Session)),
-    ?assertEqual(<<>>, Req#coap_message.payload),
-    ?assert(Bytes > 1024),
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_bytes], Bytes * 2),
-    publish_pending_command(Config, Cmd#{<<"requestID">> := 2}),
-    _ = assert_pending_queue(2),
-    publish_pending_command(Config, Cmd#{<<"requestID">> := 3}),
-    assert_pending_response(3, <<"4.13">>),
-    _ = assert_pending_queue(2),
-    wake_pending_queue_device(Config, Location, 1901),
-    lists:foreach(fun(Id) -> complete_pending_read(Config, Id) end, [1, 2]),
-    _ = assert_pending_queue(0),
-    timer:sleep(1600),
-    %% A single oversized command must fail even when the pending queue is empty.
-    publish_pending_command(Config, Cmd#{
-        <<"requestID">> := 4, <<"metadata">> := binary:copy(<<"M">>, Bytes * 3)
-    }),
-    assert_pending_response(4, <<"4.13">>),
-    _ = assert_pending_queue(0),
-    publish_pending_command(Config, (pending_execute(6))#{
-        <<"data">> := #{
-            <<"path">> => <<"/3/0/4">>, <<"args">> => binary:copy(<<"X">>, Bytes * 3)
-        }
-    }),
-    assert_pending_response(6, <<"4.13">>),
-    _ = assert_pending_queue(0),
-    ?assertEqual({error, timeout}, gen_udp:recv(?config(sock, Config), 0, 100)),
-    publish_pending_command(Config, Cmd#{<<"requestID">> := 5}),
-    _ = assert_pending_queue(1),
-    wake_pending_queue_device(Config, Location, 1902),
-    complete_pending_read(Config, 5),
-    _ = assert_pending_queue(0),
-    ok.
-
-case162_pending_queue_wait_ack_limit(Config) ->
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 2),
-    _ = register_pending_queue_device(Config, false),
-    publish_pending_command(Config, pending_read(1)),
-    First = test_recv_coap_request(?config(sock, Config)),
-    lists:foreach(fun(Id) -> publish_pending_command(Config, pending_read(Id)) end, [2, 3]),
-    _ = assert_pending_queue(2),
-    publish_pending_command(Config, pending_read(4)),
-    assert_pending_response(4, <<"4.29">>),
-    reply_pending_read(Config, 1, First),
-    _ = assert_pending_queue(1),
-    publish_pending_command(Config, pending_read(5)),
-    _ = assert_pending_queue(2),
-    lists:foreach(fun(Id) -> complete_pending_read(Config, Id) end, [2, 3, 5]),
-    _ = assert_pending_queue(0),
-    ok.
+    _ = assert_pending_queue(999),
+    %% One command is in flight; the pending queue can accept one replacement.
+    publish_pending_command(Config, pending_read(1002)),
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_read(1003)),
+    assert_pending_response(1003, <<"4.29">>),
+    lists:foreach(fun(Id) -> complete_pending_read(Config, Id) end, lists:seq(1, 1000) ++ [1002]),
+    _ = assert_pending_queue(0).
 
 case163_pending_queue_blockwise_limit(Config) ->
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 2),
     ok = emqx_config:force_put([gateway, lwm2m, blockwise], #{
-        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 10000
-    }),
-    _ = register_pending_queue_device(Config, false),
-    publish_pending_command(Config, pending_execute(1)),
-    First = test_recv_coap_request(?config(sock, Config)),
-    lists:foreach(fun(Id) -> publish_pending_command(Config, pending_execute(Id)) end, [2, 3]),
-    _ = assert_pending_queue(2),
-    publish_pending_command(Config, pending_execute(4)),
-    assert_pending_response(4, <<"4.29">>),
-    complete_pending_blockwise(Config, 1, First),
-    _ = assert_pending_queue(1),
-    publish_pending_command(Config, pending_execute(5)),
-    _ = assert_pending_queue(2),
-    lists:foreach(
-        fun(Id) ->
-            Req = test_recv_coap_request(?config(sock, Config)),
-            complete_pending_blockwise(Config, Id, Req)
-        end,
-        [2, 3, 5]
-    ),
-    _ = assert_pending_queue(0),
-    ok.
-
-case164_pending_queue_cmd_record_bound(Config) ->
-    _ = register_pending_queue_device(Config, true),
-    lists:foreach(
-        fun(Id) -> publish_pending_command(Config, pending_read(Id)) end, lists:seq(1, 100)
-    ),
-    Session = assert_pending_queue(100),
-    Record = element(13, Session),
-    ?assertEqual(2, map_size(Record)),
-    ?assertEqual(1, queue:len(maps:get(queue, Record))),
-    lists:foreach(
-        fun(Id) ->
-            Cmd = (pending_read(100 + Id))#{
-                <<"data">> := #{<<"path">> => <<"/3/0/", (integer_to_binary(Id))/binary>>}
-            },
-            publish_pending_command(Config, Cmd)
-        end,
-        lists:seq(1, 101)
-    ),
-    Session1 = assert_pending_queue(201),
-    Record1 = element(13, Session1),
-    ?assertEqual(101, map_size(Record1)),
-    ?assertEqual(100, queue:len(maps:get(queue, Record1))),
-    ?assertNot(maps:is_key({<<"/3/0/0">>, <<"read">>}, Record1)),
-    ?assert(maps:is_key({<<"/3/0/101">>, <<"read">>}, Record1)),
-    ?assertEqual({error, timeout}, gen_udp:recv(?config(sock, Config), 0, 100)).
-
-case165_pending_queue_expiry_releases_capacity(Config) ->
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 1),
-    Location = register_pending_queue_device(Config, true),
-    Client = ?config(emqx_c, Config),
-    {ok, _} = emqtt:publish(
-        Client,
-        <<"lwm2m/pending-queue/dn/dm">>,
-        #{'Message-Expiry-Interval' => 1},
-        emqx_utils_json:encode(pending_read(1)),
-        [{qos, 1}]
-    ),
-    _ = assert_pending_queue(1),
-    timer:sleep(1200),
-    %% Expired entries release both count and byte capacity before admitting new commands.
-    publish_pending_command(Config, pending_read(2)),
-    Session = assert_pending_queue(1),
-    [{_, Ctx, _, _}] = queue:to_list(element(3, Session)),
-    ?assertEqual(2, maps:get(<<"requestID">>, Ctx)),
-    ?assertEqual(0, emqx_lwm2m_session:stats(mqueue_dropped, Session)),
-    wake_pending_queue_device(Config, Location, 1901),
-    complete_pending_read(Config, 2),
-    _ = assert_pending_queue(0),
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 2),
-    timer:sleep(1600),
-    {ok, _} = emqtt:publish(
-        Client,
-        <<"lwm2m/pending-queue/dn/dm">>,
-        #{'Message-Expiry-Interval' => 1},
-        emqx_utils_json:encode(pending_read(3)),
-        [{qos, 1}]
-    ),
-    publish_pending_command(Config, pending_read(4)),
-    _ = assert_pending_queue(2),
-    timer:sleep(1200),
-    %% Dequeuing on wake-up also skips expired commands and releases their bytes.
-    wake_pending_queue_device(Config, Location, 1902),
-    complete_pending_read(Config, 4),
-    _ = assert_pending_queue(0),
-    ?assertEqual({error, timeout}, gen_udp:recv(?config(sock, Config), 0, 100)).
-
-case166_pending_queue_compacts_sub_binaries(Config) ->
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_bytes], 64 * 1024),
-    Location = register_pending_queue_device(Config, true),
-    Cmd = (pending_read(1))#{
-        <<"metadata">> => [binary:copy(<<"M">>, 128) || _ <- lists:seq(1, 400)]
-    },
-    Json = emqx_utils_json:encode(Cmd),
-    %% Shared JSON slices and trailing whitespace must not inflate the retained byte budget.
-    Padding = binary:copy(<<" ">>, 512 * 1024),
-    {ok, _} = emqtt:publish(
-        ?config(emqx_c, Config), <<"lwm2m/pending-queue/dn/dm">>, <<Json/binary, Padding/binary>>, 1
-    ),
-    Session = assert_pending_queue(1),
-    ?assert(element(18, Session) >= 400 * 128),
-    ?assert(element(18, Session) < 64 * 1024),
-    [{_, Ctx, _, _}] = queue:to_list(element(3, Session)),
-    ?assertEqual(Cmd, Ctx),
-    lists:foreach(
-        fun(Bin) -> ?assertEqual(byte_size(Bin), binary:referenced_byte_size(Bin)) end,
-        maps:get(<<"metadata">>, Ctx)
-    ),
-    publish_pending_command(Config, Cmd#{<<"requestID">> := 2}),
-    assert_pending_response(2, <<"4.13">>),
-    _ = assert_pending_queue(1),
-    ?assertEqual({error, timeout}, gen_udp:recv(?config(sock, Config), 0, 100)),
-    wake_pending_queue_device(Config, Location, 1901),
-    complete_pending_read(Config, 1),
-    _ = assert_pending_queue(0),
-    ok.
-
-case167_pending_queue_retries_preserve_admission(Config) ->
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 3),
-    ok = emqx_config:force_put([gateway, lwm2m, blockwise], #{
-        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 10000
+        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 60000
     }),
     Location = register_pending_queue_device(Config, false),
     Sock = ?config(sock, Config),
     URI = sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
-    %% An unfinished uplink consumes block-wise capacity while accepted commands wait.
+    %% An unfinished uplink consumes block-wise capacity while downlinks wait.
     test_send_coap_request(
         Sock,
         post,
@@ -6701,24 +6502,17 @@ case167_pending_queue_retries_preserve_admission(Config) ->
         1910
     ),
     ?assertEqual({ok, continue}, (test_recv_coap_response(Sock))#coap_message.method),
-    lists:foreach(fun(Id) -> publish_pending_command(Config, pending_execute(Id)) end, [1, 2, 3]),
-    _ = assert_pending_queue(3),
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 1),
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_bytes], 1),
+    lists:foreach(
+        fun(Id) -> publish_pending_command(Config, pending_execute(Id)) end, lists:seq(1, 1000)
+    ),
+    _ = assert_pending_queue(1000),
     wake_pending_queue_device(Config, Location, 1901),
-    Session = assert_pending_queue(3),
-    ?assertEqual(0, emqx_lwm2m_session:stats(mqueue_dropped, Session)),
-    publish_pending_command(Config, pending_execute(4)),
-    assert_pending_response(4, <<"4.29">>),
-    _ = assert_pending_queue(3),
-    %% Abort the uplink, then drain all accepted commands despite the reduced limits.
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_execute(1001)),
+    assert_pending_response(1001, <<"4.29">>),
+    %% Abort the uplink and verify accepted downlinks drain in FIFO order.
     test_send_coap_request(
-        Sock,
-        post,
-        URI,
-        #coap_content{payload = <<"X">>},
-        [{block1, {2, false, 16}}],
-        1911
+        Sock, post, URI, #coap_content{payload = <<"X">>}, [{block1, {2, false, 16}}], 1911
     ),
     ?assertEqual(
         {error, request_entity_incomplete}, (test_recv_coap_response(Sock))#coap_message.method
@@ -6728,54 +6522,9 @@ case167_pending_queue_retries_preserve_admission(Config) ->
             Req = test_recv_coap_request(Sock),
             complete_pending_blockwise(Config, Id, Req)
         end,
-        [1, 2, 3]
+        lists:seq(1, 1000)
     ),
-    Session1 = assert_pending_queue(0),
-    ?assertEqual(1, emqx_lwm2m_session:stats(mqueue_dropped, Session1)).
-
-case168_pending_queue_compacts_cmd_record_keys(Config) ->
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_commands], 1),
-    ok = emqx_config:force_put([gateway, lwm2m, max_pending_bytes], 64 * 1024),
-    Location = register_pending_queue_device(Config, true),
-    %% Trailing slashes keep the recorded path long while addressing ordinary resources.
-    Suffix = binary:copy(<<"/">>, 128),
-    Paths = [<<"/3/0/0", Suffix/binary>>, <<"/3/0/1", Suffix/binary>>],
-    Padding = binary:copy(<<" ">>, 512 * 1024),
-    lists:foreach(
-        fun({Id, Path}) ->
-            Cmd = (pending_read(Id))#{<<"data">> := #{<<"path">> => Path}},
-            Json = emqx_utils_json:encode(Cmd),
-            {ok, _} = emqtt:publish(
-                ?config(emqx_c, Config),
-                <<"lwm2m/pending-queue/dn/dm">>,
-                <<Json/binary, Padding/binary>>,
-                1
-            )
-        end,
-        lists:zip([1, 2], Paths)
-    ),
-    assert_pending_response(2, <<"4.29">>),
-    Session = assert_pending_queue(1),
-    ?assert(element(18, Session) < 64 * 1024),
-    AssertCompactKeys = fun(S) ->
-        Record = element(13, S),
-        Keys = maps:keys(maps:remove(queue, Record)),
-        ?assertEqual(lists:sort([{P, <<"read">>} || P <- Paths]), lists:sort(Keys)),
-        lists:foreach(
-            fun({Path, Type}) ->
-                ?assertEqual(byte_size(Path), binary:referenced_byte_size(Path)),
-                ?assert(binary:referenced_byte_size(Type) =< 64)
-            end,
-            Keys ++ queue:to_list(maps:get(queue, Record))
-        ),
-        ?assertEqual(2, queue:len(maps:get(queue, Record)))
-    end,
-    AssertCompactKeys(Session),
-    wake_pending_queue_device(Config, Location, 1901),
-    Req = test_recv_coap_request(?config(sock, Config)),
-    ?assertEqual([<<"3">>, <<"0">>, <<"0">>], maps:get(uri_path, Req#coap_message.options)),
-    reply_pending_read(Config, 1, Req),
-    AssertCompactKeys(assert_pending_queue(0)).
+    _ = assert_pending_queue(0).
 
 register_pending_queue_device(Config, Sleeping) ->
     ok = emqx_config:force_put([gateway, lwm2m, qmode_time_window], 1),
@@ -6818,7 +6567,7 @@ pending_execute(Id) ->
         <<"requestID">> => Id,
         <<"msgType">> => <<"execute">>,
         <<"data">> => #{
-            <<"path">> => <<"/3/0/4">>, <<"args">> => binary:copy(<<Id>>, 32)
+            <<"path">> => <<"/3/0/4">>, <<"args">> => binary:copy(<<(65 + Id rem 26)>>, 32)
         }
     }.
 
@@ -6847,7 +6596,7 @@ assert_pending_queue(Count) ->
         Items = queue:to_list(element(3, Session)),
         ?assertEqual(Count, length(Items)),
         ?assertEqual(Count, emqx_lwm2m_session:stats(mqueue_len, Session)),
-        ?assertEqual(lists:sum([Bytes || {_, _, _, Bytes} <- Items]), element(18, Session)),
+        ?assertEqual(1000, emqx_lwm2m_session:stats(mqueue_max, Session)),
         Session
     end).
 
@@ -6869,7 +6618,7 @@ reply_pending_read(Config, Id, Req) ->
     assert_pending_response(Id, <<"2.05">>).
 
 complete_pending_blockwise(Config, Id, First) ->
-    ?assertEqual(binary:copy(<<Id>>, 16), First#coap_message.payload),
+    ?assertEqual(binary:copy(<<(65 + Id rem 26)>>, 16), First#coap_message.payload),
     ?assertEqual({0, true, 16}, maps:get(block1, First#coap_message.options)),
     Sock = ?config(sock, Config),
     Continue = emqx_coap_message:piggyback({ok, continue}, First),
@@ -6877,7 +6626,7 @@ complete_pending_blockwise(Config, Id, First) ->
         Sock, {127, 0, 0, 1}, ?PORT, emqx_coap_frame:serialize_pkt(Continue, undefined)
     ),
     Last = test_recv_coap_request(Sock),
-    ?assertEqual(binary:copy(<<Id>>, 16), Last#coap_message.payload),
+    ?assertEqual(binary:copy(<<(65 + Id rem 26)>>, 16), Last#coap_message.payload),
     ?assertEqual({1, false, 16}, maps:get(block1, Last#coap_message.options)),
     test_send_coap_response(Sock, "127.0.0.1", ?PORT, {ok, changed}, #coap_content{}, Last, true),
     assert_pending_response(Id, <<"2.04">>).
