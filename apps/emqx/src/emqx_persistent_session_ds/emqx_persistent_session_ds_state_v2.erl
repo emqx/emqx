@@ -44,6 +44,8 @@
     new_pmap/1,
     pmap_dirty_read/3,
 
+    on_commit_reply/2,
+
     total_subscription_count/1,
     make_session_iterator/1,
     session_iterator_next/3,
@@ -149,10 +151,11 @@ commit(Generation, Rec0 = #{?id := ClientId, ?checkpoint_ref := Ref}, Opts) when
             {ok, Rec0};
         #{sync := true} ->
             %% Wait for the checkpoint to conclude, then commit again:
+            Timeout = trans_timeout(),
             receive
                 ?ds_tx_commit_reply(Ref, Reply) ->
                     Rec = Rec0#{?checkpoint_ref := undefined},
-                    case emqx_ds:tx_commit_outcome(?DB, Ref, Reply) of
+                    case translate_common_errors(emqx_ds:tx_commit_outcome(?DB, Ref, Reply)) of
                         {ok, _} ->
                             commit(Generation, Rec, Opts);
                         ?err_rec(Reason) ->
@@ -169,6 +172,8 @@ commit(Generation, Rec0 = #{?id := ClientId, ?checkpoint_ref := Ref}, Opts) when
                         ?err_unrec(_) = Err ->
                             Err
                     end
+            after Timeout ->
+                ?err_unrec(timeout_waiting_for_prev_commit)
             end
     end;
 commit(_Generation, Rec = #{?collection_dirty := false}, #{lifetime := L}) when
@@ -239,19 +244,26 @@ commit(
             {ok, Rec};
         {async, Ref, Rec} ->
             {ok, Rec#{?checkpoint_ref := Ref}};
-        ?err_unrec(
-            {precondition_failed, [#{topic := [<<"g">> | _], expected := Expected, got := Got}]}
-        ) ->
-            %% Translate common error to a more readable form:
-            ?err_unrec({takeover_conflict, #{expected => Expected, got => Got}});
         {error, _, _} = Err ->
-            Err
+            translate_common_errors(Err)
     end.
+
+translate_common_errors(
+    ?err_unrec(
+        {precondition_failed, [#{topic := [<<"g">> | _], expected := Expected, got := Got}]}
+    )
+) ->
+    ?err_unrec({conflict, #{expected => Expected, got => Got}});
+translate_common_errors(Other) ->
+    Other.
 
 -spec pmap_dirty_read(emqx_ds:generation(), atom(), emqx_persistent_session_ds:id()) -> map().
 pmap_dirty_read(Generation, Name, ClientId) ->
     Opts = #{db => ?DB, generation => Generation, shard => emqx_ds:shard_of(?DB, ClientId)},
     emqx_ds_pmap:dirty_read(?MODULE, pmap_name(Name), ClientId, Opts).
+
+on_commit_reply(Ref, Reply) ->
+    translate_common_errors(emqx_ds:tx_commit_outcome(?DB, Ref, Reply)).
 
 -spec list_sessions(emqx_ds:generation()) -> [emqx_persistent_session_ds:id()].
 list_sessions(Gen) ->
@@ -425,6 +437,7 @@ open_tx(ClientId) ->
                 ?collection_guard => Guard,
                 ?collection_dirty => false,
                 ?checkpoint_ref => undefined,
+                ?invalid => false,
                 ?metadata => emqx_ds_pmap:tx_restore(?MODULE, ?top_metadata, ClientId),
                 ?subscriptions => emqx_ds_pmap:tx_restore(?MODULE, ?top_subscriptions, ClientId),
                 ?subscription_states => emqx_ds_pmap:tx_restore(

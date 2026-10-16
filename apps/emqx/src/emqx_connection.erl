@@ -493,8 +493,8 @@ handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
             ?MODULE:recvloop(Parent, NewState);
-        {stop, Reason, NewSate} ->
-            terminate(Reason, NewSate)
+        {stop, Reason, NewState} ->
+            terminate(Reason, NewState)
     end.
 
 hibernate(Parent, State) ->
@@ -697,7 +697,7 @@ terminate(
     try
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
-        emqx_channel:terminate(Reason, Channel1),
+        _ = emqx_channel:terminate(Reason, Channel1),
         close_socket_ok(State),
         ?TRACE("SOCKET", "emqx_connection_terminated", #{reason => Reason})
     catch

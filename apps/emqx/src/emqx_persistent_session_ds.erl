@@ -743,7 +743,8 @@ handle_timeout(_ClientInfo, Timeout, Session) ->
 %% Generic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), session(), clientinfo()) -> session().
+-spec handle_info(term(), session(), clientinfo()) ->
+    {ok, session()} | {shutdown, _Reason, session()}.
 handle_info(
     ?shared_sub_message = Msg,
     Session0 = #{s := S0, shared_sub_s := SharedSubS0, stream_scheduler_s := SchedS0},
@@ -755,9 +756,9 @@ handle_info(
     Session = Session0#{
         s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS
     },
-    schedule_delivery(Session);
+    {ok, schedule_delivery(Session)};
 handle_info(AsyncReply = #ds_sub_reply{}, Session, ClientInfo) ->
-    handle_ds_reply(AsyncReply, Session, ClientInfo);
+    {ok, handle_ds_reply(AsyncReply, Session, ClientInfo)};
 handle_info(
     #new_stream_event{subref = Ref},
     Session = #{s := S0, stream_scheduler_s := SchedS0},
@@ -767,11 +768,11 @@ handle_info(
     {_NewStreams, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_new_stream_event(
         Ref, S0, SchedS0
     ),
-    Session#{s := S, stream_scheduler_s := SchedS};
+    {ok, Session#{s := S, stream_scheduler_s := SchedS}};
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     {ok, Session} = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
-    Session;
+    {ok, Session};
 handle_info(
     Info,
     Session = #{s := S0, stream_scheduler_s := SchedS0, buffer := Buf0},
@@ -783,24 +784,24 @@ handle_info(
     case emqx_persistent_session_ds_state:on_commit_reply(Info, S0) of
         {ok, S} ->
             %% Yes, session checkpoint just completed.
-            ensure_state_commit_timer(Session#{s := S});
-        {error, _Reason} ->
+            {ok, ensure_state_commit_timer(Session#{s := S})};
+        {error, _Reason, S} ->
             %% Yes, session checkpoint just failed.
-            exit(commit_failure);
+            {shutdown, {shutdown, internal_error}, Session#{s := S}};
         ignore ->
             %% No. Is it a DS subscription crash then?
             case emqx_persistent_session_ds_stream_scheduler:handle_down(Info, S0, SchedS0) of
                 {drop_buffer, StreamKey, SchedS} ->
                     %% Yes, drop the buffer:
                     Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
-                    Session#{
+                    {ok, Session#{
                         stream_scheduler_s := SchedS,
                         buffer := Buf
-                    };
+                    }};
                 ignore ->
                     %% No, unknown message:
                     ?tp(warning, ?sessds_unknown_message, #{message => Info}),
-                    Session
+                    {ok, Session}
             end
     end.
 

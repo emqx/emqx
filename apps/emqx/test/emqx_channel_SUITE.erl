@@ -1128,9 +1128,9 @@ t_enrich_connack_caps(_) ->
 %%--------------------------------------------------------------------
 
 t_terminate(_) ->
-    ok = emqx_channel:terminate(normal, channel()),
-    ok = emqx_channel:terminate(sock_error, channel(#{conn_state => connected})),
-    ok = emqx_channel:terminate({shutdown, kicked}, channel(#{conn_state => connected})).
+    _ = emqx_channel:terminate(normal, channel()),
+    _ = emqx_channel:terminate(sock_error, channel(#{conn_state => connected})),
+    _ = emqx_channel:terminate({shutdown, kicked}, channel(#{conn_state => connected})).
 
 t_ws_cookie_init(_) ->
     WsCookie = [{<<"session_id">>, <<"xyz">>}],
