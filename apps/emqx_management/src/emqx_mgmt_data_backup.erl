@@ -1045,27 +1045,24 @@ read_data_files(RawConf) ->
     AbsDataDir = bin(filename:join(Cwd, DataDir)),
     RawConf1 = emqx_authz:maybe_read_files(RawConf),
     emqx_utils_maps:deep_convert(
-        RawConf1, fun read_data_file/4, [dir_prefix(DataDir), dir_prefix(AbsDataDir)]
+        RawConf1, fun read_data_file/4, [filename:split(DataDir), filename:split(AbsDataDir)]
     ).
 
-%% Return the directory with exactly one trailing separator, so a prefix match
-%% only matches paths inside the directory, not names such as `data_source'.
-dir_prefix(Dir) ->
-    <<(filename:join([Dir]))/binary, "/">>.
-
--define(dir_pattern(_Dir_), <<_Dir_:(byte_size(_Dir_))/binary, _/binary>>).
-
-read_data_file(Key, Val, DataDirPrefix, AbsDataDirPrefix) ->
+read_data_file(Key, Val, DataDirParts, AbsDataDirParts) when is_binary(Val) ->
+    Parts = filename:split(Val),
     Val1 =
-        case Val of
-            ?dir_pattern(DataDirPrefix) = FileName ->
-                do_read_file(FileName);
-            ?dir_pattern(AbsDataDirPrefix) = FileName ->
-                do_read_file(FileName);
-            V ->
-                V
+        case is_in_dir(DataDirParts, Parts) orelse is_in_dir(AbsDataDirParts, Parts) of
+            true -> do_read_file(Val);
+            false -> Val
         end,
-    {Key, Val1}.
+    {Key, Val1};
+read_data_file(Key, Val, _DataDirParts, _AbsDataDirParts) ->
+    {Key, Val}.
+
+%% A path is in the directory when the directory's path components are a strict
+%% prefix of its own, so `data_source' is not in `data', and `data' itself is not.
+is_in_dir(DirParts, Parts) ->
+    length(Parts) > length(DirParts) andalso lists:prefix(DirParts, Parts).
 
 do_read_file(FileName) ->
     case file:read_file(FileName) of
