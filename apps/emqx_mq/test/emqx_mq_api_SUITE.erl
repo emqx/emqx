@@ -24,7 +24,39 @@
 ).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    Standalone = emqx_common_test_helpers:all(?MODULE) -- (queue_type_cases() ++ purge_cases()),
+    Standalone ++ [{group, Group} || {Group, _, _} <- groups()].
+
+groups() ->
+    [
+        {regular, [], queue_type_cases()},
+        {lastvalue, [], queue_type_cases()},
+        {purge_regular, [], purge_cases()},
+        {purge_limited_regular, [], purge_cases()},
+        {purge_lastvalue, [], purge_cases()},
+        {purge_limited_lastvalue, [], purge_cases()}
+    ].
+
+queue_type_cases() ->
+    [t_deliver_cutoff_date].
+
+purge_cases() ->
+    [t_purge_all, t_purge_before].
+
+init_per_group(Group, Config) ->
+    {IsLastvalue, IsLimited} =
+        case Group of
+            regular -> {false, false};
+            lastvalue -> {true, false};
+            purge_regular -> {false, false};
+            purge_limited_regular -> {false, true};
+            purge_lastvalue -> {true, false};
+            purge_limited_lastvalue -> {true, true}
+        end,
+    [{is_lastvalue, IsLastvalue}, {is_limited, IsLimited} | Config].
+
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -48,6 +80,7 @@ init_per_testcase(_CaseName, Config) ->
     Config.
 
 end_per_testcase(_CaseName, _Config) ->
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = snabbkaffe:stop(),
     ok = emqx_mq_test_utils:cleanup_mqs(),
     ok = emqx_mq_test_utils:reset_config().
@@ -269,57 +302,53 @@ t_update_running_queue(_Config) ->
     ?assertEqual([<<"fresh">>], [Payload || #{payload := Payload} <- Msgs]),
     ok = emqtt:disconnect(CSub).
 
-%% Verify an unset cutoff stays absent and configured timestamps persist for both queue types.
-t_deliver_cutoff_date(_Config) ->
+%% Verify an unset cutoff stays absent and configured timestamps persist for the group's queue type.
+t_deliver_cutoff_date(Config) ->
+    IsLastvalue = ?config(is_lastvalue, Config),
+    Name = <<"deliver_cutoff_date">>,
+    {ok, 200, Created} = api_post([message_queues, queues], #{
+        <<"name">> => Name,
+        <<"topic_filter">> => <<"t/#">>,
+        <<"is_lastvalue">> => IsLastvalue
+    }),
+    ?assertNot(maps:is_key(<<"deliver_cutoff_date">>, Created)),
+    {ok, 200, Stored} = api_get([message_queues, queues, Name]),
+    ?assertNot(maps:is_key(<<"deliver_cutoff_date">>, Stored)),
+    {ok, MQ} = emqx_mq_registry:find(Name),
+    ?assertNot(maps:is_key(deliver_cutoff_date, MQ)),
     lists:foreach(
-        fun(IsLastvalue) ->
-            Name = <<"deliver_cutoff_date">>,
-            {ok, 200, Created} = api_post([message_queues, queues], #{
-                <<"name">> => Name,
-                <<"topic_filter">> => <<"t/#">>,
-                <<"is_lastvalue">> => IsLastvalue
-            }),
-            ?assertNot(maps:is_key(<<"deliver_cutoff_date">>, Created)),
-            {ok, 200, Stored} = api_get([message_queues, queues, Name]),
-            ?assertNot(maps:is_key(<<"deliver_cutoff_date">>, Stored)),
-            {ok, MQ} = emqx_mq_registry:find(Name),
-            ?assertNot(maps:is_key(deliver_cutoff_date, MQ)),
-            lists:foreach(
-                fun({Raw, Expected}) ->
-                    ?assertMatch(
-                        {ok, 200, _},
-                        api_put([message_queues, queues, Name], #{
-                            <<"is_lastvalue">> => IsLastvalue,
-                            <<"deliver_cutoff_date">> => Raw
-                        })
-                    ),
-                    ?assertMatch(
-                        {ok, 200, #{<<"deliver_cutoff_date">> := Expected}},
-                        api_get([message_queues, queues, Name])
-                    )
-                end,
-                [
-                    {<<"1970-01-01T00:00:01.234Z">>, 1234},
-                    {1_790_000_000_123, 1_790_000_000_123},
-                    {0, 0}
-                ]
+        fun({Raw, Expected}) ->
+            ?assertMatch(
+                {ok, 200, _},
+                api_put([message_queues, queues, Name], #{
+                    <<"is_lastvalue">> => IsLastvalue,
+                    <<"deliver_cutoff_date">> => Raw
+                })
             ),
-            lists:foreach(
-                fun(Invalid) ->
-                    ?assertMatch(
-                        {ok, 400, _},
-                        api_put([message_queues, queues, Name], #{
-                            <<"is_lastvalue">> => IsLastvalue,
-                            <<"deliver_cutoff_date">> => Invalid
-                        })
-                    )
-                end,
-                [-1, <<"none">>, <<"not-a-date">>, <<"1969-12-31T23:59:59Z">>]
-            ),
-            ?assertMatch({ok, 204}, api_delete([message_queues, queues, Name]))
+            ?assertMatch(
+                {ok, 200, #{<<"deliver_cutoff_date">> := Expected}},
+                api_get([message_queues, queues, Name])
+            )
         end,
-        [false, true]
-    ).
+        [
+            {<<"1970-01-01T00:00:01.234Z">>, 1234},
+            {1_790_000_000_123, 1_790_000_000_123},
+            {0, 0}
+        ]
+    ),
+    lists:foreach(
+        fun(Invalid) ->
+            ?assertMatch(
+                {ok, 400, _},
+                api_put([message_queues, queues, Name], #{
+                    <<"is_lastvalue">> => IsLastvalue,
+                    <<"deliver_cutoff_date">> => Invalid
+                })
+            )
+        end,
+        [-1, <<"none">>, <<"not-a-date">>, <<"1969-12-31T23:59:59Z">>]
+    ),
+    ?assertMatch({ok, 204}, api_delete([message_queues, queues, Name])).
 
 %% Verify pagination logic of message queue listing.
 t_pagination(_Config) ->
@@ -739,9 +768,183 @@ t_queues_alias_config(_Config) ->
         api_get([queues, config])
     ).
 
+%% Check that full purge keeps the queue and MQTT connection and delivers messages published afterward.
+t_purge_all(Config) ->
+    %% Create the queue through HTTP and establish delivery before purging it.
+    #{name := Name} = MQ = create_purge_queue(Config),
+    Client = emqx_mq_test_utils:emqtt_connect([{reconnect, 0}]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(Client, Name),
+    Old = emqx_message:make(<<"old">>, 1, <<"purge/1">>, <<"before">>),
+    ok = emqx_mq_message_db:insert(MQ, Old),
+    {ok, [#{payload := <<"before">>}]} = emqx_mq_test_utils:emqtt_drain(1, 1000),
+
+    %% Purge synchronously and verify that the queue keeps its identity and settings.
+    StartMs = erlang:system_time(millisecond),
+    ?assertEqual({ok, 204}, api_delete([queue, Name, messages])),
+    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)),
+    {ok, #{deliver_cutoff_date := CutoffMs} = Updated} = emqx_mq_registry:find(Name),
+    ?assert(CutoffMs >= StartMs),
+    ?assert(CutoffMs =< erlang:system_time(millisecond)),
+    ?assertEqual(MQ#{deliver_cutoff_date => CutoffMs}, Updated),
+    ?assertMatch({ok, 200, #{<<"name">> := Name}}, api_get([queue, Name])),
+
+    %% Keep the existing MQTT connection and subscription when publishing after purge.
+    {ok, _} = emqx_mq_test_utils:emqtt_pub_mq(Client, <<"purge/1">>, <<"after">>),
+    {ok, [#{payload := <<"after">>}]} = emqx_mq_test_utils:emqtt_drain(1, 2000),
+    ?assertEqual(connected, emqtt:status(Client)),
+    ?assertEqual(pong, emqtt:ping(Client)),
+    ok = emqtt:disconnect(Client),
+    ?assertEqual({ok, 204}, api_delete([queue, Name, messages])),
+    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)).
+
+%% Check that purge accepts epoch and RFC 3339 cutoffs and delivers only messages at or after the cutoff.
+t_purge_before(Config) ->
+    %% Store messages with timestamps on both sides of the delivery boundary.
+    #{name := Name} = MQ = create_purge_queue(Config),
+    BeforeMs = erlang:system_time(millisecond) - 60000,
+    Old = emqx_message:make(<<"old">>, 1, <<"purge/1">>, <<"old">>),
+    Boundary = emqx_message:make(<<"boundary">>, 1, <<"purge/1">>, <<"boundary">>),
+    ok = emqx_mq_message_db:insert(MQ, Old#message{timestamp = BeforeMs - 1}),
+    ok = emqx_mq_message_db:insert(MQ, Boundary#message{timestamp = BeforeMs}),
+    Records = lists:sort(emqx_mq_message_db:dirty_read_all(MQ)),
+    ?assertEqual(2, length(Records)),
+
+    %% Validate query conversion, including zero and an encoded timezone offset.
+    lists:foreach(
+        fun(#{query := Query, expected := Expected}) ->
+            ?assertEqual(
+                {ok, 204}, api_delete([queue, Name, messages, "?before=" ++ urlencode(Query)])
+            ),
+            ?assertEqual({ok, MQ#{deliver_cutoff_date => Expected}}, emqx_mq_registry:find(Name))
+        end,
+        [
+            #{query => <<"0">>, expected => 0},
+            #{query => integer_to_binary(BeforeMs), expected => BeforeMs},
+            #{
+                query => calendar:system_time_to_rfc3339(BeforeMs, [
+                    {unit, millisecond}, {offset, "Z"}
+                ]),
+                expected => BeforeMs
+            },
+            #{
+                query => calendar:system_time_to_rfc3339(BeforeMs, [
+                    {unit, millisecond}, {offset, "+01:00"}
+                ]),
+                expected => BeforeMs
+            }
+        ]
+    ),
+    %% Both DS timestamps follow the cutoff, so physical records remain.
+    ?assertEqual(Records, lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
+    Client = emqx_mq_test_utils:emqtt_connect([]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(Client, Name),
+    {ok, [#{payload := <<"boundary">>}]} = emqx_mq_test_utils:emqtt_drain(1, 1000),
+    ok = emqtt:disconnect(Client).
+
+%% Check that malformed, negative, and future purge cutoffs return 400 without changing the queue.
+t_purge_invalid_before(_Config) ->
+    Name = <<"invalid_purge">>,
+    ?assertMatch(
+        {ok, 200, _}, api_post([queues], #{<<"name">> => Name, <<"topic_filter">> => <<"purge/#">>})
+    ),
+    {ok, MQ} = emqx_mq_registry:find(Name),
+    FutureMs = erlang:system_time(millisecond) + 3_600_000,
+    lists:foreach(
+        fun(Before) ->
+            ?assertMatch(
+                {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
+                api_delete([queue, Name, messages, "?before=" ++ urlencode(Before)])
+            )
+        end,
+        [
+            <<>>,
+            <<"-1">>,
+            <<"none">>,
+            <<"not-a-date">>,
+            <<"1.5">>,
+            <<"1969-12-31T23:59:59Z">>,
+            integer_to_binary(FutureMs),
+            calendar:system_time_to_rfc3339(FutureMs, [{unit, millisecond}, {offset, "Z"}])
+        ]
+    ),
+    ?assertEqual({ok, MQ}, emqx_mq_registry:find(Name)).
+
+%% Check that both purge modes return 404 for an unknown queue.
+t_purge_not_found(_Config) ->
+    ?assertMatch(
+        {ok, 404, #{<<"code">> := <<"NOT_FOUND">>}},
+        api_delete([queue, <<"missing">>, messages])
+    ),
+    ?assertMatch(
+        {ok, 404, #{<<"code">> := <<"NOT_FOUND">>}},
+        api_delete([queue, <<"missing">>, messages, "?before=0"])
+    ).
+
+%% Check that both purge modes return 503 on storage failure without changing the queue settings.
+t_purge_storage_failure(_Config) ->
+    Name = <<"failed_purge">>,
+    ?assertMatch(
+        {ok, 200, _}, api_post([queues], #{<<"name">> => Name, <<"topic_filter">> => <<"purge/#">>})
+    ),
+    {ok, MQ} = emqx_mq_registry:find(Name),
+    ok = meck:new(emqx_mq_message_db, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_mq_message_db) end),
+    ok = meck:expect(emqx_mq_message_db, purge, fun(_) ->
+        {error, {recoverable, leader_unavailable}}
+    end),
+    ok = meck:expect(emqx_mq_message_db, purge, fun(_, _) ->
+        {error, {recoverable, leader_unavailable}}
+    end),
+    ?assertMatch(
+        {ok, 503, #{<<"code">> := <<"SERVICE_UNAVAILABLE">>}}, api_delete([queue, Name, messages])
+    ),
+    ?assertMatch(
+        {ok, 503, #{<<"code">> := <<"SERVICE_UNAVAILABLE">>}},
+        api_delete([queue, Name, messages, "?before=0"])
+    ),
+    ?assertEqual({ok, MQ}, emqx_mq_registry:find(Name)).
+
+%% Check that purge returns 503 while the queue subsystem is stopped or starting.
+t_purge_unavailable(_Config) ->
+    ok = meck:new(emqx_mq_controller, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_mq_controller) end),
+    lists:foreach(
+        fun(Status) ->
+            ok = meck:expect(emqx_mq_controller, status, fun() -> Status end),
+            ?assertMatch(
+                {ok, 503, #{<<"code">> := <<"SERVICE_UNAVAILABLE">>}},
+                api_delete([queue, <<"unavailable">>, messages])
+            )
+        end,
+        [stopped, stopping, starting]
+    ).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+create_purge_queue(Config) ->
+    IsLastvalue = ?config(is_lastvalue, Config),
+    Limits = #{<<"max_shard_message_count">> => 100, <<"max_shard_message_bytes">> => 100000},
+    Base = #{
+        <<"name">> => <<"purge">>,
+        <<"topic_filter">> => <<"purge/#">>,
+        <<"is_lastvalue">> => IsLastvalue,
+        <<"ping_interval">> => 200
+    },
+    WithKey =
+        case IsLastvalue of
+            true -> Base#{<<"key_expression">> => <<"message.from">>};
+            false -> Base
+        end,
+    Queue =
+        case ?config(is_limited, Config) of
+            true -> WithKey#{<<"limits">> => Limits};
+            false -> WithKey
+        end,
+    ?assertMatch({ok, 200, _}, api_post([queues], Queue)),
+    {ok, MQ} = emqx_mq_registry:find(<<"purge">>),
+    MQ.
 
 sort_by(Fun, List) ->
     lists:sort(fun(A, B) -> Fun(A) < Fun(B) end, List).
