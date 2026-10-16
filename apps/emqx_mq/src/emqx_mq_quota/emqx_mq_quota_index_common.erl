@@ -73,11 +73,16 @@ A node crash can lose buffered updates and make the index undercount stored data
 
 -elvis([{elvis_style, atom_naming_convention, #{regex => "^[a-z]\\w*$"}}]).
 
--export([apply_update/4, deadline/2]).
+-export([apply_update/4, deadline/2, cutoff/2, reset/1]).
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+-doc "Create a zero-count bucket at the purge boundary.".
+-spec reset(emqx_mq_quota_index:timestamp_us()) -> [#'StorageIndexBucket'{}].
+reset(TsUs) ->
+    [#'StorageIndexBucket'{tsUs = TsUs, bytes = 0, count = 0}].
 
 -spec apply_update(
     [#'StorageIndexBucket'{}],
@@ -103,9 +108,23 @@ apply_update(
 deadline(Records, Opts) ->
     deadline_from_records(Records, limits(Opts), {0, 0}).
 
+-doc "Keep buckets starting at or after the nearest boundary strictly before BeforeUs.".
+-spec cutoff([#'StorageIndexBucket'{}], emqx_mq_quota_index:timestamp_us()) ->
+    {emqx_mq_quota_index:timestamp_us(), [#'StorageIndexBucket'{}]}.
+cutoff(Records, BeforeUs) ->
+    CutoffUs = cutoff_boundary(Records, BeforeUs),
+    {CutoffUs, [R || #'StorageIndexBucket'{tsUs = TsUs} = R <- Records, TsUs >= CutoffUs]}.
+
 %%------------------------------------------------------------------------------
 %% Private
 %%------------------------------------------------------------------------------
+
+cutoff_boundary([], _BeforeUs) ->
+    0;
+cutoff_boundary([#'StorageIndexBucket'{tsUs = TsUs} | _], BeforeUs) when TsUs < BeforeUs ->
+    TsUs;
+cutoff_boundary([_ | Records], BeforeUs) ->
+    cutoff_boundary(Records, BeforeUs).
 
 deadline_from_records([], _Max, _Acc) ->
     0;

@@ -102,6 +102,78 @@ t_update_after_stale_read(_Config) ->
     ?assertEqual({ok, MQ0}, emqx_mq_state_storage:find_mq(Id)),
     ?retry(10, 100, ?assertNot(is_process_alive(ConsumerRef))).
 
+%% Check that purge stores the requested delivery cutoff and stops consumers using the previous settings.
+t_purge(_Config) ->
+    Name = <<"purge">>,
+    BeforeMs = erlang:system_time(millisecond),
+    ?assertEqual(not_found, emqx_mq_registry:purge(Name, BeforeMs)),
+    {ok, MQ} = create_mq(Name, <<"purge/#">>),
+    ?assertNot(maps:is_key(deliver_cutoff_date, MQ)),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ, alias(), <<"client">>),
+    ?assertEqual(
+        {ok, MQ#{deliver_cutoff_date => BeforeMs}}, emqx_mq_registry:purge(Name, BeforeMs)
+    ),
+    ?assertEqual({ok, MQ#{deliver_cutoff_date => BeforeMs}}, emqx_mq_registry:find(Name)),
+    ?retry(10, 100, ?assertNot(is_process_alive(ConsumerRef))).
+
+%% Check that full purge keeps the queue and stops its consumer after storing the purge start time.
+t_full_purge(_Config) ->
+    Name = <<"full_purge">>,
+    ?assertEqual(not_found, emqx_mq_registry:purge(Name)),
+    {ok, MQ} = create_mq(Name, <<"purge/#">>),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ, alias(), <<"client">>),
+    StartMs = erlang:system_time(millisecond),
+    {ok, #{deliver_cutoff_date := CutoffMs} = Updated} = emqx_mq_registry:purge(Name),
+    ?assert(CutoffMs >= StartMs),
+    ?assert(CutoffMs =< erlang:system_time(millisecond)),
+    ?assertEqual(MQ#{deliver_cutoff_date => CutoffMs}, Updated),
+    ?assertEqual({ok, Updated}, emqx_mq_registry:find(Name)),
+    ?retry(10, 100, ?assertNot(is_process_alive(ConsumerRef))).
+
+%% Check that purge before the stored delivery cutoff skips data deletion, keeps the cutoff, and keeps the consumer.
+t_purge_before_cutoff(_Config) ->
+    Name = <<"purge_before_cutoff">>,
+    BeforeMs = erlang:system_time(millisecond),
+    {ok, _MQ0} = create_mq(Name, <<"purge/#">>),
+    {ok, MQ1} = emqx_mq_registry:purge(Name, BeforeMs),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ1, alias(), <<"client">>),
+    ok = meck:new(emqx_mq_message_db, [passthrough, no_link]),
+    Result = emqx_mq_registry:purge(Name, BeforeMs - 1),
+    PurgeCalls = meck:num_calls(emqx_mq_message_db, purge, '_'),
+    ok = meck:unload(emqx_mq_message_db),
+    ?assertEqual({ok, MQ1}, Result),
+    ?assertEqual(0, PurgeCalls),
+    ?assertEqual({ok, MQ1}, emqx_mq_registry:find(Name)),
+    ?assert(is_process_alive(ConsumerRef)).
+
+%% Check that full purge keeps a stored delivery cutoff later than the purge start time.
+t_full_purge_later_cutoff(_Config) ->
+    Name = <<"full_purge_later_cutoff">>,
+    FutureMs = erlang:system_time(millisecond) + 3_600_000,
+    {ok, MQ0} = create_mq(Name, <<"purge/#">>),
+    {ok, MQ1} = emqx_mq_registry:update(Name, MQ0#{deliver_cutoff_date => FutureMs}),
+    ?assertEqual({ok, MQ1}, emqx_mq_registry:purge(Name)),
+    ?assertEqual({ok, MQ1}, emqx_mq_registry:find(Name)).
+
+%% Check that a purge with a stale queue read cannot lower a delivery cutoff stored by a concurrent purge.
+t_purge_after_stale_read(_Config) ->
+    Name = <<"purge_stale_read">>,
+    BeforeMs = erlang:system_time(millisecond),
+    {ok, #{id := Id} = MQ0} = create_mq(Name, <<"purge/#">>),
+    {ok, MQ1} = emqx_mq_registry:purge(Name, BeforeMs),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ1, alias(), <<"client">>),
+
+    %% Simulate a purge that read MQ0 before another purge stored the later cutoff.
+    ok = meck:new(emqx_mq_state_storage, [passthrough, no_history]),
+    ok = meck:expect(emqx_mq_state_storage, find_mq, fun(Id0) when Id0 =:= Id -> {ok, MQ0} end),
+    Result = emqx_mq_registry:purge(Name, BeforeMs - 1),
+    ok = meck:unload(emqx_mq_state_storage),
+
+    %% The stored cutoff remains, so the consumer keeps running.
+    ?assertEqual({ok, MQ1}, Result),
+    ?assertEqual({ok, MQ1}, emqx_mq_registry:find(Name)),
+    ?assert(is_process_alive(ConsumerRef)).
+
 t_validate_name(_Config) ->
     ?assertMatch(
         {ok, _},
