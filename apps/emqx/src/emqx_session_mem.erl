@@ -228,7 +228,13 @@ create_limiter(#{listener := ListenerId} = ClientInfo, _Conf) ->
     %% sees listener-level limits. A hook-installed container (e.g. a
     %% tenant with delivery limits under a listener with none) must not
     %% depend on that gate.
-    emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId}).
+    emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId});
+create_limiter(#{}, _Conf) ->
+    %% No listener: no quota is instantiated.
+    %% This can happen during session handover from eviction agent running
+    %% on older EMQX release. Subsequent handover to a client channel should
+    %% recreate a limiter.
+    false.
 
 empty_mqueue(Zone) ->
     %% emqx_mqueue treats 0 as no limit.
