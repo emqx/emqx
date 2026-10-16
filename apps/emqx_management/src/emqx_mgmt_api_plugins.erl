@@ -132,7 +132,10 @@ schema("/plugins/install") ->
                         'FORBIDDEN'
                     ]
                 ),
-                409 => pinned_error()
+                409 => pinned_error(),
+                500 => emqx_dashboard_swagger:error_codes(
+                    ['INTERNAL_ERROR'], ?DESC("internal_error")
+                )
             }
         }
     };
@@ -571,16 +574,35 @@ upload_install(post, #{}) ->
     bad_plugin_form_data().
 
 do_upload_install(NameVsn, Bin) ->
-    case emqx_plugins:install_state(NameVsn) of
+    case classify_installation(NameVsn) of
         installed ->
-            %% A complete installation.  Only an installation that the API does
-            %% not show (installed, but neither configured nor running, or one
-            %% whose metadata became unreadable meanwhile) is (re)installed
-            %% from the upload.
+            %% A complete installation.  An installation that the API does not
+            %% show (installed, but neither configured nor running, or one whose
+            %% metadata became unreadable meanwhile) is (re)installed from the
+            %% upload.
             case describe_api_plugin(NameVsn, #{}) of
-                {ok, _} -> already_installed(NameVsn);
-                {error, _} -> install_package_on_nodes(NameVsn, Bin)
+                {ok, _} ->
+                    %% The very package which is installed is forwarded: the
+                    %% nodes of the cluster which did not finish the
+                    %% installation -- a peer which held its lock, or a
+                    %% finalization which failed here -- are repaired by
+                    %% uploading it again.  Another package is refused instead
+                    %% of replacing the installation.
+                    case is_installed_package(NameVsn, Bin) of
+                        true -> install_package_on_nodes(NameVsn, Bin);
+                        false -> already_installed(NameVsn)
+                    end;
+                {error, _} ->
+                    install_package_on_nodes(NameVsn, Bin)
             end;
+        {error, Reason} ->
+            %% The installation could not be classified, so the upload is not
+            %% refused as already installed: the caller can retry.
+            internal_error_response(
+                "plugin_upload_installation_in_progress",
+                #{name_vsn => NameVsn, reason => Reason},
+                <<"another installation of this plugin is in progress, retry later">>
+            );
         _IncompleteOrAbsent ->
             %% The plugin is not installed on this node: either nothing is
             %% there, or the install dir only holds leftovers of a previous
@@ -592,10 +614,29 @@ do_upload_install(NameVsn, Bin) ->
             install_package_on_nodes(NameVsn, Bin)
     end.
 
+%% Classify under the installation lock: a tree which another attempt has
+%% published but not validated yet is not an installation.
+classify_installation(NameVsn) ->
+    emqx_plugins:with_installation_lock(NameVsn, fun() ->
+        emqx_plugins:install_state(NameVsn)
+    end).
+
+%% Whether the upload is the package which is installed on this node.
+is_installed_package(NameVsn, Bin) ->
+    case emqx_plugins_fs:get_tar(NameVsn) of
+        {ok, Bin} -> true;
+        _Other -> false
+    end.
+
 already_installed(NameVsn) ->
     {400, #{
         code => 'ALREADY_INSTALLED',
-        message => iolist_to_binary(io_lib:format("~p is already installed", [NameVsn]))
+        message => iolist_to_binary([
+            NameVsn,
+            " is already installed. Uninstall it first (`emqx ctl plugins uninstall ",
+            NameVsn,
+            "`) and then upload the package again to replace the installation."
+        ])
     }}.
 
 install_package_on_nodes(NameVsn, Bin) ->
@@ -656,7 +697,7 @@ do_install_package_on_nodes(NameVsn, Bin) ->
         {[], []} ->
             {204};
         {NodeErrors, []} when NodeErrors =/= [] ->
-            case lists:any(fun({_Node, Error}) -> is_rpc_error(Error) end, NodeErrors) of
+            case lists:any(fun({_Node, Error}) -> is_server_error(Error) end, NodeErrors) of
                 true ->
                     ?SLOG(error, #{
                         msg => "plugin_install_failed",
@@ -690,8 +731,19 @@ do_install_package_on_nodes(NameVsn, Bin) ->
             }}
     end.
 
-is_rpc_error({badrpc, _}) -> true;
-is_rpc_error(_) -> false.
+%% Whether the upload failed for a reason which is not the package: the node
+%% could not be reached, another installation of the same plugin held its
+%% installation lock, the installation was published but could not be finished,
+%% or the package file or the tree could not be written.  Those are server
+%% errors so the caller retries; anything else is a package the caller has to
+%% fix.
+is_server_error({badrpc, _}) -> true;
+is_server_error({error, #{reason := installation_in_progress}}) -> true;
+is_server_error({error, #{reason := installation_not_ready}}) -> true;
+is_server_error({error, #{msg := "failed_to_write_plugin_package"}}) -> true;
+is_server_error({error, #{msg := "failed_to_publish_plugin_package"}}) -> true;
+is_server_error({error, #{msg := "failed_to_replace_plugin_package"}}) -> true;
+is_server_error(_) -> false.
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
@@ -866,16 +918,56 @@ sync_plugin(post, #{body := Body}) ->
 do_sync_plugin(NameVsn) ->
     case ensure_existed(NameVsn) of
         ok ->
-            case
-                emqx_mgmt_api_plugins_proto_v4:sync_plugin_cluster(
-                    emqx:running_nodes(), node(), NameVsn
-                )
-            of
-                {_Res, []} -> {204};
-                {_Res, BadNodes} -> {400, plugin_sync_failed_msg(BadNodes)}
+            Nodes = emqx:running_nodes(),
+            {Responses, BadNodes} =
+                emqx_mgmt_api_plugins_proto_v4:sync_plugin_cluster(Nodes, node(), NameVsn),
+            case sync_node_errors(Nodes, Responses, BadNodes) of
+                [] -> {204};
+                NodeErrors -> sync_error_response(NameVsn, NodeErrors)
             end;
+        {error, #{reason := installation_in_progress} = Reason} ->
+            %% The installation state could not be read, so this is not a
+            %% missing plugin: report the transient failure as a server error.
+            internal_error_response(
+                "plugin_sync_installation_in_progress",
+                #{name_vsn => NameVsn, reason => Reason},
+                <<"another installation of this plugin is in progress, retry later">>
+            );
         {error, {plugin_error, _Reason}} ->
             {404, plugin_not_found_msg()}
+    end.
+
+%% The results of the sync callback on the nodes.  A node which is still
+%% installing this plugin holds its installation lock, so it can neither purge
+%% its other versions nor fetch the package: that is a transient failure which
+%% the caller retries.  Peers which predate the installation lock answer with
+%% the package they fetched, which is a success.
+sync_node_errors(Nodes, Responses, BadNodes) ->
+    GoodNodes = Nodes -- BadNodes,
+    [{Node, {badnode, Node}} || Node <- BadNodes] ++
+        [
+            {Node, Response}
+         || {Node, Response} <- lists:zip(GoodNodes, Responses),
+            not is_sync_ok(Response)
+        ].
+
+is_sync_ok(ok) -> true;
+is_sync_ok({ok, _FetchedPackage}) -> true;
+is_sync_ok(_Other) -> false.
+
+sync_error_response(NameVsn, NodeErrors) ->
+    case lists:any(fun({_Node, Error}) -> is_server_error(Error) end, NodeErrors) of
+        true ->
+            internal_error_response(
+                "plugin_sync_installation_in_progress",
+                #{name_vsn => NameVsn, node_errors => NodeErrors},
+                <<"another installation of this plugin is in progress, retry later">>
+            );
+        false ->
+            {400, #{
+                code => 'BAD_PLUGIN_INFO',
+                message => format_node_errors(NodeErrors)
+            }}
     end.
 
 %% API CallBack End
@@ -885,69 +977,11 @@ install_package(FileName, Bin) ->
     NameVsn = string:trim(FileName, trailing, ".tar.gz"),
     install_package_v4(NameVsn, Bin).
 
+%% Classifying the installation, snapshotting the package which is replaced and
+%% unpacking the upload are all done by `emqx_plugins:install_package/2', which
+%% runs them under the installation lock of the plugin.
 install_package_v4(NameVsn, Bin) ->
-    emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
-        unless_pinned(NameVsn, ok, fun() -> do_install_package_v4(NameVsn, Bin) end)
-    end).
-
-do_install_package_v4(NameVsn, Bin) ->
-    case emqx_plugins:install_state(NameVsn) of
-        installed ->
-            %% The installation is already complete, and a complete
-            %% installation is not unpacked again (`ensure_installed_from_tar/2'
-            %% returns without touching the package), so writing the upload
-            %% would pair the new package with the files of the previous one.
-            %% Keep both as they are: a cluster install runs this callback on
-            %% every node, including the ones which hold the installation
-            %% already (the node which answers the request decides whether the
-            %% upload is refused, see `do_upload_install/2').
-            emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
-        _IncompleteOrAbsent ->
-            install_replacing_package(NameVsn, Bin)
-    end.
-
-%% Replace the package of an absent or incomplete installation with the
-%% uploaded one.
-%%
-%% The package which is replaced is snapshotted before anything is written: an
-%% installation attempt which is refused (for example because the plugin is
-%% still running) or which fails must not destroy the only local copy of the
-%% installed package, it may be the only way to repair the installation later.
-%% When the snapshot itself can not be taken, the upload is refused instead of
-%% overwriting a package which could not be put back.
-install_replacing_package(NameVsn, Bin) ->
-    maybe
-        {ok, PreviousPackage} ?= emqx_plugins:backup_package(NameVsn),
-        ok ?= emqx_plugins:write_package(NameVsn, Bin),
-        install_written_package_v4(NameVsn, PreviousPackage)
-    end.
-
-install_written_package_v4(NameVsn, PreviousPackage) ->
-    case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
-        {error, #{reason := ?plugin_not_found}} = NotFound ->
-            NotFound;
-        {error, Reason} = Error ->
-            ?SLOG(error, #{
-                msg => "failed_to_install_plugin",
-                reason => Reason
-            }),
-            restore_previous_package(NameVsn, PreviousPackage),
-            Error;
-        Result ->
-            Result
-    end.
-
-restore_previous_package(NameVsn, PreviousPackage) ->
-    case emqx_plugins:restore_package(NameVsn, PreviousPackage) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_restore_plugin_package",
-                name_vsn => NameVsn,
-                reason => Reason
-            })
-    end.
+    emqx_plugins:install_package(NameVsn, Bin).
 
 %% For RPC plugin get
 describe_package(NameVsn) ->
@@ -1160,21 +1194,30 @@ ensure_existed(NameVsn) ->
         ok ->
             _ = emqx_plugins:publish_state(NameVsn),
             ok;
+        {error, #{reason := installation_in_progress}} = Busy ->
+            %% The installation could not be classified, so this does not say
+            %% that the plugin is missing.
+            Busy;
         {error, _} ->
             {error, {plugin_error, <<"Plugin Not Found">>}}
     end.
 
 %% for RPC plugin sync
--spec sync_plugin_cluster(node(), name_vsn()) -> ok.
+%%
+%% The refusal of the installation lock is returned to the caller: a node which
+%% is installing this plugin must not report that the synchronization succeeded.
+-spec sync_plugin_cluster(node(), name_vsn()) ->
+    ok | {ok, binary()} | {error, term()}.
 sync_plugin_cluster(Node, NameVsn) ->
     unless_pinned(NameVsn, ok, fun() -> do_sync_plugin_cluster(Node, NameVsn) end).
 
 do_sync_plugin_cluster(Node, NameVsn) when Node =:= node() ->
-    _ = emqx_plugins:purge_other_versions(NameVsn),
-    ok;
+    emqx_plugins:purge_other_versions(NameVsn);
 do_sync_plugin_cluster(Node, NameVsn) ->
-    _ = emqx_plugins:purge_other_versions(NameVsn),
-    emqx_plugins:get_package_from_node(Node, NameVsn).
+    maybe
+        ok ?= emqx_plugins:purge_other_versions(NameVsn),
+        emqx_plugins:get_package_from_node(Node, NameVsn)
+    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -1381,7 +1424,9 @@ readable_error_msg(#{
         Expected,
         ", got ",
         Actual,
-        ". Fix the plugin configuration on this node and retry."
+        ". Fix or remove ",
+        emqx_plugins_fs:config_file_path(NameVsn),
+        " on this node and retry."
     ]);
 readable_error_msg(#{
     msg := "invalid_plugin_config",
@@ -1391,7 +1436,9 @@ readable_error_msg(#{
     iolist_to_binary([
         "invalid_plugin_config: Plugin ",
         NameVsn,
-        " configuration is invalid. Fix the plugin configuration on this node and retry."
+        " configuration is invalid. Fix or remove ",
+        emqx_plugins_fs:config_file_path(NameVsn),
+        " on this node and retry."
     ]);
 readable_error_msg(#{
     msg := "invalid_plugin_config_schema",
@@ -1465,6 +1512,22 @@ readable_error_msg(#{
         "invalid_plugin_config_schema: Plugin package configuration schema is invalid. "
         "Rebuild or reinstall a corrected plugin package and retry."
     >>;
+readable_error_msg(#{
+    msg := "plugin_installed_but_not_ready",
+    name_vsn := NameVsn,
+    cause := Cause
+}) ->
+    iolist_to_binary([
+        "plugin_installed_but_not_ready: The uploaded package of plugin ",
+        NameVsn,
+        " is installed, but the plugin could not be loaded or configured (",
+        readable_error_msg(Cause),
+        "). Fix the cause and retry: the retry keeps the installed files and does not unpack the "
+        "package again. To replace the installation with this package, uninstall the plugin "
+        "(`emqx ctl plugins uninstall ",
+        NameVsn,
+        "`) and upload the package again."
+    ]);
 readable_error_msg(#{
     msg := "plugin_is_in_use",
     name_vsn := NameVsn
@@ -1600,17 +1663,6 @@ clear_feature_env(Prev) ->
     emqx_machine_features:clear_features().
 
 -endif.
-
-plugin_sync_failed_msg(Nodes) ->
-    #{
-        code => 'BAD_PLUGIN_INFO',
-        message => iolist_to_binary(
-            io_lib:format(
-                "Failed to sync plugin on nodes: ~p",
-                [Nodes]
-            )
-        )
-    }.
 
 describe_api_plugin(NameVsn) ->
     describe_api_plugin(NameVsn, #{fill_readme => true, health_check => true}).

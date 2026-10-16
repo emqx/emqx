@@ -20,5 +20,5 @@ init([]) ->
             intensity => 100,
             period => 10
         },
-    ChildSpecs = [],
+    ChildSpecs = [emqx_plugins_install_serializer:child_spec()],
     {ok, {SupFlags, ChildSpecs}}.

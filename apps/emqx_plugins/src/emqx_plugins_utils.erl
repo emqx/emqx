@@ -18,6 +18,7 @@
     with_valid_name/2,
     bin/1,
     parse_name_vsn/1,
+    split_name_vsn/1,
     plugin_name/1,
     normalize_state_item/1,
     latest_name_vsn/2,
@@ -49,7 +50,7 @@ validate_name_vsn(Name) when is_list(Name) ->
 validate_name_vsn(Name) when is_binary(Name), byte_size(Name) > 0, byte_size(Name) =< 256 ->
     case re:run(Name, "\\A[A-Za-z]+[A-Za-z0-9_]*-[A-Za-z0-9_.-]*\\z", [{capture, none}]) of
         match ->
-            ok;
+            check_not_package_file_name(Name);
         nomatch ->
             {error,
                 "Name should be an application name"
@@ -62,6 +63,25 @@ validate_name_vsn(Name) when is_binary(Name) ->
     {error, "Name Length must =< 256"};
 validate_name_vsn(_) ->
     {error, "Name must be a string"}.
+
+%% The installation directory of a name-vsn is also the path of the package file
+%% (or of its checksum) of the plugin whose name-vsn it extends: `foo-1.tar.gz'
+%% would take the place of the archive of `foo-1'.
+check_not_package_file_name(Name) ->
+    case is_package_file_name(Name) of
+        true ->
+            {error,
+                "Name must not end with .tar.gz or .tar.gz.md5sum,"
+                " which are the package file names of another plugin"};
+        false ->
+            ok
+    end.
+
+is_package_file_name(Name) ->
+    lists:any(
+        fun(Suffix) -> binary:longest_common_suffix([Name, Suffix]) =:= byte_size(Suffix) end,
+        [<<".tar.gz">>, <<".tar.gz.md5sum">>]
+    ).
 
 -doc """
 Validate the `node.pinned_plugins` list.
@@ -119,6 +139,24 @@ parse_name_vsn(NameVsn) when is_list(NameVsn) ->
         {AppName, [$- | Vsn]} -> {list_to_atom(AppName), Vsn};
         _ -> error(bad_name_vsn)
     end.
+
+%% @doc Split a package identifier into its application name and version
+%% without converting the name into an atom.
+%%
+%% The split is at the first dash, like `parse_name_vsn/1'.  Callers which only
+%% need the two textual parts (a lookup, a comparison, a log) must use this one:
+%% the identifier may come from a request, and it stays textual, so no atom is
+%% created for a name which is only looked up or compared.
+-spec split_name_vsn(term()) -> {binary(), binary()} | error.
+split_name_vsn(NameVsn) when is_list(NameVsn) ->
+    split_name_vsn(bin(NameVsn));
+split_name_vsn(NameVsn) when is_binary(NameVsn) ->
+    case binary:split(NameVsn, <<"-">>) of
+        [AppName, Vsn] when byte_size(AppName) > 0 -> {AppName, Vsn};
+        _ -> error
+    end;
+split_name_vsn(_NameVsn) ->
+    error.
 
 compare_vsn(Vsn1, Vsn2) when is_binary(Vsn1) ->
     compare_vsn(binary_to_list(Vsn1), Vsn2);
@@ -258,6 +296,23 @@ parse_name_vsn_test_() ->
         ?_assertError(bad_name_vsn, parse_name_vsn("foo")),
         ?_assertEqual({foo, "1.0.0"}, parse_name_vsn("foo-1.0.0")),
         ?_assertEqual({bar_plugin, "5.9.0-beta.1"}, parse_name_vsn(<<"bar_plugin-5.9.0-beta.1">>))
+    ].
+
+split_name_vsn_test_() ->
+    [
+        %% the same split as `parse_name_vsn/1', without the atom
+        ?_assertEqual({<<"foo">>, <<"1.0.0">>}, split_name_vsn("foo-1.0.0")),
+        ?_assertEqual({<<"foo">>, <<"1.0.0">>}, split_name_vsn(<<"foo-1.0.0">>)),
+        ?_assertEqual(
+            {<<"bar_plugin">>, <<"5.9.0-beta.1">>}, split_name_vsn(<<"bar_plugin-5.9.0-beta.1">>)
+        ),
+        %% a version may be empty, as `validate_name_vsn/1' accepts it
+        ?_assertEqual({<<"foo">>, <<>>}, split_name_vsn("foo-")),
+        ?_assertEqual(error, split_name_vsn("foo")),
+        ?_assertEqual(error, split_name_vsn("-1.0.0")),
+        ?_assertEqual(error, split_name_vsn("")),
+        ?_assertEqual(error, split_name_vsn(undefined)),
+        ?_assertEqual(error, split_name_vsn(1))
     ].
 
 make_name_vsn_string_test_() ->
