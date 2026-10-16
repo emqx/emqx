@@ -442,6 +442,59 @@ t_session_serialization(_Config) ->
         emqx_eviction_agent:session_count()
     ).
 
+-doc """
+Checks that the RPC targets released nodes call are exported. 5.8 to 5.10,
+6.0.0 to 6.0.3, 6.1.0 to 6.1.4, 6.2.0 to 6.2.3 and 6.3.0 call
+`evict_session_channel/3` through `emqx_eviction_agent_proto_v2`.
+""".
+t_rpc_target_exports(_Config) ->
+    {module, emqx_eviction_agent} = code:ensure_loaded(emqx_eviction_agent),
+    ?assert(erlang:function_exported(emqx_eviction_agent, all_local_channels_count, 0)),
+    ?assert(erlang:function_exported(emqx_eviction_agent, evict_session_channel, 3)),
+    ?assert(erlang:function_exported(emqx_eviction_agent, do_evict_session_channel_v3, 4)).
+
+-doc """
+Evicts a session through `evict_session_channel/3`, the target that
+`emqx_eviction_agent_proto_v2` calls. The session must move to an eviction
+agent channel and keep the messages published to it, as it does through the
+v3 target.
+""".
+t_evict_session_channel_v2_target(_Config) ->
+    _ = erlang:process_flag(trap_exit, true),
+    ok = restart_emqx(),
+    ClientId = <<"client_evicted_by_v2">>,
+    {ok, C0} = emqtt_connect(ClientId, false),
+    {ok, _, _} = emqtt:subscribe(C0, <<"t1">>, 1),
+    ok = emqtt:disconnect(C0),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    [ChanPid0] = emqx_cm:lookup_channels(ClientId),
+    MRef0 = erlang:monitor(process, ChanPid0),
+    %% Send the eviction the way `emqx_eviction_agent_proto_v2' does.
+    ok = meck:new(emqx_eviction_agent_proto_v3, [passthrough, no_link]),
+    ok = meck:expect(
+        emqx_eviction_agent_proto_v3,
+        evict_session_channel,
+        fun(Node, CId, ConnInfo, ClientInfo, undefined) ->
+            rpc:call(Node, emqx_eviction_agent, evict_session_channel, [CId, ConnInfo, ClientInfo])
+        end
+    ),
+    try
+        ok = emqx_eviction_agent:evict_sessions(1, node()),
+        ?assertReceive({'DOWN', MRef0, process, ChanPid0, _})
+    after
+        meck:unload(emqx_eviction_agent_proto_v3)
+    end,
+    ok = emqx_eviction_agent:disable(test_eviction),
+    ?retry(200, 10, ?assertMatch([_], emqx_cm:lookup_channels(ClientId))),
+    [ChanPid1] = emqx_cm:lookup_channels(ClientId),
+    ?assertEqual(emqx_eviction_agent_channel, emqx_cm:do_get_chann_conn_mod(ClientId, ChanPid1)),
+    {ok, CPub} = emqtt_connect(),
+    {ok, _} = emqtt:publish(CPub, <<"t1">>, <<"MessageToEvictedSession">>, 1),
+    ok = emqtt:disconnect(CPub),
+    {ok, C1} = emqtt_connect(ClientId, false),
+    ok = assert_receive_publish([#{payload => <<"MessageToEvictedSession">>, topic => <<"t1">>}]),
+    ok = emqtt:disconnect(C1).
+
 t_will_msg(_Config) ->
     erlang:process_flag(trap_exit, true),
 

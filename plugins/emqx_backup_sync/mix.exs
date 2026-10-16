@@ -32,7 +32,13 @@ defmodule EMQXBackupSync.MixProject do
 
   def erlc_options() do
     if test_env?() do
-      [:debug_info, {:d, :TEST}, {:parse_transform, :cth_readable_transform}]
+      # Match the event key used by snabbkaffe, which is compiled by the host project.
+      [
+        :debug_info,
+        {:d, :TEST},
+        {:d, :snk_kind, :msg},
+        {:parse_transform, :cth_readable_transform}
+      ]
     else
       [:debug_info]
     end

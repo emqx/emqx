@@ -2585,13 +2585,13 @@ metrics_inc(Ctx, Name) ->
 
 returncode_name(?SN_RC_ACCEPTED) -> accepted;
 returncode_name(?SN_RC_CONGESTION) -> rejected_congestion;
-returncode_name(?SN_RC_INVALID_TOPIC_ID) -> rejected_invaild_topic_id;
+returncode_name(?SN_RC_INVALID_TOPIC_ID) -> rejected_invalid_topic_id;
 returncode_name(?SN_RC_NOT_SUPPORTED) -> rejected_not_supported;
 returncode_name(?SN_RC2_NOT_AUTHORIZE) -> rejected_not_authorize;
 returncode_name(?SN_RC2_FAILED_SESSION) -> rejected_failed_open_session;
 returncode_name(?SN_RC2_KEEPALIVE_TIMEOUT) -> rejected_keepalive_timeout;
 returncode_name(?SN_RC2_EXCEED_LIMITATION) -> rejected_exceed_limitation;
 returncode_name(?SN_RC2_REACHED_MAX_RETRY) -> reached_max_retry_times;
-returncode_name(_) -> accepted.
+returncode_name(_) -> unknown_error.
 
 name_to_returncode(not_authorized) -> ?SN_RC2_NOT_AUTHORIZE.
