@@ -85,8 +85,7 @@
     cmd_record :: cmd_record(),
     subscriptions :: map(),
     blockwise :: emqx_coap_blockwise:state(),
-    blockwise_downlink :: term() | undefined,
-    mqueue_len = 0 :: non_neg_integer()
+    blockwise_downlink :: term() | undefined
 }).
 
 -type session() :: #session{}.
@@ -184,8 +183,7 @@ init(
         lifetime = LifeTime,
         mountpoint = MountPoint,
         is_cache_mode = is_psm(RegInfo) orelse is_qmode(RegInfo),
-        queue = queue:new(),
-        mqueue_len = 0
+        queue = queue:new()
     },
 
     Result = return(register_init(WithContext, NewSession)),
@@ -271,8 +269,8 @@ stats(inflight_cnt, _) ->
     0;
 stats(inflight_max, _) ->
     infinity;
-stats(mqueue_len, #session{mqueue_len = Len}) ->
-    Len;
+stats(mqueue_len, #session{queue = Queue}) ->
+    queue:len(Queue);
 stats(mqueue_max, _) ->
     ?MAX_MQUEUE_LEN;
 stats(mqueue_dropped, _) ->
@@ -835,7 +833,7 @@ send_to_coap(WithContext, #session{queue = Queue} = Session) ->
     case queue:out(Queue) of
         {{value, {Timestamp, Ctx, Req}}, Q2} ->
             Now = erlang:system_time(millisecond),
-            Session1 = Session#session{queue = Q2, mqueue_len = Session#session.mqueue_len - 1},
+            Session1 = Session#session{queue = Q2},
             case Timestamp =:= 0 orelse Timestamp > Now of
                 true ->
                     send_to_coap(Ctx, Req, WithContext, Timestamp, Session1);
@@ -1059,21 +1057,22 @@ maybe_do_deliver_to_coap(
             end
     end.
 
-enqueue_command({_, Ctx, _}, _Position, WithContext, #session{mqueue_len = Len} = Session) when
-    Len >= ?MAX_MQUEUE_LEN
-->
-    WithContext(metrics, 'delivery.dropped'),
-    EventType = maps:get(<<"msgType">>, Ctx),
-    Payload = emqx_lwm2m_cmd:cmd_error_to_mqtt(too_many_requests, Ctx),
-    Session1 = record_response(EventType, Payload, Session),
-    send_to_mqtt(Ctx, EventType, Payload, WithContext, Session1);
-enqueue_command(Item, Position, _WithContext, #session{queue = Queue, mqueue_len = Len} = Session) ->
-    Queue1 =
-        case Position of
-            rear -> queue:in(Item, Queue);
-            front -> queue:in_r(Item, Queue)
-        end,
-    Session#session{queue = Queue1, mqueue_len = Len + 1}.
+enqueue_command(Item = {_, Ctx, _}, Position, WithContext, #session{queue = Queue} = Session) ->
+    case queue:len(Queue) >= ?MAX_MQUEUE_LEN of
+        true ->
+            WithContext(metrics, 'delivery.dropped'),
+            EventType = maps:get(<<"msgType">>, Ctx),
+            Payload = emqx_lwm2m_cmd:cmd_error_to_mqtt(too_many_requests, Ctx),
+            Session1 = record_response(EventType, Payload, Session),
+            send_to_mqtt(Ctx, EventType, Payload, WithContext, Session1);
+        false ->
+            Queue1 =
+                case Position of
+                    rear -> queue:in(Item, Queue);
+                    front -> queue:in_r(Item, Queue)
+                end,
+            Session#session{queue = Queue1}
+    end.
 
 is_blockwise_downlink_busy(Ctx, Req, #session{blockwise = BW, blockwise_downlink = ActiveKey}) ->
     NeedBlockwise = emqx_coap_blockwise:block1_required(Req, BW),
