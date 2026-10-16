@@ -34,6 +34,7 @@
 %% RPC targets
 -export([
     all_local_channels_count/0,
+    evict_session_channel/3,
     do_evict_session_channel_v3/4
 ]).
 
@@ -451,6 +452,15 @@ evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo) ->
         Res ->
             Res
     end.
+
+%% RPC target for `emqx_eviction_agent_proto_v1' and `emqx_eviction_agent_proto_v2'
+-spec evict_session_channel(
+    emqx_types:clientid(),
+    emqx_types:conninfo(),
+    emqx_types:clientinfo()
+) -> supervisor:startchild_ret().
+evict_session_channel(ClientId, ConnInfo, ClientInfo) ->
+    do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, _WillMsg = undefined).
 
 %% RPC target for `emqx_eviction_agent_proto_v3'
 -spec do_evict_session_channel_v3(
