@@ -1044,16 +1044,23 @@ read_data_files(RawConf) ->
     {ok, Cwd} = file:get_cwd(),
     AbsDataDir = bin(filename:join(Cwd, DataDir)),
     RawConf1 = emqx_authz:maybe_read_files(RawConf),
-    emqx_utils_maps:deep_convert(RawConf1, fun read_data_file/4, [DataDir, AbsDataDir]).
+    emqx_utils_maps:deep_convert(
+        RawConf1, fun read_data_file/4, [dir_prefix(DataDir), dir_prefix(AbsDataDir)]
+    ).
+
+%% Return the directory with exactly one trailing separator, so a prefix match
+%% only matches paths inside the directory, not names such as `data_source'.
+dir_prefix(Dir) ->
+    <<(filename:join([Dir]))/binary, "/">>.
 
 -define(dir_pattern(_Dir_), <<_Dir_:(byte_size(_Dir_))/binary, _/binary>>).
 
-read_data_file(Key, Val, DataDir, AbsDataDir) ->
+read_data_file(Key, Val, DataDirPrefix, AbsDataDirPrefix) ->
     Val1 =
         case Val of
-            ?dir_pattern(DataDir) = FileName ->
+            ?dir_pattern(DataDirPrefix) = FileName ->
                 do_read_file(FileName);
-            ?dir_pattern(AbsDataDir) = FileName ->
+            ?dir_pattern(AbsDataDirPrefix) = FileName ->
                 do_read_file(FileName);
             V ->
                 V
