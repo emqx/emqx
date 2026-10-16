@@ -273,6 +273,7 @@ jobs:
     needs:
       - init
       - sanity-checks
+      - compile
     uses: ./.github/workflows/run_plugins_tests.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
