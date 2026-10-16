@@ -19,6 +19,8 @@ The module contains the registry of Message Queues.
     find_by_id/1,
     match/1,
     delete/1,
+    purge/1,
+    purge/2,
     update/2,
     list/0,
     list/2,
@@ -190,6 +192,26 @@ delete(Name) ->
             delete_by_id(Id);
         not_found ->
             not_found
+    end.
+
+-doc "Reset quota indices and delete older data, then set the delivery cutoff to the purge timestamp.".
+-spec purge(emqx_mq_types:mq_name()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name) ->
+    maybe
+        {ok, #{id := Id} = MQ} ?= find(Name),
+        {ok, BeforeMs} ?= emqx_mq_message_db:purge(MQ),
+        update_mq_state(Id, #{deliver_cutoff_date => BeforeMs})
+    end.
+
+-doc "Purge queue data and set the delivery cutoff to the requested epoch millisecond.".
+-spec purge(emqx_mq_types:mq_name(), emqx_utils_calendar:epoch_millisecond()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name, BeforeMs) when is_integer(BeforeMs), BeforeMs >= 0 ->
+    maybe
+        {ok, #{id := Id} = MQ} ?= find(Name),
+        ok ?= emqx_mq_message_db:purge(MQ, BeforeMs),
+        update_mq_state(Id, #{deliver_cutoff_date => BeforeMs})
     end.
 
 -doc """

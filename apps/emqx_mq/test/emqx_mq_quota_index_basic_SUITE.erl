@@ -529,6 +529,190 @@ t_limit_changes(_Config) ->
         ]
     ).
 
+%% Check that cutoff keeps the nearest common boundary strictly before the request and trims older bucket starts.
+t_cutoff(_Config) ->
+    Opts = #{bytes => 1000, count => 100, threshold_percentage => 10},
+    Common60 = #'StorageIndexBucket'{tsUs = 60, bytes = 60, count = 6},
+    Common40 = #'StorageIndexBucket'{tsUs = 40, bytes = 40, count = 4},
+    Common20 = #'StorageIndexBucket'{tsUs = 20, bytes = 20, count = 2},
+    Bytes65 = #'StorageIndexRecord'{tsUs = 65, value = 60},
+    Bytes35 = #'StorageIndexRecord'{tsUs = 35, value = 40},
+    Bytes10 = #'StorageIndexRecord'{tsUs = 10, value = 20},
+    Count70 = #'StorageIndexRecord'{tsUs = 70, value = 6},
+    Count40 = #'StorageIndexRecord'{tsUs = 40, value = 4},
+    Count10 = #'StorageIndexRecord'{tsUs = 10, value = 2},
+    Stored = #'StorageIndex'{
+        maxTsUs = 80,
+        common = [Common60, Common40, Common20],
+        bytes = [Bytes65, Bytes35, Bytes10],
+        count = [Count70, Count40, Count10]
+    },
+    lists:foreach(
+        fun(
+            #{before := Before, cutoff := Cutoff, common := Common, bytes := Bytes, count := Count}
+        ) ->
+            lists:foreach(
+                fun(LegacyUpdates) ->
+                    Index0 = asn_encode_index_decode(Opts, Stored),
+                    Index =
+                        case LegacyUpdates of
+                            true -> Index0;
+                            false -> emqx_mq_quota_index:drop_legacy(Index0)
+                        end,
+                    {ActualCutoff, Updated} = emqx_mq_quota_index:cutoff(Index, Before),
+                    ?assertEqual(Cutoff, ActualCutoff),
+                    Expected0 = Stored#'StorageIndex'{
+                        common = Common, bytes = Bytes, count = Count
+                    },
+                    Expected =
+                        case LegacyUpdates of
+                            true ->
+                                Expected0;
+                            false ->
+                                Expected0#'StorageIndex'{bytes = asn1_NOVALUE, count = asn1_NOVALUE}
+                        end,
+                    ?assertEqual(Expected, index_encode_asn_decode(Updated)),
+                    ?assertEqual({Cutoff, Updated}, emqx_mq_quota_index:cutoff(Updated, Before))
+                end,
+                [true, false]
+            )
+        end,
+        [
+            #{
+                before => 0,
+                cutoff => 0,
+                common => [Common60, Common40, Common20],
+                bytes => [Bytes65, Bytes35, Bytes10],
+                count => [Count70, Count40, Count10]
+            },
+            #{
+                before => 20,
+                cutoff => 0,
+                common => [Common60, Common40, Common20],
+                bytes => [Bytes65, Bytes35, Bytes10],
+                count => [Count70, Count40, Count10]
+            },
+            #{
+                before => 40,
+                cutoff => 20,
+                common => [Common60, Common40, Common20],
+                bytes => [Bytes65, Bytes35],
+                count => [Count70, Count40]
+            },
+            #{
+                before => 41,
+                cutoff => 40,
+                common => [Common60, Common40],
+                bytes => [Bytes65],
+                count => [Count70, Count40]
+            },
+            #{
+                before => 60,
+                cutoff => 40,
+                common => [Common60, Common40],
+                bytes => [Bytes65],
+                count => [Count70, Count40]
+            },
+            #{
+                before => 100,
+                cutoff => 60,
+                common => [Common60],
+                bytes => [Bytes65],
+                count => [Count70]
+            }
+        ]
+    ).
+
+%% Check that an empty common index prevents physical cutoff even when legacy buckets are present.
+t_cutoff_empty(_Config) ->
+    Opts = #{bytes => 1000, count => 100, threshold_percentage => 10},
+    Stored = #'StorageIndex'{
+        maxTsUs = 100,
+        common = [],
+        bytes = [#'StorageIndexRecord'{tsUs = 10, value = 100}],
+        count = [#'StorageIndexRecord'{tsUs = 10, value = 1}]
+    },
+    Index = asn_encode_index_decode(Opts, Stored),
+    ?assertEqual({0, Index}, emqx_mq_quota_index:cutoff(Index, 100)),
+    ?assertEqual(Stored, index_encode_asn_decode(Index)).
+
+%% Check that updates before a purge boundary cannot recreate removed counts.
+t_cutoff_late_updates(_Config) ->
+    Opts = #{bytes => 1000, count => 100, threshold_percentage => 10},
+    Stored = #'StorageIndex'{
+        maxTsUs = 60,
+        common = [
+            #'StorageIndexBucket'{tsUs = 40, bytes = 40, count = 4},
+            #'StorageIndexBucket'{tsUs = 20, bytes = 20, count = 2}
+        ],
+        bytes = [
+            #'StorageIndexRecord'{tsUs = 40, value = 40},
+            #'StorageIndexRecord'{tsUs = 20, value = 20}
+        ],
+        count = [
+            #'StorageIndexRecord'{tsUs = 40, value = 4}, #'StorageIndexRecord'{tsUs = 20, value = 2}
+        ]
+    },
+    Index0 = asn_encode_index_decode(Opts, Stored),
+    {40, Index1} = emqx_mq_quota_index:cutoff(Index0, 50),
+    ?assertEqual(Index1, emqx_mq_quota_index:apply_updates(Index1, [{30, 10, 1}, {20, -20, -2}])),
+    Index2 = emqx_mq_quota_index:apply_update(Index1, {40, -10, -1}),
+    ?assertMatch(
+        #{
+            common := #{total := #{bytes := 30, count := 3}},
+            bytes := #{total := 30},
+            count := #{total := 3}
+        },
+        emqx_mq_quota_index:inspect(Index2)
+    ).
+
+%% Check that reset clears counters, rejects older updates, and accepts updates at the new boundary.
+t_reset(_Config) ->
+    Opts = #{bytes => 1000, count => 100, threshold_percentage => 10},
+    Stored = #'StorageIndex'{
+        maxTsUs = 60,
+        common = [#'StorageIndexBucket'{tsUs = 40, bytes = 40, count = 4}],
+        bytes = [#'StorageIndexRecord'{tsUs = 40, value = 40}],
+        count = [#'StorageIndexRecord'{tsUs = 40, value = 4}]
+    },
+    %% Persist the reset boundary with zero counters in every existing index.
+    Index0 = asn_encode_index_decode(Opts, Stored),
+    Index1 = emqx_mq_quota_index:reset(Index0, 100),
+    Expected = #'StorageIndex'{
+        maxTsUs = 100,
+        common = [#'StorageIndexBucket'{tsUs = 100, bytes = 0, count = 0}],
+        bytes = [#'StorageIndexRecord'{tsUs = 100, value = 0}],
+        count = [#'StorageIndexRecord'{tsUs = 100, value = 0}]
+    },
+    ?assertEqual(Expected, index_encode_asn_decode(Index1)),
+    Index2 = asn_encode_index_decode(Opts, Expected),
+    %% Ignore both delayed insertions and deletions from before the reset.
+    ?assertEqual(Index2, emqx_mq_quota_index:apply_update(Index2, {99, 10, 1})),
+    ?assertEqual(Index2, emqx_mq_quota_index:apply_update(Index2, {40, -40, -4})),
+    %% Count an out-of-order insertion at the boundary after a newer insertion.
+    Index3 = emqx_mq_quota_index:apply_updates(Index2, [{110, 20, 2}, {100, 10, 1}]),
+    ?assertMatch(
+        #{
+            common := #{total := #{bytes := 30, count := 3}},
+            bytes := #{total := 30},
+            count := #{total := 3}
+        },
+        emqx_mq_quota_index:inspect(Index3)
+    ).
+
+%% Check that resetting a common-only index keeps legacy indices absent.
+t_reset_without_legacy(_Config) ->
+    Opts = #{bytes => 1000, count => 100, threshold_percentage => 10},
+    Index0 = emqx_mq_quota_index:drop_legacy(emqx_mq_quota_index:new(Opts, 0)),
+    Index = emqx_mq_quota_index:reset(Index0, 100),
+    ?assertEqual(
+        #'StorageIndex'{
+            maxTsUs = 100,
+            common = [#'StorageIndexBucket'{tsUs = 100, bytes = 0, count = 0}]
+        },
+        index_encode_asn_decode(Index)
+    ).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
