@@ -948,6 +948,195 @@ t_auto_cast_integer_to_float(Config) ->
     ),
     ok.
 
+%% A numeric placeholder written to a tag must arrive as its string form, including floats and
+%% templates that mix literals with numbers; text in a tag that spells a boolean literal stays
+%% a string, a boolean from the payload keeps its type, and a field placeholder keeps the
+%% InfluxDB typing.
+t_tag_values_as_string(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    BatchSize = ?config(batch_size, Config),
+    {ok, _} = create_bridge(Config, tag_value_overrides(BatchSize)),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Cases = tag_value_cases(),
+    Samples = lists:zip([emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- Cases], Cases),
+    SendSample = fun(Sample) -> send_tag_value_sample(Config, Topic, Sample) end,
+    AssertSample = fun(Sample) -> assert_tag_value_sample(Config, Sample) end,
+    case BatchSize of
+        1 ->
+            assert_send_results(QueryMode, [SendSample(Sample) || Sample <- Samples]),
+            lists:foreach(AssertSample, Samples);
+        _ ->
+            %% Read back inside the trace block: in async query mode a batch is only
+            %% dispatched once the buffer worker flushes it.
+            ?check_trace(
+                begin
+                    Results = emqx_utils:pmap(SendSample, Samples, infinity),
+                    assert_send_results(QueryMode, Results),
+                    lists:foreach(AssertSample, Samples),
+                    ok
+                end,
+                fun(Trace) ->
+                    BatchEvents =
+                        ?of_kind(call_batch_query, Trace) ++
+                            ?of_kind(call_batch_query_async, Trace),
+                    ?assertMatch(
+                        [
+                            #{batch := [_, _, _]},
+                            #{batch := [_, _, _]},
+                            #{batch := [_, _, _]}
+                        ],
+                        BatchEvents
+                    )
+                end
+            )
+    end,
+    ok.
+
+assert_send_results(sync, Results) ->
+    lists:foreach(fun(Result) -> ?assertMatch({ok, _}, Result) end, Results);
+assert_send_results(async, Results) ->
+    ?assert(lists:all(fun(Result) -> Result =:= ok end, Results)).
+
+tag_value_cases() ->
+    [
+        {0, <<"0">>},
+        {11, <<"11">>},
+        {65, <<"65">>},
+        {-7, <<"-7">>},
+        {1790667500572, <<"1790667500572">>},
+        %% 2^53 + 1 is not exactly representable as a float64
+        {9007199254740993, <<"9007199254740993">>},
+        {1 bsl 1024, integer_to_binary(1 bsl 1024)},
+        {<<"abc">>, <<"abc">>},
+        {<<"65">>, <<"65">>}
+    ].
+
+tag_value_overrides(BatchSize) ->
+    Overrides = #{
+        <<"write_syntax">> =>
+            <<
+                "mqtt,clientid=${clientid},int_tag=${payload.int_tag},"
+                "id_tag=id_${payload.pair_a},pair_tag=${payload.pair_a}${payload.pair_b},"
+                "float_tag=pre_${payload.float_tag},big_float_tag=${payload.big_float},"
+                "tiny_float_tag=${payload.tiny_float},"
+                "i_tag=${payload.i_tag}i,u_tag=${payload.u_tag}u,"
+                "lit_bool_tag=T,lit_false_tag=F,pre_bool_tag=pre_${payload.bool_tag},"
+                "bool_tag=${payload.bool_tag} value=${payload.value}"
+            >>
+    },
+    case BatchSize of
+        1 ->
+            Overrides;
+        _ ->
+            %% Batching is exercised by sending every sample in one burst below.
+            Overrides#{
+                <<"resource_opts">> => #{
+                    <<"batch_size">> => 3,
+                    <<"batch_time">> => <<"5s">>,
+                    <<"worker_pool_size">> => 1
+                }
+            }
+    end.
+
+send_tag_value_sample(Config, Topic, {ClientId, {TagValue, _Expected}}) ->
+    Data = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => Topic,
+        <<"payload">> => #{
+            <<"int_tag">> => TagValue,
+            <<"pair_a">> => 65,
+            <<"pair_b">> => 66,
+            <<"float_tag">> => 1.5,
+            <<"big_float">> => 1.0e300,
+            <<"tiny_float">> => 1.0e-11,
+            <<"i_tag">> => 123,
+            <<"u_tag">> => 456,
+            <<"bool_tag">> => true,
+            <<"value">> => 1
+        },
+        <<"timestamp">> => erlang:system_time(millisecond)
+    },
+    send_message(Config, Data).
+
+assert_tag_value_sample(Config, {ClientId, {_TagValue, ExpectedTag}}) ->
+    ?retry(
+        500,
+        20,
+        begin
+            Row = query_by_clientid(ClientId, Config),
+            ?assertMatch(#{<<"int_tag">> := ExpectedTag}, Row),
+            %% Templates that mix literals with numbers, and bare floats of any magnitude
+            ?assertMatch(#{<<"id_tag">> := <<"id_65">>}, Row),
+            ?assertMatch(#{<<"pair_tag">> := <<"6566">>}, Row),
+            ?assertMatch(#{<<"float_tag">> := <<"pre_1.5">>}, Row),
+            ?assertMatch(#{<<"big_float_tag">> := <<"1.0e300">>}, Row),
+            ?assertMatch(#{<<"tiny_float_tag">> := <<"1.0e-11">>}, Row),
+            ?assertMatch(#{<<"i_tag">> := 123}, Row),
+            ?assertMatch(#{<<"u_tag">> := 456}, Row),
+            %% text that spells a boolean literal stays a string, a payload boolean keeps its type
+            ?assertMatch(#{<<"lit_bool_tag">> := <<"T">>}, Row),
+            ?assertMatch(#{<<"lit_false_tag">> := <<"F">>}, Row),
+            ?assertMatch(#{<<"pre_bool_tag">> := <<"pre_true">>}, Row),
+            ?assertMatch(#{<<"bool_tag">> := true}, Row),
+            ?assertEqual(1.0, maps:get(<<"value">>, Row, undefined))
+        end
+    ).
+
+t_quoted_field_values(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} = create_bridge(Config, quoted_field_overrides()),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Data = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+        <<"payload">> => #{
+            <<"text">> => <<"abc">>,
+            <<"n">> => 65,
+            <<"f">> => 1.0e300,
+            <<"tiny">> => 1.0e-11,
+            <<"ok">> => true,
+            <<"value">> => 1
+        },
+        <<"timestamp">> => erlang:system_time(millisecond)
+    },
+    assert_send_results(QueryMode, [send_message(Config, Data)]),
+    ?retry(
+        500,
+        20,
+        begin
+            Row = query_by_clientid(ClientId, Config),
+            ?assertMatch(#{<<"literal_field">> := <<"abc">>}, Row),
+            ?assertMatch(#{<<"text_field">> := <<"pre_abc">>}, Row),
+            ?assertMatch(#{<<"number_field">> := <<"n_65">>}, Row),
+            ?assertMatch(#{<<"float_field">> := <<"f_1.0e300">>}, Row),
+            ?assertMatch(#{<<"tiny_field">> := <<"t_1.0e-11">>}, Row),
+            ?assertMatch(#{<<"bool_field">> := <<"true">>}, Row),
+            %% text that spells a boolean literal stays a string
+            ?assertMatch(#{<<"literal_bool_field">> := <<"T">>}, Row),
+            %% the field whose placeholder stays unset is not written
+            ?assertNot(maps:is_key(<<"unset_field">>, Row)),
+            ?assertEqual(1.0, maps:get(<<"value">>, Row, undefined))
+        end
+    ),
+    ok.
+
+quoted_field_overrides() ->
+    #{
+        <<"write_syntax">> =>
+            <<
+                "mqtt,clientid=${clientid} "
+                "literal_field=\"abc\","
+                "text_field=\"pre_${payload.text}\","
+                "number_field=\"n_${payload.n}\","
+                "float_field=\"f_${payload.f}\","
+                "tiny_field=\"t_${payload.tiny}\","
+                "bool_field=\"${payload.ok}\","
+                "literal_bool_field=\"T\","
+                "unset_field=\"x${payload.unset}\","
+                "value=${payload.value}"
+            >>
+    }.
+
 t_partially_invalid_batch(Config) ->
     case ?config(batch_size, Config) of
         1 ->
