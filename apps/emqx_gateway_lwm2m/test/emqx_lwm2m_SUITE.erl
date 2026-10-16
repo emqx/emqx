@@ -51,6 +51,7 @@ profile_groups() ->
         {group, test_grp_6_observe},
         %% {group, test_grp_8_object_19}
         {group, test_grp_9_psm_queue_mode},
+        {group, test_grp_pending_queue},
         {group, test_grp_10_rest_api},
         {group, test_grp_11_internal}
     ].
@@ -150,6 +151,10 @@ groups() ->
             case90_psm_mode,
             case90_queue_mode,
             case152_blockwise_expiry_preserves_queue_mode
+        ]},
+        {test_grp_pending_queue, [RepeatOpt], [
+            case160_pending_queue_count_limit,
+            case163_pending_queue_blockwise_limit
         ]},
         {test_grp_10_rest_api, [RepeatOpt], [
             case100_clients_api,
@@ -288,6 +293,8 @@ init_per_testcase(TestCase, Config) ->
     Config1 = [{sock, ClientUdpSock}, {emqx_c, C} | Config],
     case
         lists:member(TestCase, [
+            case160_pending_queue_count_limit,
+            case163_pending_queue_blockwise_limit,
             case152_blockwise_expiry_preserves_queue_mode,
             case153_blockwise_reset_resumes_pending,
             case154_blockwise_retransmission_failure_resumes_pending,
@@ -310,6 +317,7 @@ end_per_testcase(_TestCase, Config) ->
         undefined -> ok;
         LwM2MConfig -> ok = emqx_config:put([gateway, lwm2m], LwM2MConfig)
     end,
+    emqx_common_test_helpers:call_janitor(),
     snabbkaffe:stop(),
     ok.
 
@@ -5657,7 +5665,12 @@ case128_session_internal_branches(_Config) ->
     Cmd1 = #{<<"msgType">> => <<"read">>, <<"data">> => #{<<"path">> => <<"/3/0/0">>}},
     SendResult = emqx_lwm2m_session:send_cmd(Cmd1, undefined, Session1),
     Session2 = session_from_result(SendResult),
-    Session2Cache = setelement(11, Session2, 0),
+    Session2Cache = setelement(
+        11,
+        Session2,
+        erlang:monotonic_time(millisecond) -
+            timer:seconds(emqx:get_config([gateway, lwm2m, qmode_time_window]))
+    ),
     UpdateMsg = #coap_message{options = #{uri_query => #{}}, payload = <<>>},
     _ = emqx_lwm2m_session:update(UpdateMsg, WithContext, Session2),
     _ = emqx_lwm2m_session:update(UpdateMsg, WithContext, SessionNoLt),
@@ -6450,6 +6463,173 @@ case152_blockwise_expiry_preserves_queue_mode(Config) ->
     ),
     Completed = emqx_utils_json:decode(test_recv_mqtt_response(RespTopic)),
     ?assertEqual(1602, maps:get(<<"requestID">>, Completed)).
+
+case160_pending_queue_count_limit(Config) ->
+    Location = register_pending_queue_device(Config, true),
+    lists:foreach(
+        fun(Id) -> publish_pending_command(Config, pending_read(Id)) end, lists:seq(1, 1000)
+    ),
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_read(1001)),
+    assert_pending_response(1001, <<"4.29">>),
+    Session = assert_pending_queue(1000),
+    ?assertEqual(1, queue:len(maps:get(queue, element(13, Session)))),
+    ?assertEqual({error, timeout}, gen_udp:recv(?config(sock, Config), 0, 100)),
+    wake_pending_queue_device(Config, Location, 1901),
+    _ = assert_pending_queue(999),
+    %% One command is in flight; the pending queue can accept one replacement.
+    publish_pending_command(Config, pending_read(1002)),
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_read(1003)),
+    assert_pending_response(1003, <<"4.29">>),
+    lists:foreach(fun(Id) -> complete_pending_read(Config, Id) end, lists:seq(1, 1000) ++ [1002]),
+    _ = assert_pending_queue(0).
+
+case163_pending_queue_blockwise_limit(Config) ->
+    ok = emqx_config:force_put([gateway, lwm2m, blockwise], #{
+        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 60000
+    }),
+    Location = register_pending_queue_device(Config, false),
+    Sock = ?config(sock, Config),
+    URI = sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
+    %% An unfinished uplink consumes block-wise capacity while downlinks wait.
+    test_send_coap_request(
+        Sock,
+        post,
+        URI,
+        #coap_content{payload = binary:copy(<<"U">>, 16)},
+        [{block1, {0, true, 16}}],
+        1910
+    ),
+    ?assertEqual({ok, continue}, (test_recv_coap_response(Sock))#coap_message.method),
+    lists:foreach(
+        fun(Id) -> publish_pending_command(Config, pending_execute(Id)) end, lists:seq(1, 1000)
+    ),
+    _ = assert_pending_queue(1000),
+    wake_pending_queue_device(Config, Location, 1901),
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_execute(1001)),
+    assert_pending_response(1001, <<"4.29">>),
+    %% Abort the uplink and verify accepted downlinks drain in FIFO order.
+    test_send_coap_request(
+        Sock, post, URI, #coap_content{payload = <<"X">>}, [{block1, {2, false, 16}}], 1911
+    ),
+    ?assertEqual(
+        {error, request_entity_incomplete}, (test_recv_coap_response(Sock))#coap_message.method
+    ),
+    lists:foreach(
+        fun(Id) ->
+            Req = test_recv_coap_request(Sock),
+            complete_pending_blockwise(Config, Id, Req)
+        end,
+        lists:seq(1, 1000)
+    ),
+    _ = assert_pending_queue(0).
+
+register_pending_queue_device(Config, Sleeping) ->
+    ok = emqx_config:force_put([gateway, lwm2m, qmode_time_window], 1),
+    {ok, _, _} = emqtt:subscribe(?config(emqx_c, Config), pending_response_topic(), qos0),
+    URI =
+        case Sleeping of
+            true -> "coap://127.0.0.1:5783/rd?ep=pending-queue&lt=345&lwm2m=1&b=UQ";
+            false -> "coap://127.0.0.1:5783/rd?ep=pending-queue&lt=345&lwm2m=1"
+        end,
+    Sock = ?config(sock, Config),
+    test_send_coap_request(
+        Sock, post, URI, #coap_content{payload = <<"</3/0>">>}, [], 1900
+    ),
+    Registered = test_recv_coap_response(Sock),
+    ?assertEqual({ok, created}, Registered#coap_message.method),
+    _ = test_recv_mqtt_response(pending_response_topic()),
+    case Sleeping of
+        true -> timer:sleep(1600);
+        false -> ok
+    end,
+    maps:get(location_path, Registered#coap_message.options).
+
+wake_pending_queue_device(Config, Location, MsgId) ->
+    URI = sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
+    Sock = ?config(sock, Config),
+    test_send_coap_request(Sock, post, URI, #coap_content{}, [], MsgId),
+    ?assertEqual({ok, changed}, (test_recv_coap_response(Sock))#coap_message.method),
+    Updated = emqx_utils_json:decode(test_recv_mqtt_response(pending_response_topic())),
+    ?assertEqual(<<"update">>, maps:get(<<"msgType">>, Updated)).
+
+pending_read(Id) ->
+    #{
+        <<"requestID">> => Id,
+        <<"msgType">> => <<"read">>,
+        <<"data">> => #{<<"path">> => <<"/3/0/0">>}
+    }.
+
+pending_execute(Id) ->
+    #{
+        <<"requestID">> => Id,
+        <<"msgType">> => <<"execute">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/4">>, <<"args">> => binary:copy(<<(65 + Id rem 26)>>, 32)
+        }
+    }.
+
+publish_pending_command(Config, Cmd) ->
+    {ok, _} = emqtt:publish(
+        ?config(emqx_c, Config),
+        <<"lwm2m/pending-queue/dn/dm">>,
+        emqx_utils_json:encode(Cmd),
+        1
+    ),
+    ok.
+
+pending_response_topic() ->
+    <<"lwm2m/pending-queue/up/resp">>.
+
+assert_pending_response(Id, Code) ->
+    Response = emqx_utils_json:decode(test_recv_mqtt_response(pending_response_topic())),
+    ?assertEqual(Id, maps:get(<<"requestID">>, Response)),
+    ?assertEqual(Code, maps:get(<<"code">>, maps:get(<<"data">>, Response))).
+
+assert_pending_queue(Count) ->
+    ?retry(50, 20, begin
+        [Pid] = emqx_gateway_cm:lookup_channels(lwm2m, <<"pending-queue">>),
+        Channel = element(11, sys:get_state(Pid)),
+        Session = element(5, Channel),
+        Items = queue:to_list(element(3, Session)),
+        ?assertEqual(Count, length(Items)),
+        ?assertEqual(Count, emqx_lwm2m_session:stats(mqueue_len, Session)),
+        ?assertEqual(1000, emqx_lwm2m_session:stats(mqueue_max, Session)),
+        Session
+    end).
+
+complete_pending_read(Config, Id) ->
+    Req = test_recv_coap_request(?config(sock, Config)),
+    ?assertEqual(get, Req#coap_message.method),
+    reply_pending_read(Config, Id, Req).
+
+reply_pending_read(Config, Id, Req) ->
+    test_send_coap_response(
+        ?config(sock, Config),
+        "127.0.0.1",
+        ?PORT,
+        {ok, content},
+        #coap_content{content_format = <<"text/plain">>, payload = <<"EMQ">>},
+        Req,
+        true
+    ),
+    assert_pending_response(Id, <<"2.05">>).
+
+complete_pending_blockwise(Config, Id, First) ->
+    ?assertEqual(binary:copy(<<(65 + Id rem 26)>>, 16), First#coap_message.payload),
+    ?assertEqual({0, true, 16}, maps:get(block1, First#coap_message.options)),
+    Sock = ?config(sock, Config),
+    Continue = emqx_coap_message:piggyback({ok, continue}, First),
+    ok = gen_udp:send(
+        Sock, {127, 0, 0, 1}, ?PORT, emqx_coap_frame:serialize_pkt(Continue, undefined)
+    ),
+    Last = test_recv_coap_request(Sock),
+    ?assertEqual(binary:copy(<<(65 + Id rem 26)>>, 16), Last#coap_message.payload),
+    ?assertEqual({1, false, 16}, maps:get(block1, Last#coap_message.options)),
+    test_send_coap_response(Sock, "127.0.0.1", ?PORT, {ok, changed}, #coap_content{}, Last, true),
+    assert_pending_response(Id, <<"2.04">>).
 
 case139_block2_publish_once(_Config) ->
     WithContext = capture_with_context(self()),
