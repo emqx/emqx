@@ -60,7 +60,10 @@
     emqx_license_proto_v1,
     emqx_mgmt_trace_proto_v1,
     emqx_mgmt_api_relup_proto_v1,
-    %% Superseded before 5.8.0; no supported peer selects these versions:
+    %% Superseded before 5.8.0. Version negotiation never selects these
+    %% versions, but released call sites can still name the deleted proto
+    %% modules directly, so their RPC targets must stay exported.
+    %% `check_targets_exported/1' checks that they do:
     emqx_cm_proto_v1,
     emqx_cm_proto_v2,
     emqx_conf_proto_v1,
@@ -106,7 +109,10 @@
     {emqx_license, 1},
     {emqx_mgmt_trace, 1},
     {emqx_mgmt_api_relup, 1},
-    %% Superseded before 5.8.0; no supported peer selects these versions:
+    %% Superseded before 5.8.0. Version negotiation never selects these
+    %% versions, but released call sites can still name the deleted proto
+    %% modules directly, so their RPC targets must stay exported.
+    %% `check_targets_exported/1' checks that they do:
     {emqx_cm, 1},
     {emqx_cm, 2},
     {emqx_conf, 1},
@@ -155,6 +161,36 @@
     %% before rolling upgrade.
     " emqx_conf_app:upgrade_remote_raw_config/2"
 ).
+
+%% APIs of a dump whose RPC targets may be missing from this tree. A released
+%% node calls the targets of a dump by name, so every entry states why no
+%% released node can reach the missing targets.
+-define(REMOVED_TARGET_APIS, [
+    %% 6.0 removed bridges V1 (#15864). 5.x nodes call these targets only from
+    %% the REST handlers `emqx_bridge_api' and `emqx_bridge_v2_api'.
+    {emqx_bridge, 1},
+    {emqx_bridge, 2},
+    {emqx_bridge, 3},
+    {emqx_bridge, 4},
+    {emqx_bridge, 5},
+    {emqx_bridge, 6},
+    {emqx_bridge, 7},
+    %% A cluster that ran durable sessions on 5.x must be recreated to upgrade
+    %% to 6.0 (6.0.0 release notes). It cannot roll, so no 5.x node calls a
+    %% 6.x node through these APIs.
+    {emqx_ds, 4},
+    {emqx_ds, 5},
+    {emqx_ds_otx, 1},
+    {emqx_ds_beamsplitter, 2},
+    {emqx_persistent_session_ds, 1},
+    %% The relup REST API was removed (#17244). Only that REST handler calls
+    %% these targets.
+    {emqx_mgmt_api_relup, 1},
+    %% No released code calls `start/1' or `stop/1' of these proto modules, so
+    %% no node reaches `emqx_prometheus:do_start/0' or `do_stop/0'.
+    {emqx_prometheus, 1},
+    {emqx_prometheus, 2}
+]).
 
 %% Only the APIs for the features that haven't reached General
 %% Availability can be added here:
@@ -212,6 +248,7 @@ check_compat(DumpFilenames) ->
         DumpFilenames
     ),
     check_no_stale_exemptions(Dumps),
+    check_targets_exported(Dumps),
     [check_compat(I, J) || I <- Dumps, J <- Dumps],
     erase(bpapi_ok).
 
@@ -252,7 +289,52 @@ check_no_stale_exemptions(Dumps) ->
     report_stale("FORCE_DELETED_APIS", ?FORCE_DELETED_APIS -- Keys),
     report_stale("DIVERGED_APIS", ?DIVERGED_APIS -- Keys),
     report_stale("FORCE_DELETED_MODULES", ?FORCE_DELETED_MODULES -- Modules),
+    report_stale("REMOVED_TARGET_APIS", ?REMOVED_TARGET_APIS -- Keys),
     ok.
+
+%% A proto module may be deleted, because it only wraps the local side of a
+%% call. Its RPC targets may not: a released node calls them by name, and some
+%% call sites name the proto module without negotiating a version. So every
+%% target of a released dump must be exported by this tree, unless its API is
+%% in `?REMOVED_TARGET_APIS'. (sets nok flag)
+-spec check_targets_exported([fulldump()]) -> ok.
+check_targets_exported(Dumps) ->
+    Missing = maps:groups_from_list(
+        fun({Key, To, _Release}) -> {Key, To} end,
+        fun({_Key, _To, Release}) -> Release end,
+        [
+            {Key, call_to_mfa(To), Release}
+         || #{release := Release, api := API} <- Dumps,
+            Release =/= [master],
+            {Key, #{calls := Calls, casts := Casts}} <- maps:to_list(API),
+            not lists:member(Key, ?REMOVED_TARGET_APIS),
+            {_From, To} <- Calls ++ Casts,
+            not is_exported(call_to_mfa(To))
+        ]
+    ),
+    maps:foreach(
+        fun({{API, Vsn}, {M, F, A}}, Releases) ->
+            setnok(),
+            logger:error(
+                "API ~p v~p of release(s) ~s calls ~p:~p/~p, which is not exported.~n"
+                "A node of that release gets `undef` during a rolling upgrade. "
+                "Restore the export, or add the API to REMOVED_TARGET_APIS "
+                "with the reason no released node can reach it.",
+                [API, Vsn, format_releases(Releases), M, F, A]
+            )
+        end,
+        Missing
+    ).
+
+is_exported({M, F, A}) ->
+    _ = code:ensure_loaded(M),
+    erlang:function_exported(M, F, A).
+
+format_releases(Releases) ->
+    lists:join(", ", [
+        lists:join(".", [integer_to_list(I) || I <- R])
+     || R <- lists:usort(Releases)
+    ]).
 
 report_stale(_List, []) ->
     ok;
