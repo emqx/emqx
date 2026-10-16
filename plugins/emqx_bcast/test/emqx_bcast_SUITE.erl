@@ -2011,6 +2011,40 @@ t_batch_pub_messageid_reuse(_Config) ->
     ?assert(maps:get(<<"Success">>, Resp)),
     ?assertEqual(ApiMsgId, maps:get(<<"MessageId">>, Resp)).
 
+-doc "The MessageId BatchPub answers with for inline content must be the id the\n"
+"message really gets. Both creation paths derive the API id from the content\n"
+"hash, so a RegisterMessage that commits the same content first can no longer\n"
+"leave the caller holding an id that resolves to nothing (404 on GET, 400\n"
+"MessageNotFound when it is reused).".
+t_inline_batch_pub_id_is_the_id_of_the_stored_message(_Config) ->
+    Payload = <<"inline content keeps one identity">>,
+    {ExpectedId, _} = emqx_bcast_id:generate_message_id_from_hash(
+        emqx_bcast_utils:sha256(Payload)
+    ),
+    %% RegisterMessage landing first is the ordering that used to store the
+    %% message under a second, random API id.
+    {ok, 200, _, Registered} = emqx_bcast_api:handle(post, [<<"pub">>], #{
+        body => #{
+            <<"Action">> => <<"RegisterMessage">>,
+            <<"MessageContent">> => base64:encode(Payload)
+        }
+    }),
+    ?assertEqual(ExpectedId, maps:get(<<"MessageId">>, Registered)),
+    {ok, 200, _, Published} = emqx_bcast_api:handle(post, [<<"pub">>], #{
+        body => #{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => <<"PIDIDENT">>,
+            <<"DeviceName">> => [<<"DPIDIDENT">>],
+            <<"MessageContent">> => base64:encode(Payload),
+            <<"Qos">> => 1
+        }
+    }),
+    Id = maps:get(<<"MessageId">>, Published),
+    ?assertEqual(ExpectedId, Id),
+    %% The id the caller holds addresses the stored message, so GET and reuse
+    %% both work after promotion commits.
+    ?assertMatch({ok, _}, emqx_bcast_id:resolve_message_id(Id)).
+
 -doc "BatchPub with an unknown MessageId returns 400 MessageNotFound.".
 t_batch_pub_messageid_not_found(_Config) ->
     Body = #{
@@ -5673,6 +5707,81 @@ t_promote_rejects_entry_from_before_delete(_Config) ->
     ?assertEqual([], mnesia:dirty_read(bcast_message_api_id, ApiMsgId)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "A promoter retry must not resurrect a delivery whose rows the TTL reaper\n"
+"already reclaimed. `promote_entry_delivery_tx/3` reads a missing meta row as\n"
+"'never promoted', but every path that reclaims a delivery removes that row\n"
+"too, so a batch that committed once and is then retried (or handed back to the\n"
+"intake queue and re-taken after a defer) re-creates the delivery - and the\n"
+"message becomes deliverable again after it already expired. Only the\n"
+"management delete bumps the content hash's delete epoch, so the epoch guard\n"
+"does not cover the reaper.".
+t_promoter_retry_does_not_resurrect_reaped_delivery(_Config) ->
+    PK = <<"PRETRYREAP">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    Now = emqx_bcast_utils:now_sec(),
+    Payload = <<"promoted once, then reaped">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    Entry = #{
+        payload => Payload,
+        hash => Hash,
+        api_msg_id => ApiMsgId,
+        msg_id => MsgGuid,
+        epoch => emqx_bcast:msg_epoch(Hash),
+        delivery_id => DeliveryId,
+        product_key => PK,
+        topic_template => <<"tpl/reaped-retry">>,
+        devices => [DN],
+        created_at => Now,
+        expires_at => Now + 3600
+    },
+    Gate = atomics:new(1, []),
+    atomics:put(Gate, 1, 1),
+    meck:new(emqx_bcast_index_owner, [passthrough, no_link]),
+    meck:expect(emqx_bcast_index_owner, append_batch, fun(Args) ->
+        case atomics:get(Gate, 1) of
+            0 -> meck:passthrough([Args]);
+            _ -> {error, injected_append_failure}
+        end
+    end),
+    try
+        {ok, _Seq} = emqx_bcast_intake:enqueue(Entry),
+        %% The append is what keeps failing, so the promotion commits and the
+        %% promoter holds on to this very entry to retry the same batch.
+        ?assert(
+            wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =/= [] end, 400)
+        ),
+        %% The delivery passes its expiry and the reaper reclaims its rows. No
+        %% Delete Message is involved, so no delete epoch is bumped.
+        [Row] = mnesia:dirty_read(bcast_msg, DeliveryId),
+        ok = mnesia:dirty_write(Row#bcast_msg{expires_at = 0}),
+        ok = emqx_bcast_storage:cleanup_expired(),
+        ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+        ?assertEqual([], mnesia:dirty_read(bcast_msg_meta, DeliveryId)),
+        %% Let the retry - or the deferred batch once the intake hands it back -
+        %% run to completion.
+        atomics:put(Gate, 1, 0),
+        ?assert(
+            wait_until(
+                fun() ->
+                    emqx_bcast_intake:admission_depth() =:= 0 andalso
+                        emqx_bcast_intake:deferred_depth() =:= 0
+                end,
+                600
+            )
+        ),
+        timer:sleep(300),
+        %% The reaped delivery stays reaped: no rows come back and nothing is
+        %% indexed, so the expired message cannot be delivered again.
+        ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+        ?assertEqual([], mnesia:dirty_read(bcast_msg_meta, DeliveryId)),
+        ?assertEqual([], indexed_deliveries(PK, DN))
+    after
+        meck:unload(emqx_bcast_index_owner)
+    end,
+    ok.
 
 -doc "A hash group that mixes an entry admitted before a Delete Message with a\n"
 "legitimate new request for the same content must decide per entry: drop the\n"

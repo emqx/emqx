@@ -560,3 +560,39 @@ t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
     ),
     ?assert(erpc:call(N2, ets, info, [bcast_device_registry, size]) > 0),
     emqtt:stop(C).
+
+-doc "The trigger fallback resolves a channel by client id alone, so it has to\n"
+"check that channel's own product before arming it: a BatchPub for a different\n"
+"ProductKey used to register a client of another product under the request's\n"
+"product and deliver to it, bypassing the product filter the connection hooks\n"
+"apply.".
+t_trigger_does_not_arm_a_client_of_another_product(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
+    DN = <<"cl_other_pk_dn">>,
+    OtherPK = <<"cl_other_pk">>,
+    C = connect(N2, DN),
+    %% Subscribed to everything, so nothing but the product membership could
+    %% stop the delivery - which is the check the fallback used to skip.
+    {ok, _, _} = sub(C, <<"#">>),
+    ?assert(wait_until(fun() -> node_client_subscribed(N2, DN, <<"#">>) end, 50)),
+    %% The client belongs to its own (default) product, so the request's product
+    %% is missing from the registry and the fallback path is the one that runs.
+    ?assertEqual({error, not_found}, erpc:call(N2, emqx_bcast, lookup_device, [{OtherPK, DN}])),
+    ArmedBefore = node_metric(N2, <<"batch_pub_qos1_armed_on_trigger">>),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => OtherPK,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    %% Let the request be promoted and the trigger fan out before judging.
+    ?assert(
+        wait_until(fun() -> cluster_metric([N1, N2], <<"batch_pub_qos1_wanted">>) > 0 end, 50)
+    ),
+    timer:sleep(500),
+    ?assertEqual([], recv(1)),
+    ?assertEqual(ArmedBefore, node_metric(N2, <<"batch_pub_qos1_armed_on_trigger">>)),
+    ?assertEqual({error, not_found}, erpc:call(N2, emqx_bcast, lookup_device, [{OtherPK, DN}])),
+    emqtt:stop(C).
