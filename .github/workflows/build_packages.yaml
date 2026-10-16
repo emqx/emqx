@@ -112,7 +112,7 @@ jobs:
           -w /emqx \
           "$BUILDER" \
           bash -lc "git config --global --add safe.directory /emqx && make plugins"
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: "plugins"
         path: |
@@ -147,7 +147,7 @@ jobs:
         apple_developer_id_bundle: ${{ (matrix.os == 'macos-14') && secrets.APPLE_DEVELOPER_ID_BUNDLE || secrets.APPLE_DEVELOPER_ID_BUNDLE_NEW }}
         apple_developer_id_bundle_password: ${{ (matrix.os == 'macos-14') && secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD || secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW }}
 
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       if: success()
       with:
         name: package-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
@@ -172,7 +172,7 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.inputs.ref }}
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: package-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
     - name: Test macOS package
@@ -255,7 +255,7 @@ jobs:
           --builder $BUILDER \
           --elixir $IS_ELIXIR \
           --pkgtype pkg
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: package-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.with_elixir == 'yes' && '-elixir' || '' }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
         path: _packages/${{ matrix.profile }}/
@@ -338,7 +338,7 @@ jobs:
 
     - name: Upload Snap as an artifact
       if: success()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: "package-${{ matrix.profile }}-${{ matrix.arch }}-snap"
         path: "${{ steps.snapcraft.outputs.snap }}"
@@ -358,14 +358,14 @@ jobs:
         profile:
           - ${{ inputs.profile }}
     steps:
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         # Only package artifacts. A broader `<profile>-*` pattern also matched the docker
         # workflow artifacts and published them to S3.
         pattern: "package-${{ matrix.profile }}-*"
         path: packages/${{ matrix.profile }}
         merge-multiple: true
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: plugins
         path: packages/plugins
