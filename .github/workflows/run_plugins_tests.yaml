@@ -21,27 +21,44 @@ permissions:
 jobs:
   plugins_ct:
     runs-on: ubuntu-22.04
+    name: plugins-ct-${{ matrix.suitegroup }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suitegroup: ['1_4', '2_4', '3_4', '4_4']
     container: ${{ inputs.builder }}
+    env:
+      SUITEGROUP: ${{ matrix.suitegroup }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: make ensure-rebar3
-      # Plugin CT suites that exercise end-to-end install/start/packaging paths
-      # depend on a full emqx-enterprise build.
-      - name: compile emqx-enterprise for plugin packaging dependencies
-        run: make compile-emqx-enterprise
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: emqx-enterprise
+      - name: extract compiled applications
+        run: |
+          unzip -o -q emqx-enterprise.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: run in-tree plugin CT
         run: make plugins-ct
       - name: build in-tree plugin packages
-        run: make plugins
+        if: matrix.suitegroup == '1_4'
+        run: ./scripts/build-plugins.sh
       - name: list plugin packages
+        if: matrix.suitegroup == '1_4'
         run: ls -la _build/plugins/ || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.suitegroup == '1_4'
         with:
           name: plugin-packages
           path: _build/plugins/*.tar.gz
           if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: plugin-logs-${{ matrix.suitegroup }}
+          path: _build/test/logs
           retention-days: 7
