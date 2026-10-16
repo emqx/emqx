@@ -1068,9 +1068,9 @@ maybe_retry(Result, _Context = #{attempt := N, max_attempts := Max}, ReplyFunAnd
 ->
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 maybe_retry(
-    {error, {unrecoverable_error, #{status_code := _}}} = Result, _Context, ReplyFunAndArgs
+    {error, {_ErrorType, #{status_code := _}}} = Result, _Context, ReplyFunAndArgs
 ) ->
-    %% request was successful, but we got an error response; no need to retry
+    %% Let the buffer decide whether to retry HTTP error responses.
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
     #{
