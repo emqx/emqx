@@ -32,6 +32,8 @@ Initialize missing common buckets from legacy buckets at or after the legacy dea
     apply_update/2,
     apply_updates/2,
     drop_legacy/1,
+    cutoff/2,
+    reset/2,
     inspect/1,
     deadline/1,
     supports_common_index/0
@@ -113,6 +115,38 @@ drop_legacy(#index{index = StorageIndex} = Index) ->
     Index#index{index = StorageIndex#'StorageIndex'{bytes = asn1_NOVALUE, count = asn1_NOVALUE}}.
 
 -doc """
+Select the nearest common bucket boundary strictly before BeforeUs.
+Remove common and legacy buckets starting before that boundary.
+Return zero and retain all buckets when no earlier boundary exists.
+""".
+-spec cutoff(t(), timestamp_us()) -> {timestamp_us(), t()}.
+cutoff(#index{index = StorageIndex0} = Index, BeforeUs) ->
+    #'StorageIndex'{common = Common0, bytes = Bytes, count = Count} = StorageIndex0,
+    {CutoffUs, Common} = emqx_mq_quota_index_common:cutoff(Common0, BeforeUs),
+    StorageIndex = StorageIndex0#'StorageIndex'{
+        common = Common,
+        bytes = cutoff_legacy(Bytes, CutoffUs),
+        count = cutoff_legacy(Count, CutoffUs)
+    },
+    {CutoffUs, Index#index{index = StorageIndex}}.
+
+-doc """
+Reset counters to zero at the purge boundary.
+Keep removed legacy indices absent.
+Ignore subsequent updates older than the new boundary.
+""".
+-spec reset(t(), timestamp_us()) -> t().
+reset(#index{index = StorageIndex0} = Index, TsUs) ->
+    #'StorageIndex'{bytes = Bytes, count = Count} = StorageIndex0,
+    StorageIndex = StorageIndex0#'StorageIndex'{
+        maxTsUs = TsUs,
+        common = emqx_mq_quota_index_common:reset(TsUs),
+        bytes = reset_legacy(Bytes, TsUs),
+        count = reset_legacy(Count, TsUs)
+    },
+    Index#index{index = StorageIndex}.
+
+-doc """
 Apply an update to the index.
 """.
 -spec apply_update(t(), update()) -> t().
@@ -173,11 +207,21 @@ inspect(#index{
 %% Internal functions
 %%--------------------------------------------------------------------
 
+reset_legacy(asn1_NOVALUE, _TsUs) ->
+    asn1_NOVALUE;
+reset_legacy(_Records, TsUs) ->
+    emqx_mq_quota_index_legacy:reset(TsUs).
+
+cutoff_legacy(asn1_NOVALUE, _CutoffUs) ->
+    asn1_NOVALUE;
+cutoff_legacy(Records, CutoffUs) ->
+    emqx_mq_quota_index_legacy:cutoff(Records, CutoffUs).
+
 ensure_common_index(#'StorageIndex'{common = asn1_NOVALUE} = Index, Opts) ->
     #'StorageIndex'{maxTsUs = MaxTsUs, bytes = Bytes0, count = Count0} = Index,
     Deadline = legacy_deadline(Index, Opts),
-    Bytes = [R || #'StorageIndexRecord'{tsUs = Ts} = R <- legacy_records(Bytes0), Ts >= Deadline],
-    Count = [R || #'StorageIndexRecord'{tsUs = Ts} = R <- legacy_records(Count0), Ts >= Deadline],
+    Bytes = legacy_records(cutoff_legacy(Bytes0, Deadline)),
+    Count = legacy_records(cutoff_legacy(Count0, Deadline)),
     TsUs = lists:min([MaxTsUs | [Ts || #'StorageIndexRecord'{tsUs = Ts} <- Bytes ++ Count]]),
     Index#'StorageIndex'{
         common = [#'StorageIndexBucket'{tsUs = TsUs, bytes = total(Bytes), count = total(Count)}]

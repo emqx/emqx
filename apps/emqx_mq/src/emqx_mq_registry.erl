@@ -19,6 +19,8 @@ The module contains the registry of Message Queues.
     find_by_id/1,
     match/1,
     delete/1,
+    purge/1,
+    purge/2,
     update/2,
     list/0,
     list/2,
@@ -188,6 +190,38 @@ delete(Name) ->
     case emqx_mq_state_storage:find_id_by_name(Name) of
         {ok, Id} ->
             delete_by_id(Id);
+        not_found ->
+            not_found
+    end.
+
+-doc """
+Reset quota indices and delete older data, then set the delivery cutoff to the purge timestamp.
+Keep a later stored delivery cutoff.
+""".
+-spec purge(emqx_mq_types:mq_name()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name) ->
+    maybe
+        {ok, #{id := Id} = MQ} ?= find(Name),
+        {ok, BeforeMs} ?= emqx_mq_message_db:purge(MQ),
+        update_mq_state(Id, advance_deliver_cutoff_date(BeforeMs))
+    end.
+
+-doc """
+Purge queue data and set the delivery cutoff to the requested epoch millisecond.
+Return the queue unchanged when its delivery cutoff is later than BeforeMs.
+""".
+-spec purge(emqx_mq_types:mq_name(), emqx_utils_calendar:epoch_millisecond()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name, BeforeMs) when is_integer(BeforeMs), BeforeMs >= 0 ->
+    case find(Name) of
+        {ok, #{deliver_cutoff_date := CutoffMs} = MQ} when CutoffMs > BeforeMs ->
+            {ok, MQ};
+        {ok, #{id := Id} = MQ} ->
+            maybe
+                ok ?= emqx_mq_message_db:purge(MQ, BeforeMs),
+                update_mq_state(Id, advance_deliver_cutoff_date(BeforeMs))
+            end;
         not_found ->
             not_found
     end.
@@ -378,14 +412,23 @@ queue_count() ->
 
 %% A consumer keeps the settings it started with, so stop it if they changed.
 %% TODO: Apply queue updates without restarting the consumer.
-update_mq_state(Id, UpdateFields) ->
+update_mq_state(Id, Update) ->
     maybe
-        {ok, MQ, Changed} ?= emqx_mq_state_storage:update_mq_state(Id, UpdateFields),
+        {ok, MQ, Changed} ?= emqx_mq_state_storage:update_mq_state(Id, Update),
         case Changed of
             false -> ok;
             true -> ok = stop_consumer(Id)
         end,
         {ok, MQ}
+    end.
+
+%% Compare with the stored cutoff in the update transaction, so concurrent purges cannot lower it.
+advance_deliver_cutoff_date(CutoffMs) ->
+    fun
+        (#{deliver_cutoff_date := StoredMs} = MQ) when StoredMs >= CutoffMs ->
+            MQ;
+        (MQ) ->
+            MQ#{deliver_cutoff_date => CutoffMs}
     end.
 
 stop_consumer(Id) ->

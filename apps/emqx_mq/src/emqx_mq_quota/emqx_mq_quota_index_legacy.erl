@@ -72,13 +72,18 @@ A node crash can lose buffered updates and make the index undercount stored data
 
 -elvis([{elvis_style, atom_naming_convention, #{regex => "^[a-z]\\w*$"}}]).
 
--export([apply_update/4, deadline/2]).
+-export([apply_update/4, deadline/2, cutoff/2, reset/1]).
 
 -type opts() :: #{max := pos_integer(), threshold_percentage := pos_integer()}.
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+-doc "Create a zero-value bucket at the purge boundary.".
+-spec reset(emqx_mq_quota_index:timestamp_us()) -> [#'StorageIndexRecord'{}].
+reset(TsUs) ->
+    [#'StorageIndexRecord'{tsUs = TsUs, value = 0}].
 
 -spec apply_update(
     [#'StorageIndexRecord'{}],
@@ -104,6 +109,12 @@ apply_update(Records0, MaxTsUs0, {TsUs, Value}, #{max := Max, threshold_percenta
 -spec deadline([#'StorageIndexRecord'{}], #{max := pos_integer()}) -> non_neg_integer().
 deadline(Records, #{max := Max}) ->
     deadline_from_records(Records, Max, 0).
+
+-doc "Keep buckets starting at or after the cutoff supplied by the caller.".
+-spec cutoff([#'StorageIndexRecord'{}], emqx_mq_quota_index:timestamp_us()) ->
+    [#'StorageIndexRecord'{}].
+cutoff(Records, CutoffUs) ->
+    [R || #'StorageIndexRecord'{tsUs = TsUs} = R <- Records, TsUs >= CutoffUs].
 
 %%------------------------------------------------------------------------------
 %% Private

@@ -244,9 +244,17 @@ create_mq_state(MQ) ->
             {error, {failed_to_create_mq_state, Err}}
     end.
 
--spec update_mq_state(emqx_mq_types:mqid(), map()) ->
+-doc """
+Merge MQFields into the stored queue, or apply UpdateFun to the stored queue.
+UpdateFun runs in the update transaction, so it sees the latest stored queue.
+""".
+-spec update_mq_state(
+    emqx_mq_types:mqid(), map() | fun((emqx_mq_types:mq()) -> emqx_mq_types:mq())
+) ->
     {ok, emqx_mq_types:mq(), Changed :: boolean()} | not_found | {error, term()}.
-update_mq_state(MQId, MQFields) ->
+update_mq_state(MQId, MQFields) when is_map(MQFields) ->
+    update_mq_state(MQId, fun(MQ0) -> maps:merge(MQ0, MQFields) end);
+update_mq_state(MQId, UpdateFun) when is_function(UpdateFun, 1) ->
     Id = mq_state_id(MQId),
     TransOpts = trans_opts(Id),
     TxRes = emqx_ds:trans(
@@ -258,7 +266,7 @@ update_mq_state(MQId, MQFields) ->
                 _Guard ->
                     Pmap0 = emqx_ds_pmap:tx_restore(?MODULE, ?pn_mq, Id),
                     MQ0 = emqx_ds_pmap:get(?mq_key, Pmap0),
-                    MQ = maps:merge(MQ0, MQFields),
+                    MQ = UpdateFun(MQ0),
                     Pmap = emqx_ds_pmap:put(?mq_key, MQ, Pmap0),
                     emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
                     _ = emqx_ds_pmap:tx_commit(Id, Pmap),
