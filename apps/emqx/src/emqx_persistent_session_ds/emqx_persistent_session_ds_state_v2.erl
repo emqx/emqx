@@ -254,6 +254,25 @@ translate_common_errors(
     )
 ) ->
     ?err_unrec({conflict, #{expected => Expected, got => Got}});
+translate_common_errors(?err_unrec(commit_timeout)) ->
+    %% Current DS implementation rules out situations when
+    %% two commits emitted from the same process are applied
+    %% out-of-order.
+    %%
+    %% However, DS still treats timeouts as unrecoverable because of a
+    %% potential idempotency issue: timeout leaves the transaction
+    %% initiator uncertain as to whether the writes were applied, and,
+    %% in general, it's NOT safe to retry the transaction without the
+    %% risk of duplicating the data. This happens, however, only when
+    %% the transaction writes data with `?ds_tx_ts_monotonic'
+    %% timestamp or if the transaction function is nondeterministic.
+    %%
+    %% In case of sessions, we have the guard, and the process has a
+    %% full copy of the data, which is always written with the
+    %% constant timestamp 0. So repeating commits will apply the same
+    %% (or newer) values to the same keys. As such, commit is an
+    %% idempotent operation, and we can treat timeouts as recoverable:
+    ?err_rec(commit_timeout);
 translate_common_errors(Other) ->
     Other.
 

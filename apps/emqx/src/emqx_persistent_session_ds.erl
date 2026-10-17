@@ -2020,7 +2020,11 @@ ensure_state_commit_timer(#{s := S} = Session) ->
     Dirty = emqx_persistent_session_ds_state:is_dirty(S),
     case emqx_persistent_session_ds_state:checkpoint_ref(S) of
         undefined when Dirty ->
-            ensure_timer(?TIMER_COMMIT, commit_interval(), Session);
+            StaticInterval = commit_interval() div 2,
+            %% Apply some jitter to spread load, should some event
+            %% trigger multiple sessions to commit all at once:
+            Interval = rand:uniform(max(1, StaticInterval)) + StaticInterval,
+            ensure_timer(?TIMER_COMMIT, Interval, Session);
         _ ->
             Session
     end.
