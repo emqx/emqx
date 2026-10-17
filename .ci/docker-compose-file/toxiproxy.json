@@ -379,6 +379,18 @@
     "enabled": true
   },
   {
+    "name": "nats_bridge_js",
+    "listen": "0.0.0.0:14223",
+    "upstream": "nats-bridge-js:4222",
+    "enabled": true
+  },
+  {
+    "name": "nats_bridge_reconnect",
+    "listen": "0.0.0.0:14222",
+    "upstream": "nats-noauth:4222",
+    "enabled": true
+  },
+  {
     "name": "nats_tcp",
     "listen": "0.0.0.0:4222",
     "upstream": "nats:4222",

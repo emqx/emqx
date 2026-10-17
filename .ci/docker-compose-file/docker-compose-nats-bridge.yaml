@@ -1,0 +1,22 @@
+services:
+  nats_bridge_js:
+    container_name: nats_bridge_js
+    image: public.ecr.aws/docker/library/nats:${NATS_TAG:-2.10}
+    restart: always
+    command: ["-js", "-sd", "/data"]
+    networks:
+      emqx_bridge:
+        aliases:
+          - nats-bridge-js
+  nats_bridge_tls_first:
+    container_name: nats_bridge_tls_first
+    image: public.ecr.aws/docker/library/nats:${NATS_TAG:-2.10}
+    restart: always
+    volumes:
+      - ./nats/nats-bridge-tls-first.conf:/etc/nats/nats.conf:ro
+      - ./certs:/etc/nats/certs:ro
+    command: ["-c", "/etc/nats/nats.conf"]
+    networks:
+      emqx_bridge:
+        aliases:
+          - nats-bridge-tls-first
