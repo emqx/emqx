@@ -14,7 +14,8 @@ The module contains accessor functions for the MQs/MQ handles.
     is_lastvalue/1,
     is_append_only/1,
     topic_filter/1,
-    quota_index_opts/1
+    quota_index_opts/1,
+    delivery_start_time/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -57,6 +58,11 @@ quota_index_opts(#{
         limit_to_index_opt(bytes, MaxShardMessageBytes) ++
             limit_to_index_opt(count, MaxShardMessageCount)
     ).
+
+-spec delivery_start_time(emqx_mq_types:mq()) -> emqx_ds:time().
+delivery_start_time(#{data_retention_period := RetentionMs}) ->
+    RetentionStartMs = max(0, erlang:system_time(millisecond) - RetentionMs),
+    erlang:convert_time_unit(RetentionStartMs, millisecond, microsecond).
 
 %%--------------------------------------------------------------------
 %% Internal functions
