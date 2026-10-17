@@ -120,14 +120,14 @@ t_purge(_Config) ->
 t_full_purge(_Config) ->
     Name = <<"full_purge">>,
     ?assertEqual(not_found, emqx_mq_registry:purge(Name)),
-    {ok, MQ} = create_mq(Name, <<"purge/#">>),
-    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ, alias(), <<"client">>),
+    {ok, MQ0} = create_mq(Name, <<"purge/#">>),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ0, alias(), <<"client">>),
     StartMs = erlang:system_time(millisecond),
-    {ok, #{deliver_cutoff_date := CutoffMs} = Updated} = emqx_mq_registry:purge(Name),
+    {ok, #{deliver_cutoff_date := CutoffMs} = MQ1} = emqx_mq_registry:purge(Name),
     ?assert(CutoffMs >= StartMs),
     ?assert(CutoffMs =< erlang:system_time(millisecond)),
-    ?assertEqual(MQ#{deliver_cutoff_date => CutoffMs}, Updated),
-    ?assertEqual({ok, Updated}, emqx_mq_registry:find(Name)),
+    ?assertEqual(MQ0#{deliver_cutoff_date => CutoffMs}, MQ1),
+    ?assertEqual({ok, MQ1}, emqx_mq_registry:find(Name)),
     ?retry(10, 100, ?assertNot(is_process_alive(ConsumerRef))).
 
 %% Check that purge before the stored delivery cutoff skips data deletion, keeps the cutoff, and keeps the consumer.

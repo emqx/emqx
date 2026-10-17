@@ -52,20 +52,20 @@ t_byte_limit_regular(Config) ->
     ),
     NowTime = now_us(),
     EndTime = NowTime + 2_000_000,
-    {Index, _} = loop_insert(
+    {Index1, _} = loop_insert(
         Index0,
         fun(IndexAcc0, NowUs, St) ->
-            IndexAcc =
+            IndexAcc1 =
                 emqx_mq_quota_index:apply_update(
                     IndexAcc0,
                     ?QUOTA_INDEX_UPDATE(NowUs, payload_size(2000), 0)
                 ),
-            {IndexAcc, St}
+            {IndexAcc1, St}
         end,
         undefined,
         EndTime
     ),
-    Info = emqx_mq_quota_index:inspect(Index),
+    Info = emqx_mq_quota_index:inspect(Index1),
     ct:pal("Index: ~p", [Info]),
     #{common := #{total := #{bytes := BytesTotal}, size := BytesIndexSize}} = Info,
     ?assert(BytesTotal < 250000 * 1.2),
@@ -92,12 +92,12 @@ t_delete_all(Config) ->
         fun(Key, {IndexAcc0, DBAcc0}) ->
             TsUs = now_us(),
             Update = ?QUOTA_INDEX_UPDATE(TsUs, payload_size(PayloadSize), 0),
-            IndexAcc = emqx_mq_quota_index:apply_update(
+            IndexAcc1 = emqx_mq_quota_index:apply_update(
                 IndexAcc0,
                 Update
             ),
-            DBAcc = DBAcc0#{Key => Update},
-            {IndexAcc, DBAcc}
+            DBAcc1 = DBAcc0#{Key => Update},
+            {IndexAcc1, DBAcc1}
         end,
         {Index0, #{}},
         lists:seq(1, KeyCount)
@@ -143,7 +143,7 @@ t_byte_limit_lastvalue(Config) ->
     NowTime = now_us(),
     EndTime = NowTime + 2_000_000,
     DB0 = #{},
-    {Index, _DB} = loop_insert(
+    {Index1, _DB1} = loop_insert(
         Index0,
         fun(IndexAcc0, NowUs, DBAcc0) ->
             Key = key(KeyCount),
@@ -156,15 +156,15 @@ t_byte_limit_lastvalue(Config) ->
                 end,
             InsertUpdate =
                 ?QUOTA_INDEX_UPDATE(NowUs, payload_size(2000), 0),
-            DBAcc = DBAcc0#{Key => InsertUpdate},
-            IndexAcc =
+            DBAcc1 = DBAcc0#{Key => InsertUpdate},
+            IndexAcc1 =
                 emqx_mq_quota_index:apply_updates(IndexAcc0, DelUpdate ++ [InsertUpdate]),
-            {IndexAcc, DBAcc}
+            {IndexAcc1, DBAcc1}
         end,
         DB0,
         EndTime
     ),
-    Info = emqx_mq_quota_index:inspect(Index),
+    Info = emqx_mq_quota_index:inspect(Index1),
     ct:pal("Index: ~p", [Info]),
     #{common := #{total := #{bytes := BytesTotal}, size := BytesIndexSize}} = Info,
     ?assert(BytesTotal < 250000 * 1.2),
@@ -195,14 +195,14 @@ new_index(Opts, TsUs, Config) ->
         false -> emqx_mq_quota_index:drop_legacy(Index)
     end.
 
-loop_insert(Index, GenF, GenSt, EndTime) ->
+loop_insert(Index0, GenF, GenSt0, EndTime) ->
     NowUs = now_us(),
     case NowUs >= EndTime of
         true ->
-            {Index, GenSt};
+            {Index0, GenSt0};
         false ->
-            {Index1, NewGenSt} = GenF(Index, NowUs, GenSt),
-            loop_insert(Index1, GenF, NewGenSt, EndTime)
+            {Index1, GenSt1} = GenF(Index0, NowUs, GenSt0),
+            loop_insert(Index1, GenF, GenSt1, EndTime)
     end.
 
 payload_size(MaxBytes) ->
