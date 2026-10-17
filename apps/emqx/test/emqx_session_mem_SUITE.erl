@@ -1506,7 +1506,8 @@ t_delivery_quota_lazy_stays_placeholder(_TCConfig) ->
 
 -doc """
 A delivery limit configured after session creation applies without reconnect:
-the placeholder materializes into a container on the next delivery.
+the placeholder delivers without a limit until the next quota refresh, then
+materializes into a container.
 """.
 t_delivery_quota_lazy_hot_update(_TCConfig) ->
     ListenerId = 'tcp:lazy_hot_update',
@@ -1528,11 +1529,108 @@ t_delivery_quota_lazy_hot_update(_TCConfig) ->
         ],
         Session0
     ),
-    %% Only two messages come out; the rest wait for the retry timer.
-    {Effect, [_Pub1, _Pub2], Session1} =
+    %% Before the refresh, the placeholder applies no limit.
+    {_Effect0, [_, _, _, _], #session{quota = {lazy, ListenerId}}} =
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
-    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect),
-    ?assertMatch(#session{quota = #{}}, Session1).
+    Session1 = emqx_session_mem:refresh_quota(Session0),
+    ?assertMatch(#session{quota = #{}}, Session1),
+    %% Only two messages come out; the rest wait for the retry timer.
+    {Effect, [_Pub1, _Pub2], _Session2} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session1),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect).
+
+-doc """
+A session on a listener with a delivery limit at creation holds a resolved
+container, not the placeholder, and is limited from the first delivery.
+""".
+t_delivery_quota_resolved_on_create(_TCConfig) ->
+    ListenerId = 'tcp:resolved_on_create',
+    create_limiters(ListenerId, #{<<"delivery_messages_rate">> => <<"2/1s">>}),
+    ?on_exit(delete_limiters(ListenerId)),
+    Session0 = session(#{listener => ListenerId}, #{}),
+    ?assertMatch(#session{quota = #{}}, Session0),
+    Delivers = enrich(
+        [
+            delivery(?QOS_1, <<"t1">>),
+            delivery(?QOS_1, <<"t2">>),
+            delivery(?QOS_1, <<"t3">>)
+        ],
+        Session0
+    ),
+    {Effect, [_Pub1, _Pub2], _Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect).
+
+-doc """
+A container installed by a `session.limiter_adjustment` callback, on a listener
+with no delivery limit, survives a quota refresh and keeps limiting delivery.
+""".
+t_delivery_quota_hook_container_survives_refresh(_TCConfig) ->
+    ListenerId = 'tcp:hook_no_limit',
+    SourceListenerId = 'tcp:hook_source',
+    create_limiters(ListenerId, #{}),
+    ?on_exit(delete_limiters(ListenerId)),
+    create_limiters(SourceListenerId, #{<<"delivery_messages_rate">> => <<"2/1s">>}),
+    ?on_exit(delete_limiters(SourceListenerId)),
+    Hook = {?MODULE, install_session_limiter, [SourceListenerId]},
+    ok = emqx_hooks:add('session.limiter_adjustment', Hook, 0),
+    ?on_exit(emqx_hooks:del('session.limiter_adjustment', Hook)),
+    Session0 = session(#{listener => ListenerId}, #{}),
+    ?assertMatch(#session{quota = #{}}, Session0),
+    Session1 = emqx_session_mem:refresh_quota(Session0),
+    ?assertEqual(Session0#session.quota, Session1#session.quota),
+    Delivers = enrich(
+        [
+            delivery(?QOS_1, <<"t1">>),
+            delivery(?QOS_1, <<"t2">>),
+            delivery(?QOS_1, <<"t3">>)
+        ],
+        Session1
+    ),
+    {Effect, [_Pub1, _Pub2], _Session2} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session1),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect).
+
+install_session_limiter(_ClientInfo, _Limiter, SourceListenerId) ->
+    {ok, emqx_limiter:create_session_client_container(SourceListenerId)}.
+
+-doc """
+A session without a listener has no delivery limiter, and a refresh does not
+create one.
+""".
+t_delivery_quota_false_survives_refresh(_TCConfig) ->
+    ClientInfo = #{zone => default, clientid => <<"no-listener">>},
+    Session0 = emqx_session_mem:create(
+        ClientInfo,
+        #{receive_maximum => 0, expiry_interval => 0},
+        _WillMsg = undefined,
+        emqx_session:get_session_conf(ClientInfo)
+    ),
+    ?assertMatch(#session{quota = false}, Session0),
+    Session1 = emqx_session_mem:refresh_quota(Session0),
+    ?assertMatch(#session{quota = false}, Session1),
+    Delivers = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_1, <<"t2">>)], Session1),
+    {ok, [_Pub1, _Pub2], #session{quota = false}} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session1).
+
+-doc """
+A refresh resolves the placeholder once. A later refresh keeps the container it
+built, with its consumed tokens.
+""".
+t_delivery_quota_refresh_resolves_once(_TCConfig) ->
+    ListenerId = 'tcp:refresh_once',
+    create_limiters(ListenerId, #{}),
+    ?on_exit(delete_limiters(ListenerId)),
+    Session0 = session(#{listener => ListenerId}, #{}),
+    ?assertMatch(#session{quota = {lazy, ListenerId}}, Session0),
+    {ok, MessagesRate} = emqx_limiter_schema:to_rate("2/1s"),
+    ok = emqx_limiter:update_listener_limiters(ListenerId, #{
+        delivery_messages_rate => MessagesRate
+    }),
+    Session1 = emqx_session_mem:refresh_quota(Session0),
+    ?assertMatch(#session{quota = #{}}, Session1),
+    Session2 = emqx_session_mem:refresh_quota(Session1),
+    ?assertEqual(Session1#session.quota, Session2#session.quota).
 
 -doc """
 Verifies that delivery limits do not compromise message ordering.

@@ -79,6 +79,7 @@
     handle_timeout/4,
     handle_info/3,
     handle_signal/3,
+    refresh_quota/1,
     disconnect/2,
     terminate/3
 ]).
@@ -219,21 +220,41 @@ create_limiter(_ClientInfo, #{enable_quota := false}) ->
 create_limiter(#{listener := ListenerId} = ClientInfo, _Conf) ->
     %% A hook callback may install a limiter container here (e.g.
     %% multi-tenant limiters). Otherwise the compact placeholder stays
-    %% and the container is built on first delivery; see
-    %% try_consume_delivery_rate_limit/2.
+    %% until refresh_limiter/1 finds a finite delivery limit for the
+    %% listener.
     %%
     %% The hook must run here, not at materialization: materialization
     %% is gated by emqx_limiter:session_limits_configured/1, which only
     %% sees listener-level limits. A hook-installed container (e.g. a
     %% tenant with delivery limits under a listener with none) must not
     %% depend on that gate.
-    emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId});
+    refresh_limiter(emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId}));
 create_limiter(#{}, _Conf) ->
     %% No listener: no quota is instantiated.
     %% This can happen during session handover from eviction agent running
     %% on older EMQX release. Subsequent handover to a client channel should
     %% recreate a limiter.
     false.
+
+%% Build the delivery limiter container when the session has the placeholder
+%% and the listener has a finite delivery limit. A placeholder delivers
+%% without a limit check.
+refresh_limiter({lazy, ListenerId} = Limiter) ->
+    case emqx_limiter:session_limits_configured(ListenerId) of
+        false -> Limiter;
+        true -> emqx_limiter:create_session_client_container(ListenerId)
+    end;
+refresh_limiter(Limiter) ->
+    Limiter.
+
+-doc """
+Build the delivery limiter container when a finite delivery limit is now
+configured for the listener. The channel calls this on each stats timer, so a
+limit configured at runtime applies after at most one stats interval.
+""".
+-spec refresh_quota(session()) -> session().
+refresh_quota(#session{quota = Limiter} = Session) ->
+    Session#session{quota = refresh_limiter(Limiter)}.
 
 empty_mqueue(Zone) ->
     %% emqx_mqueue treats 0 as no limit.
@@ -1429,14 +1450,8 @@ publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
 
 try_consume_delivery_rate_limit(_Msg, Limiter = false) ->
     {true, Limiter};
-try_consume_delivery_rate_limit(Msg, {lazy, ListenerId} = Limiter) ->
-    case emqx_limiter:session_limits_configured(ListenerId) of
-        false ->
-            {true, Limiter};
-        true ->
-            Container = emqx_limiter:create_session_client_container(ListenerId),
-            try_consume_delivery_rate_limit(Msg, Container)
-    end;
+try_consume_delivery_rate_limit(_Msg, {lazy, _ListenerId} = Limiter) ->
+    {true, Limiter};
 try_consume_delivery_rate_limit(Msg, Limiter0) ->
     Ret = emqx_limiter_client_container:try_consume(Limiter0, [
         {delivery_bytes, emqx_message:estimate_size(Msg)},
