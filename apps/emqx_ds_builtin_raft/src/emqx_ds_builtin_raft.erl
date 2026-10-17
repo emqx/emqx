@@ -255,7 +255,8 @@ default_db_opts() ->
             idle_flush_interval => 1,
             max_items => 1000,
             conflict_window => 5_000,
-            olp_max_mql => infinity
+            olp_max_mql => infinity,
+            olp_max_ops => 10_000
         },
         subscriptions => #{
             n_workers_per_shard => 10,
@@ -742,7 +743,7 @@ otx_become_leader(DB, Shard) ->
     emqx_ds:generation(),
     _SerialBin :: binary(),
     emqx_ds:tx_ops(),
-    _MiscOpts :: map()
+    emqx_ds_optimistic_tx:tx_prepare_opts()
 ) ->
     {ok, _CookedTx} | emqx_ds:error(_).
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->

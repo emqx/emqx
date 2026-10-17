@@ -152,7 +152,8 @@ default_db_opts() ->
             idle_flush_interval => 1,
             max_items => 1000,
             conflict_window => 5_000,
-            olp_max_mql => infinity
+            olp_max_mql => infinity,
+            olp_max_ops => 10_000
         },
         subscriptions => #{
             n_workers_per_shard => 10,

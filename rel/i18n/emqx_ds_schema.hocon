@@ -173,6 +173,13 @@ emqx_ds_schema {
       the oldest transactions will be discarded with a recoverable error.~"""
   }
 
+  otx_olp_max_ops {
+     label: "Maximum Transaction Operations"
+     desc:
+       """~
+       Maximum number of operations allowed in a transaction.~"""
+  }
+
   // RocksDB tuning:
 
   rocksdb_options {

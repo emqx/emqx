@@ -2655,6 +2655,75 @@ t_overload_protection(Config) ->
         []
     ).
 
+%% This testcase verifies that overly large transactions are rejected
+t_max_ops(Config) ->
+    ?check_trace(
+        #{timetrap => 60_000},
+        begin
+            DB = ?FUNCTION_NAME,
+            Opts = maps:merge(opts(Config), #{
+                n_shards => 5,
+                transactions => #{olp_max_ops => 100}
+            }),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            Shard = hd(emqx_ds:list_shards(DB)),
+            TxOpts = #{db => DB, shard => Shard, generation => 1, sync => true},
+            %% Too many writes:
+            ?assertMatch(
+                ?err_unrec(transaction_too_large),
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        [emqx_ds:tx_write({[~"t"], I, ~""}) || I <- lists:seq(1, 101)]
+                    end
+                )
+            ),
+            %% Create a wildcard stream:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        [
+                            emqx_ds:tx_write({[~"t", integer_to_binary(I)], 0, ~""})
+                         || I <- lists:seq(1, 99)
+                        ]
+                    end
+                )
+            ),
+            %% Add a lot of messages to the wildcard topic:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        [emqx_ds:tx_write({[~"t", ~"100"], I, ~""}) || I <- lists:seq(1, 99)]
+                    end
+                )
+            ),
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        [emqx_ds:tx_write({[~"t", ~"100"], I, ~""}) || I <- lists:seq(100, 199)]
+                    end
+                )
+            ),
+            %% Too many deletes:
+            ?assertMatch(
+                ?err_unrec(transaction_too_large),
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        emqx_ds:tx_del_topic([~"t", ~"100"])
+                    end
+                )
+            )
+        end,
+        []
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.
