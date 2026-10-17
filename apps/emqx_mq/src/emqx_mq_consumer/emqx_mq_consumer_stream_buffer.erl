@@ -74,7 +74,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 -type progress() ::
     #{
         it := emqx_ds:iterator(),
-        last_message_id := message_id(),
+        last_message_id := undefined | message_id(),
         unacked := [#{message_id() => true}]
     }.
 
