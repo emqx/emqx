@@ -339,14 +339,14 @@ t_concurrent_index_update(_Config) ->
     Old = message_record(MQ, <<"old">>, OldUs + 1, BeforeMs - 3000),
     Middle = message_record(MQ, <<"middle">>, MiddleUs + 1, BeforeMs - 2000),
     Fresh = message_record(MQ, <<"fresh">>, NewUs + 1, BeforeMs - 1000),
-    Index = #'StorageIndex'{
+    Index0 = #'StorageIndex'{
         maxTsUs = MiddleUs,
         common = [
             #'StorageIndexBucket'{tsUs = MiddleUs, bytes = record_bytes([Middle]), count = 1},
             #'StorageIndexBucket'{tsUs = OldUs, bytes = record_bytes([Old]), count = 1}
         ]
     },
-    ok = write_records(DB, Slab, [index_record(MQ, Index), Old, Middle]),
+    ok = write_records(DB, Slab, [index_record(MQ, Index0), Old, Middle]),
     %% Return a transaction error once, then pass subsequent transactions through to DS.
     ok = meck:new(emqx_ds, [passthrough, no_link]),
     ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_ds) end),
@@ -364,14 +364,14 @@ t_concurrent_index_update(_Config) ->
     ),
     %% Commit a newer message and bucket before retrying purge.
     NewBucket = #'StorageIndexBucket'{tsUs = NewUs, bytes = record_bytes([Fresh]), count = 1},
-    Updated = Index#'StorageIndex'{
-        maxTsUs = NewUs, common = [NewBucket | Index#'StorageIndex'.common]
+    Index1 = Index0#'StorageIndex'{
+        maxTsUs = NewUs, common = [NewBucket | Index0#'StorageIndex'.common]
     },
-    ok = write_records(DB, Slab, [index_record(MQ, Updated), Fresh]),
+    ok = write_records(DB, Slab, [index_record(MQ, Index1), Fresh]),
     ok = emqx_mq_message_db:purge(MQ, BeforeMs),
     %% Verify that the retry selects the newest boundary and retains only the newest message and bucket.
     ?assertEqual([Fresh], emqx_mq_message_db:dirty_read_all(MQ)),
-    ?assertEqual(Updated#'StorageIndex'{common = [NewBucket]}, read_index(DB, Slab, MQ)).
+    ?assertEqual(Index1#'StorageIndex'{common = [NewBucket]}, read_index(DB, Slab, MQ)).
 
 %% Check that a failed index transaction prevents message deletion and delivery cutoff updates.
 t_failed_transaction(_Config) ->
@@ -790,14 +790,14 @@ write_during_purge(MQ, {DB, {Shard, Generation} = Slab} = TxKey) ->
         emqx_ds:trans(#{db => DB, shard => Shard, generation => Generation}, fun() ->
             Index0 = emqx_mq_message_db:quota_buffer_flush_tx_read(TxKey, IndexTopic, IndexOpts),
             ?assertEqual(Index0, emqx_mq_quota_index:apply_update(Index0, {1000, 100, 1})),
-            Index = emqx_mq_quota_index:apply_updates(Index0, [
+            Index1 = emqx_mq_quota_index:apply_updates(Index0, [
                 {CutoffUs + 1000, record_bytes([Fresh]), 1},
                 {CutoffUs, record_bytes([Boundary]), 1},
                 {1000, -100, -1}
             ]),
             ok = emqx_ds:tx_write(Boundary),
             ok = emqx_ds:tx_write(Fresh),
-            emqx_mq_message_db:quota_buffer_flush_tx_write(TxKey, IndexTopic, Index)
+            emqx_mq_message_db:quota_buffer_flush_tx_write(TxKey, IndexTopic, Index1)
         end)
     ).
 

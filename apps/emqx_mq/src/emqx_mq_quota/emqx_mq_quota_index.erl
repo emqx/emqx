@@ -369,7 +369,7 @@ t_consistency(
     {DurationMs, KeyCount, Updates}, MaxBytes, MaxCount, ThresholdPercentage, LegacyUpdates
 ) ->
     DB0 = #{},
-    NewIndex = new(
+    Index0 = new(
         #{
             bytes => MaxBytes,
             count => MaxCount,
@@ -377,30 +377,30 @@ t_consistency(
         },
         0
     ),
-    Index0 =
+    Index1 =
         case LegacyUpdates of
-            true -> NewIndex;
-            false -> drop_legacy(NewIndex)
+            true -> Index0;
+            false -> drop_legacy(Index0)
         end,
-    {DB1, Index1} = lists:foldl(
+    {DB1, Index2} = lists:foldl(
         fun({Key, Update}, {DBAcc, IndexAcc}) ->
             update_key({DBAcc, IndexAcc}, {Key, Update})
         end,
-        {DB0, Index0},
+        {DB0, Index1},
         sort_by_ts(Updates)
     ),
-    {_DB, Index} = lists:foldl(
+    {_DB2, Index3} = lists:foldl(
         fun(Key, {DBAcc, IndexAcc}) ->
             update_key({DBAcc, IndexAcc}, {Key, ?QUOTA_INDEX_UPDATE(to_us(DurationMs), 0, 1)})
         end,
-        {DB1, Index1},
+        {DB1, Index2},
         lists:seq(1, KeyCount)
     ),
     #{
         common := #{total := #{bytes := BytesTotal, count := CountTotal}},
         bytes := LegacyBytes,
         count := LegacyCount
-    } = inspect(Index),
+    } = inspect(Index3),
     LegacyCorrect =
         case LegacyUpdates of
             true ->

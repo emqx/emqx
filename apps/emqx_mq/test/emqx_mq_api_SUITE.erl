@@ -768,21 +768,21 @@ t_queues_alias_config(_Config) ->
 %% Check that full purge keeps the queue and MQTT connection and delivers messages published afterward.
 t_purge_all(Config) ->
     %% Create the queue through HTTP and establish delivery before purging it.
-    #{name := Name} = MQ = create_purge_queue(Config),
+    #{name := Name} = MQ0 = create_purge_queue(Config),
     Client = emqx_mq_test_utils:emqtt_connect([{reconnect, 0}]),
     ok = emqx_mq_test_utils:emqtt_sub_mq(Client, Name),
     Old = emqx_message:make(<<"old">>, 1, <<"purge/1">>, <<"before">>),
-    ok = emqx_mq_message_db:insert(MQ, Old),
+    ok = emqx_mq_message_db:insert(MQ0, Old),
     {ok, [#{payload := <<"before">>}]} = emqx_mq_test_utils:emqtt_drain(1, 1000),
 
     %% Purge synchronously and verify that the queue keeps its identity and settings.
     StartMs = erlang:system_time(millisecond),
     ?assertEqual({ok, 204}, api_delete([queue, Name, messages])),
-    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)),
-    {ok, #{deliver_cutoff_date := CutoffMs} = Updated} = emqx_mq_registry:find(Name),
+    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ0)),
+    {ok, #{deliver_cutoff_date := CutoffMs} = MQ1} = emqx_mq_registry:find(Name),
     ?assert(CutoffMs >= StartMs),
     ?assert(CutoffMs =< erlang:system_time(millisecond)),
-    ?assertEqual(MQ#{deliver_cutoff_date => CutoffMs}, Updated),
+    ?assertEqual(MQ0#{deliver_cutoff_date => CutoffMs}, MQ1),
     ?assertMatch({ok, 200, #{<<"name">> := Name}}, api_get([queue, Name])),
 
     %% Keep the existing MQTT connection and subscription when publishing after purge.
@@ -792,7 +792,7 @@ t_purge_all(Config) ->
     ?assertEqual(pong, emqtt:ping(Client)),
     ok = emqtt:disconnect(Client),
     ?assertEqual({ok, 204}, api_delete([queue, Name, messages])),
-    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)).
+    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ0)).
 
 %% Check that purge accepts epoch and RFC 3339 cutoffs and delivers only messages at or after the cutoff.
 t_purge_before(Config) ->
@@ -913,23 +913,23 @@ t_purge_unavailable(_Config) ->
 create_purge_queue(Config) ->
     IsLastvalue = ?config(is_lastvalue, Config),
     Limits = #{<<"max_shard_message_count">> => 100, <<"max_shard_message_bytes">> => 100000},
-    Base = #{
+    Queue0 = #{
         <<"name">> => <<"purge">>,
         <<"topic_filter">> => <<"purge/#">>,
         <<"is_lastvalue">> => IsLastvalue,
         <<"ping_interval">> => 200
     },
-    WithKey =
+    Queue1 =
         case IsLastvalue of
-            true -> Base#{<<"key_expression">> => <<"message.from">>};
-            false -> Base
+            true -> Queue0#{<<"key_expression">> => <<"message.from">>};
+            false -> Queue0
         end,
-    Queue =
+    Queue2 =
         case ?config(is_limited, Config) of
-            true -> WithKey#{<<"limits">> => Limits};
-            false -> WithKey
+            true -> Queue1#{<<"limits">> => Limits};
+            false -> Queue1
         end,
-    ?assertMatch({ok, 200, _}, api_post([queues], Queue)),
+    ?assertMatch({ok, 200, _}, api_post([queues], Queue2)),
     {ok, MQ} = emqx_mq_registry:find(<<"purge">>),
     MQ.
 

@@ -91,7 +91,7 @@ t_delivery_start_time(_Config) ->
 t_delivery_start_time_replay(_Config) ->
     %% Store three records around the cutoff in one shard.
     #{id := Id} =
-        MQ = emqx_mq_test_utils:ensure_mq_created(#{
+        MQ0 = emqx_mq_test_utils:ensure_mq_created(#{
             name => <<"delivery_start_time">>,
             topic_filter => <<"start/#">>,
             is_lastvalue => true,
@@ -102,7 +102,7 @@ t_delivery_start_time_replay(_Config) ->
     CutoffMs = erlang:system_time(millisecond) - 60_000,
     DB = ?MQ_MESSAGE_LASTVALUE_DB,
     [Shard | _] = emqx_ds:list_shards(DB),
-    #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ),
+    #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ0),
     Records = [
         begin
             Message = emqx_message:make(<<"publisher">>, 1, <<"start/1">>, Payload),
@@ -126,14 +126,14 @@ t_delivery_start_time_replay(_Config) ->
     ),
 
     %% Save progress with old and boundary records unacknowledged.
-    CS0 = emqx_mq_consumer_streams:new(MQ, #{}),
+    CS0 = emqx_mq_consumer_streams:new(MQ0, #{}),
     {[_, _, {AckedId, _}], CS1} = receive_consumer_messages(CS0, 3),
     CS2 = emqx_mq_consumer_streams:handle_ack(CS1, AckedId),
     {Progress, CS3} = emqx_mq_consumer_streams:fetch_progress_updates(CS2),
     _ = emqx_mq_consumer_streams:destroy(CS3),
 
     %% Restore at the cutoff and read only the two retained records from DS.
-    MQ1 = MQ#{deliver_cutoff_date => CutoffMs},
+    MQ1 = MQ0#{deliver_cutoff_date => CutoffMs},
     Received0 = ds_received_messages(),
     CS4 = emqx_mq_consumer_streams:new(MQ1, Progress),
     {[{_, Boundary}], CS5} = receive_consumer_messages(CS4, 1),
@@ -148,7 +148,7 @@ t_delivery_start_time_replay(_Config) ->
     ?assertEqual([<<"boundary">>, <<"acked">>], [emqx_message:payload(M) || {_, M} <- Fresh]),
     ?assertEqual(2, ds_received_messages() - Received1),
     _ = emqx_mq_consumer_streams:destroy(CS7),
-    ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))).
+    ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ0))).
 
 t_restore_empty_stream_buffer(_Config) ->
     MQ = #{stream_max_buffer_size => 100},
@@ -311,7 +311,7 @@ receive_consumer_messages(CS0, Count, Acc) ->
     receive
         Info ->
             case emqx_mq_consumer_streams:handle_ds_info(CS0, Info) of
-                {ok, Messages, CS} -> receive_consumer_messages(CS, Count, Acc ++ Messages);
+                {ok, Messages, CS1} -> receive_consumer_messages(CS1, Count, Acc ++ Messages);
                 ignore -> receive_consumer_messages(CS0, Count, Acc)
             end
     after 5000 ->
@@ -336,20 +336,20 @@ test_deliver_cutoff_date(IsLastvalue, Limits) ->
         stream_max_buffer_size => 1,
         stream_max_unacked => 1
     },
-    MQOpts =
+    MQOpts1 =
         case IsLastvalue of
             true -> MQOpts0#{key_expression => <<"message.payload">>};
             false -> MQOpts0
         end,
-    MQ = emqx_mq_test_utils:ensure_mq_created(MQOpts),
-    #{id := Id} = MQ,
+    MQ0 = emqx_mq_test_utils:ensure_mq_created(MQOpts1),
+    #{id := Id} = MQ0,
     DB =
-        case emqx_mq_prop:is_append_only(MQ) of
+        case emqx_mq_prop:is_append_only(MQ0) of
             true -> ?MQ_MESSAGE_REGULAR_DB;
             false -> ?MQ_MESSAGE_LASTVALUE_DB
         end,
     [Shard | _] = emqx_ds:list_shards(DB),
-    #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ),
+    #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ0),
 
     %% Store old messages after the cutoff to check delivery filtering after the DS seek.
     Records = [
@@ -384,10 +384,10 @@ test_deliver_cutoff_date(IsLastvalue, Limits) ->
     {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(2, 1000),
     ?assertEqual([<<"boundary">>, <<"fresh">>], [P || #{payload := P} <- Msgs0]),
     ok = emqtt:disconnect(CSub0),
-    ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
+    ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ0))),
 
     %% Lower the cutoff and restart the consumer without replaying acknowledged messages.
-    {ok, MQ1} = emqx_mq_registry:update(Name, MQ#{deliver_cutoff_date => 0}),
+    {ok, MQ1} = emqx_mq_registry:update(Name, MQ0#{deliver_cutoff_date => 0}),
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
     ok = emqx_mq_test_utils:emqtt_sub_mq(CSub1, Name),
     Marker = emqx_message:make(<<"publisher">>, 1, <<"t/1">>, <<"marker">>),
