@@ -16,6 +16,7 @@ start_link() ->
 
 init([]) ->
     ok = emqx_resource_cache:new(),
+    ok = emqx_resource_ready_waiter:create_table(),
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     Metrics = emqx_metrics_worker:child_spec(?RES_METRICS),
     CacheCleaner = #{
@@ -25,6 +26,14 @@ init([]) ->
         shutdown => 5_000,
         type => worker,
         modules => [emqx_resource_cache_cleaner]
+    },
+    ReadyWaiter = #{
+        id => emqx_resource_ready_waiter,
+        start => {emqx_resource_ready_waiter, start_link, []},
+        restart => permanent,
+        shutdown => 5_000,
+        type => worker,
+        modules => [emqx_resource_ready_waiter]
     },
     ResourceManager =
         #{
@@ -42,4 +51,4 @@ init([]) ->
         shutdown => infinity,
         type => supervisor
     },
-    {ok, {SupFlags, [Metrics, CacheCleaner, ResourceManager, WorkerSup]}}.
+    {ok, {SupFlags, [Metrics, CacheCleaner, ReadyWaiter, ResourceManager, WorkerSup]}}.
