@@ -37,6 +37,9 @@ backend can reject flush request.
     commit_kv_tx/4,
     tx_commit_outcome/1,
 
+    del_batch/8,
+    del_batch_outcome/1,
+
     get_monotonic_timestamp/0
 ]).
 
@@ -350,6 +353,60 @@ tx_commit_outcome(Reply) ->
         ?ds_tx_commit_ok(Ref, _Meta, Serial) ->
             client_post_commit_cleanup(Ref),
             {ok, Serial};
+        ?ds_tx_commit_error(Ref, _Meta, Class, Info) ->
+            client_post_commit_cleanup(Ref),
+            {error, Class, Info};
+        {'DOWN', Ref, Type, Object, Info} ->
+            client_post_commit_cleanup(Ref),
+            ?err_rec({Type, Object, Info})
+    end.
+
+-spec del_batch(
+    pid(),
+    emqx_ds:db(),
+    emqx_ds:shard(),
+    emqx_ds:stream(),
+    emqx_ds:topic(),
+    emqx_ds:time(),
+    emqx_ds:time() | infinity,
+    emqx_ds:del_batch_opts()
+) -> emqx_ds:del_batch_outcome().
+del_batch(Leader, DB, Shard, Stream, Topic, From, To, Opts) ->
+    #{timeout := Timeout, batch_size := BatchSize, sync := Sync, dirty := Dirty} = Opts,
+    Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
+    TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
+    put({?pending_commit_timer, Alias}, TRef),
+    cast(
+        Leader,
+        #ds_del_batch{
+            db = DB,
+            shard = Shard,
+            stream = Stream,
+            topic = Topic,
+            from = From,
+            to = To,
+            batch_size = BatchSize,
+            dirty = Dirty,
+            alias = Alias
+        }
+    ),
+    case Sync of
+        false ->
+            {async, Alias};
+        true ->
+            receive
+                ?ds_tx_commit_reply(Alias, Reply) ->
+                    del_batch_outcome(Reply)
+            end
+    end.
+
+-spec del_batch_outcome({'DOWN', reference(), _, _, _}) -> emqx_ds:del_batch_outcome().
+del_batch_outcome(Reply) ->
+    case Reply of
+        ?ds_tx_commit_ok(Ref, _Meta, Payload) ->
+            {More, NDeletions} = Payload,
+            client_post_commit_cleanup(Ref),
+            {ok, More, NDeletions};
         ?ds_tx_commit_error(Ref, _Meta, Class, Info) ->
             client_post_commit_cleanup(Ref),
             {error, Class, Info};
