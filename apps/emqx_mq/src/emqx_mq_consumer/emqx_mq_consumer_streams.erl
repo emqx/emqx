@@ -122,7 +122,7 @@ handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
             ignore;
         {data, ?SUB_ID, Stream, Handle, DSReply} ->
             {ok, Messages0, CS1} = handle_ds_reply(CS0, Stream, Handle, DSReply),
-            {Messages, CS} = ack_expired_messages(CS1, Messages0),
+            {Messages, CS} = ack_skipped_messages(CS1, Messages0),
             {ok, Messages, CS};
         {DSC, State} ->
             {ok, [], CS0#cs{ds_client = DSC, state = State}}
@@ -235,7 +235,8 @@ on_advance_generation(
             }
     end.
 
-get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards}) ->
+get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards, mq := MQ}) ->
+    StartTime = emqx_mq_prop:delivery_start_time(MQ),
     Result =
         case Shards of
             #{Shard := #{status := active, generation := Generation, stream_buffer := SB}} ->
@@ -245,15 +246,15 @@ get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards}) ->
                         %% has unacked messages, so its (starting) iterator cannot be end_of_stream.
                         {ok, end_of_stream};
                     It ->
-                        {subscribe, It}
+                        case replay_start_time(emqx_mq_consumer_stream_buffer:progress(SB)) of
+                            ReplayStart when ReplayStart < StartTime ->
+                                {undefined, #{start_time => StartTime}};
+                            _ ->
+                                {subscribe, It}
+                        end
                 end;
             _ ->
-                %% NOTE
-                %% It would be nice to create It ourselves with start_time
-                %% to skip outdated messages on the DS level.
-                %% But currently this is not possible because we cannot put the created It into
-                %% our state, and the ds client won't give it to us back in on_new_iterator callback.
-                undefined
+                {undefined, #{start_time => StartTime}}
         end,
     ?tp_debug(mq_consumer_streams_get_iterator, #{
         slab => {Shard, Generation}, stream => _Stream, result => Result
@@ -265,12 +266,20 @@ on_new_iterator(
     {Shard, Generation} = Slab,
     Stream,
     It,
-    #{shards := Shards} = State
+    #{shards := Shards, mq := MQ} = State
 ) ->
     ?tp_debug(mq_consumer_streams_on_new_iterator, #{
         slab => {Shard, Generation}, stream => Stream
     }),
     case Shards of
+        #{
+            Shard := #{
+                status := active, generation := Generation, stream := Stream, stream_buffer := SB0
+            } = ShardState
+        } ->
+            Progress = emqx_mq_consumer_stream_buffer:progress(SB0),
+            SB = emqx_mq_consumer_stream_buffer:restore(Progress#{it := It}, MQ),
+            {subscribe, State#{shards := Shards#{Shard := ShardState#{stream_buffer := SB}}}};
         #{Shard := #{status := finished, generation := OldGeneration}} when
             OldGeneration < Generation
         ->
@@ -343,6 +352,17 @@ save_progress_update(State, Shard) ->
     #{shards := #{Shard := ShardState}, progress_updates := ProgressUpdates} = State,
     Progress = shard_progress(ShardState),
     State#{progress_updates => ProgressUpdates#{Shard => Progress}}.
+
+replay_start_time(#{last_message_id := undefined}) ->
+    0;
+replay_start_time(#{last_message_id := LastMessageId, unacked := Unacked}) ->
+    lists:foldl(
+        fun(IDs, Earliest) ->
+            maps:fold(fun(ID, _, Acc) -> min(ID, Acc) end, Earliest, IDs)
+        end,
+        LastMessageId + 1,
+        Unacked
+    ).
 
 shard_progress(#{
     status := active, generation := Generation, stream := Stream, stream_buffer := StreamBuffer
@@ -460,10 +480,10 @@ do_handle_ds_reply(
             {[], CS#cs{ds_client = DSC, state = State}}
     end.
 
-ack_expired_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
+ack_skipped_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
     {CS, Messages} = lists:foldl(
         fun({Id, Message} = MesssageWithId, {CSAcc, MessagesAcc}) ->
-            case is_expired(MQ, Message) of
+            case is_expired(MQ, Message) orelse is_before_deliver_cutoff(MQ, Message) of
                 true ->
                     {handle_ack(CSAcc, Id), MessagesAcc};
                 false ->
@@ -512,6 +532,11 @@ is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, Message) when
     is_integer(DataRetentionPeriod)
 ->
     emqx_message:timestamp(Message) < now_ms() - DataRetentionPeriod.
+
+is_before_deliver_cutoff(#{deliver_cutoff_date := CutoffDate}, Message) ->
+    emqx_message:timestamp(Message) < CutoffDate;
+is_before_deliver_cutoff(_MQ, _Message) ->
+    false.
 
 now_ms() ->
     erlang:system_time(millisecond).

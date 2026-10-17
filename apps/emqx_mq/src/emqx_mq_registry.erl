@@ -19,6 +19,8 @@ The module contains the registry of Message Queues.
     find_by_id/1,
     match/1,
     delete/1,
+    purge/1,
+    purge/2,
     update/2,
     list/0,
     list/2,
@@ -192,6 +194,26 @@ delete(Name) ->
             not_found
     end.
 
+-doc "Reset quota indices and delete older data, then set the delivery cutoff to the purge timestamp.".
+-spec purge(emqx_mq_types:mq_name()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name) ->
+    maybe
+        {ok, #{id := Id} = MQ} ?= find(Name),
+        {ok, BeforeMs} ?= emqx_mq_message_db:purge(MQ),
+        update_mq_state(Id, #{deliver_cutoff_date => BeforeMs})
+    end.
+
+-doc "Purge queue data and set the delivery cutoff to the requested epoch millisecond.".
+-spec purge(emqx_mq_types:mq_name(), emqx_utils_calendar:epoch_millisecond()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name, BeforeMs) when is_integer(BeforeMs), BeforeMs >= 0 ->
+    maybe
+        {ok, #{id := Id} = MQ} ?= find(Name),
+        ok ?= emqx_mq_message_db:purge(MQ, BeforeMs),
+        update_mq_state(Id, #{deliver_cutoff_date => BeforeMs})
+    end.
+
 -doc """
 Delete the MQ by its Id.
 """.
@@ -311,12 +333,12 @@ update_by_id(Id, UpdateFields0) ->
             _ when NeedUpdateIndex ->
                 case update_index(Key, Id, UpdateFields) of
                     ok ->
-                        emqx_mq_state_storage:update_mq_state(Id, UpdateFields);
+                        update_mq_state(Id, UpdateFields);
                     not_found ->
                         not_found
                 end;
             _ ->
-                emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
+                update_mq_state(Id, UpdateFields)
         end
     end.
 
@@ -376,6 +398,26 @@ queue_count() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+%% A consumer keeps the settings it started with, so stop it if they changed.
+%% TODO: Apply queue updates without restarting the consumer.
+update_mq_state(Id, UpdateFields) ->
+    maybe
+        {ok, MQ, Changed} ?= emqx_mq_state_storage:update_mq_state(Id, UpdateFields),
+        case Changed of
+            false -> ok;
+            true -> ok = stop_consumer(Id)
+        end,
+        {ok, MQ}
+    end.
+
+stop_consumer(Id) ->
+    case emqx_mq_consumer:find(Id) of
+        {ok, ConsumerRef} ->
+            emqx_mq_consumer:stop(ConsumerRef);
+        not_found ->
+            ok
+    end.
+
 drop_queue_data(MQ) ->
     safe_with_log(
         MQ,
@@ -385,12 +427,7 @@ drop_queue_data(MQ) ->
 
 drop_consumer_state(MQ) ->
     Id = emqx_mq_prop:id(MQ),
-    case emqx_mq_consumer:find(Id) of
-        {ok, ConsumerRef} ->
-            emqx_mq_consumer:stop(ConsumerRef);
-        not_found ->
-            ok
-    end,
+    ok = stop_consumer(Id),
     safe_with_log(
         MQ,
         fun() -> emqx_mq_state_storage:destroy_consumer_state(MQ) end,

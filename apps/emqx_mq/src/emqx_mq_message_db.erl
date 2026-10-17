@@ -10,6 +10,9 @@ Facade for all operations with the message database.
 
 -behaviour(emqx_mq_quota_buffer).
 
+%% Async DS transactions require processing their commit replies to release transaction resources.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -28,7 +31,9 @@ Facade for all operations with the message database.
     suback/3,
     create_client/1,
     subscribe/4,
-    drop/1
+    drop/1,
+    purge/1,
+    purge/2
 ]).
 
 -export([
@@ -267,6 +272,33 @@ drop(MQHandle) ->
     DB = db(MQHandle),
     delete(DB, delete_topics(DB, MQHandle)).
 
+-doc """
+Reset quota indices at the purge start time, then delete older DS records.
+Commit each index reset before deleting messages in a separate transaction.
+Return the shared cutoff as epoch milliseconds for delivery filtering.
+Regular unlimited queues do not access or create quota indices.
+""".
+-spec purge(emqx_mq_types:mq()) ->
+    {ok, emqx_utils_calendar:epoch_millisecond()} | {error, term()}.
+purge(MQ) ->
+    BeforeMs = erlang:system_time(millisecond),
+    maybe
+        ok ?= purge(MQ, BeforeMs, full),
+        {ok, BeforeMs}
+    end.
+
+-doc """
+BeforeMs is an epoch timestamp in milliseconds.
+For regular unlimited queues, delete DS records before BeforeMs without accessing a quota index.
+For other queues, use the nearest index bucket boundary strictly before BeforeMs.
+Commit the index cutoff, then delete older DS records in a separate transaction per slab.
+Create a missing index in the first transaction and retain data when no earlier boundary exists.
+""".
+-spec purge(emqx_mq_types:mq(), emqx_utils_calendar:epoch_millisecond()) ->
+    ok | {error, term()}.
+purge(MQ, BeforeMs) when is_integer(BeforeMs), BeforeMs >= 0 ->
+    purge(MQ, BeforeMs, bounded).
+
 -spec delete_all() -> ok.
 delete_all() ->
     ok = delete(?MQ_MESSAGE_LASTVALUE_DB, [['#']]),
@@ -288,6 +320,7 @@ subscribe(#{stream_max_unacked := StreamMaxUnacked} = MQ, DSClient0, SubId, Stat
         db => db(MQ),
         id => SubId,
         topic => mq_message_topic(MQ, '#'),
+        start_time => emqx_mq_prop:delivery_start_time(MQ),
         ds_sub_opts => #{
             max_unacked => StreamMaxUnacked
         }
@@ -504,6 +537,78 @@ mq_index_topic(#{topic_filter := TopicFilter, id := Id} = _MQ) ->
 %% Other helper functions
 %%--------------------------------------------------------------------
 
+purge(MQ, BeforeMs, Mode) ->
+    DB = db(MQ),
+    BeforeUs = erlang:convert_time_unit(BeforeMs, millisecond, microsecond),
+    case emqx_ds:list_slabs(DB, #{}) of
+        {Slabs, []} ->
+            Errors = lists:filtermap(
+                fun(Slab) ->
+                    case purge_slab(DB, Slab, MQ, BeforeUs, Mode) of
+                        {atomic, _, ok} -> false;
+                        {error, IsRecoverable, Reason} -> {true, {Slab, {IsRecoverable, Reason}}}
+                    end
+                end,
+                maps:keys(Slabs)
+            ),
+            case Errors of
+                [] -> ok;
+                _ -> {error, Errors}
+            end;
+        {_Slabs, Errors} ->
+            {error, Errors}
+    end.
+
+purge_slab(DB, {Shard, Generation} = Slab, MQ, BeforeUs, Mode) ->
+    TxOpts = #{
+        db => DB,
+        shard => Shard,
+        generation => Generation,
+        sync => true,
+        retries => ?MQ_MESSAGE_DB_DELETE_RETRY,
+        retry_interval => ?MQ_MESSAGE_DB_DELETE_RETRY_DELAY
+    },
+    case emqx_mq_prop:is_append_only(MQ) of
+        true -> delete_before(TxOpts, MQ, BeforeUs);
+        false -> purge_indexed_slab(TxOpts, {DB, Slab}, MQ, BeforeUs, Mode)
+    end.
+
+purge_indexed_slab(TxOpts, TxKey, MQ, BeforeUs, Mode) ->
+    case emqx_ds:trans(TxOpts, fun() -> cutoff_index_tx(TxKey, MQ, BeforeUs, Mode) end) of
+        {atomic, Serial, 0} ->
+            {atomic, Serial, ok};
+        {atomic, _, CutoffUs} ->
+            ?tp(mq_message_db_purge_index_committed, #{tx_key => TxKey, cutoff_us => CutoffUs}),
+            ?tp(mq_message_db_purge_delete, #{tx_key => TxKey, cutoff_us => CutoffUs}),
+            delete_before(TxOpts, MQ, CutoffUs);
+        {error, _, _} = Error ->
+            Error
+    end.
+
+delete_before(TxOpts, MQ, CutoffUs) ->
+    emqx_ds:trans(TxOpts, fun() ->
+        emqx_ds:tx_del_topic(mq_message_topic(MQ, '#'), 0, CutoffUs)
+    end).
+
+cutoff_index_tx(TxKey, MQ, BeforeUs, Mode) ->
+    IndexTopic = mq_index_topic(MQ),
+    Opts = emqx_mq_prop:quota_index_opts(MQ),
+    Index0 =
+        case quota_buffer_flush_tx_read(TxKey, IndexTopic, Opts) of
+            undefined -> emqx_mq_quota_index:new(Opts, 0);
+            Stored -> Stored
+        end,
+    {CutoffUs, Index} =
+        case Mode of
+            bounded ->
+                emqx_mq_quota_index:cutoff(Index0, BeforeUs);
+            full ->
+                ok = emqx_ds:tx_del_topic(IndexTopic),
+                {BeforeUs, emqx_mq_quota_index:reset(Index0, BeforeUs)}
+        end,
+    ok = quota_buffer_flush_tx_write(TxKey, IndexTopic, Index),
+    CutoffUs.
+
 key(#{is_lastvalue := true, key_expression := KeyExpression} = MQ, Message) ->
     Bindings = #{message => message_to_map(Message)},
     case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
@@ -578,12 +683,7 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
                 sync => false
             },
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
-                lists:foreach(
-                    fun(Topic) ->
-                        emqx_ds:tx_del_topic(Topic)
-                    end,
-                    Topics
-                )
+                lists:foreach(fun emqx_ds:tx_del_topic/1, Topics)
             end),
             {Ref, Slab}
         end,

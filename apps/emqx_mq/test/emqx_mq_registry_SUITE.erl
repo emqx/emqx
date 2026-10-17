@@ -84,6 +84,52 @@ t_crud(_Config) ->
         emqx_mq_registry:match(<<"a/x/d">>)
     ).
 
+%% Verify that a stale queue read cannot suppress a restart after stored settings change.
+t_update_after_stale_read(_Config) ->
+    {ok, #{id := Id} = MQ0} = create_mq(<<"update_stale_read">>, <<"a/b/c">>),
+    UpdateFields = MQ0#{data_retention_period => 600_000},
+    {ok, MQ1} = emqx_mq_registry:update(<<"update_stale_read">>, UpdateFields),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ1, alias(), <<"client">>),
+
+    %% Simulate an update that read MQ0 before another update stored MQ1.
+    ok = meck:new(emqx_mq_state_storage, [passthrough, no_history]),
+    ok = meck:expect(emqx_mq_state_storage, find_mq, fun(Id0) when Id0 =:= Id -> {ok, MQ0} end),
+    Result = emqx_mq_registry:update(<<"update_stale_read">>, MQ0),
+    ok = meck:unload(emqx_mq_state_storage),
+
+    %% Restoring MQ0 changes the stored settings and must stop the MQ1 consumer.
+    ?assertEqual({ok, MQ0}, Result),
+    ?assertEqual({ok, MQ0}, emqx_mq_state_storage:find_mq(Id)),
+    ?retry(10, 100, ?assertNot(is_process_alive(ConsumerRef))).
+
+%% Check that purge stores the requested delivery cutoff and stops consumers using the previous settings.
+t_purge(_Config) ->
+    Name = <<"purge">>,
+    BeforeMs = erlang:system_time(millisecond),
+    ?assertEqual(not_found, emqx_mq_registry:purge(Name, BeforeMs)),
+    {ok, MQ} = create_mq(Name, <<"purge/#">>),
+    ?assertNot(maps:is_key(deliver_cutoff_date, MQ)),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ, alias(), <<"client">>),
+    ?assertEqual(
+        {ok, MQ#{deliver_cutoff_date => BeforeMs}}, emqx_mq_registry:purge(Name, BeforeMs)
+    ),
+    ?assertEqual({ok, MQ#{deliver_cutoff_date => BeforeMs}}, emqx_mq_registry:find(Name)),
+    ?retry(10, 100, ?assertNot(is_process_alive(ConsumerRef))).
+
+%% Check that full purge keeps the queue and stops its consumer after storing the purge start time.
+t_full_purge(_Config) ->
+    Name = <<"full_purge">>,
+    ?assertEqual(not_found, emqx_mq_registry:purge(Name)),
+    {ok, MQ0} = create_mq(Name, <<"purge/#">>),
+    {ok, ConsumerRef} = emqx_mq_consumer:connect(MQ0, alias(), <<"client">>),
+    StartMs = erlang:system_time(millisecond),
+    {ok, #{deliver_cutoff_date := CutoffMs} = MQ1} = emqx_mq_registry:purge(Name),
+    ?assert(CutoffMs >= StartMs),
+    ?assert(CutoffMs =< erlang:system_time(millisecond)),
+    ?assertEqual(MQ0#{deliver_cutoff_date => CutoffMs}, MQ1),
+    ?assertEqual({ok, MQ1}, emqx_mq_registry:find(Name)),
+    ?retry(10, 100, ?assertNot(is_process_alive(ConsumerRef))).
+
 t_validate_name(_Config) ->
     ?assertMatch(
         {ok, _},
