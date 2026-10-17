@@ -61,6 +61,95 @@ t_deliver_cutoff_date(_Config) ->
         ]
     ).
 
+%% Check that subscription start times use the later of retention and the optional delivery cutoff.
+t_delivery_start_time(_Config) ->
+    NowMs = erlang:system_time(millisecond),
+    RetentionMs = 60_000,
+    lists:foreach(
+        fun(#{settings := Settings, earliest := Earliest}) ->
+            StartUs = emqx_mq_prop:delivery_start_time(Settings),
+            ?assert(StartUs >= Earliest * 1000),
+            Latest = max(Earliest, erlang:system_time(millisecond) - RetentionMs),
+            ?assert(StartUs =< Latest * 1000)
+        end,
+        [
+            #{settings => #{data_retention_period => RetentionMs}, earliest => NowMs - RetentionMs},
+            #{
+                settings => #{
+                    data_retention_period => RetentionMs, deliver_cutoff_date => NowMs - 120_000
+                },
+                earliest => NowMs - RetentionMs
+            },
+            #{
+                settings => #{data_retention_period => RetentionMs, deliver_cutoff_date => NowMs},
+                earliest => NowMs
+            }
+        ]
+    ).
+
+%% Check that fresh and restored consumers skip old DS records while preserving acknowledgements.
+t_delivery_start_time_replay(_Config) ->
+    %% Store three records around the cutoff in one shard.
+    #{id := Id} =
+        MQ = emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"delivery_start_time">>,
+            topic_filter => <<"start/#">>,
+            is_lastvalue => true,
+            key_expression => <<"message.payload">>,
+            stream_max_buffer_size => 100,
+            stream_max_unacked => 100
+        }),
+    CutoffMs = erlang:system_time(millisecond) - 60_000,
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
+    [Shard | _] = emqx_ds:list_shards(DB),
+    #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ),
+    Records = [
+        begin
+            Message = emqx_message:make(<<"publisher">>, 1, <<"start/1">>, Payload),
+            {
+                [<<"topic">>, <<"start/#">>, Id, <<"key">>, Payload],
+                Timestamp * 1000,
+                emqx_mq_message_db:encode_message(Message#message{timestamp = Timestamp})
+            }
+        end
+     || #{payload := Payload, timestamp := Timestamp} <- [
+            #{payload => <<"old">>, timestamp => CutoffMs - 1},
+            #{payload => <<"boundary">>, timestamp => CutoffMs},
+            #{payload => <<"acked">>, timestamp => CutoffMs + 1}
+        ]
+    ],
+    ?assertMatch(
+        {atomic, _, ok},
+        emqx_ds:trans(#{db => DB, shard => Shard, generation => Generation}, fun() ->
+            lists:foreach(fun emqx_ds:tx_write/1, Records)
+        end)
+    ),
+
+    %% Save progress with old and boundary records unacknowledged.
+    CS0 = emqx_mq_consumer_streams:new(MQ, #{}),
+    {[_, _, {AckedId, _}], CS1} = receive_consumer_messages(CS0, 3),
+    CS2 = emqx_mq_consumer_streams:handle_ack(CS1, AckedId),
+    {Progress, CS3} = emqx_mq_consumer_streams:fetch_progress_updates(CS2),
+    _ = emqx_mq_consumer_streams:destroy(CS3),
+
+    %% Restore at the cutoff and read only the two retained records from DS.
+    MQ1 = MQ#{deliver_cutoff_date => CutoffMs},
+    Received0 = ds_received_messages(),
+    CS4 = emqx_mq_consumer_streams:new(MQ1, Progress),
+    {[{_, Boundary}], CS5} = receive_consumer_messages(CS4, 1),
+    ?assertEqual(<<"boundary">>, emqx_message:payload(Boundary)),
+    ?assertEqual(2, ds_received_messages() - Received0),
+    _ = emqx_mq_consumer_streams:destroy(CS5),
+
+    %% A fresh consumer also starts at the cutoff and delivers both retained records.
+    Received1 = ds_received_messages(),
+    CS6 = emqx_mq_consumer_streams:new(MQ1, #{}),
+    {Fresh, CS7} = receive_consumer_messages(CS6, 2),
+    ?assertEqual([<<"boundary">>, <<"acked">>], [emqx_message:payload(M) || {_, M} <- Fresh]),
+    ?assertEqual(2, ds_received_messages() - Received1),
+    _ = emqx_mq_consumer_streams:destroy(CS7),
+    ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))).
+
 t_restore_empty_stream_buffer(_Config) ->
     MQ = #{stream_max_buffer_size => 100},
     It = fake_iterator,
@@ -213,6 +302,26 @@ t_ack_from_unknown_subscriber(_Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
+receive_consumer_messages(CS, Count) ->
+    receive_consumer_messages(CS, Count, []).
+
+receive_consumer_messages(CS, Count, Acc) when length(Acc) >= Count ->
+    {Acc, CS};
+receive_consumer_messages(CS0, Count, Acc) ->
+    receive
+        Info ->
+            case emqx_mq_consumer_streams:handle_ds_info(CS0, Info) of
+                {ok, Messages, CS} -> receive_consumer_messages(CS, Count, Acc ++ Messages);
+                ignore -> receive_consumer_messages(CS0, Count, Acc)
+            end
+    after 5000 ->
+        ct:fail({missing_messages, Count, Acc})
+    end.
+
+ds_received_messages() ->
+    #{received_messages := Count} = emqx_mq_metrics:get_counters(ds),
+    Count.
+
 test_deliver_cutoff_date(IsLastvalue, Limits) ->
     Name = <<"deliver_cutoff_date">>,
     Now = erlang:system_time(millisecond),
@@ -242,7 +351,7 @@ test_deliver_cutoff_date(IsLastvalue, Limits) ->
     [Shard | _] = emqx_ds:list_shards(DB),
     #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ),
 
-    %% Put storage and message timestamps on opposite sides of the cutoff.
+    %% Store old messages after the cutoff to check delivery filtering after the DS seek.
     Records = [
         begin
             Message = emqx_message:make(<<"publisher">>, 1, <<"t/1">>, Payload),
@@ -253,13 +362,13 @@ test_deliver_cutoff_date(IsLastvalue, Limits) ->
             }
         end
      || {Payload, StoredAt, PublishedAt} <- [
-            {<<"old-1">>, CutoffUs - 6, Cutoff - 3},
-            {<<"old-2">>, CutoffUs - 5, Cutoff - 2},
-            {<<"old-3">>, CutoffUs - 4, Cutoff - 1},
-            {<<"boundary">>, CutoffUs - 3, Cutoff},
-            {<<"fresh">>, CutoffUs - 2, Cutoff + 1},
-            {<<"late-old">>, CutoffUs + 1, Cutoff - 1},
-            {<<"expired">>, CutoffUs + 2, Now - 7_200_000}
+            {<<"old-1">>, CutoffUs + 1, Cutoff - 3},
+            {<<"old-2">>, CutoffUs + 2, Cutoff - 2},
+            {<<"old-3">>, CutoffUs + 3, Cutoff - 1},
+            {<<"boundary">>, CutoffUs, Cutoff},
+            {<<"fresh">>, CutoffUs + 1000, Cutoff + 1},
+            {<<"late-old">>, CutoffUs + 1001, Cutoff - 1},
+            {<<"expired">>, CutoffUs + 1002, Now - 7_200_000}
         ]
     ],
     ?assertMatch(

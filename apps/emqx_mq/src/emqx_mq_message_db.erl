@@ -317,6 +317,7 @@ subscribe(#{stream_max_unacked := StreamMaxUnacked} = MQ, DSClient0, SubId, Stat
         db => db(MQ),
         id => SubId,
         topic => mq_message_topic(MQ, '#'),
+        start_time => emqx_mq_prop:delivery_start_time(MQ),
         ds_sub_opts => #{
             max_unacked => StreamMaxUnacked
         }
