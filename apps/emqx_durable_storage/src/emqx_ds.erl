@@ -42,6 +42,9 @@ It takes care of forwarding calls to the underlying DBMS.
 %% Message storage API:
 -export([dirty_append/2, dirty_append_outcome/2]).
 
+%% Mass deletion API:
+-export([del_batch/6, del_batch_outcome/3]).
+
 %% Transactional API (low-level):
 -export([new_tx/2, commit_tx/3]).
 
@@ -120,6 +123,8 @@ It takes care of forwarding calls to the underlying DBMS.
     message_key/0,
     dirty_append_opts/0,
     dirty_append_data/0,
+    del_batch_opts/0,
+    del_batch_outcome/0,
     next_limit/0,
     next_result/1, next_result/0,
     topic_range/0,
@@ -440,6 +445,18 @@ Options for the `subscribe` API.
         end_time => time() | infinity
     }.
 
+-type del_batch_opts() :: #{
+    sync => boolean(),
+    timeout => timeout(),
+    retries => non_neg_integer(),
+    retry_interval => pos_integer(),
+    max_mql => pos_integer() | infinity,
+    batch_size => pos_integer(),
+    dirty => boolean()
+}.
+
+-type del_batch_outcome() :: {ok, _More :: boolean()} | emqx_ds:error(_).
+
 -record(fold_ctx, {
     db :: db(),
     tf :: topic_filter(),
@@ -579,6 +596,11 @@ must not assume the default values.
 
 -callback dirty_append(dirty_append_opts(), dirty_append_data()) ->
     reference() | noreply.
+
+-callback del_batch(db(), stream(), topic_range(), del_batch_opts()) ->
+    del_batch_outcome() | {async, reference()}.
+
+-callback del_batch_outcome(term()) -> del_batch_outcome().
 
 %% Synchronous read API:
 -callback get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
@@ -952,6 +974,101 @@ dirty_append(#{db := DB, shard := _} = UserOpts, Data) ->
         begin
             Opts = maps:merge(#{reply => true}, UserOpts),
             Mod:dirty_append(Opts, Data)
+        end
+    ).
+
+-doc """
+This function is used to delete large volumes of data from durable storage in chunks.
+
+Return type:
+
+- `{ok, true}`: the function deleted a batch of messages,
+   `Nmsgs` in total, but more remain. The business logic should call
+   this function again to process the next chunk.
+
+- `{ok, false}`: no more objects to delete.
+
+- `{error, _, _}`: standard error reporting mechanism.
+
+Options:
+
+- **`sync`**: return control immediately and return tuple `{async, Ref}`.
+
+  Result of the operation is sent to the caller asynchronously as a
+  message that should be matched using `?ds_tx_commit_reply(Ref, Reply)`
+  macro. This macro binds `Reply` to a variable that should be passed
+  to `emqx_ds:del_batch_outcome` function to get the outcome of the
+  operation. For example:
+
+  ```erlang
+  {async, Ref} = emqx_ds:del_batch(DB, Shard, Stream, ['#'], 0, infinity, #{sync => false}),
+  receive
+    ?ds_tx_commit_reply(Ref, Reply) ->
+       Outcome = emqx_ds:del_batch_outcome(DB, Ref, Reply)
+  end.
+  ```
+
+  Default: `true`
+
+- **`batch_size`** Maximum number of deletions in a batch.
+
+  Default: 100
+
+- **`dirty`** If possible, bypass optimistic transaction conflict checks.
+  WARNING: Dirty deletions may break any properties of normal transactions.
+
+- **`timeout`**: Same as in `trans/2`
+
+- **`retries`**: Same as in `trans/2`
+
+- **`retry_interval`**: Same as in `trans/2`
+
+- **`max_mql`**: Same as in `trans/2`
+
+""".
+-spec del_batch(
+    db(),
+    stream(),
+    topic(),
+    time(),
+    time() | infinity,
+    del_batch_opts()
+) -> del_batch_outcome() | {async, reference()}.
+del_batch(DB, Stream, Topic, From, To, UserOpts) ->
+    Defaults = #{
+        sync => true,
+        batch_size => 100,
+        timeout => 5_000,
+        retries => 0,
+        retry_interval => 1_000,
+        max_mql => 100,
+        dirty => false
+    },
+    Opts = maps:merge(Defaults, UserOpts),
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        begin
+            #{retries := Retries} = Opts,
+            maybe_middleman(
+                Opts,
+                fun() ->
+                    del_batch_maybe_retry(Mod, DB, Stream, {Topic, From, To}, Opts, Retries)
+                end
+            )
+        end
+    ).
+
+-doc """
+Process asynchronous DS `del_batch` reply and return the outcome.
+""".
+-spec del_batch_outcome(db(), reference(), term()) -> del_batch_outcome().
+del_batch_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        begin
+            Mod:del_batch_outcome(Reply)
         end
     ).
 
@@ -2059,7 +2176,12 @@ handle_destroy_group(Id, S0 = #s{groups = G0}) ->
     non_neg_integer()
 ) ->
     transaction_result(Ret).
-trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval, sync := _Sync}, Retries) ->
+trans_maybe_retry(
+    DB,
+    Fun,
+    Opts = #{retry_interval := RetryInterval, shard := Shard, sync := _Sync},
+    Retries
+) ->
     case trans_inner(DB, Fun, Opts) of
         ?err_rec(Reason) when Retries > 0 ->
             ?tp(
@@ -2067,6 +2189,7 @@ trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval, sync := _Sy
                 emqx_ds_tx_retry,
                 #{
                     db => DB,
+                    shard => Shard,
                     tx_fun => Fun,
                     opts => Opts,
                     attempts_left => Retries,
@@ -2178,6 +2301,36 @@ tx_maybe_save_side_effects(Ref) ->
 
 tx_eval_side_effects(L) ->
     lists:foreach(fun(F) -> F() end, L).
+
+-spec del_batch_maybe_retry(
+    module(), db(), stream(), topic_range(), del_batch_opts(), non_neg_integer()
+) ->
+    del_batch_outcome() | {async, reference()}.
+del_batch_maybe_retry(
+    CBM,
+    DB,
+    Stream,
+    TopicRange,
+    Opts = #{retry_interval := RetryInterval},
+    Retries
+) ->
+    case CBM:del_batch(DB, Stream, TopicRange, Opts) of
+        ?err_rec(Reason) when Retries > 0 ->
+            ?tp(
+                debug,
+                emqx_ds_del_batch_retry,
+                #{
+                    db => DB,
+                    opts => Opts,
+                    attempts_left => Retries,
+                    reason => Reason
+                }
+            ),
+            timer:sleep(RetryInterval),
+            del_batch_maybe_retry(CBM, DB, Stream, TopicRange, Opts, Retries - 1);
+        Other ->
+            Other
+    end.
 
 -spec fold_streams(
     fold_fun(Acc), Acc, [error(_)], [{slab(), stream(), iterator()}], fold_ctx()
@@ -2341,7 +2494,10 @@ safe_call(Mod, Fun, Args) ->
 %% Sync transactions don't support ref-trick optimization. So running
 %% them in a process that has long message queue would be inefficient.
 %% This function spawns a helper process if needed.
--spec maybe_middleman(transaction_opts(), fun(() -> A)) -> A.
+-spec maybe_middleman(
+    #{sync := boolean(), max_mql := pos_integer() | infinity, _ => _},
+    fun(() -> A)
+) -> A.
 maybe_middleman(#{sync := true, max_mql := MaxMQL}, Fun) when is_integer(MaxMQL) ->
     case process_info(self(), message_queue_len) of
         {message_queue_len, MQL} when MQL >= MaxMQL ->

@@ -31,6 +31,9 @@
     make_iterator/4,
     next/3,
 
+    del_batch/4,
+    del_batch_outcome/1,
+
     subscribe/3,
     unsubscribe/2,
     suback/3,
@@ -72,6 +75,7 @@
     otx_get_latest_generation/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
+    otx_prepare_del_batch/4,
     otx_commit_tx_batch/5,
     otx_add_generation/3,
     otx_lookup_ttv/4,
@@ -357,6 +361,24 @@ next(DB, Iter, N) ->
             Result
     end.
 
+-spec del_batch(
+    emqx_ds:db(),
+    emqx_ds:ds_specific_stream(),
+    emqx_ds:topic_range(),
+    emqx_ds:del_batch_opts()
+) -> emqx_ds:del_batch_outcome().
+del_batch(DB, Stream = #'Stream'{shard = Shard}, TopicRange, Opts) ->
+    case otx_get_leader(DB, Shard) of
+        Leader when is_pid(Leader) ->
+            emqx_ds_optimistic_tx:del_batch(Leader, DB, Stream, TopicRange, Opts);
+        undefined ->
+            ?err_rec(leader_unavailable)
+    end.
+
+-spec del_batch_outcome({'DOWN', reference(), _, _, _}) -> emqx_ds:del_batch_outcome().
+del_batch_outcome(Reply) ->
+    emqx_ds_optimistic_tx:del_batch_outcome(Reply).
+
 -spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), reference()}.
 subscribe(DB, It = #'Iterator'{shard = Shard}, SubOpts) ->
@@ -457,8 +479,26 @@ otx_get_leader(DB, Shard) ->
 otx_get_latest_generation(DB, Shard) ->
     emqx_ds_storage_layer:generation_current({DB, Shard}).
 
+-spec otx_prepare_tx(
+    {emqx_ds:db(), emqx_ds:shard()},
+    emqx_ds:generation(),
+    _SerialBin :: binary(),
+    emqx_ds:tx_ops(),
+    emqx_ds_optimistic_tx:tx_prepare_opts()
+) ->
+    {ok, emqx_ds_storage_layer_ttv:cooked_tx()} | emqx_ds:error(_).
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
     emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
+
+-spec otx_prepare_del_batch(
+    emqx_ds:db(),
+    emqx_ds:ds_specific_stream(),
+    {emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity},
+    emqx_ds_optimistic_tx:del_batch_prepare_opts()
+) ->
+    {ok, boolean(), emqx_ds_storage_layer_ttv:cooked_tx()} | emqx_ds:error(_).
+otx_prepare_del_batch(DB, Stream, TopicRange, Opts) ->
+    emqx_ds_storage_layer_ttv:prepare_del_batch(DB, Stream, TopicRange, Opts).
 
 otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     case get_tx_persistent_serial(DB, Shard) of

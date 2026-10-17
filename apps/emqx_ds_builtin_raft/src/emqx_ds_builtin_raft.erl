@@ -34,6 +34,9 @@ This is the entrypoint into the `builtin_raft` backend.
     make_iterator/4,
     next/3,
 
+    del_batch/4,
+    del_batch_outcome/1,
+
     subscribe/3,
     unsubscribe/2,
     suback/3,
@@ -75,6 +78,7 @@ This is the entrypoint into the `builtin_raft` backend.
     otx_get_latest_generation/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
+    otx_prepare_del_batch/4,
     otx_commit_tx_batch/5,
     otx_add_generation/3,
     otx_lookup_ttv/4,
@@ -624,6 +628,24 @@ commit_tx(DB, Ctx = #kv_tx_ctx{shard = Shard}, Ops) ->
 tx_commit_outcome(Reply) ->
     emqx_ds_optimistic_tx:tx_commit_outcome(Reply).
 
+-spec del_batch(
+    emqx_ds:db(),
+    emqx_ds:ds_specific_stream(),
+    emqx_ds:topic_range(),
+    emqx_ds:del_batch_opts()
+) -> {async, reference()} | emqx_ds:error(_).
+del_batch(DB, Stream = #'Stream'{shard = Shard}, TopicRange, Opts) ->
+    case lookup_global_otx_leader(DB, Shard) of
+        Leader when is_pid(Leader) ->
+            emqx_ds_optimistic_tx:del_batch(Leader, DB, Stream, TopicRange, Opts);
+        undefined ->
+            ?err_rec(leader_unavailable)
+    end.
+
+-spec del_batch_outcome({'DOWN', reference(), _, _, _}) -> emqx_ds:del_batch_outcome().
+del_batch_outcome(Reply) ->
+    emqx_ds_optimistic_tx:del_batch_outcome(Reply).
+
 %%================================================================================
 %% `emqx_dsch' behavior callbacks
 %%================================================================================
@@ -748,6 +770,16 @@ otx_become_leader(DB, Shard) ->
     {ok, _CookedTx} | emqx_ds:error(_).
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
     emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
+
+-spec otx_prepare_del_batch(
+    emqx_ds:db(),
+    emqx_ds:ds_specific_stream(),
+    {emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity},
+    emqx_ds_optimistic_tx:del_batch_prepare_opts()
+) ->
+    {ok, boolean(), emqx_ds_storage_layer_ttv:cooked_tx()} | emqx_ds:error(_).
+otx_prepare_del_batch(DB, Stream, TopicRange, Opts) ->
+    emqx_ds_storage_layer_ttv:prepare_del_batch(DB, Stream, TopicRange, Opts).
 
 otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     Command = emqx_ds_builtin_raft_machine:otx_commit(SerCtl, Serial, Timestamp, Batches, self()),

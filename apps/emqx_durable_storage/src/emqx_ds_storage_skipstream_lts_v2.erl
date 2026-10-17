@@ -19,6 +19,7 @@
     open/5,
     drop/5,
     prepare_tx/7,
+    prepare_del_batch/5,
     commit_batch/4,
     get_streams/4,
     make_iterator/6,
@@ -195,6 +196,21 @@ prepare_tx(_DBShard, PTSchema, S, TXID, #{max_ops := MaxOps}, TxWrites, TxDelete
         erase(?ops_counter)
     end.
 
+prepare_del_batch(_DBShard, S, Stream, {Topic, From, To}, #{batch_size := BatchSize}) ->
+    _ = emqx_ds_gen_skipstream_lts:pop_lts_persist_ops(),
+    maybe
+        {ok, Static, Varying, ItPos} ?= make_internal_iterator(S, Stream, Topic, From),
+        ItLimit = time_limit(S, To),
+        {LeftOver, OperationsCooked} = cook_blob_deletes2(
+            S#s.gs, Static, Varying, ItPos, ItLimit, BatchSize, []
+        ),
+        More = LeftOver =:= 0,
+        {ok, More, #{
+            ?cooked_msg_ops => OperationsCooked,
+            ?cooked_lts_ops => emqx_ds_gen_skipstream_lts:pop_lts_persist_ops()
+        }}
+    end.
+
 cook_blob_writes(_, _, _TXID, [], Acc) ->
     lists:reverse(Acc);
 cook_blob_writes(PTransFun, S = #s{}, TXID, [{Topic, TS0, Value0} | Rest], Acc) ->
@@ -222,6 +238,7 @@ cook_blob_writes(PTransFun, S = #s{}, TXID, [{Topic, TS0, Value0} | Rest], Acc) 
     cook_blob_writes(PTransFun, S, TXID, Rest, [?cooked_msg_op(Static, Varying, TS, Value) | Acc]).
 
 cook_blob_deletes(S, Topics, Acc0) ->
+    %% Iterate over topic-filters:
     lists:foldl(
         fun({TopicFilter, FromTime, ToTime}, Acc) ->
             cook_blob_deletes1(S, TopicFilter, FromTime, ToTime, Acc)
@@ -231,32 +248,42 @@ cook_blob_deletes(S, Topics, Acc0) ->
     ).
 
 cook_blob_deletes1(S, TopicFilter, FromTime, ToTime, Acc0) ->
+    %% Iterator over streams of a topic-filter:
     lists:foldl(
-        fun(Stream, Acc) ->
+        fun(Stream, Acc1) ->
             {ok, Static, Varying, ItPos} = make_internal_iterator(S, Stream, TopicFilter, FromTime),
             ItLimit = time_limit(S, ToTime),
-            cook_blob_deletes2(S#s.gs, Static, Varying, ItPos, ItLimit, Acc)
+            SizeLimit = infinity,
+            {_, Acc} = cook_blob_deletes2(S#s.gs, Static, Varying, ItPos, ItLimit, SizeLimit, Acc1),
+            Acc
         end,
         Acc0,
         get_streams(S#s.trie, TopicFilter)
     ).
 
-cook_blob_deletes2(GS, Static, Varying, ItStart, ItLimit, Acc0) ->
+cook_blob_deletes2(_GS, _Static, _Varying, _ItStart, _ItLimit, SizeLimit, Acc) when
+    SizeLimit =< 0
+->
+    {0, Acc};
+cook_blob_deletes2(GS, Static, Varying, ItStart, ItLimit, SizeLimit0, Acc0) ->
+    %% Iterate over stream batches:
     Fun = fun(_TopicStructure, _DSKey, Var, TS, _Val, Acc) ->
         [?cooked_msg_op(Static, Var, TS, ?cooked_delete) | Acc]
     end,
     Interval = {'[', ItStart, ItLimit},
-    BatchSize = 100,
+    BatchSize = min(100, SizeLimit0),
     %% Note: we don't reverse the batch here.
     case emqx_ds_gen_skipstream_lts:fold(GS, Static, Varying, Interval, BatchSize, Acc0, Fun) of
         {ok, NextStreamKey, LeftoverIterations, Acc} ->
-            consume_ops(BatchSize - LeftoverIterations),
+            NOps = BatchSize - LeftoverIterations,
+            consume_ops(NOps),
+            SizeLimit = subtr(SizeLimit0, NOps),
             case LeftoverIterations of
                 0 ->
-                    %% Fold consumed all iterations, run the next batch:
-                    cook_blob_deletes2(GS, Static, Varying, NextStreamKey, ItLimit, Acc);
+                    %% We consumed all iterations, next batch is needed:
+                    cook_blob_deletes2(GS, Static, Varying, NextStreamKey, ItLimit, SizeLimit, Acc);
                 _ when LeftoverIterations > 0 ->
-                    Acc
+                    {SizeLimit, Acc}
             end;
         {error, _, _} = Err ->
             error(Err)
@@ -587,6 +614,11 @@ consume_ops(N) ->
         _ ->
             ok
     end.
+
+subtr(infinity, _) ->
+    infinity;
+subtr(N, M) when is_integer(N), is_integer(M) ->
+    N - M.
 
 %%================================================================================
 %% Tests
