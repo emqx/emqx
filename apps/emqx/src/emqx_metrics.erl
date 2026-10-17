@@ -85,7 +85,7 @@
 
 -compile({inline, [inc_global/1, inc_global/2, dec_global/1, dec_global/2]}).
 -compile({inline, [inc/2, inc/3, dec/2, dec/3]}).
--compile({inline, [inc_recv/2, inc_sent/2, inc_reserved/2]}).
+-compile({inline, [inc_recv/2, inc_sent/2, inc_reserved/2, update_counter/3, get_counters_ref/1]}).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
