@@ -14,15 +14,15 @@
 ## zmstone
 
 ## apps
-/apps/emqx_auth/           @emqx/emqx-review-board @JimMoen
-/apps/emqx_connector/      @emqx/emqx-review-board @JimMoen
-/apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen
-/apps/emqx_dashboard_sso/  @emqx/emqx-review-board @JimMoen
-/apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen
-/apps/emqx_plugins/        @emqx/emqx-review-board @JimMoen
-/apps/emqx_prometheus/     @emqx/emqx-review-board @JimMoen
-/apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
-/apps/emqx_durable_storage/ @emqx/emqx-review-board @keynslug
+/apps/emqx_auth/           @emqx/emqx-review-board
+/apps/emqx_connector/      @emqx/emqx-review-board
+/apps/emqx_dashboard/      @emqx/emqx-review-board
+/apps/emqx_dashboard_sso/  @emqx/emqx-review-board
+/apps/emqx_exhook/         @emqx/emqx-review-board
+/apps/emqx_plugins/        @emqx/emqx-review-board
+/apps/emqx_prometheus/     @emqx/emqx-review-board
+/apps/emqx_statsd/         @emqx/emqx-review-board
+/apps/emqx_durable_storage/ @emqx/emqx-review-board
 
 ## @Meggielqk owns all files in any i18n directory anywhere in the project
 /i18n/ @Meggielqk
