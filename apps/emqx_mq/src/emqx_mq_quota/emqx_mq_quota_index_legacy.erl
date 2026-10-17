@@ -96,15 +96,15 @@ apply_update(Records, MaxTsUs, {TsUs, 0}, _Opts) ->
 apply_update(Records0, MaxTsUs0, {TsUs, Value}, #{max := Max, threshold_percentage := Percentage}) ->
     Threshold = max(1, Percentage * Max div 100),
     MaxTsUs1 = max(MaxTsUs0, TsUs),
-    {MaxTsUs, Records1} =
+    {MaxTsUs, Records2} =
         case Value > 0 of
             true ->
-                {NextMaxTsUs, Advanced} = maybe_advance(Records0, MaxTsUs1, TsUs, Value, Threshold),
-                {NextMaxTsUs, insert_record(Advanced, TsUs, Value)};
+                {MaxTsUs2, Records1} = maybe_advance(Records0, MaxTsUs1, TsUs, Value, Threshold),
+                {MaxTsUs2, insert_record(Records1, TsUs, Value)};
             false ->
                 {MaxTsUs1, delete_record(Records0, TsUs, -Value)}
         end,
-    {MaxTsUs, compact_records(Records1, Threshold, Max, 0)}.
+    {MaxTsUs, compact_records(Records2, Threshold, Max, 0)}.
 
 -spec deadline([#'StorageIndexRecord'{}], #{max := pos_integer()}) -> non_neg_integer().
 deadline(Records, #{max := Max}) ->

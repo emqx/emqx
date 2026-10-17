@@ -274,12 +274,12 @@ on_new_iterator(
     case Shards of
         #{
             Shard := #{
-                status := active, generation := Generation, stream := Stream, stream_buffer := SB
+                status := active, generation := Generation, stream := Stream, stream_buffer := SB0
             } = ShardState
         } ->
-            Progress = emqx_mq_consumer_stream_buffer:progress(SB),
-            UpdatedSB = emqx_mq_consumer_stream_buffer:restore(Progress#{it := It}, MQ),
-            {subscribe, State#{shards := Shards#{Shard := ShardState#{stream_buffer := UpdatedSB}}}};
+            Progress = emqx_mq_consumer_stream_buffer:progress(SB0),
+            SB = emqx_mq_consumer_stream_buffer:restore(Progress#{it := It}, MQ),
+            {subscribe, State#{shards := Shards#{Shard := ShardState#{stream_buffer := SB}}}};
         #{Shard := #{status := finished, generation := OldGeneration}} when
             OldGeneration < Generation
         ->

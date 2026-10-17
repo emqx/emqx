@@ -89,24 +89,24 @@ t_rolling_upgrade(_Config) ->
     Opts = #{bytes => 1000, count => 100, threshold_percentage => 10},
     Index0 = emqx_mq_quota_index:new(Opts, 10),
     Index1 = emqx_mq_quota_index:apply_updates(Index0, [{10, 30, 1}, {20, 40, 1}]),
-    Stored1 = index_encode_asn_decode(Index1),
+    Stored0 = index_encode_asn_decode(Index1),
     ?assertMatch(
         #'StorageIndex'{
             bytes = [#'StorageIndexRecord'{tsUs = 10, value = 70}],
             count = [#'StorageIndexRecord'{tsUs = 10, value = 2}],
             common = [#'StorageIndexBucket'{tsUs = 10, bytes = 70, count = 2}]
         },
-        Stored1
+        Stored0
     ),
 
     %% Simulate old code adding a message and saving without the common field.
-    OldWrite = Stored1#'StorageIndex'{
+    Stored1 = Stored0#'StorageIndex'{
         maxTsUs = 30,
         bytes = [#'StorageIndexRecord'{tsUs = 10, value = 120}],
         count = [#'StorageIndexRecord'{tsUs = 10, value = 3}],
         common = asn1_NOVALUE
     },
-    Index2 = asn_encode_index_decode(Opts, OldWrite),
+    Index2 = asn_encode_index_decode(Opts, Stored1),
     Stored2 = index_encode_asn_decode(Index2),
     ?assertMatch(
         [#'StorageIndexBucket'{tsUs = 10, bytes = 120, count = 3}],
@@ -121,16 +121,16 @@ t_rolling_upgrade(_Config) ->
         #'StorageIndex'{bytes = asn1_NOVALUE, count = asn1_NOVALUE, common = [_ | _]},
         index_encode_asn_decode(Index3)
     ),
-    Restored = emqx_mq_quota_index:decode(Opts, emqx_mq_quota_index:encode(Index3)),
-    ?assertEqual(emqx_mq_quota_index:inspect(Index3), emqx_mq_quota_index:inspect(Restored)),
+    Index4 = emqx_mq_quota_index:decode(Opts, emqx_mq_quota_index:encode(Index3)),
+    ?assertEqual(emqx_mq_quota_index:inspect(Index3), emqx_mq_quota_index:inspect(Index4)),
     ?assertMatch(
-        #{common := #{total := #{bytes := 130, count := 4}}}, emqx_mq_quota_index:inspect(Restored)
+        #{common := #{total := #{bytes := 130, count := 4}}}, emqx_mq_quota_index:inspect(Index4)
     ).
 
 %% Check that legacy byte and message-count lists retain their own timestamp ranges during updates.
 t_independent_legacy_updates(_Config) ->
     Opts = #{bytes => 10000, count => 1000, threshold_percentage => 10},
-    Legacy = #'StorageIndex'{
+    Stored0 = #'StorageIndex'{
         maxTsUs = 100,
         bytes = [
             #'StorageIndexRecord'{tsUs = 80, value = 100},
@@ -141,27 +141,27 @@ t_independent_legacy_updates(_Config) ->
             #'StorageIndexRecord'{tsUs = 20, value = 3}
         ]
     },
-    Index0 = asn_encode_index_decode(Opts, Legacy),
-    Migrated = index_encode_asn_decode(Index0),
-    ?assertEqual(Legacy#'StorageIndex'.bytes, Migrated#'StorageIndex'.bytes),
-    ?assertEqual(Legacy#'StorageIndex'.count, Migrated#'StorageIndex'.count),
+    Index0 = asn_encode_index_decode(Opts, Stored0),
+    Stored1 = index_encode_asn_decode(Index0),
+    ?assertEqual(Stored0#'StorageIndex'.bytes, Stored1#'StorageIndex'.bytes),
+    ?assertEqual(Stored0#'StorageIndex'.count, Stored1#'StorageIndex'.count),
 
     Index1 = emqx_mq_quota_index:apply_updates(Index0, [{90, 40, 1}, {30, -20, -1}]),
-    Stored = index_encode_asn_decode(Index1),
+    Stored2 = index_encode_asn_decode(Index1),
     ?assertEqual(
         [
             #'StorageIndexRecord'{tsUs = 80, value = 140},
             #'StorageIndexRecord'{tsUs = 10, value = 180}
         ],
-        Stored#'StorageIndex'.bytes
+        Stored2#'StorageIndex'.bytes
     ),
     ?assertEqual(
         [#'StorageIndexRecord'{tsUs = 70, value = 3}, #'StorageIndexRecord'{tsUs = 20, value = 2}],
-        Stored#'StorageIndex'.count
+        Stored2#'StorageIndex'.count
     ),
     ?assertEqual(
         [#'StorageIndexBucket'{tsUs = 10, bytes = 320, count = 5}],
-        Stored#'StorageIndex'.common
+        Stored2#'StorageIndex'.common
     ),
     ?assertMatch(
         #{
@@ -179,17 +179,19 @@ t_independent_legacy_updates(_Config) ->
     ),
 
     %% Check that decoding restores the same buckets after old code omits the common field.
-    OldWrite = Stored#'StorageIndex'{common = asn1_NOVALUE},
-    Index2 = asn_encode_index_decode(Opts, OldWrite),
-    ?assertEqual(Stored, index_encode_asn_decode(Index2)).
+    Stored3 = Stored2#'StorageIndex'{common = asn1_NOVALUE},
+    Index2 = asn_encode_index_decode(Opts, Stored3),
+    ?assertEqual(Stored2, index_encode_asn_decode(Index2)).
 
 %% Check that reaching the message-count threshold splits count and common buckets but not byte buckets.
 t_independent_legacy_thresholds(_Config) ->
     Opts = #{bytes => 10000, count => 20, threshold_percentage => 10},
     Index0 = emqx_mq_quota_index:new(Opts, 10),
     Updates = [{Ts, 10, 1} || Ts <- lists:seq(10, 100, 10)],
-    Index = emqx_mq_quota_index:apply_updates(Index0, Updates),
-    #'StorageIndex'{bytes = Bytes, count = Count, common = Common} = index_encode_asn_decode(Index),
+    Index1 = emqx_mq_quota_index:apply_updates(Index0, Updates),
+    #'StorageIndex'{bytes = Bytes, count = Count, common = Common} = index_encode_asn_decode(
+        Index1
+    ),
     ?assertEqual([#'StorageIndexRecord'{tsUs = 10, value = 100}], Bytes),
     ?assert(length(Count) > 2),
     ?assert(length(Common) > 2),
@@ -226,15 +228,15 @@ t_common_only_updates(_Config) ->
         },
         emqx_mq_quota_index:inspect(Index2)
     ),
-    Restored = asn_encode_index_decode(Opts, index_encode_asn_decode(Index2)),
-    Index3 = emqx_mq_quota_index:apply_updates(Restored, [{10, -30, -1}, {30, 50, 1}]),
+    Index3 = asn_encode_index_decode(Opts, index_encode_asn_decode(Index2)),
+    Index4 = emqx_mq_quota_index:apply_updates(Index3, [{10, -30, -1}, {30, 50, 1}]),
     ?assertMatch(
         #'StorageIndex'{
             bytes = asn1_NOVALUE,
             count = asn1_NOVALUE,
             common = [#'StorageIndexBucket'{tsUs = 10, bytes = 90, count = 2}]
         },
-        index_encode_asn_decode(Index3)
+        index_encode_asn_decode(Index4)
     ).
 
 %% Check common bucket byte and message counts after out-of-order inserts, replacements, and deletions.
@@ -287,11 +289,11 @@ t_shared_deadline(_Config) ->
     lists:foreach(
         fun(#{bytes := Bytes, count := Count, expected_deadline := Expected}) ->
             Opts = #{bytes => Bytes, count => Count, threshold_percentage => 10},
-            Index = asn_encode_index_decode(Opts, #'StorageIndex'{maxTsUs = 50, common = Common}),
-            ?assertEqual(Expected, emqx_mq_quota_index:deadline(Index)),
-            Compacted = emqx_mq_quota_index:apply_update(Index, {50, 0, 0}),
-            ?assertEqual(Expected, emqx_mq_quota_index:deadline(Compacted)),
-            Stored = index_encode_asn_decode(Compacted),
+            Index0 = asn_encode_index_decode(Opts, #'StorageIndex'{maxTsUs = 50, common = Common}),
+            ?assertEqual(Expected, emqx_mq_quota_index:deadline(Index0)),
+            Index1 = emqx_mq_quota_index:apply_update(Index0, {50, 0, 0}),
+            ?assertEqual(Expected, emqx_mq_quota_index:deadline(Index1)),
+            Stored = index_encode_asn_decode(Index1),
             ?assert(
                 lists:all(
                     fun(#'StorageIndexBucket'{tsUs = Ts}) -> Ts >= Expected end,
@@ -471,40 +473,40 @@ t_migration_ignores_old_updates(_Config) ->
 t_repeated_legacy_rewrites(_Config) ->
     Opts = #{bytes => 100, count => 10, threshold_percentage => 10},
     Index0 = emqx_mq_quota_index:new(Opts, 10),
-    {Index, _Messages} = lists:foldl(
-        fun(N, {Previous, Messages0}) ->
-            PreviousDeadline = emqx_mq_quota_index:deadline(Previous),
+    {Index1, _Messages} = lists:foldl(
+        fun(N, {IndexAcc0, Messages0}) ->
+            Deadline0 = emqx_mq_quota_index:deadline(IndexAcc0),
             %% Remove the common field as old code would, then decode to rebuild it.
-            Stored = index_encode_asn_decode(Previous),
-            Rebuilt = asn_encode_index_decode(Opts, Stored#'StorageIndex'{common = asn1_NOVALUE}),
-            ?assertEqual(PreviousDeadline, emqx_mq_quota_index:deadline(Rebuilt)),
+            Stored = index_encode_asn_decode(IndexAcc0),
+            IndexAcc1 = asn_encode_index_decode(Opts, Stored#'StorageIndex'{common = asn1_NOVALUE}),
+            ?assertEqual(Deadline0, emqx_mq_quota_index:deadline(IndexAcc1)),
             #'StorageIndex'{common = [#'StorageIndexBucket'{tsUs = Start}]} = index_encode_asn_decode(
-                Rebuilt
+                IndexAcc1
             ),
-            ?assert(Start >= PreviousDeadline),
-            Updated = emqx_mq_quota_index:apply_update(Rebuilt, {N * 10, 10, 1}),
-            Deadline = emqx_mq_quota_index:deadline(Updated),
-            ?assert(Deadline >= PreviousDeadline),
-            Messages = [Ts || Ts <- [N * 10 | Messages0], Ts >= Deadline],
-            ?assert(length(Messages) =< 12),
-            {Updated, Messages}
+            ?assert(Start >= Deadline0),
+            IndexAcc2 = emqx_mq_quota_index:apply_update(IndexAcc1, {N * 10, 10, 1}),
+            Deadline1 = emqx_mq_quota_index:deadline(IndexAcc2),
+            ?assert(Deadline1 >= Deadline0),
+            Messages1 = [Ts || Ts <- [N * 10 | Messages0], Ts >= Deadline1],
+            ?assert(length(Messages1) =< 12),
+            {IndexAcc2, Messages1}
         end,
         {Index0, []},
         lists:seq(1, 1000)
     ),
-    ?assert(emqx_mq_quota_index:deadline(Index) > 9800).
+    ?assert(emqx_mq_quota_index:deadline(Index1) > 9800).
 
 %% Check that saved common counts support newly configured byte or message-count limits after legacy removal.
 t_limit_changes(_Config) ->
     lists:foreach(
         fun(Opts) ->
             Index0 = emqx_mq_quota_index:new(Opts, 10),
-            Index = emqx_mq_quota_index:apply_updates(Index0, [{10, 50, 1}, {20, 60, 1}]),
+            Index1 = emqx_mq_quota_index:apply_updates(Index0, [{10, 50, 1}, {20, 60, 1}]),
             ?assertMatch(
                 #{common := #{total := #{bytes := 110, count := 2}}},
-                emqx_mq_quota_index:inspect(Index)
+                emqx_mq_quota_index:inspect(Index1)
             ),
-            Bin = emqx_mq_quota_index:encode(emqx_mq_quota_index:drop_legacy(Index)),
+            Bin = emqx_mq_quota_index:encode(emqx_mq_quota_index:drop_legacy(Index1)),
             ?assertEqual(
                 10,
                 emqx_mq_quota_index:deadline(
@@ -554,25 +556,25 @@ t_cutoff(_Config) ->
             lists:foreach(
                 fun(LegacyUpdates) ->
                     Index0 = asn_encode_index_decode(Opts, Stored),
-                    Index =
+                    Index1 =
                         case LegacyUpdates of
                             true -> Index0;
                             false -> emqx_mq_quota_index:drop_legacy(Index0)
                         end,
-                    {ActualCutoff, Updated} = emqx_mq_quota_index:cutoff(Index, Before),
+                    {ActualCutoff, Index2} = emqx_mq_quota_index:cutoff(Index1, Before),
                     ?assertEqual(Cutoff, ActualCutoff),
                     Expected0 = Stored#'StorageIndex'{
                         common = Common, bytes = Bytes, count = Count
                     },
-                    Expected =
+                    Expected1 =
                         case LegacyUpdates of
                             true ->
                                 Expected0;
                             false ->
                                 Expected0#'StorageIndex'{bytes = asn1_NOVALUE, count = asn1_NOVALUE}
                         end,
-                    ?assertEqual(Expected, index_encode_asn_decode(Updated)),
-                    ?assertEqual({Cutoff, Updated}, emqx_mq_quota_index:cutoff(Updated, Before))
+                    ?assertEqual(Expected1, index_encode_asn_decode(Index2)),
+                    ?assertEqual({Cutoff, Index2}, emqx_mq_quota_index:cutoff(Index2, Before))
                 end,
                 [true, false]
             )
@@ -704,13 +706,13 @@ t_reset(_Config) ->
 t_reset_without_legacy(_Config) ->
     Opts = #{bytes => 1000, count => 100, threshold_percentage => 10},
     Index0 = emqx_mq_quota_index:drop_legacy(emqx_mq_quota_index:new(Opts, 0)),
-    Index = emqx_mq_quota_index:reset(Index0, 100),
+    Index1 = emqx_mq_quota_index:reset(Index0, 100),
     ?assertEqual(
         #'StorageIndex'{
             maxTsUs = 100,
             common = [#'StorageIndexBucket'{tsUs = 100, bytes = 0, count = 0}]
         },
-        index_encode_asn_decode(Index)
+        index_encode_asn_decode(Index1)
     ).
 
 %%--------------------------------------------------------------------
