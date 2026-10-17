@@ -15,6 +15,9 @@ Facade for all operations with the message database.
 
 -behaviour(emqx_mq_quota_buffer).
 
+%% Async DS transactions require processing their commit replies to release transaction resources.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -685,10 +688,7 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
                 sync => false
             },
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
-                lists:foreach(
-                    fun emqx_ds:tx_del_topic/1,
-                    Topics
-                )
+                lists:foreach(fun emqx_ds:tx_del_topic/1, Topics)
             end),
             {Ref, Slab}
         end,
