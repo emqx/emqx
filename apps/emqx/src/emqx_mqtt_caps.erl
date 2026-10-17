@@ -67,7 +67,7 @@ check_pub(Zone, Flags) when is_map(Flags) ->
             error ->
                 Flags
         end,
-        emqx_config:get_zone_conf(Zone, [mqtt])
+        emqx_connection_conf:pub_caps(Zone)
     ).
 
 do_check_pub(#{topic_levels := Levels}, #{max_topic_levels := Limit}) when

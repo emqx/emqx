@@ -16,6 +16,7 @@
 
 -define(FRAME_KEY(Zone), {emqx_connection_conf, Zone, frame}).
 -define(CONN_KEY(Listener, Zone), {emqx_connection_conf, Listener, Zone, conf}).
+-define(PUB_CAPS_KEY(Zone), {emqx_connection_conf, Zone, pub_caps}).
 -define(SOCKET_LISTENER, {tcp, socket}).
 -define(PROTO_VERS, [v3, v4, v5]).
 
@@ -64,6 +65,13 @@ all() ->
             t_listener_unrelated_change_keeps_entry,
             t_listener_delete_erases_entry,
             t_zone_removal,
+            t_pub_caps_first_use,
+            t_pub_caps_max_topic_levels,
+            t_pub_caps_max_qos_allowed,
+            t_pub_caps_retain_available,
+            t_pub_caps_zone_own_values,
+            t_pub_caps_zero_topic_levels_no_limit,
+            t_pub_caps_zone_removal,
             t_shutdown_erases_entries,
             t_restart_rebuilds_entries
         ].
@@ -139,6 +147,7 @@ init_per_testcase(_Case, Config) ->
     %% that has served a connection before. A case about the first connection
     %% erases them itself.
     _ = emqx_connection_conf:pre_connect_codec(default),
+    _ = emqx_connection_conf:pub_caps(default),
     case proplists:get_value(listener, Config) of
         undefined -> ok;
         Listener -> _ = emqx_connection_conf:conn_conf(Listener, default)
@@ -476,6 +485,100 @@ t_listener_delete_erases_entry(_Config) ->
     ?assert(erts_debug:same(Kept, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)))).
 
 -doc """
+The first PUBLISH capability check in a zone builds the entry from the zone
+config and registers it.
+""".
+t_pub_caps_first_use(_Config) ->
+    _ = persistent_term:erase(?PUB_CAPS_KEY(default)),
+    Caps = emqx_connection_conf:pub_caps(default),
+    ?assertEqual(
+        maps:with(
+            [max_topic_levels, max_qos_allowed, retain_available],
+            emqx_config:get_zone_conf(default, [mqtt])
+        ),
+        Caps
+    ),
+    ok = emqx_connection_conf:sync(),
+    ?assertEqual(Caps, persistent_term:get(?PUB_CAPS_KEY(default))).
+
+-doc """
+A connection that publishes to a topic deeper than `mqtt.max_topic_levels`,
+after the limit is lowered at runtime, is disconnected with
+`Topic Name invalid`.
+""".
+t_pub_caps_max_topic_levels(_Config) ->
+    C = connect(socket_config(), v5),
+    ?assertMatch({ok, _}, emqtt:publish(C, <<"a/b/c">>, <<"x">>, ?QOS_1)),
+    ok = update_mqtt_conf(max_topic_levels, 2),
+    ok = assert_publish_rejected(C, <<"a/b/c">>, ?QOS_0, false, ?RC_TOPIC_NAME_INVALID).
+
+-doc """
+A connection that publishes with a QoS above `mqtt.max_qos_allowed`, after the
+limit is lowered at runtime, is disconnected with `QoS not supported`.
+""".
+t_pub_caps_max_qos_allowed(_Config) ->
+    C = connect(socket_config(), v5),
+    ?assertMatch({ok, _}, emqtt:publish(C, <<"t/1">>, <<"x">>, ?QOS_1)),
+    ok = update_mqtt_conf(max_qos_allowed, ?QOS_0),
+    ok = assert_publish_rejected(C, <<"t/1">>, ?QOS_1, false, ?RC_QOS_NOT_SUPPORTED).
+
+-doc """
+A connection that publishes a retained message, after `mqtt.retain_available`
+is set to `false` at runtime, is disconnected with `Retain not supported`.
+""".
+t_pub_caps_retain_available(_Config) ->
+    C = connect(socket_config(), v5),
+    ?assertMatch(
+        {ok, _}, emqtt:publish(C, <<"t/1">>, #{}, <<"x">>, [{qos, ?QOS_1}, {retain, true}])
+    ),
+    ok = update_mqtt_conf(retain_available, false),
+    ok = assert_publish_rejected(C, <<"t/1">>, ?QOS_0, true, ?RC_RETAIN_NOT_SUPPORTED).
+
+-doc """
+A zone other than `default` gets its own PUBLISH capabilities entry, with the
+values of that zone, and a change to that zone does not change `default`.
+""".
+t_pub_caps_zone_own_values(_Config) ->
+    Flags = #{qos => ?QOS_1, retain => false, topic => <<"t/1">>},
+    {ok, _} = emqx:update_config(
+        [zones], #{<<"other">> => #{<<"mqtt">> => #{<<"max_qos_allowed">> => 0}}}
+    ),
+    ?assertEqual({error, ?RC_QOS_NOT_SUPPORTED}, emqx_mqtt_caps:check_pub(other, Flags)),
+    ?assertEqual(ok, emqx_mqtt_caps:check_pub(default, Flags)),
+    ok = emqx_connection_conf:sync(),
+    ?assertMatch(#{max_qos_allowed := 0}, persistent_term:get(?PUB_CAPS_KEY(other))),
+    ?assertMatch(#{max_qos_allowed := 2}, persistent_term:get(?PUB_CAPS_KEY(default))),
+    {ok, _} = emqx:update_config(
+        [zones], #{<<"other">> => #{<<"mqtt">> => #{<<"max_qos_allowed">> => 1}}}
+    ),
+    ?assertEqual(ok, emqx_mqtt_caps:check_pub(other, Flags)),
+    ?assertEqual(
+        {error, ?RC_QOS_NOT_SUPPORTED}, emqx_mqtt_caps:check_pub(other, Flags#{qos := ?QOS_2})
+    ),
+    ?assertEqual(ok, emqx_mqtt_caps:check_pub(default, Flags#{qos := ?QOS_2})).
+
+-doc """
+A `max_topic_levels` of 0 in the zone config means no limit. The schema
+accepts only 1 and up, so the case writes the zone config directly.
+""".
+t_pub_caps_zero_topic_levels_no_limit(_Config) ->
+    ok = emqx_config:put_zone_conf(default, [mqtt, max_topic_levels], 0),
+    ?assertMatch(#{max_topic_levels := 0}, persistent_term:get(?PUB_CAPS_KEY(default))),
+    Topic = iolist_to_binary(lists:join(<<"/">>, lists:duplicate(200, <<"a">>))),
+    ?assertEqual(
+        ok, emqx_mqtt_caps:check_pub(default, #{qos => ?QOS_0, retain => false, topic => Topic})
+    ).
+
+-doc "Removing a zone erases its PUBLISH capabilities entry.".
+t_pub_caps_zone_removal(_Config) ->
+    {ok, _} = emqx:update_config([zones], #{<<"tmpzone">> => #{}}),
+    _ = emqx_connection_conf:pub_caps(tmpzone),
+    ok = emqx_connection_conf:sync(),
+    ?assertMatch(#{max_qos_allowed := _}, persistent_term:get(?PUB_CAPS_KEY(tmpzone))),
+    {ok, _} = emqx:update_config([zones], #{}),
+    ?assertEqual(undefined, persistent_term:get(?PUB_CAPS_KEY(tmpzone), undefined)).
+
+-doc """
 A new zone gets its entries on first use, and removing the zone deletes
 them. The entries of the other zones stay.
 """.
@@ -584,6 +687,7 @@ t_shutdown_erases_entries(_Config) ->
     ok = supervisor:terminate_child(emqx_kernel_sup, emqx_connection_conf),
     ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default), undefined)),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(default), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?PUB_CAPS_KEY(default), undefined)),
     {ok, _} = supervisor:restart_child(emqx_kernel_sup, emqx_connection_conf),
     C = connect(socket_config(), v5),
     ok = emqx_connection_conf:sync(),
@@ -600,16 +704,21 @@ t_restart_rebuilds_entries(_Config) ->
     ok = ensure_entries(?SOCKET_LISTENER, [default]),
     Conf = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
     Frame = persistent_term:get(?FRAME_KEY(default)),
+    Caps = persistent_term:get(?PUB_CAPS_KEY(default)),
     %% Plant entries of a config that is not the current one.
     persistent_term:put(?CONN_KEY(?SOCKET_LISTENER, default), Conf#conf{sendq_watermark = 5}),
+    persistent_term:put(?PUB_CAPS_KEY(default), Caps#{max_qos_allowed := ?QOS_0}),
     persistent_term:put(?FRAME_KEY(gone_zone), Frame),
+    persistent_term:put(?PUB_CAPS_KEY(gone_zone), Caps),
     persistent_term:put(?CONN_KEY(?SOCKET_LISTENER, gone_zone), Conf#conf{zone = gone_zone}),
     Pid = whereis(emqx_connection_conf),
     exit(Pid, kill),
     ?retry(50, 100, true = is_restarted(Pid)),
     ?assertEqual(Conf, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))),
     ?assert(erts_debug:same(Frame, persistent_term:get(?FRAME_KEY(default)))),
+    ?assertEqual(Caps, persistent_term:get(?PUB_CAPS_KEY(default))),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(gone_zone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?PUB_CAPS_KEY(gone_zone), undefined)),
     ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, gone_zone), undefined)),
     %% The rebuilt entries are the ones the server owns from now on.
     C = connect(socket_config(), v5),
@@ -763,12 +872,30 @@ is_restarted(OldPid) ->
         _NewPid -> true
     end.
 
+%% Update one global `mqtt` setting, and restore it when the case ends.
+update_mqtt_conf(Key, Value) ->
+    BinKey = atom_to_binary(Key),
+    #{BinKey := Old} = emqx_config:get_raw([<<"mqtt">>]),
+    emqx_common_test_helpers:on_exit(fun() ->
+        {ok, _} = emqx:update_config([mqtt, Key], Old)
+    end),
+    {ok, _} = emqx:update_config([mqtt, Key], Value),
+    ok.
+
+%% The broker answers a PUBLISH that a capability check rejects with a
+%% DISCONNECT that carries the reason code.
+assert_publish_rejected(C, Topic, QoS, Retain, ReasonCode) ->
+    _ = catch emqtt:publish(C, Topic, #{}, <<"x">>, [{qos, QoS}, {retain, Retain}]),
+    ?assertReceive({disconnected, ReasonCode, _}, 5000),
+    ok.
+
 %% Register the entries of the listener in each zone through the API, as a
 %% connection does, and wait for the server to write them.
 ensure_entries(Listener, Zones) ->
     lists:foreach(
         fun(Zone) ->
             _ = emqx_connection_conf:pre_connect_codec(Zone),
+            _ = emqx_connection_conf:pub_caps(Zone),
             _ = emqx_connection_conf:conn_conf(Listener, Zone)
         end,
         Zones

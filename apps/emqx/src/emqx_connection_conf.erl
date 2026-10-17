@@ -8,7 +8,7 @@
 Connection settings derived from listener and zone config, shared between
 connections.
 
-The entries live in `persistent_term`, under two kinds of key:
+The entries live in `persistent_term`, under three kinds of key:
 
 - `{emqx_connection_conf, Zone, frame}`: the frame parser and serializer
   options of the zone. The value holds two groups of terms:
@@ -20,6 +20,9 @@ The entries live in `persistent_term`, under two kinds of key:
   connection on that listener in that zone. It holds the listener settings
   (`active_n`, `sendq_watermark`) and the zone settings (`hibernate_after`,
   `minor_gc_after`, `force_gc`, `force_shutdown`).
+- `{emqx_connection_conf, Zone, pub_caps}`: the zone settings that
+  `emqx_mqtt_caps:check_pub/2` checks for each PUBLISH (`max_topic_levels`,
+  `max_qos_allowed`, `retain_available`).
 
 A term read out of `persistent_term` is not copied into the heap of the
 reading process. So every connection that stores one of these terms in its
@@ -38,8 +41,8 @@ zone or listener; the next connection registers them again.
 Replacing or erasing an entry makes the runtime copy the old terms into the
 heap of every process that still refers to them. An entry is rewritten only
 when its value changes, so a config change that leaves the derived terms
-equal costs nothing. The two kinds are separate entries, so a change to one
-kind leaves the other shared.
+equal costs nothing. The kinds are separate entries, so a change to one
+kind leaves the others shared.
 
 The server erases its entries when it stops in an orderly way. After a crash
 it takes its entries back from `persistent_term` and rebuilds each one from
@@ -59,6 +62,7 @@ the current config, since an application restart can load a different config.
     pre_connect_codec/1,
     post_connect_codec/4,
     conn_conf/2,
+    pub_caps/1,
     post_zone_config_update/2,
     listeners_changed/1,
     sync/0
@@ -72,10 +76,11 @@ the current config, since an application restart can load a different config.
     terminate/2
 ]).
 
--export_type([pre_connect_codec/0, conn_conf/0, listener/0]).
+-export_type([pre_connect_codec/0, conn_conf/0, pub_caps/0, listener/0]).
 
 -define(FRAME_KEY(Zone), {?MODULE, Zone, frame}).
 -define(CONN_KEY(Listener, Zone), {?MODULE, Listener, Zone, conf}).
+-define(PUB_CAPS_KEY(Zone), {?MODULE, Zone, pub_caps}).
 -define(PROTO_VERS, [?MQTT_PROTO_V3, ?MQTT_PROTO_V4, ?MQTT_PROTO_V5]).
 %% A QUIC stream has no socket to activate; the control stream keeps the
 %% default of `emqx_connection'.
@@ -101,9 +106,18 @@ the current config, since an application restart can load a different config.
 
 -type conn_conf() :: #conf{}.
 
--type key() :: {?MODULE, emqx_types:zone(), frame} | {?MODULE, listener(), emqx_types:zone(), conf}.
+-type pub_caps() :: #{
+    max_topic_levels := non_neg_integer(),
+    max_qos_allowed := emqx_types:qos(),
+    retain_available := boolean()
+}.
 
--record(register, {key :: key(), value :: frame() | conn_conf()}).
+-type key() ::
+    {?MODULE, emqx_types:zone(), frame}
+    | {?MODULE, listener(), emqx_types:zone(), conf}
+    | {?MODULE, emqx_types:zone(), pub_caps}.
+
+-record(register, {key :: key(), value :: frame() | conn_conf() | pub_caps()}).
 -record(zones_updated, {zones :: emqx_config:config()}).
 %% The checked config of a listener, or `undefined' for a deleted one.
 -record(listeners_changed, {listeners :: [{listener(), map() | undefined}]}).
@@ -182,6 +196,18 @@ conn_conf(Listener, Zone) ->
             Conf = build_conn_conf(Listener, Zone, ListenerConf, emqx_config:get([zones, Zone])),
             ok = register_entry(?CONN_KEY(Listener, Zone), Conf),
             Conf
+    end.
+
+-doc "Return the PUBLISH capabilities configured for the zone.".
+-spec pub_caps(emqx_types:zone()) -> pub_caps().
+pub_caps(Zone) ->
+    case persistent_term:get(?PUB_CAPS_KEY(Zone), undefined) of
+        #{} = Caps ->
+            Caps;
+        undefined ->
+            Caps = build_pub_caps(emqx_config:get([zones, Zone])),
+            ok = register_entry(?PUB_CAPS_KEY(Zone), Caps),
+            Caps
     end.
 
 -doc """
@@ -305,6 +331,7 @@ safe_call(Req) ->
 
 is_own_key(?FRAME_KEY(_Zone)) -> true;
 is_own_key(?CONN_KEY(_Listener, _Zone)) -> true;
+is_own_key(?PUB_CAPS_KEY(_Zone)) -> true;
 is_own_key(_Key) -> false.
 
 %% Rebuild the entry for the current config, or erase it when its zone or
@@ -312,6 +339,11 @@ is_own_key(_Key) -> false.
 rebuild(?FRAME_KEY(Zone) = Key, Zones) ->
     case Zones of
         #{Zone := ZoneConf} -> put_if_changed(Key, build_frame(ZoneConf));
+        #{} -> erase_entry(Key)
+    end;
+rebuild(?PUB_CAPS_KEY(Zone) = Key, Zones) ->
+    case Zones of
+        #{Zone := ZoneConf} -> put_if_changed(Key, build_pub_caps(ZoneConf));
         #{} -> erase_entry(Key)
     end;
 rebuild(?CONN_KEY({Type, Name}, _Zone) = Key, Zones) ->
@@ -389,6 +421,10 @@ build_conn_conf(
         force_gc = force_gc(ForceGc),
         force_shutdown = ForceShutdown
     }.
+
+-spec build_pub_caps(map()) -> pub_caps().
+build_pub_caps(#{mqtt := MQTT}) ->
+    maps:with([max_topic_levels, max_qos_allowed, retain_available], MQTT).
 
 %% `{ActiveN, SendQueueWatermark}' of a listener.
 listener_settings({quic, _Name}, _ListenerConf) ->
