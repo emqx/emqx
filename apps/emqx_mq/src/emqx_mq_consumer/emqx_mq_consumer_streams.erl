@@ -230,7 +230,8 @@ on_advance_generation(
             }
     end.
 
-get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards}) ->
+get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards, mq := MQ}) ->
+    StartTime = emqx_mq_prop:delivery_start_time(MQ),
     Result =
         case Shards of
             #{Shard := #{status := active, generation := Generation, stream_buffer := SB}} ->
@@ -240,15 +241,15 @@ get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards}) ->
                         %% We will complete the stream when all messages are acked.
                         {ok, end_of_stream};
                     It ->
-                        {subscribe, It}
+                        case replay_start_time(emqx_mq_consumer_stream_buffer:progress(SB)) of
+                            ReplayStart when ReplayStart < StartTime ->
+                                {undefined, #{start_time => StartTime}};
+                            _ ->
+                                {subscribe, It}
+                        end
                 end;
             _ ->
-                %% NOTE
-                %% It would be nice to create It ourselves with start_time
-                %% to skip outdated messages on the DS level.
-                %% But currently this is not possible because we cannot put the created It into
-                %% our state, and the ds client won't give it to us back in on_new_iterator callback.
-                undefined
+                {undefined, #{start_time => StartTime}}
         end,
     ?tp_debug(mq_consumer_streams_get_iterator, #{
         slab => {Shard, Generation}, stream => _Stream, result => Result
@@ -260,12 +261,20 @@ on_new_iterator(
     {Shard, Generation} = Slab,
     Stream,
     It,
-    #{shards := Shards} = State
+    #{shards := Shards, mq := MQ} = State
 ) ->
     ?tp_debug(mq_consumer_streams_on_new_iterator, #{
         slab => {Shard, Generation}, stream => Stream
     }),
     case Shards of
+        #{
+            Shard := #{
+                status := active, generation := Generation, stream := Stream, stream_buffer := SB
+            } = ShardState
+        } ->
+            Progress = emqx_mq_consumer_stream_buffer:progress(SB),
+            UpdatedSB = emqx_mq_consumer_stream_buffer:restore(Progress#{it := It}, MQ),
+            {subscribe, State#{shards := Shards#{Shard := ShardState#{stream_buffer := UpdatedSB}}}};
         #{Shard := #{status := finished, generation := OldGeneration}} when
             OldGeneration < Generation
         ->
@@ -338,6 +347,17 @@ save_progress_update(State, Shard) ->
     #{shards := #{Shard := ShardState}, progress_updates := ProgressUpdates} = State,
     Progress = shard_progress(ShardState),
     State#{progress_updates => ProgressUpdates#{Shard => Progress}}.
+
+replay_start_time(#{last_message_id := undefined}) ->
+    0;
+replay_start_time(#{last_message_id := LastMessageId, unacked := Unacked}) ->
+    lists:foldl(
+        fun(IDs, Earliest) ->
+            maps:fold(fun(ID, _, Acc) -> min(ID, Acc) end, Earliest, IDs)
+        end,
+        LastMessageId + 1,
+        Unacked
+    ).
 
 shard_progress(#{
     status := active, generation := Generation, stream := Stream, stream_buffer := StreamBuffer

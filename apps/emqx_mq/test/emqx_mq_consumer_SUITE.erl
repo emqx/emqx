@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include("../src/emqx_mq_internal.hrl").
 
 all() ->
@@ -42,6 +43,82 @@ end_per_testcase(_CaseName, _Config) ->
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+
+%% Check that initial subscriptions use the retention boundary in microseconds.
+t_subscription_start_time(_Config) ->
+    MQ = emqx_mq_test_utils:fill_mq_defaults(#{id => <<"start">>, topic_filter => <<"start/#">>}),
+    #{data_retention_period := RetentionMs} = MQ,
+    BeforeMs = erlang:system_time(millisecond),
+    ok = meck:new(emqx_ds_client, [passthrough]),
+    ok = meck:expect(emqx_ds_client, subscribe, fun(Client, Opts, State) ->
+        #{start_time := StartUs} = Opts,
+        ?assert(StartUs >= (BeforeMs - RetentionMs) * 1000),
+        ?assert(StartUs =< (erlang:system_time(millisecond) - RetentionMs) * 1000),
+        {ok, Client, State}
+    end),
+    ?assertEqual(
+        {ok, client, state}, emqx_mq_message_db:subscribe(MQ, client, [], state)
+    ),
+    ok = meck:unload(emqx_ds_client),
+    ?assertEqual(
+        0,
+        emqx_mq_prop:delivery_start_time(#{
+            data_retention_period => erlang:system_time(millisecond) + 60_000
+        })
+    ).
+
+%% Check that iterator creation skips expired records and preserves saved acknowledgements.
+t_delivery_start_time_replay(_Config) ->
+    %% Store expired and retained records in one shard without running garbage collection.
+    #{id := Id} =
+        MQ = emqx_mq_test_utils:create_mq(#{
+            topic_filter => <<"start/#">>,
+            is_lastvalue => true,
+            key_expression => <<"message.payload">>,
+            stream_max_buffer_size => 100,
+            stream_max_unacked => 100
+        }),
+    NowMs = erlang:system_time(millisecond),
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
+    [Shard | _] = emqx_ds:list_shards(DB),
+    #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ),
+    Records = [
+        begin
+            Message = emqx_message:make(<<"publisher">>, 1, <<"start/1">>, Payload),
+            {
+                [<<"topic">>, <<"start/#">>, Id, <<"key">>, Payload],
+                Timestamp * 1000,
+                emqx_mq_message_db:encode_message(Message#message{timestamp = Timestamp})
+            }
+        end
+     || #{payload := Payload, timestamp := Timestamp} <- [
+            #{payload => <<"old">>, timestamp => NowMs - 120_000},
+            #{payload => <<"unacked">>, timestamp => NowMs - 30_000},
+            #{payload => <<"acked">>, timestamp => NowMs - 20_000}
+        ]
+    ],
+    ?assertMatch(
+        {atomic, _, ok},
+        emqx_ds:trans(#{db => DB, shard => Shard, generation => Generation}, fun() ->
+            lists:foreach(fun emqx_ds:tx_write/1, Records)
+        end)
+    ),
+
+    %% Save progress with the oldest two records unacknowledged.
+    {[<<"old">>, <<"unacked">>, <<"acked">>], Progress} =
+        consume_messages(MQ, #{}, 3, [<<"acked">>]),
+
+    %% Restore with shorter retention and read only retained records from DS.
+    MQ1 = MQ#{data_retention_period => 60_000},
+    Received0 = ds_received_messages(),
+    {[<<"unacked">>], _} = consume_messages(MQ1, Progress, 1, []),
+    ?assertEqual(2, ds_received_messages() - Received0),
+
+    %% A fresh consumer skips expired records without deleting them.
+    Received1 = ds_received_messages(),
+    {[<<"unacked">>, <<"acked">>], _} = consume_messages(MQ1, #{}, 2, []),
+    ?assertEqual(2, ds_received_messages() - Received1),
+    ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))).
 
 t_restore_empty_stream_buffer(_Config) ->
     MQ = #{stream_max_buffer_size => 100},
@@ -177,3 +254,45 @@ t_ack_from_unknown_subscriber(_Config) ->
 
     %% Clean up
     ok = emqtt:disconnect(CSub).
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+consume_messages(MQ, Progress0, Count, AckPayloads) ->
+    emqx_utils:nolink_apply(
+        fun() ->
+            CS0 = emqx_mq_consumer_streams:new(MQ, Progress0),
+            {Messages, CS1} = receive_consumer_messages(CS0, Count, []),
+            CS = lists:foldl(
+                fun({Id, Message}, Acc) ->
+                    case lists:member(emqx_message:payload(Message), AckPayloads) of
+                        true -> emqx_mq_consumer_streams:handle_ack(Acc, Id);
+                        false -> Acc
+                    end
+                end,
+                CS1,
+                Messages
+            ),
+            {Progress, _} = emqx_mq_consumer_streams:fetch_progress_updates(CS),
+            {[emqx_message:payload(M) || {_, M} <- Messages], Progress}
+        end,
+        10_000
+    ).
+
+receive_consumer_messages(CS, Count, Acc) when length(Acc) >= Count ->
+    {Acc, CS};
+receive_consumer_messages(CS0, Count, Acc) ->
+    receive
+        Info ->
+            case emqx_mq_consumer_streams:handle_ds_info(CS0, Info) of
+                {ok, Messages, CS} -> receive_consumer_messages(CS, Count, Acc ++ Messages);
+                ignore -> receive_consumer_messages(CS0, Count, Acc)
+            end
+    after 5000 ->
+        ct:fail({missing_messages, Count, Acc})
+    end.
+
+ds_received_messages() ->
+    #{received_messages := Count} = emqx_mq_metrics:get_counters(ds),
+    Count.
