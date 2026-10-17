@@ -198,7 +198,10 @@ schema() ->
                 [builtin_raft_messages, builtin_local_messages],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(messages),
-                #{}
+                %% Note: change to a reasonable default when there's a
+                %% proper mechanism to signal overload to the MQTT
+                %% clients:
+                #{<<"transaction">> => #{<<"overload_protection">> => #{<<"max_mql">> => infinity}}}
             )},
         {?DURABLE_SESSION_STATE_DB,
             db_schema(
@@ -393,6 +396,26 @@ fields(optimistic_transaction) ->
                     default => 10000,
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(otx_max_pending)
+                }
+            )},
+        {overload_protection,
+            sc(
+                ref(otx_olp),
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_otx_olp)
+                }
+            )}
+    ];
+fields(otx_olp) ->
+    [
+        {max_mql,
+            sc(
+                hoconsc:union([pos_integer(), infinity]),
+                #{
+                    desc => ?DESC(otx_olp_max_mql),
+                    importance => ?IMPORTANCE_MEDIUM,
+                    default => 1000
                 }
             )}
     ];
@@ -645,6 +668,8 @@ desc(rocksdb_options) ->
     ?DESC(rocksdb_options);
 desc(db_group) ->
     ?DESC(db_group_record);
+desc(otx_olp) ->
+    ?DESC(builtin_otx_olp);
 desc(_) ->
     undefined.
 
@@ -779,13 +804,15 @@ translate_otx_opts(#{
     conflict_window := CW,
     flush_interval := FI,
     idle_flush_interval := IFI,
-    max_pending := MaxItems
+    max_pending := MaxItems,
+    overload_protection := #{max_mql := MaxMQL}
 }) ->
     #{
         conflict_window => CW,
         flush_interval => FI,
         idle_flush_interval => IFI,
-        max_items => MaxItems
+        max_items => MaxItems,
+        olp_max_mql => MaxMQL
     }.
 
 translate_rocksdb_options(Input = #{max_open_files := MOF}) ->

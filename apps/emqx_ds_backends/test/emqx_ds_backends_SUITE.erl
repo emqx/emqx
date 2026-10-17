@@ -2591,6 +2591,70 @@ t_invalid_data(Config) ->
         emqx_ds:dirty_read(DB, ['#'])
     ).
 
+%% Test for overload protection in optimistic transaction leader
+t_overload_protection(Config) ->
+    ?check_trace(
+        #{timetrap => 60_000},
+        begin
+            DB = ?FUNCTION_NAME,
+            Opts = maps:merge(opts(Config), #{
+                n_shards => 5,
+                transactions => #{olp_max_mql => 5}
+            }),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            Shard = hd(emqx_ds:list_shards(DB)),
+            %% Get the OTX leader process and suspend it
+            OtxPid = emqx_ds_optimistic_tx:where(DB, Shard),
+            ok = sys:suspend(OtxPid),
+            %% Submit many transactions while OTX is suspended
+            %% This should cause the message queue to fill up
+            Refs = [
+                begin
+                    {async, Ref, _Ret} =
+                        emqx_ds:trans(
+                            #{db => DB, shard => Shard, generation => 1, sync => false},
+                            fun() ->
+                                emqx_ds:tx_write({[~"t", integer_to_binary(N)], 0, ~""})
+                            end
+                        ),
+                    Ref
+                end
+             || N <- lists:seq(1, 10)
+            ],
+            ct:sleep(1000),
+            %% Resume the OTX process
+            ok = sys:resume(OtxPid),
+            %% Receive outcomes of transactions:
+            Results = [
+                receive
+                    ?ds_tx_commit_reply(Ref, Reply) ->
+                        emqx_ds:tx_commit_outcome(DB, Ref, Reply)
+                after 1000 ->
+                    error({timeout_waiting_for, Ref})
+                end
+             || Ref <- Refs
+            ],
+            %% Approximately first 5 transactions should be aborted
+            %% due to overload, the rest should succeed:
+            ?assertMatch(
+                [
+                    ?err_rec(overloaded),
+                    ?err_rec(overloaded),
+                    ?err_rec(overloaded),
+                    ?err_rec(overloaded),
+                    ?err_rec(overloaded),
+                    _,
+                    _,
+                    {ok, _},
+                    {ok, _},
+                    {ok, _}
+                ],
+                Results
+            )
+        end,
+        []
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.
