@@ -39,7 +39,7 @@ parse(Content, Key) ->
     case do_parse(Content) of
         {ok, {Payload, Signature}} ->
             case verify_signature(Payload, Signature, Key) of
-                true -> parse_payload(Payload);
+                true -> check_revocation_and_parse(Payload);
                 false -> {error, invalid_signature}
             end;
         {error, Reason} ->
@@ -142,6 +142,15 @@ normalize(Bin) ->
 
 verify_signature(Payload, Signature, Key) ->
     public_key:verify(Payload, ?DIGEST_TYPE, Signature, Key).
+
+check_revocation_and_parse(Payload) ->
+    case emqx_license_revocation:check(Payload) of
+        ok ->
+            parse_payload(Payload);
+        {revoked, Hash} ->
+            ?SLOG(error, #{msg => "license_revoked", payload_sha1 => Hash}, #{tag => "LICENSE"}),
+            {error, license_revoked}
+    end.
 
 parse_payload(Payload) ->
     Lines = lists:map(

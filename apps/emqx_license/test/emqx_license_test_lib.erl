@@ -62,12 +62,15 @@ make_license(Values0 = #{}) ->
     Values = lists:map(fun(K) -> ensure_string(maps:get(K, Values1)) end, Keys),
     make_license(Values);
 make_license(Values) ->
+    make_license_from_payload(string:join(Values, "\n")).
+
+%% Sign the payload bytes verbatim with the test private key.
+make_license_from_payload(Payload) ->
     Key = private_key(),
-    Text = string:join(Values, "\n"),
-    EncodedText = base64:encode(Text),
-    Signature = public_key:sign(Text, sha256, Key),
+    EncodedPayload = base64:encode(Payload),
+    Signature = public_key:sign(Payload, sha256, Key),
     EncodedSignature = base64:encode(Signature),
-    iolist_to_binary([EncodedText, ".", EncodedSignature]).
+    iolist_to_binary([EncodedPayload, ".", EncodedSignature]).
 
 default_test_license() ->
     make_license(#{}).
