@@ -41,7 +41,7 @@ like (slab, mq_topic) in case of MQs in DS storage.
 -export([
     connect/1,
     do_add/2,
-    can_drop_legacy_indices/0
+    do_all_nodes_support_combined_indices/0
 ]).
 
 %% gen_server callbacks
@@ -65,7 +65,8 @@ like (slab, mq_topic) in case of MQs in DS storage.
 
 -type options() :: #{
     pool_size := pos_integer(),
-    cbm := module()
+    cbm := module(),
+    keep_legacy_indices => boolean()
 }.
 
 %%--------------------------------------------------------------------
@@ -104,7 +105,8 @@ like (slab, mq_topic) in case of MQs in DS storage.
     buffer_size :: non_neg_integer(),
     flush_tref :: reference() | undefined,
     worker_id :: term(),
-    cbm :: module()
+    cbm :: module(),
+    keep_legacy_indices :: boolean()
 }).
 
 -spec start(name(), options()) -> ok | {error, supervisor:startchild_err()}.
@@ -186,14 +188,15 @@ do_add(BufferPid, AddUpdates) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([#{worker_id := WorkerId, cbm := CBM}]) ->
+init([#{worker_id := WorkerId, cbm := CBM} = Opts]) ->
     erlang:process_flag(trap_exit, true),
     {ok, #st{
         buffer = #{},
         flush_tref = undefined,
         buffer_size = 0,
         worker_id = WorkerId,
-        cbm = CBM
+        cbm = CBM,
+        keep_legacy_indices = maps:get(keep_legacy_indices, Opts, false)
     }}.
 
 handle_info(#flush{}, State0) ->
@@ -267,9 +270,9 @@ add_to_buffer(#add_updates{} = Insert, State = #st{buffer = Buffer0, buffer_size
     Buffer = Buffer0#{TxKey => TxKeyBuffer},
     State#st{buffer = Buffer, buffer_size = BufferSize + 1}.
 
-do_flush(State = #st{buffer = Buffer}) ->
+do_flush(State = #st{buffer = Buffer, keep_legacy_indices = KeepLegacy}) ->
     ok = notify_queue_size(State),
-    DropLegacy = ?MODULE:can_drop_legacy_indices(),
+    DropLegacy = not KeepLegacy andalso ?MODULE:do_all_nodes_support_combined_indices(),
     ok = maps:foreach(
         fun(TxKey, TxKeyBuffer) ->
             UpdatesByKey = lists:map(
@@ -284,7 +287,7 @@ do_flush(State = #st{buffer = Buffer}) ->
     ),
     State#st{buffer = #{}, buffer_size = 0}.
 
-can_drop_legacy_indices() ->
+do_all_nodes_support_combined_indices() ->
     lists:all(
         fun(Node) ->
             case emqx_bpapi:supported_version(Node, emqx_mq_quota_index) of
