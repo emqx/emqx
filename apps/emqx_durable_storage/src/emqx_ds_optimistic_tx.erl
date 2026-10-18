@@ -86,7 +86,7 @@ backend can reject flush request.
 -callback otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard()) ->
     {ok, serial()} | undefined.
 
--type tx_prepare_opts() :: #{max_ops := pos_integer()}.
+-type tx_prepare_opts() :: #{max_ops := pos_integer() | infinity}.
 
 %% Cook a raw transaction into a data structure that will be stored in
 %% the buffer until flush.
@@ -584,17 +584,13 @@ send_dirty_append_replies(Result, Serial, PendingReplies) ->
     Success :: boolean().
 cook_dirty_appends(D = #d{pending_dirty = []}) ->
     {true, undefined, [], D};
-cook_dirty_appends(
-    D0 = #d{db = DB, shard = Shard, cbm = CBM, pending_dirty = Pending, olp_max_ops = OLPMaxOps}
-) ->
+cook_dirty_appends(D0 = #d{db = DB, shard = Shard, cbm = CBM, pending_dirty = Pending}) ->
     Gen = CBM:otx_get_latest_generation(DB, Shard),
     Result = with_time_and_generation(
         Gen,
         D0,
         fun(GenData, PresumedCommitSerial) ->
-            do_cook_dirty_appends(
-                DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending, OLPMaxOps
-            )
+            do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending)
         end
     ),
     %% Optimization: here we return the original `Pending' list to be
@@ -607,7 +603,7 @@ cook_dirty_appends(
             {false, undefined, Pending, D0#d{pending_dirty = []}}
     end.
 
-do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending, OLPMaxOps) ->
+do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending) ->
     maybe
         #gen_data{
             buffer = Buff,
@@ -627,7 +623,7 @@ do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pendin
                 Gen,
                 serial_bin(PresumedCommitSerial),
                 #{?ds_tx_write => Writes},
-                #{max_ops => OLPMaxOps}
+                #{max_ops => infinity}
             ),
         {ok, GenData#gen_data{
             buffer = [CookedDirty | Buff]
