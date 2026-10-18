@@ -644,6 +644,7 @@ zone_global_defaults() ->
                 shared_subscription => true,
                 shared_subscription_strategy => round_robin,
                 shared_subscription_initial_sticky_pick => random,
+                stats_emit_interval => 60000,
                 strict_mode => true,
                 subscription_message_filter => disable,
                 upgrade_qos => false,

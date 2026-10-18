@@ -4225,6 +4225,15 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_idle_timeout)
                 }
             )},
+        {"stats_emit_interval",
+            sc(
+                duration(),
+                #{
+                    default => <<"60s">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(mqtt_stats_emit_interval)
+                }
+            )},
         {"hibernate_after",
             sc(
                 hoconsc:union([duration(), infinity]),
