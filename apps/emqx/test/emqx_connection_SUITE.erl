@@ -581,6 +581,69 @@ t_sendq_congestion_trigger(_) ->
     ?assertEqual(running, emqx_connection:info(sockstate, State3)),
     ?assertEqual(true, erlang:get(sendq_decongested_notified)).
 
+-doc """
+A congested connection checks its send queue on a timer, so it resumes delivery
+without any other event.
+""".
+t_sendq_congestion_check_timer(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_channel, handle_signal, fun
+        ({connection, Status, _Info}, Channel) when
+            Status =:= congested; Status =:= decongested
+        ->
+            self() ! {signal, Status},
+            {ok, Channel};
+        (Signal, Channel) ->
+            meck:passthrough([Signal, Channel])
+    end),
+    SetSendPend = fun(Ratio) ->
+        meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+            {ok, [{K, round(HWM * Ratio)} || K <- Options]}
+        end)
+    end,
+    ok = SetSendPend(0.8),
+    {ok, _, State1} = handle_msg(
+        {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 1, payload(HWM div 2))},
+        st(#{sockstate => running})
+    ),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State1)),
+    ?assertEqual(congested, receive_signal()),
+    %% The send queue is still congested at the first check: the timer starts again.
+    {ok, [], State2} = handle_msg(receive_check_sendq_timeout(), State1),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State2)),
+    ok = SetSendPend(0.2),
+    {ok, [], State3} = handle_msg(receive_check_sendq_timeout(), State2),
+    ?assertEqual(running, emqx_connection:info(sockstate, State3)),
+    ?assertEqual(decongested, receive_signal()),
+    ?assertEqual(
+        none,
+        receive
+            {timeout, _, check_sendq} = Timeout -> Timeout
+        after 300 -> none
+        end
+    ).
+
+-doc """
+A check timer that fires after the send queue was decongested does not change
+the connection state.
+""".
+t_sendq_check_stale_timer(_) ->
+    State = st(#{sockstate => running}),
+    ?assertEqual({ok, State}, handle_msg({timeout, make_ref(), check_sendq}, State)).
+
+-doc """
+A connection in the `congested` state of the code before the send queue check
+timer starts the timer at its next send queue check.
+""".
+t_sendq_congestion_legacy_state(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, round(HWM * 0.8)} || K <- Options]}
+    end),
+    {ok, _, State} = handle_msg({tcp_passive, sock}, st(#{sockstate => congested})),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State)),
+    {ok, [], _} = handle_msg(receive_check_sendq_timeout(), State).
+
 t_close_socket(_) ->
     State = emqx_connection:close_socket(st(#{sockstate => closed})),
     ?assertEqual(closed, emqx_connection:info(sockstate, State)),
@@ -754,6 +817,20 @@ make_frame(Packet) ->
     iolist_to_binary(emqx_frame:serialize(Packet)).
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
+
+receive_signal() ->
+    receive
+        {signal, Status} -> Status
+    after 0 ->
+        ct:fail(no_signal)
+    end.
+
+receive_check_sendq_timeout() ->
+    receive
+        {timeout, _TRef, check_sendq} = Timeout -> Timeout
+    after 1000 ->
+        ct:fail(no_check_sendq_timeout)
+    end.
 
 st() -> st(#{}, #{}).
 
