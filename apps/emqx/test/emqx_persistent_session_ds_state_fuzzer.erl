@@ -15,6 +15,7 @@
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
 -include("../src/emqx_persistent_session_ds/pmap.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -35,11 +36,15 @@
     streams = #{},
     ranks = #{},
     awaiting_rel = #{},
-    committed = false
+    committed = false,
+    checkpointing = false
 }).
 
 %% Model state:
--type state() :: #{emqx_persistent_session_ds:id() => #s{}}.
+-record(gs, {
+    ds_broken = false :: boolean(),
+    sessions = #{} :: #{emqx_persistent_session_ds:id() => #s{}}
+}).
 
 %%================================================================================
 %% Properties
@@ -49,7 +54,7 @@
 %% Generators
 %%================================================================================
 
--define(n_sessions, 10).
+-define(n_sessions, 2).
 
 shard_gen() ->
     oneof([<<"0">>, <<"1">>, <<"100">>]).
@@ -72,7 +77,9 @@ maybe_share_tf() ->
 subscription() ->
     oneof([#{}]).
 
-session_id(S) ->
+session_id(#gs{sessions = S}) ->
+    session_id(S);
+session_id(S) when is_map(S) ->
     oneof(maps:keys(S)).
 
 batch_size() ->
@@ -248,7 +255,7 @@ put_req() ->
 %% session, one of its pmaps, and a key that may or may not exist in
 %% the pmap. Returns index of the pmap in #s, session id and the pmap
 %% key.
-pmap_type_and_key(S) ->
+pmap_type_and_key(#gs{sessions = S}) ->
     Recs = [
         #s.subscriptions, #s.subscription_states, #s.seqnos, #s.streams, #s.ranks, #s.awaiting_rel
     ],
@@ -319,26 +326,62 @@ clientid() ->
     %% empty string is not valid...
     ?SUCHTHAT(ClientId, emqx_proper_types:clientid(), ClientId =/= <<>>).
 
-command(S) ->
-    case maps:size(S) > 0 of
+session_command(SessionId, S) ->
+    #gs{ds_broken = DSBroken, sessions = Sessions} = S,
+    #{SessionId := #s{checkpointing = Checkpointing}} = Sessions,
+    Common =
+        case DSBroken of
+            false ->
+                [
+                    {1, {call, ?MODULE, create_new, [session_id()]}},
+                    {3, {call, ?MODULE, break_ds, []}},
+                    %% NOTE: during normal operation, the session
+                    %% always uses async commit, which tolerates
+                    %% recoverable errors. But if **sync** commit runs
+                    %% out of retries, the current behavior is to
+                    %% crash the session. We don't test that here.
+                    {2, {call, ?MODULE, commit, [SessionId]}}
+                ];
+            true ->
+                [{5, {call, ?MODULE, fix_ds, []}}]
+        end,
+    frequency(
+        [
+            %% Metadata:
+            {3, {call, ?MODULE, put_metadata, [SessionId, put_metadata()]}},
+            {3, {call, ?MODULE, get_metadata, [SessionId, get_metadata()]}},
+
+            %% Key-value:
+            {10, {call, ?MODULE, gen_put, [SessionId, put_req()]}},
+            {3, {call, ?MODULE, gen_get, get_req(S)}},
+            {5, {call, ?MODULE, gen_del, del_req(S)}},
+
+            %% Async checkpoint:
+            {5,
+                case Checkpointing of
+                    false ->
+                        {call, ?MODULE, begin_checkpoint, [session_id(S)]};
+                    true ->
+                        {call, ?MODULE, end_checkpoint, [session_id(S)]}
+                end}
+            %% Commands that should not happen with a pending checkpoint or when DS is broken
+            | case Checkpointing orelse DSBroken of
+                false ->
+                    [
+                        {1, {call, ?MODULE, delete, [SessionId]}},
+                        {5, {call, ?MODULE, graceful_takeover, [SessionId]}}
+                        | Common
+                    ];
+                true ->
+                    Common
+            end
+        ]
+    ).
+
+command(S = #gs{sessions = Sessions}) ->
+    case maps:size(Sessions) > 0 of
         true ->
-            frequency([
-                %% Global CRUD operations:
-                {1, {call, ?MODULE, create_new, [session_id()]}},
-                {1, {call, ?MODULE, delete, [session_id(S)]}},
-                {5, {call, ?MODULE, graceful_takeover, [session_id(S)]}},
-                {2, {call, ?MODULE, commit, [session_id(S)]}},
-                {2, {call, ?MODULE, async_checkpoint, [session_id(S)]}},
-
-                %% Metadata:
-                {3, {call, ?MODULE, put_metadata, [session_id(S), put_metadata()]}},
-                {3, {call, ?MODULE, get_metadata, [session_id(S), get_metadata()]}},
-
-                %% Key-value:
-                {3, {call, ?MODULE, gen_put, [session_id(S), put_req()]}},
-                {3, {call, ?MODULE, gen_get, get_req(S)}},
-                {3, {call, ?MODULE, gen_del, del_req(S)}}
-            ]);
+            ?LET(SessionId, session_id(S), session_command(SessionId, S));
         false ->
             frequency([
                 {1, {call, ?MODULE, create_new, [session_id()]}}
@@ -352,7 +395,7 @@ precondition(_, _) ->
     true.
 
 postcondition(S, {call, ?MODULE, get_metadata, [SessionId, {MetaKey, _Fun}]}, Result) ->
-    #{SessionId := #s{metadata = Meta}} = S,
+    #{SessionId := #s{metadata = Meta}} = S#gs.sessions,
     ?assertEqual(
         maps:get(MetaKey, Meta, undefined),
         Result,
@@ -360,7 +403,7 @@ postcondition(S, {call, ?MODULE, get_metadata, [SessionId, {MetaKey, _Fun}]}, Re
     ),
     true;
 postcondition(S, {call, ?MODULE, gen_get, [SessionId, {Idx, Fun, Key}]}, Result) ->
-    #{SessionId := Record} = S,
+    #{SessionId := Record} = S#gs.sessions,
     ?assertEqual(
         maps:get(Key, element(Idx, Record), undefined),
         Result,
@@ -375,13 +418,41 @@ postcondition(_S, {call, ?MODULE, graceful_takeover, Args}, Result) ->
         #{msg => inconsistent_state_after_restore, args => Args}
     ),
     true;
+postcondition(#gs{ds_broken = false}, {call, ?MODULE, commit, [SessionId | _]}, _Result) ->
+    Saved = emqx_persistent_session_ds:print_session(SessionId),
+    Memory = get_state(SessionId),
+    assert_state_eq(
+        format_state(Memory),
+        maps:get(s, Saved, undefined),
+        committed_state_vs_memory
+    ),
+    %% Verify that dirty state of all pmaps is cleaned by a successful commit:
+    lists:foreach(
+        fun(I) ->
+            #{I := #pmap{dirty = Dirty}} = Memory,
+            ?assertEqual(
+                #{},
+                Dirty,
+                #{
+                    field => I,
+                    session => SessionId
+                }
+            )
+        end,
+        ?sessds_pmaps
+    ),
+    ct:pal("** Verified state consistency for ~w", [SessionId]),
+    true;
 postcondition(_, _, _) ->
     true.
 
 next_state(S, _V, {call, ?MODULE, create_new, [SessionId]}) ->
-    S#{SessionId => #s{}};
+    #gs{sessions = Sessions0} = S,
+    Sessions = Sessions0#{SessionId => #s{}},
+    S#gs{sessions = Sessions};
 next_state(S, _V, {call, ?MODULE, delete, [SessionId]}) ->
-    maps:remove(SessionId, S);
+    #gs{sessions = Sessions} = S,
+    S#gs{sessions = maps:remove(SessionId, Sessions)};
 next_state(S, _V, {call, ?MODULE, put_metadata, [SessionId, {Key, _Fun, Val}]}) ->
     update(
         SessionId,
@@ -403,25 +474,42 @@ next_state(S, _V, {call, ?MODULE, gen_del, [SessionId, {Idx, _Fun, Key}]}) ->
         fun(Map) -> maps:remove(Key, Map) end,
         S
     );
-next_state(S, _V, {call, ?MODULE, commit, [SessionId]}) ->
+next_state(S, _V, {call, ?MODULE, begin_checkpoint, [SessionId | _]}) ->
     update(
         SessionId,
-        #s.committed,
+        #s.checkpointing,
         fun(_) -> true end,
         S
     );
+next_state(S, _V, {call, ?MODULE, CMD, [SessionId | _]}) when
+    CMD =:= end_checkpoint;
+    CMD =:= commit
+->
+    #gs{ds_broken = DSBroken, sessions = Sessions0} = S,
+    Sessions = maps:update_with(
+        SessionId,
+        fun(SS = #s{committed = Committed}) ->
+            SS#s{checkpointing = false, committed = Committed orelse (not DSBroken)}
+        end,
+        Sessions0
+    ),
+    S#gs{sessions = Sessions};
+next_state(S, _V, {call, ?MODULE, break_ds, _}) ->
+    S#gs{ds_broken = true};
+next_state(S, _V, {call, ?MODULE, fix_ds, _}) ->
+    S#gs{ds_broken = false};
 next_state(S, _V, {call, ?MODULE, _, _}) ->
     S.
 
 initial_state() ->
-    #{}.
+    #gs{}.
 
 %%================================================================================
 %% Operations
 %%================================================================================
 
 create_new(SessionId) ->
-    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
+    print_cmd("*** ~w(~p)", [?FUNCTION_NAME, SessionId]),
     {ok, S} = emqx_persistent_session_ds_state:commit(
         emqx_persistent_session_ds_state:create_new(SessionId),
         #{lifetime => new, sync => true}
@@ -440,12 +528,29 @@ commit(SessionId) ->
         do_commit(SessionId, #{lifetime => up, sync => true})
     ).
 
-async_checkpoint(SessionId) ->
+begin_checkpoint(SessionId) ->
     print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     put_state(
         SessionId,
         do_commit(SessionId, #{lifetime => up, sync => false})
     ).
+
+end_checkpoint(SessionId) ->
+    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
+    #{?checkpoint_ref := Ref} = S0 = get_state(SessionId),
+    case is_reference(Ref) of
+        true ->
+            receive
+                ?ds_tx_commit_reply(Ref, Reply) ->
+                    {ok, S} = emqx_persistent_session_ds_state:on_commit_reply(Reply, S0),
+                    put_state(SessionId, S)
+            after 5_000 ->
+                error({timeout_waiting_for_checkpoint, S0})
+            end;
+        false ->
+            %% Record wasn't dirty, checkpoint wasn't initiated
+            ok
+    end.
 
 graceful_takeover(SessionId) ->
     print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
@@ -456,27 +561,40 @@ graceful_takeover(SessionId) ->
     {PrevS, S}.
 
 put_metadata(SessionId, {MetaKey, Fun, Value}) ->
-    print_cmd("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, MetaKey, Value]),
+    print_cmd("*** ~p(~p, ~w, ~w)", [?FUNCTION_NAME, SessionId, MetaKey, Value]),
     S = apply(emqx_persistent_session_ds_state, Fun, [Value, get_state(SessionId)]),
     put_state(SessionId, S).
 
 get_metadata(SessionId, {MetaKey, Fun}) ->
-    print_cmd("*** ~p(~p, ~p)", [?FUNCTION_NAME, SessionId, MetaKey]),
+    print_cmd("*** ~p(~p, ~w)", [?FUNCTION_NAME, SessionId, MetaKey]),
     apply(emqx_persistent_session_ds_state, Fun, [get_state(SessionId)]).
 
 gen_put(SessionId, {Idx, Fun, Key, Value}) ->
-    print_cmd("*** ~p(~p, ~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key, Value]),
+    print_cmd("*** ~p(~p, ~w, ~w, ~w)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key, Value]),
     S = apply(emqx_persistent_session_ds_state, Fun, [Key, Value, get_state(SessionId)]),
     put_state(SessionId, S).
 
 gen_del(SessionId, {Idx, Fun, Key}) ->
-    print_cmd("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
+    print_cmd("*** ~p(~p, ~w, ~w)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
     S = apply(emqx_persistent_session_ds_state, Fun, [Key, get_state(SessionId)]),
     put_state(SessionId, S).
 
 gen_get(SessionId, {Idx, Fun, Key}) ->
-    print_cmd("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
+    print_cmd("*** ~p(~p, ~w, ~w)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
     apply(emqx_persistent_session_ds_state, Fun, [Key, get_state(SessionId)]).
+
+break_ds() ->
+    print_cmd("*** ~p()", [?FUNCTION_NAME]),
+    #{cbm := Mod} = emqx_dsch:get_db_runtime(?DURABLE_SESSION_STATE_DB),
+    meck:new(Mod, [no_history, passthrough]),
+    meck:expect(Mod, otx_prepare_tx, fun(_, _, _, _, _) -> ?err_rec(injected) end),
+    ok.
+
+fix_ds() ->
+    print_cmd("*** ~p()", [?FUNCTION_NAME]),
+    #{cbm := Mod} = emqx_dsch:get_db_runtime(?DURABLE_SESSION_STATE_DB),
+    meck:unload(Mod),
+    ok.
 
 %%================================================================================
 %% Misc.
@@ -505,7 +623,7 @@ do_takeover(SessionId) ->
     ).
 
 assert_state_eq(Expected, Got, Comment) ->
-    ExcludeFields = [?collection_dirty, ?collection_guard, checkpoint_ref],
+    ExcludeFields = exclude_fields(),
     case maps:without(ExcludeFields, Expected) =:= maps:without(ExcludeFields, Got) of
         true ->
             ok;
@@ -548,14 +666,18 @@ diff_maps(Expected, Got) ->
         Fields
     ).
 
-update(SessionId, Key, Fun, S) ->
-    maps:update_with(
+exclude_fields() ->
+    [?collection_dirty, ?collection_guard, checkpoint_n, checkpoint_ref].
+
+update(SessionId, Key, Fun, S = #gs{sessions = Sessions0}) ->
+    Sessions = maps:update_with(
         SessionId,
         fun(SS) ->
             setelement(Key, SS, Fun(erlang:element(Key, SS)))
         end,
-        S
-    ).
+        Sessions0
+    ),
+    S#gs{sessions = Sessions}.
 
 get_state(SessionId) ->
     case ets:lookup(?tab, SessionId) of
@@ -585,6 +707,11 @@ init(Heir) ->
 
 clean() ->
     ets:delete(?tab),
+    try
+        fix_ds()
+    catch
+        _:_ -> ok
+    end,
     ok = emqx_ds:drop_db(sessions).
 
 format_state(undefined) ->
