@@ -754,6 +754,115 @@ t_service_unavailable(Config) ->
     ok = emqx_bridge_http_connector_test_server:set_handler(service_unavailable_http_handler()),
     check_send_is_retried(Config).
 
+t_http_response_retries(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, _, #{state := State0}} = emqx_resource:get_instance(ResourceId),
+    Path = <<"/path">>,
+    logger:set_process_metadata(#{}),
+    TestPid = self(),
+    lists:foreach(
+        fun({QueryMode, MaxRetries, Status, Body}) ->
+            Requests = counters:new(1, []),
+            ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, ServerState) ->
+                counters:add(Requests, 1, 1),
+                {ok, _, Req} = cowboy_req:read_body(Req0),
+                {ok, cowboy_req:reply(Status, #{}, Body, Req), ServerState}
+            end),
+            Context = #{
+                query_mode => QueryMode, max_retries => MaxRetries, status => Status, body => Body
+            },
+            State = State0#{max_attempts => MaxRetries + 1},
+            Request = {Path, [], <<>>},
+            Result =
+                case QueryMode of
+                    sync ->
+                        emqx_bridge_http_connector:on_query(
+                            ResourceId,
+                            {undefined, undefined, post, Request, 5000, MaxRetries},
+                            State
+                        );
+                    async ->
+                        Ref = make_ref(),
+                        Reply = {fun(R) -> TestPid ! {Ref, R} end, []},
+                        {ok, _} = emqx_bridge_http_connector:on_query_async(
+                            ResourceId, {undefined, undefined, post, Request, 5000}, Reply, State
+                        ),
+                        receive
+                            {Ref, R} -> R
+                        after 5000 ->
+                            ct:fail(http_response_timeout)
+                        end
+                end,
+            ErrorType =
+                case Status of
+                    429 -> recoverable_error;
+                    503 -> recoverable_error;
+                    _ -> unrecoverable_error
+                end,
+            ?assertMatch({error, {ErrorType, #{status_code := Status}}}, Result, Context),
+            ?assertEqual(1, counters:get(Requests, 1), Context)
+        end,
+        [
+            {QueryMode, MaxRetries, Status, Body}
+         || QueryMode <- [sync, async],
+            MaxRetries <- [5, 2, 0],
+            Status <- [400, 429, 503],
+            Body <- [<<>>, <<"retry later">>]
+        ]
+    ),
+    ok.
+
+t_http_response_expired(TCConfig) ->
+    lists:foreach(
+        fun(Status) ->
+            Requests = counters:new(1, []),
+            ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, ServerState) ->
+                counters:add(Requests, 1, 1),
+                {ok, _, Req} = cowboy_req:read_body(Req0),
+                {ok, cowboy_req:reply(Status, #{}, <<>>, Req), ServerState}
+            end),
+            {201, _} = create_connector_api(TCConfig, #{
+                <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
+            }),
+            {201, _} = create_action_api(TCConfig, #{
+                <<"resource_opts">> => #{
+                    <<"query_mode">> => <<"async">>,
+                    <<"metrics_flush_interval">> => <<"300ms">>,
+                    <<"health_check_interval">> => <<"1m">>,
+                    <<"resume_interval">> => <<"2s">>,
+                    <<"request_ttl">> => <<"1s">>
+                }
+            }),
+            #{topic := Topic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            emqtt:publish(C, Topic, <<"expire">>, [{qos, 1}]),
+            ?retry(
+                _Interval = 500,
+                _NAttempts = 20,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> := #{
+                            <<"matched">> := 1,
+                            <<"dropped">> := 1,
+                            <<"dropped.expired">> := 1,
+                            <<"failed">> := 0,
+                            <<"success">> := 0,
+                            <<"late_reply">> := 0
+                        }
+                    }},
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+            ?assertEqual(1, counters:get(Requests, 1), #{status => Status}),
+            ok = emqtt:stop(C),
+            emqx_bridge_v2_testlib:delete_all_rules(),
+            emqx_bridge_v2_testlib:delete_all_bridges_and_connectors()
+        end,
+        [429, 503]
+    ),
+    ok.
+
 check_send_is_retried(TCConfig) ->
     ?check_trace(
         begin
@@ -790,7 +899,8 @@ check_send_is_retried(TCConfig) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_ | _], ?of_kind(http_will_retry_async, Trace)),
+            ?assertEqual([], ?of_kind(http_will_retry_async, Trace)),
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_retry_inflight_succeeded, Trace)),
             ok
         end
     ),
