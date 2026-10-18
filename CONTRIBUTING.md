@@ -152,12 +152,10 @@ branch that the base branch fast-forwards into. It is not only the base branch v
 Run `./scripts/rel-versions` in your checkout to get the list. A line with no GA release yet shows
 as `M.N.0`.
 
-For a pull request based on `dev-58`, the script prints one version per line:
+For a pull request based on `dev-58`, the script prints one comma-separated line:
 
 ```
-5.8.12
-5.9.4
-5.10.6
+5.8.12, 5.9.4, 5.10.6
 ```
 
 Put each of those versions in the `Release version:` field.
