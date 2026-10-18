@@ -583,7 +583,8 @@ t_sendq_congestion_trigger(_) ->
 
 -doc """
 A congested connection checks its send queue on a timer, so it resumes delivery
-without any other event.
+without any other event. The check interval doubles while the queue stays
+congested, and starts again at the minimum on the next congestion.
 """.
 t_sendq_congestion_check_timer(_) ->
     HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
@@ -609,19 +610,53 @@ t_sendq_congestion_check_timer(_) ->
     ?assertEqual(congested, emqx_connection:info(sockstate, State1)),
     ?assertEqual(congested, receive_signal()),
     %% The send queue is still congested at the first check: the timer starts again.
-    {ok, [], State2} = handle_msg(receive_check_sendq_timeout(), State1),
+    {ok, [], State2} = handle_msg(receive_check_sendq_timeout(100), State1),
     ?assertEqual(congested, emqx_connection:info(sockstate, State2)),
     ok = SetSendPend(0.2),
-    {ok, [], State3} = handle_msg(receive_check_sendq_timeout(), State2),
+    {ok, [], State3} = handle_msg(receive_check_sendq_timeout(200), State2),
     ?assertEqual(running, emqx_connection:info(sockstate, State3)),
     ?assertEqual(decongested, receive_signal()),
     ?assertEqual(
         none,
         receive
-            {timeout, _, check_sendq} = Timeout -> Timeout
+            {timeout, _, {check_sendq, _}} = Timeout -> Timeout
         after 300 -> none
         end
-    ).
+    ),
+    %% The next congestion starts again at the minimum interval.
+    ok = SetSendPend(0.8),
+    {ok, _, State4} = handle_msg(
+        {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 1, payload(HWM div 2))},
+        State3
+    ),
+    ?assertEqual(congested, receive_signal()),
+    {ok, [], _} = handle_msg(receive_check_sendq_timeout(100), State4).
+
+-doc """
+The send queue check interval does not grow above its maximum.
+""".
+t_sendq_check_interval_max(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, round(HWM * 0.8)} || K <- Options]}
+    end),
+    TRef = make_ref(),
+    State = st(#{sockstate => TRef}),
+    {ok, [], _} = handle_msg({timeout, TRef, {check_sendq, 1600}}, State),
+    {timeout, _, {check_sendq, 1600}} = receive_check_sendq_timeout(1600).
+
+-doc """
+A timer message of the earlier `check_sendq` form runs a send queue check.
+""".
+t_sendq_check_legacy_timer(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, round(HWM * 0.8)} || K <- Options]}
+    end),
+    TRef = make_ref(),
+    {ok, [], State} = handle_msg({timeout, TRef, check_sendq}, st(#{sockstate => TRef})),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State)),
+    {ok, [], _} = handle_msg(receive_check_sendq_timeout(200), State).
 
 -doc """
 A check timer that fires after the send queue was decongested does not change
@@ -629,7 +664,7 @@ the connection state.
 """.
 t_sendq_check_stale_timer(_) ->
     State = st(#{sockstate => running}),
-    ?assertEqual({ok, State}, handle_msg({timeout, make_ref(), check_sendq}, State)).
+    ?assertEqual({ok, State}, handle_msg({timeout, make_ref(), {check_sendq, 100}}, State)).
 
 -doc """
 A connection in the `congested` state of the code before the send queue check
@@ -642,7 +677,7 @@ t_sendq_congestion_legacy_state(_) ->
     end),
     {ok, _, State} = handle_msg({tcp_passive, sock}, st(#{sockstate => congested})),
     ?assertEqual(congested, emqx_connection:info(sockstate, State)),
-    {ok, [], _} = handle_msg(receive_check_sendq_timeout(), State).
+    {ok, [], _} = handle_msg(receive_check_sendq_timeout(100), State).
 
 t_close_socket(_) ->
     State = emqx_connection:close_socket(st(#{sockstate => closed})),
@@ -825,11 +860,11 @@ receive_signal() ->
         ct:fail(no_signal)
     end.
 
-receive_check_sendq_timeout() ->
+receive_check_sendq_timeout(Interval) ->
     receive
-        {timeout, _TRef, check_sendq} = Timeout -> Timeout
-    after 1000 ->
-        ct:fail(no_check_sendq_timeout)
+        {timeout, _TRef, {check_sendq, Interval}} = Timeout -> Timeout
+    after Interval + 1000 ->
+        ct:fail({no_check_sendq_timeout, Interval})
     end.
 
 st() -> st(#{}, #{}).
