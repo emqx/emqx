@@ -116,8 +116,9 @@
     %% TCP/TLS Socket
     socket :: esockd:socket() | emqx_quic_stream:socket(),
     %% Sock State.
-    %% `congested` denotes send queue congestion.
-    sockstate :: emqx_types:sockstate() | congested,
+    %% `congested` or the reference of the send queue check timer denotes
+    %% send queue congestion.
+    sockstate :: emqx_types:sockstate() | congested | reference(),
     %% Packet parser / serializer (undefined before initialization)
     parser :: undefined | parser(),
     serialize :: emqx_frame:serialize_opts(),
@@ -154,6 +155,13 @@
 -opaque state() :: #state{}.
 
 -define(ACTIVE_N, 10).
+
+%% Interval of the send queue check while the send queue is congested.
+%% The interval doubles after each check that finds the queue still congested.
+-define(SENDQ_CHECK_MIN, 100).
+-define(SENDQ_CHECK_MAX, 1600).
+
+-define(IS_CONGESTED(SockSt), (SockSt =:= congested orelse is_reference(SockSt))).
 
 -define(SOCK_STATS, [
     recv_oct,
@@ -236,6 +244,8 @@ info(peername, #state{channel = Channel}) ->
     emqx_channel:info(peername, Channel);
 info(sockname, #state{channel = Channel}) ->
     emqx_channel:info(sockname, Channel);
+info(sockstate, #state{sockstate = SockSt}) when is_reference(SockSt) ->
+    congested;
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
@@ -774,6 +784,16 @@ handle_timeout(
     maybe_set_chan_stats(ClientId, NState),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, NState),
     {ok, Msgs, NState#state{stats_timer = undefined}};
+handle_timeout(TRef, {check_sendq, Interval}, State = #state{sockstate = TRef}) ->
+    NextInterval = min(Interval * 2, ?SENDQ_CHECK_MAX),
+    {Msgs, NState} = check_sendq_congestion(State#state{sockstate = congested}, NextInterval),
+    {ok, Msgs, NState};
+handle_timeout(_TRef, {check_sendq, _Interval}, State) ->
+    %% The send queue was decongested after this timer started.
+    {ok, State};
+handle_timeout(TRef, check_sendq, State) ->
+    %% Timer message of an earlier version of this module.
+    handle_timeout(TRef, {check_sendq, ?SENDQ_CHECK_MIN}, State);
 handle_timeout(
     TRef,
     keepalive,
@@ -1224,7 +1244,7 @@ run_gc(#state{conf = #conf{zone = Zone}}) ->
         true -> ok
     end.
 
-probe_sendq_congestion(State = #state{sockstate = congested}) ->
+probe_sendq_congestion(State = #state{sockstate = SockSt}) when ?IS_CONGESTED(SockSt) ->
     check_sendq_congestion(State);
 probe_sendq_congestion(State = #state{conf = #conf{sendq_watermark = 0}}) ->
     {[], State};
@@ -1237,7 +1257,7 @@ probe_sendq_congestion(
     SQSize = get_sendq_size(State),
     case SQSize > Watermark div 2 of
         true ->
-            NState = State#state{sockstate = congested},
+            NState = ensure_sendq_timer(State#state{sockstate = congested}, ?SENDQ_CHECK_MIN),
             signal_channel_congestion(congested, SQSize, NState);
         false ->
             {[], State}
@@ -1245,22 +1265,32 @@ probe_sendq_congestion(
 probe_sendq_congestion(State) ->
     {[], State}.
 
+check_sendq_congestion(State) ->
+    check_sendq_congestion(State, ?SENDQ_CHECK_MIN).
+
 check_sendq_congestion(
     State = #state{
-        sockstate = congested,
+        sockstate = SockSt,
         conf = #conf{sendq_watermark = Watermark}
-    }
-) ->
+    },
+    NextInterval
+) when ?IS_CONGESTED(SockSt) ->
     SQSize = get_sendq_size(State),
     case SQSize < Watermark div 4 of
         true ->
             NState = State#state{sockstate = running},
             signal_channel_congestion(decongested, SQSize, NState);
         false ->
-            {[], State}
+            {[], ensure_sendq_timer(State, NextInterval)}
     end;
-check_sendq_congestion(State) ->
+check_sendq_congestion(State, _NextInterval) ->
     {[], State}.
+
+%% Replace `congested` with the reference of a new send queue check timer.
+ensure_sendq_timer(State = #state{sockstate = congested}, Interval) ->
+    State#state{sockstate = start_timer(Interval, {check_sendq, Interval})};
+ensure_sendq_timer(State, _Interval) ->
+    State.
 
 get_sendq_size(State) ->
     case sockstats([send_pend], State) of
@@ -1396,8 +1426,8 @@ activate_socket(
 activate_socket(State) ->
     {ok, State}.
 
-activate_sockstate(congested) ->
-    congested;
+activate_sockstate(SockSt) when ?IS_CONGESTED(SockSt) ->
+    SockSt;
 activate_sockstate(_SockState) ->
     running.
 
