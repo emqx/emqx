@@ -175,8 +175,10 @@ bearer_auth_header(Token) ->
     {"Authorization", iolist_to_binary(["Bearer ", Token])}.
 
 create_superuser() ->
+    create_superuser(<<"superuser">>).
+
+create_superuser(Username) ->
     emqx_common_test_http:create_default_app(),
-    Username = <<"superuser">>,
     Password = <<"secretP@ss1">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
     {200, #{<<"token">> := Token}} = login(#{<<"username">> => Username, <<"password">> => Password}),
@@ -323,6 +325,66 @@ upload_files_multipart_ns(Ns, BundleName, Files) ->
         method => post
     }),
     emqx_mgmt_api_test_util:simplify_decode_result(Res).
+
+merge_ca_global(BundleName, Contents) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName, "trusts"]),
+    simple_request(#{
+        method => post,
+        url => URL,
+        body => #{?FILE_KIND_CA => Contents}
+    }).
+
+merge_ca_multipart_global(BundleName, Contents) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName, "trusts"]),
+    Res = emqx_mgmt_api_test_util:upload_request(#{
+        url => URL,
+        files => [{?FILE_KIND_CA_BIN, <<"unused_ca_filename.pem">>, Contents}],
+        mime_type => <<"application/octet-stream">>,
+        other_params => [],
+        auth_token => get_auth_header(),
+        method => post
+    }),
+    emqx_mgmt_api_test_util:simplify_decode_result(Res).
+
+delete_trusted_cert_global(BundleName, Fingerprint) ->
+    URL = emqx_mgmt_api_test_util:api_path(
+        ["certs", "global", "name", BundleName, "trusts", Fingerprint]
+    ),
+    simple_request(#{method => delete, url => URL}).
+
+fingerprint(PEM) ->
+    [Der] = cert_ders(PEM),
+    binary:encode_hex(crypto:hash(sha256, Der)).
+
+%% The form `openssl x509 -fingerprint' prints: bytes separated by colons.
+colon_fingerprint(PEM) ->
+    Hex = string:lowercase(fingerprint(PEM)),
+    iolist_to_binary(lists:join($:, [<<B:2/binary>> || <<B:2/binary>> <= Hex])).
+
+cert_ders(PEM) ->
+    [Der || {'Certificate', Der, _} <- public_key:pem_decode(PEM)].
+
+read_file(Path) ->
+    {ok, Contents} = file:read_file(Path),
+    Contents.
+
+create_user_and_login(GlobalAdminHeader, Username, Role) ->
+    Password = <<"superSecureP@ss">>,
+    ?assertMatch(
+        {200, _},
+        create_user_api(
+            #{
+                <<"username">> => Username,
+                <<"password">> => Password,
+                <<"role">> => Role,
+                <<"description">> => <<"test user">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    {200, #{<<"token">> := Token}} =
+        login(#{<<"username">> => Username, <<"password">> => Password}),
+    bearer_auth_header(Token).
 
 clean_pem_cache_api() ->
     URL = emqx_mgmt_api_test_util:api_path(["certs", "pem_cache_clean"]),
@@ -1110,6 +1172,258 @@ t_namespaced_admin_crud(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({403, _}, delete_bundle_global(Bundle1)),
     ?assertMatch({403, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
 
+    ok.
+
+-doc """
+Verifies that the CA merge API appends new CA certificates to the `ca` file of a global
+bundle, skips certificates the file already holds, and leaves the other files alone.
+""".
+t_merge_ca_certs() ->
+    [{matrix, true}].
+t_merge_ca_certs(matrix) ->
+    [[?local], [?cluster]];
+t_merge_ca_certs(TCConfig) when is_list(TCConfig) ->
+    #{cert_key := CertKeyRoot1, cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA3} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA4} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert1, key_pem := Key1} = gen_cert(#{key => ec, issuer => CertKeyRoot1}),
+    Bundle1 = <<"bundle1">>,
+
+    %% The bundle must exist.
+    ?assertMatch({404, _}, merge_ca_global(Bundle1, CA1)),
+    ?assertMatch({200, []}, list_bundles_global()),
+
+    Files1 = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, CA1},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert1},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key1}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle1, Files1)),
+    {200, #{
+        <<"ca">> := #{<<"path">> := PathCA},
+        <<"chain">> := #{<<"path">> := PathChain},
+        <<"key">> := #{<<"path">> := PathKey}
+    }} = list_files_global(Bundle1),
+
+    %% A new certificate is appended; the existing bytes are kept.
+    ?assertEqual(
+        {200, #{<<"added">> => 1, <<"total">> => 2}},
+        merge_ca_global(Bundle1, CA2)
+    ),
+    Merged1 = read_file(PathCA),
+    ?assertMatch(<<CA1:(byte_size(CA1))/binary, _/binary>>, Merged1),
+    ?assertEqual(cert_ders(CA1) ++ cert_ders(CA2), cert_ders(Merged1)),
+    ?assertEqual(md5(Cert1), read_md5(PathChain)),
+    ?assertEqual(md5(Key1), read_md5(PathKey)),
+    assert_same_bundles(?global_ns, TCConfig),
+
+    %% Certificates already present are skipped, and the file is not rewritten.
+    ?assertEqual(
+        {200, #{<<"added">> => 0, <<"total">> => 2}},
+        merge_ca_global(Bundle1, <<CA2/binary, CA1/binary>>)
+    ),
+    ?assertEqual(Merged1, read_file(PathCA)),
+
+    %% Duplicates within one request are added once; multipart works too.
+    ?assertEqual(
+        {200, #{<<"added">> => 2, <<"total">> => 4}},
+        merge_ca_multipart_global(Bundle1, <<CA3/binary, CA1/binary, CA4/binary, CA3/binary>>)
+    ),
+    Merged2 = read_file(PathCA),
+    ?assertEqual(
+        cert_ders(CA1) ++ cert_ders(CA2) ++ cert_ders(CA3) ++ cert_ders(CA4),
+        cert_ders(Merged2)
+    ),
+    assert_same_bundles(?global_ns, TCConfig),
+
+    %% Invalid input is rejected and changes nothing.
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, Key1)),
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, <<CA1/binary, Key1/binary>>)),
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, <<"not a certificate">>)),
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, <<"">>)),
+    BadCert = <<"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n">>,
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, BadCert)),
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", Bundle1, "trusts"]),
+    ?assertMatch({400, _}, simple_request(#{method => post, url => URL, body => #{}})),
+    ?assertEqual(Merged2, read_file(PathCA)),
+
+    %% A bundle without a `ca` file gets one.
+    Bundle2 = <<"bundle2">>,
+    ?assertMatch({204, _}, upload_file_global(Bundle2, ?FILE_KIND_CHAIN, Cert1)),
+    ?assertEqual(
+        {200, #{<<"added">> => 1, <<"total">> => 1}},
+        merge_ca_global(Bundle2, CA1)
+    ),
+    {200, #{<<"ca">> := #{<<"path">> := PathCA2}}} = list_files_global(Bundle2),
+    ?assertEqual(cert_ders(CA1), cert_ders(read_file(PathCA2))),
+    assert_same_bundles(?global_ns, TCConfig),
+    ok.
+
+-doc """
+Verifies that sending two files for one file kind is refused with a message, and that the
+message does not carry the uploaded file back to the caller.
+""".
+t_multipart_repeated_kind() ->
+    [{matrix, true}].
+t_multipart_repeated_kind(matrix) ->
+    [[?local]];
+t_multipart_repeated_kind(TCConfig) when is_list(TCConfig) ->
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2, key_pem := Key1} = gen_cert(#{key => ec, issuer => root}),
+    Bundle1 = <<"bundle1">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca1.pem">>, CA1},
+        {?FILE_KIND_CA_BIN, <<"ca2.pem">>, CA2}
+    ],
+    {400, #{<<"message">> := Msg}} = upload_files_multipart_global(Bundle1, Files),
+    ?assertMatch({_, _}, binary:match(Msg, <<"send exactly one file">>)),
+    ?assertEqual(nomatch, binary:match(Msg, <<"BEGIN CERTIFICATE">>)),
+
+    KeyFiles = [
+        {?FILE_KIND_KEY_BIN, <<"key1.pem">>, Key1},
+        {?FILE_KIND_KEY_BIN, <<"key2.pem">>, Key1}
+    ],
+    {400, #{<<"message">> := KeyMsg}} = upload_files_multipart_global(Bundle1, KeyFiles),
+    ?assertEqual(nomatch, binary:match(KeyMsg, <<"PRIVATE KEY">>)),
+    ok.
+
+-doc """
+Verifies that only a global administrator may call the CA merge API.
+""".
+t_merge_ca_certs_rbac() ->
+    [{matrix, true}].
+t_merge_ca_certs_rbac(matrix) ->
+    [[?local]];
+t_merge_ca_certs_rbac(TCConfig) when is_list(TCConfig) ->
+    GlobalAdminHeader = create_superuser(<<"superuser_ca_merge">>),
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2} = gen_cert(#{key => ec, issuer => root}),
+    Bundle1 = <<"bundle1">>,
+    ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
+    {200, #{<<"ca">> := #{<<"path">> := PathCA}}} = list_files_global(Bundle1),
+
+    Ns1 = <<"ns1">>,
+    NsAdminHeader = create_user_and_login(
+        GlobalAdminHeader,
+        <<"nsadmin">>,
+        <<"ns:", Ns1/binary, "::", ?ROLE_SUPERUSER/binary>>
+    ),
+    put_auth_header(NsAdminHeader),
+    ?assertMatch({403, _}, merge_ca_global(Bundle1, CA2)),
+    ?assertMatch({403, _}, merge_ca_multipart_global(Bundle1, CA2)),
+    ?assertMatch({403, _}, delete_trusted_cert_global(Bundle1, fingerprint(CA1))),
+
+    ViewerHeader = create_user_and_login(GlobalAdminHeader, <<"viewer1">>, ?ROLE_VIEWER),
+    put_auth_header(ViewerHeader),
+    ?assertMatch({403, _}, merge_ca_global(Bundle1, CA2)),
+    ?assertMatch({403, _}, delete_trusted_cert_global(Bundle1, fingerprint(CA1))),
+
+    ?assertEqual(md5(CA1), read_md5(PathCA)),
+
+    put_auth_header(GlobalAdminHeader),
+    ?assertMatch({200, #{<<"added">> := 1}}, merge_ca_global(Bundle1, CA2)),
+    ?assertMatch({200, #{<<"total">> := 1}}, delete_trusted_cert_global(Bundle1, fingerprint(CA1))),
+    ok.
+
+-doc """
+Verifies that the trusted-certificate delete API removes one CA certificate from the `ca`
+file of a global bundle, and deletes the file when no certificate is left.
+""".
+t_delete_trusted_cert() ->
+    [{matrix, true}].
+t_delete_trusted_cert(matrix) ->
+    [[?local], [?cluster]];
+t_delete_trusted_cert(TCConfig) when is_list(TCConfig) ->
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA3} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Other} = gen_cert(#{key => ec, issuer => root}),
+    Bundle1 = <<"bundle1">>,
+
+    ?assertMatch({404, _}, delete_trusted_cert_global(Bundle1, fingerprint(CA1))),
+
+    CAs = <<CA1/binary, CA2/binary, CA3/binary>>,
+    ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CAs)),
+    {200, #{<<"ca">> := #{<<"path">> := PathCA}}} = list_files_global(Bundle1),
+
+    %% Bad or unknown fingerprints change nothing.
+    ?assertMatch({400, _}, delete_trusted_cert_global(Bundle1, <<"abcd">>)),
+    ?assertMatch({400, _}, delete_trusted_cert_global(Bundle1, <<"not-hex">>)),
+    ?assertMatch({404, _}, delete_trusted_cert_global(Bundle1, fingerprint(Other))),
+    ?assertEqual(CAs, read_file(PathCA)),
+
+    ?assertEqual(
+        {200, #{<<"total">> => 2}},
+        delete_trusted_cert_global(Bundle1, fingerprint(CA2))
+    ),
+    ?assertEqual(cert_ders(CA1) ++ cert_ders(CA3), cert_ders(read_file(PathCA))),
+    assert_same_bundles(?global_ns, TCConfig),
+    ?assertMatch({404, _}, delete_trusted_cert_global(Bundle1, fingerprint(CA2))),
+
+    %% The colon-separated lowercase form works too.
+    ?assertEqual(
+        {200, #{<<"total">> => 1}},
+        delete_trusted_cert_global(Bundle1, colon_fingerprint(CA1))
+    ),
+    ?assertEqual(cert_ders(CA3), cert_ders(read_file(PathCA))),
+
+    %% The file goes away with its last certificate; the bundle stays.
+    ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_KEY_PASSWORD, <<"secret">>)),
+    ?assertEqual(
+        {200, #{<<"total">> => 0}},
+        delete_trusted_cert_global(Bundle1, fingerprint(CA3))
+    ),
+    {200, Files} = list_files_global(Bundle1),
+    ?assertEqual([<<"key_password">>], maps:keys(Files)),
+    ?assertNot(filelib:is_file(PathCA)),
+    assert_same_bundles(?global_ns, TCConfig),
+    ?assertMatch({404, _}, delete_trusted_cert_global(Bundle1, fingerprint(CA3))),
+    ok.
+
+-doc """
+Verifies that the last trusted certificate of a bundle cannot be deleted while a
+configuration refers to the bundle, because that deletes the `ca` file.
+""".
+t_delete_trusted_cert_referenced_bundle() ->
+    [{matrix, true}].
+t_delete_trusted_cert_referenced_bundle(matrix) ->
+    [[?local]];
+t_delete_trusted_cert_referenced_bundle(_TCConfig) ->
+    #{cert_key := CertKeyRoot} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert, key_pem := Key} = gen_cert(#{key => ec, issuer => CertKeyRoot}),
+    Bundle = <<"referenced_bundle">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, <<CA1/binary, CA2/binary>>},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle, Files)),
+    {200, #{<<"ca">> := #{<<"path">> := PathCA}}} = list_files_global(Bundle),
+
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> restore_listener(<<"ssl">>, <<"default">>, TLSListener0) end),
+    TLSListenerManaged = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => Bundle}]
+    ),
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
+
+    %% Not the last one: allowed, like uploading a new `ca` file.
+    ?assertMatch({200, #{<<"total">> := 1}}, delete_trusted_cert_global(Bundle, fingerprint(CA1))),
+    ExpectedRefs = #{<<"global">> => [[<<"listeners">>, <<"ssl">>, <<"default">>]]},
+    ?assertMatch(
+        {400, #{<<"referencing_configs">> := ExpectedRefs}},
+        delete_trusted_cert_global(Bundle, fingerprint(CA2))
+    ),
+    ?assertEqual(cert_ders(CA2), cert_ders(read_file(PathCA))),
+
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListener0)),
+    ?assertMatch({200, #{<<"total">> := 0}}, delete_trusted_cert_global(Bundle, fingerprint(CA2))),
+    ?assertMatch({204, _}, delete_bundle_global(Bundle)),
     ok.
 
 -doc """
