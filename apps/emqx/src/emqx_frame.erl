@@ -201,6 +201,11 @@ parse_complete(
     <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>>,
     Options = #options{strict_mode = StrictMode}
 ) ->
+    %% The driver frames the packet with the limit that the listener read when
+    %% it started, so a later change of `max_packet_size' reaches only this
+    %% check. Count the control byte with the rest of the frame, as the
+    %% chunked path does.
+    ok = check_packet_size(1 + byte_size(Rest1), Options),
     ok = validate_connect_first(Type),
     %% Validate header if strict mode.
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
