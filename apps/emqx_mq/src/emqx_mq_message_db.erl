@@ -4,6 +4,11 @@
 
 -module(emqx_mq_message_db).
 
+%% The `receive' expressions below wait for the commit reply of an async
+%% `emqx_ds:trans/2' that this module started. A bounded wait needs an error
+%% path for the timeout, which belongs with the callers of this module.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -moduledoc """
 Facade for all operations with the message database.
 """.
@@ -580,9 +585,7 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
             },
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
-                    fun(Topic) ->
-                        emqx_ds:tx_del_topic(Topic)
-                    end,
+                    fun emqx_ds:tx_del_topic/1,
                     Topics
                 )
             end),

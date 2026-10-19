@@ -2043,12 +2043,7 @@ handle_info({session, Info}, Channel = #channel{session = Session0, clientinfo =
         {ok, Channel#channel{session = Session}}
     else
         {shutdown, Reason, Session1} ->
-            case disconnect_and_shutdown(Reason, ok, Channel#channel{session = Session1}) of
-                {shutdown, ExitReason, _Reply, Packet, SChannel} ->
-                    {shutdown, ExitReason, Packet, SChannel};
-                {shutdown, ExitReason, _Reply, SChannel} ->
-                    {shutdown, ExitReason, SChannel}
-            end
+            shutdown_on_session_request(Reason, Session1, Channel)
     end;
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     maybe
@@ -2073,12 +2068,18 @@ handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInf
         end
     else
         {shutdown, Reason, Session1} ->
-            case disconnect_and_shutdown(Reason, ok, Channel0#channel{session = Session1}) of
-                {shutdown, ExitReason, _Reply, Packet, SChannel} ->
-                    {shutdown, ExitReason, Packet, SChannel};
-                {shutdown, ExitReason, _Reply, SChannel} ->
-                    {shutdown, ExitReason, SChannel}
-            end
+            shutdown_on_session_request(Reason, Session1, Channel0)
+    end.
+
+%% A session asks the channel to stop. Drop the reply that
+%% `disconnect_and_shutdown/3' builds for a caller, because `handle_info/2' has
+%% no caller to answer.
+shutdown_on_session_request(Reason, Session, Channel) ->
+    case disconnect_and_shutdown(Reason, ok, Channel#channel{session = Session}) of
+        {shutdown, ExitReason, _Reply, Packet, SChannel} ->
+            {shutdown, ExitReason, Packet, SChannel};
+        {shutdown, ExitReason, _Reply, SChannel} ->
+            {shutdown, ExitReason, SChannel}
     end.
 
 append_replies(Replies1, Replies2) ->

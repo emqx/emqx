@@ -4,6 +4,9 @@
 
 -module(emqx_dashboard).
 
+%% `listener_name/1' builds the listener id atom from a fixed set of protocols.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -moduledoc "Dashboard listener management, authorization, and Minirest wiring.".
 
 %% dialyzer cannot see through emqx_mgmt_auth:authorize/4's return value
