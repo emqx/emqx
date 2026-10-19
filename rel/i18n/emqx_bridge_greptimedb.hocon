@@ -32,7 +32,9 @@ TLDR:<br/>
 ```
 <measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
 ```
-Please note that a placeholder for an integer value must be annotated with a suffix `i`. For example `${payload.int_value}i`."""
+Please note that a placeholder for an integer value must be annotated with a suffix `i`. For example `${payload.int_value}i`.
+A placeholder for a JSON2 value must be annotated with a suffix `j`. For example `${payload.json_value}j`.
+JSON2 values are only supported by the `emqx_tables` connector, and must be used as fields, not tags."""
 
 write_syntax.label:
 """Write Syntax"""

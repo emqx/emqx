@@ -771,6 +771,114 @@ t_auto_cast_int_to_float(TCConfig) ->
     ok.
 
 -doc """
+Verifies that a field annotated with the `j` suffix is written as a JSON2
+column.  The table is left to be auto-created by the native driver, so this
+also covers JSON2 schema inference from the `{json2, Json}' value marker.
+""".
+t_json2_write() ->
+    [{matrix, true}].
+t_json2_write(matrix) ->
+    [
+        [?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_json2_write(TCConfig) ->
+    TableName = <<"json2_write">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> =>
+                <<TableName/binary, ",clientid=${clientid} payload=${.payload.p}j">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    Payload = json_encode(#{
+        p => #{name => <<"alice">>, nested => #{ok => true}}
+    }),
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"name">> := <<"alice">>, <<"ok">> := <<"true">>},
+            query_by_sql(json2_subfield_sql(TableName), TCConfig)
+        )
+    ),
+    ?retry(
+        200,
+        10,
+        begin
+            Columns = query_by_sql(json2_type_sql(TableName), TCConfig),
+            [PayloadColumn] = [
+                Column
+             || #{<<"Column">> := <<"payload">>} = Column <- Columns
+            ],
+            ?assertNotEqual(
+                nomatch,
+                binary:match(maps:get(<<"Type">>, PayloadColumn), <<"Json2">>)
+            )
+        end
+    ),
+    ok.
+
+-doc """
+Verifies that a `j`-suffixed field can also be written to a pre-created JSON2
+table.  In this case the driver learns the column type from the server schema
+instead of inferring it from the input value.
+""".
+t_json2_write_existing_table() ->
+    [{matrix, true}].
+t_json2_write_existing_table(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_write_existing_table(TCConfig) ->
+    TableName = <<"json2_existing">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    {ok, _} = query_by_sql(
+        <<
+            "create table ",
+            TableName/binary,
+            " (ts timestamp time index, payload json2) "
+            "engine=mito with (append_mode = 'true')"
+        >>,
+        TCConfig
+    ),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> => <<TableName/binary, " payload=${.payload.p}j">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    Payload = json_encode(#{p => #{name => <<"bob">>, active => true}}),
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"name">> := <<"bob">>, <<"active">> := <<"true">>},
+            query_by_sql(json2_subfield_sql(TableName), TCConfig)
+        )
+    ),
+    ok.
+
+json2_subfield_sql(TableName) ->
+    <<
+        "select payload.name as name, payload.nested.ok as ok, "
+        "payload.active as active from ",
+        TableName/binary
+    >>.
+
+json2_type_sql(TableName) ->
+    <<"describe ", TableName/binary>>.
+
+-doc """
 Smoke test for using `ts_column` -- verifies that a custom timestamp column name is
 respected when auto-creating tables via the Rust NIF driver.
 """.

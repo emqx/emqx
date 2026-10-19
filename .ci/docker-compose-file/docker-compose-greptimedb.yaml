@@ -2,7 +2,7 @@ services:
   greptimedb:
     container_name: greptimedb
     hostname: greptimedb
-    image: greptime/greptimedb:v0.17.2
+    image: greptime/greptimedb:v1.2.1
     expose:
       - "4000"
       - "4001"
@@ -13,12 +13,12 @@ services:
       standalone start
       --user-provider=static_user_provider:cmd:greptime_user=greptime_pwd
       --http-addr="0.0.0.0:4000"
-      --rpc-addr="0.0.0.0:4001"
+      --grpc-bind-addr="0.0.0.0:4001"
 
   greptimedb_tls:
     container_name: greptimedb_tls
     hostname: greptimedb_tls
-    image: greptime/greptimedb:v0.17.2
+    image: greptime/greptimedb:v1.2.1
     expose:
       - "4000"
       - "4001"
@@ -32,5 +32,5 @@ services:
       standalone start
       --user-provider=static_user_provider:cmd:greptime_user=greptime_pwd
       --http-addr="0.0.0.0:4000"
-      --rpc-addr="0.0.0.0:4001"
+      --grpc-bind-addr="0.0.0.0:4001"
       -c /etc/greptimedb/tls.toml
