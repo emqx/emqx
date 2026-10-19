@@ -755,7 +755,7 @@ parse_incoming(<<>>, Packets, State) ->
 parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
-            {Packets, State#state{parse_state = NParseState}};
+            {lists:reverse(Packets), State#state{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [{incoming, Packet} | Packets], NState)
@@ -769,7 +769,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             }),
             FrameError = {frame_error, Reason},
             NState = enrich_state(Reason, State),
-            {[{incoming, FrameError} | Packets], NState};
+            {lists:reverse(Packets, [{incoming, FrameError}]), NState};
         error:Reason:Stacktrace ->
             ?LOG(error, #{
                 msg => "frame_parse_failed",
@@ -779,7 +779,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
                 stacktrace => Stacktrace
             }),
             FrameError = {frame_error, Reason},
-            {[{incoming, FrameError} | Packets], State}
+            {lists:reverse(Packets, [{incoming, FrameError}]), State}
     end.
 
 %%--------------------------------------------------------------------
