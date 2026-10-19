@@ -265,13 +265,13 @@ t_parse_packet_size_limit(_) ->
             State = emqx_frame:initial_parse_state(Opts),
             %% When the packet arrives with another packet in the same chunk.
             %% Then the limit applies to each packet separately.
-            {ok, Packet, <<16#c0, 0>>, _} = emqx_frame:parse(<<Bin/binary, 16#c0, 0>>, State),
+            {Packet, <<16#c0, 0>>, _} = emqx_frame:parse(<<Bin/binary, 16#c0, 0>>, State),
             %% When the fixed header is split across chunks.
             <<Prefix:(HeaderSize - 1)/binary, LastHeader:1/binary, Body/binary>> = Bin,
             {more, Partial} = emqx_frame:parse(Prefix, State),
             %% Then a packet exactly at the limit is still accepted.
             ?assertMatch(
-                {ok, Packet, <<>>, _}, emqx_frame:parse(<<LastHeader/binary, Body/binary>>, Partial)
+                {Packet, <<>>, _}, emqx_frame:parse(<<LastHeader/binary, Body/binary>>, Partial)
             ),
             %% Given a limit one byte below the total packet size.
             Limit = Size - 1,
