@@ -296,6 +296,64 @@ t_duplicate_connect(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
+t_connack_unknown_return_code(_) ->
+    assert_connack_rejection(?CLIENTID, 16#7F, unknown_error).
+
+t_connack_invalid_topic_id(_) ->
+    assert_connack_rejection(?CLIENTID, ?SN_RC_INVALID_TOPIC_ID, rejected_invalid_topic_id).
+
+t_connack_congestion(_) ->
+    assert_connack_rejection(?CLIENTID, ?SN_RC_CONGESTION, rejected_congestion).
+
+assert_connack_rejection(ClientId, ReturnCode, ExpectedReason) ->
+    ConnectHook = {?MODULE, reject_connect, [ClientId, ReturnCode]},
+    ConnackHook = {?MODULE, collect_connack, [ClientId, self()]},
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ok = emqx_hooks:put('client.connect', ConnectHook, ?HP_HIGHEST),
+    ok = emqx_hooks:put('client.connack', ConnackHook, ?HP_HIGHEST),
+    try
+        {ConnPid, {ok, Event}} = ?wait_async_action(
+            begin
+                send_connect_msg(Socket, ClientId),
+                ?assertEqual(<<3, ?SN_CONNACK, ReturnCode>>, receive_response(Socket)),
+                receive
+                    {connack, ClientId, Pid, Reason} ->
+                        ?assertEqual(ExpectedReason, Reason),
+                        Pid
+                after 5000 ->
+                    ct:fail(connack_hook_not_called)
+                end
+            end,
+            #{
+                ?snk_kind := conn_process_terminated,
+                reason := {shutdown, ExpectedReason}
+            },
+            5000
+        ),
+        ?assertMatch(
+            #{
+                ?snk_meta := #{pid := ConnPid},
+                reason := {shutdown, ExpectedReason}
+            },
+            Event
+        )
+    after
+        emqx_hooks:del('client.connect', ConnectHook),
+        emqx_hooks:del('client.connack', ConnackHook),
+        gen_udp:close(Socket)
+    end.
+
+reject_connect(#{clientid := ClientId}, _ConnProps, ClientId, ReturnCode) ->
+    {stop, {error, ReturnCode}};
+reject_connect(_ConnInfo, _ConnProps, _ClientId, _ReturnCode) ->
+    ok.
+
+collect_connack(#{clientid := ClientId}, Reason, _ConnProps, ClientId, TestPid) ->
+    TestPid ! {connack, ClientId, self(), Reason},
+    ok;
+collect_connack(_ConnInfo, _Reason, _ConnProps, _ClientId, _TestPid) ->
+    ok.
+
 t_disconnect_during_will_handshake(_) ->
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg_with_will(Socket, 16#D1CA, <<"C7kauljMB4IdlKbGdf">>),

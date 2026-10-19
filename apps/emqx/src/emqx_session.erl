@@ -203,7 +203,7 @@
         {ok | effects(), replies(), t()}.
 
 -callback handle_info(clientinfo(), term(), t()) ->
-    t().
+    {ok, t()} | {shutdown, _Reason, t()}.
 
 -callback handle_signal(clientinfo(), term(), t()) ->
     {ok | effects(), t()}
@@ -618,7 +618,7 @@ handle_timeout(ClientInfo, Timer, Flags, Session) ->
 %%--------------------------------------------------------------------
 
 -spec handle_info(clientinfo(), term(), t()) ->
-    t().
+    {ok, t()} | {shutdown, _Reason, t()}.
 handle_info(ClientInfo, Info, Session) ->
     ?IMPL(Session):handle_info(ClientInfo, Info, Session).
 

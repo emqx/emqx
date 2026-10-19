@@ -4,19 +4,21 @@
 
 -module(emqx_ai_completion_provider_mock).
 
--export([start_link/2, stop/0]).
+-export([start_link/1, stop/0]).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
-start_link(Port, Handler) ->
+-doc "Start the mock provider on an available port and return its base URL.".
+start_link(Handler) ->
     maybe
-        {ok, _Pid} ?= emqx_utils_http_test_server:start_link(Port, "/[...]"),
+        {ok, {Port, _Pid}} ?= emqx_utils_http_test_server:start_link(random, "/[...]"),
         ok = set_handler(Handler),
-        ok
+        {ok, iolist_to_binary(["http://localhost:", integer_to_binary(Port), "/v1"])}
     end.
 
+-doc "Stop the mock provider.".
 stop() ->
     emqx_utils_http_test_server:stop().
 
