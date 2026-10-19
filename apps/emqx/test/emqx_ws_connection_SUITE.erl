@@ -547,6 +547,72 @@ t_parse_incoming_order(_) ->
     ),
     ?assertEqual([Packet1, Packet2], Packets1).
 
+%% Complete packets are handled immediately, in order, without waiting for the
+%% trailing partial packet. Resuming it must not replay the preceding packets.
+t_websocket_handle_packet_order_partial(_) ->
+    Packet1 = ?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<>>),
+    Packet2 = ?PUBLISH_PACKET(?QOS_2, <<"t2">>, 2, <<>>),
+    %% A two-byte remaining length exercises incomplete headers as well as bodies.
+    Packet3 = ?PUBLISH_PACKET(?QOS_1, <<"t3">>, 3, binary:copy(<<"x">>, 128)),
+    Bin3 = iolist_to_binary(emqx_frame:serialize(Packet3)),
+    St0 = st_after_connect(),
+    lists:foreach(
+        fun({Name, Split}) ->
+            <<Prefix:Split/bytes, Rest/binary>> = Bin3,
+            Data = iolist_to_binary([
+                emqx_frame:serialize(Packet1), emqx_frame:serialize(Packet2), Prefix
+            ]),
+            {[{binary, Ack1}, {binary, Ack2}], St} =
+                ?ws_conn:websocket_handle({binary, Data}, St0),
+            ?assertEqual(<<64, 2, 0, 1>>, iolist_to_binary(Ack1), Name),
+            ?assertEqual(<<80, 2, 0, 2>>, iolist_to_binary(Ack2), Name),
+            {[{binary, Ack3}], _} = ?ws_conn:websocket_handle({binary, Rest}, St),
+            ?assertEqual(<<64, 2, 0, 3>>, iolist_to_binary(Ack3), Name)
+        end,
+        [
+            {before_remaining_length, 1},
+            {partial_remaining_length, 2},
+            {before_body, 3},
+            {partial_body, byte_size(Bin3) - 1}
+        ]
+    ).
+
+%% Valid packets preceding an oversized one are handled before the connection closes.
+t_websocket_handle_packets_then_frame_too_large(_) ->
+    Invalid = <<16#30, 16#80, 16#10>>,
+    Reason = <<"frame_too_large">>,
+    Code = ?RC_PACKET_TOO_LARGE,
+    St0 = st_after_connect(#{
+        parse_state => emqx_frame:initial_parse_state(#{max_size => 1024}),
+        serialize => emqx_frame:serialize_opts(?MQTT_PROTO_V5, ?MAX_PACKET_SIZE)
+    }),
+    Packets = [
+        ?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<>>),
+        ?PUBLISH_PACKET(?QOS_1, <<"t2">>, 2, <<>>)
+    ],
+    Data = iolist_to_binary([
+        [emqx_frame:serialize(P) || P <- Packets], Invalid
+    ]),
+    {[{binary, Ack1}, {binary, Ack2}, {binary, Disconnect}, {close, Reason}], _} =
+        ?ws_conn:websocket_handle({binary, Data}, St0),
+    ?assertEqual(
+        iolist_to_binary(
+            emqx_frame:serialize(
+                ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), ?MQTT_PROTO_V5
+            )
+        ),
+        iolist_to_binary(Ack1)
+    ),
+    ?assertEqual(
+        iolist_to_binary(
+            emqx_frame:serialize(
+                ?PUBACK_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS), ?MQTT_PROTO_V5
+            )
+        ),
+        iolist_to_binary(Ack2)
+    ),
+    ?assertEqual(<<224, 2, Code, 0>>, iolist_to_binary(Disconnect)).
+
 t_parse_incoming_frame_error(_) ->
     %% Strict-mode default rejects the reserved/invalid header outright,
     %% before per-packet parsing has a chance to surface `malformed_packet`.
