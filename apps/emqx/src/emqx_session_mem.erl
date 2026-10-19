@@ -660,9 +660,9 @@ handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Session) ->
 %%--------------------------------------------------------------------
 
 %% Mem session doesn't handle any messages
--spec handle_info(term(), session(), clientinfo()) -> session().
+-spec handle_info(term(), session(), clientinfo()) -> {ok, session()}.
 handle_info(_Msg, Session, _ClientInfo) ->
-    Session.
+    {ok, Session}.
 
 %%--------------------------------------------------------------------
 %% Retry Delivery

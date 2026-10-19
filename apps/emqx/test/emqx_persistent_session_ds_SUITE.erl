@@ -1798,6 +1798,137 @@ t_flow_control_no_wrap_around(_Config) ->
     end,
     RecvLoop(1).
 
+%% Verify graceful handling of recoverable errors during async commit:
+%% The session should survive transient DB timeouts (emulated by
+%% suspending the workers) and eventually commit successfully when the
+%% DB recovers.
+t_recoverable_commit_error(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_recoverable_commit_error(_Config) ->
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    SubTopic = <<"t/+">>,
+    PubTopic = <<"t/1">>,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Start publisher and subscriber clients:
+            Pub = start_client(#{clientid => mk_clientid(?FUNCTION_NAME, pub)}),
+            {ok, _} = emqtt:connect(Pub),
+            Sub = start_client(#{clientid => ClientId}),
+            {ok, _} = emqtt:connect(Sub),
+            %% Get the session process pid:
+            #{'_alive' := {true, SessPid}} =
+                emqx_persistent_session_ds:print_session(ClientId),
+            %% Subscribe:
+            {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, SubTopic, ?QOS_1),
+            %% Suspend all emqx_ds_optimistic_tx processes for the
+            %% session DB. This simulates a DB overload:
+            OtxPids = [
+                begin
+                    Pid = emqx_ds_optimistic_tx:where(sessions, Shard),
+                    ok = sys:suspend(Pid),
+                    Pid
+                end
+             || Shard <- emqx_ds:list_shards(sessions)
+            ],
+            %% Publish some messages so that session state is dirty:
+            ?wait_async_action(
+                {ok, _} = emqtt:publish(Pub, PubTopic, <<"1">>, ?QOS_1),
+                #{?snk_kind := ?sessds_sched_subscribe}
+            ),
+            %% Trigger async commit. The DS workers are suspended, so
+            %% the commit will time out and the session layer
+            %% translates the timeout to a recoverable error.
+            SessPid ! {timeout, fake, {emqx_session, timer_commit}},
+            %% Verify commit failure is reported as recoverable:
+            ?block_until(
+                #{?snk_kind := ?sessds_commit_failure, recoverable := true}
+            ),
+            %% Session should survive - still alive after recoverable
+            %% commit failure and dirty flag is set:
+            ?assertMatch(
+                #{'_alive' := {true, SessPid}, s := #{collection_dirty := true}},
+                emqx_persistent_session_ds:print_session(ClientId)
+            ),
+            %% Resume the DS processes - DB recovers:
+            [sys:resume(I) || I <- OtxPids],
+            %% Wait for the session to eventually commit:
+            SessPid ! {timeout, fake, {emqx_session, timer_commit}},
+            ct:sleep(3_000),
+            %% Session is alive and dirty flag is cleared:
+            ?assertMatch(
+                #{'_alive' := {true, SessPid}, s := #{collection_dirty := false}},
+                emqx_persistent_session_ds:print_session(ClientId)
+            ),
+            %% Disconnect subscriber, it should terminate gracefully:
+            ?assertMatch(ok, emqtt:disconnect(Sub))
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [],
+                ?of_kind(unclean_terminate, Trace)
+            )
+        end
+    ).
+
+%% https://github.com/emqx/emqx/issues/19568
+%% Verify graceful handling of unrecoverable errors during async checkpoint:
+t_unrecoverable_commit_error(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_unrecoverable_commit_error(_Config) ->
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    TopicFilter = <<"t/+">>,
+    WillTopic = <<"will">>,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Prepare:
+            Pub = start_client(#{clientid => mk_clientid(?FUNCTION_NAME, pub)}),
+            {ok, _} = emqtt:connect(Pub),
+            Sub = start_client(#{
+                clientid => ClientId,
+                will_topic => WillTopic,
+                will_payload => <<"will payload">>
+            }),
+            {ok, _} = emqtt:connect(Sub),
+            {ok, _, _} = emqtt:subscribe(Pub, WillTopic, ?QOS_1),
+            %% Get pid of the session:
+            #{'_alive' := {true, SessPid}} = emqx_persistent_session_ds:print_session(ClientId),
+            MRef = monitor(process, SessPid),
+            %% Subscribe test client to a topic:
+            {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, ?QOS_1),
+            %% Hijack the session state, it should cause subsequent
+            %% commits by the original session to fail:
+            {ok, SessState} = emqx_persistent_session_ds_state:open(ClientId),
+            {ok, _} = emqx_persistent_session_ds_state:commit(SessState, #{
+                lifetime => takeover, sync => true
+            }),
+            ?tp(notice, test_session_corrupted, #{}),
+            %% Make the original session's state dirty by publishing
+            %% some messages:
+            ?wait_async_action(
+                {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
+                #{?snk_kind := ?sessds_sched_subscribe}
+            ),
+            %% Trigger async commit, it should fail shortly:
+            SessPid ! {timeout, fake, {emqx_session, timer_commit}},
+            ?block_until(#{?snk_kind := ?sessds_commit_failure}),
+            %% Will message should be sent:
+            ?assertReceive({publish, #{topic := WillTopic}}, 1_000),
+            %% Session should terminate with "unspecified error"
+            %% reason code:
+            ?assertReceive({disconnected, ?RC_UNSPECIFIED_ERROR, _}, 1_000),
+            %% Check that the session process terminated:
+            ?assertReceive({'DOWN', MRef, process, _, _}, 1_000)
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [],
+                ?of_kind(unclean_terminate, Trace)
+            )
+        end
+    ).
+
 %% Trace specifications:
 
 %% @doc Verify that sessions didn't terminate abnormally. Note: it's
