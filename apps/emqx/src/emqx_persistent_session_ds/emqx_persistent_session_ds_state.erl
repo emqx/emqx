@@ -138,6 +138,7 @@ Bitfield that signifies which side effects should be performed to dispose of the
     ?collection_dirty := boolean(),
     %% Reference for the ongoing async commit.
     ?checkpoint_ref := reference() | undefined,
+    ?invalid := boolean(),
     ?metadata := emqx_ds_pmap:pmap(atom(), term()),
     ?subscriptions := emqx_ds_pmap:pmap(
         emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds_subs:subscription()
@@ -241,6 +242,8 @@ delete(SessId, Guard) when
 
 -spec commit(t(), commit_opts()) ->
     {ok, t()} | emqx_ds:error(_).
+commit(#{?invalid := true}, _Opts) ->
+    ?err_unrec(session_state_is_invalid);
 commit(Rec, Opts = #{lifetime := _, sync := _}) ->
     emqx_ds_pmap:collection_check_sequence(Rec),
     %% NOTE: `emqx_ds:trans' already does the retry for sync commits.
@@ -249,12 +252,12 @@ commit(Rec, Opts = #{lifetime := _, sync := _}) ->
     %% For async commits retry is done implicitly, by resetting dirty flag.
     emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts).
 
--spec on_commit_reply(term(), t()) -> {ok, t()} | ignore | {error, _}.
+-spec on_commit_reply(term(), t()) -> {ok, t()} | ignore | {error, _Reason, t()}.
 on_commit_reply(
     ?ds_tx_commit_reply(Ref, Reply),
     S = #{?id := ClientId, ?checkpoint_ref := Ref}
 ) ->
-    case emqx_ds:tx_commit_outcome(?DB, Ref, Reply) of
+    case emqx_persistent_session_ds_state_v2:on_commit_reply(Ref, Reply) of
         {ok, _CommitSerial} ->
             {ok, S#{?checkpoint_ref := undefined}};
         ?err_rec(Reason) ->
@@ -278,7 +281,7 @@ on_commit_reply(
                     client => ClientId
                 }
             ),
-            {error, Reason}
+            {error, Reason, S#{?checkpoint_ref := undefined, ?invalid := true}}
     end;
 on_commit_reply(_, _) ->
     ignore.
@@ -289,6 +292,7 @@ create_new(SessionId) ->
         ?id => SessionId,
         ?collection_guard => undefined,
         ?collection_dirty => true,
+        ?invalid => false,
         ?checkpoint_ref => undefined,
         ?metadata => emqx_persistent_session_ds_state_v2:new_pmap(?metadata),
         ?subscriptions => emqx_persistent_session_ds_state_v2:new_pmap(?subscriptions),
