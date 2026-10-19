@@ -61,8 +61,10 @@ Persistence of Message queue state:
 %% pn_* are pmap names
 -define(pn_shard_progress, <<"shp">>).
 -define(col_shard_progress, col_shard_progress).
+-define(consumer_state_pmaps, [?col_shard_progress]).
 -define(pn_mq, <<"mq">>).
 -define(col_mq, col_mq).
+-define(mq_pmaps, [?col_mq]).
 
 -define(mq_key, mq_key).
 -define(mq_key_bin, <<"mq_key">>).
@@ -133,11 +135,11 @@ open_consumer_state(MQ) ->
         end
     ),
     case TxRes of
-        {atomic, TXSerial, Rec} ->
+        {atomic, TXSerial, {_, Rec}} ->
             {ok, Rec#{?collection_guard := TXSerial}};
-        {nop, Rec} ->
+        {nop, {_, Rec}} ->
             {ok, Rec};
-        Err ->
+        {error, _, _} = Err ->
             {error, {failed_to_open_consumer_state, Err}}
     end.
 
@@ -170,13 +172,17 @@ commit_consumer_state(
         fun() -> persist_consumer_state_tx(NeedClaimOwnership, CSRec0) end
     ),
     case TxRes of
-        {atomic, TXSerial, CSRec} when NeedClaimOwnership ->
-            {ok, CSRec#{?collection_guard := TXSerial}};
-        {atomic, _, CSRec} ->
+        {atomic, TXSerial, {TxCntr, CSRec1}} ->
+            CSRec = emqx_ds_pmap:collection_release_dirty(?consumer_state_pmaps, TxCntr, CSRec1),
+            case NeedClaimOwnership of
+                true ->
+                    {ok, CSRec#{?collection_guard := TXSerial}};
+                false ->
+                    {ok, CSRec}
+            end;
+        {nop, {_, CSRec}} ->
             {ok, CSRec};
-        {nop, CSRec} ->
-            {ok, CSRec};
-        Err ->
+        {error, _, _} = Err ->
             {error, {failed_to_commit_consumer_state, Err}}
     end.
 
@@ -195,7 +201,7 @@ destroy_consumer_state(MQHandle) ->
             ok;
         {nop, _} ->
             ok;
-        Err ->
+        {error, _, _} = Err ->
             {error, {failed_to_destroy_consumer_state, Err}}
     end.
 
@@ -219,11 +225,11 @@ create_mq_state(MQ) ->
         end
     ),
     case TxRes of
-        {atomic, TXSerial, MQStateRec} ->
-            {ok, MQStateRec#{?collection_guard := TXSerial}};
-        {nop, MQStateRec} ->
+        {atomic, TXSerial, {_, MQStateRec}} ->
+            {ok, MQStateRec#{?collection_guard := TXSerial, ?set_dirty}};
+        {nop, {_, MQStateRec}} ->
             {ok, MQStateRec};
-        Err ->
+        {error, _, _} = Err ->
             {error, {failed_to_create_mq_state, Err}}
     end.
 
@@ -252,7 +258,7 @@ update_mq_state(MQId, MQFields) ->
             Res;
         {nop, Res} ->
             Res;
-        Err ->
+        {error, _, _} = Err ->
             {error, {failed_to_update_mq_state, Err}}
     end.
 
@@ -282,7 +288,7 @@ destroy_mq_state(MQ) ->
             ok;
         {nop, _} ->
             ok;
-        Err ->
+        {error, _, _} = Err ->
             {error, {failed_to_destroy_mq_state, Err}}
     end.
 
@@ -486,16 +492,12 @@ persist_consumer_state_tx(
     NeedClaimOwnership,
     #{
         id := Id,
-        ?collection_guard := OldGuard,
-        ?col_shard_progress := ShardProgress
+        ?collection_guard := OldGuard
     } = CSRec
 ) ->
     emqx_ds_pmap:tx_assert_guard(Id, OldGuard),
     NeedClaimOwnership andalso emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
-    CSRec#{
-        ?col_shard_progress := emqx_ds_pmap:tx_commit(Id, ShardProgress),
-        ?collection_dirty := false
-    }.
+    emqx_ds_pmap:tx_collection_commit(?consumer_state_pmaps, CSRec).
 
 -spec new_mq_state(emqx_mq_types:mq()) -> mq_state().
 new_mq_state(MQ) ->
@@ -524,11 +526,8 @@ open_mq_state_tx(Id) ->
             }
     end.
 
-persist_mq_state_tx(#{id := Id, ?col_mq := MQPmap} = MQStateRec) ->
-    MQStateRec#{
-        ?col_mq := emqx_ds_pmap:tx_commit(Id, MQPmap),
-        ?collection_dirty := false
-    }.
+persist_mq_state_tx(MQStateRec) ->
+    emqx_ds_pmap:tx_collection_commit(?mq_pmaps, MQStateRec).
 
 trans_opts(Id) ->
     trans_opts(Id, #{}).
