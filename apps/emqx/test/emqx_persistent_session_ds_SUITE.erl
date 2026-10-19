@@ -1834,7 +1834,7 @@ t_recoverable_commit_error(_Config) ->
             %% Publish some messages so that session state is dirty:
             ?wait_async_action(
                 {ok, _} = emqtt:publish(Pub, PubTopic, <<"1">>, ?QOS_1),
-                #{?snk_kind := ?sessds_sched_subscribe}
+                #{?snk_kind := ?sessds_new_stream}
             ),
             %% Trigger async commit. The DS workers are suspended, so
             %% the commit will time out and the session layer
@@ -1908,7 +1908,7 @@ t_unrecoverable_commit_error(_Config) ->
             %% some messages:
             ?wait_async_action(
                 {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
-                #{?snk_kind := ?sessds_sched_subscribe}
+                #{?snk_kind := ?sessds_new_stream}
             ),
             %% Trigger async commit, it should fail shortly:
             SessPid ! {timeout, fake, {emqx_session, timer_commit}},
