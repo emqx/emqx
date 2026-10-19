@@ -1753,7 +1753,8 @@ handle_call(Req, Channel) ->
     ok
     | {ok, channel()}
     | {ok, replies(), channel()}
-    | {shutdown, Reason :: term(), channel()}.
+    | {shutdown, Reason :: term(), channel()}
+    | {shutdown, Reason :: term(), Packet :: term(), channel()}.
 
 handle_info(continue, Channel) ->
     case maybe_resume_session(Channel) of
@@ -1873,24 +1874,34 @@ handle_info(heal_cluster_partition, Channel) ->
     handle_heal_partition(Channel),
     {ok, Channel};
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
-    Session = emqx_session:handle_info(Info, Session0, ClientInfo),
-    Channel1 = Channel0#channel{session = Session},
-    Acc0 = #{deliver => [], replies => []},
-    Acc = run_fold_with_context('client.handle_info', [ClientInfo, Info], Acc0, Channel1),
-    Delivers = maps:get(deliver, Acc, []),
-    Replies = maps:get(replies, Acc, []),
-    {AllReplies, Channel} =
-        case handle_deliver(Delivers, Channel1) of
-            {ok, Channel2} ->
-                {Replies, Channel2};
-            {ok, DeliverReplies, Channel2} ->
-                {append_replies(DeliverReplies, Replies), Channel2}
-        end,
-    case AllReplies of
-        [] ->
-            {ok, Channel};
-        _ ->
-            {ok, AllReplies, Channel}
+    maybe
+        {ok, Session} ?= emqx_session:handle_info(Info, Session0, ClientInfo),
+        Channel1 = Channel0#channel{session = Session},
+        Acc0 = #{deliver => [], replies => []},
+        Acc = run_fold_with_context('client.handle_info', [ClientInfo, Info], Acc0, Channel1),
+        Delivers = maps:get(deliver, Acc, []),
+        Replies = maps:get(replies, Acc, []),
+        {AllReplies, Channel} =
+            case handle_deliver(Delivers, Channel1) of
+                {ok, Channel2} ->
+                    {Replies, Channel2};
+                {ok, DeliverReplies, Channel2} ->
+                    {append_replies(DeliverReplies, Replies), Channel2}
+            end,
+        case AllReplies of
+            [] ->
+                {ok, Channel};
+            _ ->
+                {ok, AllReplies, Channel}
+        end
+    else
+        {shutdown, Reason, Session1} ->
+            case disconnect_and_shutdown(Reason, ok, Channel0#channel{session = Session1}) of
+                {shutdown, ExitReason, _Reply, Packet, SChannel} ->
+                    {shutdown, ExitReason, Packet, SChannel};
+                {shutdown, ExitReason, _Reply, SChannel} ->
+                    {shutdown, ExitReason, SChannel}
+            end
     end.
 
 append_replies(Replies1, Replies2) ->
@@ -2070,24 +2081,28 @@ interval(will_message, #channel{will_msg = WillMsg}) ->
 %% Terminate
 %%--------------------------------------------------------------------
 
--spec terminate(any(), channel()) -> ok.
-terminate(_, #channel{conn_state = idle} = _Channel) ->
-    ok;
+%% NOTE: this function can be safely called more than once.
+-spec terminate(any(), channel()) -> channel().
+terminate(_, #channel{session = undefined} = Channel) ->
+    %% Session can become `undefined' after:
+    %%
+    %% 1. Durable session takeover
+    %% 2. `handle_info' returns `{shutdown, ...}'
+    Channel;
+terminate(_, #channel{conn_state = idle} = Channel) ->
+    Channel;
 terminate(normal, Channel) ->
-    _ = run_terminate_hook(normal, Channel),
-    ok;
+    run_terminate_hook(normal, Channel);
 terminate({shutdown, Reason}, Channel) when
     Reason =:= expired orelse
         Reason =:= takenover orelse
         Reason =:= kicked orelse
         Reason =:= discarded
 ->
-    _ = run_terminate_hook(Reason, Channel),
-    ok;
+    run_terminate_hook(Reason, Channel);
 terminate(Reason, Channel) ->
     Channel1 = maybe_publish_will_msg(?chan_terminating, Channel),
-    _ = run_terminate_hook(Reason, Channel1),
-    ok.
+    run_terminate_hook(Reason, Channel1).
 
 run_terminate_hook(_Reason, #channel{session = undefined} = Chan) ->
     Chan;
@@ -3385,10 +3400,9 @@ maybe_publish_will_msg(
     }
 ) when
     ConnState =:= idle orelse
-        ConnState =:= connecting orelse
-        ConnState =:= reauthenticating
+        ConnState =:= connecting
 ->
-    %% Wrong state to publish, they are intermediate state
+    %% Wrong state to publish: the session is not open yet.
     ?tp(debug, willmsg_wrong_state, #{clientid => ClientId}),
     Channel;
 maybe_publish_will_msg(
@@ -3555,7 +3569,8 @@ disconnect_reason(?RC_SUCCESS) -> ?normal;
 disconnect_reason(ReasonCode) -> emqx_reason_codes:name(ReasonCode).
 
 reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
-reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
+reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
+reason_code(_) -> ?RC_UNSPECIFIED_ERROR.
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -3620,7 +3635,7 @@ shutdown(Reason, Reply, Channel0) ->
     %% this function blocks `emqx_cm:takeover_kick' call used to take
     %% over durable sessions. Blocking this call lets the old channel
     %% flush its state to the storage before the new one steps in.
-    Channel = run_terminate_hook(Reason, Channel0),
+    Channel = terminate(ExitReason, Channel0),
     {shutdown, ExitReason, Reply, Channel}.
 
 shutdown(Reason, Reply, Packet, Channel0) ->

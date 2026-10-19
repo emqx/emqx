@@ -179,7 +179,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.3", override: true}
 
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.7", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.9", override: true}
 
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.8", override: true}
@@ -235,7 +235,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.4.14", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.4.15", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),
