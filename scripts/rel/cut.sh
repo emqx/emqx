@@ -12,7 +12,8 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 usage() {
     cat <<EOF
 $0 RELEASE_GIT_TAG [option]
-RELEASE_GIT_TAG is a 'Major.Minor.Patch' tag, for example: 6.0.0
+RELEASE_GIT_TAG is a 'Major.Minor.Patch' tag, for example: 6.0.0,
+or a hotfix tag 'Major.Minor.Patch.N', for example: 6.3.2.1
 
 options:
   -h|--help:         Print this usage.
@@ -23,6 +24,7 @@ options:
                      release-62
                      release-63
                      release-70
+                     patch-Major.Minor.Patch (hotfix tags only, e.g. patch-6.3.2)
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -96,10 +98,12 @@ done
 
 rel_branch() {
     local tag="$1"
+    ## A hotfix tag Major.Minor.Patch.N is cut from branch patch-Major.Minor.Patch
+    if [[ "$tag" =~ ^[67]\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "patch-${tag%.*}"
+        return
+    fi
     case "$tag" in
-        6.*-patch.* | 7.*-patch.*)
-            echo "patch-${tag%-patch.*}"
-            ;;
         6.0.*)
             echo 'release-60'
             ;;
@@ -173,7 +177,10 @@ bump_vsn() {
     sed "s/-define(EMQX_RELEASE_EE, \"[^\"]*\")\./-define(EMQX_RELEASE_EE, \"$new_version\")./g" "$emqx_release_file_path" > "${emqx_release_file_path}.tmp"
     mv "${emqx_release_file_path}.tmp" "$emqx_release_file_path"
 
-    sed "s/^version: [0-9][0-9.]*[a-zA-Z0-9.-]*$/version: $new_version/g; s/^appVersion: [0-9][0-9.]*[a-zA-Z0-9.-]*$/appVersion: $new_version/g" "$chart_file_path" > "${chart_file_path}.tmp"
+    ## Helm needs a semver chart version; a hotfix version is mapped by chart-vsn.sh
+    local chart_version
+    chart_version="$(./scripts/rel/chart-vsn.sh "$new_version")"
+    sed "s/^version: [0-9][0-9.]*[a-zA-Z0-9.+-]*$/version: $chart_version/g; s/^appVersion: [0-9][0-9.]*[a-zA-Z0-9.-]*$/appVersion: $new_version/g" "$chart_file_path" > "${chart_file_path}.tmp"
     mv "${chart_file_path}.tmp" "$chart_file_path"
 
     git add "$emqx_release_file_path" "$chart_file_path"

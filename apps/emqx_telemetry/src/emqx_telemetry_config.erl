@@ -99,5 +99,6 @@ is_official_version() ->
     is_official_version(emqx_release:version()).
 
 is_official_version(Version) ->
-    Pt = "^\\d+\\.\\d+(?:\\.\\d+)?(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*))?$",
+    %% Major.Minor[.Patch[.Hotfix]][-(alpha|beta|rc).N]
+    Pt = "^\\d+\\.\\d+(?:\\.\\d+(?:\\.[1-9][0-9]*)?)?(?:(-(?:alpha|beta|rc)\\.[1-9][0-9]*))?$",
     match =:= re:run(Version, Pt, [{capture, none}]).

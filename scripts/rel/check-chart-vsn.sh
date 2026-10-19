@@ -19,17 +19,21 @@ fi
 
 CHART_VSN="$(grep -oE '^version:.*' "$CHART_FILE" | cut -d ':' -f 2 | tr -d ' ')"
 APP_VSN="$(grep -oE '^appVersion:.*' "$CHART_FILE" | cut -d ':' -f 2 | tr -d ' ')"
+RELEASE_VSN="$(./pkg-vsn.sh "$PROFILE" --release)"
+## The chart version is a semver form of the release version; see chart-vsn.sh.
+EXPECTED_CHART_VSN="$(./scripts/rel/chart-vsn.sh "$RELEASE_VSN")"
 
-if [ "$CHART_VSN" != "$APP_VSN" ]; then
-    echo "Chart version and app version mismatch in $CHART_FILE"
+if [ "$APP_VSN" != "$RELEASE_VSN" ]; then
+    echo "Chart appVersion in $CHART_FILE is not in sync with release version."
+    echo "Chart appVersion: $APP_VSN"
+    echo "Release version: $RELEASE_VSN"
     exit 2
 fi
 
-RELEASE_VSN="$(./pkg-vsn.sh "$PROFILE" --release)"
-
-if [ "$CHART_VSN" != "$RELEASE_VSN" ]; then
+if [ "$CHART_VSN" != "$EXPECTED_CHART_VSN" ]; then
     echo "Chart version in $CHART_FILE is not in sync with release version."
     echo "Chart version: $CHART_VSN"
+    echo "Expected chart version: $EXPECTED_CHART_VSN"
     echo "Release version: $RELEASE_VSN"
     exit 3
 fi

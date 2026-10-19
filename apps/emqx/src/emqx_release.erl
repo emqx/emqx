@@ -102,13 +102,16 @@ vsn_compare(Vsn1, Vsn2) ->
     end.
 
 %% @private Parse the version string to a tuple.
-%% Return {{Major, Minor, Patch}, Suffix}.
-%% Where Suffix is either an empty string or a tuple like {"rc", 1}.
+%% Return {{Major, Minor, Patch, Hotfix}, Suffix}.
+%% Where Hotfix is 0 for a regular release "6.3.2" and N for a hotfix
+%% release "6.3.2.N", and Suffix is either an empty string or a tuple
+%% like {"rc", 1}.
 %% NOTE: taking the nature ordering of the suffix:
 %% {"alpha", _} < {"beta", _} < {"rc", _} < ""
 parse_vsn(Vsn) ->
     try
-        [V1, V2, V3 | Suffix0] = string:tokens(Vsn, ".-"),
+        [V1, V2, V3 | Rest] = string:tokens(Vsn, ".-"),
+        {Hotfix, Suffix0} = parse_hotfix(Rest),
         Suffix =
             case Suffix0 of
                 "" ->
@@ -121,11 +124,20 @@ parse_vsn(Vsn) ->
                     %% "5.1.0-rc.1" or "5.1.0-rc.1-g53ab85b1"
                     {ReleaseStage, list_to_integer(Number)}
             end,
-        {{list_to_integer(V1), list_to_integer(V2), list_to_integer(V3)}, Suffix}
+        {{list_to_integer(V1), list_to_integer(V2), list_to_integer(V3), Hotfix}, Suffix}
     catch
         _:_ ->
             erlang:error({invalid_version_string, Vsn})
     end.
+
+%% A fourth all-digit component is the hotfix number: "6.3.2.1".
+parse_hotfix([Token | Rest] = All) ->
+    case lists:all(fun(C) -> C >= $0 andalso C =< $9 end, Token) of
+        true -> {list_to_integer(Token), Rest};
+        false -> {0, All}
+    end;
+parse_hotfix([]) ->
+    {0, []}.
 
 -spec get_flavor() -> atom().
 -ifdef(TEST).

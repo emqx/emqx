@@ -44,7 +44,7 @@ defmodule AppsVersionCheck do
     vsn =
       git_ref
       |> String.replace(~r/^(e|v)/, "")
-      |> Version.parse!()
+      |> parse_release_vsn!()
 
     target = target_release()
 
@@ -64,6 +64,17 @@ defmodule AppsVersionCheck do
     out
     |> String.trim()
     |> String.replace(~r/-.*$/, "")
+    |> parse_release_vsn!()
+  end
+
+  @doc """
+  Parse a release version. A hotfix release `Major.Minor.Patch.N` is not a
+  semver string; it is parsed as `Major.Minor.Patch`, because app versions
+  only depend on `Major.Minor`.
+  """
+  def parse_release_vsn!(vsn) do
+    vsn
+    |> String.replace(~r/^(\d+\.\d+\.\d+)\.\d+/, "\\1")
     |> Version.parse!()
   end
 

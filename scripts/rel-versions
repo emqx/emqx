@@ -89,7 +89,8 @@ if [[ -z "$prev_tag" ]]; then
     echo "error: no GA tag (X.Y.Z) reachable from HEAD" >&2
     exit 1
 fi
-if [[ ! "$prev_tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+# A hotfix tag X.Y.Z.N counts as a GA tag of the X.Y line.
+if [[ ! "$prev_tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]]; then
     echo "error: cannot parse tag '$prev_tag'" >&2
     exit 1
 fi
@@ -145,7 +146,8 @@ for step in "${chain[@]}"; do
     fi
 
     # desc is the GA tag itself (e.g. 6.0.3) because of --abbrev=0.
-    if [[ ! "$desc" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    # A hotfix tag (e.g. 6.3.2.1) still means the next release is 6.3.3.
+    if [[ ! "$desc" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]]; then
         echo "warning: cannot parse tag '$desc' on ${branch} -- skipping" >&2
         continue
     fi

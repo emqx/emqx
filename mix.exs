@@ -38,7 +38,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       apps_path: "apps",
       erlc_options: erlc_options(version),
-      version: version,
+      version: semver_vsn(version),
       deps: deps(profile_info, version),
       releases: releases(),
       aliases: aliases()
@@ -384,6 +384,20 @@ defmodule EMQXUmbrella.MixProject do
     get_memoized(k, &do_pkg_vsn/0)
   end
 
+  @doc """
+  Mix requires the project `:version` to be a semver string. A hotfix
+  release version `Major.Minor.Patch.N` is not one, so it is carried as
+  build metadata: `Major.Minor.Patch+N`. Any trailing suffix (such as
+  `-g<git-hash>`) is kept inside the build metadata. Every other version
+  string is returned unchanged.
+  """
+  def semver_vsn(version) do
+    case Regex.run(~r/^(\d+\.\d+\.\d+)\.(\d+)(.*)$/, version) do
+      [_, base, hotfix, rest] -> "#{base}+#{hotfix}#{rest}"
+      nil -> version
+    end
+  end
+
   def common_deps() do
     if test_env?() do
       [
@@ -505,6 +519,10 @@ defmodule EMQXUmbrella.MixProject do
           end
 
         [
+          # The release carries the full package version, which may be a
+          # hotfix version `Major.Minor.Patch.N`. `:version` of the project
+          # is its semver form; see `semver_vsn/1`.
+          version: pkg_vsn(),
           applications: applications(release_type, edition_type),
           skip_mode_validation_for: [
             :lc,

@@ -180,6 +180,10 @@ General Availability releases, listed on the official download catalog page.
   has a dedicated `release-XY` branch (e.g. `release-62` for the `6.2.N` series).
 - **Patch** (`6.1.0`, `6.1.1`, `6.1.2`): cut from the matching `release-XY`
   branch, containing bug fixes and low-risk improvements.
+- **Hotfix** (`6.3.2.1`, `6.3.2.2`): bug-fix build on top of a patch release,
+  cut from the matching `patch-X.Y.Z` branch (e.g. `patch-6.3.2`) between
+  regular patch releases. A hotfix is an official release: it is published
+  like a patch release and becomes `latest` when it is the highest version.
 
 Rolling upgrade between adjacent minor versions is supported — see the
 [upgrade path matrix](#rolling-upgrade-paths-since-50) below.
@@ -195,8 +199,6 @@ download, but are **not** listed on the official download catalog page.
   line. Only cut for the first release of a minor.
 - **`-rc.N`** (e.g. `6.1.2-rc.1`): release candidate. May be cut before any
   release version — either a new minor (`X.Y.0-rc.N`) or a patch (`X.Y.Z-rc.N`).
-- **`-patch.N`** (e.g. `6.1.2-patch.1`): on-demand bug fix build produced for
-  paying customers between regular patch releases.
 
 ## Rolling Upgrade Paths Since 5.0
 

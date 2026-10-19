@@ -325,7 +325,9 @@ t_is_official_version(_) ->
         "5.0.0-alpha.1",
         "5.0.0-beta.4",
         "5.0-rc.1",
-        "5.0.0-rc.1"
+        "5.0.0-rc.1",
+        "6.3.2.1",
+        "6.3.2.10"
     ]),
 
     false = lists:any(Is, [

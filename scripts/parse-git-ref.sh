@@ -8,12 +8,13 @@ is_latest_stable() {
   local ref_name
   ref_name="$(basename "$1")"
 
-  # Find all tags that look like stable releases: X.Y.Z with no suffix
-  # Example matches: 6.0.0, 6.0.1 ; excludes 6.0.0-rc1, 6.0.0-beta, etc.
+  # Find all tags that look like stable releases: X.Y.Z or a hotfix X.Y.Z.N,
+  # with no suffix. Example matches: 6.0.0, 6.0.1, 6.3.2.1 ; excludes
+  # 6.0.0-rc1, 6.0.0-beta, etc. `sort -V` orders 6.3.2 < 6.3.2.1 < 6.3.3.
   local latest_stable
   latest_stable="$(
     git tag --list \
-    | grep -E '^[1-9]+\.[0-9]+\.[0-9]+$' \
+    | grep -E '^[1-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' \
     | sort -V \
     | tail -n1
   )"
@@ -47,10 +48,11 @@ elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+$ ]]; then
     RELEASE=true
     OFFICIAL_RELEASE=true
     LATEST=$(is_latest_stable "$1")
-elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-patch\.[0-9]+$ ]]; then
+elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]]; then
+    # Hotfix release X.Y.Z.N, cut from branch patch-X.Y.Z.
     RELEASE=true
     OFFICIAL_RELEASE=true
-    LATEST=false
+    LATEST=$(is_latest_stable "$1")
 elif [[ $1 =~ ^refs/tags/.+ ]]; then
     echo "Unrecognized tag: $1" 1>&2
     exit 1

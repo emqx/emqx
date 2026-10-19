@@ -69,7 +69,7 @@ esac
 # Tag policy:
 #   - Always: ${owner}/${profile}:${version}
 #   - base also: emqx/emqx:${version}
-#   - For stable MAJOR.MINOR.PATCH on base:
+#   - For stable MAJOR.MINOR.PATCH, or a hotfix MAJOR.MINOR.PATCH.N, on base:
 #       additionally :MAJOR.MINOR (always — patch follows its line)
 #       additionally :MAJOR and :latest (only when latest=true)
 #   - For sf: full version only, no mirror, no rolling.
@@ -84,10 +84,10 @@ compute_tags() {
 
     echo "docker.io/emqx/emqx:${version}"
 
-    # Rolling tags only for stable MAJOR.MINOR.PATCH versions.
-    # Anything else (prereleases, git-hash builds, build metadata) gets
-    # only the full-version tag.
-    if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+    # Rolling tags only for stable MAJOR.MINOR.PATCH versions and
+    # hotfix MAJOR.MINOR.PATCH.N versions. Anything else (prereleases,
+    # git-hash builds, build metadata) gets only the full-version tag.
+    if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+(\.[0-9]+)?$ ]]; then
         local major=${BASH_REMATCH[1]}
         local minor=${BASH_REMATCH[1]}.${BASH_REMATCH[2]}
 
