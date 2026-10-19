@@ -321,7 +321,8 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:greptimedb_rs),
     do:
       {:greptimedb_rs,
-       github: "JimMoen/greptimedb-ingester-erlnif", branch: "feat/json2-write-support"}
+       github: "JimMoen/greptimedb-ingester-erlnif",
+       ref: "0d6b17212fa18533f87bb6d2d3d6de574d43bc83"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 

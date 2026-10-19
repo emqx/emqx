@@ -859,6 +859,32 @@ t_auto_cast_int_to_float(TCConfig) ->
     ),
     ok.
 
+-doc """
+Verifies that the JSON2-only error raised by the erlang driver is classified as
+unrecoverable, so requests are dropped instead of retried until `request_ttl`.
+""".
+t_json2_requires_native_driver() ->
+    [{matrix, true}].
+t_json2_requires_native_driver(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_requires_native_driver(_TCConfig) ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,clientid=${clientid} payload=${payload}j">>
+    ),
+    Syntax = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
+    Data = #{
+        clientid => <<"client">>,
+        payload => <<"{\"name\":\"alice\"}">>,
+        timestamp => erlang:system_time(millisecond)
+    },
+    ?assertError(
+        {unrecoverable_error, json2_requires_native_driver},
+        emqx_bridge_greptimedb_utils:parse_batch_data(
+            <<"test">>, <<"public">>, [{<<"channel">>, Data}], Syntax, erlang
+        )
+    ),
+    ok.
+
 t_create_with_invalid_cipher(TCConfig) ->
     %% An unknown TLS cipher must be rejected with a clean 400 carrying a
     %% JSON error body, not crash the API with a 500 while encoding the reason.

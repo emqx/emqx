@@ -301,7 +301,7 @@ json2_binary(Json) ->
 
 %% JSON2 columns are only supported by the native driver.
 value_type([_Json, <<"j">>]) ->
-    throw({unrecoverable_error, json2_requires_native_driver});
+    error({unrecoverable_error, json2_requires_native_driver});
 value_type([Int, <<"i">>]) when
     is_integer(Int)
 ->
