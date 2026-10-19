@@ -843,6 +843,10 @@ delete_kind_api(Kind, Type, Name, Opts) ->
     ct:pal("delete bridge (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
+delete_kind_api2(TCConfig) ->
+    #{kind := Kind, type := Type, name := Name} = get_common_values(TCConfig),
+    delete_kind_api(Kind, Type, Name).
+
 op_bridge_api(Op, BridgeType, BridgeName) ->
     op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
 
@@ -2568,6 +2572,165 @@ t_aggreg_different_namespaces(TCConfig, Opts) ->
             )
         end,
         [<<".">>, <<"..">>, <<"a/b">>]
+    ),
+    ok.
+
+-doc """
+A sanity check test to verify the reconnect callback of a connector is correctly set up.
+
+- `auto_reconnect` is set as an ecpool option.
+- All reconnect callbacks must be exported.
+- `get_reconnect_callback_signature` is called and returns without crashing.
+- All reconnect callbacks are called when the worker's client dies, and the worker itself
+  doesn't shut down.
+- Removing a channel removes its callbacks and only its callbacks.
+""".
+t_ecpool_on_reconnect_callback_consistency(TCConfig, Opts) ->
+    #{
+        connector_mod := ConnMod,
+        reconnect_callback_fns := ReconnectFnNames
+    } = Opts,
+    ?assertMatch([_ | _], ReconnectFnNames, #{
+        hint => ~"Must defined at least one reconnect callback for this test to make sense."
+    }),
+    ReconnectFns = lists:map(
+        fun(FnName) ->
+            Res = lists:search(
+                fun(Arity) -> erlang:function_exported(ConnMod, FnName, Arity) end,
+                lists:seq(1, 20)
+            ),
+            case Res of
+                false ->
+                    error(
+                        #{
+                            msg => ~"Reconnect callback not exported?",
+                            conn_mod => ConnMod,
+                            fn_name => FnName
+                        }
+                    );
+                {value, Arity} ->
+                    {FnName, Arity}
+            end
+        end,
+        ReconnectFnNames
+    ),
+
+    TS = trace:session_create(?MODULE, self(), []),
+    on_exit(fun() -> trace:session_destroy(TS) end),
+    _ = trace:process(TS, new, true, [call, return_to]),
+    1 = trace:function(
+        TS,
+        {ConnMod, get_reconnect_callback_signature, 1},
+        [{['_'], [], [{return_trace}]}],
+        [local]
+    ),
+    lists:foreach(
+        fun({FnName, Arity}) ->
+            1 = trace:function(TS, {ConnMod, FnName, Arity}, true, [global])
+        end,
+        ReconnectFns
+    ),
+
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api2(TCConfig, #{
+        %% To avoid the resource manager detecting the clients being down and tearing down
+        %% the connection itself, if it goes `?status_disconnected`.
+        ~"resource_opts" => #{~"health_check_interval" => ~"60s"}
+    }),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfig, #{}),
+
+    %% By now, `ecpool` should've called `get_reconnect_callback_signature` correctly.
+    ?assertReceive({trace, _Pid, call, {ConnMod, get_reconnect_callback_signature, _}}),
+    %% This trace is only sent if the call doesn't crash
+    ?assertReceive({trace, _Pid, return_from, {ConnMod, get_reconnect_callback_signature, _}, _}),
+
+    ConnResId = connector_resource_id(TCConfig),
+
+    %% Verify that `auto_reconnect` ecpool option is set.  If it is not, the worker shuts
+    %% itself down when its linked client dies.
+    GetWorkerPids = fun() ->
+        lists:map(fun({_Name, Pid}) -> Pid end, ecpool:workers(ConnResId))
+    end,
+    lists:foreach(
+        fun(WorkerPid) ->
+            %% assert
+            1 = trace:process(TS, WorkerPid, true, [call]),
+            1 = trace:function(
+                TS,
+                {ecpool_worker, handle_info, 2},
+                %% currently, reconnect in ecpool is triggered by a timed message
+                %% with this atom.
+                [{[reconnect, '_'], [], []}],
+                [local]
+            ),
+
+            {ok, ClientPid} = ecpool_worker:client(WorkerPid),
+            WMRef = monitor(process, WorkerPid),
+            CMRef = monitor(process, ClientPid),
+            exit(ClientPid, kill),
+            ?assertReceive({'DOWN', CMRef, process, ClientPid, _}),
+            ?assertNotReceive({'DOWN', WMRef, process, WorkerPid, _}),
+            demonitor(WMRef),
+            %% Must trigger reconnect after the configured `auto_reconnect` interval (s).
+            ?assertReceive(
+                {trace, WorkerPid, call, {ecpool_worker, handle_info, [reconnect, _]}},
+                5_000
+            ),
+            %% Configured `on_reconnect` callbacks must've been called.
+            lists:foreach(
+                fun({FnName, Arity}) ->
+                    ?assertReceive(
+                        {trace, _, call, {ConnMod, FnName, _}},
+                        1_000,
+                        #{fn_name => FnName, arity => Arity}
+                    )
+                end,
+                ReconnectFns
+            ),
+            ok
+        end,
+        GetWorkerPids()
+    ),
+    %% Removing a channel must also remove its reconnect callbacks, and only that
+    %% channel's callbacks.
+    GatherReconnectCallbacks = fun() ->
+        lists:foldl(
+            fun(WorkerPid, Acc) ->
+                CBs0 = ecpool_worker:get_reconnect_callbacks(WorkerPid),
+                Acc#{WorkerPid => CBs0}
+            end,
+            #{},
+            GetWorkerPids()
+        )
+    end,
+
+    #{name := ActionName0} = get_common_values(TCConfig),
+    ActionName1 = bin(ActionName0),
+    ActionName2 = <<ActionName1/binary, "000000000002">>,
+    TCConfig2 = [{action_name, ActionName2} | proplists:delete(action_name, TCConfig)],
+
+    ReconnectCallbacks0 = GatherReconnectCallbacks(),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfig2, #{}),
+    ReconnectCallbacks1 = GatherReconnectCallbacks(),
+
+    {204, _} = delete_kind_api2(TCConfig),
+    ReconnectCallbacks2 = GatherReconnectCallbacks(),
+
+    {204, _} = delete_kind_api2(TCConfig2),
+    ReconnectCallbacks3 = GatherReconnectCallbacks(),
+
+    lists:foreach(
+        fun(WorkerPid) ->
+            RCs0 = maps:get(WorkerPid, ReconnectCallbacks0),
+            RCs1 = maps:get(WorkerPid, ReconnectCallbacks1),
+            RCs2 = maps:get(WorkerPid, ReconnectCallbacks2),
+            RCs3 = maps:get(WorkerPid, ReconnectCallbacks3),
+            ?assertMatch([], RCs3),
+            ?assertEqual([], RCs0 -- RCs1),
+            ?assertMatch([_ | _], RCs1 -- RCs0),
+            ?assertMatch([_ | _], RCs2 -- RCs0),
+            ok
+        end,
+        GetWorkerPids()
     ),
     ok.
 
