@@ -44,7 +44,7 @@
     new_pmap/1,
     pmap_dirty_read/3,
 
-    on_commit_reply/2,
+    on_commit_reply/3,
 
     total_subscription_count/1,
     make_session_iterator/1,
@@ -140,7 +140,11 @@ open(Generation, ClientId) ->
     emqx_persistent_session_ds_state:commit_opts()
 ) ->
     {ok, emqx_persistent_session_ds_state:t()} | emqx_ds:error(_).
-commit(Generation, Rec0 = #{?id := ClientId, ?checkpoint_ref := Ref}, Opts) when
+commit(
+    Generation,
+    #{?checkpoint_ref := Ref} = Rec0,
+    Opts
+) when
     is_reference(Ref)
 ->
     %% Attempt to commit while previous async checkpoint is still in
@@ -154,23 +158,12 @@ commit(Generation, Rec0 = #{?id := ClientId, ?checkpoint_ref := Ref}, Opts) when
             Timeout = trans_timeout(),
             receive
                 ?ds_tx_commit_reply(Ref, Reply) ->
-                    Rec = Rec0#{?checkpoint_ref := undefined},
-                    case translate_common_errors(emqx_ds:tx_commit_outcome(?DB, Ref, Reply)) of
-                        {ok, _} ->
-                            commit(Generation, Rec, Opts);
-                        ?err_rec(Reason) ->
-                            ?tp(
-                                warning,
-                                ?sessds_commit_failure,
-                                #{
-                                    recoverable => true,
-                                    reason => Reason,
-                                    client => ClientId
-                                }
-                            ),
-                            commit(Generation, Rec#{?set_dirty}, Opts);
-                        ?err_unrec(_) = Err ->
-                            Err
+                    maybe
+                        {ok, Rec} ?= on_commit_reply(Ref, Reply, Rec0),
+                        commit(Generation, Rec, Opts)
+                    else
+                        {error, Reason, _} ->
+                            ?err_unrec(Reason)
                     end
             after Timeout ->
                 ?err_unrec(timeout_waiting_for_prev_commit)
@@ -183,17 +176,7 @@ commit(_Generation, Rec = #{?collection_dirty := false}, #{lifetime := L}) when
     {ok, Rec};
 commit(
     Generation,
-    Rec0 = #{
-        ?id := ClientId,
-        ?collection_guard := Guard0,
-        ?metadata := Metadata,
-        ?subscriptions := Subs,
-        ?subscription_states := SubStates,
-        ?streams := Streams,
-        ?seqnos := SeqNos,
-        ?ranks := Ranks,
-        ?awaiting_rel := AwaitingRels
-    },
+    #{?id := ClientId, ?collection_guard := Guard0} = Rec0,
     #{lifetime := Lifetime, sync := Sync}
 ) ->
     NewGuard = Lifetime =:= takeover orelse Lifetime =:= new,
@@ -221,31 +204,54 @@ commit(
                         %% Ensure continuity of the session:
                         emqx_ds_pmap:tx_assert_guard(ClientId, Guard0)
                 end,
-                Rec0#{
-                    ?metadata := emqx_ds_pmap:tx_commit(ClientId, Metadata),
-                    ?subscriptions := emqx_ds_pmap:tx_commit(ClientId, Subs),
-                    ?subscription_states := emqx_ds_pmap:tx_commit(ClientId, SubStates),
-                    ?streams := emqx_ds_pmap:tx_commit(ClientId, Streams),
-                    ?seqnos := emqx_ds_pmap:tx_commit(ClientId, SeqNos),
-                    ?ranks := emqx_ds_pmap:tx_commit(ClientId, Ranks),
-                    ?awaiting_rel := emqx_ds_pmap:tx_commit(ClientId, AwaitingRels),
-                    ?unset_dirty
-                }
+                emqx_ds_pmap:tx_collection_commit(?sessds_pmaps, Rec0)
             end
         ),
     case Result of
-        {atomic, TXSerial, Rec} when NewGuard ->
+        {atomic, TXSerial, {TxCntr, Rec}} when NewGuard ->
             %% This is a new incarnation of the client. Update the
             %% guard:
-            {ok, Rec#{?collection_guard := TXSerial}};
-        {atomic, _TXSerial, Rec} ->
-            {ok, Rec};
+            update_state(Rec#{?collection_guard := TXSerial, ?checkpoint_n := TxCntr}, ok);
+        {atomic, _TXSerial, {TxCntr, Rec}} ->
+            update_state(Rec#{?checkpoint_n := TxCntr}, ok);
         {nop, Rec} ->
             {ok, Rec};
-        {async, Ref, Rec} ->
-            {ok, Rec#{?checkpoint_ref := Ref}};
+        {async, Ref, {TxCntr, Rec}} ->
+            {ok, Rec#{?checkpoint_ref := Ref, ?checkpoint_n := TxCntr}};
         {error, _, _} = Err ->
             translate_common_errors(Err)
+    end.
+
+-spec update_state(emqx_persistent_session_ds_state:t(), ok | emqx_ds:error(_)) ->
+    {ok, emqx_persistent_session_ds_state:t()}
+    | {error, _Reason, emqx_persistent_session_ds_state:t()}.
+update_state(S0 = #{?id := ClientId, ?checkpoint_n := TxCntr}, Result) ->
+    S = S0#{?checkpoint_ref := undefined},
+    case translate_common_errors(Result) of
+        ok ->
+            {ok, emqx_ds_pmap:collection_release_dirty(?sessds_pmaps, TxCntr, S)};
+        ?err_rec(Reason) ->
+            ?tp(
+                warning,
+                ?sessds_commit_failure,
+                #{
+                    recoverable => true,
+                    reason => Reason,
+                    client => ClientId
+                }
+            ),
+            {ok, S};
+        ?err_unrec(Reason) ->
+            ?tp(
+                error,
+                ?sessds_commit_failure,
+                #{
+                    recoverable => false,
+                    reason => Reason,
+                    client => ClientId
+                }
+            ),
+            {error, Reason, S#{?invalid := true}}
     end.
 
 translate_common_errors(
@@ -281,8 +287,16 @@ pmap_dirty_read(Generation, Name, ClientId) ->
     Opts = #{db => ?DB, generation => Generation, shard => emqx_ds:shard_of(?DB, ClientId)},
     emqx_ds_pmap:dirty_read(?MODULE, pmap_name(Name), ClientId, Opts).
 
-on_commit_reply(Ref, Reply) ->
-    translate_common_errors(emqx_ds:tx_commit_outcome(?DB, Ref, Reply)).
+-spec on_commit_reply(reference(), _DSReply, emqx_persistent_session_ds_state:t()) ->
+    {ok, emqx_persistent_session_ds_state:t()}
+    | {error, _Reason, emqx_persistent_session_ds_state:t()}.
+on_commit_reply(Ref, Reply, S) ->
+    Outcome =
+        case emqx_ds:tx_commit_outcome(?DB, Ref, Reply) of
+            {ok, _} -> ok;
+            Other -> Other
+        end,
+    update_state(S, Outcome).
 
 -spec list_sessions(emqx_ds:generation()) -> [emqx_persistent_session_ds:id()].
 list_sessions(Gen) ->
@@ -455,6 +469,7 @@ open_tx(ClientId) ->
                 ?id => ClientId,
                 ?collection_guard => Guard,
                 ?collection_dirty => false,
+                ?checkpoint_n => 0,
                 ?checkpoint_ref => undefined,
                 ?invalid => false,
                 ?metadata => emqx_ds_pmap:tx_restore(?MODULE, ?top_metadata, ClientId),

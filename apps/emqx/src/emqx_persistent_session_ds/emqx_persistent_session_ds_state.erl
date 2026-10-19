@@ -139,6 +139,7 @@ Bitfield that signifies which side effects should be performed to dispose of the
     ?id := emqx_persistent_session_ds:id(),
     ?collection_guard := guard() | undefined,
     ?collection_dirty := boolean(),
+    ?checkpoint_n := emqx_ds_pmap:tx_counter(),
     %% Reference for the ongoing async commit.
     ?checkpoint_ref := reference() | undefined,
     ?invalid := boolean(),
@@ -211,18 +212,14 @@ print_channel(SessionId) ->
     get_offline_info(Session).
 
 -spec format(t()) -> map().
-format(Rec = #{?id := Id}) ->
-    Pmaps = maps:fold(
-        fun(MapKey, #pmap{cache = Val}, Acc) ->
-            Acc#{MapKey => Val}
+format(Rec) ->
+    lists:foldl(
+        fun(K, Acc) ->
+            #{K := #pmap{cache = Val}} = Rec,
+            Acc#{K := Val}
         end,
-        #{?id => Id},
-        maps:without(
-            [?id, ?collection_dirty, ?collection_guard, ?checkpoint_ref, ?last_id, ?invalid], Rec
-        )
-    ),
-    maps:merge(
-        Pmaps, maps:with([?collection_dirty, ?collection_guard, ?checkpoint_ref, ?invalid], Rec)
+        Rec,
+        ?sessds_pmaps
     ).
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
@@ -255,34 +252,9 @@ commit(Rec, Opts = #{lifetime := _, sync := _}) ->
 -spec on_commit_reply(term(), t()) -> {ok, t()} | ignore | {error, _Reason, t()}.
 on_commit_reply(
     ?ds_tx_commit_reply(Ref, Reply),
-    S = #{?id := ClientId, ?checkpoint_ref := Ref}
+    #{?checkpoint_ref := Ref} = S
 ) ->
-    case emqx_persistent_session_ds_state_v2:on_commit_reply(Ref, Reply) of
-        {ok, _CommitSerial} ->
-            {ok, S#{?checkpoint_ref := undefined}};
-        ?err_rec(Reason) ->
-            ?tp(
-                warning,
-                ?sessds_commit_failure,
-                #{
-                    recoverable => true,
-                    reason => Reason,
-                    client => ClientId
-                }
-            ),
-            {ok, S#{?checkpoint_ref := undefined, ?set_dirty}};
-        ?err_unrec(Reason) ->
-            ?tp(
-                error,
-                ?sessds_commit_failure,
-                #{
-                    recoverable => false,
-                    reason => Reason,
-                    client => ClientId
-                }
-            ),
-            {error, Reason, S#{?checkpoint_ref := undefined, ?invalid := true}}
-    end;
+    emqx_persistent_session_ds_state_v2:on_commit_reply(Ref, Reply, S);
 on_commit_reply(_, _) ->
     ignore.
 
@@ -292,6 +264,7 @@ create_new(SessionId) ->
         ?id => SessionId,
         ?collection_guard => undefined,
         ?collection_dirty => true,
+        ?checkpoint_n => 0,
         ?invalid => false,
         ?checkpoint_ref => undefined,
         ?metadata => emqx_persistent_session_ds_state_v2:new_pmap(?metadata),
