@@ -1196,6 +1196,14 @@ fields("tcp_opts") ->
                     desc => ?DESC(fields_tcp_opts_high_watermark)
                 }
             )},
+        {"low_watermark",
+            sc(
+                bytesize(),
+                #{
+                    required => false,
+                    desc => ?DESC(fields_tcp_opts_low_watermark)
+                }
+            )},
         {"nodelay",
             sc(
                 boolean(),

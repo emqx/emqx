@@ -281,6 +281,98 @@ t_tcp_gen_tcp_conn_active_n_zero(_Config) ->
     end).
 
 -doc """
+`low_watermark` defaults to a quarter of `high_watermark`, floored at the 4KB
+inet default. An explicit value is kept, and neither exceeds `high_watermark`.
+""".
+t_tcp_opts_low_watermark_default(_Config) ->
+    Opts = fun(TcpOpts) -> emqx_listeners:tcp_opts(#{tcp_options => TcpOpts}) end,
+    ?assertEqual(
+        [{high_watermark, 1048576}, {low_watermark, 262144}],
+        lists:sort(Opts(#{high_watermark => 1048576}))
+    ),
+    ?assertEqual(
+        [{high_watermark, 16384}, {low_watermark, 4096}],
+        lists:sort(Opts(#{high_watermark => 16384}))
+    ),
+    ?assertEqual(
+        [{high_watermark, 8192}, {low_watermark, 4096}],
+        lists:sort(Opts(#{high_watermark => 8192}))
+    ),
+    %% below the 4KB floor, the default is clamped to high_watermark
+    ?assertEqual(
+        [{high_watermark, 1024}, {low_watermark, 1024}],
+        lists:sort(Opts(#{high_watermark => 1024}))
+    ),
+    ?assertEqual(
+        [{high_watermark, 1048576}, {low_watermark, 102400}],
+        lists:sort(Opts(#{high_watermark => 1048576, low_watermark => 102400}))
+    ),
+    %% an explicit value above high_watermark is clamped to high_watermark
+    ?assertEqual(
+        [{high_watermark, 65536}, {low_watermark, 65536}],
+        lists:sort(Opts(#{high_watermark => 65536, low_watermark => 131072}))
+    ),
+    ?assertEqual([], Opts(#{})).
+
+-doc """
+The `gen_tcp` backend sets the derived `low_watermark` on the accepted socket.
+""".
+t_tcp_gen_tcp_conn_low_watermark_default(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"tcp_backend">> => <<"gen_tcp">>,
+        <<"tcp_options">> => #{<<"high_watermark">> => <<"64KB">>}
+    },
+    with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
+        pong = emqtt:ping(Client),
+        #{socket := Socket} = emqx_cth_broker:connection_state(Client),
+        ?assertEqual(
+            {ok, [{high_watermark, 65536}, {low_watermark, 16384}]},
+            inet:getopts(Socket, [high_watermark, low_watermark])
+        )
+    end).
+
+-doc """
+The `gen_tcp` backend sets an explicit `low_watermark` on the accepted socket.
+""".
+t_tcp_gen_tcp_conn_low_watermark_explicit(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"tcp_backend">> => <<"gen_tcp">>,
+        <<"tcp_options">> => #{
+            <<"high_watermark">> => <<"64KB">>,
+            <<"low_watermark">> => <<"8KB">>
+        }
+    },
+    with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
+        pong = emqtt:ping(Client),
+        #{socket := Socket} = emqx_cth_broker:connection_state(Client),
+        ?assertEqual(
+            {ok, [{high_watermark, 65536}, {low_watermark, 8192}]},
+            inet:getopts(Socket, [high_watermark, low_watermark])
+        )
+    end).
+
+-doc """
+The `socket` backend ignores `low_watermark`, so a client connects normally.
+""".
+t_tcp_socket_conn_low_watermark_ignored(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"tcp_backend">> => <<"socket">>,
+        <<"tcp_options">> => #{<<"low_watermark">> => <<"8KB">>}
+    },
+    with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
+        pong = emqtt:ping(Client)
+    end).
+
+-doc """
 `buffer=0` is floored to 5 bytes on the `socket` backend, so a client connects normally.
 """.
 t_tcp_socket_conn_buffer_zero(_Config) ->
