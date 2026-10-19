@@ -71,14 +71,13 @@ t_subscription_start_time(_Config) ->
 %% Check that iterator creation skips expired records and preserves saved acknowledgements.
 t_delivery_start_time_replay(_Config) ->
     %% Store expired and retained records in one shard without running garbage collection.
-    #{id := Id} =
-        MQ0 = emqx_mq_test_utils:create_mq(#{
-            topic_filter => <<"start/#">>,
-            is_lastvalue => true,
-            key_expression => <<"message.payload">>,
-            stream_max_buffer_size => 100,
-            stream_max_unacked => 100
-        }),
+    {ok, #{id := Id} = MQ0} = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"start/#">>,
+        is_lastvalue => true,
+        key_expression => <<"message.payload">>,
+        stream_max_buffer_size => 100,
+        stream_max_unacked => 100
+    }),
     NowMs = erlang:system_time(millisecond),
     DB = ?MQ_MESSAGE_LASTVALUE_DB,
     [Shard | _] = emqx_ds:list_shards(DB),
