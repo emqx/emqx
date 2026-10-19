@@ -740,23 +740,27 @@ handle_timeout(_ClientInfo, Timeout, Session) ->
 %% Generic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), session(), clientinfo()) -> session().
+-spec handle_info(term(), session(), clientinfo()) ->
+    {ok, session()} | {shutdown, _Reason, session()}.
 handle_info(
     ?shared_sub_message = Msg,
     Session,
     ClientInfo
 ) ->
-    schedule_delivery(emqx_persistent_session_ds_shared_subs:on_info(Msg, Session, ClientInfo));
+    {ok,
+        schedule_delivery(
+            emqx_persistent_session_ds_shared_subs:on_info(Msg, Session, ClientInfo)
+        )};
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     {ok, Session} = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
-    Session;
+    {ok, Session};
 handle_info(Message, Session0 = #{dscli := DSCli0}, ClientInfo) ->
     case emqx_ds_client:dispatch_message(Message, DSCli0, Session0) of
         {data, SubId, Stream, DSSubHandle, AsyncReply} ->
-            handle_ds_reply(SubId, Stream, DSSubHandle, AsyncReply, Session0, ClientInfo);
+            {ok, handle_ds_reply(SubId, Stream, DSSubHandle, AsyncReply, Session0, ClientInfo)};
         {DSCli, Session} ->
-            Session#{dscli := DSCli};
+            {ok, Session#{dscli := DSCli}};
         ignore ->
             handle_info1(Message, Session0, ClientInfo)
     end.
@@ -772,14 +776,14 @@ handle_info1(
     case emqx_persistent_session_ds_state:on_commit_reply(Info, S0) of
         {ok, S} ->
             %% Yes, session checkpoint just completed.
-            ensure_state_commit_timer(Session#{s := S});
-        {error, _Reason} ->
+            {ok, ensure_state_commit_timer(Session#{s := S})};
+        {error, _Reason, S} ->
             %% Yes, session checkpoint just failed.
-            exit(commit_failure);
+            {shutdown, {shutdown, internal_error}, Session#{s := S}};
         ignore ->
-            %% Unknown message:
-            ?tp(debug, ?sessds_unknown_message, #{message => Info}),
-            Session
+            %% No, unknown message:
+            ?tp(warning, ?sessds_unknown_message, #{message => Info}),
+            {ok, Session}
     end.
 
 %%--------------------------------------------------------------------
@@ -2373,7 +2377,11 @@ ensure_state_commit_timer(#{s := S} = Session) ->
     Dirty = emqx_persistent_session_ds_state:is_dirty(S),
     case emqx_persistent_session_ds_state:checkpoint_ref(S) of
         undefined when Dirty ->
-            ensure_timer(?TIMER_COMMIT, commit_interval(), Session);
+            StaticInterval = commit_interval() div 2,
+            %% Apply some jitter to spread load, should some event
+            %% trigger multiple sessions to commit all at once:
+            Interval = rand:uniform(max(1, StaticInterval)) + StaticInterval,
+            ensure_timer(?TIMER_COMMIT, Interval, Session);
         _ ->
             Session
     end.

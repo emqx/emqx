@@ -299,7 +299,7 @@ audit_log_fun() ->
 
 -spec authorize(request(), handler_info()) -> {ok, auth_meta()} | {integer(), term(), term()}.
 authorize(Req, HandlerInfo) ->
-    case cowboy_req:parse_header(<<"authorization">>, Req) of
+    case parse_authorization_header(Req) of
         {basic, Username, Password} ->
             api_key_authorize(Req, HandlerInfo, Username, Password);
         {bearer, Token} ->
@@ -323,8 +323,27 @@ is_plugin_api(Req) ->
         _ -> false
     end.
 
+%% A header cowboy cannot parse counts as absent. `cowboy_req:parse_header/2`
+%% and `cowboy_req:match_cookies/2` signal a malformed header with
+%% `exit:{request_error, _, _}`, re-raised with the stacktrace of the cowlib
+%% parse failure. That stacktrace holds the header value, so an escaping
+%% exception writes the caller's credential to the error log. `undefined`
+%% sends the caller to the 401 branch a missing header already takes.
+undefined_on_request_error(Fun) ->
+    try
+        Fun()
+    catch
+        exit:{request_error, _, _} -> undefined
+    end.
+
+parse_authorization_header(Req) ->
+    undefined_on_request_error(fun() -> cowboy_req:parse_header(<<"authorization">>, Req) end).
+
 cookie_authorize(Req, HandlerInfo) ->
-    case cowboy_req:match_cookies([{emqx_auth, [], undefined}], Req) of
+    Cookies = undefined_on_request_error(
+        fun() -> cowboy_req:match_cookies([{emqx_auth, [], undefined}], Req) end
+    ),
+    case Cookies of
         #{emqx_auth := Token} when is_binary(Token), Token =/= <<>> ->
             jwt_token_bearer_authorize(Req, HandlerInfo, Token);
         _ ->
