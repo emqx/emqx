@@ -230,7 +230,26 @@ t_configs_node({'init', Config}) ->
     meck:expect(hocon_pp, do, fun(Conf, _) -> Conf end),
     Config;
 t_configs_node({'end', _}) ->
-    meck:unload([emqx, emqx_management_proto_v5, emqx_conf_proto_v5, hocon_pp]);
+    %% Unload this case's mocks one by one. `meck:unload/1' on a list stops at
+    %% the first module it fails to restore, and a surviving hocon_pp mock
+    %% makes every later config write fail, which takes out the rest of the
+    %% suites in the same CT run.
+    %%
+    %% Only this case's own mocks: `meck:unload/0' and `meck:mocked/0' cover
+    %% the whole node, where other suites keep mocks of their own, including
+    %% the unsticked `os' in emqx_mgmt_SUITE. Unloading that leaves `os'
+    %% gone and kills the VM.
+    lists:foreach(
+        fun(Mod) ->
+            try
+                meck:unload(Mod)
+            catch
+                Class:Reason ->
+                    ct:pal("failed to unload mock ~p: ~p:~p", [Mod, Class, Reason])
+            end
+        end,
+        [emqx, emqx_management_proto_v5, emqx_conf_proto_v5, hocon_pp]
+    );
 t_configs_node(_) ->
     Node = atom_to_list(node()),
 
