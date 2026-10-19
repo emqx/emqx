@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ env.TAG }}
           fetch-depth: 0
 
       - name: Compile
@@ -49,7 +49,7 @@ jobs:
           done < <(git diff --diff-filter=A --name-only "tags/${PREV_TAG}...HEAD" "${changes_dir[@]}")
           gzip changes.tar
 
-      - name: Upload changes.tar.gz artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: changes

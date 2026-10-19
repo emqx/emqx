@@ -64,7 +64,10 @@ suite() ->
 init_per_testcase(t_bad_bridge_config, Config) ->
     Config;
 init_per_testcase(Case, Config) when
-    Case =:= t_send_async_connection_timeout orelse Case =:= t_send_get_trace_messages
+    Case =:= t_send_async_connection_timeout orelse
+        Case =:= t_send_get_trace_messages orelse
+        Case =:= t_http_response_retries orelse
+        Case =:= t_http_response_expired
 ->
     emqx_bridge_http_test_lib:init_http_success_server(Config);
 init_per_testcase(t_path_not_found, Config) ->
@@ -128,7 +131,9 @@ end_per_testcase(TestCase, _Config) when
     TestCase =:= t_rule_action_expired;
     TestCase =:= t_bridge_probes_header_atoms;
     TestCase =:= t_send_async_connection_timeout;
-    TestCase =:= t_send_get_trace_messages
+    TestCase =:= t_send_get_trace_messages;
+    TestCase =:= t_http_response_retries;
+    TestCase =:= t_http_response_expired
 ->
     ok = emqx_bridge_http_connector_test_server:stop(),
     persistent_term:erase({?MODULE, times_called}),
@@ -646,6 +651,124 @@ t_too_many_requests(Config) ->
 t_service_unavailable(Config) ->
     check_send_is_retried(Config).
 
+t_http_response_retries(Config) ->
+    #{port := Port, path := Path} = ?config(http_server, Config),
+    BridgeID = make_bridge(#{
+        port => Port,
+        path => Path,
+        pool_size => 1,
+        health_check_interval => "1m",
+        resume_interval => "1m",
+        resource_request_ttl => "1m"
+    }),
+    ResourceId = emqx_bridge_resource:resource_id(BridgeID),
+    {ok, _, #{state := State0}} = emqx_resource:get_instance(ResourceId),
+    logger:set_process_metadata(#{}),
+    TestPid = self(),
+    lists:foreach(
+        fun({QueryMode, MaxRetries, Status, Body}) ->
+            Requests = counters:new(1, []),
+            ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, ServerState) ->
+                counters:add(Requests, 1, 1),
+                {ok, _, Req} = cowboy_req:read_body(Req0),
+                {ok, cowboy_req:reply(Status, #{}, Body, Req), ServerState}
+            end),
+            State = State0#{max_attempts => MaxRetries + 1},
+            Request = {Path, [], <<>>},
+            Result =
+                case QueryMode of
+                    sync ->
+                        emqx_bridge_http_connector:on_query(
+                            ResourceId,
+                            {undefined, undefined, post, Request, 5000, MaxRetries},
+                            State
+                        );
+                    async ->
+                        Ref = make_ref(),
+                        Reply = {fun(R) -> TestPid ! {Ref, R} end, []},
+                        {ok, _} = emqx_bridge_http_connector:on_query_async(
+                            ResourceId, {undefined, undefined, post, Request, 5000}, Reply, State
+                        ),
+                        receive
+                            {Ref, R} -> R
+                        after 5000 ->
+                            ct:fail(http_response_timeout)
+                        end
+                end,
+            ErrorType =
+                case Status of
+                    429 -> recoverable_error;
+                    503 -> recoverable_error;
+                    _ -> unrecoverable_error
+                end,
+            Context = #{
+                query_mode => QueryMode, max_retries => MaxRetries, status => Status, body => Body
+            },
+            ct:pal("HTTP response query: ~p, requests: ~p", [Context, counters:get(Requests, 1)]),
+            ?assertMatch({error, {ErrorType, #{status_code := Status}}}, Result, Context),
+            ?assertEqual(1, counters:get(Requests, 1), Context)
+        end,
+        [
+            {QueryMode, MaxRetries, Status, Body}
+         || QueryMode <- [sync, async],
+            MaxRetries <- [5, 2, 0],
+            Status <- [400, 429, 502, 503, 504],
+            Body <- [<<>>, <<"retry later">>]
+        ]
+    ),
+    ok.
+
+t_http_response_expired(Config) ->
+    #{port := Port, path := Path} = ?config(http_server, Config),
+    lists:foreach(
+        fun(Status) ->
+            Requests = counters:new(1, []),
+            ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, ServerState) ->
+                counters:add(Requests, 1, 1),
+                {ok, _, Req} = cowboy_req:read_body(Req0),
+                {ok, cowboy_req:reply(Status, #{}, <<>>, Req), ServerState}
+            end),
+            _ = make_bridge(#{
+                port => Port,
+                path => Path,
+                pool_size => 1,
+                health_check_interval => "1m",
+                resume_interval => "2s",
+                resource_request_ttl => "1s"
+            }),
+            Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(?BRIDGE_TYPE),
+            ?retry(
+                100,
+                30,
+                ?assertMatch(
+                    #{status := connected}, emqx_bridge_v2:health_check(Type, ?BRIDGE_NAME)
+                )
+            ),
+            ok = do_send_message(#{<<"hello">> => <<"world">>}),
+            ?retry(
+                _Interval = 500,
+                _NAttempts = 20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 1,
+                            dropped := 1,
+                            'dropped.expired' := 1,
+                            failed := 0,
+                            success := 0,
+                            late_reply := 0
+                        }
+                    },
+                    get_metrics(?BRIDGE_NAME)
+                )
+            ),
+            ?assertEqual(1, counters:get(Requests, 1), #{status => Status}),
+            ok = emqx_bridge:remove(?BRIDGE_TYPE, ?BRIDGE_NAME)
+        end,
+        [429, 503]
+    ),
+    ok.
+
 check_send_is_retried(Config) ->
     ?check_trace(
         begin
@@ -683,7 +806,8 @@ check_send_is_retried(Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_ | _], ?of_kind(http_will_retry_async, Trace)),
+            ?assertEqual([], ?of_kind(http_will_retry_async, Trace)),
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_retry_inflight_succeeded, Trace)),
             ok
         end
     ),
