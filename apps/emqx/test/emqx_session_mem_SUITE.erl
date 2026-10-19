@@ -314,6 +314,53 @@ t_puback_with_dequeue(_) ->
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg3)).
 
+%% A client that takes over a session can advertise a Receive Maximum lower than the
+%% number of transferred inflight messages. Dequeue must wait until acks free inflight
+%% slots, and must not take queued messages only to nack or re-enqueue them.
+t_puback_inflight_over_receive_maximum(_) ->
+    TC = self(),
+    ok = meck:expect(emqx_hooks, run_fold, fun
+        ('message.nack', [Msg], Acc) ->
+            TC ! {message_nack, emqx_message:topic(Msg)},
+            Acc;
+        (Hook, Args, Acc) ->
+            meck:passthrough([Hook, Args, Acc])
+    end),
+    on_exit(fun() ->
+        meck:expect(emqx_hooks, run_fold, fun(Hook, Args, Acc) ->
+            meck:passthrough([Hook, Args, Acc])
+        end)
+    end),
+    Inflight = lists:foldl(
+        fun(PacketId, InflightAcc) ->
+            Msg = emqx_message:make(clientid, ?QOS_1, <<"inflight">>, <<>>),
+            emqx_inflight:insert(PacketId, with_ts(wait_ack, Msg), InflightAcc)
+        end,
+        emqx_inflight:new(1),
+        [1, 2, 3]
+    ),
+    Queued = [emqx_message:make(clientid, ?QOS_1, T, <<>>) || T <- [<<"q1">>, <<"q2">>]],
+    Session0 = session(#{
+        inflight => Inflight,
+        mqueue => mqueue(#{max_len => 10}),
+        next_pkt_id => 4
+    }),
+    Session = emqx_session_mem:enqueue(clientinfo(), Queued, Session0),
+    {ok, _, [], Session1} = emqx_session_mem:puback(clientinfo(), 1, Session),
+    ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session1)),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session1)),
+    {ok, _, [], Session2} = emqx_session_mem:puback(clientinfo(), 2, Session1),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session2)),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session2)),
+    {ok, _, [{4, Msg1}], Session3} = emqx_session_mem:puback(clientinfo(), 3, Session2),
+    ?assertEqual(<<"q1">>, emqx_message:topic(Msg1)),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session3)),
+    ?assertEqual(1, emqx_session_mem:info(mqueue_len, Session3)),
+    receive
+        {message_nack, Topic} -> ct:fail({unexpected_message_nack, Topic})
+    after 0 -> ok
+    end.
+
 t_puback_error_packet_id_in_use(_) ->
     Inflight = emqx_inflight:insert(1, with_ts(wait_comp, undefined), emqx_inflight:new()),
     {error, ?RC_PACKET_IDENTIFIER_IN_USE} =
