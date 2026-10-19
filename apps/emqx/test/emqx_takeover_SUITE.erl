@@ -823,9 +823,9 @@ t_takeover_reauthenticating_willmsg_no_delay(Config) ->
     takeover_reauthenticating(?FUNCTION_NAME, _WillDelay = 0, _ExpectedWills = 1, Config).
 
 takeover_reauthenticating(TestCase, WillDelay, ExpectedWills, Config) ->
-    case ?config(persistence_enabled, Config) of
-        true -> {skip, in_memory_session_only};
-        false -> do_takeover_reauthenticating(TestCase, WillDelay, ExpectedWills)
+    case ?config(session_type, Config) of
+        durable -> {skip, in_memory_session_only};
+        memory -> do_takeover_reauthenticating(TestCase, WillDelay, ExpectedWills)
     end.
 
 do_takeover_reauthenticating(TestCase, WillDelay, ExpectedWills) ->
@@ -838,6 +838,10 @@ do_takeover_reauthenticating(TestCase, WillDelay, ExpectedWills) ->
         {'session.takenover', {?MODULE, on_session_takenover, [ClientId, Self]}},
         {'session.terminated', {?MODULE, on_session_terminated, [ClientId, Self]}}
     ],
+    %% The listeners disable authentication, and `emqx_access_control' then
+    %% answers before the `client.authenticate' hook runs. Enhanced
+    %% authentication needs the hook, so turn authentication on.
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
     _ = [ok = emqx_hooks:add(HookPoint, MFA, ?HP_HIGHEST) || {HookPoint, MFA} <- Hooks],
     try
         {ok, Sub} = emqtt:start_link([{clientid, <<ClientId/binary, "_willsub">>}, {proto_ver, v5}]),

@@ -1896,10 +1896,10 @@ t_terminate_reason_reaches_session_hooks(_) ->
         meck:passthrough([ClientInfo, Reason, Session])
     end),
     ok = meck:expect(emqx_session, handle_info, fun
-        (test_internal_error, Session, _ClientInfo) ->
+        (_ClientInfo, test_internal_error, Session) ->
             {shutdown, {shutdown, internal_error}, Session};
-        (Info, Session, ClientInfo) ->
-            meck:passthrough([Info, Session, ClientInfo])
+        (ClientInfo, Info, Session) ->
+            meck:passthrough([ClientInfo, Info, Session])
     end),
     on_exit(fun() ->
         ok = meck:delete(emqx_session, terminate, 3),
