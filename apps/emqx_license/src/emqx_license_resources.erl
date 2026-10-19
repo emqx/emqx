@@ -173,7 +173,10 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
         false ->
             %% License has higher TPS limit, ensure the alarm is deactivated.
             ?OK(emqx_alarm:ensure_deactivated(license_tps))
-    end.
+    end;
+max_tps_alarm(_Limits) ->
+    %% No limit to compare against, keep the alarm state unchanged.
+    ok.
 
 new_tps_alarm_details(MaxTps, HistMaxTps) ->
     emqx_alarm:make_persistent_details(#{
