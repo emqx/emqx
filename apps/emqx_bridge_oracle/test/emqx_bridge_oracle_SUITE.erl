@@ -689,7 +689,7 @@ t_update_with_invalid_prepare(TCConfig) ->
                 "VALUES (${topic}, ${id}, ${payload}, ${retain})"
             >>,
         reconnect_cb => {emqx_oracle, prepare_sql_to_conn},
-        get_sig_fn => fun emqx_postgresql:get_reconnect_callback_signature/1,
+        get_sig_fn => fun emqx_oracle:get_reconnect_callback_signature/1,
         check_expected_error_fn => fun(Error) ->
             case re:run(Error, <<"unhealthy_target">>, [{capture, none}]) of
                 match ->
@@ -903,3 +903,9 @@ t_message_with_nested_tokens(TCConfig) ->
 t_ecpool_workers_crash(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
     ok.
+
+t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
+    emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
+        connector_mod => emqx_oracle,
+        reconnect_callback_fns => [prepare_sql_to_conn]
+    }).
