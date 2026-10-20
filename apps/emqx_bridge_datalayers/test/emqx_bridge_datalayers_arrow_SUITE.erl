@@ -544,6 +544,12 @@ t_prepare_auto_rebuild(Config) ->
     datalayers:stop(Client),
     ok.
 
+t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
+    emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
+        callback_mod => emqx_bridge_datalayers_arrow_flight_connector,
+        reconnect_callback_fns => [prepare_sql_to_conn]
+    }).
+
 exec_sql(SQL, Config) ->
     Host = ?config(datalayers_host, Config),
     Port = ?config(datalayers_port, Config),
