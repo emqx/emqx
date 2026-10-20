@@ -597,7 +597,7 @@ inc_consumed_cnt(Msg) ->
         true ->
             ok;
         false ->
-            emqx_metrics:inc_global('messages.consumed')
+            inc_metrics('messages.consumed', Msg)
     end.
 
 -compile({inline, [subscribers/1]}).

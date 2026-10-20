@@ -525,10 +525,17 @@ merge_responsed_bool(_Req, Resp) ->
 merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
     ignore;
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
-    {ret(Type), Req#{message => NMessage}};
+    {ret(Type), Req#{message => keep_consumed(Req, NMessage)}};
 merge_responsed_message(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_response_value", resp => Resp}),
     ignore.
+
+%% A server cannot clear the consumed mark that an earlier server set.
+keep_consumed(#{message := #{headers := #{<<"consumed">> := <<"true">>}}}, NMessage) ->
+    Headers = maps:get(headers, NMessage, #{}),
+    NMessage#{headers => Headers#{<<"consumed">> => <<"true">>}};
+keep_consumed(_Req, NMessage) ->
+    NMessage.
 
 ret('CONTINUE') -> ok;
 ret('STOP_AND_RETURN') -> stop.

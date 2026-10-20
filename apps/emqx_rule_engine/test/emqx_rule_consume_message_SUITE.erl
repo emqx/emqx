@@ -272,6 +272,32 @@ t_http_publish_consumed(_Config) ->
     ),
     ?assertEqual(consumed_deltas(), deltas(Before)).
 
+-doc """
+A namespaced rule with `consume_message` marks a message from its own
+namespace, and the namespace counts it in `messages.consumed`.
+""".
+t_namespaced_rule_own_namespace(_Config) ->
+    Topic = topic(?FUNCTION_NAME),
+    Ns = <<"ns1">>,
+    ok = emqx_metrics:register_namespace(Ns),
+    on_exit(fun() -> emqx_metrics:unregister_namespace(Ns) end),
+    ok = create_namespaced_rule(Ns, Topic),
+    ?assertMatch({ok, [consumed], _}, emqx_broker:publish2(message_from(Ns, Topic))),
+    ?assertEqual(1, emqx_metrics:val(Ns, 'messages.consumed')),
+    ?assertEqual(0, emqx_metrics:val(Ns, 'messages.dropped.no_subscribers')).
+
+-doc """
+A namespaced rule with `consume_message` that selects a message from another
+namespace, which `limit_selects_in_namespace = false` allows, does not mark it.
+""".
+t_namespaced_rule_other_namespace(_Config) ->
+    Topic = topic(?FUNCTION_NAME),
+    ok = emqx_config:put([rule_engine, limit_selects_in_namespace], false),
+    on_exit(fun() -> emqx_config:put([rule_engine, limit_selects_in_namespace], true) end),
+    ok = create_namespaced_rule(<<"ns1">>, Topic),
+    ?assertMatch({ok, [], _}, emqx_broker:publish2(message_from(<<"ns2">>, Topic))),
+    ?assertMatch({ok, [], _}, emqx_broker:publish2(emqx_message:make(?MODULE, 1, Topic, <<"m">>))).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -296,6 +322,22 @@ create_rule(Topic, Overrides) ->
         })
     end),
     RuleId.
+
+create_namespaced_rule(Ns, Topic) ->
+    RuleId = atom_to_binary(?FUNCTION_NAME),
+    {ok, _} = emqx_rule_engine:create_rule(#{
+        id => RuleId,
+        namespace => Ns,
+        sql => sql(Topic),
+        actions => [],
+        consume_message => true
+    }),
+    on_exit(fun() -> emqx_rule_engine:delete_rule(Ns, RuleId) end),
+    ok.
+
+message_from(Ns, Topic) ->
+    Msg = emqx_message:make(?MODULE, 1, Topic, <<"m">>),
+    emqx_message:set_header(client_attrs, #{<<"tns">> => Ns}, Msg).
 
 get_rule(RuleId) ->
     emqx_mgmt_api_test_util:simple_request(#{

@@ -1077,9 +1077,8 @@ message_metric_meta() ->
         {emqx_messages_acked, counter, 'messages.acked'}
     ].
 
-%% The broker counts `messages.consumed' globally only.
 message_metric_ns_meta() ->
-    lists:keydelete(emqx_messages_consumed, 1, message_metric_meta()).
+    message_metric_meta().
 
 message_metric_meta(Mode) ->
     without_v4_metrics(Mode, message_metric_meta()).

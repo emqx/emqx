@@ -353,6 +353,19 @@ t_message_publish_consumed(_) ->
         emqx_exhook_demo_svr:take()
     ).
 
+-doc """
+In a chain of ExHook servers, a later server cannot clear the consumed mark
+that an earlier server set, even when its response omits the header.
+""".
+t_message_publish_consumed_chain(_) ->
+    Marked = #{headers => #{<<"consumed">> => <<"true">>}, topic => <<"t">>},
+    Req = #{message => Marked},
+    Resp = #{type => 'CONTINUE', value => {message, #{topic => <<"t">>}}},
+    ?assertMatch(
+        {ok, #{message := #{headers := #{<<"consumed">> := <<"true">>}}}},
+        emqx_exhook_handler:merge_responsed_message(Req, Resp)
+    ).
+
 t_lookup(_) ->
     Result = emqx_exhook_mgr:lookup(<<"default">>),
     ?assertMatch(#{name := <<"default">>, status := _}, Result),

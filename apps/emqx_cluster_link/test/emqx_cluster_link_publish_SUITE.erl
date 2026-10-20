@@ -36,6 +36,22 @@ end_per_testcase(_Case, _Config) ->
     ok = emqx_broker:unsubscribe(<<"forwarded/topic">>),
     ok = meck:unload(emqx_cluster_link_config).
 
+-doc """
+A message forwarded to another cluster loses the consumed mark: the remote
+cluster counts its own deliveries.
+""".
+t_forward_strips_consumed_mark(_Config) ->
+    ok = meck:expect(emqx_cluster_link_config, link, fun(_) -> #{query_opts => #{}} end),
+    ok = meck:new(emqx_resource, [passthrough, no_link]),
+    try
+        ok = meck:expect(emqx_resource, query, fun(_ResId, FwdMsg, _Opts) -> {ok, FwdMsg} end),
+        Msg = emqx_message:set_consumed(emqx_message:make(?MODULE, 1, <<"t/1">>, <<"m">>)),
+        {ok, FwdMsg} = emqx_cluster_link_mqtt:forward(<<"link">>, #delivery{message = Msg}),
+        ?assertNot(emqx_message:is_consumed(FwdMsg))
+    after
+        meck:unload(emqx_resource)
+    end.
+
 %% Check that route-control messages are consumed without subscriber delivery.
 t_route_control(_Config) ->
     Payload = term_to_binary(#{'$op' => <<"heartbeat">>, 10 => test_actor, 11 => 1}),
