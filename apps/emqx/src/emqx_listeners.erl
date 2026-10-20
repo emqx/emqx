@@ -108,6 +108,8 @@
 %% + up to 4 remaining-length bytes) on both backends, so a single read can
 %% hold a complete fixed header.
 -define(MIN_TCP_BUFFER, 5).
+%% `low_watermark': the inet driver default (INET_LOW_WATERMARK).
+-define(DEFAULT_TCP_LOW_WATERMARK, 4096).
 
 -define(ROOT_KEY, listeners).
 -define(MAX_LISTENER_NAME_BYTES, 64).
@@ -1148,8 +1150,22 @@ ssl_opts(Opts) ->
     emqx_tls_lib:to_server_opts(tls, maps:get(ssl_options, Opts, #{})).
 
 tcp_opts(Opts) ->
-    TcpOpts = maps:to_list(maps:get(tcp_options, Opts, #{})),
+    TcpOpts0 = maps:get(tcp_options, Opts, #{}),
+    TcpOpts = maps:to_list(ensure_low_watermark(TcpOpts0)),
     lists:flatten(lists:map(fun tcp_opt/1, TcpOpts)).
+
+%% `low_watermark' defaults to a quarter of `high_watermark', the same
+%% ratio `emqx_socket_connection' uses to clear congestion, floored at
+%% the inet driver default. Without it, a socket that went busy at a 1MB
+%% `high_watermark' would stay busy until its buffer drained below 4KB.
+%% The value never exceeds `high_watermark': the inet driver would raise
+%% `high_watermark' to match a higher `low_watermark'.
+ensure_low_watermark(#{high_watermark := High} = TcpOpts) ->
+    Default = max(?DEFAULT_TCP_LOW_WATERMARK, High div 4),
+    Low = maps:get(low_watermark, TcpOpts, Default),
+    TcpOpts#{low_watermark => min(Low, High)};
+ensure_low_watermark(TcpOpts) ->
+    TcpOpts.
 
 tcp_opt({active_n, _}) ->
     %% The `active_n' option is ignored for listener socket.
