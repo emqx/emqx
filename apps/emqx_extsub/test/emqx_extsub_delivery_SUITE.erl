@@ -33,29 +33,10 @@ channel process and runs the ExtSub hooks directly.
 -define(TEST_PID_KEY, {?MODULE, test_pid}).
 
 all() ->
-    [
-        {group, client},
-        {group, rate_limited},
-        {group, unit}
-    ].
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
 
 groups() ->
-    [
-        {client, [], [
-            t_stale_completion,
-            t_dropped_no_local,
-            t_dropped_expired_on_retry,
-            t_unsubscribe_drops_buffered,
-            t_recreate_drops_old_handler
-        ]},
-        {rate_limited, [], [
-            t_rate_limited_returns_to_buffer
-        ]},
-        {unit, [], [
-            t_duplicate_completion,
-            t_removed_handler_nack
-        ]}
-    ].
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -96,10 +77,15 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases: MQTT clients
 %%--------------------------------------------------------------------
 
+t_stale_completion() ->
+    [{matrix, true}].
+
 -doc """
 After takeover, the acknowledgement of a replayed message does not change the new delivery
 that has the same sequence number.
 """.
+t_stale_completion(matrix) ->
+    [[client]];
 t_stale_completion(Config) ->
     %% The first client receives a message and does not acknowledge it
     {C0, ChanPid0} = connect_and_subscribe(Config, []),
@@ -129,7 +115,12 @@ t_stale_completion(Config) ->
     %% Clean up
     ok = emqtt:disconnect(C1).
 
+t_dropped_no_local() ->
+    [{matrix, true}].
+
 -doc "The handler receives {dropped, no_local} for a message that No Local drops.".
+t_dropped_no_local(matrix) ->
+    [[client]];
 t_dropped_no_local(Config) ->
     ClientId = ?config(clientid, Config),
     {C, ChanPid} = connect_and_subscribe(Config, [], [{nl, true}]),
@@ -139,7 +130,12 @@ t_dropped_no_local(Config) ->
     assert_no_publish(),
     ok = emqtt:disconnect(C).
 
+t_dropped_expired_on_retry() ->
+    [{matrix, true}].
+
 -doc "The handler receives {dropped, expired} for an inflight message that expires before retry.".
+t_dropped_expired_on_retry(matrix) ->
+    [[client]];
 t_dropped_expired_on_retry(Config) ->
     ok = put_zone_conf(retry_interval, 2000),
     {C, ChanPid} = connect_and_subscribe(Config, []),
@@ -153,7 +149,12 @@ t_dropped_expired_on_retry(Config) ->
     ?assertMatch({ok, #{unacked_count := 0}}, emqx_extsub:inspect(ChanPid)),
     ok = emqtt:disconnect(C).
 
+t_unsubscribe_drops_buffered() ->
+    [{matrix, true}].
+
 -doc "Unsubscribing from the last topic filter of a handler removes its buffered messages.".
+t_unsubscribe_drops_buffered(matrix) ->
+    [[client]];
 t_unsubscribe_drops_buffered(Config) ->
     %% A full inflight window returns the messages to the handler buffer
     {C, ChanPid} = connect_and_subscribe(Config, [{properties, #{'Receive-Maximum' => 1}}]),
@@ -170,7 +171,12 @@ t_unsubscribe_drops_buffered(Config) ->
     ),
     ok = emqtt:disconnect(C).
 
+t_recreate_drops_old_handler() ->
+    [{matrix, true}].
+
 -doc "Recreate terminates the old handler and removes its buffered messages and counters.".
+t_recreate_drops_old_handler(matrix) ->
+    [[client]];
 t_recreate_drops_old_handler(Config) ->
     %% A full inflight window returns the messages to the handler buffer
     {C, ChanPid} = connect_and_subscribe(Config, [{properties, #{'Receive-Maximum' => 1}}]),
@@ -197,10 +203,15 @@ t_recreate_drops_old_handler(Config) ->
 %% Test cases: MQTT clients with a delivery rate limit
 %%--------------------------------------------------------------------
 
+t_rate_limited_returns_to_buffer() ->
+    [{matrix, true}].
+
 -doc """
 Messages that the delivery rate limit refuses go back to the ExtSub buffer and do not
 enter the session mqueue. The handler receives no drop for them.
 """.
+t_rate_limited_returns_to_buffer(matrix) ->
+    [[rate_limited]];
 t_rate_limited_returns_to_buffer(Config) ->
     %% The first message takes the only token. The rate limit refuses the other messages.
     {C, ChanPid} = connect_and_subscribe(Config, []),
@@ -222,7 +233,12 @@ t_rate_limited_returns_to_buffer(Config) ->
 %% Test cases: ExtSub hooks in the test process
 %%--------------------------------------------------------------------
 
+t_duplicate_completion() ->
+    [{matrix, true}].
+
 -doc "A second acknowledgement does not call handle_delivered and does not change the ExtSub state.".
+t_duplicate_completion(matrix) ->
+    [[unit]];
 t_duplicate_completion(_Config) ->
     %% The handler receives the first acknowledgement
     ok = hook_subscribe(),
@@ -236,7 +252,12 @@ t_duplicate_completion(_Config) ->
     ?assertEqual(Info0, hook_inspect()),
     assert_no_handle_delivered().
 
+t_removed_handler_nack() ->
+    [{matrix, true}].
+
 -doc "A NACK for a removed handler removes the delivery from unacked and does not buffer the message.".
+t_removed_handler_nack(matrix) ->
+    [[unit]];
 t_removed_handler_nack(_Config) ->
     ok = hook_subscribe(),
     [Msg] = hook_deliver([message(<<"msg">>)]),
