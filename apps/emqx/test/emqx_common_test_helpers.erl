@@ -52,7 +52,8 @@
     listeners_disable_authn/0,
     listeners_enable_authn_scoped/1,
     listeners_disable_authn_scoped/0,
-    listeners_enable_authn_scoped/0
+    listeners_enable_authn_scoped/0,
+    select_free_ports/2
 ]).
 
 -export([
@@ -1057,6 +1058,62 @@ select_free_port(GenModule, Fun) when
     ct:pal("Select free OS port: ~p", [Port]),
     Port.
 
+%% @doc get N distinct unused ports from OS
+%% `select_free_port/1' closes its socket before returning, so two calls
+%% can be handed the same port. Here every probe socket stays open until
+%% all N ports are picked, which is what makes them distinct.
+-spec select_free_ports(tcp | udp | ssl | quic, pos_integer()) -> [inets:port_number()].
+select_free_ports(ssl, N) ->
+    select_free_ports(tcp, N);
+select_free_ports(quic, N) ->
+    select_free_ports(udp, N);
+select_free_ports(tcp, N) ->
+    select_free_ports(gen_tcp, listen, N, _Attempts = 10);
+select_free_ports(udp, N) ->
+    select_free_ports(gen_udp, open, N, _Attempts = 10).
+
+select_free_ports(_GenModule, _Fun, _N, 0) ->
+    error(select_free_ports_exhausted);
+select_free_ports(GenModule, Fun, N, Attempts) ->
+    Sockets = [probe_socket(GenModule, Fun) || _ <- lists:seq(1, N)],
+    Ports = [probe_port(S) || S <- Sockets],
+    _ = [ok = GenModule:close(S) || S <- Sockets],
+    ok = wait_for_port_release(),
+    case lists:all(fun(Port) -> is_bindable(GenModule, Fun, Port) end, Ports) of
+        true ->
+            ct:pal("Select free OS ports: ~p", [Ports]),
+            Ports;
+        false ->
+            select_free_ports(GenModule, Fun, N, Attempts - 1)
+    end.
+
+probe_socket(GenModule, Fun) ->
+    {ok, Socket} = GenModule:Fun(0, [{reuseaddr, true}]),
+    Socket.
+
+probe_port(Socket) ->
+    {ok, Port} = inet:port(Socket),
+    Port.
+
+is_bindable(GenModule, Fun, Port) ->
+    case GenModule:Fun(Port, [{reuseaddr, true}]) of
+        {ok, Socket} ->
+            ok = GenModule:close(Socket),
+            true;
+        {error, _} ->
+            false
+    end.
+
+wait_for_port_release() ->
+    case os:type() of
+        {unix, darwin} ->
+            %% in MacOS, still get address_in_use after close port
+            timer:sleep(500);
+        _ ->
+            ok
+    end,
+    ok.
+
 %% After our probe socket is closed, the port re-enters the kernel's
 %% ephemeral pool and any other process on the host (the EMQX node itself
 %% opens many internal sockets during a SUITE: gen_rpc, ekka, mria, etc.)
@@ -1066,21 +1123,14 @@ select_free_port(GenModule, Fun) when
 pick_and_verify_free_port(_GenModule, _Fun, 0) ->
     error(select_free_port_exhausted);
 pick_and_verify_free_port(GenModule, Fun, Attempts) ->
-    {ok, S} = GenModule:Fun(0, [{reuseaddr, true}]),
-    {ok, Port} = inet:port(S),
-    ok = GenModule:close(S),
-    case os:type() of
-        {unix, darwin} ->
-            %% in MacOS, still get address_in_use after close port
-            timer:sleep(500);
-        _ ->
-            skip
-    end,
-    case GenModule:Fun(Port, [{reuseaddr, true}]) of
-        {ok, S2} ->
-            ok = GenModule:close(S2),
+    Socket = probe_socket(GenModule, Fun),
+    Port = probe_port(Socket),
+    ok = GenModule:close(Socket),
+    ok = wait_for_port_release(),
+    case is_bindable(GenModule, Fun, Port) of
+        true ->
             Port;
-        {error, _} ->
+        false ->
             pick_and_verify_free_port(GenModule, Fun, Attempts - 1)
     end.
 

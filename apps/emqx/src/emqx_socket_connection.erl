@@ -742,7 +742,7 @@ terminate(
     try
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
-        emqx_channel:terminate(Reason, Channel1),
+        _ = emqx_channel:terminate(Reason, Channel1),
         close_socket_ok(State),
         ?TRACE("SOCKET", "emqx_connection_terminated", #{reason => Reason})
     catch

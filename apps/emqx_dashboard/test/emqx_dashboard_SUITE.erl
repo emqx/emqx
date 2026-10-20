@@ -829,6 +829,39 @@ malformed_auth_headers() ->
         [{"Authorization", "Bearer a"}, {"Authorization", "Bearer b"}]
     ].
 
+-doc """
+A malformed Basic, Bearer or unknown-scheme authorization header returns 401
+AUTHORIZATION_HEADER_ERROR.
+
+Each header below makes cowlib fail to parse. cowboy re-raises that failure
+as `exit:{request_error, _, _}`, carrying the stacktrace of the parse
+failure, whose frames hold the header value. While that exception escaped
+`authorize/2`, the request process exited, cowboy answered 400, and proc_lib
+wrote a crash report holding the credential at error level.
+
+The 401 asserted here is reachable only when no exception escapes, so it
+also stands for the absence of that crash report. Asserting on the log
+directly does not work: `emqx_cth_log_capture` does not receive proc_lib
+crash reports, so an absence assertion over its output passes on the
+vulnerable code as well.
+""".
+t_malformed_auth_header_is_unauthorized(_Config) ->
+    Value = "not-a-credential",
+    Encoded = binary_to_list(base64:encode(list_to_binary(Value))),
+    Headers = [
+        %% Basic credentials without the ":" separator.
+        {"Authorization", "Basic " ++ Encoded},
+        %% "(" is not valid in a token68, so the rest of the value is rejected.
+        {"Authorization", "Bearer (" ++ Value},
+        %% A scheme cowlib does not know.
+        {"Authorization", "Token " ++ Value}
+    ],
+    lists:foreach(fun assert_unauthorized/1, Headers).
+
+assert_unauthorized(Header) ->
+    {ok, 401, Body} = request_api(get, api_path(["nodes"]), Header),
+    ?assertMatch(#{<<"code">> := <<"AUTHORIZATION_HEADER_ERROR">>}, json(Body), Header).
+
 bearer_header(Token) ->
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 

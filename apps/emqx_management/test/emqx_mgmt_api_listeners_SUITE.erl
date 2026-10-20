@@ -595,8 +595,12 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     %% create with full options
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
-    Port1 = integer_to_binary(?PORT),
-    Port2 = integer_to_binary(?PORT),
+    %% The two listeners must bind different ports: the "bad create" below
+    %% asserts that reusing Port1 is rejected.
+    [Port1, Port2] = [
+        integer_to_binary(Port)
+     || Port <- emqx_common_test_helpers:select_free_ports(tcp, 2)
+    ],
     NewConf = OriginListener#{
         <<"id">> => NewListenerId,
         <<"bind">> => <<"0.0.0.0:", Port1/binary>>

@@ -1066,12 +1066,12 @@ handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Flags, Session) ->
 %% Geneic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(clientinfo(), term(), session()) -> session().
+-spec handle_info(clientinfo(), term(), session()) -> {ok, session()}.
 handle_info(ClientInfo, zone_changed, Session) ->
     Conf = emqx_session:get_session_conf(ClientInfo),
-    apply_conf(ClientInfo, Conf, Session);
+    {ok, apply_conf(ClientInfo, Conf, Session)};
 handle_info(_ClientInfo, _Msg, Session) ->
-    Session.
+    {ok, Session}.
 
 -spec handle_signal(clientinfo(), term(), session()) ->
     {ok, session()} | {ok | effects(), replies(), session()}.
