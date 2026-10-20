@@ -39,6 +39,8 @@ groups() ->
         {parse, [parallel], [
             t_parse_cont,
             t_parse_frame_too_large,
+            t_serialize_frame_at_max_size,
+            t_parse_packet_size_limit,
             t_parse_frame_malformed_variable_byte_integer,
             t_parse_malformed_utf8_string,
             t_parse_bad_v5_publish_packet,
@@ -236,12 +238,92 @@ t_parse_frame_too_large(_) ->
     ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
 
+%% MQTT-3.1.2-24 forbids only packets *exceeding* Maximum Packet Size, so a
+%% packet whose serialized size is exactly the limit must still be sent.
+t_serialize_frame_at_max_size(_) ->
+    %% Given a packet and limits equal to its serialized size and one byte less.
+    Ver = ?MQTT_PROTO_V5,
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, payload(100)),
+    Bin = iolist_to_binary(emqx_frame:serialize(Packet, Ver)),
+    Size = byte_size(Bin),
+    AtLimit = emqx_frame:initial_serialize_opts(#{version => Ver, max_size => Size}),
+    OverLimit = emqx_frame:initial_serialize_opts(#{version => Ver, max_size => Size - 1}),
+    SerializeAtLimit = emqx_frame:serialize_fun(AtLimit),
+    SerializeOverLimit = emqx_frame:serialize_fun(OverLimit),
+    %% When serialized exactly at the limit, then both entry points send the packet.
+    ?assertEqual(Bin, iolist_to_binary(emqx_frame:serialize_pkt(Packet, AtLimit))),
+    ?assertEqual(Bin, iolist_to_binary(SerializeAtLimit(Packet))),
+    %% When serialized one byte over the limit, then both entry points drop it.
+    ?assertEqual(<<>>, emqx_frame:serialize_pkt(Packet, OverLimit)),
+    ?assertEqual(<<>>, SerializeOverLimit(Packet)).
+
+t_parse_packet_size_limit(_) ->
+    lists:foreach(
+        fun({Bin, HeaderSize}) ->
+            %% Given a limit equal to the total packet size, including its header.
+            Size = byte_size(Bin),
+            Opts = #{version => ?MQTT_PROTO_V5, strict_mode => true, max_size => Size},
+            State = emqx_frame:initial_parse_state(Opts),
+            %% When the packet arrives with another packet in the same chunk.
+            %% Then the limit applies to each packet separately.
+            {Packet, <<16#c0, 0>>, _} = emqx_frame:parse(<<Bin/binary, 16#c0, 0>>, State),
+            %% When the fixed header is split across chunks.
+            <<Prefix:(HeaderSize - 1)/binary, LastHeader:1/binary, Body/binary>> = Bin,
+            {more, Partial} = emqx_frame:parse(Prefix, State),
+            %% Then a packet exactly at the limit is still accepted.
+            ?assertMatch(
+                {Packet, <<>>, _}, emqx_frame:parse(<<LastHeader/binary, Body/binary>>, Partial)
+            ),
+            %% Given a limit one byte below the total packet size.
+            Limit = Size - 1,
+            LimitedState = emqx_frame:initial_parse_state(Opts#{max_size := Limit}),
+            %% When the full packet arrives, then it is rejected.
+            ?ASSERT_FRAME_THROW(
+                #{cause := frame_too_large, limit := Limit, received := Size},
+                emqx_frame:parse(Bin, LimitedState)
+            ),
+            %% When only the fragmented fixed header has arrived, then reject
+            %% immediately without waiting for or buffering the oversized body.
+            {more, LimitedPartial} = emqx_frame:parse(Prefix, LimitedState),
+            ?ASSERT_FRAME_THROW(
+                #{cause := frame_too_large, limit := Limit, received := Size},
+                emqx_frame:parse(LastHeader, LimitedPartial)
+            )
+        end,
+        packet_size_cases()
+    ).
+
+packet_size_cases() ->
+    %% Include the zero- and two-byte Remaining Length fast paths, and both
+    %% sides of each transition between one and four Remaining Length bytes.
+    [{<<16#e0, 0>>, 2}, {<<16#c0, 0>>, 2}, {<<16#40, 2, 0, 1>>, 2}] ++
+        lists:map(
+            fun(RemainingLength) ->
+                Payload = binary:copy(<<"x">>, RemainingLength - 9),
+                Packet = ?PUBLISH_PACKET(?QOS_1, <<"size">>, 7, Payload),
+                Bin = serialize_to_binary(Packet, ?MQTT_PROTO_V5),
+                {Bin, byte_size(Bin) - RemainingLength}
+            end,
+            [127, 128, 16383, 16384, 2097151, 2097152]
+        ).
+
 t_parse_frame_malformed_variable_byte_integer(_) ->
-    MalformedPayload = <<<<16#80>> || _ <- lists:seq(1, 6)>>,
+    %% Given Remaining Length encodings that exceed four bytes, including one
+    %% whose fifth byte terminates the encoding.
+    MalformedPackets = [
+        binary:copy(<<16#80>>, 6),
+        <<16#30, 16#80, 16#80, 16#80, 16#80, 0>>
+    ],
     ParseState = emqx_frame:initial_parse_state(#{}),
-    ?ASSERT_FRAME_THROW(
-        malformed_variable_byte_integer,
-        emqx_frame:parse(MalformedPayload, ParseState)
+    %% When parsed, then both are rejected as malformed variable-byte integers.
+    lists:foreach(
+        fun(Bin) ->
+            ?ASSERT_FRAME_THROW(
+                malformed_variable_byte_integer,
+                emqx_frame:parse(Bin, ParseState)
+            )
+        end,
+        MalformedPackets
     ).
 
 t_parse_malformed_utf8_string(_) ->

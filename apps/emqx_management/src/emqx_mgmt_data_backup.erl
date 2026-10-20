@@ -1184,21 +1184,25 @@ read_data_files(RawConf0) ->
     AbsDataDir = bin(filename:join(Cwd, DataDir)),
     RawConf1 = emqx_authz:maybe_read_files(RawConf0),
     RawConf2 = emqx_schema_registry_config:prepare_protobuf_files_for_export(RawConf1),
-    emqx_utils_maps:deep_convert(RawConf2, fun read_data_file/4, [DataDir, AbsDataDir]).
+    emqx_utils_maps:deep_convert(
+        RawConf2, fun read_data_file/4, [filename:split(DataDir), filename:split(AbsDataDir)]
+    ).
 
--define(dir_pattern(_Dir_), <<_Dir_:(byte_size(_Dir_))/binary, _/binary>>).
-
-read_data_file(Key, Val, DataDir, AbsDataDir) ->
+read_data_file(Key, Val, DataDirParts, AbsDataDirParts) when is_binary(Val) ->
+    Parts = filename:split(Val),
     Val1 =
-        case Val of
-            ?dir_pattern(DataDir) = FileName ->
-                do_read_file(FileName);
-            ?dir_pattern(AbsDataDir) = FileName ->
-                do_read_file(FileName);
-            V ->
-                V
+        case is_in_dir(DataDirParts, Parts) orelse is_in_dir(AbsDataDirParts, Parts) of
+            true -> do_read_file(Val);
+            false -> Val
         end,
-    {Key, Val1}.
+    {Key, Val1};
+read_data_file(Key, Val, _DataDirParts, _AbsDataDirParts) ->
+    {Key, Val}.
+
+%% A path is in the directory when the directory's path components are a strict
+%% prefix of its own, so `data_source' is not in `data', and `data' itself is not.
+is_in_dir(DirParts, Parts) ->
+    length(Parts) > length(DirParts) andalso lists:prefix(DirParts, Parts).
 
 do_read_file(FileName) ->
     case file:read_file(FileName) of
