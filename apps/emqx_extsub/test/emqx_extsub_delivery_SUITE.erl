@@ -165,8 +165,10 @@ t_unsubscribe_drops_buffered(Config) ->
     assert_terminated(),
     ?assertMatch(
         {ok, #{
-            registry := #{by_ref := [], buffer := #{message_buffer_size := 0, delivering := #{}}}
-        }},
+            registry := #{
+                by_ref := [], buffer := #{message_buffer_size := 0, delivering := Delivering}
+            }
+        }} when map_size(Delivering) == 0,
         emqx_extsub:inspect(ChanPid)
     ),
     ok = emqtt:disconnect(C).
