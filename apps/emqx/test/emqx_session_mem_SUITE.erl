@@ -11,6 +11,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -313,6 +314,53 @@ t_puback_with_dequeue(_) ->
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg3)).
+
+%% A client that takes over a session can advertise a Receive Maximum lower than the
+%% number of transferred inflight messages. Dequeue must wait until acks free inflight
+%% slots, and must not take queued messages only to nack or re-enqueue them.
+t_puback_inflight_over_receive_maximum(_) ->
+    TC = self(),
+    ok = meck:expect(emqx_hooks, run_fold, fun
+        ('message.nack', [Msg], Acc) ->
+            TC ! {message_nack, emqx_message:topic(Msg)},
+            Acc;
+        (Hook, Args, Acc) ->
+            meck:passthrough([Hook, Args, Acc])
+    end),
+    on_exit(fun() ->
+        meck:expect(emqx_hooks, run_fold, fun(Hook, Args, Acc) ->
+            meck:passthrough([Hook, Args, Acc])
+        end)
+    end),
+    Inflight = lists:foldl(
+        fun(PacketId, InflightAcc) ->
+            Msg = emqx_message:make(clientid, ?QOS_1, <<"inflight">>, <<>>),
+            emqx_inflight:insert(PacketId, with_ts(wait_ack, Msg), InflightAcc)
+        end,
+        emqx_inflight:new(1),
+        [1, 2, 3]
+    ),
+    Queued = [emqx_message:make(clientid, ?QOS_1, T, <<>>) || T <- [<<"q1">>, <<"q2">>]],
+    Session0 = session(#{
+        inflight => Inflight,
+        mqueue => mqueue(#{max_len => 10}),
+        next_pkt_id => 4
+    }),
+    Session = emqx_session_mem:enqueue(clientinfo(), Queued, Session0),
+    {ok, _, [], Session1} = emqx_session_mem:puback(clientinfo(), 1, Session),
+    ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session1)),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session1)),
+    {ok, _, [], Session2} = emqx_session_mem:puback(clientinfo(), 2, Session1),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session2)),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session2)),
+    {ok, _, [{4, Msg1}], Session3} = emqx_session_mem:puback(clientinfo(), 3, Session2),
+    ?assertEqual(<<"q1">>, emqx_message:topic(Msg1)),
+    ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session3)),
+    ?assertEqual(1, emqx_session_mem:info(mqueue_len, Session3)),
+    receive
+        {message_nack, Topic} -> ct:fail({unexpected_message_nack, Topic})
+    after 0 -> ok
+    end.
 
 t_puback_error_packet_id_in_use(_) ->
     Inflight = emqx_inflight:insert(1, with_ts(wait_comp, undefined), emqx_inflight:new()),
@@ -754,6 +802,73 @@ t_delivery_rate_limit_pubcomp(_TCConfig) ->
     {ok, _, [_, _], _Session5} = emqx_session_mem:pubcomp(clientinfo(), PacketId2, Session4),
 
     ok.
+
+-doc """
+Verifies that the session offers each message that the delivery rate limit refuses to the
+`message.nack` hook. A message that a hook takes does not enter mqueue. A QoS 0 message that
+no hook takes is dropped with the `rate_limited` reason.
+""".
+t_delivery_rate_limit_nack(_TCConfig) ->
+    %% `message.nack' takes the messages with the `nacked/' topic prefix
+    TC = self(),
+    ok = meck:expect(emqx_hooks, run_fold, fun
+        ('message.nack', [#message{topic = <<"nacked/", _/binary>> = Topic}], _Acc) ->
+            TC ! {message_nack, Topic},
+            true;
+        (Hook, Args, Acc) ->
+            meck:passthrough([Hook, Args, Acc])
+    end),
+    ok = meck:expect(emqx_hooks, run, fun
+        ('delivery.dropped', [_ClientInfo, Msg, Reason]) ->
+            TC ! {delivery_dropped, emqx_message:topic(Msg), Reason},
+            ok;
+        (_Hook, _Args) ->
+            ok
+    end),
+    on_exit(fun() ->
+        ok = meck:expect(emqx_hooks, run_fold, fun(Hook, Args, Acc) ->
+            meck:passthrough([Hook, Args, Acc])
+        end),
+        ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end)
+    end),
+    ListenerId = 'tcp:nack',
+    Limiter0 = create_limiters(ListenerId, #{<<"delivery_messages_rate">> => <<"1/1h">>}),
+    put_context(#{limiter => Limiter0}),
+
+    %% The first message takes the only token. The rate limit refuses the second message,
+    %% and the session offers the rest of the batch to the hook.
+    Session0 = session(),
+    Delivers0 = enrich(
+        [
+            delivery(?QOS_1, <<"sent">>),
+            delivery(?QOS_1, <<"nacked/1">>),
+            delivery(?QOS_1, <<"queued/1">>),
+            delivery(?QOS_0, <<"nacked/0">>),
+            delivery(?QOS_0, <<"queued/0">>)
+        ],
+        Session0
+    ),
+    {ok, [{_, #message{topic = <<"sent">>}}], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers0, Session0),
+    ?assertReceive({message_nack, <<"nacked/1">>}),
+    ?assertReceive({message_nack, <<"nacked/0">>}),
+    ?assertMatch(
+        {[#message{topic = <<"queued/1">>}, #message{topic = <<"queued/0">>}], _},
+        emqx_session_mem:info({mqueue_msgs, #{position => none, limit => 10}}, Session1)
+    ),
+    ?assertNotReceive({delivery_dropped, _, _}),
+
+    %% The rate limit refuses QoS 0 messages one by one. The session drops the message
+    %% that the hook does not take.
+    Delivers1 = enrich(
+        [delivery(?QOS_0, <<"nacked/0">>), delivery(?QOS_0, <<"dropped/0">>)],
+        Session1
+    ),
+    {ok, [], Session2} = emqx_session_mem:deliver(clientinfo(), Delivers1, Session1),
+    ?assertReceive({message_nack, <<"nacked/0">>}),
+    ?assertReceive({delivery_dropped, <<"dropped/0">>, rate_limited}),
+    ?assertNotReceive({delivery_dropped, _, _}),
+    ?assertEqual(2, emqx_session_mem:info(mqueue_len, Session2)).
 
 %%--------------------------------------------------------------------
 %% Test cases for takeover/resume

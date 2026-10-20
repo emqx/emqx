@@ -523,6 +523,9 @@ do_dequeue(Msg, ClientInfo = #{zone := Zone}, Cnt, Msgs, Q, PrevQ) ->
                     %% QoS 0)
                     case Msg#message.qos of
                         0 ->
+                            _ = emqx_session_events:handle_event(
+                                ClientInfo, {dropped, Msg, rate_limited}
+                            ),
                             dequeue(ClientInfo, 0, Msgs, Q);
                         _ ->
                             dequeue(ClientInfo, 0, Msgs, PrevQ)
@@ -551,11 +554,17 @@ do_deliver(ClientInfo, [Msg | More], Acc, CheckLimiter, Session) ->
         {ok, [Publish], Session1} ->
             do_deliver(ClientInfo, More, [Publish | Acc], CheckLimiter, Session1);
         {blocked, Session1} ->
-            Session2 = enqueue(ClientInfo, More, Session1),
+            Session2 = lists:foldl(
+                fun(MoreMsg, SessionAcc) ->
+                    enqueue_unless_nacked(ClientInfo, MoreMsg, SessionAcc)
+                end,
+                Session1,
+                More
+            ),
             {ok, lists:reverse(Acc), Session2}
     end.
 
-deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, CheckLimiter, Session) ->
+deliver_msg(ClientInfo, Msg = #message{qos = ?QOS_0}, CheckLimiter, Session) ->
     %% Ensure `maybe_ack` is called here, even if rate limit is hit.
     Publishes = [{undefined, maybe_ack(Msg)}],
     case CheckLimiter andalso try_consume_delivery_rate_limit(Msg) of
@@ -565,6 +574,12 @@ deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, CheckLimiter, Session) ->
             {ok, Publishes, Session};
         {error, Reason} ->
             log_rate_limit_reason(Reason, Msg),
+            case nack_by_hook(Msg) of
+                true ->
+                    ok;
+                false ->
+                    _ = emqx_session_events:handle_event(ClientInfo, {dropped, Msg, rate_limited})
+            end,
             {ok, Session}
     end;
 deliver_msg(
@@ -586,7 +601,7 @@ deliver_msg(
             {ok, Session1};
         {false, {error, Reason}} ->
             log_rate_limit_reason(Reason, Msg),
-            Session1 = enqueue_msg(ClientInfo, Msg, Session),
+            Session1 = enqueue_unless_nacked(ClientInfo, Msg, Session),
             {blocked, Session1};
         {false, _} ->
             %% `RateLimiterRes :: false | ok` here.
@@ -635,8 +650,21 @@ maybe_ack(Msg) ->
 maybe_nack(Msg) ->
     maybe
         false ?= emqx_shared_sub:maybe_nack_dropped(Msg),
-        emqx_hooks:run_fold('message.nack', [Msg], false)
+        nack_by_hook(Msg)
     end.
+
+%% Sources with their own buffer, for example ExtSub, take back the messages that the
+%% delivery rate limit refuses. Other messages go to mqueue.
+%% TODO: decide whether shared subscription messages refused by the rate limit go to
+%% another group member, as they do when inflight is full.
+enqueue_unless_nacked(ClientInfo, Msg, Session) ->
+    case nack_by_hook(Msg) of
+        true -> Session;
+        false -> enqueue_msg(ClientInfo, Msg, Session)
+    end.
+
+nack_by_hook(Msg) ->
+    emqx_hooks:run_fold('message.nack', [Msg], false).
 
 mark_begin_deliver(Msg) ->
     emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).
@@ -1057,8 +1085,13 @@ without_inflight_insert_ts(#message{extra = Extra} = Msg) ->
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of
-        0 -> ?DEFAULT_BATCH_N;
-        Sz -> Sz - emqx_inflight:size(Inflight)
+        0 ->
+            ?DEFAULT_BATCH_N;
+        Sz ->
+            %% NOTE
+            %% A connection inheriting existing session may advertise Receive-Maximum
+            %% lower than the number of outstanding publishes.
+            max(0, Sz - emqx_inflight:size(Inflight))
     end.
 
 with_ts(#message{extra = Extra} = Msg) ->

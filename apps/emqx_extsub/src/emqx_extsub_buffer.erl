@@ -104,9 +104,16 @@ delivering_count(#buffer{delivering = Delivering}, HandlerRef) ->
     maps:get(HandlerRef, Delivering, 0).
 
 -spec drop_handler(t(), emqx_extsub_types:handler_ref()) -> t().
-drop_handler(#buffer{delivering = Delivering0} = Buffer, HandlerRef) ->
+drop_handler(
+    #buffer{message_buffer = MessageBuffer0, delivering = Delivering0} = Buffer, HandlerRef
+) ->
     Delivering = maps:remove(HandlerRef, Delivering0),
-    Buffer#buffer{delivering = Delivering}.
+    MessageBuffer = gb_trees:from_orddict([
+        Entry
+     || {_SeqId, {Ref, _Msg}} = Entry <- gb_trees:to_list(MessageBuffer0),
+        Ref =/= HandlerRef
+    ]),
+    Buffer#buffer{message_buffer = MessageBuffer, delivering = Delivering}.
 
 -spec size(t()) -> non_neg_integer().
 size(#buffer{message_buffer = MessageBuffer}) ->

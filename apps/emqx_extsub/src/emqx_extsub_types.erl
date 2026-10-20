@@ -25,7 +25,7 @@ The module contains basic types for the External Subscription application.
     _ => _
 }.
 
--type ack() :: emqx_maybe:t(emqx_types:reason_code()).
+-type ack() :: emqx_maybe:t(emqx_types:reason_code()) | {dropped, atom()}.
 -type message_id() :: term().
 
 -export_type([
