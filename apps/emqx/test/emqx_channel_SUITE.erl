@@ -2355,9 +2355,9 @@ will_channel(ConnState, ExpiryInterval, WillDelay) ->
 
 mock_will_publish() ->
     Self = self(),
-    meck:expect(emqx_broker, publish, fun(#message{topic = Topic}) ->
+    meck:expect(emqx_broker, publish2, fun(#message{topic = Topic} = Msg) ->
         Self ! {will_published, Topic},
-        []
+        {ok, [], Msg}
     end).
 
 count_wills() ->
