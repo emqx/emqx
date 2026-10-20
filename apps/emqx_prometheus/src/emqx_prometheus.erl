@@ -342,7 +342,7 @@ fetch_from_local_node(Mode) ->
         cluster_data => cluster_data(Mode),
         %% Metrics
         emqx_packet_data => emqx_metric_data(emqx_packet_metric_meta(), Mode),
-        emqx_message_data => emqx_metric_data(message_metric_meta(), Mode),
+        emqx_message_data => emqx_metric_data(message_metric_meta(Mode), Mode),
         emqx_delivery_data => emqx_metric_data(delivery_metric_meta(), Mode),
         emqx_client_data => client_metric_data(Mode),
         emqx_session_data => emqx_metric_data(session_metric_meta(), Mode),
@@ -399,7 +399,7 @@ get_namespace_pd() ->
 fetch_namespaced_metrics_v1(Namespace, Mode) ->
     {node(), #{
         packet_data_ns => metric_data_ns(Namespace, packet_metric_ns_meta(), Mode),
-        message_data_ns => metric_data_ns(Namespace, message_metric_ns_meta(), Mode),
+        message_data_ns => metric_data_ns(Namespace, message_metric_ns_meta(Mode), Mode),
         delivery_data_ns => metric_data_ns(Namespace, delivery_metric_ns_meta(), Mode)
     }}.
 
@@ -716,7 +716,7 @@ stats_data(Mode) ->
             AccIn#{Name => [{with_node_label(Mode, []), ?C(MetricKAtom, Stats)}]}
         end,
         #{},
-        stats_metric_meta()
+        without_v4_metrics(Mode, stats_metric_meta())
     ).
 
 stats_data_cluster_consistented() ->
@@ -924,7 +924,7 @@ listener_counts(Mode) ->
         emqx_client_disconnected_reason =>
             listeners_points(fun emqx_listeners:shutdown_count/2, reason, Running, Mode)
     },
-    case include_accept_result(Mode) of
+    case include_v4_metrics(Mode) of
         true ->
             Counts#{
                 emqx_client_accept_result =>
@@ -935,11 +935,11 @@ listener_counts(Mode) ->
     end.
 
 %% A node older than `emqx_prometheus' BPAPI version 4 crashes when it
-%% aggregates a metric it does not know. Send accept results to other nodes
-%% only when every node supports version 4. The `node' mode is local only.
-include_accept_result(?PROM_DATA_MODE__NODE) ->
+%% aggregates a metric it does not know. Send metrics added with version 4
+%% to other nodes only when every node supports it. The `node' mode is local only.
+include_v4_metrics(?PROM_DATA_MODE__NODE) ->
     true;
-include_accept_result(_Mode) ->
+include_v4_metrics(_Mode) ->
     emqx_bpapi:supported_version(emqx_prometheus) >= 4.
 
 %% RPC target (`emqx_prometheus_proto_v4')
@@ -1077,6 +1077,28 @@ message_metric_meta() ->
 
 message_metric_ns_meta() ->
     message_metric_meta().
+
+message_metric_meta(Mode) ->
+    without_v4_metrics(Mode, message_metric_meta()).
+
+message_metric_ns_meta(Mode) ->
+    without_v4_metrics(Mode, message_metric_ns_meta()).
+
+without_v4_metrics(Mode, Meta) ->
+    case include_v4_metrics(Mode) of
+        true ->
+            Meta;
+        false ->
+            [M || {Name, _, _} = M <- Meta, not lists:member(Name, v4_metrics())]
+    end.
+
+%% Per-node metrics that a node older than `emqx_prometheus' BPAPI version 4
+%% does not know. `emqx_client_accept_result' is gated in `listener_counts/1'.
+v4_metrics() ->
+    [
+        emqx_disconnected_sessions_count,
+        emqx_messages_rejected_quota_exceeded
+    ].
 
 %%==========
 %% Delivery
