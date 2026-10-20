@@ -127,7 +127,7 @@ ready_cores() ->
     [
         N
      || N <- mria_core_nodes(),
-        N =:= node() orelse plugin_present(N)
+        N =:= node() orelse core_plugin_present(N)
     ].
 
 -define(PEER_PROBE_MS, 3000).
@@ -135,14 +135,26 @@ ready_cores() ->
 
 %% Cached: the probe is an RPC and this runs on the shard-routing path.
 plugin_present(Node) ->
-    Key = {?MODULE, peer_plugin_present, Node},
+    %% The pull-pool broadcasts call emqx_bcast_pull_shard on every node,
+    %% replicants included. The pool module itself is core-only, so it cannot
+    %% be used as the liveness marker for a replicant.
+    plugin_present(Node, {emqx_bcast_pull_shard, qos0_deliver_local, 4}).
+
+%% Core routing calls emqx_bcast_pull_server_pool:want_next_async/4. Keep the
+%% stricter probe for cores so an older peer that cannot serve claims is not
+%% considered ready.
+core_plugin_present(Node) ->
+    plugin_present(Node, {emqx_bcast_pull_server_pool, want_next_async, 4}).
+
+plugin_present(Node, {Mod, Fun, Arity} = MFA) ->
+    Key = {?MODULE, peer_plugin_present, Node, MFA},
     Now = erlang:monotonic_time(millisecond),
     case persistent_term:get(Key, undefined) of
         {Ts, Ready} when Now - Ts < ?PEER_PROBE_MS ->
             Ready;
         _ ->
             Ready =
-                case probe_peer_plugin(Node) of
+                case probe_peer_plugin(Node, Mod, Fun, Arity) of
                     unknown -> true;
                     Answer -> Answer
                 end,
@@ -161,7 +173,7 @@ plugin_present(Node) ->
 %% false - plugin not running/installed, or an older build without that call;
 %% unknown - the probe could not answer (node down, dist hiccup): keep the
 %%           peer, the checked claim dispatch still protects the claim path.
-probe_peer_plugin(Node) ->
+probe_peer_plugin(Node, Mod, Fun, Arity) ->
     try
         %% The supervision tree is the liveness of the plugin: it exists
         %% exactly while the plugin app runs, on every released version.
@@ -171,7 +183,7 @@ probe_peer_plugin(Node) ->
                     Node,
                     erlang,
                     function_exported,
-                    [emqx_bcast_pull_server_pool, want_next_async, 4],
+                    [Mod, Fun, Arity],
                     ?PEER_PROBE_TIMEOUT_MS
                 );
             _ ->
