@@ -329,6 +329,30 @@ t_message_ingress(_) ->
         emqx_message_ingress:ingress(AuthzContext, InvalidMessage)
     ).
 
+-doc """
+An ExHook server marks a message consumed by returning the `consumed` header
+as `"true"` from `OnMessagePublish`. Returning `"false"` does not clear a mark
+that an earlier hook set, and the server sees the mark in the request.
+""".
+t_message_publish_consumed(_) ->
+    _ = emqx_exhook_demo_svr:flush(),
+    Consumed = emqx_message:make(<<"consumer">>, 1, <<"t/consumed">>, <<"payload">>),
+    {ok, Marked} = emqx_exhook_handler:on_message_publish(Consumed),
+    ?assert(emqx_message:is_consumed(Marked)),
+    _ = emqx_exhook_demo_svr:take(),
+    Unconsumed = emqx_message:make(<<"unconsumer">>, 1, <<"t/consumed">>, <<"payload">>),
+    {ok, NotMarked} = emqx_exhook_handler:on_message_publish(Unconsumed),
+    ?assertNot(emqx_message:is_consumed(NotMarked)),
+    _ = emqx_exhook_demo_svr:take(),
+    {ok, StillMarked} = emqx_exhook_handler:on_message_publish(
+        emqx_message:set_consumed(Unconsumed)
+    ),
+    ?assert(emqx_message:is_consumed(StillMarked)),
+    ?assertMatch(
+        {on_message_publish, #{message := #{headers := #{<<"consumed">> := <<"true">>}}}},
+        emqx_exhook_demo_svr:take()
+    ).
+
 t_lookup(_) ->
     Result = emqx_exhook_mgr:lookup(<<"default">>),
     ?assertMatch(#{name := <<"default">>, status := _}, Result),

@@ -4,6 +4,7 @@
 
 -module(emqx_hooks).
 
+-include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -273,6 +274,24 @@ do_run_fold_strict([#callback{action = Action, filter = Filter} | Callbacks], Ar
     end;
 do_run_fold_strict([], _Args, Acc) ->
     {ok, Acc}.
+
+%% Same as `do_run_fold/3', but a callback cannot clear the consumed mark
+%% that an earlier callback set, see `emqx_message:set_consumed/1'.
+do_run_fold_publish([#callback{action = Action, filter = Filter} | Callbacks], Msg) ->
+    Args = [Msg],
+    case filter_passed(Filter, Args) andalso safe_execute(Action, Args) of
+        {ok, stop} -> Msg;
+        {ok, {stop, NewMsg}} -> keep_consumed(Msg, NewMsg);
+        {ok, {ok, NewMsg}} -> do_run_fold_publish(Callbacks, keep_consumed(Msg, NewMsg));
+        _ -> do_run_fold_publish(Callbacks, Msg)
+    end;
+do_run_fold_publish([], Msg) ->
+    Msg.
+
+keep_consumed(#message{headers = #{consumed := true}}, #message{} = NewMsg) ->
+    emqx_message:set_consumed(NewMsg);
+keep_consumed(_Msg, NewMsg) ->
+    NewMsg.
 
 -spec filter_passed(filter(), Args :: term()) -> true | false.
 filter_passed(undefined, _Args) -> true;
@@ -606,7 +625,7 @@ when
 -spec 'message.publish'(emqx_types:message()) ->
     emqx_types:message() | [emqx_types:message()].
 'message.publish'(Message) ->
-    do_run_fold(lookup('message.publish'), [], Message).
+    do_run_fold_publish(lookup('message.publish'), Message).
 
 -spec 'message.puback'(
     emqx_types:packet_id(),

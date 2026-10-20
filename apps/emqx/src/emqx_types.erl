@@ -263,6 +263,9 @@
         | {share, topic(), deliver_result()}
         | {emqx_external_broker:dest(), topic(), deliver_result()}
         | persisted
+        %% No subscriber, but a `message.publish' hook callback marked
+        %% the message consumed, see `emqx_message:set_consumed/1'.
+        | consumed
     ].
 -type publish_result() ::
     publish_routes()
