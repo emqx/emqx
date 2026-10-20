@@ -35,6 +35,7 @@
 -include("types.hrl").
 -include("emqx.hrl").
 -include("emqx_session.hrl").
+-include("emqx_channel.hrl").
 -include("emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -54,7 +55,8 @@
 -export([
     info/1,
     info/2,
-    stats/1
+    stats/1,
+    chan_info/1
 ]).
 
 -export([
@@ -253,6 +255,7 @@
 -callback info(atom(), t()) -> term().
 
 -callback stats(t()) -> emqx_types:stats().
+-callback chan_info_keys() -> [atom()].
 
 -callback disconnect(t(), conninfo()) ->
     {idle | shutdown, effects(), t()}.
@@ -675,6 +678,16 @@ info(Key, Session) ->
 -spec stats(t()) -> emqx_types:stats().
 stats(Session) ->
     ?IMPL(Session):stats(Session).
+
+-doc """
+The session attributes that the channel caches in the channel info table:
+`?CHAN_INFO_SESSION_KEYS` and the ones of the session implementation, such as
+`mqueue_max` of a memory session or `n_streams` of a durable session.
+""".
+-spec chan_info(t()) -> #{atom() => term()}.
+chan_info(Session) ->
+    Keys = ?CHAN_INFO_SESSION_KEYS ++ (?IMPL(Session)):chan_info_keys(),
+    maps:from_list(info(Keys, Session)).
 
 %%--------------------------------------------------------------------
 %% Common message events

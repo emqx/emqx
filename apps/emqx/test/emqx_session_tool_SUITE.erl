@@ -41,15 +41,17 @@ clear_table() ->
     catch ets:delete_all_objects(?CHAN_INFO_TAB).
 
 %% Insert a synthetic channel-info row the way emqx_cm:insert_channel_info
-%% would: key {ClientId, ChanPid}, an info map, and a cached stats
-%% proplist. The scan reads the stats proplist directly, so no live
-%% channel process is required. A real (local, alive) pid is used so the
-%% extras re-lookup in resolve_row works.
+%% would: key {ClientId, ChanPid}, an info map, and the reference of a stats
+%% array that holds the given stats. The scan reads the stats array
+%% directly, so no live channel process is required. A real (local, alive)
+%% pid is used so the extras re-lookup in resolve_row works.
 insert_session(ClientId, Stats) ->
     insert_session(ClientId, Stats, #{}).
 
 insert_session(ClientId, Stats, Info) ->
-    true = ets:insert(?CHAN_INFO_TAB, {{ClientId, self()}, Info, Stats}),
+    StatsRef = emqx_chan_stats:new(connection),
+    ok = emqx_chan_stats:put(Stats),
+    true = ets:insert(?CHAN_INFO_TAB, {{ClientId, self()}, Info, StatsRef}),
     ClientId.
 
 clientids(Rows) ->
@@ -251,7 +253,7 @@ drive_scan(Acc) ->
         {continue, Acc1} -> drive_scan(Acc1)
     end.
 
--doc "Real connected clients are scannable through the cached stats (inflight_max).".
+-doc "Real connected clients are scannable through their stats array (subscriptions_cnt).".
 t_real_clients_scannable(_Config) ->
     clear_table(),
     ClientIds = [<<"real-1">>, <<"real-2">>, <<"real-3">>],
@@ -259,17 +261,17 @@ t_real_clients_scannable(_Config) ->
         begin
             {ok, C} = emqtt:start_link([{clientid, Id}]),
             {ok, _} = emqtt:connect(C),
+            {ok, _, [0]} = emqtt:subscribe(C, <<"real/", Id/binary>>),
             C
         end
      || Id <- ClientIds
     ],
     try
-        Rows = emqx_session_tool:top_by(inflight_max, #{top_k => 10}),
+        Rows = emqx_session_tool:top_by(subscriptions_cnt, #{top_k => 10}),
         Found = clientids(Rows),
         lists:foreach(fun(Id) -> ?assert(lists:member(Id, Found)) end, ClientIds),
-        %% inflight_max defaults to 32 and is present in the registration
-        %% stats snapshot.
-        lists:foreach(fun(V) -> ?assert(V > 0) end, values(Rows))
+        %% The subscription count is written to the array when the SUBACK goes out.
+        lists:foreach(fun(V) -> ?assertEqual(1, V) end, values(Rows))
     after
         lists:foreach(fun(C) -> catch emqtt:stop(C) end, Clients)
     end.
@@ -340,7 +342,13 @@ t_cluster_top_by(Config) ->
         emqx_cth_cluster:stop(Nodes)
     end.
 
+%% The stats array must be created on the node that holds the row: a
+%% reference does not work on another node.
 insert_remote(Node, ClientId, MqueueLen) ->
-    Row = {{ClientId, self()}, #{}, [{mqueue_len, MqueueLen}]},
-    true = erpc:call(Node, ets, insert, [?CHAN_INFO_TAB, Row]),
+    Pid = self(),
+    true = erpc:call(Node, fun() ->
+        _ = emqx_chan_stats:new(connection),
+        ok = emqx_chan_stats:put([{mqueue_len, MqueueLen}]),
+        ets:insert(?CHAN_INFO_TAB, {{ClientId, Pid}, #{}, emqx_chan_stats:ref()})
+    end),
     ok.

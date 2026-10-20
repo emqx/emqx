@@ -54,6 +54,7 @@
 -export([
     info/2,
     stats/1,
+    chan_info_keys/0,
     obtain_next_pkt_id/1
 ]).
 
@@ -165,19 +166,16 @@
 -type effect() :: emqx_session:effect().
 -type effects() :: emqx_session:effects().
 
+%% Gauges only: the channel process stores them in its stats array (see
+%% `emqx_chan_stats`). The attributes that do not change with traffic are
+%% cached in the channel info table instead, see `chan_info_keys/0`.
 -define(STATS_KEYS, [
-    durable,
     subscriptions_cnt,
-    subscriptions_max,
     inflight_cnt,
-    inflight_max,
     mqueue_len,
-    mqueue_max,
     total_payload_bytes,
     mqueue_dropped,
-    next_pkt_id,
-    awaiting_rel_cnt,
-    awaiting_rel_max
+    awaiting_rel_cnt
 ]).
 
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
@@ -477,6 +475,9 @@ info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
 %% @doc Get stats of the session.
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) -> info(?STATS_KEYS, Session).
+
+-doc "The attribute of a memory session that the channel info table caches, see `emqx_session:chan_info/1`.".
+chan_info_keys() -> [mqueue_max].
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE

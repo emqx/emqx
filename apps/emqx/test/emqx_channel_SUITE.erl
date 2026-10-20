@@ -128,11 +128,24 @@ t_chan_info(_) ->
     %% `info/1` omits the socket, which is only valid in the connection process.
     ?assertNot(maps:is_key(sock, ConnInfo)),
     %% The session attributes are the ones the channel info table's readers use; the
-    %% counters come from the stats element of the same table row.
+    %% counters come from the stats array of the same table row, and the attributes
+    %% that are not integers are listed among the stats from here.
     ?assertMatch(
         #{created_at := _, is_persistent := _, impl := emqx_session_mem}, SessionInfo
     ),
-    ?assertEqual([created_at, impl, is_persistent], lists:sort(maps:keys(SessionInfo))),
+    ?assertEqual(
+        [
+            awaiting_rel_max,
+            created_at,
+            durable,
+            impl,
+            inflight_max,
+            is_persistent,
+            mqueue_max,
+            subscriptions_max
+        ],
+        lists:sort(maps:keys(SessionInfo))
+    ),
     %% `info/2` still reads them from the channel.
     ?assertEqual(emqx_message:to_map(WillMsg), emqx_channel:info(will_msg, Channel)),
     ?assertMatch(#{conn_props := #{}}, emqx_channel:info(conninfo, Channel)),

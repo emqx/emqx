@@ -703,7 +703,8 @@ handle_msg({close, Reason}, State) ->
     handle_info({sock_closed, Reason}, close_socket(State));
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    ok = set_chan_stats(State),
+    emqx_cm:insert_channel_info(ClientId, info(State), emqx_chan_stats:ref()),
     {ok, ensure_stats_timer(State)};
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
@@ -715,14 +716,8 @@ handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
     {ok, State};
-handle_msg({event, _Other}, State = #state{channel = Channel}) ->
-    case emqx_channel:info(clientid, Channel) of
-        %% ClientId is yet unknown (i.e. connect packet is not received yet)
-        undefined ->
-            ok;
-        ClientId ->
-            set_chan_info_stats(ClientId, State)
-    end,
+handle_msg({event, updated}, State) ->
+    ok = set_session_stats(State),
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
     handle_timeout(TRef, TMsg, State);
@@ -826,8 +821,7 @@ handle_timeout(
         sockstate = SS
     }
 ) ->
-    ClientId = emqx_channel:info(clientid, Channel),
-    maybe_set_chan_stats(ClientId, State),
+    ok = set_chan_stats(State),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, State),
     check_send_timeout(SS, State#state{
         channel = emqx_channel:refresh_quota(Channel), stats_timer = undefined
@@ -851,27 +845,23 @@ handle_timeout(TRef, Msg, State = #state{channel = Channel}) ->
 try_set_chan_stats(State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientID is not yet known, nothing to report.
-        undefined -> false;
-        ClientId -> maybe_set_chan_stats(ClientId, State)
+        undefined -> ok;
+        _ClientId -> set_chan_stats(State)
     end.
 
-%% Write the info and, when the client-info REST API is enabled, the stats
-%% of the channel in one table write.
-set_chan_info_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_info_stats(ClientId, info(State), stats(State));
-        false -> emqx_cm:set_chan_info(ClientId, info(State))
-    end.
+%% Write the socket and session stats to the stats array of the connection,
+%% where the readers of the channel info table find them. The packet and
+%% message counters are kept in the array as they happen, and the readers
+%% take the process stats from the process.
+set_chan_stats(State = #state{channel = Channel}) ->
+    Stats = [sockstats(?SOCK_STATS, State), emqx_channel:session_stats(Channel)],
+    emqx_cm:set_chan_stats(emqx_channel:info(clientid, Channel), Stats).
 
-%% Report per-connection stats to the client-info table, unless the client-info
-%% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
-%% the stats gathering and the ETS write. The stats timer itself keeps running,
-%% so its other duties (congestion alarms, send-timeout checks) are unaffected.
-maybe_set_chan_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_stats(ClientId, stats(State));
-        false -> ok
-    end.
+%% Write the session stats after the session changed, so that a reader sees
+%% the change before the next stats timer.
+set_session_stats(#state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_cm:set_chan_stats(ClientId, emqx_channel:session_stats(Channel)).
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
@@ -1673,8 +1663,7 @@ stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
 
 inc_counter(Key, Inc) ->
-    _ = emqx_pd:inc_counter(Key, Inc),
-    ok.
+    emqx_chan_stats:inc(Key, Inc).
 
 set_tcp_keepalive({tcp, Id}) ->
     Conf = emqx_config:get_listener_conf(tcp, Id, [tcp_options, keepalive], "none"),

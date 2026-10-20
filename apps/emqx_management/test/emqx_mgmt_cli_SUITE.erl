@@ -1195,7 +1195,10 @@ t_clients_dump_stats_table_changes_during_sleep(_Config) ->
             Tester ! {print, Line},
             case Line of
                 <<"Progress: 1/", _/binary>> ->
-                    true = ets:insert(?CHAN_INFO_TAB, {?CHURN_DUMP_KEY, #{}, []});
+                    _ = emqx_chan_stats:new(connection),
+                    true = ets:insert(
+                        ?CHAN_INFO_TAB, {?CHURN_DUMP_KEY, #{}, emqx_chan_stats:ref()}
+                    );
                 _ ->
                     ok
             end,
@@ -1321,15 +1324,13 @@ wait_session_top_status(_Expected, 0) ->
     Output.
 
 insert_session_top_row({ClientId, MqueueLength, TotalPayloadBytes, InflightCount}) ->
-    ok = emqx_cm:insert_channel_info(
-        ClientId,
-        #{},
-        [
-            {mqueue_len, MqueueLength},
-            {total_payload_bytes, TotalPayloadBytes},
-            {inflight_cnt, InflightCount}
-        ]
-    ).
+    StatsRef = emqx_chan_stats:new(connection),
+    ok = emqx_chan_stats:put([
+        {mqueue_len, MqueueLength},
+        {total_payload_bytes, TotalPayloadBytes},
+        {inflight_cnt, InflightCount}
+    ]),
+    ok = emqx_cm:insert_channel_info(ClientId, #{}, StatsRef).
 
 wait_csv_rows(File, ExpectedRows, Attempts) when Attempts > 0 ->
     case file:read_file(File) of

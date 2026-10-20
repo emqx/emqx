@@ -349,13 +349,15 @@ t_evict_phantom_session(Config) ->
     ]),
     {ok, _, _} = emqtt:subscribe(C0, <<"t1">>),
     emqx_cth_cluster:sync_routes([Node1, Node2]),
-    ChanInfos = rpc:call(Node1, ets, tab2list, [?CHAN_INFO_TAB]),
-    ?assertEqual(1, length(ChanInfos)),
+    [{Chan, ChanInfo, _StatsRef}] = rpc:call(Node1, ets, tab2list, [?CHAN_INFO_TAB]),
     ok = emqtt:disconnect(C0),
     ct:sleep(100),
     %% We restore saved channel info to emulate the situation
     %% when we have a record about actually missing session.
-    rpc:call(Node1, ets, insert, [?CHAN_INFO_TAB, ChanInfos]),
+    %% The stats array of the row died with the channel: the copy gets a new one.
+    true = erpc:call(Node1, fun() ->
+        ets:insert(?CHAN_INFO_TAB, {Chan, ChanInfo, emqx_chan_stats:new(connection)})
+    end),
     ?assertEqual(1, rpc:call(Node1, emqx_eviction_agent, session_count, [])),
 
     ok = rpc:call(Node1, emqx_eviction_agent, enable, [test_eviction, undefined]),

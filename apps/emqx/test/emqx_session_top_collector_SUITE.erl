@@ -366,18 +366,13 @@ wait_status(_Expected, 0) ->
     emqx_session_top_collector:status().
 
 insert_channel_info(ClientId, Pid, MqueueLength, TotalPayloadBytes, InflightCount) ->
-    true = ets:insert(
-        ?CHAN_INFO_TAB,
-        {
-            {ClientId, Pid},
-            #{},
-            [
-                {mqueue_len, MqueueLength},
-                {total_payload_bytes, TotalPayloadBytes},
-                {inflight_cnt, InflightCount}
-            ]
-        }
-    ),
+    StatsRef = emqx_chan_stats:new(connection),
+    ok = emqx_chan_stats:put([
+        {mqueue_len, MqueueLength},
+        {total_payload_bytes, TotalPayloadBytes},
+        {inflight_cnt, InflightCount}
+    ]),
+    true = ets:insert(?CHAN_INFO_TAB, {{ClientId, Pid}, #{}, StatsRef}),
     ok.
 
 insert_channel_infos(Count, Pid) ->

@@ -19,6 +19,10 @@
 -include("emqx_mgmt.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
+%% `holder/1' builds the match-spec variables `$1'.. `$N' with `list_to_atom/1';
+%% N is bounded by the number of query parameters.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %% API
 -export([
     api_spec/0,
@@ -668,34 +672,6 @@ fields(client) ->
         {n_streams,
             hoconsc:mk(non_neg_integer(), #{
                 desc => ?DESC("n_streams")
-            })},
-        {seqno_q1_comm,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q1_comm")
-            })},
-        {seqno_q1_dup,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q1_dup")
-            })},
-        {seqno_q1_next,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q1_next")
-            })},
-        {seqno_q2_comm,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q2_comm")
-            })},
-        {seqno_q2_dup,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q2_dup")
-            })},
-        {seqno_q2_rec,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q2_rec")
-            })},
-        {seqno_q2_next,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q2_next")
             })}
     ];
 fields(authz_cache) ->
@@ -1877,10 +1853,11 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
     ),
     ClientInfo1 = ClientInfo0#{conninfo := ConnInfo},
     StatsMap0 = maps:without(
-        [memory, next_pkt_id, total_heap_size],
+        [memory, total_heap_size],
         maps:from_list(ClientStats)
     ),
-    StatsMap = maps:merge(emqx_cm:sparse_stats_defaults(), StatsMap0),
+    %% A node of a version before 6.3 does not report `total_payload_bytes`.
+    StatsMap = maps:merge(#{total_payload_bytes => 0}, StatsMap0),
     ClientInfo2 = maps:remove(will_msg, ClientInfo1),
     ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo2),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
