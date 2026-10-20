@@ -470,10 +470,10 @@ t_websocket_handle_packet_order_partial(_) ->
                 emqx_frame:serialize(Packet1), emqx_frame:serialize(Packet2), Prefix
             ]),
             {[{binary, Ack1}, {binary, Ack2}], St} =
-                handle_ws_incoming(Data, St0),
+                ?ws_conn:websocket_handle({binary, Data}, St0),
             ?assertEqual(<<64, 2, 0, 1>>, iolist_to_binary(Ack1), Name),
             ?assertEqual(<<80, 2, 0, 2>>, iolist_to_binary(Ack2), Name),
-            {[{binary, Ack3}], _} = handle_ws_incoming(Rest, St),
+            {[{binary, Ack3}], _} = ?ws_conn:websocket_handle({binary, Rest}, St),
             ?assertEqual(<<64, 2, 0, 3>>, iolist_to_binary(Ack3), Name)
         end,
         [
@@ -487,7 +487,8 @@ t_websocket_handle_packet_order_partial(_) ->
 %% Valid packets preceding an oversized one are handled before the connection closes.
 t_websocket_handle_packets_then_frame_too_large(_) ->
     Invalid = <<16#30, 16#80, 16#10>>,
-    Reason = frame_too_large,
+    %% `handle_close/1' formats the reason as iodata.
+    Reason = <<"frame_too_large">>,
     Code = ?RC_PACKET_TOO_LARGE,
     St0 = st_after_connect(#{
         parse_state => emqx_frame:initial_parse_state(#{max_size => 1024}),
@@ -501,7 +502,7 @@ t_websocket_handle_packets_then_frame_too_large(_) ->
         [emqx_frame:serialize(P) || P <- Packets], Invalid
     ]),
     {[{binary, Ack1}, {binary, Ack2}, {binary, Disconnect}, {close, Reason}], _} =
-        handle_ws_incoming(Data, St0),
+        ?ws_conn:websocket_handle({binary, Data}, St0),
     ?assertEqual(
         iolist_to_binary(
             emqx_frame:serialize(
@@ -586,24 +587,6 @@ st_after_connect(InitFields) ->
     Connect = iolist_to_binary(emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{}))),
     {[_], St} = ?ws_conn:parse_incoming(Connect, [], st(InitFields)),
     St.
-
-%% Process incoming events in mailbox order, as Cowboy does between frames.
-handle_ws_incoming(Data, St0) ->
-    {ok, St} = ?ws_conn:websocket_handle({binary, Data}, St0),
-    handle_ws_incoming_events(St, []).
-
-handle_ws_incoming_events(St, Acc) ->
-    receive
-        Event = {incoming, _} ->
-            case ?ws_conn:websocket_info(Event, St) of
-                {ok, NSt} ->
-                    handle_ws_incoming_events(NSt, Acc);
-                {Commands, NSt} ->
-                    handle_ws_incoming_events(NSt, [Commands | Acc])
-            end
-    after 0 ->
-        {lists:append(lists:reverse(Acc)), St}
-    end.
 
 st(InitFields) when is_map(InitFields) ->
     {ok, St, _} = ?ws_conn:websocket_init([
