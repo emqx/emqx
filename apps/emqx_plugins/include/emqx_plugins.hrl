@@ -7,6 +7,10 @@
 
 -define(CONF_ROOT, plugins).
 
+%% The hidden directory of the install directory where installation attempts are
+%% unpacked before they are published.
+-define(PLUGIN_STAGING_DIR, ".emqx-plugin-staging").
+
 -define(CONFIG_FORMAT_BIN, config_format_bin).
 -define(CONFIG_FORMAT_MAP, config_format_map).
 

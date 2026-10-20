@@ -9,10 +9,6 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("kernel/include/file.hrl").
 
-%% Packages are unpacked below this hidden directory of the install directory
-%% before they are published (see `staging_root/0').
--define(STAGING_DIR, ".emqx-plugin-staging").
-
 %% Tarfile operations
 -export([
     get_tar/1,
@@ -1098,7 +1094,7 @@ classify_entry(NameVsn, {Name, Bin}, {ok, Acc}) ->
 
 %% The authorized name must be one path component, and it must not name a
 %% directory which is not a plugin's own: `filename:split/1' does not normalize,
-%% so `"."' and `".."' have to be excluded by hand, and `?STAGING_DIR' is the
+%% so `"."' and `".."' have to be excluded by hand, and `?PLUGIN_STAGING_DIR' is the
 %% directory the staging attempts live in (a plugin installed under that name
 %% would be its own staging root).
 %%
@@ -1117,7 +1113,7 @@ check_package_root_name(NameVsn) ->
     try
         Name = wrap_to_list(NameVsn),
         case filename:split(Name) of
-            [Root] when Root =/= ".", Root =/= "..", Root =/= ?STAGING_DIR ->
+            [Root] when Root =/= ".", Root =/= "..", Root =/= ?PLUGIN_STAGING_DIR ->
                 case
                     filename:pathtype(Name) =:= relative andalso
                         filename:join([Name]) =:= Name andalso
@@ -1223,7 +1219,7 @@ write_failed(Name, Reason) ->
 %%   leading dot: `filelib:wildcard/1' does match dot prefixed names.
 -spec staging_root() -> file:filename().
 staging_root() ->
-    wrap_to_list(filename:join(install_dir(), ?STAGING_DIR)).
+    wrap_to_list(filename:join(install_dir(), ?PLUGIN_STAGING_DIR)).
 
 %% The staging directory of one installation attempt.  Attempts which were left
 %% behind by a crashed process are swept when the application starts; the id

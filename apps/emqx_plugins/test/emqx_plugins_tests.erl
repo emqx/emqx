@@ -235,7 +235,9 @@ package_operations_validate_names_test() ->
                 %% the installation directory of such a name is the package file
                 %% (or the checksum) of `kept-1'
                 "kept-1.tar.gz",
-                "kept-1.tar.gz.md5sum"
+                "kept-1.tar.gz.md5sum",
+                %% the directory where installation attempts are unpacked
+                ".emqx-plugin-staging"
             ],
             lists:foreach(
                 fun(Name) ->

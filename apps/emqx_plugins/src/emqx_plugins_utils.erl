@@ -8,6 +8,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -elvis([{elvis_style, no_common_caveats_call, disable}]).
@@ -48,6 +49,10 @@ is_ascii_list(_) ->
     false.
 
 %% @doc Validate the textual package identifier used by plugin operations.
+%%
+%% `?PLUGIN_STAGING_DIR' is reserved for the staging attempts, so a plugin
+%% installed under that name is refused here: the check is shared by the
+%% install requests and by `node.pinned_plugins'.
 -spec validate_name_vsn(term()) -> ok | {error, string()}.
 validate_name_vsn(Name) when is_list(Name) ->
     case is_ascii_list(Name) of
@@ -55,6 +60,18 @@ validate_name_vsn(Name) when is_list(Name) ->
         false -> {error, "Name must be an ASCII string"}
     end;
 validate_name_vsn(Name) when is_binary(Name), byte_size(Name) > 0, byte_size(Name) =< 256 ->
+    case Name =:= bin(?PLUGIN_STAGING_DIR) of
+        true ->
+            {error, "Name must not be the reserved staging directory"};
+        false ->
+            validate_name_vsn_syntax(Name)
+    end;
+validate_name_vsn(Name) when is_binary(Name) ->
+    {error, "Name Length must =< 256"};
+validate_name_vsn(_) ->
+    {error, "Name must be a string"}.
+
+validate_name_vsn_syntax(Name) ->
     case re:run(Name, "\\A[A-Za-z]+[A-Za-z0-9_]*-[A-Za-z0-9_.-]*\\z", [{capture, none}]) of
         match ->
             check_not_package_file_name(Name);
@@ -65,11 +82,7 @@ validate_name_vsn(Name) when is_binary(Name), byte_size(Name) > 0, byte_size(Nam
                 " followed with a dash and a version string "
                 " (can contain letters, digits, dots, and dashes), "
                 " e.g. emqx_plugin_template-5.0-rc.1"}
-    end;
-validate_name_vsn(Name) when is_binary(Name) ->
-    {error, "Name Length must =< 256"};
-validate_name_vsn(_) ->
-    {error, "Name must be a string"}.
+    end.
 
 %% The installation directory of a name-vsn is also the path of the package file
 %% (or of its checksum) of the plugin whose name-vsn it extends: `foo-1.tar.gz'
