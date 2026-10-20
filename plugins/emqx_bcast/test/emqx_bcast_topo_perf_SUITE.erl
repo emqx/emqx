@@ -82,6 +82,7 @@ t_1c2r_e2e(Config) ->
         sub(C2, topic(DN2)),
         ?assert(wait_sub(Rep1, DN1, topic(DN1))),
         ?assert(wait_sub(Rep2, DN2, topic(DN2))),
+        wait_ready(Core, [{Rep1, DN1}, {Rep2, DN2}]),
 
         %% QoS0 broadcast reaches clients on both replicants.
         {ok, 200, _, _} = api_call(Core, #{
@@ -109,6 +110,10 @@ t_1c2r_e2e(Config) ->
         [M2b] = recv(1),
         ?assertEqual(?PAYLOAD, maps:get(payload, M1b)),
         ?assertEqual(?PAYLOAD, maps:get(payload, M2b)),
+        %% Drain the online rounds before publishing the offline one, so
+        %% wait_queued/2 below can only observe the new delivery.
+        ?assert(wait_device_ack(Core, <<"default">>, DN1)),
+        ?assert(wait_device_ack(Core, <<"default">>, DN2)),
 
         %% Offline device on Rep1, then reconnect on Rep2 and replay.
         emqtt:stop(C1),
@@ -120,9 +125,11 @@ t_1c2r_e2e(Config) ->
             <<"MessageContent">> => b64(?PAYLOAD),
             <<"Qos">> => 1
         }),
+        ?assert(wait_queued(Core, DN1)),
         C1b = connect(Rep2, DN1),
         sub(C1b, topic(DN1)),
         ?assert(wait_sub(Rep2, DN1, topic(DN1))),
+        wait_ready(Core, [{Rep2, DN1}]),
         [Replayed] = recv(1),
         ?assertEqual(?PAYLOAD, maps:get(payload, Replayed)),
         emqtt:stop(C1b)
@@ -144,6 +151,7 @@ t_3c_e2e(Config) ->
         sub(Client2, topic(DN2)),
         ?assert(wait_sub(C1, DN1, topic(DN1))),
         ?assert(wait_sub(C2, DN2, topic(DN2))),
+        wait_ready(C3, [{C1, DN1}, {C2, DN2}]),
 
         %% API lands on C3, deliveries go to clients on C1/C2.
         {ok, 200, _, _} = api_call(C3, #{
@@ -169,6 +177,10 @@ t_3c_e2e(Config) ->
         [M2b] = recv(1),
         ?assertEqual(?PAYLOAD, maps:get(payload, M1b)),
         ?assertEqual(?PAYLOAD, maps:get(payload, M2b)),
+        %% Drain the online rounds before publishing the offline one, so
+        %% wait_queued/2 below can only observe the new delivery.
+        ?assert(wait_device_ack(C3, <<"default">>, DN1)),
+        ?assert(wait_device_ack(C3, <<"default">>, DN2)),
 
         %% Offline device on C1, then reconnect on C3 and replay.
         emqtt:stop(Client1),
@@ -180,9 +192,11 @@ t_3c_e2e(Config) ->
             <<"MessageContent">> => b64(?PAYLOAD),
             <<"Qos">> => 1
         }),
+        ?assert(wait_queued(C3, DN1)),
         Client1b = connect(C3, DN1),
         sub(Client1b, topic(DN1)),
         ?assert(wait_sub(C3, DN1, topic(DN1))),
+        wait_ready(C3, [{C3, DN1}]),
         [Replayed] = recv(1),
         ?assertEqual(?PAYLOAD, maps:get(payload, Replayed)),
         emqtt:stop(Client1b)
@@ -204,6 +218,7 @@ t_perf_1c2r(Config) ->
     try
         sub(C, topic(DN)),
         ?assert(wait_sub(Rep1, DN, topic(DN))),
+        wait_ready(Core, [{Rep1, DN}]),
         run_perf(Core, Core, DN, <<"1core-2replicant">>)
     after
         catch emqtt:stop(C)
@@ -218,6 +233,7 @@ t_perf_3c(Config) ->
     try
         sub(C, topic(DN)),
         ?assert(wait_sub(C1, DN, topic(DN))),
+        wait_ready(C3, [{C1, DN}]),
         run_perf(C3, C1, DN, <<"3core">>)
     after
         catch emqtt:stop(C)
@@ -356,6 +372,64 @@ wait_sub(Node, ClientId, Topic) ->
                     end
                 end
             )
+        end,
+        100
+    ).
+
+%% The connect and subscribe hooks cast into the pull shard asynchronously.
+%% QoS0 reads that node-local registry, and its fanout is computed from the
+%% API core's view of the global channel registry. Wait for both views so a
+%% publish issued right after SUBACK cannot race either one.
+wait_ready(Core, Devices) ->
+    lists:foreach(
+        fun({Node, DeviceName}) ->
+            ?assert(wait_registered(Node, DeviceName)),
+            ?assert(wait_channel_visible(Core, DeviceName))
+        end,
+        Devices
+    ).
+
+wait_registered(Node, DeviceName) ->
+    wait_until(
+        fun() ->
+            case erpc:call(Node, emqx_bcast, lookup_device, [{<<"default">>, DeviceName}]) of
+                {ok, Pid} -> erpc:call(Node, erlang, is_process_alive, [Pid]);
+                _ -> false
+            end
+        end,
+        100
+    ).
+
+wait_channel_visible(Node, DeviceName) ->
+    case erpc:call(Node, emqx_cm_registry, is_enabled, []) of
+        false ->
+            %% With the global registry disabled, qos0_fanout_nodes/1
+            %% broadcasts to every node and does not need this view.
+            true;
+        true ->
+            wait_until(
+                fun() ->
+                    erpc:call(Node, emqx_cm, lookup_channels, [DeviceName]) =/= []
+                end,
+                100
+            )
+    end.
+
+%% QoS1 promotion is asynchronous. Reconnecting before the delivery reaches
+%% the index races the one-shot trigger, and a missed wakeup is only retried
+%% by the 5s deferred-claim sweep. Wait for the queued row so this case tests
+%% replay rather than promotion timing.
+wait_queued(Node, DeviceName) ->
+    wait_until(
+        fun() ->
+            case
+                erpc:call(Node, emqx_bcast_storage, get_device_deliveries, [
+                    {<<"default">>, DeviceName}
+                ])
+            of
+                {ok, [_ | _]} -> true;
+                _ -> false
+            end
         end,
         100
     ).
