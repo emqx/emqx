@@ -31,6 +31,9 @@ handle_event(ClientInfo, {dropped, Msg, no_local}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, no_local]),
     ok = emqx_metrics:inc_global('delivery.dropped'),
     ok = emqx_metrics:inc_global('delivery.dropped.no_local');
+handle_event(ClientInfo, {dropped, Msg, rate_limited}) ->
+    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, rate_limited]),
+    ok = emqx_metrics:inc_global('delivery.dropped');
 handle_event(ClientInfo, {dropped, Msg, #{reason := qos0_msg, logctx := Ctx}}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, qos0_msg]),
     ok = emqx_metrics:inc_global('delivery.dropped'),
