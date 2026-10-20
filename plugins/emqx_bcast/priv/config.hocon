@@ -1,0 +1,29 @@
+broadcast_topic = "/sys/broadcast/${productKey}"
+batch_topic = "/${productKey}/${deviceName}/user/get"
+msg_ttl = 15d
+cleanup_interval = 60s
+max_device_count = 10000
+max_message_size_broadcast = 65536
+max_message_size_batch = 10240
+max_pending_deliveries = 10000000
+max_pending_deliveries_per_device = 100
+delivery_pool_size = 0
+
+# Retired settings, kept declared on purpose - do not remove them, and do not
+# drop them from config_schema.avsc.
+#
+# Their features are gone (force_upgrade_qos and delivery_queue_max with the
+# 0.2.0 delivery redesign, msg_warn_threshold when the pending-delivery quota
+# replaced the warning threshold), but the names have to stay for two reasons:
+# - a config stored by an older plugin version still carries them, and the
+#   schema validation that runs while that config is decoded rejects a field the
+#   schema no longer declares, so the plugin would fail to load after an upgrade
+#   (delivery_queue_max is the one an 0.1.1 config sets);
+# - the dashboard's config page requires every schema field to be present in the
+#   config it serves, and it does not fall back to the avsc default for a
+#   missing one.
+# They are declared without $ui, so the dashboard hides them, and they have no
+# runtime effect. See the config section of docs/USAGE.md and DEVELOPMENT.md.
+msg_warn_threshold = 100000
+force_upgrade_qos = true
+delivery_queue_max = 10000

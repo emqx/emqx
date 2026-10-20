@@ -407,7 +407,7 @@ ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
 
 event_topic(Event, #{clientid := ClientId, protocol := mqtt}) ->
     iolist_to_binary(
-        [systop("clients"), "/", ClientId, "/", atom_to_binary(Event)]
+        [systop("clients"), "/", escape_clientid(ClientId), "/", atom_to_binary(Event)]
     );
 event_topic(Event, #{clientid := ClientId, protocol := GwName}) ->
     iolist_to_binary(
@@ -416,11 +416,35 @@ event_topic(Event, #{clientid := ClientId, protocol := GwName}) ->
             "/",
             bin(GwName),
             "/clients/",
-            ClientId,
+            escape_clientid(ClientId),
             "/",
             bin(Event)
         ]
     ).
+
+%% Client IDs may contain MQTT wildcards, but published topic names may not.
+%% Escape '%' to distinguish literal escape sequences from wildcards.
+%% Preserve other characters, including existing topic-level separators.
+escape_clientid(ClientId) ->
+    escape_clientid(ClientId, 0, 0, ClientId).
+
+escape_clientid(<<$%, Rest/binary>>, I, Run, Src) ->
+    escape_prepend(I, Run, Src, [<<"%25">> | escape_clientid(Rest, I + Run + 1, 0, Src)]);
+escape_clientid(<<$#, Rest/binary>>, I, Run, Src) ->
+    escape_prepend(I, Run, Src, [<<"%23">> | escape_clientid(Rest, I + Run + 1, 0, Src)]);
+escape_clientid(<<$+, Rest/binary>>, I, Run, Src) ->
+    escape_prepend(I, Run, Src, [<<"%2B">> | escape_clientid(Rest, I + Run + 1, 0, Src)]);
+escape_clientid(<<_, Rest/binary>>, I, Run, Src) ->
+    escape_clientid(Rest, I, Run + 1, Src);
+escape_clientid(<<>>, 0, _Run, Src) ->
+    Src;
+escape_clientid(<<>>, I, Run, Src) ->
+    binary:part(Src, I, Run).
+
+escape_prepend(_I, 0, _Src, Tail) ->
+    Tail;
+escape_prepend(I, Run, Src, Tail) ->
+    [binary:part(Src, I, Run) | Tail].
 
 bin(A) when is_atom(A) -> atom_to_binary(A);
 bin(B) when is_binary(B) -> B.

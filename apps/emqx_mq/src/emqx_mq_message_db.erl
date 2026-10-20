@@ -4,6 +4,11 @@
 
 -module(emqx_mq_message_db).
 
+%% The `receive' expressions below wait for the commit reply of an async
+%% `emqx_ds:trans/2' that this module started. A bounded wait needs an error
+%% path for the timeout, which belongs with the callers of this module.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -moduledoc """
 Facade for all operations with the message database.
 """.
@@ -288,6 +293,7 @@ subscribe(#{stream_max_unacked := StreamMaxUnacked} = MQ, DSClient0, SubId, Stat
         db => db(MQ),
         id => SubId,
         topic => mq_message_topic(MQ, '#'),
+        start_time => emqx_mq_prop:delivery_start_time(MQ),
         ds_sub_opts => #{
             max_unacked => StreamMaxUnacked
         }
@@ -579,9 +585,7 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
             },
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
-                    fun(Topic) ->
-                        emqx_ds:tx_del_topic(Topic)
-                    end,
+                    fun emqx_ds:tx_del_topic/1,
                     Topics
                 )
             end),

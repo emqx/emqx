@@ -166,6 +166,36 @@ Build packages in `_packages` dir:
 - Build an RPM/DEB (depending on host OS) package: `make emqx-enterprise-pkg`
 - Build a Docker image: `PROFILE=emqx-enterprise make docker`
 
+### Erlang/OTP
+
+EMQX builds against the EMQX fork of Erlang/OTP at
+[emqx/otp](https://github.com/emqx/otp), not against upstream Erlang/OTP.
+A build with an upstream release is not supported.
+
+`.tool-versions` in the repository root gives the exact version, for example
+`erlang 27.3.4.2-9`. The trailing number is the fork revision. It does not exist upstream,
+so an upstream installation cannot match it.
+
+### Build in the EMQX builder image
+
+The simplest way to get a correct toolchain is the `emqx-builder` Docker image. It contains the
+forked OTP, Elixir, Rust and the other build tools at the versions that CI uses.
+
+`show-latest-images.sh` in the root of [emqx-builder](https://github.com/emqx/emqx-builder)
+prints the image tag for each supported operating system:
+
+```bash
+ghcr.io/emqx/emqx-builder/<builder-tag>:<elixir>-<otp>-<os>
+```
+
+Run the build inside the image for your operating system and architecture:
+
+```bash
+docker run --rm -it -v "$PWD:/emqx" -w /emqx \
+  ghcr.io/emqx/emqx-builder/<builder-tag>:<elixir>-<otp>-<os> \
+  make
+```
+
 ## Version Schemes
 
 EMQX versions follow the `Major.Minor.Patch` scheme (e.g. `6.1.2`).

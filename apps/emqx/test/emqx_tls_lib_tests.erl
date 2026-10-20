@@ -780,6 +780,24 @@ pem_validation_cases(Context) ->
             end)
         },
         {
+            T("with missing cacertfile (should log and omit it)"),
+            ?_test(begin
+                Options = #{
+                    keyfile => ValidKeyPath,
+                    certfile => ValidCertPath,
+                    cacertfile => NonExistentPath,
+                    password => Password
+                },
+                Reports = emqx_cth_log_capture:capture(error, fun() ->
+                    ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+                    ?assertNot(proplists:is_defined(cacertfile, ServerOpts)),
+                    ?assertNotEqual(undefined, proplists:get_value(certfile, ServerOpts)),
+                    ?assertNotEqual(undefined, proplists:get_value(keyfile, ServerOpts))
+                end),
+                ?assertMatch([#{msg := "cert_file_not_found", path := NonExistentPath}], Reports)
+            end)
+        },
+        {
             T("with invalid keyfile (should omit keyfile)"),
             ?_test(begin
                 Options = #{
@@ -1153,6 +1171,21 @@ to_server_opts_test() ->
             )
         )
     ).
+
+empty_cacertfile_test_() ->
+    [
+        ?_test(begin
+            Options = #{enable => true, verify => verify_none, cacertfile => Empty},
+            Reports = emqx_cth_log_capture:capture(error, fun() ->
+                ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertNot(proplists:is_defined(cacertfile, ServerOpts)),
+                ?assertNot(proplists:is_defined(cacertfile, ClientOpts))
+            end),
+            ?assertEqual([], Reports)
+        end)
+     || Empty <- [<<>>, ""]
+    ].
 
 -doc """
 Checks that `to_server_opts` makes a relative `cacertfile` path absolute.

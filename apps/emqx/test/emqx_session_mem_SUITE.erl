@@ -1674,6 +1674,29 @@ t_export_import_empty_mqueue(_) ->
     ),
     ?assertMatch(#session{mqueue = {empty, 1000}}, Session).
 
+-doc "Legacy evacuated sessions omit the listener, and reconnecting restores the limiter.".
+t_import_without_listener(_) ->
+    ClientInfo = clientinfo(#{listener => 'tcp:default'}),
+    ConnInfo = #{receive_maximum => 32, expiry_interval => 86400000},
+    Conf = (emqx_session:get_session_conf(ClientInfo))#{enable_quota => true},
+    Msg1 = emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"inflight">>),
+    Msg2 = emqx_message:make(clientid, ?QOS_1, <<"t2">>, <<"queued">>),
+    Session0 = session(#{
+        is_persistent => true,
+        subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}
+    }),
+    {_Ok, [_], Session1} = emqx_session_mem:deliver(ClientInfo, [Msg1], [], Session0),
+    Session2 = emqx_session_mem:enqueue(ClientInfo, [Msg2], Session1),
+    Exported = emqx_session_mem:export(Session2),
+    LegacyClientInfo = maps:remove(listener, ClientInfo),
+    Evacuated = emqx_session_mem:import(LegacyClientInfo, ConnInfo, Conf, Exported),
+    ?assertMatch(#session{quota = false}, Evacuated),
+    ReExported = emqx_session_mem:export(Evacuated),
+    ?assertEqual(Exported, ReExported),
+    Reconnected = emqx_session_mem:import(ClientInfo, ConnInfo, Conf, ReExported),
+    ?assertMatch(#session{quota = {lazy, 'tcp:default'}}, Reconnected),
+    ?assertEqual(Exported, emqx_session_mem:export(Reconnected)).
+
 t_replay(_) ->
     Session = session(),
     Messages = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)], Session),

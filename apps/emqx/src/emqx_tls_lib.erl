@@ -1073,6 +1073,9 @@ resolve_cert_path_for_read_strict(Path) ->
     case resolve_cert_path_for_read(Path) of
         undefined ->
             undefined;
+        "" ->
+            %% An empty optional CA file path means no CA file is configured.
+            undefined;
         ResolvedPath ->
             case filelib:is_regular(ResolvedPath) of
                 true ->

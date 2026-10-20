@@ -9,6 +9,8 @@
 %% State structure keys:
 -define(id, id).
 -define(checkpoint_ref, checkpoint_ref).
+%% Session shound not attempt to commit the state in the future:
+-define(invalid, invalid).
 
 %%   Pmap names:
 -define(metadata, metadata).

@@ -1858,9 +1858,186 @@ t_enrich_connack_caps(_) ->
 %%--------------------------------------------------------------------
 
 t_terminate(_) ->
-    ok = emqx_channel:terminate(normal, channel()),
-    ok = emqx_channel:terminate(sock_error, channel(#{conn_state => connected})),
-    ok = emqx_channel:terminate({shutdown, kicked}, channel(#{conn_state => connected})).
+    _ = emqx_channel:terminate(normal, channel()),
+    _ = emqx_channel:terminate(sock_error, channel(#{conn_state => connected})),
+    _ = emqx_channel:terminate({shutdown, kicked}, channel(#{conn_state => connected})).
+
+%%--------------------------------------------------------------------
+%% Test cases for the will message at session termination
+%%--------------------------------------------------------------------
+
+-doc """
+A takeover with session expiry > 0 and will delay > 0 does not publish the
+will message of the old connection, when the old connection is connected.
+""".
+t_will_takeover_delayed_connected(_) ->
+    ?assertEqual(0, will_count_after(fun takeover/1, will_channel(connected, 60_000, 10))).
+
+-doc """
+A takeover with session expiry > 0 and will delay > 0 does not publish the
+will message of the old connection, when the old connection is
+re-authenticating.
+""".
+t_will_takeover_delayed_reauthenticating(_) ->
+    ?assertEqual(
+        0, will_count_after(fun takeover/1, will_channel(reauthenticating, 60_000, 10))
+    ).
+
+-doc """
+A takeover with will delay 0 publishes the will message of the old connection
+once, when the old connection is connected.
+""".
+t_will_takeover_no_delay_connected(_) ->
+    ?assertEqual(1, will_count_after(fun takeover/1, will_channel(connected, 60_000, 0))).
+
+-doc """
+A takeover with will delay 0 publishes the will message of the old connection
+once, when the old connection is re-authenticating.
+""".
+t_will_takeover_no_delay_reauthenticating(_) ->
+    ?assertEqual(
+        1, will_count_after(fun takeover/1, will_channel(reauthenticating, 60_000, 0))
+    ).
+
+-doc """
+A takeover of a session with expiry 0 ends the session and publishes the will
+message once, when the old connection is connected.
+""".
+t_will_takeover_session_expiry0_connected(_) ->
+    ?assertEqual(1, will_count_after(fun takeover_begin/1, will_channel(connected, 0, 10))).
+
+-doc """
+A takeover of a session with expiry 0 ends the session and publishes the will
+message once, when the old connection is re-authenticating.
+""".
+t_will_takeover_session_expiry0_reauthenticating(_) ->
+    ?assertEqual(
+        1, will_count_after(fun takeover_begin/1, will_channel(reauthenticating, 0, 10))
+    ).
+
+-doc "A kick publishes the delayed will message once, when the connection is connected.".
+t_will_kick_connected(_) ->
+    ?assertEqual(1, will_count_after(fun kick/1, will_channel(connected, 60_000, 10))).
+
+-doc """
+A kick publishes the delayed will message once, when the connection is
+re-authenticating.
+""".
+t_will_kick_reauthenticating(_) ->
+    ?assertEqual(1, will_count_after(fun kick/1, will_channel(reauthenticating, 60_000, 10))).
+
+-doc "A discard publishes the delayed will message once, when the connection is connected.".
+t_will_discard_connected(_) ->
+    ?assertEqual(1, will_count_after(fun discard/1, will_channel(connected, 60_000, 10))).
+
+-doc """
+A discard publishes the delayed will message once, when the connection is
+re-authenticating.
+""".
+t_will_discard_reauthenticating(_) ->
+    ?assertEqual(
+        1, will_count_after(fun discard/1, will_channel(reauthenticating, 60_000, 10))
+    ).
+
+-doc """
+A socket close while re-authenticating starts the will delay timer and keeps
+the session, like a socket close while connected.
+""".
+t_will_sock_closed_reauthenticating(_) ->
+    ok = mock_will_publish(),
+    Channel0 = will_channel(reauthenticating, 60_000, 10),
+    {ok, _Replies, Channel} = emqx_channel:handle_info({sock_closed, closed}, Channel0),
+    ?assertEqual(0, count_wills()),
+    ?assertMatch(
+        #{will_message := TRef} when is_reference(TRef), emqx_channel:info(timers, Channel)
+    ),
+    ?assertNotEqual(undefined, emqx_channel:info(will_msg, Channel)).
+
+%%--------------------------------------------------------------------
+%% Test cases for the reason that reaches the session termination hooks
+%%--------------------------------------------------------------------
+
+-doc """
+For each way a channel ends its session, check the reason that reaches
+`emqx_session:terminate/3` and the hook it fires. Each scenario runs the
+in-process step, then the `terminate/2` call that the connection process makes
+with its exit reason `{shutdown, Reason}`.
+""".
+t_terminate_reason_reaches_session_hooks(_) ->
+    ok = mock_will_publish(),
+    ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
+    Self = self(),
+    ok = meck:expect(emqx_session, terminate, fun(ClientInfo, Reason, Session) ->
+        Self ! {session_terminate, Reason},
+        meck:passthrough([ClientInfo, Reason, Session])
+    end),
+    ok = meck:expect(emqx_session, handle_info, fun
+        (_ClientInfo, test_internal_error, Session) ->
+            {shutdown, {shutdown, internal_error}, Session};
+        (ClientInfo, Info, Session) ->
+            meck:passthrough([ClientInfo, Info, Session])
+    end),
+    on_exit(fun() ->
+        ok = meck:delete(emqx_session, terminate, 3),
+        ok = meck:delete(emqx_session, handle_info, 3)
+    end),
+    Hooks = ['session.takenover', 'session.discarded', 'session.terminated'],
+    lists:foreach(
+        fun(Hook) ->
+            ok = emqx_hooks:add(Hook, {?MODULE, record_session_hook, [Hook, Self]}, ?HP_HIGHEST),
+            on_exit(fun() -> emqx_hooks:del(Hook, {?MODULE, record_session_hook}) end)
+        end,
+        Hooks
+    ),
+    Scenarios = [
+        {takenover, fun takeover/1, will_channel(connected, 60_000, 10)},
+        {takenover_reauthenticating, fun takeover/1, will_channel(reauthenticating, 60_000, 10)},
+        {takenover_session_expiry0, fun takeover_begin/1, will_channel(connected, 0, 10)},
+        {takenover_takeover_kick, fun takeover_kick/1, will_channel(connected, 0, 10)},
+        {discarded, fun discard/1, will_channel(connected, 60_000, 10)},
+        {kicked, fun kick/1, will_channel(connected, 60_000, 10)},
+        {expired, fun expire_session/1, will_channel(connected, 60_000, 10)},
+        {normal, fun sock_closed_normal/1, will_channel(connected, 0, 10)},
+        {auth_expired, fun auth_expire/1, will_channel(connected, 0, 10)},
+        {internal_error, fun internal_error/1, will_channel(connected, 60_000, 10)},
+        {frame_error, fun frame_error_v4/1, v4(will_channel(connected, 60_000, 10))},
+        {oom, fun oom/1, will_channel(connected, 60_000, 10)}
+    ],
+    Results = [{Name, session_terminations(Fun, Channel)} || {Name, Fun, Channel} <- Scenarios],
+    ct:pal("session termination per scenario:~n~p", [Results]),
+    ?assertMatch(
+        [
+            {takenover, [{takenover, 'session.takenover'}]},
+            {takenover_reauthenticating, [{takenover, 'session.takenover'}]},
+            {takenover_session_expiry0, [{takenover, 'session.takenover'}]},
+            {takenover_takeover_kick, [{takenover, 'session.takenover'}]},
+            {discarded, [{discarded, 'session.discarded'}]},
+            {kicked, [{kicked, {'session.terminated', kicked}}]},
+            {expired, [{expired, {'session.terminated', expired}}]},
+            {normal, [{{shutdown, normal}, {'session.terminated', {shutdown, normal}}}]},
+            {auth_expired, [
+                {{shutdown, not_authorized}, {'session.terminated', {shutdown, not_authorized}}}
+            ]},
+            {internal_error, [
+                {{shutdown, internal_error}, {'session.terminated', {shutdown, internal_error}}}
+            ]},
+            {frame_error, [
+                {{shutdown, #{shutdown_count := frame_too_large}}, {'session.terminated', _}}
+            ]},
+            {oom, [
+                {{shutdown, #{shutdown_count := proc_heap_too_large}}, {'session.terminated', _}}
+            ]}
+        ],
+        Results
+    ).
+
+record_session_hook(_ClientInfo, _SessInfo, Hook, Pid) ->
+    Pid ! {session_hook, Hook},
+    ok.
+
+record_session_hook(_ClientInfo, Reason, _SessInfo, Hook, Pid) ->
+    Pid ! {session_hook, {Hook, Reason}},
+    ok.
 
 t_ws_cookie_init(_) ->
     WsCookie = [{<<"session_id">>, <<"xyz">>}],
@@ -2162,6 +2339,112 @@ mock_cm_open_session() ->
             {ok, #{session => session(), present => false}}
         end
     ).
+
+will_channel(ConnState, ExpiryInterval, WillDelay) ->
+    Will = emqx_message:make(
+        <<"clientid">>,
+        ?QOS_1,
+        <<"will_topic">>,
+        <<"will_payload">>,
+        #{},
+        #{properties => #{'Will-Delay-Interval' => WillDelay}}
+    ),
+    Channel = channel(#{conn_state => ConnState, will_msg => Will}),
+    ConnInfo = emqx_channel:info(conninfo, Channel),
+    emqx_channel:set_field(conninfo, ConnInfo#{expiry_interval => ExpiryInterval}, Channel).
+
+mock_will_publish() ->
+    Self = self(),
+    meck:expect(emqx_broker, publish, fun(#message{topic = Topic}) ->
+        Self ! {will_published, Topic},
+        []
+    end).
+
+count_wills() ->
+    receive
+        {will_published, <<"will_topic">>} -> 1 + count_wills()
+    after 0 -> 0
+    end.
+
+%% Run the in-process step, then the `terminate/2' call that the connection
+%% process makes with its exit reason.
+run_to_termination(Fun, Channel0) ->
+    case Fun(Channel0) of
+        {shutdown, Reason, _Reply, _Packet, Channel} ->
+            connection_terminate({shutdown, Reason}, Channel);
+        {shutdown, Reason, _ReplyOrPacket, Channel} ->
+            connection_terminate({shutdown, Reason}, Channel);
+        {shutdown, Reason, Channel} ->
+            connection_terminate({shutdown, Reason}, Channel);
+        {exit, ExitReason, Channel} ->
+            connection_terminate(ExitReason, Channel)
+    end.
+
+connection_terminate(ExitReason, Channel) ->
+    emqx_channel:terminate(ExitReason, emqx_channel:set_conn_state(disconnected, Channel)).
+
+will_count_after(Fun, Channel) ->
+    ok = mock_will_publish(),
+    ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
+    _ = count_wills(),
+    _ = run_to_termination(Fun, Channel),
+    count_wills().
+
+session_terminations(Fun, Channel) ->
+    _ = run_to_termination(Fun, Channel),
+    collect_session_terminations().
+
+collect_session_terminations() ->
+    receive
+        {session_terminate, Reason} ->
+            Hook =
+                receive
+                    {session_hook, H} -> H
+                after 0 -> no_hook
+                end,
+            [{Reason, Hook} | collect_session_terminations()]
+    after 0 -> []
+    end.
+
+takeover(Channel0) ->
+    {reply, _Session, Channel} = emqx_channel:handle_call({takeover, 'begin'}, Channel0),
+    emqx_channel:handle_call({takeover, 'end'}, Channel).
+
+takeover_begin(Channel) ->
+    emqx_channel:handle_call({takeover, 'begin'}, Channel).
+
+takeover_kick(Channel) ->
+    emqx_channel:handle_call(takeover_kick, Channel).
+
+kick(Channel) ->
+    emqx_channel:handle_call(kick, Channel).
+
+discard(Channel) ->
+    emqx_channel:handle_call(discard, Channel).
+
+expire_session(Channel) ->
+    emqx_channel:handle_timeout(make_ref(), expire_session, Channel).
+
+sock_closed_normal(Channel) ->
+    emqx_channel:handle_info({sock_closed, normal}, Channel).
+
+%% The connection process sends DISCONNECT, closes the socket and then
+%% handles `{sock_closed, Reason}' for the `{close, Reason}' reply.
+auth_expire(Channel0) ->
+    {ok, Replies, Channel} =
+        emqx_channel:handle_timeout(make_ref(), connection_auth_expire, Channel0),
+    {close, Reason} = lists:keyfind(close, 1, Replies),
+    emqx_channel:handle_info({sock_closed, Reason}, Channel).
+
+internal_error(Channel) ->
+    emqx_channel:handle_info(test_internal_error, Channel).
+
+frame_error_v4(Channel) ->
+    emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, Channel).
+
+%% The connection process exits from its OOM check without a channel step.
+oom(Channel) ->
+    {exit, {shutdown, #{shutdown_count => proc_heap_too_large}}, Channel}.
 
 v4(Channel) ->
     ConnInfo = emqx_channel:info(conninfo, Channel),
