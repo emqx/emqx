@@ -341,6 +341,9 @@ without_fields(FieldNames, Fields) ->
 
 serialize_converter(Fun) ->
     fun
+        %% Absent from a partial document, e.g. `PUT /configs?mode=merge`.
+        (undefined, _Opts) ->
+            undefined;
         (Val, #{make_serializable := true}) ->
             Fun(Val);
         (Val, _Opts) ->
