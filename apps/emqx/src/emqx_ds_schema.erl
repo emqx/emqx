@@ -198,10 +198,7 @@ schema() ->
                 [builtin_raft_messages, builtin_local_messages],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(messages),
-                %% Note: change to a reasonable default when there's a
-                %% proper mechanism to signal overload to the MQTT
-                %% clients:
-                #{<<"transaction">> => #{<<"overload_protection">> => #{<<"max_mql">> => infinity}}}
+                #{}
             )},
         {?DURABLE_SESSION_STATE_DB,
             db_schema(
