@@ -384,9 +384,22 @@ wait_ready(Core, Devices) ->
     lists:foreach(
         fun({Node, DeviceName}) ->
             ?assert(wait_registered(Node, DeviceName)),
-            ?assert(wait_channel_visible(Core, DeviceName))
+            ?assert(wait_channel_visible(Core, DeviceName)),
+            ?assert(wait_plugin_running(Core, Node))
         end,
         Devices
+    ).
+
+%% QoS0 fanout and QoS1 triggers are filtered through the API core's
+%% plugin_running_nodes/0 view. The probe is cached for a few seconds, so wait
+%% for this node to appear before publishing; otherwise a fresh trigger can be
+%% dropped even though the client and its channel are already visible.
+wait_plugin_running(Core, Node) ->
+    wait_until(
+        fun() ->
+            lists:member(Node, erpc:call(Core, emqx_bcast, plugin_running_nodes, []))
+        end,
+        100
     ).
 
 wait_registered(Node, DeviceName) ->
