@@ -1099,7 +1099,7 @@ t_install_refuses_a_package_the_stored_config_cannot_follow(Config) ->
     %% the uploaded package left nothing behind, and the previous one is back
     ?assertEqual({ok, InstalledPackage}, file:read_file(TarFile)),
     ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
-    ?assertEqual([], staging_attempts(NameVsn)),
+    ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn)),
     ok.
 
 %% A failure after the package was published keeps the package which was
@@ -1470,7 +1470,7 @@ t_install_rejects_sibling_entries(Config) ->
     %% nothing of the refused package was written anywhere
     ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
     ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
-    ?assertEqual([], staging_attempts(NameVsn)).
+    ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn)).
 
 %% A failed replacement must not destroy the package the installation can be
 %% repaired from: the upload is refused and the previous package file (and its
@@ -1518,7 +1518,7 @@ t_install_failure_keeps_previous_package_and_files(Config) ->
     %% the previous package is back, so the installation can be repaired from it
     ?assertEqual({ok, InstalledTar}, file:read_file(TarFile)),
     ?assertEqual({ok, InstalledChecksum}, file:read_file(TarFile ++ ".md5sum")),
-    ?assertEqual([], staging_attempts(NameVsn)).
+    ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn)).
 
 %% An exception while the upload is installed must leave the package which was
 %% there before the attempt: the caller sees the exception, but the installation
@@ -1551,7 +1551,7 @@ t_install_exception_restores_package(Config) ->
                 ),
                 ?assertEqual({ok, Before}, emqx_plugins:backup_package(NameVsn)),
                 ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end,
             [{Class, Previous} || Class <- [error, throw, exit], Previous <- [absent, present]]
         )
@@ -2327,15 +2327,6 @@ plugin_dir_files(NameVsn) ->
         filelib:is_regular(File),
         {ok, Content} <- [file:read_file(File)]
     ]).
-
-%% The installation attempts of `NameVsn' still on disk: `[]' means that the
-%% attempt cleaned up after itself.
-staging_attempts(NameVsn) ->
-    %% `filename:join/1' returns a binary as soon as one part is a binary, and
-    %% `filelib:wildcard/1' only takes a string.
-    filelib:wildcard(
-        to_list(filename:join([emqx_plugins_fs:staging_root(), NameVsn, "*"]))
-    ).
 
 to_list(Path) when is_binary(Path) -> unicode:characters_to_list(Path);
 to_list(Path) -> Path.

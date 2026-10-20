@@ -411,7 +411,7 @@ do_install_from_tar_content(NameVsn, TarContent, InstallValidator) ->
             ?SLOG(warning, Error),
             {error, Error};
         {ok, SafeEntries} ->
-            case make_staging_dir(NameVsn) of
+            case make_staging_dir() of
                 {ok, StagingDir} ->
                     try
                         install_staged_package(NameVsn, StagingDir, SafeEntries, InstallValidator)
@@ -423,7 +423,9 @@ do_install_from_tar_content(NameVsn, TarContent, InstallValidator) ->
                         ok = remove_staging_dir(StagingDir)
                     end;
                 {error, Reason} ->
-                    {error, Reason}
+                    Error = Reason#{name_vsn => NameVsn},
+                    ?SLOG(warning, Error),
+                    {error, Error}
             end;
         {error, Reason} = Error ->
             %% Report the package validation result before creating staging files.
@@ -1215,47 +1217,54 @@ write_failed(Name, Reason) ->
 %%
 %% * it is below the install directory, so the `file:rename/2' which publishes a
 %%   staged tree stays within one file system and is atomic;
-%% * a staged tree is `<name-vsn>/<attempt>/<name-vsn>/...', one level deeper
-%%   than the `install_dir()/*/release.json' which `list_name_vsn/0' lists, so
-%%   it is never mistaken for an installation.  Its depth does that, not the
+%% * a staged tree is `<attempt>/<name-vsn>/...', so its `release.json' is never
+%%   at the `<install_dir>/*/release.json' depth which `list_name_vsn/0' globs
+%%   and it is never mistaken for an installation.  The depth does that, not the
 %%   leading dot: `filelib:wildcard/1' does match dot prefixed names.
 -spec staging_root() -> file:filename().
 staging_root() ->
     wrap_to_list(filename:join(install_dir(), ?STAGING_DIR)).
 
-%% The staging directory of one installation attempt.  Its first level is the
-%% exact name-vsn (not a prefix of it: `foo-1.0' and `foo-1.0-extra-2.0' must not
-%% see each other), the second level makes the attempt unique, so that a
-%% directory left behind by a crashed process is never reused.
-make_staging_dir(NameVsn) ->
-    StagingDir = filename:join([staging_root(), NameVsn, unique()]),
-    %% `filelib:ensure_dir/1' creates the staging directory of the name-vsn,
-    %% `file:make_dir/1' creates the attempt directory itself: an attempt
-    %% directory which is already there (an id collision) is an error, not a
-    %% directory two installations would share.
-    Result =
-        case filelib:ensure_dir(StagingDir) of
-            ok -> file:make_dir(StagingDir);
-            {error, _} = Error -> Error
-        end,
-    case Result of
+%% The staging directory of one installation attempt.  Attempts which were left
+%% behind by a crashed process are swept when the application starts; the id
+%% counter restarts with the node, so a directory which the sweep could not
+%% remove is skipped by trying the next id.
+make_staging_dir() ->
+    make_staging_dir(10).
+
+make_staging_dir(Retries) ->
+    StagingDir = filename:join(staging_root(), unique()),
+    %% `filelib:ensure_dir/1' creates the staging root, `file:make_dir/1'
+    %% creates the attempt directory itself: an attempt directory which is
+    %% already there is a leftover, not a directory two installations share.
+    case filelib:ensure_dir(StagingDir) of
         ok ->
-            {ok, StagingDir};
+            case file:make_dir(StagingDir) of
+                ok ->
+                    {ok, StagingDir};
+                {error, eexist} when Retries > 0 ->
+                    make_staging_dir(Retries - 1);
+                {error, Reason} ->
+                    staging_dir_failed(StagingDir, Reason)
+            end;
         {error, Reason} ->
-            {error, #{
-                msg => "failed_to_create_plugin_staging_dir",
-                dir => StagingDir,
-                reason => Reason
-            }}
+            staging_dir_failed(StagingDir, Reason)
     end.
+
+staging_dir_failed(StagingDir, Reason) ->
+    {error, #{
+        msg => "failed_to_create_plugin_staging_dir",
+        dir => StagingDir,
+        reason => Reason
+    }}.
 
 %% Remove this attempt's staging directory.  Cleanup is best effort: it never
 %% changes the result of the installation.
 %%
-%% Only this attempt's directory is removed: the (shared) staging directory of
-%% the name-vsn and the staging root are not touched, so a concurrent
-%% installation of the same plugin can not lose its attempt directory to this
-%% cleanup.  What is left of them is swept when the application starts.
+%% Only this attempt's directory is removed: the staging root is shared with
+%% the other attempts, so a concurrent installation can not lose its attempt
+%% directory to this cleanup.  What is left of it is swept when the application
+%% starts.
 remove_staging_dir(StagingDir) ->
     _ = file:del_dir_r(StagingDir),
     ok.
@@ -1273,24 +1282,24 @@ cleanup_stale_staging() ->
         [] ->
             ok;
         Dirs ->
-            Count = length([ok || Dir <- Dirs, file:del_dir_r(Dir) =:= ok]),
+            Failed = [Dir || Dir <- Dirs, file:del_dir_r(Dir) =/= ok],
             _ = file:del_dir(staging_root()),
-            ?SLOG(warning, #{
+            Log = #{
                 msg => "cleaned_stale_plugin_staging",
                 dir => staging_root(),
-                count => Count
-            }),
+                count => length(Dirs) - length(Failed)
+            },
+            case Failed of
+                [] -> ?SLOG(warning, Log);
+                _ -> ?SLOG(warning, Log#{failed => Failed})
+            end,
             ok
     end.
 
+%% A node-unique, short attempt id: the staging path stays short, and an id
+%% which a leftover directory still occupies is skipped by `make_staging_dir/0'.
 unique() ->
-    lists:flatten(
-        io_lib:format("~s-~b-~b", [
-            os:getpid(),
-            erlang:system_time(millisecond),
-            erlang:unique_integer([positive, monotonic])
-        ])
-    ).
+    integer_to_list(erlang:unique_integer([positive, monotonic])).
 
 %%--------------------------------------------------------------------
 %% The install lock, and publishing a staged package
@@ -1317,7 +1326,7 @@ do_publish_validated_package(NameVsn, StagingDir, InstallValidator) ->
     %% installed tree is moved away before the staged one is renamed into place:
     %% the plugin directory does not exist for a short moment, and a reader
     %% which does not hold the installation lock can see the plugin as missing.
-    case move_away(NameVsn, Target) of
+    case move_away(Target) of
         {ok, Previous} ->
             case file:rename(Staged, Target) of
                 ok ->
@@ -1412,14 +1421,14 @@ rollback_staged_package(NameVsn, Previous, Reason) ->
 %% A target which is not a directory (a leftover file, a broken symlink) is
 %% moved away just the same: the target has to be gone before the new tree is
 %% renamed into place.
-move_away(NameVsn, Target) ->
+move_away(Target) ->
     case file:read_link_info(Target) of
         {error, enoent} ->
             {ok, none};
         {error, Reason} ->
             {error, Reason};
         {ok, _} ->
-            Replaced = filename:join([staging_root(), NameVsn, "replaced-" ++ unique()]),
+            Replaced = filename:join(staging_root(), "replaced-" ++ unique()),
             case filelib:ensure_dir(Replaced) of
                 ok ->
                     case file:rename(Target, Replaced) of

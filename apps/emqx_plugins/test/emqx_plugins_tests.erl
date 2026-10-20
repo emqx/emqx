@@ -1274,7 +1274,7 @@ install_from_local_tar_rejects_a_package_without_files_test() ->
                         error(unexpected_validator)
                     end)
                 ),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end
         )
     after
@@ -1317,7 +1317,7 @@ install_from_local_tar_rejects_sibling_entries_test() ->
                 ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
                 %% guard against the rejection point moving behind the staging
                 %% directory creation (the package is refused before it)
-                ?assertEqual([], staging_attempts(NameVsn)),
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn)),
                 %% nothing was written before the package was refused: the
                 %% install dir only holds the existing plugin and the package file
                 %% `write_tar/2' wrote itself
@@ -1358,7 +1358,7 @@ install_from_local_tar_rollback_touches_only_its_own_name_test() ->
                 ),
                 ?assertEqual(Before, snapshot_plugin_dir(Existing)),
                 ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end
         )
     after
@@ -1423,7 +1423,7 @@ install_from_local_tar_rejects_root_resolving_entry_test() ->
                     emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
                 ),
                 ?assertNot(filelib:is_regular(Absolute)),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end
         )
     after
@@ -1468,7 +1468,7 @@ install_from_local_tar_normalizes_entries_test() ->
                 ),
                 %% the `..' was resolved instead of creating the directory it names
                 ?assertNot(filelib:is_dir(filename:join(Dir, "nested"))),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end
         )
     after
@@ -1486,7 +1486,8 @@ install_from_local_tar_cleans_staging_on_success_test() ->
                 ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
                 ok = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end),
                 ?assert(emqx_plugins_fs:is_extraction_complete(NameVsn)),
-                ?assertEqual([], staging_attempts(NameVsn)),
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn)),
+                ?assertEqual([], filelib:wildcard(filename:join(staging_root(), "*"))),
                 ?assertEqual([NameVsn], lists:sort(emqx_plugins_fs:list_name_vsn()))
             end
         )
@@ -1518,7 +1519,7 @@ install_from_local_tar_rolls_back_replacement_on_validator_error_test() ->
                 ),
                 ?assertEqual({ok, <<"installed v1">>}, file:read_file(Target)),
                 ?assertNot(emqx_plugins_fs:is_extraction_complete(NameVsn)),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end
         )
     after
@@ -1543,7 +1544,7 @@ install_from_local_tar_rolls_back_when_validator_crashes_test() ->
                 ),
                 ?assertEqual({ok, <<"installed v1">>}, file:read_file(Target)),
                 ?assertNot(emqx_plugins_fs:is_extraction_complete(NameVsn)),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end
         )
     after
@@ -1726,7 +1727,7 @@ install_from_local_tar_keeps_target_on_midwrite_failure_test() ->
                 ),
                 ?assertEqual(Before, snapshot_plugin_dir(Existing)),
                 ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end
         )
     after
@@ -1742,19 +1743,18 @@ stale_staging_is_left_alone_by_installs_and_swept_at_startup_test() ->
         with_rand_install_dir(
             fun(_Dir) ->
                 NameVsn = "stale_target-0.1.0",
-                Stale = filename:join([staging_root(), NameVsn, "crashed-attempt"]),
-                OtherStale = filename:join([staging_root(), "other-0.1.0", "crashed-attempt"]),
-                ok = write_file(filename:join([Stale, NameVsn, "release.json"]), <<"stale">>),
-                ok = write_file(
-                    filename:join([OtherStale, "other-0.1.0", "release.json"]), <<"stale">>
-                ),
+                StaleAttempt = filename:join(staging_root(), "crashed-attempt"),
+                Stale = filename:join(StaleAttempt, NameVsn),
+                OtherStale = filename:join([staging_root(), "crashed-other", "other-0.1.0"]),
+                ok = write_file(filename:join(Stale, "release.json"), <<"stale">>),
+                ok = write_file(filename:join(OtherStale, "release.json"), <<"stale">>),
                 ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
                 ok = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end),
                 ?assert(emqx_plugins_fs:is_extraction_complete(NameVsn)),
                 ?assert(filelib:is_dir(Stale)),
                 ?assert(filelib:is_dir(OtherStale)),
                 ?assertEqual([NameVsn], lists:sort(emqx_plugins_fs:list_name_vsn())),
-                ?assertEqual([Stale], staging_attempts(NameVsn)),
+                ?assertEqual([StaleAttempt], emqx_plugins_test_helpers:staging_attempts(NameVsn)),
                 %% the same sweep the plugins application runs when it starts
                 ok = emqx_plugins_fs:cleanup_stale_staging(),
                 ?assertNot(filelib:is_dir(Stale)),
@@ -1874,7 +1874,7 @@ install_from_local_tar_concurrent_callers_leave_one_installation_test() ->
                     {ok, release_json(NameVsn)},
                     file:read_file(emqx_plugins_fs:info_file_path(NameVsn))
                 ),
-                ?assertEqual([], staging_attempts(NameVsn))
+                ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
             end
         )
     after
@@ -1950,7 +1950,7 @@ ensure_installed_from_tar_refuses_while_a_published_tree_is_unvalidated_test() -
                         {ok, release_json(NameVsn)},
                         file:read_file(emqx_plugins_fs:info_file_path(NameVsn))
                     ),
-                    ?assertEqual([], staging_attempts(NameVsn))
+                    ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn))
                 after
                     PidA ! release
                 end
@@ -2289,11 +2289,6 @@ tar_of(Files) ->
 %% The staging directory the installations under test use.
 staging_root() ->
     emqx_plugins_fs:staging_root().
-
-%% The installation attempts of `NameVsn' which are still on disk: `[]' means
-%% that the attempt cleaned up after itself.
-staging_attempts(NameVsn) ->
-    filelib:wildcard(filename:join([staging_root(), NameVsn, "*"])).
 
 %% Every regular file below the plugin's install directory, with its bytes.
 snapshot_plugin_dir(NameVsn) ->

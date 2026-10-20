@@ -1739,7 +1739,7 @@ t_install_real_packages_are_staged(Config) ->
             %% `release.json' is the first level of the package: a package which
             %% put it anywhere else would have been refused
             ?assert(filelib:is_regular(emqx_plugins_fs:info_file_path(NameVsn))),
-            ?assertEqual([], staging_attempts(NameVsn)),
+            ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn)),
             ?assert(lists:member(bin(NameVsn), NameVsns)),
             %% `ensure_installed/1' loads the applications of the package; these
             %% templates share the application name, so the next one would be
@@ -2572,13 +2572,6 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
-%% The installation attempts of `NameVsn' still on disk: `[]' means that the
-%% attempt cleaned up after itself.
-staging_attempts(NameVsn) ->
-    %% `filename:join/1' returns a binary as soon as one part is a binary, and
-    %% `filelib:wildcard/1' only takes a string.
-    filelib:wildcard(to_list(filename:join([emqx_plugins_fs:staging_root(), NameVsn, "*"]))).
-
 to_list(Path) when is_binary(Path) -> unicode:characters_to_list(Path);
 to_list(Path) -> Path.
 
@@ -3199,7 +3192,7 @@ group_t_cluster_install(Config) ->
     %% is left behind ...
     lists:foreach(
         fun(Node) ->
-            ?assertEqual([], ?ON(Node, staging_attempts(NameVsn)))
+            ?assertEqual([], ?ON(Node, emqx_plugins_test_helpers:staging_attempts(NameVsn)))
         end,
         [N1, N2]
     ),
