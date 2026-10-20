@@ -15,6 +15,7 @@
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
 -include("../src/emqx_persistent_session_ds/pmap.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 %%================================================================================
@@ -585,15 +586,16 @@ gen_get(SessionId, {Idx, Fun, Key}) ->
 
 break_ds() ->
     print_cmd("*** ~p()", [?FUNCTION_NAME]),
-    #{cbm := Mod} = emqx_dsch:get_db_runtime(?DURABLE_SESSION_STATE_DB),
-    meck:new(Mod, [no_history, passthrough]),
-    meck:expect(Mod, otx_prepare_tx, fun(_, _, _, _, _) -> ?err_rec(injected) end),
+    %% Inject a recoverable failure of `sessions' DB transactions:
+    ?inject_crash(
+        #{?snk_kind := emqx_ds_storage_layer_prepare_kv_tx, shard := {sessions, _}},
+        snabbkaffe_nemesis:always_crash()
+    ),
     ok.
 
 fix_ds() ->
     print_cmd("*** ~p()", [?FUNCTION_NAME]),
-    #{cbm := Mod} = emqx_dsch:get_db_runtime(?DURABLE_SESSION_STATE_DB),
-    meck:unload(Mod),
+    snabbkaffe_nemesis:cleanup(),
     ok.
 
 %%================================================================================
