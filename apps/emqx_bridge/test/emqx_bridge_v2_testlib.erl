@@ -843,6 +843,10 @@ delete_kind_api(Kind, Type, Name, Opts) ->
     ct:pal("delete bridge (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
+delete_kind_api2(TCConfig) ->
+    #{kind := Kind, type := Type, name := Name} = get_common_values(TCConfig),
+    delete_kind_api(Kind, Type, Name).
+
 op_bridge_api(Op, BridgeType, BridgeName) ->
     op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
 
