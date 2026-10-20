@@ -871,9 +871,15 @@ value_type([Int]) when is_integer(Int) ->
     end;
 %% A quoted field value is one string: every token is rendered as text.
 value_type({quoted, Tokens}) when is_list(Tokens) ->
-    string_value([render_token(Token) || Token <- Tokens]);
+    text_value(Tokens);
+%% A list value that is not a single typed value is a template: every token is rendered as text.
+value_type(Val0) when is_list(Val0) ->
+    text_value(Val0);
 value_type(Val0) ->
     string_value(Val0).
+
+text_value(Tokens) ->
+    string_value([render_token(Token) || Token <- Tokens]).
 
 string_value(Val0) ->
     try unicode:characters_to_binary(Val0, utf8) of
@@ -888,12 +894,14 @@ string_value(Val0) ->
 
 %% Line protocol tag values are text: token types are dropped, except an `i`/`u` suffix and a
 %% boolean from the payload, which stay typed.
-value_type([_, Suffix] = NV, tag) when Suffix =:= <<"i">>; Suffix =:= <<"u">> ->
+value_type([_, <<"i">>] = NV, tag) ->
+    value_type(NV);
+value_type([_, <<"u">>] = NV, tag) ->
     value_type(NV);
 value_type([Bool], tag) when is_boolean(Bool) ->
     value_type([Bool]);
 value_type(NV, tag) when is_list(NV) ->
-    string_value([render_token(Token) || Token <- NV]);
+    text_value(NV);
 value_type(NV, _Kind) ->
     value_type(NV).
 
@@ -1047,11 +1055,7 @@ integer_point_validation_test() ->
             ?assertEqual([InvalidResult, InvalidResult], AllInvalidResult)
     after 1_000 ->
         error(callback_timeout)
-    end,
-    ?assertEqual(
-        {error, {invalid_string_value, [470.5, <<"x">>]}},
-        value_type([470.5, <<"x">>])
-    ).
+    end.
 
 quoted_field_value_test() ->
     Lines = emqx_bridge_influxdb:to_influx_lines(
@@ -1103,6 +1107,29 @@ quoted_field_value_utf8_test() ->
         data_to_points(Data, <<"public">>, SyntaxLines)
     ).
 
+field_mixed_template_value_test() ->
+    ?assertEqual(
+        {ok, #{value_data => {string_value, [<<"id_65">>]}}},
+        value_type([<<"id_">>, 65])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, [<<"6566">>]}}},
+        value_type([65, 66])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, [<<"pre_1.5">>]}}},
+        value_type([<<"pre_">>, 1.5])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, [<<"pre_true">>]}}},
+        value_type([<<"pre_">>, true])
+    ),
+    %% an unset placeholder that is not the first token still fails the point
+    ?assertEqual(
+        {error, {invalid_string_value, [<<"x">>, undefined]}},
+        value_type([<<"x">>, undefined])
+    ).
+
 numeric_range_validation_test() ->
     ?assertEqual(
         {ok, #{value_data => {i64_value, ?INT64_MIN}}},
@@ -1151,6 +1178,22 @@ numeric_range_validation_test() ->
     ?assertEqual(
         {error, {bad_timestamp, MillisecondOverflow}},
         convert_timestamp(MillisecondOverflow, {ms, ns})
+    ).
+
+tag_value_utf8_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,clientid=${clientid},tag=${payload.t} value=1">>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"t">> => <<255, 255>>},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    %% a tag value that is not valid UTF-8 is rejected for that point only
+    ?assertEqual(
+        {error, [{error, {invalid_string_value, [<<255, 255>>]}}]},
+        data_to_points(Data, <<"public">>, SyntaxLines)
     ).
 
 tag_value_typing_test() ->

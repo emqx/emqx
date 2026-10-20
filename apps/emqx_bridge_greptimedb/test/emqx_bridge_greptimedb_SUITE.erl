@@ -979,14 +979,12 @@ t_tag_values_as_string(Config) ->
                     BatchEvents =
                         ?of_kind(call_batch_query, Trace) ++
                             ?of_kind(call_batch_query_async, Trace),
-                    ?assertMatch(
-                        [
-                            #{batch := [_, _, _]},
-                            #{batch := [_, _, _]},
-                            #{batch := [_, _, _]}
-                        ],
-                        BatchEvents
-                    )
+                    %% 9 samples with batch_size 3 are flushed in ceil(9 / 3) batches of at most 3
+                    ExpectedBatches = (length(Samples) + 2) div 3,
+                    ?assertEqual(ExpectedBatches, length(BatchEvents)),
+                    BatchSizes = [length(Batch) || #{batch := Batch} <- BatchEvents],
+                    ?assert(lists:all(fun(Size) -> Size >= 1 andalso Size =< 3 end, BatchSizes)),
+                    ?assertEqual(length(Samples), lists:sum(BatchSizes))
                 end
             )
     end,
@@ -1082,9 +1080,11 @@ assert_tag_value_sample(Config, {ClientId, {_TagValue, ExpectedTag}}) ->
         end
     ).
 
-t_quoted_field_values(Config) ->
+%% Field values render their tokens as text: a quoted value and an unquoted template that mixes
+%% literals with numbers both arrive as the string they render.
+t_field_values_as_text(Config) ->
     QueryMode = ?config(query_mode, Config),
-    {ok, _} = create_bridge(Config, quoted_field_overrides()),
+    {ok, _} = create_bridge(Config, field_value_overrides()),
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     Data = #{
         <<"clientid">> => ClientId,
@@ -1113,6 +1113,8 @@ t_quoted_field_values(Config) ->
             ?assertMatch(#{<<"bool_field">> := <<"true">>}, Row),
             %% text that spells a boolean literal stays a string
             ?assertMatch(#{<<"literal_bool_field">> := <<"T">>}, Row),
+            %% an unquoted template also renders its number tokens as text
+            ?assertMatch(#{<<"mixed_field">> := <<"id_65">>}, Row),
             %% the field whose placeholder stays unset is not written
             ?assertNot(maps:is_key(<<"unset_field">>, Row)),
             ?assertEqual(1.0, maps:get(<<"value">>, Row, undefined))
@@ -1120,7 +1122,7 @@ t_quoted_field_values(Config) ->
     ),
     ok.
 
-quoted_field_overrides() ->
+field_value_overrides() ->
     #{
         <<"write_syntax">> =>
             <<
@@ -1132,6 +1134,7 @@ quoted_field_overrides() ->
                 "tiny_field=\"t_${payload.tiny}\","
                 "bool_field=\"${payload.ok}\","
                 "literal_bool_field=\"T\","
+                "mixed_field=id_${payload.n},"
                 "unset_field=\"x${payload.unset}\","
                 "value=${payload.value}"
             >>
