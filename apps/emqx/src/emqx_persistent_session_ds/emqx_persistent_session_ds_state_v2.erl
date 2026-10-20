@@ -214,7 +214,7 @@ commit(
             update_state(Rec#{?collection_guard := TXSerial, ?checkpoint_n := TxCntr}, ok);
         {atomic, _TXSerial, {TxCntr, Rec}} ->
             update_state(Rec#{?checkpoint_n := TxCntr}, ok);
-        {nop, Rec} ->
+        {nop, {_, Rec}} ->
             {ok, Rec};
         {async, Ref, {TxCntr, Rec}} ->
             {ok, Rec#{?checkpoint_ref := Ref, ?checkpoint_n := TxCntr}};
