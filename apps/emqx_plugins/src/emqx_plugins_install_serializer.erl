@@ -22,8 +22,10 @@
 
 -define(SERVER, ?MODULE).
 
-%% The locks this process holds and the server which handed each of them out,
-%% so that it can take one of them again without calling the server twice.
+%% The locks this process holds and the server instance which handed each of
+%% them out, so that it can take one of them again without calling the server
+%% twice.  The server instance is recorded because a restarted server knows
+%% nothing about the locks the previous one handed out.
 -define(HELD_LOCKS, {?MODULE, held_locks}).
 
 -type lock() :: reference().
@@ -55,13 +57,13 @@ run(NameVsn, Fun) ->
             %% around the whole sequence, and its steps take it again.
             Fun();
         _StaleOrNotHeld ->
-            acquire_and_run(Plugin, Fun)
+            acquire_and_run(NameVsn, Plugin, Fun)
     end.
 
-acquire_and_run(Plugin, Fun) ->
-    case acquire(Plugin) of
-        {ok, Lock} ->
-            put_held_lock(Plugin, Lock),
+acquire_and_run(NameVsn, Plugin, Fun) ->
+    case acquire(NameVsn, Plugin) of
+        {ok, Server, Lock} ->
+            put_held_lock(Plugin, Server, Lock),
             try
                 Fun()
             after
@@ -79,10 +81,10 @@ init([]) ->
 handle_call({acquire, Plugin, Holder}, _From, State = #{locks := Locks}) ->
     case maps:is_key(Plugin, Locks) of
         true ->
-            {reply, busy_error(Plugin), State};
+            {reply, {error, busy_reason(Plugin)}, State};
         false ->
             Lock = erlang:monitor(process, Holder),
-            {reply, {ok, Lock}, State#{locks := Locks#{Plugin => {Holder, Lock}}}}
+            {reply, {ok, self(), Lock}, State#{locks := Locks#{Plugin => {Holder, Lock}}}}
     end;
 handle_call({release, Plugin, Lock}, _From, State = #{locks := Locks}) ->
     case Locks of
@@ -110,14 +112,19 @@ handle_info({'DOWN', Lock, process, _Pid, _Reason}, State = #{locks := Locks}) -
 handle_info(_Info, State) ->
     {noreply, State}.
 
-acquire(Plugin) ->
-    try
-        gen_server:call(?SERVER, {acquire, Plugin, self()}, infinity)
+acquire(NameVsn, Plugin) ->
+    try gen_server:call(?SERVER, {acquire, Plugin, self()}, infinity) of
+        {ok, Server, Lock} ->
+            {ok, Server, Lock};
+        {error, Reason} when is_map(Reason) ->
+            {error, Reason#{name_vsn => emqx_plugins_utils:bin(NameVsn)}};
+        Other ->
+            Other
     catch
-        %% The server is being restarted, so the installation can not be ordered
+        %% The server is not running, so the installation can not be ordered
         %% against the others right now: reported as an occupied lock, which the
         %% callers retry.
-        exit:{noproc, _} -> busy_error(Plugin)
+        exit:{noproc, _} -> busy_error(NameVsn, Plugin)
     end.
 
 release(Plugin, Lock) ->
@@ -129,12 +136,15 @@ release(Plugin, Lock) ->
         exit:{noproc, _} -> ok
     end.
 
-busy_error(Plugin) ->
-    {error, #{
+busy_reason(Plugin) ->
+    #{
         msg => "plugin_installation_in_progress",
-        name_vsn => Plugin,
+        plugin => Plugin,
         reason => installation_in_progress
-    }}.
+    }.
+
+busy_error(NameVsn, Plugin) ->
+    {error, (busy_reason(Plugin))#{name_vsn => emqx_plugins_utils:bin(NameVsn)}}.
 
 %% `parse_name_vsn/1' in emqx_plugins_utils creates an atom and the identifier may come from a
 %% request, so the textual split is used here: every version of a plugin shares
@@ -146,13 +156,14 @@ plugin_name(NameVsn) ->
         error -> emqx_plugins_utils:bin(NameVsn)
     end.
 
-%% The lock the process holds, bound to the server which handed it out: a
-%% restarted server knows nothing of it, and the lock has to be taken again.
+%% The lock the process holds, bound to the server instance which handed it
+%% out: a restarted server knows nothing of it, and the lock has to be taken
+%% again from the new instance.
 held_lock(Plugin) ->
     maps:find(Plugin, held_locks()).
 
-put_held_lock(Plugin, Lock) ->
-    _ = erlang:put(?HELD_LOCKS, (held_locks())#{Plugin => {whereis(?SERVER), Lock}}),
+put_held_lock(Plugin, Server, Lock) ->
+    _ = erlang:put(?HELD_LOCKS, (held_locks())#{Plugin => {Server, Lock}}),
     ok.
 
 erase_held_lock(Plugin) ->

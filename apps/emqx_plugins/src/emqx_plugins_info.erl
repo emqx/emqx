@@ -161,7 +161,8 @@ check_plugin(
                 lists:foreach(
                     fun(App) ->
                         %% assert
-                        _ = emqx_plugins_utils:parse_name_vsn(App),
+                        {AppName, _AppVsn} = emqx_plugins_utils:split_name_vsn(App),
+                        ok = validate_app_name(AppName),
                         true = is_app_dir_entry(App)
                     end,
                     Apps
@@ -193,20 +194,16 @@ check_plugin(PluginInfo, NameVsn) ->
     }}.
 
 %% Whether the entry is one directory name below the plugin's installation
-%% directory.  The path is resolved against a directory which does not exist, so
+%% directory.  The path is resolved below a directory which does not exist, so
 %% that the check stays lexical.
 is_app_dir_entry(App) ->
-    case filelib:safe_relative_path(App, "/nonexistent-emqx-plugin-app") of
-        unsafe ->
-            false;
-        [] ->
-            false;
-        Safe ->
-            case filename:split(Safe) of
-                [_Component] -> true;
-                _Nested -> false
-            end
-    end.
+    emqx_plugins_utils:is_single_relative_component(App).
+
+%% The application name has to be an OTP application name.  Only the name part
+%% is validated: the version may carry characters which the plugin package
+%% identifier syntax does not allow, `+' for example.
+validate_app_name(AppName) ->
+    emqx_plugins_utils:validate_name_vsn(<<AppName/binary, "-">>).
 
 configured() ->
     configured(emqx_conf:get([?CONF_ROOT, states])).

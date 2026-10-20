@@ -13,23 +13,16 @@
 %% before they are published (see `staging_root/0').
 -define(STAGING_DIR, ".emqx-plugin-staging").
 
-%% A directory which does not exist, used to resolve the paths of tar entries
-%% without depending on the state of the install directory.
-%%
-%% The path is absolute on purpose: `filelib:safe_relative_path/2' resolves the
-%% entries against it, and a relative one would make that resolution depend on
-%% the current working directory of the process which happens to run the check.
-%% It does not exist either, so the check does not depend on anything on disk.
--define(PATH_PROBE_DIR, "/nonexistent-emqx-plugin-staging").
-
 %% Tarfile operations
 -export([
     get_tar/1,
     write_tar/2,
+    write_tar/3,
     delete_tar/1,
     is_tar_present/1,
     backup_package/1,
-    restore_package/2
+    restore_package/2,
+    restore_package_or_log/2
 ]).
 
 %% Unpack plugin tar/delete unpacked content
@@ -226,6 +219,16 @@ is_tar_present(NameVsn) ->
 
 -spec write_tar(name_vsn(), iodata()) -> ok | {error, map()}.
 write_tar(NameVsn, Content) ->
+    write_tar(NameVsn, Content, none).
+
+%% @doc Write the package file, reusing a snapshot the caller already took.
+%%
+%% When `Backup' is `none' the file which is replaced is snapshotted here, so
+%% that it can be put back when writing the new files fails.  The caller must
+%% hold the installation lock: the snapshot and the write are one critical
+%% section.
+-spec write_tar(name_vsn(), iodata(), none | package_backup()) -> ok | {error, map()}.
+write_tar(NameVsn, Content, Backup) ->
     emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
         case iolist_size(Content) > max_package_size() of
             true ->
@@ -236,26 +239,30 @@ write_tar(NameVsn, Content) ->
                     limit => max_package_size()
                 }};
             false ->
-                write_tar_replacing(NameVsn, Content)
+                write_tar_replacing(NameVsn, Content, Backup)
         end
     end).
 
-%% Write the package file, and put the package it replaced back when the write
-%% fails: the replaced package may be the only local copy which can repair the
-%% installation later.
-write_tar_replacing(NameVsn, Content) ->
+write_tar_replacing(NameVsn, Content, none) ->
     maybe
         {ok, PreviousPackage} ?= backup_package(NameVsn),
-        case write_tar_files(NameVsn, Content) of
-            ok ->
-                ok;
-            {error, _} = Error ->
-                restore_replaced_package(NameVsn, PreviousPackage),
-                Error
-        end
+        write_tar_replacing(NameVsn, Content, PreviousPackage)
+    end;
+write_tar_replacing(NameVsn, Content, PreviousPackage) ->
+    case write_tar_files(NameVsn, Content) of
+        ok ->
+            ok;
+        {error, _} = Error ->
+            restore_package_or_log(NameVsn, PreviousPackage),
+            Error
     end.
 
-restore_replaced_package(NameVsn, PreviousPackage) ->
+%% @doc Put the package file back, logging a failure.
+%%
+%% Best effort: the result of the installation attempt must not be replaced by
+%% the failure of the restore, but the operator has to see it.
+-spec restore_package_or_log(name_vsn(), package_backup()) -> ok.
+restore_package_or_log(NameVsn, PreviousPackage) ->
     case restore_package(NameVsn, PreviousPackage) of
         ok ->
             ok;
@@ -264,7 +271,8 @@ restore_replaced_package(NameVsn, PreviousPackage) ->
                 msg => "failed_to_restore_plugin_package",
                 name_vsn => NameVsn,
                 reason => Reason
-            })
+            }),
+            ok
     end.
 
 write_tar_files(NameVsn, Content) ->
@@ -1005,13 +1013,20 @@ plugin_priv_dir(NameVsn) ->
     end.
 
 plugin_data_dir(NameVsn) ->
-    case emqx_plugins_utils:validate_name_vsn(NameVsn) of
-        ok ->
-            [Name, _Vsn] = binary:split(iolist_to_binary(NameVsn), <<"-">>),
+    case plugin_data_dir_name(NameVsn) of
+        {ok, Name} ->
             wrap_to_list(filename:join([emqx:data_dir(), "plugins", Name]));
-        {error, _} ->
+        error ->
             {error, Reason} = bad_package_name(NameVsn),
             error(Reason)
+    end.
+
+plugin_data_dir_name(NameVsn) ->
+    case
+        {emqx_plugins_utils:split_name_vsn(NameVsn), emqx_plugins_utils:validate_name_vsn(NameVsn)}
+    of
+        {{Name, _Vsn}, ok} -> {ok, Name};
+        _ -> error
     end.
 
 purge_plugin_dir(Dir) ->
@@ -1134,12 +1149,12 @@ bad_package_name(NameVsn) ->
 %% does not materialize directory or symlink entries), so there is no symbolic
 %% link on the way which could be followed.
 safe_entry_path(NameVsn, Name) ->
-    case filelib:safe_relative_path(Name, ?PATH_PROBE_DIR) of
+    case emqx_plugins_utils:safe_relative_path(Name) of
         unsafe ->
             {error, #{msg => "unsafe_tar_entry_path"}};
         [] ->
             {error, #{msg => "unsafe_tar_entry_path", reason => resolves_to_install_root}};
-        Safe ->
+        {ok, Safe} ->
             NameVsnBin = emqx_plugins_utils:bin(NameVsn),
             [Root | _] = filename:split(Safe),
             case emqx_plugins_utils:bin(Root) =:= NameVsnBin of
@@ -1298,6 +1313,10 @@ with_installation_lock(NameVsn, Fun) ->
 do_publish_validated_package(NameVsn, StagingDir, InstallValidator) ->
     Target = plugin_dir(NameVsn),
     Staged = filename:join(StagingDir, NameVsn),
+    %% `file:rename/2' can not atomically replace a non-empty directory, so the
+    %% installed tree is moved away before the staged one is renamed into place:
+    %% the plugin directory does not exist for a short moment, and a reader
+    %% which does not hold the installation lock can see the plugin as missing.
     case move_away(NameVsn, Target) of
         {ok, Previous} ->
             case file:rename(Staged, Target) of
@@ -1324,6 +1343,13 @@ do_publish_validated_package(NameVsn, StagingDir, InstallValidator) ->
 %% Whatever the validator does (it may raise, it talks to the config schema
 %% store), the installation which was there before is put back when the tree is
 %% refused.  The side effects of the validator itself are not restored.
+%%
+%% A rollback which does not happen leaves the refused tree published: the
+%% error then carries `rollback => not_restored' so that the caller keeps the
+%% package it wrote.  When the validator raises, this has to be reported
+%% together with the original exception: the exception is raised again as
+%% `{tree_not_restored, Class, Reason, RollbackError}' after this function's
+%% rollback attempt, which the upload path understands.
 validate_published_package(NameVsn, Previous, InstallValidator) ->
     try validate_unpacked(NameVsn, InstallValidator) of
         ok ->
@@ -1348,8 +1374,14 @@ validate_published_package(NameVsn, Previous, InstallValidator) ->
                 class => Class,
                 reason => Reason
             }),
-            _ = rollback_staged_package(NameVsn, Previous, Reason),
-            erlang:raise(Class, Reason, Stacktrace)
+            case rollback_staged_package(NameVsn, Previous, Reason) of
+                {error, #{rollback := not_restored} = RollbackError} ->
+                    erlang:raise(
+                        error, {tree_not_restored, Class, Reason, RollbackError}, Stacktrace
+                    );
+                _RolledBack ->
+                    erlang:raise(Class, Reason, Stacktrace)
+            end
     end.
 
 %% Put the previous installation back, and report a rollback which did not
@@ -1370,16 +1402,16 @@ rollback_staged_package(NameVsn, Previous, Reason) ->
                 msg => "failed_to_rollback_plugin_install",
                 name_vsn => NameVsn,
                 reason => Reason,
-                rollback_reason => RollbackReason
+                rollback_reason => RollbackReason,
+                rollback => not_restored
             }}
     end.
 
 %% Move the installed tree of the plugin (if any) into the staging directory.
 %%
 %% A target which is not a directory (a leftover file, a broken symlink) is
-%% moved away just the same: `file:rename/2' refuses a non-empty target
-%% directory, so the target has to be gone before the new tree is renamed into
-%% place.
+%% moved away just the same: the target has to be gone before the new tree is
+%% renamed into place.
 move_away(NameVsn, Target) ->
     case file:read_link_info(Target) of
         {error, enoent} ->

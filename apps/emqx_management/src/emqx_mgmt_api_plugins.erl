@@ -574,24 +574,23 @@ upload_install(post, #{}) ->
     bad_plugin_form_data().
 
 do_upload_install(NameVsn, Bin) ->
-    case classify_installation(NameVsn) of
-        installed ->
+    case classify_installation(NameVsn, Bin) of
+        {installed, IsUploadedPackage} ->
             %% A complete installation.  An installation that the API does not
             %% show (installed, but neither configured nor running, or one whose
             %% metadata became unreadable meanwhile) is (re)installed from the
             %% upload.
             case describe_api_plugin(NameVsn, #{}) of
-                {ok, _} ->
+                {ok, _} when IsUploadedPackage ->
                     %% The very package which is installed is forwarded: the
                     %% nodes of the cluster which did not finish the
                     %% installation -- a peer which held its lock, or a
                     %% finalization which failed here -- are repaired by
                     %% uploading it again.  Another package is refused instead
                     %% of replacing the installation.
-                    case is_installed_package(NameVsn, Bin) of
-                        true -> install_package_on_nodes(NameVsn, Bin);
-                        false -> already_installed(NameVsn)
-                    end;
+                    install_package_on_nodes(NameVsn, Bin);
+                {ok, _} ->
+                    already_installed(NameVsn);
                 {error, _} ->
                     install_package_on_nodes(NameVsn, Bin)
             end;
@@ -615,10 +614,17 @@ do_upload_install(NameVsn, Bin) ->
     end.
 
 %% Classify under the installation lock: a tree which another attempt has
-%% published but not validated yet is not an installation.
-classify_installation(NameVsn) ->
+%% published but not validated yet is not an installation.  The package file is
+%% read under the same lock, so that a concurrent installation can not replace
+%% it between the classification and the comparison; `emqx_plugins_fs:get_tar/1'
+%% also creates the file from the installed tree when it is missing, which must
+%% not happen outside the lock either.
+classify_installation(NameVsn, Bin) ->
     emqx_plugins:with_installation_lock(NameVsn, fun() ->
-        emqx_plugins:install_state(NameVsn)
+        case emqx_plugins:install_state(NameVsn) of
+            installed -> {installed, is_installed_package(NameVsn, Bin)};
+            NotInstalled -> NotInstalled
+        end
     end).
 
 %% Whether the upload is the package which is installed on this node.
@@ -731,19 +737,47 @@ do_install_package_on_nodes(NameVsn, Bin) ->
             }}
     end.
 
-%% Whether the upload failed for a reason which is not the package: the node
-%% could not be reached, another installation of the same plugin held its
-%% installation lock, the installation was published but could not be finished,
-%% or the package file or the tree could not be written.  Those are server
-%% errors so the caller retries; anything else is a package the caller has to
-%% fix.
-is_server_error({badrpc, _}) -> true;
-is_server_error({error, #{reason := installation_in_progress}}) -> true;
-is_server_error({error, #{reason := installation_not_ready}}) -> true;
-is_server_error({error, #{msg := "failed_to_write_plugin_package"}}) -> true;
-is_server_error({error, #{msg := "failed_to_publish_plugin_package"}}) -> true;
-is_server_error({error, #{msg := "failed_to_replace_plugin_package"}}) -> true;
-is_server_error(_) -> false.
+%% Whether the failure is not the package's fault: the node could not be
+%% reached, another installation of the same plugin held its installation lock,
+%% the installation was published but could not be finished, or the package file,
+%% the tree, the staging directory or the package fetched from another node could
+%% not be written/read.  Those are server errors so the caller retries; anything
+%% else is a package the caller has to fix.  A package which can not be
+%% snapshotted (`failed_to_backup_plugin_package') stays a package error: nothing
+%% has been written yet, and the message points at the permissions of the install
+%% directory.
+is_server_error({badnode, _}) ->
+    true;
+is_server_error({badrpc, _}) ->
+    true;
+is_server_error({error, Errors}) when is_list(Errors) ->
+    lists:any(
+        fun
+            ({_Node, Error}) -> is_server_error(Error);
+            (_Other) -> false
+        end,
+        Errors
+    );
+is_server_error({error, #{reason := installation_in_progress}}) ->
+    true;
+is_server_error({error, #{reason := installation_not_ready}}) ->
+    true;
+is_server_error({error, #{msg := "failed_to_write_plugin_package"}}) ->
+    true;
+is_server_error({error, #{msg := "failed_to_publish_plugin_package"}}) ->
+    true;
+is_server_error({error, #{msg := "failed_to_replace_plugin_package"}}) ->
+    true;
+is_server_error({error, #{msg := "failed_to_create_plugin_staging_dir"}}) ->
+    true;
+is_server_error({error, #{msg := "failed_to_rollback_plugin_install"}}) ->
+    true;
+is_server_error({error, #{msg := "failed_to_purge_plugin_dir"}}) ->
+    true;
+is_server_error({error, #{msg := "failed_to_copy_plugin_from_other_nodes"}}) ->
+    true;
+is_server_error(_) ->
+    false.
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
@@ -959,9 +993,9 @@ sync_error_response(NameVsn, NodeErrors) ->
     case lists:any(fun({_Node, Error}) -> is_server_error(Error) end, NodeErrors) of
         true ->
             internal_error_response(
-                "plugin_sync_installation_in_progress",
+                "plugin_sync_failed",
                 #{name_vsn => NameVsn, node_errors => NodeErrors},
-                <<"another installation of this plugin is in progress, retry later">>
+                sync_server_error_message(NodeErrors)
             );
         false ->
             {400, #{
@@ -969,6 +1003,28 @@ sync_error_response(NameVsn, NodeErrors) ->
                 message => format_node_errors(NodeErrors)
             }}
     end.
+
+%% Only a node which is installing this plugin reports a reason the caller can
+%% fix by retrying; an unreachable node or a package fetch failure needs a
+%% neutral message.
+sync_server_error_message(NodeErrors) ->
+    case lists:all(fun({_Node, Error}) -> is_installation_in_progress(Error) end, NodeErrors) of
+        true -> <<"another installation of this plugin is in progress, retry later">>;
+        false -> <<"the plugin synchronization failed on some nodes, retry later">>
+    end.
+
+is_installation_in_progress({error, #{reason := installation_in_progress}}) ->
+    true;
+is_installation_in_progress({error, Errors}) when is_list(Errors) ->
+    lists:all(
+        fun
+            ({_Node, Error}) -> is_installation_in_progress(Error);
+            (_Other) -> false
+        end,
+        Errors
+    );
+is_installation_in_progress(_) ->
+    false.
 
 %% API CallBack End
 
@@ -1661,6 +1717,41 @@ clear_feature_env(Prev) ->
         _ -> os:putenv("EMQX_FEATURES", Prev)
     end,
     emqx_machine_features:clear_features().
+
+%% A node which could not be reached, or which could not fetch the package for
+%% the synchronization, is a server-side failure, not a package the caller has to
+%% fix.
+is_server_error_test_() ->
+    [
+        ?_assert(is_server_error({badnode, 'peer@127.0.0.1'})),
+        ?_assert(is_server_error({badrpc, {'EXIT', boom}})),
+        ?_assert(is_server_error({error, #{reason => installation_in_progress}})),
+        ?_assert(is_server_error({error, [{node(), {badrpc, timeout}}]})),
+        ?_assertNot(is_server_error({error, [{node(), {error, #{msg => "bad_rel_apps"}}}]})),
+        ?_assertNot(is_server_error({error, [node(), node()]})),
+        ?_assertNot(is_server_error({error, "package is not valid"})),
+        ?_assert(is_server_error({error, #{msg => "failed_to_create_plugin_staging_dir"}})),
+        ?_assertNot(is_server_error({error, #{msg => "failed_to_backup_plugin_package"}})),
+        ?_assert(is_server_error({error, #{msg => "failed_to_rollback_plugin_install"}})),
+        ?_assert(is_server_error({error, #{msg => "failed_to_purge_plugin_dir"}})),
+        ?_assert(is_server_error({error, #{msg => "failed_to_copy_plugin_from_other_nodes"}})),
+        ?_assertNot(is_server_error({error, #{msg => "bad_plugin_package_name"}}))
+    ].
+
+is_installation_in_progress_test_() ->
+    [
+        ?_assert(is_installation_in_progress({error, #{reason => installation_in_progress}})),
+        ?_assert(
+            is_installation_in_progress(
+                {error, [{node(), {error, #{reason => installation_in_progress}}}]}
+            )
+        ),
+        ?_assertNot(is_installation_in_progress({error, [{node(), {badrpc, timeout}}]})),
+        ?_assertNot(
+            is_installation_in_progress({error, [{node(), {badrpc, timeout}}, oops]})
+        ),
+        ?_assertNot(is_installation_in_progress({error, "package is not valid"}))
+    ].
 
 -endif.
 

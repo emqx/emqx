@@ -121,7 +121,20 @@ read_plugin_test() ->
             %% so an entry which is not a single path component must not be
             %% accepted: a directory built from it would leave the plugin's
             %% install directory.
-            BadRelApps = ["[justname_no_vsn]", "[\"../escape-1.0\"]", "[\"a/dep-1.0\"]"],
+            ProbeApp =
+                "atom_probe_" ++ integer_to_list(erlang:unique_integer([positive])) ++ "/nested",
+            BadRelApps = [
+                "[justname_no_vsn]",
+                "[\"../escape-1.0\"]",
+                "[\"a/dep-1.0\"]",
+                %% only the name part is validated: an empty application name and
+                %% an absolute path are still refused
+                "[\"-1\"]",
+                "[\"/absolute-1.0\"]",
+                %% the rejected entry must not create an atom for its name part
+                "[\"" ++ ProbeApp ++ "-1.0\"]"
+            ],
+            ?assertError(badarg, binary_to_existing_atom(list_to_binary(ProbeApp), utf8)),
             try
                 lists:foreach(
                     fun(RelApps) ->
@@ -133,6 +146,7 @@ read_plugin_test() ->
                     end,
                     BadRelApps
                 ),
+                ?assertError(badarg, binary_to_existing_atom(list_to_binary(ProbeApp), utf8)),
                 %% A bundled application may carry a version which the plugin
                 %% package identifier syntax does not allow.
                 ok = write_file(InfoFile, Info("[\"dep-1.2.3+build.4\"]")),
@@ -1530,6 +1544,158 @@ install_from_local_tar_rolls_back_when_validator_crashes_test() ->
                 ?assertEqual({ok, <<"installed v1">>}, file:read_file(Target)),
                 ?assertNot(emqx_plugins_fs:is_extraction_complete(NameVsn)),
                 ?assertEqual([], staging_attempts(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% When the validator refuses the tree and the previous tree can not be put
+%% back, the refused tree is still published: the upload path keeps the package
+%% it wrote and reports the installation as not ready.
+install_package_keeps_the_written_package_when_the_rollback_fails_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "unrestored_upload-0.1.0",
+                Package = plugin_package(NameVsn, []),
+                ok = meck:new(emqx_plugins_fs, [passthrough]),
+                try
+                    ok = meck:expect(
+                        emqx_plugins_fs,
+                        ensure_installed_from_tar,
+                        fun(_NameVsn, _Validator) ->
+                            {error, #{
+                                msg => "failed_to_rollback_plugin_install",
+                                rollback => not_restored
+                            }}
+                        end
+                    ),
+                    ?assertMatch(
+                        {error, #{
+                            msg := "plugin_installed_but_not_ready",
+                            reason := installation_not_ready
+                        }},
+                        emqx_plugins:install_package(NameVsn, Package)
+                    ),
+                    ?assertEqual({ok, Package}, emqx_plugins_fs:get_tar(NameVsn))
+                after
+                    ok = meck:unload(emqx_plugins_fs)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The same through the real validator: it crashes, the refused tree can not be
+%% removed either, and the package is kept while the original crash is raised
+%% again.
+install_package_keeps_the_written_package_when_the_validation_crashes_and_the_rollback_fails_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "unrestored_crash-0.1.0",
+                Target = emqx_plugins_fs:plugin_dir(NameVsn),
+                Package = plugin_package(NameVsn, []),
+                ok = meck:new(emqx_plugins_apps, [passthrough]),
+                ok = meck:new(file, [passthrough, unstick]),
+                try
+                    ok = meck:expect(emqx_plugins_apps, validate, fun(_, _) ->
+                        error(boom)
+                    end),
+                    ok = meck:expect(file, del_dir_r, fun(Path) ->
+                        case Path =:= Target of
+                            true -> {error, eacces};
+                            false -> meck:passthrough([Path])
+                        end
+                    end),
+                    ?assertException(
+                        error, boom, emqx_plugins:install_package(NameVsn, Package)
+                    ),
+                    ?assertEqual({ok, Package}, emqx_plugins_fs:get_tar(NameVsn))
+                after
+                    ok = meck:unload(file),
+                    ok = meck:unload(emqx_plugins_apps)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The validator's refusal with a rollback which did not happen is reported by
+%% the filesystem layer with the tree state, so that the caller can keep the
+%% package it wrote.
+install_from_local_tar_reports_an_unrestored_tree_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "unrestored-0.1.0",
+                Target = emqx_plugins_fs:plugin_dir(NameVsn),
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                ok = meck:new(file, [passthrough, unstick]),
+                try
+                    ok = meck:expect(file, del_dir_r, fun(Path) ->
+                        case Path =:= Target of
+                            true -> {error, eacces};
+                            false -> meck:passthrough([Path])
+                        end
+                    end),
+                    ?assertMatch(
+                        {error, #{
+                            msg := "failed_to_rollback_plugin_install",
+                            rollback := not_restored
+                        }},
+                        emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                            {error, #{msg => "boom"}}
+                        end)
+                    ),
+                    ?assert(filelib:is_dir(Target))
+                after
+                    ok = meck:unload(file)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A validator crash with a rollback which did not happen is raised again
+%% together with the tree state, instead of losing the state.
+install_from_local_tar_reports_an_unrestored_tree_after_a_crash_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "unrestored_crash-0.1.0",
+                Target = emqx_plugins_fs:plugin_dir(NameVsn),
+                ok = emqx_plugins_fs:write_tar(NameVsn, plugin_package(NameVsn, [])),
+                ok = meck:new(file, [passthrough, unstick]),
+                try
+                    ok = meck:expect(file, del_dir_r, fun(Path) ->
+                        case Path =:= Target of
+                            true -> {error, eacces};
+                            false -> meck:passthrough([Path])
+                        end
+                    end),
+                    ?assertException(
+                        error,
+                        {tree_not_restored, error, boom, #{
+                            msg := "failed_to_rollback_plugin_install",
+                            rollback := not_restored
+                        }},
+                        emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                            error(boom)
+                        end)
+                    ),
+                    ?assert(filelib:is_dir(Target))
+                after
+                    ok = meck:unload(file)
+                end
             end
         )
     after

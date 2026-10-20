@@ -12,6 +12,11 @@
 
 -elvis([{elvis_style, no_common_caveats_call, disable}]).
 
+%% Paths are resolved against this directory, which does not exist, so that the
+%% resolution of a package path stays lexical: every `file:read_link/1' which
+%% `filelib:safe_relative_path/2' performs on the way fails.
+-define(PATH_PROBE_DIR, "/nonexistent-emqx-plugin-path").
+
 -export([
     validate_name_vsn/1,
     validate_pinned_plugins/1,
@@ -19,6 +24,8 @@
     bin/1,
     parse_name_vsn/1,
     split_name_vsn/1,
+    safe_relative_path/1,
+    is_single_relative_component/1,
     plugin_name/1,
     normalize_state_item/1,
     latest_name_vsn/2,
@@ -157,6 +164,35 @@ split_name_vsn(NameVsn) when is_binary(NameVsn) ->
     end;
 split_name_vsn(_NameVsn) ->
     error.
+
+%% @doc Resolve a path below the plugins install directory lexically.
+%%
+%% The base is a directory which does not exist, so no symbolic link is
+%% followed and the result does not depend on the state of the install
+%% directory.  Returns `unsafe' when the path is absolute or leaves the base,
+%% `[]' when it resolves to the base itself.
+-spec safe_relative_path(file:filename_all()) -> unsafe | [] | {ok, file:filename_all()}.
+safe_relative_path(Path) ->
+    case filelib:safe_relative_path(Path, ?PATH_PROBE_DIR) of
+        unsafe -> unsafe;
+        [] -> [];
+        Safe -> {ok, Safe}
+    end.
+
+%% @doc Whether the path resolves to exactly one path component.
+-spec is_single_relative_component(file:filename_all()) -> boolean().
+is_single_relative_component(Path) ->
+    case safe_relative_path(Path) of
+        unsafe ->
+            false;
+        [] ->
+            false;
+        {ok, Safe} ->
+            case filename:split(Safe) of
+                [_Component] -> true;
+                _Nested -> false
+            end
+    end.
 
 compare_vsn(Vsn1, Vsn2) when is_binary(Vsn1) ->
     compare_vsn(binary_to_list(Vsn1), Vsn2);
@@ -318,6 +354,21 @@ split_name_vsn_test_() ->
 make_name_vsn_string_test_() ->
     [
         ?_assertEqual("foo-1.0.0", make_name_vsn_string(<<"foo">>, "1.0.0"))
+    ].
+
+safe_relative_path_test_() ->
+    [
+        ?_assertEqual({ok, "foo-1.0"}, safe_relative_path("foo-1.0")),
+        ?_assertEqual({ok, <<"foo-1.0">>}, safe_relative_path(<<"foo-1.0">>)),
+        ?_assertEqual([], safe_relative_path("foo-1.0/..")),
+        ?_assertEqual(unsafe, safe_relative_path("../foo-1.0")),
+        ?_assertEqual(unsafe, safe_relative_path("/foo-1.0")),
+        ?_assert(is_single_relative_component("foo-1.0")),
+        ?_assertNot(is_single_relative_component("a/foo-1.0")),
+        ?_assertNot(is_single_relative_component("../foo-1.0")),
+        ?_assertNot(is_single_relative_component("/foo-1.0")),
+        %% `..' components are resolved before the component count is checked
+        ?_assert(is_single_relative_component("a/../foo-1.0"))
     ].
 
 compare_vsn_fallback_test_() ->

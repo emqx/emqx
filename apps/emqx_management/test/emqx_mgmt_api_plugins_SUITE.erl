@@ -1173,7 +1173,7 @@ t_install_write_failure_is_a_server_error(Config) ->
     ok = allow_package(PackagePath),
     ok = meck:new(emqx_plugins_fs, [passthrough]),
     try
-        ok = meck:expect(emqx_plugins_fs, write_tar, fun(_NameVsn, _Content) ->
+        ok = meck:expect(emqx_plugins_fs, write_tar, fun(_NameVsn, _Content, _Backup) ->
             {error, #{
                 msg => "failed_to_write_plugin_package",
                 path => "/nonexistent/emqx_plugin-1.0.0.tar.gz",

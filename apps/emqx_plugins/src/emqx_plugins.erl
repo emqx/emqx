@@ -1464,16 +1464,10 @@ do_install_package(NameVsn, Bin) ->
 replace_package_and_install(NameVsn, Bin) ->
     maybe
         {ok, PreviousPackage} ?= backup_package(NameVsn),
-        case write_package(NameVsn, Bin) of
-            ok ->
-                install_written_package(NameVsn, PreviousPackage);
-            {error, _} = Error ->
-                %% `write_tar/2' restores the package it replaced, best effort:
-                %% this snapshot is used again because the previous package may
-                %% be the only local copy which can repair the installation.
-                _ = restore_written_package(NameVsn, PreviousPackage),
-                Error
-        end
+        %% The snapshot is given to the write: a failed write puts this package
+        %% back, and the package which is replaced is read only once.
+        ok ?= emqx_plugins_fs:write_tar(NameVsn, Bin, PreviousPackage),
+        install_written_package(NameVsn, PreviousPackage)
     end.
 
 install_written_package(NameVsn, PreviousPackage) ->
@@ -1485,6 +1479,9 @@ install_written_package(NameVsn, PreviousPackage) ->
         Result ->
             Result
     catch
+        error:{tree_not_restored, Class, Reason, _RollbackError}:Stacktrace ->
+            _ = fail_written_package(NameVsn, PreviousPackage, Reason, true),
+            erlang:raise(Class, Reason, Stacktrace);
         Class:Reason:Stacktrace ->
             _ = fail_written_package(NameVsn, PreviousPackage, Reason),
             erlang:raise(Class, Reason, Stacktrace)
@@ -1497,28 +1494,28 @@ install_written_package(NameVsn, PreviousPackage) ->
 %% rolling the package back would leave the installation without the package it
 %% can be repaired from.
 fail_written_package(NameVsn, PreviousPackage, Reason) ->
-    case tree_replaced(NameVsn, Reason) of
-        true ->
-            ?SLOG(error, #{
-                msg => "plugin_installed_but_not_ready",
-                name_vsn => NameVsn,
-                reason => Reason,
-                hint =>
-                    <<
-                        "the plugin files are installed, but the plugin could not be loaded or "
-                        "configured; fix the cause and retry"
-                    >>
-            }),
-            {error, installation_not_ready_error(NameVsn, Reason)};
-        false ->
-            ?SLOG(error, #{
-                msg => "failed_to_install_plugin",
-                name_vsn => NameVsn,
-                reason => Reason
-            }),
-            _ = restore_written_package(NameVsn, PreviousPackage),
-            {error, Reason}
-    end.
+    fail_written_package(NameVsn, PreviousPackage, Reason, tree_replaced(NameVsn, Reason)).
+
+fail_written_package(NameVsn, _PreviousPackage, Reason, true) ->
+    ?SLOG(error, #{
+        msg => "plugin_installed_but_not_ready",
+        name_vsn => NameVsn,
+        reason => Reason,
+        hint =>
+            <<
+                "the plugin files are installed, but the plugin could not be loaded or "
+                "configured; fix the cause and retry"
+            >>
+    }),
+    {error, installation_not_ready_error(NameVsn, Reason)};
+fail_written_package(NameVsn, PreviousPackage, Reason, false) ->
+    ?SLOG(error, #{
+        msg => "failed_to_install_plugin",
+        name_vsn => NameVsn,
+        reason => Reason
+    }),
+    _ = emqx_plugins_fs:restore_package_or_log(NameVsn, PreviousPackage),
+    {error, Reason}.
 
 %% Whether the staged tree replaced the previous one, so that the package
 %% written by this attempt is the one the files on disk came from.
@@ -1528,11 +1525,14 @@ fail_written_package(NameVsn, PreviousPackage, Reason) ->
 %% complete installation now was published by this attempt.  A rollback which did
 %% not happen leaves the published tree behind: the files on disk may be the new
 %% ones even when the tree is not complete, so the package is kept then as well.
+%% `emqx_plugins_fs' reports that case with `rollback => not_restored', including
+%% when the validator raised and the tree state had to be reported together with
+%% the exception.
 tree_replaced(NameVsn, Reason) ->
-    install_state(NameVsn) =:= installed orelse rollback_did_not_happen(Reason).
+    install_state(NameVsn) =:= installed orelse tree_not_restored(Reason).
 
-rollback_did_not_happen(#{msg := "failed_to_rollback_plugin_install"}) -> true;
-rollback_did_not_happen(_) -> false.
+tree_not_restored(#{rollback := not_restored}) -> true;
+tree_not_restored(_) -> false.
 
 installation_not_ready_error(NameVsn, Reason) ->
     #{
@@ -1547,18 +1547,6 @@ installation_not_ready_error(NameVsn, Reason) ->
                 "plugin first and upload the package again"
             >>
     }.
-
-restore_written_package(NameVsn, PreviousPackage) ->
-    case restore_package(NameVsn, PreviousPackage) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_restore_plugin_package",
-                name_vsn => NameVsn,
-                reason => Reason
-            })
-    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

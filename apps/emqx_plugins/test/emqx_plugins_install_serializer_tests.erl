@@ -49,6 +49,48 @@ a_second_process_is_refused_while_the_lock_is_held_test() ->
         end
     end).
 
+%% The server is not running: the installation can not be ordered, and the
+%% refusal names the installation which asked for the lock.
+server_not_running_is_reported_as_an_occupied_lock_test() ->
+    ?assertEqual(undefined, whereis(?SERIALIZER)),
+    ?assertMatch(
+        {error, #{reason := installation_in_progress, name_vsn := <<"not_running-1.0">>}},
+        ?SERIALIZER:run("not_running-1.0", fun() -> error(unexpected_callback) end)
+    ).
+
+%% The refusal names the installation which asked for the lock, and the plugin
+%% whose lock is occupied.
+busy_error_names_the_refused_installation_test() ->
+    with_serializer(fun() ->
+        Holder = hold_lock("plugin_a-1.0"),
+        try
+            ?assertMatch(
+                {error, #{
+                    reason := installation_in_progress,
+                    name_vsn := <<"plugin_a-2.0">>,
+                    plugin := <<"plugin_a">>
+                }},
+                ?SERIALIZER:run("plugin_a-2.0", fun() -> error(unexpected_callback) end)
+            )
+        after
+            release_holder(Holder)
+        end
+    end).
+
+%% The identifier may come from a request, so the lock key is taken from its
+%% text: this must not create an atom.
+lock_key_does_not_create_an_atom_test() ->
+    with_serializer(fun() ->
+        Name = <<
+            "textual_plugin_",
+            (integer_to_binary(erlang:unique_integer([positive])))/binary
+        >>,
+        NameVsn = <<Name/binary, "-1.0">>,
+        ?assertError(badarg, binary_to_existing_atom(Name, utf8)),
+        ?assertEqual(ok, ?SERIALIZER:run(NameVsn, fun() -> ok end)),
+        ?assertError(badarg, binary_to_existing_atom(Name, utf8))
+    end).
+
 %% Two versions of one plugin publish and roll back the same installation tree,
 %% so they share a lock.
 every_version_of_a_plugin_shares_one_lock_test() ->
