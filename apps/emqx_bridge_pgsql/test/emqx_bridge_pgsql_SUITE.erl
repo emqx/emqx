@@ -1035,6 +1035,6 @@ t_no_active_hc_transactions(TCConfig) ->
 
 t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
     emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
-        connector_mod => emqx_postgresql,
+        callback_mod => emqx_postgresql,
         reconnect_callback_fns => [prepare_sql_to_conn]
     }).

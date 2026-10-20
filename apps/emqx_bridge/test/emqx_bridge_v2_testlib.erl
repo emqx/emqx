@@ -2587,7 +2587,7 @@ A sanity check test to verify the reconnect callback of a connector is correctly
 """.
 t_ecpool_on_reconnect_callback_consistency(TCConfig, Opts) ->
     #{
-        connector_mod := ConnMod,
+        callback_mod := CBMod,
         reconnect_callback_fns := ReconnectFnNames
     } = Opts,
     ?assertMatch([_ | _], ReconnectFnNames, #{
@@ -2596,7 +2596,9 @@ t_ecpool_on_reconnect_callback_consistency(TCConfig, Opts) ->
     ReconnectFns = lists:map(
         fun(FnName) ->
             Res = lists:search(
-                fun(Arity) -> erlang:function_exported(ConnMod, FnName, Arity) end,
+                fun(Arity) ->
+                    erlang:function_exported(CBMod, FnName, Arity)
+                end,
                 lists:seq(1, 20)
             ),
             case Res of
@@ -2604,12 +2606,12 @@ t_ecpool_on_reconnect_callback_consistency(TCConfig, Opts) ->
                     error(
                         #{
                             msg => ~"Reconnect callback not exported?",
-                            conn_mod => ConnMod,
+                            cb_mod => CBMod,
                             fn_name => FnName
                         }
                     );
                 {value, Arity} ->
-                    {FnName, Arity}
+                    {CBMod, FnName, Arity}
             end
         end,
         ReconnectFnNames
@@ -2620,28 +2622,37 @@ t_ecpool_on_reconnect_callback_consistency(TCConfig, Opts) ->
     _ = trace:process(TS, new, true, [call, return_to]),
     1 = trace:function(
         TS,
-        {ConnMod, get_reconnect_callback_signature, 1},
+        {CBMod, get_reconnect_callback_signature, 1},
         [{['_'], [], [{return_trace}]}],
         [local]
     ),
     lists:foreach(
-        fun({FnName, Arity}) ->
-            1 = trace:function(TS, {ConnMod, FnName, Arity}, true, [global])
+        fun({Mod, FnName, Arity}) ->
+            1 = trace:function(TS, {Mod, FnName, Arity}, true, [global])
         end,
         ReconnectFns
     ),
+
+    CreateKind = fun(TCConfig0) ->
+        case get_common_values(TCConfig0) of
+            #{kind := action} ->
+                create_action_api2(TCConfig0, #{});
+            #{kind := source} ->
+                create_source_api(TCConfig0, #{})
+        end
+    end,
 
     {201, #{<<"status">> := <<"connected">>}} = create_connector_api2(TCConfig, #{
         %% To avoid the resource manager detecting the clients being down and tearing down
         %% the connection itself, if it goes `?status_disconnected`.
         ~"resource_opts" => #{~"health_check_interval" => ~"60s"}
     }),
-    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = CreateKind(TCConfig),
 
     %% By now, `ecpool` should've called `get_reconnect_callback_signature` correctly.
-    ?assertReceive({trace, _Pid, call, {ConnMod, get_reconnect_callback_signature, _}}),
+    ?assertReceive({trace, _Pid, call, {CBMod, get_reconnect_callback_signature, _}}),
     %% This trace is only sent if the call doesn't crash
-    ?assertReceive({trace, _Pid, return_from, {ConnMod, get_reconnect_callback_signature, _}, _}),
+    ?assertReceive({trace, _Pid, return_from, {CBMod, get_reconnect_callback_signature, _}, _}),
 
     ConnResId = connector_resource_id(TCConfig),
 
@@ -2677,11 +2688,11 @@ t_ecpool_on_reconnect_callback_consistency(TCConfig, Opts) ->
             ),
             %% Configured `on_reconnect` callbacks must've been called.
             lists:foreach(
-                fun({FnName, Arity}) ->
+                fun({Mod, FnName, Arity}) ->
                     ?assertReceive(
-                        {trace, _, call, {ConnMod, FnName, _}},
+                        {trace, _, call, {Mod, FnName, _}},
                         1_000,
-                        #{fn_name => FnName, arity => Arity}
+                        #{cb_mod => Mod, fn_name => FnName, arity => Arity}
                     )
                 end,
                 ReconnectFns
@@ -2706,10 +2717,14 @@ t_ecpool_on_reconnect_callback_consistency(TCConfig, Opts) ->
     #{name := ActionName0} = get_common_values(TCConfig),
     ActionName1 = bin(ActionName0),
     ActionName2 = <<ActionName1/binary, "000000000002">>,
-    TCConfig2 = [{action_name, ActionName2} | proplists:delete(action_name, TCConfig)],
+    TCConfig2 = [
+        {action_name, ActionName2},
+        {source_name, ActionName2}
+        | proplists:delete(source_name, proplists:delete(action_name, TCConfig))
+    ],
 
     ReconnectCallbacks0 = GatherReconnectCallbacks(),
-    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfig2, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = CreateKind(TCConfig2),
     ReconnectCallbacks1 = GatherReconnectCallbacks(),
 
     {204, _} = delete_kind_api2(TCConfig),

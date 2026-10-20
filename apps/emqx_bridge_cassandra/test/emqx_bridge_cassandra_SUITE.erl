@@ -759,6 +759,6 @@ t_nasty_sql_string(TCConfig) ->
 
 t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
     emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
-        connector_mod => emqx_bridge_cassandra_connector,
+        callback_mod => emqx_bridge_cassandra_connector,
         reconnect_callback_fns => [prepare_cql_to_conn]
     }).

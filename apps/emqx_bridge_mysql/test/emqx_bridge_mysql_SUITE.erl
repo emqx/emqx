@@ -1387,6 +1387,6 @@ t_ecpool_workers_crash(TCConfig) ->
 
 t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
     emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
-        connector_mod => emqx_mysql,
+        callback_mod => emqx_mysql,
         reconnect_callback_fns => [prepare_sql_to_conn_on_reconnect]
     }).
