@@ -13,6 +13,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+%% Builds atoms that need not exist yet.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([start_link/0]).
 
 %% Rule Management

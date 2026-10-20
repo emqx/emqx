@@ -93,7 +93,7 @@ start_link(Conf) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Conf, []).
 
 info() ->
-    gen_server:call(?MODULE, info).
+    gen_server:call(?MODULE, info, 5000).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
