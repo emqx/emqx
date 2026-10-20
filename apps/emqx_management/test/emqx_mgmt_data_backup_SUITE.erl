@@ -811,6 +811,57 @@ t_read_files(_Config) ->
     ),
     ?assertEqual(ExpectedConf, emqx_mgmt_data_backup:read_data_files(RawConf)).
 
+%% Config values that only start with the data dir name, such as `data_source',
+%% are not file paths and must pass through unchanged. Paths inside the data dir
+%% are still read, also when the data dir is configured with a trailing separator.
+t_read_files_data_dir_prefix(_Config) ->
+    {ok, OldDataDir} = application:get_env(emqx, data_dir),
+    try
+        lists:foreach(fun assert_read_files_data_dir_prefix/1, ["data", "data/"])
+    after
+        application:set_env(emqx, data_dir, OldDataDir)
+    end.
+
+assert_read_files_data_dir_prefix(DataDir) ->
+    ok = application:set_env(emqx, data_dir, DataDir),
+    {ok, Cwd} = file:get_cwd(),
+    Content = <<"cert_content">>,
+    AbsPath = iolist_to_binary(filename:join([Cwd, "data", "certs", "x.pem"])),
+    ok = filelib:ensure_dir(AbsPath),
+    ok = file:write_file(AbsPath, Content),
+    RawConf = #{
+        <<"root">> => #{
+            <<"data_source">> => <<"data_source">>,
+            <<"database">> => <<"database">>,
+            <<"datadog">> => <<"datadog">>,
+            <<"rel">> => <<"data/certs/x.pem">>,
+            <<"abs">> => AbsPath,
+            <<"missing">> => <<"data/certs/missing.pem">>
+        }
+    },
+    Expected = #{
+        <<"root">> => #{
+            <<"data_source">> => <<"data_source">>,
+            <<"database">> => <<"database">>,
+            <<"datadog">> => <<"datadog">>,
+            <<"rel">> => Content,
+            <<"abs">> => Content,
+            <<"missing">> => <<"data/certs/missing.pem">>
+        }
+    },
+    Reports = emqx_cth_log_capture:capture(fun() ->
+        self() ! {result, emqx_mgmt_data_backup:read_data_files(RawConf)}
+    end),
+    Result =
+        receive
+            {result, R} -> R
+        after 0 -> error(no_result)
+        end,
+    ?assertEqual(Expected, Result, #{data_dir => DataDir}),
+    %% Only the genuine path to a missing file is reported.
+    FailedReads = [F || #{msg := "failed_to_read_data_file", filename := F} <- Reports],
+    ?assertEqual([<<"data/certs/missing.pem">>], FailedReads, #{data_dir => DataDir}).
+
 %%------------------------------------------------------------------------------
 %% Internal test helpers
 %%------------------------------------------------------------------------------
