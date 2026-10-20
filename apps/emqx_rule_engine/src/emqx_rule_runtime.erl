@@ -39,8 +39,8 @@
 -type rule() :: emqx_rule_engine:rule().
 
 -elvis([
-    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_rule_runtime]}},
-    {elvis_style, used_ignored_variable, disable}
+    {elvis_style, no_invalid_dynamic_calls, #{ignore => [emqx_rule_runtime]}},
+    {elvis_style, no_used_ignored_variables, disable}
 ]).
 
 -define(ephemeral_alias(TYPE, NAME),
