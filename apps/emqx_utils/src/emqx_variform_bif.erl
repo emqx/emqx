@@ -149,13 +149,13 @@ rtrim(S, Chars) when is_binary(S) ->
     string:trim(S, trailing, unicode:characters_to_list(Chars, utf8)).
 
 %% @doc Remove the prefix of a string if there is a match.
-%% The original stirng is returned if there is no match.
+%% The original string is returned if there is no match.
 rm_prefix(NULL, _) when ?IS_NULL(NULL) ->
     ?BADARG();
 rm_prefix(S, Prefix) when is_atom(S) ->
     rm_prefix(atom_to_binary(S, utf8), Prefix);
 rm_prefix(S, Prefix) ->
-    Size = size(Prefix),
+    Size = byte_size(Prefix),
     case S of
         <<P:Size/binary, Rem/binary>> when P =:= Prefix ->
             Rem;
