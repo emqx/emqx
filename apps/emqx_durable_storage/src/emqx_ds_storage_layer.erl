@@ -66,7 +66,6 @@
 
 -export_type([
     rocksdb_options/0,
-    batch_prepare_opts/0,
     batch_store_opts/0,
     gen_id/0,
     generation/0,
@@ -114,8 +113,6 @@
         allow_fallocate => boolean(),
         misc_options => [{atom(), _}]
     }.
-
--type batch_prepare_opts() :: #{}.
 
 %% Options affecting how batches should be stored.
 %% See also: `emqx_ds:message_store_opts()'.

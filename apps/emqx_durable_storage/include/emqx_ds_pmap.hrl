@@ -17,11 +17,15 @@
 %% the data, and `dirty' contains information about dirty and deleted
 %% keys. When `commit/1' is called, dirty keys are dumped to the
 %% tables, and deleted keys are removed from the tables.
+%%
+%% Transaction counter is stepped each time there's an attempt to
+%% commit pmap to the storage.
 -record(pmap, {
     name,
     module,
     cache = #{},
-    dirty = #{}
+    dirty = #{},
+    tx_counter = 0
 }).
 
 -define(top_data, <<"d">>).

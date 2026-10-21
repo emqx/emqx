@@ -2601,6 +2601,139 @@ t_invalid_data(Config) ->
         emqx_ds:dirty_read(DB, ['#'])
     ).
 
+%% Test for overload protection in optimistic transaction leader
+t_overload_protection(Config) ->
+    ?check_trace(
+        #{timetrap => 60_000},
+        begin
+            DB = ?FUNCTION_NAME,
+            Opts = maps:merge(opts(Config), #{
+                n_shards => 5,
+                transactions => #{olp_max_mql => 5}
+            }),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            Shard = hd(emqx_ds:list_shards(DB)),
+            %% Get the OTX leader process and suspend it
+            OtxPid = emqx_ds_optimistic_tx:where(DB, Shard),
+            ok = sys:suspend(OtxPid),
+            %% Submit many transactions while OTX is suspended
+            %% This should cause the message queue to fill up
+            Refs = [
+                begin
+                    {async, Ref, _Ret} =
+                        emqx_ds:trans(
+                            #{db => DB, shard => Shard, generation => 1, sync => false},
+                            fun() ->
+                                emqx_ds:tx_write({[~"t", integer_to_binary(N)], 0, ~""})
+                            end
+                        ),
+                    Ref
+                end
+             || N <- lists:seq(1, 10)
+            ],
+            ct:sleep(1000),
+            %% Resume the OTX process
+            ok = sys:resume(OtxPid),
+            %% Receive outcomes of transactions:
+            Results = [
+                receive
+                    ?ds_tx_commit_reply(Ref, Reply) ->
+                        emqx_ds:tx_commit_outcome(DB, Ref, Reply)
+                after 1000 ->
+                    error({timeout_waiting_for, Ref})
+                end
+             || Ref <- Refs
+            ],
+            %% Approximately first 5 transactions should be aborted
+            %% due to overload, the rest should succeed:
+            ?assertMatch(
+                [
+                    ?err_rec(overloaded),
+                    ?err_rec(overloaded),
+                    ?err_rec(overloaded),
+                    ?err_rec(overloaded),
+                    ?err_rec(overloaded),
+                    _,
+                    _,
+                    {ok, _},
+                    {ok, _},
+                    {ok, _}
+                ],
+                Results
+            )
+        end,
+        []
+    ).
+
+%% This testcase verifies that overly large transactions are rejected
+t_max_ops(Config) ->
+    ?check_trace(
+        #{timetrap => 60_000},
+        begin
+            DB = ?FUNCTION_NAME,
+            Opts = maps:merge(opts(Config), #{
+                n_shards => 5,
+                transactions => #{olp_max_ops => 100}
+            }),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            Shard = hd(emqx_ds:list_shards(DB)),
+            TxOpts = #{db => DB, shard => Shard, generation => 1, sync => true},
+            %% Too many writes:
+            ?assertMatch(
+                ?err_unrec(transaction_too_large),
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        [emqx_ds:tx_write({[~"t"], I, ~""}) || I <- lists:seq(1, 101)]
+                    end
+                )
+            ),
+            %% Create a wildcard stream:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        [
+                            emqx_ds:tx_write({[~"t", integer_to_binary(I)], 0, ~""})
+                         || I <- lists:seq(1, 99)
+                        ]
+                    end
+                )
+            ),
+            %% Add a lot of messages to the wildcard topic:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        [emqx_ds:tx_write({[~"t", ~"100"], I, ~""}) || I <- lists:seq(1, 99)]
+                    end
+                )
+            ),
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        [emqx_ds:tx_write({[~"t", ~"100"], I, ~""}) || I <- lists:seq(100, 199)]
+                    end
+                )
+            ),
+            %% Too many deletes:
+            ?assertMatch(
+                ?err_unrec(transaction_too_large),
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        emqx_ds:tx_del_topic([~"t", ~"100"])
+                    end
+                )
+            )
+        end,
+        []
+    ).
+
 %% Test boundary conditions for subscribe. Create iterator with a
 %% timestamp that matches exactly with a timestamp of an existing
 %% message. Subscription should report such message.

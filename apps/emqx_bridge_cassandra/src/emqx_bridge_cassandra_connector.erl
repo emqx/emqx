@@ -179,7 +179,13 @@ on_add_channel(_InstId, #{channels := Channs} = OldState, ChannId, ChannConf0) -
     NewChanns = Channs#{ChannId => #{parsed_cql => ParsedCql, prepare_result => not_prepared}},
     {ok, OldState#{channels => NewChanns}}.
 
-on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannId) ->
+on_remove_channel(InstanceId, #{channels := Channels} = State, ChannId) ->
+    lists:foreach(
+        fun({_, WorkerPid}) ->
+            ecpool_worker:remove_reconnect_callback_by_signature(WorkerPid, ChannId)
+        end,
+        ecpool:workers(InstanceId)
+    ),
     NewState = State#{channels => maps:remove(ChannId, Channels)},
     {ok, NewState}.
 
