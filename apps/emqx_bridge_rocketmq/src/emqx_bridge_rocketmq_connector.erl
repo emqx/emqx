@@ -39,6 +39,10 @@
 -define(client_id, client_id).
 -define(producer_cache(RES_ID, TOPIC), {producer_cache, RES_ID, TOPIC}).
 
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
+%% for the existing binary_to_atom
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %%=====================================================================
 %% Hocon schema
 

@@ -39,6 +39,8 @@
 -behaviour(emqx_template).
 -export([lookup/2]).
 
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
+
 -type config() :: #{
     access_key_id => string(),
     secret_access_key => emqx_secret:t(string()),

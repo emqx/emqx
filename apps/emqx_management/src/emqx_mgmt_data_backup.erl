@@ -58,7 +58,7 @@
 -endif.
 
 -elvis([
-    {elvis_style, invalid_dynamic_call, disable},
+    {elvis_style, no_invalid_dynamic_calls, disable},
     {elvis_style, no_catch_expressions, disable}
 ]).
 

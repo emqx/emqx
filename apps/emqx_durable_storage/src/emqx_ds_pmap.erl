@@ -101,6 +101,9 @@ taking over the collection. Such locking is out of scope of this module.
 -include_lib("stdlib/include/assert.hrl").
 -endif.
 
+%% elvis things the `size/1` call in `collection_size` is `erlang:size/1`...
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
