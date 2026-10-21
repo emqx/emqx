@@ -798,6 +798,9 @@ dequeue(ClientInfo, Zone, Congested, S, Allowance, Budget, Acc0, Q0, Inflight0, 
                         %% Limiter policy is "drop and continue": a sequence of over-limit
                         %% QoS0 messages may be lost. Mirrors `deliver/9` policy.
                         _ = maybe_ack(Msg),
+                        _ = emqx_session_events:handle_event(
+                            ClientInfo, {dropped, Msg, rate_limited}
+                        ),
                         dequeue(
                             ClientInfo,
                             Zone,
@@ -919,6 +922,14 @@ deliver(
                     %% Limiter policy is "drop and continue": a sequence of over-limit
                     %% QoS0 messages may be lost. Check each message: a smaller one may
                     %% still fit the remaining quota.
+                    case nack_by_hook(Msg) of
+                        true ->
+                            ok;
+                        false ->
+                            _ = emqx_session_events:handle_event(
+                                ClientInfo, {dropped, Msg, rate_limited}
+                            )
+                    end,
                     deliver(ClientInfo, Congested, S, More, Acc0, Q0, Inflight, Limiter, PktId)
             end
     end;
@@ -958,7 +969,13 @@ deliver(
                 %% including QoS0. Delivery retries are not scheduled deliberately:
                 %% dequeue will schedule it once it pushes out complete under-limit
                 %% batch.
-                Q = enqueue_messages(ClientInfo, [Msg | More], Q0),
+                Q = lists:foldl(
+                    fun(PendingMsg, QAcc) ->
+                        enqueue_unless_nacked(ClientInfo, PendingMsg, QAcc)
+                    end,
+                    Q0,
+                    [Msg | More]
+                ),
                 Effect = retry_dequeue_effect(Reason, Q),
                 reply(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
         end
@@ -1039,8 +1056,21 @@ maybe_ack(Msg) ->
 maybe_nack(Msg) ->
     maybe
         false ?= emqx_shared_sub:maybe_nack_dropped(Msg),
-        emqx_hooks:'message.nack'(Msg, false)
+        nack_by_hook(Msg)
     end.
+
+%% Sources with their own buffer, for example ExtSub, take back the messages that the
+%% delivery rate limit refuses. Other messages go to mqueue.
+%% TODO: decide whether shared subscription messages refused by the rate limit go to
+%% another group member, as they do when inflight is full.
+enqueue_unless_nacked(ClientInfo, Msg, Q) ->
+    case nack_by_hook(Msg) of
+        true -> Q;
+        false -> enqueue_msg(ClientInfo, Msg, Q)
+    end.
+
+nack_by_hook(Msg) ->
+    emqx_hooks:'message.nack'(Msg, false).
 
 mark_begin_deliver(Msg) ->
     emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).

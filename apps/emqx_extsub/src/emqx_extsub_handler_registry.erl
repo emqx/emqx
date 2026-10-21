@@ -28,6 +28,7 @@ Collection of handlers for the external message sources.
 -export([
     generic_message_handlers/1,
     message_counts/2,
+    has_handler/2,
     inspect/1,
     buffer_size/1,
     buffer_add/3,
@@ -185,7 +186,7 @@ save_subopts(#registry{by_topic_cbm = ByTopicCBM} = Registry0, Context, SubOpts)
     init_ack_ctx(),
     emqx_types:message(),
     emqx_extsub_buffer:seq_id(),
-    emqx_types:reason_code()
+    emqx_extsub_types:ack()
 ) -> t().
 delivered(
     #registry{buffer = Buffer0, by_ref = ByRef} = Registry0,
@@ -282,6 +283,10 @@ message_counts(#registry{by_ref = ByRef, buffer = Buffer}, HandlerRef) ->
         _ ->
             {0, 0}
     end.
+
+-spec has_handler(t(), emqx_extsub_types:handler_ref()) -> boolean().
+has_handler(#registry{by_ref = ByRef}, HandlerRef) ->
+    maps:is_key(HandlerRef, ByRef).
 
 -spec buffer_size(t()) -> non_neg_integer().
 buffer_size(#registry{buffer = Buffer}) ->
@@ -508,13 +513,21 @@ destroy_all(#registry{} = Registry0, HandlerRef) ->
     destroy(Registry0, HandlerRef, TopicFilters).
 
 recreate(
-    #registry{by_ref = ByRef0, by_topic_cbm = ByTopicCBM0} = Registry0, SubscribeInitCtx, HandlerRef
+    #registry{
+        buffer = Buffer0,
+        by_ref = ByRef0,
+        by_topic_cbm = ByTopicCBM0,
+        generic_message_handlers = GenericMessageHandlers0
+    } = Registry0,
+    SubscribeInitCtx,
+    HandlerRef
 ) ->
     #extsub{topic_filters = TopicFiltersToSubOpts, handler = Handler} = maps:get(
         HandlerRef, ByRef0
     ),
     Module = emqx_extsub_handler:get_module(Handler),
     Options = emqx_extsub_handler:get_options(Handler),
+    ok = emqx_extsub_handler:terminate(Handler),
     ByTopicCBM = maps:filter(
         fun({_Module, _TopicFilter}, HRef) ->
             HRef =/= HandlerRef
@@ -522,7 +535,14 @@ recreate(
         ByTopicCBM0
     ),
     ByRef = maps:remove(HandlerRef, ByRef0),
-    Registry = Registry0#registry{by_ref = ByRef, by_topic_cbm = ByTopicCBM},
+    Registry = Registry0#registry{
+        buffer = emqx_extsub_buffer:drop_handler(Buffer0, HandlerRef),
+        by_ref = ByRef,
+        by_topic_cbm = ByTopicCBM,
+        generic_message_handlers = remove_from_generic_message_handlers(
+            GenericMessageHandlers0, HandlerRef
+        )
+    },
     maps:fold(
         fun(TopicFilter, SubOpts, RegistryAcc) ->
             subscribe(
