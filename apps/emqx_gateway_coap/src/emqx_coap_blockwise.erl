@@ -361,7 +361,13 @@ find_server_tx(PeerKey, #coap_message{options = Opts} = Msg, #{server_tx_block2 
     end.
 
 find_server_tx_resource(Resource, TxMap) ->
-    case [Key || {Key, #{resource := R}} <- maps:to_list(TxMap), R =:= Resource] of
+    case
+        [
+            Key
+         || {Key, #{resource := R, method := {ok, _}}} <- maps:to_list(TxMap),
+            R =:= Resource
+        ]
+    of
         [Key] -> Key;
         _ -> undefined
     end.

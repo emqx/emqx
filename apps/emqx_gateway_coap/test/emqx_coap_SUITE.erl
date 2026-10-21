@@ -1098,6 +1098,50 @@ t_observe_block2_resource_isolation(_) ->
         true
     end).
 
+-doc "Keep error response blocks separate from Observe continuations using new Tokens.".
+t_observe_block2_error_response_isolation(_) ->
+    lists:foreach(fun observe_block2_error_response_isolation/1, [before_notify, after_notify]).
+
+observe_block2_error_response_isolation(Order) ->
+    with_block2_observe(non, fun(Channel, Token) ->
+        Topic = <<"coap/block2_errors/", (atom_to_binary(Order))/binary>>,
+        ObserveToken = observe_block2_topic(Channel, Token, Topic),
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        ErrorToken = <<"error">>,
+        ErrorRequest = fun() ->
+            Req = (make_req(get))#coap_message{token = ErrorToken},
+            {error, bad_request, Reply} = do_message_request(Channel, URI, Req),
+            ?assertEqual({0, true, 16}, coap_option(block2, Reply, undefined)),
+            ?assertEqual(<<"invalid observe ">>, Reply#coap_message.payload)
+        end,
+        case Order of
+            before_notify -> ErrorRequest();
+            after_notify -> ok
+        end,
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+        case Order of
+            before_notify -> ok;
+            after_notify -> ErrorRequest()
+        end,
+        _ = assert_block2_followup(
+            Channel, URI, ObserveToken, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URI, <<"new-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URI, <<"new-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+        ),
+        ErrorFollowup = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+            token = ErrorToken
+        },
+        {error, bad_request, ErrorReply} = do_message_request(Channel, URI, ErrorFollowup),
+        ?assertEqual(<<"value">>, ErrorReply#coap_message.payload),
+        ?assertEqual({1, false, 16}, coap_option(block2, ErrorReply, undefined)),
+        true
+    end).
+
 -doc "Keep an unfinished representation stable and drain the next notification after its last block.".
 t_observe_block2_new_token_queue(_) ->
     with_block2_observe(con, fun(Channel, Token) ->
