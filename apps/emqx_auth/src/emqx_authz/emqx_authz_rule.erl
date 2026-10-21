@@ -19,6 +19,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_authz.hrl").
 
 %%--------------------------------------------------------------------
@@ -60,7 +61,9 @@
 -type qos_condition() :: [qos()].
 -type retain_condition() :: retain() | all.
 
--type topic_condition() :: list(emqx_types:topic() | {eq, emqx_types:topic()} | ?ALL_TOPICS).
+-type topic_condition() :: list(
+    emqx_types:topic() | {eq, emqx_types:topic()} | {pattern, emqx_template:t()} | ?ALL_TOPICS
+).
 
 -type rule() :: {permission_resolution(), condition(), action_condition(), topic_condition()}.
 
@@ -314,15 +317,15 @@ re_compile(Tag, Pattern) ->
     end.
 
 compile_topic("eq " ++ Topic) ->
-    {eq, emqx_topic:words(bin(Topic))};
+    {eq, bin(Topic)};
 compile_topic(<<"eq ", Topic/binary>>) ->
-    {eq, emqx_topic:words(Topic)};
+    {eq, Topic};
 compile_topic({eq, Topic}) ->
-    {eq, emqx_topic:words(bin(Topic))};
+    {eq, bin(Topic)};
 compile_topic(Topic) ->
     {_, Template} = emqx_auth_template:parse_str(Topic, ?ALLOWED_VARS),
     case emqx_template:is_const(Template) of
-        true -> emqx_topic:words(bin(Topic));
+        true -> bin(Topic);
         false -> {pattern, Template}
     end.
 
@@ -335,17 +338,35 @@ bin(B) when is_binary(B) ->
 
 -spec matches(emqx_authz_context:t(), action(), emqx_types:topic(), [rule()]) ->
     {matched, allow} | {matched, deny} | nomatch.
-matches(_AuthzContext, _Action, _Topic, []) ->
+matches(AuthzContext, Action, Topic, Rules) ->
+    do_matches(AuthzContext, Action, prepare_topic(Topic), Rules).
+
+do_matches(_AuthzContext, _Action, _Topic, []) ->
     nomatch;
-matches(AuthzContext, Action, Topic, [{Permission, Cond, ActionCond, TopicCond} | Tail]) ->
-    case match(AuthzContext, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) of
-        nomatch -> matches(AuthzContext, Action, Topic, Tail);
+do_matches(AuthzContext, Action, Topic, [Rule | Tail]) ->
+    case do_match(AuthzContext, Action, Topic, Rule) of
+        nomatch -> do_matches(AuthzContext, Action, Topic, Tail);
         Matched -> Matched
     end.
 
 -spec match(emqx_authz_context:t(), action(), emqx_types:topic(), rule()) ->
     {matched, allow} | {matched, deny} | nomatch.
-match(AuthzContext, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) ->
+match(AuthzContext, Action, Topic, Rule) ->
+    do_match(AuthzContext, Action, prepare_topic(Topic), Rule).
+
+%% A valid topic filter is matched as a binary, without a split. The binary matcher can give
+%% a different result than the word matcher for a topic that is not valid, for example a
+%% topic with a # level that is not the last level. Such a topic is matched as words.
+prepare_topic(#share{topic = Topic}) ->
+    prepare_topic(Topic);
+prepare_topic(Topic) ->
+    try emqx_topic:validate(filter, Topic) of
+        true -> Topic
+    catch
+        error:_ -> {words, Topic, emqx_topic:words(Topic)}
+    end.
+
+do_match(AuthzContext, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) ->
     try
         match_action(Action, ActionCond) andalso
             match_condition(AuthzContext, Cond) andalso
@@ -473,14 +494,17 @@ match_topics(_AuthzContext, _Topic, [?ALL_TOPICS | _Filters]) ->
     true;
 match_topics(AuthzContext, Topic, [{pattern, PatternFilter} | Filters]) ->
     TopicFilter = render_topic(PatternFilter, AuthzContext),
-    (is_binary(TopicFilter) andalso
-        match_topic(emqx_topic:words(Topic), emqx_topic:words(TopicFilter))) orelse
+    (is_binary(TopicFilter) andalso match_topic(Topic, TopicFilter)) orelse
         match_topics(AuthzContext, Topic, Filters);
 match_topics(AuthzContext, Topic, [TopicFilter | Filters]) ->
-    match_topic(emqx_topic:words(Topic), TopicFilter) orelse
+    match_topic(Topic, TopicFilter) orelse
         match_topics(AuthzContext, Topic, Filters).
 
-match_topic(Topic, {'eq', TopicFilter}) ->
+match_topic({words, Topic, _Words}, {eq, TopicFilter}) ->
+    Topic =:= TopicFilter;
+match_topic({words, _Topic, Words}, TopicFilter) ->
+    emqx_topic:match(Words, TopicFilter);
+match_topic(Topic, {eq, TopicFilter}) ->
     Topic =:= TopicFilter;
 match_topic(Topic, TopicFilter) ->
     emqx_topic:match(Topic, TopicFilter).
