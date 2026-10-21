@@ -9,6 +9,7 @@
 %% State structure keys:
 -define(id, id).
 -define(checkpoint_ref, checkpoint_ref).
+-define(checkpoint_n, checkpoint_n).
 %% Session shound not attempt to commit the state in the future:
 -define(invalid, invalid).
 
@@ -20,5 +21,9 @@
 -define(streams, streams).
 -define(ranks, ranks).
 -define(awaiting_rel, awaiting_rel).
+
+-define(sessds_pmaps, [
+    ?metadata, ?subscriptions, ?subscription_states, ?seqnos, ?streams, ?ranks, ?awaiting_rel
+]).
 
 -endif.

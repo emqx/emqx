@@ -438,15 +438,42 @@ update_listener_via_api(ListenerId, NewConfig) ->
 %% long-standing race the client can observe the socket close (`{error, closed}')
 %% before it reads the alert. Both outcomes mean the connection was refused.
 assert_connection_rejected_by_revoked_cert(Client) ->
-    case emqtt:connect(Client) of
-        {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}} ->
-            ok;
-        {error, {tls_alert, {certificate_revoked, _}}} ->
-            ok;
-        {error, closed} ->
-            ok;
-        Other ->
-            ct:fail({unexpected_connect_result, Other})
+    %% safety net to avoid flakiness: there's still some race where the returned error
+    %% here is `{error, connack_timeout}`.  so we check whether the server produced the
+    %% expected error and it just didn't reach emqtt.  also, the main thing is to reject
+    %% the connection, really.
+    TS = trace:session_create(?MODULE, self(), []),
+    try
+        _ = trace:process(TS, all, true, [call]),
+        N = trace:function(TS, {ssl, handshake, '_'}, [{'_', [], [{return_trace}]}], [local]),
+        true = N > 0,
+        AssertServerError = fun(Line) ->
+            ?assertReceive(
+                {trace, _, return_from, {ssl, handshake, _},
+                    {error, {tls_alert, {certificate_revoked, _}}}},
+                1_000,
+                #{line => Line}
+            )
+        end,
+        case emqtt:connect(Client) of
+            {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}} ->
+                AssertServerError(?LINE),
+                ok;
+            {error, {tls_alert, {certificate_revoked, _}}} ->
+                AssertServerError(?LINE),
+                ok;
+            {error, closed} ->
+                AssertServerError(?LINE),
+                ok;
+            {ok, _} ->
+                ct:fail("client managed to connect");
+            Other ->
+                ct:pal("unexpected connect result: ~p", [Other]),
+                AssertServerError(?LINE),
+                ok
+        end
+    after
+        trace:session_destroy(TS)
     end.
 
 assert_successful_connection(Config) ->

@@ -371,8 +371,11 @@ headers_to_erlcloud(UserHeaders) ->
 
 join_headers(ErlcloudHeaders, undefined) ->
     ErlcloudHeaders;
-join_headers(ErlcloudHeaders, UserSpecialHeaders) ->
-    ErlcloudHeaders ++ headers_to_erlcloud(UserSpecialHeaders).
+join_headers(ErlcloudHeaders0, UserSpecialHeaders) ->
+    UserHeaders = headers_to_erlcloud(UserSpecialHeaders),
+    UserHeadersKeys = proplists:get_keys(UserHeaders),
+    ErlcloudHeaders = lists:foldl(fun proplists:delete/2, ErlcloudHeaders0, UserHeadersKeys),
+    ErlcloudHeaders ++ UserHeaders.
 
 to_list_string(Val) when is_binary(Val) ->
     binary_to_list(Val);

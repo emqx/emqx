@@ -71,6 +71,8 @@ This module abstracts all CRUD operations on the shared sub leader durable state
 
 -define(DB, ?SHARED_SUBS_DB).
 
+-define(pmaps, [?properties, ?generations, ?iterators]).
+
 -type id() :: binary().
 
 -define(properties, properties).
@@ -175,13 +177,7 @@ commit(up, Rec = #{?collection_dirty := false}) ->
     Rec;
 commit(
     Lifetime,
-    Rec0 = #{
-        id := Id,
-        ?collection_guard := OldGuard,
-        ?properties := Properties,
-        ?generations := Generations,
-        ?iterators := Iterators
-    }
+    #{id := Id, ?collection_guard := OldGuard} = Rec0
 ) ->
     NewGuard = Lifetime =/= up,
     Result = emqx_ds:trans(
@@ -189,22 +185,21 @@ commit(
         fun() ->
             emqx_ds_pmap:tx_assert_guard(Id, OldGuard),
             NewGuard andalso emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
-            Rec0#{
-                ?properties := emqx_ds_pmap:tx_commit(Id, Properties),
-                ?generations := emqx_ds_pmap:tx_commit(Id, Generations),
-                ?iterators := emqx_ds_pmap:tx_commit(Id, Iterators),
-                ?unset_dirty
-            }
+            emqx_ds_pmap:tx_collection_commit(?pmaps, Rec0)
         end
     ),
     case Result of
-        {atomic, TXSerial, Rec} when NewGuard ->
-            Rec#{?collection_guard := TXSerial};
-        {atomic, _, Rec} ->
+        {atomic, TXSerial, {TxCounter, Rec1}} ->
+            Rec = emqx_ds_pmap:collection_release_dirty(?pmaps, TxCounter, Rec1),
+            case NewGuard of
+                false ->
+                    Rec;
+                true ->
+                    Rec#{?collection_guard := TXSerial}
+            end;
+        {nop, {_, Rec}} ->
             Rec;
-        {nop, Rec} ->
-            Rec;
-        Err ->
+        {error, _, _} = Err ->
             error({failed_to_commit_state, Err})
     end.
 
