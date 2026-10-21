@@ -170,13 +170,17 @@ t_expire(_Config) ->
 
     _ = emqtt_connect(?CLIENT_ID, false),
     #{conninfo := ConnInfo} = Opts0 = evict_session_opts(?CLIENT_ID),
-    Opts1 = Opts0#{conninfo => ConnInfo#{expiry_interval => 1}},
+    Opts1 = Opts0#{conninfo => ConnInfo#{expiry_interval => 1000}},
 
     {ok, Pid} = emqx_eviction_agent_channel:start_supervised(Opts1),
 
-    ct:sleep(1500),
-
-    ?assertNot(is_process_alive(Pid)).
+    MRef = monitor(process, Pid),
+    receive
+        {'DOWN', MRef, process, Pid, Reason} ->
+            ?assertEqual({shutdown, expired}, Reason)
+    after 5000 ->
+        ct:fail(session_did_not_expire)
+    end.
 
 t_get_connected_client_count(_Config) ->
     erlang:process_flag(trap_exit, true),
