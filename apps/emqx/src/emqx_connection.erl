@@ -1337,13 +1337,10 @@ check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
 %%--------------------------------------------------------------------
 %% Handle Info
 
-handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
+handle_info(activate_socket, State) ->
     case activate_socket(State) of
-        {ok, NState = #state{sockstate = NewSst}} ->
-            case OldSst =/= NewSst of
-                true -> {ok, {event, NewSst}, NState};
-                false -> {ok, NState}
-            end;
+        {ok, NState} ->
+            {ok, NState};
         {error, Reason} ->
             handle_info({sock_error, Reason}, State)
     end;

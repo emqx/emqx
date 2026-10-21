@@ -1316,6 +1316,45 @@ t_client_stats_after_traffic(Config) ->
     end.
 
 -doc """
+A fuzzy search returns the stats of the clients it matches, and builds the
+stats only for those: the fuzzy filter reads the info map, so it runs before
+the stats arrays and the process stats are read.
+""".
+t_fuzzy_query_clients_stats(Config) ->
+    ClientIds = [<<"fuzzy_stats_a1">>, <<"fuzzy_stats_a2">>, <<"fuzzy_stats_b1">>],
+    Clients = lists:map(
+        fun(ClientId) ->
+            {ok, C} = emqtt:start_link([{clientid, ClientId}]),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        ClientIds
+    ),
+    ok = meck:new(emqx_chan_stats, [passthrough, no_link]),
+    try
+        {ok, {?HTTP200, _, #{<<"data">> := Found}}} =
+            list_request(#{like_clientid => "fuzzy_stats_a"}, Config),
+        ?assertEqual(
+            [<<"fuzzy_stats_a1">>, <<"fuzzy_stats_a2">>],
+            lists:sort([ClientId || #{<<"clientid">> := ClientId} <- Found])
+        ),
+        lists:foreach(
+            fun(Client) ->
+                ?assertMatch(
+                    #{<<"recv_pkt">> := 1, <<"send_pkt">> := 1, <<"heap_size">> := H} when
+                        is_integer(H),
+                    Client
+                )
+            end,
+            Found
+        ),
+        ?assertEqual(2, meck:num_calls(emqx_chan_stats, to_list, '_'))
+    after
+        meck:unload(emqx_chan_stats),
+        lists:foreach(fun(C) -> ok = emqtt:disconnect(C) end, Clients)
+    end.
+
+-doc """
 `GET /clients` lists the clients of every node with their stats: the node
 that holds a row builds the stats proplist from its stats array before the
 row goes to the node that serves the request.

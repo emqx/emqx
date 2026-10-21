@@ -555,10 +555,10 @@ do_select(
         {error, _} ->
             {[], mark_complete(QueryState)};
         {Rows, '$end_of_table'} ->
-            NRows = maybe_apply_fuzzy_filter(materialize_stats(Tab, Rows), QueryState),
+            NRows = materialize_stats(Tab, maybe_apply_fuzzy_filter(Rows, QueryState)),
             {NRows, mark_complete(QueryState)};
         {Rows, NContinuation} ->
-            NRows = maybe_apply_fuzzy_filter(materialize_stats(Tab, Rows), QueryState),
+            NRows = materialize_stats(Tab, maybe_apply_fuzzy_filter(Rows, QueryState)),
             {NRows, QueryState#{continuation => NContinuation}};
         '$end_of_table' ->
             {[], mark_complete(QueryState)}
@@ -567,7 +567,8 @@ do_select(
 %% A row of the channel info table holds the reference of the stats array of
 %% the channel process, which is only valid on this node, as is the pid for
 %% the process stats. The rows go to the coordinating node, so build the
-%% stats proplist here.
+%% stats proplist here, after the fuzzy filter, which reads only the info map:
+%% a search pays for the rows it returns, not for the rows it scans.
 materialize_stats(emqx_channel_info, Rows) ->
     [
         {Chan, Info, emqx_chan_stats:to_list(StatsRef) ++ emqx_utils:proc_stats(ChanPid)}
