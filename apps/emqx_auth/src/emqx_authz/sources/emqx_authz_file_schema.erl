@@ -46,7 +46,7 @@ fields(api_file) ->
                         required => true,
                         example =>
                             <<
-                                "{allow,{username,{re,\"^dashboard$\"}},subscribe,[\"$SYS/#\"]}.\n",
+                                "{allow,{username,\"dashboard\"},subscribe,[\"$SYS/#\"]}.\n",
                                 "{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}."
                             >>,
                         desc => ?DESC(rules)
