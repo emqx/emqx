@@ -251,7 +251,7 @@ t_refused_before_tls_handshake_max_conn_rate(Config) ->
 
 -doc """
 Verify that a TLS-based listener closes each accepted connection that does not
-finish the TLS handshake in time.
+finish the TLS handshake within `ssl_options.handshake_timeout`.
 """.
 t_tls_handshake_timeout(Config) ->
     Type = ?config(proto, Config),
@@ -267,8 +267,8 @@ t_tls_handshake_timeout(Config) ->
     with_listener(Type, Name, LConf, fun() ->
         Baseline = count_tls_resources(),
         %% Half of the clients send a ClientHello, the others send nothing.
-        %% None of them finishes the handshake. The WSS listener uses the
-        %% default 15 s handshake timeout.
+        %% None of them finishes the handshake. The listener must close each
+        %% of them well before the 15 s default handshake timeout.
         Sockets = lists:map(
             fun(I) ->
                 {ok, Socket} = gen_tcp:connect(
@@ -281,7 +281,7 @@ t_tls_handshake_timeout(Config) ->
         ),
         ?assertEqual(
             [closed || _ <- Sockets],
-            [wait_closed(Socket) || Socket <- Sockets]
+            [wait_closed(Socket, 5_000) || Socket <- Sockets]
         ),
         lists:foreach(fun gen_tcp:close/1, Sockets),
         ?retry(100, 30, ?assertEqual(Baseline, count_tls_resources()))
@@ -324,8 +324,11 @@ test_refused_before_tls_handshake(Name, Limits, Config) ->
     end).
 
 wait_closed(Socket) ->
-    case gen_tcp:recv(Socket, 0, 20_000) of
-        {ok, _Data} -> wait_closed(Socket);
+    wait_closed(Socket, 20_000).
+
+wait_closed(Socket, Timeout) ->
+    case gen_tcp:recv(Socket, 0, Timeout) of
+        {ok, _Data} -> wait_closed(Socket, Timeout);
         {error, Reason} -> Reason
     end.
 
