@@ -1178,7 +1178,7 @@ send(
     end.
 
 %% A TCP port (inet backend) is sent to with `async_send/3', which calls
-%% `gen_tcp:send_async/3'. It returns when the driver has the data. The
+%% `prim_inet:send_async/3'. It returns when the driver has the data. The
 %% driver replies later with `{inet_reply, Socket, Status, send_async}',
 %% which `handle_msg/2' handles. `{error, busy}' means the driver queue is
 %% above its high watermark: send that packet synchronously, so that the
