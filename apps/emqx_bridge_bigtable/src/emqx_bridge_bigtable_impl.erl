@@ -91,10 +91,12 @@ callback_mode() ->
     {ok, connector_state()} | {error, _Reason}.
 on_start(ConnResId, ConnConfig) ->
     #{
+        url := URL,
         connect_timeout := ConnectTimeout,
         resource_opts := #{health_check_timeout := HCTimeout}
     } = ConnConfig,
     maybe
+        ok ?= check_ssrf(URL),
         {ok, Client} ?= emqx_bridge_bigtable_client:start(ConnResId, ConnConfig),
         ConnState = #{
             ?installed_channels => #{},
@@ -299,6 +301,25 @@ mutate_rows_reply_delegator(ContinuationCtx, Reply) ->
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
+
+check_ssrf(URL) ->
+    maybe
+        #{authority := #{host := Host}} ?= parse_uri(URL),
+        ok ?= emqx_utils_ssrf:check_host(Host),
+        ok
+    else
+        {error, Err} ->
+            {error, emqx_utils_ssrf:format_error(Err)};
+        #{} ->
+            {error, {bad_url, URL}}
+    end.
+
+parse_uri(Endpoint) ->
+    %% When the URI has no scheme, the hostname/authority might be interpret as path...
+    maybe
+        #{scheme := undefined, authority := undefined} ?= emqx_utils_uri:parse(Endpoint),
+        parse_uri(<<"https://", Endpoint/binary>>)
+    end.
 
 render_val(KeyName, Key, Data) ->
     try map_get(Key, Data) of
