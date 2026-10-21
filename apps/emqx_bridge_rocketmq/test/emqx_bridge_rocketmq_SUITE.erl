@@ -210,11 +210,17 @@ create_action_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
     ).
 
+delete_action_api(TCConfig) ->
+    emqx_bridge_v2_testlib:delete_kind_api2(TCConfig).
+
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
 simple_create_rule_api(SQL, TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(SQL, TCConfig).
+
+delete_rule_api(RuleId) ->
+    emqx_bridge_v2_testlib:delete_rule_api(RuleId).
 
 start_client() ->
     start_client(_Opts = #{}).
@@ -246,6 +252,40 @@ unmock_topic_not_found() ->
 get_action_metrics(TCConfig) ->
     {200, #{<<"metrics">> := Metrics}} = emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig),
     Metrics.
+
+parse_servers(Servers) ->
+    lists:map(
+        fun(Server) ->
+            [Host, Port] = binary:split(Server, <<":">>),
+            {binary_to_list(Host), binary_to_integer(Port)}
+        end,
+        binary:split(Servers, <<",">>, [global])
+    ).
+
+unique_atom(Prefix) ->
+    list_to_atom(Prefix ++ "_" ++ integer_to_list(erlang:unique_integer([positive]))).
+
+wait_until_request_count(Producers, Expected, Attempts) ->
+    case producer_request_count(Producers) of
+        Expected ->
+            ok;
+        _Count when Attempts > 0 ->
+            timer:sleep(100),
+            wait_until_request_count(Producers, Expected, Attempts - 1);
+        Count ->
+            ?assertEqual(Expected, Count)
+    end.
+
+producer_request_count(#{workers := WorkersTab}) ->
+    lists:sum([
+        producer_request_count(ProducerPid)
+     || {_Index, _BrokerName, _QueueSeqNum, ProducerPid, _BrokerAddrs} <- ets:tab2list(WorkersTab),
+        is_pid(ProducerPid)
+    ]);
+producer_request_count(ProducerPid) ->
+    {_StateName, ProducerState} = sys:get_state(ProducerPid),
+    Requests = element(14, ProducerState),
+    map_size(Requests).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -547,40 +587,6 @@ t_deprecated_templated_strategy(TCConfig) ->
     ),
     ok.
 
-parse_servers(Servers) ->
-    lists:map(
-        fun(Server) ->
-            [Host, Port] = binary:split(Server, <<":">>),
-            {binary_to_list(Host), binary_to_integer(Port)}
-        end,
-        binary:split(Servers, <<",">>, [global])
-    ).
-
-unique_atom(Prefix) ->
-    list_to_atom(Prefix ++ "_" ++ integer_to_list(erlang:unique_integer([positive]))).
-
-wait_until_request_count(Producers, Expected, Attempts) ->
-    case producer_request_count(Producers) of
-        Expected ->
-            ok;
-        _Count when Attempts > 0 ->
-            timer:sleep(100),
-            wait_until_request_count(Producers, Expected, Attempts - 1);
-        Count ->
-            ?assertEqual(Expected, Count)
-    end.
-
-producer_request_count(#{workers := WorkersTab}) ->
-    lists:sum([
-        producer_request_count(ProducerPid)
-     || {_Index, _BrokerName, _QueueSeqNum, ProducerPid, _BrokerAddrs} <- ets:tab2list(WorkersTab),
-        is_pid(ProducerPid)
-    ]);
-producer_request_count(ProducerPid) ->
-    {_StateName, ProducerState} = sys:get_state(ProducerPid),
-    Requests = element(14, ProducerState),
-    map_size(Requests).
-
 -doc """
 `namespace' was renamed to `rocketmq_namespace'.  The old name collided with the
 EMQX namespace reported by the connector API: both encoded to the JSON key
@@ -770,4 +776,32 @@ t_connected_without_startup_alarm(TCConfig) when is_list(TCConfig) ->
             ok
         end
     ),
+    ok.
+
+t_cleanup_resources(TCConfig) when is_list(TCConfig) ->
+    GetProducers = fun() ->
+        [P || {_, P, _, _} <- supervisor:which_children(rocketmq_producers_sup)]
+    end,
+    Producers0 = GetProducers(),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{~"status" := ~"connected"}} = create_action_api(TCConfig, #{
+        ~"parameters" => #{~"topic" => ~"${.payload.t}"}
+    }),
+    #{id := RuleId, topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, RuleTopic, emqx_utils_json:encode(#{t => ~"TopicTest"}), [{qos, 1}]),
+    emqtt:publish(C, RuleTopic, emqx_utils_json:encode(#{t => ~"Topic2"}), [{qos, 1}]),
+    Producers1 = GetProducers(),
+    {204, _} = delete_rule_api(RuleId),
+    {204, _} = delete_action_api(TCConfig),
+    Producers2 = GetProducers(),
+
+    Ctx = #{
+        producers0 => Producers0,
+        producers1 => Producers1,
+        producers2 => Producers2
+    },
+    ?assertMatch([_ | _], Producers1 -- Producers0, Ctx),
+    ?assertMatch([], Producers0 -- Producers2, Ctx),
+    ?assertMatch([], Producers2 -- Producers0, Ctx),
     ok.

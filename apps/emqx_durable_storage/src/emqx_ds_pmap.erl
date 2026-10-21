@@ -53,6 +53,7 @@ taking over the collection. Such locking is out of scope of this module.
     new_pmap/2,
     tx_restore/3,
     tx_commit/2,
+    tx_success/2,
     tx_destroy/2,
     dirty_read/4,
 
@@ -68,6 +69,8 @@ taking over the collection. Such locking is out of scope of this module.
     collection_del/3,
     collection_size/2,
     collection_check_sequence/1,
+    tx_collection_commit/2,
+    collection_release_dirty/3,
 
     tx_guard/1,
     tx_assert_guard/2,
@@ -81,6 +84,7 @@ taking over the collection. Such locking is out of scope of this module.
 ]).
 
 -export_type([
+    tx_counter/0,
     pmap/2,
     collection_id/0,
     guard/0,
@@ -101,12 +105,15 @@ taking over the collection. Such locking is out of scope of this module.
 %% Type declarations
 %%================================================================================
 
+-type tx_counter() :: integer().
+
 -opaque pmap(K, V) ::
     #pmap{
         name :: binary(),
         module :: module(),
         cache :: #{K => V},
-        dirty :: #{K => dirty | {del, emqx_ds:topic()}}
+        dirty :: #{K => tx_counter() | {del, tx_counter(), emqx_ds:topic()}},
+        tx_counter :: tx_counter()
     }.
 
 -type collection_id() :: binary().
@@ -221,27 +228,100 @@ tx_destroy(CollectionId, Name) when is_binary(Name) ->
     emqx_ds:tx_del_topic(pmap_topic(Name, CollectionId, '+')).
 
 -doc """
-Dump changed data from the pmap to the durable storage.
+Dump dirty (changed) data from the pmap to the durable storage.
 
 This function should be called in a transaction context.
+
+It does NOT clean the dirty flags for the keys:
+that is done by `tx_success` function,
+which should be called when the transaction succeeds.
 """.
--spec tx_commit(collection_id(), pmap(K, V)) -> pmap(K, V).
+-spec tx_commit(collection_id(), pmap(K, V)) -> {tx_counter(), pmap(K, V)}.
 tx_commit(
-    CollectionId, Pmap = #pmap{name = Name, module = CBM, dirty = Dirty, cache = Cache}
+    CollectionId,
+    #pmap{
+        name = Name,
+        module = CBM,
+        dirty = Dirty,
+        cache = Cache,
+        tx_counter = TxCntr
+    } = Pmap
 ) when is_binary(CollectionId) ->
     maps:foreach(
         fun
-            (_Key, {del, Topic}) ->
+            (_Key, {del, _, Topic}) ->
                 emqx_ds:tx_del_topic(Topic);
-            (Key, dirty) ->
+            (Key, C) when is_integer(C) ->
                 #{Key := Val} = Cache,
                 tx_write_pmap_kv(CBM, Name, CollectionId, Key, Val)
         end,
         Dirty
     ),
-    Pmap#pmap{
-        dirty = #{}
-    }.
+    {TxCntr, Pmap#pmap{tx_counter = TxCntr + 1}}.
+
+-doc """
+Commit all pmaps in the collection using `tx_commit`.
+
+This function should be called in a transaction context.
+
+It does NOT clean any dirty flags:
+that is done by `collection_release_dirty` function,
+which should be called when the transaction succeeds.
+""".
+-spec tx_collection_commit([field(), ...], collection()) ->
+    {tx_counter(), collection()}.
+tx_collection_commit([_ | _] = Fields, #{id := CollectionId} = Collection) ->
+    lists:foldl(
+        fun(Field, {CntrAcc, Acc}) ->
+            #{Field := Pmap0} = Acc,
+            {Cntr, Pmap} = tx_commit(CollectionId, Pmap0),
+            %% Verify that all pmaps in the collection were updated in
+            %% accord:
+            case CntrAcc of
+                undefined -> ok;
+                Cntr -> ok
+            end,
+            {Cntr, Acc#{Field := Pmap}}
+        end,
+        {undefined, Collection},
+        Fields
+    ).
+
+-doc """
+Release dirty records committed by a transaction.
+""".
+-spec tx_success(tx_counter(), pmap(K, V)) -> pmap(K, V).
+tx_success(Committed, Pmap = #pmap{dirty = Dirty0}) ->
+    Dirty =
+        maps:filter(
+            fun
+                (_Key, {del, TxCntr, _}) ->
+                    TxCntr > Committed;
+                (_Key, TxCntr) when is_integer(TxCntr) ->
+                    TxCntr > Committed
+            end,
+            Dirty0
+        ),
+    Pmap#pmap{dirty = Dirty}.
+
+-doc """
+Release dirty records in all pmaps in the collection.
+""".
+-spec collection_release_dirty([field()], tx_counter(), collection()) -> collection().
+collection_release_dirty(Fields, Committed, Collection0) ->
+    {IsDirty, Collection} = lists:foldl(
+        fun(Field, {IsDirtyAcc, Acc}) ->
+            #{Field := Pmap0} = Acc,
+            Pmap = #pmap{dirty = Dirty} = tx_success(Committed, Pmap0),
+            {
+                IsDirtyAcc orelse maps:size(Dirty) > 0,
+                Acc#{Field := Pmap}
+            }
+        end,
+        {false, Collection0},
+        Fields
+    ),
+    Collection#{?collection_dirty := IsDirty}.
 
 -doc """
 Read data from a durable storage to RAM, creating a new pmap.
@@ -293,12 +373,14 @@ put(
     Key,
     Val,
     Pmap = #pmap{
-        dirty = Dirty, cache = Cache
+        dirty = Dirty,
+        cache = Cache,
+        tx_counter = TxCntr
     }
 ) ->
     Pmap#pmap{
         cache = Cache#{Key => Val},
-        dirty = Dirty#{Key => dirty}
+        dirty = Dirty#{Key => TxCntr}
     }.
 
 -spec del(collection_id(), K, pmap(K, V)) -> pmap(K, V).
@@ -309,7 +391,8 @@ del(
         name = Name,
         module = CBM,
         dirty = Dirty,
-        cache = Cache0
+        cache = Cache0,
+        tx_counter = TxCntr
     }
 ) ->
     case maps:take(Key, Cache0) of
@@ -317,7 +400,7 @@ del(
             Topic = pmap_topic(Name, CollectionId, encode_key(CBM, Name, Key, Val)),
             Pmap#pmap{
                 cache = Cache,
-                dirty = Dirty#{Key => {del, Topic}}
+                dirty = Dirty#{Key => {del, TxCntr, Topic}}
             };
         error ->
             Pmap

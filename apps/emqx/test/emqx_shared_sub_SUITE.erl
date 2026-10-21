@@ -1015,9 +1015,11 @@ t_session_takeover(Config) when is_list(Config) ->
     Message2 = emqx_message:make(<<"dummypub">>, 2, Topic, <<"hello2">>),
     Message3 = emqx_message:make(<<"dummypub">>, 2, Topic, <<"hello3">>),
     Message4 = emqx_message:make(<<"dummypub">>, 2, Topic, <<"hello4">>),
-    %% Make sure client1 is functioning
+    %% Make sure client1 is functioning.
+    %% Every wait here is sized for a loaded runner: the default 1s has
+    %% expired on CI even for this plain delivery, before any takeover.
     ?assertMatch([_], emqx:publish(Message1)),
-    {true, _} = last_message(<<"hello1">>, [ConnPid1]),
+    {true, _} = last_message(<<"hello1">>, [ConnPid1], 15_000),
     %% Kill client1
     emqtt:stop(ConnPid1),
     %% publish another message (should end up in client1's session)
@@ -1030,11 +1032,12 @@ t_session_takeover(Config) when is_list(Config) ->
     ?assertMatch([_], emqx:publish(Message4)),
     %% Messages published around the takeover are delivered by session
     %% redelivery, which can take longer than the default 1s under CI load.
-    {true, _} = last_message(<<"hello2">>, [ConnPid2], 5_000),
+    %% 5s has expired here too, on runs where all three CT attempts failed.
+    {true, _} = last_message(<<"hello2">>, [ConnPid2], 15_000),
     %% We may or may not recv dup hello2 due to QoS1 redelivery
     _ = last_message(<<"hello2">>, [ConnPid2]),
-    {true, _} = last_message(<<"hello3">>, [ConnPid2], 5_000),
-    {true, _} = last_message(<<"hello4">>, [ConnPid2], 5_000),
+    {true, _} = last_message(<<"hello3">>, [ConnPid2], 15_000),
+    {true, _} = last_message(<<"hello4">>, [ConnPid2], 15_000),
     %% A QoS1 message delivered around the takeover may be redelivered with the
     %% DUP flag set; such redeliveries are expected and must be ignored here.
     Remaining = [Msg || {publish, #{dup := false}} = Msg <- collect_msgs(timer:seconds(2))],
