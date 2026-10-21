@@ -857,6 +857,8 @@ reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Replies = lists:reverse(Acc),
     {OkEffect, Replies, Session}.
 
+retry_dequeue_effect(_Reason, {empty, _}) ->
+    ok;
 retry_dequeue_effect(Reason, Q) ->
     case emqx_mqueue:is_empty(Q) of
         true -> ok;
