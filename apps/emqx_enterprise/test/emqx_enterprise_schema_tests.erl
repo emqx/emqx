@@ -74,6 +74,62 @@ http_oauth2_is_not_exposed_by_derived_connectors_test() ->
         proplists:is_defined(oauth2, emqx_bridge_iotdb_connector:fields("config_restapi"))
     ).
 
+%% `PUT /configs?mode=merge` normalizes the submitted fragment as a partial
+%% document. An omitted field must stay omitted: its converter must neither
+%% crash on it nor make a value that the merge writes over the stored one.
+partial_merge_empty_roots_test() ->
+    Roots = [emqx_utils_conv:bin(Root) || Root <- get_roots(emqx_enterprise_schema)],
+    ?assertEqual(
+        [],
+        [
+            {Root, Result}
+         || Root <- Roots,
+            Result <- [normalize_partial(#{Root => #{}})],
+            not is_empty_root(Root, Result)
+        ]
+    ).
+
+partial_merge_connector_without_server_test_() ->
+    [
+        {Type, ?_assertMatch({ok, _}, normalize_partial(connector_fragment(Type)))}
+     || Type <- [<<"elasticsearch">>, <<"datalayers">>, <<"influxdb">>]
+    ].
+
+partial_merge_transformation_without_key_test() ->
+    Fragment = #{
+        <<"message_transformation">> => #{
+            <<"transformations">> => [
+                #{
+                    <<"name">> => <<"t">>,
+                    <<"topics">> => [<<"t/#">>],
+                    <<"operations">> => [#{<<"value">> => <<"1">>}]
+                }
+            ]
+        }
+    },
+    ?assertMatch({ok, _}, normalize_partial(Fragment)).
+
+connector_fragment(Type) ->
+    #{<<"connectors">> => #{Type => #{<<"c">> => #{<<"enable">> => false}}}}.
+
+is_empty_root(Root, {ok, Normalized}) ->
+    case maps:get(Root, Normalized) of
+        #{} = Conf -> map_size(Conf) =:= 0;
+        %% An array root, for which `#{}` is no fragment.
+        Conf -> is_list(Conf)
+    end;
+is_empty_root(_Root, _Result) ->
+    false.
+
+%% Same options as `emqx_config:normalize_raw_conf/1`.
+normalize_partial(Fragment) ->
+    Opts = #{partial => true, make_serializable => true},
+    try hocon_tconf:check_plain(emqx_enterprise_schema, Fragment, Opts, maps:keys(Fragment)) of
+        Normalized -> {ok, Normalized}
+    catch
+        throw:{_SchemaMod, Errors} -> {error, Errors}
+    end.
+
 ee_schema_roots() ->
     #{ee_business_apps := Apps} = emqx_machine_boot:read_apps(),
     lists:append([ee_schema_roots(atom_to_list(App)) || App <- Apps]).
