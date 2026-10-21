@@ -301,7 +301,8 @@ on_batch_query_async(_ConnResId, Queries, _ReplyFnAndArgs, _ConnectorState) ->
 %% Internal exports
 %%------------------------------------------------------------------------------
 
-reply_callback(Context0, Result) ->
+reply_callback(Context0, Result0) ->
+    Result = normalize_insert_result(Result0),
     #{iter := Iter0} = Context0,
     case maps:next(Iter0) of
         none ->
@@ -316,6 +317,14 @@ reply_callback(Context0, Result) ->
 %%------------------------------------------------------------------------------
 
 bin(X) -> emqx_utils_conv:bin(X).
+
+%% NIF encoding errors (invalid JSON2 documents, invalid typed values, etc.)
+%% are permanent data errors. Database/network errors are returned as
+%% `{error, Reason}' without the `nif_error' wrapper and remain recoverable.
+normalize_insert_result({error, {nif_error, Reason}}) ->
+    {error, {unrecoverable_error, Reason}};
+normalize_insert_result(Result) ->
+    Result.
 
 parse_batch_data(ConnResId, Database, Batch, WriteSyntax) ->
     maybe
@@ -345,7 +354,7 @@ do_insert_sync(TablesToPoints, ConnState) ->
         maps:fold(
             fun(Table, PointsWithIndices, Acc0) ->
                 {Indices, Points} = lists:unzip(PointsWithIndices),
-                Res0 = greptimedb_rs:insert(Client, Table, Points),
+                Res0 = normalize_insert_result(greptimedb_rs:insert(Client, Table, Points)),
                 Res = lists:map(fun(I) -> {I, Res0} end, Indices),
                 [Res | Acc0]
             end,

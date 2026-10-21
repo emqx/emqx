@@ -319,9 +319,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.3"}
 
   def common_dep(:greptimedb_rs),
-    do:
-      {:greptimedb_rs,
-       github: "JimMoen/greptimedb-ingester-erlnif", branch: "feat/json2-write-support"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.2.0"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 

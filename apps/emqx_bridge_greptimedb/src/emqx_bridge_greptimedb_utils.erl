@@ -256,10 +256,6 @@ parse_timestamp([TsBin]) ->
             {error, TsBin}
     end.
 
-%% JSON2 values are wrapped in a `{json2, JsonBinary}' tuple so that the
-%% native driver knows to infer/create the column as JSON2 instead of STRING.
-to_raw_value([Json, <<"j">>]) ->
-    {json2, json2_binary(Json)};
 to_raw_value([N, Suffix]) when is_number(N), is_binary(Suffix) ->
     N;
 to_raw_value([<<"t">>]) ->
@@ -294,14 +290,6 @@ to_raw_value(Val0) ->
             throw({unrecoverable_error, {non_utf8_string_value, Val0}})
     end.
 
-json2_binary(Json) when is_binary(Json) ->
-    Json;
-json2_binary(Json) ->
-    emqx_utils_json:encode(Json).
-
-%% JSON2 columns are only supported by the native driver.
-value_type([_Json, <<"j">>]) ->
-    error({unrecoverable_error, json2_requires_native_driver});
 value_type([Int, <<"i">>]) when
     is_integer(Int)
 ->
