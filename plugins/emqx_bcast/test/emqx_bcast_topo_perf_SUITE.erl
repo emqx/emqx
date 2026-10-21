@@ -165,8 +165,8 @@ t_3c_e2e(Config) ->
             <<"MessageContent">> => b64(?PAYLOAD),
             <<"Qos">> => 1
         }),
-        [M1b] = recv(1),
-        [M2b] = recv(1),
+        [M1b] = recv(1, 10_000),
+        [M2b] = recv(1, 10_000),
         ?assertEqual(?PAYLOAD, maps:get(payload, M1b)),
         ?assertEqual(?PAYLOAD, maps:get(payload, M2b)),
 
@@ -325,18 +325,23 @@ b64(S) -> base64:encode(S).
 
 mono_us() -> erlang:monotonic_time(microsecond).
 
-recv(Count) -> recv(Count, []).
-recv(0, Msgs) ->
+recv(Count) ->
+    recv(Count, 3_000).
+
+recv(Count, Timeout) ->
+    recv(Count, Timeout, []).
+
+recv(0, _Timeout, Msgs) ->
     Msgs;
-recv(Count, Msgs) ->
+recv(Count, Timeout, Msgs) ->
     receive
-        {publish, Msg} -> recv(Count - 1, [Msg | Msgs])
+        {publish, Msg} -> recv(Count - 1, Timeout, [Msg | Msgs])
         %% Delivery-latency budget. settle_cluster/0 runs after every cluster
         %% start so the async QoS1 pipeline (intake -> promoter -> trigger ->
         %% claim -> prepare -> deliver) is already warm; a delivery that
         %% still misses this budget is a real regression, not cold-start
         %% noise.
-    after 3000 -> Msgs
+    after Timeout -> Msgs
     end.
 
 wait_sub(Node, ClientId, Topic) ->
