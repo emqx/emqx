@@ -35,6 +35,10 @@
     default_port => 9876
 }).
 
+%% Allocatable resources
+-define(client_id, client_id).
+-define(producer_cache(RES_ID, TOPIC), {producer_cache, RES_ID, TOPIC}).
+
 %%=====================================================================
 %% Hocon schema
 
@@ -132,7 +136,7 @@ on_start(
         ssl_opts => SSLOpts
     },
 
-    ok = emqx_resource:allocate_resource(InstanceId, ?MODULE, client_id, ClientId),
+    ok = allocate(InstanceId, ?client_id, ClientId),
     create_producers_map(ClientId),
 
     case rocketmq:ensure_supervised_client(ClientId, Servers, ClientCfg) of
@@ -199,15 +203,16 @@ create_channel_state(
     {ok, State}.
 
 on_remove_channel(
-    _InstId,
+    ConnResId,
     #{
         installed_channels := InstalledChannels
     } = OldState,
-    ChannelId
+    ChanResId
 ) ->
-    NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+    destroy_allocated_channel_resources(ConnResId, ChanResId),
+    NewInstalledChannels = maps:remove(ChanResId, InstalledChannels),
     %% Update state
-    NewState = OldState#{installed_channels => NewInstalledChannels},
+    NewState = OldState#{installed_channels := NewInstalledChannels},
     {ok, NewState}.
 
 on_get_channel_status(
@@ -277,12 +282,13 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_rocketmq_connector",
         connector => InstanceId
     }),
+    destroy_allocated_channel_resources(InstanceId),
     lists:foreach(
         fun
-            ({_, client_id, ClientId}) ->
+            ({_, ?client_id, ClientId}) ->
                 destory_producers_map(ClientId),
                 ok = rocketmq:stop_and_delete_supervised_client(ClientId);
-            ({_, _ProducerGroup, Producer}) ->
+            ({_, ?producer_cache(_, _), Producer}) ->
                 _ = rocketmq:stop_and_delete_supervised_producers(Producer)
         end,
         emqx_resource:get_allocated_resources_list(InstanceId)
@@ -330,6 +336,23 @@ format_reason(Other) ->
 %%========================================================================================
 %% Helper fns
 %%========================================================================================
+
+destroy_allocated_channel_resources(ConnResId) ->
+    destroy_allocated_channel_resources(ConnResId, _ChanResId = '_').
+
+destroy_allocated_channel_resources(ConnResId, ChanResId) ->
+    maps:foreach(
+        fun
+            (?producer_cache(Id, _) = Key, Producers) when
+                ChanResId == '_' orelse Id == ChanResId
+            ->
+                _ = rocketmq:stop_and_delete_supervised_producers(Producers),
+                deallocate(ConnResId, Key);
+            (_, _) ->
+                ok
+        end,
+        emqx_resource:get_allocated_resources(ConnResId)
+    ).
 
 do_query(
     InstanceId,
@@ -538,7 +561,7 @@ destory_producers_map(ClientId) ->
 get_producers(ChannelId, InstanceId, ClientId, Topic, ProducerOpts) ->
     %% The topic need to be included in the name since we can have multiple
     %% topics per channel due to templating.
-    ProducerGroup = iolist_to_binary([ChannelId, "_", Topic]),
+    ProducerGroup = mk_producer_group(ChannelId, Topic),
     case ets:lookup(ClientId, ProducerGroup) of
         [{_, Producers}] ->
             {ok, Producers};
@@ -551,13 +574,14 @@ get_producers(ChannelId, InstanceId, ClientId, Topic, ProducerOpts) ->
                     rocketmq:ensure_supervised_producers(
                         ClientId, ProducerGroup, Topic, ProducerOpts2
                     ),
-                ok = emqx_resource:allocate_resource(
-                    InstanceId, ?MODULE, ProducerGroup, Producers
-                ),
+                ok = allocate(InstanceId, ?producer_cache(ChannelId, Topic), Producers),
                 ets:insert(ClientId, {ProducerGroup, Producers}),
                 {ok, Producers}
             end
     end.
+
+mk_producer_group(ChanResId, Topic) ->
+    iolist_to_binary([ChanResId, "_", Topic]).
 
 maybe_parse_template(undefined) ->
     undefined;
@@ -588,3 +612,9 @@ key_render_opts() ->
                 X
         end
     }.
+
+allocate(ConnResId, Key, Value) ->
+    ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, Key, Value).
+
+deallocate(ConnResId, Key) ->
+    ok = emqx_resource:deallocate_resource(ConnResId, Key).

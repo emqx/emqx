@@ -241,7 +241,13 @@ start_channel(State, ActionResId, #{
     end.
 
 upload_options(Parameters) ->
-    #{acl => maps:get(acl, Parameters, undefined)}.
+    Opts0 = #{acl => maps:get(acl, Parameters, undefined)},
+    case Parameters of
+        #{headers := Headers} when map_size(Headers) > 0 ->
+            Opts0#{headers => Headers};
+        #{} ->
+            Opts0
+    end.
 
 stop_channel(#{on_stop := OnStop}) ->
     OnStop();

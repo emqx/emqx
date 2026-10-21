@@ -66,6 +66,9 @@
     default_port => ?ORACLE_DEFAULT_PORT
 }).
 
+%% seconds
+-define(AUTO_RECONNECT_INTERVAL, 2).
+
 -type prepares() :: #{atom() => binary()}.
 -type prepare_state() ::
     prepares()
@@ -125,7 +128,8 @@ on_start(
         {service_name, ServiceName},
         {pool_size, maps:get(pool_size, Config, ?DEFAULT_POOL_SIZE)},
         {timeout, ?OPT_TIMEOUT},
-        {app_name, "EMQX Data To Oracle Database Action"}
+        {app_name, "EMQX Data To Oracle Database Action"},
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
     ],
     PoolName = InstId,
     HCTimeout = emqx_resource:get_health_check_timeout(Config),
@@ -178,13 +182,19 @@ create_channel_state(
     {ok, State1}.
 
 on_remove_channel(
-    _InstId,
+    InstId,
     #{
         installed_channels := InstalledChannels
     } = OldState,
     ChannelId
 ) ->
     NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+    lists:foreach(
+        fun({_, WorkerPid}) ->
+            ecpool_worker:remove_reconnect_callback_by_signature(WorkerPid, ChannelId)
+        end,
+        ecpool:workers(InstId)
+    ),
     %% Update state
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState}.
@@ -504,7 +514,10 @@ prepare_sql(Prepares, PoolName, TokensMap) ->
     case do_prepare_sql(Prepares, PoolName, TokensMap) of
         {ok, _Sts} = Ok ->
             %% prepare for reconnect
-            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Prepares]}),
+            ecpool:add_reconnect_callback(
+                PoolName,
+                {?MODULE, prepare_sql_to_conn, [Prepares, TokensMap]}
+            ),
             Ok;
         Error ->
             Error
@@ -549,7 +562,7 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], TokensMap, Statements) whe
 %% this callback accepts the arg list provided to
 %% ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Templates]})
 %% so ecpool_worker can de-duplicate the callbacks based on the signature.
-get_reconnect_callback_signature([[{ChannelId, _Template}]]) ->
+get_reconnect_callback_signature([[{ChannelId, _Template}] | _]) ->
     ChannelId.
 
 check_if_table_exists(Conn, SQL, _Tokens0) ->

@@ -764,9 +764,9 @@ t_state_fuzz(init, Config) ->
     end,
     start_local(?FUNCTION_NAME, [{cleanup, Cleanup} | Config]).
 t_state_fuzz(_Config) ->
-    NTests = ct:get_config({fuzzer, n_tests}, 10),
+    NTests = ct:get_config({fuzzer, n_tests}, 50),
     MaxSize = ct:get_config({fuzzer, max_size}, 100),
-    NCommandsFactor = ct:get_config({fuzzer, command_multiplier}, 1),
+    NCommandsFactor = ct:get_config({fuzzer, command_multiplier}, 5),
     Mod = emqx_persistent_session_ds_state_fuzzer,
     ?run_prop(
         #{

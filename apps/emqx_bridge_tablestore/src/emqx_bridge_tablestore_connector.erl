@@ -41,28 +41,32 @@ resource_type() -> tablestore.
 
 callback_mode() -> always_sync.
 
-on_add_channel(_InstId, #{channels := Channels} = OldState, ChannelId, Conf) ->
-    #{parameters := #{storage_model_type := timeseries} = Params} = Conf,
-    Channels1 = maps:get(ChannelId, Channels, #{}),
-    NewState = OldState#{
-        channels => Channels1#{
-            ChannelId => #{
-                timestamp => maybe_preproc(maps:get(timestamp, Params, <<"now">>)),
-                table_name => maybe_preproc(maps:get(table_name, Params)),
-                measurement => maybe_preproc(maps:get(measurement, Params)),
-                tags => preproc_tags(maps:get(tags, Params)),
-                fields => preproc_fields(maps:get(fields, Params)),
-                data_source => maybe_preproc(maps:get(data_source, Params, <<>>)),
-                meta_update_model => maps:get(meta_update_model, Params)
-            }
-        }
+on_add_channel(_InstId, #{channels := Channels0} = ConnState0, ChanResId, ChanConf) ->
+    #{parameters := #{storage_model_type := timeseries} = Params} = ChanConf,
+    #{
+        table_name := TableName,
+        measurement := Measurement,
+        tags := Tags,
+        fields := Fields,
+        meta_update_model := MetaUpdateModel
+    } = Params,
+    Timestamp = maps:get(timestamp, Params, <<"now">>),
+    DataSource = maps:get(data_source, Params, <<>>),
+    ChanState = #{
+        timestamp => maybe_preproc(Timestamp),
+        table_name => maybe_preproc(TableName),
+        measurement => maybe_preproc(Measurement),
+        tags => preproc_tags(Tags),
+        fields => preproc_fields(Fields),
+        data_source => maybe_preproc(DataSource),
+        meta_update_model => MetaUpdateModel
     },
-    {ok, NewState}.
+    Channels = Channels0#{ChanResId => ChanState},
+    ConnState = ConnState0#{channels := Channels},
+    {ok, ConnState}.
 
-on_remove_channel(_InstId, #{channels := Channels} = State, ChannelId) ->
-    {ok, State#{
-        channels => maps:remove(ChannelId, Channels)
-    }}.
+on_remove_channel(_InstId, #{channels := Channels} = State, ChanResId) ->
+    {ok, State#{channels := maps:remove(ChanResId, Channels)}}.
 
 on_get_channel_status(_InstId, _ChannelId, _State) ->
     ?status_connected.
