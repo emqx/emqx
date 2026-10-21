@@ -342,7 +342,13 @@ subscribe(
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
             resubscribe(
-                Registry, SubscribeType, SubscribeCtx0, HandlerSpec, TopicFilter, SubOpts, HandlerRef
+                Registry,
+                SubscribeType,
+                SubscribeCtx0,
+                HandlerSpec,
+                TopicFilter,
+                SubOpts,
+                HandlerRef
             );
         _ ->
             case find_module_handler_ref(Registry, Module) of
@@ -439,7 +445,9 @@ subscribe(
             end
     end.
 
-resubscribe(Registry, InitType, InitCtx, {Module, _} = HandlerSpec, TopicFilter, SubOpts, HandlerRef) ->
+resubscribe(
+    Registry, InitType, InitCtx, {Module, _} = HandlerSpec, TopicFilter, SubOpts, HandlerRef
+) ->
     NewRegistry = unsubscribe(Registry, unsubscribe, SubOpts, Module, TopicFilter, HandlerRef),
     subscribe(NewRegistry, InitType, InitCtx, HandlerSpec, TopicFilter, SubOpts).
 
