@@ -341,12 +341,9 @@ subscribe(
         #{{Module, TopicFilter} := _HandlerRef} when IgnoreResubscribe ->
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
-            %% Should be parameterizable?
-            TerminateType = unsubscribe,
-            NewRegistry = unsubscribe(
-                Registry, TerminateType, SubOpts, Module, TopicFilter, HandlerRef
-            ),
-            subscribe(NewRegistry, SubscribeType, SubscribeCtx0, HandlerSpec, TopicFilter, SubOpts);
+            resubscribe(
+                Registry, SubscribeType, SubscribeCtx0, HandlerSpec, TopicFilter, SubOpts, HandlerRef
+            );
         _ ->
             case find_module_handler_ref(Registry, Module) of
                 {ok, HandlerRef} ->
@@ -415,12 +412,9 @@ subscribe(
         #{{Module, TopicFilter} := _HandlerRef} when IgnoreResubscribe ->
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
-            %% Should be parameterizable?
-            TerminateType = unsubscribe,
-            NewRegistry = unsubscribe(
-                Registry, TerminateType, SubOpts, Module, TopicFilter, HandlerRef
-            ),
-            subscribe(NewRegistry, InitType, InitCtx0, HandlerSpec, TopicFilter, SubOpts);
+            resubscribe(
+                Registry, InitType, InitCtx0, HandlerSpec, TopicFilter, SubOpts, HandlerRef
+            );
         _ ->
             HandlerRef = make_ref(),
             InitCtx = create_subscribe_ctx(HandlerRef, Module, SubOpts, InitCtx0),
@@ -444,6 +438,10 @@ subscribe(
                     Registry
             end
     end.
+
+resubscribe(Registry, InitType, InitCtx, {Module, _} = HandlerSpec, TopicFilter, SubOpts, HandlerRef) ->
+    NewRegistry = unsubscribe(Registry, unsubscribe, SubOpts, Module, TopicFilter, HandlerRef),
+    subscribe(NewRegistry, InitType, InitCtx, HandlerSpec, TopicFilter, SubOpts).
 
 unsubscribe(
     #registry{
