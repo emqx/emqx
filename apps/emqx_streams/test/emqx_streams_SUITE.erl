@@ -561,6 +561,50 @@ t_backpressure(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+-doc """
+After takeover, the client receives the inflight stream message again with its packet identifier.
+The new read from the `earliest` offset can send the message once more.
+Delivery continues after the client acknowledges all copies.
+""".
+t_session_transfer(_Config) ->
+    emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"transfer">>, topic_filter => <<"transfer/#">>, is_lastvalue => false
+    }),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"transfer/">>}),
+    Opts = [
+        {clientid, <<"stream-transfer">>},
+        {auto_ack, false},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 1000}}
+    ],
+
+    %% The first client receives the message and does not acknowledge it
+    COld = emqx_streams_test_utils:emqtt_connect(Opts),
+    true = unlink(COld),
+    emqx_streams_test_utils:emqtt_sub(COld, <<"$stream/transfer">>, [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
+    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 1, _Timeout0 = 3000),
+    [#{payload := Payload, packet_id := PacketId}] = Msgs0,
+
+    %% The second client takes over the session
+    CNew = emqx_streams_test_utils:emqtt_connect(Opts),
+    ?assertEqual(1, proplists:get_value(session_present, emqtt:info(CNew))),
+    {ok, Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 1500),
+    ?assertMatch([#{payload := Payload, packet_id := PacketId, dup := true} | _], Msgs1),
+    ?assertEqual([Payload], lists:usort([MsgPayload || #{payload := MsgPayload} <- Msgs1])),
+    ok = emqx_streams_test_utils:emqtt_ack(Msgs1),
+
+    %% New messages are delivered after the acknowledgements
+    emqx_streams_test_utils:populate(1, #{
+        topic_prefix => <<"transfer/">>, payload_prefix => <<"after-">>
+    }),
+    {ok, Msgs2} = emqx_streams_test_utils:emqtt_drain(_MinMsg2 = 1, _Timeout2 = 1500),
+    ?assertMatch([#{payload := <<"after-0">>}], Msgs2),
+
+    %% Clean up
+    ok = emqtt:disconnect(CNew).
+
 %% Verify that the stream is eventually found even if it is not present when
 %% subscribing
 t_find_stream(_Config) ->
