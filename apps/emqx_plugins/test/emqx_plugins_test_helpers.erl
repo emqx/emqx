@@ -52,6 +52,19 @@ download_plugin_package(FileURI, RetriesLeft) ->
             download_plugin_package(FileURI, RetriesLeft - 1)
     end.
 
+%% The installation attempts of `NameVsn' which are still on disk: `[]' means
+%% that the attempt cleaned up after itself.  An attempt which failed before
+%% writing any entry of `NameVsn' is not counted.
+staging_attempts(NameVsn) ->
+    [
+        Dir
+     || Dir <- filelib:wildcard(to_list(filename:join(emqx_plugins_fs:staging_root(), "*"))),
+        filelib:is_dir(filename:join(Dir, NameVsn))
+    ].
+
+to_list(Path) when is_binary(Path) -> unicode:characters_to_list(Path);
+to_list(Path) -> Path.
+
 is_valid_tar_gz(PluginBin) ->
     case erl_tar:extract({binary, PluginBin}, [compressed, memory]) of
         {ok, _} -> true;
