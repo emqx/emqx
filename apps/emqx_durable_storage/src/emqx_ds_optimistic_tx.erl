@@ -616,7 +616,9 @@ handle_del_batch(
         shard = Shard,
         cbm = CBM,
         committed_serial = SafeToReadSerial,
-        timestamp = MonotonicTS
+        timestamp = MonotonicTS,
+        olp_max_mql = OLPMaxMQL,
+        olp_max_ops = OLPMaxOps
     } = D0,
     Batch
 ) ->
@@ -636,6 +638,7 @@ handle_del_batch(
         true ?= is_integer(To) orelse To =:= infinity orelse ?err_unrec(bad_to),
         true ?= is_integer(BatchSize) orelse ?err_unrec(bad_batch_size),
         true ?= is_boolean(Dirty) orelse ?err_unrec(bad_dirty),
+        ok ?= check_olp(OLPMaxMQL),
         TopicRange = preprocess_delete(MonotonicTS, TopicRange0),
         case Dirty of
             false ->
@@ -650,6 +653,7 @@ handle_del_batch(
                                 Stream,
                                 TopicRange,
                                 BatchSize,
+                                OLPMaxOps,
                                 Alias,
                                 SafeToReadSerial,
                                 PresumedCommitSerial,
@@ -954,13 +958,23 @@ try_schedule_transaction(
     emqx_ds:ds_specific_stream(),
     emqx_ds:topic_range(),
     pos_integer(),
+    pos_integer(),
     reference(),
     serial(),
     serial(),
     gen_data()
 ) -> gen_data().
 tx_del_batch(
-    DB, CBM, Stream, TopicRange, _BatchSize, Alias, SafeToReadSerial, PresumedCommitSerial, GenData
+    DB,
+    CBM,
+    Stream,
+    TopicRange,
+    BatchSize,
+    OLPMaxOps,
+    Alias,
+    SafeToReadSerial,
+    PresumedCommitSerial,
+    GenData
 ) ->
     #'Stream'{shard = Shard, generation = Gen} = Stream,
     #gen_data{dirty_w = DirtyW, dirty_d = DirtyD0, buffer = Buff, pending_replies = Pending} =
@@ -979,7 +993,7 @@ tx_del_batch(
                 SafeToReadSerial,
                 Ops
             ),
-        CookOpts = #{},
+        CookOpts = #{batch_size => BatchSize, max_ops => OLPMaxOps},
         {ok, More, NDeleted, CookedTx} ?=
             prepare_del_batch(CBM, {DB, Shard}, Gen, TopicRange, CookOpts),
         Reply = {ok, More, NDeleted},
