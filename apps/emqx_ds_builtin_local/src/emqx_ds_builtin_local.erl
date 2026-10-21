@@ -31,6 +31,9 @@
     make_iterator/4,
     next/3,
 
+    del_batch/4,
+    del_batch_outcome/1,
+
     subscribe/3,
     unsubscribe/2,
     suback/3,
@@ -356,6 +359,24 @@ next(DB, Iter, N) ->
         {Ref, Result} ->
             Result
     end.
+
+-spec del_batch(
+    emqx_ds:db(),
+    emqx_ds:ds_specific_stream(),
+    emqx_ds:topic_range(),
+    emqx_ds:del_batch_opts()
+) -> emqx_ds:del_batch_outcome().
+del_batch(DB, Stream = #'Stream'{shard = Shard}, TopicRange, Opts) ->
+    case otx_get_leader(DB, Shard) of
+        Leader when is_pid(Leader) ->
+            emqx_ds_optimistic_tx:del_batch(Leader, DB, Stream, TopicRange, Opts);
+        undefined ->
+            ?err_rec(leader_unavailable)
+    end.
+
+-spec del_batch_outcome({'DOWN', reference(), _, _, _}) -> emqx_ds:del_batch_outcome().
+del_batch_outcome(Reply) ->
+    emqx_ds_optimistic_tx:del_batch_outcome(Reply).
 
 -spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), reference()}.
