@@ -37,7 +37,7 @@ backend can reject flush request.
     commit_kv_tx/4,
     tx_commit_outcome/1,
 
-    del_batch/8,
+    del_batch/5,
     del_batch_outcome/1,
 
     get_monotonic_timestamp/0
@@ -70,7 +70,7 @@ backend can reject flush request.
 -include("emqx_ds_builtin_tx.hrl").
 -include("emqx_ds_optimistic_tx_internals.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
+-include("../gen_src/DSBuiltinMetadata.hrl").
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -220,6 +220,8 @@ backend can reject flush request.
 }).
 -type dirty_append() :: #cast_dirty_append{}.
 
+-type del_batch() :: #ds_del_batch{}.
+
 -record(call_add_generation, {}).
 
 %%================================================================================
@@ -364,14 +366,11 @@ tx_commit_outcome(Reply) ->
 -spec del_batch(
     pid(),
     emqx_ds:db(),
-    emqx_ds:shard(),
-    emqx_ds:stream(),
-    emqx_ds:topic(),
-    emqx_ds:time(),
-    emqx_ds:time() | infinity,
+    emqx_ds:ds_specific_stream(),
+    emqx_ds:topic_range(),
     emqx_ds:del_batch_opts()
 ) -> emqx_ds:del_batch_outcome().
-del_batch(Leader, DB, Shard, Stream, Topic, From, To, Opts) ->
+del_batch(Leader, DB, Stream, TopicRange, Opts) ->
     #{timeout := Timeout, batch_size := BatchSize, sync := Sync, dirty := Dirty} = Opts,
     Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
     TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
@@ -380,11 +379,8 @@ del_batch(Leader, DB, Shard, Stream, Topic, From, To, Opts) ->
         Leader,
         #ds_del_batch{
             db = DB,
-            shard = Shard,
             stream = Stream,
-            topic = Topic,
-            from = From,
-            to = To,
+            range = TopicRange,
             batch_size = BatchSize,
             dirty = Dirty,
             alias = Alias
@@ -508,6 +504,9 @@ loop(D0) ->
             {Reply, D} = handle_add_generation(D0),
             gen:reply(From, Reply),
             loop(D);
+        {'$gen_cast', #ds_del_batch{} = DelBatch} ->
+            D = handle_del_batch(D0, DelBatch),
+            loop(D);
         {'$gen_cast', config_change} ->
             loop(do_update_config(D0));
         ?timeout_flush ->
@@ -609,6 +608,69 @@ handle_add_generation(D = #d{db = DB, shard = Shard, cbm = CBM, timestamp = TS0}
     Reply = CBM:otx_add_generation(DB, Shard, TS),
     %% TODO: commit an empty batch to persist down timestamp:
     {Reply, D#d{timestamp = TS}}.
+
+-spec handle_del_batch(d(), del_batch()) -> d().
+handle_del_batch(
+    #d{
+        db = DB,
+        shard = Shard,
+        cbm = CBM,
+        committed_serial = SafeToReadSerial,
+        timestamp = MonotonicTS
+    } = D0,
+    Batch
+) ->
+    #ds_del_batch{
+        db = BatchDB,
+        stream = Stream,
+        range = TopicRange0,
+        batch_size = BatchSize,
+        alias = Alias,
+        dirty = Dirty
+    } = Batch,
+    maybe
+        #'Stream'{shard = BatchShard, generation = Gen} ?= Stream,
+        true ?= (BatchDB =:= DB andalso BatchShard =:= Shard) orelse ?err_rec(routing_error),
+        {_Topic, From, To} ?= TopicRange0,
+        true ?= is_integer(From) orelse ?err_unrec(bad_from),
+        true ?= is_integer(To) orelse To =:= infinity orelse ?err_unrec(bad_to),
+        true ?= is_integer(BatchSize) orelse ?err_unrec(bad_batch_size),
+        true ?= is_boolean(Dirty) orelse ?err_unrec(bad_dirty),
+        TopicRange = preprocess_delete(MonotonicTS, TopicRange0),
+        case Dirty of
+            false ->
+                {ok, _PresumedCommitSerial, D} = with_time_and_generation(
+                    Gen,
+                    D0,
+                    fun(GenData, PresumedCommitSerial) ->
+                        {ok,
+                            tx_del_batch(
+                                DB,
+                                CBM,
+                                Stream,
+                                TopicRange,
+                                BatchSize,
+                                Alias,
+                                SafeToReadSerial,
+                                PresumedCommitSerial,
+                                GenData
+                            )}
+                    end
+                ),
+                D;
+            true ->
+                %% FIXME: not implemented
+                %%schedule_del_batch(Batch, D)
+                error(not_implemented)
+        end
+    else
+        {error, Class, Error} ->
+            reply_error(Alias, Alias, undefined, Class, Error),
+            D0;
+        _ ->
+            reply_error(Alias, Alias, undefined, unrecoverable, badarg),
+            D0
+    end.
 
 -spec send_dirty_append_replies(ok | false | emqx_ds:error(_), serial(), [dirty_append()]) -> ok.
 send_dirty_append_replies(Result, Serial, PendingReplies) ->
@@ -886,6 +948,59 @@ try_schedule_transaction(
             aborted
     end.
 
+-spec tx_del_batch(
+    emqx_ds:db(),
+    module(),
+    emqx_ds:ds_specific_stream(),
+    emqx_ds:topic_range(),
+    pos_integer(),
+    reference(),
+    serial(),
+    serial(),
+    gen_data()
+) -> gen_data().
+tx_del_batch(
+    DB, CBM, Stream, TopicRange, _BatchSize, Alias, SafeToReadSerial, PresumedCommitSerial, GenData
+) ->
+    #'Stream'{shard = Shard, generation = Gen} = Stream,
+    #gen_data{dirty_w = DirtyW, dirty_d = DirtyD0, buffer = Buff, pending_replies = Pending} =
+        GenData,
+    Ops = #{?ds_tx_delete_topic => [TopicRange]},
+    maybe
+        %% Note: we check conflicts for the entire range, even if we
+        %% are going to remove a small chunk of data in this range.
+        %% This is because we don't want to miss pending writes when
+        %% scheduling the deletion.
+        ok ?=
+            check_conflicts(
+                DirtyW,
+                DirtyD0,
+                SafeToReadSerial,
+                SafeToReadSerial,
+                Ops
+            ),
+        CookOpts = #{},
+        {ok, More, NDeleted, CookedTx} ?=
+            prepare_del_batch(CBM, {DB, Shard}, Gen, TopicRange, CookOpts),
+        Reply = {ok, More, NDeleted},
+        GenData#gen_data{
+            dirty_d = update_dirty_d(PresumedCommitSerial, Ops, DirtyD0),
+            buffer = [CookedTx | Buff],
+            pending_replies = [{Alias, Alias, undefined, Reply} | Pending]
+        }
+    else
+        {error, Class, Error} ->
+            ?tp(
+                debug,
+                emqx_ds_optimistic_tx_del_batch_abort,
+                #{
+                    ref => Alias, ec => Class, reason => Error, stage => prepare
+                }
+            ),
+            reply_error(Alias, Alias, undefined, Class, Error),
+            GenData
+    end.
+
 -doc """
 Overload protection.
 """.
@@ -1110,25 +1225,19 @@ preprocess_ops(_PresumedCommitSerial, Tx) ->
     maps:map(
         fun
             (?ds_tx_delete_topic, Ops) ->
-                preprocess_deletes(MonotonicTS, Ops);
+                [preprocess_delete(MonotonicTS, I) || I <- Ops];
             (_Key, Ops) ->
                 Ops
         end,
         Tx
     ).
 
--spec preprocess_deletes(emqx_ds:time(), [emqx_ds:topic_range()]) ->
-    [{emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity}].
-preprocess_deletes(MonotonicTS, Ops) ->
-    lists:map(
-        fun
-            ({TopicFilter, From, ?ds_tx_ts_monotonic}) ->
-                {TopicFilter, From, MonotonicTS};
-            (A) ->
-                A
-        end,
-        Ops
-    ).
+-spec preprocess_delete(emqx_ds:time(), emqx_ds:topic_range()) ->
+    {emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity}.
+preprocess_delete(MonotonicTS, {TopicFilter, From, ?ds_tx_ts_monotonic}) ->
+    {TopicFilter, From, MonotonicTS};
+preprocess_delete(_MonotonicTS, A) ->
+    A.
 
 -spec check_conflicts(
     emqx_ds_tx_conflict_trie:t(), emqx_ds_tx_conflict_trie:t(), serial(), serial(), emqx_ds:tx_ops()
@@ -1290,6 +1399,14 @@ prepare_tx(CBM, DBShard, Gen, SerialBin, Ops, CookOpts) ->
                     generation => Gen
                 }
             ),
+            {error, recoverable, {EC, Err, Stack}}
+    end.
+
+prepare_del_batch(CBM, DBShard, Gen, TopicRange, CookOpts) ->
+    try
+        CBM:otx_prepare_del_batch(DBShard, Gen, TopicRange, CookOpts)
+    catch
+        EC:Err:Stack ->
             {error, recoverable, {EC, Err, Stack}}
     end.
 

@@ -34,7 +34,7 @@ This is the entrypoint into the `builtin_raft` backend.
     make_iterator/4,
     next/3,
 
-    del_batch/7,
+    del_batch/4,
     del_batch_outcome/1,
 
     subscribe/3,
@@ -629,17 +629,14 @@ tx_commit_outcome(Reply) ->
 
 -spec del_batch(
     emqx_ds:db(),
-    emqx_ds:shard(),
-    emqx_ds:stream(),
-    emqx_ds:topic(),
-    emqx_ds:time(),
-    emqx_ds:time() | infinity,
+    emqx_ds:ds_specific_stream(),
+    emqx_ds:topic_range(),
     emqx_ds:del_batch_opts()
 ) -> {async, reference()} | emqx_ds:error(_).
-del_batch(DB, Shard, Stream, Topic, From, To, Opts) ->
+del_batch(DB, Stream = #'Stream'{shard = Shard}, TopicRange, Opts) ->
     case lookup_global_otx_leader(DB, Shard) of
         Leader when is_pid(Leader) ->
-            emqx_ds_optimistic_tx:del_batch(Leader, DB, Shard, Stream, Topic, From, To, Opts);
+            emqx_ds_optimistic_tx:del_batch(Leader, DB, Stream, TopicRange, Opts);
         undefined ->
             ?err_rec(leader_unavailable)
     end.

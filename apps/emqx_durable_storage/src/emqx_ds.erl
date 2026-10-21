@@ -43,7 +43,7 @@ It takes care of forwarding calls to the underlying DBMS.
 -export([dirty_append/2, dirty_append_outcome/2]).
 
 %% Mass deletion API:
--export([del_batch/7, del_batch_outcome/3]).
+-export([del_batch/6, del_batch_outcome/3]).
 
 %% Transactional API (low-level):
 -export([new_tx/2, commit_tx/3]).
@@ -597,9 +597,8 @@ must not assume the default values.
 -callback dirty_append(dirty_append_opts(), dirty_append_data()) ->
     reference() | noreply.
 
--callback del_batch(
-    db(), shard(), stream(), topic(), time(), time() | infinity, del_batch_opts()
-) -> del_batch_outcome() | {async, reference()}.
+-callback del_batch(db(), stream(), topic_range(), del_batch_opts()) ->
+    del_batch_outcome() | {async, reference()}.
 
 -callback del_batch_outcome(term()) -> del_batch_outcome().
 
@@ -1002,7 +1001,7 @@ Options:
   operation. For example:
 
   ```erlang
-  {async, Ref, Ret} = emqx_ds:del_batch(DB, Shard, Stream, ['#'], 0, infinity, #{sync => false}),
+  {async, Ref} = emqx_ds:del_batch(DB, Shard, Stream, ['#'], 0, infinity, #{sync => false}),
   receive
     ?ds_tx_commit_reply(Ref, Reply) ->
        Outcome = emqx_ds:del_batch_outcome(DB, Ref, Reply)
@@ -1029,14 +1028,13 @@ Options:
 """.
 -spec del_batch(
     db(),
-    shard(),
     stream(),
     topic(),
     time(),
     time() | infinity,
     del_batch_opts()
 ) -> del_batch_outcome() | {async, reference()}.
-del_batch(DB, Shard, Stream, Topic, From, To, UserOpts) ->
+del_batch(DB, Stream, Topic, From, To, UserOpts) ->
     Defaults = #{
         sync => true,
         batch_size => 100,
@@ -1054,7 +1052,7 @@ del_batch(DB, Shard, Stream, Topic, From, To, UserOpts) ->
             maybe_middleman(
                 Opts,
                 fun() ->
-                    del_batch_maybe_retry(Mod, DB, Shard, Stream, Topic, From, To, Opts, Retries)
+                    del_batch_maybe_retry(Mod, DB, Stream, {Topic, From, To}, Opts, Retries)
                 end
             )
         end
@@ -2303,32 +2301,32 @@ tx_maybe_save_side_effects(Ref) ->
 tx_eval_side_effects(L) ->
     lists:foreach(fun(F) -> F() end, L).
 
+-spec del_batch_maybe_retry(
+    module(), db(), stream(), topic_range(), del_batch_opts(), non_neg_integer()
+) ->
+    del_batch_outcome() | {async, reference()}.
 del_batch_maybe_retry(
     CBM,
     DB,
-    Shard,
     Stream,
-    Topic,
-    From,
-    To,
+    TopicRange,
     Opts = #{retry_interval := RetryInterval},
     Retries
 ) ->
-    case CBM:del_batch(CBM, DB, Shard, Stream, Topic, From, To, Opts) of
+    case CBM:del_batch(CBM, DB, Stream, TopicRange, Opts) of
         ?err_rec(Reason) when Retries > 0 ->
             ?tp(
                 debug,
                 emqx_ds_del_batch_retry,
                 #{
                     db => DB,
-                    shard => Shard,
                     opts => Opts,
                     attempts_left => Retries,
                     reason => Reason
                 }
             ),
             timer:sleep(RetryInterval),
-            del_batch_maybe_retry(CBM, DB, Shard, Stream, Topic, From, To, Opts, Retries - 1);
+            del_batch_maybe_retry(CBM, DB, Stream, TopicRange, Opts, Retries - 1);
         Other ->
             Other
     end.

@@ -25,11 +25,8 @@
 
 -record(ds_del_batch, {
     db :: emqx_ds:db(),
-    shard :: emqx_ds:shard(),
-    stream :: emqx_ds:stream(),
-    topic :: emqx_ds:topic(),
-    from :: emqx_ds:time(),
-    to :: emqx_ds:time() | infinity,
+    stream :: emqx_ds:ds_specific_stream(),
+    range :: emqx_ds:topic_range(),
     batch_size :: pos_integer(),
     alias :: reference(),
     dirty :: boolean(),
