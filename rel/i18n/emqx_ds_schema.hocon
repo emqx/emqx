@@ -159,6 +159,26 @@ emqx_ds_schema {
       This value should be greater than the flush interval.~"""
   }
 
+  builtin_otx_olp {
+    label: "Overload Protection Settings"
+    desc: "Overload protection settings for the transaction manager."
+  }
+
+  otx_olp_max_mql {
+    label: "Max Message Queue Length"
+    desc:
+      """~
+      Maximum message queue length of the optimistic transaction leader process used by built-in durable storage backends.
+      When this limit is reached, the leader starts automatically aborting new pending transactions and prompting clients to retry later.~"""
+  }
+
+  otx_olp_max_ops {
+     label: "Maximum Transaction Operations"
+     desc:
+       """~
+       Maximum number of operations allowed in a transaction.~"""
+  }
+
   // RocksDB tuning:
 
   rocksdb_options {

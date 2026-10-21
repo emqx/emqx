@@ -59,7 +59,8 @@ backend can reject flush request.
     ctx/0,
     serial/0,
     runtime_config/0,
-    batch/0
+    batch/0,
+    tx_prepare_opts/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -85,6 +86,8 @@ backend can reject flush request.
 -callback otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard()) ->
     {ok, serial()} | undefined.
 
+-type tx_prepare_opts() :: #{max_ops := pos_integer() | infinity}.
+
 %% Cook a raw transaction into a data structure that will be stored in
 %% the buffer until flush.
 -callback otx_prepare_tx(
@@ -92,7 +95,7 @@ backend can reject flush request.
     emqx_ds:generation(),
     _SerialBin :: binary(),
     emqx_ds:tx_ops(),
-    _MiscOpts :: map()
+    tx_prepare_opts()
 ) ->
     {ok, _CookedTx} | emqx_ds:error(_).
 
@@ -124,7 +127,9 @@ backend can reject flush request.
     flush_interval := non_neg_integer(),
     idle_flush_interval := non_neg_integer(),
     max_items := pos_integer(),
-    conflict_window := pos_integer()
+    conflict_window := pos_integer(),
+    olp_max_mql := pos_integer() | infinity,
+    olp_max_ops := pos_integer()
 }.
 
 %% Executed by the leader when it updates its runtime config
@@ -191,7 +196,10 @@ backend can reject flush request.
     is_within_quota :: boolean() | undefined,
     %% This timer activates while `is_within_quota' = `false'. This
     %% timer is used to periodacally re-check the quota:
-    quota_check_timer :: reference() | undefined
+    quota_check_timer :: reference() | undefined,
+    %% Overload protection:
+    olp_max_mql :: pos_integer() | infinity,
+    olp_max_ops :: pos_integer()
 }).
 -type d() :: #d{}.
 
@@ -375,7 +383,9 @@ init(Parent, DB, Shard, CBM) ->
         flush_interval := FI,
         idle_flush_interval := IFI,
         conflict_window := CW,
-        max_items := MaxItems
+        max_items := MaxItems,
+        olp_max_mql := OLPMaxMQL,
+        olp_max_ops := OLPMaxOps
     } = CBM:otx_get_runtime_config(DB),
     ok = emqx_ds_builtin_metrics:init_for_buffer(DB, Shard),
     D = #d{
@@ -390,7 +400,9 @@ init(Parent, DB, Shard, CBM) ->
         flush_interval = FI,
         idle_flush_interval = IFI,
         announce_interval = 5_000,
-        max_items = MaxItems
+        max_items = MaxItems,
+        olp_max_mql = OLPMaxMQL,
+        olp_max_ops = OLPMaxOps
     },
     proc_lib:init_ack(Parent, {ok, self()}),
     %% Async init:
@@ -611,7 +623,7 @@ do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pendin
                 Gen,
                 serial_bin(PresumedCommitSerial),
                 #{?ds_tx_write => Writes},
-                #{}
+                #{max_ops => infinity}
             ),
         {ok, GenData#gen_data{
             buffer = [CookedDirty | Buff]
@@ -698,7 +710,9 @@ handle_tx(
         cbm = CBM,
         serial = Serial,
         committed_serial = SafeToReadSerial,
-        is_within_quota = WithinQuota
+        is_within_quota = WithinQuota,
+        olp_max_mql = MaxMQL,
+        olp_max_ops = MaxOps
     },
     Tx
 ) ->
@@ -723,7 +737,16 @@ handle_tx(
                 }
             ),
             try_schedule_transaction(
-                DBShard, Gen, CBM, SafeToReadSerial, PresumedCommitSerial, WithinQuota, Tx, GenData
+                DBShard,
+                Gen,
+                CBM,
+                SafeToReadSerial,
+                PresumedCommitSerial,
+                WithinQuota,
+                MaxMQL,
+                MaxOps,
+                Tx,
+                GenData
             )
         end
     ).
@@ -743,6 +766,8 @@ commit, and conflict tracking is updated.
     serial(),
     serial(),
     boolean(),
+    pos_integer() | infinity,
+    pos_integer(),
     tx(),
     gen_data()
 ) ->
@@ -754,6 +779,8 @@ try_schedule_transaction(
     SafeToReadSerial,
     PresumedCommitSerial,
     WithinQuota,
+    MaxMQL,
+    MaxOps,
     Tx,
     GS = #gen_data{dirty_w = DirtyW0, dirty_d = DirtyD0, buffer = Buff, pending_replies = Pending}
 ) ->
@@ -767,12 +794,21 @@ try_schedule_transaction(
     Ops = preprocess_ops(PresumedCommitSerial, Ops0),
     #kv_tx_ctx{serial = TxStartSerial, leader = TxLeader} = Ctx,
     maybe
+        ok ?= check_olp(MaxMQL),
         ok ?= check_tx_leader(TxLeader),
         ok ?= check_latest_generation(CBM, DBShard, Ctx),
         ok ?= check_quota(WithinQuota, Ops),
         ok ?= check_conflicts(DirtyW0, DirtyD0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, CBM, Gen, Ops),
-        {ok, CookedTx} ?= prepare_tx(CBM, DBShard, Gen, serial_bin(PresumedCommitSerial), Ops, #{}),
+        {ok, CookedTx} ?=
+            prepare_tx(
+                CBM,
+                DBShard,
+                Gen,
+                serial_bin(PresumedCommitSerial),
+                Ops,
+                #{max_ops => MaxOps}
+            ),
         ?tp(emqx_ds_optimistic_tx_commit_pending, #{ref => Ref}),
         {ok, GS#gen_data{
             dirty_w = update_dirty_w(PresumedCommitSerial, Ops, DirtyW0),
@@ -792,6 +828,23 @@ try_schedule_transaction(
             reply_error(From, Ref, Meta, Class, Error),
             aborted
     end.
+
+-doc """
+Overload protection.
+""".
+-spec check_olp(pos_integer() | infinity) -> ok | emqx_ds:error(_).
+check_olp(MaxMQL) when is_integer(MaxMQL), MaxMQL > 0 ->
+    %% When system is overloaded, we start dropping the *earliest*
+    %% transactions. The rationale is that older transactions are more
+    %% likely to contain the least relevant data, and the client will
+    %% retry sending more up-to-date information.
+    {_, L} = process_info(self(), message_queue_len),
+    case L >= MaxMQL of
+        true -> ?err_rec(overloaded);
+        false -> ok
+    end;
+check_olp(_) ->
+    ok.
 
 -doc """
 Check that the transaction was created while this process was the leader.
@@ -910,13 +963,17 @@ do_update_config(D = #d{db = DB, cbm = CBM}) ->
         flush_interval := FI,
         idle_flush_interval := IFI,
         max_items := MaxItems,
-        conflict_window := CW
+        conflict_window := CW,
+        olp_max_mql := OLPMaxMQL,
+        olp_max_ops := OLPMaxOps
     } = CBM:otx_get_runtime_config(DB),
     D#d{
         flush_interval = FI,
         idle_flush_interval = IFI,
         max_items = MaxItems,
-        rotate_interval = CW
+        rotate_interval = CW,
+        olp_max_mql = OLPMaxMQL,
+        olp_max_ops = OLPMaxOps
     }.
 
 -spec make_batch(generations()) -> batch().
@@ -1153,11 +1210,29 @@ client_post_commit_cleanup(Alias) ->
             ok
     end.
 
+-spec prepare_tx(
+    module(),
+    {emqx_ds:db(), emqx_ds:shard()},
+    emqx_ds:generation(),
+    binary(),
+    emqx_ds:tx_ops(),
+    tx_prepare_opts()
+) -> {ok, _CookedTx} | emqx_ds:error(_).
 prepare_tx(CBM, DBShard, Gen, SerialBin, Ops, CookOpts) ->
     try
         CBM:otx_prepare_tx(DBShard, Gen, SerialBin, Ops, CookOpts)
     catch
         EC:Err:Stack ->
+            ?tp(
+                warning,
+                otx_prepare_fail,
+                #{
+                    dbshard => DBShard,
+                    EC => Err,
+                    stack => Stack,
+                    generation => Gen
+                }
+            ),
             {error, recoverable, {EC, Err, Stack}}
     end.
 

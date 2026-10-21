@@ -99,6 +99,8 @@
 
 -type s() :: #s{}.
 
+-define(ops_counter, emqx_ds_storage_skipstream_lts_v2_ops_counter).
+
 -define(stream(STATIC), STATIC).
 
 %%================================================================================
@@ -174,9 +176,10 @@ open(
 drop(_ShardId, _DBHandle, _GenId, _CFRefs, #s{gs = GS}) ->
     emqx_ds_gen_skipstream_lts:drop(GS).
 
-prepare_tx(_DBShard, PTSchema, S, TXID, _Options, TxWrites, TxDeleteTopics) ->
+prepare_tx(_DBShard, PTSchema, S, TXID, #{max_ops := MaxOps}, TxWrites, TxDeleteTopics) ->
     _ = emqx_ds_gen_skipstream_lts:pop_lts_persist_ops(),
     PTransFun = emqx_ds_payload_transform:ser_fun(PTSchema),
+    put(?ops_counter, MaxOps),
     try
         OperationsCooked = cook_blob_deletes(
             S, TxDeleteTopics, cook_blob_writes(PTransFun, S, TXID, TxWrites, [])
@@ -188,11 +191,14 @@ prepare_tx(_DBShard, PTSchema, S, TXID, _Options, TxWrites, TxDeleteTopics) ->
     catch
         {Type, Err} ->
             {error, Type, Err}
+    after
+        erase(?ops_counter)
     end.
 
 cook_blob_writes(_, _, _TXID, [], Acc) ->
     lists:reverse(Acc);
 cook_blob_writes(PTransFun, S = #s{}, TXID, [{Topic, TS0, Value0} | Rest], Acc) ->
+    consume_ops(1),
     #s{trie = Trie, threshold_fun = TFun, max_ts = MaxTS} = S,
     %% Get the timestamp:
     case TS0 of
@@ -240,14 +246,18 @@ cook_blob_deletes2(GS, Static, Varying, ItStart, ItLimit, Acc0) ->
         [?cooked_msg_op(Static, Var, TS, ?cooked_delete) | Acc]
     end,
     Interval = {'[', ItStart, ItLimit},
+    BatchSize = 100,
     %% Note: we don't reverse the batch here.
-    case emqx_ds_gen_skipstream_lts:fold(GS, Static, Varying, Interval, 100, Acc0, Fun) of
-        {ok, NextStreamKey, Acc} when NextStreamKey =:= ItStart ->
-            %% End the loop if the key didn't change.
-            %% TODO: is this a reliable stopping condition?
-            Acc;
-        {ok, NextStreamKey, Acc} ->
-            cook_blob_deletes2(GS, Static, Varying, NextStreamKey, ItLimit, Acc);
+    case emqx_ds_gen_skipstream_lts:fold(GS, Static, Varying, Interval, BatchSize, Acc0, Fun) of
+        {ok, NextStreamKey, LeftoverIterations, Acc} ->
+            consume_ops(BatchSize - LeftoverIterations),
+            case LeftoverIterations of
+                0 ->
+                    %% Fold consumed all iterations, run the next batch:
+                    cook_blob_deletes2(GS, Static, Varying, NextStreamKey, ItLimit, Acc);
+                _ when LeftoverIterations > 0 ->
+                    Acc
+            end;
         {error, _, _} = Err ->
             error(Err)
     end.
@@ -462,9 +472,9 @@ next_internal(
 ) ->
     Interval = {'(', ItPos0, time_limit(S, TimeLimit)},
     case emqx_ds_gen_skipstream_lts:fold(GS, Static, CompressedTF, Interval, BatchSize, [], Fun) of
-        {ok, _, []} when not IsCurrent ->
+        {ok, _, _, []} when not IsCurrent ->
             {ok, end_of_stream};
-        {ok, ItPos, Batch} ->
+        {ok, ItPos, _, Batch} ->
             {ok, ItPos, lists:reverse(Batch)};
         {error, _, _} = Err ->
             Err
@@ -564,6 +574,19 @@ decode_ext_it_static(Bin) ->
         'Iterator', Bin
     ),
     {Static, emqx_ds_lib:asn1_to_tf(Varying)}.
+
+consume_ops(N) ->
+    case get(?ops_counter) of
+        Current when is_integer(Current) ->
+            New = Current - N,
+            put(?ops_counter, New),
+            case New >= 0 of
+                true -> ok;
+                false -> throw({unrecoverable, transaction_too_large})
+            end;
+        _ ->
+            ok
+    end.
 
 %%================================================================================
 %% Tests

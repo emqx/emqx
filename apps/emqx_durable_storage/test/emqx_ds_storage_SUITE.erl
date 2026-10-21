@@ -102,7 +102,7 @@ store_batch(DBShard, Generation, Serial, Batch) ->
         Generation,
         <<Serial:64>>,
         #{?ds_tx_write => Batch},
-        #{}
+        #{max_ops => 10_000}
     ),
     emqx_ds_storage_layer_ttv:commit_batch(
         DBShard,

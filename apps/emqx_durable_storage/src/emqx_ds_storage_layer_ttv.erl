@@ -225,7 +225,7 @@
     emqx_ds_storage_layer:gen_id(),
     emqx_ds:tx_serial(),
     emqx_ds:tx_ops(),
-    emqx_ds_storage_layer:batch_prepare_opts()
+    emqx_ds_optimistic_tx:tx_prepare_opts()
 ) ->
     {ok, cooked_tx()} | emqx_ds:error(_).
 prepare_tx(DBShard, GenId, TXSerial, Tx, Options) ->
