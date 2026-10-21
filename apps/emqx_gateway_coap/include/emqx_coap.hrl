@@ -82,7 +82,8 @@
 -type sub_data() :: #{
     topic := emqx_types:topic(),
     token := binary(),
-    subopts := emqx_types:subopts()
+    subopts := emqx_types:subopts(),
+    request => coap_message()
 }.
 
 -endif.

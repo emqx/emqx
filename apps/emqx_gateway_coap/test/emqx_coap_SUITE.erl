@@ -106,13 +106,14 @@ with_notify_type(NotifyType, Fun) ->
     end.
 
 with_blockwise_max_size(MaxBlockSize, Fun) ->
+    with_blockwise_config(#{<<"max_block_size">> => MaxBlockSize}, Fun).
+
+with_blockwise_config(Overrides, Fun) ->
     OldConf = emqx:get_raw_config([gateway, coap]),
     OldBlockwise = maps:get(<<"blockwise">>, OldConf, #{}),
     {ok, _} = emqx_gateway_conf:update_gateway(
         coap,
-        OldConf#{
-            <<"blockwise">> => OldBlockwise#{<<"max_block_size">> => MaxBlockSize}
-        }
+        OldConf#{<<"blockwise">> => maps:merge(OldBlockwise, Overrides)}
     ),
     try
         Fun()
@@ -1034,6 +1035,222 @@ t_observe_con_notify_uses_shared_session_queue(_) ->
         with_connection(Fun)
     end).
 
+-doc "Retrieve an Observe representation with a new Token for each continuation GET.".
+t_observe_block2_new_tokens(_) ->
+    with_notify_type(non, fun() ->
+        with_blockwise_max_size(16, fun() ->
+            with_block2_connection(fun(Channel, Token) ->
+                Topic = <<"coap/block2_new_tokens">>,
+                ObserveToken = observe_block2_topic(Channel, Token, Topic),
+                publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                Notify = assert_block2_notify(
+                    Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}
+                ),
+                ?assertEqual(ObserveToken, Notify#coap_message.token),
+                URI = pubsub_uri(binary_to_list(Topic), Token),
+                FollowResp = assert_block2_followup(
+                    Channel, URI, <<"block-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                ),
+                ?assertEqual(undefined, coap_option(observe, FollowResp, undefined)),
+                _ = assert_block2_followup(
+                    Channel, URI, <<"block-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+                ),
+                Req = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                    token = <<"expired">>
+                },
+                ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+                true
+            end)
+        end)
+    end).
+
+-doc "Match continuation GETs to their resource even when another Observe Token is used.".
+t_observe_block2_resource_isolation(_) ->
+    with_block2_observe(non, fun(Channel, Token) ->
+        TopicA = <<"coap/block2_resources/a">>,
+        TopicB = <<"coap/block2_resources/b">>,
+        ObserveTokenA = observe_block2_topic(Channel, Token, TopicA),
+        ObserveTokenB = observe_block2_topic(Channel, Token, TopicB),
+        publish(TopicA, ?QOS_0, blockwise_payload(<<"A">>, <<"a">>, <<"1">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+        publish(TopicB, ?QOS_0, blockwise_payload(<<"B">>, <<"b">>, <<"2">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"B">>, 16), {0, true, 16}),
+        URIa = pubsub_uri(binary_to_list(TopicA), Token),
+        URIb = pubsub_uri(binary_to_list(TopicB), Token),
+        WrongURI = pubsub_uri("coap/block2_resources/unknown", Token),
+        Req = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{token = ObserveTokenA},
+        ?assertMatch({error, _, _}, do_message_request(Channel, WrongURI, Req)),
+        ?assertMatch(
+            {error, _, _}, do_message_request(Channel, URIa, Req#coap_message{method = put})
+        ),
+        _ = assert_block2_followup(
+            Channel, URIb, ObserveTokenA, 1, binary:copy(<<"b">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIa, ObserveTokenB, 1, binary:copy(<<"a">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIb, <<"tail-b">>, 2, binary:copy(<<"2">>, 8), {2, false, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIa, <<"tail-a">>, 2, binary:copy(<<"1">>, 8), {2, false, 16}
+        ),
+        true
+    end).
+
+-doc "Keep an unfinished representation stable and drain the next notification after its last block.".
+t_observe_block2_new_token_queue(_) ->
+    with_block2_observe(con, fun(Channel, Token) ->
+        Topic = <<"coap/block2_new_token_queue">>,
+        ObserveToken = observe_block2_topic(Channel, Token, Topic),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        Notify = assert_block2_notify(Channel, con, binary:copy(<<"A">>, 16), {0, true, 16}),
+        ack_if_con(Channel, Notify),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"X">>, <<"Y">>, <<"Z">>)),
+        ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        _ = assert_block2_followup(
+            Channel, URI, <<"next-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+        _ = assert_block2_followup(
+            Channel, URI, <<"next-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+        ),
+        Next = assert_block2_notify(Channel, con, binary:copy(<<"X">>, 16), {0, true, 16}),
+        ?assertEqual(ObserveToken, Next#coap_message.token),
+        ack_if_con(Channel, Next),
+        _ = assert_block2_followup(
+            Channel, URI, <<"next-3">>, 1, binary:copy(<<"Y">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URI, <<"next-4">>, 2, binary:copy(<<"Z">>, 8), {2, false, 16}
+        ),
+        true
+    end).
+
+-doc "Remove the representation when its Observe relationship is cancelled.".
+t_observe_block2_new_token_cancel(_) ->
+    with_block2_observe(non, fun(Channel, Token) ->
+        Topic = <<"coap/block2_new_token_cancel">>,
+        ObserveToken = observe_block2_topic(Channel, Token, Topic),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        _ = assert_block2_followup(
+            Channel, URI, <<"cancel-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        Cancel = (make_req(get, <<>>, [{observe, 1}]))#coap_message{token = ObserveToken},
+        ?assertMatch({ok, nocontent, _}, do_message_request(Channel, URI, Cancel)),
+        Req = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
+            token = <<"cancel-2">>
+        },
+        ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+        true
+    end).
+
+-doc "Reset discards the representation while retaining the 6.x Observe relationship.".
+t_observe_block2_new_token_reset(_) ->
+    with_block2_observe(con, fun(Channel, Token) ->
+        Topic = <<"coap/block2_new_token_reset">>,
+        observe_block2_topic(Channel, Token, Topic),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        Notify = assert_block2_notify(Channel, con, binary:copy(<<"A">>, 16), {0, true, 16}),
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        _ = assert_block2_followup(
+            Channel, URI, <<"reset-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        reset_if_con(Channel, Notify),
+        Req = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{token = <<"reset-2">>},
+        ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+        publish(Topic, ?QOS_0, <<"still subscribed">>),
+        Next = assert_notify(Channel, con, <<"still subscribed">>),
+        ack_if_con(Channel, Next),
+        true
+    end).
+
+-doc "Expire a cached representation before serving a continuation with a new Token.".
+t_observe_block2_new_token_expiry(_) ->
+    with_notify_type(non, fun() ->
+        with_blockwise_config(
+            #{<<"max_block_size">> => 16, <<"exchange_lifetime">> => <<"300ms">>},
+            fun() ->
+                with_block2_connection(fun(Channel, Token) ->
+                    Topic = <<"coap/block2_new_token_expiry">>,
+                    observe_block2_topic(Channel, Token, Topic),
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                    _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+                    URI = pubsub_uri(binary_to_list(Topic), Token),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"expire-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                    ),
+                    timer:sleep(400),
+                    Req = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
+                        token = <<"expire-2">>
+                    },
+                    ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+                    true
+                end)
+            end
+        )
+    end).
+
+-doc "Keep a connectionless Observe representation private to the requesting UDP endpoint.".
+t_observe_block2_peer_isolation(_) ->
+    with_notify_type(non, fun() ->
+        with_blockwise_max_size(16, fun() ->
+            {ok, _} = update_coap_with_connection_mode(false),
+            try
+                do(fun(Channel) ->
+                    Topic = <<"coap/block2_peer_isolation">>,
+                    URI = pubsub_uri(binary_to_list(Topic)),
+                    ObserveToken = observe_block2_uri(Channel, URI),
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                    _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+                    do(fun(OtherChannel) ->
+                        Req = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                            token = ObserveToken
+                        },
+                        ?assertMatch({error, _, _}, do_message_request(OtherChannel, URI, Req))
+                    end),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"peer-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"peer-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+                    )
+                end)
+            after
+                {ok, _} = update_coap_with_connection_mode(true)
+            end
+        end)
+    end).
+
+with_block2_observe(NotifyType, Fun) ->
+    with_notify_type(NotifyType, fun() ->
+        with_blockwise_max_size(16, fun() -> with_block2_connection(Fun) end)
+    end).
+
+observe_block2_topic(Channel, Token, Topic) ->
+    observe_block2_uri(Channel, pubsub_uri(binary_to_list(Topic), Token)).
+
+observe_block2_uri(Channel, URI) ->
+    {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
+    Req = make_req(get, <<>>, [{uri_path, Path}, {uri_query, Query}, {observe, 0}]),
+    {ok, _} = er_coap_channel:send(Channel, Req),
+    {ok, content, Reply} = with_message_response(Channel),
+    Reply#coap_message.token.
+
+with_block2_connection(Fun) ->
+    {ok, Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    Token = connection(Channel),
+    try
+        Fun(Channel, Token)
+    after
+        _ = catch disconnection(Channel, Token),
+        er_coap_channel:close(Channel),
+        er_coap_udp_socket:close(Sock)
+    end.
+
 t_observe_con_notify_queue_preserves_block2_until_drained(_) ->
     with_notify_type(con, fun() ->
         with_blockwise_max_size(16, fun() ->
@@ -1917,6 +2134,7 @@ assert_block2_followup(Channel, URI, Token, Num, Payload, Block2) ->
         token = Token
     },
     {ok, content, FollowResp} = do_message_request(Channel, URI, FollowReq),
+    ?assertEqual(Token, FollowResp#coap_message.token),
     ?assertEqual(Payload, notify_payload(FollowResp)),
     ?assertEqual(Block2, coap_option(block2, FollowResp, undefined)),
     FollowResp.

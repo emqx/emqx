@@ -264,7 +264,7 @@ send_or_queue_observe_notification(ObservedTopic, Msg0, MQTT, Ctx, Session, BW0,
             {Msg, BW1} =
                 case DeferBlockwise of
                     true -> {Msg0, undefined};
-                    false -> maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx)
+                    false -> maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx, Session)
                 end,
             Session1 = enqueue_observe_notification(
                 Msg, MQTT, ObservedTopic, BW1, PeerKey, Ctx, DeferBlockwise, Session
@@ -292,7 +292,7 @@ maybe_send_or_enqueue_observe_notification(
     PeerKey,
     TrackInflight
 ) ->
-    {Msg, BW1} = maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx),
+    {Msg, BW1} = maybe_split_notify_block2(Msg0, PeerKey, BW0, Ctx, Session),
     case send_observe_notification_now(Msg, TrackInflight, Session) of
         {[], Session1} ->
             Session2 = enqueue_observe_notification(
@@ -402,7 +402,7 @@ drain_observe_notifications(
                         observe_pending_len = Len0
                     }};
                 false ->
-                    case prepare_pending_observe_notification(Pending, Result) of
+                    case prepare_pending_observe_notification(Pending, Result, Session1) of
                         wait ->
                             {Result, Session1#session{
                                 observe_pending = queue:in_r(Pending, Queue1),
@@ -431,7 +431,7 @@ do_drain_observe_notification(Msg, BW, Pending, Queue, Len0, Result, Session0) -
             drain_observe_notifications(Result1, Session)
     end.
 
-prepare_pending_observe_notification(Pending, Result) ->
+prepare_pending_observe_notification(Pending, Result, Session) ->
     Msg = pending_msg(Pending),
     case pending_blockwise(Pending) of
         BW when is_map(BW) ->
@@ -445,7 +445,8 @@ prepare_pending_observe_notification(Pending, Result) ->
                         Msg,
                         pending_peer_key(Pending),
                         BW0,
-                        pending_ctx(Pending)
+                        pending_ctx(Pending),
+                        Session
                     );
                 {_BlockwiseKey, _} ->
                     wait
@@ -632,7 +633,9 @@ process_subscribe(
         #{
             topic := _Topic
         } = SubData ->
-            {SeqId, OM2} = emqx_coap_observe_res:insert(SubData, OM),
+            {SeqId, OM2} = emqx_coap_observe_res:insert(
+                SubData#{request => Msg#coap_message{payload = <<>>}}, OM
+            ),
             Replay = emqx_coap_message:piggyback({ok, content}, Msg),
             %% RFC 7641 Section 4.4: Observe option carries 24-bit sequence.
             Replay2 = Replay#coap_message{
@@ -734,11 +737,16 @@ get_notify_type(#message{qos = Qos}) ->
             Other
     end.
 
-maybe_split_notify_block2(Msg, _PeerKey, undefined, _Ctx) ->
+maybe_split_notify_block2(Msg, _PeerKey, undefined, _Ctx, _Session) ->
     {Msg, undefined};
-maybe_split_notify_block2(Msg, PeerKey, BW0, Ctx) ->
+maybe_split_notify_block2(Msg, PeerKey, BW0, Ctx, #session{observe_manager = OM}) ->
+    Req =
+        case observe_notification_needs_block2(Msg, BW0) of
+            true -> emqx_coap_observe_res:request(Msg#coap_message.token, OM);
+            false -> undefined
+        end,
     map_notify_block2_prepare_result(
-        emqx_coap_blockwise:server_prepare_out_response(undefined, Msg, PeerKey, BW0),
+        emqx_coap_blockwise:server_prepare_out_notification(Req, Msg, PeerKey, BW0),
         Msg,
         PeerKey,
         Ctx
