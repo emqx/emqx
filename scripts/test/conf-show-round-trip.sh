@@ -106,6 +106,8 @@ node_stop() {
 }
 
 # Capture stdout/stderr/exit code of `conf show`, then assert the output contract.
+# The `redacted` mode expects the fixture to contain at least one sensitive value,
+# so that a `******` placeholder must show up in the output.
 #   check_show <label> <redacted|raw> [args...]
 check_show() {
     local label="$1"
@@ -339,9 +341,13 @@ EOF
 conf_load --namespace "$NS" --replace "$RUN_DIR/ns-changed.hocon"
 show_raw --namespace "$NS" connectors >"$RUN_DIR/ns-changed.out"
 assert_contains ns-changed "$RUN_DIR/ns-changed.out" 'Bearer conf-show-acceptance-ns-changed'
+# The whole-root replace drops the mqtt connector, so restoring it below is a real check.
+assert_absent ns-changed "$RUN_DIR/ns-changed.out" 'conf-show-ns-secret'
 conf_load --namespace "$NS" --replace "$RUN_DIR/ns-export.hocon"
 show_raw --namespace "$NS" connectors >"$RUN_DIR/ns-restored.hocon"
 assert_contains ns-restored "$RUN_DIR/ns-restored.hocon" "$NS_AUTHORIZATION"
+# Replacing the whole root also brings back the mqtt connector dropped by ns-changed.
+assert_contains ns-restored "$RUN_DIR/ns-restored.hocon" 'conf-show-ns-secret'
 assert_absent ns-restored "$RUN_DIR/ns-restored.hocon" 'Bearer conf-show-acceptance-ns-changed'
 pass "namespaced raw export round trip through conf load --namespace --replace"
 

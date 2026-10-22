@@ -536,7 +536,13 @@ t_show_redacts_sensitive_values(Config) ->
         {ok, RedactedKeyedConf} = hocon:binary(RedactedKeyed),
         {ok, RawKeyedConf} = hocon:binary(RawKeyed),
         assert_redacted_authn(maps:get(<<"authentication">>, RedactedKeyedConf)),
-        assert_raw_authn(maps:get(<<"authentication">>, RawKeyedConf), SecretURI)
+        assert_raw_authn(maps:get(<<"authentication">>, RawKeyedConf), SecretURI),
+        %% The redaction notice belongs to a successful config document only.
+        {ErrorResult, ErrorOutput} = capture_conf(["show", "no_such_root"]),
+        ErrorText = iolist_to_binary(ErrorOutput),
+        ?assertEqual(ok, ErrorResult),
+        ?assertNotEqual(nomatch, binary:match(ErrorText, <<"key_not_found">>)),
+        ?assertEqual(nomatch, binary:match(ErrorText, <<"# Sensitive values">>))
     after
         _ = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
         _ = file:delete(SecretFile)
@@ -587,6 +593,7 @@ t_show_namespaced_redacts_sensitive_values(Config) ->
         ok = load_conf(replace, connector_conf(<<"global">>, GlobalPassword), Config),
         NsHeader = scope_value(<<"ns">>, <<"authorization">>),
         NsHeaderLower = scope_value(<<"ns">>, <<"authorization-lower">>),
+        NsVisible = scope_value(<<"ns">>, <<"visible">>),
         GlobalHeader = scope_value(<<"global">>, <<"authorization">>),
         NsFull = capture_show(["show", "--namespace", Ns]),
         NsFullRaw = capture_show(["show", "--namespace", Ns, "--no-secret-redaction"]),
@@ -610,12 +617,12 @@ t_show_namespaced_redacts_sensitive_values(Config) ->
         assert_present(NsFullRaw, [NsHeader, NsHeaderLower, NsPassword]),
         assert_absent(NsFullRaw, [GlobalHeader, GlobalPassword]),
         assert_absent(Redacted, [NsHeader, NsHeaderLower, NsPassword, GlobalHeader, GlobalPassword]),
-        assert_present(Raw, [
-            NsHeader, NsHeaderLower, NsPassword, scope_value(<<"ns">>, <<"visible">>)
-        ]),
+        assert_present(Raw, [NsHeader, NsHeaderLower, NsPassword, NsVisible]),
         %% The namespace does not leak the same-named global connector.
         assert_absent(Raw, [GlobalHeader, GlobalPassword]),
-        assert_absent(capture_show(["show"]), [NsHeader, NsHeaderLower, NsPassword]),
+        %% The visible namespace value is not redacted, so its absence from the
+        %% global output proves the namespace is not merged into it.
+        assert_absent(capture_show(["show"]), [NsHeader, NsHeaderLower, NsPassword, NsVisible]),
         {ok, NsFullConf} = hocon:binary(NsFull),
         assert_connector_redacted(maps:get(<<"connectors">>, NsFullConf)),
         {ok, NsFullRawConf} = hocon:binary(NsFullRaw),
@@ -663,7 +670,9 @@ t_show_namespaced_raw_round_trip(Config) ->
             "show", "--namespace", Ns, "--no-secret-redaction", "connectors"
         ]),
         assert_present(Restored, [NsHeader, NsPassword]),
-        assert_absent(Restored, [scope_value(<<"changed">>, <<"authorization">>), ChainedPassword])
+        assert_absent(Restored, [scope_value(<<"changed">>, <<"authorization">>), ChainedPassword]),
+        %% Loading into the namespace leaves the global root untouched.
+        ?assertEqual(Globals0, emqx_conf:get_raw([connectors], undefined))
     after
         _ = load_conf(replace, #{<<"connectors">> => restore_connectors(Globals0)}, Config),
         _ = load_ns_conf(Ns, replace, #{<<"connectors">> => #{}})
@@ -702,8 +711,9 @@ t_show_raw_round_trip(Config) ->
 The opt-out flag is rejected by `conf load` and `conf remove` before they read
 the path or touch the config, and the help text documents both output modes.
 """.
-t_show_flag_is_rejected_by_load_and_remove(_Config) ->
+t_show_flag_is_rejected_by_load_and_remove(Config) ->
     Mqtt = emqx_conf:get_raw([mqtt]),
+    BadArgs = {error, "bad arguments: --no-secret-redaction is not supported by this command"},
     {Result, Usage0} = capture_conf(["show", "mqtt", "--no-secret-redaction"]),
     Usage = iolist_to_binary(Usage0),
     ?assertMatch({error, _}, Result),
@@ -711,16 +721,31 @@ t_show_flag_is_rejected_by_load_and_remove(_Config) ->
     ?assertNotEqual(nomatch, binary:match(Usage, <<"Sensitive values are redacted by default">>)),
     %% Rejected before reading a path: the error is not `not_a_file`.
     ?assertEqual(
-        {error, "bad arguments: --no-secret-redaction is not supported by this command"},
+        BadArgs,
         emqx_conf_cli:conf(["load", "--no-secret-redaction", "not-an-existing-file"])
     ),
-    ?assertMatch(
-        {error, _},
+    ?assertEqual(
+        BadArgs,
         emqx_conf_cli:conf(["remove", "--no-secret-redaction", "mqtt.keepalive_multiplier"])
     ),
     %% No positional argument either: the flag alone is rejected, not crashed on.
-    ?assertMatch({error, _}, emqx_conf_cli:conf(["load", "--no-secret-redaction"])),
-    ?assertMatch({error, _}, emqx_conf_cli:conf(["remove", "--no-secret-redaction"])),
+    ?assertEqual(BadArgs, emqx_conf_cli:conf(["load", "--no-secret-redaction"])),
+    ?assertEqual(BadArgs, emqx_conf_cli:conf(["remove", "--no-secret-redaction"])),
+    %% A valid path followed by the flag is rejected as bad arguments too, before
+    %% the config is touched.
+    ConfFile = prepare_conf_file(
+        ?FUNCTION_NAME,
+        hocon_pp:do(#{<<"mqtt">> => #{<<"keepalive_multiplier">> => 2}}, #{}),
+        Config
+    ),
+    ?assertMatch(
+        {error, "bad arguments: " ++ _},
+        emqx_conf_cli:conf(["load", ConfFile, "--no-secret-redaction"])
+    ),
+    ?assertMatch(
+        {error, "bad arguments: " ++ _},
+        emqx_conf_cli:conf(["remove", "mqtt.keepalive_multiplier", "--no-secret-redaction"])
+    ),
     ?assertEqual(Mqtt, emqx_conf:get_raw([mqtt])),
     %% A missing namespace value and a flag after the key stay bad arguments.
     ?assertMatch({error, _}, emqx_conf_cli:conf(["show", "--namespace"])),

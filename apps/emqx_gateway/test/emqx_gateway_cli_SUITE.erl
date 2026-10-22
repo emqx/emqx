@@ -226,25 +226,19 @@ t_gateway_conf_show_redacts_credentials(Config) ->
     ok = file:write_file(BindPasswordFile, ?LDAP_BIND_PASSWORD),
     BindPasswordFileURI = iolist_to_binary(["file://", BindPasswordFile]),
     Cases = [
-        {jwt_authentication(), [?AUTH_SECRET], [<<"hmac-based">>]},
-        {http_authentication(), [?HTTP_AUTHORIZATION], [
+        {jwt_authentication(), [?AUTH_SECRET, ?OVERRIDE_PASSWORD], [<<"hmac-based">>]},
+        {http_authentication(), [?HTTP_AUTHORIZATION, ?OVERRIDE_PASSWORD], [
             <<"gateway-cli-visible-header">>
         ]},
         {
             ldap_authentication(BindPasswordFileURI),
-            [
-                ?LDAP_PASSWORD, BindPasswordFileURI
-            ],
-            [
-                <<"gateway-cli-ldap-base">>, <<"bind_password">>
-            ]
+            [?LDAP_PASSWORD, BindPasswordFileURI, ?OVERRIDE_PASSWORD],
+            [<<"gateway-cli-ldap-base">>, <<"bind_password">>]
         }
     ],
     lists:foreach(
         fun({Authentication, Secrets, VisibleValues}) ->
-            assert_gateway_conf_show_redacts_credentials(
-                Authentication, Secrets ++ [?OVERRIDE_PASSWORD], VisibleValues
-            )
+            assert_gateway_conf_show_redacts_credentials(Authentication, Secrets, VisibleValues)
         end,
         Cases
     ).
