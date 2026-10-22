@@ -961,6 +961,18 @@ For the `gen_tcp` backend, this value also controls Erlang's socket-busy thresho
 fields_tcp_opts_high_watermark.label:
 """TCP high watermark"""
 
+fields_tcp_opts_low_watermark.desc:
+"""The amount of queued outgoing data below which a congested connection is considered recovered.
+
+This option applies to the `gen_tcp` TCP backend only. When the Erlang internal socket buffer grows beyond `high_watermark`, the socket becomes busy; it stays busy until the buffer drains below `low_watermark`. A larger gap between the two watermarks makes a busy socket accept new data less often but in larger batches.
+
+When this option is not set, the default is a quarter of `high_watermark`, but never below `4KB` (the Erlang/OTP default). This is the same ratio the `socket` TCP backend uses to clear congestion. A value above `high_watermark` is clamped to `high_watermark`.
+
+The `socket` TCP backend ignores this option."""
+
+fields_tcp_opts_low_watermark.label:
+"""TCP low watermark"""
+
 fields_mqtt_quic_listener_stateless_operation_expiration_ms.desc:
 """The time limit between operations for the same endpoint, in milliseconds. Default: 100"""
 

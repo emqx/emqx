@@ -226,6 +226,7 @@ sockopts(Names, #state{socket = Socket}) ->
             (recbuf = N) -> sockopt_val(N, socket:getopt(Socket, {socket, rcvbuf}));
             (sndbuf = N) -> sockopt_val(N, socket:getopt(Socket, {socket, sndbuf}));
             (high_watermark) -> _NA = [];
+            (low_watermark) -> _NA = [];
             (high_msgq_watermark) -> _NA = []
         end,
         Names
@@ -741,7 +742,7 @@ terminate(
     try
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
-        emqx_channel:terminate(Reason, Channel1),
+        _ = emqx_channel:terminate(Reason, Channel1),
         close_socket_ok(State),
         ?TRACE("SOCKET", "emqx_connection_terminated", #{reason => Reason})
     catch

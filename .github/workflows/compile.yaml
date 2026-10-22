@@ -94,7 +94,7 @@ jobs:
           ## Same lib dir as the scope check above: the suite beams only
           ## exist in the test profile.
           ./scripts/check-unlisted-ct-cases.escript _build/${PROFILE}-test/lib
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !inputs.warm-cache }}
         with:
           name: ${{ matrix.profile }}-${{ inputs.build_type }}
@@ -112,7 +112,7 @@ jobs:
       - name: package release dir
         if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         run: zip -ryq ${{ matrix.profile }}-rel.zip _build/${{ matrix.profile }}/rel/emqx
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         with:
           name: ${{ matrix.profile }}-rel
@@ -128,14 +128,14 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
         run: ./scripts/build-plugins.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         with:
           name: ${{ matrix.profile }}-plugin-packages
           path: _build/plugins/*.tar.gz
           retention-days: 7
           if-no-files-found: error
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         with:
           name: "${{ matrix.profile }}-schema-dump"

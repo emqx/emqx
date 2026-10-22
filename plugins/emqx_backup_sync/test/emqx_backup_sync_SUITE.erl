@@ -85,19 +85,7 @@ all() ->
         t_real_cluster_sync_runs_on_one_core_only,
         t_real_status_reads_selected_core,
         t_real_primary_sync_respects_root_keys_and_table_sets,
-        t_real_primary_sync_file_backed_schema_registry,
-        t_real_primary_sync_listener_cert_files,
-        t_real_primary_sync_connector_action_cert_files,
-        t_real_primary_sync_builtin_auth_runtime,
-        t_real_primary_sync_repeated_updates_and_config_only_tables,
-        t_real_primary_sync_deletes_default_table_data,
-        t_real_sync_cancelled_during_download_cleans_up_without_import,
-        t_real_sync_cancelled_during_import_finishes_and_reports_success,
-        t_real_sync_reports_partial_database_failure,
-        t_real_primary_sync_deletes_retained_messages,
-        t_real_selected_core_takes_over_after_node_down,
-        t_real_sync_reports_failure_stages,
-        t_real_sync_reports_observable_failure
+        t_real_selected_core_takes_over_after_node_down
     ].
 
 suite() ->
@@ -855,11 +843,14 @@ t_real_status_reads_selected_core(Config) ->
     try
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(Nodes),
         SyncConf = conf(PrimaryUrl),
-        ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
         ?check_trace(
             begin
+                ok = configure_sync_nodes([SelectedNode, OtherNode], SyncConf),
                 trigger_sync(OtherNode),
-                ?block_until(#{?snk_kind := backup_sync_result, node := SelectedNode}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, node := SelectedNode}, 10_000)
+                ),
                 Status = ?ON(OtherNode, emqx_backup_sync:status()),
                 ?assertMatch(#{node := SelectedNode, selected_core_node := SelectedNode}, Status)
             end,
@@ -872,8 +863,7 @@ t_real_status_reads_selected_core(Config) ->
 
 t_real_primary_sync_respects_root_keys_and_table_sets(Config) ->
     ExtraApps = table_set_apps(),
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_table_sets", ExtraApps),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_table_sets", ExtraApps),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "table_sets", ExtraApps),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -888,7 +878,10 @@ t_real_primary_sync_respects_root_keys_and_table_sets(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_imported_rule(SecondaryNodes),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000)
+                ),
                 assert_table_data_absent(SecondaryNodes),
                 ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
@@ -905,7 +898,10 @@ t_real_primary_sync_respects_root_keys_and_table_sets(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_default_table_data(SecondaryNodes),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000)
+                ),
                 assert_retainer_absent(SecondaryNodes),
                 ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
@@ -926,7 +922,10 @@ t_real_primary_sync_respects_root_keys_and_table_sets(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_table_data(SecondaryNodes),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000)
+                ),
                 ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
@@ -934,14 +933,12 @@ t_real_primary_sync_respects_root_keys_and_table_sets(Config) ->
             end
         )
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_primary_sync_file_backed_schema_registry(Config) ->
     ExtraApps = [emqx_schema_registry],
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_schema_registry", ExtraApps),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_schema_registry", ExtraApps),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "schema_registry", ExtraApps),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -957,7 +954,10 @@ t_real_primary_sync_file_backed_schema_registry(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_schema_usable(SecondaryNodes, PrimaryDataDir, PrimaryRootPath),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000)
+                ),
                 ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
@@ -965,13 +965,11 @@ t_real_primary_sync_file_backed_schema_registry(Config) ->
             end
         )
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_primary_sync_listener_cert_files(Config) ->
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_listener_files", []),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_listener_files"),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "listener_files", []),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -987,7 +985,10 @@ t_real_primary_sync_listener_cert_files(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_tls_listener_cert_files(SecondaryNodes, PrimaryDataDir, Certs),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000)
+                ),
                 ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
@@ -995,14 +996,12 @@ t_real_primary_sync_listener_cert_files(Config) ->
             end
         )
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_primary_sync_connector_action_cert_files(Config) ->
     ExtraApps = bridge_apps(),
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_connector_files", ExtraApps),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_connector_files", ExtraApps),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "connector_files", ExtraApps),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -1018,7 +1017,10 @@ t_real_primary_sync_connector_action_cert_files(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_http_connector_action_cert_files(SecondaryNodes, PrimaryDataDir, Certs),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000)
+                ),
                 ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
@@ -1026,14 +1028,12 @@ t_real_primary_sync_connector_action_cert_files(Config) ->
             end
         )
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_primary_sync_builtin_auth_runtime(Config) ->
     ExtraApps = table_set_apps(),
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_auth_runtime", ExtraApps),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_auth_runtime", ExtraApps),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "auth_runtime", ExtraApps),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -1048,7 +1048,10 @@ t_real_primary_sync_builtin_auth_runtime(Config) ->
             begin
                 trigger_sync(SelectedNode),
                 wait_auth_runtime_usable(SecondaryNodes),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000)
+                ),
                 ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
@@ -1056,14 +1059,12 @@ t_real_primary_sync_builtin_auth_runtime(Config) ->
             end
         )
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_primary_sync_repeated_updates_and_config_only_tables(Config) ->
     ExtraApps = table_set_apps(),
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_repeated_updates", ExtraApps),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_repeated_updates", ExtraApps),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "repeated_updates", ExtraApps),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -1096,14 +1097,12 @@ t_real_primary_sync_repeated_updates_and_config_only_tables(Config) ->
         assert_additional_default_table_data(SecondaryNodes),
         ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_primary_sync_deletes_default_table_data(Config) ->
     ExtraApps = table_set_apps(),
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_delete_table_data", ExtraApps),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_delete_table_data", ExtraApps),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "delete_table_data", ExtraApps),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -1125,8 +1124,7 @@ t_real_primary_sync_deletes_default_table_data(Config) ->
         wait_imported_rule(SecondaryNodes),
         ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_sync_cancelled_during_download_cleans_up_without_import(Config) ->
@@ -1183,7 +1181,10 @@ t_real_sync_cancelled_during_import_finishes_and_reports_success(Config) ->
                 [{delete, DeletePath, <<>>}] = wait_fake_primary_requests(1),
                 ?assertMatch(<<"/api/v5/data/files/", _/binary>>, DeletePath),
                 wait_imported_rule(Nodes),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 60_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 60_000)
+                ),
                 ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check())),
                 ?assertEqual(ok, ?ON(OtherNode, emqx_backup_sync:on_health_check()))
             end,
@@ -1199,10 +1200,7 @@ t_real_sync_cancelled_during_import_finishes_and_reports_success(Config) ->
 
 t_real_sync_reports_partial_database_failure(Config) ->
     ExtraApps = table_set_apps(),
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_partial_db_failure", ExtraApps),
-    SecondaryNodes = start_real_secondary_cluster(
-        Config, "secondary_partial_db_failure", ExtraApps
-    ),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "partial_db_failure", ExtraApps),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -1232,8 +1230,11 @@ t_real_sync_reports_partial_database_failure(Config) ->
                     trigger_sync(SelectedNode),
                     wait_partial_default_table_data(SecondaryNodes),
                     wait_remote_health_error(SelectedNode, <<"emqx_authn_mnesia_ns">>),
-                    ?block_until(
-                        #{?snk_kind := backup_sync_result, result := failed}, 60_000
+                    ?assertMatch(
+                        {ok, _},
+                        ?block_until(
+                            #{?snk_kind := backup_sync_result, result := failed}, 60_000
+                        )
                     )
                 end,
                 fun(Trace) ->
@@ -1252,14 +1253,12 @@ t_real_sync_reports_partial_database_failure(Config) ->
             stop_fake_primary(FakePid)
         end
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_primary_sync_deletes_retained_messages(Config) ->
     ExtraApps = table_set_apps(),
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_delete_retainer", ExtraApps),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_delete_retainer", ExtraApps),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "delete_retainer", ExtraApps),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -1281,8 +1280,7 @@ t_real_primary_sync_deletes_retained_messages(Config) ->
         wait_imported_rule(SecondaryNodes),
         ?assertEqual(ok, ?ON(SelectedNode, emqx_backup_sync:on_health_check()))
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 t_real_selected_core_takes_over_after_node_down(Config) ->
@@ -1306,7 +1304,10 @@ t_real_selected_core_takes_over_after_node_down(Config) ->
                 Requests = wait_fake_primary_requests(3),
                 ?assertEqual([post, get, delete], [Method || {Method, _Path, _Body} <- Requests]),
                 wait_imported_rule([OtherNode]),
-                ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, stage := finished}, 10_000)
+                ),
                 ?assertEqual(ok, ?ON(OtherNode, emqx_backup_sync:on_health_check()))
             end,
             fun(Trace) ->
@@ -1381,8 +1382,7 @@ t_real_sync_reports_failure_stages(Config) ->
     end.
 
 t_real_sync_reports_observable_failure(Config) ->
-    PrimaryNodes = start_real_primary_cluster(Config, "primary_observable_failure", []),
-    SecondaryNodes = start_real_secondary_cluster(Config, "secondary_observable_failure"),
+    {PrimaryNodes, SecondaryNodes} = start_real_clusters(Config, "observable_failure", []),
     try
         [PrimaryNode] = PrimaryNodes,
         [SelectedNode, OtherNode] = select_cluster_sync_nodes(SecondaryNodes),
@@ -1394,7 +1394,10 @@ t_real_sync_reports_observable_failure(Config) ->
         ?check_trace(
             begin
                 trigger_sync(SelectedNode),
-                ?block_until(#{?snk_kind := backup_sync_result, result := failed}, 10_000),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, result := failed}, 10_000)
+                ),
                 wait_remote_health_error(SelectedNode, <<"http_error">>)
             end,
             fun(Trace) ->
@@ -1402,8 +1405,7 @@ t_real_sync_reports_observable_failure(Config) ->
             end
         )
     after
-        ok = emqx_cth_cluster:stop(SecondaryNodes),
-        ok = emqx_cth_cluster:stop(PrimaryNodes)
+        ok = emqx_cth_cluster:stop(SecondaryNodes ++ PrimaryNodes)
     end.
 
 sync_config(Interval) ->
@@ -1813,6 +1815,39 @@ wait_health_error(ExpectedFragment, Deadline) ->
                         wait_health_error(ExpectedFragment, Deadline)
                     end
             end
+    end.
+
+start_real_clusters(Config, Suffix, ExtraApps) ->
+    try
+        Results = emqx_utils:pmap(
+            fun(Start) ->
+                try
+                    {ok, Start()}
+                catch
+                    Class:Reason:Stacktrace ->
+                        {error, Class, Reason, Stacktrace}
+                end
+            end,
+            [
+                fun() -> start_real_primary_cluster(Config, "primary_" ++ Suffix, ExtraApps) end,
+                fun() -> start_real_secondary_cluster(Config, "secondary_" ++ Suffix, ExtraApps) end
+            ],
+            120_000
+        ),
+        [PrimaryNodes, SecondaryNodes] = lists:map(
+            fun
+                ({ok, Nodes}) -> Nodes;
+                ({error, Class, Reason, Stacktrace}) -> erlang:raise(Class, Reason, Stacktrace)
+            end,
+            Results
+        ),
+        {PrimaryNodes, SecondaryNodes}
+    catch
+        Class:Reason:Stacktrace ->
+            catch emqx_cth_cluster:stop([
+                backup_sync_primary1, backup_sync_real1, backup_sync_real2
+            ]),
+            erlang:raise(Class, Reason, Stacktrace)
     end.
 
 start_real_secondary_cluster(Config) ->
@@ -3093,7 +3128,10 @@ assert_real_sync_failure_stage(_Config, Nodes, RootKeys, Stage, FakePrimaryOpts,
             begin
                 trigger_sync(SelectedNode),
                 wait_remote_health_error(SelectedNode, HealthFragment),
-                ?block_until(#{?snk_kind := backup_sync_result, result := failed}, 10_000)
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := backup_sync_result, result := failed}, 10_000)
+                )
             end,
             fun(Trace) ->
                 _Event = assert_failure_trace_stage(Trace, SelectedNode, RootKeys, [], Stage),

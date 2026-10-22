@@ -633,7 +633,7 @@ parse_incoming(<<>>, Packets, State) ->
 parse_incoming(Data, Packets, State = #state{parse_state = ParseState, channel = Channel}) ->
     try emqx_frame:parse(Data, ParseState) of
         {_More, NParseState} ->
-            {Packets, State#state{parse_state = NParseState}};
+            {lists:reverse(Packets), State#state{parse_state = NParseState}};
         {Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet | Packets], NState)
@@ -654,7 +654,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState, channel =
                 )
             ),
             NState = update_state_on_parse_error(Reason, State),
-            {[{frame_error, Reason} | Packets], NState};
+            {lists:reverse(Packets, [{frame_error, Reason}]), NState};
         error:Reason:Stacktrace ->
             ?LOG(
                 error,
@@ -671,7 +671,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState, channel =
                     raw
                 )
             ),
-            {[{frame_error, Reason} | Packets], State}
+            {lists:reverse(Packets, [{frame_error, Reason}]), State}
     end.
 
 %% A CONNECT that failed to parse still names its protocol version, which the

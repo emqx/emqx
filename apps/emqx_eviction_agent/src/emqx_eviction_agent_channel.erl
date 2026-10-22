@@ -162,7 +162,7 @@ handle_info(Deliver = {deliver, _Topic, _Msg}, Channel) ->
     Delivers = [Deliver | emqx_utils:drain_deliver()],
     {noreply, handle_deliver(Delivers, Channel)};
 handle_info(expire_session, Channel) ->
-    {stop, expired, Channel};
+    {stop, {shutdown, expired}, Channel};
 handle_info(Info, Channel) ->
     ?SLOG(
         error,
@@ -177,6 +177,8 @@ handle_cast(Msg, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, Channel}.
 
+terminate({shutdown, Reason}, Channel) ->
+    terminate(Reason, Channel);
 terminate(Reason, #{clientinfo := ClientInfo, session := Session} = Channel) ->
     ok = cancel_expiry_timer(Channel),
     emqx_session:terminate(ClientInfo, Reason, Session).

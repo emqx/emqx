@@ -297,21 +297,35 @@ ensure_installed(NameVsn, LogFun) ->
     end).
 
 do_ensure_installed(NameVsn) ->
-    case emqx_plugins:install_state(NameVsn) of
-        installed ->
-            {error, #{
-                msg => "plugin_already_installed", name_vsn => NameVsn
-            }};
-        _IncompleteOrAbsent ->
-            %% Nothing usable is installed: leftovers of an interrupted
-            %% installation are replaced by the package.
-            case check_local_tar_sha256(NameVsn) of
-                ok ->
-                    emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
-                {error, _} = Error ->
-                    Error
-            end
-    end.
+    %% The classification of the installation and the integrity check of the
+    %% package in the install dir share the installation lock with the install
+    %% which follows: the bytes which are authorized must not be replaced before
+    %% they are installed, and a tree which a concurrent attempt has published
+    %% but not validated yet is not an installation.
+    emqx_plugins:with_installation_lock(NameVsn, fun() ->
+        case emqx_plugins:install_state(NameVsn) of
+            installed ->
+                {error, #{
+                    msg => "plugin_already_installed",
+                    name_vsn => NameVsn,
+                    hint =>
+                        <<
+                            "uninstall the plugin first (`emqx ctl plugins uninstall ",
+                            (emqx_plugins_utils:bin(NameVsn))/binary,
+                            "`) to install another package"
+                        >>
+                }};
+            _IncompleteOrAbsent ->
+                %% Nothing usable is installed: leftovers of an interrupted
+                %% installation are replaced by the package.
+                case check_local_tar_sha256(NameVsn) of
+                    ok ->
+                        emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
+                    {error, _} = Error ->
+                        Error
+                end
+        end
+    end).
 
 %% If the allow entry recorded a sha256 for the package, verify that the
 %% tarball already present in the install dir matches before installing.
@@ -356,7 +370,7 @@ maybe_forget_grant(_NameVsn, _Result) ->
     ok.
 
 do_ensure_installed_cluster(NameVsn, LogFun) ->
-    case emqx_plugins_fs:get_tar(NameVsn) of
+    case package_snapshot(NameVsn) of
         {ok, TarBin} ->
             case emqx_plugins:is_allowed_installation(NameVsn, TarBin) of
                 ok ->
@@ -385,6 +399,14 @@ do_ensure_installed_cluster(NameVsn, LogFun) ->
             ?PRINT({error, Reason}, LogFun),
             {error, Reason}
     end.
+
+%% The package file is also written by uploads and by the installations of this
+%% node: read it under the installation lock so that one consistent package is
+%% shipped to every node.
+package_snapshot(NameVsn) ->
+    emqx_plugins:with_installation_lock(NameVsn, fun() ->
+        emqx_plugins_fs:get_tar(NameVsn)
+    end).
 
 ensure_uninstalled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_uninstalled(NameVsn), LogFun).

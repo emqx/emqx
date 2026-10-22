@@ -8,9 +8,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -elvis([{elvis_style, no_common_caveats_call, disable}]).
+
+%% Paths are resolved against this directory, which does not exist, so that the
+%% resolution of a package path stays lexical: every `file:read_link/1' which
+%% `filelib:safe_relative_path/2' performs on the way fails.
+-define(PATH_PROBE_DIR, "/nonexistent-emqx-plugin-path").
 
 -export([
     validate_name_vsn/1,
@@ -18,6 +24,9 @@
     with_valid_name/2,
     bin/1,
     parse_name_vsn/1,
+    split_name_vsn/1,
+    safe_relative_path/1,
+    is_single_relative_component/1,
     plugin_name/1,
     normalize_state_item/1,
     latest_name_vsn/2,
@@ -40,6 +49,10 @@ is_ascii_list(_) ->
     false.
 
 %% @doc Validate the textual package identifier used by plugin operations.
+%%
+%% `?PLUGIN_STAGING_DIR' is reserved for the staging attempts, so a plugin
+%% installed under that name is refused here: the check is shared by the
+%% install requests and by `node.pinned_plugins'.
 -spec validate_name_vsn(term()) -> ok | {error, string()}.
 validate_name_vsn(Name) when is_list(Name) ->
     case is_ascii_list(Name) of
@@ -47,9 +60,21 @@ validate_name_vsn(Name) when is_list(Name) ->
         false -> {error, "Name must be an ASCII string"}
     end;
 validate_name_vsn(Name) when is_binary(Name), byte_size(Name) > 0, byte_size(Name) =< 256 ->
+    case Name =:= bin(?PLUGIN_STAGING_DIR) of
+        true ->
+            {error, "Name must not be the reserved staging directory"};
+        false ->
+            validate_name_vsn_syntax(Name)
+    end;
+validate_name_vsn(Name) when is_binary(Name) ->
+    {error, "Name Length must =< 256"};
+validate_name_vsn(_) ->
+    {error, "Name must be a string"}.
+
+validate_name_vsn_syntax(Name) ->
     case re:run(Name, "\\A[A-Za-z]+[A-Za-z0-9_]*-[A-Za-z0-9_.-]*\\z", [{capture, none}]) of
         match ->
-            ok;
+            check_not_package_file_name(Name);
         nomatch ->
             {error,
                 "Name should be an application name"
@@ -57,11 +82,26 @@ validate_name_vsn(Name) when is_binary(Name), byte_size(Name) > 0, byte_size(Nam
                 " followed with a dash and a version string "
                 " (can contain letters, digits, dots, and dashes), "
                 " e.g. emqx_plugin_template-5.0-rc.1"}
-    end;
-validate_name_vsn(Name) when is_binary(Name) ->
-    {error, "Name Length must =< 256"};
-validate_name_vsn(_) ->
-    {error, "Name must be a string"}.
+    end.
+
+%% The installation directory of a name-vsn is also the path of the package file
+%% (or of its checksum) of the plugin whose name-vsn it extends: `foo-1.tar.gz'
+%% would take the place of the archive of `foo-1'.
+check_not_package_file_name(Name) ->
+    case is_package_file_name(Name) of
+        true ->
+            {error,
+                "Name must not end with .tar.gz or .tar.gz.md5sum,"
+                " which are the package file names of another plugin"};
+        false ->
+            ok
+    end.
+
+is_package_file_name(Name) ->
+    lists:any(
+        fun(Suffix) -> binary:longest_common_suffix([Name, Suffix]) =:= byte_size(Suffix) end,
+        [<<".tar.gz">>, <<".tar.gz.md5sum">>]
+    ).
 
 -doc """
 Validate the `node.pinned_plugins` list.
@@ -118,6 +158,53 @@ parse_name_vsn(NameVsn) when is_list(NameVsn) ->
     case lists:splitwith(fun(X) -> X =/= $- end, NameVsn) of
         {AppName, [$- | Vsn]} -> {list_to_atom(AppName), Vsn};
         _ -> error(bad_name_vsn)
+    end.
+
+%% @doc Split a package identifier into its application name and version
+%% without converting the name into an atom.
+%%
+%% The split is at the first dash, like `parse_name_vsn/1'.  Callers which only
+%% need the two textual parts (a lookup, a comparison, a log) must use this one:
+%% the identifier may come from a request, and it stays textual, so no atom is
+%% created for a name which is only looked up or compared.
+-spec split_name_vsn(term()) -> {binary(), binary()} | error.
+split_name_vsn(NameVsn) when is_list(NameVsn) ->
+    split_name_vsn(bin(NameVsn));
+split_name_vsn(NameVsn) when is_binary(NameVsn) ->
+    case binary:split(NameVsn, <<"-">>) of
+        [AppName, Vsn] when byte_size(AppName) > 0 -> {AppName, Vsn};
+        _ -> error
+    end;
+split_name_vsn(_NameVsn) ->
+    error.
+
+%% @doc Resolve a path below the plugins install directory lexically.
+%%
+%% The base is a directory which does not exist, so no symbolic link is
+%% followed and the result does not depend on the state of the install
+%% directory.  Returns `unsafe' when the path is absolute or leaves the base,
+%% `[]' when it resolves to the base itself.
+-spec safe_relative_path(file:filename_all()) -> unsafe | [] | {ok, file:filename_all()}.
+safe_relative_path(Path) ->
+    case filelib:safe_relative_path(Path, ?PATH_PROBE_DIR) of
+        unsafe -> unsafe;
+        [] -> [];
+        Safe -> {ok, Safe}
+    end.
+
+%% @doc Whether the path resolves to exactly one path component.
+-spec is_single_relative_component(file:filename_all()) -> boolean().
+is_single_relative_component(Path) ->
+    case safe_relative_path(Path) of
+        unsafe ->
+            false;
+        [] ->
+            false;
+        {ok, Safe} ->
+            case filename:split(Safe) of
+                [_Component] -> true;
+                _Nested -> false
+            end
     end.
 
 compare_vsn(Vsn1, Vsn2) when is_binary(Vsn1) ->
@@ -260,9 +347,41 @@ parse_name_vsn_test_() ->
         ?_assertEqual({bar_plugin, "5.9.0-beta.1"}, parse_name_vsn(<<"bar_plugin-5.9.0-beta.1">>))
     ].
 
+split_name_vsn_test_() ->
+    [
+        %% the same split as `parse_name_vsn/1', without the atom
+        ?_assertEqual({<<"foo">>, <<"1.0.0">>}, split_name_vsn("foo-1.0.0")),
+        ?_assertEqual({<<"foo">>, <<"1.0.0">>}, split_name_vsn(<<"foo-1.0.0">>)),
+        ?_assertEqual(
+            {<<"bar_plugin">>, <<"5.9.0-beta.1">>}, split_name_vsn(<<"bar_plugin-5.9.0-beta.1">>)
+        ),
+        %% a version may be empty, as `validate_name_vsn/1' accepts it
+        ?_assertEqual({<<"foo">>, <<>>}, split_name_vsn("foo-")),
+        ?_assertEqual(error, split_name_vsn("foo")),
+        ?_assertEqual(error, split_name_vsn("-1.0.0")),
+        ?_assertEqual(error, split_name_vsn("")),
+        ?_assertEqual(error, split_name_vsn(undefined)),
+        ?_assertEqual(error, split_name_vsn(1))
+    ].
+
 make_name_vsn_string_test_() ->
     [
         ?_assertEqual("foo-1.0.0", make_name_vsn_string(<<"foo">>, "1.0.0"))
+    ].
+
+safe_relative_path_test_() ->
+    [
+        ?_assertEqual({ok, "foo-1.0"}, safe_relative_path("foo-1.0")),
+        ?_assertEqual({ok, <<"foo-1.0">>}, safe_relative_path(<<"foo-1.0">>)),
+        ?_assertEqual([], safe_relative_path("foo-1.0/..")),
+        ?_assertEqual(unsafe, safe_relative_path("../foo-1.0")),
+        ?_assertEqual(unsafe, safe_relative_path("/foo-1.0")),
+        ?_assert(is_single_relative_component("foo-1.0")),
+        ?_assertNot(is_single_relative_component("a/foo-1.0")),
+        ?_assertNot(is_single_relative_component("../foo-1.0")),
+        ?_assertNot(is_single_relative_component("/foo-1.0")),
+        %% `..' components are resolved before the component count is checked
+        ?_assert(is_single_relative_component("a/../foo-1.0"))
     ].
 
 compare_vsn_fallback_test_() ->

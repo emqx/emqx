@@ -4,12 +4,31 @@
 
 -module(emqx_ai_completion_provider_mock).
 
--export([start_link/2, stop/0]).
+-export([start_link/1, start_link/2, stop/0]).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
+-doc """
+Start the mock provider on an available port and return its base URL.
+
+Prefer this over `start_link/2`: the server binds the port itself, so no other
+process can take it between the choice and the bind.
+""".
+start_link(Handler) ->
+    maybe
+        {ok, {Port, _Pid}} ?= emqx_utils_http_test_server:start_link(random, "/[...]"),
+        ok = set_handler(Handler),
+        {ok, iolist_to_binary(["http://localhost:", integer_to_binary(Port), "/v1"])}
+    end.
+
+-doc """
+Start the mock provider on `Port`.
+
+For a caller that needs the port before the server runs, such as one that
+stores a provider with a base URL and only then starts the server.
+""".
 start_link(Port, Handler) ->
     maybe
         {ok, _Pid} ?= emqx_utils_http_test_server:start_link(Port, "/[...]"),
@@ -17,6 +36,7 @@ start_link(Port, Handler) ->
         ok
     end.
 
+-doc "Stop the mock provider.".
 stop() ->
     emqx_utils_http_test_server:stop().
 

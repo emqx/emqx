@@ -1073,6 +1073,26 @@ t_pubsub_unauthorized(_) ->
         {ok, _} = emqx:update_config([authorization], OldAuthz)
     end.
 
+%% A publish to a topic that is not a valid topic name is a bad request.
+t_publish_invalid_topic(_) ->
+    Topics = ["a/%23", "%2B/a", "a/%23/b"],
+    Action = fun(Topic, Channel, Token) ->
+        URI = pubsub_uri(Topic, Token),
+        Req = make_req(post, <<"payload">>),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI, Req), Topic)
+    end,
+    with_connection(Topics, Action).
+
+%% A subscribe to a topic that is not a valid topic filter is a bad request.
+t_subscribe_invalid_topic(_) ->
+    Topics = ["a/%23/b", "a%2B/b", "%23a"],
+    Action = fun(Topic, Channel, Token) ->
+        URI = pubsub_uri(Topic, Token),
+        Req = make_req(get, <<>>, [{observe, 0}]),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI, Req), Topic)
+    end,
+    with_connection(Topics, Action).
+
 t_connectionless_no_auth_config_pub_sub(Config) ->
     Profile = ?config(security_profile, Config),
     with_connectionless_coap(true, fun() ->
