@@ -66,6 +66,11 @@
 ## Sets the default value for process flag message_queue_data. Defaults to on_heap.
 #+hmqd on_heap | off_heap
 
+## Sets the abandon carrier utilization limit of the process heap allocator.
+## 0 disables carrier migration: a scheduler keeps its own heap carriers and does
+##  not abandon them to the shared carrier pool.
++MHacul 0
+
 ## Sets the number of IO pollsets to use when polling for I/O.
 #+IOp 1
 
