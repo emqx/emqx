@@ -87,6 +87,11 @@ are not stats: they live in the session entry of the info map of the row (see
 %% keys in the order `emqx_connection:stats/1` does, before the process
 %% stats that a reader appends.
 -define(KEYS, (?SOCK_KEYS ++ ?SESSION_KEYS ++ ?CHANNEL_METRICS)).
+%% The size of the array: `length(?KEYS)`. `emqx_chan_stats_SUITE` checks
+%% that the two agree. A hot patch cannot add a key: the arrays of the
+%% running channels keep their size across a code load, so a reader of the
+%% new code would index past the end of an old array. A new key needs a
+%% release upgrade.
 -define(N_KEYS, 27).
 
 %%--------------------------------------------------------------------

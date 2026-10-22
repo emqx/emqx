@@ -23,6 +23,17 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 -doc """
+The array has one slot per key of `keys/0`, and every key has a slot: the
+size constant in the module must follow the key list.
+""".
+t_array_size_follows_keys(_) ->
+    Ref = emqx_chan_stats:new(connection),
+    Keys = emqx_chan_stats:keys(),
+    ?assertEqual(length(Keys), maps:get(size, atomics:info(Ref))),
+    ?assertEqual(length(Keys), length(lists:usort(Keys))),
+    lists:foreach(fun(Key) -> ?assertEqual({ok, 0}, emqx_chan_stats:lookup(Ref, Key)) end, Keys).
+
+-doc """
 A new array reports every key of its layout with the value 0, and `inc/2`
 changes the value a reader of the array sees.
 """.
