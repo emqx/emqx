@@ -300,6 +300,19 @@ classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error(shutdown = Reason) ->
     {recoverable_error, Reason};
+classify_error({owner, _Owner, _Reason} = Reason) ->
+    %% `emqtt' replays the in-flight and pending publishes with the reason the
+    %% client was terminated with; `{owner, Owner, Reason}' is its owner-exit
+    %% shutdown reason.  The client is gone, not the connection target, so the
+    %% query can still be delivered after the pool worker reconnects or the pool
+    %% restarts, like the `shutdown' reasons above.
+    {recoverable_error, Reason};
+classify_error(killed = Reason) ->
+    %% A pool worker that the supervisor kills because it did not finish the
+    %% shutdown in time takes its client down, and the client replays `killed'
+    %% to the publish callbacks.  The client is gone, not the connection target,
+    %% so the query can still be delivered after the pool worker reconnects.
+    {recoverable_error, Reason};
 classify_error(Reason) ->
     case is_connection_error(Reason) of
         true ->
@@ -495,6 +508,9 @@ mk_disconnect_handler(ResourceId, WorkerId, ClientId, TargetCluster) ->
     | {frame_parse_error, _Reason}
     | {connack_error, _Reason :: atom()}
     | connack_timeout
+    | shutdown
+    | {owner, pid(), term()}
+    | killed
     | _SocketError,
     _ResourceId :: resource_id(),
     _WorkerId :: pos_integer(),
@@ -505,6 +521,22 @@ handle_disconnect(Reason, ResourceId, WorkerId, EventCtx) ->
         shutdown ->
             %% NOTE
             %% Ignoring plain `shutdown`s as they are likely the result of stopping a link.
+            ok;
+        {owner, Owner, OwnerReason} ->
+            %% NOTE
+            %% The client was shut down because the process that owns it exited;
+            %% that is a local termination, not a failure of the connection.
+            ?SLOG(debug, EventCtx#{
+                msg => "cluster_link_forwarding_client_owner_exited",
+                owner => Owner,
+                reason => OwnerReason
+            }),
+            ok;
+        killed ->
+            %% NOTE
+            %% The client was killed together with the process that owns it; that
+            %% is a local termination, not a failure of the connection.
+            ?SLOG(debug, EventCtx#{msg => "cluster_link_forwarding_client_killed"}),
             ok;
         {disconnected, RC, _Props} ->
             %% NOTE
