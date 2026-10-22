@@ -445,10 +445,8 @@ topic_match(NULL, _) when ?IS_NULL(NULL) ->
     ?BADARG();
 topic_match(_, NULL) when ?IS_NULL(NULL) ->
     ?BADARG();
-topic_match(Topic0, Filter0) ->
-    Topic = any_to_str(Topic0),
-    Filter = any_to_str(Filter0),
-    emqx_topic:match(emqx_topic:words(Topic), emqx_topic:words(Filter)).
+topic_match(Topic, Filter) ->
+    emqx_topic:match(any_to_str(Topic), any_to_str(Filter)).
 
 topic_split(NULL) when ?IS_NULL(NULL) ->
     ?BADARG();
