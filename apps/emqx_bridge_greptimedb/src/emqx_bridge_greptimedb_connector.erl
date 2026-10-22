@@ -695,34 +695,187 @@ integer_point_validation_test() ->
         )
     ).
 
+template_suffix_value_test() ->
+    BaseData = #{<<"timestamp">> => 1_789_360_000_000, <<"n">> => 65},
+    BothLine = <<"mqtt,tag=${n}${suffix} field=${n}${suffix}">>,
+    %% text rendered by a placeholder is not a type suffix, in tags and in fields
+    assert_tag_and_field_text(BothLine, BaseData#{<<"suffix">> => <<"i">>}, <<"65i">>),
+    assert_tag_and_field_text(BothLine, BaseData#{<<"suffix">> => <<"u">>}, <<"65u">>),
+    assert_tag_and_field_text(
+        BothLine, BaseData#{<<"n">> => <<"abc">>, <<"suffix">> => <<"i">>}, <<"abci">>
+    ),
+    assert_tag_and_field_text(
+        BothLine, BaseData#{<<"n">> => 470.5, <<"suffix">> => <<"i">>}, <<"470.5i">>
+    ),
+    assert_tag_and_field_text(
+        BothLine, BaseData#{<<"n">> => true, <<"suffix">> => <<"i">>}, <<"truei">>
+    ),
+    %% a literal prefix or a placeholder that renders the suffix text does not create a suffix
+    assert_tag_and_field_text(
+        <<"mqtt,tag=pre_${x} field=pre_${x}">>, BaseData#{<<"x">> => <<"i">>}, <<"pre_i">>
+    ),
+    assert_tag_and_field_text(
+        <<"mqtt,tag=prefix_${n}i field=prefix_${n}i">>, BaseData, <<"prefix_65i">>
+    ),
+    %% a fully literal `65i` is one text token and stays text
+    assert_tag_and_field_text(<<"mqtt,tag=65i field=65i">>, BaseData, <<"65i">>).
+
+quoted_template_suffix_value_test() ->
+    BaseData = #{<<"timestamp">> => 1_789_360_000_000, <<"n">> => 65},
+    %% a quoted value is always text, also when a literal suffix follows the placeholder
+    {_, PlaceholderFields} = tag_and_field_values(
+        <<"mqtt,tag=1 field=\"${n}${suffix}\"">>, BaseData#{<<"suffix">> => <<"i">>}
+    ),
+    ?assertEqual(
+        #{value_data => {string_value, <<"65i">>}}, maps:get(<<"field">>, PlaceholderFields)
+    ),
+    {_, LiteralFields} = tag_and_field_values(<<"mqtt,tag=1 field=\"${n}i\"">>, BaseData),
+    ?assertEqual(
+        #{value_data => {string_value, <<"65i">>}}, maps:get(<<"field">>, LiteralFields)
+    ).
+
+literal_suffix_value_test() ->
+    BaseData = #{<<"timestamp">> => 1_789_360_000_000, <<"n">> => 65},
+    %% the same two tokens with a literal suffix keep their type
+    LiteralLine = <<"mqtt,tag=${n}i field=${n}i">>,
+    {TypedTags, TypedFields} = tag_and_field_values(LiteralLine, BaseData),
+    TypedValue = #{value_data => {i64_value, 65}},
+    ?assertEqual(TypedValue, maps:get(<<"tag">>, TypedTags)),
+    ?assertEqual(TypedValue, maps:get(<<"field">>, TypedFields)),
+    {UnsignedTags, _} = tag_and_field_values(<<"mqtt,tag=${n}u field=${n}u">>, BaseData),
+    ?assertEqual(#{value_data => {u64_value, 65}}, maps:get(<<"tag">>, UnsignedTags)),
+    %% a non-integer payload with a literal suffix is still rejected
+    assert_convert_error(
+        [LiteralLine, <<"mqtt,tag=1 field=${n}i">>],
+        BaseData#{<<"n">> => 470.5},
+        {invalid_integer_value, 470.5}
+    ).
+
+native_driver_value_test() ->
+    BaseData = #{<<"timestamp">> => 1_789_360_000_000, <<"n">> => 65},
+    %% the native driver takes the same conversion as the Erlang one, with bare values
+    {Tags, Fields} = tag_and_field_values(
+        <<"mqtt,tag=${n}${suffix} field=${n}${suffix}">>,
+        BaseData#{<<"suffix">> => <<"i">>},
+        native
+    ),
+    ?assertEqual(#{<<"tag">> => <<"65i">>}, Tags),
+    ?assertEqual(#{<<"field">> => <<"65i">>}, Fields),
+    {TypedTags, TypedFields} = tag_and_field_values(
+        <<"mqtt,tag=${n}i field=${n}i">>, BaseData, native
+    ),
+    ?assertEqual(#{<<"tag">> => 65}, TypedTags),
+    ?assertEqual(#{<<"field">> => 65}, TypedFields),
+    {UnsignedTags, _} = tag_and_field_values(
+        <<"mqtt,tag=${n}u field=1">>, BaseData#{<<"n">> => 456}, native
+    ),
+    ?assertEqual(#{<<"tag">> => 456}, UnsignedTags),
+    %% a float token and a quoted value are bare terms as well
+    {_, FloatFields} = tag_and_field_values(
+        <<"mqtt,tag=1 field=${n}">>, BaseData#{<<"n">> => 1.5}, native
+    ),
+    ?assertEqual(#{<<"field">> => 1.5}, FloatFields),
+    {_, QuotedFields} = tag_and_field_values(<<"mqtt,tag=1 field=\"${n}i\"">>, BaseData, native),
+    ?assertEqual(#{<<"field">> => <<"65i">>}, QuotedFields),
+    %% a literal suffix that is not `i`/`u` stays part of the text
+    {_, SuffixFields} = tag_and_field_values(<<"mqtt,tag=1 field=${n}pre">>, BaseData, native),
+    ?assertEqual(#{<<"field">> => <<"65pre">>}, SuffixFields),
+    %% a non-integer payload with a literal suffix is rejected, not written as a number
+    ?assertEqual(
+        {error, [{error, {invalid_integer_value, 470.5}}]},
+        convert_line(<<"mqtt,tag=1 field=${n}i">>, BaseData#{<<"n">> => 470.5}, native)
+    ),
+    %% invalid UTF-8 text fails the point instead of crashing the conversion
+    ?assertEqual(
+        {error, [{error, {invalid_string_value, [<<255, 255>>, <<"i">>]}}]},
+        convert_line(
+            <<"mqtt,tag=1 field=${n}${suffix}">>,
+            BaseData#{<<"n">> => <<255, 255>>, <<"suffix">> => <<"i">>},
+            native
+        )
+    ).
+
+template_suffix_error_test() ->
+    BaseData = #{<<"timestamp">> => 1_789_360_000_000, <<"n">> => 65},
+    TagOnlyLine = <<"mqtt,tag=${n}${suffix} field=1">>,
+    FieldOnlyLine = <<"mqtt,tag=1 field=${n}${suffix}">>,
+    %% a non-UTF-8 payload in the placeholder form fails as a string, not as an integer
+    assert_convert_error(
+        [TagOnlyLine, FieldOnlyLine],
+        BaseData#{<<"n">> => <<255, 255>>, <<"suffix">> => <<"i">>},
+        {invalid_string_value, [<<255, 255>>, <<"i">>]}
+    ),
+    %% an unset placeholder after the value still fails the point
+    assert_convert_error(
+        [TagOnlyLine, FieldOnlyLine],
+        BaseData,
+        {invalid_string_value, [<<"65">>, undefined]}
+    ).
+
+tag_and_field_values(WriteSyntax, Data) ->
+    tag_and_field_values(WriteSyntax, Data, erlang).
+
+tag_and_field_values(WriteSyntax, Data, DriverType) ->
+    {ok, [{_, [#{tags := Tags, fields := Fields}]}]} = convert_line(WriteSyntax, Data, DriverType),
+    {Tags, Fields}.
+
+assert_tag_and_field_text(WriteSyntax, Data, Expected) ->
+    {Tags, Fields} = tag_and_field_values(WriteSyntax, Data),
+    Value = #{value_data => {string_value, Expected}},
+    ?assertEqual(Value, maps:get(<<"tag">>, Tags)),
+    ?assertEqual(Value, maps:get(<<"field">>, Fields)).
+
+assert_convert_error(WriteSyntaxes, Data, Reason) ->
+    Expected = {error, [{error, Reason}]},
+    lists:foreach(
+        fun(WriteSyntax) ->
+            ?assertEqual(Expected, convert_line(WriteSyntax, Data))
+        end,
+        WriteSyntaxes
+    ).
+
+convert_line(WriteSyntax, Data) ->
+    convert_line(WriteSyntax, Data, erlang).
+
+convert_line(WriteSyntax, Data, DriverType) ->
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(
+        emqx_bridge_influxdb:to_influx_lines(WriteSyntax), ms
+    ),
+    emqx_bridge_greptimedb_utils:data_to_points(Data, <<"public">>, SyntaxLines, DriverType).
+
 numeric_range_validation_test() ->
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(
+        emqx_bridge_influxdb:to_influx_lines(<<"mqtt,clientid=${clientid} i=${i}i,u=${u}u">>),
+        ms
+    ),
+    Data = #{<<"timestamp">> => 1_789_360_000_000, <<"clientid">> => <<"c1">>},
+    Range = fun(Field, Value) ->
+        Result = emqx_bridge_greptimedb_utils:data_to_points(
+            Data#{Field => Value}, <<"public">>, SyntaxLines, erlang
+        ),
+        case Result of
+            {ok, [{_, [#{fields := Fields}]}]} -> {ok, maps:get(Field, Fields)};
+            {error, _} = Error -> Error
+        end
+    end,
+    ?assertEqual({ok, #{value_data => {i64_value, ?INT64_MIN}}}, Range(<<"i">>, ?INT64_MIN)),
+    ?assertEqual({ok, #{value_data => {i64_value, ?INT64_MAX}}}, Range(<<"i">>, ?INT64_MAX)),
     ?assertEqual(
-        {ok, #{value_data => {i64_value, ?INT64_MIN}}},
-        emqx_bridge_greptimedb_utils:value_type([?INT64_MIN, <<"i">>])
+        {error, [{error, {invalid_integer_value, ?INT64_MIN - 1}}]},
+        Range(<<"i">>, ?INT64_MIN - 1)
     ),
     ?assertEqual(
-        {ok, #{value_data => {i64_value, ?INT64_MAX}}},
-        emqx_bridge_greptimedb_utils:value_type([?INT64_MAX, <<"i">>])
+        {error, [{error, {invalid_integer_value, ?INT64_MAX + 1}}]},
+        Range(<<"i">>, ?INT64_MAX + 1)
+    ),
+    ?assertEqual({ok, #{value_data => {u64_value, ?UINT64_MAX}}}, Range(<<"u">>, ?UINT64_MAX)),
+    ?assertEqual(
+        {error, [{error, {invalid_unsigned_integer_value, -1}}]},
+        Range(<<"u">>, -1)
     ),
     ?assertEqual(
-        {error, {invalid_integer_value, ?INT64_MIN - 1}},
-        emqx_bridge_greptimedb_utils:value_type([?INT64_MIN - 1, <<"i">>])
-    ),
-    ?assertEqual(
-        {error, {invalid_integer_value, ?INT64_MAX + 1}},
-        emqx_bridge_greptimedb_utils:value_type([?INT64_MAX + 1, <<"i">>])
-    ),
-    ?assertEqual(
-        {ok, #{value_data => {u64_value, ?UINT64_MAX}}},
-        emqx_bridge_greptimedb_utils:value_type([?UINT64_MAX, <<"u">>])
-    ),
-    ?assertEqual(
-        {error, {invalid_unsigned_integer_value, -1}},
-        emqx_bridge_greptimedb_utils:value_type([-1, <<"u">>])
-    ),
-    ?assertEqual(
-        {error, {invalid_unsigned_integer_value, ?UINT64_MAX + 1}},
-        emqx_bridge_greptimedb_utils:value_type([?UINT64_MAX + 1, <<"u">>])
+        {error, [{error, {invalid_unsigned_integer_value, ?UINT64_MAX + 1}}]},
+        Range(<<"u">>, ?UINT64_MAX + 1)
     ),
     TooLargeForFloat64 = 1 bsl 1024,
     ?assertEqual(
@@ -805,6 +958,7 @@ quoted_field_value_utf8_test() ->
 
 value_type(X) -> emqx_bridge_greptimedb_utils:value_type(X).
 value_type(X, Kind) -> emqx_bridge_greptimedb_utils:value_type_for_kind(X, Kind).
+value_type(X, SuffixType, Kind) -> emqx_bridge_greptimedb_utils:value_type(X, SuffixType, Kind).
 
 field_mixed_template_value_test() ->
     ?assertEqual(
@@ -870,13 +1024,14 @@ tag_value_typing_test() ->
         {ok, #{value_data => {string_value, <<"pre_true">>}}},
         value_type([<<"pre_">>, true], tag)
     ),
-    %% an `i`/`u` suffix keeps its type, a field keeps its typing
-    ?assertEqual({ok, #{value_data => {i64_value, 65}}}, value_type([65, <<"i">>], tag)),
-    ?assertEqual({ok, #{value_data => {u64_value, 65}}}, value_type([65, <<"u">>], tag)),
+    %% a bare integer field keeps its float typing
     ?assertEqual({ok, #{value_data => {f64_value, 65.0}}}, value_type([65])),
-    %% the tag clauses do not swallow the `i`/`u` type and range checks
-    ?assertEqual({error, {invalid_integer_value, 470.5}}, value_type([470.5, <<"i">>], tag)),
-    ?assertEqual({error, {invalid_unsigned_integer_value, -1}}, value_type([-1, <<"u">>], tag)).
+    %% the `i`/`u` suffix declared by the template is validated the same way for a tag
+    ?assertEqual({error, {invalid_integer_value, 470.5}}, value_type([470.5, <<"i">>], int64, tag)),
+    ?assertEqual(
+        {error, {invalid_unsigned_integer_value, -1}},
+        value_type([-1, <<"u">>], uint64, tag)
+    ).
 
 %% for coverage
 desc_test_() ->
