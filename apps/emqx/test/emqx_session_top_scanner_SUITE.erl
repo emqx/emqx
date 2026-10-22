@@ -128,7 +128,7 @@ clear_table() ->
     ok.
 
 insert_channel_info(ClientId, Pid, MqueueLength, TotalPayloadBytes, InflightCount) ->
-    StatsRef = emqx_chan_stats:new(),
+    StatsRef = emqx_chan_stats:new([]),
     ok = emqx_chan_stats:put([
         {mqueue_len, MqueueLength},
         {total_payload_bytes, TotalPayloadBytes},

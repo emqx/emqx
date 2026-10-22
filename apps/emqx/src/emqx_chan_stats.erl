@@ -7,7 +7,7 @@
 -moduledoc """
 Per-connection stats in an `atomics` array that the channel process owns.
 
-The channel process creates the array with `new/0`, which also records the
+The channel process creates the array with `new/1`, which also records the
 reference in the process dictionary, so that the connection module, the
 channel and the session code count without passing the reference around.
 The `emqx_channel_info` table row holds the reference, and a reader on the
@@ -18,7 +18,7 @@ The packet and message counters (`?CHANNEL_METRICS`) are added in place with
 are written by the owner with `put/1`, on its stats timer and when the
 session changes. An owner that does not report some of the keys, such as a
 WebSocket connection (no `send_pend`) or an evicted session (no socket),
-marks them with `mask/1`: their slots hold `-1`, which no counter or gauge
+passes them to `new/1`: their slots hold `-1`, which no counter or gauge
 can take, and readers leave them out. The process stats (`mailbox_len`, `heap_size`, ...) are not in the
 array: a reader on the same node takes them from the process with
 `emqx_utils:proc_stats/1`.
@@ -33,8 +33,7 @@ are not stats: they live in the session entry of the info map of the row (see
 
 %% Owner process
 -export([
-    new/0,
-    mask/1,
+    new/1,
     ref/0,
     inc/2,
     get/1,
@@ -99,23 +98,17 @@ are not stats: they live in the session entry of the info map of the row (see
 %%--------------------------------------------------------------------
 
 -doc """
-Create the stats array of the calling process, every key at 0, and record its
-reference in the process dictionary.
+Create the stats array of the calling process and record its reference in
+the process dictionary. Every key starts at 0, except `Masked`: the keys the
+process does not report, which readers leave out. Raises for a key without a
+slot.
 """.
--spec new() -> ref().
-new() ->
+-spec new([key()]) -> ref().
+new(Masked) ->
     Ref = atomics:new(?N_KEYS, []),
+    lists:foreach(fun(Key) -> ok = atomics:put(Ref, slot(Key), ?ABSENT) end, Masked),
     _ = erlang:put(?PD_KEY, Ref),
     Ref.
-
--doc """
-Mark keys that the calling process does not report: readers of its stats
-array leave them out. Raises for a key without a slot.
-""".
--spec mask([key()]) -> ok.
-mask(Keys) ->
-    Ref = ref(),
-    lists:foreach(fun(Key) -> ok = atomics:put(Ref, slot(Key), ?ABSENT) end, Keys).
 
 -doc "The stats array of the calling process. Raises when the process has none.".
 -spec ref() -> ref().

@@ -27,7 +27,7 @@ The array has one slot per key of `keys/0`, and every key has a slot: the
 slot numbers in the module must follow the key list.
 """.
 t_array_size_follows_keys(_) ->
-    Ref = emqx_chan_stats:new(),
+    Ref = emqx_chan_stats:new([]),
     Keys = emqx_chan_stats:keys(),
     ?assertEqual(length(Keys), maps:get(size, atomics:info(Ref))),
     ?assertEqual(length(Keys), length(lists:usort(Keys))),
@@ -38,7 +38,7 @@ A new array reports every key with the value 0, and `inc/2`
 changes the value a reader of the array sees.
 """.
 t_new_and_inc(_) ->
-    Ref = emqx_chan_stats:new(),
+    Ref = emqx_chan_stats:new([]),
     ?assertEqual(Ref, emqx_chan_stats:ref()),
     ?assertEqual([{Key, 0} || Key <- emqx_chan_stats:keys()], emqx_chan_stats:to_list(Ref)),
     ok = emqx_chan_stats:inc(recv_pkt, 1),
@@ -64,7 +64,7 @@ t_new_and_inc(_) ->
 `keys/0`: socket, session, channel.
 """.
 t_put(_) ->
-    Ref = emqx_chan_stats:new(),
+    Ref = emqx_chan_stats:new([]),
     ok = emqx_chan_stats:put([{mqueue_len, 7}, {recv_oct, 100}]),
     ?assertEqual(
         [{K, V} || {K, V} <- emqx_chan_stats:to_list(Ref), V =/= 0],
@@ -84,13 +84,13 @@ t_put(_) ->
     ?assertEqual(error, emqx_chan_stats:lookup(Ref, not_a_stat)).
 
 -doc """
-An owner masks the keys it does not report: a WebSocket connection has no
-`send_pend`, an evicted session has no socket. A masked slot holds -1, so
-`get/2` reads -1, and neither `lookup/2` nor `to_list/1` reports the key.
+An owner masks the keys it does not report when it creates the array: a
+WebSocket connection has no `send_pend`, an evicted session has no socket. A
+masked slot holds -1, so `get/2` reads -1, and neither `lookup/2` nor
+`to_list/1` reports the key.
 """.
 t_mask(_) ->
-    Ws = emqx_chan_stats:new(),
-    ok = emqx_chan_stats:mask([send_pend]),
+    Ws = emqx_chan_stats:new([send_pend]),
     ?assertEqual(-1, emqx_chan_stats:get(Ws, send_pend)),
     ?assertEqual(
         emqx_chan_stats:keys() -- [send_pend], [K || {K, _} <- emqx_chan_stats:to_list(Ws)]
@@ -98,8 +98,7 @@ t_mask(_) ->
     ok = emqx_chan_stats:put([{recv_oct, 1}]),
     ?assertEqual(error, emqx_chan_stats:lookup(Ws, send_pend)),
     ?assertEqual({ok, 1}, emqx_chan_stats:lookup(Ws, recv_oct)),
-    Evicted = emqx_chan_stats:new(),
-    ok = emqx_chan_stats:mask(?SOCK_KEYS),
+    Evicted = emqx_chan_stats:new(?SOCK_KEYS),
     ?assertEqual(
         [-1, -1, -1, -1, -1],
         [emqx_chan_stats:get(Evicted, K) || K <- ?SOCK_KEYS]
@@ -108,11 +107,11 @@ t_mask(_) ->
         ?SESSION_KEYS ++ ?CHANNEL_METRICS, [K || {K, _} <- emqx_chan_stats:to_list(Evicted)]
     ),
     ?assertEqual(error, emqx_chan_stats:lookup(Evicted, recv_oct)),
-    ?assertError({unknown_chan_stats_key, nokey}, emqx_chan_stats:mask([nokey])).
+    ?assertError({unknown_chan_stats_key, nokey}, emqx_chan_stats:new([nokey])).
 
 -doc "Every value of a stats array is an integer, and only the keys of the array have a slot.".
 t_put_integers_only(_) ->
-    _ = emqx_chan_stats:new(),
+    _ = emqx_chan_stats:new([]),
     ?assertError(badarg, emqx_chan_stats:put([{mqueue_len, infinity}])),
     ?assertError(badarg, emqx_chan_stats:put([{mqueue_len, undefined}])),
     %% A session attribute that does not change with traffic is not a stat.

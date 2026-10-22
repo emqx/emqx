@@ -49,7 +49,7 @@ insert_session(ClientId, Stats) ->
     insert_session(ClientId, Stats, #{}).
 
 insert_session(ClientId, Stats, Info) ->
-    StatsRef = emqx_chan_stats:new(),
+    StatsRef = emqx_chan_stats:new([]),
     ok = emqx_chan_stats:put(Stats),
     true = ets:insert(?CHAN_INFO_TAB, {{ClientId, self()}, Info, StatsRef}),
     ClientId.
@@ -347,7 +347,7 @@ t_cluster_top_by(Config) ->
 insert_remote(Node, ClientId, MqueueLen) ->
     Pid = self(),
     true = erpc:call(Node, fun() ->
-        _ = emqx_chan_stats:new(),
+        _ = emqx_chan_stats:new([]),
         ok = emqx_chan_stats:put([{mqueue_len, MqueueLen}]),
         ets:insert(?CHAN_INFO_TAB, {{ClientId, Pid}, #{}, emqx_chan_stats:ref()})
     end),
