@@ -319,6 +319,35 @@ never mean "set the secret to the literal `******`".
   assert that the request succeeds and that the stored secret did not change. Separately, assert
   that `GET` still masks the secret.
 
+## Data integration test suites
+
+Write data integration test suites by always using the HTTP APIs to
+create/update/delete/restart connectors/actions/sources/rules, and use real test
+containers for the remote services as much as possible.  If there's no such emulator
+container available for a specific data integration, try to mock it in the test suite, and
+not the calls of EMQX modules (i.e. create a mock HTTP/gRPC server, or, as a last resort,
+mock the APIs closest to calling such services instead of higher level APIs).  This is
+important because it makes the tests more real, and they exercise as much realistic code
+paths as possible, such as: config transformations, real HTTP API responses, credential
+deobfuscation, config transformation/conversions done internally, default schema values
+are filled in, etc.
+
+Try to follow the examples of existing suites as much as possible, such as defining
+helpers in the test suite that refer to `emqx_bridge_v2_testlib` module, which already
+provides lots of shared helpers.  Exaples of suites to use as a base for copy-and-pasting
+and sample structure are: `apps/emqx_bridge_bigquery/test/emqx_bridge_bigquery_SUITE.erl`,
+`apps/emqx_bridge_s3tables/test/emqx_bridge_s3tables_SUITE.erl`,
+`apps/emqx_bridge_snowflake/test/emqx_bridge_snowflake_streaming_SUITE.erl` (this one
+resorts to mocking).
+
+At the time of writing, there are some legacy test modules that do not follow these
+guidelines and call EMQX data integration implementation modules directly with
+hand-crafted values.  Those not only do not accurately test real system behaviors, but
+also make it much harder to do refactorings and fixes, as they often use unrealistic
+values or call patterns that do not happen in real running system.  Such test modules tend
+to be named `emqx_bridge_*_connector_tests`.  Do NOT copy-and-paste them or perpetuate
+their usage when creating new data integrations.
+
 ## i18n
 
 - Edit `rel/i18n/*.hocon`. Each file has the name of its schema module.

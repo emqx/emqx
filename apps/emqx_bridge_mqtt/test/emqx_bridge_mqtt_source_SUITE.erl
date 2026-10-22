@@ -1275,3 +1275,9 @@ t_bridge_mode_v5_logs_warning(TCConfig) ->
         end
     ),
     ok.
+
+t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
+    emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
+        callback_mod => emqx_bridge_mqtt_ingress,
+        reconnect_callback_fns => [on_reconnect]
+    }).

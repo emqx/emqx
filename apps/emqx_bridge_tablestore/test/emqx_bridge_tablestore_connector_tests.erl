@@ -10,6 +10,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
+-moduledoc """
+DO NOT COPY AND PASTE THIS MODULE WHEN IMPLEMENTING A NEW BRIDGE.
+
+This kind of test not only makes it harder to fix/refactor thing, but also relies on
+heavily mocked/unreal states, which tend to severely diminish the value of the tests.
+""".
+
 -define(CONF, #{
     instance_name => <<"instance">>,
     endpoint => <<"https://test.cn-hangzhou.ots.aliyuncs.com">>,

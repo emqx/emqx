@@ -507,6 +507,7 @@ copy_acl_conf() ->
         {error, bad_name} ->
             (not filelib:is_regular(Dest)) andalso file:write_file(Dest, <<"">>);
         _ ->
+            ok = filelib:ensure_dir(Dest),
             {ok, _} = file:copy(deps_path(emqx_auth, "etc/acl.conf"), Dest)
     end,
     ok.
