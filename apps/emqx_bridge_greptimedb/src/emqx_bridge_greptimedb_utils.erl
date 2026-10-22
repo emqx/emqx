@@ -6,7 +6,8 @@
 %% API
 -export([
     parse_write_syntax/2,
-    parse_batch_data/5
+    parse_batch_data/5,
+    parse_batch_data/6
 ]).
 
 %%------------------------------------------------------------------------------
@@ -30,16 +31,22 @@ parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, DriverType) when
     DriverType == erlang;
     DriverType == native
 ->
-    do_parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, DriverType).
+    parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, #{}, DriverType).
+
+parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, FieldTypes, DriverType) when
+    DriverType == erlang;
+    DriverType == native
+->
+    do_parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, FieldTypes, DriverType).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-do_parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, DriverType) ->
+do_parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, FieldTypes, DriverType) ->
     {Points0, Errors} = lists:foldl(
         fun({_, Data}, {ListOfPoints, ErrAccIn}) ->
-            case data_to_points(Data, DbName, SyntaxLines, DriverType) of
+            case data_to_points(Data, DbName, SyntaxLines, FieldTypes, DriverType) of
                 {ok, Points} ->
                     {[Points | ListOfPoints], ErrAccIn};
                 {error, ErrorPoints} ->
@@ -84,14 +91,15 @@ do_parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, DriverType) ->
             precision := {From :: ts_precision(), To :: ts_precision()}
         }
     ],
+    #{binary() => json2},
     _DriverType :: erlang | native
 ) -> {ok, [map()]} | {error, term()}.
-data_to_points(Data, DbName, SyntaxLines, DriverType) ->
-    lines_to_points(Data, DbName, DriverType, SyntaxLines, [], []).
+data_to_points(Data, DbName, SyntaxLines, FieldTypes, DriverType) ->
+    lines_to_points(Data, DbName, FieldTypes, DriverType, SyntaxLines, [], []).
 
 %% When converting multiple rows data into Greptimedb Line Protocol, they are considered to be strongly correlated.
 %% And once a row fails to convert, all of them are considered to have failed.
-lines_to_points(_Data, _DbName, _DriverType, [], Points, ErrorPoints) ->
+lines_to_points(_Data, _DbName, _FieldTypes, _DriverType, [], Points, ErrorPoints) ->
     case ErrorPoints of
         [] ->
             {ok, Points};
@@ -100,7 +108,13 @@ lines_to_points(_Data, _DbName, _DriverType, [], Points, ErrorPoints) ->
             {error, ErrorPoints}
     end;
 lines_to_points(
-    Data, DbName, DriverType, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc
+    Data,
+    DbName,
+    FieldTypes,
+    DriverType,
+    [#{timestamp := Ts} = Item | Rest],
+    ResultPointsAcc,
+    ErrorPointsAcc
 ) when
     is_list(Ts)
 ->
@@ -109,35 +123,73 @@ lines_to_points(
         {ok, TsInt} ->
             Item1 = Item#{timestamp => TsInt},
             continue_lines_to_points(
-                Data, DbName, DriverType, Item1, Rest, ResultPointsAcc, ErrorPointsAcc
+                Data,
+                DbName,
+                FieldTypes,
+                DriverType,
+                Item1,
+                Rest,
+                ResultPointsAcc,
+                ErrorPointsAcc
             );
         {error, BadTs} ->
-            lines_to_points(Data, DbName, DriverType, Rest, ResultPointsAcc, [
-                {error, {bad_timestamp, BadTs}} | ErrorPointsAcc
-            ])
+            lines_to_points(
+                Data,
+                DbName,
+                FieldTypes,
+                DriverType,
+                Rest,
+                ResultPointsAcc,
+                [{error, {bad_timestamp, BadTs}} | ErrorPointsAcc]
+            )
     end;
 lines_to_points(
-    Data, DbName, DriverType, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc
+    Data,
+    DbName,
+    FieldTypes,
+    DriverType,
+    [#{timestamp := Ts} = Item | Rest],
+    ResultPointsAcc,
+    ErrorPointsAcc
 ) when
     is_integer(Ts)
 ->
-    continue_lines_to_points(Data, DbName, DriverType, Item, Rest, ResultPointsAcc, ErrorPointsAcc).
+    continue_lines_to_points(
+        Data, DbName, FieldTypes, DriverType, Item, Rest, ResultPointsAcc, ErrorPointsAcc
+    ).
 
-continue_lines_to_points(Data, DbName, DriverType, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
-    case line_to_point(Data, DbName, DriverType, Item) of
+continue_lines_to_points(
+    Data, DbName, FieldTypes, DriverType, Item, Rest, ResultPointsAcc, ErrorPointsAcc
+) ->
+    case line_to_point(Data, DbName, FieldTypes, DriverType, Item) of
         {_, [#{fields := Fields}]} when map_size(Fields) =:= 0 ->
             %% greptimedb client doesn't like empty field maps...
             ErrorPointsAcc1 = [{error, no_fields} | ErrorPointsAcc],
-            lines_to_points(Data, DbName, DriverType, Rest, ResultPointsAcc, ErrorPointsAcc1);
+            lines_to_points(
+                Data,
+                DbName,
+                FieldTypes,
+                DriverType,
+                Rest,
+                ResultPointsAcc,
+                ErrorPointsAcc1
+            );
         Point ->
             lines_to_points(
-                Data, DbName, DriverType, Rest, [Point | ResultPointsAcc], ErrorPointsAcc
+                Data,
+                DbName,
+                FieldTypes,
+                DriverType,
+                Rest,
+                [Point | ResultPointsAcc],
+                ErrorPointsAcc
             )
     end.
 
 line_to_point(
     Data,
     DbName,
+    FieldTypes,
     DriverType,
     #{
         measurement := Measurement,
@@ -151,7 +203,8 @@ line_to_point(
         maps_config_to_data(K, V, Acc, DriverType)
     end,
     {_, EncodedTags} = maps:fold(FoldFn, {Data, #{}}, Tags),
-    {_, EncodedFields} = maps:fold(FoldFn, {Data, #{}}, Fields),
+    {_, EncodedFields0} = maps:fold(FoldFn, {Data, #{}}, Fields),
+    EncodedFields = apply_field_types(EncodedFields0, FieldTypes),
     TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
     Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
     {Metric, [
@@ -161,6 +214,23 @@ line_to_point(
             timestamp => maybe_convert_time_unit(Ts, Precision)
         })
     ]}.
+
+apply_field_types(Fields, FieldTypes) ->
+    maps:fold(
+        fun
+            (Name, json2, Acc) ->
+                FieldName = bin(Name),
+                maps:update_with(
+                    FieldName,
+                    fun(Value) -> {json2, Value} end,
+                    Acc
+                );
+            (_Name, _Type, Acc) ->
+                Acc
+        end,
+        Fields,
+        FieldTypes
+    ).
 
 do_parse_write_syntax([], Acc, _Precision) ->
     lists:reverse(Acc);

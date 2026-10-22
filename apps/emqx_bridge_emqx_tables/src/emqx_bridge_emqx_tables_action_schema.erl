@@ -56,11 +56,21 @@ fields(action) ->
         )};
 fields(?ACTION_TYPE) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
-        mk(hoconsc:ref(emqx_bridge_greptimedb, action_parameters), #{
+        mk(ref(action_parameters), #{
             required => true, desc => ?DESC("parameters")
         }),
         #{resource_opts_ref => ref(action_resource_opts)}
     );
+fields(action_parameters) ->
+    emqx_bridge_greptimedb:fields(action_parameters) ++
+        [
+            {field_types,
+                mk(hoconsc:map(name, hoconsc:enum([json2])), #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(field_types)
+                })}
+        ];
 fields(action_resource_opts) ->
     emqx_bridge_v2_schema:action_resource_opts_fields([
         {batch_size, #{default => 1000}},
@@ -120,6 +130,7 @@ action_example(put) ->
         parameters =>
             #{
                 write_syntax => write_syntax_value(),
+                field_types => #{payload => json2},
                 precision => ms
             },
         resource_opts =>
