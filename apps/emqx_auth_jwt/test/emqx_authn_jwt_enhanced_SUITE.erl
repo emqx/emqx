@@ -9,6 +9,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -68,9 +69,20 @@ t_connect_rejects_bad_token(_Config) ->
     _ = connect(<<"c_bad">>, <<"not.a.jwt">>),
     ?assertMatch(?CONNACK_PACKET(?RC_NOT_AUTHORIZED, _), receive_packet()).
 
-%% A missing Authentication Data under the JWT method follows the configured
-%% `on_missing_jwt' policy, pinned to `deny' by this suite.
+-doc """
+Tests that the `JWT` method without Authentication Data is denied, also when
+`on_missing_jwt = ignore` is set and a later authentication hook would accept the client.
+""".
 t_connect_without_token(_Config) ->
+    _ = emqx_authn_test_lib:delete_authenticators(?PATH, ?GLOBAL),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, (auth_config())#{<<"on_missing_jwt">> => <<"ignore">>}}
+    ),
+    ok = emqx_hooks:add('client.authenticate', {?MODULE, allow_all, []}, ?HP_LOWEST),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, allow_all})
+    end),
     {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
     ok = emqx_mqtt_test_client:send(
         Pid,
@@ -271,6 +283,9 @@ clientinfo(ClientId) ->
     [ChanPid] = emqx_cm:lookup_channels(ClientId),
     #{clientinfo := ClientInfo} = emqx_connection:info(ChanPid),
     ClientInfo.
+
+allow_all(_Credential, _Acc) ->
+    {stop, {ok, #{is_superuser => false}}}.
 
 clientid(ChanPid) ->
     #{clientinfo := #{clientid := ClientId}} = emqx_connection:info(ChanPid),

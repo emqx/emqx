@@ -103,8 +103,10 @@ authenticate(
     State
 ) when is_binary(JWT) ->
     do_authenticate(JWT, Credential, State);
-authenticate(#{auth_method := ?MQTT_AUTHN_METHOD_BIN}, #{on_missing_jwt := OnMissingJWT}) ->
-    missing_jwt(OnMissingJWT);
+%% The client selected the `JWT' method, so it must send a token. Deny without
+%% one. `on_missing_jwt' applies to the token in the CONNECT fields only.
+authenticate(#{auth_method := ?MQTT_AUTHN_METHOD_BIN}, _State) ->
+    {error, bad_username_or_password};
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(
