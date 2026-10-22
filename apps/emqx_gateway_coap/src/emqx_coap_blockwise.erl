@@ -486,6 +486,8 @@ has_block2_option(_) ->
 
 reply_request(#coap_message{} = Req, _Reply) -> Req.
 
+maybe_clear_server_tx(_PeerKey, #coap_message{method = get, options = #{observe := 0}}, State) ->
+    State;
 maybe_clear_server_tx(PeerKey, #coap_message{} = Req, #{server_tx_block2 := TxMap} = State) ->
     Key = server_tx_key_from_req(PeerKey, Req),
     Resource = server_resource(PeerKey, Req),

@@ -50,8 +50,12 @@ insert(#{topic := Topic, token := Token, subopts := SubOpts} = SubData, Manager)
                 (new_res(Token, SubOpts))#{
                     resource_context => maps:get(resource_context, SubData, undefined)
                 };
-            Any ->
-                Any
+            Existing ->
+                Existing#{
+                    token := Token,
+                    subopts := SubOpts,
+                    resource_context => maps:get(resource_context, SubData, undefined)
+                }
         end,
     {maps:get(seq_id, Res), Manager#{Topic => Res}}.
 

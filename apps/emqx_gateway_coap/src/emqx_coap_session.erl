@@ -12,7 +12,8 @@
 -export([
     new/0,
     resume/2,
-    process_subscribe/4
+    process_subscribe/4,
+    observe_matches/3
 ]).
 
 -export([
@@ -433,9 +434,11 @@ do_drain_observe_notification(Msg, BW, Pending, Queue, Len0, Result, Session0) -
 
 prepare_pending_observe_notification(Pending, Result, Session) ->
     Msg = pending_msg(Pending),
-    case pending_blockwise(Pending) of
-        BW when is_map(BW) ->
+    case {pending_blockwise(Pending), maps:get(blockwise, Result, undefined)} of
+        {BW, CurrentBW} when is_map(BW), is_map(CurrentBW) ->
             {Msg, BW};
+        {BW, _} when is_map(BW) ->
+            wait;
         _ ->
             case {pending_blockwise_key(Pending), maps:get(blockwise, Result, undefined)} of
                 {undefined, _} ->
@@ -487,10 +490,18 @@ blockwise_key_active(BlockwiseKey, #{server_tx_block2 := ServerTx}) when is_map(
 blockwise_key_active(_BlockwiseKey, _BW) ->
     false.
 
-new_pending_observe_notification(Msg, MQTT, ObservedTopic, BW, PeerKey, Ctx, true) ->
-    {Msg, MQTT, ObservedTopic, BW, observe_blockwise_key(Msg, PeerKey), PeerKey, Ctx};
+new_pending_observe_notification(Msg, MQTT, ObservedTopic, _BW, PeerKey, Ctx, true) ->
+    {Msg, MQTT, ObservedTopic, undefined, observe_blockwise_key(Msg, PeerKey), PeerKey, Ctx};
 new_pending_observe_notification(Msg, MQTT, ObservedTopic, BW, PeerKey, Ctx, false) ->
-    {Msg, MQTT, ObservedTopic, BW, pending_blockwise_key(Msg, PeerKey), PeerKey, Ctx}.
+    Key = pending_blockwise_key(Msg, PeerKey),
+    PendingBW = pending_notification_blockwise(Key, BW),
+    {Msg, MQTT, ObservedTopic, PendingBW, Key, PeerKey, Ctx}.
+
+pending_notification_blockwise(undefined, _BW) ->
+    undefined;
+pending_notification_blockwise(Key, #{server_tx_block2 := ServerTx, opts := Opts}) ->
+    PendingBW = emqx_coap_blockwise:new(Opts),
+    PendingBW#{server_tx_block2 => maps:with([Key], ServerTx)}.
 
 pending_msg({Msg, _MQTT, _ObservedTopic, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
     Msg;
@@ -631,30 +642,68 @@ process_subscribe(
         undefined ->
             Result;
         #{
-            topic := _Topic
+            topic := Topic
         } = SubData ->
+            Context = emqx_coap_blockwise:resource_context(Msg),
+            {Result1, Session1} = maybe_replace_observation(
+                Topic, SubData, Context, Result, Session
+            ),
             {SeqId, OM2} = emqx_coap_observe_res:insert(
-                SubData#{resource_context => emqx_coap_blockwise:resource_context(Msg)}, OM
+                SubData#{resource_context => Context}, OM
             ),
             Replay = emqx_coap_message:piggyback({ok, content}, Msg),
             %% RFC 7641 Section 4.4: Observe option carries 24-bit sequence.
             Replay2 = Replay#coap_message{
                 options = #{observe => emqx_coap_observe_res:observe_value(SeqId)}
             },
-            Result#{
+            Result1#{
                 reply => Replay2,
-                session => Session#session{observe_manager = OM2}
+                session => Session1#session{observe_manager = OM2}
             };
         Topic ->
             Token = observe_token(Topic, OM),
             OM2 = emqx_coap_observe_res:remove(Topic, OM),
             Replay = emqx_coap_message:piggyback({ok, nocontent}, Msg),
-            Session1 = purge_pending_observe_notifications(Topic, Token, Session),
-            Result#{
+            {Result1, Session1} = discard_observation(Topic, Token, Result, Session),
+            Result1#{
                 reply => Replay,
                 session => Session1#session{observe_manager = OM2}
             }
     end.
+
+observe_matches(_Topic, _Msg, undefined) ->
+    true;
+observe_matches(Topic, #coap_message{token = Token} = Msg, #session{observe_manager = OM}) ->
+    case maps:get(Topic, OM, undefined) of
+        #{token := Token} = Res ->
+            Context = maps:get(resource_context, Res, undefined),
+            Context =:= undefined orelse Context =:= emqx_coap_blockwise:resource_context(Msg);
+        undefined ->
+            true;
+        _ ->
+            false
+    end.
+
+maybe_replace_observation(
+    Topic, #{token := Token}, Context, Result, #session{observe_manager = OM} = Session
+) ->
+    case maps:get(Topic, OM, undefined) of
+        undefined ->
+            {Result, Session};
+        #{token := Token, resource_context := Context} ->
+            {Result, Session};
+        #{token := OldToken} ->
+            discard_observation(Topic, OldToken, Result, Session)
+    end.
+
+discard_observation(_Topic, undefined, Result, Session) ->
+    {Result, Session};
+discard_observation(Topic, Token, Result, #session{transport_manager = TM} = Session) ->
+    {Released, TM1} = emqx_coap_tm:discard_observe_notifications(Token, TM),
+    Session1 = purge_pending_observe_notifications(Topic, Token, Session),
+    Session2 = release_observe_inflight(Released, Session1#session{transport_manager = TM1}),
+    Tokens = maps:get(observe_cleared_tokens, Result, []),
+    {Result#{observe_cleared_tokens => [Token | Tokens]}, Session2}.
 
 observe_token(Topic, OM) ->
     case maps:get(Topic, OM, undefined) of
@@ -664,8 +713,6 @@ observe_token(Topic, OM) ->
             undefined
     end.
 
-purge_pending_observe_notifications(_Topic, undefined, Session) ->
-    Session;
 purge_pending_observe_notifications(
     Topic,
     Token,
