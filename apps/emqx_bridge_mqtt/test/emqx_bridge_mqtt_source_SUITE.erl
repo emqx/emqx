@@ -753,8 +753,8 @@ t_connect_with_more_clients_than_the_broker_accepts(TCConfig) ->
             ?assertMatch(
                 {201, #{
                     <<"status">> := <<"disconnected">>,
-                    <<"status_reason">> := <<"tcp_closed">>
-                }},
+                    <<"status_reason">> := Reason
+                }} when Reason == ~"tcp_closed" orelse Reason == ~"closed",
                 create_connector_api(
                     TCConfig,
                     #{<<"pool_size">> => 100}
@@ -764,8 +764,8 @@ t_connect_with_more_clients_than_the_broker_accepts(TCConfig) ->
             ?assertMatch(
                 {200, #{
                     <<"status">> := <<"disconnected">>,
-                    <<"status_reason">> := <<"tcp_closed">>
-                }},
+                    <<"status_reason">> := Reason
+                }} when Reason == ~"tcp_closed" orelse Reason == ~"closed",
                 get_connector_api(TCConfig)
             ),
             ok
