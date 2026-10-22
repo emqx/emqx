@@ -3562,6 +3562,8 @@ ensure_connected(
 %% Called when the connection is established and again after every
 %% re-authentication. Any timer armed for an earlier credential is cancelled
 %% first, so the pending expiry always matches the current `auth_expire_at'.
+%% A new credential without an expiry removes the deadline. An earlier
+%% deadline is not kept as a floor.
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
     clean_timer(connection_auth_expire, Channel);
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->

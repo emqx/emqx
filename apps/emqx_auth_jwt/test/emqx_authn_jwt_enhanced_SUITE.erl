@@ -222,6 +222,20 @@ t_reauthenticate_without_acl_revokes_acl(_Config) ->
     ),
     ?assertEqual(?RC_NOT_AUTHORIZED, publish(<<"t/1">>, 2)).
 
+-doc """
+Tests that a re-authentication token without `exp` removes the deadline of the previous
+token: the client stays connected past that deadline.
+""".
+t_reauthenticate_without_exp_clears_deadline(_Config) ->
+    _ = connect(<<"c_no_exp">>, jws(#{<<"exp">> => exp(3)})),
+    ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
+
+    ok = reauthenticate(jws(#{})),
+    ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
+
+    %% Past the first deadline, still connected.
+    ?assertEqual(timeout, receive_nothing(6000)).
+
 %% With the authorization cache enabled, a re-authentication that narrows the
 %% `acl' claim applies to the next publish.
 t_reauthenticate_empties_authz_cache(_Config) ->
