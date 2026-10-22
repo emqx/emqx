@@ -77,6 +77,7 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok.
@@ -137,10 +138,27 @@ action_config(Name, ConnectorId) ->
         }
     ).
 
-create_connector_api(Config, Overrides) ->
+create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
-        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
     ).
+
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+start_client() ->
+    start_client(_Opts = #{}).
+
+start_client(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
 
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, s3_bridge_stopped).
@@ -263,6 +281,37 @@ t_query_retry_recoverable(Config) ->
         #{content := Payload},
         maps:from_list(erlcloud_s3:get_object(Bucket, Topic, AwsConfig))
     ).
+
+t_custom_headers(TCConfig) ->
+    Bucket = emqx_s3_test_helpers:unique_bucket(),
+    AwsConfig = emqx_s3_test_helpers:aws_config(tcp),
+    ok = erlcloud_s3:create_bucket(Bucket, AwsConfig),
+
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        ~"parameters" => #{
+            ~"bucket" => Bucket,
+            ~"key" => ~"${.clientid}",
+            ~"headers" => #{
+                ~"x-amz-meta-custom-header" => ~"custom-header-value",
+                ~"content-type" => ~"foo/bar"
+            }
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId = ~"custom_headers",
+    C = start_client(#{clientid => ClientId}),
+    {ok, _} = emqtt:publish(C, RuleTopic, ~"hello", [{qos, 1}]),
+    emqtt:stop(C),
+    Key = binary_to_list(ClientId),
+    ?assertMatch(
+        #{
+            "x-amz-meta-custom-header" := "custom-header-value",
+            content_type := "foo/bar"
+        },
+        emqx_bridge_s3_test_helpers:get_object_metadata(Bucket, Key)
+    ),
+    ok.
 
 -doc """
 Smoke test for handling non-successful HTTP responses without any bodies.

@@ -294,13 +294,14 @@ close_prepared_statement(ChannelId, #{pool_name := PoolName} = State) ->
     ok.
 
 close_prepared_statement([WorkerPid | Rest], ChannelId, State) ->
+    %% This is only called when removing the channel.
+    ok = ecpool_worker:remove_reconnect_callback_by_signature(WorkerPid, ChannelId),
     %% We ignore errors since any error probably means that the
     %% prepared statement doesn't exist. If it exists when we try
     %% to insert one with the same name, we will try to remove it
     %% again anyway.
     try ecpool_worker:client(WorkerPid) of
         {ok, Conn} ->
-            ok = ecpool_worker:remove_reconnect_callback_by_signature(WorkerPid, ChannelId),
             case get_templated_statement(ChannelId, State) of
                 {ok, Statement} ->
                     _ = epgsql:close(Conn, Statement),
