@@ -77,11 +77,10 @@ fields(action_resource_opts) ->
         {batch_time, #{default => <<"100ms">>}}
     ]).
 
-desc(Name) when
-    Name =:= ?ACTION_TYPE;
-    Name =:= action_parameters
-->
-    ?DESC(Name);
+desc(?ACTION_TYPE) ->
+    ?DESC(?ACTION_TYPE);
+desc(action_parameters) ->
+    ?DESC("parameters");
 desc(action_resource_opts) ->
     emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(_Name) ->

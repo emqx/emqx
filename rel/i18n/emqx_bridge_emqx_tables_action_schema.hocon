@@ -11,7 +11,7 @@ emqx_bridge_emqx_tables_action_schema {
   }
 
   field_types.desc:
-  """Explicit column types used when EMQX Tables auto-creates a target table. Currently only `json2` is supported. The corresponding field in `write_syntax` must contain a JSON object or null; invalid JSON or unsupported JSON documents abort that table's insert batch as an unrecoverable error."""
+  """Explicit column types used when EMQX Tables auto-creates a target table. Only `json2` is supported. The corresponding field in `write_syntax` must contain a JSON object or null; invalid JSON or unsupported JSON documents abort that table's insert batch as an unrecoverable error."""
 
   field_types.label:
   """Field Types"""
