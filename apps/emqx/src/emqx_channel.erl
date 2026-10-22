@@ -2873,28 +2873,15 @@ authentication_pipeline(Credential, Channel) ->
         ]
     ).
 
-do_authenticate(
-    #{auth_method := AuthMethod} = Credential,
-    #channel{clientinfo = ClientInfo} = Channel
-) ->
+do_authenticate(#{auth_method := AuthMethod} = Credential, Channel) ->
     Properties = #{'Authentication-Method' => AuthMethod},
     case emqx_access_control:authenticate(Credential) of
         {ok, AuthResult} ->
-            Channel1 = Channel#channel{
-                clientinfo = merge_auth_result(
-                    ClientInfo, drop_connect_fields_on_reauth(AuthResult, Channel)
-                ),
-                auth_cache = #{}
-            },
-            with_post_authn(Channel1, Properties);
+            apply_enhanced_auth_result(AuthResult, Properties, Channel);
         {ok, AuthResult, AuthData} ->
-            Channel1 = Channel#channel{
-                clientinfo = merge_auth_result(
-                    ClientInfo, drop_connect_fields_on_reauth(AuthResult, Channel)
-                ),
-                auth_cache = #{}
-            },
-            with_post_authn(Channel1, Properties#{'Authentication-Data' => AuthData});
+            apply_enhanced_auth_result(
+                AuthResult, Properties#{'Authentication-Data' => AuthData}, Channel
+            );
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
         {continue, AuthData, AuthCache} ->
@@ -2941,15 +2928,44 @@ log_auth_failure(Reason) ->
         #{tag => "AUTHN"}
     ).
 
+apply_enhanced_auth_result(AuthResult0, Properties, #channel{clientinfo = ClientInfo} = Channel) ->
+    case check_reauth_result(AuthResult0, Channel) of
+        {ok, AuthResult} ->
+            Channel1 = Channel#channel{
+                clientinfo = merge_auth_result(ClientInfo, AuthResult),
+                auth_cache = #{}
+            },
+            with_post_authn(Channel1, Properties);
+        {error, _} = Error ->
+            Error
+    end.
+
 %% Client attributes and the client ID are set at CONNECT and hold for the
-%% whole session. Drop them from the result of a re-authentication so only the
-%% rest of it, such as ACL rules, the superuser flag and the expiry, is applied.
-drop_connect_fields_on_reauth(AuthResult, #channel{conn_state = ConnState}) when
+%% whole session. A re-authentication result has its `client_attrs' dropped.
+%% A `clientid_override' that names another client ID fails the
+%% re-authentication. `merge_auth_result/2' applies the rest of the result:
+%% it replaces `acl', the superuser flag and the expiry.
+check_reauth_result(
+    AuthResult,
+    #channel{conn_state = ConnState, clientinfo = #{clientid := ClientId}}
+) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    maps:without([client_attrs, clientid_override], AuthResult);
-drop_connect_fields_on_reauth(AuthResult, _Channel) ->
-    AuthResult.
+    case maps:get(clientid_override, AuthResult, undefined) of
+        Override when
+            is_binary(Override) andalso Override =/= <<"">> andalso Override =/= ClientId
+        ->
+            ?SLOG(warning, #{
+                msg => "reauthentication_rejected_clientid_override",
+                clientid => ClientId,
+                clientid_override => Override
+            }),
+            {error, ?RC_NOT_AUTHORIZED};
+        _ ->
+            {ok, maps:without([client_attrs, clientid_override], AuthResult)}
+    end;
+check_reauth_result(AuthResult, _Channel) ->
+    {ok, AuthResult}.
 
 %% Merge authentication result into ClientInfo
 %% Authentication result may include:

@@ -162,25 +162,27 @@ t_reauthenticate_freezes_client_attrs(_Config) ->
     ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
     ?assertMatch(#{<<"tier">> := <<"gold">>}, client_attrs(ClientId)).
 
-%% The client ID is set at CONNECT; a `clientid_override' claim in a
-%% re-authentication token does not change it.
-t_reauthenticate_keeps_clientid(_Config) ->
+-doc """
+Tests that a re-authentication token whose `clientid_override` differs from the client ID
+fails the re-authentication, and that no channel is registered under the other client ID.
+""".
+t_reauthenticate_rejects_clientid_override(_Config) ->
     ClientId = <<"c_keep_id">>,
     _ = connect(ClientId, jws(#{<<"exp">> => exp(60)})),
     ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
-    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    [_ChanPid] = emqx_cm:lookup_channels(ClientId),
 
     ok = reauthenticate(
         jws(#{<<"exp">> => exp(120), <<"clientid_override">> => <<"c_keep_id_other">>})
     ),
-    ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
-    ?assertEqual(ClientId, clientid(ChanPid)),
-    ?assertEqual([ChanPid], emqx_cm:lookup_channels(ClientId)),
+    ?assertMatch(?DISCONNECT_PACKET(?RC_NOT_AUTHORIZED), receive_packet()),
     ?assertEqual([], emqx_cm:lookup_channels(<<"c_keep_id_other">>)).
 
-%% An override in the CONNECT token applies for the session, and a different
-%% one at re-authentication does not replace it.
-t_reauthenticate_keeps_connect_clientid_override(_Config) ->
+-doc """
+Tests that an override in the CONNECT token applies for the session, and that a
+re-authentication token with the same override succeeds and keeps the registration.
+""".
+t_reauthenticate_accepts_same_clientid_override(_Config) ->
     ClientId = <<"c_override_connect">>,
     _ = connect(
         <<"c_override_orig">>,
@@ -191,11 +193,12 @@ t_reauthenticate_keeps_connect_clientid_override(_Config) ->
     ?assertEqual(ClientId, clientid(ChanPid)),
 
     ok = reauthenticate(
-        jws(#{<<"exp">> => exp(120), <<"clientid_override">> => <<"c_override_reauth">>})
+        jws(#{<<"exp">> => exp(120), <<"clientid_override">> => ClientId})
     ),
     ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
     ?assertEqual(ClientId, clientid(ChanPid)),
-    ?assertEqual([], emqx_cm:lookup_channels(<<"c_override_reauth">>)).
+    ?assertEqual([ChanPid], emqx_cm:lookup_channels(ClientId)),
+    ?assertEqual([], emqx_cm:lookup_channels(<<"c_override_orig">>)).
 
 -doc """
 Tests that a re-authentication token without an `acl` claim removes the ACL of the previous
