@@ -70,6 +70,18 @@ init_per_testcase(t_cluster_rejects_invalid_local_config_on_start = TestCase, Co
         {cluster, Cluster}
         | Config
     ];
+init_per_testcase(TestCase, Config0) when
+    TestCase =:= t_cluster_install_rejected_by_peer;
+    TestCase =:= t_cluster_install_rejected_by_initiator
+->
+    Config = [{api_port, emqx_common_test_helpers:select_free_port(tcp)} | Config0],
+    Cluster = [Node1 | _] = cluster(TestCase, Config),
+    {ok, API} = init_api(Node1),
+    [
+        {api, API},
+        {cluster, Cluster}
+        | Config
+    ];
 init_per_testcase(t_cluster_rolls_back_partial_start_failure = TestCase, Config0) ->
     Config = [{api_port, emqx_common_test_helpers:select_free_port(tcp)} | Config0],
     Cluster = [Node1 | _] = cluster(TestCase, Config),
@@ -87,7 +99,9 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(TestCase, Config) when
     TestCase =:= t_cluster_update_order;
     TestCase =:= t_cluster_rejects_invalid_local_config_on_start;
-    TestCase =:= t_cluster_rolls_back_partial_start_failure
+    TestCase =:= t_cluster_rolls_back_partial_start_failure;
+    TestCase =:= t_cluster_install_rejected_by_peer;
+    TestCase =:= t_cluster_install_rejected_by_initiator
 ->
     Cluster = ?config(cluster, Config),
     emqx_cth_cluster:stop(Cluster),
@@ -1539,6 +1553,127 @@ t_cluster_rolls_back_partial_start_failure(Config) ->
         [<<"stopped">>, <<"stopped">>],
         lists:sort([Status || #{<<"status">> := Status} <- RunningStatus])
     ).
+
+-doc """
+When a peer rejects an uploaded package, the upload returns 400 and names the
+nodes that installed it. A DELETE removes it from every node.
+""".
+t_cluster_install_rejected_by_peer(Config) ->
+    [_Initiator, Peer] = ?config(cluster, Config),
+    cluster_install_rejected_by(Peer, Config).
+
+-doc """
+When the node that serves the upload rejects the package, the upload returns
+400 and names the nodes that installed it. A DELETE through the same node, which
+does not hold the package, removes it from every node.
+""".
+t_cluster_install_rejected_by_initiator(Config) ->
+    [Initiator, _Peer] = ?config(cluster, Config),
+    cluster_install_rejected_by(Initiator, Config).
+
+cluster_install_rejected_by(RejectingNode, Config) ->
+    Nodes = ?config(cluster, Config),
+    [InstalledNode] = Nodes -- [RejectingNode],
+    PackagePath = make_test_plugin_package(
+        Config,
+        test_plugin_schema(),
+        <<"foo = \"bar\"\n">>
+    ),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ?ON(hd(Nodes), ok = allow_installation(NameVsn)),
+    ok = load_app_outside_package(RejectingNode),
+    {400, Response} = upload_plugin_into_cluster(Config, PackagePath),
+    ?assertEqual(<<"BAD_PLUGIN_INFO">>, maps:get(<<"code">>, Response)),
+    Message = maps:get(<<"message">>, Response),
+    ?assertMatch(
+        {match, _},
+        re:run(
+            Message,
+            [
+                "^node ",
+                atom_to_binary(RejectingNode),
+                ": .*\\. The package was installed on node\\(s\\) ",
+                atom_to_binary(InstalledNode),
+                "\\. To remove it from the cluster, call DELETE /api/v5/plugins/",
+                NameVsn,
+                "$"
+            ]
+        ),
+        Message
+    ),
+    ?assertEqual(
+        [{N, N =:= InstalledNode} || N <- Nodes], nodes_holding_package(Nodes, NameVsn)
+    ),
+    ?assertMatch(
+        {ok, {{"HTTP/1.1", 204, _}, _, _}},
+        emqx_mgmt_api_test_util:request_api(
+            delete, plugin_path_in_cluster(Config, NameVsn), [], auth(Config), [], #{
+                return_all => true
+            }
+        )
+    ),
+    ?assertEqual([{N, false} || N <- Nodes], nodes_holding_package(Nodes, NameVsn)),
+    ?assertEqual([{N, false} || N <- Nodes], nodes_configuring_plugin(Nodes, NameVsn)).
+
+%% Load the application spec of the test plugin without an `ebin' directory in
+%% the code path, so that the node refuses to install the test plugin package.
+load_app_outside_package(Node) ->
+    ?ON(Node, application:load({application, invalid_plugin, [{vsn, "0.1.0"}]})).
+
+%% Whether each node holds the plugin package or its install directory.
+nodes_holding_package(Nodes, NameVsn) ->
+    [
+        {Node,
+            ?ON(
+                Node,
+                emqx_plugins:install_state(NameVsn) =/= absent orelse
+                    emqx_plugins:is_package_present(NameVsn) =/= false
+            )}
+     || Node <- Nodes
+    ].
+
+%% Whether each node has the plugin in `plugins.states'.
+nodes_configuring_plugin(Nodes, NameVsn) ->
+    [
+        {Node,
+            ?ON(
+                Node,
+                lists:any(
+                    fun(#{name_vsn := NV}) -> bin(NV) =:= bin(NameVsn) end,
+                    emqx:get_config([plugins, states], [])
+                )
+            )}
+     || Node <- Nodes
+    ].
+
+bin(X) -> iolist_to_binary(X).
+
+upload_plugin_into_cluster(Config, FilePath) ->
+    #{host := Host, auth := Auth} = get_host_and_auth(Config),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins", "install"]),
+    case
+        emqx_mgmt_api_test_util:upload_request(
+            Path,
+            FilePath,
+            "plugin",
+            <<"application/gzip">>,
+            [],
+            Auth
+        )
+    of
+        {ok, {{"HTTP/1.1", 204, _}, _Headers, <<>>}} ->
+            {204, <<>>};
+        {ok, {{"HTTP/1.1", StatusCode, _}, _Headers, Body}} ->
+            {StatusCode, emqx_utils_json:decode(Body)}
+    end.
+
+plugin_path_in_cluster(Config, NameVsn) ->
+    #{host := Host} = get_host_and_auth(Config),
+    emqx_mgmt_api_test_util:api_path(Host, ["plugins", NameVsn]).
+
+auth(Config) ->
+    #{auth := Auth} = get_host_and_auth(Config),
+    Auth.
 
 list_plugins_from_cluster(Config) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
