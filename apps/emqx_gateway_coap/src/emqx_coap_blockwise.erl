@@ -12,6 +12,7 @@
     server_incoming/3,
     server_prepare_out_response/4,
     server_prepare_out_notification/4,
+    resource_context/1,
     client_prepare_out_request/3,
     client_in_response/3,
     expire/2,
@@ -166,24 +167,29 @@ server_prepare_out_response(Req, Reply, PeerKey, State0) ->
             handle_server_tx_block2(Req, Reply, PeerKey, State)
     end.
 
--spec server_prepare_out_notification(coap_message() | undefined, coap_message(), term(), state()) ->
+-spec server_prepare_out_notification(
+    resource_context() | undefined, coap_message(), term(), state()
+) ->
     {single, coap_message(), state()}
     | {chunked, coap_message(), state()}
     | {error, coap_message(), state()}.
-server_prepare_out_notification(Req, Notify, PeerKey, State) ->
-    case server_prepare_out_response(undefined, Notify, PeerKey, State) of
-        {chunked, First, #{server_tx_block2 := TxMap} = State1} when
-            is_record(Req, coap_message),
-            Req#coap_message.method =:= get,
-            is_map_key(uri_path, Req#coap_message.options)
-        ->
+server_prepare_out_notification(ResourceContext, Notify, PeerKey, State) ->
+    case {ResourceContext, server_prepare_out_response(undefined, Notify, PeerKey, State)} of
+        {{get, #{uri_path := _}}, {chunked, First, #{server_tx_block2 := TxMap} = State1}} ->
             Key = server_tx_key(PeerKey, undefined, Notify),
-            Resource = server_resource(PeerKey, Req),
+            Resource = server_resource(PeerKey, ResourceContext),
             TxMap1 = maps:update_with(Key, fun(Tx) -> Tx#{resource => Resource} end, TxMap),
             {chunked, First, State1#{server_tx_block2 => TxMap1}};
-        Other ->
+        {_ResourceContext, Other} ->
             Other
     end.
+
+-spec resource_context(coap_message()) -> resource_context().
+resource_context(#coap_message{method = Method, options = Opts}) ->
+    ResourceOpts = maps:with(
+        [uri_host, uri_port, uri_path, uri_query, accept, proxy_uri, proxy_scheme], Opts
+    ),
+    {Method, ResourceOpts}.
 
 -spec client_prepare_out_request(term(), coap_message(), state()) ->
     {single, coap_message(), state()} | {first_block, coap_message(), state()}.
@@ -377,10 +383,9 @@ with_server_resource(#coap_message{} = Req, PeerKey, Tx) ->
 with_server_resource(_Req, _PeerKey, Tx) ->
     Tx.
 
-server_resource(PeerKey, #coap_message{method = Method, options = Opts}) ->
-    ResourceOpts = maps:with(
-        [uri_host, uri_port, uri_path, uri_query, accept, proxy_uri, proxy_scheme], Opts
-    ),
+server_resource(PeerKey, #coap_message{} = Req) ->
+    server_resource(PeerKey, resource_context(Req));
+server_resource(PeerKey, {Method, ResourceOpts}) ->
     {PeerKey, Method, ResourceOpts}.
 
 serve_server_followup_block2(Key, Num, Size, Msg, State) ->

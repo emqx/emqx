@@ -12,7 +12,7 @@
     insert/2,
     remove/2,
     res_changed/2,
-    request/2,
+    resource_context/2,
     foreach/2,
     subscriptions/1,
     current_value/0,
@@ -30,7 +30,7 @@
     token := token(),
     seq_id := seq_id(),
     subopts := emqx_types:subopts(),
-    request => coap_message() | undefined
+    resource_context => resource_context() | undefined
 }.
 
 -type manager() :: #{emqx_types:topic() => res()}.
@@ -47,7 +47,9 @@ insert(#{topic := Topic, token := Token, subopts := SubOpts} = SubData, Manager)
     Res =
         case maps:get(Topic, Manager, undefined) of
             undefined ->
-                (new_res(Token, SubOpts))#{request => maps:get(request, SubData, undefined)};
+                (new_res(Token, SubOpts))#{
+                    resource_context => maps:get(resource_context, SubData, undefined)
+                };
             Any ->
                 Any
         end,
@@ -70,11 +72,14 @@ res_changed(Topic, Manager) ->
             {Token, SeqId, Manager#{Topic := Res2}}
     end.
 
--spec request(token(), manager()) -> coap_message() | undefined.
-request(Token, Manager) ->
-    Requests = [Req || #{token := T, request := Req} <- maps:values(Manager), T =:= Token],
-    case Requests of
-        [Req] -> Req;
+-spec resource_context(token(), manager()) -> resource_context() | undefined.
+resource_context(Token, Manager) ->
+    Contexts = [
+        Context
+     || #{token := T, resource_context := Context} <- maps:values(Manager), T =:= Token
+    ],
+    case Contexts of
+        [Context] -> Context;
         _ -> undefined
     end.
 

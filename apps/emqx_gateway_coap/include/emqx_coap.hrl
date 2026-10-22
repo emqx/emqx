@@ -79,11 +79,13 @@
     {<<"r">>, <<"retain">>}
 ]).
 
+-type resource_context() :: {atom(), message_options()}.
+
 -type sub_data() :: #{
     topic := emqx_types:topic(),
     token := binary(),
     subopts := emqx_types:subopts(),
-    request => coap_message()
+    resource_context => resource_context()
 }.
 
 -endif.

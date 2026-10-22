@@ -634,7 +634,7 @@ process_subscribe(
             topic := _Topic
         } = SubData ->
             {SeqId, OM2} = emqx_coap_observe_res:insert(
-                SubData#{request => Msg#coap_message{payload = <<>>}}, OM
+                SubData#{resource_context => emqx_coap_blockwise:resource_context(Msg)}, OM
             ),
             Replay = emqx_coap_message:piggyback({ok, content}, Msg),
             %% RFC 7641 Section 4.4: Observe option carries 24-bit sequence.
@@ -740,13 +740,13 @@ get_notify_type(#message{qos = Qos}) ->
 maybe_split_notify_block2(Msg, _PeerKey, undefined, _Ctx, _Session) ->
     {Msg, undefined};
 maybe_split_notify_block2(Msg, PeerKey, BW0, Ctx, #session{observe_manager = OM}) ->
-    Req =
+    ResourceContext =
         case observe_notification_needs_block2(Msg, BW0) of
-            true -> emqx_coap_observe_res:request(Msg#coap_message.token, OM);
+            true -> emqx_coap_observe_res:resource_context(Msg#coap_message.token, OM);
             false -> undefined
         end,
     map_notify_block2_prepare_result(
-        emqx_coap_blockwise:server_prepare_out_notification(Req, Msg, PeerKey, BW0),
+        emqx_coap_blockwise:server_prepare_out_notification(ResourceContext, Msg, PeerKey, BW0),
         Msg,
         PeerKey,
         Ctx
