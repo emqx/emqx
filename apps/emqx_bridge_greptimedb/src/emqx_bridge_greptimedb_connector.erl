@@ -748,9 +748,9 @@ line_to_point(
         precision := {_, ToPrecision} = Precision
     } = Item
 ) ->
-    case config_to_data(Data, Tags) of
+    case config_to_data(Data, Tags, tag) of
         {ok, EncodedTags} ->
-            case config_to_data(Data, Fields) of
+            case config_to_data(Data, Fields, field) of
                 {ok, EncodedFields} ->
                     case convert_timestamp(Ts, Precision) of
                         {ok, Timestamp} ->
@@ -791,16 +791,16 @@ time_unit(ms) -> millisecond;
 time_unit(us) -> microsecond;
 time_unit(ns) -> nanosecond.
 
-config_to_data(Data, Config) ->
+config_to_data(Data, Config, Kind) ->
     maps:fold(
-        fun(K, V, Acc) -> maps_config_to_data(K, V, Data, Acc) end,
+        fun(K, V, Acc) -> maps_config_to_data(K, V, Data, Kind, Acc) end,
         {ok, #{}},
         Config
     ).
 
-maps_config_to_data(_K, _V, _Data, {error, _} = Error) ->
+maps_config_to_data(_K, _V, _Data, _Kind, {error, _} = Error) ->
     Error;
-maps_config_to_data(K, V, Data, {ok, Res}) ->
+maps_config_to_data(K, V, Data, Kind, {ok, Res}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
@@ -811,14 +811,25 @@ maps_config_to_data(K, V, Data, {ok, Res}) ->
         %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
         {_, [undefined | _]} ->
             {ok, Res};
+        %% a quoted value is a single string, so it is skipped when any placeholder is unset
+        {_, {quoted, Tokens}} when is_list(Tokens) ->
+            case lists:member(undefined, Tokens) of
+                true ->
+                    {ok, Res};
+                false ->
+                    convert_config_value(NK0, NV, Kind, Res)
+            end;
         _ ->
-            NK = list_to_binary(NK0),
-            case value_type(NV) of
-                {ok, Value} ->
-                    {ok, Res#{NK => Value}};
-                {error, _} = Error ->
-                    Error
-            end
+            convert_config_value(NK0, NV, Kind, Res)
+    end.
+
+convert_config_value(NK0, NV, Kind, Res) ->
+    NK = list_to_binary(NK0),
+    case value_type(NV, Kind) of
+        {ok, Value} ->
+            {ok, Res#{NK => Value}};
+        {error, _} = Error ->
+            Error
     end.
 
 value_type([Int, <<"i">>]) when
@@ -862,7 +873,19 @@ value_type([Int]) when is_integer(Int) ->
         error:badarg ->
             {error, {invalid_float_value, Int}}
     end;
+%% A quoted field value is one string: every token is rendered as text.
+value_type({quoted, Tokens}) when is_list(Tokens) ->
+    text_value(Tokens);
+%% A list value that is not a single typed value is a template: every token is rendered as text.
+value_type(Val0) when is_list(Val0) ->
+    text_value(Val0);
 value_type(Val0) ->
+    string_value(Val0).
+
+text_value(Tokens) ->
+    string_value([render_token(Token) || Token <- Tokens]).
+
+string_value(Val0) ->
     try unicode:characters_to_binary(Val0, utf8) of
         Val1 when is_binary(Val1) ->
             {ok, greptimedb_values:string_value(Val1)};
@@ -872,6 +895,28 @@ value_type(Val0) ->
         error:badarg ->
             {error, {invalid_string_value, Val0}}
     end.
+
+%% Line protocol tag values are text: token types are dropped, except an `i`/`u` suffix and a
+%% boolean from the payload, which stay typed.
+value_type([_, <<"i">>] = NV, tag) ->
+    value_type(NV);
+value_type([_, <<"u">>] = NV, tag) ->
+    value_type(NV);
+value_type([Bool], tag) when is_boolean(Bool) ->
+    value_type([Bool]);
+value_type(NV, tag) when is_list(NV) ->
+    text_value(NV);
+value_type(NV, _Kind) ->
+    value_type(NV).
+
+render_token(Token) when is_boolean(Token) ->
+    atom_to_binary(Token, utf8);
+render_token(Token) when is_integer(Token) ->
+    integer_to_binary(Token);
+render_token(Token) when is_float(Token) ->
+    float_to_binary(Token, [short]);
+render_token(Token) ->
+    Token.
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
@@ -1014,11 +1059,7 @@ integer_point_validation_test() ->
             ?assertEqual([InvalidResult, InvalidResult], AllInvalidResult)
     after 1_000 ->
         error(callback_timeout)
-    end,
-    ?assertEqual(
-        {error, {invalid_string_value, [470.5, <<"x">>]}},
-        value_type([470.5, <<"x">>])
-    ).
+    end.
 
 numeric_range_validation_test() ->
     ?assertEqual(
@@ -1069,6 +1110,127 @@ numeric_range_validation_test() ->
         {error, {bad_timestamp, MillisecondOverflow}},
         convert_timestamp(MillisecondOverflow, {ms, ns})
     ).
+
+quoted_field_value_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<
+            "mqtt,clientid=${clientid} "
+            "text=\"abc\","
+            "number=\"n_${payload.n}\","
+            "float=\"f_${payload.f}\","
+            "bool=\"${payload.bool}\","
+            "literal_bool=\"T\","
+            "quoted_number=\"${payload.n}\","
+            "empty=\"\","
+            "unset=\"x${payload.unset}\""
+        >>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"n">> => 65, <<"f">> => 1.0e300, <<"bool">> => true},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    {ok, [{_, [#{fields := Fields}]}]} = data_to_points(Data, <<"public">>, SyntaxLines),
+    ?assertEqual(#{value_data => {string_value, <<"abc">>}}, maps:get(<<"text">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, <<"n_65">>}}, maps:get(<<"number">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, <<"f_1.0e300">>}}, maps:get(<<"float">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, <<"true">>}}, maps:get(<<"bool">>, Fields)),
+    %% text that spells a boolean literal and a fully quoted number both stay strings
+    ?assertEqual(#{value_data => {string_value, <<"T">>}}, maps:get(<<"literal_bool">>, Fields)),
+    ?assertEqual(
+        #{value_data => {string_value, <<"65">>}}, maps:get(<<"quoted_number">>, Fields)
+    ),
+    ?assertEqual(#{value_data => {string_value, <<>>}}, maps:get(<<"empty">>, Fields)),
+    %% a quoted value with an unset placeholder is dropped
+    ?assertNot(maps:is_key(<<"unset">>, Fields)).
+
+quoted_field_value_utf8_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,clientid=${clientid} text=\"x${payload.text}\"">>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"text">> => <<255, 255>>},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    %% a quoted value that is not valid UTF-8 is rejected for that point only
+    ?assertEqual(
+        {error, [{error, {invalid_string_value, [<<"x">>, <<255, 255>>]}}]},
+        data_to_points(Data, <<"public">>, SyntaxLines)
+    ).
+
+field_mixed_template_value_test() ->
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"id_65">>}}},
+        value_type([<<"id_">>, 65])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"6566">>}}},
+        value_type([65, 66])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"pre_1.5">>}}},
+        value_type([<<"pre_">>, 1.5])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"pre_true">>}}},
+        value_type([<<"pre_">>, true])
+    ),
+    %% an unset placeholder that is not the first token still fails the point
+    ?assertEqual(
+        {error, {invalid_string_value, [<<"x">>, undefined]}},
+        value_type([<<"x">>, undefined])
+    ).
+
+tag_value_utf8_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,clientid=${clientid},tag=${payload.t} value=1">>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"t">> => <<255, 255>>},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    %% a tag value that is not valid UTF-8 is rejected for that point only
+    ?assertEqual(
+        {error, [{error, {invalid_string_value, [<<255, 255>>]}}]},
+        data_to_points(Data, <<"public">>, SyntaxLines)
+    ).
+
+tag_value_typing_test() ->
+    %% text in a tag stays a string even when it spells a boolean literal
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"T">>}}},
+        value_type([<<"T">>], tag)
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"FALSE">>}}},
+        value_type([<<"FALSE">>], tag)
+    ),
+    %% a boolean from the payload keeps its type in a tag and in a field
+    ?assertEqual({ok, #{value_data => {bool_value, true}}}, value_type([true], tag)),
+    ?assertEqual({ok, #{value_data => {bool_value, false}}}, value_type([false], tag)),
+    ?assertEqual({ok, #{value_data => {bool_value, true}}}, value_type([<<"T">>])),
+    %% a number or boolean inside a longer tag template is rendered as text
+    ?assertEqual({ok, #{value_data => {string_value, <<"65">>}}}, value_type([65], tag)),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"pre_1.5">>}}},
+        value_type([<<"pre_">>, 1.5], tag)
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"pre_true">>}}},
+        value_type([<<"pre_">>, true], tag)
+    ),
+    %% an `i`/`u` suffix keeps its type, a field keeps its typing
+    ?assertEqual({ok, #{value_data => {i64_value, 65}}}, value_type([65, <<"i">>], tag)),
+    ?assertEqual({ok, #{value_data => {u64_value, 65}}}, value_type([65, <<"u">>], tag)),
+    ?assertEqual({ok, #{value_data => {f64_value, 65.0}}}, value_type([65])),
+    %% the tag clauses do not swallow the `i`/`u` type and range checks
+    ?assertEqual({error, {invalid_integer_value, 470.5}}, value_type([470.5, <<"i">>], tag)),
+    ?assertEqual({error, {invalid_unsigned_integer_value, -1}}, value_type([-1, <<"u">>], tag)).
 
 %% for coverage
 desc_test_() ->
