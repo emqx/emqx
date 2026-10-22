@@ -321,9 +321,9 @@ reply_callback(Context0, Result0) ->
 
 bin(X) -> emqx_utils_conv:bin(X).
 
-%% NIF encoding errors (invalid JSON2 documents, invalid typed values, etc.)
-%% are permanent data errors. Database/network errors are returned as
-%% `{error, Reason}' without the `nif_error' wrapper and remain recoverable.
+%% erlnif wraps NIF-side failures as `nif_error'. Normalize them for the
+%% resource buffer worker. This does not imply that other `{error, Reason}'
+%% results are recoverable.
 normalize_insert_result({error, {nif_error, Reason}}) ->
     {error, {unrecoverable_error, Reason}};
 normalize_insert_result(Result) ->

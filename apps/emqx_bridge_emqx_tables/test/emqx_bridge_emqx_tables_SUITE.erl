@@ -787,44 +787,46 @@ t_json2_write(TCConfig) ->
     TableName = <<"json2_write">>,
     on_exit(fun() -> drop_table(TableName, TCConfig) end),
     {ok, _} = create_json2_table(TableName, TCConfig),
-    {201, _} = create_connector_api(TCConfig, #{}),
-    {201, _} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{
-            <<"write_syntax">> => <<TableName/binary, " payload=${.payload.p}">>
-        }
-    }),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
-    C = start_client(#{clientid => ClientId}),
-    Payload = json_encode(#{
-        p => #{name => <<"alice">>, nested => #{ok => true}}
-    }),
-    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<TableName/binary, " payload=${.payload.p}">>
+            }
+        }),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+        C = start_client(#{clientid => ClientId}),
+        Payload = json_encode(#{
+            p => #{name => <<"alice">>, nested => #{ok => true}}
+        }),
+        emqtt:publish(C, Topic, Payload, [{qos, 1}]),
 
-    ?retry(
-        200,
-        10,
-        ?assertMatch(
-            #{<<"name">> := <<"alice">>, <<"ok">> := <<"true">>},
-            query_by_sql(json2_subfield_sql(TableName), TCConfig)
-        )
-    ),
-    ?retry(
-        200,
-        10,
-        begin
-            Columns = query_by_sql(json2_type_sql(TableName), TCConfig),
-            [PayloadColumn] = [
-                Column
-             || #{<<"Column">> := <<"payload">>} = Column <- Columns
-            ],
-            ?assertNotEqual(
-                nomatch,
-                binary:match(maps:get(<<"Type">>, PayloadColumn), <<"Json2">>)
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                #{<<"name">> := <<"alice">>, <<"ok">> := <<"true">>},
+                query_by_sql(json2_subfield_sql(TableName), TCConfig)
             )
-        end
-    ),
-    ok.
+        ),
+        ?retry(
+            200,
+            10,
+            begin
+                Columns = query_by_sql(json2_type_sql(TableName), TCConfig),
+                [PayloadColumn] = [
+                    Column
+                 || #{<<"Column">> := <<"payload">>} = Column <- Columns
+                ],
+                ?assertNotEqual(
+                    nomatch,
+                    binary:match(maps:get(<<"Type">>, PayloadColumn), <<"Json2">>)
+                )
+            end
+        ),
+        ok
+    end).
 
 -doc """
 Confirms the current limitation: auto-created tables infer plain binary fields
@@ -1044,9 +1046,9 @@ t_json2_auto_create_rejects_unsupported_field_type(TCConfig) ->
     ok.
 
 -doc """
-Verifies that an invalid JSON document aborts only the failing table's insert
-call. Other tables in the same action batch may still be written, and the
-failing result is explicitly unrecoverable.
+Verifies that one invalid JSON document invalidates the whole insert call for
+its table, while another table in the same action batch can still be written.
+Result order and stored values are preserved.
 """.
 t_json2_invalid_json_batch() ->
     [{matrix, true}].
@@ -1082,8 +1084,8 @@ t_json2_invalid_json_batch(TCConfig) ->
         C = start_client(#{clientid => ClientId}),
         Payloads = [
             json_encode(#{t => TableA, p => #{name => <<"a">>}}),
-            json_encode(#{t => TableA, p => <<"not-json">>}),
-            json_encode(#{t => TableB, p => #{name => <<"b">>}})
+            json_encode(#{t => TableB, p => #{name => <<"b">>}}),
+            json_encode(#{t => TableA, p => <<"not-json">>})
         ],
         ?check_trace(
             begin
@@ -1110,12 +1112,14 @@ t_json2_invalid_json_batch(TCConfig) ->
                                 ?of_kind("greptime_rs_sync_batch_reply", Trace),
                             SyncResults
                     end,
-                ?assertEqual(3, length(Results)),
-                ?assertEqual(
-                    2,
-                    length([R || {error, {unrecoverable_error, _}} = R <- Results])
+                ?assertMatch(
+                    [
+                        {error, {unrecoverable_error, _}},
+                        {ok, _},
+                        {error, {unrecoverable_error, _}}
+                    ],
+                    Results
                 ),
-                ?assertEqual(1, length([R || {ok, _} = R <- Results])),
                 ok
             end
         ),
@@ -1127,7 +1131,13 @@ t_json2_invalid_json_batch(TCConfig) ->
         ?retry(
             200,
             10,
-            ?assertEqual(#{<<"c">> => 1}, query_by_sql(json2_count_sql(TableB), TCConfig))
+            ?assertEqual(
+                #{<<"name">> => <<"b">>},
+                query_by_sql(
+                    <<"select payload.name as name from ", TableB/binary>>,
+                    TCConfig
+                )
+            )
         ),
         ok
     end).
@@ -1192,11 +1202,34 @@ t_json2_raw_documents(TCConfig) ->
                 query_by_sql(json2_count_sql(TableName), TCConfig)
             )
         ),
+        ?assertEqual(
+            lists:sort([
+                #{
+                    <<"name">> => <<"alice">>,
+                    <<"ok">> => null,
+                    <<"first_item">> => null,
+                    <<"payload_is_null">> => false
+                },
+                #{
+                    <<"name">> => null,
+                    <<"ok">> => true,
+                    <<"first_item">> => 1,
+                    <<"payload_is_null">> => false
+                },
+                #{
+                    <<"name">> => null,
+                    <<"ok">> => null,
+                    <<"first_item">> => null,
+                    <<"payload_is_null">> => true
+                }
+            ]),
+            lists:sort(query_by_sql(json2_raw_documents_sql(TableName), TCConfig))
+        ),
         ok
     end).
 
 -doc """
-Rejects JSON arrays and scalar documents for JSON2 columns. The erlnif JSON2
+Rejects each unsupported JSON2 document independently. The erlnif JSON2
 encoder currently accepts only JSON objects or null. See the GreptimeDB JSON2
 limitations documentation.
 """.
@@ -1229,28 +1262,16 @@ t_json2_non_object_documents_are_invalid(TCConfig) ->
             <<"42">>,
             <<"true">>
         ],
-        ?check_trace(
-            begin
-                {ok, {ok, _}} = ?wait_async_action(
-                    lists:foreach(
-                        fun(Payload) -> emqtt:publish(C, Topic, Payload, [{qos, 1}]) end,
-                        Payloads
-                    ),
+        lists:foreach(
+            fun(Payload) ->
+                {_, {ok, #{results := Results}}} = ?wait_async_action(
+                    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
                     #{?snk_kind := "greptime_rs_sync_batch_reply"},
                     5000
                 ),
-                ok
+                ?assertMatch([{error, {unrecoverable_error, _}}], Results)
             end,
-            fun(Trace) ->
-                [#{results := Results} | _] =
-                    ?of_kind("greptime_rs_sync_batch_reply", Trace),
-                ?assertEqual(length(Payloads), length(Results)),
-                ?assertEqual(
-                    length(Payloads),
-                    length([R || {error, {unrecoverable_error, _}} = R <- Results])
-                ),
-                ok
-            end
+            Payloads
         ),
         ?retry(
             200,
@@ -1293,64 +1314,6 @@ t_json2_invalid_json_single(TCConfig) ->
                 [#{results := Results} | _] =
                     ?of_kind("greptime_rs_sync_batch_reply", Trace),
                 ?assertMatch([{error, {unrecoverable_error, _}}], Results),
-                ok
-            end
-        ),
-        ?retry(
-            200,
-            10,
-            ?assertEqual(#{<<"c">> => 0}, query_by_sql(json2_count_sql(TableName), TCConfig))
-        ),
-        ok
-    end).
-
--doc """
-Shows that one invalid document invalidates the whole insert call for the same
-table, including otherwise valid rows in that batch.
-""".
-t_json2_invalid_json_same_table_batch() ->
-    [{matrix, true}].
-t_json2_invalid_json_same_table_batch(matrix) ->
-    [[?tcp, ?sync, ?with_batch]];
-t_json2_invalid_json_same_table_batch(TCConfig) ->
-    TableName = <<"json2_invalid_same_table">>,
-    on_exit(fun() -> drop_table(TableName, TCConfig) end),
-    {ok, _} = create_json2_table(TableName, TCConfig),
-    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
-        {201, _} = create_connector_api(TCConfig, #{}),
-        {201, _} = create_action_api(TCConfig, #{
-            <<"parameters">> => #{
-                <<"write_syntax">> => <<TableName/binary, " payload=${payload}">>
-            },
-            <<"resource_opts">> => #{
-                <<"batch_size">> => 100,
-                <<"batch_time">> => <<"500ms">>,
-                <<"query_mode">> => <<"async">>,
-                <<"worker_pool_size">> => 1
-            }
-        }),
-        #{topic := Topic} = simple_create_rule_api(TCConfig),
-        C = start_client(),
-        ?check_trace(
-            begin
-                {ok, {ok, _}} = ?wait_async_action(
-                    lists:foreach(
-                        fun(Payload) -> emqtt:publish(C, Topic, Payload, [{qos, 1}]) end,
-                        [<<"{\"ok\":true}">>, <<"not-json">>]
-                    ),
-                    #{?snk_kind := "greptime_rs_sync_batch_reply"},
-                    5000
-                ),
-                ok
-            end,
-            fun(Trace) ->
-                [#{results := Results} | _] =
-                    ?of_kind("greptime_rs_sync_batch_reply", Trace),
-                ?assertEqual(2, length(Results)),
-                ?assertEqual(
-                    2,
-                    length([R || {error, {unrecoverable_error, _}} = R <- Results])
-                ),
                 ok
             end
         ),
@@ -1425,6 +1388,15 @@ json2_type_sql(TableName) ->
 
 json2_count_sql(TableName) ->
     <<"select count(*) as c from ", TableName/binary>>.
+
+json2_raw_documents_sql(TableName) ->
+    <<
+        "select payload.name as name, payload.nested.ok::BOOLEAN as ok, "
+        "payload.items[0]::BIGINT as first_item, payload is null as payload_is_null "
+        "from ",
+        TableName/binary,
+        " order by ts"
+    >>.
 
 -doc """
 Smoke test for using `ts_column` -- verifies that a custom timestamp column name is
