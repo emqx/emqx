@@ -89,7 +89,15 @@ t_setting_parse(_Config) ->
         fun(Bad) ->
             ?assertMatch({error, #{reason := bad_plugin_name_vsn}}, Validate([Bad]))
         end,
-        [<<"a">>, <<"a-">>, <<"1a-1.0">>, <<"../a-1.0">>, <<"a-1.0/b">>]
+        [
+            <<"a">>,
+            <<"a-">>,
+            <<"1a-1.0">>,
+            <<"../a-1.0">>,
+            <<"a-1.0/b">>,
+            %% the directory where installation attempts are unpacked
+            <<".emqx-plugin-staging">>
+        ]
     ),
     Check = fun(Value) ->
         Raw = #{
@@ -162,6 +170,33 @@ t_missing_package_no_peer_fetch(Config) ->
     ok = boot(),
     ?assert(is_app_running(?APP_NAME)),
     ?assertNot(is_alarm_active(?ALARM(NameVsn))),
+    ok.
+
+-doc """
+A pinned plugin runs from the directory the image already holds; nothing is
+read from a package file. A package for its name-vsn which the installation
+validation refuses does not stop the plugin from starting, so a pinned plugin
+never depends on the hardened installation path.
+""".
+t_start_ignores_a_rejected_package(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    InstallDir = ?config(install_dir, Config),
+    ok = emqx_plugins:purge(NameVsn),
+    Rejected = rejected_package(emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)),
+    ?assertMatch(
+        {error, #{msg := "plugin_package_entry_outside_root"}},
+        emqx_plugins:install_package(NameVsn, Rejected)
+    ),
+    %% What the image holds: the extracted tree, and a package file the
+    %% installation validation would refuse.
+    ok = extract(?config(package, Config), InstallDir),
+    ok = file:write_file(emqx_plugins_fs:tar_file_path(NameVsn), Rejected),
+    set_pinned([NameVsn]),
+    ok = boot(),
+    ?assert(is_app_running(?APP_NAME)),
+    ?assertEqual(
+        {ok, Rejected}, file:read_file(emqx_plugins_fs:tar_file_path(NameVsn))
+    ),
     ok.
 
 -doc """
@@ -562,6 +597,19 @@ t_cluster_mixed_versions(Config) ->
 
 extract(Package, InstallDir) ->
     erl_tar:extract(Package, [compressed, {cwd, InstallDir}]).
+
+%% A package whose entries are not below the package root, so the installation
+%% validation refuses it before anything is unpacked.
+rejected_package(Dir) ->
+    ok = filelib:ensure_path(Dir),
+    Package = filename:join(Dir, "rejected-package.tar.gz"),
+    ok = erl_tar:create(
+        Package,
+        [{filename:join("other_plugin-1.0", "release.json"), <<"{}">>}],
+        [compressed]
+    ),
+    {ok, Bin} = file:read_file(Package),
+    Bin.
 
 get_package(Vsn, Dir) ->
     emqx_plugins_test_helpers:get_demo_plugin_package(#{

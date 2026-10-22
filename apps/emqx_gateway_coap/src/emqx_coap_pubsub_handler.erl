@@ -33,7 +33,7 @@ handle_request(Path, #coap_message{} = Msg, Ctx, CInfo) ->
     handle_request(Path, Msg, Ctx, CInfo, false).
 
 handle_request(Path, #coap_message{method = Method} = Msg, Ctx, CInfo, IsConnectionless) ->
-    case check_topic(Path) of
+    case check_topic(Method, Path) of
         {ok, Topic} ->
             handle_method(Method, Topic, Msg, Ctx, CInfo, IsConnectionless);
         _ ->
@@ -66,10 +66,19 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _
 handle_method(_, _, Msg, _, _, _) ->
     reply({error, method_not_allowed}, Msg).
 
-check_topic([]) ->
+check_topic(_Method, []) ->
     error;
-check_topic(Path) ->
-    {ok, emqx_http_lib:uri_decode(iolist_to_binary(lists:join(<<"/">>, Path)))}.
+check_topic(Method, Path) ->
+    Topic = emqx_http_lib:uri_decode(iolist_to_binary(lists:join(<<"/">>, Path))),
+    try emqx_topic:validate(topic_type(Method), Topic) of
+        true -> {ok, Topic}
+    catch
+        error:_ -> error
+    end.
+
+%% A publish takes a topic name. A subscribe and an unsubscribe take a topic filter.
+topic_type(post) -> name;
+topic_type(_) -> filter.
 
 get_sub_opts(Msg) ->
     SubOpts = maps:fold(

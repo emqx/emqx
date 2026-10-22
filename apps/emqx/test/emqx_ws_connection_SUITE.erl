@@ -24,6 +24,8 @@
         TC =:= t_ws_max_frame_size_boundary orelse
         TC =:= t_ws_max_frame_size_fragmented orelse
         TC =:= t_ws_max_frame_size_compressed orelse
+        TC =:= t_ws_max_frame_size_compressed_segmented orelse
+        TC =:= t_ws_max_frame_size_compressed_segmented_ok orelse
         TC =:= t_ws_max_frame_size_explicit orelse
         TC =:= t_ws_zone_changed_sets_max_frame_size)
 ).
@@ -927,7 +929,7 @@ exceeds it, closes the connection with status code 1009. The handler never
 sees the message.
 """.
 t_ws_max_frame_size_fragmented(_) ->
-    Sock = raw_ws_open(),
+    {Sock, _} = raw_ws_open(),
     Fragment = binary:copy(<<0>>, ?DERIVED_MAX_FRAME_SIZE div 2 + 1),
     %% Opcode 2 starts a binary message, opcode 0 continues it.
     ok = gen_tcp:send(Sock, masked_frame(0, 2, Fragment)),
@@ -955,6 +957,77 @@ t_ws_max_frame_size_compressed(_) ->
     ?assertEqual(1009, ws_await_close(Ws)),
     ?assertNot(meck:called(?ws_conn, websocket_handle, [{binary, '_'}, '_'])),
     ws_close(Ws).
+
+-doc """
+A compressed message that the client delivers in several TCP segments and
+that decompresses beyond the listener's limit closes the connection with
+status code 1009. The handler never sees the inflated message.
+""".
+t_ws_max_frame_size_compressed_segmented(_) ->
+    set_ws_opts(compress, true),
+    {Sock, Head} = raw_ws_open("Sec-WebSocket-Extensions: permessage-deflate\r\n"),
+    ?assertMatch(<<"permessage-deflate", _/binary>>, extension(Head)),
+    Mask = 16#11223344,
+    Payloads = [binary:copy(<<0>>, 1000) || _ <- lists:seq(1, 3)],
+    Segments = do_deflate_segments(Payloads),
+    try
+        ok = do_start_inflate_probe(),
+        ok = do_send_segmented(Sock, Mask, Segments, Payloads, false),
+        ?assertEqual(
+            {ok, <<1:1, 0:3, 8:4, 0:1, 2:7, 1009:16>>},
+            gen_tcp:recv(Sock, 4, 5000)
+        ),
+        ?assertNot(meck:called(?ws_conn, websocket_handle, [{binary, '_'}, '_']))
+    after
+        do_stop_inflate_probe(),
+        gen_tcp:close(Sock)
+    end,
+    ok.
+
+-doc """
+A compressed MQTT packet that the client delivers in several TCP segments
+within the listener's limit reaches the connection handler, and the broker
+answers the CONNECT.
+""".
+t_ws_max_frame_size_compressed_segmented_ok(_) ->
+    set_ws_opts(compress, true),
+    {Sock, Head} = raw_ws_open("Sec-WebSocket-Extensions: permessage-deflate\r\n"),
+    ?assertMatch(<<"permessage-deflate", _/binary>>, extension(Head)),
+    Mask = 16#11223344,
+    Connect = iolist_to_binary(
+        emqx_frame:serialize(
+            ?CONNECT_PACKET(#mqtt_packet_connect{
+                proto_name = <<"MQTT">>,
+                proto_ver = ?MQTT_PROTO_V4,
+                clientid = <<"ws_max_frame_size_segmented">>
+            })
+        )
+    ),
+    Payloads = [
+        binary:part(Connect, 0, 8),
+        binary:part(Connect, 8, byte_size(Connect) - 8)
+    ],
+    Segments = do_deflate_segments(Payloads),
+    %% At least one segment boundary must land on a different mask rotation for
+    %% the wire byte count and for the decompressed byte count, otherwise a
+    %% wrong masking offset would not be noticed here.
+    true = lists:any(
+        fun({Wire, Decompressed}) -> Wire rem 4 =/= Decompressed rem 4 end,
+        lists:zip(
+            do_cumulative([byte_size(Segment) || Segment <- Segments]),
+            do_cumulative([byte_size(Payload) || Payload <- Payloads])
+        )
+    ),
+    try
+        ok = do_start_inflate_probe(),
+        ok = do_send_segmented(Sock, Mask, Segments, Payloads, true),
+        ok = meck:wait(?ws_conn, websocket_handle, [{binary, Connect}, '_'], 5000),
+        ?assertEqual(<<32, 2, 0, 0>>, raw_ws_await_connack(Sock))
+    after
+        do_stop_inflate_probe(),
+        gen_tcp:close(Sock)
+    end,
+    ok.
 
 -doc """
 An explicit `websocket.max_frame_size` takes precedence over the limit derived
@@ -1020,8 +1093,12 @@ ws_close({ConnPid, _StreamRef, _Headers}) ->
     gun:close(ConnPid).
 
 %% Gun cannot send a fragmented message, so this client does the WebSocket
-%% handshake on a plain TCP socket.
+%% handshake on a plain TCP socket. ExtraHeaders is inserted before the final
+%% empty line, for extensions such as permessage-deflate.
 raw_ws_open() ->
+    raw_ws_open("").
+
+raw_ws_open(ExtraHeaders) ->
     {ok, Sock} = gen_tcp:connect("127.0.0.1", 8083, [binary, {active, false}]),
     ok = gen_tcp:send(Sock, [
         "GET /mqtt HTTP/1.1\r\n",
@@ -1031,10 +1108,12 @@ raw_ws_open() ->
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n",
         "Sec-WebSocket-Version: 13\r\n",
         "Sec-WebSocket-Protocol: mqtt\r\n",
+        ExtraHeaders,
         "\r\n"
     ]),
-    ?assertMatch(<<"HTTP/1.1 101 ", _/binary>>, recv_http_head(Sock, <<>>)),
-    Sock.
+    Head = recv_http_head(Sock, <<>>),
+    ?assertMatch(<<"HTTP/1.1 101 ", _/binary>>, Head),
+    {Sock, Head}.
 
 recv_http_head(Sock, Acc0) ->
     {ok, Data} = gen_tcp:recv(Sock, 0, 5000),
@@ -1045,14 +1124,21 @@ recv_http_head(Sock, Acc0) ->
     end.
 
 %% A client frame with a zero masking key, so the payload is sent unchanged.
-masked_frame(Fin, Opcode, Payload) when byte_size(Payload) =< 16#ffff ->
-    Len = byte_size(Payload),
+masked_frame(Fin, Opcode, Payload) ->
+    Header = masked_frame_header(Fin, 0, Opcode, 0, byte_size(Payload)),
+    <<Header/binary, Payload/binary>>.
+
+masked_frame_header(Fin, Rsv, Opcode, MaskKey, Len) when Len =< 16#ffff ->
     PayloadLen =
         case Len =< 125 of
             true -> <<Len:7>>;
             false -> <<126:7, Len:16>>
         end,
-    <<Fin:1, 0:3, Opcode:4, 1:1, PayloadLen/bits, 0:32, Payload/binary>>.
+    <<Fin:1, Rsv:1, 0:2, Opcode:4, 1:1, PayloadLen/bits, MaskKey:32>>.
+
+do_mask(Data, MaskKey) ->
+    Key = binary:copy(<<MaskKey:32>>, byte_size(Data) div 4 + 1),
+    crypto:exor(Data, binary:part(Key, 0, byte_size(Data))).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -1202,4 +1288,132 @@ ws_client(State) ->
             ws_client(State)
     after 5000 ->
         ct:fail(ws_timeout)
+    end.
+
+%%--------------------------------------------------------------------
+%% Segmented compressed message helpers
+%%--------------------------------------------------------------------
+
+extension(Head) ->
+    case
+        re:run(Head, "sec-websocket-extensions: *([^\\r\\n]+)", [caseless, {capture, [1], binary}])
+    of
+        {match, [Value]} -> Value;
+        nomatch -> ct:fail({permessage_deflate_not_negotiated, Head})
+    end.
+
+do_cumulative(Values) ->
+    {_, Reversed} = lists:foldl(
+        fun(Value, {Sum, Acc}) ->
+            Sum2 = Sum + Value,
+            {Sum2, [Sum2 | Acc]}
+        end,
+        {0, []},
+        Values
+    ),
+    lists:reverse(Reversed).
+
+%% Send a binary message whose compressed payload is split in Segments. Each
+%% segment is sent only after the connection has decompressed the previous
+%% ones, which keeps the delivery order deterministic instead of depending on
+%% how TCP groups the writes. When AwaitLast is false the last segment is sent
+%% without waiting for it, for tests that expect the connection to close.
+do_send_segmented(Sock, Mask, Segments, Payloads, AwaitLast) ->
+    ?assertEqual(length(Segments), length(Payloads)),
+    %% The payload is masked as a whole, so that the segments keep the mask
+    %% offset of the frame instead of restarting it.
+    MaskedWhole = do_mask(iolist_to_binary(Segments), Mask),
+    Masked = do_split_lengths(MaskedWhole, [byte_size(Segment) || Segment <- Segments]),
+    Header = masked_frame_header(1, 1, 2, Mask, byte_size(MaskedWhole)),
+    ok = gen_tcp:send(Sock, Header),
+    do_send_segmented_loop(Masked, Payloads, undefined, 0, Sock, AwaitLast).
+
+do_send_segmented_loop([Masked | MaskedTail], [Payload | PayloadTail], Pid0, Acc0, Sock, AwaitLast) ->
+    ok = gen_tcp:send(Sock, Masked),
+    Acc = Acc0 + byte_size(Payload),
+    {Pid, Observed} =
+        case AwaitLast orelse MaskedTail =/= [] of
+            true -> do_await_decompressed(Pid0, Acc0, Acc);
+            false -> {Pid0, Acc0}
+        end,
+    do_send_segmented_loop(MaskedTail, PayloadTail, Pid, Observed, Sock, AwaitLast);
+do_send_segmented_loop([], [], _, _, _, _) ->
+    ok.
+
+do_split_lengths(<<>>, []) ->
+    [];
+do_split_lengths(Bin, [Len | Lengths]) ->
+    <<Part:Len/binary, Rest/binary>> = Bin,
+    [Part | do_split_lengths(Rest, Lengths)].
+
+%% Build permessage-deflate wire data for the given chunks, using one sync
+%% flush per chunk and dropping the trailing sync marker as RFC 7692 requires.
+do_deflate_segments(Chunks) ->
+    Z = zlib:open(),
+    try
+        zlib:deflateInit(Z, default, deflated, -15, 8, default),
+        Encoded = [iolist_to_binary(zlib:deflate(Z, Chunk, sync)) || Chunk <- Chunks],
+        Last = lists:last(Encoded),
+        lists:droplast(Encoded) ++ [binary:part(Last, 0, byte_size(Last) - 4)]
+    after
+        zlib:close(Z)
+    end.
+
+%% The probe observes what the connection decompresses through the public
+%% cow_deflate API and never changes the result. It only provides the delivery
+%% barrier; the assertions stay on the frames the client receives.
+do_start_inflate_probe() ->
+    Tester = self(),
+    ok = meck:new(cow_deflate, [passthrough]),
+    ok = meck:expect(cow_deflate, inflate, fun(Z, Data, Limit) ->
+        Result = meck:passthrough([Z, Data, Limit]),
+        Tester ! {inflate_result, self(), Result},
+        Result
+    end),
+    ok.
+
+do_stop_inflate_probe() ->
+    meck:unload(cow_deflate).
+
+%% Wait until the connection has decompressed at least Target bytes in total.
+do_await_decompressed(Pid0, Acc0, Target) when Acc0 >= Target ->
+    {Pid0, Acc0};
+do_await_decompressed(Pid0, Acc0, Target) ->
+    receive
+        {inflate_result, Pid, {ok, Data}} when Pid0 =:= undefined; Pid =:= Pid0 ->
+            do_await_decompressed(Pid, Acc0 + byte_size(Data), Target);
+        {inflate_result, Pid, {error, Reason}} when Pid0 =:= undefined; Pid =:= Pid0 ->
+            ct:fail({unexpected_inflate_error, Reason})
+    after 6000 ->
+        ct:fail({inflate_progress_timeout, Acc0, Target})
+    end.
+
+raw_ws_await_connack(Sock) ->
+    {ok, <<1:1, Rsv:1, 0:2, 2:4, 0:1, Len:7>>} = gen_tcp:recv(Sock, 2, 5000),
+    PayloadLen =
+        case Len of
+            126 ->
+                {ok, <<L:16>>} = gen_tcp:recv(Sock, 2, 5000),
+                L;
+            127 ->
+                {ok, <<L:64>>} = gen_tcp:recv(Sock, 8, 5000),
+                L;
+            _ ->
+                Len
+        end,
+    {ok, Payload} = gen_tcp:recv(Sock, PayloadLen, 5000),
+    case Rsv of
+        1 -> do_inflate(Payload);
+        0 -> Payload
+    end.
+
+do_inflate(Data) ->
+    Z = zlib:open(),
+    try
+        zlib:inflateInit(Z, -15),
+        Out1 = zlib:inflate(Z, Data),
+        Out2 = zlib:inflate(Z, <<0, 0, 255, 255>>),
+        iolist_to_binary([Out1, Out2])
+    after
+        zlib:close(Z)
     end.

@@ -15,6 +15,9 @@
 ]).
 
 start(_Type, _Args) ->
+    %% No installation can be running yet, so the staging directories left
+    %% behind by a crashed one can be swept here and only here.
+    ok = emqx_plugins_fs:cleanup_stale_staging(),
     %% Load all pre-configured plugins.
     %% Plugin applications are started by `emqx_machine_boot:ensure_apps_started/0'
     %% after all EMQX applications are up.
