@@ -55,7 +55,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 -export([
     info/2,
     stats/1,
-    chan_info_keys/0
+    chan_info/1
 ]).
 
 -export([
@@ -267,7 +267,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 
 %% Gauges only: the channel process stores them in its stats array (see
 %% `emqx_chan_stats`). The attributes that do not change with traffic are
-%% cached in the channel info table instead, see `chan_info_keys/0`.
+%% cached in the channel info table instead, see `chan_info/1`.
 -define(STATS_KEYS, [
     subscriptions_cnt,
     inflight_cnt,
@@ -449,8 +449,9 @@ info({MsgsQ, _PagerParams}, _Session) when MsgsQ =:= mqueue_msgs; MsgsQ =:= infl
 stats(Session) ->
     info(?STATS_KEYS, Session).
 
--doc "The attribute of a durable session that the channel info table caches, see `emqx_session:chan_info/1`.".
-chan_info_keys() -> [n_streams].
+-doc "The attributes of a durable session that the channel info table caches.".
+chan_info(Session) ->
+    maps:from_list([{impl, ?MODULE} | info(?CHAN_INFO_SESSION_KEYS ++ [n_streams], Session)]).
 
 -doc """
 Return current timestamp in the unit native for the session (ms).

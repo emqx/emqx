@@ -356,7 +356,7 @@ t_evict_phantom_session(Config) ->
     %% when we have a record about actually missing session.
     %% The stats array of the row died with the channel: the copy gets a new one.
     true = erpc:call(Node1, fun() ->
-        ets:insert(?CHAN_INFO_TAB, {Chan, ChanInfo, emqx_chan_stats:new(connection)})
+        ets:insert(?CHAN_INFO_TAB, {Chan, ChanInfo, emqx_chan_stats:new()})
     end),
     ?assertEqual(1, rpc:call(Node1, emqx_eviction_agent, session_count, [])),
 

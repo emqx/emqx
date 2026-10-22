@@ -84,7 +84,9 @@ stop(Pid) ->
 
 init([#{conninfo := OldConnInfo, clientinfo := #{clientid := ClientId} = OldClientInfo} = Opts]) ->
     process_flag(trap_exit, true),
-    _ = emqx_chan_stats:new(evicted_session),
+    _ = emqx_chan_stats:new(),
+    %% No socket: readers leave out the socket stats.
+    ok = emqx_chan_stats:mask([recv_oct, recv_cnt, send_oct, send_cnt, send_pend]),
     ClientInfo = clientinfo(OldClientInfo),
     ConnInfo = conninfo(OldConnInfo),
     MaybeWillMsg = maps:get(will_message, Opts, undefined),

@@ -21,24 +21,6 @@
     'send_msg.dropped.too_large'
 ]).
 
-%% The session attributes cached in the `emqx_channel_info` table for every session
-%% implementation; `emqx_session:chan_info/1` adds the ones of the implementation.
-%%
-%% The counters and gauges live in the stats array of the same table row (see
-%% `emqx_chan_stats`). The attributes here do not change with traffic. `subscriptions` is
-%% left out because building that map costs O(number of subscriptions) on every refresh.
-%% `emqx_session:info/1` stays complete: it is the payload of the `session.created` and
-%% `session.resumed` hooks.
--define(CHAN_INFO_SESSION_KEYS, [
-    created_at,
-    is_persistent,
-    impl,
-    durable,
-    subscriptions_max,
-    awaiting_rel_max,
-    inflight_max
-]).
-
 -define(REPLY_OUTGOING(Packets), {outgoing, Packets}).
 -define(REPLY_CONNACK(Packet), {connack, Packet}).
 -define(REPLY_EVENT(StateOrEvent), {event, StateOrEvent}).

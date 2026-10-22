@@ -301,8 +301,8 @@ inspect(#channel{} = Channel) ->
     ).
 
 %% A WebSocket connection counts its own socket stats and has no `send_pend`.
-chan_stats_layout(#{conn_mod := emqx_ws_connection}) -> ws_connection;
-chan_stats_layout(#{}) -> connection.
+chan_stats_mask(#{conn_mod := emqx_ws_connection}) -> [send_pend];
+chan_stats_mask(#{}) -> [].
 
 -spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
@@ -375,7 +375,8 @@ init(
     {NClientInfo, NConnInfo0} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
     ok = validate_clientinfo_string(peersni, maps:get(peersni, NClientInfo, undefined)),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
-    _ = emqx_chan_stats:new(chan_stats_layout(NConnInfo)),
+    _ = emqx_chan_stats:new(),
+    ok = emqx_chan_stats:mask(chan_stats_mask(NConnInfo)),
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,

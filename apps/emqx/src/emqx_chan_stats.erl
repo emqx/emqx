@@ -7,7 +7,7 @@
 -moduledoc """
 Per-connection stats in an `atomics` array that the channel process owns.
 
-The channel process creates the array with `new/1`, which also records the
+The channel process creates the array with `new/0`, which also records the
 reference in the process dictionary, so that the connection module, the
 channel and the session code count without passing the reference around.
 The `emqx_channel_info` table row holds the reference, and a reader on the
@@ -16,25 +16,25 @@ same node builds the stats proplist from it with `to_list/1`.
 The packet and message counters (`?CHANNEL_METRICS`) are added in place with
 `inc/2`, so a reader sees them as they happen. The socket and session gauges
 are written by the owner with `put/1`, on its stats timer and when the
-session changes. The layout given to `new/1` is the set of keys the owner
-reports: a `connection` reports every key, a `ws_connection` has no
-`send_pend`, and an `evicted_session` has no socket at all. The slots of the
-other keys hold `-1`, which no counter or gauge can take, and readers leave
-them out. The process stats (`mailbox_len`, `heap_size`, ...) are not in the
+session changes. An owner that does not report some of the keys, such as a
+WebSocket connection (no `send_pend`) or an evicted session (no socket),
+marks them with `mask/1`: their slots hold `-1`, which no counter or gauge
+can take, and readers leave them out. The process stats (`mailbox_len`, `heap_size`, ...) are not in the
 array: a reader on the same node takes them from the process with
 `emqx_utils:proc_stats/1`.
 
 Every slot holds a counter or a gauge. The session attributes that do not
 change with traffic, such as `durable`, `subscriptions_max` or `inflight_max`,
 are not stats: they live in the session entry of the info map of the row (see
-`?CHAN_INFO_SESSION_KEYS` and `emqx_session:chan_info/1`).
+`emqx_session:chan_info/1`).
 """.
 
 -include("emqx_channel.hrl").
 
 %% Owner process
 -export([
-    new/1,
+    new/0,
+    mask/1,
     ref/0,
     inc/2,
     get/1,
@@ -51,17 +51,18 @@ are not stats: they live in the session entry of the info map of the row (see
 
 -export([keys/0]).
 
--export_type([ref/0, key/0, layout/0, stats/0]).
+-export_type([ref/0, key/0, stats/0]).
 
 -type ref() :: atomics:atomics_ref().
 -type key() :: atom().
--type layout() :: connection | ws_connection | evicted_session.
 %% Stats to write: pairs, or lists of pairs, so that a producer with several
 %% sources passes them as they are, without appending the lists first.
 -type stats() :: [{key(), integer()} | stats()].
 
+%% An atom: the process dictionary lookup of an immediate term is much cheaper
+%% than one of a compound key.
 -define(PD_KEY, emqx_chan_stats).
-%% The value of a slot whose key is not in the layout of the array.
+%% The value of a masked slot.
 -define(ABSENT, -1).
 
 -define(SOCK_KEYS, [
@@ -87,28 +88,34 @@ are not stats: they live in the session entry of the info map of the row (see
 %% keys in the order `emqx_connection:stats/1` does, before the process
 %% stats that a reader appends.
 -define(KEYS, (?SOCK_KEYS ++ ?SESSION_KEYS ++ ?CHANNEL_METRICS)).
-%% The size of the array: `length(?KEYS)`. `emqx_chan_stats_SUITE` checks
-%% that the two agree. A hot patch cannot add a key: the arrays of the
-%% running channels keep their size across a code load, so a reader of the
-%% new code would index past the end of an old array. A new key needs a
-%% release upgrade.
--define(N_KEYS, 27).
+%% The size of the array; the compiler folds it to a constant. A hot patch
+%% cannot add a key: the arrays of the running channels keep their size
+%% across a code load, so a reader of the new code would index past the end
+%% of an old array. A new key needs a release upgrade.
+-define(N_KEYS, length(?KEYS)).
 
 %%--------------------------------------------------------------------
 %% Owner process
 %%--------------------------------------------------------------------
 
 -doc """
-Create the stats array of the calling process with the given layout and
-record its reference in the process dictionary. The keys outside the layout
-are marked absent.
+Create the stats array of the calling process, every key at 0, and record its
+reference in the process dictionary.
 """.
--spec new(layout()) -> ref().
-new(Layout) ->
+-spec new() -> ref().
+new() ->
     Ref = atomics:new(?N_KEYS, []),
-    lists:foreach(fun(Key) -> ok = atomics:put(Ref, slot(Key), ?ABSENT) end, absent_keys(Layout)),
     _ = erlang:put(?PD_KEY, Ref),
     Ref.
+
+-doc """
+Mark keys that the calling process does not report: readers of its stats
+array leave them out. Raises for a key without a slot.
+""".
+-spec mask([key()]) -> ok.
+mask(Keys) ->
+    Ref = ref(),
+    lists:foreach(fun(Key) -> ok = atomics:put(Ref, slot(Key), ?ABSENT) end, Keys).
 
 -doc "The stats array of the calling process. Raises when the process has none.".
 -spec ref() -> ref().
@@ -162,7 +169,7 @@ get_counters(Keys) ->
 %% Readers
 %%--------------------------------------------------------------------
 
--doc "The keys of the layout of a stats array and their values, in the order of `keys/0`.".
+-doc "The keys of a stats array that are not masked and their values, in the order of `keys/0`.".
 -spec to_list(ref()) -> [{key(), integer()}].
 to_list(Ref) ->
     to_list(?KEYS, 1, Ref).
@@ -175,12 +182,12 @@ to_list([Key | Keys], Slot, Ref) ->
         Value -> [{Key, Value} | to_list(Keys, Slot + 1, Ref)]
     end.
 
--doc "The value of `Key` in a stats array; `-1` when `Key` is not in its layout.".
+-doc "The value of `Key` in a stats array; `-1` when `Key` is masked.".
 -spec get(ref(), key()) -> integer().
 get(Ref, Key) ->
     atomics:get(Ref, slot(Key)).
 
--doc "The value of `Key` in a stats array when `Key` is in its layout.".
+-doc "The value of `Key` in a stats array unless `Key` is masked or unknown.".
 -spec lookup(ref(), key()) -> {ok, integer()} | error.
 lookup(Ref, Key) ->
     try atomics:get(Ref, slot(Key)) of
@@ -198,10 +205,6 @@ lookup(Ref, Key) ->
 -spec keys() -> [key()].
 keys() ->
     ?KEYS.
-
-absent_keys(connection) -> [];
-absent_keys(ws_connection) -> [send_pend];
-absent_keys(evicted_session) -> ?SOCK_KEYS.
 
 %% One clause per key of ?KEYS, in the same order, so that a literal key
 %% folds to a constant at compile time where the function is inlined.

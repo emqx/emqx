@@ -36,6 +36,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_session.hrl").
 -include("emqx_session_mem.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -54,7 +55,7 @@
 -export([
     info/2,
     stats/1,
-    chan_info_keys/0,
+    chan_info/1,
     obtain_next_pkt_id/1
 ]).
 
@@ -168,7 +169,7 @@
 
 %% Gauges only: the channel process stores them in its stats array (see
 %% `emqx_chan_stats`). The attributes that do not change with traffic are
-%% cached in the channel info table instead, see `chan_info_keys/0`.
+%% cached in the channel info table instead, see `chan_info/1`.
 -define(STATS_KEYS, [
     subscriptions_cnt,
     inflight_cnt,
@@ -476,8 +477,9 @@ info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) -> info(?STATS_KEYS, Session).
 
--doc "The attribute of a memory session that the channel info table caches, see `emqx_session:chan_info/1`.".
-chan_info_keys() -> [mqueue_max].
+-doc "The attributes of a memory session that the channel info table caches.".
+chan_info(Session) ->
+    maps:from_list([{impl, ?MODULE} | info(?CHAN_INFO_SESSION_KEYS ++ [mqueue_max], Session)]).
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE

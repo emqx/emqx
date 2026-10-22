@@ -65,7 +65,7 @@ open_session(CleanStart, ClientInfo, ConnInfo) ->
 t_reg_unreg_channel(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, emqx_chan_stats:new(connection)),
+    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, emqx_chan_stats:new()),
     ?assertEqual([self()], emqx_cm:lookup_channels(<<"clientid">>)),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual([], emqx_cm:lookup_channels(<<"clientid">>)).
@@ -73,7 +73,7 @@ t_reg_unreg_channel(_) ->
 t_get_set_chan_info(_) ->
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, emqx_chan_stats:new(connection)),
+    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, emqx_chan_stats:new()),
 
     ?assertEqual(Info, emqx_cm:get_chan_info(<<"clientid">>)),
     Info1 = Info#{proto_ver => 5},
@@ -84,7 +84,7 @@ t_get_set_chan_info(_) ->
 
     ?assertError(
         function_clause,
-        emqx_cm:insert_channel_info(undefined, #{}, emqx_chan_stats:new(connection))
+        emqx_cm:insert_channel_info(undefined, #{}, emqx_chan_stats:new())
     ),
     ?assertError(
         function_clause,
@@ -101,7 +101,7 @@ t_get_set_chan_stats(_) ->
     ClientId = <<"clientid">>,
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
     ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new(connection)),
+    ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new()),
     ?assertEqual(connection_stats([]), array_stats(emqx_cm:get_chan_stats(ClientId))),
     Stats = [{recv_oct, 10}, {send_oct, 8}],
     ok = emqx_cm:set_chan_stats(ClientId, Stats),
@@ -148,7 +148,7 @@ t_chan_stats_readers(_) ->
     },
     ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
     try
-        ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new(connection)),
+        ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new()),
         ok = emqx_cm:set_chan_stats(ClientId, [{subscriptions_cnt, 2}, {mqueue_len, 0}]),
         Expected = connection_stats([{subscriptions_cnt, 2}]),
         ?assertEqual(Expected, array_stats(emqx_cm:get_chan_stats(ClientId))),
@@ -223,7 +223,7 @@ t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
     Stats = [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}],
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
     ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new(connection)),
+    ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new()),
     Path = [sysmon, session, total_payload_bytes_high_watermark],
     PreviousHighWatermark = emqx_config:get(Path, 0),
     try

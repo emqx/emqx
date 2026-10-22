@@ -255,7 +255,7 @@
 -callback info(atom(), t()) -> term().
 
 -callback stats(t()) -> emqx_types:stats().
--callback chan_info_keys() -> [atom()].
+-callback chan_info(t()) -> #{atom() => term()}.
 
 -callback disconnect(t(), conninfo()) ->
     {idle | shutdown, effects(), t()}.
@@ -681,13 +681,12 @@ stats(Session) ->
 
 -doc """
 The session attributes that the channel caches in the channel info table:
-`?CHAN_INFO_SESSION_KEYS` and the ones of the session implementation, such as
-`mqueue_max` of a memory session or `n_streams` of a durable session.
+`impl`, `?CHAN_INFO_SESSION_KEYS` and the ones of the session implementation,
+such as `mqueue_max` of a memory session or `n_streams` of a durable session.
 """.
 -spec chan_info(t()) -> #{atom() => term()}.
 chan_info(Session) ->
-    Keys = ?CHAN_INFO_SESSION_KEYS ++ (?IMPL(Session)):chan_info_keys(),
-    maps:from_list(info(Keys, Session)).
+    ?IMPL(Session):chan_info(Session).
 
 %%--------------------------------------------------------------------
 %% Common message events
