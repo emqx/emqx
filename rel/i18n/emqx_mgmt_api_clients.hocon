@@ -218,6 +218,10 @@ clientid.desc:
 """Client ID"""
 clientid.label:
 """Client ID"""
+query_clientid.desc:
+"""Client ID. This parameter can be repeated."""
+query_clientid.label:
+"""Client ID (repeatable)"""
 
 awaiting_rel_cnt.desc:
 """Number of awaiting PUBREC packets."""
@@ -444,6 +448,10 @@ username.desc:
 """User name of client when connecting"""
 username.label:
 """Username"""
+query_username.desc:
+"""Username. This parameter can be repeated."""
+query_username.label:
+"""Username (repeatable)"""
 
 mountpoint.desc:
 """Topic mountpoint"""
