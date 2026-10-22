@@ -437,6 +437,75 @@ t_config_update_unknown_root(_Config) ->
         update_configs_with_binary(<<"a = \"tlsv1.3\"">>)
     ).
 
+-doc """
+A merge of `log` that omits `log.file` succeeds and keeps the file handlers.
+""".
+t_config_merge_log_without_file(_Config) ->
+    FileHandlers = emqx:get_raw_config([log, file]),
+    Level = emqx:get_raw_config([log, console, level]),
+    try
+        ?assertMatch({ok, _}, update_configs_with_binary(<<"log { console { level = notice } }">>)),
+        ?assertEqual(<<"notice">>, emqx:get_raw_config([log, console, level])),
+        ?assertEqual(FileHandlers, emqx:get_raw_config([log, file]))
+    after
+        {ok, _} = emqx:update_config([log, console, level], Level)
+    end.
+
+-doc """
+A merge of `dashboard` that omits `dashboard.sso` succeeds and keeps the SSO settings.
+""".
+t_config_merge_dashboard_without_sso(_Config) ->
+    SSO = emqx:get_raw_config([dashboard, sso], undefined),
+    Expired = emqx:get_raw_config([dashboard, token_expired_time]),
+    try
+        ?assertMatch(
+            {ok, _}, update_configs_with_binary(<<"dashboard { token_expired_time = 61m }">>)
+        ),
+        ?assertEqual(<<"61m">>, emqx:get_raw_config([dashboard, token_expired_time])),
+        ?assertEqual(SSO, emqx:get_raw_config([dashboard, sso], undefined))
+    after
+        {ok, _} = emqx:update_config([dashboard, token_expired_time], Expired)
+    end.
+
+-doc """
+A merge of one listener keeps the stored TLS ciphers of another listener.
+""".
+t_config_merge_keeps_ciphers(_Config) ->
+    Path = [listeners, ssl, default, ssl_options, ciphers],
+    Ciphers0 = emqx:get_raw_config(Path),
+    Ciphers = [<<"TLS_AES_256_GCM_SHA384">>],
+    {ok, _} = emqx:update_config(Path, Ciphers),
+    try
+        ?assertMatch(
+            {ok, _},
+            update_configs_with_binary(<<"listeners.tcp.default.max_connections = 1000">>)
+        ),
+        ?assertEqual(Ciphers, emqx:get_raw_config(Path))
+    after
+        {ok, _} = emqx:update_config(Path, Ciphers0)
+    end.
+
+-doc """
+A merge of one listener does not add the default listeners back.
+""".
+t_config_merge_no_default_listeners(_Config) ->
+    WS = emqx:get_raw_config([listeners, ws, default]),
+    {ok, _} = emqx_mgmt_listeners_conf:ensure_remove(ws, default),
+    Deleted = emqx:get_raw_config([listeners, ws, default]),
+    try
+        ?assertMatch(
+            {ok, _},
+            update_configs_with_binary(<<"listeners.tcp.default.max_connections = 1000">>)
+        ),
+        ?assertEqual(Deleted, emqx:get_raw_config([listeners, ws, default]))
+    after
+        %% `already_exist` when the merge brought the listener back.
+        case emqx:update_config([listeners, ws, default], {create, WS}) of
+            {ok, _} -> ok;
+            {error, {pre_config_update, emqx_listeners, already_exist}} -> ok
+        end
+    end.
+
 %% Helpers
 
 get_config(Name) ->
