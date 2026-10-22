@@ -2992,8 +2992,10 @@ merge_auth_result(ClientInfo0, AuthResult0) when is_map(ClientInfo0) andalso is_
             false ->
                 ClientInfo1
         end,
+    %% `acl' is taken from this result only. When the result has no `acl',
+    %% the client info has none, so rules from an earlier credential do not stay.
     maps:merge(
-        ClientInfo#{client_attrs => Attrs},
+        maps:remove(acl, ClientInfo#{client_attrs => Attrs}),
         AuthResult#{
             is_superuser => IsSuperuser,
             auth_expire_at => ExpireAt

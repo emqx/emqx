@@ -8,6 +8,7 @@
 -compile(export_all).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -184,6 +185,28 @@ t_reauthenticate_keeps_connect_clientid_override(_Config) ->
     ?assertEqual(ClientId, clientid(ChanPid)),
     ?assertEqual([], emqx_cm:lookup_channels(<<"c_override_reauth">>)).
 
+-doc """
+Tests that a re-authentication token without an `acl` claim removes the ACL of the previous
+token: the client-info authorizer no longer matches, so the publish falls to `no_match = deny`.
+""".
+t_reauthenticate_without_acl_revokes_acl(_Config) ->
+    ClientId = <<"c_acl_revoke">>,
+    _ = connect(
+        ClientId,
+        jws(#{<<"exp">> => exp(60), <<"acl">> => #{<<"pub">> => [<<"t/1">>]}})
+    ),
+    ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
+    ?assertEqual(?RC_NO_MATCHING_SUBSCRIBERS, publish(<<"t/1">>, 1)),
+
+    ok = reauthenticate(jws(#{<<"exp">> => exp(3600)})),
+    ?assertMatch(?AUTH_PACKET(?RC_SUCCESS, _), receive_packet()),
+    ClientInfo = clientinfo(ClientId),
+    ?assertNot(maps:is_key(acl, ClientInfo)),
+    ?assertEqual(
+        ignore, emqx_authz_client_info:authorize(ClientInfo, ?AUTHZ_PUBLISH(1), <<"t/1">>, #{})
+    ),
+    ?assertEqual(?RC_NOT_AUTHORIZED, publish(<<"t/1">>, 2)).
+
 %% With the authorization cache enabled, a re-authentication that narrows the
 %% `acl' claim applies to the next publish.
 t_reauthenticate_empties_authz_cache(_Config) ->
@@ -241,9 +264,13 @@ get_client() ->
 %% Re-authentication does not rewrite the `emqx_cm' channel info row, so ask the
 %% channel process.
 client_attrs(ClientId) ->
-    [ChanPid] = emqx_cm:lookup_channels(ClientId),
-    #{clientinfo := #{client_attrs := Attrs}} = emqx_connection:info(ChanPid),
+    #{client_attrs := Attrs} = clientinfo(ClientId),
     Attrs.
+
+clientinfo(ClientId) ->
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    #{clientinfo := ClientInfo} = emqx_connection:info(ChanPid),
+    ClientInfo.
 
 clientid(ChanPid) ->
     #{clientinfo := #{clientid := ClientId}} = emqx_connection:info(ChanPid),
