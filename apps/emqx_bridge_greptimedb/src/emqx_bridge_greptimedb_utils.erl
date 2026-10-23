@@ -220,11 +220,10 @@ apply_field_types(Fields, FieldTypes) ->
         fun
             (Name, Type, Acc) when Type =:= json2; Type =:= <<"json2">> ->
                 FieldName = bin(Name),
-                maps:update_with(
-                    FieldName,
-                    fun(Value) -> {json2, Value} end,
-                    Acc
-                );
+                case maps:find(FieldName, Acc) of
+                    {ok, Value} -> Acc#{FieldName => {json2, Value}};
+                    error -> Acc
+                end;
             (_Name, _Type, Acc) ->
                 Acc
         end,

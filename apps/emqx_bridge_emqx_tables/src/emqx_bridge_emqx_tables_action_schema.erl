@@ -57,7 +57,9 @@ fields(action) ->
 fields(?ACTION_TYPE) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(ref(action_parameters), #{
-            required => true, desc => ?DESC("parameters")
+            required => true,
+            desc => ?DESC("parameters"),
+            validator => fun validate_action_parameters/1
         }),
         #{resource_opts_ref => ref(action_resource_opts)}
     );
@@ -180,3 +182,29 @@ validate_field_types(FieldTypes) when is_map(FieldTypes) ->
     end;
 validate_field_types(FieldTypes) ->
     {error, io_lib:format("field_types must be a map, got: ~p", [FieldTypes])}.
+
+validate_action_parameters(#{write_syntax := Lines, field_types := FieldTypes}) when
+    is_list(Lines), is_map(FieldTypes)
+->
+    FieldsInTemplate = maps:from_list([
+        {emqx_utils_conv:bin(FieldName), true}
+     || #{fields := Fields} <- Lines,
+        {FieldName, _} <- Fields
+    ]),
+    Missing = [
+        FieldName
+     || FieldName <- maps:keys(FieldTypes),
+        not maps:is_key(emqx_utils_conv:bin(FieldName), FieldsInTemplate)
+    ],
+    case Missing of
+        [] ->
+            ok;
+        _ ->
+            {error,
+                io_lib:format(
+                    "field_types names must be fields in write_syntax: ~p",
+                    [Missing]
+                )}
+    end;
+validate_action_parameters(_Parameters) ->
+    ok.

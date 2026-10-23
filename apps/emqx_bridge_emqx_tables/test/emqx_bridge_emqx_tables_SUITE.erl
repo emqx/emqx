@@ -1001,6 +1001,138 @@ t_json2_auto_create_with_arbitrary_field_type_name(TCConfig) ->
     end).
 
 -doc """
+Verifies that a row omitting a declared JSON2 field keeps the existing
+omission behavior for that field.
+""".
+t_json2_auto_create_with_missing_declared_field_value() ->
+    [{matrix, true}].
+t_json2_auto_create_with_missing_declared_field_value(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_auto_create_with_missing_declared_field_value(TCConfig) ->
+    TableName = <<"json2_missing_declared_field">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    _ = drop_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        Overrides = #{
+            <<"parameters">> => #{
+                <<"write_syntax">> =>
+                    <<
+                        TableName/binary,
+                        " payload=${.payload.p},value=${.payload.v}i"
+                    >>,
+                <<"field_types">> => #{<<"payload">> => <<"json2">>}
+            }
+        },
+        ?assertMatch({204, _}, probe_action_api(TCConfig, Overrides)),
+        {201, _} = create_action_api(TCConfig, Overrides),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        emqtt:publish(C, Topic, json_encode(#{v => 7}), [{qos, 1}]),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(
+                #{<<"value">> => 7},
+                query_by_sql(<<"select value from ", TableName/binary>>, TCConfig)
+            )
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that a declaration applies only to lines containing the JSON2 field in
+a multi-line write syntax.
+""".
+t_json2_auto_create_with_multiline_partial_field_type() ->
+    [{matrix, true}].
+t_json2_auto_create_with_multiline_partial_field_type(matrix) ->
+    [[?tcp, ?sync, ?with_batch]];
+t_json2_auto_create_with_multiline_partial_field_type(TCConfig) ->
+    TableA = <<"json2_multiline_a">>,
+    TableB = <<"json2_multiline_b">>,
+    on_exit(fun() ->
+        drop_table(TableA, TCConfig),
+        drop_table(TableB, TCConfig)
+    end),
+    _ = drop_table(TableA, TCConfig),
+    _ = drop_table(TableB, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        Overrides = #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<
+                    TableA/binary,
+                    " payload=${.payload.p}\n",
+                    TableB/binary,
+                    " value=${.payload.v}i"
+                >>,
+                <<"field_types">> => #{<<"payload">> => <<"json2">>}
+            }
+        },
+        ?assertMatch({204, _}, probe_action_api(TCConfig, Overrides)),
+        {201, _} = create_action_api(TCConfig, Overrides),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        Payload = json_encode(#{
+            p => #{device_id => <<"device-001">>},
+            v => 7
+        }),
+        emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(
+                #{<<"device_id">> => <<"device-001">>},
+                query_by_sql(
+                    <<"select payload.device_id as device_id from ", TableA/binary>>,
+                    TCConfig
+                )
+            )
+        ),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(
+                #{<<"value">> => 7},
+                query_by_sql(<<"select value from ", TableB/binary>>, TCConfig)
+            )
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that `field_types` only accepts names that occur as fields in the
+write syntax. Tag-only or missing names are rejected during actions_probe.
+""".
+t_json2_field_types_must_name_write_syntax_fields() ->
+    [{matrix, true}].
+t_json2_field_types_must_name_write_syntax_fields(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_field_types_must_name_write_syntax_fields(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    Cases = [
+        #{
+            <<"write_syntax">> => <<"mqtt payload=${payload}">>,
+            <<"field_types">> => #{<<"missing">> => <<"json2">>}
+        },
+        #{
+            <<"write_syntax">> => <<"mqtt,meta_info=${meta_info} payload=${payload}">>,
+            <<"field_types">> => #{<<"meta_info">> => <<"json2">>}
+        }
+    ],
+    lists:foreach(
+        fun(Parameters) ->
+            ?assertMatch(
+                {400, _},
+                probe_action_api(TCConfig, #{<<"parameters">> => Parameters})
+            )
+        end,
+        Cases
+    ),
+    ok.
+
+-doc """
 Verifies that invalid JSON is unrecoverable when `field_types` is used for
 auto-creation, creates no table for the failed insert, and does not poison
 later valid writes through the same action.
