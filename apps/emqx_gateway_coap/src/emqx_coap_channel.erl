@@ -283,14 +283,14 @@ handle_call(
         [ClientInfo, MountedTopic, NSubOpts]
     ),
     %% modify session state
-    SubReq = #{topic => Topic, token => Token, subopts => NSubOpts},
+    SubReq = #{topic => MountedTopic, token => Token, subopts => NSubOpts},
     TempMsg = #coap_message{type = non},
     %% FIXME: The subopts is not used for emqx_coap_session
     Result = emqx_coap_session:process_subscribe(
         SubReq, TempMsg, #{}, Session
     ),
-    NSession = maps:get(session, Result),
-    {reply, {ok, {MountedTopic, NSubOpts}}, [{event, updated}], Channel#channel{session = NSession}};
+    {NChannel, Replies} = apply_management_observe_update(Result, Channel),
+    {reply, {ok, {MountedTopic, NSubOpts}}, Replies, NChannel};
 handle_call(
     {unsubscribe, Topic},
     _From,
@@ -311,13 +311,13 @@ handle_call(
     ),
 
     %% modify session state
-    UnSubReq = Topic,
+    UnSubReq = MountedTopic,
     TempMsg = #coap_message{type = non},
     Result = emqx_coap_session:process_subscribe(
         UnSubReq, TempMsg, #{}, Session
     ),
-    NSession = maps:get(session, Result),
-    {reply, ok, [{event, updated}], Channel#channel{session = NSession}};
+    {NChannel, Replies} = apply_management_observe_update(Result, Channel),
+    {reply, ok, Replies, NChannel};
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     Subs = emqx_coap_session:info(subscriptions, Session),
     {reply, {ok, maps:to_list(Subs)}, Channel};
@@ -705,11 +705,11 @@ call_session(Fun, Msg, #channel{session = Session} = Channel) ->
 
 maybe_attach_blockwise_to_session_result(
     handle_response,
-    #coap_message{type = reset, token = Token},
+    #coap_message{type = reset},
     Result,
     Channel0
 ) ->
-    Channel = clear_discarded_observe_blockwise(Result, clear_observe_blockwise(Token, Channel0)),
+    Channel = clear_discarded_observe_blockwise(Result, Channel0),
     {attach_and_drain_channel_blockwise(Result, Channel), Channel};
 maybe_attach_blockwise_to_session_result(timeout, _Timer, Result, Channel0) ->
     Channel = clear_discarded_observe_blockwise(Result, Channel0),
@@ -808,12 +808,12 @@ call_handler(_, _, Result, Channel, Iter) ->
     iter(Iter, Result, Channel).
 
 do_call_handler_request(Msg, Result, Channel, Iter) ->
-    #channel{ctx = Ctx, clientinfo = ClientInfo} = Channel,
+    #channel{ctx = Ctx, clientinfo = ClientInfo, session = Session} = Channel,
     Result0 = Result#{request_msg => Msg},
     HandlerResult =
         case emqx_coap_message:get_option(uri_path, Msg) of
             [<<"ps">> | RestPath] ->
-                emqx_coap_pubsub_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
+                emqx_coap_pubsub_handler:handle_request(RestPath, Msg, Ctx, ClientInfo, Session);
             [<<"mqtt">> | RestPath] ->
                 emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
             _ ->
@@ -911,7 +911,32 @@ process_connection({close, Msg}, _, Channel, _) ->
     {shutdown, normal, Reply, NChannel}.
 process_subscribe({Sub, Msg}, Result, #channel{session = Session} = Channel, Iter) ->
     Result2 = emqx_coap_session:process_subscribe(Sub, Msg, Result, Session),
-    iter([session, fun process_session/4 | Iter], Result2, Channel).
+    {Result3, Channel1} = apply_observe_update(Result2, Channel),
+    iter(
+        [session, fun process_session/4, blockwise, fun process_blockwise/4 | Iter],
+        Result3,
+        Channel1
+    ).
+
+apply_observe_update(Result, Channel) ->
+    case maps:get(observe_cleared_tokens, Result, []) of
+        [] ->
+            {Result, Channel};
+        Tokens ->
+            Channel1 = lists:foldl(fun clear_observe_blockwise/2, Channel, Tokens),
+            Result1 = maps:remove(observe_cleared_tokens, Result),
+            {attach_and_drain_channel_blockwise(Result1, Channel1), Channel1}
+    end.
+
+apply_management_observe_update(Result, Channel) ->
+    {Result1, Channel1} = apply_observe_update(Result, Channel),
+    NChannel = Channel1#channel{
+        session = maps:get(session, Result1),
+        blockwise = maps:get(blockwise, Result1, Channel1#channel.blockwise)
+    },
+    Outs = lists:reverse(maps:get(out, Result1, [])),
+    {NChannel, [{outgoing, Outs}, {event, updated}]}.
+
 process_reply(
     Reply,
     Result,

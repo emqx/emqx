@@ -12,6 +12,7 @@
     insert/2,
     remove/2,
     res_changed/2,
+    resource_context/2,
     foreach/2,
     subscriptions/1,
     current_value/0,
@@ -28,7 +29,8 @@
 -type res() :: #{
     token := token(),
     seq_id := seq_id(),
-    subopts := emqx_types:subopts()
+    subopts := emqx_types:subopts(),
+    resource_context => resource_context() | undefined
 }.
 
 -type manager() :: #{emqx_types:topic() => res()}.
@@ -41,13 +43,19 @@ new_manager() ->
     #{}.
 
 -spec insert(sub_data(), manager()) -> {seq_id(), manager()}.
-insert(#{topic := Topic, token := Token, subopts := SubOpts}, Manager) ->
+insert(#{topic := Topic, token := Token, subopts := SubOpts} = SubData, Manager) ->
     Res =
         case maps:get(Topic, Manager, undefined) of
             undefined ->
-                new_res(Token, SubOpts);
-            Any ->
-                Any
+                (new_res(Token, SubOpts))#{
+                    resource_context => maps:get(resource_context, SubData, undefined)
+                };
+            Existing ->
+                Existing#{
+                    token := Token,
+                    subopts := SubOpts,
+                    resource_context => maps:get(resource_context, SubData, undefined)
+                }
         end,
     {maps:get(seq_id, Res), Manager#{Topic => Res}}.
 
@@ -66,6 +74,17 @@ res_changed(Topic, Manager) ->
                 seq_id := SeqId
             } = Res2 = res_changed(Res),
             {Token, SeqId, Manager#{Topic := Res2}}
+    end.
+
+-spec resource_context(token(), manager()) -> resource_context() | undefined.
+resource_context(Token, Manager) ->
+    Contexts = [
+        Context
+     || #{token := T, resource_context := Context} <- maps:values(Manager), T =:= Token
+    ],
+    case Contexts of
+        [Context] -> Context;
+        _ -> undefined
     end.
 
 foreach(F, Manager) ->
