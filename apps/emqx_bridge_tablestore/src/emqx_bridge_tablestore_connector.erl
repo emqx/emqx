@@ -75,11 +75,14 @@ on_get_channels(InstId) ->
     emqx_bridge_influxdb_connector:on_get_channels(InstId).
 
 on_start(InstId, Config) ->
+    #{ssl := SSLOpts0} = Config,
+    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
     BaseOpts = [
         {instance, maps:get(instance_name, Config)},
         {pool, ?OTS_CLIENT_NAME(InstId)},
         {endpoint, maps:get(endpoint, Config)},
-        {pool_size, maps:get(pool_size, Config)}
+        {pool_size, maps:get(pool_size, Config)},
+        {ssl_opts, SSLOpts}
     ],
     SecretOpts = [
         {access_key, maps:get(access_key_id, Config)},

@@ -82,7 +82,7 @@ base_config(HasDatabase) ->
     [
         {server, server()}
         | adjust_fields(emqx_connector_schema_lib:relational_db_fields(), HasDatabase)
-    ].
+    ] ++ emqx_connector_schema_lib:ssl_fields().
 
 token_field() ->
     [{token, hoconsc:mk(binary(), #{required => false, desc => ?DESC("token")})}].
