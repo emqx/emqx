@@ -84,7 +84,10 @@ base_config(HasDatabase) ->
     [
         {server, server()}
         | maybe_without_database(DBFields, HasDatabase)
-    ].
+    ] ++
+        emqx_connector_schema_lib:ssl_fields(#{
+            default_value => #{~"enable" => false, ~"verify" => ~"verify_peer"}
+        }).
 
 token_field() ->
     [{token, hoconsc:mk(binary(), #{required => false, desc => ?DESC("token")})}].
@@ -172,6 +175,7 @@ on_start(
     #{
         server := Server,
         pool_size := PoolSize,
+        ssl := SSLOpts0,
         resource_opts := #{health_check_timeout := HCTimeout}
     } = Config
 ) ->
@@ -180,7 +184,6 @@ on_start(
         connector => InstanceId,
         config => emqx_utils:redact(Config)
     }),
-
     Server1 = parse_server(Server),
     Options0 =
         case maps:get(scheme, Server1, undefined) of
@@ -190,6 +193,7 @@ on_start(
                 []
         end,
     #{hostname := Host, port := Port} = Server1,
+    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
     Options = [
         {host, to_bin(Host)},
         {port, Port},
@@ -197,7 +201,8 @@ on_start(
         {password, maps:get(password, Config, undefined)},
         {token, maps:get(token, Config, undefined)},
         {pool_size, PoolSize},
-        {pool, InstanceId}
+        {pool, InstanceId},
+        {ssl_opts, SSLOpts}
         | Options0
     ],
     State = #{
