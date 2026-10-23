@@ -139,7 +139,12 @@ t_check_sub_max_qos_rules(_) ->
     %% Verify match works as expected:
     ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI, <<"dev/foo/conf/+">>, SubOpts)),
     ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI, <<"root/#">>, SubOpts)),
-    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, <<"root/+/+">>, SubOpts)).
+    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, <<"root/+/+">>, SubOpts)),
+    %% The rules apply to the real topic of a shared subscription:
+    Share = fun(Topic) -> #share{group = <<"g">>, topic = Topic} end,
+    ?assertMatch(ok = _QOS_2, emqx_mqtt_caps:check_sub(CI, Share(<<"t/4/5/6">>), SubOpts)),
+    ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI, Share(<<"root/x">>), SubOpts)),
+    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, Share(<<"root/x/y">>), SubOpts)).
 
 mk_topic_qos_rule(Pred, Topic, QoS) ->
     #{

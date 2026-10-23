@@ -329,8 +329,8 @@ with_sender_name(#message{extra = Extra} = Msg, ClusterName) when is_map(Extra) 
 maybe_filter_incoming_msg(#message{topic = T} = Msg, ClusterName) ->
     %% Should prevent irrelevant messages from being dispatched in case
     %% the remote routing state lags behind the local config changes.
-    #{enable := Enable, topics := Topics} = emqx_cluster_link_config:link(ClusterName),
-    case Enable andalso emqx_topic:match_any(T, Topics) of
+    #{enable := Enable, message_filters := Filters} = emqx_cluster_link_config:link(ClusterName),
+    case Enable andalso emqx_topic:match_any(T, Filters) of
         true -> with_sender_name(Msg, ClusterName);
         false -> []
     end.

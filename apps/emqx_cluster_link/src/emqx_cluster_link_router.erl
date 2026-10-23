@@ -38,7 +38,7 @@ push_persistent_route(Cluster, Op, Intersection, RouteID) ->
 push_update(Op, Topic, RouteID, PushFun) ->
     push_update(Op, Topic, RouteID, PushFun, emqx_cluster_link_config:enabled_links()).
 
-push_update(Op, Topic, RouteID, PushFun, [#{name := Cluster, topics := Filters} | Rest]) ->
+push_update(Op, Topic, RouteID, PushFun, [#{name := Cluster, route_filters := Filters} | Rest]) ->
     Intersections = compute_intersections(Topic, Filters),
     ok = push_intersections(Cluster, Op, RouteID, PushFun, Intersections),
     push_update(Op, Topic, RouteID, PushFun, Rest);

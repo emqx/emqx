@@ -72,7 +72,10 @@
 -type shortconf() :: #{
     name := binary(),
     enable := boolean(),
-    topics := _Union :: [emqx_types:words()],
+    %% The union of the link topics, as words for route intersections,
+    %% and as binaries to match message topics without a split.
+    route_filters := [emqx_types:words()],
+    message_filters := [emqx_types:topic()],
     %% See `emqx_resource:query_opts()`:
     query_opts := #{atom() => _}
 }.
@@ -359,16 +362,14 @@ cleanup_shortconf() ->
 
 prepare_link(#{name := Name, enable := Enabled, topics := Topics} = LinkConf) ->
     QueryOpts = #{} = emqx_resource:get_query_opts(emqx_cluster_link_mqtt, LinkConf),
+    Union = emqx_topic:union(Topics),
     #{
         name => Name,
         enable => Enabled,
-        topics => prepare_topics(Topics),
+        route_filters => lists:map(fun emqx_topic:words/1, Union),
+        message_filters => Union,
         query_opts => QueryOpts
     }.
-
-prepare_topics(Topics) ->
-    Union = emqx_topic:union(Topics),
-    lists:map(fun emqx_topic:words/1, Union).
 
 get_shortconf(K, Default) ->
     persistent_term:get(?PTERM(K), Default).
