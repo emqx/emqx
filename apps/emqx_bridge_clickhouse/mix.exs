@@ -5,7 +5,7 @@ defmodule EMQXBridgeClickhouse.MixProject do
   def project do
     [
       app: :emqx_bridge_clickhouse,
-      version: "6.3.1",
+      version: "6.3.2",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -30,7 +30,7 @@ defmodule EMQXBridgeClickhouse.MixProject do
 
   def deps() do
     UMP.deps([
-      {:clickhouse, github: "emqx/clickhouse-client-erl", tag: "0.3.4"},
+      {:clickhouse, github: "emqx/clickhouse-client-erl", tag: "0.3.5"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

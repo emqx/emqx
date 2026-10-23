@@ -106,7 +106,10 @@ fields(config) ->
                     desc => ?DESC("connect_timeout")
                 }
             )}
-    ] ++ emqx_connector_schema_lib:relational_db_fields().
+    ] ++ emqx_connector_schema_lib:relational_db_fields() ++
+        emqx_connector_schema_lib:ssl_fields(#{
+            default_value => #{~"enable" => false, ~"verify" => ~"verify_peer"}
+        }).
 
 values(post) ->
     maps:merge(values(put), #{name => <<"connector">>});
@@ -135,14 +138,14 @@ callback_mode() -> always_sync.
 %% -------------------------------------------------------------------
 
 -spec on_start(resource_id(), clickhouse_config()) -> {ok, state()} | {error, _}.
-
 on_start(
     InstanceId,
     #{
         url := URL,
         database := DB,
         pool_size := PoolSize,
-        connect_timeout := ConnectTimeout
+        connect_timeout := ConnectTimeout,
+        ssl := SSLOpts0
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -150,6 +153,7 @@ on_start(
         connector => InstanceId,
         config => emqx_utils:redact(Config)
     }),
+    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
     Options = [
         {url, URL},
         {user, maps:get(username, Config, "default")},
@@ -157,7 +161,8 @@ on_start(
         {database, DB},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
-        {pool, InstanceId}
+        {pool, InstanceId},
+        {ssl_opts, SSLOpts}
     ],
     try
         State = #{
@@ -217,13 +222,15 @@ connect(Options) ->
     Key = emqx_secret:unwrap(proplists:get_value(key, Options)),
     Pool = proplists:get_value(pool, Options),
     PoolSize = proplists:get_value(pool_size, Options),
+    SSLOpts = proplists:get_value(ssl_opts, Options),
     FixedOptions = [
         {url, URL},
         {database, Database},
         {user, User},
         {key, Key},
         {pool, Pool},
-        {pool_size, PoolSize}
+        {pool_size, PoolSize},
+        {ssl_opts, SSLOpts}
     ],
     case clickhouse:start_link(FixedOptions) of
         {ok, Connection} ->
