@@ -486,7 +486,7 @@ maybe_initialize_auth_resources(ResourceId, #{authentication := #{type := wif}} 
         supervisor := Sup,
         token_table := Tab
     } = Config,
-    ChildSpec = prepare_wif_worker_spec(ResourceId, Tab, AuthConfig0),
+    ChildSpec = prepare_wif_worker_spec(ResourceId, Tab, Config),
     case supervisor:start_child(Sup, ChildSpec) of
         {ok, _} ->
             case do_check_token_exists(Tab, ResourceId) of
@@ -572,11 +572,13 @@ parse_jwt_config(ResourceId, #{
         project_id => ProjectId
     }.
 
-prepare_wif_worker_spec(ResourceId, Tab, AuthConfig) ->
-    Opts = prepare_wif_worker_steps(AuthConfig, ResourceId, Tab),
+prepare_wif_worker_spec(ResourceId, Tab, Config) ->
+    Opts = prepare_wif_worker_steps(Config, ResourceId, Tab),
     emqx_bridge_gcp_pubsub_auth_wif_worker:child_spec(ResourceId, Opts).
 
-prepare_wif_worker_steps(#{type := wif} = AuthConfig, ResourceId, Tab) ->
+prepare_wif_worker_steps(
+    #{authentication := #{type := wif} = AuthConfig} = Config, ResourceId, Tab
+) ->
     #{
         initial_token := InitialTokenConfig,
         service_account_email := ServiceAccountEmail,
@@ -584,6 +586,8 @@ prepare_wif_worker_steps(#{type := wif} = AuthConfig, ResourceId, Tab) ->
         gcp_wif_pool_id := WIFPoolId,
         gcp_wif_pool_provider_id := WIFPoolProviderId
     } = AuthConfig,
+    #{ssl := SSLOpts0} = Config,
+    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
     Step1Name = initial_token,
     Step1 = prepare_initial_step(Step1Name, InitialTokenConfig),
     Step2Name = gcp_access_token,
@@ -616,6 +620,9 @@ prepare_wif_worker_steps(#{type := wif} = AuthConfig, ResourceId, Tab) ->
         end,
         headers => fun(_StepContext) ->
             [{<<"Content-Type">>, <<"application/json">>}]
+        end,
+        req_opts => fun(_StepContext) ->
+            [{ssl_options, SSLOpts}]
         end,
         extract_result => fun(#{body := RespBody}) ->
             case emqx_utils_json:safe_decode(RespBody) of
@@ -659,6 +666,9 @@ prepare_wif_worker_steps(#{type := wif} = AuthConfig, ResourceId, Tab) ->
                 {<<"Authorization">>, <<"Bearer ", WIFToken/binary>>}
             ]
         end,
+        req_opts => fun(_StepContext) ->
+            [{ssl_options, SSLOpts}]
+        end,
         extract_result => fun(#{body := RespBody}) ->
             case emqx_utils_json:safe_decode(RespBody) of
                 {ok, #{<<"accessToken">> := Token}} ->
@@ -681,9 +691,11 @@ prepare_initial_step(Step1Name, #{type := oidc_client_credentials} = InitialToke
         endpoint_uri := EndpointURI,
         client_id := ClientId,
         client_secret := ClientSecret,
-        scope := Scope
+        scope := Scope,
+        ssl := SSLOpts0
     } = InitialTokenConfig,
     Audience = maps:get(audience, InitialTokenConfig, undefined),
+    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
     #{
         name => Step1Name,
         method => post,
@@ -702,6 +714,9 @@ prepare_initial_step(Step1Name, #{type := oidc_client_credentials} = InitialToke
         end,
         headers => fun(_StepContext) ->
             [{<<"Content-Type">>, <<"application/x-www-form-urlencoded">>}]
+        end,
+        req_opts => fun(_StepContext) ->
+            [{ssl_options, SSLOpts}]
         end,
         extract_result => fun(#{body := RespBody}) ->
             case emqx_utils_json:safe_decode(RespBody) of
