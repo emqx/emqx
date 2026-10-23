@@ -12,10 +12,12 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_connection_conf.hrl").
+-include_lib("emqx/include/emqx_session_mem.hrl").
 -include_lib("emqx/include/emqx_schema.hrl").
 
 -define(FRAME_KEY(Zone), {emqx_connection_conf, Zone, frame}).
 -define(CONN_KEY(Listener, Zone), {emqx_connection_conf, Listener, Zone, conf}).
+-define(SESSION_KEY(Zone), {emqx_connection_conf, Zone, session}).
 -define(SOCKET_LISTENER, {tcp, socket}).
 -define(PROTO_VERS, [v3, v4, v5]).
 
@@ -139,6 +141,7 @@ init_per_testcase(_Case, Config) ->
     %% that has served a connection before. A case about the first connection
     %% erases them itself.
     _ = emqx_connection_conf:pre_connect_codec(default),
+    _ = emqx_connection_conf:session_conf(default),
     case proplists:get_value(listener, Config) of
         undefined -> ok;
         Listener -> _ = emqx_connection_conf:conn_conf(Listener, default)
@@ -193,16 +196,18 @@ listeners_conf() ->
 
 -doc """
 With no entries for its listener and zone, the first connection builds and
-registers both, and the next connection shares them.
+registers all three, and the next connection shares them.
 """.
 t_first_connection_registers(_Config) ->
     Config = socket_config(),
     _ = persistent_term:erase(?FRAME_KEY(default)),
     _ = persistent_term:erase(?CONN_KEY(?SOCKET_LISTENER, default)),
+    _ = persistent_term:erase(?SESSION_KEY(default)),
     C1 = connect(Config, v5),
     ok = emqx_connection_conf:sync(),
     Frame = persistent_term:get(?FRAME_KEY(default)),
     Conf = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
+    SessionConf = persistent_term:get(?SESSION_KEY(default)),
     ?assertMatch(
         #{connect := #{initial_parse_state := _, serialize_opts := _}, common := Common} when
             map_size(Common) =:= 3,
@@ -211,11 +216,13 @@ t_first_connection_registers(_Config) ->
     ?assertMatch(#conf{listener = ?SOCKET_LISTENER, zone = default}, Conf),
     %% The first connection's own terms equal the registered ones.
     ?assertEqual(Conf, conn_conf_of(C1)),
+    ?assertEqual(SessionConf, session_conf_of(C1)),
     #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := ParseState}}} = Frame,
     ?assertMatch({ParseState, _}, frame_state(Config, C1)),
     C2 = connect(Config, v5),
     ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C2, 5)),
     ?assert(held_conn_conf(C2, ?SOCKET_LISTENER, default)),
+    ?assert(held_session_conf(C2, default)),
     ok = emqtt:stop(C1),
     ok = emqtt:stop(C2).
 -doc """
@@ -255,9 +262,8 @@ t_build_matches_frame(_Config) ->
     ).
 
 -doc """
-Two connections of each protocol version in the same zone hold the same
-shared parse state and serializer options, and messages flow for all three
-protocol versions.
+Two connections of each protocol version in the same zone share their
+codec and session settings, and messages flow for all three protocol versions.
 """.
 t_shared_after_connect(Config) ->
     lists:foreach(
@@ -271,6 +277,8 @@ t_shared_after_connect(Config) ->
             ?assertEqual(
                 #{initial_parse_state => true, serialize_opts => true}, held_shared(C2, V)
             ),
+            ?assert(held_session_conf(C1, default)),
+            ?assert(held_session_conf(C2, default)),
             {_ParseState, SerializeOpts} = frame_state(Config, C1),
             ?assertMatch(
                 #{version := V, max_size := ?MAX_PACKET_SIZE},
@@ -385,27 +393,50 @@ t_global_config_change(_Config) ->
     ok = ensure_entries(?SOCKET_LISTENER, [default, other]),
     Old = persistent_term:get(?FRAME_KEY(default)),
     OldOther = persistent_term:get(?FRAME_KEY(other)),
+    OldSession = persistent_term:get(?SESSION_KEY(default)),
+    OldOtherSession = persistent_term:get(?SESSION_KEY(other)),
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config([mqtt, max_packet_size], <<"2MB">>),
     assert_zone_entry(default, 2 * 1024 * 1024, Old),
     assert_zone_entry(other, 2 * 1024 * 1024, OldOther),
+    ?assert(erts_debug:same(OldSession, persistent_term:get(?SESSION_KEY(default)))),
+    ?assert(erts_debug:same(OldOtherSession, persistent_term:get(?SESSION_KEY(other)))),
     assert_after_change(Config, C1, Old).
 
 -doc """
-A change to one zone through the `zones` config rebuilds that zone's entry. An
-existing connection keeps working with its own terms, and a new connection
-shares the new terms.
+A change to one zone rebuilds its frame and session entries. Existing
+connections keep their settings, and new connections share the new terms.
 """.
 t_zone_config_change(_Config) ->
     Config = socket_config(),
     ok = ensure_entries(?SOCKET_LISTENER, [default]),
     Old = persistent_term:get(?FRAME_KEY(default)),
+    OldSession = persistent_term:get(?SESSION_KEY(default)),
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config(
         [zones],
-        #{<<"default">> => #{<<"mqtt">> => #{<<"max_packet_size">> => <<"3MB">>}}}
+        #{
+            <<"default">> => #{
+                <<"mqtt">> => #{
+                    <<"max_packet_size">> => <<"3MB">>,
+                    <<"max_subscriptions">> => 25,
+                    <<"retry_interval">> => <<"25s">>,
+                    <<"await_rel_timeout">> => <<"5s">>
+                }
+            }
+        }
     ),
     assert_zone_entry(default, 3 * 1024 * 1024, Old),
+    ?assertEqual(
+        OldSession#session_conf{
+            max_subscriptions = 25,
+            retry_interval = 25000,
+            await_rel_timeout = 5000
+        },
+        emqx_connection_conf:session_conf(default)
+    ),
+    ?assertEqual(OldSession, session_conf_of(C1)),
+    ?assertNot(held_session_conf(C1, default)),
     assert_after_change(Config, C1, Old).
 
 -doc """
@@ -484,7 +515,9 @@ t_zone_removal(_Config) ->
     {ok, _} = emqx:update_config([zones], #{<<"tmpzone">> => #{}}),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(tmpzone), undefined)),
     ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, tmpzone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?SESSION_KEY(tmpzone), undefined)),
     ok = ensure_entries(?SOCKET_LISTENER, [tmpzone]),
+    ?assertMatch(#session_conf{}, persistent_term:get(?SESSION_KEY(tmpzone))),
     ?assertMatch(#{connect := _, common := _}, persistent_term:get(?FRAME_KEY(tmpzone))),
     ?assertMatch(
         #conf{listener = ?SOCKET_LISTENER, zone = tmpzone},
@@ -493,6 +526,8 @@ t_zone_removal(_Config) ->
     {ok, _} = emqx:update_config([zones], #{}),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(tmpzone), undefined)),
     ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, tmpzone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?SESSION_KEY(tmpzone), undefined)),
+    ?assertMatch(#session_conf{}, persistent_term:get(?SESSION_KEY(default))),
     ?assertMatch(#{connect := _, common := _}, persistent_term:get(?FRAME_KEY(default))),
     ?assertMatch(#conf{zone = default}, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))).
 
@@ -584,6 +619,7 @@ t_shutdown_erases_entries(_Config) ->
     ok = supervisor:terminate_child(emqx_kernel_sup, emqx_connection_conf),
     ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default), undefined)),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(default), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?SESSION_KEY(default), undefined)),
     {ok, _} = supervisor:restart_child(emqx_kernel_sup, emqx_connection_conf),
     C = connect(socket_config(), v5),
     ok = emqx_connection_conf:sync(),
@@ -600,17 +636,22 @@ t_restart_rebuilds_entries(_Config) ->
     ok = ensure_entries(?SOCKET_LISTENER, [default]),
     Conf = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
     Frame = persistent_term:get(?FRAME_KEY(default)),
+    SessionConf = persistent_term:get(?SESSION_KEY(default)),
     %% Plant entries of a config that is not the current one.
     persistent_term:put(?CONN_KEY(?SOCKET_LISTENER, default), Conf#conf{sendq_watermark = 5}),
     persistent_term:put(?FRAME_KEY(gone_zone), Frame),
     persistent_term:put(?CONN_KEY(?SOCKET_LISTENER, gone_zone), Conf#conf{zone = gone_zone}),
+    persistent_term:put(?SESSION_KEY(default), SessionConf#session_conf{max_subscriptions = 3}),
+    persistent_term:put(?SESSION_KEY(gone_zone), SessionConf),
     Pid = whereis(emqx_connection_conf),
     exit(Pid, kill),
     ?retry(50, 100, true = is_restarted(Pid)),
     ?assertEqual(Conf, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default))),
     ?assert(erts_debug:same(Frame, persistent_term:get(?FRAME_KEY(default)))),
+    ?assertEqual(SessionConf, persistent_term:get(?SESSION_KEY(default))),
     ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(gone_zone), undefined)),
     ?assertEqual(undefined, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, gone_zone), undefined)),
+    ?assertEqual(undefined, persistent_term:get(?SESSION_KEY(gone_zone), undefined)),
     %% The rebuilt entries are the ones the server owns from now on.
     C = connect(socket_config(), v5),
     ?assert(held_conn_conf(C, ?SOCKET_LISTENER, default)),
@@ -641,6 +682,7 @@ assert_after_change(Config, C1, Old) ->
     ?assertEqual(#{initial_parse_state => false, serialize_opts => false}, held_shared(C1, 5)),
     C2 = connect(Config, v5),
     ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C2, 5)),
+    ?assert(held_session_conf(C2, default)),
     ok = assert_pubsub(C1, C2),
     ok = assert_pubsub(C2, C1),
     ok = emqtt:stop(C1),
@@ -769,7 +811,8 @@ ensure_entries(Listener, Zones) ->
     lists:foreach(
         fun(Zone) ->
             _ = emqx_connection_conf:pre_connect_codec(Zone),
-            _ = emqx_connection_conf:conn_conf(Listener, Zone)
+            _ = emqx_connection_conf:conn_conf(Listener, Zone),
+            _ = emqx_connection_conf:session_conf(Zone)
         end,
         Zones
     ),
@@ -813,6 +856,31 @@ conn_conf_of(Client) ->
 find_conf(State) ->
     [Conf] = [E || E <- tuple_to_list(State), is_record(E, conf)],
     Conf.
+
+session_conf_of(Client) ->
+    find_session_conf(sys:get_state(conn_pid(Client))).
+
+find_session_conf(State) ->
+    [Channel] = [
+        E
+     || E <- state_elements(State), is_tuple(E), tuple_size(E) > 0, element(1, E) =:= channel
+    ],
+    #session{conf = Conf} = emqx_channel:info(session_state, Channel),
+    Conf.
+
+%% Compare inside the connection process, before its state is copied to the test process.
+held_session_conf(Client, Zone) ->
+    Self = self(),
+    Ref = make_ref(),
+    _ = sys:replace_state(conn_pid(Client), fun(State) ->
+        Shared = persistent_term:get(?SESSION_KEY(Zone)),
+        Self ! {Ref, erts_debug:same(find_session_conf(State), Shared)},
+        State
+    end),
+    receive
+        {Ref, Result} -> Result
+    after 5000 -> error(timeout)
+    end.
 
 %% Check inside the connection process whether it holds the shared `#conf{}'
 %% of the listener and zone itself, not an equal copy.

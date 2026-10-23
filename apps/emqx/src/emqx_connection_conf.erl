@@ -8,7 +8,7 @@
 Connection settings derived from listener and zone config, shared between
 connections.
 
-The entries live in `persistent_term`, under two kinds of key:
+The entries live in `persistent_term`, under three kinds of key:
 
 - `{emqx_connection_conf, Zone, frame}`: the frame parser and serializer
   options of the zone. The value holds two groups of terms:
@@ -20,6 +20,8 @@ The entries live in `persistent_term`, under two kinds of key:
   connection on that listener in that zone. It holds the listener settings
   (`active_n`, `sendq_watermark`) and the zone settings (`hibernate_after`,
   `minor_gc_after`, `force_gc`, `force_shutdown`).
+- `{emqx_connection_conf, Zone, session}`: the `#session_conf{}` record of
+  in-memory sessions in the zone.
 
 A term read out of `persistent_term` is not copied into the heap of the
 reading process. So every connection that stores one of these terms in its
@@ -38,7 +40,7 @@ zone or listener; the next connection registers them again.
 Replacing or erasing an entry makes the runtime copy the old terms into the
 heap of every process that still refers to them. An entry is rewritten only
 when its value changes, so a config change that leaves the derived terms
-equal costs nothing. The two kinds are separate entries, so a change to one
+equal costs nothing. The three kinds are separate entries, so a change to one
 kind leaves the other shared.
 
 The server erases its entries when it stops in an orderly way. After a crash
@@ -50,6 +52,7 @@ the current config, since an application restart can load a different config.
 
 -include("emqx_mqtt.hrl").
 -include("emqx_connection_conf.hrl").
+-include("emqx_session_conf.hrl").
 -include("logger.hrl").
 
 -export([start_link/0]).
@@ -59,6 +62,7 @@ the current config, since an application restart can load a different config.
     pre_connect_codec/1,
     post_connect_codec/4,
     conn_conf/2,
+    session_conf/1,
     post_zone_config_update/2,
     listeners_changed/1,
     sync/0
@@ -72,10 +76,16 @@ the current config, since an application restart can load a different config.
     terminate/2
 ]).
 
--export_type([pre_connect_codec/0, conn_conf/0, listener/0]).
+-export_type([
+    pre_connect_codec/0,
+    conn_conf/0,
+    session_conf/0,
+    listener/0
+]).
 
 -define(FRAME_KEY(Zone), {?MODULE, Zone, frame}).
 -define(CONN_KEY(Listener, Zone), {?MODULE, Listener, Zone, conf}).
+-define(SESSION_KEY(Zone), {?MODULE, Zone, session}).
 -define(PROTO_VERS, [?MQTT_PROTO_V3, ?MQTT_PROTO_V4, ?MQTT_PROTO_V5]).
 %% A QUIC stream has no socket to activate; the control stream keeps the
 %% default of `emqx_connection'.
@@ -100,10 +110,14 @@ the current config, since an application restart can load a different config.
 }.
 
 -type conn_conf() :: #conf{}.
+-type session_conf() :: #session_conf{}.
 
--type key() :: {?MODULE, emqx_types:zone(), frame} | {?MODULE, listener(), emqx_types:zone(), conf}.
+-type key() ::
+    {?MODULE, emqx_types:zone(), frame}
+    | {?MODULE, emqx_types:zone(), session}
+    | {?MODULE, listener(), emqx_types:zone(), conf}.
 
--record(register, {key :: key(), value :: frame() | conn_conf()}).
+-record(register, {key :: key(), value :: frame() | conn_conf() | session_conf()}).
 -record(zones_updated, {zones :: emqx_config:config()}).
 %% The checked config of a listener, or `undefined' for a deleted one.
 -record(listeners_changed, {listeners :: [{listener(), map() | undefined}]}).
@@ -181,6 +195,18 @@ conn_conf(Listener, Zone) ->
             ListenerConf = emqx_config:get_listener_conf(Type, Name, []),
             Conf = build_conn_conf(Listener, Zone, ListenerConf, emqx_config:get([zones, Zone])),
             ok = register_entry(?CONN_KEY(Listener, Zone), Conf),
+            Conf
+    end.
+
+-doc "Return the shared session settings of the zone.".
+-spec session_conf(emqx_types:zone()) -> session_conf().
+session_conf(Zone) ->
+    case persistent_term:get(?SESSION_KEY(Zone), undefined) of
+        #session_conf{} = Conf ->
+            Conf;
+        undefined ->
+            Conf = build_session_conf(emqx_config:get_zone_conf(Zone, [mqtt])),
+            ok = register_entry(?SESSION_KEY(Zone), Conf),
             Conf
     end.
 
@@ -304,6 +330,7 @@ safe_call(Req) ->
     end.
 
 is_own_key(?FRAME_KEY(_Zone)) -> true;
+is_own_key(?SESSION_KEY(_Zone)) -> true;
 is_own_key(?CONN_KEY(_Listener, _Zone)) -> true;
 is_own_key(_Key) -> false.
 
@@ -312,6 +339,11 @@ is_own_key(_Key) -> false.
 rebuild(?FRAME_KEY(Zone) = Key, Zones) ->
     case Zones of
         #{Zone := ZoneConf} -> put_if_changed(Key, build_frame(ZoneConf));
+        #{} -> erase_entry(Key)
+    end;
+rebuild(?SESSION_KEY(Zone) = Key, Zones) ->
+    case Zones of
+        #{Zone := #{mqtt := MQTT}} -> put_if_changed(Key, build_session_conf(MQTT));
         #{} -> erase_entry(Key)
     end;
 rebuild(?CONN_KEY({Type, Name}, _Zone) = Key, Zones) ->
@@ -365,6 +397,21 @@ build_frame(#{
             }}
          || ProtoVer <- ?PROTO_VERS
         ])
+    }.
+
+build_session_conf(#{
+    max_subscriptions := MaxSubscriptions,
+    upgrade_qos := UpgradeQoS,
+    retry_interval := RetryInterval,
+    max_awaiting_rel := MaxAwaitingRel,
+    await_rel_timeout := AwaitRelTimeout
+}) ->
+    #session_conf{
+        max_subscriptions = MaxSubscriptions,
+        upgrade_qos = UpgradeQoS,
+        retry_interval = RetryInterval,
+        max_awaiting_rel = MaxAwaitingRel,
+        await_rel_timeout = AwaitRelTimeout
     }.
 
 -spec build_conn_conf(listener(), emqx_types:zone(), map(), map()) -> conn_conf().

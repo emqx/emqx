@@ -63,6 +63,32 @@ end_per_testcase(_TestCase, _TCConfig) ->
 %% Test cases for session init
 %%--------------------------------------------------------------------
 
+-doc "Creation, import and zone changes obtain current session settings from the zone.".
+t_session_zone_conf(_) ->
+    ClientInfo = clientinfo(),
+    ConnInfo = #{receive_maximum => 3, expiry_interval => 0},
+    First = emqx_session_mem:create(ClientInfo, ConnInfo, undefined),
+    set_zone_conf(max_subscriptions, 17),
+    set_zone_conf(upgrade_qos, true),
+    set_zone_conf(retry_interval, 100),
+    set_zone_conf(max_awaiting_rel, 19),
+    set_zone_conf(await_rel_timeout, 200),
+    Second = emqx_session_mem:create(ClientInfo, ConnInfo, undefined),
+    ?assertEqual([17, true, 100, 19, 200], session_settings(Second)),
+    ?assertNotEqual(session_settings(First), session_settings(Second)),
+    ?assertEqual(3, emqx_session_mem:info(inflight_max, Second)),
+    Imported = emqx_session_mem:import(ClientInfo, ConnInfo, emqx_session_mem:export(First)),
+    ?assertEqual(session_settings(Second), session_settings(Imported)),
+    ?assertEqual(3, emqx_session_mem:info(inflight_max, Imported)),
+    {ok, Updated} = emqx_session_mem:handle_info(ClientInfo, zone_changed, First),
+    ?assertEqual(session_settings(Second), session_settings(Updated)).
+
+session_settings(Session) ->
+    [
+        emqx_session_mem:info(Key, Session)
+     || Key <- [subscriptions_max, upgrade_qos, retry_interval, awaiting_rel_max, await_rel_timeout]
+    ].
+
 t_session_init(_) ->
     ClientInfo = #{
         zone => default,
@@ -73,8 +99,7 @@ t_session_init(_) ->
     Session = emqx_session_mem:create(
         ClientInfo,
         ConnInfo,
-        _WillMsg = undefined,
-        emqx_session:get_session_conf(ClientInfo)
+        _WillMsg = undefined
     ),
     ?assertEqual(#{}, emqx_session_mem:info(subscriptions, Session)),
     ?assertEqual(0, emqx_session_mem:info(subscriptions_cnt, Session)),
@@ -211,8 +236,7 @@ t_session_buffer_bytes_stats(_) ->
     Session0 = emqx_session_mem:create(
         ClientInfo,
         #{receive_maximum => 1, expiry_interval => 0},
-        _WillMsg = undefined,
-        emqx_session:get_session_conf(ClientInfo)
+        _WillMsg = undefined
     ),
     Session1 = emqx_session_mem:enqueue(ClientInfo, [InflightMsg, MqueueMsg], Session0),
     {ok, [{1, InflightMsg}], Session2} = emqx_session_mem:dequeue(ClientInfo, [], Session1),
@@ -305,21 +329,34 @@ t_subscribe(_) ->
     {ok, Session} = emqx_session_mem:subscribe(clientinfo(), <<"#">>, subopts(), session()),
     ?assertEqual(1, emqx_session_mem:info(subscriptions_cnt, Session)).
 
-t_is_subscriptions_full_false(_) ->
+-doc "An infinite subscription limit allows additional subscriptions.".
+t_subscribe_unlimited(_) ->
+    ok = meck:expect(emqx_broker, subscribe, fun(_, _, _, _) -> ok end),
     Session = session(#{max_subscriptions => infinity}),
-    ?assertNot(emqx_session_mem:is_subscriptions_full(Session)).
+    {ok, Session1} = emqx_session_mem:subscribe(clientinfo(), <<"t1">>, subopts(), Session),
+    {ok, Session2} = emqx_session_mem:subscribe(clientinfo(), <<"t2">>, subopts(), Session1),
+    ?assertEqual(2, emqx_session_mem:info(subscriptions_cnt, Session2)).
 
-t_is_subscriptions_full_true(_) ->
-    ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
+-doc "The subscription limit rejects new topics but allows updates to existing subscriptions.".
+t_subscribe_limit(_) ->
+    ok = meck:expect(emqx_broker, subscribe, fun(_, _, _, _) -> ok end),
+    ?assertEqual(
+        {error, ?RC_QUOTA_EXCEEDED},
+        emqx_session_mem:subscribe(
+            clientinfo(), <<"t1">>, subopts(), session(#{max_subscriptions => 0})
+        )
+    ),
     Session = session(#{max_subscriptions => 1}),
-    ?assertNot(emqx_session_mem:is_subscriptions_full(Session)),
     {ok, Session1} = emqx_session_mem:subscribe(
         clientinfo(), <<"t1">>, subopts(), Session
     ),
-    ?assert(emqx_session_mem:is_subscriptions_full(Session1)),
     {error, ?RC_QUOTA_EXCEEDED} = emqx_session_mem:subscribe(
         clientinfo(), <<"t2">>, subopts(), Session1
-    ).
+    ),
+    UpdatedOpts = subopts(#{qos => 2}),
+    {ok, Session2} = emqx_session_mem:subscribe(clientinfo(), <<"t1">>, UpdatedOpts, Session1),
+    ?assertEqual(1, emqx_session_mem:info(subscriptions_cnt, Session2)),
+    ?assertEqual(UpdatedOpts, emqx_session_mem:get_subscription(<<"t1">>, Session2)).
 
 t_unsubscribe(_) ->
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
@@ -387,16 +424,30 @@ t_publish_qos2_with_error_return(_) ->
         ct:fail(?FUNCTION_NAME)
     end.
 
-t_is_awaiting_full_false(_) ->
+-doc "An infinite awaiting-PUBREL limit allows additional QoS2 publishes.".
+t_publish_qos2_unlimited(_) ->
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
     Session = session(#{max_awaiting_rel => infinity}),
-    ?assertNot(emqx_session_mem:is_awaiting_full(Session)).
+    {ok, [], Session1} = emqx_session_mem:publish(1, Msg, Session),
+    {ok, [], Session2} = emqx_session_mem:publish(2, Msg, Session1),
+    ?assertEqual(2, emqx_session_mem:info(awaiting_rel_cnt, Session2)).
 
-t_is_awaiting_full_true(_) ->
-    Session = session(#{
-        max_awaiting_rel => 1,
-        awaiting_rel => #{1 => ts(millisecond)}
-    }),
-    ?assert(emqx_session_mem:is_awaiting_full(Session)).
+-doc "The awaiting-PUBREL limit rejects new QoS2 publishes while preserving duplicate handling.".
+t_publish_qos2_limit(_) ->
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
+    ?assertEqual(
+        {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED},
+        emqx_session_mem:publish(1, Msg, session(#{max_awaiting_rel => 0}))
+    ),
+    {ok, [], Session} = emqx_session_mem:publish(1, Msg, session(#{max_awaiting_rel => 1})),
+    ?assertEqual({error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}, emqx_session_mem:publish(2, Msg, Session)),
+    ?assertEqual({error, ?RC_PACKET_IDENTIFIER_IN_USE}, emqx_session_mem:publish(1, Msg, Session)),
+    {ok, _, Session} = emqx_session_mem:publish(1, emqx_message:set_flag(dup, Msg), Session),
+    {ok, Session1} = emqx_session_mem:pubrel(1, Session),
+    {ok, [], Session2} = emqx_session_mem:publish(2, Msg, Session1),
+    ?assertEqual(1, emqx_session_mem:info(awaiting_rel_cnt, Session2)).
 
 t_puback(_) ->
     Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<>>),
@@ -1890,7 +1941,6 @@ t_export_import_empty_mqueue(_) ->
 t_import_without_listener(_) ->
     ClientInfo = clientinfo(#{listener => 'tcp:default'}),
     ConnInfo = #{receive_maximum => 32, expiry_interval => 86400000},
-    Conf = (emqx_session:get_session_conf(ClientInfo))#{enable_quota => true},
     Msg1 = emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"inflight">>),
     Msg2 = emqx_message:make(clientid, ?QOS_1, <<"t2">>, <<"queued">>),
     Session0 = session(#{
@@ -1901,11 +1951,11 @@ t_import_without_listener(_) ->
     Session2 = emqx_session_mem:enqueue(ClientInfo, [Msg2], Session1),
     Exported = emqx_session_mem:export(Session2),
     LegacyClientInfo = maps:remove(listener, ClientInfo),
-    Evacuated = emqx_session_mem:import(LegacyClientInfo, ConnInfo, Conf, Exported),
+    Evacuated = emqx_session_mem:import(LegacyClientInfo, ConnInfo, Exported),
     ?assertMatch(#session{quota = false}, Evacuated),
     ReExported = emqx_session_mem:export(Evacuated),
     ?assertEqual(Exported, ReExported),
-    Reconnected = emqx_session_mem:import(ClientInfo, ConnInfo, Conf, ReExported),
+    Reconnected = emqx_session_mem:import(ClientInfo, ConnInfo, ReExported),
     ?assertMatch(#session{quota = {lazy, 'tcp:default'}}, Reconnected),
     ?assertEqual(Exported, emqx_session_mem:export(Reconnected)).
 
@@ -2002,8 +2052,7 @@ session(InitClientInfo, InitFields) when is_map(InitFields) ->
     Session = emqx_session_mem:create(
         ClientInfo,
         ConnInfo,
-        _WillMsg = undefined,
-        emqx_session:get_session_conf(ClientInfo)
+        _WillMsg = undefined
     ),
     maps:fold(
         fun(Field, Value, SessionAcc) ->
