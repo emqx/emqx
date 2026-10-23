@@ -72,11 +72,14 @@ backoff_hibernation(Zone) ->
     do_check(Zone, ?FUNCTION_NAME, 'overload_protection.hibernation').
 
 %% @doc Returns {error, overloaded} if new connection should be
-%%      closed when system is overloaded.
+%%      closed when system is overloaded or memory usage is high.
+%%      High memory does not skip GC or hibernation, since both free memory.
 -spec backoff_new_conn(Zone :: atom()) -> ok | {error, overloaded}.
 backoff_new_conn(Zone) ->
-    case do_check(Zone, ?FUNCTION_NAME, 'overload_protection.new_conn') of
+    IsLoaded = load_ctl:is_overloaded() orelse load_ctl:is_high_mem(),
+    case IsLoaded andalso is_enabled(Zone, ?FUNCTION_NAME) of
         true ->
+            emqx_metrics:inc_global('overload_protection.new_conn'),
             {error, overloaded};
         false ->
             ok
@@ -106,16 +109,20 @@ enable() ->
 %%% Internals
 -spec do_check(Zone :: atom(), cfg_key(), cnt_name()) -> boolean().
 do_check(Zone, Key, CntName) ->
-    case load_ctl:is_overloaded() of
+    case load_ctl:is_overloaded() andalso is_enabled(Zone, Key) of
         true ->
-            case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
-                #{enable := true, Key := true} ->
-                    emqx_metrics:inc_global(CntName),
-                    true;
-                _ ->
-                    false
-            end;
+            emqx_metrics:inc_global(CntName),
+            true;
         false ->
+            false
+    end.
+
+-spec is_enabled(Zone :: atom(), cfg_key()) -> boolean().
+is_enabled(Zone, Key) ->
+    case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
+        #{enable := true, Key := true} ->
+            true;
+        _ ->
             false
     end.
 
