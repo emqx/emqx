@@ -105,7 +105,7 @@ t_decode_631(_Config) ->
     ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, 2)).
 
 t_encode_631(_Config) ->
-    ChanInfo = #{clientinfo => clientinfo()},
+    ChanInfo = #{clientinfo => clientinfo(), conninfo => #{receive_maximum => 1}},
     #{session := Expected, exported := Exported, conf := Conf} = fixture(),
     Session = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, 2),
     %% Keep the tagged session layout, but flatten its queue to delivery order.
@@ -374,10 +374,8 @@ fixture() ->
                 retry_interval => 250,
                 max_subscriptions => 23,
                 upgrade_qos => true,
-                receive_maximum => 1,
                 max_awaiting_rel => 12,
-                await_rel_timeout => 5000,
-                enable_quota => false
+                await_rel_timeout => 5000
             }
     }.
 

@@ -56,10 +56,9 @@
 
 init(ClientInfo, MaybeWillMsg) ->
     ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
-    SessionConf = session_conf(ClientInfo),
     #{
         registry => emqx_mqttsn_registry:init(),
-        session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg, SessionConf)
+        session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg)
     }.
 
 registry(#{registry := Registry}) ->
@@ -151,15 +150,8 @@ import(ClientInfo, #{registry := Registry, session := Exported}) ->
         session => emqx_session_mem:import(
             ClientInfo,
             #{receive_maximum => 1},
-            session_conf(ClientInfo),
             Exported
         )
-    }.
-
-session_conf(ClientInfo) ->
-    (emqx_session:get_session_conf(ClientInfo))#{
-        %% TODO: Handle quota-related timer effects.
-        enable_quota => false
     }.
 
 disconnect(ConnInfo, Session = #{session := S}) ->

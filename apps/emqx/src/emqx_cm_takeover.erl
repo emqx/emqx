@@ -171,7 +171,8 @@ to_begin_ret(_RequesterProto, none) ->
 downgrade_begin_ret(ClientId, ChanInfo, {ok, ChanRef, Session}) ->
     %% NOTE: Turn back into pre-6.3.0 `#session{}` record.
     #chanref{connmod = ConnMod, pid = ChanPid} = ChanRef,
-    {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session, #{}, 1)};
+    Conf = emqx_session:get_session_conf(maps:get(clientinfo, ChanInfo)),
+    {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session, Conf, 1)};
 downgrade_begin_ret(_ClientId, _ChanInfo, none) ->
     none.
 
@@ -314,7 +315,7 @@ to_legacy_session(ClientId, ChanInfo, Session, Conf, 1) ->
         _UpgradeQoS = maps:get(upgrade_qos, Conf, false),
         _Inflight = to_legacy_inflight(
             maps:get(inflight, Session),
-            maps:get(receive_maximum, Conf, 0)
+            emqx_utils_maps:deep_get([conninfo, receive_maximum], ChanInfo, 0)
         ),
         _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), 1),
         _NextPktId = maps:get(next_pkt_id, Session),
@@ -330,7 +331,7 @@ to_legacy_session(_ClientId, ChanInfo, Session, Conf, 2) ->
         _UpgradeQoS = maps:get(upgrade_qos, Conf, false),
         _Inflight = to_legacy_inflight(
             maps:get(inflight, Session),
-            maps:get(receive_maximum, Conf, 0)
+            emqx_utils_maps:deep_get([conninfo, receive_maximum], ChanInfo, 0)
         ),
         _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), 2),
         %% MQTT-SN uses quota = false:
