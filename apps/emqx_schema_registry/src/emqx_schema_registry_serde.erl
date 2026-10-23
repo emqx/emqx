@@ -478,6 +478,9 @@ map_decoded_sparkplug(#{} = Result) ->
         Result
     ).
 
+add_aliased_name(#{<<"name">> := _} = Metric, _Mapping) ->
+    %% Don't clobber the name if it's present.
+    Metric;
 add_aliased_name(#{<<"alias">> := Alias} = Metric, Mapping) ->
     case maps:find(Alias, Mapping) of
         {ok, Name} ->
