@@ -50,6 +50,7 @@
 -define(installed_channels, installed_channels).
 -define(write_syntax, write_syntax).
 -define(precision, precision).
+-define(field_types, field_types).
 
 -type connector_config() :: #{
     dbname := database(),
@@ -68,7 +69,8 @@
 -type channel_config() :: #{
     parameters := #{
         write_syntax := [map()],
-        precision := ns | us | ms | s
+        precision := ns | us | ms | s,
+        field_types => #{binary() => json2}
     }
 }.
 -type channel_state() :: #{}.
@@ -143,17 +145,14 @@ on_get_channels(ConnResId) ->
 ) ->
     {ok, connector_state()}.
 on_add_channel(_ConnResId, ConnState0, ChanResId, ActionConfig) ->
-    #{
-        parameters := #{
-            write_syntax := WriteSyntaxTemplate,
-            precision := Precision
-        }
-    } = ActionConfig,
+    #{parameters := Parameters} = ActionConfig,
+    #{write_syntax := WriteSyntaxTemplate, precision := Precision} = Parameters,
     ActionState = #{
         ?write_syntax => emqx_bridge_greptimedb_utils:parse_write_syntax(
             WriteSyntaxTemplate, Precision
         ),
-        ?precision => Precision
+        ?precision => Precision,
+        ?field_types => maps:get(field_types, Parameters, #{})
     },
     ConnState = maps:update_with(
         ?installed_channels,
@@ -209,7 +208,8 @@ on_query(
     #{?database := Database} = ConnState,
     #{ChanResId := ActionState} = InstalledChannels,
     #{?write_syntax := WriteSyntax} = ActionState,
-    case parse_batch_data(ConnResId, Database, [{ChanResId, Data}], WriteSyntax) of
+    #{?field_types := FieldTypes} = ActionState,
+    case parse_batch_data(ConnResId, Database, [{ChanResId, Data}], WriteSyntax, FieldTypes) of
         {ok, TablesToPoints} ->
             [Result] = do_insert_sync(TablesToPoints, ConnState),
             Result;
@@ -236,7 +236,8 @@ on_query_async(
     #{?database := Database} = ConnState,
     #{ChanResId := ActionState} = InstalledChannels,
     #{?write_syntax := WriteSyntax} = ActionState,
-    case parse_batch_data(ConnResId, Database, [{ChanResId, Data}], WriteSyntax) of
+    #{?field_types := FieldTypes} = ActionState,
+    case parse_batch_data(ConnResId, Database, [{ChanResId, Data}], WriteSyntax, FieldTypes) of
         {ok, TablesToPoints} ->
             do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs);
         {error, ErrorPoints} ->
@@ -257,7 +258,8 @@ on_batch_query(
     #{?database := Database} = ConnState,
     #{ChanResId := ActionState} = InstalledChannels,
     #{?write_syntax := WriteSyntax} = ActionState,
-    case parse_batch_data(ConnResId, Database, Batch, WriteSyntax) of
+    #{?field_types := FieldTypes} = ActionState,
+    case parse_batch_data(ConnResId, Database, Batch, WriteSyntax, FieldTypes) of
         {ok, TablesToPoints} ->
             do_insert_sync(TablesToPoints, ConnState);
         {error, ErrorPoints} ->
@@ -284,7 +286,8 @@ on_batch_query_async(
     #{?database := Database} = ConnState,
     #{ChanResId := ActionState} = InstalledChannels,
     #{?write_syntax := WriteSyntax} = ActionState,
-    case parse_batch_data(ConnResId, Database, Batch, WriteSyntax) of
+    #{?field_types := FieldTypes} = ActionState,
+    case parse_batch_data(ConnResId, Database, Batch, WriteSyntax, FieldTypes) of
         {ok, TablesToPoints} ->
             do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs);
         {error, ErrorPoints} ->
@@ -301,7 +304,8 @@ on_batch_query_async(_ConnResId, Queries, _ReplyFnAndArgs, _ConnectorState) ->
 %% Internal exports
 %%------------------------------------------------------------------------------
 
-reply_callback(Context0, Result) ->
+reply_callback(Context0, Result0) ->
+    Result = normalize_insert_result(Result0),
     #{iter := Iter0} = Context0,
     case maps:next(Iter0) of
         none ->
@@ -317,11 +321,19 @@ reply_callback(Context0, Result) ->
 
 bin(X) -> emqx_utils_conv:bin(X).
 
-parse_batch_data(ConnResId, Database, Batch, WriteSyntax) ->
+%% erlnif wraps NIF-side failures as `nif_error'. Normalize them for the
+%% resource buffer worker. This does not imply that other `{error, Reason}'
+%% results are recoverable.
+normalize_insert_result({error, {nif_error, Reason}}) ->
+    {error, {unrecoverable_error, Reason}};
+normalize_insert_result(Result) ->
+    Result.
+
+parse_batch_data(ConnResId, Database, Batch, WriteSyntax, FieldTypes) ->
     maybe
         {ok, Points0} ?=
             emqx_bridge_greptimedb_utils:parse_batch_data(
-                ConnResId, Database, Batch, WriteSyntax, native
+                ConnResId, Database, Batch, WriteSyntax, FieldTypes, native
             ),
         %% We need to reassemble the results later in the same order.
         Points1 = lists:enumerate(Points0),
@@ -345,7 +357,7 @@ do_insert_sync(TablesToPoints, ConnState) ->
         maps:fold(
             fun(Table, PointsWithIndices, Acc0) ->
                 {Indices, Points} = lists:unzip(PointsWithIndices),
-                Res0 = greptimedb_rs:insert(Client, Table, Points),
+                Res0 = normalize_insert_result(greptimedb_rs:insert(Client, Table, Points)),
                 Res = lists:map(fun(I) -> {I, Res0} end, Indices),
                 [Res | Acc0]
             end,
