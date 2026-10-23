@@ -160,6 +160,7 @@ connector_config(Overrides) ->
         <<"enable">> => true,
         <<"description">> => <<"my connector">>,
         <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"ssl">> => #{<<"enable">> => false},
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
