@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(MONGO_HOST, "mongo").
 -define(MONGO_RESOURCE_MOD, emqx_mongodb).
@@ -76,6 +77,42 @@ t_start_passfile(Config) ->
         ok,
         emqx_resource:remove_local(ResourceID)
     ).
+
+-doc "Retain and reuse overflow MongoDB connections, then reap idle overflow.".
+t_overflow_retention(_Config) ->
+    ResourceId = atom_to_binary(?FUNCTION_NAME),
+    InitialConfig = emqx_utils_maps:deep_merge(mongo_config(), #{
+        <<"config">> => #{
+            <<"pool_size">> => 1,
+            <<"topology">> => #{
+                <<"pool_size">> => 1,
+                <<"max_overflow">> => 1,
+                <<"overflow_ttl">> => <<"500ms">>,
+                <<"overflow_check_period">> => <<"2s">>
+            }
+        }
+    }),
+    #{status := connected, state := #{pool_name := PoolName}} =
+        create_local_resource(ResourceId, check_config(InitialConfig)),
+    try
+        {ok, Conn} = ecpool_worker:client(ecpool:get_client(PoolName)),
+        {ok, #{pool := Pool}} = mc_topology:get_pool(Conn, #{}),
+        %% Hold the base connection so resource queries must use overflow.
+        Base = poolboy:checkout(Pool),
+        ?assertMatch({ok, undefined}, emqx_resource:query(ResourceId, test_query_find_one())),
+        ?retry(20, 10, ?assertEqual({ready, 1, 1, 1}, poolboy:status(Pool))),
+        GetWorker = fun(#{pool := Worker}) -> Worker end,
+        Overflow = mongoc:transaction_query(Conn, GetWorker),
+        ?assertMatch({ok, undefined}, emqx_resource:query(ResourceId, test_query_find_one())),
+        ?assertEqual(Overflow, mongoc:transaction_query(Conn, GetWorker)),
+        ?retry(50, 100, ?assertNot(is_process_alive(Overflow))),
+        ?retry(20, 50, ?assertEqual({overflow, 0, 0, 1}, poolboy:status(Pool))),
+        ?assert(is_process_alive(Base)),
+        poolboy:checkin(Pool, Base),
+        ?assertMatch({ok, undefined}, emqx_resource:query(ResourceId, test_query_find_one()))
+    after
+        ok = emqx_resource:remove_local(ResourceId)
+    end.
 
 perform_lifecycle_check(ResourceId, InitialConfig) ->
     CheckedConfig = check_config(InitialConfig),

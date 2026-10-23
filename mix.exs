@@ -86,6 +86,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:grpc),
       common_dep(:minirest),
       common_dep(:ecpool),
+      common_dep(:poolboy),
       common_dep(:replayq),
       # maybe forbid to fetch quicer
       common_dep(:emqtt),
@@ -209,6 +210,10 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.3", override: true}
+
+  def common_dep(:poolboy),
+    do: {:poolboy, github: "emqx/poolboy", tag: "1.5.2-emqx.1", override: true}
+
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.5.0", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
