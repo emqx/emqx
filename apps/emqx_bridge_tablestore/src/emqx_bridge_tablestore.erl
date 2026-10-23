@@ -128,7 +128,10 @@ fields("connector") ->
                 required => false,
                 desc => ?DESC("desc_probe_table_name")
             })}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+    ] ++
+        emqx_connector_schema_lib:ssl_fields(#{
+            default_value => #{~"enable" => false, ~"verify" => ~"verify_peer"}
+        });
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         fields("connector") ++
