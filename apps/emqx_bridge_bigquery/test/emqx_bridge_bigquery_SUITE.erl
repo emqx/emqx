@@ -972,6 +972,46 @@ t_wif_auth_optional_audience(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
+Simple smoke test for ensuring we override hackney's `ssl_options` in all WIF steps.
+
+If not overridden, hackney will use `certifi:cacerts()` for `cacertfile`, which would be
+out of the control of EMQX's user.
+""".
+t_wif_auth_tls_opts() ->
+    [{matrix, true}].
+t_wif_auth_tls_opts(matrix) ->
+    [[?wif_oidc]];
+t_wif_auth_tls_opts(TCConfig) ->
+    mock_wif_auth_calls(),
+
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"type">> := <<"wif">>}
+        }},
+        create_connector_api(TCConfig, #{
+            ~"authentication" => #{
+                ~"initial_token" => #{~"ssl" => #{~"enable" => true}}
+            }
+        })
+    ),
+    Mod = emqx_bridge_gcp_pubsub_auth_wif_worker,
+    ?assertMatch(
+        [
+            {~"https://my.oidc.provider/oauth2/token/uri", #{ssl_options := _}},
+            {~"https://sts.googleapis.com/v1/token", #{ssl_options := _}},
+            {<<"https://iamcredentials.googleapis.com/", _/binary>>, #{ssl_options := _}}
+        ],
+        [
+            {URL, maps:from_list(ReqOpts)}
+         || {_Pid, {_, request, [_Method, URL, _Headers, _Body, ReqOpts]}, _Return} <-
+                meck:history(Mod)
+        ]
+    ),
+
+    ok.
+
+-doc """
 Verifies that reading the connector with a legacy service account field (in the root of
 the connector config) via the HTTP API returns a redacted service account.
 
