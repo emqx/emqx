@@ -65,9 +65,10 @@ fields(action_parameters) ->
     emqx_bridge_greptimedb:fields(action_parameters) ++
         [
             {field_types,
-                mk(hoconsc:map(name, hoconsc:enum([json2])), #{
+                mk(map(), #{
                     required => false,
                     default => #{},
+                    validator => fun validate_field_types/1,
                     desc => ?DESC(field_types)
                 })}
         ];
@@ -160,3 +161,22 @@ write_syntax_value() ->
         "${clientid}_int_value=${payload.int_key}i,",
         "uint_value=${payload.uint_key}u,"
         "bool=${payload.bool}">>.
+
+validate_field_types(undefined) ->
+    ok;
+validate_field_types(FieldTypes) when is_map(FieldTypes) ->
+    case
+        [
+            {Name, Type}
+         || {Name, Type} <- maps:to_list(FieldTypes),
+            Type =/= json2,
+            Type =/= <<"json2">>
+        ]
+    of
+        [] ->
+            ok;
+        Unsupported ->
+            {error, io_lib:format("unsupported field types: ~p", [Unsupported])}
+    end;
+validate_field_types(FieldTypes) ->
+    {error, io_lib:format("field_types must be a map, got: ~p", [FieldTypes])}.

@@ -218,7 +218,7 @@ line_to_point(
 apply_field_types(Fields, FieldTypes) ->
     maps:fold(
         fun
-            (Name, json2, Acc) ->
+            (Name, Type, Acc) when Type =:= json2; Type =:= <<"json2">> ->
                 FieldName = bin(Name),
                 maps:update_with(
                     FieldName,

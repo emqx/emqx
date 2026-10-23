@@ -263,6 +263,9 @@ create_action_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
     ).
 
+probe_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_bridge_api_simple(TCConfig, Overrides).
+
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
@@ -943,6 +946,56 @@ t_json2_auto_create_with_field_types(TCConfig) ->
                     binary:match(maps:get(<<"Type">>, PayloadColumn), <<"Json2">>)
                 )
             end
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that `field_types` accepts arbitrary field names, not only fields
+whose names already exist as atoms.
+""".
+t_json2_auto_create_with_arbitrary_field_type_name() ->
+    [{matrix, true}].
+t_json2_auto_create_with_arbitrary_field_type_name(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_auto_create_with_arbitrary_field_type_name(TCConfig) ->
+    TableName = <<"json2_arbitrary_field">>,
+    FieldName = <<"json2_arbitrary_column">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    _ = drop_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        Overrides = #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<
+                    TableName/binary, " ", FieldName/binary, "=${payload}"
+                >>,
+                <<"field_types">> => #{FieldName => <<"json2">>}
+            }
+        },
+        ?assertMatch({204, _}, probe_action_api(TCConfig, Overrides)),
+        {201, _} = create_action_api(TCConfig, Overrides),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        Payload = json_encode(#{device_id => <<"device-001">>, floor => 2}),
+        emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                #{<<"device_id">> := <<"device-001">>, <<"floor">> := <<"2">>},
+                query_by_sql(
+                    <<
+                        "select ",
+                        FieldName/binary,
+                        ".device_id as device_id, ",
+                        FieldName/binary,
+                        ".floor as floor from ",
+                        TableName/binary
+                    >>,
+                    TCConfig
+                )
+            )
         ),
         ok
     end).
