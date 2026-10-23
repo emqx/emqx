@@ -30,6 +30,7 @@ config_schema() ->
             hoconsc:map(name, hoconsc:ref(emqx_bridge_http_schema, "config_connector")),
             #{
                 desc => <<"HTTP Connector Config">>,
+                validator => fun emqx_bridge_http_schema:validate_connector/1,
                 required => false
             }
         )}.
