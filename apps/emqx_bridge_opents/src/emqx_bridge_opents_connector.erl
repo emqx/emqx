@@ -54,7 +54,7 @@ fields(config) ->
         {summary, mk(boolean(), #{default => true, desc => ?DESC("summary")})},
         {details, mk(boolean(), #{default => false, desc => ?DESC("details")})},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
-    ];
+    ] ++ emqx_connector_schema_lib:ssl_fields();
 %%=====================================================================
 %% V2 Hocon schema
 
@@ -125,7 +125,8 @@ on_start(
         server := Server,
         pool_size := PoolSize,
         summary := Summary,
-        details := Details
+        details := Details,
+        ssl := SSLOpts0
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -134,11 +135,13 @@ on_start(
         config => emqx_utils:redact(Config)
     }),
 
+    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
     Options = [
         {server, to_str(Server)},
         {summary, Summary},
         {details, Details},
-        {pool_size, PoolSize}
+        {pool_size, PoolSize},
+        {ssl_opts, SSLOpts}
     ],
 
     State = #{pool_name => InstanceId, server => Server, channels => #{}},

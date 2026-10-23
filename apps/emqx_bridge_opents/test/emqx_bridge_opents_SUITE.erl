@@ -104,6 +104,7 @@ connector_config(Overrides) ->
         <<"description">> => <<"my connector">>,
         <<"tags">> => [<<"some">>, <<"tags">>],
         <<"server">> => <<"http://toxiproxy.emqx.net:4242">>,
+        <<"ssl">> => #{<<"enable">> => false},
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
