@@ -862,6 +862,30 @@ ensure_attached_service_account_token_resources_cleared() ->
     ?assertMatch([], ets:tab2list(?SA_TOKEN_RESP_TAB)),
     ok.
 
+path_recording_handler() ->
+    fun(Req0, State) ->
+        Method = cowboy_req:method(Req0),
+        Path = cowboy_req:path(Req0),
+        {ok, _Body, Req} = cowboy_req:read_body(Req0),
+        test_pid() ! {http_request, Method, Path},
+        Rep = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
+            Req
+        ),
+        {ok, Rep, State}
+    end.
+
+receive_request_method_and_path() ->
+    receive
+        {http_request, Method, Path} ->
+            {Method, Path}
+    after 10_000 ->
+        {messages, Mailbox} = process_info(self(), messages),
+        error({timeout_waiting_for_http_request, #{mailbox => Mailbox}})
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -2436,29 +2460,45 @@ t_attached_service_account_auth(TCConfig) ->
     ensure_attached_service_account_token_resources_cleared(),
     ok.
 
-path_recording_handler() ->
-    fun(Req0, State) ->
-        Method = cowboy_req:method(Req0),
-        Path = cowboy_req:path(Req0),
-        {ok, _Body, Req} = cowboy_req:read_body(Req0),
-        test_pid() ! {http_request, Method, Path},
-        Rep = cowboy_req:reply(
-            200,
-            #{<<"content-type">> => <<"application/json">>},
-            emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
-            Req
-        ),
-        {ok, Rep, State}
-    end.
+-doc """
+Simple smoke test for ensuring we override hackney's `ssl_options` in all WIF steps.
 
-receive_request_method_and_path() ->
-    receive
-        {http_request, Method, Path} ->
-            {Method, Path}
-    after 10_000 ->
-        {messages, Mailbox} = process_info(self(), messages),
-        error({timeout_waiting_for_http_request, #{mailbox => Mailbox}})
-    end.
+If not overridden, hackney will use `certifi:cacerts()` for `cacertfile`, which would be
+out of the control of EMQX's user.
+""".
+t_wif_auth_tls_opts() ->
+    [{matrix, true}].
+t_wif_auth_tls_opts(matrix) ->
+    [[?mocked_gcp, ?wif_oidc]];
+t_wif_auth_tls_opts(TCConfig) ->
+    mock_wif_auth_calls(),
+
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"type">> := <<"wif">>}
+        }},
+        create_connector_api(TCConfig, #{
+            ~"authentication" => #{
+                ~"initial_token" => #{~"ssl" => #{~"enable" => true}}
+            }
+        })
+    ),
+    Mod = emqx_bridge_gcp_pubsub_auth_wif_worker,
+    ?assertMatch(
+        [
+            {~"https://my.oidc.provider/oauth2/token/uri", #{ssl_options := _}},
+            {~"https://sts.googleapis.com/v1/token", #{ssl_options := _}},
+            {<<"https://iamcredentials.googleapis.com/", _/binary>>, #{ssl_options := _}}
+        ],
+        [
+            {URL, maps:from_list(ReqOpts)}
+         || {_Pid, {_, request, [_Method, URL, _Headers, _Body, ReqOpts]}, _Return} <-
+                meck:history(Mod)
+        ]
+    ),
+
+    ok.
 
 -doc """
 Verifies that a bare topic name is resolved against the service account's own project
