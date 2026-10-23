@@ -179,6 +179,97 @@ t_message_persisted(_Config) ->
 mark_message_persisted(Message) ->
     {ok, emqx_message:set_header(message_persisted, true, Message)}.
 
+-doc """
+A message that a `message.publish` callback marks consumed and that matches no
+route is not dropped: the publish result is `[consumed]`, the dropped counters
+and the `message.dropped` hook do not move, and `messages.consumed` does.
+""".
+t_message_consumed_no_route({init, Config}) ->
+    Config;
+t_message_consumed_no_route({'end', _Config}) ->
+    del_consumed_hooks();
+t_message_consumed_no_route(_Config) ->
+    Msg = emqx_message:make(?MODULE, 1, <<"t_message_consumed_no_route">>, <<"payload">>),
+    ok = add_consumed_hooks(),
+    Before = consumed_counters(),
+    ?assertMatch(
+        {ok, [consumed], #message{headers = #{consumed := true}}}, emqx_broker:publish2(Msg)
+    ),
+    ?assertEqual(#{dropped => 0, consumed => 1}, consumed_counters_delta(Before)),
+    ?assertNotReceive({message_dropped, _}).
+
+-doc """
+A later `message.publish` callback cannot clear the consumed mark that an
+earlier one set, neither by removing the header nor by setting it to `false`.
+""".
+t_message_consumed_sticky({init, Config}) ->
+    Config;
+t_message_consumed_sticky({'end', _Config}) ->
+    del_consumed_hooks(),
+    emqx_hooks:del('message.publish', {?MODULE, remove_consumed}),
+    emqx_hooks:del('message.publish', {?MODULE, unset_consumed});
+t_message_consumed_sticky(_Config) ->
+    Msg = emqx_message:make(?MODULE, 1, <<"t_message_consumed_sticky">>, <<"payload">>),
+    ok = add_consumed_hooks(),
+    ok = emqx_hooks:add('message.publish', {?MODULE, remove_consumed, []}, ?HP_LOWEST + 2),
+    ok = emqx_hooks:add('message.publish', {?MODULE, unset_consumed, []}, ?HP_LOWEST + 1),
+    Before = consumed_counters(),
+    ?assertMatch(
+        {ok, [consumed], #message{headers = #{consumed := true}}}, emqx_broker:publish2(Msg)
+    ),
+    ?assertEqual(#{dropped => 0, consumed => 1}, consumed_counters_delta(Before)),
+    ?assertNotReceive({message_dropped, _}).
+
+-doc """
+A consumed message whose route points at this node, but which finds no local
+subscriber at dispatch time, is not dropped either.
+""".
+t_message_consumed_local_dispatch({init, Config}) ->
+    Config;
+t_message_consumed_local_dispatch({'end', _Config}) ->
+    _ = emqx_router:delete_route(<<"t_message_consumed_local_dispatch">>, node()),
+    del_consumed_hooks();
+t_message_consumed_local_dispatch(_Config) ->
+    Topic = <<"t_message_consumed_local_dispatch">>,
+    Msg = emqx_message:make(?MODULE, 1, Topic, <<"payload">>),
+    ok = emqx_router:add_route(Topic, node()),
+    ok = add_consumed_hooks(),
+    Before = consumed_counters(),
+    Node = node(),
+    ?assertMatch({ok, [{Node, Topic, {ok, 0}}], _}, emqx_broker:publish2(Msg)),
+    ?assertEqual(#{dropped => 0, consumed => 1}, consumed_counters_delta(Before)),
+    ?assertNotReceive({message_dropped, _}).
+
+add_consumed_hooks() ->
+    ok = emqx_hooks:add('message.publish', {?MODULE, set_consumed, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:add('message.dropped', {?MODULE, on_message_dropped, [self()]}, ?HP_HIGHEST).
+
+del_consumed_hooks() ->
+    emqx_hooks:del('message.publish', {?MODULE, set_consumed}),
+    emqx_hooks:del('message.dropped', {?MODULE, on_message_dropped}).
+
+set_consumed(Message) ->
+    {ok, emqx_message:set_consumed(Message)}.
+
+remove_consumed(Message) ->
+    {ok, emqx_message:remove_header(consumed, Message)}.
+
+unset_consumed(Message) ->
+    {ok, emqx_message:set_header(consumed, false, Message)}.
+
+on_message_dropped(Message, _By, _Reason, TestPid) ->
+    emqx_message:is_sys(Message) orelse (TestPid ! {message_dropped, emqx_message:topic(Message)}),
+    ok.
+
+consumed_counters() ->
+    #{
+        dropped => emqx_metrics:val_global('messages.dropped.no_subscribers'),
+        consumed => emqx_metrics:val_global('messages.consumed')
+    }.
+
+consumed_counters_delta(Before) ->
+    maps:map(fun(K, V) -> V - maps:get(K, Before) end, consumed_counters()).
+
 %% Check that the legacy and v2 publish APIs report the same outcomes in their own formats.
 t_publish_compatibility({init, Config}) ->
     Config;

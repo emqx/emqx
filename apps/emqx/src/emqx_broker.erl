@@ -434,6 +434,25 @@ route_result({TF, Group}) ->
 -spec do_route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_routes().
 do_route([], #delivery{message = Msg}, _PersistRes = []) ->
+    case emqx_message:is_consumed(Msg) of
+        true ->
+            ok = inc_consumed_cnt(Msg),
+            [consumed];
+        false ->
+            drop_no_route(Msg)
+    end;
+do_route([], _Delivery, PersistRes = [_ | _]) ->
+    PersistRes;
+do_route(Routes, Delivery, PersistRes) ->
+    lists:foldl(
+        fun(Route, Acc) ->
+            [do_route2(Route, Delivery) | Acc]
+        end,
+        PersistRes,
+        Routes
+    ).
+
+drop_no_route(Msg) ->
     ok = emqx_hooks:'message.dropped'(Msg, #{node => node()}, no_subscribers),
     ok = inc_dropped_cnt(Msg),
     ?EXT_TRACE_ADD_ATTRS(
@@ -449,17 +468,7 @@ do_route([], #delivery{message = Msg}, _PersistRes = []) ->
             end
         end
     ),
-    [];
-do_route([], _Delivery, PersistRes = [_ | _]) ->
-    PersistRes;
-do_route(Routes, Delivery, PersistRes) ->
-    lists:foldl(
-        fun(Route, Acc) ->
-            [do_route2(Route, Delivery) | Acc]
-        end,
-        PersistRes,
-        Routes
-    ).
+    [].
 
 do_route2({To, Node}, Delivery) when Node =:= node() ->
     {Node, To, do_dispatch(To, Delivery)};
@@ -580,6 +589,15 @@ inc_dropped_cnt(Msg) ->
         false ->
             ok = emqx_metrics:inc_global('messages.dropped'),
             emqx_metrics:inc_global('messages.dropped.no_subscribers')
+    end.
+
+-compile({inline, [inc_consumed_cnt/1]}).
+inc_consumed_cnt(Msg) ->
+    case emqx_message:is_sys(Msg) of
+        true ->
+            ok;
+        false ->
+            inc_metrics('messages.consumed', Msg)
     end.
 
 -compile({inline, [subscribers/1]}).
@@ -846,9 +864,15 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
-            ok = emqx_hooks:'message.dropped'(Msg, #{node => node()}, no_subscribers),
-            ok = inc_dropped_cnt(Msg),
-            {error, no_subscribers};
+            case emqx_message:is_consumed(Msg) of
+                true ->
+                    ok = inc_consumed_cnt(Msg),
+                    {ok, 0};
+                false ->
+                    ok = emqx_hooks:'message.dropped'(Msg, #{node => node()}, no_subscribers),
+                    ok = inc_dropped_cnt(Msg),
+                    {error, no_subscribers}
+            end;
         _ ->
             {ok, DispN}
     end.

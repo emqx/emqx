@@ -404,7 +404,7 @@ message(#message{
     }.
 
 headers(Headers) ->
-    Ls = [username, protocol, peerhost, allow_publish],
+    Ls = [username, protocol, peerhost, allow_publish, consumed],
     maps:fold(
         fun
             (_, undefined, Acc) ->
@@ -425,7 +425,8 @@ headers(Headers) ->
 bin(K, V) when
     K == username;
     K == protocol;
-    K == allow_publish
+    K == allow_publish;
+    K == consumed
 ->
     bin(V);
 bin(peerhost, V) ->
@@ -446,12 +447,19 @@ assign_to_message(
     NMsg = Message#message{qos = Qos, topic = Topic, payload = Payload},
     enrich_header(maps:get(headers, InMessage, #{}), NMsg).
 
-enrich_header(Headers, Message) ->
-    case maps:get(<<"allow_publish">>, Headers, undefined) of
-        <<"false">> ->
-            emqx_message:set_header(allow_publish, false, Message);
+enrich_header(Headers, Message0) ->
+    Message =
+        case maps:get(<<"allow_publish">>, Headers, undefined) of
+            <<"false">> ->
+                emqx_message:set_header(allow_publish, false, Message0);
+            <<"true">> ->
+                emqx_message:set_header(allow_publish, true, Message0);
+            _ ->
+                Message0
+        end,
+    case maps:get(<<"consumed">>, Headers, undefined) of
         <<"true">> ->
-            emqx_message:set_header(allow_publish, true, Message);
+            emqx_message:set_consumed(Message);
         _ ->
             Message
     end.
@@ -517,10 +525,17 @@ merge_responsed_bool(_Req, Resp) ->
 merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
     ignore;
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
-    {ret(Type), Req#{message => NMessage}};
+    {ret(Type), Req#{message => keep_consumed(Req, NMessage)}};
 merge_responsed_message(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_response_value", resp => Resp}),
     ignore.
+
+%% A server cannot clear the consumed mark that an earlier server set.
+keep_consumed(#{message := #{headers := #{<<"consumed">> := <<"true">>}}}, NMessage) ->
+    Headers = maps:get(headers, NMessage, #{}),
+    NMessage#{headers => Headers#{<<"consumed">> => <<"true">>}};
+keep_consumed(_Req, NMessage) ->
+    NMessage.
 
 ret('CONTINUE') -> ok;
 ret('STOP_AND_RETURN') -> stop.

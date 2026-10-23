@@ -13,6 +13,9 @@
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
+%% Builds atoms that need not exist yet.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -behaviour(minirest_api).
 
 -import(hoconsc, [mk/2, ref/2, array/1]).
@@ -653,7 +656,7 @@ format_rule_info_resp(
         sql := SQL,
         enable := Enable,
         description := Descr
-    },
+    } = Rule,
     Context
 ) ->
     #{
@@ -665,6 +668,7 @@ format_rule_info_resp(
         action_details => format_action_details(Actions, Context),
         sql => SQL,
         enable => Enable,
+        consume_message => maps:get(consume_message, Rule, false),
         created_at => format_datetime(CreatedAt, millisecond),
         last_modified_at => format_datetime(LastModifiedAt, millisecond),
         description => Descr
@@ -939,7 +943,7 @@ run_fuzzy_match(E = {?KEY(_, Id), _}, [{id, like, Pattern} | Fuzzy]) ->
 run_fuzzy_match(E = {_, #{description := Desc}}, [{description, like, Pattern} | Fuzzy]) ->
     binary:match(Desc, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_, #{from := Topics}}, [{from, '=:=', Pattern} | Fuzzy]) ->
-    lists:member(Pattern, Topics) /= false andalso run_fuzzy_match(E, Fuzzy);
+    lists:member(Pattern, Topics) andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_, #{from := Topics}}, [{from, match, Pattern} | Fuzzy]) ->
     lists:any(fun(For) -> emqx_topic:match(For, Pattern) end, Topics) andalso
         run_fuzzy_match(E, Fuzzy);

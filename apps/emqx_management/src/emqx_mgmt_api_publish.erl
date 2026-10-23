@@ -236,10 +236,13 @@ make_bad_req_reply(packet_too_large) ->
 make_bad_req_reply(Reason) ->
     make_publish_error_response(?RC_IMPLEMENTATION_SPECIFIC_ERROR, to_binary(Reason)).
 
--spec is_ok_deliver({_NodeOrShare, _MatchedTopic, emqx_types:deliver_result()}) -> boolean().
+-spec is_ok_deliver(
+    {_NodeOrShare, _MatchedTopic, emqx_types:deliver_result()} | persisted | consumed
+) -> boolean().
 is_ok_deliver({_NodeOrShare, _MatchedTopic, ok}) -> true;
 is_ok_deliver({_NodeOrShare, _MatchedTopic, {ok, _}}) -> true;
 is_ok_deliver(persisted) -> true;
+is_ok_deliver(consumed) -> true;
 is_ok_deliver({_NodeOrShare, _MatchedTopic, {error, _}}) -> false.
 
 %% @hidden Map MQTT publish result reason code to HTTP status code.

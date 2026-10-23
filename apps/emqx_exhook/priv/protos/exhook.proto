@@ -472,6 +472,15 @@ message Message {
   //    * Writable
   //    * Whether to allow the message to be published by emqx
   //    * Value type: string enum with "true", "false", default is "true"
+  //  - consumed:
+  //    * Writable, in the response of `OnMessagePublish` only
+  //    * Set it to "true" to mark the message as consumed. When no MQTT client
+  //      subscribes to the topic, EMQX then treats the message as delivered:
+  //      PUBACK and PUBREC carry reason code 0x00, and the message is counted
+  //      in `messages.consumed` instead of `messages.dropped`
+  //    * The mark cannot be cleared: "false" or a missing header keeps the
+  //      mark that an earlier hook set
+  //    * Value type: string enum with "true", "false", default is "false"
   //
   // Notes: All header may be missing, which means that the message does not
   //   carry these headers. We can guarantee that clients coming from MQTT,

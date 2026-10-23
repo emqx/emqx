@@ -223,6 +223,40 @@ t_listener_accept_result_mixed_version(TCConfig) ->
     ok.
 
 -doc """
+While a node announces `emqx_prometheus` BPAPI version 3, nodes leave the
+stats and message metrics added with version 4 out of the data they send to
+each other, so the older node can still aggregate it. The `node` mode keeps
+them. They return after every node supports version 4.
+""".
+t_v4_metrics_mixed_version(TCConfig) ->
+    [N1, N2] = Nodes = mk_cluster(?FUNCTION_NAME, #{n => 2}, TCConfig),
+    ok = announce_prometheus_version(N2, 3),
+    wait_prometheus_version(Nodes, 3),
+    Fetch = fun(Mode) ->
+        {_, #{stats_data := Stats, emqx_message_data := Messages}} = ?ON(
+            N1, emqx_prometheus:fetch_from_local_node(Mode)
+        ),
+        {_, #{message_data_ns := MessagesNs}} = ?ON(
+            N1, emqx_prometheus:fetch_namespaced_metrics_v1(all, Mode)
+        ),
+        #{
+            disconnected_sessions => is_map_key(emqx_disconnected_sessions_count, Stats),
+            rejected => is_map_key(emqx_messages_rejected_quota_exceeded, Messages),
+            rejected_ns => is_map_key(emqx_messages_rejected_quota_exceeded, MessagesNs)
+        }
+    end,
+    None = #{disconnected_sessions => false, rejected => false, rejected_ns => false},
+    All = #{disconnected_sessions => true, rejected => true, rejected_ns => true},
+    ?assertEqual(None, Fetch(?PROM_DATA_MODE__ALL_NODES_AGGREGATED)),
+    ?assertEqual(None, Fetch(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED)),
+    ?assertEqual(All, Fetch(?PROM_DATA_MODE__NODE)),
+    ok = announce_prometheus_version(N2, 4),
+    wait_prometheus_version(Nodes, 4),
+    ?assertEqual(All, Fetch(?PROM_DATA_MODE__ALL_NODES_AGGREGATED)),
+    ?assertEqual(All, Fetch(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED)),
+    ok.
+
+-doc """
 The aggregated and unaggregated modes skip metrics that a node of a newer
 release returns and this node does not know, instead of failing the scrape.
 """.
