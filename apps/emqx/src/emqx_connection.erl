@@ -824,13 +824,13 @@ try_set_chan_stats(State = #state{channel = Channel}) ->
 %% take the process stats from the process.
 set_chan_stats(State = #state{channel = Channel}) ->
     Stats = [sockstats(?SOCK_STATS, State), emqx_channel:session_stats(Channel)],
-    emqx_cm:set_chan_stats(emqx_channel:info(clientid, Channel), Stats).
+    emqx_chan_stats:report(emqx_channel:info(clientid, Channel), Stats).
 
 %% Write the session stats after the session changed, so that a reader sees
 %% the change before the next stats timer.
 set_session_stats(#state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, emqx_channel:session_stats(Channel)).
+    emqx_chan_stats:report(ClientId, emqx_channel:session_stats(Channel)).
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
