@@ -202,8 +202,10 @@ t_namespaced_load_config(TCConfig) when is_list(TCConfig) ->
     {error, Msg1} = Res1,
     ?assertMatch(match, re:run(Msg1, <<"root_key_not_namespaced">>, [{capture, none}])),
 
-    %% No configs to show yet.
-    ?assertMatch({ok, [<<"\n">>]}, ?CAPTURE(cli_conf(Namespace, "show", []))),
+    %% No configs to show yet; the default output still carries the redaction notice.
+    {ok, ShowOutput0} = ?CAPTURE(cli_conf(Namespace, "show", [])),
+    ?assertMatch(<<"#", _/binary>>, iolist_to_binary(ShowOutput0)),
+    ?assertEqual({ok, #{}}, hocon:binary(ShowOutput0)),
 
     %% Load valid config
     OkConfig1 = raw_config_namespace_resources_scenario1(),
@@ -219,6 +221,8 @@ t_namespaced_load_config(TCConfig) when is_list(TCConfig) ->
         ?CAPTURE(cli_conf(Namespace, "load", [OkConfigFile1]))
     ),
     {ok, ShowOutput1} = ?CAPTURE(cli_conf(Namespace, "show", [])),
+    %% The empty check above is exact, so a namespace with configs must not match it.
+    ?assertNotEqual({ok, #{}}, hocon:binary(ShowOutput1)),
     ?assertMatch(
         {ok, #{
             <<"connectors">> := _,
