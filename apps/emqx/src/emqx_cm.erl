@@ -33,8 +33,7 @@
 
 -export([
     get_chan_stats/1,
-    get_chan_stats/2,
-    set_chan_stats/2
+    get_chan_stats/2
 ]).
 
 -export([
@@ -276,44 +275,6 @@ do_get_chan_stats(ClientId, ChanPid) ->
     option(emqx_types:stats()).
 get_chan_stats(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v3:get_chan_stats(ClientId, ChanPid)).
-
--doc """
-Write the given stats, pairs or lists of pairs, to the stats array of the
-calling channel process, and log when the session buffer is above the
-configured high watermark.
-""".
--spec set_chan_stats(emqx_types:clientid(), emqx_chan_stats:stats()) -> ok.
-set_chan_stats(ClientId, Stats) when ?IS_CLIENTID(ClientId) ->
-    ok = emqx_chan_stats:put(Stats),
-    maybe_log_session_buffer_high_watermark(ClientId, self(), Stats).
-
-maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats0) ->
-    case emqx_config:get([sysmon, session, total_payload_bytes_high_watermark], 0) of
-        HighWatermark when HighWatermark > 0 ->
-            Stats = lists:flatten(Stats0),
-            TotalPayloadBytes = proplists:get_value(total_payload_bytes, Stats, 0),
-            case TotalPayloadBytes > HighWatermark of
-                true ->
-                    ?SLOG_THROTTLE(
-                        warning,
-                        ClientId,
-                        #{
-                            msg => session_buffer_high_watermark,
-                            clientid => ClientId,
-                            pid => ChanPid,
-                            mqueue_length => proplists:get_value(mqueue_len, Stats, 0),
-                            inflight_count => proplists:get_value(inflight_cnt, Stats, 0),
-                            total_payload_bytes => TotalPayloadBytes,
-                            total_payload_bytes_high_watermark => HighWatermark
-                        },
-                        #{clientid => ClientId}
-                    );
-                false ->
-                    ok
-            end;
-        _ ->
-            ok
-    end.
 
 %% @doc Open a session.
 -spec open_session(
