@@ -75,7 +75,10 @@ info(Key, #{session := Session}) ->
     emqx_session:info(Key, Session).
 
 stats(#{session := Session}) ->
-    emqx_session:stats(Session).
+    %% The gateway keeps the session attributes among the stats, where the
+    %% MQTT channel caches them in the channel info map.
+    Attrs = [durable, subscriptions_max, awaiting_rel_max, inflight_max, mqueue_max, next_pkt_id],
+    emqx_session:info(Attrs, Session) ++ emqx_session:stats(Session).
 
 puback(ClientInfo, MsgId, Session = #{session := S}) ->
     wrap_result(emqx_session:puback(ClientInfo, MsgId, ?RC_SUCCESS, [], S), Session).

@@ -630,10 +630,9 @@ t_inflight_resize_on_reconnect(Config) ->
         ],
         Initial
     ),
-    ?assertMatch(
-        #{inflight_max := 3, inflight_cnt := 3},
-        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
-    ),
+    ?assertMatch(#{inflight_cnt := 3}, maps:from_list(emqx_cth_broker:connection_stats(ClientId))),
+    %% The inflight window is a session attribute, not a stat.
+    ?assertEqual(3, emqx_cth_broker:connection_info({channel, {session, inflight_max}}, ClientId)),
 
     ok = emqtt:disconnect(C0),
 
@@ -650,10 +649,9 @@ t_inflight_resize_on_reconnect(Config) ->
         ],
         Replayed
     ),
-    ?assertMatch(
-        #{inflight_max := 1, inflight_cnt := 3},
-        maps:from_list(emqx_cth_broker:connection_stats(ClientId))
-    ),
+    ?assertMatch(#{inflight_cnt := 3}, maps:from_list(emqx_cth_broker:connection_stats(ClientId))),
+    %% The inflight window is a session attribute, not a stat.
+    ?assertEqual(1, emqx_cth_broker:connection_info({channel, {session, inflight_max}}, ClientId)),
     %% One more message goes into the mqueue:
     emqx_broker:publish(emqx_message:make(?MODULE, ?QOS_1, Topic, <<"4">>)),
     pong = emqtt:ping(C1),

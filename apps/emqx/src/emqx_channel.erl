@@ -30,6 +30,7 @@
     get_mqtt_conf/3,
     set_conn_state/2,
     stats/1,
+    session_stats/1,
     caps/1
 ]).
 
@@ -204,7 +205,7 @@ info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
     }.
 
 chan_info_session(Session) ->
-    maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session)).
+    emqx_session:chan_info(Session).
 
 %% `clientinfo' keeps these so that authn, authz and hooks can reach them without
 %% `conninfo'. The info map already carries `conninfo', so a reader can derive them
@@ -300,15 +301,29 @@ inspect(#channel{} = Channel) ->
         lists:enumerate(2, record_info(fields, channel))
     ).
 
+%% A WebSocket connection counts its own socket stats and has no `send_pend`.
+chan_stats_masked(#{conn_mod := emqx_ws_connection}) -> [send_pend];
+chan_stats_masked(#{}) -> [].
+
 -spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
 -spec stats(channel()) -> emqx_types:stats().
 stats(#channel{session = undefined}) ->
-    emqx_pd:get_counters(?CHANNEL_METRICS);
-stats(#channel{session = Session}) ->
-    lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
+    emqx_chan_stats:get_counters(?CHANNEL_METRICS);
+stats(Channel) ->
+    lists:append(session_stats(Channel), emqx_chan_stats:get_counters(?CHANNEL_METRICS)).
+
+-doc """
+The session gauges of the channel: the stats that the channel process writes
+to its stats array when the session changes.
+""".
+-spec session_stats(channel()) -> emqx_types:stats().
+session_stats(#channel{session = undefined}) ->
+    [];
+session_stats(#channel{session = Session}) ->
+    emqx_session:stats(Session).
 
 -spec caps(channel()) -> emqx_types:caps().
 caps(#channel{clientinfo = #{zone := Zone}}) ->
@@ -361,6 +376,7 @@ init(
     {NClientInfo, NConnInfo0} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
     ok = validate_clientinfo_string(peersni, maps:get(peersni, NClientInfo, undefined)),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
+    _ = emqx_chan_stats:new(chan_stats_masked(NConnInfo)),
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
@@ -3571,7 +3587,7 @@ ensure_keepalive_timer(
             #{cnts_ref := CntRef} ->
                 _MFA = {emqx_quic_connection, read_cnt, [CntRef, control_packet]};
             undefined ->
-                emqx_pd:get_counter(recv_pkt)
+                _MFA = {emqx_chan_stats, get, [recv_pkt]}
         end,
     KeepAlive = emqx_keepalive:init(Zone, Val, Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = KeepAlive}).

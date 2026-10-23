@@ -150,10 +150,9 @@ t_lookup_client('end', Config) ->
 
 t_lookup_client(_Config) ->
     [{Chan, Info, Stats}] = emqx_mgmt:lookup_client({clientid, <<"client1">>}, ?FORMATFUN),
-    ?assertEqual(
-        [{Chan, Info, Stats}],
-        emqx_mgmt:lookup_client({username, <<"user1">>}, ?FORMATFUN)
-    ),
+    %% The process stats are read from the process on each lookup.
+    [{Chan, Info, Stats1}] = emqx_mgmt:lookup_client({username, <<"user1">>}, ?FORMATFUN),
+    ?assertEqual(without_process_stats(Stats), without_process_stats(Stats1)),
     ?assertEqual([], emqx_mgmt:lookup_client({clientid, <<"notfound">>}, ?FORMATFUN)),
     meck:expect(emqx, running_nodes, 0, [node(), 'fake@nonode']),
     try
@@ -520,6 +519,13 @@ t_call_client_cluster('end', Config) ->
 %%% helpers
 ident(Arg) ->
     Arg.
+
+without_process_stats(Stats) ->
+    [
+        KV
+     || {K, _} = KV <- Stats,
+        not lists:member(K, [mailbox_len, heap_size, total_heap_size, reductions, memory])
+    ].
 
 sort_alarms([{Node, Alarms}]) ->
     [{Node, lists:sort(fun(#{activate_at := A}, #{activate_at := B}) -> A < B end, Alarms)}].

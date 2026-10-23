@@ -179,16 +179,27 @@ t_session_stats(_) ->
     Stats = emqx_session_mem:stats(session()),
     ?assertMatch(
         #{
-            subscriptions_max := infinity,
-            inflight_max := 0,
+            subscriptions_cnt := 0,
+            inflight_cnt := 0,
             mqueue_len := 0,
-            mqueue_max := 1000,
             mqueue_dropped := 0,
-            next_pkt_id := 1,
-            awaiting_rel_cnt := 0,
-            awaiting_rel_max := 100
+            total_payload_bytes := 0,
+            awaiting_rel_cnt := 0
         },
         maps:from_list(Stats)
+    ),
+    %% The attributes that do not change with traffic are not stats: the
+    %% channel caches them in the channel info table.
+    ?assert(lists:all(fun({_, V}) -> is_integer(V) end, Stats)),
+    ?assertMatch(
+        #{
+            durable := false,
+            subscriptions_max := infinity,
+            awaiting_rel_max := 100,
+            inflight_max := 0,
+            mqueue_max := 1000
+        },
+        emqx_session:chan_info(session())
     ).
 
 t_session_buffer_bytes_stats(_) ->

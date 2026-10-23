@@ -35,7 +35,11 @@ t_cluster_query(Config) ->
 
         %% returned list should be the same regardless of which node is requested
         {200, ClientsAll} = query_clients(Node1, #{}),
-        ?assertEqual({200, ClientsAll}, query_clients(Node2, #{})),
+        %% The process stats are read from the process on each request.
+        ?assertEqual(
+            {200, without_process_stats(ClientsAll)},
+            without_process_stats(query_clients(Node2, #{}))
+        ),
         ?assertMatch(
             #{page := 1, limit := 100, count := 20},
             maps:get(meta, ClientsAll)
@@ -72,7 +76,10 @@ t_cluster_query(Config) ->
 
         %% Node queries
         {200, ClientsNode2} = query_clients(Node1, #{<<"node">> => Node2}),
-        ?assertEqual({200, ClientsNode2}, query_clients(Node2, #{<<"node">> => Node2})),
+        ?assertEqual(
+            {200, without_process_stats(ClientsNode2)},
+            without_process_stats(query_clients(Node2, #{<<"node">> => Node2}))
+        ),
         ?assertMatch(
             #{page := 1, limit := 100, count := 10},
             maps:get(meta, ClientsNode2)
@@ -299,3 +306,8 @@ insert_subscription_rows(N) ->
 
 remote_query_call_count(DataNode) ->
     erpc:call(DataNode, meck, num_calls, [emqx_mgmt_api, do_query, ['_', '_']]).
+
+without_process_stats({Code, Result}) ->
+    {Code, without_process_stats(Result)};
+without_process_stats(#{data := Data} = Result) ->
+    Result#{data := [maps:without([mailbox_len, heap_size, reductions], C) || C <- Data]}.

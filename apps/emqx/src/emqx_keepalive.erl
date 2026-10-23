@@ -40,7 +40,7 @@
 init(Interval) -> init(default, 0, Interval).
 
 init(Zone, Interval) ->
-    RecvCnt = emqx_pd:get_counter(recv_pkt),
+    RecvCnt = emqx_chan_stats:get(recv_pkt),
     init(Zone, RecvCnt, Interval).
 
 %% from mqtt-v3.1.1 specific
@@ -57,7 +57,7 @@ init(Zone, Interval) ->
 %% @doc Init keepalive.
 -spec init(
     Zone :: atom(),
-    StatVal :: non_neg_integer() | Reader :: mfa(),
+    StatVal :: non_neg_integer() | Reader :: mfargs(),
     Second :: non_neg_integer()
 ) -> keepalive() | undefined.
 init(Zone, Stat, Second) when Second > 0 andalso Second =< ?MAX_INTERVAL ->
@@ -108,7 +108,7 @@ info(check_interval, undefined) ->
     0.
 
 check(Keepalive = #keepalive{stat_reader = undefined}) ->
-    RecvCnt = emqx_pd:get_counter(recv_pkt),
+    RecvCnt = emqx_chan_stats:get(recv_pkt),
     check(RecvCnt, Keepalive);
 check(Keepalive = #keepalive{stat_reader = {M, F, A}}) ->
     RecvCnt = erlang:apply(M, F, A),

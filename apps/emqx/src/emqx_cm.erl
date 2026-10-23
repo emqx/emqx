@@ -28,16 +28,13 @@
 -export([
     get_chan_info/1,
     get_chan_info/2,
-    set_chan_info/2,
-    set_chan_info_stats/3
+    set_chan_info/2
 ]).
 
 -export([
     get_chan_stats/1,
     get_chan_stats/2,
-    set_chan_stats/2,
-    sparse_stats_defaults/0,
-    restore_sparse_stats/1
+    set_chan_stats/2
 ]).
 
 -export([
@@ -113,6 +110,9 @@
 
 -type chan_pid() :: pid().
 
+%% A row of the channel info table, as `lookup_client/1` returns it. In the
+%% table, the third element is the reference of the stats array of the channel
+%% process (see `emqx_chan_stats`), which is only valid on this node.
 -type channel_info() :: {
     _Chan :: {emqx_types:clientid(), pid()},
     _Info :: emqx_types:infos(),
@@ -133,35 +133,6 @@
 -define(BATCH_SIZE, 1000).
 
 -define(CHAN_INFO_SELECT_LIMIT, 100).
-
-%% Stats that the channel info table omits when their value is 0.
-%% Every stats producer (TCP, socket and WebSocket connections, the memory
-%% and durable sessions, the eviction agent channel) must return all of
-%% these keys, so that a reader can restore the full list.
--define(SPARSE_STATS_DEFAULTS, #{
-    subscriptions_cnt => 0,
-    inflight_cnt => 0,
-    mqueue_len => 0,
-    mqueue_dropped => 0,
-    awaiting_rel_cnt => 0,
-    total_payload_bytes => 0,
-    recv_pkt => 0,
-    recv_msg => 0,
-    'recv_msg.qos0' => 0,
-    'recv_msg.qos1' => 0,
-    'recv_msg.qos2' => 0,
-    'recv_msg.dropped' => 0,
-    'recv_msg.dropped.await_pubrel_timeout' => 0,
-    send_pkt => 0,
-    send_msg => 0,
-    'send_msg.qos0' => 0,
-    'send_msg.qos1' => 0,
-    'send_msg.qos2' => 0,
-    'send_msg.dropped' => 0,
-    'send_msg.dropped.expired' => 0,
-    'send_msg.dropped.queue_full' => 0,
-    'send_msg.dropped.too_large' => 0
-}).
 
 %% Server name
 -define(CM, ?MODULE).
@@ -187,15 +158,18 @@ start_link() ->
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Insert/Update the channel info and stats to emqx_channel table
+-doc """
+Insert the row of the calling channel process in the channel info table: the
+info map and the reference of the stats array of the process.
+""".
 -spec insert_channel_info(
     emqx_types:clientid(),
     emqx_types:infos(),
-    emqx_types:stats()
+    emqx_chan_stats:ref()
 ) -> ok.
-insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
+insert_channel_info(ClientId, Info, StatsRef) when ?IS_CLIENTID(ClientId), is_reference(StatsRef) ->
     Chan = {ClientId, self()},
-    true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, sparse_stats(Stats)}),
+    true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, StatsRef}),
     ?tp(debug, insert_channel_info, #{clientid => ClientId}),
     ok.
 
@@ -280,64 +254,19 @@ set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
     end.
 
 -doc """
-Update the info and the stats of the channel in one table write.
-Return `false` when the channel has no row in the channel info table.
-""".
--spec set_chan_info_stats(emqx_types:clientid(), emqx_types:channel_attrs(), emqx_types:stats()) ->
-    boolean().
-set_chan_info_stats(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
-    ChanPid = self(),
-    Chan = {ClientId, ChanPid},
-    try
-        case ets:update_element(?CHAN_INFO_TAB, Chan, [{2, Info}, {3, sparse_stats(Stats)}]) of
-            true ->
-                ok = maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats),
-                true;
-            false ->
-                false
-        end
-    catch
-        error:badarg -> false
-    end.
-
--doc """
-Get the channel's stats from the channel info table. The table omits the
-keys of `sparse_stats_defaults/0` whose value is 0; the returned list has
-them, with the value 0.
+Get the stats of the channel, read from its stats array on the node of the
+channel (see `emqx_chan_stats`).
 """.
 -spec get_chan_stats(emqx_types:clientid()) -> option(emqx_types:stats()).
 get_chan_stats(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
 
--doc """
-Return the stats keys that the channel info table omits when their value
-is 0, each mapped to 0. Merge the stored stats into this map to get the full
-set of these keys.
-""".
--spec sparse_stats_defaults() -> #{atom() => 0}.
-sparse_stats_defaults() ->
-    ?SPARSE_STATS_DEFAULTS.
-
--doc """
-Add the keys of `sparse_stats_defaults/0` that a stats list omits, each
-with the value 0. Use it on stats that leave this node: a reader of an
-earlier version does not merge the defaults.
-""".
--spec restore_sparse_stats(emqx_types:stats()) -> emqx_types:stats().
-restore_sparse_stats(Stats) ->
-    Stats ++
-        [
-            {K, V}
-         || {K, V} <- maps:to_list(?SPARSE_STATS_DEFAULTS), not lists:keymember(K, 1, Stats)
-        ].
-
--doc "RPC target of `get_chan_stats/2`. Returns the stats list with all keys.".
+-doc "RPC target of `get_chan_stats/2`.".
 -spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 do_get_chan_stats(ClientId, ChanPid) ->
-    Chan = {ClientId, ChanPid},
-    try ets:lookup_element(?CHAN_INFO_TAB, Chan, 3) of
-        Stats -> restore_sparse_stats(Stats)
+    try ets:lookup_element(?CHAN_INFO_TAB, {ClientId, ChanPid}, 3) of
+        StatsRef -> emqx_chan_stats:to_list(StatsRef) ++ emqx_utils:proc_stats(ChanPid)
     catch
         error:badarg -> undefined
     end.
@@ -348,33 +277,20 @@ do_get_chan_stats(ClientId, ChanPid) ->
 get_chan_stats(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v3:get_chan_stats(ClientId, ChanPid)).
 
-%% @doc Set channel's stats.
--spec set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> boolean().
+-doc """
+Write the given stats, pairs or lists of pairs, to the stats array of the
+calling channel process, and log when the session buffer is above the
+configured high watermark.
+""".
+-spec set_chan_stats(emqx_types:clientid(), emqx_chan_stats:stats()) -> ok.
 set_chan_stats(ClientId, Stats) when ?IS_CLIENTID(ClientId) ->
-    set_chan_stats(ClientId, self(), Stats).
+    ok = emqx_chan_stats:put(Stats),
+    maybe_log_session_buffer_high_watermark(ClientId, self(), Stats).
 
--spec set_chan_stats(emqx_types:clientid(), chan_pid(), emqx_types:stats()) ->
-    boolean().
-set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
-    Chan = {ClientId, ChanPid},
-    try
-        case ets:update_element(?CHAN_INFO_TAB, Chan, {3, sparse_stats(Stats)}) of
-            true ->
-                ok = maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats),
-                true;
-            false ->
-                false
-        end
-    catch
-        error:badarg -> false
-    end.
-
-sparse_stats(Stats) ->
-    [KV || {K, V} = KV <- Stats, not (V =:= 0 andalso is_map_key(K, ?SPARSE_STATS_DEFAULTS))].
-
-maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats) ->
+maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats0) ->
     case emqx_config:get([sysmon, session, total_payload_bytes_high_watermark], 0) of
         HighWatermark when HighWatermark > 0 ->
+            Stats = lists:flatten(Stats0),
             TotalPayloadBytes = proplists:get_value(total_payload_bytes, Stats, 0),
             case TotalPayloadBytes > HighWatermark of
                 true ->
@@ -830,9 +746,10 @@ lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
 
 -doc """
-Look up the channel info rows of a client. The stats of each row have all
-keys (see `restore_sparse_stats/1`), because other nodes call this function
-through `emqx_cm_proto_v3:lookup_client/2`.
+Look up the channel info rows of a client, with the stats of each row read
+from its stats array, because other nodes call this function through
+`emqx_cm_proto_v3:lookup_client/2` and the array reference is only valid on
+this node.
 """.
 -spec lookup_client(
     {clientid, emqx_types:clientid()}
@@ -841,7 +758,10 @@ through `emqx_cm_proto_v3:lookup_client/2`.
 ) ->
     [channel_info()].
 lookup_client(Key) ->
-    [{Chan, Info, restore_sparse_stats(Stats)} || {Chan, Info, Stats} <- select_client(Key)].
+    [
+        {Chan, Info, emqx_chan_stats:to_list(StatsRef) ++ emqx_utils:proc_stats(ChanPid)}
+     || {{_, ChanPid} = Chan, Info, StatsRef} <- select_client(Key)
+    ].
 
 select_client({username, Username}) ->
     MatchSpec = [
