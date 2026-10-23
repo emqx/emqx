@@ -674,6 +674,67 @@ t_sendq_congestion_legacy_state(_) ->
     ?assertEqual(congested, emqx_connection:info(sockstate, State)),
     {ok, [], _} = handle_msg(receive_check_sendq_timeout(100), State).
 
+-doc """
+When the socket is a port, an outgoing packet goes through `async_send/3`
+with `nosuspend`, and the synchronous send is not called.
+""".
+t_async_send_used(_) ->
+    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, [nosuspend]) ->
+        count_call(async_send)
+    end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> count_call(send) end),
+    ?assertMatch({ok, _}, handle_msg({outgoing, ?PACKET(?PINGRESP)}, st_async())),
+    ?assertEqual({1, 0}, {call_count(async_send), call_count(send)}).
+
+-doc """
+When `async_send/3` returns `{error, busy}`, the packet is sent once with
+the synchronous send.
+""".
+t_async_send_busy_falls_back(_) ->
+    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, _Opts) ->
+        ok = count_call(async_send),
+        {error, busy}
+    end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> count_call(send) end),
+    ?assertMatch({ok, _}, handle_msg({outgoing, ?PACKET(?PINGRESP)}, st_async())),
+    ?assertEqual({1, 1}, {call_count(async_send), call_count(send)}).
+
+-doc """
+When the socket is not a port (TLS, QUIC), an outgoing packet uses the
+synchronous send only.
+""".
+t_async_send_not_port_uses_send(_) ->
+    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, _Opts) ->
+        count_call(async_send)
+    end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> count_call(send) end),
+    ?assertMatch({ok, _}, handle_msg({outgoing, ?PACKET(?PINGRESP)}, st())),
+    ?assertEqual({0, 1}, {call_count(async_send), call_count(send)}).
+
+-doc """
+An `ok` reply of an asynchronous send changes nothing, in both reply shapes.
+""".
+t_handle_msg_inet_reply_ok(_) ->
+    ?assertEqual(ok, handle_msg({inet_reply, sock, ok, send_async}, st_async())),
+    ?assertEqual(ok, handle_msg({inet_reply, sock, ok}, st_async())).
+
+-doc """
+A `timeout` error reply of an asynchronous send stops the connection with
+`send_timeout`.
+""".
+t_handle_msg_inet_reply_timeout(_) ->
+    ?assertMatch(
+        {stop, {shutdown, send_timeout}, _},
+        emqx_connection:process_msg({inet_reply, sock, {error, timeout}, send_async}, st_async())
+    ).
+
+-doc """
+A `closed` error reply of an asynchronous send closes the socket.
+""".
+t_handle_msg_inet_reply_closed(_) ->
+    {ok, St} = handle_msg({inet_reply, sock, {error, closed}, send_async}, st_async()),
+    ?assertEqual(closed, emqx_connection:info(sockstate, St)).
+
 t_close_socket(_) ->
     State = emqx_connection:close_socket(st(#{sockstate => closed})),
     ?assertEqual(closed, emqx_connection:info(sockstate, State)),
@@ -877,6 +938,22 @@ receive_check_sendq_timeout(Interval) ->
         {timeout, _TRef, {check_sendq, Interval}} = Timeout -> Timeout
     after Interval + 1000 ->
         ct:fail({no_check_sendq_timeout, Interval})
+    end.
+
+%% Connection state whose socket is a TCP port, for the asynchronous send.
+%% The port closes when the test case process exits.
+st_async() ->
+    {ok, LSock} = gen_tcp:listen(0, []),
+    st(#{socket => LSock}).
+
+count_call(Name) ->
+    _ = put({call_count, Name}, call_count(Name) + 1),
+    ok.
+
+call_count(Name) ->
+    case get({call_count, Name}) of
+        undefined -> 0;
+        N -> N
     end.
 
 st() -> st(#{}, #{}).
