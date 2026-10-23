@@ -127,7 +127,7 @@ do_check_sub(
     _,
     TopicIn
 ) ->
-    Topic = emqx_topic:words(emqx_topic:get_shared_real_topic(TopicIn)),
+    Topic = emqx_topic:get_shared_real_topic(TopicIn),
     MaxQoS = emqx_maybe:define(eval_max_qos_allowed(Rules, Topic), FallbackMaxQoS),
     case QoS > MaxQoS of
         %% Accepted, but with a lower QoS
