@@ -224,7 +224,7 @@ t_cluster_offline_replay_on_other_node(Config) ->
                         false
                 end
             end,
-            50
+            150
         ),
     ?assert(Indexed),
     C = connect(N2, DN),

@@ -209,7 +209,10 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
         false ->
             %% License has higher TPS limit, ensure the alarm is deactivated.
             ?OK(emqx_alarm:ensure_deactivated(license_tps))
-    end.
+    end;
+max_tps_alarm(_Limits) ->
+    %% No limit to compare against, keep the alarm state unchanged.
+    ok.
 
 %% @private Remember when the current run of over-limit samples started, so the
 %% alarm can require the breach to last. A sample at or below the limit ends the

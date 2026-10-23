@@ -1013,11 +1013,18 @@ ranch_opts(ListenerId, Type, Opts = #{bind := ListenOn}) ->
         num_conns_sups => NumAcceptors,
         %% Essentially only for `max_conns/1` now:
         max_connections => MaxConnections,
-        handshake_timeout => maps:get(handshake_timeout, Opts, 15000),
+        handshake_timeout => ranch_handshake_timeout(Opts),
         socket_opts => ip_port(ListenOn) ++
             %% cowboy don't allow us to set 'reuseaddr'
             proplists:delete(reuseaddr, SocketOpts)
     }.
+
+%% The TLS handshake timeout of a WSS listener. A WS listener has no
+%% `ssl_options` and keeps the ranch default.
+ranch_handshake_timeout(#{ssl_options := #{handshake_timeout := Timeout}}) ->
+    Timeout;
+ranch_handshake_timeout(_Opts) ->
+    15000.
 
 choose_packet_opts(Opts) ->
     ParseUnit = maps:get(parse_unit, Opts, frame),

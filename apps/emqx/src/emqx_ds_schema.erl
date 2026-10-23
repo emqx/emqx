@@ -418,6 +418,35 @@ fields(optimistic_transaction) ->
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(otx_max_pending)
                 }
+            )},
+        {overload_protection,
+            sc(
+                ref(otx_olp),
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_otx_olp)
+                }
+            )}
+    ];
+fields(otx_olp) ->
+    [
+        {max_mql,
+            sc(
+                hoconsc:union([pos_integer(), infinity]),
+                #{
+                    desc => ?DESC(otx_olp_max_mql),
+                    importance => ?IMPORTANCE_MEDIUM,
+                    default => 1000
+                }
+            )},
+        {max_ops,
+            sc(
+                pos_integer(),
+                #{
+                    desc => ?DESC(otx_olp_max_ops),
+                    importance => ?IMPORTANCE_LOW,
+                    default => 10_000
+                }
             )}
     ];
 fields(subscriptions) ->
@@ -669,6 +698,8 @@ desc(rocksdb_options) ->
     ?DESC(rocksdb_options);
 desc(db_group) ->
     ?DESC(db_group_record);
+desc(otx_olp) ->
+    ?DESC(builtin_otx_olp);
 desc(_) ->
     undefined.
 
@@ -803,13 +834,16 @@ translate_otx_opts(#{
     conflict_window := CW,
     flush_interval := FI,
     idle_flush_interval := IFI,
-    max_pending := MaxItems
+    max_pending := MaxItems,
+    overload_protection := #{max_mql := MaxMQL, max_ops := MaxOps}
 }) ->
     #{
         conflict_window => CW,
         flush_interval => FI,
         idle_flush_interval => IFI,
-        max_items => MaxItems
+        max_items => MaxItems,
+        olp_max_mql => MaxMQL,
+        olp_max_ops => MaxOps
     }.
 
 translate_rocksdb_options(Input = #{max_open_files := MOF}) ->
