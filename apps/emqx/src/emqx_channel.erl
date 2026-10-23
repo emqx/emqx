@@ -13,6 +13,7 @@
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
 -include("emqx_config.hrl").
+-include("emqx_instr.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -885,10 +886,11 @@ packet_to_message(
     }
 ) ->
     ClientAttrs = maps:get(client_attrs, ClientInfo, #{}),
+    Headers = ?BROKER_INSTR_HEADERS(?BROKER_INSTR_MARK(?BROKER_INSTR_TS(), undefined)),
     Msg = emqx_packet:to_message(
         Packet,
         ClientId,
-        #{
+        Headers#{
             client_attrs => ClientAttrs,
             peername => PeerName,
             proto_ver => ProtoVer,
