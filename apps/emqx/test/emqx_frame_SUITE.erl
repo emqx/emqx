@@ -57,6 +57,7 @@ groups() ->
             t_parse_truncated_variable_byte_integer,
             t_parse_variable_byte_integer_too_long,
             t_parse_variable_byte_integer_valid,
+            t_parse_user_property_missing_value,
             t_parse_malformed_utf8_string,
             t_parse_non_connect_before_connect,
             t_parse_after_connect,
@@ -352,6 +353,23 @@ t_parse_variable_byte_integer_valid(_) ->
             {<<16#80, 16#80, 16#80, 16#01>>, 2097152},
             {<<16#FF, 16#FF, 16#FF, 16#7F>>, 268435455}
         ]
+    ).
+
+%% A User Property whose key is complete, but whose value length is not, is
+%% rejected as malformed.
+t_parse_user_property_missing_value(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}),
+    lists:foreach(
+        fun(Pair) ->
+            PropsLen = 1 + byte_size(Pair),
+            RemainingLen = 3 + 1 + PropsLen,
+            Bin = <<16#30, RemainingLen, 0, 1, $t, PropsLen, 16#26, Pair/binary>>,
+            ?ASSERT_FRAME_THROW(
+                #{cause := malformed_user_property_missing_value},
+                emqx_frame:parse(Bin, ParseState)
+            )
+        end,
+        [<<0, 1, $k, 0>>, <<0, 2, $a, $b>>]
     ).
 
 t_parse_malformed_utf8_string(_) ->

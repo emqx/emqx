@@ -794,6 +794,12 @@ parse_utf8_pair(Bin, _StrictMode) when
     ?PARSE_ERR(#{
         cause => user_property_not_enough_bytes,
         total_bytes => byte_size(Bin)
+    });
+parse_utf8_pair(<<LenK:16/big, _Key:LenK/binary, Rest/binary>>, _StrictMode) ->
+    ?PARSE_ERR(#{
+        cause => malformed_user_property_missing_value,
+        parsed_key_length => LenK,
+        remaining_bytes_length => byte_size(Rest)
     }).
 
 parse_utf8_string_with_cause(Bin, StrictMode, Cause) ->
