@@ -32,8 +32,8 @@
     %% The number of idle intervals allowed before disconnecting the client.
     idle_milliseconds = 0 :: non_neg_integer(),
     max_idle_millisecond :: pos_integer(),
-    %% The length of the armed timer while it is a deadline, see hibernate/2.
-    deadline :: pos_integer() | undefined
+    %% Milliseconds from the hibernate/2 call to the deadline, while one is armed.
+    till_deadline :: pos_integer() | undefined
 }).
 
 -opaque keepalive() :: #keepalive{}.
@@ -100,7 +100,7 @@ info(#keepalive{
         max_idle_millisecond => MaxMs
     }.
 
--spec info(check_interval | statval | idle_milliseconds | deadline, keepalive()) ->
+-spec info(check_interval | statval | idle_milliseconds | till_deadline, keepalive()) ->
     non_neg_integer() | undefined.
 info(check_interval, #keepalive{check_interval = Interval}) ->
     Interval;
@@ -108,15 +108,15 @@ info(statval, #keepalive{statval = StatVal}) ->
     StatVal;
 info(idle_milliseconds, #keepalive{idle_milliseconds = Val}) ->
     Val;
-info(deadline, #keepalive{deadline = Deadline}) ->
-    Deadline;
+info(till_deadline, #keepalive{till_deadline = TillDeadline}) ->
+    TillDeadline;
 info(check_interval, undefined) ->
     0.
 
-check(Keepalive = #keepalive{deadline = undefined, check_interval = Interval}) ->
+check(Keepalive = #keepalive{till_deadline = undefined, check_interval = Interval}) ->
     check(read_stat(Keepalive), Interval, Keepalive);
-check(Keepalive = #keepalive{deadline = Deadline}) ->
-    check(read_stat(Keepalive), Deadline, Keepalive#keepalive{deadline = undefined});
+check(Keepalive = #keepalive{till_deadline = TillDeadline}) ->
+    check(read_stat(Keepalive), TillDeadline, Keepalive#keepalive{till_deadline = undefined});
 check(Keepalive) ->
     {ok, Keepalive}.
 
@@ -155,12 +155,12 @@ time to arm the timer with, so that it fires when the idle time reaches
 `check_interval`.
 """.
 -spec hibernate(non_neg_integer(), keepalive()) -> {pos_integer(), keepalive()}.
-hibernate(SinceArmMs, Keepalive = #keepalive{deadline = undefined}) ->
+hibernate(SinceArmMs, Keepalive = #keepalive{till_deadline = undefined}) ->
     NKeepalive =
         #keepalive{idle_milliseconds = IdleAcc, max_idle_millisecond = Max} =
         advance(read_stat(Keepalive), SinceArmMs, Keepalive),
-    Deadline = max(Max - IdleAcc, 1),
-    {Deadline, NKeepalive#keepalive{deadline = Deadline}}.
+    TillDeadline = max(Max - IdleAcc, 1),
+    {TillDeadline, NKeepalive#keepalive{till_deadline = TillDeadline}}.
 
 -doc """
 Switch back to sampling when the process wakes up before the deadline.
@@ -168,9 +168,11 @@ Switch back to sampling when the process wakes up before the deadline.
 `RemainingMs` is the time that was left on the deadline timer.
 """.
 -spec wakeup(non_neg_integer(), keepalive()) -> keepalive().
-wakeup(RemainingMs, Keepalive = #keepalive{deadline = Deadline}) when is_integer(Deadline) ->
-    advance(read_stat(Keepalive), max(Deadline - RemainingMs, 0), Keepalive#keepalive{
-        deadline = undefined
+wakeup(RemainingMs, Keepalive = #keepalive{till_deadline = TillDeadline}) when
+    is_integer(TillDeadline)
+->
+    advance(read_stat(Keepalive), max(TillDeadline - RemainingMs, 0), Keepalive#keepalive{
+        till_deadline = undefined
     }).
 
 %% @doc Update keepalive while preserving stat_reader and idle time.
@@ -181,7 +183,11 @@ update(Zone, Interval, Keepalive) when Interval > ?MAX_INTERVAL ->
     update(Zone, ?MAX_INTERVAL, Keepalive);
 update(_Zone, 0, _Keepalive) ->
     undefined;
-update(Zone, Interval, Keepalive = #keepalive{idle_milliseconds = IdleAcc, deadline = Deadline}) ->
+update(
+    Zone,
+    Interval,
+    Keepalive = #keepalive{idle_milliseconds = IdleAcc, till_deadline = TillDeadline}
+) ->
     #{check_interval := NewCheckInterval, max_idle_millisecond := MaxIdleMs} =
         keepalive_params(Zone, Interval),
     %% A deadline is still set only when it has fired, and the caller re-arms
@@ -189,12 +195,12 @@ update(Zone, Interval, Keepalive = #keepalive{idle_milliseconds = IdleAcc, deadl
     Keepalive#keepalive{
         check_interval = NewCheckInterval,
         max_idle_millisecond = MaxIdleMs,
-        idle_milliseconds = IdleAcc + fired_deadline(Deadline),
-        deadline = undefined
+        idle_milliseconds = IdleAcc + fired_deadline(TillDeadline),
+        till_deadline = undefined
     }.
 
 fired_deadline(undefined) -> 0;
-fired_deadline(Deadline) -> Deadline.
+fired_deadline(TillDeadline) -> TillDeadline.
 
 keepalive_params(Zone, Interval) ->
     #{keepalive_multiplier := Mul, keepalive_check_interval := CheckInterval} =

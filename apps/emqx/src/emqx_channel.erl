@@ -3621,16 +3621,16 @@ hibernate(
 ) when KeepAlive =/= undefined ->
     case
         not is_map_key(conn_shared_state, ConnInfo) andalso
-            emqx_keepalive:info(deadline, KeepAlive) =:= undefined andalso
+            emqx_keepalive:info(till_deadline, KeepAlive) =:= undefined andalso
             erlang:cancel_timer(TRef)
     of
         Remaining when is_integer(Remaining) ->
             SinceArm = max(emqx_keepalive:info(check_interval, KeepAlive) - Remaining, 0),
-            {Deadline, NKeepAlive} = emqx_keepalive:hibernate(SinceArm, KeepAlive),
+            {TillDeadline, NKeepAlive} = emqx_keepalive:hibernate(SinceArm, KeepAlive),
             NChannel = Channel#channel{
                 keepalive = NKeepAlive, timers = maps:remove(keepalive, Timers)
             },
-            ensure_timer(keepalive, Deadline, NChannel);
+            ensure_timer(keepalive, TillDeadline, NChannel);
         false ->
             %% Not eligible, or the timer already fired and its message wakes
             %% the process at once.
@@ -3650,7 +3650,7 @@ wakeup(Channel = #channel{keepalive = KeepAlive, timers = #{keepalive := TRef} =
     KeepAlive =/= undefined
 ->
     case
-        emqx_keepalive:info(deadline, KeepAlive) =/= undefined andalso
+        emqx_keepalive:info(till_deadline, KeepAlive) =/= undefined andalso
             erlang:cancel_timer(TRef)
     of
         Remaining when is_integer(Remaining) ->
