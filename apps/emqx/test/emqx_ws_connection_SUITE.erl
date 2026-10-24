@@ -483,6 +483,29 @@ t_websocket_info_deliver(_) ->
     {[{binary, _Pub1}, {binary, _Pub2}], _St} =
         ?ws_conn:websocket_info({deliver, <<"#">>, Msg0}, st()).
 
+-doc """
+The connection calls `emqx_channel:hibernate/1` when it returns `hibernate`,
+and `emqx_channel:wakeup/1` once, from the first callback after it.
+""".
+t_websocket_hibernate_wakeup_channel(_) ->
+    ok = meck:new(emqx_channel, [passthrough, no_link]),
+    try
+        TRef = make_ref(),
+        St0 = st(#{hibernate_timer => TRef}),
+        {ok, St1, hibernate} = ?ws_conn:websocket_info({timeout, TRef, hibernate}, St0),
+        ?assertEqual(1, meck:num_calls(emqx_channel, hibernate, '_')),
+        ?assertEqual(0, meck:num_calls(emqx_channel, wakeup, '_')),
+        {ok, St2} = ?ws_conn:websocket_handle(ping, St1),
+        ?assertEqual(1, meck:num_calls(emqx_channel, wakeup, '_')),
+        {ok, _St3} = ?ws_conn:websocket_handle(ping, St2),
+        ?assertEqual(1, meck:num_calls(emqx_channel, wakeup, '_')),
+        {ok, St4, hibernate} = ?ws_conn:websocket_info({timeout, TRef, hibernate}, St0),
+        {ok, _St5} = ?ws_conn:websocket_info({timeout, make_ref(), keepalive}, St4),
+        ?assertEqual(2, meck:num_calls(emqx_channel, wakeup, '_'))
+    after
+        meck:unload(emqx_channel)
+    end.
+
 t_websocket_info_timeout_keepalive(_) ->
     {ok, _St} = ?ws_conn:websocket_info({timeout, make_ref(), keepalive}, st()).
 
