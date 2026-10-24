@@ -167,25 +167,25 @@ t_check(_) ->
     ok.
 
 -doc """
-`hibernate/2` arms the rest of `max_idle_millisecond`, and the next `check/1`
-credits that deadline instead of the check interval.
+`hibernate/2` arms the rest of `max_idle_millisecond`. When the deadline
+fires, `wakeup/2` credits all of it, and `check_deadline/1` decides from the
+counter.
 """.
 t_hibernate_deadline(_) ->
     KA0 = init_deadline_keepalive(),
-    %% 30 s idle so far, 10 s since the last check.
+    %% 1 s idle so far, 10 s since the last check.
     {ok, KA1} = emqx_keepalive:check(KA0),
     {TillDeadline, KA2} = emqx_keepalive:hibernate(10000, KA1),
     ?assertEqual(15000 - 1000 - 10000, TillDeadline),
-    ?assert(emqx_keepalive:info(deadline_armed, KA2)),
-    ?assertEqual({error, timeout}, emqx_keepalive:check(KA2)),
+    ?assertEqual({error, timeout}, emqx_keepalive:check_deadline(emqx_keepalive:wakeup(0, KA2))),
     %% A packet since the last check: the deadline is the whole max idle.
     set_stat(1),
     {15000, KA3} = emqx_keepalive:hibernate(500, KA1),
-    %% A packet before the deadline fires: back to sampling.
+    %% A packet after the deadline fired, before it is checked.
+    KA4 = emqx_keepalive:wakeup(0, KA3),
     set_stat(2),
-    {ok, KA4} = emqx_keepalive:check(KA3),
-    ?assertEqual(#{statval => 2, idle_milliseconds => 0}, idle_info(KA4)),
-    ?assertNot(emqx_keepalive:info(deadline_armed, KA4)).
+    {ok, KA5} = emqx_keepalive:check_deadline(KA4),
+    ?assertEqual(#{statval => 2, idle_milliseconds => 0}, idle_info(KA5)).
 
 -doc "The deadline is never zero or negative, even when the idle time already exceeds it.".
 t_hibernate_deadline_clamped(_) ->
@@ -193,12 +193,11 @@ t_hibernate_deadline_clamped(_) ->
     {ok, KA1} = emqx_keepalive:check(KA0),
     ?assertMatch({1, _}, emqx_keepalive:hibernate(60000, KA1)).
 
--doc "`wakeup/2` credits the time the process was hibernated, and returns to sampling.".
+-doc "`wakeup/2` credits the time the process was hibernated.".
 t_wakeup_credits_elapsed(_) ->
     KA0 = init_deadline_keepalive(),
     {TillDeadline, KA1} = emqx_keepalive:hibernate(0, KA0),
     KA2 = emqx_keepalive:wakeup(TillDeadline - 4000, KA1),
-    ?assertNot(emqx_keepalive:info(deadline_armed, KA2)),
     ?assertEqual(#{statval => 0, idle_milliseconds => 4000}, idle_info(KA2)),
     %% A packet counted while hibernated resets the idle time.
     {_, KA3} = emqx_keepalive:hibernate(0, KA0),
@@ -208,14 +207,13 @@ t_wakeup_credits_elapsed(_) ->
     ).
 
 -doc """
-`update/3` after the deadline fired credits the whole deadline and returns to
-sampling with the new values.
+`update/3` after the deadline fired keeps the deadline that `wakeup/2`
+credited, and the next check times out.
 """.
 t_update_after_deadline(_) ->
     KA0 = init_deadline_keepalive(),
     {TillDeadline, KA1} = emqx_keepalive:hibernate(0, KA0),
-    KA2 = emqx_keepalive:update(default, 4, KA1),
-    ?assertNot(emqx_keepalive:info(deadline_armed, KA2)),
+    KA2 = emqx_keepalive:update(default, 4, emqx_keepalive:wakeup(0, KA1)),
     ?assertEqual(#{statval => 0, idle_milliseconds => TillDeadline}, idle_info(KA2)),
     ?assertEqual({error, timeout}, emqx_keepalive:check(KA2)).
 

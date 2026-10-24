@@ -22,6 +22,8 @@
 -define(CHECK_INTERVAL_MS, 1000).
 %% The time the test process takes to see a disconnect it has waited for.
 -define(MARGIN_MS, 500).
+%% The sampling timer and the deadline timer of the keepalive.
+-define(IS_KEEPALIVE_TIMER(Name), (Name =:= keepalive orelse Name =:= keepalive_deadline)).
 
 all() ->
     [
@@ -362,7 +364,7 @@ await_down(Pid, Until) ->
 
 await_down(Pid, MRef, Until, Fires) ->
     receive
-        {trace, Pid, 'receive', {timeout, _TRef, keepalive}} ->
+        {trace, Pid, 'receive', {timeout, _TRef, Name}} when ?IS_KEEPALIVE_TIMER(Name) ->
             await_down(Pid, MRef, Until, Fires + 1);
         {'DOWN', MRef, process, Pid, Reason} ->
             DownAt = now_ms(),
@@ -382,7 +384,8 @@ count_delivered_fires(Pid) ->
 
 count_fires(Pid, N) ->
     receive
-        {trace, Pid, 'receive', {timeout, _TRef, keepalive}} -> count_fires(Pid, N + 1)
+        {trace, Pid, 'receive', {timeout, _TRef, Name}} when ?IS_KEEPALIVE_TIMER(Name) ->
+            count_fires(Pid, N + 1)
     after 0 -> N
     end.
 

@@ -41,6 +41,5 @@
     statval,
     stat_reader,
     idle_milliseconds = 0,
-    max_idle_millisecond,
-    deadline_armed = false
+    max_idle_millisecond
 }).

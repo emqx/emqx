@@ -16,7 +16,8 @@
     check/2,
     update/3,
     hibernate/2,
-    wakeup/2
+    wakeup/2,
+    check_deadline/1
 ]).
 
 -elvis([{elvis_style, no_if_expression, disable}]).
@@ -31,10 +32,7 @@
     stat_reader :: mfargs() | undefined,
     %% Milliseconds without a received packet, as of the last check.
     idle_milliseconds = 0 :: non_neg_integer(),
-    max_idle_millisecond :: pos_integer(),
-    %% Whether the timer is armed for the deadline instead of check_interval,
-    %% see hibernate/2.
-    deadline_armed = false :: boolean()
+    max_idle_millisecond :: pos_integer()
 }).
 
 -opaque keepalive() :: #keepalive{}.
@@ -101,25 +99,19 @@ info(#keepalive{
         max_idle_millisecond => MaxMs
     }.
 
--spec info(check_interval | statval | idle_milliseconds | deadline_armed, keepalive()) ->
-    non_neg_integer() | boolean() | undefined.
+-spec info(check_interval | statval | idle_milliseconds, keepalive()) ->
+    non_neg_integer() | undefined.
 info(check_interval, #keepalive{check_interval = Interval}) ->
     Interval;
 info(statval, #keepalive{statval = StatVal}) ->
     StatVal;
 info(idle_milliseconds, #keepalive{idle_milliseconds = Val}) ->
     Val;
-info(deadline_armed, #keepalive{deadline_armed = Armed}) ->
-    Armed;
 info(check_interval, undefined) ->
     0.
 
-check(Keepalive = #keepalive{deadline_armed = false, check_interval = Interval}) ->
+check(Keepalive = #keepalive{check_interval = Interval}) ->
     check(read_stat(Keepalive), Interval, Keepalive);
-check(Keepalive = #keepalive{deadline_armed = true}) ->
-    check(read_stat(Keepalive), till_deadline(Keepalive), Keepalive#keepalive{
-        deadline_armed = false
-    });
 check(Keepalive) ->
     {ok, Keepalive}.
 
@@ -144,8 +136,8 @@ advance(NewVal, ElapsedMs, #keepalive{statval = NewVal, idle_milliseconds = Idle
 advance(NewVal, _ElapsedMs, Keepalive) ->
     Keepalive#keepalive{statval = NewVal, idle_milliseconds = 0}.
 
-%% idle_milliseconds does not change while the deadline is armed, so this is
-%% also the time the deadline timer was armed with.
+%% idle_milliseconds does not change between hibernate/2 and wakeup/2, so this
+%% is also the time the deadline timer was armed with.
 till_deadline(#keepalive{idle_milliseconds = IdleAcc, max_idle_millisecond = Max}) ->
     max(Max - IdleAcc, 1).
 
@@ -159,23 +151,32 @@ Switch from sampling to a single deadline before the process hibernates.
 
 `SinceArmMs` is the time since the sampling timer was armed. Returns the
 time to arm the timer with, so that it fires when the idle time reaches
-`max_idle_millisecond`. The next `check/1` credits this time instead of
-`check_interval`.
+`max_idle_millisecond`. The caller calls `wakeup/2` when the process wakes
+up, also when the deadline timer has fired.
 """.
 -spec hibernate(non_neg_integer(), keepalive()) -> {pos_integer(), keepalive()}.
-hibernate(SinceArmMs, Keepalive = #keepalive{deadline_armed = false}) ->
+hibernate(SinceArmMs, Keepalive) ->
     NKeepalive = advance(read_stat(Keepalive), SinceArmMs, Keepalive),
-    {till_deadline(NKeepalive), NKeepalive#keepalive{deadline_armed = true}}.
+    {till_deadline(NKeepalive), NKeepalive}.
 
 -doc """
-Switch back to sampling when the process wakes up before the deadline.
+Credit the time the process was hibernated, after `hibernate/2`.
 
-`RemainingMs` is the time that was left on the deadline timer.
+`RemainingMs` is the time that was left on the deadline timer, 0 when it
+has fired.
 """.
 -spec wakeup(non_neg_integer(), keepalive()) -> keepalive().
-wakeup(RemainingMs, Keepalive = #keepalive{deadline_armed = true}) ->
+wakeup(RemainingMs, Keepalive) ->
     SleptMs = max(till_deadline(Keepalive) - RemainingMs, 0),
-    advance(read_stat(Keepalive), SleptMs, Keepalive#keepalive{deadline_armed = false}).
+    advance(read_stat(Keepalive), SleptMs, Keepalive).
+
+-doc """
+Check the keepalive when the deadline timer fires, after `wakeup/2` credited
+the whole deadline.
+""".
+-spec check_deadline(keepalive()) -> {ok, keepalive()} | {error, timeout}.
+check_deadline(Keepalive) ->
+    check(read_stat(Keepalive), 0, Keepalive).
 
 %% @doc Update keepalive while preserving stat_reader and idle time.
 -spec update(atom(), non_neg_integer(), keepalive() | undefined) -> keepalive() | undefined.
@@ -188,21 +189,14 @@ update(_Zone, 0, _Keepalive) ->
 update(
     Zone,
     Interval,
-    Keepalive = #keepalive{idle_milliseconds = IdleAcc, deadline_armed = Armed}
+    Keepalive
 ) ->
     #{check_interval := NewCheckInterval, max_idle_millisecond := MaxIdleMs} =
         keepalive_params(Zone, Interval),
-    %% The deadline is still armed only when it has fired, and the caller re-arms
-    %% the timer for sampling.
     Keepalive#keepalive{
         check_interval = NewCheckInterval,
-        max_idle_millisecond = MaxIdleMs,
-        idle_milliseconds = IdleAcc + fired_deadline(Armed, Keepalive),
-        deadline_armed = false
+        max_idle_millisecond = MaxIdleMs
     }.
-
-fired_deadline(false, _Keepalive) -> 0;
-fired_deadline(true, Keepalive) -> till_deadline(Keepalive).
 
 keepalive_params(Zone, Interval) ->
     #{keepalive_multiplier := Mul, keepalive_check_interval := CheckInterval} =
