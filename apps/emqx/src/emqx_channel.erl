@@ -62,7 +62,9 @@
 
 %% Export for connection modules
 -export([
-    shutdown_count/2
+    shutdown_count/2,
+    hibernate/1,
+    wakeup/1
 ]).
 
 %% Export for DS session GC worker and session implementations
@@ -3600,6 +3602,69 @@ clear_keepalive(Channel = #channel{timers = Timers}) ->
             emqx_utils:cancel_timer(TRef),
             Channel#channel{timers = maps:without([keepalive], Timers)}
     end.
+
+-doc """
+Prepare the channel for the hibernation of its connection process.
+
+A hibernated process gets no packets, so the keepalive does not need to
+sample the receive counter. Replace the sampling timer with one timer that
+fires when the client is late.
+""".
+-spec hibernate(channel()) -> channel().
+hibernate(
+    Channel = #channel{
+        conn_state = connected,
+        conninfo = ConnInfo,
+        keepalive = KeepAlive,
+        timers = #{keepalive := TRef} = Timers
+    }
+) when KeepAlive =/= undefined ->
+    case
+        not is_map_key(conn_shared_state, ConnInfo) andalso
+            emqx_keepalive:info(deadline, KeepAlive) =:= undefined andalso
+            erlang:cancel_timer(TRef)
+    of
+        Remaining when is_integer(Remaining) ->
+            SinceArm = max(emqx_keepalive:info(check_interval, KeepAlive) - Remaining, 0),
+            {Deadline, NKeepAlive} = emqx_keepalive:hibernate(SinceArm, KeepAlive),
+            NChannel = Channel#channel{
+                keepalive = NKeepAlive, timers = maps:remove(keepalive, Timers)
+            },
+            ensure_timer(keepalive, Deadline, NChannel);
+        false ->
+            %% Not eligible, or the timer already fired and its message wakes
+            %% the process at once.
+            Channel
+    end;
+hibernate(Channel) ->
+    Channel.
+
+-doc """
+Restore the keepalive sampling after the connection process wakes up.
+
+When the deadline timer already fired, keep it: its message is in the
+mailbox, and `handle_timeout/3` checks it.
+""".
+-spec wakeup(channel()) -> channel().
+wakeup(Channel = #channel{keepalive = KeepAlive, timers = #{keepalive := TRef} = Timers}) when
+    KeepAlive =/= undefined
+->
+    case
+        emqx_keepalive:info(deadline, KeepAlive) =/= undefined andalso
+            erlang:cancel_timer(TRef)
+    of
+        Remaining when is_integer(Remaining) ->
+            NKeepAlive = emqx_keepalive:wakeup(Remaining, KeepAlive),
+            NChannel = Channel#channel{
+                keepalive = NKeepAlive, timers = maps:remove(keepalive, Timers)
+            },
+            ensure_timer(keepalive, NChannel);
+        false ->
+            Channel
+    end;
+wakeup(Channel) ->
+    Channel.
+
 %%--------------------------------------------------------------------
 %% Maybe Resume Session
 
