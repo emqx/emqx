@@ -206,32 +206,9 @@ parse_remaining_len(_Bin, _Header, _Multiplier, Length, #{max_size := MaxSize}) 
     ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => Length});
 parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
     {more, {{len, #{hdr => Header, len => {Multiplier, Length}}}, Options}};
-%% Match DISCONNECT without payload
-parse_remaining_len(
-    <<0:8, Rest/binary>>,
-    Header = #mqtt_packet_header{type = ?DISCONNECT},
-    1,
-    0,
-    Options
-) ->
+parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
     ok = check_packet_size(2, Options),
-    Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
-    {ok, Packet, Rest, ?NONE(Options)};
-%% Match PINGREQ.
-parse_remaining_len(
-    <<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?PINGREQ}, 1, 0, Options
-) ->
-    ok = check_packet_size(2, Options),
-    parse_frame(Rest, Header, 0, Options);
-parse_remaining_len(
-    <<0:8, _Rest/binary>>, _Header = #mqtt_packet_header{type = ?PINGRESP}, 1, 0, _Options
-) ->
-    ?PARSE_ERR(#{cause => unexpected_packet, header_type => 'PINGRESP'});
-%% All other types of messages should not have a zero remaining length.
-parse_remaining_len(
-    <<0:8, _Rest/binary>>, Header, 1, 0, _Options
-) ->
-    ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Header#mqtt_packet_header.type});
+    parse_bodyless_packet(Rest, Header, Options);
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     ok = check_packet_size(4, Options),
@@ -254,7 +231,24 @@ parse_remaining_len(
     %% Remaining Length byte, including those received in earlier chunks.
     PacketSize = 1 + remaining_len_size(Multiplier) + FrameLen,
     ok = check_packet_size(PacketSize, Options),
-    parse_frame(Rest, Header, FrameLen, Options).
+    case FrameLen of
+        0 -> parse_bodyless_packet(Rest, Header, Options);
+        _ -> parse_frame(Rest, Header, FrameLen, Options)
+    end.
+
+%% Remaining Length is zero, whatever its encoding.
+%% Match DISCONNECT without payload
+parse_bodyless_packet(Rest, Header = #mqtt_packet_header{type = ?DISCONNECT}, Options) ->
+    Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
+    {ok, Packet, Rest, ?NONE(Options)};
+%% Match PINGREQ.
+parse_bodyless_packet(Rest, Header = #mqtt_packet_header{type = ?PINGREQ}, Options) ->
+    {ok, packet(Header), Rest, ?NONE(Options)};
+parse_bodyless_packet(_Rest, #mqtt_packet_header{type = ?PINGRESP}, _Options) ->
+    ?PARSE_ERR(#{cause => unexpected_packet, header_type => 'PINGRESP'});
+%% All other types of messages should not have a zero remaining length.
+parse_bodyless_packet(_Rest, #mqtt_packet_header{type = Type}, _Options) ->
+    ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Type}).
 
 -compile({inline, [remaining_len_size/1]}).
 remaining_len_size(1) ->
@@ -290,8 +284,6 @@ append_body(?Q(Bytes, Q), T) ->
 flatten_body(Body) when is_binary(Body) -> Body;
 flatten_body(?Q(_, Q)) -> iolist_to_binary(queue:to_list(Q)).
 
-parse_frame(Body, Header, 0, Options) ->
-    {ok, packet(Header), flatten_body(Body), ?NONE(Options)};
 parse_frame(Body, Header, Length, Options) ->
     case body_bytes(Body) >= Length of
         true ->

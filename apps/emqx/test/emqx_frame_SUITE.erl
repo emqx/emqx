@@ -54,6 +54,8 @@ groups() ->
             t_serialize_frame_at_max_size,
             t_parse_packet_size_limit,
             t_parse_frame_malformed_variable_byte_integer,
+            t_parse_zero_remaining_len_non_minimal,
+            t_parse_bodyless_packet_non_minimal,
             t_parse_truncated_variable_byte_integer,
             t_parse_variable_byte_integer_too_long,
             t_parse_variable_byte_integer_valid,
@@ -292,6 +294,53 @@ t_parse_frame_malformed_variable_byte_integer(_) ->
             )
         end,
         MalformedPackets
+    ).
+
+%% A zero Remaining Length is rejected for every packet type that must have a
+%% body, also when it is encoded in more than one byte, and also when the
+%% bytes arrive in separate chunks.
+t_parse_zero_remaining_len_non_minimal(_) ->
+    Cases = [
+        {16#10, #{cause => zero_remaining_len, header_type => ?CONNECT}},
+        {16#30, #{cause => zero_remaining_len, header_type => ?PUBLISH}},
+        {16#82, #{cause => zero_remaining_len, header_type => ?SUBSCRIBE}},
+        {16#F0, #{cause => zero_remaining_len, header_type => ?AUTH}},
+        {16#D0, #{cause => unexpected_packet, header_type => 'PINGRESP'}}
+    ],
+    lists:foreach(
+        fun({FirstByte, Reason}) ->
+            lists:foreach(
+                fun(Chunks) ->
+                    ?ASSERT_FRAME_THROW(Reason, parse_chunks(Chunks))
+                end,
+                zero_remaining_len_chunks(FirstByte)
+            )
+        end,
+        Cases
+    ).
+
+%% PINGREQ and DISCONNECT have no body. They parse to the same packet whatever
+%% the encoding of the zero Remaining Length, and the bytes after them are
+%% returned unchanged.
+t_parse_bodyless_packet_non_minimal(_) ->
+    Cases = [
+        {16#C0, ?PACKET(?PINGREQ)},
+        {16#E0, ?DISCONNECT_PACKET(?RC_SUCCESS)}
+    ],
+    Next = <<16#C0, 0>>,
+    lists:foreach(
+        fun({FirstByte, Packet}) ->
+            lists:foreach(
+                fun(Chunks) ->
+                    ?assertMatch({ok, Packet, <<>>, _}, parse_chunks(Chunks)),
+                    [Last | Init] = lists:reverse(Chunks),
+                    WithNext = lists:reverse([<<Last/binary, Next/binary>> | Init]),
+                    ?assertMatch({ok, Packet, Next, _}, parse_chunks(WithNext))
+                end,
+                zero_remaining_len_chunks(FirstByte)
+            )
+        end,
+        Cases
     ).
 
 %% A variable byte integer that ends while its continuation bit is set is
@@ -1265,6 +1314,29 @@ parse_to_packet(Bin, Opts) ->
     PState = emqx_frame:initial_parse_state(Opts),
     {ok, Packet, <<>>, _} = emqx_frame:parse(Bin, PState),
     Packet.
+
+%% Zero Remaining Length after FirstByte, in one, two and three bytes, and
+%% delivered whole, one byte at a time, and split after the first 0x80.
+zero_remaining_len_chunks(FirstByte) ->
+    [
+        [<<FirstByte, 0>>],
+        [<<FirstByte>>, <<0>>],
+        [<<FirstByte, 16#80, 0>>],
+        [<<FirstByte>>, <<16#80>>, <<0>>],
+        [<<FirstByte, 16#80>>, <<0>>],
+        [<<FirstByte, 16#80, 16#80, 0>>],
+        [<<FirstByte>>, <<16#80>>, <<16#80>>, <<0>>]
+    ].
+
+%% Feed Chunks to a fresh parser and return the result of the last one.
+parse_chunks(Chunks) ->
+    parse_chunks(Chunks, emqx_frame:initial_parse_state()).
+
+parse_chunks([Last], ParseState) ->
+    emqx_frame:parse(Last, ParseState);
+parse_chunks([Chunk | Chunks], ParseState) ->
+    {more, NParseState} = emqx_frame:parse(Chunk, ParseState),
+    parse_chunks(Chunks, NParseState).
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
 
