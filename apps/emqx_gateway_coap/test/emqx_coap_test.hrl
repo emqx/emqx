@@ -42,5 +42,5 @@
     stat_reader,
     idle_milliseconds = 0,
     max_idle_millisecond,
-    till_deadline
+    deadline_armed = false
 }).

@@ -3621,7 +3621,7 @@ hibernate(
 ) when KeepAlive =/= undefined ->
     case
         not is_map_key(conn_shared_state, ConnInfo) andalso
-            emqx_keepalive:info(till_deadline, KeepAlive) =:= undefined andalso
+            not emqx_keepalive:info(deadline_armed, KeepAlive) andalso
             erlang:cancel_timer(TRef)
     of
         Remaining when is_integer(Remaining) ->
@@ -3650,7 +3650,7 @@ wakeup(Channel = #channel{keepalive = KeepAlive, timers = #{keepalive := TRef} =
     KeepAlive =/= undefined
 ->
     case
-        emqx_keepalive:info(till_deadline, KeepAlive) =/= undefined andalso
+        emqx_keepalive:info(deadline_armed, KeepAlive) andalso
             erlang:cancel_timer(TRef)
     of
         Remaining when is_integer(Remaining) ->

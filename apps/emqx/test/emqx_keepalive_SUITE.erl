@@ -176,7 +176,7 @@ t_hibernate_deadline(_) ->
     {ok, KA1} = emqx_keepalive:check(KA0),
     {TillDeadline, KA2} = emqx_keepalive:hibernate(10000, KA1),
     ?assertEqual(15000 - 1000 - 10000, TillDeadline),
-    ?assertEqual(TillDeadline, emqx_keepalive:info(till_deadline, KA2)),
+    ?assert(emqx_keepalive:info(deadline_armed, KA2)),
     ?assertEqual({error, timeout}, emqx_keepalive:check(KA2)),
     %% A packet since the last check: the deadline is the whole max idle.
     set_stat(1),
@@ -185,7 +185,7 @@ t_hibernate_deadline(_) ->
     set_stat(2),
     {ok, KA4} = emqx_keepalive:check(KA3),
     ?assertEqual(#{statval => 2, idle_milliseconds => 0}, idle_info(KA4)),
-    ?assertEqual(undefined, emqx_keepalive:info(till_deadline, KA4)).
+    ?assertNot(emqx_keepalive:info(deadline_armed, KA4)).
 
 -doc "The deadline is never zero or negative, even when the idle time already exceeds it.".
 t_hibernate_deadline_clamped(_) ->
@@ -198,7 +198,7 @@ t_wakeup_credits_elapsed(_) ->
     KA0 = init_deadline_keepalive(),
     {TillDeadline, KA1} = emqx_keepalive:hibernate(0, KA0),
     KA2 = emqx_keepalive:wakeup(TillDeadline - 4000, KA1),
-    ?assertEqual(undefined, emqx_keepalive:info(till_deadline, KA2)),
+    ?assertNot(emqx_keepalive:info(deadline_armed, KA2)),
     ?assertEqual(#{statval => 0, idle_milliseconds => 4000}, idle_info(KA2)),
     %% A packet counted while hibernated resets the idle time.
     {_, KA3} = emqx_keepalive:hibernate(0, KA0),
@@ -215,7 +215,7 @@ t_update_after_deadline(_) ->
     KA0 = init_deadline_keepalive(),
     {TillDeadline, KA1} = emqx_keepalive:hibernate(0, KA0),
     KA2 = emqx_keepalive:update(default, 4, KA1),
-    ?assertEqual(undefined, emqx_keepalive:info(till_deadline, KA2)),
+    ?assertNot(emqx_keepalive:info(deadline_armed, KA2)),
     ?assertEqual(#{statval => 0, idle_milliseconds => TillDeadline}, idle_info(KA2)),
     ?assertEqual({error, timeout}, emqx_keepalive:check(KA2)).
 
