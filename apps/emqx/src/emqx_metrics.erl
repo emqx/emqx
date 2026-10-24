@@ -235,7 +235,7 @@ val(Namespace, Name) ->
 %% @doc Increase counter
 -spec inc_global(metric_name()) -> ok.
 inc_global(Name) ->
-    inc_global(Name, 1).
+    update_counter(?global_ns, Name, 1).
 
 %% @doc Increase metric value
 -spec inc_global(metric_name(), pos_integer()) -> ok.
@@ -244,7 +244,7 @@ inc_global(Name, Value) ->
 
 -spec inc(maybe_namespace(), metric_name()) -> ok.
 inc(Namespace, Name) ->
-    inc(Namespace, Name, 1).
+    update_counter(Namespace, Name, 1).
 
 -spec inc(maybe_namespace(), metric_name(), pos_integer()) -> ok.
 inc(Namespace, Name, Value) ->
@@ -266,7 +266,7 @@ inc_safe(Namespace, Name, Value) ->
 %% @doc Decrease metric value
 -spec dec_global(metric_name()) -> ok.
 dec_global(Name) ->
-    dec_global(Name, 1).
+    update_counter(?global_ns, Name, -1).
 
 %% @doc Decrease metric value
 -spec dec_global(metric_name(), pos_integer()) -> ok.
@@ -275,7 +275,7 @@ dec_global(Name, Value) ->
 
 -spec dec(maybe_namespace(), metric_name()) -> ok.
 dec(Namespace, Name) ->
-    dec(Namespace, Name, 1).
+    update_counter(Namespace, Name, -1).
 
 -spec dec(maybe_namespace(), metric_name(), pos_integer()) -> ok.
 dec(Namespace, Name, Value) ->
