@@ -72,6 +72,7 @@ all() ->
             t_pub_caps_zone_own_values,
             t_pub_caps_zero_topic_levels_no_limit,
             t_pub_caps_zone_removal,
+            t_register_uses_current_config,
             t_shutdown_erases_entries,
             t_restart_rebuilds_entries
         ].
@@ -577,6 +578,25 @@ t_pub_caps_zone_removal(_Config) ->
     ?assertMatch(#{max_qos_allowed := _}, persistent_term:get(?PUB_CAPS_KEY(tmpzone))),
     {ok, _} = emqx:update_config([zones], #{}),
     ?assertEqual(undefined, persistent_term:get(?PUB_CAPS_KEY(tmpzone), undefined)).
+
+-doc """
+A reader that read the zone config before a config update registers the
+entry after the server handled the update. The server writes the entry of
+the current config, not the one that the reader built.
+""".
+t_register_uses_current_config(_Config) ->
+    OldZone = emqx_config:get([zones, default]),
+    ok = update_mqtt_conf(max_qos_allowed, ?QOS_1),
+    _ = persistent_term:erase(?PUB_CAPS_KEY(default)),
+    ok = meck:new(emqx_config, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_config, get, fun
+        ([zones, default]) -> OldZone;
+        (Path) -> meck:passthrough([Path])
+    end),
+    ?assertMatch(#{max_qos_allowed := ?QOS_2}, emqx_connection_conf:pub_caps(default)),
+    ok = meck:unload(emqx_config),
+    ok = emqx_connection_conf:sync(),
+    ?assertMatch(#{max_qos_allowed := ?QOS_1}, persistent_term:get(?PUB_CAPS_KEY(default))).
 
 -doc """
 A new zone gets its entries on first use, and removing the zone deletes

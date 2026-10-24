@@ -32,9 +32,12 @@ the shared terms. `sys:get_state/1`, `erlang:external_size/1` and
 connection state.
 
 The `gen_server` of this module, a child of `emqx_kernel_sup`, owns the
-entries, and nothing else writes them. An entry is created on first use: a connection that finds no entry
-builds the terms from config, keeps its own copy, and sends them here, so the
-connections after it share one instance. On a zone or listener config change
+entries, and nothing else writes them. An entry is created on first use: a
+connection that finds no entry builds the terms from config, keeps its own
+copy, and asks the server to register the entry. The server builds the entry
+again from the config it has at that time, so a registration that arrives
+after a config change does not write terms of the old config. The connections
+after it share one instance. On a zone or listener config change
 the server rebuilds the entries it owns, and erases the entries of a deleted
 zone or listener; the next connection registers them again.
 
@@ -117,7 +120,7 @@ the current config, since an application restart can load a different config.
     | {?MODULE, listener(), emqx_types:zone(), conf}
     | {?MODULE, emqx_types:zone(), pub_caps}.
 
--record(register, {key :: key(), value :: frame() | conn_conf() | pub_caps()}).
+-record(register, {key :: key()}).
 -record(zones_updated, {zones :: emqx_config:config()}).
 %% The checked config of a listener, or `undefined' for a deleted one.
 -record(listeners_changed, {listeners :: [{listener(), map() | undefined}]}).
@@ -150,7 +153,7 @@ pre_connect_codec(Zone) ->
             PreConnect;
         undefined ->
             Frame = build_frame(emqx_config:get([zones, Zone])),
-            ok = register_entry(?FRAME_KEY(Zone), Frame),
+            ok = register_entry(?FRAME_KEY(Zone)),
             maps:get(connect, Frame)
     end.
 
@@ -194,7 +197,7 @@ conn_conf(Listener, Zone) ->
             {Type, Name} = Listener,
             ListenerConf = emqx_config:get_listener_conf(Type, Name, []),
             Conf = build_conn_conf(Listener, Zone, ListenerConf, emqx_config:get([zones, Zone])),
-            ok = register_entry(?CONN_KEY(Listener, Zone), Conf),
+            ok = register_entry(?CONN_KEY(Listener, Zone)),
             Conf
     end.
 
@@ -206,7 +209,7 @@ pub_caps(Zone) ->
             Caps;
         undefined ->
             Caps = build_pub_caps(emqx_config:get([zones, Zone])),
-            ok = register_entry(?PUB_CAPS_KEY(Zone), Caps),
+            ok = register_entry(?PUB_CAPS_KEY(Zone)),
             Caps
     end.
 
@@ -277,12 +280,14 @@ handle_call(sync, _From, State) ->
 handle_call(Req, _From, State) ->
     {reply, {error, {unknown_call, Req}}, State}.
 
-handle_cast(#register{key = Key, value = Value}, #{keys := Keys} = State) ->
+handle_cast(#register{key = Key}, #{keys := Keys} = State) ->
     %% An entry written before, or rebuilt from a later config, wins.
     case persistent_term:get(Key, undefined) of
         undefined ->
-            ok = persistent_term:put(Key, Value),
-            {noreply, State#{keys := Keys#{Key => true}}};
+            case rebuild(Key, emqx_config:get([zones], #{})) of
+                true -> {noreply, State#{keys := Keys#{Key => true}}};
+                false -> {noreply, State}
+            end;
         _ ->
             {noreply, State}
     end;
@@ -307,8 +312,8 @@ is_orderly(_) -> false.
 %% Internal functions
 %%--------------------------------------------------------------------
 
-register_entry(Key, Value) ->
-    gen_server:cast(?MODULE, #register{key = Key, value = Value}).
+register_entry(Key) ->
+    gen_server:cast(?MODULE, #register{key = Key}).
 
 %% The config hooks run at boot before this server starts; nothing is
 %% registered by then, so there is nothing to do. A config update must not
