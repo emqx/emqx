@@ -737,14 +737,17 @@ finalize_user_property(Props) ->
 
 parse_variable_byte_integer(Bin) ->
     parse_variable_byte_integer(Bin, 1, 0).
+%% The fourth byte, at ?MULTIPLIER_MAX, must be the last one.
 parse_variable_byte_integer(<<1:1, _Len:7, _Rest/binary>>, Multiplier, _Value) when
-    Multiplier > ?MULTIPLIER_MAX
+    Multiplier >= ?MULTIPLIER_MAX
 ->
     ?PARSE_ERR(malformed_variable_byte_integer);
 parse_variable_byte_integer(<<1:1, Len:7, Rest/binary>>, Multiplier, Value) ->
     parse_variable_byte_integer(Rest, Multiplier * ?HIGHBIT, Value + Len * Multiplier);
 parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
-    {Value + Len * Multiplier, Rest}.
+    {Value + Len * Multiplier, Rest};
+parse_variable_byte_integer(_Bin, _Multiplier, _Value) ->
+    ?PARSE_ERR(malformed_variable_byte_integer).
 
 parse_topic_filters(subscribe, Bin) ->
     [

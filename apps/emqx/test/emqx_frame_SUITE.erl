@@ -54,6 +54,9 @@ groups() ->
             t_serialize_frame_at_max_size,
             t_parse_packet_size_limit,
             t_parse_frame_malformed_variable_byte_integer,
+            t_parse_truncated_variable_byte_integer,
+            t_parse_variable_byte_integer_too_long,
+            t_parse_variable_byte_integer_valid,
             t_parse_malformed_utf8_string,
             t_parse_non_connect_before_connect,
             t_parse_after_connect,
@@ -288,6 +291,67 @@ t_parse_frame_malformed_variable_byte_integer(_) ->
             )
         end,
         MalformedPackets
+    ).
+
+%% A variable byte integer that ends while its continuation bit is set is
+%% rejected as malformed.
+t_parse_truncated_variable_byte_integer(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}),
+    Packets = [
+        %% Property Length of SUBSCRIBE, CONNACK, UNSUBACK and AUTH.
+        <<16#82, 3, 0, 1, 16#80>>,
+        <<16#20, 3, 0, 0, 16#80>>,
+        <<16#B0, 3, 0, 1, 16#80>>,
+        <<16#F0, 2, 0, 16#80>>,
+        <<16#F0, 3, 0, 16#FF, 16#FF>>,
+        %% Subscription Identifier property of PUBLISH.
+        <<16#30, 6, 0, 1, $t, 2, 16#0B, 16#80>>
+    ],
+    lists:foreach(
+        fun(Bin) ->
+            ?ASSERT_FRAME_THROW(
+                malformed_variable_byte_integer,
+                emqx_frame:parse(Bin, ParseState)
+            )
+        end,
+        Packets
+    ).
+
+%% A variable byte integer is at most four bytes long.
+t_parse_variable_byte_integer_too_long(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}),
+    %% Subscription Identifier property of PUBLISH, in five bytes.
+    Bin = <<16#30, 10, 0, 1, $t, 6, 16#0B, 16#FF, 16#FF, 16#FF, 16#FF, 16#07>>,
+    ?ASSERT_FRAME_THROW(malformed_variable_byte_integer, emqx_frame:parse(Bin, ParseState)).
+
+%% Valid variable byte integers of one to four bytes still parse.
+t_parse_variable_byte_integer_valid(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}),
+    lists:foreach(
+        fun({Encoded, Value}) ->
+            PropsLen = 1 + byte_size(Encoded),
+            RemainingLen = 3 + 1 + PropsLen,
+            Bin = <<16#30, RemainingLen, 0, 1, $t, PropsLen, 16#0B, Encoded/binary>>,
+            ?assertMatch(
+                {ok,
+                    #mqtt_packet{
+                        variable = #mqtt_packet_publish{
+                            properties = #{'Subscription-Identifier' := Value}
+                        }
+                    },
+                    <<>>, _},
+                emqx_frame:parse(Bin, ParseState)
+            )
+        end,
+        [
+            {<<1>>, 1},
+            {<<16#7F>>, 127},
+            {<<16#80, 16#01>>, 128},
+            {<<16#FF, 16#7F>>, 16383},
+            {<<16#80, 16#80, 16#01>>, 16384},
+            {<<16#80, 16#80, 16#80, 16#01>>, 2097152},
+            {<<16#FF, 16#FF, 16#FF, 16#7F>>, 268435455}
+        ]
     ).
 
 t_parse_malformed_utf8_string(_) ->
