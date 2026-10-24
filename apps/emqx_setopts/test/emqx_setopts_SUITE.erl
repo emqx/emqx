@@ -36,6 +36,22 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
+%% `$SETOPTS/` is served through the system topic dispatcher, not by a
+%% `message.publish` callback of its own.
+t_registered_with_sys_msg_dispatch(_) ->
+    ?assertMatch(
+        [{<<"$SETOPTS/">>, {emqx_setopts, on_message_publish, []}}],
+        [H || {<<"$SETOPTS/">>, _} = H <- emqx_sys_msg_dispatch:handlers()]
+    ),
+    ?assertEqual(
+        [],
+        [
+            CB
+         || CB <- emqx_hooks:lookup('message.publish'),
+            element(1, emqx_hooks:callback_action(CB)) =:= emqx_setopts
+        ]
+    ).
+
 t_dynamic_keepalive_update_extend(_) ->
     emqx_config:put_zone_conf(default, [mqtt, keepalive_multiplier], 1.5),
     emqx_config:put_zone_conf(default, [mqtt, keepalive_check_interval], 1000),

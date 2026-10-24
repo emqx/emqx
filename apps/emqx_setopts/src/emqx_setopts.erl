@@ -8,7 +8,6 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([start_link/0]).
@@ -23,6 +22,7 @@
 -export_type([keepalive_batch/0]).
 
 -define(SERVER, ?MODULE).
+-define(TOPIC_PREFIX, <<"$SETOPTS/">>).
 -define(KEEPALIVE_SINGLE, <<"$SETOPTS/mqtt/keepalive">>).
 -define(KEEPALIVE_BULK, <<"$SETOPTS/mqtt/keepalive-bulk">>).
 -define(MAILBOX_OVERLOAD_LIMIT, 10).
@@ -125,21 +125,19 @@ extract_batch_client_result(ClientId, Results) ->
 test_extract_batch_client_result(ClientId, Results) ->
     extract_batch_client_result(ClientId, Results).
 
-%% Hook callback
+%% System topic handler
 -doc """
 Handle $SETOPTS system topics and prevent routing to subscribers.
 Known keepalive updates are applied; unknown $SETOPTS topics are
-ignored with a warning. Non-$SETOPTS publishes pass through.
+ignored with a warning.
 """.
-on_message_publish(#message{topic = <<"$SETOPTS/", _/binary>>} = Msg) ->
-    handle_setopts(Msg);
-on_message_publish(_Msg) ->
-    ok.
+on_message_publish(#message{} = Msg) ->
+    handle_setopts(Msg).
 
 %% gen_server callbacks
 init([]) ->
     process_flag(trap_exit, true),
-    ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_SYS_MSGS),
+    ok = emqx_sys_msg_dispatch:register(?TOPIC_PREFIX, {?MODULE, on_message_publish, []}),
     {ok, #{}}.
 
 handle_call(_Req, _From, State) ->
@@ -175,7 +173,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish, []}),
+    ok = emqx_sys_msg_dispatch:unregister(?TOPIC_PREFIX),
     ok.
 
 %% Internal helpers

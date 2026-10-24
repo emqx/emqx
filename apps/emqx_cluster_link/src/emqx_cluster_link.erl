@@ -30,7 +30,6 @@
 
 -include("emqx_cluster_link.hrl").
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -141,10 +140,10 @@ on_message_publish(_Msg) ->
     ok.
 
 put_hook() ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_SYS_MSGS).
+    emqx_sys_msg_dispatch:register(<<?TOPIC_PREFIX>>, {?MODULE, on_message_publish, []}).
 
 delete_hook() ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish, []}).
+    emqx_sys_msg_dispatch:unregister(<<?TOPIC_PREFIX>>).
 
 %%--------------------------------------------------------------------
 %% Internal functions
