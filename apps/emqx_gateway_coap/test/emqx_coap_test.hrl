@@ -41,5 +41,6 @@
     statval,
     stat_reader,
     idle_milliseconds = 0,
-    max_idle_millisecond
+    max_idle_millisecond,
+    till_deadline
 }).
