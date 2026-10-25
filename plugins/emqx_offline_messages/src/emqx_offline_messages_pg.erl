@@ -44,7 +44,7 @@ start(Config) ->
     ),
     case
         emqx_extsub_handler_registry:register(
-            emqx_offline_messages_pg_extsub,
+            emqx_omp_pg_extsub,
             #{multi_topic => false, handle_generic_messages => true}
         )
     of
@@ -78,7 +78,7 @@ stop() ->
     ),
     case config() of
         undefined -> ok;
-        _ -> emqx_extsub_handler_registry:unregister(emqx_offline_messages_pg_extsub)
+        _ -> emqx_extsub_handler_registry:unregister(emqx_omp_pg_extsub)
     end,
     persistent_term:erase(?MODULE),
     %% Stop the pools, writers and cleanup worker.

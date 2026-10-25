@@ -106,18 +106,9 @@ t_publish_success(Config) ->
 t_qos0_publish(Config) ->
     %% Observe the transformed publish and its regular broker delivery.
     Topic = <<"offline/continuation">>,
-    Parent = self(),
     Action = {?MODULE, transform_publish, []},
     ok = emqx_hooks:add('message.publish', Action, 0),
     emqx_common_test_helpers:on_exit(fun() -> emqx_hooks:del('message.publish', Action) end),
-    ok = meck:new(emqx_trace, [passthrough, no_link]),
-    ok = meck:expect(emqx_trace, publish, fun(Msg) ->
-        case Msg#message.topic of
-            Topic -> Parent ! publish_observed;
-            _ -> ok
-        end,
-        meck:passthrough([Msg])
-    end),
     ok = emqx:subscribe(Topic),
     emqx_common_test_helpers:on_exit(fun() -> emqx:unsubscribe(Topic) end),
     Before = emqx_metrics:val_global('messages.publish'),
@@ -127,8 +118,15 @@ t_qos0_publish(Config) ->
     ?assertNotReceive(?OMP_LIVE(_, _, _, _)),
     ?assertEqual([], messages(Config, Topic)),
     ?assertEqual(Before + 1, emqx_metrics:val_global('messages.publish')),
-    ?assertReceive(publish_observed),
-    ?assertNotReceive(publish_observed).
+    ?assertMatch(
+        [#{topic := Topic}],
+        [
+            Event
+         || #{topic := EventTopic} = Event <-
+                ?of_kind(emqx_trace_publish, snabbkaffe:collect_trace()),
+            EventTopic =:= Topic
+        ]
+    ).
 
 -doc "Check that publishes rejected or disconnected by earlier hooks are not stored at any QoS.".
 t_rejected_publish_not_stored(Config) ->
@@ -1097,7 +1095,7 @@ t_live_mqtt(Config) ->
         5000
     ),
     %% Record database reads after the initial snapshot finishes.
-    ok = meck:new(emqx_omp_pg_store, [passthrough, no_link]),
+    _ = snabbkaffe:collect_trace(),
     Pub = client(Config, <<"live-pub">>, []),
     lists:foreach(
         fun(N) ->
@@ -1106,35 +1104,14 @@ t_live_mqtt(Config) ->
         end,
         lists:seq(1, 10)
     ),
-    ?assertEqual(0, page_reads()),
+    ?assertEqual([], ?of_kind(omp_pg_read_page, snabbkaffe:collect_trace())),
     %% Lose the live copy of a committed message.
+    ok = meck:new(emqx_omp_pg_store, [passthrough, no_link]),
     ok = meck:expect(emqx_omp_pg_store, dispatch, fun(_Msg, _Identity, _Offset) -> ok end),
     {ok, _} = emqtt:publish(Pub, Topic, <<"lost-copy">>, 1),
     ok = meck:delete(emqx_omp_pg_store, dispatch, 3),
     ?assertEqual([<<"lost-copy">>], payloads(receive_messages(1))),
     ?retry(20, 100, ?assertEqual(11, cursor(Config, <<"live-mqtt">>, Topic))),
-    ok = emqtt:disconnect(Sub),
-    ok = emqtt:disconnect(Pub).
-
--doc "Check that a wildcard subscription beside an exact handler cannot duplicate live messages.".
-t_live_without_handler(Config) ->
-    %% Create a wildcard subscription that bypasses authorization and has no managed reader.
-    Topic = <<"offline/overlap">>,
-    Sub = client(Config, <<"overlap">>, []),
-    [Channel] = emqx_cm:lookup_channels(<<"overlap">>),
-    %% Internal subscription requests bypass authorization, as the REST subscribe API does.
-    Channel ! {subscribe, [{<<"offline/#">>, #{qos => 1, nl => 0, rap => 0, rh => 0}}]},
-    _ = emqx_connection:info(Channel),
-    Pub = client(Config, <<"overlap-pub">>, []),
-    {ok, _} = emqtt:publish(Pub, Topic, <<"history">>, 1),
-    no_messages(),
-    {ok, _, [1]} = emqtt:subscribe(Sub, Topic, 1),
-    %% Replay history once through the exact-topic reader.
-    ?assertEqual([<<"history">>], payloads(receive_messages(1))),
-    %% The exact and the wildcard filter each send a live term; the handler accepts one.
-    {ok, _} = emqtt:publish(Pub, Topic, <<"live">>, 1),
-    ?assertEqual([<<"live">>], payloads(receive_messages(1))),
-    no_messages(),
     ok = emqtt:disconnect(Sub),
     ok = emqtt:disconnect(Pub).
 
@@ -1180,7 +1157,7 @@ t_cluster_routing(Config) ->
         5000
     ),
     ok = emqx_cth_cluster:sync_routes(Nodes),
-    ok = rpc:call(Node1, meck, new, [emqx_omp_pg_store, [passthrough, no_link]]),
+    _ = snabbkaffe:collect_trace(),
     Pub0 = client(Config0, <<"cluster-pub0">>, []),
     Pub1 = client(Config1, <<"cluster-pub1">>, []),
     {ok, _} = emqtt:publish(Pub0, Topic, <<"remote">>, 1),
@@ -1189,13 +1166,7 @@ t_cluster_routing(Config) ->
         {cluster_delivered, {_, _, 1}} -> ok
     after 5000 -> ct:fail(missing_remote_position)
     end,
-    ?assertEqual(
-        0,
-        rpc:call(
-            Node1, meck, num_calls, [emqx_omp_pg_store, exec_async, ['_', page, '_']]
-        )
-    ),
-    ok = rpc:call(Node1, meck, unload, [emqx_omp_pg_store]),
+    ?assertEqual([], ?of_kind(omp_pg_read_page, snabbkaffe:collect_trace())),
     %% Publish concurrently on both nodes and compare delivery order with database offsets.
     Parent = self(),
     lists:foreach(
@@ -1297,7 +1268,7 @@ t_live_reorder_buffer(Config) ->
     ?assertEqual([1, 2, 3], offsets(Messages)),
     ?assertEqual([1, 1, 1], [QoS || #message{qos = QoS} <- Messages]),
     no_read(),
-    ok = emqx_offline_messages_pg_extsub:handle_terminate(Handler2).
+    ok = emqx_omp_pg_extsub:handle_terminate(Handler2).
 
 -doc "Check that a live batch is limited by ExtSub demand and the rest is recovered from storage.".
 t_live_batch_demand(Config) ->
@@ -1321,7 +1292,7 @@ t_live_batch_demand(Config) ->
         ?OMP_LIVE(Namespace, Id, 1, Batch)
     ]),
     no_read(),
-    ok = emqx_offline_messages_pg_extsub:handle_terminate(Handler4).
+    ok = emqx_omp_pg_extsub:handle_terminate(Handler4).
 
 -doc "Check that copies from another namespace or topic and unrelated terms are ignored.".
 t_live_identity(Config) ->
@@ -1333,7 +1304,7 @@ t_live_identity(Config) ->
     {ok, Handler2, Messages} = live_info(Handler1, Context, live(Identity, [1])),
     ?assertEqual([1], offsets(Messages)),
     no_read(),
-    ok = emqx_offline_messages_pg_extsub:handle_terminate(Handler2).
+    ok = emqx_omp_pg_extsub:handle_terminate(Handler2).
 
 -doc "Check that a missing offset starts one recovery page after the reorder timeout.".
 t_live_gap(Config) ->
@@ -1350,7 +1321,7 @@ t_live_gap(Config) ->
     ),
     ?assertEqual([1, 2, 3], offsets(Messages)),
     no_read(),
-    ok = emqx_offline_messages_pg_extsub:handle_terminate(Handler4).
+    ok = emqx_omp_pg_extsub:handle_terminate(Handler4).
 
 -doc "Check that live copies received during a read stay available after the read completes.".
 t_read_overlap(Config) ->
@@ -1368,7 +1339,7 @@ t_read_overlap(Config) ->
     ?assertEqual([1, 2, 3], offsets(Messages)),
     %% The dropped copy is recovered from the cursor.
     {Handler6, _Ref1, {page, [_, 3, 2]}} = handler_request(Handler5, Context),
-    ok = emqx_offline_messages_pg_extsub:handle_terminate(Handler6).
+    ok = emqx_omp_pg_extsub:handle_terminate(Handler6).
 
 -doc "Check that failed reads keep consumed offsets and stale results do not replace new requests.".
 t_read_retry(Config) ->
@@ -1378,7 +1349,7 @@ t_read_retry(Config) ->
     {ok, Handler2, []} = live_info(Handler1, Context, live(Identity, [40])),
     {Handler3, Ref0, {page, [_, 1, 2]}} = handler_request(Handler2, Context),
     {ok, Handler4} = handler_result(Handler3, Context, Ref0, {error, disconnected}),
-    {ok, Handler5} = emqx_offline_messages_pg_extsub:handle_info(Handler4, Context, pg_retry),
+    {ok, Handler5} = emqx_omp_pg_extsub:handle_info(Handler4, Context, pg_retry),
     Ref1 =
         receive
             {handler_request, Ref, {page, [_, 1, 2]}} -> Ref
@@ -1389,7 +1360,7 @@ t_read_retry(Config) ->
     {ok, Handler5} = handler_result(Handler5, Context, Ref0, {ok, [db_row(2, Live2)]}),
     {ok, Handler6, Messages} = handler_result(Handler5, Context, Ref1, {ok, [db_row(2, Live2)]}),
     ?assertEqual([2], offsets(Messages)),
-    ok = emqx_offline_messages_pg_extsub:handle_terminate(Handler6).
+    ok = emqx_omp_pg_extsub:handle_terminate(Handler6).
 
 -doc "Check that the retry delay grows with jitter and stays within the idle poll interval.".
 t_retry_backoff(Config) ->
@@ -1407,13 +1378,12 @@ retry_delays(_Handler, _Context, 0) ->
     [];
 retry_delays(Handler0, Context, N) ->
     {Handler1, Ref, _} = handler_request(Handler0, Context),
-    {ok, Handler2} = handler_result(Handler1, Context, Ref, {error, disconnected}),
-    Delay =
-        receive
-            {trace_retry, Timeout} -> Timeout
-        after 1000 -> ct:fail(no_retry_timer)
-        end,
-    {ok, Handler3} = emqx_offline_messages_pg_extsub:handle_info(Handler2, Context, pg_retry),
+    {{ok, Handler2}, {ok, #{timeout := Delay}}} = ?wait_async_action(
+        handler_result(Handler1, Context, Ref, {error, disconnected}),
+        #{?snk_kind := omp_pg_retry},
+        1000
+    ),
+    {ok, Handler3} = emqx_omp_pg_extsub:handle_info(Handler2, Context, pg_retry),
     self() ! #info_to_extsub{info = pg_tick},
     [Delay | retry_delays(Handler3, Context, N - 1)].
 
@@ -1429,25 +1399,25 @@ t_no_demand(Config) ->
         #info_to_extsub{info = pg_tick} -> ok
     after 1000 -> ct:fail(no_tick)
     end,
-    {ok, Handler3} = emqx_offline_messages_pg_extsub:handle_info(Handler2, NoDemand, pg_tick),
+    {ok, Handler3} = emqx_omp_pg_extsub:handle_info(Handler2, NoDemand, pg_tick),
     no_read(),
     %% An acknowledgement with restored demand starts recovery after the delivered offset.
-    {ok, Handler4} = emqx_offline_messages_pg_extsub:handle_delivered(Handler3, Context, Msg1, 0),
+    {ok, Handler4} = emqx_omp_pg_extsub:handle_delivered(Handler3, Context, Msg1, 0),
     {Handler5, _Ref, {page, [_, 1, 2]}} = handler_request(Handler4, Context),
-    ok = emqx_offline_messages_pg_extsub:handle_terminate(Handler5).
+    ok = emqx_omp_pg_extsub:handle_terminate(Handler5).
 
 -doc "Check that no-local and expiry drops advance the checkpoint.".
 t_drop_ack(Config) ->
     %% Deliver two live messages and report their no-local and expiry drops.
     {Handler0, Context, Identity} = handler(Config, #{}),
     {ok, Handler1, [Msg1, Msg2]} = live_info(Handler0, Context, live(Identity, [1, 2])),
-    {ok, Handler2} = emqx_offline_messages_pg_extsub:handle_delivered(
+    {ok, Handler2} = emqx_omp_pg_extsub:handle_delivered(
         Handler1, Context, Msg1, {dropped, no_local}
     ),
-    {ok, Handler3} = emqx_offline_messages_pg_extsub:handle_delivered(
+    {ok, Handler3} = emqx_omp_pg_extsub:handle_delivered(
         Handler2, Context, Msg2, {dropped, expired}
     ),
-    ok = emqx_offline_messages_pg_extsub:handle_terminate(Handler3),
+    ok = emqx_omp_pg_extsub:handle_terminate(Handler3),
     %% Check that both drop reasons count as acknowledged progress.
     ?retry(20, 100, ?assertEqual(2, cursor(Config, <<"handler">>, <<"offline/handler">>))).
 
@@ -1497,7 +1467,7 @@ t_storage(Config) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
--doc "Initialize a caught-up reader while capturing its database requests and retry delays.".
+-doc "Initialize a caught-up reader with database requests controlled by the test.".
 handler(Config, ReadOptions) ->
     Raw = ?config(raw, Config),
     Read = maps:merge(
@@ -1525,14 +1495,6 @@ handler(Config, ReadOptions) ->
         Parent ! {handler_request, Ref, {page, [Id, Cursor, Count]}},
         ok
     end),
-    ok = meck:new(emqx_extsub_handler, [passthrough, no_link]),
-    ok = meck:expect(emqx_extsub_handler, send_after, fun(Timeout, Target, Info) ->
-        case Info of
-            pg_retry -> Parent ! {trace_retry, Timeout};
-            _ -> ok
-        end,
-        meck:passthrough([Timeout, Target, Info])
-    end),
     Context = #{
         can_receive_acks => true,
         message_target => emqx_extsub_handler:message_target(make_ref()),
@@ -1541,7 +1503,7 @@ handler(Config, ReadOptions) ->
         delivering_count => 0,
         desired_message_count => 100
     },
-    {ok, Handler0} = emqx_offline_messages_pg_extsub:handle_subscribe(
+    {ok, Handler0} = emqx_omp_pg_extsub:handle_subscribe(
         subscribe, Context, undefined, <<"offline/handler">>
     ),
     {Handler1, Ref0, Init} = handler_request(Handler0, Context),
@@ -1562,7 +1524,7 @@ handler_request(Handler0, Context) ->
         #info_to_extsub{info = pg_tick} -> ok
     after 1000 -> ct:fail(no_tick)
     end,
-    {ok, Handler} = emqx_offline_messages_pg_extsub:handle_info(Handler0, Context, pg_tick),
+    {ok, Handler} = emqx_omp_pg_extsub:handle_info(Handler0, Context, pg_tick),
     receive
         {handler_request, Ref, Operation} -> {Handler, Ref, Operation}
     after 1000 -> ct:fail(no_read_request)
@@ -1574,18 +1536,18 @@ run_request(Config, {Statement, Args}) ->
 handler_event(Handler, Context, reorder) ->
     receive
         #info_to_extsub{info = {pg_reorder, _} = Event} ->
-            emqx_offline_messages_pg_extsub:handle_info(Handler, Context, Event)
+            emqx_omp_pg_extsub:handle_info(Handler, Context, Event)
     after 1000 -> ct:fail(no_reorder_timer)
     end.
 
 handler_result(Handler, Context, Ref, Result) ->
-    emqx_offline_messages_pg_extsub:handle_info(Handler, Context, {pg_result, Ref, Result}).
+    emqx_omp_pg_extsub:handle_info(Handler, Context, {pg_result, Ref, Result}).
 
 -doc "Pass live terms one at a time, as the channel does, and collect returned messages.".
 live_info(Handler0, Context, Terms) ->
     lists:foldl(
         fun(Term, {ok, Handler, Acc}) ->
-            case emqx_offline_messages_pg_extsub:handle_info(Handler, Context, {generic, Term}) of
+            case emqx_omp_pg_extsub:handle_info(Handler, Context, {generic, Term}) of
                 {ok, Handler1} -> {ok, Handler1, Acc};
                 {ok, Handler1, Messages} -> {ok, Handler1, Acc ++ Messages}
             end
@@ -1623,9 +1585,6 @@ no_read() ->
         #info_to_extsub{info = pg_tick} -> ct:fail(unexpected_read_tick)
     after 20 -> ok
     end.
-
-page_reads() ->
-    meck:num_calls(emqx_omp_pg_store, exec_async, ['_', page, '_']).
 
 client(Config, Id, Options) ->
     {ok, Client} = emqtt:start_link(

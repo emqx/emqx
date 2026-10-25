@@ -337,4 +337,3 @@ The load probe measures database reads and delivery latency. Run it on an otherw
 It checks that idle subscriptions read PostgreSQL about once per poll interval,
 that subscribers that are up to date receive new messages without database reads,
 and that a stalled subscriber loses no messages.
-It prints the measured latency and writes all measurements to `delivery-probe.eterm` in the test's private directory.

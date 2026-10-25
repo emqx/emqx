@@ -15,6 +15,7 @@ The backend uses three pools:
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_omp_pg.hrl").
 
 -export([pool_specs/1, connect/1, install/1, encode/1, decode/3, dispatch/3]).
@@ -154,6 +155,7 @@ subscribe_async(Namespace, ClientId, Topic, SubOpts, Start, Target, Ref) ->
     term(), topic_id(), offset(), pos_integer(), emqx_extsub_handler:message_target(), reference()
 ) -> ok.
 page_async(Key, TopicId, Cursor, Count, Target, Ref) ->
+    ?tp(omp_pg_read_page, #{topic_id => TopicId, cursor => Cursor, count => Count}),
     async(?MESSAGE_READ_POOL, Key, page, [TopicId, Cursor, Count], Target, Ref).
 
 -doc "Run a statement on a pool connection and return errors instead of raising them.".

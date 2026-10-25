@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_offline_messages_pg_extsub).
+-module(emqx_omp_pg_extsub).
 -moduledoc "Ordered QoS 1 delivery of live copies with database recovery.".
 -behaviour(emqx_extsub_handler).
 -include_lib("emqx/include/emqx.hrl").
@@ -447,6 +447,7 @@ retry(#h{retry_timer = undefined, target = Target, retry_delay = Previous} = Han
             _ -> min(2 * Previous, Interval)
         end,
     Jittered = Delay div 2 + rand:uniform(Delay),
+    ?tp(omp_pg_retry, #{timeout => Jittered}),
     Handler#h{
         retry_delay = Delay,
         retry_timer = emqx_extsub_handler:send_after(Jittered, Target, pg_retry)
