@@ -62,7 +62,9 @@
 
 %% Export for connection modules
 -export([
-    shutdown_count/2
+    shutdown_count/2,
+    hibernate/1,
+    wakeup/1
 ]).
 
 %% Export for DS session GC worker and session implementations
@@ -2201,6 +2203,23 @@ handle_timeout(
         {error, timeout} ->
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{keepalive = undefined}) ->
+    {ok, Channel};
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{timers = #{keepalive := _}}) ->
+    %% A packet or a keepalive update re-armed the sampling first.
+    {ok, Channel};
+handle_timeout(TRef, keepalive_deadline, Channel = #channel{timers = #{keepalive_deadline := _}}) ->
+    %% The process did not hibernate, so wakeup/1 was not called.
+    handle_timeout(TRef, keepalive_deadline, wakeup(Channel));
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{keepalive = KeepAlive}) ->
+    case emqx_keepalive:check_deadline(KeepAlive) of
+        {ok, NKeepAlive} ->
+            {ok, ensure_timer(keepalive, Channel#channel{keepalive = NKeepAlive})};
+        {error, timeout} ->
+            handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
+    end;
 handle_timeout(
     _TRef,
     TimerName,
@@ -3592,14 +3611,68 @@ ensure_keepalive_timer(
     KeepAlive = emqx_keepalive:init(Zone, Val, Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = KeepAlive}).
 
-clear_keepalive(Channel = #channel{timers = Timers}) ->
-    case maps:get(keepalive, Timers, undefined) of
-        undefined ->
-            Channel;
-        TRef ->
-            emqx_utils:cancel_timer(TRef),
-            Channel#channel{timers = maps:without([keepalive], Timers)}
-    end.
+clear_keepalive(Channel) ->
+    clean_timer(keepalive_deadline, clean_timer(keepalive, Channel)).
+
+-doc """
+Prepare the channel for the hibernation of its connection process.
+
+A hibernated process gets no packets, so the keepalive does not need to
+sample the receive counter. Replace the sampling timer with one timer that
+fires when the client is late.
+""".
+-spec hibernate(channel()) -> channel().
+hibernate(
+    Channel = #channel{
+        conn_state = connected,
+        conninfo = ConnInfo,
+        keepalive = KeepAlive,
+        timers = #{keepalive := TRef} = Timers
+    }
+) when KeepAlive =/= undefined ->
+    case
+        not is_map_key(conn_shared_state, ConnInfo) andalso
+            erlang:cancel_timer(TRef)
+    of
+        Remaining when is_integer(Remaining) ->
+            SinceArm = max(emqx_keepalive:info(check_interval, KeepAlive) - Remaining, 0),
+            {TillDeadline, NKeepAlive} = emqx_keepalive:hibernate(SinceArm, KeepAlive),
+            NChannel = Channel#channel{
+                keepalive = NKeepAlive, timers = maps:remove(keepalive, Timers)
+            },
+            ensure_timer(keepalive_deadline, TillDeadline, NChannel);
+        false ->
+            %% Not eligible, or the timer already fired and its message wakes
+            %% the process at once.
+            Channel
+    end;
+hibernate(Channel) ->
+    Channel.
+
+-doc """
+Restore the keepalive sampling after the connection process wakes up.
+
+When the deadline timer already fired, credit the whole deadline and do
+not flush: its message is in the mailbox, and `handle_timeout/3` checks it.
+""".
+-spec wakeup(channel()) -> channel().
+wakeup(
+    Channel = #channel{
+        keepalive = KeepAlive, timers = #{keepalive_deadline := TRef} = Timers
+    }
+) when KeepAlive =/= undefined ->
+    NTimers = maps:remove(keepalive_deadline, Timers),
+    case erlang:cancel_timer(TRef) of
+        Remaining when is_integer(Remaining) ->
+            NKeepAlive = emqx_keepalive:wakeup(Remaining, KeepAlive),
+            ensure_timer(keepalive, Channel#channel{keepalive = NKeepAlive, timers = NTimers});
+        false ->
+            NKeepAlive = emqx_keepalive:wakeup(0, KeepAlive),
+            Channel#channel{keepalive = NKeepAlive, timers = NTimers}
+    end;
+wakeup(Channel) ->
+    Channel.
+
 %%--------------------------------------------------------------------
 %% Maybe Resume Session
 

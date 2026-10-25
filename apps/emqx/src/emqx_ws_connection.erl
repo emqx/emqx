@@ -74,6 +74,8 @@
     %% Set when the connection handles a frame or a message, cleared when the
     %% hibernate timer fires
     recently_active = false :: boolean(),
+    %% Set when the connection returns `hibernate`, cleared by the next callback
+    hibernated = false :: boolean(),
     %% Zone name
     zone :: atom(),
     %% Listener Type and Name
@@ -370,6 +372,8 @@ get_peer_info(Type, Listener, Req, Opts) ->
             {get_peer(Req, Opts), cowboy_req:cert(Req), Host}
     end.
 
+websocket_handle(Frame, State = #state{hibernated = true}) ->
+    websocket_handle(Frame, wakeup(State));
 websocket_handle(Frame, State) ->
     handle_ws_frame(Frame, mark_active(State)).
 
@@ -386,6 +390,8 @@ handle_ws_frame({Frame, _}, State) ->
     ?LOG(error, #{msg => "unexpected_frame", frame => Frame}),
     {[{shutdown, unexpected_ws_frame}], State}.
 
+websocket_info(Info, State = #state{hibernated = true}) ->
+    websocket_info(Info, wakeup(State));
 %% A timer message is not activity. A connection that only wakes up for its own
 %% timers goes back to hibernation. Arm the hibernate timer again here, because
 %% a timer can fire while the connection is hibernated.
@@ -500,8 +506,13 @@ handle_timeout(
 ) ->
     NState = State#state{hibernate_timer = undefined, recently_active = false},
     {ok, ensure_hibernate_timer(NState)};
-handle_timeout(TRef, hibernate, State = #state{hibernate_timer = TRef}) ->
-    {ok, State#state{hibernate_timer = undefined}, hibernate};
+handle_timeout(TRef, hibernate, State = #state{hibernate_timer = TRef, channel = Channel}) ->
+    NState = State#state{
+        hibernate_timer = undefined,
+        hibernated = true,
+        channel = emqx_channel:hibernate(Channel)
+    },
+    {ok, NState, hibernate};
 handle_timeout(_TRef, hibernate, State) ->
     {ok, State};
 handle_timeout(
@@ -950,6 +961,9 @@ mark_active(State = #state{recently_active = true}) ->
     State;
 mark_active(State) ->
     ensure_hibernate_timer(State#state{recently_active = true}).
+
+wakeup(State = #state{channel = Channel}) ->
+    State#state{hibernated = false, channel = emqx_channel:wakeup(Channel)}.
 
 ensure_hibernate_timer(State = #state{hibernate_after = infinity}) ->
     State;

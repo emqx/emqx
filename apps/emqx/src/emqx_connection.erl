@@ -478,12 +478,12 @@ handle_recv(Msg, Parent, State) ->
             terminate(Reason, NewState)
     end.
 
-hibernate(Parent, State) ->
-    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
+hibernate(Parent, State = #state{channel = Channel}) ->
+    NState = State#state{channel = emqx_channel:hibernate(Channel)},
+    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, NState]).
 
-%% Maybe do something here later.
-wakeup_from_hib(Parent, State) ->
-    ?MODULE:recvloop(Parent, State).
+wakeup_from_hib(Parent, State = #state{channel = Channel}) ->
+    ?MODULE:recvloop(Parent, State#state{channel = emqx_channel:wakeup(Channel)}).
 
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
