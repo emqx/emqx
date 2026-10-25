@@ -42,6 +42,7 @@
 
 -export([
     match_routes/1,
+    has_routes/1,
     lookup_routes/1
 ]).
 
@@ -270,6 +271,14 @@ match_routes(Topic) when is_binary(Topic) ->
 -spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
     lookup_routes_v2(Topic).
+
+%% @doc Take a real topic (not filter) as input, and tell whether any route matches it.
+%% Stops at the first match, so it is cheaper than `match_routes/1` when only the
+%% existence of a route matters.
+-spec has_routes(emqx_types:topic()) -> boolean().
+has_routes(Topic) when is_binary(Topic) ->
+    ets:member(route_table(), Topic) orelse
+        false =/= emqx_topic_index:match(Topic, route_filters_table()).
 
 -spec has_route(emqx_types:topic(), dest()) -> boolean().
 has_route(Topic, Dest) ->

@@ -305,7 +305,7 @@ publish_event(Event, ClientInfo, MkPayload) ->
     end.
 
 has_consumer(Topic) ->
-    emqx_router:match_routes(Topic) =/= [] orelse
+    emqx_router:has_routes(Topic) orelse
         not emqx_config:get([rule_engine, ignore_sys_message], true).
 
 %%--------------------------------------------------------------------
