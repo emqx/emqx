@@ -63,12 +63,14 @@ postgresql {
     namespace = ""
     topics = []
     init_default_schema = false
+    async_batched = false
     max_topic_length = 1024
     new_subscription_start = earliest
     query_timeout = 5000
     set_statement_timeout = true
-    write_pool_size = 8
-    read_pool_size = 8
+    message_publish_pool_size = 8
+    message_read_pool_size = 8
+    subscription_meta_pool_size = 8
     writer {
         pool_size = 4
         min_flush_timeout = 5
@@ -79,7 +81,6 @@ postgresql {
     }
     read {
         page_max_messages = 100
-        window = 1000
         reorder_max_distance = 32
         reorder_timeout = 50
         idle_poll_interval = 30000

@@ -17,6 +17,8 @@ The worker uses its own connection, so cleanup never waits behind appends.
 -define(DELETE_BATCH, 1000).
 -define(EXPIRE_INTERVAL, 3600000).
 
+-doc "Start the cleanup worker.".
+-spec start_link(emqx_omp_pg_config:config()) -> gen_server:start_ret().
 start_link(Config) -> gen_server:start_link(?MODULE, Config, []).
 
 init(#{retention := #{interval := Interval}} = Config) ->
@@ -31,7 +33,7 @@ handle_cast(_Request, State) -> {noreply, State}.
 
 handle_info(cleanup, #{config := #{retention := #{interval := Interval}}} = State0) ->
     {Delay, State} =
-        case leader() of
+        case is_leader() of
             true -> run(fun cleanup/2, State0, Interval);
             false -> {Interval, State0}
         end,
@@ -39,7 +41,7 @@ handle_info(cleanup, #{config := #{retention := #{interval := Interval}}} = Stat
     {noreply, State};
 handle_info(expire, State0) ->
     {Delay, State} =
-        case leader() of
+        case is_leader() of
             true -> run(fun expire/2, State0, ?EXPIRE_INTERVAL);
             false -> {?EXPIRE_INTERVAL, State0}
         end,
@@ -57,10 +59,9 @@ terminate(_Reason, #{conn := Conn}) ->
 %% Private
 %%------------------------------------------------------------------------------
 
-leader() -> lists:min(emqx:running_nodes()) =:= node().
+is_leader() -> lists:min(emqx:running_nodes()) =:= node().
 
-%% Run one cleanup step and return the delay before the next step.
-%% On failure, drop the connection and retry after `Interval`.
+-doc "Run one cleanup step and reconnect after the configured interval if it fails.".
 run(Fun, #{config := Config, conn := Conn0} = State0, Interval) ->
     case connection(Conn0, Config) of
         {ok, Conn} ->
@@ -78,8 +79,9 @@ run(Fun, #{config := Config, conn := Conn0} = State0, Interval) ->
     end.
 
 failed(Reason) ->
-    ?SLOG_THROTTLE(warning, #{msg => offline_messages_pg_cleanup_failed, reason => Reason}).
+    ?SLOG(warning, #{msg => offline_messages_pg_cleanup_failed, reason => Reason}).
 
+-doc "Reuse the current connection or report a failed reconnect without stopping cleanup.".
 connection(undefined, Config) ->
     try emqx_omp_pg_store:connect(Config) of
         {ok, Conn} -> {ok, Conn};
@@ -97,11 +99,10 @@ close(Conn) ->
     _ = catch epgsql:close(Conn),
     ok.
 
-%% Process one batch of topics. Continue with the next batch soon, or restart
-%% from the first topic after the retention interval.
+-doc "Process one topic batch and schedule the next batch or retention cycle.".
 cleanup(Conn, #{config := Config, last_topic := After} = State) ->
     #{namespace := Namespace, retention := #{interval := Interval}} = Config,
-    {ok, Topics} = emqx_omp_pg_store:run(Conn, {topics, Namespace, After, ?TOPIC_BATCH}),
+    {ok, Topics} = emqx_omp_pg_sql:topics(Conn, Namespace, After, ?TOPIC_BATCH),
     lists:foreach(fun({Id, Next}) -> trim(Conn, Id, Next, Config) end, Topics),
     case Topics of
         [_ | _] when length(Topics) =:= ?TOPIC_BATCH ->
@@ -111,28 +112,30 @@ cleanup(Conn, #{config := Config, last_topic := After} = State) ->
             {Interval, State#{last_topic := 0}}
     end.
 
+-doc "Combine age, count and consumed offsets to select the prefix eligible for deletion.".
 trim(Conn, Id, Next, Config) ->
     #{
         retention := #{max_age := MaxAge, max_messages := MaxMessages},
         new_subscription_start := Start
     } = Config,
     Oldest = erlang:system_time(millisecond) - MaxAge,
-    {ok, AgeCutoff} = emqx_omp_pg_store:run(Conn, {age_cutoff, Id, Next, Oldest}),
-    %% With `latest`, new subscriptions start at the tip, so completed messages are not needed.
+    {ok, AgeCutoff} = emqx_omp_pg_sql:age_cutoff(Conn, Id, Next, Oldest),
+    %% With `latest`, new subscriptions start at the tip, so acknowledged messages are not needed.
     Cutoffs =
         case Start of
             latest ->
-                {ok, Consumed} = emqx_omp_pg_store:run(Conn, {consumed_cutoff, Id, Next}),
+                {ok, Consumed} = emqx_omp_pg_sql:consumed_cutoff(Conn, Id, Next),
                 [Consumed];
             earliest ->
                 []
         end,
     Cutoff = lists:max([Next - MaxMessages, AgeCutoff | Cutoffs]),
-    {ok, _} = emqx_omp_pg_store:run(Conn, {trim, Id, Cutoff, ?DELETE_BATCH}),
+    {ok, _} = emqx_omp_pg_sql:trim(Conn, Id, Cutoff, ?DELETE_BATCH),
     ok.
 
+-doc "Delete expired subscriptions in batches until the current sweep is complete.".
 expire(Conn, #{config := #{namespace := Namespace, subscription_expiry := Expiry}} = State) ->
-    {ok, Removed} = emqx_omp_pg_store:run(Conn, {expire, Namespace, Expiry, ?DELETE_BATCH}),
+    {ok, Removed} = emqx_omp_pg_sql:expire(Conn, Namespace, Expiry, ?DELETE_BATCH),
     case Removed >= ?DELETE_BATCH of
         true -> {?NEXT_BATCH_DELAY, State};
         false -> {?EXPIRE_INTERVAL, State}

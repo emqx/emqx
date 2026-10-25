@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS mqtt_pg_message (
     PRIMARY KEY (topic_id, msg_offset)
 );
 
--- One row per client and topic with the last completed offset.
+-- One row per client and topic with the last acknowledged offset.
 -- Checkpoints change only unindexed columns, so the free page space lets them run as HOT updates.
 CREATE TABLE IF NOT EXISTS mqtt_pg_subscription (
     namespace text NOT NULL,
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS mqtt_pg_subscription (
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (namespace, client_id, topic_id)
 ) WITH (fillfactor = 80);
--- Used by cleanup to find the lowest completed offset of a topic.
+-- Used by cleanup to find the lowest acknowledged offset of a topic.
 CREATE INDEX IF NOT EXISTS mqtt_pg_subscription_topic ON mqtt_pg_subscription (topic_id);
 
 -- Append a JSON array and return the topic identity and first assigned offset.

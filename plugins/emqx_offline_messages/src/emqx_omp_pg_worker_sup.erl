@@ -20,6 +20,8 @@ child_spec(Id, Module, Count, Shutdown, Config) ->
         shutdown => infinity
     }.
 
+-spec start_link(module(), pos_integer(), timeout(), emqx_omp_pg_config:config()) ->
+    supervisor:startlink_ret().
 start_link(Module, Count, Shutdown, Config) ->
     supervisor:start_link(?MODULE, {Module, Count, Shutdown, Config}).
 

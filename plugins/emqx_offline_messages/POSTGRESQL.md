@@ -1,191 +1,208 @@
-# PostgreSQL offline messages
+# PostgreSQL backend
 
-The PostgreSQL backend stores every matching publish, including QoS 0 and messages with online subscribers.
-After commit, it sends a live copy of each message to the subscribers of its topic.
-Channel-local ExtSub handlers order live copies and recover missing messages from PostgreSQL.
-Each client has one durable cursor per topic. Acknowledgements never delete another client's messages.
+The PostgreSQL backend stores MQTT messages for a set of topics in PostgreSQL.
+It delivers them to subscribers that connect later, and it delivers them to online subscribers too.
+Each client keeps its own progress for each topic.
+A client that acknowledges a message does not remove that message for other clients.
+
+The configured topics are called *managed topics* in this document.
+
+## How it works
+
+1. A client publishes a QoS 1 or QoS 2 message to a managed topic.
+2. The plugin writes the message to PostgreSQL. The message gets the next number in the topic's sequence.
+   This number is the message *offset*.
+3. The plugin sends the stored message to the subscribers of the topic that are online.
+4. A subscriber that was offline receives the messages it missed when it connects again.
+5. When a subscriber acknowledges a message, the plugin saves the offset of that message for that client.
+   After a reconnect, delivery continues after the saved offset.
+6. A cleanup job deletes old messages by age and by count.
+
+QoS 0 messages to managed topics are not stored. The broker delivers them as usual.
 
 ## Requirements
 
-Use PostgreSQL 13 or later and an EMQX build with the ExtSub changes from #19668 and `emqx_broker:dispatch_info/2`.
-The plugin refuses to start when `emqx_broker:dispatch_info/2` is missing.
-Every node in the cluster must provide it. A node without it receives no live copies, and its subscribers recover messages through the idle poll.
-All nodes serving a namespace must run the same plugin build.
+- EMQX 7.0 or later on every node of the cluster.
+- PostgreSQL 13 or later.
+- The same plugin version and the same `namespace` and `topics` settings on all nodes that serve the same topics.
 
-Subscriptions to managed topics must use:
+## Quick start
 
-- an exact topic without a share prefix,
-- QoS 1,
-- an in-memory MQTT session.
+1. Create the schema. Run `priv/postgresql.sql` as the database owner:
 
-Authorization rejects other subscriptions that intersect the managed topic space with reason code `0x87`.
-This covers QoS 0 and QoS 2 subscriptions, wildcards, gateways and durable sessions.
-Authorization does not see the share prefix. A shared subscription to an exact managed topic succeeds and receives no managed messages.
-Publishers may use any QoS.
-Retained-message replay is separate from the ordered feed. Retained messages keep their own QoS.
+   ```sh
+   psql -h postgres.example.net -U owner -d mqtt -f priv/postgresql.sql
+   ```
 
-The REST subscribe API and auto-subscribe skip authorization. Do not use them for managed topics.
-A subscription created this way with a QoS other than 1 receives no managed messages.
-Enable the plugin or widen `topics` only when no durable or gateway subscription overlaps the managed topic space.
-Cluster links do not forward stored messages.
-An excluded subscriber that exists anyway is unsupported. It receives no stored messages.
+   For development, you can set `init_default_schema = true` instead.
+   The plugin then creates the schema with its own database account at startup.
 
-### Connection poolers
+2. Configure the `postgresql` section of the plugin configuration:
 
-The backend uses no PostgreSQL notifications or dedicated listener sessions.
-PgBouncer transaction mode has not been verified with the epgsql query path.
-When a pooler cannot preserve session settings, set `set_statement_timeout = false` and set the timeout on the role instead:
+   ```hocon
+   postgresql {
+       enable = true
+       host = "postgres.example.net"
+       port = 5432
+       database = "mqtt"
+       username = "emqx"
+       password = "secret"
+       namespace = "production"
+       topics = ["offline/#"]
+       ssl { enable = true, verify = verify_peer, cacertfile = "/certs/ca.pem" }
+   }
+   ```
 
-```sql
-ALTER ROLE emqx SET statement_timeout = '5s';
-```
+3. Subscribe with QoS 1 to an exact managed topic, for example `offline/device-1`.
 
-## Setup
+Clients that were connected before the backend started must connect or subscribe again.
 
-Run `priv/postgresql.sql` as the schema owner before enabling the backend.
-For development, `init_default_schema = true` installs the schema using the configured database account.
-The plugin checks schema version 1 at startup.
-This unreleased schema replaces earlier development schemas in place.
-Recreate development databases before using this build. There is no data migration.
-Use a separate database or schema-owner account for schema installation in production.
+## Subscribing
 
-Set the `postgresql` section of the plugin configuration:
+A subscription to a managed topic must meet all of these conditions:
 
-```hocon
-postgresql {
-    enable = true
-    host = "postgres.example.net"
-    port = 5432
-    database = "mqtt"
-    username = "emqx"
-    password = "secret"
-    namespace = "production"
-    topics = ["offline/#"]
-    ssl { enable = true, verify = verify_peer, cacertfile = "/certs/ca.pem" }
-}
-```
+- The topic is exact. It has no `+` or `#` wildcards.
+- The subscription QoS is 1.
+- The client uses MQTT and a regular in-memory session. Durable sessions are not supported.
 
-`namespace` isolates deployments that share a database.
-All broker nodes serving the same feed must use the same namespace and topic configuration.
-Topic names refer to mounted broker topics.
-Do not configure overlapping MySQL or Redis topic spaces with PostgreSQL.
-Connect or subscribe again after enabling the backend to start consumption on existing clients.
+The broker rejects other subscriptions that overlap the managed topics with reason code `0x87` (not authorized).
+This includes QoS 0 and QoS 2 subscriptions, wildcard filters, gateway clients and durable sessions.
 
-Time values are milliseconds. Byte limits are bytes.
-The defaults are in `priv/config.hocon`.
+Some subscriptions cannot be easily checked by the plugin and receive no stored messages:
 
-| Settings | Purpose |
-| --- | --- |
-| `write_pool_size` | Connections for publish appends |
-| `read_pool_size` | Connections for subscriber operations: page reads, restore, subscribe, unsubscribe and checkpoints |
-| `query_timeout` | Connection and request timeout |
-| `set_statement_timeout` | Set the session `statement_timeout` to `query_timeout`. When `false`, the server, database or role default applies |
-| `max_topic_length` | Maximum managed topic length, default 1024 bytes, maximum 2048 |
-| `new_subscription_start` | `earliest` replays retained history; `latest` starts at the current tip |
-| `writer.pool_size` | Topic-affine QoS 0 batching workers |
-| `writer.min_flush_timeout`, `writer.max_flush_timeout` | Idle and maximum batch delay |
-| `writer.flush_max_messages`, `writer.flush_max_bytes` | Batch thresholds |
-| `writer.call_timeout` | Maximum QoS 0 buffer admission wait, and the writer shutdown time |
-| `read.page_max_messages` | Maximum rows per page |
-| `read.window` | Capacity for ExtSub delivery, the outstanding page and the reorder pocket |
-| `read.reorder_max_distance` | Maximum live offset distance and pocket size, default 32 |
-| `read.reorder_timeout` | Wait for a missing live copy before reading, default 50 milliseconds |
-| `read.idle_poll_interval` | Check idle subscriptions for missing messages, default 30000 milliseconds |
-| `checkpoint.interval`, `checkpoint.max_pending` | Progress write interval and the number of completed messages that triggers a write |
-| `retention.max_age`, `retention.max_messages`, `retention.interval` | Age limit, count limit per topic and cleanup interval |
-| `subscription_expiry` | Expire inactive subscription rows |
+- Shared subscriptions (`$share/...`) to an exact managed topic are accepted but receive nothing.
+- Subscriptions created through the REST API or auto-subscribe skip the check. Do not use them for managed topics.
 
-Each pool selects a connection by key: the topic for appends, the client ID for subscriber operations.
-Operations for one client therefore run in order on one connection.
-Subscriber operations never wait behind publish appends.
-Each subscription has at most one outstanding read and does not use its own process or connection.
-The cleanup worker uses its own connection.
-Only the first node in the sorted list of running broker nodes runs cleanup.
+Subscriptions are stored in PostgreSQL:
 
-## Delivery and recovery
+- When a client connects, the plugin restores its subscriptions to managed topics. This also happens after a clean start.
+- An explicit UNSUBSCRIBE deletes the stored subscription.
+- A repeated SUBSCRIBE keeps the stored progress.
+- A subscription that no client uses for `subscription_expiry` (30 days by default) is deleted.
 
-QoS 1/2 publishes commit before PUBACK/PUBREC and receive reason code `0x00`.
-A failed or uncertain write disconnects the publisher. A publisher retry can create another row.
-QoS 0 publishes return after buffer admission, before commit or the later dispatch is known.
-A failed flush drops the batch and increments `write_failed`.
-The writer flushes topic batches one after another. With many topics per writer, admission can exceed `writer.call_timeout` and disconnect the publisher.
-A timed-out admission still stores and dispatches the message later.
-Stopping the backend flushes the buffered QoS 0 messages within `writer.call_timeout`.
-After a writer crash, the buffered messages are dropped and counted in `write_failed`, so no batch is stored twice.
-Dispatch runs in the topic-affine writers. Large fan-out delays other topics assigned to the same writer.
+A new subscription starts according to `new_subscription_start`:
 
-When the backend is not running, publishes to managed topics fail and disconnect the publisher.
-This applies during a configuration reload and after a failed start.
-A failed start keeps the configuration and fails the plugin health check until a later configuration change starts the backend.
+- `earliest` (default): the client receives all stored messages of the topic.
+- `latest`: the client receives only messages published after it subscribed.
 
-The persistence hook runs at priority -1, after ordinary priority-0 publish hooks.
-It skips messages rejected by earlier hooks and stops the hook chain for managed publishes.
-Register message transformations before the persistence hook.
-The broker counts each managed publish once in `messages.publish`.
-It does not route the original message. Live copies run no route trace.
+## Publishing
 
-Each exact topic has one offset sequence for all publish QoS values.
-Subscribers receive every managed message at QoS 1, in offset order.
-Messages from one publisher at one QoS keep their publish order.
-A buffered QoS 0 publish can receive a higher offset than a later QoS 1 publish from the same client.
-Subscribers then receive the QoS 1 message first.
-[MQTT 5.0 section 4.6](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901240) requires ordering only per publisher and per publish QoS.
+Publishers can use any QoS.
+Only QoS 1 and QoS 2 messages are stored. QoS 0 messages are delivered by the broker as usual.
 
-MQTT clients acknowledge QoS 1 messages in order, so the plugin saves the latest completed offset.
-A completion is a PUBACK, a negative acknowledgement or a session drop such as no-local or expiry.
-QoS 1 delivery is at least once within retention.
-Checkpoints are sent without waiting for the result. A failed checkpoint is not retried.
-Unsaved progress and session takeover produce duplicates after a reconnect.
-Expired messages and invalid rows are skipped without blocking later messages.
+The `async_batched` setting chooses when the publisher receives its acknowledgement (PUBACK or PUBREC):
 
-Reconnect restores database subscriptions, including after MQTT clean start.
-Explicit unsubscribe deletes the database subscription.
-A repeated SUBSCRIBE keeps the stored options and progress.
-Failed reads keep the read and completed offsets and retry with exponential backoff and jitter, from one second up to `read.idle_poll_interval`.
-Consecutive live copies require no page read after initial catch-up.
-Small reorderings wait in a bounded pocket. A persistent gap triggers a page read.
-Idle subscriptions poll for messages at `read.idle_poll_interval`. The first poll after a subscription starts comes earlier by a random amount, which spreads polls after a mass reconnect.
-A direct SQL append or a commit whose live copy is lost is recovered by a later offset gap or an idle poll.
-The default recovery interval is 30 seconds. It is not an end-to-end delivery deadline.
-Poll scheduling, database outages, backlogs and client backpressure can delay delivery further.
-Each idle subscription performs approximately one page read per poll interval.
-Active subscriptions renew their subscription row every third of `subscription_expiry`.
+| `async_batched` | Acknowledgement | Risk |
+| --- | --- | --- |
+| `false` (default) | After the message is written to PostgreSQL | No loss. A failed write disconnects the publisher. If the write timed out but succeeded, the message may be stored twice. |
+| `true` | When the plugin accepts the message into its write buffer | The message is lost if the buffered write later fails. |
 
-The delivery window bounds accepted work, including the outstanding page and pocket entries.
-It does not bound live copies in a slow channel's mailbox. Existing channel overload limits still apply.
+With `async_batched = true`, the plugin writes buffered messages in batches.
+This gives higher throughput because many messages share one database transaction.
+The `writer.*` settings control the batch size and delay.
+
+When PostgreSQL is not available, the plugin disconnects publishers of QoS 1/2 messages to managed topics.
+It does not send these messages to subscribers without storing them.
+
+The HTTP publish API reports a stored message as a success, even when the topic has no subscribers.
+
+The retain flag gets no special handling. The broker's retainer stores retained messages as usual,
+and the plugin stores them as regular messages.
+
+## Delivery
+
+Subscribers receive every stored message at QoS 1, in offset order.
+
+Ordering follows the MQTT rules: messages from one publisher at one QoS keep their order.
+Messages from different publishers, or at different QoS levels, can be stored in any order.
+QoS 0 messages are not stored, so they can arrive before an earlier QoS 1/2 message.
+
+Delivery is at least once:
+
+- A client can receive a message again after a reconnect or a session takeover.
+  The plugin saves progress periodically, so the last acknowledged messages may be sent again.
+- The plugin skips expired messages and rows that it cannot decode.
+
+The plugin treats these events as acknowledgements of a message:
+
+- a PUBACK from the client, including one with an error reason code,
+- a session drop of the message, for example because of the no-local option or message expiry.
 
 ## Retention
 
-Cleanup processes the topics of the namespace in batches and deletes messages below a cutoff offset for each topic.
-The cutoff is the largest of these values:
+The cleanup job deletes old messages for each topic. A message is deleted when any of these is true:
 
-- the count limit: the topic tip minus `retention.max_messages`,
-- the age limit: the oldest message published within `retention.max_age`,
-- with `new_subscription_start = latest` only: the lowest completed offset of the topic's subscriptions, plus one.
+- The message is older than `retention.max_age` (7 days by default).
+- The topic has more than `retention.max_messages` newer messages (1,000,000 by default).
+- `new_subscription_start = latest`, and every subscription of the topic has acknowledged the message.
 
-With `earliest`, new subscriptions read the retained history, so cleanup keeps messages that all subscribers have completed.
-With `latest`, new subscriptions start at the tip, so cleanup also deletes messages that every current subscriber has completed.
-A topic without subscriptions then keeps no messages.
+With `earliest`, acknowledged messages stay until the age or count limit removes them, because a new subscriber reads them.
+With `latest`, a topic without subscriptions keeps no messages.
 
-The age limit removes an expired prefix. An expired message after a more recent one stays until the messages before it expire.
-This happens only when SQL producers append `published_at` values out of order.
-Deletes run in primary key ranges of at most 1000 offsets.
-Subscription expiry runs once per hour.
+The cleanup job runs every `retention.interval` (1 minute by default) on one node of the cluster.
 
-Reads return the available rows after the read cursor in offset order, so deleted rows are skipped.
-Do not update message rows or allocate offsets directly.
-Topic reset is not supported. To start a topic again, delete its message, subscription and topic rows while no client uses it.
+## Configuration
 
-The HTTP publish API returns success for a committed QoS 1/2 publish, including one with no subscribers.
-QoS 0 returns `202 no_matching_subscribers` after buffer admission.
+Durations are in milliseconds. Sizes are in bytes. The defaults are in `priv/config.hocon`.
 
-## SQL producers
+### Connection
 
-Use `omp_append(namespace, topic, messages)` in a short transaction.
-It returns the topic ID and first assigned offset after allocating and inserting the batch atomically.
-The batch must be nonempty. It may mix publish QoS values.
-Concurrent writers serialize on the counter row for that exact topic.
-Rollback releases the allocated offsets.
+| Setting | Description |
+| --- | --- |
+| `host`, `port`, `database`, `username`, `password` | PostgreSQL connection |
+| `ssl.*` | TLS. With TLS enabled, the plugin verifies the server certificate and host name by default |
+| `query_timeout` | Timeout of connections and database requests |
+| `set_statement_timeout` | Set the PostgreSQL `statement_timeout` of each connection to `query_timeout`. Set to `false` when a connection pooler does not keep session settings |
+| `message_publish_pool_size` | Connections for writing messages |
+| `message_read_pool_size` | Connections for reading messages for subscribers |
+| `subscription_meta_pool_size` | Connections for subscription changes and saved progress |
+
+### Topics and behavior
+
+| Setting | Description |
+| --- | --- |
+| `namespace` | Name that separates deployments that share one database |
+| `topics` | Topic filters of the managed topics. With a mountpoint, use the full topic name including the mountpoint |
+| `max_topic_length` | Maximum length of a managed topic name |
+| `new_subscription_start` | Where a new subscription starts: `earliest` or `latest` |
+| `async_batched` | Acknowledge publishers before the write. See [Publishing](#publishing) |
+| `subscription_expiry` | Delete stored subscriptions that are not used for this time |
+| `init_default_schema` | Create the schema at startup. Use for development only |
+
+### Write batching (`async_batched = true` only)
+
+| Setting | Description |
+| --- | --- |
+| `writer.pool_size` | Number of batch writers. Each topic always uses the same writer |
+| `writer.min_flush_timeout` | Write a batch when no new message arrives for this time |
+| `writer.max_flush_timeout` | Write a batch at the latest this long after its first message |
+| `writer.flush_max_messages`, `writer.flush_max_bytes` | Write a batch when it reaches this size |
+| `writer.call_timeout` | How long a publisher waits for the writer to accept a message |
+
+### Delivery tuning
+
+| Setting | Description |
+| --- | --- |
+| `read.page_max_messages` | Maximum number of messages read from PostgreSQL at once |
+| `read.idle_poll_interval` | How often an idle subscription checks PostgreSQL for missed messages |
+| `read.reorder_timeout`, `read.reorder_max_distance` | How long and for how many messages to wait for an out-of-order message before reading PostgreSQL |
+| `checkpoint.interval` | How often progress is saved |
+| `checkpoint.max_pending` | Save progress earlier after this many acknowledgements |
+
+### Retention
+
+| Setting | Description |
+| --- | --- |
+| `retention.max_age` | Delete messages older than this |
+| `retention.max_messages` | Keep at most this many messages per topic |
+| `retention.interval` | How often the cleanup job runs |
+
+Do not configure the MySQL or Redis backend for topics that the PostgreSQL backend manages.
+
+## Writing messages with SQL
+
+Applications can write messages to a managed topic directly in PostgreSQL with the `omp_append` function.
+Call it in a short transaction:
 
 ```sql
 SELECT * FROM omp_append('production', 'offline/example', '[{
@@ -195,16 +212,114 @@ SELECT * FROM omp_append('production', 'offline/example', '[{
 }]'::jsonb);
 ```
 
-Encode `message_id`, `payload` and the `Correlation-Data` property as base64.
-`published_at` and `expires_at` are Unix milliseconds.
-Supported properties are `Payload-Format-Indicator`, `Content-Type`, `Response-Topic`, `Correlation-Data` and `User-Property`.
-Represent user properties as an ordered array of `[key, value]` pairs.
-The expiry column supplies the MQTT Message Expiry Interval on replay.
-Message IDs are informational and do not deduplicate inserts.
-SQL appends send no live copy. Subscribers receive them through gap detection or the idle poll.
+- The first argument is the `namespace` from the plugin configuration.
+- The third argument is a non-empty JSON array of messages.
+- `message_id`, `payload` and the `Correlation-Data` property are base64 encoded.
+- `published_at` and `expires_at` are Unix time in milliseconds. `expires_at` sets the message expiry interval on delivery.
+- Supported properties are `Payload-Format-Indicator`, `Content-Type`, `Response-Topic`, `Correlation-Data`
+  and `User-Property`. Write user properties as an array of `[key, value]` pairs.
+- The function returns the topic ID and the offset of the first message.
 
-Producers must not insert message rows or change topic counters directly.
-Producer and broker accounts need read and write access to the plugin tables.
+Subscribers receive messages written with SQL with a delay of up to `read.idle_poll_interval` (30 seconds by default),
+or earlier when a broker publish to the same topic follows.
+
+Do not insert into the message table, change offsets or update message rows directly.
+The database account of the application needs access to the plugin tables.
+
+## Operations
+
+### Health and metrics
+
+The plugin health check fails when PostgreSQL is not reachable or the schema version does not match.
+The plugin reports these counters:
+
+- `write_failed`: messages that could not be written,
+- `rejected`: deliveries that a client acknowledged with an error reason code,
+- `skipped`: stored messages that could not be decoded.
+
+### Configuration changes
+
+A configuration change restarts the backend.
+During the restart, QoS 1/2 publishes to managed topics fail and the publishers are disconnected.
+If the backend fails to start, it keeps failing these publishes and the health check until the next configuration change.
+
+### Connection poolers
+
+The plugin uses regular queries only. It does not use `LISTEN`/`NOTIFY`.
+PgBouncer in transaction mode has not been tested.
+If a pooler does not keep session settings, set `set_statement_timeout = false` and set the timeout on the database role:
+
+```sql
+ALTER ROLE emqx SET statement_timeout = '5s';
+```
+
+### Resetting a topic
+
+The plugin does not support resetting a topic.
+To start a topic from scratch, delete its message, subscription and topic rows while no client uses the topic.
+
+### Schema version
+
+The plugin checks the schema version at startup. This version of the schema replaces earlier development versions
+without migration. Recreate development databases when upgrading from a development build.
+
+## Technical details
+
+### Live delivery and recovery
+
+After the plugin writes a message, it sends the stored message to the subscribers on all nodes.
+Each subscriber connection has a reader for each managed subscription.
+The reader keeps the offset of the last message it delivered.
+
+- When the next message arrives in order, the reader delivers it immediately, without a database read.
+- When a message arrives ahead of a missing one, the reader holds it for up to `read.reorder_timeout`.
+  If the missing message does not arrive, the reader reads the messages from PostgreSQL.
+- When the gap is larger than `read.reorder_max_distance`, the reader reads from PostgreSQL immediately.
+- An idle reader reads from PostgreSQL every `read.idle_poll_interval`. This finds messages written with SQL
+  and messages whose live copy was lost.
+- A failed read is retried with exponential backoff from 1 second up to `read.idle_poll_interval`.
+
+### Flow control
+
+The reader takes new messages only while the connection can accept them.
+The broker allows about 100 undelivered or unacknowledged messages per subscription.
+When this limit is reached, the reader drops new live messages and reads them from PostgreSQL later.
+Messages already queued for a stalled connection are limited by the broker's `force_shutdown` settings.
+
+### Progress
+
+The reader saves the latest acknowledged offset every `checkpoint.interval`,
+after `checkpoint.max_pending` acknowledgements, and on disconnect.
+Saving progress does not wait for the database. A failed save is not retried.
+Saving progress also keeps the subscription from expiring.
+
+### Connection pools
+
+The plugin uses three connection pools, so that one kind of load does not delay another:
+
+- writes of messages, with connections selected by topic,
+- reads of messages for subscribers,
+- subscription changes and saved progress, with connections selected by client ID.
+  Changes of one client therefore run in order.
+
+The cleanup job uses its own connection.
+
+### Message hook
+
+The plugin handles publishes in a `message.publish` hook with priority -1, after hooks with the default priority 0.
+Register message transformations before this hook, so that the stored message is the transformed one.
+The hook skips messages that an earlier hook rejected.
+For a stored message, the broker does not route the original message, and it counts the publish once in `messages.publish`.
+
+### Asynchronous writing
+
+With `async_batched = true`:
+
+- Each topic is assigned to one batch writer. Writes of one writer run one after another.
+  Many busy topics on one writer can delay acceptance beyond `writer.call_timeout`, which disconnects the publisher.
+  A message whose acceptance timed out can still be stored later.
+- Stopping the backend writes the buffered messages within `writer.call_timeout`.
+- If a writer crashes, its buffered messages are dropped and counted in `write_failed`. No message is stored twice.
 
 ## Tests
 
@@ -213,5 +328,13 @@ Producer and broker accounts need read and write access to the plugin tables.
 make plugin-emqx_offline_messages
 ```
 
-Health checks cover database access and the schema version.
-Plugin PostgreSQL counters include failed writes, rejected deliveries and skipped rows.
+The load probe measures database reads and delivery latency. Run it on an otherwise idle host:
+
+```sh
+./scripts/ct/run.sh --app plugins/emqx_offline_messages -- env TERM=dumb SUITES=emqx_offline_messages_pg_load_SUITE make plugins/emqx_offline_messages-ct
+```
+
+It checks that idle subscriptions read PostgreSQL about once per poll interval,
+that subscribers that are up to date receive new messages without database reads,
+and that a stalled subscriber loses no messages.
+It prints the measured latency and writes all measurements to `delivery-probe.eterm` in the test's private directory.

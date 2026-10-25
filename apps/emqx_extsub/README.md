@@ -109,9 +109,11 @@ For QoS 0 messages this happens when the message is pushed to the inflight. For 
 
 When the session drops a message and runs `delivery.dropped`, the callback receives `{dropped, Reason}` as its acknowledgement value.
 For an in-memory session, the reasons are `no_local` and `expired`.
-The session does not put ExtSub messages in its mqueue. When inflight is full or the delivery rate limit refuses a message, the session returns the message to the ExtSub buffer with a NACK.
-The session does not deliver the message later, and ExtSub does not put it back in the buffer.
-Handlers must accept this value. Each handler decides what its source does with the message, for example acknowledge it or send it again.
+Handlers must accept this value. Each handler decides what its source does with the dropped message, for example acknowledge it or send it again.
+
+The session does not put ExtSub messages in its mqueue. When inflight is full or the delivery rate limit refuses a message, the session returns the message to ExtSub with a NACK through the `message.nack` hook.
+ExtSub puts the message back in its buffer at its original position and delivers it again later.
+ExtSub does not call the handler for a NACK. The message still counts in the handler's `delivering_count` until it is delivered.
 ExtSub checks the handler reference and the sequence number of an acknowledgement, a drop or a NACK before it changes its state.
 When the check fails, ExtSub does not call the handler and does not change its delivery counters.
 

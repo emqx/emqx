@@ -2,7 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_omp_pg_writer).
--moduledoc "Topic-affine QoS 0 batching writers.".
+-moduledoc "Topic-affine asynchronous QoS 1/2 batching writers.".
 -behaviour(gen_server).
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -14,9 +14,14 @@
 %% API
 %%------------------------------------------------------------------------------
 
+-doc "Start the batch writer with the given index.".
+-spec start_link(non_neg_integer(), emqx_omp_pg_config:config()) -> gen_server:start_ret().
 start_link(Index, Config) ->
     gen_server:start_link(name(Index), ?MODULE, Config, []).
 
+-doc "Wait for admission to the topic's writer without waiting for the database commit.".
+-spec append(emqx_omp_pg_sql:namespace(), emqx_types:message(), emqx_omp_pg_config:config()) ->
+    ok | {error, term()}.
 append(Namespace, #message{topic = Topic, payload = Payload} = Msg, #{writer := Writer}) ->
     #{pool_size := Size, call_timeout := Timeout} = Writer,
     Index = erlang:phash2({Namespace, Topic}, Size),
@@ -42,6 +47,7 @@ init(Config) ->
         max => undefined
     }}.
 
+-doc "Buffer the message and schedule a flush when either size threshold is reached.".
 handle_call(
     {append, Namespace, Topic, Message, Bytes},
     _From,
@@ -51,7 +57,7 @@ handle_call(
     Batch = maps:get(Key, Batches, []),
     Count = Count0 + 1,
     Total = Total0 + Bytes,
-    State = timers(
+    State = ensure_flush_timer(
         State0#{batches := Batches#{Key => [Message | Batch]}, count := Count, bytes := Total},
         Writer
     ),
@@ -69,6 +75,7 @@ handle_info({timeout, Ref, flush}, #{idle := Ref} = State) -> {noreply, flush(St
 handle_info({timeout, Ref, flush}, #{max := Ref} = State) -> {noreply, flush(State)};
 handle_info(_Info, State) -> {noreply, State}.
 
+-doc "Flush on orderly shutdown and count buffered messages as failed after a crash.".
 terminate(Reason, State) when
     Reason =:= normal; Reason =:= shutdown; element(1, Reason) =:= shutdown
 ->
@@ -89,10 +96,11 @@ terminate(_Reason, _State) ->
 
 name(Index) -> {via, gproc, {n, l, {?MODULE, Index}}}.
 
-timers(#{idle := Idle, max := Max0} = State, #{
+-doc "Restart the idle flush timer and start the maximum delay timer for the first message.".
+ensure_flush_timer(#{idle := Idle, max := Max0} = State, #{
     min_flush_timeout := MinTime, max_flush_timeout := MaxTime
 }) ->
-    cancel(Idle),
+    emqx_utils:cancel_timer(Idle),
     Max =
         case Max0 of
             undefined -> erlang:start_timer(MaxTime, self(), flush);
@@ -100,21 +108,15 @@ timers(#{idle := Idle, max := Max0} = State, #{
         end,
     State#{idle := erlang:start_timer(MinTime, self(), flush), max := Max}.
 
-cancel(undefined) ->
-    ok;
-cancel(Ref) ->
-    _ = erlang:cancel_timer(Ref),
-    ok.
-
+-doc "Commit each topic batch and dispatch its messages together after the commit succeeds.".
 flush(#{batches := Batches, idle := Idle, max := Max, config := Config} = State) ->
-    cancel(Idle),
-    cancel(Max),
+    emqx_utils:cancel_timer(Idle),
+    emqx_utils:cancel_timer(Max),
     maps:foreach(
         fun({Namespace, Topic}, Batch) ->
             Messages = lists:reverse(Batch),
-            Operation =
-                {append, Namespace, Topic, [emqx_omp_pg_store:encode(Msg) || Msg <- Messages]},
-            case emqx_omp_pg_store:call(omp_pg_write, Topic, Operation, Config) of
+            Encoded = [emqx_omp_pg_store:encode(Msg) || Msg <- Messages],
+            case emqx_omp_pg_store:append_batch(Namespace, Topic, Encoded, Config) of
                 {ok, {Id, Offset}} ->
                     dispatch(Messages, {Namespace, Id}, Offset);
                 {error, Reason} ->
@@ -128,15 +130,13 @@ flush(#{batches := Batches, idle := Idle, max := Max, config := Config} = State)
     ),
     State#{batches := #{}, count := 0, bytes := 0, idle := undefined, max := undefined}.
 
-dispatch([], _Identity, _Offset) ->
-    ok;
-dispatch([Msg | Rest], Identity, Offset) ->
-    try emqx_omp_pg_store:dispatch(Msg, Identity, Offset) of
+-doc "Send live copies of a committed batch. On failure, log it; subscribers read the batch later.".
+dispatch(Messages, Identity, Offset) ->
+    try emqx_omp_pg_store:dispatch(Messages, Identity, Offset) of
         ok -> ok
     catch
         Class:Reason ->
             ?SLOG_THROTTLE(error, #{
                 msg => offline_messages_pg_dispatch_failed, class => Class, reason => Reason
             })
-    end,
-    dispatch(Rest, Identity, Offset + 1).
+    end.

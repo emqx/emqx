@@ -2,7 +2,7 @@
 
 This plugin stores messages in an external database and replays them to subscribers.
 MySQL and Redis store selected QoS 1/2 messages for offline replay.
-PostgreSQL stores all matching publishes and tracks independent progress for each client.
+PostgreSQL stores matching QoS 1/2 publishes and tracks independent progress for each client.
 
 Supported backends:
 

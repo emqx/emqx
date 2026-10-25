@@ -26,19 +26,21 @@
     subopts,
     topic_id,
     %% Last offset passed to ExtSub or skipped.
-    cursor = 0,
-    %% Latest completed offset.
-    acked = 0,
-    %% Last checkpointed offset.
-    durable = 0,
+    offset_cursor = 0,
+    %% Latest acknowledged offset. A negative acknowledgement or a session drop also counts.
+    offset_acked = 0,
+    %% Latest acknowledged offset sent to the database as a checkpoint. The write is asynchronous.
+    offset_sent_to_commit = 0,
     %% Database catch-up is required.
     dirty = true,
-    %% Live copies above `cursor + 1`, by offset.
-    pocket = #{},
+    %% Live copies above `offset_cursor + 1`, by offset.
+    reorder_buffer = #{},
     reorder_timer,
     last_activity = 0,
-    last_write = 0,
-    %% `{Ref, initialize | {page, ReservedCount}, Timer}`.
+    %% Time when the last checkpoint was sent. Each checkpoint also renews the subscription row.
+    checkpoint_sent_at = 0,
+    %% Keeps reference to the current async read request (at most one may be pending).
+    %% `{Ref, initialize | page, Timer}`.
     pending,
     flush_timer,
     retry_timer,
@@ -54,6 +56,7 @@
 %% Handler callbacks
 %%------------------------------------------------------------------------------
 
+-doc "Create a reader for an exact managed QoS 1 subscription that reports acknowledgements.".
 handle_subscribe(_Type, #{can_receive_acks := false}, _State, _Topic) ->
     ignore;
 handle_subscribe(_Type, _Context, _State, #share{}) ->
@@ -66,7 +69,9 @@ handle_subscribe(_Type, Context, undefined, Topic) ->
     #{message_target := Target, clientinfo := #{clientid := ClientId}, subopts := Options} =
         Context,
     Config = emqx_offline_messages_pg:config(),
-    case emqx_offline_messages_pg:managed(Topic, Config) andalso not emqx_topic:wildcard(Topic) of
+    case
+        emqx_offline_messages_pg:is_managed(Topic, Config) andalso not emqx_topic:wildcard(Topic)
+    of
         true ->
             Handler = #h{
                 config = Config,
@@ -81,22 +86,23 @@ handle_subscribe(_Type, Context, undefined, Topic) ->
             ignore
     end.
 
+-doc "Remove explicit subscriptions or save acknowledged progress before disconnecting.".
 handle_unsubscribe(unsubscribe, _Context, Handler, _TopicFilter) ->
     #h{config = #{namespace := Namespace} = Config, clientid = ClientId, topic = Topic} = Handler,
-    Operation = {unsubscribe, Namespace, ClientId, Topic},
-    log_error(unsubscribe, emqx_omp_pg_store:call(omp_pg_read, ClientId, Operation, Config)),
+    log_error(unsubscribe, emqx_omp_pg_store:unsubscribe(Namespace, ClientId, Topic, Config)),
     Handler#h{stopped = true};
 handle_unsubscribe(disconnect, _Context, Handler0, _TopicFilter) ->
     Handler = checkpoint(Handler0),
     Handler#h{stopped = true}.
 
+-doc "Cancel the reader timers and save progress unless an unsubscribe stopped the reader.".
 handle_terminate(#h{pending = Pending} = Handler) ->
-    cancel(Handler#h.reorder_timer),
-    cancel(Handler#h.flush_timer),
-    cancel(Handler#h.retry_timer),
-    cancel(Handler#h.idle_timer),
+    _ = clear_reorder_buffer(Handler),
+    emqx_utils:cancel_timer(Handler#h.flush_timer),
+    emqx_utils:cancel_timer(Handler#h.retry_timer),
+    emqx_utils:cancel_timer(Handler#h.idle_timer),
     case Pending of
-        {_Ref, _Kind, Timer} -> cancel(Timer);
+        {_Ref, _Kind, Timer} -> emqx_utils:cancel_timer(Timer);
         undefined -> ok
     end,
     case Handler of
@@ -105,19 +111,21 @@ handle_terminate(#h{pending = Pending} = Handler) ->
     end,
     ok.
 
+-doc "Record an acknowledged offset and save progress when enough acknowledgements are unsent.".
 handle_delivered(Handler0, _Context, Msg, Ack) ->
     #h{config = #{namespace := Namespace, checkpoint := #{max_pending := Max}}, topic_id = Id} =
         Handler0,
     {Namespace, Id, Offset} = emqx_message:get_header(?OMP_POSITION, Msg),
     report_ack(Ack),
-    Handler1 = Handler0#h{acked = max(Handler0#h.acked, Offset)},
+    Handler1 = Handler0#h{offset_acked = max(Handler0#h.offset_acked, Offset)},
     Handler =
-        case pending_completions(Handler1) >= Max of
+        case unsent_ack_count(Handler1) >= Max of
             true -> checkpoint(Handler1);
             false -> Handler1
         end,
     {ok, nudge(Handler)}.
 
+-doc "Recreate the reader after a configuration change and ignore events after it stops.".
 handle_info(#h{stopped = true} = Handler, _Context, _Info) ->
     {ok, Handler};
 handle_info(#h{config = #{instance := Instance}} = Handler, Context, Info) ->
@@ -131,12 +139,14 @@ handle_info(#h{config = #{instance := Instance}} = Handler, Context, Info) ->
 %% Private
 %%------------------------------------------------------------------------------
 
+-doc "Process live batches, timer events and matching database replies.".
 info(
     #h{topic_id = Id, config = #{namespace := Namespace}} = Handler0,
     Context,
-    {generic, ?OMP_LIVE(Namespace, Id, Offset, Msg)}
+    {generic, ?OMP_LIVE(Namespace, Id, Offset, Batch)}
 ) when Id =/= undefined ->
-    case live(Offset, Msg, Context, Handler0) of
+    #{desired_message_count := Demand} = Context,
+    case live_batch(Offset, Batch, Demand, Handler0, []) of
         {Handler, []} -> {ok, nudge(Handler)};
         {Handler, Messages} -> {ok, nudge(Handler), Messages}
     end;
@@ -147,23 +157,25 @@ info(Handler, Context, pg_tick) ->
 info(Handler, Context, pg_retry) ->
     {ok, pump(Handler#h{retry_timer = undefined}, Context)};
 info(Handler, _Context, pg_flush) ->
-    {ok, flush(Handler)};
+    {ok, flush(Handler#h{flush_timer = undefined})};
 info(#h{config = #{read := #{idle_poll_interval := Interval}}} = Handler0, _Context, pg_idle) ->
     #h{dirty = Dirty, last_activity = Last, idle_jitter = Jitter} = Handler0,
     Handler = Handler0#h{
-        dirty = Dirty orelse now_ms() - Last >= Interval - Jitter, idle_jitter = 0
+        dirty = Dirty orelse now_ms() - Last >= Interval - Jitter,
+        idle_jitter = 0
     },
-    {ok, nudge(idle_timer(Handler))};
+    {ok, nudge(ensure_idle_timer(Handler))};
 info(#h{reorder_timer = {_, Token}} = Handler, _Context, {pg_reorder, Token}) ->
     {ok, nudge(Handler#h{dirty = true, reorder_timer = undefined})};
 info(#h{pending = {Ref, Kind, _Timer}} = Handler, _Context, {pg_timeout, Ref}) ->
     {ok, retry(failed(Kind, Handler#h{pending = undefined}))};
 info(#h{pending = {Ref, Kind, Timer}} = Handler, _Context, {pg_result, Ref, Result}) ->
-    cancel(Timer),
+    emqx_utils:cancel_timer(Timer),
     result(Handler#h{pending = undefined}, Kind, Result);
 info(Handler, _Context, _Info) ->
     {ok, Handler}.
 
+-doc "Apply a database result, release consecutive buffered copies and schedule more reads.".
 result(Handler, initialize, {ok, #{topic_id := Id, cursor := Cursor}}) ->
     #h{config = #{read := #{idle_poll_interval := Interval}}} = Handler,
     Now = now_ms(),
@@ -171,65 +183,94 @@ result(Handler, initialize, {ok, #{topic_id := Id, cursor := Cursor}}) ->
         %% Spread the polls of handlers that start together after a mass reconnect.
         idle_jitter = rand:uniform(max(1, Interval div 2)) - 1,
         topic_id = Id,
-        cursor = Cursor,
-        acked = Cursor,
-        durable = Cursor,
+        offset_cursor = Cursor,
+        offset_acked = Cursor,
+        offset_sent_to_commit = Cursor,
         last_activity = Now,
-        last_write = Now,
+        checkpoint_sent_at = Now,
         retry_delay = undefined
     },
-    {ok, nudge(idle_timer(flush_timer(Init)))};
-result(Handler0, {page, _Count}, {ok, [_ | _] = Rows}) ->
+    {ok, nudge(ensure_idle_timer(ensure_flush_timer(Init)))};
+result(Handler0, page, {ok, [_ | _] = Rows}) ->
+    %% Decode the rows and advance the cursor over them.
     {Handler1, Messages0} = lists:foldl(fun row/2, {Handler0, []}, Rows),
     Tip = element(1, hd(Rows)),
+    %% A single row without a message means that no stored message follows the cursor.
     Cursor =
         case Rows of
             [{_, null, _, _, _, _, _, _, _, _}] -> Tip;
-            _ -> Handler1#h.cursor
+            _ -> Handler1#h.offset_cursor
         end,
-    Pocket = maps:filter(fun(Offset, _) -> Offset > Cursor end, Handler1#h.pocket),
+    %% Drop buffered live copies that the page already returned.
+    ReorderBuffer = maps:filter(fun(Offset, _) -> Offset > Cursor end, Handler1#h.reorder_buffer),
     Handler2 = Handler1#h{
-        cursor = Cursor, pocket = Pocket, last_activity = now_ms(), retry_delay = undefined
+        offset_cursor = Cursor,
+        reorder_buffer = ReorderBuffer,
+        last_activity = now_ms(),
+        retry_delay = undefined
     },
+    %% Release consecutive buffered copies and read again while the cursor is below the tip.
     {Handler3, Messages} = drain(Handler2, Messages0),
-    Handler = reorder_timer(Handler3#h{dirty = Handler3#h.dirty orelse Handler3#h.cursor < Tip}),
+    Handler = ensure_reorder_timer(Handler3#h{
+        dirty = Handler3#h.dirty orelse Handler3#h.offset_cursor < Tip
+    }),
     ?tp(omp_pg_page, #{
         clientid => Handler#h.clientid,
         topic => Handler#h.topic,
-        cursor => Handler#h.cursor,
+        cursor => Handler#h.offset_cursor,
         dirty => Handler#h.dirty
     }),
-    {ok, nudge(idle_timer(Handler)), lists:reverse(Messages)};
+    {ok, nudge(ensure_idle_timer(Handler)), lists:reverse(Messages)};
 result(Handler, Kind, Error) ->
     log_error(Kind, Error),
     {ok, retry(failed(Kind, Handler))}.
 
 failed(initialize, Handler) -> Handler;
-failed({page, _}, Handler) -> Handler#h{dirty = true}.
+failed(page, Handler) -> Handler#h{dirty = true}.
 
-live(Offset, _Msg, _Context, #h{cursor = Cursor, pocket = Pocket} = Handler) when
-    Offset =< Cursor; is_map_key(Offset, Pocket)
+-doc "Reduce the remaining ExtSub demand by the messages returned earlier in this batch.".
+live_batch(_Offset, [], _Demand, Handler, Acc) ->
+    {Handler, lists:reverse(Acc)};
+live_batch(Offset, [Msg | Rest], Demand, Handler0, Acc) ->
+    {Handler, Messages} = live(Offset, Msg, Demand, Handler0),
+    live_batch(
+        Offset + 1, Rest, max(0, Demand - length(Messages)), Handler, lists:reverse(Messages, Acc)
+    ).
+
+-doc "Deliver consecutive copies, buffer small gaps and recover dropped copies from storage.".
+live(
+    Offset, _Msg, _Demand, #h{offset_cursor = Cursor, reorder_buffer = ReorderBuffer} = Handler
+) when
+    Offset =< Cursor; is_map_key(Offset, ReorderBuffer)
 ->
     {Handler, []};
-live(Offset, Msg0, Context, Handler0) ->
-    #h{config = #{read := #{reorder_max_distance := Distance}}, cursor = Cursor, pocket = Pocket} =
+live(Offset, Msg0, Demand, Handler0) ->
+    #h{
+        config = #{read := #{reorder_max_distance := Distance}},
+        offset_cursor = Cursor,
+        reorder_buffer = ReorderBuffer
+    } =
         Handler0,
     Msg = message(Offset, Msg0, Handler0),
-    Capacity = capacity(Handler0, Context),
-    case {Capacity > 0, Offset =:= Cursor + 1 andalso Handler0#h.pending =:= undefined} of
+    case {Demand > 0, Offset =:= Cursor + 1 andalso Handler0#h.pending =:= undefined} of
         {true, true} ->
+            %% The next offset: deliver it and the buffered copies that follow it.
             {Handler, Messages} = drain(
-                Handler0#h{cursor = Offset, last_activity = now_ms()}, [Msg]
+                Handler0#h{offset_cursor = Offset, last_activity = now_ms()}, [Msg]
             ),
-            {reorder_timer(Handler), lists:reverse(Messages)};
+            {ensure_reorder_timer(Handler), lists:reverse(Messages)};
         {false, _} ->
-            %% No capacity: drop this copy and recover it from the database.
+            %% No ExtSub demand: drop this copy and recover it from the database.
             {Handler0#h{dirty = true}, []};
-        {true, false} when Offset =< Cursor + Distance, map_size(Pocket) < Distance ->
-            Handler = Handler0#h{pocket = Pocket#{Offset => Msg}, last_activity = now_ms()},
-            {reorder_timer(Handler), []};
+        {true, false} when Offset =< Cursor + Distance, map_size(ReorderBuffer) < Distance ->
+            %% A small gap or a pending read: keep the copy until the missing offsets arrive.
+            Handler = Handler0#h{
+                reorder_buffer = ReorderBuffer#{Offset => Msg}, last_activity = now_ms()
+            },
+            {ensure_reorder_timer(Handler), []};
         {true, false} ->
-            {clear_pocket(Handler0#h{dirty = true}), []}
+            %% A large gap: drop the buffered copies and read the messages from the database.
+            {clear_reorder_buffer(Handler0#h{dirty = true}), []}
     end.
 
 message(Offset, Msg, #h{config = #{namespace := Namespace}, topic = Topic, topic_id = Id}) ->
@@ -238,15 +279,23 @@ message(Offset, Msg, #h{config = #{namespace := Namespace}, topic = Topic, topic
     ),
     Msg1#message{qos = ?QOS_1}.
 
-drain(#h{cursor = Cursor, pocket = Pocket0} = Handler, Messages) ->
-    case maps:take(Cursor + 1, Pocket0) of
-        {Msg, Pocket} -> drain(Handler#h{cursor = Cursor + 1, pocket = Pocket}, [Msg | Messages]);
-        error -> {Handler, Messages}
+-doc "Release buffered copies while their offsets follow the current cursor without a gap.".
+drain(#h{offset_cursor = Cursor, reorder_buffer = ReorderBuffer0} = Handler, Messages) ->
+    case maps:take(Cursor + 1, ReorderBuffer0) of
+        {Msg, ReorderBuffer} ->
+            drain(Handler#h{offset_cursor = Cursor + 1, reorder_buffer = ReorderBuffer}, [
+                Msg | Messages
+            ]);
+        error ->
+            {Handler, Messages}
     end.
 
-reorder_timer(#h{pocket = Pocket} = Handler) when map_size(Pocket) =:= 0 ->
-    clear_pocket(Handler);
-reorder_timer(
+-doc "Start one gap timer while the reorder buffer contains messages.".
+ensure_reorder_timer(#h{reorder_buffer = ReorderBuffer} = Handler) when
+    map_size(ReorderBuffer) =:= 0
+->
+    clear_reorder_buffer(Handler);
+ensure_reorder_timer(
     #h{
         reorder_timer = undefined,
         config = #{read := #{reorder_timeout := Timeout}},
@@ -256,74 +305,56 @@ reorder_timer(
     Token = make_ref(),
     Timer = emqx_extsub_handler:send_after(Timeout, Target, {pg_reorder, Token}),
     Handler#h{reorder_timer = {Timer, Token}};
-reorder_timer(Handler) ->
+ensure_reorder_timer(Handler) ->
     Handler.
 
-clear_pocket(#h{reorder_timer = Timer} = Handler) ->
-    cancel(Timer),
-    Handler#h{pocket = #{}, reorder_timer = undefined}.
+clear_reorder_buffer(#h{reorder_timer = {Timer, _Token}} = Handler) ->
+    emqx_utils:cancel_timer(Timer),
+    Handler#h{reorder_buffer = #{}, reorder_timer = undefined};
+clear_reorder_buffer(Handler) ->
+    Handler#h{reorder_buffer = #{}, reorder_timer = undefined}.
 
+-doc "Start initialization or recovery only when no request or retry is pending.".
 pump(#h{retry_timer = Timer} = Handler, _Context) when Timer =/= undefined -> Handler;
 pump(#h{pending = Pending} = Handler, _Context) when Pending =/= undefined -> Handler;
 pump(#h{topic_id = undefined} = Handler, _Context) ->
     #h{config = Config, topic = Topic, clientid = ClientId, subopts = SubOpts} = Handler,
     #{namespace := Namespace, new_subscription_start := Start} = Config,
-    request(
-        Handler,
-        ClientId,
-        initialize,
-        {subscribe, Namespace, ClientId, Topic, SubOpts, Start}
-    );
+    request(Handler, initialize, fun(Target, Ref) ->
+        emqx_omp_pg_store:subscribe_async(Namespace, ClientId, Topic, SubOpts, Start, Target, Ref)
+    end);
 pump(#h{dirty = true} = Handler, Context) ->
     read_page(Handler, Context);
 pump(Handler, _Context) ->
     Handler.
 
-read_page(Handler0, Context) ->
-    %% Release live copies when they occupy all capacity needed for recovery.
-    Handler =
-        case capacity(Handler0, Context) =< 0 of
-            true -> clear_pocket(Handler0);
-            false -> Handler0
-        end,
-    case capacity(Handler, Context) of
-        Capacity when Capacity > 0 ->
-            #h{config = #{read := #{page_max_messages := PageSize}}, topic_id = Id, key = Key} =
-                Handler,
-            Count = min(Capacity, PageSize),
-            request(
-                Handler#h{dirty = false},
-                Key,
-                {page, Count},
-                {page, Id, Handler#h.cursor, Count}
-            );
+-doc "Read a page no larger than the ExtSub demand. Without demand, wait for an acknowledgement.".
+read_page(#h{config = #{read := #{page_max_messages := PageSize}}} = Handler, Context) ->
+    case Context of
+        #{desired_message_count := Demand} when Demand > 0 ->
+            #h{topic_id = Id, key = Key, offset_cursor = Cursor} = Handler,
+            Count = min(Demand, PageSize),
+            request(Handler#h{dirty = false}, page, fun(Target, Ref) ->
+                emqx_omp_pg_store:page_async(Key, Id, Cursor, Count, Target, Ref)
+            end);
         _ ->
             Handler
     end.
 
-capacity(
-    #h{config = #{read := #{window := Window}}, pocket = Pocket, pending = Pending},
-    #{delivering_count := Delivering}
-) ->
-    Reserved =
-        case Pending of
-            {_, {page, Count}, _} -> Count;
-            _ -> 0
-        end,
-    Window - Delivering - map_size(Pocket) - Reserved.
-
-request(#h{target = Target, config = #{query_timeout := Timeout}} = Handler, Key, Kind, Operation) ->
+-doc "Send an asynchronous database request with a timeout for missing pool callbacks.".
+request(#h{target = Target, config = #{query_timeout := Timeout}} = Handler, Kind, Send) ->
     Ref = make_ref(),
-    ok = emqx_omp_pg_store:async(omp_pg_read, Key, Operation, Target, Ref),
+    ok = Send(Target, Ref),
     Timer = emqx_extsub_handler:send_after(
         Timeout + ?REQUEST_TIMEOUT_MARGIN, Target, {pg_timeout, Ref}
     ),
     Handler#h{pending = {Ref, Kind, Timer}}.
 
+-doc "Advance over each stored row and return only valid messages that have not expired.".
 row({_, null, _, _, _, _, _, _, _, _}, Acc) ->
     Acc;
 row({_, Offset, _, _, _, _, _, _, _, Expiry} = Row, {Handler0, Messages}) ->
-    Handler = Handler0#h{cursor = Offset},
+    Handler = Handler0#h{offset_cursor = Offset},
     #h{config = #{namespace := Namespace}, topic = Topic, topic_id = Id} = Handler,
     case emqx_omp_pg_store:decode(Topic, {Namespace, Id}, Row) of
         {ok, Msg} ->
@@ -342,19 +373,26 @@ row({_, Offset, _, _, _, _, _, _, _, Expiry} = Row, {Handler0, Messages}) ->
             {Handler, Messages}
     end.
 
-flush(#h{config = #{subscription_expiry := Expiry}, last_write = LastWrite} = Handler0) ->
-    Renew = now_ms() - LastWrite >= Expiry div 3,
+-doc "Save unsent acknowledgements or renew an active subscription before its expiry.".
+flush(#h{config = #{subscription_expiry := Expiry}, checkpoint_sent_at = SentAt} = Handler0) ->
+    Renew = now_ms() - SentAt >= Expiry div 3,
     Handler =
-        case pending_completions(Handler0) > 0 orelse Renew of
+        case unsent_ack_count(Handler0) > 0 orelse Renew of
             true -> checkpoint(Handler0);
             false -> Handler0
         end,
-    flush_timer(Handler).
+    ensure_flush_timer(Handler).
 
-flush_timer(#h{config = #{checkpoint := #{interval := Interval}}, target = Target} = Handler) ->
-    Handler#h{flush_timer = emqx_extsub_handler:send_after(Interval, Target, pg_flush)}.
+ensure_flush_timer(
+    #h{flush_timer = undefined, config = #{checkpoint := #{interval := Interval}}, target = Target} =
+        Handler
+) ->
+    Handler#h{flush_timer = emqx_extsub_handler:send_after(Interval, Target, pg_flush)};
+ensure_flush_timer(Handler) ->
+    Handler.
 
-idle_timer(
+-doc "Schedule the next idle poll from recent activity and the initial reconnect jitter.".
+ensure_idle_timer(
     #h{
         config = #{read := #{idle_poll_interval := Interval}},
         target = Target,
@@ -362,7 +400,7 @@ idle_timer(
         idle_jitter = Jitter
     } = Handler
 ) ->
-    cancel(Timer),
+    emqx_utils:cancel_timer(Timer),
     Delay =
         case Handler of
             #h{dirty = false, pending = undefined, last_activity = Last} ->
@@ -372,19 +410,23 @@ idle_timer(
         end,
     Handler#h{idle_timer = emqx_extsub_handler:send_after(Delay, Target, pg_idle)}.
 
+-doc "Send acknowledged progress to the client's database worker without blocking delivery.".
 checkpoint(#h{topic_id = undefined} = Handler) ->
     Handler;
 checkpoint(
-    #h{config = #{namespace := Namespace}, clientid = ClientId, topic_id = Id, acked = Acked} =
+    #h{
+        config = #{namespace := Namespace},
+        clientid = ClientId,
+        topic_id = Id,
+        offset_acked = Acked
+    } =
         Handler
 ) ->
-    ok = emqx_omp_pg_store:cast(
-        omp_pg_read, ClientId, {checkpoint, Namespace, ClientId, Id, Acked}
-    ),
-    Handler#h{durable = Acked, last_write = now_ms()}.
+    ok = emqx_omp_pg_store:checkpoint(Namespace, ClientId, Id, Acked),
+    Handler#h{offset_sent_to_commit = Acked, checkpoint_sent_at = now_ms()}.
 
-pending_completions(#h{acked = Acked, durable = Durable}) ->
-    Acked - Durable.
+unsent_ack_count(#h{offset_acked = Acked, offset_sent_to_commit = Sent}) ->
+    Acked - Sent.
 
 nudge(#h{scheduled = true} = Handler) ->
     Handler;
@@ -396,7 +438,7 @@ nudge(Handler) ->
 
 now_ms() -> erlang:monotonic_time(millisecond).
 
-%% Back off exponentially up to the idle poll interval, with jitter of +-50%.
+-doc "Back off exponentially up to the idle poll interval, with jitter of +-50%.".
 retry(#h{retry_timer = undefined, target = Target, retry_delay = Previous} = Handler) ->
     #h{config = #{read := #{idle_poll_interval := Interval}}} = Handler,
     Delay =
@@ -411,14 +453,6 @@ retry(#h{retry_timer = undefined, target = Target, retry_delay = Previous} = Han
     };
 retry(Handler) ->
     Handler.
-
-cancel(undefined) ->
-    ok;
-cancel({Ref, _Token}) ->
-    cancel(Ref);
-cancel(Ref) ->
-    _ = erlang:cancel_timer(Ref),
-    ok.
 
 report_ack(Ack) when is_integer(Ack), Ack >= 16#80 ->
     emqx_offline_messages_pg:count(rejected, 1),

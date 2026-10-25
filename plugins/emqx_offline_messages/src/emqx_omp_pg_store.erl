@@ -2,53 +2,67 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_omp_pg_store).
--moduledoc "Fixed PostgreSQL statements, connection pools and the versioned MQTT row encoding.".
+-moduledoc """
+PostgreSQL connection pools, storage operations and the versioned MQTT row encoding.
+
+The backend uses three pools:
+
+- `omp_pg_message_publish` appends messages. The topic selects the connection.
+- `omp_pg_message_read` reads message pages. The subscription handler selects the connection.
+- `omp_pg_subscription_meta` changes subscription rows. The client ID selects the connection,
+  so the operations of one client run in order.
+""".
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_omp_pg.hrl").
 
--export([connect/1, install/1, run/2, encode/1, decode/3, dispatch/3, query/3]).
--export([pool_spec/3, call/4, cast/3, async/5]).
--export([exec/2, exec_async/2, reply/3]).
+-export([pool_specs/1, connect/1, install/1, encode/1, decode/3, dispatch/3]).
+-export([
+    health/1,
+    append/3,
+    append_sync/3,
+    append_batch/4,
+    restore/3,
+    unsubscribe/4,
+    checkpoint/4,
+    subscribe_async/7,
+    page_async/6
+]).
+-export([exec/3, exec_async/3, reply/3]).
+
+-define(MESSAGE_PUBLISH_POOL, omp_pg_message_publish).
+-define(MESSAGE_READ_POOL, omp_pg_message_read).
+-define(SUBSCRIPTION_META_POOL, omp_pg_subscription_meta).
+
+-type config() :: emqx_omp_pg_config:config().
+-type namespace() :: emqx_omp_pg_sql:namespace().
+-type topic_id() :: emqx_omp_pg_sql:topic_id().
+-type offset() :: emqx_omp_pg_sql:offset().
+-type error() :: {error, term()}.
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
-pool_spec(Pool, Size, Config) ->
-    Options = [{pool_size, Size}, {pool_type, hash}, {auto_reconnect, 1}, {config, Config}],
-    ecpool:pool_spec(Pool, Pool, ?MODULE, Options).
+-doc "Return the child specs of the publish, read and subscription connection pools.".
+-spec pool_specs(config()) -> [supervisor:child_spec()].
+pool_specs(
+    #{
+        message_publish_pool_size := Publish,
+        message_read_pool_size := Read,
+        subscription_meta_pool_size := Meta
+    } = Config
+) ->
+    [
+        pool_spec(?MESSAGE_PUBLISH_POOL, Publish, Config),
+        pool_spec(?MESSAGE_READ_POOL, Read, Config),
+        pool_spec(?SUBSCRIPTION_META_POOL, Meta, Config)
+    ].
 
--doc "Run an operation on the pool worker selected by `Key` and wait for the result.".
-call(Pool, Key, Operation, #{query_timeout := Timeout}) ->
-    try
-        ecpool:pick_and_do({Pool, Key}, {?MODULE, exec, [Operation]}, {handover, Timeout + 1000})
-    catch
-        exit:Reason -> {error, Reason}
-    end.
-
--doc "Run an operation without waiting for the result.".
-cast(Pool, Key, Operation) ->
-    _ = ecpool:pick_and_do({Pool, Key}, {?MODULE, exec, [Operation]}, handover_async),
-    ok.
-
--doc """
-Run an operation and send `{pg_result, Ref, Result}` to the handler.
-When the pool is missing or empty, send the error at once.
-The pool sends no result when its connection is down, so the caller needs a timeout.
-""".
-async(Pool, Key, Operation, Target, Ref) ->
-    Callback = {?MODULE, reply, [Target, Ref]},
-    case
-        ecpool:pick_and_do({Pool, Key}, {?MODULE, exec_async, [Operation]}, {
-            handover_async, Callback
-        })
-    of
-        {error, _} = Error -> reply({done, Error}, Target, Ref);
-        _ -> ok
-    end.
-
+-doc "Open a connection and set its statement timeout. The pools call this to start workers.".
+-spec connect(config() | [{config, config()} | term()]) ->
+    {ok, epgsql:connection()} | {error, epgsql:connect_error()}.
 connect(Options) when is_list(Options) ->
     connect(proplists:get_value(config, Options));
 connect(#{connection := Options} = Config) ->
@@ -60,6 +74,8 @@ connect(#{connection := Options} = Config) ->
             Error
     end.
 
+-doc "Install the packaged schema using a connection that closes after the operation.".
+-spec install(config()) -> ok.
 install(Config) ->
     {ok, Conn} = connect(Config),
     try
@@ -74,137 +90,98 @@ install(Config) ->
         epgsql:close(Conn)
     end.
 
-exec(Conn, Operation) ->
+-doc "Check that the database is reachable and has the expected schema version.".
+-spec health(config()) -> ok | error().
+health(Config) ->
+    call(?SUBSCRIPTION_META_POOL, health, health, [], Config).
+
+-doc """
+Admit one message to the topic's batch writer. The writer stores the batch and sends
+its live copies after the commit.
+""".
+-spec append(namespace(), emqx_types:message(), config()) -> ok | error().
+append(Namespace, Msg, Config) ->
+    emqx_omp_pg_writer:append(Namespace, Msg, Config).
+
+-doc "Store one message, wait for the commit and send its live copy.".
+-spec append_sync(namespace(), emqx_types:message(), config()) -> ok | error().
+append_sync(Namespace, #message{topic = Topic} = Msg, Config) ->
+    case append_batch(Namespace, Topic, [encode(Msg)], Config) of
+        {ok, {Id, Offset}} -> dispatch([Msg], {Namespace, Id}, Offset);
+        {error, _} = Error -> Error
+    end.
+
+-doc "Append encoded messages to `Topic`, wait for the commit and return the first offset.".
+-spec append_batch(
+    namespace(), emqx_types:topic(), [emqx_omp_pg_sql:encoded_message()], config()
+) -> {ok, {topic_id(), offset()}} | error().
+append_batch(Namespace, Topic, Messages, Config) ->
+    call(?MESSAGE_PUBLISH_POOL, Topic, append, [Namespace, Topic, Messages], Config).
+
+-doc "Renew the subscriptions of a client and return their topics and options.".
+-spec restore(namespace(), emqx_types:clientid(), config()) ->
+    {ok, [emqx_omp_pg_sql:subscription_row()]} | error().
+restore(Namespace, ClientId, Config) ->
+    call(?SUBSCRIPTION_META_POOL, ClientId, restore, [Namespace, ClientId], Config).
+
+-doc "Delete the subscription of a client to a topic and wait for the result.".
+-spec unsubscribe(namespace(), emqx_types:clientid(), emqx_types:topic(), config()) ->
+    {ok, non_neg_integer()} | error().
+unsubscribe(Namespace, ClientId, Topic, Config) ->
+    call(?SUBSCRIPTION_META_POOL, ClientId, unsubscribe, [Namespace, ClientId, Topic], Config).
+
+-doc "Save acknowledged progress without waiting for the result.".
+-spec checkpoint(namespace(), emqx_types:clientid(), topic_id(), offset()) -> ok.
+checkpoint(Namespace, ClientId, TopicId, Offset) ->
+    cast(?SUBSCRIPTION_META_POOL, ClientId, checkpoint, [Namespace, ClientId, TopicId, Offset]).
+
+-doc "Create or renew a subscription and send the result to the handler.".
+-spec subscribe_async(
+    namespace(),
+    emqx_types:clientid(),
+    emqx_types:topic(),
+    emqx_types:subopts(),
+    emqx_omp_pg_sql:start_position(),
+    emqx_extsub_handler:message_target(),
+    reference()
+) -> ok.
+subscribe_async(Namespace, ClientId, Topic, SubOpts, Start, Target, Ref) ->
+    Args = [Namespace, ClientId, Topic, SubOpts, Start],
+    async(?SUBSCRIPTION_META_POOL, ClientId, subscribe, Args, Target, Ref).
+
+-doc "Read a message page and send the result to the handler.".
+-spec page_async(
+    term(), topic_id(), offset(), pos_integer(), emqx_extsub_handler:message_target(), reference()
+) -> ok.
+page_async(Key, TopicId, Cursor, Count, Target, Ref) ->
+    async(?MESSAGE_READ_POOL, Key, page, [TopicId, Cursor, Count], Target, Ref).
+
+-doc "Run a statement on a pool connection and return errors instead of raising them.".
+-spec exec(epgsql:connection(), atom(), [term()]) -> term().
+exec(Conn, Fun, Args) ->
     try
-        run(Conn, Operation)
+        apply(emqx_omp_pg_sql, Fun, [Conn | Args])
     catch
         Class:Reason -> {error, {Class, Reason}}
     end.
 
-%% The pool skips the callback for an `{error, _}` result, so wrap the result.
-exec_async(Conn, Operation) ->
-    {done, exec(Conn, Operation)}.
+-doc "Run a statement and wrap its result, because the pool skips the callback for `{error, _}`.".
+-spec exec_async(epgsql:connection(), atom(), [term()]) -> {done, term()}.
+exec_async(Conn, Fun, Args) ->
+    {done, exec(Conn, Fun, Args)}.
 
+-doc "Send the result of an asynchronous statement to the handler.".
+-spec reply({done, term()}, emqx_extsub_handler:message_target(), reference()) -> ok.
 reply({done, Result}, Target, Ref) ->
     emqx_extsub_handler:send(Target, {pg_result, Ref, Result}).
 
-run(Conn, health) ->
-    {ok, [{1}]} = query(Conn, "SELECT version FROM mqtt_pg_schema", []),
-    ok;
-run(Conn, {append, Namespace, Topic, Messages}) ->
-    {ok, [{Id, Offset}]} = query(Conn, "SELECT * FROM omp_append($1, $2, $3::jsonb)", [
-        Namespace, Topic, emqx_utils_json:encode(Messages)
-    ]),
-    {ok, {Id, Offset}};
-run(Conn, {subscribe, Namespace, ClientId, Topic, SubOpts, Start}) ->
-    %% The share lock on the topic row blocks appends until the subscription row commits.
-    %% No subscriber can complete an offset above the tip before cleanup sees this row.
-    transaction(Conn, fun() ->
-        {ok, _} = query(
-            Conn,
-            "INSERT INTO mqtt_pg_topic(namespace, topic) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            [Namespace, Topic]
-        ),
-        {ok, [{Id, Next}]} = query(
-            Conn,
-            """
-            SELECT topic_id, next_offset FROM mqtt_pg_topic
-            WHERE namespace = $1 AND topic = $2 FOR SHARE
-            """,
-            [Namespace, Topic]
-        ),
-        Ack =
-            case Start of
-                earliest -> 0;
-                latest -> Next - 1
-            end,
-        %% Create the subscription, or keep the progress of an existing one.
-        {ok, [{Cursor}]} = query(Conn, """
-        INSERT INTO mqtt_pg_subscription(namespace, client_id, topic_id, subopts, ack_offset)
-        VALUES ($1, $2, $3, $4::jsonb, $5)
-        ON CONFLICT (namespace, client_id, topic_id) DO UPDATE
-        SET subopts = EXCLUDED.subopts, updated_at = now()
-        RETURNING ack_offset
-        """, [Namespace, ClientId, Id, emqx_utils_json:encode(SubOpts), Ack]),
-        {ok, #{topic_id => Id, cursor => Cursor}}
-    end);
-run(Conn, {restore, Namespace, ClientId}) ->
-    %% Renew the client's subscriptions and return their topics and options.
-    query(Conn, """
-    WITH touched AS (
-      UPDATE mqtt_pg_subscription SET updated_at = now()
-      WHERE namespace = $1 AND client_id = $2 RETURNING topic_id, subopts
-    ) SELECT t.topic, s.subopts FROM touched s JOIN mqtt_pg_topic t USING (topic_id)
-    """, [Namespace, ClientId]);
-run(Conn, {unsubscribe, Namespace, ClientId, Topic}) ->
-    query(Conn, """
-    DELETE FROM mqtt_pg_subscription s USING mqtt_pg_topic t
-    WHERE s.topic_id = t.topic_id AND s.namespace = $1 AND s.client_id = $2 AND t.topic = $3
-    """, [Namespace, ClientId, Topic]);
-run(Conn, {checkpoint, Namespace, ClientId, Id, Offset}) ->
-    %% Progress never moves backwards. The update also renews the subscription.
-    query(Conn, """
-    UPDATE mqtt_pg_subscription SET ack_offset = GREATEST(ack_offset, $4), updated_at = now()
-    WHERE namespace = $1 AND client_id = $2 AND topic_id = $3
-    """, [Namespace, ClientId, Id, Offset]);
-run(Conn, {page, Id, Cursor, Count}) ->
-    %% Return the next rows after the cursor with the topic tip in every row.
-    %% The left join returns one row with null message fields when no rows follow.
-    query(Conn, """
-    SELECT t.next_offset - 1, m.msg_offset, m.message_id, m.sender, m.qos, m.retain,
-           m.payload, m.properties, m.published_at, m.expires_at
-    FROM mqtt_pg_topic t LEFT JOIN LATERAL (
-      SELECT * FROM mqtt_pg_message
-      WHERE topic_id = t.topic_id AND msg_offset > $2 ORDER BY msg_offset LIMIT $3
-    ) m ON true
-    WHERE t.topic_id = $1 ORDER BY m.msg_offset
-    """, [Id, Cursor, Count]);
-run(Conn, {topics, Namespace, After, Limit}) ->
-    query(Conn, """
-    SELECT topic_id, next_offset FROM mqtt_pg_topic
-    WHERE namespace = $1 AND topic_id > $2 ORDER BY topic_id LIMIT $3
-    """, [Namespace, After, Limit]);
-run(Conn, {age_cutoff, Id, Next, Oldest}) ->
-    %% The first message that is not too old. The scan stops at the end of the expired prefix.
-    case query(Conn, """
-    SELECT msg_offset FROM mqtt_pg_message
-    WHERE topic_id = $1 AND published_at >= $2 ORDER BY msg_offset LIMIT 1
-    """, [Id, Oldest]) of
-        {ok, [{Offset}]} -> {ok, Offset};
-        {ok, []} -> {ok, Next}
-    end;
-run(Conn, {consumed_cutoff, Id, Next}) ->
-    %% A subscribe transaction blocks appends until its row commits, so no subscriber can
-    %% complete an offset above the new subscription's start before this query sees it.
-    case
-        query(Conn, "SELECT min(ack_offset) FROM mqtt_pg_subscription WHERE topic_id = $1", [Id])
-    of
-        {ok, [{null}]} -> {ok, Next};
-        {ok, [{Acked}]} -> {ok, Acked + 1}
-    end;
-run(Conn, {trim, Id, Cutoff, Batch}) ->
-    %% Delete the messages below the cutoff in primary key ranges of at most `Batch` offsets.
-    case query(Conn, """
-    SELECT min(msg_offset), max(msg_offset) FROM mqtt_pg_message
-    WHERE topic_id = $1 AND msg_offset < $2
-    """, [Id, Cutoff]) of
-        {ok, [{null, null}]} -> {ok, 0};
-        {ok, [{Min, Max}]} -> trim(Conn, Id, Min, Max, Batch, 0)
-    end;
-run(Conn, {expire, Namespace, Expiry, Batch}) ->
-    %% Delete subscriptions that no client renewed within the expiry time.
-    query(Conn, """
-    DELETE FROM mqtt_pg_subscription WHERE ctid IN (
-      SELECT ctid FROM mqtt_pg_subscription
-      WHERE namespace = $1 AND updated_at < now() - $2 * interval '1 millisecond'
-      LIMIT $3
-    )
-    """, [Namespace, Expiry, Batch]).
+-doc "Send a committed topic batch as one term, with its first assigned offset.".
+-spec dispatch([emqx_types:message(), ...], {namespace(), topic_id()}, offset()) -> ok.
+dispatch([#message{topic = Topic} | _] = Messages, {Namespace, Id}, Offset) ->
+    emqx_broker:dispatch_info(Topic, ?OMP_LIVE(Namespace, Id, Offset, Messages)).
 
--doc "Send the live copy of a committed message to the subscribers of its topic.".
-dispatch(#message{topic = Topic} = Msg, {Namespace, Id}, Offset) ->
-    emqx_broker:dispatch_info(Topic, ?OMP_LIVE(Namespace, Id, Offset, Msg)).
-
+-doc "Encode MQTT fields and binary properties for the versioned JSON append format.".
+-spec encode(emqx_types:message()) -> emqx_omp_pg_sql:encoded_message().
 encode(#message{
     id = Id,
     from = From,
@@ -231,6 +208,9 @@ encode(#message{
         expires_at => Expiry
     }.
 
+-doc "Decode a stored row and validate its MQTT properties before replay.".
+-spec decode(emqx_types:topic(), {namespace(), topic_id()}, emqx_omp_pg_sql:page_row()) ->
+    {ok, emqx_types:message()} | {error, invalid_row}.
 decode(
     Topic,
     {Namespace, TopicId},
@@ -269,31 +249,42 @@ decode(
         _:_ -> {error, invalid_row}
     end.
 
-query(Conn, SQL, Params) ->
-    case epgsql:equery(Conn, SQL, Params) of
-        {ok, _Columns, Rows} -> {ok, Rows};
-        {ok, Count} -> {ok, Count};
-        {ok, _Count, _Columns, Rows} -> {ok, Rows};
-        {error, Error} -> error({postgresql, Error})
-    end.
-
 %%------------------------------------------------------------------------------
 %% Private
 %%------------------------------------------------------------------------------
 
-transaction(Conn, Fun) ->
-    epgsql:with_transaction(Conn, fun(_) -> Fun() end, [{reraise, true}]).
+pool_spec(Pool, Size, Config) ->
+    Options = [{pool_size, Size}, {pool_type, hash}, {auto_reconnect, 1}, {config, Config}],
+    ecpool:pool_spec(Pool, Pool, ?MODULE, Options).
 
-trim(_Conn, _Id, Min, Max, _Batch, Removed) when Min > Max ->
-    {ok, Removed};
-trim(Conn, Id, Min, Max, Batch, Removed0) ->
-    Last = min(Max, Min + Batch - 1),
-    {ok, Count} = query(Conn, """
-    DELETE FROM mqtt_pg_message WHERE topic_id = $1 AND msg_offset BETWEEN $2 AND $3
-    """, [Id, Min, Last]),
-    trim(Conn, Id, Last + 1, Max, Batch, Removed0 + Count).
+-doc "Run a statement on the pool worker selected by `Key` and wait for the result.".
+call(Pool, Key, Fun, Args, #{query_timeout := Timeout}) ->
+    try
+        ecpool:pick_and_do({Pool, Key}, {?MODULE, exec, [Fun, Args]}, {handover, Timeout + 1000})
+    catch
+        exit:Reason -> {error, Reason}
+    end.
 
-%% Without this, the database, role or server default applies.
+cast(Pool, Key, Fun, Args) ->
+    _ = ecpool:pick_and_do({Pool, Key}, {?MODULE, exec, [Fun, Args]}, handover_async),
+    ok.
+
+-doc """
+Send `{pg_result, Ref, Result}` to the handler. A missing or empty pool fails at once.
+The pool sends no result when its connection is down, so the caller needs a timeout.
+""".
+async(Pool, Key, Fun, Args, Target, Ref) ->
+    Callback = {?MODULE, reply, [Target, Ref]},
+    case
+        ecpool:pick_and_do({Pool, Key}, {?MODULE, exec_async, [Fun, Args]}, {
+            handover_async, Callback
+        })
+    of
+        {error, _} = Error -> reply({done, Error}, Target, Ref);
+        _ -> ok
+    end.
+
+-doc "Set the session statement timeout to `query_timeout` unless the option is disabled.".
 set_statement_timeout(Conn, #{set_statement_timeout := true, query_timeout := Timeout}) ->
     {ok, _, _} = epgsql:equery(Conn, "SELECT set_config('statement_timeout', $1, false)", [
         integer_to_binary(Timeout)
@@ -305,6 +296,7 @@ set_statement_timeout(_Conn, #{set_statement_timeout := false}) ->
 sender(From) when is_atom(From) -> atom_to_binary(From);
 sender(From) when is_binary(From) -> From.
 
+-doc "Encode supported MQTT properties as JSON, including binary and repeated user properties.".
 encode_properties(Props) ->
     maps:fold(
         fun
@@ -322,6 +314,7 @@ encode_properties(Props) ->
         Props
     ).
 
+-doc "Restore binary data and ordered user properties from the stored JSON values.".
 decode_properties(Values) ->
     maps:fold(
         fun
