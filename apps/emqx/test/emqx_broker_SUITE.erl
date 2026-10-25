@@ -162,14 +162,26 @@ t_message_persisted(_Config) ->
     end,
     ok = emqx_broker:unsubscribe(Topic),
 
-    %% Publish rejection takes precedence over the persistence header.
+    %% A blocked message that a hook persisted is reported as persisted and is not routed.
+    ok = emqx_broker:subscribe(Topic),
     Blocked = emqx_message:set_header(allow_publish, false, Msg),
     PersistedBlocked = emqx_message:set_header(message_persisted, true, Blocked),
-    ?assertEqual({ok, [], PersistedBlocked}, emqx_broker:publish2(Blocked)),
+    ?assertEqual({ok, [persisted], PersistedBlocked}, emqx_broker:publish2(Blocked)),
     ?assertEqual(
-        {error, blocked, PersistedBlocked},
+        {ok, [persisted], PersistedBlocked},
         emqx_broker:publish2(Blocked, #{hook_prohibition_as_error => true})
     ),
+    ?assertNotReceive({deliver, Topic, _}),
+    ok = emqx_broker:unsubscribe(Topic),
+    ok = emqx_hooks:del('message.publish', {?MODULE, mark_message_persisted}),
+
+    %% A blocked message without the persistence header is still reported as blocked.
+    ?assertEqual({ok, [], Blocked}, emqx_broker:publish2(Blocked)),
+    ?assertEqual(
+        {error, blocked, Blocked},
+        emqx_broker:publish2(Blocked, #{hook_prohibition_as_error => true})
+    ),
+    ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_persisted, []}, ?HP_LOWEST),
 
     %% A disconnect request also takes precedence over the persistence header.
     Disconnect = emqx_message:set_header(should_disconnect, true, Msg),
@@ -178,6 +190,43 @@ t_message_persisted(_Config) ->
 
 mark_message_persisted(Message) ->
     {ok, emqx_message:set_header(message_persisted, true, Message)}.
+
+%% Verify that `dispatch_info/2' sends the term unchanged to exact and wildcard subscribers only.
+t_dispatch_info({init, Config}) ->
+    Config;
+t_dispatch_info({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, mark_message_persisted});
+t_dispatch_info(_Config) ->
+    Topic = <<"t_dispatch_info/a">>,
+    Info = {dispatch_info_test, make_ref()},
+    Publish = emqx_metrics:val_global('messages.publish'),
+    Dropped = emqx_metrics:val_global('messages.dropped'),
+
+    %% A term without subscribers goes nowhere and changes no counters.
+    ?assertEqual(ok, emqx_broker:dispatch_info(Topic, Info)),
+    ?assertNotReceive(Info),
+
+    %% Exact and wildcard subscribers each receive the term once; shared subscribers do not.
+    ok = emqx_broker:subscribe(Topic),
+    ok = emqx_broker:subscribe(<<"t_dispatch_info/+">>),
+    ok = emqx_broker:subscribe(emqx_topic:make_shared_record(<<"g">>, Topic)),
+    ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_persisted, []}, ?HP_LOWEST),
+    ?assertEqual(ok, emqx_broker:dispatch_info(Topic, Info)),
+    ?assertReceive(Info),
+    ?assertReceive(Info),
+    ?assertNotReceive(Info),
+
+    %% The term is not a delivery, so delivery draining leaves it in the mailbox.
+    ?assertEqual(ok, emqx_broker:dispatch_info(Topic, Info)),
+    ?assertEqual([], emqx_utils:drain_deliver()),
+    ?assertReceive(Info),
+    ?assertReceive(Info),
+
+    ?assertEqual(Publish, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(Dropped, emqx_metrics:val_global('messages.dropped')),
+    ok = emqx_broker:unsubscribe(Topic),
+    ok = emqx_broker:unsubscribe(<<"t_dispatch_info/+">>),
+    ok = emqx_broker:unsubscribe(emqx_topic:make_shared_record(<<"g">>, Topic)).
 
 %% Check that the legacy and v2 publish APIs report the same outcomes in their own formats.
 t_publish_compatibility({init, Config}) ->
