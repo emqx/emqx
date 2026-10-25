@@ -1,11 +1,14 @@
 # Offline Messages
 
-This plugin persists selected QoS 1/2 messages when no subscribers are online and replays them when a matching subscriber comes online later.
+This plugin stores messages in an external database and replays them to subscribers.
+MySQL and Redis store selected QoS 1/2 messages for offline replay.
+PostgreSQL stores all matching publishes and tracks independent progress for each client.
 
 Supported backends:
 
 - MySQL
 - Redis
+- [PostgreSQL](POSTGRESQL.md), with ordered live delivery and replay, and independent progress for each client
 
 ## Configuration
 
@@ -13,9 +16,9 @@ The plugin is configured through the standard EMQX plugin configuration API:
 
 `PUT /api/v5/plugins/<name-vsn>/config`
 
-The schema is defined in `priv/config.hocon` and includes backend-specific settings for Redis and MySQL.
+The defaults are in `priv/config.hocon`. The plugin configuration schema is `priv/config_schema.avsc`.
 
-The plugin only persists messages when:
+The MySQL and Redis backends only persist messages when:
 
 - the publish QoS is greater than `0`
 - the topic matches one of the configured `message.topic_filter`s

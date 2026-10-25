@@ -1,4 +1,10 @@
 {
+    "$postgresql_enable_label": {
+        "en": "Enable PostgreSQL"
+    },
+    "$postgresql_enable_desc": {
+        "en": "Store matching messages in PostgreSQL and replay them with independent progress for each client."
+    },
     "$mysql_enable_label": {
         "en": "Enable MySQL",
         "zh": "启用 MySQL"
