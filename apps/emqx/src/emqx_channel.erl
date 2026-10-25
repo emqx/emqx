@@ -767,12 +767,20 @@ adjust_limiter(ClientInfo) ->
 
 -doc """
 Build the limiter container when the channel has none and a finite limit is
-configured for its zone or listener. The connection calls this at CONNECT and
-on each stats timer, so a limit configured at runtime applies after at most
-one stats interval.
+configured for its zone or listener. Do the same for the session delivery
+limiter. The connection calls this at CONNECT and on each stats timer, so a
+limit configured at runtime applies after at most one stats interval.
 """.
 -spec refresh_quota(channel()) -> channel().
-refresh_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+refresh_quota(Channel) ->
+    refresh_session_quota(refresh_channel_quota(Channel)).
+
+refresh_session_quota(#channel{session = undefined} = Channel) ->
+    Channel;
+refresh_session_quota(#channel{session = Session} = Channel) ->
+    Channel#channel{session = emqx_session:refresh_quota(Session)}.
+
+refresh_channel_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
     #{zone := Zone, listener := ListenerId} = ClientInfo,
     case emqx_limiter:channel_limits_configured(Zone, ListenerId) of
         false ->
@@ -782,7 +790,7 @@ refresh_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
                 quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)
             }
     end;
-refresh_quota(Channel) ->
+refresh_channel_quota(Channel) ->
     Channel.
 
 try_consume_quota(_Needs, #channel{quota = undefined} = Channel) ->

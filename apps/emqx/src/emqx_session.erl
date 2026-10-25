@@ -76,6 +76,7 @@
 -export([
     deliver/4,
     handle_info/3,
+    refresh_quota/1,
     handle_signal/3,
     handle_timeout/4,
     disconnect/3,
@@ -624,6 +625,13 @@ handle_timeout(ClientInfo, Timer, Flags, Session) ->
     {ok, t()} | {shutdown, _Reason, t()}.
 handle_info(ClientInfo, Info, Session) ->
     ?IMPL(Session):handle_info(ClientInfo, Info, Session).
+
+-doc "Build the delivery limiter when a finite limit is now configured.".
+-spec refresh_quota(t()) -> t().
+refresh_quota(Session) when ?IS_SESSION_IMPL_MEM(Session) ->
+    emqx_session_mem:refresh_quota(Session);
+refresh_quota(Session) ->
+    Session.
 
 -spec handle_signal(clientinfo(), term(), t()) ->
     {ok | effects(), t()}

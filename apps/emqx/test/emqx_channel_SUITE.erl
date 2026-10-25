@@ -13,6 +13,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_session_mem.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -1023,6 +1024,30 @@ t_quota_lazy_hot_update(_) ->
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
             emqx_channel:handle_in(Pub, Chann4),
         ok
+    after
+        emqx_limiter:delete_listener_limiters(ListenerId)
+    end.
+
+-doc "refresh_quota/1 also resolves the session delivery limiter placeholder.".
+t_quota_refresh_resolves_session_limiter(_) ->
+    ListenerId = 'tcp:session_limiter_refresh',
+    DefaultConf = emqx_config:get_listener_conf(tcp, default, []),
+    emqx_config:put_listener_conf(tcp, session_limiter_refresh, [], DefaultConf),
+    ok = emqx_limiter:create_listener_limiters(ListenerId, #{}),
+    try
+        ClientInfo = clientinfo(#{listener => ListenerId}),
+        Chann = channel(
+            ClientInfo,
+            #{conn_state => connected, quota => undefined, session => session(ClientInfo, #{})},
+            #{listener => {tcp, session_limiter_refresh}}
+        ),
+        #session{quota = {lazy, ListenerId}} = emqx_channel:info(session_state, Chann),
+        {ok, MessagesRate} = emqx_limiter_schema:to_rate("2/1s"),
+        ok = emqx_limiter:update_listener_limiters(ListenerId, #{
+            delivery_messages_rate => MessagesRate
+        }),
+        Chann1 = emqx_channel:refresh_quota(Chann),
+        ?assertMatch(#session{quota = #{}}, emqx_channel:info(session_state, Chann1))
     after
         emqx_limiter:delete_listener_limiters(ListenerId)
     end.
