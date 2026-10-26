@@ -1661,8 +1661,8 @@ Return the CA bundle paths that `public_key:cacerts_load/0` probes on this OS.
 OTP has no API for the path, so this copies the lists in `pubkey_os_cacerts.erl`
 of OTP-28.4.1 (public_key 1.20.2). Keep it in sync with OTP.
 
-- https://github.com/erlang/otp/blob/c8fca7e34e/lib/public_key/src/pubkey_os_cacerts.erl#L69-L81
-- https://github.com/erlang/otp/blob/c8fca7e34e/lib/public_key/src/pubkey_os_cacerts.erl#L220-L238
+- https://github.com/erlang/otp/blob/c8fca7e34e/lib/public_key/src/pubkey_os_cacerts.erl#L69-L79
+- https://github.com/erlang/otp/blob/c8fca7e34e/lib/public_key/src/pubkey_os_cacerts.erl#L220-L233
 """.
 -spec system_ca_bundle_paths() -> [file:filename()].
 system_ca_bundle_paths() ->
@@ -1684,8 +1684,6 @@ system_ca_bundle_paths() ->
                 "/etc/openssl/certs/ca-certificates.crt",
                 "/usr/local/share/certs/ca-root-nss.crt"
             ];
-        {unix, sunos} ->
-            ["/etc/certs/CA/", "/etc/ssl/cacert.pem"];
         _ ->
             []
     end.
