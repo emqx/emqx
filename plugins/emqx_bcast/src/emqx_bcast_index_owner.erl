@@ -2674,13 +2674,15 @@ scan_sorted_deliveries_projection() ->
             }
         ]
     ),
-    %% Sort by (created_at, msg_id). created_at has second granularity, so
-    %% same-second commits tie: break the tie with the msg_id guid, whose
-    %% millisecond prefix keeps the rebuilt per-device FIFO in commit
-    %% order (an arbitrary tie order scrambles the FIFO after a takeover).
+    %% Sort by (created_at, delivery_id). created_at has second granularity,
+    %% so same-second commits tie. DeliveryId is generated when the publish
+    %% is admitted and carries a microsecond timestamp plus a process-local
+    %% sequence, so it represents this publication even when MessageId is
+    %% reused. MsgId cannot do that: it identifies the payload, not the order
+    %% in which payloads were published.
     lists:sort(
-        fun({_, Ma, _, _, _, _, _, Ca}, {_, Mb, _, _, _, _, _, Cb}) ->
-            {Ca, Ma} =< {Cb, Mb}
+        fun({Da, _, _, _, _, _, _, Ca}, {Db, _, _, _, _, _, _, Cb}) ->
+            {Ca, Da} =< {Cb, Db}
         end,
         Rows
     ).

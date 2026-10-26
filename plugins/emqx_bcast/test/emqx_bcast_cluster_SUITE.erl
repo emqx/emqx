@@ -59,6 +59,13 @@ recv(Count, Msgs) ->
     after 3000 -> Msgs
     end.
 
+recv_ordered(Count) ->
+    lists:reverse(recv(Count)).
+
+wait_for_fresh_second() ->
+    Now = erlang:system_time(millisecond),
+    ct:sleep(1000 - (Now rem 1000) + 20).
+
 topic(DN) -> <<"/default/", DN/binary, "/user/get">>.
 
 api_call(Node, Body) ->
@@ -637,3 +644,108 @@ t_pending_delivery_resumes_after_client_plugin_restart(Config) ->
     ?assertEqual(1, length(Msgs)),
     ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
     emqtt:stop(C).
+
+-doc "Rebuilt offline queues preserve publication order when an index owner\n"
+"changes. Message registration order is A/B while publication order is B/A,\n"
+"so sorting the rebuild by MessageId reverses the queue.".
+t_reused_message_fifo_survives_owner_handover(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"default">>,
+    Control = <<"cl_fifo_control">>,
+    Handover = <<"cl_fifo_handover">>,
+    PayloadA = <<"fifo-payload-a">>,
+    PayloadB = <<"fifo-payload-b">>,
+    %% Register A before B. The derived MessageIds therefore sort A before B,
+    %% independently of the publication order used below.
+    {ok, 200, _, RegA} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(PayloadA)
+    }),
+    MsgA = maps:get(<<"MessageId">>, RegA),
+    {ok, 200, _, RegB} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(PayloadB)
+    }),
+    MsgB = maps:get(<<"MessageId">>, RegB),
+    CControl = connect(N1, Control),
+    sub(CControl, topic(Control)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, Control, topic(Control)) end, 50)),
+    %% Delivery rows have second-granularity timestamps. Publish both at the
+    %% start of one second so only MessageId can break the tie during rebuild.
+    wait_for_fresh_second(),
+    publish_message(N1, PK, [Control, Handover], MsgB, 1),
+    publish_message(N1, PK, [Control, Handover], MsgA, 1),
+    ?assertEqual(
+        [PayloadB, PayloadA],
+        [maps:get(payload, Msg) || Msg <- recv_ordered(2)]
+    ),
+    emqtt:stop(CControl),
+    %% The handover device's shard is owned by N1. Stopping only its plugin
+    %% makes N2 rebuild every partition from the durable rows.
+    ok = erpc:call(N1, application, stop, [emqx_bcast]),
+    emqx_bcast_test_cluster:wait_ready([N2], [N2]),
+    C2 = connect(N2, Handover),
+    sub(C2, topic(Handover)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N2, Handover, topic(Handover)) end, 50)),
+    ?assertEqual(
+        [PayloadB, PayloadA],
+        [maps:get(payload, Msg) || Msg <- recv_ordered(2)]
+    ),
+    emqtt:stop(C2).
+
+-doc "The same publication order survives an actual core shutdown and index\n"
+"rebuild on the surviving core.".
+t_reused_message_fifo_survives_core_shutdown(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"default">>,
+    Control = <<"cl_fifo_shutdown_control">>,
+    SurvivorDevice = <<"cl_fifo_shutdown_handover">>,
+    PayloadA = <<"shutdown-fifo-a">>,
+    PayloadB = <<"shutdown-fifo-b">>,
+    {ok, 200, _, RegA} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(PayloadA)
+    }),
+    MsgA = maps:get(<<"MessageId">>, RegA),
+    {ok, 200, _, RegB} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(PayloadB)
+    }),
+    MsgB = maps:get(<<"MessageId">>, RegB),
+    CControl = connect(N1, Control),
+    sub(CControl, topic(Control)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, Control, topic(Control)) end, 50)),
+    wait_for_fresh_second(),
+    publish_message(N1, PK, [Control, SurvivorDevice], MsgB, 1),
+    publish_message(N1, PK, [Control, SurvivorDevice], MsgA, 1),
+    ?assertEqual(
+        [PayloadB, PayloadA],
+        [maps:get(payload, Msg) || Msg <- recv_ordered(2)]
+    ),
+    emqtt:stop(CControl),
+    ok = emqx_cth_cluster:stop_node(N1),
+    emqx_bcast_test_cluster:wait_ready([N2], [N2]),
+    C2 = connect(N2, SurvivorDevice),
+    sub(C2, topic(SurvivorDevice)),
+    ?assert(
+        wait_until(
+            fun() -> node_client_subscribed(N2, SurvivorDevice, topic(SurvivorDevice)) end, 50
+        )
+    ),
+    ?assertEqual(
+        [PayloadB, PayloadA],
+        [maps:get(payload, Msg) || Msg <- recv_ordered(2)]
+    ),
+    emqtt:stop(C2).
+
+publish_message(Node, PK, Devices, MessageId, Qos) ->
+    {ok, 200, _, _} = api_call(Node, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => PK,
+        <<"DeviceName">> => Devices,
+        <<"MessageId">> => MessageId,
+        <<"Qos">> => Qos
+    }),
+    ok.
