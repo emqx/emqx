@@ -96,7 +96,7 @@ fields(coap_blockwise) ->
             )},
         {max_body_size,
             sc(
-                emqx_schema:bytesize(),
+                emqx_gateway_schema:bytesize(),
                 #{
                     default => <<"4MB">>,
                     desc => ?DESC(coap_blockwise_max_body_size),
@@ -108,6 +108,7 @@ fields(coap_blockwise) ->
                 emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"247s">>,
+                    validator => fun(T) -> T > 0 end,
                     desc => ?DESC(coap_blockwise_exchange_lifetime),
                     importance => ?IMPORTANCE_LOW
                 }
