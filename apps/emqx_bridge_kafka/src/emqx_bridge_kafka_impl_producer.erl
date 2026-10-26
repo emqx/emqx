@@ -89,18 +89,21 @@ on_start(InstId, Config) ->
     C = fun(Key) -> check_config(Key, Config) end,
     Hosts = C(bootstrap_hosts),
     Auth = C(authentication),
-    ClientConfig = #{
-        min_metadata_refresh_interval => C(min_metadata_refresh_interval),
-        connect_timeout => C(connect_timeout),
-        metadata_request_timeout => C(metadata_request_timeout),
-        %% Request timeout is the max age limit for a pending reply from Kafka
-        %% once reached, wolff_client will force reconnect
-        request_timeout => C(request_timeout),
-        extra_sock_opts => C(socket_opts),
-        sasl => emqx_bridge_kafka_impl:sasl(Auth, InstId),
-        ssl => C(ssl),
-        allow_auto_topic_creation => C(allow_auto_topic_creation)
-    },
+    ClientConfig = maps:merge(
+        #{
+            min_metadata_refresh_interval => C(min_metadata_refresh_interval),
+            connect_timeout => C(connect_timeout),
+            metadata_request_timeout => C(metadata_request_timeout),
+            %% Request timeout is the max age limit for a pending reply from Kafka
+            %% once reached, wolff_client will force reconnect
+            request_timeout => C(request_timeout),
+            extra_sock_opts => C(socket_opts),
+            sasl => emqx_bridge_kafka_impl:sasl(Auth, InstId),
+            ssl => C(ssl),
+            allow_auto_topic_creation => C(allow_auto_topic_creation)
+        },
+        emqx_bridge_kafka_impl:client_opts(Config)
+    ),
     ClientId = InstId,
     emqx_resource:allocate_resource(InstId, ?MODULE, ?kafka_client_id, ClientId),
     ok = emqx_bridge_kafka_oauth_authn:register(ClientId, Auth),
@@ -190,7 +193,7 @@ create_producers_for_bridge_v2(
                     ?SLOG(error, #{
                         msg => "kafka_producer_failed_to_add_fixed_topic",
                         instance_id => ConnResId,
-                        kafka_client_id => ClientId,
+                        wolff_client_id => ClientId,
                         kafka_topic => MKafkaTopic,
                         reason => Reason
                     }),
@@ -209,6 +212,7 @@ create_producers_for_bridge_v2(
             _ = maybe_install_wolff_telemetry_handlers(ActionResId),
             {ok, #{
                 message_template => compile_message_template(MessageTemplate),
+                %% This state key identifies the supervised wolff client.
                 kafka_client_id => ClientId,
                 topic_template => TopicTemplate,
                 topic => MKafkaTopic,
@@ -226,7 +230,7 @@ create_producers_for_bridge_v2(
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_producer",
                 instance_id => ConnResId,
-                kafka_client_id => ClientId,
+                wolff_client_id => ClientId,
                 kafka_topic => MKafkaTopic,
                 reason => Reason2
             }),
@@ -788,7 +792,7 @@ check_topic_status(ClientId, WolffClientPid, KafkaTopic) ->
         {error, Reason} ->
             throw(#{
                 error => failed_to_check_topic_status,
-                kafka_client_id => ClientId,
+                wolff_client_id => ClientId,
                 reason => Reason,
                 kafka_topic => KafkaTopic
             })

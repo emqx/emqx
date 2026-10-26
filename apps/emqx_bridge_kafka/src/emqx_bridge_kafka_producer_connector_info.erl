@@ -27,7 +27,7 @@ resource_callback_module() ->
 config_schema() ->
     {kafka_producer,
         hoconsc:mk(
-            hoconsc:map(name, hoconsc:ref(emqx_bridge_kafka, "config_connector")),
+            hoconsc:map(name, hoconsc:ref(emqx_bridge_kafka, "config_connector_producer")),
             #{
                 desc => <<"Kafka Producer Connector Config">>,
                 required => false
