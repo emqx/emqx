@@ -33,7 +33,7 @@
     on_format_query_result/1
 ]).
 -export([reply_callback/2]).
--export([coordinated_reply_callback/2]).
+-export([coordinated_reply_callback/3]).
 
 -export([
     roots/0,
@@ -337,12 +337,15 @@ do_grouped_batch_query(InstId, Channel, Groups, SyntaxLines) ->
             {error, {unrecoverable_error, Reason}}
     end.
 
-%% Every group is written; the first error is reported after all groups have
-%% been attempted, so one failing bucket does not drop the others.
+%% Every group is written; all results are aggregated after every group has been
+%% attempted, so one failing bucket does not drop the others.  A recoverable
+%% error takes precedence over an unrecoverable one: dropping the batch because
+%% one bucket permanently failed would silently lose data for another bucket
+%% that could have succeeded on retry.
 write_groups_sync(_InstId, _Channel, []) ->
     ok;
 write_groups_sync(InstId, Channel, ParsedGroups) ->
-    FirstError = lists:foldl(
+    GroupResults = lists:foldl(
         fun({Client, Points}, Acc) ->
             ?tp(
                 influxdb_connector_send_query,
@@ -353,20 +356,18 @@ write_groups_sync(InstId, Channel, ParsedGroups) ->
             ),
             case do_query(InstId, Channel, Client, Points) of
                 ok -> Acc;
-                {error, _} = Error -> first_error(Acc, Error)
+                Result -> record_group_result(Result, Acc)
             end
         end,
-        undefined,
+        group_results_acc(),
         ParsedGroups
     ),
-    case FirstError of
-        undefined -> ok;
-        _ -> FirstError
-    end.
+    grouped_result(GroupResults).
 
 %% When a batch is split into multiple bucket groups, each group write replies
-%% asynchronously. The batch reply fun must be called exactly once, after all
-%% group writes are done. An ets table is used to coordinate the replies.
+%% asynchronously. A coordinator process owns the group state, monitors every
+%% ehttpc worker used by the groups and calls the batch reply fun exactly once.
+%% Returning the coordinator PID lets the resource buffer monitor it as well.
 %%
 %% All groups are parsed before any write is issued, so a conversion failure in
 %% one group cannot leave the other groups partially written. Groups that render
@@ -397,12 +398,26 @@ do_grouped_async_batch_query(InstId, Channel, Groups, SyntaxLines, ReplyFunAndAr
 write_groups_async(_InstId, _Channel, [], ReplyFunAndArgs) ->
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, ok),
     ok;
-write_groups_async(_InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
-    TID = ets:new(?MODULE, [public, set]),
-    true = ets:insert(TID, {remaining, length(ParsedGroups)}),
-    CoordArgs = #{tid => TID, reply => ReplyFunAndArgs},
-    lists:foreach(
-        fun({Client, Points}) ->
+write_groups_async(InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
+    Coordinator = spawn(fun() ->
+        grouped_async_coordinator(InstId, Channel, ParsedGroups, ReplyFunAndArgs)
+    end),
+    {ok, Coordinator}.
+
+grouped_async_coordinator(InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
+    Grouped = lists:zip(lists:seq(1, length(ParsedGroups)), ParsedGroups),
+    State0 = (group_results_acc())#{
+        pending => maps:from_keys([GroupRef || {GroupRef, _} <- Grouped], true),
+        group_workers => #{},
+        worker_groups => #{},
+        workers => #{}
+    },
+    State = start_grouped_writes(InstId, Channel, Grouped, State0),
+    wait_grouped_writes(ReplyFunAndArgs, State).
+
+start_grouped_writes(InstId, Channel, Grouped, State0) ->
+    lists:foldl(
+        fun({GroupRef, {Client, Points}}, State) ->
             ?tp(
                 influxdb_connector_send_query,
                 #{points => Points, batch => true, mode => async, path => path(Client)}
@@ -411,19 +426,35 @@ write_groups_async(_InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
                 Channel, #{points => Points, is_async => true}
             ),
             WrappedReplyFunAndArgs = {
-                fun ?MODULE:coordinated_reply_callback/2,
-                [CoordArgs]
+                fun ?MODULE:coordinated_reply_callback/3,
+                [self(), GroupRef]
             },
-            case influxdb:write_async(Client, Points, WrappedReplyFunAndArgs) of
-                {ok, _WorkerPid} ->
-                    ok;
+            try influxdb:write_async(Client, Points, WrappedReplyFunAndArgs) of
+                {ok, WorkerPid} when is_pid(WorkerPid) ->
+                    associate_group_worker(GroupRef, WorkerPid, State);
                 {error, Reason} ->
-                    coordinated_reply_callback(CoordArgs, {error, Reason})
+                    complete_group(GroupRef, {error, Reason}, State);
+                Other ->
+                    complete_group(
+                        GroupRef, {error, {unexpected_async_write_result, Other}}, State
+                    )
+            catch
+                Class:Reason:Stacktrace ->
+                    ?SLOG(error, #{
+                        msg => "influxdb_grouped_async_write_start_failed",
+                        connector => InstId,
+                        class => Class,
+                        reason => Reason,
+                        stacktrace => Stacktrace
+                    }),
+                    complete_group(
+                        GroupRef, {error, {async_write_start_failed, Reason}}, State
+                    )
             end
         end,
-        ParsedGroups
-    ),
-    ok.
+        State0,
+        Grouped
+    ).
 
 %% Convert every group before any write is issued. If any group fails to
 %% convert, the whole batch fails and nothing has been written yet.
@@ -443,53 +474,160 @@ parse_groups(InstId, [{Client, Data} | Rest], SyntaxLines, Acc) ->
 without_empty_groups(ParsedGroups) ->
     [{Client, Points} || {Client, Points} <- ParsedGroups, Points =/= []].
 
-first_error(undefined, Error) ->
-    Error;
-first_error(Error, _) ->
-    Error.
+coordinated_reply_callback(Coordinator, GroupRef, Result) ->
+    Coordinator ! {grouped_write_reply, GroupRef, Result},
+    ok.
 
-coordinated_reply_callback(#{tid := TID, reply := ReplyFunAndArgs}, Result) ->
-    case coordinated_reply(TID, Result) of
-        {reply, ReplyResult} ->
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, ReplyResult);
-        noreply ->
-            ok
-    end.
-
-%% Collect the outcome of one group write. Only errors are remembered, so a
-%% successful group can never shadow a failing one. The group that completes
-%% the batch removes the table and reports the first error (or `ok`).
-coordinated_reply(TID, Result) ->
-    try
-        case classify_result(Result) of
-            {error, _} = Error ->
-                %% record the first error atomically: later errors must not
-                %% overwrite an earlier one
-                _ = ets:insert_new(TID, {first_error, Error});
-            _ ->
-                ok
+associate_group_worker(GroupRef, WorkerPid, State0) ->
+    Workers0 = maps:get(workers, State0),
+    WorkerGroups0 = maps:get(worker_groups, State0),
+    {Workers, WorkerGroups1} =
+        case maps:find(WorkerPid, Workers0) of
+            {ok, _MRef} ->
+                {Workers0, WorkerGroups0};
+            error ->
+                {
+                    maps:put(WorkerPid, monitor(process, WorkerPid), Workers0),
+                    maps:put(WorkerPid, [], WorkerGroups0)
+                }
         end,
-        case ets:update_counter(TID, remaining, -1) of
-            0 ->
-                FirstError =
-                    case ets:lookup(TID, first_error) of
-                        [{first_error, Err}] -> Err;
-                        [] -> undefined
-                    end,
-                true = ets:delete(TID),
-                case FirstError of
-                    undefined -> {reply, ok};
-                    _ -> {reply, FirstError}
-                end;
-            _ ->
-                noreply
-        end
-    catch
-        error:badarg ->
-            %% The coordination table was already removed, e.g. the owning
-            %% resource worker stopped. There is nothing left to reply to.
-            noreply
+    WorkerGroups = maps:update_with(
+        WorkerPid,
+        fun(GroupRefs) -> [GroupRef | GroupRefs] end,
+        [GroupRef],
+        WorkerGroups1
+    ),
+    State0#{
+        group_workers := maps:put(GroupRef, WorkerPid, maps:get(group_workers, State0)),
+        worker_groups := WorkerGroups,
+        workers := Workers
+    }.
+
+complete_group(GroupRef, Result, State0) ->
+    Pending0 = maps:get(pending, State0),
+    case maps:is_key(GroupRef, Pending0) of
+        false ->
+            State0;
+        true ->
+            State1 = remove_group_association(GroupRef, State0#{
+                pending := maps:remove(GroupRef, Pending0)
+            }),
+            record_group_result(Result, State1)
     end.
+
+remove_group_association(GroupRef, State0) ->
+    GroupWorkers0 = maps:get(group_workers, State0),
+    case maps:take(GroupRef, GroupWorkers0) of
+        error ->
+            State0;
+        {WorkerPid, GroupWorkers} ->
+            WorkerGroups0 = maps:get(worker_groups, State0),
+            WorkerGroups = maps:update_with(
+                WorkerPid,
+                fun(GroupRefs) -> lists:delete(GroupRef, GroupRefs) end,
+                [],
+                WorkerGroups0
+            ),
+            State1 = State0#{
+                group_workers := GroupWorkers,
+                worker_groups := WorkerGroups
+            },
+            case maps:get(WorkerPid, WorkerGroups) of
+                [] -> remove_worker_monitor(WorkerPid, State1);
+                _ -> State1
+            end
+    end.
+
+remove_worker_monitor(WorkerPid, State0) ->
+    State1 = State0#{
+        worker_groups := maps:remove(WorkerPid, maps:get(worker_groups, State0))
+    },
+    Workers0 = maps:get(workers, State1),
+    case maps:take(WorkerPid, Workers0) of
+        error ->
+            State1;
+        {MRef, Workers} ->
+            _ = demonitor(MRef, [flush]),
+            State1#{workers := Workers}
+    end.
+
+handle_worker_down(WorkerPid, Reason, State0) ->
+    Workers0 = maps:get(workers, State0),
+    case maps:take(WorkerPid, Workers0) of
+        error ->
+            State0;
+        {_MRef, Workers} ->
+            GroupRefs = maps:get(WorkerPid, maps:get(worker_groups, State0), []),
+            ?tp(influxdb_connector_group_worker_down, #{
+                worker => WorkerPid,
+                reason => Reason,
+                pending_groups => GroupRefs
+            }),
+            State1 = State0#{workers := Workers},
+            lists:foldl(
+                fun(GroupRef, State) ->
+                    complete_group(
+                        GroupRef, {error, {async_worker_down, Reason}}, State
+                    )
+                end,
+                State1,
+                GroupRefs
+            )
+    end.
+
+wait_grouped_writes(ReplyFunAndArgs, State) ->
+    case maps:size(maps:get(pending, State)) of
+        0 ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, grouped_result(State));
+        _ ->
+            receive
+                {grouped_write_reply, GroupRef, Result} ->
+                    wait_grouped_writes(
+                        ReplyFunAndArgs, complete_group(GroupRef, Result, State)
+                    );
+                {'DOWN', _MRef, process, WorkerPid, Reason} ->
+                    case maps:is_key(WorkerPid, maps:get(workers, State)) of
+                        true ->
+                            wait_grouped_writes(
+                                ReplyFunAndArgs,
+                                handle_worker_down(WorkerPid, Reason, State)
+                            );
+                        false ->
+                            wait_grouped_writes(ReplyFunAndArgs, State)
+                    end;
+                _Other ->
+                    wait_grouped_writes(ReplyFunAndArgs, State)
+            end
+    end.
+
+group_results_acc() ->
+    #{
+        recoverable_error => undefined,
+        unrecoverable_error => undefined
+    }.
+
+record_group_result(Result, Acc0) ->
+    case classify_result(Result) of
+        {error, {recoverable_error, _}} = Error ->
+            put_first_group_error(recoverable_error, Error, Acc0);
+        {error, {unrecoverable_error, _}} = Error ->
+            put_first_group_error(unrecoverable_error, Error, Acc0);
+        _ ->
+            Acc0
+    end.
+
+put_first_group_error(Key, Error, Acc) ->
+    case maps:get(Key, Acc) of
+        undefined -> maps:put(Key, Error, Acc);
+        _ -> Acc
+    end.
+
+grouped_result(#{recoverable_error := Error}) when Error =/= undefined ->
+    Error;
+grouped_result(#{unrecoverable_error := Error}) when Error =/= undefined ->
+    Error;
+grouped_result(_) ->
+    ok.
 
 path(Client) ->
     maps:get(path, Client, undefined).
@@ -1516,64 +1654,196 @@ classify_result_test_() ->
             )}
     ].
 
-coordinated_reply_callback_test_() ->
+grouped_result_aggregation_test_() ->
+    Unrecoverable =
+        {error, {unrecoverable_error, #{code => 404, body => <<"missing">>}}},
+    Recoverable = {error, {recoverable_error, closed}},
     [
-        {"a failing group is reported even when a success replies first",
+        {"a later recoverable error wins over an earlier unrecoverable error",
             ?_assertEqual(
-                [{error, {unrecoverable_error, #{code => 500, body => <<"boom">>}}}],
-                run_coordinated([
+                Recoverable,
+                aggregate_group_results([
+                    {ok, 404, [], <<"missing">>},
+                    {error, closed}
+                ])
+            )},
+        {"an earlier recoverable error wins over a later unrecoverable error",
+            ?_assertEqual(
+                Recoverable,
+                aggregate_group_results([
+                    {error, closed},
+                    {ok, 404, [], <<"missing">>}
+                ])
+            )},
+        {"only unrecoverable errors are reported as unrecoverable",
+            ?_assertEqual(
+                Unrecoverable,
+                aggregate_group_results([
                     {ok, 204, [], <<>>},
-                    {ok, 500, [], <<"boom">>}
+                    {ok, 404, [], <<"missing">>}
                 ])
             )},
-        {"a failing group is reported when it replies first",
+        {"only successful groups result in ok",
             ?_assertEqual(
-                [{error, {unrecoverable_error, #{code => 500, body => <<"boom">>}}}],
-                run_coordinated([
-                    {ok, 500, [], <<"boom">>},
-                    {ok, 204, [], <<>>}
-                ])
-            )},
-        {"a recoverable connection error is reported",
-            ?_assertEqual(
-                [{error, {recoverable_error, timeout}}],
-                run_coordinated([{ok, 204, [], <<>>}, {error, timeout}])
-            )},
-        {"only ok is replied when every group succeeds",
-            ?_assertEqual(
-                [ok],
-                run_coordinated([{ok, 204, [], <<>>}, {ok, 204, [], <<>>}])
-            )},
-        {"a callback over a removed coordination table is ignored", fun() ->
-            TID = ets:new(?MODULE, [public, set]),
-            true = ets:insert(TID, {remaining, 1}),
-            true = ets:delete(TID),
-            ReplyFunAndArgs = {fun(Result) -> self() ! {unexpected, Result} end, []},
-            ?assertEqual(
                 ok,
-                coordinated_reply_callback(
-                    #{tid => TID, reply => ReplyFunAndArgs},
+                aggregate_group_results([
+                    {ok, 204, [], <<>>},
                     {ok, 204, [], <<>>}
-                )
-            )
-        end}
+                ])
+            )}
     ].
 
-run_coordinated(Results) ->
-    TID = ets:new(?MODULE, [public, set]),
-    true = ets:insert(TID, {remaining, length(Results)}),
-    Self = self(),
-    ReplyFunAndArgs = {fun(Result) -> Self ! {coordinated_reply, Result} end, []},
-    CoordArgs = #{tid => TID, reply => ReplyFunAndArgs},
-    lists:foreach(fun(Result) -> coordinated_reply_callback(CoordArgs, Result) end, Results),
-    collect_coordinated([]).
+aggregate_group_results(Results) ->
+    grouped_result(lists:foldl(fun record_group_result/2, group_results_acc(), Results)).
 
-collect_coordinated(Acc) ->
-    receive
-        {coordinated_reply, Result} -> collect_coordinated([Result | Acc])
-    after 0 ->
-        lists:reverse(Acc)
+grouped_sync_error_priority_test_() ->
+    Groups = [
+        {#{path => <<"a">>}, [point_a]},
+        {#{path => <<"b">>}, [point_b]}
+    ],
+    with_influxdb_mock(fun(_) ->
+        [
+            {"sync: a later recoverable error keeps the batch retriable", fun() ->
+                ?assertEqual(
+                    {error, {recoverable_error, closed}},
+                    run_sync_group_results(
+                        Groups,
+                        [
+                            {error, {404, <<"missing">>}},
+                            {error, closed}
+                        ]
+                    )
+                )
+            end},
+            {"sync: an earlier recoverable error keeps the batch retriable", fun() ->
+                ?assertEqual(
+                    {error, {recoverable_error, closed}},
+                    run_sync_group_results(
+                        Groups,
+                        [
+                            {error, closed},
+                            {error, {404, <<"missing">>}}
+                        ]
+                    )
+                )
+            end}
+        ]
+    end).
+
+run_sync_group_results(Groups, Results) ->
+    TID = ets:new(?MODULE, [set, public]),
+    true = ets:insert(TID, {calls, 0}),
+    try
+        meck:reset(influxdb),
+        meck:expect(influxdb, write, fun(_Client, _Points) ->
+            Index = ets:update_counter(TID, calls, 1),
+            lists:nth(Index, Results)
+        end),
+        Result = write_groups_sync(inst, chan, Groups),
+        ?assertEqual(
+            length(Results), meck:num_calls(influxdb, write, ['_', '_'])
+        ),
+        Result
+    after
+        ets:delete(TID)
     end.
+
+grouped_async_worker_monitor_test_() ->
+    with_influxdb_mock(fun(_) ->
+        [
+            {"worker DOWN completes the batch with a recoverable error", fun() ->
+                Worker = test_worker(),
+                ok = meck:expect(influxdb, write_async, fun(_Client, _Points, _Reply) ->
+                    {ok, Worker}
+                end),
+                Self = self(),
+                ReplyFunAndArgs = {
+                    fun(Result) -> Self ! {grouped_async_reply, Result} end, []
+                },
+                {ok, Coordinator} = write_groups_async(
+                    inst,
+                    chan,
+                    [{#{path => <<"a">>}, [point]}],
+                    ReplyFunAndArgs
+                ),
+                ?assert(is_pid(Coordinator)),
+                exit(Worker, kill),
+                Result =
+                    receive
+                        {grouped_async_reply, AsyncResult} -> AsyncResult
+                    after 1000 ->
+                        no_reply
+                    end,
+                ?assertMatch(
+                    {error, {recoverable_error, {async_worker_down, _}}},
+                    Result
+                ),
+                ?assertEqual(
+                    1, meck:num_calls(influxdb, write_async, ['_', '_', '_'])
+                )
+            end},
+            {"different group workers are all monitored", fun() ->
+                meck:reset(influxdb),
+                WorkerA = test_worker(),
+                WorkerB = test_worker(),
+                CallCounter = counters:new(1, [write_concurrency]),
+                Self = self(),
+                ok = meck:expect(influxdb, write_async, fun(_Client, _Points, Reply) ->
+                    CallIndex = counters:get(CallCounter, 1) + 1,
+                    counters:add(CallCounter, 1, 1),
+                    case CallIndex of
+                        1 ->
+                            {ok, WorkerA};
+                        2 ->
+                            Self ! {second_worker_reply, Reply},
+                            {ok, WorkerB}
+                    end
+                end),
+                ReplyFunAndArgs = {
+                    fun(Result) -> Self ! {grouped_async_reply, Result} end, []
+                },
+                {ok, _Coordinator} = write_groups_async(
+                    inst,
+                    chan,
+                    [
+                        {#{path => <<"a">>}, [point_a]},
+                        {#{path => <<"b">>}, [point_b]}
+                    ],
+                    ReplyFunAndArgs
+                ),
+                SecondReply =
+                    receive
+                        {second_worker_reply, ReplyFunAndArgs1} -> ReplyFunAndArgs1
+                    after 1000 ->
+                        no_reply
+                    end,
+                ?assert(is_tuple(SecondReply) andalso tuple_size(SecondReply) =:= 2),
+                exit(WorkerA, kill),
+                {ReplyFun, ReplyArgs} = SecondReply,
+                ok = apply(ReplyFun, ReplyArgs ++ [{ok, 204, [], <<>>}]),
+                Result =
+                    receive
+                        {grouped_async_reply, AsyncResult} -> AsyncResult
+                    after 1000 ->
+                        no_reply
+                    end,
+                ?assertMatch(
+                    {error, {recoverable_error, {async_worker_down, _}}},
+                    Result
+                ),
+                ?assertEqual(
+                    2, meck:num_calls(influxdb, write_async, ['_', '_', '_'])
+                )
+            end}
+        ]
+    end).
+
+test_worker() ->
+    spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end).
 
 empty_points_skip_test_() ->
     with_influxdb_mock(fun(_) ->
