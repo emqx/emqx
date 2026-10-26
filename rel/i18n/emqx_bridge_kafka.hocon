@@ -349,6 +349,12 @@ desc_config.desc:
 desc_config.label:
 """Kafka Producer Client Configuration"""
 
+kafka_client_id.desc:
+"""The protocol-level client ID sent to the Kafka broker in the header of every Kafka request. It is not a Kafka message header. If left empty, EMQX uses its own identifier for the connection. Maximum length is 32767 bytes."""
+
+kafka_client_id.label:
+"""Kafka Client ID"""
+
 consumer_value_encoding_mode.desc:
 """Defines how the value from the Kafka message is encoded before being forwarded via MQTT.
 <code>none</code> Uses the value from the Kafka message unchanged.  Note: in this case, the value must be a valid UTF-8 string.
