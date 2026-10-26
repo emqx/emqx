@@ -206,32 +206,9 @@ parse_remaining_len(_Bin, _Header, _Multiplier, Length, #{max_size := MaxSize}) 
     ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => Length});
 parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
     {more, {{len, #{hdr => Header, len => {Multiplier, Length}}}, Options}};
-%% Match DISCONNECT without payload
-parse_remaining_len(
-    <<0:8, Rest/binary>>,
-    Header = #mqtt_packet_header{type = ?DISCONNECT},
-    1,
-    0,
-    Options
-) ->
+parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
     ok = check_packet_size(2, Options),
-    Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
-    {ok, Packet, Rest, ?NONE(Options)};
-%% Match PINGREQ.
-parse_remaining_len(
-    <<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?PINGREQ}, 1, 0, Options
-) ->
-    ok = check_packet_size(2, Options),
-    parse_frame(Rest, Header, 0, Options);
-parse_remaining_len(
-    <<0:8, _Rest/binary>>, _Header = #mqtt_packet_header{type = ?PINGRESP}, 1, 0, _Options
-) ->
-    ?PARSE_ERR(#{cause => unexpected_packet, header_type => 'PINGRESP'});
-%% All other types of messages should not have a zero remaining length.
-parse_remaining_len(
-    <<0:8, _Rest/binary>>, Header, 1, 0, _Options
-) ->
-    ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Header#mqtt_packet_header.type});
+    parse_bodyless_packet(Rest, Header, Options);
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     ok = check_packet_size(4, Options),
@@ -254,7 +231,24 @@ parse_remaining_len(
     %% Remaining Length byte, including those received in earlier chunks.
     PacketSize = 1 + remaining_len_size(Multiplier) + FrameLen,
     ok = check_packet_size(PacketSize, Options),
-    parse_frame(Rest, Header, FrameLen, Options).
+    case FrameLen of
+        0 -> parse_bodyless_packet(Rest, Header, Options);
+        _ -> parse_frame(Rest, Header, FrameLen, Options)
+    end.
+
+%% Remaining Length is zero, whatever its encoding.
+%% Match DISCONNECT without payload
+parse_bodyless_packet(Rest, Header = #mqtt_packet_header{type = ?DISCONNECT}, Options) ->
+    Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
+    {ok, Packet, Rest, ?NONE(Options)};
+%% Match PINGREQ.
+parse_bodyless_packet(Rest, Header = #mqtt_packet_header{type = ?PINGREQ}, Options) ->
+    {ok, packet(Header), Rest, ?NONE(Options)};
+parse_bodyless_packet(_Rest, #mqtt_packet_header{type = ?PINGRESP}, _Options) ->
+    ?PARSE_ERR(#{cause => unexpected_packet, header_type => 'PINGRESP'});
+%% All other types of messages should not have a zero remaining length.
+parse_bodyless_packet(_Rest, #mqtt_packet_header{type = Type}, _Options) ->
+    ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Type}).
 
 -compile({inline, [remaining_len_size/1]}).
 remaining_len_size(1) ->
@@ -290,8 +284,6 @@ append_body(?Q(Bytes, Q), T) ->
 flatten_body(Body) when is_binary(Body) -> Body;
 flatten_body(?Q(_, Q)) -> iolist_to_binary(queue:to_list(Q)).
 
-parse_frame(Body, Header, 0, Options) ->
-    {ok, packet(Header), flatten_body(Body), ?NONE(Options)};
 parse_frame(Body, Header, Length, Options) ->
     case body_bytes(Body) >= Length of
         true ->
@@ -737,14 +729,17 @@ finalize_user_property(Props) ->
 
 parse_variable_byte_integer(Bin) ->
     parse_variable_byte_integer(Bin, 1, 0).
+%% The fourth byte, at ?MULTIPLIER_MAX, must be the last one.
 parse_variable_byte_integer(<<1:1, _Len:7, _Rest/binary>>, Multiplier, _Value) when
-    Multiplier > ?MULTIPLIER_MAX
+    Multiplier >= ?MULTIPLIER_MAX
 ->
     ?PARSE_ERR(malformed_variable_byte_integer);
 parse_variable_byte_integer(<<1:1, Len:7, Rest/binary>>, Multiplier, Value) ->
     parse_variable_byte_integer(Rest, Multiplier * ?HIGHBIT, Value + Len * Multiplier);
 parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
-    {Value + Len * Multiplier, Rest}.
+    {Value + Len * Multiplier, Rest};
+parse_variable_byte_integer(_Bin, _Multiplier, _Value) ->
+    ?PARSE_ERR(malformed_variable_byte_integer).
 
 parse_topic_filters(subscribe, Bin) ->
     [
@@ -791,6 +786,12 @@ parse_utf8_pair(Bin, _StrictMode) when
     ?PARSE_ERR(#{
         cause => user_property_not_enough_bytes,
         total_bytes => byte_size(Bin)
+    });
+parse_utf8_pair(<<LenK:16/big, _Key:LenK/binary, Rest/binary>>, _StrictMode) ->
+    ?PARSE_ERR(#{
+        cause => malformed_user_property_missing_value,
+        parsed_key_length => LenK,
+        remaining_bytes_length => byte_size(Rest)
     }).
 
 parse_utf8_string_with_cause(Bin, StrictMode, Cause) ->
