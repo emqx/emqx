@@ -218,34 +218,36 @@ unload_event_hooks(Event) ->
 %%--------------------------------------------------------------------
 
 on_client_connected(ClientInfo, ConnInfo) ->
-    Payload0 = common_infos(ClientInfo, ConnInfo),
-    ConnProps = maps:get(conn_props, ConnInfo, #{}),
-    RcvMax = maps:get(receive_maximum, ConnInfo, 0),
-    Payload = Payload0#{
-        conn_props => emqx_utils_maps:printable_props(ConnProps),
-        receive_maximum => RcvMax,
-        keepalive => maps:get(keepalive, ConnInfo, 0),
-        clean_start => maps:get(clean_start, ConnInfo, true),
-        expiry_interval => maps:get(expiry_interval, ConnInfo, 0),
-        client_attrs => maps:get(client_attrs, ClientInfo, #{})
-    },
-    publish(connected, Payload).
+    publish_event(connected, ClientInfo, fun() ->
+        Payload0 = common_infos(ClientInfo, ConnInfo),
+        ConnProps = maps:get(conn_props, ConnInfo, #{}),
+        RcvMax = maps:get(receive_maximum, ConnInfo, 0),
+        Payload0#{
+            conn_props => emqx_utils_maps:printable_props(ConnProps),
+            receive_maximum => RcvMax,
+            keepalive => maps:get(keepalive, ConnInfo, 0),
+            clean_start => maps:get(clean_start, ConnInfo, true),
+            expiry_interval => maps:get(expiry_interval, ConnInfo, 0),
+            client_attrs => maps:get(client_attrs, ClientInfo, #{})
+        }
+    end).
 
 on_client_disconnected(
     ClientInfo,
     Reason,
     ConnInfo = #{disconnected_at := DisconnectedAt}
 ) ->
-    Payload0 = common_infos(ClientInfo, ConnInfo),
-    Payload = Payload0#{
-        disconn_props => emqx_utils_maps:printable_props(
-            maps:get(disconn_props, ConnInfo, #{})
-        ),
-        client_attrs => maps:get(client_attrs, ClientInfo, #{}),
-        reason => reason(Reason),
-        disconnected_at => DisconnectedAt
-    },
-    publish(disconnected, Payload).
+    publish_event(disconnected, ClientInfo, fun() ->
+        Payload0 = common_infos(ClientInfo, ConnInfo),
+        Payload0#{
+            disconn_props => emqx_utils_maps:printable_props(
+                maps:get(disconn_props, ConnInfo, #{})
+            ),
+            client_attrs => maps:get(client_attrs, ClientInfo, #{}),
+            reason => reason(Reason),
+            disconnected_at => DisconnectedAt
+        }
+    end).
 
 -compile({inline, [reason/1]}).
 reason(Reason) when is_atom(Reason) -> Reason;
@@ -254,7 +256,7 @@ reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
 
 on_client_subscribed(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
         protocol := Protocol
@@ -262,18 +264,19 @@ on_client_subscribed(
     Topic,
     SubOpts
 ) ->
-    Payload = #{
-        clientid => ClientId,
-        username => Username,
-        protocol => Protocol,
-        topic => emqx_topic:maybe_format_share(Topic),
-        subopts => SubOpts,
-        ts => erlang:system_time(millisecond)
-    },
-    publish(subscribed, Payload).
+    publish_event(subscribed, ClientInfo, fun() ->
+        #{
+            clientid => ClientId,
+            username => Username,
+            protocol => Protocol,
+            topic => emqx_topic:maybe_format_share(Topic),
+            subopts => SubOpts,
+            ts => erlang:system_time(millisecond)
+        }
+    end).
 
 on_client_unsubscribed(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
         protocol := Protocol
@@ -281,14 +284,29 @@ on_client_unsubscribed(
     Topic,
     _SubOpts
 ) ->
-    Payload = #{
-        clientid => ClientId,
-        username => Username,
-        protocol => Protocol,
-        topic => emqx_topic:maybe_format_share(Topic),
-        ts => erlang:system_time(millisecond)
-    },
-    publish(unsubscribed, Payload).
+    publish_event(unsubscribed, ClientInfo, fun() ->
+        #{
+            clientid => ClientId,
+            username => Username,
+            protocol => Protocol,
+            topic => emqx_topic:maybe_format_share(Topic),
+            ts => erlang:system_time(millisecond)
+        }
+    end).
+
+%% Build and publish a client event only when something can receive it: a subscriber with a route
+%% for the topic, or the rule engine with `ignore_sys_message = false`. Without either the message
+%% would be dropped after the JSON encode and the publish hooks, which costs about 40 us per event.
+publish_event(Event, ClientInfo, MkPayload) ->
+    Topic = event_topic(Event, ClientInfo),
+    case has_consumer(Topic) of
+        true -> safe_publish(Topic, emqx_utils_json:encode(MkPayload()));
+        false -> ok
+    end.
+
+has_consumer(Topic) ->
+    emqx_router:has_routes(Topic) orelse
+        not emqx_config:get([rule_engine, ignore_sys_message], true).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -327,15 +345,7 @@ publish(metrics, Metrics) ->
     [
         safe_publish(systop(metric_topic(Name)), integer_to_binary(Val))
      || {Name, Val} <- Metrics, is_atom(Name), is_integer(Val)
-    ];
-publish(Event, Payload) when
-    Event == connected;
-    Event == disconnected;
-    Event == subscribed;
-    Event == unsubscribed
-->
-    Topic = event_topic(Event, Payload),
-    safe_publish(Topic, emqx_utils_json:encode(Payload)).
+    ].
 
 metric_topic(Name) ->
     translate_topic("metrics/", Name).
