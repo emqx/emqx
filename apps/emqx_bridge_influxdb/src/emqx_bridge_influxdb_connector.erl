@@ -597,6 +597,8 @@ wait_grouped_writes(ReplyFunAndArgs, State) ->
                     end;
                 _Other ->
                     wait_grouped_writes(ReplyFunAndArgs, State)
+            after infinity ->
+                wait_grouped_writes(ReplyFunAndArgs, State)
             end
     end.
 
@@ -1789,15 +1791,9 @@ grouped_async_worker_monitor_test_() ->
                 CallCounter = counters:new(1, [write_concurrency]),
                 Self = self(),
                 ok = meck:expect(influxdb, write_async, fun(_Client, _Points, Reply) ->
-                    CallIndex = counters:get(CallCounter, 1) + 1,
-                    counters:add(CallCounter, 1, 1),
-                    case CallIndex of
-                        1 ->
-                            {ok, WorkerA};
-                        2 ->
-                            Self ! {second_worker_reply, Reply},
-                            {ok, WorkerB}
-                    end
+                    multi_worker_write_async(
+                        Self, CallCounter, WorkerA, WorkerB, Reply
+                    )
                 end),
                 ReplyFunAndArgs = {
                     fun(Result) -> Self ! {grouped_async_reply, Result} end, []
@@ -1842,8 +1838,21 @@ test_worker() ->
     spawn(fun() ->
         receive
             stop -> ok
+        after infinity ->
+            ok
         end
     end).
+
+multi_worker_write_async(Self, CallCounter, WorkerA, WorkerB, Reply) ->
+    case counters:get(CallCounter, 1) + 1 of
+        1 ->
+            counters:add(CallCounter, 1, 1),
+            {ok, WorkerA};
+        2 ->
+            counters:add(CallCounter, 1, 1),
+            Self ! {second_worker_reply, Reply},
+            {ok, WorkerB}
+    end.
 
 empty_points_skip_test_() ->
     with_influxdb_mock(fun(_) ->
