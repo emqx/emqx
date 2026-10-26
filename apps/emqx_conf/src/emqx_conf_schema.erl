@@ -528,7 +528,7 @@ fields("node") ->
                 hoconsc:union([disabled, emqx_schema:duration()]),
                 #{
                     mapping => "emqx_machine.global_gc_interval",
-                    default => disabled,
+                    default => <<"15m">>,
                     desc => ?DESC(node_global_gc_interval),
                     importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
