@@ -782,18 +782,18 @@ handle_cast({resume, ClientId, Pid, ProductKey}, State) ->
     end,
     {noreply, maybe_claim(ProductKey, ClientId, Pid, State)};
 handle_cast({ping, ClientId, Pid, ProductKey}, State) ->
-    %% Keepalive pings refresh the device registry only; they must NOT
-    %% claim a want_next. At 800k online devices every keepalive would
-    %% otherwise drive a claim -> flush probe cycle against the
-    %% index shards even when every queue is empty (each probe returns
-    %% no_more), saturating the pull shard mailboxes and the core index
-    %% shards with zero deliveries in flight. New content is signalled by
-    %% the promoter trigger; subscribe / session.resumed / ack refill /
-    %% release-then-reclaim cover every re-arm path. register_device is
-    %% idempotent (skips when the entry already holds this pid), so the
-    %% ping itself is a cheap registry refresh.
+    %% Keepalive pings normally refresh only the device registry. A missing
+    %% row is different: the plugin restarted after this long-lived client
+    %% connected and a durable delivery may have been queued while no
+    %% subscriber existed to receive its one-shot trigger. Claim that client
+    %% once; later pings find the row and remain cheap.
+    Tab = ?TAB_STATE(State#state.shard),
+    MissingRow = not ets:member(Tab, {ProductKey, ClientId}),
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
-    {noreply, State};
+    case MissingRow of
+        true -> {noreply, maybe_claim(ProductKey, ClientId, Pid, State)};
+        false -> {noreply, State}
+    end;
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
     %% Pull is the ack entry point and forwards to core only AFTER the
     %% local window entry is transitioned to ack-in-flight (real PUBACK).

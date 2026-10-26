@@ -590,3 +590,50 @@ t_trigger_does_not_arm_a_client_of_another_product(Config) ->
     ?assertEqual(ArmedBefore, node_metric(N2, <<"batch_pub_qos1_armed_on_trigger">>)),
     ?assertEqual({error, not_found}, erpc:call(N2, emqx_bcast, lookup_device, [{OtherPK, DN}])),
     emqtt:stop(C).
+
+-doc "A committed delivery queued while the client node's plugin was restarting\n"
+"must resume from PING alone. The MQTT session is still connected and does not\n"
+"subscribe again, so connect/subscribe/resume hooks cannot provide the wakeup.".
+t_pending_delivery_resumes_after_client_plugin_restart(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    DN = <<"cl_resume_dn1">>,
+    PK = <<"default">>,
+    %% This key's index shard is owned by N1. The delivery can therefore be
+    %% durably committed and indexed while N2's plugin is down.
+    C = connect(N2, DN),
+    sub(C, topic(DN)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N2, DN, topic(DN)) end, 50)),
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    ?assert(
+        wait_until(
+            fun() ->
+                not lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, []))
+            end,
+            100
+        )
+    ),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => PK,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    Committed = wait_until(
+        fun() ->
+            case erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, DN}]) of
+                {ok, [_ | _]} -> true;
+                _ -> false
+            end
+        end,
+        100
+    ),
+    ?assert(Committed),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
+    settle_cluster([N1, N2]),
+    pong = emqtt:ping(C),
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
+    emqtt:stop(C).
