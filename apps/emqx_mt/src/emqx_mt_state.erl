@@ -593,12 +593,12 @@ evict_ccache(Ns) ->
     | {error, table_is_full | already_exists | namespace_being_deleted}.
 create_managed_ns(Ns) ->
     ensure_ns_added(Ns),
-    transaction(fun create_managed_ns_txn/1, [Ns]).
+    transaction(fun emqx_mt_state_tx_proto_v1:create_managed_ns/1, [Ns]).
 
 -spec delete_managed_ns(emqx_mt:tns()) ->
     {ok, emqx_mt_config:root_config()} | {error, {aborted, _}}.
 delete_managed_ns(Ns) ->
-    transaction(fun delete_ns_txn/1, [Ns]).
+    transaction(fun emqx_mt_state_tx_proto_v1:delete_ns/1, [Ns]).
 
 -spec is_known_managed_ns(emqx_mt:tns()) -> boolean().
 is_known_managed_ns(Ns) ->

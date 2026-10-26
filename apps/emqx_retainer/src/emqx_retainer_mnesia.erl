@@ -52,6 +52,13 @@
     on_backup_table_imported/2
 ]).
 
+%% Transaction funs. A core node runs them behind emqx_retainer_mnesia_tx_proto_v1.
+-export([
+    store_retained_indices_tx/3,
+    try_start_reindex_tx/2,
+    finalize_reindex_tx/0
+]).
+
 -record(retained_message, {topic, msg, expiry_time}).
 -record(retained_index, {key, expiry_time}).
 -record(retained_index_meta, {key, read_indices, write_indices, reindexing, extra}).
@@ -388,13 +395,18 @@ do_store_retained_message(Msg, TopicTokens, ExpiryTime) ->
 
 do_store_retained_indices(TopicTokens, ExpiryTime) ->
     {Indices, _WIncarnation} = dirty_indices(write),
-    ok = mria:async_dirty(?RETAINER_SHARD, fun() ->
-        emqx_retainer_index:foreach_index_key(
-            fun(Key) -> do_store_retained_index(Key, ExpiryTime) end,
-            Indices,
-            TopicTokens
-        )
-    end).
+    ok = mria:async_dirty(
+        ?RETAINER_SHARD,
+        fun emqx_retainer_mnesia_tx_proto_v1:store_retained_indices/3,
+        [Indices, TopicTokens, ExpiryTime]
+    ).
+
+store_retained_indices_tx(Indices, TopicTokens, ExpiryTime) ->
+    emqx_retainer_index:foreach_index_key(
+        fun(Key) -> do_store_retained_index(Key, ExpiryTime) end,
+        Indices,
+        TopicTokens
+    ).
 
 do_store_retained_index(Key, ExpiryTime) ->
     RetainedIndex = #retained_index{
@@ -680,21 +692,23 @@ get_incarnation(_) ->
 try_start_reindex(NewIndices, Force) ->
     mria:transaction(
         ?RETAINER_SHARD,
-        fun() ->
-            case mnesia:read(?TAB_INDEX_META, ?META_KEY, write) of
-                [#retained_index_meta{reindexing = false, extra = Extra}] ->
-                    Incarnation = get_incarnation(Extra),
-                    start_reindex(NewIndices, Incarnation + 1);
-                [#retained_index_meta{reindexing = true, extra = Extra}] when Force ->
-                    Incarnation = get_incarnation(Extra),
-                    start_reindex(NewIndices, Incarnation + 1);
-                [] when Force ->
-                    start_reindex(NewIndices, _Incarnation = 0);
-                _ ->
-                    {error, already_started}
-            end
-        end
+        fun emqx_retainer_mnesia_tx_proto_v1:try_start_reindex/2,
+        [NewIndices, Force]
     ).
+
+try_start_reindex_tx(NewIndices, Force) ->
+    case mnesia:read(?TAB_INDEX_META, ?META_KEY, write) of
+        [#retained_index_meta{reindexing = false, extra = Extra}] ->
+            Incarnation = get_incarnation(Extra),
+            start_reindex(NewIndices, Incarnation + 1);
+        [#retained_index_meta{reindexing = true, extra = Extra}] when Force ->
+            Incarnation = get_incarnation(Extra),
+            start_reindex(NewIndices, Incarnation + 1);
+        [] when Force ->
+            start_reindex(NewIndices, _Incarnation = 0);
+        _ ->
+            {error, already_started}
+    end.
 
 start_reindex(NewIndices, Incarnation) ->
     ?tp(warning, retainer_message_reindexing_started, #{
@@ -716,25 +730,27 @@ finalize_reindex() ->
     %% Note: we don't expect reindexing during upgrade, so this function is internal
     {atomic, ok} = mria:transaction(
         ?RETAINER_SHARD,
-        fun() ->
-            case mnesia:read(?TAB_INDEX_META, ?META_KEY, write) of
-                [#retained_index_meta{write_indices = WriteIndices} = Meta] ->
-                    mnesia:write(
-                        ?TAB_INDEX_META,
-                        Meta#retained_index_meta{
-                            key = ?META_KEY,
-                            read_indices = WriteIndices,
-                            reindexing = false
-                        },
-                        write
-                    );
-                [] ->
-                    ok
-            end
-        end
+        fun emqx_retainer_mnesia_tx_proto_v1:finalize_reindex/0,
+        []
     ),
     ?tp(warning, retainer_message_reindexing_finished, #{}),
     ok.
+
+finalize_reindex_tx() ->
+    case mnesia:read(?TAB_INDEX_META, ?META_KEY, write) of
+        [#retained_index_meta{write_indices = WriteIndices} = Meta] ->
+            mnesia:write(
+                ?TAB_INDEX_META,
+                Meta#retained_index_meta{
+                    key = ?META_KEY,
+                    read_indices = WriteIndices,
+                    reindexing = false
+                },
+                write
+            );
+        [] ->
+            ok
+    end.
 
 reindex_topic(Indices, Topic) ->
     case mnesia:read(?TAB_MESSAGE, Topic, read) of

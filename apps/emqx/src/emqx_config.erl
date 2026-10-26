@@ -4,7 +4,11 @@
 -module(emqx_config).
 
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([
+    {elvis_style, no_god_modules, disable},
+    %% unsafe_atom/1 builds atoms from config paths by design
+    {elvis_style, no_common_caveats_call, disable}
+]).
 -include("logger.hrl").
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
@@ -438,10 +442,7 @@ force_put(KeyPath0, Config, Safety) ->
             safe -> KeyPath0;
             unsafe -> [unsafe_atom(Key) || Key <- KeyPath0]
         end,
-    Putter = fun(Path, Map, Value) ->
-        emqx_utils_maps:deep_force_put(Path, Map, Value)
-    end,
-    do_put(?CONF, Putter, KeyPath, Config).
+    do_put(?CONF, fun emqx_utils_maps:deep_force_put/3, KeyPath, Config).
 
 -spec get_default_value(emqx_utils_maps:config_key_path()) -> {ok, term()} | {error, term()}.
 get_default_value([RootName | _] = KeyPath) ->
@@ -497,10 +498,7 @@ put_raw(Config) ->
 -spec put_raw(emqx_utils_maps:config_key_path(), term()) -> ok.
 put_raw(KeyPath0, Config) ->
     KeyPath = [bin(K) || K <- KeyPath0],
-    Putter = fun(Path, Map, Value) ->
-        emqx_utils_maps:deep_force_put(Path, Map, Value)
-    end,
-    do_put(?RAW_CONF, Putter, KeyPath, Config).
+    do_put(?RAW_CONF, fun emqx_utils_maps:deep_force_put/3, KeyPath, Config).
 
 -spec put_namespaced(binary(), map()) -> ok.
 put_namespaced(Namespace, Config) when is_binary(Namespace) ->
@@ -1047,9 +1045,11 @@ save_configs_namespaced(Namespace, RootKeyAtom, Conf, RawConf, ClusterRPCOpts, O
     maybe
         ?KIND_INITIATE ?= maps:get(kind, ClusterRPCOpts, ?KIND_INITIATE),
         ?tp("emqx_config_save_configs_namespaced_transaction", #{}),
-        {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
-            ?MODULE:save_configs_namespaced_tx(Namespace, RootKeyBin, Conf, RawConf, Opts)
-        end),
+        {atomic, ok} = mria:transaction(
+            ?COMMON_SHARD,
+            fun emqx_config_tx_proto_v1:save_configs_namespaced/5,
+            [Namespace, RootKeyBin, Conf, RawConf, Opts]
+        ),
         ok
     end,
     put_namespaced(Namespace, #{RootKeyAtom => Conf}),

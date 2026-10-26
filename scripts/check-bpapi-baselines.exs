@@ -113,10 +113,16 @@ defmodule CheckBpapiBaselines do
     end
   end
 
+  # A proto module reaches the dump through its RPC call, or by name when it
+  # is a transaction proto module (`<api>_tx_proto_v<N>`, no RPC call).
   defp makes_rpc_call?(tag, path) do
-    case git(["show", "#{tag}:#{path}"]) do
-      {:ok, src} -> String.match?(src, @rpc_call)
-      :error -> true
+    if String.match?(path, ~r/_tx_proto_v\d+\.erl$/) do
+      true
+    else
+      case git(["show", "#{tag}:#{path}"]) do
+        {:ok, src} -> String.match?(src, @rpc_call)
+        :error -> true
+      end
     end
   end
 

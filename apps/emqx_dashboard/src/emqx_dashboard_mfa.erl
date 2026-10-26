@@ -27,6 +27,12 @@
     generate_token/1
 ]).
 
+%% Transaction funs. A core node runs them behind emqx_dashboard_mfa_tx_proto_v1.
+-export([
+    verify_temp_token_tx/2,
+    record_temp_token_failure_tx/2
+]).
+
 -export_type([mfa_state/0, mechanism/0, temp_token_purpose/0]).
 
 -type mechanism() :: totp.
@@ -184,16 +190,21 @@ create_verify_token(Username) ->
     {ok, term(), temp_token_purpose()} | {error, term()}.
 verify_temp_token(SsoUsername, Token) ->
     return_mfa_pending_transaction(
-        mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-            case lookup_valid_temp_token(SsoUsername, Token, write) of
-                {ok, #{type := Type} = Pending, Admin, Extra} ->
-                    clear_mfa_pending(Admin, Extra),
-                    {ok, SsoUsername, to_purpose(Type, Pending)};
-                {error, _} = Error ->
-                    Error
-            end
-        end)
+        mria:sync_transaction(
+            ?DASHBOARD_SHARD,
+            fun emqx_dashboard_mfa_tx_proto_v1:verify_temp_token/2,
+            [SsoUsername, Token]
+        )
     ).
+
+verify_temp_token_tx(SsoUsername, Token) ->
+    case lookup_valid_temp_token(SsoUsername, Token, write) of
+        {ok, #{type := Type} = Pending, Admin, Extra} ->
+            clear_mfa_pending(Admin, Extra),
+            {ok, SsoUsername, to_purpose(Type, Pending)};
+        {error, _} = Error ->
+            Error
+    end.
 
 %% @doc Peek at a temporary token without consuming it.
 -spec peek_temp_token(dashboard_username(), binary()) ->
@@ -215,24 +226,29 @@ peek_temp_token(SsoUsername, Token) ->
 -spec record_temp_token_failure(dashboard_username(), binary()) -> ok | {error, term()}.
 record_temp_token_failure(SsoUsername, Token) ->
     return_mfa_pending_transaction(
-        mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-            case lookup_valid_temp_token(SsoUsername, Token, write) of
-                {ok, Pending, Admin, Extra} ->
-                    FailedAttempts = maps:get(failed_attempts, Pending, 0) + 1,
-                    case FailedAttempts >= ?MAX_TEMP_TOKEN_FAILURES of
-                        true ->
-                            clear_mfa_pending(Admin, Extra);
-                        false ->
-                            set_mfa_pending(
-                                Admin, Extra, Pending#{failed_attempts => FailedAttempts}
-                            )
-                    end,
-                    ok;
-                {error, _} = Error ->
-                    Error
-            end
-        end)
+        mria:sync_transaction(
+            ?DASHBOARD_SHARD,
+            fun emqx_dashboard_mfa_tx_proto_v1:record_temp_token_failure/2,
+            [SsoUsername, Token]
+        )
     ).
+
+record_temp_token_failure_tx(SsoUsername, Token) ->
+    case lookup_valid_temp_token(SsoUsername, Token, write) of
+        {ok, Pending, Admin, Extra} ->
+            FailedAttempts = maps:get(failed_attempts, Pending, 0) + 1,
+            case FailedAttempts >= ?MAX_TEMP_TOKEN_FAILURES of
+                true ->
+                    clear_mfa_pending(Admin, Extra);
+                false ->
+                    set_mfa_pending(
+                        Admin, Extra, Pending#{failed_attempts => FailedAttempts}
+                    )
+            end,
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
 
 lookup_valid_temp_token(SsoUsername, Token, LockKind) ->
     case read_admin(SsoUsername, LockKind) of

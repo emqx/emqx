@@ -88,35 +88,10 @@ supported_apis(Node) ->
 announce(Node, App) ->
     {ok, Data0} = file:consult(?MODULE:versions_file(App)),
     Data = filter_allowed_umbrella_applications(Data0),
-    %% replicant(5.6.0) will call old core(<5.6.0) announce_fun/2 is undef on old core
-    %% so we just use anonymous function to update.
-    case mria:transaction(?BPAPI_SHARD, fun ?MODULE:announce_fun/2, [Node, Data]) of
-        {atomic, ok} ->
-            ok;
-        {aborted, {undef, [{?MODULE, announce_fun, _, _} | _]}} ->
-            {atomic, ok} = mria:transaction(
-                ?BPAPI_SHARD,
-                fun() ->
-                    MS = ets:fun2ms(fun(#?TAB{key = {N, API}}) when N =:= Node ->
-                        {N, API}
-                    end),
-                    OldKeys = mnesia:select(?TAB, MS, write),
-                    _ = [
-                        mnesia:delete({?TAB, Key})
-                     || Key <- OldKeys
-                    ],
-                    %% Insert new records:
-                    _ = [
-                        mnesia:write(#?TAB{key = {Node, API}, version = Version})
-                     || {API, Version} <- Data
-                    ],
-                    %% Update maximum supported version:
-                    _ = [update_minimum(API) || {API, _} <- Data],
-                    ok
-                end
-            ),
-            ok
-    end.
+    {atomic, ok} = mria:transaction(
+        ?BPAPI_SHARD, fun emqx_bpapi_tx_proto_v1:announce/2, [Node, Data]
+    ),
+    ok.
 
 -spec versions_file(atom()) -> file:filename_all().
 versions_file(App) ->

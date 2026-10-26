@@ -15,6 +15,9 @@
 
 -export([create_tables/0]).
 
+%% Transaction funs. A core node runs them behind emqx_dashboard_token_tx_proto_v1.
+-export([destroy_by_username_tx/1]).
+
 -export([
     sign/1,
     verify/3,
@@ -147,18 +150,22 @@ do_destroy(Token) ->
     ok.
 
 do_destroy_by_username(Username) ->
+    {atomic, ok} = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_token_tx_proto_v1:destroy_by_username/1,
+        [Username]
+    ),
+    ok.
+
+destroy_by_username_tx(Username) ->
     Spec = jwt_by_username_spec(Username),
-    Fun = fun() ->
-        Tokens = mnesia:select(?TAB, Spec),
-        lists:foreach(
-            fun(#?ADMIN_JWT{token = Token}) ->
-                mnesia:delete({?TAB, Token})
-            end,
-            Tokens
-        ),
-        ok
-    end,
-    {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, Fun),
+    Tokens = mnesia:select(?TAB, Spec),
+    lists:foreach(
+        fun(#?ADMIN_JWT{token = Token}) ->
+            mnesia:delete({?TAB, Token})
+        end,
+        Tokens
+    ),
     ok.
 
 %%--------------------------------------------------------------------

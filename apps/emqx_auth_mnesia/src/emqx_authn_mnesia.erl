@@ -53,6 +53,9 @@
 
 -export([backup_tables/0]).
 
+%% Transaction funs. A core node runs them behind emqx_authn_mnesia_tx_proto_v1.
+-export([import_users_tx/2]).
+
 -ifdef(TEST).
 -export([rec_to_map/1]).
 -endif.
@@ -237,6 +240,13 @@ import_users({PasswordType, Filename, FileData}, State, Opts) ->
 do_import_users([], _Opts) ->
     {error, empty_users};
 do_import_users(Users, Opts) ->
+    Res0 = trans(fun emqx_authn_mnesia_tx_proto_v1:import_users/2, [Users, Opts]),
+    #{per_ns := FinalPerNs} = Res0,
+    maps:foreach(fun inc_ns_rule_count/2, FinalPerNs),
+    Res = maps:remove(per_ns, Res0),
+    {ok, Res#{total => length(Users)}}.
+
+import_users_tx(Users, Opts) ->
     FoldFn = fun(User, Acc0) ->
         Return = insert_user(User, Opts),
         case Return of
@@ -249,17 +259,11 @@ do_import_users(Users, Opts) ->
                 inc_bucket_count(Return, Acc0)
         end
     end,
-    Fun = fun() ->
-        lists:foldl(
-            FoldFn,
-            #{success => 0, skipped => 0, override => 0, failed => 0, per_ns => #{}},
-            Users
-        )
-    end,
-    Res0 = #{per_ns := FinalPerNs} = trans(Fun),
-    maps:foreach(fun inc_ns_rule_count/2, FinalPerNs),
-    Res = maps:remove(per_ns, Res0),
-    {ok, Res#{total => length(Users)}}.
+    lists:foldl(
+        FoldFn,
+        #{success => 0, skipped => 0, override => 0, failed => 0, per_ns => #{}},
+        Users
+    ).
 
 inc_bucket_count(Bucket, Acc) ->
     N = maps:get(Bucket, Acc, 0),
@@ -565,12 +569,6 @@ get_user_identity(_, Type) ->
 
 trans(Fun, Args) ->
     case mria:transaction(?AUTHN_SHARD, Fun, Args) of
-        {atomic, Res} -> Res;
-        {aborted, Reason} -> {error, Reason}
-    end.
-
-trans(Fun) ->
-    case mria:transaction(?AUTHN_SHARD, Fun) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.

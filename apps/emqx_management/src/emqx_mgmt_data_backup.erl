@@ -49,6 +49,9 @@
 %% Only exposed for tests/mocking.
 -export([conf_keys/0]).
 
+%% Transaction funs. A core node runs them behind emqx_mgmt_data_backup_tx_proto_v1.
+-export([do_restore_mnesia_tab/2]).
+
 -export_type([import_res/0]).
 
 -ifdef(TEST).
@@ -1156,9 +1159,11 @@ restore_mnesia_records_as_snapshot(TabName, Records) ->
     end.
 
 run_restore_mnesia_transaction(Shard, TabName, Records) ->
-    Result = mria:sync_transaction(Shard, fun() ->
-        do_restore_mnesia_tab(TabName, Records)
-    end),
+    Result = mria:sync_transaction(
+        Shard,
+        fun emqx_mgmt_data_backup_tx_proto_v1:restore_mnesia_tab/2,
+        [TabName, Records]
+    ),
     case Result of
         {atomic, ok} ->
             ok;

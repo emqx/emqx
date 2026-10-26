@@ -1430,7 +1430,7 @@ t_mnesia_restore_low_level_error_branches(_Config) ->
             emqx_mgmt_data_backup:restore_mnesia_tab("backup", data_backup_test, merge)
         ),
 
-        meck:expect(mria, sync_transaction, fun(_Shard, _Fun) ->
+        meck:expect(mria, sync_transaction, fun(_Shard, _Fun, _Args) ->
             get(mria_sync_transaction_result)
         end),
         AssertTransaction = fun(Result, Expected) ->
