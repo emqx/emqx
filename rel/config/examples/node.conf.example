@@ -32,5 +32,5 @@ node {
     #data_dir = "/var/lib/emqx" # when installed from deb/rpm packages
 
     ## Type: Periodic garbage collection interval
-    global_gc_interval = 15m
+    global_gc_interval = 30m
 }

@@ -685,7 +685,7 @@ log_audit_handler.label:
 
 node_global_gc_interval.desc:
 """Periodic garbage collection interval. Set to <code>disabled</code> to have it disabled.<br/>
-Each run walks all processes and forces a garbage collection on each process that waits. On a node with many processes this costs CPU. Set it to <code>disabled</code> when that cost is not acceptable."""
+The collection walks the connected clients of the node and collects a few of them at a time, spread over this interval, so that it does not add a periodic spike to the CPU load. A client that is hibernated has already released its memory and is skipped."""
 
 node_global_gc_interval.label:
 """Global GC Interval"""
