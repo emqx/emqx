@@ -1654,8 +1654,7 @@ t_delivery_quota_false_survives_refresh(_TCConfig) ->
     Session0 = emqx_session_mem:create(
         ClientInfo,
         #{receive_maximum => 0, expiry_interval => 0},
-        _WillMsg = undefined,
-        emqx_session:get_session_conf(ClientInfo)
+        _WillMsg = undefined
     ),
     ?assertMatch(#session{quota = false}, Session0),
     Session1 = emqx_session_mem:refresh_quota(Session0),
