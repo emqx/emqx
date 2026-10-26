@@ -44,7 +44,7 @@ handle_method(get, Topic, Msg, Ctx, CInfo, IsConnectionless) ->
         0 ->
             subscribe(Msg, Topic, Ctx, CInfo, IsConnectionless);
         1 ->
-            unsubscribe(Msg, Topic, Ctx, CInfo);
+            unsubscribe(Msg, Topic, Ctx, CInfo, Session);
         _ ->
             reply({error, bad_request}, <<"invalid observe value">>, Msg)
     end;
@@ -188,6 +188,12 @@ maybe_run_session_subscribed(false, Ctx, CInfo, MountTopic, SubOpts) ->
 
 unsubscribe(Msg, Topic, Ctx, CInfo) ->
     MountTopic = mount(CInfo, Topic),
+    case emqx_coap_session:observe_matches(MountTopic, Msg, Session) of
+        true -> do_unsubscribe(Msg, Topic, MountTopic, Ctx, CInfo);
+        false -> reply({error, bad_request}, Msg)
+    end.
+
+do_unsubscribe(Msg, Topic, MountTopic, Ctx, CInfo) ->
     emqx_broker:unsubscribe(MountTopic),
     run_hooks(Ctx, 'session.unsubscribed', [CInfo, Topic, mk_subopts()]),
     ?UNSUB(MountTopic, Msg).
