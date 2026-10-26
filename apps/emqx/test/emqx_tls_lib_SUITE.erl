@@ -15,11 +15,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(TCConfig) ->
-    {ok, _} = application:ensure_all_started(ssl),
-    TCConfig.
+    Apps = emqx_cth_suite:start([ssl], #{work_dir => emqx_cth_suite:work_dir(TCConfig)}),
+    [{apps, Apps} | TCConfig].
 
-end_per_suite(_TCConfig) ->
-    ok.
+end_per_suite(TCConfig) ->
+    emqx_cth_suite:stop(?config(apps, TCConfig)).
 
 init_per_testcase(_TestCase, TCConfig) ->
     application:unset_env(emqx, trusted_certs_path),
