@@ -523,10 +523,8 @@ t_handle_outgoing(_) ->
     ?assertMatch({ok, _}, emqx_connection:handle_outgoing([?PACKET(?PINGRESP)], st())).
 
 t_handle_info(_) ->
-    ?assertMatch(
-        {ok, {event, running}, _NState},
-        emqx_connection:handle_info(activate_socket, st())
-    ),
+    {ok, Activated} = emqx_connection:handle_info(activate_socket, st()),
+    ?assertEqual(running, emqx_connection:info(sockstate, Activated)),
     ?assertMatch(
         {stop, {shutdown, for_testing}, _NStats},
         emqx_connection:handle_info({sock_error, for_testing}, st())

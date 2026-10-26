@@ -41,6 +41,9 @@ with `engine => mem | persistent_ds' once supported).
 -include("emqx_channel.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
+%% The scan calls `erlang:garbage_collect/0' at its yield point on purpose.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
     top_by/1,
     top_by/2,
@@ -62,15 +65,11 @@ with `engine => mem | persistent_ds' once supported).
 -type metric() ::
     %% session gauges (see ?SESSION_STATS_KEYS)
     subscriptions_cnt
-    | subscriptions_max
     | inflight_cnt
-    | inflight_max
     | mqueue_len
-    | mqueue_max
     | mqueue_dropped
     | total_payload_bytes
     | awaiting_rel_cnt
-    | awaiting_rel_max
     %% channel packet/message counters (see ?CHANNEL_METRICS)
     | recv_pkt
     | recv_msg
@@ -125,7 +124,7 @@ with `engine => mem | persistent_ds' once supported).
 -type heap_entry() :: {number(), emqx_types:clientid(), pid(), [{atom(), term()}]}.
 
 %% One projected ets row: {ClientId, ChanPid, cached stats proplist}.
--type row_input() :: {emqx_types:clientid(), pid(), list()}.
+-type row_input() :: {emqx_types:clientid(), pid(), emqx_chan_stats:ref()}.
 
 %% Accumulating scan state: the bounded top-K ordered set plus a lazy stream over
 %% the channel registry (the stream, not the accumulator, carries the ets
@@ -154,17 +153,16 @@ with `engine => mem | persistent_ds' once supported).
 %% `durable' (a boolean, not a gauge) and `next_pkt_id' (a wrapping
 %% packet-id counter, an identifier rather than a magnitude) — ranking by
 %% either is meaningless.
+%% The session gauges of the stats array (see `emqx_chan_stats`). The
+%% session attributes that the info map holds, such as `subscriptions_max`
+%% or `mqueue_max`, do not change with traffic and are not metrics to rank by.
 -define(SESSION_STATS_KEYS, [
     subscriptions_cnt,
-    subscriptions_max,
     inflight_cnt,
-    inflight_max,
     mqueue_len,
-    mqueue_max,
     mqueue_dropped,
     total_payload_bytes,
-    awaiting_rel_cnt,
-    awaiting_rel_max
+    awaiting_rel_cnt
 ]).
 
 %%--------------------------------------------------------------------
@@ -252,8 +250,8 @@ yields the best rows seen so far.
 """.
 -spec scan_acc(scan_acc()) -> {continue | done, scan_acc()}.
 scan_acc(#{stream := Stream, chunk := Chunk, heap := Heap0} = Acc0) ->
-    Fold = fun({ClientId, ChanPid, Stats}, Heap) ->
-        consider(ClientId, ChanPid, Stats, Acc0, Heap)
+    Fold = fun({ClientId, ChanPid, StatsRef}, Heap) ->
+        consider(ClientId, ChanPid, StatsRef, Acc0, Heap)
     end,
     {Heap, Rest} = emqx_utils_stream:fold(Fold, Heap0, Chunk, Stream),
     Acc = Acc0#{heap := Heap, stream := Rest},
@@ -274,58 +272,57 @@ scan_acc_rows(#{heap := Heap, metric := Metric, extra_keys := ExtraKeys}) ->
     [resolve_row(C, Metric, ExtraKeys) || C <- Candidates].
 
 %% Lazy stream over the channel registry, scanned in `Chunk'-sized ets
-%% batches. Each row is projected to {ClientId, ChanPid, Stats}; Stats is
-%% the cached stats proplist (the metric lives here). The larger info map
-%% is left in the table and only fetched for the K winners (resolve_row/3).
+%% batches. Each row is projected to {ClientId, ChanPid, StatsRef}; StatsRef
+%% is the stats array of the channel (the metric lives there). The larger
+%% info map is left in the table and only fetched for the K winners
+%% (resolve_row/3).
 -spec session_stream(pos_integer()) -> emqx_utils_stream:stream(row_input()).
 session_stream(Chunk) ->
     MatchSpec = ets:fun2ms(
-        fun({{ClientId, ChanPid}, _Info, Stats}) -> {ClientId, ChanPid, Stats} end
+        fun({{ClientId, ChanPid}, _Info, StatsRef}) -> {ClientId, ChanPid, StatsRef} end
     ),
     emqx_utils_stream:ets(fun
         (undefined) -> ets:select(?CHAN_INFO_TAB, MatchSpec, Chunk);
         (Cont) -> ets:select(Cont)
     end).
 
-%% Read the metric from the cached stats proplist and, if it qualifies,
-%% offer it to the bounded ordered set.
+%% Read the metric from the stats array and, if it qualifies, offer it to
+%% the bounded ordered set.
 consider(
     ClientId,
     ChanPid,
-    Stats,
+    StatsRef,
     #{metric := Metric, min_value := MinValue, top_k := TopK, extra_stats := ExtraStats},
     Heap
 ) ->
-    case read_metric(Metric, Stats) of
+    case read_metric(Metric, StatsRef) of
         Value when is_number(Value), Value >= MinValue ->
-            heap_offer({-Value, ClientId, ChanPid}, Stats, ExtraStats, TopK, Heap);
+            heap_offer({-Value, ClientId, ChanPid}, StatsRef, ExtraStats, TopK, Heap);
         _ ->
             Heap
     end.
 
-read_metric(Metric, Stats) when is_list(Stats) ->
-    proplists:get_value(Metric, Stats, 0);
-read_metric(_Metric, _Stats) ->
-    0.
+read_metric(Metric, StatsRef) ->
+    emqx_chan_stats:get(StatsRef, Metric).
 
 %% Lower rank keys are better: higher values first, then client IDs ascending.
 %% StatExtras are captured only for candidates that enter the bounded ordered set.
-heap_offer(RankKey, Stats, ExtraStats, TopK, Heap) ->
+heap_offer(RankKey, StatsRef, ExtraStats, TopK, Heap) ->
     case gb_sets:size(Heap) < TopK of
         true ->
-            heap_add(RankKey, Stats, ExtraStats, Heap);
+            heap_add(RankKey, StatsRef, ExtraStats, Heap);
         false ->
             {{WorstRankValue, WorstClientId, WorstPid, _}, Heap1} =
                 gb_sets:take_largest(Heap),
             WorstRankKey = {WorstRankValue, WorstClientId, WorstPid},
             case RankKey < WorstRankKey of
-                true -> heap_add(RankKey, Stats, ExtraStats, Heap1);
+                true -> heap_add(RankKey, StatsRef, ExtraStats, Heap1);
                 false -> Heap
             end
     end.
 
-heap_add({RankValue, ClientId, ChanPid}, Stats, ExtraStats, Heap) ->
-    StatExtras = [{Key, read_stat_extra(Key, Stats)} || Key <- ExtraStats],
+heap_add({RankValue, ClientId, ChanPid}, StatsRef, ExtraStats, Heap) ->
+    StatExtras = [{Key, read_stat_extra(Key, StatsRef)} || Key <- ExtraStats],
     gb_sets:add({RankValue, ClientId, ChanPid, StatExtras}, Heap).
 
 maybe_sleep(SleepMs) when is_integer(SleepMs), SleepMs > 0 ->
@@ -361,7 +358,7 @@ resolve_row({RankValue, ClientId, ChanPid, StatExtras}, Metric, ExtraKeys) ->
 
 lookup_info(ClientId, ChanPid) ->
     case ets:lookup(?CHAN_INFO_TAB, {ClientId, ChanPid}) of
-        [{_Chan, Info, _Stats}] when is_map(Info) -> Info;
+        [{_Chan, Info, _StatsRef}] when is_map(Info) -> Info;
         _ -> #{}
     end.
 
@@ -382,15 +379,14 @@ find_first(Key, [Map | Rest]) ->
         false -> find_first(Key, Rest)
     end.
 
-read_stat_extra(Key, Stats) when is_list(Stats) ->
-    proplists:get_value(Key, Stats, sparse_stat_default(Key));
-read_stat_extra(Key, Stats) when is_map(Stats) ->
-    maps:get(Key, Stats, sparse_stat_default(Key));
-read_stat_extra(_Key, _Stats) ->
-    undefined.
-
-sparse_stat_default(Key) ->
-    maps:get(Key, emqx_cm:sparse_stats_defaults(), undefined).
+%% The stats array holds the counters and gauges only. The session attributes
+%% of the info map (`subscriptions_max`, `mqueue_max`, `is_persistent`, ...)
+%% are extra keys, not extra stats.
+read_stat_extra(Key, StatsRef) ->
+    case emqx_chan_stats:lookup(StatsRef, Key) of
+        {ok, Value} -> Value;
+        error -> undefined
+    end.
 
 %%--------------------------------------------------------------------
 %% Cluster-wide scan

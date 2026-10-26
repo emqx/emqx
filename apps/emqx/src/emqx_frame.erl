@@ -7,6 +7,7 @@
 -compile({inline, [validate_connect_first/2, validate_frame_len/3, parse_properties/3]}).
 
 -include("emqx_mqtt.hrl").
+-include("emqx_instr.hrl").
 
 %% Parse state builders. Each one derives a state from options and a
 %% protocol version alone, never from a live connection, so
@@ -423,8 +424,10 @@ append_body(Acc, <<>>) ->
 append_body(<<>>, Bytes) ->
     Bytes;
 append_body(Acc, Bytes) when is_binary(Acc) andalso byte_size(Acc) < 1024 ->
+    ?BROKER_INSTR_SOCKPACKET(?BROKER_INSTR_INC(socket_packets, body_binary_append_total)),
     <<Acc/binary, Bytes/binary>>;
 append_body(Acc, Bytes) ->
+    ?BROKER_INSTR_SOCKPACKET(?BROKER_INSTR_INC(socket_packets, body_list_append_total)),
     [Acc | Bytes].
 
 parse_body_frame(Bin, Header, Need, Body, Options) ->

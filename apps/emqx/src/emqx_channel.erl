@@ -13,6 +13,7 @@
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
 -include("emqx_config.hrl").
+-include("emqx_instr.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -29,6 +30,7 @@
     get_mqtt_conf/3,
     set_conn_state/2,
     stats/1,
+    session_stats/1,
     caps/1
 ]).
 
@@ -60,7 +62,9 @@
 
 %% Export for connection modules
 -export([
-    shutdown_count/2
+    shutdown_count/2,
+    hibernate/1,
+    wakeup/1
 ]).
 
 %% Export for DS session GC worker and session implementations
@@ -203,7 +207,7 @@ info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
     }.
 
 chan_info_session(Session) ->
-    maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session)).
+    emqx_session:chan_info(Session).
 
 %% `clientinfo' keeps these so that authn, authz and hooks can reach them without
 %% `conninfo'. The info map already carries `conninfo', so a reader can derive them
@@ -299,15 +303,29 @@ inspect(#channel{} = Channel) ->
         lists:enumerate(2, record_info(fields, channel))
     ).
 
+%% A WebSocket connection counts its own socket stats and has no `send_pend`.
+chan_stats_masked(#{conn_mod := emqx_ws_connection}) -> [send_pend];
+chan_stats_masked(#{}) -> [].
+
 -spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
 -spec stats(channel()) -> emqx_types:stats().
 stats(#channel{session = undefined}) ->
-    emqx_pd:get_counters(?CHANNEL_METRICS);
-stats(#channel{session = Session}) ->
-    lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
+    emqx_chan_stats:get_counters(?CHANNEL_METRICS);
+stats(Channel) ->
+    lists:append(session_stats(Channel), emqx_chan_stats:get_counters(?CHANNEL_METRICS)).
+
+-doc """
+The session gauges of the channel: the stats that the channel process writes
+to its stats array when the session changes.
+""".
+-spec session_stats(channel()) -> emqx_types:stats().
+session_stats(#channel{session = undefined}) ->
+    [];
+session_stats(#channel{session = Session}) ->
+    emqx_session:stats(Session).
 
 -spec caps(channel()) -> emqx_types:caps().
 caps(#channel{clientinfo = #{zone := Zone}}) ->
@@ -360,6 +378,7 @@ init(
     {NClientInfo, NConnInfo0} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
     ok = validate_clientinfo_string(peersni, maps:get(peersni, NClientInfo, undefined)),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
+    _ = emqx_chan_stats:new(chan_stats_masked(NConnInfo)),
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
@@ -748,12 +767,20 @@ adjust_limiter(ClientInfo) ->
 
 -doc """
 Build the limiter container when the channel has none and a finite limit is
-configured for its zone or listener. The connection calls this at CONNECT and
-on each stats timer, so a limit configured at runtime applies after at most
-one stats interval.
+configured for its zone or listener. Do the same for the session delivery
+limiter. The connection calls this at CONNECT and on each stats timer, so a
+limit configured at runtime applies after at most one stats interval.
 """.
 -spec refresh_quota(channel()) -> channel().
-refresh_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+refresh_quota(Channel) ->
+    refresh_session_quota(refresh_channel_quota(Channel)).
+
+refresh_session_quota(#channel{session = undefined} = Channel) ->
+    Channel;
+refresh_session_quota(#channel{session = Session} = Channel) ->
+    Channel#channel{session = emqx_session:refresh_quota(Session)}.
+
+refresh_channel_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
     #{zone := Zone, listener := ListenerId} = ClientInfo,
     case emqx_limiter:channel_limits_configured(Zone, ListenerId) of
         false ->
@@ -763,7 +790,7 @@ refresh_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
                 quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)
             }
     end;
-refresh_quota(Channel) ->
+refresh_channel_quota(Channel) ->
     Channel.
 
 try_consume_quota(_Needs, #channel{quota = undefined} = Channel) ->
@@ -891,10 +918,11 @@ packet_to_message(
     }
 ) ->
     ClientAttrs = maps:get(client_attrs, ClientInfo, #{}),
+    Headers = ?BROKER_INSTR_HEADERS(?BROKER_INSTR_MARK(?BROKER_INSTR_TS(), undefined)),
     Msg = emqx_packet:to_message(
         Packet,
         ClientId,
-        #{
+        Headers#{
             client_attrs => ClientAttrs,
             peername => PeerName,
             proto_ver => ProtoVer,
@@ -2204,6 +2232,23 @@ handle_timeout(
         {ok, NKeepAlive} ->
             NChannel = Channel#channel{keepalive = NKeepAlive},
             {ok, reset_timer(keepalive, NChannel)};
+        {error, timeout} ->
+            handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
+    end;
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{keepalive = undefined}) ->
+    {ok, Channel};
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{timers = #{keepalive := _}}) ->
+    %% A packet or a keepalive update re-armed the sampling first.
+    {ok, Channel};
+handle_timeout(TRef, keepalive_deadline, Channel = #channel{timers = #{keepalive_deadline := _}}) ->
+    %% The process did not hibernate, so wakeup/1 was not called.
+    handle_timeout(TRef, keepalive_deadline, wakeup(Channel));
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{keepalive = KeepAlive}) ->
+    case emqx_keepalive:check_deadline(KeepAlive) of
+        {ok, NKeepAlive} ->
+            {ok, ensure_timer(keepalive, Channel#channel{keepalive = NKeepAlive})};
         {error, timeout} ->
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
@@ -3597,19 +3642,73 @@ ensure_keepalive_timer(
             #{cnts_ref := CntRef} ->
                 _MFA = {emqx_quic_connection, read_cnt, [CntRef, control_packet]};
             undefined ->
-                emqx_pd:get_counter(recv_pkt)
+                _MFA = {emqx_chan_stats, get, [recv_pkt]}
         end,
     KeepAlive = emqx_keepalive:init(Zone, Val, Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = KeepAlive}).
 
-clear_keepalive(Channel = #channel{timers = Timers}) ->
-    case maps:get(keepalive, Timers, undefined) of
-        undefined ->
-            Channel;
-        TRef ->
-            emqx_utils:cancel_timer(TRef),
-            Channel#channel{timers = maps:without([keepalive], Timers)}
-    end.
+clear_keepalive(Channel) ->
+    clean_timer(keepalive_deadline, clean_timer(keepalive, Channel)).
+
+-doc """
+Prepare the channel for the hibernation of its connection process.
+
+A hibernated process gets no packets, so the keepalive does not need to
+sample the receive counter. Replace the sampling timer with one timer that
+fires when the client is late.
+""".
+-spec hibernate(channel()) -> channel().
+hibernate(
+    Channel = #channel{
+        conn_state = connected,
+        conninfo = ConnInfo,
+        keepalive = KeepAlive,
+        timers = #{keepalive := TRef} = Timers
+    }
+) when KeepAlive =/= undefined ->
+    case
+        not is_map_key(conn_shared_state, ConnInfo) andalso
+            erlang:cancel_timer(TRef)
+    of
+        Remaining when is_integer(Remaining) ->
+            SinceArm = max(emqx_keepalive:info(check_interval, KeepAlive) - Remaining, 0),
+            {TillDeadline, NKeepAlive} = emqx_keepalive:hibernate(SinceArm, KeepAlive),
+            NChannel = Channel#channel{
+                keepalive = NKeepAlive, timers = maps:remove(keepalive, Timers)
+            },
+            ensure_timer(keepalive_deadline, TillDeadline, NChannel);
+        false ->
+            %% Not eligible, or the timer already fired and its message wakes
+            %% the process at once.
+            Channel
+    end;
+hibernate(Channel) ->
+    Channel.
+
+-doc """
+Restore the keepalive sampling after the connection process wakes up.
+
+When the deadline timer already fired, credit the whole deadline and do
+not flush: its message is in the mailbox, and `handle_timeout/3` checks it.
+""".
+-spec wakeup(channel()) -> channel().
+wakeup(
+    Channel = #channel{
+        keepalive = KeepAlive, timers = #{keepalive_deadline := TRef} = Timers
+    }
+) when KeepAlive =/= undefined ->
+    NTimers = maps:remove(keepalive_deadline, Timers),
+    case erlang:cancel_timer(TRef) of
+        Remaining when is_integer(Remaining) ->
+            NKeepAlive = emqx_keepalive:wakeup(Remaining, KeepAlive),
+            ensure_timer(keepalive, Channel#channel{keepalive = NKeepAlive, timers = NTimers});
+        false ->
+            NKeepAlive = emqx_keepalive:wakeup(0, KeepAlive),
+            Channel#channel{keepalive = NKeepAlive, timers = NTimers}
+    end;
+wakeup(Channel) ->
+    Channel.
+
 %%--------------------------------------------------------------------
 %% Maybe Resume Session
 

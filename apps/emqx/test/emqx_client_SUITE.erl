@@ -545,7 +545,19 @@ t_chan_info_structure(Config) ->
         ],
         lists:sort(maps:keys(ConnInfo))
     ),
-    ?assertEqual([created_at, impl, is_persistent], lists:sort(maps:keys(SessionInfo))),
+    ?assertEqual(
+        [
+            awaiting_rel_max,
+            created_at,
+            durable,
+            impl,
+            inflight_max,
+            is_persistent,
+            mqueue_max,
+            subscriptions_max
+        ],
+        lists:sort(maps:keys(SessionInfo))
+    ),
     ?assertMatch(#{clientid := ClientId, proto_ver := ?MQTT_PROTO_V5}, ConnInfo),
     ?assertMatch(#{clientid := ClientId, zone := default}, ClientInfo),
     ?assertMatch(#{impl := emqx_session_mem, is_persistent := false}, SessionInfo),

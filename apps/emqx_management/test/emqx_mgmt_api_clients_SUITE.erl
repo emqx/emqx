@@ -70,7 +70,8 @@ persistent_session_testcases() ->
 persistence_disabled_cluster_testcases() ->
     [
         t_list_clients_exact_lookup_node,
-        t_bulk_subscribe
+        t_bulk_subscribe,
+        t_list_clients_cluster_stats
     ].
 client_msgs_testcases() ->
     [
@@ -165,6 +166,9 @@ end_per_group(_Group, _Config) ->
 
 init_per_testcase(t_format_old_style_client_stats_defaults_total_payload_bytes, Config) ->
     Config;
+init_per_testcase(t_list_clients_cluster_stats, Config) ->
+    %% Selects its own rows, so a client of an earlier case does not matter.
+    Config;
 init_per_testcase(_TC, Config) ->
     %% NOTE
     %% Wait until there are no stale clients data before running the testcase.
@@ -182,6 +186,8 @@ init_per_testcase(_TC, Config) ->
     Config.
 
 end_per_testcase(t_format_old_style_client_stats_defaults_total_payload_bytes, _Config) ->
+    ok;
+end_per_testcase(t_list_clients_cluster_stats, _Config) ->
     ok;
 end_per_testcase(TC, _Config) when
     TC =:= t_inflight_messages;
@@ -1213,7 +1219,8 @@ t_query_clients_with_fields(Config) ->
     AllFields = get_clients_all_fields(Auth, "fields=all"),
     DefaultFields = get_clients_all_fields(Auth, ""),
 
-    ?assertEqual(AllFields, DefaultFields),
+    %% The process stats are read from the process on each request.
+    ?assertEqual(without_process_stats(AllFields), without_process_stats(DefaultFields)),
     ?assertMatch(
         [#{<<"clientid">> := ClientId, <<"username">> := Username}],
         AllFields
@@ -1354,9 +1361,9 @@ t_list_clients_exact_lookup_pagination(Config) ->
     lists:foreach(fun emqtt:disconnect/1, Clients).
 
 -doc """
-`GET /clients/:clientid` for idle TCP and WebSocket clients returns the same
-fields as a dense stats row would produce, with 0 for the stats that the channel
-info table does not store.
+`GET /clients/:clientid` for idle TCP and WebSocket clients returns the fields
+that the stats of the connection process produce, with the values of the stats
+array of the channel info row.
 """.
 t_idle_client_stats(Config) ->
     lists:foreach(
@@ -1375,47 +1382,50 @@ t_idle_client_stats(Config) ->
         ]
     ).
 
-%% The REST response must have the fields that the formatter produces from the
-%% dense stats of the connection process. The values come from the stored row,
-%% with 0 for the omitted stats.
+%% The REST response has the fields that the formatter produces from the stats
+%% of the connection process, with the values of the stats array of the row.
 assert_idle_client_stats(Node, ClientId, Config) ->
     [ChanPid] = erpc:call(Node, emqx_cm, lookup_channels, [local, ClientId]),
     Chan = {ClientId, ChanPid},
-    [{Chan, Info, Stored}] = erpc:call(Node, ets, lookup, [emqx_channel_info, Chan]),
-    Defaults = emqx_cm:sparse_stats_defaults(),
-    ?assertEqual([], [KV || {K, 0} = KV <- Stored, is_map_key(K, Defaults)]),
+    [{Chan, Info, StatsRef}] = erpc:call(Node, ets, lookup, [emqx_channel_info, Chan]),
+    ?assert(is_reference(StatsRef)),
     #{conninfo := #{conn_mod := ConnMod}} = Info,
-    Dense = erpc:call(Node, ConnMod, stats, [ChanPid]),
-    ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Dense), ConnMod),
+    FromProcess = erpc:call(Node, ConnMod, stats, [ChanPid]),
+    FromTable =
+        erpc:call(Node, emqx_chan_stats, to_list, [StatsRef]) ++
+            erpc:call(Node, emqx_utils, proc_stats, [ChanPid]),
+    ?assertEqual(
+        lists:sort(proplists:get_keys(FromProcess)),
+        lists:sort(proplists:get_keys(FromTable)),
+        ConnMod
+    ),
     Expected = emqx_utils_maps:binary_key_map(
-        erpc:call(Node, emqx_mgmt_api_clients, format_channel_info, [Node, {Chan, Info, Dense}])
+        erpc:call(Node, emqx_mgmt_api_clients, format_channel_info, [Node, {Chan, Info, FromTable}])
     ),
     {ok, {?HTTP200, _, Client}} = get_client_request(ClientId, Config),
     ?assertEqual(lists:sort(maps:keys(Expected)), lists:sort(maps:keys(Client)), ConnMod),
+    %% The counters of an idle client do not change between the reads.
     lists:foreach(
         fun(K) ->
             KBin = atom_to_binary(K),
-            ?assertEqual(
-                proplists:get_value(K, Stored, 0), maps:get(KBin, Client), {ConnMod, K}
-            )
+            ?assertEqual(proplists:get_value(K, FromTable), maps:get(KBin, Client), {ConnMod, K})
         end,
-        maps:keys(Defaults)
+        [recv_pkt, send_pkt, recv_msg, send_msg, subscriptions_cnt, mqueue_len, inflight_cnt]
     ).
 
 -doc """
-Check that `emqx_mgmt_api:do_query/2`, which other nodes call, returns the
-rows of the channel info table with the stats keys that the table omits,
-with the value 0.
+`emqx_mgmt_api:do_query/2`, which other nodes call, returns the rows of the
+channel info table with the stats proplist in place of the stats array
+reference, which is only valid on the node of the channel.
 """.
-t_query_rows_restore_sparse_stats(_Config) ->
-    ClientId = <<"query-rows-sparse-stats">>,
+t_query_rows_materialize_stats(_Config) ->
+    ClientId = <<"query-rows-stats">>,
     {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C),
     try
-        Defaults = emqx_cm:sparse_stats_defaults(),
         [ChanPid] = emqx_cm:lookup_channels(ClientId),
-        Stored = ets:lookup_element(emqx_channel_info, {ClientId, ChanPid}, 3),
-        ?assertNotEqual([], maps:keys(Defaults) -- proplists:get_keys(Stored)),
+        StatsRef = ets:lookup_element(emqx_channel_info, {ClientId, ChanPid}, 3),
+        ?assert(is_reference(StatsRef)),
         QueryState = #{
             table => emqx_channel_info,
             match_spec => [{{{ClientId, '_'}, '_', '_'}, [], ['$_']}],
@@ -1423,14 +1433,138 @@ t_query_rows_restore_sparse_stats(_Config) ->
             complete => false,
             fuzzy_fun => undefined
         },
-        {[{_Chan, _Info, Stats}], _} = emqx_mgmt_api:do_query(node(), QueryState),
-        ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Stats)),
-        ?assertEqual(
-            maps:merge(Defaults, maps:from_list(Stored)),
-            maps:from_list(Stats)
-        )
+        {[{_Chan, #{session := #{durable := false}}, Stats}], _} =
+            emqx_mgmt_api:do_query(node(), QueryState),
+        %% The process stats come last and move between two reads.
+        ArrayStats = emqx_chan_stats:to_list(StatsRef),
+        ?assertEqual(ArrayStats, lists:sublist(Stats, length(ArrayStats))),
+        ?assertMatch(#{recv_pkt := 1, reductions := R} when is_integer(R), maps:from_list(Stats))
     after
         ok = emqtt:disconnect(C)
+    end.
+
+-doc """
+`GET /clients/:clientid` shows the traffic of a client as it happens: the
+packet and message counters are read from the stats array of the connection,
+and the subscription count is written when the SUBACK goes out, not on the
+next stats timer.
+""".
+t_client_stats_after_traffic(Config) ->
+    ClientId = <<"stats-after-traffic">>,
+    Topic = <<"stats/after/traffic">>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+    try
+        {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
+        lists:foreach(
+            fun(N) ->
+                {ok, _} = emqtt:publish(C, Topic, integer_to_binary(N), qos1),
+                ?assertReceive({publish, #{topic := Topic}})
+            end,
+            lists:seq(1, 3)
+        ),
+        {ok, {?HTTP200, _, Client}} = get_client_request(ClientId, Config),
+        ?assertMatch(
+            #{
+                <<"subscriptions_cnt">> := 1,
+                <<"recv_msg">> := 3,
+                <<"recv_msg.qos1">> := 3,
+                <<"send_msg">> := 3,
+                <<"send_msg.qos1">> := 3,
+                <<"durable">> := false,
+                <<"subscriptions_max">> := <<"infinity">>,
+                <<"awaiting_rel_max">> := _
+            },
+            Client
+        ),
+        %% CONNECT, SUBSCRIBE, 3 PUBLISH and 3 PUBACK
+        ?assert(maps:get(<<"recv_pkt">>, Client) >= 8, Client),
+        %% CONNACK, SUBACK, 3 PUBLISH and 3 PUBACK
+        ?assert(maps:get(<<"send_pkt">>, Client) >= 8, Client),
+        ?assert(maps:get(<<"recv_oct">>, Client) > 0, Client)
+    after
+        ok = emqtt:disconnect(C)
+    end.
+
+-doc """
+A fuzzy search returns the stats of the clients it matches, and builds the
+stats only for those: the fuzzy filter reads the info map, so it runs before
+the stats arrays and the process stats are read.
+""".
+t_fuzzy_query_clients_stats(Config) ->
+    ClientIds = [<<"fuzzy_stats_a1">>, <<"fuzzy_stats_a2">>, <<"fuzzy_stats_b1">>],
+    Clients = lists:map(
+        fun(ClientId) ->
+            {ok, C} = emqtt:start_link([{clientid, ClientId}]),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        ClientIds
+    ),
+    ok = meck:new(emqx_chan_stats, [passthrough, no_link]),
+    try
+        {ok, {?HTTP200, _, #{<<"data">> := Found}}} =
+            list_request(#{like_clientid => "fuzzy_stats_a"}, Config),
+        ?assertEqual(
+            [<<"fuzzy_stats_a1">>, <<"fuzzy_stats_a2">>],
+            lists:sort([ClientId || #{<<"clientid">> := ClientId} <- Found])
+        ),
+        lists:foreach(
+            fun(Client) ->
+                ?assertMatch(
+                    #{<<"recv_pkt">> := 1, <<"send_pkt">> := 1, <<"heap_size">> := H} when
+                        is_integer(H),
+                    Client
+                )
+            end,
+            Found
+        ),
+        ?assertEqual(2, meck:num_calls(emqx_chan_stats, to_list, '_'))
+    after
+        meck:unload(emqx_chan_stats),
+        lists:foreach(fun(C) -> ok = emqtt:disconnect(C) end, Clients)
+    end.
+
+-doc """
+`GET /clients` lists the clients of every node with their stats: the node
+that holds a row builds the stats proplist from its stats array before the
+row goes to the node that serves the request.
+""".
+t_list_clients_cluster_stats(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    Port2 = get_mqtt_port(N2, tcp),
+    ClientId1 = <<"cluster-stats-1">>,
+    ClientId2 = <<"cluster-stats-2">>,
+    C1 = connect_client(#{port => Port1, clientid => ClientId1, clean_start => true}),
+    C2 = connect_client(#{port => Port2, clientid => ClientId2, clean_start => true}),
+    try
+        {ok, _, [1]} = emqtt:subscribe(C1, <<"cluster/stats/1">>, qos1),
+        {ok, _, [1, 1]} = emqtt:subscribe(C2, [
+            {<<"cluster/stats/2">>, qos1}, {<<"cluster/stats/3">>, qos1}
+        ]),
+        {ok, {?HTTP200, _, #{<<"data">> := Rows}}} = list_request(Config),
+        #{ClientId1 := Row1, ClientId2 := Row2} = maps:from_list([
+            {maps:get(<<"clientid">>, Row), Row}
+         || Row <- Rows,
+            lists:member(maps:get(<<"clientid">>, Row), [ClientId1, ClientId2])
+        ]),
+        ?assertEqual(lists:sort(maps:keys(Row1)), lists:sort(maps:keys(Row2))),
+        ?assertMatch(
+            #{<<"subscriptions_cnt">> := 1, <<"recv_pkt">> := 2, <<"durable">> := false},
+            Row1
+        ),
+        ?assertMatch(
+            #{<<"subscriptions_cnt">> := 2, <<"recv_pkt">> := 2, <<"durable">> := false},
+            Row2
+        ),
+        ?assertEqual(atom_to_binary(N1), maps:get(<<"node">>, Row1)),
+        ?assertEqual(atom_to_binary(N2), maps:get(<<"node">>, Row2)),
+        {ok, {?HTTP200, _, Client2}} = get_client_request(ClientId2, Config),
+        ?assertEqual(without_process_stats(Row2), without_process_stats(Client2))
+    after
+        ok = emqtt:disconnect(C1),
+        ok = emqtt:disconnect(C2)
     end.
 
 t_format_old_style_client_stats_defaults_total_payload_bytes(_) ->
@@ -2861,6 +2995,13 @@ get_subscriptions_request(ClientId, Config, Opts) ->
 get_client_request(ClientId, Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["clients", ClientId]),
     request(get, Path, [], Config).
+
+%% The process stats of a client are read from its process on each request,
+%% so two reads differ in them.
+without_process_stats(Clients) when is_list(Clients) ->
+    lists:map(fun without_process_stats/1, Clients);
+without_process_stats(Client) when is_map(Client) ->
+    maps:without([<<"reductions">>, <<"heap_size">>, <<"mailbox_len">>], Client).
 
 list_request(Config) ->
     list_request(_QueryString = "", Config).

@@ -127,7 +127,7 @@ fields(lwm2m_blockwise) ->
             )},
         {max_total_size,
             sc(
-                emqx_schema:bytesize(),
+                emqx_gateway_schema:bytesize(),
                 #{default => <<"16MB">>, desc => ?DESC(lwm2m_blockwise_max_total_size)}
             )},
         {exchange_lifetime,

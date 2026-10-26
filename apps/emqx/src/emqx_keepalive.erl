@@ -14,7 +14,10 @@
     info/2,
     check/1,
     check/2,
-    update/3
+    update/3,
+    hibernate/2,
+    wakeup/2,
+    check_deadline/1
 ]).
 
 -elvis([{elvis_style, no_if_expression, disable}]).
@@ -27,7 +30,7 @@
     statval :: non_neg_integer(),
     %% stat reader func
     stat_reader :: mfargs() | undefined,
-    %% The number of idle intervals allowed before disconnecting the client.
+    %% Milliseconds without a received packet, as of the last check.
     idle_milliseconds = 0 :: non_neg_integer(),
     max_idle_millisecond :: pos_integer()
 }).
@@ -40,7 +43,7 @@
 init(Interval) -> init(default, 0, Interval).
 
 init(Zone, Interval) ->
-    RecvCnt = emqx_pd:get_counter(recv_pkt),
+    RecvCnt = emqx_chan_stats:get(recv_pkt),
     init(Zone, RecvCnt, Interval).
 
 %% from mqtt-v3.1.1 specific
@@ -57,7 +60,7 @@ init(Zone, Interval) ->
 %% @doc Init keepalive.
 -spec init(
     Zone :: atom(),
-    StatVal :: non_neg_integer() | Reader :: mfa(),
+    StatVal :: non_neg_integer() | Reader :: mfargs(),
     Second :: non_neg_integer()
 ) -> keepalive() | undefined.
 init(Zone, Stat, Second) when Second > 0 andalso Second =< ?MAX_INTERVAL ->
@@ -97,7 +100,7 @@ info(#keepalive{
     }.
 
 -spec info(check_interval | statval | idle_milliseconds, keepalive()) ->
-    non_neg_integer().
+    non_neg_integer() | undefined.
 info(check_interval, #keepalive{check_interval = Interval}) ->
     Interval;
 info(statval, #keepalive{statval = StatVal}) ->
@@ -107,40 +110,73 @@ info(idle_milliseconds, #keepalive{idle_milliseconds = Val}) ->
 info(check_interval, undefined) ->
     0.
 
-check(Keepalive = #keepalive{stat_reader = undefined}) ->
-    RecvCnt = emqx_pd:get_counter(recv_pkt),
-    check(RecvCnt, Keepalive);
-check(Keepalive = #keepalive{stat_reader = {M, F, A}}) ->
-    RecvCnt = erlang:apply(M, F, A),
-    check(RecvCnt, Keepalive);
+check(Keepalive = #keepalive{check_interval = Interval}) ->
+    check(read_stat(Keepalive), Interval, Keepalive);
 check(Keepalive) ->
     {ok, Keepalive}.
 
 %% @doc Check keepalive.
 -spec check(non_neg_integer(), keepalive()) ->
     {ok, keepalive()} | {error, timeout}.
+check(NewVal, #keepalive{check_interval = Interval} = Keepalive) ->
+    %% Called after the check_interval timer fires, so the elapsed time is Interval.
+    check(NewVal, Interval, Keepalive).
 
-check(
-    NewVal,
-    #keepalive{
-        statval = NewVal,
-        idle_milliseconds = IdleAcc,
-        check_interval = Interval,
-        max_idle_millisecond = Max
-    }
-) when IdleAcc + Interval >= Max ->
+check(NewVal, ElapsedMs, #keepalive{
+    statval = NewVal, idle_milliseconds = IdleAcc, max_idle_millisecond = Max
+}) when
+    IdleAcc + ElapsedMs >= Max
+->
     {error, timeout};
-check(
-    NewVal,
-    #keepalive{
-        statval = NewVal,
-        idle_milliseconds = IdleAcc,
-        check_interval = Interval
-    } = Keepalive
-) ->
-    {ok, Keepalive#keepalive{statval = NewVal, idle_milliseconds = IdleAcc + Interval}};
-check(NewVal, #keepalive{} = Keepalive) ->
-    {ok, Keepalive#keepalive{statval = NewVal, idle_milliseconds = 0}}.
+check(NewVal, ElapsedMs, Keepalive) ->
+    {ok, advance(NewVal, ElapsedMs, Keepalive)}.
+
+advance(NewVal, ElapsedMs, #keepalive{statval = NewVal, idle_milliseconds = IdleAcc} = Keepalive) ->
+    Keepalive#keepalive{idle_milliseconds = IdleAcc + ElapsedMs};
+advance(NewVal, _ElapsedMs, Keepalive) ->
+    Keepalive#keepalive{statval = NewVal, idle_milliseconds = 0}.
+
+%% idle_milliseconds does not change between hibernate/2 and wakeup/2, so this
+%% is also the time the deadline timer was armed with.
+till_deadline(#keepalive{idle_milliseconds = IdleAcc, max_idle_millisecond = Max}) ->
+    max(Max - IdleAcc, 1).
+
+read_stat(#keepalive{stat_reader = undefined}) ->
+    emqx_chan_stats:get(recv_pkt);
+read_stat(#keepalive{stat_reader = {M, F, A}}) ->
+    erlang:apply(M, F, A).
+
+-doc """
+Switch from sampling to a single deadline before the process hibernates.
+
+`SinceArmMs` is the time since the sampling timer was armed. Returns the
+time to arm the timer with, so that it fires when the idle time reaches
+`max_idle_millisecond`. The caller calls `wakeup/2` when the process wakes
+up, also when the deadline timer has fired.
+""".
+-spec hibernate(non_neg_integer(), keepalive()) -> {pos_integer(), keepalive()}.
+hibernate(SinceArmMs, Keepalive) ->
+    NKeepalive = advance(read_stat(Keepalive), SinceArmMs, Keepalive),
+    {till_deadline(NKeepalive), NKeepalive}.
+
+-doc """
+Credit the time the process was hibernated, after `hibernate/2`.
+
+`RemainingMs` is the time that was left on the deadline timer, 0 when it
+has fired.
+""".
+-spec wakeup(non_neg_integer(), keepalive()) -> keepalive().
+wakeup(RemainingMs, Keepalive) ->
+    SleptMs = max(till_deadline(Keepalive) - RemainingMs, 0),
+    advance(read_stat(Keepalive), SleptMs, Keepalive).
+
+-doc """
+Check the keepalive when the deadline timer fires, after `wakeup/2` credited
+the whole deadline.
+""".
+-spec check_deadline(keepalive()) -> {ok, keepalive()} | {error, timeout}.
+check_deadline(Keepalive) ->
+    check(read_stat(Keepalive), 0, Keepalive).
 
 %% @doc Update keepalive while preserving stat_reader and idle time.
 -spec update(atom(), non_neg_integer(), keepalive() | undefined) -> keepalive() | undefined.
@@ -150,7 +186,11 @@ update(Zone, Interval, Keepalive) when Interval > ?MAX_INTERVAL ->
     update(Zone, ?MAX_INTERVAL, Keepalive);
 update(_Zone, 0, _Keepalive) ->
     undefined;
-update(Zone, Interval, Keepalive = #keepalive{}) ->
+update(
+    Zone,
+    Interval,
+    Keepalive
+) ->
     #{check_interval := NewCheckInterval, max_idle_millisecond := MaxIdleMs} =
         keepalive_params(Zone, Interval),
     Keepalive#keepalive{

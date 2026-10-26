@@ -380,12 +380,23 @@ run_loop(
         %% Only when `select_read' is not set, or when `{otp, rcvbuf}' has a
         %% read count above 0. No select is armed, so read again.
         {ok, Data} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             NState = start_idle_timer(State),
             handle_recv({recv_more, Data}, Parent, NState);
         {select_read, {_SelectInfo, Data}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             NState = start_idle_timer(State),
             handle_recv({recv_armed, Data}, Parent, NState);
         {select, _SelectInfo} ->
+            ?BROKER_INSTR_SOCKPACKET(
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            ),
             NState = start_idle_timer(State),
             hibernate(Parent, NState);
         {error, {Reason, _}} ->
@@ -465,19 +476,17 @@ handle_recv_drain(Msg, Parent, State, Timeout) ->
             terminate(Reason, NewSate)
     end.
 
-hibernate(Parent, State) ->
-    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
+hibernate(Parent, State = #state{channel = Channel}) ->
+    NState = State#state{channel = emqx_channel:hibernate(Channel)},
+    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, NState]).
 
-%% Maybe do something here later.
-wakeup_from_hib(Parent, State) ->
-    ?MODULE:recvloop(Parent, State).
+wakeup_from_hib(Parent, State = #state{channel = Channel}) ->
+    ?MODULE:recvloop(Parent, State#state{channel = emqx_channel:wakeup(Channel)}).
 
 %%--------------------------------------------------------------------
 
 -compile({inline, [sock_async_recv/2]}).
 
-sock_async_recv(Socket, some_more) ->
-    socket:recv(Socket, 0, [], nowait);
 sock_async_recv(Socket, Len) ->
     socket:recv(Socket, Len, [], nowait).
 
@@ -689,10 +698,11 @@ handle_msg({outgoing, Packets}, State) ->
             Error
     end;
 handle_msg(
-    Deliver = #deliver{message = _Msg},
+    Deliver = #deliver{},
     #state{conf = #conf{active_n = ActiveN}, channel = Channel} = State
 ) ->
-    ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
+    ?BROKER_INSTR_EXTRACT_MARK(Mark, Deliver#deliver.message),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_SETMARK(t0_deliver, {Mark, ?BROKER_INSTR_TS()})),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel_result(emqx_channel:handle_deliver(Delivers, Channel), State);
 handle_msg({connack, ConnAck}, State) ->
@@ -703,7 +713,8 @@ handle_msg({close, Reason}, State) ->
     handle_info({sock_closed, Reason}, close_socket(State));
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    ok = set_chan_stats(State),
+    emqx_cm:insert_channel_info(ClientId, info(State), emqx_chan_stats:ref()),
     {ok, ensure_stats_timer(State)};
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
@@ -715,14 +726,8 @@ handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
     {ok, State};
-handle_msg({event, _Other}, State = #state{channel = Channel}) ->
-    case emqx_channel:info(clientid, Channel) of
-        %% ClientId is yet unknown (i.e. connect packet is not received yet)
-        undefined ->
-            ok;
-        ClientId ->
-            set_chan_info_stats(ClientId, State)
-    end,
+handle_msg({event, updated}, State) ->
+    ok = set_session_stats(State),
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
     handle_timeout(TRef, TMsg, State);
@@ -826,8 +831,7 @@ handle_timeout(
         sockstate = SS
     }
 ) ->
-    ClientId = emqx_channel:info(clientid, Channel),
-    maybe_set_chan_stats(ClientId, State),
+    ok = set_chan_stats(State),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, State),
     check_send_timeout(SS, State#state{
         channel = emqx_channel:refresh_quota(Channel), stats_timer = undefined
@@ -851,27 +855,23 @@ handle_timeout(TRef, Msg, State = #state{channel = Channel}) ->
 try_set_chan_stats(State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientID is not yet known, nothing to report.
-        undefined -> false;
-        ClientId -> maybe_set_chan_stats(ClientId, State)
+        undefined -> ok;
+        _ClientId -> set_chan_stats(State)
     end.
 
-%% Write the info and, when the client-info REST API is enabled, the stats
-%% of the channel in one table write.
-set_chan_info_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_info_stats(ClientId, info(State), stats(State));
-        false -> emqx_cm:set_chan_info(ClientId, info(State))
-    end.
+%% Write the socket and session stats to the stats array of the connection,
+%% where the readers of the channel info table find them. The packet and
+%% message counters are kept in the array as they happen, and the readers
+%% take the process stats from the process.
+set_chan_stats(State = #state{channel = Channel}) ->
+    Stats = [sockstats(?SOCK_STATS, State), emqx_channel:session_stats(Channel)],
+    emqx_chan_stats:report(emqx_channel:info(clientid, Channel), Stats).
 
-%% Report per-connection stats to the client-info table, unless the client-info
-%% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
-%% the stats gathering and the ETS write. The stats timer itself keeps running,
-%% so its other duties (congestion alarms, send-timeout checks) are unaffected.
-maybe_set_chan_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_stats(ClientId, stats(State));
-        false -> ok
-    end.
+%% Write the session stats after the session changed, so that a reader sees
+%% the change before the next stats timer.
+set_session_stats(#state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_chan_stats:report(ClientId, emqx_channel:session_stats(Channel)).
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
@@ -901,6 +901,9 @@ handle_data(
     State = trigger_gc(State1#state{thresholds = Thresholds}),
     Tail = request_more_data_msgs(RequestMore, More, SS),
     Msgs = next_incoming_msgs(Tail, Packets),
+    ?BROKER_INSTR_SOCKPACKET(
+        ?BROKER_INSTR_OBSERVE_BS(socket_packets, packet_remaining_bytes, More)
+    ),
     {ok, Msgs, State}.
 
 %% `RequestMore':
@@ -925,14 +928,53 @@ request_more_data_msgs(_RequestMore, _More, _SS) ->
 -dialyzer({nowarn_function, request_more_data/3}).
 -compile({inline, [request_more_data/3]}).
 request_more_data(Socket, More, State) ->
-    case sock_async_recv(Socket, More) of
+    Len =
+        case More of
+            some_more -> 0;
+            _ -> More
+        end,
+    case sock_async_recv(Socket, Len) of
         {ok, DataMore} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(DataMore)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, Len),
+                ?BROKER_INSTR_OBSERVE_BS(
+                    socket_packets,
+                    recv_shortfall_bytes,
+                    max(0, Len - byte_size(DataMore)),
+                    Len > 0
+                )
+            end),
             {ok, {recv_more, DataMore}, State};
         {select_read, {_Info, DataMore}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(DataMore)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, Len),
+                ?BROKER_INSTR_OBSERVE_BS(
+                    socket_packets,
+                    recv_shortfall_bytes,
+                    max(0, Len - byte_size(DataMore)),
+                    Len > 0
+                )
+            end),
             {ok, {recv_armed, DataMore}, State};
         {select, {_Info, DataMore}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(DataMore)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, Len),
+                ?BROKER_INSTR_OBSERVE_BS(
+                    socket_packets,
+                    recv_shortfall_bytes,
+                    max(0, Len - byte_size(DataMore)),
+                    Len > 0
+                )
+            end),
             {ok, {recv, DataMore}, State};
         {select, _Info} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, Len),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_shortfall_bytes, Len, Len > 0)
+            end),
             {ok, State};
         {error, {closed, DataMore}} ->
             %% This is dead code starting from OTP 28
@@ -961,12 +1003,27 @@ request_more_data(Socket, More, State) ->
 handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             handle_data(Data, true, State);
         {select_read, {_Info, Data}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             handle_data(Data, armed, State);
         {select, {_Info, Data}} ->
+            ?BROKER_INSTR_SOCKPACKET(begin
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_bytes, byte_size(Data)),
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            end),
             handle_data(Data, false, State);
         {select, _Info} ->
+            ?BROKER_INSTR_SOCKPACKET(
+                ?BROKER_INSTR_OBSERVE_BS(socket_packets, recv_requested_bytes, 0)
+            ),
             {ok, State};
         {error, {closed, Data}} ->
             %% This is dead code starting from OTP 28
@@ -1445,11 +1502,19 @@ sent(
         oom_packets = dec_threshold(Thresholds0#thresholds.oom_packets, Num)
     },
     NState = trigger_oom(trigger_gc(State#state{thresholds = Thresholds})),
-    ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
-        TSent = ?BROKER_INSTR_TS(),
-        ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
-        ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
-    end),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_TS(TSent)),
+    ?BROKER_INSTR_MSGLATENCY(
+        ?BROKER_INSTR_WMARK(
+            t0_deliver,
+            {?BROKER_INSTR_MARK(T0, TDisp), TDeliver},
+            begin
+                ?BROKER_INSTR_OBSERVE_INTVL(connection, deliver_delay_us, TDisp, TDeliver),
+                ?BROKER_INSTR_OBSERVE_INTVL(connection, deliver_total_lat_us, TDisp, TSent),
+                ?BROKER_INSTR_OBSERVE_INTVL(connection, brokerage_delay_us, T0, TDeliver),
+                ?BROKER_INSTR_OBSERVE_INTVL(connection, brokerage_latency_us, T0, TSent)
+            end
+        )
+    ),
     NState.
 
 -compile({inline, [trigger_gc/1, trigger_oom/1]}).
@@ -1674,8 +1739,7 @@ stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
 
 inc_counter(Key, Inc) ->
-    _ = emqx_pd:inc_counter(Key, Inc),
-    ok.
+    emqx_chan_stats:inc(Key, Inc).
 
 set_tcp_keepalive({tcp, Id}) ->
     Conf = emqx_config:get_listener_conf(tcp, Id, [tcp_options, keepalive], "none"),
