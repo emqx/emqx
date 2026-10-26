@@ -45,7 +45,7 @@
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
--define(TRUSTED_CERTS_SYSTEM_DEFAULT, "system_default").
+-define(TRUSTED_CERTS_SYSTEM_DEFAULT, <<"system_default">>).
 -define(TRUSTED_CERTS_FILE_PREFIX, "file://").
 
 %% Keep distribution buffers above inet_drv's 1 MiB buffer-cache limit.
@@ -769,10 +769,10 @@ fields("node") ->
             )},
         {"trusted_certs",
             sc(
-                string(),
+                binary(),
                 #{
                     desc => ?DESC(node_trusted_certs),
-                    default => <<?TRUSTED_CERTS_SYSTEM_DEFAULT>>,
+                    default => ?TRUSTED_CERTS_SYSTEM_DEFAULT,
                     importance => ?IMPORTANCE_MEDIUM,
                     validator => fun validate_trusted_certs/1,
                     'readOnly' => true
@@ -1590,7 +1590,9 @@ translation("vm_args") ->
 
 %% hocon drops an `undefined' value, so the key is not set.
 tr_trusted_certs_path(Conf) ->
-    resolve_trusted_certs(conf_get("node.trusted_certs", Conf, ?TRUSTED_CERTS_SYSTEM_DEFAULT)).
+    resolve_trusted_certs(
+        hocon_maps:get("node.trusted_certs", Conf, ?TRUSTED_CERTS_SYSTEM_DEFAULT)
+    ).
 
 validate_trusted_certs(Value) ->
     try resolve_trusted_certs(Value) of
@@ -1607,13 +1609,13 @@ Resolve `node.trusted_certs` to the absolute path of a CA bundle file.
 returns `/abs/path` when it is an absolute path to a readable regular file.
 Any other value throws.
 """.
--spec resolve_trusted_certs(string() | binary()) -> file:filename() | undefined.
+-spec resolve_trusted_certs(binary()) -> file:filename() | undefined.
 resolve_trusted_certs(Value) ->
-    case unicode:characters_to_list(Value) of
+    case Value of
         ?TRUSTED_CERTS_SYSTEM_DEFAULT ->
             first_regular_file(?MODULE:system_ca_bundle_paths());
-        ?TRUSTED_CERTS_FILE_PREFIX ++ Path ->
-            ensure_trusted_certs_file(Path);
+        <<?TRUSTED_CERTS_FILE_PREFIX, Path/binary>> ->
+            ensure_trusted_certs_file(unicode:characters_to_list(Path));
         _ ->
             throw(#{
                 cause => "bad_trusted_certs",
