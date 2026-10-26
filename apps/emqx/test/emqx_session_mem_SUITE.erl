@@ -252,12 +252,12 @@ t_session_inflight_query(_) ->
     EmptyQueryResMeta = {[], #{position => none, start => none}},
     ?assertEqual(EmptyQueryResMeta, inflight_query(Session, none, 10)),
     ?assertEqual(EmptyQueryResMeta, inflight_query(Session, none, 10)),
-    RandPos = erlang:system_time(nanosecond),
+    RandPos = {erlang:system_time(nanosecond), 1},
     ?assertEqual({[], #{position => RandPos, start => none}}, inflight_query(Session, RandPos, 10)),
     Inflight = lists:foldl(
         fun(Seq, Acc) ->
             Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, integer_to_binary(Seq)),
-            emqx_inflight:insert(Seq, emqx_session_mem:with_ts(Msg), Acc)
+            emqx_session_mem:insert_inflight(Seq, Msg, Acc)
         end,
         EmptyInflight,
         lists:seq(1, 114)
@@ -280,13 +280,13 @@ t_session_inflight_query(_) ->
             NextStart =
                 case PageSeq of
                     1 ->
-                        ?assertEqual(inflight_ts(FirstMsg), Start),
+                        ?assertEqual(inflight_position(FirstMsg), Start),
                         Start;
                     _ ->
                         ?assertEqual(PrevStart, Start),
                         PrevStart
                 end,
-            ?assertEqual(inflight_ts(LastMsg), NextPos),
+            ?assertEqual(inflight_position(LastMsg), NextPos),
             {NextPos, NextStart}
         end,
         {none, none},
@@ -299,7 +299,7 @@ t_session_inflight_query(_) ->
     ?assertEqual(4, length(LastPartialPage)),
     ?assertEqual(<<"111">>, emqx_message:payload(lists:nth(1, LastPartialPage))),
     ?assertEqual(<<"114">>, emqx_message:payload(LastMsg)),
-    ?assertEqual(#{position => inflight_ts(LastMsg), start => LastStart}, LastMeta),
+    ?assertEqual(#{position => inflight_position(LastMsg), start => LastStart}, LastMeta),
     ?assertEqual(
         {[], #{start => LastStart, position => FinalPos}},
         inflight_query(Session1, FinalPos, 10)
@@ -318,7 +318,7 @@ t_session_inflight_query(_) ->
     Session2 = session(#{inflight => emqx_inflight:delete(1, Inflight)}),
     {PageAfterRemove, #{start := StartAfterRemove}} = inflight_query(Session2, none, 10),
     ?assertEqual(<<"2">>, emqx_message:payload(hd(PageAfterRemove))),
-    ?assertEqual(StartAfterRemove, inflight_ts(hd(PageAfterRemove))).
+    ?assertEqual(StartAfterRemove, inflight_position(hd(PageAfterRemove))).
 
 %%--------------------------------------------------------------------
 %% Test cases for sub/unsub
@@ -2113,7 +2113,7 @@ remove_deliver_flag({Id, Data}) ->
 remove_deliver_flag(List) when is_list(List) ->
     lists:map(fun remove_deliver_flag/1, List);
 remove_deliver_flag(Msg) ->
-    emqx_message:remove_header(deliver_begin_at, Msg).
+    emqx_message:remove_header(deliver_begin_at_us, Msg).
 
 set_duplicate_pub({Id, Msg}) ->
     {Id, emqx_message:set_flag(dup, Msg)}.
@@ -2124,7 +2124,10 @@ get_packet_id({Id, _}) ->
 inflight_query(Session, Pos, Limit) ->
     emqx_session_mem:info({inflight_msgs, #{position => Pos, limit => Limit}}, Session).
 
-inflight_ts(#message{extra = #{inflight_insert_ts := Ts}}) -> Ts.
+inflight_ts(#message{extra = #{inflight_cursor := {Ts, _PacketId}}}) -> Ts.
+
+inflight_position(#message{extra = #{inflight_cursor := Cursor}}) ->
+    Cursor.
 
 limiter_client(ListenerId) ->
     emqx_limiter:create_session_client_container(ListenerId).

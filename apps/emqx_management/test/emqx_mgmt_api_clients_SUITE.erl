@@ -1703,16 +1703,16 @@ payloads_bytes(Count) ->
 test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     Qs0 = io_lib:format("payload=~s&limit=~p", [PayloadEncoding, Count]),
 
-    {Msgs, StartPos, FinalMsgPos} = ?retry(500, 10, begin
+    {Msgs, StartPos} = ?retry(500, 10, begin
         {ok, MsgsResp} = emqx_mgmt_api_test_util:request_api(get, Path, Qs0, AuthHeader),
         #{<<"meta">> := Meta, <<"data">> := Msgs} = emqx_utils_json:decode(MsgsResp),
         #{<<"start">> := StartPos, <<"position">> := Position} = Meta,
 
-        ?assertEqual(StartPos, msg_pos(hd(Msgs), IsMqueue)),
+        assert_msg_pos(StartPos, hd(Msgs), IsMqueue),
         ?assertEqual(<<"end_of_data">>, Position),
         ?assertEqual(length(Msgs), Count),
 
-        {Msgs, StartPos, msg_pos(lists:last(Msgs), IsMqueue)}
+        {Msgs, StartPos}
     end),
 
     lists:foreach(
@@ -1758,7 +1758,7 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     %% When `max_payload_bytes` cuts the page short, the position must point at the last
     %% returned message, not at the last message walked before the cut, so that paging
     %% skips no message.
-    ?assertEqual(TruncatedPos, msg_pos(hd(FirstMsgOnly), IsMqueue)),
+    assert_msg_pos(TruncatedPos, hd(FirstMsgOnly), IsMqueue),
     ?assertNotEqual(<<"end_of_data">>, TruncatedPos),
     %% Page through the remaining messages one message per page.
     lists:foldl(
@@ -1775,12 +1775,10 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
                 integer_to_binary(Seq),
                 decode_payload(maps:get(<<"payload">>, hd(PageMsgs)), PayloadEncoding)
             ),
-            ExpectedPos =
-                case Seq =:= Count of
-                    true -> <<"end_of_data">>;
-                    false -> msg_pos(hd(PageMsgs), IsMqueue)
-                end,
-            ?assertEqual(ExpectedPos, PosOut),
+            case Seq =:= Count of
+                true -> ?assertEqual(<<"end_of_data">>, PosOut);
+                false -> assert_msg_pos(PosOut, hd(PageMsgs), IsMqueue)
+            end,
             PosOut
         end,
         TruncatedPos,
@@ -1798,7 +1796,7 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
             } = emqx_utils_json:decode(MsgsRespPage),
 
             ?assertNotEqual(<<"end_of_data">>, NextPos),
-            ?assertEqual(NextPos, msg_pos(lists:last(MsgsPage), IsMqueue)),
+            assert_msg_pos(NextPos, lists:last(MsgsPage), IsMqueue),
             %% Start position is the same in every response and points to the first msg
             ?assertEqual(StartPos, ThisStart),
 
@@ -1836,10 +1834,11 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
         integer_to_binary(Count),
         decode_payload(maps:get(<<"payload">>, lists:last(MsgsLastPage)), PayloadEncoding)
     ),
-    ?assertEqual(FinalMsgPos, msg_pos(lists:last(MsgsLastPage), IsMqueue)),
+    ?assertEqual(lists:last(Msgs), lists:last(MsgsLastPage)),
 
+    ExceedPos = position_after_msg(lists:last(MsgsLastPage), IsMqueue),
     ExceedQs = io_lib:format("payload=~s&position=~s&limit=~p", [
-        PayloadEncoding, FinalMsgPos, Limit
+        PayloadEncoding, ExceedPos, Limit
     ]),
     {ok, MsgsEmptyResp} = emqx_mgmt_api_test_util:request_api(get, Path, ExceedQs, AuthHeader),
     ?assertMatch(
@@ -1878,10 +1877,22 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
         emqx_mgmt_api_test_util:request_api(get, Path, "max_payload_bytes=0MB", AuthHeader)
     ).
 
-msg_pos(#{<<"inserted_at">> := TsBin, <<"mqueue_priority">> := Prio} = _Msg, true = _IsMqueue) ->
-    <<TsBin/binary, "_", (emqx_utils_conv:bin(Prio))/binary>>;
-msg_pos(#{<<"inserted_at">> := TsBin} = _Msg, _IsMqueue) ->
-    TsBin.
+assert_msg_pos(Pos, #{<<"inserted_at">> := Ts, <<"mqueue_priority">> := Prio}, true) ->
+    ?assertEqual(<<Ts/binary, "_", (emqx_utils_conv:bin(Prio))/binary>>, Pos);
+assert_msg_pos(Pos, #{<<"inserted_at">> := TsBin}, false) ->
+    [Ts, Id] = binary:split(Pos, <<"_">>),
+    ?assertEqual(TsBin, Ts),
+    PacketId = binary_to_integer(Id),
+    ?assert(PacketId >= 0).
+
+position_after_msg(#{<<"inserted_at">> := TsBin} = Msg, IsMqueue) ->
+    NextTs = integer_to_binary(binary_to_integer(TsBin) + 1),
+    Suffix =
+        case IsMqueue of
+            true -> emqx_utils_conv:bin(maps:get(<<"mqueue_priority">>, Msg));
+            false -> <<"0">>
+        end,
+    <<NextTs/binary, "_", Suffix/binary>>.
 
 decode_payload(Payload, base64) ->
     base64:decode(Payload);

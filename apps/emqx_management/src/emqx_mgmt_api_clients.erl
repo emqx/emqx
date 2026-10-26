@@ -1627,7 +1627,7 @@ take_client_msgs_page(_MsgType, Msgs, _Limit, Meta) ->
     {Msgs, Meta#{position := end_of_data}}.
 
 pos_decoder(mqueue_msgs) -> fun decode_mqueue_pos/1;
-pos_decoder(inflight_msgs) -> fun decode_msg_pos/1.
+pos_decoder(inflight_msgs) -> fun decode_inflight_pos/1.
 
 encode_msgs_meta(_MsgType, #{start := StartPos, position := Pos}) ->
     #{start => encode_pos(StartPos), position => encode_pos(Pos)}.
@@ -1643,9 +1643,7 @@ encode_pos({MsgPos, PrioPos}) ->
             infinity -> <<"infinity">>;
             _ -> integer_to_binary(PrioPos)
         end,
-    <<MsgPosBin/binary, "_", PrioPosBin/binary>>;
-encode_pos(Pos) when is_integer(Pos) ->
-    integer_to_binary(Pos).
+    <<MsgPosBin/binary, "_", PrioPosBin/binary>>.
 
 -spec decode_mqueue_pos(binary()) -> {integer(), infinity | integer()}.
 decode_mqueue_pos(Pos) ->
@@ -1653,6 +1651,12 @@ decode_mqueue_pos(Pos) ->
     {decode_msg_pos(MsgPos), decode_priority_pos(PrioPos)}.
 
 decode_msg_pos(Pos) -> binary_to_integer(Pos).
+
+decode_inflight_pos(Pos) ->
+    [Ts, Id] = binary:split(Pos, <<"_">>),
+    PacketId = binary_to_integer(Id),
+    true = PacketId >= 0,
+    {decode_msg_pos(Ts), PacketId}.
 
 decode_priority_pos(<<"infinity">>) -> infinity;
 decode_priority_pos(Pos) -> binary_to_integer(Pos).
@@ -1980,8 +1984,8 @@ adjust_pager_position(MsgType, {truncated, LastMsg}, Meta) ->
 
 msg_position(mqueue_msgs, #message{extra = #{mqueue_insert_ts := Ts, mqueue_priority := Prio}}) ->
     {Ts, Prio};
-msg_position(inflight_msgs, #message{extra = #{inflight_insert_ts := Ts}}) ->
-    Ts.
+msg_position(inflight_msgs, #message{extra = #{inflight_cursor := Cursor}}) ->
+    Cursor.
 
 format_msg(
     MsgType,
@@ -2011,7 +2015,7 @@ format_by_msg_type(mqueue_msgs, Msg, MsgMap) ->
     #message{extra = #{mqueue_priority := Prio, mqueue_insert_ts := Ts}} = Msg,
     MsgMap#{mqueue_priority => Prio, inserted_at => integer_to_binary(Ts)};
 format_by_msg_type(inflight_msgs, Msg, MsgMap) ->
-    #message{extra = #{inflight_insert_ts := Ts}} = Msg,
+    {Ts, _PacketId} = msg_position(inflight_msgs, Msg),
     MsgMap#{inserted_at => integer_to_binary(Ts)}.
 
 format_payload(none, MsgMap, _Payload) ->
