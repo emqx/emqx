@@ -415,7 +415,11 @@ build_session_conf(#{
     #session_conf{
         max_subscriptions = MaxSubscriptions,
         upgrade_qos = UpgradeQoS,
-        retry_interval = RetryInterval,
+        retry_interval =
+            case RetryInterval of
+                0 -> infinity;
+                _ -> RetryInterval
+            end,
         max_awaiting_rel = MaxAwaitingRel,
         await_rel_timeout = AwaitRelTimeout
     }.

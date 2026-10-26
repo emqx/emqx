@@ -185,6 +185,9 @@
 -define(DEQUEUE_RETRY_TIMER, retry_dequeue).
 -define(DELIVER_RETRY_TIMER, retry_delivery).
 
+-define(RESCHEDULE_DEQUEUE_TIMER_EFFECT, {set_timer, ?DEQUEUE_RETRY_TIMER, 1}).
+-define(RETRY_DELIVERY_EFFECT(Timeout), {set_timer, ?DELIVER_RETRY_TIMER, Timeout}).
+
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
@@ -674,7 +677,6 @@ pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     {inline, [
         dequeue_next/2,
         finish_dequeue/6,
-        reschedule_dequeue_timer_effect/0,
         reply/7,
         boolean_to_int/1
     ]}
@@ -836,12 +838,9 @@ finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
     Effect =
         case emqx_mqueue:is_empty(Q) of
             true -> delivery_effect(S0, Inflight);
-            false -> reschedule_dequeue_timer_effect()
+            false -> ?RESCHEDULE_DEQUEUE_TIMER_EFFECT
         end,
     reply(Effect, S0, Acc, Q, Inflight, Limiter, PktId).
-
-reschedule_dequeue_timer_effect() ->
-    {set_timer, ?DEQUEUE_RETRY_TIMER, 1}.
 
 reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Session = S0#session{
@@ -868,8 +867,7 @@ retry_dequeue_effect(Reason, Q) ->
 -compile(
     {inline, [
         insert_inflight/3,
-        delivery_effect/2,
-        retry_delivery_effect/1
+        delivery_effect/2
     ]}
 ).
 
@@ -987,19 +985,17 @@ deliver(
             deliver(ClientInfo, Congested, S, More, Acc0, Q1, Inflight0, L0, PktId)
     end.
 
-delivery_effect(#session{conf = #session_conf{retry_interval = Interval}}, Inflight) ->
-    retry_delivery_effect(Interval, Inflight).
-
-retry_delivery_effect(Interval, Inflight) ->
+delivery_effect(#session{conf = #session_conf{retry_interval = Interval}}, Inflight) when
+    Interval =/= infinity
+->
     case emqx_inflight:is_empty(Inflight) of
-        false when is_integer(Interval) andalso Interval > 0 ->
-            retry_delivery_effect(Interval);
-        _ ->
+        false ->
+            ?RETRY_DELIVERY_EFFECT(Interval);
+        true ->
             ok
-    end.
-
-retry_delivery_effect(Timeout) ->
-    {set_timer, ?DELIVER_RETRY_TIMER, Timeout}.
+    end;
+delivery_effect(_Session, _Inflight) ->
+    ok.
 
 insert_inflight(PktId, Msg, Inflight) ->
     MarkedMsg = mark_begin_deliver(Msg),
@@ -1141,7 +1137,13 @@ retry(
     end.
 
 retry_delivery(_ClientInfo, [], Acc, _Now, Interval, Inflight, Session) ->
-    Effect = retry_delivery_effect(Interval, Inflight),
+    Effect =
+        case emqx_inflight:is_empty(Inflight) of
+            false ->
+                ?RETRY_DELIVERY_EFFECT(Interval);
+            _ ->
+                ok
+        end,
     {Effect, lists:reverse(Acc), Session#session{inflight = Inflight}};
 retry_delivery(
     ClientInfo,
@@ -1158,7 +1160,7 @@ retry_delivery(
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
             retry_delivery(ClientInfo, More, Acc1, Now, Interval, Inflight1, Session);
         false ->
-            Effect = retry_delivery_effect(Interval - max(0, Age)),
+            Effect = ?RETRY_DELIVERY_EFFECT(Interval - max(0, Age)),
             {Effect, lists:reverse(Acc), Session#session{inflight = Inflight}}
     end.
 

@@ -65,6 +65,7 @@ all() ->
             t_build_matches_frame,
             t_global_config_change,
             t_zone_config_change,
+            t_session_retry_interval_zero,
             t_zone_conf_change_keeps_frame_shared,
             t_listener_config_change,
             t_listener_unrelated_change_keeps_entry,
@@ -442,6 +443,21 @@ t_zone_config_change(_Config) ->
     ?assertEqual(OldSession, session_conf_of(C1)),
     ?assertNot(held_session_conf(C1, default)),
     assert_after_change(Config, C1, Old).
+
+-doc "Session retry intervals normalize zero to infinity and preserve other values.".
+t_session_retry_interval_zero(_Config) ->
+    {ok, _} = emqx:update_config(
+        [zones],
+        #{
+            <<"zero">> => #{<<"mqtt">> => #{<<"retry_interval">> => <<"0ms">>}},
+            <<"finite">> => #{<<"mqtt">> => #{<<"retry_interval">> => <<"1s">>}},
+            <<"inf">> => #{<<"mqtt">> => #{<<"retry_interval">> => <<"infinity">>}}
+        }
+    ),
+    ok = emqx_connection_conf:sync(),
+    ?assertMatch(#session_conf{retry_interval = infinity}, emqx_connection_conf:session_conf(zero)),
+    ?assertMatch(#session_conf{retry_interval = 1000}, emqx_connection_conf:session_conf(finite)),
+    ?assertMatch(#session_conf{retry_interval = infinity}, emqx_connection_conf:session_conf(inf)).
 
 -doc """
 A change to a listener setting held in `#conf{}` rebuilds the entry of that

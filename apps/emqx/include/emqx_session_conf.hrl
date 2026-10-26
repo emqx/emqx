@@ -11,8 +11,8 @@
     max_subscriptions = infinity :: non_neg_integer() | infinity,
     %% Upgrade message QoS to the subscription QoS
     upgrade_qos = false :: boolean(),
-    %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
-    retry_interval = infinity :: timeout(),
+    %% Retry interval for redelivering QoS1/2 messages (milliseconds / `infinity` disables)
+    retry_interval = infinity :: pos_integer() | infinity,
     %% Maximum number of QoS2 messages awaiting PUBREL
     max_awaiting_rel = infinity :: non_neg_integer() | infinity,
     %% Awaiting PUBREL timeout (Unit: millisecond)
