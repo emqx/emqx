@@ -95,6 +95,39 @@ end_per_suite(Config) ->
 end_per_testcase(_, _) ->
     emqx_common_test_helpers:call_janitor().
 
+-doc "Session codecs convert legacy timestamps and leave the current protocol unchanged.".
+t_session_map_timestamps(_) ->
+    #{v1 := V1, current := Current, upgraded := Upgraded} = fixture_session_timestamps(),
+    ?assertEqual(Current, emqx_cm_takeover:to_session(Current, #{vsn => 2})),
+    ?assertEqual(Current, emqx_cm_takeover:from_session(Current, #{vsn => 2})),
+    ?assertEqual(V1, emqx_cm_takeover:to_session(Current, #{vsn => 1})),
+    ?assertEqual(Upgraded, emqx_cm_takeover:from_session(V1, #{vsn => 1})).
+
+-doc "Exported (vsn 1) messages without delivery timestamps use the inflight entry timestamp.".
+t_session_map_timestamp_fallback(_) ->
+    #{v1 := V1, upgraded := Upgraded} = fixture_session_timestamp_fallback(),
+    ?assertEqual(Upgraded, emqx_cm_takeover:from_session(V1, #{vsn => 1})).
+
+-doc "Local takeover keeps the current session format while RPC replies use requester protocol.".
+t_begin_session_format(_) ->
+    #{exported := Session, {exported, 1} := SessionV1} = fixture(),
+    ok = meck:new(emqx_cm, [passthrough, no_link]),
+    try
+        ok = meck:expect(emqx_cm, do_get_chann_conn_mod, fun(_, _) -> emqx_connection end),
+        ok = meck:expect(emqx_cm, request_stepdown, fun(_, _, _, _) -> {ok, Session} end),
+        ?assertMatch({ok, _, Session}, emqx_cm_takeover:begin_local(<<"fixture">>, self())),
+        ?assertMatch(
+            {ok, _, Session},
+            emqx_cm_takeover:begin_rpc(<<"fixture">>, self(), #{vsn => 2})
+        ),
+        ?assertMatch(
+            {ok, _, SessionV1},
+            emqx_cm_takeover:begin_rpc(<<"fixture">>, self(), #{vsn => 1})
+        )
+    after
+        meck:unload(emqx_cm)
+    end.
+
 -doc "Decode a 6.3.0 priority queue, preserving timestamps and restoring insertion order.".
 t_decode_630_priorities(_Config) ->
     #{session := Session, exported := Expected} = fixture_630_priorities(),
@@ -103,6 +136,16 @@ t_decode_630_priorities(_Config) ->
 t_decode_631(_Config) ->
     #{session := Session, exported := Expected} = fixture(),
     ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, 2)).
+
+-doc "Import a version 1 exported map with the 6.3.0 priority queue messages.".
+t_decode_exported_630_priorities(_Config) ->
+    #{{exported, 1} := Exported, exported := Expected} = fixture_630_priorities(),
+    ?assertEqual(Expected, emqx_cm_takeover:from_session(Exported, #{vsn => 1})).
+
+-doc "Import a version 1 exported map with 6.3.1 inflight delivery metadata.".
+t_decode_exported_631(_Config) ->
+    #{{exported, 1} := Exported, exported := Expected} = fixture(),
+    ?assertEqual(Expected, emqx_cm_takeover:from_session(Exported, #{vsn => 1})).
 
 t_encode_631(_Config) ->
     ChanInfo = #{clientinfo => clientinfo(), conninfo => #{receive_maximum => 1}},
@@ -169,6 +212,76 @@ legacy_mqueue_messages(Session, 2) ->
     ),
     Messages.
 
+%% Fixtures
+
+%% Synthetic map fixtures cover sub-millisecond delivery times and both extra representations.
+fixture_session_timestamps() ->
+    Message = #message{
+        id = <<1:128>>,
+        qos = 1,
+        from = fixture,
+        topic = <<"out">>,
+        payload = <<"payload">>,
+        timestamp = 1791301268573
+    },
+    V1 = Message#message{headers = #{deliver_begin_at => 1791301268573}},
+    Current = Message#message{headers = #{deliver_begin_at_us => 1791301268573123}},
+    Upgraded = Message#message{headers = #{deliver_begin_at_us => 1791301268573000}},
+    Entry1 = #{packet_id => 41, phase => wait_ack, timestamp => 1791301269000},
+    Entry2 = #{packet_id => 42, phase => wait_ack, timestamp => 1791301269000},
+    #{
+        v1 => #{
+            inflight => [
+                Entry1#{
+                    message => V1#message{
+                        extra = #{other => metadata, inflight_insert_ts => 1791301268573123000}
+                    }
+                },
+                Entry2#{
+                    message => V1#message{
+                        extra = #{inflight_insert_ts => 1791301268573123000}
+                    }
+                }
+            ]
+        },
+        current => #{
+            inflight => [
+                Entry1#{message => Current#message{extra = #{other => metadata}}},
+                Entry2#{message => Current#message{extra = []}}
+            ]
+        },
+        upgraded => #{
+            inflight => [
+                Entry1#{message => Upgraded#message{extra = #{other => metadata}}},
+                Entry2#{message => Upgraded#message{extra = #{}}}
+            ]
+        }
+    }.
+
+fixture_session_timestamp_fallback() ->
+    Message = #message{
+        id = <<2:128>>,
+        qos = 2,
+        from = fixture,
+        topic = <<"out">>,
+        payload = <<"payload">>,
+        timestamp = 40,
+        extra = []
+    },
+    Entry = #{packet_id => 41, phase => wait_comp, timestamp => 42},
+    #{
+        v1 => #{
+            inflight => [
+                Entry#{message => Message}
+            ]
+        },
+        upgraded => #{
+            inflight => [
+                Entry#{message => Message#message{headers = #{deliver_begin_at_us => 42000}}}
+            ]
+        }
+    }.
+
 %% Generated with emqx_session_mem, emqx_mqueue and emqx_pqueue from tag 6.3.0.
 %% Commit: 021c5ef13bf8c767058626ad9b760052c273736f.
 %% emqx_mqueue:in/2 enqueued low-1, high-0a, default-2, high-1, low-0, high-0b.
@@ -176,208 +289,222 @@ legacy_mqueue_messages(Session, 2) ->
 %% The high and low priorities contain mixed QoS0/non-QoS0 class queues.
 %% Expected state retains the raw queue timestamps and orders messages by insertion time.
 fixture_630_priorities() ->
-    #{
-        session =>
-            {session, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 118>>, true,
-                #{<<"#">> => #{qos => 2}}, 23, true, {inflight, 1, {0, nil}},
-                {mqueue, true, 1000, 0, 39,
-                    {pqueue, [
-                        {
-                            -10,
-                            {qos0, qos0,
-                                [
-                                    '$switch',
-                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4>>, 1,
-                                        fixture, #{}, #{}, <<"high">>, <<"high-1">>, 1000, #{
-                                            mqueue_insert_ts => 1791306814643797046
-                                        }}
-                                ],
-                                [],
-                                [
-                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6>>, 0,
-                                        fixture, #{}, #{}, <<"high">>, <<"high-0b">>, 1000, #{
-                                            mqueue_insert_ts => 1791306814643808487
-                                        }},
-                                    '$switch'
-                                ],
-                                [
-                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 0,
-                                        fixture, #{}, #{}, <<"high">>, <<"high-0a">>, 1000, #{
-                                            mqueue_insert_ts => 1791306814643795373
-                                        }}
-                                ],
-                                3}
-                        },
-                        {
-                            -1,
-                            {default, qos0,
-                                [
-                                    '$switch',
-                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 1,
-                                        fixture, #{}, #{}, <<"low">>, <<"low-1">>, 1000, #{
-                                            mqueue_insert_ts => 1791306814643791045
-                                        }}
-                                ],
-                                [],
-                                [
-                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5>>, 0,
-                                        fixture, #{}, #{}, <<"low">>, <<"low-0">>, 1000, #{
-                                            mqueue_insert_ts => 1791306814643807645
-                                        }}
-                                ],
-                                [], 2}
-                        },
-                        {0,
-                            {queue,
-                                [
-                                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 2,
-                                        fixture, #{}, #{}, <<"other">>, <<"default-2">>, 1000, #{
-                                            mqueue_insert_ts => 1791306814643796435
-                                        }}
-                                ],
-                                [], 1}}
-                    ]},
-                    {prios, #{<<"high">> => 10, <<"low">> => 1}, 0, 10, 0}, undefined},
-                false, 43, 250, #{42 => 101}, 12, 5000, 1000},
-        exported =>
-            #{
-                id => <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 118>>,
-                mqueue =>
-                    [
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 1, fixture,
-                            #{}, #{}, <<"low">>, <<"low-1">>, 1000, #{
-                                mqueue_insert_ts => 1791306814643791045
-                            }},
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 0, fixture,
-                            #{}, #{}, <<"high">>, <<"high-0a">>, 1000, #{
-                                mqueue_insert_ts => 1791306814643795373
-                            }},
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 2, fixture,
-                            #{}, #{}, <<"other">>, <<"default-2">>, 1000, #{
-                                mqueue_insert_ts => 1791306814643796435
-                            }},
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4>>, 1, fixture,
-                            #{}, #{}, <<"high">>, <<"high-1">>, 1000, #{
-                                mqueue_insert_ts => 1791306814643797046
-                            }},
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5>>, 0, fixture,
-                            #{}, #{}, <<"low">>, <<"low-0">>, 1000, #{
-                                mqueue_insert_ts => 1791306814643807645
-                            }},
-                        {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6>>, 0, fixture,
-                            #{}, #{}, <<"high">>, <<"high-0b">>, 1000, #{
-                                mqueue_insert_ts => 1791306814643808487
-                            }}
-                    ],
-                is_persistent => true,
-                subscriptions => #{<<"#">> => #{qos => 2}},
-                inflight => [],
-                next_pkt_id => 43,
-                awaiting_rel => #{42 => 101},
-                created_at => 1000
-            }
-    }.
+    Session =
+        {session, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 118>>, true,
+            #{<<"#">> => #{qos => 2}}, 23, true, {inflight, 1, {0, nil}},
+            {mqueue, true, 1000, 0, 39,
+                {pqueue, [
+                    {
+                        -10,
+                        {qos0, qos0,
+                            [
+                                '$switch',
+                                {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4>>, 1,
+                                    fixture, #{}, #{}, <<"high">>, <<"high-1">>, 1000, #{
+                                        mqueue_insert_ts => 1791306814643797046
+                                    }}
+                            ],
+                            [],
+                            [
+                                {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6>>, 0,
+                                    fixture, #{}, #{}, <<"high">>, <<"high-0b">>, 1000, #{
+                                        mqueue_insert_ts => 1791306814643808487
+                                    }},
+                                '$switch'
+                            ],
+                            [
+                                {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 0,
+                                    fixture, #{}, #{}, <<"high">>, <<"high-0a">>, 1000, #{
+                                        mqueue_insert_ts => 1791306814643795373
+                                    }}
+                            ],
+                            3}
+                    },
+                    {
+                        -1,
+                        {default, qos0,
+                            [
+                                '$switch',
+                                {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 1,
+                                    fixture, #{}, #{}, <<"low">>, <<"low-1">>, 1000, #{
+                                        mqueue_insert_ts => 1791306814643791045
+                                    }}
+                            ],
+                            [],
+                            [
+                                {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5>>, 0,
+                                    fixture, #{}, #{}, <<"low">>, <<"low-0">>, 1000, #{
+                                        mqueue_insert_ts => 1791306814643807645
+                                    }}
+                            ],
+                            [], 2}
+                    },
+                    {0,
+                        {queue,
+                            [
+                                {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 2,
+                                    fixture, #{}, #{}, <<"other">>, <<"default-2">>, 1000, #{
+                                        mqueue_insert_ts => 1791306814643796435
+                                    }}
+                            ],
+                            [], 1}}
+                ]},
+                {prios, #{<<"high">> => 10, <<"low">> => 1}, 0, 10, 0}, undefined},
+            false, 43, 250, #{42 => 101}, 12, 5000, 1000},
+    Exported =
+        #{
+            id => <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 118>>,
+            mqueue =>
+                [
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>, 1, fixture, #{},
+                        #{}, <<"low">>, <<"low-1">>, 1000, #{
+                            mqueue_insert_ts => 1791306814643791045
+                        }},
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2>>, 0, fixture, #{},
+                        #{}, <<"high">>, <<"high-0a">>, 1000, #{
+                            mqueue_insert_ts => 1791306814643795373
+                        }},
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3>>, 2, fixture, #{},
+                        #{}, <<"other">>, <<"default-2">>, 1000, #{
+                            mqueue_insert_ts => 1791306814643796435
+                        }},
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4>>, 1, fixture, #{},
+                        #{}, <<"high">>, <<"high-1">>, 1000, #{
+                            mqueue_insert_ts => 1791306814643797046
+                        }},
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5>>, 0, fixture, #{},
+                        #{}, <<"low">>, <<"low-0">>, 1000, #{
+                            mqueue_insert_ts => 1791306814643807645
+                        }},
+                    {message, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6>>, 0, fixture, #{},
+                        #{}, <<"high">>, <<"high-0b">>, 1000, #{
+                            mqueue_insert_ts => 1791306814643808487
+                        }}
+                ],
+            is_persistent => true,
+            subscriptions => #{<<"#">> => #{qos => 2}},
+            inflight => [],
+            next_pkt_id => 43,
+            awaiting_rel => #{42 => 101},
+            created_at => 1000
+        },
+    ExportedV1 = Exported,
+    #{session => Session, exported => Exported, {exported, 1} => ExportedV1}.
 
 %% Generated using session_mem, mqueue and pqueue from tag 6.3.1.
 %% Commit: b0604926195f9372b0068b61f88d409d639a2401.
 %% * Quota disabled, one wait_comp entry and one awaiting_rel entry.
+%% * Synthetic inflight entry uses delivery metadata, with timestamps fixed to publication time.
 %% * `enqueue/3` added QoS0, QoS1, QoS0 messages, exercising both queue lanes.
 %% * Expected exported map retains the raw queue insertion timestamps.
 fixture() ->
-    #{
-        session =>
-            {session, <<0, 6, 93, 45, 211, 204, 142, 91, 212, 68, 0, 0, 179, 91, 0, 0>>, true,
-                #{<<"out">> => #{qos => 2}}, 23, true,
-                {inflight, 1,
-                    {1,
-                        {41,
-                            {inflight_data, wait_comp,
-                                {message,
-                                    <<0, 6, 93, 45, 211, 204, 142, 120, 212, 68, 0, 0, 179, 91, 0,
-                                        1>>,
-                                    2, fixture, #{}, #{}, <<"out">>, <<"inflight">>, 1791301268573,
-                                    #{}},
-                                100},
-                            nil, nil}}},
-                {mqueue, true, 1000, 0, 16,
-                    {qos0, qos0,
-                        [
-                            '$switch',
+    Session =
+        {session, <<0, 6, 93, 45, 211, 204, 142, 91, 212, 68, 0, 0, 179, 91, 0, 0>>, true,
+            #{<<"out">> => #{qos => 2}}, 23, true,
+            {inflight, 1,
+                {1,
+                    {41,
+                        {inflight_data, wait_comp,
                             {message,
-                                <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 3>>,
-                                1, fixture, #{}, #{}, <<"out">>, <<"second">>, 1791301268573, #{
-                                    mqueue_insert_ts => 1791301268573824212
-                                }}
-                        ],
-                        [],
-                        [
-                            {message,
-                                <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 4>>,
-                                0, fixture, #{}, #{}, <<"out">>, <<"third">>, 1791301268573, #{
-                                    mqueue_insert_ts => 1791301268573824733
+                                <<0, 6, 93, 45, 211, 204, 142, 120, 212, 68, 0, 0, 179, 91, 0, 1>>,
+                                2, fixture, #{}, #{deliver_begin_at => 1791301268573}, <<"out">>,
+                                <<"inflight">>, 1791301268573, #{
+                                    inflight_insert_ts => 1791301268573000000
                                 }},
-                            '$switch'
-                        ],
-                        [
-                            {message,
-                                <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 2>>,
-                                0, fixture, #{}, #{}, <<"out">>, <<"first">>, 1791301268573, #{
-                                    mqueue_insert_ts => 1791301268573820816
-                                }}
-                        ],
-                        3},
-                    disabled, undefined},
-                false, 43, 250, #{42 => 101}, 12, 5000, 1791301268573},
-        exported =>
-            #{
-                id => <<0, 6, 93, 45, 211, 204, 142, 91, 212, 68, 0, 0, 179, 91, 0, 0>>,
-                mqueue =>
+                            1791301268573},
+                        nil, nil}}},
+            {mqueue, true, 1000, 0, 16,
+                {qos0, qos0,
+                    [
+                        '$switch',
+                        {message,
+                            <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 3>>, 1,
+                            fixture, #{}, #{}, <<"out">>, <<"second">>, 1791301268573, #{
+                                mqueue_insert_ts => 1791301268573824212
+                            }}
+                    ],
+                    [],
+                    [
+                        {message,
+                            <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 4>>, 0,
+                            fixture, #{}, #{}, <<"out">>, <<"third">>, 1791301268573, #{
+                                mqueue_insert_ts => 1791301268573824733
+                            }},
+                        '$switch'
+                    ],
                     [
                         {message,
                             <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 2>>, 0,
                             fixture, #{}, #{}, <<"out">>, <<"first">>, 1791301268573, #{
                                 mqueue_insert_ts => 1791301268573820816
-                            }},
-                        {message,
-                            <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 3>>, 1,
-                            fixture, #{}, #{}, <<"out">>, <<"second">>, 1791301268573, #{
-                                mqueue_insert_ts => 1791301268573824212
-                            }},
-                        {message,
-                            <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 4>>, 0,
-                            fixture, #{}, #{}, <<"out">>, <<"third">>, 1791301268573, #{
-                                mqueue_insert_ts => 1791301268573824733
                             }}
                     ],
-                inflight =>
-                    [
-                        #{
-                            message =>
-                                {message,
-                                    <<0, 6, 93, 45, 211, 204, 142, 120, 212, 68, 0, 0, 179, 91, 0,
-                                        1>>,
-                                    2, fixture, #{}, #{}, <<"out">>, <<"inflight">>, 1791301268573,
-                                    #{}},
-                            timestamp => 100,
-                            phase => wait_comp,
-                            packet_id => 41
-                        }
-                    ],
-                created_at => 1791301268573,
-                subscriptions => #{<<"out">> => #{qos => 2}},
-                is_persistent => true,
-                next_pkt_id => 43,
-                awaiting_rel => #{42 => 101}
-            },
-        conf =>
-            #{
-                retry_interval => 250,
-                max_subscriptions => 23,
-                upgrade_qos => true,
-                max_awaiting_rel => 12,
-                await_rel_timeout => 5000
-            }
-    }.
+                    3},
+                disabled, undefined},
+            false, 43, 250, #{42 => 101}, 12, 5000, 1791301268573},
+    Exported =
+        #{
+            id => <<0, 6, 93, 45, 211, 204, 142, 91, 212, 68, 0, 0, 179, 91, 0, 0>>,
+            mqueue =>
+                [
+                    {message, <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 2>>, 0,
+                        fixture, #{}, #{}, <<"out">>, <<"first">>, 1791301268573, #{
+                            mqueue_insert_ts => 1791301268573820816
+                        }},
+                    {message, <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 3>>, 1,
+                        fixture, #{}, #{}, <<"out">>, <<"second">>, 1791301268573, #{
+                            mqueue_insert_ts => 1791301268573824212
+                        }},
+                    {message, <<0, 6, 93, 45, 211, 204, 142, 121, 212, 68, 0, 0, 179, 91, 0, 4>>, 0,
+                        fixture, #{}, #{}, <<"out">>, <<"third">>, 1791301268573, #{
+                            mqueue_insert_ts => 1791301268573824733
+                        }}
+                ],
+            inflight =>
+                [
+                    #{
+                        message =>
+                            {message,
+                                <<0, 6, 93, 45, 211, 204, 142, 120, 212, 68, 0, 0, 179, 91, 0, 1>>,
+                                2, fixture, #{}, #{deliver_begin_at_us => 1791301268573000},
+                                <<"out">>, <<"inflight">>, 1791301268573, #{}},
+                        timestamp => 1791301268573,
+                        phase => wait_comp,
+                        packet_id => 41
+                    }
+                ],
+            created_at => 1791301268573,
+            subscriptions => #{<<"out">> => #{qos => 2}},
+            is_persistent => true,
+            next_pkt_id => 43,
+            awaiting_rel => #{42 => 101}
+        },
+    ExportedV1 =
+        Exported#{
+            inflight := [
+                #{
+                    message =>
+                        {message,
+                            <<0, 6, 93, 45, 211, 204, 142, 120, 212, 68, 0, 0, 179, 91, 0, 1>>, 2,
+                            fixture, #{}, #{deliver_begin_at => 1791301268573}, <<"out">>,
+                            <<"inflight">>, 1791301268573, #{
+                                inflight_insert_ts => 1791301268573000000
+                            }},
+                    timestamp => 1791301268573,
+                    phase => wait_comp,
+                    packet_id => 41
+                }
+            ]
+        },
+    Conf =
+        #{
+            retry_interval => 250,
+            max_subscriptions => 23,
+            upgrade_qos => true,
+            max_awaiting_rel => 12,
+            await_rel_timeout => 5000
+        },
+    #{session => Session, exported => Exported, {exported, 1} => ExportedV1, conf => Conf}.
 
 clientinfo() ->
     #{

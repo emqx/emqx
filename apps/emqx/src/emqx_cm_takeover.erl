@@ -29,6 +29,8 @@
 
 %% Shared by gateway session takeover compatibility adapters.
 -export([
+    from_session/2,
+    to_session/2,
     legacy_session_version/1,
     from_legacy_session/2,
     to_legacy_session/5
@@ -60,7 +62,10 @@
 -define(BPAPI, emqx_cm).
 -define(BPAPI_VSN_BASELINE, 4).
 
--define(VSN_TAKEOVER, 1).
+%% Takeover session formats:
+%% 1: Exported maps with millisecond `deliver_begin_at` and nanosecond `inflight_insert_ts`.
+%% 2: Microsecond `deliver_begin_at_us`, legacy timestamp metadata is no longer required.
+-define(VSN_TAKEOVER, 2).
 
 %% v3 nodes:
 %% -> emqx_cm_proto_v3 -> emqx_cm:takeover_session/2 ->
@@ -144,11 +149,8 @@ begin_local(ClientId, ChanPid) when node(ChanPid) =:= node() ->
 -doc "Adapt takeover result received from remote node".
 from_begin_ret(none) ->
     none;
-from_begin_ret({ok, _ChanRef, _Session} = Ret) ->
-    %% NOTE
-    %% Any logic regarding adapting response from nodes running older EMQX version
-    %% (according to `ChanRef#chanref.proto`) goes here. Currently, this is a no-op.
-    Ret.
+from_begin_ret({ok, ChanRef = #chanref{proto = Proto}, Session}) ->
+    {ok, ChanRef, from_session(Session, Proto)}.
 
 upgrade_begin_ret(none) ->
     none;
@@ -163,8 +165,8 @@ upgrade_begin_ret({persistent, _} = Ret) ->
     %% NOTE: Unsupported pre-5.3.0 stuff.
     error({unsupported, Ret}).
 
-to_begin_ret(#{vsn := _}, {ok, ChanRef, Session}) ->
-    {ok, ChanRef#chanref{proto = current()}, Session};
+to_begin_ret(RequesterProto, {ok, ChanRef, Session}) ->
+    {ok, ChanRef#chanref{proto = current()}, to_session(Session, RequesterProto)};
 to_begin_ret(_RequesterProto, none) ->
     none.
 
@@ -175,6 +177,34 @@ downgrade_begin_ret(ClientId, ChanInfo, {ok, ChanRef, Session}) ->
     {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session, Conf, 1)};
 downgrade_begin_ret(_ClientId, _ChanInfo, none) ->
     none.
+
+-spec from_session(session(), protocol()) -> session().
+from_session(Session = #{inflight := Inflight}, Proto) ->
+    Session#{inflight := from_inflight(Inflight, Proto)}.
+
+from_inflight(Inflight, #{vsn := 1}) ->
+    lists:map(
+        fun(Entry = #{message := Message, timestamp := Timestamp}) ->
+            Entry#{message := from_legacy_inflight_message(Message, Timestamp)}
+        end,
+        Inflight
+    );
+from_inflight(Inflight, #{vsn := _}) ->
+    Inflight.
+
+-spec to_session(session(), protocol()) -> session().
+to_session(Session = #{inflight := Inflight}, Proto) ->
+    Session#{inflight := to_inflight(Inflight, Proto)}.
+
+to_inflight(Inflight, #{vsn := 1}) ->
+    lists:map(
+        fun(Entry = #{message := Message}) ->
+            Entry#{message := to_legacy_inflight_message(Message)}
+        end,
+        Inflight
+    );
+to_inflight(Inflight, #{vsn := _}) ->
+    Inflight.
 
 %%
 
@@ -417,7 +447,11 @@ to_legacy_inflight(Inflight, MaxInflight) ->
             },
             Acc
         ) ->
-            gb_trees:insert(PacketId, {inflight_data, Phase, Message, Timestamp}, Acc)
+            gb_trees:insert(
+                PacketId,
+                {inflight_data, Phase, to_legacy_inflight_message(Message), Timestamp},
+                Acc
+            )
         end,
         gb_trees:empty(),
         Inflight
@@ -429,11 +463,45 @@ export_legacy_inflight({inflight, _, Tree}) ->
         #{
             packet_id => PacketId,
             phase => Phase,
-            message => Message,
+            message => from_legacy_inflight_message(Message, Timestamp),
             timestamp => Timestamp
         }
      || {PacketId, {inflight_data, Phase, Message, Timestamp}} <- gb_trees:to_list(Tree)
     ].
+
+from_legacy_inflight_message(#message{headers = Headers0, extra = Extra0} = Message, Timestamp) ->
+    Headers = maps:remove(deliver_begin_at, Headers0),
+    Extra =
+        case Extra0 of
+            Map when is_map(Map) ->
+                maps:remove(inflight_insert_ts, Map);
+            [] ->
+                []
+        end,
+    Message#message{
+        headers = Headers#{
+            deliver_begin_at_us => maps:get(deliver_begin_at, Headers0, Timestamp) * 1000
+        },
+        extra = Extra
+    }.
+
+to_legacy_inflight_message(
+    #message{headers = #{deliver_begin_at_us := Begin} = Headers0} = Message
+) ->
+    %% NOTE
+    %% Older peers use milliseconds for delivery latency and nanoseconds for pagination.
+    Headers = maps:remove(deliver_begin_at_us, Headers0),
+    Extra =
+        case Message#message.extra of
+            Map when is_map(Map) ->
+                Map;
+            [] ->
+                #{}
+        end,
+    Message#message{
+        headers = Headers#{deliver_begin_at => Begin div 1000},
+        extra = Extra#{inflight_insert_ts => Begin * 1000}
+    }.
 
 %% Pre-6.3.0 mqueue (version 1) has the following shape:
 %% -type squeue() :: {queue, _In :: [any()], _Out :: [any()], _Len :: non_neg_integer()}.

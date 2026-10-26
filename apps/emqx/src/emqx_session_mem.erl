@@ -321,6 +321,10 @@ filter_remote_session(Session = #session{mqueue = Q}) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
     Session#session{mqueue = Q1}.
 
+-doc """
+Export state in the current session format.
+Cross-version encoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
 -spec export(session()) -> exported().
 export(#session{
     id = Id,
@@ -368,6 +372,10 @@ export_inflight_entry(
         timestamp => Timestamp
     }.
 
+-doc """
+Import state in the current session format.
+Cross-version decoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
 -spec import(clientinfo(), exported()) -> session().
 import(ClientInfo, #{
     id := Id,
@@ -392,7 +400,10 @@ import(ClientInfo, #{
         created_at = CreatedAt
     }.
 
--doc "Import transferred state with new connection limits and session configuration.".
+-doc """
+Import current-format state with new connection limits and session configuration.
+Cross-version decoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
 -spec import(clientinfo(), conninfo(), exported()) -> session().
 import(ClientInfo, ConnInfo, Exported) ->
     Session0 = import(ClientInfo, Exported),
@@ -415,7 +426,7 @@ import_inflight_entry(
     },
     Inflight
 ) ->
-    %% Imported messages may retain unused metadata, such as inflight_insert_ts.
+    %% Imported messages may retain unused metadata.
     Entry =
         case {Phase, Msg#message.qos, inflight_timestamp(Msg)} of
             {wait_ack, ?QOS_1, Timestamp} ->
