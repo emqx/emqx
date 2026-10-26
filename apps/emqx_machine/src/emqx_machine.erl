@@ -45,8 +45,7 @@ start() ->
     set_mnesia_extra_diagnostic_checks(),
     ok = configure_otel_deps(),
     %% Register mria callbacks that help to check compatibility of the
-    %% replicant with the core node. Currently they rely on the exact
-    %% match of the version of EMQX OTP application:
+    %% replicant with the core node. See mria_lb_custom_info_check/1.
     _ = application:load(mria),
     _ = application:load(emqx),
     mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
@@ -215,19 +214,38 @@ resolve_dist_address_type() ->
     end.
 
 %% Note: this function is stored in the Mria's application environment
+%% What this node announces to replicants that consider it as a core.
+%% `db_schema' covers the mria table definitions and the transaction
+%% funs that a replicant ships to a core by value (see
+%% EMQX_DB_SCHEMA_VSN in emqx_release.hrl). `mria' covers mria's own
+%% replication protocol and the funs mria itself ships. `emqx' is for
+%% log messages only.
+%%
+%% Releases before the db_schema version announced the emqx application
+%% version as a plain string.
 mria_lb_custom_info() ->
-    get_emqx_vsn().
+    #{
+        db_schema => emqx_release:db_schema_vsn(),
+        mria => get_app_vsn(mria),
+        emqx => get_app_vsn(emqx)
+    }.
 
 %% Note: this function is stored in the Mria's application environment
 %% This function is only evaluated by replicant nodes.
 %% Should return `true' if the input node version may be connected to by the current node.
 mria_lb_custom_info_check(undefined) ->
     false;
-mria_lb_custom_info_check(OtherVsn) ->
-    get_emqx_vsn() =:= OtherVsn.
+mria_lb_custom_info_check(#{db_schema := DbSchema, mria := MriaVsn}) ->
+    DbSchema =:= emqx_release:db_schema_vsn() andalso MriaVsn =:= get_app_vsn(mria);
+mria_lb_custom_info_check(OtherVsn) when is_list(OtherVsn) ->
+    %% A core from a release that announced only the emqx application
+    %% version: exact match, as that release requires.
+    get_app_vsn(emqx) =:= OtherVsn;
+mria_lb_custom_info_check(_) ->
+    false.
 
-get_emqx_vsn() ->
-    case application:get_key(emqx, vsn) of
+get_app_vsn(App) ->
+    case application:get_key(App, vsn) of
         {ok, Vsn} ->
             Vsn;
         undefined ->

@@ -80,7 +80,8 @@ handle_check_core_node_count() ->
             ok;
         {error, #{known_cores := KnownCores}} ->
             Hint = iolist_to_binary([
-                <<"There are no core EMQX nodes running the same version as this node.">>,
+                <<"There are no core EMQX nodes compatible with this node">>,
+                <<" (same db_schema version and mria version).">>,
                 <<" If you are performing a rolling upgrade, please keep different core node">>,
                 <<" versions (both old and new) around until all replicant nodes are migrated.">>
             ]),
@@ -149,10 +150,26 @@ start_core_node_count_timeout(Timeout) ->
 
 check_core_node_count_test_() ->
     _ = application:load(emqx),
+    _ = application:load(mria),
     CurrentVsn = emqx_machine:mria_lb_custom_info(),
     %% assert
-    true = is_list(CurrentVsn),
+    true = is_map(CurrentVsn),
     [
+        {"1 core at same db_schema and mria version, other emqx version",
+            ?_assertEqual(
+                ok,
+                do_check_core_node_count([{c1, {ok, CurrentVsn#{emqx => "other version"}}}])
+            )},
+        {"only cores at another db_schema version",
+            ?_assertEqual(
+                {error, #{known_cores => #{c1 => #{version => CurrentVsn#{db_schema => "0"}}}}},
+                do_check_core_node_count([{c1, {ok, CurrentVsn#{db_schema => "0"}}}])
+            )},
+        {"only cores at another mria version",
+            ?_assertEqual(
+                {error, #{known_cores => #{c1 => #{version => CurrentVsn#{mria => "0.0.0"}}}}},
+                do_check_core_node_count([{c1, {ok, CurrentVsn#{mria => "0.0.0"}}}])
+            )},
         {"no known cores",
             ?_assertEqual({error, #{known_cores => #{}}}, do_check_core_node_count([]))},
         {"1 core at same version",
