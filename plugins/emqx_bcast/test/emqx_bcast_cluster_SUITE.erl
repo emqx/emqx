@@ -93,21 +93,15 @@ node_client_subscribed(Node, ClientId, Topic) ->
         end
     ).
 
-%% Cold-start settle: the async QoS1 pipeline runs at full speed only
-%% after mria converges and the plugin workers are warm. Start timing only
-%% after the cluster has settled so delivery latency has a meaningful
-%% budget (recv/1) instead of being polluted by cold-start. (The test
-%% process runs on the CT node, so this is a plain settle sleep; the
-%% emqx_cth_cluster:start/1 call already waits for the nodes to come up.)
-settle_cluster() ->
-    timer:sleep(3000).
+settle_cluster(Nodes) ->
+    emqx_bcast_test_cluster:wait_ready(Nodes, Nodes).
 
 %% tests
 
 -doc "A failed remote delete-epoch bump must not let management delete return success.".
 t_failed_remote_epoch_blocks_delete_e2e(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     Payload = <<"epoch-delete-failure">>,
     Hash = crypto:hash(sha256, Payload),
     {ok, 200, _, R} = api_call(N1, #{
@@ -161,7 +155,7 @@ api_call_message(Node, Method, ApiId) ->
 -doc "QoS=0 BatchPub reaches devices connected to different cluster nodes.".
 t_cluster_cross_node_delivery(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN1 = <<"cl_dn1">>,
     DN2 = <<"cl_dn2">>,
     C1 = connect(N1, DN1),
@@ -202,7 +196,7 @@ t_cluster_cross_node_delivery(Config) ->
 -doc "QoS=1 delivery created on one node is replayed after reconnect on another node.".
 t_cluster_offline_replay_on_other_node(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN = <<"cl_offline_dn">>,
     PK = <<"default">>,
     {ok, 200, _, _Resp} = api_call(N1, #{
@@ -240,7 +234,7 @@ t_cluster_offline_replay_on_other_node(Config) ->
 -doc "Ack state is cluster-wide: a delivery acked on one node is not replayed on another.".
 t_cluster_ack_idempotent_across_nodes(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN1 = <<"cl_ack_dn1">>,
     DN2 = <<"cl_ack_dn2">>,
     PK = <<"default">>,
@@ -315,7 +309,7 @@ cluster_metric(Nodes, Suffix) ->
 "delivered counter matches the real sends across nodes.".
 t_metrics_ledger_combo_b_cluster(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     Nodes = [N1, N2],
     PK = <<"default">>,
     D1 = <<"cl_b_d1">>,
@@ -438,7 +432,7 @@ mnesia_safe_rows(Node) ->
 "changed hands.".
 t_core_with_a_stopped_plugin_hands_its_shards_over(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     ?assertEqual([N1, N2], lists:sort(erpc:call(N1, emqx_bcast, core_nodes, []))),
     %% Stop the plugin the way the plugin framework does it: the supervision
     %% tree goes down, the modules stay loaded.
@@ -520,7 +514,7 @@ all_partitions_active(Node, Shards) ->
 "keepalive (minutes at a 600s keepalive, and forever if it never pings).".
 t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN = <<"cl_arm_dn">>,
     PK = <<"default">>,
     %% N2's plugin goes away, the client attaches there, and only then does the
@@ -568,7 +562,7 @@ t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
 "apply.".
 t_trigger_does_not_arm_a_client_of_another_product(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN = <<"cl_other_pk_dn">>,
     OtherPK = <<"cl_other_pk">>,
     C = connect(N2, DN),
