@@ -1392,7 +1392,7 @@ maybe_outgoing_receipt(ReceiptId, Channel) ->
 maybe_outgoing_receipt(undefined, Outgoings, Channel) ->
     {ok, Outgoings, Channel};
 maybe_outgoing_receipt(ReceiptId, Outgoings, Channel) ->
-    {ok, lists:reverse([receipt_frame(ReceiptId) | Outgoings]), Channel}.
+    {ok, Outgoings ++ [{outgoing, receipt_frame(ReceiptId)}], Channel}.
 
 ensure_clean_trans_timer(Channel = #channel{transaction = Trans}) ->
     case maps:size(Trans) of
