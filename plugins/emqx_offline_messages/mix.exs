@@ -26,7 +26,7 @@ defmodule EMQXOfflineMessages.MixProject do
   end
 
   def erlc_options() do
-    common = [:debug_info]
+    common = [:debug_info, {:d, :snk_kind, :msg}]
 
     if test_env?(),
       do: common ++ [{:d, :TEST}, {:parse_transform, :cth_readable_transform}],
@@ -39,7 +39,7 @@ defmodule EMQXOfflineMessages.MixProject do
 
   def application do
     [
-      extra_applications: [],
+      extra_applications: [:epgsql, :ecpool, :emqx_extsub],
       mod: {:emqx_offline_messages_app, []}
     ]
   end
@@ -64,6 +64,7 @@ defmodule EMQXOfflineMessages.MixProject do
   defp emqx_plugin do
     [
       rel_vsn: version(),
+      external_apps: [:epgsql, :ecpool, :emqx_extsub],
       metadata: [
         authors: ["EMQX"],
         builder: [

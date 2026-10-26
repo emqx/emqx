@@ -51,3 +51,41 @@ redis {
     batch_size = 1
     batch_time = 100
 }
+
+postgresql {
+    enable = false
+    host = "127.0.0.1"
+    port = 5432
+    username = "root"
+    password = "public"
+    database = "mqtt"
+    ssl { enable = false }
+    namespace = ""
+    topics = []
+    init_default_schema = false
+    async_batched = false
+    max_topic_length = 1024
+    new_subscription_start = earliest
+    query_timeout = 5000
+    set_statement_timeout = true
+    message_publish_pool_size = 8
+    message_read_pool_size = 8
+    subscription_meta_pool_size = 8
+    writer {
+        pool_size = 4
+        min_flush_timeout = 5
+        max_flush_timeout = 50
+        flush_max_messages = 1000
+        flush_max_bytes = 1048576
+        call_timeout = 5000
+    }
+    read {
+        page_max_messages = 100
+        reorder_max_distance = 32
+        reorder_timeout = 50
+        idle_poll_interval = 30000
+    }
+    checkpoint { interval = 1000, max_pending = 100 }
+    retention { max_age = 604800000, max_messages = 1000000, interval = 60000 }
+    subscription_expiry = 2592000000
+}

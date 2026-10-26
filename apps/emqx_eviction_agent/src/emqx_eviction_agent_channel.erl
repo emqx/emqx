@@ -164,8 +164,9 @@ handle_info(Deliver = {deliver, _Topic, _Msg}, Channel) ->
 handle_info(expire_session, Channel) ->
     {stop, {shutdown, expired}, Channel};
 handle_info(Info, Channel) ->
+    %% Subscribers can receive opaque terms from `emqx_broker:dispatch_info/2'.
     ?SLOG(
-        error,
+        debug,
         #{
             msg => "unexpected_info",
             info => Info

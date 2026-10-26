@@ -174,6 +174,14 @@
     validation_schema_check_schema_not_found,
     validation_schema_check_failure,
     %% ==== message transformation/validation end ====
+    %% ==== offline messages plugin, PostgreSQL backend ====
+    offline_messages_pg_batch_failed,
+    offline_messages_pg_dispatch_failed,
+    offline_messages_pg_query_failed,
+    offline_messages_pg_rejected,
+    offline_messages_pg_restore_failed,
+    offline_messages_pg_write_failed,
+    %% ==== offline messages plugin end ====
     unrecoverable_resource_error
 ]).
 

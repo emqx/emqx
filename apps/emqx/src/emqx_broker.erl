@@ -56,6 +56,11 @@
     deliver/3
 ]).
 
+-export([
+    dispatch_info/2,
+    do_dispatch_info/2
+]).
+
 %% PubSub Infos
 -export([
     subscriptions/1,
@@ -317,6 +322,9 @@ eval_hook_and_publish(Msg, Opts) ->
                 topic => Topic
             }),
             {error, disconnect, Message};
+        #message{headers = #{allow_publish := false, message_persisted := true}} = Message ->
+            %% A hook stored the message and delivers it by other means.
+            {ok, [persisted], Message};
         #message{headers = #{allow_publish := false}, topic = Topic} = Message ->
             ?TRACE("MQTT", "msg_not_routed_to_subscribers", #{
                 message => emqx_message:to_log_map(Msg),
@@ -550,6 +558,51 @@ dispatch(Topic, Delivery = #delivery{sender = _Sender, message = _Msg}) ->
         fun(NDelivery) -> do_dispatch(Topic, NDelivery) end,
         [Delivery]
     ).
+
+-doc """
+Send `Info` unchanged to every subscriber whose subscription matches `Topic`.
+
+The route lookup is the same as for a publish. Remote nodes receive `Info`
+through `emqx_broker_info_proto_v1`. Shared subscription routes are skipped.
+No hook, persistence, metric or cluster-link forwarding runs.
+
+Subscribers receive `Info` as an ordinary process message. Channels pass it to
+the `client.handle_info` hook. The caller must recover the data by other means
+when a subscriber ignores or loses `Info`.
+""".
+-spec dispatch_info(emqx_types:topic(), term()) -> ok.
+dispatch_info(Topic, Info) when is_binary(Topic) ->
+    lists:foreach(
+        fun
+            ({To, Node}) when Node =:= node() ->
+                do_dispatch_info(To, Info);
+            ({To, Node}) when is_atom(Node) ->
+                forward_info(Node, To, Info);
+            ({_To, _Group}) ->
+                ok
+        end,
+        aggre(emqx_router:match_routes(Topic))
+    ).
+
+-doc "Send `Info` to the local subscribers of the topic filter `Topic`.".
+-spec do_dispatch_info(emqx_types:topic(), term()) -> ok.
+do_dispatch_info(Topic, Info) ->
+    Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
+    _ = lists:foldl(
+        fun(I, N) -> do_dispatch_chans(Info, subscribers({shard, Topic, I}), N) end,
+        do_dispatch_chans(Info, subscribers(Topic), 0),
+        Shards
+    ),
+    ok.
+
+forward_info(Node, Topic, Info) ->
+    case emqx_bpapi:supported_version(Node, emqx_broker_info) of
+        undefined ->
+            ok;
+        _ ->
+            true = emqx_broker_info_proto_v1:forward_async(Node, Topic, Info),
+            ok
+    end.
 
 %% Notify channel about message delivery to a subscription topic.
 -spec deliver(pid(), emqx_types:topic(), emqx_types:message()) -> ok.
