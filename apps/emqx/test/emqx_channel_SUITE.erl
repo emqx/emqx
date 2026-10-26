@@ -502,8 +502,8 @@ t_handle_in_re_auth(_) ->
     },
     {ok,
         [
-            {outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)},
-            {close, bad_authentication_method}
+            {outgoing, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)},
+            {close, protocol_error}
         ],
         _} =
         emqx_channel:handle_in(
@@ -512,8 +512,8 @@ t_handle_in_re_auth(_) ->
         ),
     {ok,
         [
-            {outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)},
-            {close, bad_authentication_method}
+            {outgoing, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)},
+            {close, protocol_error}
         ],
         _} =
         emqx_channel:handle_in(

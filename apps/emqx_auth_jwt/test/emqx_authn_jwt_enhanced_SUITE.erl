@@ -129,7 +129,21 @@ t_reauthenticate_rejects_expired_token(_Config) ->
     ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
 
     ok = reauthenticate(jws(#{<<"exp">> => exp(-60)})),
-    ?assertMatch(?DISCONNECT_PACKET(?RC_BAD_USER_NAME_OR_PASSWORD), receive_packet()).
+    ?assertMatch(?DISCONNECT_PACKET(?RC_NOT_AUTHORIZED), receive_packet()).
+
+-doc """
+Tests that a re-authentication with no Authentication Data is rejected with a reason code that
+the DISCONNECT packet allows, 0x87, and not with the CONNACK-only code 0x86.
+""".
+t_reauthenticate_without_token(_Config) ->
+    _ = connect(<<"c_reauth_no_token">>, jws(#{<<"exp">> => exp(60)})),
+    ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
+
+    ok = emqx_mqtt_test_client:send(
+        get_client(),
+        ?AUTH_PACKET(?RC_RE_AUTHENTICATE, #{'Authentication-Method' => ?METHOD})
+    ),
+    ?assertMatch(?DISCONNECT_PACKET(?RC_NOT_AUTHORIZED), receive_packet()).
 
 t_reauthenticate_rejects_bad_method(_Config) ->
     _ = connect(<<"c_method">>, jws(#{<<"exp">> => exp(60)})),
@@ -143,7 +157,7 @@ t_reauthenticate_rejects_bad_method(_Config) ->
             'Authentication-Data' => jws(#{<<"exp">> => exp(60)})
         })
     ),
-    ?assertMatch(?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD), receive_packet()).
+    ?assertMatch(?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR), receive_packet()).
 
 %% Client attributes are derived by the CONNECT enrichment pipeline and stay
 %% frozen for the session; a re-authentication must not redefine them.

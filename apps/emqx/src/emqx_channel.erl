@@ -545,14 +545,14 @@ handle_in(
                     connecting ->
                         handle_out(connack, NReasonCode, NChannel);
                     _ ->
-                        handle_out(disconnect, NReasonCode, NChannel)
+                        handle_out(disconnect, reauth_error_rc(NReasonCode), NChannel)
                 end;
             {error, NReasonCode} ->
                 case ConnState of
                     connecting ->
                         handle_out(connack, NReasonCode, Channel);
                     _ ->
-                        handle_out(disconnect, NReasonCode, Channel)
+                        handle_out(disconnect, reauth_error_rc(NReasonCode), Channel)
                 end
         end
     catch
@@ -3967,6 +3967,15 @@ prepare_will_message_for_publishing(ClientInfo, Msg) ->
 
 disconnect_reason(?RC_SUCCESS) -> ?normal;
 disconnect_reason(ReasonCode) -> emqx_reason_codes:name(ReasonCode).
+
+%% An authentication failure is reported with a CONNACK reason code. A failed
+%% re-authentication is reported with a DISCONNECT packet, and the MQTT 5.0
+%% DISCONNECT packet does not allow all of them. Map the ones it does not allow.
+reauth_error_rc(?RC_BAD_USER_NAME_OR_PASSWORD) -> ?RC_NOT_AUTHORIZED;
+reauth_error_rc(?RC_BANNED) -> ?RC_NOT_AUTHORIZED;
+reauth_error_rc(?RC_SERVER_UNAVAILABLE) -> ?RC_UNSPECIFIED_ERROR;
+reauth_error_rc(?RC_BAD_AUTHENTICATION_METHOD) -> ?RC_PROTOCOL_ERROR;
+reauth_error_rc(ReasonCode) -> ReasonCode.
 
 reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
 reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
