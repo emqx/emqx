@@ -1170,6 +1170,88 @@ t_transaction_duplicate_begin_rejected(_) ->
         )
     end).
 
+-doc "An empty transaction returns its COMMIT receipt and releases the transaction ID.".
+t_transaction_commit_receipt_empty(_) ->
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"0,0">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        ok = begin_frame(Sock, <<"tx1">>),
+        assert_receipt(Sock, <<"begin-tx1">>),
+        ok = send_transactional_frame(
+            Sock,
+            <<"COMMIT">>,
+            [transaction_header(<<"tx1">>), {<<"receipt">>, <<"commit">>}]
+        ),
+        assert_receipt(Sock, <<"commit">>),
+        ok = begin_frame(Sock, <<"tx1">>),
+        assert_receipt(Sock, <<"begin-tx1">>)
+    end).
+
+-doc "Transaction receipts and published messages keep their order with or without a COMMIT receipt.".
+t_transaction_commit_receipt_order(_) ->
+    lists:foreach(
+        fun(CommitReceipt) -> transaction_commit_receipt_order(CommitReceipt) end,
+        [[], [{<<"receipt">>, <<"commit">>}]]
+    ).
+
+transaction_commit_receipt_order(CommitReceipt) ->
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"0,0">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        Topic = <<"/queue/commit-receipt-order">>,
+        ok = send_subscribe_frame(Sock, <<"sub">>, Topic),
+        assert_receipt(Sock, <<"sub">>),
+        ok = begin_frame(Sock, <<"tx1">>),
+        assert_receipt(Sock, <<"begin-tx1">>),
+        lists:foreach(
+            fun(Id) ->
+                ok = send_transactional_frame(
+                    Sock,
+                    <<"SEND">>,
+                    [
+                        transaction_header(<<"tx1">>),
+                        {<<"destination">>, Topic},
+                        {<<"receipt">>, Id}
+                    ],
+                    Id
+                )
+            end,
+            [<<"first">>, <<"second">>]
+        ),
+        ?assertEqual({error, timeout}, gen_tcp:recv(Sock, 0, 100)),
+        ok = send_transactional_frame(
+            Sock, <<"COMMIT">>, [transaction_header(<<"tx1">>) | CommitReceipt]
+        ),
+        ExpectedReceipts = [<<"first">>, <<"second">>] ++ [Id || {_, Id} <- CommitReceipt],
+        Frames = [
+            begin
+                {ok, Frame} = recv_a_frame(Sock),
+                Frame
+            end
+         || _ <- lists:seq(1, 2 + length(ExpectedReceipts))
+        ],
+        ?assertEqual(
+            ExpectedReceipts,
+            [
+                proplists:get_value(<<"receipt-id">>, Headers)
+             || #stomp_frame{command = <<"RECEIPT">>, headers = Headers} <- Frames
+            ]
+        ),
+        ?assertEqual(
+            [<<"first">>, <<"second">>],
+            [Body || #stomp_frame{command = <<"MESSAGE">>, body = Body} <- Frames]
+        )
+    end).
+
+assert_receipt(Sock, ReceiptId) ->
+    ?assertMatch(
+        {ok, #stomp_frame{
+            command = <<"RECEIPT">>,
+            headers = [{<<"receipt-id">>, ReceiptId}]
+        }},
+        recv_a_frame(Sock)
+    ).
+
 transaction_header(TxId) ->
     {<<"transaction">>, TxId}.
 
