@@ -822,7 +822,8 @@ It applies to the built-in HTTP client and to each TLS client that sets <code>ve
   for example <code>/etc/ssl/certs/ca-certificates.crt</code> on Debian and Ubuntu,
   and <code>/etc/pki/tls/certs/ca-bundle.crt</code> on RHEL.
   When no file is found, EMQX logs a warning and the clients use the CA certificates that Erlang/OTP loads from the operating system.
-- <code>file:///absolute/path</code>: use this PEM file. The path must be absolute and the file must exist.
+- <code>file:///absolute/path</code>: use this PEM file. The path must be absolute, and the file must exist and be readable by the user that runs EMQX.
+  The path must be the same on all nodes in the cluster. EMQX does not copy the file to the other nodes.
 
 TLS reads the file again when it changes, so an update of the operating system CA bundle takes effect without a restart."""
 

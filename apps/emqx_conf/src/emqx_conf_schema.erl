@@ -1602,9 +1602,10 @@ validate_trusted_certs(Value) ->
 -doc """
 Resolve `node.trusted_certs` to the absolute path of a CA bundle file.
 
-`system_default` returns the first regular file in `system_ca_bundle_paths/0`,
-or `undefined` when there is none. `file:///abs/path` returns `/abs/path` when
-it is an absolute path to a regular file. Any other value throws.
+`system_default` returns the first readable regular file in
+`system_ca_bundle_paths/0`, or `undefined` when there is none. `file:///abs/path`
+returns `/abs/path` when it is an absolute path to a readable regular file.
+Any other value throws.
 """.
 -spec resolve_trusted_certs(string() | binary()) -> file:filename() | undefined.
 resolve_trusted_certs(Value) ->
@@ -1625,26 +1626,43 @@ ensure_trusted_certs_file(Path) ->
     case filename:pathtype(Path) of
         absolute ->
             case filelib:is_regular(Path) of
-                true -> Path;
+                true -> ensure_readable(Path);
                 false -> throw(#{cause => "trusted_certs_file_not_found", path => Path})
             end;
         _ ->
             throw(#{cause => "trusted_certs_path_not_absolute", path => Path})
     end.
 
+ensure_readable(Path) ->
+    case is_readable(Path) of
+        ok ->
+            Path;
+        {error, Reason} ->
+            throw(#{cause => "trusted_certs_file_not_readable", path => Path, reason => Reason})
+    end.
+
 first_regular_file([]) ->
     undefined;
 first_regular_file([Path | Paths]) ->
-    case filelib:is_regular(Path) of
+    case filelib:is_regular(Path) andalso is_readable(Path) =:= ok of
         true -> Path;
         false -> first_regular_file(Paths)
     end.
 
+%% Open the file, so the check uses the permissions of the user that runs EMQX.
+is_readable(Path) ->
+    case file:open(Path, [read, raw]) of
+        {ok, Fd} -> file:close(Fd);
+        {error, _} = Error -> Error
+    end.
+
 -doc """
 Return the CA bundle paths that `public_key:cacerts_load/0` probes on this OS.
-OTP has no API for the path, so this copies the lists in
-`pubkey_os_cacerts.erl` (public_key 1.20.2, OTP 28, lines 69-81 and 220-238).
-Keep it in sync with OTP.
+OTP has no API for the path, so this copies the lists in `pubkey_os_cacerts.erl`
+of OTP-28.4.1 (public_key 1.20.2). Keep it in sync with OTP.
+
+- https://github.com/erlang/otp/blob/c8fca7e34e/lib/public_key/src/pubkey_os_cacerts.erl#L69-L81
+- https://github.com/erlang/otp/blob/c8fca7e34e/lib/public_key/src/pubkey_os_cacerts.erl#L220-L238
 """.
 -spec system_ca_bundle_paths() -> [file:filename()].
 system_ca_bundle_paths() ->

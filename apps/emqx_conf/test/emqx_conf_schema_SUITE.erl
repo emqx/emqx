@@ -53,6 +53,21 @@ generate(TrustedCerts) ->
     {ok, Hocon} = hocon:binary(Conf, #{format => richmap}),
     hocon_tconf:generate(emqx_conf_schema, Hocon).
 
+%% CI runs the tests as root, which can read the file after `chmod 000'.
+make_unreadable(Path) ->
+    ok = file:change_mode(Path, 8#000),
+    case file:open(Path, [read, raw]) of
+        {error, eacces} ->
+            ok;
+        {ok, Fd} ->
+            ok = file:close(Fd),
+            ok = meck:new(file, [passthrough, no_history, unstick]),
+            ok = meck:expect(file, open, fun
+                (P, _Modes) when P =:= Path -> {error, eacces};
+                (P, Modes) -> meck:passthrough([P, Modes])
+            end)
+    end.
+
 app_env(App, Key, ConfList) ->
     proplists:get_value(Key, proplists:get_value(App, ConfList, [])).
 
@@ -120,3 +135,24 @@ t_file_url_missing_rejected(TCConfig) ->
     CAFile = ?config(ca_file, TCConfig),
     Missing = filename:join(filename:dirname(CAFile), "missing.pem"),
     assert_rejected("file://" ++ Missing, "trusted_certs_file_not_found").
+
+-doc """
+`file://` with a file that the user that runs EMQX cannot read is rejected.
+""".
+t_file_url_unreadable_rejected(TCConfig) ->
+    CAFile = ?config(ca_file, TCConfig),
+    make_unreadable(CAFile),
+    assert_rejected("file://" ++ CAFile, "trusted_certs_file_not_readable").
+
+-doc """
+`system_default` skips a probed file that the user that runs EMQX cannot read.
+""".
+t_system_default_skips_unreadable(TCConfig) ->
+    CAFile = ?config(ca_file, TCConfig),
+    Unreadable = filename:join(filename:dirname(CAFile), "unreadable.pem"),
+    ok = file:write_file(Unreadable, <<>>),
+    make_unreadable(Unreadable),
+    mock_probe_paths([Unreadable, CAFile]),
+    ConfList = generate("system_default"),
+    ?assertEqual(CAFile, app_env(emqx, trusted_certs_path, ConfList)),
+    ok.
