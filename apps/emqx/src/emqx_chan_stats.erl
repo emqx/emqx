@@ -15,8 +15,9 @@ same node builds the stats proplist from it with `to_list/1`.
 
 The packet and message counters (`?CHANNEL_METRICS`) are added in place with
 `inc/2`, so a reader sees them as they happen. The socket and session gauges
-are written by the owner with `put/1`, on its stats timer and when the
-session changes. An owner that does not report some of the keys, such as a
+are written by the owner with `report/2`, on its stats timer and when the
+session changes; `report/2` also logs when the session buffer is above
+the configured high watermark. An owner that does not report some of the keys, such as a
 WebSocket connection (no `send_pend`) or an evicted session (no socket),
 passes them to `new/1`: their slots hold `-1`, which no counter or gauge
 can take, and readers leave them out. The process stats (`mailbox_len`, `heap_size`, ...) are not in the
@@ -30,6 +31,7 @@ are not stats: they live in the session entry of the info map of the row (see
 """.
 
 -include("emqx_channel.hrl").
+-include("logger.hrl").
 
 %% Owner process
 -export([
@@ -38,6 +40,7 @@ are not stats: they live in the session entry of the info map of the row (see
     inc/2,
     get/1,
     put/1,
+    report/2,
     get_counters/1
 ]).
 
@@ -151,6 +154,45 @@ put_stats(Ref, [Stats | Rest]) when is_list(Stats) ->
     put_stats(Ref, Rest);
 put_stats(_Ref, []) ->
     ok.
+
+-doc """
+Write the given stats as `put/1` does, then log when the session buffer of
+the calling channel process is above the configured high watermark.
+""".
+-spec report(emqx_types:clientid(), stats()) -> ok.
+report(ClientId, Stats) when
+    is_binary(ClientId) orelse (is_atom(ClientId) andalso ClientId =/= undefined)
+->
+    Ref = ref(),
+    ok = put_stats(Ref, Stats),
+    maybe_log_session_buffer_high_watermark(ClientId, Ref).
+
+maybe_log_session_buffer_high_watermark(ClientId, Ref) ->
+    case emqx_config:get([sysmon, session, total_payload_bytes_high_watermark], 0) of
+        HighWatermark when HighWatermark > 0 ->
+            TotalPayloadBytes = atomics:get(Ref, slot(total_payload_bytes)),
+            case TotalPayloadBytes > HighWatermark of
+                true ->
+                    ?SLOG_THROTTLE(
+                        warning,
+                        ClientId,
+                        #{
+                            msg => session_buffer_high_watermark,
+                            clientid => ClientId,
+                            pid => self(),
+                            mqueue_length => atomics:get(Ref, slot(mqueue_len)),
+                            inflight_count => atomics:get(Ref, slot(inflight_cnt)),
+                            total_payload_bytes => TotalPayloadBytes,
+                            total_payload_bytes_high_watermark => HighWatermark
+                        },
+                        #{clientid => ClientId}
+                    );
+                false ->
+                    ok
+            end;
+        _ ->
+            ok
+    end.
 
 -doc "The given keys and their values in the stats array of the calling process.".
 -spec get_counters([key()]) -> [{key(), integer()}].

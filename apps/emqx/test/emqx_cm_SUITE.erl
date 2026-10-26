@@ -104,10 +104,10 @@ t_get_set_chan_stats(_) ->
     ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new([])),
     ?assertEqual(connection_stats([]), array_stats(emqx_cm:get_chan_stats(ClientId))),
     Stats = [{recv_oct, 10}, {send_oct, 8}],
-    ok = emqx_cm:set_chan_stats(ClientId, Stats),
+    ok = emqx_chan_stats:report(ClientId, Stats),
     ?assertEqual(connection_stats(Stats), array_stats(emqx_cm:get_chan_stats(ClientId))),
     Stats1 = [{recv_oct, 20}, {send_oct, 8}, {mqueue_len, 3}],
-    ok = emqx_cm:set_chan_stats(ClientId, Stats1),
+    ok = emqx_chan_stats:report(ClientId, Stats1),
     ?assertEqual(connection_stats(Stats1), array_stats(emqx_cm:get_chan_stats(ClientId))),
     ?assertEqual(connection_stats(Stats1), array_stats(emqx_cm:get_chan_stats(ClientId, self()))),
     ?assertEqual(
@@ -119,7 +119,7 @@ t_get_set_chan_stats(_) ->
 
     ?assertError(
         function_clause,
-        emqx_cm:set_chan_stats(undefined, [])
+        emqx_chan_stats:report(undefined, [])
     ),
 
     ok = emqx_cm:unregister_channel(ClientId),
@@ -149,7 +149,7 @@ t_chan_stats_readers(_) ->
     ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
     try
         ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new([])),
-        ok = emqx_cm:set_chan_stats(ClientId, [{subscriptions_cnt, 2}, {mqueue_len, 0}]),
+        ok = emqx_chan_stats:report(ClientId, [{subscriptions_cnt, 2}, {mqueue_len, 0}]),
         Expected = connection_stats([{subscriptions_cnt, 2}]),
         ?assertEqual(Expected, array_stats(emqx_cm:get_chan_stats(ClientId))),
         ?assertEqual(Expected, array_stats(emqx_cm:get_chan_stats(ClientId, self()))),
@@ -160,10 +160,10 @@ t_chan_stats_readers(_) ->
             end,
             [{clientid, ClientId}, {chan_pid, self()}]
         ),
-        ?assertError(badarg, emqx_cm:set_chan_stats(ClientId, [{mqueue_len, infinity}])),
+        ?assertError(badarg, emqx_chan_stats:report(ClientId, [{mqueue_len, infinity}])),
         ?assertError(
             {unknown_chan_stats_key, subscriptions_max},
-            emqx_cm:set_chan_stats(ClientId, [{subscriptions_max, infinity}])
+            emqx_chan_stats:report(ClientId, [{subscriptions_max, infinity}])
         )
     after
         ok = emqx_cm:unregister_channel(ClientId)
@@ -218,7 +218,7 @@ assert_chan_stats_keys(ClientId, Connect, Opts) ->
         ok = emqtt:disconnect(C)
     end.
 
-t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
+t_report_logs_session_buffer_high_watermark(_) ->
     ClientId = <<"session-buffer-check">>,
     Stats = [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}],
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
@@ -230,7 +230,7 @@ t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
         ChanPid = self(),
         ok = emqx_config:put(Path, 1),
         Logs = emqx_cth_log_capture:capture(fun() ->
-            ok = emqx_cm:set_chan_stats(ClientId, Stats)
+            ok = emqx_chan_stats:report(ClientId, Stats)
         end),
         ?assertMatch(
             [

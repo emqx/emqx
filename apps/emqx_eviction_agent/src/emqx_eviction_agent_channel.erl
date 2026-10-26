@@ -271,7 +271,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             NSession = emqx_session_mem:replay_enqueue(ClientInfo, DeliversLocal, RCtx, Session),
             NChannel = Channel#{session => NSession},
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-            ok = emqx_cm:set_chan_stats(ClientId, emqx_session:stats(NSession)),
+            ok = emqx_chan_stats:report(ClientId, emqx_session:stats(NSession)),
             ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), emqx_chan_stats:ref()),
             ?SLOG(
                 info,

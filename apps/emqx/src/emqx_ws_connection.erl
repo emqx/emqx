@@ -533,7 +533,7 @@ handle_timeout(TRef, TMsg, State) ->
 %% message counters are kept in the array as they happen, and the readers
 %% take the process stats from the process.
 set_chan_stats(#state{channel = Channel}) ->
-    emqx_cm:set_chan_stats(
+    emqx_chan_stats:report(
         emqx_channel:info(clientid, Channel), emqx_channel:session_stats(Channel)
     ).
 
@@ -541,7 +541,7 @@ set_chan_stats(#state{channel = Channel}) ->
 %% the change before the next stats timer.
 set_session_stats(#state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, emqx_channel:session_stats(Channel)).
+    emqx_chan_stats:report(ClientId, emqx_channel:session_stats(Channel)).
 
 %%--------------------------------------------------------------------
 %% Run GC, Check OOM
