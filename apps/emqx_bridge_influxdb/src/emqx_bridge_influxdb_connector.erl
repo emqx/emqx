@@ -433,11 +433,7 @@ start_grouped_writes(InstId, Channel, Grouped, State0) ->
                 {ok, WorkerPid} when is_pid(WorkerPid) ->
                     associate_group_worker(GroupRef, WorkerPid, State);
                 {error, Reason} ->
-                    complete_group(GroupRef, {error, Reason}, State);
-                Other ->
-                    complete_group(
-                        GroupRef, {error, {unexpected_async_write_result, Other}}, State
-                    )
+                    complete_group(GroupRef, {error, Reason}, State)
             catch
                 Class:Reason:Stacktrace ->
                     ?SLOG(error, #{
