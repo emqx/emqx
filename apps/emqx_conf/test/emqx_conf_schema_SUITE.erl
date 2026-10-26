@@ -19,7 +19,8 @@ init_per_suite(TCConfig) ->
     TCConfig.
 
 end_per_suite(_TCConfig) ->
-    ok.
+    %% Generating the config registers schema injections.
+    ok = emqx_schema_hooks:erase_injections().
 
 init_per_testcase(TestCase, TCConfig) ->
     Dir = filename:join([?config(priv_dir, TCConfig), TestCase]),
