@@ -561,7 +561,7 @@ publish(
     Msg = #message{qos = ?QOS_2, timestamp = Ts},
     Session = #session{
         awaiting_rel = AwaitingRel,
-        conf = #session_conf{max_awaiting_rel = MaxAwaiting}
+        conf = Conf
     }
 ) ->
     Dup = emqx_message:get_flag(dup, Msg),
@@ -571,7 +571,7 @@ publish(
             {ok, dup_publish_result(Msg), Session};
         true ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
-        false when map_size(AwaitingRel) >= MaxAwaiting ->
+        false when map_size(AwaitingRel) >= Conf#session_conf.max_awaiting_rel ->
             {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED};
         false ->
             Results = emqx_broker:publish(Msg),
