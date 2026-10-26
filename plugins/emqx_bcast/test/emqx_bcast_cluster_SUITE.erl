@@ -740,12 +740,83 @@ t_reused_message_fifo_survives_core_shutdown(Config) ->
     ),
     emqtt:stop(C2).
 
+-doc "A partially acknowledged delivery reopened by owner handover may be\n"
+"redelivered, but each logical device ACK is counted once in the ledger.".
+t_partial_batch_ack_ledger_after_owner_handover(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"default">>,
+    D1 = <<"cl_ack_part_1">>,
+    D2 = <<"cl_ack_part_14">>,
+    %% Both device keys hash to shard 47, owned by N2 in this two-core
+    %% cluster. N1 hosts both clients and survives the owner handover.
+    C1 = connect(N1, D1),
+    sub(C1, topic(D1)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, D1, topic(D1)) end, 50)),
+    W0 = node_metric(N1, <<"batch_pub_qos1_wanted">>),
+    A0 = node_metric(N1, <<"batch_pub_qos1_acked">>),
+    publish_message(N1, PK, [D1, D2], undefined, 1),
+    ?assertEqual([?PAYLOAD], [maps:get(payload, Msg) || Msg <- recv_ordered(1)]),
+    ?assert(wait_until(fun() -> node_metric(N1, <<"batch_pub_qos1_acked">>) >= A0 + 1 end, 100)),
+    PartiallyAcked = wait_until(
+        fun() ->
+            {ok, []} =:= erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D1}]) andalso
+                case erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D2}]) of
+                    {ok, [_ | _]} -> true;
+                    _ -> false
+                end
+        end,
+        100
+    ),
+    ?assert(PartiallyAcked),
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    emqx_bcast_test_cluster:wait_ready([N1], [N1]),
+    %% Reconnect D1 through MQTT to arm the rebuilt index. The shard has no
+    %% durable marker for the incomplete part, so D1 is legitimately
+    %% redelivered.
+    emqtt:stop(C1),
+    C1b = connect(N1, D1),
+    sub(C1b, topic(D1)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, D1, topic(D1)) end, 50)),
+    %% Redelivery is allowed by QoS1. Drain it when it happens; the ledger
+    %% assertion below is what must remain exact.
+    _ = recv_ordered(1),
+    C2 = connect(N1, D2),
+    sub(C2, topic(D2)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, D2, topic(D2)) end, 50)),
+    ?assertEqual([?PAYLOAD], [maps:get(payload, Msg) || Msg <- recv_ordered(1)]),
+    Drained = wait_until(
+        fun() ->
+            {ok, []} =:= erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D1}]) andalso
+                {ok, []} =:= erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D2}])
+        end,
+        100
+    ),
+    ?assert(Drained),
+    ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_wanted">>) - W0),
+    ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_acked">>) - A0),
+    emqtt:stop(C1b),
+    emqtt:stop(C2).
+
 publish_message(Node, PK, Devices, MessageId, Qos) ->
-    {ok, 200, _, _} = api_call(Node, #{
-        <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => PK,
-        <<"DeviceName">> => Devices,
-        <<"MessageId">> => MessageId,
-        <<"Qos">> => Qos
-    }),
+    Body =
+        case MessageId of
+            undefined ->
+                #{
+                    <<"Action">> => <<"BatchPub">>,
+                    <<"ProductKey">> => PK,
+                    <<"DeviceName">> => Devices,
+                    <<"MessageContent">> => base64:encode(?PAYLOAD),
+                    <<"Qos">> => Qos
+                };
+            _ ->
+                #{
+                    <<"Action">> => <<"BatchPub">>,
+                    <<"ProductKey">> => PK,
+                    <<"DeviceName">> => Devices,
+                    <<"MessageId">> => MessageId,
+                    <<"Qos">> => Qos
+                }
+        end,
+    {ok, 200, _, _} = api_call(Node, Body),
     ok.

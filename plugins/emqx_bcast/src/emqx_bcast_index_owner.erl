@@ -3763,16 +3763,34 @@ ack_one_index({PK, DN, Did}, State) ->
             State1 = remove_did(State, Key, Key3),
             %% This part's accounting: one ack applied, one entry fewer to
             %% wait for. The durable writes happen when the part reaches
-            %% zero, not per ack.
+            %% zero. A partial part still persists the individual device
+            %% marker: an owner handover rebuilds from these markers and must
+            %% not resurrect a device whose ACK was already counted.
             {Applied, State2} = note_part_ack(Did, State1),
-            State3 = maybe_report_part(Did, Applied, State2),
+            State3 = persist_partial_ack(Did, DN, State2),
+            State4 = maybe_report_part(Did, Applied, State3),
             %% The qos1_acked metric is counted by pull_shard on the
             %% take_pending match (it owns the dedup of duplicate
             %% PUBACKs); the owner does not count it again. The result
             %% carries whether the device still has queued (non-inflight)
             %% entries so the pull side can refill its window without an
             %% empty claim round.
-            {{counted, queued_remaining(State3, Key)}, State3, -1}
+            {{counted, queued_remaining(State4, Key)}, State4, -1}
+    end.
+
+%% A non-final ACK is not followed by the part-wide marker yet, so persist
+%% this device now. The final ACK writes the complete part marker through
+%% report_part_done/3. Markers are deleted with the delivery on completion.
+persist_partial_ack(Did, DN, State) ->
+    case maps:get(Did, maps:get(part_pending, State), 0) of
+        0 ->
+            State;
+        _ ->
+            ok = mnesia:dirty_write(#bcast_msg_acked{
+                delivery_id = Did,
+                device_names = [DN]
+            }),
+            State
     end.
 
 %% Queued (not in-flight) entries left for the device after an ack.
