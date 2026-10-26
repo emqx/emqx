@@ -220,7 +220,7 @@ t_session_stats(_) ->
         #{
             durable := false,
             subscriptions_max := infinity,
-            awaiting_rel_max := 100,
+            awaiting_rel_max := 32,
             inflight_max := 0,
             mqueue_max := 1000
         },
@@ -426,27 +426,29 @@ t_publish_qos2_with_error_return(_) ->
 
 -doc "An infinite awaiting-PUBREL limit allows additional QoS2 publishes.".
 t_publish_qos2_unlimited(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    ok = meck:expect(emqx_broker, publish2, fun(M) -> {ok, [], M} end),
     Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
     Session = session(#{max_awaiting_rel => infinity}),
-    {ok, [], Session1} = emqx_session_mem:publish(1, Msg, Session),
-    {ok, [], Session2} = emqx_session_mem:publish(2, Msg, Session1),
+    {ok, {ok, [], Msg}, Session1} = emqx_session_mem:publish(1, Msg, Session),
+    {ok, {ok, [], Msg}, Session2} = emqx_session_mem:publish(2, Msg, Session1),
     ?assertEqual(2, emqx_session_mem:info(awaiting_rel_cnt, Session2)).
 
 -doc "The awaiting-PUBREL limit rejects new QoS2 publishes while preserving duplicate handling.".
 t_publish_qos2_limit(_) ->
-    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    ok = meck:expect(emqx_broker, publish2, fun(M) -> {ok, [], M} end),
     Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
     ?assertEqual(
         {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED},
         emqx_session_mem:publish(1, Msg, session(#{max_awaiting_rel => 0}))
     ),
-    {ok, [], Session} = emqx_session_mem:publish(1, Msg, session(#{max_awaiting_rel => 1})),
+    {ok, {ok, [], Msg}, Session} = emqx_session_mem:publish(
+        1, Msg, session(#{max_awaiting_rel => 1})
+    ),
     ?assertEqual({error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}, emqx_session_mem:publish(2, Msg, Session)),
     ?assertEqual({error, ?RC_PACKET_IDENTIFIER_IN_USE}, emqx_session_mem:publish(1, Msg, Session)),
     {ok, _, Session} = emqx_session_mem:publish(1, emqx_message:set_flag(dup, Msg), Session),
     {ok, Session1} = emqx_session_mem:pubrel(1, Session),
-    {ok, [], Session2} = emqx_session_mem:publish(2, Msg, Session1),
+    {ok, {ok, [], Msg}, Session2} = emqx_session_mem:publish(2, Msg, Session1),
     ?assertEqual(1, emqx_session_mem:info(awaiting_rel_cnt, Session2)).
 
 t_puback(_) ->
