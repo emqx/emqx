@@ -1288,6 +1288,79 @@ t_observe_block2_cross_topic_queue(_) ->
         )
     end).
 
+-doc "Management option updates preserve the client's observation and unfinished notifications.".
+t_observe_update_by_api(_) ->
+    lists:foreach(
+        fun({NotifyType, Mountpoint}) ->
+            OldConf = emqx:get_raw_config([gateway, coap]),
+            {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf#{
+                <<"mountpoint">> => Mountpoint
+            }),
+            try
+                with_block2_observe(NotifyType, fun(Channel, Token) ->
+                    Topic = <<"api-update">>,
+                    MountedTopic = <<Mountpoint/binary, Topic/binary>>,
+                    URI = pubsub_uri(binary_to_list(Topic), Token) ++ "&qos=0",
+                    ObserveToken = observe_block2_uri(Channel, URI),
+                    FirstType =
+                        case NotifyType of
+                            qos -> non;
+                            _ -> NotifyType
+                        end,
+                    publish(MountedTopic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                    First = assert_block2_notify(
+                        Channel, FirstType, binary:copy(<<"A">>, 16), {0, true, 16}
+                    ),
+                    publish(MountedTopic, ?QOS_0, blockwise_payload(<<"X">>, <<"Y">>, <<"Z">>)),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 100)),
+                    Path = "/gateways/coap/clients/client1/subscriptions",
+                    {201, _} = request(post, Path, #{topic => Topic, qos => 1}),
+                    {200, [Subscription]} = request(get, Path),
+                    ?assertEqual(MountedTopic, maps:get(topic, Subscription)),
+                    ?assertEqual(1, maps:get(qos, Subscription)),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 100)),
+                    ack_if_con(Channel, First),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"api-mid">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"api-tail">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+                    ),
+                    Next = assert_block2_notify(
+                        Channel, FirstType, binary:copy(<<"X">>, 16), {0, true, 16}
+                    ),
+                    ?assertEqual(ObserveToken, Next#coap_message.token),
+                    ack_if_con(Channel, Next),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"api-next">>, 1, binary:copy(<<"Y">>, 16), {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"api-last">>, 2, binary:copy(<<"Z">>, 8), {2, false, 16}
+                    ),
+                    publish(MountedTopic, ?QOS_1, <<"updated qos">>),
+                    NewType =
+                        case NotifyType of
+                            qos -> con;
+                            _ -> NotifyType
+                        end,
+                    Updated = assert_notify(Channel, NewType, <<"updated qos">>),
+                    ?assertEqual(ObserveToken, Updated#coap_message.token),
+                    ack_if_con(Channel, Updated),
+                    Cancel = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
+                        token = ObserveToken
+                    },
+                    ?assertMatch({ok, nocontent, _}, do_message_request(Channel, URI, Cancel)),
+                    publish(MountedTopic, ?QOS_1, <<"cancelled">>),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+                    {200, []} = request(get, Path)
+                end)
+            after
+                {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+            end
+        end,
+        [{Type, Prefix} || Type <- [con, non, qos], Prefix <- [<<>>, <<"mounted/">>]]
+    ).
+
 -doc "Management cancellation clears a mounted observation and its queued notifications.".
 t_observe_cancel_by_api(_) ->
     OldConf = emqx:get_raw_config([gateway, coap]),

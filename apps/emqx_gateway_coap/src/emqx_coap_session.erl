@@ -13,6 +13,7 @@
     new/0,
     resume/2,
     process_subscribe/4,
+    update_subscription/2,
     observe_matches/3
 ]).
 
@@ -90,6 +91,12 @@ new() ->
         observe_manager = emqx_coap_observe_res:new_manager(),
         observe_pending = queue:new(),
         created_at = erlang:system_time(millisecond)
+    }.
+
+-spec update_subscription(sub_data(), session()) -> session().
+update_subscription(SubData, #session{observe_manager = OM} = Session) ->
+    Session#session{
+        observe_manager = emqx_coap_observe_res:update_subscription(SubData, OM)
     }.
 
 -spec resume(emqx_types:clientinfo(), session()) -> session().

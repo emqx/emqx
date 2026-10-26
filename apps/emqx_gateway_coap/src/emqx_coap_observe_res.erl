@@ -10,6 +10,7 @@
 -export([
     new_manager/0,
     insert/2,
+    update_subscription/2,
     remove/2,
     res_changed/2,
     resource_context/2,
@@ -58,6 +59,16 @@ insert(#{topic := Topic, token := Token, subopts := SubOpts} = SubData, Manager)
                 }
         end,
     {maps:get(seq_id, Res), Manager#{Topic => Res}}.
+
+-spec update_subscription(sub_data(), manager()) -> manager().
+update_subscription(#{topic := Topic, subopts := SubOpts} = SubData, Manager) ->
+    case maps:find(Topic, Manager) of
+        {ok, Res} ->
+            Manager#{Topic := Res#{subopts := SubOpts}};
+        error ->
+            {_SeqId, Manager1} = insert(SubData, Manager),
+            Manager1
+    end.
 
 -spec remove(emqx_types:topic(), manager()) -> manager().
 remove(Topic, Manager) ->

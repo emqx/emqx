@@ -282,15 +282,9 @@ handle_call(
         'session.subscribed',
         [ClientInfo, MountedTopic, NSubOpts]
     ),
-    %% modify session state
     SubReq = #{topic => MountedTopic, token => Token, subopts => NSubOpts},
-    TempMsg = #coap_message{type = non},
-    %% FIXME: The subopts is not used for emqx_coap_session
-    Result = emqx_coap_session:process_subscribe(
-        SubReq, TempMsg, #{}, Session
-    ),
-    {NChannel, Replies} = apply_management_observe_update(Result, Channel),
-    {reply, {ok, {MountedTopic, NSubOpts}}, Replies, NChannel};
+    NSession = emqx_coap_session:update_subscription(SubReq, Session),
+    {reply, {ok, {MountedTopic, NSubOpts}}, [{event, updated}], Channel#channel{session = NSession}};
 handle_call(
     {unsubscribe, Topic},
     _From,
