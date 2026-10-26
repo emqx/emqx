@@ -209,7 +209,7 @@ process_batch(Batch, Failures) ->
                     lists:all(
                         fun(Result) ->
                             Result =:= ok orelse Result =:= already_promoted orelse
-                                Result =:= deleted
+                                Result =:= committed_gone orelse Result =:= deleted
                         end,
                         Results
                     )
@@ -224,6 +224,10 @@ process_batch(Batch, Failures) ->
             AlreadyPromoted = [
                 Entry
              || {Result, Entry} <- lists:zip(Results, Entries), Result =:= already_promoted
+            ],
+            CommittedGone = [
+                Entry
+             || {Result, Entry} <- lists:zip(Results, Entries), Result =:= committed_gone
             ],
             %% Entries whose message was removed by Delete Message after the
             %% request was accepted. No delivery row and no index entry was
@@ -270,7 +274,9 @@ process_batch(Batch, Failures) ->
                     %% retry path re-enters here with already_promoted
                     %% entries, so every committed device is counted
                     %% exactly once (no double count, no leak).
-                    emqx_bcast_metrics:qos1_wanted(length(Appends)),
+                    emqx_bcast_metrics:qos1_wanted(
+                        length(Appends) + logical_delivery_count(CommittedGone)
+                    ),
                     {done, 0};
                 {error, _Reason} = Error ->
                     %% Owner takeover, shard overload (call timeout), a shard
@@ -323,6 +329,9 @@ process_batch(Batch, Failures) ->
                     {retry, Failures + 1, Batch}
             end
     end.
+
+logical_delivery_count(Entries) ->
+    lists:sum([length(maps:get(devices, Entry)) || Entry <- Entries]).
 
 %% The entries of a batch, in order.
 batch_entries(Batch) ->

@@ -166,7 +166,9 @@ refresh_message_ttl(MsgId) ->
 %% Idempotent: an entry whose delivery row already exists (crash between
 %% commit and queue dequeue) resolves to `already_promoted` and is safe to
 %% re-append to the ETS index (dedup by delivery id).
--spec promote_batch([map()]) -> {ok, [ok | already_promoted | {error, term()}]} | {error, term()}.
+-spec promote_batch([map()]) ->
+    {ok, [ok | already_promoted | committed_gone | deleted | {error, term()}]}
+    | {error, term()}.
 promote_batch(Entries) ->
     case transaction(fun() -> promote_batch_tx(Entries) end) of
         {atomic, Results} -> {ok, Results};
@@ -284,14 +286,15 @@ promote_group_tx(Entries) ->
     end.
 
 %% An entry that already wrote its rows: report what is still durable, so the
-%% promoter keeps appending and triggering a delivery that survived, and report
-%% one whose rows are gone as `deleted` - there is nothing left to append and
-%% its admission reservation has to be released.
+%% promoter keeps appending and triggering a delivery that survived. A missing
+%% row means the delivery committed and then completed or was purged. Report it
+%% separately from a never-committed deletion so the promoter counts its
+%% logical devices in wanted without re-creating or re-indexing the delivery.
 committed_results(Entries) ->
     [
         case mnesia:wread({?TAB_MSG_META, delivery_id(Entry)}) of
             [_] -> {delivery_id(Entry), already_promoted};
-            [] -> {delivery_id(Entry), deleted}
+            [] -> {delivery_id(Entry), committed_gone}
         end
      || Entry <- Entries
     ].

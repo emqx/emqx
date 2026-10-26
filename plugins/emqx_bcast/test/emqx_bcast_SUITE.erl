@@ -3280,6 +3280,34 @@ t_metrics_qos1_wanted(_Config) ->
     %% devices, so wait instead of asserting immediately.
     ?assert(wait_metric(<<"batch_pub_qos1_wanted">>, Before + 2)).
 
+-doc "A promoted intake entry whose durable rows have already completed still\n"
+"closes the wanted ledger. Its missing rows mean committed-and-gone, not\n"
+"never-committed; counting it again as deleted leaves acked greater than\n"
+"wanted after a rebuild wins the race with promoter retry.".
+t_committed_gone_entry_counts_wanted(_Config) ->
+    Before = metric(<<"batch_pub_qos1_wanted">>),
+    Payload = <<"committed-gone-payload">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Now = emqx_bcast_utils:now_sec(),
+    Entry = #{
+        payload => Payload,
+        hash => Hash,
+        api_msg_id => ApiMsgId,
+        msg_id => MsgGuid,
+        epoch => emqx_bcast:msg_epoch(Hash),
+        can_create => true,
+        delivery_id => emqx_bcast_utils:gen_guid(),
+        product_key => <<"P_COMMITTED_GONE">>,
+        topic_template => <<"tpl">>,
+        devices => [<<"D_COMMITTED_GONE">>],
+        created_at => Now,
+        expires_at => Now + 60,
+        promoted => true
+    },
+    {ok, _} = emqx_bcast_intake:enqueue(Entry),
+    ?assert(wait_metric(<<"batch_pub_qos1_wanted">>, Before + 1)).
+
 -doc "RegisterMessage increments the register_message_in counter.".
 t_metrics_register_message_in(_Config) ->
     Before = metric(<<"register_message_in">>),

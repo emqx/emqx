@@ -62,6 +62,19 @@ recv(Count, Msgs) ->
 recv_ordered(Count) ->
     lists:reverse(recv(Count)).
 
+recv_payloads(Count) ->
+    recv_payloads(Count, #{}, 10000).
+
+recv_payloads(Count, Acc, _Timeout) when map_size(Acc) >= Count ->
+    maps:keys(Acc);
+recv_payloads(Count, Acc, Timeout) ->
+    receive
+        {publish, #{payload := Payload}} ->
+            recv_payloads(Count, maps:put(Payload, true, Acc), Timeout)
+    after Timeout ->
+        maps:keys(Acc)
+    end.
+
 wait_for_fresh_second() ->
     Now = erlang:system_time(millisecond),
     ct:sleep(1000 - (Now rem 1000) + 20).
@@ -796,6 +809,93 @@ t_partial_batch_ack_ledger_after_owner_handover(Config) ->
     ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_wanted">>) - W0),
     ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_acked">>) - A0),
     emqtt:stop(C1b),
+    emqtt:stop(C2).
+
+-doc "A plugin roll under QoS1 publish load must account every committed\n"
+"logical delivery in wanted even when rebuild delivers it before promoter\n"
+"retry observes that the delivery rows are already gone.".
+t_plugin_roll_restart_under_qos1_load(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"default">>,
+    DN = <<"cl_load_owner_dn">>,
+    Count = 200,
+    PerDevice = #{<<"max_pending_deliveries_per_device">> => 200},
+    ok = erpc:call(N1, emqx_bcast_config, update, [PerDevice]),
+    ok = erpc:call(N2, emqx_bcast_config, update, [PerDevice]),
+    Payloads = [<<"load-payload-", (integer_to_binary(I))/binary>> || I <- lists:seq(1, Count)],
+    C = connect(N1, DN),
+    sub(C, topic(DN)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, DN, topic(DN)) end, 50)),
+    W0 = node_metric(N1, <<"batch_pub_qos1_wanted">>),
+    A0 = node_metric(N1, <<"batch_pub_qos1_acked">>),
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    ?assert(
+        wait_until(
+            fun() ->
+                not lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, []))
+            end,
+            100
+        )
+    ),
+    Parent = self(),
+    _ = spawn_link(fun() ->
+        Results = emqx_utils:pmap(
+            fun(Payload) ->
+                api_call(N1, #{
+                    <<"Action">> => <<"BatchPub">>,
+                    <<"ProductKey">> => PK,
+                    <<"DeviceName">> => [DN],
+                    <<"MessageContent">> => base64:encode(Payload),
+                    <<"Qos">> => 1
+                })
+            end,
+            Payloads,
+            30000
+        ),
+        Parent ! {load_published, Results}
+    end),
+    timer:sleep(100),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
+    receive
+        {load_published, Results} ->
+            ?assert(
+                lists:all(
+                    fun(Result) -> element(1, Result) =:= ok andalso element(2, Result) =:= 200 end,
+                    Results
+                )
+            )
+    after 30000 ->
+        error(load_publish_timeout)
+    end,
+    Committed = wait_until(
+        fun() ->
+            erpc:call(N1, mnesia, table_info, [bcast_msg, size]) >= Count
+        end,
+        200
+    ),
+    ?assert(Committed),
+    settle_cluster([N1, N2]),
+    emqtt:stop(C),
+    C2 = connect(N1, DN),
+    sub(C2, topic(DN)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, DN, topic(DN)) end, 50)),
+    ?assertEqual(lists:sort(Payloads), lists:sort(recv_payloads(Count))),
+    Drained = wait_until(
+        fun() ->
+            case erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, DN}]) of
+                {ok, []} -> true;
+                _ -> false
+            end
+        end,
+        300
+    ),
+    ?assert(Drained),
+    ?assert(
+        wait_until(fun() -> node_metric(N1, <<"batch_pub_qos1_acked">>) >= A0 + Count end, 300)
+    ),
+    ?assertEqual(Count, node_metric(N1, <<"batch_pub_qos1_wanted">>) - W0),
+    ?assertEqual(Count, node_metric(N1, <<"batch_pub_qos1_acked">>) - A0),
     emqtt:stop(C2).
 
 publish_message(Node, PK, Devices, MessageId, Qos) ->
