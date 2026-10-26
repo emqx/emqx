@@ -53,7 +53,7 @@ lwm2m_blockwise_max_concurrent_exchanges.desc:
 When full, new uploads receive 4.29 and downlink commands wait in the session queue."""
 
 lwm2m_blockwise_max_total_size.desc:
-"""Maximum total payload bytes retained by block-wise exchanges in one client session.
+"""Maximum total payload bytes retained by block-wise exchanges in one client session. Must be greater than zero.
 When full, uploads receive 4.13 and downlink commands wait if they can fit later."""
 
 lwm2m_blockwise_exchange_lifetime.desc:
