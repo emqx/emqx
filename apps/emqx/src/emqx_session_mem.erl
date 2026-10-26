@@ -539,11 +539,11 @@ unsubscribe(
     TopicFilter,
     Session = #session{subscriptions = Subs}
 ) ->
-    case maps:find(TopicFilter, Subs) of
-        {ok, SubOpts} ->
+    case Subs of
+        #{TopicFilter := SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}, SubOpts};
-        error ->
+        #{} ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
 
