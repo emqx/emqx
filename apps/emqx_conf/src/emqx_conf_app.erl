@@ -34,6 +34,7 @@ start(_StartType, _StartArgs) ->
             exit_loop(1)
     end,
     ok = emqx_config_logger:refresh_config(),
+    ok = warn_if_no_trusted_certs(),
     {ok, Sup} = emqx_conf_sup:start_link(),
     emqx_conf_cli:load(),
     {ok, Sup}.
@@ -42,6 +43,19 @@ stop(_State) ->
     emqx_config:clear_all_invalid_namespaced_configs(),
     emqx_conf_cli:unload(),
     ok.
+
+%% Only `node.trusted_certs = system_default' can resolve to no file.
+warn_if_no_trusted_certs() ->
+    case application:get_env(emqx, trusted_certs_path) of
+        {ok, _} ->
+            ok;
+        undefined ->
+            ?SLOG(warning, #{
+                msg => "system_ca_bundle_file_not_found",
+                probed_paths => emqx_conf_schema:system_ca_bundle_paths(),
+                hint => "set node.trusted_certs to file:///<absolute path to a PEM CA bundle>"
+            })
+    end.
 
 exit_loop(ExitCode) ->
     timer:sleep(100),

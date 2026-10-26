@@ -41,8 +41,12 @@
 %% exported for testing
 -export([validate_tls_stateless_tickets_seed/1, auto_schedulers/2]).
 -export([pinned_plugins_converter/2]).
+-export([resolve_trusted_certs/1, system_ca_bundle_paths/0]).
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
+
+-define(TRUSTED_CERTS_SYSTEM_DEFAULT, "system_default").
+-define(TRUSTED_CERTS_FILE_PREFIX, "file://").
 
 %% Keep distribution buffers above inet_drv's 1 MiB buffer-cache limit.
 -define(DEFAULT_KERNEL_INET_DIST_OPTIONS, <<"[{buffer,1114112}]">>).
@@ -760,6 +764,17 @@ fields("node") ->
                     default => crash_dump_file_default(),
                     importance => ?IMPORTANCE_HIDDEN,
                     converter => fun ensure_unicode_path/2,
+                    'readOnly' => true
+                }
+            )},
+        {"trusted_certs",
+            sc(
+                string(),
+                #{
+                    desc => ?DESC(node_trusted_certs),
+                    default => <<?TRUSTED_CERTS_SYSTEM_DEFAULT>>,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    validator => fun validate_trusted_certs/1,
                     'readOnly' => true
                 }
             )},
@@ -1517,7 +1532,7 @@ desc(durable_timers) ->
 desc(Name) ->
     schema_desc(Name).
 
-translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus", "vm_args"].
+translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus", "hackney", "vm_args"].
 
 translation("ekka") ->
     [{"cluster_discovery", fun tr_cluster_discovery/1}];
@@ -1532,7 +1547,8 @@ translation("emqx") ->
         {"config_files", fun tr_config_files/1},
         {"cluster_override_conf_file", fun tr_cluster_override_conf_file/1},
         {"local_override_conf_file", fun tr_local_override_conf_file/1},
-        {"cluster_hocon_file", fun tr_cluster_hocon_file/1}
+        {"cluster_hocon_file", fun tr_cluster_hocon_file/1},
+        {"trusted_certs_path", fun tr_trusted_certs_path/1}
     ];
 translation("gen_rpc") ->
     [
@@ -1557,6 +1573,10 @@ translation("prometheus") ->
     [
         {"collectors", fun(_) -> [] end}
     ];
+translation("hackney") ->
+    [
+        {"cacertfile_path", fun tr_trusted_certs_path/1}
+    ];
 translation("vm_args") ->
     [
         {"+Q", fun tr_vm_args_max_ports/1},
@@ -1567,6 +1587,90 @@ translation("vm_args") ->
         {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1},
         {"-kernel inet_dist_listen_options", fun tr_kernel_inet_dist_listen_options/1}
     ].
+
+%% hocon drops an `undefined' value, so the key is not set.
+tr_trusted_certs_path(Conf) ->
+    resolve_trusted_certs(conf_get("node.trusted_certs", Conf, ?TRUSTED_CERTS_SYSTEM_DEFAULT)).
+
+validate_trusted_certs(Value) ->
+    try resolve_trusted_certs(Value) of
+        _ -> ok
+    catch
+        throw:Reason -> {error, Reason}
+    end.
+
+-doc """
+Resolve `node.trusted_certs` to the absolute path of a CA bundle file.
+
+`system_default` returns the first regular file in `system_ca_bundle_paths/0`,
+or `undefined` when there is none. `file:///abs/path` returns `/abs/path` when
+it is an absolute path to a regular file. Any other value throws.
+""".
+-spec resolve_trusted_certs(string() | binary()) -> file:filename() | undefined.
+resolve_trusted_certs(Value) ->
+    case unicode:characters_to_list(Value) of
+        ?TRUSTED_CERTS_SYSTEM_DEFAULT ->
+            first_regular_file(?MODULE:system_ca_bundle_paths());
+        ?TRUSTED_CERTS_FILE_PREFIX ++ Path ->
+            ensure_trusted_certs_file(Path);
+        _ ->
+            throw(#{
+                cause => "bad_trusted_certs",
+                value => Value,
+                expected => "system_default or file:///absolute/path"
+            })
+    end.
+
+ensure_trusted_certs_file(Path) ->
+    case filename:pathtype(Path) of
+        absolute ->
+            case filelib:is_regular(Path) of
+                true -> Path;
+                false -> throw(#{cause => "trusted_certs_file_not_found", path => Path})
+            end;
+        _ ->
+            throw(#{cause => "trusted_certs_path_not_absolute", path => Path})
+    end.
+
+first_regular_file([]) ->
+    undefined;
+first_regular_file([Path | Paths]) ->
+    case filelib:is_regular(Path) of
+        true -> Path;
+        false -> first_regular_file(Paths)
+    end.
+
+-doc """
+Return the CA bundle paths that `public_key:cacerts_load/0` probes on this OS.
+OTP has no API for the path, so this copies the lists in
+`pubkey_os_cacerts.erl` (public_key 1.20.2, OTP 28, lines 69-81 and 220-238).
+Keep it in sync with OTP.
+""".
+-spec system_ca_bundle_paths() -> [file:filename()].
+system_ca_bundle_paths() ->
+    case os:type() of
+        {unix, linux} ->
+            [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/ca-bundle.pem",
+                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+                "/etc/ssl/cert.pem"
+            ];
+        {unix, BSD} when
+            BSD =:= openbsd; BSD =:= freebsd; BSD =:= dragonfly; BSD =:= netbsd
+        ->
+            [
+                "/etc/ssl/cert.pem",
+                "/etc/openssl/certs/cacert.pem",
+                "/etc/openssl/certs/ca-certificates.crt",
+                "/usr/local/share/certs/ca-root-nss.crt"
+            ];
+        {unix, sunos} ->
+            ["/etc/certs/CA/", "/etc/ssl/cacert.pem"];
+        _ ->
+            []
+    end.
 
 %% Cap +S at the number of logical processors actually available to the VM.
 %% BEAM's default is one scheduler per host CPU regardless of cgroup CPU set,

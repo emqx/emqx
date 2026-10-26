@@ -766,10 +766,35 @@ to_client_opts(Type, Opts = #{enable := true}) ->
             )
         ],
     CertsOpts = resolve_managed_certs(conf_get_opt(managed_certs, Opts), Opts),
-    TLSClientOpts = CertsOpts ++ TLSClientOpts0,
+    TLSClientOpts = ensure_trusted_certs(Verify, CertsOpts ++ TLSClientOpts0),
     ensure_valid_options(TLSClientOpts);
 to_client_opts(_Type, #{}) ->
     [].
+
+%% A client that verifies its peer and names no CA trusts `node.trusted_certs'.
+%% `verify_none' is left as it is: `ssl' opens `cacertfile' even when it does not verify.
+ensure_trusted_certs(verify_peer, Opts) ->
+    case has_ca_opt(Opts) of
+        true ->
+            Opts;
+        false ->
+            case application:get_env(emqx, trusted_certs_path) of
+                {ok, Path} -> [{cacertfile, Path} | lists:keydelete(cacertfile, 1, Opts)];
+                undefined -> Opts
+            end
+    end;
+ensure_trusted_certs(_Verify, Opts) ->
+    Opts.
+
+has_ca_opt(Opts) ->
+    lists:any(
+        fun
+            ({cacertfile, V}) -> V =/= undefined andalso V =/= "" andalso V =/= <<>>;
+            ({cacerts, _}) -> true;
+            (_) -> false
+        end,
+        Opts
+    ).
 
 resolve_managed_certs(undefined, Opts) ->
     Password = conf_get_password(password, Opts),

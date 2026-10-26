@@ -813,6 +813,22 @@ The timestamp is generated when emqx starts."""
 node_crash_dump_file.label:
 """Crash Dump File"""
 
+node_trusted_certs.desc:
+"""The CA certificates that outbound TLS clients trust when their own configuration names no CA.
+It applies to the built-in HTTP client and to each TLS client that sets <code>verify = verify_peer</code> and leaves <code>cacertfile</code> empty.
+
+- <code>system_default</code>: use the CA bundle file of the operating system.
+  EMQX looks for the file when it starts, in the same locations that Erlang/OTP checks,
+  for example <code>/etc/ssl/certs/ca-certificates.crt</code> on Debian and Ubuntu,
+  and <code>/etc/pki/tls/certs/ca-bundle.crt</code> on RHEL.
+  When no file is found, EMQX logs a warning and the clients use the CA certificates that Erlang/OTP loads from the operating system.
+- <code>file:///absolute/path</code>: use this PEM file. The path must be absolute and the file must exist.
+
+TLS reads the file again when it changes, so an update of the operating system CA bundle takes effect without a restart."""
+
+node_trusted_certs.label:
+"""Trusted CA Certificates"""
+
 rpc_socket_keepalive_interval.desc:
 """Corresponds to the `TCP_KEEPINTVL` socket option. The time (in seconds) between individual keepalive probes."""
 
