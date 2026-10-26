@@ -11,8 +11,10 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-define(HEARTBEAT_INTERVAL, 1000).
+
 all() ->
-    [t_heartbeat_timeout, t_traffic_keepalive].
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx_gateway_stomp),
@@ -55,13 +57,16 @@ t_heartbeat_timeout(_) ->
     with_connection(fun(ConnPid, StreamRef) ->
         lists:foreach(
             fun(_) ->
-                ?assertEqual({binary, <<$\n>>}, recv(ConnPid, StreamRef, 2000)),
+                ?assertEqual(
+                    {binary, <<$\n>>}, recv(ConnPid, StreamRef, 2 * ?HEARTBEAT_INTERVAL)
+                ),
                 ok = gun:ws_send(ConnPid, StreamRef, {binary, <<$\r, $\n>>})
             end,
             lists:seq(1, 3)
         ),
-        %% The next check permits one idle interval; the following check must close.
-        Deadline = erlang:monotonic_time(millisecond) + 2500,
+        %% Allow half an interval of scheduling margin after the two idle checks.
+        Timeout = 2 * ?HEARTBEAT_INTERVAL + ?HEARTBEAT_INTERVAL div 2,
+        Deadline = erlang:monotonic_time(millisecond) + Timeout,
         await_close(ConnPid, StreamRef, Deadline)
     end).
 
@@ -70,7 +75,9 @@ t_traffic_keepalive(_) ->
     with_connection(fun(ConnPid, StreamRef) ->
         lists:foreach(
             fun(N) ->
-                ?assertEqual({binary, <<$\n>>}, recv(ConnPid, StreamRef, 2000)),
+                ?assertEqual(
+                    {binary, <<$\n>>}, recv(ConnPid, StreamRef, 2 * ?HEARTBEAT_INTERVAL)
+                ),
                 Receipt = integer_to_binary(N),
                 Frame = emqx_stomp_frame:make(
                     <<"SEND">>,
@@ -78,10 +85,7 @@ t_traffic_keepalive(_) ->
                     <<"hello">>
                 ),
                 ok = send(ConnPid, StreamRef, Frame),
-                {binary, Data} = recv(ConnPid, StreamRef, 1000),
-                {ok, Reply, <<>>, _} = emqx_stomp_frame:parse(
-                    Data, emqx_stomp_frame:initial_parse_state(#{})
-                ),
+                Reply = recv_frame(ConnPid, StreamRef, ?HEARTBEAT_INTERVAL),
                 ?assertEqual(<<"RECEIPT">>, Reply#stomp_frame.command),
                 ?assertEqual(
                     Receipt, proplists:get_value(<<"receipt-id">>, Reply#stomp_frame.headers)
@@ -104,16 +108,14 @@ with_connection(Fun) ->
         after 5000 ->
             ct:fail(websocket_upgrade_timeout)
         end,
+        Interval = integer_to_binary(?HEARTBEAT_INTERVAL),
         Connect = emqx_stomp_frame:make(<<"CONNECT">>, [
             {<<"accept-version">>, <<"1.2">>},
             {<<"host">>, <<"localhost">>},
-            {<<"heart-beat">>, <<"1000,1000">>}
+            {<<"heart-beat">>, <<Interval/binary, ",", Interval/binary>>}
         ]),
         ok = send(ConnPid, StreamRef, Connect),
-        {binary, Data} = recv(ConnPid, StreamRef, 5000),
-        {ok, Reply, <<>>, _} = emqx_stomp_frame:parse(
-            Data, emqx_stomp_frame:initial_parse_state(#{})
-        ),
+        Reply = recv_frame(ConnPid, StreamRef, 5000),
         ?assertEqual(<<"CONNECTED">>, Reply#stomp_frame.command),
         Fun(ConnPid, StreamRef)
     after
@@ -123,6 +125,13 @@ with_connection(Fun) ->
 send(ConnPid, StreamRef, Frame) ->
     Data = emqx_stomp_frame:serialize_pkt(Frame, #{}),
     gun:ws_send(ConnPid, StreamRef, {binary, Data}).
+
+recv_frame(ConnPid, StreamRef, Timeout) ->
+    {binary, Data} = recv(ConnPid, StreamRef, Timeout),
+    {ok, Frame, <<>>, _} = emqx_stomp_frame:parse(
+        Data, emqx_stomp_frame:initial_parse_state(#{})
+    ),
+    Frame.
 
 recv(ConnPid, StreamRef, Timeout) ->
     receive
