@@ -858,6 +858,18 @@ t_quota_never_negative_under_redelivery(_Config) ->
         lists:seq(1, 100)
     ).
 
+-doc "An unmatched global reservation release is clamped at zero instead of\n"
+"leaving the admission counter negative until the periodic recount.".
+t_global_quota_clamps_unmatched_release(_Config) ->
+    Previous = emqx_bcast_storage:pending_delivery_count(),
+    true = ets:insert(bcast_quota_ets, {global, 0}),
+    try
+        ok = emqx_bcast_index_owner:release_global_local(1),
+        ?assertEqual(0, emqx_bcast_storage:pending_delivery_count())
+    after
+        true = ets:insert(bcast_quota_ets, {global, Previous})
+    end.
+
 -doc "backfill_meta_from_projection must not overwrite live meta rows when\n"
 "the meta table exceeds the scan budget (regression): partially-acked\n"
 "counters survive a takeover rebuild.".

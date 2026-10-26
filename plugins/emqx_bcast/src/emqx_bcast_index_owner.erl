@@ -781,7 +781,7 @@ reserve_global(Len, GlobalMax) ->
 release_global(Len) ->
     case owner_node() =:= node() of
         true ->
-            _ = ets:update_counter(?TAB_QUOTA_ETS, global, {2, -Len}),
+            quota_update_local(-Len),
             ok;
         false ->
             _ = emqx_rpc:call(
@@ -803,7 +803,7 @@ reserve_global_local(Len, GlobalMax) ->
 
 %% Runs on the owner node (exported for emqx_rpc).
 release_global_local(Len) ->
-    _ = ets:update_counter(?TAB_QUOTA_ETS, global, {2, -Len}),
+    quota_update_local(-Len),
     ok.
 
 %% One atomic check-and-reserve call per shard: an active shard either
@@ -3342,7 +3342,8 @@ quota_update_local(Delta) ->
                     msg => "bcast_quota_went_negative",
                     new_value => New,
                     delta => Delta
-                });
+                }),
+                clamp_negative_quota();
             false ->
                 ok
         end
@@ -3352,6 +3353,27 @@ quota_update_local(Delta) ->
             %% a leader restart it is briefly gone. Drop the delta - the
             %% drive's closing recount recomputes the row from live shard
             %% pendings.
+            ok
+    end.
+
+%% Clamp atomically. A concurrent reservation may race the comparison and win,
+%% in which case the new value is read and checked again rather than overwritten
+%% by a plain insert (which would lose that reservation).
+clamp_negative_quota() ->
+    case ets:lookup(?TAB_QUOTA_ETS, global) of
+        [{global, Negative}] when Negative < 0 ->
+            MS = [
+                {
+                    {global, '$1'},
+                    [{'=:=', '$1', Negative}],
+                    [{{global, 0}}]
+                }
+            ],
+            case ets:select_replace(?TAB_QUOTA_ETS, MS) of
+                1 -> ok;
+                0 -> clamp_negative_quota()
+            end;
+        _ ->
             ok
     end.
 %%--------------------------------------------------------------------
