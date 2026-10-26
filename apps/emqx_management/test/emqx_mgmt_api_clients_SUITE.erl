@@ -61,6 +61,7 @@ persistent_session_testcases() ->
         t_list_clients_v2,
         t_list_clients_v2_limit,
         t_list_clients_v2_limit2,
+        t_delete_offline_durable_session,
         t_list_clients_v2_exact_filters,
         t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters
@@ -2136,6 +2137,46 @@ t_list_clients_v2_limit2(Config) ->
         ],
         ok
     end.
+
+-doc """
+Regression case for https://github.com/emqx/emqx/issues/19699
+
+`DELETE /clients/:clientid` returned 204 for an offline durable session without
+removing it. The session must be purged by the DELETE call, long before its
+natural expiry.
+""".
+t_delete_offline_durable_session(Config) ->
+    [Node1 | _] = ?config(cluster_nodes, Config),
+    ClientId = ?CLIENTID(<<"delete-offline">>),
+    C = connect_client(#{
+        port => get_mqtt_port(Node1, tcp),
+        clientid => ClientId,
+        clean_start => true,
+        expiry => 120
+    }),
+    %% Graceful disconnect leaves the offline durable session behind:
+    ok = emqtt:stop(C),
+    ?retry(
+        _Interval0 = 100,
+        _Attempts0 = 30,
+        ?assertMatch(
+            {ok, {{_, 200, _}, _, #{<<"connected">> := false, <<"is_persistent">> := true}}},
+            get_client_request(ClientId, Config)
+        )
+    ),
+    ?assertMatch(
+        {ok, {{_, 204, _}, _, _}},
+        request(delete, emqx_mgmt_api_test_util:api_path(["clients", ClientId]), Config)
+    ),
+    %% The session must be gone well before its natural (120 s) expiry:
+    ?retry(
+        _Interval1 = 100,
+        _Attempts1 = 20,
+        ?assertMatch(
+            {error, {{_, 404, _}, _, _}},
+            get_client_request(ClientId, Config)
+        )
+    ).
 
 %% Checks that exact match filters (username) works in clients_v2 API.
 t_list_clients_v2_exact_filters(Config) ->
