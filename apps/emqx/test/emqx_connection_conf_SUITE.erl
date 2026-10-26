@@ -58,6 +58,10 @@ all() ->
     ] ++ quic_groups() ++
         [
             t_first_connection_registers,
+            t_frame_registration_uses_current_config,
+            t_conn_registration_uses_current_config,
+            t_session_registration_uses_current_config,
+            t_registration_after_zone_removal,
             t_build_matches_frame,
             t_global_config_change,
             t_zone_config_change,
@@ -657,9 +661,75 @@ t_restart_rebuilds_entries(_Config) ->
     ?assert(held_conn_conf(C, ?SOCKET_LISTENER, default)),
     ok = emqtt:stop(C).
 
+-doc "A delayed frame registration uses the active packet size limit.".
+t_frame_registration_uses_current_config(_Config) ->
+    NewZones = #{
+        <<"tmpzone">> => #{<<"mqtt">> => #{<<"max_packet_size">> => <<"3MB">>}}
+    },
+    GetConf = fun() -> emqx_connection_conf:pre_connect_codec(tmpzone) end,
+    Old = register_after_config_change([zones, tmpzone], GetConf, NewZones),
+    ok = emqx_connection_conf:sync(),
+    #{connect := New = #{initial_parse_state := ParseState}} = persistent_term:get(
+        ?FRAME_KEY(tmpzone)
+    ),
+    ?assertNotEqual(Old, New),
+    ?assertEqual(
+        emqx_frame:initial_parse_state(emqx_connection_conf:frame_opts(tmpzone)),
+        ParseState
+    ).
+
+-doc "A delayed connection registration uses the active garbage collection settings.".
+t_conn_registration_uses_current_config(_Config) ->
+    NewZones = #{<<"tmpzone">> => #{<<"force_gc">> => #{<<"count">> => 1234}}},
+    GetConf = fun() -> emqx_connection_conf:conn_conf(?SOCKET_LISTENER, tmpzone) end,
+    Old = register_after_config_change([zones, tmpzone], GetConf, NewZones),
+    ok = emqx_connection_conf:sync(),
+    New = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, tmpzone)),
+    ?assertNotEqual(Old, New),
+    ?assertEqual(expected_conn_conf(?SOCKET_LISTENER, tmpzone), New).
+
+-doc "A delayed session registration uses the active subscription limit.".
+t_session_registration_uses_current_config(_Config) ->
+    NewZones = #{<<"tmpzone">> => #{<<"mqtt">> => #{<<"max_subscriptions">> => 25}}},
+    GetConf = fun() -> emqx_connection_conf:session_conf(tmpzone) end,
+    Old = register_after_config_change([zones, tmpzone, mqtt], GetConf, NewZones),
+    ok = emqx_connection_conf:sync(),
+    New = persistent_term:get(?SESSION_KEY(tmpzone)),
+    ?assertNotEqual(Old, New),
+    ?assertEqual(Old#session_conf{max_subscriptions = 25}, New).
+
+-doc "A delayed frame registration does not recreate an entry of a removed zone.".
+t_registration_after_zone_removal(_Config) ->
+    GetConf = fun() -> emqx_connection_conf:pre_connect_codec(tmpzone) end,
+    _ = register_after_config_change([zones, tmpzone], GetConf, #{}),
+    ok = emqx_connection_conf:sync(),
+    ?assertEqual(undefined, persistent_term:get(?FRAME_KEY(tmpzone), undefined)).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+register_after_config_change(ReadPath, GetConf, NewZones) ->
+    {ok, _} = emqx:update_config([zones], #{}),
+    {ok, _} = emqx:update_config([zones], #{<<"tmpzone">> => #{}}),
+    Caller = self(),
+    ok = meck:new(emqx_config, [passthrough]),
+    ok = meck:expect(emqx_config, get, fun(Path) ->
+        Conf = meck:passthrough([Path]),
+        case {self(), Path} of
+            {Caller, ReadPath} ->
+                %% Complete the update before the caller registers its old terms.
+                {ok, _} = emqx:update_config([zones], NewZones);
+            _ ->
+                ok
+        end,
+        Conf
+    end),
+    try
+        GetConf()
+    after
+        meck:unload(emqx_config)
+    end.
 
 assert_zone_entry(Zone, MaxSize, Old) ->
     New = persistent_term:get(?FRAME_KEY(Zone)),
