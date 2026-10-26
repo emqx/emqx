@@ -18,7 +18,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
 
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
