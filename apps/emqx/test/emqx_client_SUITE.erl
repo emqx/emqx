@@ -504,10 +504,11 @@ t_chan_info_structure(Config) ->
         [clientinfo, conn_state, conninfo, session],
         lists:sort(maps:keys(Info))
     ),
+    %% `clientid` and `username` are the `clientinfo` ones; `conninfo` holds them only
+    %% when the CONNECT packet values differ.
     ?assertEqual(
         [
             clean_start,
-            clientid,
             conn_mod,
             connected_at,
             expiry_interval,
@@ -517,8 +518,7 @@ t_chan_info_structure(Config) ->
             proto_ver,
             receive_maximum,
             sockname,
-            socktype,
-            username
+            socktype
         ],
         lists:sort(maps:keys(ConnInfo))
     ),
@@ -535,7 +535,7 @@ t_chan_info_structure(Config) ->
         ],
         lists:sort(maps:keys(SessionInfo))
     ),
-    ?assertMatch(#{clientid := ClientId, proto_ver := ?MQTT_PROTO_V5}, ConnInfo),
+    ?assertMatch(#{proto_ver := ?MQTT_PROTO_V5}, ConnInfo),
     ?assertMatch(#{clientid := ClientId, zone := default}, ClientInfo),
     ?assertMatch(#{impl := emqx_session_mem, is_persistent := false}, SessionInfo),
     ?assertMatch(#{conn_state := connected}, Info),
