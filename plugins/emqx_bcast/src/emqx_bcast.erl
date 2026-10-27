@@ -27,6 +27,7 @@
     on_session_resumed/2,
     on_client_ping/3,
     on_message_acked/2,
+    get_product_key/1,
     msg_epoch/1,
     ready_cores/0,
     unready_core_nodes/0,
@@ -127,7 +128,7 @@ ready_cores() ->
     [
         N
      || N <- mria_core_nodes(),
-        N =:= node() orelse plugin_present(N)
+        N =:= node() orelse core_plugin_present(N)
     ].
 
 -define(PEER_PROBE_MS, 3000).
@@ -135,14 +136,26 @@ ready_cores() ->
 
 %% Cached: the probe is an RPC and this runs on the shard-routing path.
 plugin_present(Node) ->
-    Key = {?MODULE, peer_plugin_present, Node},
+    %% The pull-pool broadcasts call emqx_bcast_pull_shard on every node,
+    %% replicants included. The pool module itself is core-only, so it cannot
+    %% be used as the liveness marker for a replicant.
+    plugin_present(Node, {emqx_bcast_pull_shard, qos0_deliver_local, 4}).
+
+%% Core routing calls emqx_bcast_pull_server_pool:want_next_async/4. Keep the
+%% stricter probe for cores so an older peer that cannot serve claims is not
+%% considered ready.
+core_plugin_present(Node) ->
+    plugin_present(Node, {emqx_bcast_pull_server_pool, want_next_async, 4}).
+
+plugin_present(Node, {Mod, Fun, Arity} = MFA) ->
+    Key = {?MODULE, peer_plugin_present, Node, MFA},
     Now = erlang:monotonic_time(millisecond),
     case persistent_term:get(Key, undefined) of
         {Ts, Ready} when Now - Ts < ?PEER_PROBE_MS ->
             Ready;
         _ ->
             Ready =
-                case probe_peer_plugin(Node) of
+                case probe_peer_plugin(Node, Mod, Fun, Arity) of
                     unknown -> true;
                     Answer -> Answer
                 end,
@@ -161,7 +174,7 @@ plugin_present(Node) ->
 %% false - plugin not running/installed, or an older build without that call;
 %% unknown - the probe could not answer (node down, dist hiccup): keep the
 %%           peer, the checked claim dispatch still protects the claim path.
-probe_peer_plugin(Node) ->
+probe_peer_plugin(Node, Mod, Fun, Arity) ->
     try
         %% The supervision tree is the liveness of the plugin: it exists
         %% exactly while the plugin app runs, on every released version.
@@ -171,7 +184,7 @@ probe_peer_plugin(Node) ->
                     Node,
                     erlang,
                     function_exported,
-                    [emqx_bcast_pull_server_pool, want_next_async, 4],
+                    [Mod, Fun, Arity],
                     ?PEER_PROBE_TIMEOUT_MS
                 );
             _ ->
@@ -961,5 +974,10 @@ safe_hook(Fun) ->
 %% Misc
 %%--------------------------------------------------------------------
 
+%% The product (namespace) a client belongs to, as published by the connection
+%% hooks in `client_attrs.tns`. This is the single definition of product
+%% membership: the device registry is keyed by {product, clientid}, so any
+%% path that arms a channel on behalf of a request has to agree with it.
+-spec get_product_key(map()) -> binary().
 get_product_key(#{client_attrs := #{<<"tns">> := Tns}}) -> Tns;
 get_product_key(_ClientInfo) -> <<"default">>.

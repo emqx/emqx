@@ -335,7 +335,7 @@ login(post, #{body := Params}) ->
         {ok, Result} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
             ok = emqx_dashboard_login_lock:reset(Username),
-            Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
+            Version = iolist_to_binary(emqx_dashboard:reported_version()),
             {200,
                 to_json_out(Result#{
                     version => Version,

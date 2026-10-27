@@ -22,6 +22,9 @@
     regenerate_dispatch_after_config_update/0
 ]).
 
+%% The release version that the REST API reports
+-export([reported_version/0, reported_version/1]).
+
 %% Authorization
 -export([authorize/2]).
 -export([get_namespace/1]).
@@ -164,7 +167,7 @@ minirest_option(Options) ->
         openapi => "3.0.0",
         info => #{
             title => emqx_api_name(),
-            version => emqx_release_version(),
+            version => reported_version(),
             description => ?API_DESCRIPTION
         },
         servers => [#{url => emqx_dashboard_swagger:base_path()}],
@@ -526,5 +529,29 @@ dynamic_dispatch() ->
 emqx_api_name() ->
     emqx_release:description() ++ " API".
 
-emqx_release_version() ->
-    emqx_release:version().
+-doc """
+Return the release version that the REST API reports.
+See `reported_version/1`.
+""".
+-spec reported_version() -> string().
+reported_version() ->
+    reported_version(emqx_release:version()).
+
+-doc """
+Return `Vsn` as the REST API reports it.
+When `dashboard.show_preview_version` is `false`, the `-preview.N` suffix is
+removed, for example `6.1.5-preview.1` becomes `6.1.5`.
+Use this only for the version in a REST API response. Other code must use
+`emqx_release:version/0`, which always returns the real version.
+""".
+-spec reported_version(Vsn) -> Vsn when Vsn :: string() | binary().
+reported_version(Vsn) ->
+    case emqx:get_config([dashboard, show_preview_version], true) of
+        true -> Vsn;
+        false -> strip_preview_suffix(Vsn)
+    end.
+
+strip_preview_suffix(Vsn) when is_binary(Vsn) ->
+    re:replace(Vsn, "-preview\\.[0-9]+", "", [{return, binary}]);
+strip_preview_suffix(Vsn) when is_list(Vsn) ->
+    re:replace(Vsn, "-preview\\.[0-9]+", "", [{return, list}]).

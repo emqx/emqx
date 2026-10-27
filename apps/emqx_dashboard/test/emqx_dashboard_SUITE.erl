@@ -931,6 +931,37 @@ t_default_password_file(Config) ->
     emqx_cth_cluster:stop(Nodes),
     ok.
 
+-doc """
+With `dashboard.show_preview_version = false`, the login response reports the
+release version without its `-preview.N` suffix.
+""".
+t_login_preview_version_hidden(_) ->
+    mnesia:clear_table(?ADMIN),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"administrator">>
+    ),
+    meck:new(emqx_release, [passthrough, no_history, no_link]),
+    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+    try
+        ?assertEqual(<<"6.1.5-preview.1">>, login_version()),
+        {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => false}, #{}),
+        ?assertEqual(<<"6.1.5">>, login_version())
+    after
+        meck:unload(emqx_release),
+        {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => true}, #{})
+    end.
+
+login_version() ->
+    Body = emqx_utils_json:encode(#{username => <<"admin">>, password => <<"public_www1">>}),
+    {ok, {{_, 200, _}, _, Resp}} =
+        httpc:request(
+            post,
+            {api_path(["login"]), [], "application/json", Body},
+            [],
+            [{body_format, binary}]
+        ),
+    maps:get(<<"version">>, emqx_utils_json:decode(Resp)).
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
