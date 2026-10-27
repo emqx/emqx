@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019, 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2019-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -70,12 +70,19 @@
 
 -type lock_result() :: {boolean(), [node() | {node(), any()}]}.
 
--type piggyback() :: mfa() | undefined.
+-type release_result() :: {boolean(), [node()]}.
+
+-type piggyback() :: {module(), atom(), list()} | undefined.
+
+-type locker() :: atom().
 
 -export_type([
+    locker/0,
     resource/0,
     lock_type/0,
+    lock_obj/0,
     lock_result/0,
+    release_result/0,
     piggyback/0
 ]).
 
@@ -89,6 +96,8 @@
 -record(lease, {expiry, timer}).
 
 -record(state, {locks, lease, monitors}).
+
+-type lock_obj() :: #lock{}.
 
 -define(SERVER, ?MODULE).
 -define(LOG(Level, Format, Args),
@@ -146,14 +155,7 @@ acquire(Name, Resource, local, Piggyback) when is_atom(Name) ->
     acquire_lock(Name, lock_obj(Resource), Piggyback);
 acquire(Name, Resource, leader, Piggyback) when is_atom(Name) ->
     Leader = mria_membership:leader(),
-    case
-        rpc:call(
-            Leader,
-            ?MODULE,
-            acquire_lock,
-            [Name, lock_obj(Resource), Piggyback]
-        )
-    of
+    case ekka_proto_v1:acquire_lock_1(Leader, Name, lock_obj(Resource), Piggyback) of
         Err = {badrpc, _Reason} ->
             {false, [{Leader, Err}]};
         Res ->
@@ -172,12 +174,13 @@ acquire(Name, Resource, all, Piggyback) when is_atom(Name) ->
     ).
 
 acquire_locks(Nodes, Name, LockObj, Piggyback) ->
-    ResL = multicall(Nodes, acquire_lock, [Name, LockObj, Piggyback]),
+    {ResL, _BadNodes} =
+        ekka_proto_v1:acquire_lock_m(Nodes, Name, LockObj, Piggyback, ?MC_TIMEOUT),
     case merge_results(ResL) of
         Res = {true, _} ->
             Res;
         Res = {false, _} ->
-            _ = multicall(Nodes, release_lock, [Name, LockObj]),
+            _ = ekka_proto_v1:release_lock_m(Nodes, Name, LockObj, ?MC_TIMEOUT),
             Res
     end.
 
@@ -230,7 +233,7 @@ release(Name, Resource, local) ->
     release_lock(Name, lock_obj(Resource));
 release(Name, Resource, leader) ->
     Leader = mria_membership:leader(),
-    case rpc:call(Leader, ?MODULE, release_lock, [Name, lock_obj(Resource)]) of
+    case ekka_proto_v1:release_lock_1(Leader, Name, lock_obj(Resource)) of
         Err = {badrpc, _Reason} ->
             {false, [{Leader, Err}]};
         Res ->
@@ -244,26 +247,8 @@ release(Name, Resource, all) ->
     release_locks(mria_membership:nodelist(up), Name, lock_obj(Resource)).
 
 release_locks(Nodes, Name, LockObj) ->
-    merge_results(multicall(Nodes, release_lock, [Name, LockObj])).
-
-%% Call the local node in the caller process when it is the only node;
-%% rpc:multicall/5 spawns a process also for the local node.
-multicall([Node], Fun, Args) when Node =:= node() ->
-    [local_call(Fun, Args)];
-multicall(Nodes, Fun, Args) ->
-    {ResL, _BadNodes} = rpc:multicall(Nodes, ?MODULE, Fun, Args, ?MC_TIMEOUT),
-    ResL.
-
-%% Same result as rpc:multicall/5 gives for an exception.
-local_call(Fun, Args) ->
-    try
-        apply(?MODULE, Fun, Args)
-    catch
-        throw:{'EXIT', _} = Exit -> {badrpc, Exit};
-        throw:Return -> Return;
-        exit:Reason -> {badrpc, {'EXIT', Reason}};
-        error:Reason:Stack -> {badrpc, {'EXIT', {Reason, Stack}}}
-    end.
+    {ResL, _BadNodes} = ekka_proto_v1:release_lock_m(Nodes, Name, LockObj, ?MC_TIMEOUT),
+    merge_results(ResL).
 
 release_lock(Name, #lock{resource = Resource, owner = Owner}) ->
     Res =
@@ -396,7 +381,7 @@ is_set_elem(Resource, ResourceSet) when is_map(ResourceSet) ->
 force_kill_lock_owner(Pid, Resource) ->
     logger:error("kill ~p as it has held the lock for too long, resource: ~p", [Pid, Resource]),
     Fields = [status, message_queue_len, current_stacktrace],
-    Status = rpc:call(node(Pid), erlang, process_info, [Pid, Fields], 5000),
+    Status = ekka_proto_v1:process_info(node(Pid), Pid, Fields),
     logger:error("lock_owner_status:~n~p", [Status]),
     _ = exit(Pid, kill),
     ok.
@@ -404,10 +389,7 @@ force_kill_lock_owner(Pid, Resource) ->
 -ifdef(TEST).
 force_kill_test() ->
     Pid = spawn(fun() ->
-        receive
-            foo ->
-                ok
-        end
+        receive after infinity -> ok end
     end),
     ?assert(is_process_alive(Pid)),
     ok = force_kill_lock_owner(Pid, resource),

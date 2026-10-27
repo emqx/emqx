@@ -34,7 +34,7 @@
 -include_lib("kernel/include/inet.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
--include_lib("emqx_machine_rl.hrl").
+-include("emqx_machine_rl.hrl").
 
 -define(cluster_ready, emqx_machine_cluster).
 
@@ -152,7 +152,7 @@ maybe_migrate_cluster() ->
     classy_node:maybe_init_the_site(MaybeSite, MaybeCluster).
 
 graceful_shutdown() ->
-    classy:stop_system(),
+    _ = classy:stop_system(),
     emqx_machine_terminator:graceful_wait().
 
 %% only used when failed to boot

@@ -54,6 +54,8 @@
 -define(REGISTRY, ?MODULE).
 -define(NODE_DOWN_CLEANUP_LOCK, {?MODULE, cleanup_down}).
 
+-elvis([{elvis_style, no_boolean_in_comparison, disable}]).
+
 %% @doc Start the global channel registry.
 -spec start_link() -> startlink_ret().
 start_link() ->
