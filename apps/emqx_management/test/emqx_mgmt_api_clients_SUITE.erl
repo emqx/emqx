@@ -1311,7 +1311,10 @@ t_client_stats_after_traffic(Config) ->
         ?assert(maps:get(<<"recv_pkt">>, Client) >= 8, Client),
         %% CONNACK, SUBACK, 3 PUBLISH and 3 PUBACK
         ?assert(maps:get(<<"send_pkt">>, Client) >= 8, Client),
-        ?assert(maps:get(<<"recv_oct">>, Client) > 0, Client)
+        ?assert(maps:get(<<"recv_oct">>, Client) > 0, Client),
+        %% Kept for compatibility, with the values of the packet counters.
+        ?assertEqual(maps:get(<<"recv_pkt">>, Client), maps:get(<<"recv_cnt">>, Client), Client),
+        ?assertEqual(maps:get(<<"send_pkt">>, Client), maps:get(<<"send_cnt">>, Client), Client)
     after
         ok = emqtt:disconnect(C)
     end.

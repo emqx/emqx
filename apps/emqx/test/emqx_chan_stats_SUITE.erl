@@ -10,7 +10,7 @@
 -include_lib("emqx/include/emqx_channel.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(SOCK_KEYS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
+-define(SOCK_KEYS, [recv_oct, send_oct, send_pend]).
 -define(SESSION_KEYS, [
     subscriptions_cnt,
     inflight_cnt,
@@ -76,9 +76,9 @@ t_put(_) ->
     ok = emqx_chan_stats:put([{mqueue_len, 0}]),
     ?assertEqual({ok, 0}, emqx_chan_stats:lookup(Ref, mqueue_len)),
     %% A producer passes its sources as lists of pairs, without appending them.
-    ok = emqx_chan_stats:put([[{recv_cnt, 3}], [], [{mqueue_len, 2}, {inflight_cnt, 1}]]),
+    ok = emqx_chan_stats:put([[{send_oct, 3}], [], [{mqueue_len, 2}, {inflight_cnt, 1}]]),
     ?assertEqual(
-        [{recv_oct, 100}, {recv_cnt, 3}, {inflight_cnt, 1}, {mqueue_len, 2}],
+        [{recv_oct, 100}, {send_oct, 3}, {inflight_cnt, 1}, {mqueue_len, 2}],
         [{K, V} || {K, V} <- emqx_chan_stats:to_list(Ref), V =/= 0]
     ),
     ?assertEqual(error, emqx_chan_stats:lookup(Ref, not_a_stat)).
@@ -100,7 +100,7 @@ t_mask(_) ->
     ?assertEqual({ok, 1}, emqx_chan_stats:lookup(Ws, recv_oct)),
     Evicted = emqx_chan_stats:new(?SOCK_KEYS),
     ?assertEqual(
-        [-1, -1, -1, -1, -1],
+        [-1, -1, -1],
         [emqx_chan_stats:get(Evicted, K) || K <- ?SOCK_KEYS]
     ),
     ?assertEqual(
