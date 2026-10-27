@@ -1250,6 +1250,9 @@ t_list_clients_exact_lookup(Config) ->
         <<"recv_cnt">>,
         <<"recv_oct">>,
         <<"recv_pkt">>,
+        %% Counts the connection process's reductions, so it grows whenever
+        %% that process runs between the two reads.
+        <<"reductions">>,
         <<"send_cnt">>,
         <<"send_oct">>,
         <<"send_pkt">>
