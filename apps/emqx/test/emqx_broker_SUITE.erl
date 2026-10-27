@@ -27,7 +27,8 @@ groups() ->
         t_connected_client_count_persistent,
         t_connected_client_count_anonymous,
         t_connected_client_count_transient_takeover,
-        t_connected_client_stats
+        t_connected_client_stats,
+        t_raw_bin_debug_logging
     ],
     OtherTCs = TCs -- ConnClientTCs,
     [
@@ -89,6 +90,65 @@ end_per_testcase(Case, Config) ->
 %%--------------------------------------------------------------------
 %% PubSub Test
 %%--------------------------------------------------------------------
+
+-doc "Publish large messages over TCP and WebSocket while raw debug logs remain bounded.".
+t_raw_bin_debug_logging({init, Config}) ->
+    HandlerLevels = [
+        {Id, maps:get(level, Handler)}
+     || #{id := Id} = Handler <- logger:get_handler_config()
+    ],
+    %% Use EMQX's formatter; Common Test's generic formatter expands packet binaries.
+    lists:foreach(fun({Id, _}) -> logger:set_handler_config(Id, level, warning) end, HandlerLevels),
+    LogFile = filename:join(?config(priv_dir, Config), "raw-bin-debug.log"),
+    ok = logger:add_handler(raw_bin_debug_test, logger_std_h, #{
+        level => debug,
+        formatter => {emqx_logger_textfmt, #{payload_encode => text}},
+        config => #{type => file, file => LogFile}
+    }),
+    [{log_handler_levels, HandlerLevels} | Config];
+t_raw_bin_debug_logging({'end', Config}) ->
+    ok = logger:remove_handler(raw_bin_debug_test),
+    lists:foreach(
+        fun({Id, Level}) -> logger:set_handler_config(Id, level, Level) end,
+        ?config(log_handler_levels, Config)
+    );
+t_raw_bin_debug_logging(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"t/raw_bin_debug_logging">>,
+    ok = emqx:subscribe(Topic),
+    {ok, Client} = emqtt:start_link([{clientid, <<"raw-debug-client">>} | Config]),
+    unlink(Client),
+    try
+        Reports = emqx_cth_log_capture:capture(debug, fun() ->
+            {ok, _} = emqtt:ConnFun(Client),
+            lists:foreach(
+                fun(Payload) ->
+                    ?assertMatch({ok, _}, emqtt:publish(Client, Topic, Payload, 1)),
+                    receive
+                        {deliver, Topic, #message{payload = Payload}} -> ok
+                    after 5000 ->
+                        ct:fail(message_not_delivered)
+                    end
+                end,
+                [<<"hello">>, binary:copy(<<"x">>, 192000), binary:copy(<<"x">>, 800 * 1024)]
+            ),
+            ?assertEqual(pong, emqtt:ping(Client))
+        end),
+        RawLogs = [Report || #{msg := "raw_bin_received"} = Report <- Reports],
+        ?assert(lists:any(fun(#{size := Size}) -> Size > 1024 end, RawLogs)),
+        lists:foreach(fun check_raw_bin_log/1, RawLogs)
+    after
+        catch emqtt:stop(Client),
+        ok = emqx:unsubscribe(Topic)
+    end.
+
+check_raw_bin_log(#{size := Size, bin := Hex, type := "hex"}) when Size =< 1024 ->
+    ?assertEqual(Size * 2, length(Hex)),
+    ?assertEqual(Size, byte_size(binary:decode_hex(list_to_binary(Hex))));
+check_raw_bin_log(#{size := Size, bin := Hex, type := "hex"}) ->
+    <<Prefix:200/binary, Suffix/binary>> = list_to_binary(Hex),
+    ?assertEqual(100, byte_size(binary:decode_hex(Prefix))),
+    ?assertEqual(iolist_to_binary(["...(", integer_to_list(Size - 100), " bytes)"]), Suffix).
 
 %% Verify that a publish hook can report persistence through `message_persisted` message header
 t_message_persisted({init, Config}) ->
