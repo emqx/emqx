@@ -200,7 +200,7 @@ handle_info(_Info, S) ->
 terminate(_Reason, undefined) ->
     ok;
 terminate(_Reason, #s{}) ->
-    mria:clear_table(?tab),
+    _ = mria:clear_table(?tab),
     ok.
 
 %%================================================================================

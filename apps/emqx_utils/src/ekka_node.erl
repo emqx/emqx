@@ -24,6 +24,10 @@
     parse_name/1
 ]).
 
+-elvis([
+    {elvis_style, no_common_caveats_call, disable}
+]).
+
 %% @doc Is the node aliving?
 -spec is_aliving(node()) -> boolean().
 is_aliving(Node) when Node =:= node() ->
