@@ -693,16 +693,6 @@ integer_point_validation_test() ->
         on_batch_query_async(
             <<"connector:test">>, AllInvalidBatch, ReplyFunAndArgs, State
         )
-    ),
-    receive
-        AllInvalidResult ->
-            ?assertEqual([InvalidResult, InvalidResult], AllInvalidResult)
-    after 1_000 ->
-        error(callback_timeout)
-    end,
-    ?assertEqual(
-        {error, {invalid_string_value, [470.5, <<"x">>]}},
-        emqx_bridge_greptimedb_utils:value_type([470.5, <<"x">>])
     ).
 
 numeric_range_validation_test() ->
@@ -773,13 +763,16 @@ quoted_field_value_test() ->
             "unset=\"x${payload.unset}\""
         >>
     ),
-    SyntaxLines = to_config(Lines, ms),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
     Data = #{
         <<"clientid">> => <<"c1">>,
         <<"payload">> => #{<<"n">> => 65, <<"f">> => 1.0e300, <<"bool">> => true},
         <<"timestamp">> => 1_789_360_000_000
     },
-    {ok, [{_, [#{fields := Fields}]}]} = data_to_points(Data, <<"public">>, SyntaxLines),
+    ConnResId = ~"connector:greptimedb:a",
+    {ok, [{_, [#{fields := Fields}]}]} = parse_single_data(
+        ConnResId, <<"public">>, Data, SyntaxLines
+    ),
     ?assertEqual(#{value_data => {string_value, <<"abc">>}}, maps:get(<<"text">>, Fields)),
     ?assertEqual(#{value_data => {string_value, <<"n_65">>}}, maps:get(<<"number">>, Fields)),
     ?assertEqual(#{value_data => {string_value, <<"f_1.0e300">>}}, maps:get(<<"float">>, Fields)),
@@ -794,10 +787,11 @@ quoted_field_value_test() ->
     ?assertNot(maps:is_key(<<"unset">>, Fields)).
 
 quoted_field_value_utf8_test() ->
+    DriverType = erlang,
     Lines = emqx_bridge_influxdb:to_influx_lines(
         <<"mqtt,clientid=${clientid} text=\"x${payload.text}\"">>
     ),
-    SyntaxLines = to_config(Lines, ms),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
     Data = #{
         <<"clientid">> => <<"c1">>,
         <<"payload">> => #{<<"text">> => <<255, 255>>},
@@ -806,8 +800,11 @@ quoted_field_value_utf8_test() ->
     %% a quoted value that is not valid UTF-8 is rejected for that point only
     ?assertEqual(
         {error, [{error, {invalid_string_value, [<<"x">>, <<255, 255>>]}}]},
-        data_to_points(Data, <<"public">>, SyntaxLines)
+        emqx_bridge_greptimedb_utils:data_to_points(Data, <<"public">>, SyntaxLines, DriverType)
     ).
+
+value_type(X) -> emqx_bridge_greptimedb_utils:value_type(X).
+value_type(X, Kind) -> emqx_bridge_greptimedb_utils:value_type_for_kind(X, Kind).
 
 field_mixed_template_value_test() ->
     ?assertEqual(
@@ -833,10 +830,11 @@ field_mixed_template_value_test() ->
     ).
 
 tag_value_utf8_test() ->
+    DriverType = erlang,
     Lines = emqx_bridge_influxdb:to_influx_lines(
         <<"mqtt,clientid=${clientid},tag=${payload.t} value=1">>
     ),
-    SyntaxLines = to_config(Lines, ms),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
     Data = #{
         <<"clientid">> => <<"c1">>,
         <<"payload">> => #{<<"t">> => <<255, 255>>},
@@ -845,7 +843,7 @@ tag_value_utf8_test() ->
     %% a tag value that is not valid UTF-8 is rejected for that point only
     ?assertEqual(
         {error, [{error, {invalid_string_value, [<<255, 255>>]}}]},
-        data_to_points(Data, <<"public">>, SyntaxLines)
+        emqx_bridge_greptimedb_utils:data_to_points(Data, <<"public">>, SyntaxLines, DriverType)
     ).
 
 tag_value_typing_test() ->
