@@ -774,7 +774,7 @@ on_bytes_in(Oct, Data, State) ->
     ?LOG(debug, #{
         msg => "raw_bin_received",
         size => Oct,
-        bin => binary_to_list(binary:encode_hex(Data)),
+        bin => emqx_logger_textfmt:format_raw_bin(Data),
         type => "hex"
     }),
     {Packets, NState} = parse_incoming(Data, State),

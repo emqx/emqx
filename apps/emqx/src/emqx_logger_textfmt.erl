@@ -9,8 +9,18 @@
 -export([format/2]).
 -export([check_config/1]).
 -export([try_format_unicode/1, try_encode_meta/2]).
+-export([format_raw_bin/1]).
 %% Used in the other log formatters
 -export([evaluate_lazy_values_if_dbg_level/1, evaluate_lazy_values/1]).
+
+-spec format_raw_bin(binary()) -> string().
+format_raw_bin(Data) when byte_size(Data) =< ?MAX_PAYLOAD_FORMAT_SIZE ->
+    binary_to_list(binary:encode_hex(Data));
+format_raw_bin(Data) ->
+    <<Prefix:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Data,
+    Hex = binary_to_list(binary:encode_hex(Prefix)),
+    Omitted = byte_size(Data) - ?TRUNCATED_PAYLOAD_SIZE,
+    Hex ++ "...(" ++ integer_to_list(Omitted) ++ " bytes)".
 
 check_config(X) ->
     logger_formatter:check_config(maps:without([timestamp_format, with_mfa, payload_encode], X)).
