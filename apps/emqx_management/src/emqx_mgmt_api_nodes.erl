@@ -278,17 +278,24 @@ get_node(Node) ->
 %% internal function
 
 format(Info = #{memory_total := Total, memory_used := Used}) ->
-    Info#{
+    format_version(Info#{
         memory_total := emqx_mgmt_util:kmg(Total),
         memory_used := emqx_mgmt_util:kmg(Used)
-    };
+    });
 format(Info) when is_map(Info) ->
-    Info;
+    format_version(Info);
 %% `emqx_mgmt:lookup_node/1` reaches this as `Info` when the target node
 %% becomes unreachable between the caller's liveness check and the RPC,
 %% e.g. a concurrent `cluster leave`.
 format({error, _} = Error) ->
     Error.
+
+%% `emqx_mgmt:node_info/0` keeps the real version: the data backup import
+%% compares it across the cluster.
+format_version(#{version := Vsn} = Info) ->
+    Info#{version := emqx_dashboard:reported_version(Vsn)};
+format_version(Info) ->
+    Info.
 
 to_ok_result({error, _} = Error) ->
     Error;
