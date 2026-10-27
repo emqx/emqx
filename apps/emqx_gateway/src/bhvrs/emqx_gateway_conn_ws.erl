@@ -320,13 +320,7 @@ parse_sec_websocket_protocol([Req, Opts, WsOpts], State) ->
                 true ->
                     {error, no_subprotocol};
                 false ->
-                    Picked = list_to_binary(lists:nth(1, SupportedSubprotocols)),
-                    Resp = cowboy_req:set_resp_header(
-                        <<"sec-websocket-protocol">>,
-                        Picked,
-                        Req
-                    ),
-                    {ok, [Resp, Opts, WsOpts], State}
+                    {ok, [Req, Opts, WsOpts], State}
             end;
         Subprotocols ->
             NSupportedSubprotocols = [

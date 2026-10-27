@@ -39,7 +39,14 @@
 
 -export([proxy_protocol_opts/0]).
 
--export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1, gateway_names/0]).
+-export([
+    mountpoint/0,
+    mountpoint/1,
+    gateway_common_options/0,
+    gateway_schema/1,
+    gateway_schema/2,
+    gateway_names/0
+]).
 
 -export([ws_listener/0, wss_listener/0, ws_opts/1]).
 
@@ -477,9 +484,12 @@ proxy_protocol_opts() ->
 %% dynamic schemas
 
 gateway_schema(Name) ->
+    gateway_schema(Name, Name).
+
+gateway_schema(Name, Struct) ->
     case emqx_gateway_utils:find_gateway_definition(Name) of
         {ok, #{config_schema_module := SchemaMod}} ->
-            SchemaMod:fields(Name);
+            SchemaMod:fields(Struct);
         {error, _} = Error ->
             throw(Error)
     end.
