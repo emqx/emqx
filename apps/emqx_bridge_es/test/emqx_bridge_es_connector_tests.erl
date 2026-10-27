@@ -123,6 +123,9 @@ body_render_unchanged_test_() ->
         )
     ].
 
+active_health_check_not_supported_test() ->
+    ?assertNot(lists:keymember(active_health_check, 1, emqx_bridge_es_connector:fields(config))).
+
 %% Renders a path exactly as `emqx_bridge_http_connector' does: the
 %% template built at channel creation is parsed with
 %% `emqx_template:parse/1' and rendered with `render_template/3' in

@@ -234,7 +234,7 @@ on_start(
         port => Port,
         connect_timeout => ConnectTimeout,
         scheme => Scheme,
-        health_check => preprocess_health_check(InstId, Config),
+        active_health_check => preprocess_active_health_check(InstId, Config),
         request => preprocess_request(maps:get(request, Config, undefined)),
         installed_actions => #{}
     },
@@ -257,7 +257,9 @@ on_start(
             Error
     end.
 
-maybe_start_health_check_pool(InstId, #{health_check := #{enable := true, pool := Pool}}, Opts) ->
+maybe_start_health_check_pool(
+    InstId, #{active_health_check := #{enable := true, pool := Pool}}, Opts
+) ->
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, http_health_check_pool, Pool),
     ProbeOpts = [{pool_size, 1}, {pool_type, random}, {enable_pipelining, 1} | Opts],
     start_pool(Pool, ProbeOpts);
@@ -723,12 +725,14 @@ resolve_pool_worker(#{pool_name := PoolName} = State, Key) ->
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
 
-on_get_status(InstId, #{health_check := #{enable := true} = Check} = State) ->
+on_get_status(InstId, #{active_health_check := #{enable := true} = Check} = State) ->
     http_health_check(InstId, Check, State);
 on_get_status(InstId, State) ->
     on_get_status(InstId, State, fun default_health_checker/2).
 
-preprocess_health_check(InstId, #{health_check := #{enable := true} = Check} = Config) ->
+preprocess_active_health_check(
+    InstId, #{active_health_check := #{enable := true} = Check} = Config
+) ->
     StaticHeaders = [
         {Key, Value}
      || {Key, Value} <- parse_headers(maps:get(headers, Config, #{})),
@@ -740,20 +744,18 @@ preprocess_health_check(InstId, #{health_check := #{enable := true} = Check} = C
         timeout => emqx_resource:get_health_check_timeout(Config),
         pool => <<InstId/binary, ":health_check">>
     };
-preprocess_health_check(_, _) ->
+preprocess_active_health_check(_, _) ->
     #{enable => false}.
 
 http_health_check(InstId, #{timeout := Timeout} = Check, State) ->
-    %% Leave time for the result to reach the resource manager before its watchdog expires.
-    Budget = max(1, Timeout - min(100, Timeout div 10)),
-    Deadline = erlang:monotonic_time(millisecond) + Budget,
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
     Probe = fun() ->
         maybe
             ok ?= do_get_status(InstId, health_check_remaining(Deadline)),
             active_http_probe(Check, State, Deadline, false)
         end
     end,
-    try emqx_utils:nolink_apply(Probe, Budget) of
+    try emqx_utils:nolink_apply(Probe, Timeout) of
         ok -> ?status_connected;
         {error, still_connecting} -> {?status_connecting, still_connecting};
         {error, Reason} -> {?status_disconnected, {http_health_check_failed, Reason}}
@@ -762,8 +764,9 @@ http_health_check(InstId, #{timeout := Timeout} = Check, State) ->
     end.
 
 active_http_probe(Check, State, Deadline, Retried) ->
-    Method = maps:get(method, Check),
-    Request = {maps:get(path, Check), render_headers(maps:get(headers, Check))},
+    #{method := Method, path := Path, headers := Headers0} = Check,
+    Headers = render_headers(Headers0),
+    Request = {Path, Headers},
     maybe
         {ok, PreparedRequest, TokenRef} ?= prepare_request(Method, Request, State),
         Result = health_check_request(Check, Method, PreparedRequest, Deadline),
@@ -791,20 +794,17 @@ health_check_result({error, Reason}) ->
     {error, Reason}.
 
 health_check_request(#{pool := Pool}, Method, Request, Deadline) ->
-    case ehttpc:check_pool_integrity(Pool) of
-        ok ->
-            case ehttpc:workers(Pool) of
-                [{_, Worker}] ->
-                    case
-                        ehttpc:request(Worker, Method, Request, health_check_remaining(Deadline), 0)
-                    of
-                        {ok, Status, _Headers} -> {ok, Status};
-                        {ok, Status, _Headers, _Body} -> {ok, Status};
-                        {error, _} = Error -> Error
-                    end;
-                [] ->
-                    {error, still_connecting}
-            end;
+    maybe
+        ok ?= ehttpc:check_pool_integrity(Pool),
+        [{_, Worker}] ?= ehttpc:workers(Pool),
+        case ehttpc:request(Worker, Method, Request, health_check_remaining(Deadline), 0) of
+            {ok, Status, _Headers} -> {ok, Status};
+            {ok, Status, _Headers, _Body} -> {ok, Status};
+            {error, _} = RequestError -> RequestError
+        end
+    else
+        [] ->
+            {error, still_connecting};
         {error, _} = Error ->
             Error
     end.

@@ -345,6 +345,13 @@ start_connector_api(TCConfig) ->
         emqx_bridge_v2_testlib:start_connector_api(Name, Type)
     ).
 
+disable_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:disable_connector_api(Type, Name)
+    ).
+
 disable_action_api(TCConfig) ->
     #{kind := Kind, type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(
         TCConfig
@@ -394,29 +401,6 @@ delete_global_managed_certs_file(BundleName, FileKind, Opts) ->
         query_params => QueryParams
     }).
 
-%%------------------------------------------------------------------------------
-%% Test cases
-%%------------------------------------------------------------------------------
-
-t_start_stop(Config) when is_list(Config) ->
-    emqx_bridge_v2_testlib:t_start_stop(Config, emqx_connector_http_stopped).
-
-t_on_get_status(Config) when is_list(Config) ->
-    emqx_bridge_v2_testlib:t_on_get_status(Config).
-
-t_active_health_check() ->
-    [
-        {matrix, true},
-        {http_path, <<"/[...]">>},
-        {server_verify, verify_peer},
-        {mutual_tls, true}
-    ].
--doc "Check active HTTP probes and MQTT delivery with GET/HEAD over HTTP/HTTPS.".
-t_active_health_check(matrix) ->
-    [[Transport, Method] || Transport <- [?tcp, ?tls], Method <- [get, head]];
-t_active_health_check(TCConfig) when is_list(TCConfig) ->
-    active_health_check_requests(TCConfig).
-
 active_health_check_requests(TCConfig) ->
     TestPid = self(),
     Method = emqx_common_test_helpers:get_matrix_prop(TCConfig, [get, head], get),
@@ -444,7 +428,7 @@ active_health_check_requests(TCConfig) ->
             <<"x-dynamic">> => <<"prefix-${clientid}">>,
             <<"x-${clientid}">> => <<"dynamic-name">>
         },
-        <<"health_check">> => #{
+        <<"active_health_check">> => #{
             <<"enable">> => true,
             <<"method">> => atom_to_binary(Method),
             <<"path">> => <<"/health?full=1">>
@@ -483,473 +467,6 @@ active_health_check_requests(TCConfig) ->
     ?assert(maps:is_key(<<"x-dynamic">>, BusinessHeaders)),
     ?assert(lists:member(<<"dynamic-name">>, maps:values(BusinessHeaders))),
     assert_http_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"matched">> => 1}).
-
-t_active_health_check_failure() ->
-    [{matrix, true}, {http_path, <<"/[...]">>}].
--doc "Check HTTP failures, resource alarms, buffered MQTT delivery and automatic recovery.".
-t_active_health_check_failure(matrix) ->
-    [[Fault] || Fault <- [hang, redirect, unauthorized, not_found, server_error]];
-t_active_health_check_failure(TCConfig) when is_list(TCConfig) ->
-    FaultKind = emqx_common_test_helpers:get_matrix_prop(
-        TCConfig, [hang, redirect, unauthorized, not_found, server_error], hang
-    ),
-    Fault = maps:get(FaultKind, #{
-        hang => hang, redirect => 301, unauthorized => 401, not_found => 404, server_error => 500
-    }),
-    TestPid = self(),
-    Handler = fun(Req0, State) ->
-        {ok, Body, Req1} = cowboy_req:read_body(Req0),
-        TestPid ! {active_health_request, cowboy_req:path(Req1), Body},
-        Req = cowboy_req:reply(200, #{}, <<>>, Req1),
-        {ok, Req, State}
-    end,
-    ok = emqx_bridge_http_connector_test_server:set_handler(Handler),
-    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/health">>},
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"1s">>,
-            <<"health_check_timeout">> => <<"500ms">>
-        }
-    }),
-    {201, _} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{<<"body">> => <<"${payload}">>}
-    }),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
-    Client = start_client(),
-    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
-        Req =
-            case {cowboy_req:path(Req0), Fault} of
-                {<<"/health">>, hang} ->
-                    receive
-                        continue -> ok
-                    after 5_000 -> ok
-                    end,
-                    cowboy_req:reply(200, #{}, <<>>, Req0);
-                {<<"/health">>, Status} ->
-                    cowboy_req:reply(Status, #{<<"location">> => <<"/path">>}, <<>>, Req0);
-                _ ->
-                    cowboy_req:reply(200, #{}, <<>>, Req0)
-            end,
-        {ok, Req, State}
-    end),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ?assertEqual({ok, disconnected}, emqx_resource:health_check(ResId)),
-    {200, #{<<"status">> := <<"disconnected">>, <<"status_reason">> := Reason}} =
-        get_connector_api(TCConfig),
-    ExpectedReason =
-        case Fault of
-            hang -> <<"timeout">>;
-            _ -> integer_to_binary(Fault)
-        end,
-    ?assertNotEqual(nomatch, binary:match(Reason, ExpectedReason)),
-    ?retry(
-        100,
-        30,
-        ?assertMatch(
-            {200, #{<<"status">> := <<"disconnected">>}}, get_action_api(TCConfig)
-        )
-    ),
-    ?assert(
-        lists:any(fun(#{name := Name}) -> Name =:= ResId end, emqx_alarm:get_alarms(activated))
-    ),
-    Payload = unique_payload(),
-    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
-    ?assertNotReceive({active_health_request, <<"/path">>, Payload}, 200),
-    ok = emqx_bridge_http_connector_test_server:set_handler(Handler),
-    ?retry(100, 50, ?assertEqual({ok, connected}, emqx_resource:health_check(ResId))),
-    ?assertReceive({active_health_request, <<"/path">>, Payload}, 5_000),
-    ?retry(
-        100,
-        30,
-        ?assertMatch(
-            {200, #{<<"status">> := <<"connected">>}}, get_action_api(TCConfig)
-        )
-    ),
-    ?assertNot(
-        lists:any(fun(#{name := Name}) -> Name =:= ResId end, emqx_alarm:get_alarms(activated))
-    ),
-    assert_http_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"matched">> => 1}).
-
--doc "Check that a disabled probe sends no HTTP request and retains the TCP health check.".
-t_active_health_check_disabled(TCConfig) ->
-    TestPid = self(),
-    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
-        TestPid ! unexpected_health_request,
-        Req = cowboy_req:reply(500, #{}, <<>>, Req0),
-        {ok, Req, State}
-    end),
-    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
-        <<"health_check">> => #{<<"enable">> => false, <<"path">> => <<"/path">>}
-    }),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
-    ?assertNotReceive(unexpected_health_request, 200),
-    ?assertNot(maps:is_key(http_health_check_pool, emqx_resource:get_allocated_resources(ResId))).
-
-t_active_health_check_oauth2_revoked(TCConfig) ->
-    {First, Second, Client, Topic} = setup_oauth2_revocation(
-        TCConfig,
-        #{
-            <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-            <<"resource_opts">> => #{<<"health_check_timeout">> => <<"2s">>}
-        },
-        #{}
-    ),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
-    ?assertReceive({oauth2_http, First, <<>>, 401}, 2_000),
-    ?assertReceive({oauth2_http, Second, <<>>, 200}, 2_000),
-    ?assertReceive({oauth2_token_request, _}, 2_000),
-    ?assertEqual({ok, Second}, emqx_connector_oauth2:get_token(ResId)),
-    Payload = unique_payload(),
-    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
-    ?assertReceive({oauth2_http, Second, Payload, 200}, 3_000),
-    assert_http_metrics(TCConfig, #{<<"success">> => 1}),
-    ?assertNotReceive({oauth2_token_request, _}, 200).
-
-t_active_health_check_oauth2_timeout(TCConfig) ->
-    {_First, Second, Client, Topic} = setup_oauth2_revocation(
-        TCConfig,
-        #{
-            <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-            <<"resource_opts">> => #{
-                <<"health_check_interval">> => <<"1m">>,
-                <<"health_check_timeout">> => <<"500ms">>
-            }
-        },
-        #{}
-    ),
-    TestPid = self(),
-    ok = emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
-        TestPid ! token_refresh_started,
-        timer:sleep(2_000),
-        Body = emqx_utils_json:encode(#{<<"access_token">> => Second, <<"expires_in">> => 3600}),
-        Req = cowboy_req:reply(200, #{<<"content-type">> => <<"application/json">>}, Body, Req0),
-        {ok, Req, State}
-    end),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    {ok, _, #{state := State}} = emqx_resource:get_instance(ResId),
-    {Elapsed, Result} = timer:tc(fun() -> emqx_bridge_http_connector:on_get_status(ResId, State) end),
-    ?assertMatch({disconnected, {http_health_check_failed, timeout}}, Result),
-    ?assert(Elapsed < 1_000_000),
-    ?assertReceive(token_refresh_started, 100),
-    %% The caller timeout must not cancel a token fetch shared with business requests.
-    ?assertEqual({ok, Second}, emqx_connector_oauth2:get_token(ResId)),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
-    Payload = unique_payload(),
-    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
-    ?assertReceive({oauth2_http, Second, Payload, 200}, 3_000),
-    assert_http_metrics(TCConfig, #{<<"success">> => 1}).
-
-t_active_health_check_oauth2_retry_once(TCConfig) ->
-    {First, Second, Client, Topic} = setup_oauth2_revocation(
-        TCConfig,
-        #{
-            <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-            <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
-        },
-        #{}
-    ),
-    set_oauth2_resource_handler(<<"reject-all-tokens">>),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    {ok, _, #{state := State}} = emqx_resource:get_instance(ResId),
-    ?assertMatch(
-        {disconnected, {http_health_check_failed, #{status_code := 401}}},
-        emqx_bridge_http_connector:on_get_status(ResId, State)
-    ),
-    ?assertReceive({oauth2_http, First, <<>>, 401}, 1_000),
-    ?assertReceive({oauth2_http, Second, <<>>, 401}, 1_000),
-    ?assertReceive({oauth2_token_request, _}, 1_000),
-    ?assertNotReceive({oauth2_token_request, _}, 200),
-    ?assertNotReceive({oauth2_http, _, _, 401}, 100),
-    set_oauth2_resource_handler(Second),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
-    Payload = unique_payload(),
-    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
-    ?assertReceive({oauth2_http, Second, Payload, 200}, 3_000),
-    assert_http_metrics(TCConfig, #{<<"success">> => 1}).
-
-t_active_health_check_busy_pool(TCConfig) ->
-    TestPid = self(),
-    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
-        {ok, Body, Req1} = cowboy_req:read_body(Req0),
-        case cowboy_req:method(Req1) of
-            <<"POST">> ->
-                TestPid ! {slow_post, Body},
-                timer:sleep(2_000);
-            _ ->
-                ok
-        end,
-        Req = cowboy_req:reply(200, #{}, <<>>, Req1),
-        {ok, Req, State}
-    end),
-    {201, _} = create_connector_api(TCConfig, #{
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"1m">>,
-            <<"health_check_timeout">> => <<"300ms">>
-        }
-    }),
-    {201, _} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{<<"body">> => <<"${payload}">>}
-    }),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
-    Client = start_client(),
-    Payload = unique_payload(),
-    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
-    ?assertReceive({slow_post, Payload}, 2_000),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
-    assert_http_metrics(TCConfig, #{<<"success">> => 1}).
-
-t_active_health_check_infinite_timeout(TCConfig) ->
-    Invalid = #{
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-        <<"resource_opts">> => #{<<"health_check_timeout">> => <<"infinity">>}
-    },
-    ?assertThrow({_, [_ | _]}, connector_config(Invalid)),
-    ?assertMatch({400, _}, create_connector_api(TCConfig, Invalid)),
-    {201, _} = create_connector_api(TCConfig, #{
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>}
-    }),
-    ?assertMatch({400, _}, update_connector_api(TCConfig, Invalid)),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
-    Disabled = emqx_utils_maps:deep_put([<<"health_check">>, <<"enable">>], Invalid, false),
-    ?assertMatch(#{}, connector_config(Disabled)),
-    ?assertMatch({200, _}, update_connector_api(TCConfig, Disabled)),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)).
-
-t_active_health_check_cleanup() ->
-    [{matrix, true}].
-t_active_health_check_cleanup(matrix) ->
-    [[Mode] || Mode <- [timeout, body_timeout, owner_killed]];
-t_active_health_check_cleanup(TCConfig) when is_list(TCConfig) ->
-    Mode = emqx_common_test_helpers:get_matrix_prop(
-        TCConfig, [timeout, body_timeout, owner_killed], timeout
-    ),
-    {201, _} = create_connector_api(TCConfig, #{
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"1m">>,
-            <<"health_check_timeout">> => <<"500ms">>
-        }
-    }),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    {ok, _, #{state := State}} = emqx_resource:get_instance(ResId),
-    {_, #{client := BusinessClient}} = ehttpc:get_state(ResId),
-    TestPid = self(),
-    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, HandlerState) ->
-        Req =
-            case Mode of
-                body_timeout -> cowboy_req:stream_reply(200, #{}, Req0);
-                _ -> Req0
-            end,
-        TestPid ! {hanging_probe, self()},
-        receive
-            finish -> ok
-        after 10_000 -> ok
-        end,
-        {ok, Req, HandlerState}
-    end),
-    #{health_check := #{pool := ProbePool}} = State,
-    {ProbeWorker, #{client := ProbeClient}} = ehttpc:get_state(ProbePool),
-    Caller = spawn(fun() ->
-        Result = emqx_bridge_http_connector:on_get_status(ResId, State),
-        TestPid ! {probe_result, Result}
-    end),
-    on_exit(fun() -> exit(Caller, kill) end),
-    {hanging_probe, Handler} = ?assertReceive({hanging_probe, _}, 2_000),
-    case Mode of
-        owner_killed ->
-            exit(Caller, kill);
-        _ ->
-            ?assertReceive(
-                {probe_result, {disconnected, {http_health_check_failed, timeout}}}, 1_000
-            )
-    end,
-    Handler ! finish,
-    ?retry(50, 40, ?assertMatch(#{requests := #{sent := 0}}, ehttpc:get_state(ProbeWorker))),
-    ?assert(is_process_alive(ProbeClient)),
-    ?assert(is_process_alive(BusinessClient)),
-    ?assertMatch({_, #{client := BusinessClient}}, ehttpc:get_state(ResId)),
-    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)).
-
-t_active_health_check_pool_recovery() ->
-    [{matrix, true}].
-t_active_health_check_pool_recovery(matrix) ->
-    [[Fault] || Fault <- [worker, manager]];
-t_active_health_check_pool_recovery(TCConfig) when is_list(TCConfig) ->
-    Fault = emqx_common_test_helpers:get_matrix_prop(TCConfig, [worker, manager], worker),
-    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
-    }),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    {ok, _, #{state := #{health_check := #{pool := Pool}}}} = emqx_resource:get_instance(ResId),
-    {Worker, #{client := Client}} = ehttpc:get_state(Pool),
-    Monitor = monitor(process, Client),
-    case Fault of
-        worker ->
-            {links, Links} = process_info(Worker, links),
-            [Supervisor] = Links -- [Client],
-            ok = sys:suspend(Supervisor),
-            on_exit(fun() -> catch sys:resume(Supervisor) end),
-            exit(Worker, kill),
-            ?assertReceive({'DOWN', Monitor, process, Client, _}, 2_000),
-            ?retry(50, 40, ?assertEqual([], ehttpc:workers(Pool))),
-            {ok, _, #{state := State}} = emqx_resource:get_instance(ResId),
-            ?assertEqual(
-                {connecting, still_connecting},
-                emqx_bridge_http_connector:on_get_status(ResId, State)
-            ),
-            ok = sys:resume(Supervisor);
-        manager ->
-            exit(emqx_resource_manager:where(ResId), kill),
-            ?assertReceive({'DOWN', Monitor, process, Client, _}, 5_000)
-    end,
-    ?retry(100, 50, ?assertEqual({ok, connected}, emqx_resource:health_check(ResId))),
-    {NewWorker, #{client := NewClient}} = ehttpc:get_state(Pool),
-    ?assertNotEqual(Worker, NewWorker),
-    ?assertNotEqual(Client, NewClient),
-    ?assertEqual(ok, emqx_resource:stop(ResId)),
-    ?assertEqual({error, not_found}, ehttpc:check_pool_integrity(Pool)).
-
-t_active_health_check_trailers(TCConfig) ->
-    TestPid = self(),
-    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
-        {ok, Body, Req1} = cowboy_req:read_body(Req0),
-        Req =
-            case cowboy_req:method(Req1) of
-                <<"GET">> ->
-                    ?assertEqual(<<"trailers">>, cowboy_req:header(<<"te">>, Req1)),
-                    R = cowboy_req:stream_reply(200, #{<<"trailer">> => <<"x-health">>}, Req1),
-                    ok = cowboy_req:stream_body(<<"healthy">>, nofin, R),
-                    ok = cowboy_req:stream_trailers(#{<<"x-health">> => <<"ok">>}, R),
-                    TestPid ! {health_trailers, cowboy_req:peer(Req1)},
-                    R;
-                <<"POST">> ->
-                    TestPid ! {business_request, Body},
-                    cowboy_req:reply(200, #{}, <<>>, Req1)
-            end,
-        {ok, Req, State}
-    end),
-    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
-        <<"headers">> => #{<<"te">> => <<"trailers">>},
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"1m">>,
-            <<"health_check_timeout">> => <<"500ms">>
-        }
-    }),
-    {health_trailers, Peer} = ?assertReceive({health_trailers, _}),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
-    {health_trailers, NextPeer} = ?assertReceive({health_trailers, _}),
-    ?assertEqual(Peer, NextPeer),
-    {201, _} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{<<"body">> => <<"${payload}">>}
-    }),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
-    Client = start_client(),
-    Payload = unique_payload(),
-    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
-    ?assertReceive({business_request, Payload}, 5_000),
-    assert_http_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"matched">> => 1}).
-
-t_active_health_check_upgrade(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig, #{
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"1s">>,
-            <<"health_check_timeout">> => <<"500ms">>
-        }
-    }),
-    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req, State) ->
-        Reply = cowboy_req:reply(
-            101,
-            #{
-                <<"connection">> => <<"upgrade">>, <<"upgrade">> => <<"test-protocol">>
-            },
-            <<>>,
-            Req
-        ),
-        {ok, Reply, State}
-    end),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ?assertEqual({ok, disconnected}, emqx_resource:health_check(ResId)),
-    {ok, _, #{error := Error}} = emqx_resource:get_instance(ResId),
-    ?assertMatch({http_health_check_failed, timeout}, Error),
-    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
-    ?retry(100, 30, ?assertEqual({ok, connected}, emqx_resource:health_check(ResId))).
-
-t_active_health_check_tls_shutdown() ->
-    [{matrix, true}].
-t_active_health_check_tls_shutdown(matrix) ->
-    [[Action] || Action <- [stop, disable, update]];
-t_active_health_check_tls_shutdown(TCConfig) when is_list(TCConfig) ->
-    Action = emqx_common_test_helpers:get_matrix_prop(TCConfig, [stop, disable, update], stop),
-    TestPid = self(),
-    Mode = ets:new(tls_health_check, [set, public]),
-    ets:insert(Mode, {mode, healthy}),
-    {ok, Listen} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
-    {ok, Port} = inet:port(Listen),
-    Acceptor = spawn(fun() -> tls_health_accept(Listen, Mode, TestPid) end),
-    on_exit(fun() ->
-        gen_tcp:close(Listen),
-        exit(Acceptor, shutdown),
-        ok
-    end),
-    URL = iolist_to_binary(["https://localhost:", integer_to_list(Port)]),
-    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
-        <<"url">> => URL,
-        <<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>},
-        <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/health">>},
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"1m">>,
-            <<"health_check_timeout">> => <<"5s">>
-        }
-    }),
-    {tls_health_request, ProbeSocket} = ?assertReceive({tls_health_request, _}, 2_000),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    {ok, _, #{state := #{health_check := #{pool := ProbePool}}}} = emqx_resource:get_instance(
-        ResId
-    ),
-    {Worker, #{client := OldClient}} = ehttpc:get_state(ProbePool),
-    {links, OldLinks} = process_info(Worker, links),
-    BaseLinks = OldLinks -- [OldClient],
-    ets:insert(Mode, {mode, stall}),
-    ok = ssl:close(ProbeSocket),
-    ?retry(50, 40, ?assertMatch(#{client := undefined}, ehttpc:get_state(Worker))),
-    Caller = spawn(fun() -> TestPid ! {old_probe_result, emqx_resource:health_check(ResId)} end),
-    on_exit(fun() -> exit(Caller, kill) end),
-    {stalled_tls, Server} = ?assertReceive({stalled_tls, _}, 2_000),
-    {links, NewLinks} = process_info(Worker, links),
-    [Client] = NewLinks -- BaseLinks,
-    Monitor = monitor(process, Client),
-    case Action of
-        stop ->
-            ok = emqx_resource:stop(ResId);
-        disable ->
-            Name = get_config(connector_name, TCConfig),
-            ?assertMatch(
-                {204, _},
-                emqx_bridge_v2_testlib:simplify_result(
-                    emqx_bridge_v2_testlib:disable_connector_api(?CONNECTOR_TYPE, Name)
-                )
-            );
-        update ->
-            ?assertMatch(
-                {200, #{<<"status">> := <<"connected">>}},
-                update_connector_api(TCConfig, #{
-                    <<"health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>}
-                })
-            )
-    end,
-    ?assertReceive({'DOWN', Monitor, process, Client, _}, 1_000),
-    ?assertReceive({tls_stall_closed, Server}, 1_000),
-    ?assertReceive({old_probe_result, {error, resource_shutting_down}}, 1_000).
 
 tls_health_accept(Listen, Mode, TestPid) ->
     case gen_tcp:accept(Listen) of
@@ -998,17 +515,507 @@ tls_health_requests(Socket, TestPid, Buffer) ->
             end
     end.
 
--doc "Validate the optional probe path and GET/HEAD methods through the connector schema.".
-t_active_health_check_schema(_TCConfig) ->
-    ?assertNot(
-        lists:keymember(
-            health_check, 1, emqx_bridge_iotdb_connector:fields("config_restapi")
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
+
+t_start_stop(Config) when is_list(Config) ->
+    emqx_bridge_v2_testlib:t_start_stop(Config, emqx_connector_http_stopped).
+
+t_on_get_status(Config) when is_list(Config) ->
+    emqx_bridge_v2_testlib:t_on_get_status(Config).
+
+t_active_health_check() ->
+    [
+        {matrix, true},
+        {http_path, <<"/[...]">>},
+        {server_verify, verify_peer},
+        {mutual_tls, true}
+    ].
+-doc "Check active HTTP probes and MQTT delivery with GET/HEAD over HTTP/HTTPS.".
+t_active_health_check(matrix) ->
+    [[Transport, Method] || Transport <- [?tcp, ?tls], Method <- [get, head]];
+t_active_health_check(TCConfig) when is_list(TCConfig) ->
+    active_health_check_requests(TCConfig).
+
+t_active_health_check_failure() ->
+    [{matrix, true}, {http_path, <<"/[...]">>}].
+-doc "Check HTTP failures, resource alarms, buffered MQTT delivery and automatic recovery.".
+t_active_health_check_failure(matrix) ->
+    [[Fault] || Fault <- [hang, redirect, unauthorized, not_found, server_error]];
+t_active_health_check_failure(TCConfig) when is_list(TCConfig) ->
+    FaultKind = emqx_common_test_helpers:get_matrix_prop(
+        TCConfig, [hang, redirect, unauthorized, not_found, server_error], hang
+    ),
+    Fault = maps:get(FaultKind, #{
+        hang => hang, redirect => 301, unauthorized => 401, not_found => 404, server_error => 500
+    }),
+    TestPid = self(),
+    Handler = fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        TestPid ! {active_health_request, cowboy_req:path(Req1), Body},
+        Req = cowboy_req:reply(200, #{}, <<>>, Req1),
+        {ok, Req, State}
+    end,
+    ok = emqx_bridge_http_connector_test_server:set_handler(Handler),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/health">>},
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1s">>,
+            <<"health_check_timeout">> => <<"500ms">>
+        }
+    }),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"body">> => <<"${payload}">>}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Client = start_client(),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        Req =
+            case {cowboy_req:path(Req0), Fault} of
+                {<<"/health">>, hang} ->
+                    receive
+                        continue -> ok
+                    after 5_000 -> ok
+                    end,
+                    cowboy_req:reply(200, #{}, <<>>, Req0);
+                {<<"/health">>, Status} ->
+                    cowboy_req:reply(Status, #{<<"location">> => <<"/path">>}, <<>>, Req0);
+                _ ->
+                    cowboy_req:reply(200, #{}, <<>>, Req0)
+            end,
+        {ok, Req, State}
+    end),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, disconnected}, emqx_resource:health_check(ResId)),
+    {200, #{<<"status">> := <<"disconnected">>, <<"status_reason">> := Reason}} =
+        get_connector_api(TCConfig),
+    ExpectedReasons =
+        case Fault of
+            hang -> [<<"timeout">>, <<"resource_health_check_timed_out">>];
+            _ -> [integer_to_binary(Fault)]
+        end,
+    ?assert(
+        lists:any(fun(Expected) -> binary:match(Reason, Expected) =/= nomatch end, ExpectedReasons)
+    ),
+    ?retry(
+        100,
+        30,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"disconnected">>}}, get_action_api(TCConfig)
         )
     ),
-    ?assertNot(lists:keymember(health_check, 1, emqx_bridge_es_connector:fields(config))),
+    ?assert(
+        lists:any(fun(#{name := Name}) -> Name =:= ResId end, emqx_alarm:get_alarms(activated))
+    ),
+    Payload = unique_payload(),
+    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+    ?assertNotReceive({active_health_request, <<"/path">>, Payload}, 200),
+    ok = emqx_bridge_http_connector_test_server:set_handler(Handler),
+    ?retry(100, 50, ?assertEqual({ok, connected}, emqx_resource:health_check(ResId))),
+    ?assertReceive({active_health_request, <<"/path">>, Payload}, 5_000),
+    ?retry(
+        100,
+        30,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}}, get_action_api(TCConfig)
+        )
+    ),
+    ?assertNot(
+        lists:any(fun(#{name := Name}) -> Name =:= ResId end, emqx_alarm:get_alarms(activated))
+    ),
+    assert_http_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"matched">> => 1}).
+
+-doc "Check that a disabled probe sends no HTTP request and retains the TCP health check.".
+t_active_health_check_disabled(TCConfig) ->
+    TestPid = self(),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        TestPid ! unexpected_health_request,
+        Req = cowboy_req:reply(500, #{}, <<>>, Req0),
+        {ok, Req, State}
+    end),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"active_health_check">> => #{<<"enable">> => false, <<"path">> => <<"/path">>}
+    }),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
+    ?assertNotReceive(unexpected_health_request, 200),
+    ?assertNot(maps:is_key(http_health_check_pool, emqx_resource:get_allocated_resources(ResId))).
+
+t_active_health_check_oauth2_revoked(TCConfig) ->
+    {First, Second, Client, Topic} = setup_oauth2_revocation(
+        TCConfig,
+        #{
+            <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+            <<"resource_opts">> => #{<<"health_check_timeout">> => <<"2s">>}
+        },
+        #{}
+    ),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
+    ?assertReceive({oauth2_http, First, <<>>, 401}, 2_000),
+    ?assertReceive({oauth2_http, Second, <<>>, 200}, 2_000),
+    ?assertReceive({oauth2_token_request, _}, 2_000),
+    ?assertEqual({ok, Second}, emqx_connector_oauth2:get_token(ResId)),
+    Payload = unique_payload(),
+    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+    ?assertReceive({oauth2_http, Second, Payload, 200}, 3_000),
+    assert_http_metrics(TCConfig, #{<<"success">> => 1}),
+    ?assertNotReceive({oauth2_token_request, _}, 200).
+
+t_active_health_check_oauth2_timeout(TCConfig) ->
+    {_First, Second, Client, Topic} = setup_oauth2_revocation(
+        TCConfig,
+        #{
+            <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+            <<"resource_opts">> => #{
+                <<"health_check_interval">> => <<"1m">>,
+                <<"health_check_timeout">> => <<"500ms">>
+            }
+        },
+        #{}
+    ),
+    TestPid = self(),
+    ok = emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        TestPid ! token_refresh_started,
+        timer:sleep(2_000),
+        Body = emqx_utils_json:encode(#{<<"access_token">> => Second, <<"expires_in">> => 3600}),
+        Req = cowboy_req:reply(200, #{<<"content-type">> => <<"application/json">>}, Body, Req0),
+        {ok, Req, State}
+    end),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, _, #{state := State}} = emqx_resource:get_instance(ResId),
+    {Elapsed, Result} = timer:tc(fun() -> emqx_bridge_http_connector:on_get_status(ResId, State) end),
+    ?assertMatch({disconnected, {http_health_check_failed, timeout}}, Result),
+    ?assert(Elapsed < 1_000_000),
+    ?assertReceive(token_refresh_started, 100),
+    %% The caller timeout must not cancel a token fetch shared with business requests.
+    ?assertEqual({ok, Second}, emqx_connector_oauth2:get_token(ResId)),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
+    Payload = unique_payload(),
+    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+    ?assertReceive({oauth2_http, Second, Payload, 200}, 3_000),
+    assert_http_metrics(TCConfig, #{<<"success">> => 1}).
+
+t_active_health_check_oauth2_retry_once(TCConfig) ->
+    {First, Second, Client, Topic} = setup_oauth2_revocation(
+        TCConfig,
+        #{
+            <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+            <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
+        },
+        #{}
+    ),
+    set_oauth2_resource_handler(<<"reject-all-tokens">>),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, _, #{state := State}} = emqx_resource:get_instance(ResId),
+    ?assertMatch(
+        {disconnected, {http_health_check_failed, #{status_code := 401}}},
+        emqx_bridge_http_connector:on_get_status(ResId, State)
+    ),
+    ?assertReceive({oauth2_http, First, <<>>, 401}, 1_000),
+    ?assertReceive({oauth2_http, Second, <<>>, 401}, 1_000),
+    ?assertReceive({oauth2_token_request, _}, 1_000),
+    ?assertNotReceive({oauth2_token_request, _}, 200),
+    ?assertNotReceive({oauth2_http, _, _, 401}, 100),
+    set_oauth2_resource_handler(Second),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
+    Payload = unique_payload(),
+    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+    ?assertReceive({oauth2_http, Second, Payload, 200}, 3_000),
+    assert_http_metrics(TCConfig, #{<<"success">> => 1}).
+
+t_active_health_check_busy_pool(TCConfig) ->
+    TestPid = self(),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        case cowboy_req:method(Req1) of
+            <<"POST">> ->
+                TestPid ! {slow_post, Body},
+                timer:sleep(2_000);
+            _ ->
+                ok
+        end,
+        Req = cowboy_req:reply(200, #{}, <<>>, Req1),
+        {ok, Req, State}
+    end),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1m">>,
+            <<"health_check_timeout">> => <<"300ms">>
+        }
+    }),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"body">> => <<"${payload}">>}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Client = start_client(),
+    Payload = unique_payload(),
+    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+    ?assertReceive({slow_post, Payload}, 2_000),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
+    assert_http_metrics(TCConfig, #{<<"success">> => 1}).
+
+-doc "Reject an infinite health-check timeout only when active HTTP probes are enabled.".
+t_active_health_check_infinite_timeout(TCConfig) ->
+    Invalid = #{
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+        <<"resource_opts">> => #{<<"health_check_timeout">> => <<"infinity">>}
+    },
+    ExpectedReason =
+        <<"HTTP active_health_check requires a finite resource_opts.health_check_timeout">>,
+    ?assertThrow({_, [#{reason := ExpectedReason}]}, connector_config(Invalid)),
+    {400, #{<<"message">> := CreateError}} = create_connector_api(TCConfig, Invalid),
+    ?assertMatch(#{<<"reason">> := ExpectedReason}, CreateError),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>}
+    }),
+    {400, #{<<"message">> := UpdateError}} = update_connector_api(TCConfig, Invalid),
+    ?assertMatch(#{<<"reason">> := ExpectedReason}, UpdateError),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
+    Disabled = emqx_utils_maps:deep_put([<<"active_health_check">>, <<"enable">>], Invalid, false),
+    ?assertMatch(#{}, connector_config(Disabled)),
+    ?assertMatch({200, _}, update_connector_api(TCConfig, Disabled)),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)).
+
+t_active_health_check_cleanup() ->
+    [{matrix, true}].
+t_active_health_check_cleanup(matrix) ->
+    [[Mode] || Mode <- [timeout, body_timeout, owner_killed]];
+t_active_health_check_cleanup(TCConfig) when is_list(TCConfig) ->
+    Mode = emqx_common_test_helpers:get_matrix_prop(
+        TCConfig, [timeout, body_timeout, owner_killed], timeout
+    ),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1m">>,
+            <<"health_check_timeout">> => <<"500ms">>
+        }
+    }),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, _, #{state := State}} = emqx_resource:get_instance(ResId),
+    {_, #{client := BusinessClient}} = ehttpc:get_state(ResId),
+    TestPid = self(),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, HandlerState) ->
+        Req =
+            case Mode of
+                body_timeout -> cowboy_req:stream_reply(200, #{}, Req0);
+                _ -> Req0
+            end,
+        TestPid ! {hanging_probe, self()},
+        receive
+            finish -> ok
+        after 10_000 -> ok
+        end,
+        {ok, Req, HandlerState}
+    end),
+    #{active_health_check := #{pool := ProbePool}} = State,
+    {ProbeWorker, #{client := ProbeClient}} = ehttpc:get_state(ProbePool),
+    Caller = spawn(fun() ->
+        Result = emqx_bridge_http_connector:on_get_status(ResId, State),
+        TestPid ! {probe_result, Result}
+    end),
+    on_exit(fun() -> exit(Caller, kill) end),
+    {hanging_probe, Handler} = ?assertReceive({hanging_probe, _}, 2_000),
+    case Mode of
+        owner_killed ->
+            exit(Caller, kill);
+        _ ->
+            ?assertReceive(
+                {probe_result, {disconnected, {http_health_check_failed, timeout}}}, 1_000
+            )
+    end,
+    Handler ! finish,
+    ?retry(50, 40, ?assertMatch(#{requests := #{sent := 0}}, ehttpc:get_state(ProbeWorker))),
+    ?assert(is_process_alive(ProbeClient)),
+    ?assert(is_process_alive(BusinessClient)),
+    ?assertMatch({_, #{client := BusinessClient}}, ehttpc:get_state(ResId)),
+    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)).
+
+t_active_health_check_pool_recovery() ->
+    [{matrix, true}].
+t_active_health_check_pool_recovery(matrix) ->
+    [[Fault] || Fault <- [worker, manager]];
+t_active_health_check_pool_recovery(TCConfig) when is_list(TCConfig) ->
+    Fault = emqx_common_test_helpers:get_matrix_prop(TCConfig, [worker, manager], worker),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
+    }),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, _, #{state := #{active_health_check := #{pool := Pool}}}} = emqx_resource:get_instance(
+        ResId
+    ),
+    {Worker, #{client := Client}} = ehttpc:get_state(Pool),
+    Monitor = monitor(process, Client),
+    case Fault of
+        worker ->
+            {links, Links} = process_info(Worker, links),
+            [Supervisor] = Links -- [Client],
+            ok = sys:suspend(Supervisor),
+            on_exit(fun() -> catch sys:resume(Supervisor) end),
+            exit(Worker, kill),
+            ?assertReceive({'DOWN', Monitor, process, Client, _}, 2_000),
+            ?retry(50, 40, ?assertEqual([], ehttpc:workers(Pool))),
+            {ok, _, #{state := State}} = emqx_resource:get_instance(ResId),
+            ?assertEqual(
+                {connecting, still_connecting},
+                emqx_bridge_http_connector:on_get_status(ResId, State)
+            ),
+            ok = sys:resume(Supervisor);
+        manager ->
+            exit(emqx_resource_manager:where(ResId), kill),
+            ?assertReceive({'DOWN', Monitor, process, Client, _}, 5_000)
+    end,
+    ?retry(100, 50, ?assertEqual({ok, connected}, emqx_resource:health_check(ResId))),
+    {NewWorker, #{client := NewClient}} = ehttpc:get_state(Pool),
+    ?assertNotEqual(Worker, NewWorker),
+    ?assertNotEqual(Client, NewClient),
+    ?assertMatch({204, _}, disable_connector_api(TCConfig)),
+    ?assertEqual({error, not_found}, ehttpc:check_pool_integrity(Pool)).
+
+t_active_health_check_trailers(TCConfig) ->
+    TestPid = self(),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        Req =
+            case cowboy_req:method(Req1) of
+                <<"GET">> ->
+                    ?assertEqual(<<"trailers">>, cowboy_req:header(<<"te">>, Req1)),
+                    R = cowboy_req:stream_reply(200, #{<<"trailer">> => <<"x-health">>}, Req1),
+                    ok = cowboy_req:stream_body(<<"healthy">>, nofin, R),
+                    ok = cowboy_req:stream_trailers(#{<<"x-health">> => <<"ok">>}, R),
+                    TestPid ! {health_trailers, cowboy_req:peer(Req1)},
+                    R;
+                <<"POST">> ->
+                    TestPid ! {business_request, Body},
+                    cowboy_req:reply(200, #{}, <<>>, Req1)
+            end,
+        {ok, Req, State}
+    end),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"headers">> => #{<<"te">> => <<"trailers">>},
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1m">>,
+            <<"health_check_timeout">> => <<"500ms">>
+        }
+    }),
+    {health_trailers, Peer} = ?assertReceive({health_trailers, _}),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
+    {health_trailers, NextPeer} = ?assertReceive({health_trailers, _}),
+    ?assertEqual(Peer, NextPeer),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"body">> => <<"${payload}">>}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Client = start_client(),
+    Payload = unique_payload(),
+    emqtt:publish_async(Client, Topic, Payload, [{qos, 1}], fun(_) -> ok end),
+    ?assertReceive({business_request, Payload}, 5_000),
+    assert_http_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"matched">> => 1}).
+
+t_active_health_check_upgrade(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>},
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1s">>,
+            <<"health_check_timeout">> => <<"500ms">>
+        }
+    }),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req, State) ->
+        Reply = cowboy_req:reply(
+            101,
+            #{
+                <<"connection">> => <<"upgrade">>, <<"upgrade">> => <<"test-protocol">>
+            },
+            <<>>,
+            Req
+        ),
+        {ok, Reply, State}
+    end),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, disconnected}, emqx_resource:health_check(ResId)),
+    {ok, _, #{error := Error}} = emqx_resource:get_instance(ResId),
+    ?assert(
+        lists:member(Error, [
+            {http_health_check_failed, timeout}, <<"resource_health_check_timed_out">>
+        ])
+    ),
+    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
+    ?retry(100, 30, ?assertEqual({ok, connected}, emqx_resource:health_check(ResId))).
+
+t_active_health_check_tls_shutdown() ->
+    [{matrix, true}].
+-doc "Close probe connections during stalled TLS handshakes when disabling or updating a connector.".
+t_active_health_check_tls_shutdown(matrix) ->
+    [[Action] || Action <- [disable, update]];
+t_active_health_check_tls_shutdown(TCConfig) when is_list(TCConfig) ->
+    Action = emqx_common_test_helpers:get_matrix_prop(TCConfig, [disable, update], disable),
+    TestPid = self(),
+    Mode = ets:new(tls_health_check, [set, public]),
+    ets:insert(Mode, {mode, healthy}),
+    {ok, Listen} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
+    {ok, Port} = inet:port(Listen),
+    Acceptor = spawn(fun() -> tls_health_accept(Listen, Mode, TestPid) end),
+    on_exit(fun() ->
+        gen_tcp:close(Listen),
+        exit(Acceptor, shutdown),
+        ok
+    end),
+    URL = iolist_to_binary(["https://localhost:", integer_to_list(Port)]),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"url">> => URL,
+        <<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>},
+        <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/health">>},
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1m">>,
+            <<"health_check_timeout">> => <<"5s">>
+        }
+    }),
+    {tls_health_request, ProbeSocket} = ?assertReceive({tls_health_request, _}, 2_000),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, _, #{state := #{active_health_check := #{pool := ProbePool}}}} = emqx_resource:get_instance(
+        ResId
+    ),
+    {Worker, #{client := OldClient}} = ehttpc:get_state(ProbePool),
+    {links, OldLinks} = process_info(Worker, links),
+    BaseLinks = OldLinks -- [OldClient],
+    ets:insert(Mode, {mode, stall}),
+    ok = ssl:close(ProbeSocket),
+    ?retry(50, 40, ?assertMatch(#{client := undefined}, ehttpc:get_state(Worker))),
+    Caller = spawn(fun() -> TestPid ! {old_probe_result, emqx_resource:health_check(ResId)} end),
+    on_exit(fun() -> exit(Caller, kill) end),
+    {stalled_tls, Server} = ?assertReceive({stalled_tls, _}, 2_000),
+    {links, NewLinks} = process_info(Worker, links),
+    [Client] = NewLinks -- BaseLinks,
+    Monitor = monitor(process, Client),
+    case Action of
+        disable ->
+            ?assertMatch({204, _}, disable_connector_api(TCConfig));
+        update ->
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                update_connector_api(TCConfig, #{
+                    <<"active_health_check">> => #{<<"enable">> => true, <<"path">> => <<"/path">>}
+                })
+            )
+    end,
+    ?assertReceive({'DOWN', Monitor, process, Client, _}, 1_000),
+    ?assertReceive({tls_stall_closed, Server}, 1_000),
+    ?assertReceive({old_probe_result, {error, resource_shutting_down}}, 1_000).
+
+-doc "Validate the optional probe path and GET/HEAD methods through the connector schema.".
+t_active_health_check_schema(_TCConfig) ->
     lists:foreach(
         fun(Check) ->
-            ?assertMatch(#{}, connector_config(#{<<"health_check">> => Check}))
+            ?assertMatch(#{}, connector_config(#{<<"active_health_check">> => Check}))
         end,
         [
             #{<<"enable">> => false},
@@ -1031,7 +1038,7 @@ t_active_health_check_schema(_TCConfig) ->
             [#{<<"enable">> => true, <<"path">> => Path} || Path <- InvalidPaths],
     lists:foreach(
         fun(Check) ->
-            ?assertThrow({_, [_ | _]}, connector_config(#{<<"health_check">> => Check}))
+            ?assertThrow({_, [_ | _]}, connector_config(#{<<"active_health_check">> => Check}))
         end,
         InvalidChecks
     ).

@@ -87,18 +87,19 @@ fields("config_bridge_v2") ->
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         connector_url_headers() ++
-        [health_check_field()] ++
+        [active_health_check_field()] ++
         connector_opts() ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
-fields("health_check") ->
+fields("active_health_check") ->
     [
-        {enable, mk(boolean(), #{default => false, desc => ?DESC("health_check_enable")})},
-        {method, mk(enum([get, head]), #{default => get, desc => ?DESC("health_check_method")})},
+        {enable, mk(boolean(), #{default => false, desc => ?DESC("active_health_check_enable")})},
+        {method,
+            mk(enum([get, head]), #{default => get, desc => ?DESC("active_health_check_method")})},
         {path,
             mk(binary(), #{
                 required => false,
-                validator => fun validate_health_check_path/1,
-                desc => ?DESC("health_check_path")
+                validator => fun validate_active_health_check_path/1,
+                desc => ?DESC("active_health_check_path")
             })}
     ];
 fields(connector_resource_opts) ->
@@ -120,8 +121,8 @@ desc("http_action") ->
     ?DESC("desc_config");
 desc("parameters_opts") ->
     ?DESC("config_parameters_opts");
-desc("health_check") ->
-    ?DESC("health_check");
+desc("active_health_check") ->
+    ?DESC("active_health_check");
 desc(_) ->
     undefined.
 
@@ -131,38 +132,39 @@ desc(_) ->
 connector_url_headers() ->
     [url_field(), headers_field(), emqx_connector_oauth2_schema:oauth2_field()].
 
-health_check_field() ->
-    {health_check,
-        mk(ref(?MODULE, "health_check"), #{
+active_health_check_field() ->
+    {active_health_check,
+        mk(ref(?MODULE, "active_health_check"), #{
             required => false,
-            validator => fun validate_health_check/1,
-            desc => ?DESC("health_check")
+            validator => fun validate_active_health_check/1,
+            desc => ?DESC("active_health_check")
         })}.
 
 validate_connector(Conf) ->
     case emqx_utils_maps:binary_key_map(Conf) of
         #{
-            <<"health_check">> := #{<<"enable">> := true},
+            <<"active_health_check">> := #{<<"enable">> := true},
             <<"resource_opts">> := #{<<"health_check_timeout">> := Timeout}
         } when Timeout =:= infinity; Timeout =:= <<"infinity">> ->
-            {error, <<"HTTP health_check requires a finite resource_opts.health_check_timeout">>};
+            {error,
+                <<"HTTP active_health_check requires a finite resource_opts.health_check_timeout">>};
         _ ->
             ok
     end.
 
-validate_health_check(Conf) ->
+validate_active_health_check(Conf) ->
     case emqx_utils_maps:binary_key_map(Conf) of
         #{<<"enable">> := true, <<"path">> := _} ->
             ok;
         #{<<"enable">> := true} ->
-            {error, <<"path is required when the HTTP health check is enabled">>};
+            {error, <<"path is required when the active HTTP health check is enabled">>};
         _ ->
             ok
     end.
 
-validate_health_check_path(<<"//", _/binary>>) ->
+validate_active_health_check_path(<<"//", _/binary>>) ->
     {error, <<"The health check path must not contain a host">>};
-validate_health_check_path(<<"/", _/binary>> = Path) ->
+validate_active_health_check_path(<<"/", _/binary>> = Path) ->
     case {uri_string:parse(Path), emqx_template:is_const(emqx_template:parse(Path))} of
         {#{fragment := _}, _} ->
             {error, <<"The health check path must not contain a fragment">>};
@@ -171,7 +173,7 @@ validate_health_check_path(<<"/", _/binary>> = Path) ->
         _ ->
             {error, <<"The health check path must be a static URI path">>}
     end;
-validate_health_check_path(_) ->
+validate_active_health_check_path(_) ->
     {error, <<"The health check path must start with '/'">>}.
 
 %%--------------------------------------------------------------------
