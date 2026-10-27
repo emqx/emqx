@@ -132,10 +132,11 @@
 
 -type inflight_data_phase() :: wait_ack | wait_comp.
 
+%% This record tracks QoS2 phases and retries.
 -record(inflight_data, {
     phase :: inflight_data_phase(),
     message :: emqx_types:message(),
-    timestamp :: non_neg_integer()
+    timestamp :: unix_timestamp_ms()
 }).
 
 -type session() :: #session{}.
@@ -160,6 +161,13 @@
 }.
 
 -type unix_timestamp_ms() :: non_neg_integer().
+-type inflight_position() ::
+    %% {BeginUs, PacketId}: delivery start time in microseconds, with packet ID as a tie-breaker.
+    {integer(), emqx_types:packet_id()}
+    %% integer(): legacy nanosecond insertion timestamp, or the compatibility cursor BeginUs * 1000 + PacketId.
+    | integer()
+    %% none: start querying from the first entry, also denotes the start of an empty inflight collection.
+    | none.
 
 -type message() :: emqx_types:message().
 -type clientinfo() :: emqx_types:clientinfo().
@@ -179,8 +187,6 @@
     mqueue_dropped,
     awaiting_rel_cnt
 ]).
-
--define(INFLIGHT_INSERT_TS, inflight_insert_ts).
 
 -define(DEQUEUE_RETRY_TIMER, retry_dequeue).
 -define(DELIVER_RETRY_TIMER, retry_delivery).
@@ -321,6 +327,10 @@ filter_remote_session(Session = #session{mqueue = Q}) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
     Session#session{mqueue = Q1}.
 
+-doc """
+Export state in the current session format.
+Cross-version encoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
 -spec export(session()) -> exported().
 export(#session{
     id = Id,
@@ -351,6 +361,13 @@ export_mqueue(MQueue) ->
 export_inflight(Inflight) ->
     [export_inflight_entry(Entry) || Entry <- emqx_inflight:to_list(Inflight)].
 
+export_inflight_entry({PacketId, #message{} = Message}) ->
+    #{
+        packet_id => PacketId,
+        phase => wait_ack,
+        message => Message,
+        timestamp => inflight_timestamp(Message)
+    };
 export_inflight_entry(
     {PacketId, #inflight_data{phase = Phase, message = Message, timestamp = Timestamp}}
 ) ->
@@ -361,6 +378,10 @@ export_inflight_entry(
         timestamp => Timestamp
     }.
 
+-doc """
+Import state in the current session format.
+Cross-version decoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
 -spec import(clientinfo(), exported()) -> session().
 import(ClientInfo, #{
     id := Id,
@@ -385,7 +406,10 @@ import(ClientInfo, #{
         created_at = CreatedAt
     }.
 
--doc "Import transferred state with new connection limits and session configuration.".
+-doc """
+Import current-format state with new connection limits and session configuration.
+Cross-version decoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
 -spec import(clientinfo(), conninfo(), exported()) -> session().
 import(ClientInfo, ConnInfo, Exported) ->
     Session0 = import(ClientInfo, Exported),
@@ -403,12 +427,19 @@ import_inflight_entry(
     #{
         packet_id := PacketId,
         phase := Phase,
-        message := Message,
+        message := Msg,
         timestamp := Timestamp
     },
     Inflight
 ) ->
-    Entry = #inflight_data{phase = Phase, message = Message, timestamp = Timestamp},
+    %% Imported messages may retain unused metadata.
+    Entry =
+        case {Phase, Msg#message.qos, inflight_timestamp(Msg)} of
+            {wait_ack, ?QOS_1, Timestamp} ->
+                Msg;
+            _ ->
+                #inflight_data{phase = Phase, message = Msg, timestamp = Timestamp}
+        end,
     emqx_inflight:insert(PacketId, Entry, Inflight).
 
 %%--------------------------------------------------------------------
@@ -441,7 +472,11 @@ info(inflight_cnt, #session{inflight = Inflight}) ->
 info(inflight_max, #session{inflight = Inflight}) ->
     emqx_inflight:max_size(Inflight);
 info({inflight_msgs, PagerParams}, #session{inflight = Inflight}) ->
-    inflight_query(Inflight, PagerParams);
+    {_Mode, Position} = query_position(PagerParams),
+    case valid_inflight_position(Position) of
+        true -> inflight_query(Inflight, PagerParams);
+        false -> {[], #{position => Position, start => none}}
+    end;
 info(retry_interval, #session{conf = #session_conf{retry_interval = Interval}}) ->
     Interval;
 info(mqueue, #session{mqueue = {empty, MaxLen}}) ->
@@ -592,16 +627,19 @@ dup_publish_result(#message{topic = Topic}) ->
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
+-compile({inline, [ack_inflight/4]}).
+
 -spec puback(clientinfo(), emqx_types:packet_id(), [emqx_session:connflag()], session()) ->
     {ok | effects(), emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 puback(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
+        {value, #message{qos = ?QOS_1} = Msg} ->
+            Inflight1 = emqx_inflight:delete(PacketId, Inflight),
+            ack_inflight(ClientInfo, Flags, Msg, Session#session{inflight = Inflight1});
         {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_1} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session1 = Session#session{inflight = Inflight1},
-            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Flags, Session1),
-            {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
+            ack_inflight(ClientInfo, Flags, Msg, Session#session{inflight = Inflight1});
         {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _} ->
@@ -609,6 +647,10 @@ puback(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
         none ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.
+
+ack_inflight(ClientInfo, Flags, Msg, Session) ->
+    {OkEffects, Replies, Session1} = dequeue(ClientInfo, Flags, Session),
+    {OkEffects, Msg, Replies, Session1}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBREC
@@ -622,8 +664,10 @@ pubrec(PacketId, Session = #session{inflight = Inflight}) ->
         {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_2} = Msg} = Data} ->
             Update = Data#inflight_data{phase = wait_comp},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-            {ok, without_inflight_insert_ts(Msg), Session#session{inflight = Inflight1}};
+            {ok, Msg, Session#session{inflight = Inflight1}};
         {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
+            {error, ?RC_PROTOCOL_ERROR};
+        {value, #message{}} ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
@@ -658,10 +702,10 @@ pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_comp, message = #message{qos = ?QOS_2} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session1 = Session#session{inflight = Inflight1},
-            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Flags, Session1),
-            {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
+            ack_inflight(ClientInfo, Flags, Msg, Session#session{inflight = Inflight1});
         {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= ?QOS_2 ->
+            {error, ?RC_PROTOCOL_ERROR};
+        {value, #message{}} ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _Other} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
@@ -998,13 +1042,25 @@ delivery_effect(_Session, _Inflight) ->
     ok.
 
 insert_inflight(PktId, Msg, Inflight) ->
-    MarkedMsg = mark_begin_deliver(Msg),
-    emqx_inflight:insert(PktId, with_ts(MarkedMsg), Inflight).
+    Now = erlang:system_time(microsecond),
+    MarkedMsg = mark_begin_deliver(Msg, Now),
+    Data =
+        case Msg#message.qos of
+            ?QOS_1 ->
+                MarkedMsg;
+            ?QOS_2 ->
+                #inflight_data{
+                    phase = wait_ack,
+                    message = MarkedMsg,
+                    timestamp = Now div 1000
+                }
+        end,
+    emqx_inflight:insert(PktId, Data, Inflight).
 
 inflight_payload_bytes(Inflight) ->
     emqx_inflight:fold(
-        fun(_PacketId, #inflight_data{message = Msg}, Acc) ->
-            Acc + emqx_message:payload_size(Msg)
+        fun(_PacketId, Data, Acc) ->
+            Acc + emqx_message:payload_size(inflight_message(Data))
         end,
         0,
         Inflight
@@ -1069,8 +1125,8 @@ enqueue_unless_nacked(ClientInfo, Msg, Q) ->
 nack_by_hook(Msg) ->
     emqx_hooks:'message.nack'(Msg, false).
 
-mark_begin_deliver(Msg) ->
-    emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).
+mark_begin_deliver(Msg, Now) ->
+    emqx_message:set_header(deliver_begin_at_us, Now, Msg).
 
 %%--------------------------------------------------------------------
 %% Timeouts
@@ -1147,14 +1203,14 @@ retry_delivery(_ClientInfo, [], Acc, _Now, Interval, Inflight, Session) ->
     {Effect, lists:reverse(Acc), Session#session{inflight = Inflight}};
 retry_delivery(
     ClientInfo,
-    [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
+    [{PacketId, Data} | More],
     Acc,
     Now,
     Interval,
     Inflight,
     Session
 ) ->
-    Age = age(Now, Ts),
+    Age = age(Now, inflight_timestamp(Data)),
     case Age >= Interval of
         true ->
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
@@ -1165,9 +1221,18 @@ retry_delivery(
     end.
 
 do_retry_delivery(
+    ClientInfo,
+    PacketId,
+    #inflight_data{phase = wait_ack, message = Msg},
+    Now,
+    Acc,
+    Inflight
+) ->
+    do_retry_delivery(ClientInfo, PacketId, Msg, Now, Acc, Inflight);
+do_retry_delivery(
     ClientInfo = #{zone := Zone},
     PacketId,
-    #inflight_data{phase = wait_ack, message = Msg} = Data,
+    #message{} = Msg,
     Now,
     Acc,
     Inflight
@@ -1178,9 +1243,9 @@ do_retry_delivery(
             {Acc, emqx_inflight:delete(PacketId, Inflight)};
         false ->
             Msg1 = emqx_message:set_flag(dup, true, Msg),
-            Update = Data#inflight_data{message = Msg1, timestamp = Now},
+            Update = #inflight_data{phase = wait_ack, message = Msg1, timestamp = Now},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-            {[{PacketId, without_inflight_insert_ts(Msg1)} | Acc], Inflight1}
+            {[{PacketId, Msg1} | Acc], Inflight1}
     end;
 do_retry_delivery(_ClientInfo, PacketId, Data, Now, Acc, Inflight) ->
     Update = Data#inflight_data{timestamp = Now},
@@ -1336,8 +1401,8 @@ replay(ClientInfo, Session) ->
         fun
             ({PacketId, #inflight_data{phase = wait_comp}}) ->
                 {pubrel, PacketId};
-            ({PacketId, #inflight_data{message = Msg}}) ->
-                {PacketId, without_inflight_insert_ts(emqx_message:set_flag(dup, true, Msg))}
+            ({PacketId, Data}) ->
+                {PacketId, emqx_message:set_flag(dup, true, inflight_message(Data))}
         end,
         emqx_inflight:to_list(Session#session.inflight)
     ),
@@ -1388,15 +1453,17 @@ maybe_redispatch_shared_messages(_Reason, Session) ->
 
 redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
     AllInflights = emqx_inflight:to_list(fun sort_fun/2, Inflight),
-    F = fun
-        ({_PacketId, #inflight_data{message = #message{qos = ?QOS_1} = Msg}}) ->
-            %% For QoS 2, here is what the spec says:
-            %% If the Client's Session terminates before the Client reconnects,
-            %% the Server MUST NOT send the Application Message to any other
-            %% subscribed Client [MQTT-4.8.2-5].
-            {true, without_inflight_insert_ts(Msg)};
-        ({_PacketId, #inflight_data{}}) ->
-            false
+    F = fun({_PacketId, Data}) ->
+        case inflight_message(Data) of
+            #message{qos = ?QOS_1} = Msg ->
+                %% For QoS 2, here is what the spec says:
+                %% If the Client's Session terminates before the Client reconnects,
+                %% the Server MUST NOT send the Application Message to any other
+                %% subscribed Client [MQTT-4.8.2-5].
+                {true, Msg};
+            _ ->
+                false
+        end
     end,
     InflightList = lists:filtermap(F, AllInflights),
     %% Redispatched messages enter another queue as new entries.
@@ -1484,61 +1551,94 @@ retry_dequeue_timer_effect(_Reason) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile(
-    {inline, [
-        sort_fun/2, batch_n/1, inflight_insert_ts/1, without_inflight_insert_ts/1, with_ts/1, age/2
-    ]}
-).
+-compile({inline, [sort_fun/2, inflight_message/1, inflight_timestamp/1, batch_n/1, age/2]}).
+
+inflight_message(#message{} = Msg) ->
+    Msg;
+inflight_message(#inflight_data{message = Msg}) ->
+    Msg.
+
+inflight_timestamp(#message{headers = #{deliver_begin_at_us := Begin}}) ->
+    Begin div 1000;
+inflight_timestamp(#inflight_data{timestamp = Ts}) ->
+    Ts.
 
 sort_fun({_, A}, {_, B}) ->
-    A#inflight_data.timestamp =< B#inflight_data.timestamp.
+    inflight_timestamp(A) =< inflight_timestamp(B).
 
-query_sort_fun({_, #inflight_data{message = A}}, {_, #inflight_data{message = B}}) ->
-    inflight_insert_ts(A) =< inflight_insert_ts(B).
+inflight_insert_time(#message{headers = #{deliver_begin_at_us := Begin}}) ->
+    Begin.
 
 -spec inflight_query(emqx_inflight:inflight(), #{
-    position => integer() | none, limit := pos_integer()
+    position => inflight_position(),
+    cursor => inflight_position(),
+    limit := pos_integer()
 }) ->
-    {[emqx_types:message()], #{position := integer() | none, start := integer() | none}}.
+    {
+        [emqx_types:message()],
+        #{position := inflight_position(), start := inflight_position()}
+    }.
 inflight_query(Inflight, #{limit := Limit} = PagerParams) ->
-    InflightL = emqx_inflight:to_list(fun query_sort_fun/2, Inflight),
+    {Mode, Position} = query_position(PagerParams),
+    InflightL = lists:keysort(1, [
+        {inflight_query_position(Mode, inflight_insert_time(Msg), PacketId), Msg}
+     || {PacketId, Data} <- emqx_inflight:to_list(Inflight), Msg <- [inflight_message(Data)]
+    ]),
     StartPos =
         case InflightL of
-            [{_, #inflight_data{message = FirstM}} | _] -> inflight_insert_ts(FirstM);
+            [{FirstPos, _} | _] -> FirstPos;
             [] -> none
         end,
-    Position = maps:get(position, PagerParams, none),
-    InflightMsgs = sublist_from_pos(InflightL, Position, Limit),
+    Page = sublist_from_pos(InflightL, Position, Limit),
     NextPos =
-        case InflightMsgs of
+        case Page of
             [_ | _] = L ->
-                inflight_insert_ts(lists:last(L));
+                {LastPos, _} = lists:last(L),
+                LastPos;
             [] ->
                 Position
         end,
+    InflightMsgs = [with_inflight_query_position(Mode, Msg, Pos) || {Pos, Msg} <- Page],
     {InflightMsgs, #{start => StartPos, position => NextPos}}.
 
 sublist_from_pos(InflightList, none = _Position, Limit) ->
-    inflight_msgs_sublist(InflightList, Limit);
+    lists:sublist(InflightList, Limit);
 sublist_from_pos(InflightList, Position, Limit) ->
     Inflight = lists:dropwhile(
-        fun({_, #inflight_data{message = M}}) ->
-            inflight_insert_ts(M) =< Position
+        fun({MsgPosition, _}) ->
+            MsgPosition =< Position
         end,
         InflightList
     ),
-    inflight_msgs_sublist(Inflight, Limit).
+    lists:sublist(Inflight, Limit).
 
-%% Small optimization to get sublist and drop keys in one traversal
-inflight_msgs_sublist([{_Key, #inflight_data{message = Msg}} | T], Limit) when Limit > 0 ->
-    [Msg | inflight_msgs_sublist(T, Limit - 1)];
-inflight_msgs_sublist(_, _) ->
-    [].
+query_position(#{cursor := Cursor}) ->
+    {cursor, Cursor};
+query_position(Params) ->
+    {legacy, maps:get(position, Params, none)}.
 
-inflight_insert_ts(#message{extra = #{?INFLIGHT_INSERT_TS := Ts}}) -> Ts.
+valid_inflight_position(none) ->
+    true;
+valid_inflight_position(Pos) when is_integer(Pos) ->
+    true;
+valid_inflight_position({Ts, PacketId}) ->
+    is_integer(Ts) andalso is_integer(PacketId) andalso PacketId >= 0 andalso PacketId =< 65535;
+valid_inflight_position(_) ->
+    false.
 
-without_inflight_insert_ts(#message{extra = Extra} = Msg) ->
-    Msg#message{extra = maps:remove(?INFLIGHT_INSERT_TS, Extra)}.
+inflight_query_position(cursor, BeginUs, PacketId) ->
+    {BeginUs, PacketId};
+inflight_query_position(legacy, BeginUs, PacketId) ->
+    %% Compatibility cursor for old management APIs, which expose it as inserted_at.
+    BeginUs * 1000 + PacketId.
+
+with_inflight_query_position(cursor, #message{extra = Extra = #{}} = Msg, {BeginUs, _} = Cursor) ->
+    Msg#message{extra = Extra#{query_cursor => Cursor, inflight_insert_ts => BeginUs * 1000}};
+with_inflight_query_position(legacy, #message{extra = Extra = #{}} = Msg, Pos) ->
+    Msg#message{extra = maps:remove(query_cursor, Extra#{inflight_insert_ts => Pos})};
+with_inflight_query_position(Mode, Msg, Cursor) ->
+    %% Before 5.4.0, the unused extra field defaulted to an empty list.
+    with_inflight_query_position(Mode, Msg#message{extra = #{}}, Cursor).
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of
@@ -1550,23 +1650,6 @@ batch_n(Inflight) ->
             %% lower than the number of outstanding publishes.
             max(0, Sz - emqx_inflight:size(Inflight))
     end.
-
-with_ts(#message{extra = Extra} = Msg) ->
-    InsertTsNano = erlang:system_time(nanosecond),
-    %% This is used to sort/traverse messages in inflight_query/2
-    Extra1 =
-        case is_map(Extra) of
-            true -> Extra;
-            %% extra field has not being used before EMQX 5.4.0 and defaulted to an empty list,
-            %% if it's not a map it's safe to overwrite it
-            false -> #{}
-        end,
-    Msg1 = Msg#message{extra = Extra1#{?INFLIGHT_INSERT_TS => InsertTsNano}},
-    #inflight_data{
-        phase = wait_ack,
-        message = Msg1,
-        timestamp = erlang:convert_time_unit(InsertTsNano, nanosecond, millisecond)
-    }.
 
 age(Now, Ts) -> Now - Ts.
 

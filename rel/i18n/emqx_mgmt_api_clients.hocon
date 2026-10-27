@@ -89,7 +89,8 @@ msg_from_username.label:
 """Message Publisher's Username"""
 
 msg_inserted_at.desc:
-"""A nanosecond precision Unix epoch timestamp at which a message was inserted to In-flight / Mqueue."""
+"""Message insertion time as a Unix epoch timestamp in nanoseconds.
+For in-flight messages, the actual clock precision is microseconds."""
 msg_inserted_at.label:
 """Message Insertion Time"""
 

@@ -1156,24 +1156,24 @@ test_cluster_takeover(Protocol, OwnerNode, RequesterNode, Config) ->
                                 ?snk_meta := #{node := RequesterNode},
                                 clientid := ClientId,
                                 target_node := OwnerNode,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_kind := emqx_cm_takeover_begin_rpc,
                                 ?snk_meta := #{node := OwnerNode},
                                 clientid := ClientId,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_kind := emqx_cm_takeover_finish,
                                 ?snk_meta := #{node := RequesterNode},
                                 target_node := OwnerNode,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_meta := #{node := OwnerNode},
                                 ?snk_kind := emqx_cm_takeover_finish_rpc,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             }
                         ],
                         Events
