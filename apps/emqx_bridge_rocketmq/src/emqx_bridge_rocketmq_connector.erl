@@ -350,7 +350,11 @@ destroy_allocated_channel_resources(ConnResId, ChanResId) ->
                 _ = rocketmq:stop_and_delete_supervised_producers(Producers),
                 maybe
                     #{?client_id := Table} ?= Resources,
-                    _ = ets:delete(Table, ProducerGroup)
+                    try
+                        _ = ets:delete(Table, ProducerGroup)
+                    catch
+                        error:badarg -> ok
+                    end
                 end,
                 deallocate(ConnResId, Key);
             (_, _) ->
