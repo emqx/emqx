@@ -47,7 +47,7 @@ Instructions:
 
 -doc """
 List of vertices.
-Anything that can depend on something or be a dependency of something should be in this list.
+Anything that can depend on something or be a dependency of something is a vertex.
 """.
 vertices() ->
     [
@@ -61,7 +61,7 @@ vertices() ->
     ].
 
 -doc """
-This function allows to restrict the allowed run level for a vertex in a closed interval.
+This function allows to restrict the closed interval of allowed run levels for a vertex.
 """.
 range(emqx_rl_config_table_ready) ->
     {?min_level, ?classy_rl_cluster};
@@ -78,7 +78,7 @@ pinned_levels() ->
         emqx_rl_boot => ?mria_rl_ready,
         emqx_rl_ready => ?classy_rl_ready,
         %% Pinned to leave some run level space before ready:
-        emqx_rl_listener => ?classy_rl_ready - 30
+        emqx_rl_listener => ?classy_rl_ready - 20
     }.
 
 -doc """
@@ -243,7 +243,7 @@ to_sexp(L) ->
     lists:join($\n, [to_sexp1(I) || I <- L]).
 
 to_sexp1(L) when is_list(L) ->
-    [$(, lists:join($\ , [to_sexp1(I) || I <- L]), $)];
+    [$(, lists:join($ , [to_sexp1(I) || I <- L]), $)];
 to_sexp1(I) when is_integer(I) ->
     integer_to_binary(I);
 to_sexp1(A) when is_atom(A) ->
