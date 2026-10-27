@@ -302,7 +302,7 @@ t_http_scram_login_storage_unavailable(_) ->
         #{username => ?USERNAME, client_nonce => ClientNonce}
     ),
     ok = meck:new(mria, [passthrough, no_history]),
-    ok = meck:expect(mria, sync_transaction, fun(_, _) ->
+    ok = meck:expect(mria, sync_transaction, fun(_, _, _) ->
         {timeout, {error, shard_not_ready}}
     end),
     try

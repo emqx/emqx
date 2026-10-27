@@ -5,7 +5,7 @@ defmodule EMQXBPAPI.MixProject do
   def project do
     [
       app: :emqx_bpapi,
-      version: "6.3.0",
+      version: "6.3.1",
       build_path: "../../_build",
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -26,6 +26,8 @@ defmodule EMQXBPAPI.MixProject do
 
   def deps() do
     UMP.deps([
+      # the parse transform of the proto module
+      {:emqx_utils, in_umbrella: true, runtime: false},
       :snabbkaffe
     ])
   end

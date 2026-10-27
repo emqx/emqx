@@ -91,6 +91,61 @@ is_running(Node) ->
     rpc:call(Node, emqx, is_running, []).
 ```
 
+## Transaction BPAPI modules
+
+A replicant node does not run mria transactions itself. `mria:transaction/3`,
+`mria:sync_transaction/3`, `mria:async_dirty/3`, `mria:sync_dirty/3` and, when
+the shard is disconnected, `mria:ro_transaction/2` send the fun to a core node,
+which runs it. An anonymous fun or a local fun (`fun f/1`) carries the identity
+of the module version that created it, so the call fails with `badfun` when the
+core runs another build of that module. `scripts/check-mria-tx-funs.escript`
+rejects such call sites.
+
+A fun that a replicant passes to mria is therefore an inter-node contract like
+an RPC target, and it lives in a transaction BPAPI module, named
+`<api>_tx_proto_v<number>`. Every function in it is the transaction fun: the
+call site passes it by name, and a core node runs it. Its body is one call to
+the implementation, with the same arguments in the same order, and that
+implementation is recorded as the target of the function, like the target of an
+RPC wrapper. There is no RPC call in such a module.
+
+```erlang
+-module(emqx_dashboard_admin_tx_proto_v1).
+
+-behaviour(emqx_bpapi).
+
+-include_lib("emqx/include/bpapi.hrl").
+
+-export([introduced_in/0]).
+
+-export([remove_user/1]).
+
+introduced_in() ->
+    "6.3.3".
+
+-spec remove_user(binary()) -> ok.
+remove_user(Username) ->
+    emqx_dashboard_admin:remove_user_tx(Username).
+```
+
+```erlang
+%% The call site, in emqx_dashboard_admin:
+mria:sync_transaction(?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:remove_user/1, [Username])
+```
+
+The same freezing rules apply once the release in `introduced_in()` reaches GA.
+Two more rules follow from the fact that the peer calls the module itself:
+
+- A transaction proto module is never deleted while a released node can name
+  it. The static checks require its functions, and their implementations, to
+  stay exported.
+- Mria does not negotiate a version: the replicant does not pick the core that
+  runs the fun. A new version of a transaction API is a change of
+  `EMQX_DB_SCHEMA_VSN` (`apps/emqx/include/emqx_release.hrl`), which replicant
+  and core compare before they connect. `scripts/check-db-schema.escript`
+  compares the set of transaction API versions against the baseline of the
+  current `EMQX_DB_SCHEMA_VSN` and fails until the version is bumped.
+
 ## Backplane module life cycle
 
 1. Once the minor EMQX release stated in `introduced_in()` callback of

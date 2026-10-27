@@ -1,0 +1,14 @@
+%% Modules that pass a transaction fun to mria by value, and how many
+%% call sites each one has. Checked by scripts/check-mria-tx-funs.escript;
+%% `--list' prints the sites.
+%%
+%% This list is maintained by hand and only ever shrinks. Lower a count
+%% when a call site is removed, and delete the line at 0.
+%%
+%% Do not add to this list. A replicant ships such a fun to a core node,
+%% and the call fails with `badfun' when the core runs another build of
+%% the module. The place for a transaction fun is a transaction BPAPI
+%% module, `<api>_tx_proto_v<N>' (see apps/emqx_bpapi/README.md), and
+%% the call site passes it by name: `fun <api>_tx_proto_vN:f/N' with an
+%% argument list.
+[].

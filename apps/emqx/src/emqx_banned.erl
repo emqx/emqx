@@ -51,6 +51,9 @@
     expire_banned_items/1
 ]).
 
+%% Transaction funs. A core node runs them behind emqx_banned_tx_proto_v1.
+-export([import_rules_tx/2]).
+
 -elvis([{elvis_style, state_record_and_type, disable}]).
 
 -define(BANNED_INDIVIDUAL_TAB, ?MODULE).
@@ -312,16 +315,7 @@ import_from_stream(Stream) ->
     ),
     maps:foreach(
         fun(Tab, Items) ->
-            Trans = fun() ->
-                lists:foreach(
-                    fun(Item) ->
-                        mnesia:write(Tab, Item, write)
-                    end,
-                    Items
-                )
-            end,
-
-            case trans(Trans) of
+            case trans(fun emqx_banned_tx_proto_v1:import_rules/2, [Tab, Items]) of
                 {ok, _} ->
                     ?SLOG(info, #{
                         msg => "import_banned_from_stream_succeeded",
@@ -563,11 +557,13 @@ all_rules() ->
     %% Upgrade legacy format records when returning rules
     lists:map(fun upgrade_legacy_rule/1, ets:tab2list(?BANNED_RULE_TAB)).
 
-trans(Fun) ->
-    case mria:transaction(?COMMON_SHARD, Fun) of
-        {atomic, Res} -> {ok, Res};
-        {aborted, Reason} -> {error, Reason}
-    end.
+import_rules_tx(Tab, Items) ->
+    lists:foreach(
+        fun(Item) ->
+            mnesia:write(Tab, Item, write)
+        end,
+        Items
+    ).
 
 trans(Fun, Args) ->
     case mria:transaction(?COMMON_SHARD, Fun, Args) of

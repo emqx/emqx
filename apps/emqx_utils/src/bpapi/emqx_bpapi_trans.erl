@@ -15,7 +15,19 @@
 %%--------------------------------------------------------------------
 
 %% @hidden This parse transform generates BPAPI metadata function for
-%% a module, and helps dialyzer typechecking RPC calls
+%% a module, and helps dialyzer typechecking RPC calls.
+%%
+%% Two kinds of module go through it:
+%%
+%% - `<api>_proto_v<N>': every function wraps one RPC call, and the
+%%   target of the RPC is the function the peer node runs.
+%% - `<api>_tx_proto_v<N>': every function is a transaction fun that a
+%%   replicant passes to mria by name (`fun <api>_tx_proto_vN:f/A'),
+%%   and that a core node runs inside its transaction. Its body is one
+%%   call to the implementation, `m:f(Args)' with the same arguments,
+%%   and that implementation is recorded as the target.
+%%
+%% Both record their targets as calls, so the same static checks apply.
 -module(emqx_bpapi_trans).
 
 -export([parse_transform/2, format_error/1]).
@@ -26,10 +38,13 @@
 
 -type semantics() :: call | cast.
 
+-type kind() :: rpc | tx.
+
 -record(s, {
     api :: emqx_bpapi:api(),
     module :: module(),
     version :: emqx_bpapi:api_version() | undefined,
+    kind = rpc :: kind(),
     targets = [] :: [{semantics(), emqx_bpapi:call(), emqx_bpapi:call()}],
     errors = [] :: list(),
     file
@@ -42,6 +57,14 @@ format_error({invalid_fun, Name, Arity}) ->
         "malformed function ~p/~p. "
         "BPAPI functions should have exactly one clause "
         "and call (emqx_|e)rpc at the top level",
+        [Name, Arity]
+    );
+format_error({invalid_tx_fun, Name, Arity}) ->
+    io_lib:format(
+        "malformed function ~p/~p. "
+        "A transaction BPAPI function should have exactly one clause whose body is "
+        "one call to the implementation, m:f(Args), with the same arguments in the "
+        "same order",
         [Name, Arity]
     ).
 
@@ -61,7 +84,7 @@ go({attribute, _, file, {File, _}}, S) ->
     S#s{file = File};
 go({attribute, Line, module, Mod}, S) ->
     case api_and_version(Mod) of
-        {ok, API, Vsn} -> S#s{api = API, version = Vsn, module = Mod};
+        {ok, API, Vsn} -> S#s{api = API, version = Vsn, module = Mod, kind = kind(API)};
         error -> push_err(Line, invalid_name, S)
     end;
 go({function, _Line, introduced_in, 0, _}, S) ->
@@ -101,13 +124,14 @@ mk_export() ->
 is_attribute({attribute, _Line, _Attr, _Val}) -> true;
 is_attribute(_) -> false.
 
-%% Extract the target function of the RPC call
+%% Extract the target function of the RPC call, or the implementation
+%% of a transaction fun
 analyze_fun(Line, Name, Arity, [{clause, Line, Head, _Guards, Exprs}], S) ->
     analyze_exprs(Line, Name, Arity, Head, Exprs, S);
 analyze_fun(Line, Name, Arity, _Clauses, S) ->
     invalid_fun(Line, Name, Arity, S).
 
-analyze_exprs(Line, Name, Arity, Head, Exprs, S) ->
+analyze_exprs(Line, Name, Arity, Head, Exprs, S = #s{kind = rpc}) ->
     log("~p/~p (~p):~n~p", [Name, Arity, Head, Exprs]),
     try
         [{call, _, CallToBackend, CallArgs}] = Exprs,
@@ -119,7 +143,25 @@ analyze_exprs(Line, Name, Arity, Head, Exprs, S) ->
         _:Err:Stack ->
             log("Failed to process function call:~n~s~nStack: ~p", [Err, Stack]),
             invalid_fun(Line, Name, Arity, S)
+    end;
+analyze_exprs(Line, Name, Arity, Head, Exprs, S = #s{kind = tx}) ->
+    log("~p/~p (~p):~n~p", [Name, Arity, Head, Exprs]),
+    try
+        [{call, _, {remote, _, {atom, _, M}, {atom, _, F}}, CallArgs}] = Exprs,
+        false = is_rpc_backend(M),
+        OuterArgs = extract_outer_args(Head),
+        %% The implementation takes the same arguments in the same order:
+        OuterArgs = [Var || {var, _, Var} <- CallArgs],
+        Key = {S#s.module, Name, OuterArgs},
+        push_target({call, Key, {M, F, OuterArgs}}, S)
+    catch
+        _:Err:Stack ->
+            log("Failed to process transaction fun:~n~p~nStack: ~p", [Err, Stack]),
+            push_err(Line, {invalid_tx_fun, Name, Arity}, S)
     end.
+
+is_rpc_backend(M) ->
+    lists:member(M, [gen_rpc, erpc, rpc, emqx_rpc, emqx_cluster_rpc]).
 
 -spec extract_outer_args([erl_parse:abstract_form()]) -> [atom()].
 extract_outer_args(Abs) ->
@@ -199,6 +241,14 @@ api_and_version(Module) ->
             {ok, list_to_atom(API), list_to_integer(VsnStr)};
         nomatch ->
             error
+    end.
+
+%% `<api>_tx_proto_v<N>' modules hold transaction funs, see the module doc.
+-spec kind(emqx_bpapi:api()) -> kind().
+kind(API) ->
+    case lists:suffix("_tx", atom_to_list(API)) of
+        true -> tx;
+        false -> rpc
     end.
 
 -ifdef(debug).

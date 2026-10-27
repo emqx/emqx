@@ -45,7 +45,17 @@
 %% Internal exports for `emqx_schema_registry_config`.
 -export([protobuf_resolve_imports/1]).
 
--elvis([{elvis_style, no_match_in_condition, disable}]).
+%% Transaction funs. A core node runs them behind emqx_schema_registry_serde_tx_proto_v1.
+-export([
+    lazy_generate_protobuf_code_trans/3,
+    destroy_protobuf_code_trans/1
+]).
+
+-elvis([
+    {elvis_style, no_match_in_condition, disable},
+    %% protobuf_serde_mod_name/1 names a generated module after the schema
+    {elvis_style, no_common_caveats_call, disable}
+]).
 
 %%------------------------------------------------------------------------------
 %% Type definitions
@@ -551,7 +561,7 @@ lazy_generate_protobuf_code(Name, SerdeMod0, Source) ->
     %% the schema, and other nodes will simply read the final result.
     {atomic, Res} = mria:transaction(
         ?SCHEMA_REGISTRY_SHARD,
-        fun lazy_generate_protobuf_code_trans/3,
+        fun emqx_schema_registry_serde_tx_proto_v1:lazy_generate_protobuf_code/3,
         [Name, SerdeMod0, Source]
     ),
     Res.
@@ -714,7 +724,7 @@ destroy_protobuf_code(Serde) ->
     #serde{extra = #{cache_key := CacheKey}} = Serde,
     {atomic, Res} = mria:transaction(
         ?SCHEMA_REGISTRY_SHARD,
-        fun destroy_protobuf_code_trans/1,
+        fun emqx_schema_registry_serde_tx_proto_v1:destroy_protobuf_code/1,
         [CacheKey]
     ),
     ?tp("schema_registry_protobuf_cache_destroyed", #{name => Serde#serde.name}),

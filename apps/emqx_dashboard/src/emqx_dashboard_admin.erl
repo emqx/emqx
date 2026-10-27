@@ -86,6 +86,30 @@
 
 -export([remove_all_users_from_namespace/1]).
 
+%% Transaction funs. A core node runs them behind emqx_dashboard_admin_tx_proto_v1.
+-export([
+    add_user_tx/5,
+    clear_mfa_state_tx/1,
+    disable_mfa_tx/1,
+    set_mfa_state_tx/2,
+    reset_mfa_state_tx/2,
+    set_mfa_pending_tx/2,
+    clear_mfa_pending_tx/1,
+    set_sso_code_tx/2,
+    clear_sso_code_tx/1,
+    set_login_lock_tx/2,
+    clear_login_lock_tx/1,
+    set_admin_override_tx/2,
+    clear_admin_override_tx/1,
+    set_user_scopes_tx/2,
+    clear_user_scopes_tx/1,
+    force_add_user_tx/5,
+    remove_user_tx/1,
+    update_user_tx/4,
+    update_pwd_tx/2,
+    ensure_sso_user_tx/5
+]).
+
 -ifdef(TEST).
 -export([unsafe_update_user/1, default_password/0]).
 -endif.
@@ -200,7 +224,7 @@ parsed_role_to_extra(_) ->
 do_add_user(Username, Password, Role, Desc, Extra) ->
     Res = mria:sync_transaction(
         ?DASHBOARD_SHARD,
-        fun add_user_/5,
+        fun emqx_dashboard_admin_tx_proto_v1:add_user/5,
         [Username, Password, Role, Desc, Extra]
     ),
     return(Res).
@@ -226,10 +250,12 @@ get_mfa_state(Username) ->
 %% @doc Delete MFA state from user record.
 %% This should allow the user to re-initialize MFA state according to `default_mfa' config.
 clear_mfa_state(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun clear_mfa_state2/1, [Username]),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:clear_mfa_state/1, [Username]
+    ),
     return(Res).
 
-clear_mfa_state2(Username) ->
+clear_mfa_state_tx(Username) ->
     update_extra(Username, fun(Extra) -> maps:without([mfa_state], Extra) end).
 
 %% @doc Disable MFA for a user.
@@ -255,11 +281,9 @@ do_disable_mfa(Username, ByAdmin) ->
             {error, <<"MFA is already disabled">>};
         _ ->
             %% Allow disabling regardless of current state (not configured, or enabled).
-            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-                update_extra(Username, fun(Extra) ->
-                    maps:without([mfa_pending], Extra#{mfa_state => disabled})
-                end)
-            end),
+            Res = mria:sync_transaction(
+                ?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:disable_mfa/1, [Username]
+            ),
             case Res of
                 {atomic, ok} ->
                     %% Admin disable expresses "this user is exempt from
@@ -270,6 +294,11 @@ do_disable_mfa(Username, ByAdmin) ->
                     {error, Reason}
             end
     end.
+
+disable_mfa_tx(Username) ->
+    update_extra(Username, fun(Extra) ->
+        maps:without([mfa_pending], Extra#{mfa_state => disabled})
+    end).
 
 %% @doc Enable MFA state.
 %% Return error if it's already enabled.
@@ -334,34 +363,52 @@ log_admin_override_write(Username, Value, {error, Reason}) ->
 
 %% @doc Set MFA state in the extra map.
 set_mfa_state(Username, MfaState) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:set_mfa_state/2,
+        [Username, MfaState]
+    ),
     return(Res).
+
+set_mfa_state_tx(Username, MfaState) ->
+    update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end).
 
 %% @doc Set MFA state and clear mfa_pending in the extra map.
 reset_mfa_state(Username, MfaState) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(
-            Username,
-            fun(Extra) -> maps:without([mfa_pending], Extra#{mfa_state => MfaState}) end
-        )
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:reset_mfa_state/2,
+        [Username, MfaState]
+    ),
     return(Res).
+
+reset_mfa_state_tx(Username, MfaState) ->
+    update_extra(
+        Username,
+        fun(Extra) -> maps:without([mfa_pending], Extra#{mfa_state => MfaState}) end
+    ).
 
 %% @doc Set MFA pending info in the extra map.
 set_mfa_pending(Username, Pending) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> Extra#{mfa_pending => Pending} end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:set_mfa_pending/2,
+        [Username, Pending]
+    ),
     return(Res).
+
+set_mfa_pending_tx(Username, Pending) ->
+    update_extra(Username, fun(Extra) -> Extra#{mfa_pending => Pending} end).
 
 %% @doc Clear MFA pending info from the extra map.
 clear_mfa_pending(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> maps:without([mfa_pending], Extra) end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:clear_mfa_pending/1, [Username]
+    ),
     return(Res).
+
+clear_mfa_pending_tx(Username) ->
+    update_extra(Username, fun(Extra) -> maps:without([mfa_pending], Extra) end).
 
 %% @doc Get MFA pending info from the extra map for a given username.
 %% Direct O(1) lookup by username key.
@@ -373,17 +420,25 @@ get_mfa_pending(Username) ->
 
 %% @doc Store a one-time SSO code in the extra map.
 set_sso_code(Username, SsoCode) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> Extra#{sso_code => SsoCode} end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:set_sso_code/2,
+        [Username, SsoCode]
+    ),
     return(Res).
+
+set_sso_code_tx(Username, SsoCode) ->
+    update_extra(Username, fun(Extra) -> Extra#{sso_code => SsoCode} end).
 
 %% @doc Clear the SSO code from the extra map.
 clear_sso_code(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> maps:without([sso_code], Extra) end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:clear_sso_code/1, [Username]
+    ),
     return(Res).
+
+clear_sso_code_tx(Username) ->
+    update_extra(Username, fun(Extra) -> maps:without([sso_code], Extra) end).
 
 %% @doc Get the SSO code from the extra map for a given username.
 %% Direct O(1) lookup by username key.
@@ -394,10 +449,14 @@ get_sso_code(Username) ->
     end.
 
 set_login_lock(Username, LockedUntil) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_login_lock2/2, [Username, LockedUntil]),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:set_login_lock/2,
+        [Username, LockedUntil]
+    ),
     return(Res).
 
-set_login_lock2(Username, LockedUntil) ->
+set_login_lock_tx(Username, LockedUntil) ->
     update_extra(Username, fun(Extra) -> Extra#{login_lock => LockedUntil} end).
 
 get_login_lock(Username) ->
@@ -409,10 +468,12 @@ get_login_lock(Username) ->
     end.
 
 clear_login_lock(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun clear_login_lock2/1, [Username]),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:clear_login_lock/1, [Username]
+    ),
     return(Res).
 
-clear_login_lock2(Username) ->
+clear_login_lock_tx(Username) ->
     update_extra(Username, fun(Extra) -> maps:without([login_lock], Extra) end).
 
 %%--------------------------------------------------------------------
@@ -455,18 +516,26 @@ admin_override_of(Username) ->
 -spec set_admin_override(dashboard_username(), admin_override()) ->
     {ok, ok} | {error, term()}.
 set_admin_override(Username, undefined) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> maps:remove(admin_override, Extra) end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:clear_admin_override/1, [Username]
+    ),
     return(Res);
 set_admin_override(Username, V) when
     V =:= ?ADMIN_MFA_REQUIRED;
     V =:= ?ADMIN_MFA_EXEMPTED
 ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> Extra#{admin_override => V} end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:set_admin_override/2,
+        [Username, V]
+    ),
     return(Res).
+
+clear_admin_override_tx(Username) ->
+    update_extra(Username, fun(Extra) -> maps:remove(admin_override, Extra) end).
+
+set_admin_override_tx(Username, V) ->
+    update_extra(Username, fun(Extra) -> Extra#{admin_override => V} end).
 
 -spec scopes_of(dashboard_username()) -> undefined | [binary()].
 scopes_of(Username) ->
@@ -569,10 +638,15 @@ narrow_namespaced_scopes(Username, Scopes, Kept, Default) ->
 -spec set_user_scopes(dashboard_username(), [binary()]) ->
     {ok, ok} | {error, term()}.
 set_user_scopes(Username, Scopes) when is_list(Scopes) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> Extra#{scopes => Scopes} end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:set_user_scopes/2,
+        [Username, Scopes]
+    ),
     return(Res).
+
+set_user_scopes_tx(Username, Scopes) ->
+    update_extra(Username, fun(Extra) -> Extra#{scopes => Scopes} end).
 
 %% @doc Clear a user's explicit scope list back to the "unset" state, i.e.
 %% remove the `scopes' field from the extra map entirely so `scopes_of/1'
@@ -582,10 +656,13 @@ set_user_scopes(Username, Scopes) when is_list(Scopes) ->
 %% explicit list.
 -spec clear_user_scopes(dashboard_username()) -> {ok, ok} | {error, term()}.
 clear_user_scopes(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        update_extra(Username, fun(Extra) -> maps:remove(scopes, Extra) end)
-    end),
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:clear_user_scopes/1, [Username]
+    ),
     return(Res).
+
+clear_user_scopes_tx(Username) ->
+    update_extra(Username, fun(Extra) -> maps:remove(scopes, Extra) end).
 
 %%--------------------------------------------------------------------
 
@@ -613,7 +690,7 @@ get_extra(Username) ->
 %% and `extra` was `[]` — dialyzer sees these as unreachable given the
 %% current record spec, but they still fire in production when mnesia
 %% returns rows written by older nodes during a rolling upgrade.
--dialyzer({no_match, [upgrade_extra/1, update_user_/4, ensure_role/1, role/1]}).
+-dialyzer({no_match, [upgrade_extra/1, update_user_tx/4, ensure_role/1, role/1]}).
 upgrade_extra([]) -> #{};
 upgrade_extra(Map) when is_map(Map) -> Map.
 
@@ -683,22 +760,26 @@ contain(Xs, Spec) -> lists:any(fun(X) -> lists:member(X, Spec) end, Xs).
 
 %% black-magic: force overwrite a user
 force_add_user(Username, Password, Role, Desc, Extra) ->
-    AddFun = fun() ->
-        mnesia:write(#?ADMIN{
-            username = Username,
-            pwdhash = hash(Password),
-            role = Role,
-            description = Desc,
-            extra = Extra#{password_ts => erlang:system_time(second)}
-        })
-    end,
-    case mria:sync_transaction(?DASHBOARD_SHARD, AddFun) of
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:force_add_user/5,
+        [Username, Password, Role, Desc, Extra]
+    ),
+    case Res of
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
 
-%% @private
-add_user_(Username, Password, Role, Desc, Extra) ->
+force_add_user_tx(Username, Password, Role, Desc, Extra) ->
+    mnesia:write(#?ADMIN{
+        username = Username,
+        pwdhash = hash(Password),
+        role = Role,
+        description = Desc,
+        extra = Extra#{password_ts => erlang:system_time(second)}
+    }).
+
+add_user_tx(Username, Password, Role, Desc, Extra) ->
     #{flattened_user := FlattenedUser} = do_add_user_(Username, Password, Role, Desc, Extra),
     FlattenedUser.
 
@@ -812,18 +893,21 @@ ensure_sso_user_tx(Backend, Username, MaybeRole, MaybeNamespace, Desc) ->
 
 -spec remove_user(dashboard_username()) -> {ok, any()} | {error, any()}.
 remove_user(Username) ->
-    Trans = fun() ->
-        case lookup_user(Username) of
-            [] -> mnesia:abort(<<"username_not_found">>);
-            _ -> mnesia:delete({?ADMIN, Username})
-        end
-    end,
-    case return(mria:sync_transaction(?DASHBOARD_SHARD, Trans)) of
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD, fun emqx_dashboard_admin_tx_proto_v1:remove_user/1, [Username]
+    ),
+    case return(Res) of
         {ok, Result} ->
             _ = emqx_dashboard_token:destroy_by_username(Username),
             {ok, Result};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+remove_user_tx(Username) ->
+    case lookup_user(Username) of
+        [] -> mnesia:abort(<<"username_not_found">>);
+        _ -> mnesia:delete({?ADMIN, Username})
     end.
 
 -spec update_user(dashboard_username(), dashboard_user_role(), binary()) ->
@@ -836,7 +920,7 @@ update_user(Username, Role0, Desc) ->
                 return(
                     mria:sync_transaction(
                         ?DASHBOARD_SHARD,
-                        fun update_user_/4,
+                        fun emqx_dashboard_admin_tx_proto_v1:update_user/4,
                         [Username, Role, Desc, Extra]
                     )
                 )
@@ -956,8 +1040,7 @@ verify_password_expiration(ValidityDuration, #?ADMIN{extra = Extra} = User) ->
             Error
     end.
 
-%% @private
-update_user_(Username, Role, Desc, Extra) ->
+update_user_tx(Username, Role, Desc, Extra) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
             mnesia:abort(<<"username_not_found">>);
@@ -1012,15 +1095,7 @@ change_password_trusted(Username, Password) when is_binary(Username), is_binary(
     end.
 
 change_password_hash(Username, PasswordHash) ->
-    ChangePWD =
-        fun(User) ->
-            Extra = upgrade_extra(User#?ADMIN.extra),
-            User#?ADMIN{
-                pwdhash = PasswordHash,
-                extra = Extra#{password_ts => erlang:system_time(second)}
-            }
-        end,
-    case update_pwd(Username, ChangePWD) of
+    case update_pwd(Username, PasswordHash) of
         {ok, Result} ->
             _ = emqx_dashboard_token:destroy_by_username(Username),
             {ok, Result};
@@ -1028,22 +1103,29 @@ change_password_hash(Username, PasswordHash) ->
             {error, Reason}
     end.
 
-update_pwd(Username, Fun) ->
-    Trans =
-        fun() ->
-            User =
-                case lookup_user(Username) of
-                    [Admin] -> Admin;
-                    [] -> mnesia:abort(<<"username_not_found">>)
-                end,
-            mnesia:write(Fun(User))
+update_pwd(Username, PasswordHash) ->
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_admin_tx_proto_v1:update_pwd/2,
+        [Username, PasswordHash]
+    ),
+    return(Res).
+
+update_pwd_tx(Username, PasswordHash) ->
+    User =
+        case lookup_user(Username) of
+            [Admin] -> Admin;
+            [] -> mnesia:abort(<<"username_not_found">>)
         end,
-    return(mria:sync_transaction(?DASHBOARD_SHARD, Trans)).
+    Extra = upgrade_extra(User#?ADMIN.extra),
+    mnesia:write(User#?ADMIN{
+        pwdhash = PasswordHash,
+        extra = Extra#{password_ts => erlang:system_time(second)}
+    }).
 
 %% used to directly update user data
 unsafe_update_user(User) ->
-    Trans = fun() -> mnesia:write(User) end,
-    case mria:sync_transaction(?DASHBOARD_SHARD, Trans) of
+    case mria:sync_transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [User]) of
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
@@ -1454,7 +1536,7 @@ add_sso_user(Backend, Username0, Role0, Desc) when is_binary(Username0) ->
 upsert_sso_user(Backend, Username, MaybeRole, MaybeNamespace, Desc) ->
     Res = mria:sync_transaction(
         ?DASHBOARD_SHARD,
-        fun ensure_sso_user_tx/5,
+        fun emqx_dashboard_admin_tx_proto_v1:upsert_sso_user/5,
         [Backend, Username, MaybeRole, MaybeNamespace, Desc]
     ),
     return(Res).

@@ -104,6 +104,9 @@ the REST API entrypoint like any other mutating request.
     terminate/2
 ]).
 
+%% Transaction funs. A core node runs them behind emqx_topic_metrics_registry_tx_proto_v1.
+-export([all_names_tx/0]).
+
 -type owner_ns() :: ?global_ns | binary().
 -type bin_name() :: binary().
 -type name() :: {owner_ns(), bin_name()}.
@@ -507,10 +510,13 @@ expand({OwnerNs, BinName} = Name, Rec) ->
 %%--------------------------------------------------------------------
 
 mria_all_names() ->
-    mria:async_dirty(?TOPIC_METRICS_SHARD, fun() ->
-        mnesia:foldl(
-            fun(#topic_metric{name = N}, Acc) -> [N | Acc] end,
-            [],
-            ?MRIA_TAB
-        )
-    end).
+    mria:async_dirty(
+        ?TOPIC_METRICS_SHARD, fun emqx_topic_metrics_registry_tx_proto_v1:all_names/0, []
+    ).
+
+all_names_tx() ->
+    mnesia:foldl(
+        fun(#topic_metric{name = N}, Acc) -> [N | Acc] end,
+        [],
+        ?MRIA_TAB
+    ).

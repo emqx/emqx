@@ -317,20 +317,26 @@ check_no_stale_exemptions(Dumps) ->
 %% call. Its RPC targets may not: a released node calls them by name, and some
 %% call sites name the proto module without negotiating a version. So every
 %% target of a released dump must be exported by this tree, unless its API is
-%% in `?REMOVED_TARGET_APIS'. (sets nok flag)
+%% in `?REMOVED_TARGET_APIS'.
+%%
+%% A transaction proto module (`<api>_tx_proto_v<N>') is itself what the
+%% peer calls by name: a replicant passes `fun <api>_tx_proto_vN:f/A' to mria
+%% and a core node runs it. So its functions must stay exported too, and so
+%% must their implementations. (sets nok flag)
 -spec check_targets_exported([fulldump()]) -> ok.
 check_targets_exported(Dumps) ->
     Missing = maps:groups_from_list(
         fun({Key, To, _Release}) -> {Key, To} end,
         fun({_Key, _To, Release}) -> Release end,
         [
-            {Key, call_to_mfa(To), Release}
+            {Key, call_to_mfa(Target), Release}
          || #{release := Release, api := API} <- Dumps,
             Release =/= [master],
             {Key, #{calls := Calls, casts := Casts}} <- maps:to_list(API),
             not lists:member(Key, ?REMOVED_TARGET_APIS),
-            {_From, To} <- Calls ++ Casts,
-            not is_exported(call_to_mfa(To))
+            {From, To} <- Calls ++ Casts,
+            Target <- named_by_peer(Key, From, To),
+            not is_exported(call_to_mfa(Target))
         ]
     ),
     maps:foreach(
@@ -346,6 +352,14 @@ check_targets_exported(Dumps) ->
         end,
         Missing
     ).
+
+%% The functions a peer node calls by name: the target of an RPC, and for a
+%% transaction API also the proto function itself.
+named_by_peer({API, _Vsn}, From, To) ->
+    case lists:suffix("_tx", atom_to_list(API)) of
+        true -> [From, To];
+        false -> [To]
+    end.
 
 is_exported({M, F, A}) ->
     _ = code:ensure_loaded(M),
@@ -577,7 +591,10 @@ dump(Opts) ->
     Callers = find_remote_calls(Opts),
     {BPAPICalls, NonBPAPICalls} = lists:partition(fun is_bpapi_call/1, Callers),
     warn_nonbpapi_rpcs(NonBPAPICalls),
-    APIDump = collect_bpapis(BPAPICalls),
+    %% Transaction proto modules make no RPC call, so xref does not find
+    %% them that way. They are found by name:
+    TxModules = find_tx_proto_modules(),
+    APIDump = collect_bpapis(lists:usort([M || {M, _F, _A} <- BPAPICalls] ++ TxModules)),
     DialyzerDump = collect_signatures(PLT, APIDump),
     dump_api(#{api => APIDump, signatures => DialyzerDump, release => "master"}),
     dump_versions(APIDump),
@@ -691,9 +708,21 @@ dump_owner_applications(APIs0) ->
     ),
     file:close(FD).
 
--spec collect_bpapis([mfa()]) -> api_dump().
-collect_bpapis(L) ->
-    Modules = lists:usort([M || {M, _F, _A} <- L]),
+%% Every `<api>_tx_proto_v<N>' module in the analyzed release, plugins
+%% excluded like in `find_remote_calls/1'.
+-spec find_tx_proto_modules() -> [module()].
+find_tx_proto_modules() ->
+    IgnoredApps = ?IGNORED_APPS ++ plugin_apps(),
+    {ok, Modules} = xref:q(?XREF, "(Mod) (A - [" ++ IgnoredApps ++ "]:App)"),
+    [
+        M
+     || M <- Modules,
+        re:run(atom_to_list(M), "_tx_proto_v[0-9]+$") =/= nomatch,
+        is_bpapi_call({M, bpapi_meta, 0})
+    ].
+
+-spec collect_bpapis([module()]) -> api_dump().
+collect_bpapis(Modules) ->
     lists:foldl(
         fun(Mod, Acc) ->
             #{

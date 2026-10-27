@@ -36,6 +36,12 @@ NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid c
     names/0
 ]).
 
+%% Transaction funs. A core node runs them behind emqx_streams_registry_tx_proto_v1.
+-export([
+    create_tx/4,
+    update_index_tx/3
+]).
+
 -define(STREAMS_REGISTRY_INDEX_TAB, emqx_streams_registry_index).
 -define(STREAMS_REGISTRY_SHARD, emqx_streams_registry_shard).
 
@@ -126,17 +132,11 @@ create(
         ok ?= validate_name(Name),
         ok ?= validate_max_stream_count(),
         {atomic, ok} ?=
-            mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
-                case mnesia:read(?STREAMS_REGISTRY_NAME_INDEX_TAB, Name) of
-                    [] ->
-                        ok = mnesia:write(#?STREAMS_REGISTRY_NAME_INDEX_TAB{
-                            name = Name, topic_filter = TopicFilter, id = Id
-                        }),
-                        ok = mnesia:write(Rec);
-                    [_] ->
-                        {error, stream_exists}
-                end
-            end),
+            mria:transaction(
+                ?STREAMS_REGISTRY_SHARD,
+                fun emqx_streams_registry_tx_proto_v1:create/4,
+                [Name, TopicFilter, Id, Rec]
+            ),
         {ok, Stream}
     else
         {atomic, {error, _} = Error} ->
@@ -420,20 +420,36 @@ make_legacy_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
 
 update_index(Key, Id, UpdateFields) ->
-    {atomic, Result} = mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
-        case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
-            [#?STREAMS_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
-                Stream0 = record_to_stream(Rec),
-                Stream = emqx_utils_maps:deep_merge(Stream0, UpdateFields),
-                Record = stream_to_record(Stream),
-                %% Important: preserve the key
-                mnesia:write(Record#?STREAMS_REGISTRY_INDEX_TAB{key = Key}),
-                {ok, Stream#{topic_filter => emqx_topic_index:get_topic(Key)}};
-            _ ->
-                not_found
-        end
-    end),
+    {atomic, Result} = mria:transaction(
+        ?STREAMS_REGISTRY_SHARD,
+        fun emqx_streams_registry_tx_proto_v1:update_index/3,
+        [Key, Id, UpdateFields]
+    ),
     Result.
+
+create_tx(Name, TopicFilter, Id, Rec) ->
+    case mnesia:read(?STREAMS_REGISTRY_NAME_INDEX_TAB, Name) of
+        [] ->
+            ok = mnesia:write(#?STREAMS_REGISTRY_NAME_INDEX_TAB{
+                name = Name, topic_filter = TopicFilter, id = Id
+            }),
+            ok = mnesia:write(Rec);
+        [_] ->
+            {error, stream_exists}
+    end.
+
+update_index_tx(Key, Id, UpdateFields) ->
+    case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
+        [#?STREAMS_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
+            Stream0 = record_to_stream(Rec),
+            Stream = emqx_utils_maps:deep_merge(Stream0, UpdateFields),
+            Record = stream_to_record(Stream),
+            %% Important: preserve the key
+            mnesia:write(Record#?STREAMS_REGISTRY_INDEX_TAB{key = Key}),
+            {ok, Stream#{topic_filter => emqx_topic_index:get_topic(Key)}};
+        _ ->
+            not_found
+    end.
 
 record_to_stream(
     #?STREAMS_REGISTRY_INDEX_TAB{
@@ -528,8 +544,5 @@ create_pre_611_stream(Stream0) ->
     Name = ?LEGACY_STREAM_NAME(TopicFilter),
     Rec0 = stream_to_record(Stream0#{id => emqx_guid:gen(), name => Name}),
     Rec = Rec0#?STREAMS_REGISTRY_INDEX_TAB{key = make_legacy_key(TopicFilter), extra = #{}},
-    {atomic, ok} =
-        mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
-            mnesia:write(Rec)
-        end),
+    {atomic, ok} = mria:transaction(?STREAMS_REGISTRY_SHARD, fun mnesia:write/1, [Rec]),
     {ok, _} = find(Name).

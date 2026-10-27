@@ -32,6 +32,9 @@ The module contains the registry of Message Queues.
     create_pre_611_queue/1
 ]).
 
+%% Transaction funs. A core node runs them behind emqx_mq_registry_tx_proto_v1.
+-export([update_index_tx/3]).
+
 -define(MQ_REGISTRY_SHARD, emqx_mq_registry_shard).
 
 -define(MQ_REGISTRY_INDEX_TAB, emqx_mq_registry_index).
@@ -471,20 +474,25 @@ make_default_queue_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
 
 update_index(Key, Id, UpdateFields) ->
-    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
-        case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
-            [] ->
-                not_found;
-            [#?MQ_REGISTRY_INDEX_TAB{id = Id, extra = Extra} = Rec] ->
-                NewKeyExpr = maps:get(key_expression, UpdateFields, undefined),
-                NewLimits = maps:get(limits, UpdateFields, ?DEFAULT_MQ_LIMITS),
-                mnesia:write(Rec#?MQ_REGISTRY_INDEX_TAB{
-                    key_expr = NewKeyExpr, extra = Extra#{limits => NewLimits}
-                }),
-                ok
-        end
-    end),
+    {atomic, Result} = mria:transaction(
+        ?MQ_REGISTRY_SHARD,
+        fun emqx_mq_registry_tx_proto_v1:update_index/3,
+        [Key, Id, UpdateFields]
+    ),
     Result.
+
+update_index_tx(Key, Id, UpdateFields) ->
+    case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
+        [] ->
+            not_found;
+        [#?MQ_REGISTRY_INDEX_TAB{id = Id, extra = Extra} = Rec] ->
+            NewKeyExpr = maps:get(key_expression, UpdateFields, undefined),
+            NewLimits = maps:get(limits, UpdateFields, ?DEFAULT_MQ_LIMITS),
+            mnesia:write(Rec#?MQ_REGISTRY_INDEX_TAB{
+                key_expr = NewKeyExpr, extra = Extra#{limits => NewLimits}
+            }),
+            ok
+    end.
 
 record_to_mq_handle(#?MQ_REGISTRY_INDEX_TAB{
     key = Key, id = Id, key_expr = KeyExpr, is_lastvalue = IsLastValue, extra = Extra
@@ -581,8 +589,5 @@ create_pre_611_queue(MQ0) ->
     MQ = maps:without([name], MQ0#{id => emqx_guid:gen()}),
     Key = make_default_queue_key(emqx_mq_prop:topic_filter(MQ)),
     Rec = mq_to_record(MQ, Key),
-    {atomic, ok} =
-        mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
-            mnesia:write(Rec)
-        end),
+    {atomic, ok} = mria:transaction(?MQ_REGISTRY_SHARD, fun mnesia:write/1, [Rec]),
     ok = emqx_mq_state_storage:create_mq_state(MQ).

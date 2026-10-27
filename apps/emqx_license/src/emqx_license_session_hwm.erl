@@ -35,6 +35,9 @@ The table uses `ordered_set` so that GC of old periods is efficient.
     terminate/2
 ]).
 
+%% Transaction funs. A core node runs them behind emqx_license_session_hwm_tx_proto_v1.
+-export([maybe_update_in_transaction/3]).
+
 -define(TAB, emqx_license_session_hwm).
 
 -record(emqx_license_session_hwm, {
@@ -73,7 +76,9 @@ sync() ->
     gen_server:call(?MODULE, sync, timer:seconds(5)).
 
 -doc "Query history rows. `Period` is `daily` or `monthly`; `Limit` caps the result count.".
-list_history(Period, Limit) when (Period =:= daily orelse Period =:= monthly), is_integer(Limit) ->
+list_history(Period, Limit) when
+    (Period =:= daily orelse Period =:= monthly) andalso is_integer(Limit)
+->
     Limit1 = max(1, Limit),
     Rows = read_rows(),
     case Period of
@@ -139,7 +144,8 @@ maybe_store(Timestamp, Count) ->
     case
         mria:transaction(
             ?LICENSE_SHARD,
-            fun() -> maybe_update_in_transaction(Period, Timestamp, Count) end
+            fun emqx_license_session_hwm_tx_proto_v1:maybe_update/3,
+            [Period, Timestamp, Count]
         )
     of
         {atomic, _Result} ->

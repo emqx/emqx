@@ -36,6 +36,9 @@
     cleanup_all/1
 ]).
 
+%% Transaction funs. A core node runs them behind emqx_dashboard_login_lock_tx_proto_v1.
+-export([delete_attempts_tx/1]).
+
 -type time_us() :: non_neg_integer().
 -type username() :: binary().
 
@@ -227,15 +230,20 @@ user_attempt_keys(Username) ->
     ]).
 
 delete_attempts(Keys) ->
-    _ = mria:async_dirty(?DASHBOARD_SHARD, fun() ->
-        lists:foreach(
-            fun(Key) ->
-                _ = mria:dirty_delete(?TAB_ATTEMPTS, Key)
-            end,
-            Keys
-        )
-    end),
+    _ = mria:async_dirty(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_login_lock_tx_proto_v1:delete_attempts/1,
+        [Keys]
+    ),
     ok.
+
+delete_attempts_tx(Keys) ->
+    lists:foreach(
+        fun(Key) ->
+            _ = mria:dirty_delete(?TAB_ATTEMPTS, Key)
+        end,
+        Keys
+    ).
 
 now_us() ->
     erlang:system_time(microsecond).

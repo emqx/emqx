@@ -26,6 +26,14 @@
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
+%% Transaction funs. A core node runs them behind emqx_dashboard_login_tx_proto_v1.
+-export([
+    put_challenge_tx/2,
+    take_challenge_tx/1,
+    ensure_mock_salt_secret_tx/0,
+    delete_challenges_tx/1
+]).
+
 -define(TAB, emqx_dashboard_scram_challenge).
 -define(META_TAB, emqx_dashboard_scram_meta).
 -define(MOCK_SALT_SECRET_KEY, mock_salt_secret).
@@ -358,10 +366,14 @@ local_username_challenge_count(Username) ->
     ]).
 
 put_if_available(#emqx_dashboard_scram_challenge{id = Id} = Challenge) ->
-    Result = mria:sync_transaction(?DASHBOARD_SHARD, fun() -> put_transaction(Id, Challenge) end),
+    Result = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_login_tx_proto_v1:put_challenge/2,
+        [Id, Challenge]
+    ),
     format_put_result(Result).
 
-put_transaction(Id, Challenge) ->
+put_challenge_tx(Id, Challenge) ->
     case mnesia:read(?TAB, Id, write) of
         [] ->
             mnesia:write(Challenge),
@@ -391,7 +403,8 @@ format_put_result({timeout, {error, Reason}}) ->
 take(Id) ->
     TransactionResult = mria:sync_transaction(
         ?DASHBOARD_SHARD,
-        fun() -> take_transaction(Id) end
+        fun emqx_dashboard_login_tx_proto_v1:take_challenge/1,
+        [Id]
     ),
     case TransactionResult of
         {atomic, Value} -> Value;
@@ -401,7 +414,7 @@ take(Id) ->
         {timeout, {error, Reason}} -> {error, {storage_unavailable, Reason}}
     end.
 
-take_transaction(Id) ->
+take_challenge_tx(Id) ->
     case mnesia:read(?TAB, Id, write) of
         [Challenge] ->
             ok = mnesia:delete({?TAB, Id}),
@@ -429,25 +442,30 @@ init([]) ->
     end.
 
 ensure_mock_salt_secret() ->
-    Result = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-        case mnesia:read(?META_TAB, ?MOCK_SALT_SECRET_KEY, write) of
-            [#emqx_dashboard_scram_meta{value = _Secret}] ->
-                ok;
-            [] ->
-                Secret = crypto:strong_rand_bytes(32),
-                ok = mnesia:write(#emqx_dashboard_scram_meta{
-                    key = ?MOCK_SALT_SECRET_KEY,
-                    value = Secret
-                }),
-                ok
-        end
-    end),
+    Result = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun emqx_dashboard_login_tx_proto_v1:ensure_mock_salt_secret/0,
+        []
+    ),
     case Result of
         {atomic, ok} -> ok;
         {timeout, {atomic, ok}} -> ok;
         {aborted, Reason} -> {error, {storage_unavailable, Reason}};
         {timeout, {aborted, Reason}} -> {error, {storage_unavailable, Reason}};
         {timeout, {error, Reason}} -> {error, {storage_unavailable, Reason}}
+    end.
+
+ensure_mock_salt_secret_tx() ->
+    case mnesia:read(?META_TAB, ?MOCK_SALT_SECRET_KEY, write) of
+        [#emqx_dashboard_scram_meta{value = _Secret}] ->
+            ok;
+        [] ->
+            Secret = crypto:strong_rand_bytes(32),
+            ok = mnesia:write(#emqx_dashboard_scram_meta{
+                key = ?MOCK_SALT_SECRET_KEY,
+                value = Secret
+            }),
+            ok
     end.
 
 handle_call(_Request, _From, State) ->
@@ -486,15 +504,20 @@ cleanup_expired(Now) ->
         {atomic, []} ->
             ok;
         {atomic, Challenges} ->
-            _ = mria:async_dirty(?DASHBOARD_SHARD, fun() ->
-                lists:foreach(
-                    fun(#emqx_dashboard_scram_challenge{id = Id}) ->
-                        mria:dirty_delete(?TAB, Id)
-                    end,
-                    Challenges
-                )
-            end),
+            _ = mria:async_dirty(
+                ?DASHBOARD_SHARD,
+                fun emqx_dashboard_login_tx_proto_v1:delete_challenges/1,
+                [Challenges]
+            ),
             ok;
         _ ->
             ok
     end.
+
+delete_challenges_tx(Challenges) ->
+    lists:foreach(
+        fun(#emqx_dashboard_scram_challenge{id = Id}) ->
+            mria:dirty_delete(?TAB, Id)
+        end,
+        Challenges
+    ).
