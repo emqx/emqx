@@ -5,6 +5,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -1614,6 +1615,39 @@ t_mqueue_messages(Config) ->
         request(get, Path, [], "limit=-5&position=not-valid", Config)
     ).
 
+-doc "Message cursor transport preserves structured values and safely rejects invalid terms.".
+t_message_cursor_codec(_) ->
+    Values = [
+        42,
+        <<255, 255, 255, 251>>,
+        {1700000000000000, 65535},
+        {42, infinity},
+        #{<<"generation">> => 3, <<"offset">> => [1, {2, <<"opaque">>}]}
+    ],
+    lists:foreach(
+        fun(Value) ->
+            Encoded = emqx_mgmt_api_clients:encode_pos(Value),
+            ?assertEqual(nomatch, binary:match(Encoded, [<<"+">>, <<"/">>, <<"=">>])),
+            ?assertEqual(Value, emqx_mgmt_api_clients:decode_pos(inflight_msgs, Encoded))
+        end,
+        Values
+    ),
+    ?assertEqual(
+        1700000000000000123,
+        emqx_mgmt_api_clients:decode_pos(inflight_msgs, <<"1700000000000000123">>)
+    ),
+    ?assertError(
+        badarg, emqx_mgmt_api_clients:decode_pos(inflight_msgs, <<"1700000000000000_42">>)
+    ),
+    AtomName = <<"message_cursor_atom_must_not_be_created_1642">>,
+    Unsafe = cow_base64url:encode(
+        <<131, 119, (byte_size(AtomName)), AtomName/binary>>,
+        #{padding => false}
+    ),
+    ?assertError(_, emqx_mgmt_api_clients:decode_pos(inflight_msgs, Unsafe)),
+    ?assertError(badarg, binary_to_existing_atom(AtomName)),
+    ?assertError(_, emqx_mgmt_api_clients:decode_pos(inflight_msgs, <<"!">>)).
+
 t_inflight_messages(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Topic = <<"t/test_inflight_msgs">>,
@@ -1634,7 +1668,65 @@ t_inflight_messages(Config) ->
         {error, {?HTTP400, _, #{<<"code">> := <<"BAD_REQUEST">>}}},
         request(get, Path, [], "limit=-5&position=invalid-int", Config)
     ),
+    InvalidCursor = emqx_mgmt_api_clients:encode_pos(#{<<"unknown">> => 1}),
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := []}}},
+        request(get, Path, [], "limit=10&position=" ++ binary_to_list(InvalidCursor), Config)
+    ),
+    %% Invalid pagination cursor must not terminate the MQTT client.
+    ?assert(is_process_alive(Client)),
     emqtt:stop(Client).
+
+-doc "Cursor-aware API formats legacy channel replies and preserves integer continuation positions.".
+t_inflight_messages_legacy_reply(_) ->
+    Ts = 1700000000000000123,
+    Msg0 = emqx_message:make(clientid, ?QOS_1, <<"t">>, <<"payload">>),
+    Msg = Msg0#message{extra = #{inflight_insert_ts => Ts}},
+    Msg2 = Msg0#message{extra = #{inflight_insert_ts => Ts + 1}},
+    ok = meck:new(emqx_mgmt, [passthrough, no_link]),
+    try
+        ok = meck:expect(emqx_mgmt, list_client_msgs, fun(inflight_msgs, _, Params) ->
+            case maps:get(position, Params, none) of
+                none ->
+                    ?assertEqual(none, maps:get(cursor, Params)),
+                    {[Msg, Msg2], #{start => Ts, position => Ts + 1}};
+                Ts ->
+                    ?assertNot(maps:is_key(cursor, Params)),
+                    {[Msg2], #{start => Ts, position => Ts + 1}}
+            end
+        end),
+        Query = #{<<"limit">> => 1, <<"payload">> => plain, <<"max_payload_bytes">> => 100},
+        Request = #{bindings => #{clientid => <<"legacy">>}, query_string => Query},
+        {200, _, Body} = emqx_mgmt_api_clients:inflight_msgs(get, Request),
+        TsBin = integer_to_binary(Ts),
+        ?assertMatch(
+            #{
+                <<"data">> := [#{<<"inserted_at">> := TsBin}],
+                <<"meta">> := #{<<"start">> := TsBin, <<"position">> := TsBin}
+            },
+            emqx_utils_json:decode(Body)
+        ),
+        {200, _, NextBody} = emqx_mgmt_api_clients:inflight_msgs(get, Request#{
+            query_string := Query#{<<"position">> => TsBin}
+        }),
+        NextTsBin = integer_to_binary(Ts + 1),
+        ?assertMatch(
+            #{
+                <<"data">> := [#{<<"inserted_at">> := NextTsBin}],
+                <<"meta">> := #{<<"position">> := <<"end_of_data">>}
+            },
+            emqx_utils_json:decode(NextBody)
+        ),
+        {200, _, TruncatedBody} = emqx_mgmt_api_clients:inflight_msgs(get, Request#{
+            query_string := Query#{<<"limit">> := 10, <<"max_payload_bytes">> := 7}
+        }),
+        ?assertMatch(
+            #{<<"data">> := [_], <<"meta">> := #{<<"position">> := TsBin}},
+            emqx_utils_json:decode(TruncatedBody)
+        )
+    after
+        meck:unload(emqx_mgmt)
+    end.
 
 client_with_mqueue(ClientId, Topic, Count) ->
     {ok, Client} = emqtt:start_link([
@@ -1880,19 +1972,20 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
 assert_msg_pos(Pos, #{<<"inserted_at">> := Ts, <<"mqueue_priority">> := Prio}, true) ->
     ?assertEqual(<<Ts/binary, "_", (emqx_utils_conv:bin(Prio))/binary>>, Pos);
 assert_msg_pos(Pos, #{<<"inserted_at">> := TsBin}, false) ->
-    [Ts, Id] = binary:split(Pos, <<"_">>),
-    ?assertEqual(TsBin, Ts),
-    PacketId = binary_to_integer(Id),
+    {Ts, PacketId} = emqx_mgmt_api_clients:decode_pos(inflight_msgs, Pos),
+    ?assertEqual(binary_to_integer(TsBin), Ts * 1000),
     ?assert(PacketId >= 0).
 
-position_after_msg(#{<<"inserted_at">> := TsBin} = Msg, IsMqueue) ->
+position_after_msg(#{<<"inserted_at">> := TsBin, <<"mqueue_priority">> := Prio}, true) ->
+    %% Mqueue positions use nanoseconds:
+    %% Advance by one nanosecond at the same priority.
     NextTs = integer_to_binary(binary_to_integer(TsBin) + 1),
-    Suffix =
-        case IsMqueue of
-            true -> emqx_utils_conv:bin(maps:get(<<"mqueue_priority">>, Msg));
-            false -> <<"0">>
-        end,
-    <<NextTs/binary, "_", Suffix/binary>>.
+    Suffix = emqx_utils_conv:bin(Prio),
+    <<NextTs/binary, "_", Suffix/binary>>;
+position_after_msg(#{<<"inserted_at">> := TsBin}, false) ->
+    %% Inflight cursors use microseconds while `inserted_at` are nanoseconds:
+    %% Advance by one microsecond, so packet ID 0 sorts after every ID at original time.
+    emqx_mgmt_api_clients:encode_pos({binary_to_integer(TsBin) div 1000 + 1, 0}).
 
 decode_payload(Payload, base64) ->
     base64:decode(Payload);

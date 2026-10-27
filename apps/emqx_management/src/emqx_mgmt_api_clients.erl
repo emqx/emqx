@@ -64,7 +64,12 @@
 -export([local_ets_select_v1/1]).
 
 -ifdef(TEST).
--export([parse_cursor/2, serialize_cursor/1]).
+-export([
+    parse_cursor/2,
+    serialize_cursor/1,
+    encode_pos/1,
+    decode_pos/2
+]).
 -endif.
 -export([scopes/0]).
 
@@ -1599,8 +1604,16 @@ list_client_msgs(MsgType, ClientId, QString) ->
     case emqx_mgmt_api:parse_cont_pager_params(QString, pos_decoder(MsgType)) of
         false ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"position_limit_invalid">>}};
-        PagerParams = #{limit := Limit} ->
-            FetchPagerParams = PagerParams#{limit := Limit + 1},
+        PagerParams = #{limit := Limit, position := Position} ->
+            FetchPagerParams =
+                case MsgType of
+                    inflight_msgs when not is_integer(Position) ->
+                        %% Preserve position for older nodes, which do not read cursor.
+                        PagerParams#{limit := Limit + 1, cursor => Position};
+                    _ ->
+                        %% Integer inflight positions use the legacy query path.
+                        PagerParams#{limit := Limit + 1}
+                end,
             case emqx_mgmt:list_client_msgs(MsgType, ClientId, FetchPagerParams) of
                 {error, not_found} ->
                     {404, ?CLIENTID_NOT_FOUND_OBJ};
@@ -1626,17 +1639,30 @@ take_client_msgs_page(MsgType, Msgs0, Limit, Meta0) when length(Msgs0) > Limit -
 take_client_msgs_page(_MsgType, Msgs, _Limit, Meta) ->
     {Msgs, Meta#{position := end_of_data}}.
 
-pos_decoder(mqueue_msgs) -> fun decode_mqueue_pos/1;
-pos_decoder(inflight_msgs) -> fun decode_inflight_pos/1.
+pos_decoder(MsgType) ->
+    fun(Pos) -> decode_pos(MsgType, Pos) end.
 
-encode_msgs_meta(_MsgType, #{start := StartPos, position := Pos}) ->
-    #{start => encode_pos(StartPos), position => encode_pos(Pos)}.
+decode_pos(mqueue_msgs, Pos) ->
+    decode_mqueue_pos(Pos);
+decode_pos(inflight_msgs, Pos) ->
+    try binary_to_term(cow_base64url:decode(Pos, #{padding => false}), [safe]) of
+        Cursor -> Cursor
+    catch
+        %% NOTE
+        %% Compatibility with integer timestamp positions returned by older inflight APIs.
+        error:_ -> decode_msg_pos(Pos)
+    end.
 
-encode_pos(none) ->
+encode_msgs_meta(inflight_msgs, #{start := StartPos, position := Pos}) ->
+    #{start => encode_pos(StartPos), position => encode_pos(Pos)};
+encode_msgs_meta(mqueue_msgs, #{start := StartPos, position := Pos}) ->
+    #{start => encode_mqueue_pos(StartPos), position => encode_mqueue_pos(Pos)}.
+
+encode_mqueue_pos(none) ->
     none;
-encode_pos(end_of_data) ->
+encode_mqueue_pos(end_of_data) ->
     end_of_data;
-encode_pos({MsgPos, PrioPos}) ->
+encode_mqueue_pos({MsgPos, PrioPos}) ->
     MsgPosBin = integer_to_binary(MsgPos),
     PrioPosBin =
         case PrioPos of
@@ -1645,18 +1671,22 @@ encode_pos({MsgPos, PrioPos}) ->
         end,
     <<MsgPosBin/binary, "_", PrioPosBin/binary>>.
 
+encode_pos(none) ->
+    none;
+encode_pos(end_of_data) ->
+    end_of_data;
+encode_pos(Pos) when is_integer(Pos) ->
+    %% Preserve the decimal format of legacy inflight positions.
+    integer_to_binary(Pos);
+encode_pos(Pos) ->
+    cow_base64url:encode(term_to_binary(Pos), #{padding => false}).
+
 -spec decode_mqueue_pos(binary()) -> {integer(), infinity | integer()}.
 decode_mqueue_pos(Pos) ->
     [MsgPos, PrioPos] = binary:split(Pos, <<"_">>),
     {decode_msg_pos(MsgPos), decode_priority_pos(PrioPos)}.
 
 decode_msg_pos(Pos) -> binary_to_integer(Pos).
-
-decode_inflight_pos(Pos) ->
-    [Ts, Id] = binary:split(Pos, <<"_">>),
-    PacketId = binary_to_integer(Id),
-    true = PacketId >= 0,
-    {decode_msg_pos(Ts), PacketId}.
 
 decode_priority_pos(<<"infinity">>) -> infinity;
 decode_priority_pos(Pos) -> binary_to_integer(Pos).
@@ -1984,8 +2014,12 @@ adjust_pager_position(MsgType, {truncated, LastMsg}, Meta) ->
 
 msg_position(mqueue_msgs, #message{extra = #{mqueue_insert_ts := Ts, mqueue_priority := Prio}}) ->
     {Ts, Prio};
-msg_position(inflight_msgs, #message{extra = #{inflight_cursor := Cursor}}) ->
-    Cursor.
+msg_position(inflight_msgs, #message{extra = #{query_cursor := Cursor}}) ->
+    Cursor;
+msg_position(inflight_msgs, #message{extra = #{inflight_insert_ts := Ts}}) ->
+    %% NOTE
+    %% Older nodes return only the insertion timestamp as the inflight cursor.
+    Ts.
 
 format_msg(
     MsgType,
@@ -2015,7 +2049,7 @@ format_by_msg_type(mqueue_msgs, Msg, MsgMap) ->
     #message{extra = #{mqueue_priority := Prio, mqueue_insert_ts := Ts}} = Msg,
     MsgMap#{mqueue_priority => Prio, inserted_at => integer_to_binary(Ts)};
 format_by_msg_type(inflight_msgs, Msg, MsgMap) ->
-    {Ts, _PacketId} = msg_position(inflight_msgs, Msg),
+    #message{extra = #{inflight_insert_ts := Ts}} = Msg,
     MsgMap#{inserted_at => integer_to_binary(Ts)}.
 
 format_payload(none, MsgMap, _Payload) ->

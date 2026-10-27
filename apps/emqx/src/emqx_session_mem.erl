@@ -161,7 +161,13 @@
 }.
 
 -type unix_timestamp_ms() :: non_neg_integer().
--type inflight_position() :: {integer(), emqx_types:packet_id()} | none.
+-type inflight_position() ::
+    %% {BeginUs, PacketId}: delivery start time in microseconds, with packet ID as a tie-breaker.
+    {integer(), emqx_types:packet_id()}
+    %% integer(): legacy nanosecond insertion timestamp, or the compatibility cursor BeginUs * 1000 + PacketId.
+    | integer()
+    %% none: start querying from the first entry, also denotes the start of an empty inflight collection.
+    | none.
 
 -type message() :: emqx_types:message().
 -type clientinfo() :: emqx_types:clientinfo().
@@ -466,7 +472,11 @@ info(inflight_cnt, #session{inflight = Inflight}) ->
 info(inflight_max, #session{inflight = Inflight}) ->
     emqx_inflight:max_size(Inflight);
 info({inflight_msgs, PagerParams}, #session{inflight = Inflight}) ->
-    inflight_query(Inflight, PagerParams);
+    {_Mode, Position} = query_position(PagerParams),
+    case valid_inflight_position(Position) of
+        true -> inflight_query(Inflight, PagerParams);
+        false -> {[], #{position => Position, start => none}}
+    end;
 info(retry_interval, #session{conf = #session_conf{retry_interval = Interval}}) ->
     Interval;
 info(mqueue, #session{mqueue = {empty, MaxLen}}) ->
@@ -1557,10 +1567,11 @@ sort_fun({_, A}, {_, B}) ->
     inflight_timestamp(A) =< inflight_timestamp(B).
 
 inflight_insert_time(#message{headers = #{deliver_begin_at_us := Begin}}) ->
-    erlang:convert_time_unit(Begin, microsecond, nanosecond).
+    Begin.
 
 -spec inflight_query(emqx_inflight:inflight(), #{
     position => inflight_position(),
+    cursor => inflight_position(),
     limit := pos_integer()
 }) ->
     {
@@ -1568,8 +1579,9 @@ inflight_insert_time(#message{headers = #{deliver_begin_at_us := Begin}}) ->
         #{position := inflight_position(), start := inflight_position()}
     }.
 inflight_query(Inflight, #{limit := Limit} = PagerParams) ->
+    {Mode, Position} = query_position(PagerParams),
     InflightL = lists:keysort(1, [
-        {{inflight_insert_time(Msg), PacketId}, Msg}
+        {inflight_query_position(Mode, inflight_insert_time(Msg), PacketId), Msg}
      || {PacketId, Data} <- emqx_inflight:to_list(Inflight), Msg <- [inflight_message(Data)]
     ]),
     StartPos =
@@ -1577,7 +1589,6 @@ inflight_query(Inflight, #{limit := Limit} = PagerParams) ->
             [{FirstPos, _} | _] -> FirstPos;
             [] -> none
         end,
-    Position = maps:get(position, PagerParams, none),
     Page = sublist_from_pos(InflightL, Position, Limit),
     NextPos =
         case Page of
@@ -1587,7 +1598,7 @@ inflight_query(Inflight, #{limit := Limit} = PagerParams) ->
             [] ->
                 Position
         end,
-    InflightMsgs = [with_inflight_query_position(Msg, Pos) || {Pos, Msg} <- Page],
+    InflightMsgs = [with_inflight_query_position(Mode, Msg, Pos) || {Pos, Msg} <- Page],
     {InflightMsgs, #{start => StartPos, position => NextPos}}.
 
 sublist_from_pos(InflightList, none = _Position, Limit) ->
@@ -1601,11 +1612,33 @@ sublist_from_pos(InflightList, Position, Limit) ->
     ),
     lists:sublist(Inflight, Limit).
 
-with_inflight_query_position(#message{extra = Extra} = Msg, Cursor) when is_map(Extra) ->
-    Msg#message{extra = Extra#{inflight_cursor => Cursor}};
-with_inflight_query_position(Msg, Cursor) ->
+query_position(#{cursor := Cursor}) ->
+    {cursor, Cursor};
+query_position(Params) ->
+    {legacy, maps:get(position, Params, none)}.
+
+valid_inflight_position(none) ->
+    true;
+valid_inflight_position(Pos) when is_integer(Pos) ->
+    true;
+valid_inflight_position({Ts, PacketId}) ->
+    is_integer(Ts) andalso is_integer(PacketId) andalso PacketId >= 0 andalso PacketId =< 65535;
+valid_inflight_position(_) ->
+    false.
+
+inflight_query_position(cursor, BeginUs, PacketId) ->
+    {BeginUs, PacketId};
+inflight_query_position(legacy, BeginUs, PacketId) ->
+    %% Compatibility cursor for old management APIs, which expose it as inserted_at.
+    BeginUs * 1000 + PacketId.
+
+with_inflight_query_position(cursor, #message{extra = Extra = #{}} = Msg, {BeginUs, _} = Cursor) ->
+    Msg#message{extra = Extra#{query_cursor => Cursor, inflight_insert_ts => BeginUs * 1000}};
+with_inflight_query_position(legacy, #message{extra = Extra = #{}} = Msg, Pos) ->
+    Msg#message{extra = maps:remove(query_cursor, Extra#{inflight_insert_ts => Pos})};
+with_inflight_query_position(Mode, Msg, Cursor) ->
     %% Before 5.4.0, the unused extra field defaulted to an empty list.
-    Msg#message{extra = #{inflight_cursor => Cursor}}.
+    with_inflight_query_position(Mode, Msg#message{extra = #{}}, Cursor).
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of

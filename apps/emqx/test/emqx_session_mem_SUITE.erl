@@ -246,13 +246,59 @@ t_session_buffer_bytes_stats(_) ->
     InflightBytes = emqx_message:payload_size(InflightMsg),
     ?assertEqual(MqueueBytes + InflightBytes, maps:get(total_payload_bytes, Stats)).
 
+-doc "Legacy inflight queries expose synthetic nanosecond cursors and page in cursor order.".
+t_session_inflight_query_legacy(_) ->
+    BeginUs = 1700000000000000,
+    Headers = fun(X) -> #{deliver_begin_at_us => X} end,
+    Inflight = lists:foldl(
+        fun({PacketId, Data}, Acc) -> emqx_inflight:insert(PacketId, Data, Acc) end,
+        emqx_inflight:new(),
+        [
+            {65535, emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"65535", #{}, Headers(BeginUs))},
+            {1, emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"1", #{}, Headers(BeginUs + 1))},
+            {2, emqx_message:make(?MODULE, ?QOS_1, ~"t", ~"2", #{}, Headers(BeginUs + 1))}
+        ]
+    ),
+    Session = session(#{inflight => Inflight}),
+    Query = fun Next(Position) ->
+        case emqx_session_mem:info({inflight_msgs, #{position => Position, limit => 1}}, Session) of
+            {[], _} ->
+                [];
+            {[Msg], #{position := NextPosition}} ->
+                ?assertNotEqual(Position, NextPosition),
+                [Msg | Next(NextPosition)]
+        end
+    end,
+    Results = [
+        {maps:get(inflight_insert_ts, Msg#message.extra), emqx_message:payload(Msg)}
+     || Msg <- Query(none)
+    ],
+    %% Legacy cursors add the packet ID to nanoseconds.
+    %% Message having ID 65535 sorts after IDs 1 and 2, even though it's older.
+    ?assertEqual(
+        [
+            {(BeginUs + 1) * 1000 + 1, ~"1"},
+            {(BeginUs + 1) * 1000 + 2, ~"2"},
+            {BeginUs * 1000 + 65535, ~"65535"}
+        ],
+        Results
+    ),
+    %% Explicit cursor takes precedence over legacy position, even when cursor is none.
+    {Last, _} = lists:last(Results),
+    ?assertEqual(
+        inflight_query(Session, none, 1),
+        emqx_session_mem:info(
+            {inflight_msgs, #{cursor => none, position => Last, limit => 1}}, Session
+        )
+    ).
+
 t_session_inflight_query(_) ->
     EmptyInflight = emqx_inflight:new(500),
     Session = session(#{inflight => EmptyInflight}),
     EmptyQueryResMeta = {[], #{position => none, start => none}},
     ?assertEqual(EmptyQueryResMeta, inflight_query(Session, none, 10)),
     ?assertEqual(EmptyQueryResMeta, inflight_query(Session, none, 10)),
-    RandPos = {erlang:system_time(nanosecond), 1},
+    RandPos = {erlang:system_time(microsecond), 1},
     ?assertEqual({[], #{position => RandPos, start => none}}, inflight_query(Session, RandPos, 10)),
     Inflight = lists:foldl(
         fun(Seq, Acc) ->
@@ -319,6 +365,12 @@ t_session_inflight_query(_) ->
     {PageAfterRemove, #{start := StartAfterRemove}} = inflight_query(Session2, none, 10),
     ?assertEqual(<<"2">>, emqx_message:payload(hd(PageAfterRemove))),
     ?assertEqual(StartAfterRemove, inflight_position(hd(PageAfterRemove))).
+
+-doc "Unsupported inflight cursors produce empty pages and take precedence over legacy positions.".
+t_session_inflight_query_invalid_cursor(_) ->
+    Session = session(),
+    Params = #{cursor => #{<<"unknown">> => 1}, position => none, limit => 10},
+    ?assertMatch({[], _}, emqx_session_mem:info({inflight_msgs, Params}, Session)).
 
 %%--------------------------------------------------------------------
 %% Test cases for sub/unsub
@@ -1431,6 +1483,7 @@ t_disconnect_cancels_retry_timers(_) ->
         emqx_session_mem:disconnect(Session1, #{})
     ).
 
+-doc "Retry sends only due messages and preserves the next retry deadline across import.".
 t_retry(_) ->
     RetryIntervalMs = 1000,
     Session = session(#{retry_interval => RetryIntervalMs}),
@@ -1447,6 +1500,10 @@ t_retry(_) ->
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session),
     [_Pub1, Pub2, _Pub3, Pub4] = Pubs,
     {ok, _Msg, Session2} = emqx_session_mem:pubrec(get_packet_id(Pub2), Session1),
+    ?assertMatch(
+        {{set_timer, retry_delivery, _}, [], _},
+        emqx_session_mem:handle_timeout(clientinfo(), retry_delivery, [], Session2)
+    ),
     ElapseMs = 1500,
     ok = timer:sleep(ElapseMs),
     {{set_timer, retry_delivery, RetryIntervalMs}, PubsRetry, Session3} =
@@ -1460,9 +1517,16 @@ t_retry(_) ->
         ],
         remove_deliver_flag(PubsRetry)
     ),
-    ?assertEqual(
-        2,
-        emqx_session_mem:info(inflight_cnt, Session3)
+    ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session3)),
+    ?assertMatch(
+        {{set_timer, retry_delivery, _}, [], _},
+        emqx_session_mem:handle_timeout(clientinfo(), retry_delivery, [], Session3)
+    ),
+    Imported = emqx_session_mem:import(clientinfo(), emqx_session_mem:export(Session3)),
+    Session4 = emqx_session_mem:set_field(retry_interval, RetryIntervalMs, Imported),
+    ?assertMatch(
+        {{set_timer, retry_delivery, _}, [], _},
+        emqx_session_mem:handle_timeout(clientinfo(), retry_delivery, [], Session4)
     ).
 
 -doc """
@@ -1961,10 +2025,11 @@ t_import_without_listener(_) ->
 t_replay(_) ->
     Session = session(),
     Messages = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)], Session),
-    {ok, Pubs, Session1} = emqx_session_mem:deliver(clientinfo(), Messages, [], Session),
+    {ok, _, Session1} = emqx_session_mem:deliver(clientinfo(), Messages, [], Session),
     Msg = emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload">>),
     Session2 = emqx_session_mem:enqueue(clientinfo(), [Msg], Session1),
-    Pubs1 = [{I, emqx_message:set_flag(dup, M)} || {I, M} <- Pubs],
+    #{inflight := Inflight} = emqx_session_mem:export(Session1),
+    Pubs = [{I, emqx_message:set_flag(dup, M)} || #{packet_id := I, message := M} <- Inflight],
     D4 = delivery(?QOS_1, <<"t4">>),
     D5 = delivery(?QOS_2, <<"t5">>),
     D6 = delivery(?QOS_1, <<"t6">>),
@@ -1974,9 +2039,12 @@ t_replay(_) ->
     [Msg6] = enrich([D6], Session1),
     ok = meck:expect(emqx_cm, takeover_session_end, fun(ReplayCtx) -> {ok, ReplayCtx} end),
     {ok, ReplayPubs, Session3} = emqx_session_mem:replay(clientinfo(), [D4, D5], Session2),
+    {ReplayInflight, ReplayNew} = lists:split(length(Pubs), ReplayPubs),
+    %% Replayed messages retain their original delivery timestamps.
+    ?assertEqual(Pubs, ReplayInflight),
     ?assertEqual(
-        Pubs1 ++ [{3, Msg}, {4, Msg4}, {5, Msg5}, {6, Msg6}],
-        remove_deliver_flag(ReplayPubs)
+        [{3, Msg}, {4, Msg4}, {5, Msg5}, {6, Msg6}],
+        remove_deliver_flag(ReplayNew)
     ),
     ?assertEqual(6, emqx_session_mem:info(inflight_cnt, Session3)).
 
@@ -2121,12 +2189,12 @@ set_duplicate_pub({Id, Msg}) ->
 get_packet_id({Id, _}) ->
     Id.
 
-inflight_query(Session, Pos, Limit) ->
-    emqx_session_mem:info({inflight_msgs, #{position => Pos, limit => Limit}}, Session).
+inflight_query(Session, Cursor, Limit) ->
+    emqx_session_mem:info({inflight_msgs, #{cursor => Cursor, limit => Limit}}, Session).
 
-inflight_ts(#message{extra = #{inflight_cursor := {Ts, _PacketId}}}) -> Ts.
+inflight_ts(#message{extra = #{query_cursor := {Ts, _PacketId}}}) -> Ts.
 
-inflight_position(#message{extra = #{inflight_cursor := Cursor}}) ->
+inflight_position(#message{extra = #{query_cursor := Cursor}}) ->
     Cursor.
 
 limiter_client(ListenerId) ->
