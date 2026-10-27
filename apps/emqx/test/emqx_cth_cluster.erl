@@ -40,6 +40,7 @@
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("classy/include/classy.hrl").
 
 -define(TIMEOUT_NODE_START_MS, 15000).
 -define(TIMEOUT_NODE_STOP_S, 15).
@@ -141,11 +142,9 @@ Check if the node run level is greater or equal to the given one.
 """.
 -spec verify_run_level(classy:run_level()) -> fun((node()) -> ok | {error, _}).
 verify_run_level(Expected) ->
-    NExpected = classy_rl_changer:to_int(Expected),
     fun(Node) ->
         Got = erpc:call(Node, classy, run_level, []),
-        NGot = classy_rl_changer:to_int(Got),
-        case NGot >= NExpected of
+        case Got >= Expected of
             true ->
                 ok;
             false ->
@@ -672,7 +671,7 @@ do_perform(Act, NodeSpecs, Opts) ->
     % 1. Start bare nodes with only basic applications running
     ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS, Opts),
     Nodes = [Node || #{name := Node} <- NodeSpecs],
-    CommonChecks = [verify_run_level(cluster), verify_business_apps()],
+    CommonChecks = [verify_run_level(?classy_rl_cluster), verify_business_apps()],
     %% 2. Start applications:
     ShouldAppearInRunningNodes = [run_node_phase_cluster(Act, NS) || NS <- NodeSpecs],
     %% 3. Wait for the readiness:
