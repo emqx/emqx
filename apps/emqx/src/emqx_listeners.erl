@@ -847,7 +847,7 @@ esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
         end
     ).
 
-socket_tcp_opts(#{socket_options := #{buffer_alloc := packet}} = Opts) ->
+socket_tcp_opts(#{tcp_options := #{buffer_retention_strategy := packet}} = Opts) ->
     TcpOpts = tcp_opts(Opts),
     Buffer = proplists:get_value(buffer, TcpOpts),
     lists:keyreplace(buffer, 1, TcpOpts, {buffer, {false, Buffer}});
@@ -1194,6 +1194,9 @@ tcp_opt({keepalive, _String}) ->
     %% emqx_schema:tcp_keepalive_opts(String);
     %% esockd only supports key-value paris, NOT options like [{raw, 6, 4, ...}]
     %% so we ignore it here but set it in emqx_connection process like `active_n'
+    [];
+tcp_opt({buffer_retention_strategy, _Strategy}) ->
+    %% Relevant for `socket` backend only, see `socket_tcp_opts/1`.
     [];
 tcp_opt({nolinger, Bool}) ->
     case Bool of

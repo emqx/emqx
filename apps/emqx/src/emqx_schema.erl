@@ -722,11 +722,6 @@ fields("mqtt_tcp_listener") ->
                 sc(
                     ref("tcp_opts"),
                     #{}
-                )},
-            {"socket_options",
-                sc(
-                    ref("tcp_socket_opts"),
-                    #{}
                 )}
         ];
 fields("mqtt_ssl_listener") ->
@@ -1193,6 +1188,15 @@ fields("tcp_opts") ->
                     desc => ?DESC(fields_tcp_opts_buffer)
                 }
             )},
+        {"buffer_retention_strategy",
+            sc(
+                hoconsc:enum([always, packet]),
+                #{
+                    default => <<"packet">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_tcp_opts_buffer_retention_strategy)
+                }
+            )},
         {"high_watermark",
             sc(
                 bytesize(),
@@ -1240,27 +1244,6 @@ fields("tcp_opts") ->
                     default => <<"none">>,
                     desc => ?DESC(fields_tcp_opts_keepalive),
                     validator => fun validate_tcp_keepalive/1
-                }
-            )}
-    ];
-fields("tcp_socket_opts") ->
-    [
-        {"buffer_alloc",
-            sc(
-                hoconsc:enum([always, packet]),
-                #{
-                    default => <<"packet">>,
-                    importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(fields_tcp_socket_opts_buffer_alloc)
-                }
-            )},
-        {"buffer_alloc_limit",
-            sc(
-                bytesize(),
-                #{
-                    default => <<"16MB">>,
-                    importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(fields_tcp_socket_opts_buffer_alloc_limit)
                 }
             )}
     ];
@@ -2506,8 +2489,6 @@ desc("ws_opts") ->
     "WebSocket listener options.";
 desc("tcp_opts") ->
     "TCP listener options.";
-desc("tcp_socket_opts") ->
-    ?DESC(tcp_socket_opts);
 desc("client_tcp_opts") ->
     ?DESC("client_tcp_opts");
 desc("listener_ssl_opts") ->

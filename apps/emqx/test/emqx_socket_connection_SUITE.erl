@@ -159,11 +159,11 @@ t_info_omits_sock(_) ->
     end.
 
 -doc """
-Allocation policy `always` retains the configured 1 MiB receive buffer while the
+Retention strategy `always` retains the configured 1 MiB receive buffer while the
 connection waits for CONNECT.
 """.
 t_always_buffer_retained(_) ->
-    with_buffer_alloc_policy(?FUNCTION_NAME, ~"1MB", always, fun(_Sock, Pid) ->
+    with_buffer_retention_strategy(?FUNCTION_NAME, ~"1MB", always, fun(_Sock, Pid) ->
         ?retry(
             50,
             20,
@@ -175,11 +175,11 @@ t_always_buffer_retained(_) ->
     end).
 
 -doc """
-Allocation policy `packet` releases the configured 1 MiB receive buffer while the
+Retention strategy `packet` releases the configured 1 MiB receive buffer while the
 connection waits for CONNECT.
 """.
 t_packet_buffer_released_before_connect(_) ->
-    with_buffer_alloc_policy(?FUNCTION_NAME, ~"1MB", packet, fun(_Sock, Pid) ->
+    with_buffer_retention_strategy(?FUNCTION_NAME, ~"1MB", packet, fun(_Sock, Pid) ->
         ?retry(
             50,
             20,
@@ -191,11 +191,11 @@ t_packet_buffer_released_before_connect(_) ->
     end).
 
 -doc """
-Allocation policy `packet` releases large receive buffers after PUBACK, before
+Retention strategy `packet` releases large receive buffers after PUBACK, before
 the client sends another packet.
 """.
 t_packet_buffer_released_after_puback(_) ->
-    with_buffer_alloc_policy(?FUNCTION_NAME, ~"1MB", packet, fun(Sock, Pid) ->
+    with_buffer_retention_strategy(?FUNCTION_NAME, ~"1MB", packet, fun(Sock, Pid) ->
         Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = atom_to_binary(?FUNCTION_NAME)}),
         ok = gen_tcp:send(Sock, emqx_frame:serialize(Connect)),
         ?assertMatch(?CONNACK_PACKET(?CONNACK_ACCEPT), recv_packet(Sock, 4, 1000)),
@@ -218,11 +218,11 @@ t_packet_buffer_released_after_puback(_) ->
     end).
 
 -doc """
-Allocation policy `packet` releases large receive buffers after PINGREQ,
+Retention strategy `packet` releases large receive buffers after PINGREQ,
 while the MQTT connection remains open.
 """.
 t_packet_buffer_released_after_pingresp(_) ->
-    with_buffer_alloc_policy(?FUNCTION_NAME, ~"1MB", packet, fun(Sock, Pid) ->
+    with_buffer_retention_strategy(?FUNCTION_NAME, ~"1MB", packet, fun(Sock, Pid) ->
         Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = atom_to_binary(?FUNCTION_NAME)}),
         ok = gen_tcp:send(Sock, emqx_frame:serialize(Connect)),
         ?assertMatch(?CONNACK_PACKET(?CONNACK_ACCEPT), recv_packet(Sock, 4, 1000)),
@@ -243,7 +243,7 @@ t_packet_buffer_released_after_pingresp(_) ->
         )
     end).
 
-with_buffer_alloc_policy(Name, Buffer, Policy, Check) ->
+with_buffer_retention_strategy(Name, Buffer, Strategy, Check) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Path = [listeners, tcp, Name],
     {ok, _} = emqx:update_config(
@@ -251,8 +251,10 @@ with_buffer_alloc_policy(Name, Buffer, Policy, Check) ->
         {create, #{
             <<"bind">> => iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]),
             <<"tcp_backend">> => <<"socket">>,
-            <<"tcp_options">> => #{<<"buffer">> => Buffer},
-            <<"socket_options">> => #{<<"buffer_alloc">> => atom_to_binary(Policy)}
+            <<"tcp_options">> => #{
+                <<"buffer">> => Buffer,
+                <<"buffer_retention_strategy">> => atom_to_binary(Strategy)
+            }
         }}
     ),
     try
