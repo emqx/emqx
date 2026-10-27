@@ -389,7 +389,9 @@ force_kill_lock_owner(Pid, Resource) ->
 -ifdef(TEST).
 force_kill_test() ->
     Pid = spawn(fun() ->
-        receive after infinity -> ok end
+        receive
+        after infinity -> ok
+        end
     end),
     ?assert(is_process_alive(Pid)),
     ok = force_kill_lock_owner(Pid, resource),

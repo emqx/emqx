@@ -63,10 +63,11 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_conf.hrl").
 
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
-
 -endif.
 
 -define(INITIATE(MFA), {initiate, MFA}).
