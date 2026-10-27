@@ -280,6 +280,17 @@ follows the OTP version in `.tool-versions`:
 When you backport a change to `dev-58`, convert each `-doc` block to a `%%` comment, and convert
 each multi-line literal to the form that the branch already uses.
 
+### String fields in config and API schemas
+
+When you add a field to a config schema or to an API schema, declare a string value as `binary()`.
+Do not declare it as `string()` unless there is a reason that forces the Erlang string type, for
+example a library that accepts only a charlist. State that reason in a comment next to the field.
+
+A `binary()` field keeps its value in one copy, stores and compares cheaply, and goes to the
+JSON encoder and the HOCON config without a conversion. A `string()` field turns the value into a
+list of integers on every read, and the schema then needs a conversion back at each place that
+sends the value to a library, a log or an API response.
+
 ## BPAPI Proto Modules
 
 A proto module (`*_proto_v*.erl`) wraps a cluster-wide RPC and implements the `emqx_bpapi`
@@ -318,6 +329,36 @@ never mean "set the secret to the literal `******`".
 - Test the round trip, not only the mask. Send a `GET`, send the same body back with `PUT`, and
   assert that the request succeeds and that the stored secret did not change. Separately, assert
   that `GET` still masks the secret.
+
+## Outgoing TLS Clients Must Not Pick Their Own Trust Store
+
+This applies from 6.3.3 on, after [#19756](https://github.com/emqx/emqx/pull/19756).
+
+An outgoing TLS client is any code in EMQX that connects to another system over TLS: a data
+integration connector, an authentication or authorization backend, a cluster link, a webhook, an
+HTTP client library, and a NIF library with its own TLS stack. Such a client must never fall back
+to the operating system's trust bundle, or to a bundle compiled into a library, on its own. The
+trust anchors come from EMQX's configuration, in this order:
+
+1. The explicit `cacertfile` or `cacerts` in the client's `ssl` options, when the user set one.
+2. Otherwise, the node-wide `node.trusted_certs` setting, resolved by `emqx_conf_schema` and
+   applied by `emqx_tls_lib:to_client_opts/2` when the client verifies its peer. Build the `ssl`
+   options of every outgoing client through that function.
+
+When `node.trusted_certs` resolves to nothing, the client gets no trust anchors and a
+`verify_peer` connection fails with an `ssl` options error. That is the intended result: the
+operator sees that no trust store is configured, instead of a silent dependency on whatever the
+host or a library ships.
+
+- Do not add a dependency whose default behaviour is to load an operating system or compiled-in
+  CA bundle. If a library does that, configure it from the EMQX schema default or from the
+  explicit configuration value, as `hackney.cacertfile_path` is set from `node.trusted_certs`.
+- A NIF library with its own TLS implementation gets its CA file from the same two sources. It must
+  not probe the system store itself.
+- Do not write the resolved CA file path into the configuration. The path differs between
+  distributions, and a stored path breaks a config import on another host.
+- Test the failure case too: with `verify_peer`, no `cacertfile` and no resolved
+  `node.trusted_certs`, the connection must fail, not succeed through a hidden trust store.
 
 ## Data integration test suites
 
