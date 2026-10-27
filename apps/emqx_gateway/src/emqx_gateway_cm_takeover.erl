@@ -64,7 +64,12 @@ results at protocol boundaries.
 -type begin_result() :: {ok, channelref(), map()} | {error, term()}.
 
 -define(BPAPI, emqx_gateway_cm_takeover).
+
+%% NOTE
+%% MQTT-SN passes this protocol directly to `emqx_cm_takeover` session codecs.
+%% Keep `VSN_TAKEOVER` and its version meanings in sync with `emqx_cm_takeover`.
 -define(VSN_TAKEOVER, 2).
+
 -define(T_TAKEOVER, 15000).
 -define(RPC_TIMEOUT, ?T_TAKEOVER * 2).
 

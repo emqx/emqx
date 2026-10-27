@@ -65,6 +65,9 @@
 %% Takeover session formats:
 %% 1: Exported maps with millisecond `deliver_begin_at` and nanosecond `inflight_insert_ts`.
 %% 2: Microsecond `deliver_begin_at_us`, legacy timestamp metadata is no longer required.
+%%
+%% Keep `VSN_TAKEOVER` and its version meanings in sync with `emqx_gateway_cm_takeover`,
+%% which passes its protocol directly to these session codecs for MQTT-SN.
 -define(VSN_TAKEOVER, 2).
 
 %% v3 nodes:
