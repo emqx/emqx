@@ -113,6 +113,12 @@ node_client_subscribed(Node, ClientId, Topic) ->
         end
     ).
 
+wait_channel_gone(Node, ClientId) ->
+    wait_until(
+        fun() -> erpc:call(Node, emqx_cm, lookup_channels, [ClientId]) =:= [] end,
+        100
+    ).
+
 settle_cluster(Nodes) ->
     emqx_bcast_test_cluster:wait_ready(Nodes, Nodes).
 
@@ -788,6 +794,7 @@ t_partial_batch_ack_ledger_after_owner_handover(Config) ->
     %% durable marker for the incomplete part, so D1 is legitimately
     %% redelivered.
     emqtt:stop(C1),
+    ?assert(wait_channel_gone(N1, D1)),
     C1b = connect(N1, D1),
     sub(C1b, topic(D1)),
     ?assert(wait_until(fun() -> node_client_subscribed(N1, D1, topic(D1)) end, 50)),
@@ -838,36 +845,18 @@ t_plugin_roll_restart_under_qos1_load(Config) ->
             100
         )
     ),
-    Parent = self(),
-    _ = spawn_link(fun() ->
-        Results = emqx_utils:pmap(
-            fun(Payload) ->
-                api_call(N1, #{
-                    <<"Action">> => <<"BatchPub">>,
-                    <<"ProductKey">> => PK,
-                    <<"DeviceName">> => [DN],
-                    <<"MessageContent">> => base64:encode(Payload),
-                    <<"Qos">> => 1
-                })
-            end,
-            Payloads,
-            30000
-        ),
-        Parent ! {load_published, Results}
-    end),
-    timer:sleep(100),
-    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
-    receive
-        {load_published, Results} ->
-            ?assert(
-                lists:all(
-                    fun(Result) -> element(1, Result) =:= ok andalso element(2, Result) =:= 200 end,
-                    Results
-                )
-            )
-    after 30000 ->
-        error(load_publish_timeout)
-    end,
+    lists:foreach(
+        fun(Payload) ->
+            {ok, 200, _, _} = api_call(N1, #{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => PK,
+                <<"DeviceName">> => [DN],
+                <<"MessageContent">> => base64:encode(Payload),
+                <<"Qos">> => 1
+            })
+        end,
+        Payloads
+    ),
     Committed = wait_until(
         fun() ->
             erpc:call(N1, mnesia, table_info, [bcast_msg, size]) >= Count
@@ -875,8 +864,10 @@ t_plugin_roll_restart_under_qos1_load(Config) ->
         200
     ),
     ?assert(Committed),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
     settle_cluster([N1, N2]),
     emqtt:stop(C),
+    ?assert(wait_channel_gone(N1, DN)),
     C2 = connect(N1, DN),
     sub(C2, topic(DN)),
     ?assert(wait_until(fun() -> node_client_subscribed(N1, DN, topic(DN)) end, 50)),
