@@ -4227,7 +4227,7 @@ mqtt_general() ->
             )},
         {"stats_emit_interval",
             sc(
-                duration(),
+                timeout_duration(),
                 #{
                     default => <<"60s">>,
                     importance => ?IMPORTANCE_LOW,
