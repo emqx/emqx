@@ -198,8 +198,8 @@ to_session(Session = #{inflight := Inflight}, Proto) ->
 
 to_inflight(Inflight, #{vsn := 1}) ->
     lists:map(
-        fun(Entry = #{message := Message}) ->
-            Entry#{message := to_legacy_inflight_message(Message)}
+        fun(Entry = #{message := Message, timestamp := Timestamp}) ->
+            Entry#{message := to_legacy_inflight_message(Message, Timestamp)}
         end,
         Inflight
     );
@@ -449,7 +449,7 @@ to_legacy_inflight(Inflight, MaxInflight) ->
         ) ->
             gb_trees:insert(
                 PacketId,
-                {inflight_data, Phase, to_legacy_inflight_message(Message), Timestamp},
+                {inflight_data, Phase, to_legacy_inflight_message(Message, Timestamp), Timestamp},
                 Acc
             )
         end,
@@ -485,11 +485,10 @@ from_legacy_inflight_message(#message{headers = Headers0, extra = Extra0} = Mess
         extra = Extra
     }.
 
-to_legacy_inflight_message(
-    #message{headers = #{deliver_begin_at_us := Begin} = Headers0} = Message
-) ->
+to_legacy_inflight_message(#message{headers = Headers0} = Message, Timestamp) ->
     %% NOTE
     %% Older peers use milliseconds for delivery latency and nanoseconds for pagination.
+    Begin = maps:get(deliver_begin_at_us, Headers0, Timestamp * 1000),
     Headers = maps:remove(deliver_begin_at_us, Headers0),
     Extra =
         case Message#message.extra of
