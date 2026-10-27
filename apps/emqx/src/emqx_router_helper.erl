@@ -52,6 +52,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
+%% Creates a false positive where length is actually needed.
+-elvis([{elvis_style, prefer_robot_butt, disable}]).
+
 %% Mnesia bootstrap
 -export([create_tables/0]).
 

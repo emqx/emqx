@@ -84,7 +84,7 @@
 
 -define(PTERM(DB, SHARD, KEY), {?MODULE, DB, SHARD, KEY}).
 
--elvis([{elvis_style, no_catch_expressions, disable}]).
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 %%
 
@@ -628,7 +628,11 @@ terminate(_Reason, #st{db = DB, shard = Shard}) ->
     emqx_ds_leaderboard:unregister_replica(DB, Shard, self()),
     ok = emqx_ds_builtin_raft:set_replica_ready(DB, Shard, false),
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
-    catch prep_stop_server(DB, Shard),
+    try
+        prep_stop_server(DB, Shard)
+    catch
+        _:_ -> ok
+    end,
     ok = ra:stop_server(DB, local_server(DB, Shard)).
 
 %%
