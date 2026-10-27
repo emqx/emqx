@@ -275,6 +275,11 @@ t_non_persistence(Config) ->
         ok = supervisor:terminate_child(emqx_node_rebalance_sup, emqx_node_rebalance_purge),
         {ok, _} = supervisor:restart_child(emqx_node_rebalance_sup, emqx_node_rebalance_purge),
 
+        ?retry(
+            _Sleep = 100,
+            _Attempts = 20,
+            ?assertEqual(available, emqx_node_rebalance_status:availability_status())
+        ),
         ?assertMatch(
             ok,
             emqtt_try_connect([{port, Port}])
