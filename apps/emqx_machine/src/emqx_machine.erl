@@ -10,12 +10,22 @@
     brutal_shutdown/0,
     is_ready/0,
 
-    node_status/0
+    register_hooks/1,
+    set_readiness/2,
+    maybe_migrate_cluster/0,
+    manage_business_apps/2,
+
+    node_status/0,
+
+    add_emqx_vsn/1,
+    on_node_classify/1,
+
+    is_cluster_ready/0,
+    wait_cluster_ready/1
 ]).
 
 -export([open_ports_check/0]).
--export([mria_lb_custom_info/0, mria_lb_custom_info_check/1]).
--export([check_dist_tls_verify/2, merge_dist_tls_opts/2, dist_tls_opts/2]).
+-export([mria_lb_discover/0, mria_lb_custom_info/0, mria_lb_custom_info_check/1]).
 
 -ifdef(TEST).
 -export([create_plan/0]).
@@ -24,40 +34,125 @@
 -include_lib("kernel/include/inet.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_machine_rl.hrl").
+
+-define(cluster_ready, emqx_machine_cluster).
 
 %% @doc EMQX boot entrypoint.
 start() ->
-    %% Refuse cluster joins until emqx_machine_boot:post_boot/0 declares
-    %% boot complete; a join restarts mria, which is fatal to apps that
-    %% are still starting.
-    ok = emqx_cluster:set_booting(true),
     ensure_valid_features(),
     emqx_mgmt_cli:load(),
-    case os:type() of
-        {win32, nt} ->
-            ok;
-        _Nix ->
-            os:set_signal(sighup, ignore),
-            %% default is handle
-            os:set_signal(sigterm, handle)
-    end,
-    ok = set_backtrace_depth(),
-    configure_shard_transports(),
-    set_mnesia_extra_diagnostic_checks(),
+    setup_vm(),
     ok = configure_otel_deps(),
+    %% Hand over control to classy:
+    ClassyDir = filename:join(emqx:data_dir(), "classy"),
+    application:set_env(classy, table_dir, ClassyDir),
+    ok = filelib:ensure_path(ClassyDir),
+    %% Start classy app in dormant mode, which enables registration of hooks:
+    {ok, _} = application:ensure_all_started(classy),
+    %% Start mria in dormant mode:
+    {ok, _} = application:ensure_all_started(mria),
+    %% Setup EMQX hooks:
+    register_hooks(fun ?MODULE:manage_business_apps/2),
+    %% Launch:
+    ok = classy:start_system().
+
+-doc """
+Return true if the machine has ran all necessary for the cluster run level.
+""".
+-spec is_cluster_ready() -> boolean().
+is_cluster_ready() ->
+    optvar:is_set(?cluster_ready).
+
+-doc """
+Don't use in the new code.
+
+This function is specifically created for emqx_conf cluster RPC server,
+which creates a strange circular dependency.
+""".
+-spec wait_cluster_ready(timeout()) -> ok | {error, stopping | timeout}.
+wait_cluster_ready(Timeout) ->
+    case optvar:read(?cluster_ready, Timeout) of
+        {ok, true} ->
+            ok;
+        {ok, false} ->
+            {error, stopping};
+        timeout ->
+            {error, timeout}
+    end.
+
+setup_vm() ->
+    os:set_signal(sighup, ignore),
+    %% default is handle
+    os:set_signal(sigterm, handle),
+    ok = set_backtrace_depth().
+
+register_hooks(OnRunLevel) ->
+    %% Classy:
+    _ = classy:on_node_init(fun ?MODULE:maybe_migrate_cluster/0, 100),
+    %% Cluster:
+    _ = classy:pre_join(fun emqx_cluster:pre_join/4, 50),
+    _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 50),
+    _ = classy:enrich_site_info(fun ?MODULE:add_emqx_vsn/1, 50),
+    _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 50),
+    _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
+    %% Staged application start:
+    _ = classy:on_run_level(OnRunLevel, 100),
+    _ = classy:on_run_level(fun ?MODULE:set_readiness/2, 0),
+    %% Fallback, allows to connect to legacy nodes:
+    _ = classy:fallback_get_cluster(fun mria_classy_migration:fallback_get_cluster/1),
+    _ = classy:fallback_get_meta(fun mria_classy_migration:fallback_get_meta/2, 0),
+    _ = classy:fallback_get_peer_nodes(fun mria_classy_migration:fallback_get_peer_nodes/1),
+    %% Fallback, allows core nodes that restarted after upgrading to classy to reform the cluster:
+    _ = classy:extra_sync_targets(fun mria_classy_migration:extra_sync_targets/1),
+    %% Mria:
+    %%
     %% Register mria callbacks that help to check compatibility of the
     %% replicant with the core node. Currently they rely on the exact
     %% match of the version of EMQX OTP application:
-    _ = application:load(mria),
-    _ = application:load(emqx),
     mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
     mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
+    configure_shard_transports(),
+    set_mnesia_extra_diagnostic_checks(),
     mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
-    maybe_warn_dist_tls_verify(),
-    ekka:start(),
     ok.
 
+-doc false.
+set_readiness(enter, ?emqx_rl_ready) ->
+    optvar:set(?cluster_ready, true);
+set_readiness(leave, ?emqx_rl_ready) ->
+    %% This will be the first hook to fire when decreasing the run
+    %% level. It may so happen that certain applications wait for the
+    %% optvar. Here we notify them so they can stop waiting and
+    %% trigger stop.
+    optvar:set(?cluster_ready, false),
+    optvar:unset(?cluster_ready);
+set_readiness(_, _) ->
+    ok.
+
+manage_business_apps(enter, ?emqx_rl_boot) ->
+    emqx_machine_boot:post_boot();
+manage_business_apps(leave, ?emqx_rl_boot) ->
+    emqx_machine_boot:stop_apps();
+manage_business_apps(_, _) ->
+    ok.
+
+maybe_migrate_cluster() ->
+    %% Use DS site ID:
+    MaybeSite =
+        case emqx_dsch_migrate:read_old() of
+            {ok, #{schema := #{site := Site}}} ->
+                Site;
+            _ ->
+                undefined
+        end,
+    %% Use hash of the mnesia schema cookie as the initial cluster ID:
+    MaybeCluster = mria_classy_migration:maybe_cluster_id(),
+    ?SLOG(notice, #{msg => "initialize_emqx_cluster", site => MaybeSite, cluster => MaybeCluster}),
+    classy_node:maybe_init_the_site(MaybeSite, MaybeCluster).
+
 graceful_shutdown() ->
+    _ = classy:stop_system(),
     emqx_machine_terminator:graceful_wait().
 
 %% only used when failed to boot
@@ -70,8 +165,9 @@ set_backtrace_depth() ->
     ok.
 
 %% @doc Return true if boot is complete.
+-spec is_ready() -> boolean().
 is_ready() ->
-    emqx_machine_terminator:is_running().
+    classy_boot:run_level(ready) >= ?emqx_rl_ready.
 
 node_status() ->
     emqx_utils_json:encode(#{
@@ -216,191 +312,6 @@ resolve_dist_address_type() ->
             inet
     end.
 
-%% @doc Check whether the Erlang distribution over TLS verifies peer
-%% certificates. `Opts' is a proplist with a `server' and a `client' entry
-%% holding the effective options of each side: the `-ssl_dist_optfile' content
-%% with the `-ssl_dist_opt' arguments merged into it, as OTP applies them
-%% (`merge_dist_tls_opts/2').
-%%
-%% Returns `ok', or `{warn, Problems}' when peer verification is not enforced.
-%% A distribution over plain TCP is not checked.
-%%
-%% Only the options that decide whether a peer is verified are judged: a
-%% `verify' that is not `verify_peer', and a server entry that does not require
-%% the peer's certificate. Whether a certificate, a key or a CA is present and
-%% usable is left to `ssl', which reports those as an option error when it sets
-%% up the listener or the connection.
--spec check_dist_tls_verify(string(), proplists:proplist()) -> ok | {warn, [term()]}.
-check_dist_tls_verify(ProtoDist, Opts) ->
-    case is_dist_over_tls(ProtoDist) of
-        false ->
-            ok;
-        true ->
-            Problems =
-                check_server_opts(proplists:get_value(server, Opts, [])) ++
-                    check_client_opts(proplists:get_value(client, Opts, [])),
-            case Problems of
-                [] -> ok;
-                _ -> {warn, Problems}
-            end
-    end.
-
-%% The optfile is consulted by OTP while the VM starts, before any EMQX
-%% application is up, so this runs after the distribution listener exists and
-%% cannot prevent it from being created. It reports what it finds and lets the
-%% node boot: the option file EMQX ships verifies peers, and a deployment that
-%% deliberately turns that off is told so, not stopped. It judges the options
-%% the VM actually applies, so unlike a text match on the file it also covers a
-%% 'verify' that was computed at read time, an entry that omits 'verify' and
-%% falls back to an OTP default, and a 'verify' that only a '-ssl_dist_opt'
-%% argument sets.
-maybe_warn_dist_tls_verify() ->
-    ProtoDist = os:getenv("EKKA_PROTO_DIST_MOD", "inet_tcp"),
-    case is_dist_over_tls(ProtoDist) of
-        false ->
-            ok;
-        true ->
-            case dist_tls_opts() of
-                {ok, Opts} ->
-                    case check_dist_tls_verify(ProtoDist, Opts) of
-                        ok ->
-                            ok;
-                        {warn, Problems} ->
-                            dist_tls_unverified(Problems)
-                    end;
-                error ->
-                    %% No option file and no '-ssl_dist_opt' argument: nothing
-                    %% was handed to OTP that this check could judge.
-                    ok
-            end
-    end.
-
-dist_tls_opts() ->
-    dist_tls_opts(dist_tls_table_opts(), dist_tls_cmd_line_args()).
-
-%% @doc `TableOpts' is `{ok, Opts}' when OTP was given an option file - the file
-%% may hold an empty option list - and `error' when it was not given one, so an
-%% option file that was supplied but is empty is still judged. Only when there is
-%% no option file and no `-ssl_dist_opt' argument either is there nothing to
-%% judge.
--spec dist_tls_opts({ok, proplists:proplist()} | error, [string()]) ->
-    {ok, proplists:proplist()} | error.
-dist_tls_opts(error, []) ->
-    error;
-dist_tls_opts(error, CmdLineArgs) ->
-    {ok, merge_dist_tls_opts([], CmdLineArgs)};
-dist_tls_opts({ok, TableOpts}, CmdLineArgs) ->
-    {ok, merge_dist_tls_opts(TableOpts, CmdLineArgs)}.
-
-%% The option file is consult'ed into this table by
-%% `ssl_dist_sup:start_link/0', and the table only exists when OTP was given
-%% `-ssl_dist_optfile'.
-dist_tls_table_opts() ->
-    try
-        {ok, ets:lookup(ssl_dist_opts, server) ++ ets:lookup(ssl_dist_opts, client)}
-    catch
-        error:badarg -> error
-    end.
-
-dist_tls_cmd_line_args() ->
-    case init:get_argument(ssl_dist_opt) of
-        {ok, Args} -> lists:append(Args);
-        _ -> []
-    end.
-
-%% @doc Merge the `-ssl_dist_opt' arguments into the option lists of the option
-%% file the way `inet_tls_dist:get_ssl_options/1' does it: the command-line
-%% options come first, the option file last, and a key that appears more than
-%% once is resolved last-wins by `get_opt/3' - matching
-%% `ssl_config:process_options/3', which reverses the list "so we get the last
-%% set option if set twice". The option file therefore wins over the command
-%% line, and a command-line option is only applied where the file omits the
-%% key.
--spec merge_dist_tls_opts(proplists:proplist(), [string()]) -> proplists:proplist().
-merge_dist_tls_opts(TableOpts, CmdLineArgs) ->
-    [
-        {Role, cmd_line_opts(Role, CmdLineArgs) ++ proplists:get_value(Role, TableOpts, [])}
-     || Role <- [server, client]
-    ].
-
-%% Mirrors `inet_tls_dist:ssl_options/2': a command-line option is named
-%% `<role>_<key>', and its value is atomized as `inet_tls_dist:atomize/1' does.
-%% Options named for the other role are skipped, and only the keys this check
-%% judges are looked up later, so unknown keys are carried along harmlessly.
-cmd_line_opts(Role, [Opt, Value | Rest]) ->
-    case role_opt(Role, Opt) of
-        {ok, Key} -> [{Key, list_to_atom(Value)} | cmd_line_opts(Role, Rest)];
-        skip -> cmd_line_opts(Role, Rest)
-    end;
-cmd_line_opts(_Role, _) ->
-    [].
-
-role_opt(Role, Opt) ->
-    case string:prefix(Opt, atom_to_list(Role) ++ "_") of
-        nomatch -> skip;
-        Key -> {ok, list_to_atom(Key)}
-    end.
-
-dist_tls_unverified(Problems) ->
-    ?SLOG(warning, #{
-        msg => "erlang_distribution_tls_peer_verification_not_enforced",
-        problems => Problems,
-        node => node(),
-        hint =>
-            "Set {verify, verify_peer} in both the server and the client entries of the "
-            "inet_tls optfile, with a cacertfile every node trusts, a certificate the "
-            "client can present, and fail_if_no_peer_cert enabled on the server entry. "
-            "See EMQX_SSL_DIST_OPTFILE."
-    }).
-
-is_dist_over_tls("inet_tls") ->
-    true;
-is_dist_over_tls("inet6_tls") ->
-    true;
-is_dist_over_tls(_) ->
-    false.
-
-check_server_opts(Opts) ->
-    case check_verify(server, Opts) of
-        [] -> check_client_cert_required(Opts);
-        Problems -> Problems
-    end.
-
-check_client_opts(Opts) ->
-    check_verify(client, Opts).
-
-%% Only whether the peer is verified is judged. OTP defaults to verify_peer on
-%% the client and verify_none on the server, so an entry that omits `verify' is
-%% judged by the default of its role.
-check_verify(Role, Opts) ->
-    case get_opt(verify, Opts, default_verify(Role)) of
-        verify_peer -> [];
-        Verify -> [{Role, Verify}]
-    end.
-
-%% OTP defaults to verify_peer for the client and verify_none for the server.
-default_verify(client) -> verify_peer;
-default_verify(server) -> verify_none.
-
-%% OTP implies fail_if_no_peer_cert=true on the server when verify=verify_peer.
-check_client_cert_required(Opts) ->
-    Default = get_opt(verify, Opts, default_verify(server)) =:= verify_peer,
-    case get_opt(fail_if_no_peer_cert, Opts, Default) of
-        true -> [];
-        false -> [{server, fail_if_no_peer_cert_false}]
-    end.
-
-%% OTP folds a key that appears more than once in an optfile last-wins:
-%% `ssl_dist_sup' stores the consulted list as it is, and
-%% `ssl_config:process_options/3' reverses it before turning it into a map, "so
-%% we get the last set option if set twice". `proplists:get_value/3' would take
-%% the first one instead, and judge the entry by a value that OTP never uses.
-get_opt(Key, Opts, Default) ->
-    case [Value || {K, Value} <- Opts, K =:= Key] of
-        [] -> Default;
-        Values -> lists:last(Values)
-    end.
-
 %% Note: this function is stored in the Mria's application environment
 mria_lb_custom_info() ->
     get_emqx_vsn().
@@ -412,6 +323,29 @@ mria_lb_custom_info_check(undefined) ->
     false;
 mria_lb_custom_info_check(OtherVsn) ->
     get_emqx_vsn() =:= OtherVsn.
+
+%% Forward classy autocluster results to mria
+%% TODO: integrate mria directly with classy?
+mria_lb_discover() ->
+    classy:nodes(connected).
+
+add_emqx_vsn(Acc) ->
+    Acc#{emqx => get_emqx_vsn()}.
+
+on_node_classify(#{emqx := Vsn}) ->
+    MyVsn = get_emqx_vsn(),
+    [
+        {emqx_vsn, Vsn},
+        case Vsn of
+            MyVsn -> emqx_same_vsn;
+            _ when Vsn > MyVsn -> emqx_next_vsn;
+            _ when Vsn < MyVsn -> emqx_prev_vsn
+        end
+    ];
+on_node_classify(#{}) ->
+    [].
+
+%% TODO: Forward mria start/stop callbacks for autoheal
 
 get_emqx_vsn() ->
     case application:get_key(emqx, vsn) of

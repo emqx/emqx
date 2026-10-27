@@ -54,6 +54,11 @@
 -define(REGISTRY, ?MODULE).
 -define(NODE_DOWN_CLEANUP_LOCK, {?MODULE, cleanup_down}).
 
+-elvis([
+    {elvis_style, no_boolean_in_comparison, disable},
+    {elvis_style, atom_naming_convention, disable}
+]).
+
 %% @doc Start the global channel registry.
 -spec start_link() -> startlink_ret().
 start_link() ->
@@ -186,7 +191,7 @@ init([]) ->
     ]),
     ok = mria_rlog:wait_for_shards([?CM_SHARD], infinity),
     _ = maybe_subscribe_replica_events(),
-    ok = ekka:monitor(membership),
+    ok = mria_membership:monitor(membership, self(), true),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
