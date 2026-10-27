@@ -81,6 +81,36 @@ t_overview(_) ->
      || Overview <- ?OVERVIEWS
     ].
 
+-doc """
+An authenticated request with more than 100 query parameters is rejected before
+reaching the API handler, and the limit is documented once for the whole API in
+the generated API specification.
+""".
+t_query_param_limit(_Config) ->
+    %% Another testcase in this suite deletes the default API key, so recreate
+    %% it here to get a key that does not expire during this case.
+    _ = emqx_common_test_http:delete_default_app(),
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    Auth = emqx_common_test_http:default_auth_header(),
+    Url = ?HOST ++ "/api/v5/clients",
+    %% 99 client IDs plus `limit` is exactly 100 query parameters: allowed.
+    ?assertMatch(
+        {ok, {{"HTTP/1.1", 200, _}, _, _}},
+        httpc:request(get, {Url ++ "?" ++ batch_query(99), [Auth]}, [], [{body_format, binary}])
+    ),
+    %% The 101st query parameter is rejected before the API handler runs.
+    ?assertMatch(
+        {ok, {{"HTTP/1.1", 400, _}, _, _}},
+        httpc:request(get, {Url ++ "?" ++ batch_query(100), [Auth]}, [], [{body_format, binary}])
+    ),
+    %% The limit is documented in the shared `info` section of the API specification.
+    {ok, {{"HTTP/1.1", 200, _}, _, Spec}} = httpc:request(
+        get, {?HOST ++ "/api-spec/clients", []}, [], [{body_format, binary}]
+    ),
+    #{<<"info">> := #{<<"description">> := Description}} = emqx_utils_json:decode(Spec),
+    ?assertMatch({match, _}, re:run(Description, "100 query parameters")),
+    ok.
+
 t_dashboard_restart(Config) ->
     emqx_config:put([dashboard], #{
         i18n_lang => en,
@@ -968,6 +998,14 @@ api_path(Parts) ->
 
 json(Data) ->
     emqx_utils_json:decode(Data).
+
+batch_query(ClientIdCount) ->
+    unicode:characters_to_list(
+        uri_string:compose_query(
+            [{<<"clientid">>, integer_to_binary(I)} || I <- lists:seq(1, ClientIdCount)] ++
+                [{<<"limit">>, <<"100">>}]
+        )
+    ).
 
 assert_same_dispatch([{'_', [], BaseRoutes}], Name, Tag) ->
     [{'_', [], NewRoutes}] = persistent_term:get(Name, Tag),

@@ -36,6 +36,11 @@
 
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
 
+-define(API_DESCRIPTION, <<
+    "A request accepts at most 100 query parameters in total, "
+    "including repeated and pagination parameters."
+>>).
+
 -type listener_name() :: atom().
 -type listener_configs() :: #{listener_name() => emqx_config:config()}.
 
@@ -157,7 +162,11 @@ minirest_option(Options) ->
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
-        info => #{title => emqx_api_name(), version => emqx_release_version()},
+        info => #{
+            title => emqx_api_name(),
+            version => emqx_release_version(),
+            description => ?API_DESCRIPTION
+        },
         servers => [#{url => emqx_dashboard_swagger:base_path()}],
         components => #{
             schemas => #{},

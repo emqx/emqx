@@ -11,6 +11,8 @@
     server_followup_in/3,
     server_incoming/3,
     server_prepare_out_response/4,
+    server_prepare_out_notification/4,
+    resource_context/1,
     client_prepare_out_request/3,
     client_in_response/3,
     expire/2,
@@ -165,6 +167,30 @@ server_prepare_out_response(Req, Reply, PeerKey, State0) ->
             handle_server_tx_block2(Req, Reply, PeerKey, State)
     end.
 
+-spec server_prepare_out_notification(
+    resource_context() | undefined, coap_message(), term(), state()
+) ->
+    {single, coap_message(), state()}
+    | {chunked, coap_message(), state()}
+    | {error, coap_message(), state()}.
+server_prepare_out_notification(ResourceContext, Notify, PeerKey, State) ->
+    case {ResourceContext, server_prepare_out_response(undefined, Notify, PeerKey, State)} of
+        {{get, #{uri_path := _}}, {chunked, First, #{server_tx_block2 := TxMap} = State1}} ->
+            Key = server_tx_key(PeerKey, undefined, Notify),
+            Resource = server_resource(PeerKey, ResourceContext),
+            TxMap1 = maps:update_with(Key, fun(Tx) -> Tx#{resource => Resource} end, TxMap),
+            {chunked, First, State1#{server_tx_block2 => TxMap1}};
+        {_ResourceContext, Other} ->
+            Other
+    end.
+
+-spec resource_context(coap_message()) -> resource_context().
+resource_context(#coap_message{method = Method, options = Opts}) ->
+    ResourceOpts = maps:with(
+        [uri_host, uri_port, uri_path, uri_query, accept, proxy_uri, proxy_scheme], Opts
+    ),
+    {Method, ResourceOpts}.
+
 -spec client_prepare_out_request(term(), coap_message(), state()) ->
     {single, coap_message(), state()} | {first_block, coap_message(), state()}.
 client_prepare_out_request(Ctx, Msg, State0) ->
@@ -254,8 +280,9 @@ handle_server_tx_block2(Req, Reply, PeerKey, State) ->
             do_handle_server_tx_block2(Key, Req, Reply, Num, Size, PeerKey, State)
     end.
 
-do_handle_server_tx_block2(Key, Req, Reply, Num, Size, _PeerKey, State) ->
-    Tx = new_server_tx(Reply, Size, State),
+do_handle_server_tx_block2(Key, Req, Reply, Num, Size, PeerKey, State) ->
+    Tx0 = new_server_tx(Reply, Size, State),
+    Tx = with_server_resource(Req, PeerKey, Tx0),
     case build_server_tx_block(Req, Reply, Num, Tx) of
         {ok, ChunkedReply, More} ->
             State1 = put_server_tx(Key, Tx, More, State),
@@ -305,6 +332,7 @@ new_server_tx(Reply, Size, State) ->
         method => Reply#coap_message.method,
         options => Opts,
         observe => maps:get(observe, Opts, undefined),
+        token => Reply#coap_message.token,
         expires_at => expires_at(State)
     }.
 
@@ -321,12 +349,44 @@ handle_server_followup_block2(_, Msg, _PeerKey, State) ->
     {error, error_reply({error, bad_option}, Msg), State}.
 
 do_handle_server_followup_block2(Num, Size, Msg, PeerKey, State) ->
-    case server_tx_key_from_req(PeerKey, Msg) of
-        {error, no_token} ->
+    case find_server_tx(PeerKey, Msg, State) of
+        undefined ->
             {pass, Msg, State};
         Key ->
             serve_server_followup_block2(Key, Num, Size, Msg, State)
     end.
+
+find_server_tx(PeerKey, #coap_message{options = Opts} = Msg, #{server_tx_block2 := TxMap}) ->
+    Resource = server_resource(PeerKey, Msg),
+    Key = server_tx_key_from_req(PeerKey, Msg),
+    case maps:get(Key, TxMap, undefined) of
+        #{resource := Resource} -> Key;
+        Tx when is_map(Tx), not is_map_key(resource, Tx) -> Key;
+        _ when is_map_key(observe, Opts) -> undefined;
+        _ -> find_server_tx_resource(Resource, TxMap)
+    end.
+
+find_server_tx_resource(Resource, TxMap) ->
+    case
+        [
+            Key
+         || {Key, #{resource := R, method := {ok, _}}} <- maps:to_list(TxMap),
+            R =:= Resource
+        ]
+    of
+        [Key] -> Key;
+        _ -> undefined
+    end.
+
+with_server_resource(#coap_message{} = Req, PeerKey, Tx) ->
+    Tx#{resource => server_resource(PeerKey, Req)};
+with_server_resource(_Req, _PeerKey, Tx) ->
+    Tx.
+
+server_resource(PeerKey, #coap_message{} = Req) ->
+    server_resource(PeerKey, resource_context(Req));
+server_resource(PeerKey, {Method, ResourceOpts}) ->
+    {PeerKey, Method, ResourceOpts}.
 
 serve_server_followup_block2(Key, Num, Size, Msg, State) ->
     TxMap = maps:get(server_tx_block2, State),
@@ -375,7 +435,12 @@ build_server_tx_block(
     Tx = #{method := Method, options := Opts}
 ) ->
     Template0 = emqx_coap_message:piggyback(Method, Req),
-    Template = Template0#coap_message{options = maps:remove(block2, Opts)},
+    ReplyOpts =
+        case Req#coap_message.token =:= maps:get(token, Tx, Req#coap_message.token) of
+            true -> Opts;
+            false -> maps:remove(observe, Opts)
+        end,
+    Template = Template0#coap_message{options = maps:remove(block2, ReplyOpts)},
     build_server_tx_block_from_template(Template, Num, Tx);
 build_server_tx_block(_Req, #coap_message{options = Opts} = Reply, Num, Tx) ->
     Reply0 = Reply#coap_message{options = maps:remove(block2, Opts)},
@@ -421,19 +486,34 @@ has_block2_option(_) ->
 
 reply_request(#coap_message{} = Req, _Reply) -> Req.
 
-maybe_clear_server_tx(PeerKey, Req, State) ->
-    case server_tx_key_from_req(PeerKey, Req) of
-        {error, no_token} ->
+maybe_clear_server_tx(_PeerKey, #coap_message{method = get, options = #{observe := 0}}, State) ->
+    State;
+maybe_clear_server_tx(PeerKey, #coap_message{} = Req, #{server_tx_block2 := TxMap} = State) ->
+    Key = server_tx_key_from_req(PeerKey, Req),
+    Resource = server_resource(PeerKey, Req),
+    case maps:get(Key, TxMap, undefined) of
+        #{resource := Resource} ->
+            State#{server_tx_block2 => maps:remove(Key, TxMap)};
+        Tx when is_map(Tx), not is_map_key(resource, Tx) ->
+            State#{server_tx_block2 => maps:remove(Key, TxMap)};
+        _ ->
+            State
+    end;
+maybe_clear_server_tx(_PeerKey, _Req, State) ->
+    State.
+
+put_server_tx(Key, Tx, More, #{server_tx_block2 := TxMap} = State) ->
+    case maps:get(Key, TxMap, undefined) of
+        #{resource := Resource} when is_map_key(resource, Tx), map_get(resource, Tx) =/= Resource ->
             State;
-        Key ->
-            TxMap = maps:get(server_tx_block2, State),
-            State#{server_tx_block2 => maps:remove(Key, TxMap)}
+        _ ->
+            do_put_server_tx(Key, Tx, More, State)
     end.
 
-put_server_tx(Key, _Tx, false, State) ->
+do_put_server_tx(Key, _Tx, false, State) ->
     TxMap = maps:get(server_tx_block2, State),
     State#{server_tx_block2 => maps:remove(Key, TxMap)};
-put_server_tx(Key, Tx, true, State) ->
+do_put_server_tx(Key, Tx, true, State) ->
     TxMap = maps:get(server_tx_block2, State),
     Observe = maps:get(observe, Tx, undefined),
     TxMap2 =
