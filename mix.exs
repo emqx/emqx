@@ -86,6 +86,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:grpc),
       common_dep(:minirest),
       common_dep(:ecpool),
+      common_dep(:poolboy),
       common_dep(:replayq),
       # maybe forbid to fetch quicer
       common_dep(:emqtt),
@@ -116,6 +117,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:hackney),
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
+      common_dep(:certifi),
       common_dep(:bcrypt),
       common_dep(:uuid),
       {:quickrand,
@@ -182,12 +184,12 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.9", override: true}
 
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.8", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
-  def common_dep(:gun), do: {:gun, "2.1.0", override: true}
+  def common_dep(:gun), do: {:gun, "2.7.0", override: true}
   # in conflict by cowboy_swagger and cowboy
-  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-4", override: true}
+  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-5", override: true}
 
   def common_dep(:ehttpc),
     do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.8", override: true}
@@ -205,8 +207,17 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:hackney),
     do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}
 
+  # Pinned to the emqx fork, which carries the current Mozilla CA bundle.
+  # hackney uses certifi:cacerts() as its default trust store.
+  def common_dep(:certifi),
+    do: {:certifi, github: "emqx/erlang-certifi", tag: "2.17.0-emqx-1", override: true}
+
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.3", override: true}
+
+  def common_dep(:poolboy),
+    do: {:poolboy, github: "emqx/poolboy", tag: "1.5.2-emqx.1", override: true}
+
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.5.0", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
@@ -256,7 +267,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do: {:cowlib, "2.14.0", override: true}
+    do: {:cowlib, "2.21.0", override: true}
 
   def common_dep(:snabbkaffe),
     do: {
@@ -321,7 +332,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.3"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.13"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.14"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 

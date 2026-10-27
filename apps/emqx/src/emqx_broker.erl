@@ -817,7 +817,7 @@ maybe_add_route(_Existed = true, _Topic, _ReplyTo) ->
     ok.
 
 maybe_delete_route(Topic) ->
-    case ets:member(?SUBSCRIBER, Topic) of
+    case ets:member(?SUBSCRIBER, Topic) orelse ets:member(?SUBSCRIBER, {shard, Topic}) of
         true -> ok;
         false -> sync_route(delete, Topic, #{})
     end.

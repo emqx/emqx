@@ -72,7 +72,7 @@ apps() ->
 -doc "QoS=0, QoS=1 and cross-node replay work in a 1-core 2-replicant cluster.".
 t_1c2r_e2e(Config) ->
     [Core, Rep1, Rep2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([Core, Rep1, Rep2], [Core]),
     DN1 = <<"topo_1c2r_dn1">>,
     DN2 = <<"topo_1c2r_dn2">>,
     C1 = connect(Rep1, DN1),
@@ -82,6 +82,7 @@ t_1c2r_e2e(Config) ->
         sub(C2, topic(DN2)),
         ?assert(wait_sub(Rep1, DN1, topic(DN1))),
         ?assert(wait_sub(Rep2, DN2, topic(DN2))),
+        wait_ready(Core, [{Rep1, DN1}, {Rep2, DN2}]),
 
         %% QoS0 broadcast reaches clients on both replicants.
         {ok, 200, _, _} = api_call(Core, #{
@@ -109,6 +110,10 @@ t_1c2r_e2e(Config) ->
         [M2b] = recv(1),
         ?assertEqual(?PAYLOAD, maps:get(payload, M1b)),
         ?assertEqual(?PAYLOAD, maps:get(payload, M2b)),
+        %% Drain the online rounds before publishing the offline one, so
+        %% wait_queued/2 below can only observe the new delivery.
+        ?assert(wait_device_ack(Core, <<"default">>, DN1)),
+        ?assert(wait_device_ack(Core, <<"default">>, DN2)),
 
         %% Offline device on Rep1, then reconnect on Rep2 and replay.
         emqtt:stop(C1),
@@ -120,9 +125,11 @@ t_1c2r_e2e(Config) ->
             <<"MessageContent">> => b64(?PAYLOAD),
             <<"Qos">> => 1
         }),
+        ?assert(wait_queued(Core, DN1)),
         C1b = connect(Rep2, DN1),
         sub(C1b, topic(DN1)),
         ?assert(wait_sub(Rep2, DN1, topic(DN1))),
+        wait_ready(Core, [{Rep2, DN1}]),
         [Replayed] = recv(1),
         ?assertEqual(?PAYLOAD, maps:get(payload, Replayed)),
         emqtt:stop(C1b)
@@ -134,7 +141,7 @@ t_1c2r_e2e(Config) ->
 -doc "QoS=0, QoS=1 and cross-node replay work in a 3-core cluster.".
 t_3c_e2e(Config) ->
     [C1, C2, C3] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([C1, C2, C3], [C1, C2, C3]),
     DN1 = <<"topo_3c_dn1">>,
     DN2 = <<"topo_3c_dn2">>,
     Client1 = connect(C1, DN1),
@@ -144,6 +151,7 @@ t_3c_e2e(Config) ->
         sub(Client2, topic(DN2)),
         ?assert(wait_sub(C1, DN1, topic(DN1))),
         ?assert(wait_sub(C2, DN2, topic(DN2))),
+        wait_ready(C3, [{C1, DN1}, {C2, DN2}]),
 
         %% API lands on C3, deliveries go to clients on C1/C2.
         {ok, 200, _, _} = api_call(C3, #{
@@ -169,6 +177,10 @@ t_3c_e2e(Config) ->
         [M2b] = recv(1, 10_000),
         ?assertEqual(?PAYLOAD, maps:get(payload, M1b)),
         ?assertEqual(?PAYLOAD, maps:get(payload, M2b)),
+        %% Drain the online rounds before publishing the offline one, so
+        %% wait_queued/2 below can only observe the new delivery.
+        ?assert(wait_device_ack(C3, <<"default">>, DN1)),
+        ?assert(wait_device_ack(C3, <<"default">>, DN2)),
 
         %% Offline device on C1, then reconnect on C3 and replay.
         emqtt:stop(Client1),
@@ -180,9 +192,11 @@ t_3c_e2e(Config) ->
             <<"MessageContent">> => b64(?PAYLOAD),
             <<"Qos">> => 1
         }),
+        ?assert(wait_queued(C3, DN1)),
         Client1b = connect(C3, DN1),
         sub(Client1b, topic(DN1)),
         ?assert(wait_sub(C3, DN1, topic(DN1))),
+        wait_ready(C3, [{C3, DN1}]),
         [Replayed] = recv(1),
         ?assertEqual(?PAYLOAD, maps:get(payload, Replayed)),
         emqtt:stop(Client1b)
@@ -197,13 +211,14 @@ t_3c_e2e(Config) ->
 
 -doc "Latency probe: QoS=0 and QoS=1 round trips in a 1-core 2-replicant cluster.".
 t_perf_1c2r(Config) ->
-    [Core, Rep1, _Rep2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    [Core, Rep1, Rep2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([Core, Rep1, Rep2], [Core]),
     DN = <<"perf_1c2r_dn">>,
     C = connect(Rep1, DN),
     try
         sub(C, topic(DN)),
         ?assert(wait_sub(Rep1, DN, topic(DN))),
+        wait_ready(Core, [{Rep1, DN}]),
         run_perf(Core, Core, DN, <<"1core-2replicant">>)
     after
         catch emqtt:stop(C)
@@ -211,28 +226,21 @@ t_perf_1c2r(Config) ->
 
 -doc "Latency probe: QoS=0 and QoS=1 round trips in a 3-core cluster.".
 t_perf_3c(Config) ->
-    [C1, _C2, C3] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    [C1, C2, C3] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([C1, C2, C3], [C1, C2, C3]),
     DN = <<"perf_3c_dn">>,
     C = connect(C1, DN),
     try
         sub(C, topic(DN)),
         ?assert(wait_sub(C1, DN, topic(DN))),
+        wait_ready(C3, [{C1, DN}]),
         run_perf(C3, C1, DN, <<"3core">>)
     after
         catch emqtt:stop(C)
     end.
 
-%% Cold-start settle: the async QoS1 pipeline runs at full speed only
-%% after mria converges and the plugin workers are warm. The tests used to
-%% start timing right after emqx_cth_cluster:start/1, so the first QoS1
-%% round-trip could exceed the recv budget on a cold multi-node cluster
-%% (t_3c_e2e / t_perf_1c2r flakes on shared machines). Settle before
-%% measuring so the delivery-latency numbers are meaningful. (The test
-%% process runs on the CT node, not a cluster node, so this is a plain
-%% settle sleep; emqx_cth_cluster:start/1 already waited for the nodes.)
-settle_cluster() ->
-    timer:sleep(3000).
+settle_cluster(Nodes, CoreNodes) ->
+    emqx_bcast_test_cluster:wait_ready(Nodes, CoreNodes).
 
 run_perf(ApiNode, AckNode, DN, Label) ->
     Qos0 = perf_qos0(ApiNode, DN),
@@ -361,6 +369,77 @@ wait_sub(Node, ClientId, Topic) ->
                     end
                 end
             )
+        end,
+        100
+    ).
+
+%% The connect and subscribe hooks cast into the pull shard asynchronously.
+%% QoS0 reads that node-local registry, and its fanout is computed from the
+%% API core's view of the global channel registry. Wait for both views so a
+%% publish issued right after SUBACK cannot race either one.
+wait_ready(Core, Devices) ->
+    lists:foreach(
+        fun({Node, DeviceName}) ->
+            ?assert(wait_registered(Node, DeviceName)),
+            ?assert(wait_channel_visible(Core, DeviceName)),
+            ?assert(wait_plugin_running(Core, Node))
+        end,
+        Devices
+    ).
+
+%% QoS0 fanout and QoS1 triggers are filtered through the API core's
+%% plugin_running_nodes/0 view. The probe is cached for a few seconds, so wait
+%% for this node to appear before publishing; otherwise a fresh trigger can be
+%% dropped even though the client and its channel are already visible.
+wait_plugin_running(Core, Node) ->
+    wait_until(
+        fun() ->
+            lists:member(Node, erpc:call(Core, emqx_bcast, plugin_running_nodes, []))
+        end,
+        100
+    ).
+
+wait_registered(Node, DeviceName) ->
+    wait_until(
+        fun() ->
+            case erpc:call(Node, emqx_bcast, lookup_device, [{<<"default">>, DeviceName}]) of
+                {ok, Pid} -> erpc:call(Node, erlang, is_process_alive, [Pid]);
+                _ -> false
+            end
+        end,
+        100
+    ).
+
+wait_channel_visible(Node, DeviceName) ->
+    case erpc:call(Node, emqx_cm_registry, is_enabled, []) of
+        false ->
+            %% With the global registry disabled, qos0_fanout_nodes/1
+            %% broadcasts to every node and does not need this view.
+            true;
+        true ->
+            wait_until(
+                fun() ->
+                    erpc:call(Node, emqx_cm, lookup_channels, [DeviceName]) =/= []
+                end,
+                100
+            )
+    end.
+
+%% QoS1 promotion is asynchronous. Reconnecting before the delivery reaches
+%% the index races the one-shot trigger, and a missed wakeup is only retried
+%% by the 5s deferred-claim sweep. Wait for the queued row so this case tests
+%% replay rather than promotion timing.
+wait_queued(Node, DeviceName) ->
+    wait_until(
+        fun() ->
+            case
+                erpc:call(Node, emqx_bcast_storage, get_device_deliveries, [
+                    {<<"default">>, DeviceName}
+                ])
+            of
+                {ok, [_ | _]} -> true;
+                _ -> false
+            end
         end,
         100
     ).

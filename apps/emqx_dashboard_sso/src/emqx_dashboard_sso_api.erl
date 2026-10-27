@@ -483,7 +483,7 @@ login_meta(Username, Role, Token, Backend) ->
         username => Username,
         role => Role,
         token => Token,
-        version => iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
+        version => iolist_to_binary(emqx_dashboard:reported_version()),
         license => #{edition => emqx_release:edition()},
         backend => Backend
     }.

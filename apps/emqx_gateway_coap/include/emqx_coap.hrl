@@ -79,10 +79,13 @@
     {<<"r">>, <<"retain">>}
 ]).
 
+-type resource_context() :: {atom(), message_options()}.
+
 -type sub_data() :: #{
     topic := emqx_types:topic(),
     token := binary(),
-    subopts := emqx_types:subopts()
+    subopts := emqx_types:subopts(),
+    resource_context => resource_context()
 }.
 
 -endif.
