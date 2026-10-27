@@ -1466,7 +1466,8 @@ get_shard_metrics(Labels, MetricK, ShardMetrics) ->
 emqx_broker_instr_data(_Mode) ->
     maps:map(
         fun(N, _) ->
-            maps:to_list(emqx_metrics_worker:get_hists(?BROKER_INSTR_METRICS_WORKER, N))
+            maps:to_list(emqx_metrics_worker:get_hists(?BROKER_INSTR_METRICS_WORKER, N)) ++
+                maps:to_list(emqx_metrics_worker:get_counters(?BROKER_INSTR_METRICS_WORKER, N))
         end,
         emqx_broker_instr_init()
     ).
@@ -1479,7 +1480,7 @@ collect_broker_instr_family(Callback, Metrics) ->
         fun(Id, Ms) ->
             lists:foreach(
                 fun({Name, M}) ->
-                    collect_hist_family(Callback, Id, Name, M)
+                    collect_broker_instr_metric(Callback, Id, Name, M)
                 end,
                 Ms
             )
@@ -1487,7 +1488,21 @@ collect_broker_instr_family(Callback, Metrics) ->
         Metrics
     ).
 
-collect_hist_family(Callback, Id, Name, #{count := Count, sum := Sum, bucket_counts := Buckets}) ->
+collect_broker_instr_metric(
+    Callback,
+    Id,
+    Name,
+    Value
+) when is_integer(Value) ->
+    MName = [<<"emqx_instr_">>, atom_to_binary(Id), <<"_">>, atom_to_binary(Name)],
+    Metric = prometheus_model_helpers:counter_metric([{node, node()}], Value),
+    Callback(prometheus_model_helpers:create_mf(MName, <<>>, counter, Metric));
+collect_broker_instr_metric(
+    Callback,
+    Id,
+    Name,
+    #{count := Count, sum := Sum, bucket_counts := Buckets}
+) ->
     MName = [<<"emqx_instr_">>, atom_to_binary(Id), <<"_">>, atom_to_binary(Name)],
     Metric = prometheus_model_helpers:histogram_metric([{node, node()}], Buckets, Count, Sum),
     Callback(prometheus_model_helpers:create_mf(MName, <<>>, histogram, Metric)).

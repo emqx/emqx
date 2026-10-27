@@ -352,8 +352,8 @@ to_session(mqttsn, ClientInfo, {legacy, Version}, #{
     session := Exported
 }) ->
     ClientId = maps:get(clientid, ClientInfo),
-    ChanInfo = #{clientinfo => ClientInfo},
-    Conf = (emqx_session:get_session_conf(ClientInfo))#{receive_maximum => 1},
+    ChanInfo = #{clientinfo => ClientInfo, conninfo => #{receive_maximum => 1}},
+    Conf = emqx_session:get_session_conf(ClientInfo),
     #{
         registry => Registry,
         session => emqx_cm_takeover:to_legacy_session(ClientId, ChanInfo, Exported, Conf, Version)

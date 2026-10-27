@@ -470,40 +470,12 @@ n_streams.desc:
 n_streams.label:
 """Number of Durable Streams"""
 
-seqno_q1_comm.desc:
-"""Sequence number of the last PUBACK received from the client (Durable sessions only)"""
-seqno_q1_comm.label:
-"""Seqno Q1 Comm"""
 
-seqno_q1_dup.desc:
-"""Sequence number of the last QoS1 message sent to the client, that hasn't been acked (Durable sessions only)"""
-seqno_q1_dup.label:
-"""Seqno Q1 Dup"""
 
-seqno_q1_next.desc:
-"""Sequence number of the next QoS1 message to be sent to the client (Durable sessions only)"""
-seqno_q1_next.label:
-"""Seqno Q1 Next"""
 
-seqno_q2_comm.desc:
-"""Sequence number of the last PUBCOMP received from the client (Durable sessions only)"""
-seqno_q2_comm.label:
-"""Seqno Q2 Comm"""
 
-seqno_q2_dup.desc:
-"""Sequence number of the last QoS2 message sent to the client, that hasn't been acked (Durable sessions only)"""
-seqno_q2_dup.label:
-"""Seqno Q2 Dup"""
 
-seqno_q2_rec.desc:
-"""Sequence number of last PUBREC received from the client (Durable sessions only)"""
-seqno_q2_rec.label:
-"""Seqno Q2 Rec"""
 
-seqno_q2_next.desc:
-"""Sequence number of next QoS2 message to be added to the batch (Durable sessions only)"""
-seqno_q2_next.label:
-"""Seqno Q2 Next"""
 
 authz_cache_access.desc:
 """Access type"""

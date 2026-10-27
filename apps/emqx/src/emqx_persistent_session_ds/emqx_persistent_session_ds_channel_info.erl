@@ -163,16 +163,7 @@ enrich(Bin, #{
         {total_heap_size, 0},
         {mqueue_dropped, 0},
         {total_payload_bytes, 0},
-        {mqueue_len, 0},
-        {n_streams, maps:size(Streams)},
-        %% TODO: this data is available
-        {seqno_q1_comm, 0},
-        {seqno_q1_dup, 0},
-        {seqno_q1_next, 0},
-        {seqno_q2_comm, 0},
-        {seqno_q2_dup, 0},
-        {seqno_q2_rec, 0},
-        {seqno_q2_next, 0}
+        {mqueue_len, 0}
     ],
     {ProtoName, ProtoVer} = dec_protocol(Protocol),
     PeerName =
@@ -204,7 +195,8 @@ enrich(Bin, #{
     Session = #{
         id => Id,
         is_persistent => true,
-        created_at => maps:get(created_at, Meta, 0)
+        created_at => maps:get(created_at, Meta, 0),
+        n_streams => maps:size(Streams)
     },
     {
         {Id, undefined},

@@ -56,7 +56,7 @@ coap_blockwise_max_concurrent_exchanges.desc:
 When full, new uploads receive 4.29 and downlink notifications wait in the Observe queue."""
 
 coap_blockwise_max_total_size.desc:
-"""Maximum total payload bytes retained by block-wise exchanges in one client session.
+"""Maximum total payload bytes retained by block-wise exchanges in one client session. Must be greater than zero.
 When full, uploads receive 4.13 and downlink notifications wait if they can fit later."""
 
 coap_blockwise_exchange_lifetime.desc:

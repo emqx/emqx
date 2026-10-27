@@ -36,6 +36,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_session.hrl").
 -include("emqx_session_mem.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -46,14 +47,15 @@
 -endif.
 
 -export([
-    create/4,
-    open/4,
+    create/3,
+    open/3,
     destroy/1
 ]).
 
 -export([
     info/2,
     stats/1,
+    chan_info/1,
     obtain_next_pkt_id/1
 ]).
 
@@ -77,6 +79,7 @@
     handle_timeout/4,
     handle_info/3,
     handle_signal/3,
+    refresh_quota/1,
     disconnect/2,
     terminate/3
 ]).
@@ -92,7 +95,7 @@
     resume/2,
     export/1,
     import/2,
-    import/4,
+    import/3,
     enqueue/3,
     dequeue/3,
     replay/2,
@@ -165,19 +168,16 @@
 -type effect() :: emqx_session:effect().
 -type effects() :: emqx_session:effects().
 
+%% Gauges only: the channel process stores them in its stats array (see
+%% `emqx_chan_stats`). The attributes that do not change with traffic are
+%% cached in the channel info table instead, see `chan_info/1`.
 -define(STATS_KEYS, [
-    durable,
     subscriptions_cnt,
-    subscriptions_max,
     inflight_cnt,
-    inflight_max,
     mqueue_len,
-    mqueue_max,
     total_payload_bytes,
     mqueue_dropped,
-    next_pkt_id,
-    awaiting_rel_cnt,
-    awaiting_rel_max
+    awaiting_rel_cnt
 ]).
 
 -define(INFLIGHT_INSERT_TS, inflight_insert_ts).
@@ -185,19 +185,21 @@
 -define(DEQUEUE_RETRY_TIMER, retry_dequeue).
 -define(DELIVER_RETRY_TIMER, retry_delivery).
 
+-define(RESCHEDULE_DEQUEUE_TIMER_EFFECT, {set_timer, ?DEQUEUE_RETRY_TIMER, 1}).
+-define(RETRY_DELIVERY_EFFECT(Timeout), {set_timer, ?DELIVER_RETRY_TIMER, Timeout}).
+
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
 
--spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     session().
 create(
     #{zone := Zone} = ClientInfo,
     #{expiry_interval := EI, receive_maximum := ReceiveMax},
-    _MaybeWillMsg,
-    Conf
+    _MaybeWillMsg
 ) ->
-    Limiter = create_limiter(ClientInfo, Conf),
+    Limiter = create_limiter(ClientInfo),
     #session{
         id = emqx_guid:gen(),
         created_at = erlang:system_time(millisecond),
@@ -208,33 +210,47 @@ create(
         quota = Limiter,
         next_pkt_id = 1,
         awaiting_rel = #{},
-        max_subscriptions = maps:get(max_subscriptions, Conf),
-        max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
-        upgrade_qos = maps:get(upgrade_qos, Conf),
-        retry_interval = maps:get(retry_interval, Conf),
-        await_rel_timeout = maps:get(await_rel_timeout, Conf)
+        conf = emqx_connection_conf:session_conf(Zone)
     }.
 
-create_limiter(_ClientInfo, #{enable_quota := false}) ->
-    false;
-create_limiter(#{listener := ListenerId} = ClientInfo, _Conf) ->
+create_limiter(#{listener := ListenerId} = ClientInfo) ->
     %% A hook callback may install a limiter container here (e.g.
     %% multi-tenant limiters). Otherwise the compact placeholder stays
-    %% and the container is built on first delivery; see
-    %% try_consume_delivery_rate_limit/2.
+    %% until refresh_limiter/1 finds a finite delivery limit for the
+    %% listener.
     %%
     %% The hook must run here, not at materialization: materialization
     %% is gated by emqx_limiter:session_limits_configured/1, which only
     %% sees listener-level limits. A hook-installed container (e.g. a
     %% tenant with delivery limits under a listener with none) must not
     %% depend on that gate.
-    emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId});
-create_limiter(#{}, _Conf) ->
+    refresh_limiter(emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId}));
+create_limiter(#{}) ->
     %% No listener: no quota is instantiated.
     %% This can happen during session handover from eviction agent running
     %% on older EMQX release. Subsequent handover to a client channel should
     %% recreate a limiter.
     false.
+
+%% Build the delivery limiter container when the session has the placeholder
+%% and the listener has a finite delivery limit. A placeholder delivers
+%% without a limit check.
+refresh_limiter({lazy, ListenerId} = Limiter) ->
+    case emqx_limiter:session_limits_configured(ListenerId) of
+        false -> Limiter;
+        true -> emqx_limiter:create_session_client_container(ListenerId)
+    end;
+refresh_limiter(Limiter) ->
+    Limiter.
+
+-doc """
+Build the delivery limiter container when a finite delivery limit is now
+configured for the listener. The channel calls this on each stats timer, so a
+limit configured at runtime applies after at most one stats interval.
+""".
+-spec refresh_quota(session()) -> session().
+refresh_quota(#session{quota = Limiter} = Session) ->
+    Session#session{quota = refresh_limiter(Limiter)}.
 
 empty_mqueue(Zone) ->
     %% emqx_mqueue treats 0 as no limit.
@@ -276,12 +292,12 @@ destroy(_Session) ->
 %% Open a (possibly existing) Session
 %%--------------------------------------------------------------------
 
--spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
+-spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
-open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
+open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, ChannelRef, ExportedSession} ->
-            Session0 = import(ClientInfo, ConnInfo, Conf, ExportedSession),
+            Session0 = import(ClientInfo, ConnInfo, ExportedSession),
             Session = resume(ClientInfo, Session0),
             {true, Session, ChannelRef};
         none ->
@@ -293,14 +309,10 @@ resize_inflight(#{receive_maximum := ReceiveMax}, Session = #session{inflight = 
         inflight = emqx_inflight:resize(ReceiveMax, Inflight)
     }.
 
-apply_conf(ClientInfo, Conf, Session = #session{}) ->
+apply_conf(ClientInfo = #{zone := Zone}, Session = #session{}) ->
     Session#session{
-        quota = create_limiter(ClientInfo, Conf),
-        max_subscriptions = maps:get(max_subscriptions, Conf),
-        max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
-        upgrade_qos = maps:get(upgrade_qos, Conf),
-        retry_interval = maps:get(retry_interval, Conf),
-        await_rel_timeout = maps:get(await_rel_timeout, Conf)
+        quota = create_limiter(ClientInfo),
+        conf = emqx_connection_conf:session_conf(Zone)
     }.
 
 filter_remote_session(Session = #session{mqueue = {empty, _}}) ->
@@ -364,25 +376,21 @@ import(ClientInfo, #{
         id = Id,
         is_persistent = IsPersistent,
         subscriptions = Subscriptions,
-        max_subscriptions = infinity,
-        upgrade_qos = false,
+        conf = #session_conf{},
         inflight = import_inflight(Inflight),
         mqueue = import_mqueue(ClientInfo, Messages),
         quota = false,
         next_pkt_id = NextPacketId,
-        retry_interval = infinity,
         awaiting_rel = AwaitingRel,
-        max_awaiting_rel = infinity,
-        await_rel_timeout = infinity,
         created_at = CreatedAt
     }.
 
 -doc "Import transferred state with new connection limits and session configuration.".
--spec import(clientinfo(), conninfo(), emqx_session:conf(), exported()) -> session().
-import(ClientInfo, ConnInfo, Conf, Exported) ->
+-spec import(clientinfo(), conninfo(), exported()) -> session().
+import(ClientInfo, ConnInfo, Exported) ->
     Session0 = import(ClientInfo, Exported),
     Session1 = resize_inflight(ConnInfo, Session0),
-    Session2 = apply_conf(ClientInfo, Conf, Session1),
+    Session2 = apply_conf(ClientInfo, Session1),
     filter_remote_session(Session2).
 
 import_mqueue(ClientInfo = #{zone := Zone}, Messages) ->
@@ -422,9 +430,9 @@ info(subscriptions, #session{subscriptions = Subs}) ->
     Subs;
 info(subscriptions_cnt, #session{subscriptions = Subs}) ->
     maps:size(Subs);
-info(subscriptions_max, #session{max_subscriptions = MaxSubs}) ->
+info(subscriptions_max, #session{conf = #session_conf{max_subscriptions = MaxSubs}}) ->
     MaxSubs;
-info(upgrade_qos, #session{upgrade_qos = UpgradeQoS}) ->
+info(upgrade_qos, #session{conf = #session_conf{upgrade_qos = UpgradeQoS}}) ->
     UpgradeQoS;
 info(inflight, #session{inflight = Inflight}) ->
     Inflight;
@@ -434,7 +442,7 @@ info(inflight_max, #session{inflight = Inflight}) ->
     emqx_inflight:max_size(Inflight);
 info({inflight_msgs, PagerParams}, #session{inflight = Inflight}) ->
     inflight_query(Inflight, PagerParams);
-info(retry_interval, #session{retry_interval = Interval}) ->
+info(retry_interval, #session{conf = #session_conf{retry_interval = Interval}}) ->
     Interval;
 info(mqueue, #session{mqueue = {empty, MaxLen}}) ->
     %% Only for inspecting the queue: the other options are not stored.
@@ -469,14 +477,18 @@ info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
     AwaitingRel;
 info(awaiting_rel_cnt, #session{awaiting_rel = AwaitingRel}) ->
     maps:size(AwaitingRel);
-info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
+info(awaiting_rel_max, #session{conf = #session_conf{max_awaiting_rel = Max}}) ->
     Max;
-info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
+info(await_rel_timeout, #session{conf = #session_conf{await_rel_timeout = Timeout}}) ->
     Timeout.
 
 %% @doc Get stats of the session.
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) -> info(?STATS_KEYS, Session).
+
+-doc "The attributes of a memory session that the channel info table caches.".
+chan_info(Session) ->
+    maps:from_list([{impl, ?MODULE} | info(?CHAN_INFO_SESSION_KEYS ++ [mqueue_max], Session)]).
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
@@ -488,11 +500,14 @@ subscribe(
     _ClientInfo = #{clientid := ClientId},
     TopicFilter,
     SubOpts,
-    Session = #session{subscriptions = Subs}
+    Session = #session{
+        subscriptions = Subs,
+        conf = #session_conf{max_subscriptions = MaxSubs}
+    }
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
     Monitor = maybe_monitor(),
-    case IsNew andalso is_subscriptions_full(Session) of
+    case IsNew andalso map_size(Subs) >= MaxSubs of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, Monitor),
             Session1 = Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)},
@@ -517,14 +532,6 @@ maybe_monitor() ->
             monitor
     end.
 
-is_subscriptions_full(#session{max_subscriptions = infinity}) ->
-    false;
-is_subscriptions_full(#session{
-    subscriptions = Subs,
-    max_subscriptions = MaxLimit
-}) ->
-    maps:size(Subs) >= MaxLimit.
-
 -spec unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
@@ -532,11 +539,11 @@ unsubscribe(
     TopicFilter,
     Session = #session{subscriptions = Subs}
 ) ->
-    case maps:find(TopicFilter, Subs) of
-        {ok, SubOpts} ->
+    case Subs of
+        #{TopicFilter := SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}, SubOpts};
-        error ->
+        #{} ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
 
@@ -555,7 +562,10 @@ get_subscription(Topic, #session{subscriptions = Subs}) ->
 publish(
     PacketId,
     Msg = #message{qos = ?QOS_2, timestamp = Ts},
-    Session = #session{awaiting_rel = AwaitingRel}
+    Session = #session{
+        awaiting_rel = AwaitingRel,
+        conf = Conf
+    }
 ) ->
     Dup = emqx_message:get_flag(dup, Msg),
     case maps:is_key(PacketId, AwaitingRel) of
@@ -564,27 +574,16 @@ publish(
             {ok, dup_publish_result(Msg), Session};
         true ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
+        false when map_size(AwaitingRel) >= Conf#session_conf.max_awaiting_rel ->
+            {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED};
         false ->
-            case is_awaiting_full(Session) of
-                true ->
-                    {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED};
-                false ->
-                    Results = emqx_broker:publish2(Msg),
-                    AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
-                    {ok, Results, Session#session{awaiting_rel = AwaitingRel1}}
-            end
+            Results = emqx_broker:publish2(Msg),
+            AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
+            {ok, Results, Session#session{awaiting_rel = AwaitingRel1}}
     end;
 %% Publish QoS0/1 directly
 publish(_PacketId, Msg, Session) ->
     {ok, emqx_broker:publish2(Msg), [], Session}.
-
-is_awaiting_full(#session{max_awaiting_rel = infinity}) ->
-    false;
-is_awaiting_full(#session{
-    awaiting_rel = AwaitingRel,
-    max_awaiting_rel = MaxLimit
-}) ->
-    maps:size(AwaitingRel) >= MaxLimit.
 
 dup_publish_result(#message{topic = Topic} = Msg) ->
     {ok, [{node(), Topic, ok}], Msg}.
@@ -678,7 +677,6 @@ pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     {inline, [
         dequeue_next/2,
         finish_dequeue/6,
-        reschedule_dequeue_timer_effect/0,
         reply/7,
         boolean_to_int/1
     ]}
@@ -840,12 +838,9 @@ finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
     Effect =
         case emqx_mqueue:is_empty(Q) of
             true -> delivery_effect(S0, Inflight);
-            false -> reschedule_dequeue_timer_effect()
+            false -> ?RESCHEDULE_DEQUEUE_TIMER_EFFECT
         end,
     reply(Effect, S0, Acc, Q, Inflight, Limiter, PktId).
-
-reschedule_dequeue_timer_effect() ->
-    {set_timer, ?DEQUEUE_RETRY_TIMER, 1}.
 
 reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Session = S0#session{
@@ -872,8 +867,7 @@ retry_dequeue_effect(Reason, Q) ->
 -compile(
     {inline, [
         insert_inflight/3,
-        delivery_effect/2,
-        retry_delivery_effect/1
+        delivery_effect/2
     ]}
 ).
 
@@ -991,16 +985,17 @@ deliver(
             deliver(ClientInfo, Congested, S, More, Acc0, Q1, Inflight0, L0, PktId)
     end.
 
-delivery_effect(#session{retry_interval = Interval}, Inflight) ->
+delivery_effect(#session{conf = #session_conf{retry_interval = Interval}}, Inflight) when
+    Interval =/= infinity
+->
     case emqx_inflight:is_empty(Inflight) of
-        false when is_integer(Interval) andalso Interval > 0 ->
-            retry_delivery_effect(Interval);
-        _ ->
+        false ->
+            ?RETRY_DELIVERY_EFFECT(Interval);
+        true ->
             ok
-    end.
-
-retry_delivery_effect(Timeout) ->
-    {set_timer, ?DELIVER_RETRY_TIMER, Timeout}.
+    end;
+delivery_effect(_Session, _Inflight) ->
+    ok.
 
 insert_inflight(PktId, Msg, Inflight) ->
     MarkedMsg = mark_begin_deliver(Msg),
@@ -1100,8 +1095,7 @@ handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Flags, Session) ->
 
 -spec handle_info(clientinfo(), term(), session()) -> {ok, session()}.
 handle_info(ClientInfo, zone_changed, Session) ->
-    Conf = emqx_session:get_session_conf(ClientInfo),
-    {ok, apply_conf(ClientInfo, Conf, Session)};
+    {ok, apply_conf(ClientInfo, Session)};
 handle_info(_ClientInfo, _Msg, Session) ->
     {ok, Session}.
 
@@ -1122,7 +1116,10 @@ handle_signal(_ClientInfo, _Signal, Session) ->
 
 -spec retry(clientinfo(), session()) ->
     {ok | effects(), replies(), session()}.
-retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Interval}) ->
+retry(
+    ClientInfo,
+    Session = #session{inflight = Inflight, conf = #session_conf{retry_interval = Interval}}
+) ->
     case emqx_inflight:is_empty(Inflight) orelse Interval =:= infinity of
         true ->
             {ok, [], Session};
@@ -1133,26 +1130,38 @@ retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Inter
                 emqx_inflight:to_list(fun sort_fun/2, Inflight),
                 [],
                 Now,
+                Interval,
+                Inflight,
                 Session
             )
     end.
 
-retry_delivery(_ClientInfo, [], Acc, _, Session = #session{inflight = Inflight}) ->
-    {delivery_effect(Session, Inflight), lists:reverse(Acc), Session};
+retry_delivery(_ClientInfo, [], Acc, _Now, Interval, Inflight, Session) ->
+    Effect =
+        case emqx_inflight:is_empty(Inflight) of
+            false ->
+                ?RETRY_DELIVERY_EFFECT(Interval);
+            _ ->
+                ok
+        end,
+    {Effect, lists:reverse(Acc), Session#session{inflight = Inflight}};
 retry_delivery(
     ClientInfo,
     [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
     Acc,
     Now,
-    Session = #session{retry_interval = Interval, inflight = Inflight}
+    Interval,
+    Inflight,
+    Session
 ) ->
     Age = age(Now, Ts),
     case Age >= Interval of
         true ->
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
-            retry_delivery(ClientInfo, More, Acc1, Now, Session#session{inflight = Inflight1});
+            retry_delivery(ClientInfo, More, Acc1, Now, Interval, Inflight1, Session);
         false ->
-            {retry_delivery_effect(Interval - max(0, Age)), lists:reverse(Acc), Session}
+            Effect = ?RETRY_DELIVERY_EFFECT(Interval - max(0, Age)),
+            {Effect, lists:reverse(Acc), Session#session{inflight = Inflight}}
     end.
 
 do_retry_delivery(
@@ -1184,7 +1193,7 @@ do_retry_delivery(_ClientInfo, PacketId, Data, Now, Acc, Inflight) ->
 
 -spec expire(clientinfo(), session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
-expire(_ClientInfo, Session = #session{await_rel_timeout = 0}) ->
+expire(_ClientInfo, Session = #session{conf = #session_conf{await_rel_timeout = 0}}) ->
     {ok, [], Session};
 expire(ClientInfo, Session = #session{awaiting_rel = AwaitingRel}) ->
     case maps:size(AwaitingRel) of
@@ -1198,7 +1207,10 @@ expire(ClientInfo, Session = #session{awaiting_rel = AwaitingRel}) ->
 expire_awaiting_rel(
     ClientInfo,
     Now,
-    Session = #session{awaiting_rel = AwaitingRel, await_rel_timeout = Timeout}
+    Session = #session{
+        awaiting_rel = AwaitingRel,
+        conf = #session_conf{await_rel_timeout = Timeout}
+    }
 ) ->
     NotExpired = fun(_PacketId, Ts) -> age(Now, Ts) < Timeout end,
     AwaitingRel1 = maps:filter(NotExpired, AwaitingRel),
@@ -1428,14 +1440,8 @@ publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
 
 try_consume_delivery_rate_limit(_Msg, Limiter = false) ->
     {true, Limiter};
-try_consume_delivery_rate_limit(Msg, {lazy, ListenerId} = Limiter) ->
-    case emqx_limiter:session_limits_configured(ListenerId) of
-        false ->
-            {true, Limiter};
-        true ->
-            Container = emqx_limiter:create_session_client_container(ListenerId),
-            try_consume_delivery_rate_limit(Msg, Container)
-    end;
+try_consume_delivery_rate_limit(_Msg, {lazy, _ListenerId} = Limiter) ->
+    {true, Limiter};
 try_consume_delivery_rate_limit(Msg, Limiter0) ->
     Ret = emqx_limiter_client_container:try_consume(Limiter0, [
         {delivery_bytes, emqx_message:estimate_size(Msg)},
@@ -1570,6 +1576,12 @@ age(Now, Ts) -> Now - Ts.
 %% For CT tests
 %%--------------------------------------------------------------------
 
-set_field(Name, Value, Session) ->
-    Pos = emqx_utils:index_of(Name, record_info(fields, session)),
-    setelement(Pos + 1, Session, Value).
+set_field(Name, Value, Session = #session{conf = Conf}) ->
+    case lists:member(Name, record_info(fields, session_conf)) of
+        true ->
+            Pos = emqx_utils:index_of(Name, record_info(fields, session_conf)),
+            Session#session{conf = setelement(Pos + 1, Conf, Value)};
+        false ->
+            Pos = emqx_utils:index_of(Name, record_info(fields, session)),
+            setelement(Pos + 1, Session, Value)
+    end.

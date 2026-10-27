@@ -555,28 +555,26 @@ do_select(
         {error, _} ->
             {[], mark_complete(QueryState)};
         {Rows, '$end_of_table'} ->
-            NRows = maybe_apply_fuzzy_filter(restore_sparse_stats(Tab, Rows), QueryState),
+            NRows = materialize_stats(Tab, maybe_apply_fuzzy_filter(Rows, QueryState)),
             {NRows, mark_complete(QueryState)};
         {Rows, NContinuation} ->
-            NRows = maybe_apply_fuzzy_filter(restore_sparse_stats(Tab, Rows), QueryState),
+            NRows = materialize_stats(Tab, maybe_apply_fuzzy_filter(Rows, QueryState)),
             {NRows, QueryState#{continuation => NContinuation}};
         '$end_of_table' ->
             {[], mark_complete(QueryState)}
     end.
 
-%% The query state comes from the coordinating node, which may run an
-%% earlier version that does not merge the omitted stats keys.
-restore_sparse_stats(emqx_channel_info, Rows) ->
+%% A row of the channel info table holds the reference of the stats array of
+%% the channel process, which is only valid on this node, as is the pid for
+%% the process stats. The rows go to the coordinating node, so build the
+%% stats proplist here, after the fuzzy filter, which reads only the info map:
+%% a search pays for the rows it returns, not for the rows it scans.
+materialize_stats(emqx_channel_info, Rows) ->
     [
-        case Row of
-            {Chan, Info, Stats} when is_list(Stats) ->
-                {Chan, Info, emqx_cm:restore_sparse_stats(Stats)};
-            _ ->
-                Row
-        end
-     || Row <- Rows
+        {Chan, Info, emqx_chan_stats:to_list(StatsRef) ++ emqx_utils:proc_stats(ChanPid)}
+     || {{_, ChanPid} = Chan, Info, StatsRef} <- Rows
     ];
-restore_sparse_stats(_Tab, Rows) ->
+materialize_stats(_Tab, Rows) ->
     Rows.
 
 maybe_apply_fuzzy_filter(Rows, #{fuzzy_fun := undefined}) ->

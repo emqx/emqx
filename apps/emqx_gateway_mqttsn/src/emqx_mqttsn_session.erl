@@ -56,10 +56,9 @@
 
 init(ClientInfo, MaybeWillMsg) ->
     ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
-    SessionConf = session_conf(ClientInfo),
     #{
         registry => emqx_mqttsn_registry:init(),
-        session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg, SessionConf)
+        session => emqx_session_mem:create(ClientInfo, ConnInfo, MaybeWillMsg)
     }.
 
 registry(#{registry := Registry}) ->
@@ -75,7 +74,10 @@ info(Key, #{session := Session}) ->
     emqx_session:info(Key, Session).
 
 stats(#{session := Session}) ->
-    emqx_session:stats(Session).
+    %% The gateway keeps the session attributes among the stats, where the
+    %% MQTT channel caches them in the channel info map.
+    Attrs = [durable, subscriptions_max, awaiting_rel_max, inflight_max, mqueue_max, next_pkt_id],
+    emqx_session:info(Attrs, Session) ++ emqx_session:stats(Session).
 
 puback(ClientInfo, MsgId, Session = #{session := S}) ->
     wrap_result(emqx_session:puback(ClientInfo, MsgId, ?RC_SUCCESS, [], S), Session).
@@ -148,15 +150,8 @@ import(ClientInfo, #{registry := Registry, session := Exported}) ->
         session => emqx_session_mem:import(
             ClientInfo,
             #{receive_maximum => 1},
-            session_conf(ClientInfo),
             Exported
         )
-    }.
-
-session_conf(ClientInfo) ->
-    (emqx_session:get_session_conf(ClientInfo))#{
-        %% TODO: Handle quota-related timer effects.
-        enable_quota => false
     }.
 
 disconnect(ConnInfo, Session = #{session := S}) ->

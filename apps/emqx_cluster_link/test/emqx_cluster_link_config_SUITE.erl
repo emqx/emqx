@@ -7,6 +7,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -644,6 +645,120 @@ t_broken_link_crud(Config) ->
     ?assertEqual(ok, ?ON(NodeA, emqx_cluster_link_config:delete_link(Name))),
     ?assertEqual(ok, ?ON(NodeA, emqx_cluster_link_config:delete_link(<<"other">>))),
     ?assertEqual([], ?ON(NodeA, emqx_cluster_link_config:get_links())).
+
+t_broker_provider_follows_config('init', Config) ->
+    NameA = fmt("~s_~s", [?FUNCTION_NAME, "a"]),
+    NameB = fmt("~s_~s", [?FUNCTION_NAME, "b"]),
+    ClusterA = emqx_cth_cluster:start(mk_cluster(1, NameA, 2, Config)),
+    ClusterB = emqx_cth_cluster:start(mk_cluster(2, NameB, 1, Config)),
+    ok = snabbkaffe:start_trace(),
+    [{cluster_a, ClusterA}, {cluster_b, ClusterB} | Config];
+t_broker_provider_follows_config('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:call_janitor(),
+    ok = emqx_cth_cluster:stop(?config(cluster_a, Config)),
+    ok = emqx_cth_cluster:stop(?config(cluster_b, Config)).
+
+-doc """
+The external broker provider follows the link configuration on every node of
+the cluster, not only on the node that takes the update. Messages reach the
+remote cluster while a link is enabled, and stop when it is disabled.
+The `message.publish` hook stays installed in every state.
+""".
+t_broker_provider_follows_config(Config) ->
+    ClusterA = [NodeA1, NodeA2] = ?config(cluster_a, Config),
+    ClusterB = [NodeB] = ?config(cluster_b, Config),
+    %% No link at boot: no provider, the hook is installed.
+    ok = assert_provider(ClusterA, undefined),
+
+    ClientA = start_client("t_provider_a", NodeA2),
+    ClientB = start_client("t_provider_b", NodeB),
+    on_exit(fun() -> catch emqtt:stop(ClientA) end),
+    on_exit(fun() -> catch emqtt:stop(ClientB) end),
+    {ok, _, _} = emqtt:subscribe(ClientB, <<"t/provider">>, qos1),
+
+    LinkConfA = mk_link_conf_to(ClusterB, #{<<"topics">> => [<<"t/#">>]}),
+    LinkConfB = mk_link_conf_to(ClusterA, #{<<"topics">> => [<<"t/#">>]}),
+    {ok, SubRef} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := "cluster_link_routerepl_bootstrap_complete"}),
+        length(ClusterA) + length(ClusterB),
+        30_000
+    ),
+    ?assertMatch({ok, _}, ?ON(NodeA1, emqx_cluster_link_config:update([LinkConfA]))),
+    ?assertMatch({ok, _}, ?ON(NodeB, emqx_cluster_link_config:update([LinkConfB]))),
+    ?assertMatch({ok, _}, snabbkaffe:receive_events(SubRef)),
+
+    %% Link enabled at runtime: the provider is registered and messages flow.
+    ok = assert_provider(ClusterA, emqx_cluster_link),
+    ok = assert_forwarded(ClientA, <<"hello-1">>),
+
+    %% Link disabled: no provider, no forwarding.
+    ?assertMatch(
+        {ok, _},
+        ?ON(NodeA1, emqx_cluster_link_config:update([LinkConfA#{<<"enable">> => false}]))
+    ),
+    ok = assert_provider(ClusterA, undefined),
+    {ok, _} = emqtt:publish(ClientA, <<"t/provider">>, <<"not-expected">>, qos1),
+    ?assertNotReceive({publish, #{}}, 2_000),
+
+    %% Enabled again: the provider is back and messages flow again.
+    ?assertMatch({ok, _}, ?ON(NodeA1, emqx_cluster_link_config:update([LinkConfA]))),
+    ok = assert_provider(ClusterA, emqx_cluster_link),
+    ok = assert_forwarded(ClientA, <<"hello-2">>),
+
+    %% Link deleted: no provider.
+    ?assertMatch({ok, _}, ?ON(NodeA1, emqx_cluster_link_config:update([]))),
+    ok = assert_provider(ClusterA, undefined).
+
+t_broker_provider_registered_at_boot('init', Config) ->
+    NameA = fmt("~s_~s", [?FUNCTION_NAME, "a"]),
+    Link = #{
+        <<"name">> => <<"unreachable">>,
+        <<"server">> => fmt("localhost:~b", [emqx_common_test_helpers:select_free_port(tcp)]),
+        <<"topics">> => [<<"t/#">>]
+    },
+    Spec = #{apps => [{emqx_conf, #{config => #{cluster => #{links => [Link]}}}}]},
+    ClusterA = emqx_cth_cluster:start(mk_cluster(1, NameA, [Spec, Spec], Config)),
+    [{cluster_a, ClusterA} | Config];
+t_broker_provider_registered_at_boot('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(cluster_a, Config)).
+
+-doc """
+A node that boots with an enabled link registers the external broker provider.
+""".
+t_broker_provider_registered_at_boot(Config) ->
+    ClusterA = ?config(cluster_a, Config),
+    ok = assert_provider(ClusterA, emqx_cluster_link).
+
+%% The provider is checked with retries: the config update reaches the other
+%% nodes of the cluster asynchronously.
+assert_provider(Nodes, Expected) ->
+    lists:foreach(
+        fun(Node) ->
+            ?retry(
+                200,
+                25,
+                ?assertEqual(
+                    {Node, Expected, [?HP_SYS_MSGS]},
+                    {Node, ?ON(Node, emqx_external_broker:provider()), link_hook_priorities(Node)}
+                )
+            )
+        end,
+        Nodes
+    ).
+
+link_hook_priorities(Node) ->
+    Action = {emqx_cluster_link, on_message_publish, []},
+    [
+        emqx_hooks:callback_priority(CB)
+     || CB <- ?ON(Node, emqx_hooks:lookup('message.publish')),
+        emqx_hooks:callback_action(CB) =:= Action
+    ].
+
+assert_forwarded(Client, Payload) ->
+    {ok, _} = emqtt:publish(Client, <<"t/provider">>, Payload, qos1),
+    ?assertReceive({publish, #{topic := <<"t/provider">>, payload := Payload}}, 10_000),
+    ok.
 
 start_client(ClientId, Node) ->
     start_client(ClientId, Node, true).

@@ -162,11 +162,12 @@ authorize(AuthzContext, Action, Topic) ->
     emqx_authz_context:t(), emqx_types:pubsub(), emqx_types:topic(), #{cache => boolean()}
 ) -> authz_result().
 authorize(AuthzContext, Action, Topic0, Opts) ->
-    IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+    AuthzConf = emqx_config:get([authorization], #{}),
+    IncludeMountpoint = maps:get(include_mountpoint, AuthzConf, false),
     Topic = maybe_mount_prefix(IncludeMountpoint, AuthzContext, Topic0),
     {Result, _Cacheable} =
-        case maps:get(cache, Opts, true) andalso emqx_authz_cache:is_enabled(Topic) of
-            true -> check_authorization_cache(AuthzContext, Action, Topic);
+        case maps:get(cache, Opts, true) andalso authz_cache_conf(AuthzConf, Topic) of
+            #{ttl := TTL} -> check_authorization_cache(AuthzContext, Action, Topic, TTL);
             false -> do_authorize_with_cache_policy(AuthzContext, Action, Topic)
         end,
     inc_authz_metrics(Result),
@@ -227,8 +228,12 @@ is_username_defined(#{username := <<>>}) -> false;
 is_username_defined(#{username := _Username}) -> true;
 is_username_defined(_) -> false.
 
-check_authorization_cache(AuthzContext, Action, Topic) ->
-    case emqx_authz_cache:get_authz_cache(Action, Topic) of
+%% Return the cache config when the cache applies to the topic, else `false`.
+authz_cache_conf(#{cache := CacheConf}, Topic) ->
+    emqx_authz_cache:is_enabled(CacheConf, Topic) andalso CacheConf.
+
+check_authorization_cache(AuthzContext, Action, Topic, TTL) ->
+    case emqx_authz_cache:get_authz_cache(Action, Topic, TTL) of
         not_found ->
             inc_authz_metrics(cache_miss),
             {AuthzResult, Cacheable} = do_authorize_with_cache_policy(AuthzContext, Action, Topic),

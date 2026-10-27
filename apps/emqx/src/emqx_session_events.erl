@@ -83,5 +83,4 @@ inc_await_pubrel_timeout(N) ->
     emqx_metrics:inc_global('messages.dropped.await_pubrel_timeout', N).
 
 inc_pd(Key, Inc) ->
-    _ = emqx_pd:inc_counter(Key, Inc),
-    ok.
+    emqx_chan_stats:inc(Key, Inc).

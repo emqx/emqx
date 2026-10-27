@@ -13,6 +13,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_session_mem.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -128,11 +129,24 @@ t_chan_info(_) ->
     %% `info/1` omits the socket, which is only valid in the connection process.
     ?assertNot(maps:is_key(sock, ConnInfo)),
     %% The session attributes are the ones the channel info table's readers use; the
-    %% counters come from the stats element of the same table row.
+    %% counters come from the stats array of the same table row, and the attributes
+    %% that are not integers are listed among the stats from here.
     ?assertMatch(
         #{created_at := _, is_persistent := _, impl := emqx_session_mem}, SessionInfo
     ),
-    ?assertEqual([created_at, impl, is_persistent], lists:sort(maps:keys(SessionInfo))),
+    ?assertEqual(
+        [
+            awaiting_rel_max,
+            created_at,
+            durable,
+            impl,
+            inflight_max,
+            is_persistent,
+            mqueue_max,
+            subscriptions_max
+        ],
+        lists:sort(maps:keys(SessionInfo))
+    ),
     %% `info/2` still reads them from the channel.
     ?assertEqual(emqx_message:to_map(WillMsg), emqx_channel:info(will_msg, Channel)),
     ?assertMatch(#{conn_props := #{}}, emqx_channel:info(conninfo, Channel)),
@@ -1085,6 +1099,30 @@ t_quota_lazy_hot_update(_) ->
         {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
             emqx_channel:handle_in(Pub, Chann4),
         ok
+    after
+        emqx_limiter:delete_listener_limiters(ListenerId)
+    end.
+
+-doc "refresh_quota/1 also resolves the session delivery limiter placeholder.".
+t_quota_refresh_resolves_session_limiter(_) ->
+    ListenerId = 'tcp:session_limiter_refresh',
+    DefaultConf = emqx_config:get_listener_conf(tcp, default, []),
+    emqx_config:put_listener_conf(tcp, session_limiter_refresh, [], DefaultConf),
+    ok = emqx_limiter:create_listener_limiters(ListenerId, #{}),
+    try
+        ClientInfo = clientinfo(#{listener => ListenerId}),
+        Chann = channel(
+            ClientInfo,
+            #{conn_state => connected, quota => undefined, session => session(ClientInfo, #{})},
+            #{listener => {tcp, session_limiter_refresh}}
+        ),
+        #session{quota = {lazy, ListenerId}} = emqx_channel:info(session_state, Chann),
+        {ok, MessagesRate} = emqx_limiter_schema:to_rate("2/1s"),
+        ok = emqx_limiter:update_listener_limiters(ListenerId, #{
+            delivery_messages_rate => MessagesRate
+        }),
+        Chann1 = emqx_channel:refresh_quota(Chann),
+        ?assertMatch(#session{quota = #{}}, emqx_channel:info(session_state, Chann1))
     after
         emqx_limiter:delete_listener_limiters(ListenerId)
     end.

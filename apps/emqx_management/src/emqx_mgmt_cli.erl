@@ -625,11 +625,11 @@ traverse_chain_info(Config, ProcessedCount, BatchCount, Key) ->
             traverse_chain_info(Config, ProcessedCount, BatchCount, NextKey)
     end.
 
-write_client_stats_row({{ClientId, _Pid}, _Info, Stats}, FileHandle) ->
+write_client_stats_row({{ClientId, _Pid}, _Info, StatsRef}, FileHandle) ->
     Timestamp = erlang:system_time(millisecond),
 
-    % Extract stats from the Stats list
-    StatsMap = maps:from_list(Stats),
+    % Extract stats from the stats array of the channel
+    StatsMap = maps:from_list(emqx_chan_stats:to_list(StatsRef)),
     RecvOct = maps:get(recv_oct, StatsMap, 0),
     RecvCnt = maps:get(recv_cnt, StatsMap, 0),
     SendOct = maps:get(send_oct, StatsMap, 0),
@@ -1778,7 +1778,7 @@ print_client(ClientId, ChanPid, Attrs) ->
     Stats =
         case emqx_cm:get_chan_stats(ClientId, ChanPid) of
             undefined -> #{};
-            Stats0 -> maps:merge(emqx_cm:sparse_stats_defaults(), maps:from_list(Stats0))
+            Stats0 -> maps:from_list(Stats0)
         end,
     ClientInfo = maps:get(clientinfo, Attrs, #{}),
     ConnInfo = maps:get(conninfo, Attrs, #{}),
