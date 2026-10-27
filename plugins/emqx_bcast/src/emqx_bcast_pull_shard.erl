@@ -790,7 +790,7 @@ handle_cast({ping, ClientId, Pid, ProductKey}, State) ->
     Tab = ?TAB_STATE(State#state.shard),
     MissingRow = not ets:member(Tab, {ProductKey, ClientId}),
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
-    case MissingRow of
+    case MissingRow andalso subscription_topics(Pid) =/= [] of
         true -> {noreply, maybe_claim(ProductKey, ClientId, Pid, State)};
         false -> {noreply, State}
     end;
