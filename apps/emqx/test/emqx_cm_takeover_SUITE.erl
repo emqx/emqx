@@ -131,11 +131,11 @@ t_begin_session_format(_) ->
 -doc "Decode a 6.3.0 priority queue, preserving timestamps and restoring insertion order.".
 t_decode_630_priorities(_Config) ->
     #{session := Session, exported := Expected} = fixture_630_priorities(),
-    ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, 2)).
+    ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, v630)).
 
 t_decode_631(_Config) ->
     #{session := Session, exported := Expected} = fixture(),
-    ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, 2)).
+    ?assertEqual(Expected, emqx_cm_takeover:from_legacy_session(Session, v630)).
 
 -doc "Import a version 1 exported map with the 6.3.0 priority queue messages.".
 t_decode_exported_630_priorities(_Config) ->
@@ -150,15 +150,15 @@ t_decode_exported_631(_Config) ->
 t_encode_631(_Config) ->
     ChanInfo = #{clientinfo => clientinfo(), conninfo => #{receive_maximum => 1}},
     #{session := Expected, exported := Exported, conf := Conf} = fixture(),
-    Session = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, 2),
+    Session = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, v630),
     %% Keep the tagged session layout, but flatten its queue to delivery order.
     %% The three payloads total 16 bytes: "first", "second", "third".
-    Messages = legacy_mqueue_messages(Session, 2),
+    Messages = legacy_mqueue_messages(Session, v630),
     Queue = ?MQUEUE_631(true, 1000, 0, 16, {queue, [], Messages, 3}, disabled, undefined),
     ?assertEqual(setelement(#session_631.mqueue, Expected, Queue), Session),
-    ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Session, 2)),
+    ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Session, v630)),
     %% The pre-6.3 codec remains available for MQTT BPAPI v3 and old gateways.
-    Old = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, 1),
+    Old = emqx_cm_takeover:to_legacy_session(<<"fixture">>, ChanInfo, Exported, Conf, v5),
     ?assertEqual(session, element(1, Old)),
     ?assertMatch(
         #session_62x{
@@ -168,15 +168,15 @@ t_encode_631(_Config) ->
         },
         setelement(1, Old, session_62x)
     ),
-    ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Old, 1)).
+    ?assertEqual(Exported, emqx_cm_takeover:from_legacy_session(Old, v5)).
 
 -doc "6.2.x queues carry pagination timestamps without changing message metadata.".
 t_encode_mqueue_timestamps_62x(_Config) ->
-    assert_encode_mqueue_timestamps(1).
+    assert_encode_mqueue_timestamps(v5).
 
--doc "6.3.1 queues carry pagination timestamps without changing message metadata.".
-t_encode_mqueue_timestamps_631(_Config) ->
-    assert_encode_mqueue_timestamps(2).
+-doc "6.3.0/6.3.1 queues carry pagination timestamps without changing message metadata.".
+t_encode_mqueue_timestamps_630(_Config) ->
+    assert_encode_mqueue_timestamps(v630).
 
 assert_encode_mqueue_timestamps(Version) ->
     ChanInfo = #{clientinfo => clientinfo()},
@@ -199,14 +199,14 @@ assert_encode_mqueue_timestamps(Version) ->
         emqx_cm_takeover:from_legacy_session(Session, Version)
     ).
 
-legacy_mqueue_messages(Session, 1) ->
+legacy_mqueue_messages(Session, v5) ->
     ?MQUEUE_62X(_, _, _, _, _, _, {queue, [], Messages, _}, _, _, _) = element(
         #session_62x.mqueue,
         Session
     ),
     Messages;
-legacy_mqueue_messages(Session, 2) ->
-    ?MQUEUE_631(_, _, _, _, {queue, [], Messages, _}, _, _) = element(
+legacy_mqueue_messages(Session, v630) ->
+    ?MQUEUE_630(_, _, _, _, {queue, [], Messages, _}, _, _) = element(
         #session_630.mqueue,
         Session
     ),
