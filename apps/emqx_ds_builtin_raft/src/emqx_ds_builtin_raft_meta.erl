@@ -702,8 +702,8 @@ allocate_shards_trans(Site, DB) ->
 -spec assign_db_sites_trans(emqx_ds:db(), [site()]) -> {ok, [site()]}.
 assign_db_sites_trans(DB, Sites) ->
     Opts = db_config_trans(DB),
-    case length(Sites) of
-        0 ->
+    case Sites of
+        [] ->
             mnesia:abort({too_few_sites, Sites});
         _ ->
             ok

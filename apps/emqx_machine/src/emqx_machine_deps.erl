@@ -243,7 +243,7 @@ to_sexp(L) ->
     lists:join($\n, [to_sexp1(I) || I <- L]).
 
 to_sexp1(L) when is_list(L) ->
-    [$(, lists:join($ , [to_sexp1(I) || I <- L]), $)];
+    [$(, lists:join($\s, [to_sexp1(I) || I <- L]), $)];
 to_sexp1(I) when is_integer(I) ->
     integer_to_binary(I);
 to_sexp1(A) when is_atom(A) ->
