@@ -42,7 +42,8 @@ encode(#{
         end,
     Rec = #'ChannelInfo'{
         recvOct = Stat(recv_oct, 0),
-        recvCnt = Stat(recv_cnt, 0),
+        %% Not a stat any more; kept in the record for compatibility.
+        recvCnt = Stat(recv_pkt, 0),
         recvPkt = Stat(recv_pkt, 0),
         recvMsg = Stat(recv_msg, 0),
         recvMsgQos0 = Stat('recv_msg.qos0', 0),
@@ -52,7 +53,7 @@ encode(#{
         recvMsgDroppedAwaitPubrelTimeout = Stat('recv_msg.dropped.await_pubrel_timeout', 0),
 
         sendOct = Stat(send_oct, 0),
-        sendCnt = Stat(send_cnt, 0),
+        sendCnt = Stat(send_pkt, 0),
         sendPkt = Stat(send_pkt, 0),
         sendMsg = Stat(send_msg, 0),
         sendMsgQos0 = Stat('send_msg.qos0', 0),
@@ -94,7 +95,7 @@ enrich(Bin, #{
 }) ->
     #'ChannelInfo'{
         recvOct = RecvOct,
-        recvCnt = RecvCnt,
+        recvCnt = _,
         recvPkt = RecvPkt,
         recvMsg = RecvMsg,
         recvMsgQos0 = RecvMsgQos0,
@@ -104,7 +105,7 @@ enrich(Bin, #{
         recvMsgDroppedAwaitPubrelTimeout = RecvMsgDroppedAwaitPubrelTimeout,
 
         sendOct = SendOct,
-        sendCnt = SendCnt,
+        sendCnt = _,
         sendPkt = SendPkt,
         sendMsg = SendMsg,
         sendMsgQos0 = SendMsgQos0,
@@ -134,7 +135,7 @@ enrich(Bin, #{
     Stats = [
         {durable, true},
         {recv_oct, RecvOct},
-        {recv_cnt, RecvCnt},
+        {recv_cnt, RecvPkt},
         {recv_pkt, RecvPkt},
         {recv_msg, RecvMsg},
         {'recv_msg.qos0', RecvMsgQos0},
@@ -143,7 +144,7 @@ enrich(Bin, #{
         {'recv_msg.dropped', RecvMsgDropped},
         {'recv_msg.dropped.await_pubrel_timeout', RecvMsgDroppedAwaitPubrelTimeout},
         {send_oct, SendOct},
-        {send_cnt, SendCnt},
+        {send_cnt, SendPkt},
         {send_pkt, SendPkt},
         {send_msg, SendMsg},
         {send_pend, 0},

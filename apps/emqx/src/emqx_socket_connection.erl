@@ -135,9 +135,7 @@
 
 -define(SOCK_STATS, [
     recv_oct,
-    recv_cnt,
     send_oct,
-    send_cnt,
     send_pend
 ]).
 

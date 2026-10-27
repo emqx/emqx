@@ -103,9 +103,7 @@ t_stats(_) ->
     ?assertMatch(
         [
             {recv_oct, 0},
-            {recv_cnt, 0},
             {send_oct, 0},
-            {send_cnt, 0},
             {send_pend, 0}
             | _
         ],

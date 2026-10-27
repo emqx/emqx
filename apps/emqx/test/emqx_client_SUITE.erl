@@ -1195,9 +1195,7 @@ t_connection_stats(_) ->
             send_pkt := SendPkt,
             send_msg := SendMsg,
             recv_oct := RecvOct,
-            recv_cnt := RecvCnt,
             send_oct := SendOct,
-            send_cnt := SendCnt,
             send_pend := 0
         } when
             RecvPkt > 0 andalso
@@ -1205,9 +1203,7 @@ t_connection_stats(_) ->
                 SendPkt > 0 andalso
                 SendMsg >= 0 andalso
                 RecvOct > 0 andalso
-                RecvCnt > 0 andalso
-                SendOct > 0 andalso
-                SendCnt > 0,
+                SendOct > 0,
         maps:from_list(ConnStats)
     ),
     emqtt:disconnect(Client).

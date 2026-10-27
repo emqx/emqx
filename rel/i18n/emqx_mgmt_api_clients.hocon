@@ -332,9 +332,9 @@ proto_name.label:
 """Protocol Name"""
 
 recv_cnt.desc:
-"""Number of TCP packets received"""
+"""Number of MQTT packets received. This field has the same value as `recv_pkt`. It is kept for compatibility."""
 recv_cnt.label:
-"""Received TCP Packets"""
+"""Received Packets"""
 
 recv_msg.desc:
 """Number of PUBLISH packets received"""
@@ -382,9 +382,9 @@ reductions.label:
 """Reductions"""
 
 send_cnt.desc:
-"""Number of TCP packets sent"""
+"""Number of MQTT packets sent. This field has the same value as `send_pkt`. It is kept for compatibility."""
 send_cnt.label:
-"""Sent TCP Packets"""
+"""Sent Packets"""
 
 send_msg.desc:
 """Number of PUBLISH packets sent"""

@@ -1891,7 +1891,8 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
         maps:from_list(ClientStats)
     ),
     %% A node of a version before 6.3 does not report `total_payload_bytes`.
-    StatsMap = maps:merge(#{total_payload_bytes => 0}, StatsMap0),
+    StatsMap1 = maps:merge(#{total_payload_bytes => 0}, StatsMap0),
+    StatsMap = with_cnt_from_pkt(StatsMap1),
     ClientInfo2 = maps:remove(will_msg, ClientInfo1),
     ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo2),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
@@ -1918,6 +1919,14 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
             TimesKeys
         )
     ).
+
+%% `recv_cnt` and `send_cnt` are kept for compatibility and report the
+%% packet counters. This also overrides the values from an older node.
+with_cnt_from_pkt(StatsMap) ->
+    StatsMap#{
+        recv_cnt => maps:get(recv_pkt, StatsMap, 0),
+        send_cnt => maps:get(send_pkt, StatsMap, 0)
+    }.
 
 with_client_info_fields(ClientInfoMap, all) ->
     RemoveList =
