@@ -241,7 +241,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          if ! [[ "${PKG_VSN}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc|M[0-9]+)\.[0-9]+)?(-g[0-9a-f]+)?$ ]]; then
+          if ! [[ "${PKG_VSN}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc|patch|preview|M[0-9]+)\.[0-9]+)?(-g[0-9a-f]+)?$ ]]; then
             echo "::error::Invalid PKG_VSN '${PKG_VSN}' from the docker job"
             exit 1
           fi
