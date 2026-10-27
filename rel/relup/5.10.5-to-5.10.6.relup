@@ -1,0 +1,11 @@
+#{
+    target_version => "5.10.6",
+    from_version => "5.10.5",
+    code_changes =>
+        %% Both connection modules call the new format_raw_bin/1 function.
+        [ {load_module, emqx_logger_textfmt}
+        , {update, emqx_connection, {advanced, []}}
+        , {load_module, emqx_ws_connection}
+        ],
+    post_upgrade_callbacks => []
+}.

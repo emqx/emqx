@@ -600,7 +600,7 @@ on_frame_in(Data, State) ->
     ?LOG(debug, #{
         msg => "raw_bin_received",
         size => byte_size(Data),
-        bin => binary_to_list(iolist_to_binary(element(1, emqx_packet:format_payload(Data, hex)))),
+        bin => emqx_logger_textfmt:format_raw_bin(Data),
         type => "hex"
     }),
     State2 = ensure_stats_timer(State),
