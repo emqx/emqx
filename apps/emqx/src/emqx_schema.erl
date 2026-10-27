@@ -2923,13 +2923,14 @@ crl_outer_validator(_SSLOpts) ->
 %% @doc Make schema for SSL client.
 -spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
 client_ssl_opts_schema(Defaults) ->
+    Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     common_ssl_opts_schema(Defaults, client) ++
         [
             {"enable",
                 sc(
                     boolean(),
                     #{
-                        default => false,
+                        default => Df(enable, false),
                         %% importance => ?IMPORTANCE_NO_DOC,
                         desc => ?DESC(client_ssl_opts_schema_enable)
                     }
