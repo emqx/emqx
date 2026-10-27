@@ -1282,6 +1282,9 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             CurrentMetrics = current_metrics(ActionResourceId),
             RecordedEvents = ets:tab2list(TelemetryTable),
             ct:pal("telemetry events: ~p", [RecordedEvents]),
+            %% `retried' is deliberately not asserted: the resource retries a
+            %% refused connection, so the count only says how many retries fit
+            %% in the wait above.
             ?assertMatch(
                 #{
                     dropped := Dropped,
@@ -1289,7 +1292,6 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     inflight := Inflight,
                     matched := Matched,
                     queuing := Queueing,
-                    retried := 0,
                     success := 0
                 } when Matched >= 1 andalso Inflight + Queueing + Dropped + Failed =< 2,
                 CurrentMetrics
