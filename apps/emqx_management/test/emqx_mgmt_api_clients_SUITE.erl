@@ -1257,6 +1257,7 @@ t_list_clients_exact_lookup(Config) ->
         <<"recv_cnt">>,
         <<"recv_oct">>,
         <<"recv_pkt">>,
+        <<"reductions">>,
         <<"send_cnt">>,
         <<"send_oct">>,
         <<"send_pkt">>
