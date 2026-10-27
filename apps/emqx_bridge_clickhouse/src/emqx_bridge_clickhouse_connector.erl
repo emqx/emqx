@@ -107,9 +107,7 @@ fields(config) ->
                 }
             )}
     ] ++ emqx_connector_schema_lib:relational_db_fields() ++
-        emqx_connector_schema_lib:ssl_fields(#{
-            default_value => #{~"enable" => false, ~"verify" => ~"verify_peer"}
-        }).
+        emqx_connector_schema_lib:verify_peer_ssl_fields().
 
 values(post) ->
     maps:merge(values(put), #{name => <<"connector">>});

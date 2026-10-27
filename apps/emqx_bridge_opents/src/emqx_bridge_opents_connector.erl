@@ -55,12 +55,9 @@ fields(config) ->
         {details, mk(boolean(), #{default => false, desc => ?DESC("details")})},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ] ++
-        emqx_connector_schema_lib:ssl_fields(#{
-            default_value => #{~"enable" => false, ~"verify" => ~"verify_peer"}
-        });
+        emqx_connector_schema_lib:verify_peer_ssl_fields();
 %%=====================================================================
 %% V2 Hocon schema
-
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         proplists_without([auto_reconnect], fields(config)) ++

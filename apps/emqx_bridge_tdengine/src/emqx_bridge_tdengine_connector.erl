@@ -80,14 +80,11 @@ fields("get") ->
 
 base_config(HasDatabase) ->
     DBFields = emqx_connector_schema_lib:relational_db_fields(#{password => #{required => false}}),
-
     [
         {server, server()}
         | maybe_without_database(DBFields, HasDatabase)
     ] ++
-        emqx_connector_schema_lib:ssl_fields(#{
-            default_value => #{~"enable" => false, ~"verify" => ~"verify_peer"}
-        }).
+        emqx_connector_schema_lib:verify_peer_ssl_fields().
 
 token_field() ->
     [{token, hoconsc:mk(binary(), #{required => false, desc => ?DESC("token")})}].
