@@ -175,7 +175,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.9", override: true}
-  def common_dep(:mria), do: {:mria, github: "emqx/mria", branch: "dev/fallback-hooks", override: true}
+
+  def common_dep(:mria),
+    do: {:mria, github: "emqx/mria", branch: "dev/fallback-hooks", override: true}
+
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.3", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -411,7 +414,7 @@ defmodule EMQXUmbrella.MixProject do
         {:bbmustache, "1.10.0"},
         {:cth_readable, "1.5.1"},
         common_dep(:proper),
-        {:meck, "1.1.0"}
+        {:meck, "1.2.0"}
       ]
     else
       []
