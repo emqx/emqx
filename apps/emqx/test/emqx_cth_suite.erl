@@ -50,6 +50,7 @@ Most of the time, you just need to:
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("classy/include/classy.hrl").
 
 -export([start/2, start/3, check_business_apps/0, wait_business_apps/1, stop/1]).
 
@@ -201,19 +202,18 @@ wait_business_apps(Timeout) ->
     end.
 
 on_run_level(RestSpecs) ->
-    fun(From, To) ->
+    fun(Action, Level) ->
         ?tp(
             info,
             test_run_level_change,
             #{
-                from => From,
-                to => To,
+                Action => Level,
                 peers => classy:nodes(all),
                 node => node()
             }
         ),
-        case {From, To} of
-            {single, cluster} ->
+        case {Action, Level} of
+            {enter, ?classy_rl_cluster} ->
                 Result = ?tp_span(
                     info,
                     test_starting_business_apps,
@@ -221,7 +221,7 @@ on_run_level(RestSpecs) ->
                     unsafe_start_appspecs(RestSpecs)
                 ),
                 optvar:set(?rest_started, Result);
-            {cluster, single} ->
+            {leave, ?classy_rl_cluster} ->
                 maybe
                     {ok, Started} ?= optvar:peek(?rest_started),
                     ?tp_span(
