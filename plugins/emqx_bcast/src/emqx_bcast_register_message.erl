@@ -51,7 +51,14 @@ get_max_message_size_batch() ->
 
 do_create(Payload, RequestId) ->
     Hash = emqx_bcast_utils:sha256(Payload),
-    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    %% Derive the API id from the content hash, exactly like the inline BatchPub
+    %% path does. Two creation paths that pick independent random ids for the
+    %% same content race: BatchPub answers the caller with its id first, the
+    %% other path commits the message, promotion adopts the stored id, and the
+    %% id the caller holds addresses nothing (GET messages/<id> 404, reusing it
+    %% answers 400 MessageNotFound). One identity per content removes the race
+    %% instead of papering over it with an alias.
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id_from_hash(Hash),
     case emqx_bcast_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
         {existing, Id, ExistingMsgGuid} ->
             ok = emqx_bcast_storage:mark_message_registered(ExistingMsgGuid),
