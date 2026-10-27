@@ -502,6 +502,19 @@ classify_error({frame_parse_error, _}) ->
     {unrecoverable_error, non_mqtt_data_explanation()};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
+classify_error({owner, _Owner, _Reason} = Reason) ->
+    %% `emqtt' replays the in-flight and pending publishes with the reason the
+    %% client was terminated with; `{owner, Owner, Reason}' is its owner-exit
+    %% shutdown reason.  The client is gone, not the connection target, so the
+    %% query can still be delivered after the pool worker reconnects or the pool
+    %% restarts, like the `{shutdown, _}' clause above.
+    {recoverable_error, Reason};
+classify_error(killed = Reason) ->
+    %% A pool worker that the supervisor kills because it did not finish the
+    %% shutdown in time takes its client down, and the client replays `killed'
+    %% to the publish callbacks.  The client is gone, not the connection target,
+    %% so the query can still be delivered after the pool worker reconnects.
+    {recoverable_error, Reason};
 classify_error({unrecoverable_error, _Reason} = Error) ->
     Error;
 classify_error(Reason) ->

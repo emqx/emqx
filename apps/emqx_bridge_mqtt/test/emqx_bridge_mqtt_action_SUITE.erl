@@ -1291,84 +1291,25 @@ t_mqtt_conn_bridge_egress_async_reconnect(TCConfig) ->
 %% and dropped them, so they never reached the remote broker even though the connection
 %% came back moments later.  The classification of those reasons themselves is pinned
 %% in `emqx_bridge_mqtt_connector_tests'.
-%%
-%% The broker-side connection of the connector's client is suspended before the
-%% burst is published: while it is suspended no acknowledgement can drain the
-%% client's queue, so the client is guaranteed to still hold the publishes when that
-%% connection is killed.  This removes the race between sampling the queue and
-%% injecting the fault.
 t_publish_while_tls_connection_closed(TCConfig) ->
     ClientId = <<"t_publish_while_tls_connection_closed">>,
     ?check_trace(
         begin
             SslPort = integer_to_binary(get_ssl_mqtt_port()),
-            ConnResId = connector_resource_id(TCConfig),
-            {201, _} = create_connector_api(TCConfig, #{
+            #{
+                conn_res_id := ConnResId,
+                local_topic := LocalTopic,
+                remote_topic := RemoteTopic,
+                broker_conns := BrokerConns
+            } = forwarding_action_with_suspended_broker_conn(TCConfig, ClientId, #{
                 <<"server">> => <<"mqtts://127.0.0.1:", SslPort/binary>>,
-                <<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>},
-                <<"static_clientids">> => [
-                    #{<<"node">> => atom_to_binary(node()), <<"ids">> => [ClientId]}
-                ],
-                %% At most one unacknowledged publish at a time: the client keeps the
-                %% rest of the burst queued, so losing the connection below is
-                %% guaranteed to catch messages that were accepted but not
-                %% acknowledged yet.
-                <<"max_inflight">> => 1,
-                %% No health check tick during the outage: the connection must come
-                %% back through the client's own reconnection, not through a resource
-                %% restart.
-                <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
+                <<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>}
             }),
-            RemotePrefix = <<"remote">>,
-            {201, _} = create_action_api(TCConfig, #{
-                <<"parameters">> => #{
-                    <<"topic">> => <<RemotePrefix/binary, "/${topic}">>,
-                    <<"payload">> => <<"${payload}">>,
-                    <<"qos">> => ?QOS_2
-                },
-                <<"resource_opts">> => #{
-                    <<"health_check_interval">> => <<"60s">>,
-                    <<"query_mode">> => <<"async">>,
-                    <<"request_ttl">> => <<"60s">>,
-                    <<"resume_interval">> => <<"500ms">>
-                }
-            }),
-            #{topic := LocalTopic} = simple_create_rule_api(TCConfig),
-            RemoteTopic = emqx_topic:join([RemotePrefix, LocalTopic]),
-            emqx:subscribe(RemoteTopic),
-            ?retry(
-                500,
-                20,
-                ?assertMatch(
-                    {200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig)
-                )
-            ),
-
-            %% Suspend the broker-side connection: acknowledgements stop, so the burst
-            %% published below stays with the client until the connection is lost.
-            BrokerConns = emqx_cm:lookup_channels(ClientId),
-            ?assertMatch([_ | _], BrokerConns),
-            %% Kill the connections on exit as well, in case an assertion below fails
-            %% before they are killed on purpose.
-            on_exit(fun() ->
-                lists:foreach(fun(Pid) -> exit(Pid, kill) end, BrokerConns)
-            end),
-            lists:foreach(fun(Pid) -> true = erlang:suspend_process(Pid) end, BrokerConns),
-
-            Payloads = [integer_to_binary(I) || I <- lists:seq(1, 200)],
-            lists:foreach(
-                fun(Payload) ->
-                    emqx:publish(emqx_message:make(LocalTopic, Payload))
-                end,
-                Payloads
-            ),
-            ok = wait_until_clients_hold(ConnResId, length(Payloads) div 4),
+            Payloads = fill_client_with_unacknowledged_publishes(ConnResId, LocalTopic),
 
             %% Lose the connection under the client: every publish it holds is reported
             %% to the action with the socket error and must be retried.
-            lists:foreach(fun(Pid) -> monitor(process, Pid) end, BrokerConns),
-            lists:foreach(fun(Pid) -> exit(Pid, kill) end, BrokerConns),
-            _ = wait_for_downs(length(BrokerConns), 5_000),
+            ok = drop_broker_conns(BrokerConns),
 
             %% Every message must still be delivered once the connection is back.
             ok = assert_all_delivered(RemoteTopic, Payloads, 60_000),
@@ -1394,6 +1335,162 @@ t_publish_while_tls_connection_closed(TCConfig) ->
             ok
         end
     ),
+    ok.
+
+%% The pool worker that owns a forwarding client is the client's `gen_statem'
+%% parent: terminating the worker terminates the client, which replays the publishes
+%% it holds to the action's buffer worker with a bare `killed'.  Unlike a connection
+%% failure, the connection target is still there, so those publishes must be retried
+%% instead of being acknowledged and counted `failed'.  The replay classification
+%% itself is pinned in `emqx_bridge_mqtt_connector_tests'.
+t_publish_while_client_owner_terminated(TCConfig) ->
+    ClientId = <<"t_publish_while_client_owner_terminated">>,
+    ?check_trace(
+        begin
+            Port = integer_to_binary(get_tcp_mqtt_port(node())),
+            #{
+                conn_res_id := ConnResId,
+                local_topic := LocalTopic,
+                remote_topic := RemoteTopic,
+                broker_conns := BrokerConns
+            } = forwarding_action_with_suspended_broker_conn(TCConfig, ClientId, #{
+                <<"server">> => <<"mqtt://127.0.0.1:", Port/binary>>
+            }),
+            Payloads = fill_client_with_unacknowledged_publishes(ConnResId, LocalTopic),
+
+            %% Terminate the pool worker that owns the clients; each client replays the
+            %% publishes it holds with the reason it was terminated with.
+            [{_WorkerName, WorkerPid}] = ecpool:workers(ConnResId),
+            {ok, ClientPid} = ecpool_worker:client(WorkerPid),
+            ClientMRef = monitor(process, ClientPid),
+            exit(WorkerPid, kill),
+            receive
+                {'DOWN', ClientMRef, process, ClientPid, ClientReason} ->
+                    erlang:demonitor(ClientMRef, [flush]),
+                    ?assertEqual(killed, ClientReason)
+            after 5_000 ->
+                ct:fail("the mqtt client did not terminate with its owner")
+            end,
+            ok = drop_broker_conns(BrokerConns),
+
+            %% Every message must still be delivered once the client is back.
+            ok = assert_all_delivered(RemoteTopic, Payloads, 60_000),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> := #{
+                            <<"matched">> := Matched, <<"failed">> := 0, <<"dropped">> := 0
+                        }
+                    }} when
+                        Matched >= 200,
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            %% The replay must have reached the action's buffer worker as a local client
+            %% termination, and the publishes held by the client must have been retried;
+            %% a run in which nothing was retried proves nothing.
+            ?assertMatch(
+                [_ | _],
+                [
+                    Event
+                 || Event = #{
+                        ?snk_kind := handle_async_reply,
+                        result := {error, {recoverable_error, killed}}
+                    } <- Trace
+                ]
+            ),
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_retry_inflight, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+%% Sets up an `mqtt' connector and an async action that forwards the messages published
+%% to a local topic to `remote/<topic>', subscribes this process to the forwarded topic,
+%% and suspends the broker-side connection of the connector's client.
+%%
+%% While that connection is suspended no acknowledgement can drain the client, so every
+%% publish it accepts stays with it.  The caller injects a fault while the client still
+%% holds publishes, which removes the race between sampling the client's queues and
+%% injecting the fault.  The connector config is passed in because the cases exercise
+%% different connection-level options.
+forwarding_action_with_suspended_broker_conn(TCConfig, ClientId, ConnectorConfig0) ->
+    ConnResId = connector_resource_id(TCConfig),
+    ConnectorConfig = ConnectorConfig0#{
+        <<"static_clientids">> => [
+            #{<<"node">> => atom_to_binary(node()), <<"ids">> => [ClientId]}
+        ],
+        %% At most one unacknowledged publish at a time: the client keeps the rest of
+        %% the burst queued, so the fault injected by the caller is guaranteed to catch
+        %% messages that were accepted but not acknowledged yet.
+        <<"max_inflight">> => 1,
+        %% No health check tick during the outage: the connection must come back
+        %% through the client's own reconnection.
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
+    },
+    {201, _} = create_connector_api(TCConfig, ConnectorConfig),
+    RemotePrefix = <<"remote">>,
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"topic">> => <<RemotePrefix/binary, "/${topic}">>,
+            <<"payload">> => <<"${payload}">>,
+            <<"qos">> => ?QOS_2
+        },
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"60s">>,
+            <<"query_mode">> => <<"async">>,
+            <<"request_ttl">> => <<"60s">>,
+            <<"resume_interval">> => <<"500ms">>
+        }
+    }),
+    #{topic := LocalTopic} = simple_create_rule_api(TCConfig),
+    RemoteTopic = emqx_topic:join([RemotePrefix, LocalTopic]),
+    emqx:subscribe(RemoteTopic),
+    ?retry(
+        500,
+        20,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig)
+        )
+    ),
+    BrokerConns = emqx_cm:lookup_channels(ClientId),
+    ?assertMatch([_ | _], BrokerConns),
+    %% Kill the connections on exit as well, in case an assertion below fails before
+    %% they are killed on purpose.
+    on_exit(fun() ->
+        lists:foreach(fun(Pid) -> exit(Pid, kill) end, BrokerConns)
+    end),
+    lists:foreach(fun(Pid) -> true = erlang:suspend_process(Pid) end, BrokerConns),
+    #{
+        conn_res_id => ConnResId,
+        local_topic => LocalTopic,
+        remote_topic => RemoteTopic,
+        broker_conns => BrokerConns
+    }.
+
+%% Fills the connector client's queue with publishes that the suspended broker-side
+%% connection can never acknowledge.
+fill_client_with_unacknowledged_publishes(ConnResId, LocalTopic) ->
+    Payloads = [integer_to_binary(I) || I <- lists:seq(1, 200)],
+    lists:foreach(
+        fun(Payload) -> emqx:publish(emqx_message:make(LocalTopic, Payload)) end,
+        Payloads
+    ),
+    ok = wait_until_clients_hold(ConnResId, length(Payloads) div 4),
+    Payloads.
+
+%% The suspended broker-side connections served a client that is gone by now and can
+%% never answer its reconnection; drop them and wait until they are gone, so that the
+%% restarted client does not have to wait for the session takeover.
+drop_broker_conns(BrokerConns) ->
+    lists:foreach(fun(Pid) -> monitor(process, Pid) end, BrokerConns),
+    lists:foreach(fun(Pid) -> exit(Pid, kill) end, BrokerConns),
+    _ = wait_for_downs(length(BrokerConns), 5_000),
     ok.
 
 wait_until_clients_hold(ConnResId, MinCount) ->
@@ -1454,65 +1551,16 @@ t_publish_while_keepalive_expires(TCConfig) ->
     ?check_trace(
         begin
             Port = integer_to_binary(get_tcp_mqtt_port(node())),
-            ConnResId = connector_resource_id(TCConfig),
-            {201, _} = create_connector_api(TCConfig, #{
+            #{
+                conn_res_id := ConnResId,
+                local_topic := LocalTopic,
+                remote_topic := RemoteTopic,
+                broker_conns := BrokerConns
+            } = forwarding_action_with_suspended_broker_conn(TCConfig, ClientId, #{
                 <<"server">> => <<"mqtt://127.0.0.1:", Port/binary>>,
-                <<"static_clientids">> => [
-                    #{<<"node">> => atom_to_binary(node()), <<"ids">> => [ClientId]}
-                ],
-                %% At most one unacknowledged publish at a time: the client keeps the
-                %% rest of the burst queued, so the keepalive expiry below is
-                %% guaranteed to catch messages that were accepted but not
-                %% acknowledged yet.
-                <<"max_inflight">> => 1,
-                <<"keepalive">> => <<"1s">>,
-                %% No health check tick during the outage: the connection must come
-                %% back through the client's own reconnection, not through a resource
-                %% restart.
-                <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
+                <<"keepalive">> => <<"1s">>
             }),
-            RemotePrefix = <<"remote">>,
-            {201, _} = create_action_api(TCConfig, #{
-                <<"parameters">> => #{
-                    <<"topic">> => <<RemotePrefix/binary, "/${topic}">>,
-                    <<"payload">> => <<"${payload}">>,
-                    <<"qos">> => ?QOS_2
-                },
-                <<"resource_opts">> => #{
-                    <<"health_check_interval">> => <<"60s">>,
-                    <<"query_mode">> => <<"async">>,
-                    <<"request_ttl">> => <<"60s">>,
-                    <<"resume_interval">> => <<"500ms">>
-                }
-            }),
-            #{topic := LocalTopic} = simple_create_rule_api(TCConfig),
-            RemoteTopic = emqx_topic:join([RemotePrefix, LocalTopic]),
-            emqx:subscribe(RemoteTopic),
-            ?retry(
-                500,
-                20,
-                ?assertMatch(
-                    {200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig)
-                )
-            ),
-
-            BrokerConns = emqx_cm:lookup_channels(ClientId),
-            ?assertMatch([_ | _], BrokerConns),
-            %% Kill the connections on exit as well, in case an assertion below fails
-            %% before they are killed on purpose.
-            on_exit(fun() ->
-                lists:foreach(fun(Pid) -> exit(Pid, kill) end, BrokerConns)
-            end),
-            lists:foreach(fun(Pid) -> true = erlang:suspend_process(Pid) end, BrokerConns),
-
-            Payloads = [integer_to_binary(I) || I <- lists:seq(1, 200)],
-            lists:foreach(
-                fun(Payload) ->
-                    emqx:publish(emqx_message:make(LocalTopic, Payload))
-                end,
-                Payloads
-            ),
-            ok = wait_until_clients_hold(ConnResId, 50),
+            Payloads = fill_client_with_unacknowledged_publishes(ConnResId, LocalTopic),
 
             %% The keepalive expires on its own and the client stops.  The suspended
             %% broker-side connection is killed as soon as the client is gone: it can
@@ -1521,7 +1569,7 @@ t_publish_while_keepalive_expires(TCConfig) ->
             ?assertMatch([_ | _], Clients),
             lists:foreach(fun(Pid) -> monitor(process, Pid) end, Clients),
             _ = wait_for_downs(length(Clients), 15_000),
-            lists:foreach(fun(Pid) -> exit(Pid, kill) end, BrokerConns),
+            ok = drop_broker_conns(BrokerConns),
 
             %% Every message must still be delivered once the connection is back.
             ok = assert_all_delivered(RemoteTopic, Payloads, 60_000),
