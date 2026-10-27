@@ -420,7 +420,14 @@ build_session_conf(#{
                 0 -> infinity;
                 _ -> RetryInterval
             end,
-        max_awaiting_rel = MaxAwaitingRel,
+        %% The channel derives `Receive-Maximum' from this limit, and MQTT 5
+        %% forbids a `Receive-Maximum' of 0. Keep the floor of 1 that
+        %% `emqx_session:get_session_conf/1' applies for a durable session.
+        max_awaiting_rel =
+            case MaxAwaitingRel of
+                infinity -> infinity;
+                _ -> max(1, MaxAwaitingRel)
+            end,
         await_rel_timeout = AwaitRelTimeout
     }.
 
