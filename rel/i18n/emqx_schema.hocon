@@ -1874,11 +1874,14 @@ fields_tcp_opts_send_timeout_close.desc:
 fields_tcp_opts_send_timeout_close.label:
 """TCP send timeout close"""
 
+tcp_socket_opts.desc:
+"""Buffer allocation settings for TCP listeners using the `socket` backend."""
+
 fields_tcp_socket_opts_buffer_alloc.desc:
 """Receive buffer allocation policy for the `socket` TCP backend.
 
-- `packet`: Do not keep the receive buffer while waiting for the next packet.
-- `always`: Always keep the receive buffer while waiting for data."""
+- `packet`: Do not keep the *receive buffer* while waiting for the next packet.
+- `always`: Always keep the *receive buffer* while waiting for data."""
 
 fields_tcp_socket_opts_buffer_alloc.label:
 """Receive Buffer Allocation Policy"""

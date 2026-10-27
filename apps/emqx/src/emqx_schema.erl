@@ -2506,6 +2506,8 @@ desc("ws_opts") ->
     "WebSocket listener options.";
 desc("tcp_opts") ->
     "TCP listener options.";
+desc("tcp_socket_opts") ->
+    ?DESC(tcp_socket_opts);
 desc("client_tcp_opts") ->
     ?DESC("client_tcp_opts");
 desc("listener_ssl_opts") ->
