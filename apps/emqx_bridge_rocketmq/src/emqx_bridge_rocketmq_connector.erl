@@ -344,17 +344,27 @@ destroy_allocated_channel_resources(ConnResId) ->
     destroy_allocated_channel_resources(ConnResId, _ChanResId = '_').
 
 destroy_allocated_channel_resources(ConnResId, ChanResId) ->
+    Resources = emqx_resource:get_allocated_resources(ConnResId),
     maps:foreach(
         fun
-            (?producer_cache(Id, _) = Key, Producers) when
+            (?producer_cache(Id, Topic) = Key, Producers) when
                 ChanResId == '_' orelse Id == ChanResId
             ->
+                ProducerGroup = mk_producer_group(Id, Topic),
                 _ = rocketmq:stop_and_delete_supervised_producers(Producers),
+                maybe
+                    #{?client_id := Table} ?= Resources,
+                    try
+                        _ = ets:delete(Table, ProducerGroup)
+                    catch
+                        error:badarg -> ok
+                    end
+                end,
                 deallocate(ConnResId, Key);
             (_, _) ->
                 ok
         end,
-        emqx_resource:get_allocated_resources(ConnResId)
+        Resources
     ).
 
 do_query(

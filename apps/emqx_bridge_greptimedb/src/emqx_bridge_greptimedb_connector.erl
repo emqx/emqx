@@ -694,6 +694,12 @@ integer_point_validation_test() ->
             <<"connector:test">>, AllInvalidBatch, ReplyFunAndArgs, State
         )
     ),
+    receive
+        AllInvalidResult ->
+            ?assertEqual([InvalidResult, InvalidResult], AllInvalidResult)
+    after 1_000 ->
+        error(callback_timeout)
+    end,
     ?assertEqual(
         {error, {invalid_string_value, [470.5, <<"x">>]}},
         emqx_bridge_greptimedb_utils:value_type([470.5, <<"x">>])
@@ -752,6 +758,127 @@ numeric_range_validation_test() ->
         {error, {bad_timestamp, MillisecondOverflow}},
         emqx_bridge_greptimedb_utils:convert_timestamp(MillisecondOverflow, {ms, ns})
     ).
+
+quoted_field_value_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<
+            "mqtt,clientid=${clientid} "
+            "text=\"abc\","
+            "number=\"n_${payload.n}\","
+            "float=\"f_${payload.f}\","
+            "bool=\"${payload.bool}\","
+            "literal_bool=\"T\","
+            "quoted_number=\"${payload.n}\","
+            "empty=\"\","
+            "unset=\"x${payload.unset}\""
+        >>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"n">> => 65, <<"f">> => 1.0e300, <<"bool">> => true},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    {ok, [{_, [#{fields := Fields}]}]} = data_to_points(Data, <<"public">>, SyntaxLines),
+    ?assertEqual(#{value_data => {string_value, <<"abc">>}}, maps:get(<<"text">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, <<"n_65">>}}, maps:get(<<"number">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, <<"f_1.0e300">>}}, maps:get(<<"float">>, Fields)),
+    ?assertEqual(#{value_data => {string_value, <<"true">>}}, maps:get(<<"bool">>, Fields)),
+    %% text that spells a boolean literal and a fully quoted number both stay strings
+    ?assertEqual(#{value_data => {string_value, <<"T">>}}, maps:get(<<"literal_bool">>, Fields)),
+    ?assertEqual(
+        #{value_data => {string_value, <<"65">>}}, maps:get(<<"quoted_number">>, Fields)
+    ),
+    ?assertEqual(#{value_data => {string_value, <<>>}}, maps:get(<<"empty">>, Fields)),
+    %% a quoted value with an unset placeholder is dropped
+    ?assertNot(maps:is_key(<<"unset">>, Fields)).
+
+quoted_field_value_utf8_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,clientid=${clientid} text=\"x${payload.text}\"">>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"text">> => <<255, 255>>},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    %% a quoted value that is not valid UTF-8 is rejected for that point only
+    ?assertEqual(
+        {error, [{error, {invalid_string_value, [<<"x">>, <<255, 255>>]}}]},
+        data_to_points(Data, <<"public">>, SyntaxLines)
+    ).
+
+field_mixed_template_value_test() ->
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"id_65">>}}},
+        value_type([<<"id_">>, 65])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"6566">>}}},
+        value_type([65, 66])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"pre_1.5">>}}},
+        value_type([<<"pre_">>, 1.5])
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"pre_true">>}}},
+        value_type([<<"pre_">>, true])
+    ),
+    %% an unset placeholder that is not the first token still fails the point
+    ?assertEqual(
+        {error, {invalid_string_value, [<<"x">>, undefined]}},
+        value_type([<<"x">>, undefined])
+    ).
+
+tag_value_utf8_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,clientid=${clientid},tag=${payload.t} value=1">>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data = #{
+        <<"clientid">> => <<"c1">>,
+        <<"payload">> => #{<<"t">> => <<255, 255>>},
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    %% a tag value that is not valid UTF-8 is rejected for that point only
+    ?assertEqual(
+        {error, [{error, {invalid_string_value, [<<255, 255>>]}}]},
+        data_to_points(Data, <<"public">>, SyntaxLines)
+    ).
+
+tag_value_typing_test() ->
+    %% text in a tag stays a string even when it spells a boolean literal
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"T">>}}},
+        value_type([<<"T">>], tag)
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"FALSE">>}}},
+        value_type([<<"FALSE">>], tag)
+    ),
+    %% a boolean from the payload keeps its type in a tag and in a field
+    ?assertEqual({ok, #{value_data => {bool_value, true}}}, value_type([true], tag)),
+    ?assertEqual({ok, #{value_data => {bool_value, false}}}, value_type([false], tag)),
+    ?assertEqual({ok, #{value_data => {bool_value, true}}}, value_type([<<"T">>])),
+    %% a number or boolean inside a longer tag template is rendered as text
+    ?assertEqual({ok, #{value_data => {string_value, <<"65">>}}}, value_type([65], tag)),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"pre_1.5">>}}},
+        value_type([<<"pre_">>, 1.5], tag)
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {string_value, <<"pre_true">>}}},
+        value_type([<<"pre_">>, true], tag)
+    ),
+    %% an `i`/`u` suffix keeps its type, a field keeps its typing
+    ?assertEqual({ok, #{value_data => {i64_value, 65}}}, value_type([65, <<"i">>], tag)),
+    ?assertEqual({ok, #{value_data => {u64_value, 65}}}, value_type([65, <<"u">>], tag)),
+    ?assertEqual({ok, #{value_data => {f64_value, 65.0}}}, value_type([65])),
+    %% the tag clauses do not swallow the `i`/`u` type and range checks
+    ?assertEqual({error, {invalid_integer_value, 470.5}}, value_type([470.5, <<"i">>], tag)),
+    ?assertEqual({error, {invalid_unsigned_integer_value, -1}}, value_type([-1, <<"u">>], tag)).
 
 %% for coverage
 desc_test_() ->
