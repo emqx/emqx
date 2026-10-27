@@ -410,7 +410,8 @@ run_loop(
     case activate_socket_for_connect(State) of
         {ok, NState} ->
             ok = set_tcp_keepalive(Listener),
-            IdleTimer = start_timer(get_zone_idle_timeout(Zone), idle_timeout),
+            IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
+            IdleTimer = start_timer(IdleTimeout, idle_timeout),
             hibernate(Parent, NState#state{stats_timer = {idle, IdleTimer}});
         {error, Reason} ->
             case pending_transport_error() of
@@ -516,10 +517,6 @@ cancel_idle_timer(#state{stats_timer = {idle, TRef}}) ->
     emqx_utils:cancel_timer(TRef);
 cancel_idle_timer(_State) ->
     ok.
-
--compile({inline, [get_zone_idle_timeout/1]}).
-get_zone_idle_timeout(Zone) ->
-    emqx_channel:get_mqtt_conf(Zone, idle_timeout).
 
 %%--------------------------------------------------------------------
 %% Process next Msg
