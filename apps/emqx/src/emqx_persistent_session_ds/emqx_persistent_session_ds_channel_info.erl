@@ -69,7 +69,11 @@ encode(#{
 
         connectedAt = maps:get(connected_at, ConnInfo, 0),
         disconnectedAt = DisconnectedAt,
-        username = undefined_to_novalue(maps:get(username, ConnInfo, undefined)),
+        %% The stored `conninfo' holds `username' only when it differs from the
+        %% `clientinfo' one. See `emqx_channel:info/1'.
+        username = undefined_to_novalue(
+            maps:get(username, ConnInfo, maps:get(username, ClientInfo, undefined))
+        ),
         mountpoint = undefined_to_novalue(maps:get(mountpoint, ClientInfo, undefined)),
         protocol = enc_protocol(ConnInfo, ClientInfo),
         peername = PeerName,

@@ -107,8 +107,9 @@ internal_subscribe_test_profile(_) ->
 
 -doc """
 The stored channel info carries a `clientinfo` without the fields derivable from
-`conninfo` and a `conninfo` without the socket, while the channel's own `clientinfo`
-and `conninfo` keep them all.
+`conninfo` and a `conninfo` without the socket and without the `clientid` and
+`username` that `clientinfo` already holds, while the channel's own `clientinfo` and
+`conninfo` keep them all.
 """.
 t_chan_info(_) ->
     WillMsg = emqx_message:make(<<"clientid">>, <<"will">>, <<"payload">>),
@@ -128,6 +129,14 @@ t_chan_info(_) ->
     ?assertNot(maps:is_key(subscriptions, SessionInfo)),
     %% `info/1` omits the socket, which is only valid in the connection process.
     ?assertNot(maps:is_key(sock, ConnInfo)),
+    %% `info/1` omits the `conninfo` copy of the values `clientinfo` holds.
+    ?assertNot(maps:is_key(clientid, ConnInfo)),
+    ?assertNot(maps:is_key(username, ConnInfo)),
+    ?assertMatch(#{clientid := <<"clientid">>, username := <<"username">>}, Stored),
+    ?assertMatch(
+        #{clientid := <<"clientid">>, username := <<"username">>},
+        emqx_channel:info(conninfo, Channel)
+    ),
     %% The session attributes are the ones the channel info table's readers use; the
     %% counters come from the stats array of the same table row, and the attributes
     %% that are not integers are listed among the stats from here.
@@ -187,6 +196,38 @@ t_restore_derivable_peer_fields(_) ->
     ),
     %% With nothing to derive from, the clientinfo is returned as is.
     ?assertEqual(Stored, emqx_channel:restore_derivable_peer_fields(Stored, #{})).
+
+-doc """
+When the broker assigned the client identifier, or a peer certificate supplied the
+username, the CONNECT packet values in `conninfo` differ from the `clientinfo` ones.
+`info/1` then keeps them, and `restore_derivable_conninfo_fields/2` leaves them alone.
+""".
+t_chan_info_keeps_differing_conninfo_ids(_) ->
+    Channel = channel(clientinfo(#{clientid => <<"assigned">>, username => <<"cn">>}), #{}),
+    ConnInfo0 = emqx_channel:info(conninfo, Channel),
+    ConnInfo1 = ConnInfo0#{clientid => <<>>, username => undefined},
+    #{conninfo := Stored, clientinfo := StoredClientInfo} =
+        emqx_channel:info(emqx_channel:set_field(conninfo, ConnInfo1, Channel)),
+    ?assertMatch(#{clientid := <<>>, username := undefined}, Stored),
+    ?assertEqual(
+        Stored,
+        emqx_channel:restore_derivable_conninfo_fields(Stored, StoredClientInfo)
+    ).
+
+-doc """
+`info/1` drops `conninfo.clientid` and `conninfo.username` when `clientinfo` holds the
+same values, and `restore_derivable_conninfo_fields/2` puts back exactly those, so that
+a channel rebuilt from a stored info map carries the `conninfo` the connection had.
+""".
+t_restore_derivable_conninfo_fields(_) ->
+    Channel = channel(),
+    #{conninfo := Stored, clientinfo := StoredClientInfo} = emqx_channel:info(Channel),
+    ?assertEqual(
+        maps:without([conn_props, sock], emqx_channel:info(conninfo, Channel)),
+        emqx_channel:restore_derivable_conninfo_fields(Stored, StoredClientInfo)
+    ),
+    %% With nothing to derive from, the conninfo is returned as is.
+    ?assertEqual(Stored, emqx_channel:restore_derivable_conninfo_fields(Stored, #{})).
 
 t_chan_caps(_) ->
     ?assertMatch(
