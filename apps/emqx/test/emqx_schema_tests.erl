@@ -1497,3 +1497,22 @@ http_oauth2_is_not_exposed_by_derived_connectors_test() ->
     ?assertNot(
         proplists:is_defined(oauth2, emqx_bridge_iotdb_connector:fields("config_restapi"))
     ).
+
+cacertfile_system_default_test_() ->
+    Check = fun(Schema) ->
+        Sc = #{roots => [ssl_opts], fields => #{ssl_opts => Schema}},
+        Conf = #{<<"ssl_opts">> => #{<<"cacertfile">> => <<"system_default">>}},
+        hocon_tconf:check_plain(Sc, Conf, #{atom_key => true})
+    end,
+    [
+        {"accepted by TLS clients",
+            ?_assertMatch(
+                #{ssl_opts := #{cacertfile := <<"system_default">>}},
+                Check(emqx_schema:client_ssl_opts_schema(#{}))
+            )},
+        {"rejected by listeners",
+            ?_assertThrow(
+                {_, [#{kind := validation_error, path := "ssl_opts.cacertfile"}]},
+                Check(emqx_schema:server_ssl_opts_schema(#{}, false))
+            )}
+    ].

@@ -2590,11 +2590,11 @@ common_ssl_opts_schema(Defaults, Type) ->
         {"cacertfile",
             sc(
                 binary(),
-                #{
+                cacertfile_validator(Type, #{
                     default => cert_file("cacert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
-                }
+                })
             )},
         {"cacerts",
             sc(
@@ -4158,6 +4158,17 @@ ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
 ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
+
+cacertfile_validator(client, Meta) ->
+    Meta;
+cacertfile_validator(server, Meta) ->
+    Meta#{validator => fun validate_server_cacertfile/1}.
+
+%% A listener that trusts every public CA would accept any publicly issued client certificate.
+validate_server_cacertfile(?CACERTFILE_SYSTEM_DEFAULT) ->
+    {error, "system_default is only allowed for TLS clients"};
+validate_server_cacertfile(_) ->
+    ok.
 
 cert_file(_File, client) ->
     undefined;

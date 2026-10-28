@@ -91,3 +91,52 @@ t_verify_peer_no_ca_ssl_rejects_options(_TCConfig) ->
         gen_tcp:close(LSock)
     end,
     ok.
+
+-doc """
+`cacertfile = system_default` resolves to the `node.trusted_certs` file, also with
+`verify_none`.
+""".
+t_system_default_cacertfile_trusted_certs(_TCConfig) ->
+    ok = application:set_env(emqx, trusted_certs_path, ?TRUSTED),
+    lists:foreach(
+        fun(Verify) ->
+            Opts = client_opts(#{verify => Verify, cacertfile => <<"system_default">>}),
+            ?assertEqual([?TRUSTED], proplists:get_all_values(cacertfile, Opts), Verify),
+            ?assertEqual(undefined, proplists:get_value(cacerts, Opts), Verify)
+        end,
+        [verify_peer, verify_none]
+    ),
+    ok.
+
+-doc """
+When `node.trusted_certs` resolves to no file, `cacertfile = system_default` uses the CA
+certificates that OTP loads from the OS.
+""".
+t_system_default_cacertfile_os_cacerts(_TCConfig) ->
+    CACerts = public_key:cacerts_get(),
+    Opts = client_opts(#{verify => verify_peer, cacertfile => <<"system_default">>}),
+    ?assertEqual(undefined, proplists:get_value(cacertfile, Opts)),
+    ?assertEqual(CACerts, proplists:get_value(cacerts, Opts)),
+    ok.
+
+-doc """
+The certificate file checks keep `cacertfile = system_default`, and still reject it for
+other file options.
+""".
+t_system_default_cacertfile_file_checks(TCConfig) ->
+    Dir = ?config(priv_dir, TCConfig),
+    lists:foreach(
+        fun(SSL) ->
+            ?assertEqual({ok, SSL}, emqx_tls_lib:ensure_ssl_files(Dir, SSL)),
+            ?assertEqual(SSL, emqx_tls_lib:drop_invalid_certs(SSL))
+        end,
+        [
+            #{<<"enable">> => true, <<"cacertfile">> => <<"system_default">>},
+            #{enable => true, cacertfile => <<"system_default">>}
+        ]
+    ),
+    ?assertMatch(
+        {error, #{which_option := <<"certfile">>}},
+        emqx_tls_lib:ensure_ssl_files(Dir, #{<<"certfile">> => <<"system_default">>})
+    ),
+    ok.
