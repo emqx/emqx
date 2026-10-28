@@ -785,7 +785,8 @@ t_channel_block2_reply_error(_) ->
     {ok, [{outgoing, [Reply]}], _Channel2} = emqx_coap_channel:handle_in(Req, Channel1),
     ?assertEqual({error, bad_option}, Reply#coap_message.method).
 
-t_channel_observe_blockwise_ack_failure_drains_pending(_) ->
+-doc "Retransmission exhaustion discards queued notifications and clears the Observe's Block2 state.".
+t_channel_observe_blockwise_ack_failure_cancels_pending(_) ->
     Topic = <<"topic">>,
     ObserveToken = <<"obs-ack-failure">>,
     Channel0 = new_block2_channel(#{max_block_size => 16}),
@@ -824,12 +825,10 @@ t_channel_observe_blockwise_ack_failure_drains_pending(_) ->
     {ok, [{outgoing, [_Retry3]}], Channel6} = ack_timeout(Channel5),
     {ok, [{outgoing, [_Retry4]}], Channel7} = ack_timeout(Channel6),
 
-    {ok, [{outgoing, [NotifyB0]}], Channel8} = ack_timeout(Channel7),
-    ?assertEqual(con, NotifyB0#coap_message.type),
-    ?assertEqual(ObserveToken, NotifyB0#coap_message.token),
-    ?assertEqual(binary:copy(<<"B">>, 16), NotifyB0#coap_message.payload),
-    ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, NotifyB0, undefined)),
-    ?assertEqual(1, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel8))),
+    {ok, Channel8} = ack_timeout(Channel7),
+    ?assertEqual(0, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel8))),
+    ?assertEqual(0, proplists:get_value(mqueue_len, emqx_coap_channel:stats(Channel8))),
+    ?assertEqual(#{}, maps:get(subscriptions, emqx_coap_channel:info(session, Channel8))),
 
     OldAck = #coap_message{
         type = ack,
@@ -837,7 +836,7 @@ t_channel_observe_blockwise_ack_failure_drains_pending(_) ->
         token = ObserveToken
     },
     {ok, Channel9} = emqx_coap_channel:handle_in(OldAck, Channel8),
-    ?assertEqual(1, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel9))),
+    ?assertEqual(0, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel9))),
 
     FollowReq = #coap_message{
         type = con,
@@ -852,9 +851,7 @@ t_channel_observe_blockwise_ack_failure_drains_pending(_) ->
     },
     {ok, [{outgoing, [FollowResp]}], _Channel10} =
         emqx_coap_channel:handle_in(FollowReq, Channel9),
-    ?assertEqual({ok, content}, FollowResp#coap_message.method),
-    ?assertEqual(binary:copy(<<"b">>, 16), FollowResp#coap_message.payload),
-    ?assertEqual({1, true, 16}, emqx_coap_message:get_option(block2, FollowResp, undefined)).
+    ?assertMatch({error, _}, FollowResp#coap_message.method).
 
 t_channel_observe_queue_drops_oldest_deterministically(_) ->
     with_notify_type(con, fun() ->
