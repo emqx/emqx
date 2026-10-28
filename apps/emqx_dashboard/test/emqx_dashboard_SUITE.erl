@@ -118,7 +118,7 @@ t_query_param_limit(_Config) ->
     ),
     %% The limit is documented in the shared `info` section of the API specification.
     {ok, {{"HTTP/1.1", 200, _}, _, Spec}} = httpc:request(
-        get, {?HOST ++ "/api-spec/clients", []}, [], [{body_format, binary}]
+        get, {?HOST ++ "/api-spec/clients", [Auth]}, [], [{body_format, binary}]
     ),
     #{<<"info">> := #{<<"description">> := Description}} = emqx_utils_json:decode(Spec),
     ?assertMatch({match, _}, re:run(Description, "100 query parameters")),

@@ -527,16 +527,8 @@ blockwise_key_active(_BlockwiseKey, _BW) ->
 
 new_pending_observe_notification(Msg, MQTT, ObservedTopic, _BW, PeerKey, Ctx, true) ->
     {Msg, MQTT, ObservedTopic, undefined, observe_blockwise_key(Msg, PeerKey), PeerKey, Ctx};
-new_pending_observe_notification(Msg, MQTT, ObservedTopic, BW, PeerKey, Ctx, false) ->
-    Key = pending_blockwise_key(Msg, PeerKey),
-    PendingBW = pending_notification_blockwise(Key, BW),
-    {Msg, MQTT, ObservedTopic, PendingBW, Key, PeerKey, Ctx}.
-
-pending_notification_blockwise(undefined, _BW) ->
-    undefined;
-pending_notification_blockwise(Key, #{server_tx_block2 := ServerTx, opts := Opts}) ->
-    PendingBW = emqx_coap_blockwise:new(Opts),
-    PendingBW#{server_tx_block2 => maps:with([Key], ServerTx)}.
+new_pending_observe_notification(Msg, MQTT, ObservedTopic, _BW, PeerKey, Ctx, false) ->
+    {Msg, MQTT, ObservedTopic, undefined, pending_blockwise_key(Msg, PeerKey), PeerKey, Ctx}.
 
 pending_msg({Msg, _MQTT, _ObservedTopic, _BW, _BlockwiseKey, _PeerKey, _Ctx}) ->
     Msg;
