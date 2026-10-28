@@ -478,7 +478,8 @@ extract_tls_opts(SSLOpts) ->
     TLSCertOpts1 = maybe_put_tls_verify_opt(SSLOpts, TLSCertOpts),
     maybe_put_cipher_suites(SSLOpts, TLSCertOpts1).
 
-extract_tls_cert_opts(SSLOpts) ->
+extract_tls_cert_opts(SSLOpts0) ->
+    SSLOpts = maps:update_with(cacertfile, fun emqx_tls_lib:resolve_cacertfile_path/1, SSLOpts0),
     TLSOpts0 = maps:fold(
         fun emqx_utils_maps:rename/3,
         SSLOpts,
