@@ -1197,6 +1197,15 @@ fields("tcp_opts") ->
                     desc => ?DESC(fields_tcp_opts_buffer)
                 }
             )},
+        {"buffer_retention_strategy",
+            sc(
+                hoconsc:enum([always, packet]),
+                #{
+                    default => <<"packet">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_tcp_opts_buffer_retention_strategy)
+                }
+            )},
         {"high_watermark",
             sc(
                 bytesize(),

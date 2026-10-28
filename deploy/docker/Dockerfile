@@ -27,6 +27,18 @@ RUN set -eu; \
     install -m 0755 /tmp/curl /usr/local/bin/curl; \
     /usr/local/bin/curl --version
 
+# Fetch the current Mozilla CA bundle from curl.se, so each image trusts the CA
+# set of its build day instead of the one in the base image. It replaces
+# /etc/ssl/certs/ca-certificates.crt in the runtime stage. ADD fetches the URL
+# on every build, so the layer cache does not keep an old bundle.
+FROM ${BUILD_FROM} AS ca_bundle
+ADD https://curl.se/ca/cacert.pem https://curl.se/ca/cacert.pem.sha256 /ca/
+RUN set -eu; \
+    cd /ca; \
+    sha256sum -c cacert.pem.sha256; \
+    grep -c 'BEGIN CERTIFICATE' cacert.pem; \
+    install -m 0644 cacert.pem /ca-certificates.crt
+
 FROM ${BUILD_FROM} AS builder_src
 ONBUILD COPY . /emqx
 
@@ -92,6 +104,7 @@ ENV LANG=C.UTF-8
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=curl_static /usr/local/bin/curl /usr/bin/curl
 COPY --from=runtime_deps /runtime-rootfs/ /
+COPY --from=ca_bundle /ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 # Declare the users this image runs as, without installing user-management
 # tools. The hardened base has a shell but starts as nonroot (UID 65532) and

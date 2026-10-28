@@ -1405,23 +1405,28 @@ do_econnrefused_or_timeout_test(TCConfig, Error) ->
         %% message as dropped; and since it never considers the
         %% response expired, this succeeds.
         econnrefused ->
-            %% even waiting, hard to avoid flakiness... simpler to just sleep
-            %% a bit until stabilization.
-            ct:sleep(200),
-            CurrentMetrics = current_action_metrics(TCConfig),
-            RecordedEvents = dump_telemetry_table(TCConfig),
-            ct:pal("telemetry events:\n  ~p", [RecordedEvents]),
-            ?assertMatch(
-                #{
-                    dropped := Dropped,
-                    failed := Failed,
-                    inflight := Inflight,
-                    matched := Matched,
-                    queuing := Queueing,
-                    retried := 0,
-                    success := 0
-                } when Matched >= 1 andalso Inflight + Queueing + Dropped + Failed =< 2,
-                CurrentMetrics
+            %% `retried' is deliberately not asserted: the resource retries a
+            %% refused connection and the counter only increases, so once a
+            %% retry has happened no later attempt of this assertion can pass.
+            ?retry(
+                200,
+                5,
+                begin
+                    CurrentMetrics = current_action_metrics(TCConfig),
+                    RecordedEvents = dump_telemetry_table(TCConfig),
+                    ct:pal("telemetry events:\n  ~p", [RecordedEvents]),
+                    ?assertMatch(
+                        #{
+                            dropped := Dropped,
+                            failed := Failed,
+                            inflight := Inflight,
+                            matched := Matched,
+                            queuing := Queueing,
+                            success := 0
+                        } when Matched >= 1 andalso Inflight + Queueing + Dropped + Failed =< 2,
+                        CurrentMetrics
+                    )
+                end
             );
         timeout ->
             wait_telemetry_event(

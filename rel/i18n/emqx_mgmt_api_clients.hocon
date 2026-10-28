@@ -89,7 +89,8 @@ msg_from_username.label:
 """Message Publisher's Username"""
 
 msg_inserted_at.desc:
-"""A nanosecond precision Unix epoch timestamp at which a message was inserted to In-flight / Mqueue."""
+"""Message insertion time as a Unix epoch timestamp in nanoseconds.
+For in-flight messages, the actual clock precision is microseconds."""
 msg_inserted_at.label:
 """Message Insertion Time"""
 
@@ -223,6 +224,10 @@ clientid.desc:
 """Client ID"""
 clientid.label:
 """Client ID"""
+query_clientid.desc:
+"""Client ID. This parameter can be repeated."""
+query_clientid.label:
+"""Client ID (repeatable)"""
 
 awaiting_rel_cnt.desc:
 """Number of awaiting PUBREC packets."""
@@ -336,9 +341,9 @@ proto_name.label:
 """Protocol Name"""
 
 recv_cnt.desc:
-"""Number of TCP packets received"""
+"""Number of MQTT packets received. This field has the same value as `recv_pkt`. It is kept for compatibility."""
 recv_cnt.label:
-"""Received TCP Packets"""
+"""Received Packets"""
 
 recv_msg.desc:
 """Number of PUBLISH packets received"""
@@ -386,9 +391,9 @@ reductions.label:
 """Reductions"""
 
 send_cnt.desc:
-"""Number of TCP packets sent"""
+"""Number of MQTT packets sent. This field has the same value as `send_pkt`. It is kept for compatibility."""
 send_cnt.label:
-"""Sent TCP Packets"""
+"""Sent Packets"""
 
 send_msg.desc:
 """Number of PUBLISH packets sent"""
@@ -454,6 +459,10 @@ username.desc:
 """User name of client when connecting"""
 username.label:
 """Username"""
+query_username.desc:
+"""Username. This parameter can be repeated."""
+query_username.label:
+"""Username (repeatable)"""
 
 mountpoint.desc:
 """Topic mountpoint"""

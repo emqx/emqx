@@ -631,9 +631,10 @@ write_client_stats_row({{ClientId, _Pid}, _Info, StatsRef}, FileHandle) ->
     % Extract stats from the stats array of the channel
     StatsMap = maps:from_list(emqx_chan_stats:to_list(StatsRef)),
     RecvOct = maps:get(recv_oct, StatsMap, 0),
-    RecvCnt = maps:get(recv_cnt, StatsMap, 0),
+    %% The `recv_cnt` and `send_cnt` columns hold the packet counters.
+    RecvCnt = maps:get(recv_pkt, StatsMap, 0),
     SendOct = maps:get(send_oct, StatsMap, 0),
-    SendCnt = maps:get(send_cnt, StatsMap, 0),
+    SendCnt = maps:get(send_pkt, StatsMap, 0),
 
     % Extract session info from Stats (these are available in the stats)
     SubscriptionsCnt = maps:get(subscriptions_cnt, StatsMap, 0),

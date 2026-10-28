@@ -69,9 +69,7 @@ are not stats: they live in the session entry of the info map of the row (see
 
 -define(SOCK_KEYS, [
     recv_oct,
-    recv_cnt,
     send_oct,
-    send_cnt,
     send_pend
 ]).
 
@@ -245,30 +243,28 @@ keys() ->
 %% folds to a constant at compile time where the function is inlined.
 -compile({inline, [slot/1]}).
 slot(recv_oct) -> 1;
-slot(recv_cnt) -> 2;
-slot(send_oct) -> 3;
-slot(send_cnt) -> 4;
-slot(send_pend) -> 5;
-slot(subscriptions_cnt) -> 6;
-slot(inflight_cnt) -> 7;
-slot(mqueue_len) -> 8;
-slot(total_payload_bytes) -> 9;
-slot(mqueue_dropped) -> 10;
-slot(awaiting_rel_cnt) -> 11;
-slot(recv_pkt) -> 12;
-slot(recv_msg) -> 13;
-slot('recv_msg.qos0') -> 14;
-slot('recv_msg.qos1') -> 15;
-slot('recv_msg.qos2') -> 16;
-slot('recv_msg.dropped') -> 17;
-slot('recv_msg.dropped.await_pubrel_timeout') -> 18;
-slot(send_pkt) -> 19;
-slot(send_msg) -> 20;
-slot('send_msg.qos0') -> 21;
-slot('send_msg.qos1') -> 22;
-slot('send_msg.qos2') -> 23;
-slot('send_msg.dropped') -> 24;
-slot('send_msg.dropped.expired') -> 25;
-slot('send_msg.dropped.queue_full') -> 26;
-slot('send_msg.dropped.too_large') -> 27;
+slot(send_oct) -> 2;
+slot(send_pend) -> 3;
+slot(subscriptions_cnt) -> 4;
+slot(inflight_cnt) -> 5;
+slot(mqueue_len) -> 6;
+slot(total_payload_bytes) -> 7;
+slot(mqueue_dropped) -> 8;
+slot(awaiting_rel_cnt) -> 9;
+slot(recv_pkt) -> 10;
+slot(recv_msg) -> 11;
+slot('recv_msg.qos0') -> 12;
+slot('recv_msg.qos1') -> 13;
+slot('recv_msg.qos2') -> 14;
+slot('recv_msg.dropped') -> 15;
+slot('recv_msg.dropped.await_pubrel_timeout') -> 16;
+slot(send_pkt) -> 17;
+slot(send_msg) -> 18;
+slot('send_msg.qos0') -> 19;
+slot('send_msg.qos1') -> 20;
+slot('send_msg.qos2') -> 21;
+slot('send_msg.dropped') -> 22;
+slot('send_msg.dropped.expired') -> 23;
+slot('send_msg.dropped.queue_full') -> 24;
+slot('send_msg.dropped.too_large') -> 25;
 slot(Key) -> error({unknown_chan_stats_key, Key}).

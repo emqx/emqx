@@ -23,6 +23,7 @@
     depth/0,
     deferred_depth/0,
     admission_depth/0,
+    mark_promoted/1,
     reset/0
 ]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -47,6 +48,10 @@
 %%   not_before     :: non_neg_integer() -- ms, monotonic; set only while the
 %%                                          entry waits out a retry backoff
 %%   defer_attempts :: non_neg_integer() -- how many times it was deferred
+%%   promoted       :: boolean()         -- true once this entry's durable rows
+%%                                          are committed; a later promotion of
+%%                                          the same entry must not write them
+%%                                          again (see mark_promoted/1)
 -type entry() :: #{
     payload := binary(),
     hash := binary(),
@@ -59,8 +64,19 @@
     created_at := non_neg_integer(),
     expires_at := non_neg_integer(),
     not_before => non_neg_integer(),
-    defer_attempts => non_neg_integer()
+    defer_attempts => non_neg_integer(),
+    promoted => boolean()
 }.
+
+-spec mark_promoted(entry()) -> entry().
+%% Remember that this entry's durable rows are already written. The mark
+%% travels with the entry when the promoter retries it or hands it back to the
+%% queue, and it is what stops a later promotion from re-creating rows that a
+%% purge - the TTL reaper, a completed delivery, a management delete - removed
+%% in the meantime: for such an entry a missing row means "gone", never "never
+%% promoted".
+mark_promoted(Entry) ->
+    Entry#{promoted => true}.
 
 %% Backoff of a batch that the promoter could not append to the per-device
 %% index after ?APPEND_RETRY_MAX in-worker attempts. It is never dropped: the

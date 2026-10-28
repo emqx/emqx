@@ -32,6 +32,8 @@
 %% tail-recursive message dispatch, one with and one without a queue.
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
+-define(MAX_RECV_SIZE, 16 * 1024 * 1024).
+
 %% API
 -export([
     start_link/3,
@@ -135,9 +137,7 @@
 
 -define(SOCK_STATS, [
     recv_oct,
-    recv_cnt,
     send_oct,
-    send_cnt,
     send_pend
 ]).
 
@@ -232,6 +232,7 @@ sockopts(Names, #state{socket = Socket}) ->
         Names
     ).
 
+sockopt_val(Name = buffer, {ok, {_Keep, V}}) -> {Name, V};
 sockopt_val(Name, {ok, V}) -> {Name, V};
 sockopt_val(_, {error, _}) -> [].
 
@@ -899,27 +900,30 @@ handle_data(
         gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
-    Tail = request_more_data_msgs(RequestMore, More, SS),
+    Tail =
+        case SS of
+            closed -> [];
+            _Live -> request_more_data_msgs(RequestMore, More)
+        end,
     Msgs = next_incoming_msgs(Tail, Packets),
     ?BROKER_INSTR_SOCKPACKET(
         ?BROKER_INSTR_OBSERVE_BS(socket_packets, packet_remaining_bytes, More)
     ),
     {ok, Msgs, State}.
 
-%% `RequestMore':
 %% - `true': the last read did not arm a select, so read again.
 %% - `false': a select is armed, wait for it.
 %% - `armed': a select is armed. When the parser is inside a packet body and
-%%   knows how many bytes it still needs, read them now with one call of that
-%%   length. Otherwise wait for the select.
--compile({inline, [request_more_data_msgs/3]}).
-request_more_data_msgs(_RequestMore, _More, closed) ->
-    [];
-request_more_data_msgs(true, More, _SS) ->
-    [{request_more_data, More}];
-request_more_data_msgs(armed, More, _SS) when is_integer(More), More > 0 ->
-    [{request_more_data, More}];
-request_more_data_msgs(_RequestMore, _More, _SS) ->
+%%   knows how many bytes it still needs, read them now, up to MAX_RECV_SIZE.
+%%   Otherwise wait for the select.
+-compile({inline, [request_more_data_msgs/2]}).
+request_more_data_msgs(armed, More) when is_integer(More), More > 0 ->
+    [{request_more_data, min(More, ?MAX_RECV_SIZE)}];
+request_more_data_msgs(true, More) when is_integer(More) ->
+    [{request_more_data, min(More, ?MAX_RECV_SIZE)}];
+request_more_data_msgs(true, _More) ->
+    [{request_more_data, 0}];
+request_more_data_msgs(_RequestMore, _More) ->
     [].
 
 %% Dialyzer warns that {error, {closed, DataMore}} can never match, but this pattern
@@ -927,12 +931,7 @@ request_more_data_msgs(_RequestMore, _More, _SS) ->
 %% closes with data available. We keep this clause for backward compatibility.
 -dialyzer({nowarn_function, request_more_data/3}).
 -compile({inline, [request_more_data/3]}).
-request_more_data(Socket, More, State) ->
-    Len =
-        case More of
-            some_more -> 0;
-            _ -> More
-        end,
+request_more_data(Socket, Len, State) ->
     case sock_async_recv(Socket, Len) of
         {ok, DataMore} ->
             ?BROKER_INSTR_SOCKPACKET(begin

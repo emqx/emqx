@@ -1204,6 +1204,13 @@ t_clients_dump_stats_default(_Config) ->
             hd(Lines)
         )
     ),
+    %% The `recv_cnt` and `send_cnt` columns hold the packet counters.
+    ClientId = "test_client_stats_dump-1",
+    [Row] = [L || L <- tl(Lines), lists:member(ClientId, string:split(L, ",", all))],
+    [_Ts, ClientId, _RecvOct, RecvCnt, _SendOct, SendCnt | _] = string:split(Row, ",", all),
+    Stats = emqx_cm:get_chan_stats(list_to_binary(ClientId)),
+    ?assertEqual(proplists:get_value(recv_pkt, Stats), list_to_integer(RecvCnt), Row),
+    ?assertEqual(proplists:get_value(send_pkt, Stats), list_to_integer(SendCnt), Row),
 
     %% Clean up
     ok = file:delete(TestFile),
