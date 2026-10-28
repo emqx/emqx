@@ -59,6 +59,7 @@ groups() ->
             %% subscribe_failure_test,
             t_dollar_topics,
             t_sub_non_utf8_topic,
+            t_connect_zero_remaining_len_non_minimal,
             t_hot_patch_connect_user_property_limit_config,
             t_connect_user_property_limit,
             t_large_connect_with_few_user_properties
@@ -336,6 +337,31 @@ t_sub_non_utf8_topic(_) ->
     TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
     ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
     ok.
+
+%% A CONNECT with a zero Remaining Length in two bytes closes the connection
+%% as a frame error, and the connection process does not crash.
+t_connect_zero_remaining_len_non_minimal(_) ->
+    Reports = emqx_cth_log_capture:capture(info, fun() ->
+        {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        ok = gen_tcp:send(Socket, <<16#10, 16#80, 16#00>>),
+        receive
+            {tcp_closed, _} -> ok
+        after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
+        end
+    end),
+    ?assertEqual(
+        [],
+        [R || R = #{report := Report} <- Reports, is_connection_crashed(Report)]
+    ),
+    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', {{0, 0, 0, 0}, 1883}),
+    ZeroLenCount = proplists:get_value(zero_remaining_len, ListenerCounts),
+    ?assert(is_integer(ZeroLenCount) andalso ZeroLenCount > 0),
+    ok.
+
+is_connection_crashed(Report) when is_list(Report) ->
+    proplists:get_value(errorContext, Report) =:= connection_crashed;
+is_connection_crashed(_) ->
+    false.
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v5

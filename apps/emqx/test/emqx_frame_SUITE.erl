@@ -42,6 +42,12 @@ groups() ->
             t_serialize_frame_at_max_size,
             t_parse_packet_size_limit,
             t_parse_frame_malformed_variable_byte_integer,
+            t_parse_zero_remaining_len_non_minimal,
+            t_parse_bodyless_packet_non_minimal,
+            t_parse_truncated_variable_byte_integer,
+            t_parse_variable_byte_integer_too_long,
+            t_parse_variable_byte_integer_valid,
+            t_parse_user_property_missing_value,
             t_parse_malformed_utf8_string,
             t_parse_non_connect_before_connect,
             t_parse_complete_non_connect_before_connect,
@@ -323,6 +329,131 @@ t_parse_frame_malformed_variable_byte_integer(_) ->
             )
         end,
         MalformedPackets
+    ).
+
+%% A zero Remaining Length is rejected for every packet type that must have a
+%% body, also when it is encoded in more than one byte, and also when the
+%% bytes arrive in separate chunks.
+t_parse_zero_remaining_len_non_minimal(_) ->
+    Cases = [
+        {16#10, #{cause => zero_remaining_len, header_type => ?CONNECT}},
+        {16#30, #{cause => zero_remaining_len, header_type => ?PUBLISH}},
+        {16#82, #{cause => zero_remaining_len, header_type => ?SUBSCRIBE}},
+        {16#F0, #{cause => zero_remaining_len, header_type => ?AUTH}},
+        {16#D0, #{cause => unexpected_packet, header_type => 'PINGRESP'}}
+    ],
+    lists:foreach(
+        fun({FirstByte, Reason}) ->
+            lists:foreach(
+                fun(Chunks) ->
+                    ?ASSERT_FRAME_THROW(Reason, parse_chunks(Chunks))
+                end,
+                zero_remaining_len_chunks(FirstByte)
+            )
+        end,
+        Cases
+    ).
+
+%% PINGREQ and DISCONNECT have no body. They parse to the same packet whatever
+%% the encoding of the zero Remaining Length, and the bytes after them are
+%% returned unchanged.
+t_parse_bodyless_packet_non_minimal(_) ->
+    Cases = [
+        {16#C0, ?PACKET(?PINGREQ)},
+        {16#E0, ?DISCONNECT_PACKET(?RC_SUCCESS)}
+    ],
+    Next = <<16#C0, 0>>,
+    lists:foreach(
+        fun({FirstByte, Packet}) ->
+            lists:foreach(
+                fun(Chunks) ->
+                    ?assertMatch({ok, Packet, <<>>, _}, parse_chunks(Chunks)),
+                    [Last | Init] = lists:reverse(Chunks),
+                    WithNext = lists:reverse([<<Last/binary, Next/binary>> | Init]),
+                    ?assertMatch({ok, Packet, Next, _}, parse_chunks(WithNext))
+                end,
+                zero_remaining_len_chunks(FirstByte)
+            )
+        end,
+        Cases
+    ).
+
+%% A variable byte integer that ends while its continuation bit is set is
+%% rejected as malformed.
+t_parse_truncated_variable_byte_integer(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}),
+    Packets = [
+        %% Property Length of SUBSCRIBE, CONNACK, UNSUBACK and AUTH.
+        <<16#82, 3, 0, 1, 16#80>>,
+        <<16#20, 3, 0, 0, 16#80>>,
+        <<16#B0, 3, 0, 1, 16#80>>,
+        <<16#F0, 2, 0, 16#80>>,
+        <<16#F0, 3, 0, 16#FF, 16#FF>>,
+        %% Subscription Identifier property of PUBLISH.
+        <<16#30, 6, 0, 1, $t, 2, 16#0B, 16#80>>
+    ],
+    lists:foreach(
+        fun(Bin) ->
+            ?ASSERT_FRAME_THROW(
+                malformed_variable_byte_integer,
+                emqx_frame:parse(Bin, ParseState)
+            )
+        end,
+        Packets
+    ).
+
+%% A variable byte integer is at most four bytes long.
+t_parse_variable_byte_integer_too_long(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}),
+    %% Subscription Identifier property of PUBLISH, in five bytes.
+    Bin = <<16#30, 10, 0, 1, $t, 6, 16#0B, 16#FF, 16#FF, 16#FF, 16#FF, 16#07>>,
+    ?ASSERT_FRAME_THROW(malformed_variable_byte_integer, emqx_frame:parse(Bin, ParseState)).
+
+%% Valid variable byte integers of one to four bytes still parse.
+t_parse_variable_byte_integer_valid(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}),
+    lists:foreach(
+        fun({Encoded, Value}) ->
+            PropsLen = 1 + byte_size(Encoded),
+            RemainingLen = 3 + 1 + PropsLen,
+            Bin = <<16#30, RemainingLen, 0, 1, $t, PropsLen, 16#0B, Encoded/binary>>,
+            ?assertMatch(
+                {ok,
+                    #mqtt_packet{
+                        variable = #mqtt_packet_publish{
+                            properties = #{'Subscription-Identifier' := Value}
+                        }
+                    },
+                    <<>>, _},
+                emqx_frame:parse(Bin, ParseState)
+            )
+        end,
+        [
+            {<<1>>, 1},
+            {<<16#7F>>, 127},
+            {<<16#80, 16#01>>, 128},
+            {<<16#FF, 16#7F>>, 16383},
+            {<<16#80, 16#80, 16#01>>, 16384},
+            {<<16#80, 16#80, 16#80, 16#01>>, 2097152},
+            {<<16#FF, 16#FF, 16#FF, 16#7F>>, 268435455}
+        ]
+    ).
+
+%% A User Property whose key is complete, but whose value length is not, is
+%% rejected as malformed.
+t_parse_user_property_missing_value(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5}),
+    lists:foreach(
+        fun(Pair) ->
+            PropsLen = 1 + byte_size(Pair),
+            RemainingLen = 3 + 1 + PropsLen,
+            Bin = <<16#30, RemainingLen, 0, 1, $t, PropsLen, 16#26, Pair/binary>>,
+            ?ASSERT_FRAME_THROW(
+                #{cause := malformed_user_property_missing_value},
+                emqx_frame:parse(Bin, ParseState)
+            )
+        end,
+        [<<0, 1, $k, 0>>, <<0, 2, $a, $b>>]
     ).
 
 t_parse_malformed_utf8_string(_) ->
@@ -1272,6 +1403,29 @@ parse_to_packet(Bin, Opts) ->
     PState = emqx_frame:initial_parse_state(Opts),
     {Packet, <<>>, _} = emqx_frame:parse(Bin, PState),
     Packet.
+
+%% Zero Remaining Length after FirstByte, in one, two and three bytes, and
+%% delivered whole, one byte at a time, and split after the first 0x80.
+zero_remaining_len_chunks(FirstByte) ->
+    [
+        [<<FirstByte, 0>>],
+        [<<FirstByte>>, <<0>>],
+        [<<FirstByte, 16#80, 0>>],
+        [<<FirstByte>>, <<16#80>>, <<0>>],
+        [<<FirstByte, 16#80>>, <<0>>],
+        [<<FirstByte, 16#80, 16#80, 0>>],
+        [<<FirstByte>>, <<16#80>>, <<16#80>>, <<0>>]
+    ].
+
+%% Feed Chunks to a fresh parser and return the result of the last one.
+parse_chunks(Chunks) ->
+    parse_chunks(Chunks, emqx_frame:initial_parse_state()).
+
+parse_chunks([Last], ParseState) ->
+    emqx_frame:parse(Last, ParseState);
+parse_chunks([Chunk | Chunks], ParseState) ->
+    {more, NParseState} = emqx_frame:parse(Chunk, ParseState),
+    parse_chunks(Chunks, NParseState).
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
 
