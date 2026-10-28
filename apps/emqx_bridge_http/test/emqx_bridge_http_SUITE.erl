@@ -401,73 +401,6 @@ delete_global_managed_certs_file(BundleName, FileKind, Opts) ->
         query_params => QueryParams
     }).
 
-active_health_check_requests(TCConfig) ->
-    TestPid = self(),
-    Method = emqx_common_test_helpers:get_matrix_prop(TCConfig, [get, head], get),
-    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
-        {ok, Body, Req1} = cowboy_req:read_body(Req0),
-        TestPid !
-            {active_http, cowboy_req:method(Req1), cowboy_req:path(Req1), cowboy_req:qs(Req1),
-                cowboy_req:headers(Req1), cowboy_req:peer(Req1), Body},
-        Req = cowboy_req:reply(204, #{}, <<>>, Req1),
-        {ok, Req, State}
-    end),
-    URL = maps:get(<<"url">>, get_config(connector_config, TCConfig)),
-    SSL =
-        case is_tls(TCConfig) of
-            tls -> (emqx_bridge_schema_testlib:tls_opts())#{<<"verify">> => <<"verify_peer">>};
-            tcp -> #{}
-        end,
-    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
-        <<"pool_size">> => 2,
-        <<"url">> => <<URL/binary, "/ingest">>,
-        <<"ssl">> => SSL,
-        <<"headers">> => #{
-            <<"authorization">> => <<"Basic static-credentials">>,
-            <<"x-static">> => <<"static-value">>,
-            <<"x-dynamic">> => <<"prefix-${clientid}">>,
-            <<"x-${clientid}">> => <<"dynamic-name">>
-        },
-        <<"active_health_check">> => #{
-            <<"enable">> => true,
-            <<"method">> => atom_to_binary(Method),
-            <<"path">> => <<"/health?full=1">>
-        },
-        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
-    }),
-    WireMethod = string:uppercase(atom_to_binary(Method)),
-    {active_http, WireMethod, <<"/health">>, <<"full=1">>, Headers, Peer, <<>>} =
-        ?assertReceive({active_http, WireMethod, <<"/health">>, _, _, _, _}, 5_000),
-    ?assertMatch(
-        #{
-            <<"authorization">> := <<"Basic static-credentials">>,
-            <<"x-static">> := <<"static-value">>
-        },
-        Headers
-    ),
-    ?assertNot(maps:is_key(<<"x-dynamic">>, Headers)),
-    ?assertNot(maps:is_key(<<"x-">>, Headers)),
-    ?assertNot(lists:member(<<"dynamic-name">>, maps:values(Headers))),
-    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
-    {active_http, WireMethod, <<"/health">>, _, _, NextPeer, _} =
-        ?assertReceive({active_http, WireMethod, <<"/health">>, _, _, _, _}, 2_000),
-    ?assertEqual(Peer, NextPeer),
-    ?assertNotReceive({active_http, WireMethod, <<"/health">>, _, _, _, _}, 100),
-    {201, _} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{<<"body">> => <<"${payload}">>}
-    }),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
-    Client = start_client(),
-    Payload = unique_payload(),
-    emqtt:publish(Client, Topic, Payload, [{qos, 1}]),
-    {active_http, <<"POST">>, <<"/ingest/path">>, <<>>, BusinessHeaders, BusinessPeer, Payload} =
-        ?assertReceive({active_http, <<"POST">>, _, _, _, _, Payload}, 5_000),
-    ?assertNotEqual(Peer, BusinessPeer),
-    ?assert(maps:is_key(<<"x-dynamic">>, BusinessHeaders)),
-    ?assert(lists:member(<<"dynamic-name">>, maps:values(BusinessHeaders))),
-    assert_http_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"matched">> => 1}).
-
 tls_health_accept(Listen, Mode, TestPid) ->
     case gen_tcp:accept(Listen) of
         {ok, Socket} ->
@@ -536,7 +469,71 @@ t_active_health_check() ->
 t_active_health_check(matrix) ->
     [[Transport, Method] || Transport <- [?tcp, ?tls], Method <- [get, head]];
 t_active_health_check(TCConfig) when is_list(TCConfig) ->
-    active_health_check_requests(TCConfig).
+    TestPid = self(),
+    Method = emqx_common_test_helpers:get_matrix_prop(TCConfig, [get, head], get),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        TestPid !
+            {active_http, cowboy_req:method(Req1), cowboy_req:path(Req1), cowboy_req:qs(Req1),
+                cowboy_req:headers(Req1), cowboy_req:peer(Req1), Body},
+        Req = cowboy_req:reply(204, #{}, <<>>, Req1),
+        {ok, Req, State}
+    end),
+    URL = maps:get(<<"url">>, get_config(connector_config, TCConfig)),
+    SSL =
+        case is_tls(TCConfig) of
+            tls -> (emqx_bridge_schema_testlib:tls_opts())#{<<"verify">> => <<"verify_peer">>};
+            tcp -> #{}
+        end,
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"pool_size">> => 2,
+        <<"url">> => <<URL/binary, "/ingest">>,
+        <<"ssl">> => SSL,
+        <<"headers">> => #{
+            <<"authorization">> => <<"Basic static-credentials">>,
+            <<"x-static">> => <<"static-value">>,
+            <<"x-dynamic">> => <<"prefix-${clientid}">>,
+            <<"x-${clientid}">> => <<"dynamic-name">>
+        },
+        <<"active_health_check">> => #{
+            <<"enable">> => true,
+            <<"method">> => atom_to_binary(Method),
+            <<"path">> => <<"/health?full=1">>
+        },
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1m">>}
+    }),
+    WireMethod = string:uppercase(atom_to_binary(Method)),
+    {active_http, WireMethod, <<"/health">>, <<"full=1">>, Headers, Peer, <<>>} =
+        ?assertReceive({active_http, WireMethod, <<"/health">>, _, _, _, _}, 5_000),
+    ?assertMatch(
+        #{
+            <<"authorization">> := <<"Basic static-credentials">>,
+            <<"x-static">> := <<"static-value">>
+        },
+        Headers
+    ),
+    ?assertNot(maps:is_key(<<"x-dynamic">>, Headers)),
+    ?assertNot(maps:is_key(<<"x-">>, Headers)),
+    ?assertNot(lists:member(<<"dynamic-name">>, maps:values(Headers))),
+    ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResId)),
+    {active_http, WireMethod, <<"/health">>, _, _, NextPeer, _} =
+        ?assertReceive({active_http, WireMethod, <<"/health">>, _, _, _, _}, 2_000),
+    ?assertEqual(Peer, NextPeer),
+    ?assertNotReceive({active_http, WireMethod, <<"/health">>, _, _, _, _}, 100),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"body">> => <<"${payload}">>}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Client = start_client(),
+    Payload = unique_payload(),
+    emqtt:publish(Client, Topic, Payload, [{qos, 1}]),
+    {active_http, <<"POST">>, <<"/ingest/path">>, <<>>, BusinessHeaders, BusinessPeer, Payload} =
+        ?assertReceive({active_http, <<"POST">>, _, _, _, _, Payload}, 5_000),
+    ?assertNotEqual(Peer, BusinessPeer),
+    ?assert(maps:is_key(<<"x-dynamic">>, BusinessHeaders)),
+    ?assert(lists:member(<<"dynamic-name">>, maps:values(BusinessHeaders))),
+    assert_http_metrics(TCConfig, #{<<"success">> => 1, <<"failed">> => 0, <<"matched">> => 1}).
 
 t_active_health_check_failure() ->
     [{matrix, true}, {http_path, <<"/[...]">>}].
