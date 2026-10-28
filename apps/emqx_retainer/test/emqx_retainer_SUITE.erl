@@ -1629,18 +1629,22 @@ test_extsub_no_leak(_TCConfig, Opts) ->
     {ok, _, _} = emqtt:subscribe(C0, TopicFilter, 1),
     Msgs = receive_messages(ExpectedRetained),
 
-    ?assertMatch(
-        {ok, #{
-            registry := #{
-                buffer := #{
-                    message_buffer_size := 0,
-                    delivering := EmptyMap
-                },
-                by_ref := [],
-                by_topic_cbm := EmptyMap
-            }
-        }},
-        emqx_extsub:inspect(ChanPid)
+    ?retry(
+        20,
+        100,
+        ?assertMatch(
+            {ok, #{
+                registry := #{
+                    buffer := #{
+                        message_buffer_size := 0,
+                        delivering := EmptyMap
+                    },
+                    by_ref := [],
+                    by_topic_cbm := EmptyMap
+                }
+            }},
+            emqx_extsub:inspect(ChanPid)
+        )
     ),
     ?assertEqual(ExpectedRetained, length(Msgs)),
     ?assertNotReceive({publish, _}),

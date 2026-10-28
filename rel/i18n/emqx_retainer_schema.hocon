@@ -9,6 +9,11 @@ mnesia_config.desc:
 flow_control.desc:
 """Retainer batching and rate limiting."""
 
+reindex_delivery_action.desc:
+"""Action when the built-in database is reindexed during retained-message delivery.
+With `redo`, restart delivery for the affected subscription. Messages already received may be delivered again.
+With `stop`, stop delivery for the affected subscription. The client may not receive all matching retained messages."""
+
 backend.desc:
 """Settings for the database storing the retained messages."""
 
@@ -23,16 +28,14 @@ For example, it is good to have <code>[2, 4]</code> index to optimize
 <code>+/X/+/Y/...</code> topic wildcard subscriptions."""
 
 batch_deliver_limiter.desc:
-"""(Deprecated) The rate limiter name for retained messages' delivery.
-Limiter helps to avoid delivering too many messages to the client at once, which may cause the client to block or crash, or drop messages due to exceeding the size of the message queue.
-The names of the available rate limiters are taken from the existing rate limiters under `limiter.batch`.
-If this field is empty, limiter is not used."""
+"""Limit total storage scan load when fetching retained messages for subscriptions."""
 
 batch_deliver_number.desc:
-"""The number of retained messages can be delivered per batch."""
+"""Deprecated. This setting has no effect. Use `batch_read_number` to control backend read batch size."""
 
 batch_read_number.desc:
-"""Size of the batch when reading messages from storage. Setting it to 0 has the same effect of setting it to 1000."""
+"""Maximum number of records to scan at once when fetching retained messages for subscriptions.
+Defaults to 1000 records."""
 
 enable.desc:
 """Enable retainer feature"""

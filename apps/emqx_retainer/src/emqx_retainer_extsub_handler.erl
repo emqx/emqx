@@ -14,6 +14,7 @@
     handle_unsubscribe/4,
     handle_delivered/4,
     handle_info/3,
+    handle_terminate/1,
     handle_save_subopts/3
 ]).
 
@@ -29,15 +30,12 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
--define(init, init).
 -define(done, done).
 -define(cursor(CURSOR), {cursor, CURSOR}).
 -define(no_cursor, undefined).
 -define(no_wildcard, no_wildcard).
 
--define(MIN_RATE_LIMIT_DELAY_MS, 300).
--define(MAX_RATE_LIMIT_DELAY_MS, 10_000).
--define(DEFAULT_BATCH_SIZE, 1_000).
+-define(DISPATCHER_RETRY_DELAY_MS, 300).
 -define(HEADER_SUB_TOPIC, sub_topic).
 
 -record(h, {
@@ -46,18 +44,16 @@
     context,
     mod,
     state,
-    limiter,
     cursor,
-    %% The retained message of a topic without wildcards, read at subscribe time.
-    messages = [],
+    dispatcher,
+    monitor,
+    outstanding = false,
     nudge_enqueued = false,
-    times_throttled = 0,
-    fetched = 0,
-    delivered = 0
+    fetched = 0
 }).
 
 %% Events
--record(next, {n}).
+-record(next, {}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -90,153 +86,157 @@ handle_subscribe(subscribe = _SubscribeType, SubscribeCtx, Handler, TopicFilter)
             #{subopts := #{}} ->
                 true
         end,
-    #{subopts := #{rh := RH} = SubOpts} = SubscribeCtx,
+    #{subopts := #{rh := RH}} = SubscribeCtx,
     case RH == 0 orelse (RH == 1 andalso IsNew) of
         true ->
-            subscribe(Handler, SubscribeCtx, TopicFilter, SubOpts);
+            subscribe(Handler, SubscribeCtx, TopicFilter);
         false ->
             ignore
     end.
 
 handle_unsubscribe(_UnsubscribeType, _UnsubscribeCtx, Handler, _TopicFilter) ->
-    ensure_cursor_deleted(Handler),
-    Handler.
+    stop(Handler).
 
-handle_delivered(Handler0, AckCtx, _Msg, _Ack) ->
+handle_terminate(Handler) ->
+    demonitor_dispatcher(Handler).
+
+handle_delivered(Handler, AckCtx, _Msg, _Ack) ->
     #{
         desired_message_count := DesiredMsgCount,
         delivering_count := DeliveringCount,
         unacked_count := UnackedCount
     } = AckCtx,
-    #h{delivered = Delivered} = Handler0,
-    Handler = Handler0#h{delivered = Delivered + 1},
     case Handler#h.cursor of
         ?done when UnackedCount == 0 andalso DeliveringCount == 0 ->
             {destroy, [Handler#h.topic_filter]};
         _ when DesiredMsgCount > 0 ->
-            {ok, enqueue_nudge(Handler, batch_read_num(), now)};
+            {ok, request_next(Handler)};
         _ ->
             {ok, Handler}
     end.
 
-handle_info(Handler0, InfoCtx, #next{n = N}) ->
+handle_info(#h{outstanding = true} = Handler0, InfoCtx, {retained_batch, Messages0, Cursor0}) ->
+    Cursor =
+        case Cursor0 of
+            done -> ?done;
+            _ -> ?cursor(Cursor0)
+        end,
+    Handler1 = Handler0#h{outstanding = false, cursor = Cursor},
+    Messages = enrich_messages(Handler1#h.topic_filter, filter_delivery(Messages0)),
+    Handler2 = Handler1#h{fetched = Handler1#h.fetched + length(Messages)},
+    #{desired_message_count := Demand, delivering_count := Delivering} = InfoCtx,
+    case Cursor of
+        ?done ->
+            ok = demonitor_dispatcher(Handler2),
+            Handler = Handler2#h{dispatcher = undefined, monitor = undefined},
+            case Messages == [] andalso Delivering == 0 of
+                true -> {destroy, [Handler#h.topic_filter]};
+                false -> {ok, Handler, Messages}
+            end;
+        _ when Demand > 0 ->
+            {ok, request_next(Handler2), Messages};
+        _ ->
+            {ok, Handler2, Messages}
+    end;
+handle_info(#h{monitor = Ref} = Handler0, _InfoCtx, {'DOWN', Ref, process, _Pid, _Reason}) ->
+    Handler = Handler0#h{dispatcher = undefined, monitor = undefined, outstanding = false},
+    case Handler0#h.outstanding of
+        true -> {ok, enqueue_nudge(Handler, delay)};
+        false -> {ok, Handler}
+    end;
+handle_info(Handler0, InfoCtx, #next{}) ->
     Handler = Handler0#h{nudge_enqueued = false},
-    handle_next(Handler, N, InfoCtx);
+    handle_next(Handler, InfoCtx);
 handle_info(Handler, _InfoCtx, _Info) ->
     {ok, Handler}.
 
-handle_save_subopts(#h{cursor = ?cursor(_)} = Handler0, _Context, _SubOpts) ->
-    Res = #{delivered => Handler0#h.delivered},
-    %% Make the handler stop, since take over/disconnect persistence is ongoing.
-    Handler = Handler0#h{cursor = ?done},
-    ensure_cursor_deleted(Handler),
-    {ok, Handler, Res};
 handle_save_subopts(Handler0, _Context, _SubOpts) ->
     %% Make the handler stop, since take over/disconnect persistence is ongoing.
-    Handler = Handler0#h{cursor = ?done},
-    ensure_cursor_deleted(Handler),
+    Handler = stop(Handler0),
     {ok, Handler}.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
+subscribe(undefined = _Handler, SubscribeCtx, TopicFilter) ->
+    #{message_target := MessageTarget} = SubscribeCtx,
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     State = emqx_retainer:backend_state(Context),
-    case emqx_topic:wildcard(TopicFilter) of
-        true ->
-            new_handler(SubscribeCtx, TopicFilter, SubOpts, Context, Mod, State, ?init, []);
-        false ->
-            %% A topic without wildcards matches at most one retained message. Without
-            %% one, no handler is needed. With one, the handler delivers the message
-            %% read here.
-            case Mod:read_message(State, TopicFilter) of
-                {ok, []} ->
-                    ignore;
-                {ok, Messages} ->
-                    new_handler(
-                        SubscribeCtx,
-                        TopicFilter,
-                        SubOpts,
-                        Context,
-                        Mod,
-                        State,
-                        ?no_wildcard,
-                        Messages
-                    )
-            end
-    end;
-subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
-    {ok, Handler}.
-
-new_handler(SubscribeCtx, TopicFilter, SubOpts, Context, Mod, State, Cursor, Messages) ->
-    #{message_target := MessageTarget} = SubscribeCtx,
-    Limiter = get_limiter(),
-    Delivered =
-        case SubOpts of
-            #{?MODULE := #{delivered := N}} ->
-                N;
-            _ ->
-                0
-        end,
     Handler0 = #h{
         message_target = MessageTarget,
         topic_filter = TopicFilter,
         context = Context,
         mod = Mod,
         state = State,
-        limiter = Limiter,
-        cursor = Cursor,
-        messages = Messages,
-        fetched = 0,
-        delivered = Delivered
+        cursor = ?no_wildcard,
+        fetched = 0
     },
-    Handler = enqueue_nudge(Handler0, batch_read_num(), now),
+    Handler =
+        case need_dispatcher(TopicFilter) of
+            true -> request_next(Handler0#h{cursor = ?cursor(?no_cursor)});
+            false -> enqueue_nudge(Handler0, now)
+        end,
+    {ok, Handler};
+subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter) ->
     {ok, Handler}.
 
-handle_next(#h{cursor = ?done} = Handler0, _N, _InfoCtx) ->
+need_dispatcher(Topic) ->
+    emqx_topic:wildcard(Topic) orelse
+        emqx_config:get([retainer, flow_control, batch_deliver_limiter]) =/= infinity.
+
+handle_next(#h{cursor = ?done} = Handler0, _InfoCtx) ->
     %% Impossible?
     {ok, Handler0};
-handle_next(#h{cursor = ?init} = Handler0, N, InfoCtx) ->
-    %% Only a wildcard filter starts with ?init; see subscribe/4.
-    Handler = Handler0#h{cursor = ?cursor(?no_cursor)},
-    handle_next(Handler, N, InfoCtx);
-handle_next(#h{cursor = ?no_wildcard} = Handler0, _N, _InfoCtx) ->
-    case try_consume(Handler0, 1) of
-        {ok, Handler, []} ->
-            {destroy, [Handler#h.topic_filter]};
-        {ok, Handler, Messages} ->
-            {ok, Handler, Messages};
-        {error, Handler1} ->
-            Handler = enqueue_nudge(Handler1, 1, delay),
-            {ok, Handler}
+handle_next(#h{cursor = ?no_wildcard} = Handler0, _InfoCtx) ->
+    #h{topic_filter = Topic, mod = Mod, state = State} = Handler0,
+    {ok, Messages0} = Mod:read_message(State, Topic),
+    Messages = enrich_messages(Topic, filter_delivery(Messages0)),
+    Handler = Handler0#h{cursor = ?done, fetched = length(Messages)},
+    case Messages of
+        [] -> {destroy, [Topic]};
+        _ -> {ok, Handler, Messages}
     end;
-handle_next(#h{cursor = ?cursor(_)} = Handler0, N, InfoCtx) ->
-    case try_consume(Handler0, N) of
-        {ok, Handler1, []} ->
-            #{delivering_count := DeliveringCount} = InfoCtx,
-            case Handler1#h.cursor of
-                ?done when Handler1#h.fetched == 0 orelse DeliveringCount == 0 ->
-                    {destroy, [Handler1#h.topic_filter]};
-                _ ->
-                    Handler = enqueue_nudge(Handler1, batch_read_num(), now),
-                    {ok, Handler}
-            end;
-        {ok, Handler1, Messages} ->
-            Handler =
-                case Handler1#h.cursor of
-                    ?cursor(_) ->
-                        enqueue_nudge(Handler1, batch_read_num(), now);
-                    _ ->
-                        Handler1
-                end,
-            {ok, Handler, Messages};
-        {error, Handler1} ->
-            Handler = enqueue_nudge(Handler1, batch_read_num(), delay),
-            {ok, Handler}
-    end.
+handle_next(#h{cursor = ?cursor(_)} = Handler, _InfoCtx) ->
+    {ok, request_next(Handler)}.
+
+request_next(#h{outstanding = true} = Handler) ->
+    Handler;
+request_next(#h{cursor = ?done} = Handler) ->
+    Handler;
+request_next(#h{cursor = ?cursor(Cursor)} = Handler0) ->
+    case ensure_dispatcher(Handler0) of
+        #h{dispatcher = undefined} = Handler ->
+            enqueue_nudge(Handler, delay);
+        #h{dispatcher = Worker, message_target = Target, topic_filter = Topic} = Handler ->
+            emqx_retainer_dispatcher:fetch(Worker, Target, Topic, Cursor),
+            Handler#h{outstanding = true}
+    end;
+request_next(Handler) ->
+    enqueue_nudge(Handler, now).
+
+ensure_dispatcher(#h{dispatcher = undefined, message_target = Target} = Handler) ->
+    try emqx_retainer_dispatcher:worker() of
+        Worker when is_pid(Worker) ->
+            Ref = emqx_extsub_handler:monitor(Target, Worker),
+            Handler#h{dispatcher = Worker, monitor = Ref};
+        false ->
+            Handler
+    catch
+        error:badarg -> Handler
+    end;
+ensure_dispatcher(Handler) ->
+    Handler.
+
+demonitor_dispatcher(#h{monitor = undefined}) ->
+    ok;
+demonitor_dispatcher(#h{message_target = Target, monitor = Ref}) ->
+    emqx_extsub_handler:demonitor(Target, Ref).
+
+stop(Handler) ->
+    ok = demonitor_dispatcher(Handler),
+    Handler#h{cursor = ?done, dispatcher = undefined, monitor = undefined, outstanding = false}.
 
 filter_delivery(Messages) ->
     lists:filter(fun check_clientid_banned/1, Messages).
@@ -253,140 +253,16 @@ check_clientid_banned(Msg) ->
             false
     end.
 
-get_limiter() ->
-    LimiterId = {?RETAINER_LIMITER_GROUP, ?DISPATCHER_LIMITER_NAME},
-    emqx_limiter:connect(LimiterId).
-
-next_cursor(?no_cursor = Cursor, _NumFetchedMessages, Handler) ->
-    #h{mod = Mod, state = State} = Handler,
-    _ = Mod:delete_cursor(State, Cursor),
-    ?done;
-next_cursor(?no_wildcard, _NumFetchedMessages, _Handler) ->
-    ?done;
-next_cursor(Cursor, 0 = _NumFetchedMessages, Handler) ->
-    #h{mod = Mod, state = State} = Handler,
-    _ = Mod:delete_cursor(State, Cursor),
-    ?done;
-next_cursor(Cursor, _NumFetchedMessages, _Handler) ->
-    ?cursor(Cursor).
-
-try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
-    #h{
-        topic_filter = TopicFilter,
-        limiter = Limiter0,
-        times_throttled = TimesThrottled0
-    } = Handler0,
-    case try_consume_at_most(Limiter0, N0) of
-        {ok, N, Limiter1} ->
-            {Messages0, InnerCursor} = do_fetch(Handler0, N),
-            NumFetchedMessages = length(Messages0),
-            Surplus = max(0, N - NumFetchedMessages),
-            Limiter = emqx_limiter_client:put_back(Limiter1, Surplus),
-            Messages = enrich_messages(TopicFilter, filter_delivery(Messages0)),
-            Cursor = next_cursor(InnerCursor, NumFetchedMessages, Handler0),
-            Handler = Handler0#h{
-                limiter = Limiter,
-                cursor = Cursor,
-                messages = [],
-                fetched = Handler0#h.fetched + NumFetchedMessages,
-                times_throttled = 0
-            },
-            {ok, Handler, Messages};
-        {error, N, Limiter1, Reason} ->
-            ?tp(retained_fetch_rate_limit_exceeded, #{topic => TopicFilter}),
-            ?SLOG_THROTTLE(
-                warning,
-                #{
-                    msg => retained_fetch_rate_limit_exceeded,
-                    reason => Reason,
-                    topic => TopicFilter,
-                    initially_attempted_count => N0,
-                    attempted_to_fetch_count => N
-                },
-                #{tag => "RETAINER"}
-            ),
-            Handler = Handler0#h{limiter = Limiter1, times_throttled = TimesThrottled0 + 1},
-            {error, Handler}
-    end.
-
 enrich_messages(TopicFilter, Messages) ->
     [emqx_message:set_header(?HEADER_SUB_TOPIC, TopicFilter, Msg) || Msg <- Messages].
 
-try_consume_at_most(Limiter, N) ->
-    MinBatch = min_batch_backoff(N),
-    do_try_consume_at_most(Limiter, N, MinBatch).
-
-do_try_consume_at_most(Limiter0, CurrN, MinBatch) ->
-    case emqx_limiter_client:try_consume(Limiter0, CurrN) of
-        {true, Limiter1} ->
-            {ok, CurrN, Limiter1};
-        {false, Limiter1, _Reason} when CurrN > MinBatch ->
-            N1 = CurrN div 2,
-            do_try_consume_at_most(Limiter1, N1, MinBatch);
-        {false, Limiter1, Reason} ->
-            {error, CurrN, Limiter1, Reason}
-    end.
-
-%% When progressively reducing batch size after hitting rate limit, we want a minimum
-%% batch size to avoid several clients fetching messages one-by-one when retainer is
-%% busy.  We take it to be 20 % of requested size.  This is only a simple heuristic.
-%%
-%% Note that we must take the rate limiter into account, otherwise a large enough read
-%% number and a low enough rate limit might otherwise lead to a situation where the
-%% minimum batch size would be larger than the maximum capacity of the limiter.
-min_batch_backoff(N) ->
-    case emqx_config:get([retainer, flow_control, batch_deliver_limiter]) of
-        infinity ->
-            max(1, floor(0.2 * N));
-        {Capacity, _Interval} ->
-            min(Capacity, max(1, floor(0.2 * N)))
-    end.
-
-do_fetch(#h{cursor = ?no_wildcard, messages = Messages}, _N) ->
-    {Messages, ?no_wildcard};
-do_fetch(#h{cursor = ?cursor(Cursor0)} = Handler, N) ->
-    #h{
-        topic_filter = TopicFilter,
-        mod = Mod,
-        state = State
-    } = Handler,
-    Opts1 = #{batch_read_number => N},
-    Opts =
-        case Cursor0 == ?no_cursor andalso Handler#h.delivered > 0 of
-            true ->
-                Opts1#{skip => Handler#h.delivered};
-            false ->
-                Opts1
-        end,
-    %% TODO: how could this fail?
-    {ok, Messages0, Cursor} = Mod:match_messages(State, TopicFilter, Cursor0, Opts),
-    {Messages0, Cursor}.
-
-enqueue_nudge(#h{nudge_enqueued = true} = Handler0, _N, _Delay) ->
+enqueue_nudge(#h{nudge_enqueued = true} = Handler0, _Delay) ->
     Handler0;
-enqueue_nudge(#h{} = Handler0, N, now) ->
+enqueue_nudge(#h{} = Handler0, now) ->
     #h{message_target = MessageTarget} = Handler0,
-    emqx_extsub_handler:send(MessageTarget, #next{n = N}),
+    emqx_extsub_handler:send(MessageTarget, #next{}),
     Handler0#h{nudge_enqueued = true};
-enqueue_nudge(#h{} = Handler0, N, delay) ->
-    #h{message_target = MessageTarget, times_throttled = TimesThrottled} = Handler0,
-    Delay = min(
-        ?MAX_RATE_LIMIT_DELAY_MS, max(?MIN_RATE_LIMIT_DELAY_MS, (1 bsl TimesThrottled) * 100)
-    ),
-    emqx_extsub_handler:send_after(Delay, MessageTarget, #next{n = N}),
+enqueue_nudge(#h{} = Handler0, delay) ->
+    #h{message_target = MessageTarget} = Handler0,
+    emqx_extsub_handler:send_after(?DISPATCHER_RETRY_DELAY_MS, MessageTarget, #next{}),
     Handler0#h{nudge_enqueued = true}.
-
-batch_read_num() ->
-    case emqx_retainer:batch_read_number() of
-        all_remaining ->
-            ?DEFAULT_BATCH_SIZE;
-        N when is_integer(N) ->
-            N
-    end.
-
-ensure_cursor_deleted(#h{cursor = ?cursor(InnerCursor)} = Handler) ->
-    #h{mod = Mod, state = State} = Handler,
-    _ = Mod:delete_cursor(State, InnerCursor),
-    ok;
-ensure_cursor_deleted(#h{}) ->
-    ok.

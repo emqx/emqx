@@ -60,7 +60,11 @@
     deadline/0,
     cursor/0,
     context/0,
-    index_incarnation/0
+    index_incarnation/0,
+    backend_state/0,
+    match_opts/0,
+    match_result/1,
+    read_cost/0
 ]).
 
 %% exported for `emqx_telemetry'
@@ -86,7 +90,9 @@
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
 -type index_incarnation() :: integer().
--type match_opts() :: map().
+-type match_opts() :: #{batch_read_number => pos_integer() | all_remaining}.
+-type read_cost() :: pos_integer().
+-type match_result(Cursor) :: {ok, [message()], Cursor, read_cost()}.
 
 -define(CONTEXT_KEY, {?MODULE, context}).
 -define(BATCH_READ_NUM_PD_KEY, {?MODULE, batch_read_num}).
@@ -106,8 +112,7 @@
     {ok, has_next(), list(message())}.
 -callback read_message(backend_state(), topic()) -> {ok, list(message())}.
 -callback match_messages(backend_state(), topic(), cursor(), match_opts()) ->
-    {ok, list(message()), cursor()}.
--callback delete_cursor(backend_state(), cursor()) -> ok.
+    match_result(cursor()).
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
 -callback current_index_incarnation(backend_state()) -> index_incarnation().

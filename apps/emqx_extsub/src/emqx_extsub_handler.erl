@@ -19,6 +19,7 @@
     get_option/3,
     get_module/1,
     message_target/1,
+    is_target_alive/1,
     send/2,
     send_after/3,
     monitor/2,
@@ -129,6 +130,11 @@
 -spec message_target(emqx_extsub_types:handler_ref()) -> message_target().
 message_target(Ref) ->
     {self(), Ref}.
+
+-doc "Check whether the channel that owns the message target is alive.".
+-spec is_target_alive(message_target()) -> boolean().
+is_target_alive({Pid, _Ref}) ->
+    is_process_alive(Pid).
 
 -doc "Send a message to the channel that owns the handler.".
 -spec send(message_target(), term()) -> ok.
