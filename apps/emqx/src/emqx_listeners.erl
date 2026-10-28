@@ -825,7 +825,12 @@ esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
                 }
             ]}
     },
-    TcpOpts = emqx_utils:merge_opts(?MQTT_SOCKOPTS, PacketTcpOpts ++ tcp_opts(Opts0)),
+    TcpOpts0 =
+        case ConnMod of
+            emqx_socket_connection -> socket_tcp_opts(Opts0);
+            emqx_connection -> tcp_opts(Opts0)
+        end,
+    TcpOpts = emqx_utils:merge_opts(?MQTT_SOCKOPTS, PacketTcpOpts ++ TcpOpts0),
     maps:to_list(
         case Type of
             tcp ->
@@ -841,6 +846,13 @@ esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
                 }
         end
     ).
+
+socket_tcp_opts(#{tcp_options := #{buffer_retention_strategy := packet}} = Opts) ->
+    TcpOpts = tcp_opts(Opts),
+    Buffer = proplists:get_value(buffer, TcpOpts),
+    lists:keyreplace(buffer, 1, TcpOpts, {buffer, {false, Buffer}});
+socket_tcp_opts(Opts) ->
+    tcp_opts(Opts).
 
 ws_opts(Type, ListenerName, Opts) ->
     WsPath = emqx_utils_maps:deep_get([websocket, mqtt_path], Opts, "/mqtt"),
@@ -1182,6 +1194,9 @@ tcp_opt({keepalive, _String}) ->
     %% emqx_schema:tcp_keepalive_opts(String);
     %% esockd only supports key-value paris, NOT options like [{raw, 6, 4, ...}]
     %% so we ignore it here but set it in emqx_connection process like `active_n'
+    [];
+tcp_opt({buffer_retention_strategy, _Strategy}) ->
+    %% Relevant for `socket` backend only, see `socket_tcp_opts/1`.
     [];
 tcp_opt({nolinger, Bool}) ->
     case Bool of
