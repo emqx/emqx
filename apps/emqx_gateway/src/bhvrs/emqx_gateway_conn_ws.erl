@@ -536,8 +536,8 @@ handle_timeout(TRef, Keepalive, State) when
 ->
     StatVal =
         case Keepalive of
-            keepalive -> emqx_pd:get_counter(recv_oct);
-            keepalive_send -> emqx_pd:get_counter(send_oct)
+            keepalive -> emqx_gateway_conn:keepalive_stats(recv);
+            keepalive_send -> emqx_gateway_conn:keepalive_stats(send)
         end,
     handle_timeout(TRef, {Keepalive, StatVal}, State);
 handle_timeout(

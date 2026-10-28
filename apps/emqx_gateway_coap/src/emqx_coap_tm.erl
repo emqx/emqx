@@ -13,7 +13,8 @@
     handle_out/3,
     abort_context/2,
     set_reply/2,
-    timeout/2
+    timeout/2,
+    discard_observe_notifications/2
 ]).
 
 -export_type([manager/0, event_result/1]).
@@ -29,7 +30,7 @@
     token :: token() | undefined,
     token_key :: token_key() | undefined,
     observe :: 0 | 1 | undefined | observed,
-    observe_notification = false :: boolean(),
+    observe_notification = false :: false | con | non,
     state :: atom(),
     timers :: map(),
     transport :: emqx_coap_transport:transport()
@@ -179,6 +180,26 @@ timeout({SeqId, Type, Msg}, TM) ->
             end
     end.
 
+-spec discard_observe_notifications(token(), manager()) -> {non_neg_integer(), manager()}.
+discard_observe_notifications(Token, TM) ->
+    maps:fold(
+        fun
+            (SeqId, #state_machine{token = T, observe_notification = Type}, {Count, Acc}) when
+                T =:= Token, Type =/= false
+            ->
+                Released =
+                    case Type of
+                        con -> 1;
+                        non -> 0
+                    end,
+                {Count + Released, delete_machine(SeqId, Acc)};
+            (_, _, Acc) ->
+                Acc
+        end,
+        {0, TM},
+        TM
+    ).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -282,9 +303,14 @@ process_manager(
 process_manager(_, Result, #state_machine{seq_id = SeqId} = Machine2, TM) ->
     Result#{tm => TM#{SeqId => Machine2}}.
 
-maybe_mark_observe_notification_done(true, #state_machine{token = Token}, Result) ->
+maybe_mark_observe_notification_done(con, #state_machine{token = Token}, Result) ->
     Result#{
         observe_notification_done => maps:get(observe_notification_done, Result, 0) + 1,
+        observe_notification_done_tokens =>
+            [Token | maps:get(observe_notification_done_tokens, Result, [])]
+    };
+maybe_mark_observe_notification_done(non, #state_machine{token = Token}, Result) ->
+    Result#{
         observe_notification_done_tokens =>
             [Token | maps:get(observe_notification_done_tokens, Result, [])]
     };
@@ -385,7 +411,11 @@ new_out_machine(
 ) ->
     Observe = maps:get(observe, Opts, undefined),
     IsObserveNotification = is_observe_notification(Msg),
-    ObserveNotification = is_confirmable_observe_notification(Msg),
+    ObserveNotification =
+        case IsObserveNotification of
+            true -> Type;
+            false -> false
+        end,
     Machine = #state_machine{
         seq_id = SeqId,
         id = MachineId,
@@ -424,11 +454,6 @@ new_out_machine(
 is_observe_notification(#coap_message{method = {ok, _}} = Msg) ->
     emqx_coap_message:get_option(observe, Msg, undefined) =/= undefined;
 is_observe_notification(_) ->
-    false.
-
-is_confirmable_observe_notification(#coap_message{type = con, method = {ok, _}} = Msg) ->
-    emqx_coap_message:get_option(observe, Msg, undefined) =/= undefined;
-is_confirmable_observe_notification(_) ->
     false.
 
 alloc_message_id(#{next_msg_id := MsgId} = TM) ->

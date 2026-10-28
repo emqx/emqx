@@ -369,9 +369,9 @@ kickout_client(ClientId) ->
     case lookup_client({clientid, ClientId}, undefined) of
         [] ->
             {error, not_found};
-        [{ClientId, _}] ->
-            %% Offline durable session (client ID is a plain binary
-            %% without channel pid):
+        %% Offline durable session: the channel part of the key has no
+        %% channel pid, lookup falls back to the persistent session store:
+        [{{ClientId, undefined}, _Info, _Stats}] ->
             emqx_persistent_session_ds:kick_offline_session(ClientId);
         _ ->
             Results = [kickout_client(Node, ClientId) || Node <- emqx:running_nodes()],

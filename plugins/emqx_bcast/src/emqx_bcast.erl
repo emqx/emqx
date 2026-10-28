@@ -27,6 +27,7 @@
     on_session_resumed/2,
     on_client_ping/3,
     on_message_acked/2,
+    get_product_key/1,
     msg_epoch/1,
     ready_cores/0,
     unready_core_nodes/0,
@@ -973,5 +974,10 @@ safe_hook(Fun) ->
 %% Misc
 %%--------------------------------------------------------------------
 
+%% The product (namespace) a client belongs to, as published by the connection
+%% hooks in `client_attrs.tns`. This is the single definition of product
+%% membership: the device registry is keyed by {product, clientid}, so any
+%% path that arms a channel on behalf of a request has to agree with it.
+-spec get_product_key(map()) -> binary().
 get_product_key(#{client_attrs := #{<<"tns">> := Tns}}) -> Tns;
 get_product_key(_ClientInfo) -> <<"default">>.
