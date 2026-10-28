@@ -838,17 +838,8 @@ change_mfa(delete, #{bindings := #{username := Username0}} = Req) ->
     case authorize_mfa_change(Req, Username, disable) of
         ok ->
             ByAdmin = caller_is_admin_acting_on_other(Req, Username),
-            case emqx_dashboard_admin:disable_mfa(Username, ByAdmin) of
-                ok ->
-                    ?SLOG(info, LogMeta#{result => success}),
-                    {204};
-                {error, <<"username_not_found">>} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-                    {404, ?USER_NOT_FOUND, <<"User not found">>};
-                {error, Reason} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-                    {400, ?BAD_REQUEST, Reason}
-            end;
+            Result = emqx_dashboard_admin:disable_mfa(Username, ByAdmin),
+            mfa_change_response(Result, LogMeta);
         {deny, Code, ErrCode, Msg} ->
             ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
             {Code, ErrCode, Msg}
@@ -860,21 +851,22 @@ change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req
     case authorize_mfa_change(Req, Username, setup) of
         ok ->
             ByAdmin = caller_is_admin_acting_on_other(Req, Username),
-            case emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin) of
-                ok ->
-                    ?SLOG(info, LogMeta#{result => success}),
-                    {204};
-                {error, <<"username_not_found">>} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-                    {404, ?USER_NOT_FOUND, <<"User not found">>};
-                {error, Reason} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-                    {400, ?BAD_REQUEST, Reason}
-            end;
+            Result = emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin),
+            mfa_change_response(Result, LogMeta);
         {deny, Code, ErrCode, Msg} ->
             ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
             {Code, ErrCode, Msg}
     end.
+
+mfa_change_response(ok, LogMeta) ->
+    ?SLOG(info, LogMeta#{result => success}),
+    {204};
+mfa_change_response({error, <<"username_not_found">>}, LogMeta) ->
+    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+    {404, ?USER_NOT_FOUND, <<"User not found">>};
+mfa_change_response({error, Reason}, LogMeta) ->
+    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+    {400, ?BAD_REQUEST, Reason}.
 
 register_unsuccessful_login(Username, <<"password_error">>) ->
     emqx_dashboard_login_lock:register_unsuccessful_login(Username);

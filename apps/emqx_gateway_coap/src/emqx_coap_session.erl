@@ -160,16 +160,16 @@ stats(Session) -> info(?STATS_KEYS, Session).
 %%%-------------------------------------------------------------------
 handle_request(Msg, Session) ->
     call_transport_manager(
-        ?FUNCTION_NAME,
+        fun emqx_coap_tm:handle_request/2,
         Msg,
         Session
     ).
 
 handle_response(Msg, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Msg, Session).
+    call_transport_manager(fun emqx_coap_tm:handle_response/2, Msg, Session).
 
 handle_out(Msg, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Msg, Session).
+    call_transport_manager(fun emqx_coap_tm:handle_out/2, Msg, Session).
 
 set_reply(Msg, #session{transport_manager = TM} = Session) ->
     TM2 = emqx_coap_tm:set_reply(Msg, TM),
@@ -231,7 +231,7 @@ maybe_attach_blockwise_result(BaseResult, _BW0, _BW2) ->
     BaseResult.
 
 timeout(Timer, Session) ->
-    call_transport_manager(?FUNCTION_NAME, Timer, Session).
+    call_transport_manager(fun emqx_coap_tm:timeout/2, Timer, Session).
 
 drain_pending_observe_notifications(#session{} = Session0, BW0) ->
     Result0 =
@@ -250,7 +250,7 @@ call_transport_manager(
     Msg,
     #session{transport_manager = TM} = Session
 ) ->
-    Result = emqx_coap_tm:Fun(Msg, TM),
+    Result = Fun(Msg, TM),
     iter(
         [tm, fun process_tm/4, fun process_session/3],
         Result,
@@ -623,7 +623,7 @@ maybe_attach_pending_blockwise_result(Result, _BW) ->
 
 add_outs(Outs, Result) ->
     lists:foldl(
-        fun(Out, Acc) -> emqx_coap_medium:out(Out, Acc) end,
+        fun emqx_coap_medium:out/2,
         Result,
         Outs
     ).

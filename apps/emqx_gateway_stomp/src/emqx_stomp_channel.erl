@@ -1312,9 +1312,7 @@ frame2message(
     Flags = #{retain => false},
     Msg = emqx_message:make(ClientId, 0, Topic, Body, Flags, #{}),
     StompHeaders = lists:foldl(
-        fun(Key, Headers0) ->
-            proplists:delete(Key, Headers0)
-        end,
+        fun proplists:delete/2,
         Headers,
         [
             <<"destination">>,

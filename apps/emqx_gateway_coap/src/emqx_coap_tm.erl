@@ -5,6 +5,12 @@
 %% the transport state machine manager
 -module(emqx_coap_tm).
 
+-elvis([
+    {elvis_style, no_invalid_dynamic_calls, #{
+        ignore => [{emqx_coap_tm, process_event, 4}]
+    }}
+]).
+
 -export([
     new/0,
     handle_request/2,
@@ -184,8 +190,10 @@ timeout({SeqId, Type, Msg}, TM) ->
 discard_observe_notifications(Token, TM) ->
     maps:fold(
         fun
+            (_, #state_machine{observe_notification = false}, Acc) ->
+                Acc;
             (SeqId, #state_machine{token = T, observe_notification = Type}, {Count, Acc}) when
-                T =:= Token, Type =/= false
+                T =:= Token
             ->
                 Released =
                     case Type of

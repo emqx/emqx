@@ -245,14 +245,7 @@ token_exchange(post, #{
             case emqx_dashboard_sso_code:exchange_code(BackendAtom, Username, Code) of
                 {ok, #{action := <<"login">>}} ->
                     %% Sign JWT now at exchange time
-                    SsoUsername = ?SSO_USERNAME(BackendAtom, Username),
-                    case emqx_dashboard_admin:lookup_user(SsoUsername) of
-                        [User] ->
-                            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
-                            {200, login_meta(Username, Role, Token, BackendAtom)};
-                        [] ->
-                            {400, #{code => ?BAD_REQUEST, message => <<"User not found">>}}
-                    end;
+                    sign_login_response(Username, BackendAtom);
                 {ok, Payload} ->
                     %% MFA setup/verify — return as-is
                     {200, Payload};
@@ -277,14 +270,7 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
                     }),
                     Username = maps:get(<<"username">>, Body),
                     minirest_handler:update_log_meta(#{log_source => Username}),
-                    SsoUsername = ?SSO_USERNAME(Backend, Username),
-                    case emqx_dashboard_admin:lookup_user(SsoUsername) of
-                        [User] ->
-                            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
-                            {200, login_meta(Username, Role, Token, Backend)};
-                        [] ->
-                            {400, #{code => ?BAD_REQUEST, message => <<"User not found">>}}
-                    end;
+                    sign_login_response(Username, Backend);
                 {ok, Role, Token, _Namespace} ->
                     %% Legacy path — kept for backends that still sign directly
                     ?SLOG(info, #{
@@ -477,6 +463,16 @@ is_sso_sensitive_key(<<"RelayState">>) -> true;
 is_sso_sensitive_key("RelayState") -> true;
 is_sso_sensitive_key('RelayState') -> true;
 is_sso_sensitive_key(_) -> false.
+
+sign_login_response(Username, Backend) ->
+    SsoUsername = ?SSO_USERNAME(Backend, Username),
+    case emqx_dashboard_admin:lookup_user(SsoUsername) of
+        [User] ->
+            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
+            {200, login_meta(Username, Role, Token, Backend)};
+        [] ->
+            {400, #{code => ?BAD_REQUEST, message => <<"User not found">>}}
+    end.
 
 login_meta(Username, Role, Token, Backend) ->
     #{
