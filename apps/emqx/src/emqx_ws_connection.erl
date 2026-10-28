@@ -780,6 +780,7 @@ serialize_packet_and_inc_stats(Packet, Serialize) ->
             _ = emqx_metrics:inc('delivery.dropped.too_large'),
             _ = emqx_metrics:inc('delivery.dropped'),
             _ = inc_outgoing_stats({error, message_too_large}),
+            ok = emqx_channel:notify_discarded(Packet),
             <<>>;
         Data ->
             ?TRACE("WS-MQTT", "mqtt_packet_sent", #{packet => Packet}),
