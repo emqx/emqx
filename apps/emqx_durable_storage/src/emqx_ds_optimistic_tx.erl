@@ -689,7 +689,7 @@ send_dirty_append_replies(Result, Serial, PendingReplies) ->
         ok ->
             lists:foreach(
                 fun(#cast_dirty_append{reply_to = From, ref = Ref, reserved = Reserved}) ->
-                    reply_success(From, Ref, Reserved, Serial)
+                    reply_success(From, Ref, Reserved, serial_bin(Serial))
                 end,
                 PendingReplies
             );
