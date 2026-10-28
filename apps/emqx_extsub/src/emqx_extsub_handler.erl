@@ -20,8 +20,12 @@
     get_module/1,
     message_target/1,
     send/2,
-    send_after/3
+    send_after/3,
+    monitor/2,
+    demonitor/2
 ]).
+
+-compile({no_auto_import, [monitor/2, demonitor/2]}).
 
 -type state() :: term().
 
@@ -38,6 +42,7 @@
     can_receive_acks := boolean(),
 
     %% Use send/2 and send_after/3 to send messages to the handler itself.
+    %% Use monitor/2 to receive 'DOWN' messages of other processes.
     message_target := message_target(),
     _ => _
 }.
@@ -135,6 +140,24 @@ send({Pid, Ref}, Info) ->
 -spec send_after(non_neg_integer(), message_target(), term()) -> reference().
 send_after(Interval, {Pid, Ref}, Info) ->
     erlang:send_after(Interval, Pid, #info_to_extsub{handler_ref = Ref, info = Info}).
+
+-doc """
+Monitor a process on behalf of the handler.
+
+When the process exits, the handler receives `{'DOWN', MRef, process, Pid, Reason}`
+in `handle_info/3`. Only the channel that owns the handler can call this function.
+The handler must call `demonitor/2` before it is destroyed, for example in
+`handle_terminate/1`. Otherwise the monitor stays until the channel exits.
+""".
+-spec monitor(message_target(), pid()) -> reference().
+monitor({Owner, Ref}, Pid) when Owner =:= self() ->
+    erlang:monitor(process, Pid, [{tag, #extsub_down{handler_ref = Ref}}]).
+
+-doc "Remove a monitor created with `monitor/2` and drop its down message if it is already received.".
+-spec demonitor(message_target(), reference()) -> ok.
+demonitor({Owner, _Ref}, MRef) when Owner =:= self() ->
+    true = erlang:demonitor(MRef, [flush]),
+    ok.
 
 %% Handler options
 
