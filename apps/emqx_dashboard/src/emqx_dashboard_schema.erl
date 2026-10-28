@@ -78,6 +78,15 @@ fields("dashboard") ->
             )},
         {cors, fun cors/1},
         {swagger_support, fun swagger_support/1},
+        {show_preview_version,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(show_preview_version),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {i18n_lang, fun i18n_lang/1},
         {bootstrap_users_file,
             ?HOCON(

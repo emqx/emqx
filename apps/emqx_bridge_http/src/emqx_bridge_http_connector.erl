@@ -1072,6 +1072,8 @@ transform_result(Result) ->
             %% that was in flight when the worker died, which include the raw
             %% request headers. Drop the call args before the reason is logged.
             {error, drop_ehttpc_worker_down_call_args(Reason)};
+        {error, {closed, {error, {connection_error, protocol_error, _}}} = Reason} ->
+            {error, {unrecoverable_error, Reason}};
         {error, Reason} when
             Reason =:= econnrefused;
             Reason =:= nxdomain;

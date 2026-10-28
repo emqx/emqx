@@ -451,7 +451,7 @@ fields(common_list_clients_input) ->
             hoconsc:mk(hoconsc:array(binary()), #{
                 in => query,
                 required => false,
-                desc => ?DESC("username")
+                desc => ?DESC("query_username")
             })},
         {ip_address,
             hoconsc:mk(binary(), #{
@@ -518,7 +518,7 @@ fields(common_list_clients_input) ->
             hoconsc:mk(hoconsc:array(binary()), #{
                 in => query,
                 required => false,
-                desc => ?DESC("clientid")
+                desc => ?DESC("query_clientid")
             })},
         ?R_REF(requested_client_fields)
     ];

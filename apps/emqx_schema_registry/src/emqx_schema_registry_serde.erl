@@ -46,6 +46,11 @@
 -export([protobuf_resolve_imports/1]).
 
 -elvis([{elvis_style, no_match_in_condition, disable}]).
+-elvis([
+    {elvis_style, no_common_caveats_call, #{
+        ignore => [{emqx_schema_registry_serde, protobuf_serde_mod_name, 1}]
+    }}
+]).
 
 %%------------------------------------------------------------------------------
 %% Type definitions
@@ -476,6 +481,9 @@ map_decoded_sparkplug(#{} = Result) ->
         Result
     ).
 
+add_aliased_name(#{<<"name">> := _} = Metric, _Mapping) ->
+    %% Don't clobber the name if it's present.
+    Metric;
 add_aliased_name(#{<<"alias">> := Alias} = Metric, Mapping) ->
     case maps:find(Alias, Mapping) of
         {ok, Name} ->

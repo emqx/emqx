@@ -45,7 +45,7 @@ Larger value: fewer packets, but retransmission cost is higher on loss.
 Smaller value: more packets, but loss impact is smaller."""
 
 lwm2m_blockwise_max_body_size.desc:
-"""Maximum final payload size after reassembly.
+"""Maximum final payload size after reassembly. Must be greater than zero.
 If exceeded, the message is rejected to protect memory."""
 
 lwm2m_blockwise_max_concurrent_exchanges.desc:
@@ -57,7 +57,7 @@ lwm2m_blockwise_max_total_size.desc:
 When full, uploads receive 4.13 and downlink commands wait if they can fit later."""
 
 lwm2m_blockwise_exchange_lifetime.desc:
-"""How long temporary block-wise state is kept.
+"""How long temporary block-wise state is kept. Must be greater than zero.
 Too short can break slow transfers; too long consumes memory longer."""
 
 lwm2m_translators_command.desc:
