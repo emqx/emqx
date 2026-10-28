@@ -36,7 +36,8 @@ default_ssl_opts_test_() ->
                 #{
                     ~"ssl" := #{
                         ~"enable" := false,
-                        ~"verify" := ~"verify_peer"
+                        ~"verify" := ~"verify_peer",
+                        ~"cacertfile" := ~"system_default"
                     }
                 },
                 connector_config(#{})
@@ -46,7 +47,8 @@ default_ssl_opts_test_() ->
                 #{
                     ~"ssl" := #{
                         ~"enable" := true,
-                        ~"verify" := ~"verify_peer"
+                        ~"verify" := ~"verify_peer",
+                        ~"cacertfile" := ~"system_default"
                     }
                 },
                 connector_config(#{~"ssl" => #{~"enable" => true}})
@@ -56,9 +58,16 @@ default_ssl_opts_test_() ->
                 #{
                     ~"ssl" := #{
                         ~"enable" := true,
-                        ~"verify" := ~"verify_none"
+                        ~"verify" := ~"verify_none",
+                        ~"cacertfile" := ~"/some/file"
                     }
                 },
-                connector_config(#{~"ssl" => #{~"enable" => true, ~"verify" => ~"verify_none"}})
+                connector_config(#{
+                    ~"ssl" => #{
+                        ~"enable" => true,
+                        ~"verify" => ~"verify_none",
+                        ~"cacertfile" => ~"/some/file"
+                    }
+                })
             )}
     ].

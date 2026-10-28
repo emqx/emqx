@@ -77,7 +77,11 @@ namespace() ->
     "connector_schema_lib".
 
 fields(client_tls_verify_peer) ->
-    emqx_schema:client_ssl_opts_schema(#{enable => false, verify => verify_peer}).
+    emqx_schema:client_ssl_opts_schema(#{
+        enable => false,
+        verify => verify_peer,
+        cacertfile => system_default
+    }).
 
 desc(client_tls_verify_peer) ->
     ?DESC("ssl");
