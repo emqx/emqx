@@ -2061,3 +2061,67 @@ t_deliver_packet_too_large(Config) ->
     ),
     %% Cleanup:
     ok = emqtt:disconnect(ClientPid).
+
+-doc """
+A QoS 1 delivery discarded as too large leaves the inflight window, so the
+next delivery is sent with Receive Maximum 1.
+""".
+t_deliver_too_large_qos1_completes(Config) ->
+    deliver_too_large_then_small(?QOS_1, 1, 1, Config).
+
+-doc """
+A QoS 2 delivery discarded as too large completes the whole QoS 2 flow, so
+the next delivery is sent with Receive Maximum 1.
+""".
+t_deliver_too_large_qos2_completes(Config) ->
+    deliver_too_large_then_small(?QOS_2, 1, 1, Config).
+
+-doc """
+Several QoS 1 deliveries discarded as too large in a row do not exhaust
+Receive Maximum.
+""".
+t_deliver_too_large_many_completes(Config) ->
+    deliver_too_large_then_small(?QOS_1, 2, 5, Config).
+
+-doc "A QoS 0 delivery discarded as too large does not block the next one.".
+t_deliver_too_large_qos0(Config) ->
+    deliver_too_large_then_small(?QOS_0, 1, 1, Config).
+
+-doc "Without Maximum Packet Size, a large QoS 1 delivery is sent.".
+t_deliver_large_no_max_packet_size(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"t/large">>,
+    {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clean_start, true} | Config]),
+    {ok, _} = emqtt:ConnFun(Client),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client, Topic, ?QOS_1),
+    Large = binary:copy(<<"x">>, 1024),
+    _ = emqx_broker:publish(emqx_message:make(<<?MODULE_STRING>>, ?QOS_1, Topic, Large)),
+    ?assertReceive({publish, #{topic := Topic, payload := Large}}),
+    ok = emqtt:disconnect(Client).
+
+%% Deliver `NumLarge' messages too large for the client, then a small one.
+%% The large ones are discarded and counted, and the small one arrives.
+deliver_too_large_then_small(QoS, ReceiveMaximum, NumLarge, Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"t/too_large">>,
+    {ok, Client} = emqtt:start_link([
+        {proto_ver, v5},
+        {clean_start, true},
+        {properties, #{'Maximum-Packet-Size' => 128, 'Receive-Maximum' => ReceiveMaximum}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client),
+    {ok, _, [QoS]} = emqtt:subscribe(Client, Topic, QoS),
+    Dropped0 = emqx_metrics:val_global('delivery.dropped'),
+    TooLarge0 = emqx_metrics:val_global('delivery.dropped.too_large'),
+    Large = binary:copy(<<"x">>, 256),
+    Publish = fun(Payload) ->
+        _ = emqx_broker:publish(emqx_message:make(<<?MODULE_STRING>>, QoS, Topic, Payload))
+    end,
+    lists:foreach(fun(_) -> Publish(Large) end, lists:seq(1, NumLarge)),
+    Publish(<<"small">>),
+    ?assertReceive({publish, #{topic := Topic, payload := <<"small">>}}),
+    ?assertNotReceive({publish, #{topic := Topic}}),
+    ?assertEqual(NumLarge, emqx_metrics:val_global('delivery.dropped.too_large') - TooLarge0),
+    ?assertEqual(NumLarge, emqx_metrics:val_global('delivery.dropped') - Dropped0),
+    ok = emqtt:disconnect(Client).
