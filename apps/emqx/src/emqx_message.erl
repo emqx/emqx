@@ -327,6 +327,14 @@ to_packet(
         extra = Extra
     }
 ) ->
+    Props0 = maps:get(properties, Headers, #{}),
+    Props =
+        case Extra of
+            #{} when map_size(Extra) > 0 ->
+                Props0#{?MQTT_INTERNAL_EXTRA => Extra};
+            _ ->
+                Props0
+        end,
     #mqtt_packet{
         header = #mqtt_packet_header{
             type = ?PUBLISH,
@@ -337,31 +345,10 @@ to_packet(
         variable = #mqtt_packet_publish{
             topic_name = Topic,
             packet_id = PacketId,
-            properties = maybe_put_extra(
-                Extra, filter_pub_props(maps:get(properties, Headers, #{}))
-            )
+            properties = Props
         },
         payload = Payload
     }.
-
-filter_pub_props(Props) ->
-    maps:with(
-        [
-            'Payload-Format-Indicator',
-            'Message-Expiry-Interval',
-            'Response-Topic',
-            'Correlation-Data',
-            'User-Property',
-            'Subscription-Identifier',
-            'Content-Type'
-        ],
-        Props
-    ).
-
-maybe_put_extra(Extra, Props) when map_size(Extra) > 0 ->
-    Props#{?MQTT_INTERNAL_EXTRA => Extra};
-maybe_put_extra(_Extra, Props) ->
-    Props.
 
 %% @doc Message to map
 -spec to_map(emqx_types:message()) -> message_map().

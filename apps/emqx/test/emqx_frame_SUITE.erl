@@ -88,6 +88,7 @@ groups() ->
             t_serialize_parse_qos2_publish,
             t_serialize_parse_with_dup_flag,
             t_serialize_parse_publish_v5,
+            t_serialize_publish_filter_props,
             t_parse_duplicate_publish_property
         ]},
         {puback, [parallel], [
@@ -1074,6 +1075,29 @@ t_serialize_parse_publish_v5(_) ->
     },
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"$share/group/topic">>, 1, Props, <<"payload">>),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+
+-doc "PUBLISH encoding drops unsupported properties while retaining outbound aliases.".
+t_serialize_publish_filter_props(_) ->
+    Allowed = #{
+        'Payload-Format-Indicator' => 1,
+        'Message-Expiry-Interval' => 60,
+        'Response-Topic' => <<"response">>,
+        'Correlation-Data' => <<"correlation">>,
+        'User-Property' => [{<<"k">>, <<"v">>}],
+        'Subscription-Identifier' => 1,
+        'Content-Type' => <<"text/plain">>,
+        'Topic-Alias' => 3
+    },
+    Props = Allowed#{
+        'Will-Delay-Interval' => 60,
+        'Session-Expiry-Interval' => 60,
+        'Reason-String' => <<"discard">>,
+        unknown_property => ignored,
+        ?MQTT_INTERNAL_EXTRA => #{trace => test}
+    },
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, Props, <<"payload">>),
+    Expected = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, Allowed, <<"payload">>),
+    ?assertEqual(Expected, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 -doc """
 An MQTT v5 PUBLISH carrying two Response-Topic properties is rejected with a

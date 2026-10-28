@@ -391,6 +391,22 @@ t_from_to_message(_) ->
         timestamp = emqx_message:timestamp(ExpectedMsg)
     }).
 
+-doc "Message conversion preserves properties and extracts internal metadata.".
+t_to_message_extract_extra(_) ->
+    Props = #{
+        'Topic-Alias' => 7,
+        'User-Property' => [{<<"k">>, <<"v">>}],
+        ?MQTT_INTERNAL_EXTRA => #{trace => test}
+    },
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"resolved/topic">>, 1, Props, <<"payload">>),
+    Msg = emqx_packet:to_message(Packet, <<"publisher">>),
+    ?assertEqual(<<"resolved/topic">>, Msg#message.topic),
+    ?assertEqual(#{trace => test}, Msg#message.extra),
+    ?assertEqual(
+        maps:remove(?MQTT_INTERNAL_EXTRA, Props),
+        emqx_message:get_header(properties, Msg)
+    ).
+
 t_will_msg(_) ->
     ?assertEqual(undefined, emqx_packet:will_msg(#mqtt_packet_connect{will_flag = false})),
     Pkt = #mqtt_packet_connect{
