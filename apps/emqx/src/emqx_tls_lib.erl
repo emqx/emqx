@@ -1124,7 +1124,10 @@ resolve_cacertfile(Opts) ->
         false -> {cacertfile, absolute_path(resolve_certfile(cacertfile, Opts))}
     end.
 
-%% No `node.trusted_certs' file: use the CA certificates that OTP loads from the OS.
+%% The CA option for `cacertfile = system_default'.
+%% Returns `{cacertfile, Path}' when `node.trusted_certs' resolved to a file.
+%% Otherwise returns `{cacerts, Certs}' with the CA certificates that OTP loads
+%% from the OS, or `{cacertfile, undefined}' when OTP cannot load them.
 system_default_ca_opt() ->
     case application:get_env(emqx, trusted_certs_path) of
         {ok, Path} ->
