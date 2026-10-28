@@ -686,4 +686,24 @@ client_opts_tls_verify_peer_keeps_certs_test() ->
     ?assertEqual(<<"/tmp/client.crt">>, maps:get(client_cert, Opts)),
     ?assertEqual(<<"/tmp/client.key">>, maps:get(client_key, Opts)).
 
+client_opts_tls_system_default_cacertfile_test() ->
+    ConnConfig = #{
+        server => <<"127.0.0.1:5001">>,
+        dbname => <<"public">>,
+        ssl => #{
+            enable => true,
+            verify => verify_peer,
+            cacertfile => <<"system_default">>,
+            certfile => <<"/tmp/client.crt">>,
+            keyfile => <<"/tmp/client.key">>
+        }
+    },
+    ok = application:set_env(emqx, trusted_certs_path, "/trusted/ca-bundle.pem"),
+    try
+        Opts = client_opts(test_res_id, ConnConfig),
+        ?assertEqual(<<"/trusted/ca-bundle.pem">>, maps:get(ca_cert, Opts))
+    after
+        application:unset_env(emqx, trusted_certs_path)
+    end.
+
 -endif.
