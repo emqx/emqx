@@ -15,6 +15,11 @@
     info :: term()
 }).
 
+%% Tag of the down message of a monitor created with `emqx_extsub_handler:monitor/2'.
+-record(extsub_down, {
+    handler_ref :: emqx_extsub_types:handler_ref()
+}).
+
 -record(info_extsub_try_deliver, {}).
 
 -record(info_extsub_inspect, {
