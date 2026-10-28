@@ -293,6 +293,11 @@ get_node(Node) ->
 %%--------------------------------------------------------------------
 %% internal function
 
+%% The last clause is unreachable for the success typing that OTP 28.5 infers
+%% for `emqx_mgmt:node_info/1', and reachable for the one OTP 28.4 infers. Keep
+%% the clause: it answers a real reply, and dropping it would turn that reply
+%% into a `function_clause' crash.
+-dialyzer({nowarn_function, format/1}).
 format(Info = #{memory_total := Total, memory_used := Used}) ->
     format_version(Info#{
         memory_total := emqx_mgmt_util:kmg(Total),
