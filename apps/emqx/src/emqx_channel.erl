@@ -4057,12 +4057,9 @@ run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps) ->
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 
-find_alias(_, _, undefined) -> error;
 find_alias(inbound, AliasId, _TopicAliases = #{inbound := Aliases}) -> maps:find(AliasId, Aliases);
 find_alias(outbound, Topic, _TopicAliases = #{outbound := Aliases}) -> maps:find(Topic, Aliases).
 
-save_alias(_, _, _, undefined) ->
-    false;
 save_alias(inbound, AliasId, Topic, TopicAliases = #{inbound := Aliases}) ->
     NAliases = maps:put(AliasId, Topic, Aliases),
     TopicAliases#{inbound => NAliases};
