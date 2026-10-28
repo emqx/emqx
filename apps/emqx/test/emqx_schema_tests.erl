@@ -1510,6 +1510,21 @@ cacertfile_system_default_test_() ->
                 #{ssl_opts := #{cacertfile := <<"system_default">>}},
                 Check(emqx_schema:client_ssl_opts_schema(#{}))
             )},
+        {"default set by a client schema",
+            ?_assertMatch(
+                #{ssl_opts := #{cacertfile := <<"system_default">>, verify := verify_peer}},
+                begin
+                    Sc = #{
+                        roots => [ssl_opts],
+                        fields => #{
+                            ssl_opts => emqx_schema:client_ssl_opts_schema(#{
+                                cacertfile => system_default, verify => verify_peer
+                            })
+                        }
+                    },
+                    hocon_tconf:check_plain(Sc, #{<<"ssl_opts">> => #{}}, #{atom_key => true})
+                end
+            )},
         {"rejected by listeners",
             ?_assertThrow(
                 {_, [#{kind := validation_error, path := "ssl_opts.cacertfile"}]},

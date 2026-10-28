@@ -2591,7 +2591,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 binary(),
                 cacertfile_validator(Type, #{
-                    default => cert_file("cacert.pem", Type),
+                    default => cacertfile_default(Defaults, Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 })
@@ -4158,6 +4158,14 @@ ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
 ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
+
+%% A connector schema can set `cacertfile => system_default' in `Defaults'.
+cacertfile_default(#{cacertfile := system_default}, _Type) ->
+    ?CACERTFILE_SYSTEM_DEFAULT;
+cacertfile_default(#{cacertfile := CACertFile}, _Type) ->
+    CACertFile;
+cacertfile_default(#{}, Type) ->
+    cert_file("cacert.pem", Type).
 
 cacertfile_validator(client, Meta) ->
     Meta;
