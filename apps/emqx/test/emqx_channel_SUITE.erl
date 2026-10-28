@@ -1637,7 +1637,8 @@ t_auth_connect(_) ->
 t_publish_process_alias(_) ->
     Props = #{'Topic-Alias' => 1, 'User-Property' => [{<<"k">>, <<"v">>}]},
     Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, Props, <<"payload">>),
-    Channel = emqx_channel:set_field(topic_aliases, #{inbound => #{1 => <<"t">>}}, channel()),
+    Registration = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, Props, <<"payload">>),
+    {ok, _, Channel} = emqx_channel:publish_process_alias(Registration, channel()),
     CleanProps = maps:remove('Topic-Alias', Props),
     ?assertMatch(
         {ok, #message{topic = <<"t">>, headers = #{properties := CleanProps}}, Channel},
@@ -1718,22 +1719,29 @@ t_packing_alias(_) ->
         )
     ).
 
-t_packing_alias_inexistent_alias(_) ->
-    Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
-    Channel = channel(),
+-doc "Disabled outbound aliases remove stored aliases and preserve other packet fields.".
+t_packing_alias_disabled(_) ->
+    Props = #{'Topic-Alias' => 7, 'User-Property' => [{<<"k">>, <<"v">>}]},
+    Publish = #mqtt_packet_publish{topic_name = <<"t">>, properties = Props},
+    Channel = emqx_channel:set_field(alias_maximum, #{inbound => 10, outbound => 0}, channel()),
     Packet = #mqtt_packet{variable = Publish},
-    ExpectedChannel = emqx_channel:set_field(
-        topic_aliases,
-        #{
-            inbound => #{},
-            outbound => #{<<>> => 1}
-        },
-        Channel
-    ),
-    ?assertEqual(
-        {Packet, ExpectedChannel},
-        emqx_channel:packing_alias(Packet, Channel)
-    ).
+    Expected = Packet#mqtt_packet{
+        variable = Publish#mqtt_packet_publish{properties = maps:remove('Topic-Alias', Props)}
+    },
+    ?assertEqual({Expected, Channel}, emqx_channel:packing_alias(Packet, Channel)).
+
+-doc "A full outbound alias table removes stored aliases for unregistered topics.".
+t_packing_alias_full(_) ->
+    Channel0 = emqx_channel:set_field(alias_maximum, #{outbound => 1}, channel()),
+    First = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"first">>}},
+    {_, Channel} = emqx_channel:packing_alias(First, Channel0),
+    Props = #{'Topic-Alias' => 7, 'User-Property' => [{<<"k">>, <<"v">>}]},
+    Publish = #mqtt_packet_publish{topic_name = <<"second">>, properties = Props},
+    Packet = #mqtt_packet{variable = Publish},
+    Expected = Packet#mqtt_packet{
+        variable = Publish#mqtt_packet_publish{properties = maps:remove('Topic-Alias', Props)}
+    },
+    ?assertEqual({Expected, Channel}, emqx_channel:packing_alias(Packet, Channel)).
 
 -doc "Authorized messages continue through capability checking and finalization.".
 t_publish_check_authz(_) ->
