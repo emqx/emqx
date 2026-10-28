@@ -205,14 +205,20 @@ cleanup_mqs() ->
 
 stop_all_consumers() ->
     ok = lists:foreach(
-        fun(Pid) ->
-            ok = emqx_mq_consumer:stop(Pid)
+        fun({Id, _Sup, _, _}) ->
+            _ = supervisor:terminate_child(emqx_mq_consumer_sup, Id)
         end,
-        all_consumers()
+        supervisor:which_children(emqx_mq_consumer_sup)
     ).
 
 all_consumers() ->
-    [Pid || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup), is_pid(Pid)].
+    [
+        Pid
+     || {_, Sup, _, _} <- supervisor:which_children(emqx_mq_consumer_sup),
+        is_pid(Sup),
+        {?MQ_CONSUMER_CHILD_ID, Pid, _, _} <- supervisor:which_children(Sup),
+        is_pid(Pid)
+    ].
 
 cth_config(App) ->
     cth_config(App, #{}).

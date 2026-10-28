@@ -8,6 +8,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("../src/emqx_mq_internal.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -26,9 +27,16 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(TCName, Config) ->
+    StorageConfig =
+        case TCName of
+            t_cluster_reject_consumption ->
+                #{<<"durable_storage">> => #{<<"mq_messages">> => #{<<"n_shards">> => 2}}};
+            _ ->
+                #{}
+        end,
     Apps = [
         emqx_durable_storage,
-        {emqx, emqx_mq_test_utils:cth_config(emqx)},
+        {emqx, emqx_mq_test_utils:cth_config(emqx, StorageConfig)},
         {emqx_mq,
             emqx_mq_test_utils:cth_config(emqx_mq, #{
                 <<"mq">> => #{<<"find_queue_retry_interval">> => <<"100ms">>}
@@ -184,6 +192,73 @@ t_ping_consumer(Config) ->
     ok = emqtt:disconnect(PubClient),
     ok = emqtt:disconnect(CSub0),
     ok = emqtt:disconnect(CSub1).
+
+%% Check per-shard rejection and quota release by a remote consumer across both shards.
+t_cluster_reject_consumption(Config) ->
+    [PubNode, SubNode, _] = ?config(nodes, Config),
+    MQ = erpc:call(PubNode, emqx_mq_test_utils, ensure_mq_created, [
+        #{
+            name => <<"cluster_reject">>,
+            topic_filter => <<"cluster/reject">>,
+            limits => #{
+                on_full => reject,
+                max_shard_message_count => 1,
+                max_shard_message_bytes => infinity
+            }
+        }
+    ]),
+    Publisher0 = <<"full-publisher">>,
+    Pub = emqx_mq_test_utils:emqtt_connect([{port, ?PUB_PORT}, {clientid, Publisher0}]),
+    ?assertMatch(
+        {ok, #{reason_code := 0}}, emqtt:publish(Pub, <<"$queue/cluster_reject">>, <<"first">>, 1)
+    ),
+    ok = erpc:call(PubNode, emqx_mq_quota_buffer, flush, [mq_message_quota_buffer]),
+    ?assertMatch(
+        {ok, #{reason_code := 16#97}},
+        emqtt:publish(Pub, <<"$queue/cluster_reject">>, <<"full">>, 1)
+    ),
+    Shard0 = erpc:call(PubNode, emqx_ds, shard_of, [?MQ_MESSAGE_LASTVALUE_DB, Publisher0]),
+    [Publisher1 | _] = [
+        ClientId
+     || N <- lists:seq(1, 100),
+        ClientId <- [integer_to_binary(N)],
+        erpc:call(PubNode, emqx_ds, shard_of, [?MQ_MESSAGE_LASTVALUE_DB, ClientId]) =/= Shard0
+    ],
+    Pub1 = emqx_mq_test_utils:emqtt_connect([{port, ?PUB_PORT}, {clientid, Publisher1}]),
+    ?assertMatch(
+        {ok, #{reason_code := 0}},
+        emqtt:publish(Pub1, <<"$queue/cluster_reject">>, <<"other-shard">>, 1)
+    ),
+    ok = erpc:call(PubNode, emqx_mq_quota_buffer, flush, [?MQ_QUOTA_BUFFER]),
+    ?retry(
+        50,
+        100,
+        ?assertMatch({ok, _}, erpc:call(SubNode, emqx_mq_registry, find, [<<"cluster_reject">>]))
+    ),
+    Sub = emqx_mq_test_utils:emqtt_connect([{port, ?SUB0_PORT}]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(Sub, <<"cluster_reject">>),
+    {ok, Received} = emqx_mq_test_utils:emqtt_drain(2, 1000),
+    ?assertEqual([<<"first">>, <<"other-shard">>], lists:sort([P || #{payload := P} <- Received])),
+    Shards = erpc:call(PubNode, emqx_ds, list_shards, [?MQ_MESSAGE_LASTVALUE_DB]),
+    ?retry(
+        50,
+        100,
+        lists:foreach(
+            fun(Shard) ->
+                ?assertMatch(
+                    {ok, #{count := 0}},
+                    erpc:call(PubNode, emqx_mq_message_db, occupancy, [MQ, Shard])
+                )
+            end,
+            Shards
+        )
+    ),
+    ?assertMatch(
+        {ok, #{reason_code := 0}}, emqtt:publish(Pub, <<"$queue/cluster_reject">>, <<"second">>, 1)
+    ),
+    ok = emqtt:disconnect(Pub),
+    ok = emqtt:disconnect(Pub1),
+    ok = emqtt:disconnect(Sub).
 
 %%--------------------------------------------------------------------
 %% Helpers

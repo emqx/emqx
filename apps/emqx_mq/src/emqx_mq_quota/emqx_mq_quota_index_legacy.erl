@@ -72,9 +72,11 @@ A node crash can lose buffered updates and make the index undercount stored data
 
 -elvis([{elvis_style, atom_naming_convention, #{regex => "^[a-z]\\w*$"}}]).
 
--export([apply_update/4, deadline/2, cutoff/2, reset/1]).
+-export([apply_update/4, deadline/2, truncate_before/2, reset/1]).
 
--type opts() :: #{max := pos_integer(), threshold_percentage := pos_integer()}.
+-type opts() :: #{
+    max := pos_integer(), threshold_percentage := pos_integer(), on_full => evict | reject
+}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -93,7 +95,9 @@ reset(TsUs) ->
 ) -> {emqx_mq_quota_index:timestamp_us(), [#'StorageIndexRecord'{}]}.
 apply_update(Records, MaxTsUs, {TsUs, 0}, _Opts) ->
     {max(MaxTsUs, TsUs), Records};
-apply_update(Records0, MaxTsUs0, {TsUs, Value}, #{max := Max, threshold_percentage := Percentage}) ->
+apply_update(
+    Records0, MaxTsUs0, {TsUs, Value}, #{max := Max, threshold_percentage := Percentage} = Opts
+) ->
     Threshold = max(1, Percentage * Max div 100),
     MaxTsUs1 = max(MaxTsUs0, TsUs),
     {MaxTsUs, Records2} =
@@ -104,16 +108,21 @@ apply_update(Records0, MaxTsUs0, {TsUs, Value}, #{max := Max, threshold_percenta
             false ->
                 {MaxTsUs1, delete_record(Records0, TsUs, -Value)}
         end,
-    {MaxTsUs, compact_records(Records2, Threshold, Max, 0)}.
+    TrimMax =
+        case Opts of
+            #{on_full := reject} -> infinity;
+            _ -> Max
+        end,
+    {MaxTsUs, compact_records(Records2, Threshold, TrimMax, 0)}.
 
 -spec deadline([#'StorageIndexRecord'{}], #{max := pos_integer()}) -> non_neg_integer().
 deadline(Records, #{max := Max}) ->
     deadline_from_records(Records, Max, 0).
 
--doc "Keep buckets starting at or after the cutoff supplied by the caller.".
--spec cutoff([#'StorageIndexRecord'{}], emqx_mq_quota_index:timestamp_us()) ->
+-doc "Keep buckets starting at or after `CutoffUs`.".
+-spec truncate_before([#'StorageIndexRecord'{}], emqx_mq_quota_index:timestamp_us()) ->
     [#'StorageIndexRecord'{}].
-cutoff(Records, CutoffUs) ->
+truncate_before(Records, CutoffUs) ->
     [R || #'StorageIndexRecord'{tsUs = TsUs} = R <- Records, TsUs >= CutoffUs].
 
 %%------------------------------------------------------------------------------

@@ -30,7 +30,8 @@ prepend an empty bucket with boundary `MaxTsUs + 1`.
 `MaxTsUs` includes the current update timestamp and previously created boundaries.
 The current insertion still belongs to the previous bucket.
 The new boundary ensures that previously indexed messages retain their bucket assignment.
-When the index is empty, create the first bucket at `MaxTsUs`.
+When the index is empty, create the first bucket at zero for reject queues and at `MaxTsUs` otherwise.
+Apply the same threshold check to the first insertion.
 
 Out-of-order insertions update their existing bucket without splitting it.
 Ignore updates older than the oldest retained boundary.
@@ -50,6 +51,7 @@ Merge adjacent older buckets when their combined values fit both configured thre
 Keep the older boundary when merging.
 Accumulate both counters from newer to older buckets.
 Once either accumulated counter reaches its limit, discard the remaining older buckets.
+For reject queues, retain older buckets regardless of capacity.
 
 ## Garbage collection deadline
 
@@ -73,7 +75,7 @@ A node crash can lose buffered updates and make the index undercount stored data
 
 -elvis([{elvis_style, atom_naming_convention, #{regex => "^[a-z]\\w*$"}}]).
 
--export([apply_update/4, deadline/2, cutoff/2, reset/1]).
+-export([apply_update/4, deadline/2, truncate_before/2, reset/1, thresholds/1]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -99,32 +101,41 @@ apply_update(
     MaxTsUs1 = max(MaxTsUs0, TsUs),
     Threshold = thresholds(Opts),
     Delta = {ByteUpdate, CountUpdate},
-    {MaxTsUs, Records1} = maybe_advance(Records0, MaxTsUs1, TsUs, Delta, Threshold),
+    {MaxTsUs, Records1} = maybe_advance(Records0, MaxTsUs1, TsUs, Delta, Threshold, Opts),
     Records2 = update_record(Records1, TsUs, Delta),
-    Records = compact_records(Records2, Threshold, limits(Opts)),
+    Records = compact_records(Records2, Threshold, trimming_limits(Opts)),
     {MaxTsUs, Records}.
 
 -spec deadline([#'StorageIndexBucket'{}], emqx_mq_quota_index:opts()) -> non_neg_integer().
 deadline(Records, Opts) ->
     deadline_from_records(Records, limits(Opts), {0, 0}).
 
--doc "Keep buckets starting at or after the nearest boundary strictly before BeforeUs.".
--spec cutoff([#'StorageIndexBucket'{}], emqx_mq_quota_index:timestamp_us()) ->
+-doc """
+Keep buckets starting at or after the nearest boundary strictly before BeforeUs.
+See "Deletion boundaries" in `emqx_mq_message_db`.
+""".
+-spec truncate_before([#'StorageIndexBucket'{}], emqx_mq_quota_index:timestamp_us()) ->
     {emqx_mq_quota_index:timestamp_us(), [#'StorageIndexBucket'{}]}.
-cutoff(Records, BeforeUs) ->
-    CutoffUs = cutoff_boundary(Records, BeforeUs),
+truncate_before(Records, BeforeUs) ->
+    CutoffUs = cutoff_us(Records, BeforeUs),
     {CutoffUs, [R || #'StorageIndexBucket'{tsUs = TsUs} = R <- Records, TsUs >= CutoffUs]}.
+
+-doc "Return the bucket creation thresholds as `{Bytes, Count}`.".
+-spec thresholds(emqx_mq_quota_index:opts()) ->
+    {pos_integer() | infinity, pos_integer() | infinity}.
+thresholds(#{threshold_percentage := Percentage} = Opts) ->
+    {threshold(limit(bytes, Opts), Percentage), threshold(limit(count, Opts), Percentage)}.
 
 %%------------------------------------------------------------------------------
 %% Private
 %%------------------------------------------------------------------------------
 
-cutoff_boundary([], _BeforeUs) ->
+cutoff_us([], _BeforeUs) ->
     0;
-cutoff_boundary([#'StorageIndexBucket'{tsUs = TsUs} | _], BeforeUs) when TsUs < BeforeUs ->
+cutoff_us([#'StorageIndexBucket'{tsUs = TsUs} | _], BeforeUs) when TsUs < BeforeUs ->
     TsUs;
-cutoff_boundary([_ | Records], BeforeUs) ->
-    cutoff_boundary(Records, BeforeUs).
+cutoff_us([_ | Records], BeforeUs) ->
+    cutoff_us(Records, BeforeUs).
 
 deadline_from_records([], _Max, _Acc) ->
     0;
@@ -135,18 +146,26 @@ deadline_from_records([#'StorageIndexBucket'{tsUs = TsUs} = Record | Records], M
         false -> deadline_from_records(Records, Max, Acc)
     end.
 
-maybe_advance(Records, MaxTsUs, _TsUs, {Bytes, Count}, _Threshold) when
+maybe_advance(Records, MaxTsUs, _TsUs, {Bytes, Count}, _Threshold, _Opts) when
     Bytes =< 0, Count =< 0
 ->
     {MaxTsUs, Records};
-maybe_advance([], MaxTsUs, _AddTsUs, _AddValue, _Threshold) ->
-    {MaxTsUs, [#'StorageIndexBucket'{tsUs = MaxTsUs, bytes = 0, count = 0}]};
+maybe_advance([], MaxTsUs, AddTsUs, Delta, Threshold, Opts) ->
+    Start =
+        case Opts of
+            %% GC deletes reject queue data below the oldest boundary.
+            %% See "Deletion boundaries" in `emqx_mq_message_db`.
+            #{on_full := reject} -> 0;
+            #{} -> MaxTsUs
+        end,
+    maybe_advance(reset(Start), MaxTsUs, AddTsUs, Delta, Threshold, Opts);
 maybe_advance(
     [#'StorageIndexBucket'{tsUs = TsUs} = Record | _] = Records,
     MaxTsUs,
     AddTsUs,
     Delta,
-    Threshold
+    Threshold,
+    _Opts
 ) when AddTsUs >= TsUs ->
     case reaches_limit(add_values(values(Record), Delta), Threshold) of
         true ->
@@ -156,7 +175,7 @@ maybe_advance(
         false ->
             {MaxTsUs, Records}
     end;
-maybe_advance(Records, MaxTsUs, _AddTsUs, _AddValue, _Threshold) ->
+maybe_advance(Records, MaxTsUs, _AddTsUs, _AddValue, _Threshold, _Opts) ->
     {MaxTsUs, Records}.
 
 update_record([], _TsUs, _Delta) ->
@@ -211,6 +230,11 @@ reaches_limit({Bytes, Count}, {MaxBytes, MaxCount}) ->
 fits_threshold({Bytes, Count}, {MaxBytes, MaxCount}) ->
     Bytes =< MaxBytes andalso Count =< MaxCount.
 
+trimming_limits(#{on_full := reject}) ->
+    {infinity, infinity};
+trimming_limits(Opts) ->
+    limits(Opts).
+
 limits(Opts) ->
     {limit(bytes, Opts), limit(count, Opts)}.
 
@@ -219,9 +243,6 @@ limit(Kind, Opts) ->
         #{Kind := Max} -> Max;
         #{} -> infinity
     end.
-
-thresholds(#{threshold_percentage := Percentage} = Opts) ->
-    {threshold(limit(bytes, Opts), Percentage), threshold(limit(count, Opts), Percentage)}.
 
 threshold(infinity, _Percentage) ->
     infinity;

@@ -14,6 +14,7 @@ The module contains accessor functions for the MQs/MQ handles.
     id/1,
     name/1,
     is_limited/1,
+    on_full/1,
     is_lastvalue/1,
     is_append_only/1,
     topic_filter/1,
@@ -53,6 +54,12 @@ is_limited(
 is_limited(_MQ) ->
     true.
 
+-spec on_full(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> evict | reject.
+on_full(#{limits := #{on_full := Policy}}) ->
+    Policy;
+on_full(_) ->
+    evict.
+
 -spec is_lastvalue(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> boolean().
 is_lastvalue(#{is_lastvalue := IsLastvalue} = _MQ) ->
     IsLastvalue.
@@ -67,15 +74,18 @@ is_append_only(MQ) ->
 
 -spec quota_index_opts(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) ->
     emqx_mq_quota_index:opts().
-quota_index_opts(#{
-    limits := #{
-        max_shard_message_count := MaxShardMessageCount,
-        max_shard_message_bytes := MaxShardMessageBytes
-    }
-}) ->
+quota_index_opts(
+    #{
+        limits := #{
+            max_shard_message_count := MaxShardMessageCount,
+            max_shard_message_bytes := MaxShardMessageBytes
+        }
+    } = MQ
+) ->
     #{
         bytes => MaxShardMessageBytes,
         count => MaxShardMessageCount,
+        on_full => on_full(MQ),
         threshold_percentage => emqx:get_config([mq, quota, threshold_percentage])
     }.
 

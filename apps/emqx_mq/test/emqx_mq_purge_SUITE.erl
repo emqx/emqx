@@ -198,12 +198,14 @@ t_bounded_purge(Config) ->
     ),
     ?assertEqual(ExpectedRecords, lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
 
-    %% Messages retained only because of bucket rounding or later DS timestamps must not be delivered.
+    %% Deliver records stored at or after the cutoff, including delayed publications.
     Client = emqx_mq_test_utils:emqtt_connect([]),
     ok = emqx_mq_test_utils:emqtt_sub_mq(Client, Name),
-    {ok, Delivered} = emqx_mq_test_utils:emqtt_drain(2 * length(Slabs), 1000),
+    {ok, Delivered} = emqx_mq_test_utils:emqtt_drain(3 * length(Slabs), 1000),
     ?assertEqual(
-        lists:sort(lists:append([[<<"before_boundary">>, <<"fresh">>] || _ <- Slabs])),
+        lists:sort(
+            lists:append([[<<"before_boundary">>, <<"delayed_old">>, <<"fresh">>] || _ <- Slabs])
+        ),
         lists:sort([Payload || #{payload := Payload} <- Delivered])
     ),
     ok = emqtt:disconnect(Client),
@@ -285,13 +287,13 @@ t_regular_unlimited(_Config) ->
     ?assertEqual(ExpectedRecords, lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
     ?assertEqual([], emqx_ds:dirty_read(DB, index_topic(MQ))),
 
-    %% The delivery cutoff skips old messages whose DS timestamps kept them in storage.
+    %% The delivery cutoff uses the same storage timestamps as physical deletion.
     Client = emqx_mq_test_utils:emqtt_connect([]),
     ok = emqx_mq_test_utils:emqtt_sub_mq(Client, Name),
-    {ok, Delivered} = emqx_mq_test_utils:emqtt_drain(length(Slabs), 1000),
+    {ok, Delivered} = emqx_mq_test_utils:emqtt_drain(3 * length(Slabs), 1000),
     ?assertEqual(
-        lists:duplicate(length(Slabs), <<"fresh">>),
-        [Payload || #{payload := Payload} <- Delivered]
+        lists:sort(lists:append([[<<"boundary">>, <<"fresh">>, <<"delayed_old">>] || _ <- Slabs])),
+        lists:sort([Payload || #{payload := Payload} <- Delivered])
     ),
     ok = emqtt:disconnect(Client).
 

@@ -10,7 +10,7 @@
 
 -export([introduced_in/0, supports_common_index/1]).
 
-%% This version marks support for common quota buckets without legacy indices.
+%% This version marks support for common quota buckets and reject queues.
 introduced_in() ->
     "7.0.0".
 

@@ -10,7 +10,13 @@
 %% `hocon_schema' API
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
--export([mq_sctype_api_get/0, mq_sctype_api_put/0, mq_sctype_api_post/0, validate_name/1]).
+-export([
+    mq_sctype_api_get/0,
+    mq_sctype_api_put/0,
+    mq_sctype_api_post/0,
+    validate_name/1,
+    validate_limits/1
+]).
 
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
@@ -124,6 +130,10 @@ fields(auto_create_lastvalue) ->
 %% MQ structs
 fields(mq_individual_limits) ->
     [
+        {on_full,
+            mk(enum([evict, reject]), #{
+                desc => ?DESC(on_full), required => true, default => evict
+            })},
         {max_shard_message_count,
             mk(hoconsc:union([infinity, pos_integer()]), #{
                 desc => ?DESC(max_shard_message_count), required => true, default => <<"infinity">>
@@ -225,6 +235,7 @@ message_queue_fields(IsLastvalue) ->
         {limits,
             mk(ref(mq_individual_limits), #{
                 desc => ?DESC(mq_individual_limits),
+                validator => fun validate_limits/1,
                 required => true,
                 default => #{
                     <<"max_shard_message_count">> => infinity,
@@ -349,6 +360,21 @@ compile_variform(Expression, _Opts) ->
         {error, Reason} ->
             throw(#{expression => Expression, reason => Reason})
     end.
+
+validate_limits(#{
+    <<"on_full">> := reject,
+    <<"max_shard_message_count">> := infinity,
+    <<"max_shard_message_bytes">> := infinity
+}) ->
+    {error, on_full_reject_requires_finite_limit};
+validate_limits(#{
+    on_full := reject,
+    max_shard_message_count := infinity,
+    max_shard_message_bytes := infinity
+}) ->
+    {error, on_full_reject_requires_finite_limit};
+validate_limits(_) ->
+    ok.
 
 validate_name(Name) ->
     RE = "^[0-9a-zA-Z][\\-\\.0-9a-zA-Z_]*$",

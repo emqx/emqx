@@ -24,7 +24,8 @@ The module contains the registry of Message Queues.
     update/2,
     list/0,
     list/2,
-    queue_count/0
+    queue_count/0,
+    validate_policy/1
 ]).
 
 -dialyzer(no_improper_lists).
@@ -82,16 +83,18 @@ Create a new MQ.
     | {error, max_queue_count_reached}
     | {error, term()}.
 %% Create a queue with a non-default name, store it in the new way.
-create(#{is_lastvalue := IsLastValue} = MQ0) when
+create(#{is_lastvalue := IsLastValue, limits := Limits0} = MQ0) when
     (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, MQ0)))
 ->
     Id = emqx_guid:gen(),
-    MQ = MQ0#{id => Id},
+    Limits = maps:merge(#{on_full => evict}, Limits0),
+    MQ = MQ0#{id => Id, limits := Limits},
     Name = emqx_mq_prop:name(MQ),
     Key = make_key(MQ),
     IndexRecord = mq_to_record(MQ),
     maybe
         ok ?= validate_name(Name),
+        ok ?= validate_policy(MQ),
         ok ?= validate_max_queue_count(),
         ok ?=
             do_create(
@@ -331,6 +334,7 @@ update_by_id(Id, UpdateFields0) ->
     UpdateFields = maps:without([topic_filter, id, name], UpdateFields0),
     maybe
         {ok, MQ} ?= find_by_id(Id),
+        ok ?= validate_policy_update(MQ, UpdateFields),
         Key = make_key(MQ),
         IsLastvalueOld = emqx_mq_prop:is_lastvalue(MQ),
         IsLastvalueNew = emqx_mq_prop:is_lastvalue(UpdateFields),
@@ -406,6 +410,22 @@ Get the number of queues.
 queue_count() ->
     mnesia:table_info(?MQ_REGISTRY_INDEX_TAB, size).
 
+-spec validate_policy(map()) -> ok | {error, term()}.
+validate_policy(MQ) ->
+    case emqx_mq_prop:on_full(MQ) of
+        evict ->
+            ok;
+        reject ->
+            #{limits := Limits} = MQ,
+            maybe
+                ok ?= emqx_mq_schema:validate_limits(Limits),
+                case lists:all(fun supports_reject/1, emqx:cluster_nodes(all)) of
+                    true -> ok;
+                    false -> {error, on_full_reject_not_supported_by_cluster}
+                end
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -417,7 +437,7 @@ update_mq_state(Id, Update) ->
         {ok, MQ, Changed} ?= emqx_mq_state_storage:update_mq_state(Id, Update),
         case Changed of
             false -> ok;
-            true -> ok = stop_consumer(Id)
+            true -> ok = stop_consumer(MQ)
         end,
         {ok, MQ}
     end.
@@ -431,10 +451,10 @@ advance_deliver_cutoff_date(CutoffMs) ->
             MQ#{deliver_cutoff_date => CutoffMs}
     end.
 
-stop_consumer(Id) ->
-    case emqx_mq_consumer:find(Id) of
+stop_consumer(MQ) ->
+    case emqx_mq_consumer:find(emqx_mq_prop:id(MQ)) of
         {ok, ConsumerRef} ->
-            emqx_mq_consumer:stop(ConsumerRef);
+            emqx_mq_consumer:stop(MQ, ConsumerRef);
         not_found ->
             ok
     end.
@@ -447,8 +467,7 @@ drop_queue_data(MQ) ->
     ).
 
 drop_consumer_state(MQ) ->
-    Id = emqx_mq_prop:id(MQ),
-    ok = stop_consumer(Id),
+    ok = stop_consumer(MQ),
     safe_with_log(
         MQ,
         fun() -> emqx_mq_state_storage:destroy_consumer_state(MQ) end,
@@ -593,7 +612,7 @@ record_to_mq_handle(#?MQ_REGISTRY_INDEX_TAB{
         topic_filter => emqx_topic_index:get_topic(Key),
         is_lastvalue => IsLastValue,
         key_expression => KeyExpr,
-        limits => maps:get(limits, Extra, ?DEFAULT_MQ_LIMITS)
+        limits => maps:merge(?DEFAULT_MQ_LIMITS, maps:get(limits, Extra, #{}))
     }.
 
 mq_to_record(MQ) ->
@@ -610,6 +629,18 @@ mq_to_record(#{id := Id, is_lastvalue := IsLastValue, limits := Limits} = MQ, Ke
             limits => Limits
         }
     }.
+
+validate_policy_update(MQ, Update) ->
+    case emqx_mq_prop:on_full(MQ) =:= emqx_mq_prop:on_full(Update) of
+        true -> validate_policy(Update);
+        false -> {error, on_full_not_allowed_to_be_updated}
+    end.
+
+supports_reject(Node) ->
+    case emqx_bpapi:supported_version(Node, emqx_mq_quota_index) of
+        Version when is_integer(Version), Version >= 1 -> true;
+        _ -> false
+    end.
 
 validate_max_queue_count() ->
     case queue_count() >= emqx_mq_config:max_queue_count() of

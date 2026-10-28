@@ -89,6 +89,121 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+%% Check that reject limits round-trip through the API and policy changes return a field-specific error.
+t_reject_policy(_Config) ->
+    Limits = #{<<"on_full">> => <<"reject">>, <<"max_shard_message_count">> => 10},
+    {ok, 200, _} = api_post([queues], #{
+        <<"name">> => <<"reject_api">>,
+        <<"topic_filter">> => <<"reject/#">>,
+        <<"is_lastvalue">> => true,
+        <<"limits">> => Limits
+    }),
+    ?assertMatch(
+        {ok, 200, #{<<"limits">> := #{<<"on_full">> := <<"reject">>}}},
+        api_get([queue, reject_api])
+    ),
+    {ok, 400, #{<<"message">> := Error}} = api_put([queue, reject_api], #{
+        <<"is_lastvalue">> => true, <<"limits">> => maps:remove(<<"on_full">>, Limits)
+    }),
+    ?assertNotEqual(nomatch, binary:match(Error, <<"on_full">>)),
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([queue, reject_api], #{
+            <<"is_lastvalue">> => true,
+            <<"limits">> => Limits#{<<"max_shard_message_count">> := 20}
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([queue, reject_api], #{
+            <<"is_lastvalue">> => true,
+            <<"limits">> => #{<<"on_full">> => <<"reject">>}
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([queues], #{
+            <<"name">> => <<"invalid_reject">>,
+            <<"topic_filter">> => <<"invalid/#">>,
+            <<"limits">> => #{<<"on_full">> => <<"reject">>}
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([queues, config], #{
+            <<"auto_create">> => #{
+                <<"regular">> => false,
+                <<"lastvalue">> => #{<<"limits">> => #{<<"on_full">> => <<"reject">>}}
+            }
+        })
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_put([queues, config], #{
+            <<"auto_create">> => #{
+                <<"regular">> => false, <<"lastvalue">> => #{<<"limits">> => Limits}
+            }
+        })
+    ).
+
+%% Check that auto-creation policy errors use the config handler's reason map.
+t_reject_auto_create_error(_Config) ->
+    lists:foreach(
+        fun(Type) ->
+            NewConf = #{
+                auto_create => #{
+                    Type => #{
+                        limits => #{
+                            on_full => reject,
+                            max_shard_message_count => infinity,
+                            max_shard_message_bytes => infinity
+                        }
+                    }
+                }
+            },
+            ?assertEqual(
+                {error, #{reason => on_full_reject_requires_finite_limit}},
+                emqx_mq_config:post_config_update([mq], NewConf, NewConf, #{}, [])
+            )
+        end,
+        [regular, lastvalue]
+    ).
+
+%% Check that unsupported cluster versions return client errors for reject queue creation and updates.
+t_reject_cluster_version(_Config) ->
+    Limits = #{<<"on_full">> => <<"reject">>, <<"max_shard_message_count">> => 10},
+    Queue = #{
+        <<"name">> => <<"reject_cluster">>,
+        <<"topic_filter">> => <<"reject/#">>,
+        <<"limits">> => Limits
+    },
+    {ok, 200, _} = api_post([message_queues, queues], Queue),
+    meck:new(emqx_bpapi, [passthrough, no_link]),
+    emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_bpapi) end),
+    meck:expect(emqx_bpapi, supported_version, fun
+        (_, emqx_mq_quota_index) -> undefined;
+        (Node, API) -> meck:passthrough([Node, API])
+    end),
+    {ok, 400, #{<<"message">> := CreateError}} = api_post(
+        [message_queues, queues], Queue#{<<"name">> := <<"unsupported">>}
+    ),
+    ?assertNotEqual(nomatch, binary:match(CreateError, <<"on_full">>)),
+    {ok, 400, #{<<"message">> := UpdateError}} = api_put(
+        [message_queues, queues, reject_cluster], #{<<"limits">> => Limits}
+    ),
+    ?assertNotEqual(nomatch, binary:match(UpdateError, <<"on_full">>)),
+    ?assertMatch(
+        {error,
+            {post_config_update, emqx_mq_config, #{
+                reason := on_full_reject_not_supported_by_cluster
+            }}},
+        emqx_mq_config:update_config(#{
+            <<"auto_create">> => #{
+                <<"regular">> => false, <<"lastvalue">> => #{<<"limits">> => Limits}
+            }
+        })
+    ).
+
 %% Verify basic CRUD operations on message queues.
 t_crud(_Config) ->
     ?assertMatch(
@@ -291,15 +406,15 @@ t_update_running_queue(_Config) ->
             <<"data_retention_period">> => 600_000
         })
     ),
-    %% One hour old, so within the old retention period but not the new one.
+    %% Publication time is one hour old, but storage time is within the new retention period.
     %% Both messages are from one client, so they are read in order.
     Stale = emqx_message:make(<<"pub">>, 1, <<"t/1">>, <<"stale">>),
     Fresh = emqx_message:make(<<"pub">>, 1, <<"t/1">>, <<"fresh">>),
     _ = emqx:publish(Stale#message{timestamp = erlang:system_time(millisecond) - 3_600_000}),
     _ = emqx:publish(Fresh),
 
-    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 1000),
-    ?assertEqual([<<"fresh">>], [Payload || #{payload := Payload} <- Msgs]),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 2, _Timeout1 = 1000),
+    ?assertEqual([<<"stale">>, <<"fresh">>], [Payload || #{payload := Payload} <- Msgs]),
     ok = emqtt:disconnect(CSub).
 
 %% Verify an unset cutoff stays absent and configured timestamps persist for the group's queue type.
@@ -890,7 +1005,8 @@ t_purge_before(Config) ->
     ?assertEqual(Records, lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
     Client = emqx_mq_test_utils:emqtt_connect([]),
     ok = emqx_mq_test_utils:emqtt_sub_mq(Client, Name),
-    {ok, [#{payload := <<"boundary">>}]} = emqx_mq_test_utils:emqtt_drain(1, 1000),
+    {ok, Delivered} = emqx_mq_test_utils:emqtt_drain(2, 1000),
+    ?assertEqual([<<"boundary">>, <<"old">>], lists:sort([P || #{payload := P} <- Delivered])),
     ok = emqtt:disconnect(Client).
 
 %% Check that malformed, negative, and future purge cutoffs return 400 without changing the queue.

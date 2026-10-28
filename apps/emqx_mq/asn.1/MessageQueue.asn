@@ -48,6 +48,7 @@ BEGIN
     limits [14] Limits OPTIONAL,
     name [15] OCTET STRING OPTIONAL,
     deliverCutoffDate [16] INTEGER OPTIONAL,
+    onFull [17] OCTET STRING OPTIONAL,
     ...
   }
 

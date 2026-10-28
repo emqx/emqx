@@ -341,6 +341,10 @@ put_message_queue_config_example() ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>);
         {error, max_queue_count_reached} ->
             ?BAD_REQUEST('MAX_QUEUE_COUNT_REACHED', <<"Max queue count reached">>);
+        {error, on_full_reject_requires_finite_limit} ->
+            ?BAD_REQUEST(<<"on_full reject requires a finite limit">>);
+        {error, on_full_reject_not_supported_by_cluster} ->
+            ?BAD_REQUEST(<<"on_full reject is not supported by every cluster node">>);
         {error, Reason} ->
             ?SERVICE_UNAVAILABLE(Reason)
     end.
@@ -362,6 +366,12 @@ put_message_queue_config_example() ->
             ?OK(MQRaw);
         {error, is_lastvalue_not_allowed_to_be_updated} ->
             ?BAD_REQUEST(<<"LastValue flag is not allowed to be updated">>);
+        {error, on_full_not_allowed_to_be_updated} ->
+            ?BAD_REQUEST(<<"on_full is not allowed to be updated">>);
+        {error, on_full_reject_requires_finite_limit} ->
+            ?BAD_REQUEST(<<"on_full reject requires a finite limit">>);
+        {error, on_full_reject_not_supported_by_cluster} ->
+            ?BAD_REQUEST(<<"on_full reject is not supported by every cluster node">>);
         {error, limit_presence_cannot_be_updated_for_regular_queues} ->
             ?BAD_REQUEST(
                 <<"Regular queues cannot be updated from limited to unlimited and vice versa">>

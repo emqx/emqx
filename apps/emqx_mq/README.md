@@ -60,6 +60,7 @@ For MQTT 5, QoS 1 PUBACK and QoS 2 PUBREC report the persistence result:
 | Message stored | Success (`0x00`) |
 | Queue missing, creation failed, or storage failed | Implementation specific error (`0x83`) |
 | Invalid name, empty topic suffix, or conflicting topic | Topic Name invalid (`0x90`) |
+| Queue admission rejected by `limits.on_full = reject` | Quota exceeded (`0x97`) |
 
 QoS 0 has no publish acknowledgment.
 MQTT 3.x acknowledgments cannot carry error reason codes.
@@ -74,6 +75,11 @@ initiates a connection to the Message Queue Consumer.
 * The Consumer restores message consumption progress and starts to fetch data from the Message Queue message database.
 * The Consumer dispatches received messages to the connected subscribers.
 * The subscribers (channels) deliver MQ messages to the clients.
+
+Retention and the purge delivery cutoff use the time Durable Storage stored the message.
+Delivered messages carry that storage time as their timestamp.
+Message-Expiry-Interval and delivery hooks use the restored storage time.
+Quota accounting keeps the original publication timestamp, including when replacing a last-value message.
 
 ### Schematic View
 
@@ -113,6 +119,7 @@ Message Queues can be capped by time or size individually. The capping is config
 ```json
 ...
 "limits": {
+    "on_full": "reject",
     "max_shard_message_count": 1000,
     "max_shard_message_bytes": "100MB"
 }
@@ -120,9 +127,38 @@ Message Queues can be capped by time or size individually. The capping is config
 ```
 
 * `max_shard_message_count` is the maximum number of messages in a shard for the Message Queue. The number of shards is configured for all Message Queues in the Durable Storage settings. So the total count limit for the Message Queue is `n_shards * max_shard_message_count`.
-* `max_shard_message_bytes` is the maximum number of bytes in a shard for the Message Queue. Note that this limit is not aware of the replication factor. So the total byte limit for the Message Queue is `n_shards * replication_factor * max_shard_message_bytes`
+* `max_shard_message_bytes` limits the serialized message bytes charged to each shard. The total queue limit is `n_shards * max_shard_message_bytes`. Replication adds physical storage usage.
 
-Also the limit is soft. The limit is applied to the queues during the GC process with 10% threshold. That means that immediately after GC the queue may exceed the limits by up to 10%, but between GC runs the amount of excess data may be larger.
+Set `limits.on_full` to choose the full policy:
+
+* `evict` is the default. It accepts every publish. The quota index trims older buckets when usage reaches a limit. Periodic garbage collection deletes the older data later.
+* `reject` checks estimated count and serialized bytes before storing a message. It rejects a message when adding it would exceed either finite limit. Capacity pressure does not delete accepted messages. Expiration, explicit purge, and last-value replacement still apply.
+
+The reject policy requires at least one finite limit. The policy cannot change after queue creation. Send `on_full = reject` on every update of a reject queue. An update that omits it receives the default `evict` and fails as a policy change. Automatic queue creation accepts the same settings. All cluster nodes must support reject queues before creating one.
+
+Limits apply separately to each shard. Regular queues select a shard by publisher client ID. Last-value queues select a shard by message key. One publisher can receive a rejection while another publisher's shard still has capacity.
+
+Occupancy estimates retained backlog. It does not count unacknowledged messages exactly and does not cap physical disk usage. Quota updates are buffered. Concurrent writes, delayed writes, message timestamps, and stale reads can cause overshoot or rejection of a message that could fit. There is no fixed maximum overshoot.
+
+### Releasing quota through consumption
+
+A reject queue reports consumption when a whole consumer buffer has been acknowledged or skipped by existing consumption rules. Its cleaner retires whole quota-index buckets within that consumed prefix. The index commit releases quota before data deletion and disk compaction finish. Publishing does not wait for cleanup.
+
+Cleanup always retains the newest index bucket. Normal inserts close a bucket when its count or byte threshold is reached. The default threshold is ten percent of the corresponding limit. A consumed newest bucket can remain charged until a later insertion creates a newer boundary. An idle, fully consumed queue need not reach zero occupancy.
+
+For example, a queue with a byte limit of 1,000 can retain a head bucket containing 90 consumed bytes. It rejects a new 950-byte message. Cleanup does not split or force-close that bucket to admit the message.
+
+Reject last-value queues retain unconsumed values. Cleanup deletes consumed values. Admission does not credit the previous value of the same key. A rejected replacement leaves that value intact.
+
+The cleaner retries failed index transactions. When data deletion fails after the index commit, it logs the failure without retrying deletion. The next garbage collection run removes records below the oldest index boundary, even before retention expires. A later successful cleanup also removes them. The default garbage collection interval is one hour.
+
+If cleanup deletes the last record in an older consumer checkpoint, restoration can wait until a newer message arrives. No messages await delivery in that state. Checkpoint lag and failed data deletion can cause redelivery under the existing at-least-once delivery semantics.
+
+### Rejection feedback
+
+Only direct `$queue/` publication reports rejection to MQTT 5 publishers through PUBACK or PUBREC. QoS 0 has no acknowledgment. MQTT 3.x acknowledgments cannot carry the MQTT 5 rejection reason.
+
+Publication to an ordinary topic receives no feedback about rejection by a matching queue. A full queue skips the message, increments the `queue_full` counter, and logs a throttled warning. Other matching queues and regular subscribers still receive the publication. Capacity rejections and storage errors use separate counters.
 
 The threshold and some other settings are configured via the `quota` section of the global Message Queue configuration, but they are not publicly exposed currently.
 
@@ -256,7 +292,7 @@ The optional `before` parameter accepts an RFC 3339 timestamp or epoch milliseco
 The `before` value must not be later than the current time.
 When `before` precedes the queue's current delivery cutoff, the request does nothing.
 Purge never lowers the delivery cutoff.
-Messages whose message timestamps precede `before` are skipped during delivery.
+Messages stored before `before` are skipped during delivery.
 Indexed queues delete stored data only before the nearest quota bucket boundary strictly earlier than `before`.
 When no earlier boundary exists, stored records remain.
 Regular unlimited queues delete records whose storage timestamps precede `before`.

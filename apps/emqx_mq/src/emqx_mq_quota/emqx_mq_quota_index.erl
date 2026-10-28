@@ -32,10 +32,15 @@ Initialize missing common buckets from legacy buckets at or after the legacy dea
     apply_update/2,
     apply_updates/2,
     drop_legacy/1,
-    cutoff/2,
+    truncate_before/2,
     reset/2,
     inspect/1,
     deadline/1,
+    occupancy/1,
+    next_boundary/1,
+    oldest_boundary/1,
+    bucket_thresholds/1,
+    truncate/2,
     supports_common_index/0
 ]).
 
@@ -52,6 +57,7 @@ Initialize missing common buckets from legacy buckets at or after the legacy dea
 -type opts() :: #{
     bytes => pos_integer() | infinity,
     count => pos_integer() | infinity,
+    on_full => evict | reject,
     threshold_percentage => pos_integer()
 }.
 
@@ -69,6 +75,50 @@ Initialize missing common buckets from legacy buckets at or after the legacy dea
 -spec supports_common_index() -> true.
 supports_common_index() ->
     true.
+
+-spec occupancy(t()) -> #{bytes := integer(), count := integer()}.
+occupancy(#index{index = #'StorageIndex'{common = Records}}) ->
+    #{
+        bytes => lists:sum([Bytes || #'StorageIndexBucket'{bytes = Bytes} <- Records]),
+        count => lists:sum([Count || #'StorageIndexBucket'{count = Count} <- Records])
+    }.
+
+-spec next_boundary(t()) -> timestamp_us() | undefined.
+next_boundary(#index{index = #'StorageIndex'{common = Records}}) ->
+    case lists:reverse(Records) of
+        [_, #'StorageIndexBucket'{tsUs = TsUs} | _] -> TsUs;
+        _ -> undefined
+    end.
+
+-doc """
+Return the start of the oldest common bucket, or 0 without common buckets.
+Periodic GC deletes reject queue data below it. See "Deletion boundaries" in `emqx_mq_message_db`.
+""".
+-spec oldest_boundary(t()) -> timestamp_us().
+oldest_boundary(#index{index = #'StorageIndex'{common = []}}) ->
+    0;
+oldest_boundary(#index{index = #'StorageIndex'{common = Records}}) ->
+    #'StorageIndexBucket'{tsUs = TsUs} = lists:last(Records),
+    TsUs.
+
+-doc "Return the count and byte values at which a common bucket closes.".
+-spec bucket_thresholds(opts()) ->
+    #{bytes := pos_integer() | infinity, count := pos_integer() | infinity}.
+bucket_thresholds(Opts) ->
+    {Bytes, Count} = emqx_mq_quota_index_common:thresholds(Opts),
+    #{bytes => Bytes, count => Count}.
+
+-doc """
+Retire whole buckets at an exclusive consumed boundary and retain the newest bucket.
+Return the retained oldest boundary, which does not exceed `BoundaryUs`, or 0 when no bucket
+retired. See "Deletion boundaries" in `emqx_mq_message_db`.
+""".
+-spec truncate(t(), timestamp_us()) -> {timestamp_us(), t()}.
+truncate(Index, BoundaryUs) ->
+    case next_boundary(Index) of
+        Next when is_integer(Next), Next =< BoundaryUs -> truncate_before(Index, BoundaryUs + 1);
+        _ -> {0, Index}
+    end.
 
 -doc """
 Decode the index from a binary.
@@ -118,15 +168,16 @@ drop_legacy(#index{index = StorageIndex} = Index) ->
 Select the nearest common bucket boundary strictly before BeforeUs.
 Remove common and legacy buckets starting before that boundary.
 Return zero and retain all buckets when no earlier boundary exists.
+See "Deletion boundaries" in `emqx_mq_message_db`.
 """.
--spec cutoff(t(), timestamp_us()) -> {timestamp_us(), t()}.
-cutoff(#index{index = StorageIndex0} = Index, BeforeUs) ->
+-spec truncate_before(t(), timestamp_us()) -> {timestamp_us(), t()}.
+truncate_before(#index{index = StorageIndex0} = Index, BeforeUs) ->
     #'StorageIndex'{common = Common0, bytes = Bytes, count = Count} = StorageIndex0,
-    {CutoffUs, Common} = emqx_mq_quota_index_common:cutoff(Common0, BeforeUs),
+    {CutoffUs, Common} = emqx_mq_quota_index_common:truncate_before(Common0, BeforeUs),
     StorageIndex = StorageIndex0#'StorageIndex'{
         common = Common,
-        bytes = cutoff_legacy(Bytes, CutoffUs),
-        count = cutoff_legacy(Count, CutoffUs)
+        bytes = truncate_legacy_before(Bytes, CutoffUs),
+        count = truncate_legacy_before(Count, CutoffUs)
     },
     {CutoffUs, Index#index{index = StorageIndex}}.
 
@@ -176,6 +227,8 @@ is greater than the corresponding max value.
 Returns 0 if there is no data in the index / limits are not reached.
 """.
 -spec deadline(t()) -> non_neg_integer().
+deadline(#index{opts = #{on_full := reject}}) ->
+    0;
 deadline(#index{
     opts = Opts,
     index = #'StorageIndex'{bytes = asn1_NOVALUE, count = asn1_NOVALUE, common = Records}
@@ -212,16 +265,16 @@ reset_legacy(asn1_NOVALUE, _TsUs) ->
 reset_legacy(_Records, TsUs) ->
     emqx_mq_quota_index_legacy:reset(TsUs).
 
-cutoff_legacy(asn1_NOVALUE, _CutoffUs) ->
+truncate_legacy_before(asn1_NOVALUE, _CutoffUs) ->
     asn1_NOVALUE;
-cutoff_legacy(Records, CutoffUs) ->
-    emqx_mq_quota_index_legacy:cutoff(Records, CutoffUs).
+truncate_legacy_before(Records, CutoffUs) ->
+    emqx_mq_quota_index_legacy:truncate_before(Records, CutoffUs).
 
 ensure_common_index(#'StorageIndex'{common = asn1_NOVALUE} = Index, Opts) ->
     #'StorageIndex'{maxTsUs = MaxTsUs, bytes = Bytes0, count = Count0} = Index,
     Deadline = legacy_deadline(Index, Opts),
-    Bytes = legacy_records(cutoff_legacy(Bytes0, Deadline)),
-    Count = legacy_records(cutoff_legacy(Count0, Deadline)),
+    Bytes = legacy_records(truncate_legacy_before(Bytes0, Deadline)),
+    Count = legacy_records(truncate_legacy_before(Count0, Deadline)),
     TsUs = lists:min([MaxTsUs | [Ts || #'StorageIndexRecord'{tsUs = Ts} <- Bytes ++ Count]]),
     Index#'StorageIndex'{
         common = [#'StorageIndexBucket'{tsUs = TsUs, bytes = total(Bytes), count = total(Count)}]
@@ -229,6 +282,8 @@ ensure_common_index(#'StorageIndex'{common = asn1_NOVALUE} = Index, Opts) ->
 ensure_common_index(Index, _Opts) ->
     Index.
 
+legacy_deadline(_Index, #{on_full := reject}) ->
+    0;
 legacy_deadline(Index, Opts) ->
     lists:foldl(
         fun(Kind, Deadline) ->
@@ -255,7 +310,9 @@ apply_legacy_update(
     lists:foldl(
         fun(Kind, #'StorageIndex'{maxTsUs = MaxTsUs0} = Acc) ->
             #{Kind := Max} = Opts,
-            LegacyOpts = #{max => Max, threshold_percentage => Percentage},
+            LegacyOpts = maps:merge(maps:with([on_full], Opts), #{
+                max => Max, threshold_percentage => Percentage
+            }),
             {MaxTsUs, Records} = emqx_mq_quota_index_legacy:apply_update(
                 index_records(Kind, Acc), MaxTsUs0, {TsUs, update_value(Kind, Update)}, LegacyOpts
             ),

@@ -47,7 +47,7 @@ emqx_mq_api {
         desc: "Message queue purged successfully"
     }
     purge_before {
-        desc: "Exclusive delivery cutoff as an RFC 3339 timestamp or milliseconds since the Unix epoch. The value must not precede the Unix epoch or be later than the current time. If the value precedes the current delivery cutoff of the queue, the request does nothing. Omit this parameter to purge messages older than the purge start time."
+        desc: "Exclusive delivery cutoff as an RFC 3339 timestamp or milliseconds since the Unix epoch. The cutoff compares the time the queue stored the message. The value must not precede the Unix epoch or be later than the current time. If the value precedes the current delivery cutoff of the queue, the request does nothing. Omit this parameter to purge messages stored before the purge start time."
     }
     invalid_purge_before {
         desc: "Invalid purge cutoff timestamp"
