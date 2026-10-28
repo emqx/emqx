@@ -1310,6 +1310,9 @@ do_econnrefused_or_timeout_test(TCConfig, Error) ->
         %% message as dropped; and since it never considers the
         %% response expired, this succeeds.
         econnrefused ->
+            %% `retried' is deliberately not asserted: the resource retries a
+            %% refused connection and the counter only increases, so once a
+            %% retry has happened no later attempt of this assertion can pass.
             ?retry(
                 200,
                 5,
@@ -1324,7 +1327,6 @@ do_econnrefused_or_timeout_test(TCConfig, Error) ->
                             inflight := Inflight,
                             matched := Matched,
                             queuing := Queueing,
-                            retried := 0,
                             success := 0
                         } when Matched >= 1 andalso Inflight + Queueing + Dropped + Failed =< 2,
                         CurrentMetrics
