@@ -80,6 +80,7 @@
 ]).
 
 -type sub_data() :: #{
+    clientid => emqx_types:clientid(),
     topic := emqx_types:topic(),
     token := binary(),
     subopts := emqx_types:subopts()
