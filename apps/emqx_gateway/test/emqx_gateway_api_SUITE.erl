@@ -43,7 +43,7 @@ init_per_suite(Conf) ->
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
             {emqx_gateway, ?CONF_DEFAULT}
-            | [emqx_gateway_nats | emqx_gateway_test_utils:all_gateway_apps()]
+            | emqx_gateway_test_utils:all_gateway_apps()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Conf)}
     ),
@@ -134,7 +134,7 @@ t_gateway_enable(_) ->
     {404, _} = request(put, "/gateways/coap/enable/true", undefined),
     ok.
 
--doc "Keep protocol-specific defaults when gateway API specifications are merged.".
+-doc "The combined OpenAPI specification preserves each gateway's WebSocket defaults.".
 t_gateway_websocket_openapi(_) ->
     {_, GatewayComponents} = emqx_gateway_api:api_spec(),
     {_, ListenerComponents} = emqx_gateway_api_listeners:api_spec(),
@@ -190,7 +190,7 @@ assert_websocket_openapi_defaults(<<"#/components/schemas/", Component/binary>>,
         Defaults
     ).
 
--doc "Keep protocol defaults in the API schema before request translation.".
+-doc "The API schema preserves gateway defaults before it translates requests.".
 t_gateway_websocket_schema(_) ->
     lists:foreach(
         fun({GwName, Defaults}) ->
@@ -246,19 +246,19 @@ assert_websocket_schema(GwName, Type, Overrides, Defaults) ->
         Checked
     ).
 
--doc "Keep NATS WebSocket defaults when loading a gateway through HTTP.".
+-doc "The HTTP API preserves NATS WebSocket defaults.".
 t_gateway_nats_ws_defaults(_) ->
     assert_gateway_websocket_defaults(nats, ws).
 
--doc "Keep NATS secure WebSocket defaults when loading a gateway through HTTP.".
+-doc "The HTTP API preserves NATS secure WebSocket defaults.".
 t_gateway_nats_wss_defaults(_) ->
     assert_gateway_websocket_defaults(nats, wss).
 
--doc "Keep OCPP WebSocket defaults when loading a gateway through HTTP.".
+-doc "The HTTP API preserves OCPP WebSocket defaults.".
 t_gateway_ocpp_ws_defaults(_) ->
     assert_gateway_websocket_defaults(ocpp, ws).
 
--doc "Keep OCPP secure WebSocket defaults when loading a gateway through HTTP.".
+-doc "The HTTP API preserves OCPP secure WebSocket defaults.".
 t_gateway_ocpp_wss_defaults(_) ->
     assert_gateway_websocket_defaults(ocpp, wss).
 
@@ -272,7 +272,7 @@ assert_gateway_websocket_defaults(GwName, Type) ->
         Defaults#{path => <<"/custom">>}
     ).
 
--doc "Keep explicit empty and custom WebSocket options instead of replacing them with defaults.".
+-doc "The HTTP API preserves explicit empty and custom WebSocket options.".
 t_gateway_websocket_explicit_options(_) ->
     lists:foreach(
         fun({GwName, _Defaults}) ->
@@ -297,7 +297,7 @@ assert_explicit_websocket_options(GwName, Protocols) ->
         [ws, wss]
     ).
 
--doc "Keep TCP and SSL listener schemas when a NATS gateway also uses WebSocket listeners.".
+-doc "The NATS API preserves TCP and SSL options alongside WebSocket listeners.".
 t_gateway_nats_mixed_listeners(_) ->
     Listeners = [websocket_test_listener(Type) || Type <- [tcp, ssl, ws, wss]],
     with_websocket_gateway(nats, Listeners, fun(Path) ->
@@ -315,7 +315,7 @@ t_gateway_nats_mixed_listeners(_) ->
         )
     end).
 
--doc "Reject listener transports that the gateway does not support.".
+-doc "The HTTP API rejects listener transports that the gateway does not support.".
 t_gateway_websocket_listener_types(_) ->
     lists:foreach(
         fun({GwName, Type}) ->
@@ -333,7 +333,7 @@ t_gateway_websocket_listener_types(_) ->
         [{nats, udp}, {ocpp, tcp}, {nats, invalid}]
     ).
 
--doc "Keep gateway WebSocket defaults on the separate listener create and update APIs.".
+-doc "The listener create and update APIs preserve gateway WebSocket defaults.".
 t_gateway_websocket_listener_api(_) ->
     lists:foreach(
         fun({GwName, Defaults}) ->

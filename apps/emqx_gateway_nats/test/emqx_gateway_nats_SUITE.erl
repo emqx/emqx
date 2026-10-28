@@ -294,7 +294,7 @@ t_schema_coverage(_Config) ->
     _ = emqx_nats_schema:desc(wss_listener),
     ok.
 
--doc "NATS WebSocket upgrades without a subprotocol support INFO and PING/PONG exchanges.".
+-doc "The NATS gateway exchanges INFO and PING/PONG after an upgrade without a subprotocol.".
 t_ws_optional_subprotocol(_Config) ->
     {ok, _} = application:ensure_all_started(gun),
     lists:foreach(fun check_ws_optional_subprotocol/1, [<<>>, <<"NATS">>]).

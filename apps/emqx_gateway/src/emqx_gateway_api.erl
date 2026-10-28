@@ -366,7 +366,7 @@ fields(Gw) when
     Gw == nats
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
-        convert_listener_struct(Gw, emqx_gateway_schema:gateway_schema(Gw));
+        convert_listener_struct(Gw, emqx_gateway_schema:gateway_schema(Gw, Gw));
 fields(Gw) when
     Gw == update_stomp;
     Gw == update_mqttsn;
@@ -380,7 +380,7 @@ fields(Gw) when
 ->
     "update_" ++ GwStr = atom_to_list(Gw),
     Gw1 = list_to_existing_atom(GwStr),
-    remove_listener_and_authn(emqx_gateway_schema:gateway_schema(Gw1));
+    remove_listener_and_authn(emqx_gateway_schema:gateway_schema(Gw1, Gw1));
 fields(nats_ws_listener) ->
     listener_fields(ws, emqx_gateway_schema:gateway_schema(nats, ws_listener));
 fields(nats_wss_listener) ->

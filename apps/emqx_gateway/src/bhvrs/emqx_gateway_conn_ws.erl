@@ -320,6 +320,7 @@ parse_sec_websocket_protocol([Req, Opts, WsOpts], State) ->
                 true ->
                     {error, no_subprotocol};
                 false ->
+                    %% The response must not select a subprotocol when the request has none.
                     {ok, [Req, Opts, WsOpts], State}
             end;
         Subprotocols ->

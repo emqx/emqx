@@ -91,8 +91,6 @@ fields(wss_listener) ->
         {websocket, sc(ref(nats_websocket), #{})}
     ] ++
         emqx_gateway_schema:wss_listener();
-fields(websocket) ->
-    fields(nats_websocket);
 fields(nats_websocket) ->
     Override = #{
         path => <<>>,
@@ -112,8 +110,6 @@ desc(ws_listener) ->
 desc(wss_listener) ->
     ?DESC(wss_listener);
 desc(nats_websocket) ->
-    ?DESC(websocket);
-desc(websocket) ->
     ?DESC(websocket).
 
 %%--------------------------------------------------------------------

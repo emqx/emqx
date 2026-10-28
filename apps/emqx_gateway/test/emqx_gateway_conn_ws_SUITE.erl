@@ -12,11 +12,11 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
--doc "A request without an optional subprotocol accepts an empty supported list.".
+-doc "The gateway accepts a request without an optional subprotocol header when the supported list is empty.".
 t_optional_subprotocol_empty(_Config) ->
     check_optional_subprotocol([]).
 
--doc "A request without an optional subprotocol does not select an unrequested protocol.".
+-doc "The gateway sends no subprotocol header when the request omits an optional subprotocol.".
 t_optional_subprotocol_absent(_Config) ->
     lists:foreach(fun check_optional_subprotocol/1, [["NATS"], ["ocpp1.6", "ocpp2.0"]]).
 
@@ -28,7 +28,7 @@ check_optional_subprotocol(Supported) ->
         emqx_gateway_conn_ws:parse_sec_websocket_protocol([Req, Opts, #{}], state)
     ).
 
--doc "A request without a required subprotocol returns a controlled handshake error.".
+-doc "The gateway rejects a request that omits a required subprotocol.".
 t_required_subprotocol_absent(_Config) ->
     lists:foreach(
         fun(Supported) ->
@@ -43,7 +43,7 @@ t_required_subprotocol_absent(_Config) ->
         [[], ["NATS"]]
     ).
 
--doc "A requested supported subprotocol is selected in client preference order.".
+-doc "The gateway selects a supported subprotocol in the client's preference order.".
 t_subprotocol_selected(_Config) ->
     Req = #{headers => #{<<"sec-websocket-protocol">> => <<"other, NATS, ocpp1.6">>}},
     Opts = opts(false, ["ocpp1.6", "NATS"]),
@@ -51,7 +51,7 @@ t_subprotocol_selected(_Config) ->
         emqx_gateway_conn_ws:parse_sec_websocket_protocol([Req, Opts, #{}], state),
     ?assertEqual(<<"NATS">>, cowboy_req:resp_header(<<"sec-websocket-protocol">>, Resp)).
 
--doc "A request with no supported subprotocol returns a controlled handshake error.".
+-doc "The gateway rejects a request with no supported subprotocol.".
 t_subprotocol_not_supported(_Config) ->
     lists:foreach(
         fun(Supported) ->
