@@ -3487,6 +3487,13 @@ merge_default_subopts(SubOpts) ->
 %% Enrich ConnAck Caps
 
 enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
+    %% TODO
+    %% Keep runtime checks consistent with the advertised capabilities after zone
+    %% updates.
+    %% * `Topic-Alias-Maximum` uses the connection stored limit.
+    %% * Other capabilities, such as `Maximum-QoS` and `Retain-Available`, still
+    %%   follow runtime configuration even though existing clients do not receive
+    %%   an updated CONNACK.
     #channel{
         clientinfo = #{
             zone := Zone
