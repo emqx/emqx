@@ -68,8 +68,10 @@ trusted_certs(t_verify_peer_trusts_node_trusted_certs) ->
 trusted_certs(t_verify_peer_rejects_ca_not_in_trusted_certs) ->
     <<"system_default">>.
 
+%% `etc/certs' holds only a README on this branch, so take the generated test
+%% certificates. `test_cert/1' generates them when they are missing.
 certs_dir() ->
-    emqx_common_test_helpers:deps_path(emqx, "etc/certs").
+    filename:dirname(emqx_common_test_helpers:test_cert("cacert.pem")).
 
 server_certs() ->
     [

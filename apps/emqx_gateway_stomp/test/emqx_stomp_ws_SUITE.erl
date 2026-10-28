@@ -31,6 +31,9 @@ init_per_suite(Config) ->
     Opts = #{
         frame_mod => emqx_stomp_frame,
         chann_mod => emqx_stomp_channel,
+        %% The cases exercise the generic WebSocket connection, not
+        %% authentication, and the CONNECT frame carries no credentials.
+        enable_authn => false,
         ctx => #{
             gwname => stomp,
             metrics_tab => emqx_gateway_metrics:tabname(stomp)

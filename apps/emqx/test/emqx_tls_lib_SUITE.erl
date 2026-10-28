@@ -32,9 +32,6 @@ end_per_testcase(_TestCase, _TCConfig) ->
 client_opts(Overrides) ->
     emqx_tls_lib:to_client_opts(tls, maps:merge(#{enable => true}, Overrides)).
 
-certs_dir() ->
-    emqx_common_test_helpers:deps_path(emqx, "etc/certs").
-
 -doc """
 `verify_peer` with no CA gets the `node.trusted_certs` file as `cacertfile`.
 """.
@@ -60,7 +57,9 @@ An explicit `cacertfile` is kept, and `node.trusted_certs` is not added.
 """.
 t_explicit_cacertfile_untouched(_TCConfig) ->
     ok = application:set_env(emqx, trusted_certs_path, ?TRUSTED),
-    CA = filename:join(certs_dir(), "cacert.pem"),
+    %% `etc/certs' holds only a README on this branch, so take the CA of the
+    %% generated test certificates.
+    CA = emqx_common_test_helpers:test_cert("cacert.pem"),
     Opts = client_opts(#{verify => verify_peer, cacertfile => list_to_binary(CA)}),
     ?assertEqual([CA], proplists:get_all_values(cacertfile, Opts)),
     ok.
