@@ -27,7 +27,8 @@
     drop_invalid_certs/1,
     ssl_file_conf_keypaths/0,
     pem_dir/1,
-    is_managed_ssl_file/1
+    is_managed_ssl_file/1,
+    resolve_cacertfile_path/1
 ]).
 
 -export([
@@ -40,6 +41,7 @@
 -type tls_version() :: tlsv1 | 'tlsv1.1' | 'tlsv1.2' | 'tlsv1.3'.
 
 -include("logger.hrl").
+-include("emqx_schema.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include("emqx_managed_certs.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -402,14 +404,20 @@ ensure_ssl_files_per_key(Dir, SSL, [KeyPath | KeyPaths], Opts) ->
 
 ensure_ssl_file(_Dir, _KeyPath, SSL, undefined, _Opts) ->
     {ok, SSL};
-ensure_ssl_file(_Dir, KeyPath, SSL, MaybePem, _Opts) when
+ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, Opts) ->
+    case is_system_default_cacertfile(KeyPath, MaybePem) of
+        true -> {ok, SSL};
+        false -> ensure_ssl_file_1(Dir, KeyPath, SSL, MaybePem, Opts)
+    end.
+
+ensure_ssl_file_1(_Dir, KeyPath, SSL, MaybePem, _Opts) when
     MaybePem =:= "" orelse MaybePem =:= <<"">>
 ->
     case lists:member(KeyPath, ?ALLOW_EMPTY_PEM) of
         true -> {ok, SSL};
         false -> {error, #{reason => pem_file_path_or_string_is_required}}
     end;
-ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, Opts) ->
+ensure_ssl_file_1(Dir, KeyPath, SSL, MaybePem, Opts) ->
     case is_valid_string(MaybePem) of
         true ->
             DryRun = maps:get(dry_run, Opts, false),
@@ -644,7 +652,10 @@ do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
         undefined ->
             do_drop_invalid_certs(KeyPaths, SSL);
         PemOrPath ->
-            case is_valid_pem_file(PemOrPath, Type, Password) of
+            case
+                is_system_default_cacertfile(KeyPath, PemOrPath) orelse
+                    is_valid_pem_file(PemOrPath, Type, Password)
+            of
                 true ->
                     do_drop_invalid_certs(KeyPaths, SSL);
                 {error, _} ->
@@ -803,7 +814,7 @@ resolve_managed_certs(undefined, Opts) ->
         {password, Password},
         {keyfile, Keyfile},
         {certfile, resolve_certfile(certfile, Opts)},
-        {cacertfile, absolute_path(resolve_certfile(cacertfile, Opts))}
+        resolve_cacertfile(Opts)
     ];
 resolve_managed_certs([FirstCertOpts | _] = ManagedCertOpts, Opts) ->
     DefaultOpts = resolve_managed_certs(FirstCertOpts, Opts),
@@ -1106,6 +1117,54 @@ resolve_certfile(Key, Options) ->
                     undefined
             end
     end.
+
+resolve_cacertfile(Opts) ->
+    case is_system_default(conf_get_opt(cacertfile, Opts)) of
+        true -> system_default_ca_opt();
+        false -> {cacertfile, absolute_path(resolve_certfile(cacertfile, Opts))}
+    end.
+
+%% The CA option for `cacertfile = system_default'.
+%% Returns `{cacertfile, Path}' when `node.trusted_certs' resolved to a file.
+%% Otherwise returns `{cacerts, Certs}' with the CA certificates that OTP loads
+%% from the OS, or `{cacertfile, undefined}' when OTP cannot load them.
+system_default_ca_opt() ->
+    case application:get_env(emqx, trusted_certs_path) of
+        {ok, Path} ->
+            {cacertfile, Path};
+        undefined ->
+            try
+                {cacerts, public_key:cacerts_get()}
+            catch
+                _:_ -> {cacertfile, undefined}
+            end
+    end.
+
+-doc """
+Resolve a `cacertfile` value to a file path, for clients that take a path and not
+`ssl` options. `system_default` resolves to the `node.trusted_certs` file, or to
+`undefined` when there is none.
+""".
+-spec resolve_cacertfile_path(undefined | string() | binary()) -> undefined | string() | binary().
+resolve_cacertfile_path(Value) ->
+    case is_system_default(Value) of
+        true -> application:get_env(emqx, trusted_certs_path, undefined);
+        false -> Value
+    end.
+
+is_system_default_cacertfile([cacertfile], Value) ->
+    is_system_default(Value);
+is_system_default_cacertfile([<<"cacertfile">>], Value) ->
+    is_system_default(Value);
+is_system_default_cacertfile(_KeyPath, _Value) ->
+    false.
+
+is_system_default(?CACERTFILE_SYSTEM_DEFAULT) ->
+    true;
+is_system_default(Value) when is_list(Value) ->
+    Value =:= binary_to_list(?CACERTFILE_SYSTEM_DEFAULT);
+is_system_default(_) ->
+    false.
 
 %% `ssl` takes an absolute `cacertfile` path as it is.
 %% It makes a relative path absolute again on each handshake.

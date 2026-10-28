@@ -621,8 +621,14 @@ ssl_opts(InstId, #{enable := true, verify := verify_none}) ->
 ssl_opts(InstId, #{enable := true} = SSL) when not is_map_key(cacertfile, SSL) ->
     ?SLOG(error, #{msg => "cacertfile_is_required", connector => InstId}),
     {error, ssl_cacertfile_is_required};
-ssl_opts(_InstId, #{enable := true, cacertfile := CacertFile} = _SSL) ->
-    #{tls_cert => bin(CacertFile)};
+ssl_opts(InstId, #{enable := true, cacertfile := CacertFile0} = _SSL) ->
+    case emqx_tls_lib:resolve_cacertfile_path(CacertFile0) of
+        undefined ->
+            ?SLOG(error, #{msg => "cacertfile_is_required", connector => InstId}),
+            {error, ssl_cacertfile_is_required};
+        CacertFile ->
+            #{tls_cert => bin(CacertFile)}
+    end;
 ssl_opts(_InstId, _) ->
     #{}.
 

@@ -478,7 +478,14 @@ extract_tls_opts(SSLOpts) ->
     TLSCertOpts1 = maybe_put_tls_verify_opt(SSLOpts, TLSCertOpts),
     maybe_put_cipher_suites(SSLOpts, TLSCertOpts1).
 
-extract_tls_cert_opts(SSLOpts) ->
+extract_tls_cert_opts(SSLOpts0) ->
+    SSLOpts =
+        case SSLOpts0 of
+            #{cacertfile := CACertFile} ->
+                SSLOpts0#{cacertfile := emqx_tls_lib:resolve_cacertfile_path(CACertFile)};
+            #{} ->
+                SSLOpts0
+        end,
     TLSOpts0 = maps:fold(
         fun emqx_utils_maps:rename/3,
         SSLOpts,
@@ -684,5 +691,35 @@ client_opts_tls_verify_peer_keeps_certs_test() ->
     ?assertEqual(<<"/tmp/ca.crt">>, maps:get(ca_cert, Opts)),
     ?assertEqual(<<"/tmp/client.crt">>, maps:get(client_cert, Opts)),
     ?assertEqual(<<"/tmp/client.key">>, maps:get(client_key, Opts)).
+
+client_opts_tls_verify_none_without_cacertfile_key_test() ->
+    ConnConfig = #{
+        server => <<"127.0.0.1:5001">>,
+        dbname => <<"public">>,
+        ssl => #{enable => true, verify => verify_none}
+    },
+    Opts = client_opts(test_res_id, ConnConfig),
+    ?assertEqual(true, maps:get(tls, Opts)),
+    ?assertNot(maps:is_key(ca_cert, Opts)).
+
+client_opts_tls_system_default_cacertfile_test() ->
+    ConnConfig = #{
+        server => <<"127.0.0.1:5001">>,
+        dbname => <<"public">>,
+        ssl => #{
+            enable => true,
+            verify => verify_peer,
+            cacertfile => <<"system_default">>,
+            certfile => <<"/tmp/client.crt">>,
+            keyfile => <<"/tmp/client.key">>
+        }
+    },
+    ok = application:set_env(emqx, trusted_certs_path, "/trusted/ca-bundle.pem"),
+    try
+        Opts = client_opts(test_res_id, ConnConfig),
+        ?assertEqual(<<"/trusted/ca-bundle.pem">>, maps:get(ca_cert, Opts))
+    after
+        application:unset_env(emqx, trusted_certs_path)
+    end.
 
 -endif.
