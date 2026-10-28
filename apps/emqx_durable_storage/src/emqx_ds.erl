@@ -992,9 +992,12 @@ Return type:
 
 Options:
 
-- **`sync`**: return control immediately and return tuple `{async, Ref}`.
+- **`sync`**: when `true`,
+  wait for the operation to complete.
 
-  Result of the operation is sent to the caller asynchronously as a
+  When `false`, return control immediately and return tuple `{async, Ref}`.
+
+  Result of the operation will be sent to the caller asynchronously as a
   message that should be matched using `?ds_tx_commit_reply(Ref, Reply)`
   macro. This macro binds `Reply` to a variable that should be passed
   to `emqx_ds:del_batch_outcome` function to get the outcome of the
@@ -1008,7 +1011,7 @@ Options:
   end.
   ```
 
-  Default: `true`
+  Default: `true`.
 
 - **`batch_size`** Maximum number of deletions in a batch.
 
