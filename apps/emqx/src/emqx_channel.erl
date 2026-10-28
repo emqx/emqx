@@ -3043,15 +3043,15 @@ publish_process_alias(
         variable =
             #mqtt_packet_publish{
                 topic_name = <<>>,
-                properties = #{'Topic-Alias' := AliasId}
+                properties = #{'Topic-Alias' := AliasId} = Props
             } = Publish
     },
     Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}
 ) ->
     case find_alias(inbound, AliasId, TopicAliases) of
         {ok, Topic} ->
-            NPublish = Publish#mqtt_packet_publish{topic_name = Topic},
-            publish_check_alias(Packet#mqtt_packet{variable = NPublish}, Channel);
+            NPublish = Publish#mqtt_packet_publish{topic_name = Topic, properties = maps:remove('Topic-Alias', Props)},
+            publish_packet_to_message(Packet#mqtt_packet{variable = NPublish}, Channel);
         error ->
             {error, ?RC_PROTOCOL_ERROR, Channel}
     end;
@@ -3059,15 +3059,16 @@ publish_process_alias(
     Packet = #mqtt_packet{
         variable = #mqtt_packet_publish{
             topic_name = Topic,
-            properties = #{'Topic-Alias' := AliasId}
-        }
+            properties = #{'Topic-Alias' := AliasId} = Props
+        } = Publish
     },
     Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}
 ) ->
     NTopicAliases = save_alias(inbound, AliasId, Topic, TopicAliases),
-    publish_check_alias(Packet, Channel#channel{topic_aliases = NTopicAliases});
+    NPublish = Publish#mqtt_packet_publish{properties = maps:remove('Topic-Alias', Props)},
+    publish_packet_to_message(Packet#mqtt_packet{variable = NPublish}, Channel#channel{topic_aliases = NTopicAliases});
 publish_process_alias(Packet, Channel) ->
-    publish_check_alias(Packet, Channel).
+    publish_packet_to_message(Packet, Channel).
 
 %%--------------------------------------------------------------------
 %% Packing Topic Alias
@@ -3090,7 +3091,7 @@ packing_alias(
         {ok, AliasId} ->
             NPublish = Publish#mqtt_packet_publish{
                 topic_name = <<>>,
-                properties = maps:merge(Prop, #{'Topic-Alias' => AliasId})
+                properties = Prop#{'Topic-Alias' => AliasId}
             },
             {Packet#mqtt_packet{variable = NPublish}, Channel};
         error ->
@@ -3119,8 +3120,8 @@ packing_alias(Packet, Channel) ->
 %% Publish pipeline
 
 %% Stages: check quota (updates channel.quota)
-%%      -> process alias (updates channel.topic_aliases)
 %%      -> check alias
+%%      -> process alias (updates channel.topic_aliases)
 %%      -> packet to message
 %%      -> check authorization
 %%      -> check capabilities
@@ -3135,7 +3136,7 @@ publish_check_quota(
     Needs = [{bytes, erlang:byte_size(Payload)}, {messages, 1}],
     case try_consume_quota(Needs, Chann0) of
         {true, Chann} ->
-            publish_process_alias(Packet, Chann);
+            publish_check_alias(Packet, Chann);
         {false, Chann, Reason} ->
             ?SLOG_THROTTLE(
                 warning,
@@ -3181,12 +3182,12 @@ publish_check_alias(
             (AliasId =< maps:get(inbound, Limits, ?MAX_TOPIC_AlIAS))
     of
         true ->
-            publish_packet_to_message(Packet, Channel);
+            publish_process_alias(Packet, Channel);
         false ->
             {error, ?RC_TOPIC_ALIAS_INVALID, Channel}
     end;
 publish_check_alias(Packet, Channel) ->
-    publish_packet_to_message(Packet, Channel).
+    publish_process_alias(Packet, Channel).
 
 %%--------------------------------------------------------------------
 %% Authorization action

@@ -1638,8 +1638,9 @@ t_publish_process_alias(_) ->
     Props = #{'Topic-Alias' => 1, 'User-Property' => [{<<"k">>, <<"v">>}]},
     Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, Props, <<"payload">>),
     Channel = emqx_channel:set_field(topic_aliases, #{inbound => #{1 => <<"t">>}}, channel()),
+    CleanProps = maps:remove('Topic-Alias', Props),
     ?assertMatch(
-        {ok, #message{topic = <<"t">>, headers = #{properties := Props}}, Channel},
+        {ok, #message{topic = <<"t">>, headers = #{properties := CleanProps}}, Channel},
         emqx_channel:publish_process_alias(Packet, Channel)
     ).
 
