@@ -1149,8 +1149,12 @@ resolve_cacertfile_path(Value) ->
         false -> Value
     end.
 
-is_system_default_cacertfile(KeyPath, Value) ->
-    lists:member(KeyPath, ?ALLOW_EMPTY_PEM) andalso is_system_default(Value).
+is_system_default_cacertfile([cacertfile], Value) ->
+    is_system_default(Value);
+is_system_default_cacertfile([<<"cacertfile">>], Value) ->
+    is_system_default(Value);
+is_system_default_cacertfile(_KeyPath, _Value) ->
+    false.
 
 is_system_default(?CACERTFILE_SYSTEM_DEFAULT) ->
     true;
