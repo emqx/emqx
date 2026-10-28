@@ -50,10 +50,13 @@ query() ->
     ?HOCON(binary(), #{
         desc => ?DESC(query),
         required => true,
-        validator => fun(S) ->
-            case size(S) > 0 of
-                true -> ok;
-                _ -> {error, "Request query"}
-            end
-        end
+        validator => [
+            fun(S) ->
+                case size(S) > 0 of
+                    true -> ok;
+                    _ -> {error, "Request query"}
+                end
+            end,
+            fun(S) -> emqx_auth_sql:validate_read_only(S, pgsql) end
+        ]
     }).

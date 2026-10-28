@@ -95,6 +95,30 @@ t_create_invalid(_Config) ->
 
     [_] = emqx_authz:lookup_states().
 
+-doc """
+Creating a source fails the schema check when its query changes data or has
+more than one SQL statement.
+""".
+t_create_with_write_query(_Config) ->
+    lists:foreach(
+        fun({Query, Reason}) ->
+            Source = maps:merge(raw_pgsql_authz_config(), #{<<"query">> => Query}),
+            ?assertMatch(
+                {error, #{
+                    kind := validation_error,
+                    path := "authorization.sources.1.query",
+                    reason := Reason
+                }},
+                emqx_authz:update(?CMD_REPLACE, [Source])
+            )
+        end,
+        [
+            {<<"UPDATE acl SET permission = 'allow'">>,
+                <<"The query must not change data. It contains the keyword UPDATE">>},
+            {<<"SELECT 1; SELECT 2">>, <<"The query must contain only one SQL statement">>}
+        ]
+    ).
+
 t_node_cache(_Config) ->
     Case = #{
         name => cache_publish,
