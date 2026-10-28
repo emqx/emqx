@@ -1076,7 +1076,7 @@ with_response(Channel) ->
             return_response(Code, Message);
         {coap_error, _ChId, Channel, _Ref, reset} ->
             {error, reset}
-    after 2000 ->
+    after 10_000 ->
         {error, timeout}
     end.
 
