@@ -9,8 +9,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_external_trace.hrl").
 
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
+-elvis([{elvis_style, no_god_modules, disable}]).
 
 -include_lib("stdlib/include/qlc.hrl").
 
@@ -108,7 +108,7 @@
 %% Exposed solely for mocking.
 -export([os_type/0]).
 
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([{elvis_style, no_god_modules, disable}]).
 
 -define(maybe_log_node_errors(LogData, Errors),
     case Errors of
