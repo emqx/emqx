@@ -117,7 +117,6 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:hackney),
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
-      common_dep(:certifi),
       common_dep(:bcrypt),
       common_dep(:uuid),
       {:quickrand,
@@ -202,14 +201,10 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:hackney),
     do: {:hackney, github: "emqx/hackney", tag: "2.0.0", override: true}
 
-  # Pinned to the emqx fork, which carries the current Mozilla CA bundle.
-  # hackney uses certifi:cacerts() as its default trust store.
-  def common_dep(:certifi),
-    do: {:certifi, github: "emqx/erlang-certifi", tag: "2.17.0-emqx-1", override: true}
-
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.7.0", override: true}
 
+  # `emqx_mongodb` retains overflow connections, which needs the emqx fork.
   def common_dep(:poolboy),
     do: {:poolboy, github: "emqx/poolboy", tag: "1.5.2-emqx.1", override: true}
 
