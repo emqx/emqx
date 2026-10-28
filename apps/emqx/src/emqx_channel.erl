@@ -3118,11 +3118,21 @@ packing_alias(
                     },
                     {Packet#mqtt_packet{variable = NPublish}, NChannel};
                 false ->
-                    {Packet, Channel}
+                    {strip_topic_alias(Packet, Publish, Props), Channel}
             end
     end;
 packing_alias(Packet, Channel) ->
     {Packet, Channel}.
+
+-compile({inline, [strip_topic_alias/3]}).
+strip_topic_alias(Packet, Publish, Props = #{'Topic-Alias' := _}) ->
+    Packet#mqtt_packet{
+        variable = Publish#mqtt_packet_publish{
+            properties = maps:remove('Topic-Alias', Props)
+        }
+    };
+strip_topic_alias(Packet, _, _) ->
+    Packet.
 
 %%--------------------------------------------------------------------
 %% Publish pipeline
