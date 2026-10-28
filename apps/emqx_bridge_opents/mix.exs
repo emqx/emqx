@@ -29,7 +29,7 @@ defmodule EMQXBridgeOpents.MixProject do
 
   def deps() do
     UMP.deps([
-      {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.4"},
+      {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.5"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
