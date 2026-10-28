@@ -295,25 +295,15 @@ on_client_handle_info(
     #{deliver := Delivers} = Acc
 ) ->
     ?tp_debug(extsub_on_client_handle_info_to_extsub, #{handler_ref => HandlerRef, info => InfoMsg}),
-    %% Message to a specific handler
-    with_st(
-        fun(#st{registry = HandlerRegistry0} = St0) ->
-            #{session_info_fn := SessionInfoFn} =
-                HookContext = emqx_hooks:context('client.handle_info'),
-            InfoCtx = info_ctx(HandlerRegistry0, HandlerRef, HookContext),
-            Res = emqx_extsub_handler_registry:info(HandlerRegistry0, HandlerRef, InfoCtx, InfoMsg),
-            case Res of
-                {ok, HandlerRegistry} ->
-                    {ok, St0#st{registry = HandlerRegistry}};
-                {ok, HandlerRegistry, Messages} ->
-                    {St, NewDelivers} = try_deliver(
-                        SessionInfoFn, St0#st{registry = HandlerRegistry}, [{HandlerRef, Messages}]
-                    ),
-                    {ok, St, {ok, Acc#{deliver := NewDelivers ++ Delivers}}}
-            end
-        end,
-        {ok, Acc}
-    );
+    handler_info(HandlerRef, InfoMsg, Delivers, Acc);
+on_client_handle_info(
+    _ClientInfo,
+    {#extsub_down{handler_ref = HandlerRef}, MRef, process, Pid, Reason},
+    #{deliver := Delivers} = Acc
+) ->
+    ?tp_debug(extsub_on_client_handle_info_down, #{handler_ref => HandlerRef, pid => Pid}),
+    %% Down message of a monitor created by the handler
+    handler_info(HandlerRef, {'DOWN', MRef, process, Pid, Reason}, Delivers, Acc);
 on_client_handle_info(
     _ClientInfo,
     #info_extsub_try_deliver{},
@@ -418,6 +408,27 @@ maybe_unwrap_ds_subopts(#{} = SubOpts) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% Pass a message to a specific handler and deliver the messages that the handler returns.
+handler_info(HandlerRef, InfoMsg, Delivers, Acc) ->
+    with_st(
+        fun(#st{registry = HandlerRegistry0} = St0) ->
+            #{session_info_fn := SessionInfoFn} =
+                HookContext = emqx_hooks:context('client.handle_info'),
+            InfoCtx = info_ctx(HandlerRegistry0, HandlerRef, HookContext),
+            Res = emqx_extsub_handler_registry:info(HandlerRegistry0, HandlerRef, InfoCtx, InfoMsg),
+            case Res of
+                {ok, HandlerRegistry} ->
+                    {ok, St0#st{registry = HandlerRegistry}};
+                {ok, HandlerRegistry, Messages} ->
+                    {St, NewDelivers} = try_deliver(
+                        SessionInfoFn, St0#st{registry = HandlerRegistry}, [{HandlerRef, Messages}]
+                    ),
+                    {ok, St, {ok, Acc#{deliver := NewDelivers ++ Delivers}}}
+            end
+        end,
+        {ok, Acc}
+    ).
 
 tombstone_subopts(Subs) ->
     _ = with_st(fun(#st{} = St0) ->
