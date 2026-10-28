@@ -1633,18 +1633,36 @@ t_enrich_client(_) ->
 t_auth_connect(_) ->
     {ok, _, _Chan} = emqx_channel:process_authenticate(?CONNECT_PACKET(connpkt()), channel()).
 
-t_process_alias(_) ->
-    Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
+-doc "Alias lookup resolves the topic before message conversion.".
+t_publish_process_alias(_) ->
+    Props = #{'Topic-Alias' => 1, 'User-Property' => [{<<"k">>, <<"v">>}]},
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, Props, <<"payload">>),
     Channel = emqx_channel:set_field(topic_aliases, #{inbound => #{1 => <<"t">>}}, channel()),
-    {ok, #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"t">>}}, _Chan} =
-        emqx_channel:process_alias(#mqtt_packet{variable = Publish}, Channel).
+    ?assertMatch(
+        {ok, #message{topic = <<"t">>, headers = #{properties := Props}}, Channel},
+        emqx_channel:publish_process_alias(Packet, Channel)
+    ).
 
-t_process_alias_inexistent_alias(_) ->
-    Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
+-doc "Alias registration saves the topic before message conversion.".
+t_publish_process_alias_register(_) ->
+    Props = #{'Topic-Alias' => 1},
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, Props, <<"payload">>),
+    {ok, #message{topic = <<"t">>}, Channel} = emqx_channel:publish_process_alias(
+        Packet, channel()
+    ),
+    Lookup = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, Props, <<"payload">>),
+    ?assertMatch(
+        {ok, #message{topic = <<"t">>}, Channel},
+        emqx_channel:publish_process_alias(Lookup, Channel)
+    ).
+
+-doc "Unknown aliases stop the publish chain with a protocol error.".
+t_publish_process_alias_inexistent_alias(_) ->
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<>>, 1, #{'Topic-Alias' => 1}, <<"payload">>),
     Channel = channel(),
     ?assertEqual(
-        {error, ?RC_PROTOCOL_ERROR},
-        emqx_channel:process_alias(#mqtt_packet{variable = Publish}, Channel)
+        {error, ?RC_PROTOCOL_ERROR, Channel},
+        emqx_channel:publish_process_alias(Packet, Channel)
     ).
 
 t_packing_alias(_) ->
@@ -1716,18 +1734,42 @@ t_packing_alias_inexistent_alias(_) ->
         emqx_channel:packing_alias(Packet, Channel)
     ).
 
-t_check_pub_authz(_) ->
+-doc "Authorized messages continue through capability checking and finalization.".
+t_publish_check_authz(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     Msg = emqx_message:make(?MODULE, ?QOS_0, <<"t">>, <<"payload">>),
     ?assertMatch(
         {ok, Msg, _},
-        emqx_channel:check_pub_authz(Msg, channel())
+        emqx_channel:publish_check_authz(Msg, channel())
     ).
 
-t_check_pub_alias(_) ->
-    Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},
-    Channel = emqx_channel:set_field(alias_maximum, #{inbound => 10}, channel()),
-    ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
+-doc "Alias validation continues for accepted aliases and rejects aliases above the negotiated limit.".
+t_publish_check_alias(_) ->
+    Limit = 10,
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, #{'Topic-Alias' => 1}, <<"payload">>),
+    Channel = emqx_channel:set_field(alias_maximum, #{inbound => Limit}, channel()),
+    ?assertMatch(
+        {ok, #message{topic = <<"t">>}, _}, emqx_channel:publish_check_alias(Packet, Channel)
+    ),
+    Lookup = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, #{'Topic-Alias' => Limit + 1}, <<"payload">>),
+    ?assertEqual(
+        {error, ?RC_TOPIC_ALIAS_INVALID, Channel},
+        emqx_channel:publish_check_alias(Lookup, Channel)
+    ).
+
+-doc "Capability errors stop the publish chain.".
+t_publish_check_caps_rejected(_) ->
+    OldLimit = emqx_config:get_zone_conf(default, [mqtt, max_qos_allowed]),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_0),
+    try
+        Channel = channel(),
+        Msg = emqx_message:make(?MODULE, ?QOS_1, <<"t">>, <<"payload">>),
+        ?assertEqual(
+            {error, ?RC_QOS_NOT_SUPPORTED, Channel}, emqx_channel:publish_check_caps(Msg, Channel)
+        )
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], OldLimit)
+    end.
 
 message_ingress(
     #{authz_ctx := #{clientid := <<"clientid">>}},
