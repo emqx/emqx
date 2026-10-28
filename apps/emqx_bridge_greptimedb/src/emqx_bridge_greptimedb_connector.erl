@@ -10,8 +10,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--import(hoconsc, [mk/2, enum/1]).
-
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
@@ -47,8 +45,6 @@
 -export([is_unrecoverable_error/1]).
 -endif.
 
--type ts_precision() :: ns | us | ms | s.
-
 %% Allocatable resources
 -define(greptime_client, greptime_client).
 
@@ -62,8 +58,6 @@
 -define(GREPTIMEDB_HOST_OPTIONS, #{
     default_port => ?GREPTIMEDB_DEFAULT_PORT
 }).
-
--define(DEFAULT_TIMESTAMP_TMPL, "${timestamp}").
 
 -define(AUTO_RECONNECT_S, 1).
 
@@ -87,7 +81,8 @@ on_add_channel(
         Parameters,
         ChannelConfig0#{
             precision => Precision,
-            write_syntax => to_config(WriteSyntaxTmpl, Precision)
+            write_syntax =>
+                emqx_bridge_greptimedb_utils:parse_write_syntax(WriteSyntaxTmpl, Precision)
         }
     ),
     {ok, OldState#{
@@ -133,7 +128,7 @@ on_query(InstId, {Channel, Message}, State) ->
         client := Client,
         dbname := DbName
     } = State,
-    case data_to_points(Message, DbName, SyntaxLines) of
+    case parse_single_data(InstId, DbName, Message, SyntaxLines) of
         {ok, Points} ->
             ?tp(
                 greptimedb_connector_send_query,
@@ -145,8 +140,7 @@ on_query(InstId, {Channel, Message}, State) ->
                 greptimedb_connector_send_query_error,
                 #{batch => false, mode => sync, error => ErrorPoints}
             ),
-            log_error_points(InstId, ErrorPoints),
-            unrecoverable_transformation_error(ErrorPoints)
+            {error, {unrecoverable_error, ErrorPoints}}
     end.
 
 on_batch_query(InstId, [{Channel, _} | _] = BatchData, State) ->
@@ -167,17 +161,19 @@ on_batch_query(InstId, [{Channel, _} | _] = BatchData, State) ->
                 greptimedb_connector_send_query_error,
                 #{batch => true, mode => sync, error => points_trans_failed}
             ),
-            case Points of
-                [] ->
-                    merge_batch_result(ok, BatchResults);
-                _ ->
-                    ?tp(
-                        greptimedb_connector_send_query,
-                        #{points => Points, batch => true, mode => sync}
-                    ),
-                    Result = do_query(InstId, Channel, Client, Points),
-                    merge_batch_result(Result, BatchResults)
-            end
+            %% Some messages transformed; a batch where none did is an error.
+            ?tp(
+                greptimedb_connector_send_query,
+                #{points => Points, batch => true, mode => sync}
+            ),
+            Result = do_query(InstId, Channel, Client, Points),
+            merge_batch_result(Result, BatchResults);
+        {error, Reason} ->
+            ?tp(
+                greptimedb_connector_send_query_error,
+                #{batch => true, mode => sync, error => Reason}
+            ),
+            {error, {unrecoverable_error, Reason}}
     end.
 
 on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
@@ -186,7 +182,7 @@ on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
         client := Client,
         dbname := DbName
     } = State,
-    case data_to_points(Message, DbName, SyntaxLines) of
+    case parse_single_data(InstId, DbName, Message, SyntaxLines) of
         {ok, Points} ->
             ?tp(
                 greptimedb_connector_send_query,
@@ -198,8 +194,7 @@ on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
                 greptimedb_connector_send_query_error,
                 #{batch => false, mode => async, error => ErrorPoints}
             ),
-            log_error_points(InstId, ErrorPoints),
-            unrecoverable_transformation_error(ErrorPoints)
+            {error, {unrecoverable_error, ErrorPoints}}
     end.
 
 on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, State) ->
@@ -221,19 +216,18 @@ on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, S
                 #{batch => true, mode => async, error => points_trans_failed}
             ),
             ReplyFunAndArgs = {ReplyFun, Args},
-            case Points of
-                [] ->
-                    emqx_resource:apply_reply_fun(
-                        ReplyFunAndArgs, merge_batch_result(ok, BatchResults)
-                    ),
-                    ok;
-                _ ->
-                    ?tp(
-                        greptimedb_connector_send_query,
-                        #{points => Points, batch => true, mode => async}
-                    ),
-                    do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs)
-            end
+            %% Some messages transformed; a batch where none did is an error.
+            ?tp(
+                greptimedb_connector_send_query,
+                #{points => Points, batch => true, mode => async}
+            ),
+            do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs);
+        {error, Reason} ->
+            ?tp(
+                greptimedb_connector_send_query_error,
+                #{batch => true, mode => async, error => Reason}
+            ),
+            {error, {unrecoverable_error, Reason}}
     end.
 
 on_get_status(_InstId, #{client := Client}) ->
@@ -570,377 +564,16 @@ merge_batch_result(Result, BatchResults) ->
         BatchResults
     ).
 
-unrecoverable_transformation_error(ErrorPoints) ->
-    {error, {unrecoverable_error, ErrorPoints}}.
-
-%% -------------------------------------------------------------------------------------------------
-%% Tags & Fields Config Trans
-
-to_config(Lines, Precision) ->
-    to_config(Lines, [], Precision).
-
-to_config([], Acc, _Precision) ->
-    lists:reverse(Acc);
-to_config([Item0 | Rest], Acc, Precision) ->
-    Ts0 = maps:get(timestamp, Item0, ?DEFAULT_TIMESTAMP_TMPL),
-    {Ts, FromPrecision, ToPrecision} = preproc_tmpl_timestamp(Ts0, Precision),
-    Item = #{
-        measurement => emqx_placeholder:preproc_tmpl(maps:get(measurement, Item0)),
-        timestamp => Ts,
-        precision => {FromPrecision, ToPrecision},
-        tags => to_kv_config(maps:get(tags, Item0)),
-        fields => to_kv_config(maps:get(fields, Item0))
-    },
-    to_config(Rest, [Item | Acc], Precision).
-
-%% pre-process the timestamp template
-%% returns a tuple of three elements:
-%% 1. The timestamp template itself.
-%% 2. The source timestamp precision (ms if the template ${timestamp} is used).
-%% 3. The target timestamp precision (configured for the client).
-preproc_tmpl_timestamp(undefined, Precision) ->
-    %% not configured, we default it to the message timestamp
-    preproc_tmpl_timestamp(?DEFAULT_TIMESTAMP_TMPL, Precision);
-preproc_tmpl_timestamp(Ts, Precision) when is_integer(Ts) ->
-    %% a const value is used which is very much unusual, but we have to add a special handling
-    {Ts, Precision, Precision};
-preproc_tmpl_timestamp(Ts, Precision) when is_list(Ts) ->
-    preproc_tmpl_timestamp(iolist_to_binary(Ts), Precision);
-preproc_tmpl_timestamp(<<?DEFAULT_TIMESTAMP_TMPL>> = Ts, Precision) ->
-    {emqx_placeholder:preproc_tmpl(Ts), ms, Precision};
-preproc_tmpl_timestamp(Ts, Precision) when is_binary(Ts) ->
-    %% a placehold is in use. e.g. ${payload.my_timestamp}
-    %% we can only hope it the value will be of the same precision in the configs
-    {emqx_placeholder:preproc_tmpl(Ts), Precision, Precision}.
-
-to_kv_config(KVfields) ->
-    lists:foldl(
-        fun({K, V}, Acc) -> to_maps_config(K, V, Acc) end,
-        #{},
-        KVfields
-    ).
-
-to_maps_config(K, V, Res) ->
-    NK = emqx_placeholder:preproc_tmpl(bin(K)),
-    NV = preproc_quoted(V),
-    Res#{NK => NV}.
-
-preproc_quoted({quoted, V}) ->
-    {quoted, emqx_placeholder:preproc_tmpl(bin(V))};
-preproc_quoted(V) ->
-    emqx_placeholder:preproc_tmpl(bin(V)).
-
-proc_quoted({quoted, V}, Data, TransOpts) ->
-    {quoted, emqx_placeholder:proc_tmpl(V, Data, TransOpts)};
-proc_quoted(V, Data, TransOpts) ->
-    emqx_placeholder:proc_tmpl(V, Data, TransOpts).
-
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Data Trans
+
 parse_batch_data(InstId, DbName, BatchData, SyntaxLines) ->
-    {Points, BatchResults, Errors} = lists:foldl(
-        fun({_, Data}, {ListOfPoints, BatchResultsAcc, ErrAccIn}) ->
-            case data_to_points(Data, DbName, SyntaxLines) of
-                {ok, Points} ->
-                    {[Points | ListOfPoints], [valid | BatchResultsAcc], ErrAccIn};
-                {error, ErrorPoints} ->
-                    log_error_points(InstId, ErrorPoints),
-                    Error = {error, {unrecoverable_error, points_trans_failed}},
-                    {ListOfPoints, [Error | BatchResultsAcc], ErrAccIn + 1}
-            end
-        end,
-        {[], [], 0},
-        BatchData
-    ),
-    case Errors of
-        0 ->
-            {ok, lists:flatten(Points)};
-        _ ->
-            ?SLOG(error, #{
-                msg => "greptimedb_trans_point_failed",
-                error_count => Errors,
-                connector => InstId,
-                reason => points_trans_failed
-            }),
-            {ok, lists:flatten(Points), lists:reverse(BatchResults)}
-    end.
+    emqx_bridge_greptimedb_utils:parse_batch_data(InstId, DbName, BatchData, SyntaxLines, erlang).
 
--spec data_to_points(
-    map(),
-    binary(),
-    [
-        #{
-            fields := [{binary(), binary()}],
-            measurement := binary(),
-            tags := [{binary(), binary()}],
-            timestamp := emqx_placeholder:tmpl_token() | integer(),
-            precision := {From :: ts_precision(), To :: ts_precision()}
-        }
-    ]
-) -> {ok, [map()]} | {error, term()}.
-data_to_points(Data, DbName, SyntaxLines) ->
-    lines_to_points(Data, DbName, SyntaxLines, [], []).
-
-%% When converting multiple rows data into Greptimedb Line Protocol, they are considered to be strongly correlated.
-%% And once a row fails to convert, all of them are considered to have failed.
-lines_to_points(_Data, _DbName, [], Points, ErrorPoints) ->
-    case ErrorPoints of
-        [] ->
-            {ok, Points};
-        _ ->
-            %% ignore trans succeeded points
-            {error, ErrorPoints}
-    end;
-lines_to_points(
-    Data, DbName, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc
-) when
-    is_list(Ts)
-->
-    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    case parse_timestamp(emqx_placeholder:proc_tmpl(Ts, Data, TransOptions)) of
-        {ok, TsInt} ->
-            Item1 = Item#{timestamp => TsInt},
-            continue_lines_to_points(Data, DbName, Item1, Rest, ResultPointsAcc, ErrorPointsAcc);
-        {error, BadTs} ->
-            lines_to_points(Data, DbName, Rest, ResultPointsAcc, [
-                {error, {bad_timestamp, BadTs}} | ErrorPointsAcc
-            ])
-    end;
-lines_to_points(
-    Data, DbName, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc
-) when
-    is_integer(Ts)
-->
-    continue_lines_to_points(Data, DbName, Item, Rest, ResultPointsAcc, ErrorPointsAcc).
-
-parse_timestamp([TsInt]) when is_integer(TsInt) ->
-    {ok, TsInt};
-parse_timestamp([TsBin]) ->
-    try
-        {ok, binary_to_integer(TsBin)}
-    catch
-        _:_ ->
-            {error, TsBin}
-    end.
-
-continue_lines_to_points(Data, DbName, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
-    case line_to_point(Data, DbName, Item) of
-        {ok, {_, [#{fields := Fields}]}} when map_size(Fields) =:= 0 ->
-            %% greptimedb client doesn't like empty field maps...
-            ErrorPointsAcc1 = [{error, no_fields} | ErrorPointsAcc],
-            lines_to_points(Data, DbName, Rest, ResultPointsAcc, ErrorPointsAcc1);
-        {ok, Point} ->
-            lines_to_points(Data, DbName, Rest, [Point | ResultPointsAcc], ErrorPointsAcc);
-        {error, Reason} ->
-            lines_to_points(Data, DbName, Rest, ResultPointsAcc, [
-                {error, Reason} | ErrorPointsAcc
-            ])
-    end.
-
-line_to_point(
-    Data,
-    DbName,
-    #{
-        measurement := Measurement,
-        tags := Tags,
-        fields := Fields,
-        timestamp := Ts,
-        precision := {_, ToPrecision} = Precision
-    } = Item
-) ->
-    case config_to_data(Data, Tags, tag) of
-        {ok, EncodedTags} ->
-            case config_to_data(Data, Fields, field) of
-                {ok, EncodedFields} ->
-                    case convert_timestamp(Ts, Precision) of
-                        {ok, Timestamp} ->
-                            TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
-                            Metric = #{
-                                dbname => DbName, table => TableName, timeunit => ToPrecision
-                            },
-                            {ok,
-                                {Metric, [
-                                    maps:without([precision, measurement], Item#{
-                                        tags => EncodedTags,
-                                        fields => EncodedFields,
-                                        timestamp => Timestamp
-                                    })
-                                ]}};
-                        {error, _} = Error ->
-                            Error
-                    end;
-                {error, _} = Error ->
-                    Error
-            end;
-        {error, _} = Error ->
-            Error
-    end.
-
-maybe_convert_time_unit(Ts, {FromPrecision, ToPrecision}) ->
-    erlang:convert_time_unit(Ts, time_unit(FromPrecision), time_unit(ToPrecision)).
-
-convert_timestamp(Ts, Precision) ->
-    Timestamp = maybe_convert_time_unit(Ts, Precision),
-    case is_int64(Timestamp) of
-        true -> {ok, Timestamp};
-        false -> {error, {bad_timestamp, Ts}}
-    end.
-
-time_unit(s) -> second;
-time_unit(ms) -> millisecond;
-time_unit(us) -> microsecond;
-time_unit(ns) -> nanosecond.
-
-config_to_data(Data, Config, Kind) ->
-    maps:fold(
-        fun(K, V, Acc) -> maps_config_to_data(K, V, Data, Kind, Acc) end,
-        {ok, #{}},
-        Config
-    ).
-
-maps_config_to_data(_K, _V, _Data, _Kind, {error, _} = Error) ->
-    Error;
-maps_config_to_data(K, V, Data, Kind, {ok, Res}) ->
-    KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
-    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
-    NV = proc_quoted(V, Data, VTransOptions),
-    case {NK0, NV} of
-        {[undefined], _} ->
-            {ok, Res};
-        %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
-        {_, [undefined | _]} ->
-            {ok, Res};
-        %% a quoted value is a single string, so it is skipped when any placeholder is unset
-        {_, {quoted, Tokens}} when is_list(Tokens) ->
-            case lists:member(undefined, Tokens) of
-                true ->
-                    {ok, Res};
-                false ->
-                    convert_config_value(NK0, NV, Kind, Res)
-            end;
-        _ ->
-            convert_config_value(NK0, NV, Kind, Res)
-    end.
-
-convert_config_value(NK0, NV, Kind, Res) ->
-    NK = list_to_binary(NK0),
-    case value_type(NV, Kind) of
-        {ok, Value} ->
-            {ok, Res#{NK => Value}};
-        {error, _} = Error ->
-            Error
-    end.
-
-value_type([Int, <<"i">>]) when
-    is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX
-->
-    {ok, greptimedb_values:int64_value(Int)};
-value_type([Invalid, <<"i">>]) ->
-    {error, {invalid_integer_value, Invalid}};
-value_type([UInt, <<"u">>]) when
-    is_integer(UInt), UInt >= 0, UInt =< ?UINT64_MAX
-->
-    {ok, greptimedb_values:uint64_value(UInt)};
-value_type([Invalid, <<"u">>]) ->
-    {error, {invalid_unsigned_integer_value, Invalid}};
-value_type([<<"t">>]) ->
-    {ok, greptimedb_values:boolean_value(true)};
-value_type([<<"T">>]) ->
-    {ok, greptimedb_values:boolean_value(true)};
-value_type([true]) ->
-    {ok, greptimedb_values:boolean_value(true)};
-value_type([<<"TRUE">>]) ->
-    {ok, greptimedb_values:boolean_value(true)};
-value_type([<<"True">>]) ->
-    {ok, greptimedb_values:boolean_value(true)};
-value_type([<<"f">>]) ->
-    {ok, greptimedb_values:boolean_value(false)};
-value_type([<<"F">>]) ->
-    {ok, greptimedb_values:boolean_value(false)};
-value_type([false]) ->
-    {ok, greptimedb_values:boolean_value(false)};
-value_type([<<"FALSE">>]) ->
-    {ok, greptimedb_values:boolean_value(false)};
-value_type([<<"False">>]) ->
-    {ok, greptimedb_values:boolean_value(false)};
-value_type([Float]) when is_float(Float) ->
-    {ok, Float};
-value_type([Int]) when is_integer(Int) ->
-    try
-        {ok, greptimedb_values:float64_value(float(Int))}
-    catch
-        error:badarg ->
-            {error, {invalid_float_value, Int}}
-    end;
-%% A quoted field value is one string: every token is rendered as text.
-value_type({quoted, Tokens}) when is_list(Tokens) ->
-    text_value(Tokens);
-%% A list value that is not a single typed value is a template: every token is rendered as text.
-value_type(Val0) when is_list(Val0) ->
-    text_value(Val0);
-value_type(Val0) ->
-    string_value(Val0).
-
-text_value(Tokens) ->
-    string_value([render_token(Token) || Token <- Tokens]).
-
-string_value(Val0) ->
-    try unicode:characters_to_binary(Val0, utf8) of
-        Val1 when is_binary(Val1) ->
-            {ok, greptimedb_values:string_value(Val1)};
-        _Error ->
-            {error, {invalid_string_value, Val0}}
-    catch
-        error:badarg ->
-            {error, {invalid_string_value, Val0}}
-    end.
-
-%% Line protocol tag values are text: token types are dropped, except an `i`/`u` suffix and a
-%% boolean from the payload, which stay typed.
-value_type([_, <<"i">>] = NV, tag) ->
-    value_type(NV);
-value_type([_, <<"u">>] = NV, tag) ->
-    value_type(NV);
-value_type([Bool], tag) when is_boolean(Bool) ->
-    value_type([Bool]);
-value_type(NV, tag) when is_list(NV) ->
-    text_value(NV);
-value_type(NV, _Kind) ->
-    value_type(NV).
-
-render_token(Token) when is_boolean(Token) ->
-    atom_to_binary(Token, utf8);
-render_token(Token) when is_integer(Token) ->
-    integer_to_binary(Token);
-render_token(Token) when is_float(Token) ->
-    float_to_binary(Token, [short]);
-render_token(Token) ->
-    Token.
-
-key_filter(undefined) -> undefined;
-key_filter(Value) -> emqx_utils_conv:bin(Value).
-
-data_filter(undefined) -> undefined;
-data_filter(Int) when is_integer(Int) -> Int;
-data_filter(Number) when is_number(Number) -> Number;
-data_filter(Bool) when is_boolean(Bool) -> Bool;
-data_filter(Data) -> bin(Data).
-
-bin(Data) -> emqx_utils_conv:bin(Data).
+parse_single_data(InstId, DbName, Data, SyntaxLines) ->
+    emqx_bridge_greptimedb_utils:parse_single_data(InstId, DbName, Data, SyntaxLines, erlang).
 
 %% helper funcs
-log_error_points(InstId, Errs) ->
-    lists:foreach(
-        fun({error, Reason}) ->
-            ?SLOG(error, #{
-                msg => "greptimedb_trans_point_failed",
-                connector => InstId,
-                reason => Reason
-            })
-        end,
-        Errs
-    ).
 
 convert_server(<<"http://", Server/binary>>, HoconOpts) ->
     convert_server(Server, HoconOpts);
@@ -961,8 +594,8 @@ is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
 is_unrecoverable_error(_) ->
     false.
 
-is_int64(Int) ->
-    is_integer(Int) andalso Int >= ?INT64_MIN andalso Int =< ?INT64_MAX.
+mk(Type, Sc) -> hoconsc:mk(Type, Sc).
+enum(Types) -> hoconsc:enum(Types).
 
 %%===================================================================
 %% eunit tests
@@ -982,7 +615,7 @@ integer_point_validation_test() ->
     Lines = emqx_bridge_influxdb:to_influx_lines(
         <<"rtc,channel=${channel} e2e_delay=${m.e2e_delay}i">>
     ),
-    SyntaxLines = to_config(Lines, ms),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
     Data0 = #{
         <<"channel">> => <<"repro-channel">>,
         <<"timestamp">> => 1_789_360_000_000
@@ -990,15 +623,18 @@ integer_point_validation_test() ->
     ValidData = Data0#{<<"m">> => #{<<"e2e_delay">> => 470}},
     InvalidData = Data0#{<<"m">> => #{<<"e2e_delay">> => 470.5}},
     {ok, [{_, [#{fields := Fields}]}]} =
-        data_to_points(ValidData, <<"public">>, SyntaxLines),
+        emqx_bridge_greptimedb_utils:data_to_points(ValidData, <<"public">>, SyntaxLines, erlang),
     ?assertEqual(
         #{value_data => {i64_value, 470}},
         maps:get(<<"e2e_delay">>, Fields)
     ),
-    ?assertEqual({ok, #{value_data => {f64_value, 470.0}}}, value_type([470])),
+    ?assertEqual(
+        {ok, #{value_data => {f64_value, 470.0}}}, emqx_bridge_greptimedb_utils:value_type([470])
+    ),
     InvalidErrorPoints = [{error, {invalid_integer_value, 470.5}}],
     ?assertEqual(
-        {error, InvalidErrorPoints}, data_to_points(InvalidData, <<"public">>, SyntaxLines)
+        {error, InvalidErrorPoints},
+        emqx_bridge_greptimedb_utils:data_to_points(InvalidData, <<"public">>, SyntaxLines, erlang)
     ),
     {ok, ValidPoints, BatchResults} =
         parse_batch_data(
@@ -1033,7 +669,10 @@ integer_point_validation_test() ->
         client => unused,
         dbname => <<"public">>
     },
-    SingleInvalidResult = {error, {unrecoverable_error, InvalidErrorPoints}},
+    %% This branch reports a transformation failure as `points_trans_failed'
+    %% with the last error, rather than the list of error points.
+    TransFailed = {points_trans_failed, #{last_error => {invalid_integer_value, 470.5}}},
+    SingleInvalidResult = {error, {unrecoverable_error, TransFailed}},
     ?assertEqual(
         SingleInvalidResult,
         on_query(<<"connector:test">>, {channel, InvalidData}, State)
@@ -1044,71 +683,70 @@ integer_point_validation_test() ->
             <<"connector:test">>, {channel, InvalidData}, ReplyFunAndArgs, State
         )
     ),
+    %% Nothing in the batch transformed, so the batch fails as a whole.
     ?assertEqual(
-        [InvalidResult, InvalidResult],
+        SingleInvalidResult,
         on_batch_query(<<"connector:test">>, AllInvalidBatch, State)
     ),
     ?assertEqual(
-        ok,
+        SingleInvalidResult,
         on_batch_query_async(
             <<"connector:test">>, AllInvalidBatch, ReplyFunAndArgs, State
         )
-    ),
-    receive
-        AllInvalidResult ->
-            ?assertEqual([InvalidResult, InvalidResult], AllInvalidResult)
-    after 1_000 ->
-        error(callback_timeout)
-    end.
+    ).
 
 numeric_range_validation_test() ->
     ?assertEqual(
         {ok, #{value_data => {i64_value, ?INT64_MIN}}},
-        value_type([?INT64_MIN, <<"i">>])
+        emqx_bridge_greptimedb_utils:value_type([?INT64_MIN, <<"i">>])
     ),
     ?assertEqual(
         {ok, #{value_data => {i64_value, ?INT64_MAX}}},
-        value_type([?INT64_MAX, <<"i">>])
+        emqx_bridge_greptimedb_utils:value_type([?INT64_MAX, <<"i">>])
     ),
     ?assertEqual(
         {error, {invalid_integer_value, ?INT64_MIN - 1}},
-        value_type([?INT64_MIN - 1, <<"i">>])
+        emqx_bridge_greptimedb_utils:value_type([?INT64_MIN - 1, <<"i">>])
     ),
     ?assertEqual(
         {error, {invalid_integer_value, ?INT64_MAX + 1}},
-        value_type([?INT64_MAX + 1, <<"i">>])
+        emqx_bridge_greptimedb_utils:value_type([?INT64_MAX + 1, <<"i">>])
     ),
     ?assertEqual(
         {ok, #{value_data => {u64_value, ?UINT64_MAX}}},
-        value_type([?UINT64_MAX, <<"u">>])
+        emqx_bridge_greptimedb_utils:value_type([?UINT64_MAX, <<"u">>])
     ),
     ?assertEqual(
         {error, {invalid_unsigned_integer_value, -1}},
-        value_type([-1, <<"u">>])
+        emqx_bridge_greptimedb_utils:value_type([-1, <<"u">>])
     ),
     ?assertEqual(
         {error, {invalid_unsigned_integer_value, ?UINT64_MAX + 1}},
-        value_type([?UINT64_MAX + 1, <<"u">>])
+        emqx_bridge_greptimedb_utils:value_type([?UINT64_MAX + 1, <<"u">>])
     ),
     TooLargeForFloat64 = 1 bsl 1024,
     ?assertEqual(
         {error, {invalid_float_value, TooLargeForFloat64}},
-        value_type([TooLargeForFloat64])
+        emqx_bridge_greptimedb_utils:value_type([TooLargeForFloat64])
     ),
-    ?assertEqual({ok, ?INT64_MIN}, convert_timestamp(?INT64_MIN, {ns, ns})),
-    ?assertEqual({ok, ?INT64_MAX}, convert_timestamp(?INT64_MAX, {ns, ns})),
+    ?assertEqual(
+        {ok, ?INT64_MIN}, emqx_bridge_greptimedb_utils:convert_timestamp(?INT64_MIN, {ns, ns})
+    ),
+    ?assertEqual(
+        {ok, ?INT64_MAX}, emqx_bridge_greptimedb_utils:convert_timestamp(?INT64_MAX, {ns, ns})
+    ),
     ?assertEqual(
         {error, {bad_timestamp, ?INT64_MIN - 1}},
-        convert_timestamp(?INT64_MIN - 1, {ns, ns})
+        emqx_bridge_greptimedb_utils:convert_timestamp(?INT64_MIN - 1, {ns, ns})
     ),
     ?assertEqual(
         {error, {bad_timestamp, ?INT64_MAX + 1}},
-        convert_timestamp(?INT64_MAX + 1, {ns, ns})
+        emqx_bridge_greptimedb_utils:convert_timestamp(?INT64_MAX + 1, {ns, ns})
     ),
     MillisecondOverflow = ?INT64_MAX div 1_000_000 + 1,
     ?assertEqual(
         {error, {bad_timestamp, MillisecondOverflow}},
-        convert_timestamp(MillisecondOverflow, {ms, ns})
+        emqx_bridge_greptimedb_utils:convert_timestamp(MillisecondOverflow, {ms, ns})
     ).
 
 quoted_field_value_test() ->
@@ -1125,13 +763,16 @@ quoted_field_value_test() ->
             "unset=\"x${payload.unset}\""
         >>
     ),
-    SyntaxLines = to_config(Lines, ms),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
     Data = #{
         <<"clientid">> => <<"c1">>,
         <<"payload">> => #{<<"n">> => 65, <<"f">> => 1.0e300, <<"bool">> => true},
         <<"timestamp">> => 1_789_360_000_000
     },
-    {ok, [{_, [#{fields := Fields}]}]} = data_to_points(Data, <<"public">>, SyntaxLines),
+    ConnResId = ~"connector:greptimedb:a",
+    {ok, [{_, [#{fields := Fields}]}]} = parse_single_data(
+        ConnResId, <<"public">>, Data, SyntaxLines
+    ),
     ?assertEqual(#{value_data => {string_value, <<"abc">>}}, maps:get(<<"text">>, Fields)),
     ?assertEqual(#{value_data => {string_value, <<"n_65">>}}, maps:get(<<"number">>, Fields)),
     ?assertEqual(#{value_data => {string_value, <<"f_1.0e300">>}}, maps:get(<<"float">>, Fields)),
@@ -1146,10 +787,11 @@ quoted_field_value_test() ->
     ?assertNot(maps:is_key(<<"unset">>, Fields)).
 
 quoted_field_value_utf8_test() ->
+    DriverType = erlang,
     Lines = emqx_bridge_influxdb:to_influx_lines(
         <<"mqtt,clientid=${clientid} text=\"x${payload.text}\"">>
     ),
-    SyntaxLines = to_config(Lines, ms),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
     Data = #{
         <<"clientid">> => <<"c1">>,
         <<"payload">> => #{<<"text">> => <<255, 255>>},
@@ -1158,8 +800,11 @@ quoted_field_value_utf8_test() ->
     %% a quoted value that is not valid UTF-8 is rejected for that point only
     ?assertEqual(
         {error, [{error, {invalid_string_value, [<<"x">>, <<255, 255>>]}}]},
-        data_to_points(Data, <<"public">>, SyntaxLines)
+        emqx_bridge_greptimedb_utils:data_to_points(Data, <<"public">>, SyntaxLines, DriverType)
     ).
+
+value_type(X) -> emqx_bridge_greptimedb_utils:value_type(X).
+value_type(X, Kind) -> emqx_bridge_greptimedb_utils:value_type_for_kind(X, Kind).
 
 field_mixed_template_value_test() ->
     ?assertEqual(
@@ -1185,10 +830,11 @@ field_mixed_template_value_test() ->
     ).
 
 tag_value_utf8_test() ->
+    DriverType = erlang,
     Lines = emqx_bridge_influxdb:to_influx_lines(
         <<"mqtt,clientid=${clientid},tag=${payload.t} value=1">>
     ),
-    SyntaxLines = to_config(Lines, ms),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(Lines, ms),
     Data = #{
         <<"clientid">> => <<"c1">>,
         <<"payload">> => #{<<"t">> => <<255, 255>>},
@@ -1197,7 +843,7 @@ tag_value_utf8_test() ->
     %% a tag value that is not valid UTF-8 is rejected for that point only
     ?assertEqual(
         {error, [{error, {invalid_string_value, [<<255, 255>>]}}]},
-        data_to_points(Data, <<"public">>, SyntaxLines)
+        emqx_bridge_greptimedb_utils:data_to_points(Data, <<"public">>, SyntaxLines, DriverType)
     ).
 
 tag_value_typing_test() ->
