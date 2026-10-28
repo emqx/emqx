@@ -865,21 +865,7 @@ handle_session_zone_change(#channel{session = Session, clientinfo = ClientInfo} 
 %%--------------------------------------------------------------------
 
 process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
-    case
-        emqx_utils:pipeline(
-            [
-                fun check_quota_exceeded/2,
-                fun process_alias/2,
-                fun check_pub_alias/2,
-                fun packet_to_message/2,
-                fun check_pub_authz/2,
-                fun check_pub_caps/2,
-                fun finalize_publish/2
-            ],
-            Packet,
-            Channel
-        )
-    of
+    case publish_pipeline(Packet, Channel) of
         {ok, Msg, NChannel} ->
             ok = ?EXT_TRACE_ADD_ATTRS(emqx_otel_trace:msg_attrs(Msg)),
             do_publish(PacketId, Msg, NChannel);
@@ -930,7 +916,7 @@ handle_publish_error(_QoS, Topic, _PacketId, RC, Channel) ->
     ),
     handle_out(disconnect, RC, Channel).
 
-packet_to_message(
+publish_packet_to_message(
     Packet,
     Channel = #channel{
         conninfo = #{
@@ -960,9 +946,9 @@ packet_to_message(
             peerhost => PeerHost
         }
     ),
-    {ok, Msg, Channel}.
+    publish_check_authz(Msg, Channel).
 
-finalize_publish(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
+publish_finalize(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
     {ok, emqx_message_ingress:finalize(ClientInfo, Msg), Channel}.
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
@@ -3052,7 +3038,7 @@ parse_zone_override(ZoneOverride) when is_binary(ZoneOverride) ->
 %%--------------------------------------------------------------------
 %% Process Topic Alias
 
-process_alias(
+publish_process_alias(
     Packet = #mqtt_packet{
         variable =
             #mqtt_packet_publish{
@@ -3065,12 +3051,12 @@ process_alias(
     case find_alias(inbound, AliasId, TopicAliases) of
         {ok, Topic} ->
             NPublish = Publish#mqtt_packet_publish{topic_name = Topic},
-            {ok, Packet#mqtt_packet{variable = NPublish}, Channel};
+            publish_check_alias(Packet#mqtt_packet{variable = NPublish}, Channel);
         error ->
-            {error, ?RC_PROTOCOL_ERROR}
+            {error, ?RC_PROTOCOL_ERROR, Channel}
     end;
-process_alias(
-    #mqtt_packet{
+publish_process_alias(
+    Packet = #mqtt_packet{
         variable = #mqtt_packet_publish{
             topic_name = Topic,
             properties = #{'Topic-Alias' := AliasId}
@@ -3079,9 +3065,9 @@ process_alias(
     Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}
 ) ->
     NTopicAliases = save_alias(inbound, AliasId, Topic, TopicAliases),
-    {ok, Channel#channel{topic_aliases = NTopicAliases}};
-process_alias(_Packet, Channel) ->
-    {ok, Channel}.
+    publish_check_alias(Packet, Channel#channel{topic_aliases = NTopicAliases});
+publish_process_alias(Packet, Channel) ->
+    publish_check_alias(Packet, Channel).
 
 %%--------------------------------------------------------------------
 %% Packing Topic Alias
@@ -3130,15 +3116,26 @@ packing_alias(Packet, Channel) ->
     {Packet, Channel}.
 
 %%--------------------------------------------------------------------
-%% Check quota state
+%% Publish pipeline
 
-check_quota_exceeded(
-    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), Chann0
+%% Stages: check quota (updates channel.quota)
+%%      -> process alias (updates channel.topic_aliases)
+%%      -> check alias
+%%      -> packet to message
+%%      -> check authorization
+%%      -> check capabilities
+%%      -> finalize message
+publish_pipeline(Packet, Channel) ->
+    publish_check_quota(Packet, Channel).
+
+publish_check_quota(
+    Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload),
+    Chann0
 ) ->
     Needs = [{bytes, erlang:byte_size(Payload)}, {messages, 1}],
     case try_consume_quota(Needs, Chann0) of
         {true, Chann} ->
-            {ok, Chann};
+            publish_process_alias(Packet, Chann);
         {false, Chann, Reason} ->
             ?SLOG_THROTTLE(
                 warning,
@@ -3173,23 +3170,23 @@ check_subscribe_quota_exceeded(
 %%--------------------------------------------------------------------
 %% Check Pub Alias
 
-check_pub_alias(
-    #mqtt_packet{
-        variable = #mqtt_packet_publish{
-            properties = #{'Topic-Alias' := AliasId}
-        }
+publish_check_alias(
+    Packet = #mqtt_packet{
+        variable = #mqtt_packet_publish{properties = #{'Topic-Alias' := AliasId}}
     },
-    #channel{alias_maximum = Limits}
+    Channel = #channel{alias_maximum = Limits}
 ) ->
     case
         (Limits =:= undefined) orelse
             (AliasId =< maps:get(inbound, Limits, ?MAX_TOPIC_AlIAS))
     of
-        true -> ok;
-        false -> {error, ?RC_TOPIC_ALIAS_INVALID}
+        true ->
+            publish_packet_to_message(Packet, Channel);
+        false ->
+            {error, ?RC_TOPIC_ALIAS_INVALID, Channel}
     end;
-check_pub_alias(_Packet, _Channel) ->
-    ok.
+publish_check_alias(Packet, Channel) ->
+    publish_packet_to_message(Packet, Channel).
 
 %%--------------------------------------------------------------------
 %% Authorization action
@@ -3200,52 +3197,58 @@ authz_action({_Topic, #{qos := QoS} = _SubOpts} = _TopicFilter) ->
 %%--------------------------------------------------------------------
 %% Check Pub Authorization
 
-check_pub_authz(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
-    ?EXT_TRACE_CLIENT_AUTHZ(
-        ?EXT_TRACE_ATTR(
-            (basic_attrs(Channel))#{'authz.action_type' => publish}
-        ),
-        fun(NMsg) ->
-            do_check_pub_authz(NMsg, Channel, ClientInfo)
-        end,
-        [Msg]
-    ).
+publish_check_authz(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
+    case
+        ?EXT_TRACE_CLIENT_AUTHZ(
+            ?EXT_TRACE_ATTR(
+                (basic_attrs(Channel))#{'authz.action_type' => publish}
+            ),
+            fun(NMsg) -> publish_authorize(NMsg, ClientInfo) end,
+            [Msg]
+        )
+    of
+        {allow, NMsg} ->
+            publish_check_caps(NMsg, Channel);
+        {error, Reason} ->
+            {error, Reason, Channel}
+    end.
 
-do_check_pub_authz(
+publish_authorize(
     Msg,
-    Channel,
     ClientInfo
 ) ->
     case emqx_message_ingress:ingress_and_authorize(ClientInfo, Msg) of
-        {allow, NMsg = #message{topic = Topic}} ->
+        {allow, _NMsg = #message{topic = Topic}} = Allow ->
             ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.publish.topic' => Topic,
                 'authz.publish.result' => allow
             }),
             ?EXT_TRACE_SET_STATUS_OK(),
-            {ok, NMsg, Channel};
+            Allow;
         deny ->
             ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.publish.result' => deny,
                 'authz.reason_code' => ?RC_NOT_AUTHORIZED
             }),
             ?EXT_TRACE_SET_STATUS_ERROR(),
-            {error, ?RC_NOT_AUTHORIZED, Channel};
+            {error, ?RC_NOT_AUTHORIZED};
         {error, invalid_topic_name} ->
-            {error, ?RC_TOPIC_NAME_INVALID, Channel};
+            {error, ?RC_TOPIC_NAME_INVALID};
         {error, Reason} ->
             ?SLOG(warning, #{msg => "message_ingress_failed", reason => Reason}),
-            {error, ?RC_NOT_AUTHORIZED, Channel}
+            {error, ?RC_NOT_AUTHORIZED}
     end.
 
 %%--------------------------------------------------------------------
 %% Check Pub Caps
 
-check_pub_caps(
-    #message{qos = QoS, flags = #{retain := Retain}, topic = Topic},
-    #channel{clientinfo = #{zone := Zone}}
-) ->
-    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic => Topic}).
+publish_check_caps(Msg, Channel = #channel{clientinfo = #{zone := Zone}}) ->
+    case emqx_mqtt_caps:check_pub(Zone, Msg) of
+        ok ->
+            publish_finalize(Msg, Channel);
+        {error, Reason} ->
+            {error, Reason, Channel}
+    end.
 
 %%--------------------------------------------------------------------
 %% Check Subscribe Packet
