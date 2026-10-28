@@ -752,6 +752,8 @@ tag_value_write_syntax() ->
     <<
         "mqtt,clientid=${clientid},int_tag=${payload.int_tag},"
         "id_tag=id_${payload.pair_a},pair_tag=${payload.pair_a}${payload.pair_b},"
+        "suffix_i_tag=${payload.pair_a}${payload.i_suffix},"
+        "suffix_u_tag=${payload.pair_a}${payload.u_suffix},"
         "float_tag=pre_${payload.float_tag},big_float_tag=${payload.big_float},"
         "tiny_float_tag=${payload.tiny_float},"
         "i_tag=${payload.i_tag}i,u_tag=${payload.u_tag}u,"
@@ -778,6 +780,8 @@ tag_value_payload(IntTag) ->
         <<"int_tag">> => IntTag,
         <<"pair_a">> => 65,
         <<"pair_b">> => 66,
+        <<"i_suffix">> => <<"i">>,
+        <<"u_suffix">> => <<"u">>,
         <<"float_tag">> => 1.5,
         <<"big_float">> => 1.0e300,
         <<"tiny_float">> => 1.0e-11,
@@ -791,6 +795,9 @@ assert_tag_value_row(Row, TagText) ->
     ?assertMatch(#{<<"int_tag">> := TagText}, Row),
     ?assertMatch(#{<<"id_tag">> := <<"id_65">>}, Row),
     ?assertMatch(#{<<"pair_tag">> := <<"6566">>}, Row),
+    %% suffix text contributed by a placeholder is not a type suffix
+    ?assertMatch(#{<<"suffix_i_tag">> := <<"65i">>}, Row),
+    ?assertMatch(#{<<"suffix_u_tag">> := <<"65u">>}, Row),
     ?assertMatch(#{<<"float_tag">> := <<"pre_1.5">>}, Row),
     ?assertMatch(#{<<"big_float_tag">> := <<"1.0e300">>}, Row),
     ?assertMatch(#{<<"tiny_float_tag">> := <<"1.0e-11">>}, Row),
@@ -840,6 +847,10 @@ t_field_values_as_text(TCConfig) ->
             ?assertMatch(#{<<"literal_bool_field">> := <<"T">>}, Row),
             %% an unquoted template also renders its number tokens as text
             ?assertMatch(#{<<"mixed_field">> := <<"id_65">>}, Row),
+            %% suffix text contributed by a placeholder is not a type suffix
+            ?assertMatch(#{<<"suffix_field">> := <<"65i">>}, Row),
+            %% a literal suffix still declares the type
+            ?assertMatch(#{<<"typed_field">> := 65}, Row),
             %% the field whose placeholder stays unset is not written
             ?assertNot(maps:is_key(<<"unset_field">>, Row)),
             ?assertEqual(1.0, maps:get(<<"value">>, Row, undefined))
@@ -858,6 +869,8 @@ field_value_write_syntax() ->
         "bool_field=\"${payload.ok}\","
         "literal_bool_field=\"T\","
         "mixed_field=id_${payload.n},"
+        "suffix_field=${payload.n}${payload.i_suffix},"
+        "typed_field=${payload.n}i,"
         "unset_field=\"x${payload.unset}\","
         "value=${payload.value}"
     >>.
@@ -869,6 +882,7 @@ field_value_payload() ->
         <<"f">> => 1.0e300,
         <<"tiny">> => 1.0e-11,
         <<"ok">> => true,
+        <<"i_suffix">> => <<"i">>,
         <<"value">> => 1
     }.
 
