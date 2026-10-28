@@ -2724,6 +2724,454 @@ t_max_ops(Config) ->
         []
     ).
 
+%% This testcase verifies basic functionality of the mass deletion API
+%% `emqx_ds:del_batch':
+%%
+%% - Data is deleted in chunks of `batch_size' objects, and the `More'
+%%   flag of the outcome tells the caller to repeat the call
+%% - Deletion is scoped by the stream, the topic filter and the
+%%   half-open time range `[From, To)'
+%% - Asynchronous mode of the API
+t_del_batch(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = maps:merge(opts(Config), #{
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{timestamp_bytes => 8}}
+    }),
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            TXOpts = #{db => DB, shard => {auto, <<"me">>}, generation => 1},
+            Write = fun(Topic) ->
+                ?assertMatch(
+                    {atomic, _, _},
+                    emqx_ds:trans(
+                        TXOpts,
+                        fun() ->
+                            [emqx_ds:tx_write({Topic, I, <<I>>}) || I <- lists:seq(1, 10)]
+                        end
+                    )
+                )
+            end,
+            Topic1 = [<<"t">>, <<"1">>],
+            Topic2 = [<<"t">>, <<"2">>],
+            Topic3 = [<<"t">>, <<"3">>],
+            %% Create 10 objects in each topic:
+            lists:foreach(Write, [Topic1, Topic2, Topic3]),
+            %% Each topic gets a stream of its own, because the number
+            %% of topics is below the LTS wildcard learning threshold:
+            {[{_, Stream1}], []} = emqx_ds:get_streams(DB, Topic1, 0, #{}),
+            {[{_, Stream2}], []} = emqx_ds:get_streams(DB, Topic2, 0, #{}),
+            {[{_, Stream3}], []} = emqx_ds:get_streams(DB, Topic3, 0, #{}),
+            %% 1. Objects are deleted in chunks of `batch_size'. 10
+            %% objects are removed from `Topic1' in 3 calls (4 + 4 + 2):
+            ?assertMatch(
+                {ok, true},
+                emqx_ds:del_batch(DB, Stream1, Topic1, 0, infinity, #{batch_size => 4})
+            ),
+            ?assertEqual(6, length(emqx_ds:dirty_read(DB, Topic1))),
+            ?assertMatch(
+                {ok, true},
+                emqx_ds:del_batch(DB, Stream1, Topic1, 0, infinity, #{batch_size => 4})
+            ),
+            ?assertEqual(2, length(emqx_ds:dirty_read(DB, Topic1))),
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream1, Topic1, 0, infinity, #{batch_size => 4})
+            ),
+            ?assertEqual([], emqx_ds:dirty_read(DB, Topic1)),
+            %% Deleting from an already empty topic is a no-op:
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream1, Topic1, 0, infinity, #{})
+            ),
+            %% Objects in the sibling topics were not affected:
+            ?assertEqual(10, length(emqx_ds:dirty_read(DB, Topic2))),
+            ?assertEqual(10, length(emqx_ds:dirty_read(DB, Topic3))),
+            %% 2. Deletion is limited by the time range: objects with
+            %% timestamps in `[1, 5)' are removed from `Topic2':
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream2, Topic2, 1, 5, #{})
+            ),
+            ?assertMatch(
+                [{_, 5, _}, {_, 6, _}, {_, 7, _}, {_, 8, _}, {_, 9, _}, {_, 10, _}],
+                lists:sort(emqx_ds:dirty_read(DB, Topic2))
+            ),
+            %% Empty and inverted time ranges are no-ops:
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream2, Topic2, 7, 7, #{})
+            ),
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream2, Topic2, 10, 5, #{})
+            ),
+            ?assertEqual(6, length(emqx_ds:dirty_read(DB, Topic2))),
+            %% 3. Both boundaries of the range: objects with timestamps
+            %% in `[6, 8)' are removed:
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream2, Topic2, 6, 8, #{})
+            ),
+            ?assertMatch(
+                [{_, 5, _}, {_, 8, _}, {_, 9, _}, {_, 10, _}],
+                lists:sort(emqx_ds:dirty_read(DB, Topic2))
+            ),
+            %% 4. Asynchronous mode of the API. `Topic3' still contains
+            %% all of its data. Delete it in batches of 2 objects:
+            {async, Ref1} =
+                emqx_ds:del_batch(DB, Stream3, Topic3, 0, infinity, #{
+                    sync => false, batch_size => 2
+                }),
+            {ok, true} = collect_del_batch_reply(DB, Ref1),
+            ?assertEqual(8, length(emqx_ds:dirty_read(DB, Topic3))),
+            {async, Ref2} =
+                emqx_ds:del_batch(DB, Stream3, Topic3, 0, infinity, #{
+                    sync => false, batch_size => 2
+                }),
+            {ok, true} = collect_del_batch_reply(DB, Ref2),
+            ?assertEqual(6, length(emqx_ds:dirty_read(DB, Topic3))),
+            %% The remaining 6 objects are removed by a single batch:
+            {async, Ref3} =
+                emqx_ds:del_batch(DB, Stream3, Topic3, 0, infinity, #{
+                    sync => false, batch_size => 100
+                }),
+            {ok, false} = collect_del_batch_reply(DB, Ref3),
+            ?assertEqual([], emqx_ds:dirty_read(DB, Topic3))
+        end,
+        []
+    ).
+
+%% This testcase verifies how `emqx_ds:del_batch' validates its
+%% arguments: wrongly typed arguments are rejected, out-of-range
+%% values are handled gracefully, and none of the bad calls has side
+%% effects or crashes the shard.
+t_del_batch_invalid_args(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Topic = [<<"t">>],
+            TXOpts = #{db => DB, shard => {auto, <<"me">>}, generation => 1},
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({Topic, 0, <<"payload">>})
+                    end
+                )
+            ),
+            {[{Slab, Stream}], []} = emqx_ds:get_streams(DB, Topic, 0, #{}),
+            %% DB that was never opened:
+            ?assertMatch(
+                ?err_rec({database_is_not_open, _}),
+                emqx_ds:del_batch(not_opened_db, Stream, Topic, 0, infinity, #{})
+            ),
+            %% Negative `From' is accepted, but it matches no objects,
+            %% so the call is a no-op:
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream, Topic, -1, infinity, #{})
+            ),
+            %% Non-integer `From' is rejected:
+            ?assertMatch(
+                ?err_unrec(bad_from),
+                emqx_ds:del_batch(DB, Stream, Topic, <<"0">>, infinity, #{})
+            ),
+            %% Negative `To' cannot be converted to a stream key limit,
+            %% the backend reports a recoverable error:
+            ?assertMatch(
+                ?err_rec(otx_backend_error),
+                emqx_ds:del_batch(DB, Stream, Topic, 0, -1, #{})
+            ),
+            %% Non-integer `To' is rejected:
+            ?assertMatch(
+                ?err_unrec(bad_to),
+                emqx_ds:del_batch(DB, Stream, Topic, 0, <<"0">>, #{})
+            ),
+            %% Non-positive `batch_size' deletes nothing, while the
+            %% outcome keeps saying that more data remains. Note: the
+            %% caller must not blindly loop on the `More' flag with
+            %% such batch size:
+            ?assertMatch(
+                {ok, true},
+                emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{batch_size => -1})
+            ),
+            ?assertMatch(
+                {ok, true},
+                emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{batch_size => 0})
+            ),
+            %% Non-integer `batch_size' is rejected:
+            ?assertMatch(
+                ?err_unrec(bad_batch_size),
+                emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{batch_size => <<"10">>})
+            ),
+            %% `dirty' must be a boolean:
+            ?assertMatch(
+                ?err_unrec(bad_dirty),
+                emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{dirty => 0})
+            ),
+            %% Stream that doesn't belong to the DB. Note: the error is
+            %% raised as an exception rather than returned as a value:
+            ?assertError(
+                function_clause,
+                emqx_ds:del_batch(DB, not_a_stream, Topic, 0, infinity, #{})
+            ),
+            %% None of the failed calls above had any side effects:
+            ?assertEqual([{Topic, 0, <<"payload">>}], emqx_ds:dirty_read(DB, Topic)),
+            %% Stream of a generation that was dropped. This destroys
+            %% the data stored in the generation:
+            ?assertMatch(ok, emqx_ds:add_generation(DB)),
+            ?assertMatch(ok, emqx_ds:drop_slab(DB, Slab)),
+            ?assertMatch(
+                ?err_unrec({storage_not_found, _}),
+                emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{})
+            ),
+            %% The shard is still operational after all the failed
+            %% calls:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TXOpts#{generation => latest},
+                    fun() ->
+                        emqx_ds:tx_write({Topic, 1, <<"payload1">>})
+                    end
+                )
+            ),
+            ?assertEqual(
+                [{Topic, 1, <<"payload1">>}],
+                lists:sort(emqx_ds:dirty_read(DB, Topic))
+            )
+        end,
+        []
+    ).
+
+%% This testcase verifies interaction of `emqx_ds:del_batch' with the
+%% optimistic transactions:
+%%
+%% 1. `del_batch' fails with a conflict when a transactional write to
+%%    the deleted range is still pending in the commit buffer
+%% 2. `retries' option lets `del_batch' wait until the pending
+%%    transaction is flushed
+%% 3. `dirty' option bypasses the conflict check
+%% 4. A transaction that started before the deletion conflicts with it
+%%    when reading the deleted topic range
+%% 5. Transactions created after the deletion are not affected by it
+t_del_batch_tx_interactions(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Topic = [<<"t">>],
+            TXOpts = #{
+                db => DB, shard => {auto, <<"me">>}, generation => 1, timeout => infinity
+            },
+            %% Create initial data in the topic:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<"initial">>})
+                    end
+                )
+            ),
+            {[{_, Stream}], []} = emqx_ds:get_streams(DB, Topic, 0, #{}),
+            Shard = emqx_ds:shard_of(DB, <<"me">>),
+            OtxLeader = emqx_ds_optimistic_tx:where(DB, Shard),
+            %% Submit an async transaction that writes to `Topic'.
+            %% While the OTX leader is suspended, the write stays in
+            %% the commit buffer:
+            SubmitPendingWrite = fun(Time) ->
+                {async, Ref, ok} =
+                    emqx_ds:trans(
+                        TXOpts#{sync => false},
+                        fun() ->
+                            emqx_ds:tx_write({Topic, Time, <<"pending">>})
+                        end
+                    ),
+                Ref
+            end,
+            CollectCommit = fun(Ref) ->
+                receive
+                    ?ds_tx_commit_reply(Ref, Reply) ->
+                        ?assertMatch({ok, _}, emqx_ds:tx_commit_outcome(DB, Ref, Reply))
+                after 5_000 ->
+                    error({timeout, mailbox()})
+                end
+            end,
+            %% 1. `del_batch' conflicts with the pending write. The
+            %% deletion call is blocked until the leader is resumed, so
+            %% run it in a helper process:
+            ok = sys:suspend(OtxLeader),
+            WRef1 = SubmitPendingWrite(1),
+            Del1 = run_helper(
+                fun() ->
+                    emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{})
+                end
+            ),
+            timer:sleep(100),
+            ok = sys:resume(OtxLeader),
+            ?assertMatch(?err_rec({read_conflict, _}), wait_helper(Del1)),
+            %% The pending write is not affected by the failed deletion:
+            CollectCommit(WRef1),
+            %% 2. The same scenario, but now `del_batch' retries until
+            %% the pending write is flushed. This time the leader is
+            %% resumed by a helper process, because the current process
+            %% is blocked in the sync deletion call:
+            ok = sys:suspend(OtxLeader),
+            WRef2 = SubmitPendingWrite(2),
+            Resumer = run_helper(
+                fun() ->
+                    timer:sleep(200),
+                    sys:resume(OtxLeader)
+                end
+            ),
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{
+                    retries => 2, retry_interval => 100
+                })
+            ),
+            ok = wait_helper(Resumer),
+            CollectCommit(WRef2),
+            %% 3. `dirty' option bypasses the conflict check:
+            ok = sys:suspend(OtxLeader),
+            WRef3 = SubmitPendingWrite(3),
+            Del3 = run_helper(
+                fun() ->
+                    emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{dirty => true})
+                end
+            ),
+            timer:sleep(100),
+            ok = sys:resume(OtxLeader),
+            ?assertMatch({ok, false}, wait_helper(Del3)),
+            CollectCommit(WRef3),
+            %% 4. A transaction that started before the deletion
+            %% conflicts with the deletion when it reads the deleted
+            %% topic range:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<"data">>})
+                    end
+                )
+            ),
+            %% Create the transaction context after the write has been
+            %% flushed, so the read can conflict only with the
+            %% deletion:
+            {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{})
+            ),
+            ?assertEqual([], emqx_ds:dirty_read(DB, Topic)),
+            ?assertMatch(
+                ?err_rec({read_conflict, _}),
+                do_commit_tx(
+                    DB,
+                    Tx1,
+                    #{
+                        ?ds_tx_read => [{Topic, 0, infinity}],
+                        ?ds_tx_write => [{[<<"canary">>], 0, <<>>}]
+                    }
+                )
+            ),
+            %% Side effects of the aborted transaction were not applied:
+            ?assertEqual([], emqx_ds:dirty_read(DB, [<<"canary">>])),
+            %% 5. A transaction created after the deletion completed
+            %% doesn't conflict with it:
+            {ok, Tx2} = emqx_ds:new_tx(DB, TXOpts),
+            ?assertMatch(
+                {ok, _},
+                do_commit_tx(
+                    DB,
+                    Tx2,
+                    #{
+                        ?ds_tx_read => [{Topic, 0, infinity}],
+                        ?ds_tx_write => [{Topic, 0, <<"final">>}]
+                    }
+                )
+            ),
+            ?assertEqual(
+                [{Topic, 0, <<"final">>}],
+                lists:sort(emqx_ds:dirty_read(DB, Topic))
+            )
+        end,
+        []
+    ).
+
+%% This testcase verifies deletion of topics that match wildcard and
+%% concrete topic filters over multiple streams:
+t_del_batch_topic_filters(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            %% Create enough distinct topics for the LTS trie to learn
+            %% the `t/+' wildcard, then add a couple more topics that
+            %% will be stored in the wildcard stream:
+            Msgs =
+                [
+                    {[<<"t">>, integer_to_binary(I)], I, <<I>>}
+                 || I <- lists:seq(1, 120)
+                ] ++
+                    [
+                        {[<<"t">>, <<"121">>], 121, <<"121">>},
+                        {[<<"t">>, <<"122">>], 122, <<"122">>},
+                        %% A message that should survive the deletions:
+                        {[<<"foo">>], 123, <<"foo">>}
+                    ],
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    #{db => DB, shard => {auto, <<"me">>}, generation => 1},
+                    fun() ->
+                        [emqx_ds:tx_write(M) || M <- Msgs]
+                    end
+                )
+            ),
+            %% 1. Delete a single concrete subtopic. After the wildcard
+            %% is learned, the subtopic lives in the wildcard stream:
+            {[{_, Stream121}], []} = emqx_ds:get_streams(DB, [<<"t">>, <<"121">>], 0, #{}),
+            ?assertMatch(
+                {ok, false},
+                emqx_ds:del_batch(DB, Stream121, [<<"t">>, <<"121">>], 0, infinity, #{})
+            ),
+            ?assertEqual([], lists:sort(emqx_ds:dirty_read(DB, [<<"t">>, <<"121">>]))),
+            ?assertMatch(
+                [{_, 122, <<"122">>}],
+                lists:sort(emqx_ds:dirty_read(DB, [<<"t">>, <<"122">>]))
+            ),
+            %% 2. Delete all messages matching `t/+'. The filter may
+            %% span several streams, so loop over them. Note: batch
+            %% size must cover the whole stream for the deletion to
+            %% complete in a single call:
+            {WStreams, []} = emqx_ds:get_streams(DB, [<<"t">>, '+'], 0, #{}),
+            lists:foreach(
+                fun({_, Stream}) ->
+                    ?assertMatch(
+                        {ok, false},
+                        emqx_ds:del_batch(DB, Stream, [<<"t">>, '+'], 0, infinity, #{
+                            batch_size => 1_000
+                        })
+                    )
+                end,
+                WStreams
+            ),
+            ?assertEqual([], lists:sort(emqx_ds:dirty_read(DB, [<<"t">>, '+']))),
+            %% The message on the unrelated topic survived:
+            ?assertMatch(
+                [{[<<"foo">>], 123, <<"foo">>}],
+                lists:sort(emqx_ds:dirty_read(DB, [<<"foo">>]))
+            )
+        end,
+        []
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.
@@ -2920,6 +3368,29 @@ do_commit_tx(DB, Ctx, Ops) ->
             emqx_ds:tx_commit_outcome(DB, Ref, Reply)
     after 5_000 ->
         error({timeout, mailbox()})
+    end.
+
+%% Collect the reply of an async `emqx_ds:del_batch' call:
+collect_del_batch_reply(DB, Ref) ->
+    receive
+        ?ds_tx_commit_reply(Ref, Reply) ->
+            emqx_ds:del_batch_outcome(DB, Ref, Reply)
+    after 5_000 ->
+        error({timeout, mailbox()})
+    end.
+
+%% Run a function in a helper process. Used for calling blocking DS
+%% APIs while the current process must keep control:
+run_helper(Fun) ->
+    Parent = self(),
+    spawn_link(fun() -> Parent ! {helper_done, self(), Fun()} end).
+
+wait_helper(Pid) ->
+    receive
+        {helper_done, Pid, Result} ->
+            Result
+    after 10_000 ->
+        error({helper_timeout, Pid})
     end.
 
 mailbox() ->
