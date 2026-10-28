@@ -234,6 +234,7 @@ on_start(
         port => Port,
         connect_timeout => ConnectTimeout,
         scheme => Scheme,
+        active_health_check => preprocess_active_health_check(InstId, Config),
         request => preprocess_request(maps:get(request, Config, undefined)),
         installed_actions => #{}
     },
@@ -241,7 +242,13 @@ on_start(
         ok ->
             case do_get_status(InstId, ConnectTimeout) of
                 ok ->
-                    {ok, maybe_register_oauth2(InstId, Config, State)};
+                    case maybe_start_health_check_pool(InstId, State, PoolOpts) of
+                        ok ->
+                            {ok, maybe_register_oauth2(InstId, Config, State)};
+                        Error ->
+                            ok = on_stop(InstId, State),
+                            Error
+                    end;
                 Error ->
                     ok = ehttpc_sup:stop_pool(InstId),
                     Error
@@ -249,6 +256,15 @@ on_start(
         Error ->
             Error
     end.
+
+maybe_start_health_check_pool(
+    InstId, #{active_health_check := #{enable := true, pool := Pool}}, Opts
+) ->
+    ok = emqx_resource:allocate_resource(InstId, ?MODULE, http_health_check_pool, Pool),
+    ProbeOpts = [{pool_size, 1}, {pool_type, random}, {enable_pipelining, 1} | Opts],
+    start_pool(Pool, ProbeOpts);
+maybe_start_health_check_pool(_, _, _) ->
+    ok.
 
 %% When OAuth2 (Client Credentials) is enabled, register the connector
 %% instance with the shared token manager so an `access_token' is fetched,
@@ -324,6 +340,10 @@ on_stop(InstId, _State) ->
         connector => InstId
     }),
     ok = emqx_connector_oauth2:unregister(InstId),
+    case emqx_resource:get_allocated_resources(InstId) of
+        #{http_health_check_pool := Pool} -> ok = ehttpc_sup:stop_pool(Pool);
+        _ -> ok
+    end,
     Res = ehttpc_sup:stop_pool(InstId),
     ?tp(emqx_connector_http_stopped, #{instance_id => InstId}),
     Res.
@@ -705,8 +725,95 @@ resolve_pool_worker(#{pool_name := PoolName} = State, Key) ->
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
 
+on_get_status(InstId, #{active_health_check := #{enable := true} = Check} = State) ->
+    http_health_check(InstId, Check, State);
 on_get_status(InstId, State) ->
     on_get_status(InstId, State, fun default_health_checker/2).
+
+preprocess_active_health_check(
+    InstId, #{active_health_check := #{enable := true} = Check} = Config
+) ->
+    StaticHeaders = [
+        {Key, Value}
+     || {Key, Value} <- parse_headers(maps:get(headers, Config, #{})),
+        emqx_template:is_const(Key),
+        emqx_template:is_const(emqx_secret:unwrap(Value))
+    ],
+    Check#{
+        headers => StaticHeaders,
+        timeout => emqx_resource:get_health_check_timeout(Config),
+        pool => <<InstId/binary, ":health_check">>
+    };
+preprocess_active_health_check(_, _) ->
+    #{enable => false}.
+
+http_health_check(InstId, #{timeout := Timeout} = Check, State) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    Probe = fun() ->
+        maybe
+            ok ?= do_get_status(InstId, health_check_remaining(Deadline)),
+            active_http_probe(Check, State, Deadline, false)
+        end
+    end,
+    try emqx_utils:nolink_apply(Probe, Timeout) of
+        ok -> ?status_connected;
+        {error, still_connecting} -> {?status_connecting, still_connecting};
+        {error, Reason} -> {?status_disconnected, {http_health_check_failed, Reason}}
+    catch
+        exit:timeout -> {?status_disconnected, {http_health_check_failed, timeout}}
+    end.
+
+active_http_probe(Check, State, Deadline, Retried) ->
+    #{method := Method, path := Path, headers := Headers0} = Check,
+    Headers = render_headers(Headers0),
+    Request = {Path, Headers},
+    maybe
+        {ok, PreparedRequest, TokenRef} ?= prepare_request(Method, Request, State),
+        Result = health_check_request(Check, Method, PreparedRequest, Deadline),
+        case Result of
+            {ok, 401} when TokenRef =/= undefined, not Retried ->
+                retry_health_check_oauth(Check, State, Deadline, TokenRef);
+            _ ->
+                health_check_result(Result)
+        end
+    end.
+
+retry_health_check_oauth(Check, State, Deadline, TokenRef) ->
+    maybe
+        ok ?= ensure_oauth_token_for_retry(State, TokenRef),
+        active_http_probe(Check, State, Deadline, true)
+    end.
+
+health_check_result({ok, Status}) when Status >= 200, Status < 300 ->
+    ok;
+health_check_result({ok, Status}) ->
+    {error, #{status_code => Status}};
+health_check_result({error, {ehttpc_worker_down, _} = Reason}) ->
+    {error, drop_ehttpc_worker_down_call_args(Reason)};
+health_check_result({error, Reason}) ->
+    {error, Reason}.
+
+health_check_request(#{pool := Pool}, Method, Request, Deadline) ->
+    maybe
+        ok ?= ehttpc:check_pool_integrity(Pool),
+        [{_, Worker}] ?= ehttpc:workers(Pool),
+        case ehttpc:request(Worker, Method, Request, health_check_remaining(Deadline), 0) of
+            {ok, Status, _Headers} -> {ok, Status};
+            {ok, Status, _Headers, _Body} -> {ok, Status};
+            {error, _} = RequestError -> RequestError
+        end
+    else
+        [] ->
+            {error, still_connecting};
+        {error, _} = Error ->
+            Error
+    end.
+
+health_check_remaining(Deadline) ->
+    case Deadline - erlang:monotonic_time(millisecond) of
+        Remaining when Remaining > 0 -> Remaining;
+        _ -> exit(timeout)
+    end.
 
 on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout} = State, DoPerWorker) ->
     case do_get_status(InstId, Timeout, DoPerWorker) of
