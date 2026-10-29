@@ -16,7 +16,7 @@
     %% RPC target (`emqx_retainer_proto_v2:wait_dispatch_complete/2`)
     wait_dispatch_complete/1,
     worker/0,
-    fetch/5
+    fetch/6
 ]).
 
 %% gen_server callbacks
@@ -30,7 +30,7 @@
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
--record(fetch, {target, request_ref, topic, cursor}).
+-record(fetch, {target, request_ref, topic, words, cursor}).
 -record(wait_dispatch_complete, {}).
 -record(dispatch, {}).
 
@@ -57,14 +57,23 @@ worker() ->
 
 -doc """
 Queue one retained-message batch for a handler.
+`Words` is `Topic` split with `emqx_topic:words/1`.
 The worker replies with `{retained_batch, RequestRef, Messages, Cursor | done}`.
 """.
--spec fetch(pid(), emqx_extsub_handler:message_target(), reference(), binary(), term()) -> ok.
-fetch(Worker, Target, RequestRef, Topic, Cursor) ->
+-spec fetch(
+    pid(),
+    emqx_extsub_handler:message_target(),
+    reference(),
+    emqx_types:topic(),
+    emqx_types:words(),
+    term()
+) -> ok.
+fetch(Worker, Target, RequestRef, Topic, Words, Cursor) ->
     gen_server:cast(Worker, #fetch{
         target = Target,
         request_ref = RequestRef,
         topic = Topic,
+        words = Words,
         cursor = Cursor
     }).
 
@@ -188,19 +197,21 @@ serve(#fetch{topic = Topic} = Request, Capacity, BatchSize, State0) ->
     end.
 
 read(
-    #fetch{target = Target, request_ref = RequestRef, topic = Topic, cursor = Cursor0},
+    #fetch{
+        target = Target, request_ref = RequestRef, topic = Topic, words = Words, cursor = Cursor0
+    },
     BatchSize,
     State
 ) ->
-    {Messages, Cursor, Cost} = read_batch(Topic, Cursor0, BatchSize),
+    {Messages, Cursor, Cost} = read_batch(Topic, Words, Cursor0, BatchSize),
     emqx_extsub_handler:send(Target, {retained_batch, RequestRef, Messages, Cursor}),
     ?tp(retainer_dispatcher_batch, #{topic => Topic, cost => Cost}),
     {served, State#{next_demand := Cost}}.
 
 %% A failed read ends delivery for its subscription only.
-read_batch(Topic, Cursor, BatchSize) ->
+read_batch(Topic, Words, Cursor, BatchSize) ->
     try
-        do_read_batch(Topic, Cursor, BatchSize)
+        do_read_batch(Topic, Words, Cursor, BatchSize)
     catch
         Class:Reason:Stacktrace ->
             ?SLOG(error, #{
@@ -213,13 +224,13 @@ read_batch(Topic, Cursor, BatchSize) ->
             {[], done, 1}
     end.
 
-do_read_batch(Topic, Cursor0, BatchSize) ->
-    Opts = #{batch_read_number => BatchSize},
+do_read_batch(Topic, Words, Cursor0, BatchSize) ->
+    Opts = #{batch_read_number => BatchSize, tokens => Words},
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     BackendState = emqx_retainer:backend_state(Context),
     {ok, Messages, Cursor, Cost} =
-        case emqx_topic:wildcard(Topic) of
+        case emqx_topic:wildcard(Words) of
             true ->
                 Mod:match_messages(BackendState, Topic, Cursor0, Opts);
             false ->

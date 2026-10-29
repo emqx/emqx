@@ -41,6 +41,10 @@
 -record(h, {
     message_target :: emqx_extsub_handler:message_target(),
     topic_filter,
+    %% The topic filter split with `emqx_topic:words/1'
+    words :: emqx_types:words(),
+    %% The exact-topic message read at subscribe time.
+    messages = [],
     cursor,
     dispatcher,
     monitor,
@@ -84,7 +88,10 @@ handle_subscribe(subscribe = _SubscribeType, SubscribeCtx, Handler, TopicFilter)
         {#h{}, true} ->
             %% Send all retained messages again for the new SUBSCRIBE.
             _ = stop(Handler),
-            start(SubscribeCtx, TopicFilter);
+            case start(SubscribeCtx, TopicFilter) of
+                ignore -> destroy;
+                Result -> Result
+            end;
         {#h{}, false} ->
             %% Continue the delivery that an earlier SUBSCRIBE started.
             ignore
@@ -159,30 +166,32 @@ need_retained(#{subopts := #{rh := RH} = SubOpts}) ->
 
 start(SubscribeCtx, TopicFilter) ->
     #{message_target := MessageTarget} = SubscribeCtx,
+    Words = emqx_topic:words(TopicFilter),
     Handler0 = #h{
         message_target = MessageTarget,
         topic_filter = TopicFilter,
+        words = Words,
         cursor = ?no_wildcard
     },
-    Handler =
-        case need_dispatcher(TopicFilter) of
-            true -> request_next(Handler0#h{cursor = ?cursor(?no_cursor)});
-            false -> enqueue_nudge(Handler0, now)
-        end,
-    {ok, Handler}.
+    case need_dispatcher(Words) of
+        true ->
+            {ok, request_next(Handler0#h{cursor = ?cursor(?no_cursor)})};
+        false ->
+            case read_message(TopicFilter) of
+                [] -> ignore;
+                Messages -> {ok, enqueue_nudge(Handler0#h{messages = Messages}, now)}
+            end
+    end.
 
-need_dispatcher(Topic) ->
-    emqx_topic:wildcard(Topic) orelse
+need_dispatcher(Words) ->
+    emqx_topic:wildcard(Words) orelse
         emqx_config:get([retainer, flow_control, batch_deliver_limiter]) =/= infinity.
 
 handle_next(#h{cursor = ?done} = Handler0, _InfoCtx) ->
     %% Impossible?
     {ok, Handler0};
-handle_next(#h{cursor = ?no_wildcard, topic_filter = Topic} = Handler, _InfoCtx) ->
-    case read_message(Topic) of
-        [] -> {destroy, [Topic]};
-        Messages -> {ok, Handler#h{cursor = ?done}, Messages}
-    end;
+handle_next(#h{cursor = ?no_wildcard, messages = Messages} = Handler, _InfoCtx) ->
+    {ok, Handler#h{cursor = ?done, messages = []}, Messages};
 handle_next(#h{cursor = ?cursor(_), topic_filter = Topic} = Handler, _InfoCtx) ->
     case emqx_retainer:context() of
         undefined ->
@@ -211,9 +220,10 @@ request_next(#h{cursor = ?cursor(Cursor)} = Handler0) ->
     case ensure_dispatcher(Handler0) of
         #h{dispatcher = undefined} = Handler ->
             enqueue_nudge(Handler, delay);
-        #h{dispatcher = Worker, message_target = Target, topic_filter = Topic} = Handler ->
+        #h{dispatcher = Worker, message_target = Target, topic_filter = Topic, words = Words} =
+                Handler ->
             Ref = make_ref(),
-            emqx_retainer_dispatcher:fetch(Worker, Target, Ref, Topic, Cursor),
+            emqx_retainer_dispatcher:fetch(Worker, Target, Ref, Topic, Words, Cursor),
             Handler#h{request_ref = Ref}
     end;
 request_next(Handler) ->

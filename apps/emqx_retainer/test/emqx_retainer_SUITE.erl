@@ -1459,8 +1459,9 @@ t_extsub_ignore_non_mqtt(_Config) ->
         ok
     end.
 
--doc "A subscription to a topic without wildcards and without a retained message starts no handler.".
+-doc "An unlimited exact-topic subscription without a retained message starts no handler.".
 t_extsub_no_handler_no_wildcard_empty(_Config) ->
+    update_retainer_config(#{<<"delivery_rate">> => <<"infinity">>}),
     Ref = make_ref(),
     ?assertEqual(
         ignore,
@@ -1471,10 +1472,11 @@ t_extsub_no_handler_no_wildcard_empty(_Config) ->
     ?assertNotReceive(#info_to_extsub{handler_ref = Ref}, 100).
 
 -doc """
-A subscription to a topic without wildcards that has a retained message starts a handler.
+An unlimited exact-topic subscription that has a retained message starts a handler.
 The handler delivers the message that was read at subscribe time: the backend is read once.
 """.
 t_extsub_handler_no_wildcard_retained(_Config) ->
+    update_retainer_config(#{<<"delivery_rate">> => <<"infinity">>}),
     Topic = <<"skip_empty/retained">>,
     ok = emqx_retainer_publisher:store_retained(emqx_message:make(Topic, <<"payload">>)),
     Ref = make_ref(),

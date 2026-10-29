@@ -290,15 +290,19 @@ read_message(_State, Topic) ->
     emqx_retainer:backend_state(), emqx_types:topic(), cursor(), emqx_retainer:match_opts()
 ) -> emqx_retainer:match_result(cursor()).
 match_messages(_State, Topic, Cursor, Opts) ->
+    Tokens =
+        case Opts of
+            #{tokens := Tokens0} -> Tokens0;
+            #{} -> topic_to_tokens(Topic)
+        end,
     case batch_read_number(Opts) of
         all_remaining ->
-            match_all(Topic, Cursor, [], 0);
+            match_all(Tokens, Cursor, [], 0);
         BatchSize ->
-            match_batch(Topic, Cursor, BatchSize)
+            match_batch(Tokens, Cursor, BatchSize)
     end.
 
-match_batch(Topic, Cursor0, BatchSize) ->
-    Tokens = topic_to_tokens(Topic),
+match_batch(Tokens, Cursor0, BatchSize) ->
     {Indices, Incarnation} = dirty_indices(read),
     case read_cursor(Cursor0, Tokens, Indices, Incarnation) of
         done ->
@@ -368,12 +372,12 @@ batch_messages(_Index, Rows, Tokens, Now) ->
         Expiry =:= 0 orelse Expiry > Now
     ].
 
-match_all(Topic, Cursor0, Acc, Cost0) ->
-    {ok, Messages, Cursor, BatchCost} = match_batch(Topic, Cursor0, 1000),
+match_all(Tokens, Cursor0, Acc, Cost0) ->
+    {ok, Messages, Cursor, BatchCost} = match_batch(Tokens, Cursor0, 1000),
     Cost = Cost0 + BatchCost,
     case Cursor of
         undefined -> {ok, lists:append(lists:reverse([Messages | Acc])), undefined, Cost};
-        _ -> match_all(Topic, Cursor, [Messages | Acc], Cost)
+        _ -> match_all(Tokens, Cursor, [Messages | Acc], Cost)
     end.
 
 page_read(_State, Topic, Deadline, Page, Limit) ->

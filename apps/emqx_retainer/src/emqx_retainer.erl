@@ -90,7 +90,11 @@
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
 -type index_incarnation() :: integer().
--type match_opts() :: #{batch_read_number => pos_integer() | all_remaining}.
+%% `tokens': the topic filter split into words, so that the backend need not split it again.
+-type match_opts() :: #{
+    batch_read_number => pos_integer() | all_remaining,
+    tokens => emqx_types:words()
+}.
 -type read_cost() :: pos_integer().
 -type match_result(Cursor) :: {ok, [message()], Cursor, read_cost()}.
 

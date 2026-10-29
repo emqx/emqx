@@ -318,7 +318,10 @@ t_read_failure(_Config) ->
     Incarnation = emqx_retainer_mnesia:current_index_incarnation(undefined),
     Cursor = #{incarnation => Incarnation, index => undefined, continuation => invalid},
     Request = make_ref(),
-    ok = emqx_retainer_dispatcher:fetch(Worker, Target, Request, <<"t/+/a">>, Cursor),
+    Topic = <<"t/+/a">>,
+    ok = emqx_retainer_dispatcher:fetch(
+        Worker, Target, Request, Topic, emqx_topic:words(Topic), Cursor
+    ),
     ?assertEqual({retained_batch, Request, [], done}, receive_info(Ref)),
     ?assert(is_process_alive(Worker)).
 
