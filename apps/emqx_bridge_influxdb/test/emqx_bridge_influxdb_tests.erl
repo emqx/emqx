@@ -401,6 +401,19 @@ valid_write_syntax_escaped_chars_test_() ->
 valid_write_syntax_escaped_chars_with_extra_spaces_test_() ->
     test_pairs(?VALID_LINE_PARSED_ESCAPED_CHARS_EXTRA_SPACES_PAIRS).
 
+%% https://github.com/emqx/emqx/issues/19814
+missing_write_syntax_test() ->
+    ?assertThrow(
+        {_, [#{reason := required_field, path := "parameters.write_syntax"}]},
+        check_action_parameters(#{<<"precision">> => <<"ms">>})
+    ).
+
+check_action_parameters(Conf) ->
+    Schema = #{
+        roots => [{parameters, hoconsc:mk(hoconsc:ref(emqx_bridge_influxdb, action_parameters))}]
+    },
+    hocon_tconf:check_plain(Schema, #{<<"parameters">> => Conf}, #{required => false}).
+
 unicode_write_syntax_test_() ->
     Tag = unicode:characters_to_list(<<"标签"/utf8>>),
     Field = unicode:characters_to_list(<<"固定中文"/utf8>>),
