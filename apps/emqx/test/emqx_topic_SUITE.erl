@@ -134,23 +134,6 @@ t_match_binary_same_as_words(_) ->
         )
     ).
 
-%% A binary name against the words of a filter is matched without a split. For any name and
-%% filter, valid or not, the result is the same as the word match.
-t_match_binary_name_same_as_words(_) ->
-    ?assertNot(match(<<"#/a">>, words(<<"#">>))),
-    ?assertNot(match(<<"$SYS/a">>, words(<<"+/a">>))),
-    ?assert(match(<<"a//b">>, words(<<"a/+/b">>))),
-    ?assert(
-        proper:quickcheck(
-            ?FORALL(
-                {Name, Filter},
-                {topic_gen(), topic_gen()},
-                match(Name, words(Filter)) =:= match(words(Name), words(Filter))
-            ),
-            [{numtests, 50000}, {to_file, user}]
-        )
-    ).
-
 t_match_share_same_as_words(_) ->
     ?assert(
         proper:quickcheck(

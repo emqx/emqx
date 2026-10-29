@@ -122,8 +122,6 @@ match(<<$$, _/binary>>, <<$+, _/binary>>) ->
     false;
 match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
-match(<<$$, _/binary>>, [W | _]) when ?IS_WILDCARD(W) ->
-    false;
 match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
     match_levels(Filter, Name);
 match(#share{} = Name, Filter) ->
@@ -131,7 +129,7 @@ match(#share{} = Name, Filter) ->
 match(Name, #share{} = Filter) ->
     match_share(Name, Filter);
 match(Name, Filter) when is_binary(Name) ->
-    match_name_levels(Filter, Name);
+    match_words(words(Name), Filter);
 match(Name, Filter) when is_binary(Filter) ->
     match_words(Name, words(Filter));
 match(Name, Filter) ->
@@ -187,35 +185,6 @@ skip_level(<<_, Rest/binary>>) ->
     skip_level(Rest);
 skip_level(<<>>) ->
     done.
-
-%% Match the binary Name against Filter, the words of a filter as words/1 returns them, level by
-%% level and without splitting Name. The checks are the same as in match_levels/2. The result
-%% must be the same as match_tokens/2 with the words of Name.
-%% emqx_topic_SUITE:t_match_binary_name_same_as_words checks this.
-match_name_levels([], Name) ->
-    Name =:= done;
-match_name_levels(['#'], <<"#/", _/binary>>) ->
-    false;
-match_name_levels(['#'], _Name) ->
-    true;
-match_name_levels(_Filter, done) ->
-    false;
-match_name_levels(['+' | Filter], Name) ->
-    match_name_levels(Filter, skip_level(Name));
-match_name_levels(['#' | Filter], Name) ->
-    match_name_level(<<"#">>, Filter, Name);
-match_name_levels(['' | Filter], Name) ->
-    match_name_level(<<>>, Filter, Name);
-match_name_levels([Word | Filter], Name) ->
-    match_name_level(Word, Filter, Name).
-
-match_name_level(Word, Filter, Name) ->
-    Size = byte_size(Word),
-    case Name of
-        <<Word:Size/binary, $/, Rest/binary>> -> match_name_levels(Filter, Rest);
-        Word -> match_name_levels(Filter, done);
-        _ -> false
-    end.
 
 match_words([<<$$, _/binary>> | _], [W | _]) when ?IS_WILDCARD(W) ->
     false;
