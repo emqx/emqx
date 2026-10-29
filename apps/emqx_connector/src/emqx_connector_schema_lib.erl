@@ -14,6 +14,7 @@
     ssl_fields/0,
     ssl_fields/1,
     verify_peer_ssl_fields/0,
+    verify_peer_ssl_fields/1,
     prepare_statement_fields/0,
     prepare_statement_field/0,
     prepare_statement_field/1,
@@ -63,10 +64,14 @@ ssl_fields(Opts) ->
 
 %% n.b.: ssl disabled by default
 verify_peer_ssl_fields() ->
+    verify_peer_ssl_fields(#{enable_by_default => false}).
+
+verify_peer_ssl_fields(Opts) ->
+    EnableByDefault = maps:get(enable_by_default, Opts, false),
     [
         {ssl, #{
             type => hoconsc:ref(?MODULE, client_tls_verify_peer),
-            default => #{~"enable" => false},
+            default => #{~"enable" => EnableByDefault},
             desc => ?DESC("ssl")
         }}
     ].
