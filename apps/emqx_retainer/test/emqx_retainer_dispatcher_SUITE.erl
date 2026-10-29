@@ -31,7 +31,9 @@ end_per_suite(Config) ->
 init_per_testcase(_Case, Config) ->
     emqx_config:put([retainer, backend, reindex_delivery_action], redo),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
+    emqx_config:put([retainer, flow_control, batch_read_number], 0),
     ok = emqx_retainer_limiter:update(),
+    ok = restart_workers(),
     ok = emqx_retainer:clean(),
     ok = emqx_retainer_mnesia:reindex([[1, 3]], true, fun(_) -> ok end),
     Config.
@@ -75,7 +77,7 @@ t_refill_cursor(_Config) ->
 -doc "A wildcard batch waits for the dispatcher and does not read in the channel.".
 t_async_fetch_and_demand(_Config) ->
     store_messages(),
-    emqx_config:put([retainer, flow_control, batch_read_number], 1),
+    ok = set_batch_read_number(1),
     Worker = emqx_retainer_dispatcher:worker(),
     ok = sys:suspend(Worker),
     emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),
@@ -87,8 +89,8 @@ t_async_fetch_and_demand(_Config) ->
     ?assertNotReceive(#info_to_extsub{handler_ref = Ref}, 100),
     AckCtx = #{desired_message_count => 1, delivering_count => 0, unacked_count => 0},
     {ok, Handler2} = emqx_retainer_extsub_handler:handle_delivered(Handler1, AckCtx, Msg0, ack),
-    {ok, Handler3, [_]} = info(Handler2, receive_batch(Ref), 1),
-    {ok, Handler4, [_]} = info(Handler3, receive_batch(Ref), 1),
+    {ok, Handler3, [_]} = info(Handler2, receive_batch(Ref), 100),
+    {ok, Handler4, [_]} = info(Handler3, receive_batch(Ref), 100),
     ?assertMatch({destroy, [_]}, info(Handler4, receive_batch(Ref), 1)),
     ok = emqx_retainer_extsub_handler:handle_terminate(Handler4),
     assert_no_monitor(Worker).
@@ -96,7 +98,7 @@ t_async_fetch_and_demand(_Config) ->
 -doc "A handler retries an outstanding request after its dispatcher dies.".
 t_dispatcher_death(_Config) ->
     store_messages(),
-    emqx_config:put([retainer, flow_control, batch_read_number], 1),
+    ok = set_batch_read_number(1),
     Worker0 = emqx_retainer_dispatcher:worker(),
     ok = sys:suspend(Worker0),
     {Ref, Handler0} = subscribe(),
@@ -130,7 +132,8 @@ t_unsubscribe_pending(_Config) ->
 
 -doc "Empty wildcard reads consume tokens and resume when the limiter allows reads.".
 t_empty_read_limiter(_Config) ->
-    emqx_config:put([retainer, flow_control, batch_deliver_limiter], {2, 10000}),
+    %% The first read of a worker is free, so one token allows two reads.
+    emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
     ok = emqx_retainer_limiter:update(),
     ok = emqx_retainer_sup:stop_workers(),
     ok = emqx_retainer_sup:start_workers(),
@@ -192,9 +195,9 @@ t_filtered_batch(_Config) ->
 -doc "A resubscription ignores saved delivery counts and starts from the first retained message.".
 t_saved_deliveries(_Config) ->
     store_messages(),
-    emqx_config:put([retainer, flow_control, batch_read_number], 1),
+    ok = set_batch_read_number(1),
     {Ref, Handler0} = subscribe(#{rh => 0, emqx_retainer_extsub_handler => #{delivered => 1}}),
-    {ok, Handler1, [#message{topic = <<"t/1/a">>}]} = info(Handler0, receive_batch(Ref), 1),
+    {ok, Handler1, [#message{topic = <<"t/1/a">>}]} = info(Handler0, receive_batch(Ref), 100),
     {ok, Handler2, [#message{topic = <<"t/2/a">>}]} = info(Handler1, receive_batch(Ref), 0),
     {ok, Handler3} = emqx_retainer_extsub_handler:handle_save_subopts(Handler2, #{}, #{}),
     assert_no_monitor(emqx_retainer_dispatcher:worker()),
@@ -270,7 +273,8 @@ t_exact_unlimited(_Config) ->
 t_exact_limited(_Config) ->
     store_messages(),
     emqx_config:put([retainer, flow_control, batch_read_number], 1),
-    emqx_config:put([retainer, flow_control, batch_deliver_limiter], {2, 10000}),
+    %% The first read of a worker is free, so one token allows two reads.
+    emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
     ok = emqx_retainer_limiter:update(),
     ok = emqx_retainer_sup:stop_workers(),
     ok = emqx_retainer_sup:start_workers(),
@@ -292,8 +296,114 @@ t_exact_limited(_Config) ->
         Handler3, Handler4, Handler5
     ]).
 
+-doc "A handler with a pending read stops when the retainer is disabled.".
+t_retainer_disabled(_Config) ->
+    store_messages(),
+    Worker = emqx_retainer_dispatcher:worker(),
+    ok = sys:suspend(Worker),
+    {Ref, Handler0} = subscribe(),
+    emqx_common_test_helpers:on_exit(fun() ->
+        {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true})
+    end),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+    %% The handler schedules one retry after the dispatcher stops.
+    {ok, Handler1} = info(Handler0, receive_down(Ref), 1),
+    ?assertMatch({destroy, [<<"t/+/a">>]}, info(Handler1, receive_info(Ref), 1)).
+
+-doc "A failed read replies to its handler and keeps the dispatcher worker alive.".
+t_read_failure(_Config) ->
+    Worker = emqx_retainer_dispatcher:worker(),
+    Ref = make_ref(),
+    Target = emqx_extsub_handler:message_target(Ref),
+    Incarnation = emqx_retainer_mnesia:current_index_incarnation(undefined),
+    Cursor = #{incarnation => Incarnation, index => undefined, continuation => invalid},
+    Request = make_ref(),
+    ok = emqx_retainer_dispatcher:fetch(Worker, Target, Request, <<"t/+/a">>, Cursor),
+    ?assertEqual({retained_batch, Request, [], done}, receive_info(Ref)),
+    ?assert(is_process_alive(Worker)).
+
+-doc "A repeated SUBSCRIBE that needs no retained messages keeps the running delivery.".
+t_resubscribe_keeps_delivery(_Config) ->
+    store_messages(),
+    lists:foreach(
+        fun(RH) ->
+            {Client, Worker} = connect_with_suspended_dispatcher(),
+            {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, [{qos, 0}, {rh, 1}]),
+            {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, [{qos, 0}, {rh, RH}]),
+            ok = sys:resume(Worker),
+            ?assertEqual(
+                [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>],
+                lists:sort(receive_publishes(3)),
+                #{rh => RH}
+            ),
+            ?assertEqual([], receive_publishes(1)),
+            ok = emqtt:stop(Client)
+        end,
+        [1, 2]
+    ).
+
+-doc "A repeated SUBSCRIBE with Retain Handling 0 restarts delivery and drops the old reply.".
+t_resubscribe_restarts_delivery(_Config) ->
+    store_messages(),
+    {Client, Worker} = connect_with_suspended_dispatcher(),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, [{qos, 0}, {rh, 0}]),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, [{qos, 0}, {rh, 0}]),
+    ok = sys:resume(Worker),
+    ?assertEqual([<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>], lists:sort(receive_publishes(3))),
+    ?assertEqual([], receive_publishes(1)),
+    ok = emqtt:stop(Client).
+
+-doc "A limited rate reduces the batch size to the capacity share of each dispatcher worker.".
+t_batch_size_limited(_Config) ->
+    lists:foreach(
+        fun(N) -> store(<<"t/", (integer_to_binary(N))/binary, "/a">>) end,
+        lists:seq(1, 100)
+    ),
+    Share = 20,
+    emqx_config:put([retainer, flow_control, batch_read_number], 1000),
+    emqx_config:put(
+        [retainer, flow_control, batch_deliver_limiter],
+        {Share * emqx_vm:schedulers(), 1000}
+    ),
+    ok = emqx_retainer_limiter:update(),
+    {Ref, Handler0} = subscribe(),
+    {ok, Handler1, Messages} = info(Handler0, receive_batch(Ref), 0),
+    ?assertEqual(Share, length(Messages)),
+    ok = emqx_retainer_extsub_handler:handle_terminate(Handler1).
+
+-doc "A finished handler stops after its last delivery even when other handlers have unacked messages.".
+t_done_with_other_unacked(_Config) ->
+    store_messages(),
+    {Ref, Handler0} = subscribe(),
+    {ok, Handler1, [Msg | _]} = info(Handler0, receive_batch(Ref), 100),
+    AckCtx = #{desired_message_count => 100, delivering_count => 0, unacked_count => 5},
+    ?assertMatch(
+        {destroy, [<<"t/+/a">>]},
+        emqx_retainer_extsub_handler:handle_delivered(Handler1, AckCtx, Msg, ack)
+    ).
+
+-doc "A handler does not request another batch when the received batch fills its buffer.".
+t_no_request_when_buffer_full(_Config) ->
+    store_messages(),
+    ok = set_batch_read_number(1),
+    {Ref, Handler0} = subscribe(),
+    Ctx = #{desired_message_count => 100, delivering_count => 99},
+    {ok, Handler1, [_]} = emqx_retainer_extsub_handler:handle_info(
+        Handler0, Ctx, receive_batch(Ref)
+    ),
+    ?assertNotReceive(#info_to_extsub{handler_ref = Ref}, 200),
+    ok = emqx_retainer_extsub_handler:handle_terminate(Handler1).
+
 store_messages() ->
     lists:foreach(fun store/1, [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>]).
+
+set_batch_read_number(N) ->
+    emqx_config:put([retainer, flow_control, batch_read_number], N).
+
+%% Start each case with workers that have no token debt from earlier reads.
+restart_workers() ->
+    ok = emqx_retainer_sup:stop_workers(),
+    ok = emqx_retainer_sup:start_workers().
 
 store(Topic) ->
     emqx_retainer_mnesia:store_retained(
@@ -333,8 +443,30 @@ receive_info(Ref) ->
 
 receive_batch(Ref) ->
     Info = receive_info(Ref),
-    ?assertMatch({retained_batch, _, _}, Info),
+    ?assertMatch({retained_batch, _, _, _}, Info),
     Info.
+
+connect_with_suspended_dispatcher() ->
+    ClientId = <<"retainer_dispatcher_resubscribe">>,
+    {ok, Client} = emqtt:start_link(#{clientid => ClientId, proto_ver => v5}),
+    {ok, _} = emqtt:connect(Client),
+    [Channel] = emqx_cm:lookup_channels(ClientId),
+    Worker = gproc_pool:pick_worker(?DISPATCHER_POOL, Channel),
+    ok = sys:suspend(Worker),
+    emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),
+    {Client, Worker}.
+
+receive_publishes(N) ->
+    receive_publishes(N, []).
+
+receive_publishes(0, Acc) ->
+    lists:reverse(Acc);
+receive_publishes(N, Acc) ->
+    receive
+        {publish, #{topic := Topic}} -> receive_publishes(N - 1, [Topic | Acc])
+    after 1000 ->
+        lists:reverse(Acc)
+    end.
 
 receive_down(Ref) ->
     receive

@@ -5,7 +5,6 @@
 -module(emqx_retainer_sup).
 
 -include("emqx_retainer.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -export([start_link/0, start_worker_sup/0, start_workers/0, stop_workers/0]).
 
@@ -82,34 +81,16 @@ init([?worker_sup]) ->
 %%--------------------------------------------------------------------
 
 start_dispatcher() ->
-    Workers = emqx_vm:schedulers(),
-    warn_limiter_capacity(Workers),
     ChildSpec = emqx_pool_sup:spec(
         dispatcher,
         [
             ?DISPATCHER_POOL,
             hash,
-            Workers,
+            emqx_vm:schedulers(),
             {emqx_retainer_dispatcher, start_link, []}
         ]
     ),
     supervisor:start_child(?worker_sup, ChildSpec).
-
-warn_limiter_capacity(Workers) ->
-    BatchSize = emqx_retainer_dispatcher:batch_size(),
-    RecommendedCapacity = BatchSize * Workers,
-    case emqx_config:get([retainer, flow_control, batch_deliver_limiter]) of
-        {Capacity, _Interval} when Capacity < RecommendedCapacity ->
-            ?SLOG(warning, #{
-                msg => retainer_delivery_limiter_capacity_too_low,
-                capacity => Capacity,
-                batch_size => BatchSize,
-                dispatcher_workers => Workers,
-                recommended_min_capacity => RecommendedCapacity
-            });
-        _ ->
-            ok
-    end.
 
 stop_child(ChildId) ->
     case supervisor:terminate_child(?worker_sup, ChildId) of

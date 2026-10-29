@@ -95,7 +95,7 @@
     state() | undefined,
     emqx_extsub_types:topic_filter()
 ) ->
-    {ok, state()} | ignore.
+    {ok, state()} | ignore | destroy.
 -callback handle_unsubscribe(
     unsubscribe_type(), unsubscribe_ctx(), state(), emqx_extsub_types:topic_filter()
 ) ->
@@ -197,6 +197,9 @@ subscribe_new(SubscribeType, CBM, Options, InitCtx, TopicFilter) ->
     try CBM:handle_subscribe(SubscribeType, InitCtx, undefined, TopicFilter) of
         ignore ->
             ignore;
+        %% No handler exists yet, so there is nothing to destroy.
+        destroy ->
+            ignore;
         {ok, State} ->
             {ok, #handler{
                 cbm = CBM,
@@ -215,11 +218,13 @@ subscribe_new(SubscribeType, CBM, Options, InitCtx, TopicFilter) ->
     end.
 
 -spec subscribe(subscribe_type(), subscribe_ctx(), t(), emqx_extsub_types:topic_filter()) ->
-    {ok, t()} | ignore.
+    {ok, t()} | ignore | destroy.
 subscribe(SubscribeType, SubscribeCtx, #handler{cbm = CBM, st = State0} = Handler, TopicFilter) ->
     case CBM:handle_subscribe(SubscribeType, SubscribeCtx, State0, TopicFilter) of
         ignore ->
             ignore;
+        destroy ->
+            destroy;
         {ok, State} ->
             {ok, Handler#handler{st = State}}
     end.

@@ -67,10 +67,14 @@ ExtSub ignores acknowledgements for replayed messages because their handler refe
 -callback handle_subscribe(
     subscribe_type(), subscribe_ctx(), state() | undefined, emqx_extsub_types:topic_filter()
 ) ->
-    {ok, state()} | ignore.
+    {ok, state()} | ignore | destroy.
 ```
 
-If the handler wants to handle the topic, then it should return `{ok, state()}`. If the handler is not interested in the topic, it should return `ignore`.
+The result applies to the topic filter of the call, for single-topic and multi-topic handlers:
+
+* `{ok, state()}`: handle the topic with the returned state.
+* `ignore`: change nothing. An existing handler keeps its state and its topics. When no handler handles the topic, ExtSub does not create one.
+* `destroy`: stop handling the topic. When a handler handles the topic, ExtSub removes the topic from it, as for an unsubscribe. A handler without topics is terminated. When no handler handles the topic, `destroy` has the same effect as `ignore`.
 
 The `subscribe_ctx()` contains a `message_target` value that identifies the owning channel and handler.
 Use `emqx_extsub_handler:send/2` or `emqx_extsub_handler:send_after/3` to send a message to this target.
@@ -83,7 +87,11 @@ The handler must call `emqx_extsub_handler:demonitor/2` before it is destroyed, 
 A monitor that is not removed stays in place until the channel exits.
 ExtSub drops a down message for a handler that no longer exists.
 
-`handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is always `undefined`. For a multi-topic handler, `state()` is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
+`handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is `undefined` for a new subscription. For a multi-topic handler, `state()` is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
+
+When the client subscribes again to a topic that the handler already handles, the `ignore_resubscribe` option controls the result.
+With `ignore_resubscribe => true` (the default), ExtSub does not call the handler.
+With `ignore_resubscribe => false`, ExtSub calls `handle_subscribe` with the existing handler state, and the result applies as described above.
 
 #### `handle_unsubscribe` callback
 

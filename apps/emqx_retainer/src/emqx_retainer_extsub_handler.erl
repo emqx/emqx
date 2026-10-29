@@ -41,15 +41,12 @@
 -record(h, {
     message_target :: emqx_extsub_handler:message_target(),
     topic_filter,
-    context,
-    mod,
-    state,
     cursor,
     dispatcher,
     monitor,
-    outstanding = false,
-    nudge_enqueued = false,
-    fetched = 0
+    %% Reference of the dispatcher request that waits for a reply
+    request_ref :: undefined | reference(),
+    nudge_enqueued = false
 }).
 
 %% Events
@@ -79,18 +76,17 @@ handle_subscribe(resume = _SubscribeType, _SubscribeCtx, _Handler, _TopicFilter)
     %% would thus be an improvement.
     ignore;
 handle_subscribe(subscribe = _SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
-    IsNew =
-        case SubscribeCtx of
-            #{subopts := #{is_new := false}} ->
-                false;
-            #{subopts := #{}} ->
-                true
-        end,
-    #{subopts := #{rh := RH}} = SubscribeCtx,
-    case RH == 0 orelse (RH == 1 andalso IsNew) of
-        true ->
-            subscribe(Handler, SubscribeCtx, TopicFilter);
-        false ->
+    case {Handler, need_retained(SubscribeCtx)} of
+        {undefined, true} ->
+            start(SubscribeCtx, TopicFilter);
+        {undefined, false} ->
+            ignore;
+        {#h{}, true} ->
+            %% Send all retained messages again for the new SUBSCRIBE.
+            _ = stop(Handler),
+            start(SubscribeCtx, TopicFilter);
+        {#h{}, false} ->
+            %% Continue the delivery that an earlier SUBSCRIBE started.
             ignore
     end.
 
@@ -103,11 +99,10 @@ handle_terminate(Handler) ->
 handle_delivered(Handler, AckCtx, _Msg, _Ack) ->
     #{
         desired_message_count := DesiredMsgCount,
-        delivering_count := DeliveringCount,
-        unacked_count := UnackedCount
+        delivering_count := DeliveringCount
     } = AckCtx,
     case Handler#h.cursor of
-        ?done when UnackedCount == 0 andalso DeliveringCount == 0 ->
+        ?done when DeliveringCount == 0 ->
             {destroy, [Handler#h.topic_filter]};
         _ when DesiredMsgCount > 0 ->
             {ok, request_next(Handler)};
@@ -115,34 +110,33 @@ handle_delivered(Handler, AckCtx, _Msg, _Ack) ->
             {ok, Handler}
     end.
 
-handle_info(#h{outstanding = true} = Handler0, InfoCtx, {retained_batch, Messages0, Cursor0}) ->
+handle_info(#h{request_ref = Ref} = Handler0, InfoCtx, {retained_batch, Ref, Messages0, Cursor0}) ->
     Cursor =
         case Cursor0 of
             done -> ?done;
             _ -> ?cursor(Cursor0)
         end,
-    Handler1 = Handler0#h{outstanding = false, cursor = Cursor},
+    Handler1 = Handler0#h{request_ref = undefined, cursor = Cursor},
     Messages = enrich_messages(Handler1#h.topic_filter, filter_delivery(Messages0)),
-    Handler2 = Handler1#h{fetched = Handler1#h.fetched + length(Messages)},
     #{desired_message_count := Demand, delivering_count := Delivering} = InfoCtx,
     case Cursor of
         ?done ->
-            ok = demonitor_dispatcher(Handler2),
-            Handler = Handler2#h{dispatcher = undefined, monitor = undefined},
+            ok = demonitor_dispatcher(Handler1),
+            Handler = Handler1#h{dispatcher = undefined, monitor = undefined},
             case Messages == [] andalso Delivering == 0 of
                 true -> {destroy, [Handler#h.topic_filter]};
                 false -> {ok, Handler, Messages}
             end;
-        _ when Demand > 0 ->
-            {ok, request_next(Handler2), Messages};
+        _ when Delivering + length(Messages) < Demand ->
+            {ok, request_next(Handler1), Messages};
         _ ->
-            {ok, Handler2, Messages}
+            {ok, Handler1, Messages}
     end;
 handle_info(#h{monitor = Ref} = Handler0, _InfoCtx, {'DOWN', Ref, process, _Pid, _Reason}) ->
-    Handler = Handler0#h{dispatcher = undefined, monitor = undefined, outstanding = false},
-    case Handler0#h.outstanding of
-        true -> {ok, enqueue_nudge(Handler, delay)};
-        false -> {ok, Handler}
+    Handler = Handler0#h{dispatcher = undefined, monitor = undefined, request_ref = undefined},
+    case Handler0#h.request_ref of
+        undefined -> {ok, Handler};
+        _ -> {ok, enqueue_nudge(Handler, delay)}
     end;
 handle_info(Handler0, InfoCtx, #next{}) ->
     Handler = Handler0#h{nudge_enqueued = false},
@@ -159,27 +153,22 @@ handle_save_subopts(Handler0, _Context, _SubOpts) ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-subscribe(undefined = _Handler, SubscribeCtx, TopicFilter) ->
+%% Retain Handling 0 sends retained messages on each SUBSCRIBE, 1 only for a new subscription.
+need_retained(#{subopts := #{rh := RH} = SubOpts}) ->
+    RH == 0 orelse (RH == 1 andalso maps:get(is_new, SubOpts, true)).
+
+start(SubscribeCtx, TopicFilter) ->
     #{message_target := MessageTarget} = SubscribeCtx,
-    Context = emqx_retainer:context(),
-    Mod = emqx_retainer:backend_module(Context),
-    State = emqx_retainer:backend_state(Context),
     Handler0 = #h{
         message_target = MessageTarget,
         topic_filter = TopicFilter,
-        context = Context,
-        mod = Mod,
-        state = State,
-        cursor = ?no_wildcard,
-        fetched = 0
+        cursor = ?no_wildcard
     },
     Handler =
         case need_dispatcher(TopicFilter) of
             true -> request_next(Handler0#h{cursor = ?cursor(?no_cursor)});
             false -> enqueue_nudge(Handler0, now)
         end,
-    {ok, Handler};
-subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter) ->
     {ok, Handler}.
 
 need_dispatcher(Topic) ->
@@ -189,19 +178,32 @@ need_dispatcher(Topic) ->
 handle_next(#h{cursor = ?done} = Handler0, _InfoCtx) ->
     %% Impossible?
     {ok, Handler0};
-handle_next(#h{cursor = ?no_wildcard} = Handler0, _InfoCtx) ->
-    #h{topic_filter = Topic, mod = Mod, state = State} = Handler0,
-    {ok, Messages0} = Mod:read_message(State, Topic),
-    Messages = enrich_messages(Topic, filter_delivery(Messages0)),
-    Handler = Handler0#h{cursor = ?done, fetched = length(Messages)},
-    case Messages of
+handle_next(#h{cursor = ?no_wildcard, topic_filter = Topic} = Handler, _InfoCtx) ->
+    case read_message(Topic) of
         [] -> {destroy, [Topic]};
-        _ -> {ok, Handler, Messages}
+        Messages -> {ok, Handler#h{cursor = ?done}, Messages}
     end;
-handle_next(#h{cursor = ?cursor(_)} = Handler, _InfoCtx) ->
-    {ok, request_next(Handler)}.
+handle_next(#h{cursor = ?cursor(_), topic_filter = Topic} = Handler, _InfoCtx) ->
+    case emqx_retainer:context() of
+        undefined ->
+            %% The retainer is stopped, so no dispatcher will serve the request.
+            {destroy, [Topic]};
+        _ ->
+            {ok, request_next(Handler)}
+    end.
 
-request_next(#h{outstanding = true} = Handler) ->
+%% Read an exact topic in the channel. A stopped retainer returns no messages.
+read_message(Topic) ->
+    case emqx_retainer:context() of
+        undefined ->
+            [];
+        Context ->
+            Mod = emqx_retainer:backend_module(Context),
+            {ok, Messages} = Mod:read_message(emqx_retainer:backend_state(Context), Topic),
+            enrich_messages(Topic, filter_delivery(Messages))
+    end.
+
+request_next(#h{request_ref = Ref} = Handler) when is_reference(Ref) ->
     Handler;
 request_next(#h{cursor = ?done} = Handler) ->
     Handler;
@@ -210,8 +212,9 @@ request_next(#h{cursor = ?cursor(Cursor)} = Handler0) ->
         #h{dispatcher = undefined} = Handler ->
             enqueue_nudge(Handler, delay);
         #h{dispatcher = Worker, message_target = Target, topic_filter = Topic} = Handler ->
-            emqx_retainer_dispatcher:fetch(Worker, Target, Topic, Cursor),
-            Handler#h{outstanding = true}
+            Ref = make_ref(),
+            emqx_retainer_dispatcher:fetch(Worker, Target, Ref, Topic, Cursor),
+            Handler#h{request_ref = Ref}
     end;
 request_next(Handler) ->
     enqueue_nudge(Handler, now).
@@ -236,7 +239,7 @@ demonitor_dispatcher(#h{message_target = Target, monitor = Ref}) ->
 
 stop(Handler) ->
     ok = demonitor_dispatcher(Handler),
-    Handler#h{cursor = ?done, dispatcher = undefined, monitor = undefined, outstanding = false}.
+    Handler#h{cursor = ?done, dispatcher = undefined, monitor = undefined, request_ref = undefined}.
 
 filter_delivery(Messages) ->
     lists:filter(fun check_clientid_banned/1, Messages).

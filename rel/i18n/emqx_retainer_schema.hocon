@@ -28,14 +28,17 @@ For example, it is good to have <code>[2, 4]</code> index to optimize
 <code>+/X/+/Y/...</code> topic wildcard subscriptions."""
 
 batch_deliver_limiter.desc:
-"""Limit total storage scan load when fetching retained messages for subscriptions."""
+"""The limit of the storage scan load that retained-message reads for new subscriptions cause.
+The value is set from `delivery_rate`. See `delivery_rate` for how reads consume tokens."""
 
 batch_deliver_number.desc:
 """Deprecated. This setting has no effect. Use `batch_read_number` to control backend read batch size."""
 
 batch_read_number.desc:
-"""Maximum number of records to scan at once when fetching retained messages for subscriptions.
-Defaults to 1000 records."""
+"""The maximum number of storage records that one retained-message read checks.
+The value 0 means 1000.
+When `delivery_rate` is limited, one read checks at most the rate capacity divided by the number of dispatcher workers, but not fewer than 10 records.
+If this value is not set, it is set from the `delivery_rate` capacity."""
 
 enable.desc:
 """Enable retainer feature"""
@@ -77,7 +80,12 @@ See:
 http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038"""
 
 delivery_rate.desc:
-"""The maximum rate of delivering retained messages"""
+"""The maximum storage scan load that retained-message reads for new subscriptions cause, in records per time unit.
+Each storage record that a read checks consumes one token.
+Records that do not match the topic filter and expired records also consume tokens.
+A read that checks no records consumes one token. A read for a topic without wildcards consumes one token.
+Reads can exceed the rate by at most one batch for each dispatcher worker. See `batch_read_number` for the batch size.
+The value `infinity` disables the limit."""
 
 max_publish_rate.desc:
 """The maximum rate of publishing retained messages. Messages that are published over the limit are delivered but not stored as retained."""

@@ -332,7 +332,7 @@ subscribe(
     } = Registry,
     SubscribeType,
     SubscribeCtx0,
-    {Module, #{multi_topic := true} = Options} = HandlerSpec,
+    {Module, #{multi_topic := true} = Options},
     TopicFilter,
     SubOpts
 ) ->
@@ -342,13 +342,7 @@ subscribe(
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
             resubscribe(
-                Registry,
-                SubscribeType,
-                SubscribeCtx0,
-                HandlerSpec,
-                TopicFilter,
-                SubOpts,
-                HandlerRef
+                Registry, SubscribeType, SubscribeCtx0, Module, TopicFilter, SubOpts, HandlerRef
             );
         _ ->
             case find_module_handler_ref(Registry, Module) of
@@ -374,7 +368,8 @@ subscribe(
                                 },
                                 by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
                             };
-                        ignore ->
+                        %% The handler does not handle this topic yet, so `destroy' removes nothing.
+                        Result when Result =:= ignore; Result =:= destroy ->
                             Registry
                     end;
                 not_found ->
@@ -409,7 +404,7 @@ subscribe(
     } = Registry,
     InitType,
     InitCtx0,
-    {Module, #{multi_topic := false} = Options} = HandlerSpec,
+    {Module, #{multi_topic := false} = Options},
     TopicFilter,
     SubOpts
 ) ->
@@ -418,9 +413,7 @@ subscribe(
         #{{Module, TopicFilter} := _HandlerRef} when IgnoreResubscribe ->
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
-            resubscribe(
-                Registry, InitType, InitCtx0, HandlerSpec, TopicFilter, SubOpts, HandlerRef
-            );
+            resubscribe(Registry, InitType, InitCtx0, Module, TopicFilter, SubOpts, HandlerRef);
         _ ->
             HandlerRef = make_ref(),
             InitCtx = create_subscribe_ctx(HandlerRef, Module, SubOpts, InitCtx0),
@@ -445,11 +438,32 @@ subscribe(
             end
     end.
 
+%% Pass the existing handler state to the handler. `ignore` keeps the handler unchanged,
+%% `destroy` removes the handler for the topic.
 resubscribe(
-    Registry, InitType, InitCtx, {Module, _} = HandlerSpec, TopicFilter, SubOpts, HandlerRef
+    #registry{by_ref = ByRef} = Registry,
+    SubscribeType,
+    SubscribeCtx0,
+    Module,
+    TopicFilter,
+    SubOpts,
+    HandlerRef
 ) ->
-    NewRegistry = unsubscribe(Registry, unsubscribe, SubOpts, Module, TopicFilter, HandlerRef),
-    subscribe(NewRegistry, InitType, InitCtx, HandlerSpec, TopicFilter, SubOpts).
+    #{HandlerRef := #extsub{handler = Handler0, topic_filters = TopicFiltersToSubOpts} = ExtSub0} =
+        ByRef,
+    SubscribeCtx = create_subscribe_ctx(HandlerRef, Module, SubOpts, SubscribeCtx0),
+    case emqx_extsub_handler:subscribe(SubscribeType, SubscribeCtx, Handler0, TopicFilter) of
+        {ok, Handler} ->
+            ExtSub = ExtSub0#extsub{
+                handler = Handler,
+                topic_filters = TopicFiltersToSubOpts#{TopicFilter => SubOpts}
+            },
+            Registry#registry{by_ref = ByRef#{HandlerRef := ExtSub}};
+        ignore ->
+            Registry;
+        destroy ->
+            unsubscribe(Registry, unsubscribe, SubOpts, Module, TopicFilter, HandlerRef)
+    end.
 
 unsubscribe(
     #registry{

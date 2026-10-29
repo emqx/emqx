@@ -301,6 +301,64 @@ assert_channel_info(ClientId, Version, CanReceiveAcks) ->
         )
     end).
 
+-doc """
+Checks `handle_subscribe/4` results with `ignore_resubscribe => false` for single-topic and
+multi-topic handlers: `ignore` keeps an existing handler and creates none, `destroy` removes
+the topic from an existing handler and creates none.
+""".
+t_subscribe_results(_Config) ->
+    lists:foreach(fun test_subscribe_results/1, [false, true]).
+
+test_subscribe_results(MultiTopic) ->
+    Module = emqx_extsub_test_resub_handler,
+    ok = emqx_extsub_handler_registry:register(Module, #{
+        multi_topic => MultiTopic, ignore_resubscribe => false
+    }),
+    Topic = <<"resub/a">>,
+    OtherTopic = <<"resub/b">>,
+    Subscribe = fun(Registry, TopicFilter, Result) ->
+        emqx_extsub_handler_registry:subscribe(
+            Registry,
+            subscribe,
+            #{clientinfo => #{}, can_receive_acks => true},
+            #{TopicFilter => #{result => Result}}
+        )
+    end,
+    Handled = fun(Registry, TopicFilter) ->
+        #{by_topic_cbm := ByTopicCBM} = emqx_extsub_handler_registry:inspect(Registry),
+        maps:is_key({Module, TopicFilter}, ByTopicCBM)
+    end,
+
+    %% Without a handler, `ignore' and `destroy' create nothing.
+    R1 = Subscribe(emqx_extsub_handler_registry:new(), Topic, ignore),
+    R2 = Subscribe(R1, Topic, destroy),
+    ?assertEqual(false, Handled(R2, Topic), #{multi_topic => MultiTopic}),
+
+    %% `{ok, State}' creates the handler for each topic.
+    R3 = Subscribe(R2, OtherTopic, ok),
+    R4 = Subscribe(R3, Topic, ok),
+    ?assertReceive({subscribed, Topic, #{Topic := 1}}),
+
+    %% `ignore' keeps the existing state: the next `{ok, State}' sees the earlier count.
+    R5 = Subscribe(R4, Topic, ignore),
+    ?assert(Handled(R5, Topic)),
+    R6 = Subscribe(R5, Topic, ok),
+    ?assertReceive({subscribed, Topic, #{Topic := 2}}),
+
+    %% `destroy' removes only this topic. The other topic stays handled.
+    R7 = Subscribe(R6, Topic, destroy),
+    ?assertNot(Handled(R7, Topic)),
+    ?assert(Handled(R7, OtherTopic)),
+    case MultiTopic of
+        false ->
+            %% A single-topic handler has no topics left, so it is terminated.
+            ?assertReceive({terminated, #{}});
+        true ->
+            %% The multi-topic handler keeps the other topic and is not terminated.
+            ?assertNotReceive({terminated, _}, 100)
+    end,
+    ok = emqx_extsub_handler_registry:unregister(Module).
+
 %% We emulate different kinds of message flow into the external subscription handler.
 %% We deliver message by 1, in batches smaller and larger than the extsub buffer size.
 %% We expect the handler to deliver the messages into the channel correctly.
