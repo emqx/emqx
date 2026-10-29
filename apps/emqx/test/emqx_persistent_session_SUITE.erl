@@ -1500,11 +1500,11 @@ deliver_too_large_then_small(QoS, Config) ->
         | Config
     ]),
     {ok, _, [QoS]} = emqtt:subscribe(Client, Topic, QoS),
-    TooLarge0 = emqx_metrics:val('delivery.dropped.too_large'),
+    TooLarge0 = emqx_metrics:val_global('delivery.dropped.too_large'),
     publish(Topic, binary:copy(<<"x">>, 256), QoS),
     publish(Topic, <<"small">>, QoS),
     ?assertMatch([#{payload := <<"small">>}], receive_messages(1)),
-    ?assertEqual(1, emqx_metrics:val('delivery.dropped.too_large') - TooLarge0),
+    ?assertEqual(1, emqx_metrics:val_global('delivery.dropped.too_large') - TooLarge0),
     ok = emqtt:disconnect(Client).
 
 emqtt_start_and_connect(ConnFun, Opts) ->
