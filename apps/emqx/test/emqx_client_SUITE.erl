@@ -358,7 +358,7 @@ t_connect_zero_remaining_len_non_minimal(_) ->
         [R || R = #{report := Report} <- Reports, is_connection_crashed(Report)]
     ),
     ListenerCounts = emqx_listeners:shutdown_count('tcp:default', {{0, 0, 0, 0}, 1883}),
-    ZeroLenCount = proplists:get_value(invalid_proto_name, ListenerCounts),
+    ZeroLenCount = proplists:get_value(zero_remaining_len, ListenerCounts),
     ?assert(is_integer(ZeroLenCount) andalso ZeroLenCount > 0),
     ok.
 
