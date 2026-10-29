@@ -943,7 +943,7 @@ ensure_stats_timer(
         stats_timer = undefined
     }
 ) ->
-    Timeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
+    Timeout = emqx_channel:get_mqtt_conf(Zone, stats_emit_interval),
     State#state{stats_timer = emqx_utils:start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
     %% Either already active, disabled or paused.

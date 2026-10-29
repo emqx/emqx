@@ -924,18 +924,18 @@ t_connect_will_retain(Config) ->
     clean_retained(Topic, Config).
 
 t_connect_emit_stats_timeout(init, Config) ->
-    NewIdleTimeout = 1000,
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], NewIdleTimeout),
+    NewInterval = 1000,
+    emqx_config:put_zone_conf(default, [mqtt, stats_emit_interval], NewInterval),
     ok = snabbkaffe:start_trace(),
-    [{idle_timeout, NewIdleTimeout} | Config];
+    [{stats_emit_interval, NewInterval} | Config];
 t_connect_emit_stats_timeout('end', _Config) ->
     snabbkaffe:stop(),
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
+    emqx_config:put_zone_conf(default, [mqtt, stats_emit_interval], 60000),
     ok.
 
 t_connect_emit_stats_timeout(Config) ->
     ConnFun = ?config(conn_fun, Config),
-    IdleTimeout = ?config(idle_timeout, Config),
+    IdleTimeout = ?config(stats_emit_interval, Config),
     {ok, Client} = emqtt:start_link([{proto_ver, v5}, {keepalive, 60} | Config]),
     {ok, _} = emqtt:ConnFun(Client),
     %% Poke the connection to ensure stats timer is armed.
@@ -946,6 +946,27 @@ t_connect_emit_stats_timeout(Config) ->
     ),
     ?block_until(#{?snk_kind := cancel_stats_timer}, IdleTimeout * 2, _BackInTime = 0),
     ?assertEqual(undefined, emqx_cth_broker:connection_info(stats_timer, Client)),
+    ok = emqtt:disconnect(Client).
+
+t_stats_timer_period(init, Config) ->
+    emqx_config:put_zone_conf(default, [mqtt, stats_emit_interval], 2000),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 60000),
+    Config;
+t_stats_timer_period('end', _Config) ->
+    emqx_config:put_zone_conf(default, [mqtt, stats_emit_interval], 60000),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
+    ok.
+
+-doc "The stats timer of a connection runs for `mqtt.stats_emit_interval`, not for `mqtt.idle_timeout`.".
+t_stats_timer_period(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    {ok, Client} = emqtt:start_link([{proto_ver, v5}, {keepalive, 60} | Config]),
+    {ok, _} = emqtt:ConnFun(Client),
+    pong = emqtt:ping(Client),
+    TRef = emqx_cth_broker:connection_info(stats_timer, Client),
+    ?assert(is_reference(TRef), TRef),
+    Left = erlang:read_timer(TRef),
+    ?assert(is_integer(Left) andalso Left =< 2000, Left),
     ok = emqtt:disconnect(Client).
 
 %% [MQTT-3.1.2-22]

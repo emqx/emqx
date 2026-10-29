@@ -270,7 +270,7 @@ end_per_testcase(_Case, Config) ->
 %%--------------------------------------------------------------------
 
 t_cm(init, Config) ->
-    override_conf([mqtt, idle_timeout], 1000, Config).
+    override_conf([mqtt, stats_emit_interval], 1000, Config).
 
 t_cm(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -359,7 +359,7 @@ t_offline_message_queueing(_) ->
     %%
     %% Read live stats straight from the channel process. emqx_cm:get_chan_stats/1
     %% returns a cached snapshot from ?CHAN_INFO_TAB that is only refreshed by the
-    %% channel's emit_stats timer (default mqtt.idle_timeout = 15s). Once c1
+    %% channel's emit_stats timer (default mqtt.stats_emit_interval = 60s). Once c1
     %% disconnects the channel hibernates and stops emitting stats, so the cached
     %% mqueue_len can lag reality for the whole retry budget.
     ?WAIT(?assertEqual(3, emqx_cth_broker:connection_stat(mqueue_len, <<"c1">>)), 30),
@@ -1438,8 +1438,8 @@ t_congestion_send_timeout(init, Config) ->
         #{
             [conn_congestion, enable_alarm] => true,
             [conn_congestion, min_alarm_sustain_duration] => 0,
-            %% This timeout drives congestion alarms, decrease to receive alarms sooner:
-            [mqtt, idle_timeout] => 500,
+            %% This period drives congestion alarms, decrease to receive alarms sooner:
+            [mqtt, stats_emit_interval] => 500,
             %% Congestion is exercised through QoS1 publishing, increase to avoid queueing:
             [mqtt, max_inflight] => 1000
         },
@@ -1511,8 +1511,8 @@ t_congestion_qos0_no_send_timeout(init, Config) ->
         #{
             [conn_congestion, enable_alarm] => true,
             [conn_congestion, min_alarm_sustain_duration] => 0,
-            %% This timeout drives congestion alarms, decrease to receive alarms sooner:
-            [mqtt, idle_timeout] => 500,
+            %% This period drives congestion alarms, decrease to receive alarms sooner:
+            [mqtt, stats_emit_interval] => 500,
             %% Once the connection is marked congested, QoS0 must not keep pushing
             %% the transport toward send_timeout through the session queue.
             %% Keep the mqueue severely constrained to make sure connection survives
@@ -1602,8 +1602,8 @@ t_congestion_decongested(init, Config) ->
         #{
             [conn_congestion, enable_alarm] => true,
             [conn_congestion, min_alarm_sustain_duration] => 0,
-            %% This timeout drives congestion alarms, decrease to receive alarms sooner:
-            [mqtt, idle_timeout] => 500,
+            %% This period drives congestion alarms, decrease to receive alarms sooner:
+            [mqtt, stats_emit_interval] => 500,
             %% Congestion is exercised through QoS1 publishing, increase to avoid queueing:
             [mqtt, max_inflight] => 1000
         },
