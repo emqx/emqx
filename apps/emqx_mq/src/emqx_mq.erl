@@ -4,6 +4,8 @@
 
 -module(emqx_mq).
 
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_mq_internal.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").

@@ -603,7 +603,8 @@ t_limit_changes(_Config) ->
         ]
     ).
 
-%% Check that truncate_before keeps the nearest common boundary strictly before the request and trims older bucket starts.
+%% Check that truncate_before keeps the nearest common boundary strictly before the request.
+%% Check that it trims older bucket starts.
 t_truncate_before(_Config) ->
     Opts = #{bytes => 1000, count => 100, threshold_percentage => 10},
     Common60 = #'StorageIndexBucket'{tsUs = 60, bytes = 60, count = 6},
