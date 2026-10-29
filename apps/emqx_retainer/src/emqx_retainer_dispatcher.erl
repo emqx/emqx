@@ -28,7 +28,7 @@
     terminate/2
 ]).
 
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
 -record(fetch, {target, request_ref, topic, words, cursor}).
 -record(wait_dispatch_complete, {}).

@@ -6,6 +6,9 @@
 
 -behaviour(gen_server).
 
+%% Backend size/1 calls do not call erlang:size/1.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
