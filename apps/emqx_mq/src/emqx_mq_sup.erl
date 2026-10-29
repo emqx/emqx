@@ -32,6 +32,8 @@ The structure of the supervisor is as follows:
 %% Start and stop services/taks
 -export([
     start_consumer/2,
+    find_queue_sup/1,
+    stop_queue_sup/1,
     start_metrics/0,
     stop_metrics/0,
     start_gc_scheduler/0,
@@ -72,21 +74,48 @@ stop_gc_scheduler() ->
     ensure_no_child(?MQ_SUP, ?MQ_GC_SCHEDULER).
 
 start_consumer(Id, Args) ->
-    case supervisor:start_child(?CONSUMER_SUP, emqx_mq_consumer:child_spec(Id, Args)) of
-        {ok, Pid} ->
-            {ok, Pid};
-        {error, {already_started, Pid}} ->
-            {ok, Pid};
-        {error, {Reason, _ChildSpec}} ->
-            {error, Reason};
+    case supervisor:start_child(?CONSUMER_SUP, emqx_mq_queue_sup:child_spec(Id, Args)) of
+        {ok, Sup} ->
+            emqx_mq_queue_sup:consumer(Sup);
+        {error, {already_started, Sup}} ->
+            emqx_mq_queue_sup:consumer(Sup);
         {error, Reason} ->
-            {error, Reason}
+            case emqx_mq_consumer:find(Id) of
+                {ok, Consumer} -> {ok, Consumer};
+                not_found -> consumer_start_error(Reason)
+            end
+    end.
+
+-doc "Find the per-queue supervisor of the queue on this node.".
+-spec find_queue_sup(emqx_mq_types:mqid()) -> {ok, pid()} | not_found.
+find_queue_sup(Id) ->
+    case lists:keyfind(Id, 1, supervisor:which_children(?CONSUMER_SUP)) of
+        {Id, Sup, _, _} when is_pid(Sup) -> {ok, Sup};
+        _ -> not_found
+    end.
+
+-doc """
+Stop the per-queue supervisor of the queue on this node and wait until the consumer supervisor
+removes it.
+""".
+-spec stop_queue_sup(emqx_mq_types:mqid()) -> ok.
+stop_queue_sup(Id) ->
+    case supervisor:terminate_child(?CONSUMER_SUP, Id) of
+        ok -> ok;
+        {error, not_found} -> ok
     end.
 
 start_gc() ->
     ensure_child(?GC_SUP, emqx_mq_gc_worker:child_spec()).
 
 %% Internals
+
+consumer_start_error({{shutdown, {failed_to_start_child, consumer, Reason}}, _ChildSpec}) ->
+    {error, Reason};
+consumer_start_error({Reason, _ChildSpec}) ->
+    {error, Reason};
+consumer_start_error(Reason) ->
+    {error, Reason}.
 
 init(?ROOT_SUP) ->
     SupFlags = #{

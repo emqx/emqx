@@ -26,6 +26,10 @@ emqx_mq_api {
         desc: "Get message queue config."
         label: "Get Message Queue Config"
     }
+    message_queues_purge {
+        desc: "Purge messages without deleting the queue or its consumer progress. With `before`, stop delivery of messages older than the specified time. For last-value queues and limited regular queues, physical data deletion with `before` has `threshold_percentage` accuracy. Without `before`, all data is purged. MQTT clients stay connected."
+        label: "Purge Message Queue"
+    }
     message_queues_config_update {
         desc: "Update message queue config."
         label: "Update Message Queue Config"
@@ -38,6 +42,15 @@ emqx_mq_api {
     }
     message_queues_delete_success {
         desc: "Message queue deleted successfully"
+    }
+    message_queues_purge_success {
+        desc: "Message queue purged successfully"
+    }
+    purge_before {
+        desc: "Exclusive delivery cutoff as an RFC 3339 timestamp or milliseconds since the Unix epoch. The cutoff compares the time the queue stored the message. The value must not precede the Unix epoch or be later than the current time. If the value precedes the current delivery cutoff of the queue, the request does nothing. Omit this parameter to purge messages stored before the purge start time."
+    }
+    invalid_purge_before {
+        desc: "Invalid purge cutoff timestamp"
     }
     cannot_create_message_queue {
         desc: "Cannot create message queue"

@@ -19,10 +19,13 @@ The module contains the registry of Message Queues.
     find_by_id/1,
     match/1,
     delete/1,
+    purge/1,
+    purge/2,
     update/2,
     list/0,
     list/2,
-    queue_count/0
+    queue_count/0,
+    validate_policy/1
 ]).
 
 -dialyzer(no_improper_lists).
@@ -80,16 +83,18 @@ Create a new MQ.
     | {error, max_queue_count_reached}
     | {error, term()}.
 %% Create a queue with a non-default name, store it in the new way.
-create(#{is_lastvalue := IsLastValue} = MQ0) when
+create(#{is_lastvalue := IsLastValue, limits := Limits0} = MQ0) when
     (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, MQ0)))
 ->
     Id = emqx_guid:gen(),
-    MQ = MQ0#{id => Id},
+    Limits = maps:merge(#{on_full => evict}, Limits0),
+    MQ = MQ0#{id => Id, limits := Limits},
     Name = emqx_mq_prop:name(MQ),
     Key = make_key(MQ),
     IndexRecord = mq_to_record(MQ),
     maybe
         ok ?= validate_name(Name),
+        ok ?= validate_policy(MQ),
         ok ?= validate_max_queue_count(),
         ok ?=
             do_create(
@@ -188,6 +193,38 @@ delete(Name) ->
     case emqx_mq_state_storage:find_id_by_name(Name) of
         {ok, Id} ->
             delete_by_id(Id);
+        not_found ->
+            not_found
+    end.
+
+-doc """
+Reset quota indices and delete older data, then set the delivery cutoff to the purge timestamp.
+Keep a later stored delivery cutoff.
+""".
+-spec purge(emqx_mq_types:mq_name()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name) ->
+    maybe
+        {ok, #{id := Id} = MQ} ?= find(Name),
+        {ok, BeforeMs} ?= emqx_mq_message_db:purge(MQ),
+        update_mq_state(Id, advance_deliver_cutoff_date(BeforeMs))
+    end.
+
+-doc """
+Purge queue data and set the delivery cutoff to the requested epoch millisecond.
+Return the queue unchanged when its delivery cutoff is later than BeforeMs.
+""".
+-spec purge(emqx_mq_types:mq_name(), emqx_utils_calendar:epoch_millisecond()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name, BeforeMs) when is_integer(BeforeMs), BeforeMs >= 0 ->
+    case find(Name) of
+        {ok, #{deliver_cutoff_date := CutoffMs} = MQ} when CutoffMs > BeforeMs ->
+            {ok, MQ};
+        {ok, #{id := Id} = MQ} ->
+            maybe
+                ok ?= emqx_mq_message_db:purge(MQ, BeforeMs),
+                update_mq_state(Id, advance_deliver_cutoff_date(BeforeMs))
+            end;
         not_found ->
             not_found
     end.
@@ -297,6 +334,7 @@ update_by_id(Id, UpdateFields0) ->
     UpdateFields = maps:without([topic_filter, id, name], UpdateFields0),
     maybe
         {ok, MQ} ?= find_by_id(Id),
+        ok ?= validate_policy_update(MQ, UpdateFields),
         Key = make_key(MQ),
         IsLastvalueOld = emqx_mq_prop:is_lastvalue(MQ),
         IsLastvalueNew = emqx_mq_prop:is_lastvalue(UpdateFields),
@@ -311,12 +349,12 @@ update_by_id(Id, UpdateFields0) ->
             _ when NeedUpdateIndex ->
                 case update_index(Key, Id, UpdateFields) of
                     ok ->
-                        emqx_mq_state_storage:update_mq_state(Id, UpdateFields);
+                        update_mq_state(Id, UpdateFields);
                     not_found ->
                         not_found
                 end;
             _ ->
-                emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
+                update_mq_state(Id, UpdateFields)
         end
     end.
 
@@ -372,9 +410,54 @@ Get the number of queues.
 queue_count() ->
     mnesia:table_info(?MQ_REGISTRY_INDEX_TAB, size).
 
+-spec validate_policy(map()) -> ok | {error, term()}.
+validate_policy(MQ) ->
+    case emqx_mq_prop:on_full(MQ) of
+        evict ->
+            ok;
+        reject ->
+            #{limits := Limits} = MQ,
+            maybe
+                ok ?= emqx_mq_schema:validate_limits(Limits),
+                case lists:all(fun supports_reject/1, emqx:cluster_nodes(all)) of
+                    true -> ok;
+                    false -> {error, on_full_reject_not_supported_by_cluster}
+                end
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% A consumer keeps the settings it started with, so stop it if they changed.
+%% TODO: Apply queue updates without restarting the consumer.
+update_mq_state(Id, Update) ->
+    maybe
+        {ok, MQ, Changed} ?= emqx_mq_state_storage:update_mq_state(Id, Update),
+        case Changed of
+            false -> ok;
+            true -> ok = stop_consumer(MQ)
+        end,
+        {ok, MQ}
+    end.
+
+%% Compare with the stored cutoff in the update transaction, so concurrent purges cannot lower it.
+advance_deliver_cutoff_date(CutoffMs) ->
+    fun
+        (#{deliver_cutoff_date := StoredMs} = MQ) when StoredMs >= CutoffMs ->
+            MQ;
+        (MQ) ->
+            MQ#{deliver_cutoff_date => CutoffMs}
+    end.
+
+stop_consumer(MQ) ->
+    case emqx_mq_consumer:find(emqx_mq_prop:id(MQ)) of
+        {ok, ConsumerRef} ->
+            emqx_mq_consumer:stop(MQ, ConsumerRef);
+        not_found ->
+            ok
+    end.
 
 drop_queue_data(MQ) ->
     safe_with_log(
@@ -384,13 +467,7 @@ drop_queue_data(MQ) ->
     ).
 
 drop_consumer_state(MQ) ->
-    Id = emqx_mq_prop:id(MQ),
-    case emqx_mq_consumer:find(Id) of
-        {ok, ConsumerRef} ->
-            emqx_mq_consumer:stop(ConsumerRef);
-        not_found ->
-            ok
-    end,
+    ok = stop_consumer(MQ),
     safe_with_log(
         MQ,
         fun() -> emqx_mq_state_storage:destroy_consumer_state(MQ) end,
@@ -535,7 +612,7 @@ record_to_mq_handle(#?MQ_REGISTRY_INDEX_TAB{
         topic_filter => emqx_topic_index:get_topic(Key),
         is_lastvalue => IsLastValue,
         key_expression => KeyExpr,
-        limits => maps:get(limits, Extra, ?DEFAULT_MQ_LIMITS)
+        limits => maps:merge(?DEFAULT_MQ_LIMITS, maps:get(limits, Extra, #{}))
     }.
 
 mq_to_record(MQ) ->
@@ -552,6 +629,18 @@ mq_to_record(#{id := Id, is_lastvalue := IsLastValue, limits := Limits} = MQ, Ke
             limits => Limits
         }
     }.
+
+validate_policy_update(MQ, Update) ->
+    case emqx_mq_prop:on_full(MQ) =:= emqx_mq_prop:on_full(Update) of
+        true -> validate_policy(Update);
+        false -> {error, on_full_not_allowed_to_be_updated}
+    end.
+
+supports_reject(Node) ->
+    case emqx_bpapi:supported_version(Node, emqx_mq_quota_index) of
+        Version when is_integer(Version), Version >= 1 -> true;
+        _ -> false
+    end.
 
 validate_max_queue_count() ->
     case queue_count() >= emqx_mq_config:max_queue_count() of

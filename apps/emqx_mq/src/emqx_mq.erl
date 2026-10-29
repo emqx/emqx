@@ -4,10 +4,13 @@
 
 -module(emqx_mq).
 
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_mq_internal.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([register_hooks/0, unregister_hooks/0]).
@@ -83,6 +86,16 @@ on_message_publish(#message{topic = Topic} = Message) ->
                         time_us => Time,
                         result => ok
                     });
+                {error, queue_full} ->
+                    ?SLOG_THROTTLE(
+                        info,
+                        #{
+                            msg => mq_queue_full,
+                            queue_id => emqx_mq_prop:id(MQHandle),
+                            topic => Topic
+                        },
+                        #{tag => "MQ"}
+                    );
                 {error, Reason} ->
                     ?tp(error, mq_on_message_publish_queue_error, #{
                         topic_filter => emqx_mq_prop:topic_filter(MQHandle),
@@ -203,6 +216,7 @@ check_direct_topic(_MQ, _Topic) ->
     {error, topic_mismatch}.
 
 publish_reason_code(ok) -> ?RC_SUCCESS;
+publish_reason_code({error, queue_full}) -> ?RC_QUOTA_EXCEEDED;
 publish_reason_code({error, topic_mismatch}) -> ?RC_TOPIC_NAME_INVALID;
 publish_reason_code({error, invalid_name}) -> ?RC_TOPIC_NAME_INVALID;
 publish_reason_code({error, invalid_topic}) -> ?RC_TOPIC_NAME_INVALID;

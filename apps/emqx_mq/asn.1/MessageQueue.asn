@@ -47,6 +47,8 @@ BEGIN
     keyExpression [13] OCTET STRING OPTIONAL,
     limits [14] Limits OPTIONAL,
     name [15] OCTET STRING OPTIONAL,
+    deliverCutoffDate [16] INTEGER OPTIONAL,
+    onFull [17] OCTET STRING OPTIONAL,
     ...
   }
 
@@ -55,10 +57,17 @@ BEGIN
     value [1] INTEGER
   }
 
+  StorageIndexBucket ::= SEQUENCE {
+    tsUs [0] INTEGER,
+    bytes [1] INTEGER,
+    count [2] INTEGER
+  }
+
   StorageIndex ::= SEQUENCE {
     maxTsUs [0] INTEGER,
-    count [1] SEQUENCE OF StorageIndexRecord,
-    bytes [2] SEQUENCE OF StorageIndexRecord,
+    count [1] SEQUENCE OF StorageIndexRecord OPTIONAL,
+    bytes [2] SEQUENCE OF StorageIndexRecord OPTIONAL,
+    common [3] SEQUENCE OF StorageIndexBucket OPTIONAL,
     ...
   }
 

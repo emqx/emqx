@@ -11,6 +11,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 """.
 
 -include("../emqx_mq_internal.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -20,6 +21,8 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     handle_ds_info/2,
     handle_ack/2,
     destroy/1,
+    attach_cleaner/2,
+    flush_progress_reporters/1,
     inspect/1
 ]).
 
@@ -64,6 +67,8 @@ The module holds a stream_buffers for all streams of a single Message Queue.
         status := active,
         generation := emqx_ds:generation(),
         stream_buffer := emqx_mq_consumer_stream_buffer:t(),
+        %% Reports acknowledgment progress of the stream buffer to the cleaner
+        progress_reporter := emqx_mq_consumer_progress_reporter:t(),
         stream := emqx_ds:stream(),
         sub_ref := undefined | emqx_ds:sub_ref()
     }
@@ -74,6 +79,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 
 -type state() :: #{
     mq := emqx_mq_types:mq(),
+    cleaner := pid() | undefined,
     %% To tie `emqx_ds_client`'s data responses to the stream buffers
     streams := #{
         emqx_ds:stream() => emqx_ds:shard()
@@ -103,6 +109,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 new(MQ, Progress) ->
     State0 = #{
         mq => MQ,
+        cleaner => undefined,
         streams => #{},
         shards => #{},
         progress_updates => #{}
@@ -122,11 +129,33 @@ handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
             ignore;
         {data, ?SUB_ID, Stream, Handle, DSReply} ->
             {ok, Messages0, CS1} = handle_ds_reply(CS0, Stream, Handle, DSReply),
-            {Messages, CS} = ack_expired_messages(CS1, Messages0),
+            {Messages, CS} = ack_skipped_messages(CS1, Messages0),
             {ok, Messages, CS};
         {DSC, State} ->
             {ok, [], CS0#cs{ds_client = DSC, state = State}}
     end.
+
+attach_cleaner(#cs{state = State0} = CS, Cleaner) ->
+    State = map_shard_states(State0, fun
+        (#{status := active, progress_reporter := Reporter} = ShardState) ->
+            ShardState#{
+                progress_reporter := emqx_mq_consumer_progress_reporter:attach(Reporter, Cleaner)
+            };
+        (ShardState) ->
+            ShardState
+    end),
+    CS#cs{state = State#{cleaner := Cleaner}}.
+
+-doc "Send unreported consumption progress of all shards to the cleaner.".
+-spec flush_progress_reporters(t()) -> t().
+flush_progress_reporters(#cs{state = State0} = CS) ->
+    State = map_shard_states(State0, fun
+        (#{status := active, progress_reporter := Reporter} = ShardState) ->
+            ShardState#{progress_reporter := emqx_mq_consumer_progress_reporter:flush(Reporter)};
+        (ShardState) ->
+            ShardState
+    end),
+    CS#cs{state = State}.
 
 -spec handle_ack(t(), emqx_mq_types:message_id()) -> t().
 handle_ack(
@@ -143,19 +172,24 @@ handle_ack(
             Shard := #{
                 status := active,
                 stream_buffer := SB,
+                progress_reporter := Reporter0,
                 sub_ref := SubRef,
                 generation := Generation,
                 stream := Stream
             } = ShardState0
         } ?= Shards0,
         case emqx_mq_consumer_stream_buffer:handle_ack(SB, StreamMessageId) of
-            {ok, SB1} ->
+            {ok, Progress, SB1} ->
+                Reporter = emqx_mq_consumer_progress_reporter:handle_progress(Reporter0, Progress),
                 State1 = State0#{
-                    shards => Shards0#{Shard => ShardState0#{stream_buffer => SB1}}
+                    shards => Shards0#{
+                        Shard => ShardState0#{stream_buffer => SB1, progress_reporter => Reporter}
+                    }
                 },
                 State = save_progress_update(State1, Shard),
                 CS#cs{state = State};
-            finished ->
+            {finished, Progress} ->
+                ok = finish_progress_reporter(Reporter0, Progress),
                 Streams = maps:remove(Stream, Streams0),
                 ShardState = #{status => finished, generation => Generation},
                 State1 = State0#{
@@ -304,7 +338,8 @@ on_unrecoverable_error(
         mq_topic => MQTopic, slab => {Shard, Generation}, stream => Stream, error => Error
     }),
     case Shards of
-        #{Shard := #{status := active, generation := Generation}} ->
+        #{Shard := #{status := active, generation := Generation, progress_reporter := Reporter}} ->
+            ok = finish_progress_reporter(Reporter, undefined),
             State#{
                 shards => Shards#{Shard => #{status => finished, generation => Generation}},
                 streams => maps:remove(Stream, Streams)
@@ -410,7 +445,10 @@ restore_stream(
                     Shard => #{
                         status => active,
                         generation => Generation,
-                        stream_buffer => emqx_mq_consumer_stream_buffer:restore(BufferProgress, MQ),
+                        stream_buffer => emqx_mq_consumer_stream_buffer:restore(
+                            BufferProgress, MQ
+                        ),
+                        progress_reporter => new_progress_reporter(State, Shard),
                         stream => Stream,
                         sub_ref => undefined
                     }
@@ -448,7 +486,7 @@ do_handle_ds_reply(
     #cs{state = #{shards := Shards0} = State0, ds_client = DSC0} = CS,
     _Stream,
     Shard,
-    #{stream_buffer := SB, generation := Generation} = ShardState,
+    #{stream_buffer := SB, progress_reporter := Reporter0, generation := Generation} = ShardState,
     Handle,
     #ds_sub_reply{ref = SRef} = DSReply
 ) ->
@@ -457,18 +495,27 @@ do_handle_ds_reply(
         slab => Slab, stream => _Stream, handle => Handle, ds_reply => DSReply
     }),
     case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
-        {ok, Messages0, SB1} ->
+        {ok, Messages0, Progress, SB1} ->
             ?tp_debug(mq_consumer_streams_do_handle_ds_reply_ok, #{
                 slab => Slab, sb => emqx_mq_consumer_stream_buffer:inspect(SB1)
             }),
             Messages = [
-                {{Slab, StreamMessageId}, emqx_mq_message_db:decode_message(Payload)}
+                {
+                    {Slab, StreamMessageId},
+                    restore_timestamp(StreamMessageId, emqx_mq_message_db:decode_message(Payload))
+                }
              || {_Topic, StreamMessageId, Payload} <- Messages0
             ],
-            Shards = Shards0#{Shard => ShardState#{stream_buffer => SB1, sub_ref => SRef}},
+            Reporter = emqx_mq_consumer_progress_reporter:handle_progress(Reporter0, Progress),
+            Shards = Shards0#{
+                Shard => ShardState#{
+                    stream_buffer => SB1, progress_reporter => Reporter, sub_ref => SRef
+                }
+            },
             State = State0#{shards => Shards},
             {Messages, CS#cs{state = State}};
-        finished ->
+        {finished, Progress} ->
+            ok = finish_progress_reporter(Reporter0, Progress),
             State1 = State0#{
                 shards => Shards0#{
                     Shard => #{status => finished, generation => Generation}
@@ -480,10 +527,13 @@ do_handle_ds_reply(
             {[], CS#cs{ds_client = DSC, state = State}}
     end.
 
-ack_expired_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
+restore_timestamp(TsUs, #message{} = Message) ->
+    Message#message{timestamp = erlang:convert_time_unit(TsUs, microsecond, millisecond)}.
+
+ack_skipped_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
     {CS, Messages} = lists:foldl(
         fun({Id, Message} = MesssageWithId, {CSAcc, MessagesAcc}) ->
-            case is_expired(MQ, Message) of
+            case is_expired(MQ, Message) orelse is_before_deliver_cutoff(MQ, Message) of
                 true ->
                     {handle_ack(CSAcc, Id), MessagesAcc};
                 false ->
@@ -505,6 +555,7 @@ init_shard_state(
         status => active,
         generation => Generation,
         stream_buffer => emqx_mq_consumer_stream_buffer:new(It, MQ),
+        progress_reporter => new_progress_reporter(State, Shard),
         sub_ref => undefined,
         stream => Stream
     },
@@ -512,6 +563,19 @@ init_shard_state(
         shards => Shards#{Shard => ShardState},
         streams => Streams#{Stream => Shard}
     }.
+
+new_progress_reporter(#{mq := MQ, cleaner := Cleaner}, Shard) ->
+    emqx_mq_consumer_progress_reporter:new(MQ, Shard, Cleaner).
+
+map_shard_states(#{shards := Shards} = State, Fun) ->
+    State#{shards := maps:map(fun(_Shard, ShardState) -> Fun(ShardState) end, Shards)}.
+
+%% The progress reporter is dropped with a finished stream, so send its unreported progress.
+finish_progress_reporter(Reporter, Progress) ->
+    _ = emqx_mq_consumer_progress_reporter:flush(
+        emqx_mq_consumer_progress_reporter:handle_progress(Reporter, Progress)
+    ),
+    ok.
 
 shards_inspect(Shards) ->
     maps:map(fun(_Shard, ShardState) -> shard_inspect(ShardState) end, Shards).
@@ -532,6 +596,11 @@ is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, Message) when
     is_integer(DataRetentionPeriod)
 ->
     emqx_message:timestamp(Message) < now_ms() - DataRetentionPeriod.
+
+is_before_deliver_cutoff(#{deliver_cutoff_date := CutoffDate}, Message) ->
+    emqx_message:timestamp(Message) < CutoffDate;
+is_before_deliver_cutoff(_MQ, _Message) ->
+    false.
 
 now_ms() ->
     erlang:system_time(millisecond).
