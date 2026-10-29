@@ -123,6 +123,8 @@ match(<<$$, _/binary>>, <<$+, _/binary>>) ->
     false;
 match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
+match(<<$$, _/binary>>, [W | _]) when ?IS_WILDCARD(W) ->
+    false;
 match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
     case match_levels(Filter, Name) of
         %% The # level of the filter matches the rest of the name.
@@ -134,7 +136,7 @@ match(#share{} = Name, Filter) ->
 match(Name, #share{} = Filter) ->
     match_share(Name, Filter);
 match(Name, Filter) when is_binary(Name) ->
-    match_words(words(Name), Filter);
+    match_name_levels(Filter, Name);
 match(Name, Filter) when is_binary(Filter) ->
     match_words(Name, words(Filter));
 match(Name, Filter) ->
@@ -205,6 +207,36 @@ skip_level(<<_, Rest/binary>>) ->
     skip_level(Rest);
 skip_level(<<>>) ->
     done.
+
+%% Match the binary Name against Filter, the words of a filter as words/1 returns them, level by
+%% level and without splitting Name. Name is `done` when all its levels are matched. The result
+%% is the same as match_tokens/2 with the words of Name: a filter word equal to the name level
+%% is matched first, so the # of Filter does not match a # level of Name that is not the last
+%% level.
+match_name_levels([], Name) ->
+    Name =:= done;
+match_name_levels(['#'], <<"#/", _/binary>>) ->
+    false;
+match_name_levels(['#'], _Name) ->
+    true;
+match_name_levels(_Filter, done) ->
+    false;
+match_name_levels(['+' | Filter], Name) ->
+    match_name_levels(Filter, skip_level(Name));
+match_name_levels(['#' | Filter], Name) ->
+    match_name_level(<<"#">>, Filter, Name);
+match_name_levels(['' | Filter], Name) ->
+    match_name_level(<<>>, Filter, Name);
+match_name_levels([Word | Filter], Name) ->
+    match_name_level(Word, Filter, Name).
+
+match_name_level(Word, Filter, Name) ->
+    Size = byte_size(Word),
+    case Name of
+        <<Word:Size/binary, $/, Rest/binary>> -> match_name_levels(Filter, Rest);
+        Word -> match_name_levels(Filter, done);
+        _ -> false
+    end.
 
 match_words([<<$$, _/binary>> | _], [W | _]) when ?IS_WILDCARD(W) ->
     false;
