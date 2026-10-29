@@ -98,6 +98,13 @@
     replayctx
 }).
 
+-record(topic_aliases, {
+    inbound = #{} :: map(),
+    outbound = #{} :: map(),
+    inbound_max = 0 :: non_neg_integer(),
+    outbound_max = 0 :: non_neg_integer()
+}).
+
 -record(channel, {
     %% MQTT ConnInfo
     conninfo :: emqx_types:conninfo(),
@@ -109,10 +116,8 @@
     keepalive :: option(emqx_keepalive:keepalive()),
     %% MQTT Will Msg
     will_msg :: option(emqx_types:message()),
-    %% MQTT Topic Aliases
-    topic_aliases :: emqx_types:topic_aliases(),
-    %% MQTT Topic Alias Maximum
-    alias_maximum :: option(map()),
+    %% Topic alias state, initialized on inbound use or explicit outbound negotiation.
+    topic_aliases :: option(#topic_aliases{}),
     %% Authentication Data Cache
     auth_cache :: option(map()),
     %% Quota checkers
@@ -315,9 +320,21 @@ info(will_msg, #channel{will_msg = undefined}) ->
 info(will_msg, #channel{will_msg = WillMsg}) ->
     emqx_message:to_map(WillMsg);
 info(topic_aliases, #channel{topic_aliases = Aliases}) ->
-    Aliases;
-info(alias_maximum, #channel{alias_maximum = Limits}) ->
-    Limits;
+    case Aliases of
+        undefined ->
+            #{inbound => #{}, outbound => #{}};
+        #topic_aliases{inbound = Inbound, outbound = Outbound} ->
+            #{inbound => Inbound, outbound => Outbound}
+    end;
+info(alias_maximum, Channel = #channel{topic_aliases = Aliases}) ->
+    #{
+        inbound => inbound_alias_maximum(Channel),
+        outbound =>
+            case Aliases of
+                undefined -> 0;
+                #topic_aliases{outbound_max = Maximum} -> Maximum
+            end
+    };
 info(timers, #channel{timers = Timers}) ->
     Timers;
 info(quota, #channel{quota = Quota}) ->
@@ -417,10 +434,6 @@ init(
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
-        topic_aliases = #{
-            inbound => #{},
-            outbound => #{}
-        },
         auth_cache = #{},
         timers = #{},
         conn_state = idle,
@@ -739,14 +752,12 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel0) ->
             Channel0#channel{conn_state = connecting}
         )
     of
-        {ok, NConnPkt, Channel1 = #channel{clientinfo = ClientInfo}} ->
+        {ok, NConnPkt, Channel1} ->
             ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
             %% NOTE: Set alias_maximum before authentication, because enhanced
             %% authentication completes in `handle_in(?AUTH_PACKET(...))', which
             %% reaches `post_process_connect/2' without the connect packet.
-            Channel2 = Channel1#channel{
-                alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
-            },
+            Channel2 = init_topic_aliases(NConnPkt, Channel1),
             case authenticate(?CONNECT_PACKET(NConnPkt), Channel2) of
                 {ok, Properties, Channel3} ->
                     Channel = Channel3#channel{
@@ -3043,31 +3054,40 @@ publish_process_alias(
         variable =
             #mqtt_packet_publish{
                 topic_name = <<>>,
-                properties = #{'Topic-Alias' := AliasId}
+                properties = #{'Topic-Alias' := AliasId} = Props
             } = Publish
     },
-    Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}
+    Channel = ?IS_MQTT_V5 = #channel{topic_aliases = Aliases}
 ) ->
-    case find_alias(inbound, AliasId, TopicAliases) of
-        {ok, Topic} ->
-            NPublish = Publish#mqtt_packet_publish{topic_name = Topic},
-            publish_check_alias(Packet#mqtt_packet{variable = NPublish}, Channel);
-        error ->
+    case Aliases of
+        #topic_aliases{inbound = #{AliasId := Topic}} ->
+            NPublish = Publish#mqtt_packet_publish{
+                topic_name = Topic,
+                properties = maps:remove('Topic-Alias', Props)
+            },
+            publish_packet_to_message(Packet#mqtt_packet{variable = NPublish}, Channel);
+        _ ->
             {error, ?RC_PROTOCOL_ERROR, Channel}
     end;
 publish_process_alias(
     Packet = #mqtt_packet{
-        variable = #mqtt_packet_publish{
-            topic_name = Topic,
-            properties = #{'Topic-Alias' := AliasId}
-        }
+        variable =
+            #mqtt_packet_publish{
+                topic_name = Topic,
+                properties = #{'Topic-Alias' := AliasId} = Props
+            } = Publish
     },
-    Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}
+    Channel =
+        ?IS_MQTT_V5 = #channel{
+            topic_aliases = #topic_aliases{inbound = Inbound} = Aliases
+        }
 ) ->
-    NTopicAliases = save_alias(inbound, AliasId, Topic, TopicAliases),
-    publish_check_alias(Packet, Channel#channel{topic_aliases = NTopicAliases});
+    NAliases = Aliases#topic_aliases{inbound = Inbound#{AliasId => Topic}},
+    NPublish = Publish#mqtt_packet_publish{properties = maps:remove('Topic-Alias', Props)},
+    NChannel = Channel#channel{topic_aliases = NAliases},
+    publish_packet_to_message(Packet#mqtt_packet{variable = NPublish}, NChannel);
 publish_process_alias(Packet, Channel) ->
-    publish_check_alias(Packet, Channel).
+    publish_packet_to_message(Packet, Channel).
 
 %%--------------------------------------------------------------------
 %% Packing Topic Alias
@@ -3077,50 +3097,60 @@ packing_alias(
         variable =
             #mqtt_packet_publish{
                 topic_name = Topic,
-                properties = Prop
+                properties = Props
             } = Publish
     },
     Channel =
         ?IS_MQTT_V5 = #channel{
-            topic_aliases = TopicAliases,
-            alias_maximum = Limits
+            topic_aliases = #topic_aliases{outbound = Outbound} = Aliases
         }
 ) ->
-    case find_alias(outbound, Topic, TopicAliases) of
-        {ok, AliasId} ->
+    case Outbound of
+        #{Topic := AliasId} ->
             NPublish = Publish#mqtt_packet_publish{
                 topic_name = <<>>,
-                properties = maps:merge(Prop, #{'Topic-Alias' => AliasId})
+                properties = Props#{'Topic-Alias' => AliasId}
             },
             {Packet#mqtt_packet{variable = NPublish}, Channel};
-        error ->
-            #{outbound := Aliases} = TopicAliases,
-            AliasId = maps:size(Aliases) + 1,
-            case
-                (Limits =:= undefined) orelse
-                    (AliasId =< maps:get(outbound, Limits, 0))
-            of
+        #{} ->
+            AliasId = map_size(Outbound) + 1,
+            case AliasId =< Aliases#topic_aliases.outbound_max of
                 true ->
-                    NTopicAliases = save_alias(outbound, AliasId, Topic, TopicAliases),
-                    NChannel = Channel#channel{topic_aliases = NTopicAliases},
+                    NAliases = Aliases#topic_aliases{outbound = Outbound#{Topic => AliasId}},
+                    NChannel = Channel#channel{topic_aliases = NAliases},
                     NPublish = Publish#mqtt_packet_publish{
                         topic_name = Topic,
-                        properties = maps:merge(Prop, #{'Topic-Alias' => AliasId})
+                        properties = Props#{'Topic-Alias' => AliasId}
                     },
                     {Packet#mqtt_packet{variable = NPublish}, NChannel};
                 false ->
-                    {Packet, Channel}
+                    {strip_topic_alias(Packet, Publish, Props), Channel}
             end
     end;
+packing_alias(
+    Packet = #mqtt_packet{variable = Publish = #mqtt_packet_publish{properties = Props}},
+    Channel = ?IS_MQTT_V5
+) ->
+    {strip_topic_alias(Packet, Publish, Props), Channel};
 packing_alias(Packet, Channel) ->
     {Packet, Channel}.
+
+-compile({inline, [strip_topic_alias/3]}).
+strip_topic_alias(Packet, Publish, Props = #{'Topic-Alias' := _}) ->
+    Packet#mqtt_packet{
+        variable = Publish#mqtt_packet_publish{
+            properties = maps:remove('Topic-Alias', Props)
+        }
+    };
+strip_topic_alias(Packet, _, _) ->
+    Packet.
 
 %%--------------------------------------------------------------------
 %% Publish pipeline
 
 %% Stages: check quota (updates channel.quota)
-%%      -> process alias (updates channel.topic_aliases)
 %%      -> check alias
+%%      -> process alias (updates channel.topic_aliases)
 %%      -> packet to message
 %%      -> check authorization
 %%      -> check capabilities
@@ -3135,7 +3165,7 @@ publish_check_quota(
     Needs = [{bytes, erlang:byte_size(Payload)}, {messages, 1}],
     case try_consume_quota(Needs, Chann0) of
         {true, Chann} ->
-            publish_process_alias(Packet, Chann);
+            publish_check_alias(Packet, Chann);
         {false, Chann, Reason} ->
             ?SLOG_THROTTLE(
                 warning,
@@ -3174,19 +3204,16 @@ publish_check_alias(
     Packet = #mqtt_packet{
         variable = #mqtt_packet_publish{properties = #{'Topic-Alias' := AliasId}}
     },
-    Channel = #channel{alias_maximum = Limits}
+    Channel
 ) ->
-    case
-        (Limits =:= undefined) orelse
-            (AliasId =< maps:get(inbound, Limits, ?MAX_TOPIC_AlIAS))
-    of
+    case AliasId =< inbound_alias_maximum(Channel) of
         true ->
-            publish_packet_to_message(Packet, Channel);
+            publish_process_alias(Packet, Channel);
         false ->
             {error, ?RC_TOPIC_ALIAS_INVALID, Channel}
     end;
 publish_check_alias(Packet, Channel) ->
-    publish_packet_to_message(Packet, Channel).
+    publish_process_alias(Packet, Channel).
 
 %%--------------------------------------------------------------------
 %% Authorization action
@@ -3460,6 +3487,13 @@ merge_default_subopts(SubOpts) ->
 %% Enrich ConnAck Caps
 
 enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
+    %% TODO
+    %% Keep runtime checks consistent with the advertised capabilities after zone
+    %% updates.
+    %% * `Topic-Alias-Maximum` uses the connection stored limit.
+    %% * Other capabilities, such as `Maximum-QoS` and `Retain-Available`, still
+    %%   follow runtime configuration even though existing clients do not receive
+    %%   an updated CONNACK.
     #channel{
         clientinfo = #{
             zone := Zone
@@ -3472,14 +3506,13 @@ enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
         max_packet_size := MaxPktSize,
         max_qos_allowed := MaxQoS,
         retain_available := Retain,
-        max_topic_alias := MaxAlias,
         shared_subscription := Shared,
         wildcard_subscription := Wildcard
     } = emqx_mqtt_caps:get_caps(Zone),
     NAckProps = AckProps#{
         'Retain-Available' => flag(Retain),
         'Maximum-Packet-Size' => MaxPktSize,
-        'Topic-Alias-Maximum' => MaxAlias,
+        'Topic-Alias-Maximum' => inbound_alias_maximum(Channel),
         'Wildcard-Subscription-Available' => flag(Wildcard),
         'Subscription-Identifier-Available' => 1,
         'Shared-Subscription-Available' => flag(Shared),
@@ -3600,19 +3633,26 @@ trim_conninfo(ConnInfo) ->
 %%--------------------------------------------------------------------
 %% Init Alias Maximum
 
-init_alias_maximum(
+init_topic_aliases(
     #mqtt_packet_connect{
         proto_ver = ?MQTT_PROTO_V5,
-        properties = Properties
+        properties = Props
     },
-    #{zone := Zone} = _ClientInfo
+    Channel = #channel{clientinfo = #{zone := Zone}}
 ) ->
-    #{
-        outbound => emqx_mqtt_props:get('Topic-Alias-Maximum', Properties, 0),
-        inbound => maps:get(max_topic_alias, emqx_mqtt_caps:get_caps(Zone))
+    Channel#channel{
+        topic_aliases = #topic_aliases{
+            inbound_max = emqx_config:get_zone_conf(Zone, [mqtt, max_topic_alias]),
+            outbound_max = emqx_mqtt_props:get('Topic-Alias-Maximum', Props, 0)
+        }
     };
-init_alias_maximum(_ConnPkt, _ClientInfo) ->
-    undefined.
+init_topic_aliases(_ConnPkt, Channel) ->
+    Channel.
+
+inbound_alias_maximum(#channel{topic_aliases = #topic_aliases{inbound_max = Maximum}}) ->
+    Maximum;
+inbound_alias_maximum(_Channel) ->
+    0.
 
 %%--------------------------------------------------------------------
 %% Ensure KeepAlive
@@ -4055,18 +4095,6 @@ run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps) ->
     Ctx = Ctx0#{namespace => Ns},
     emqx_hooks:'client.connack'(Ctx, ConnInfo, Reason, AckProps).
 
--compile({inline, [find_alias/3, save_alias/4]}).
-
-find_alias(inbound, AliasId, _TopicAliases = #{inbound := Aliases}) -> maps:find(AliasId, Aliases);
-find_alias(outbound, Topic, _TopicAliases = #{outbound := Aliases}) -> maps:find(Topic, Aliases).
-
-save_alias(inbound, AliasId, Topic, TopicAliases = #{inbound := Aliases}) ->
-    NAliases = maps:put(AliasId, Topic, Aliases),
-    TopicAliases#{inbound => NAliases};
-save_alias(outbound, AliasId, Topic, TopicAliases = #{outbound := Aliases}) ->
-    NAliases = maps:put(Topic, AliasId, Aliases),
-    TopicAliases#{outbound => NAliases}.
-
 -compile({inline, [reply/2, shutdown/2, shutdown/3]}).
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.
@@ -4229,6 +4257,13 @@ inc_metrics(Name, _Channel) ->
 -ifdef(TEST).
 dummy() -> #channel{}.
 
+set_field(alias_maximum, Limits, Channel = #channel{topic_aliases = Aliases}) ->
+    Channel#channel{
+        topic_aliases = Aliases#topic_aliases{
+            inbound_max = maps:get(inbound, Limits, Aliases#topic_aliases.inbound_max),
+            outbound_max = maps:get(outbound, Limits, Aliases#topic_aliases.outbound_max)
+        }
+    };
 set_field(Name, Value, Channel) ->
     Pos = emqx_utils:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).

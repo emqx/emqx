@@ -1401,7 +1401,7 @@ serialize_variable(
             undefined -> <<>>;
             _ -> <<PacketId:16/big-unsigned-integer>>
         end,
-        serialize_properties(Properties, Ver, StrictMode)
+        serialize_properties(?PUBLISH, Properties, Ver, StrictMode)
     ];
 serialize_variable(#mqtt_packet_puback{packet_id = PacketId}, Ver, _StrictMode) when
     Ver == ?MQTT_PROTO_V3; Ver == ?MQTT_PROTO_V4
@@ -1508,21 +1508,42 @@ serialize_variable(PacketId, ?MQTT_PROTO_V4, _StrictMode) when is_integer(Packet
 serialize_variable(undefined, _Ver, _StrictMode) ->
     <<>>.
 
-serialize_properties(_Props, Ver, _StrictMode) when Ver =/= ?MQTT_PROTO_V5 ->
-    <<>>;
-serialize_properties(Props, ?MQTT_PROTO_V5, StrictMode) ->
-    serialize_properties(Props, StrictMode).
+serialize_properties(Props, Ver, StrictMode) ->
+    serialize_properties(any, Props, Ver, StrictMode).
 
-serialize_properties(undefined, _StrictMode) ->
+serialize_properties(_PacketType, _Props, Ver, _StrictMode) when Ver =/= ?MQTT_PROTO_V5 ->
+    <<>>;
+serialize_properties(_PacketType, undefined, ?MQTT_PROTO_V5, _StrictMode) ->
     <<0>>;
-serialize_properties(Props, _StrictMode) when map_size(Props) == 0 ->
+serialize_properties(_PacketType, Props, ?MQTT_PROTO_V5, _StrictMode) when map_size(Props) == 0 ->
     <<0>>;
-serialize_properties(Props, StrictMode) when is_map(Props) ->
+serialize_properties(PacketType, Props, ?MQTT_PROTO_V5, StrictMode) when is_map(Props) ->
     Bin = <<
         <<(serialize_property(Prop, Val, StrictMode))/binary>>
-     || {Prop, Val} <- maps:to_list(Props)
+     || Prop := Val <- Props, allow_property(PacketType, Prop)
     >>,
     [serialize_variable_byte_integer(byte_size(Bin)), Bin].
+
+allow_property(?PUBLISH, 'Payload-Format-Indicator') ->
+    true;
+allow_property(?PUBLISH, 'Message-Expiry-Interval') ->
+    true;
+allow_property(?PUBLISH, 'Content-Type') ->
+    true;
+allow_property(?PUBLISH, 'Response-Topic') ->
+    true;
+allow_property(?PUBLISH, 'Correlation-Data') ->
+    true;
+allow_property(?PUBLISH, 'Subscription-Identifier') ->
+    true;
+allow_property(?PUBLISH, 'Topic-Alias') ->
+    true;
+allow_property(?PUBLISH, 'User-Property') ->
+    true;
+allow_property(?PUBLISH, _Prop) ->
+    false;
+allow_property(any, _Prop) ->
+    true.
 
 serialize_property(_, Disabled, _StrictMode) when
     Disabled =:= disabled;
