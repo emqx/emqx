@@ -295,6 +295,7 @@ serialize_packet(Packet, Serialize) ->
             ok = emqx_metrics:inc('delivery.dropped.too_large'),
             ok = emqx_metrics:inc('delivery.dropped'),
             ok = inc_outgoing_stats({error, message_too_large}),
+            ok = emqx_channel:notify_discarded(Packet),
             <<>>;
         Data ->
             Data
