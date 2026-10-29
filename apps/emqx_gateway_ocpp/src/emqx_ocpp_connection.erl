@@ -318,13 +318,7 @@ parse_sec_websocket_protocol([Req, Opts, WsOpts], State) ->
                 true ->
                     {error, no_subprotocol};
                 false ->
-                    Picked = list_to_binary(lists:nth(1, SupportedSubprotocols)),
-                    Resp = cowboy_req:set_resp_header(
-                        <<"sec-websocket-protocol">>,
-                        Picked,
-                        Req
-                    ),
-                    {ok, [Resp, Opts, WsOpts], State}
+                    {ok, [Req, Opts, WsOpts], State}
             end;
         Subprotocols ->
             NSupportedSubprotocols = [
@@ -407,6 +401,9 @@ parse_clientid(Req, Opts) ->
             end
     end.
 
+parse_protocol_name(undefined) ->
+    %% A connection without a negotiated subprotocol uses OCPP 1.6 internally.
+    parse_protocol_name(<<"ocpp1.6">>);
 parse_protocol_name(<<"ocpp1.6">>) ->
     {<<"OCPP">>, <<"1.6">>}.
 
