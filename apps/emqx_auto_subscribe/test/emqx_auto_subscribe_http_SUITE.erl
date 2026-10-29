@@ -299,29 +299,64 @@ t_mountpoint(Config) ->
     assert_subscriptions(<<"mounted">>, [{<<"tenant/auto/mounted">>, 1}]),
     assert_delivery(<<"tenant/auto/mounted">>, <<"auto/mounted">>, 1).
 
--doc "Malformed filter expressions are skipped; valid expressions override the same global filter.".
+-doc "Filtered exact and wildcard subscriptions override global rules and reject nonmatching messages.".
 t_message_filter(Config) ->
     set_mqtt_conf(subscription_message_filter, enable),
-    {ok, _} = emqx_auto_subscribe:update([#{<<"topic">> => <<"auto/filtered">>, <<"qos">> => 0}]),
+    Topics = [
+        {<<"auto/filtered">>, <<"auto/filtered">>},
+        {<<"auto/hash/#">>, <<"auto/hash/value">>},
+        {<<"auto/plus/+">>, <<"auto/plus/value">>}
+    ],
+    {ok, _} = emqx_auto_subscribe:update([
+        #{<<"topic">> => Filter, <<"qos">> => 0}
+     || {Filter, _} <- Topics
+    ]),
     configure(Config, #{
-        auto_subscribe => [
-            #{topic => <<"auto/bad?invalid">>},
-            #{topic => <<"auto/filtered?location=roomA">>, qos => 1},
-            #{topic => <<"auto/valid">>}
-        ]
+        auto_subscribe =>
+            [#{topic => <<"auto/bad?invalid">>}, #{topic => <<"auto/valid">>}] ++
+            [
+                #{topic => <<Filter/binary, "?location=roomA">>, qos => 1}
+             || {Filter, _} <- Topics
+            ]
     }),
     _ = connect(<<"message-filter">>, #{}),
-    assert_subscriptions(<<"message-filter">>, [{<<"auto/filtered">>, 1}, {<<"auto/valid">>, 0}]),
-    assert_delivery(<<"auto/valid">>, <<"auto/valid">>, 0),
-    _ = emqx:publish(emqx_message:make(test, 1, <<"auto/filtered">>, <<"excluded">>)),
-    ?assertNotReceive({publish, #{payload := <<"excluded">>}}, 100),
-    Msg = emqx_message:set_header(
-        properties,
-        #{'User-Property' => [{<<"location">>, <<"roomA">>}]},
-        emqx_message:make(test, 1, <<"auto/filtered">>, <<"included">>)
+    assert_subscriptions(
+        <<"message-filter">>, [{<<"auto/valid">>, 0} | [{Filter, 1} || {Filter, _} <- Topics]]
     ),
-    _ = emqx:publish(Msg),
-    ?assertReceive({publish, #{topic := <<"auto/filtered">>, qos := 1, payload := <<"included">>}}).
+    assert_delivery(<<"auto/valid">>, <<"auto/valid">>, 0),
+    lists:foreach(
+        fun({_, Topic}) ->
+            Excluded = emqx_message:set_header(
+                properties,
+                #{'User-Property' => [{<<"location">>, <<"roomB">>}]},
+                emqx_message:make(test, 1, Topic, <<"excluded">>)
+            ),
+            _ = emqx:publish(Excluded),
+            ?assertNotReceive({publish, #{payload := <<"excluded">>}}, 100),
+            Included = emqx_message:set_header(
+                properties,
+                #{'User-Property' => [{<<"location">>, <<"roomA">>}]},
+                emqx_message:make(test, 1, Topic, <<"included">>)
+            ),
+            _ = emqx:publish(Included),
+            ?assertReceive({publish, #{topic := Topic, qos := 1, payload := <<"included">>}}),
+            ?assertNotReceive({publish, #{payload := <<"included">>}}, 100)
+        end,
+        Topics
+    ).
+
+-doc "Unsupported filtered queue and stream entries are skipped without dropping valid subscriptions.".
+t_message_filter_unsupported_topics(Config) ->
+    set_mqtt_conf(subscription_message_filter, enable),
+    Invalid = [
+        #{topic => <<Prefix/binary, "auto/unsupported?location=roomA">>}
+     || Prefix <- [<<"$stream/">>, <<"$s/">>, <<"$queue/">>, <<"$q/">>]
+    ],
+    configure(Config, #{auto_subscribe => Invalid ++ [#{topic => <<"auto/valid">>}]}),
+    process_flag(trap_exit, true),
+    _ = connect(<<"unsupported-filters">>, #{}),
+    assert_subscriptions(<<"unsupported-filters">>, [{<<"auto/valid">>, 0}]),
+    assert_delivery(<<"auto/valid">>, <<"auto/valid">>, 0).
 
 -doc "HTTP exclusive subscriptions use the same profile-dependent locking as global rules.".
 t_exclusive(Config) ->

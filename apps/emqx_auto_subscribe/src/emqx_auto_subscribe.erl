@@ -87,18 +87,14 @@ on_client_connected(_, _, _) ->
 merge_topics(GlobalTopics, [], _ClientInfo) ->
     GlobalTopics;
 merge_topics(GlobalTopics, Entries, #{zone := Zone}) ->
-    FilterEnabled =
-        emqx_config:get_zone_conf(Zone, [mqtt, subscription_message_filter], disable) =:= enable,
+    FilterMode = emqx_config:get_zone_conf(Zone, [mqtt, subscription_message_filter], disable),
     DynamicTopics = lists:foldl(
         fun({RawTopic, Opts} = Entry, Acc) ->
             try
-                true = emqx_topic:validate(filter, RawTopic),
-                _ =
-                    case FilterEnabled of
-                        true -> {ok, _} = emqx_subscription_filter:validate_subscription(RawTopic);
-                        false -> ok
-                    end,
-                {Topic, _} = emqx_topic:parse(base_topic(RawTopic, FilterEnabled), Opts),
+                ok = emqx_packet:check_subscribe(
+                    #{}, [Entry], #{subscription_message_filter => FilterMode}
+                ),
+                {Topic, _} = emqx_topic:parse(base_topic(RawTopic, FilterMode), Opts),
                 true = emqx_topic:validate(Topic),
                 %% The channel must parse the original filter, not an already stripped prefix.
                 maps:put(Topic, Entry, Acc)
@@ -116,13 +112,13 @@ merge_topics(GlobalTopics, Entries, #{zone := Zone}) ->
     [
         Entry
      || {Topic, _} = Entry <- GlobalTopics,
-        not maps:is_key(base_topic(Topic, FilterEnabled), DynamicTopics)
+        not maps:is_key(base_topic(Topic, FilterMode), DynamicTopics)
     ] ++
         maps:values(DynamicTopics).
 
-base_topic(Topic, true) ->
+base_topic(Topic, enable) ->
     emqx_subscription_filter:normalize_topic_filter(Topic);
-base_topic(Topic, false) ->
+base_topic(Topic, _) ->
     Topic.
 
 %%------------------------------------------------------------------------------
