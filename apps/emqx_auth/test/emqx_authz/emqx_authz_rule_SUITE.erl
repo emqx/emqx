@@ -864,15 +864,13 @@ t_matches(_) ->
     ).
 
 %% Rules split only the filters with a wildcard, split the topic at most once, and match
-%% rendered filters as binaries. The result must be the same as the word matching that split
-%% every filter and the topic.
+%% rendered filters as binaries. For a valid topic, the result must be the same as the word
+%% matching that split every filter and the topic.
 t_topic_match_same_as_words(_) ->
-    %% A rendered filter that ends with # and a topic with a # level that is not the last
-    %% level: the words do not match, so the binaries do not match either.
+    %% A rendered filter that ends with #.
     ClientInfoA = client_info(#{username => <<"a">>}),
     Sub = #{action_type => subscribe, qos => 0},
     HashRule = emqx_authz_rule:compile({allow, all, all, ["${username}/#"]}),
-    ?assertEqual(nomatch, emqx_authz_rule:match(ClientInfoA, Sub, <<"a/#/b">>, HashRule)),
     ?assertEqual({matched, allow}, emqx_authz_rule:match(ClientInfoA, Sub, <<"a/#">>, HashRule)),
     ?assertEqual({matched, allow}, emqx_authz_rule:match(ClientInfoA, Sub, <<"a/b/c">>, HashRule)),
     ?assert(
@@ -974,13 +972,28 @@ level_gen() ->
 levels_gen() ->
     ?LET(Levels, non_empty(list(level_gen())), lists:join(<<"/">>, Levels)).
 
-%% Valid and invalid topics, and shared subscriptions.
+%% Valid topic names and filters, and shared subscriptions. emqx_topic:match/2 on two binaries
+%% expects a valid topic.
 topic_gen() ->
     oneof([
-        ?LET(Levels, levels_gen(), iolist_to_binary(Levels)),
-        ?LET(Levels, levels_gen(), iolist_to_binary([<<"$share/g/">> | Levels])),
-        ?LET(Levels, levels_gen(), #share{group = <<"g">>, topic = iolist_to_binary(Levels)})
+        valid_topic_gen(),
+        ?LET(Topic, valid_topic_gen(), <<"$share/g/", Topic/binary>>),
+        ?LET(Topic, valid_topic_gen(), #share{group = <<"g">>, topic = Topic})
     ]).
+
+valid_topic_gen() ->
+    ?LET(
+        {Levels, Last},
+        {
+            non_empty(
+                list(
+                    oneof([<<"a">>, <<"b">>, <<"$SYS">>, <<"+">>, <<>>, <<"abcde">>, <<"abcdefgh">>])
+                )
+            ),
+            oneof([[], [<<"#">>]])
+        },
+        iolist_to_binary(lists:join(<<"/">>, Levels ++ Last))
+    ).
 
 topic_filter_gen() ->
     ?LET(

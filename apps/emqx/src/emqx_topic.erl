@@ -138,11 +138,8 @@ match(Name, Filter) ->
 %% Match the binary Name against the binary Filter level by level, without splitting them.
 %% Name is `done` when all its levels are matched. The order of the checks is the same as in
 %% match_tokens/2: a filter level equal to the name level is matched first, then + and #.
-%% The result must be the same as match_tokens/2 with the words of both, for any Name and
-%% Filter, valid or not. emqx_topic_SUITE:t_match_binary_same_as_words checks this.
-%% For example, the # of Filter does not match a # level of Name that is not the last level.
-match_levels(<<"#">>, <<"#/", _/binary>>) ->
-    false;
+%% Both arguments must be valid topic names or filters (see validate/1): a + or # byte that is
+%% not a whole level can give a different result than match_tokens/2.
 match_levels(<<"#">>, _Name) ->
     true;
 match_levels(_Filter, done) ->
@@ -154,12 +151,10 @@ match_levels(<<"+/", FilterRest/binary>>, Name) ->
 match_levels(Filter, Name) ->
     match_level(Filter, Name).
 
-%% Compare one level, then go on with the next level. 7 equal bytes are skipped at once, unless
-%% the last of them is + or #: it can be a whole + or # level of Filter, while the level of Name
-%% goes on after it. When the 7 bytes end with $/, the next level starts.
-match_level(<<W:56, FilterRest/binary>>, <<W:56, NameRest/binary>>) when
-    not ?IS_WILDCARD_BYTE(W band 16#FF)
-->
+%% Compare one level, then go on with the next level. 7 equal bytes are skipped at once: in a
+%% valid topic filter, + and # are whole levels, so 7 equal bytes in the filter and the name
+%% are literal bytes of both. When the 7 bytes end with $/, the next level starts.
+match_level(<<W:56, FilterRest/binary>>, <<W:56, NameRest/binary>>) ->
     case W band 16#FF of
         $/ -> match_levels(FilterRest, NameRest);
         _ -> match_level(FilterRest, NameRest)
