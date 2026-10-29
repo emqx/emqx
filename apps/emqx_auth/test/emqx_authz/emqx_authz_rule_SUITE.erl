@@ -7,9 +7,11 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(CLIENT_INFO_BASE, #{
     clientid => <<"test">>,
@@ -67,8 +69,14 @@ t_compile(_) ->
     ),
 
     ?assertEqual(
-        {allow, {ipaddr, {{127, 0, 0, 1}, {127, 0, 0, 1}, 32}}, all, [{eq, ['#']}, {eq, ['+']}]},
+        {allow, {ipaddr, {{127, 0, 0, 1}, {127, 0, 0, 1}, 32}}, all, [{eq, <<"#">>}, {eq, <<"+">>}]},
         emqx_authz_rule:compile({allow, {ipaddr, "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]})
+    ),
+
+    %% A filter with a wildcard is split, a filter without one stays a binary.
+    ?assertEqual(
+        {allow, all, all, [[<<"a">>, '+', <<"b">>], [<<"a">>, '#'], <<"a/b">>, {eq, <<"a/#">>}]},
+        emqx_authz_rule:compile({allow, all, all, ["a/+/b", "a/#", "a/b", {eq, "a/#"}]})
     ),
 
     ?assertMatch(
@@ -85,7 +93,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {'and', [{clientid, {eq, <<"test">>}}, {username, {eq, <<"test">>}}]}, publish, [
-            [<<"topic">>, <<"test">>]
+            <<"topic/test">>
         ]},
         emqx_authz_rule:compile(
             {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}
@@ -120,7 +128,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}},
-            #{action_type => publish, qos => [0, 1, 2], retain => all}, [[<<"topic">>, <<"test">>]]},
+            #{action_type => publish, qos => [0, 1, 2], retain => all}, [<<"topic/test">>]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {publish, [{retain, all}]}, ["topic/test"]}
         )
@@ -129,7 +137,7 @@ t_compile(_) ->
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, #{action_type => publish, qos => [1], retain => true},
             [
-                [<<"topic">>, <<"test">>]
+                <<"topic/test">>
             ]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {publish, [{qos, 1}, {retain, true}]}, ["topic/test"]}
@@ -138,7 +146,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, #{action_type => subscribe, qos => [1, 2]}, [
-            [<<"topic">>, <<"test">>]
+            <<"topic/test">>
         ]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {subscribe, [{qos, 1}, {qos, 2}]}, ["topic/test"]}
@@ -147,7 +155,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, #{action_type => subscribe, qos => [1]}, [
-            [<<"topic">>, <<"test">>]
+            <<"topic/test">>
         ]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {subscribe, [{qos, 1}]}, ["topic/test"]}
@@ -156,7 +164,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, #{action_type => all, qos => [2], retain => true}, [
-            [<<"topic">>, <<"test">>]
+            <<"topic/test">>
         ]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
@@ -164,14 +172,14 @@ t_compile(_) ->
     ),
 
     ?assertEqual(
-        {allow, {client_attr, <<"a1">>, {eq, <<"v1">>}}, all, [[<<"topic">>, <<"test">>]]},
+        {allow, {client_attr, <<"a1">>, {eq, <<"v1">>}}, all, [<<"topic/test">>]},
         emqx_authz_rule:compile(
             {allow, {client_attr, "a1", "v1"}, all, ["topic/test"]}
         )
     ),
 
     ?assertMatch(
-        {allow, {client_attr, <<"a2">>, {re_pattern, _, _, _, _}}, all, [[<<"topic">>, <<"test">>]]},
+        {allow, {client_attr, <<"a2">>, {re_pattern, _, _, _, _}}, all, [<<"topic/test">>]},
         emqx_authz_rule:compile(
             {allow, {client_attr, "a2", {re, "v2.*"}}, all, ["topic/test"]}
         )
@@ -853,6 +861,131 @@ t_matches(_) ->
             <<"topic/test">>,
             [Rule, Rule, Rule]
         )
+    ).
+
+%% Rules split only the filters with a wildcard, and match rendered filters as binaries, with
+%% the words as a fallback for a topic that is not valid. The result must be the same as the
+%% word matching that compiled every filter to words.
+t_topic_match_same_as_words(_) ->
+    %% A rendered filter that ends with # and a topic with a # level that is not the last
+    %% level: the binary match throws, and the words do not match.
+    ClientInfoA = client_info(#{username => <<"a">>}),
+    Sub = #{action_type => subscribe, qos => 0},
+    HashRule = emqx_authz_rule:compile({allow, all, all, ["${username}/#"]}),
+    ?assertEqual(nomatch, emqx_authz_rule:match(ClientInfoA, Sub, <<"a/#/b">>, HashRule)),
+    ?assertEqual({matched, allow}, emqx_authz_rule:match(ClientInfoA, Sub, <<"a/#">>, HashRule)),
+    ?assertEqual({matched, allow}, emqx_authz_rule:match(ClientInfoA, Sub, <<"a/b/c">>, HashRule)),
+    ?assert(
+        proper:quickcheck(
+            ?FORALL(
+                {Topic, Filter, Username},
+                {topic_gen(), topic_filter_gen(), oneof([<<"a">>, <<"$SYS">>, <<"u">>])},
+                begin
+                    ClientInfo = client_info(#{username => Username}),
+                    Rule = emqx_authz_rule:compile({allow, all, all, [Filter]}),
+                    New = emqx_authz_rule:match(
+                        ClientInfo, #{action_type => subscribe, qos => 0}, Topic, Rule
+                    ),
+                    Old = word_match(Topic, Filter, Username),
+                    ?WHENFAIL(
+                        ct:pal("topic: ~0p~nfilter: ~0p~nnew: ~0p~nold: ~0p", [
+                            Topic, Filter, New, Old
+                        ]),
+                        New =:= Old
+                    )
+                end
+            ),
+            [{numtests, 20000}, {to_file, user}]
+        )
+    ).
+
+%% Several rules share the words of the topic. The first rule that matches decides.
+t_topic_matches_same_as_words(_) ->
+    ?assert(
+        proper:quickcheck(
+            ?FORALL(
+                {Topic, Rules, Username},
+                {
+                    topic_gen(),
+                    non_empty(list({oneof([allow, deny]), list(topic_filter_gen())})),
+                    oneof([<<"a">>, <<"$SYS">>, <<"u">>])
+                },
+                begin
+                    ClientInfo = client_info(#{username => Username}),
+                    Compiled = [emqx_authz_rule:compile({P, all, all, Fs}) || {P, Fs} <- Rules],
+                    New = emqx_authz_rule:matches(
+                        ClientInfo, #{action_type => subscribe, qos => 0}, Topic, Compiled
+                    ),
+                    Old = word_matches(Topic, Rules, Username),
+                    ?WHENFAIL(
+                        ct:pal("topic: ~0p~nrules: ~0p~nnew: ~0p~nold: ~0p", [
+                            Topic, Rules, New, Old
+                        ]),
+                        New =:= Old
+                    )
+                end
+            ),
+            [{numtests, 10000}, {to_file, user}]
+        )
+    ).
+
+word_matches(_Topic, [], _Username) ->
+    nomatch;
+word_matches(Topic, [{Permission, Filters} | Rules], Username) ->
+    case lists:any(fun(F) -> word_match_filter(Topic, F, Username) end, Filters) of
+        true -> {matched, Permission};
+        false -> word_matches(Topic, Rules, Username)
+    end.
+
+word_match(Topic, Filter, Username) ->
+    case word_match_filter(Topic, Filter, Username) of
+        true -> {matched, allow};
+        false -> nomatch
+    end.
+
+%% Matching before topic filters were kept as binaries.
+word_match_filter(Topic, Filter, Username) ->
+    TopicWords = emqx_topic:words(Topic),
+    case Filter of
+        {eq, F} -> TopicWords =:= emqx_topic:words(bin(F));
+        "eq " ++ F -> TopicWords =:= emqx_topic:words(bin(F));
+        <<"eq ", F/binary>> -> TopicWords =:= emqx_topic:words(F);
+        F -> emqx_topic:match(TopicWords, emqx_topic:words(render_username(bin(F), Username)))
+    end.
+
+render_username(Filter, Username) ->
+    binary:replace(Filter, <<"${username}">>, Username, [global]).
+
+level_gen() ->
+    oneof([
+        <<"a">>, <<"b">>, <<"$SYS">>, <<"$share">>, <<"+">>, <<"#">>, <<>>, <<"abcdefgh">>, <<"a+">>
+    ]).
+
+levels_gen() ->
+    ?LET(Levels, non_empty(list(level_gen())), lists:join(<<"/">>, Levels)).
+
+%% Valid and invalid topics, and shared subscriptions.
+topic_gen() ->
+    oneof([
+        ?LET(Levels, levels_gen(), iolist_to_binary(Levels)),
+        ?LET(Levels, levels_gen(), iolist_to_binary([<<"$share/g/">> | Levels])),
+        ?LET(Levels, levels_gen(), #share{group = <<"g">>, topic = iolist_to_binary(Levels)})
+    ]).
+
+topic_filter_gen() ->
+    ?LET(
+        {Levels, Template},
+        {levels_gen(), oneof([none, prefix, suffix])},
+        begin
+            %% A prefix template can render a filter that ends with #.
+            F =
+                case Template of
+                    prefix -> iolist_to_binary([<<"${username}/">>, Levels]);
+                    suffix -> iolist_to_binary([Levels, <<"/${username}">>]);
+                    none -> iolist_to_binary(Levels)
+                end,
+            oneof([F, binary_to_list(F), {eq, F}, "eq " ++ binary_to_list(F), <<"eq ", F/binary>>])
+        end
     ).
 
 %%--------------------------------------------------------------------
