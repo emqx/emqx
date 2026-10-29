@@ -219,12 +219,11 @@ parse_complete(
         qos = fixqos(Type, QoS),
         retain = bool(Retain)
     },
-    case Rest1 of
-        <<0:8>> ->
-            {Packet, _, _} = parse_bodyless_packet(<<>>, Header, Options),
+    case parse_variable_byte_integer(Rest1) of
+        {_RemLen = 0, Rest2} ->
+            {Packet, _, _} = parse_bodyless_packet(Rest2, Header, Options),
             Packet;
-        _ ->
-            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+        {_NotZero, Rest2} ->
             parse_packet_complete(Rest2, Header, Options)
     end.
 

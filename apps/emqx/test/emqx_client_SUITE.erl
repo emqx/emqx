@@ -365,8 +365,25 @@ t_connect_zero_remaining_len_non_minimal(_) ->
 %% Verifies we accept multiple representations for 0 variable byte integers (0x00, 0x80
 %% 0x00, ...), even though the mqtt spec says only 0x00 is valid.
 t_connect_multiple_variable_byte_integer_representations(_) ->
+    ConfPath = [listeners, tcp, default],
+    ListenerRawConf0 = emqx:get_raw_config(ConfPath),
+    try
+        lists:foreach(
+            fun do_test_connect_multiple_variable_byte_integer_representations/1,
+            [<<"frame">>, <<"chunk">>]
+        )
+    after
+        {ok, _} = emqx:update_config(ConfPath, {update, ListenerRawConf0})
+    end.
+
+do_test_connect_multiple_variable_byte_integer_representations(ParseUnit) ->
+    ConfPath = [listeners, tcp, default],
+    ListenerRawConf0 = emqx:get_raw_config(ConfPath),
+    ListenerRawConf1 = ListenerRawConf0#{<<"parse_unit">> := ParseUnit},
+    {ok, _} = emqx:update_config(ConfPath, {update, ListenerRawConf1}),
     lists:foreach(
         fun(ZeroLenEncoded) ->
+            ct:pal("testing parse_unit ~s and encoded zero ~p", [ParseUnit, ZeroLenEncoded]),
             {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
             VariableHeader =
                 [
