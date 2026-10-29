@@ -116,7 +116,9 @@ For single-topic handlers, unsubscribe and terminate may be used interchangeably
 
 ```erlang
 -callback handle_delivered(state(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) ->
-    {ok, state()} | {destroy, [emqx_extsub_types:topic_filter()]} | destroy.
+      {ok, state()}
+    | {destroy, state(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, state()}.
 ```
 
 `handle_delivered` callback is called when a message provided by the handler has been delivered to the client.
@@ -132,7 +134,7 @@ When the check fails, ExtSub does not call the handler and does not change its d
 
 If the `ack_ctx()` the handler is informed about the desired number of messages that the ExtSub application wants the handler to provide.
 
-If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signals that it is done and should be removed from the state to free up resources for the specified topic filters.  With `destroy`, it signals that all of this handler's topic filters should be freed up.
+The destroy results are described in [Destroy and recreate results](#destroy-and-recreate-results).
 
 #### `handle_info` callback
 
@@ -140,8 +142,9 @@ If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signa
 -callback handle_info(state(), info_ctx(), term()) ->
       {ok, state()}
     | {ok, state(), [emqx_types:message()]}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | recreate.
+    | {destroy, state(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, state()}
+    | {recreate, state()}.
 ```
 
 `handle_info` callback is called when the handler receives a generic message or a self-sent message. After handling the message, the callback may
@@ -151,7 +154,17 @@ If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signa
 
 If the `info_ctx()` the handler is informed about the desired number of messages that the ExtSub application wants the handler to provide.
 
-If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signals that it is done and should be removed from the state to free up resources for the specified topic filters.  With `destroy`, it signals that all of this handler's topic filters should be freed up.
+The destroy and recreate results are described in [Destroy and recreate results](#destroy-and-recreate-results).
+
+#### Destroy and recreate results
+
+`handle_delivered` and `handle_info` return the handler state with each result. ExtSub stores the state, then applies the result:
+
+* `{destroy, state(), [emqx_extsub_types:topic_filter()]}`: the handler is done with the listed topic filters. ExtSub removes them from the handler, as for an unsubscribe. A handler without topics left is terminated. A multi-topic handler keeps the returned state for its remaining topics.
+* `{destroy, state()}`: the handler is done with all its topic filters. ExtSub removes all of them and terminates the handler.
+* `{recreate, state()}` (`handle_info` only): ExtSub terminates the handler and subscribes it again to the same topic filters.
+
+ExtSub calls `handle_unsubscribe` and `handle_terminate` with the returned state. So the handler can release the resources of the returned state there, including resources that the same callback created.
 
 ### How the callbacks of the `emqx_extsub_handler` behaviour are coordinated
 

@@ -110,7 +110,7 @@ handle_delivered(Handler, AckCtx, _Msg, _Ack) ->
     } = AckCtx,
     case Handler#h.cursor of
         ?done when DeliveringCount == 0 ->
-            {destroy, [Handler#h.topic_filter]};
+            {destroy, Handler, [Handler#h.topic_filter]};
         _ when DesiredMsgCount > 0 ->
             {ok, request_next(Handler)};
         _ ->
@@ -131,7 +131,7 @@ handle_info(#h{request_ref = Ref} = Handler0, InfoCtx, {retained_batch, Ref, Mes
             ok = demonitor_dispatcher(Handler1),
             Handler = Handler1#h{dispatcher = undefined, monitor = undefined},
             case Messages == [] andalso Delivering == 0 of
-                true -> {destroy, [Handler#h.topic_filter]};
+                true -> {destroy, Handler, [Handler#h.topic_filter]};
                 false -> {ok, Handler, Messages}
             end;
         _ when Delivering + length(Messages) < Demand ->
@@ -196,7 +196,7 @@ handle_next(#h{cursor = ?cursor(_), topic_filter = Topic} = Handler, _InfoCtx) -
     case emqx_retainer:context() of
         undefined ->
             %% The retainer is stopped, so no dispatcher will serve the request.
-            {destroy, [Topic]};
+            {destroy, Handler, [Topic]};
         _ ->
             {ok, request_next(Handler)}
     end.

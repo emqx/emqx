@@ -359,6 +359,65 @@ test_subscribe_results(MultiTopic) ->
     end,
     ok = emqx_extsub_handler_registry:unregister(Module).
 
+-doc """
+Checks that destroy results of `handle_info/3` and `handle_delivered/4` keep the state the
+callback returned: the remaining topics of a multi-topic handler and `handle_terminate/1` see it.
+""".
+t_destroy_results(_Config) ->
+    lists:foreach(fun test_destroy_results/1, [info, delivered]).
+
+test_destroy_results(Via) ->
+    Module = emqx_extsub_test_resub_handler,
+    TopicA = <<"destroy/a">>,
+    TopicB = <<"destroy/b">>,
+    Subscribe = fun(Registry, TopicFilter) ->
+        emqx_extsub_handler_registry:subscribe(
+            Registry,
+            subscribe,
+            #{clientinfo => #{}, can_receive_acks => true},
+            #{TopicFilter => #{result => ok}}
+        )
+    end,
+    HandlerRef = fun(Registry, TopicFilter) ->
+        case emqx_extsub_handler_registry:inspect(Registry) of
+            #{by_topic_cbm := #{{Module, TopicFilter} := FoundRef}} -> FoundRef;
+            #{} -> undefined
+        end
+    end,
+    Command = fun(Registry, CmdRef, Cmd) -> run_command(Via, Registry, CmdRef, Cmd) end,
+
+    %% A multi-topic handler keeps the returned state for its remaining topic.
+    ok = emqx_extsub_handler_registry:register(Module, #{multi_topic => true}),
+    R0 = Subscribe(Subscribe(emqx_extsub_handler_registry:new(), TopicA), TopicB),
+    Ref = HandlerRef(R0, TopicA),
+    R1 = Command(R0, Ref, {destroy, [TopicA]}),
+    ?assertEqual(undefined, HandlerRef(R1, TopicA), #{via => Via}),
+    ?assertEqual(Ref, HandlerRef(R1, TopicB)),
+    R2 = Command(R1, Ref, report),
+    ?assertReceive({state, #{marked := true, TopicB := 1}}),
+
+    %% `handle_terminate/1' gets the state that the destroy result returned.
+    _ = Command(R2, Ref, destroy_all),
+    ?assertReceive({terminated, #{marked := true}}),
+    ok = emqx_extsub_handler_registry:unregister(Module),
+
+    %% A single-topic handler without topics left is terminated with the returned state.
+    ok = emqx_extsub_handler_registry:register(Module, #{multi_topic => false}),
+    R3 = Subscribe(emqx_extsub_handler_registry:new(), TopicA),
+    R4 = Command(R3, HandlerRef(R3, TopicA), {destroy, [TopicA]}),
+    ?assertEqual(undefined, HandlerRef(R4, TopicA)),
+    ?assertReceive({terminated, #{marked := true}}),
+    ok = emqx_extsub_handler_registry:unregister(Module).
+
+run_command(info, Registry0, Ref, Cmd) ->
+    {ok, Registry} = emqx_extsub_handler_registry:info(Registry0, Ref, #{}, Cmd),
+    Registry;
+run_command(delivered, Registry0, Ref, Cmd) ->
+    Msg0 = emqx_message:make(test, <<"destroy/msg">>, term_to_binary(Cmd)),
+    Registry1 = emqx_extsub_handler_registry:buffer_add(Registry0, Ref, [Msg0]),
+    {[{Ref, SeqId, Msg}], Registry2} = emqx_extsub_handler_registry:buffer_take(Registry1, 1),
+    emqx_extsub_handler_registry:delivered(Registry2, Ref, #{}, Msg, SeqId, ack).
+
 -doc "Checks that `handle_info/3' latencies are observed only after `observe_latencies(true)'.".
 t_observe_latencies(_Config) ->
     {ok, Handler} = emqx_extsub_handler:subscribe_new(

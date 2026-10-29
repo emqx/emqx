@@ -108,14 +108,14 @@
     emqx_extsub_types:ack()
 ) ->
     {ok, state()}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy.
+    | {destroy, state(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, state()}.
 -callback handle_info(state(), info_ctx(), term()) ->
     {ok, state()}
     | {ok, state(), [emqx_types:message()]}
-    | recreate
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy.
+    | {recreate, state()}
+    | {destroy, state(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, state()}.
 
 -optional_callbacks([
     handle_unsubscribe/4,
@@ -254,24 +254,24 @@ terminate(#handler{cbm = CBM, st = State}) ->
 
 -spec delivered(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) ->
     {ok, t()}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy.
+    | {destroy, t(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, t()}.
 delivered(#handler{cbm = CBM, st = State0} = Handler, AckCtx, Msg, Ack) ->
     case CBM:handle_delivered(State0, AckCtx, Msg, Ack) of
         {ok, State} ->
             {ok, Handler#handler{st = State}};
-        {destroy, TopicFilters} ->
-            {destroy, TopicFilters};
-        destroy ->
-            destroy
+        {destroy, State, TopicFilters} ->
+            {destroy, Handler#handler{st = State}, TopicFilters};
+        {destroy, State} ->
+            {destroy, Handler#handler{st = State}}
     end.
 
 -spec info(t(), info_ctx(), term()) ->
     {ok, t()}
     | {ok, t(), [emqx_types:message()]}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy
-    | recreate.
+    | {destroy, t(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, t()}
+    | {recreate, t()}.
 info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
     Result =
         case emqx_extsub:need_observe_latencies() of
@@ -283,12 +283,12 @@ info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
             {ok, Handler#handler{st = State}};
         {ok, State, Messages} ->
             {ok, Handler#handler{st = State}, Messages};
-        {destroy, TopicFilters} ->
-            {destroy, TopicFilters};
-        destroy ->
-            destroy;
-        recreate ->
-            recreate
+        {destroy, State, TopicFilters} ->
+            {destroy, Handler#handler{st = State}, TopicFilters};
+        {destroy, State} ->
+            {destroy, Handler#handler{st = State}};
+        {recreate, State} ->
+            {recreate, Handler#handler{st = State}}
     end.
 
 save_subopts(#handler{cbm = CBM, st = State0} = Handler0, Context, SubOpts) ->

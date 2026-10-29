@@ -450,8 +450,8 @@ handle_terminate(_State) ->
 
 handle_info(State, _InfoCtx, {generic, {?MODULE, {messages, Msgs}}}) ->
     {ok, State, Msgs};
-handle_info(_State, _InfoCtx, {generic, {?MODULE, recreate}}) ->
-    recreate;
+handle_info(State, _InfoCtx, {generic, {?MODULE, recreate}}) ->
+    {recreate, State};
 handle_info(State, _InfoCtx, {generic, _Info}) ->
     {ok, State}.
 

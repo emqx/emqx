@@ -197,20 +197,17 @@ delivered(
     ReasonCode
 ) ->
     case ByRef of
-        #{HandlerRef := #extsub{handler = Handler0} = ExtSub} ->
+        #{HandlerRef := #extsub{handler = Handler0}} ->
             Buffer = emqx_extsub_buffer:set_delivered(Buffer0, HandlerRef, SeqId),
             Registry1 = Registry0#registry{buffer = Buffer},
             AckCtx = ack_ctx(Registry1, HandlerRef, InitAckCtx),
             case emqx_extsub_handler:delivered(Handler0, AckCtx, Msg, ReasonCode) of
                 {ok, Handler} ->
-                    Registry0#registry{
-                        buffer = Buffer,
-                        by_ref = ByRef#{HandlerRef := ExtSub#extsub{handler = Handler}}
-                    };
-                {destroy, TopicFilters} ->
-                    destroy(Registry0, HandlerRef, TopicFilters);
-                destroy ->
-                    destroy_all(Registry0, HandlerRef)
+                    put_handler(Registry1, HandlerRef, Handler);
+                {destroy, Handler, TopicFilters} ->
+                    destroy(put_handler(Registry1, HandlerRef, Handler), HandlerRef, TopicFilters);
+                {destroy, Handler} ->
+                    destroy_all(put_handler(Registry1, HandlerRef, Handler), HandlerRef)
             end;
         _ ->
             Registry0
@@ -218,32 +215,25 @@ delivered(
 
 -spec info(t(), emqx_extsub_types:handler_ref(), info_init_ctx(), term()) ->
     {ok, t()}
-    | {ok, t(), [emqx_types:message()]}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy
-    | recreate.
+    | {ok, t(), [emqx_types:message()]}.
 info(
     #registry{by_ref = ByRef} = Registry0, HandlerRef, InfoCtx, Info
 ) ->
     case ByRef of
-        #{HandlerRef := #extsub{handler = Handler0} = ExtSub} ->
+        #{HandlerRef := #extsub{handler = Handler0}} ->
             case emqx_extsub_handler:info(Handler0, InfoCtx, Info) of
                 {ok, Handler} ->
-                    {ok, Registry0#registry{
-                        by_ref = ByRef#{HandlerRef := ExtSub#extsub{handler = Handler}}
-                    }};
+                    {ok, put_handler(Registry0, HandlerRef, Handler)};
                 {ok, Handler, Messages} ->
-                    {ok,
-                        Registry0#registry{
-                            by_ref = ByRef#{HandlerRef := ExtSub#extsub{handler = Handler}}
-                        },
-                        Messages};
-                {destroy, TopicFilters} ->
-                    {ok, destroy(Registry0, HandlerRef, TopicFilters)};
-                destroy ->
-                    {ok, destroy_all(Registry0, HandlerRef)};
-                recreate ->
-                    {ok, recreate(Registry0, to_subscribe_init_ctx(InfoCtx), HandlerRef)}
+                    {ok, put_handler(Registry0, HandlerRef, Handler), Messages};
+                {destroy, Handler, TopicFilters} ->
+                    Registry = put_handler(Registry0, HandlerRef, Handler),
+                    {ok, destroy(Registry, HandlerRef, TopicFilters)};
+                {destroy, Handler} ->
+                    {ok, destroy_all(put_handler(Registry0, HandlerRef, Handler), HandlerRef)};
+                {recreate, Handler} ->
+                    Registry = put_handler(Registry0, HandlerRef, Handler),
+                    {ok, recreate(Registry, to_subscribe_init_ctx(InfoCtx), HandlerRef)}
             end;
         _ ->
             {ok, Registry0}
@@ -316,6 +306,11 @@ buffer_add_back(#registry{buffer = Buffer0} = Registry, HandlerRef, SeqId, Msg) 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% Store the handler state that a callback returned.
+put_handler(#registry{by_ref = ByRef} = Registry, HandlerRef, Handler) ->
+    #{HandlerRef := ExtSub} = ByRef,
+    Registry#registry{by_ref = ByRef#{HandlerRef := ExtSub#extsub{handler = Handler}}}.
 
 ack_ctx(HandlerRegistry, HandlerRef, AckCtx0) ->
     {DeliveringCnt, DesiredMsgCount} = message_counts(

@@ -91,7 +91,7 @@ t_async_fetch_and_demand(_Config) ->
     {ok, Handler2} = emqx_retainer_extsub_handler:handle_delivered(Handler1, AckCtx, Msg0, ack),
     {ok, Handler3, [_]} = info(Handler2, receive_batch(Ref), 100),
     {ok, Handler4, [_]} = info(Handler3, receive_batch(Ref), 100),
-    ?assertMatch({destroy, [_]}, info(Handler4, receive_batch(Ref), 1)),
+    ?assertMatch({destroy, _, [_]}, info(Handler4, receive_batch(Ref), 1)),
     ok = emqx_retainer_extsub_handler:handle_terminate(Handler4),
     assert_no_monitor(Worker).
 
@@ -138,16 +138,16 @@ t_empty_read_limiter(_Config) ->
     ok = emqx_retainer_sup:stop_workers(),
     ok = emqx_retainer_sup:start_workers(),
     {Ref0, Handler0} = subscribe(),
-    ?assertMatch({destroy, [_]}, info(Handler0, receive_batch(Ref0), 1)),
+    ?assertMatch({destroy, _, [_]}, info(Handler0, receive_batch(Ref0), 1)),
     {Ref1, Handler1} = subscribe(),
-    ?assertMatch({destroy, [_]}, info(Handler1, receive_batch(Ref1), 1)),
+    ?assertMatch({destroy, _, [_]}, info(Handler1, receive_batch(Ref1), 1)),
     {Ref2, Handler2} = subscribe(),
     ?assertNotReceive(#info_to_extsub{handler_ref = Ref2}, 200),
     %% A barrier must complete even when requests are paused by the limiter.
     ok = emqx_retainer_dispatcher:wait_dispatch_complete(1000),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
     ok = emqx_retainer_limiter:update(),
-    ?assertMatch({destroy, [_]}, info(Handler2, receive_batch(Ref2), 1)),
+    ?assertMatch({destroy, _, [_]}, info(Handler2, receive_batch(Ref2), 1)),
     lists:foreach(fun emqx_retainer_extsub_handler:handle_terminate/1, [
         Handler0, Handler1, Handler2
     ]).
@@ -263,8 +263,8 @@ t_exact_unlimited(_Config) ->
     ?assertEqual(<<"t/1/a">>, Msg#message.topic),
     assert_no_monitor(Worker),
     AckCtx = #{desired_message_count => 1, delivering_count => 0, unacked_count => 0},
-    ?assertEqual(
-        {destroy, [<<"t/1/a">>]},
+    ?assertMatch(
+        {destroy, _, [<<"t/1/a">>]},
         emqx_retainer_extsub_handler:handle_delivered(Handler1, AckCtx, Msg, ack)
     ),
     ok = emqx_retainer_extsub_handler:handle_terminate(Handler1).
@@ -308,7 +308,7 @@ t_retainer_disabled(_Config) ->
     {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
     %% The handler schedules one retry after the dispatcher stops.
     {ok, Handler1} = info(Handler0, receive_down(Ref), 1),
-    ?assertMatch({destroy, [<<"t/+/a">>]}, info(Handler1, receive_info(Ref), 1)).
+    ?assertMatch({destroy, _, [<<"t/+/a">>]}, info(Handler1, receive_info(Ref), 1)).
 
 -doc "A failed read replies to its handler and keeps the dispatcher worker alive.".
 t_read_failure(_Config) ->
@@ -381,7 +381,7 @@ t_done_with_other_unacked(_Config) ->
     {ok, Handler1, [Msg | _]} = info(Handler0, receive_batch(Ref), 100),
     AckCtx = #{desired_message_count => 100, delivering_count => 0, unacked_count => 5},
     ?assertMatch(
-        {destroy, [<<"t/+/a">>]},
+        {destroy, _, [<<"t/+/a">>]},
         emqx_retainer_extsub_handler:handle_delivered(Handler1, AckCtx, Msg, ack)
     ).
 

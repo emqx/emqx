@@ -5,9 +5,10 @@
 -module(emqx_extsub_test_resub_handler).
 
 -moduledoc """
-ExtSub handler for subscribe result tests.
+ExtSub handler for subscribe and destroy result tests.
 The `result` subscription option selects the `handle_subscribe/4` result.
 The state counts `{ok, State}` results for each topic filter.
+Info messages and the terms in delivered message payloads are commands, see `handle_command/2`.
 Callbacks report to the calling process, which is the test process in registry tests.
 """.
 
@@ -37,8 +38,19 @@ handle_terminate(State) ->
     self() ! {terminated, State},
     ok.
 
-handle_delivered(State, _AckCtx, _Msg, _Ack) ->
-    {ok, State}.
+%% `{destroy, Topics}' and `destroy_all' mark the state and return the matching destroy result.
+handle_delivered(State, _AckCtx, Msg, _Ack) ->
+    handle_command(State, binary_to_term(emqx_message:payload(Msg))).
 
-handle_info(State, _InfoCtx, _Info) ->
+handle_info(State, _InfoCtx, Info) ->
+    handle_command(State, Info).
+
+handle_command(State, {destroy, TopicFilters}) ->
+    {destroy, State#{marked => true}, TopicFilters};
+handle_command(State, destroy_all) ->
+    {destroy, State#{marked => true}};
+handle_command(State, report) ->
+    self() ! {state, State},
+    {ok, State};
+handle_command(State, _Command) ->
     {ok, State}.
