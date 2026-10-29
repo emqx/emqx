@@ -153,6 +153,9 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:hackney),
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
+      # pinned to the emqx fork, which carries the current Mozilla CA bundle;
+      # hackney uses certifi:cacerts() as its default trust store
+      {:certifi, github: "emqx/erlang-certifi", tag: "2.17.0-emqx-1", override: true},
       common_dep(:bcrypt),
       common_dep(:uuid),
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},

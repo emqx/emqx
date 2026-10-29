@@ -30,6 +30,10 @@
 
 -export([describe_state/1]).
 
+-ifdef(TEST).
+-export([serialize_variable_byte_integer/1]).
+-endif.
+
 -export_type([
     options/0,
     parse_state/0,
@@ -215,11 +219,11 @@ parse_complete(
         qos = fixqos(Type, QoS),
         retain = bool(Retain)
     },
-    case Rest1 of
-        <<0:8>> ->
-            parse_bodyless_packet(Header);
-        _ ->
-            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+    case parse_variable_byte_integer(Rest1) of
+        {_RemLen = 0, Rest2} ->
+            {Packet, _, _} = parse_bodyless_packet(Rest2, Header, Options),
+            Packet;
+        {_NotZero, Rest2} ->
             parse_packet_complete(Rest2, Header, Options)
     end.
 
@@ -242,8 +246,7 @@ parse_remaining_len(<<>>, Header, Mult, Length, Options) ->
     {more, #remlen{hdr = Header, len = Length, mult = Mult, opts = Options}};
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
     ok = check_packet_size(2, Options),
-    Packet = parse_bodyless_packet(Header),
-    {Packet, Rest, Options};
+    parse_bodyless_packet(Rest, Header, Options);
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     ok = check_packet_size(4, Options),
@@ -266,7 +269,10 @@ parse_remaining_len(
     %% Remaining Length byte, including those received in earlier chunks.
     PacketSize = 1 + remaining_len_size(Multiplier) + FrameLen,
     ok = check_packet_size(PacketSize, Options),
-    parse_body_frame(Rest, Header, FrameLen, <<>>, Options).
+    case FrameLen of
+        0 -> parse_bodyless_packet(Rest, Header, Options);
+        _ -> parse_body_frame(Rest, Header, FrameLen, <<>>, Options)
+    end.
 
 -compile({inline, [remaining_len_size/1]}).
 remaining_len_size(1) ->
@@ -286,18 +292,19 @@ check_packet_size(Size, #options{max_size = MaxSize}) when Size > MaxSize ->
 check_packet_size(_Size, _Options) ->
     ok.
 
--compile({inline, [parse_bodyless_packet/1]}).
-
+-compile({inline, [parse_bodyless_packet/3]}).
+%% Remaining Length is zero, whatever its encoding.
 %% Match DISCONNECT without payload
-parse_bodyless_packet(Header = #mqtt_packet_header{type = ?DISCONNECT}) ->
-    packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS});
+parse_bodyless_packet(Rest, Header = #mqtt_packet_header{type = ?DISCONNECT}, Options) ->
+    Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
+    {Packet, Rest, Options};
 %% Match PINGREQ.
-parse_bodyless_packet(Header = #mqtt_packet_header{type = ?PINGREQ}) ->
-    packet(Header);
-parse_bodyless_packet(#mqtt_packet_header{type = ?PINGRESP}) ->
+parse_bodyless_packet(Rest, Header = #mqtt_packet_header{type = ?PINGREQ}, Options) ->
+    {packet(Header), Rest, Options};
+parse_bodyless_packet(_Rest, #mqtt_packet_header{type = ?PINGRESP}, _Options) ->
     ?PARSE_ERR(#{cause => unexpected_packet, header_type => 'PINGRESP'});
 %% All other types of messages should not have a zero remaining length.
-parse_bodyless_packet(#mqtt_packet_header{type = Type}) ->
+parse_bodyless_packet(_Rest, #mqtt_packet_header{type = Type}, _Options) ->
     ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Type}).
 
 -compile({inline, [append_body/2]}).
@@ -820,6 +827,12 @@ parse_utf8_pair(Bin, _StrictMode) when
     ?PARSE_ERR(#{
         cause => user_property_not_enough_bytes,
         total_bytes => byte_size(Bin)
+    });
+parse_utf8_pair(<<LenK:16/big, _Key:LenK/binary, Rest/binary>>, _StrictMode) ->
+    ?PARSE_ERR(#{
+        cause => malformed_user_property_missing_value,
+        parsed_key_length => LenK,
+        remaining_bytes_length => byte_size(Rest)
     }).
 
 parse_optional(Bin, F, true) ->

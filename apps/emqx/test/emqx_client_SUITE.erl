@@ -59,11 +59,16 @@ groups() ->
             %% subscribe_failure_test,
             t_dollar_topics,
             t_sub_non_utf8_topic,
+            t_connect_zero_remaining_len_non_minimal,
             t_hot_patch_connect_user_property_limit_config,
             t_connect_user_property_limit,
             t_large_connect_with_few_user_properties
         ]},
-        {mqttv5, [non_parallel_tests], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
+        {mqttv5, [non_parallel_tests], [
+            t_basic_with_props_v5,
+            t_v5_receive_maximim_in_connack,
+            t_connect_multiple_variable_byte_integer_representations
+        ]},
         {others, [non_parallel_tests], [
             t_username_as_clientid,
             t_certcn_as_alias,
@@ -337,6 +342,93 @@ t_sub_non_utf8_topic(_) ->
     ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
     ok.
 
+%% A CONNECT with a zero Remaining Length in two bytes closes the connection
+%% as a frame error, and the connection process does not crash.
+t_connect_zero_remaining_len_non_minimal(_) ->
+    Reports = emqx_cth_log_capture:capture(info, fun() ->
+        {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        ok = gen_tcp:send(Socket, <<16#10, 16#80, 16#00>>),
+        receive
+            {tcp_closed, _} -> ok
+        after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
+        end
+    end),
+    ?assertEqual(
+        [],
+        [R || R = #{report := Report} <- Reports, is_connection_crashed(Report)]
+    ),
+    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', {{0, 0, 0, 0}, 1883}),
+    ZeroLenCount = proplists:get_value(zero_remaining_len, ListenerCounts),
+    ?assert(is_integer(ZeroLenCount) andalso ZeroLenCount > 0),
+    ok.
+
+%% Verifies we accept multiple representations for 0 variable byte integers (0x00, 0x80
+%% 0x00, ...), even though the mqtt spec says only 0x00 is valid.
+t_connect_multiple_variable_byte_integer_representations(_) ->
+    ConfPath = [listeners, tcp, default],
+    ListenerRawConf0 = emqx:get_raw_config(ConfPath),
+    try
+        lists:foreach(
+            fun do_test_connect_multiple_variable_byte_integer_representations/1,
+            [<<"frame">>, <<"chunk">>]
+        )
+    after
+        {ok, _} = emqx:update_config(ConfPath, {update, ListenerRawConf0})
+    end.
+
+do_test_connect_multiple_variable_byte_integer_representations(ParseUnit) ->
+    ConfPath = [listeners, tcp, default],
+    ListenerRawConf0 = emqx:get_raw_config(ConfPath),
+    ListenerRawConf1 = ListenerRawConf0#{<<"parse_unit">> := ParseUnit},
+    {ok, _} = emqx:update_config(ConfPath, {update, ListenerRawConf1}),
+    lists:foreach(
+        fun(ZeroLenEncoded) ->
+            ct:pal("testing parse_unit ~s and encoded zero ~p", [ParseUnit, ZeroLenEncoded]),
+            {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+            VariableHeader =
+                [
+                    %% protocol name
+                    [16#00, 16#04, "MQTT"],
+                    %% protocol level
+                    [16#05],
+                    %% connect flags (just clean start)
+                    [16#02],
+                    %% keepalive (0)
+                    [16#00, 16#00],
+                    %% properties (empty)
+                    [ZeroLenEncoded],
+                    %% payload (just clientid "a")
+                    [16#00, 16#01, "a"]
+                ],
+            VarSize = serialize_variable_byte_integer(iolist_size(VariableHeader)),
+            ConnectPacket =
+                [
+                    %% connect packet type
+                    16#10,
+                    %% remaining length
+                    VarSize,
+                    VariableHeader
+                ],
+            ok = gen_tcp:send(Socket, ConnectPacket),
+            {tcp, Socket, ConnackRaw} = ?assertReceive({tcp, Socket, _}),
+            gen_tcp:close(Socket),
+            ?assertMatch(<<16#20, _/binary>>, ConnackRaw),
+            ok
+        end,
+        [
+            <<16#00>>,
+            <<16#80, 16#00>>,
+            <<16#80, 16#80, 16#00>>,
+            <<16#80, 16#80, 16#80, 16#00>>
+        ]
+    ),
+    ok.
+
+is_connection_crashed(Report) when is_list(Report) ->
+    proplists:get_value(errorContext, Report) =:= connection_crashed;
+is_connection_crashed(_) ->
+    false.
+
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v5
 %%--------------------------------------------------------------------
@@ -474,7 +566,8 @@ t_sock_closed_reason_normal(_) ->
                             E
                          || #{clientid := CId} = E <- ?of_kind(sock_closed_normal, Trace0),
                             CId =:= ClientId
-                        ]
+                        ],
+                        #{proto_ver => Ver}
                     ),
                     ok
                 end
@@ -752,3 +845,6 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
     confirm_tls_version(Client, RequiredTLSVsn),
     emqtt:disconnect(Client).
+
+serialize_variable_byte_integer(N) ->
+    emqx_frame:serialize_variable_byte_integer(N).
