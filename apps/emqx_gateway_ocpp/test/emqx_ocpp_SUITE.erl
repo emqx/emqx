@@ -58,6 +58,7 @@ init_per_suite(Config) ->
             emqx_gateway_ocpp,
             emqx_gateway,
             emqx_auth,
+            emqx_auth_mnesia,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
@@ -301,6 +302,202 @@ t_adjust_keepalive_timer(_Config) ->
     %% assert:
     ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)),
     ok.
+
+-doc "OCPP uses version 1.6 without a response subprotocol when the supported list is empty.".
+t_optional_subprotocol_empty(_Config) ->
+    check_optional_subprotocol(<<>>).
+
+-doc "OCPP uses version 1.6 when the client omits an optional subprotocol header.".
+t_optional_subprotocol_absent(_Config) ->
+    lists:foreach(
+        fun check_optional_subprotocol/1,
+        [<<"ocpp1.6, ocpp2.0">>, <<"ocpp2.0, ocpp1.6">>]
+    ).
+
+check_optional_subprotocol(Supported) ->
+    with_handshake_config(Supported, false, fun() ->
+        with_handshake_client(<<"optional-protocol">>, [], valid_credentials(), fun(
+            {ok, Client, Headers}
+        ) ->
+            ?assertEqual(undefined, proplists:get_value(<<"sec-websocket-protocol">>, Headers)),
+            assert_authenticated_exchange(Client, <<"optional-protocol">>)
+        end)
+    end).
+
+-doc "OCPP rejects wrong or missing credentials when the client omits an optional subprotocol.".
+t_optional_subprotocol_authentication(_Config) ->
+    lists:foreach(
+        fun(Supported) ->
+            with_handshake_config(Supported, false, fun check_handshake_credentials/0)
+        end,
+        [<<>>, <<"ocpp1.6, ocpp2.0">>]
+    ).
+
+check_handshake_credentials() ->
+    lists:foreach(
+        fun(Credentials) ->
+            with_handshake_client(<<"rejected-credentials">>, [], Credentials, fun(Result) ->
+                ?assertMatch({error, 400, _}, Result),
+                ?assertEqual(
+                    undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"rejected-credentials">>)
+                )
+            end)
+        end,
+        [undefined, {<<"optional-user">>, <<"wrong-password">>}]
+    ).
+
+-doc "OCPP rejects a request that omits a required subprotocol header.".
+t_required_subprotocol_absent(_Config) ->
+    lists:foreach(
+        fun(Supported) ->
+            with_handshake_config(Supported, true, fun() ->
+                assert_handshake_rejected([])
+            end)
+        end,
+        [<<>>, <<"ocpp1.6, ocpp2.0">>]
+    ).
+
+-doc "OCPP selects a supported subprotocol in the client's preference order.".
+t_subprotocol_negotiation(_Config) ->
+    with_handshake_config(<<"ocpp2.0, ocpp1.6">>, true, fun() ->
+        with_handshake_client(
+            <<"negotiated-protocol">>,
+            [<<"ocpp1.6">>, <<"ocpp2.0">>],
+            valid_credentials(),
+            fun({ok, Client, Headers}) ->
+                ?assertEqual(
+                    <<"ocpp1.6">>, proplists:get_value(<<"sec-websocket-protocol">>, Headers)
+                ),
+                assert_authenticated_exchange(Client, <<"negotiated-protocol">>)
+            end
+        )
+    end).
+
+-doc "OCPP rejects a request when no requested subprotocol is supported.".
+t_subprotocol_not_supported(_Config) ->
+    lists:foreach(
+        fun(Supported) ->
+            with_handshake_config(Supported, false, fun() ->
+                assert_handshake_rejected([<<"unsupported">>])
+            end)
+        end,
+        [<<>>, <<"ocpp1.6">>]
+    ).
+
+-doc "Only an absent subprotocol uses the internal OCPP 1.6 default.".
+t_protocol_version_default(_Config) ->
+    ?assertEqual({<<"OCPP">>, <<"1.6">>}, emqx_ocpp_connection:parse_protocol_name(undefined)),
+    ?assertEqual({<<"OCPP">>, <<"1.6">>}, emqx_ocpp_connection:parse_protocol_name(<<"ocpp1.6">>)),
+    ?assertError(function_clause, emqx_ocpp_connection:parse_protocol_name(<<"ocpp2.0">>)),
+    ?assertError(function_clause, emqx_ocpp_connection:parse_protocol_name(<<"unknown">>)).
+
+with_handshake_config(Supported, Required, Fun) ->
+    Saved = emqx:get_raw_config([gateway, ocpp]),
+    Listener = emqx_utils_maps:deep_get([<<"listeners">>, <<"ws">>, <<"default">>], Saved),
+    ok = create_authenticator(),
+    try
+        ok = add_authenticator_user(<<"optional-user">>, <<"optional-password">>),
+        Websocket = maps:get(<<"websocket">>, Listener, #{}),
+        {ok, _} = emqx_gateway_conf:update_listener(ocpp, {ws, default}, Listener#{
+            <<"enable_authn">> => true,
+            <<"websocket">> => Websocket#{
+                <<"supported_subprotocols">> => Supported,
+                <<"fail_if_no_subprotocol">> => Required
+            }
+        }),
+        Fun()
+    after
+        restore_handshake_config(Listener)
+    end.
+
+restore_handshake_config(Listener) ->
+    try
+        delete_authenticators()
+    after
+        {ok, _} = emqx_gateway_conf:update_listener(ocpp, {ws, default}, Listener)
+    end.
+
+valid_credentials() ->
+    {<<"optional-user">>, <<"optional-password">>}.
+
+with_handshake_client(ClientId, Protocols, Credentials, Fun) ->
+    {ok, ConnPid} = gun:open("127.0.0.1", 33033, #{connect_timeout => 5000, retry => 0}),
+    try
+        {ok, _} = gun:await_up(ConnPid, 5000),
+        Headers = handshake_auth_header(Credentials),
+        Path = binary_to_list(<<"/ocpp/", ClientId/binary>>),
+        WsOpts =
+            case Protocols of
+                [] -> #{};
+                _ -> #{protocols => [{Protocol, gun_ws_h} || Protocol <- Protocols]}
+            end,
+        StreamRef = gun:ws_upgrade(ConnPid, Path, Headers, WsOpts),
+        Fun(await_handshake(ConnPid, StreamRef))
+    after
+        gun:close(ConnPid),
+        ?retry(100, 50, ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, ClientId)))
+    end.
+
+handshake_auth_header(undefined) ->
+    [];
+handshake_auth_header({Username, Password}) ->
+    Encoded = base64:encode(<<Username/binary, ":", Password/binary>>),
+    [{<<"authorization">>, <<"Basic ", Encoded/binary>>}].
+
+await_handshake(ConnPid, StreamRef) ->
+    receive
+        {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], Headers} ->
+            {ok, {ConnPid, StreamRef}, Headers};
+        {gun_response, ConnPid, StreamRef, _, Status, Headers} ->
+            {error, Status, Headers};
+        {gun_error, ConnPid, StreamRef, Reason} ->
+            ct:fail({upgrade_error, Reason})
+    after 5000 ->
+        ct:fail(upgrade_timeout)
+    end.
+
+assert_handshake_rejected(Protocols) ->
+    with_handshake_client(<<"rejected-protocol">>, Protocols, valid_credentials(), fun(Result) ->
+        ?assertMatch({error, 400, _}, Result),
+        ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"rejected-protocol">>))
+    end).
+
+assert_authenticated_exchange(Client, ClientId) ->
+    ?retry(
+        100,
+        50,
+        ?assertMatch(
+            #{
+                conninfo := #{proto_name := <<"OCPP">>, proto_ver := <<"1.6">>},
+                clientinfo := #{
+                    protocol := ocpp, clientid := ClientId, username := <<"optional-user">>
+                }
+            },
+            emqx_gateway_cm:get_chan_info(ocpp, ClientId)
+        )
+    ),
+    Upstream = <<"ocpp/cp/", ClientId/binary>>,
+    Downstream = <<"ocpp/cs/", ClientId/binary>>,
+    ?retry(100, 50, ?assert(lists:member(Downstream, get_subscriptions()))),
+    ok = emqx:subscribe(Upstream),
+    try
+        UniqueId = <<"optional-handshake-message">>,
+        ok = send_msg(Client, boot_notification(UniqueId)),
+        ?assertReceive(
+            {deliver, Upstream, #message{
+                from = ClientId,
+                headers = #{
+                    protocol := ocpp, proto_ver := <<"1.6">>, username := <<"optional-user">>
+                }
+            }}
+        ),
+        _ = emqx:publish(emqx_message:make(Downstream, ack_payload(UniqueId))),
+        ?assertMatch(
+            {ok, #{type := ?OCPP_MSG_TYPE_ID_CALLRESULT, id := UniqueId}}, receive_msg(Client)
+        )
+    after
+        emqx:unsubscribe(Upstream)
+    end.
 
 t_auth_expire(_Config) ->
     ok = meck:new(emqx_access_control, [passthrough, no_history]),

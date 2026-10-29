@@ -104,7 +104,8 @@ all_gateway_apps() ->
         emqx_gateway_exproto,
         emqx_gateway_jt808,
         emqx_gateway_gbt32960,
-        emqx_gateway_ocpp
+        emqx_gateway_ocpp,
+        emqx_gateway_nats
     ].
 
 %%--------------------------------------------------------------------

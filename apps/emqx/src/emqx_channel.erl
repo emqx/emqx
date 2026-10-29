@@ -43,6 +43,11 @@
     terminate/2
 ]).
 
+%% Export for connection modules
+-export([
+    notify_discarded/1
+]).
+
 %% Export for emqx_sn
 -export([
     do_deliver/2,
@@ -1870,6 +1875,8 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
+handle_info({?MODULE, publish_discarded, QoS, PacketId}, Channel) ->
+    complete_discarded_publish(QoS, PacketId, Channel);
 handle_info(heal_cluster_partition, Channel) ->
     handle_heal_partition(Channel),
     {ok, Channel};
@@ -1902,6 +1909,48 @@ handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInf
                 {shutdown, ExitReason, _Reply, SChannel} ->
                     {shutdown, ExitReason, SChannel}
             end
+    end.
+
+%%--------------------------------------------------------------------
+%% Discarded outgoing PUBLISH
+%%--------------------------------------------------------------------
+
+-doc """
+Called by the connection process when it discards an outgoing packet because
+it exceeds the client's Maximum Packet Size.
+
+The channel is not reachable at the drop site, so a QoS 1 or QoS 2 PUBLISH is
+completed later, when the message sent here reaches `handle_info/2`.
+""".
+-spec notify_discarded(emqx_types:packet()) -> ok.
+notify_discarded(?PUBLISH_PACKET(QoS, PacketId)) when QoS =:= ?QOS_1; QoS =:= ?QOS_2 ->
+    _ = erlang:send(self(), {?MODULE, publish_discarded, QoS, PacketId}),
+    ok;
+notify_discarded(_Packet) ->
+    ok.
+
+%% MQTT-3.1.2-25: behave as if the delivery of the discarded PUBLISH is
+%% complete, so it leaves the inflight window.
+complete_discarded_publish(
+    ?QOS_1, PacketId, Channel = #channel{clientinfo = ClientInfo, session = Session}
+) ->
+    case emqx_session:puback(ClientInfo, PacketId, ?RC_SUCCESS, Session) of
+        {ok, _Msg, Publishes, NSession} ->
+            handle_out(publish, Publishes, Channel#channel{session = NSession});
+        {error, _} ->
+            {ok, Channel}
+    end;
+complete_discarded_publish(
+    ?QOS_2, PacketId, Channel = #channel{clientinfo = ClientInfo, session = Session0}
+) ->
+    maybe
+        {ok, _Msg, Session1} ?= emqx_session:pubrec(ClientInfo, PacketId, Session0),
+        {ok, Publishes, Session} ?=
+            emqx_session:pubcomp(ClientInfo, PacketId, ?RC_SUCCESS, Session1),
+        handle_out(publish, Publishes, Channel#channel{session = Session})
+    else
+        {error, _} ->
+            {ok, Channel}
     end.
 
 append_replies(Replies1, Replies2) ->

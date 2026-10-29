@@ -294,6 +294,60 @@ t_schema_coverage(_Config) ->
     _ = emqx_nats_schema:desc(wss_listener),
     ok.
 
+-doc "The NATS gateway exchanges INFO and PING/PONG after an upgrade without a subprotocol.".
+t_ws_optional_subprotocol(_Config) ->
+    {ok, _} = application:ensure_all_started(gun),
+    lists:foreach(fun check_ws_optional_subprotocol/1, [<<>>, <<"NATS">>]).
+
+check_ws_optional_subprotocol(SupportedSubprotocols) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Listener = #{
+        <<"type">> => <<"ws">>,
+        <<"name">> => <<"default">>,
+        <<"bind">> => Port,
+        <<"websocket">> => #{
+            <<"path">> => <<"/nats">>,
+            <<"fail_if_no_subprotocol">> => false,
+            <<"supported_subprotocols">> => SupportedSubprotocols
+        }
+    },
+    {ok, _} = emqx_gateway_conf:load_gateway(nats, nats_conf_list([Listener])),
+    try
+        check_nats_ws_exchange(Port)
+    after
+        _ = emqx_gateway_conf:unload_gateway(nats)
+    end.
+
+check_nats_ws_exchange(Port) ->
+    {ok, ConnPid} = gun:open("127.0.0.1", Port, #{retry => 0, protocols => [http]}),
+    try
+        {ok, _} = gun:await_up(ConnPid, 5000),
+        StreamRef = gun:ws_upgrade(ConnPid, "/nats"),
+        receive
+            {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], Headers} ->
+                ?assertEqual(false, lists:keymember(<<"sec-websocket-protocol">>, 1, Headers));
+            {gun_response, ConnPid, StreamRef, _, Status, _} ->
+                ct:fail({unexpected_upgrade_status, Status});
+            {gun_error, ConnPid, StreamRef, Reason} ->
+                ct:fail({ws_upgrade_error, Reason})
+        after 5000 ->
+            ct:fail(ws_upgrade_timeout)
+        end,
+        receive
+            {gun_ws, ConnPid, StreamRef, {binary, <<"INFO ", _/binary>>}} -> ok
+        after 5000 ->
+            ct:fail(nats_info_timeout)
+        end,
+        ok = gun:ws_send(ConnPid, StreamRef, {text, <<"PING", 13, 10>>}),
+        receive
+            {gun_ws, ConnPid, StreamRef, {binary, <<"PONG", 13, 10>>}} -> ok
+        after 5000 ->
+            ct:fail(nats_pong_timeout)
+        end
+    after
+        gun:close(ConnPid)
+    end.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
