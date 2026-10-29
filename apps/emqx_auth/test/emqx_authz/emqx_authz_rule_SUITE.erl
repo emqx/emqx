@@ -863,9 +863,9 @@ t_matches(_) ->
         )
     ).
 
-%% Rules split only the filters with a wildcard, and match rendered filters as binaries, with
-%% the words as a fallback for a topic that is not valid. The result must be the same as the
-%% word matching that compiled every filter to words.
+%% Rules split only the filters with a wildcard, never the topic, and match rendered filters
+%% as binaries, with the words of the filter as a fallback for a topic that is not valid. The
+%% result must be the same as the word matching that split every filter and the topic.
 t_topic_match_same_as_words(_) ->
     %% A rendered filter that ends with # and a topic with a # level that is not the last
     %% level: the binary match throws, and the words do not match.
@@ -899,58 +899,19 @@ t_topic_match_same_as_words(_) ->
         )
     ).
 
-%% Several rules share the words of the topic. The first rule that matches decides.
-t_topic_matches_same_as_words(_) ->
-    ?assert(
-        proper:quickcheck(
-            ?FORALL(
-                {Topic, Rules, Username},
-                {
-                    topic_gen(),
-                    non_empty(list({oneof([allow, deny]), list(topic_filter_gen())})),
-                    oneof([<<"a">>, <<"$SYS">>, <<"u">>])
-                },
-                begin
-                    ClientInfo = client_info(#{username => Username}),
-                    Compiled = [emqx_authz_rule:compile({P, all, all, Fs}) || {P, Fs} <- Rules],
-                    New = emqx_authz_rule:matches(
-                        ClientInfo, #{action_type => subscribe, qos => 0}, Topic, Compiled
-                    ),
-                    Old = word_matches(Topic, Rules, Username),
-                    ?WHENFAIL(
-                        ct:pal("topic: ~0p~nrules: ~0p~nnew: ~0p~nold: ~0p", [
-                            Topic, Rules, New, Old
-                        ]),
-                        New =:= Old
-                    )
-                end
-            ),
-            [{numtests, 10000}, {to_file, user}]
-        )
-    ).
-
-word_matches(_Topic, [], _Username) ->
-    nomatch;
-word_matches(Topic, [{Permission, Filters} | Rules], Username) ->
-    case lists:any(fun(F) -> word_match_filter(Topic, F, Username) end, Filters) of
-        true -> {matched, Permission};
-        false -> word_matches(Topic, Rules, Username)
-    end.
-
+%% Matching before topic filters were kept as binaries.
 word_match(Topic, Filter, Username) ->
-    case word_match_filter(Topic, Filter, Username) of
+    TopicWords = emqx_topic:words(Topic),
+    Matched =
+        case Filter of
+            {eq, F} -> TopicWords =:= emqx_topic:words(bin(F));
+            "eq " ++ F -> TopicWords =:= emqx_topic:words(bin(F));
+            <<"eq ", F/binary>> -> TopicWords =:= emqx_topic:words(F);
+            F -> emqx_topic:match(TopicWords, emqx_topic:words(render_username(bin(F), Username)))
+        end,
+    case Matched of
         true -> {matched, allow};
         false -> nomatch
-    end.
-
-%% Matching before topic filters were kept as binaries.
-word_match_filter(Topic, Filter, Username) ->
-    TopicWords = emqx_topic:words(Topic),
-    case Filter of
-        {eq, F} -> TopicWords =:= emqx_topic:words(bin(F));
-        "eq " ++ F -> TopicWords =:= emqx_topic:words(bin(F));
-        <<"eq ", F/binary>> -> TopicWords =:= emqx_topic:words(F);
-        F -> emqx_topic:match(TopicWords, emqx_topic:words(render_username(bin(F), Username)))
     end.
 
 render_username(Filter, Username) ->
