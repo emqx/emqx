@@ -199,7 +199,10 @@ authentication_cache.label:
 """Authentication Cache"""
 
 ignore_backend_failures.desc:
-"""Ignore authentication backend failures in hardened security profile and continue to the next authenticator in the chain."""
+"""Decides what happens when an authentication backend fails, for example when the database is unreachable or the request times out.
+- `per_security_profile`: Follow the security profile. The `legacy` profile ignores the failure. The `hardened` profile denies the client.
+- `true`: Ignore the failure in both security profiles. Continue to the next authenticator in the chain.
+- `false`: Deny the client in both security profiles."""
 ignore_backend_failures.label:
 """Ignore Backend Failures"""
 

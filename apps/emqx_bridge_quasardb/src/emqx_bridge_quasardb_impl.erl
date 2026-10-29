@@ -132,6 +132,7 @@ on_start(ConnResId, ConnConfig) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
 on_stop(ConnResId, _ConnState) ->
+    emqx_resource_pool:stop(ConnResId),
     ?tp("quasardb_connector_stop", #{instance_id => ConnResId}),
     ok.
 

@@ -10,7 +10,8 @@ other than regular MQTT messaging.
 The module:
 * obtains messages from handlers (`emqx_extsub_handler` implementations),
 * buffers them,
-* delivers them to the client through the inflight (bypassing mqueue).
+* delivers them to the client through the session. The session returns the messages
+  that it cannot send yet to ExtSub with a NACK.
 """.
 
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -29,6 +30,7 @@ The module:
     on_session_disconnected/2,
     on_session_save_subopts/2,
     on_delivery_completed/2,
+    on_delivery_dropped/3,
     on_message_delivered/2,
     on_message_nack/2,
     on_client_handle_info/3
@@ -48,17 +50,14 @@ The module:
 %% A channel process that ran neither the `session.created' nor the
 %% `session.resumed' hook has no metadata. Gateway channels that resume a session
 %% take that path: `emqx_gateway_cm:resume_session/4' runs no session hook.
--define(DEFAULT_CHANNEL_INFO, #{
-    can_receive_acks => false,
-    conninfo_fn => fun(_Prop) -> undefined end
-}).
+-define(DEFAULT_CHANNEL_INFO, #{can_receive_acks => false, proto_ver => undefined}).
 
 -define(MAX_UNACKED_PT_KEY, extsub_max_unacked).
 
 -record(st, {
     registry :: emqx_extsub_handler_registry:t(),
     deliver_retry_tref :: reference() | undefined,
-    unacked :: #{emqx_extsub_buffer:seq_id() => true},
+    unacked :: #{emqx_extsub_buffer:seq_id() => emqx_extsub_types:handler_ref()},
     tombstone :: #{
         saved_subopts => #{
             emqx_types:topic() | emqx_types:share() => #{module() => term()}
@@ -75,6 +74,7 @@ The module:
 -spec register_hooks() -> ok.
 register_hooks() ->
     ok = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('delivery.dropped', {?MODULE, on_delivery_dropped, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('message.delivered', {?MODULE, on_message_delivered, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
@@ -89,6 +89,7 @@ register_hooks() ->
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
     emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
+    emqx_hooks:del('delivery.dropped', {?MODULE, on_delivery_dropped}),
     emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
     emqx_hooks:del('session.created', {?MODULE, on_session_created}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
@@ -131,13 +132,19 @@ on_delivery_completed(Msg, Info) ->
     ReasonCode = maps:get(reason_code, Info, ?RC_SUCCESS),
     ok = on_delivered(Msg, ReasonCode).
 
+on_delivery_dropped(_ClientInfo, Msg, Reason) ->
+    on_delivered(Msg, {dropped, Reason}).
+
 on_delivered(#message{} = Msg, ReasonCode) ->
     case emqx_message:get_header(?EXTSUB_HEADER_INFO, Msg) of
         undefined ->
             ok;
-        #extsub_info{} = ExtSubInfo ->
-            with_st(fun(#st{} = St) ->
-                do_on_delivered(St, ExtSubInfo, Msg, ReasonCode)
+        #extsub_info{seq_id = SeqId, handler_ref = HandlerRef} = ExtSubInfo ->
+            with_st(fun(#st{unacked = Unacked} = St) ->
+                case Unacked of
+                    #{SeqId := HandlerRef} -> do_on_delivered(St, ExtSubInfo, Msg, ReasonCode);
+                    _ -> {ok, St}
+                end
             end)
     end.
 
@@ -163,11 +170,16 @@ on_message_nack(Msg, false) ->
     case emqx_message:get_header(?EXTSUB_HEADER_INFO, Msg) of
         undefined ->
             ok;
-        #extsub_info{} = ExtSubInfo ->
-            _ = with_st(fun(#st{} = St) ->
-                do_on_message_nack(St, ExtSubInfo, Msg)
-            end),
-            {ok, true}
+        #extsub_info{seq_id = SeqId, handler_ref = HandlerRef} = ExtSubInfo ->
+            with_st(fun(#st{unacked = Unacked} = St0) ->
+                case Unacked of
+                    #{SeqId := HandlerRef} ->
+                        {ok, St} = do_on_message_nack(St0, ExtSubInfo, Msg),
+                        {ok, St, {ok, true}};
+                    _ ->
+                        {ok, St0}
+                end
+            end)
     end;
 %% Already nacked by some other hook
 on_message_nack(_Msg, true) ->
@@ -179,6 +191,15 @@ do_on_message_nack(
     Msg
 ) ->
     Unacked = maps:remove(SeqId, Unacked0),
+    St1 = St0#st{unacked = Unacked},
+    case emqx_extsub_handler_registry:has_handler(HandlerRegistry0, HandlerRef) of
+        false ->
+            {ok, St1};
+        true ->
+            rebuffer_message(St1, HandlerRef, SeqId, Msg)
+    end.
+
+rebuffer_message(#st{unacked = Unacked, registry = HandlerRegistry0} = St0, HandlerRef, SeqId, Msg) ->
     UnackedCnt = map_size(Unacked),
     Registry = emqx_extsub_handler_registry:buffer_add_back(
         HandlerRegistry0, HandlerRef, SeqId, Msg
@@ -466,8 +487,8 @@ try_deliver(SessionInfoFn, #st{unacked = Unacked0, registry = HandlerRegistry0} 
 
 add_unacked(Unacked, MessageEntries) ->
     lists:foldl(
-        fun({_HandlerRef, SeqId, _Msg}, UnackedAcc) ->
-            UnackedAcc#{SeqId => true}
+        fun({HandlerRef, SeqId, _Msg}, UnackedAcc) ->
+            UnackedAcc#{SeqId => HandlerRef}
         end,
         Unacked,
         MessageEntries
@@ -590,10 +611,11 @@ put_st(#st{} = St) ->
     _ = erlang:put(?ST_PD_KEY, St),
     ok.
 
-save_channel_info(#{conn_info_fn := ConnInfoFn} = _Ctx, SessionInfo) ->
+%% Channel-lifetime metadata contains values, never callbacks.
+save_channel_info(#{conninfo := ConnInfo} = _Ctx, SessionInfo) ->
     CanReceiveAcks = maps:get(impl, SessionInfo, undefined) =:= emqx_session_mem,
     _ = erlang:put(?CHANNEL_INFO_PD_KEY, #{
-        can_receive_acks => CanReceiveAcks, conninfo_fn => ConnInfoFn
+        can_receive_acks => CanReceiveAcks, proto_ver => maps:get(proto_ver, ConnInfo, undefined)
     }),
     ok.
 

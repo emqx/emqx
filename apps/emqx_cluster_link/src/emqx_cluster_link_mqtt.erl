@@ -3,6 +3,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_cluster_link_mqtt).
 
+%% The resource id variable is spelled both Id and ID in this module.
+-elvis([{elvis_style, consistent_variable_naming, disable}]).
+
 -include("emqx_cluster_link.hrl").
 -include("emqx_cluster_link_internal.hrl").
 
@@ -19,6 +22,9 @@
 
 %% emqtt
 -export([handle_disconnect/4]).
+
+%% For unit tests, pins the classification the buffer worker consumes.
+-export([on_async_result/2]).
 
 -behaviour(emqx_resource).
 -export([
@@ -171,13 +177,18 @@ resource_type() ->
 
 on_start(ResourceId, #{name := ClusterName, pool_size := PoolSize} = ClusterConf) ->
     PoolName = ResourceId,
+    %% The health check probes these clients, so they are not configured with
+    %% `emqtt''s own keepalive, which would be a second liveness mechanism with its
+    %% own timing.  A keepalive imposed by the peer's `Server-Keep-Alive' still
+    %% applies.
+    ClientOpts = (emqx_cluster_link_config:mk_emqtt_options(ClusterConf))#{keepalive => 0},
     Options = [
         {name, PoolName},
         {pool_size, PoolSize},
         {pool_type, hash},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S},
         {target_cluster, ClusterName},
-        {client_opts, emqx_cluster_link_config:mk_emqtt_options(ClusterConf)}
+        {client_opts, ClientOpts}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
@@ -268,28 +279,71 @@ handle_send_result({ok, Reply}) ->
 handle_send_result({error, Reason}) ->
     {error, classify_error(Reason)}.
 
-handle_ecpool_result({error, disconnected}) ->
-    {error, {recoverable_error, disconnected}};
+handle_ecpool_result({error, {disconnected, Reason}}) ->
+    %% from ecpool_worker:client/1
+    {error, {recoverable_error, Reason}};
 handle_ecpool_result({error, ecpool_empty}) ->
     {error, {recoverable_error, disconnected}};
+handle_ecpool_result({error, no_such_pool}) ->
+    %% the pool is being (re)started by the resource manager
+    {error, {recoverable_error, no_such_pool}};
 handle_ecpool_result(Result) ->
     Result.
 
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
 
+%% `disconnected' on the pool level is mapped by `handle_ecpool_result/1'; this
+%% clause classifies the same reason, and the MQTT-level `{disconnected, RC,
+%% Props}', when it arrives from `emqtt' on the publish callback path.
+classify_error(disconnected = Reason) ->
+    {recoverable_error, Reason};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error(shutdown = Reason) ->
     {recoverable_error, Reason};
-classify_error(Reason) when
+classify_error(Reason) ->
+    case is_connection_error(Reason) of
+        true ->
+            {recoverable_error, Reason};
+        false ->
+            {unrecoverable_error, Reason}
+    end.
+
+%% Reasons that mean the connection to the remote broker is gone (or was never
+%% established).  The query may still be delivered once the broker is reachable
+%% again, so they must be retried instead of being dropped: a query whose error is
+%% unrecoverable is acknowledged by the buffer worker and counted as failed.
+%%
+%% This is a curated list of *connection-level* failures, not the whole
+%% `inet:posix()' type nor every retriable reason: configuration or resource
+%% errors (e.g. `eaddrinuse', `eaddrnotavail', `emsgsize', `eproto') and TLS
+%% handshake failures stay on the fail-fast side of `classify_error/1'.
+is_connection_error({tcp_closed, _}) ->
+    true;
+is_connection_error({tcp_error, _}) ->
+    true;
+is_connection_error({ssl_closed, _}) ->
+    true;
+is_connection_error({ssl_error, _}) ->
+    true;
+is_connection_error({quic_closed, _}) ->
+    true;
+is_connection_error({quic_error, _}) ->
+    true;
+is_connection_error(Reason) when
     Reason =:= closed;
-    Reason =:= tcp_closed;
-    Reason =:= ssl_closed;
     Reason =:= einval;
     Reason =:= enotconn;
+    Reason =:= epipe;
+    Reason =:= tcp_closed;
+    Reason =:= tcp_error;
+    Reason =:= ssl_closed;
+    Reason =:= ssl_error;
+    Reason =:= quic_closed;
+    Reason =:= quic_error;
     Reason =:= econnaborted;
     Reason =:= econnrefused;
     Reason =:= econnreset;
@@ -298,22 +352,26 @@ classify_error(Reason) when
     Reason =:= enetdown;
     Reason =:= enetreset;
     Reason =:= enetunreach;
-    Reason =:= etimedout
+    Reason =:= etimedout;
+    Reason =:= timeout;
+    Reason =:= nxdomain
 ->
-    {recoverable_error, Reason};
-classify_error(Reason) ->
-    {unrecoverable_error, Reason}.
+    true;
+is_connection_error(_) ->
+    false.
 
 %% copied from emqx_bridge_mqtt_connector
 on_get_status(ResourceId, #{pool_name := PoolName} = _State) ->
     Workers = ecpool:workers(PoolName),
     DisconnectReasons = last_disconnect_reasons(ResourceId),
-    try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
+    PingTimeout = health_check_ping_timeout(ResourceId),
+    try emqx_utils:pmap(fun get_status/1, Workers, PingTimeout) of
         Statuses ->
             enrich_status(combine_status(Statuses), DisconnectReasons)
     catch
         exit:timeout ->
-            ?status_connecting
+            %% The probe was not answered within the budget.
+            {?status_disconnected, pingresp_timeout}
     end.
 
 enrich_status(?status_connected, _) ->
@@ -321,38 +379,82 @@ enrich_status(?status_connected, _) ->
 enrich_status(?status_disconnected, [LastDisconnectReason | _]) ->
     %% NOTE: Picking only the first one for the sake of simplicity.
     {?status_disconnected, LastDisconnectReason};
+enrich_status({?status_disconnected, #{} = Details}, [LastDisconnectReason = #{} | _]) ->
+    %% `LastDisconnectreason` has a more friendly, massaged reason code, and `Details`
+    %% from ecpool_worker has the time since the status was observed.  We want to keep the
+    %% former format.
+    Reason = maps:merge(Details, LastDisconnectReason),
+    {?status_disconnected, Reason};
 enrich_status(Status, _) ->
     Status.
 
 get_status({_Name, Worker}) ->
     case ecpool_worker:client(Worker) of
         {ok, Client} -> status(Client);
-        {error, _} -> ?status_disconnected
+        {error, {disconnected, Reason}} -> {?status_disconnected, Reason}
     end.
 
+%% The local client state cannot tell a working connection from a black-holed one,
+%% where the socket stays open but nothing gets through; only a round trip to the
+%% remote broker can.  Ask it with a PINGREQ and wait for the PINGRESP.
 status(Pid) ->
     try
-        case proplists:get_value(socket, emqtt:info(Pid)) of
-            Socket when Socket /= undefined ->
-                ?status_connected;
-            undefined ->
-                ?status_disconnected
+        case emqtt:status(Pid) of
+            connected ->
+                ping_status(Pid);
+            _EmqttState ->
+                %% A client that is not connected cannot be probed; its pool worker
+                %% is reconnecting it.
+                ?status_connecting
         end
     catch
-        exit:{noproc, _} ->
+        exit:_Reason ->
             ?status_disconnected
+    end.
+
+%% `emqtt:ping/1' is declared as returning `pong', but it also replies
+%% `{error, Reason}' when the PINGRESP does not arrive or the PINGREQ cannot be
+%% sent, so dialyzer has to be told that those replies are reachable.
+-dialyzer({nowarn_function, [ping_status/1]}).
+ping_status(Pid) ->
+    case emqtt:ping(Pid) of
+        pong ->
+            ?status_connected;
+        {error, _Reason} ->
+            ?status_disconnected
+    end.
+
+%% Budget of the health check's PINGREQ round trip: half of the configured
+%% `health_check_timeout', so that the probe reports a status of its own before the
+%% framework aborts the whole check at that timeout.
+health_check_ping_timeout(ResourceId) ->
+    ?MSG_RES_ID(ClusterName) = ResourceId,
+    case emqx_cluster_link_config:get_link(ClusterName) of
+        #{resource_opts := ResourceOpts} ->
+            half_health_check_timeout(ResourceOpts);
+        _ ->
+            %% The link is going away; the outcome of the check does not matter.
+            ?HEALTH_CHECK_TIMEOUT
+    end.
+
+half_health_check_timeout(ResourceOpts) ->
+    case maps:get(health_check_timeout, ResourceOpts, ?HEALTHCHECK_TIMEOUT) of
+        infinity -> infinity;
+        Timeout -> Timeout div 2
     end.
 
 combine_status(Statuses) ->
     %% NOTE
-    %% Natural order of statuses: [connected, connecting, disconnected]
+    %% Natural order of statuses:
+    %% [connected, connecting, {connecting, _}, disconnected, {disconnected, _}]
     %% * `disconnected` wins over any other status
     %% * `connecting` wins over `connected`
+    %% * status with reason wins overs those without
     case lists:reverse(lists:usort(Statuses)) of
         [Status | _] ->
             Status;
         [] ->
-            ?status_disconnected
+            {?status_disconnected, ~"no_workers_alive"}
     end.
 
 %%--------------------------------------------------------------------
@@ -450,7 +552,6 @@ handle_disconnect(Reason, ResourceId, WorkerId, EventCtx) ->
     end.
 
 report_disconnect(ResourceId, WorkerId, Info) ->
-    clear_disconnect_reason(ResourceId, WorkerId),
     emqx_resource:allocate_resource(ResourceId, ?MODULE, ?DISCONNECT_REASON(WorkerId), Info).
 
 report_disconnect(ResourceId, WorkerId, Level, EventCtx, Info) ->

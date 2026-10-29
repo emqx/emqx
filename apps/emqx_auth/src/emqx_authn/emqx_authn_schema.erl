@@ -221,8 +221,8 @@ enable(_) -> undefined.
 fields("settings") ->
     [
         {"ignore_backend_failures",
-            hoconsc:mk(boolean(), #{
-                default => false,
+            hoconsc:mk(hoconsc:enum([per_security_profile, true, false]), #{
+                default => per_security_profile,
                 desc => ?DESC(ignore_backend_failures),
                 importance => ?IMPORTANCE_LOW
             })},

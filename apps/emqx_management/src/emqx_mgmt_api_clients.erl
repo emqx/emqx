@@ -19,6 +19,10 @@
 -include("emqx_mgmt.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
+%% `holder/1' builds the match-spec variables `$1'.. `$N' with `list_to_atom/1';
+%% N is bounded by the number of query parameters.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %% API
 -export([
     api_spec/0,
@@ -60,7 +64,12 @@
 -export([local_ets_select_v1/1]).
 
 -ifdef(TEST).
--export([parse_cursor/2, serialize_cursor/1]).
+-export([
+    parse_cursor/2,
+    serialize_cursor/1,
+    encode_pos/1,
+    decode_pos/2
+]).
 -endif.
 -export([scopes/0]).
 
@@ -442,7 +451,7 @@ fields(common_list_clients_input) ->
             hoconsc:mk(hoconsc:array(binary()), #{
                 in => query,
                 required => false,
-                desc => ?DESC("username")
+                desc => ?DESC("query_username")
             })},
         {ip_address,
             hoconsc:mk(binary(), #{
@@ -509,7 +518,7 @@ fields(common_list_clients_input) ->
             hoconsc:mk(hoconsc:array(binary()), #{
                 in => query,
                 required => false,
-                desc => ?DESC("clientid")
+                desc => ?DESC("query_clientid")
             })},
         ?R_REF(requested_client_fields)
     ];
@@ -668,34 +677,6 @@ fields(client) ->
         {n_streams,
             hoconsc:mk(non_neg_integer(), #{
                 desc => ?DESC("n_streams")
-            })},
-        {seqno_q1_comm,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q1_comm")
-            })},
-        {seqno_q1_dup,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q1_dup")
-            })},
-        {seqno_q1_next,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q1_next")
-            })},
-        {seqno_q2_comm,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q2_comm")
-            })},
-        {seqno_q2_dup,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q2_dup")
-            })},
-        {seqno_q2_rec,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q2_rec")
-            })},
-        {seqno_q2_next,
-            hoconsc:mk(non_neg_integer(), #{
-                desc => ?DESC("seqno_q2_next")
             })}
     ];
 fields(authz_cache) ->
@@ -1623,8 +1604,16 @@ list_client_msgs(MsgType, ClientId, QString) ->
     case emqx_mgmt_api:parse_cont_pager_params(QString, pos_decoder(MsgType)) of
         false ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"position_limit_invalid">>}};
-        PagerParams = #{limit := Limit} ->
-            FetchPagerParams = PagerParams#{limit := Limit + 1},
+        PagerParams = #{limit := Limit, position := Position} ->
+            FetchPagerParams =
+                case MsgType of
+                    inflight_msgs when not is_integer(Position) ->
+                        %% Preserve position for older nodes, which do not read cursor.
+                        PagerParams#{limit := Limit + 1, cursor => Position};
+                    _ ->
+                        %% Integer inflight positions use the legacy query path.
+                        PagerParams#{limit := Limit + 1}
+                end,
             case emqx_mgmt:list_client_msgs(MsgType, ClientId, FetchPagerParams) of
                 {error, not_found} ->
                     {404, ?CLIENTID_NOT_FOUND_OBJ};
@@ -1650,26 +1639,47 @@ take_client_msgs_page(MsgType, Msgs0, Limit, Meta0) when length(Msgs0) > Limit -
 take_client_msgs_page(_MsgType, Msgs, _Limit, Meta) ->
     {Msgs, Meta#{position := end_of_data}}.
 
-pos_decoder(mqueue_msgs) -> fun decode_mqueue_pos/1;
-pos_decoder(inflight_msgs) -> fun decode_msg_pos/1.
+pos_decoder(MsgType) ->
+    fun(Pos) -> decode_pos(MsgType, Pos) end.
 
-encode_msgs_meta(_MsgType, #{start := StartPos, position := Pos}) ->
-    #{start => encode_pos(StartPos), position => encode_pos(Pos)}.
+decode_pos(mqueue_msgs, Pos) ->
+    decode_mqueue_pos(Pos);
+decode_pos(inflight_msgs, Pos) ->
+    try binary_to_term(cow_base64url:decode(Pos, #{padding => false}), [safe]) of
+        Cursor -> Cursor
+    catch
+        %% NOTE
+        %% Compatibility with integer timestamp positions returned by older inflight APIs.
+        error:_ -> decode_msg_pos(Pos)
+    end.
 
-encode_pos(none) ->
+encode_msgs_meta(inflight_msgs, #{start := StartPos, position := Pos}) ->
+    #{start => encode_pos(StartPos), position => encode_pos(Pos)};
+encode_msgs_meta(mqueue_msgs, #{start := StartPos, position := Pos}) ->
+    #{start => encode_mqueue_pos(StartPos), position => encode_mqueue_pos(Pos)}.
+
+encode_mqueue_pos(none) ->
     none;
-encode_pos(end_of_data) ->
+encode_mqueue_pos(end_of_data) ->
     end_of_data;
-encode_pos({MsgPos, PrioPos}) ->
+encode_mqueue_pos({MsgPos, PrioPos}) ->
     MsgPosBin = integer_to_binary(MsgPos),
     PrioPosBin =
         case PrioPos of
             infinity -> <<"infinity">>;
             _ -> integer_to_binary(PrioPos)
         end,
-    <<MsgPosBin/binary, "_", PrioPosBin/binary>>;
+    <<MsgPosBin/binary, "_", PrioPosBin/binary>>.
+
+encode_pos(none) ->
+    none;
+encode_pos(end_of_data) ->
+    end_of_data;
 encode_pos(Pos) when is_integer(Pos) ->
-    integer_to_binary(Pos).
+    %% Preserve the decimal format of legacy inflight positions.
+    integer_to_binary(Pos);
+encode_pos(Pos) ->
+    cow_base64url:encode(term_to_binary(Pos), #{padding => false}).
 
 -spec decode_mqueue_pos(binary()) -> {integer(), infinity | integer()}.
 decode_mqueue_pos(Pos) ->
@@ -1877,10 +1887,12 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
     ),
     ClientInfo1 = ClientInfo0#{conninfo := ConnInfo},
     StatsMap0 = maps:without(
-        [memory, next_pkt_id, total_heap_size],
+        [memory, total_heap_size],
         maps:from_list(ClientStats)
     ),
-    StatsMap = maps:merge(emqx_cm:sparse_stats_defaults(), StatsMap0),
+    %% A node of a version before 6.3 does not report `total_payload_bytes`.
+    StatsMap1 = maps:merge(#{total_payload_bytes => 0}, StatsMap0),
+    StatsMap = with_cnt_from_pkt(StatsMap1),
     ClientInfo2 = maps:remove(will_msg, ClientInfo1),
     ClientInfoMap0 = maps:fold(fun take_maps_from_inner/3, #{}, ClientInfo2),
     {IpAddress, Port} = peername_dispart(maps:get(peername, ClientInfoMap0)),
@@ -1907,6 +1919,14 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
             TimesKeys
         )
     ).
+
+%% `recv_cnt` and `send_cnt` are kept for compatibility and report the
+%% packet counters. This also overrides the values from an older node.
+with_cnt_from_pkt(StatsMap) ->
+    StatsMap#{
+        recv_cnt => maps:get(recv_pkt, StatsMap, 0),
+        send_cnt => maps:get(send_pkt, StatsMap, 0)
+    }.
 
 with_client_info_fields(ClientInfoMap, all) ->
     RemoveList =
@@ -2003,7 +2023,11 @@ adjust_pager_position(MsgType, {truncated, LastMsg}, Meta) ->
 
 msg_position(mqueue_msgs, #message{extra = #{mqueue_insert_ts := Ts, mqueue_priority := Prio}}) ->
     {Ts, Prio};
+msg_position(inflight_msgs, #message{extra = #{query_cursor := Cursor}}) ->
+    Cursor;
 msg_position(inflight_msgs, #message{extra = #{inflight_insert_ts := Ts}}) ->
+    %% NOTE
+    %% Older nodes return only the insertion timestamp as the inflight cursor.
     Ts.
 
 format_msg(

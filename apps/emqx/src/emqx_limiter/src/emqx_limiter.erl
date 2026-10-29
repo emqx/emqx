@@ -6,6 +6,8 @@
 
 -module(emqx_limiter).
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -include("logger.hrl").
 
 -export([
@@ -25,7 +27,7 @@
     create_listener_limiter_client/2,
     create_channel_client_container/2,
     create_session_client_container/1,
-    channel_limits_configured/3,
+    channel_limits_configured/2,
     session_limits_configured/1
 ]).
 
@@ -150,13 +152,13 @@ create_channel_client_container(ZoneName, ListenerId) ->
 create_session_client_container(ListenerId) ->
     create_session_client_container(ListenerId, ?SESSION_LIMITS).
 
-%% Check whether any of the named channel limiters has a finite limit. The groups
-%% checked here must be the ones `channel_limiter_ids/3` returns, so that a caller
-%% can skip creating the container when this returns `false`.
--spec channel_limits_configured(zone(), listener_id(), [name()]) -> boolean().
-channel_limits_configured(ZoneName, ListenerId, Names) ->
-    ZoneNames = [Name || Name <- Names, not ?IS_CHANNEL_ONLY_LIMITER(Name)],
-    any_finite_limit(channel_group(ListenerId), Names) orelse
+%% Check whether any channel limiter has a finite limit. The groups checked here
+%% must be the ones `channel_limiter_ids/3` returns, so that a caller can skip
+%% creating the container when this returns `false`.
+-spec channel_limits_configured(zone(), listener_id()) -> boolean().
+channel_limits_configured(ZoneName, ListenerId) ->
+    ZoneNames = [Name || Name <- ?CHANNEL_LIMITS, not ?IS_CHANNEL_ONLY_LIMITER(Name)],
+    any_finite_limit(channel_group(ListenerId), ?CHANNEL_LIMITS) orelse
         any_finite_limit(zone_group(ZoneName), ZoneNames).
 
 %% Check whether any session (delivery) limiter has a finite limit.

@@ -11,6 +11,8 @@
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
+-import(emqx_utils, [redact/1]).
+
 -export([
     namespace/0,
     api_spec/0,
@@ -89,7 +91,7 @@ schema("/schema_registry") ->
                             emqx_schema_registry_schema:api_schema("post"),
                             post_examples()
                         ),
-                    400 => error_schema('ALREADY_EXISTS', ?DESC("schema_already_exists"))
+                    400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTS', 'BAD_REQUEST'])
                 }
         }
     };
@@ -111,7 +113,8 @@ schema("/schema_registry_protobuf/bundle") ->
                     400 => emqx_dashboard_swagger:error_codes(
                         [
                             'ALREADY_EXISTS',
-                            'BAD_FORM_DATA'
+                            'BAD_FORM_DATA',
+                            'BAD_REQUEST'
                         ]
                     )
                 }
@@ -128,7 +131,7 @@ schema("/schema_registry_protobuf/bundle") ->
                             put_examples()
                         ),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found")),
-                    400 => emqx_dashboard_swagger:error_codes(['BAD_FORM_DATA'])
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_FORM_DATA', 'BAD_REQUEST'])
                 }
         }
     };
@@ -164,6 +167,7 @@ schema("/schema_registry/:name") ->
                             emqx_schema_registry_schema:api_schema("put"),
                             post_examples()
                         ),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
@@ -174,6 +178,7 @@ schema("/schema_registry/:name") ->
             responses =>
                 #{
                     204 => ?DESC("schema_deleted"),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         }
@@ -212,7 +217,7 @@ schema("/schema_registry_external") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(get)
                         ),
-                    400 => error_schema('ALREADY_EXISTS', ?DESC("schema_already_exists"))
+                    400 => emqx_dashboard_swagger:error_codes(['ALREADY_EXISTS', 'BAD_REQUEST'])
                 }
         }
     };
@@ -248,6 +253,7 @@ schema("/schema_registry_external/registry/:name") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(put)
                         ),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
                     404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
@@ -255,7 +261,10 @@ schema("/schema_registry_external/registry/:name") ->
             tags => ?TAGS,
             description => ?DESC("external_registry_delete"),
             parameters => [param_path_external_registry_name()],
-            responses => #{204 => ?DESC("deleted")}
+            responses => #{
+                204 => ?DESC("deleted"),
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
+            }
         }
     }.
 
@@ -287,11 +296,14 @@ validate_protobuf_bundle_request(#{body := #{<<"bundle">> := _}} = Params0, #{me
 validate_protobuf_bundle_request(#{body := #{} = Body} = Params0, #{method := put}) ->
     %% Update only root proto file and/or description.
     maybe
-        {ok, Name} ?= find_or(<<"name">>, Body, <<"Missing `name`">>),
+        {ok, Name} ?= find_text_part(<<"name">>, Body, {error, <<"Missing `name`">>}),
         ok ?= safe_validate_name(Name),
-        {ok, RootFile} ?= find_or(<<"root_proto_file">>, Body, <<"Missing `root_proto_file`">>),
+        {ok, RootFile} ?=
+            find_text_part(
+                <<"root_proto_file">>, Body, {error, <<"Missing `root_proto_file`">>}
+            ),
         {ok, RootPath} ?= validate_root_filename(RootFile),
-        Description = maps:get(<<"description">>, Body, <<"">>),
+        {ok, Description} ?= find_text_part(<<"description">>, Body, {ok, <<"">>}),
         Params = Params0#{
             name => Name,
             description => Description,
@@ -299,6 +311,8 @@ validate_protobuf_bundle_request(#{body := #{} = Body} = Params0, #{method := pu
         },
         {ok, Params}
     else
+        {error, {bad_form_data, Msg}} ->
+            ?BAD_REQUEST('BAD_FORM_DATA', Msg);
         {error, Reason} ->
             ?BAD_REQUEST(Reason);
         _ ->
@@ -311,12 +325,15 @@ validate_protobuf_bundle_request(_Params, _Meta) ->
 
 validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
     maybe
-        {ok, Name} ?= find_or(<<"name">>, Body, <<"Missing `name`">>),
+        {ok, Name} ?= find_text_part(<<"name">>, Body, {error, <<"Missing `name`">>}),
         ok ?= safe_validate_name(Name),
-        {ok, RootFile} ?= find_or(<<"root_proto_file">>, Body, <<"Missing `root_proto_file`">>),
+        {ok, RootFile} ?=
+            find_text_part(
+                <<"root_proto_file">>, Body, {error, <<"Missing `root_proto_file`">>}
+            ),
         {ok, RootPath} ?= validate_root_filename(RootFile),
-        Description = maps:get(<<"description">>, Body, <<"">>),
-        {ok, Bundle} ?= find_or(<<"bundle">>, Body, <<"Missing `bundle`">>),
+        {ok, Description} ?= find_text_part(<<"description">>, Body, {ok, <<"">>}),
+        {ok, Bundle} ?= find_file_part(<<"bundle">>, Body, {error, <<"Missing `bundle`">>}),
         [{_Filename, Bin}] ?= maps:to_list(maps:without([type], Bundle)),
         ok ?= validate_gzip_magic_number(Bin),
         Params = Params0#{
@@ -327,6 +344,8 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
         },
         {ok, Params}
     else
+        {error, {bad_form_data, Msg}} ->
+            ?BAD_REQUEST('BAD_FORM_DATA', Msg);
         {error, Reason} ->
             ?BAD_REQUEST(Reason);
         _ ->
@@ -346,17 +365,18 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
             end,
             maps:to_list(Schemas)
         ),
-    ?OK(Response);
+    ?OK(redact(Response));
 '/schema_registry'(post, #{body := Params0 = #{<<"name">> := Name}}) ->
     try
         ok = emqx_resource:validate_name(Name),
+        %% Nothing to restore on create: there is no previous configuration yet.
         Params = maps:without([<<"name">>], Params0),
         case emqx_schema_registry:get_schema(Name) of
             {error, not_found} ->
                 case emqx_schema_registry:add_schema(Name, Params) of
                     ok ->
                         {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
-                        {201, Res#{<<"name">> => Name}};
+                        {201, redact(Res#{<<"name">> => Name})};
                     {error, Error} ->
                         ?BAD_REQUEST(Error)
                 end;
@@ -375,20 +395,25 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
         {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
         {ok, Schema} when ?IS_TYPE_WITH_RESOURCE(Schema) ->
-            add_resource_info(Name, Schema);
+            add_resource_info(Name, redact(Schema));
         {ok, Schema} ->
-            ?OK(Schema#{<<"name">> => Name})
+            ?OK(redact(Schema#{<<"name">> => Name}))
     end;
 '/schema_registry/:name'(put, #{bindings := #{name := Name}, body := Params}) ->
     with_schema(
         Name,
         fun() ->
-            case emqx_schema_registry:add_schema(Name, Params) of
+            %% Restore the values that the GET response masked, so that
+            %% submitting them back does not overwrite the stored configuration.
+            NewParams = emqx_utils:deobfuscate(Params, old_schema_raw(Name)),
+            case emqx_schema_registry:add_schema(Name, NewParams) of
                 ok ->
                     {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
-                    ?OK(Res#{<<"name">> => Name});
+                    ?OK(redact(Res#{<<"name">> => Name}));
                 {error, Error} ->
-                    ?BAD_REQUEST(Error)
+                    %% `NewParams' has been deobfuscated, so redact the error
+                    %% details before echoing them back.
+                    ?BAD_REQUEST(redact(Error))
             end
         end,
         fun schema_not_found_error/0
@@ -458,7 +483,7 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
 '/schema_registry_external'(get, _Params) ->
     Registries0 = emqx_schema_registry_config:list_external_registries_raw(),
     Registries = maps:map(
-        fun(_Name, Registry) -> emqx_utils:redact(Registry) end,
+        fun(_Name, Registry) -> redact(Registry) end,
         Registries0
     ),
     ?OK(Registries);
@@ -472,7 +497,7 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
         fun() ->
             case emqx_schema_registry_config:upsert_external_registry(Name, Params) of
                 {ok, Registry} ->
-                    ?CREATED(external_registry_out(Registry));
+                    ?CREATED(redact(Registry));
                 {error, Reason} ->
                     ?BAD_REQUEST(Reason)
             end
@@ -483,7 +508,7 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
     with_external_registry(
         Name,
         fun(Registry) ->
-            ?OK(external_registry_out(Registry))
+            ?OK(redact(Registry))
         end,
         not_found()
     );
@@ -494,7 +519,7 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
             NewParams = emqx_utils:deobfuscate(NewParams0, CurrentParams),
             case emqx_schema_registry_config:upsert_external_registry(Name, NewParams) of
                 {ok, Registry} ->
-                    ?OK(external_registry_out(Registry));
+                    ?OK(redact(Registry));
                 {error, Reason} ->
                     ?BAD_REQUEST(Reason)
             end
@@ -644,9 +669,6 @@ error_schema(Code, Message) when is_atom(Code) ->
 error_schema(Codes, ?DESC(_) = Message) when is_list(Codes) ->
     emqx_dashboard_swagger:error_codes(Codes, Message).
 
-external_registry_out(Registry) ->
-    emqx_utils:redact(Registry).
-
 create_external_registry_union(all_union_members) ->
     ?UNION(UnionFn) = emqx_schema_registry_schema:external_registry_type(),
     Refs = UnionFn(all_union_members),
@@ -785,10 +807,25 @@ schema_not_found_error() ->
 schema_already_exists_error() ->
     ?BAD_REQUEST('ALREADY_EXISTS', <<"Schema already exists">>).
 
-find_or(Key, Map, Error) ->
-    maybe
-        error ?= maps:find(Key, Map),
-        {error, Error}
+%% A data part is a binary. A file part is a map of `type` and filename to content.
+find_text_part(Key, Body, IfMissing) ->
+    case maps:find(Key, Body) of
+        {ok, Value} when is_binary(Value) ->
+            {ok, Value};
+        {ok, _} ->
+            {error, {bad_form_data, <<"`", Key/binary, "` must be a text field, not a file">>}};
+        error ->
+            IfMissing
+    end.
+
+find_file_part(Key, Body, IfMissing) ->
+    case maps:find(Key, Body) of
+        {ok, #{} = File} ->
+            {ok, File};
+        {ok, _} ->
+            {error, {bad_form_data, <<"`", Key/binary, "` must be a file">>}};
+        error ->
+            IfMissing
     end.
 
 safe_validate_name(Name) ->
@@ -824,6 +861,17 @@ with_schema(Name, FoundFn, NotFoundFn) ->
             NotFoundFn();
         {ok, _Schema} when is_function(FoundFn, 0) ->
             FoundFn()
+    end.
+
+%% Old schema configuration with defaults: the base used to restore the values
+%% that the GET response masked. The `not_found' clause covers a configuration
+%% removed between the existence check in `with_schema/3' and this read.
+old_schema_raw(Name) ->
+    case emqx_schema_registry:get_schema_raw_with_defaults(Name) of
+        {ok, RawConfWithDefaults} ->
+            RawConfWithDefaults;
+        {error, not_found} ->
+            #{}
     end.
 
 extract_tar_gz(Archive) ->

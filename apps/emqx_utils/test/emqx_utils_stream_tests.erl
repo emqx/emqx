@@ -98,9 +98,16 @@ drop_test() ->
     ).
 
 foreach_test() ->
+    run_foreach_case([]).
+
+foreach_with_unrelated_messages_test() ->
+    run_foreach_case(unrelated_messages()).
+
+run_foreach_case(UnrelatedMessages) ->
     Self = self(),
+    Tag = make_ref(),
     ok = emqx_utils_stream:foreach(
-        fun(N) -> erlang:send(Self, N) end,
+        fun(N) -> erlang:send(Self, {Tag, N}) end,
         emqx_utils_stream:chain(
             emqx_utils_stream:list([1, 2, 3]),
             emqx_utils_stream:chain(
@@ -109,9 +116,10 @@ foreach_test() ->
             )
         )
     ),
+    ok = lists:foreach(fun(Msg) -> self() ! Msg end, UnrelatedMessages),
     ?assertEqual(
-        [1, 2, 3, 4, 5, 6],
-        emqx_utils_stream:consume(emqx_utils_stream:mqueue(100))
+        [{Tag, 1}, {Tag, 2}, {Tag, 3}, {Tag, 4}, {Tag, 5}, {Tag, 6}],
+        collect_tagged(Tag, 100)
     ).
 
 fold_test() ->
@@ -234,12 +242,20 @@ transpose_repeat_test() ->
     ).
 
 mqueue_test() ->
-    _ = erlang:send_after(1, self(), 1),
-    _ = erlang:send_after(100, self(), 2),
-    _ = erlang:send_after(20, self(), 42),
+    run_mqueue_case([]).
+
+mqueue_with_unrelated_messages_test() ->
+    run_mqueue_case(unrelated_messages()).
+
+run_mqueue_case(UnrelatedMessages) ->
+    Tag = make_ref(),
+    _ = erlang:send_after(1, self(), {Tag, 1}),
+    _ = erlang:send_after(100, self(), {Tag, 2}),
+    _ = erlang:send_after(20, self(), {Tag, 42}),
+    ok = lists:foreach(fun(Msg) -> self() ! Msg end, UnrelatedMessages),
     ?assertEqual(
-        [1, 42, 2],
-        emqx_utils_stream:consume(emqx_utils_stream:mqueue(400))
+        [{Tag, 1}, {Tag, 42}, {Tag, 2}],
+        collect_tagged(Tag, 400)
     ).
 
 interleave_test() ->
@@ -303,3 +319,26 @@ csv_test() ->
         bad_format,
         emqx_utils_stream:consume(emqx_utils_stream:csv(BadData))
     ).
+
+%%
+%% Helpers
+%%
+
+%% EUnit runs all plain test cases of a single run in the same process, so this
+%% process' mailbox may already hold unrelated asynchronous messages left behind
+%% by earlier test cases. Consume the messages this test case sent, identified by
+%% its own tag, and ignore the rest.
+collect_tagged(Tag, Timeout) ->
+    IsTagged = fun
+        ({T, _}) when T =:= Tag -> true;
+        (_) -> false
+    end,
+    emqx_utils_stream:consume(
+        emqx_utils_stream:filter(IsTagged, emqx_utils_stream:mqueue(Timeout))
+    ).
+
+%% Asynchronous messages of the kind other test cases may leave behind in the
+%% mailbox of the shared EUnit process, for example an `ssl' notification from a
+%% socket they owned, or a monitor notification.
+unrelated_messages() ->
+    [{ssl_closed, make_ref()}, {'DOWN', make_ref(), process, self(), noproc}].

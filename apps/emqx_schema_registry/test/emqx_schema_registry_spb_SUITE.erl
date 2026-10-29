@@ -191,10 +191,12 @@ create_rule(RuleTopic) ->
     create_rule(RuleTopic, _Opts = #{}).
 
 create_rule(RuleTopic, Opts) ->
-    DefaultSQL = <<"select topic, spb_decode(payload) as decoded from \"${t}\" ">>,
+    DefaultSQL = <<"select username, topic, spb_decode(payload) as decoded from \"${t}\" ">>,
     SQL = maps:get(sql, Opts, DefaultSQL),
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
-    RepublishTopic = <<"repub/", UniqueNum/binary>>,
+    RepublishTopic0 = <<"repub/", UniqueNum/binary>>,
+    RepubTopicTransformFn = maps:get(republish_topic_transform_fn, Opts, fun(X) -> X end),
+    RepublishTopic = RepubTopicTransformFn(RepublishTopic0),
     {201, _} = emqx_bridge_v2_testlib:create_rule_api2(#{
         <<"sql">> => fmt(SQL, #{t => RuleTopic}),
         <<"actions">> => [
@@ -392,7 +394,7 @@ hook_publish(NodeOrDevice, MsgType, Payload0) ->
     Topic = spb_topic(NodeOrDevice, MsgType, _Opts = #{}),
     Payload = spb_encode(Payload0),
     Message = emqx_message:make(<<"from">>, Topic, Payload),
-    _ = emqx_schema_registry_spb_hookcb:on_message_publish(Message),
+    _ = emqx_schema_registry_spb_hookcb:on_message_publish_alias_mapping(Message),
     ok.
 
 create_connector_api(TCConfig, Overrides) ->
@@ -404,6 +406,28 @@ create_action_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
     ).
+
+format_bind(Bind) ->
+    iolist_to_binary(emqx_listeners:format_bind(Bind)).
+
+with_tcp_listener(Conf0, Fn) ->
+    Type = tcp,
+    Port = emqx_common_test_helpers:select_free_port(Type),
+    Name = spb,
+    Conf = Conf0#{
+        ~"bind" => format_bind({"127.0.0.1", Port})
+    },
+    {ok, _} = emqx:update_config([listeners, Type, Name], {create, Conf}),
+    try
+        Fn(#{port => Port})
+    after
+        ok = emqx_listeners:stop_listener(emqx_listeners:listener_id(Type, Name)),
+        emqx:remove_config([listeners, Type, Name])
+    end.
+
+drop_first_level(Topic) ->
+    [_ | Rest] = emqx_topic:words(Topic),
+    emqx_topic:join(Rest).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -515,7 +539,7 @@ t_independent_mappings_device_and_eon(_TCConfig) ->
                 }
             }
         },
-        #{data_topic => DDataTopic}
+        #{data_topic => NDataTopic, name => Name1}
     ),
     ?assertReceivePublish(
         #{
@@ -526,7 +550,152 @@ t_independent_mappings_device_and_eon(_TCConfig) ->
                 }
             }
         },
-        #{data_topic => DDataTopic}
+        #{data_topic => DDataTopic, name => Name2}
+    ),
+
+    ok.
+
+-doc """
+Verifies that device and EoN mappings are independent for the same client, i.e., the
+aliases don't clash between them.
+
+Almost identical to `t_independent_mappings_device_and_eon2`, but with a different
+publishing order: here, we publish an NDATA message before DBIRTH, populating the current
+mapping in the process dictionary.
+
+Ref: https://github.com/emqx/emqx/issues/19695
+""".
+t_independent_mappings_device_and_eon2(_TCConfig) ->
+    C = start_client(),
+    NDataTopic = ndata_topic(),
+    DDataTopic = ddata_topic(),
+    #{republish_topic := RepublishTopicN} = create_rule(NDataTopic),
+    #{republish_topic := RepublishTopicD} = create_rule(DDataTopic),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopicN, [{qos, 1}]),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopicD, [{qos, 1}]),
+
+    Name1 = <<"name1">>,
+    Name2 = <<"name2">>,
+    Alias = 1,
+    publish_nbirth(C, singleton_aliased_metric(Name1, Alias)),
+    publish_ndata(C, singleton_aliased_metric(no_name, Alias)),
+
+    publish_dbirth(C, singleton_aliased_metric(Name2, Alias)),
+    publish_ddata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := NDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name1}]
+                }
+            }
+        },
+        #{data_topic => NDataTopic, name => Name1}
+    ),
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := DDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name2}]
+                }
+            }
+        },
+        #{data_topic => DDataTopic, name => Name2}
+    ),
+
+    ok.
+
+-doc """
+Smoke test to verify that a "rebirth" (EoN) with a different metric name for the same
+alias correctly updates the mapping.
+""".
+t_rebirth_eon(_TCConfig) ->
+    C = start_client(),
+    NDataTopic = ndata_topic(),
+    #{republish_topic := RepublishTopicN} = create_rule(NDataTopic),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopicN, [{qos, 1}]),
+
+    Name1 = <<"name1">>,
+    Name2 = <<"name2">>,
+    Alias = 1,
+    publish_nbirth(C, singleton_aliased_metric(Name1, Alias)),
+    publish_ndata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := NDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name1}]
+                }
+            }
+        },
+        #{data_topic => NDataTopic, name => Name1}
+    ),
+
+    %% rebirth with different metric name
+    publish_nbirth(C, singleton_aliased_metric(Name2, Alias)),
+    publish_ndata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := NDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name2}]
+                }
+            }
+        },
+        #{data_topic => NDataTopic, name => Name2}
+    ),
+
+    ok.
+
+-doc """
+Smoke test to verify that a "rebirth" (device) with a different metric name for the same
+alias correctly updates the mapping.
+""".
+t_rebirth_device(_TCConfig) ->
+    C = start_client(),
+    DDataTopic = ddata_topic(),
+    #{republish_topic := RepublishTopicD} = create_rule(DDataTopic),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopicD, [{qos, 1}]),
+
+    Name1 = <<"name1">>,
+    Name2 = <<"name2">>,
+    Alias = 1,
+    publish_dbirth(C, singleton_aliased_metric(Name1, Alias)),
+    publish_ddata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := DDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name1}]
+                }
+            }
+        },
+        #{data_topic => DDataTopic, name => Name1}
+    ),
+
+    %% rebirth with different metric name
+    publish_dbirth(C, singleton_aliased_metric(Name2, Alias)),
+    publish_ddata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := DDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name2}]
+                }
+            }
+        },
+        #{data_topic => DDataTopic, name => Name2}
     ),
 
     ok.
@@ -946,3 +1115,185 @@ t_alias_cache_isolated_per_process(_TCConfig) ->
     end),
     ?assertEqual(#{}, Mapping),
     ok.
+
+-doc """
+Verifies that clients under mountpoints behave the same as those that are not.
+""".
+t_mountpoints(_TCConfig) ->
+    RepubTopicTransformFn = fun(T0) -> <<"${username}/", T0/binary>> end,
+    Opts = #{republish_topic_transform_fn => RepubTopicTransformFn},
+
+    NDataTopic = ndata_topic(),
+    NDataTopicWildcard = emqx_topic:join([~"+", NDataTopic]),
+    #{republish_topic := RepublishTopicN} = create_rule(NDataTopicWildcard, Opts),
+    DDataTopic = ddata_topic(),
+    DDataTopicWildcard = emqx_topic:join([~"+", DDataTopic]),
+    #{republish_topic := RepublishTopicD} = create_rule(DDataTopicWildcard, Opts),
+
+    %% no mountpoint
+    Subscriber = start_client(),
+    RepublishTopicN0 = drop_first_level(RepublishTopicN),
+    {ok, _, _} = emqtt:subscribe(Subscriber, <<"+/", RepublishTopicN0/binary>>, [{qos, 1}]),
+    RepublishTopicD0 = drop_first_level(RepublishTopicD),
+    {ok, _, _} = emqtt:subscribe(Subscriber, <<"+/", RepublishTopicD0/binary>>, [{qos, 1}]),
+
+    Conf0 = #{~"mountpoint" => ~"${username}/"},
+    with_tcp_listener(Conf0, fun(#{port := Port}) ->
+        C1 = start_client(#{port => Port, username => ~"u1"}),
+        C2 = start_client(#{port => Port, username => ~"u2"}),
+        Ctx = #{
+            sub => Subscriber,
+            c1 => C1,
+            c2 => C2,
+            repub_topic_ndata => RepublishTopicN0,
+            repub_topic_ddata => RepublishTopicD0
+        },
+
+        [
+            {ok, _, _} = emqtt:subscribe(C, T, [{qos, 1}])
+         || C <- [C1, C2],
+            T <- [RepublishTopicN0, RepublishTopicD0]
+        ],
+
+        publish_nbirth(C2, sample_birth_payload1()),
+        publish_ndata(C2, sample_data_payload1()),
+        %% non-mountpointed subscriber should get the mapped name
+        ?assertReceivePublish(
+            #{
+                client_pid := Subscriber,
+                topic := <<"u2/", RepublishTopicN0/binary>>,
+                payload := #{
+                    <<"topic">> := <<"u2/", NDataTopic/binary>>,
+                    <<"decoded">> := #{
+                        <<"metrics">> :=
+                            [
+                                #{<<"name">> := <<"non_aliased_metric1">>},
+                                #{<<"name">> := <<"aliased_metric1">>, <<"alias">> := 1},
+                                #{<<"name">> := <<"non_aliased_metric2">>},
+                                #{<<"name">> := <<"aliased_metric2">>, <<"alias">> := 2}
+                            ]
+                    }
+                }
+            },
+            Ctx#{data_topic => NDataTopic}
+        ),
+        %% mountpointed subscriber should get the mapped name, and doesn't see the mountpoint
+        ?assertReceivePublish(
+            #{
+                client_pid := C2,
+                topic := RepublishTopicN0,
+                payload := #{
+                    <<"topic">> := <<"u2/", NDataTopic/binary>>,
+                    <<"decoded">> := #{
+                        <<"metrics">> :=
+                            [
+                                #{<<"name">> := <<"non_aliased_metric1">>},
+                                #{<<"name">> := <<"aliased_metric1">>, <<"alias">> := 1},
+                                #{<<"name">> := <<"non_aliased_metric2">>},
+                                #{<<"name">> := <<"aliased_metric2">>, <<"alias">> := 2}
+                            ]
+                    }
+                }
+            },
+            Ctx#{data_topic => NDataTopic}
+        ),
+
+        publish_dbirth(C2, sample_birth_payload1()),
+        publish_ddata(C2, sample_data_payload1()),
+        %% non-mountpointed subscriber should get the mapped name
+        ?assertReceivePublish(
+            #{
+                client_pid := Subscriber,
+                topic := <<"u2/", RepublishTopicD0/binary>>,
+                payload := #{
+                    <<"topic">> := <<"u2/", DDataTopic/binary>>,
+                    <<"decoded">> := #{
+                        <<"metrics">> :=
+                            [
+                                #{<<"name">> := <<"non_aliased_metric1">>},
+                                #{<<"name">> := <<"aliased_metric1">>, <<"alias">> := 1},
+                                #{<<"name">> := <<"non_aliased_metric2">>},
+                                #{<<"name">> := <<"aliased_metric2">>, <<"alias">> := 2}
+                            ]
+                    }
+                }
+            },
+            Ctx#{data_topic => DDataTopic}
+        ),
+        %% mountpointed subscriber should get the mapped name, and doesn't see the mountpoint
+        ?assertReceivePublish(
+            #{
+                client_pid := C2,
+                topic := RepublishTopicD0,
+                payload := #{
+                    <<"topic">> := <<"u2/", DDataTopic/binary>>,
+                    <<"decoded">> := #{
+                        <<"metrics">> :=
+                            [
+                                #{<<"name">> := <<"non_aliased_metric1">>},
+                                #{<<"name">> := <<"aliased_metric1">>, <<"alias">> := 1},
+                                #{<<"name">> := <<"non_aliased_metric2">>},
+                                #{<<"name">> := <<"aliased_metric2">>, <<"alias">> := 2}
+                            ]
+                    }
+                }
+            },
+            Ctx#{data_topic => DDataTopic}
+        ),
+
+        ?assertNotReceive({decoded, #{client_pid := C1}}),
+        ?assertNotReceive({publish, #{client_pid := C1}}),
+
+        emqtt:stop(C1),
+        emqtt:stop(C2),
+        emqtt:stop(Subscriber),
+        ok
+    end),
+    ok.
+
+-doc """
+The topic check skips the config lookup unless the original topic starts with
+spBv1.0/. Mountpoints do not affect the namespace check.
+""".
+t_topic_check_before_config(_TCConfig) ->
+    ConfigModule = emqx_schema_registry_config,
+    ok = meck:new(ConfigModule, [passthrough, no_link]),
+    on_exit(fun() -> meck:unload(ConfigModule) end),
+    ok = meck:expect(ConfigModule, is_alias_mapping_enabled, fun() -> false end),
+    Mountpoints = [undefined, <<>>, <<"tenant/">>, <<"tenant/site/">>, <<"spBv1.0/">>],
+    OtherTopics = [
+        <<"telemetry">>,
+        <<"ordinary/topic">>,
+        <<"spBv1.0">>,
+        <<"spBv1.0x/group/NBIRTH/node">>,
+        <<"custom/group/NBIRTH/node">>,
+        <<"/group/NDATA/node">>
+    ],
+    lists:foreach(
+        fun emqx_schema_registry_spb_hookcb:on_message_publish_alias_mapping/1,
+        mounted_messages(OtherTopics, Mountpoints)
+    ),
+    ?assertEqual(0, meck:num_calls(ConfigModule, is_alias_mapping_enabled, [])),
+    SPBTopics = [
+        <<"spBv1.0/group/NBIRTH/node">>,
+        <<"spBv1.0/group/NDATA/node">>,
+        <<"spBv1.0/group/DBIRTH/node/device">>,
+        <<"spBv1.0/group/DDATA/node/device">>,
+        <<"spBv1.0/group/NDEATH/node">>,
+        <<"spBv1.0/">>
+    ],
+    lists:foreach(
+        fun emqx_schema_registry_spb_hookcb:on_message_publish_alias_mapping/1,
+        mounted_messages(SPBTopics, Mountpoints)
+    ),
+    ?assertEqual(
+        length(SPBTopics) * length(Mountpoints),
+        meck:num_calls(ConfigModule, is_alias_mapping_enabled, [])
+    ),
+    ok.
+
+mounted_messages(Topics, Mountpoints) ->
+    [
+        emqx_mountpoint:mount(Mountpoint, emqx_message:make(Topic, <<>>))
+     || Topic <- Topics, Mountpoint <- Mountpoints
+    ].

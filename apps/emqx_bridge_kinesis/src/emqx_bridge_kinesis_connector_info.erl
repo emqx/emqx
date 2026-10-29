@@ -30,6 +30,7 @@ config_schema() ->
             hoconsc:map(name, hoconsc:ref(emqx_bridge_kinesis, "config_connector")),
             #{
                 desc => <<"Kinesis Connector Config">>,
+                validator => fun emqx_bridge_kinesis:validate_credentials/1,
                 required => false
             }
         )}.

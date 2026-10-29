@@ -123,7 +123,18 @@ lastvalue_mq_stream() ->
 
 gc_regular_queues() ->
     ?tp_debug(mq_gc_regular_queues_started, #{}),
-    SlabInfo = emqx_mq_message_db:regular_db_slab_info(),
+    case emqx_mq_message_db:regular_db_slab_info() of
+        {ok, SlabInfo} ->
+            gc_regular_queues(SlabInfo);
+        {error, Errors} ->
+            ?tp(warning, mq_gc_regular_queues_skipped, #{
+                reason => list_slabs_failed,
+                errors => Errors
+            }),
+            ok
+    end.
+
+gc_regular_queues(SlabInfo) ->
     NowMS = now_ms(),
     RetentionPeriod = emqx_config:get([mq, regular_queue_retention_period]),
     TimeThreshold = NowMS - RetentionPeriod,

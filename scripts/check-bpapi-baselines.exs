@@ -63,7 +63,7 @@ defmodule CheckBpapiBaselines do
       {:ok, out} ->
         out
         |> String.split("\n", trim: true)
-        |> Enum.reject(&String.match?(&1, ~r/-(rc|alpha|beta|patch)/))
+        |> Enum.filter(&String.match?(&1, ~r/^e?[0-9]+\.[0-9]+\.[0-9]+$/))
         |> Enum.sort_by(&version_key/1)
         |> List.last()
 
@@ -145,16 +145,17 @@ defmodule CheckBpapiBaselines do
 
       tag ->
         keys = baseline_keys(file)
+        protos = protos_at(tag)
 
         missing =
-          protos_at(tag)
+          protos
           |> Enum.reject(fn {key, _path} -> MapSet.member?(keys, key) end)
           |> Enum.filter(fn {key, _path} -> MapSet.member?(present, key) end)
           |> Enum.filter(fn {_key, path} -> makes_rpc_call?(tag, path) end)
           |> Enum.map(&elem(&1, 0))
           |> Enum.sort()
 
-        checked = protos_at(tag) |> length()
+        checked = length(protos)
 
         case missing do
           [] -> {:ok, line, tag, checked}

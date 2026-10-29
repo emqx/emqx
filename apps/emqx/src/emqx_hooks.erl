@@ -238,7 +238,7 @@ do_run([], _Args) ->
     ok.
 
 do_run_fold([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc) ->
-    Args1 = Args ++ [Acc],
+    Args1 = append(Args, [Acc]),
     case filter_passed(Filter, Args1) andalso safe_execute(Action, Args1) of
         %% stop the hook chain
         {ok, stop} -> Acc;
@@ -256,7 +256,7 @@ do_run_fold([], _Args, Acc) ->
     Acc.
 
 do_run_fold_strict([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc) ->
-    Args1 = Args ++ [Acc],
+    Args1 = append(Args, [Acc]),
     case filter_passed(Filter, Args1) andalso safe_execute(Action, Args1) of
         %% stop on crash
         {error, Reason} -> {error, Reason};
@@ -296,7 +296,13 @@ safe_execute({M, F, A}, Args) ->
 
 %% @doc execute a function.
 execute({M, F, A}, Args) ->
-    erlang:apply(M, F, Args ++ A).
+    erlang:apply(M, F, append(Args, A)).
+
+-compile({inline, [append/2]}).
+-doc "Append two proper lists. Return the other list when one is empty.".
+append([], R) -> R;
+append(L, []) -> L;
+append(L, R) -> L ++ R.
 
 %% @doc Lookup callbacks.
 -spec lookup(hookpoint()) -> [callback()].

@@ -207,6 +207,23 @@ plugin_not_found.desc:
 plugin_not_found.label:
 """Plugin Not Found"""
 
+plugin_pinned.desc:
+"""The plugin is listed in node.pinned_plugins, so the operation is not allowed."""
+plugin_pinned.label:
+"""Plugin Pinned"""
+
+pinned.desc:
+"""True when every node that reports the plugin lists it in node.pinned_plugins.
+Such a plugin is not managed through the cluster."""
+pinned.label:
+"""Pinned"""
+
+node_pinned.desc:
+"""True when this node lists the plugin in node.pinned_plugins.
+The node runs the plugin independently of the cluster plugin config."""
+node_pinned.label:
+"""Pinned On Node"""
+
 bad_parameter.desc:
 """Bad parameter."""
 bad_parameter.label:

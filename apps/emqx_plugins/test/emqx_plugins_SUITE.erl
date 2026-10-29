@@ -37,6 +37,7 @@
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN, "0.1.2").
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG, "0.1.2").
 -define(PACKAGE_SUFFIX, ".tar.gz").
+-define(PURGE_OTHER_NAME_VSN, <<"my_emqx_plugin-0.0.1">>).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
@@ -44,6 +45,7 @@ all() ->
     [
         {group, copy_plugin},
         {group, create_tar_copy_plugin},
+        {group, beam_preflight},
         emqx_common_test_helpers:all(?MODULE)
     ].
 
@@ -56,13 +58,16 @@ groups() ->
             group_t_cluster_force_sync_vsn,
             group_t_cluster_install
         ]},
-        {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
+        {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]},
+        {beam_preflight, [sequence], [group_t_beam_preflight]}
     ].
 
 init_per_group(copy_plugin, Config) ->
     Config;
 init_per_group(create_tar_copy_plugin, Config) ->
-    [{remove_tar, true} | Config].
+    [{remove_tar, true} | Config];
+init_per_group(beam_preflight, Config) ->
+    Config.
 
 end_per_group(_Group, _Config) ->
     ok.
@@ -379,6 +384,12 @@ t_start_restart_and_stop(Config) ->
     %% stop all
     ok = emqx_plugins:ensure_stopped(),
     ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% `bar-2' is not a usable installation: it declares an application that was
+    %% never unpacked, and there is no package to unpack it from.  Starting it
+    %% has purged those leftovers, so re-create the fake metadata in order to be
+    %% able to disable it again.
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(Bar2))),
+    ok = write_info_file(Config, Bar2, FakeInfo),
     ok = ensure_state(Bar2, rear, false),
 
     %% wait for plugin application to remove hooks
@@ -399,6 +410,78 @@ t_start_restart_and_stop(Config) ->
     ok = emqx_plugins:ensure_uninstalled(Bar2),
     ?assertEqual([], emqx_plugins:list()),
     ok.
+
+-doc """
+Check that `purge_other_versions/1` keeps the named version installed, enabled
+and running, and removes the other installed version of the same plugin.
+""".
+t_purge_other_versions_keeps_named_version({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_purge_other_versions_keeps_named_version({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_disabled(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(?PURGE_OTHER_NAME_VSN),
+    ok;
+t_purge_other_versions_keeps_named_version(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_enabled(NameVsn),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = write_info_file(Config, ?PURGE_OTHER_NAME_VSN, purge_other_version_info()),
+    ?assertEqual(
+        lists:sort([bin(NameVsn), ?PURGE_OTHER_NAME_VSN]), installed_name_vsns()
+    ),
+
+    ok = emqx_plugins:purge_other_versions(NameVsn),
+
+    ?assertEqual([bin(NameVsn)], installed_name_vsns()),
+    ?assertEqual([#{name_vsn => NameVsn, enable => true}], emqx_plugins:configured()),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ok.
+
+-doc """
+Check that `purge_other_versions/1` stops and uninstalls a disabled version of the
+plugin that is not the named one, and keeps the named version.
+""".
+t_purge_other_versions_removes_other_version({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_purge_other_versions_removes_other_version({'end', Config}) ->
+    _ = emqx_plugins:ensure_uninstalled(?config(name_vsn, Config)),
+    _ = emqx_plugins:ensure_uninstalled(?PURGE_OTHER_NAME_VSN),
+    ok;
+t_purge_other_versions_removes_other_version(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_disabled(NameVsn),
+    ok = write_info_file(Config, ?PURGE_OTHER_NAME_VSN, purge_other_version_info()),
+    ?assertEqual(
+        lists:sort([bin(NameVsn), ?PURGE_OTHER_NAME_VSN]), installed_name_vsns()
+    ),
+
+    ok = emqx_plugins:purge_other_versions(?PURGE_OTHER_NAME_VSN),
+
+    ?assertEqual([?PURGE_OTHER_NAME_VSN], installed_name_vsns()),
+    ?assertEqual([], emqx_plugins:configured()),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ok.
+
+purge_other_version_info() ->
+    """
+    name=my_emqx_plugin, rel_vsn="0.0.1", rel_apps=["my_emqx_plugin-0.0.1"],
+    description="another version of the demo plugin"
+    """.
+
+installed_name_vsns() ->
+    lists:sort([
+        emqx_plugins_utils:make_name_vsn_binary(Name, Vsn)
+     || #{name := Name, rel_vsn := Vsn} <- emqx_plugins:list()
+    ]).
 
 %% Regression guard:
 %% A plugin unpacked before startup can be started directly via ensure_started/1.
@@ -480,6 +563,42 @@ t_enable_disable(Config) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_disabled(NameVsn)),
     ok.
 
+-doc """
+`ensure_installed/0' runs when the plugins application starts.
+For a plugin that is already configured, it must not write `plugins.states'
+through cluster RPC.
+""".
+t_boot_install_does_not_write_states({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_boot_install_does_not_write_states({'end', Config}) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_disabled(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn);
+t_boot_install_does_not_write_states(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_enabled(NameVsn, no_move, global),
+    Configured = emqx_plugins:configured(),
+    TnxId = emqx_cluster_rpc:latest_tnx_id(),
+    ok = emqx_plugins:ensure_installed(),
+    ?assertEqual(TnxId, emqx_cluster_rpc:latest_tnx_id()),
+    ?assertEqual(Configured, emqx_plugins:configured()),
+    %% A binary name-vsn matches the configured string entry as well.
+    ok = emqx_plugins:ensure_installed(bin(NameVsn)),
+    ?assertEqual(TnxId, emqx_cluster_rpc:latest_tnx_id()),
+    ?assertEqual(Configured, emqx_plugins:configured()),
+    ok.
+
+%% The applications of the plugin that are running from its install directory.
+%% `emqx_plugins_apps:running_status/1' with a name-vsn compares the release vsn
+%% with the application vsn, which differ for the demo package, so check the
+%% directory instead.
+plugin_is_running(NameVsn) ->
+    emqx_plugins_apps:running_apps_from(emqx_plugins_fs:plugin_dir(NameVsn)) =/= [].
+
 is_app_running(Name) ->
     AllApps = application:which_applications(),
     lists:keyfind(Name, 1, AllApps) /= false.
@@ -518,7 +637,7 @@ t_bad_tar_gz(Config) ->
             msg := "no_nodes_to_copy_plugin_from",
             reason := plugin_not_found
         }},
-        emqx_plugins:ensure_installed("nonexisting")
+        emqx_plugins:ensure_installed("nonexisting-1.0")
     ),
     ?assertEqual([], emqx_plugins:list()),
     ok = emqx_plugins:delete_package("fake-vsn"),
@@ -659,6 +778,182 @@ t_ignores_emqx_plugins_dependency(Config) ->
     ?assert(is_app_running(invalid_plugin)),
     ?assertEqual({ok, [kernel, stdlib]}, application:get_key(invalid_plugin, applications)),
     ok = emqx_plugins:ensure_stopped(NameVsn).
+
+-doc """
+A package that bundles a byte copy of an application the release already loaded
+installs. The release's copy stays running after the
+plugin is stopped, and loaded after it is uninstalled. No other application in
+the test node depends on `tftp`, so only the plugin could stop it.
+""".
+t_shares_release_app({init, Config}) ->
+    init_release_app(Config);
+t_shares_release_app({'end', Config}) ->
+    end_release_app(Config);
+t_shares_release_app(Config) ->
+    NameVsn = "bundler-1.0.0",
+    ReleaseAppDir = ?config(release_app_dir, Config),
+    ok = make_bundling_plugin_tar(NameVsn, [release_app_copy(Config)]),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(bundler)),
+    ?assertEqual(ReleaseAppDir, code:lib_dir(tftp)),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ?assert(is_app_running(tftp)),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ?assert(is_app_loaded(tftp)),
+    ?assertEqual(ReleaseAppDir, code:lib_dir(tftp)).
+
+-doc """
+A package that bundles another version of an application the release already
+loaded installs and starts. The plugin runs on the release's copy, and the
+bundled copy is not loaded.
+""".
+t_shares_release_app_of_other_version({init, Config}) ->
+    init_release_app(Config);
+t_shares_release_app_of_other_version({'end', Config}) ->
+    end_release_app(Config);
+t_shares_release_app_of_other_version(Config) ->
+    NameVsn = "bundler-1.0.0",
+    ReleaseAppDir = ?config(release_app_dir, Config),
+    ReleaseVsn = ?config(release_app_vsn, Config),
+    {_AppNameVsn, Files} = release_app_copy(Config),
+    {ok, [{application, tftp, Props}]} = file:consult(
+        filename:join([ReleaseAppDir, "ebin", "tftp.app"])
+    ),
+    OtherVsn = "0.0.1",
+    AppSpec = {application, tftp, lists:keystore(vsn, 1, Props, {vsn, OtherVsn})},
+    AppFile = iolist_to_binary(io_lib:format("~p.~n", [AppSpec])),
+    Files1 = lists:keystore("tftp.app", 1, Files, {"tftp.app", AppFile}),
+    ok = make_bundling_plugin_tar(NameVsn, [{"tftp-" ++ OtherVsn, Files1}]),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(bundler)),
+    ?assertEqual({ok, ReleaseVsn}, application:get_key(tftp, vsn)),
+    ?assertEqual(ReleaseAppDir, code:lib_dir(tftp)),
+    ?assertEqual(
+        filename:join([ReleaseAppDir, "ebin", "tftp.beam"]),
+        code:which(tftp)
+    ),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ?assert(is_app_running(tftp)).
+
+-doc """
+A package that bundles an application already loaded from another plugin installs
+when the two `.app` files are identical, and is refused when they differ.
+""".
+t_shares_app_with_other_plugin({init, Config}) ->
+    Config;
+t_shares_app_with_other_plugin({'end', _Config}) ->
+    lists:foreach(
+        fun(NameVsn) ->
+            _ = emqx_plugins:ensure_stopped(NameVsn),
+            _ = emqx_plugins:ensure_uninstalled(NameVsn),
+            _ = emqx_plugins:purge(NameVsn),
+            _ = emqx_plugins:delete_package(NameVsn)
+        end,
+        ["bundler-1.0.0", "bundler2-1.0.0", "bundler3-1.0.0"]
+    ),
+    _ = application:unload(shared_dep),
+    ok;
+t_shares_app_with_other_plugin(_Config) ->
+    SharedApp = {"shared_dep-0.1.0", [{"shared_dep.app", app_file(shared_dep, [])}]},
+    ok = make_bundling_plugin_tar("bundler-1.0.0", [SharedApp]),
+    ok = emqx_plugins:ensure_installed("bundler-1.0.0", ?fresh_install),
+    ok = emqx_plugins:ensure_started("bundler-1.0.0"),
+    ?assert(is_app_loaded(shared_dep)),
+    %% identical `.app' file: the loaded copy is shared
+    ok = make_bundling_plugin_tar("bundler2-1.0.0", [SharedApp]),
+    ok = emqx_plugins:ensure_installed("bundler2-1.0.0", ?fresh_install),
+    %% different `.app' file: refused
+    OtherApp = {"shared_dep-0.1.0", [{"shared_dep.app", app_file(shared_dep, [crypto])}]},
+    ok = make_bundling_plugin_tar("bundler3-1.0.0", [OtherApp]),
+    ?assertMatch(
+        {error, #{msg := "plugin_app_loaded_outside_package", name := shared_dep}},
+        emqx_plugins:ensure_installed("bundler3-1.0.0", ?fresh_install)
+    ).
+
+%% `tftp' is an application of the Erlang/OTP installation, which is the
+%% release's lib directory in a test node.
+init_release_app(Config) ->
+    WasLoaded = is_app_loaded(tftp),
+    WasRunning = is_app_running(tftp),
+    [Ebin] = filelib:wildcard(filename:join([code:lib_dir(), "tftp-*", "ebin"])),
+    WasInPath = lists:member(Ebin, code:get_path()),
+    true = code:add_pathz(Ebin),
+    case application:load(tftp) of
+        ok -> ok;
+        {error, {already_loaded, tftp}} -> ok
+    end,
+    AppDir = code:lib_dir(tftp),
+    ?assertNotEqual(nomatch, string:prefix(AppDir, code:lib_dir() ++ "/")),
+    {ok, Vsn} = application:get_key(tftp, vsn),
+    [
+        {release_app_was_loaded, WasLoaded},
+        {release_app_was_running, WasRunning},
+        {release_app_was_in_path, WasInPath},
+        {release_app_dir, AppDir},
+        {release_app_vsn, Vsn}
+        | Config
+    ].
+
+end_release_app(Config) ->
+    NameVsn = "bundler-1.0.0",
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:purge(NameVsn),
+    _ = emqx_plugins:delete_package(NameVsn),
+    _ = application:unload(bundler),
+    ?config(release_app_was_running, Config) orelse application:stop(tftp),
+    ?config(release_app_was_loaded, Config) orelse application:unload(tftp),
+    ?config(release_app_was_in_path, Config) orelse
+        code:del_path(filename:join(?config(release_app_dir, Config), "ebin")),
+    ok.
+
+%% A byte copy of the release's `tftp' application, as a package bundles it.
+release_app_copy(Config) ->
+    Ebin = filename:join(?config(release_app_dir, Config), "ebin"),
+    Files = [
+        {filename:basename(Path), read_file(Path)}
+     || Path <- filelib:wildcard(filename:join(Ebin, "*"))
+    ],
+    {"tftp-" ++ ?config(release_app_vsn, Config), Files}.
+
+%% A plugin package `NameVsn' with the plugin application `<name>-0.1.0' and
+%% the bundled applications `Bundled'.
+make_bundling_plugin_tar(NameVsn, Bundled) ->
+    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    PluginApp = atom_to_list(Name) ++ "-0.1.0",
+    BundledNames = [
+        element(1, emqx_plugins_utils:parse_name_vsn(AppNameVsn))
+     || {AppNameVsn, _} <- Bundled
+    ],
+    Info = emqx_utils_json:encode(#{
+        name => bin(Name),
+        rel_vsn => <<"1.0.0">>,
+        rel_apps => [bin(PluginApp) | [bin(AppNameVsn) || {AppNameVsn, _} <- Bundled]],
+        description => <<"test">>
+    }),
+    Apps = [{PluginApp, [{atom_to_list(Name) ++ ".app", app_file(Name, BundledNames)}]} | Bundled],
+    Entries = [
+        {filename:join([NameVsn, AppNameVsn, "ebin", File]), Bin}
+     || {AppNameVsn, Files} <- Apps, {File, Bin} <- Files
+    ],
+    erl_tar:create(
+        emqx_plugins_fs:tar_file_path(NameVsn),
+        [{filename:join(NameVsn, "release.json"), Info} | Entries],
+        [compressed]
+    ).
+
+read_file(Path) ->
+    {ok, Bin} = file:read_file(Path),
+    Bin.
+
+app_file(Name, Deps) ->
+    iolist_to_binary(
+        io_lib:format("~p.~n", [
+            {application, Name, [{vsn, "0.1.0"}, {applications, [kernel, stdlib | Deps]}]}
+        ])
+    ).
 
 t_rejects_invalid_schema_on_reconfigure({init, Config}) ->
     NameVsn = "invalid_plugin-1.0.0",
@@ -1043,9 +1338,11 @@ t_temporary_serde_reports_structured_type_errors(_Config) ->
     ).
 
 assert_invalid_plugin_package(NameVsn) ->
-    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
+    Result = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({error, _}, Result),
     ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
-    ?assertNot(lists:member(plugin_ebin_dir(NameVsn), code:get_path())).
+    ?assertNot(lists:member(plugin_ebin_dir(NameVsn), code:get_path())),
+    Result.
 
 cleanup_invalid_plugin(NameVsn) ->
     _ = application:unload(invalid_plugin),
@@ -1107,8 +1404,262 @@ remove_tar_entry(NameVsn, Filename) ->
     ),
     erl_tar:create(Tar, NewTarContent, [compressed]).
 
-%% test that we even cleanup content that doesn't match the expected name-vsn
-%% pattern
+%% Add an entry (with its full path inside the package) to an existing tarball.
+add_tar_entry(NameVsn, EntryName, Content) ->
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarContent} = erl_tar:extract(Tar, [compressed, memory]),
+    erl_tar:create(Tar, TarContent ++ [{EntryName, Content}], [compressed]).
+
+%%--------------------------------------------------------------------
+%% Beam preflight and atomic loading
+%%
+%% These cases go through the real installation API, and overlap with the
+%% `emqx_plugins_apps_SUITE' cases.
+%%--------------------------------------------------------------------
+
+group_t_beam_preflight({init, Config}) ->
+    Config;
+group_t_beam_preflight({'end', _Config}) ->
+    ok;
+group_t_beam_preflight(_Config) ->
+    ok = bp_rejects_corrupt_beam(),
+    ok = bp_rejected_package_does_not_run_on_load(),
+    ok = bp_rejects_emqx_module_replacement(),
+    ok = bp_install_rolls_back_on_application_load_failure(),
+    ok = bp_install_failure_handler_still_restores_package(),
+    ok = bp_valid_package_still_installs_and_starts(),
+    ok = bp_install_new_version_while_old_loaded(),
+    ok.
+
+bp_rejects_corrupt_beam() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    Bin = bp_compile(ghost, bp_plain_src(ghost, ok)),
+    ok = bp_add_beam(NameVsn, ghost, bp_truncate(Bin)),
+    ok = replace_tar_entry(NameVsn, "invalid_plugin.app", bp_app_spec([ghost])),
+    Result = assert_invalid_plugin_package(NameVsn),
+    {error, #{msg := Msg}} = Result,
+    ?assert(lists:member(Msg, ["plugin_beam_truncated", "plugin_beam_not_loadable"])),
+    ?assertNot(code:is_loaded(ghost)),
+    ok.
+
+%% An illegal package must not run any of its code, not even an earlier module's
+%% `-on_load' before the failing one.
+bp_rejected_package_does_not_run_on_load() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    Marker = {a_onload, on_load_ran},
+    persistent_term:erase(Marker),
+    ok = make_plugin_tar(NameVsn),
+    OnLoad = bp_compile(a_onload, bp_onload_src(a_onload)),
+    Bad = bp_compile(z_bad, bp_plain_src(z_bad, ok)),
+    ok = bp_add_beam(NameVsn, a_onload, OnLoad),
+    ok = bp_add_beam(NameVsn, z_bad, bp_truncate(Bad)),
+    ok = replace_tar_entry(NameVsn, "invalid_plugin.app", bp_app_spec([a_onload, z_bad])),
+    Path0 = code:get_path(),
+    try
+        _ = assert_invalid_plugin_package(NameVsn),
+        ?assertEqual(undefined, persistent_term:get(Marker, undefined)),
+        ?assertNot(code:is_loaded(a_onload)),
+        ?assertEqual(Path0, code:get_path())
+    after
+        persistent_term:erase(Marker)
+    end,
+    ok.
+
+bp_rejects_emqx_module_replacement() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    Which0 = code:which(emqx_plugins_apps),
+    ok = make_plugin_tar(NameVsn),
+    Bin = bp_compile(emqx_plugins_apps, bp_plain_src(emqx_plugins_apps, ok)),
+    ok = bp_add_beam(NameVsn, emqx_plugins_apps, Bin),
+    ok = replace_tar_entry(
+        NameVsn, "invalid_plugin.app", bp_app_spec([emqx_plugins_apps])
+    ),
+    Result = assert_invalid_plugin_package(NameVsn),
+    ?assertMatch(
+        {error, #{msg := "plugin_beam_load_conflict", module := emqx_plugins_apps}},
+        Result
+    ),
+    {error, Conflict} = Result,
+    %% Under cover, `code:which/1' reports `cover_compiled' instead of the beam
+    %% path, so the same protection is reported with a different label.
+    ?assert(
+        lists:member(
+            maps:get(conflict, Conflict),
+            [loaded_outside_plugins, cover_compiled_module]
+        )
+    ),
+    ?assertEqual(Which0, code:which(emqx_plugins_apps)),
+    ok.
+
+bp_install_rolls_back_on_application_load_failure() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    Marker = {a_onload, on_load_ran},
+    persistent_term:erase(Marker),
+    ok = make_plugin_tar(NameVsn),
+    OnLoad = bp_compile(a_onload, bp_onload_src(a_onload)),
+    ok = bp_add_beam(NameVsn, a_onload, OnLoad),
+    ok = replace_tar_entry(
+        NameVsn,
+        "invalid_plugin.app",
+        %% `kernel' is loaded and running: the rollback must survive it.
+        bp_app_spec([a_onload], [{included_applications, [kernel, nonexistent_app_xyz]}])
+    ),
+    Path0 = code:get_path(),
+    try
+        Result = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+        ?assertMatch({error, #{msg := "failed_to_load_plugin_app"}}, Result),
+        ?assertEqual(undefined, persistent_term:get(Marker, undefined)),
+        ?assertNot(code:is_loaded(a_onload)),
+        ?assertEqual(Path0, code:get_path()),
+        ?assertNot(is_app_loaded(invalid_plugin)),
+        ?assertNot(lists:member(plugin_ebin_dir(NameVsn), code:get_path())),
+        ?assert(is_app_loaded(kernel)),
+        ?assertMatch([_ | _], application:which_applications())
+    after
+        persistent_term:erase(Marker),
+        cleanup_invalid_plugin(NameVsn)
+    end,
+    ok.
+
+%% The failure handler of the install API snapshots the package which is being
+%% replaced and puts it back when the installation fails.
+bp_install_failure_handler_still_restores_package() ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    {ok, PreviousPackage} = emqx_plugins:backup_package(NameVsn),
+    try
+        ok = make_plugin_tar(NameVsn),
+        Bin = bp_compile(ghost, bp_plain_src(ghost, ok)),
+        ok = bp_add_beam(NameVsn, ghost, bp_truncate(Bin)),
+        ok = replace_tar_entry(NameVsn, "invalid_plugin.app", bp_app_spec([ghost])),
+        Path0 = code:get_path(),
+        ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
+        ok = emqx_plugins:restore_package(NameVsn, PreviousPackage),
+        ?assertNot(code:is_loaded(ghost)),
+        ?assertEqual(Path0, code:get_path()),
+        ?assert(filelib:is_regular(emqx_plugins_fs:tar_file_path(NameVsn)))
+    after
+        _ = emqx_plugins:purge(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end,
+    ok.
+
+%% A package built by the regular toolchain must still install and start.
+bp_valid_package_still_installs_and_starts() ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    try
+        ok = emqx_plugins:ensure_installed(NameVsn),
+        ok = emqx_plugins:ensure_started(NameVsn),
+        ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+        ok = emqx_plugins:ensure_stopped(NameVsn)
+    after
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn)
+    end,
+    ok.
+
+%% Upgrading a plugin leaves the modules of the old version in the code server
+%% (`unload' only soft purges), so the preflight must let the new version
+%% replace them.
+bp_install_new_version_while_old_loaded() ->
+    OldNameVsn = "invalid_plugin-1.0.0",
+    NewNameVsn = "invalid_plugin-2.0.0",
+    ok = make_plugin_tar(OldNameVsn),
+    OldBin = bp_compile(invalid_plugin, bp_plain_src(invalid_plugin, v1)),
+    ok = bp_add_beam(OldNameVsn, invalid_plugin, OldBin),
+    ok = replace_tar_entry(OldNameVsn, "invalid_plugin.app", bp_app_spec([invalid_plugin])),
+    ok = make_plugin_tar(NewNameVsn),
+    NewBin = bp_compile(invalid_plugin, bp_plain_src(invalid_plugin, v2)),
+    ok = bp_add_beam(NewNameVsn, invalid_plugin, NewBin),
+    ok = replace_tar_entry(NewNameVsn, "invalid_plugin.app", bp_app_spec([invalid_plugin])),
+    ok = replace_tar_entry(NewNameVsn, "release.json", bp_release_json("2.0.0")),
+    OldEbin = plugin_ebin_dir(OldNameVsn),
+    NewEbin = plugin_ebin_dir(NewNameVsn),
+    OldBeam = filename:join(OldEbin, "invalid_plugin.beam"),
+    NewBeam = filename:join(NewEbin, "invalid_plugin.beam"),
+    try
+        ok = emqx_plugins:ensure_installed(OldNameVsn, ?fresh_install),
+        ?assertEqual(v1, invalid_plugin:ping()),
+        ok = emqx_plugins:ensure_uninstalled(OldNameVsn),
+        ?assertNot(is_app_loaded(invalid_plugin)),
+        ?assertEqual(OldBeam, code:which(invalid_plugin)),
+        ok = emqx_plugins:ensure_installed(NewNameVsn, ?fresh_install),
+        ?assertEqual(NewBeam, code:which(invalid_plugin)),
+        ?assertEqual(v2, invalid_plugin:ping())
+    after
+        _ = emqx_plugins:ensure_stopped(NewNameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NewNameVsn),
+        _ = emqx_plugins:ensure_uninstalled(OldNameVsn),
+        _ = emqx_plugins:purge(OldNameVsn),
+        _ = emqx_plugins:purge(NewNameVsn),
+        _ = emqx_plugins:delete_package(OldNameVsn),
+        _ = emqx_plugins:delete_package(NewNameVsn)
+    end,
+    ok.
+
+bp_app_spec(Modules) ->
+    bp_app_spec(Modules, []).
+
+bp_app_spec(Modules, Extra) ->
+    iolist_to_binary(
+        io_lib:format(
+            "~p.~n",
+            [{application, invalid_plugin, [{vsn, "0.1.0"}, {modules, Modules} | Extra]}]
+        )
+    ).
+
+bp_release_json(RelVsn) ->
+    emqx_utils_json:encode(#{
+        <<"name">> => <<"invalid_plugin">>,
+        <<"rel_vsn">> => list_to_binary(RelVsn),
+        <<"rel_apps">> => [<<"invalid_plugin-0.1.0">>],
+        <<"description">> => <<"test">>,
+        <<"with_config_schema">> => true
+    }).
+
+bp_beam_entry(NameVsn, Mod) ->
+    filename:join([NameVsn, "invalid_plugin-0.1.0", "ebin", atom_to_list(Mod) ++ ".beam"]).
+
+bp_add_beam(NameVsn, Mod, Bin) ->
+    add_tar_entry(NameVsn, bp_beam_entry(NameVsn, Mod), Bin).
+
+bp_compile(Mod, Src) ->
+    Dir = filename:join(emqx_plugins_fs:install_dir(), "bp_src"),
+    ok = filelib:ensure_dir(filename:join(Dir, "dummy")),
+    SrcFile = filename:join(Dir, atom_to_list(Mod) ++ ".erl"),
+    ok = file:write_file(SrcFile, Src),
+    try
+        {ok, Forms} = epp:parse_file(SrcFile, [], []),
+        {ok, Mod, Bin} = compile:forms(Forms, [binary, return_errors]),
+        Bin
+    after
+        _ = file:delete(SrcFile)
+    end.
+
+bp_plain_src(Mod, Value) ->
+    lists:flatten(
+        io_lib:format("-module(~s).~n-export([ping/0]).~nping() -> ~p.~n", [Mod, Value])
+    ).
+
+bp_onload_src(Mod) ->
+    lists:flatten(
+        io_lib:format(
+            "-module(~s).~n-export([ping/0]).~n-on_load(init/0).~n"
+            "init() -> persistent_term:put({~s, on_load_ran}, true), ok.~n"
+            "ping() -> ok.~n",
+            [Mod, Mod]
+        )
+    ).
+
+bp_truncate(Bin) ->
+    binary:part(Bin, 0, byte_size(Bin) div 2).
+
+%% The entries of the package do not match the name-vsn the package is
+%% installed as: the package is refused before a single byte is written, so the
+%% (leftover) directory of the other plugin it names is not touched either.  It
+%% is not this package's business to clean up another plugin's directory.
 t_tar_vsn_content_mismatch({init, Config}) ->
     WorkDir = proplists:get_value(install_dir, Config),
     NameVsn = "bad_tar-0.2",
@@ -1122,18 +1673,212 @@ t_tar_vsn_content_mismatch({init, Config}) ->
 t_tar_vsn_content_mismatch({'end', Config}) ->
     NameVsn = ?config(name_vsn, Config),
     ok = emqx_plugins:delete_package(NameVsn),
+    _ = emqx_plugins:purge("foo-0.2"),
     ok;
 t_tar_vsn_content_mismatch(Config) ->
     TarGz = ?config(tar_gz, Config),
     NameVsn = ?config(name_vsn, Config),
     ?assert(filelib:is_regular(TarGz)),
-    %% failed to install, it also cleans up content of the bad .tar.gz file even
-    %% if in other directory
-    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    ?assertMatch(
+        {error, #{msg := "plugin_package_entry_outside_root"}},
+        emqx_plugins:ensure_installed(NameVsn)
+    ),
     ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir("foo-0.2"))),
+    %% the leftover directory of the other plugin is left exactly as it was
+    FooDir = emqx_plugins_fs:plugin_dir("foo-0.2"),
+    ?assert(filelib:is_dir(FooDir)),
+    ?assertEqual([], filelib:wildcard(filename:join(FooDir, "**"))),
     %% the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
+    ok.
+
+%% A package is unpacked into a staging directory and published with one
+%% rename: the install directory only ever holds complete trees, no attempt
+%% survives it, and a staging directory is never taken for a plugin.
+t_install_real_packages_are_staged({init, Config}) ->
+    ShDir = emqx_plugins_fs:install_dir(),
+    Overrides = [
+        #{
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_PLUGIN_TEMPLATE_TAG
+        },
+        #{
+            release_name => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG
+        }
+        | [
+            Legacy#{git_url => ?EMQX_PLUGIN_TEMPLATE_URL}
+         || Legacy <- ?EMQX_PLUGIN_TEMPLATES_LEGACY
+        ]
+    ],
+    Packages = [
+        get_demo_plugin_package(Opts#{shdir => ShDir})
+     || Opts <- Overrides
+    ],
+    %% `list_name_vsn/0' returns the names as strings (the install directory is
+    %% a hocon string), the package helper as binaries
+    NameVsns = [
+        bin(filename:basename(Package, ?PACKAGE_SUFFIX))
+     || #{package := Package} <- Packages
+    ],
+    [{packages, Packages}, {name_vsns, NameVsns} | Config];
+t_install_real_packages_are_staged({'end', _Config}) ->
+    ok;
+t_install_real_packages_are_staged(Config) ->
+    Packages = ?config(packages, Config),
+    NameVsns = ?config(name_vsns, Config),
+    lists:foreach(
+        fun(#{package := Package}) ->
+            NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+            ok = emqx_plugins:ensure_installed(NameVsn),
+            ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+            %% `release.json' is the first level of the package: a package which
+            %% put it anywhere else would have been refused
+            ?assert(filelib:is_regular(emqx_plugins_fs:info_file_path(NameVsn))),
+            ?assertEqual([], emqx_plugins_test_helpers:staging_attempts(NameVsn)),
+            ?assert(lists:member(bin(NameVsn), NameVsns)),
+            %% `ensure_installed/1' loads the applications of the package; these
+            %% templates share the application name, so the next one would be
+            %% refused while the modules of this one are loaded.
+            {ok, Plugin} = emqx_plugins_info:read(NameVsn, #{}),
+            ok = emqx_plugins_apps:unload(Plugin)
+        end,
+        Packages
+    ),
+    %% no `release.json' below the install dir belongs to a staged package
+    InstallDirDepth = length(filename:split(emqx_plugins_fs:install_dir())),
+    ?assertEqual(
+        [],
+        [
+            File
+         || File <- filelib:wildcard(
+                to_list(filename:join(emqx_plugins_fs:install_dir(), "**"))
+            ),
+            filename:basename(File) =:= "release.json",
+            length(filename:split(File)) =/= InstallDirDepth + 2
+        ]
+    ),
+    %% and the staging directory is never listed as a plugin
+    ?assertEqual(
+        lists:sort(NameVsns),
+        lists:sort([bin(NameVsn) || NameVsn <- emqx_plugins_fs:list_name_vsn()])
+    ),
+    lists:foreach(
+        fun(#{package := Package}) ->
+            ok = emqx_plugins:ensure_uninstalled(filename:basename(Package, ?PACKAGE_SUFFIX))
+        end,
+        Packages
+    ),
+    ok.
+
+%% An interrupted or failed installation can leave a plugin directory behind
+%% that has no readable `release.json'.  Such leftovers do not count as an
+%% installation: installing again must purge them and unpack the package from
+%% scratch.
+t_install_recovers_from_leftover_dir({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    %% simulate an interrupted unpack: the package file is there, and so is the
+    %% plugin directory, but the directory has no `release.json'
+    ok = erl_tar:extract(Package, [compressed, {cwd, emqx_plugins_fs:install_dir()}]),
+    ok = file:delete(emqx_plugins_fs:info_file_path(NameVsn)),
+    StaleFile = filename:join(emqx_plugins_fs:plugin_dir(NameVsn), "stale.txt"),
+    ok = file:write_file(StaleFile, <<"stale">>),
+    [{name_vsn, NameVsn}, {stale_file, StaleFile} | Config];
+t_install_recovers_from_leftover_dir({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:delete_package(NameVsn),
+    ok;
+t_install_recovers_from_leftover_dir(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    StaleFile = ?config(stale_file, Config),
+    %% the package file is still around, as in the bug report
+    ?assert(filelib:is_regular(emqx_plugins_fs:tar_file_path(NameVsn))),
+    ?assertMatch(
+        {error, #{msg := "bad_info_file", reason := {enoent, _}}},
+        emqx_plugins:describe(NameVsn, #{})
+    ),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({ok, #{name := <<"my_emqx_plugin">>}}, emqx_plugins:describe(NameVsn, #{})),
+    %% the leftovers of the interrupted installation are gone
+    ?assertEqual({error, enoent}, file:read_file_info(StaleFile)),
+    ok.
+
+%% An unpack can stop right after `release.json' has been written, so the
+%% directory holds a perfectly readable manifest without the applications it
+%% declares.  That is not an installation either: the application files must be
+%% unpacked from the package.
+t_install_recovers_from_incomplete_install({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = erl_tar:extract(Package, [compressed, {cwd, emqx_plugins_fs:install_dir()}]),
+    %% keep `release.json' only, as if the unpack had been interrupted there
+    ok = emqx_plugins_test_helpers:delete_plugin_app_dirs(NameVsn),
+    [{name_vsn, NameVsn} | Config];
+t_install_recovers_from_incomplete_install({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:delete_package(NameVsn),
+    ok;
+t_install_recovers_from_incomplete_install(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    %% the metadata is readable, but the applications it declares are not there
+    ?assertMatch({ok, _}, emqx_plugins:describe(NameVsn, #{})),
+    ?assertEqual([], emqx_plugins_test_helpers:plugin_app_files(NameVsn)),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({ok, #{name := <<"my_emqx_plugin">>}}, emqx_plugins:describe(NameVsn, #{})),
+    ?assertMatch([_ | _], emqx_plugins_test_helpers:plugin_app_files(NameVsn)),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    ok.
+
+%% A failed metadata read must not make the recovery delete the files of a
+%% plugin whose applications are still loaded: the plugin would keep running
+%% from replaced or missing code.
+t_install_refuses_in_use_plugin({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% the metadata of the running plugin stops being readable
+    ok = file:write_file(emqx_plugins_fs:info_file_path(NameVsn), <<"not json">>),
+    [{name_vsn, NameVsn}, {package, Package} | Config];
+t_install_refuses_in_use_plugin({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    %% restore the metadata, otherwise the plugin can not be stopped
+    _ = emqx_plugins_test_helpers:restore_info_file_from_package(?config(package, Config), NameVsn),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:delete_package(NameVsn),
+    ok;
+t_install_refuses_in_use_plugin(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertMatch({error, _}, emqx_plugins:describe(NameVsn, #{})),
+    ?assert(plugin_is_running(NameVsn)),
+    AppFiles = emqx_plugins_test_helpers:plugin_app_files(NameVsn),
+    ?assertMatch([_ | _], AppFiles),
+    ?assertMatch(
+        {error, #{msg := "plugin_is_in_use"}},
+        emqx_plugins:ensure_installed(NameVsn, ?fresh_install)
+    ),
+    %% the running plugin has been left alone
+    ?assert(plugin_is_running(NameVsn)),
+    emqx_plugins_test_helpers:assert_files_exist(AppFiles),
+    %% the plugin can still be stopped: its applications are found in the
+    %% install directory even though `release.json' is unreadable
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ?assertNot(plugin_is_running(NameVsn)),
+    %% and then the installation is replaced by the package
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     ok.
 
 t_bad_info_json({init, Config}) ->
@@ -1827,6 +2572,9 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
+to_list(Path) when is_binary(Path) -> unicode:characters_to_list(Path);
+to_list(Path) -> Path.
+
 %%--------------------------------------------------------------------
 %% allow_installation TTL + sha256 binding
 %%--------------------------------------------------------------------
@@ -2290,6 +3038,59 @@ t_install_package_rpc(_Config) ->
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok.
 
+-doc """
+A node-local `plugins.states' that differs from the cluster config must not
+be published to the other nodes when the plugins application starts on that
+node.
+""".
+t_boot_install_does_not_publish_local_states({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_boot_no_publish1, #{role => core, apps => [emqx, emqx_conf, emqx_ctl]}},
+            {t_boot_no_publish2, #{role => core, apps => [emqx, emqx_conf, emqx_ctl]}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    lists:foreach(
+        fun(#{work_dir := WorkDir}) ->
+            Destination = filename:join([WorkDir, "plugins", filename:basename(Package)]),
+            ok = filelib:ensure_dir(Destination),
+            {ok, _} = file:copy(Package, Destination)
+        end,
+        Specs
+    ),
+    [{ok, _}, {ok, _}] = erpc:multicall(Nodes, emqx_cth_suite, start_app, [
+        emqx_plugins,
+        #{config => #{plugins => #{install_dir => <<"plugins">>}}}
+    ]),
+    [{nodes, Nodes}, {name_vsn, NameVsn} | Config];
+t_boot_install_does_not_publish_local_states({'end', Config}) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config));
+t_boot_install_does_not_publish_local_states(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    NameVsn = ?config(name_vsn, Config),
+    ok = ?ON(N1, emqx_plugins:ensure_installed(NameVsn)),
+    Expected = [{bin(NameVsn), false}],
+    ?assertEqual(Expected, configured_states(N1)),
+    ?assertEqual(Expected, configured_states(N2)),
+    %% Node-local override on N2, as from `etc/emqx.conf' or an env var.
+    ok = ?ON(N2, emqx_config:put([plugins, states], [#{name_vsn => NameVsn, enable => true}])),
+    TnxId = ?ON(N1, emqx_cluster_rpc:latest_tnx_id()),
+    ok = ?ON(N2, emqx_plugins:ensure_installed()),
+    ?assertEqual(TnxId, ?ON(N1, emqx_cluster_rpc:latest_tnx_id())),
+    ?assertEqual(Expected, configured_states(N1)),
+    ?assertEqual([{bin(NameVsn), true}], configured_states(N2)),
+    ok.
+
+configured_states(Node) ->
+    [
+        {bin(NV), Enable}
+     || #{name_vsn := NV, enable := Enable} <- ?ON(Node, emqx_plugins:configured())
+    ].
+
 t_fresh_install_skips_peer_config({init, Config}) ->
     Config;
 t_fresh_install_skips_peer_config({'end', _Config}) ->
@@ -2361,6 +3162,18 @@ group_t_cluster_install(Config) ->
     ?assertEqual([], erpc:call(N1, emqx_plugins, list, [])),
     ?assertEqual([], erpc:call(N2, emqx_plugins, list, [])),
 
+    %% A directory of another plugin, to show that the installation of one
+    %% plugin never touches the directory of another one.
+    Markers = [
+        ?ON(Node, begin
+            Marker = filename:join([emqx_plugins_fs:install_dir(), "sibling-1.0", "marker.txt"]),
+            ok = filelib:ensure_dir(Marker),
+            ok = file:write_file(Marker, <<"keep me">>),
+            Marker
+        end)
+     || Node <- [N1, N2]
+    ],
+
     %% Install on both nodes via RPC (simulates --cluster)
     Results = emqx_plugins_proto_v5:install_package([N1, N2], NameVsn, TarBin),
     ?assertMatch([{ok, ok}, {ok, ok}], lists:sort(Results)),
@@ -2373,6 +3186,23 @@ group_t_cluster_install(Config) ->
     ?assertMatch(
         [#{config_status := disabled}],
         erpc:call(N2, emqx_plugins, list, [])
+    ),
+
+    %% The package went through the staging directory on both nodes: no attempt
+    %% is left behind ...
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual([], ?ON(Node, emqx_plugins_test_helpers:staging_attempts(NameVsn)))
+        end,
+        [N1, N2]
+    ),
+    %% ... and the directory of the other plugin is untouched
+    ?assertEqual(
+        [{ok, <<"keep me">>}, {ok, <<"keep me">>}],
+        [
+            ?ON(Node, file:read_file(Marker))
+         || {Node, Marker} <- lists:zip([N1, N2], Markers)
+        ]
     ),
 
     %% Cleanup

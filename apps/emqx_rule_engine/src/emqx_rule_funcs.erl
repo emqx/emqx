@@ -1228,18 +1228,25 @@ proc_dict_del(Key) ->
     erlang:erase(?DICT_KEY(Key)).
 
 kv_store_put(Key, Val) ->
-    ets:insert(?KV_TAB, {Key, Val}).
+    ets:insert(?KV_TAB, {kv_store_key(Key), Val}).
 
 kv_store_get(Key) ->
     kv_store_get(Key, undefined).
 kv_store_get(Key, Default) ->
-    case ets:lookup(?KV_TAB, Key) of
+    case ets:lookup(?KV_TAB, kv_store_key(Key)) of
         [{_, Val}] -> Val;
         _ -> Default
     end.
 
 kv_store_del(Key) ->
-    ets:delete(?KV_TAB, Key).
+    ets:delete(?KV_TAB, kv_store_key(Key)).
+
+%% Entries are scoped by the namespace of the rule being applied, so that
+%% rules from different namespaces cannot observe each other's entries.  Rules
+%% in the global namespace keep sharing a single global key space, preserving
+%% the behavior of non-namespaced deployments.
+kv_store_key(Key) ->
+    {emqx_rule_runtime:rule_namespace(), Key}.
 
 %%--------------------------------------------------------------------
 %% Date functions

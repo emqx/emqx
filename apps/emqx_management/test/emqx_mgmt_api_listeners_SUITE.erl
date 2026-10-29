@@ -186,6 +186,47 @@ t_list_listeners(Config) when is_list(Config) ->
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     ok.
 
+t_listener_invalid_utf8(Config) when is_list(Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
+    Name = <<"invalid_utf8">>,
+    ListenerPath = emqx_mgmt_api_test_util:api_path(["listeners", <<"ssl:", Name/binary>>]),
+    Values = [
+        <<16#30, 16#82, 16#01, 16#80, 16#A0>>,
+        <<"caf", 16#C3>>,
+        binary:copy(<<16#80>>, 1_048_576),
+        <<"\\uD800">>
+    ],
+    lists:foreach(
+        fun(Value) ->
+            %% Send raw JSON so the client cannot replace malformed Unicode.
+            Body = <<
+                "{\"type\":\"ssl\",\"name\":\"",
+                Name/binary,
+                "\",\"bind\":\"127.0.0.1:0\",\"ssl_options\":{\"certfile\":\"",
+                Value/binary,
+                "\"}}"
+            >>,
+            {error, {{_, 400, _}, _, Response}} = request(
+                post,
+                Path,
+                [],
+                {raw, Body},
+                #{return_all => true, httpc_req_opts => [{body_format, binary}]}
+            ),
+            ?assert(byte_size(Response) < 128),
+            ?assertEqual(
+                #{
+                    <<"code">> => <<"BAD_REQUEST">>,
+                    <<"message">> => <<"Invalid json message received">>
+                },
+                emqx_utils_json:decode(Response)
+            ),
+            ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, ListenerPath, [], [])),
+            ?assertEqual(undefined, emqx:get_raw_config([listeners, ssl, invalid_utf8], undefined))
+        end,
+        Values
+    ).
+
 t_listener_id_length(Config) when is_list(Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
     OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:default"]),
@@ -554,8 +595,12 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     %% create with full options
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
-    Port1 = integer_to_binary(?PORT),
-    Port2 = integer_to_binary(?PORT),
+    %% The two listeners must bind different ports: the "bad create" below
+    %% asserts that reusing Port1 is rejected.
+    [Port1, Port2] = [
+        integer_to_binary(Port)
+     || Port <- emqx_common_test_helpers:select_free_ports(tcp, 2)
+    ],
     NewConf = OriginListener#{
         <<"id">> => NewListenerId,
         <<"bind">> => <<"0.0.0.0:", Port1/binary>>

@@ -12,6 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 -include("../src/emqx_streams_internal.hrl").
 
@@ -40,6 +41,7 @@ init_per_testcase(TestCase, Config) ->
     [{suite_apps, Apps} | Config].
 
 end_per_testcase(_TestCase, Config) ->
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = snabbkaffe:stop(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
@@ -105,9 +107,61 @@ t_gc(_Config) ->
     Records = emqx_streams_message_db:dirty_read_all(StreamLV),
     ?assertEqual(10, length(Records)).
 
+%% Verify that retention removes expired last-value records and preserves newer records.
+t_retention_lastvalue(_Config) ->
+    test_retention(#{is_lastvalue => true, key_expression => <<"message.topic">>}).
+
+%% Verify that retention removes expired regular records below the count limit.
+t_retention_regular_count(_Config) ->
+    test_retention(#{
+        is_lastvalue => false,
+        limits => #{max_shard_message_count => 1000, max_shard_message_bytes => infinity}
+    }).
+
+%% Verify that retention removes expired regular records below the byte limit.
+t_retention_regular_bytes(_Config) ->
+    test_retention(#{
+        is_lastvalue => false,
+        limits => #{max_shard_message_count => infinity, max_shard_message_bytes => 1024 * 1024}
+    }).
+
 %% Verify that the GC successfully completes when there are no streams
 t_gc_noop(_Config) ->
     ?assertWaitEvent(emqx_streams_gc:gc(), #{?snk_kind := streams_gc_done}, 10_000).
+
+%% Verify that regular stream GC is skipped when slab information is incomplete.
+t_gc_regular_list_slabs_error(_Config) ->
+    {ok, SlabInfo0} = emqx_streams_message_db:regular_db_slab_info(),
+    [{{Shard, _Generation}, _} | _] = maps:to_list(SlabInfo0),
+    ok = meck:new(emqx_ds, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_ds) end),
+    ok = meck:expect(
+        emqx_ds,
+        list_slabs,
+        fun
+            (?STREAMS_MESSAGE_REGULAR_DB, #{}) ->
+                {#{}, [{Shard, {error, recoverable, test_error}}]};
+            (DB, Opts) ->
+                meck:passthrough([DB, Opts])
+        end
+    ),
+    ?check_trace(
+        ?assertWaitEvent(
+            emqx_streams_gc:gc(),
+            #{?snk_kind := streams_gc_worker_terminated, reason := normal},
+            1000
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{reason := list_slabs_failed, errors := _}],
+                ?of_kind(streams_gc_regular_streams_skipped, Trace)
+            ),
+            ?assertMatch([_], ?of_kind(streams_gc_done, Trace)),
+            ?assertEqual([], ?of_kind(mq_gc_regular, Trace))
+        end
+    ),
+    ?assert(not meck:called(emqx_ds, add_generation, [?STREAMS_MESSAGE_REGULAR_DB])),
+    ?assert(not meck:called(emqx_ds, drop_slab, [?STREAMS_MESSAGE_REGULAR_DB, '_'])).
 
 %% Verify that the GC collects data of regular streams limited by count or byte size
 t_limited_regular(_Config) ->
@@ -236,6 +290,51 @@ t_update_gc_interval(_Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+test_retention(StreamOpts) ->
+    RetentionMs = 3600_000,
+    Stream = emqx_streams_test_utils:ensure_stream_created(StreamOpts#{
+        topic_filter => <<"retention/#">>, data_retention_period => RetentionMs
+    }),
+    NowUs = erlang:system_time(microsecond),
+    RetentionUs = erlang:convert_time_unit(RetentionMs, millisecond, microsecond),
+    ok = meck:new(emqx_ds, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_ds) end),
+
+    %% Store distinct keys with controlled timestamps on both sides of the retention cutoff.
+    lists:foreach(
+        fun({Prefix, Timestamp}) ->
+            ok = meck:expect(emqx_ds, tx_write, fun
+                ({Topic, ?ds_tx_ts_monotonic, Value}) ->
+                    meck:passthrough([{Topic, Timestamp, Value}]);
+                (Record) ->
+                    meck:passthrough([Record])
+            end),
+            ok = emqx_streams_test_utils:populate(10, #{
+                topic_prefix => Prefix, different_clients => true
+            })
+        end,
+        [
+            {<<"retention/old/">>, NowUs - 2 * RetentionUs},
+            {<<"retention/fresh/">>, NowUs - RetentionUs div 2}
+        ]
+    ),
+    ok = meck:delete(emqx_ds, tx_write, 1),
+    ok = emqx_mq_quota_buffer:flush(?STREAMS_QUOTA_BUFFER),
+    Records = emqx_streams_message_db:dirty_read_all(Stream),
+    ?assertEqual(20, length(Records)),
+    FreshRecords = [
+        Record
+     || {_, Timestamp, _} = Record <- Records, Timestamp > NowUs - RetentionUs
+    ],
+    ?assertEqual(10, length(FreshRecords)),
+
+    %% Check stored records after GC completes, without consumer-side expiry filtering.
+    ?assertWaitEvent(emqx_streams_gc:gc(), #{?snk_kind := streams_gc_done}, 5000),
+    ?assertEqual(
+        lists:sort(FreshRecords),
+        lists:sort(emqx_streams_message_db:dirty_read_all(Stream))
+    ).
 
 binfmt(Format, Args) ->
     iolist_to_binary(io_lib:format(Format, Args)).

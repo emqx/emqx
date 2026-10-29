@@ -332,13 +332,15 @@ post_config_update(?LINKS_PATH, _Req, New, Old, _AppEnvs) ->
         added := Added,
         changed := Changed
     } = emqx_utils:diff_lists(New, Old, fun upstream_name/1),
+    ok = emqx_cluster_link:register_if_enabled(New),
     RemovedRes = remove_links(Removed),
     AddedRes = add_links(Added),
     UpdatedRes = update_links(Changed),
     IsAllOk = all_ok(RemovedRes) andalso all_ok(AddedRes) andalso all_ok(UpdatedRes),
     case IsAllOk of
         true ->
-            prepare_shortconf(New);
+            ok = prepare_shortconf(New),
+            emqx_cluster_link:unregister_if_disabled(New);
         false ->
             {error, #{added => AddedRes, removed => RemovedRes, updated => UpdatedRes}}
     end.

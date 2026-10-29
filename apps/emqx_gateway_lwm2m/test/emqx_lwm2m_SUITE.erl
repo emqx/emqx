@@ -51,6 +51,7 @@ profile_groups() ->
         {group, test_grp_6_observe},
         %% {group, test_grp_8_object_19}
         {group, test_grp_9_psm_queue_mode},
+        {group, test_grp_pending_queue},
         {group, test_grp_10_rest_api},
         {group, test_grp_11_internal}
     ].
@@ -89,7 +90,8 @@ groups() ->
             case09_auto_observe_list_no_intersection,
             case09_auto_observe_list_explicit_ignored,
             case09_auto_observe_list_multi_order,
-            case02_update_publish_condition
+            case02_update_publish_condition,
+            case11_reregister_foreign_identity_rejected
         ]},
         {test_grp_1_read, [RepeatOpt], [
             case10_read,
@@ -147,7 +149,12 @@ groups() ->
         ]},
         {test_grp_9_psm_queue_mode, [RepeatOpt], [
             case90_psm_mode,
-            case90_queue_mode
+            case90_queue_mode,
+            case152_blockwise_expiry_preserves_queue_mode
+        ]},
+        {test_grp_pending_queue, [RepeatOpt], [
+            case160_pending_queue_count_limit,
+            case163_pending_queue_blockwise_limit
         ]},
         {test_grp_10_rest_api, [RepeatOpt], [
             case100_clients_api,
@@ -192,7 +199,17 @@ groups() ->
             case143_blockwise_busy_no_context,
             case144_blockwise_consume_only,
             case147_cleanup_lwm2m_channels,
-            case148_subscribe_mountpoint_after_authorization
+            case148_subscribe_mountpoint_after_authorization,
+            case148_blockwise_downlink_limit_drains_queue,
+            case149_blockwise_busy_resumes_after_expiry,
+            case150_blockwise_abort_resumes_pending,
+            case151_active_blockwise_downlink_expiry_resumes_pending,
+            case153_blockwise_reset_resumes_pending,
+            case154_blockwise_retransmission_failure_resumes_pending,
+            case155_blockwise_expiry_without_pending,
+            case156_blockwise_expiry_before_device_update,
+            case157_block2_expiry_before_device_update,
+            case158_blockwise_expiry_update_resumes_pending
         ]}
     ].
 
@@ -273,13 +290,34 @@ init_per_testcase(TestCase, Config) ->
     {ok, _} = emqtt:connect(C),
     timer:sleep(100),
 
-    [{sock, ClientUdpSock}, {emqx_c, C} | Config].
+    Config1 = [{sock, ClientUdpSock}, {emqx_c, C} | Config],
+    case
+        lists:member(TestCase, [
+            case160_pending_queue_count_limit,
+            case163_pending_queue_blockwise_limit,
+            case152_blockwise_expiry_preserves_queue_mode,
+            case153_blockwise_reset_resumes_pending,
+            case154_blockwise_retransmission_failure_resumes_pending,
+            case155_blockwise_expiry_without_pending,
+            case156_blockwise_expiry_before_device_update,
+            case157_block2_expiry_before_device_update,
+            case158_blockwise_expiry_update_resumes_pending
+        ])
+    of
+        true -> [{lwm2m_config_before_test, emqx:get_config([gateway, lwm2m])} | Config1];
+        false -> Config1
+    end.
 
 end_per_testcase(_TestCase, Config) ->
     timer:sleep(300),
     cleanup_lwm2m_channels(),
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
+    case proplists:get_value(lwm2m_config_before_test, Config) of
+        undefined -> ok;
+        LwM2MConfig -> ok = emqx_config:put([gateway, lwm2m], LwM2MConfig)
+    end,
+    emqx_common_test_helpers:call_janitor(),
     snabbkaffe:stop(),
     ok.
 
@@ -1407,6 +1445,58 @@ case08_reregister(Config) ->
     %% verify the lwm2m client is still online
     ?assertEqual(ReadResult, test_recv_mqtt_response(ReportTopic)).
 
+%% A re-registration that changes the endpoint is rejected and the existing
+%% registration is kept.
+case11_reregister_foreign_identity_rejected(Config) ->
+    UdpSock = ?config(sock, Config),
+    EpnA = "urn:oma:lwm2m:oma:3",
+    EpnB = "urn:oma:lwm2m:oma:4",
+    MsgId = 40,
+    SubTopicA = list_to_binary("lwm2m/" ++ EpnA ++ "/dn/#"),
+    SubTopicB = list_to_binary("lwm2m/" ++ EpnB ++ "/dn/#"),
+    ReportTopicA = list_to_binary("lwm2m/" ++ EpnA ++ "/up/resp"),
+    ReportTopicB = list_to_binary("lwm2m/" ++ EpnB ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), ReportTopicA, qos0),
+    emqtt:subscribe(?config(emqx_c, Config), ReportTopicB, qos0),
+    timer:sleep(200),
+
+    %% Device A registers on this connection.
+    register_device(UdpSock, EpnA, MsgId),
+    #coap_message{type = ack, method = {ok, created}} = test_recv_coap_response(UdpSock),
+    timer:sleep(100),
+    true = lists:member(SubTopicA, test_mqtt_broker:get_subscrbied_topics()),
+    ?assertMatch(
+        #{
+            <<"msgType">> := <<"register">>,
+            <<"data">> := #{<<"ep">> := <<"urn:oma:lwm2m:oma:3">>}
+        },
+        emqx_utils_json:decode(test_recv_mqtt_response(ReportTopicA))
+    ),
+
+    %% Device B registers on the same connection: it is rejected and does not
+    %% inherit A's session.
+    register_device(UdpSock, EpnB, MsgId + 1),
+    #coap_message{type = ack, method = Method} = test_recv_coap_response(UdpSock),
+    ?assertEqual({error, unauthorized}, Method),
+    ?assertEqual(timeout_test_recv_mqtt_response, test_recv_mqtt_response(ReportTopicB)),
+    timer:sleep(100),
+    false = lists:member(SubTopicB, test_mqtt_broker:get_subscrbied_topics()),
+    %% A is still registered and owns the connection.
+    true = lists:member(SubTopicA, test_mqtt_broker:get_subscrbied_topics()).
+
+register_device(UdpSock, Epn, MsgId) ->
+    test_send_coap_request(
+        UdpSock,
+        post,
+        sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+        #coap_content{
+            content_format = <<"text/plain">>,
+            payload = <<"</lwm2m/1/0>,</lwm2m/2/0>">>
+        },
+        [],
+        MsgId
+    ).
+
 case09_auto_observe(Config) ->
     UdpSock = ?config(sock, Config),
     Epn = "urn:oma:lwm2m:oma:3",
@@ -1536,7 +1626,9 @@ case09_auto_observe_list_multi_order(Config) ->
     Epn = "urn:oma:lwm2m:oma:4",
     MsgId1 = 20,
     RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    NotifyTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/notify"),
     emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    emqtt:subscribe(?config(emqx_c, Config), NotifyTopic, qos0),
     timer:sleep(200),
 
     std_register(
@@ -1558,16 +1650,57 @@ case09_auto_observe_list_multi_order(Config) ->
         "127.0.0.1",
         ?PORT,
         {ok, content},
-        #coap_content{content_format = <<"text/plain">>, payload = <<"1">>},
+        #coap_content{
+            content_format = <<"application/vnd.oma.lwm2m+tlv">>, payload = <<16#C1, 0, $A>>
+        },
         Request1
     ),
     timer:sleep(100),
 
-    #coap_message{method = Method2, options = Options2} = test_recv_coap_request(UdpSock),
+    Request2 =
+        #coap_message{method = Method2, options = Options2} = test_recv_coap_request(UdpSock),
     ?assertEqual(get, Method2),
     ?assertEqual(0, get_coap_observe(Options2)),
     ?assertEqual(<<"/1/0">>, get_coap_path(Options2)),
-    ?assertEqual(timeout_test_recv_coap_request, test_recv_coap_request(UdpSock)).
+    test_send_coap_observe_ack(
+        UdpSock,
+        "127.0.0.1",
+        ?PORT,
+        {ok, content},
+        #coap_content{
+            content_format = <<"application/vnd.oma.lwm2m+tlv">>, payload = <<16#C1, 1, 10>>
+        },
+        Request2
+    ),
+    lists:foreach(
+        fun(_) ->
+            Observed = emqx_utils_json:decode(test_recv_mqtt_response(RespTopic)),
+            ?assertEqual(<<"observe">>, maps:get(<<"msgType">>, Observed)),
+            ?assertEqual(<<"2.05">>, maps:get(<<"code">>, maps:get(<<"data">>, Observed)))
+        end,
+        [1, 2]
+    ),
+    %% Both Observe requests are acknowledged; wait beyond the maximum initial ACK timeout.
+    ?assertEqual({error, timeout}, gen_udp:recv(UdpSock, 0, 3500)),
+    [Pid] = emqx_gateway_cm:lookup_channels(lwm2m, list_to_binary(Epn)),
+    ?assert(is_process_alive(Pid)),
+    test_send_coap_notif_con(
+        UdpSock,
+        "127.0.0.1",
+        ?PORT,
+        #coap_content{
+            content_format = <<"application/vnd.oma.lwm2m+tlv">>, payload = <<16#C1, 0, $B>>
+        },
+        1,
+        Request1
+    ),
+    ?assertMatch(#coap_message{type = ack}, test_recv_coap_response(UdpSock)),
+    Notify = emqx_utils_json:decode(test_recv_mqtt_response(NotifyTopic)),
+    ?assertEqual(<<"notify">>, maps:get(<<"msgType">>, Notify)),
+    ?assertEqual(
+        [#{<<"path">> => <<"/3/0/0">>, <<"value">> => <<"B">>}],
+        maps:get(<<"content">>, maps:get(<<"data">>, Notify))
+    ).
 
 case10_read(Config) ->
     UdpSock = ?config(sock, Config),
@@ -5532,7 +5665,12 @@ case128_session_internal_branches(_Config) ->
     Cmd1 = #{<<"msgType">> => <<"read">>, <<"data">> => #{<<"path">> => <<"/3/0/0">>}},
     SendResult = emqx_lwm2m_session:send_cmd(Cmd1, undefined, Session1),
     Session2 = session_from_result(SendResult),
-    Session2Cache = setelement(11, Session2, 0),
+    Session2Cache = setelement(
+        11,
+        Session2,
+        erlang:monotonic_time(millisecond) -
+            timer:seconds(emqx:get_config([gateway, lwm2m, qmode_time_window]))
+    ),
     UpdateMsg = #coap_message{options = #{uri_query => #{}}, payload = <<>>},
     _ = emqx_lwm2m_session:update(UpdateMsg, WithContext, Session2),
     _ = emqx_lwm2m_session:update(UpdateMsg, WithContext, SessionNoLt),
@@ -5849,6 +5987,650 @@ case138_blockwise_downlink_busy(_Config) ->
     ?assertMatch({1, _, _}, maps:get(block1, NextReq#coap_message.options)),
     expect_no_publish().
 
+case148_blockwise_downlink_limit_drains_queue(_Config) ->
+    ok = emqx_config:force_put([gateway, lwm2m, blockwise, max_block_size], 16),
+    ok = emqx_config:force_put([gateway, lwm2m, blockwise, max_total_size], 64),
+    WithContext = capture_with_context(self()),
+    Session0 = emqx_lwm2m_session:new(),
+    Session1 = setelement(7, Session0, #{<<"alternatePath">> => <<"/">>}),
+    SmallCmd = #{
+        <<"msgType">> => <<"write">>,
+        <<"requestID">> => 3001,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => <<"small">>
+        }
+    },
+    #{return := {[FirstReq], Session2}} =
+        emqx_lwm2m_session:send_cmd(SmallCmd, WithContext, Session1),
+    OversizedCmd = SmallCmd#{
+        <<"requestID">> => 3002,
+        <<"data">> => (maps:get(<<"data">>, SmallCmd))#{
+            <<"value">> => binary:copy(<<"X">>, 256)
+        }
+    },
+    #{return := {[], Session3}} =
+        emqx_lwm2m_session:send_cmd(OversizedCmd, WithContext, Session2),
+    LastCmd = SmallCmd#{<<"requestID">> => 3003},
+    #{return := {[], Session4}} =
+        emqx_lwm2m_session:send_cmd(LastCmd, WithContext, Session3),
+    ?assertEqual(2, queue:len(element(3, Session4))),
+
+    Ack = emqx_coap_message:piggyback({ok, changed}, FirstReq),
+    #{return := {[_LastReq], Session5}} = emqx_lwm2m_session:handle_protocol_in(
+        {ack, {SmallCmd, Ack}},
+        WithContext,
+        Session4
+    ),
+    ?assertEqual(0, queue:len(element(3, Session5))),
+    Published = [wait_publish_payload(), wait_publish_payload()],
+    [LimitFailure] = [
+        Payload
+     || #{<<"msgType">> := <<"write">>} = Payload <- Published
+    ],
+    ?assertMatch(
+        #{<<"data">> := #{<<"code">> := <<"4.13">>}},
+        LimitFailure
+    ).
+
+case149_blockwise_busy_resumes_after_expiry(_Config) ->
+    WithContext = capture_with_context(self()),
+    BW0 = emqx_coap_blockwise:new(#{
+        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 50
+    }),
+    Incoming = #coap_message{
+        type = con,
+        method = post,
+        token = <<"rx">>,
+        payload = binary:copy(<<"A">>, 16),
+        options = #{uri_path => [<<"rd">>], block1 => {0, true, 16}}
+    },
+    {continue, _, BW1} = emqx_coap_blockwise:server_in(Incoming, peer, BW0),
+    Session0 = emqx_lwm2m_session:new(),
+    Session1 = setelement(15, setelement(7, Session0, #{<<"alternatePath">> => <<"/">>}), BW1),
+    Cmd = #{
+        <<"msgType">> => <<"write">>,
+        <<"requestID">> => 3010,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => binary:copy(<<"B">>, 64)
+        }
+    },
+    #{return := {[], Session2}} = emqx_lwm2m_session:send_cmd(Cmd, WithContext, Session1),
+    ?assertEqual(1, queue:len(element(3, Session2))),
+    Ctx = #{gwname => lwm2m, cm => whereis(emqx_gateway_lwm2m_cm)},
+    ConnInfo = #{peername => {{127, 0, 0, 1}, 56830}, sockname => {{127, 0, 0, 1}, 56830}},
+    Channel0 = emqx_lwm2m_channel:init(ConnInfo, #{ctx => Ctx}),
+    Ref = make_ref(),
+    Channel1 = setelement(
+        8,
+        setelement(7, setelement(5, Channel0, Session2), #{blockwise_expire => Ref}),
+        WithContext
+    ),
+    timer:sleep(60),
+    {ok, [{outgoing, [FirstBlock]}], Channel2} =
+        emqx_lwm2m_channel:handle_timeout(Ref, blockwise_expire, Channel1),
+    ?assertEqual({0, true, 16}, maps:get(block1, FirstBlock#coap_message.options)),
+    ?assertEqual(0, queue:len(element(3, element(5, Channel2)))).
+
+case151_active_blockwise_downlink_expiry_resumes_pending(_Config) ->
+    WithContext = capture_with_context(self()),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, exchange_lifetime => 50}),
+    Session0 = emqx_lwm2m_session:new(),
+    Session1 = setelement(15, setelement(7, Session0, #{<<"alternatePath">> => <<"/">>}), BW0),
+    Cmd1 = #{
+        <<"msgType">> => <<"write">>,
+        <<"requestID">> => 3020,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => binary:copy(<<"A">>, 64)
+        }
+    },
+    #{return := {[FirstReq], Session2}} = emqx_lwm2m_session:send_cmd(
+        Cmd1, WithContext, Session1
+    ),
+    ?assertEqual({0, true, 16}, maps:get(block1, FirstReq#coap_message.options)),
+    Cmd2 = Cmd1#{<<"requestID">> => 3021},
+    #{return := {[], Session3}} = emqx_lwm2m_session:send_cmd(Cmd2, WithContext, Session2),
+    ?assertEqual(1, queue:len(element(3, Session3))),
+    OldCoap = element(2, Session3),
+    OldSeqId = maps:get({out, FirstReq#coap_message.id}, OldCoap),
+    Ctx = #{gwname => lwm2m, cm => whereis(emqx_gateway_lwm2m_cm)},
+    ConnInfo = #{peername => {{127, 0, 0, 1}, 56830}, sockname => {{127, 0, 0, 1}, 56830}},
+    Channel0 = emqx_lwm2m_channel:init(ConnInfo, #{ctx => Ctx}),
+    Ref = make_ref(),
+    Channel1 = setelement(
+        8,
+        setelement(7, setelement(5, Channel0, Session3), #{blockwise_expire => Ref}),
+        WithContext
+    ),
+    timer:sleep(60),
+    {ok, [{outgoing, [NextReq]}], Channel2} =
+        emqx_lwm2m_channel:handle_timeout(Ref, blockwise_expire, Channel1),
+    ?assertEqual({0, true, 16}, maps:get(block1, NextReq#coap_message.options)),
+    Session4 = element(5, Channel2),
+    ?assertEqual(0, queue:len(element(3, Session4))),
+    ?assertEqual(Cmd2, element(4, Session4)),
+    NewCoap = element(2, Session4),
+    ?assertEqual(false, maps:is_key(OldSeqId, NewCoap)),
+    ?assertEqual(#{}, emqx_coap_tm:timeout({OldSeqId, state_timeout, ack_timeout}, NewCoap)),
+    ?assertEqual(<<"coap_timeout">>, maps:get(<<"msgType">>, wait_publish_payload())),
+    expect_no_publish().
+
+case150_blockwise_abort_resumes_pending(_Config) ->
+    WithContext = capture_with_context(self()),
+    PeerKey = {{127, 0, 0, 1}, 56830},
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, max_concurrent_exchanges => 1}),
+    Incoming = #coap_message{
+        type = con,
+        method = post,
+        id = 501,
+        token = <<"rx">>,
+        payload = binary:copy(<<"A">>, 16),
+        options = #{uri_path => [<<"rd">>], block1 => {0, true, 16}}
+    },
+    {continue, _, BW1} = emqx_coap_blockwise:server_in(Incoming, PeerKey, BW0),
+    Session0 = emqx_lwm2m_session:new(),
+    Session1 = setelement(15, setelement(7, Session0, #{<<"alternatePath">> => <<"/">>}), BW1),
+    Cmd = #{
+        <<"msgType">> => <<"write">>,
+        <<"requestID">> => 3011,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => binary:copy(<<"B">>, 64)
+        }
+    },
+    #{return := {[], Session2}} = emqx_lwm2m_session:send_cmd(Cmd, WithContext, Session1),
+    ?assertEqual(1, queue:len(element(3, Session2))),
+    Ctx = #{gwname => lwm2m, cm => whereis(emqx_gateway_lwm2m_cm)},
+    ConnInfo = #{peername => PeerKey, sockname => PeerKey},
+    Channel0 = emqx_lwm2m_channel:init(ConnInfo, #{ctx => Ctx}),
+    Channel1 = setelement(8, setelement(5, Channel0, Session2), WithContext),
+    Invalid = Incoming#coap_message{
+        id = 502,
+        options = (Incoming#coap_message.options)#{block1 => {2, false, 16}}
+    },
+    {ok, [{outgoing, [ErrorReply]}], Channel2} =
+        emqx_lwm2m_channel:handle_in(Invalid, Channel1),
+    ?assertEqual({error, request_entity_incomplete}, ErrorReply#coap_message.method),
+    Ref = maps:get(blockwise_expire, element(7, Channel2)),
+    {ok, [{outgoing, [FirstBlock]}], Channel3} =
+        emqx_lwm2m_channel:handle_timeout(Ref, blockwise_expire, Channel2),
+    ?assertEqual({0, true, 16}, maps:get(block1, FirstBlock#coap_message.options)),
+    ?assertEqual(0, queue:len(element(3, element(5, Channel3)))).
+
+case153_blockwise_reset_resumes_pending(Config) ->
+    blockwise_failure_resumes_pending(reset, Config).
+
+case154_blockwise_retransmission_failure_resumes_pending() ->
+    [{timetrap, {seconds, 150}}].
+
+case154_blockwise_retransmission_failure_resumes_pending(Config) ->
+    blockwise_failure_resumes_pending(timeout, Config).
+
+blockwise_failure_resumes_pending(Failure, Config) ->
+    ok = emqx_config:force_put([gateway, lwm2m, blockwise], #{
+        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 247000
+    }),
+    Sock = ?config(sock, Config),
+    Client = ?config(emqx_c, Config),
+    Epn = "blockwise-failure",
+    RespTopic = <<"lwm2m/blockwise-failure/up/resp">>,
+    {ok, _, _} = emqtt:subscribe(Client, RespTopic, qos0),
+    std_register(Sock, Epn, <<"</3/0>">>, 1500, RespTopic),
+    Cmd = #{
+        <<"requestID">> => 1501,
+        <<"msgType">> => <<"execute">>,
+        <<"data">> => #{<<"path">> => <<"/3/0/4">>, <<"args">> => binary:copy(<<"A">>, 32)}
+    },
+    Topic = <<"lwm2m/blockwise-failure/dn/dm">>,
+    {ok, _} = emqtt:publish(Client, Topic, emqx_utils_json:encode(Cmd), 1),
+    First = test_recv_coap_request(Sock),
+    ?assertEqual({0, true, 16}, maps:get(block1, First#coap_message.options)),
+    Cmd2 = Cmd#{
+        <<"requestID">> => 1502,
+        <<"data">> => (maps:get(<<"data">>, Cmd))#{<<"args">> => binary:copy(<<"B">>, 32)}
+    },
+    {ok, _} = emqtt:publish(Client, Topic, emqx_utils_json:encode(Cmd2), 1),
+    ?assertEqual({error, timeout}, gen_udp:recv(Sock, 0, 300)),
+    FailureType =
+        case Failure of
+            reset ->
+                test_send_coap_reset(Sock, "127.0.0.1", ?PORT, First),
+                <<"coap_reset">>;
+            timeout ->
+                %% Let the real transport exhaust all four retransmissions.
+                lists:foreach(
+                    fun(_) ->
+                        {ok, {_, _, Packet}} = gen_udp:recv(Sock, 0, 30000),
+                        {ok, Retry, _, _} = emqx_coap_frame:parse(Packet, undefined),
+                        ?assertEqual(First, Retry)
+                    end,
+                    lists:seq(1, 4)
+                ),
+                <<"coap_timeout">>
+        end,
+    NextTimeout =
+        case Failure of
+            reset -> 2000;
+            timeout -> 50000
+        end,
+    {ok, {_, _, NextPacket}} = gen_udp:recv(Sock, 0, NextTimeout),
+    {ok, Next, _, _} = emqx_coap_frame:parse(NextPacket, undefined),
+    ?assertEqual(binary:copy(<<"B">>, 16), Next#coap_message.payload),
+    ?assertEqual({0, true, 16}, maps:get(block1, Next#coap_message.options)),
+    Failed = emqx_utils_json:decode(test_recv_mqtt_response(RespTopic)),
+    ?assertEqual(FailureType, maps:get(<<"msgType">>, Failed)),
+    ?assertEqual(1501, maps:get(<<"requestID">>, Failed)),
+    Continue = emqx_coap_message:piggyback({ok, continue}, Next),
+    ok = gen_udp:send(
+        Sock,
+        {127, 0, 0, 1},
+        ?PORT,
+        emqx_coap_frame:serialize_pkt(Continue, undefined)
+    ),
+    Last = test_recv_coap_request(Sock),
+    ?assertEqual(binary:copy(<<"B">>, 16), Last#coap_message.payload),
+    ?assertEqual({1, false, 16}, maps:get(block1, Last#coap_message.options)),
+    test_send_coap_response(
+        Sock,
+        "127.0.0.1",
+        ?PORT,
+        {ok, changed},
+        #coap_content{},
+        Last,
+        true
+    ),
+    Completed = emqx_utils_json:decode(test_recv_mqtt_response(RespTopic)),
+    ?assertEqual(1502, maps:get(<<"requestID">>, Completed)),
+    ?assertEqual(<<"2.04">>, maps:get(<<"code">>, maps:get(<<"data">>, Completed))).
+
+case155_blockwise_expiry_without_pending(Config) ->
+    blockwise_expiry_without_pending(block1, idle, Config).
+
+case156_blockwise_expiry_before_device_update(Config) ->
+    blockwise_expiry_without_pending(block1, update, Config).
+
+case157_block2_expiry_before_device_update(Config) ->
+    blockwise_expiry_without_pending(block2, update, Config).
+
+case158_blockwise_expiry_update_resumes_pending(Config) ->
+    blockwise_expiry_without_pending(block1, update_pending, Config).
+
+blockwise_expiry_without_pending(BlockType, Activity, Config) ->
+    ok = emqx_config:force_put([gateway, lwm2m, blockwise], #{
+        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 1000
+    }),
+    Sock = ?config(sock, Config),
+    Client = ?config(emqx_c, Config),
+    RespTopic = <<"lwm2m/blockwise-expiry/up/resp">>,
+    Topic = <<"lwm2m/blockwise-expiry/dn/dm">>,
+    {ok, _, _} = emqtt:subscribe(Client, RespTopic, qos0),
+    test_send_coap_request(
+        Sock,
+        post,
+        "coap://127.0.0.1:5783/rd?ep=blockwise-expiry&lt=345&lwm2m=1",
+        #coap_content{payload = <<"</3/0>">>},
+        [],
+        1800
+    ),
+    Registered = test_recv_coap_response(Sock),
+    ?assertEqual({ok, created}, Registered#coap_message.method),
+    Location = maps:get(location_path, Registered#coap_message.options),
+    _ = test_recv_mqtt_response(RespTopic),
+    Cmd =
+        case BlockType of
+            block1 ->
+                #{
+                    <<"requestID">> => 1801,
+                    <<"msgType">> => <<"execute">>,
+                    <<"data">> => #{
+                        <<"path">> => <<"/3/0/4">>, <<"args">> => binary:copy(<<"A">>, 32)
+                    }
+                };
+            block2 ->
+                #{
+                    <<"requestID">> => 1801,
+                    <<"msgType">> => <<"read">>,
+                    <<"data">> => #{<<"path">> => <<"/3/0/0">>}
+                }
+        end,
+    {ok, _} = emqtt:publish(Client, Topic, emqx_utils_json:encode(Cmd), 1),
+    First = test_recv_coap_request(Sock),
+    case BlockType of
+        block1 ->
+            ?assertEqual({0, true, 16}, maps:get(block1, First#coap_message.options));
+        block2 ->
+            Block = emqx_coap_message:piggyback({ok, content}, binary:copy(<<"A">>, 16), First),
+            Reply = Block#coap_message{options = #{block2 => {0, true, 16}}},
+            ok = gen_udp:send(
+                Sock, {127, 0, 0, 1}, ?PORT, emqx_coap_frame:serialize_pkt(Reply, undefined)
+            ),
+            Followup = test_recv_coap_request(Sock),
+            ?assertEqual({1, false, 16}, maps:get(block2, Followup#coap_message.options))
+    end,
+    Cmd2 = #{
+        <<"requestID">> => 1803,
+        <<"msgType">> => <<"execute">>,
+        <<"data">> => #{<<"path">> => <<"/3/0/4">>, <<"args">> => binary:copy(<<"B">>, 32)}
+    },
+    case Activity of
+        update_pending ->
+            {ok, _} = emqtt:publish(Client, Topic, emqx_utils_json:encode(Cmd2), 1),
+            ?assertEqual({error, timeout}, gen_udp:recv(Sock, 0, 100));
+        _ ->
+            ok
+    end,
+    UpdateURI = sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
+    Failed =
+        case Activity of
+            idle ->
+                timer:sleep(1100),
+                emqx_utils_json:decode(test_recv_mqtt_response(RespTopic));
+            _ ->
+                [Pid] = emqx_gateway_cm:lookup_channels(lwm2m, <<"blockwise-expiry">>),
+                ok = sys:suspend(Pid),
+                try
+                    test_send_coap_request(Sock, post, UpdateURI, #coap_content{}, [], 1802),
+                    %% Queue device activity before the expiry timer, then process both after expiry.
+                    ?retry(10, 50, begin
+                        {messages, Messages} = process_info(Pid, messages),
+                        ?assert(
+                            lists:any(
+                                fun
+                                    ({datagram, _, _}) -> true;
+                                    (_) -> false
+                                end,
+                                Messages
+                            )
+                        )
+                    end),
+                    timer:sleep(1100)
+                after
+                    ok = sys:resume(Pid)
+                end,
+                ?assertEqual({ok, changed}, (test_recv_coap_response(Sock))#coap_message.method),
+                Responses = [
+                    emqx_utils_json:decode(test_recv_mqtt_response(RespTopic)),
+                    emqx_utils_json:decode(test_recv_mqtt_response(RespTopic))
+                ],
+                ?assertEqual(
+                    [<<"coap_timeout">>, <<"update">>],
+                    lists:sort([maps:get(<<"msgType">>, Response) || Response <- Responses])
+                ),
+                [Timeout] = [
+                    Response
+                 || #{<<"msgType">> := <<"coap_timeout">>} = Response <- Responses
+                ],
+                Timeout
+        end,
+    ?assertEqual(<<"coap_timeout">>, maps:get(<<"msgType">>, Failed)),
+    ?assertEqual(1801, maps:get(<<"requestID">>, Failed)),
+    case Activity of
+        idle ->
+            test_send_coap_request(Sock, post, UpdateURI, #coap_content{}, [], 1802),
+            ?assertEqual({ok, changed}, (test_recv_coap_response(Sock))#coap_message.method),
+            _ = test_recv_mqtt_response(RespTopic);
+        _ ->
+            ok
+    end,
+    case Activity of
+        update_pending -> ok;
+        _ -> {ok, _} = emqtt:publish(Client, Topic, emqx_utils_json:encode(Cmd2), 1)
+    end,
+    Next = test_recv_coap_request(Sock),
+    ?assertEqual(binary:copy(<<"B">>, 16), Next#coap_message.payload),
+    ?assertEqual({0, true, 16}, maps:get(block1, Next#coap_message.options)),
+    Continue = emqx_coap_message:piggyback({ok, continue}, Next),
+    ok = gen_udp:send(
+        Sock, {127, 0, 0, 1}, ?PORT, emqx_coap_frame:serialize_pkt(Continue, undefined)
+    ),
+    Last = test_recv_coap_request(Sock),
+    ?assertEqual(binary:copy(<<"B">>, 16), Last#coap_message.payload),
+    ?assertEqual({1, false, 16}, maps:get(block1, Last#coap_message.options)),
+    test_send_coap_response(Sock, "127.0.0.1", ?PORT, {ok, changed}, #coap_content{}, Last, true),
+    Completed = emqx_utils_json:decode(test_recv_mqtt_response(RespTopic)),
+    ?assertEqual(1803, maps:get(<<"requestID">>, Completed)),
+    ?assertEqual(<<"2.04">>, maps:get(<<"code">>, maps:get(<<"data">>, Completed))),
+    ?assertEqual({error, timeout}, gen_udp:recv(Sock, 0, 300)),
+    receive
+        {publish, #{topic := RespTopic}} -> ct:fail(unexpected_command_response)
+    after 300 -> ok
+    end.
+
+case152_blockwise_expiry_preserves_queue_mode(Config) ->
+    ok = emqx_config:force_put([gateway, lwm2m, qmode_time_window], 1),
+    ok = emqx_config:force_put([gateway, lwm2m, blockwise], #{
+        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 4000
+    }),
+    Sock = ?config(sock, Config),
+    Client = ?config(emqx_c, Config),
+    RespTopic = <<"lwm2m/blockwise-sleep/up/resp">>,
+    {ok, _, _} = emqtt:subscribe(Client, RespTopic, qos0),
+    test_send_coap_request(
+        Sock,
+        post,
+        "coap://127.0.0.1:5783/rd?ep=blockwise-sleep&lt=345&lwm2m=1&b=UQ",
+        #coap_content{payload = <<"</3/0>">>},
+        [],
+        1600
+    ),
+    Registered = test_recv_coap_response(Sock),
+    ?assertEqual({ok, created}, Registered#coap_message.method),
+    Location = maps:get(location_path, Registered#coap_message.options),
+    _ = test_recv_mqtt_response(RespTopic),
+    UpdateURI = sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
+    test_send_coap_request(
+        Sock,
+        post,
+        UpdateURI,
+        #coap_content{payload = binary:copy(<<"U">>, 16)},
+        [{block1, {0, true, 16}}],
+        1601
+    ),
+    ?assertEqual({ok, continue}, (test_recv_coap_response(Sock))#coap_message.method),
+    timer:sleep(1500),
+    Cmd = #{
+        <<"requestID">> => 1602,
+        <<"msgType">> => <<"read">>,
+        <<"data">> => #{<<"path">> => <<"/3/0/0">>}
+    },
+    {ok, _} = emqtt:publish(
+        Client,
+        <<"lwm2m/blockwise-sleep/dn/dm">>,
+        emqx_utils_json:encode(Cmd),
+        1
+    ),
+    %% Capacity expiry must not wake a sleeping UQ device.
+    ?assertEqual({error, timeout}, gen_udp:recv(Sock, 0, 4000)),
+    test_send_coap_request(Sock, post, UpdateURI, #coap_content{}, [], 1603),
+    ?assertEqual({ok, changed}, (test_recv_coap_response(Sock))#coap_message.method),
+    _ = test_recv_mqtt_response(RespTopic),
+    Read = test_recv_coap_request(Sock),
+    ?assertEqual(get, Read#coap_message.method),
+    test_send_coap_response(
+        Sock,
+        "127.0.0.1",
+        ?PORT,
+        {ok, content},
+        #coap_content{content_format = <<"text/plain">>, payload = <<"EMQ">>},
+        Read,
+        true
+    ),
+    Completed = emqx_utils_json:decode(test_recv_mqtt_response(RespTopic)),
+    ?assertEqual(1602, maps:get(<<"requestID">>, Completed)).
+
+case160_pending_queue_count_limit(Config) ->
+    Location = register_pending_queue_device(Config, true),
+    lists:foreach(
+        fun(Id) -> publish_pending_command(Config, pending_read(Id)) end, lists:seq(1, 1000)
+    ),
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_read(1001)),
+    assert_pending_response(1001, <<"4.29">>),
+    Session = assert_pending_queue(1000),
+    ?assertEqual(1, queue:len(maps:get(queue, element(13, Session)))),
+    ?assertEqual({error, timeout}, gen_udp:recv(?config(sock, Config), 0, 100)),
+    wake_pending_queue_device(Config, Location, 1901),
+    _ = assert_pending_queue(999),
+    %% One command is in flight; the pending queue can accept one replacement.
+    publish_pending_command(Config, pending_read(1002)),
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_read(1003)),
+    assert_pending_response(1003, <<"4.29">>),
+    lists:foreach(fun(Id) -> complete_pending_read(Config, Id) end, lists:seq(1, 1000) ++ [1002]),
+    _ = assert_pending_queue(0).
+
+case163_pending_queue_blockwise_limit(Config) ->
+    ok = emqx_config:force_put([gateway, lwm2m, blockwise], #{
+        max_block_size => 16, max_concurrent_exchanges => 1, exchange_lifetime => 60000
+    }),
+    Location = register_pending_queue_device(Config, false),
+    Sock = ?config(sock, Config),
+    URI = sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
+    %% An unfinished uplink consumes block-wise capacity while downlinks wait.
+    test_send_coap_request(
+        Sock,
+        post,
+        URI,
+        #coap_content{payload = binary:copy(<<"U">>, 16)},
+        [{block1, {0, true, 16}}],
+        1910
+    ),
+    ?assertEqual({ok, continue}, (test_recv_coap_response(Sock))#coap_message.method),
+    lists:foreach(
+        fun(Id) -> publish_pending_command(Config, pending_execute(Id)) end, lists:seq(1, 1000)
+    ),
+    _ = assert_pending_queue(1000),
+    wake_pending_queue_device(Config, Location, 1901),
+    _ = assert_pending_queue(1000),
+    publish_pending_command(Config, pending_execute(1001)),
+    assert_pending_response(1001, <<"4.29">>),
+    %% Abort the uplink and verify accepted downlinks drain in FIFO order.
+    test_send_coap_request(
+        Sock, post, URI, #coap_content{payload = <<"X">>}, [{block1, {2, false, 16}}], 1911
+    ),
+    ?assertEqual(
+        {error, request_entity_incomplete}, (test_recv_coap_response(Sock))#coap_message.method
+    ),
+    lists:foreach(
+        fun(Id) ->
+            Req = test_recv_coap_request(Sock),
+            complete_pending_blockwise(Config, Id, Req)
+        end,
+        lists:seq(1, 1000)
+    ),
+    _ = assert_pending_queue(0).
+
+register_pending_queue_device(Config, Sleeping) ->
+    ok = emqx_config:force_put([gateway, lwm2m, qmode_time_window], 1),
+    {ok, _, _} = emqtt:subscribe(?config(emqx_c, Config), pending_response_topic(), qos0),
+    URI =
+        case Sleeping of
+            true -> "coap://127.0.0.1:5783/rd?ep=pending-queue&lt=345&lwm2m=1&b=UQ";
+            false -> "coap://127.0.0.1:5783/rd?ep=pending-queue&lt=345&lwm2m=1"
+        end,
+    Sock = ?config(sock, Config),
+    test_send_coap_request(
+        Sock, post, URI, #coap_content{payload = <<"</3/0>">>}, [], 1900
+    ),
+    Registered = test_recv_coap_response(Sock),
+    ?assertEqual({ok, created}, Registered#coap_message.method),
+    _ = test_recv_mqtt_response(pending_response_topic()),
+    case Sleeping of
+        true -> timer:sleep(1600);
+        false -> ok
+    end,
+    maps:get(location_path, Registered#coap_message.options).
+
+wake_pending_queue_device(Config, Location, MsgId) ->
+    URI = sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
+    Sock = ?config(sock, Config),
+    test_send_coap_request(Sock, post, URI, #coap_content{}, [], MsgId),
+    ?assertEqual({ok, changed}, (test_recv_coap_response(Sock))#coap_message.method),
+    Updated = emqx_utils_json:decode(test_recv_mqtt_response(pending_response_topic())),
+    ?assertEqual(<<"update">>, maps:get(<<"msgType">>, Updated)).
+
+pending_read(Id) ->
+    #{
+        <<"requestID">> => Id,
+        <<"msgType">> => <<"read">>,
+        <<"data">> => #{<<"path">> => <<"/3/0/0">>}
+    }.
+
+pending_execute(Id) ->
+    #{
+        <<"requestID">> => Id,
+        <<"msgType">> => <<"execute">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/4">>, <<"args">> => binary:copy(<<(65 + Id rem 26)>>, 32)
+        }
+    }.
+
+publish_pending_command(Config, Cmd) ->
+    {ok, _} = emqtt:publish(
+        ?config(emqx_c, Config),
+        <<"lwm2m/pending-queue/dn/dm">>,
+        emqx_utils_json:encode(Cmd),
+        1
+    ),
+    ok.
+
+pending_response_topic() ->
+    <<"lwm2m/pending-queue/up/resp">>.
+
+assert_pending_response(Id, Code) ->
+    Response = emqx_utils_json:decode(test_recv_mqtt_response(pending_response_topic())),
+    ?assertEqual(Id, maps:get(<<"requestID">>, Response)),
+    ?assertEqual(Code, maps:get(<<"code">>, maps:get(<<"data">>, Response))).
+
+assert_pending_queue(Count) ->
+    ?retry(50, 20, begin
+        [Pid] = emqx_gateway_cm:lookup_channels(lwm2m, <<"pending-queue">>),
+        Channel = element(11, sys:get_state(Pid)),
+        Session = element(5, Channel),
+        Items = queue:to_list(element(3, Session)),
+        ?assertEqual(Count, length(Items)),
+        ?assertEqual(Count, emqx_lwm2m_session:stats(mqueue_len, Session)),
+        ?assertEqual(1000, emqx_lwm2m_session:stats(mqueue_max, Session)),
+        Session
+    end).
+
+complete_pending_read(Config, Id) ->
+    Req = test_recv_coap_request(?config(sock, Config)),
+    ?assertEqual(get, Req#coap_message.method),
+    reply_pending_read(Config, Id, Req).
+
+reply_pending_read(Config, Id, Req) ->
+    test_send_coap_response(
+        ?config(sock, Config),
+        "127.0.0.1",
+        ?PORT,
+        {ok, content},
+        #coap_content{content_format = <<"text/plain">>, payload = <<"EMQ">>},
+        Req,
+        true
+    ),
+    assert_pending_response(Id, <<"2.05">>).
+
+complete_pending_blockwise(Config, Id, First) ->
+    ?assertEqual(binary:copy(<<(65 + Id rem 26)>>, 16), First#coap_message.payload),
+    ?assertEqual({0, true, 16}, maps:get(block1, First#coap_message.options)),
+    Sock = ?config(sock, Config),
+    Continue = emqx_coap_message:piggyback({ok, continue}, First),
+    ok = gen_udp:send(
+        Sock, {127, 0, 0, 1}, ?PORT, emqx_coap_frame:serialize_pkt(Continue, undefined)
+    ),
+    Last = test_recv_coap_request(Sock),
+    ?assertEqual(binary:copy(<<(65 + Id rem 26)>>, 16), Last#coap_message.payload),
+    ?assertEqual({1, false, 16}, maps:get(block1, Last#coap_message.options)),
+    test_send_coap_response(Sock, "127.0.0.1", ?PORT, {ok, changed}, #coap_content{}, Last, true),
+    assert_pending_response(Id, <<"2.04">>).
+
 case139_block2_publish_once(_Config) ->
     WithContext = capture_with_context(self()),
     Session0 = emqx_lwm2m_session:new(),
@@ -6044,7 +6826,8 @@ case141_channel_blockwise_server_paths(_Config) ->
         },
         {ok, [{outgoing, [ReplyFollow]}], _Channel4} =
             emqx_lwm2m_channel:handle_in(FollowReq, ChannelF),
-        ?assertEqual({error, bad_option}, ReplyFollow#coap_message.method),
+        ?assertEqual({ok, content}, ReplyFollow#coap_message.method),
+        ?assertEqual({2, false, 16}, maps:get(block2, ReplyFollow#coap_message.options)),
 
         ReqOutRange = #coap_message{
             type = con,

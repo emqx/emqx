@@ -298,7 +298,7 @@ t_explicit_session_takeover(Config) ->
     ct:sleep(100),
 
     %% Session is on Node2, but we connect the subscribed client to Node1
-    %% It should take over the session for the third time and recieve
+    %% It should take over the session for the third time and receive
     %% previously published messages
     {ok, C3} = emqtt_connect([
         {clientid, <<"client_with_session">>},
@@ -349,13 +349,15 @@ t_evict_phantom_session(Config) ->
     ]),
     {ok, _, _} = emqtt:subscribe(C0, <<"t1">>),
     emqx_cth_cluster:sync_routes([Node1, Node2]),
-    ChanInfos = rpc:call(Node1, ets, tab2list, [?CHAN_INFO_TAB]),
-    ?assertEqual(1, length(ChanInfos)),
+    [{Chan, ChanInfo, _StatsRef}] = rpc:call(Node1, ets, tab2list, [?CHAN_INFO_TAB]),
     ok = emqtt:disconnect(C0),
     ct:sleep(100),
     %% We restore saved channel info to emulate the situation
     %% when we have a record about actually missing session.
-    rpc:call(Node1, ets, insert, [?CHAN_INFO_TAB, ChanInfos]),
+    %% The stats array of the row died with the channel: the copy gets a new one.
+    true = erpc:call(Node1, fun() ->
+        ets:insert(?CHAN_INFO_TAB, {Chan, ChanInfo, emqx_chan_stats:new([])})
+    end),
     ?assertEqual(1, rpc:call(Node1, emqx_eviction_agent, session_count, [])),
 
     ok = rpc:call(Node1, emqx_eviction_agent, enable, [test_eviction, undefined]),
@@ -423,7 +425,7 @@ t_session_serialization(_Config) ->
 
     ?assertPrinted(
         "client_with_session",
-        emqx_mgmt_cli:clients(["list"])
+        printed(fun() -> emqx_mgmt_cli:clients(["list"]) end)
     ),
 
     ?assertPrinted(
@@ -626,6 +628,11 @@ restart_emqx() ->
     _ = application:stop(emqx_eviction_agent),
     _ = application:start(emqx_eviction_agent),
     ok.
+
+printed(Fun) ->
+    ok = meck:reset(emqx_ctl),
+    _ = Fun(),
+    [Out || {_Pid, {emqx_ctl, print, _Args}, Out} <- meck:history(emqx_ctl)].
 
 mock_print() ->
     catch meck:unload(emqx_ctl),

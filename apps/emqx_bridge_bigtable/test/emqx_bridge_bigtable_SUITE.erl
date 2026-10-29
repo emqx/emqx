@@ -1056,3 +1056,26 @@ t_async_receiver_worker_unknown_events(TCConfig) ->
     _ = gen_server:call(Pid, what),
 
     ok.
+
+-doc """
+Verifies that we check the (hidden, test-only) URL against the configured SSRF
+allow/deny lists when starting the connector.
+""".
+t_ssrf(TCConfig) ->
+    try
+        emqx_utils_ssrf:refresh_cache(#{
+            enable => true,
+            deny_hosts => [~"toxiproxy"]
+        }),
+        ?assertMatch(
+            {201, #{
+                ~"status" := ~"disconnected",
+                ~"status_reason" := <<"Host is on the SSRF denylist:", _/binary>>
+            }},
+            create_connector_api(TCConfig, #{})
+        ),
+        ok
+    after
+        emqx_utils_ssrf:refresh_cache(#{}),
+        ok
+    end.

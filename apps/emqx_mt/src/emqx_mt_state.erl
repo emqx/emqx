@@ -121,15 +121,6 @@
     count :: non_neg_integer()
 }).
 
-%% Mria table to store various configurations for explicitly created namespaces.
-%% They is simply the namespace name (a binary).
-%% Currently, we limit the maximum number of configurable namespaces.
--record(?CONFIG_TAB, {
-    key :: tns(),
-    configs :: emqx_mt_config:root_config(),
-    extra = #{} :: map()
-}).
-
 -doc """
 Mria table to mark a namespace as deleted and needing cleanup.  Once we finish cleaning up
 the namespace (deleting all of its resources), we may delete the corresponding entry here.

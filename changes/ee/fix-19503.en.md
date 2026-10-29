@@ -1,0 +1,1 @@
+REST API requests with malformed UTF-8 or unpaired Unicode surrogate escapes in JSON bodies now return a fixed HTTP 400 error before schema validation. This avoids misleading configuration errors and oversized error responses. Valid Unicode, including emoji, remains supported.

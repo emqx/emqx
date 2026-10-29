@@ -33,10 +33,25 @@ upload_headers.desc:
 Useful to specify content type, content encoding, etc. of the S3 object."""
 
 host.desc:
-"""The host of the S3 endpoint."""
+  """~
+  The host of the S3 endpoint.
+
+  Note: even when using the Virtual Host (`vhost`) access method, do **NOT** specify an endpoint containing the bucket name.  The bucket name is specified in each Action, and prepended to the endpoint automatically.~"""
 
 port.desc:
 """The port of the S3 endpoint."""
+
+region.label:
+"""Signing Region"""
+
+region.desc:
+  """~
+  The region used to sign requests to the S3 endpoint, for example `us-west-2`.
+
+  When this field is set, its value takes precedence over the region inferred from the endpoint host.
+  Otherwise, the region is inferred from the endpoint host, and `us-east-1` is used if no region can be inferred.
+
+  Set this field when the endpoint host does not contain the region, for example a custom domain name.~"""
 
 url_expire_time.desc:
 """The time in seconds for which the signed URLs to the S3 objects are valid."""

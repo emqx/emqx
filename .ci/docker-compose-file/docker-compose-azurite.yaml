@@ -1,7 +1,8 @@
 services:
   azurite:
     container_name: azurite
-    image: mcr.microsoft.com/azure-storage/azurite:3.30.0
+    # Mirror of mcr.microsoft.com/azure-storage/azurite, same tag.
+    image: ghcr.io/emqx/azurite:3.30.0
     restart: always
     expose:
       - "10000"

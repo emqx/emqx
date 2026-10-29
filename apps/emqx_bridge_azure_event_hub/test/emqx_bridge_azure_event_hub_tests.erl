@@ -123,6 +123,19 @@ aeh_producer_test_() ->
                     }
                 )
             )},
+        {"ipv6 bootstrap hosts and ip_family",
+            ?_assertMatch(
+                #{
+                    <<"bootstrap_hosts">> := <<"[fd00::5]:9093,[::1]">>,
+                    <<"socket_opts">> := #{<<"ip_family">> := <<"ipv6">>}
+                },
+                check_connector(
+                    #{
+                        <<"bootstrap_hosts">> => <<"[fd00::5]:9093,[::1]">>,
+                        <<"socket_opts">> => #{<<"ip_family">> => <<"ipv6">>}
+                    }
+                )
+            )},
         {"ssl disabled",
             ?_assertThrow(
                 ?connector_validation_error("Expected: true" ++ _, <<"false">>),

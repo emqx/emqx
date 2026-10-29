@@ -58,6 +58,10 @@
 
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
+%% Sentinel used to assert that `clientinfo_override.password' is not leaked to
+%% the logs on connection startup failures.
+-define(CLIENTINFO_OVERRIDE_PASSWORD, "clientinfo-override-sentinel-pw").
+
 -define(CONF_DEFAULT, <<
     "gateway.mqttsn {\n"
     "  gateway_id = 1\n"
@@ -73,7 +77,9 @@
     "  ]\n"
     "  clientinfo_override {\n"
     "    username = \"user1\"\n"
-    "    password = \"pw123\"\n"
+    "    password = \""
+    ?CLIENTINFO_OVERRIDE_PASSWORD
+    "\"\n"
     "  }\n"
     "  listeners.udp.default {\n"
     "    bind = 1884\n"
@@ -108,6 +114,11 @@
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
+
+%% TODO
+%% Cover delivery rate limits through retry_dequeue timers, ACKs and
+%% sleep/wakeup. Gateway configuration does not expose delivery rate limits
+%% or register session limiter groups.
 
 all() ->
     ProfileTests = hardened_profile_tests(),
@@ -290,6 +301,64 @@ t_duplicate_connect(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
+t_connack_unknown_return_code(_) ->
+    assert_connack_rejection(?CLIENTID, 16#7F, unknown_error).
+
+t_connack_invalid_topic_id(_) ->
+    assert_connack_rejection(?CLIENTID, ?SN_RC_INVALID_TOPIC_ID, rejected_invalid_topic_id).
+
+t_connack_congestion(_) ->
+    assert_connack_rejection(?CLIENTID, ?SN_RC_CONGESTION, rejected_congestion).
+
+assert_connack_rejection(ClientId, ReturnCode, ExpectedReason) ->
+    ConnectHook = {?MODULE, reject_connect, [ClientId, ReturnCode]},
+    ConnackHook = {?MODULE, collect_connack, [ClientId, self()]},
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ok = emqx_hooks:put('client.connect', ConnectHook, ?HP_HIGHEST),
+    ok = emqx_hooks:put('client.connack', ConnackHook, ?HP_HIGHEST),
+    try
+        {ConnPid, {ok, Event}} = ?wait_async_action(
+            begin
+                send_connect_msg(Socket, ClientId),
+                ?assertEqual(<<3, ?SN_CONNACK, ReturnCode>>, receive_response(Socket)),
+                receive
+                    {connack, ClientId, Pid, Reason} ->
+                        ?assertEqual(ExpectedReason, Reason),
+                        Pid
+                after 5000 ->
+                    ct:fail(connack_hook_not_called)
+                end
+            end,
+            #{
+                ?snk_kind := conn_process_terminated,
+                reason := {shutdown, ExpectedReason}
+            },
+            5000
+        ),
+        ?assertMatch(
+            #{
+                ?snk_meta := #{pid := ConnPid},
+                reason := {shutdown, ExpectedReason}
+            },
+            Event
+        )
+    after
+        emqx_hooks:del('client.connect', ConnectHook),
+        emqx_hooks:del('client.connack', ConnackHook),
+        gen_udp:close(Socket)
+    end.
+
+reject_connect(#{clientid := ClientId}, _ConnProps, ClientId, ReturnCode) ->
+    {stop, {error, ReturnCode}};
+reject_connect(_ConnInfo, _ConnProps, _ClientId, _ReturnCode) ->
+    ok.
+
+collect_connack(#{clientid := ClientId}, Reason, _ConnProps, ClientId, TestPid) ->
+    TestPid ! {connack, ClientId, self(), Reason},
+    ok;
+collect_connack(_ConnInfo, _Reason, _ConnProps, _ClientId, _TestPid) ->
+    ok.
+
 t_disconnect_during_will_handshake(_) ->
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg_with_will(Socket, 16#D1CA, <<"C7kauljMB4IdlKbGdf">>),
@@ -441,7 +510,12 @@ t_asleep_pingreq_dtls_without_peer_cert_resumes(Config) ->
     end.
 
 t_asleep_pingreq_dtls_mtls_identity(Config) ->
-    ClientId = <<"asleep-dtls-mtls-identity">>,
+    %% The gateway answers a refused resume with DISCONNECT and then closes.
+    %% Over DTLS the close can reach the client first, see t_connect_dtls.
+    ?retrying(Config, 3, fun do_t_asleep_pingreq_dtls_mtls_identity/1).
+
+do_t_asleep_pingreq_dtls_mtls_identity(Config) ->
+    ClientId = ?CLIENTID,
     TopicName = <<"asleep/dtls/mtls/identity">>,
     SleepDuration = 5,
     MsgId = 36,
@@ -525,6 +599,73 @@ t_asleep_pingreq_dtls_mtls_identity(Config) ->
         gen_udp:close(UdpSocket),
         _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId)
     end.
+
+%% A failing DTLS handshake makes the connection process terminate abnormally,
+%% and the connection arguments (which carry `clientinfo_override') are printed
+%% verbatim in the supervisor offender report. The override password is a
+%% credential, so it must never show up in the logs.
+%% Regression test for https://github.com/emqx/emqx-dev-team-tasks/issues/442
+t_dtls_handshake_failure_does_not_log_clientinfo_override_password(Config) ->
+    Sentinel = list_to_binary(?CLIENTINFO_OVERRIDE_PASSWORD),
+    HandlerId = dtls_secret_log_capture,
+    ok = logger:add_handler(HandlerId, ?MODULE, #{
+        level => info,
+        config => #{owner => self()},
+        filters => [],
+        filter_default => log
+    }),
+    PrevLevel = emqx_logger:get_primary_log_level(),
+    ok = emqx_logger:set_primary_log_level(info),
+    try
+        %% The `mtls' listener requires a client certificate, so connecting without
+        %% one fails the handshake on the server side.
+        NoCertOpts = dtls_client_opts(Config, []),
+        _ =
+            case ssl:connect(?HOST, 1886, NoCertOpts, 1000) of
+                {ok, Socket} -> ssl:close(Socket);
+                _ -> ok
+            end,
+        Events = receive_log_events(
+            fun(Event) -> log_event_mentions(Event, <<"ssl_error">>) end, 5000
+        ),
+        %% Sanity check: the handshake failure reports were actually emitted.
+        ?assert(lists:any(fun(Event) -> log_event_mentions(Event, <<"ssl_error">>) end, Events)),
+        ?assertEqual([], [Event || Event <- Events, log_event_mentions(Event, Sentinel)])
+    after
+        ok = emqx_logger:set_primary_log_level(PrevLevel),
+        _ = logger:remove_handler(HandlerId)
+    end.
+
+receive_log_events(Matcher, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    receive_log_events(Matcher, Deadline, []).
+
+receive_log_events(Matcher, Deadline, Acc) ->
+    Wait = max(0, Deadline - erlang:monotonic_time(millisecond)),
+    receive
+        {captured_log, Event} ->
+            case Matcher(Event) of
+                true -> drain_log_events([Event | Acc]);
+                false -> receive_log_events(Matcher, Deadline, [Event | Acc])
+            end
+    after Wait ->
+        drain_log_events(Acc)
+    end.
+
+drain_log_events(Acc) ->
+    receive
+        {captured_log, Event} -> drain_log_events([Event | Acc])
+    after 500 ->
+        lists:reverse(Acc)
+    end.
+
+log_event_mentions(Event, Needle) ->
+    Rendered = unicode:characters_to_binary(io_lib:format("~0p", [Event])),
+    binary:match(Rendered, Needle) =/= nomatch.
+
+%% Logger handler callback.
+log(LogEvent, #{config := #{owner := Owner}}) ->
+    Owner ! {captured_log, LogEvent}.
 
 t_asleep_pingreq_resume_uses_live_channel_state(_) ->
     ClientId = <<"asleep-resume-live-state">>,
@@ -1444,9 +1585,11 @@ t_publish_negqos_idle_allows_authn_in_hardened_profile(_) ->
         >>
     ),
     ok = emqx_gateway_test_utils:enable_gateway_auth(<<"mqttsn">>),
+    %% An idle negative-QoS publish authenticates with the credentials from
+    %% `clientinfo_override', so the user must carry that password.
     ok = emqx_gateway_test_utils:add_gateway_auth_user(<<"mqttsn">>, #{
         user_id => <<"user1">>,
-        password => <<"pw123">>,
+        password => list_to_binary(?CLIENTINFO_OVERRIDE_PASSWORD),
         is_superuser => false
     }),
     try

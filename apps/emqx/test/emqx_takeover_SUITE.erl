@@ -13,6 +13,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -define(CNT, 100).
 -define(SLEEP, 10).
@@ -56,7 +57,9 @@ groups() ->
         t_takeover_session_then_abnormal_disconnect,
         t_takeover_session_then_abnormal_disconnect_2,
         t_disconnected_at_before_connected_at_on_takeover,
-        t_disconnected_at_before_connected_at_on_discard
+        t_disconnected_at_before_connected_at_on_discard,
+        t_takeover_reauthenticating_delayed_willmsg,
+        t_takeover_reauthenticating_willmsg_no_delay
     ],
     [
         {local, [], [
@@ -804,6 +807,126 @@ t_takeover_before_willmsg_expire(Config) ->
     emqtt:stop(CPidSub),
     emqtt:stop(CPid2).
 
+-doc """
+A takeover with Clean Start = false does not publish the will message of the
+old connection while the old connection is re-authenticating, when the will
+delay is positive. The old session ends with the `session.takenover' hook.
+""".
+t_takeover_reauthenticating_delayed_willmsg(Config) ->
+    takeover_reauthenticating(?FUNCTION_NAME, _WillDelay = 1, _ExpectedWills = 0, Config).
+
+-doc """
+A takeover publishes the will message of the old connection once while the
+old connection is re-authenticating, when the will delay is 0.
+""".
+t_takeover_reauthenticating_willmsg_no_delay(Config) ->
+    takeover_reauthenticating(?FUNCTION_NAME, _WillDelay = 0, _ExpectedWills = 1, Config).
+
+takeover_reauthenticating(TestCase, WillDelay, ExpectedWills, Config) ->
+    case ?config(session_type, Config) of
+        durable -> {skip, in_memory_session_only};
+        memory -> do_takeover_reauthenticating(TestCase, WillDelay, ExpectedWills)
+    end.
+
+do_takeover_reauthenticating(TestCase, WillDelay, ExpectedWills) ->
+    ClientId = atom_to_binary(TestCase),
+    WillTopic = <<ClientId/binary, "/will">>,
+    AuthMethod = <<"reauth-test">>,
+    Self = self(),
+    Hooks = [
+        {'client.authenticate', {?MODULE, authenticate_enhanced, [AuthMethod]}},
+        {'session.takenover', {?MODULE, on_session_takenover, [ClientId, Self]}},
+        {'session.terminated', {?MODULE, on_session_terminated, [ClientId, Self]}}
+    ],
+    %% The listeners disable authentication, and `emqx_access_control' then
+    %% answers before the `client.authenticate' hook runs. Enhanced
+    %% authentication needs the hook, so turn authentication on.
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
+    _ = [ok = emqx_hooks:add(HookPoint, MFA, ?HP_HIGHEST) || {HookPoint, MFA} <- Hooks],
+    try
+        {ok, Sub} = emqtt:start_link([{clientid, <<ClientId/binary, "_willsub">>}, {proto_ver, v5}]),
+        {ok, _} = emqtt:connect(Sub),
+        {ok, _, [?QOS_1]} = emqtt:subscribe(Sub, WillTopic, ?QOS_1),
+        %% GIVEN: a client with a delayed will message and session expiry 60s
+        %%        is re-authenticating.
+        {ok, Old} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
+        unlink(Old),
+        ok = emqx_mqtt_test_client:send(
+            Old,
+            ?CONNECT_PACKET(#mqtt_packet_connect{
+                proto_name = <<"MQTT">>,
+                proto_ver = ?MQTT_PROTO_V5,
+                clean_start = false,
+                clientid = ClientId,
+                will_flag = true,
+                will_qos = ?QOS_1,
+                will_topic = WillTopic,
+                will_payload = <<"will">>,
+                will_props = #{'Will-Delay-Interval' => WillDelay},
+                properties = #{
+                    'Session-Expiry-Interval' => 60,
+                    'Authentication-Method' => AuthMethod,
+                    'Authentication-Data' => <<"ok">>
+                }
+            })
+        ),
+        {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)} = emqx_mqtt_test_client:receive_packet(),
+        ok = emqx_mqtt_test_client:send(
+            Old,
+            ?AUTH_PACKET(?RC_RE_AUTHENTICATE, #{
+                'Authentication-Method' => AuthMethod,
+                'Authentication-Data' => <<"continue">>
+            })
+        ),
+        {ok, ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, _)} =
+            emqx_mqtt_test_client:receive_packet(),
+        ?assertEqual(
+            reauthenticating,
+            emqx_cth_broker:connection_info({channel, conn_state}, ClientId)
+        ),
+        %% WHEN: another connection resumes the session.
+        {ok, New} = emqtt:start_link([
+            {clientid, ClientId},
+            {proto_ver, v5},
+            {clean_start, false},
+            {properties, #{'Session-Expiry-Interval' => 60}}
+        ]),
+        {ok, _} = emqtt:connect(New),
+        ?assertEqual(
+            {ok, ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER)},
+            emqx_mqtt_test_client:receive_packet()
+        ),
+        %% THEN: the will message is published as many times as expected, and the
+        %%       old session ends with the takeover hook only.
+        Msgs = ?drainMailbox(WillDelay * 1000 + 1000),
+        Wills = [Msg || {publish, Msg = #{topic := Topic}} <- Msgs, Topic =:= WillTopic],
+        ?assertEqual(ExpectedWills, length(Wills), #{wills => Wills}),
+        ?assertEqual([takenover], [Hook || {session_end, Id, Hook} <- Msgs, Id =:= ClientId]),
+        ok = emqtt:stop(New),
+        ok = emqtt:stop(Sub)
+    after
+        _ = [emqx_hooks:del(HookPoint, MFA) || {HookPoint, MFA} <- Hooks]
+    end.
+
+authenticate_enhanced(#{auth_method := AuthMethod, auth_data := <<"ok">>}, _Acc, AuthMethod) ->
+    {stop, ok};
+authenticate_enhanced(#{auth_method := AuthMethod, auth_data := <<"continue">>}, _Acc, AuthMethod) ->
+    {stop, {continue, #{}}};
+authenticate_enhanced(_Credential, _Acc, _AuthMethod) ->
+    ignore.
+
+on_session_takenover(#{clientid := ClientId}, _SessInfo, ClientId, Pid) ->
+    Pid ! {session_end, ClientId, takenover},
+    ok;
+on_session_takenover(_ClientInfo, _SessInfo, _ClientId, _Pid) ->
+    ok.
+
+on_session_terminated(#{clientid := ClientId}, Reason, _SessInfo, ClientId, Pid) ->
+    Pid ! {session_end, ClientId, {terminated, Reason}},
+    ok;
+on_session_terminated(_ClientInfo, _Reason, _SessInfo, _ClientId, _Pid) ->
+    ok.
+
 t_kick_session(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     ClientIdSub = <<ClientId/binary, "_willsub">>,
@@ -1033,24 +1156,24 @@ test_cluster_takeover(Protocol, OwnerNode, RequesterNode, Config) ->
                                 ?snk_meta := #{node := RequesterNode},
                                 clientid := ClientId,
                                 target_node := OwnerNode,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_kind := emqx_cm_takeover_begin_rpc,
                                 ?snk_meta := #{node := OwnerNode},
                                 clientid := ClientId,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_kind := emqx_cm_takeover_finish,
                                 ?snk_meta := #{node := RequesterNode},
                                 target_node := OwnerNode,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_meta := #{node := OwnerNode},
                                 ?snk_kind := emqx_cm_takeover_finish_rpc,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             }
                         ],
                         Events
@@ -1286,8 +1409,12 @@ assert_client_takenover(Pid, v5, memory) ->
     %% In-memory sessions deliver a DISCONNECT with the precise
     %% RC_SESSION_TAKEN_OVER reason code.
     %% @ref: MQTT 5.0 spec [MQTT-3.1.4-3]
+    %% The old client may still be draining its QoS 1 deliveries, so the
+    %% DOWN can arrive later than the default timeout.
     ?assertReceive(
-        {'DOWN', _, process, Pid, {shutdown, {disconnected, ?RC_SESSION_TAKEN_OVER, _}}}
+        {'DOWN', _, process, Pid, {shutdown, {disconnected, ?RC_SESSION_TAKEN_OVER, _}}},
+        5_000,
+        #{pid => Pid}
     );
 assert_client_takenover(Pid, v5, durable) ->
     %% For durable (DS) sessions the takeover kick of the previously
@@ -1418,9 +1545,7 @@ verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, Expec
         ?assertEqual(
             4,
             length(ClientEvents),
-            io_lib:format("Expected exactly 4 events for client ~p, got: ~p", [
-                ClientId, ClientEvents
-            ])
+            {unexpected_n_events, ClientId, ClientEvents}
         ),
 
         ConnectTs = [
@@ -1434,12 +1559,12 @@ verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, Expec
         ?assertEqual(
             2,
             length(ConnectTs),
-            io_lib:format("Expected 2 connect events, got: ~p", [ClientEvents])
+            {expected_2_connects, ClientEvents}
         ),
         ?assertEqual(
             2,
             length(Disconnects),
-            io_lib:format("Expected 2 disconnect events, got: ~p", [ClientEvents])
+            {expected_2_disconnects, ClientEvents}
         ),
         [{T1ForT2, T2, ExpectedReason}] = [
             D
@@ -1457,26 +1582,24 @@ verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, Expec
         %% connect(T1), disconnect(T2), connect(T3), disconnect(T4)
         ?assert(
             T1 =< T2 andalso T2 =< T3 andalso T3 =< T4,
-            io_lib:format("Expected non-decreasing T1..T4, got: ~p", [ClientEvents])
+            {unexpectedly_decreasing, ClientEvents}
         ),
         %% 3): T1 is associated with T2 (disconnect.connected_at == T1)
         ?assertEqual(
             T1,
             T1ForT2,
-            io_lib:format("Expected T1 associated with T2 record, got: ~p", [ClientEvents])
+            {unexpected_t2_association, ClientEvents}
         ),
         %% 4): T3 is associated with T4 (disconnect.connected_at == T3)
         ?assertEqual(
             T3,
             T3ForT4,
-            io_lib:format("Expected T3 associated with T4 record, got: ~p", [ClientEvents])
+            {unexpected_t3_association, ClientEvents}
         ),
         %% 5): T4 reason must not be takenover/discarded
         ?assert(
             Reason4 =/= discarded andalso Reason4 =/= takenover,
-            io_lib:format("Final disconnect reason must not be discarded/takenover: ~p", [
-                ClientEvents
-            ])
+            {unexpected_final_disconnect_reason, ClientEvents}
         )
     after
         emqx_hooks:del('client.connected', {?MODULE, hook_fun_connected}),

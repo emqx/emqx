@@ -35,7 +35,7 @@
 
 -export([connector_examples/1]).
 
--export([connect/1, do_get_status/1, execute/3, do_batch_insert/6]).
+-export([connect/1, do_get_status/2, execute/3, do_batch_insert/6]).
 
 -import(hoconsc, [enum/1]).
 
@@ -171,7 +171,8 @@ on_start(
     InstanceId,
     #{
         server := Server,
-        pool_size := PoolSize
+        pool_size := PoolSize,
+        resource_opts := #{health_check_timeout := HCTimeout}
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -199,7 +200,11 @@ on_start(
         {pool, InstanceId}
         | Options0
     ],
-    State = #{pool_name => InstanceId, channels => #{}},
+    State = #{
+        health_check_timeout => HCTimeout,
+        pool_name => InstanceId,
+        channels => #{}
+    },
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, State};
@@ -258,8 +263,15 @@ on_format_query_result({ok, ResultMap}) ->
 on_format_query_result(Result) ->
     Result.
 
-on_get_status(_InstanceId, #{pool_name := PoolName}) ->
-    Opts = #{check_fn => fun ?MODULE:do_get_status/1},
+on_get_status(_InstanceId, ConnState) ->
+    #{
+        pool_name := PoolName,
+        health_check_timeout := HCTimeout
+    } = ConnState,
+    Opts = #{
+        timeout => HCTimeout,
+        check_fn => {?MODULE, do_get_status, [HCTimeout]}
+    },
     Res = emqx_resource_pool:common_health_check_workers(PoolName, Opts),
     case Res of
         {Status, Reason} ->
@@ -268,13 +280,13 @@ on_get_status(_InstanceId, #{pool_name := PoolName}) ->
             Status
     end.
 
-do_get_status(Conn) ->
+do_get_status(Conn, HCTimeout) ->
     try
         tdengine:insert(
             Conn,
             "select server_version()",
             [],
-            emqx_resource_pool:health_check_timeout()
+            HCTimeout
         )
     of
         {ok, _} ->

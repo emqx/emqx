@@ -138,8 +138,12 @@ t_undefined_headers(_) ->
 t_is_expired_1(_) ->
     test_msg_expired_property(?MODULE).
 
+%% The schema defaults of every zone root, as a checked config, with the
+%% forced GC disabled.
 make_zone_default_conf() ->
-    maps:from_list([{Root, #{}} || Root <- emqx_zone_schema:roots()]).
+    Roots = [atom_to_list(Root) || Root <- emqx_zone_schema:roots()],
+    Conf = hocon_tconf:check_plain(emqx_schema, #{}, #{atom_key => true, required => false}, Roots),
+    Conf#{force_gc => #{enable => false}}.
 
 t_is_expired_2(_) ->
     %% if the 'Message-Expiry-Interval' property is set, the message_expiry_interval should be ignored

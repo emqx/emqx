@@ -35,6 +35,9 @@ handle_event(ClientInfo, {dropped, Msg, subscription_filter}) ->
     ok = emqx_hooks:'delivery.dropped'(ClientInfo, Msg, subscription_filter),
     ok = emqx_metrics:inc_global('delivery.dropped'),
     ok = emqx_metrics:inc_global('delivery.dropped.filter');
+handle_event(ClientInfo, {dropped, Msg, rate_limited}) ->
+    ok = emqx_hooks:'delivery.dropped'(ClientInfo, Msg, rate_limited),
+    ok = emqx_metrics:inc_global('delivery.dropped');
 handle_event(ClientInfo, {dropped, Msg, #{reason := qos0_msg, logctx := Ctx}}) ->
     ok = emqx_hooks:'delivery.dropped'(ClientInfo, Msg, qos0_msg),
     ok = emqx_metrics:inc_global('delivery.dropped'),
@@ -80,5 +83,4 @@ inc_await_pubrel_timeout(N) ->
     emqx_metrics:inc_global('messages.dropped.await_pubrel_timeout', N).
 
 inc_pd(Key, Inc) ->
-    _ = emqx_pd:inc_counter(Key, Inc),
-    ok.
+    emqx_chan_stats:inc(Key, Inc).

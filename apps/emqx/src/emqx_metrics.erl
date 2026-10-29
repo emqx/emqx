@@ -13,6 +13,10 @@
 -include("emqx_config.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
+%% create/2 calls the metrics server without a timeout, by design: it is a
+%% startup-time call and a stuck server must not be masked by a timeout.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
     start_link/0,
     stop/0
@@ -81,7 +85,7 @@
 
 -compile({inline, [inc_global/1, inc_global/2, dec_global/1, dec_global/2]}).
 -compile({inline, [inc/2, inc/3, dec/2, dec/3]}).
--compile({inline, [inc_recv/2, inc_sent/2, inc_reserved/2]}).
+-compile({inline, [inc_recv/2, inc_sent/2, inc_reserved/2, update_counter/3, get_counters_ref/1]}).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -231,7 +235,7 @@ val(Namespace, Name) ->
 %% @doc Increase counter
 -spec inc_global(metric_name()) -> ok.
 inc_global(Name) ->
-    inc_global(Name, 1).
+    update_counter(?global_ns, Name, 1).
 
 %% @doc Increase metric value
 -spec inc_global(metric_name(), pos_integer()) -> ok.
@@ -240,7 +244,7 @@ inc_global(Name, Value) ->
 
 -spec inc(maybe_namespace(), metric_name()) -> ok.
 inc(Namespace, Name) ->
-    inc(Namespace, Name, 1).
+    update_counter(Namespace, Name, 1).
 
 -spec inc(maybe_namespace(), metric_name(), pos_integer()) -> ok.
 inc(Namespace, Name, Value) ->
@@ -262,7 +266,7 @@ inc_safe(Namespace, Name, Value) ->
 %% @doc Decrease metric value
 -spec dec_global(metric_name()) -> ok.
 dec_global(Name) ->
-    dec_global(Name, 1).
+    update_counter(?global_ns, Name, -1).
 
 %% @doc Decrease metric value
 -spec dec_global(metric_name(), pos_integer()) -> ok.
@@ -271,7 +275,7 @@ dec_global(Name, Value) ->
 
 -spec dec(maybe_namespace(), metric_name()) -> ok.
 dec(Namespace, Name) ->
-    dec(Namespace, Name, 1).
+    update_counter(Namespace, Name, -1).
 
 -spec dec(maybe_namespace(), metric_name(), pos_integer()) -> ok.
 dec(Namespace, Name, Value) ->
@@ -350,7 +354,7 @@ do_inc_recv(?PUBLISH_PACKET(QoS), CRef) ->
         ?QOS_0 -> inc_reserved(CRef, 'messages.qos0.received');
         ?QOS_1 -> inc_reserved(CRef, 'messages.qos1.received');
         ?QOS_2 -> inc_reserved(CRef, 'messages.qos2.received');
-        _other -> ok
+        _Other -> ok
     end,
     inc_reserved(CRef, 'packets.publish.received');
 do_inc_recv(?PACKET(?PUBACK), CRef) ->
@@ -413,7 +417,7 @@ do_inc_sent(?PUBLISH_PACKET(QoS), CRef) ->
         ?QOS_0 -> inc_reserved(CRef, 'messages.qos0.sent');
         ?QOS_1 -> inc_reserved(CRef, 'messages.qos1.sent');
         ?QOS_2 -> inc_reserved(CRef, 'messages.qos2.sent');
-        _other -> ok
+        _Other -> ok
     end,
     inc_reserved(CRef, 'packets.publish.sent');
 do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode), CRef) ->

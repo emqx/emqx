@@ -16,6 +16,9 @@
 
 -include("emqx_conf.hrl").
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+-elvis([{elvis_style, no_boolean_in_comparison, disable}]).
+
 -behaviour(hocon_schema).
 
 -export([
@@ -37,10 +40,16 @@
 
 %% exported for testing
 -export([validate_tls_stateless_tickets_seed/1, auto_schedulers/2]).
+-export([pinned_plugins_converter/2]).
+-export([resolve_trusted_certs/1, system_ca_bundle_paths/0]).
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
--define(DEFAULT_KERNEL_INET_DIST_OPTIONS, <<"[{buffer,1048576}]">>).
+-define(TRUSTED_CERTS_SYSTEM_DEFAULT, <<"system_default">>).
+-define(TRUSTED_CERTS_FILE_PREFIX, "file://").
+
+%% Keep distribution buffers above inet_drv's 1 MiB buffer-cache limit.
+-define(DEFAULT_KERNEL_INET_DIST_OPTIONS, <<"[{buffer,1114112}]">>).
 -define(DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS, ?DEFAULT_KERNEL_INET_DIST_OPTIONS).
 -define(DEFAULT_KERNEL_INET_DIST_LISTEN_OPTIONS, ?DEFAULT_KERNEL_INET_DIST_OPTIONS).
 
@@ -713,6 +722,18 @@ fields("node") ->
                     desc => ?DESC(node_data_dir)
                 }
             )},
+        {"pinned_plugins",
+            sc(
+                hoconsc:array(binary()),
+                #{
+                    default => [],
+                    'readOnly' => true,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    converter => fun pinned_plugins_converter/2,
+                    validator => fun emqx_plugins_utils:validate_pinned_plugins/1,
+                    desc => ?DESC(node_pinned_plugins)
+                }
+            )},
         {"config_files",
             sc(
                 hoconsc:array(string()),
@@ -743,6 +764,17 @@ fields("node") ->
                     default => crash_dump_file_default(),
                     importance => ?IMPORTANCE_HIDDEN,
                     converter => fun ensure_unicode_path/2,
+                    'readOnly' => true
+                }
+            )},
+        {"trusted_certs",
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC(node_trusted_certs),
+                    default => ?TRUSTED_CERTS_SYSTEM_DEFAULT,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    validator => fun validate_trusted_certs/1,
                     'readOnly' => true
                 }
             )},
@@ -1021,6 +1053,26 @@ fields("rpc") ->
                     desc => ?DESC(rpc_async_batch_size)
                 }
             )},
+        {"compress_level",
+            sc(
+                range(0, 9),
+                #{
+                    mapping => "gen_rpc.compress",
+                    default => 0,
+                    desc => ?DESC(rpc_compress_level),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
+        {"compress_threshold",
+            sc(
+                emqx_schema:bytesize(),
+                #{
+                    mapping => "gen_rpc.compression_threshold",
+                    default => <<"1KB">>,
+                    desc => ?DESC(rpc_compress_threshold),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {"port_discovery",
             sc(
                 hoconsc:enum([manual, stateless]),
@@ -1161,7 +1213,8 @@ fields("rpc") ->
                 emqx_schema:bytesize(),
                 #{
                     mapping => "gen_rpc.socket_buffer",
-                    default => <<"1MB">>,
+                    %% Avoid recycling these buffers through inet_drv's buffer cache.
+                    default => <<"1088KB">>,
                     desc => ?DESC(rpc_socket_buffer)
                 }
             )},
@@ -1479,7 +1532,7 @@ desc(durable_timers) ->
 desc(Name) ->
     schema_desc(Name).
 
-translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus", "vm_args"].
+translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus", "hackney", "vm_args"].
 
 translation("ekka") ->
     [{"cluster_discovery", fun tr_cluster_discovery/1}];
@@ -1494,7 +1547,8 @@ translation("emqx") ->
         {"config_files", fun tr_config_files/1},
         {"cluster_override_conf_file", fun tr_cluster_override_conf_file/1},
         {"local_override_conf_file", fun tr_local_override_conf_file/1},
-        {"cluster_hocon_file", fun tr_cluster_hocon_file/1}
+        {"cluster_hocon_file", fun tr_cluster_hocon_file/1},
+        {"trusted_certs_path", fun tr_trusted_certs_path/1}
     ];
 translation("gen_rpc") ->
     [
@@ -1519,6 +1573,10 @@ translation("prometheus") ->
     [
         {"collectors", fun(_) -> [] end}
     ];
+translation("hackney") ->
+    [
+        {"cacertfile_path", fun tr_trusted_certs_path/1}
+    ];
 translation("vm_args") ->
     [
         {"+Q", fun tr_vm_args_max_ports/1},
@@ -1529,6 +1587,108 @@ translation("vm_args") ->
         {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1},
         {"-kernel inet_dist_listen_options", fun tr_kernel_inet_dist_listen_options/1}
     ].
+
+%% hocon drops an `undefined' value, so the key is not set.
+tr_trusted_certs_path(Conf) ->
+    resolve_trusted_certs(
+        hocon_maps:get("node.trusted_certs", Conf, ?TRUSTED_CERTS_SYSTEM_DEFAULT)
+    ).
+
+validate_trusted_certs(Value) ->
+    try resolve_trusted_certs(Value) of
+        _ -> ok
+    catch
+        throw:Reason -> {error, Reason}
+    end.
+
+-doc """
+Resolve `node.trusted_certs` to the absolute path of a CA bundle file.
+
+`system_default` returns the first readable regular file in
+`system_ca_bundle_paths/0`, or `undefined` when there is none. `file:///abs/path`
+returns `/abs/path` when it is an absolute path to a readable regular file.
+Any other value throws.
+""".
+-spec resolve_trusted_certs(binary()) -> file:filename() | undefined.
+resolve_trusted_certs(Value) ->
+    case Value of
+        ?TRUSTED_CERTS_SYSTEM_DEFAULT ->
+            first_regular_file(?MODULE:system_ca_bundle_paths());
+        <<?TRUSTED_CERTS_FILE_PREFIX, Path/binary>> ->
+            ensure_trusted_certs_file(unicode:characters_to_list(Path));
+        _ ->
+            throw(#{
+                cause => "bad_trusted_certs",
+                value => Value,
+                expected => "system_default or file:///absolute/path"
+            })
+    end.
+
+ensure_trusted_certs_file(Path) ->
+    case filename:pathtype(Path) of
+        absolute ->
+            case filelib:is_regular(Path) of
+                true -> ensure_readable(Path);
+                false -> throw(#{cause => "trusted_certs_file_not_found", path => Path})
+            end;
+        _ ->
+            throw(#{cause => "trusted_certs_path_not_absolute", path => Path})
+    end.
+
+ensure_readable(Path) ->
+    case is_readable(Path) of
+        ok ->
+            Path;
+        {error, Reason} ->
+            throw(#{cause => "trusted_certs_file_not_readable", path => Path, reason => Reason})
+    end.
+
+first_regular_file([]) ->
+    undefined;
+first_regular_file([Path | Paths]) ->
+    case filelib:is_regular(Path) andalso is_readable(Path) =:= ok of
+        true -> Path;
+        false -> first_regular_file(Paths)
+    end.
+
+%% Open the file, so the check uses the permissions of the user that runs EMQX.
+is_readable(Path) ->
+    case file:open(Path, [read, raw]) of
+        {ok, Fd} -> file:close(Fd);
+        {error, _} = Error -> Error
+    end.
+
+-doc """
+Return the CA bundle paths that `public_key:cacerts_load/0` probes on this OS.
+OTP has no API for the path, so this copies the lists in `pubkey_os_cacerts.erl`
+of OTP-28.4.1 (public_key 1.20.2). Keep it in sync with OTP.
+
+- https://github.com/erlang/otp/blob/c8fca7e34e/lib/public_key/src/pubkey_os_cacerts.erl#L69-L79
+- https://github.com/erlang/otp/blob/c8fca7e34e/lib/public_key/src/pubkey_os_cacerts.erl#L220-L233
+""".
+-spec system_ca_bundle_paths() -> [file:filename()].
+system_ca_bundle_paths() ->
+    case os:type() of
+        {unix, linux} ->
+            [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/ca-bundle.pem",
+                "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+                "/etc/ssl/cert.pem"
+            ];
+        {unix, BSD} when
+            BSD =:= openbsd; BSD =:= freebsd; BSD =:= dragonfly; BSD =:= netbsd
+        ->
+            [
+                "/etc/ssl/cert.pem",
+                "/etc/openssl/certs/cacert.pem",
+                "/etc/openssl/certs/ca-certificates.crt",
+                "/usr/local/share/certs/ca-root-nss.crt"
+            ];
+        _ ->
+            []
+    end.
 
 %% Cap +S at the number of logical processors actually available to the VM.
 %% BEAM's default is one scheduler per host CPU regardless of cgroup CPU set,
@@ -1961,6 +2121,27 @@ validator_string_re(Val, RE, Error) ->
 
 node_array() ->
     hoconsc:union([emqx_schema:comma_separated_atoms(), hoconsc:array(atom())]).
+
+-doc """
+Normalize `node.pinned_plugins` to a list of name-vsn binaries.
+
+The value is either a comma-separated string or an array of strings. Spaces
+around each entry are trimmed, and empty entries are dropped.
+""".
+pinned_plugins_converter(undefined, _Opts) ->
+    undefined;
+pinned_plugins_converter(Str, Opts) when is_binary(Str) ->
+    pinned_plugins_converter(binary:split(Str, <<",">>, [global]), Opts);
+pinned_plugins_converter(List, _Opts) when is_list(List) ->
+    Trimmed = [trim_pinned_plugin(Item) || Item <- List],
+    [Item || Item <- Trimmed, Item =/= <<>>];
+pinned_plugins_converter(Other, _Opts) ->
+    Other.
+
+trim_pinned_plugin(Item) when is_binary(Item) ->
+    string:trim(Item, both, " \t");
+trim_pinned_plugin(Item) ->
+    Item.
 
 ensure_file_handlers(Conf, _Opts) ->
     FileFields = lists:flatmap(

@@ -51,10 +51,12 @@
     pipelining := pos_integer(),
     pool_size := pos_integer(),
     server := binary(),
-    username := binary()
+    username := binary(),
+    resource_opts := #{health_check_timeout := timeout(), atom() => term()}
 }.
 -type connector_state() :: #{
-    installed_actions := #{action_resource_id() => action_state()}
+    installed_actions := #{action_resource_id() => action_state()},
+    health_check_timeout := timeout()
 }.
 
 -type action_config() :: #{
@@ -100,13 +102,15 @@ on_start(ConnResId, ConnConfig) ->
         pipelining := Pipelining,
         max_inactive := MaxInactive,
         pool_size := PoolSize,
-        username := Username
+        username := Username,
+        resource_opts := #{health_check_timeout := HCTimeout}
     } = ConnConfig,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SERVER_OPTIONS),
     State = #{
         installed_actions => #{},
         password => Password,
-        username => Username
+        username => Username,
+        health_check_timeout => HCTimeout
     },
     {Transport, TransportOpts0} =
         case maps:get(ssl, ConnConfig) of
@@ -146,10 +150,10 @@ on_stop(ConnResId, _ConnState) ->
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | {?status_connecting, term()} | {?status_disconnected, term()}.
-on_get_status(ConnResId, _ConnState) ->
+on_get_status(ConnResId, ConnState) ->
     case ehttpc:check_pool_integrity(ConnResId) of
         ok ->
-            health_check_pool_workers(ConnResId);
+            health_check_pool_workers(ConnResId, ConnState);
         {error, Reason} ->
             {?status_disconnected, Reason}
     end.
@@ -257,20 +261,22 @@ create_action(ActionConfig) ->
         sql => SQL
     }.
 
--spec health_check_pool_workers(connector_resource_id()) ->
+-spec health_check_pool_workers(connector_resource_id(), connector_state()) ->
     ?status_connected | {?status_connecting, term()} | {?status_disconnected, term()}.
-health_check_pool_workers(ConnResId) ->
-    Timeout = emqx_resource_pool:health_check_timeout(),
+health_check_pool_workers(ConnResId, ConnState) ->
+    #{health_check_timeout := HCTimeout} = ConnState,
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(ConnResId)],
     try
-        emqx_utils:pmap(fun(Worker) -> ehttpc:health_check(Worker, Timeout) end, Workers, Timeout)
+        emqx_utils:pmap(
+            fun(Worker) -> ehttpc:health_check(Worker, HCTimeout) end, Workers, HCTimeout
+        )
     of
         [] ->
             {?status_connecting, <<"connection_pool_not_initialized">>};
         [_ | _] = Results ->
             case [E || {error, _} = E <- Results] of
                 [] ->
-                    ping(ConnResId, Timeout);
+                    ping(ConnResId, HCTimeout);
                 [{error, Reason} | _] ->
                     ?SLOG(info, #{
                         msg => "couchbase_health_check_failed",

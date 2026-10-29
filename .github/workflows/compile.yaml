@@ -1,7 +1,7 @@
 name: Compile
 
 concurrency:
-  group: compile-${{ inputs.build_type }}-${{ github.event_name }}-${{ github.ref }}
+  group: compile-${{ inputs.warm-cache && 'warm-' || '' }}${{ inputs.build_type }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:
@@ -13,6 +13,13 @@ on:
       build_type:
         required: true
         type: string
+      warm-cache:
+        description: >-
+          Only fill the dependency cache: on an exact hit stop after the lookup,
+          on a miss compile and save the entry. Skip the checks and artifacts.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,7 +46,16 @@ jobs:
       - name: Work around https://github.com/actions/checkout/issues/766
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Restore dependency cache
+        id: deps-cache
+        uses: ./.github/actions/deps-cache-restore
+        with:
+          profiles: ${{ inputs.build_type == 'test' && format('{0}-test', matrix.profile) || matrix.profile }}
+          toolchain: ${{ inputs.builder }}
+          build-inputs: .github/workflows/compile.yaml
+          lookup-only: ${{ inputs.warm-cache }}
       - id: compile
+        if: ${{ !inputs.warm-cache || steps.deps-cache.outputs.cache-hit != 'true' }}
         env:
           PROFILE: ${{ matrix.profile }}
           ENABLE_COVER_COMPILE: 1
@@ -56,9 +72,13 @@ jobs:
           make ${MAKE_TARGET}
           echo "export PROFILE=${PROFILE}" | tee -a env.sh
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
-          zip -ryq -x@.github/workflows/.zipignore2 $ARTIFACT_NAME .
+          # .zipignore drops build-time caches under deps/ that CT does not
+          # read: git pack files, rebar3 plugin caches, prebuilt NIF tarballs
+          # and cargo targets. It keeps deps/*/.git/HEAD and config, which mix
+          # reads to check git deps against mix.lock.
+          zip -ryq -x@.github/workflows/.zipignore $ARTIFACT_NAME .
       - name: Check API scope coverage
-        if: inputs.build_type == 'test'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'test' }}
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
@@ -67,26 +87,56 @@ jobs:
           ## _build/${PROFILE}-test/lib, not _build/${PROFILE}/lib.
           ./scripts/check-api-scope-coverage.escript _build/${PROFILE}-test/lib
       - name: Check for unlisted CT cases
-        if: inputs.build_type == 'test'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'test' }}
         env:
           PROFILE: ${{ matrix.profile }}
         run: |
           ## Same lib dir as the scope check above: the suite beams only
           ## exist in the test profile.
           ./scripts/check-unlisted-ct-cases.escript _build/${PROFILE}-test/lib
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.warm-cache }}
         with:
           name: ${{ matrix.profile }}-${{ inputs.build_type }}
           path: ${{ matrix.profile }}-${{ inputs.build_type }}.zip
           retention-days: 7
           if-no-files-found: error
       - name: build release with schema dump
-        if: inputs.build_type == 'release'
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         env:
           PROFILE: ${{ matrix.profile }}
         run: make ${PROFILE}-rel
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: inputs.build_type == 'release'
+      # The release directory is not part of the workspace artifact above (it is
+      # built after it is zipped), so ship it separately for the jobs that need
+      # to actually run a release, such as pytest_boot_tests.
+      - name: package release dir
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
+        run: zip -ryq ${{ matrix.profile }}-rel.zip _build/${{ matrix.profile }}/rel/emqx
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
+        with:
+          name: ${{ matrix.profile }}-rel
+          path: ${{ matrix.profile }}-rel.zip
+          retention-days: 7
+          if-no-files-found: error
+      # The plugin CT suites install a plugin package. Build the packages here,
+      # where the production profile is already compiled, and ship them. A CT
+      # job then installs a prebuilt package, and it does not compile the deps
+      # again. That keeps the deps caches out of the workspace artifact.
+      - name: build plugin packages
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: ./scripts/build-plugins.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
+        with:
+          name: ${{ matrix.profile }}-plugin-packages
+          path: _build/plugins/*.tar.gz
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.warm-cache && inputs.build_type == 'release' }}
         with:
           name: "${{ matrix.profile }}-schema-dump"
           path: |
@@ -96,3 +146,9 @@ jobs:
             _build/docgen/${{ matrix.profile }}/*.hocon
           retention-days: 7
           if-no-files-found: error
+      - name: Save dependency cache
+        if: ${{ success() && inputs.warm-cache && steps.deps-cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/deps-cache-save
+        with:
+          key: ${{ steps.deps-cache.outputs.key }}
+          paths: ${{ steps.deps-cache.outputs.paths }}

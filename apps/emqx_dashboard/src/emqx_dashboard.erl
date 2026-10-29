@@ -4,6 +4,9 @@
 
 -module(emqx_dashboard).
 
+%% `listener_name/1' builds the listener id atom from a fixed set of protocols.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -moduledoc "Dashboard listener management, authorization, and Minirest wiring.".
 
 %% dialyzer cannot see through emqx_mgmt_auth:authorize/4's return value
@@ -22,8 +25,12 @@
     regenerate_dispatch_after_config_update/0
 ]).
 
+%% The release version that the REST API reports
+-export([reported_version/0, reported_version/1]).
+
 %% Authorization
 -export([authorize/2]).
+-export([parse_authorization_header/1]).
 -export([get_namespace/1]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -35,6 +42,11 @@
 -include_lib("emqx/include/emqx_config.hrl").
 
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
+
+-define(API_DESCRIPTION, <<
+    "A request accepts at most 100 query parameters in total, "
+    "including repeated and pagination parameters."
+>>).
 
 -type listener_name() :: atom().
 -type listener_configs() :: #{listener_name() => emqx_config:config()}.
@@ -157,7 +169,11 @@ minirest_option(Options) ->
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
-        info => #{title => emqx_api_name(), version => emqx_release_version()},
+        info => #{
+            title => emqx_api_name(),
+            version => reported_version(),
+            description => ?API_DESCRIPTION
+        },
         servers => [#{url => emqx_dashboard_swagger:base_path()}],
         components => #{
             schemas => #{},
@@ -299,7 +315,7 @@ audit_log_fun() ->
 
 -spec authorize(request(), handler_info()) -> {ok, auth_meta()} | {integer(), term(), term()}.
 authorize(Req, HandlerInfo) ->
-    case cowboy_req:parse_header(<<"authorization">>, Req) of
+    case parse_authorization_header(Req) of
         {basic, Username, Password} ->
             api_key_authorize(Req, HandlerInfo, Username, Password);
         {bearer, Token} ->
@@ -317,14 +333,39 @@ authorize(Req, HandlerInfo) ->
             end
     end.
 
+-doc """
+Parse the `Authorization` header of a request.
+Return `undefined` when the header is absent or when Cowboy cannot parse it.
+""".
+-spec parse_authorization_header(request()) ->
+    {basic, binary(), binary()} | {bearer, binary()} | {digest, list()} | undefined.
+parse_authorization_header(Req) ->
+    undefined_on_request_error(fun() -> cowboy_req:parse_header(<<"authorization">>, Req) end).
+
 is_plugin_api(Req) ->
     case cowboy_req:path(Req) of
         <<"/api/v5/plugin_api/", _/binary>> -> true;
         _ -> false
     end.
 
+%% A header cowboy cannot parse counts as absent. `cowboy_req:parse_header/2`
+%% and `cowboy_req:match_cookies/2` signal a malformed header with
+%% `exit:{request_error, _, _}`, re-raised with the stacktrace of the cowlib
+%% parse failure. That stacktrace holds the header value, so an escaping
+%% exception writes the caller's credential to the error log. `undefined`
+%% sends the caller to the 401 branch a missing header already takes.
+undefined_on_request_error(Fun) ->
+    try
+        Fun()
+    catch
+        exit:{request_error, _, _} -> undefined
+    end.
+
 cookie_authorize(Req, HandlerInfo) ->
-    case cowboy_req:match_cookies([{emqx_auth, [], undefined}], Req) of
+    Cookies = undefined_on_request_error(
+        fun() -> cowboy_req:match_cookies([{emqx_auth, [], undefined}], Req) end
+    ),
+    case Cookies of
         #{emqx_auth := Token} when is_binary(Token), Token =/= <<>> ->
             jwt_token_bearer_authorize(Req, HandlerInfo, Token);
         _ ->
@@ -403,6 +444,7 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
                     " path is not permitted">>
             );
         {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
+            ok = audit_rbac_denied(Req, api_key, Key),
             {403, 'UNAUTHORIZED_ROLE', Msg};
         {error, _} ->
             return_unauthorized(
@@ -433,9 +475,25 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
             {401, 'TOKEN_TIME_OUT', token_timeout_message(HandlerInfo)};
         {error, not_found} ->
             {401, 'BAD_TOKEN', bad_token_message(HandlerInfo)};
-        {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
+        {error, {unauthorized_role, Msg, AdminKey}} when is_binary(Msg) ->
+            ok = audit_rbac_denied(Req, jwt_token, AdminKey),
             {403, 'UNAUTHORIZED_ROLE', Msg}
     end.
+
+%% RBAC denies the request after the caller has been authenticated, so the
+%% actor is known. minirest never reaches its own meta-producing code on a
+%% failed authorization, so write the actor and the path parameters into the
+%% audit meta here. Only the routing bindings are added - no headers, no body.
+%%
+%% `update_log_meta/1' merges into the per-request meta that minirest
+%% initialises before it calls this authorizer. It does nothing when there is
+%% no request to audit, for example when a test calls `authorize/2' directly.
+audit_rbac_denied(Req, AuthType, Source) ->
+    minirest_handler:update_log_meta(#{
+        auth_type => AuthType,
+        source => Source,
+        bindings => cowboy_req:bindings(Req)
+    }).
 
 ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->
     SslOpt1 = maps:from_list(emqx_tls_lib:to_server_opts(tls, SslOpts)),
@@ -492,5 +550,29 @@ dynamic_dispatch() ->
 emqx_api_name() ->
     emqx_release:description() ++ " API".
 
-emqx_release_version() ->
-    emqx_release:version().
+-doc """
+Return the release version that the REST API reports.
+See `reported_version/1`.
+""".
+-spec reported_version() -> string().
+reported_version() ->
+    reported_version(emqx_release:version()).
+
+-doc """
+Return `Vsn` as the REST API reports it.
+When `dashboard.show_preview_version` is `false`, the `-preview.N` suffix is
+removed, for example `6.1.5-preview.1` becomes `6.1.5`.
+Use this only for the version in a REST API response. Other code must use
+`emqx_release:version/0`, which always returns the real version.
+""".
+-spec reported_version(Vsn) -> Vsn when Vsn :: string() | binary().
+reported_version(Vsn) ->
+    case emqx:get_config([dashboard, show_preview_version], true) of
+        true -> Vsn;
+        false -> strip_preview_suffix(Vsn)
+    end.
+
+strip_preview_suffix(Vsn) when is_binary(Vsn) ->
+    re:replace(Vsn, "-preview\\.[0-9]+", "", [{return, binary}]);
+strip_preview_suffix(Vsn) when is_list(Vsn) ->
+    re:replace(Vsn, "-preview\\.[0-9]+", "", [{return, list}]).

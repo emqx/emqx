@@ -14,6 +14,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/src/emqx_tracepoints.hrl").
+-include("../../emqx_extsub/src/emqx_extsub_internal.hrl").
 
 all() ->
     [
@@ -1433,20 +1434,13 @@ t_resume_and_resubscribe(_TCConfig) ->
     ),
     ok.
 
+-doc "Non-MQTT subscriptions do not start a retained-message handler.".
 t_extsub_ignore_non_mqtt(_Config) ->
-    SendTag = make_ref(),
-    SendAfterTag = make_ref(),
+    Ref = make_ref(),
     SubCtx = #{
         clientinfo => #{protocol => lwm2m},
         subopts => #{rh => 0},
-        send => fun(_Info) ->
-            self() ! {unexpected_send, SendTag},
-            ok
-        end,
-        send_after => fun(_Delay, _Info) ->
-            self() ! {unexpected_send_after, SendAfterTag},
-            ok
-        end
+        message_target => emqx_extsub_handler:message_target(Ref)
     },
     ?assertEqual(
         ignore,
@@ -1455,10 +1449,8 @@ t_extsub_ignore_non_mqtt(_Config) ->
         )
     ),
     receive
-        {unexpected_send, SendTag} ->
-            ?assert(false, unexpected_send);
-        {unexpected_send_after, SendAfterTag} ->
-            ?assert(false, unexpected_send_after)
+        #info_to_extsub{handler_ref = Ref} ->
+            ?assert(false, unexpected_handler_message)
     after 100 ->
         ok
     end.
@@ -1472,7 +1464,7 @@ t_extsub_no_handler_no_wildcard_empty(_Config) ->
             subscribe, extsub_sub_ctx(Ref), undefined, <<"skip_empty/none">>
         )
     ),
-    ?assertNotReceive({extsub_send, Ref, _}, 100).
+    ?assertNotReceive(#info_to_extsub{handler_ref = Ref}, 100).
 
 -doc """
 A subscription to a topic without wildcards that has a retained message starts a handler.
@@ -1487,7 +1479,9 @@ t_extsub_handler_no_wildcard_retained(_Config) ->
         {ok, Handler} = emqx_retainer_extsub_handler:handle_subscribe(
             subscribe, extsub_sub_ctx(Ref), undefined, Topic
         ),
-        {extsub_send, Ref, Next} = ?assertReceive({extsub_send, Ref, _}, 1000),
+        #info_to_extsub{info = Next} = ?assertReceive(
+            #info_to_extsub{handler_ref = Ref}, 1000
+        ),
         ?assertMatch(
             {ok, _, [#message{topic = Topic, payload = <<"payload">>}]},
             emqx_retainer_extsub_handler:handle_info(Handler, #{}, Next)
@@ -1507,21 +1501,13 @@ t_extsub_handler_wildcard_empty(_Config) ->
             subscribe, extsub_sub_ctx(Ref), undefined, <<"skip_empty/none/+">>
         )
     ),
-    ?assertReceive({extsub_send, Ref, _}, 1000).
+    ?assertReceive(#info_to_extsub{handler_ref = Ref}, 1000).
 
 extsub_sub_ctx(Ref) ->
-    Self = self(),
     #{
         clientinfo => #{protocol => mqtt},
         subopts => #{rh => 0},
-        send => fun(Info) ->
-            Self ! {extsub_send, Ref, Info},
-            ok
-        end,
-        send_after => fun(_Delay, Info) ->
-            Self ! {extsub_send, Ref, Info},
-            make_ref()
-        end
+        message_target => emqx_extsub_handler:message_target(Ref)
     }.
 
 -doc """

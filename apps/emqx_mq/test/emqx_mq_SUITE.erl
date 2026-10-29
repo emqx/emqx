@@ -656,7 +656,7 @@ t_progress_restoration_from_removed_gen(_Config) ->
     ok = wait_for_consumer_stop(MQ, 100),
 
     %% Add some messages to the new generation and delete the old one (where the consumer stopped)
-    SlabInfo = emqx_mq_message_db:regular_db_slab_info(),
+    {ok, SlabInfo} = emqx_mq_message_db:regular_db_slab_info(),
     ok = emqx_mq_message_db:add_regular_db_generation(),
     emqx_mq_test_utils:populate(20, #{
         topic_prefix => <<"t/">>,
@@ -685,6 +685,52 @@ t_progress_restoration_from_removed_gen(_Config) ->
             Msgs1
         ),
         binfmt("Expected all messages to be from new generation with payload-new-* payload", [])
+    ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
+%% We check that the consumer moves to the next generation of a shard after a restart
+%% when all messages of the shard in the previous generation were acknowledged
+t_progress_restoration_acked_stream_from_old_gen(_Config) ->
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    %% Create a non-lastvalue Queue
+    MQ =
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"acked_stream_from_old_gen">>,
+            topic_filter => <<"t/#">>,
+            is_lastvalue => false,
+            consumer_max_inactive => 50
+        }),
+
+    %% Messages are sharded by the publisher's clientid,
+    %% so all messages go to the same shard
+    PopulateOpts = #{topic_prefix => <<"t/">>, clientid => <<"publisher">>},
+
+    %% Consume and acknowledge all the messages
+    emqx_mq_test_utils:populate(10, PopulateOpts#{payload_prefix => <<"payload-old-">>}),
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"acked_stream_from_old_gen">>),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 500),
+    ?assertEqual(10, length(Msgs0)),
+
+    %% Disconnect the client and wait for the consumer to stop and save the progress
+    ok = emqtt:disconnect(CSub0),
+    ok = wait_for_consumer_stop(MQ, 100),
+
+    %% Publish to the same shard in a new generation, keeping the old one
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    emqx_mq_test_utils:populate(10, PopulateOpts#{payload_prefix => <<"payload-new-">>}),
+
+    %% Start the client and the consumer again
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"acked_stream_from_old_gen">>),
+
+    %% Verify that we receive all new messages and no old ones
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 0, _Timeout1 = 500),
+    ?assertEqual(
+        lists:sort([<<"payload-new-", (integer_to_binary(I))/binary>> || I <- lists:seq(0, 9)]),
+        lists:sort([Payload || #{payload := Payload} <- Msgs1])
     ),
 
     %% Clean up
@@ -1102,6 +1148,51 @@ t_offline_session(_Config) ->
     ok = emqtt:disconnect(CSub01),
     ok = emqtt:disconnect(CSub1).
 
+-doc """
+After takeover, the client receives the inflight queue message again with its packet identifier.
+The consumer can send the message once more when the old subscriber times out.
+Delivery continues after the client acknowledges all copies.
+""".
+t_session_transfer(_Config) ->
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"transfer">>,
+        topic_filter => <<"transfer/#">>,
+        is_lastvalue => false,
+        ping_interval => 100
+    }),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"transfer/">>}),
+    Opts = [
+        {clientid, <<"mq-transfer">>},
+        {auto_ack, false},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 1000}}
+    ],
+
+    %% The first client receives the message and does not acknowledge it
+    COld = emqx_mq_test_utils:emqtt_connect(Opts),
+    true = unlink(COld),
+    emqx_mq_test_utils:emqtt_sub_mq(COld, <<"transfer">>),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 1, _Timeout0 = 3000),
+    [#{payload := Payload, packet_id := PacketId}] = Msgs0,
+
+    %% The second client takes over the session
+    CNew = emqx_mq_test_utils:emqtt_connect(Opts),
+    ?assertEqual(1, proplists:get_value(session_present, emqtt:info(CNew))),
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 1500),
+    ?assertMatch([#{payload := Payload, packet_id := PacketId, dup := true} | _], Msgs1),
+    ?assertEqual([Payload], lists:usort([MsgPayload || #{payload := MsgPayload} <- Msgs1])),
+    ok = emqx_mq_test_utils:emqtt_ack(Msgs1),
+
+    %% New messages are delivered after the acknowledgements
+    emqx_mq_test_utils:populate(1, #{
+        topic_prefix => <<"transfer/">>, payload_prefix => <<"after-">>
+    }),
+    {ok, Msgs2} = emqx_mq_test_utils:emqtt_drain(_MinMsg2 = 1, _Timeout2 = 1500),
+    ?assertMatch([#{payload := <<"after-0">>}], Msgs2),
+
+    %% Clean up
+    ok = emqtt:disconnect(CNew).
+
 %% Verify that the metrics are updated correctly
 t_metrics(_Config) ->
     #{received_messages := ReceivedMessages0, inserted_messages := InsertedMessages0} =
@@ -1286,6 +1377,24 @@ t_auto_create_disabled(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that the default configuration does not automatically create queues
+t_auto_create_disabled_by_default(_Config) ->
+    %% Take the `auto_create' settings straight from the schema defaults
+    #{<<"mq">> := #{<<"auto_create">> := AutoCreate}} =
+        emqx_config:fill_defaults(#{<<"mq">> => #{}}),
+    ?assertEqual(#{<<"regular">> => false, <<"lastvalue">> => false}, AutoCreate),
+    {ok, _} = emqx:update_config([mq, auto_create], AutoCreate),
+
+    %% Connect a client and subscribe to a non-existent queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"auto_create_default">>, <<"non-existent/#">>),
+
+    %% Verify that the queue was not automatically created
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"auto_create_default">>)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %% Subscribe to the same name under different topic filters
 t_conflicting_queues(_Config) ->
     %% Enable automatic creation of regular queues
@@ -1320,16 +1429,16 @@ t_conflicting_queues(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
-%% Verify that only MQTT v5 clients are allowed to subscribe to queues
+-doc "MQTT 3.1 and 3.1.1 clients cannot subscribe to queues.".
 t_allow_only_mqtt_v5(_Config) ->
-    %% Connect a client and subscribe to a queue
-    {ok, CSub} = emqtt:start_link([{proto_ver, v3}]),
+    lists:foreach(fun reject_legacy_protocol/1, [v3, v4]).
+
+reject_legacy_protocol(ProtoVer) ->
+    {ok, CSub} = emqtt:start_link([{proto_ver, ProtoVer}]),
     {ok, _} = emqtt:connect(CSub),
 
-    %% Try to subscribe to a queue with MQTT v3
     {ok, _, [?RC_UNSPECIFIED_ERROR]} = emqtt:subscribe(CSub, {<<"$queue/some_queue/t/#">>, 1}),
 
-    %% Clean up
     ok = emqtt:disconnect(CSub).
 
 %% Verify the situation when the consumer accumulates a large number of messages in the buffer

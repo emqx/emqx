@@ -34,8 +34,9 @@
 %% ecpool callback
 -export([
     connect/1,
-    call_driver/3,
-    prepare_sql_to_conn/2
+    call_driver/4,
+    prepare_sql_to_conn/3,
+    get_reconnect_callback_signature/1
 ]).
 
 -ifdef(TEST).
@@ -50,7 +51,7 @@
 
 -type channel_state() ::
     #{
-        pool_name => resource_id(),
+        pool_name := resource_id(),
         enable_prepared => boolean(),
         query_templates := #{
             prepstmt := {emqx_template_sql:statement(), emqx_template_sql:row_template()},
@@ -184,7 +185,7 @@ on_add_channel(
     ChannelConfig
 ) ->
     {ok, ChannelState} = create_channel_state(InstId, ChannelId, State, ChannelConfig),
-    {ok, State#{channels => Channels#{ChannelId => ChannelState}}}.
+    {ok, State#{channels := Channels#{ChannelId => ChannelState}}}.
 
 on_remove_channel(_InstId, #{channels := Channels} = _State, ChannelId) when
     not is_map_key(ChannelId, Channels)
@@ -194,7 +195,7 @@ on_remove_channel(
     _InstId, #{channels := Channels} = State, ChannelId
 ) ->
     ChannelState = maps:get(ChannelId, Channels),
-    ok = destory_channel_state(ChannelState),
+    ok = destory_channel_state(ChannelState, ChannelId),
     NewState = State#{channels => maps:remove(ChannelId, Channels)},
     {ok, NewState}.
 
@@ -209,24 +210,31 @@ create_channel_state(
         pool_name => InstId,
         enable_prepared => EnablePrepared
     },
-    {ok, init_prepare(NChannelState)}.
+    {ok, init_prepare(ChannelId, NChannelState)}.
 
-destory_channel_state(#{enable_prepared := false} = _ChannelState) ->
+destory_channel_state(#{enable_prepared := false} = _ChannelState, _ChanResId) ->
     ok;
-destory_channel_state(#{prepared_refs := PrepStatements} = _ChannelState) when
+destory_channel_state(#{prepared_refs := PrepStatements} = _ChannelState, _ChanResId) when
     map_size(PrepStatements) == 0
 ->
     ok;
-destory_channel_state(#{prepared_refs := PrepStatements} = _ChannelState) when
+destory_channel_state(#{prepared_refs := PrepStatements} = ChannelState, ChanResId) when
     is_map(PrepStatements)
 ->
+    #{pool_name := ConnResId} = ChannelState,
+    lists:foreach(
+        fun({_, WorkerPid}) ->
+            ecpool_worker:remove_reconnect_callback_by_signature(WorkerPid, ChanResId)
+        end,
+        ecpool:workers(ConnResId)
+    ),
     maps:foreach(
         fun(Client, PrepRef) ->
             _ = close_statement_on_conn(Client, PrepRef)
         end,
         PrepStatements
     );
-destory_channel_state(_ChannelState) ->
+destory_channel_state(_ChannelState, _ChanResId) ->
     ok.
 
 on_get_channels(InstId) ->
@@ -342,12 +350,14 @@ do_query(
                 InitArgs
             ),
             FuncMode = {QueryMode, EnablePrepared},
-            pick_and_do(InstId, FuncMode, DriverFunArgs)
+            pick_and_do(InstId, ChannelId, FuncMode, DriverFunArgs)
     end.
 
-pick_and_do(InstId, FuncMode, DriverFunArgs) ->
+pick_and_do(InstId, ChanResId, FuncMode, DriverFunArgs) ->
     try
-        ecpool:pick_and_do(InstId, {?MODULE, call_driver, [FuncMode, DriverFunArgs]}, no_handover)
+        ecpool:pick_and_do(
+            InstId, {?MODULE, call_driver, [ChanResId, FuncMode, DriverFunArgs]}, no_handover
+        )
     catch
         _:_:_ ->
             {error, {unrecoverable_error, invalid_request}}
@@ -437,7 +447,7 @@ connect(Opts) ->
             {error, {database_not_existed, Database}}
     end.
 
-call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
+call_driver(Client, ChanResId, {_QueryMode, true} = FuncMode, Args0) ->
     [PreparedRefs, {SqlStatement0, _RowTemplates} | Args] = Args0,
     PreparedRef =
         case maps:find(Client, PreparedRefs) of
@@ -445,7 +455,7 @@ call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
                 Ref;
             error ->
                 SqlStatement = bin(SqlStatement0),
-                {ok, Ref0} = prepare_sql_to_conn(Client, SqlStatement),
+                {ok, Ref0} = prepare_sql_to_conn(Client, ChanResId, SqlStatement),
                 Ref0
         end,
     %% Clean up dead pids from the local PreparedRefs copy.
@@ -454,7 +464,7 @@ call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
     %% They will be cleaned up by the server-side TTL (~1 day).
     _ = prune_dead_refs(Client, PreparedRefs),
     do_call_driver(Client, driver_fun_name(FuncMode), [PreparedRef | Args]);
-call_driver(Client, {_QueryMode, false} = FuncMode, Args) ->
+call_driver(Client, _ChanResId, {_QueryMode, false} = FuncMode, Args) ->
     do_call_driver(Client, driver_fun_name(FuncMode), Args).
 
 do_call_driver(Client, FuncName, Args) ->
@@ -535,15 +545,15 @@ parse_splited_sql({Insert, Values}) ->
     RowTemplate = emqx_template_sql:parse(Values),
     {Insert, RowTemplate}.
 
-init_prepare(ChannelState = #{enable_prepared := false}) ->
+init_prepare(_ChanResId, ChannelState = #{enable_prepared := false}) ->
     ChannelState;
-init_prepare(ChannelState = #{query_templates := Templates}) when
+init_prepare(_ChanResId, ChannelState = #{query_templates := Templates}) when
     %% No `batch` or `prepstmt`
     map_size(Templates) == 0
 ->
     ChannelState;
-init_prepare(ChannelState = #{}) ->
-    case prepare_sql(ChannelState) of
+init_prepare(ChanResId, ChannelState = #{}) ->
+    case prepare_sql(ChanResId, ChannelState) of
         {ok, PrepStatements} when is_map(PrepStatements) ->
             %% each client holds a prepared statements reference
             ChannelState#{prepared_refs => PrepStatements};
@@ -551,40 +561,47 @@ init_prepare(ChannelState = #{}) ->
             ChannelState#{prepared_refs => {error, Reason}}
     end.
 
-prepare_sql(#{pool_name := PoolName, query_templates := #{prepstmt := PrepStmt}}) ->
-    prepare_sql(PoolName, PrepStmt).
+prepare_sql(ChanResId, #{pool_name := PoolName, query_templates := #{prepstmt := PrepStmt}}) ->
+    prepare_sql(PoolName, ChanResId, PrepStmt).
 
-prepare_sql(PoolName, {SqlStatement0, _RowTemplates}) ->
+prepare_sql(PoolName, ChanResId, {SqlStatement0, _RowTemplates}) ->
     SqlStatement = bin(SqlStatement0),
-    case do_prepare_sql(PoolName, SqlStatement) of
+    case do_prepare_sql(PoolName, ChanResId, SqlStatement) of
         {ok, _PrepStatements} = Ok ->
             %% prepare for reconnect
-            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [SqlStatement]}),
+            ecpool:add_reconnect_callback(
+                PoolName, {?MODULE, prepare_sql_to_conn, [ChanResId, SqlStatement]}
+            ),
             Ok;
         Error ->
             Error
     end.
 
-do_prepare_sql(PoolName, SqlStatement) ->
+%% for ecpool to deduplicate callbacks.
+get_reconnect_callback_signature([ChanResId | _]) ->
+    ChanResId.
+
+do_prepare_sql(PoolName, ChanResId, SqlStatement) ->
     do_prepare_to_conns(
         ecpool:workers(PoolName),
+        ChanResId,
         SqlStatement,
         _InitPrepStatements = #{}
     ).
 
-do_prepare_to_conns([{_Name, Worker} | Rest], SqlStatement, AccIn) ->
+do_prepare_to_conns([{_Name, Worker} | Rest], ChanResId, SqlStatement, AccIn) ->
     {ok, Client} = ecpool_worker:client(Worker),
-    case prepare_sql_to_conn(Client, SqlStatement) of
+    case prepare_sql_to_conn(Client, ChanResId, SqlStatement) of
         {ok, PrepareRef} when is_reference(PrepareRef) ->
-            do_prepare_to_conns(Rest, SqlStatement, AccIn#{Client => PrepareRef});
+            do_prepare_to_conns(Rest, ChanResId, SqlStatement, AccIn#{Client => PrepareRef});
         Error ->
             Error
     end;
-do_prepare_to_conns([], _SqlStatement, AccOut) ->
+do_prepare_to_conns([], _ChanResId, _SqlStatement, AccOut) ->
     {ok, AccOut}.
 
 %% Prepare SQL statement on a specific connection
-prepare_sql_to_conn(Client, SqlStatement) ->
+prepare_sql_to_conn(Client, _ChanResId, SqlStatement) ->
     datalayers:prepare(Client, SqlStatement, #{auto_rebuild => true}).
 
 close_statement_on_conn(Client, PrepareRef) ->
@@ -604,8 +621,14 @@ ssl_opts(InstId, #{enable := true, verify := verify_none}) ->
 ssl_opts(InstId, #{enable := true} = SSL) when not is_map_key(cacertfile, SSL) ->
     ?SLOG(error, #{msg => "cacertfile_is_required", connector => InstId}),
     {error, ssl_cacertfile_is_required};
-ssl_opts(_InstId, #{enable := true, cacertfile := CacertFile} = _SSL) ->
-    #{tls_cert => bin(CacertFile)};
+ssl_opts(InstId, #{enable := true, cacertfile := CacertFile0} = _SSL) ->
+    case emqx_tls_lib:resolve_cacertfile_path(CacertFile0) of
+        undefined ->
+            ?SLOG(error, #{msg => "cacertfile_is_required", connector => InstId}),
+            {error, ssl_cacertfile_is_required};
+        CacertFile ->
+            #{tls_cert => bin(CacertFile)}
+    end;
 ssl_opts(_InstId, _) ->
     #{}.
 

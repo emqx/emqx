@@ -191,6 +191,100 @@ t_gateway_mqttsn(_) ->
     assert_confs(GwConf2, ConfResp2),
     ok.
 
+-doc "Reject non-positive CoAP session byte budgets without changing the saved configuration.".
+t_coap_blockwise_total_size_validation(_) ->
+    assert_blockwise_total_size(coap).
+
+-doc "Reject non-positive LwM2M session byte budgets without changing the saved configuration.".
+t_lwm2m_blockwise_total_size_validation(_) ->
+    assert_blockwise_total_size(lwm2m).
+
+assert_blockwise_total_size(GwName) ->
+    Path = "/gateways/" ++ atom_to_list(GwName),
+    InitialConf = blockwise_total_size_gateway_conf(GwName),
+    InvalidValues = [0, <<"0B">>, <<"0KB">>, -1, <<"-1">>, <<"bad">>],
+    lists:foreach(
+        fun(Value) ->
+            ?assertMatch(
+                {400, _}, request(put, Path, InitialConf#{blockwise => #{max_total_size => Value}})
+            )
+        end,
+        InvalidValues
+    ),
+    {200, Unloaded} = request(get, Path),
+    assert_gw_unloaded(Unloaded),
+    lists:foreach(
+        fun(Value) ->
+            {204, _} = request(put, Path, InitialConf#{blockwise => #{max_total_size => Value}}),
+            {200, Saved} = request(get, Path),
+            assert_total_size_update_rejected(Path, Saved, InvalidValues)
+        end,
+        [1, <<"1B">>, <<"16MB">>]
+    ).
+
+assert_total_size_update_rejected(Path, Saved, InvalidValues) ->
+    lists:foreach(
+        fun(Invalid) ->
+            ?assertMatch(
+                {400, _}, request(put, Path, #{blockwise => #{max_total_size => Invalid}})
+            ),
+            {200, AfterRejectedUpdate} = request(get, Path),
+            ?assertEqual(maps:get(blockwise, Saved), maps:get(blockwise, AfterRejectedUpdate))
+        end,
+        InvalidValues
+    ).
+
+blockwise_total_size_gateway_conf(coap) ->
+    #{name => <<"coap">>};
+blockwise_total_size_gateway_conf(lwm2m) ->
+    #{
+        name => <<"lwm2m">>,
+        xml_dir => list_to_binary(
+            filename:join([
+                emqx_common_test_helpers:proj_root(), "apps", "emqx_gateway_lwm2m", "lwm2m_xml"
+            ])
+        ),
+        translators => #{
+            command => #{topic => <<"dn/#">>},
+            response => #{topic => <<"up/resp">>},
+            notify => #{topic => <<"up/notify">>},
+            register => #{topic => <<"up/register">>},
+            update => #{topic => <<"up/update">>}
+        }
+    }.
+
+-doc "Apply the byte limit configured through HTTP to a real CoAP Block1 upload.".
+t_coap_blockwise_total_size_enforcement(_) ->
+    Port = emqx_common_test_helpers:select_free_port(udp),
+    Conf = #{
+        name => <<"coap">>,
+        connection_required => false,
+        listeners => [#{name => <<"blockwise">>, type => <<"udp">>, bind => Port}],
+        blockwise => #{max_block_size => 16, max_total_size => <<"16B">>}
+    },
+    {204, _} = request(put, "/gateways/coap", Conf),
+    {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+    try
+        %% The first full block fits; the next byte exceeds the configured limit.
+        ?assertEqual(95, total_size_block1_reply(Sock, Port, 1, 8, binary:copy(<<"A">>, 16))),
+        ?assertEqual(141, total_size_block1_reply(Sock, Port, 2, 16, <<"B">>)),
+        ?assertMatch(
+            {400, _}, request(put, "/gateways/coap", #{blockwise => #{max_total_size => <<"0B">>}})
+        ),
+        {200, #{blockwise := #{max_total_size := <<"16B">>}}} = request(get, "/gateways/coap"),
+        ?assertEqual(95, total_size_block1_reply(Sock, Port, 3, 8, binary:copy(<<"C">>, 16))),
+        ?assertEqual(141, total_size_block1_reply(Sock, Port, 4, 16, <<"D">>))
+    after
+        gen_udp:close(Sock)
+    end.
+
+total_size_block1_reply(Sock, Port, Id, Block, Payload) ->
+    %% CON POST, Token 1, Uri-Path "limit", Block1 with a 16-byte block size.
+    Packet = <<16#41, 2, Id:16, 1, 16#b5, "limit", 16#d1, 3, Block, 16#ff, Payload/binary>>,
+    ok = gen_udp:send(Sock, {127, 0, 0, 1}, Port, Packet),
+    {ok, {_, _, <<_, Code, Id:16, _/binary>>}} = gen_udp:recv(Sock, 0, 2000),
+    Code.
+
 t_gateway_coap(_) ->
     {200, Gw} = request(get, "/gateways/coap"),
     assert_gw_unloaded(Gw),
@@ -249,6 +343,111 @@ t_gateway_lwm2m(_) ->
     assert_confs(GwConf2, ConfResp2),
     ok.
 
+-doc "Reject non-positive CoAP block-wise body sizes without changing the saved configuration.".
+t_coap_blockwise_body_size_validation(_) ->
+    assert_positive_blockwise_option(coap, max_body_size, [1, <<"1B">>, <<"4MB">>], [
+        0, <<"0B">>, -1, <<"-1">>, <<"bad">>
+    ]).
+
+-doc "Reject non-positive LwM2M block-wise body sizes without changing the saved configuration.".
+t_lwm2m_blockwise_body_size_validation(_) ->
+    assert_positive_blockwise_option(lwm2m, max_body_size, [1, <<"1B">>, <<"4MB">>], [
+        0, <<"0B">>, -1, <<"-1">>, <<"bad">>
+    ]).
+
+-doc "Keep the CoAP exchange lifetime positive and within the supported timer range.".
+t_coap_blockwise_lifetime_validation(_) ->
+    assert_positive_blockwise_option(coap, exchange_lifetime, [1, <<"1ms">>, <<"247s">>], [
+        0, <<"0ms">>, <<"0s">>, -1, <<"bad">>, <<"4294967296ms">>
+    ]).
+
+-doc "Keep the LwM2M exchange lifetime positive and within the supported timer range.".
+t_lwm2m_blockwise_lifetime_validation(_) ->
+    assert_positive_blockwise_option(lwm2m, exchange_lifetime, [1, <<"1ms">>, <<"247s">>], [
+        0, <<"0ms">>, <<"0s">>, -1, <<"bad">>, <<"4294967296ms">>
+    ]).
+
+assert_positive_blockwise_option(GwName, Field, ValidValues, InvalidValues) ->
+    Path = "/gateways/" ++ atom_to_list(GwName),
+    InitialConf = positive_blockwise_gateway_conf(GwName),
+    lists:foreach(
+        fun(Value) ->
+            ?assertMatch({400, _}, request(put, Path, InitialConf#{blockwise => #{Field => Value}}))
+        end,
+        InvalidValues
+    ),
+    {200, Unloaded} = request(get, Path),
+    assert_gw_unloaded(Unloaded),
+    lists:foreach(
+        fun(Value) ->
+            {204, _} = request(put, Path, InitialConf#{blockwise => #{Field => Value}}),
+            {200, Saved} = request(get, Path),
+            assert_positive_blockwise_update_rejected(Path, Field, Saved, InvalidValues)
+        end,
+        ValidValues
+    ).
+
+assert_positive_blockwise_update_rejected(Path, Field, Saved, InvalidValues) ->
+    lists:foreach(
+        fun(Invalid) ->
+            ?assertMatch({400, _}, request(put, Path, #{blockwise => #{Field => Invalid}})),
+            {200, AfterRejectedUpdate} = request(get, Path),
+            ?assertEqual(maps:get(blockwise, Saved), maps:get(blockwise, AfterRejectedUpdate))
+        end,
+        InvalidValues
+    ).
+
+positive_blockwise_gateway_conf(coap) ->
+    #{name => <<"coap">>};
+positive_blockwise_gateway_conf(lwm2m) ->
+    #{
+        name => <<"lwm2m">>,
+        xml_dir => list_to_binary(
+            filename:join([
+                emqx_common_test_helpers:proj_root(), "apps", "emqx_gateway_lwm2m", "lwm2m_xml"
+            ])
+        ),
+        translators => #{
+            command => #{topic => <<"dn/#">>},
+            response => #{topic => <<"up/resp">>},
+            notify => #{topic => <<"up/notify">>},
+            register => #{topic => <<"up/register">>},
+            update => #{topic => <<"up/update">>}
+        }
+    }.
+
+-doc "Apply the byte limit configured through HTTP to a real CoAP Block1 upload.".
+t_coap_blockwise_body_size_enforcement(_) ->
+    Port = emqx_common_test_helpers:select_free_port(udp),
+    Conf = #{
+        name => <<"coap">>,
+        connection_required => false,
+        listeners => [#{name => <<"blockwise">>, type => <<"udp">>, bind => Port}],
+        blockwise => #{max_block_size => 16, max_body_size => <<"16B">>}
+    },
+    {204, _} = request(put, "/gateways/coap", Conf),
+    {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+    try
+        %% The first full block fits; the next byte exceeds the configured limit.
+        ?assertEqual(95, body_size_block1_reply(Sock, Port, 1, 8, binary:copy(<<"A">>, 16))),
+        ?assertEqual(141, body_size_block1_reply(Sock, Port, 2, 16, <<"B">>)),
+        ?assertMatch(
+            {400, _}, request(put, "/gateways/coap", #{blockwise => #{max_body_size => <<"0B">>}})
+        ),
+        {200, #{blockwise := #{max_body_size := <<"16B">>}}} = request(get, "/gateways/coap"),
+        ?assertEqual(95, body_size_block1_reply(Sock, Port, 3, 8, binary:copy(<<"C">>, 16))),
+        ?assertEqual(141, body_size_block1_reply(Sock, Port, 4, 16, <<"D">>))
+    after
+        gen_udp:close(Sock)
+    end.
+
+body_size_block1_reply(Sock, Port, Id, Block, Payload) ->
+    %% CON POST, Token 1, Uri-Path "limit", Block1 with a 16-byte block size.
+    Packet = <<16#41, 2, Id:16, 1, 16#b5, "limit", 16#d1, 3, Block, 16#ff, Payload/binary>>,
+    ok = gen_udp:send(Sock, {127, 0, 0, 1}, Port, Packet),
+    {ok, {_, _, <<_, Code, Id:16, _/binary>>}} = gen_udp:recv(Sock, 0, 2000),
+    Code.
+
 t_authn(_) ->
     init_gw("stomp"),
     AuthConf = #{
@@ -293,6 +492,36 @@ t_authn_redacts_secret(_) ->
         #{
             <<"secret">> := ?AUTHN_SECRET,
             <<"verify_claims">> := #{<<"username">> := <<"${clientid}">>}
+        },
+        emqx:get_raw_config([gateway, stomp, authentication])
+    ),
+    {204, _} = request(delete, "/gateways/stomp/authentication"),
+    ok.
+
+t_authn_oauth2_client_secret_redacted(_) ->
+    Secret = <<"gateway-topsecret">>,
+    init_gw("stomp"),
+    AuthConf = http_oauth2_authn_conf(Secret),
+    {201, PostResp} = request(post, "/gateways/stomp/authentication", AuthConf),
+    assert_authn_oauth2_secret_redacted(PostResp, Secret),
+
+    {200, GetResp} = request(get, "/gateways/stomp/authentication"),
+    assert_authn_oauth2_secret_redacted(GetResp, Secret),
+    ?assertMatch(
+        #{<<"oauth2">> := #{<<"client_secret">> := Secret}},
+        emqx:get_raw_config([gateway, stomp, authentication])
+    ),
+
+    RedactedUpdate = maps:without(
+        [id, chain_name],
+        GetResp#{enable => false}
+    ),
+    {200, PutResp} = request(put, "/gateways/stomp/authentication", RedactedUpdate),
+    assert_authn_oauth2_secret_redacted(PutResp, Secret),
+    ?assertMatch(
+        #{
+            <<"oauth2">> := #{<<"client_secret">> := Secret},
+            <<"enable">> := false
         },
         emqx:get_raw_config([gateway, stomp, authentication])
     ),
@@ -673,6 +902,82 @@ t_listeners_authn_redacts_secret(_) ->
     {204, _} = request(delete, Path),
     ok.
 
+t_listeners_authn_oauth2_client_secret_redacted(_) ->
+    Secret = <<"gateway-listener-topsecret">>,
+    GwConf = #{
+        name => <<"stomp">>,
+        listeners => [
+            #{
+                name => <<"def">>,
+                type => <<"tcp">>,
+                bind => <<"127.0.0.1:61613">>
+            }
+        ]
+    },
+    ConfResp = init_gw("stomp", GwConf),
+    assert_confs(GwConf, ConfResp),
+
+    AuthConf = http_oauth2_authn_conf(Secret),
+    Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
+    {204, _} = request(delete, Path),
+    {201, PostResp} = request(post, Path, AuthConf),
+    assert_authn_oauth2_secret_redacted(PostResp, Secret),
+
+    {200, GetResp} = request(get, Path),
+    assert_authn_oauth2_secret_redacted(GetResp, Secret),
+    ?assertMatch(
+        #{<<"oauth2">> := #{<<"client_secret">> := Secret}},
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def, authentication])
+    ),
+
+    RedactedUpdate = maps:without(
+        [id, chain_name],
+        GetResp#{enable => false}
+    ),
+    {200, PutResp} = request(put, Path, RedactedUpdate),
+    assert_authn_oauth2_secret_redacted(PutResp, Secret),
+    ?assertMatch(
+        #{
+            <<"oauth2">> := #{<<"client_secret">> := Secret},
+            <<"enable">> := false
+        },
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def, authentication])
+    ),
+
+    %% The listener GET embeds the authentication config as well.
+    {200, ListenerResp} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    ?assertMatch(
+        #{authentication := #{oauth2 := #{client_secret := ?REDACTED}}},
+        ListenerResp
+    ),
+    ?assertEqual(nomatch, binary:match(term_to_binary(ListenerResp), Secret)),
+
+    %% Updating the listener must restore the embedded (redacted) secret.
+    ListenerUpdate = ListenerResp#{bind => <<"127.0.0.1:61614">>},
+    {200, UpdatedListenerResp} = request(
+        put,
+        "/gateways/stomp/listeners/stomp:tcp:def",
+        ListenerUpdate
+    ),
+    ?assertMatch(
+        #{
+            bind := <<"127.0.0.1:61614">>,
+            authentication := #{oauth2 := #{client_secret := ?REDACTED}}
+        },
+        UpdatedListenerResp
+    ),
+    ?assertMatch(
+        #{
+            <<"bind">> := <<"127.0.0.1:61614">>,
+            <<"authentication">> := #{
+                <<"oauth2">> := #{<<"client_secret">> := Secret}
+            }
+        },
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def])
+    ),
+    {204, _} = request(delete, Path),
+    ok.
+
 t_listeners_authn_data_mgmt(_) ->
     GwConf = #{
         name => <<"stomp">>,
@@ -905,6 +1210,26 @@ jwt_authn_conf(Secret) ->
 
 assert_authn_secret_redacted(Conf) ->
     ?assertEqual(?REDACTED, maps:get(secret, Conf)).
+
+http_oauth2_authn_conf(Secret) ->
+    #{
+        mechanism => <<"password_based">>,
+        backend => <<"http">>,
+        method => <<"post">>,
+        url => <<"http://127.0.0.1:1/auth">>,
+        oauth2 => #{
+            enable => true,
+            grant_type => <<"client_credentials">>,
+            token_endpoint => <<"http://127.0.0.1:1/token">>,
+            client_id => <<"cid">>,
+            client_secret => Secret
+        },
+        enable => true
+    }.
+
+assert_authn_oauth2_secret_redacted(Conf, Secret) ->
+    ?assertEqual(?REDACTED, maps:get(client_secret, maps:get(oauth2, Conf))),
+    ?assertEqual(nomatch, binary:match(term_to_binary(Conf), Secret)).
 
 assert_gw_unloaded(Gateway) ->
     ?assertEqual(<<"unloaded">>, maps:get(status, Gateway)).

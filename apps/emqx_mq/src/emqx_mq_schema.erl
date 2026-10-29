@@ -41,9 +41,10 @@ fields(mq) ->
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)
             })},
         {regular_queue_retention_period,
-            mk(emqx_schema:timeout_duration_ms(), #{
+            mk(emqx_schema:duration_ms(), #{
                 default => <<"7d">>,
                 required => true,
+                validator => fun(Duration) -> Duration >= 0 end,
                 desc => ?DESC(regular_queue_retention_period)
             })},
         {max_queue_count,
@@ -65,7 +66,7 @@ fields(mq) ->
                 desc => ?DESC(auto_create),
                 default => #{
                     <<"regular">> => false,
-                    <<"lastvalue">> => #{}
+                    <<"lastvalue">> => false
                 }
             })},
         {quota,
@@ -102,7 +103,7 @@ fields(auto_create) ->
         {lastvalue,
             mk(hoconsc:union([false, ref(auto_create_lastvalue)]), #{
                 required => true,
-                default => #{},
+                default => false,
                 converter => serialize_converter(
                     fun
                         (false) ->
@@ -319,6 +320,9 @@ without_fields(FieldNames, Fields) ->
 
 serialize_converter(Fun) ->
     fun
+        %% Absent from a partial document, e.g. `PUT /configs?mode=merge`.
+        (undefined, _Opts) ->
+            undefined;
         (Val, #{make_serializable := true}) ->
             Fun(Val);
         (Val, _Opts) ->

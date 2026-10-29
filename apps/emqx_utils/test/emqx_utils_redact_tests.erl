@@ -149,6 +149,85 @@ no_redact_client_jwks_none_test() ->
         })
     ).
 
+redact_oauth2_client_secret_test() ->
+    %% The shape returned by the authn/authz/gateway config GET endpoints:
+    %% `oauth2' is a nested union member holding the third-party `client_secret'.
+    ?assertEqual(
+        #{
+            <<"oauth2">> => #{<<"client_secret">> => <<"******">>, <<"client_id">> => <<"cid">>}
+        },
+        redact(#{
+            <<"oauth2">> => #{<<"client_secret">> => <<"topsecret">>, <<"client_id">> => <<"cid">>}
+        })
+    ),
+    %% One more nesting level, as seen from an authenticator top-level config.
+    Nested = redact(#{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"http">>,
+        <<"oauth2">> => #{<<"client_secret">> => <<"topsecret">>}
+    }),
+    ?assertEqual(<<"******">>, maps:get(<<"client_secret">>, maps:get(<<"oauth2">>, Nested))),
+    %% Checked-config shape uses atom keys.
+    ?assertEqual(
+        #{oauth2 => #{client_secret => <<"******">>}},
+        redact(#{oauth2 => #{client_secret => <<"topsecret">>}})
+    ),
+    %% No plaintext may survive in any form.
+    Conf = #{
+        <<"oauth2">> => #{<<"client_secret">> => <<"topsecret">>},
+        oauth2 => #{client_secret => <<"topsecret">>}
+    },
+    ?assertEqual(nomatch, binary:match(term_to_binary(redact(Conf)), <<"topsecret">>)).
+
+no_redact_file_path_client_secret_test() ->
+    %% `file://' values are paths, not secrets: keep them readable (same rule as
+    %% every other sensitive key).
+    ?assertEqual(
+        #{<<"client_secret">> => <<"file:///etc/x">>},
+        redact(#{<<"client_secret">> => <<"file:///etc/x">>})
+    ).
+
+deobfuscate_oauth2_client_secret_test() ->
+    %% A redacted GET body re-submitted verbatim must restore the stored secret.
+    ?assertEqual(
+        #{<<"oauth2">> => #{<<"client_secret">> => <<"real">>}},
+        emqx_utils_redact:deobfuscate(
+            #{<<"oauth2">> => #{<<"client_secret">> => <<"******">>}},
+            #{<<"oauth2">> => #{<<"client_secret">> => <<"real">>}}
+        )
+    ),
+    ?assertEqual(
+        #{client_secret => <<"real">>},
+        emqx_utils_redact:deobfuscate(
+            #{client_secret => "******"},
+            #{client_secret => <<"real">>}
+        )
+    ),
+    %% A real new value is never swallowed.
+    ?assertEqual(
+        #{client_secret => <<"new">>},
+        emqx_utils_redact:deobfuscate(
+            #{client_secret => <<"new">>},
+            #{client_secret => <<"old">>}
+        )
+    ),
+    %% Without a stored value the placeholder is dropped, not persisted.
+    ?assertEqual(
+        #{},
+        emqx_utils_redact:deobfuscate(#{client_secret => <<"******">>}, #{})
+    ).
+
+client_secret_edge_values_test() ->
+    ?assertNot(is_redacted(client_secret, undefined)),
+    ?assertNot(is_redacted(client_secret, none)),
+    ?assertNot(is_redacted(client_secret, <<>>)),
+    ?assertNot(is_redacted(client_secret, <<"*******">>)),
+    %% The sentinel-literal collision (a literal `******' cannot be set as the
+    %% secret) is the pre-existing semantics shared by every sensitive key and
+    %% is pinned in `deobfuscate_oauth2_client_secret_test'.
+    ?assert(is_redacted(client_secret, <<"******">>)),
+    ?assert(is_redacted(<<"client_secret">>, "******")).
+
 redact_secret_headers_test() ->
     ?assertEqual(
         #{

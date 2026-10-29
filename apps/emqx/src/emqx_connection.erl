@@ -24,6 +24,7 @@
 -include("emqx_external_trace.hrl").
 -include("emqx_instr.hrl").
 -include("emqx_config.hrl").
+-include("emqx_connection_conf.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -32,7 +33,9 @@
 -endif.
 
 -elvis([{elvis_style, used_ignored_variable, disable}]).
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, #{ignore => [emqx_connection]}}]).
+%% Forced GC is this module's job.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 %% API
 -export([
@@ -86,23 +89,6 @@
     parser/0
 ]).
 
--record(conf, {
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
-    %% Zone name
-    zone :: atom(),
-    %% ActiveN
-    active_n :: pos_integer(),
-    %% Send queue high watermark in bytes
-    sendq_watermark :: non_neg_integer(),
-    %% Hibernate connection process if inactive for
-    hibernate_after :: integer() | infinity,
-    %% Forced GC thresholds, `false` if disabled
-    force_gc :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
-    %% Forced shutdown policy
-    force_shutdown :: emqx_types:oom_policy()
-}).
-
 -record(thresholds, {
     gc_packets,
     gc_bytes,
@@ -116,8 +102,9 @@
     %% TCP/TLS Socket
     socket :: esockd:socket() | emqx_quic_stream:socket(),
     %% Sock State.
-    %% `congested` denotes send queue congestion.
-    sockstate :: emqx_types:sockstate() | congested,
+    %% `congested` or the reference of the send queue check timer denotes
+    %% send queue congestion.
+    sockstate :: emqx_types:sockstate() | congested | reference(),
     %% Packet parser / serializer (undefined before initialization)
     parser :: undefined | parser(),
     serialize :: emqx_frame:serialize_opts(),
@@ -153,13 +140,16 @@
 
 -opaque state() :: #state{}.
 
--define(ACTIVE_N, 10).
+%% Interval of the send queue check while the send queue is congested.
+%% The interval doubles after each check that finds the queue still congested.
+-define(SENDQ_CHECK_MIN, 100).
+-define(SENDQ_CHECK_MAX, 1600).
+
+-define(IS_CONGESTED(SockSt), (SockSt =:= congested orelse is_reference(SockSt))).
 
 -define(SOCK_STATS, [
     recv_oct,
-    recv_cnt,
     send_oct,
-    send_cnt,
     send_pend
 ]).
 
@@ -194,8 +184,15 @@
     ]}
 ).
 -dialyzer({no_missing_calls, [handle_msg/2]}).
-%% For unknown reasons, dialyzer thinks that this function is never called...
--compile({nowarn_unused_function, [set_tcp_keepalive/1]}).
+%% For unknown reasons, dialyzer thinks that these functions are never called...
+-compile(
+    {nowarn_unused_function, [
+        activate_socket_for_connect/1,
+        active_n/1,
+        pending_transport_error/0,
+        set_tcp_keepalive/1
+    ]}
+).
 
 -ifndef(BUILD_WITHOUT_QUIC).
 -spec start_link
@@ -236,6 +233,8 @@ info(peername, #state{channel = Channel}) ->
     emqx_channel:info(peername, Channel);
 info(sockname, #state{channel = Channel}) ->
     emqx_channel:info(sockname, Channel);
+info(sockstate, #state{sockstate = SockSt}) when is_reference(SockSt) ->
+    congested;
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
@@ -380,20 +379,19 @@ init_state(
         sock => Socket
     },
     Channel = emqx_channel:init(ConnInfo, Opts),
+    Conf = emqx_connection_conf:conn_conf({Type, Listener}, Zone),
     State0 = #state{
         transport = Transport,
         socket = Socket,
         sockstate = idle,
         channel = Channel,
-        conf = #conf{
-            listener = {Type, Listener}
-        },
+        conf = Conf,
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
         namespace = ?global_ns,
         extra = []
     },
-    init_zone_specific_state(Zone, Opts, State0).
+    init_zone_specific_state(Conf, Zone, State0).
 
 run_loop(
     Parent,
@@ -407,14 +405,33 @@ run_loop(
     emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     emqx_utils:tune_heap_size(ShutdownPolicy),
-    case activate_socket(State) of
+    case activate_socket_for_connect(State) of
         {ok, NState} ->
             ok = set_tcp_keepalive(Listener),
             IdleTimer = start_timer(get_zone_idle_timeout(Zone), idle_timeout),
             hibernate(Parent, NState#state{stats_timer = {idle, IdleTimer}});
         {error, Reason} ->
-            ok = Transport:fast_close(Socket),
-            exit_on_sock_error(Reason)
+            case pending_transport_error() of
+                {ok, ErrorMsg} ->
+                    %% The data ssl had buffered did not frame within
+                    %% `packet_size': ssl delivered the error and stopped the
+                    %% connection, and the activation returned `closed'.
+                    %% Handle the error it left in the mailbox, so that an
+                    %% oversized first packet is reported and counted as such
+                    %% rather than as a plain close.
+                    handle_recv(ErrorMsg, Parent, State);
+                none ->
+                    ok = Transport:fast_close(Socket),
+                    exit_on_sock_error(Reason)
+            end
+    end.
+
+pending_transport_error() ->
+    receive
+        {Error, _Sock, _Reason} = Msg when Error == tcp_error; Error == ssl_error ->
+            {ok, Msg}
+    after 0 ->
+        none
     end.
 
 -spec exit_on_sock_error(any()) -> no_return().
@@ -423,9 +440,7 @@ exit_on_sock_error(Reason) when ?IS_NORMAL_SOCKET_ERROR(Reason) ->
 exit_on_sock_error(timeout) ->
     erlang:exit({shutdown, ssl_upgrade_timeout});
 exit_on_sock_error(Reason) ->
-    %% econnreset falls here so it shows up in shutdown-counters
-    %% of the listener
-    erlang:exit({shutdown, Reason}).
+    erlang:exit({shutdown, emqx_connection_util:sock_error_shutdown(Reason)}).
 
 %%--------------------------------------------------------------------
 %% Recv Loop
@@ -434,8 +449,7 @@ recvloop(
     Parent,
     State = #state{
         conf = #conf{
-            hibernate_after = HibernateTimeout,
-            zone = Zone
+            zone = Zone, hibernate_after = HibernateTimeout
         }
     }
 ) ->
@@ -458,16 +472,16 @@ handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
             ?MODULE:recvloop(Parent, NewState);
-        {stop, Reason, NewSate} ->
-            terminate(Reason, NewSate)
+        {stop, Reason, NewState} ->
+            terminate(Reason, NewState)
     end.
 
-hibernate(Parent, State) ->
-    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
+hibernate(Parent, State = #state{channel = Channel}) ->
+    NState = State#state{channel = emqx_channel:hibernate(Channel)},
+    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, NState]).
 
-%% Maybe do something here later.
-wakeup_from_hib(Parent, State) ->
-    ?MODULE:recvloop(Parent, State).
+wakeup_from_hib(Parent, State = #state{channel = Channel}) ->
+    ?MODULE:recvloop(Parent, State#state{channel = emqx_channel:wakeup(Channel)}).
 
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
@@ -479,7 +493,9 @@ init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
     end.
 
 -compile({inline, [ensure_stats_timer/1]}).
-ensure_stats_timer(State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}) ->
+ensure_stats_timer(
+    State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}
+) ->
     Timeout = get_zone_idle_timeout(Zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
@@ -502,10 +518,6 @@ cancel_idle_timer(_State) ->
 -compile({inline, [get_zone_idle_timeout/1]}).
 get_zone_idle_timeout(Zone) ->
     emqx_channel:get_mqtt_conf(Zone, idle_timeout).
-
--compile({inline, [get_zone_hibernate_after/1]}).
-get_zone_hibernate_after(Zone) ->
-    emqx_channel:get_mqtt_conf(Zone, hibernate_after).
 
 %%--------------------------------------------------------------------
 %% Process next Msg
@@ -580,6 +592,16 @@ handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
     inc_metrics('bytes.received', State, Oct),
     on_bytes_in(Oct, Data, State);
+handle_msg({inet_reply, _Sock, ok, send_async}, _State) ->
+    %% The driver queued the data of an asynchronous send, see `send/4'.
+    ok;
+handle_msg({inet_reply, _Sock, {error, Reason}, send_async}, State) ->
+    send_error(Reason, State);
+handle_msg({inet_reply, _Sock, ok}, _State) ->
+    %% The reply of `esockd_transport:async_send/3' in older esockd versions.
+    ok;
+handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
+    send_error(Reason, State);
 handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
     ok = inc_metrics('bytes.received', State, Len),
     on_bytes_in(Len, Data, State);
@@ -618,7 +640,10 @@ handle_msg(
     Deliver = #deliver{},
     #state{conf = #conf{active_n = ActiveN}} = State
 ) ->
-    ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
+    ?BROKER_INSTR_MSGLATENCY(begin
+        ?BROKER_INSTR_EXTRACT_MARK(Mark, Deliver#deliver.message),
+        ?BROKER_INSTR_SETMARK(t0_deliver, {Mark, ?BROKER_INSTR_TS()})
+    end),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 handle_msg({connack, ConnAck}, State) ->
@@ -642,26 +667,21 @@ handle_msg(
             {get_parser_state(Parser), Serialize, Channel}
         ),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    ok = set_chan_stats(State),
+    emqx_cm:insert_channel_info(ClientId, info(State), emqx_chan_stats:ref()),
     {ok, ensure_stats_timer(State)};
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
 handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
-    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    State = init_zone_specific_state(NewZone, State0),
     {ok, State};
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
     {ok, State};
-handle_msg({event, _Other}, State = #state{channel = Channel}) ->
-    case emqx_channel:info(clientid, Channel) of
-        %% ClientId is yet unknown (i.e. connect packet is not received yet)
-        undefined ->
-            ok;
-        ClientId ->
-            set_chan_info_stats(ClientId, State)
-    end,
+handle_msg({event, updated}, State) ->
+    ok = set_session_stats(State),
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
     handle_timeout(TRef, TMsg, State);
@@ -683,7 +703,7 @@ terminate(
     try
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
-        emqx_channel:terminate(Reason, Channel1),
+        _ = emqx_channel:terminate(Reason, Channel1),
         close_socket_ok(State),
         ?TRACE("SOCKET", "emqx_connection_terminated", #{reason => Reason})
     catch
@@ -715,6 +735,9 @@ maybe_raise_exception(normal) ->
     ok;
 maybe_raise_exception(shutdown) ->
     ok;
+%% A TLS alert after the handshake arrives here through `{sock_closed, _}'.
+maybe_raise_exception({shutdown, {tls_alert, _} = Alert}) ->
+    exit({shutdown, emqx_connection_util:sock_error_shutdown(Alert)});
 maybe_raise_exception(Reason) ->
     exit(Reason).
 
@@ -762,18 +785,24 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
 
 handle_timeout(_TRef, idle_timeout, State) ->
     shutdown(idle_timeout, State);
-handle_timeout(
-    _TRef,
-    emit_stats,
-    State = #state{
-        channel = Channel
-    }
-) ->
-    ClientId = emqx_channel:info(clientid, Channel),
+handle_timeout(_TRef, emit_stats, State) ->
     {Msgs, NState} = check_sendq_congestion(State),
-    maybe_set_chan_stats(ClientId, NState),
+    ok = set_chan_stats(NState),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, NState),
-    {ok, Msgs, NState#state{stats_timer = undefined}};
+    #state{channel = NChannel} = NState,
+    {ok, Msgs, NState#state{
+        channel = emqx_channel:refresh_quota(NChannel), stats_timer = undefined
+    }};
+handle_timeout(TRef, {check_sendq, Interval}, State = #state{sockstate = TRef}) ->
+    NextInterval = min(Interval * 2, ?SENDQ_CHECK_MAX),
+    {Msgs, NState} = check_sendq_congestion(State#state{sockstate = congested}, NextInterval),
+    {ok, Msgs, NState};
+handle_timeout(_TRef, {check_sendq, _Interval}, State) ->
+    %% The send queue was decongested after this timer started.
+    {ok, State};
+handle_timeout(TRef, check_sendq, State) ->
+    %% Timer message of an earlier version of this module.
+    handle_timeout(TRef, {check_sendq, ?SENDQ_CHECK_MIN}, State);
 handle_timeout(
     TRef,
     keepalive,
@@ -793,28 +822,23 @@ handle_timeout(TRef, Msg, State) ->
 try_set_chan_stats(State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientID is not yet known, nothing to report.
-        undefined -> false;
-        ClientId -> maybe_set_chan_stats(ClientId, State)
+        undefined -> ok;
+        _ClientId -> set_chan_stats(State)
     end.
 
-%% Write the info and, when the client-info REST API is enabled, the stats
-%% of the channel in one table write.
-set_chan_info_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_info_stats(ClientId, info(State), stats(State));
-        false -> emqx_cm:set_chan_info(ClientId, info(State))
-    end.
+%% Write the socket and session stats to the stats array of the connection,
+%% where the readers of the channel info table find them. The packet and
+%% message counters are kept in the array as they happen, and the readers
+%% take the process stats from the process.
+set_chan_stats(State = #state{channel = Channel}) ->
+    Stats = [sockstats(?SOCK_STATS, State), emqx_channel:session_stats(Channel)],
+    emqx_chan_stats:report(emqx_channel:info(clientid, Channel), Stats).
 
-%% Report per-connection stats to the client-info table, unless the client-info
-%% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
-%% the stats gathering and the ETS write. The stats timer itself keeps running,
-%% so its other duties (send-queue congestion recovery, congestion alarms) are
-%% unaffected.
-maybe_set_chan_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_stats(ClientId, stats(State));
-        false -> ok
-    end.
+%% Write the session stats after the session changed, so that a reader sees
+%% the change before the next stats timer.
+set_session_stats(#state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_chan_stats:report(ClientId, emqx_channel:session_stats(Channel)).
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
@@ -862,7 +886,7 @@ parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
                     raw
                 )
             ),
-            NState = update_state_on_parse_error(Parser, NReason, State),
+            NState = update_state_on_parse_error(NReason, State),
             {0, [{frame_error, NReason}], NState};
         error:Reason:Stacktrace ->
             NReason = maybe_enrich_first_packet_error(Data, Reason, State),
@@ -902,29 +926,22 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
 
-init_parser(Transport, Socket, FrameOpts) ->
+init_parser(Transport, Socket, ParseState) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
     case lists:keyfind(packet, 1, SocketOpts) of
         {packet, mqtt} ->
             %% Enable whole-frame packet parser.
-            {frame, emqx_frame:initial_parse_state(FrameOpts)};
+            {frame, ParseState};
         _Otherwise ->
             %% Go with regular streaming parser.
-            emqx_frame:initial_parse_state(FrameOpts)
+            ParseState
     end.
 
-update_state_on_parse_error(
-    ParseState0,
-    #{proto_ver := ProtoVer, parse_state := ParseState},
-    State
-) ->
-    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    case ParseState0 of
-        {frame, _Options} -> NParseState = {frame, ParseState};
-        _StreamParseState -> NParseState = ParseState
-    end,
-    State#state{serialize = Serialize, parser = NParseState};
-update_state_on_parse_error(_, _, State) ->
+%% A CONNECT that failed to parse still names its protocol version, which the
+%% serializer needs for the reply.
+update_state_on_parse_error(#{proto_ver := ProtoVer}, State) ->
+    State#state{serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE)};
+update_state_on_parse_error(_, State) ->
     State.
 
 run_parser(Data, {frame, Options}, State) ->
@@ -956,6 +973,16 @@ run_frame_parser(Data, Options, State) ->
 describe_parser_state(ParseState) ->
     emqx_frame:describe_state(ParseState).
 
+%% Swap in the zone's shared parse state and serializer options where they are
+%% equal to the connection's own.
+share_frame_opts(ProtoVer, {frame, Options0}, Serialize0, State) ->
+    {Options, Serialize} = share_frame_opts(ProtoVer, Options0, Serialize0, State),
+    {{frame, Options}, Serialize};
+share_frame_opts(ProtoVer, ParseState, Serialize, #state{
+    conf = #conf{zone = Zone}
+}) ->
+    emqx_connection_conf:post_connect_codec(Zone, ProtoVer, ParseState, Serialize).
+
 get_parser_state({frame, Options}) ->
     Options;
 get_parser_state(ParseState) ->
@@ -976,8 +1003,17 @@ handle_incoming(Packet = ?PACKET(Type), #state{quic_conn_ss = QSS} = State) ->
         ?CONNECT ->
             %% CONNECT packet is fully received, time to cancel idle timer.
             ok = cancel_idle_timer(State),
+            ok = raise_packet_size_limit(State),
+            #mqtt_packet{variable = ConnPkt} = Packet,
+            {Parser, Serialize} = share_frame_opts(
+                ConnPkt#mqtt_packet_connect.proto_ver,
+                State#state.parser,
+                emqx_frame:serialize_opts(ConnPkt),
+                State
+            ),
             NState = State#state{
-                serialize = emqx_frame:serialize_opts(Packet#mqtt_packet.variable),
+                parser = Parser,
+                serialize = Serialize,
                 stats_timer = init_stats_timer(State)
             },
             with_channel(handle_in, [Packet], NState);
@@ -1101,30 +1137,62 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
 
 -spec send(non_neg_integer(), non_neg_integer(), iodata(), state()) ->
     {ok, state()} | {ok, {sock_error, _}, state()}.
-send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) ->
+send(
+    Num,
+    Oct,
+    IoData,
+    #state{transport = Transport, socket = Socket} = State
+) ->
     inc_metrics('bytes.sent', State, Oct),
-    case Transport:send(Socket, IoData) of
+    case do_send(Transport, Socket, IoData) of
         ok ->
-            %% NOTE: for Transport=emqx_quic_stream, it's actually an
-            %% async_send, sent/1 should technically be called when
-            %% {quic, send_complete, _Stream, true | false} is received,
-            %% but it is handled early for simplicity
+            %% NOTE: for Transport=emqx_quic_stream and for an asynchronous
+            %% send, the data is only queued at this point. sent/1 should
+            %% technically be called when the send completes, but it is
+            %% handled early for simplicity.
             Ok = sent(Num, Oct, State),
-            ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
-                TSent = ?BROKER_INSTR_TS(),
-                ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
-                ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
-            end),
+            ?BROKER_INSTR_MSGLATENCY(
+                ?BROKER_INSTR_WMARK(
+                    t0_deliver,
+                    {?BROKER_INSTR_MARK(T0, TDisp), TDeliver},
+                    begin
+                        TSent = ?BROKER_INSTR_TS(),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, deliver_delay_us, TDisp, TDeliver),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, deliver_total_lat_us, TDisp, TSent),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, brokerage_delay_us, T0, TDeliver),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, brokerage_latency_us, T0, TSent)
+                    end
+                )
+            ),
             Ok;
-        {error, timeout} ->
-            %% Defer error handling
-            %% so it's handled the same as tcp_closed or ssl_closed
-            {ok, {sock_error, send_timeout}, State};
-        {error, Reason} when Reason =:= closed; Reason =:= einval; Reason =:= enotconn ->
-            {ok, close_socket(State)};
         {error, Reason} ->
-            {ok, {sock_error, Reason}, State}
+            send_error(Reason, State)
     end.
+
+%% A TCP port (inet backend) is sent to with `async_send/3', which calls
+%% `prim_inet:send_async/3'. It returns when the driver has the data. The
+%% driver replies later with `{inet_reply, Socket, Status, send_async}',
+%% which `handle_msg/2' handles. `{error, busy}' means the driver queue is
+%% above its high watermark: send that packet synchronously, so that the
+%% caller waits for the queue to drain.
+do_send(Transport, Socket, IoData) when is_port(Socket) ->
+    case Transport:async_send(Socket, IoData, [nosuspend]) of
+        {error, busy} ->
+            Transport:send(Socket, IoData);
+        Result ->
+            Result
+    end;
+do_send(Transport, Socket, IoData) ->
+    Transport:send(Socket, IoData).
+
+send_error(timeout, State) ->
+    %% Defer error handling
+    %% so it's handled the same as tcp_closed or ssl_closed
+    {ok, {sock_error, send_timeout}, State};
+send_error(Reason, State) when Reason =:= closed; Reason =:= einval; Reason =:= enotconn ->
+    {ok, close_socket(State)};
+send_error(Reason, State) ->
+    {ok, {sock_error, Reason}, State}.
 
 %% Some bytes sent
 -spec sent(non_neg_integer(), non_neg_integer(), state()) ->
@@ -1224,7 +1292,7 @@ run_gc(#state{conf = #conf{zone = Zone}}) ->
         true -> ok
     end.
 
-probe_sendq_congestion(State = #state{sockstate = congested}) ->
+probe_sendq_congestion(State = #state{sockstate = SockSt}) when ?IS_CONGESTED(SockSt) ->
     check_sendq_congestion(State);
 probe_sendq_congestion(State = #state{conf = #conf{sendq_watermark = 0}}) ->
     {[], State};
@@ -1237,7 +1305,7 @@ probe_sendq_congestion(
     SQSize = get_sendq_size(State),
     case SQSize > Watermark div 2 of
         true ->
-            NState = State#state{sockstate = congested},
+            NState = ensure_sendq_timer(State#state{sockstate = congested}, ?SENDQ_CHECK_MIN),
             signal_channel_congestion(congested, SQSize, NState);
         false ->
             {[], State}
@@ -1245,22 +1313,32 @@ probe_sendq_congestion(
 probe_sendq_congestion(State) ->
     {[], State}.
 
+check_sendq_congestion(State) ->
+    check_sendq_congestion(State, ?SENDQ_CHECK_MIN).
+
 check_sendq_congestion(
     State = #state{
-        sockstate = congested,
+        sockstate = SockSt,
         conf = #conf{sendq_watermark = Watermark}
-    }
-) ->
+    },
+    NextInterval
+) when ?IS_CONGESTED(SockSt) ->
     SQSize = get_sendq_size(State),
     case SQSize < Watermark div 4 of
         true ->
             NState = State#state{sockstate = running},
             signal_channel_congestion(decongested, SQSize, NState);
         false ->
-            {[], State}
+            {[], ensure_sendq_timer(State, NextInterval)}
     end;
-check_sendq_congestion(State) ->
+check_sendq_congestion(State, _NextInterval) ->
     {[], State}.
+
+%% Replace `congested` with the reference of a new send queue check timer.
+ensure_sendq_timer(State = #state{sockstate = congested}, Interval) ->
+    State#state{sockstate = start_timer(Interval, {check_sendq, Interval})};
+ensure_sendq_timer(State, _Interval) ->
+    State.
 
 get_sendq_size(State) ->
     case sockstats([send_pend], State) of
@@ -1278,7 +1356,7 @@ signal_channel_congestion(Status, SQSize, State = #state{channel = Channel}) ->
     end.
 
 check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
-    case emqx_utils:check_oom(ShutdownPolicy) of
+    case emqx_connection_util:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
             ?tp(warning, check_oom_shutdown, #{
@@ -1302,26 +1380,25 @@ check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
 %%--------------------------------------------------------------------
 %% Handle Info
 
-handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
+handle_info(activate_socket, State) ->
     case activate_socket(State) of
-        {ok, NState = #state{sockstate = NewSst}} ->
-            case OldSst =/= NewSst of
-                true -> {ok, {event, NewSst}, NState};
-                false -> {ok, NState}
-            end;
+        {ok, NState} ->
+            {ok, NState};
         {error, Reason} ->
             handle_info({sock_error, Reason}, State)
     end;
 handle_info({sock_error, Reason}, State) ->
-    %% Do not log warning for econnreset
-    maybe_log_first_packet_non_mqtt(Reason, State),
-    case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
-        true ->
-            ok;
+    case connect_too_large_error(Reason, State) of
+        {true, FrameError} ->
+            %% The transport has already closed the socket with the error:
+            %% gen_tcp closes the port after `tcp_error', ssl stops the
+            %% connection after `invalid_packet'. There is nothing to close,
+            %% and `ssl:close/1' on a stopping connection would block for
+            %% esockd's close timeout.
+            handle_incoming(FrameError, State#state{sockstate = closed});
         false ->
-            ?SLOG(warning, #{msg => "socket_error", reason => Reason})
-    end,
-    handle_info({sock_closed, Reason}, close_socket(State));
+            handle_sock_error(Reason, State)
+    end;
 %% handle QUIC control stream events
 handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
     case emqx_quic_stream:Event(Handle, Prop, State) of
@@ -1332,6 +1409,120 @@ handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
     end;
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
+
+handle_sock_error(Reason, State) ->
+    %% Do not log warning for econnreset
+    maybe_log_first_packet_non_mqtt(Reason, State),
+    case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{msg => "socket_error", reason => Reason})
+    end,
+    handle_info({sock_closed, Reason}, close_socket(State)).
+
+%% The first activation of a whole-frame transport.
+%%
+%% The listener accepts with `packet_size' set to the CONNECT limit
+%% (`emqx_listeners:choose_packet_opts/1'), which bounds what the transport
+%% buffers for a client that has not connected yet. It is set again here
+%% because `ssl' does not carry `packet_size' over from the TCP socket when it
+%% upgrades the connection (`ssl:emulated_options/4' merges the socket's
+%% options into the defaults with `lists:ukeymerge/3' on lists that are not
+%% key-sorted; `packet' survives, `packet_size' comes out as 0).
+%%
+%% While the CONNECT limit is below `max_packet_size', ask for one packet
+%% only. The transport then delivers CONNECT and goes passive with whatever
+%% follows still unparsed, so a packet the client pipelined behind CONNECT
+%% (allowed before CONNACK) is framed against `max_packet_size' once
+%% `raise_packet_size_limit/1' has run on the CONNECT, rather than refused
+%% against the CONNECT limit. The regular `{active, N}' takes over on the
+%% passive notification.
+activate_socket_for_connect(
+    #state{
+        parser = {frame, _},
+        transport = Transport,
+        socket = Socket,
+        conf = #conf{zone = Zone}
+    } = State
+) ->
+    {Limit, MaxSize} = connect_packet_size_limits(Zone),
+    Active =
+        case Limit < MaxSize of
+            true -> 1;
+            false -> active_n(State)
+        end,
+    case Transport:setopts(Socket, [{packet_size, Limit}, {active, Active}]) of
+        ok -> {ok, State#state{sockstate = running}};
+        Error -> Error
+    end;
+activate_socket_for_connect(State) ->
+    activate_socket(State).
+
+%% CONNECT has been received: raise `packet_size' to `max_packet_size' so
+%% the packets that follow are not held to the CONNECT limit.
+raise_packet_size_limit(#state{
+    parser = {frame, _},
+    transport = Transport,
+    socket = Socket,
+    conf = #conf{zone = Zone}
+}) ->
+    case connect_packet_size_limits(Zone) of
+        {Limit, MaxSize} when Limit < MaxSize ->
+            _ = Transport:setopts(Socket, [{packet_size, MaxSize}]),
+            ok;
+        _ ->
+            ok
+    end;
+raise_packet_size_limit(_State) ->
+    ok.
+
+%% `{ConnectLimit, MaxSize}', with the CONNECT limit never above `MaxSize'.
+connect_packet_size_limits(Zone) ->
+    MaxSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+    Limit = min(MaxSize, emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size])),
+    {Limit, MaxSize}.
+
+active_n(#state{conf = #conf{active_n = ActiveN}}) ->
+    ActiveN.
+
+-doc """
+Recognise a first frame the transport refused for being over `packet_size'.
+
+Before CONNECT, the whole-frame transports are set up with `packet_size' equal
+to `max_connect_packet_size', so they reject an oversized CONNECT before the
+parser sees a byte of it. `gen_tcp' reports `emsgsize'; `ssl' reports
+`{invalid_packet, Data}', carrying the client's bytes. Report both the way the
+stream parser reports the same packet, so the shutdown counter does not depend
+on the transport, and the client's bytes stay out of the exit reason.
+
+Only the error tag is kept: whether the refused frame really was a CONNECT is
+not knowable here, and neither is it in the stream parser's case.
+""".
+connect_too_large_error(Reason, #state{
+    parser = {frame, _}, channel = Channel, conf = #conf{zone = Zone}
+}) ->
+    case transport_frame_too_large(Reason) andalso emqx_channel:info(conn_state, Channel) of
+        idle ->
+            Limit = emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
+            {true,
+                {frame_error, #{
+                    cause => connect_packet_too_large,
+                    limit => Limit,
+                    transport_error => transport_error_tag(Reason)
+                }}};
+        _ ->
+            false
+    end;
+connect_too_large_error(_Reason, _State) ->
+    false.
+
+transport_frame_too_large(emsgsize) -> true;
+transport_frame_too_large({invalid_packet, _Data}) -> true;
+transport_frame_too_large(_) -> false.
+
+transport_error_tag({invalid_packet, _Data}) -> invalid_packet;
+transport_error_tag(Reason) -> Reason.
 
 maybe_log_first_packet_non_mqtt(emsgsize, #state{channel = Channel}) ->
     case emqx_channel:info(conn_state, Channel) of
@@ -1396,8 +1587,8 @@ activate_socket(
 activate_socket(State) ->
     {ok, State}.
 
-activate_sockstate(congested) ->
-    congested;
+activate_sockstate(SockSt) when ?IS_CONGESTED(SockSt) ->
+    SockSt;
 activate_sockstate(_SockState) ->
     running.
 
@@ -1492,8 +1683,7 @@ stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
 
 inc_counter(Key, Inc) ->
-    _ = emqx_pd:inc_counter(Key, Inc),
-    ok.
+    emqx_chan_stats:inc(Key, Inc).
 
 set_tcp_keepalive({quic, _Listener}) ->
     ok;
@@ -1540,39 +1730,24 @@ wait_for_quic_stream_close(
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
-    #conf{listener = {Type, Listener}} = Conf,
-    FrameOpts0 = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
-        %% zone will **not** take effect after the override.
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-        %% Any packet received before CONNECT is rejected by the parser.
-        expect_connect => true
-    },
+%% A zone change on a live connection.
+init_zone_specific_state(Zone, #state{conf = Conf0} = State0) ->
+    init_zone_specific_state(
+        emqx_connection_conf:conn_conf(Conf0#conf.listener, Zone), Zone, State0
+    ).
+
+init_zone_specific_state(NConf, Zone, State0) ->
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
-                init_parser_and_serializer(FrameOpts0, State0);
+                init_parser_and_serializer(Zone, State0);
             Parser1 ->
-                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+                %% zone will **not** take effect after the override.
+                FrameOpts = emqx_connection_conf:frame_opts(Zone),
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts),
                 {Parser2, Serialize2}
         end,
-    GcThresholds =
-        case emqx_config:get_zone_conf(Zone, [force_gc]) of
-            #{enable := false} ->
-                false;
-            #{enable := true, count := Count, bytes := Bytes} ->
-                {Count, Bytes}
-        end,
-    NConf = Conf#conf{
-        zone = Zone,
-        active_n = get_active_n(Type, Listener),
-        sendq_watermark = get_high_watermark(Type, Listener),
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_hibernate_after(Zone)),
-        force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
-        force_gc = GcThresholds
-    },
     State0#state{
         parser = Parser,
         serialize = Serialize,
@@ -1580,14 +1755,15 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         conf = NConf
     }.
 
-init_parser_and_serializer(FrameOpts0, State0) ->
+init_parser_and_serializer(Zone, State0) ->
     #state{
         transport = Transport,
         socket = Socket
     } = State0,
-    Parser0 = init_parser(Transport, Socket, FrameOpts0),
-    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-    {Parser0, Serialize0}.
+    #{initial_parse_state := ParseState, serialize_opts := Serialize} = emqx_connection_conf:pre_connect_codec(
+        Zone
+    ),
+    {init_parser(Transport, Socket, ParseState), Serialize}.
 
 %%--------------------------------------------------------------------
 %% For CT tests
@@ -1605,16 +1781,3 @@ get_state(Pid) ->
             tl(tuple_to_list(State))
         )
     ).
-
-get_active_n(quic, _Listener) ->
-    ?ACTIVE_N;
-get_active_n(Type, Listener) ->
-    emqx_listeners:clamp_active_n(
-        emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n])
-    ).
-
-get_high_watermark(quic, _Listener) ->
-    0;
-get_high_watermark(Type, Listener) ->
-    %% TODO protect against too small hwm
-    emqx_config:get_listener_conf(Type, Listener, [tcp_options, high_watermark]).

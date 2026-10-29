@@ -645,7 +645,8 @@ t_write_failure(TCConfig) ->
             case Result of
                 {async_return, {error, {resource_error, _}}} ->
                     ok;
-                {async_return, {error, {recoverable_error, disconnected}}} ->
+                {async_return, {error, {recoverable_error, #{}}}} ->
+                    %% from ecpool_worker:client/1
                     ok;
                 {error, {resource_error, _}} ->
                     ok;
@@ -756,3 +757,9 @@ t_nasty_sql_string(TCConfig) ->
     Payload = list_to_binary(lists:seq(1, 127)),
     emqtt:publish(C, RuleTopic, Payload),
     ?assertEqual(Payload, connect_and_get_payload(TCConfig)).
+
+t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
+    emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
+        callback_mod => emqx_bridge_cassandra_connector,
+        reconnect_callback_fns => [prepare_cql_to_conn]
+    }).

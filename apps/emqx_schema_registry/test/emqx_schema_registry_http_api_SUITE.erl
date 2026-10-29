@@ -20,6 +20,15 @@
 %%------------------------------------------------------------------------------
 
 -define(REDACTED, <<"******">>).
+-define(MASKED_EXTERNAL_HTTP_CONF, #{
+    <<"parameters">> := #{
+        <<"headers">> := #{
+            <<"Authorization">> := <<"******">>,
+            <<"X-Plain">> := <<"plain-value">>
+        },
+        <<"ssl">> := #{<<"password">> := <<"******">>}
+    }
+}).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -51,10 +60,23 @@ only_once_testcases() ->
         t_smoke_test_external_registry_confluent,
         t_external_http_serde,
         t_external_http_serde_get,
+        t_external_http_serde_redaction,
         t_json_schema_2019_09,
         t_json_schema_2020_12,
         t_json_schema_draft04_unicode_ref,
-        t_json_schema_draft06_unicode_source
+        t_json_schema_draft06_unicode_source,
+        t_protobuf_bundle_bundle_as_data_part_post,
+        t_protobuf_bundle_bundle_as_data_part_put,
+        t_protobuf_bundle_root_proto_file_as_file_part_post,
+        t_protobuf_bundle_root_proto_file_as_file_part_put,
+        t_protobuf_bundle_name_as_file_part_post,
+        t_protobuf_bundle_name_as_file_part_put,
+        t_protobuf_bundle_description_as_file_part_post,
+        t_protobuf_bundle_description_as_file_part_put,
+        t_protobuf_bundle_two_bundle_file_parts,
+        t_protobuf_bundle_missing_name,
+        t_protobuf_bundle_missing_root_proto_file,
+        t_protobuf_bundle_missing_bundle
     ].
 
 init_per_suite(Config) ->
@@ -195,6 +217,12 @@ try_decode_error_message(#{<<"message">> := Msg0} = Res0) ->
 try_decode_error_message(Res) ->
     Res.
 
+raw_response(Method, Path) ->
+    Header = emqx_common_test_http:default_auth_header(),
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    {ok, Code, Body} = emqx_mgmt_api_test_util:request_api(Method, Path, [], Header, [], Opts),
+    {Code, Body}.
+
 clear_schemas() ->
     maps:foreach(
         fun(Name, _Schema) ->
@@ -293,28 +321,54 @@ create_schema_protobuf_bundle(Params) ->
 update_schema_protobuf_bundle(Params) ->
     do_create_or_update_schema_protobuf_bundle(Params#{method => put}).
 
+%% `name`, `root_proto_path` and `description` are sent as data parts when present.
+%% `extra_params` adds more data parts; `files` holds the file parts.
 do_create_or_update_schema_protobuf_bundle(Params) ->
     #{
-        name := Name,
         files := Files,
-        root_proto_path := RootPath,
         method := Method
     } = Params,
+    Name = maps:get(name, Params, undefined),
+    RootPath = maps:get(root_proto_path, Params, undefined),
     Description = maps:get(description, Params, undefined),
+    ExtraParams = maps:get(extra_params, Params, []),
     URL = uri(["schema_registry_protobuf", "bundle"]),
     Res = emqx_mgmt_api_test_util:upload_request(#{
         url => URL,
         files => Files,
         mime_type => <<"application/octet-stream">>,
         other_params => lists:flatten([
-            {<<"name">>, Name},
-            {<<"root_proto_file">>, RootPath},
-            [{<<"description">>, Description} || Description /= undefined]
+            [{<<"name">>, Name} || Name /= undefined],
+            [{<<"root_proto_file">>, RootPath} || RootPath /= undefined],
+            [{<<"description">>, Description} || Description /= undefined],
+            ExtraParams
         ]),
         auth_token => emqx_mgmt_api_test_util:auth_header_(),
         method => Method
     }),
     emqx_mgmt_api_test_util:simplify_decode_result(Res).
+
+bundle_file_part(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Filename = filename:join([PrivDir, "bundle.tar.gz"]),
+    FileList = [
+        {"a.proto", emqx_schema_registry_SUITE:proto_file(<<"a.proto">>)},
+        {"nested/b.proto", emqx_schema_registry_SUITE:proto_file(<<"b.proto">>)},
+        {"c.proto", emqx_schema_registry_SUITE:proto_file(<<"c.proto">>)}
+    ],
+    on_exit(fun() -> file:delete(Filename) end),
+    ok = erl_tar:create(Filename, FileList, [compressed]),
+    {ok, Data} = file:read_file(Filename),
+    {<<"bundle">>, Filename, Data}.
+
+dummy_bundle_file_part() ->
+    {<<"bundle">>, <<"bundle.tar.gz">>, zlib:gzip(<<"not a tar">>)}.
+
+assert_bad_form_data(ExpectedMsg, Res) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_FORM_DATA">>, <<"message">> := ExpectedMsg}},
+        Res
+    ).
 
 delete_schema(Name) ->
     case request({delete, Name}) of
@@ -1196,6 +1250,94 @@ t_external_http_serde_ssl(_Config) ->
     ),
     ok.
 
+%% The external_http serde configuration may carry credentials in
+%% `parameters.headers' and in `parameters.ssl.password': they must be masked in
+%% the responses, and submitting a masked body back must keep the stored values.
+t_external_http_serde_redaction(_Config) ->
+    {ok, Port} = start_external_http_serde_server(),
+    SchemaName = <<"my_external_http_serde_redaction">>,
+    HeaderSecret = <<"Bearer sr-header-secret">>,
+    TLSSecret = <<"sr-tls-secret">>,
+    Headers = #{
+        <<"Authorization">> => HeaderSecret,
+        <<"X-Plain">> => <<"plain-value">>
+    },
+    Params0 = mk_external_http_create_params(#{name => SchemaName, port => Port}),
+    Params = Params0#{
+        <<"parameters">> := (maps:get(<<"parameters">>, Params0))#{
+            <<"headers">> => Headers,
+            <<"ssl">> => #{<<"enable">> => false, <<"password">> => TLSSecret}
+        }
+    },
+
+    ?assertMatch(
+        {201, ?MASKED_EXTERNAL_HTTP_CONF},
+        create_schema(Params)
+    ),
+
+    {200, RawSchema} = raw_response(get, uri(["schema_registry", SchemaName])),
+    ?assertEqual(nomatch, binary:match(RawSchema, HeaderSecret)),
+    ?assertEqual(nomatch, binary:match(RawSchema, TLSSecret)),
+    {200, SchemaResp} = get_schema(SchemaName),
+    ?assertMatch(?MASKED_EXTERNAL_HTTP_CONF, SchemaResp),
+
+    {200, RawList} = raw_response(get, uri(["schema_registry"])),
+    ?assertEqual(nomatch, binary:match(RawList, HeaderSecret)),
+    ?assertEqual(nomatch, binary:match(RawList, TLSSecret)),
+    [Listed] = [
+        Schema
+     || Schema <- emqx_utils_json:decode(RawList),
+        maps:get(<<"name">>, Schema) =:= SchemaName
+    ],
+    ?assertMatch(?MASKED_EXTERNAL_HTTP_CONF, Listed),
+
+    %% Re-submitting the masked body must not overwrite the stored values.
+    PutBody = maps:without([<<"name">>, <<"status">>, <<"node_status">>], SchemaResp),
+    ?assertMatch({200, ?MASKED_EXTERNAL_HTTP_CONF}, update_schema(SchemaName, PutBody)),
+    ?assertEqual(
+        Headers,
+        emqx:get_raw_config([schema_registry, schemas, SchemaName, parameters, headers])
+    ),
+    ?assertEqual(
+        TLSSecret,
+        emqx:get_raw_config([schema_registry, schemas, SchemaName, parameters, ssl, password])
+    ),
+
+    %% The restored header is the one actually sent by the embedded HTTP connector.
+    Tab = ets:new(serde_request_headers, [public, set]),
+    emqx_utils_http_test_server:set_handler(
+        fun(Req, State) ->
+            true = ets:insert(Tab, {authorization, cowboy_req:header(<<"authorization">>, Req)}),
+            external_http_handler(Req, State)
+        end
+    ),
+    SQL = sql(
+        <<"select schema_encode('${.name}', payload) as encoded from \"t\" ">>,
+        #{name => SchemaName}
+    ),
+    Context = publish_context({json, #{<<"f1">> => #{<<"bah">> => 123}}}),
+    ?assertMatch({200, #{<<"encoded">> := _}}, dryrun_rule(SQL, Context)),
+    ?assertEqual([{authorization, HeaderSecret}], ets:lookup(Tab, authorization)),
+
+    %% A failed update must neither crash nor echo the values it restored.
+    BadParams = maps:update_with(
+        <<"parameters">>,
+        fun(Parameters) -> Parameters#{<<"url">> => <<"no-scheme-url">>} end,
+        PutBody
+    ),
+    {error, {{_, 400, _}, _ErrHeaders, ErrBody}} = emqx_mgmt_api_test_util:request_api(
+        put,
+        uri(["schema_registry", SchemaName]),
+        [],
+        emqx_common_test_http:default_auth_header(),
+        BadParams,
+        #{return_all => true}
+    ),
+    ?assertEqual(nomatch, binary:match(iolist_to_binary(ErrBody), HeaderSecret)),
+    ?assertEqual(nomatch, binary:match(iolist_to_binary(ErrBody), TLSSecret)),
+
+    ok.
+
 t_protobuf_bundle(Config) ->
     PrivDir = ?config(priv_dir, Config),
     BundleFilename1 = filename:join([PrivDir, "bundle.tar.gz"]),
@@ -1338,6 +1480,191 @@ t_protobuf_bundle_update_without_bundle(Config) ->
         })
     ),
     ok.
+
+-doc """
+A `bundle` sent as a data part on create returns 400 BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_bundle_as_data_part_post(_Config) ->
+    assert_bad_form_data(
+        <<"`bundle` must be a file">>,
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            root_proto_path => <<"a.proto">>,
+            files => [],
+            extra_params => [{<<"bundle">>, <<"not a file">>}]
+        })
+    ).
+
+-doc """
+A `bundle` sent as a data part on update returns 400 BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_bundle_as_data_part_put(_Config) ->
+    assert_bad_form_data(
+        <<"`bundle` must be a file">>,
+        update_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            root_proto_path => <<"a.proto">>,
+            files => [],
+            extra_params => [{<<"bundle">>, <<"not a file">>}]
+        })
+    ).
+
+-doc """
+A `root_proto_file` sent as a file part on create returns 400 BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_root_proto_file_as_file_part_post(_Config) ->
+    assert_bad_form_data(
+        <<"`root_proto_file` must be a text field, not a file">>,
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            files => [
+                {<<"root_proto_file">>, <<"root.txt">>, <<"a.proto">>},
+                dummy_bundle_file_part()
+            ]
+        })
+    ).
+
+-doc """
+A `root_proto_file` sent as a file part on an update without a bundle returns 400
+BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_root_proto_file_as_file_part_put(_Config) ->
+    assert_bad_form_data(
+        <<"`root_proto_file` must be a text field, not a file">>,
+        update_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            files => [{<<"root_proto_file">>, <<"root.txt">>, <<"a.proto">>}]
+        })
+    ).
+
+-doc """
+A `name` sent as a file part on create returns 400 BAD_FORM_DATA, not 500.
+""".
+t_protobuf_bundle_name_as_file_part_post(_Config) ->
+    assert_bad_form_data(
+        <<"`name` must be a text field, not a file">>,
+        create_schema_protobuf_bundle(#{
+            root_proto_path => <<"a.proto">>,
+            files => [
+                {<<"name">>, <<"name.txt">>, <<"myserde">>},
+                dummy_bundle_file_part()
+            ]
+        })
+    ).
+
+-doc """
+A `name` sent as a file part on an update without a bundle returns 400 BAD_FORM_DATA,
+not 500.
+""".
+t_protobuf_bundle_name_as_file_part_put(_Config) ->
+    assert_bad_form_data(
+        <<"`name` must be a text field, not a file">>,
+        update_schema_protobuf_bundle(#{
+            root_proto_path => <<"a.proto">>,
+            files => [{<<"name">>, <<"name.txt">>, <<"myserde">>}]
+        })
+    ).
+
+-doc """
+A `description` sent as a file part on create returns 400 BAD_FORM_DATA.
+""".
+t_protobuf_bundle_description_as_file_part_post(Config) ->
+    Name = <<"myserde">>,
+    assert_bad_form_data(
+        <<"`description` must be a text field, not a file">>,
+        create_schema_protobuf_bundle(#{
+            name => Name,
+            root_proto_path => <<"a.proto">>,
+            files => [
+                {<<"description">>, <<"desc.txt">>, <<"my bundle">>},
+                bundle_file_part(Config)
+            ]
+        })
+    ),
+    ?assertEqual({error, not_found}, emqx_schema_registry:get_schema(Name)).
+
+-doc """
+A `description` sent as a file part on an update without a bundle returns 400
+BAD_FORM_DATA.
+""".
+t_protobuf_bundle_description_as_file_part_put(Config) ->
+    Name = <<"myserde">>,
+    ?assertMatch(
+        {201, _},
+        create_schema_protobuf_bundle(#{
+            name => Name,
+            root_proto_path => <<"a.proto">>,
+            description => <<"my bundle">>,
+            files => [bundle_file_part(Config)]
+        })
+    ),
+    assert_bad_form_data(
+        <<"`description` must be a text field, not a file">>,
+        update_schema_protobuf_bundle(#{
+            name => Name,
+            root_proto_path => <<"c.proto">>,
+            files => [{<<"description">>, <<"desc.txt">>, <<"new description">>}]
+        })
+    ),
+    ?assertMatch(
+        {ok, #{description := <<"my bundle">>}}, emqx_schema_registry:get_schema(Name)
+    ).
+
+-doc """
+Two `bundle` file parts with different filenames return the existing 400 BAD_FORM_DATA.
+""".
+t_protobuf_bundle_two_bundle_file_parts(_Config) ->
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"BAD_FORM_DATA">>,
+            <<"message">> := <<"form-data should be `name=@schema-name;bundle=@filename.tar.gz`">>
+        }},
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            root_proto_path => <<"a.proto">>,
+            files => [
+                {<<"bundle">>, <<"a.tar.gz">>, zlib:gzip(<<"a">>)},
+                {<<"bundle">>, <<"b.tar.gz">>, zlib:gzip(<<"b">>)}
+            ]
+        })
+    ).
+
+-doc """
+A create request without `name` returns 400 with the existing message.
+""".
+t_protobuf_bundle_missing_name(_Config) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := <<"Missing `name`">>}},
+        create_schema_protobuf_bundle(#{
+            root_proto_path => <<"a.proto">>,
+            files => [dummy_bundle_file_part()]
+        })
+    ).
+
+-doc """
+A create request without `root_proto_file` returns 400 with the existing message.
+""".
+t_protobuf_bundle_missing_root_proto_file(_Config) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := <<"Missing `root_proto_file`">>}},
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            files => [dummy_bundle_file_part()]
+        })
+    ).
+
+-doc """
+A create request without `bundle` returns 400 with the existing message.
+""".
+t_protobuf_bundle_missing_bundle(_Config) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := <<"Missing `bundle`">>}},
+        create_schema_protobuf_bundle(#{
+            name => <<"myserde">>,
+            root_proto_path => <<"a.proto">>,
+            files => []
+        })
+    ).
 
 -doc """
 Verifies that we refuse to delete a serde which is referenced by a schema validation.

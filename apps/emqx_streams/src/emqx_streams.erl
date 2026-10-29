@@ -117,9 +117,9 @@ on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
 publish_to_stream(Stream, #message{} = Message) ->
     emqx_streams_message_db:insert(Stream, Message).
 
-save_support_info(#{conn_info_fn := ConnInfoFn} = _Ctx, ClientInfo) ->
+save_support_info(#{conninfo := ConnInfo} = _Ctx, ClientInfo) ->
     Protocol = maps:get(protocol, ClientInfo, undefined),
-    ProtoVer = ConnInfoFn(proto_ver),
+    ProtoVer = maps:get(proto_ver, ConnInfo, undefined),
     Info =
         case {Protocol, ProtoVer} of
             {mqtt, ?MQTT_PROTO_V5} ->

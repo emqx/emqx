@@ -35,6 +35,14 @@
     default_port => 9876
 }).
 
+%% Allocatable resources
+-define(client_id, client_id).
+-define(producer_cache(RES_ID, TOPIC), {producer_cache, RES_ID, TOPIC}).
+
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
+%% for the existing binary_to_atom
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %%=====================================================================
 %% Hocon schema
 
@@ -132,7 +140,7 @@ on_start(
         ssl_opts => SSLOpts
     },
 
-    ok = emqx_resource:allocate_resource(InstanceId, ?MODULE, client_id, ClientId),
+    ok = allocate(InstanceId, ?client_id, ClientId),
     create_producers_map(ClientId),
 
     case rocketmq:ensure_supervised_client(ClientId, Servers, ClientCfg) of
@@ -199,26 +207,76 @@ create_channel_state(
     {ok, State}.
 
 on_remove_channel(
-    _InstId,
+    ConnResId,
     #{
         installed_channels := InstalledChannels
     } = OldState,
-    ChannelId
+    ChanResId
 ) ->
-    NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+    destroy_allocated_channel_resources(ConnResId, ChanResId),
+    NewInstalledChannels = maps:remove(ChanResId, InstalledChannels),
     %% Update state
-    NewState = OldState#{installed_channels => NewInstalledChannels},
+    NewState = OldState#{installed_channels := NewInstalledChannels},
     {ok, NewState}.
 
 on_get_channel_status(
-    InstanceId,
+    _InstanceId,
     ChannelId,
-    #{installed_channels := Channels} = State
+    #{installed_channels := Channels, client_id := ClientId} = _State
 ) ->
     case maps:find(ChannelId, Channels) of
-        {ok, _} -> on_get_status(InstanceId, State);
-        error -> ?status_disconnected
+        {ok, ChannelState} ->
+            check_topic_status(ClientId, ChannelState);
+        error ->
+            ?status_disconnected
     end.
+
+%% A topic without placeholders is checked on the name server: it must have a route,
+%% or the broker must auto-create topics. The check also keeps the name server
+%% connection busy, which stops the name server from closing it as idle.
+%% A templated topic is only known per message, so it is not checked here.
+check_topic_status(ClientId, #{topic := Topic, topic_tokens := TopicTks} = ChannelState) ->
+    case is_static_topic(TopicTks) of
+        true ->
+            do_check_topic_status(ClientId, Topic, ChannelState);
+        false ->
+            ?status_connected
+    end.
+
+do_check_topic_status(ClientId, Topic, #{producers_opts := #{namespace := Namespace}}) ->
+    case rocketmq:check_topic(ClientId, Topic) of
+        ok ->
+            ?status_connected;
+        {error, {topic_not_found, #{remark := Remark}}} ->
+            {?status_disconnected, topic_not_found_msg(Topic, Namespace, Remark)};
+        {error, Reason} ->
+            {?status_connecting, format_reason(Reason)}
+    end.
+
+is_static_topic(TopicTks) ->
+    lists:all(
+        fun
+            ({str, _}) -> true;
+            (_) -> false
+        end,
+        TopicTks
+    ).
+
+topic_not_found_msg(Topic, Namespace, Remark) ->
+    Where =
+        case Namespace of
+            <<>> -> <<>>;
+            _ -> [" in namespace \"", Namespace, "\""]
+        end,
+    iolist_to_binary([
+        "Topic \"",
+        Topic,
+        "\" not found",
+        Where,
+        ", and the broker does not auto-create topics. Create the topic on the broker."
+        " Name server reply: ",
+        format_reason(Remark)
+    ]).
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -228,12 +286,13 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_rocketmq_connector",
         connector => InstanceId
     }),
+    destroy_allocated_channel_resources(InstanceId),
     lists:foreach(
         fun
-            ({_, client_id, ClientId}) ->
+            ({_, ?client_id, ClientId}) ->
                 destory_producers_map(ClientId),
                 ok = rocketmq:stop_and_delete_supervised_client(ClientId);
-            ({_, _ProducerGroup, Producer}) ->
+            ({_, ?producer_cache(_, _), Producer}) ->
                 _ = rocketmq:stop_and_delete_supervised_producers(Producer)
         end,
         emqx_resource:get_allocated_resources_list(InstanceId)
@@ -254,14 +313,14 @@ on_get_status(_InstanceId, #{client_id := ClientId}) ->
     case rocketmq_client_sup:find_client(ClientId) of
         {ok, Pid} ->
             status_result(rocketmq_client:get_connection_state(Pid));
-        _ ->
-            ?status_connecting
+        {error, Reason} ->
+            {?status_connecting, Reason}
     end.
 
 status_result(connected) -> ?status_connected;
-status_result(connecting) -> ?status_connecting;
+status_result(connecting) -> {?status_connecting, ~"still connecting"};
 status_result({disconnected, Reason}) -> {?status_disconnected, format_reason(Reason)};
-status_result({error, _}) -> ?status_connecting.
+status_result({error, Reason}) -> {?status_connecting, format_reason(Reason)}.
 
 format_reason({tcp_connect_error, {Host, Port, Why}}) ->
     iolist_to_binary(io_lib:format("TCP connect to ~s:~p failed: ~0p", [Host, Port, Why]));
@@ -273,12 +332,31 @@ format_reason(ssl_closed) ->
     <<"TLS connection closed by peer">>;
 format_reason({ssl_error, Why}) ->
     iolist_to_binary(io_lib:format("TLS error: ~0p", [Why]));
+format_reason(Text) when is_binary(Text) ->
+    Text;
 format_reason(Other) ->
     iolist_to_binary(io_lib:format("~0p", [Other])).
 
 %%========================================================================================
 %% Helper fns
 %%========================================================================================
+
+destroy_allocated_channel_resources(ConnResId) ->
+    destroy_allocated_channel_resources(ConnResId, _ChanResId = '_').
+
+destroy_allocated_channel_resources(ConnResId, ChanResId) ->
+    maps:foreach(
+        fun
+            (?producer_cache(Id, _) = Key, Producers) when
+                ChanResId == '_' orelse Id == ChanResId
+            ->
+                _ = rocketmq:stop_and_delete_supervised_producers(Producers),
+                deallocate(ConnResId, Key);
+            (_, _) ->
+                ok
+        end,
+        emqx_resource:get_allocated_resources(ConnResId)
+    ).
 
 do_query(
     InstanceId,
@@ -319,10 +397,13 @@ do_query(
                 rocketmq_connector_query_return,
                 #{error => Reason}
             ),
+            %% The query is not logged: it carries the message payload, and the buffer
+            %% worker logs the same failure with the reason.
             ?SLOG(error, #{
                 msg => "rocketmq_connector_do_query_failed",
                 connector => InstanceId,
-                query => Query,
+                action => ChannelId,
+                topic => TopicKey,
                 reason => Reason
             }),
             Result;
@@ -341,8 +422,15 @@ safe_do_produce(
     ChannelId, InstanceId, QueryFunc, ClientId, TopicKey, Data, ProducerOpts, RequestTimeout
 ) ->
     try
-        Producers = get_producers(ChannelId, InstanceId, ClientId, TopicKey, ProducerOpts),
-        produce(InstanceId, QueryFunc, Producers, Data, RequestTimeout)
+        case get_producers(ChannelId, InstanceId, ClientId, TopicKey, ProducerOpts) of
+            {ok, Producers} ->
+                produce(InstanceId, QueryFunc, Producers, Data, RequestTimeout);
+            {error, StartError} ->
+                %% A message whose topic cannot be produced to is dropped. For a
+                %% topic without placeholders the health check marks the action
+                %% disconnected, so messages are held in the buffer instead.
+                {error, {unrecoverable_error, StartError}}
+        end
     catch
         _Type:Reason ->
             {error, {unrecoverable_error, redact(Reason)}}
@@ -477,21 +565,27 @@ destory_producers_map(ClientId) ->
 get_producers(ChannelId, InstanceId, ClientId, Topic, ProducerOpts) ->
     %% The topic need to be included in the name since we can have multiple
     %% topics per channel due to templating.
-    ProducerGroup = iolist_to_binary([ChannelId, "_", Topic]),
+    ProducerGroup = mk_producer_group(ChannelId, Topic),
     case ets:lookup(ClientId, ProducerGroup) of
         [{_, Producers}] ->
-            Producers;
+            {ok, Producers};
         _ ->
             %% TODO: the name needs to be an atom but this may cause atom leak so we
             %% should figure out a way to avoid this
             ProducerOpts2 = ProducerOpts#{name => binary_to_atom(ProducerGroup)},
-            {ok, Producers} = rocketmq:ensure_supervised_producers(
-                ClientId, ProducerGroup, Topic, ProducerOpts2
-            ),
-            ok = emqx_resource:allocate_resource(InstanceId, ?MODULE, ProducerGroup, Producers),
-            ets:insert(ClientId, {ProducerGroup, Producers}),
-            Producers
+            maybe
+                {ok, Producers} ?=
+                    rocketmq:ensure_supervised_producers(
+                        ClientId, ProducerGroup, Topic, ProducerOpts2
+                    ),
+                ok = allocate(InstanceId, ?producer_cache(ChannelId, Topic), Producers),
+                ets:insert(ClientId, {ProducerGroup, Producers}),
+                {ok, Producers}
+            end
     end.
+
+mk_producer_group(ChanResId, Topic) ->
+    iolist_to_binary([ChanResId, "_", Topic]).
 
 maybe_parse_template(undefined) ->
     undefined;
@@ -522,3 +616,9 @@ key_render_opts() ->
                 X
         end
     }.
+
+allocate(ConnResId, Key, Value) ->
+    ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, Key, Value).
+
+deallocate(ConnResId, Key) ->
+    ok = emqx_resource:deallocate_resource(ConnResId, Key).

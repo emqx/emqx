@@ -18,7 +18,26 @@
 
 -compile(inline).
 %% [TODO] Cleanup so the instruction below is not necessary.
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([
+    {elvis_style, no_god_modules, disable},
+    %% proc_name/2 builds registered names with list_to_atom/1.
+    {elvis_style, no_common_caveats_call, #{
+        caveat_functions => [
+            {timer, send_after, 2},
+            {timer, send_after, 3},
+            {timer, send_interval, 2},
+            {timer, send_interval, 3},
+            {erlang, size, 1},
+            {gen_statem, call, 2},
+            {gen_server, call, 2},
+            {gen_event, call, 3},
+            {erlang, binary_to_atom, 1},
+            {erlang, binary_to_atom, 2},
+            {erlang, garbage_collect, 0}
+        ]
+    }},
+    {elvis_style, no_receive_without_timeout, disable}
+]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -36,8 +55,6 @@
     drain_deliver/0,
     drain_deliver/1,
     drain_down/1,
-    check_oom/1,
-    check_oom/2,
     tune_heap_size/1,
     proc_name/2,
     proc_stats/0,
@@ -195,11 +212,10 @@ foldl_while(Fun, Acc, [X | Xs]) ->
     end.
 
 -compile({inline, [apply_fun/3]}).
-apply_fun(Fun, Input, State) ->
-    case erlang:fun_info(Fun, arity) of
-        {arity, 1} -> Fun(Input);
-        {arity, 2} -> Fun(Input, State)
-    end.
+apply_fun(Fun, Input, _State) when is_function(Fun, 1) ->
+    Fun(Input);
+apply_fun(Fun, Input, State) when is_function(Fun, 2) ->
+    Fun(Input, State).
 
 -spec start_timer(integer() | atom(), term()) -> option(reference()).
 start_timer(Interval, Msg) ->
@@ -255,49 +271,6 @@ drain_down(Cnt, Acc) ->
             drain_down(Cnt - 1, [Pid | Acc])
     after 0 ->
         lists:reverse(Acc)
-    end.
-
-%% @doc Check process's mailbox and heapsize against OOM policy,
-%% return `ok | {shutdown, Reason}' accordingly.
-%% `ok': There is nothing out of the ordinary.
-%% `shutdown': Some numbers (message queue length hit the limit),
-%%             hence shutdown for greater good (system stability).
-check_oom(Policy) ->
-    check_oom(self(), Policy).
-
-check_oom(_Pid, #{enable := false}) ->
-    ok;
-check_oom(Pid, #{
-    max_mailbox_size := MaxQLen,
-    max_heap_size := MaxHeapSize
-}) ->
-    case process_info(Pid, [message_queue_len, total_heap_size]) of
-        undefined ->
-            ok;
-        [{message_queue_len, QLen}, {total_heap_size, HeapSize}] ->
-            Result = do_check_oom([
-                {QLen, MaxQLen, mailbox_overflow},
-                {HeapSize, MaxHeapSize, proc_heap_too_large}
-            ]),
-            add_proc_label(Pid, Result)
-    end.
-
-do_check_oom([]) ->
-    ok;
-do_check_oom([{Val, Max, Reason} | Rest]) ->
-    case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
-        true -> {shutdown, #{reason => Reason, value => Val, max => Max}};
-        false -> do_check_oom(Rest)
-    end.
-
-%% Add the process label (e.g. `{clientid, ClientId}') to the shutdown
-%% reason so the supervisor report identifies the offending process.
-add_proc_label(_Pid, ok) ->
-    ok;
-add_proc_label(Pid, {shutdown, Reason}) ->
-    case proc_lib:get_label(Pid) of
-        undefined -> {shutdown, Reason};
-        Label -> {shutdown, Reason#{label => Label}}
     end.
 
 tune_heap_size(#{enable := false}) ->
@@ -466,9 +439,9 @@ pmap(Fun, List) when is_function(Fun, 1), is_list(List) ->
 
 -spec pmap(fun((A) -> B), list(A), timeout()) -> list(B).
 pmap(Fun, List, Timeout) when
-    is_function(Fun, 1),
-    is_list(List),
-    (is_integer(Timeout) andalso Timeout >= 0 orelse Timeout =:= infinity)
+    is_function(Fun, 1) andalso
+        is_list(List) andalso
+        (is_integer(Timeout) andalso Timeout >= 0 orelse Timeout =:= infinity)
 ->
     nolink_apply(fun() -> do_parallel_map(Fun, List) end, Timeout).
 

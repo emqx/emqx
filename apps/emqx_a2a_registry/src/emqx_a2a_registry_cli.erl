@@ -94,7 +94,7 @@ handle_list(Args) ->
         {error, Reason} ->
             Error = mk_error(fmt("Invalid list args: ~ts\n", [Reason])),
             print_json(Error),
-            false
+            {error, Reason}
     end.
 
 handle_get(Args) ->
@@ -115,7 +115,7 @@ handle_get(Args) ->
         {error, Reason} ->
             Error = mk_error(fmt("Invalid get args: ~ts\n", [Reason])),
             print_json(Error),
-            false
+            {error, Reason}
     end.
 
 handle_delete(Args) ->
@@ -130,7 +130,7 @@ handle_delete(Args) ->
         {error, Reason} ->
             Error = mk_error(fmt("Invalid delete args: ~ts\n", [Reason])),
             print_json(Error),
-            false
+            {error, Reason}
     end.
 
 handle_register(Args) ->
@@ -150,23 +150,23 @@ handle_register(Args) ->
                         {ok, Msg} ->
                             Error = mk_error(Msg),
                             print_json(Error),
-                            false;
+                            {error, Reason0};
                         error ->
                             Reason = iolist_to_binary(io_lib:format("~0p", [Reason0])),
                             Error = mk_error(fmt("Invalid register args: ~ts\n", [Reason])),
                             print_json(Error),
-                            false
+                            {error, Reason0}
                     end
             end;
         {error, Reason} when is_binary(Reason) ->
             Error = mk_error(Reason),
             print_json(Error),
-            false;
+            {error, Reason};
         {error, Reason0} ->
             Reason = iolist_to_binary(io_lib:format("~0p", [Reason0])),
             Error = mk_error(fmt("Invalid register args: ~ts\n", [Reason])),
             print_json(Error),
-            false
+            {error, Reason0}
     end.
 
 handle_stats(Args) ->
@@ -183,7 +183,7 @@ handle_stats(Args) ->
         {error, Reason} when is_binary(Reason) ->
             Error = mk_error(Reason),
             print_json(Error),
-            false
+            {error, Reason}
     end.
 
 read_card_file(Filepath) ->
@@ -441,7 +441,7 @@ print_retainer_disabled() ->
         "and try again."
     >>,
     print_json(mk_error(Msg)),
-    false.
+    {error, retainer_disabled}.
 
 print_json(X) ->
     ?PRINT("~ts\n", [emqx_utils_json:encode(X)]).

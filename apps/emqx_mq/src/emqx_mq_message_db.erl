@@ -4,6 +4,11 @@
 
 -module(emqx_mq_message_db).
 
+%% The `receive' expressions below wait for the commit reply of an async
+%% `emqx_ds:trans/2' that this module started. A bounded wait needs an error
+%% path for the timeout, which belongs with the callers of this module.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -moduledoc """
 Facade for all operations with the message database.
 """.
@@ -288,6 +293,7 @@ subscribe(#{stream_max_unacked := StreamMaxUnacked} = MQ, DSClient0, SubId, Stat
         db => db(MQ),
         id => SubId,
         topic => mq_message_topic(MQ, '#'),
+        start_time => emqx_mq_prop:delivery_start_time(MQ),
         ds_sub_opts => #{
             max_unacked => StreamMaxUnacked
         }
@@ -369,7 +375,8 @@ delete_expired_data(MQs) ->
     ).
 
 tx_mq_delete_expired_data(#{data_retention_period := DataRetentionPeriod} = MQ, Index) ->
-    TimeRetentionDeadline = max(now_ms() - DataRetentionPeriod, 0),
+    DataRetentionPeriodUs = erlang:convert_time_unit(DataRetentionPeriod, millisecond, microsecond),
+    TimeRetentionDeadline = max(now_us() - DataRetentionPeriodUs, 0),
     LimitsDeadline =
         case Index of
             undefined ->
@@ -381,9 +388,16 @@ tx_mq_delete_expired_data(#{data_retention_period := DataRetentionPeriod} = MQ, 
     Topic = mq_message_topic(MQ, '#'),
     emqx_ds:tx_del_topic(Topic, 0, DeleteTill).
 
--spec regular_db_slab_info() -> #{emqx_ds:slab() => emqx_ds:slab_info()}.
+-spec regular_db_slab_info() ->
+    {ok, #{emqx_ds:slab() => emqx_ds:slab_info()}}
+    | {error, [{emqx_ds:shard(), emqx_ds:error(_)}]}.
 regular_db_slab_info() ->
-    emqx_ds:list_slabs(?MQ_MESSAGE_REGULAR_DB).
+    case emqx_ds:list_slabs(?MQ_MESSAGE_REGULAR_DB, #{}) of
+        {SlabInfo, []} ->
+            {ok, SlabInfo};
+        {_SlabInfo, Errors} ->
+            {error, Errors}
+    end.
 
 -spec initial_generations(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) ->
     #{emqx_ds:slab() => emqx_ds:generation()}.
@@ -571,9 +585,7 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
             },
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
-                    fun(Topic) ->
-                        emqx_ds:tx_del_topic(Topic)
-                    end,
+                    fun emqx_ds:tx_del_topic/1,
                     Topics
                 )
             end),
@@ -655,5 +667,5 @@ delete_topics(?MQ_MESSAGE_REGULAR_DB, MQHandle) ->
 delete_topics(?MQ_MESSAGE_LASTVALUE_DB, MQHandle) ->
     [mq_index_topic(MQHandle), mq_message_topic(MQHandle, '#')].
 
-now_ms() ->
-    erlang:monotonic_time(millisecond).
+now_us() ->
+    erlang:system_time(microsecond).

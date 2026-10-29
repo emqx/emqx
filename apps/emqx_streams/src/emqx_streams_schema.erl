@@ -47,9 +47,10 @@ fields(?SCHEMA_ROOT) ->
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)
             })},
         {regular_stream_retention_period,
-            mk(emqx_schema:timeout_duration_ms(), #{
+            mk(emqx_schema:duration_ms(), #{
                 default => <<"7d">>,
                 required => true,
+                validator => fun(Duration) -> Duration >= 0 end,
                 desc => ?DESC(regular_stream_retention_period)
             })},
         {check_stream_status_interval,
@@ -65,7 +66,7 @@ fields(?SCHEMA_ROOT) ->
                 desc => ?DESC(auto_create),
                 default => #{
                     <<"regular">> => false,
-                    <<"lastvalue">> => #{}
+                    <<"lastvalue">> => false
                 }
             })},
         {quota,
@@ -102,7 +103,7 @@ fields(auto_create) ->
         {lastvalue,
             mk(hoconsc:union([false, ref(auto_create_lastvalue)]), #{
                 required => true,
-                default => #{},
+                default => false,
                 converter => serialize_converter(
                     fun
                         (false) ->

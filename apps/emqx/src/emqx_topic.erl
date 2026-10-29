@@ -290,10 +290,10 @@ union([]) ->
     Filter :: topic() | share().
 match_share(#share{topic = Name}, Filter) when is_binary(Filter) ->
     %% only match real topic filter for normal topic filter.
-    match(words(Name), words(Filter));
+    match(Name, Filter);
 match_share(#share{group = Group, topic = Name}, #share{group = Group, topic = Filter}) ->
     %% Matching real topic filter When subed same share group.
-    match(words(Name), words(Filter));
+    match(Name, Filter);
 match_share(#share{}, _) ->
     %% Otherwise, non-matched.
     false;

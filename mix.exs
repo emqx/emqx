@@ -82,11 +82,11 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:esockd),
       common_dep(:rocksdb),
       common_dep(:ekka),
-      common_dep(:mria),
       common_dep(:gen_rpc),
       common_dep(:grpc),
       common_dep(:minirest),
       common_dep(:ecpool),
+      common_dep(:poolboy),
       common_dep(:replayq),
       # maybe forbid to fetch quicer
       common_dep(:emqtt),
@@ -175,20 +175,18 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.1", override: true}
-  # pinned above the version ekka 1.0.1 pulls in; drop when ekka moves to 1.0.3
-  def common_dep(:mria), do: {:mria, github: "emqx/mria", tag: "1.0.2", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.8", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.4", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.18.0", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.5", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.4", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
-  def common_dep(:gun), do: {:gun, "2.1.0", override: true}
+  def common_dep(:gun), do: {:gun, "2.7.0", override: true}
   # in conflict by cowboy_swagger and cowboy
-  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-3", override: true}
+  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-5", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.6", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.8", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, "2.0.1", override: true}
 
@@ -198,13 +196,18 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/grpc-erl", tag: "0.7.7", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
-    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-3", override: true}
+    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-5", override: true}
 
   def common_dep(:hackney),
-    do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}
+    do: {:hackney, github: "emqx/hackney", tag: "2.0.0", override: true}
 
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
-  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.3", override: true}
+  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.7.0", override: true}
+
+  # `emqx_mongodb` retains overflow connections, which needs the emqx fork.
+  def common_dep(:poolboy),
+    do: {:poolboy, github: "emqx/poolboy", tag: "1.5.2-emqx.1", override: true}
+
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.5.0", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
@@ -217,7 +220,7 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.5", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
-  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.5.1", override: true}
+  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "4.0.0", override: true}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
@@ -233,7 +236,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.5.0", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.5.6", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),
@@ -248,13 +251,13 @@ defmodule EMQXUmbrella.MixProject do
     do: {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
 
   def common_dep(:rocksdb),
-    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "9.10.0-emqx-3", override: true}
+    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "9.10.0-emqx-4", override: true}
 
   def common_dep(:emqx_http_lib),
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do: {:cowlib, "2.14.0", override: true}
+    do: {:cowlib, "2.21.0", override: true}
 
   def common_dep(:snabbkaffe),
     do: {
@@ -262,7 +265,7 @@ defmodule EMQXUmbrella.MixProject do
       ## without this, snabbkaffe is compiled with `-define(snk_kind, '$kind')`, which
       ## will basically make events in tests never match any predicates.
       github: "kafka4beam/snabbkaffe",
-      tag: "1.0.10",
+      tag: "1.0.11",
       override: true,
       system_env: emqx_app_system_env()
     }
@@ -280,19 +283,19 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
-    do: {:kafka_protocol, "4.3.2", override: true}
+    do: {:kafka_protocol, "4.3.7", override: true}
 
   def common_dep(:brod), do: {:brod, "4.5.5"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
-  def common_dep(:crc32cer), do: {:crc32cer, "1.1.2", override: true}
+  def common_dep(:crc32cer), do: {:crc32cer, "1.1.4", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.9.1"}
 
   def common_dep(:erlavro),
     do: {:erlavro, github: "emqx/erlavro", tag: "2.11.2-emqx-1", override: true}
 
-  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.2"}
+  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.3"}
 
   # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
   def common_dep(:murmerl3),
@@ -319,7 +322,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.3"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.13"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.14"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
@@ -358,13 +361,36 @@ defmodule EMQXUmbrella.MixProject do
       singleton(not test_env?(), :deterministic) ++
       singleton(test_env?(), {:d, :TEST}) ++
       singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
-      singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
+      broker_instr_options() ++
       singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
       singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
   end
 
-  defp enable_broker_instr?() do
-    "1" == System.get_env("EMQX_BROKER_INSTR")
+  # EMQX_BROKER_INSTR accepts comma-separated feature names; "1" enables all features.
+  defp broker_instr_options() do
+    features = %{
+      "message_latency" => :EMQX_BROKER_INSTR_MESSAGE_LATENCY,
+      "socket_packets" => :EMQX_BROKER_INSTR_SOCKET_PACKETS
+    }
+
+    enabled =
+      case System.get_env("EMQX_BROKER_INSTR", "") do
+        "1" -> Map.keys(features)
+        value when value in ["", "0"] -> []
+        value -> String.split(value, ",", trim: true) |> Enum.map(&String.trim/1)
+      end
+
+    defines =
+      enabled
+      |> Enum.uniq()
+      |> Enum.map(fn feature ->
+        case Map.fetch(features, feature) do
+          {:ok, define} -> {:d, define}
+          :error -> raise "Unknown EMQX_BROKER_INSTR feature: #{inspect(feature)}"
+        end
+      end)
+
+    singleton(defines != [], {:d, :EMQX_BROKER_INSTR}) ++ defines
   end
 
   defp store_state_in_ds?() do

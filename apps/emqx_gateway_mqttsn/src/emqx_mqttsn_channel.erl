@@ -303,7 +303,7 @@ feedvar(Override, Packet, ConnInfo, ClientInfo) ->
     },
     maps:map(
         fun(_K, V) ->
-            Tokens = emqx_placeholder:preproc_tmpl(V),
+            Tokens = emqx_placeholder:preproc_tmpl(emqx_secret:unwrap(V)),
             emqx_placeholder:proc_tmpl(Tokens, Envs)
         end,
         Override
@@ -2048,7 +2048,7 @@ begin_resume_takeover(
     _Owner,
     _ResumeRequest,
     Channel = #channel{takeover = Takeover}
-) when Takeover =/= false ->
+) when is_record(Takeover, resumption) orelse Takeover ->
     reply({error, takeover_in_progress}, Channel).
 
 -doc "Complete wakeup takeover for the matching owner and attempt.".
@@ -2331,7 +2331,7 @@ handle_deliver(
         clientinfo = #{clientid := ClientId}
     }
 ) when
-    Takeover =/= false orelse Resuming
+    is_record(Takeover, resumption) orelse Takeover orelse Resuming
 ->
     NPendings = lists:append(
         Pendings,
@@ -2670,14 +2670,14 @@ metrics_inc(Ctx, Name) ->
 
 returncode_name(?SN_RC_ACCEPTED) -> accepted;
 returncode_name(?SN_RC_CONGESTION) -> rejected_congestion;
-returncode_name(?SN_RC_INVALID_TOPIC_ID) -> rejected_invaild_topic_id;
+returncode_name(?SN_RC_INVALID_TOPIC_ID) -> rejected_invalid_topic_id;
 returncode_name(?SN_RC_NOT_SUPPORTED) -> rejected_not_supported;
 returncode_name(?SN_RC2_NOT_AUTHORIZE) -> rejected_not_authorize;
 returncode_name(?SN_RC2_FAILED_SESSION) -> rejected_failed_open_session;
 returncode_name(?SN_RC2_KEEPALIVE_TIMEOUT) -> rejected_keepalive_timeout;
 returncode_name(?SN_RC2_EXCEED_LIMITATION) -> rejected_exceed_limitation;
 returncode_name(?SN_RC2_REACHED_MAX_RETRY) -> reached_max_retry_times;
-returncode_name(_) -> accepted.
+returncode_name(_) -> unknown_error.
 
 name_to_returncode(Reason) ->
     maps:get(

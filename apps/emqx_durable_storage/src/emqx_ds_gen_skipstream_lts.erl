@@ -255,6 +255,8 @@ drop(#s{trie = Trie, db = DBHandle, data_cf = DataCF, trie_cf = TrieCF}) ->
     emqx_ds_lts:destroy(Trie),
     ok = rocksdb:drop_column_family(DBHandle, DataCF),
     ok = rocksdb:drop_column_family(DBHandle, TrieCF),
+    ok = rocksdb:destroy_column_family(DBHandle, DataCF),
+    ok = rocksdb:destroy_column_family(DBHandle, TrieCF),
     ok.
 
 %% @doc Low-level API for writing data and indexes to the column
@@ -420,7 +422,7 @@ lookup_message(
     _BatchSize :: pos_integer(),
     Acc,
     fold_fun(Acc)
-) -> {ok, stream_key(), Acc} | emqx_ds:error(_).
+) -> {ok, stream_key(), _LeftoverIterations :: non_neg_integer(), Acc} | emqx_ds:error(_).
 fold(
     S = #s{trie = Trie, dbshard = DBShard},
     Static,
@@ -640,7 +642,7 @@ free_iterators(Its) ->
     ).
 
 fold_loop(_Ctx, LastKey, 0, _Op, Acc) ->
-    {ok, LastKey, Acc};
+    {ok, LastKey, 0, Acc};
 fold_loop(Ctx, SK0, BatchSize, Op, Acc0) ->
     ?dbg(skipstream_loop, #{
         sk => SK0, tf => Ctx#fold_ctx.filter, bs => BatchSize, op => Op
@@ -661,11 +663,11 @@ fold_loop(Ctx, SK0, BatchSize, Op, Acc0) ->
         none ->
             ?dbg(skipstream_loop_result, #{r => none}),
             inc_counter(?DS_SKIPSTREAM_LTS_EOS),
-            {ok, SK0, Acc0};
+            {ok, SK0, BatchSize, Acc0};
         {seek, SK} when is_binary(UpperEndpoint), SK >= UpperEndpoint ->
             %% Iteration reached the upper endpoint:
             ?dbg(skipstream_loop_seek_upper, #{to => SK, upper => UpperEndpoint}),
-            {ok, SK0, Acc0};
+            {ok, SK0, BatchSize, Acc0};
         {seek, SK} ->
             ?dbg(skipstream_loop_seek, #{r => seek, sk => SK}),
             fold_loop(Ctx, SK, BatchSize, {seek, SK}, Acc0);

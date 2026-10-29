@@ -254,6 +254,34 @@ t_pagination(_Config) ->
         api_get([message_queues, queues, "?limit=6&cursor=" ++ urlencode(base64:encode(<<"{{{">>))])
     ).
 
+%% Verify retention accepts finite durations beyond the timer limit and preserves milliseconds.
+t_retention_period(_Config) ->
+    Field = <<"regular_queue_retention_period">>,
+    lists:foreach(
+        fun({Raw, Milliseconds}) ->
+            ?assertMatch({ok, 204}, api_put([message_queues, config], #{Field => Raw})),
+            ?assertMatch({ok, 200, #{Field := Raw}}, api_get([message_queues, config])),
+            ?assertEqual(Milliseconds, emqx_config:get([mq, regular_queue_retention_period]))
+        end,
+        [
+            {<<"0ms">>, 0},
+            {<<"7d">>, 604800000},
+            {<<"90d">>, 7776000000},
+            {<<"365d">>, 31536000000},
+            {7776000000, 7776000000}
+        ]
+    ),
+    lists:foreach(
+        fun(Raw) ->
+            ?assertMatch({ok, 400, _}, api_put([message_queues, config], #{Field => Raw}))
+        end,
+        [<<"-1ms">>, -1, <<"infinity">>]
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([message_queues, config], #{<<"gc_interval">> => <<"90d">>})
+    ).
+
 %% Verify MQ subsystem (re)configuration via API.
 t_config(_Config) ->
     ?assertMatch(
@@ -607,9 +635,69 @@ t_queues_alias_config(_Config) ->
         api_get([queues, config])
     ).
 
+-doc """
+A partial `PUT /configs?mode=merge` that omits `mq.auto_create` succeeds
+and keeps the stored `auto_create` value.
+""".
+t_configs_merge_without_auto_create(_Config) ->
+    ?assertMatch(
+        {ok, _},
+        put_configs_merge(<<"mq { regular_queue_retention_period = \"30d\" }">>)
+    ),
+    ?assertMatch(
+        #{regular_queue_retention_period := 2592000000},
+        emqx_config:get([mq])
+    ),
+    ?assertMatch(
+        #{<<"regular">> := false, <<"lastvalue">> := false},
+        emqx:get_raw_config([mq, auto_create])
+    ),
+    ?assertEqual(
+        #{regular => false, lastvalue => false},
+        emqx_config:get([mq, auto_create])
+    ).
+
+-doc """
+A merge that submits `mq.auto_create` still runs the converter,
+which fills the defaults of the submitted struct.
+""".
+t_configs_merge_with_auto_create(_Config) ->
+    ?assertMatch(
+        {ok, _},
+        put_configs_merge(<<"mq { auto_create { regular { ping_interval = 9999 } } }">>)
+    ),
+    #{<<"regular">> := RawRegular, <<"lastvalue">> := false} =
+        emqx:get_raw_config([mq, auto_create]),
+    ?assertMatch(
+        #{<<"ping_interval">> := 9999, <<"dispatch_strategy">> := _},
+        RawRegular
+    ),
+    ?assertMatch(
+        #{regular := #{ping_interval := 9999}, lastvalue := false},
+        emqx_config:get([mq, auto_create])
+    ).
+
+-doc """
+A merge of the complete `mq` root, as exported by `GET /configs`, still succeeds.
+""".
+t_configs_merge_complete_root(_Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["configs?key=mq"]),
+    Headers = [{"accept", "text/plain"}, emqx_mgmt_api_test_util:auth_header_()],
+    {ok, Hocon} = emqx_mgmt_api_test_util:request_api(get, Path, [], Headers),
+    ?assertMatch({ok, #{<<"mq">> := #{<<"auto_create">> := _}}}, hocon:binary(Hocon)),
+    ?assertMatch({ok, _}, put_configs_merge(Hocon)).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 sort_by(Fun, List) ->
     lists:sort(fun(A, B) -> Fun(A) < Fun(B) end, List).
+
+put_configs_merge(Hocon) ->
+    Path = emqx_mgmt_api_test_util:api_path(["configs?mode=merge"]),
+    Headers = [emqx_mgmt_api_test_util:auth_header_()],
+    case httpc:request(put, {Path, Headers, "text/plain", Hocon}, [], [{body_format, binary}]) of
+        {ok, {{_, 200, _}, _, Body}} -> {ok, Body};
+        {ok, {{_, Code, _}, _, Body}} -> {error, Code, Body}
+    end.

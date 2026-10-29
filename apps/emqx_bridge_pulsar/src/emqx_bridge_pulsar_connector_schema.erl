@@ -24,7 +24,9 @@ fields("config_connector") ->
         lists:keydelete(enable, 1, emqx_bridge_pulsar:fields(config)) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
-    emqx_connector_schema:resource_opts_fields();
+    emqx_connector_schema:resource_opts_fields([
+        {health_check_timeout, #{default => ~"10s"}}
+    ]);
 fields("post") ->
     emqx_connector_schema:type_and_name_fields(?TYPE) ++ fields("config_connector");
 fields("put") ->

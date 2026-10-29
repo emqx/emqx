@@ -38,8 +38,8 @@ jobs:
           -v "$PWD:/emqx" \
           -w /emqx \
           "$BUILDER" \
-          bash -lc "git config --global --add safe.directory /emqx && make emqx-enterprise-compile && make plugins"
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+          bash -lc "git config --global --add safe.directory /emqx && make emqx-enterprise-compile && make plugins && ./scripts/test/plugin-packager-test.sh"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: "plugins"
         path: |
@@ -74,7 +74,7 @@ jobs:
     - name: build pkg
       run: |
         ./scripts/buildx.sh --profile $PROFILE --pkgtype pkg --arch $ARCH
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: "${{ matrix.profile }}-${{ matrix.arch }}"
         path: _packages/${{ matrix.profile }}/*
@@ -102,13 +102,21 @@ jobs:
         source env.sh
         echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
         echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
+    # Keep these inputs the same as the mac job in warm_deps_cache.yaml,
+    # which saves the entry this step restores.
+    - name: Restore dependency cache
+      uses: ./.github/actions/deps-cache-restore
+      with:
+        profiles: ${{ matrix.profile }}
+        toolchain: ${{ matrix.os }}
+        build-inputs: .github/actions/package-macos/action.yaml
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
         otp: ${{ steps.env.outputs.OTP_VSN }}
         elixir: ${{ steps.env.outputs.ELIXIR_VSN }}
         os: ${{ matrix.os }}
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*

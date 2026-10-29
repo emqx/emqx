@@ -36,6 +36,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_session.hrl").
 -include("emqx_session_mem.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -46,14 +47,15 @@
 -endif.
 
 -export([
-    create/4,
-    open/4,
+    create/3,
+    open/3,
     destroy/1
 ]).
 
 -export([
     info/2,
     stats/1,
+    chan_info/1,
     obtain_next_pkt_id/1
 ]).
 
@@ -77,6 +79,7 @@
     handle_timeout/4,
     handle_info/3,
     handle_signal/3,
+    refresh_quota/1,
     disconnect/2,
     terminate/3
 ]).
@@ -92,7 +95,7 @@
     resume/2,
     export/1,
     import/2,
-    import/4,
+    import/3,
     enqueue/3,
     dequeue/3,
     replay/2,
@@ -129,10 +132,11 @@
 
 -type inflight_data_phase() :: wait_ack | wait_comp.
 
+%% This record tracks QoS2 phases and retries.
 -record(inflight_data, {
     phase :: inflight_data_phase(),
     message :: emqx_types:message(),
-    timestamp :: non_neg_integer()
+    timestamp :: unix_timestamp_ms()
 }).
 
 -type session() :: #session{}.
@@ -157,6 +161,13 @@
 }.
 
 -type unix_timestamp_ms() :: non_neg_integer().
+-type inflight_position() ::
+    %% {BeginUs, PacketId}: delivery start time in microseconds, with packet ID as a tie-breaker.
+    {integer(), emqx_types:packet_id()}
+    %% integer(): legacy nanosecond insertion timestamp, or the compatibility cursor BeginUs * 1000 + PacketId.
+    | integer()
+    %% none: start querying from the first entry, also denotes the start of an empty inflight collection.
+    | none.
 
 -type message() :: emqx_types:message().
 -type clientinfo() :: emqx_types:clientinfo().
@@ -165,39 +176,36 @@
 -type effect() :: emqx_session:effect().
 -type effects() :: emqx_session:effects().
 
+%% Gauges only: the channel process stores them in its stats array (see
+%% `emqx_chan_stats`). The attributes that do not change with traffic are
+%% cached in the channel info table instead, see `chan_info/1`.
 -define(STATS_KEYS, [
-    durable,
     subscriptions_cnt,
-    subscriptions_max,
     inflight_cnt,
-    inflight_max,
     mqueue_len,
-    mqueue_max,
     total_payload_bytes,
     mqueue_dropped,
-    next_pkt_id,
-    awaiting_rel_cnt,
-    awaiting_rel_max
+    awaiting_rel_cnt
 ]).
-
--define(INFLIGHT_INSERT_TS, inflight_insert_ts).
 
 -define(DEQUEUE_RETRY_TIMER, retry_dequeue).
 -define(DELIVER_RETRY_TIMER, retry_delivery).
+
+-define(RESCHEDULE_DEQUEUE_TIMER_EFFECT, {set_timer, ?DEQUEUE_RETRY_TIMER, 1}).
+-define(RETRY_DELIVERY_EFFECT(Timeout), {set_timer, ?DELIVER_RETRY_TIMER, Timeout}).
 
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
 
--spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     session().
 create(
     #{zone := Zone} = ClientInfo,
     #{expiry_interval := EI, receive_maximum := ReceiveMax},
-    _MaybeWillMsg,
-    Conf
+    _MaybeWillMsg
 ) ->
-    Limiter = create_limiter(ClientInfo, Conf),
+    Limiter = create_limiter(ClientInfo),
     #session{
         id = emqx_guid:gen(),
         created_at = erlang:system_time(millisecond),
@@ -208,33 +216,47 @@ create(
         quota = Limiter,
         next_pkt_id = 1,
         awaiting_rel = #{},
-        max_subscriptions = maps:get(max_subscriptions, Conf),
-        max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
-        upgrade_qos = maps:get(upgrade_qos, Conf),
-        retry_interval = maps:get(retry_interval, Conf),
-        await_rel_timeout = maps:get(await_rel_timeout, Conf)
+        conf = emqx_connection_conf:session_conf(Zone)
     }.
 
-create_limiter(_ClientInfo, #{enable_quota := false}) ->
-    false;
-create_limiter(#{listener := ListenerId} = ClientInfo, _Conf) ->
+create_limiter(#{listener := ListenerId} = ClientInfo) ->
     %% A hook callback may install a limiter container here (e.g.
     %% multi-tenant limiters). Otherwise the compact placeholder stays
-    %% and the container is built on first delivery; see
-    %% try_consume_delivery_rate_limit/2.
+    %% until refresh_limiter/1 finds a finite delivery limit for the
+    %% listener.
     %%
     %% The hook must run here, not at materialization: materialization
     %% is gated by emqx_limiter:session_limits_configured/1, which only
     %% sees listener-level limits. A hook-installed container (e.g. a
     %% tenant with delivery limits under a listener with none) must not
     %% depend on that gate.
-    emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId});
-create_limiter(#{}, _Conf) ->
+    refresh_limiter(emqx_hooks:'session.limiter_adjustment'(ClientInfo, {lazy, ListenerId}));
+create_limiter(#{}) ->
     %% No listener: no quota is instantiated.
     %% This can happen during session handover from eviction agent running
     %% on older EMQX release. Subsequent handover to a client channel should
     %% recreate a limiter.
     false.
+
+%% Build the delivery limiter container when the session has the placeholder
+%% and the listener has a finite delivery limit. A placeholder delivers
+%% without a limit check.
+refresh_limiter({lazy, ListenerId} = Limiter) ->
+    case emqx_limiter:session_limits_configured(ListenerId) of
+        false -> Limiter;
+        true -> emqx_limiter:create_session_client_container(ListenerId)
+    end;
+refresh_limiter(Limiter) ->
+    Limiter.
+
+-doc """
+Build the delivery limiter container when a finite delivery limit is now
+configured for the listener. The channel calls this on each stats timer, so a
+limit configured at runtime applies after at most one stats interval.
+""".
+-spec refresh_quota(session()) -> session().
+refresh_quota(#session{quota = Limiter} = Session) ->
+    Session#session{quota = refresh_limiter(Limiter)}.
 
 empty_mqueue(Zone) ->
     %% emqx_mqueue treats 0 as no limit.
@@ -276,12 +298,12 @@ destroy(_Session) ->
 %% Open a (possibly existing) Session
 %%--------------------------------------------------------------------
 
--spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
+-spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
-open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
+open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, ChannelRef, ExportedSession} ->
-            Session0 = import(ClientInfo, ConnInfo, Conf, ExportedSession),
+            Session0 = import(ClientInfo, ConnInfo, ExportedSession),
             Session = resume(ClientInfo, Session0),
             {true, Session, ChannelRef};
         none ->
@@ -293,14 +315,10 @@ resize_inflight(#{receive_maximum := ReceiveMax}, Session = #session{inflight = 
         inflight = emqx_inflight:resize(ReceiveMax, Inflight)
     }.
 
-apply_conf(ClientInfo, Conf, Session = #session{}) ->
+apply_conf(ClientInfo = #{zone := Zone}, Session = #session{}) ->
     Session#session{
-        quota = create_limiter(ClientInfo, Conf),
-        max_subscriptions = maps:get(max_subscriptions, Conf),
-        max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
-        upgrade_qos = maps:get(upgrade_qos, Conf),
-        retry_interval = maps:get(retry_interval, Conf),
-        await_rel_timeout = maps:get(await_rel_timeout, Conf)
+        quota = create_limiter(ClientInfo),
+        conf = emqx_connection_conf:session_conf(Zone)
     }.
 
 filter_remote_session(Session = #session{mqueue = {empty, _}}) ->
@@ -309,6 +327,10 @@ filter_remote_session(Session = #session{mqueue = Q}) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
     Session#session{mqueue = Q1}.
 
+-doc """
+Export state in the current session format.
+Cross-version encoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
 -spec export(session()) -> exported().
 export(#session{
     id = Id,
@@ -339,6 +361,13 @@ export_mqueue(MQueue) ->
 export_inflight(Inflight) ->
     [export_inflight_entry(Entry) || Entry <- emqx_inflight:to_list(Inflight)].
 
+export_inflight_entry({PacketId, #message{} = Message}) ->
+    #{
+        packet_id => PacketId,
+        phase => wait_ack,
+        message => Message,
+        timestamp => inflight_timestamp(Message)
+    };
 export_inflight_entry(
     {PacketId, #inflight_data{phase = Phase, message = Message, timestamp = Timestamp}}
 ) ->
@@ -349,6 +378,10 @@ export_inflight_entry(
         timestamp => Timestamp
     }.
 
+-doc """
+Import state in the current session format.
+Cross-version decoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
 -spec import(clientinfo(), exported()) -> session().
 import(ClientInfo, #{
     id := Id,
@@ -364,25 +397,24 @@ import(ClientInfo, #{
         id = Id,
         is_persistent = IsPersistent,
         subscriptions = Subscriptions,
-        max_subscriptions = infinity,
-        upgrade_qos = false,
+        conf = #session_conf{},
         inflight = import_inflight(Inflight),
         mqueue = import_mqueue(ClientInfo, Messages),
         quota = false,
         next_pkt_id = NextPacketId,
-        retry_interval = infinity,
         awaiting_rel = AwaitingRel,
-        max_awaiting_rel = infinity,
-        await_rel_timeout = infinity,
         created_at = CreatedAt
     }.
 
--doc "Import transferred state with new connection limits and session configuration.".
--spec import(clientinfo(), conninfo(), emqx_session:conf(), exported()) -> session().
-import(ClientInfo, ConnInfo, Conf, Exported) ->
+-doc """
+Import current-format state with new connection limits and session configuration.
+Cross-version decoding belongs in `emqx_cm_takeover`, where the peer takeover protocol is known.
+""".
+-spec import(clientinfo(), conninfo(), exported()) -> session().
+import(ClientInfo, ConnInfo, Exported) ->
     Session0 = import(ClientInfo, Exported),
     Session1 = resize_inflight(ConnInfo, Session0),
-    Session2 = apply_conf(ClientInfo, Conf, Session1),
+    Session2 = apply_conf(ClientInfo, Session1),
     filter_remote_session(Session2).
 
 import_mqueue(ClientInfo = #{zone := Zone}, Messages) ->
@@ -395,12 +427,19 @@ import_inflight_entry(
     #{
         packet_id := PacketId,
         phase := Phase,
-        message := Message,
+        message := Msg,
         timestamp := Timestamp
     },
     Inflight
 ) ->
-    Entry = #inflight_data{phase = Phase, message = Message, timestamp = Timestamp},
+    %% Imported messages may retain unused metadata.
+    Entry =
+        case {Phase, Msg#message.qos, inflight_timestamp(Msg)} of
+            {wait_ack, ?QOS_1, Timestamp} ->
+                Msg;
+            _ ->
+                #inflight_data{phase = Phase, message = Msg, timestamp = Timestamp}
+        end,
     emqx_inflight:insert(PacketId, Entry, Inflight).
 
 %%--------------------------------------------------------------------
@@ -422,9 +461,9 @@ info(subscriptions, #session{subscriptions = Subs}) ->
     Subs;
 info(subscriptions_cnt, #session{subscriptions = Subs}) ->
     maps:size(Subs);
-info(subscriptions_max, #session{max_subscriptions = MaxSubs}) ->
+info(subscriptions_max, #session{conf = #session_conf{max_subscriptions = MaxSubs}}) ->
     MaxSubs;
-info(upgrade_qos, #session{upgrade_qos = UpgradeQoS}) ->
+info(upgrade_qos, #session{conf = #session_conf{upgrade_qos = UpgradeQoS}}) ->
     UpgradeQoS;
 info(inflight, #session{inflight = Inflight}) ->
     Inflight;
@@ -433,8 +472,12 @@ info(inflight_cnt, #session{inflight = Inflight}) ->
 info(inflight_max, #session{inflight = Inflight}) ->
     emqx_inflight:max_size(Inflight);
 info({inflight_msgs, PagerParams}, #session{inflight = Inflight}) ->
-    inflight_query(Inflight, PagerParams);
-info(retry_interval, #session{retry_interval = Interval}) ->
+    {_Mode, Position} = query_position(PagerParams),
+    case valid_inflight_position(Position) of
+        true -> inflight_query(Inflight, PagerParams);
+        false -> {[], #{position => Position, start => none}}
+    end;
+info(retry_interval, #session{conf = #session_conf{retry_interval = Interval}}) ->
     Interval;
 info(mqueue, #session{mqueue = {empty, MaxLen}}) ->
     %% Only for inspecting the queue: the other options are not stored.
@@ -469,14 +512,18 @@ info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
     AwaitingRel;
 info(awaiting_rel_cnt, #session{awaiting_rel = AwaitingRel}) ->
     maps:size(AwaitingRel);
-info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
+info(awaiting_rel_max, #session{conf = #session_conf{max_awaiting_rel = Max}}) ->
     Max;
-info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
+info(await_rel_timeout, #session{conf = #session_conf{await_rel_timeout = Timeout}}) ->
     Timeout.
 
 %% @doc Get stats of the session.
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) -> info(?STATS_KEYS, Session).
+
+-doc "The attributes of a memory session that the channel info table caches.".
+chan_info(Session) ->
+    maps:from_list([{impl, ?MODULE} | info(?CHAN_INFO_SESSION_KEYS ++ [mqueue_max], Session)]).
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
@@ -488,11 +535,14 @@ subscribe(
     _ClientInfo = #{clientid := ClientId},
     TopicFilter,
     SubOpts,
-    Session = #session{subscriptions = Subs}
+    Session = #session{
+        subscriptions = Subs,
+        conf = #session_conf{max_subscriptions = MaxSubs}
+    }
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
     Monitor = maybe_monitor(),
-    case IsNew andalso is_subscriptions_full(Session) of
+    case IsNew andalso map_size(Subs) >= MaxSubs of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, Monitor),
             Session1 = Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)},
@@ -517,14 +567,6 @@ maybe_monitor() ->
             monitor
     end.
 
-is_subscriptions_full(#session{max_subscriptions = infinity}) ->
-    false;
-is_subscriptions_full(#session{
-    subscriptions = Subs,
-    max_subscriptions = MaxLimit
-}) ->
-    maps:size(Subs) >= MaxLimit.
-
 -spec unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
@@ -532,11 +574,11 @@ unsubscribe(
     TopicFilter,
     Session = #session{subscriptions = Subs}
 ) ->
-    case maps:find(TopicFilter, Subs) of
-        {ok, SubOpts} ->
+    case Subs of
+        #{TopicFilter := SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}, SubOpts};
-        error ->
+        #{} ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
 
@@ -555,7 +597,10 @@ get_subscription(Topic, #session{subscriptions = Subs}) ->
 publish(
     PacketId,
     Msg = #message{qos = ?QOS_2, timestamp = Ts},
-    Session = #session{awaiting_rel = AwaitingRel}
+    Session = #session{
+        awaiting_rel = AwaitingRel,
+        conf = Conf
+    }
 ) ->
     Dup = emqx_message:get_flag(dup, Msg),
     case maps:is_key(PacketId, AwaitingRel) of
@@ -564,27 +609,16 @@ publish(
             {ok, dup_publish_result(Msg), Session};
         true ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
+        false when map_size(AwaitingRel) >= Conf#session_conf.max_awaiting_rel ->
+            {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED};
         false ->
-            case is_awaiting_full(Session) of
-                true ->
-                    {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED};
-                false ->
-                    Results = emqx_broker:publish(Msg),
-                    AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
-                    {ok, Results, Session#session{awaiting_rel = AwaitingRel1}}
-            end
+            Results = emqx_broker:publish(Msg),
+            AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
+            {ok, Results, Session#session{awaiting_rel = AwaitingRel1}}
     end;
 %% Publish QoS0/1 directly
 publish(_PacketId, Msg, Session) ->
     {ok, emqx_broker:publish(Msg), [], Session}.
-
-is_awaiting_full(#session{max_awaiting_rel = infinity}) ->
-    false;
-is_awaiting_full(#session{
-    awaiting_rel = AwaitingRel,
-    max_awaiting_rel = MaxLimit
-}) ->
-    maps:size(AwaitingRel) >= MaxLimit.
 
 dup_publish_result(#message{topic = Topic}) ->
     [{node(), Topic, ok}].
@@ -593,16 +627,19 @@ dup_publish_result(#message{topic = Topic}) ->
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
+-compile({inline, [ack_inflight/4]}).
+
 -spec puback(clientinfo(), emqx_types:packet_id(), [emqx_session:connflag()], session()) ->
     {ok | effects(), emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 puback(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
+        {value, #message{qos = ?QOS_1} = Msg} ->
+            Inflight1 = emqx_inflight:delete(PacketId, Inflight),
+            ack_inflight(ClientInfo, Flags, Msg, Session#session{inflight = Inflight1});
         {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_1} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session1 = Session#session{inflight = Inflight1},
-            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Flags, Session1),
-            {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
+            ack_inflight(ClientInfo, Flags, Msg, Session#session{inflight = Inflight1});
         {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _} ->
@@ -610,6 +647,10 @@ puback(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
         none ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.
+
+ack_inflight(ClientInfo, Flags, Msg, Session) ->
+    {OkEffects, Replies, Session1} = dequeue(ClientInfo, Flags, Session),
+    {OkEffects, Msg, Replies, Session1}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBREC
@@ -623,8 +664,10 @@ pubrec(PacketId, Session = #session{inflight = Inflight}) ->
         {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_2} = Msg} = Data} ->
             Update = Data#inflight_data{phase = wait_comp},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-            {ok, without_inflight_insert_ts(Msg), Session#session{inflight = Inflight1}};
+            {ok, Msg, Session#session{inflight = Inflight1}};
         {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
+            {error, ?RC_PROTOCOL_ERROR};
+        {value, #message{}} ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
@@ -659,10 +702,10 @@ pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, #inflight_data{phase = wait_comp, message = #message{qos = ?QOS_2} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
-            Session1 = Session#session{inflight = Inflight1},
-            {OkEffects, Replies, Session2} = dequeue(ClientInfo, Flags, Session1),
-            {OkEffects, without_inflight_insert_ts(Msg), Replies, Session2};
+            ack_inflight(ClientInfo, Flags, Msg, Session#session{inflight = Inflight1});
         {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= ?QOS_2 ->
+            {error, ?RC_PROTOCOL_ERROR};
+        {value, #message{}} ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _Other} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
@@ -678,7 +721,6 @@ pubcomp(ClientInfo, PacketId, Flags, Session = #session{inflight = Inflight}) ->
     {inline, [
         dequeue_next/2,
         finish_dequeue/6,
-        reschedule_dequeue_timer_effect/0,
         reply/7,
         boolean_to_int/1
     ]}
@@ -798,6 +840,9 @@ dequeue(ClientInfo, Zone, Congested, S, Allowance, Budget, Acc0, Q0, Inflight0, 
                         %% Limiter policy is "drop and continue": a sequence of over-limit
                         %% QoS0 messages may be lost. Mirrors `deliver/9` policy.
                         _ = maybe_ack(Msg),
+                        _ = emqx_session_events:handle_event(
+                            ClientInfo, {dropped, Msg, rate_limited}
+                        ),
                         dequeue(
                             ClientInfo,
                             Zone,
@@ -837,12 +882,9 @@ finish_dequeue(S0, Acc, Q, Inflight, Limiter, PktId) ->
     Effect =
         case emqx_mqueue:is_empty(Q) of
             true -> delivery_effect(S0, Inflight);
-            false -> reschedule_dequeue_timer_effect()
+            false -> ?RESCHEDULE_DEQUEUE_TIMER_EFFECT
         end,
     reply(Effect, S0, Acc, Q, Inflight, Limiter, PktId).
-
-reschedule_dequeue_timer_effect() ->
-    {set_timer, ?DEQUEUE_RETRY_TIMER, 1}.
 
 reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Session = S0#session{
@@ -854,6 +896,8 @@ reply(OkEffect, S0, Acc, Q, Inflight, Limiter, PktId) ->
     Replies = lists:reverse(Acc),
     {OkEffect, Replies, Session}.
 
+retry_dequeue_effect(_Reason, {empty, _}) ->
+    ok;
 retry_dequeue_effect(Reason, Q) ->
     case emqx_mqueue:is_empty(Q) of
         true -> ok;
@@ -867,8 +911,7 @@ retry_dequeue_effect(Reason, Q) ->
 -compile(
     {inline, [
         insert_inflight/3,
-        delivery_effect/2,
-        retry_delivery_effect/1
+        delivery_effect/2
     ]}
 ).
 
@@ -919,6 +962,14 @@ deliver(
                     %% Limiter policy is "drop and continue": a sequence of over-limit
                     %% QoS0 messages may be lost. Check each message: a smaller one may
                     %% still fit the remaining quota.
+                    case nack_by_hook(Msg) of
+                        true ->
+                            ok;
+                        false ->
+                            _ = emqx_session_events:handle_event(
+                                ClientInfo, {dropped, Msg, rate_limited}
+                            )
+                    end,
                     deliver(ClientInfo, Congested, S, More, Acc0, Q0, Inflight, Limiter, PktId)
             end
     end;
@@ -958,7 +1009,13 @@ deliver(
                 %% including QoS0. Delivery retries are not scheduled deliberately:
                 %% dequeue will schedule it once it pushes out complete under-limit
                 %% batch.
-                Q = enqueue_messages(ClientInfo, [Msg | More], Q0),
+                Q = lists:foldl(
+                    fun(PendingMsg, QAcc) ->
+                        enqueue_unless_nacked(ClientInfo, PendingMsg, QAcc)
+                    end,
+                    Q0,
+                    [Msg | More]
+                ),
                 Effect = retry_dequeue_effect(Reason, Q),
                 reply(Effect, S, Acc0, Q, Inflight0, Limiter, PktId)
         end
@@ -972,25 +1029,38 @@ deliver(
             deliver(ClientInfo, Congested, S, More, Acc0, Q1, Inflight0, L0, PktId)
     end.
 
-delivery_effect(#session{retry_interval = Interval}, Inflight) ->
+delivery_effect(#session{conf = #session_conf{retry_interval = Interval}}, Inflight) when
+    Interval =/= infinity
+->
     case emqx_inflight:is_empty(Inflight) of
-        false when is_integer(Interval) andalso Interval > 0 ->
-            retry_delivery_effect(Interval);
-        _ ->
+        false ->
+            ?RETRY_DELIVERY_EFFECT(Interval);
+        true ->
             ok
-    end.
-
-retry_delivery_effect(Timeout) ->
-    {set_timer, ?DELIVER_RETRY_TIMER, Timeout}.
+    end;
+delivery_effect(_Session, _Inflight) ->
+    ok.
 
 insert_inflight(PktId, Msg, Inflight) ->
-    MarkedMsg = mark_begin_deliver(Msg),
-    emqx_inflight:insert(PktId, with_ts(MarkedMsg), Inflight).
+    Now = erlang:system_time(microsecond),
+    MarkedMsg = mark_begin_deliver(Msg, Now),
+    Data =
+        case Msg#message.qos of
+            ?QOS_1 ->
+                MarkedMsg;
+            ?QOS_2 ->
+                #inflight_data{
+                    phase = wait_ack,
+                    message = MarkedMsg,
+                    timestamp = Now div 1000
+                }
+        end,
+    emqx_inflight:insert(PktId, Data, Inflight).
 
 inflight_payload_bytes(Inflight) ->
     emqx_inflight:fold(
-        fun(_PacketId, #inflight_data{message = Msg}, Acc) ->
-            Acc + emqx_message:payload_size(Msg)
+        fun(_PacketId, Data, Acc) ->
+            Acc + emqx_message:payload_size(inflight_message(Data))
         end,
         0,
         Inflight
@@ -1039,11 +1109,24 @@ maybe_ack(Msg) ->
 maybe_nack(Msg) ->
     maybe
         false ?= emqx_shared_sub:maybe_nack_dropped(Msg),
-        emqx_hooks:'message.nack'(Msg, false)
+        nack_by_hook(Msg)
     end.
 
-mark_begin_deliver(Msg) ->
-    emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).
+%% Sources with their own buffer, for example ExtSub, take back the messages that the
+%% delivery rate limit refuses. Other messages go to mqueue.
+%% TODO: decide whether shared subscription messages refused by the rate limit go to
+%% another group member, as they do when inflight is full.
+enqueue_unless_nacked(ClientInfo, Msg, Q) ->
+    case nack_by_hook(Msg) of
+        true -> Q;
+        false -> enqueue_msg(ClientInfo, Msg, Q)
+    end.
+
+nack_by_hook(Msg) ->
+    emqx_hooks:'message.nack'(Msg, false).
+
+mark_begin_deliver(Msg, Now) ->
+    emqx_message:set_header(deliver_begin_at_us, Now, Msg).
 
 %%--------------------------------------------------------------------
 %% Timeouts
@@ -1066,12 +1149,11 @@ handle_timeout(ClientInfo, ?DEQUEUE_RETRY_TIMER, Flags, Session) ->
 %% Geneic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(clientinfo(), term(), session()) -> session().
+-spec handle_info(clientinfo(), term(), session()) -> {ok, session()}.
 handle_info(ClientInfo, zone_changed, Session) ->
-    Conf = emqx_session:get_session_conf(ClientInfo),
-    apply_conf(ClientInfo, Conf, Session);
+    {ok, apply_conf(ClientInfo, Session)};
 handle_info(_ClientInfo, _Msg, Session) ->
-    Session.
+    {ok, Session}.
 
 -spec handle_signal(clientinfo(), term(), session()) ->
     {ok, session()} | {ok | effects(), replies(), session()}.
@@ -1090,7 +1172,10 @@ handle_signal(_ClientInfo, _Signal, Session) ->
 
 -spec retry(clientinfo(), session()) ->
     {ok | effects(), replies(), session()}.
-retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Interval}) ->
+retry(
+    ClientInfo,
+    Session = #session{inflight = Inflight, conf = #session_conf{retry_interval = Interval}}
+) ->
     case emqx_inflight:is_empty(Inflight) orelse Interval =:= infinity of
         true ->
             {ok, [], Session};
@@ -1101,32 +1186,53 @@ retry(ClientInfo, Session = #session{inflight = Inflight, retry_interval = Inter
                 emqx_inflight:to_list(fun sort_fun/2, Inflight),
                 [],
                 Now,
+                Interval,
+                Inflight,
                 Session
             )
     end.
 
-retry_delivery(_ClientInfo, [], Acc, _, Session = #session{inflight = Inflight}) ->
-    {delivery_effect(Session, Inflight), lists:reverse(Acc), Session};
+retry_delivery(_ClientInfo, [], Acc, _Now, Interval, Inflight, Session) ->
+    Effect =
+        case emqx_inflight:is_empty(Inflight) of
+            false ->
+                ?RETRY_DELIVERY_EFFECT(Interval);
+            _ ->
+                ok
+        end,
+    {Effect, lists:reverse(Acc), Session#session{inflight = Inflight}};
 retry_delivery(
     ClientInfo,
-    [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
+    [{PacketId, Data} | More],
     Acc,
     Now,
-    Session = #session{retry_interval = Interval, inflight = Inflight}
+    Interval,
+    Inflight,
+    Session
 ) ->
-    Age = age(Now, Ts),
+    Age = age(Now, inflight_timestamp(Data)),
     case Age >= Interval of
         true ->
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
-            retry_delivery(ClientInfo, More, Acc1, Now, Session#session{inflight = Inflight1});
+            retry_delivery(ClientInfo, More, Acc1, Now, Interval, Inflight1, Session);
         false ->
-            {retry_delivery_effect(Interval - max(0, Age)), lists:reverse(Acc), Session}
+            Effect = ?RETRY_DELIVERY_EFFECT(Interval - max(0, Age)),
+            {Effect, lists:reverse(Acc), Session#session{inflight = Inflight}}
     end.
 
 do_retry_delivery(
+    ClientInfo,
+    PacketId,
+    #inflight_data{phase = wait_ack, message = Msg},
+    Now,
+    Acc,
+    Inflight
+) ->
+    do_retry_delivery(ClientInfo, PacketId, Msg, Now, Acc, Inflight);
+do_retry_delivery(
     ClientInfo = #{zone := Zone},
     PacketId,
-    #inflight_data{phase = wait_ack, message = Msg} = Data,
+    #message{} = Msg,
     Now,
     Acc,
     Inflight
@@ -1137,9 +1243,9 @@ do_retry_delivery(
             {Acc, emqx_inflight:delete(PacketId, Inflight)};
         false ->
             Msg1 = emqx_message:set_flag(dup, true, Msg),
-            Update = Data#inflight_data{message = Msg1, timestamp = Now},
+            Update = #inflight_data{phase = wait_ack, message = Msg1, timestamp = Now},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-            {[{PacketId, without_inflight_insert_ts(Msg1)} | Acc], Inflight1}
+            {[{PacketId, Msg1} | Acc], Inflight1}
     end;
 do_retry_delivery(_ClientInfo, PacketId, Data, Now, Acc, Inflight) ->
     Update = Data#inflight_data{timestamp = Now},
@@ -1164,7 +1270,10 @@ expire(ClientInfo, Session = #session{awaiting_rel = AwaitingRel}) ->
 expire_awaiting_rel(
     ClientInfo,
     Now,
-    Session = #session{awaiting_rel = AwaitingRel, await_rel_timeout = Timeout}
+    Session = #session{
+        awaiting_rel = AwaitingRel,
+        conf = #session_conf{await_rel_timeout = Timeout}
+    }
 ) ->
     NotExpired = fun(_PacketId, Ts) -> age(Now, Ts) < Timeout end,
     AwaitingRel1 = maps:filter(NotExpired, AwaitingRel),
@@ -1292,8 +1401,8 @@ replay(ClientInfo, Session) ->
         fun
             ({PacketId, #inflight_data{phase = wait_comp}}) ->
                 {pubrel, PacketId};
-            ({PacketId, #inflight_data{message = Msg}}) ->
-                {PacketId, without_inflight_insert_ts(emqx_message:set_flag(dup, true, Msg))}
+            ({PacketId, Data}) ->
+                {PacketId, emqx_message:set_flag(dup, true, inflight_message(Data))}
         end,
         emqx_inflight:to_list(Session#session.inflight)
     ),
@@ -1344,15 +1453,17 @@ maybe_redispatch_shared_messages(_Reason, Session) ->
 
 redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
     AllInflights = emqx_inflight:to_list(fun sort_fun/2, Inflight),
-    F = fun
-        ({_PacketId, #inflight_data{message = #message{qos = ?QOS_1} = Msg}}) ->
-            %% For QoS 2, here is what the spec says:
-            %% If the Client's Session terminates before the Client reconnects,
-            %% the Server MUST NOT send the Application Message to any other
-            %% subscribed Client [MQTT-4.8.2-5].
-            {true, without_inflight_insert_ts(Msg)};
-        ({_PacketId, #inflight_data{}}) ->
-            false
+    F = fun({_PacketId, Data}) ->
+        case inflight_message(Data) of
+            #message{qos = ?QOS_1} = Msg ->
+                %% For QoS 2, here is what the spec says:
+                %% If the Client's Session terminates before the Client reconnects,
+                %% the Server MUST NOT send the Application Message to any other
+                %% subscribed Client [MQTT-4.8.2-5].
+                {true, Msg};
+            _ ->
+                false
+        end
     end,
     InflightList = lists:filtermap(F, AllInflights),
     %% Redispatched messages enter another queue as new entries.
@@ -1394,14 +1505,8 @@ publish_will_message_now(#session{} = Session, #message{} = WillMsg) ->
 
 try_consume_delivery_rate_limit(_Msg, Limiter = false) ->
     {true, Limiter};
-try_consume_delivery_rate_limit(Msg, {lazy, ListenerId} = Limiter) ->
-    case emqx_limiter:session_limits_configured(ListenerId) of
-        false ->
-            {true, Limiter};
-        true ->
-            Container = emqx_limiter:create_session_client_container(ListenerId),
-            try_consume_delivery_rate_limit(Msg, Container)
-    end;
+try_consume_delivery_rate_limit(_Msg, {lazy, _ListenerId} = Limiter) ->
+    {true, Limiter};
 try_consume_delivery_rate_limit(Msg, Limiter0) ->
     Ret = emqx_limiter_client_container:try_consume(Limiter0, [
         {delivery_bytes, emqx_message:estimate_size(Msg)},
@@ -1446,61 +1551,94 @@ retry_dequeue_timer_effect(_Reason) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile(
-    {inline, [
-        sort_fun/2, batch_n/1, inflight_insert_ts/1, without_inflight_insert_ts/1, with_ts/1, age/2
-    ]}
-).
+-compile({inline, [sort_fun/2, inflight_message/1, inflight_timestamp/1, batch_n/1, age/2]}).
+
+inflight_message(#message{} = Msg) ->
+    Msg;
+inflight_message(#inflight_data{message = Msg}) ->
+    Msg.
+
+inflight_timestamp(#message{headers = #{deliver_begin_at_us := Begin}}) ->
+    Begin div 1000;
+inflight_timestamp(#inflight_data{timestamp = Ts}) ->
+    Ts.
 
 sort_fun({_, A}, {_, B}) ->
-    A#inflight_data.timestamp =< B#inflight_data.timestamp.
+    inflight_timestamp(A) =< inflight_timestamp(B).
 
-query_sort_fun({_, #inflight_data{message = A}}, {_, #inflight_data{message = B}}) ->
-    inflight_insert_ts(A) =< inflight_insert_ts(B).
+inflight_insert_time(#message{headers = #{deliver_begin_at_us := Begin}}) ->
+    Begin.
 
 -spec inflight_query(emqx_inflight:inflight(), #{
-    position => integer() | none, limit := pos_integer()
+    position => inflight_position(),
+    cursor => inflight_position(),
+    limit := pos_integer()
 }) ->
-    {[emqx_types:message()], #{position := integer() | none, start := integer() | none}}.
+    {
+        [emqx_types:message()],
+        #{position := inflight_position(), start := inflight_position()}
+    }.
 inflight_query(Inflight, #{limit := Limit} = PagerParams) ->
-    InflightL = emqx_inflight:to_list(fun query_sort_fun/2, Inflight),
+    {Mode, Position} = query_position(PagerParams),
+    InflightL = lists:keysort(1, [
+        {inflight_query_position(Mode, inflight_insert_time(Msg), PacketId), Msg}
+     || {PacketId, Data} <- emqx_inflight:to_list(Inflight), Msg <- [inflight_message(Data)]
+    ]),
     StartPos =
         case InflightL of
-            [{_, #inflight_data{message = FirstM}} | _] -> inflight_insert_ts(FirstM);
+            [{FirstPos, _} | _] -> FirstPos;
             [] -> none
         end,
-    Position = maps:get(position, PagerParams, none),
-    InflightMsgs = sublist_from_pos(InflightL, Position, Limit),
+    Page = sublist_from_pos(InflightL, Position, Limit),
     NextPos =
-        case InflightMsgs of
+        case Page of
             [_ | _] = L ->
-                inflight_insert_ts(lists:last(L));
+                {LastPos, _} = lists:last(L),
+                LastPos;
             [] ->
                 Position
         end,
+    InflightMsgs = [with_inflight_query_position(Mode, Msg, Pos) || {Pos, Msg} <- Page],
     {InflightMsgs, #{start => StartPos, position => NextPos}}.
 
 sublist_from_pos(InflightList, none = _Position, Limit) ->
-    inflight_msgs_sublist(InflightList, Limit);
+    lists:sublist(InflightList, Limit);
 sublist_from_pos(InflightList, Position, Limit) ->
     Inflight = lists:dropwhile(
-        fun({_, #inflight_data{message = M}}) ->
-            inflight_insert_ts(M) =< Position
+        fun({MsgPosition, _}) ->
+            MsgPosition =< Position
         end,
         InflightList
     ),
-    inflight_msgs_sublist(Inflight, Limit).
+    lists:sublist(Inflight, Limit).
 
-%% Small optimization to get sublist and drop keys in one traversal
-inflight_msgs_sublist([{_Key, #inflight_data{message = Msg}} | T], Limit) when Limit > 0 ->
-    [Msg | inflight_msgs_sublist(T, Limit - 1)];
-inflight_msgs_sublist(_, _) ->
-    [].
+query_position(#{cursor := Cursor}) ->
+    {cursor, Cursor};
+query_position(Params) ->
+    {legacy, maps:get(position, Params, none)}.
 
-inflight_insert_ts(#message{extra = #{?INFLIGHT_INSERT_TS := Ts}}) -> Ts.
+valid_inflight_position(none) ->
+    true;
+valid_inflight_position(Pos) when is_integer(Pos) ->
+    true;
+valid_inflight_position({Ts, PacketId}) ->
+    is_integer(Ts) andalso is_integer(PacketId) andalso PacketId >= 0 andalso PacketId =< 65535;
+valid_inflight_position(_) ->
+    false.
 
-without_inflight_insert_ts(#message{extra = Extra} = Msg) ->
-    Msg#message{extra = maps:remove(?INFLIGHT_INSERT_TS, Extra)}.
+inflight_query_position(cursor, BeginUs, PacketId) ->
+    {BeginUs, PacketId};
+inflight_query_position(legacy, BeginUs, PacketId) ->
+    %% Compatibility cursor for old management APIs, which expose it as inserted_at.
+    BeginUs * 1000 + PacketId.
+
+with_inflight_query_position(cursor, #message{extra = Extra = #{}} = Msg, {BeginUs, _} = Cursor) ->
+    Msg#message{extra = Extra#{query_cursor => Cursor, inflight_insert_ts => BeginUs * 1000}};
+with_inflight_query_position(legacy, #message{extra = Extra = #{}} = Msg, Pos) ->
+    Msg#message{extra = maps:remove(query_cursor, Extra#{inflight_insert_ts => Pos})};
+with_inflight_query_position(Mode, Msg, Cursor) ->
+    %% Before 5.4.0, the unused extra field defaulted to an empty list.
+    with_inflight_query_position(Mode, Msg#message{extra = #{}}, Cursor).
 
 batch_n(Inflight) ->
     case emqx_inflight:max_size(Inflight) of
@@ -1513,29 +1651,18 @@ batch_n(Inflight) ->
             max(0, Sz - emqx_inflight:size(Inflight))
     end.
 
-with_ts(#message{extra = Extra} = Msg) ->
-    InsertTsNano = erlang:system_time(nanosecond),
-    %% This is used to sort/traverse messages in inflight_query/2
-    Extra1 =
-        case is_map(Extra) of
-            true -> Extra;
-            %% extra field has not being used before EMQX 5.4.0 and defaulted to an empty list,
-            %% if it's not a map it's safe to overwrite it
-            false -> #{}
-        end,
-    Msg1 = Msg#message{extra = Extra1#{?INFLIGHT_INSERT_TS => InsertTsNano}},
-    #inflight_data{
-        phase = wait_ack,
-        message = Msg1,
-        timestamp = erlang:convert_time_unit(InsertTsNano, nanosecond, millisecond)
-    }.
-
 age(Now, Ts) -> Now - Ts.
 
 %%--------------------------------------------------------------------
 %% For CT tests
 %%--------------------------------------------------------------------
 
-set_field(Name, Value, Session) ->
-    Pos = emqx_utils:index_of(Name, record_info(fields, session)),
-    setelement(Pos + 1, Session, Value).
+set_field(Name, Value, Session = #session{conf = Conf}) ->
+    case lists:member(Name, record_info(fields, session_conf)) of
+        true ->
+            Pos = emqx_utils:index_of(Name, record_info(fields, session_conf)),
+            Session#session{conf = setelement(Pos + 1, Conf, Value)};
+        false ->
+            Pos = emqx_utils:index_of(Name, record_info(fields, session)),
+            setelement(Pos + 1, Session, Value)
+    end.

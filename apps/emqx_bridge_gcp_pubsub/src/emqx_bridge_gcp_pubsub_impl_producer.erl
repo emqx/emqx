@@ -468,6 +468,10 @@ publish_path(#{project_id := SAProjectId}, #{pubsub_topic := PubSubTopic}) ->
         emqx_bridge_gcp_pubsub_client:resolve_topic(PubSubTopic, SAProjectId),
     <<"/v1/projects/", ProjectId/binary, "/topics/", TopicName/binary, ":publish">>.
 
+handle_result({error, {error, _} = InnerError}, Request, QueryMode, ConnResId) ->
+    %% apparently, on rare occasions, the error comes nested like this.
+    %% probably a race when calling gun/receiving results??
+    handle_result(InnerError, Request, QueryMode, ConnResId);
 handle_result({error, Reason}, _Request, QueryMode, ConnResId) when
     Reason =:= econnrefused;
     %% this comes directly from `gun'...

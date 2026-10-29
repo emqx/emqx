@@ -39,6 +39,7 @@ groups() ->
             t_serialize_frame_at_max_size,
             t_parse_frame_malformed_variable_byte_integer,
             t_parse_malformed_utf8_string,
+            t_parse_utf8_topic_byte_positions,
             t_default_parse_state_is_strict,
             t_parse_bad_v5_publish_packet,
             t_guess_first_packet_protocol,
@@ -57,6 +58,8 @@ groups() ->
             t_parse_duplicate_connect_property_strict,
             t_parse_duplicate_connect_property_lenient,
             t_parse_repeated_user_property_strict,
+            t_parse_connect_user_property_limit,
+            t_parse_connect_packet_too_large,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
             t_serialize_parse_connect_with_malformed_will,
@@ -79,11 +82,13 @@ groups() ->
         ]},
         {publish, [parallel], [
             t_parse_sticky_frames,
+            t_parse_complete_publish_with_connect_limits,
             t_serialize_parse_qos0_publish,
             t_serialize_parse_qos1_publish,
             t_serialize_parse_qos2_publish,
             t_serialize_parse_with_dup_flag,
             t_serialize_parse_publish_v5,
+            t_serialize_publish_filter_props,
             t_parse_duplicate_publish_property
         ]},
         {puback, [parallel], [
@@ -266,6 +271,51 @@ t_parse_malformed_utf8_string(_) ->
             98, 108, 105, 99>>,
     ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?ASSERT_FRAME_THROW(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
+
+-doc """
+In strict mode, a PUBLISH topic with one invalid character fails to parse at each
+position. The same topic with a valid character at that position parses. The
+positions cover the 7-byte ASCII check and the byte-by-byte check after it.
+""".
+t_parse_utf8_topic_byte_positions(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    Parse = fun(Topic) ->
+        Len = byte_size(Topic),
+        emqx_frame:parse(<<?PUBLISH:4, 0:4, (Len + 2), Len:16, Topic/binary>>, ParseState)
+    end,
+    Size = 23,
+    Invalid = [<<0>>, <<16#01>>, <<16#1F>>, <<16#7F>>, <<16#C2, 16#80>>, <<16#C2, 16#9F>>],
+    Valid = [<<16#20>>, <<16#7E>>, <<"a">>, <<16#C3, 16#A9>>, <<16#E4, 16#B8, 16#AD>>],
+    lists:foreach(
+        fun(Pos) ->
+            Prefix = binary:copy(<<"a">>, Pos),
+            Suffix = binary:copy(<<"b">>, Size - Pos - 1),
+            lists:foreach(
+                fun(C) ->
+                    ?ASSERT_FRAME_THROW(
+                        utf8_string_invalid,
+                        Parse(<<Prefix/binary, C/binary, Suffix/binary>>)
+                    )
+                end,
+                Invalid
+            ),
+            lists:foreach(
+                fun(C) ->
+                    Topic = <<Prefix/binary, C/binary, Suffix/binary>>,
+                    ?assertMatch(
+                        {
+                            #mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
+                            <<>>,
+                            _
+                        },
+                        Parse(Topic)
+                    )
+                end,
+                Valid
+            )
+        end,
+        lists:seq(0, Size - 1)
+    ).
 
 %% Verifies that `initial_parse_state/0` (no options) defaults to strict mode,
 %% so a CONNECT with an invalid-UTF-8 client ID is rejected out of the box.
@@ -565,6 +615,148 @@ t_parse_many_user_properties_is_linear(_) ->
     %% not a microbenchmark. The old quadratic path took seconds here.
     ?assert(Elapsed < 2000, #{elapsed_ms => Elapsed}),
     ok.
+
+-doc """
+CONNECT and will properties have independent user-property limits. The parser
+checks the limit before parsing an excess pair. Other packet types stay
+unlimited, and no CONNECT byte limit is introduced.
+""".
+t_parse_connect_user_property_limit(_) ->
+    Zero = emqx_frame:initial_parse_state(#{max_connect_user_properties => 0}),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(make_v5_connect_frame(<<>>), Zero)),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 0},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(1)), Zero)
+    ),
+
+    Limit = 2,
+    Limited = emqx_frame:initial_parse_state(#{max_connect_user_properties => Limit}),
+    Exact = make_v5_connect_frame(user_properties(Limit)),
+    Excess = make_v5_connect_frame(user_properties(Limit + 1)),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(Exact, Limited)),
+    ?assertMatch([_Packet, _Options], emqx_frame:parse_complete(Exact, Limited)),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(Excess, Limited)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse_complete(Excess, Limited)
+    ),
+
+    %% Will properties use a separate counter.
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(
+            make_v5_connect_with_will_frame(
+                user_properties(Limit), user_properties(Limit)
+            ),
+            Limited
+        )
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(
+            make_v5_connect_with_will_frame(<<>>, user_properties(Limit + 1)),
+            Limited
+        )
+    ),
+
+    %% The count error wins before a malformed excess pair is decoded.
+    MalformedExcess = <<(user_properties(Limit))/binary, 16#26, 0>>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(make_v5_connect_frame(MalformedExcess), Limited)
+    ),
+
+    ManyProps = user_property_pairs(20),
+    Infinity = emqx_frame:initial_parse_state(#{max_connect_user_properties => infinity}),
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)), Infinity)
+    ),
+    %% The standalone parser keeps its historical unlimited default.
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)))
+    ),
+
+    %% The CONNECT-only option does not bound PUBLISH or SUBSCRIBE properties.
+    NonConnectOpts = #{version => ?MQTT_PROTO_V5, max_connect_user_properties => 0},
+    Props = #{'User-Property' => ManyProps},
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, Props, <<"payload">>),
+    ?assertEqual(Publish, parse_serialize(Publish, NonConnectOpts)),
+    TopicFilters = [{<<"t">>, #{rh => 0, qos => ?QOS_0, rap => 0, nl => 0}}],
+    Subscribe = ?SUBSCRIBE_PACKET(1, Props, TopicFilters),
+    ?assertEqual(Subscribe, parse_serialize(Subscribe, NonConnectOpts)),
+
+    %% A CONNECT larger than 64 KB still follows the existing max_packet_size.
+    LargeConnect = make_large_v5_connect_frame(40_000),
+    ?assert(byte_size(LargeConnect) > 65_536),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(LargeConnect, Limited)).
+
+user_property_pairs(N) ->
+    [{<<>>, integer_to_binary(I)} || I <- lists:seq(1, N)].
+
+%% N duplicate-key user properties on the wire, each with an indexed value.
+-doc """
+A CONNECT above `max_connect_size' is refused from its Remaining Length by the
+stream parser, before the body arrives, and by the whole-frame parser. A
+CONNECT within the limit parses, and other packet types are not held to it.
+""".
+t_parse_connect_packet_too_large(_) ->
+    Limit = 512,
+    PState = emqx_frame:initial_parse_state(#{max_connect_size => Limit}),
+    Frame = make_v5_connect_frame(user_properties(200)),
+    ?assert(byte_size(Frame) > Limit),
+    %% Only the fixed header: the stream parser refuses it without the body.
+    <<Header:3/binary, _/binary>> = Frame,
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse(Header, PState)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse(Frame, PState)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse_complete(Frame, PState)
+    ),
+    Small = make_v5_connect_frame(user_properties(1)),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(Small, PState)),
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, binary:copy(<<"x">>, 2048)),
+    PublishBin = iolist_to_binary(emqx_frame:serialize(Publish)),
+    ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin, PState)).
+
+user_properties(N) ->
+    iolist_to_binary([
+        begin
+            Value = integer_to_binary(I),
+            <<16#26, 0:16, (byte_size(Value)):16, Value/binary>>
+        end
+     || I <- lists:seq(1, N)
+    ]).
+
+make_v5_connect_with_will_frame(ConnPropsBin, WillPropsBin) ->
+    ConnProps = <<(encode_vbi(byte_size(ConnPropsBin)))/binary, ConnPropsBin/binary>>,
+    WillProps = <<(encode_vbi(byte_size(WillPropsBin)))/binary, WillPropsBin/binary>>,
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2#00000110:8, 60:16, ConnProps/binary>>,
+    Body = <<VarHeader/binary, 0:16, WillProps/binary, 4:16, "will", 2:16, "hi">>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
+
+make_large_v5_connect_frame(CredentialSize) ->
+    Credential = binary:copy(<<"x">>, CredentialSize),
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2#11000010:8, 60:16, 0>>,
+    Body = <<
+        VarHeader/binary,
+        0:16,
+        CredentialSize:16,
+        Credential/binary,
+        CredentialSize:16,
+        Credential/binary
+    >>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
 
 %% Encode an unsigned integer as an MQTT variable byte integer.
 encode_vbi(N) when N < 16#80 ->
@@ -883,6 +1075,29 @@ t_serialize_parse_publish_v5(_) ->
     },
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"$share/group/topic">>, 1, Props, <<"payload">>),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+
+-doc "PUBLISH encoding drops unsupported properties while retaining outbound aliases.".
+t_serialize_publish_filter_props(_) ->
+    Allowed = #{
+        'Payload-Format-Indicator' => 1,
+        'Message-Expiry-Interval' => 60,
+        'Response-Topic' => <<"response">>,
+        'Correlation-Data' => <<"correlation">>,
+        'User-Property' => [{<<"k">>, <<"v">>}],
+        'Subscription-Identifier' => 1,
+        'Content-Type' => <<"text/plain">>,
+        'Topic-Alias' => 3
+    },
+    Props = Allowed#{
+        'Will-Delay-Interval' => 60,
+        'Session-Expiry-Interval' => 60,
+        'Reason-String' => <<"discard">>,
+        unknown_property => ignored,
+        ?MQTT_INTERNAL_EXTRA => #{trace => test}
+    },
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, Props, <<"payload">>),
+    Expected = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, Allowed, <<"payload">>),
+    ?assertEqual(Expected, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 -doc """
 An MQTT v5 PUBLISH carrying two Response-Topic properties is rejected with a
@@ -1330,6 +1545,31 @@ t_invalid_will_qos(_) ->
             cause := invalid_will_qos, proto_ver := ?MQTT_PROTO_V5, proto_name := <<"MQTT">>
         }},
         emqx_frame:parse(ConnectBinFun(Will_T_WillQoS3))
+    ),
+    ok.
+
+-doc "Complete-frame PUBLISH parsing preserves properties and ignores CONNECT-only limits.".
+t_parse_complete_publish_with_connect_limits(_Config) ->
+    Props = #{'User-Property' => [{<<"key">>, <<"one">>}, {<<"key">>, <<"two">>}]},
+    lists:foreach(
+        fun({QoS, Strict}) ->
+            PacketId =
+                case QoS of
+                    ?QOS_0 -> undefined;
+                    _ -> 1
+                end,
+            Packet = ?PUBLISH_PACKET(QoS, <<"ordinary/topic">>, PacketId, Props, payload(1024)),
+            Bin = serialize_to_binary(Packet, ?MQTT_PROTO_V5),
+            State = emqx_frame:initial_parse_state(#{
+                version => ?MQTT_PROTO_V5,
+                strict_mode => Strict,
+                max_connect_size => 1,
+                max_connect_user_properties => 0
+            }),
+            ?assertEqual(Packet, emqx_frame:parse_complete(Bin, State)),
+            ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(Bin, State))
+        end,
+        [{QoS, Strict} || QoS <- [?QOS_0, ?QOS_1, ?QOS_2], Strict <- [false, true]]
     ),
     ok.
 

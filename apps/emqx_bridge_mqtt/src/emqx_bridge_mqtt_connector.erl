@@ -517,10 +517,15 @@ classify_reply(Reply = #{reason_code := ?RC_PACKET_IDENTIFIER_IN_USE}) ->
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
 
-classify_error(disconnected = Reason) ->
-    {recoverable_error, Reason};
+classify_error({disconnected, #{reason := Reason} = Error}) ->
+    %% from ecpool_worker:client/1
+    {Kind, _} = classify_error(Reason),
+    {Kind, Error};
 classify_error(ecpool_empty) ->
     {recoverable_error, disconnected};
+classify_error(no_such_pool) ->
+    %% the pool is being (re)started by the resource manager.
+    {recoverable_error, no_such_pool};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error({shutdown, {frame_parse_error, _}}) ->
@@ -529,47 +534,129 @@ classify_error({frame_parse_error, _}) ->
     {unrecoverable_error, non_mqtt_data_explanation()};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
-classify_error(shutdown = Reason) ->
-    {recoverable_error, Reason};
-classify_error(closed = Reason) ->
-    {recoverable_error, Reason};
-classify_error(tcp_closed = Reason) ->
-    {recoverable_error, Reason};
-classify_error(einval = Reason) ->
-    {recoverable_error, Reason};
 classify_error({unrecoverable_error, _Reason} = Error) ->
     Error;
 classify_error(Reason) ->
-    {unrecoverable_error, Reason}.
+    case is_connection_error(Reason) of
+        true ->
+            {recoverable_error, Reason};
+        false ->
+            {unrecoverable_error, Reason}
+    end.
 
-on_get_status(_ResourceId, State) ->
+%% Reasons that mean the connection to the remote broker is gone (or was never
+%% established).  The query may still be delivered once the broker is reachable
+%% again, so they must be retried instead of being dropped.
+%% `pingresp_timeout' is how `emqtt' reports that no PINGRESP arrived within a
+%% keepalive period, whether the peer went silent or the connection was dropped
+%% without the socket noticing.
+is_connection_error(disconnected) ->
+    true;
+is_connection_error(shutdown) ->
+    true;
+is_connection_error(pingresp_timeout) ->
+    true;
+is_connection_error(closed) ->
+    true;
+is_connection_error(einval) ->
+    true;
+is_connection_error(enotconn) ->
+    true;
+is_connection_error(epipe) ->
+    true;
+is_connection_error(tcp_closed) ->
+    true;
+is_connection_error(tcp_error) ->
+    true;
+is_connection_error(ssl_closed) ->
+    true;
+is_connection_error(ssl_error) ->
+    true;
+is_connection_error(quic_closed) ->
+    true;
+is_connection_error(quic_error) ->
+    true;
+is_connection_error(econnaborted) ->
+    true;
+is_connection_error(econnrefused) ->
+    true;
+is_connection_error(econnreset) ->
+    true;
+is_connection_error(ehostdown) ->
+    true;
+is_connection_error(ehostunreach) ->
+    true;
+is_connection_error(enetdown) ->
+    true;
+is_connection_error(enetreset) ->
+    true;
+is_connection_error(enetunreach) ->
+    true;
+is_connection_error(etimedout) ->
+    true;
+is_connection_error(timeout) ->
+    true;
+is_connection_error(nxdomain) ->
+    true;
+is_connection_error(eaddrnotavail) ->
+    true;
+is_connection_error(_) ->
+    false.
+
+on_get_status(ResourceId, State) ->
     Pools = maps:to_list(maps:with([pool_name], State)),
     Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
-    try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
+    try emqx_utils:pmap(fun get_status/1, Workers, health_check_ping_timeout(ResourceId)) of
         Statuses ->
             combine_status(Statuses, State)
     catch
         exit:timeout ->
-            ?status_connecting
+            {?status_disconnected, pingresp_timeout}
     end.
 
 get_status({_Pool, Worker}) ->
     case ecpool_worker:client(Worker) of
         {ok, Client} ->
             emqx_bridge_mqtt_ingress:status(Client);
-        {error, _} ->
-            ?status_disconnected
+        {error, {disconnected, Reason}} ->
+            {?status_disconnected, Reason}
+    end.
+
+%% Budget of one health check's PINGREQ round trip.
+%%
+%% This bounds the whole `pmap' of `on_get_status/2', so it is a budget per health
+%% check, not per connection.  It is half of the configured
+%% `health_check_timeout', so that the probe reports a status of its own before the
+%% framework aborts the whole check at that timeout.  The value is read from the
+%% resource configuration on every check instead of being kept in the state.
+health_check_ping_timeout(ResourceId) ->
+    case emqx_resource:get_instance(ResourceId) of
+        {ok, _Group, #{config := Config}} ->
+            half_health_check_timeout(maps:get(resource_opts, Config, #{}));
+        {error, not_found} ->
+            %% The resource is going away; the outcome of the check does not matter.
+            ?HEALTH_CHECK_TIMEOUT
+    end.
+
+half_health_check_timeout(ResourceOpts) ->
+    case maps:get(health_check_timeout, ResourceOpts, ?HEALTHCHECK_TIMEOUT) of
+        infinity ->
+            infinity;
+        Timeout ->
+            Timeout div 2
     end.
 
 combine_status(Statuses, ConnState) ->
     %% NOTE
-    %% Natural order of statuses: [connected, connecting, disconnected]
+    %% Natural order of statuses:
+    %% [connected, connecting, {connecting, _}, disconnected, {disconnected, _}]
     %% * `disconnected` wins over any other status
     %% * `connecting` wins over `connected`
+    %% * status with reason wins overs those without
     #{?available_clientid_info := AvailableClientidInfo} = ConnState,
     ExpectedNoClientids =
         case AvailableClientidInfo of
-            _ when length(AvailableClientidInfo) == 0 ->
+            [] ->
                 true;
             _ ->
                 false
@@ -595,7 +682,7 @@ combine_status(Statuses, ConnState) ->
             {?status_disconnected,
                 {unhealthy_target, <<"Connector has no assigned static clientids">>}};
         [] ->
-            ?status_disconnected
+            {?status_disconnected, no_workers_alive}
     end.
 
 mk_ingress_config(
@@ -880,8 +967,7 @@ log_connect_error_reason(Level, {tcp_closed, _} = Reason, Name) ->
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
         reason => Reason,
-        name => Name,
-        explain => explain_error(Reason)
+        name => Name
     });
 log_connect_error_reason(Level, econnrefused = Reason, Name) ->
     ?tp(emqx_bridge_mqtt_connector_econnrefused_error, #{}),
@@ -906,8 +992,7 @@ log_connect_error_reason(Level, tcp_closed = Reason, Name) ->
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
         reason => Reason,
-        name => Name,
-        explain => explain_error(Reason)
+        name => Name
     });
 log_connect_error_reason(Level, Reason, Name) ->
     ?SLOG(Level, #{
@@ -926,17 +1011,13 @@ explain_error(econnrefused) ->
         "running at all or you might have provided the wrong address "
         "or port number for the server."
     >>;
-explain_error(tcp_closed) ->
-    listener_max_limit_explanation();
-explain_error({tcp_closed, _}) ->
-    listener_max_limit_explanation();
-explain_error(closed) ->
-    listener_max_limit_explanation();
 explain_error({shutdown, {frame_parse_error, _}}) ->
     non_mqtt_data_explanation();
 explain_error({frame_parse_error, _}) ->
     non_mqtt_data_explanation();
 explain_error(_Reason) ->
+    %% The reason is surfaced as it is; the connector does not claim a cause it
+    %% cannot observe.
     undefined.
 
 non_mqtt_data_explanation() ->
@@ -947,14 +1028,6 @@ non_mqtt_data_explanation() ->
         "(e.g. an mqtts:// port while SSL is disabled for this connector), "
         "or the port may not serve MQTT at all. "
         "Please check the server address and the SSL settings."
-    >>.
-
-listener_max_limit_explanation() ->
-    <<
-        "Your MQTT connection attempt was unsuccessful. "
-        "It might be at its maximum capacity for handling new connections. "
-        "To diagnose the issue further, you can check the server logs for "
-        "any specific messages related to the unavailability or connection limits."
     >>.
 
 handle_disconnect(_Reason) ->

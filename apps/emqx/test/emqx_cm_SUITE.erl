@@ -8,11 +8,13 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_cm.hrl").
+-include_lib("emqx/include/emqx_channel.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
 -define(CM, emqx_cm).
+-define(PROC_STATS_KEYS, [mailbox_len, heap_size, total_heap_size, reductions, memory]).
 -define(ChanInfo, #{
     conninfo =>
         #{
@@ -63,7 +65,7 @@ open_session(CleanStart, ClientInfo, ConnInfo) ->
 t_reg_unreg_channel(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, []),
+    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, emqx_chan_stats:new([])),
     ?assertEqual([self()], emqx_cm:lookup_channels(<<"clientid">>)),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual([], emqx_cm:lookup_channels(<<"clientid">>)).
@@ -71,7 +73,7 @@ t_reg_unreg_channel(_) ->
 t_get_set_chan_info(_) ->
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
     ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, []),
+    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, emqx_chan_stats:new([])),
 
     ?assertEqual(Info, emqx_cm:get_chan_info(<<"clientid">>)),
     Info1 = Info#{proto_ver => 5},
@@ -82,187 +84,153 @@ t_get_set_chan_info(_) ->
 
     ?assertError(
         function_clause,
-        emqx_cm:insert_channel_info(undefined, #{}, [])
+        emqx_cm:insert_channel_info(undefined, #{}, emqx_chan_stats:new([]))
+    ),
+    ?assertError(
+        function_clause,
+        emqx_cm:insert_channel_info(<<"clientid">>, #{}, [])
     ).
 
+-doc """
+The stats of a channel come from its stats array: the keys the channel has
+reported, with the channel metrics from the start, and nothing of the row
+until the channel reports it. The process stats of the channel process come
+last, read from the process.
+""".
 t_get_set_chan_stats(_) ->
-    Stats = [{recv_oct, 10}, {send_oct, 8}],
+    ClientId = <<"clientid">>,
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, Stats),
-
-    ?assertEqual(emqx_cm:restore_sparse_stats(Stats), emqx_cm:get_chan_stats(<<"clientid">>)),
-    Stats1 = [{recv_oct, 10} | Stats],
-    true = emqx_cm:set_chan_stats(<<"clientid">>, Stats1),
-    ?assertEqual(emqx_cm:restore_sparse_stats(Stats1), emqx_cm:get_chan_stats(<<"clientid">>)),
+    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new([])),
+    ?assertEqual(connection_stats([]), array_stats(emqx_cm:get_chan_stats(ClientId))),
+    Stats = [{recv_oct, 10}, {send_oct, 8}],
+    ok = emqx_chan_stats:report(ClientId, Stats),
+    ?assertEqual(connection_stats(Stats), array_stats(emqx_cm:get_chan_stats(ClientId))),
+    Stats1 = [{recv_oct, 20}, {send_oct, 8}, {mqueue_len, 3}],
+    ok = emqx_chan_stats:report(ClientId, Stats1),
+    ?assertEqual(connection_stats(Stats1), array_stats(emqx_cm:get_chan_stats(ClientId))),
+    ?assertEqual(connection_stats(Stats1), array_stats(emqx_cm:get_chan_stats(ClientId, self()))),
+    ?assertEqual(
+        lists:sort(?PROC_STATS_KEYS),
+        lists:sort(
+            proplists:get_keys(emqx_cm:get_chan_stats(ClientId)) -- emqx_chan_stats:keys()
+        )
+    ),
 
     ?assertError(
         function_clause,
-        emqx_cm:set_chan_stats(undefined, [])
+        emqx_chan_stats:report(undefined, [])
     ),
 
-    ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
-
--doc """
-`set_chan_info_stats/3` writes the info and the sparse stats of a channel in
-one call. It does not create a row for a channel that has no row.
-""".
-t_set_chan_info_stats(_) ->
-    ClientId = <<"info-stats">>,
-    Info = #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(ClientId, Info, [{recv_oct, 10}]),
-    Info1 = Info#{proto_ver => 5},
-    Stats1 = [{recv_oct, 20}, {mqueue_len, 0}, {subscriptions_cnt, 1}],
-    ?assert(emqx_cm:set_chan_info_stats(ClientId, Info1, Stats1)),
-    ?assertEqual(Info1, emqx_cm:get_chan_info(ClientId)),
-    ?assertEqual([{recv_oct, 20}, {subscriptions_cnt, 1}], stored_chan_stats(ClientId)),
-    ?assertEqual(
-        maps:from_list(emqx_cm:restore_sparse_stats(Stats1)),
-        maps:from_list(emqx_cm:get_chan_stats(ClientId))
-    ),
     ok = emqx_cm:unregister_channel(ClientId),
-    ?assertNot(emqx_cm:set_chan_info_stats(ClientId, Info1, Stats1)),
-    ?assertEqual(undefined, emqx_cm:get_chan_info(ClientId)),
-    ?assertError(function_clause, emqx_cm:set_chan_info_stats(undefined, #{}, [])).
+    ?assertEqual(undefined, emqx_cm:get_chan_stats(ClientId)).
 
 -doc """
-The channel info table drops a stat only when its key is in
-`sparse_stats_defaults/0` and its value is 0. Other zeros and non-integer
-values stay. `get_chan_stats/1,2`, which other nodes call, return the
-dropped keys with the value 0.
+The stats of a row are the stats array alone: `get_chan_stats/1,2` and
+`lookup_client/1` return the same list, and the session attributes that do
+not change with traffic are in the `session` entry of the info map, not in
+the stats.
 """.
-t_sparse_chan_stats(_) ->
-    ClientId = <<"sparse-stats">>,
-    Info = #{conninfo := ConnInfo} = ?ChanInfo,
+t_chan_stats_readers(_) ->
+    ClientId = <<"stats-readers">>,
+    Info0 = #{conninfo := ConnInfo} = ?ChanInfo,
+    Info = Info0#{
+        session => #{
+            created_at => 1,
+            impl => emqx_session_mem,
+            is_persistent => true,
+            durable => false,
+            subscriptions_max => infinity,
+            awaiting_rel_max => 100,
+            inflight_max => 32,
+            mqueue_max => 1000
+        }
+    },
     ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-    Stats = [
-        {recv_oct, 10},
-        {send_pend, 0},
-        {durable, false},
-        {subscriptions_max, infinity},
-        {subscriptions_cnt, 0},
-        {mqueue_len, 0},
-        {recv_pkt, 1},
-        {'send_msg.dropped', 0}
-    ],
-    Sparse = [
-        {recv_oct, 10},
-        {send_pend, 0},
-        {durable, false},
-        {subscriptions_max, infinity},
-        {recv_pkt, 1}
-    ],
     try
-        ok = emqx_cm:insert_channel_info(ClientId, Info, Stats),
-        ?assertEqual(Sparse, stored_chan_stats(ClientId)),
-        Restored = emqx_cm:restore_sparse_stats(Sparse),
-        ?assertEqual(Sparse, lists:sublist(Restored, length(Sparse))),
-        ?assertEqual(
-            maps:merge(emqx_cm:sparse_stats_defaults(), maps:from_list(Stats)),
-            maps:from_list(Restored)
-        ),
-        ?assertEqual(Restored, emqx_cm:get_chan_stats(ClientId)),
-        ?assertEqual(Restored, emqx_cm:get_chan_stats(ClientId, self())),
-        Stats1 = lists:keystore(mqueue_len, 1, Stats, {mqueue_len, 3}),
-        true = emqx_cm:set_chan_stats(ClientId, Stats1),
-        ?assertEqual(
-            [
-                {recv_oct, 10},
-                {send_pend, 0},
-                {durable, false},
-                {subscriptions_max, infinity},
-                {mqueue_len, 3},
-                {recv_pkt, 1}
-            ],
-            stored_chan_stats(ClientId)
-        )
-    after
-        ok = emqx_cm:unregister_channel(ClientId)
-    end.
-
--doc """
-`lookup_client/1`, which other nodes call, returns rows whose stats have
-the keys that the channel info table omits, with the value 0. The table
-keeps the sparse stats.
-""".
-t_lookup_client_restores_sparse_stats(_) ->
-    ClientId = <<"sparse-stats-lookup">>,
-    Info = #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-    Stats = [{recv_oct, 10}, {mqueue_len, 0}],
-    try
-        ok = emqx_cm:insert_channel_info(ClientId, Info, Stats),
-        ?assertEqual([{recv_oct, 10}], stored_chan_stats(ClientId)),
-        Expected = maps:merge(emqx_cm:sparse_stats_defaults(), maps:from_list(Stats)),
+        ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new([])),
+        ok = emqx_chan_stats:report(ClientId, [{subscriptions_cnt, 2}, {mqueue_len, 0}]),
+        Expected = connection_stats([{subscriptions_cnt, 2}]),
+        ?assertEqual(Expected, array_stats(emqx_cm:get_chan_stats(ClientId))),
+        ?assertEqual(Expected, array_stats(emqx_cm:get_chan_stats(ClientId, self()))),
         lists:foreach(
             fun(Key) ->
-                [{{ClientId, _}, _Info, Found}] = emqx_cm:lookup_client(Key),
-                ?assertEqual(Expected, maps:from_list(Found), Key)
+                [{{ClientId, _}, Info, Found}] = emqx_cm:lookup_client(Key),
+                ?assertEqual(Expected, array_stats(Found), Key)
             end,
             [{clientid, ClientId}, {chan_pid, self()}]
+        ),
+        ?assertError(badarg, emqx_chan_stats:report(ClientId, [{mqueue_len, infinity}])),
+        ?assertError(
+            {unknown_chan_stats_key, subscriptions_max},
+            emqx_chan_stats:report(ClientId, [{subscriptions_max, infinity}])
         )
     after
         ok = emqx_cm:unregister_channel(ClientId)
     end.
 
-stored_chan_stats(ClientId) ->
-    ets:lookup_element(emqx_channel_info, {ClientId, self()}, 3).
+%% The stats of a `connection` array after the given writes: every key, 0 unless written.
+connection_stats(Written) ->
+    [{Key, proplists:get_value(Key, Written, 0)} || Key <- emqx_chan_stats:keys()].
+
+%% The stats without the process stats that a reader appends.
+array_stats(Stats) ->
+    [KV || {K, _} = KV <- Stats, not lists:member(K, ?PROC_STATS_KEYS)].
 
 -doc """
-The stats producer of a TCP connection returns all keys of
-`sparse_stats_defaults/0`, so a reader that merges the defaults restores exactly
-the keys a dense row had.
+The stats of a TCP connection read from the channel info table have the keys
+and the values of the stats the connection process reports, which are the ones
+`GET /clients` lists.
 """.
-t_sparse_chan_stats_keys_tcp(_) ->
-    assert_sparse_chan_stats_keys(<<"sparse-tcp">>, fun emqtt:connect/1, []).
+t_chan_stats_keys_tcp(_) ->
+    assert_chan_stats_keys(<<"stats-keys-tcp">>, fun emqtt:connect/1, []).
 
 -doc """
-The stats producer of a WebSocket connection returns all keys of
-`sparse_stats_defaults/0`, so a reader that merges the defaults restores exactly
-the keys a dense row had.
+The stats of a WebSocket connection read from the channel info table have the
+keys and the values of the stats the connection process reports.
 """.
-t_sparse_chan_stats_keys_ws(_) ->
-    assert_sparse_chan_stats_keys(<<"sparse-ws">>, fun emqtt:ws_connect/1, [{port, 8083}]).
+t_chan_stats_keys_ws(_) ->
+    assert_chan_stats_keys(<<"stats-keys-ws">>, fun emqtt:ws_connect/1, [{port, 8083}]).
 
-assert_sparse_chan_stats_keys(ClientId, Connect, Opts) ->
-    Defaults = emqx_cm:sparse_stats_defaults(),
+assert_chan_stats_keys(ClientId, Connect, Opts) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId} | Opts]),
     {ok, _} = Connect(C),
     try
         [ChanPid] = emqx_cm:lookup_channels(ClientId),
         #{conninfo := #{conn_mod := ConnMod}} = emqx_cm:get_chan_info(ClientId),
-        Dense = ConnMod:stats(ChanPid),
-        ?assertEqual([], maps:keys(Defaults) -- proplists:get_keys(Dense), ConnMod),
-        Stored = ets:lookup_element(emqx_channel_info, {ClientId, ChanPid}, 3),
+        FromProcess = ConnMod:stats(ChanPid),
+        FromTable = emqx_cm:get_chan_stats(ClientId),
         ?assertEqual(
-            [],
-            [KV || {K, 0} = KV <- Stored, is_map_key(K, Defaults)],
+            lists:sort(proplists:get_keys(FromProcess)),
+            lists:sort(proplists:get_keys(FromTable)),
             ConnMod
         ),
+        %% The packet counters and the subscription count do not change
+        %% between the two reads.
+        Stable = [recv_pkt, send_pkt, subscriptions_cnt],
         ?assertEqual(
-            lists:sort(proplists:get_keys(Dense)),
-            lists:sort(maps:keys(maps:merge(Defaults, maps:from_list(Stored)))),
+            [{K, proplists:get_value(K, FromProcess)} || K <- Stable],
+            [{K, proplists:get_value(K, FromTable)} || K <- Stable],
             ConnMod
-        )
+        ),
+        ?assertMatch(#{recv_pkt := 1, send_pkt := 1}, maps:from_list(FromTable), ConnMod)
     after
         ok = emqtt:disconnect(C)
     end.
 
-t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
+t_report_logs_session_buffer_high_watermark(_) ->
     ClientId = <<"session-buffer-check">>,
     Stats = [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}],
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
     ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(ClientId, Info, []),
+    ok = emqx_cm:insert_channel_info(ClientId, Info, emqx_chan_stats:new([])),
     Path = [sysmon, session, total_payload_bytes_high_watermark],
     PreviousHighWatermark = emqx_config:get(Path, 0),
     try
         ChanPid = self(),
         ok = emqx_config:put(Path, 1),
         Logs = emqx_cth_log_capture:capture(fun() ->
-            true = emqx_cm:set_chan_stats(ClientId, Stats)
+            ok = emqx_chan_stats:report(ClientId, Stats)
         end),
         ?assertMatch(
             [

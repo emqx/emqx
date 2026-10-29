@@ -442,7 +442,8 @@ delete_expired_data(Streams) ->
 
 tx_stream_delete_expired_data(Stream, Index) ->
     DataRetentionPeriod = emqx_streams_prop:data_retention_period(Stream),
-    TimeRetentionDeadline = max(now_ms() - DataRetentionPeriod, 0),
+    DataRetentionPeriodUs = erlang:convert_time_unit(DataRetentionPeriod, millisecond, microsecond),
+    TimeRetentionDeadline = max(now_us() - DataRetentionPeriodUs, 0),
     LimitsDeadline =
         case Index of
             undefined ->
@@ -454,9 +455,16 @@ tx_stream_delete_expired_data(Stream, Index) ->
     Topic = stream_message_topic(Stream, '#'),
     emqx_ds:tx_del_topic(Topic, 0, DeleteTill).
 
--spec regular_db_slab_info() -> #{emqx_ds:slab() => emqx_ds:slab_info()}.
+-spec regular_db_slab_info() ->
+    {ok, #{emqx_ds:slab() => emqx_ds:slab_info()}}
+    | {error, [{emqx_ds:shard(), emqx_ds:error(_)}]}.
 regular_db_slab_info() ->
-    emqx_ds:list_slabs(?STREAMS_MESSAGE_REGULAR_DB).
+    case emqx_ds:list_slabs(?STREAMS_MESSAGE_REGULAR_DB, #{}) of
+        {SlabInfo, []} ->
+            {ok, SlabInfo};
+        {_SlabInfo, Errors} ->
+            {error, Errors}
+    end.
 
 -spec initial_generations(emqx_streams_types:stream()) ->
     #{emqx_ds:slab() => emqx_ds:generation()}.
@@ -778,5 +786,5 @@ delete_topics(?STREAMS_MESSAGE_REGULAR_DB, Stream) ->
 delete_topics(?STREAMS_MESSAGE_LASTVALUE_DB, Stream) ->
     [stream_index_topic(Stream), stream_message_topic(Stream, '#')].
 
-now_ms() ->
-    erlang:monotonic_time(millisecond).
+now_us() ->
+    erlang:system_time(microsecond).

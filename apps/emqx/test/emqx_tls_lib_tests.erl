@@ -718,6 +718,24 @@ pem_validation_cases(Context) ->
             end)
         },
         {
+            T("with missing cacertfile (should log and omit it)"),
+            ?_test(begin
+                Options = #{
+                    keyfile => ValidKeyPath,
+                    certfile => ValidCertPath,
+                    cacertfile => NonExistentPath,
+                    password => Password
+                },
+                Reports = emqx_cth_log_capture:capture(error, fun() ->
+                    ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+                    ?assertNot(proplists:is_defined(cacertfile, ServerOpts)),
+                    ?assertNotEqual(undefined, proplists:get_value(certfile, ServerOpts)),
+                    ?assertNotEqual(undefined, proplists:get_value(keyfile, ServerOpts))
+                end),
+                ?assertMatch([#{msg := "cert_file_not_found", path := NonExistentPath}], Reports)
+            end)
+        },
+        {
             T("with invalid keyfile (should omit keyfile)"),
             ?_test(begin
                 Options = #{
@@ -1092,6 +1110,72 @@ to_server_opts_test() ->
         )
     ).
 
+empty_cacertfile_test_() ->
+    [
+        ?_test(begin
+            Options = #{enable => true, verify => verify_none, cacertfile => Empty},
+            Reports = emqx_cth_log_capture:capture(error, fun() ->
+                ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertNot(proplists:is_defined(cacertfile, ServerOpts)),
+                ?assertNot(proplists:is_defined(cacertfile, ClientOpts))
+            end),
+            ?assertEqual([], Reports)
+        end)
+     || Empty <- [<<>>, ""]
+    ].
+
+-doc """
+Checks that `to_server_opts` makes a relative `cacertfile` path absolute.
+""".
+to_server_opts_relative_cacertfile_test_() ->
+    {setup, setup_ssl_files(#{key_type => ec, base_tmp_dir => "."}), fun cleanup_ssl_files/1, fun(
+        #{cacertfile_path := CacertPath, certfile_path := CertPath, keyfile_path := KeyPath}
+    ) ->
+        ?_test(begin
+            ?assertEqual(relative, filename:pathtype(CacertPath)),
+            Options = #{
+                keyfile => KeyPath,
+                certfile => CertPath,
+                cacertfile => CacertPath,
+                password => <<"foobar">>
+            },
+            ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+            ?assertEqual(
+                filename:absname(CacertPath), proplists:get_value(cacertfile, ServerOpts)
+            )
+        end)
+    end}.
+
+-doc """
+Checks that `to_client_opts` makes a relative `cacertfile` path absolute.
+""".
+to_client_opts_relative_cacertfile_test_() ->
+    {setup, setup_ssl_files(#{key_type => ec, base_tmp_dir => "."}), fun cleanup_ssl_files/1, fun(
+        #{cacertfile_path := CacertPath}
+    ) ->
+        ?_test(begin
+            ?assertEqual(relative, filename:pathtype(CacertPath)),
+            Options = #{enable => true, cacertfile => CacertPath},
+            ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+            ?assertEqual(
+                filename:absname(CacertPath), proplists:get_value(cacertfile, ClientOpts)
+            )
+        end)
+    end}.
+
+-doc """
+Checks that `to_server_opts` keeps an absolute `cacertfile` path unchanged.
+""".
+to_server_opts_absolute_cacertfile_test_() ->
+    {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(#{cacertfile_path := CacertPath}) ->
+        ?_test(begin
+            ?assertEqual(absolute, filename:pathtype(CacertPath)),
+            ServerOpts = emqx_tls_lib:to_server_opts(tls, #{cacertfile => CacertPath}),
+            ?assertEqual(CacertPath, proplists:get_value(cacertfile, ServerOpts))
+        end)
+    end}.
+
 -doc """
 Checks the final transformation made by `to_server_opts` on managed certs options.
 """.
@@ -1104,7 +1188,7 @@ to_server_opts_managed_certs_test_() ->
         lists:foreach(
             fun
                 ({cacertfile, Path}) ->
-                    ?assertEqual(Get(?FILE_KIND_CA), Path);
+                    ?assertEqual(filename:absname(Get(?FILE_KIND_CA)), Path);
                 ({certfile, Path}) ->
                     ?assertEqual(Get(?FILE_KIND_CHAIN), Path);
                 ({keyfile, Path}) ->

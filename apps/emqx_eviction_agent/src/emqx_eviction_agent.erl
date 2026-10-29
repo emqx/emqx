@@ -4,6 +4,12 @@
 
 -module(emqx_eviction_agent).
 
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([
+    {elvis_style, no_common_caveats_call, disable},
+    {elvis_style, prefer_robot_butt, disable}
+]).
+
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
@@ -295,11 +301,17 @@ channel_stream(RequiredConnState) ->
         WithRequiredConnStateStream
     ).
 
-%% The stored `clientinfo' omits the fields derivable from `conninfo'. Put them
-%% back before the snapshot leaves this node, so that the channel rebuilt on the
-%% receiving node runs its hooks with the `clientinfo' the connection had.
+%% The stored `clientinfo' omits the fields derivable from `conninfo', and the stored
+%% `conninfo' the ones derivable from `clientinfo'. Put them back before the snapshot
+%% leaves this node, so that the channel rebuilt on the receiving node runs its hooks
+%% with the `clientinfo' and `conninfo' the connection had.
 channel_stream_entry({ClientId, ChanPid, _ConnState, ConnInfo, ClientInfo}) ->
-    {ClientId, ChanPid, ConnInfo, emqx_channel:restore_derivable_peer_fields(ClientInfo, ConnInfo)}.
+    {
+        ClientId,
+        ChanPid,
+        emqx_channel:restore_derivable_conninfo_fields(ConnInfo, ClientInfo),
+        emqx_channel:restore_derivable_peer_fields(ClientInfo, ConnInfo)
+    }.
 
 -spec all_channels_count() -> non_neg_integer().
 all_channels_count() ->
@@ -514,7 +526,7 @@ do_purge_durable_sessions(N) when N > 0 ->
     {Sessions, _NewIterator} = emqx_persistent_session_ds_state:session_iterator_next(Iterator, N),
     lists:foreach(
         fun({ClientId, _Metadata}) ->
-            emqx_persistent_session_ds:destroy_session(ClientId)
+            emqx_persistent_session_ds:purge_session(ClientId)
         end,
         Sessions
     ),

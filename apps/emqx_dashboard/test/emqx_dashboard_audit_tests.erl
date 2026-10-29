@@ -73,3 +73,19 @@ namespace_is_recorded_test() ->
     Meta = (base_meta())#{namespace => <<"acme">>},
     Request = http_request(Meta),
     ?assertEqual(<<"acme">>, maps:get(namespace, Request)).
+
+%% A failed-auth request whose `Authorization` header Cowboy cannot parse is
+%% recorded as coming from the dashboard, instead of crashing the audit path.
+malformed_auth_header_from_dashboard_test() ->
+    Meta = maps:without([auth_type], (base_meta())#{code => 401}),
+    lists:foreach(
+        fun(Value) ->
+            Req = (req())#{headers => #{<<"authorization">> => Value}},
+            ?assertMatch(
+                #{from := dashboard},
+                emqx_dashboard_audit:log_meta(?IMPORTANCE, Meta, Req),
+                Value
+            )
+        end,
+        [<<"Bearer">>, <<"Bearer a b">>, <<"~~~">>, <<"Bearer a, Bearer b">>]
+    ).

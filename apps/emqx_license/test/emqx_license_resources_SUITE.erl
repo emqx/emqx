@@ -220,6 +220,32 @@ t_alarm_if_tps_over_limit(Config) when is_list(Config) ->
     ?assertReceive(alarm_deactivated, 100),
     ok.
 
+-doc """
+Verifies that the alarm check does not crash the resource monitor
+when the license checker returns `{error, no_license}`.
+""".
+t_no_license_alarm({init, Config}) ->
+    meck:new(emqx_license_checker, [passthrough]),
+    meck:expect(emqx_license_checker, limits, fun() -> {error, no_license} end),
+    Config;
+t_no_license_alarm({'end', _Config}) ->
+    meck:unload(emqx_license_checker),
+    ok;
+t_no_license_alarm(Config) when is_list(Config) ->
+    Pid = whereis(emqx_license_resources),
+    ?check_trace(
+        ?wait_async_action(
+            emqx_license_resources:update_now(),
+            #{?snk_kind := emqx_license_resources_updated},
+            1000
+        ),
+        fun(Res, _Trace) ->
+            ?assertMatch({ok, _}, Res)
+        end
+    ),
+    ?assertEqual(Pid, whereis(emqx_license_resources)),
+    ok.
+
 update_now() ->
     emqx_license_resources:update_now(),
     ignored = gen_server:call(emqx_license_resources, ignored),

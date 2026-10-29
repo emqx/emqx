@@ -6,6 +6,7 @@
 -module(emqx_mqtt_caps).
 
 -include("emqx_mqtt.hrl").
+-include("emqx.hrl").
 -include("types.hrl").
 
 -export([
@@ -50,37 +51,22 @@
     exclusive_subscription
 ]).
 
--spec check_pub(
-    emqx_types:zone(),
-    #{
-        qos := emqx_types:qos(),
-        retain := boolean(),
-        topic := emqx_types:topic()
-    }
-) ->
+-spec check_pub(emqx_types:zone(), emqx_types:message()) ->
     ok_or_error(emqx_types:reason_code()).
-check_pub(Zone, Flags) when is_map(Flags) ->
-    do_check_pub(
-        case maps:take(topic, Flags) of
-            {Topic, Flags1} ->
-                Flags1#{topic_levels => emqx_topic:levels(Topic)};
-            error ->
-                Flags
-        end,
-        emqx_config:get_zone_conf(Zone, [mqtt])
-    ).
+check_pub(Zone, Msg = #message{qos = QoS, topic = Topic}) ->
+    #{max_topic_levels := Limit} = Caps = emqx_config:get_zone_conf(Zone, [mqtt]),
+    case Limit > 0 andalso emqx_topic:levels(Topic) > Limit of
+        true ->
+            {error, ?RC_TOPIC_NAME_INVALID};
+        false ->
+            do_check_pub(QoS, emqx_message:get_flag(retain, Msg), Caps)
+    end.
 
-do_check_pub(#{topic_levels := Levels}, #{max_topic_levels := Limit}) when
-    Limit > 0, Levels > Limit
-->
-    {error, ?RC_TOPIC_NAME_INVALID};
-do_check_pub(#{qos := QoS}, #{max_qos_allowed := MaxQoS}) when
-    QoS > MaxQoS
-->
+do_check_pub(QoS, _Retain, #{max_qos_allowed := MaxQoS}) when QoS > MaxQoS ->
     {error, ?RC_QOS_NOT_SUPPORTED};
-do_check_pub(#{retain := true}, #{retain_available := false}) ->
+do_check_pub(_QoS, true, #{retain_available := false}) ->
     {error, ?RC_RETAIN_NOT_SUPPORTED};
-do_check_pub(_Flags, _Caps) ->
+do_check_pub(_QoS, _Retain, _Caps) ->
     ok.
 
 -spec check_sub(

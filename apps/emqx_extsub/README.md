@@ -13,6 +13,7 @@ The application is integrated into the EMQX core via hooks.
 
 * message-consumption hooks, like:
     - `delivery.completed`
+    - `delivery.dropped`
     - `message.delivered`
     - `message.nack`
 
@@ -53,6 +54,13 @@ on which the client is subscribed, a separate ExtSub handler is created. When re
 
 Also, ExtSub handlers may be registered as handling generic messages. In this case, the handler will receive all generic (OTP) messages that the client process receives and that were not handled by the channel itself.
 
+#### Session takeover
+
+When an in-memory session moves to another channel, the session replays its inflight messages with their original packet identifiers, as MQTT requires.
+The new channel creates new handlers with new handler references.
+A handler source can therefore send a replayed message again, and the client can receive two copies.
+ExtSub ignores acknowledgements for replayed messages because their handler references do not match the new handlers.
+
 #### `handle_subscribe` callback
 
 ```erlang
@@ -64,7 +72,9 @@ Also, ExtSub handlers may be registered as handling generic messages. In this ca
 
 If the handler wants to handle the topic, then it should return `{ok, state()}`. If the handler is not interested in the topic, it should return `ignore`.
 
-The `subscribe_ctx()` contains callback functions that the handler may use to send messages to self (optionally with delay).
+The `subscribe_ctx()` contains a `message_target` value that identifies the owning channel and handler.
+Use `emqx_extsub_handler:send/2` or `emqx_extsub_handler:send_after/3` to send a message to this target.
+Store the target in handler state, not a callback function. A callback function can retain old code after a module reload.
 
 `handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is always `undefined`. For a multi-topic handler, `state()` is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
 
@@ -96,6 +106,14 @@ For single-topic handlers, unsubscribe and terminate may be used interchangeably
 
 `handle_delivered` callback is called when a message provided by the handler has been delivered to the client.
 For QoS 0 messages this happens when the message is pushed to the inflight. For QoS 1 and 2 messages, this happens when the message is acknowledged by the client (if the underlying session supports acknowledgements; otherwise the callback is called when the message was sent to the outcoming connection buffer).
+
+When the session drops a message and runs `delivery.dropped`, the callback receives `{dropped, Reason}` as its acknowledgement value.
+For an in-memory session, the reasons are `no_local` and `expired`.
+The session does not put ExtSub messages in its mqueue. When inflight is full or the delivery rate limit refuses a message, the session returns the message to the ExtSub buffer with a NACK.
+The session does not deliver the message later, and ExtSub does not put it back in the buffer.
+Handlers must accept this value. Each handler decides what its source does with the message, for example acknowledge it or send it again.
+ExtSub checks the handler reference and the sequence number of an acknowledgement, a drop or a NACK before it changes its state.
+When the check fails, ExtSub does not call the handler and does not change its delivery counters.
 
 If the `ack_ctx()` the handler is informed about the desired number of messages that the ExtSub application wants the handler to provide.
 

@@ -65,7 +65,7 @@ end_per_testcase(TestCase, Config) ->
 t_ws_pingreq_before_connected(_) ->
     ?assertMatch(
         {ok, [_, {close, protocol_error}], _},
-        handle_msg({incoming, ?PACKET(?PINGREQ)}, st(#{}, #{conn_state => disconnected}))
+        handle_msg({incoming, ?PACKET(?PINGREQ)}, st(#{}, #{conn_state => idle}))
     ).
 
 t_info(_) ->
@@ -85,6 +85,8 @@ t_info(_) ->
         },
         ConnInfo
     ),
+    %% The socket is only valid in the connection process.
+    ?assertNot(maps:is_key(sock, ConnInfo)),
     %% `sockstate' is not part of the channel info map; it is read from the
     %% connection state.
     ?assertEqual(idle, emqx_connection:info(sockstate, st())).
@@ -101,9 +103,7 @@ t_stats(_) ->
     ?assertMatch(
         [
             {recv_oct, 0},
-            {recv_cnt, 0},
             {send_oct, 0},
-            {send_cnt, 0},
             {send_pend, 0}
             | _
         ],
@@ -463,13 +463,8 @@ t_handle_incoming(_) ->
 t_handle_outing_non_utf8_topic(_) ->
     Topic = <<"测试"/utf16>>,
     Publish = ?PUBLISH_PACKET(0, Topic, 1),
-    StrictOff = #{version => 5, max_size => 16#FFFF, strict_mode => false},
-    StOff = st(#{serialize => StrictOff}),
-    OffResult = emqx_connection:handle_outgoing(Publish, StOff),
-    ?assertMatch({ok, _}, OffResult),
-    StrictOn = #{version => 5, max_size => 16#FFFF, strict_mode => true},
-    StOn = st(#{serialize => StrictOn}),
-    ?assertError(frame_serialize_error, emqx_connection:handle_outgoing(Publish, StOn)).
+    St = st(#{serialize => #{version => 5, max_size => 16#FFFF}}),
+    ?assertMatch({ok, _}, emqx_connection:handle_outgoing(Publish, St)).
 
 t_with_channel(_) ->
     State = st(),
@@ -526,10 +521,8 @@ t_handle_outgoing(_) ->
     ?assertMatch({ok, _}, emqx_connection:handle_outgoing([?PACKET(?PINGRESP)], st())).
 
 t_handle_info(_) ->
-    ?assertMatch(
-        {ok, {event, running}, _NState},
-        emqx_connection:handle_info(activate_socket, st())
-    ),
+    {ok, Activated} = emqx_connection:handle_info(activate_socket, st()),
+    ?assertEqual(running, emqx_connection:info(sockstate, Activated)),
     ?assertMatch(
         {stop, {shutdown, for_testing}, _NStats},
         emqx_connection:handle_info({sock_error, for_testing}, st())
@@ -581,6 +574,165 @@ t_sendq_congestion_trigger(_) ->
     ?assertEqual(running, emqx_connection:info(sockstate, State3)),
     ?assertEqual(true, erlang:get(sendq_decongested_notified)).
 
+-doc """
+A congested connection checks its send queue on a timer, so it resumes delivery
+without any other event. The check interval doubles while the queue stays
+congested, and starts again at the minimum on the next congestion.
+""".
+t_sendq_congestion_check_timer(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_channel, handle_signal, fun
+        ({connection, Status, _Info}, Channel) when
+            Status =:= congested; Status =:= decongested
+        ->
+            self() ! {signal, Status},
+            {ok, Channel};
+        (Signal, Channel) ->
+            meck:passthrough([Signal, Channel])
+    end),
+    SetSendPend = fun(Ratio) ->
+        meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+            {ok, [{K, round(HWM * Ratio)} || K <- Options]}
+        end)
+    end,
+    ok = SetSendPend(0.8),
+    {ok, _, State1} = handle_msg(
+        {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 1, payload(HWM div 2))},
+        st(#{sockstate => running})
+    ),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State1)),
+    ?assertEqual(congested, receive_signal()),
+    %% The send queue is still congested at the first check: the timer starts again.
+    {ok, [], State2} = handle_msg(receive_check_sendq_timeout(100), State1),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State2)),
+    ok = SetSendPend(0.2),
+    {ok, [], State3} = handle_msg(receive_check_sendq_timeout(200), State2),
+    ?assertEqual(running, emqx_connection:info(sockstate, State3)),
+    ?assertEqual(decongested, receive_signal()),
+    ?assertEqual(
+        none,
+        receive
+            {timeout, _, {check_sendq, _}} = Timeout -> Timeout
+        after 300 -> none
+        end
+    ),
+    %% The next congestion starts again at the minimum interval.
+    ok = SetSendPend(0.8),
+    {ok, _, State4} = handle_msg(
+        {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 1, payload(HWM div 2))},
+        State3
+    ),
+    ?assertEqual(congested, receive_signal()),
+    {ok, [], _} = handle_msg(receive_check_sendq_timeout(100), State4).
+
+-doc """
+The send queue check interval does not grow above its maximum.
+""".
+t_sendq_check_interval_max(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, round(HWM * 0.8)} || K <- Options]}
+    end),
+    TRef = make_ref(),
+    State = st(#{sockstate => TRef}),
+    {ok, [], _} = handle_msg({timeout, TRef, {check_sendq, 1600}}, State),
+    {timeout, _, {check_sendq, 1600}} = receive_check_sendq_timeout(1600).
+
+-doc """
+A timer message of the earlier `check_sendq` form runs a send queue check.
+""".
+t_sendq_check_legacy_timer(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, round(HWM * 0.8)} || K <- Options]}
+    end),
+    TRef = make_ref(),
+    {ok, [], State} = handle_msg({timeout, TRef, check_sendq}, st(#{sockstate => TRef})),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State)),
+    {ok, [], _} = handle_msg(receive_check_sendq_timeout(200), State).
+
+-doc """
+A check timer that fires after the send queue was decongested does not change
+the connection state.
+""".
+t_sendq_check_stale_timer(_) ->
+    State = st(#{sockstate => running}),
+    ?assertEqual({ok, State}, handle_msg({timeout, make_ref(), {check_sendq, 100}}, State)).
+
+-doc """
+A connection in the `congested` state of the code before the send queue check
+timer starts the timer at its next send queue check.
+""".
+t_sendq_congestion_legacy_state(_) ->
+    HWM = emqx_config:get_listener_conf(tcp, default, [tcp_options, high_watermark]),
+    ok = meck:expect(emqx_transport, getstat, fun(_Sock, Options) ->
+        {ok, [{K, round(HWM * 0.8)} || K <- Options]}
+    end),
+    {ok, _, State} = handle_msg({tcp_passive, sock}, st(#{sockstate => congested})),
+    ?assertEqual(congested, emqx_connection:info(sockstate, State)),
+    {ok, [], _} = handle_msg(receive_check_sendq_timeout(100), State).
+
+-doc """
+When the socket is a port, an outgoing packet goes through `async_send/3`
+with `nosuspend`, and the synchronous send is not called.
+""".
+t_async_send_used(_) ->
+    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, [nosuspend]) ->
+        count_call(async_send)
+    end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> count_call(send) end),
+    ?assertMatch({ok, _}, handle_msg({outgoing, ?PACKET(?PINGRESP)}, st_async())),
+    ?assertEqual({1, 0}, {call_count(async_send), call_count(send)}).
+
+-doc """
+When `async_send/3` returns `{error, busy}`, the packet is sent once with
+the synchronous send.
+""".
+t_async_send_busy_falls_back(_) ->
+    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, _Opts) ->
+        ok = count_call(async_send),
+        {error, busy}
+    end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> count_call(send) end),
+    ?assertMatch({ok, _}, handle_msg({outgoing, ?PACKET(?PINGRESP)}, st_async())),
+    ?assertEqual({1, 1}, {call_count(async_send), call_count(send)}).
+
+-doc """
+When the socket is not a port (TLS, QUIC), an outgoing packet uses the
+synchronous send only.
+""".
+t_async_send_not_port_uses_send(_) ->
+    ok = meck:expect(emqx_transport, async_send, fun(_Sock, _Data, _Opts) ->
+        count_call(async_send)
+    end),
+    ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> count_call(send) end),
+    ?assertMatch({ok, _}, handle_msg({outgoing, ?PACKET(?PINGRESP)}, st())),
+    ?assertEqual({0, 1}, {call_count(async_send), call_count(send)}).
+
+-doc """
+An `ok` reply of an asynchronous send changes nothing, in both reply shapes.
+""".
+t_handle_msg_inet_reply_ok(_) ->
+    ?assertEqual(ok, handle_msg({inet_reply, sock, ok, send_async}, st_async())),
+    ?assertEqual(ok, handle_msg({inet_reply, sock, ok}, st_async())).
+
+-doc """
+A `timeout` error reply of an asynchronous send stops the connection with
+`send_timeout`.
+""".
+t_handle_msg_inet_reply_timeout(_) ->
+    ?assertMatch(
+        {stop, {shutdown, send_timeout}, _},
+        emqx_connection:process_msg({inet_reply, sock, {error, timeout}, send_async}, st_async())
+    ).
+
+-doc """
+A `closed` error reply of an asynchronous send closes the socket.
+""".
+t_handle_msg_inet_reply_closed(_) ->
+    {ok, St} = handle_msg({inet_reply, sock, {error, closed}, send_async}, st_async()),
+    ?assertEqual(closed, emqx_connection:info(sockstate, St)).
+
 t_close_socket(_) ->
     State = emqx_connection:close_socket(st(#{sockstate => closed})),
     ?assertEqual(closed, emqx_connection:info(sockstate, State)),
@@ -600,6 +752,23 @@ t_start_link_exit_on_wait(_) ->
     ok = exit_on_wait_error(closed, normal),
     ok = exit_on_wait_error(timeout, {shutdown, ssl_upgrade_timeout}),
     ok = exit_on_wait_error(enetdown, {shutdown, enetdown}).
+
+-doc """
+A wait error that is not an atom exits with a reason that the listener counts:
+`{ssl_error, _}` is unchanged, a TLS alert counts under its kind, and any other
+error counts under `sock_error`.
+""".
+t_start_link_exit_on_wait_countable(_) ->
+    SslError = {ssl_error, {tls_alert, {unknown_ca, "TLS server: ..."}}},
+    ok = exit_on_wait_error(SslError, {shutdown, SslError}),
+    Alert = {tls_alert, {user_canceled, "TLS server: ..."}},
+    ok = exit_on_wait_error(
+        Alert, {shutdown, #{shutdown_count => user_canceled, reason => Alert}}
+    ),
+    ProxyError = {invalid_proxy_info, <<"GET / HTTP/1.1\r\n">>},
+    ok = exit_on_wait_error(
+        ProxyError, {shutdown, #{shutdown_count => sock_error, reason => ProxyError}}
+    ).
 
 t_start_link_exit_on_activate(_) ->
     ok = exit_on_activate_error(enotconn, normal),
@@ -623,16 +792,16 @@ t_get_conn_info(_) ->
 t_oom_shutdown(init, Config) ->
     ok = snabbkaffe:stop(),
     ok = snabbkaffe:start_trace(),
-    ok = meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:new(emqx_connection_util, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
-        emqx_utils,
+        emqx_connection_util,
         check_oom,
         fun(_) -> {shutdown, "fake_oom"} end
     ),
     Config;
 t_oom_shutdown('end', _Config) ->
     snabbkaffe:stop(),
-    meck:unload(emqx_utils),
+    meck:unload(emqx_connection_util),
     ok.
 
 t_oom_shutdown(_) ->
@@ -754,6 +923,36 @@ make_frame(Packet) ->
     iolist_to_binary(emqx_frame:serialize(Packet)).
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
+
+receive_signal() ->
+    receive
+        {signal, Status} -> Status
+    after 0 ->
+        ct:fail(no_signal)
+    end.
+
+receive_check_sendq_timeout(Interval) ->
+    receive
+        {timeout, _TRef, {check_sendq, Interval}} = Timeout -> Timeout
+    after Interval + 1000 ->
+        ct:fail({no_check_sendq_timeout, Interval})
+    end.
+
+%% Connection state whose socket is a TCP port, for the asynchronous send.
+%% The port closes when the test case process exits.
+st_async() ->
+    {ok, LSock} = gen_tcp:listen(0, []),
+    st(#{socket => LSock}).
+
+count_call(Name) ->
+    _ = put({call_count, Name}, call_count(Name) + 1),
+    ok.
+
+call_count(Name) ->
+    case get({call_count, Name}) of
+        undefined -> 0;
+        N -> N
+    end.
 
 st() -> st(#{}, #{}).
 

@@ -11,13 +11,26 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     [{group, Group} || {Group, _} <- groups()].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
-    [{Proto, TCs} || Proto <- [tcp, ws, wss]].
+    TCs = emqx_common_test_helpers:all(?MODULE) -- tls_only_cases(),
+    [
+        {tcp, TCs},
+        {ws, TCs},
+        {wss, TCs ++ tls_only_cases()},
+        {ssl, tls_only_cases()}
+    ].
+
+tls_only_cases() ->
+    [
+        t_refused_before_tls_handshake_max_conns,
+        t_refused_before_tls_handshake_max_conn_rate,
+        t_tls_handshake_timeout
+    ].
 
 init_per_suite(Config0) ->
     Config = generate_tls_certs(Config0),
@@ -66,6 +79,13 @@ t_max_conns(Config) ->
         assert_connect_refused("127.0.0.1", Port, Config),
         %% Cleanup:
         lists:foreach(fun emqtt:disconnect/1, Clients),
+        %% The listener frees a slot only once the connection process exits,
+        %% which happens after emqtt:disconnect/1 returns.
+        ?retry(
+            100,
+            20,
+            ?assertEqual(0, emqx_listeners:current_conns(ListenerId, {{127, 0, 0, 1}, Port}))
+        ),
         %% One more client is now allowed:
         ExtraClient = emqtt_connect("127.0.0.1", Port, Config),
         pong = emqtt:ping(ExtraClient),
@@ -211,6 +231,128 @@ t_message_rate(Config) ->
         lists:foreach(fun emqtt:disconnect/1, Clients)
     end).
 
+-doc """
+Verify that a TLS-based listener closes each connection that `max_connections`
+refuses before the TLS handshake.
+""".
+t_refused_before_tls_handshake_max_conns(Config) ->
+    test_refused_before_tls_handshake(
+        ?FUNCTION_NAME, #{<<"max_connections">> => 1}, Config
+    ).
+
+-doc """
+Verify that a TLS-based listener closes each connection that `max_conn_rate`
+refuses before the TLS handshake.
+""".
+t_refused_before_tls_handshake_max_conn_rate(Config) ->
+    test_refused_before_tls_handshake(
+        ?FUNCTION_NAME, #{<<"max_conn_rate">> => <<"1/10s">>}, Config
+    ).
+
+-doc """
+Verify that a TLS-based listener closes each accepted connection that does not
+finish the TLS handshake within `ssl_options.handshake_timeout`.
+""".
+t_tls_handshake_timeout(Config) ->
+    Type = ?config(proto, Config),
+    Name = ?FUNCTION_NAME,
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    LConf0 = listener_config(
+        Type, #{<<"bind">> => format_bind({"127.0.0.1", Port})}, Config
+    ),
+    LConf = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"handshake_timeout">>], LConf0, <<"1s">>
+    ),
+    ClientHello = capture_client_hello(),
+    with_listener(Type, Name, LConf, fun() ->
+        Baseline = count_tls_resources(),
+        %% Half of the clients send a ClientHello, the others send nothing.
+        %% None of them finishes the handshake. The listener must close each
+        %% of them well before the 15 s default handshake timeout.
+        Sockets = lists:map(
+            fun(I) ->
+                {ok, Socket} = gen_tcp:connect(
+                    {127, 0, 0, 1}, Port, [binary, {active, false}]
+                ),
+                _ = (I rem 2 =:= 0) andalso gen_tcp:send(Socket, ClientHello),
+                Socket
+            end,
+            lists:seq(1, 6)
+        ),
+        ?assertEqual(
+            [closed || _ <- Sockets],
+            [wait_closed(Socket, 5_000) || Socket <- Sockets]
+        ),
+        lists:foreach(fun gen_tcp:close/1, Sockets),
+        ?retry(100, 30, ?assertEqual(Baseline, count_tls_resources()))
+    end).
+
+test_refused_before_tls_handshake(Name, Limits, Config) ->
+    Type = ?config(proto, Config),
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    LConf = listener_config(
+        Type,
+        Limits#{<<"bind">> => format_bind({"127.0.0.1", Port})},
+        Config
+    ),
+    ClientHello = capture_client_hello(),
+    with_listener(Type, Name, LConf, fun() ->
+        %% This client takes the only connection slot, or the only token:
+        Client = emqtt_connect("127.0.0.1", Port, Config),
+        pong = emqtt:ping(Client),
+        Baseline = count_tls_resources(),
+        %% The listener refuses all of these before the TLS handshake.
+        %% Half of them send a ClientHello, the others send nothing.
+        Sockets = lists:map(
+            fun(I) ->
+                {ok, Socket} = gen_tcp:connect(
+                    {127, 0, 0, 1}, Port, [binary, {active, false}]
+                ),
+                _ = (I rem 2 =:= 0) andalso gen_tcp:send(Socket, ClientHello),
+                Socket
+            end,
+            lists:seq(1, 10)
+        ),
+        %% The listener closes each refused socket, possibly after a TLS alert.
+        ?assertEqual(
+            [closed || _ <- Sockets],
+            [wait_closed(Socket) || Socket <- Sockets]
+        ),
+        lists:foreach(fun gen_tcp:close/1, Sockets),
+        ?retry(100, 30, ?assertEqual(Baseline, count_tls_resources())),
+        ok = emqtt:disconnect(Client)
+    end).
+
+wait_closed(Socket) ->
+    wait_closed(Socket, 20_000).
+
+wait_closed(Socket, Timeout) ->
+    case gen_tcp:recv(Socket, 0, Timeout) of
+        {ok, _Data} -> wait_closed(Socket, Timeout);
+        {error, Reason} -> Reason
+    end.
+
+%% Count TLS connection processes and TCP ports of this node.
+count_tls_resources() ->
+    TLSConns = proplists:get_value(active, supervisor:count_children(tls_connection_sup)),
+    TCPPorts = [P || P <- erlang:ports(), erlang:port_info(P, name) =:= {name, "tcp_inet"}],
+    #{tls_connections => TLSConns, tcp_ports => length(TCPPorts)}.
+
+capture_client_hello() ->
+    {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}, {ip, {127, 0, 0, 1}}]),
+    {ok, {_, Port}} = inet:sockname(LSock),
+    {Pid, MRef} = spawn_monitor(fun() ->
+        ssl:connect({127, 0, 0, 1}, Port, [{verify, verify_none}], 1000)
+    end),
+    {ok, Socket} = gen_tcp:accept(LSock, 1000),
+    {ok, ClientHello} = gen_tcp:recv(Socket, 0, 1000),
+    ok = gen_tcp:close(Socket),
+    ok = gen_tcp:close(LSock),
+    receive
+        {'DOWN', MRef, process, Pid, _} -> ok
+    end,
+    ClientHello.
+
 assert_connect_refused(Host, Port, Config) ->
     Type = ?config(proto, Config),
     try emqtt_connect(Host, Port, Config) of
@@ -225,7 +367,7 @@ assert_connect_refused(Host, Port, Config) ->
         %% client writes the upgrade request. The client then reports a
         %% socket-level einval instead of closed.
         error:{ws_upgrade_failed, {error, einval}} when Type == ws -> ok;
-        error:timeout when Type == wss -> ok
+        error:{down, {shutdown, closed}} when Type == wss -> ok
     end.
 
 with_listener(Type, Name, Config, Then) ->
@@ -244,7 +386,8 @@ emqtt_connect(Host, Port, Config) ->
     case ?config(proto, Config) of
         tcp -> emqtt_connect_tcp(Host, Port);
         ws -> emqtt_connect_ws(Host, Port);
-        wss -> emqtt_connect_wss(Host, Port, client_ssl_opts(Config))
+        wss -> emqtt_connect_wss(Host, Port, client_ssl_opts(Config));
+        ssl -> emqtt_connect_ssl(Host, Port, client_ssl_opts(Config))
     end.
 
 emqtt_connect_tcp(Host, Port) ->
@@ -259,6 +402,15 @@ emqtt_connect_ws(Host, Port) ->
         hosts => [{Host, Port}],
         proto_ver => v5,
         connect_timeout => 1
+    }).
+
+emqtt_connect_ssl(Host, Port, SSLOpts) ->
+    emqtt_do_connect(fun emqtt:connect/1, #{
+        hosts => [{Host, Port}],
+        proto_ver => v5,
+        connect_timeout => 1,
+        ssl => true,
+        ssl_opts => SSLOpts
     }).
 
 emqtt_connect_wss(Host, Port, SSLOpts) ->
@@ -310,7 +462,7 @@ listener_config(tcp, Config, _CTConfig) ->
     Config;
 listener_config(ws, Config, _CTConfig) ->
     Config;
-listener_config(wss, Config, CTConfig) ->
+listener_config(Type, Config, CTConfig) when Type =:= wss; Type =:= ssl ->
     Certs = ?config(suite_tls_certs, CTConfig),
     SSLOpts = emqx_utils_maps:binary_key_map(Certs),
     Config#{

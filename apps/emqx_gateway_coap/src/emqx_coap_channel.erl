@@ -6,6 +6,8 @@
 
 -behaviour(emqx_gateway_channel).
 
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
+
 %% API
 -export([
     info/1,
@@ -236,6 +238,23 @@ handle_timeout(_, {state_machine, Msg}, Channel) ->
     call_session(timeout, Msg, Channel);
 handle_timeout(_, {transport, Msg}, Channel) ->
     call_session(timeout, Msg, Channel);
+handle_timeout(Ref, blockwise_expire, #channel{timers = Timers, blockwise = BW0} = Channel) ->
+    case maps:get(blockwise_expire, Timers, undefined) of
+        Ref ->
+            BW = emqx_coap_blockwise:expire(erlang:monotonic_time(millisecond), BW0),
+            Channel1 = Channel#channel{
+                blockwise = BW, timers = maps:remove(blockwise_expire, Timers)
+            },
+            case Channel1#channel.session of
+                undefined ->
+                    {ok, Channel1};
+                Session ->
+                    Result = emqx_coap_session:drain_pending_observe_notifications(Session, BW),
+                    handle_result(Result, Channel1)
+            end;
+        _ ->
+            {ok, Channel}
+    end;
 handle_timeout(_, disconnect, Channel) ->
     {shutdown, normal, Channel};
 handle_timeout(_, connection_expire, Channel) ->
@@ -286,14 +305,8 @@ handle_call(
         'session.subscribed',
         [ClientInfo, MountedTopic, NSubOpts]
     ),
-    %% modify session state
-    SubReq = #{topic => Topic, token => Token, subopts => NSubOpts},
-    TempMsg = #coap_message{type = non},
-    %% FIXME: The subopts is not used for emqx_coap_session
-    Result = emqx_coap_session:process_subscribe(
-        SubReq, TempMsg, #{}, Session
-    ),
-    NSession = maps:get(session, Result),
+    SubReq = #{topic => MountedTopic, token => Token, subopts => NSubOpts},
+    NSession = emqx_coap_session:update_subscription(SubReq, Session),
     {reply, {ok, {MountedTopic, NSubOpts}}, [{event, updated}], Channel#channel{session = NSession}};
 handle_call(
     {unsubscribe, Topic},
@@ -315,13 +328,13 @@ handle_call(
     ),
 
     %% modify session state
-    UnSubReq = Topic,
+    UnSubReq = MountedTopic,
     TempMsg = #coap_message{type = non},
     Result = emqx_coap_session:process_subscribe(
         UnSubReq, TempMsg, #{}, Session
     ),
-    NSession = maps:get(session, Result),
-    {reply, ok, [{event, updated}], Channel#channel{session = NSession}};
+    {NChannel, Replies} = apply_management_observe_update(Result, Channel),
+    {reply, ok, Replies, NChannel};
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     Subs = emqx_coap_session:info(subscriptions, Session),
     {reply, {ok, maps:to_list(Subs)}, Channel};
@@ -449,7 +462,7 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
                     %% Connection mode policy: reject requests without token/clientid.
                     ?SLOG(debug, #{
                         msg => "token_required_in_conn_mode",
-                        message => emqx_utils:redact(Msg)
+                        message => emqx_coap_frame:redact(Msg)
                     }),
                     with_udp_proxy_decision(reject, missing_token_or_clientid_reply(Msg, Channel));
                 _ ->
@@ -725,7 +738,14 @@ process_connect(Channel, Msg, Result, Iter) ->
             RandVal = rand:uniform(?TOKEN_MAXIMUM),
             Token = erlang:list_to_binary(erlang:integer_to_list(RandVal)),
             NResult = Result#{events => [{event, connected}]},
-            iter(Iter, reply({ok, created}, Token, Msg, NResult), Channel#channel{token = Token});
+            %% The token is a credential: wrap it so that it cannot leak through
+            %% the packet debug logs. `emqx_coap_frame:serialize_pkt/2' unwraps it.
+            SensitiveToken = emqx_secret:wrap(Token),
+            iter(
+                Iter,
+                reply({ok, created}, SensitiveToken, Msg, NResult),
+                Channel#channel{token = Token}
+            );
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_open_session",
@@ -785,11 +805,11 @@ call_session(Fun, Msg, #channel{session = Session} = Channel) ->
 
 maybe_attach_blockwise_to_session_result(
     handle_response,
-    #coap_message{type = reset, token = Token},
+    #coap_message{type = reset},
     Result,
     Channel0
 ) ->
-    Channel = clear_discarded_observe_blockwise(Result, clear_observe_blockwise(Token, Channel0)),
+    Channel = clear_discarded_observe_blockwise(Result, Channel0),
     {attach_and_drain_channel_blockwise(Result, Channel), Channel};
 maybe_attach_blockwise_to_session_result(timeout, _Timer, Result, Channel0) ->
     Channel = clear_discarded_observe_blockwise(Result, Channel0),
@@ -891,15 +911,16 @@ do_call_handler_request(Msg, Result, Channel, Iter) ->
     #channel{
         ctx = Ctx,
         clientinfo = ClientInfo,
-        connection_required = ConnectionRequired
+        connection_required = ConnectionRequired,
+        session = Session
     } = Channel,
     Result0 = Result#{request_msg => Msg},
     HandlerResult =
         case emqx_coap_message:get_option(uri_path, Msg) of
             [<<"ps">> | RestPath] ->
-                IsConnectionless = ConnectionRequired =:= false,
+                IsConnectionless = not ConnectionRequired,
                 emqx_coap_pubsub_handler:handle_request(
-                    RestPath, Msg, Ctx, ClientInfo, IsConnectionless
+                    RestPath, Msg, Ctx, ClientInfo, IsConnectionless, Session
                 );
             [<<"mqtt">> | RestPath] ->
                 emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
@@ -927,8 +948,8 @@ process_protocol({Type, Msg}, Result, Channel, Iter) ->
 process_out(Outs, Result, Channel, _) ->
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, Outs2}] ++ Events, Channel}.
-process_nothing(_, _, Channel) -> {ok, Channel}.
+    {ok, [{outgoing, Outs2}] ++ Events, schedule_blockwise_timer(Channel)}.
+process_nothing(_, _, Channel) -> {ok, schedule_blockwise_timer(Channel)}.
 
 drain_observe_after_blockwise(
     Result0,
@@ -954,7 +975,7 @@ merge_session_drain_result(Result0, DrainResult) ->
 
 add_outs(Outs, Result) ->
     lists:foldl(
-        fun(Out, Acc) -> emqx_coap_medium:out(Out, Acc) end,
+        fun emqx_coap_medium:out/2,
         Result,
         Outs
     ).
@@ -1004,7 +1025,32 @@ process_connection({close, Msg}, _, Channel, _) ->
     {shutdown, normal, Reply, NChannel}.
 process_subscribe({Sub, Msg}, Result, #channel{session = Session} = Channel, Iter) ->
     Result2 = emqx_coap_session:process_subscribe(Sub, Msg, Result, Session),
-    iter([session, fun process_session/4 | Iter], Result2, Channel).
+    {Result3, Channel1} = apply_observe_update(Result2, Channel),
+    iter(
+        [session, fun process_session/4, blockwise, fun process_blockwise/4 | Iter],
+        Result3,
+        Channel1
+    ).
+
+apply_observe_update(Result, Channel) ->
+    case maps:get(observe_cleared_tokens, Result, []) of
+        [] ->
+            {Result, Channel};
+        Tokens ->
+            Channel1 = lists:foldl(fun clear_observe_blockwise/2, Channel, Tokens),
+            Result1 = maps:remove(observe_cleared_tokens, Result),
+            {attach_and_drain_channel_blockwise(Result1, Channel1), Channel1}
+    end.
+
+apply_management_observe_update(Result, Channel) ->
+    {Result1, Channel1} = apply_observe_update(Result, Channel),
+    NChannel = Channel1#channel{
+        session = maps:get(session, Result1),
+        blockwise = maps:get(blockwise, Result1, Channel1#channel.blockwise)
+    },
+    Outs = lists:reverse(maps:get(out, Result1, [])),
+    {NChannel, [{outgoing, Outs}, {event, updated}]}.
+
 process_reply(
     Reply,
     Result,
@@ -1015,12 +1061,33 @@ process_reply(
     PeerKey = maps:get(peername, ConnInfo, undefined),
     {Reply1, BW1} = maybe_prepare_block2_reply(Req, Reply, PeerKey, Ctx, BW0),
     Session2 = emqx_coap_session:set_reply(Reply1, Session),
-    Outs = maps:get(out, Result, []),
+    DrainResult = emqx_coap_session:drain_pending_observe_notifications(Session2, BW1),
+    Session3 = maps:get(session, DrainResult),
+    BW2 = maps:get(blockwise, DrainResult),
+    Result1 = merge_observe_drain_result(Result, DrainResult),
+    Outs = maps:get(out, Result1, []),
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{
-        session = Session2, blockwise = BW1
-    }}.
+    Channel1 = Channel#channel{session = Session3, blockwise = BW2},
+    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, schedule_blockwise_timer(Channel1)}.
+
+schedule_blockwise_timer(#channel{timers = Timers, session = Session, blockwise = BW} = Channel) ->
+    OldRef = maps:get(blockwise_expire, Timers, undefined),
+    ok = emqx_utils:cancel_timer(OldRef),
+    Timers1 = maps:remove(blockwise_expire, Timers),
+    case Session =/= undefined andalso emqx_coap_session:info(mqueue_len, Session) > 0 of
+        false ->
+            Channel#channel{timers = Timers1};
+        true ->
+            case emqx_coap_blockwise:next_expiry(BW) of
+                undefined ->
+                    Channel#channel{timers = Timers1};
+                Expiry ->
+                    Delay = max(1, Expiry - erlang:monotonic_time(millisecond)),
+                    Ref = emqx_utils:start_timer(Delay, blockwise_expire),
+                    Channel#channel{timers = Timers1#{blockwise_expire => Ref}}
+            end
+    end.
 
 process_shutdown(Reply, _Result, Channel, _) -> {shutdown, normal, Reply, Channel}.
 
@@ -1038,7 +1105,16 @@ maybe_prepare_block2_reply(Req, Reply, PeerKey, Ctx, BW0) ->
             {Reply1, BW1};
         {error, Reply1, BW1} ->
             metrics_inc('blockwise.tx_block2.failed', Ctx),
-            {Reply1, BW1}
+            {Reply1, BW1};
+        {busy, _Reason, BW1} ->
+            metrics_inc('blockwise.tx_block2.failed', Ctx),
+            BusyReply = emqx_coap_message:set(
+                max_age, 1, emqx_coap_message:piggyback({error, service_unavailable}, Req)
+            ),
+            {BusyReply, BW1};
+        {too_large, BW1} ->
+            metrics_inc('blockwise.tx_block2.failed', Ctx),
+            {emqx_coap_message:piggyback({error, service_unavailable}, Req), BW1}
     end.
 
 maybe_inc_block2_completed(Reply, Ctx) ->

@@ -312,11 +312,23 @@ do_publish(#message{topic = Topic} = Msg) ->
     RouteRes = route(Routes, Delivery, PersistRes),
     do_forward_external(Delivery, RouteRes).
 
+-doc """
+Return `[persisted]` when built-in persistence accepts the message, or when
+a publish hook sets the internal `message_persisted` header
+to `true` after storing it. Return `[]` otherwise.
+
+The broker includes `persisted` in the publish result alongside any subscriber
+delivery results. The primary purpose of this result is to help `publish` callers
+detect that the message was not completely dropped.
+""".
 persist_publish(Msg) ->
-    case emqx_persistent_message:persist(Msg, #{sync => noreply}) of
-        noreply ->
+    case {emqx_persistent_message:persist(Msg, #{sync => noreply}), Msg} of
+        {noreply, _} ->
             [persisted];
-        {skipped, _} ->
+        %% Persisted by some subsystem via hook
+        {{skipped, _}, #message{headers = #{message_persisted := true}}} ->
+            [persisted];
+        {{skipped, _}, _} ->
             []
     end.
 
@@ -715,11 +727,18 @@ handle_call(Req, _From, State) ->
     {reply, ignored, State}.
 
 handle_cast({dispatch, Topic, I, Msg}, State) ->
-    ?BROKER_INSTR_TS(TDisp),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_TS(T)),
     Deliver = #deliver{topic = Topic, message = Msg},
     _ = do_dispatch_chans(Deliver, subscribers({shard, Topic, I}), 0),
-    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_delay_us, ?US(TDisp - Msg#message.extra)),
-    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_lat_us, ?US_SINCE(TDisp)),
+    ?BROKER_INSTR_MSGLATENCY(
+        ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_delay_us, begin
+            ?BROKER_INSTR_EXTRACT_MARK(?BROKER_INSTR_MARK(_, TDispatch), Msg),
+            ?US(T - TDispatch)
+        end)
+    ),
+    ?BROKER_INSTR_MSGLATENCY(
+        ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_lat_us, ?US_SINCE(T))
+    ),
     {noreply, State};
 handle_cast({subscribed, Topic, shard, _I}, State) ->
     %% Do not need to 'maybe add' (i.e. to check if the route exists).
@@ -771,8 +790,9 @@ code_change(_OldVsn, State, _Extra) ->
 -spec do_dispatch2(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
 do_dispatch2(Topic, #delivery{message = MsgIn}) ->
-    ?BROKER_INSTR_TS(T0),
-    ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_TS(T0)),
+    ?BROKER_INSTR_EXTRACT_MARK(?BROKER_INSTR_MARK(TFirst, _), MsgIn),
+    Msg = ?BROKER_INSTR_UPDATE_MARK(?BROKER_INSTR_MARK(TFirst, T0), MsgIn),
     AsyncDispatch = persistent_term:get(?PT_FLAG_ASYNC_SHARD_DISPATCH, false),
     Deliver = #deliver{topic = Topic, message = Msg},
     Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
@@ -783,7 +803,9 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
             DispN0 = do_dispatch_shards_async(Topic, Msg, Shards, 0)
     end,
     DispN = do_dispatch_chans(Deliver, subscribers(Topic), DispN0),
-    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
+    ?BROKER_INSTR_MSGLATENCY(
+        ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0))
+    ),
     case DispN of
         0 ->
             ok = emqx_hooks:'message.dropped'(Msg, #{node => node()}, no_subscribers),
@@ -829,7 +851,7 @@ maybe_add_route(_Existed = true, _Topic, _ReplyTo) ->
     ok.
 
 maybe_delete_route(Topic) ->
-    case ets:member(?SUBSCRIBER, Topic) of
+    case ets:member(?SUBSCRIBER, Topic) orelse ets:member(?SUBSCRIBER, {shard, Topic}) of
         true -> ok;
         false -> sync_route(delete, Topic, #{})
     end.

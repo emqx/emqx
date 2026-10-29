@@ -157,6 +157,27 @@ t_empty_export_import(_Config) ->
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
     ?assertEqual(ExpRawConf, emqx:get_raw_config([])).
 
+-doc """
+The backup metadata keeps the real release version, also when
+`dashboard.show_preview_version = false` hides the `-preview.N` suffix in the
+REST API. The import compares this version with the running release.
+""".
+t_export_meta_keeps_preview_version(_Config) ->
+    meck:new(emqx_release, [passthrough, no_history, no_link]),
+    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+    try
+        emqx_config:put([dashboard, show_preview_version], false),
+        ?assertEqual("6.1.5", emqx_dashboard:reported_version()),
+        {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+        {ok, Files} = erl_tar:extract(FileName, [memory, compressed]),
+        [MetaBin] = [Bin || {Name, Bin} <- Files, filename:basename(Name) =:= "META.hocon"],
+        {ok, Meta} = hocon:binary(MetaBin),
+        ?assertEqual(<<"6.1.5-preview.1">>, maps:get(<<"version">>, Meta))
+    after
+        emqx_config:put([dashboard, show_preview_version], true),
+        meck:unload(emqx_release)
+    end.
+
 t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
     FNameEmqx44 = "emqx-export-4.4.24-retainer-mqttsub.tar.gz",
     BackupFile = filename:join(?config(data_dir, Config), FNameEmqx44),
@@ -1577,6 +1598,59 @@ t_read_files(_Config) ->
         [<<"test_rootkey">>, <<"rel_data_dir_path_file">>], RawConf1, TestFileContent
     ),
     ?assertEqual(ExpectedConf, emqx_mgmt_data_backup:read_data_files(RawConf)).
+
+-doc """
+Config values that only start with the data dir name, such as `data_source`,
+are not file paths and must pass through unchanged. Paths inside the data dir
+are still read, also when the data dir is configured with a trailing separator.
+""".
+t_read_files_data_dir_prefix(_Config) ->
+    {ok, OldDataDir} = application:get_env(emqx, data_dir),
+    try
+        lists:foreach(fun assert_read_files_data_dir_prefix/1, ["data", "data/"])
+    after
+        application:set_env(emqx, data_dir, OldDataDir)
+    end.
+
+assert_read_files_data_dir_prefix(DataDir) ->
+    ok = application:set_env(emqx, data_dir, DataDir),
+    {ok, Cwd} = file:get_cwd(),
+    Content = <<"cert_content">>,
+    AbsPath = iolist_to_binary(filename:join([Cwd, "data", "certs", "x.pem"])),
+    ok = filelib:ensure_dir(AbsPath),
+    ok = file:write_file(AbsPath, Content),
+    RawConf = #{
+        <<"root">> => #{
+            <<"data_source">> => <<"data_source">>,
+            <<"database">> => <<"database">>,
+            <<"datadog">> => <<"datadog">>,
+            <<"rel">> => <<"data/certs/x.pem">>,
+            <<"abs">> => AbsPath,
+            <<"missing">> => <<"data/certs/missing.pem">>
+        }
+    },
+    Expected = #{
+        <<"root">> => #{
+            <<"data_source">> => <<"data_source">>,
+            <<"database">> => <<"database">>,
+            <<"datadog">> => <<"datadog">>,
+            <<"rel">> => Content,
+            <<"abs">> => Content,
+            <<"missing">> => <<"data/certs/missing.pem">>
+        }
+    },
+    Reports = emqx_cth_log_capture:capture(fun() ->
+        self() ! {result, emqx_mgmt_data_backup:read_data_files(RawConf)}
+    end),
+    Result =
+        receive
+            {result, R} -> R
+        after 0 -> error(no_result)
+        end,
+    ?assertEqual(Expected, Result, #{data_dir => DataDir}),
+    %% Only the genuine path to a missing file is reported.
+    FailedReads = [F || #{msg := "failed_to_read_data_file", filename := F} <- Reports],
+    ?assertEqual([<<"data/certs/missing.pem">>], FailedReads, #{data_dir => DataDir}).
 
 %%------------------------------------------------------------------------------
 %% Internal test helpers

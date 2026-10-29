@@ -23,7 +23,8 @@ unload() ->
     emqx_ctl:unregister_command(observer).
 
 cmd(["status"]) ->
-    observer_cli:start();
+    _ = observer_cli:start(),
+    ok;
 cmd(["bin_leak"]) ->
     lists:foreach(
         fun(Row) -> emqx_ctl:print("~p~n", [Row]) end,

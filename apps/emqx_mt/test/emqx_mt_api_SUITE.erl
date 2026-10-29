@@ -14,6 +14,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_mt.hrl").
+-include("emqx_mt_internal.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
 
 -define(NEW_CLIENTID(I),
@@ -584,6 +585,12 @@ delete_file_ns(Ns, BundleName, Kind) ->
         url => URL,
         query_params => #{<<"kind">> => Kind}
     }).
+
+limiter_group_exists(Group) ->
+    emqx_limiter_registry:find_group(Group) =/= undefined.
+
+limiter_group_absent(Group) ->
+    emqx_limiter_registry:find_group(Group) =:= undefined.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1561,11 +1568,53 @@ t_backup_export_and_import(_Config) ->
 
     ok.
 
-limiter_group_exists(Group) ->
-    emqx_limiter_registry:find_group(Group) =/= undefined.
+-doc """
+Verifies https://github.com/emqx/emqx/issues/19025 is fixed.
 
-limiter_group_absent(Group) ->
-    emqx_limiter_registry:find_group(Group) =:= undefined.
+Older EMQX versions don't have the newer `subscribes` limiter nor `delivery`, so they
+export mnesia records for `emqx_mt_config` lacking those sub-keys.
+
+We should use the defaults for those lacking keys: disable the limiter.
+""".
+t_import_backup_lacking_limiter_config(_TCConfig) ->
+    ClientParams = client_limiter_params(),
+    TenantParams = tenant_limiter_params(),
+    SessionParams = session_params(),
+    MTConfig0 = emqx_utils_maps:deep_merge(ClientParams, TenantParams),
+    MTConfig = emqx_utils_maps:deep_merge(MTConfig0, SessionParams),
+    Ns = <<"ns1">>,
+    ?assertMatch({204, _}, create_managed_ns(Ns)),
+    %% sanity check: we have the expected limiter in this version
+    ?assertMatch(
+        {200, #{
+            ~"limiter" := #{
+                ~"client" := #{
+                    ~"delivery_bytes" := _,
+                    ~"delivery_messages" := _
+                }
+            }
+        }},
+        update_managed_ns_config(Ns, MTConfig)
+    ),
+    %% manually edit the row to simulate an older backup version
+    [#?CONFIG_TAB{configs = Cfgs0} = Rec0] = mnesia:dirty_read(?CONFIG_TAB, Ns),
+    #{limiter := #{client := #{delivery_messages := _}}} = Cfgs0,
+    Cfgs = emqx_utils_maps:deep_remove([limiter, client, delivery_messages], Cfgs0),
+    Rec = Rec0#?CONFIG_TAB{configs = Cfgs},
+    ok = mnesia:dirty_write(Rec),
+
+    {200, #{~"filename" := BackupName}} = export_backup(),
+
+    %% original problem: would crash with 400 because `subscribes` was a required key.
+    ?assertMatch({204, _}, import_backup(BackupName)),
+    ?assertMatch(
+        {200, #{
+            ~"limiter" := #{~"client" := #{} = ClientLimiter}
+        }} when not is_map_key(~"delivery_messages", ClientLimiter),
+        get_managed_ns_config(Ns)
+    ),
+
+    ok.
 
 %% Smoke tests for checking that we assign creation times for namespaces.
 t_creation_date(_Config) ->

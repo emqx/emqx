@@ -35,6 +35,7 @@
 -include("types.hrl").
 -include("emqx.hrl").
 -include("emqx_session.hrl").
+-include("emqx_channel.hrl").
 -include("emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -54,7 +55,8 @@
 -export([
     info/1,
     info/2,
-    stats/1
+    stats/1,
+    chan_info/1
 ]).
 
 -export([
@@ -74,6 +76,7 @@
 -export([
     deliver/4,
     handle_info/3,
+    refresh_quota/1,
     handle_signal/3,
     handle_timeout/4,
     disconnect/3,
@@ -94,6 +97,7 @@
 
 % Utilities
 -export([should_keep/1]).
+-export([get_session_conf/1]).
 
 %% Context stashing
 -export([
@@ -101,9 +105,6 @@
     pop_context/0,
     put_context/1
 ]).
-
-% Tests only
--export([get_session_conf/1]).
 
 -export_type([
     t/0,
@@ -145,6 +146,8 @@
 -type reply() :: publish() | pubrel().
 -type replies() :: [reply()] | reply().
 
+%% Configuration map used for durable session properties and legacy session encoding.
+%% In-memory sessions use the shared #session_conf{} from emqx_connection_conf.
 -type conf() :: #{
     %% Max subscriptions allowed
     max_subscriptions := non_neg_integer() | infinity,
@@ -155,9 +158,7 @@
     %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
     retry_interval := timeout(),
     %% Awaiting PUBREL Timeout (Unit: millisecond)
-    await_rel_timeout := timeout(),
-    %% Enable delivery quota (`false` to disable)
-    enable_quota => boolean()
+    await_rel_timeout := timeout()
 }.
 
 -type session() :: t().
@@ -183,10 +184,10 @@
 %% Behaviour
 %% -------------------------------------------------------------------
 
--callback create(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
+-callback create(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     t().
 
--callback open(clientinfo(), conninfo(), emqx_maybe:t(message()), conf()) ->
+-callback open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
 
 -callback destroy(t() | clientinfo()) -> ok.
@@ -203,7 +204,7 @@
         {ok | effects(), replies(), t()}.
 
 -callback handle_info(clientinfo(), term(), t()) ->
-    t().
+    {ok, t()} | {shutdown, _Reason, t()}.
 
 -callback handle_signal(clientinfo(), term(), t()) ->
     {ok | effects(), t()}
@@ -253,6 +254,7 @@
 -callback info(atom(), t()) -> term().
 
 -callback stats(t()) -> emqx_types:stats().
+-callback chan_info(t()) -> #{atom() => term()}.
 
 -callback disconnect(t(), conninfo()) ->
     {idle | shutdown, effects(), t()}.
@@ -265,44 +267,42 @@
 
 -spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) -> t().
 create(ClientInfo, ConnInfo, MaybeWillMsg) ->
-    Conf = get_session_conf(ClientInfo),
     % FIXME error conditions
     create(
-        hd(choose_impl_candidates(ClientInfo, ConnInfo)), ClientInfo, ConnInfo, MaybeWillMsg, Conf
+        hd(choose_impl_candidates(ClientInfo, ConnInfo)), ClientInfo, ConnInfo, MaybeWillMsg
     ).
 
-create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+create(Mod, ClientInfo, ConnInfo, MaybeWillMsg) ->
     % FIXME error conditions
-    Session = Mod:create(ClientInfo, ConnInfo, MaybeWillMsg, Conf),
+    Session = Mod:create(ClientInfo, ConnInfo, MaybeWillMsg),
     ok = run_hook_with_conninfo('session.created', ConnInfo, [ClientInfo, info(Session)]),
     Session.
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
 open(ClientInfo, ConnInfo, MaybeWillMsg) ->
-    Conf = get_session_conf(ClientInfo),
     Mods = [Default | _] = choose_impl_candidates(ClientInfo, ConnInfo),
     %% NOTE
     %% Try to look the existing session up in session stores corresponding to the given
     %% `Mods` in order, starting from the last one.
-    case try_open(Mods, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
+    case try_open(Mods, ClientInfo, ConnInfo, MaybeWillMsg) of
         {_IsPresent = true, Session, _} = Present ->
             ok = run_hook_with_conninfo('session.resumed', ConnInfo, [ClientInfo, info(Session)]),
             Present;
         false ->
             %% NOTE
             %% Nothing was found, create a new session with the `Default` implementation.
-            {false, create(Default, ClientInfo, ConnInfo, MaybeWillMsg, Conf)}
+            {false, create(Default, ClientInfo, ConnInfo, MaybeWillMsg)}
     end.
 
-try_open([Mod | Rest], ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
-    case try_open(Rest, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
+try_open([Mod | Rest], ClientInfo, ConnInfo, MaybeWillMsg) ->
+    case try_open(Rest, ClientInfo, ConnInfo, MaybeWillMsg) of
         {_IsPresent = true, _, _} = Present ->
             Present;
         false ->
-            Mod:open(ClientInfo, ConnInfo, MaybeWillMsg, Conf)
+            Mod:open(ClientInfo, ConnInfo, MaybeWillMsg)
     end;
-try_open([], _ClientInfo, _ConnInfo, _MaybeWillMsg, _Conf) ->
+try_open([], _ClientInfo, _ConnInfo, _MaybeWillMsg) ->
     false.
 
 -spec get_session_conf(clientinfo()) -> conf().
@@ -618,9 +618,16 @@ handle_timeout(ClientInfo, Timer, Flags, Session) ->
 %%--------------------------------------------------------------------
 
 -spec handle_info(clientinfo(), term(), t()) ->
-    t().
+    {ok, t()} | {shutdown, _Reason, t()}.
 handle_info(ClientInfo, Info, Session) ->
     ?IMPL(Session):handle_info(ClientInfo, Info, Session).
+
+-doc "Build the delivery limiter when a finite limit is now configured.".
+-spec refresh_quota(t()) -> t().
+refresh_quota(Session) when ?IS_SESSION_IMPL_MEM(Session) ->
+    emqx_session_mem:refresh_quota(Session);
+refresh_quota(Session) ->
+    Session.
 
 -spec handle_signal(clientinfo(), term(), t()) ->
     {ok | effects(), t()}
@@ -675,6 +682,15 @@ info(Key, Session) ->
 -spec stats(t()) -> emqx_types:stats().
 stats(Session) ->
     ?IMPL(Session):stats(Session).
+
+-doc """
+The session attributes that the channel caches in the channel info table:
+`impl`, `?CHAN_INFO_SESSION_KEYS` and the ones of the session implementation,
+such as `mqueue_max` of a memory session or `n_streams` of a durable session.
+""".
+-spec chan_info(t()) -> #{atom() => term()}.
+chan_info(Session) ->
+    ?IMPL(Session):chan_info(Session).
 
 %%--------------------------------------------------------------------
 %% Common message events
@@ -781,7 +797,7 @@ choose_impl_candidates(#{zone := Zone}, #{expiry_interval := EI}) ->
 run_hook_with_conninfo(Name, ConnInfo, Args) ->
     ok = emqx_metrics:inc_global(Name),
     Ctx = #{
-        conn_info_fn => fun(Prop) -> maps:get(Prop, ConnInfo) end
+        conninfo => ConnInfo
     },
     emqx_hooks:run(Name, Ctx, Args).
 

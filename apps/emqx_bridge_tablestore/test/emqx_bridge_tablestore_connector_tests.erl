@@ -3,8 +3,19 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_tablestore_connector_tests).
 
+%% N.B. again, very bad idea to test at this level, with mocked states and configs,
+%% instead of using the HTTP api......  makes refactoring/changing unncecessarily harder.
+%% if you are copying this module for inspiration, please don't.
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+
+-moduledoc """
+DO NOT COPY AND PASTE THIS MODULE WHEN IMPLEMENTING A NEW BRIDGE.
+
+This kind of test not only makes it harder to fix/refactor thing, but also relies on
+heavily mocked/unreal states, which tend to severely diminish the value of the tests.
+""".
 
 -define(CONF, #{
     instance_name => <<"instance">>,
@@ -202,6 +213,8 @@ start_connector_list_tables_fallback_failure_test_() ->
             ]
         end}.
 
+%% again, very bad idea to test at this level, with mocked states and configs, instead of
+%% using the HTTP api......  makes refactoring/changing unncecessarily harder.
 on_get_status_describe_probe_test_() ->
     {setup,
         fun() ->
@@ -228,7 +241,7 @@ on_get_status_describe_probe_test_() ->
                         {ok, #{table_name => "probe_table", status => "ACTIVE"}}
                     end),
                     ?assertEqual(
-                        connected,
+                        ?status_connected,
                         emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
                     )
                 end),
@@ -236,8 +249,8 @@ on_get_status_describe_probe_test_() ->
                     ok = meck:expect(ots_ts_client, describe_table, fun(_CRef, _SQL) ->
                         {error, #{code => "OTSAuthFailed"}}
                     end),
-                    ?assertEqual(
-                        connecting,
+                    ?assertMatch(
+                        {?status_connecting, _},
                         emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
                     )
                 end),
@@ -245,14 +258,16 @@ on_get_status_describe_probe_test_() ->
                     ok = meck:expect(ots_ts_client, describe_table, fun(_CRef, _SQL) ->
                         {error, #{reason => timeout}}
                     end),
-                    ?assertEqual(
-                        connecting,
+                    ?assertMatch(
+                        {?status_connecting, _},
                         emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
                     )
                 end)
             ]
         end}.
 
+%% again, very bad idea to test at this level, with mocked states and configs, instead of
+%% using the HTTP api......  makes refactoring/changing unncecessarily harder.
 on_get_status_list_tables_fallback_test_() ->
     {setup,
         fun() ->
@@ -279,7 +294,7 @@ on_get_status_list_tables_fallback_test_() ->
                         {ok, [#{table_name => "table_a", status => "ACTIVE"}]}
                     end),
                     ?assertEqual(
-                        connected,
+                        ?status_connected,
                         emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
                     )
                 end),
@@ -287,8 +302,8 @@ on_get_status_list_tables_fallback_test_() ->
                     ok = meck:expect(ots_ts_client, list_tables, fun(_CRef) ->
                         {error, #{reason => timeout}}
                     end),
-                    ?assertEqual(
-                        connecting,
+                    ?assertMatch(
+                        {?status_connecting, _},
                         emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
                     )
                 end)

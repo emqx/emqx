@@ -419,9 +419,9 @@ extract_path_from_data(Data) ->
 batch_write_request(AlternatePath, BasePath, Content, Encoding) ->
     {PathList, QueryList} = path_list(BasePath),
     Method =
-        case length(PathList) of
-            2 -> post;
-            3 -> put
+        case PathList of
+            [_, _] -> post;
+            [_, _, _] -> put
         end,
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
     Content1 = decode_write_content(Encoding, Content),
@@ -513,6 +513,7 @@ code(request_entity_incomplete) -> <<"4.08">>;
 code(precondition_failed) -> <<"4.12">>;
 code(request_entity_too_large) -> <<"4.13">>;
 code(unsupported_content_format) -> <<"4.15">>;
+code(too_many_requests) -> <<"4.29">>;
 code(internal_server_error) -> <<"5.00">>;
 code(not_implemented) -> <<"5.01">>;
 code(bad_gateway) -> <<"5.02">>;

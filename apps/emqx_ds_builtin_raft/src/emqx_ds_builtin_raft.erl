@@ -2,6 +2,9 @@
 %% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_builtin_raft).
+
+%% Exempt the pre-existing calls that elvis 5.0.4 reports in this module.
+-elvis([{elvis_style, simplify_anonymous_functions, disable}]).
 -moduledoc """
 This is the entrypoint into the `builtin_raft` backend.
 """.
@@ -25,7 +28,7 @@ This is the entrypoint into the `builtin_raft` backend.
     shard_of/2,
     list_shards/1,
 
-    add_generation/1,
+    add_generation/2,
     drop_slab/2,
     list_slabs/2,
 
@@ -265,7 +268,9 @@ default_db_opts() ->
             flush_interval => 1_000,
             idle_flush_interval => 1,
             max_items => 1000,
-            conflict_window => 5_000
+            conflict_window => 5_000,
+            olp_max_mql => infinity,
+            olp_max_ops => 10_000
         },
         subscriptions => #{
             n_workers_per_shard => 10,
@@ -313,12 +318,9 @@ open_db(DB, Create, Schema, RuntimeConf) ->
 close_db(DB) ->
     emqx_ds_builtin_raft_sup:stop_db(DB).
 
--spec add_generation(emqx_ds:db()) -> ok | {error, _}.
-add_generation(DB) ->
-    foreach_shard(
-        DB,
-        fun(Shard) -> ok = add_generation_to_shard(DB, Shard, ra_retries(DB)) end
-    ).
+-spec add_generation(emqx_ds:db(), emqx_ds:shard()) -> ok | emqx_ds:error(_).
+add_generation(DB, Shard) ->
+    add_generation_to_shard(DB, Shard, ra_retries(DB)).
 
 -spec update_db_config(emqx_ds:db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
     ok | {error, _}.
@@ -758,7 +760,7 @@ otx_become_leader(DB, Shard) ->
     emqx_ds:generation(),
     _SerialBin :: binary(),
     emqx_ds:tx_ops(),
-    _MiscOpts :: map()
+    emqx_ds_optimistic_tx:tx_prepare_opts()
 ) ->
     {ok, _CookedTx} | emqx_ds:error(_).
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
@@ -1011,7 +1013,8 @@ check_min_rfsm_version(Leader, MinVersion) ->
             Other
     end.
 
--spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
+-spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) ->
+    ok | emqx_ds:error(_).
 add_generation_to_shard(DB, Shard, Retries) ->
     Leader = lookup_global_otx_leader(DB, Shard),
     case emqx_ds_optimistic_tx:add_generation(Leader) of

@@ -35,4 +35,9 @@ idp_signs_assertions.desc:
 idp_signs_assertions.label:
 """Require Signed Assertions from IDP"""
 
+skip_login_cookie_check.desc:
+"""Enable at your own risk. When `true`, EMQX does not check the login cookie at the assertion consumer service, so a login is no longer bound to the browser that started it. Enable it only when browsers cannot keep that cookie and SSO login fails, for example when `dashboard_addr` uses plain HTTP. Defaults to `false`."""
+skip_login_cookie_check.label:
+"""Skip Login Cookie Check (Insecure)"""
+
 }

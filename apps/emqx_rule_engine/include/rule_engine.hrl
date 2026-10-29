@@ -6,6 +6,11 @@
 
 -define(KV_TAB, '@rule_engine_db').
 
+%% Process dictionary key holding the namespace of the rule currently being
+%% applied in this process.  Rule engine SQL helper functions which keep
+%% per-namespace state (e.g. kv_store_*) read it to scope their keys.
+-define(RULE_NAMESPACE_PD_KEY, '$rule_engine_namespace').
+
 -define(RES_SEP, <<":">>).
 -define(NS_SEG, <<"ns">>).
 

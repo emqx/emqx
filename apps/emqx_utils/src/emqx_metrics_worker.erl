@@ -16,6 +16,8 @@
 
 -module(emqx_metrics_worker).
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -behaviour(gen_server).
 
 -include_lib("stdlib/include/ms_transform.hrl").

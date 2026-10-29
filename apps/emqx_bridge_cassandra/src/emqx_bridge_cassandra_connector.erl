@@ -107,7 +107,8 @@ on_start(
         servers := Servers0,
         keyspace := Keyspace,
         pool_size := PoolSize,
-        ssl := SSL
+        ssl := SSL,
+        resource_opts := #{health_check_timeout := HCTimeout}
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -144,7 +145,12 @@ on_start(
         end,
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            {ok, #{pool_name => InstId, channels => #{}}};
+            State = #{
+                health_check_timeout => HCTimeout,
+                pool_name => InstId,
+                channels => #{}
+            },
+            {ok, State};
         {error, Reason} ->
             ?tp(
                 cassandra_connector_start_failed,
@@ -173,7 +179,13 @@ on_add_channel(_InstId, #{channels := Channs} = OldState, ChannId, ChannConf0) -
     NewChanns = Channs#{ChannId => #{parsed_cql => ParsedCql, prepare_result => not_prepared}},
     {ok, OldState#{channels => NewChanns}}.
 
-on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannId) ->
+on_remove_channel(InstanceId, #{channels := Channels} = State, ChannId) ->
+    lists:foreach(
+        fun({_, WorkerPid}) ->
+            ecpool_worker:remove_reconnect_callback_by_signature(WorkerPid, ChannId)
+        end,
+        ecpool:workers(InstanceId)
+    ),
     NewState = State#{channels => maps:remove(ChannId, Channels)},
     {ok, NewState}.
 
@@ -357,8 +369,13 @@ exec_cql_batch_query(InstId, PoolName, Async, CQLs) ->
 exec(PoolName, Query) ->
     ecpool:pick_and_do(PoolName, Query, no_handover).
 
-on_get_status(_InstId, #{pool_name := PoolName}) ->
+on_get_status(_InstId, ConnState) ->
+    #{
+        pool_name := PoolName,
+        health_check_timeout := HCTimeout
+    } = ConnState,
     Opts = #{
+        timeout => HCTimeout,
         check_fn => fun ?MODULE:do_get_status/1,
         is_success_fn => fun
             ({ok, _}) -> false;
@@ -470,8 +487,9 @@ prepare_cql_to_conn(Conn, #{prepare_key := PrepareKey, prepare_cql := PrepareCQL
             Error
     end.
 
-handle_result({error, disconnected}) ->
-    {error, {recoverable_error, disconnected}};
+handle_result({error, {disconnected, Reason}}) ->
+    %% from ecpool_worker:client/1
+    {error, {recoverable_error, Reason}};
 handle_result({error, ecpool_empty}) ->
     {error, {recoverable_error, ecpool_empty}};
 handle_result({error, Error}) ->

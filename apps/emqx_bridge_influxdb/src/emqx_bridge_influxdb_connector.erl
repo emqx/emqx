@@ -99,11 +99,8 @@ on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
     NewState = State#{channels => maps:remove(ChannelId, Channels)},
     {ok, NewState}.
 
-on_get_channel_status(InstanceId, _ChannelId, State) ->
-    case on_get_status(InstanceId, State) of
-        connected -> connected;
-        _ -> connecting
-    end.
+on_get_channel_status(_InstanceId, _ChannelId, _State) ->
+    ?status_connected.
 
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).
@@ -218,11 +215,19 @@ on_format_query_result(Result) ->
     emqx_bridge_http_connector:on_format_query_result(Result).
 
 on_get_status(_InstId, #{client := Client}) ->
-    case influxdb:is_alive(Client) andalso ok =:= influxdb:check_auth(Client) of
+    ReturnReason = true,
+    case influxdb:is_alive(Client, ReturnReason) of
         true ->
-            ?status_connected;
+            case influxdb:check_auth(Client) of
+                ok ->
+                    ?status_connected;
+                {error, Reason} ->
+                    {?status_disconnected, Reason}
+            end;
         false ->
-            ?status_disconnected
+            {?status_disconnected, ~"health check call failed"};
+        {false, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 %% -------------------------------------------------------------------------------------------------

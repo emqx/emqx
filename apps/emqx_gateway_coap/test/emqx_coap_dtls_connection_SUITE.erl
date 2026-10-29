@@ -75,6 +75,121 @@ end_per_testcase(_CaseName, Config) ->
 %% Test Cases
 %%--------------------------------------------------------------------
 
+-doc "Use new Block2 Tokens within one DTLS session and reject a different authorization context.".
+t_observe_block2_new_tokens(_Config) ->
+    emqx_coap_SUITE:with_blockwise_max_size(16, fun() ->
+        {ok, Sock, Channel} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [
+            {verify, verify_none}
+        ]),
+        try
+            ConnectionURI = emqx_coap_SUITE:compose_uri(
+                ?MQTT_PREFIX ++ "/connection",
+                #{"clientid" => <<"block2-dtls">>},
+                false
+            ),
+            {ok, created, Data} = emqx_coap_SUITE:do_request(
+                Channel, ConnectionURI, emqx_coap_SUITE:make_req(post)
+            ),
+            #coap_content{payload = ConnectionToken} = Data,
+            URI = emqx_coap_SUITE:compose_uri(
+                "coaps://127.0.0.1/ps/coap/block2_dtls",
+                #{"clientid" => <<"block2-dtls">>, "token" => ConnectionToken},
+                false
+            ),
+            ObserveToken = emqx_coap_SUITE:observe_block2_uri(Channel, URI),
+            Payload = emqx_coap_SUITE:blockwise_payload(<<"A">>, <<"B">>, <<"C">>),
+            _ = emqx_coap_SUITE:publish(<<"coap/block2_dtls">>, 1, Payload),
+            Notify = emqx_coap_SUITE:assert_block2_notify(
+                Channel, con, binary:copy(<<"A">>, 16), {0, true, 16}
+            ),
+            ?assertEqual(ObserveToken, Notify#coap_message.token),
+            emqx_coap_SUITE:ack_if_con(Channel, Notify),
+            reject_other_dtls_block2_session(ObserveToken),
+            _ = emqx_coap_SUITE:assert_block2_followup(
+                Channel, URI, <<"dtls-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+            ),
+            _ = emqx_coap_SUITE:assert_block2_followup(
+                Channel, URI, <<"dtls-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+            )
+        after
+            er_coap_channel:close(Channel),
+            er_coap_dtls_socket:close(Sock)
+        end
+    end).
+
+reject_other_dtls_block2_session(ObserveToken) ->
+    {ok, Sock, Channel} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+    try
+        URI = emqx_coap_SUITE:compose_uri(
+            "coaps://127.0.0.1/ps/coap/block2_dtls",
+            #{"clientid" => <<"other-client">>, "token" => <<"wrong-token">>},
+            false
+        ),
+        Req = (emqx_coap_SUITE:make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+            token = ObserveToken
+        },
+        ?assertMatch(
+            {error, unauthorized, _}, emqx_coap_SUITE:do_message_request(Channel, URI, Req)
+        )
+    after
+        er_coap_channel:close(Channel),
+        er_coap_dtls_socket:close(Sock)
+    end.
+
+-doc "Isolate identical resource requests between two valid connectionless DTLS sessions.".
+t_observe_block2_session_isolation(_) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf#{
+        <<"connection_required">> => false, <<"notify_type">> => <<"non">>
+    }),
+    try
+        emqx_coap_SUITE:with_blockwise_max_size(16, fun() ->
+            with_dtls_channel(fun(Channel) ->
+                Topic = <<"coap/block2_dtls_isolation">>,
+                URI = "coaps://127.0.0.1/ps/coap/block2_dtls_isolation",
+                ObserveToken = emqx_coap_SUITE:observe_block2_uri(Channel, URI),
+                Payload = emqx_coap_SUITE:blockwise_payload(<<"A">>, <<"B">>, <<"C">>),
+                _ = emqx_coap_SUITE:publish(Topic, 0, Payload),
+                _ = emqx_coap_SUITE:assert_block2_notify(
+                    Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}
+                ),
+                with_dtls_channel(fun(Other) ->
+                    OtherToken = emqx_coap_SUITE:observe_block2_uri(Other, URI),
+                    Req = (emqx_coap_SUITE:make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                        token = ObserveToken
+                    },
+                    ?assertMatch(
+                        {error, bad_request, _}, emqx_coap_SUITE:do_message_request(Other, URI, Req)
+                    ),
+                    _ = emqx_coap_SUITE:assert_block2_followup(
+                        Channel, URI, <<"isolate1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                    ),
+                    _ = emqx_coap_SUITE:assert_block2_followup(
+                        Channel, URI, <<"isolate2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+                    ),
+                    _ = emqx_coap_SUITE:publish(Topic, 0, <<"both valid">>),
+                    One = emqx_coap_SUITE:assert_notify(Channel, non, <<"both valid">>),
+                    Two = emqx_coap_SUITE:assert_notify(Other, non, <<"both valid">>),
+                    ?assertEqual(ObserveToken, One#coap_message.token),
+                    ?assertEqual(OtherToken, Two#coap_message.token)
+                end)
+            end)
+        end)
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
+with_dtls_channel(Fun) ->
+    {ok, Sock, Channel} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [{verify, verify_none}]),
+    try
+        Fun(Channel)
+    after
+        er_coap_channel:close(Channel),
+        er_coap_dtls_socket:close(Sock)
+    end.
+
 t_connection(_Config) ->
     emqx_gateway_test_utils:meck_emqx_hook_calls(),
 

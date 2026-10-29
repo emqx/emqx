@@ -145,8 +145,8 @@ publish_to_queue(MQHandle, #message{} = Message) ->
 set_mq_supported(Ctx, _SessionInfo) ->
     ProtoVer =
         case Ctx of
-            #{conn_info_fn := ConnInfoFn} ->
-                ConnInfoFn(proto_ver);
+            #{conninfo := ConnInfo} ->
+                maps:get(proto_ver, ConnInfo, undefined);
             _ ->
                 undefined
         end,

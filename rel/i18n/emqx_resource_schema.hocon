@@ -82,7 +82,10 @@ query_mode.label:
 """Query mode"""
 
 request_ttl.desc:
-"""Starting from the moment when the request enters the buffer, if the request remains in the buffer for the specified time or is sent but does not receive a response or acknowledgement in time, the request is considered expired."""
+  """~
+  Starting from the moment when the request enters the buffer, if the request remains in the buffer for the specified time or is sent but does not receive a response or acknowledgement in time, the request is considered expired.
+
+  Note that this parameter is shorter than `health_check_timeout` plus the time for the connection to be reestablished, then messages queued as the connector becomes disconnected will be dropped as expired, since the messages are not attempted to be sent when disconnected.  It's recommended to set this parameter so that it is larger than the health check timeout plus a margin for connection establishment.~"""
 
 request_ttl.label:
 """Request TTL"""

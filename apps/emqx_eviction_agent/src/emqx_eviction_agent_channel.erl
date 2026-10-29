@@ -84,6 +84,8 @@ stop(Pid) ->
 
 init([#{conninfo := OldConnInfo, clientinfo := #{clientid := ClientId} = OldClientInfo} = Opts]) ->
     process_flag(trap_exit, true),
+    %% No socket: readers leave out the socket stats.
+    _ = emqx_chan_stats:new([recv_oct, send_oct, send_pend]),
     ClientInfo = clientinfo(OldClientInfo),
     ConnInfo = conninfo(OldConnInfo),
     MaybeWillMsg = maps:get(will_message, Opts, undefined),
@@ -162,7 +164,7 @@ handle_info(Deliver = {deliver, _Topic, _Msg}, Channel) ->
     Delivers = [Deliver | emqx_utils:drain_deliver()],
     {noreply, handle_deliver(Delivers, Channel)};
 handle_info(expire_session, Channel) ->
-    {stop, expired, Channel};
+    {stop, {shutdown, expired}, Channel};
 handle_info(Info, Channel) ->
     ?SLOG(
         error,
@@ -177,6 +179,8 @@ handle_cast(Msg, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, Channel}.
 
+terminate({shutdown, Reason}, Channel) ->
+    terminate(Reason, Channel);
 terminate(Reason, #{clientinfo := ClientInfo, session := Session} = Channel) ->
     ok = cancel_expiry_timer(Channel),
     emqx_session:terminate(ClientInfo, Reason, Session).
@@ -267,7 +271,8 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             NSession = emqx_session_mem:replay_enqueue(ClientInfo, DeliversLocal, RCtx, Session),
             NChannel = Channel#{session => NSession},
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-            ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), stats(NChannel)),
+            ok = emqx_chan_stats:report(ClientId, emqx_session:stats(NSession)),
+            ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), emqx_chan_stats:ref()),
             ?SLOG(
                 info,
                 #{
@@ -347,16 +352,10 @@ info(Channel) ->
         conninfo => maps:get(conninfo, Channel, undefined),
         clientinfo => maps:get(clientinfo, Channel, undefined),
         session => emqx_utils:maybe_apply(
-            fun(Session) ->
-                maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session))
-            end,
-            maps:get(session, Channel, undefined)
+            fun emqx_session:chan_info/1, maps:get(session, Channel, undefined)
         ),
         conn_state => disconnected
     }.
-
-stats(#{session := Session}) ->
-    lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
 
 bin_clientid(ClientId) when is_binary(ClientId) ->
     ClientId;

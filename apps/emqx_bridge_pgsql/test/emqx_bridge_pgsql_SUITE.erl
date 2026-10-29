@@ -284,6 +284,16 @@ connect_and_count_rows(TCConfig) ->
     ok = epgsql:close(Conn),
     Result.
 
+get_active_transactions(TCConfig) ->
+    SQL = <<"SELECT state, query FROM pg_stat_activity where application_name = 'emqx'">>,
+    Conn = connect_direct_pgsql(TCConfig),
+    try
+        {ok, _, Results} = epgsql:squery(Conn, SQL),
+        maps:groups_from_list(fun({State, _}) -> State end, fun({_, Query}) -> Query end, Results)
+    after
+        ok = epgsql:close(Conn)
+    end.
+
 full_matrix() ->
     [
         [Conn, Sync, Batch]
@@ -503,12 +513,14 @@ t_write_timeout(matrix) ->
 t_write_timeout(TCConfig) when is_list(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{
         <<"resource_opts">> => #{
+            <<"health_check_timeout">> => <<"1s">>,
             <<"health_check_interval">> => <<"100ms">>
         }
     }),
     {201, _} = create_action_api(TCConfig, #{
         <<"resource_opts">> => #{
             <<"resume_interval">> => <<"100ms">>,
+            <<"health_check_timeout">> => <<"5s">>,
             <<"health_check_interval">> => <<"100ms">>,
             <<"request_ttl">> => <<"500ms">>
         }
@@ -532,7 +544,8 @@ t_write_timeout(TCConfig) when is_list(TCConfig) ->
             case Error of
                 {resource_error, _} ->
                     ok;
-                {recoverable_error, disconnected} ->
+                {recoverable_error, {disconnected, _}} ->
+                    %% from ecpool_worker:client/1
                     ok;
                 _ ->
                     ct:fail("unexpected error: ~p", [Error])
@@ -962,7 +975,12 @@ t_bad_float_param(TCConfig) ->
 t_reconnect_on_connector_health_check_timeout(TCConfig) ->
     {201, _} = create_connector_api(
         TCConfig,
-        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"750ms">>}}
+        #{
+            <<"resource_opts">> => #{
+                <<"health_check_timeout">> => <<"1s">>,
+                <<"health_check_interval">> => <<"750ms">>
+            }
+        }
     ),
     ?assertMatch(
         {200, #{<<"status">> := <<"connected">>}},
@@ -976,8 +994,12 @@ t_reconnect_on_connector_health_check_timeout(TCConfig) ->
             ?assertMatch(
                 {200, #{
                     <<"status">> := <<"disconnected">>,
-                    <<"status_reason">> := <<"health_check_timeout">>
-                }},
+                    <<"status_reason">> := Reason
+                }} when
+                    %% race: one reason is if the resource_pool pmap call returns first,
+                    %% the other if the resource manager kills the health check first.
+                    Reason == <<"health_check_timeout">> orelse
+                        Reason == <<"resource_health_check_timed_out">>,
                 get_connector_api(TCConfig)
             )
         )
@@ -1001,55 +1023,36 @@ t_reconnect_on_connector_health_check_timeout(TCConfig) ->
     ),
     ok.
 
-%% Similar to `t_reconnect_on_connector_health_check_timeout`, but the timeout occurs in
-%% the `check_prepares` call.
-t_reconnect_on_connector_health_check_timeout_check_prepares(TCConfig) ->
-    {201, _} = create_connector_api(
-        TCConfig,
-        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"750ms">>}}
-    ),
-    ?assertMatch(
-        {200, #{<<"status">> := <<"connected">>}},
-        get_connector_api(TCConfig)
-    ),
-    TestPid = self(),
-    emqx_common_test_helpers:with_mock(
-        emqx_postgresql,
-        on_get_status_prepares,
-        fun(_ConnState) ->
-            TestPid ! get_prepares_called,
-            timer:sleep(infinity)
-        end,
-        fun() ->
-            ?retry(
-                750,
-                5,
-                ?assertMatch(
-                    {200, #{
-                        <<"status">> := <<"disconnected">>,
-                        <<"status_reason">> := <<"resource_health_check_timed_out">>
-                    }},
-                    get_connector_api(TCConfig)
-                )
-            )
-        end
-    ),
-    ?assertReceive(get_prepares_called),
-    %% Recovery
-    ?retry(
-        750,
-        10,
-        ?assertMatch(
-            {200, #{
-                <<"status">> := <<"connected">>
-            }},
-            get_connector_api(TCConfig)
-        )
-    ),
-    ok.
-
 %% Checks that we report the connector as `?status_disconnected` when `ecpool` supervision
 %% tree is unhealthy for any reason.
 t_ecpool_workers_crash(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
     ok.
+
+-doc """
+Checks that we don't leave an open transaction when validating table existence during
+health check.
+
+Prior to the fix, an active transaction would remain active due to parsing the SQL
+template, which would take an unnecessary lock on the targe table.
+""".
+t_no_active_hc_transactions(TCConfig) ->
+    {201, #{~"status" := ~"connected"}} = create_connector_api(
+        TCConfig,
+        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"5s">>}}
+    ),
+    {201, #{~"status" := ~"connected"}} = create_action_api(
+        TCConfig,
+        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"5s">>}}
+    ),
+    ?assertNotMatch(
+        #{active := [_ | _]},
+        get_active_transactions(TCConfig)
+    ),
+    ok.
+
+t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
+    emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
+        callback_mod => emqx_postgresql,
+        reconnect_callback_fns => [prepare_sql_to_conn]
+    }).

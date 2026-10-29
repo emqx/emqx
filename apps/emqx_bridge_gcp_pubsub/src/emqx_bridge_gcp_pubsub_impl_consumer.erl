@@ -210,8 +210,8 @@ on_get_channel_status(
             {?status_disconnected, {unhealthy_target, ?PERMISSION_MESSAGE}};
         ok ->
             #{client := Client} = ConnectorState,
-            #{SourceResId := #{pool_name := PoolName}} = InstalledSources,
-            check_workers(PoolName, Client)
+            #{SourceResId := #{pool_name := PoolName} = SourceState} = InstalledSources,
+            check_workers(PoolName, Client, SourceState)
     end;
 on_get_channel_status(_ConnectorResId, _SourceResId, _ConnectorState) ->
     ?status_disconnected.
@@ -275,7 +275,7 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
         bridge_name := BridgeName,
         parameters := #{topic := _PubsubTopic} = ConsumerConfig0,
         hookpoints := Hookpoints,
-        resource_opts := #{request_ttl := RequestTTL}
+        resource_opts := #{request_ttl := RequestTTL, health_check_timeout := HCTimeout}
     } = SourceConfig,
     #{namespace := Namespace} = emqx_resource:parse_channel_id(SourceResId),
     ConsumerWorkersPerTopic = maps:get(consumer_workers_per_topic, ConsumerConfig0),
@@ -310,7 +310,8 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
         ok ->
             State = #{
                 pool_name => SourceResId,
-                pool_size => PoolSize
+                pool_size => PoolSize,
+                health_check_timeout => HCTimeout
             },
             {ok, State};
         {error, Reason} ->
@@ -343,12 +344,14 @@ get_client_status(Client) ->
         ?status_connected -> ?status_connected
     end.
 
--spec check_workers(source_resource_id(), emqx_bridge_gcp_pubsub_client:state()) ->
+-spec check_workers(source_resource_id(), emqx_bridge_gcp_pubsub_client:state(), _) ->
     ?status_connected | ?status_connecting.
-check_workers(SourceResId, Client) ->
+check_workers(SourceResId, Client, SourceState) ->
+    #{health_check_timeout := HCTimeout} = SourceState,
     Opts = #{
+        timeout => HCTimeout,
         check_fn => fun(#{id := WorkerId}) ->
-            emqx_bridge_gcp_pubsub_consumer_worker:health_check(SourceResId, WorkerId)
+            emqx_bridge_gcp_pubsub_consumer_worker:health_check(SourceResId, WorkerId, HCTimeout)
         end,
         run_on => independent,
         is_success_fn => fun

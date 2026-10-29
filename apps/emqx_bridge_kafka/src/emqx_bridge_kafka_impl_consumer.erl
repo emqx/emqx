@@ -195,13 +195,13 @@ on_stop(ConnectorResId, _State) ->
     end.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
-    ?status_connected | ?status_disconnected.
+    ?status_connected | {?status_disconnected, term()}.
 on_get_status(_ConnectorResId, #{kafka_client_id := ClientID}) ->
     case whereis(ClientID) of
         Pid when is_pid(Pid) ->
             check_client_connectivity(Pid);
         _ ->
-            ?status_disconnected
+            {?status_disconnected, ~"kafka client restarting"}
     end;
 on_get_status(_ConnectorResId, _State) ->
     ?status_disconnected.
@@ -614,7 +614,6 @@ consumer_group_id(_ConsumerParams, BridgeName0) ->
 
 -spec check_client_connectivity(pid()) ->
     ?status_connected
-    | ?status_disconnected
     | {?status_disconnected, term()}.
 check_client_connectivity(ClientPid) ->
     %% We use a fake group id just to probe the connection, as `get_group_coordinator'
@@ -622,7 +621,7 @@ check_client_connectivity(ClientPid) ->
     FakeGroupId = <<"____emqx_consumer_probe">>,
     case brod_client:get_group_coordinator(ClientPid, FakeGroupId) of
         {error, client_down} ->
-            ?status_disconnected;
+            {?status_disconnected, client_down};
         {error, {client_down, Reason}} ->
             %% `brod' should have already logged the client being down.
             {?status_disconnected, maybe_clean_error(Reason)};

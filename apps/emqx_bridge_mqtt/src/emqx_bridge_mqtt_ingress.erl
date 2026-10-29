@@ -14,7 +14,6 @@
 %% management APIs
 -export([
     status/1,
-    info/1,
     subscribe_channel/2,
     unsubscribe_channel/5,
     config/4
@@ -51,7 +50,7 @@ subscribe_channel(WorkerPid, Name, IngressConfig, WorkerIdx, PoolSize) ->
     case ecpool_worker:client(WorkerPid) of
         {ok, Client} ->
             subscribe_channel_helper(Client, Name, IngressConfig, WorkerIdx, PoolSize);
-        {error, Reason} ->
+        {error, {disconnected, Reason}} ->
             error({client_not_found, Reason})
     end.
 
@@ -238,7 +237,7 @@ unsubscribe_channel(
                 SubscriptionIdToHandlerIndex,
                 TopicToHandlerIndex
             );
-        {error, Reason} ->
+        {error, {disconnected, Reason}} ->
             error({client_not_found, Reason})
     end.
 
@@ -443,23 +442,38 @@ downgrade_ingress_qos(QoS) ->
 
 %%
 
--spec info(pid()) ->
-    [{atom(), term()}].
-info(Pid) ->
-    emqtt:info(Pid).
-
+%% @doc Probes whether the client can still reach the remote broker.
+%%
+%% The local client state cannot tell a working connection from a black-holed
+%% one, where the socket stays open but nothing gets through; only a round trip to
+%% the remote broker can.  `emqtt:ping/1' has no timeout argument and is a
+%% `gen_statem:call/2' that waits forever, so the caller
+%% (`emqx_bridge_mqtt_connector:on_get_status/2') bounds the wait through
+%% `emqx_utils:pmap/3'.
 -spec status(pid()) ->
     emqx_resource:resource_status().
 status(Pid) ->
-    try
-        case proplists:get_value(socket, info(Pid)) of
-            Socket when Socket /= undefined ->
-                ?status_connected;
-            undefined ->
-                ?status_connecting
-        end
+    try emqtt:status(Pid) of
+        connected ->
+            ping_status(Pid);
+        _State ->
+            %% A client that is not connected cannot be probed; its pool worker is
+            %% reconnecting it.
+            {?status_connecting, connection_not_established}
     catch
-        exit:{noproc, _} ->
+        exit:_Reason ->
+            {?status_disconnected, client_down}
+    end.
+
+%% Any reply other than a PINGRESP means the connection cannot deliver: either the
+%% remote did not answer or the PINGREQ could not be sent at all, so the resource
+%% is recreated instead of being probed again on a connection that cannot recover.
+-dialyzer({nowarn_function, [ping_status/1]}).
+ping_status(Pid) ->
+    case emqtt:ping(Pid) of
+        pong ->
+            ?status_connected;
+        {error, _Reason} ->
             ?status_disconnected
     end.
 

@@ -46,12 +46,14 @@ select_union_member(_Value) ->
 fields(scram_restapi_get) ->
     [
         {method, #{type => get, required => true, desc => ?DESC(emqx_authn_http_schema, method)}},
-        {headers, fun emqx_authn_http_schema:headers_no_content_type/1}
+        {headers, fun emqx_authn_http_schema:headers_no_content_type/1},
+        emqx_connector_oauth2_schema:oauth2_field()
     ] ++ common_fields();
 fields(scram_restapi_post) ->
     [
         {method, #{type => post, required => true, desc => ?DESC(emqx_authn_http_schema, method)}},
-        {headers, fun emqx_authn_http_schema:headers/1}
+        {headers, fun emqx_authn_http_schema:headers/1},
+        emqx_connector_oauth2_schema:oauth2_field()
     ] ++ common_fields().
 
 desc(scram_restapi_get) ->

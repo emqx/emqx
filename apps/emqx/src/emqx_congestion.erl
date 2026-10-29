@@ -9,7 +9,7 @@
     cancel_alarms/2
 ]).
 
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_congestion]}}]).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
 -define(ALARM_CONN_INFO_KEYS, [
     socktype,
@@ -23,7 +23,9 @@
     conn_state
 ]).
 -define(ALARM_SOCK_STATS_KEYS, [send_pend, recv_cnt, recv_oct, send_cnt, send_oct]).
--define(ALARM_SOCK_OPTS_KEYS, [high_watermark, high_msgq_watermark, sndbuf, recbuf, buffer]).
+-define(ALARM_SOCK_OPTS_KEYS, [
+    high_watermark, low_watermark, high_msgq_watermark, sndbuf, recbuf, buffer
+]).
 -define(PROC_INFO_KEYS, [message_queue_len, memory, reductions]).
 -define(ALARM_SENT(REASON), {alarm_sent, REASON}).
 -define(ALL_ALARM_REASONS, [conn_congestion]).

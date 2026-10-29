@@ -7,7 +7,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--elvis([{elvis_text_style, line_length, #{skip_comments => whole_line}}]).
+-elvis([{elvis_text_style, max_line_length, #{skip_comments => whole_line}}]).
 
 %% -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -377,6 +377,11 @@ post_publish_fn(Scope, Collection, Config) ->
         Context
     end.
 
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -484,3 +489,15 @@ t_rule_test_trace(Config) ->
         cleanup_fn => CleanupFn
     },
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
+-doc """
+Smoke test for verifying we may use infinity health check timeouts.
+""".
+t_connector_infinity_health_check_timeout(TCConfig) ->
+    ?assertMatch(
+        {201, #{~"status" := ~"connected"}},
+        create_connector_api(TCConfig, #{
+            ~"resource_opts" => #{~"health_check_timeout" => ~"infinity"}
+        })
+    ),
+    ok.

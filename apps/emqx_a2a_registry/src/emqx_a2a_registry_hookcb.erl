@@ -33,8 +33,8 @@
 %%------------------------------------------------------------------------------
 
 register_hooks() ->
-    ok = emqx_hooks:add('message.publish', ?MESSAGE_PUBLISH_HOOK, ?HP_RETAINER + 1),
-    ok = emqx_hooks:add('message.delivered', ?MESSAGE_DELIVERED_HOOK, ?HP_RETAINER - 1),
+    ok = emqx_hooks:put('message.publish', ?MESSAGE_PUBLISH_HOOK, ?HP_RETAINER + 1),
+    ok = emqx_hooks:put('message.delivered', ?MESSAGE_DELIVERED_HOOK, ?HP_RETAINER - 1),
     ok.
 
 unregister_hooks() ->

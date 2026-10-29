@@ -117,13 +117,27 @@ fields(lwm2m_blockwise) ->
             )},
         {max_body_size,
             sc(
-                emqx_schema:bytesize(),
+                emqx_gateway_schema:bytesize(),
                 #{default => <<"4MB">>, desc => ?DESC(lwm2m_blockwise_max_body_size)}
+            )},
+        {max_concurrent_exchanges,
+            sc(
+                pos_integer(),
+                #{default => 16, desc => ?DESC(lwm2m_blockwise_max_concurrent_exchanges)}
+            )},
+        {max_total_size,
+            sc(
+                emqx_gateway_schema:bytesize(),
+                #{default => <<"16MB">>, desc => ?DESC(lwm2m_blockwise_max_total_size)}
             )},
         {exchange_lifetime,
             sc(
                 emqx_schema:timeout_duration_ms(),
-                #{default => <<"247s">>, desc => ?DESC(lwm2m_blockwise_exchange_lifetime)}
+                #{
+                    default => <<"247s">>,
+                    validator => fun(T) -> T > 0 end,
+                    desc => ?DESC(lwm2m_blockwise_exchange_lifetime)
+                }
             )}
     ];
 fields(lwm2m_translators) ->

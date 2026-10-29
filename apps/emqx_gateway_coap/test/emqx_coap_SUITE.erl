@@ -99,6 +99,9 @@ end_per_testcase(t_connection_with_expire, Config) ->
     snabbkaffe:stop(),
     Config;
 end_per_testcase(_, Config) ->
+    %% Cases that stub `emqx_access_control:authenticate/1' must not leave
+    %% the stub behind: the cases that follow authenticate for real.
+    catch meck:unload(emqx_access_control),
     Config.
 
 default_config() ->
@@ -158,13 +161,28 @@ with_notify_type(NotifyType, Fun) ->
     end.
 
 with_blockwise_max_size(MaxBlockSize, Fun) ->
+    with_blockwise_opts(#{<<"max_block_size">> => MaxBlockSize}, Fun).
+
+with_blockwise_opts(Opts, Fun) ->
     OldConf = emqx:get_raw_config([gateway, coap]),
     OldBlockwise = maps:get(<<"blockwise">>, OldConf, #{}),
     {ok, _} = emqx_gateway_conf:update_gateway(
         coap,
         OldConf#{
-            <<"blockwise">> => OldBlockwise#{<<"max_block_size">> => MaxBlockSize}
+            <<"blockwise">> => maps:merge(OldBlockwise, Opts)
         }
+    ),
+    try
+        Fun()
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
+with_connection_required(Required, Fun) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{<<"connection_required">> => atom_to_binary(Required)}
     ),
     try
         Fun()
@@ -175,6 +193,135 @@ with_blockwise_max_size(MaxBlockSize, Fun) ->
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
+
+t_blockwise_session_limits_unauthenticated_uplink(_) ->
+    with_connection_required(false, fun() ->
+        with_blockwise_opts(
+            #{
+                <<"max_block_size">> => 16,
+                <<"max_concurrent_exchanges">> => 2,
+                <<"max_total_size">> => <<"1KB">>
+            },
+            fun() ->
+                {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+                try
+                    Req1 = block1_start_request(<<"one">>, <<"1">>),
+                    Req2 = block1_start_request(<<"two">>, <<"2">>),
+                    Req3 = block1_start_request(<<"three">>, <<"3">>),
+                    ?assertEqual({ok, continue}, raw_block1_reply(Sock, Req1, 1001)),
+                    ?assertEqual({ok, continue}, raw_block1_reply(Sock, Req2, 1002)),
+                    ?assertEqual({error, too_many_requests}, raw_block1_reply(Sock, Req3, 1003))
+                after
+                    gen_udp:close(Sock)
+                end
+            end
+        )
+    end).
+
+t_blockwise_final_block_respects_session_total_size(_) ->
+    assert_blockwise_final_block_limit(<<"max_total_size">>).
+
+t_blockwise_final_block_respects_body_size(_) ->
+    assert_blockwise_final_block_limit(<<"max_body_size">>).
+
+assert_blockwise_final_block_limit(Limit) ->
+    with_connection_required(false, fun() ->
+        with_blockwise_opts(
+            #{<<"max_block_size">> => 16, Limit => <<"64B">>},
+            fun() ->
+                {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+                try
+                    Token = <<"final">>,
+                    Full = block1_start_request(binary:copy(<<"A">>, 16), Token),
+                    lists:foreach(
+                        fun(Num) ->
+                            ?assertEqual(
+                                {ok, continue},
+                                raw_block1_reply(Sock, Full, 1100 + Num, {Num, true, 16})
+                            )
+                        end,
+                        lists:seq(0, 3)
+                    ),
+                    Last = block1_start_request(<<"B">>, Token),
+                    ?assertEqual(
+                        {error, request_entity_too_large},
+                        raw_block1_reply(Sock, Last, 1104, {4, false, 16})
+                    ),
+                    Fresh = block1_start_request(binary:copy(<<"C">>, 16), <<"fresh">>),
+                    ?assertEqual({ok, continue}, raw_block1_reply(Sock, Fresh, 1105))
+                after
+                    gen_udp:close(Sock)
+                end
+            end
+        )
+    end).
+
+t_blockwise_upload_reassembly(_) ->
+    with_blockwise_opts(
+        #{
+            <<"max_block_size">> => 16,
+            <<"max_concurrent_exchanges">> => 1,
+            <<"max_total_size">> => <<"40B">>,
+            <<"max_body_size">> => <<"40B">>
+        },
+        fun() ->
+            with_connection(fun(Channel, Token) ->
+                Topic = <<"coap/blockwise_upload_reassembly">>,
+                URI = pubsub_uri(binary_to_list(Topic), Token),
+                emqx:subscribe(Topic),
+                try
+                    %% Repeat with the same token to verify completed uploads release their capacity.
+                    lists:foreach(
+                        fun({First, Second, Last}) ->
+                            Upload = block1_start_request(First, <<"upload">>),
+                            ?assertMatch(
+                                {ok, continue, _}, do_message_request(Channel, URI, Upload)
+                            ),
+                            Middle = Upload#coap_message{
+                                payload = Second, options = [{block1, {1, true, 16}}]
+                            },
+                            ?assertMatch(
+                                {ok, continue, _}, do_message_request(Channel, URI, Middle)
+                            ),
+                            ?assertEqual({error, timeout}, receive_deliver(100)),
+                            Final = Upload#coap_message{
+                                payload = Last, options = [{block1, {2, false, 16}}]
+                            },
+                            ?assertMatch(
+                                {ok, changed, _}, do_message_request(Channel, URI, Final)
+                            ),
+                            ExpectedPayload = <<First/binary, Second/binary, Last/binary>>,
+                            ?assertMatch(
+                                #message{topic = Topic, payload = ExpectedPayload},
+                                receive_deliver(1000)
+                            )
+                        end,
+                        [
+                            {binary:copy(<<"A">>, 16), binary:copy(<<"B">>, 16), <<"12345678">>},
+                            {binary:copy(<<"C">>, 16), binary:copy(<<"D">>, 16), <<"87654321">>}
+                        ]
+                    )
+                after
+                    emqx:unsubscribe(Topic)
+                end,
+                true
+            end)
+        end
+    ).
+
+raw_block1_reply(Sock, Req0, Id) ->
+    raw_block1_reply(Sock, Req0, Id, {0, true, 16}).
+
+raw_block1_reply(Sock, Req0, Id, Block1) ->
+    Req = Req0#coap_message{
+        id = Id,
+        options = #{uri_path => [<<"resource-limit">>], block1 => Block1}
+    },
+    Packet = emqx_coap_frame:serialize_pkt(Req, emqx_coap_frame:serialize_opts()),
+    ok = gen_udp:send(Sock, {127, 0, 0, 1}, 5683, Packet),
+    {ok, {_Addr, _Port, ReplyPacket}} = gen_udp:recv(Sock, 0, 2000),
+    {ok, Reply, <<>>, _} = emqx_coap_frame:parse(ReplyPacket, #{}),
+    Reply#coap_message.method.
 
 t_connection(_) ->
     Action = fun(Channel) ->
@@ -251,6 +398,58 @@ t_mountpoint_after_authn(_) ->
         {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
     end,
     ok.
+
+t_clientid_override_not_retained(_) ->
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{
+                clientid_override => <<"trusted-id">>,
+                client_attrs => #{<<"tenant">> => <<"tenant-1">>}
+            }}
+        end
+    ),
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{<<"mountpoint">> => <<"coap/${client_attrs.tenant}/${clientid}/">>}
+    ),
+    try
+        Action = fun(Channel) ->
+            Token = connection(Channel),
+            timer:sleep(100),
+            #{clientinfo := ClientInfo} = emqx_gateway_cm:get_chan_info(coap, <<"client1">>),
+            ?assertEqual(<<"client1">>, maps:get(clientid, ClientInfo)),
+            ?assertEqual(false, maps:is_key(clientid_override, ClientInfo)),
+            ?assertEqual(<<"coap/tenant-1/client1/">>, maps:get(mountpoint, ClientInfo)),
+            disconnection(Channel, Token),
+            ok
+        end,
+        do(Action)
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end,
+    ok.
+
+t_connection_token_not_logged(_) ->
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        do(fun(Channel) ->
+            Token = connection(Channel),
+            put(coap_session_token, Token),
+            disconnection(Channel, Token)
+        end)
+    end),
+    TokenBin = list_to_binary(get(coap_session_token)),
+    ?assertNotEqual([], Reports),
+    %% No debug log may carry the token. Checking every report also covers the
+    %% raw datagram dumps, which would otherwise defeat frame-level redaction.
+    Leaks = [
+        Report
+     || Report <- Reports,
+        binary:match(term_to_binary(Report), TokenBin) =/= nomatch
+    ],
+    ?assertEqual([], Leaks).
 
 t_connection_with_short_param_name(_) ->
     Action = fun(Channel) ->
@@ -562,42 +761,32 @@ t_request_without_token_times_out(_) ->
     do(Action).
 
 t_request_with_partial_token_params(_) ->
-    Action = fun(Channel) ->
-        Token = connection(Channel),
+    with_connection(fun(Channel, Token) ->
         URI1 = compose_uri(
             ?PS_PREFIX ++ "/only_clientid",
-            #{
-                "clientid" => <<"client1">>
-            },
+            #{"clientid" => <<"client1">>},
             false
         ),
-        Req1 = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI1, Req1),
+        Req1 = make_req(post, <<"x">>),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI1, Req1)),
 
         URI2 = compose_uri(
             ?PS_PREFIX ++ "/only_token",
-            #{
-                "token" => list_to_binary(Token)
-            },
+            #{"token" => list_to_binary(Token)},
             false
         ),
-        Req2 = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI2, Req2),
-        disconnection(Channel, Token)
-    end,
-    do(Action).
+        Req2 = make_req(post, <<"x">>),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI2, Req2)),
+        true
+    end).
 
 t_token_takeover_across_udp_sessions(_) ->
     {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     Token = connection(Channel1),
     timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
     er_coap_channel:close(Channel1),
     er_coap_udp_socket:close(Sock1),
-
     timer:sleep(100),
     [OldPid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
     %% The shared legacy RPC preserves CoAP's opaque session without clientinfo metadata.
@@ -616,13 +805,8 @@ t_token_takeover_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    {ok, changed, _} = do_request(Channel2, URI, Req),
-    timer:sleep(100),
-    ?assertEqual(
-        1,
-        length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
-    ),
-
+    ?assertMatch({ok, changed, _}, do_request(Channel2, URI, Req)),
+    ?assertEqual(1, length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
@@ -633,10 +817,7 @@ t_invalid_token_rejected_across_udp_sessions(_) ->
     er_coap_channel:close(Channel1),
     er_coap_udp_socket:close(Sock1),
     timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
 
     {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     URI = compose_uri(
@@ -648,10 +829,7 @@ t_invalid_token_rejected_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    case do_request(Channel2, URI, Req) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    ?assertMatch({error, unauthorized, _}, do_request(Channel2, URI, Req)),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
@@ -796,10 +974,7 @@ t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
     er_coap_channel:close(Channel1),
     er_coap_udp_socket:close(Sock1),
     timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
 
     {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     URI = compose_uri(
@@ -811,10 +986,7 @@ t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    case do_request(Channel2, URI, Req) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    ?assertMatch({error, unauthorized, _}, do_request(Channel2, URI, Req)),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
@@ -900,6 +1072,26 @@ t_pubsub_unauthorized(_) ->
         ok = emqx_gateway_auth_ct:stop_auth(authz_http),
         {ok, _} = emqx:update_config([authorization], OldAuthz)
     end.
+
+%% A publish to a topic that is not a valid topic name is a bad request.
+t_publish_invalid_topic(_) ->
+    Topics = ["a/%23", "%2B/a", "a/%23/b"],
+    Action = fun(Topic, Channel, Token) ->
+        URI = pubsub_uri(Topic, Token),
+        Req = make_req(post, <<"payload">>),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI, Req), Topic)
+    end,
+    with_connection(Topics, Action).
+
+%% A subscribe to a topic that is not a valid topic filter is a bad request.
+t_subscribe_invalid_topic(_) ->
+    Topics = ["a/%23/b", "a%2B/b", "%23a"],
+    Action = fun(Topic, Channel, Token) ->
+        URI = pubsub_uri(Topic, Token),
+        Req = make_req(get, <<>>, [{observe, 0}]),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI, Req), Topic)
+    end,
+    with_connection(Topics, Action).
 
 t_connectionless_no_auth_config_pub_sub(Config) ->
     Profile = ?config(security_profile, Config),
@@ -1098,14 +1290,16 @@ t_subscribe_opts_nl_rh(_) ->
         Topic = <<"nlrh">>,
         URI = pubsub_uri(binary_to_list(Topic), Token) ++ "&nl=1&rh=2",
         Req = make_req(get, <<>>, [{observe, 0}]),
-        {ok, content, _} = do_request(Channel, URI, Req),
+        {ok, content, ObserveReply} = do_observe_request(Channel, URI, Req),
         timer:sleep(100),
         [SubPid] = emqx:subscribers(Topic),
         {_, SubOpts} = lists:keyfind(Topic, 1, emqx_broker:subscriptions(SubPid)),
         ?assertEqual(1, maps:get(nl, SubOpts)),
         ?assertEqual(2, maps:get(rh, SubOpts)),
-        UnReq = make_req(get, <<>>, [{observe, 1}]),
-        {ok, nocontent, _} = do_request(Channel, URI, UnReq),
+        UnReq = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
+            token = ObserveReply#coap_message.token
+        },
+        {ok, nocontent, _} = do_message_request(Channel, URI, UnReq),
         true
     end,
     with_connection(Fun).
@@ -1130,14 +1324,16 @@ t_subscribe_qos_from_config(_) ->
                 Topic = list_to_binary(io_lib:format("cfg/sub/~p", [CfgType])),
                 URI = pubsub_uri(binary_to_list(Topic), Token),
                 Req = make_req_type(ReqType, get, <<>>, [{observe, 0}]),
-                {ok, content, _} = do_request(Channel, URI, Req),
+                {ok, content, ObserveReply} = do_observe_request(Channel, URI, Req),
                 timer:sleep(100),
                 [SubPid] = emqx:subscribers(Topic),
                 {_, SubOpts} =
                     lists:keyfind(Topic, 1, emqx_broker:subscriptions(SubPid)),
                 ?assertEqual(ExpectQos, maps:get(qos, SubOpts)),
-                UnReq = make_req_type(ReqType, get, <<>>, [{observe, 1}]),
-                {ok, nocontent, _} = do_request(Channel, URI, UnReq)
+                UnReq = (make_req_type(ReqType, get, <<>>, [{observe, 1}]))#coap_message{
+                    token = ObserveReply#coap_message.token
+                },
+                {ok, nocontent, _} = do_message_request(Channel, URI, UnReq)
             end,
             Cases
         ),
@@ -1370,15 +1566,17 @@ t_un_subscribe(_) ->
         URI = pubsub_uri(binary_to_list(Topic), Token),
 
         Req = make_req(get, Payload, [{observe, 0}]),
-        {ok, content, _} = do_request(Channel, URI, Req),
+        {ok, content, ObserveReply} = do_observe_request(Channel, URI, Req),
         ?LOGT("observer topic:~ts~n", [Topic]),
 
         timer:sleep(100),
         [SubPid] = emqx:subscribers(Topic),
         ?assert(is_pid(SubPid)),
 
-        UnReq = make_req(get, Payload, [{observe, 1}]),
-        {ok, nocontent, _} = do_request(Channel, URI, UnReq),
+        UnReq = (make_req(get, Payload, [{observe, 1}]))#coap_message{
+            token = ObserveReply#coap_message.token
+        },
+        {ok, nocontent, _} = do_message_request(Channel, URI, UnReq),
         ?LOGT("un observer topic:~ts~n", [Topic]),
         timer:sleep(100),
         ?assertEqual([], emqx:subscribers(Topic)),
@@ -1527,6 +1725,577 @@ t_observe_con_notify_uses_shared_session_queue(_) ->
         with_connection(Fun)
     end).
 
+-doc "Retrieve an Observe representation with a new Token for each continuation GET.".
+t_observe_block2_new_tokens(_) ->
+    with_notify_type(non, fun() ->
+        with_blockwise_max_size(16, fun() ->
+            with_block2_connection(fun(Channel, Token) ->
+                Topic = <<"coap/block2_new_tokens">>,
+                ObserveToken = observe_block2_topic(Channel, Token, Topic),
+                publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                Notify = assert_block2_notify(
+                    Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}
+                ),
+                ?assertEqual(ObserveToken, Notify#coap_message.token),
+                URI = pubsub_uri(binary_to_list(Topic), Token),
+                FollowResp = assert_block2_followup(
+                    Channel, URI, <<"block-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                ),
+                ?assertEqual(undefined, coap_option(observe, FollowResp, undefined)),
+                _ = assert_block2_followup(
+                    Channel, URI, <<"block-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+                ),
+                Req = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                    token = <<"expired">>
+                },
+                ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+                true
+            end)
+        end)
+    end).
+
+-doc "Match continuation GETs to their resource even when another Observe Token is used.".
+t_observe_block2_resource_isolation(_) ->
+    with_block2_observe(non, fun(Channel, Token) ->
+        TopicA = <<"coap/block2_resources/a">>,
+        TopicB = <<"coap/block2_resources/b">>,
+        ObserveTokenA = observe_block2_topic(Channel, Token, TopicA),
+        ObserveTokenB = observe_block2_topic(Channel, Token, TopicB),
+        publish(TopicA, ?QOS_0, blockwise_payload(<<"A">>, <<"a">>, <<"1">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+        publish(TopicB, ?QOS_0, blockwise_payload(<<"B">>, <<"b">>, <<"2">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"B">>, 16), {0, true, 16}),
+        URIa = pubsub_uri(binary_to_list(TopicA), Token),
+        URIb = pubsub_uri(binary_to_list(TopicB), Token),
+        WrongURI = pubsub_uri("coap/block2_resources/unknown", Token),
+        Req = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{token = ObserveTokenA},
+        ?assertMatch({error, _, _}, do_message_request(Channel, WrongURI, Req)),
+        ?assertMatch(
+            {error, _, _}, do_message_request(Channel, URIa, Req#coap_message{method = put})
+        ),
+        _ = assert_block2_followup(
+            Channel, URIb, ObserveTokenA, 1, binary:copy(<<"b">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIa, ObserveTokenB, 1, binary:copy(<<"a">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIb, <<"tail-b">>, 2, binary:copy(<<"2">>, 8), {2, false, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIa, <<"tail-a">>, 2, binary:copy(<<"1">>, 8), {2, false, 16}
+        ),
+        true
+    end).
+
+-doc "Keep error response blocks separate from Observe continuations using new Tokens.".
+t_observe_block2_error_response_isolation(_) ->
+    lists:foreach(fun observe_block2_error_response_isolation/1, [before_notify, after_notify]).
+
+observe_block2_error_response_isolation(Order) ->
+    with_block2_observe(non, fun(Channel, Token) ->
+        Topic = <<"coap/block2_errors/", (atom_to_binary(Order))/binary>>,
+        ObserveToken = observe_block2_topic(Channel, Token, Topic),
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        ErrorToken = <<"error">>,
+        ErrorRequest = fun() ->
+            Req = (make_req(get))#coap_message{token = ErrorToken},
+            {error, bad_request, Reply} = do_message_request(Channel, URI, Req),
+            ?assertEqual({0, true, 16}, coap_option(block2, Reply, undefined)),
+            ?assertEqual(<<"invalid observe ">>, Reply#coap_message.payload)
+        end,
+        case Order of
+            before_notify -> ErrorRequest();
+            after_notify -> ok
+        end,
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+        case Order of
+            before_notify -> ok;
+            after_notify -> ErrorRequest()
+        end,
+        _ = assert_block2_followup(
+            Channel, URI, ObserveToken, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URI, <<"new-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URI, <<"new-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+        ),
+        ErrorFollowup = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+            token = ErrorToken
+        },
+        {error, bad_request, ErrorReply} = do_message_request(Channel, URI, ErrorFollowup),
+        ?assertEqual(<<"value">>, ErrorReply#coap_message.payload),
+        ?assertEqual({1, false, 16}, coap_option(block2, ErrorReply, undefined)),
+        true
+    end).
+
+-doc "Keep an unfinished representation stable and drain the next notification after its last block.".
+t_observe_block2_new_token_queue(_) ->
+    with_block2_observe(con, fun(Channel, Token) ->
+        Topic = <<"coap/block2_new_token_queue">>,
+        ObserveToken = observe_block2_topic(Channel, Token, Topic),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        Notify = assert_block2_notify(Channel, con, binary:copy(<<"A">>, 16), {0, true, 16}),
+        ack_if_con(Channel, Notify),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"X">>, <<"Y">>, <<"Z">>)),
+        ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        _ = assert_block2_followup(
+            Channel, URI, <<"next-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+        _ = assert_block2_followup(
+            Channel, URI, <<"next-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+        ),
+        Next = assert_block2_notify(Channel, con, binary:copy(<<"X">>, 16), {0, true, 16}),
+        ?assertEqual(ObserveToken, Next#coap_message.token),
+        ack_if_con(Channel, Next),
+        _ = assert_block2_followup(
+            Channel, URI, <<"next-3">>, 1, binary:copy(<<"Y">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URI, <<"next-4">>, 2, binary:copy(<<"Z">>, 8), {2, false, 16}
+        ),
+        true
+    end).
+
+-doc "Replace an observation and discard its old transfer and queued notifications.".
+t_observe_replace(_) ->
+    lists:foreach(
+        fun({NotifyType, ReuseToken, ChangeOptions}) ->
+            with_block2_observe(NotifyType, fun(Sock, Channel, Token) ->
+                Topic = <<"coap/observe_replace">>,
+                OtherTopic = <<"coap/observe_replace/other">>,
+                URI = pubsub_uri(binary_to_list(Topic), Token) ++ "&qos=0",
+                NewURI =
+                    case ChangeOptions of
+                        true -> pubsub_uri(binary_to_list(Topic), Token) ++ "&qos=1";
+                        false -> URI
+                    end,
+                OldToken = observe_block2_uri(Channel, URI),
+                _ = observe_block2_topic(Channel, Token, OtherTopic),
+                publish(Topic, ?QOS_1, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                Old = assert_block2_notify(
+                    Channel, NotifyType, binary:copy(<<"A">>, 16), {0, true, 16}
+                ),
+                publish(Topic, ?QOS_1, blockwise_payload(<<"D">>, <<"E">>, <<"F">>)),
+                ?assertEqual({error, timeout}, with_message_response(Channel, 100)),
+                NewToken =
+                    case ReuseToken of
+                        true ->
+                            _ = register_observe(Channel, NewURI, OldToken),
+                            OldToken;
+                        false ->
+                            observe_block2_uri(Channel, NewURI)
+                    end,
+                Tail = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
+                    token = <<"old-tail">>
+                },
+                ?assertMatch({error, _, _}, do_message_request(Channel, URI, Tail)),
+                publish(OtherTopic, ?QOS_0, <<"other works">>),
+                Other = assert_notify(Channel, NotifyType, <<"other works">>),
+                ack_if_con(Channel, Other),
+                publish(Topic, ?QOS_1, blockwise_payload(<<"X">>, <<"Y">>, <<"Z">>)),
+                Next = assert_block2_notify(
+                    Channel, NotifyType, binary:copy(<<"X">>, 16), {0, true, 16}
+                ),
+                ?assertEqual(NewToken, Next#coap_message.token),
+                Sock !
+                    {datagram, {{127, 0, 0, 1}, 5683},
+                        er_coap_message_parser:encode(emqx_coap_message:reset(Old))},
+                Cancel = (make_req(get, <<>>, [{observe, 1}]))#coap_message{token = OldToken},
+                ?assertMatch({error, _, _}, do_message_request(Channel, URI, Cancel)),
+                {200, Subscriptions} = request(get, "/gateways/coap/clients/client1/subscriptions"),
+                [Subscription] = [Sub || #{topic := T} = Sub <- Subscriptions, T =:= Topic],
+                ?assertEqual(
+                    case ChangeOptions of
+                        true -> 1;
+                        false -> 0
+                    end,
+                    maps:get(qos, Subscription)
+                ),
+                ack_if_con(Channel, Next),
+                _ = assert_block2_followup(
+                    Channel, NewURI, <<"new-mid">>, 1, binary:copy(<<"Y">>, 16), {1, true, 16}
+                ),
+                _ = assert_block2_followup(
+                    Channel, NewURI, <<"new-tail">>, 2, binary:copy(<<"Z">>, 8), {2, false, 16}
+                ),
+                Wait =
+                    case NotifyType of
+                        con -> 3500;
+                        non -> 300
+                    end,
+                ?assertEqual({error, timeout}, with_message_response(Channel, Wait))
+            end)
+        end,
+        [
+            {con, false, true},
+            {non, false, true},
+            {con, true, true},
+            {non, true, true},
+            {con, false, false},
+            {non, false, false}
+        ]
+    ).
+
+-doc "Draining one topic does not discard another topic's unfinished representation.".
+t_observe_block2_cross_topic_queue(_) ->
+    with_block2_observe(con, fun(Channel, Token) ->
+        TopicA = <<"coap/block2_cross_queue/a">>,
+        TopicB = <<"coap/block2_cross_queue/b">>,
+        _ = observe_block2_topic(Channel, Token, TopicA),
+        _ = observe_block2_topic(Channel, Token, TopicB),
+        publish(TopicA, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        First = assert_block2_notify(Channel, con, binary:copy(<<"A">>, 16), {0, true, 16}),
+        publish(TopicB, ?QOS_0, blockwise_payload(<<"X">>, <<"Y">>, <<"Z">>)),
+        ?assertEqual({error, timeout}, with_message_response(Channel, 100)),
+        ack_if_con(Channel, First),
+        Next = assert_block2_notify(Channel, con, binary:copy(<<"X">>, 16), {0, true, 16}),
+        ack_if_con(Channel, Next),
+        URIa = pubsub_uri(binary_to_list(TopicA), Token),
+        URIb = pubsub_uri(binary_to_list(TopicB), Token),
+        _ = assert_block2_followup(
+            Channel, URIa, <<"cross-a1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIb, <<"cross-b1">>, 1, binary:copy(<<"Y">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIa, <<"cross-a2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URIb, <<"cross-b2">>, 2, binary:copy(<<"Z">>, 8), {2, false, 16}
+        )
+    end).
+
+-doc "Management option updates preserve the client's observation and unfinished notifications.".
+t_observe_update_by_api(_) ->
+    lists:foreach(
+        fun({NotifyType, Mountpoint}) ->
+            OldConf = emqx:get_raw_config([gateway, coap]),
+            {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf#{
+                <<"mountpoint">> => Mountpoint
+            }),
+            try
+                with_block2_observe(NotifyType, fun(Channel, Token) ->
+                    Topic = <<"api-update">>,
+                    MountedTopic = <<Mountpoint/binary, Topic/binary>>,
+                    URI = pubsub_uri(binary_to_list(Topic), Token) ++ "&qos=0",
+                    ObserveToken = observe_block2_uri(Channel, URI),
+                    FirstType =
+                        case NotifyType of
+                            qos -> non;
+                            _ -> NotifyType
+                        end,
+                    publish(MountedTopic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                    First = assert_block2_notify(
+                        Channel, FirstType, binary:copy(<<"A">>, 16), {0, true, 16}
+                    ),
+                    publish(MountedTopic, ?QOS_0, blockwise_payload(<<"X">>, <<"Y">>, <<"Z">>)),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 100)),
+                    Path = "/gateways/coap/clients/client1/subscriptions",
+                    {201, _} = request(post, Path, #{topic => Topic, qos => 1}),
+                    {200, [Subscription]} = request(get, Path),
+                    ?assertEqual(MountedTopic, maps:get(topic, Subscription)),
+                    ?assertEqual(1, maps:get(qos, Subscription)),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 100)),
+                    ack_if_con(Channel, First),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"api-mid">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"api-tail">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+                    ),
+                    Next = assert_block2_notify(
+                        Channel, FirstType, binary:copy(<<"X">>, 16), {0, true, 16}
+                    ),
+                    ?assertEqual(ObserveToken, Next#coap_message.token),
+                    ack_if_con(Channel, Next),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"api-next">>, 1, binary:copy(<<"Y">>, 16), {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"api-last">>, 2, binary:copy(<<"Z">>, 8), {2, false, 16}
+                    ),
+                    publish(MountedTopic, ?QOS_1, <<"updated qos">>),
+                    NewType =
+                        case NotifyType of
+                            qos -> con;
+                            _ -> NotifyType
+                        end,
+                    Updated = assert_notify(Channel, NewType, <<"updated qos">>),
+                    ?assertEqual(ObserveToken, Updated#coap_message.token),
+                    ack_if_con(Channel, Updated),
+                    Cancel = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
+                        token = ObserveToken
+                    },
+                    ?assertMatch({ok, nocontent, _}, do_message_request(Channel, URI, Cancel)),
+                    publish(MountedTopic, ?QOS_1, <<"cancelled">>),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+                    {200, []} = request(get, Path)
+                end)
+            after
+                {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+            end
+        end,
+        [{Type, Prefix} || Type <- [con, non, qos], Prefix <- [<<>>, <<"mounted/">>]]
+    ).
+
+-doc "Management cancellation clears a mounted observation and its queued notifications.".
+t_observe_cancel_by_api(_) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf#{<<"mountpoint">> => <<"mounted/">>}),
+    try
+        with_block2_observe(con, fun(Sock, Channel, Token) ->
+            Topic = <<"api-cancel">>,
+            URI = pubsub_uri(binary_to_list(Topic), Token),
+            _ = observe_block2_uri(Channel, URI),
+            publish(<<"mounted/api-cancel">>, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+            First = assert_block2_notify(Channel, con, binary:copy(<<"A">>, 16), {0, true, 16}),
+            publish(<<"mounted/api-cancel">>, ?QOS_0, blockwise_payload(<<"X">>, <<"Y">>, <<"Z">>)),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 100)),
+            {204, _} = request(delete, "/gateways/coap/clients/client1/subscriptions/api-cancel"),
+            Req = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                token = <<"api-tail">>
+            },
+            ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+            Sock !
+                {datagram, {{127, 0, 0, 1}, 5683},
+                    er_coap_message_parser:encode(emqx_coap_message:reset(First))},
+            publish(<<"mounted/api-cancel">>, ?QOS_0, <<"cancelled">>),
+            ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+            {200, []} = request(get, "/gateways/coap/clients/client1/subscriptions")
+        end)
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
+-doc "An identical renewal and a rejected registration preserve an unfinished notification.".
+t_observe_renew_preserves_block2(_) ->
+    with_block2_observe(non, fun(Channel, Token) ->
+        Topic = <<"coap/observe_renew">>,
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        ObserveToken = observe_block2_uri(Channel, URI),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+        _ = register_observe(Channel, URI, ObserveToken),
+        Rejected = (make_req(get, <<>>, [{observe, 0}]))#coap_message{token = <<>>},
+        ?assertMatch({error, bad_request, _}, do_message_request(Channel, URI, Rejected)),
+        _ = assert_block2_followup(
+            Channel, URI, <<"renew-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        _ = assert_block2_followup(
+            Channel, URI, <<"renew-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+        )
+    end).
+
+register_observe(Channel, URI, Token) ->
+    Req = (make_req(get, <<>>, [{observe, 0}]))#coap_message{token = Token},
+    {ok, content, Reply} = do_message_request(Channel, URI, Req),
+    ?assertEqual(Token, Reply#coap_message.token),
+    ?assert(is_integer(coap_option(observe, Reply, undefined))),
+    Reply.
+
+-doc "Release the cached body and queued notification after real CON retransmission exhaustion.".
+t_observe_block2_retransmit_exhaustion(_) ->
+    ct:timetrap({minutes, 3}),
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf#{
+        <<"connection_required">> => false,
+        <<"idle_timeout">> => <<"180s">>,
+        <<"heartbeat">> => <<"180s">>,
+        <<"notify_type">> => <<"con">>,
+        <<"blockwise">> => #{<<"max_block_size">> => 16, <<"exchange_lifetime">> => <<"180s">>}
+    }),
+    {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
+    try
+        Topic = <<"coap/block2_retransmit_exhaustion">>,
+        URI = pubsub_uri(binary_to_list(Topic)),
+        ObserveToken = <<"retryobs">>,
+        Observe = (make_req(get, <<>>, [{observe, 0}]))#coap_message{token = ObserveToken},
+        ?assertMatch(#coap_message{method = {ok, content}}, raw_coap_request(Socket, URI, Observe)),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        First = raw_coap_receive(Socket, 2000),
+        ?assertEqual(con, First#coap_message.type),
+        ?assertEqual(binary:copy(<<"A">>, 16), First#coap_message.payload),
+        Mid = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+            token = <<"retrymid">>
+        },
+        ?assertMatch(
+            #coap_message{payload = <<"BBBBBBBBBBBBBBBB">>}, raw_coap_request(Socket, URI, Mid)
+        ),
+        publish(Topic, ?QOS_0, <<"next notice">>),
+        Next = wait_observe_retries(Socket, First, 0),
+        ?assertEqual(ObserveToken, Next#coap_message.token),
+        raw_coap_send(Socket, #coap_message{type = ack, id = Next#coap_message.id}),
+        Tail = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
+            token = <<"retryend">>
+        },
+        ?assertMatch(#coap_message{method = {error, _}}, raw_coap_request(Socket, URI, Tail))
+    after
+        gen_udp:close(Socket),
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
+wait_observe_retries(Socket, First, Count) ->
+    Msg = raw_coap_receive(Socket, 100000),
+    ct:pal("Received notification after ~p retransmissions", [Count]),
+    case Msg#coap_message.id =:= First#coap_message.id of
+        true ->
+            ?assertEqual(First#coap_message.payload, Msg#coap_message.payload),
+            wait_observe_retries(Socket, First, Count + 1);
+        false ->
+            ?assertEqual(4, Count),
+            ?assertEqual(<<"next notice">>, Msg#coap_message.payload),
+            Msg
+    end.
+
+raw_coap_request(Socket, URI, #coap_message{options = Options} = Req) ->
+    {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
+    Msg = Req#coap_message{
+        id = erlang:unique_integer([positive]) rem 65536,
+        options = [{uri_path, Path}, {uri_query, Query} | Options]
+    },
+    raw_coap_send(Socket, Msg),
+    raw_coap_receive(Socket, 2000).
+
+raw_coap_send(Socket, Msg) ->
+    gen_udp:send(Socket, {127, 0, 0, 1}, 5683, er_coap_message_parser:encode(Msg)).
+
+raw_coap_receive(Socket, Timeout) ->
+    {ok, {_, _, Data}} = gen_udp:recv(Socket, 0, Timeout),
+    er_coap_message_parser:decode(Data).
+
+-doc "Remove the representation when its Observe relationship is cancelled.".
+t_observe_block2_new_token_cancel(_) ->
+    with_block2_observe(non, fun(Channel, Token) ->
+        Topic = <<"coap/block2_new_token_cancel">>,
+        ObserveToken = observe_block2_topic(Channel, Token, Topic),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        _ = assert_block2_followup(
+            Channel, URI, <<"cancel-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        Cancel = (make_req(get, <<>>, [{observe, 1}]))#coap_message{token = ObserveToken},
+        ?assertMatch({ok, nocontent, _}, do_message_request(Channel, URI, Cancel)),
+        Req = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
+            token = <<"cancel-2">>
+        },
+        ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+        true
+    end).
+
+-doc "Reset discards the representation while retaining the 6.x Observe relationship.".
+t_observe_block2_new_token_reset(_) ->
+    with_block2_observe(con, fun(Channel, Token) ->
+        Topic = <<"coap/block2_new_token_reset">>,
+        observe_block2_topic(Channel, Token, Topic),
+        publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+        Notify = assert_block2_notify(Channel, con, binary:copy(<<"A">>, 16), {0, true, 16}),
+        URI = pubsub_uri(binary_to_list(Topic), Token),
+        _ = assert_block2_followup(
+            Channel, URI, <<"reset-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+        ),
+        reset_if_con(Channel, Notify),
+        Req = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{token = <<"reset-2">>},
+        ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+        publish(Topic, ?QOS_0, <<"still subscribed">>),
+        Next = assert_notify(Channel, con, <<"still subscribed">>),
+        ack_if_con(Channel, Next),
+        true
+    end).
+
+-doc "Expire a cached representation before serving a continuation with a new Token.".
+t_observe_block2_new_token_expiry(_) ->
+    with_notify_type(non, fun() ->
+        with_blockwise_opts(
+            #{<<"max_block_size">> => 16, <<"exchange_lifetime">> => <<"300ms">>},
+            fun() ->
+                with_block2_connection(fun(Channel, Token) ->
+                    Topic = <<"coap/block2_new_token_expiry">>,
+                    observe_block2_topic(Channel, Token, Topic),
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                    _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+                    URI = pubsub_uri(binary_to_list(Topic), Token),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"expire-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                    ),
+                    timer:sleep(400),
+                    Req = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
+                        token = <<"expire-2">>
+                    },
+                    ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
+                    true
+                end)
+            end
+        )
+    end).
+
+-doc "Keep a connectionless Observe representation private to the requesting UDP endpoint.".
+t_observe_block2_peer_isolation(_) ->
+    with_notify_type(non, fun() ->
+        with_blockwise_max_size(16, fun() ->
+            {ok, _} = update_coap_with_connection_mode(false),
+            try
+                do(fun(Channel) ->
+                    Topic = <<"coap/block2_peer_isolation">>,
+                    URI = pubsub_uri(binary_to_list(Topic)),
+                    ObserveToken = observe_block2_uri(Channel, URI),
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"B">>, <<"C">>)),
+                    _ = assert_block2_notify(Channel, non, binary:copy(<<"A">>, 16), {0, true, 16}),
+                    do(fun(OtherChannel) ->
+                        Req = (make_req(get, <<>>, [{block2, {1, false, 16}}]))#coap_message{
+                            token = ObserveToken
+                        },
+                        ?assertMatch({error, _, _}, do_message_request(OtherChannel, URI, Req))
+                    end),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"peer-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel, URI, <<"peer-2">>, 2, binary:copy(<<"C">>, 8), {2, false, 16}
+                    )
+                end)
+            after
+                {ok, _} = update_coap_with_connection_mode(true)
+            end
+        end)
+    end).
+
+with_block2_observe(NotifyType, Fun) ->
+    with_notify_type(NotifyType, fun() ->
+        with_blockwise_max_size(16, fun() -> with_block2_connection(Fun) end)
+    end).
+
+observe_block2_topic(Channel, Token, Topic) ->
+    observe_block2_uri(Channel, pubsub_uri(binary_to_list(Topic), Token)).
+
+observe_block2_uri(Channel, URI) ->
+    {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
+    Req = make_req(get, <<>>, [{uri_path, Path}, {uri_query, Query}, {observe, 0}]),
+    {ok, _} = er_coap_channel:send(Channel, Req),
+    {ok, content, Reply} = with_message_response(Channel),
+    Reply#coap_message.token.
+
+with_block2_connection(Fun) ->
+    {ok, Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    Token = connection(Channel),
+    try
+        case is_function(Fun, 3) of
+            true -> Fun(Sock, Channel, Token);
+            false -> Fun(Channel, Token)
+        end
+    after
+        _ = catch disconnection(Channel, Token),
+        er_coap_channel:close(Channel),
+        er_coap_udp_socket:close(Sock)
+    end.
+
 t_observe_con_notify_queue_preserves_block2_until_drained(_) ->
     with_notify_type(con, fun() ->
         with_blockwise_max_size(16, fun() ->
@@ -1620,6 +2389,140 @@ t_observe_non_blockwise_queue_preserves_all_drained_tokens(_) ->
             end,
             with_connection(Fun)
         end)
+    end).
+
+t_observe_pending_block2_respects_session_total_size(_) ->
+    with_notify_type(qos, fun() ->
+        with_blockwise_opts(
+            #{
+                <<"max_block_size">> => 16,
+                <<"max_concurrent_exchanges">> => 10,
+                <<"max_total_size">> => <<"64B">>
+            },
+            fun() ->
+                Fun = fun(Channel, Token) ->
+                    TopicA = <<"coap/observe_notify_limit/a">>,
+                    TopicB = <<"coap/observe_notify_limit/b">>,
+                    TopicC = <<"coap/observe_notify_limit/c">>,
+                    observe_topic(Channel, Token, TopicA, <<"obslima">>),
+                    observe_topic(Channel, Token, TopicB, <<"obslimb">>),
+                    observe_topic(Channel, Token, TopicC, <<"obslimc">>),
+
+                    publish(TopicA, ?QOS_1, <<"inflight">>),
+                    Inflight = assert_notify(Channel, con, <<"inflight">>),
+                    PayloadB = blockwise_payload(<<"B">>, <<"b">>, <<"1">>),
+                    PayloadC = blockwise_payload(<<"C">>, <<"c">>, <<"2">>),
+                    publish(TopicB, ?QOS_0, PayloadB),
+                    publish(TopicC, ?QOS_0, PayloadC),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                    ack_if_con(Channel, Inflight),
+                    First = assert_notify(Channel, non),
+                    ?assertEqual({0, true, 16}, coap_option(block2, First, undefined)),
+                    {FirstTopic, Mid, Tail, LastHead} =
+                        case notify_payload(First) of
+                            <<"BBBBBBBBBBBBBBBB">> -> {TopicB, <<"b">>, <<"1">>, <<"C">>};
+                            <<"CCCCCCCCCCCCCCCC">> -> {TopicC, <<"c">>, <<"2">>, <<"B">>}
+                        end,
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+                    URI = pubsub_uri(binary_to_list(FirstTopic), Token),
+                    _ = assert_block2_followup(
+                        Channel,
+                        URI,
+                        First#coap_message.token,
+                        1,
+                        binary:copy(Mid, 16),
+                        {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel,
+                        URI,
+                        First#coap_message.token,
+                        2,
+                        binary:copy(Tail, 8),
+                        {2, false, 16}
+                    ),
+                    Last = assert_notify(Channel, non, binary:copy(LastHead, 16)),
+                    ?assertEqual({0, true, 16}, coap_option(block2, Last, undefined)),
+                    true
+                end,
+                with_connection(Fun)
+            end
+        )
+    end).
+
+t_observe_pending_block2_resumes_after_block1_completion(_) ->
+    with_notify_type(qos, fun() ->
+        with_blockwise_opts(
+            #{
+                <<"max_block_size">> => 16,
+                <<"max_concurrent_exchanges">> => 1,
+                <<"exchange_lifetime">> => <<"30s">>
+            },
+            fun() ->
+                with_connection(fun(Channel, Token) ->
+                    Topic = <<"coap/observe_notify_upload_completion">>,
+                    ObserveToken = <<"obsupl">>,
+                    observe_topic(Channel, Token, Topic, ObserveToken),
+                    URI = pubsub_uri("coap/block1_upload", Token),
+                    Upload = block1_start_request(binary:copy(<<"U">>, 16), <<"upload">>),
+                    ?assertMatch({ok, continue, _}, do_message_request(Channel, URI, Upload)),
+
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"a">>, <<"1">>)),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+
+                    Last = Upload#coap_message{
+                        payload = <<"last">>, options = [{block1, {1, false, 16}}]
+                    },
+                    ?assertMatch({ok, changed, _}, do_message_request(Channel, URI, Last)),
+                    Notify = assert_notify(Channel, non, binary:copy(<<"A">>, 16)),
+                    ?assertEqual({0, true, 16}, coap_option(block2, Notify, undefined)),
+                    NotifyURI = pubsub_uri(binary_to_list(Topic), Token),
+                    _ = assert_block2_followup(
+                        Channel,
+                        NotifyURI,
+                        Notify#coap_message.token,
+                        1,
+                        binary:copy(<<"a">>, 16),
+                        {1, true, 16}
+                    ),
+                    _ = assert_block2_followup(
+                        Channel,
+                        NotifyURI,
+                        Notify#coap_message.token,
+                        2,
+                        binary:copy(<<"1">>, 8),
+                        {2, false, 16}
+                    ),
+                    true
+                end)
+            end
+        )
+    end).
+
+t_observe_pending_block2_resumes_after_expiry(_) ->
+    with_notify_type(qos, fun() ->
+        with_blockwise_opts(
+            #{
+                <<"max_block_size">> => 16,
+                <<"max_total_size">> => <<"64B">>,
+                <<"exchange_lifetime">> => <<"1s">>
+            },
+            fun() ->
+                with_connection(fun(Channel, Token) ->
+                    Topic = <<"coap/observe_notify_expiry">>,
+                    observe_topic(Channel, Token, Topic, <<"obsexp">>),
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"A">>, <<"a">>, <<"1">>)),
+                    First = assert_notify(Channel, non, binary:copy(<<"A">>, 16)),
+                    ?assertEqual({0, true, 16}, coap_option(block2, First, undefined)),
+                    publish(Topic, ?QOS_0, blockwise_payload(<<"B">>, <<"b">>, <<"2">>)),
+                    ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
+                    Second = assert_notify(Channel, non, binary:copy(<<"B">>, 16)),
+                    ?assertEqual({0, true, 16}, coap_option(block2, Second, undefined)),
+                    true
+                end)
+            end
+        )
     end).
 
 t_observe_same_token_blockwise_queue_serializes_drained_notifications(_) ->
@@ -1761,8 +2664,7 @@ t_observe_cancel_drops_pending_notifications(_) ->
     with_notify_type(con, fun() ->
         Fun = fun(Channel, Token) ->
             Topic = <<"coap/observe_notify_queue_cancel">>,
-            ObserveToken = <<"obscancel">>,
-            observe_topic(Channel, Token, Topic, ObserveToken),
+            ObserveToken = observe_block2_topic(Channel, Token, Topic),
 
             publish(Topic, ?QOS_0, <<"first">>),
             Notify1 = assert_notify(Channel, con, <<"first">>),
@@ -1773,7 +2675,7 @@ t_observe_cancel_drops_pending_notifications(_) ->
             UnReq = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
                 token = ObserveToken
             },
-            {ok, nocontent, _} = do_request(Channel, URI, UnReq),
+            {ok, nocontent, _} = do_message_request(Channel, URI, UnReq),
 
             ack_if_con(Channel, Notify1),
             ?assertEqual({error, timeout}, with_message_response(Channel, 500)),
@@ -1788,8 +2690,7 @@ t_observe_cancel_wildcard_drops_pending_notifications(_) ->
             ObserveTopic = <<"coap/observe_notify_queue_cancel_wildcard/+">>,
             PublishTopic1 = <<"coap/observe_notify_queue_cancel_wildcard/1">>,
             PublishTopic2 = <<"coap/observe_notify_queue_cancel_wildcard/2">>,
-            ObserveToken = <<"obscancelwild">>,
-            observe_topic(Channel, Token, ObserveTopic, ObserveToken),
+            ObserveToken = observe_block2_topic(Channel, Token, ObserveTopic),
 
             publish(PublishTopic1, ?QOS_0, <<"first">>),
             Notify1 = assert_notify(Channel, con, <<"first">>),
@@ -1800,7 +2701,7 @@ t_observe_cancel_wildcard_drops_pending_notifications(_) ->
             UnReq = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
                 token = ObserveToken
             },
-            {ok, nocontent, _} = do_request(Channel, URI, UnReq),
+            {ok, nocontent, _} = do_message_request(Channel, URI, UnReq),
 
             ack_if_con(Channel, Notify1),
             ?assertEqual({error, timeout}, with_message_response(Channel, 500)),
@@ -1881,13 +2782,13 @@ t_clients_get_subscription_api(_) ->
         %% list
         {200, []} = request(get, Path),
 
-        observe(Channel, Token, true),
+        ObserveToken = observe(Channel, Token, true),
 
         {200, [Subs]} = request(get, Path),
 
         ?assertEqual(<<"coap/observe">>, maps:get(topic, Subs)),
 
-        observe(Channel, Token, false),
+        observe(Channel, Token, {false, ObserveToken}),
 
         {200, []} = request(get, Path),
         true
@@ -2072,6 +2973,38 @@ t_invalid_if_none_match_bad_option(_) ->
     ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
     ok.
 
+%% A request rejected in connection mode must not leak credentials sent with the
+%% short query aliases (`t', `p') into the debug log.
+t_rejected_request_does_not_log_short_credentials(_) ->
+    Secret = <<"short-password-value">>,
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        with_connection(fun(Channel, _Token) ->
+            URI = compose_uri(
+                ?PS_PREFIX ++ "/short_credential",
+                #{"p" => Secret},
+                false
+            ),
+            ?assertMatch(
+                {error, bad_request, _},
+                do_request(Channel, URI, make_req(post, <<"x">>))
+            ),
+            put(coap_rejected_secret, Secret),
+            true
+        end)
+    end),
+    %% The rejection path must have been exercised.
+    ?assertNotEqual(
+        [],
+        [R || R = #{msg := "token_required_in_conn_mode"} <- Reports]
+    ),
+    RejectedSecret = get(coap_rejected_secret),
+    Leaks = [
+        Report
+     || Report <- Reports,
+        binary:match(term_to_binary(Report), RejectedSecret) =/= nomatch
+    ],
+    ?assertEqual([], Leaks).
+
 t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
     Peer = {{127, 0, 0, 1}, 12345},
     State0 = emqx_coap_proxy_conn:initialize([]),
@@ -2231,17 +3164,17 @@ observe(Channel, Token, true, ShortenParamName) ->
     },
     URI = compose_uri(Prefix, Queries, ShortenParamName),
     Req = make_req(get, <<>>, [{observe, 0}]),
-    {ok, content, _Data} = do_request(Channel, URI, Req),
-    ok;
-observe(Channel, Token, false, ShortenParamName) ->
+    {ok, content, Reply} = do_observe_request(Channel, URI, Req),
+    Reply#coap_message.token;
+observe(Channel, Token, {false, ObserveToken}, ShortenParamName) ->
     Prefix = ?PS_PREFIX ++ "/coap/observe",
     Queries = #{
         "clientid" => <<"client1">>,
         "token" => Token
     },
     URI = compose_uri(Prefix, Queries, ShortenParamName),
-    Req = make_req(get, <<>>, [{observe, 1}]),
-    {ok, nocontent, _Data} = do_request(Channel, URI, Req),
+    Req = (make_req(get, <<>>, [{observe, 1}]))#coap_message{token = ObserveToken},
+    {ok, nocontent, _Data} = do_message_request(Channel, URI, Req),
     ok.
 
 observe_topic(Channel, Token, Topic, ObserveToken) ->
@@ -2318,6 +3251,7 @@ assert_block2_followup(Channel, URI, Token, Num, Payload, Block2) ->
         token = Token
     },
     {ok, content, FollowResp} = do_message_request(Channel, URI, FollowReq),
+    ?assertEqual(Token, FollowResp#coap_message.token),
     ?assertEqual(Payload, notify_payload(FollowResp)),
     ?assertEqual(Block2, coap_option(block2, FollowResp, undefined)),
     FollowResp.
@@ -2337,6 +3271,9 @@ blockwise_payload(First, Second, Third) ->
         binary:copy(Second, 16),
         binary:copy(Third, 8)
     ]).
+
+block1_start_request(Payload, Token) ->
+    (make_req(post, Payload, [{block1, {0, true, 16}}]))#coap_message{token = Token}.
 
 find_notify_by_payload(Payload, Notify1, Notify2) ->
     case {notify_payload(Notify1), notify_payload(Notify2)} of
@@ -2417,6 +3354,13 @@ parse_udp_message(Data) ->
     {ok, Message, <<>>, _State} =
         emqx_coap_frame:parse(Data, emqx_coap_frame:initial_parse_state(#{})),
     Message.
+
+do_observe_request(Channel, URI, #coap_message{options = Opts} = Req) ->
+    {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
+    {ok, _} = er_coap_channel:send(Channel, Req#coap_message{
+        options = [{uri_path, Path}, {uri_query, Query} | Opts]
+    }),
+    with_message_response(Channel).
 
 do_message_request(Channel, URI, #coap_message{options = Opts} = Req) ->
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),

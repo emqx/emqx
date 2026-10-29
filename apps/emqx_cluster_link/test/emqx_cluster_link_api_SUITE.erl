@@ -619,69 +619,74 @@ t_metrics(Config) ->
     SourceName = <<"api_target">>,
     TargetName = <<"api_source">>,
 
-    ?assertMatch(
-        {200, #{
-            <<"metrics">> := #{
-                <<"router">> := #{
-                    <<"routes">> := 0
-                },
-                <<"forwarding">> := #{
-                    <<"matched">> := _,
-                    <<"success">> := _,
-                    <<"failed">> := _,
-                    <<"dropped">> := _,
-                    <<"retried">> := _,
-                    <<"queuing">> := _,
-                    <<"inflight">> := _,
-                    <<"rate">> := _,
-                    <<"rate_last5m">> := _,
-                    <<"rate_max">> := _
-                }
-            },
-            <<"node_metrics">> := [
-                #{
-                    <<"node">> := _,
-                    <<"metrics">> := #{
-                        <<"router">> := #{
-                            <<"routes">> := 0
-                        },
-                        <<"forwarding">> := #{
-                            <<"matched">> := _,
-                            <<"success">> := _,
-                            <<"failed">> := _,
-                            <<"dropped">> := _,
-                            <<"retried">> := _,
-                            <<"queuing">> := _,
-                            <<"inflight">> := _,
-                            <<"rate">> := _,
-                            <<"rate_last5m">> := _,
-                            <<"rate_max">> := _
-                        }
+    %% Routes of the preceding case may still be counted cluster-wide.
+    ?retry(
+        300,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"router">> := #{
+                        <<"routes">> := 0
+                    },
+                    <<"forwarding">> := #{
+                        <<"matched">> := _,
+                        <<"success">> := _,
+                        <<"failed">> := _,
+                        <<"dropped">> := _,
+                        <<"retried">> := _,
+                        <<"queuing">> := _,
+                        <<"inflight">> := _,
+                        <<"rate">> := _,
+                        <<"rate_last5m">> := _,
+                        <<"rate_max">> := _
                     }
                 },
-                #{
-                    <<"node">> := _,
-                    <<"metrics">> := #{
-                        <<"router">> := #{
-                            <<"routes">> := 0
-                        },
-                        <<"forwarding">> := #{
-                            <<"matched">> := _,
-                            <<"success">> := _,
-                            <<"failed">> := _,
-                            <<"dropped">> := _,
-                            <<"retried">> := _,
-                            <<"queuing">> := _,
-                            <<"inflight">> := _,
-                            <<"rate">> := _,
-                            <<"rate_last5m">> := _,
-                            <<"rate_max">> := _
+                <<"node_metrics">> := [
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> := #{
+                            <<"router">> := #{
+                                <<"routes">> := 0
+                            },
+                            <<"forwarding">> := #{
+                                <<"matched">> := _,
+                                <<"success">> := _,
+                                <<"failed">> := _,
+                                <<"dropped">> := _,
+                                <<"retried">> := _,
+                                <<"queuing">> := _,
+                                <<"inflight">> := _,
+                                <<"rate">> := _,
+                                <<"rate_last5m">> := _,
+                                <<"rate_max">> := _
+                            }
+                        }
+                    },
+                    #{
+                        <<"node">> := _,
+                        <<"metrics">> := #{
+                            <<"router">> := #{
+                                <<"routes">> := 0
+                            },
+                            <<"forwarding">> := #{
+                                <<"matched">> := _,
+                                <<"success">> := _,
+                                <<"failed">> := _,
+                                <<"dropped">> := _,
+                                <<"retried">> := _,
+                                <<"queuing">> := _,
+                                <<"inflight">> := _,
+                                <<"rate">> := _,
+                                <<"rate_last5m">> := _,
+                                <<"rate_max">> := _
+                            }
                         }
                     }
-                }
-            ]
-        }},
-        get_metrics(source, SourceName, Config)
+                ]
+            }},
+            get_metrics(source, SourceName, Config)
+        )
     ),
     ?assertMatch(
         {200, #{
@@ -846,26 +851,31 @@ t_metrics(Config) ->
         )
     ),
 
-    %% Reset metrics
+    %% Reset metrics.
+    %% `router.routes' is a gauge that the bookkeeper re-tallies every
+    %% ?TALLY_ROUTES_INTERVAL, so the reset only zeroes it until the next
+    %% tally restores the live count, which is 1 here. Assert that the key
+    %% is still reported, without pinning its value, and assert on the
+    %% forwarding counters, which the reset does zero for good.
     ?assertMatch({204, _}, reset_metrics(source, SourceName, Config)),
     ?assertMatch(
         {200, #{
             <<"metrics">> := #{
-                <<"router">> := #{<<"routes">> := 0},
+                <<"router">> := #{<<"routes">> := _},
                 <<"forwarding">> := #{<<"matched">> := 0}
             },
             <<"node_metrics">> := [
                 #{
                     <<"metrics">> :=
                         #{
-                            <<"router">> := #{<<"routes">> := 0},
+                            <<"router">> := #{<<"routes">> := _},
                             <<"forwarding">> := #{<<"matched">> := 0}
                         }
                 },
                 #{
                     <<"metrics">> :=
                         #{
-                            <<"router">> := #{<<"routes">> := 0},
+                            <<"router">> := #{<<"routes">> := _},
                             <<"forwarding">> := #{<<"matched">> := 0}
                         }
                 }

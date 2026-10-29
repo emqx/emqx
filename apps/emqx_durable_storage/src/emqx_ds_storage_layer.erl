@@ -5,7 +5,7 @@
 
 -behaviour(gen_server).
 
-%% Replication layer API:
+%% API:
 -export([
     create_db_group/2,
     update_db_group/3,
@@ -66,7 +66,6 @@
 
 -export_type([
     rocksdb_options/0,
-    batch_prepare_opts/0,
     batch_store_opts/0,
     gen_id/0,
     generation/0,
@@ -89,7 +88,9 @@
 
 -elvis([
     {elvis_style, atom_naming_convention, disable},
-    {elvis_style, invalid_dynamic_call, disable}
+    %% elvis 5.0.4 renamed invalid_dynamic_call to no_invalid_dynamic_calls.
+    {elvis_style, no_invalid_dynamic_calls, disable},
+    {elvis_style, no_common_caveats_call, disable}
 ]).
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
@@ -114,8 +115,6 @@
         allow_fallocate => boolean(),
         misc_options => [{atom(), _}]
     }.
-
--type batch_prepare_opts() :: #{}.
 
 %% Options affecting how batches should be stored.
 %% See also: `emqx_ds:message_store_opts()'.

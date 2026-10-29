@@ -54,7 +54,8 @@ common_scope_catalog() ->
         #{name => ?SCOPE_CLUSTER_OPERATIONS, desc => ?DESC(scope_cluster_operations)},
         #{name => ?SCOPE_SYSTEM, desc => ?DESC(scope_system)},
         #{name => ?SCOPE_AUDIT, desc => ?DESC(scope_audit)},
-        #{name => ?SCOPE_LICENSE, desc => ?DESC(scope_license)}
+        #{name => ?SCOPE_LICENSE, desc => ?DESC(scope_license)},
+        #{name => ?SCOPE_PLUGIN_API, desc => ?DESC(scope_plugin_api)}
     ].
 
 %%--------------------------------------------------------------------

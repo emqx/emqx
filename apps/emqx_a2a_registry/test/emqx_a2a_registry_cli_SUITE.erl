@@ -38,8 +38,8 @@
         case emqx_common_test_helpers:capture_io_format(fun() -> Expr end) of
             {ok, ___LINES} ->
                 {ok, lists:map(fun emqx_utils_json:decode/1, ___LINES)};
-            {false, ___LINES} ->
-                {false,
+            {{error, _} = ___ERR, ___LINES} ->
+                {___ERR,
                     lists:map(
                         fun(___X) ->
                             case emqx_utils_json:safe_decode(___X) of
@@ -312,10 +312,10 @@ t_list_cards(TCConfig) ->
     emqtt:stop(C),
 
     %% invalid args
-    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--status", "invalid"], TCConfig))),
-    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--org-id", "/"], TCConfig))),
-    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--unit-id", "/"], TCConfig))),
-    ?assertMatch({false, _}, ?CAPTURE(list_cards(["--agent-id", "/"], TCConfig))),
+    ?assertMatch({{error, _}, _}, ?CAPTURE(list_cards(["--status", "invalid"], TCConfig))),
+    ?assertMatch({{error, _}, _}, ?CAPTURE(list_cards(["--org-id", "/"], TCConfig))),
+    ?assertMatch({{error, _}, _}, ?CAPTURE(list_cards(["--unit-id", "/"], TCConfig))),
+    ?assertMatch({{error, _}, _}, ?CAPTURE(list_cards(["--agent-id", "/"], TCConfig))),
 
     ok.
 
@@ -399,13 +399,13 @@ t_register_card(TCConfig) ->
     ),
 
     %% Invalid ids
-    ?assertMatch(false, register_card(["/", ?UNIT_ID, ?AGENT_ID, Filepath], TCConfig)),
-    ?assertMatch(false, register_card([?ORG_ID, "/", ?AGENT_ID, Filepath], TCConfig)),
-    ?assertMatch(false, register_card([?ORG_ID, ?UNIT_ID, "/", Filepath], TCConfig)),
+    ?assertMatch({error, _}, register_card(["/", ?UNIT_ID, ?AGENT_ID, Filepath], TCConfig)),
+    ?assertMatch({error, _}, register_card([?ORG_ID, "/", ?AGENT_ID, Filepath], TCConfig)),
+    ?assertMatch({error, _}, register_card([?ORG_ID, ?UNIT_ID, "/", Filepath], TCConfig)),
 
     %% Invalid file path
     ?assertMatch(
-        false, register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, "i-dont-exist.json"], TCConfig)
+        {error, _}, register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, "i-dont-exist.json"], TCConfig)
     ),
 
     ok.
@@ -443,8 +443,10 @@ t_retainer_disabled(TCConfig) ->
     {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
 
     AssertDisabled = fun(Captured) ->
-        ?assertMatch({false, [#{<<"error">> := true, <<"message">> := _}]}, Captured),
-        {false, [#{<<"message">> := Msg}]} = Captured,
+        ?assertMatch(
+            {{error, retainer_disabled}, [#{<<"error">> := true, <<"message">> := _}]}, Captured
+        ),
+        {{error, retainer_disabled}, [#{<<"message">> := Msg}]} = Captured,
         ?assertNotEqual(nomatch, binary:match(Msg, <<"retainer">>), #{message => Msg})
     end,
 
@@ -524,7 +526,7 @@ t_namespace_isolation(TCConfig) when is_list(TCConfig) ->
     ok = file:write_file(Filepath, Card1),
 
     ?assertMatch(
-        {false, [#{<<"message">> := <<"Namespace not found:", _/binary>>}]},
+        {{error, _}, [#{<<"message">> := <<"Namespace not found:", _/binary>>}]},
         ?CAPTURE(register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, Filepath], TCConfig))
     ),
 

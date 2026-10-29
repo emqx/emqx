@@ -563,7 +563,8 @@ t_write_failure(TCConfig) when is_list(TCConfig) ->
             case Error of
                 {resource_error, _} ->
                     ok;
-                {recoverable_error, disconnected} ->
+                {recoverable_error, #{reason := _, time_since_observed_ms := _}} ->
+                    %% from ecpool_worker:client/1
                     ok;
                 _ ->
                     ct:fail("unexpected error: ~p", [Error])
@@ -1276,7 +1277,12 @@ t_timeout_disconnected_then_recover(Config) ->
             %% 0) Bridge is initially healthy.
             {201, _} = create_connector_api(
                 Config,
-                #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"500ms">>}}
+                #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"1s">>,
+                        <<"health_check_interval">> => <<"500ms">>
+                    }
+                }
             ),
             {201, _} = create_action_api(Config, #{}),
             ?retry(
@@ -1363,3 +1369,9 @@ t_rule_test_trace(Config) ->
 t_ecpool_workers_crash(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
     ok.
+
+t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
+    emqx_bridge_v2_testlib:t_ecpool_on_reconnect_callback_consistency(TCConfig, #{
+        callback_mod => emqx_mysql,
+        reconnect_callback_fns => [prepare_sql_to_conn_on_reconnect]
+    }).

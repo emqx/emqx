@@ -156,6 +156,8 @@ do_health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
             else
                 false ->
                     {error, ecpool_worker_dead};
+                {error, {disconnected, Reason}} ->
+                    {error, Reason};
                 Error ->
                     Error
             end

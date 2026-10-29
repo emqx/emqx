@@ -39,7 +39,7 @@ load() ->
 -spec unload() -> ok.
 unload() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
-    lists:foreach(fun(Cmd) -> emqx_ctl:unregister_command(Cmd) end, Cmds).
+    lists:foreach(fun emqx_ctl:unregister_command/1, Cmds).
 
 is_cmd(Fun) ->
     Name = atom_to_list(Fun),
@@ -217,13 +217,13 @@ atom(Id) ->
 bin(S) -> iolist_to_binary(S).
 
 dump(Table, Tag) ->
-    dump(Table, Tag, ets:first(Table), []).
+    dump(Table, Tag, ets:first(Table)).
 
-dump(_Table, _, '$end_of_table', Result) ->
-    lists:reverse(Result);
-dump(Table, Tag, Key, Result) ->
-    PrintValue = [print_record({Tag, Record}) || Record <- ets:lookup(Table, Key)],
-    dump(Table, Tag, ets:next(Table, Key), [PrintValue | Result]).
+dump(_Table, _, '$end_of_table') ->
+    ok;
+dump(Table, Tag, Key) ->
+    lists:foreach(fun(Record) -> print_record({Tag, Record}) end, ets:lookup(Table, Key)),
+    dump(Table, Tag, ets:next(Table, Key)).
 
 print_record({client, {_, Infos, Stats}}) ->
     ClientInfo = maps:get(clientinfo, Infos, #{}),
@@ -335,7 +335,7 @@ format_gateway(
             emqx_utils_calendar:epoch_to_rfc3339(CreatedAt),
             StopOrStart,
             emqx_utils_calendar:epoch_to_rfc3339(Timestamp),
-            Config
+            emqx_utils:redact(Config)
         ]
     ).
 

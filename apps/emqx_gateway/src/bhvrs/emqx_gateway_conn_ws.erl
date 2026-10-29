@@ -191,15 +191,10 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 init(Req, Opts) ->
     %% WS Transport Idle Timeout
     IdleTimeout = maps:get(idle_timeout, Opts, 7200000),
-    MaxFrameSize =
-        case maps:get(max_frame_size, Opts, 0) of
-            0 -> infinity;
-            I -> I
-        end,
     Compress = emqx_utils_maps:deep_get([websocket, compress], Opts),
     WsOpts = #{
         compress => Compress,
-        max_frame_size => MaxFrameSize,
+        max_frame_size => emqx_gateway_utils:ws_max_frame_size(Opts),
         idle_timeout => IdleTimeout
     },
     case check_origin_header(Req, Opts) of
@@ -314,7 +309,7 @@ peername_and_cert(Req, Opts) ->
 parse_sec_websocket_protocol([Req, Opts, WsOpts], State) ->
     SupportedSubprotocols = emqx_utils_maps:deep_get([websocket, supported_subprotocols], Opts),
     FailIfNoSubprotocol = emqx_utils_maps:deep_get([websocket, fail_if_no_subprotocol], Opts),
-    case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
+    case parse_ws_protocol_header(Req) of
         undefined ->
             case FailIfNoSubprotocol of
                 true ->
@@ -344,6 +339,17 @@ parse_sec_websocket_protocol([Req, Opts, WsOpts], State) ->
                 {error, no_supported_subprotocol} ->
                     {error, no_supported_subprotocol}
             end
+    end.
+
+%% Cowboy raises `exit({request_error, {header, _}, _})' when a header value
+%% cannot be parsed, which crashes the connection process before any reply is
+%% sent. Treat such a value as if the header were absent.
+parse_ws_protocol_header(Req) ->
+    try
+        cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req)
+    catch
+        exit:{request_error, {header, <<"sec-websocket-protocol">>}, _} ->
+            undefined
     end.
 
 pick_subprotocol([], _SupportedSubprotocols) ->
@@ -530,8 +536,8 @@ handle_timeout(TRef, Keepalive, State) when
 ->
     StatVal =
         case Keepalive of
-            keepalive -> emqx_pd:get_counter(recv_oct);
-            keepalive_send -> emqx_pd:get_counter(send_oct)
+            keepalive -> emqx_gateway_conn:keepalive_stats(recv);
+            keepalive_send -> emqx_gateway_conn:keepalive_stats(send)
         end,
     handle_timeout(TRef, {Keepalive, StatVal}, State);
 handle_timeout(
@@ -568,7 +574,7 @@ run_gc(Cnt, Oct, State = #state{gc_state = GcSt}) ->
     end.
 
 check_oom(State = #state{oom_policy = OomPolicy}) ->
-    case ?ENABLED(OomPolicy) andalso emqx_utils:check_oom(OomPolicy) of
+    case ?ENABLED(OomPolicy) andalso emqx_connection_util:check_oom(OomPolicy) of
         Shutdown = {shutdown, _Reason} ->
             postpone(Shutdown, State);
         _Other ->

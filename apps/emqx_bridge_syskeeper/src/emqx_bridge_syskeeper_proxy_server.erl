@@ -108,8 +108,8 @@ on_get_status(_InstanceId, #{listen_on := ListenOn}) ->
         _ = esockd:listener({?MODULE, ListenOn}),
         ?status_connected
     catch
-        _:_ ->
-            ?status_disconnected
+        Kind:Reason ->
+            {?status_disconnected, {Kind, Reason}}
     end.
 
 %% -------------------------------------------------------------------------------------------------

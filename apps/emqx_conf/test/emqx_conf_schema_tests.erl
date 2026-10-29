@@ -876,6 +876,49 @@ test_unsupported_role(ce) ->
         hocon_tconf:check_plain(emqx_conf_schema, Conf, #{required => false}, [node])
     ).
 
+rpc_insecure_fallback_is_ignored_test() ->
+    ensure_acl_conf(),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
+    Conf = <<BaseConf/binary, "\nrpc.insecure_fallback = true\n">>,
+    {ok, ConfMap} = hocon:binary(Conf, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap),
+    GenRpcEnv = proplists:get_value(gen_rpc, ConfList),
+    ?assertEqual(
+        undefined,
+        proplists:get_value(insecure_auth_fallback_allowed, GenRpcEnv)
+    ).
+
+rpc_compress_defaults_test() ->
+    GenRpcEnv = gen_rpc_env(""),
+    ?assertEqual(0, proplists:get_value(compress, GenRpcEnv)),
+    ?assertEqual(1024, proplists:get_value(compression_threshold, GenRpcEnv)).
+
+rpc_compress_mapping_test() ->
+    GenRpcEnv = gen_rpc_env("rpc.compress_level = 6\nrpc.compress_threshold = 2KB\n"),
+    ?assertEqual(6, proplists:get_value(compress, GenRpcEnv)),
+    ?assertEqual(2048, proplists:get_value(compression_threshold, GenRpcEnv)),
+    GenRpcEnv0 = gen_rpc_env("rpc.compress_level = 1\nrpc.compress_threshold = 0\n"),
+    ?assertEqual(1, proplists:get_value(compress, GenRpcEnv0)),
+    ?assertEqual(0, proplists:get_value(compression_threshold, GenRpcEnv0)).
+
+rpc_compress_level_range_test() ->
+    ?assertThrow(
+        {emqx_conf_schema, [#{kind := validation_error, path := "rpc.compress_level"}]},
+        gen_rpc_env("rpc.compress_level = 10\n")
+    ),
+    ?assertThrow(
+        {emqx_conf_schema, [#{kind := validation_error, path := "rpc.compress_level"}]},
+        gen_rpc_env("rpc.compress_level = -1\n")
+    ).
+
+gen_rpc_env(Extra) ->
+    ensure_acl_conf(),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
+    Conf = <<BaseConf/binary, "\n", (list_to_binary(Extra))/binary>>,
+    {ok, ConfMap} = hocon:binary(Conf, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap),
+    proplists:get_value(gen_rpc, ConfList).
+
 node_role_conf(Role0) ->
     Role = atom_to_binary(Role0),
     Hocon = <<"node { role =", Role/binary, ", cookie = \"cookie\", data_dir = \".\" }">>,
@@ -1097,3 +1140,59 @@ get_dist_bind_address_from_conf(Address) ->
 assert_dist_bind_address(Address, ExpectedAtomStr) ->
     DistBindAddr = get_dist_bind_address_from_conf(Address),
     ?assertEqual(ExpectedAtomStr, DistBindAddr).
+
+%% `PUT /configs?mode=merge` normalizes the submitted fragment as a partial
+%% document. An omitted field must stay omitted: its converter must neither
+%% crash on it nor make a value that the merge writes over the stored one.
+partial_merge_empty_roots_test() ->
+    Roots = [emqx_utils_conv:bin(Root) || Root <- get_roots(emqx_conf_schema)],
+    ?assertEqual(
+        [],
+        [
+            {Root, Result}
+         || Root <- Roots,
+            Result <- [normalize_partial(#{Root => #{}})],
+            not is_empty_root(Root, Result)
+        ]
+    ).
+
+partial_merge_connector_without_server_test_() ->
+    [
+        {Type, ?_assertMatch({ok, _}, normalize_partial(connector_fragment(Type)))}
+     || Type <- [<<"elasticsearch">>, <<"datalayers">>, <<"influxdb">>]
+    ].
+
+partial_merge_transformation_without_key_test() ->
+    Fragment = #{
+        <<"message_transformation">> => #{
+            <<"transformations">> => [
+                #{
+                    <<"name">> => <<"t">>,
+                    <<"topics">> => [<<"t/#">>],
+                    <<"operations">> => [#{<<"value">> => <<"1">>}]
+                }
+            ]
+        }
+    },
+    ?assertMatch({ok, _}, normalize_partial(Fragment)).
+
+connector_fragment(Type) ->
+    #{<<"connectors">> => #{Type => #{<<"c">> => #{<<"enable">> => false}}}}.
+
+is_empty_root(Root, {ok, Normalized}) ->
+    case maps:get(Root, Normalized) of
+        #{} = Conf -> map_size(Conf) =:= 0;
+        %% An array root, for which `#{}` is no fragment.
+        Conf -> is_list(Conf)
+    end;
+is_empty_root(_Root, _Result) ->
+    false.
+
+%% Same options as `emqx_config:normalize_raw_conf/1`.
+normalize_partial(Fragment) ->
+    Opts = #{partial => true, make_serializable => true},
+    try hocon_tconf:check_plain(emqx_conf_schema, Fragment, Opts, maps:keys(Fragment)) of
+        Normalized -> {ok, Normalized}
+    catch
+        throw:{_SchemaMod, Errors} -> {error, Errors}
+    end.

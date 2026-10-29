@@ -654,8 +654,8 @@ t_clientinfo_override_with_empty_clientid(Config) ->
     ok = emqx_nats_client:connect(Client),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
 
-    wait_for_client_info(Config),
-    [ClientInfo] = find_client_by_username(<<"test_user">>),
+    %% The gateway registers the client after CONNECT asynchronously.
+    [ClientInfo] = ?retry(100, 50, [_] = find_client_by_username(<<"test_user">>)),
     ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
     ?assertNotEqual(<<>>, maps:get(clientid, ClientInfo)),
 
@@ -677,8 +677,8 @@ t_clientinfo_override_with_prefix_and_empty_clientid(Config) ->
     ok = emqx_nats_client:connect(Client),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
 
-    wait_for_client_info(Config),
-    [ClientInfo] = find_client_by_username(<<"test_user">>),
+    %% The gateway registers the client after CONNECT asynchronously.
+    [ClientInfo] = ?retry(100, 50, [_] = find_client_by_username(<<"test_user">>)),
     ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
     ?assertEqual(<<"prefix-">>, maps:get(clientid, ClientInfo)),
 
@@ -689,6 +689,44 @@ t_schema_coverage(_Config) ->
     _ = emqx_nats_schema:fields(wss_listener),
     _ = emqx_nats_schema:desc(wss_listener),
     ok.
+
+-doc """
+A WebSocket gateway listener hands its `websocket.max_frame_size` to cowboy.
+A larger message closes the connection with status code 1009.
+""".
+t_ws_max_frame_size(_Config) ->
+    {ok, _} = application:ensure_all_started(gun),
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Listener = #{
+        <<"type">> => <<"ws">>,
+        <<"name">> => <<"default">>,
+        <<"bind">> => Port,
+        <<"websocket">> => #{<<"max_frame_size">> => 1024}
+    },
+    {ok, _} = emqx_gateway_conf:load_gateway(nats, nats_conf_list([Listener])),
+    try
+        {ok, ConnPid} = gun:open("127.0.0.1", Port, #{retry => 0}),
+        {ok, _} = gun:await_up(ConnPid, 5000),
+        StreamRef = gun:ws_upgrade(ConnPid, "/", [], #{protocols => [{<<"NATS">>, gun_ws_h}]}),
+        receive
+            {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], _} -> ok
+        after 5000 -> ct:fail(ws_upgrade_timeout)
+        end,
+        ok = gun:ws_send(ConnPid, StreamRef, {text, binary:copy(<<"a">>, 1025)}),
+        ?assertEqual(1009, await_ws_close_code(ConnPid, StreamRef)),
+        gun:close(ConnPid)
+    after
+        _ = emqx_gateway_conf:unload_gateway(nats)
+    end.
+
+%% Skip the frames the gateway sends before it closes the connection.
+await_ws_close_code(ConnPid, StreamRef) ->
+    receive
+        {gun_ws, ConnPid, StreamRef, {close, Code, _}} -> Code;
+        {gun_ws, ConnPid, StreamRef, _Frame} -> await_ws_close_code(ConnPid, StreamRef)
+    after 5000 ->
+        ct:fail(ws_close_timeout)
+    end.
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -779,13 +817,3 @@ find_client_by_username(Username) ->
         end,
         ClientInfos
     ).
-
-wait_for_client_info(Config) ->
-    case ?config(group_name, Config) of
-        ws ->
-            timer:sleep(1000);
-        wss ->
-            timer:sleep(1000);
-        _ ->
-            ok
-    end.

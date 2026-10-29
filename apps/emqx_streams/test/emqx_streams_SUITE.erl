@@ -241,6 +241,20 @@ t_message_db_delete_all(_Config) ->
     ?assertEqual([], emqx_streams_message_db:dirty_read_all(Stream)),
     ok.
 
+-doc "A stream handler retains no closures while waiting for the stream to appear.".
+t_handler_state_has_no_closures(_Config) ->
+    ClientId = <<"stream-handler-state">>,
+    C = emqx_streams_test_utils:emqtt_connect([{clientid, ClientId}]),
+    try
+        emqx_streams_test_utils:emqtt_sub(C, <<"$stream/handler-state">>, [
+            {<<"stream-offset">>, <<"earliest">>}
+        ]),
+        [ChanPid] = emqx_cm:lookup_channels(ClientId),
+        emqx_extsub_test_utils:assert_no_retained_functions(ChanPid)
+    after
+        emqtt:disconnect(C)
+    end.
+
 %% Verify reading stream messages from the earliest timestamp.
 t_read_earliest(Config) ->
     %% Create a stream
@@ -480,8 +494,7 @@ t_publish_and_consume_lastvalue(Config) ->
     %% Verify the messages
     ?assertEqual(10, length(Msgs)).
 
-%% Verify that the stream extsub stops consuming DS messages once there is
-%% a critical amount of unacked messages
+-doc "Backpressure defers stream acknowledgements as data and resumes delivery after ACKs.".
 t_backpressure(_Config) ->
     %% Set max_inflight to 0 to avoid nacking messages by the client's session
     emqx_config:put([mqtt, max_inflight], 0),
@@ -507,7 +520,8 @@ t_backpressure(_Config) ->
     emqx_streams_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
 
     %% Consume the messages from the stream
-    CSub = emqx_streams_test_utils:emqtt_connect([{auto_ack, false}]),
+    ClientId = <<"stream-backpressure">>,
+    CSub = emqx_streams_test_utils:emqtt_connect([{clientid, ClientId}, {auto_ack, false}]),
     emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_backpressure">>, [
         {<<"stream-offset">>, <<"earliest">>}
     ]),
@@ -527,6 +541,9 @@ t_backpressure(_Config) ->
         )
     ),
 
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    emqx_extsub_test_utils:assert_no_retained_functions(ChanPid),
+
     %% Acknowledge the messages
     ok = emqx_streams_test_utils:emqtt_ack(Msgs0),
 
@@ -543,6 +560,50 @@ t_backpressure(_Config) ->
 
     %% Clean up
     ok = emqtt:disconnect(CSub).
+
+-doc """
+After takeover, the client receives the inflight stream message again with its packet identifier.
+The new read from the `earliest` offset can send the message once more.
+Delivery continues after the client acknowledges all copies.
+""".
+t_session_transfer(_Config) ->
+    emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"transfer">>, topic_filter => <<"transfer/#">>, is_lastvalue => false
+    }),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"transfer/">>}),
+    Opts = [
+        {clientid, <<"stream-transfer">>},
+        {auto_ack, false},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 1000}}
+    ],
+
+    %% The first client receives the message and does not acknowledge it
+    COld = emqx_streams_test_utils:emqtt_connect(Opts),
+    true = unlink(COld),
+    emqx_streams_test_utils:emqtt_sub(COld, <<"$stream/transfer">>, [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
+    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 1, _Timeout0 = 3000),
+    [#{payload := Payload, packet_id := PacketId}] = Msgs0,
+
+    %% The second client takes over the session
+    CNew = emqx_streams_test_utils:emqtt_connect(Opts),
+    ?assertEqual(1, proplists:get_value(session_present, emqtt:info(CNew))),
+    {ok, Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 1500),
+    ?assertMatch([#{payload := Payload, packet_id := PacketId, dup := true} | _], Msgs1),
+    ?assertEqual([Payload], lists:usort([MsgPayload || #{payload := MsgPayload} <- Msgs1])),
+    ok = emqx_streams_test_utils:emqtt_ack(Msgs1),
+
+    %% New messages are delivered after the acknowledgements
+    emqx_streams_test_utils:populate(1, #{
+        topic_prefix => <<"transfer/">>, payload_prefix => <<"after-">>
+    }),
+    {ok, Msgs2} = emqx_streams_test_utils:emqtt_drain(_MinMsg2 = 1, _Timeout2 = 1500),
+    ?assertMatch([#{payload := <<"after-0">>}], Msgs2),
+
+    %% Clean up
+    ok = emqtt:disconnect(CNew).
 
 %% Verify that the stream is eventually found even if it is not present when
 %% subscribing
@@ -736,6 +797,26 @@ t_autocreate_stream(_Config) ->
 
     %% Verify that we receive all the messages
     {ok, _Msgs0} = emqx_streams_test_utils:emqtt_drain(20, 1000),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Verify that the default configuration does not automatically create streams
+t_autocreate_stream_disabled_by_default(_Config) ->
+    %% Take the `auto_create' settings straight from the schema defaults
+    #{<<"streams">> := #{<<"auto_create">> := AutoCreate}} =
+        emqx_config:fill_defaults(#{<<"streams">> => #{}}),
+    ?assertEqual(#{<<"regular">> => false, <<"lastvalue">> => false}, AutoCreate),
+    {ok, _} = emqx:update_config([streams, auto_create], AutoCreate),
+
+    %% Connect a client and subscribe to a non-existent stream
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    ok = emqx_streams_test_utils:emqtt_sub(CSub, [
+        <<"$stream/auto_create_default/a/#">>
+    ]),
+
+    %% Verify that no stream was automatically created
+    ?assertEqual([], emqx_utils_stream:consume(emqx_streams_registry:list())),
 
     %% Clean up
     ok = emqtt:disconnect(CSub).
@@ -949,16 +1030,16 @@ t_sub_restoration(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub1).
 
-%% Verify that only MQTT v5 clients are allowed to subscribe to streams
+-doc "MQTT 3.1 and 3.1.1 clients cannot subscribe to streams.".
 t_allow_only_mqtt_v5(_Config) ->
-    %% Connect a client and subscribe to a queue
-    {ok, CSub} = emqtt:start_link([{proto_ver, v3}]),
+    lists:foreach(fun reject_legacy_protocol/1, [v3, v4]).
+
+reject_legacy_protocol(ProtoVer) ->
+    {ok, CSub} = emqtt:start_link([{proto_ver, ProtoVer}]),
     {ok, _} = emqtt:connect(CSub),
 
-    %% Try to subscribe to a queue with MQTT v3
     {ok, _, [?RC_UNSPECIFIED_ERROR]} = emqtt:subscribe(CSub, {<<"$stream/some_stream/t/#">>, 1}),
 
-    %% Clean up
     ok = emqtt:disconnect(CSub).
 
 t_subscribe_unsubscribe_to_many_streams(_Config) ->

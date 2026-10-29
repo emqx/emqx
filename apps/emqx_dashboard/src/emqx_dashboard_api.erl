@@ -57,7 +57,7 @@ api_spec() ->
 %% API key auth is rejected at the minirest layer for these paths
 %% (security => [#{bearerAuth => []}] excludes basic auth). The scope
 %% map below applies to dashboard LOGIN users -- checked in
-%% emqx_dashboard_rbac:check_login_user_scopes/2.
+%% emqx_dashboard_rbac:check_login_user_scopes/3.
 %%
 %% ?SCOPE_PUBLIC marks paths that are intentionally unscoped:
 %%   * /login -- pre-login (security => []).
@@ -65,15 +65,15 @@ api_spec() ->
 %%   * /user_scopes -- static catalog endpoint, no tenant data.
 scopes() ->
     #{
-        <<"/login">> => ?SCOPE_PUBLIC,
-        <<"/login/challenge">> => ?SCOPE_PUBLIC,
-        <<"/login/verify">> => ?SCOPE_PUBLIC,
-        <<"/logout">> => ?SCOPE_PUBLIC,
-        <<"/user_scopes">> => ?SCOPE_PUBLIC,
-        <<"/users">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username/change_pwd">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username/mfa">> => ?SCOPE_MFA_MGMT
+        "/login" => ?SCOPE_PUBLIC,
+        "/login/challenge" => ?SCOPE_PUBLIC,
+        "/login/verify" => ?SCOPE_PUBLIC,
+        "/logout" => ?SCOPE_PUBLIC,
+        "/user_scopes" => ?SCOPE_PUBLIC,
+        "/users" => ?SCOPE_USER_MGMT,
+        "/users/:username" => ?SCOPE_USER_MGMT,
+        "/users/:username/change_pwd" => ?SCOPE_USER_MGMT,
+        "/users/:username/mfa" => ?SCOPE_MFA_MGMT
     }.
 
 paths() ->
@@ -450,7 +450,7 @@ login_enabled(post, Params) ->
         {ok, Result} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
             ok = emqx_dashboard_login_lock:reset(Username),
-            Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
+            Version = iolist_to_binary(emqx_dashboard:reported_version()),
             {200,
                 to_json_out(Result#{
                     version => Version,
@@ -838,17 +838,8 @@ change_mfa(delete, #{bindings := #{username := Username0}} = Req) ->
     case authorize_mfa_change(Req, Username, disable) of
         ok ->
             ByAdmin = caller_is_admin_acting_on_other(Req, Username),
-            case emqx_dashboard_admin:disable_mfa(Username, ByAdmin) of
-                ok ->
-                    ?SLOG(info, LogMeta#{result => success}),
-                    {204};
-                {error, <<"username_not_found">>} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-                    {404, ?USER_NOT_FOUND, <<"User not found">>};
-                {error, Reason} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-                    {400, ?BAD_REQUEST, Reason}
-            end;
+            Result = emqx_dashboard_admin:disable_mfa(Username, ByAdmin),
+            mfa_change_response(Result, LogMeta);
         {deny, Code, ErrCode, Msg} ->
             ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
             {Code, ErrCode, Msg}
@@ -860,21 +851,22 @@ change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req
     case authorize_mfa_change(Req, Username, setup) of
         ok ->
             ByAdmin = caller_is_admin_acting_on_other(Req, Username),
-            case emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin) of
-                ok ->
-                    ?SLOG(info, LogMeta#{result => success}),
-                    {204};
-                {error, <<"username_not_found">>} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-                    {404, ?USER_NOT_FOUND, <<"User not found">>};
-                {error, Reason} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-                    {400, ?BAD_REQUEST, Reason}
-            end;
+            Result = emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin),
+            mfa_change_response(Result, LogMeta);
         {deny, Code, ErrCode, Msg} ->
             ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
             {Code, ErrCode, Msg}
     end.
+
+mfa_change_response(ok, LogMeta) ->
+    ?SLOG(info, LogMeta#{result => success}),
+    {204};
+mfa_change_response({error, <<"username_not_found">>}, LogMeta) ->
+    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+    {404, ?USER_NOT_FOUND, <<"User not found">>};
+mfa_change_response({error, Reason}, LogMeta) ->
+    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+    {400, ?BAD_REQUEST, Reason}.
 
 register_unsuccessful_login(Username, <<"password_error">>) ->
     emqx_dashboard_login_lock:register_unsuccessful_login(Username);
@@ -1021,6 +1013,17 @@ validate_role_scope_compat(Role, Scopes) ->
                     {error,
                         iolist_to_binary([
                             <<"Namespaced administrators cannot hold scopes: ">>, Names
+                        ])}
+            end;
+        {ok, #{?namespace := Namespace}} when is_binary(Namespace) ->
+            case [S || S <- Scopes, not lists:member(S, ?NS_VIEWER_ALLOWED_SCOPES)] of
+                [] ->
+                    ok;
+                Forbidden ->
+                    Names = lists:join(<<", ">>, Forbidden),
+                    {error,
+                        iolist_to_binary([
+                            <<"Namespaced viewers cannot hold scopes: ">>, Names
                         ])}
             end;
         {ok, _} ->

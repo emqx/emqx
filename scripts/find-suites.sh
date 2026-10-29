@@ -4,7 +4,9 @@
 ## Otherwise this script tries to find all test/*_SUITE.erl files of then given app,
 ## file names are separated by comma for rebar3 ct's `--suite` option
 
-## If SUITEGROUP is set as M_N, it prints the Nth chunk of all suites.
+## If SUITEGROUP is set as M_N, it prints group M of N groups.
+## Suites are dealt to groups round-robin in sorted order:
+## group M gets the suites at positions M, M+N, M+2N, ...
 ## SUITEGROUP default value is 1_1
 
 set -euo pipefail
@@ -75,9 +77,9 @@ fi
 TESTDIR="$DIR/test"
 INTEGRATION_TESTDIR="$DIR/integration_test"
 # Get the output of the find command
-IFS=$'\n' read -r -d '' -a FILES < <(find "${TESTDIR}" -name "*_SUITE.erl" 2>/dev/null | sort && printf '\0')
+IFS=$'\n' read -r -d '' -a FILES < <(find "${TESTDIR}" -name "*_SUITE.erl" 2>/dev/null | LC_ALL=C sort && printf '\0')
 if [[ -d "${INTEGRATION_TESTDIR}" ]]; then
-  IFS=$'\n' read -r -d '' -a FILES_INTEGRATION < <(find "${INTEGRATION_TESTDIR}" -name "*_SUITE.erl" 2>/dev/null | sort && printf '\0')
+  IFS=$'\n' read -r -d '' -a FILES_INTEGRATION < <(find "${INTEGRATION_TESTDIR}" -name "*_SUITE.erl" 2>/dev/null | LC_ALL=C sort && printf '\0')
 fi
 # shellcheck disable=SC2206
 FILES+=(${FILES_INTEGRATION:-})
@@ -94,22 +96,16 @@ if (( SUITEGROUP > SUITEGROUP_COUNT )); then
     exit 1
 fi
 
-# Calculate the number of files per group
-FILES_PER_GROUP=$(( (FILE_COUNT + SUITEGROUP_COUNT - 1) / SUITEGROUP_COUNT ))
-START_INDEX=$(( (SUITEGROUP - 1) * FILES_PER_GROUP ))
-END_INDEX=$(( START_INDEX + FILES_PER_GROUP ))
-
-# Print the desired suite group
+# Deal the suites round-robin, so that suites sharing a name prefix
+# land in different groups.
 sep=''
-for (( i=START_INDEX; i<END_INDEX; i++ )); do
-    if (( i < FILE_COUNT )); then
-        path="${FILES[$i]}"
-        if [[ "$RELATIVE_OUTPUT" == "1" ]]; then
-            path="${path#"${DIR}"/}"
-            path="${path#./}"
-        fi
-        echo -n "${sep}${path}"
-        sep=','
+for (( i = SUITEGROUP - 1; i < FILE_COUNT; i += SUITEGROUP_COUNT )); do
+    path="${FILES[$i]}"
+    if [[ "$RELATIVE_OUTPUT" == "1" ]]; then
+        path="${path#"${DIR}"/}"
+        path="${path#./}"
     fi
+    echo -n "${sep}${path}"
+    sep=','
 done
 echo

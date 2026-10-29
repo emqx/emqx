@@ -86,6 +86,7 @@
 -export([
     validate_heap_size/1,
     validate_max_packet_size/1,
+    validate_ws_max_frame_size/1,
     validate_non_negative_bytesize/1,
     convert_max_packet_size/2,
     user_lookup_fun_tr/2,
@@ -196,6 +197,8 @@
 %% that.
 -elvis([{elvis_style, export_used_types, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
+%% `to_atom/1' and `parse_user_lookup_fun/1' build atoms from configured strings.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 -define(BIT(Bits), (1 bsl (Bits))).
 -define(MAX_UINT(Bits), (?BIT(Bits) - 1)).
@@ -1052,6 +1055,7 @@ fields("ws_opts") ->
                 hoconsc:union([infinity, pos_integer()]),
                 #{
                     default => infinity,
+                    validator => fun ?MODULE:validate_ws_max_frame_size/1,
                     desc => ?DESC(fields_ws_opts_max_frame_size)
                 }
             )},
@@ -1184,12 +1188,29 @@ fields("tcp_opts") ->
                     desc => ?DESC(fields_tcp_opts_buffer)
                 }
             )},
+        {"buffer_retention_strategy",
+            sc(
+                hoconsc:enum([always, packet]),
+                #{
+                    default => <<"packet">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(fields_tcp_opts_buffer_retention_strategy)
+                }
+            )},
         {"high_watermark",
             sc(
                 bytesize(),
                 #{
                     default => <<"1MB">>,
                     desc => ?DESC(fields_tcp_opts_high_watermark)
+                }
+            )},
+        {"low_watermark",
+            sc(
+                bytesize(),
+                #{
+                    required => false,
+                    desc => ?DESC(fields_tcp_opts_low_watermark)
                 }
             )},
         {"nodelay",
@@ -1321,6 +1342,12 @@ fields("listener_quic_ssl_opts") ->
             case is_quic_ssl_opts(Name) of
                 true ->
                     {Name, Schema};
+                false when Name =:= "hibernate_after" ->
+                    {Name, Schema#{
+                        deprecated => {since, "6.3.3"},
+                        importance => ?IMPORTANCE_HIDDEN,
+                        desc => ?DESC(quic_ssl_opts_hibernate_after)
+                    }};
                 false ->
                     {Name, Schema#{
                         deprecated => {since, "5.0.20"}, importance => ?IMPORTANCE_HIDDEN
@@ -2563,11 +2590,11 @@ common_ssl_opts_schema(Defaults, Type) ->
         {"cacertfile",
             sc(
                 binary(),
-                #{
-                    default => cert_file("cacert.pem", Type),
+                cacertfile_validator(Type, #{
+                    default => cacertfile_default(Defaults, Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
-                }
+                })
             )},
         {"cacerts",
             sc(
@@ -3356,6 +3383,21 @@ validate_max_packet_size(Siz) when is_integer(Siz) ->
 validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
 
+-doc """
+Validate a WebSocket `max_frame_size`. An explicit value must not exceed the
+largest MQTT packet size. `infinity` selects the listener's default limit.
+""".
+validate_ws_max_frame_size(infinity) ->
+    ok;
+validate_ws_max_frame_size(Siz) when is_integer(Siz), Siz > 0, Siz =< ?MAX_INT_MQTT_PACKET_SIZE ->
+    ok;
+validate_ws_max_frame_size(_Siz) ->
+    {error, #{
+        cause => invalid_ws_max_frame_size,
+        minimum => 1,
+        maximum => ?MAX_INT_MQTT_PACKET_SIZE
+    }}.
+
 validate_non_negative_bytesize(Bytes) when is_integer(Bytes), Bytes >= 0 ->
     ok;
 validate_non_negative_bytesize(_Bytes) ->
@@ -3758,7 +3800,7 @@ do_parse_server(Str, Opts) ->
     NotExpectingPort = maps:get(no_port, Opts, false),
     DefaultScheme = maps:get(default_scheme, Opts, undefined),
     SupportedSchemes = maps:get(supported_schemes, Opts, []),
-    NotExpectingScheme = (not is_list(DefaultScheme)) andalso length(SupportedSchemes) =:= 0,
+    NotExpectingScheme = (not is_list(DefaultScheme)) andalso SupportedSchemes =:= [],
     case is_integer(DefaultPort) andalso NotExpectingPort of
         true ->
             %% either provide a default port from schema,
@@ -4013,8 +4055,7 @@ is_quic_ssl_opts(Name) ->
         "certfile",
         "keyfile",
         "verify",
-        "password",
-        "hibernate_after"
+        "password"
         %% Followings are planned
         %% , "fail_if_no_peer_cert"
         %% , "handshake_timeout"
@@ -4118,6 +4159,25 @@ ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
 
+%% A connector schema can set `cacertfile => system_default' in `Defaults'.
+cacertfile_default(#{cacertfile := system_default}, _Type) ->
+    ?CACERTFILE_SYSTEM_DEFAULT;
+cacertfile_default(#{cacertfile := CACertFile}, _Type) ->
+    CACertFile;
+cacertfile_default(#{}, Type) ->
+    cert_file("cacert.pem", Type).
+
+cacertfile_validator(client, Meta) ->
+    Meta;
+cacertfile_validator(server, Meta) ->
+    Meta#{validator => fun validate_server_cacertfile/1}.
+
+%% A listener that trusts every public CA would accept any publicly issued client certificate.
+validate_server_cacertfile(?CACERTFILE_SYSTEM_DEFAULT) ->
+    {error, "system_default is only allowed for TLS clients"};
+validate_server_cacertfile(_) ->
+    ok.
+
 cert_file(_File, client) ->
     undefined;
 cert_file(File, server) ->
@@ -4175,7 +4235,7 @@ convert_legacy_flapping_detect(Conf0) ->
     end.
 
 converted_by_clientid(Enable, LegacyParams) when
-    Enable =:= true; Enable =:= <<"true">>
+    Enable; Enable =:= <<"true">>
 ->
     LegacyParams;
 converted_by_clientid(_NotTrue, _LegacyParams) ->
@@ -4218,6 +4278,24 @@ mqtt_general() ->
                     validator => fun ?MODULE:validate_max_packet_size/1,
                     converter => fun ?MODULE:convert_max_packet_size/2,
                     desc => ?DESC(mqtt_max_packet_size)
+                }
+            )},
+        {"max_connect_packet_size",
+            sc(
+                bytesize(),
+                #{
+                    default => <<"1MB">>,
+                    validator => fun ?MODULE:validate_max_packet_size/1,
+                    converter => fun ?MODULE:convert_max_packet_size/2,
+                    desc => ?DESC(mqtt_max_connect_packet_size)
+                }
+            )},
+        {"max_connect_user_properties",
+            sc(
+                hoconsc:union([infinity, non_neg_integer()]),
+                #{
+                    default => 100,
+                    desc => ?DESC(mqtt_max_connect_user_properties)
                 }
             )},
         {"max_clientid_len",

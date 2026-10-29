@@ -18,6 +18,10 @@ swagger spec is now marked `deprecated`.
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_modules.hrl").
+
+%% The i18n description keys are built from a fixed set of metric names, not
+%% from user input, so binary_to_atom/2 cannot grow the atom table here.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -import(

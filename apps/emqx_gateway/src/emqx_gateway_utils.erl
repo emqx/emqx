@@ -65,7 +65,8 @@ Utility functions for EMQX gateway.
     init_gc_state/1,
     stats_timer/1,
     idle_timeout/1,
-    oom_policy/1
+    oom_policy/1,
+    ws_max_frame_size/1
 ]).
 
 -export([
@@ -84,7 +85,9 @@ Utility functions for EMQX gateway.
     max_mailbox_size => 32000
 }).
 
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([{elvis_style, no_god_modules, disable}]).
+%% `listener_id/3' builds an atom from configured names, so the atoms cannot exist up front.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
 
 -spec childspec(worker | supervisor, Mod :: atom()) ->
     supervisor:child_spec().
@@ -440,7 +443,7 @@ bin(L) when is_list(L); is_binary(L) ->
     iolist_to_binary(L).
 
 unix_ts_to_rfc3339(Keys, Map) when is_list(Keys) ->
-    lists:foldl(fun(K, Acc) -> unix_ts_to_rfc3339(K, Acc) end, Map, Keys);
+    lists:foldl(fun unix_ts_to_rfc3339/2, Map, Keys);
 unix_ts_to_rfc3339(Key, Map) ->
     case maps:get(Key, Map, undefined) of
         undefined ->
@@ -466,6 +469,18 @@ active_n(Options) ->
 -spec idle_timeout(map()) -> pos_integer().
 idle_timeout(Options) ->
     maps:get(idle_timeout, Options, ?DEFAULT_IDLE_TIMEOUT).
+
+-doc """
+Return the WebSocket message size limit for cowboy from the listener's
+`websocket.max_frame_size`. `infinity` selects the default limit, so cowboy
+always gets a finite limit.
+""".
+-spec ws_max_frame_size(map()) -> pos_integer().
+ws_max_frame_size(Options) ->
+    case emqx_utils_maps:deep_get([websocket, max_frame_size], Options, infinity) of
+        infinity -> ?DEFAULT_WS_MAX_FRAME_SIZE;
+        MaxFrameSize when is_integer(MaxFrameSize), MaxFrameSize > 0 -> MaxFrameSize
+    end.
 
 -spec ratelimit(map()) -> esockd_rate_limit:config() | undefined.
 ratelimit(Options) ->
@@ -527,7 +542,7 @@ find_gateway_definitions() ->
 
 do_find_gateway_definitions() ->
     lists:flatmap(
-        fun(AppModule) -> find_gateway_attrs(AppModule) end,
+        fun find_gateway_attrs/1,
         ?GATEWAY_APP_MODULES
     ).
 

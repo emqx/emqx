@@ -29,9 +29,18 @@ permissions:
 env:
   IS_CI: "yes"
 
+# Every job below sets `timeout-minutes: 30`.
+#
+# The slowest test job measured takes 18 minutes and the 90th percentile is
+# under 10, so 30 minutes is a wide margin. Without it a job inherits the
+# GitHub default of 360 minutes, and a hung suite holds a runner for hours.
+#
+# When a job that passes needs more than 30 minutes, split or refactor the
+# suite. Do not raise the limit.
 jobs:
   eunit_and_proper:
     if: inputs.ct-matrix != '[]'
+    timeout-minutes: 30
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "eunit_and_proper"
     strategy:
@@ -51,7 +60,7 @@ jobs:
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}
 
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.profile }}-test
 
@@ -66,7 +75,7 @@ jobs:
       - run: make proper
 
       # upload coverdata as artifact
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverdata-${{ matrix.profile }}-eunit-proper
           path: _build/${{ matrix.profile }}-test/cover/*.coverdata
@@ -75,6 +84,7 @@ jobs:
 
   ct_docker:
     if: inputs.ct-docker != '[]'
+    timeout-minutes: 30
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "${{ matrix.app }}-${{ matrix.suitegroup }}"
     strategy:
@@ -90,7 +100,7 @@ jobs:
       PROFILE: ${{ matrix.profile }}
 
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.profile }}-test
       - name: extract artifact
@@ -124,7 +134,7 @@ jobs:
         run: |
           docker exec -e PROFILE="$PROFILE" -t erlang make cover
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.suitegroup }}
           path: _build/${{ matrix.profile }}-test/cover/*.coverdata
@@ -135,7 +145,7 @@ jobs:
         if: failure()
         run: tar -czf logs.tar.gz _build/${{ matrix.profile }}-test/logs
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
@@ -145,6 +155,7 @@ jobs:
 
   ct:
     if: inputs.ct-host != '[]'
+    timeout-minutes: 30
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "${{ matrix.app }}-${{ matrix.suitegroup }}"
     strategy:
@@ -164,7 +175,7 @@ jobs:
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-sg${{ matrix.suitegroup }}
 
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.profile }}-test
       - name: extract artifact
@@ -172,11 +183,19 @@ jobs:
           unzip -o -q ${{ matrix.profile }}-test.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # The plugin CT suites install a prebuilt plugin package. Only the plugin
+      # apps read it, and the packages are small, so download them for every
+      # app in the matrix.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.profile }}-plugin-packages
+          path: _build/plugins
+
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
       - name: run common tests
         run: make "${{ matrix.app }}-ct"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.suitegroup }}
           path: _build/${{ matrix.profile }}-test/cover/*.coverdata
@@ -187,15 +206,18 @@ jobs:
         if: failure()
         run: tar -czf logs.tar.gz _build/${{ matrix.profile }}-test/logs
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
           path: logs.tar.gz
           compression-level: 0
           retention-days: 7
+  # note when syncing dev-62 -> dev-63: `ct_plugins` is supposed to be deleted, as each
+  # plugin is run independently like normal umbrella apps.
 
   pytest_boot_tests:
+    timeout-minutes: 30
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "pytest_boot_tests"
     strategy:
@@ -213,13 +235,23 @@ jobs:
       PROFILE: ${{ matrix.profile }}
 
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.profile }}-release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.profile }}-rel
       - name: extract artifact
         run: |
           unzip -o -q ${{ matrix.profile }}-release.zip
+          unzip -o -q ${{ matrix.profile }}-rel.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: verify release is present
+        run: |
+          if [ ! -x "_build/${PROFILE}/rel/emqx/bin/emqx" ]; then
+            echo "::error::_build/${PROFILE}/rel/emqx is missing from the downloaded artifacts"
+            exit 1
+          fi
       - name: install pytest
         run: |
           apt-get update && apt-get install -y python3-venv
@@ -234,6 +266,7 @@ jobs:
           su testuser -c "PROFILE=$PROFILE venv/bin/pytest scripts/test/test_emqx_boot.py -v -s"
 
   tests_passed:
+    timeout-minutes: 30
     needs:
       - eunit_and_proper
       - ct
@@ -249,7 +282,7 @@ jobs:
 
     steps:
       # download emqx-enterprise source code
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: emqx-enterprise-test
       - name: extract artifact
@@ -258,7 +291,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       # download coverdata artifacts
       - name: download coverdata
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: 'coverdata-*'
       - name: extract coverdata and move to _build/test/cover/
@@ -277,6 +310,6 @@ jobs:
         run: |
           ./scripts/cover-to-cobertura.escript -cover _build/test/cover -appname emqx -lookup apps
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

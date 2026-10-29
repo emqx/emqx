@@ -215,7 +215,7 @@ setting_peercert_infos(Peercert, ClientInfo) ->
 
 handle_in(
     Frame = ?CMD(?CMD_VIHECLE_LOGIN),
-    Channel
+    Channel = #channel{conn_state = idle}
 ) ->
     case
         emqx_utils:pipeline(
@@ -238,9 +238,26 @@ handle_in(
             log(warning, #{msg => "login_failed", reason => ReasonCode}, NChannel),
             shutdown(ReasonCode, NChannel)
     end;
+handle_in(Frame = ?CMD(?CMD_VIHECLE_LOGIN), Channel) ->
+    log(warning, #{msg => "unexpected_vehicle_login", frame => Frame}, Channel),
+    shutdown(protocol_error, Channel);
 handle_in(_Frame, Channel = #channel{conn_state = ConnState}) when
     ConnState =/= connected
 ->
+    shutdown(protocol_error, Channel);
+handle_in(
+    #frame{vin = Vin},
+    Channel = #channel{clientinfo = #{clientid := ClientId}}
+) when Vin =/= ClientId ->
+    log(
+        warning,
+        #{
+            msg => "frame_vin_mismatch",
+            frame_vin => Vin,
+            clientid => ClientId
+        },
+        Channel
+    ),
     shutdown(protocol_error, Channel);
 handle_in(Frame = ?CMD(?CMD_INFO_REPORT), Channel) ->
     _ = upstreaming(Frame, Channel),

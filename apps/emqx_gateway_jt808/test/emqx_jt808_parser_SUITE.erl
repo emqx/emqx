@@ -3003,3 +3003,28 @@ t_encoding_module_unit_tests(_Config) ->
         emqx_jt808_encoding:maybe_encode_string(AsciiStr, test_field, #{string_encoding => gbk})
     ),
     ok.
+
+%%--------------------------------------------------------------------
+%% Admission Limits
+%%--------------------------------------------------------------------
+
+-doc "A frame that exceeds frame.max_length is rejected while buffering.".
+t_frame_too_large_rejected(_Config) ->
+    Parser = emqx_jt808_frame:initial_parse_state(#{max_length => 32}),
+    Bin = <<16#7e, (binary:copy(<<0>>, 128))/binary>>,
+    ?assertError({frame_too_large, _}, emqx_jt808_frame:parse(Bin, Parser)).
+
+-doc "A frame within frame.max_length is still accepted.".
+t_frame_within_max_length_accepted(_Config) ->
+    Parser = emqx_jt808_frame:initial_parse_state(#{max_length => 1024}),
+    Bin = unknown_message_packet(),
+    {ok, _Packet, <<>>, _State} = emqx_jt808_frame:parse(Bin, Parser).
+
+-doc """
+Bytes before a frame header are discarded, not retained: a long run without a
+0x7e must leave the parser state empty.
+""".
+t_discarded_prefix_not_retained(_Config) ->
+    Parser = emqx_jt808_frame:initial_parse_state(#{max_length => 32}),
+    {more, State} = emqx_jt808_frame:parse(binary:copy(<<1>>, 4096), Parser),
+    ?assertEqual(<<>>, maps:get(data, State)).

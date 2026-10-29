@@ -1058,6 +1058,41 @@ t_authenticate_jwt_claim_projection_prefers_nats_permissions(_Config) ->
         maps:get(jwt_permissions, Result)
     ).
 
+t_authenticate_jwt_rejects_mqtt_reserved_subjects(_Config) ->
+    Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
+    Nonce = <<"nonce-jwt-unsupported-permissions">>,
+    lists:foreach(
+        fun(Subject) ->
+            JWT = build_test_jwt(#{
+                <<"nats">> => #{
+                    <<"sub">> => #{<<"deny">> => [Subject]},
+                    <<"type">> => <<"user">>,
+                    <<"version">> => 2
+                }
+            }),
+            ?assertEqual(
+                {error, {jwt, unsupported_jwt_permission_subject}},
+                emqx_nats_authn:authenticate(
+                    #{
+                        <<"jwt">> => JWT,
+                        <<"sig">> => nkey_sig(Nonce)
+                    },
+                    #{nkey_nonce => Nonce},
+                    #{username => undefined},
+                    Authn
+                )
+            )
+        end,
+        [
+            <<"foo.+">>,
+            <<"foo.#">>,
+            <<"foo/bar">>,
+            <<"$share.group.foo">>,
+            <<"$queue.foo">>,
+            <<"$exclusive.foo">>
+        ]
+    ).
+
 t_authenticate_jwt_missing_token_behavior(_Config) ->
     JWTOnlyAuthn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     ?assertEqual(

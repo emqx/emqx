@@ -46,8 +46,6 @@ done
 
 LANGUAGE='en'
 
-PROFILE="emqx-enterprise"
-
 TEMPLATE_VSN_HEADING="${TEMPLATE_VSN_HEADING:-<VSN-TAG>}"
 
 top_dir="$(git rev-parse --show-toplevel)"
@@ -83,14 +81,15 @@ section() {
     done
 }
 
-changes_dir=("$top_dir/changes/ce")
-if [ "$PROFILE" == "emqx-enterprise" ]; then
-    changes_dir+=("$top_dir/changes/ee")
-fi
+## changes/ce no longer exists, but its entries were moved to changes/ee.
+## Keep it in the pathspec so that rename detection reports a moved entry as R, not A.
+changes_dir=("$top_dir/changes/ce" "$top_dir/changes/ee")
 
+## capture first: a git diff failure inside a process substitution is not caught by set -e
+added_files="$(git diff --find-renames --diff-filter=A --name-only "tags/${BASE_TAG}...HEAD" -- "${changes_dir[@]}")"
 while read -r file; do
    PRS+=("$file")
-done < <(git diff --diff-filter=A --name-only "tags/${BASE_TAG}...HEAD" "${changes_dir[@]}")
+done <<< "$added_files"
 
 TEMPLATE_FEAT_CHANGES="$(section 'feat')"
 TEMPLATE_PERF_CHANGES="$(section 'perf')"

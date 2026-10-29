@@ -25,6 +25,8 @@
     running_status := running | stopped | loaded,
     config_status := enabled | disabled | not_configured,
     %% Optional fields
+    %% `true' when the name-vsn is listed in `node.pinned_plugins'
+    pinned => true,
     health_status => #{
         status := ok | error,
         message => binary()
@@ -87,11 +89,38 @@ populate_plugin_readme(_NameVsn, _Options, Info) ->
 
 populate_plugin_status(NameVsn, Info) ->
     RunningSt = emqx_plugins_apps:running_status(Info),
-    ConfSt = configured_status(NameVsn, configured()),
-    Info#{
-        running_status => RunningSt,
-        config_status => ConfSt
-    }.
+    case pinned_status(NameVsn) of
+        pinned ->
+            %% A pinned plugin is always enabled, whatever `plugins.states' holds.
+            Info#{
+                running_status => RunningSt,
+                config_status => enabled,
+                pinned => true
+            };
+        ignored ->
+            %% This node ignores `plugins.states' for another version of a pinned name.
+            Info#{
+                running_status => RunningSt,
+                config_status => not_configured
+            };
+        not_pinned ->
+            ConfSt = configured_status(NameVsn, configured()),
+            Info#{
+                running_status => RunningSt,
+                config_status => ConfSt
+            }
+    end.
+
+pinned_status(NameVsn) ->
+    case emqx_plugins_pinned:is_pinned_name_vsn(NameVsn) of
+        true ->
+            pinned;
+        false ->
+            case emqx_plugins_pinned:is_pinned(NameVsn) of
+                true -> ignored;
+                false -> not_pinned
+            end
+    end.
 
 populate_plugin_health_status(
     NameVsn, #{health_check := true} = _Options, #{running_status := running} = Info
@@ -123,9 +152,20 @@ check_plugin(
             try
                 %% assert
                 [_ | _] = Apps,
-                %% validate if the list is all <app>-<vsn> strings
+                %% Each entry names the directory of one of the package's
+                %% applications: it must be an `<app>-<vsn>' string -- the
+                %% version may carry characters which the plugin package
+                %% identifier syntax does not allow, `+' for example -- and a
+                %% single path component, so that the directory built from it
+                %% stays inside the plugin's installation directory.
                 lists:foreach(
-                    fun(App) -> _ = emqx_plugins_utils:parse_name_vsn(App) end, Apps
+                    fun(App) ->
+                        %% assert
+                        {AppName, _AppVsn} = emqx_plugins_utils:split_name_vsn(App),
+                        ok = validate_app_name(AppName),
+                        true = is_app_dir_entry(App)
+                    end,
+                    Apps
                 )
             catch
                 _:_ ->
@@ -152,6 +192,18 @@ check_plugin(PluginInfo, NameVsn) ->
         info => PluginInfo,
         path => emqx_plugins_fs:info_file_path(NameVsn)
     }}.
+
+%% Whether the entry is one directory name below the plugin's installation
+%% directory.  The path is resolved below a directory which does not exist, so
+%% that the check stays lexical.
+is_app_dir_entry(App) ->
+    emqx_plugins_utils:is_single_relative_component(App).
+
+%% The application name has to be an OTP application name.  Only the name part
+%% is validated: the version may carry characters which the plugin package
+%% identifier syntax does not allow, `+' for example.
+validate_app_name(AppName) ->
+    emqx_plugins_utils:validate_name_vsn(<<AppName/binary, "-">>).
 
 configured() ->
     configured(emqx_conf:get([?CONF_ROOT, states])).

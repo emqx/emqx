@@ -387,3 +387,52 @@ t_async_load_config_cli(Config) when is_list(Config) ->
     ct:timetrap(5_000),
     ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin, #{mode => merge})),
     ok.
+
+-doc """
+Loading a connector with `--merge` keeps the stored fields that the loaded
+connector omits, and applies the loaded fields. The loaded connector may
+omit required fields that the stored connector holds.
+""".
+t_merge_keeps_omitted_connector_fields({init, Config}) ->
+    mock_resource(),
+    Config;
+t_merge_keeps_omitted_connector_fields({'end', _Config}) ->
+    emqx_bridge_v2_testlib:delete_all_connectors(),
+    meck:unload(),
+    ok;
+t_merge_keeps_omitted_connector_fields(Config) when is_list(Config) ->
+    Type = <<"kafka_producer">>,
+    Name = <<"merge_keeps_omitted_fields">>,
+    Load = fun(Conf) ->
+        RawConf = #{<<"connectors">> => #{Type => #{Name => Conf}}},
+        Bin = iolist_to_binary(hocon_pp:do(RawConf, #{})),
+        emqx_conf_cli:load_config(?global_ns, Bin, #{mode => merge})
+    end,
+    #{<<"socket_opts">> := SocketOpts} = ConnectorConf = connector_config(),
+    %% Create the connector with two non-default values: `connect_timeout'
+    %% (default 5s) and the nested `socket_opts.sndbuf' (default 1MB).
+    ?assertMatch(
+        ok,
+        Load(ConnectorConf#{
+            <<"connect_timeout">> => <<"7s">>,
+            <<"socket_opts">> => SocketOpts#{<<"sndbuf">> => <<"512KB">>}
+        })
+    ),
+    %% Merge a fragment that sets only `description'. It omits the two
+    %% non-default values above and the required `bootstrap_hosts'.
+    ?assertMatch(
+        ok,
+        Load(#{<<"description">> => <<"merged">>})
+    ),
+    %% The omitted fields keep their stored values, including the nested
+    %% one; the merged field is applied.
+    ?assertMatch(
+        #{
+            <<"bootstrap_hosts">> := <<"127.0.0.1:9092">>,
+            <<"connect_timeout">> := <<"7s">>,
+            <<"socket_opts">> := #{<<"sndbuf">> := <<"512KB">>},
+            <<"description">> := <<"merged">>
+        },
+        emqx_conf:get_raw([connectors, Type, Name])
+    ),
+    ok.
