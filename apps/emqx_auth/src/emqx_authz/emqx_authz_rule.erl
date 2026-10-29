@@ -62,8 +62,7 @@
 -type retain_condition() :: retain() | all.
 
 -type topic_condition() :: list(
-    emqx_types:topic()
-    | emqx_types:words()
+    emqx_types:words()
     | {eq, emqx_types:topic()}
     | {pattern, emqx_template:t()}
     | ?ALL_TOPICS
@@ -333,13 +332,12 @@ compile_topic(Topic) ->
         false -> {pattern, Template}
     end.
 
-%% A filter without a + or # byte matches only the same topic, so it stays a binary and the
-%% check compares it with the topic. A filter with a wildcard is split here, and the check
-%% matches it against the words of the topic.
+%% A filter without a + or # byte matches only the same topic, so it becomes an eq filter. A
+%% filter with a wildcard is split here, and the check matches it against the words of the topic.
 compile_const_topic(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true -> emqx_topic:words(Topic);
-        false -> Topic
+        false -> {eq, Topic}
     end.
 
 bin(A) when is_atom(A) ->
@@ -512,8 +510,6 @@ match_topics(AuthzContext, Topic, Words, [{pattern, PatternFilter} | Filters]) -
     match_or_next(Matched, AuthzContext, Topic, Words, Filters);
 match_topics(AuthzContext, Topic, Words, [{eq, TopicFilter} | Filters]) ->
     match_or_next(Topic =:= TopicFilter, AuthzContext, Topic, Words, Filters);
-match_topics(AuthzContext, InputTopic, Words, [RuleTopic | Filters]) when is_binary(RuleTopic) ->
-    match_or_next(InputTopic =:= RuleTopic, AuthzContext, InputTopic, Words, Filters);
 match_topics(AuthzContext, Topic, undefined, [FilterWords | Filters]) ->
     case first_level_matches(Topic, FilterWords) of
         true ->

@@ -73,9 +73,11 @@ t_compile(_) ->
         emqx_authz_rule:compile({allow, {ipaddr, "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]})
     ),
 
-    %% A filter with a wildcard is split, a filter without one stays a binary.
+    %% A filter with a wildcard is split, a filter without one becomes an eq filter.
     ?assertEqual(
-        {allow, all, all, [[<<"a">>, '+', <<"b">>], [<<"a">>, '#'], <<"a/b">>, {eq, <<"a/#">>}]},
+        {allow, all, all, [
+            [<<"a">>, '+', <<"b">>], [<<"a">>, '#'], {eq, <<"a/b">>}, {eq, <<"a/#">>}
+        ]},
         emqx_authz_rule:compile({allow, all, all, ["a/+/b", "a/#", "a/b", {eq, "a/#"}]})
     ),
 
@@ -93,7 +95,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {'and', [{clientid, {eq, <<"test">>}}, {username, {eq, <<"test">>}}]}, publish, [
-            <<"topic/test">>
+            {eq, <<"topic/test">>}
         ]},
         emqx_authz_rule:compile(
             {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}
@@ -128,7 +130,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}},
-            #{action_type => publish, qos => [0, 1, 2], retain => all}, [<<"topic/test">>]},
+            #{action_type => publish, qos => [0, 1, 2], retain => all}, [{eq, <<"topic/test">>}]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {publish, [{retain, all}]}, ["topic/test"]}
         )
@@ -137,7 +139,7 @@ t_compile(_) ->
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, #{action_type => publish, qos => [1], retain => true},
             [
-                <<"topic/test">>
+                {eq, <<"topic/test">>}
             ]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {publish, [{qos, 1}, {retain, true}]}, ["topic/test"]}
@@ -146,7 +148,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, #{action_type => subscribe, qos => [1, 2]}, [
-            <<"topic/test">>
+            {eq, <<"topic/test">>}
         ]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {subscribe, [{qos, 1}, {qos, 2}]}, ["topic/test"]}
@@ -155,7 +157,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, #{action_type => subscribe, qos => [1]}, [
-            <<"topic/test">>
+            {eq, <<"topic/test">>}
         ]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {subscribe, [{qos, 1}]}, ["topic/test"]}
@@ -164,7 +166,7 @@ t_compile(_) ->
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, #{action_type => all, qos => [2], retain => true}, [
-            <<"topic/test">>
+            {eq, <<"topic/test">>}
         ]},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
@@ -172,14 +174,14 @@ t_compile(_) ->
     ),
 
     ?assertEqual(
-        {allow, {client_attr, <<"a1">>, {eq, <<"v1">>}}, all, [<<"topic/test">>]},
+        {allow, {client_attr, <<"a1">>, {eq, <<"v1">>}}, all, [{eq, <<"topic/test">>}]},
         emqx_authz_rule:compile(
             {allow, {client_attr, "a1", "v1"}, all, ["topic/test"]}
         )
     ),
 
     ?assertMatch(
-        {allow, {client_attr, <<"a2">>, {re_pattern, _, _, _, _}}, all, [<<"topic/test">>]},
+        {allow, {client_attr, <<"a2">>, {re_pattern, _, _, _, _}}, all, [{eq, <<"topic/test">>}]},
         emqx_authz_rule:compile(
             {allow, {client_attr, "a2", {re, "v2.*"}}, all, ["topic/test"]}
         )
