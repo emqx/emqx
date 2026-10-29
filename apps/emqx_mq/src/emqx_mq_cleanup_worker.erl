@@ -164,11 +164,10 @@ retry(Shard, Work, Reason) ->
     ?tp(warning, mq_cleanup_retry, #{shard => Shard, reason => Reason}),
     ensure_timer(Shard, ?MODULE:retry_interval(), Work).
 
-%% Keep a pending timer.
-ensure_timer(Shard, Delay, #{timer := undefined} = Work) ->
-    Work#{timer := emqx_utils:start_timer(Delay, {work, Shard})};
-ensure_timer(_Shard, _Delay, Work) ->
-    Work.
+%% Cancel any pending timer before starting a new one.
+ensure_timer(Shard, Delay, #{timer := Timer} = Work) ->
+    ok = emqx_utils:cancel_timer(Timer),
+    Work#{timer := emqx_utils:start_timer(Delay, {work, Shard})}.
 
 %% Also remove the timeout message of a timer that already fired.
 cancel_timer(#{timer := TRef} = Work) ->
