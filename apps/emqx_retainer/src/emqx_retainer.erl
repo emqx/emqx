@@ -222,7 +222,10 @@ page_read(Topic, Deadline, Page, Limit) ->
 match_messages(TopicFilter, Cursor, Opts) ->
     emqx_retainer:with_backend(
         fun(Mod, State) ->
-            Mod:match_messages(State, TopicFilter, Cursor, Opts)
+            {ok, Messages, NextCursor, _ReadCost} = Mod:match_messages(
+                State, TopicFilter, Cursor, Opts
+            ),
+            {ok, Messages, NextCursor}
         end,
         {error, no_backend}
     ).
