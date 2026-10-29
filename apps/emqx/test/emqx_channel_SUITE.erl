@@ -1474,6 +1474,11 @@ t_handle_info_sock_closed(_) ->
     Channel = channel(#{conn_state => disconnected}),
     {ok, Channel} = emqx_channel:handle_info({sock_closed, reason}, Channel).
 
+-doc "Checks that an info message without delivers does not run the delivery path.".
+t_handle_info_no_delivers(_) ->
+    Channel = channel(#{conn_state => disconnected}),
+    ?assertEqual({ok, Channel}, emqx_channel:handle_info(unknown_info, Channel)).
+
 %%--------------------------------------------------------------------
 %% Test cases for handle_timeout
 %%--------------------------------------------------------------------

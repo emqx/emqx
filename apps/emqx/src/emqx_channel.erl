@@ -2113,13 +2113,7 @@ handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInf
         Acc = run_fold_with_context('client.handle_info', [ClientInfo, Info], Acc0, Channel1),
         HookDelivers = maps:get(deliver, Acc, []),
         HookReplies = maps:get(replies, Acc, []),
-        {AllReplies, Channel} =
-            case handle_deliver(HookDelivers, Channel1) of
-                {ok, Channel2} ->
-                    {HookReplies, Channel2};
-                {ok, DeliverReplies, Channel2} ->
-                    {append_replies(DeliverReplies, HookReplies), Channel2}
-            end,
+        {AllReplies, Channel} = handle_info_deliver(HookDelivers, HookReplies, Channel1),
         case AllReplies of
             [] ->
                 {ok, Channel};
@@ -2140,6 +2134,17 @@ shutdown_on_session_request(Reason, Session, Channel) ->
             {shutdown, ExitReason, Packet, SChannel};
         {shutdown, ExitReason, _Reply, SChannel} ->
             {shutdown, ExitReason, SChannel}
+    end.
+
+%% Hook callbacks often handle an info message without delivering anything.
+handle_info_deliver([], Replies, Channel) ->
+    {Replies, Channel};
+handle_info_deliver(Delivers, Replies, Channel0) ->
+    case handle_deliver(Delivers, Channel0) of
+        {ok, Channel} ->
+            {Replies, Channel};
+        {ok, DeliverReplies, Channel} ->
+            {append_replies(DeliverReplies, Replies), Channel}
     end.
 
 append_replies(Replies1, Replies2) ->
