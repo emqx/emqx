@@ -4,7 +4,7 @@ postgresql.desc:
 """Configuration of authenticator using PostgreSQL as authentication data source."""
 
 query.desc:
-"""SQL used to query data for authentication, such as password hash."""
+"""SQL used to query data for authentication, such as password hash. The query must only read data. EMQX rejects a query that changes data, for example with `INSERT`, `UPDATE` or `DELETE`, and a query that has more than one SQL statement."""
 
 query.label:
 """Query"""

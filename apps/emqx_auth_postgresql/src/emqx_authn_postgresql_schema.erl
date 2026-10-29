@@ -51,6 +51,7 @@ desc(_) ->
 query(type) -> string();
 query(desc) -> ?DESC(?FUNCTION_NAME);
 query(required) -> true;
+query(validator) -> fun(Query) -> emqx_auth_sql:validate_read_only(Query, pgsql) end;
 query(_) -> undefined.
 
 refs() ->

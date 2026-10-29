@@ -61,6 +61,7 @@ query_fields() ->
 query(type) -> binary();
 query(desc) -> ?DESC(?FUNCTION_NAME);
 query(required) -> true;
+query(validator) -> fun(Query) -> emqx_auth_sql:validate_read_only(Query, mysql) end;
 query(_) -> undefined.
 
 query_timeout(type) -> emqx_schema:duration_ms();
