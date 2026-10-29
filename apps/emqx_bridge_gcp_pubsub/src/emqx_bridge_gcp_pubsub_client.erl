@@ -577,7 +577,7 @@ prepare_wif_worker_spec(ResourceId, Tab, Config) ->
     emqx_bridge_gcp_pubsub_auth_wif_worker:child_spec(ResourceId, Opts).
 
 prepare_wif_worker_steps(
-    #{authentication := #{type := wif} = AuthConfig} = Config, ResourceId, Tab
+    #{authentication := #{type := wif} = AuthConfig}, ResourceId, Tab
 ) ->
     #{
         initial_token := InitialTokenConfig,
@@ -586,8 +586,11 @@ prepare_wif_worker_steps(
         gcp_wif_pool_id := WIFPoolId,
         gcp_wif_pool_provider_id := WIFPoolProviderId
     } = AuthConfig,
-    #{ssl := SSLOpts0} = Config,
-    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
+    SSLOpts = emqx_tls_lib:to_client_opts(#{
+        enable => true,
+        verify => verify_peer,
+        cacertfile => ~"system_default"
+    }),
     Step1Name = initial_token,
     Step1 = prepare_initial_step(Step1Name, InitialTokenConfig),
     Step2Name = gcp_access_token,
