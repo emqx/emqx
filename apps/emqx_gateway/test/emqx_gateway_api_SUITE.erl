@@ -196,26 +196,29 @@ t_gateway_websocket_schema(_) ->
         fun({GwName, Defaults}) ->
             lists:foreach(
                 fun(Type) ->
-                    lists:foreach(
-                        fun(Overrides) ->
-                            assert_websocket_schema(GwName, Type, Overrides, Defaults)
-                        end,
-                        [
-                            undefined,
-                            #{},
-                            #{path => <<"/custom">>},
-                            #{supported_subprotocols => <<>>},
-                            #{
-                                supported_subprotocols => <<"custom.v1, custom.v2">>,
-                                fail_if_no_subprotocol => true
-                            }
-                        ]
-                    )
+                    assert_websocket_schema_overrides(GwName, Type, Defaults)
                 end,
                 [ws, wss]
             )
         end,
         websocket_gateway_defaults()
+    ).
+
+assert_websocket_schema_overrides(GwName, Type, Defaults) ->
+    lists:foreach(
+        fun(Overrides) ->
+            assert_websocket_schema(GwName, Type, Overrides, Defaults)
+        end,
+        [
+            undefined,
+            #{},
+            #{path => <<"/custom">>},
+            #{supported_subprotocols => <<>>},
+            #{
+                supported_subprotocols => <<"custom.v1, custom.v2">>,
+                fail_if_no_subprotocol => true
+            }
+        ]
     ).
 
 assert_websocket_schema(GwName, Type, Overrides, Defaults) ->
