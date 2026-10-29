@@ -136,6 +136,8 @@ topic_config(T) ->
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
+    ok = meck:unload(emqx_schema),
+    ok = meck:unload(emqx_resource),
     ok.
 
 t_auto_subscribe(_) ->

@@ -3426,6 +3426,7 @@ ensure_connected(
     inc_metrics('client.connected', Channel),
     emqx_hooks:'client.connected'(ClientInfo, NConnInfo),
     schedule_connection_auth_expire(Channel#channel{
+        clientinfo = maps:remove(auto_subscribe, ClientInfo),
         conninfo = trim_conninfo(NConnInfo),
         conn_state = connected
     }).
