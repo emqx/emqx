@@ -152,13 +152,16 @@ dispatch(#{queue := Queue0} = State0, N) ->
 %% Pay for the previous read, then read. A worker can exceed the limit by one batch.
 %% Read the settings for each request: workers restart before a config update is saved.
 serve(Request, State) ->
-    serve(Request, limiter_capacity(), State).
+    #{batch_read_number := BatchReadNumber, batch_deliver_limiter := Limiter} =
+        emqx_config:get([retainer, flow_control]),
+    Capacity = limiter_capacity(Limiter),
+    serve(Request, Capacity, batch_size(BatchReadNumber, Capacity), State).
 
-serve(Request, infinity, State) ->
-    read(Request, batch_size(infinity), State);
-serve(Request, Capacity, #{next_demand := 0} = State) ->
-    read(Request, batch_size(Capacity), State);
-serve(#fetch{topic = Topic} = Request, Capacity, State0) ->
+serve(Request, infinity, BatchSize, State) ->
+    read(Request, BatchSize, State);
+serve(Request, _Capacity, BatchSize, #{next_demand := 0} = State) ->
+    read(Request, BatchSize, State);
+serve(#fetch{topic = Topic} = Request, Capacity, BatchSize, State0) ->
     #{limiter := Limiter0, next_demand := Demand} = State0,
     %% An amount above the capacity succeeds only after the shared bucket is idle for more
     %% than one interval, and other workers can prevent that. Pay in parts of at most half
@@ -166,7 +169,9 @@ serve(#fetch{topic = Topic} = Request, Capacity, State0) ->
     Amount = max(1, min(Capacity div 2, Demand)),
     case emqx_limiter_client:try_consume(Limiter0, Amount) of
         {true, Limiter} ->
-            serve(Request, Capacity, State0#{limiter := Limiter, next_demand := Demand - Amount});
+            serve(Request, Capacity, BatchSize, State0#{
+                limiter := Limiter, next_demand := Demand - Amount
+            });
         {false, Limiter, Reason} ->
             ?tp(retained_fetch_rate_limit_exceeded, #{topic => Topic}),
             ?SLOG_THROTTLE(
@@ -229,10 +234,11 @@ do_read_batch(Topic, Cursor0, BatchSize) ->
     end.
 
 %% Limit each worker's read to its share of the limiter capacity.
-batch_size(Capacity) ->
+%% `batch_read_number = 0' reads all remaining messages, which is capped at the default.
+batch_size(BatchReadNumber, Capacity) ->
     MaxBatchSize =
-        case emqx_retainer:batch_read_number() of
-            all_remaining -> ?DEFAULT_BATCH_SIZE;
+        case BatchReadNumber of
+            0 -> ?DEFAULT_BATCH_SIZE;
             N -> N
         end,
     case Capacity of
@@ -243,8 +249,7 @@ batch_size(Capacity) ->
             min(MaxBatchSize, max(?MIN_BATCH_SIZE, Share))
     end.
 
-limiter_capacity() ->
-    case emqx_config:get([retainer, flow_control, batch_deliver_limiter]) of
-        infinity -> infinity;
-        {Capacity, _Interval} -> Capacity
-    end.
+limiter_capacity(infinity) ->
+    infinity;
+limiter_capacity({Capacity, _Interval}) ->
+    Capacity.
