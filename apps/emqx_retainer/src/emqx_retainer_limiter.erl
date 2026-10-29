@@ -9,7 +9,7 @@
 -export([
     create/0,
     delete/0,
-    update/0
+    update/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -18,29 +18,28 @@
 
 -spec create() -> ok | {error, term()}.
 create() ->
-    emqx_limiter:create_group(shared, ?RETAINER_LIMITER_GROUP, limiter_configs()).
+    RetainerConf = emqx:get_config([retainer]),
+    emqx_limiter:create_group(shared, ?RETAINER_LIMITER_GROUP, limiter_configs(RetainerConf)).
 
 -spec delete() -> ok | {error, term()}.
 delete() ->
     emqx_limiter:delete_group(?RETAINER_LIMITER_GROUP).
 
--spec update() -> ok.
-update() ->
-    emqx_limiter:update_group(?RETAINER_LIMITER_GROUP, limiter_configs()).
+-doc """
+Apply the rates in `RetainerConf`. `post_config_update` calls this before
+the new config is saved, so do not read the global config here.
+""".
+-spec update(emqx_config:config()) -> ok.
+update(RetainerConf) ->
+    emqx_limiter:update_group(?RETAINER_LIMITER_GROUP, limiter_configs(RetainerConf)).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-limiter_configs() ->
-    DispatcherLimiterConfig =
-        case emqx:get_config([retainer, flow_control, batch_deliver_limiter], infinity) of
-            infinity ->
-                emqx_limiter:config_unlimited();
-            Rate ->
-                emqx_limiter:config_from_rate(Rate)
-        end,
-    PublisherLimiterConfig = emqx_limiter:config(max_publish, emqx_config:get([retainer])),
+limiter_configs(#{flow_control := #{batch_deliver_limiter := DeliverRate}} = RetainerConf) ->
+    DispatcherLimiterConfig = emqx_limiter:config_from_rate(DeliverRate),
+    PublisherLimiterConfig = emqx_limiter:config(max_publish, RetainerConf),
     [
         {?DISPATCHER_LIMITER_NAME, DispatcherLimiterConfig},
         {?PUBLISHER_LIMITER_NAME, PublisherLimiterConfig}
