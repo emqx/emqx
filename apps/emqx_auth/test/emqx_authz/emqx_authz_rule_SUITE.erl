@@ -863,9 +863,9 @@ t_matches(_) ->
         )
     ).
 
-%% Rules split only the filters with a wildcard, never the topic, and match rendered filters
-%% as binaries. The result must be the same as the word matching that split every filter and
-%% the topic.
+%% Rules split only the filters with a wildcard, split the topic at most once, and match
+%% rendered filters as binaries. The result must be the same as the word matching that split
+%% every filter and the topic.
 t_topic_match_same_as_words(_) ->
     %% A rendered filter that ends with # and a topic with a # level that is not the last
     %% level: the words do not match, so the binaries do not match either.
@@ -890,6 +890,44 @@ t_topic_match_same_as_words(_) ->
                     ?WHENFAIL(
                         ct:pal("topic: ~0p~nfilter: ~0p~nnew: ~0p~nold: ~0p", [
                             Topic, Filter, New, Old
+                        ]),
+                        New =:= Old
+                    )
+                end
+            ),
+            [{numtests, 20000}, {to_file, user}]
+        )
+    ).
+
+%% The next rule uses the words of the topic that a rule before it has split.
+t_topic_matches_same_as_words(_) ->
+    ?assert(
+        proper:quickcheck(
+            ?FORALL(
+                {Topic, Filter1, Filter2, Username},
+                {
+                    topic_gen(),
+                    topic_filter_gen(),
+                    topic_filter_gen(),
+                    oneof([<<"a">>, <<"$SYS">>, <<"u">>])
+                },
+                begin
+                    ClientInfo = client_info(#{username => Username}),
+                    Rules = [
+                        emqx_authz_rule:compile({deny, all, all, [Filter1]}),
+                        emqx_authz_rule:compile({allow, all, all, [Filter2]})
+                    ],
+                    New = emqx_authz_rule:matches(
+                        ClientInfo, #{action_type => subscribe, qos => 0}, Topic, Rules
+                    ),
+                    Old =
+                        case word_match(Topic, Filter1, Username) of
+                            {matched, allow} -> {matched, deny};
+                            nomatch -> word_match(Topic, Filter2, Username)
+                        end,
+                    ?WHENFAIL(
+                        ct:pal("topic: ~0p~nfilters: ~0p~nnew: ~0p~nold: ~0p", [
+                            Topic, [Filter1, Filter2], New, Old
                         ]),
                         New =:= Old
                     )
