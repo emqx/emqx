@@ -265,6 +265,62 @@ t_prop_edgecase(Config) ->
     _ = [M:insert(F, N, <<>>, Tab) || {N, F} <- Filters],
     ?assertMatch([2], [id(X) || X <- matches(M, Topic, Tab, [unique])]).
 
+%% Compare binary traversal with the independent topic matcher, including empty
+%% levels, ordering boundaries, UTF-8, long literals and wildcard backtracking.
+t_binary_topic_search(Config) ->
+    M = get_module(Config),
+    Tab = M:new(),
+    Levels = [<<>>, <<"a">>, <<"aa">>, <<"b">>, <<"$sys">>, <<195, 169>>, <<"abcdefghijk">>],
+    Topics = (Levels -- [<<>>]) ++ [<<A/binary, "/", B/binary>> || A <- Levels, B <- Levels],
+    Filters = lists:usort(
+        Topics ++ [<<"#">>, <<"+">>, <<"+/+">>, <<"+/#">>] ++
+            lists:append([
+                [<<A/binary, "/#">>, <<A/binary, "/+">>, <<"+/", A/binary>>]
+             || A <- Levels
+            ])
+    ),
+    Entries = lists:enumerate(Filters),
+    lists:foreach(fun({ID, F}) -> M:insert(F, ID, [], Tab) end, Entries),
+    lists:foreach(
+        fun(T) ->
+            Expected = lists:sort([ID || {ID, F} <- Entries, emqx_topic:match(T, F)]),
+            ?assertEqual(Expected, lists:sort([id(K) || K <- matches(M, T, Tab)])),
+            ?assertEqual(Expected, lists:sort([id(K) || K <- matches(M, T, Tab, [unique])]))
+        end,
+        Topics ++ [<<"a//b/">>, <<"a/aa/b">>, <<"abcdefghijk/abcdefghijk/">>]
+    ).
+
+%% Exercise delimiter scanning across seven-byte boundaries with valid ASCII
+%% and multibyte UTF-8 topic names.
+t_binary_topic_scans(Config) ->
+    M = get_module(Config),
+    Tab = M:new(),
+    M:insert(<<"+/#">>, plus, [], Tab),
+    M:insert(<<"#">>, hash, [], Tab),
+    lists:foreach(
+        fun({C, N}) ->
+            Padding = binary:copy(<<"a">>, N),
+            Topic = <<Padding/binary, C/utf8, "z/tail">>,
+            Expected = lists:sort([
+                ID
+             || {ID, F} <- [{plus, <<"+/#">>}, {hash, <<"#">>}],
+                emqx_topic:match(Topic, F)
+            ]),
+            ?assertEqual(Expected, lists:sort([id(K) || K <- matches(M, Topic, Tab)]))
+        end,
+        [{C, N} || C <- lists:seq(1, 127) -- "+#", N <- lists:seq(0, 13)] ++
+            [{C, N} || C <- [16#E9, 16#20AC, 16#1F642], N <- lists:seq(0, 13)]
+    ).
+
+%% Durable-storage end-of-stream notification uses a parsed wildcard query to
+%% find all waiting subscriptions. The binary-topic precondition does not apply.
+t_parsed_wildcard_query(Config) ->
+    M = get_module(Config),
+    Tab = M:new(),
+    M:insert(<<"a/+">>, 1, [], Tab),
+    M:insert(<<"b/#">>, 2, [], Tab),
+    ?assertEqual([1, 2], lists:sort([id(K) || K <- matches(M, ['#'], Tab)])).
+
 t_prop_matches(Config) ->
     M = get_module(Config),
     ?assert(
