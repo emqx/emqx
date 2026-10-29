@@ -512,8 +512,8 @@ match_topics(AuthzContext, Topic, Words, [{pattern, PatternFilter} | Filters]) -
     match_or_next(Matched, AuthzContext, Topic, Words, Filters);
 match_topics(AuthzContext, Topic, Words, [{eq, TopicFilter} | Filters]) ->
     match_or_next(Topic =:= TopicFilter, AuthzContext, Topic, Words, Filters);
-match_topics(AuthzContext, Topic, Words, [TopicFilter | Filters]) when is_binary(TopicFilter) ->
-    match_or_next(Topic =:= TopicFilter, AuthzContext, Topic, Words, Filters);
+match_topics(AuthzContext, InputTopic, Words, [RuleTopic | Filters]) when is_binary(RuleTopic) ->
+    match_or_next(InputTopic =:= RuleTopic, AuthzContext, InputTopic, Words, Filters);
 match_topics(AuthzContext, Topic, undefined, [FilterWords | Filters]) ->
     case first_level_matches(Topic, FilterWords) of
         true ->
