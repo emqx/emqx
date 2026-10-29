@@ -226,13 +226,15 @@ do_deliver(
                 )
         end
     end,
-    {Outs, Session2, BW2} = lists:foldl(Fun, {[], Session, BW0}, lists:reverse(Delivers)),
+    {Outs, Session2, BW2} = lists:foldl(Fun, {[], Session, BW0}, Delivers),
 
     BaseResult = #{
         out => lists:flatten(lists:reverse(Outs)),
         session => Session2
     },
-    maybe_attach_blockwise_result(BaseResult, BW0, BW2).
+    Result0 = maybe_attach_blockwise_result(BaseResult, BW0, BW2),
+    {Result, Session3} = drain_observe_notifications(Result0, Session2),
+    Result#{session => Session3}.
 
 allow_observe_delivery(Topic, Token, #message{from = From}, OM) ->
     case emqx_coap_observe_res:lookup(Topic, Token, OM) of
@@ -246,7 +248,7 @@ maybe_attach_blockwise_result(BaseResult, _BW0, _BW2) ->
     BaseResult.
 
 timeout(observe, Session) ->
-    drain_pending_observe_notifications(enqueue_observe_confirmations(Session), undefined);
+    drain_pending_observe_notifications(Session, undefined);
 timeout(Timer, Session) ->
     call_transport_manager(?FUNCTION_NAME, Timer, Session).
 
@@ -302,7 +304,20 @@ maybe_cancel_failed_observe(Result, Session) ->
     {Result, Session}.
 
 send_or_queue_observe_notification(ObservedTopic, Msg0, MQTT, Ctx, Session0, BW0, PeerKey) ->
-    Session = remember_observe_notification(ObservedTopic, Msg0, MQTT, Ctx, Session0, BW0, PeerKey),
+    Session = enqueue_observe_confirmations(
+        remember_observe_notification(ObservedTopic, Msg0, MQTT, Ctx, Session0, BW0, PeerKey)
+    ),
+    Token = Msg0#coap_message.token,
+    case maps:get({ObservedTopic, Token}, Session#session.observe_latest) of
+        #{confirm_queued := true} ->
+            {[], Session, BW0};
+        _ ->
+            queue_or_send_observe_notification(
+                ObservedTopic, Msg0, MQTT, Ctx, Session, BW0, PeerKey
+            )
+    end.
+
+queue_or_send_observe_notification(ObservedTopic, Msg0, MQTT, Ctx, Session, BW0, PeerKey) ->
     TrackInflight = is_confirmable_observe_notification(Msg0),
     NeedsBlockwise = observe_notification_needs_block2(Msg0, BW0),
     DeferBlockwise = should_defer_observe_blockwise(Msg0, Session, BW0, PeerKey),
@@ -472,7 +487,8 @@ release_observe_inflight(0, Session) ->
 release_observe_inflight(Done, #session{observe_inflight = Inflight} = Session) ->
     Session#session{observe_inflight = max(0, Inflight - Done)}.
 
-drain_observe_notifications(Result, Session) ->
+drain_observe_notifications(Result, Session0) ->
+    Session = enqueue_observe_confirmations(Session0),
     case waiting_for_non(Session) of
         true -> {Result, Session};
         false -> do_drain_observe_notifications(Result, Session)
@@ -736,7 +752,8 @@ process_subscribe(
         } = SubData ->
             {_, OM2} = emqx_coap_observe_res:insert(SubData, OM),
             sync_observe_subscription(maps:get(topic, SubData), OM2),
-            Replay = emqx_coap_message:piggyback({ok, content}, Msg),
+            Payload = latest_observe_representation(maps:get(topic, SubData), Session),
+            Replay = emqx_coap_message:piggyback({ok, content}, Payload, Msg),
             %% RFC 7641 Section 4.4: Observe option carries 24-bit sequence.
             Replay2 = Replay#coap_message{
                 options = #{observe => emqx_coap_observe_res:next_value()}
@@ -840,7 +857,14 @@ remember_observe_notification(
     PeerKey
 ) ->
     Now = erlang:monotonic_time(millisecond),
-    Old = maps:get({Topic, Token}, Latest, #{last_con_at => Now, confirm_at => infinity}),
+    Old0 = maps:get({Topic, Token}, Latest, #{last_con_at => Now, confirm_at => infinity}),
+    Old =
+        case {Msg#coap_message.type, Old0} of
+            {non, #{confirm_at := infinity, last_con_at := LastCon}} ->
+                Old0#{confirm_at => LastCon + emqx_coap_observe_res:confirmation_interval()};
+            _ ->
+                Old0
+        end,
     NeedsBlockwise = observe_notification_needs_block2(Msg, BW),
     Pending = new_pending_observe_notification(
         Msg, MQTT, Topic, undefined, PeerKey, Ctx, NeedsBlockwise
@@ -849,7 +873,8 @@ remember_observe_notification(
         observe_latest = Latest#{
             {Topic, Token} => Old#{
                 pending => Pending,
-                updated_at => erlang:monotonic_time()
+                updated_at => erlang:monotonic_time(),
+                confirm_queued => false
             }
         }
     }.
@@ -891,16 +916,18 @@ record_observe_sent(
         observe_non_until = erlang:monotonic_time(millisecond) + 3000
     }.
 
-next_timeout(#session{
-    observe_latest = Latest,
-    observe_non_until = Until,
-    observe_pending_len = Len,
-    observe_inflight = Inflight
-}) ->
+next_timeout(
+    #session{
+        observe_latest = Latest,
+        observe_non_until = Until,
+        observe_pending_len = Len,
+        observe_inflight = Inflight
+    } = Session
+) ->
     Deadlines = [
         Due
-     || #{confirm_at := Due} = Entry <- maps:values(Latest),
-        Len < ?OBSERVE_NOTIFICATION_QUEUE_MAX_LEN,
+     || {Key, #{confirm_at := Due} = Entry} <- maps:to_list(Latest),
+        can_queue_observe_confirmation(Key, Session),
         is_integer(Due),
         not maps:get(confirm_queued, Entry, false)
     ],
@@ -922,32 +949,49 @@ enqueue_observe_confirmations(#session{observe_latest = Latest} = Session) ->
             ({_, #{confirm_queued := true}}, S0) ->
                 S0;
             ({{Topic, Token}, #{confirm_at := Due, pending := Pending}}, S0) when
-                is_integer(Due),
-                Due =< Now,
-                S0#session.observe_pending_len < ?OBSERVE_NOTIFICATION_QUEUE_MAX_LEN
+                is_integer(Due), Due =< Now
             ->
-                Msg = (pending_msg(Pending))#coap_message{type = con},
-                Current = S0#session.observe_latest,
-                Entry = maps:get({Topic, Token}, Current),
-                S1 = S0#session{
-                    observe_latest = Current#{{Topic, Token} := Entry#{confirm_queued => true}}
-                },
-                enqueue_observe_notification(
-                    Msg,
-                    pending_mqtt(Pending),
-                    Topic,
-                    undefined,
-                    pending_peer_key(Pending),
-                    pending_ctx(Pending),
-                    pending_blockwise_key(Pending) =/= undefined,
-                    S1
-                );
+                case can_queue_observe_confirmation({Topic, Token}, S0) of
+                    true -> prioritize_observe_confirmation(Topic, Token, Pending, S0);
+                    false -> S0
+                end;
             (_, S0) ->
                 S0
         end,
         Session,
         maps:to_list(Latest)
     ).
+
+can_queue_observe_confirmation(_Key, #session{observe_pending_len = Len}) when
+    Len < ?OBSERVE_NOTIFICATION_QUEUE_MAX_LEN
+->
+    true;
+can_queue_observe_confirmation({Topic, Token}, #session{observe_pending = Queue}) ->
+    lists:any(
+        fun(Pending) -> is_pending_observe_notification(Topic, Token, Pending) end,
+        queue:to_list(Queue)
+    ).
+
+prioritize_observe_confirmation(Topic, Token, Pending, Session0) ->
+    Session1 = purge_pending_observe_notifications(Topic, Token, Session0),
+    Msg = (pending_msg(Pending))#coap_message{type = con},
+    Session2 = enqueue_observe_notification(
+        Msg,
+        pending_mqtt(Pending),
+        Topic,
+        undefined,
+        pending_peer_key(Pending),
+        pending_ctx(Pending),
+        pending_blockwise_key(Pending) =/= undefined,
+        Session1
+    ),
+    #session{observe_pending = Queue, observe_latest = Latest} = Session2,
+    {{value, Confirmation}, Rest} = queue:out_r(Queue),
+    Entry = maps:get({Topic, Token}, Latest),
+    Session2#session{
+        observe_pending = queue:in_r(Confirmation, Rest),
+        observe_latest = Latest#{{Topic, Token} := Entry#{confirm_queued => true}}
+    }.
 
 purge_pending_observe_notifications(
     Topic,

@@ -22,6 +22,10 @@ all() ->
         t_api_cancel_with_mountpoint,
         t_cancel_one_token,
         t_repeated_registration,
+        t_reregister_current_representation,
+        t_confirmation_before_next_non,
+        t_confirmation_with_full_queue,
+        t_confirmation_after_idle,
         t_con_reset,
         t_non_reset,
         t_old_non_reset
@@ -333,4 +337,86 @@ collect(S, N, Acc) ->
     case gen_udp:recv(S, 0, 200) of
         {ok, {_, _, Data}} -> collect(S, N - 1, [emqx_coap_SUITE:parse_udp_message(Data) | Acc]);
         {error, timeout} -> lists:reverse(Acc)
+    end.
+
+-doc "Re-registration returns the latest resource representation.".
+t_reregister_current_representation(_) ->
+    with_conn(fun(S, Auth) ->
+        Topic = <<"review/reregister-current">>,
+        Token = <<"refresh">>,
+        sub(S, Auth, Topic, Token, 0),
+        emqx_coap_SUITE:publish(Topic, 1, <<"current">>),
+        Notification = recv(S, 2000),
+        send(S, emqx_coap_message:ack(Notification)),
+        Reply = sub(S, Auth, Topic, Token, 0),
+        ct:pal("Current representation=~p, registration payload=~p", [
+            Notification#coap_message.payload, Reply#coap_message.payload
+        ]),
+        ?assertEqual(<<"current">>, Reply#coap_message.payload)
+    end).
+
+-doc "A due confirmation takes the next transmission opportunity and coalesces older states.".
+t_confirmation_before_next_non(_) ->
+    with_confirmation_timer(fun(S, Auth) ->
+        Topic = <<"review/deadline">>,
+        sub(S, Auth, Topic, <<"due">>, 0),
+        emqx_coap_SUITE:publish(Topic, 0, <<"first">>),
+        First = recv(S, 2000),
+        ?assertEqual(non, First#coap_message.type),
+        with_suspended_channel(fun() ->
+            emqx_coap_SUITE:publish(Topic, 0, <<"latest">>),
+            emqx_coap_SUITE:publish(Topic, 0, <<"newest">>)
+        end),
+        Next = recv(S, 5000),
+        ct:pal("First eligible notification after confirmation deadline: ~p", [Next]),
+        ?assertEqual(con, Next#coap_message.type),
+        ?assertEqual(<<"newest">>, Next#coap_message.payload),
+        send(S, emqx_coap_message:ack(Next)),
+        ?assertEqual({error, timeout}, gen_udp:recv(S, 0, 3300))
+    end).
+
+-doc "A full notification queue cannot defer an overdue confirmation behind NON notifications.".
+t_confirmation_with_full_queue(_) ->
+    with_confirmation_timer(fun(S, Auth) ->
+        Topic = <<"review/full-confirmation">>,
+        sub(S, Auth, Topic, <<"full">>, 0),
+        emqx_coap_SUITE:publish(Topic, 0, <<"first">>),
+        ?assertEqual(non, (recv(S, 2000))#coap_message.type),
+        with_suspended_channel(fun() ->
+            lists:foreach(
+                fun(N) -> emqx_coap_SUITE:publish(Topic, 0, integer_to_binary(N)) end,
+                lists:seq(1, 101)
+            )
+        end),
+        Next = recv(S, 5000),
+        ?assertEqual(con, Next#coap_message.type),
+        ?assertEqual(<<"101">>, Next#coap_message.payload),
+        send(S, emqx_coap_message:ack(Next)),
+        ?assertEqual({error, timeout}, gen_udp:recv(S, 0, 3300))
+    end).
+
+-doc "After an idle period, the next overdue NON update is immediately sent as CON.".
+t_confirmation_after_idle(_) ->
+    with_confirmation_timer(fun(S, Auth) ->
+        Topic = <<"review/idle-confirmation">>,
+        sub(S, Auth, Topic, <<"idle">>, 0),
+        emqx_coap_SUITE:publish(Topic, 0, <<"first">>),
+        ?assertEqual(non, (recv(S, 2000))#coap_message.type),
+        Probe = recv_confirmable(S),
+        send(S, emqx_coap_message:ack(Probe)),
+        ?assertEqual({error, timeout}, gen_udp:recv(S, 0, 500)),
+        emqx_coap_SUITE:publish(Topic, 0, <<"after-idle">>),
+        Next = recv(S, 2000),
+        ?assertEqual(con, Next#coap_message.type),
+        ?assertEqual(<<"after-idle">>, Next#coap_message.payload),
+        send(S, emqx_coap_message:ack(Next))
+    end).
+
+with_suspended_channel(Fun) ->
+    [Pid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+    ok = sys:suspend(Pid),
+    try
+        Fun()
+    after
+        ok = sys:resume(Pid)
     end.
