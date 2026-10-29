@@ -40,7 +40,7 @@
 ]).
 
 -ifdef(TEST).
--export([prune_dead_refs/2]).
+-export([prune_dead_refs/2, ssl_opts/3]).
 -endif.
 
 -type state() :: #{
@@ -99,7 +99,7 @@ on_start(
         connector => InstId,
         config => emqx_utils:redact(Config)
     }),
-    case ssl_opts(InstId, SSL) of
+    case ssl_opts(InstId, bin(Host), SSL) of
         SslOpts when is_map(SslOpts) ->
             ?SLOG(debug, #{
                 msg => "ssl_options_for_datalayers_arrow_flight_connector",
@@ -435,16 +435,25 @@ render_row(RowTemplate, Data, _ChannelState) ->
 
 connect(Opts) ->
     #{password := Password} = Config = proplists:get_value(conn_config, Opts),
-    {ok, Pid} = datalayers:connect(
-        Config#{password => bin(emqx_secret:unwrap(Password))}
-    ),
     Database = maps:get(database, Config),
-    case datalayers:use_database(Pid, Database) of
-        {ok, _} ->
-            {ok, Pid};
-        {error, _} ->
-            datalayers:stop(Pid),
-            {error, {database_not_existed, Database}}
+    ClientOpts = (maps:remove(database, Config))#{
+        password => bin(emqx_secret:unwrap(Password))
+    },
+    case datalayers:connect(ClientOpts) of
+        {ok, Pid} ->
+            case datalayers:use_database(Pid, Database) of
+                {ok, _} ->
+                    {ok, Pid};
+                {error, _} ->
+                    datalayers:stop(Pid),
+                    {error, {database_not_existed, Database}}
+            end;
+        {error, Reason} = Err ->
+            ?SLOG(error, #{
+                msg => "datalayers_arrow_flight_connector_connect_failed",
+                reason => Reason
+            }),
+            Err
     end.
 
 call_driver(Client, ChanResId, {_QueryMode, true} = FuncMode, Args0) ->
@@ -615,16 +624,127 @@ prune_dead_refs(CurrentClient, PreparedRefs) ->
         PreparedRefs
     ).
 
-ssl_opts(InstId, #{enable := true, verify := verify_none}) ->
-    ?SLOG(error, #{msg => "ssl_verify_none_not_supported", connector => InstId}),
-    {error, verify_none_not_supported};
-ssl_opts(InstId, #{enable := true} = SSL) when not is_map_key(cacertfile, SSL) ->
-    ?SLOG(error, #{msg => "cacertfile_is_required", connector => InstId}),
-    {error, ssl_cacertfile_is_required};
-ssl_opts(_InstId, #{enable := true, cacertfile := CacertFile} = _SSL) ->
-    #{tls_cert => bin(CacertFile)};
-ssl_opts(_InstId, _) ->
+ssl_opts(InstId, Host, #{enable := true} = SSL) ->
+    case make_tls_opts(Host, SSL) of
+        {ok, TLSOpts} ->
+            TLSOpts;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "datalayers_arrow_flight_invalid_ssl_options",
+                reason => Reason,
+                connector => InstId
+            }),
+            {error, Reason}
+    end;
+ssl_opts(_InstId, _Host, _) ->
     #{}.
+
+make_tls_opts(Host, SSL) ->
+    case validate_tls_opts(SSL) of
+        ok ->
+            make_validated_tls_opts(Host, SSL);
+        {error, _} = Error ->
+            Error
+    end.
+
+make_validated_tls_opts(Host, SSL) ->
+    case ssl_cacertfile(SSL) of
+        {ok, CacertFile} ->
+            case tls_server_name(Host, SSL) of
+                {ok, ServerName} ->
+                    {ok, #{
+                        tls_enable => true,
+                        tls_cacertfile => CacertFile,
+                        verify => verify_peer,
+                        tls_server_name => ServerName
+                    }};
+                {error, _} = Error ->
+                    Error
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+validate_tls_opts(SSL) ->
+    case maps:get(verify, SSL, undefined) of
+        verify_peer ->
+            validate_client_certificates(SSL);
+        _ ->
+            {error, verify_none_not_supported}
+    end.
+
+validate_client_certificates(SSL) ->
+    case [Key || Key <- [certfile, keyfile], has_nonempty_value(Key, SSL)] of
+        [] -> ok;
+        [_ | _] -> {error, tls_client_certificates_not_supported}
+    end.
+
+ssl_cacertfile(SSL) ->
+    validate_ssl_cacertfile(maps:get(cacertfile, SSL, undefined)).
+
+validate_ssl_cacertfile(undefined) ->
+    {error, ssl_cacertfile_is_required};
+validate_ssl_cacertfile(Path0) ->
+    case to_utf8_binary(Path0) of
+        {ok, Path} when byte_size(Path) > 0 ->
+            case filename:pathtype(Path) of
+                absolute -> validate_cacertfile_contents(Path);
+                _ -> {error, ssl_cacertfile_must_be_absolute}
+            end;
+        _ ->
+            {error, ssl_cacertfile_is_required}
+    end.
+
+validate_cacertfile_contents(Path) ->
+    case file:read_file(Path) of
+        {ok, <<>>} ->
+            {error, ssl_cacertfile_is_empty};
+        {ok, Contents} ->
+            case binary:match(Contents, <<"-----BEGIN CERTIFICATE-----">>) of
+                nomatch -> {error, ssl_cacertfile_is_not_pem};
+                _ -> {ok, Path}
+            end;
+        {error, _} ->
+            {error, ssl_cacertfile_is_not_readable}
+    end.
+
+tls_server_name(Host, SSL) ->
+    case maps:get(server_name_indication, SSL, undefined) of
+        undefined ->
+            nonempty_binary(Host, ssl_server_name_is_required);
+        disable ->
+            {error, ssl_server_name_indication_disabled};
+        ServerName ->
+            nonempty_binary(ServerName, ssl_server_name_is_required)
+    end.
+
+nonempty_binary(Value, Error) ->
+    case to_utf8_binary(Value) of
+        {ok, Binary} when byte_size(Binary) > 0 -> {ok, Binary};
+        _ -> {error, Error}
+    end.
+
+has_nonempty_value(Key, Map) ->
+    case maps:get(Key, Map, undefined) of
+        undefined -> false;
+        null -> false;
+        <<>> -> false;
+        [] -> false;
+        _ -> true
+    end.
+
+to_utf8_binary(Value) when is_binary(Value) ->
+    case unicode:characters_to_binary(Value) of
+        Binary when is_binary(Binary) -> {ok, Binary};
+        _ -> error
+    end;
+to_utf8_binary(Value) when is_list(Value) ->
+    case unicode:characters_to_binary(Value) of
+        Binary when is_binary(Binary) -> {ok, Binary};
+        _ -> error
+    end;
+to_utf8_binary(_) ->
+    error.
 
 bin(Bin) when is_binary(Bin) ->
     Bin;
