@@ -139,8 +139,9 @@ match(Name, Filter) ->
 
 %% Match the binary Name against the binary Filter level by level, without splitting them.
 %% Name is `done` when all its levels are matched. The order of the checks is the same as in
-%% match_tokens/2: a filter level equal to the name level is matched first, then + and #. So
-%% the result is the same as match_tokens/2 with the words of both, for any Name and Filter.
+%% match_tokens/2: a filter level equal to the name level is matched first, then + and #.
+%% The result must be the same as match_tokens/2 with the words of both, for any Name and
+%% Filter, valid or not. emqx_topic_SUITE:t_match_binary_same_as_words checks this.
 %% For example, the # of Filter does not match a # level of Name that is not the last level.
 match_levels(<<"#">>, <<"#/", _/binary>>) ->
     false;
@@ -188,8 +189,9 @@ skip_level(<<>>) ->
     done.
 
 %% Match the binary Name against Filter, the words of a filter as words/1 returns them, level by
-%% level and without splitting Name. The checks are the same as in match_levels/2, so the result
-%% is the same as match_tokens/2 with the words of Name.
+%% level and without splitting Name. The checks are the same as in match_levels/2. The result
+%% must be the same as match_tokens/2 with the words of Name.
+%% emqx_topic_SUITE:t_match_binary_name_same_as_words checks this.
 match_name_levels([], Name) ->
     Name =:= done;
 match_name_levels(['#'], <<"#/", _/binary>>) ->
