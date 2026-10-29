@@ -26,6 +26,7 @@
     info/1,
     info/2,
     restore_derivable_peer_fields/2,
+    restore_derivable_conninfo_fields/2,
     get_mqtt_conf/2,
     get_mqtt_conf/3,
     set_conn_state/2,
@@ -196,13 +197,21 @@ The map omits `will_msg`, `conninfo.conn_props`, `conninfo.sock` and
 client input, and `conninfo.sock` is only valid in the connection process.
 Read them with `info/2`: `info(will_msg, Channel)`, `info(conninfo, Channel)` and
 `info({session, subscriptions}, Channel)`.
+
+The map also omits the values that `conninfo` and `clientinfo` hold twice: the peer
+address fields of `clientinfo`, and `conninfo.clientid` and `conninfo.username` when
+they are equal to the `clientinfo` ones. The readers of the table take them from
+`clientinfo`. `restore_derivable_peer_fields/2` and
+`restore_derivable_conninfo_fields/2` put them back.
 """.
 -spec info(channel()) -> emqx_types:infos().
-info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
+info(#channel{conninfo = ConnInfo, clientinfo = ClientInfo, session = Session} = Channel) ->
     #{
-        conninfo => maps:without([conn_props, sock], ConnInfo),
+        conninfo => drop_derivable_conninfo_fields(
+            maps:without([conn_props, sock], ConnInfo), ClientInfo
+        ),
         conn_state => info(conn_state, Channel),
-        clientinfo => drop_derivable_peer_fields(info(clientinfo, Channel)),
+        clientinfo => drop_derivable_peer_fields(ClientInfo),
         session => emqx_utils:maybe_apply(fun chan_info_session/1, Session)
     }.
 
@@ -214,6 +223,32 @@ chan_info_session(Session) ->
 %% from `conninfo.peername' and `conninfo.sockname' instead.
 drop_derivable_peer_fields(ClientInfo) ->
     maps:without([peerhost, peerport, peername, sockport], ClientInfo).
+
+%% `conninfo' holds the `clientid' and `username' of the CONNECT packet, `clientinfo'
+%% the ones the client ends up with. They differ when the broker assigns the client
+%% identifier or when a peer certificate supplies either value, so each is dropped
+%% only when it equals the `clientinfo' one.
+drop_derivable_conninfo_fields(ConnInfo, ClientInfo) ->
+    lists:foldl(
+        fun(Key, Acc) -> drop_if_equal(Key, Acc, ClientInfo) end,
+        ConnInfo,
+        [clientid, username]
+    ).
+
+drop_if_equal(Key, ConnInfo, ClientInfo) ->
+    case ConnInfo of
+        #{Key := Value} when map_get(Key, ClientInfo) =:= Value ->
+            maps:remove(Key, ConnInfo);
+        _ ->
+            ConnInfo
+    end.
+
+%% @doc Put back the `conninfo' fields that `info/1' leaves out, from `clientinfo'.
+%% The counterpart of `restore_derivable_peer_fields/2' for `conninfo'.
+-spec restore_derivable_conninfo_fields(emqx_types:conninfo(), emqx_types:clientinfo()) ->
+    emqx_types:conninfo().
+restore_derivable_conninfo_fields(ConnInfo, ClientInfo) ->
+    maps:merge(maps:with([clientid, username], ClientInfo), ConnInfo).
 
 %% @doc Put back the `clientinfo' fields that `info/1' leaves out.
 %% For code that rebuilds a channel from a stored info map, such as session

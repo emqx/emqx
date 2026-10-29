@@ -55,38 +55,68 @@ Unrecognized tag: refs/tags/e5.3.0-rc.1
 
 ./parse-git-ref.sh refs/tags/6.0.0-M1.202507
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.0.0-M1.202507-alpha.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.0.0-M1.202507-beta.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.0.0-M1.202507-rc.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.1.0-M2.202508
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.1.0-M2.202508-alpha.2
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.3.0-patch.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": true}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": true, "preview": false}
 >>>= 0
+
+./parse-git-ref.sh refs/tags/6.1.5-preview.1
+>>>
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": true}
+>>>= 0
+
+./parse-git-ref.sh refs/tags/7.0.0-preview.12
+>>>
+{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": true}
+>>>= 0
+
+./parse-git-ref.sh refs/tags/6.1.5-preview
+>>>2
+Unrecognized tag: refs/tags/6.1.5-preview
+>>>= 1
+
+./parse-git-ref.sh refs/tags/6.1.5-preview.1-rc.1
+>>>2
+Unrecognized tag: refs/tags/6.1.5-preview.1-rc.1
+>>>= 1
+
+./parse-git-ref.sh refs/tags/e6.1.5-preview.1
+>>>2
+Unrecognized tag: refs/tags/e6.1.5-preview.1
+>>>= 1
+
+./parse-git-ref.sh refs/heads/preview-63
+>>>2
+Unrecognized git ref: refs/heads/preview-63
+>>>= 1
 
 ./parse-git-ref.sh refs/tags/6.3.0 | jq -cr '.official_release'
 >>>
@@ -110,7 +140,7 @@ false
 
 ./parse-git-ref.sh refs/heads/master
 >>>
-{"profile": "emqx-enterprise", "release": false, "latest": false, "official_release": false}
+{"profile": "emqx-enterprise", "release": false, "latest": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/heads/release-51
@@ -130,7 +160,7 @@ Unrecognized git ref: refs/heads/release-53
 
 ./parse-git-ref.sh refs/heads/ci/foobar
 >>>
-{"profile": "emqx-enterprise", "release": false, "latest": false, "official_release": false}
+{"profile": "emqx-enterprise", "release": false, "latest": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/heads/release-44

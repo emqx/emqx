@@ -90,7 +90,7 @@
 
 -type state() :: #state{}.
 
--define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
+-define(SOCK_STATS, [recv_oct, send_oct]).
 
 -define(ENABLED(X), (X =/= undefined)).
 
@@ -547,6 +547,9 @@ set_session_stats(#state{channel = Channel}) ->
 %% Run GC, Check OOM
 %%--------------------------------------------------------------------
 
+%% The frame counts `recv_cnt` and `send_cnt` that trigger the GC are
+%% process dictionary counters, not stats.
+
 init_gc_metrics() ->
     erlang:put(last_recv_cnt, 0),
     erlang:put(last_recv_oct, 0),
@@ -556,7 +559,7 @@ init_gc_metrics() ->
     erlang:put(gc_send_cnt, 0).
 
 rotate_gc_metrics(incoming, ActiveN) ->
-    RecvCnt = emqx_chan_stats:get(recv_cnt),
+    RecvCnt = emqx_pd:get_counter(recv_cnt),
     RecvOct = emqx_chan_stats:get(recv_oct),
     _ = erlang:put(gc_recv_cnt, RecvCnt + ActiveN),
     RecvCntLast = erlang:put(last_recv_cnt, RecvCnt),
@@ -565,7 +568,7 @@ rotate_gc_metrics(incoming, ActiveN) ->
     Oct = RecvOct - RecvOctLast,
     {Cnt, Oct};
 rotate_gc_metrics(outgoing, ActiveN) ->
-    SendCnt = emqx_chan_stats:get(send_cnt),
+    SendCnt = emqx_pd:get_counter(send_cnt),
     SendOct = emqx_chan_stats:get(send_oct),
     _ = erlang:put(gc_send_cnt, SendCnt + ActiveN),
     SendCntLast = erlang:put(last_send_cnt, SendCnt),
@@ -575,7 +578,7 @@ rotate_gc_metrics(outgoing, ActiveN) ->
     {Cnt, Oct}.
 
 trigger_gc_incoming() ->
-    case emqx_chan_stats:get(recv_cnt) > erlang:get(gc_recv_cnt) of
+    case emqx_pd:get_counter(recv_cnt) > erlang:get(gc_recv_cnt) of
         true ->
             erlang:erase(gc_recv_cnt),
             self() ! {gc, incoming};
@@ -584,7 +587,7 @@ trigger_gc_incoming() ->
     end.
 
 trigger_gc_outgoing() ->
-    case emqx_chan_stats:get(send_cnt) > erlang:get(gc_send_cnt) of
+    case emqx_pd:get_counter(send_cnt) > erlang:get(gc_send_cnt) of
         true ->
             erlang:erase(gc_send_cnt),
             self() ! {gc, outgoing};
@@ -866,7 +869,7 @@ framelist_bytesize({binary, Data}, Oct) ->
 ).
 
 inc_recv_stats(Cnt, Oct, State) ->
-    _ = emqx_chan_stats:inc(recv_cnt, Cnt),
+    _ = emqx_pd:inc_counter(recv_cnt, Cnt),
     _ = emqx_chan_stats:inc(recv_oct, Oct),
     inc_metrics('bytes.received', State, Oct).
 
@@ -898,7 +901,7 @@ inc_outgoing_stats(Packet = ?PACKET(Type), State) ->
     emqx_metrics:inc_sent(Packet, State#state.namespace).
 
 inc_sent_stats(Cnt, Oct, State) ->
-    _ = emqx_chan_stats:inc(send_cnt, Cnt),
+    _ = emqx_pd:inc_counter(send_cnt, Cnt),
     _ = emqx_chan_stats:inc(send_oct, Oct),
     inc_metrics('bytes.sent', State, Oct).
 

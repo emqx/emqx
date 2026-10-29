@@ -2,6 +2,35 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
+## 0.4.4
+
+### Fixed
+
+- Check the connected client's product before arming it through the QoS1
+  trigger fallback, preventing a request for another product from delivering
+  to that client.
+- Preserve committed-delivery state across promoter retries and deferred
+  batches, so a retry does not recreate delivery rows that were already
+  reclaimed after expiry, completion, or deletion.
+- Derive new RegisterMessage IDs from the content hash, consistently with
+  inline BatchPub, so requests for the same content do not return competing
+  IDs when the two creation paths race.
+- Resume a durable delivery after the client node's plugin restarts: the first
+  keepalive that finds no local pull state now starts the missing claim,
+  without making every later PING probe the index.
+- Preserve per-device publication order when a rebuilt index uses multiple
+  deliveries from the same second. Rebuild now orders by the per-publication
+  DeliveryId instead of the reusable MessageId.
+- Persist a device's acknowledgement as soon as it is applied, even while the
+  rest of the index-shard part is still pending. An owner handover can no
+  longer resurrect that device and count its duplicate acknowledgment again.
+- Count a committed delivery in `wanted` when promoter retry finds that its
+  rows already completed. This closes the ledger after rebuild wins the race
+  with index append and avoids `acked > wanted`.
+- Clamp the global pending-delivery quota at zero when an unmatched release
+  arrives. A release can no longer leave admission accounting negative until
+  the next periodic recount.
+
 ## 0.4.3
 
 ### Upgrade notes

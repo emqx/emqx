@@ -64,7 +64,12 @@ results at protocol boundaries.
 -type begin_result() :: {ok, channelref(), map()} | {error, term()}.
 
 -define(BPAPI, emqx_gateway_cm_takeover).
--define(VSN_TAKEOVER, 1).
+
+%% NOTE
+%% MQTT-SN passes this protocol directly to `emqx_cm_takeover` session codecs.
+%% Keep `VSN_TAKEOVER` and its version meanings in sync with `emqx_cm_takeover`.
+-define(VSN_TAKEOVER, 2).
+
 -define(T_TAKEOVER, 15000).
 -define(RPC_TIMEOUT, ?T_TAKEOVER * 2).
 
@@ -118,12 +123,13 @@ Should respect requester protocol version.
     begin_result().
 begin_rpc(GwName, ClientId, ChanPid, Request, RequesterProto) ->
     Ret = begin_local(GwName, ClientId, ChanPid, Request),
-    to_begin_ret(RequesterProto, Ret).
+    to_begin_ret(GwName, RequesterProto, Ret).
 
 -doc "Adapt RPC begin result to remote requester protocol / advertise server protocol in chanref.".
-to_begin_ret(#{vsn := _}, {ok, Ref, Data}) ->
-    {ok, Ref#chanref{proto = current()}, Data};
-to_begin_ret(_RequesterProto, {error, _} = Error) ->
+to_begin_ret(GwName, RequesterProto, {ok, Ref, Data = #{session := Session}}) ->
+    Encoded = to_session(GwName, RequesterProto, Session),
+    {ok, Ref#chanref{proto = current()}, Data#{session := Encoded}};
+to_begin_ret(_GwName, _RequesterProto, {error, _} = Error) ->
     Error.
 
 -doc """
@@ -178,12 +184,18 @@ begin_rpc_legacy(GwName, ClientId, ChanPid) ->
     downgrade_begin_ret(GwName, RequesterProto, Ret).
 
 downgrade_begin_ret(
-    GwName,
+    mqttsn,
     RequesterProto,
-    {ok, #chanref{connmod = ConnMod, pid = ChanPid}, Data = #{session := Session}}
+    {ok, #chanref{connmod = ConnMod, pid = ChanPid}, Data}
 ) ->
-    ClientInfo = maps:get(clientinfo, Data, #{}),
-    {ok, ConnMod, ChanPid, to_session(GwName, ClientInfo, RequesterProto, Session)};
+    #{session := Session, clientinfo := ClientInfo} = Data,
+    {ok, ConnMod, ChanPid, to_session(mqttsn, ClientInfo, RequesterProto, Session)};
+downgrade_begin_ret(
+    _GwName,
+    _RequesterProto,
+    {ok, #chanref{connmod = ConnMod, pid = ChanPid}, #{session := Session}}
+) ->
+    {ok, ConnMod, ChanPid, Session};
 downgrade_begin_ret(_GwName, _RequesterProto, {error, _} = Error) ->
     Error.
 
@@ -334,12 +346,18 @@ from_session(mqttsn, {legacy, Version}, #{registry := Registry, session := Legac
         registry => Registry,
         session => emqx_cm_takeover:from_legacy_session(Legacy, Version)
     };
-from_session(mqttsn, #{vsn := _}, Session) ->
-    Session;
+from_session(mqttsn, Proto = #{vsn := _}, Session = #{session := Exported}) ->
+    Session#{session := emqx_cm_takeover:from_session(Exported, Proto)};
 from_session(_GwName, _ServerProto, Session) ->
     Session.
 
 -doc "Encode session state for the remote requester takeover protocol.".
+-spec to_session(gateway_name(), protocol(), term()) -> term().
+to_session(mqttsn, Proto, Session = #{session := Exported}) ->
+    Session#{session := emqx_cm_takeover:to_session(Exported, Proto)};
+to_session(_GwName, _RequesterProto, Session) ->
+    Session.
+
 -spec to_session(
     gateway_name(),
     emqx_types:clientinfo(),
@@ -358,7 +376,7 @@ to_session(mqttsn, ClientInfo, {legacy, Version}, #{
         registry => Registry,
         session => emqx_cm_takeover:to_legacy_session(ClientId, ChanInfo, Exported, Conf, Version)
     };
-to_session(mqttsn, _ClientInfo, #{vsn := _}, Session) ->
-    Session;
+to_session(GwName, _ClientInfo, Proto = #{vsn := _}, Session) ->
+    to_session(GwName, Proto, Session);
 to_session(_GwName, _ClientInfo, _RequesterProto, Session) ->
     Session.
