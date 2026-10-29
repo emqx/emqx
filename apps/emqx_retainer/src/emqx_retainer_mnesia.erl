@@ -55,12 +55,15 @@
 -record(retained_index, {key, expiry_time}).
 -record(retained_index_meta, {key, read_indices, write_indices, reindexing, extra}).
 
+%% The `ets' module does not export its continuation type.
+-type ets_continuation() :: term().
+
 -opaque cursor() ::
     undefined
     | #{
         incarnation := emqx_retainer:index_incarnation(),
         index := emqx_retainer_index:index() | undefined,
-        continuation := ets:continuation() | undefined
+        continuation := ets_continuation() | undefined
     }.
 
 -export_type([cursor/0]).
