@@ -495,7 +495,7 @@ match_topics(_AuthzContext, _Topic, [?ALL_TOPICS | _Filters]) ->
     true;
 match_topics(AuthzContext, Topic, [{pattern, PatternFilter} | Filters]) ->
     TopicFilter = render_topic(PatternFilter, AuthzContext),
-    (is_binary(TopicFilter) andalso match_rendered(Topic, TopicFilter)) orelse
+    (is_binary(TopicFilter) andalso emqx_topic:match(Topic, TopicFilter)) orelse
         match_topics(AuthzContext, Topic, Filters);
 match_topics(AuthzContext, Topic, [TopicFilter | Filters]) ->
     match_topic(Topic, TopicFilter) orelse
@@ -507,17 +507,6 @@ match_topic(Topic, TopicFilter) when is_binary(TopicFilter) ->
     Topic =:= TopicFilter;
 match_topic(Topic, Words) ->
     emqx_topic:match(Topic, Words).
-
-%% A rendered filter is matched as a binary, so that neither side is split. For a topic that
-%% is not valid, the binary match can differ from the word match, and it throws instead. The
-%% filter is split then, and the topic is matched against its words.
-match_rendered(Topic, TopicFilter) ->
-    try
-        emqx_topic:match_or_throw(Topic, TopicFilter)
-    catch
-        throw:invalid_topic ->
-            emqx_topic:match(Topic, emqx_topic:words(TopicFilter))
-    end.
 
 render_topic(Topic, AuthzContext) ->
     try

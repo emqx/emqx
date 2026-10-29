@@ -113,17 +113,24 @@ t_match_binary_levels(_) ->
         Cases
     ).
 
-%% The binary matcher gives the same result as the word matcher when the name is a valid topic
-%% name or filter. The filter can be any binary.
+%% The binary matcher gives the same result as the word matcher for any name and filter, valid
+%% or not.
 t_match_binary_same_as_words(_) ->
+    ?assertNot(match(<<"#/a">>, <<"#">>)),
+    ?assertNot(match(<<"a/#/b">>, <<"+/#">>)),
+    ?assert(match(<<"#">>, <<"#">>)),
+    %% The last of 7 equal bytes is a whole level of the filter, but not of the name.
+    ?assert(match(<<"abcde/#a">>, <<"abcde/#">>)),
+    ?assert(match(<<"abcde/+a">>, <<"abcde/+">>)),
+    ?assert(match(<<"abcde/+a/b">>, <<"abcde/+/b">>)),
     ?assert(
         proper:quickcheck(
             ?FORALL(
                 {Name, Filter},
-                {valid_topic_gen(), topic_gen()},
+                {topic_gen(), topic_gen()},
                 match(Name, Filter) =:= match(words(Name), words(Filter))
             ),
-            [{numtests, 20000}, {to_file, user}]
+            [{numtests, 50000}, {to_file, user}]
         )
     ).
 
@@ -139,34 +146,6 @@ t_match_binary_name_same_as_words(_) ->
                 {Name, Filter},
                 {topic_gen(), topic_gen()},
                 match(Name, words(Filter)) =:= match(words(Name), words(Filter))
-            ),
-            [{numtests, 50000}, {to_file, user}]
-        )
-    ).
-
-t_match_or_throw(_) ->
-    ?assert(emqx_topic:match_or_throw(<<"a/b">>, <<"a/#">>)),
-    ?assert(emqx_topic:match_or_throw(<<"a/#">>, <<"a/#">>)),
-    ?assertNot(emqx_topic:match_or_throw(<<"$SYS/a">>, <<"#">>)),
-    ?assertNot(emqx_topic:match_or_throw(<<"#/a">>, <<"b/#">>)),
-    ?assertThrow(invalid_topic, emqx_topic:match_or_throw(<<"#/a">>, <<"#">>)),
-    ?assertThrow(invalid_topic, emqx_topic:match_or_throw(<<"a/#/b">>, <<"+/#">>)),
-    %% match/2 keeps the binary result for such a topic.
-    ?assert(match(<<"#/a">>, <<"#">>)).
-
-%% Any topic and filter, valid or not: match_or_throw/2 gives the result of the word match, or
-%% throws for a topic with a # level that is not the last level.
-t_match_or_throw_same_as_words(_) ->
-    ?assert(
-        proper:quickcheck(
-            ?FORALL(
-                {Name, Filter},
-                {topic_gen(), topic_gen()},
-                try emqx_topic:match_or_throw(Name, Filter) of
-                    Matched -> Matched =:= match(words(Name), words(Filter))
-                catch
-                    throw:invalid_topic -> lists:member('#', lists:droplast(words(Name)))
-                end
             ),
             [{numtests, 50000}, {to_file, user}]
         )
@@ -205,9 +184,12 @@ topic_level_gen() ->
         <<"+">>,
         <<"#">>,
         <<>>,
+        <<"abcde">>,
         <<"abcdef">>,
         <<"abcdefgh">>,
-        <<"a+">>
+        <<"a+">>,
+        <<"+a">>,
+        <<"#a">>
     ]).
 
 topic_gen() ->

@@ -12,7 +12,6 @@
 %% APIs
 -export([
     match/2,
-    match_or_throw/2,
     match_any/2,
     is_equal/2,
     validate/1,
@@ -126,11 +125,7 @@ match(<<$$, _/binary>>, <<$#, _/binary>>) ->
 match(<<$$, _/binary>>, [W | _]) when ?IS_WILDCARD(W) ->
     false;
 match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
-    case match_levels(Filter, Name) of
-        %% The # level of the filter matches the rest of the name.
-        invalid -> true;
-        Matched -> Matched
-    end;
+    match_levels(Filter, Name);
 match(#share{} = Name, Filter) ->
     match_share(Name, Filter);
 match(Name, #share{} = Filter) ->
@@ -142,31 +137,13 @@ match(Name, Filter) when is_binary(Filter) ->
 match(Name, Filter) ->
     match_words(Name, Filter).
 
-%% @doc Match a binary topic against a binary topic filter without splitting them, like
-%% match/2. The result is the same as the match of their words. The only exception is a topic
-%% with a # level that is not the last level, which is not a valid topic: when the # level of
-%% the filter meets such a level, the function throws `invalid_topic`, and the caller can
-%% match the words instead.
--spec match_or_throw(topic(), topic()) -> boolean().
-match_or_throw(<<$$, _/binary>>, <<$+, _/binary>>) ->
-    false;
-match_or_throw(<<$$, _/binary>>, <<$#, _/binary>>) ->
-    false;
-match_or_throw(Name, Filter) when is_binary(Name), is_binary(Filter) ->
-    case match_levels(Filter, Name) of
-        invalid -> throw(invalid_topic);
-        Matched -> Matched
-    end.
-
 %% Match the binary Name against the binary Filter level by level, without splitting them.
 %% Name is `done` when all its levels are matched. The order of the checks is the same as in
-%% match_tokens/2: a filter level equal to the name level is matched first, then + and #.
-%% The result is the same as match_tokens/2 when Name is a valid topic name or filter.
-%% It is `invalid` when the # level of Filter meets a # level of Name that is not the last
-%% level: the # of Filter matches the rest of Name, but match_tokens/2 takes the two # as
-%% equal words, and then fails on the rest of Name.
+%% match_tokens/2: a filter level equal to the name level is matched first, then + and #. So
+%% the result is the same as match_tokens/2 with the words of both, for any Name and Filter.
+%% For example, the # of Filter does not match a # level of Name that is not the last level.
 match_levels(<<"#">>, <<"#/", _/binary>>) ->
-    invalid;
+    false;
 match_levels(<<"#">>, _Name) ->
     true;
 match_levels(_Filter, done) ->
@@ -178,10 +155,12 @@ match_levels(<<"+/", FilterRest/binary>>, Name) ->
 match_levels(Filter, Name) ->
     match_level(Filter, Name).
 
-%% Compare one level, then go on with the next level. 7 equal bytes are skipped at once: in a
-%% valid topic filter, + and # are whole levels, so 7 equal bytes in the filter and the name
-%% are literal bytes of both. When the 7 bytes end with $/, the next level starts.
-match_level(<<W:56, FilterRest/binary>>, <<W:56, NameRest/binary>>) ->
+%% Compare one level, then go on with the next level. 7 equal bytes are skipped at once, unless
+%% the last of them is + or #: it can be a whole + or # level of Filter, while the level of Name
+%% goes on after it. When the 7 bytes end with $/, the next level starts.
+match_level(<<W:56, FilterRest/binary>>, <<W:56, NameRest/binary>>) when
+    not ?IS_WILDCARD_BYTE(W band 16#FF)
+->
     case W band 16#FF of
         $/ -> match_levels(FilterRest, NameRest);
         _ -> match_level(FilterRest, NameRest)
@@ -209,10 +188,8 @@ skip_level(<<>>) ->
     done.
 
 %% Match the binary Name against Filter, the words of a filter as words/1 returns them, level by
-%% level and without splitting Name. Name is `done` when all its levels are matched. The result
-%% is the same as match_tokens/2 with the words of Name: a filter word equal to the name level
-%% is matched first, so the # of Filter does not match a # level of Name that is not the last
-%% level.
+%% level and without splitting Name. The checks are the same as in match_levels/2, so the result
+%% is the same as match_tokens/2 with the words of Name.
 match_name_levels([], Name) ->
     Name =:= done;
 match_name_levels(['#'], <<"#/", _/binary>>) ->

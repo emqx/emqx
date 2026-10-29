@@ -864,11 +864,11 @@ t_matches(_) ->
     ).
 
 %% Rules split only the filters with a wildcard, never the topic, and match rendered filters
-%% as binaries, with the words of the filter as a fallback for a topic that is not valid. The
-%% result must be the same as the word matching that split every filter and the topic.
+%% as binaries. The result must be the same as the word matching that split every filter and
+%% the topic.
 t_topic_match_same_as_words(_) ->
     %% A rendered filter that ends with # and a topic with a # level that is not the last
-    %% level: the binary match throws, and the words do not match.
+    %% level: the words do not match, so the binaries do not match either.
     ClientInfoA = client_info(#{username => <<"a">>}),
     Sub = #{action_type => subscribe, qos => 0},
     HashRule = emqx_authz_rule:compile({allow, all, all, ["${username}/#"]}),
@@ -919,7 +919,18 @@ render_username(Filter, Username) ->
 
 level_gen() ->
     oneof([
-        <<"a">>, <<"b">>, <<"$SYS">>, <<"$share">>, <<"+">>, <<"#">>, <<>>, <<"abcdefgh">>, <<"a+">>
+        <<"a">>,
+        <<"b">>,
+        <<"$SYS">>,
+        <<"$share">>,
+        <<"+">>,
+        <<"#">>,
+        <<>>,
+        <<"abcde">>,
+        <<"abcdefgh">>,
+        <<"a+">>,
+        <<"+a">>,
+        <<"#a">>
     ]).
 
 levels_gen() ->

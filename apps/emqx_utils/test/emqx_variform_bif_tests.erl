@@ -125,10 +125,8 @@ topic_test_() ->
         ?ASSERT_BADARG(emqx_variform_bif:topic_match(undefined, <<"#">>))
     ].
 
-%% The result is the same as the word matcher, also for a topic that is not valid.
-%% A valid topic gives the same result as the word matcher. A topic with a # level that is
-%% not the last level is not valid, and the binary matcher can match it where the word
-%% matcher did not.
+%% The result is the same as the word matcher, also for a topic that is not valid, such as a
+%% topic with a # level that is not the last level.
 topic_match_same_as_words_test_() ->
     Topics = [
         <<"a/b">>,
@@ -149,8 +147,8 @@ topic_match_same_as_words_test_() ->
      || T <- Topics, F <- Filters
     ] ++
         [
-            ?_assert(emqx_variform_bif:topic_match(<<"#/b">>, <<"#">>)),
-            ?_assert(emqx_variform_bif:topic_match(<<"a/#/b">>, <<"a/#">>))
+            ?_assertNot(emqx_variform_bif:topic_match(<<"#/b">>, <<"#">>)),
+            ?_assertNot(emqx_variform_bif:topic_match(<<"a/#/b">>, <<"a/#">>))
         ].
 
 null_badarg_test_() ->
