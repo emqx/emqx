@@ -489,7 +489,7 @@ try_deliver(SessionInfoFn, #st{unacked = Unacked0, registry = HandlerRegistry0} 
         HandlerRegistry0,
         Messages
     ),
-    St = cancel_deliver_retry_timer(St0),
+    St = cancel_deliver_retry_timer(St0#st{registry = HandlerRegistry1}),
     BufferSize = emqx_extsub_handler_registry:buffer_size(HandlerRegistry1),
     UnackedCnt = map_size(Unacked0),
     DeliverCnt = deliver_count(SessionInfoFn, UnackedCnt),
@@ -503,7 +503,7 @@ try_deliver(SessionInfoFn, #st{unacked = Unacked0, registry = HandlerRegistry0} 
             %% * No room but noting to deliver (BufferSize =:= 0)
             %% * No room and there are unacked messages (UnackedCnt > 0) — we will retry
             %% on their ack callback.
-            {St#st{registry = HandlerRegistry1}, []};
+            {St, []};
         Room ->
             {MessageEntries, HandlerRegistry} = emqx_extsub_handler_registry:buffer_take(
                 HandlerRegistry1, Room
