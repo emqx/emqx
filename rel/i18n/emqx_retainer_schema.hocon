@@ -28,8 +28,8 @@ For example, it is good to have <code>[2, 4]</code> index to optimize
 <code>+/X/+/Y/...</code> topic wildcard subscriptions."""
 
 batch_deliver_limiter.desc:
-"""The limit of the storage scan load that retained-message reads for new subscriptions cause.
-The value is set from `delivery_rate`. See `delivery_rate` for how reads consume tokens."""
+"""The maximum rate of retained-message storage scans per second.
+The value is set from `delivery_rate`."""
 
 batch_deliver_number.desc:
 """Deprecated. This setting has no effect. Use `batch_read_number` to control backend read batch size."""
@@ -80,12 +80,7 @@ See:
 http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038"""
 
 delivery_rate.desc:
-"""The maximum storage scan load that retained-message reads for new subscriptions cause, in records per time unit.
-Each storage record that a read checks consumes one token.
-Records that do not match the topic filter and expired records also consume tokens.
-A read that checks no records consumes one token. A read for a topic without wildcards consumes one token.
-Reads can exceed the rate by at most one batch for each dispatcher worker. See `batch_read_number` for the batch size.
-The value `infinity` disables the limit."""
+"""The maximum rate of retained-message storage scans per second."""
 
 max_publish_rate.desc:
 """The maximum rate of publishing retained messages. Messages that are published over the limit are delivered but not stored as retained."""
