@@ -359,6 +359,36 @@ test_subscribe_results(MultiTopic) ->
     end,
     ok = emqx_extsub_handler_registry:unregister(Module).
 
+-doc "Checks that `handle_info/3' latencies are observed only after `observe_latencies(true)'.".
+t_observe_latencies(_Config) ->
+    {ok, Handler} = emqx_extsub_handler:subscribe_new(
+        subscribe,
+        emqx_extsub_test_resub_handler,
+        #{},
+        #{subopts => #{result => ok}},
+        <<"latency/t">>
+    ),
+    Count = fun() ->
+        #{handle_info_latency_ms := #{count := N}} =
+            emqx_metrics_worker:get_hists(ext_sub_metrics, ext_sub_metrics_id),
+        N
+    end,
+
+    %% Disabled by default: the histogram does not change.
+    Count0 = Count(),
+    {ok, _} = emqx_extsub_handler:info(Handler, #{}, test_info),
+    ?assertEqual(Count0, Count()),
+
+    %% Enabled: each call adds one observation.
+    ok = emqx_extsub:observe_latencies(true),
+    {ok, _} = emqx_extsub_handler:info(Handler, #{}, test_info),
+    ?assertEqual(Count0 + 1, Count()),
+
+    %% Disabled again: the histogram does not change.
+    ok = emqx_extsub:observe_latencies(false),
+    {ok, _} = emqx_extsub_handler:info(Handler, #{}, test_info),
+    ?assertEqual(Count0 + 1, Count()).
+
 %% We emulate different kinds of message flow into the external subscription handler.
 %% We deliver message by 1, in batches smaller and larger than the extsub buffer size.
 %% We expect the handler to deliver the messages into the channel correctly.

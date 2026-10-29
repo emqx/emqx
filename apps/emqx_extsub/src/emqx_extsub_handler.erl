@@ -273,9 +273,11 @@ delivered(#handler{cbm = CBM, st = State0} = Handler, AckCtx, Msg, Ack) ->
     | destroy
     | recreate.
 info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
-    {TimeUs, Result} = timer:tc(CBM, handle_info, [State0, InfoCtx, Info]),
-    TimeMs = erlang:convert_time_unit(TimeUs, microsecond, millisecond),
-    emqx_extsub_metrics:observe_hist(handle_info_latency_ms, TimeMs),
+    Result =
+        case emqx_extsub:need_observe_latencies() of
+            true -> observed_handle_info(CBM, State0, InfoCtx, Info);
+            false -> CBM:handle_info(State0, InfoCtx, Info)
+        end,
     case Result of
         {ok, State} ->
             {ok, Handler#handler{st = State}};
@@ -301,3 +303,12 @@ save_subopts(#handler{cbm = CBM, st = State0} = Handler0, Context, SubOpts) ->
         false ->
             {ok, Handler0}
     end.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+observed_handle_info(CBM, State, InfoCtx, Info) ->
+    {TimeMs, Result} = timer:tc(CBM, handle_info, [State, InfoCtx, Info], millisecond),
+    emqx_extsub_metrics:observe_hist(handle_info_latency_ms, TimeMs),
+    Result.

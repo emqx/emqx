@@ -39,6 +39,8 @@ The module:
 -export([
     set_max_unacked/1,
     max_unacked/0,
+    observe_latencies/1,
+    need_observe_latencies/0,
     inspect/1
 ]).
 
@@ -53,6 +55,7 @@ The module:
 -define(DEFAULT_CHANNEL_INFO, #{can_receive_acks => false, proto_ver => undefined}).
 
 -define(MAX_UNACKED_PT_KEY, extsub_max_unacked).
+-define(OBSERVE_LATENCIES_PT_KEY, extsub_observe_latencies).
 
 -record(st, {
     registry :: emqx_extsub_handler_registry:t(),
@@ -370,6 +373,19 @@ set_max_unacked(MaxUnacked) ->
 
 max_unacked() ->
     persistent_term:get(?MAX_UNACKED_PT_KEY, ?EXTSUB_MAX_UNACKED).
+
+-doc """
+Enable or disable the `handle_info_latency_ms' histogram of handler `handle_info/3' calls.
+Disabled by default. A change copies the flag to all processes, so do not toggle it often.
+""".
+-spec observe_latencies(boolean()) -> ok.
+observe_latencies(Enable) when is_boolean(Enable) ->
+    _ = persistent_term:put(?OBSERVE_LATENCIES_PT_KEY, Enable),
+    ok.
+
+-spec need_observe_latencies() -> boolean().
+need_observe_latencies() ->
+    persistent_term:get(?OBSERVE_LATENCIES_PT_KEY, false).
 
 %%--------------------------------------------------------------------
 %% Internal exports (for `emqx_extsub` application)
