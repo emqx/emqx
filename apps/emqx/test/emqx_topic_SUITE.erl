@@ -127,6 +127,34 @@ t_match_binary_same_as_words(_) ->
         )
     ).
 
+t_match_or_throw(_) ->
+    ?assert(emqx_topic:match_or_throw(<<"a/b">>, <<"a/#">>)),
+    ?assert(emqx_topic:match_or_throw(<<"a/#">>, <<"a/#">>)),
+    ?assertNot(emqx_topic:match_or_throw(<<"$SYS/a">>, <<"#">>)),
+    ?assertNot(emqx_topic:match_or_throw(<<"#/a">>, <<"b/#">>)),
+    ?assertThrow(invalid_topic, emqx_topic:match_or_throw(<<"#/a">>, <<"#">>)),
+    ?assertThrow(invalid_topic, emqx_topic:match_or_throw(<<"a/#/b">>, <<"+/#">>)),
+    %% match/2 keeps the binary result for such a topic.
+    ?assert(match(<<"#/a">>, <<"#">>)).
+
+%% Any topic and filter, valid or not: match_or_throw/2 gives the result of the word match, or
+%% throws for a topic with a # level that is not the last level.
+t_match_or_throw_same_as_words(_) ->
+    ?assert(
+        proper:quickcheck(
+            ?FORALL(
+                {Name, Filter},
+                {topic_gen(), topic_gen()},
+                try emqx_topic:match_or_throw(Name, Filter) of
+                    Matched -> Matched =:= match(words(Name), words(Filter))
+                catch
+                    throw:invalid_topic -> lists:member('#', lists:droplast(words(Name)))
+                end
+            ),
+            [{numtests, 50000}, {to_file, user}]
+        )
+    ).
+
 t_match_share_same_as_words(_) ->
     ?assert(
         proper:quickcheck(

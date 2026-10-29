@@ -12,6 +12,7 @@
 %% APIs
 -export([
     match/2,
+    match_or_throw/2,
     match_any/2,
     is_equal/2,
     validate/1,
@@ -123,7 +124,11 @@ match(<<$$, _/binary>>, <<$+, _/binary>>) ->
 match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
 match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
-    match_levels(Filter, Name);
+    case match_levels(Filter, Name) of
+        %% The # level of the filter matches the rest of the name.
+        invalid -> true;
+        Matched -> Matched
+    end;
 match(#share{} = Name, Filter) ->
     match_share(Name, Filter);
 match(Name, #share{} = Filter) ->
@@ -135,11 +140,31 @@ match(Name, Filter) when is_binary(Filter) ->
 match(Name, Filter) ->
     match_words(Name, Filter).
 
+%% @doc Match a binary topic against a binary topic filter without splitting them, like
+%% match/2. The result is the same as the match of their words. The only exception is a topic
+%% with a # level that is not the last level, which is not a valid topic: when the # level of
+%% the filter meets such a level, the function throws `invalid_topic`, and the caller can
+%% match the words instead.
+-spec match_or_throw(topic(), topic()) -> boolean().
+match_or_throw(<<$$, _/binary>>, <<$+, _/binary>>) ->
+    false;
+match_or_throw(<<$$, _/binary>>, <<$#, _/binary>>) ->
+    false;
+match_or_throw(Name, Filter) when is_binary(Name), is_binary(Filter) ->
+    case match_levels(Filter, Name) of
+        invalid -> throw(invalid_topic);
+        Matched -> Matched
+    end.
+
 %% Match the binary Name against the binary Filter level by level, without splitting them.
 %% Name is `done` when all its levels are matched. The order of the checks is the same as in
 %% match_tokens/2: a filter level equal to the name level is matched first, then + and #.
-%% Both arguments must be valid topic names or filters (see validate/1): a + or # byte that is
-%% not a whole level can give a different result than match_tokens/2.
+%% The result is the same as match_tokens/2 when Name is a valid topic name or filter.
+%% It is `invalid` when the # level of Filter meets a # level of Name that is not the last
+%% level: the # of Filter matches the rest of Name, but match_tokens/2 takes the two # as
+%% equal words, and then fails on the rest of Name.
+match_levels(<<"#">>, <<"#/", _/binary>>) ->
+    invalid;
 match_levels(<<"#">>, _Name) ->
     true;
 match_levels(_Filter, done) ->
