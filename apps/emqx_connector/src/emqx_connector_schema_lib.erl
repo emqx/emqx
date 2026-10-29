@@ -53,12 +53,10 @@ ssl_fields() ->
 
 ssl_fields(Opts) ->
     EnableByDefault = maps:get(enable_by_default, Opts, false),
-    %% if set, precedes `enable_by_default`
-    DefaultValue = maps:get(default_value, Opts, #{<<"enable">> => EnableByDefault}),
     [
         {ssl, #{
             type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
-            default => DefaultValue,
+            default => #{<<"enable">> => EnableByDefault},
             desc => ?DESC("ssl")
         }}
     ].
@@ -68,7 +66,7 @@ verify_peer_ssl_fields() ->
     [
         {ssl, #{
             type => hoconsc:ref(?MODULE, client_tls_verify_peer),
-            default => #{~"enable" => false, ~"verify" => ~"verify_peer"},
+            default => #{~"enable" => false},
             desc => ?DESC("ssl")
         }}
     ].
