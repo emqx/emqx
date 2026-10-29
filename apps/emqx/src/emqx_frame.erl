@@ -30,6 +30,10 @@
 
 -export([describe_state/1]).
 
+-ifdef(TEST).
+-export([serialize_variable_byte_integer/1]).
+-endif.
+
 -export_type([
     options/0,
     parse_state/0,

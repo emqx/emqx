@@ -64,7 +64,11 @@ groups() ->
             t_connect_user_property_limit,
             t_large_connect_with_few_user_properties
         ]},
-        {mqttv5, [non_parallel_tests], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
+        {mqttv5, [non_parallel_tests], [
+            t_basic_with_props_v5,
+            t_v5_receive_maximim_in_connack,
+            t_connect_multiple_variable_byte_integer_representations
+        ]},
         {others, [non_parallel_tests], [
             t_username_as_clientid,
             t_certcn_as_alias,
@@ -356,6 +360,51 @@ t_connect_zero_remaining_len_non_minimal(_) ->
     ListenerCounts = emqx_listeners:shutdown_count('tcp:default', {{0, 0, 0, 0}, 1883}),
     ZeroLenCount = proplists:get_value(invalid_proto_name, ListenerCounts),
     ?assert(is_integer(ZeroLenCount) andalso ZeroLenCount > 0),
+    ok.
+
+%% Verifies we accept multiple representations for 0 variable byte integers (0x00, 0x80
+%% 0x00, ...), even though the mqtt spec says only 0x00 is valid.
+t_connect_multiple_variable_byte_integer_representations(_) ->
+    lists:foreach(
+        fun(ZeroLenEncoded) ->
+            {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+            VariableHeader =
+                [
+                    %% protocol name
+                    [16#00, 16#04, "MQTT"],
+                    %% protocol level
+                    [16#05],
+                    %% connect flags (just clean start)
+                    [16#02],
+                    %% keepalive (0)
+                    [16#00, 16#00],
+                    %% properties (empty)
+                    [ZeroLenEncoded],
+                    %% payload (just clientid "a")
+                    [16#00, 16#01, "a"]
+                ],
+            VarSize = serialize_variable_byte_integer(iolist_size(VariableHeader)),
+            ConnectPacket =
+                [
+                    %% connect packet type
+                    16#10,
+                    %% remaining length
+                    VarSize,
+                    VariableHeader
+                ],
+            ok = gen_tcp:send(Socket, ConnectPacket),
+            {tcp, Socket, ConnackRaw} = ?assertReceive({tcp, Socket, _}),
+            gen_tcp:close(Socket),
+            ?assertMatch(<<16#20, _/binary>>, ConnackRaw),
+            ok
+        end,
+        [
+            <<16#00>>,
+            <<16#80, 16#00>>,
+            <<16#80, 16#80, 16#00>>,
+            <<16#80, 16#80, 16#80, 16#00>>
+        ]
+    ),
     ok.
 
 is_connection_crashed(Report) when is_list(Report) ->
@@ -779,3 +828,6 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
     confirm_tls_version(Client, RequiredTLSVsn),
     emqtt:disconnect(Client).
+
+serialize_variable_byte_integer(N) ->
+    emqx_frame:serialize_variable_byte_integer(N).
