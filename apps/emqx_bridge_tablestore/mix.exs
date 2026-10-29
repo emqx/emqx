@@ -29,7 +29,7 @@ defmodule EMQXBridgeTablestore.MixProject do
 
   def deps() do
     UMP.deps([
-      :ots_erl,
+      {:ots_erl, github: "emqx/ots_erl", tag: "0.2.5"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

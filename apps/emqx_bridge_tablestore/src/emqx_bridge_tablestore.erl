@@ -128,7 +128,8 @@ fields("connector") ->
                 required => false,
                 desc => ?DESC("desc_probe_table_name")
             })}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+    ] ++
+        emqx_connector_schema_lib:verify_peer_ssl_fields();
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         fields("connector") ++

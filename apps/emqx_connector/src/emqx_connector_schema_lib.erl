@@ -13,6 +13,7 @@
     relational_db_fields/1,
     ssl_fields/0,
     ssl_fields/1,
+    verify_peer_ssl_fields/0,
     prepare_statement_fields/0,
     prepare_statement_field/0,
     prepare_statement_field/1,
@@ -28,6 +29,13 @@
 -export([
     database/1,
     auto_reconnect/1
+]).
+
+%% hocon_schema callbacks
+-export([
+    namespace/0,
+    fields/1,
+    desc/1
 ]).
 
 -type database() :: binary().
@@ -52,6 +60,31 @@ ssl_fields(Opts) ->
             desc => ?DESC("ssl")
         }}
     ].
+
+%% n.b.: ssl disabled by default
+verify_peer_ssl_fields() ->
+    [
+        {ssl, #{
+            type => hoconsc:ref(?MODULE, client_tls_verify_peer),
+            default => #{~"enable" => false},
+            desc => ?DESC("ssl")
+        }}
+    ].
+
+namespace() ->
+    "connector_schema_lib".
+
+fields(client_tls_verify_peer) ->
+    emqx_schema:client_ssl_opts_schema(#{
+        enable => false,
+        verify => verify_peer,
+        cacertfile => system_default
+    }).
+
+desc(client_tls_verify_peer) ->
+    ?DESC("ssl");
+desc(_) ->
+    undefined.
 
 relational_db_fields() ->
     relational_db_fields(#{}).

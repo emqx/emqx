@@ -133,6 +133,7 @@ connector_config(Overrides) ->
         <<"pool_size">> => 2,
         <<"username">> => <<"default">>,
         <<"password">> => <<"public">>,
+        <<"ssl">> => #{<<"enable">> => false},
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
