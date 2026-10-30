@@ -14,7 +14,11 @@
     info/2,
     check/1,
     check/2,
-    update/3
+    check/3,
+    update/3,
+    hibernate/2,
+    wakeup/2,
+    check_deadline/1
 ]).
 
 -elvis([{elvis_style, no_if_expression, disable}]).
@@ -110,40 +114,81 @@ info(idle_milliseconds, #keepalive{idle_milliseconds = Val}) ->
 info(check_interval, undefined) ->
     0.
 
-check(Keepalive = #keepalive{stat_reader = undefined}) ->
-    RecvCnt = emqx_pd:get_counter(recv_pkt),
-    check(RecvCnt, Keepalive);
-check(Keepalive = #keepalive{stat_reader = {M, F, A}}) ->
-    RecvCnt = erlang:apply(M, F, A),
-    check(RecvCnt, Keepalive);
+check(Keepalive = #keepalive{}) ->
+    check(read_stat(Keepalive), Keepalive);
 check(Keepalive) ->
     {ok, Keepalive}.
 
-%% @doc Check keepalive.
+%% @doc Check keepalive, crediting one sampling interval of idle time.
 -spec check(non_neg_integer(), keepalive()) ->
     {ok, keepalive()} | {error, timeout}.
+check(NewVal, #keepalive{check_interval = Interval} = KeepAlive) ->
+    check(NewVal, Interval, KeepAlive).
 
+%% @doc Check keepalive, crediting `ElapsedMs` of idle time.
+%% The sampling timer credits its own interval. The deadline timer used while
+%% the connection process hibernates credits the time actually slept.
+-spec check(non_neg_integer(), non_neg_integer(), keepalive()) ->
+    {ok, keepalive()} | {error, timeout}.
 check(
     NewVal,
+    ElapsedMs,
     #keepalive{
         statval = NewVal,
         idle_milliseconds = IdleAcc,
-        check_interval = Interval,
         max_idle_millisecond = Max
     }
-) when IdleAcc + Interval >= Max ->
+) when IdleAcc + ElapsedMs >= Max ->
     {error, timeout};
-check(
-    NewVal,
-    #keepalive{
-        statval = NewVal,
-        idle_milliseconds = IdleAcc,
-        check_interval = Interval
-    } = KeepAlive
-) ->
-    {ok, KeepAlive#keepalive{statval = NewVal, idle_milliseconds = IdleAcc + Interval}};
-check(NewVal, #keepalive{} = KeepAlive) ->
-    {ok, KeepAlive#keepalive{statval = NewVal, idle_milliseconds = 0}}.
+check(NewVal, ElapsedMs, #keepalive{} = KeepAlive) ->
+    {ok, advance(NewVal, ElapsedMs, KeepAlive)}.
+
+advance(NewVal, ElapsedMs, #keepalive{statval = NewVal, idle_milliseconds = IdleAcc} = KeepAlive) ->
+    KeepAlive#keepalive{idle_milliseconds = IdleAcc + ElapsedMs};
+advance(NewVal, _ElapsedMs, KeepAlive) ->
+    KeepAlive#keepalive{statval = NewVal, idle_milliseconds = 0}.
+
+%% `idle_milliseconds` does not change between hibernate/2 and wakeup/2, so this
+%% is also the time the deadline timer was armed with.
+till_deadline(#keepalive{idle_milliseconds = IdleAcc, max_idle_millisecond = Max}) ->
+    max(Max - IdleAcc, 1).
+
+read_stat(#keepalive{stat_reader = undefined}) ->
+    emqx_pd:get_counter(recv_pkt);
+read_stat(#keepalive{stat_reader = {M, F, A}}) ->
+    erlang:apply(M, F, A).
+
+-doc """
+Switch from sampling to a single deadline before the process hibernates.
+
+`SinceArmMs` is the time since the sampling timer was armed. Returns the time
+to arm the deadline timer with, so that it fires when the idle time reaches
+`max_idle_millisecond`. The caller calls `wakeup/2` when the process wakes up,
+also when the deadline timer has fired.
+""".
+-spec hibernate(non_neg_integer(), keepalive()) -> {pos_integer(), keepalive()}.
+hibernate(SinceArmMs, Keepalive) ->
+    NKeepalive = advance(read_stat(Keepalive), SinceArmMs, Keepalive),
+    {till_deadline(NKeepalive), NKeepalive}.
+
+-doc """
+Credit the time the process was hibernated, after `hibernate/2`.
+
+`RemainingMs` is the time that was left on the deadline timer, 0 when it has
+already fired.
+""".
+-spec wakeup(non_neg_integer(), keepalive()) -> keepalive().
+wakeup(RemainingMs, Keepalive) ->
+    SleptMs = max(till_deadline(Keepalive) - RemainingMs, 0),
+    advance(read_stat(Keepalive), SleptMs, Keepalive).
+
+-doc """
+Check the keepalive when the deadline timer fires, after `wakeup/2` credited
+the whole deadline.
+""".
+-spec check_deadline(keepalive()) -> {ok, keepalive()} | {error, timeout}.
+check_deadline(Keepalive) ->
+    check(read_stat(Keepalive), 0, Keepalive).
 
 %% @doc Update keepalive.
 %% The statval of the previous keepalive will be used,

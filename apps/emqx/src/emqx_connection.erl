@@ -139,6 +139,10 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
+%% Upper bound for the derived hibernation deadline, so that a connection
+%% hibernates promptly however high `idle_timeout` is set.
+-define(HIBERNATE_AFTER_MAX_MS, 15000).
+
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
 
 -dialyzer({no_match, [info/2]}).
@@ -417,11 +421,7 @@ recvloop(
         zone = Zone
     }
 ) ->
-    HibernateTimeout =
-        case HibernateAfterMs of
-            infinity -> infinity;
-            _ -> HibernateAfterMs
-        end,
+    HibernateTimeout = hibernate_timeout(HibernateAfterMs),
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
@@ -448,12 +448,27 @@ handle_recv(Msg, Parent, State) ->
             terminate(Reason, NewSate)
     end.
 
-hibernate(Parent, State) ->
-    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
+hibernate(Parent, State = #state{channel = Channel}) ->
+    NState = State#state{channel = emqx_channel:hibernate(Channel)},
+    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, NState]).
 
-%% Maybe do something here later.
-wakeup_from_hib(Parent, State) ->
-    ?MODULE:recvloop(Parent, State).
+wakeup_from_hib(Parent, State = #state{channel = Channel}) ->
+    ?MODULE:recvloop(Parent, State#state{channel = emqx_channel:wakeup(Channel)}).
+
+%% The deadline is derived here rather than stored, so that loading this module
+%% into a running node applies it to connections established before the load.
+%%
+%% `IdleTimeoutMs` is `mqtt.idle_timeout`, which is also the period of the
+%% statistics timer. That timer is armed after every message and its arrival
+%% re-enters this loop, restarting the deadline. A deadline equal to
+%% `idle_timeout` therefore races with the timer that cancels it, and an idle
+%% connection keeps waking up instead of hibernating. Half of `idle_timeout`
+%% is always reached first.
+-compile({inline, [hibernate_timeout/1]}).
+hibernate_timeout(infinity) ->
+    infinity;
+hibernate_timeout(IdleTimeoutMs) ->
+    min(max(IdleTimeoutMs div 2, 1), ?HIBERNATE_AFTER_MAX_MS).
 
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
