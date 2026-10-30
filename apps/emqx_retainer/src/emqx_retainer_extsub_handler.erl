@@ -177,9 +177,13 @@ request_next(#h{cursor = ?cursor(Cursor)} = Handler0) ->
     case ensure_dispatcher(Handler0) of
         #h{dispatcher = undefined} = Handler ->
             enqueue_nudge(Handler);
-        #h{dispatcher = Worker, message_target = Target, topic_filter = Topic, words = Words} =
-                Handler ->
-            Ref = make_ref(),
+        #h{
+            dispatcher = Worker,
+            monitor = Ref,
+            message_target = Target,
+            topic_filter = Topic,
+            words = Words
+        } = Handler ->
             emqx_retainer_dispatcher:fetch(Worker, Target, Ref, Topic, Words, Cursor),
             Handler#h{request_ref = Ref}
     end.

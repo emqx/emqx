@@ -246,12 +246,12 @@ session_info_fn() ->
     #{session_info_fn := SessionInfoFn} = emqx_hooks:context('client.handle_info'),
     SessionInfoFn.
 
-%% Send at most as many messages as ExtSub would send to the session at once.
+%% Limit direct delivery to the available inflight capacity and the ExtSub batch size.
 room(SessionInfoFn) ->
     MaxUnacked = emqx_extsub:max_unacked(),
     case SessionInfoFn(inflight_max) of
         0 -> MaxUnacked;
-        InflightMax -> max(MaxUnacked, InflightMax - SessionInfoFn(inflight_cnt))
+        InflightMax -> min(MaxUnacked, max(0, InflightMax - SessionInfoFn(inflight_cnt)))
     end.
 
 split(Room, Messages) when length(Messages) =< Room ->
@@ -262,7 +262,7 @@ split(Room, Messages) ->
 %% The subscription options come from the session. Without the subscription the messages
 %% are dropped.
 handover(ClientInfo, SessionInfoFn, TopicFilter, Cursor, Messages) ->
-    ?tp(retainer_handover, #{
+    ?tp_ignore_side_effects_in_prod(retainer_handover, #{
         topic_filter => TopicFilter, cursor => Cursor, count => length(Messages)
     }),
     Result =
@@ -283,7 +283,10 @@ handover(ClientInfo, SessionInfoFn, TopicFilter, Cursor, Messages) ->
 delivers(TopicFilter, Messages) ->
     Headers = #{?HEADER_SUB_TOPIC => TopicFilter, ?HEADER_READ => true},
     [
-        {deliver, emqx_message:topic(Msg), emqx_message:set_headers(Headers, Msg)}
+        #deliver{
+            topic = emqx_message:topic(Msg),
+            message = emqx_message:set_headers(Headers, Msg)
+        }
      || Msg <- Messages
     ].
 

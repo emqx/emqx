@@ -502,7 +502,7 @@ t_handover_more_batches(_Config) ->
     ),
     ok = emqtt:stop(Client).
 
--doc "Messages that the session refuses because the inflight window is full are handed over.".
+-doc "Messages beyond the available inflight capacity are handed over together.".
 t_handover_nack(_Config) ->
     store_qos1_messages(),
     ok = snabbkaffe:start_trace(),
@@ -510,15 +510,15 @@ t_handover_nack(_Config) ->
     {Client, Channel} = connect(#{receive_maximum => 1}),
     {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
 
-    %% The session sends one message and refuses the other two, one by one
+    %% Send one message and hand over the other two together.
     {publish, #{topic := Topic1, packet_id := PacketId1}} = ?assertReceive({publish, _}, 2000),
     ?assertNotReceive({publish, _}, 500),
     ?assertMatch(
-        [#{cursor := done, count := 1}, #{cursor := done, count := 1}],
+        [#{cursor := done, count := 2}],
         ?of_kind(retainer_handover, snabbkaffe:collect_trace())
     ),
 
-    %% ExtSub delivers the refused messages after the acknowledgements
+    %% ExtSub delivers the remaining messages after the acknowledgements.
     ok = emqtt:puback(Client, PacketId1),
     ?assertEqual(
         [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>],
