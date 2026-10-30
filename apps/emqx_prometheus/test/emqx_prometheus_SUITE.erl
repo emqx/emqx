@@ -6,9 +6,14 @@
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -compile(nowarn_export_all).
 -compile(export_all).
+
+%% Process that receives the bodies captured by the mock push gateway.
+-define(PUSH_BODY_RECEIVER, emqx_prometheus_suite_push_body).
 
 %% erlfmt-ignore
 -define(LEGACY_CONF_DEFAULT, <<"
@@ -121,11 +126,22 @@ init_per_testcase(t_assert_push, Config) ->
 init_per_testcase(t_push_gateway, Config) ->
     start_mock_pushgateway(9091),
     Config;
+init_per_testcase(t_topic_metrics_push_gateway, Config) ->
+    start_mock_pushgateway(9091),
+    true = register(?PUSH_BODY_RECEIVER, self()),
+    Config;
 init_per_testcase(_Testcase, Config) ->
     Config.
 
 end_per_testcase(t_push_gateway, Config) ->
     stop_mock_pushgateway(),
+    Config;
+end_per_testcase(t_topic_metrics_push_gateway, Config) ->
+    stop_mock_pushgateway(),
+    ok = emqx_topic_metrics2:deregister_all(),
+    ok = emqx_prometheus_sup:stop_child(emqx_prometheus),
+    %% CT may run this in a fresh process after a timetrap.
+    _ = catch unregister(?PUSH_BODY_RECEIVER),
     Config;
 end_per_testcase(t_assert_push, _Config) ->
     meck:unload(httpc),
@@ -227,6 +243,34 @@ t_cert_expiry_epoch(_) ->
         emqx_prometheus:cert_expiry_at_from_path(Path)
     ).
 
+-doc """
+Checks that the push gateway, which renders every registry without a request scope, still
+pushes the topic-metric collections of every namespace: the context-free entry point must
+behave like the unscoped API view.
+""".
+t_topic_metrics_push_gateway(_) ->
+    %% Another case may have left the pusher stopped; run it only for this
+    %% fixture so the first collected body is guaranteed to be fresh.
+    Conf = emqx_prometheus_config:conf(),
+    ?assertMatch(ok, emqx_prometheus_sup:stop_child(emqx_prometheus)),
+
+    ok = emqx_topic_metrics2:register(<<"metric-a">>, <<"tenant/a/#">>, <<"ns1">>),
+    ok = emqx_topic_metrics2:register(<<"metric-b">>, <<"tenant/b/#">>, <<"ns2">>),
+    ok = emqx_topic_metrics2:register(<<"metric-g">>, <<"global/#">>, ?global_ns),
+    publish_as(<<"ns1">>, <<"tenant/a/1">>),
+    publish_as(<<"ns2">>, <<"tenant/b/1">>),
+    publish_as(<<"ns1">>, <<"global/1">>),
+
+    Expected = topic_metrics_expected([
+        {<<"metric-a">>, <<"tenant/a/#">>, <<"ns1">>, 1, 10, 1},
+        {<<"metric-b">>, <<"tenant/b/#">>, <<"ns2">>, 1, 10, 1},
+        {<<"metric-g">>, <<"global/#">>, undefined, 1, 8, 1}
+    ]),
+    ?assertMatch(ok, emqx_prometheus_sup:start_child(emqx_prometheus, Conf)),
+    Body = wait_push_body(fun(B) -> parse_topic_metrics(B) =:= Expected end, 50),
+    ?assertEqual(Expected, parse_topic_metrics(Body)),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 
@@ -265,9 +309,20 @@ init(Req0, Opts) ->
         },
         Headers
     ),
+    {ok, Body, Req1} = cowboy_req:read_body(Req0),
+    ok = forward_push_body(Body),
     RespHeader = #{<<"content-type">> => <<"text/plain; charset=utf-8">>},
-    Req = cowboy_req:reply(200, RespHeader, <<"OK">>, Req0),
+    Req = cowboy_req:reply(200, RespHeader, <<"OK">>, Req1),
     {ok, Req, Opts}.
+
+forward_push_body(Body) ->
+    case whereis(?PUSH_BODY_RECEIVER) of
+        Pid when is_pid(Pid) ->
+            Pid ! {push_body, Body},
+            ok;
+        undefined ->
+            ok
+    end.
 
 some_pem_path() ->
     Dir = code:lib_dir(emqx_prometheus),
@@ -294,3 +349,125 @@ assert_push_gateway_data([Keyword | Keywords], Data) ->
         nomatch ->
             {false, Keyword}
     end.
+
+%% Wait for a pushed body that satisfies `Pred', dropping pushes that
+%% were produced before the fixture was in place.  The last body seen is
+%% kept so a timeout can tell "no push arrived" from "a push arrived with
+%% unexpected content".
+wait_push_body(Pred, Retries) ->
+    wait_push_body(Pred, Retries, none).
+
+wait_push_body(Pred, Retries, LastSeen) ->
+    receive
+        {push_body, Body} ->
+            case Pred(Body) of
+                true -> Body;
+                false -> wait_push_body(Pred, Retries, Body)
+            end
+    after 100 ->
+        case Retries of
+            0 -> ct:fail({push_gateway_body_not_observed, describe_body(LastSeen)});
+            _ -> wait_push_body(Pred, Retries - 1, LastSeen)
+        end
+    end.
+
+describe_body(none) ->
+    no_body_received;
+describe_body(Body) ->
+    %% Only the `messages.in' family is needed to tell which collections
+    %% arrived and with which counters.
+    maps:get(<<"emqx_topic_metric_messages_in_count">>, parse_topic_metrics(Body), #{}).
+
+%% Publish a message over the public broker path, attributed to a
+%% namespace through `client_attrs.tns'.
+publish_as(Namespace, Topic) ->
+    Msg = emqx_message:set_headers(
+        #{client_attrs => #{?CLIENT_ATTR_NAME_TNS => Namespace}},
+        emqx_message:make(<<"pushgateway-test">>, Topic, <<>>)
+    ),
+    _ = emqx_broker:publish(Msg),
+    ok.
+
+%% The topic-metric samples of a push body.  The body concatenates every
+%% registry, so select only this family before parsing.
+parse_topic_metrics(Body) ->
+    lists:foldl(
+        fun(Line, Acc) ->
+            {Name, Labels, Value} = parse_prometheus_line(Line),
+            maps:update_with(Name, fun(Old) -> Old#{Labels => Value} end, #{Labels => Value}, Acc)
+        end,
+        #{},
+        [
+            Line
+         || Line <- binary:split(iolist_to_binary(Body), <<"\n">>, [global, trim_all]),
+            is_topic_metric_line(Line)
+        ]
+    ).
+
+is_topic_metric_line(<<"emqx_topic_metric_", _/binary>>) -> true;
+is_topic_metric_line(_) -> false.
+
+parse_prometheus_line(Line) ->
+    RE = <<"(?<name>[a-z0-9A-Z_]+)(\\{(?<labels>[^)]*)\\})? *(?<value>[0-9]+(\\.[0-9]+)?)">>,
+    {match, [Name, Labels0, Value0]} = re:run(
+        Line, RE, [{capture, [<<"name">>, <<"labels">>, <<"value">>], binary}]
+    ),
+    Labels = parse_prometheus_labels(Labels0),
+    Value =
+        try
+            binary_to_float(Value0)
+        catch
+            error:badarg ->
+                binary_to_integer(Value0)
+        end,
+    {Name, Labels, Value}.
+
+parse_prometheus_labels(<<"">>) ->
+    #{};
+parse_prometheus_labels(Labels) ->
+    lists:foldl(
+        fun(Label, Acc) ->
+            [K, V0] = binary:split(Label, <<"=">>),
+            V = binary:replace(V0, <<"\"">>, <<"">>, [global]),
+            Acc#{K => V}
+        end,
+        #{},
+        binary:split(Labels, <<",">>, [global])
+    ).
+
+%% Expected topic-metric exposition for `{BinName, TopicFilter, OwnerNs,
+%% MessagesIn, BytesIn, MessagesDropped}' collections; `OwnerNs =
+%% undefined' is a global-owned collection, which carries no namespace
+%% label.  The fixture has no subscriber, so every publish is also
+%% counted as dropped.
+topic_metrics_expected(Collections) ->
+    lists:foldl(
+        fun({BinName, TopicFilter, OwnerNs, MessagesIn, BytesIn, MessagesDropped}, Acc0) ->
+            Labels0 = #{<<"name">> => BinName, <<"topic_filter">> => TopicFilter},
+            Labels =
+                case OwnerNs of
+                    undefined -> Labels0;
+                    _ -> Labels0#{<<"namespace">> => OwnerNs}
+                end,
+            lists:foldl(
+                fun({MetricName, Value}, Acc) ->
+                    maps:update_with(
+                        MetricName,
+                        fun(Series) -> Series#{Labels => Value} end,
+                        #{Labels => Value},
+                        Acc
+                    )
+                end,
+                Acc0,
+                [
+                    {<<"emqx_topic_metric_messages_in_count">>, MessagesIn},
+                    {<<"emqx_topic_metric_messages_out_count">>, 0},
+                    {<<"emqx_topic_metric_messages_dropped_count">>, MessagesDropped},
+                    {<<"emqx_topic_metric_bytes_in">>, BytesIn},
+                    {<<"emqx_topic_metric_bytes_out">>, 0}
+                ]
+            )
+        end,
+        #{},
+        Collections
+    ).

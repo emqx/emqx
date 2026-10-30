@@ -193,7 +193,7 @@ schema("/prometheus/topic_metrics") ->
             #{
                 description => ?DESC(get_prom_topic_metrics),
                 tags => ?TAGS,
-                parameters => [ref(mode)],
+                parameters => [ref(mode), ref(ns)],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -287,8 +287,13 @@ schema_validation(get, #{query_string := Qs}) ->
 message_transformation(get, #{query_string := Qs}) ->
     collect(emqx_prometheus_message_transformation, collect_opts(Qs)).
 
-topic_metrics(get, #{query_string := Qs}) ->
-    collect(emqx_prometheus_topic_metrics, collect_opts(Qs)).
+topic_metrics(get, Req) ->
+    %% Resolve here rather than in the route filter: route filters are
+    %% baked into the dashboard dispatch when it is generated.
+    case namespaced_collect_opts(Req, #{}) of
+        {ok, Req1} -> collect_topic_metrics(get_collect_opts(Req1));
+        Response -> Response
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
@@ -315,6 +320,10 @@ collect_data_integration(#{namespace := Namespace, mode := Mode}) ->
 
 collect_ns_stats(#{mode := Mode, namespace := Namespace}) ->
     Data = emqx_prometheus:collect_ns(Namespace, Mode),
+    gen_response(Data).
+
+collect_topic_metrics(#{namespace := Namespace, mode := Mode}) ->
+    Data = emqx_prometheus_topic_metrics:collect_ns(Namespace, Mode),
     gen_response(Data).
 
 collect_opts(Qs) ->
@@ -456,10 +465,19 @@ rate_limit_all_ns_stats(Req, _Meta) ->
 
 namespaced_filter(Req0, Meta) ->
     maybe
+        {ok, Req} ?= namespaced_collect_opts(Req0, Meta),
+        rate_limit_all_ns_stats(Req, Meta)
+    end.
+
+%% Namespace resolution plus `collect_opts' preparation, shared by the
+%% namespace-aware endpoints.  It is separate from `namespaced_filter/2'
+%% so an endpoint that is cheap to scrape for all namespaces can skip
+%% the all-namespaces rate limiter.
+namespaced_collect_opts(Req0, Meta) ->
+    maybe
         {ok, Req1} ?= resolve_namespace(Req0, Meta),
         {ok, Req2} ?= validate_not_json(Req1, Meta),
-        {ok, Req3} ?= parse_collect_opt_ns(Req2, Meta),
-        rate_limit_all_ns_stats(Req3, Meta)
+        parse_collect_opt_ns(Req2, Meta)
     end.
 
 get_namespace(#{resolved_ns := Namespace}) ->
