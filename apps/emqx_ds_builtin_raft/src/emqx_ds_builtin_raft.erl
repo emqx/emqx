@@ -640,7 +640,9 @@ del_batch(DB, Stream = #'Stream'{shard = Shard}, TopicRange, Opts) ->
             emqx_ds_optimistic_tx:del_batch(Leader, DB, Stream, TopicRange, Opts);
         undefined ->
             ?err_rec(leader_unavailable)
-    end.
+    end;
+del_batch(_, Stream, _, _) ->
+    ?err_unrec({badarg, stream, Stream}).
 
 -spec del_batch_outcome({'DOWN', reference(), _, _, _}) -> emqx_ds:del_batch_outcome().
 del_batch_outcome(Reply) ->

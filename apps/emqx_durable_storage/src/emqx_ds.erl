@@ -982,8 +982,8 @@ This function is used to delete large volumes of data from durable storage in ch
 
 Return type:
 
-- `{ok, true}`: the function deleted a batch of messages,
-   `Nmsgs` in total, but more remain. The business logic should call
+- `{ok, true}`: the function deleted a batch of messages, but more remain.
+   The business logic should call
    this function again to process the next chunk.
 
 - `{ok, false}`: no more objects to delete.
@@ -1028,16 +1028,22 @@ Options:
 
 - **`max_mql`**: Same as in `trans/2`
 
+
+NOTE: `del_batch' operations with `dirty = false' are tracked as optimistic transactions
+doing `tx_del_topic' on the time range as specified by the function argument.
+Practically, it means that the same transaction collision domain
+is used regardless of how many elements were deleted.
+
 """.
 -spec del_batch(
     db(),
     stream(),
-    topic(),
+    topic_filter(),
     time(),
     time() | infinity,
     del_batch_opts()
 ) -> del_batch_outcome() | {async, reference()}.
-del_batch(DB, Stream, Topic, From, To, UserOpts) ->
+del_batch(DB, Stream, Topic, From, To, UserOpts) when is_map(UserOpts) ->
     Defaults = #{
         sync => true,
         batch_size => 100,
@@ -1047,20 +1053,51 @@ del_batch(DB, Stream, Topic, From, To, UserOpts) ->
         max_mql => 100,
         dirty => false
     },
-    Opts = maps:merge(Defaults, UserOpts),
-    ?with_dsch(
-        DB,
-        #{cbm := Mod},
-        begin
-            #{retries := Retries} = Opts,
-            maybe_middleman(
-                Opts,
-                fun() ->
-                    del_batch_maybe_retry(Mod, DB, Stream, {Topic, From, To}, Opts, Retries)
-                end
-            )
-        end
-    ).
+    #{
+        batch_size := BatchSize,
+        retries := Retries,
+        retry_interval := RetryInterval,
+        max_mql := MaxMQL,
+        dirty := Dirty,
+        sync := Sync
+    } = Opts = maps:merge(Defaults, UserOpts),
+    maybe
+        %% Args check:
+        true ?= is_list(Topic) orelse ?err_unrec({badarg, topic, Topic}),
+        true ?= is_integer(From) andalso From >= 0 orelse ?err_unrec({badarg, from, From}),
+        true ?= is_integer(To) orelse To =:= infinity orelse ?err_unrec({badarg, to, To}),
+        %% NOTE: batch_size = 0 is explictily forbidden, as it may cause
+        %% the business code to loop infinitely.
+        true ?= is_integer(BatchSize) andalso BatchSize > 0 orelse
+            ?err_unrec({badarg, batch_size, BatchSize}),
+        %% For the same reason, From = To is also forbidden. Delete
+        %% works on half-closed intervals, and interval [a, a) is an
+        %% empty set:
+        true ?= From < To orelse ?err_unrec({badarg, bad_range, From, To}),
+        true ?= is_integer(Retries) orelse ?err_unrec({badarg, retries, Retries}),
+        true ?= is_integer(RetryInterval) andalso RetryInterval >= 0 orelse
+            ?err_unrec({badarg, retry_interval, RetryInterval}),
+        true ?= is_integer(MaxMQL) orelse MaxMQL =:= infinity orelse
+            ?err_unrec({badarg, max_mql, MaxMQL}),
+        true ?= is_boolean(Sync) orelse ?err_unrec({badarg, sync}),
+        true ?= is_boolean(Dirty) orelse ?err_unrec({badarg, dirty}),
+        %% Actual call:
+        ?with_dsch(
+            DB,
+            #{cbm := Mod},
+            begin
+                #{retries := Retries} = Opts,
+                maybe_middleman(
+                    Opts,
+                    fun() ->
+                        del_batch_maybe_retry(Mod, DB, Stream, {Topic, From, To}, Opts, Retries)
+                    end
+                )
+            end
+        )
+    end;
+del_batch(_, _, _, _, _, _) ->
+    ?err_unrec(badarg).
 
 -doc """
 Process asynchronous DS `del_batch` reply and return the outcome.

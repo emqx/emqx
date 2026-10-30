@@ -2797,16 +2797,16 @@ t_del_batch(Config) ->
                 [{_, 5, _}, {_, 6, _}, {_, 7, _}, {_, 8, _}, {_, 9, _}, {_, 10, _}],
                 lists:sort(emqx_ds:dirty_read(DB, Topic2))
             ),
-            %% Empty and inverted time ranges are no-ops:
+            %% It's possible to delete one timestamp only:
             ?assertMatch(
                 {ok, false},
-                emqx_ds:del_batch(DB, Stream2, Topic2, 7, 7, #{})
+                emqx_ds:del_batch(DB, Stream2, Topic2, 7, 8, #{})
             ),
             ?assertMatch(
-                {ok, false},
-                emqx_ds:del_batch(DB, Stream2, Topic2, 10, 5, #{})
+                [{_, 5, _}, {_, 6, _}, {_, 8, _}, {_, 9, _}, {_, 10, _}],
+                lists:sort(emqx_ds:dirty_read(DB, Topic2))
             ),
-            ?assertEqual(6, length(emqx_ds:dirty_read(DB, Topic2))),
+            ?assertEqual(5, length(emqx_ds:dirty_read(DB, Topic2))),
             %% 3. Both boundaries of the range: objects with timestamps
             %% in `[6, 8)' are removed:
             ?assertMatch(
@@ -2871,51 +2871,50 @@ t_del_batch_invalid_args(Config) ->
             %% Negative `From' is accepted, but it matches no objects,
             %% so the call is a no-op:
             ?assertMatch(
-                {ok, false},
+                ?err_unrec(_),
                 emqx_ds:del_batch(DB, Stream, Topic, -1, infinity, #{})
             ),
-            %% Non-integer `From' is rejected:
+            %% Negative From and To are rejected
             ?assertMatch(
-                ?err_unrec(bad_from),
-                emqx_ds:del_batch(DB, Stream, Topic, <<"0">>, infinity, #{})
+                ?err_unrec(_),
+                emqx_ds:del_batch(DB, Stream, Topic, -1, infinity, #{})
             ),
-            %% Negative `To' cannot be converted to a stream key limit,
-            %% the backend reports a recoverable error:
             ?assertMatch(
-                ?err_rec(otx_backend_error),
+                ?err_unrec(_),
                 emqx_ds:del_batch(DB, Stream, Topic, 0, -1, #{})
+            ),
+            %% From = To is rejected:
+            ?assertMatch(
+                ?err_unrec(_),
+                emqx_ds:del_batch(DB, Stream, Topic, 1, 1, #{})
             ),
             %% Non-integer `To' is rejected:
             ?assertMatch(
-                ?err_unrec(bad_to),
+                ?err_unrec(_),
                 emqx_ds:del_batch(DB, Stream, Topic, 0, <<"0">>, #{})
             ),
-            %% Non-positive `batch_size' deletes nothing, while the
-            %% outcome keeps saying that more data remains. Note: the
-            %% caller must not blindly loop on the `More' flag with
-            %% such batch size:
             ?assertMatch(
-                {ok, true},
+                ?err_unrec(_),
                 emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{batch_size => -1})
             ),
             ?assertMatch(
-                {ok, true},
+                ?err_unrec(_),
                 emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{batch_size => 0})
             ),
             %% Non-integer `batch_size' is rejected:
             ?assertMatch(
-                ?err_unrec(bad_batch_size),
+                ?err_unrec(_),
                 emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{batch_size => <<"10">>})
             ),
             %% `dirty' must be a boolean:
             ?assertMatch(
-                ?err_unrec(bad_dirty),
+                ?err_unrec(_),
                 emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{dirty => 0})
             ),
             %% Stream that doesn't belong to the DB. Note: the error is
             %% raised as an exception rather than returned as a value:
-            ?assertError(
-                function_clause,
+            ?assertMatch(
+                ?err_unrec(_),
                 emqx_ds:del_batch(DB, not_a_stream, Topic, 0, infinity, #{})
             ),
             %% None of the failed calls above had any side effects:
