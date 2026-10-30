@@ -139,8 +139,11 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
-%% Upper bound for the derived hibernation deadline, so that a connection
-%% hibernates promptly however high `idle_timeout` is set.
+%% Bounds for the derived hibernation deadline. The lower bound keeps a busy
+%% connection from hibernating between messages, which would collect and
+%% resize its heap each time. The upper bound keeps a connection hibernating
+%% promptly however high `idle_timeout` is set.
+-define(HIBERNATE_AFTER_MIN_MS, 3000).
 -define(HIBERNATE_AFTER_MAX_MS, 15000).
 
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
@@ -468,7 +471,9 @@ wakeup_from_hib(Parent, State = #state{channel = Channel}) ->
 hibernate_timeout(infinity) ->
     infinity;
 hibernate_timeout(IdleTimeoutMs) ->
-    min(max(IdleTimeoutMs div 2, 1), ?HIBERNATE_AFTER_MAX_MS).
+    emqx_utils:clamp(
+        IdleTimeoutMs div 2, ?HIBERNATE_AFTER_MIN_MS, ?HIBERNATE_AFTER_MAX_MS
+    ).
 
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer

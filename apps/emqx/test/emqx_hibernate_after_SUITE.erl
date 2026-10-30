@@ -10,15 +10,20 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-%% `mqtt.idle_timeout`, from which the hibernation deadline is derived as half.
--define(IDLE_TIMEOUT_MS, 600).
--define(HIBERNATE_AFTER_MS, ?IDLE_TIMEOUT_MS div 2).
+%% `mqtt.idle_timeout`, from which the hibernation deadline is derived as half,
+%% clamped to [3 s, 15 s]. Half of 6 s is the lower bound, so the deadline is
+%% 3 s and is below both `idle_timeout` and the keepalive check interval. It
+%% has to be below both: each is a timer whose message re-enters `recvloop/2`
+%% and restarts the deadline.
+-define(IDLE_TIMEOUT_MS, 6000).
+-define(HIBERNATE_AFTER_MS, 3000).
 -define(HIBERNATED, {current_function, {erlang, hibernate, 3}}).
-%% With a keepalive of 4 s: `max_idle_millisecond` is 6 s, and the check
-%% interval is the configured 1 s.
--define(KA, 4).
--define(MAX_IDLE_MS, 6000).
--define(CHECK_INTERVAL_MS, 1000).
+%% With a keepalive of 8 s: `max_idle_millisecond` is 12 s, and the check
+%% interval is the configured 4 s, which `emqx_keepalive:init/3` caps at half
+%% the keepalive.
+-define(KA, 8).
+-define(MAX_IDLE_MS, 12000).
+-define(CHECK_INTERVAL_MS, 4000).
 %% The time the test process takes to see a disconnect it has waited for.
 -define(MARGIN_MS, 500).
 %% The sampling timer and the deadline timer of the keepalive.
@@ -56,8 +61,6 @@ end_per_testcase(TC, _Config) when
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
-%% The hibernation deadline is half of `idle_timeout`. Keep `idle_timeout`
-%% short so that the waits of this suite stay short.
 conf() ->
     emqx_utils:format(
         """
@@ -67,7 +70,7 @@ conf() ->
         [?IDLE_TIMEOUT_MS, ?CHECK_INTERVAL_MS]
     ).
 
--doc "An idle connection hibernates after half of `mqtt.idle_timeout`.".
+-doc "An idle connection hibernates after the deadline derived from `mqtt.idle_timeout`.".
 t_hibernates_when_idle(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     C = connect(ClientId),
@@ -90,7 +93,7 @@ t_never_hibernates_when_infinity(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     C = connect(ClientId),
     [Pid] = emqx_cm:lookup_channels(ClientId),
-    timer:sleep(10 * ?HIBERNATE_AFTER_MS),
+    timer:sleep(3 * ?HIBERNATE_AFTER_MS),
     ?assertNotEqual(?HIBERNATED, process_info(Pid, current_function)),
     ok = emqtt:disconnect(C).
 
