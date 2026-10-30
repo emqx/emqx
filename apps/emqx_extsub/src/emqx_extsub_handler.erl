@@ -30,7 +30,9 @@
 
 -type state() :: term().
 
--type subscribe_type() :: subscribe | resume.
+%% `handover': the channel already started delivery for the topic filter and passes the rest
+%% of it to the handler with `emqx_extsub:handover/6'. The context has the `handover' key.
+-type subscribe_type() :: subscribe | resume | handover.
 -type unsubscribe_type() :: unsubscribe | disconnect.
 
 -opaque message_target() :: {pid(), emqx_extsub_types:handler_ref()}.
@@ -45,6 +47,8 @@
     %% Use send/2 and send_after/3 to send messages to the handler itself.
     %% Use monitor/2 to receive 'DOWN' messages of other processes.
     message_target := message_target(),
+    %% Data passed to `emqx_extsub:handover/6', only for the `handover' subscribe type
+    handover => term(),
     _ => _
 }.
 

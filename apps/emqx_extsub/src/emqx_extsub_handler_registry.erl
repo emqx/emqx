@@ -19,6 +19,7 @@ Collection of handlers for the external message sources.
 -export([
     new/0,
     subscribe/4,
+    handover/6,
     unsubscribe/3,
     save_subopts/3,
     delivered/6,
@@ -54,7 +55,9 @@ Collection of handlers for the external message sources.
 
 -type subscribe_init_ctx() :: #{
     clientinfo := emqx_types:clientinfo(),
-    can_receive_acks := boolean()
+    can_receive_acks := boolean(),
+    %% Only for the `handover' subscribe type
+    handover => term()
 }.
 
 -type info_init_ctx() :: #{
@@ -128,6 +131,48 @@ subscribe(Registry, SubscribeType, SubscribeCtx, TopicFiltersToSubOpts) ->
             {TopicFilter, SubOpts} <- maps:to_list(TopicFiltersToSubOpts)
         ]
     ).
+
+-doc """
+Create the handler of one module for a topic filter with the `handover` subscribe type, then
+add `Messages` to its buffer. When the handler already exists, only add `Messages`.
+Return `ignore` when the module is not registered or does not create the handler.
+""".
+-spec handover(
+    t(),
+    subscribe_init_ctx(),
+    module(),
+    emqx_extsub_types:topic_filter(),
+    emqx_types:subopts(),
+    [emqx_types:message()]
+) -> {ok, t()} | ignore.
+handover(
+    #registry{by_topic_cbm = ByTopicCBM} = Registry0,
+    SubscribeCtx,
+    Module,
+    TopicFilter,
+    SubOpts,
+    Messages
+) ->
+    case ByTopicCBM of
+        #{{Module, TopicFilter} := HandlerRef} ->
+            {ok, buffer_add(Registry0, HandlerRef, Messages)};
+        _ ->
+            case ets:lookup(?TAB, Module) of
+                [CBMOptions] ->
+                    #registry{by_topic_cbm = ByTopicCBM1} =
+                        Registry = subscribe(
+                            Registry0, handover, SubscribeCtx, CBMOptions, TopicFilter, SubOpts
+                        ),
+                    case ByTopicCBM1 of
+                        #{{Module, TopicFilter} := HandlerRef} ->
+                            {ok, buffer_add(Registry, HandlerRef, Messages)};
+                        _ ->
+                            ignore
+                    end;
+                [] ->
+                    ignore
+            end
+    end.
 
 -spec unsubscribe(t(), emqx_extsub_handler:unsubscribe_type(), #{
     emqx_extsub_types:topic_filter() => emqx_types:subopts()

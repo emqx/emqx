@@ -36,6 +36,8 @@ The module:
     on_client_handle_info/3
 ]).
 
+-export([handover/6]).
+
 -export([
     set_max_unacked/1,
     max_unacked/0,
@@ -365,6 +367,44 @@ on_client_handle_info(
                     {St2, Acc0#{deliver => NewDelivers ++ Delivers}}
             end,
         {ok, St, {ok, Acc}}
+    end).
+
+-doc """
+Pass the delivery for a topic filter to a handler of `Module` in the calling channel.
+
+A channel-side message source calls this function when it cannot finish the delivery itself,
+for example when the session refuses a message (the `message.nack` hook). ExtSub creates the
+handler with `handle_subscribe(handover, Ctx#{handover => Data}, undefined, TopicFilter)` and
+adds `Messages` to the handler's buffer. When the handler for the topic filter already exists,
+ExtSub only adds `Messages`. Only `Module` is called, other handler modules are not.
+
+The function sends no message to the session and can run inside the session's delivery.
+ExtSub delivers the buffer in a later channel turn.
+Return `ignore` when the handler is not created; the caller then drops `Messages`.
+""".
+-spec handover(
+    emqx_types:clientinfo(),
+    module(),
+    emqx_types:topic(),
+    emqx_types:subopts(),
+    term(),
+    [emqx_types:message()]
+) -> ok | ignore.
+handover(ClientInfo, Module, TopicFilter, SubOpts, Data, Messages) ->
+    with_st(fun(#st{registry = HandlerRegistry0} = St0) ->
+        SubscribeCtx0 = subscribe_ctx(ClientInfo),
+        SubscribeCtx = SubscribeCtx0#{handover => Data},
+        case
+            emqx_extsub_handler_registry:handover(
+                HandlerRegistry0, SubscribeCtx, Module, TopicFilter, SubOpts, Messages
+            )
+        of
+            {ok, HandlerRegistry} ->
+                St = ensure_deliver_retry_timer(0, St0#st{registry = HandlerRegistry}),
+                {ok, St, ok};
+            ignore ->
+                {ok, St0, ignore}
+        end
     end).
 
 set_max_unacked(MaxUnacked) ->

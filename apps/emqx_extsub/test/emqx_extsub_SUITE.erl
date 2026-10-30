@@ -64,6 +64,7 @@ init_per_testcase(_CaseName, Config) ->
     Config.
 
 end_per_testcase(_CaseName, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     ok = emqx_extsub_handler_registry:unregister(emqx_extsub_test_st_handler),
     ok = emqx_extsub_handler_registry:unregister(emqx_extsub_test_mt_handler),
     ok = snabbkaffe:stop().
@@ -358,6 +359,52 @@ test_subscribe_results(MultiTopic) ->
             ?assertNotReceive({terminated, _}, 100)
     end,
     ok = emqx_extsub_handler_registry:unregister(Module).
+
+-doc """
+Checks `emqx_extsub:handover/6`: it creates a handler of the given module only, buffers the
+messages, adds later messages to the same handler and schedules a delivery in the next turn.
+""".
+t_handover(_Config) ->
+    Module = emqx_extsub_test_resub_handler,
+    ok = emqx_extsub_handler_registry:register(Module, #{
+        multi_topic => false, ignore_resubscribe => false
+    }),
+    emqx_common_test_helpers:on_exit(fun() ->
+        _ = erase(extsub_st),
+        ok = emqx_extsub_handler_registry:unregister(Module)
+    end),
+    Topic = <<"handover/a">>,
+    Msg1 = emqx_message:make(test, Topic, <<"1">>),
+    Msg2 = emqx_message:make(test, Topic, <<"2">>),
+    Inspect = fun() ->
+        emqx_extsub_handler_registry:inspect(element(2, erlang:get(extsub_st)))
+    end,
+
+    %% A handler that does not accept the handover is not created.
+    ?assertEqual(
+        ignore, emqx_extsub:handover(#{}, Module, Topic, #{result => ignore}, data, [Msg1])
+    ),
+    ?assertMatch(#{by_ref := []}, Inspect()),
+
+    %% Only the given module gets the `handover' subscription, with the handover data.
+    ok = emqx_extsub:handover(#{}, Module, Topic, #{result => ok}, data, [Msg1]),
+    ?assertReceive({subscribed, Topic, #{Topic := 1}}),
+    ?assertMatch(
+        #{by_topic_cbm := ByTopicCBM, buffer := #{message_buffer_size := 1}} when
+            map_size(ByTopicCBM) =:= 1,
+        Inspect()
+    ),
+    ?assertReceive(#info_extsub_try_deliver{}),
+
+    %% A second handover only adds the messages to the existing handler.
+    ok = emqx_extsub:handover(#{}, Module, Topic, #{result => ok}, data, [Msg2]),
+    ?assertNotReceive({subscribed, _, _}, 100),
+    ?assertMatch(#{by_ref := [_], buffer := #{message_buffer_size := 2}}, Inspect()),
+
+    %% A module that is not registered gets no handler.
+    ?assertEqual(
+        ignore, emqx_extsub:handover(#{}, unknown_module, Topic, #{}, data, [Msg1])
+    ).
 
 -doc """
 Checks that destroy results of `handle_info/3` and `handle_delivered/4` keep the state the

@@ -166,6 +166,20 @@ The destroy and recreate results are described in [Destroy and recreate results]
 
 ExtSub calls `handle_unsubscribe` and `handle_terminate` with the returned state. So the handler can release the resources of the returned state there, including resources that the same callback created.
 
+#### Handover
+
+A message source can start a delivery in the channel without ExtSub and pass it to a handler only when the delivery needs flow control.
+The retainer does this: it delivers most retained reads with its own hooks, and creates its ExtSub handler only when more batches follow or the session refuses a message.
+
+Call `emqx_extsub:handover(ClientInfo, Module, TopicFilter, SubOpts, Data, Messages)` in the channel process:
+
+* When `Module` has no handler for `TopicFilter`, ExtSub calls `handle_subscribe(handover, Ctx, undefined, TopicFilter)` of `Module` only. `Ctx` has the `handover => Data` key. Other handler modules are not called.
+* ExtSub adds `Messages` to the buffer of the handler. When the handler already exists, ExtSub only adds `Messages`.
+* ExtSub sends nothing to the session, so the function can run inside the session's delivery, for example in the `message.nack` hook. ExtSub delivers the buffer in a later channel turn.
+* The function returns `ignore` when `Module` is not registered or `handle_subscribe` does not create the handler. The caller then drops `Messages`.
+
+A handler that is created only with a handover returns `ignore` for the `subscribe` and `resume` types when it has no state.
+
 ### How the callbacks of the `emqx_extsub_handler` behaviour are coordinated
 
 The general pattern is the following.
