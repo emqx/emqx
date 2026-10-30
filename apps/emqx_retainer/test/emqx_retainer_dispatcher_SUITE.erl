@@ -390,7 +390,10 @@ t_resubscribe_keeps_delivery(_Config) ->
     store_messages(),
     lists:foreach(
         fun(RH) ->
-            {Client, Worker} = connect_with_suspended_dispatcher(),
+            %% A new client ID for each case: an immediate reconnect with the same client ID
+            %% can be throttled while the previous channel unregisters.
+            ClientId = <<"retainer_dispatcher_resubscribe_", (integer_to_binary(RH))/binary>>,
+            {Client, Worker} = connect_with_suspended_dispatcher(ClientId),
             {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, [{qos, 0}, {rh, 1}]),
             {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, [{qos, 0}, {rh, RH}]),
             ok = sys:resume(Worker),
@@ -408,7 +411,7 @@ t_resubscribe_keeps_delivery(_Config) ->
 -doc "A repeated SUBSCRIBE with Retain Handling 0 restarts delivery and drops the old reply.".
 t_resubscribe_restarts_delivery(_Config) ->
     store_messages(),
-    {Client, Worker} = connect_with_suspended_dispatcher(),
+    {Client, Worker} = connect_with_suspended_dispatcher(<<"retainer_dispatcher_resubscribe">>),
     {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, [{qos, 0}, {rh, 0}]),
     {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, [{qos, 0}, {rh, 0}]),
     ok = sys:resume(Worker),
@@ -515,8 +518,7 @@ receive_any_batch() ->
     after 5000 -> ct:fail(no_batch)
     end.
 
-connect_with_suspended_dispatcher() ->
-    ClientId = <<"retainer_dispatcher_resubscribe">>,
+connect_with_suspended_dispatcher(ClientId) ->
     {ok, Client} = emqtt:start_link(#{clientid => ClientId, proto_ver => v5}),
     {ok, _} = emqtt:connect(Client),
     [Channel] = emqx_cm:lookup_channels(ClientId),
