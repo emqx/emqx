@@ -785,7 +785,7 @@ called `slab`. All slabs with the same generation ID share the same
 properties. Therefore, when we speak about a "generation" we usually
 imply a set of all slabs in the same generation.
 
-Each generation contains homogenious data. Data-at-rest representation
+Each generation contains homogeneous data. Data-at-rest representation
 of each record in the generation is the same. This representation is
 specified by a **layout**.
 
@@ -1004,7 +1004,7 @@ Options:
   operation. For example:
 
   ```erlang
-  {async, Ref} = emqx_ds:del_batch(DB, Shard, Stream, ['#'], 0, infinity, #{sync => false}),
+  {async, Ref} = emqx_ds:del_batch(DB, Stream, ['#'], 0, infinity, #{sync => false}),
   receive
     ?ds_tx_commit_reply(Ref, Reply) ->
        Outcome = emqx_ds:del_batch_outcome(DB, Ref, Reply)
@@ -1066,7 +1066,7 @@ del_batch(DB, Stream, Topic, From, To, UserOpts) when is_map(UserOpts) ->
         true ?= is_list(Topic) orelse ?err_unrec({badarg, topic, Topic}),
         true ?= is_integer(From) andalso From >= 0 orelse ?err_unrec({badarg, from, From}),
         true ?= is_integer(To) orelse To =:= infinity orelse ?err_unrec({badarg, to, To}),
-        %% NOTE: batch_size = 0 is explictily forbidden, as it may cause
+        %% NOTE: batch_size = 0 is explicitly forbidden, as it may cause
         %% the business code to loop infinitely.
         true ?= is_integer(BatchSize) andalso BatchSize > 0 orelse
             ?err_unrec({badarg, batch_size, BatchSize}),
