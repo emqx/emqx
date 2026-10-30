@@ -2911,8 +2911,7 @@ t_del_batch_invalid_args(Config) ->
                 ?err_unrec(_),
                 emqx_ds:del_batch(DB, Stream, Topic, 0, infinity, #{dirty => 0})
             ),
-            %% Stream that doesn't belong to the DB. Note: the error is
-            %% raised as an exception rather than returned as a value:
+            %% Stream that doesn't belong to the DB:
             ?assertMatch(
                 ?err_unrec(_),
                 emqx_ds:del_batch(DB, not_a_stream, Topic, 0, infinity, #{})
