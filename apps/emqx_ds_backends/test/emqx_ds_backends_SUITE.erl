@@ -3171,6 +3171,50 @@ t_del_batch_topic_filters(Config) ->
         []
     ).
 
+%% This testcase timeouts of sync and async del_batch operations
+t_del_batch_timeouts(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            %% 0. Insert some data to get streams:
+            Shard = emqx_ds:shard_of(DB, <<"me">>),
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    #{db => DB, shard => Shard, generation => 1},
+                    fun() ->
+                        emqx_ds:tx_write({[~"foo"], 0, ~""})
+                    end
+                )
+            ),
+            {[{_, Stream}], []} = emqx_ds:get_streams(DB, ['#'], 0, #{}),
+            %% 1. Pause DB workers
+            OtxLeader = emqx_ds_optimistic_tx:where(DB, Shard),
+            ok = sys:suspend(OtxLeader),
+            %% 2. Sync case:
+            ?assertMatch(
+                ?err_rec(_),
+                emqx_ds:del_batch(DB, Stream, ['#'], 0, infinity, #{sync => true, timeout => 100})
+            ),
+            %% 3. Async case:
+            {async, Ref} = emqx_ds:del_batch(DB, Stream, ['#'], 0, infinity, #{
+                sync => false, timeout => 100
+            }),
+            receive
+                ?ds_tx_commit_reply(Ref, Reply) ->
+                    ?assertMatch(
+                        ?err_rec(_),
+                        emqx_ds:del_batch_outcome(DB, Ref, Reply)
+                    )
+            after 500 ->
+                error(timeout)
+            end
+        end,
+        []
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.
