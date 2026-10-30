@@ -260,7 +260,7 @@ handle_continue(?ensure_subscription, State0) ->
                 source_resource_id := SourceResId,
                 ecpool_worker_id := WorkerId
             } = State0,
-            ?MODULE:pull_async(self()),
+            ok = start_pulling(),
             optvar:set(?OPTVAR_SUB_OK(WorkerId), subscription_ok),
             clear_unhealthy_status(State0),
             State = clear_backoff(State0),
@@ -289,7 +289,7 @@ handle_continue(?patch_subscription, State0) ->
                 source_resource_id := SourceResId,
                 ecpool_worker_id := WorkerId
             } = State0,
-            ?MODULE:pull_async(self()),
+            ok = start_pulling(),
             optvar:set(?OPTVAR_SUB_OK(WorkerId), subscription_ok),
             clear_unhealthy_status(State0),
             ?tp(
@@ -395,6 +395,15 @@ terminate(_Reason, State) ->
 -spec start_link(config()) -> gen_server:start_ret().
 start_link(Config) ->
     gen_server:start_link(?MODULE, Config, []).
+
+%% Only the first pull waits for the node to be ready; each pull starts the next one.
+-spec start_pulling() -> ok.
+start_pulling() ->
+    Self = self(),
+    case emqx_resource_ready_waiter:when_ready({?MODULE, Self}, {?MODULE, pull_async, [Self]}) of
+        now -> ?MODULE:pull_async(Self);
+        deferred -> ok
+    end.
 
 -spec ensure_ack_timer(state()) -> state().
 ensure_ack_timer(State = #{ack_timer := TRef, pending_acks := PendingAcks}) ->
