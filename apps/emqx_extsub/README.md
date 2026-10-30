@@ -76,6 +76,13 @@ The `subscribe_ctx()` contains a `message_target` value that identifies the owni
 Use `emqx_extsub_handler:send/2` or `emqx_extsub_handler:send_after/3` to send a message to this target.
 Store the target in handler state, not a callback function. A callback function can retain old code after a module reload.
 
+To track another process, call `emqx_extsub_handler:monitor/2` with the target and the process PID.
+When the process exits, the handler receives `{'DOWN', MRef, process, Pid, Reason}` in `handle_info`.
+Only the channel that owns the handler can call `monitor/2` and `demonitor/2`, so call them from handler callbacks.
+The handler must call `emqx_extsub_handler:demonitor/2` before it is destroyed, for example in `handle_terminate`.
+A monitor that is not removed stays in place until the channel exits.
+ExtSub drops a down message for a handler that no longer exists.
+
 `handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is always `undefined`. For a multi-topic handler, `state()` is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
 
 #### `handle_unsubscribe` callback
