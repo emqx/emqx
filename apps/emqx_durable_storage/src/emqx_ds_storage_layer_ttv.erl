@@ -9,6 +9,7 @@
 %% API:
 -export([
     prepare_tx/5,
+    prepare_del_batch/4,
     commit_batch/3,
     dispatch_events/3,
 
@@ -34,7 +35,7 @@
 %% internal exports:
 -export([]).
 
--export_type([stream/0, iterator/0]).
+-export_type([stream/0, iterator/0, cooked_tx/0]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds.hrl").
@@ -108,6 +109,14 @@
     _TxDeleteTopics :: [emqx_ds:topic_range()]
 ) ->
     {ok, cooked_tx()} | emqx_ds:error(_).
+
+-callback prepare_del_batch(
+    emqx_ds_storage_layer:dbshard(),
+    emqx_ds_storage_layer:generation_data(),
+    inner_stream(),
+    {emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity},
+    emqx_ds_optimistic_tx:del_batch_prepare_opts()
+) -> {ok, boolean(), cooked_tx()} | emqx_ds:error(_).
 
 -callback commit_batch(
     emqx_ds_storage_layer:dbshard(),
@@ -244,6 +253,24 @@ prepare_tx(DBShard, GenId, TXSerial, Tx, Options) ->
             %% TODO store->prepare
             emqx_ds_builtin_metrics:observe_store_batch_time(DBShard, T1 - T0),
             Result;
+        not_found ->
+            ?err_unrec({storage_not_found, GenId})
+    end.
+
+-spec prepare_del_batch(
+    emqx_ds:db(),
+    emqx_ds:ds_specific_stream(),
+    {emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity},
+    emqx_ds_optimistic_tx:del_batch_prepare_opts()
+) ->
+    {ok, boolean(), cooked_tx()} | emqx_ds:error(_).
+prepare_del_batch(
+    DB, #'Stream'{shard = Shard, generation = GenId, inner = Stream}, TopicRange, Options
+) ->
+    DBShard = {DB, Shard},
+    case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:prepare_del_batch(DBShard, GenData, Stream, TopicRange, Options);
         not_found ->
             ?err_unrec({storage_not_found, GenId})
     end.
