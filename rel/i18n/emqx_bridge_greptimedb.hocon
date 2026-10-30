@@ -32,7 +32,8 @@ TLDR:<br/>
 ```
 <measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
 ```
-Please note that a placeholder for an integer value must be annotated with a suffix `i`. For example `${payload.int_value}i`."""
+Please note that a placeholder for an integer value must be annotated with a suffix `i`. For example `${payload.int_value}i`.
+EMQX Tables actions can auto-create JSON2 columns by declaring the corresponding write-syntax field in `field_types`, for example `field_types = { payload = json2 }`. Without that declaration, auto-created tables infer binary fields as STRING. If the first message that auto-creates a table omits a declared JSON2 field, pre-create the table with `append_mode = 'true'` before a later message supplies that field. For other GreptimeDB actions, pre-create the JSON2 column and provide a plain JSON document in the field."""
 
 write_syntax.label:
 """Write Syntax"""
