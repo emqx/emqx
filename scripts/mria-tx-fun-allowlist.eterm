@@ -1,0 +1,43 @@
+%% Modules that pass a transaction fun to mria by value, and how many
+%% call sites each one has. Checked by scripts/check-mria-tx-funs.escript;
+%% `--list' prints the sites.
+%%
+%% This list is maintained by hand and only ever shrinks. Lower a count
+%% when a call site is removed, and delete the line at 0.
+%%
+%% Do not add to this list. A replicant ships such a fun to a core node,
+%% and the call fails with `badfun' when the core runs another build of
+%% the module. A new operation that a replicant needs a core to run is an
+%% inter-broker API: define a BPAPI module for it (see apps/emqx_bpapi)
+%% and run the transaction on the core behind it, so that the contract is
+%% versioned like every other RPC between nodes. When the operation must
+%% stay a mria call, pass `fun ?MODULE:f/N' with an argument list.
+[
+    {emqx_authn_mnesia, 2},
+    {emqx_authn_scram_mnesia, 1},
+    {emqx_banned, 2},
+    {emqx_bpapi, 1},
+    {emqx_cluster_link_extrouter, 1},
+    {emqx_cluster_rpc, 1},
+    {emqx_conf_app, 1},
+    {emqx_config, 2},
+    {emqx_dashboard_admin, 22},
+    {emqx_dashboard_login, 6},
+    {emqx_dashboard_login_lock, 1},
+    {emqx_dashboard_mfa, 3},
+    {emqx_dashboard_monitor, 2},
+    {emqx_dashboard_token, 6},
+    {emqx_ds_builtin_raft_meta, 1},
+    {emqx_license_session_hwm, 1},
+    {emqx_mgmt_auth, 2},
+    {emqx_mgmt_data_backup, 1},
+    {emqx_mq_registry, 2},
+    {emqx_mt_state, 1},
+    {emqx_psk, 1},
+    {emqx_retainer_mnesia, 3},
+    {emqx_router, 1},
+    {emqx_schema_registry_serde, 2},
+    {emqx_streams_registry, 3},
+    {emqx_topic_metrics_registry, 1},
+    {emqx_trace, 1}
+].
