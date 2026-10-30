@@ -13,7 +13,8 @@
     version_with_prefix/0,
     vsn_compare/1,
     vsn_compare/2,
-    get_flavor/0
+    get_flavor/0,
+    db_schema_vsn/0
 ]).
 
 -ifdef(TEST).
@@ -49,6 +50,12 @@ edition_vsn_prefix() ->
 
 %% @doc Return EMQX edition name, ee => Enterprise ce => Opensource.
 edition_longstr() -> ?EMQX_REL_NAME.
+
+%% @doc Return the version of the mria table schema and of the
+%% transaction funs shared between replicant and core nodes.
+%% See `EMQX_DB_SCHEMA_VSN' in emqx_release.hrl.
+db_schema_vsn() ->
+    ?EMQX_DB_SCHEMA_VSN.
 
 %% @doc Return the release version with prefix.
 version_with_prefix() ->
