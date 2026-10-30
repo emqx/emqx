@@ -19,6 +19,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_authz.hrl").
 
 %%--------------------------------------------------------------------
@@ -60,7 +61,12 @@
 -type qos_condition() :: [qos()].
 -type retain_condition() :: retain() | all.
 
--type topic_condition() :: list(emqx_types:topic() | {eq, emqx_types:topic()} | ?ALL_TOPICS).
+-type topic_condition() :: list(
+    emqx_types:words()
+    | {eq, emqx_types:topic()}
+    | {pattern, emqx_template:t()}
+    | ?ALL_TOPICS
+).
 
 -type rule() :: {permission_resolution(), condition(), action_condition(), topic_condition()}.
 
@@ -314,16 +320,24 @@ re_compile(Tag, Pattern) ->
     end.
 
 compile_topic("eq " ++ Topic) ->
-    {eq, emqx_topic:words(bin(Topic))};
+    {eq, bin(Topic)};
 compile_topic(<<"eq ", Topic/binary>>) ->
-    {eq, emqx_topic:words(Topic)};
+    {eq, Topic};
 compile_topic({eq, Topic}) ->
-    {eq, emqx_topic:words(bin(Topic))};
+    {eq, bin(Topic)};
 compile_topic(Topic) ->
     {_, Template} = emqx_auth_template:parse_str(Topic, ?ALLOWED_VARS),
     case emqx_template:is_const(Template) of
-        true -> emqx_topic:words(bin(Topic));
+        true -> compile_const_topic(bin(Topic));
         false -> {pattern, Template}
+    end.
+
+%% A filter without a + or # byte matches only the same topic, so it becomes an eq filter. A
+%% filter with a wildcard is split here, and the check matches it against the words of the topic.
+compile_const_topic(Topic) ->
+    case emqx_topic:wildcard(Topic) of
+        true -> emqx_topic:words(Topic);
+        false -> {eq, Topic}
     end.
 
 bin(A) when is_atom(A) ->
@@ -335,31 +349,49 @@ bin(B) when is_binary(B) ->
 
 -spec matches(emqx_authz_context:t(), action(), emqx_types:topic(), [rule()]) ->
     {matched, allow} | {matched, deny} | nomatch.
-matches(_AuthzContext, _Action, _Topic, []) ->
+matches(AuthzContext, Action, Topic, Rules) ->
+    matches(AuthzContext, Action, topic_name(Topic), undefined, Rules).
+
+%% Words is `undefined` until a filter with a wildcard needs the words of the topic. The next
+%% filters and rules use the same words, so a check splits the topic at most once.
+matches(_AuthzContext, _Action, _Topic, _Words, []) ->
     nomatch;
-matches(AuthzContext, Action, Topic, [{Permission, Cond, ActionCond, TopicCond} | Tail]) ->
-    case match(AuthzContext, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) of
-        nomatch -> matches(AuthzContext, Action, Topic, Tail);
+matches(AuthzContext, Action, Topic, Words0, [Rule | Tail]) ->
+    case match(AuthzContext, Action, Topic, Words0, Rule) of
+        {nomatch, Words} -> matches(AuthzContext, Action, Topic, Words, Tail);
         Matched -> Matched
     end.
 
 -spec match(emqx_authz_context:t(), action(), emqx_types:topic(), rule()) ->
     {matched, allow} | {matched, deny} | nomatch.
-match(AuthzContext, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) ->
+match(AuthzContext, Action, Topic, Rule) ->
+    case match(AuthzContext, Action, topic_name(Topic), undefined, Rule) of
+        {nomatch, _Words} -> nomatch;
+        Matched -> Matched
+    end.
+
+match(AuthzContext, Action, Topic, Words0, {Permission, Cond, ActionCond, TopicCond}) ->
     try
-        match_action(Action, ActionCond) andalso
-            match_condition(AuthzContext, Cond) andalso
-            match_topics(AuthzContext, Topic, TopicCond)
+        case match_action(Action, ActionCond) andalso match_condition(AuthzContext, Cond) of
+            true -> match_topics(AuthzContext, Topic, Words0, TopicCond);
+            _ -> {false, Words0}
+        end
     of
-        true -> {matched, Permission};
-        _ -> nomatch
+        {true, _Words} -> {matched, Permission};
+        {_, Words} -> {nomatch, Words}
     catch
         throw:_Reason ->
             case emqx_authz_utils:authz_backend_failure_policy() of
-                ignore -> nomatch;
+                ignore -> {nomatch, Words0};
                 deny -> {matched, deny}
             end
     end.
+
+%% A shared subscription is matched by its topic, without the group.
+topic_name(#share{topic = Topic}) ->
+    Topic;
+topic_name(Topic) ->
+    Topic.
 
 -spec match_action(action(), action_condition()) -> boolean().
 match_action(#{action_type := publish}, PubSubCond) when is_atom(PubSubCond) ->
@@ -467,23 +499,46 @@ is_re_match(Value, Pattern) ->
         _ -> false
     end.
 
-match_topics(_AuthzContext, _Topic, []) ->
-    false;
-match_topics(_AuthzContext, _Topic, [?ALL_TOPICS | _Filters]) ->
-    true;
-match_topics(AuthzContext, Topic, [{pattern, PatternFilter} | Filters]) ->
+%% Return {Matched, Words}, where Words are the words of the topic when a filter has split it.
+match_topics(_AuthzContext, _Topic, Words, []) ->
+    {false, Words};
+match_topics(_AuthzContext, _Topic, Words, [?ALL_TOPICS | _Filters]) ->
+    {true, Words};
+match_topics(AuthzContext, Topic, Words, [{pattern, PatternFilter} | Filters]) ->
     TopicFilter = render_topic(PatternFilter, AuthzContext),
-    (is_binary(TopicFilter) andalso
-        match_topic(emqx_topic:words(Topic), emqx_topic:words(TopicFilter))) orelse
-        match_topics(AuthzContext, Topic, Filters);
-match_topics(AuthzContext, Topic, [TopicFilter | Filters]) ->
-    match_topic(emqx_topic:words(Topic), TopicFilter) orelse
-        match_topics(AuthzContext, Topic, Filters).
+    Matched = is_binary(TopicFilter) andalso emqx_topic:match(Topic, TopicFilter),
+    match_or_next(Matched, AuthzContext, Topic, Words, Filters);
+match_topics(AuthzContext, Topic, Words, [{eq, TopicFilter} | Filters]) ->
+    match_or_next(Topic =:= TopicFilter, AuthzContext, Topic, Words, Filters);
+match_topics(AuthzContext, Topic, undefined, [FilterWords | Filters]) ->
+    case first_level_matches(Topic, FilterWords) of
+        true ->
+            Words = emqx_topic:words(Topic),
+            Matched = emqx_topic:match(Words, FilterWords),
+            match_or_next(Matched, AuthzContext, Topic, Words, Filters);
+        false ->
+            match_topics(AuthzContext, Topic, undefined, Filters)
+    end;
+match_topics(AuthzContext, Topic, Words, [FilterWords | Filters]) ->
+    Matched = emqx_topic:match(Words, FilterWords),
+    match_or_next(Matched, AuthzContext, Topic, Words, Filters).
 
-match_topic(Topic, {'eq', TopicFilter}) ->
-    Topic =:= TopicFilter;
-match_topic(Topic, TopicFilter) ->
-    emqx_topic:match(Topic, TopicFilter).
+match_or_next(true, _AuthzContext, _Topic, Words, _Filters) ->
+    {true, Words};
+match_or_next(false, AuthzContext, Topic, Words, Filters) ->
+    match_topics(AuthzContext, Topic, Words, Filters).
+
+%% A filter that starts with a text level matches only a topic that starts with the same
+%% level, so the topic is split only when the first level is the same.
+first_level_matches(Topic, [Word | _]) when is_binary(Word) ->
+    Size = byte_size(Word),
+    case Topic of
+        <<Word:Size/binary, $/, _/binary>> -> true;
+        Word -> true;
+        _ -> false
+    end;
+first_level_matches(_Topic, _FilterWords) ->
+    true.
 
 render_topic(Topic, AuthzContext) ->
     try
