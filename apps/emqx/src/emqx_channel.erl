@@ -573,10 +573,14 @@ handle_in(
                     connecting ->
                         post_process_connect(NProperties, NChannel);
                     _ ->
+                        %% Drop authorization decisions cached under the previous credential.
+                        ok = emqx_authz_cache:empty_authz_cache(),
                         handle_out(
                             auth,
                             {?RC_SUCCESS, NProperties},
-                            NChannel#channel{conn_state = connected}
+                            schedule_connection_auth_expire(
+                                NChannel#channel{conn_state = connected}
+                            )
                         )
                 end;
             {continue, NProperties, NChannel} ->
@@ -595,14 +599,14 @@ handle_in(
                     connecting ->
                         handle_out(connack, NReasonCode, NChannel);
                     _ ->
-                        handle_out(disconnect, NReasonCode, NChannel)
+                        handle_out(disconnect, reauth_error_rc(NReasonCode), NChannel)
                 end;
             {error, NReasonCode} ->
                 case ConnState of
                     connecting ->
                         handle_out(connack, NReasonCode, Channel);
                     _ ->
-                        handle_out(disconnect, NReasonCode, Channel)
+                        handle_out(disconnect, reauth_error_rc(NReasonCode), Channel)
                 end
         end
     catch
@@ -2949,24 +2953,15 @@ authentication_pipeline(Credential, Channel) ->
         ]
     ).
 
-do_authenticate(
-    #{auth_method := AuthMethod} = Credential,
-    #channel{clientinfo = ClientInfo} = Channel
-) ->
+do_authenticate(#{auth_method := AuthMethod} = Credential, Channel) ->
     Properties = #{'Authentication-Method' => AuthMethod},
     case emqx_access_control:authenticate(Credential) of
         {ok, AuthResult} ->
-            Channel1 = Channel#channel{
-                clientinfo = merge_auth_result(ClientInfo, AuthResult),
-                auth_cache = #{}
-            },
-            with_post_authn(Channel1, Properties);
+            apply_enhanced_auth_result(AuthResult, Properties, Channel);
         {ok, AuthResult, AuthData} ->
-            Channel1 = Channel#channel{
-                clientinfo = merge_auth_result(ClientInfo, AuthResult),
-                auth_cache = #{}
-            },
-            with_post_authn(Channel1, Properties#{'Authentication-Data' => AuthData});
+            apply_enhanced_auth_result(
+                AuthResult, Properties#{'Authentication-Data' => AuthData}, Channel
+            );
         {continue, AuthCache} ->
             {continue, Properties, Channel#channel{auth_cache = AuthCache}};
         {continue, AuthData, AuthCache} ->
@@ -3013,6 +3008,45 @@ log_auth_failure(Reason) ->
         #{tag => "AUTHN"}
     ).
 
+apply_enhanced_auth_result(AuthResult0, Properties, #channel{clientinfo = ClientInfo} = Channel) ->
+    case check_reauth_result(AuthResult0, Channel) of
+        {ok, AuthResult} ->
+            Channel1 = Channel#channel{
+                clientinfo = merge_auth_result(ClientInfo, AuthResult),
+                auth_cache = #{}
+            },
+            with_post_authn(Channel1, Properties);
+        {error, _} = Error ->
+            Error
+    end.
+
+%% Client attributes and the client ID are set at CONNECT and hold for the
+%% whole session. A re-authentication result has its `client_attrs' dropped.
+%% A `clientid_override' that names another client ID fails the
+%% re-authentication. `merge_auth_result/2' applies the rest of the result:
+%% it replaces `acl', the superuser flag and the expiry.
+check_reauth_result(
+    AuthResult,
+    #channel{conn_state = ConnState, clientinfo = #{clientid := ClientId}}
+) when
+    ConnState =:= connected orelse ConnState =:= reauthenticating
+->
+    case maps:get(clientid_override, AuthResult, undefined) of
+        Override when
+            is_binary(Override) andalso Override =/= <<"">> andalso Override =/= ClientId
+        ->
+            ?SLOG(warning, #{
+                msg => "reauthentication_rejected_clientid_override",
+                clientid => ClientId,
+                clientid_override => Override
+            }),
+            {error, ?RC_NOT_AUTHORIZED};
+        _ ->
+            {ok, maps:without([client_attrs, clientid_override], AuthResult)}
+    end;
+check_reauth_result(AuthResult, _Channel) ->
+    {ok, AuthResult}.
+
 %% Merge authentication result into ClientInfo
 %% Authentication result may include:
 %% 1. `is_superuser': The superuser flag from various backends
@@ -3054,8 +3088,10 @@ merge_auth_result(ClientInfo0, AuthResult0) when is_map(ClientInfo0) andalso is_
             false ->
                 ClientInfo1
         end,
+    %% `acl' is taken from this result only. When the result has no `acl',
+    %% the client info has none, so rules from an earlier credential do not stay.
     maps:merge(
-        ClientInfo#{client_attrs => Attrs},
+        maps:remove(acl, ClientInfo#{client_attrs => Attrs}),
         AuthResult#{
             is_superuser => IsSuperuser,
             auth_expire_at => ExpireAt
@@ -3603,11 +3639,16 @@ ensure_connected(
         conn_state = connected
     }).
 
+%% Called when the connection is established and again after every
+%% re-authentication. Any timer armed for an earlier credential is cancelled
+%% first, so the pending expiry always matches the current `auth_expire_at'.
+%% A new credential without an expiry removes the deadline. An earlier
+%% deadline is not kept as a floor.
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
-    Channel;
+    clean_timer(connection_auth_expire, Channel);
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
     Interval = max(0, ExpireAt - erlang:system_time(millisecond)),
-    ensure_timer(connection_auth_expire, Interval, Channel).
+    reset_timer(connection_auth_expire, Interval, Channel).
 
 trim_conninfo(ConnInfo) ->
     maps:without(
@@ -4060,6 +4101,15 @@ prepare_will_message_for_publishing(ClientInfo, Msg) ->
 
 disconnect_reason(?RC_SUCCESS) -> ?normal;
 disconnect_reason(ReasonCode) -> emqx_reason_codes:name(ReasonCode).
+
+%% An authentication failure is reported with a CONNACK reason code. A failed
+%% re-authentication is reported with a DISCONNECT packet, and the MQTT 5.0
+%% DISCONNECT packet does not allow all of them. Map the ones it does not allow.
+reauth_error_rc(?RC_BAD_USER_NAME_OR_PASSWORD) -> ?RC_NOT_AUTHORIZED;
+reauth_error_rc(?RC_BANNED) -> ?RC_NOT_AUTHORIZED;
+reauth_error_rc(?RC_SERVER_UNAVAILABLE) -> ?RC_UNSPECIFIED_ERROR;
+reauth_error_rc(?RC_BAD_AUTHENTICATION_METHOD) -> ?RC_PROTOCOL_ERROR;
+reauth_error_rc(ReasonCode) -> ReasonCode.
 
 reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
 reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;

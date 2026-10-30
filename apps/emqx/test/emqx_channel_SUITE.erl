@@ -401,6 +401,86 @@ t_handle_in_extended_auth_no_topic_alias(_) ->
         ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_continue})
     end.
 
+t_reauthentication_reschedules_auth_expiry(_) ->
+    try
+        Now = erlang:system_time(millisecond),
+        {ok, Agent} = emqx_utils_agent:start_link({stop, {ok, #{expire_at => Now + 5_000}}}),
+        emqx_hooks:add(
+            'client.authenticate',
+            {?MODULE, authenticate_continue, [self(), Agent]},
+            ?HP_HIGHEST
+        ),
+        Properties = #{
+            'Authentication-Method' => <<"auth_method">>,
+            'Authentication-Data' => <<"auth_data">>
+        },
+        ConnPkt0 = connpkt(),
+        ConnPkt1 = ConnPkt0#mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            clean_start = false,
+            properties = Properties
+        },
+        {continue, _, Channel1} =
+            emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt1), channel(#{conn_state => idle})),
+        #{connection_auth_expire := TRef1} = emqx_channel:info(timers, Channel1),
+
+        %% A fresh credential pushes the deadline out; the timer must follow it.
+        ok = emqx_utils_agent:set(Agent, {stop, {ok, #{expire_at => Now + 3_600_000}}}),
+        {ok, _, Channel2} =
+            emqx_channel:handle_in(?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), Channel1),
+        #{connection_auth_expire := TRef2} = emqx_channel:info(timers, Channel2),
+        ?assertNotEqual(TRef1, TRef2),
+        ?assertEqual(false, erlang:read_timer(TRef1)),
+        ?assert(erlang:read_timer(TRef2) > 5_000),
+
+        %% A credential without an expiry clears the deadline entirely.
+        ok = emqx_utils_agent:set(Agent, {stop, {ok, #{}}}),
+        {ok, _, Channel3} =
+            emqx_channel:handle_in(?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), Channel2),
+        ?assertNot(maps:is_key(connection_auth_expire, emqx_channel:info(timers, Channel3))),
+        ?assertEqual(false, erlang:read_timer(TRef2)),
+        ok
+    after
+        ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_continue})
+    end.
+
+-doc """
+Tests that a re-authentication result without `acl` removes the `acl` of the previous result.
+The hook returns the `{ok, AuthResult, AuthData}` shape that a multi-round method such as
+SCRAM returns.
+""".
+t_reauthentication_without_acl_clears_acl(_) ->
+    try
+        Acl = #{rules => []},
+        {ok, Agent} = emqx_utils_agent:start_link({stop, {ok, #{acl => Acl}, <<"server_data">>}}),
+        emqx_hooks:add(
+            'client.authenticate',
+            {?MODULE, authenticate_continue, [self(), Agent]},
+            ?HP_HIGHEST
+        ),
+        Properties = #{
+            'Authentication-Method' => <<"auth_method">>,
+            'Authentication-Data' => <<"auth_data">>
+        },
+        ConnPkt0 = connpkt(),
+        ConnPkt1 = ConnPkt0#mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            clean_start = false,
+            properties = Properties
+        },
+        {continue, _, Channel1} =
+            emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt1), channel(#{conn_state => idle})),
+        ?assertMatch(#{acl := Acl}, emqx_channel:info(clientinfo, Channel1)),
+
+        ok = emqx_utils_agent:set(Agent, {stop, {ok, #{}, <<"server_data">>}}),
+        {ok, _, Channel2} =
+            emqx_channel:handle_in(?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), Channel1),
+        ?assertNot(maps:is_key(acl, emqx_channel:info(clientinfo, Channel2))),
+        ok
+    after
+        ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_continue})
+    end.
+
 t_handle_in_unexpected_packet(_) ->
     Channel = emqx_channel:set_field(conn_state, idle, channel()),
     Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
@@ -477,8 +557,8 @@ t_handle_in_re_auth(_) ->
     },
     {ok,
         [
-            {outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)},
-            {close, bad_authentication_method}
+            {outgoing, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)},
+            {close, protocol_error}
         ],
         _} =
         emqx_channel:handle_in(
@@ -487,8 +567,8 @@ t_handle_in_re_auth(_) ->
         ),
     {ok,
         [
-            {outgoing, ?DISCONNECT_PACKET(?RC_BAD_AUTHENTICATION_METHOD)},
-            {close, bad_authentication_method}
+            {outgoing, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)},
+            {close, protocol_error}
         ],
         _} =
         emqx_channel:handle_in(
