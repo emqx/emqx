@@ -542,3 +542,19 @@ t_auto_create_batch_insert(TCConfig) ->
         [ClientId1, ClientId2, "test_" ++ ClientId1, "test_" ++ ClientId2]
     ),
     ok.
+
+-doc """
+Smoke test to ensure correct hackney tls opts.
+
+In particular, that we can connect to a server with certs from an untrusted CA when using
+`verify_none`.
+""".
+t_tls_verify_none(TCConfig) ->
+    ?assertMatch(
+        {201, #{~"status" := ~"connected"}},
+        create_connector_api(TCConfig, #{
+            ~"server" => ~"https://tdengine_tls_lb:6042",
+            ~"ssl" => #{~"enable" => true, ~"verify" => ~"verify_none"}
+        })
+    ),
+    ok.
