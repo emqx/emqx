@@ -6,6 +6,9 @@
 
 -behaviour(gen_server).
 
+%% Backend size/1 calls do not call erlang:size/1.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -60,7 +63,11 @@
     deadline/0,
     cursor/0,
     context/0,
-    index_incarnation/0
+    index_incarnation/0,
+    backend_state/0,
+    match_opts/0,
+    match_result/1,
+    read_cost/0
 ]).
 
 %% exported for `emqx_telemetry'
@@ -86,7 +93,13 @@
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
 -type index_incarnation() :: integer().
--type match_opts() :: map().
+%% `tokens': the topic filter split into words, so that the backend need not split it again.
+-type match_opts() :: #{
+    batch_read_number => pos_integer() | all_remaining,
+    tokens => emqx_types:words()
+}.
+-type read_cost() :: pos_integer().
+-type match_result(Cursor) :: {ok, [message()], Cursor, read_cost()}.
 
 -define(CONTEXT_KEY, {?MODULE, context}).
 -define(BATCH_READ_NUM_PD_KEY, {?MODULE, batch_read_num}).
@@ -106,8 +119,7 @@
     {ok, has_next(), list(message())}.
 -callback read_message(backend_state(), topic()) -> {ok, list(message())}.
 -callback match_messages(backend_state(), topic(), cursor(), match_opts()) ->
-    {ok, list(message()), cursor()}.
--callback delete_cursor(backend_state(), cursor()) -> ok.
+    match_result(cursor()).
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
 -callback current_index_incarnation(backend_state()) -> index_incarnation().
@@ -210,7 +222,10 @@ page_read(Topic, Deadline, Page, Limit) ->
 match_messages(TopicFilter, Cursor, Opts) ->
     emqx_retainer:with_backend(
         fun(Mod, State) ->
-            Mod:match_messages(State, TopicFilter, Cursor, Opts)
+            {ok, Messages, NextCursor, _ReadCost} = Mod:match_messages(
+                State, TopicFilter, Cursor, Opts
+            ),
+            {ok, Messages, NextCursor}
         end,
         {error, no_backend}
     ).
@@ -499,6 +514,7 @@ load_hooks() ->
         multi_topic => false,
         ignore_resubscribe => false
     }),
+    ok = emqx_retainer_channel:register_hooks(),
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER),
     emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),
     ok.
@@ -506,6 +522,7 @@ load_hooks() ->
 -spec unload_hooks() -> ok.
 unload_hooks() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    ok = emqx_retainer_channel:unregister_hooks(),
     ok = emqx_extsub_handler_registry:unregister(emqx_retainer_extsub_handler),
     emqx_stats:cancel_update(emqx_retainer_stats),
     ok.

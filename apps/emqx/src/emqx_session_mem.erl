@@ -962,7 +962,7 @@ deliver(
                     %% Limiter policy is "drop and continue": a sequence of over-limit
                     %% QoS0 messages may be lost. Check each message: a smaller one may
                     %% still fit the remaining quota.
-                    case nack_by_hook(Msg) of
+                    case nack_by_hook(ClientInfo, S, Msg) of
                         true ->
                             ok;
                         false ->
@@ -1011,7 +1011,7 @@ deliver(
                 %% batch.
                 Q = lists:foldl(
                     fun(PendingMsg, QAcc) ->
-                        enqueue_unless_nacked(ClientInfo, PendingMsg, QAcc)
+                        enqueue_unless_nacked(ClientInfo, S, PendingMsg, QAcc)
                     end,
                     Q0,
                     [Msg | More]
@@ -1022,7 +1022,7 @@ deliver(
     else
         _Blocked = true ->
             Q1 =
-                case maybe_nack(Msg) of
+                case maybe_nack(ClientInfo, S, Msg) of
                     true -> Q0;
                     false -> enqueue_msg(ClientInfo, Msg, Q0)
                 end,
@@ -1106,24 +1106,33 @@ enqueue_msg(ClientInfo, Msg, Q0) ->
 maybe_ack(Msg) ->
     emqx_shared_sub:maybe_ack(Msg).
 
-maybe_nack(Msg) ->
+maybe_nack(ClientInfo, S, Msg) ->
     maybe
         false ?= emqx_shared_sub:maybe_nack_dropped(Msg),
-        nack_by_hook(Msg)
+        nack_by_hook(ClientInfo, S, Msg)
     end.
 
 %% Sources with their own buffer, for example ExtSub, take back the messages that the
 %% delivery rate limit refuses. Other messages go to mqueue.
 %% TODO: decide whether shared subscription messages refused by the rate limit go to
 %% another group member, as they do when inflight is full.
-enqueue_unless_nacked(ClientInfo, Msg, Q) ->
-    case nack_by_hook(Msg) of
+enqueue_unless_nacked(ClientInfo, S, Msg, Q) ->
+    case nack_by_hook(ClientInfo, S, Msg) of
         true -> Q;
         false -> enqueue_msg(ClientInfo, Msg, Q)
     end.
 
-nack_by_hook(Msg) ->
-    emqx_hooks:'message.nack'(Msg, false).
+%% The hook context gives the client info and the session (for example, its subscriptions),
+%% so that a hook can pass the message to its own buffer. It is built only when a message
+%% is refused.
+nack_by_hook(ClientInfo, S, Msg) ->
+    ok = emqx_hooks:stash_context('message.nack', #{
+        clientinfo => ClientInfo,
+        session_info_fn => fun(Prop) -> info(Prop, S) end
+    }),
+    Nacked = emqx_hooks:'message.nack'(Msg, false),
+    ok = emqx_hooks:unstash_context('message.nack'),
+    Nacked.
 
 mark_begin_deliver(Msg, Now) ->
     emqx_message:set_header(deliver_begin_at_us, Now, Msg).

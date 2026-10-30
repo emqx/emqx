@@ -21,7 +21,6 @@
     read_message/2,
     page_read/5,
     match_messages/4,
-    delete_cursor/2,
     clean/1,
     size/1,
     current_index_incarnation/1
@@ -55,6 +54,19 @@
 -record(retained_message, {topic, msg, expiry_time}).
 -record(retained_index, {key, expiry_time}).
 -record(retained_index_meta, {key, read_indices, write_indices, reindexing, extra}).
+
+%% The `ets' module does not export its continuation type.
+-type ets_continuation() :: term().
+
+-opaque cursor() ::
+    undefined
+    | #{
+        incarnation := emqx_retainer:index_incarnation(),
+        index := emqx_retainer_index:index() | undefined,
+        continuation := ets_continuation() | undefined
+    }.
+
+-export_type([cursor/0]).
 
 -define(META_KEY, index_meta).
 
@@ -276,30 +288,100 @@ delete_message(_State, Topic) ->
 read_message(_State, Topic) ->
     {ok, read_messages(Topic)}.
 
-match_messages(State, Topic, undefined, Opts) ->
-    Tokens = topic_to_tokens(Topic),
-    Now = erlang:system_time(millisecond),
-    S1 = msg_stream(search_stream(Tokens, Now)),
-    Skip = maps:get(skip, Opts, 0),
-    S = emqx_utils_stream:drop(Skip, S1),
+-doc "Read matching messages and return the read cost before topic and expiry filtering.".
+-spec match_messages(
+    emqx_retainer:backend_state(), emqx_types:topic(), cursor(), emqx_retainer:match_opts()
+) -> emqx_retainer:match_result(cursor()).
+match_messages(_State, Topic, Cursor, Opts) ->
+    Tokens =
+        case Opts of
+            #{tokens := Tokens0} -> Tokens0;
+            #{} -> topic_to_tokens(Topic)
+        end,
     case batch_read_number(Opts) of
         all_remaining ->
-            {ok, emqx_utils_stream:consume(S), undefined};
-        BatchNum when is_integer(BatchNum) ->
-            match_messages(State, Topic, {S, BatchNum}, Opts)
-    end;
-match_messages(_State, _Topic, {S0, BatchNum0}, Opts) ->
-    BatchNum = batch_read_number(Opts, BatchNum0),
-    case emqx_utils_stream:consume(BatchNum, S0) of
-        {Rows, S1} ->
-            {ok, Rows, {S1, BatchNum}};
-        Rows when is_list(Rows) ->
-            {ok, Rows, undefined}
+            match_all(Tokens, Cursor, [], 0);
+        BatchSize ->
+            match_batch(Tokens, Cursor, BatchSize)
     end.
 
-delete_cursor(_State, _Cursor) ->
-    emqx_retainer_dispatcher:unregister_reader(self()),
-    ok.
+match_batch(Tokens, Cursor0, BatchSize) ->
+    {Indices, Incarnation} = dirty_indices(read),
+    case read_cursor(Cursor0, Tokens, Indices, Incarnation) of
+        done ->
+            {ok, [], undefined, 1};
+        Cursor ->
+            select_batch(Tokens, Cursor, BatchSize)
+    end.
+
+read_cursor(undefined, Tokens, Indices, Incarnation) ->
+    Index = emqx_retainer_index:select_index(Tokens, Indices),
+    #{
+        incarnation => Incarnation,
+        index => Index,
+        continuation => undefined
+    };
+read_cursor(#{incarnation := Incarnation} = Cursor, _Tokens, _Indices, Incarnation) ->
+    Cursor;
+read_cursor(_Cursor, Tokens, Indices, Incarnation) ->
+    case emqx_config:get([retainer, backend, reindex_delivery_action], redo) of
+        redo -> read_cursor(undefined, Tokens, Indices, Incarnation);
+        stop -> done
+    end.
+
+select_batch(Tokens, #{index := Index, continuation := Cont0} = Cursor0, N) ->
+    Now = erlang:system_time(millisecond),
+    case select_rows(Index, Tokens, Cont0, N) of
+        '$end_of_table' ->
+            {ok, [], undefined, 1};
+        {Rows, Cont} ->
+            Messages = batch_messages(Index, Rows, Tokens, Now),
+            Cursor =
+                case Cont of
+                    '$end_of_table' -> undefined;
+                    _ -> Cursor0#{continuation := Cont}
+                end,
+            %% Charge at least one token for an empty read.
+            {ok, Messages, Cursor, max(1, length(Rows))}
+    end.
+
+select_rows(Index, Tokens, undefined, N) ->
+    {Table, Head} = batch_match_head(Index, Tokens),
+    ets:select(Table, [{Head, [], ['$_']}], N);
+select_rows(_Index, _Tokens, Cont, _N) ->
+    ets:select(Cont).
+
+batch_match_head(undefined, Tokens) ->
+    Cond = emqx_retainer_index:condition(Tokens),
+    {?TAB_MESSAGE, #retained_message{topic = Cond, _ = '_'}};
+batch_match_head(Index, Tokens) ->
+    {Cond, _IsExact} = emqx_retainer_index:condition(Index, Tokens),
+    {?TAB_INDEX, #retained_index{key = Cond, _ = '_'}}.
+
+batch_messages(undefined, Rows, Tokens, Now) ->
+    [
+        Msg
+     || #retained_message{topic = Topic, msg = Msg, expiry_time = Expiry} <- Rows,
+        emqx_topic:match(Topic, Tokens),
+        Expiry =:= 0 orelse Expiry > Now
+    ];
+batch_messages(_Index, Rows, Tokens, Now) ->
+    [
+        Msg
+     || #retained_index{key = Key} <- Rows,
+        Topic <- [emqx_retainer_index:restore_topic(Key)],
+        emqx_topic:match(Topic, Tokens),
+        #retained_message{msg = Msg, expiry_time = Expiry} <- ets:lookup(?TAB_MESSAGE, Topic),
+        Expiry =:= 0 orelse Expiry > Now
+    ].
+
+match_all(Tokens, Cursor0, Acc, Cost0) ->
+    {ok, Messages, Cursor, BatchCost} = match_batch(Tokens, Cursor0, 1000),
+    Cost = Cost0 + BatchCost,
+    case Cursor of
+        undefined -> {ok, lists:append(lists:reverse([Messages | Acc])), undefined, Cost};
+        _ -> match_all(Tokens, Cursor, [Messages | Acc], Cost)
+    end.
 
 page_read(_State, Topic, Deadline, Page, Limit) ->
     S0 =
@@ -410,12 +492,8 @@ msg_stream(SearchStream) ->
     ).
 
 search_stream(Tokens, Now) ->
-    {Indices, Incarnation} = dirty_indices(read),
+    {Indices, _Incarnation} = dirty_indices(read),
     Index = emqx_retainer_index:select_index(Tokens, Indices),
-    case Index of
-        undefined -> ok;
-        _ -> emqx_retainer_dispatcher:register_reader(self(), Incarnation)
-    end,
     search_stream(Index, Tokens, Now).
 
 all_stream(Now) ->
@@ -630,11 +708,6 @@ batch_read_number(#{batch_read_number := N}) ->
 batch_read_number(_Opts) ->
     emqx_retainer:batch_read_number().
 
-batch_read_number(#{batch_read_number := N}, _Default) ->
-    N;
-batch_read_number(_Opts, Default) ->
-    Default.
-
 reindex(NewIndices, Force, StatusFun) when
     is_boolean(Force) andalso is_function(StatusFun, 1)
 ->
@@ -647,9 +720,7 @@ reindex(NewIndices, Force, StatusFun) when
             %% Wait for all nodes to have new indices, including rlog nodes
             true = wait_indices_updated({[], NewIndices}, ?REINDEX_INDEX_UPDATE_WAIT),
 
-            %% Wait for all dispatch operations to be completed to avoid inconsistent
-            %% results.  This is a best effort wait: we give consumers (hopefully) enough
-            %% time to complete their iteration using the old incarnation of the indices.
+            %% Finish reads already running before clearing the old indices.
             _ = wait_dispatch_complete(?REINDEX_DISPATCH_WAIT),
 
             %% All new dispatch operations will see

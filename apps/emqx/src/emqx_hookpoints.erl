@@ -272,6 +272,9 @@ when
 
 -callback 'message.acked'(emqx_types:clientinfo(), emqx_types:message()) -> callback_result().
 
+%% `emqx_hooks:context('message.nack')' returns
+%% `#{clientinfo := ClientInfo, session_info_fn := fun((atom()) -> term())}'.
+%% Every caller stashes this context around the hook call.
 -callback 'message.nack'(emqx_types:message(), boolean()) ->
     fold_callback_result(boolean()).
 

@@ -58,7 +58,7 @@
 
 %% Export for emqx_channel implementations
 -export([
-    maybe_nack/1
+    maybe_nack/3
 ]).
 
 %% Export for connection modules
@@ -1423,13 +1423,15 @@ process_maybe_shutdown(
 handle_deliver(
     Delivers,
     Channel = #channel{
-        takeover = Takeover = #takeover{pendings = Pendings}
+        takeover = Takeover = #takeover{pendings = Pendings},
+        session = Session,
+        clientinfo = ClientInfo
     }
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(Pendings, maybe_nack(Delivers)),
+    NPendings = lists:append(Pendings, maybe_nack(Delivers, ClientInfo, Session)),
     NTakeover = Takeover#takeover{pendings = NPendings},
     {ok, Channel#channel{takeover = NTakeover}};
 handle_deliver(
@@ -1443,7 +1445,7 @@ handle_deliver(
 ) ->
     %% NOTE
     %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    Delivers1 = maybe_nack(Delivers),
+    Delivers1 = maybe_nack(Delivers, ClientInfo, Session),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     %% we need to update stats here, as the stats_timer is canceled after disconnected
@@ -1474,10 +1476,17 @@ do_handle_deliver(
             handle_out(publish, Publishes, NChannel)
     end.
 
-%% Nack delivers from shared subscription
-maybe_nack(Delivers0) ->
+%% Nack delivers from shared subscription, then run the `message.nack` hook for the rest.
+%% The hook context is stashed once for all delivers.
+maybe_nack(Delivers0, ClientInfo, Session) ->
     Delivers = lists:filter(fun not_nacked_by_shared_sub/1, Delivers0),
-    lists:filter(fun not_nacked_by_hook/1, Delivers).
+    ok = emqx_hooks:stash_context('message.nack', #{
+        clientinfo => ClientInfo,
+        session_info_fn => fun(Prop) -> emqx_session:info(Prop, Session) end
+    }),
+    NotNacked = lists:filter(fun not_nacked_by_hook/1, Delivers),
+    ok = emqx_hooks:unstash_context('message.nack'),
+    NotNacked.
 
 not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
     case emqx_shared_sub:is_ack_required(Msg) of
@@ -1869,7 +1878,7 @@ handle_call(
     Channel = #channel{
         session = Session,
         takeover = #takeover{pendings = Pendings},
-        clientinfo = #{clientid := ClientId}
+        clientinfo = #{clientid := ClientId} = ClientInfo
     }
 ) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
@@ -1882,7 +1891,7 @@ handle_call(
             ok = emqx_session_mem:takeover(Session),
             %% TODO: Should not drain deliver here (side effect)
             Delivers = emqx_utils:drain_deliver(),
-            AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
+            AllPendings = lists:append(Pendings, maybe_nack(Delivers, ClientInfo, Session)),
             ?tp(
                 debug,
                 emqx_channel_takeover_end,
@@ -2113,13 +2122,7 @@ handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInf
         Acc = run_fold_with_context('client.handle_info', [ClientInfo, Info], Acc0, Channel1),
         HookDelivers = maps:get(deliver, Acc, []),
         HookReplies = maps:get(replies, Acc, []),
-        {AllReplies, Channel} =
-            case handle_deliver(HookDelivers, Channel1) of
-                {ok, Channel2} ->
-                    {HookReplies, Channel2};
-                {ok, DeliverReplies, Channel2} ->
-                    {append_replies(DeliverReplies, HookReplies), Channel2}
-            end,
+        {AllReplies, Channel} = handle_info_deliver(HookDelivers, HookReplies, Channel1),
         case AllReplies of
             [] ->
                 {ok, Channel};
@@ -2140,6 +2143,17 @@ shutdown_on_session_request(Reason, Session, Channel) ->
             {shutdown, ExitReason, Packet, SChannel};
         {shutdown, ExitReason, _Reply, SChannel} ->
             {shutdown, ExitReason, SChannel}
+    end.
+
+%% Hook callbacks often handle an info message without delivering anything.
+handle_info_deliver([], Replies, Channel) ->
+    {Replies, Channel};
+handle_info_deliver(Delivers, Replies, Channel0) ->
+    case handle_deliver(Delivers, Channel0) of
+        {ok, Channel} ->
+            {Replies, Channel};
+        {ok, DeliverReplies, Channel} ->
+            {append_replies(DeliverReplies, Replies), Channel}
     end.
 
 append_replies(Replies1, Replies2) ->

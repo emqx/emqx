@@ -67,16 +67,31 @@ ExtSub ignores acknowledgements for replayed messages because their handler refe
 -callback handle_subscribe(
     subscribe_type(), subscribe_ctx(), state() | undefined, emqx_extsub_types:topic_filter()
 ) ->
-    {ok, state()} | ignore.
+    {ok, state()} | ignore | destroy.
 ```
 
-If the handler wants to handle the topic, then it should return `{ok, state()}`. If the handler is not interested in the topic, it should return `ignore`.
+The result applies to the topic filter of the call, for single-topic and multi-topic handlers:
+
+* `{ok, state()}`: handle the topic with the returned state.
+* `ignore`: change nothing. An existing handler keeps its state and its topics. When no handler handles the topic, ExtSub does not create one.
+* `destroy`: stop handling the topic. When a handler handles the topic, ExtSub removes the topic from it, as for an unsubscribe. A handler without topics is terminated. When no handler handles the topic, `destroy` has the same effect as `ignore`.
 
 The `subscribe_ctx()` contains a `message_target` value that identifies the owning channel and handler.
 Use `emqx_extsub_handler:send/2` or `emqx_extsub_handler:send_after/3` to send a message to this target.
 Store the target in handler state, not a callback function. A callback function can retain old code after a module reload.
 
-`handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is always `undefined`. For a multi-topic handler, `state()` is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
+To track another process, call `emqx_extsub_handler:monitor/2` with the target and the process PID.
+When the process exits, the handler receives `{'DOWN', MRef, process, Pid, Reason}` in `handle_info`.
+Only the channel that owns the handler can call `monitor/2` and `demonitor/2`, so call them from handler callbacks.
+The handler must call `emqx_extsub_handler:demonitor/2` before it is destroyed, for example in `handle_terminate`.
+A monitor that is not removed stays in place until the channel exits.
+ExtSub drops a down message for a handler that no longer exists.
+
+`handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is `undefined` for a new subscription. For a multi-topic handler, `state()` is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
+
+When the client subscribes again to a topic that the handler already handles, the `ignore_resubscribe` option controls the result.
+With `ignore_resubscribe => true` (the default), ExtSub does not call the handler.
+With `ignore_resubscribe => false`, ExtSub calls `handle_subscribe` with the existing handler state, and the result applies as described above.
 
 #### `handle_unsubscribe` callback
 
@@ -101,7 +116,9 @@ For single-topic handlers, unsubscribe and terminate may be used interchangeably
 
 ```erlang
 -callback handle_delivered(state(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) ->
-    {ok, state()} | {destroy, [emqx_extsub_types:topic_filter()]} | destroy.
+      {ok, state()}
+    | {destroy, state(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, state()}.
 ```
 
 `handle_delivered` callback is called when a message provided by the handler has been delivered to the client.
@@ -117,7 +134,7 @@ When the check fails, ExtSub does not call the handler and does not change its d
 
 If the `ack_ctx()` the handler is informed about the desired number of messages that the ExtSub application wants the handler to provide.
 
-If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signals that it is done and should be removed from the state to free up resources for the specified topic filters.  With `destroy`, it signals that all of this handler's topic filters should be freed up.
+The destroy results are described in [Destroy and recreate results](#destroy-and-recreate-results).
 
 #### `handle_info` callback
 
@@ -125,8 +142,9 @@ If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signa
 -callback handle_info(state(), info_ctx(), term()) ->
       {ok, state()}
     | {ok, state(), [emqx_types:message()]}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | recreate.
+    | {destroy, state(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, state()}
+    | {recreate, state()}.
 ```
 
 `handle_info` callback is called when the handler receives a generic message or a self-sent message. After handling the message, the callback may
@@ -136,7 +154,31 @@ If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signa
 
 If the `info_ctx()` the handler is informed about the desired number of messages that the ExtSub application wants the handler to provide.
 
-If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signals that it is done and should be removed from the state to free up resources for the specified topic filters.  With `destroy`, it signals that all of this handler's topic filters should be freed up.
+The destroy and recreate results are described in [Destroy and recreate results](#destroy-and-recreate-results).
+
+#### Destroy and recreate results
+
+`handle_delivered` and `handle_info` return the handler state with each result. ExtSub stores the state, then applies the result:
+
+* `{destroy, state(), [emqx_extsub_types:topic_filter()]}`: the handler is done with the listed topic filters. ExtSub removes them from the handler, as for an unsubscribe. A handler without topics left is terminated. A multi-topic handler keeps the returned state for its remaining topics.
+* `{destroy, state()}`: the handler is done with all its topic filters. ExtSub removes all of them and terminates the handler.
+* `{recreate, state()}` (`handle_info` only): ExtSub terminates the handler and subscribes it again to the same topic filters.
+
+ExtSub calls `handle_unsubscribe` and `handle_terminate` with the returned state. So the handler can release the resources of the returned state there, including resources that the same callback created.
+
+#### Handover
+
+A message source can start a delivery in the channel without ExtSub and pass it to a handler only when the delivery needs flow control.
+The retainer does this: it delivers most retained reads with its own hooks, and creates its ExtSub handler only when more batches follow or the session refuses a message.
+
+Call `emqx_extsub:handover(ClientInfo, Module, TopicFilter, SubOpts, Data, Messages)` in the channel process:
+
+* When `Module` has no handler for `TopicFilter`, ExtSub calls `handle_subscribe(handover, Ctx, undefined, TopicFilter)` of `Module` only. `Ctx` has the `handover => Data` key. Other handler modules are not called.
+* ExtSub adds `Messages` to the buffer of the handler. When the handler already exists, ExtSub only adds `Messages`.
+* ExtSub sends nothing to the session, so the function can run inside the session's delivery, for example in the `message.nack` hook. ExtSub delivers the buffer in a later channel turn.
+* The function returns `ignore` when `Module` is not registered or `handle_subscribe` does not create the handler. The caller then drops `Messages`.
+
+A handler that is created only with a handover returns `ignore` for the `subscribe` and `resume` types when it has no state.
 
 ### How the callbacks of the `emqx_extsub_handler` behaviour are coordinated
 

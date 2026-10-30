@@ -15,9 +15,8 @@
     start_link/2,
     %% RPC target (`emqx_retainer_proto_v2:wait_dispatch_complete/2`)
     wait_dispatch_complete/1,
-    register_reader/2,
-    unregister_reader/1,
-    worker/0
+    worker/0,
+    fetch/6
 ]).
 
 %% gen_server callbacks
@@ -29,37 +28,57 @@
     terminate/2
 ]).
 
--define(POOL, ?DISPATCHER_POOL).
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
-%% This module is `emqx_retainer` companion
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-record(fetch, {target, request_ref, topic, words, cursor}).
+-record(wait_dispatch_complete, {}).
+-record(dispatch, {}).
 
-%%%===================================================================
-%%% API
-%%%===================================================================
+-define(DEFAULT_BATCH_SIZE, 1000).
+-define(MIN_BATCH_SIZE, 10).
+-define(MAX_REQUESTS_PER_DISPATCH, 100).
+-define(LIMITER_RETRY_INTERVAL_MS, 100).
 
-%% RPC target (`emqx_retainer_proto_v2:wait_dispatch_complete/2`)
+-type target() :: pid() | emqx_extsub_handler:message_target().
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
+%% RPC target (`emqx_retainer_proto_v2:wait_dispatch_complete/2`).
 -spec wait_dispatch_complete(timeout()) -> ok.
 wait_dispatch_complete(Timeout) ->
-    Workers = gproc_pool:active_workers(?POOL),
     lists:foreach(
-        fun({_, Pid}) ->
-            ok = gen_server:call(Pid, ?FUNCTION_NAME, Timeout)
-        end,
-        Workers
+        fun({_, Pid}) -> ok = gen_server:call(Pid, #wait_dispatch_complete{}, Timeout) end,
+        gproc_pool:active_workers(?DISPATCHER_POOL)
     ).
 
--spec register_reader(pid(), integer()) -> ok.
-register_reader(Pid, Incarnation) ->
-    cast({register, Pid, Incarnation}).
-
--spec unregister_reader(pid()) -> ok.
-unregister_reader(Pid) ->
-    cast({unregister, Pid}).
-
--spec worker() -> pid().
+-spec worker() -> pid() | false.
 worker() ->
-    gproc_pool:pick_worker(?POOL, self()).
+    gproc_pool:pick_worker(?DISPATCHER_POOL, self()).
+
+-doc """
+Queue one retained-message batch for a channel or an ExtSub handler.
+`Words` is `Topic` split with `emqx_topic:words/1`.
+The worker replies with a `#retained_batch{}` message: directly to a channel pid, and with
+`emqx_extsub_handler:send/2` to a handler.
+""".
+-spec fetch(
+    pid(),
+    target(),
+    reference(),
+    emqx_types:topic(),
+    emqx_types:words(),
+    term()
+) -> ok.
+fetch(Worker, Target, RequestRef, Topic, Words, Cursor) ->
+    gen_server:cast(Worker, #fetch{
+        target = Target,
+        request_ref = RequestRef,
+        topic = Topic,
+        words = Words,
+        cursor = Cursor
+    }).
 
 -spec start_link(atom(), pos_integer()) -> {ok, pid()}.
 start_link(Pool, Id) ->
@@ -70,80 +89,37 @@ start_link(Pool, Id) ->
         [{hibernate_after, 1000}]
     ).
 
-%%%===================================================================
-%%% gen_server callbacks
-%%%===================================================================
+%%------------------------------------------------------------------------------
+%% gen_server callbacks
+%%------------------------------------------------------------------------------
 
 init([Pool, Id]) ->
     erlang:process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    State = #{
+    Limiter = emqx_limiter:connect({?RETAINER_LIMITER_GROUP, ?DISPATCHER_LIMITER_NAME}),
+    {ok, #{
         pool => Pool,
         id => Id,
-        %% Monitors dispatchers
-        readers => emqx_pmon:new(),
-        %% Incarnation number -> count of dispatchers using it
-        incarnations => gb_trees:empty(),
-        %% Callers waiting for dispatchers older than current incarnation to
-        %% complete, keyed on greatest incarnation number they are waiting on to be
-        %% empty.  Used by reindex.
-        callers => gb_trees:empty()
-    },
-    {ok, State}.
+        queue => queue:new(),
+        scheduled => false,
+        limiter => Limiter,
+        next_demand => 0
+    }}.
 
-handle_call(wait_dispatch_complete, From, #{incarnations := Incarnations} = State0) ->
-    #{callers := Callers0} = State0,
-    Incarnation = current_index_incarnation(),
-    case gb_trees:smaller(Incarnation, Incarnations) of
-        none ->
-            {reply, ok, State0};
-        {OlderIncarnation, _Count} ->
-            Callers = add_caller(Callers0, OlderIncarnation, From),
-            State = State0#{callers := Callers},
-            {noreply, State}
-    end;
+handle_call(#wait_dispatch_complete{}, _From, State) ->
+    {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast({register, Pid, Incarnation}, State0) ->
-    #{
-        readers := Readers0,
-        incarnations := Incarnations0
-    } = State0,
-    Incarnations =
-        case emqx_pmon:find(Pid, Readers0) of
-            error ->
-                inc_incarnation_counter(Incarnations0, Incarnation);
-            {ok, _} ->
-                %% Pid is already registered
-                Incarnations0
-        end,
-    Readers = emqx_pmon:monitor(Pid, Incarnation, Readers0),
-    State = State0#{readers := Readers, incarnations := Incarnations},
-    {noreply, State};
-handle_cast({unregister, Pid}, State0) ->
-    #{readers := Readers0} = State0,
-    case emqx_pmon:find(Pid, Readers0) of
-        error ->
-            {noreply, State0};
-        {ok, PidIncarnation} ->
-            State = handle_unregister_reader(Pid, PidIncarnation, State0),
-            {noreply, State}
-    end;
+handle_cast(#fetch{} = Request, #{queue := Queue} = State) ->
+    {noreply, schedule(State#{queue := queue:in(Request, Queue)})};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info({'DOWN', _, process, Pid, _}, State0) ->
-    #{readers := Readers0} = State0,
-    case emqx_pmon:find(Pid, Readers0) of
-        error ->
-            {noreply, State0};
-        {ok, PidIncarnation} ->
-            State = handle_unregister_reader(Pid, PidIncarnation, State0),
-            {noreply, State}
-    end;
+handle_info(#dispatch{}, State) ->
+    {noreply, dispatch(State#{scheduled := false}, ?MAX_REQUESTS_PER_DISPATCH)};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -151,79 +127,160 @@ handle_info(Info, State) ->
 terminate(_Reason, #{pool := Pool, id := Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
+%%------------------------------------------------------------------------------
+%% Private
+%%------------------------------------------------------------------------------
 
-cast(Msg) ->
-    gen_server:cast(worker(), Msg).
-
-handle_unregister_reader(Pid, PidIncarnation, State0) ->
-    #{
-        readers := Readers0,
-        incarnations := Incarnations0,
-        callers := Callers0
-    } = State0,
-    Readers = emqx_pmon:erase(Pid, Readers0),
-    {Incarnations, Callers} =
-        case dec_incarnation_counter(Incarnations0, PidIncarnation) of
-            {ok, Incarnations1} ->
-                %% Not the last one
-                {Incarnations1, Callers0};
-            {last, Incarnations1} ->
-                Callers1 = notify_callers(Callers0, PidIncarnation),
-                {Incarnations1, Callers1}
-        end,
-    State0#{
-        readers := Readers,
-        incarnations := Incarnations,
-        callers := Callers
-    }.
-
-inc_incarnation_counter(Tree, Incarnation) ->
-    case gb_trees:lookup(Incarnation, Tree) of
-        none ->
-            gb_trees:insert(Incarnation, 1, Tree);
-        {value, N} ->
-            gb_trees:update(Incarnation, N + 1, Tree)
+schedule(#{scheduled := true} = State) ->
+    State;
+schedule(#{queue := Queue} = State) ->
+    case queue:is_empty(Queue) of
+        true ->
+            State;
+        false ->
+            self() ! #dispatch{},
+            State#{scheduled := true}
     end.
 
-dec_incarnation_counter(Tree, Incarnation) ->
-    case gb_trees:lookup(Incarnation, Tree) of
-        none ->
-            {ok, Tree};
-        {value, 1} ->
-            {last, gb_trees:delete(Incarnation, Tree)};
-        {value, N} ->
-            {ok, gb_trees:update(Incarnation, N - 1, Tree)}
-    end.
-
-add_caller(Callers0, Incarnation, From) ->
-    case gb_trees:lookup(Incarnation, Callers0) of
-        none ->
-            gb_trees:insert(Incarnation, [From], Callers0);
-        {value, Froms} ->
-            gb_trees:update(Incarnation, [From | Froms], Callers0)
-    end.
-
-notify_callers(Callers0, Incarnation) ->
-    case gb_trees:lookup(Incarnation, Callers0) of
-        none ->
-            Callers0;
-        {value, Waiting} ->
-            Callers1 = gb_trees:delete(Incarnation, Callers0),
-            case gb_trees:smaller(Incarnation, Callers1) of
-                none ->
-                    lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Waiting),
-                    Callers1;
-                {OlderIncarnation, Froms} ->
-                    %% If there are even older readers running, wait for them as well.
-                    gb_trees:update(OlderIncarnation, Froms ++ Waiting, Callers1)
+%% Serve up to N requests, then yield so that calls and casts are handled.
+dispatch(State, 0) ->
+    schedule(State);
+dispatch(#{queue := Queue0} = State0, N) ->
+    case queue:out(Queue0) of
+        {empty, _} ->
+            State0;
+        {{value, #fetch{target = Target} = Request}, Queue} ->
+            case is_target_alive(Target) of
+                false ->
+                    dispatch(State0#{queue := Queue}, N - 1);
+                true ->
+                    case serve(Request, State0) of
+                        {served, State} -> dispatch(State#{queue := Queue}, N - 1);
+                        {paused, State} -> State
+                    end
             end
     end.
 
-current_index_incarnation() ->
+%% Pay for the previous read, then read. A worker can exceed the limit by one batch.
+%% Read the settings for each request: workers restart before a config update is saved.
+serve(Request, State) ->
+    #{batch_read_number := BatchReadNumber, batch_deliver_limiter := Limiter} =
+        emqx_config:get([retainer, flow_control]),
+    Capacity = limiter_capacity(Limiter),
+    serve(Request, Capacity, batch_size(BatchReadNumber, Capacity), State).
+
+serve(Request, infinity, BatchSize, State) ->
+    read(Request, BatchSize, State);
+serve(Request, _Capacity, BatchSize, #{next_demand := 0} = State) ->
+    read(Request, BatchSize, State);
+serve(#fetch{topic = Topic} = Request, Capacity, BatchSize, State0) ->
+    #{limiter := Limiter0, next_demand := Demand} = State0,
+    %% An amount above the capacity succeeds only after the shared bucket is idle for more
+    %% than one interval, and other workers can prevent that. Pay in parts of at most half
+    %% the capacity, so that each part succeeds when the bucket is half full.
+    Amount = max(1, min(Capacity div 2, Demand)),
+    case emqx_limiter_client:try_consume(Limiter0, Amount) of
+        {true, Limiter} ->
+            serve(Request, Capacity, BatchSize, State0#{
+                limiter := Limiter, next_demand := Demand - Amount
+            });
+        {false, Limiter, Reason} ->
+            ?tp(retained_fetch_rate_limit_exceeded, #{topic => Topic}),
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => retained_fetch_rate_limit_exceeded,
+                    reason => Reason,
+                    topic => Topic
+                },
+                #{tag => "RETAINER"}
+            ),
+            _ = erlang:send_after(?LIMITER_RETRY_INTERVAL_MS, self(), #dispatch{}),
+            {paused, State0#{limiter := Limiter, scheduled := true}}
+    end.
+
+read(
+    #fetch{
+        target = Target, request_ref = RequestRef, topic = Topic, words = Words, cursor = Cursor0
+    },
+    BatchSize,
+    State
+) ->
+    {Messages, Cursor, Cost} = read_batch(Topic, Words, Cursor0, BatchSize),
+    ok = reply(Target, Topic, RequestRef, Messages, Cursor),
+    ?tp(retainer_dispatcher_batch, #{topic => Topic, cost => Cost}),
+    {served, State#{next_demand := Cost}}.
+
+is_target_alive(Pid) when is_pid(Pid) ->
+    is_process_alive(Pid);
+is_target_alive(Target) ->
+    emqx_extsub_handler:is_target_alive(Target).
+
+reply(Target, Topic, RequestRef, Messages, Cursor) ->
+    Batch = #retained_batch{
+        topic_filter = Topic, request_ref = RequestRef, messages = Messages, cursor = Cursor
+    },
+    send(Target, Batch).
+
+send(Pid, Batch) when is_pid(Pid) ->
+    _ = erlang:send(Pid, Batch),
+    ok;
+send(Target, Batch) ->
+    emqx_extsub_handler:send(Target, Batch).
+
+%% A failed read ends delivery for its subscription only.
+read_batch(Topic, Words, Cursor, BatchSize) ->
+    try
+        do_read_batch(Topic, Words, Cursor, BatchSize)
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "retained_message_read_failed",
+                topic => Topic,
+                class => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            {[], done, 1}
+    end.
+
+do_read_batch(Topic, Words, Cursor0, BatchSize) ->
+    Opts = #{batch_read_number => BatchSize, tokens => Words},
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
-    State = emqx_retainer:backend_state(Context),
-    Mod:current_index_incarnation(State).
+    BackendState = emqx_retainer:backend_state(Context),
+    {ok, Messages, Cursor, Cost} =
+        case emqx_topic:wildcard(Words) of
+            true ->
+                Mod:match_messages(BackendState, Topic, Cursor0, Opts);
+            false ->
+                {ok, Msgs} = Mod:read_message(BackendState, Topic),
+                {ok, Msgs, undefined, 1}
+        end,
+    case Cursor of
+        undefined ->
+            {Messages, done, Cost};
+        _ ->
+            {Messages, Cursor, Cost}
+    end.
+
+%% Limit each worker's read to its share of the limiter capacity.
+%% `batch_read_number = 0' reads all remaining messages, which is capped at the default.
+batch_size(BatchReadNumber, Capacity) ->
+    MaxBatchSize =
+        case BatchReadNumber of
+            0 -> ?DEFAULT_BATCH_SIZE;
+            N -> N
+        end,
+    case Capacity of
+        infinity ->
+            MaxBatchSize;
+        _ ->
+            Share = Capacity div emqx_vm:schedulers(),
+            min(MaxBatchSize, max(?MIN_BATCH_SIZE, Share))
+    end.
+
+limiter_capacity(infinity) ->
+    infinity;
+limiter_capacity({Capacity, _Interval}) ->
+    Capacity.

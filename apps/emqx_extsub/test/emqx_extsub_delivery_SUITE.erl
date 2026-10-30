@@ -254,6 +254,29 @@ t_duplicate_completion(_Config) ->
     ?assertEqual(Info0, hook_inspect()),
     assert_no_handle_delivered().
 
+t_no_room_keeps_messages() ->
+    [{matrix, true}].
+
+-doc "Messages that a handler returns when ExtSub has no delivery room stay in the buffer for a retry.".
+t_no_room_keeps_messages(matrix) ->
+    [[unit]];
+t_no_room_keeps_messages(_Config) ->
+    %% Without an inflight window and with max_unacked = 0, ExtSub has no delivery room
+    ok = emqx_extsub:set_max_unacked(0),
+    emqx_common_test_helpers:on_exit(fun() ->
+        ok = emqx_extsub:set_max_unacked(?EXTSUB_MAX_UNACKED)
+    end),
+    ok = hook_subscribe(),
+    ?assertEqual([], hook_deliver([message(<<"msg">>)])),
+    ?assertMatch(
+        #{
+            unacked_count := 0,
+            deliver_retry_scheduled := true,
+            registry := #{buffer := #{message_buffer_size := 1}}
+        },
+        hook_inspect()
+    ).
+
 t_removed_handler_nack() ->
     [{matrix, true}].
 
@@ -450,8 +473,8 @@ handle_terminate(_State) ->
 
 handle_info(State, _InfoCtx, {generic, {?MODULE, {messages, Msgs}}}) ->
     {ok, State, Msgs};
-handle_info(_State, _InfoCtx, {generic, {?MODULE, recreate}}) ->
-    recreate;
+handle_info(State, _InfoCtx, {generic, {?MODULE, recreate}}) ->
+    {recreate, State};
 handle_info(State, _InfoCtx, {generic, _Info}) ->
     {ok, State}.
 

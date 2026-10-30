@@ -18,4 +18,13 @@
 
 -define(DISPATCHER_POOL, emqx_retainer_dispatcher).
 
+%% Reply of a dispatcher worker, or of a read in the channel, with one batch of a retained read
+-record(retained_batch, {
+    topic_filter :: emqx_types:topic(),
+    request_ref :: reference(),
+    messages :: [emqx_types:message()],
+    %% `done' when no more messages follow
+    cursor :: term()
+}).
+
 -endif.
