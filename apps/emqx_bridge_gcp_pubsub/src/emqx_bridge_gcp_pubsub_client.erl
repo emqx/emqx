@@ -586,7 +586,7 @@ prepare_wif_worker_steps(
         gcp_wif_pool_id := WIFPoolId,
         gcp_wif_pool_provider_id := WIFPoolProviderId
     } = AuthConfig,
-    SSLOpts = emqx_tls_lib:to_client_opts(#{
+    SSLOpts = emqx_connector_lib:to_hackney_tls_client_opts(#{
         enable => true,
         verify => verify_peer,
         cacertfile => ~"system_default"
@@ -698,7 +698,7 @@ prepare_initial_step(Step1Name, #{type := oidc_client_credentials} = InitialToke
         ssl := SSLOpts0
     } = InitialTokenConfig,
     Audience = maps:get(audience, InitialTokenConfig, undefined),
-    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
+    SSLOpts = emqx_connector_lib:to_hackney_tls_client_opts(SSLOpts0),
     #{
         name => Step1Name,
         method => post,
