@@ -32,8 +32,7 @@ load_desc(EtsTab, File) ->
     {ok, Descs} = hocon:load(File),
     ["desc", Lang, "hocon"] = string:tokens(filename:basename(File), "."),
     Insert = fun(Namespace, Id, Tag, Text) ->
-        Key = {bin(Lang), bin(Namespace), bin(Id), bin(Tag)},
-        true = ets:insert(EtsTab, {Key, bin(Text)}),
+        true = ets:insert(EtsTab, {key(Lang, Namespace, Id, Tag), bin(Text)}),
         ok
     end,
     walk_ns(Insert, maps:to_list(Descs)).
@@ -45,7 +44,7 @@ lookup(Lang, Namespace, Id, Tag) ->
 %% @doc Lookup the description of the configuration item from the given cache.
 lookup(EtsTab, Lang0, Namespace, Id, Tag) ->
     Lang = bin(Lang0),
-    try ets:lookup(EtsTab, {Lang, bin(Namespace), bin(Id), bin(Tag)}) of
+    try ets:lookup(EtsTab, key(Lang, Namespace, Id, Tag)) of
         [{_, Desc}] ->
             Desc;
         [] when Lang =/= <<"en">> ->
@@ -60,6 +59,20 @@ lookup(EtsTab, Lang0, Namespace, Id, Tag) ->
             %% most likely in test cases
             undefined
     end.
+
+%% The cache key. The four components are joined into one binary with a NUL
+%% separator. None of them can contain NUL: they come from HOCON key paths and
+%% from the fixed tags `desc' and `label'.
+key(Lang, Namespace, Id, Tag) ->
+    <<
+        (bin(Lang))/binary,
+        0,
+        (bin(Namespace))/binary,
+        0,
+        (bin(Id))/binary,
+        0,
+        (bin(Tag))/binary
+    >>.
 
 %% The desc files are of names like:
 %%   desc.en.hocon or desc.zh.hocon
