@@ -10,6 +10,8 @@
     delete_bundle/2,
     delete_managed_file/3,
     add_managed_files/3,
+    merge_ca_certs/3,
+    delete_ca_cert/3,
     install_files/3,
     find_references/2
 ]).
@@ -213,10 +215,12 @@ add_managed_files(Namespace, BundleName, Files) ->
 Writes files into a bundle on the local node, leaving every other file in it
 alone.
 
-Each file is written under a temporary name in the bundle's own directory and
-renamed over the real one, so a reader sees either the previous file or the
-complete new one. The directory itself is never replaced or removed: it can be
-a mount point, where renaming over it or deleting it fails outright.
+All files are written under temporary names in the bundle's own directory
+first. When one of these writes fails, the real files are left untouched.
+Then each temporary file is renamed over the real one, so a reader sees either
+the previous file or the complete new one. The directory itself is never
+replaced or removed: it can be a mount point, where renaming over it or
+deleting it fails outright.
 
 Kinds the caller does not pass are left as they are, so writing a key and a
 chain into a bundle that already holds a `ca' keeps that `ca'.
@@ -230,7 +234,158 @@ install_files(Namespace, BundleName, Files) ->
         ok ?= check_namespace(Namespace),
         Dir = dir(Namespace, BundleName),
         ok ?= ensure_dir(Dir),
-        write_files_in_place(Dir, Namespace, BundleName, Files)
+        write_files_staged(Dir, Namespace, BundleName, Files)
+    end.
+
+-doc """
+Adds CA certificates to the `ca` file of an existing bundle on all nodes.
+
+`PEM` must hold one or more X.509 certificates and nothing else. Certificates
+already in the file are skipped. The current file content is kept byte for byte
+and the new certificates are appended to it.
+
+The node that runs this function reads the current file, and sends the merged
+file to all nodes with `add_managed_files/3`, like any other upload. Concurrent
+writes to the same file are not serialized: the last one wins.
+""".
+-spec merge_ca_certs(maybe_namespace(), bundle_name(), binary()) ->
+    {ok, #{added := non_neg_integer(), total := non_neg_integer()}}
+    | {error, bad_namespace}
+    | {error, bundle_not_found}
+    | {error, {bad_ca_certs, binary()}}
+    | {error, {read_ca_file, file:posix()}}
+    | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
+merge_ca_certs(Namespace, BundleName, PEM) ->
+    maybe
+        ok ?= check_namespace(Namespace),
+        {ok, NewCerts} ?= decode_ca_certs(PEM),
+        do_merge_ca_certs(Namespace, BundleName, NewCerts)
+    end.
+
+-doc """
+Removes one CA certificate from the `ca` file of a bundle on all nodes.
+
+`Fingerprint` is the SHA-256 digest of the DER-encoded certificate, as raw
+bytes. The other entries of the file are kept in order.
+
+When no certificate is left, the `ca` file is deleted: a file that holds no
+certificate is not a valid `cacertfile`. This is refused while a configuration
+refers to the bundle, like deleting the `ca` file directly.
+""".
+-spec delete_ca_cert(maybe_namespace(), bundle_name(), binary()) ->
+    {ok, #{total := non_neg_integer()}}
+    | {error, bad_namespace}
+    | {error, bundle_not_found}
+    | {error, cert_not_found}
+    | {error, {referenced, [{maybe_namespace(), [binary()]}]}}
+    | {error, {read_ca_file, file:posix()}}
+    | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
+delete_ca_cert(Namespace, BundleName, Fingerprint) ->
+    maybe
+        ok ?= check_namespace(Namespace),
+        true ?= filelib:is_dir(dir(Namespace, BundleName)) orelse {error, bundle_not_found},
+        {ok, Existing} ?= read_ca_file(filename(Namespace, BundleName, ?FILE_KIND_CA)),
+        Entries = public_key:pem_decode(Existing),
+        Remaining = [E || E <- Entries, not is_cert_with_fingerprint(E, Fingerprint)],
+        true ?= length(Remaining) < length(Entries) orelse {error, cert_not_found},
+        ok ?= write_remaining_ca_entries(Namespace, BundleName, Remaining),
+        {ok, #{total => length([E || {'Certificate', _, _} = E <- Remaining])}}
+    end.
+
+is_cert_with_fingerprint({'Certificate', Der, _}, Fingerprint) ->
+    crypto:hash(sha256, Der) =:= Fingerprint;
+is_cert_with_fingerprint(_Entry, _Fingerprint) ->
+    false.
+
+write_remaining_ca_entries(Namespace, BundleName, Remaining) ->
+    case [E || {'Certificate', _, _} = E <- Remaining] of
+        [] ->
+            delete_unreferenced_ca_file(Namespace, BundleName);
+        [_ | _] ->
+            Contents = public_key:pem_encode(Remaining),
+            add_managed_files(Namespace, BundleName, #{?FILE_KIND_CA => Contents})
+    end.
+
+delete_unreferenced_ca_file(Namespace, BundleName) ->
+    case find_references(Namespace, BundleName) of
+        [] -> delete_managed_file(Namespace, BundleName, ?FILE_KIND_CA);
+        [_ | _] = Refs -> {error, {referenced, Refs}}
+    end.
+
+do_merge_ca_certs(Namespace, BundleName, NewCerts) ->
+    maybe
+        true ?= filelib:is_dir(dir(Namespace, BundleName)) orelse {error, bundle_not_found},
+        {ok, Existing} ?= read_ca_file(filename(Namespace, BundleName, ?FILE_KIND_CA)),
+        ExistingCerts = [Der || {'Certificate', Der, _} <- public_key:pem_decode(Existing)],
+        ToAdd = NewCerts -- ExistingCerts,
+        Result = #{
+            added => length(ToAdd),
+            total => length(ExistingCerts) + length(ToAdd)
+        },
+        ok ?= append_ca_certs(Namespace, BundleName, Existing, ToAdd),
+        {ok, Result}
+    end.
+
+append_ca_certs(_Namespace, _BundleName, _Existing, []) ->
+    ok;
+append_ca_certs(Namespace, BundleName, Existing, Certs) ->
+    Appended = public_key:pem_encode([{'Certificate', Der, not_encrypted} || Der <- Certs]),
+    Merged = iolist_to_binary([with_trailing_newline(Existing), Appended]),
+    add_managed_files(Namespace, BundleName, #{?FILE_KIND_CA => Merged}).
+
+read_ca_file(Path) ->
+    case file:read_file(Path) of
+        {ok, Contents} -> {ok, Contents};
+        {error, enoent} -> {ok, <<>>};
+        {error, Reason} -> {error, {read_ca_file, Reason}}
+    end.
+
+with_trailing_newline(<<>>) ->
+    <<>>;
+with_trailing_newline(Bin) ->
+    case binary:last(Bin) of
+        $\n -> Bin;
+        _ -> <<Bin/binary, "\n">>
+    end.
+
+%% Returns the DER of each certificate in `PEM', without duplicates, in input
+%% order. Fails when `PEM' holds no entry, or any entry that is not a
+%% certificate, such as a private key.
+decode_ca_certs(PEM) ->
+    try public_key:pem_decode(PEM) of
+        [] ->
+            {error, {bad_ca_certs, <<"no PEM certificate found">>}};
+        Entries ->
+            decode_ca_cert_entries(Entries, [])
+    catch
+        _:_ ->
+            {error, {bad_ca_certs, <<"malformed PEM data">>}}
+    end.
+
+decode_ca_cert_entries([], Acc) ->
+    {ok, lists:reverse(Acc)};
+decode_ca_cert_entries([{'Certificate', Der, not_encrypted} | Rest], Acc) ->
+    case is_x509_cert(Der) of
+        true ->
+            decode_ca_cert_entries(Rest, add_new(Der, Acc));
+        false ->
+            {error, {bad_ca_certs, <<"malformed X.509 certificate">>}}
+    end;
+decode_ca_cert_entries([{Type, _, _} | _], _Acc) ->
+    Msg = iolist_to_binary(["PEM entry is not a certificate: ", atom_to_binary(Type)]),
+    {error, {bad_ca_certs, Msg}}.
+
+add_new(Der, Acc) ->
+    case lists:member(Der, Acc) of
+        true -> Acc;
+        false -> [Der | Acc]
+    end.
+
+is_x509_cert(Der) ->
+    try public_key:pkix_decode_cert(Der, otp) of
+        _ -> true
+    catch
+        _:_ -> false
     end.
 
 ensure_dir(Dir) ->
@@ -239,35 +394,47 @@ ensure_dir(Dir) ->
         {error, _} = Error -> Error
     end.
 
-write_files_in_place(Dir, Namespace, BundleName, Files) ->
-    maps:fold(
-        fun
-            (Kind, Contents, ok) ->
-                Filename = filename:basename(filename(Namespace, BundleName, Kind)),
-                write_file_in_place(filename:join(Dir, Filename), Contents);
-            (_Kind, _Contents, {error, _} = Error) ->
-                Error
+%% Writes all files under temporary names first. When any of these writes
+%% fails, removes the temporary files and leaves the real ones untouched.
+%% Then renames the temporary files over the real ones, one right after
+%% another. The directory is never replaced: it can be a mount point.
+%% Returns the failed kinds with their errors.
+write_files_staged(Dir, Namespace, BundleName, Files) ->
+    Staged = maps:map(
+        fun(Kind, Contents) ->
+            Path = filename:join(Dir, filename:basename(filename(Namespace, BundleName, Kind))),
+            Tmp = tmp_filename(Path),
+            %% `sync': the content must be on disk before the rename makes it visible.
+            {Path, Tmp, file:write_file(Tmp, Contents, [sync])}
         end,
-        ok,
         Files
-    ).
-
-%% Written under a temporary name in the same directory and renamed over the
-%% real one, so the rename stays on one filesystem and a reader sees either the
-%% previous file or the complete new one, never a partial write.
-write_file_in_place(Path, Contents) ->
-    %% `Path' may be a binary: build the temporary name without assuming a list.
-    Tmp = iolist_to_binary([Path, ".tmp.", binary:encode_hex(crypto:strong_rand_bytes(8))]),
-    maybe
-        ok ?= file:write_file(Tmp, Contents),
-        case file:rename(Tmp, Path) of
-            ok ->
-                ok;
-            {error, _} = Error ->
-                _ = file:delete(Tmp),
-                Error
-        end
+    ),
+    case maps:filter(fun(_Kind, {_Path, _Tmp, Res}) -> Res =/= ok end, Staged) of
+        Failed when map_size(Failed) =:= 0 ->
+            rename_staged(maps:to_list(Staged), #{});
+        Failed ->
+            maps:foreach(fun(_Kind, {_Path, Tmp, _Res}) -> _ = file:delete(Tmp) end, Staged),
+            {error, maps:map(fun(_Kind, {_Path, _Tmp, Res}) -> Res end, Failed)}
     end.
+
+rename_staged([], Errors) when map_size(Errors) =:= 0 ->
+    ok;
+rename_staged([], Errors) ->
+    {error, Errors};
+rename_staged([{Kind, {Path, Tmp, ok}} | Rest], Errors) ->
+    case file:rename(Tmp, Path) of
+        ok ->
+            rename_staged(Rest, Errors);
+        {error, _} = Error ->
+            _ = file:delete(Tmp),
+            rename_staged(Rest, Errors#{Kind => Error})
+    end.
+
+%% In the same directory as `Path', so the rename stays on one filesystem.
+%% `list_managed_files/2' does not list files with this name.
+tmp_filename(Path) ->
+    %% `Path' may be a binary: build the temporary name without assuming a list.
+    iolist_to_binary([Path, ".tmp.", binary:encode_hex(crypto:strong_rand_bytes(8))]).
 
 %%------------------------------------------------------------------------------
 %% RPC Targets
@@ -283,25 +450,12 @@ add_managed_files_v1(Namespace, BundleName, Files) ->
     end.
 
 add_managed_files_local(Namespace, BundleName, Files) ->
-    Errors = maps:fold(
-        fun(Kind, Contents, ErrAcc) ->
-            Filename = filename(Namespace, BundleName, Kind),
-            maybe
-                ok ?= filelib:ensure_dir(Filename),
-                ok ?= file:write_file(Filename, Contents),
-                ErrAcc
-            else
-                Err -> ErrAcc#{Kind => Err}
-            end
-        end,
-        #{},
-        Files
-    ),
-    case map_size(Errors) > 0 of
-        true ->
-            {error, Errors};
-        false ->
-            ok
+    Dir = dir(Namespace, BundleName),
+    case ensure_dir(Dir) of
+        ok ->
+            write_files_staged(Dir, Namespace, BundleName, Files);
+        {error, _} = Error ->
+            {error, maps:map(fun(_Kind, _Contents) -> Error end, Files)}
     end.
 
 -spec delete_managed_file_v1(maybe_namespace(), bundle_name(), file_kind()) ->
