@@ -276,11 +276,22 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.18", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.2.1"}
+  ## TODO: switch back to the hex release once the fix is published upstream.
+  def common_dep(:wolff),
+    do:
+      {:wolff,
+       github: "terry-xiaoyu/wolff",
+       ref: "61964ba0c965d9ac49fa42c2504e996e0cf34409",
+       override: true}
+
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
-    do: {:kafka_protocol, "4.3.7", override: true}
+    do:
+      {:kafka_protocol,
+       github: "terry-xiaoyu/kafka_protocol",
+       ref: "2b7d0e4c260930fd0024bc1ebebe6b3af446ea29",
+       override: true}
 
   def common_dep(:brod), do: {:brod, "4.5.5"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
