@@ -39,6 +39,8 @@
 -define(MAX_REQUESTS_PER_DISPATCH, 100).
 -define(LIMITER_RETRY_INTERVAL_MS, 100).
 
+-type target() :: pid() | emqx_extsub_handler:message_target().
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -56,13 +58,14 @@ worker() ->
     gproc_pool:pick_worker(?DISPATCHER_POOL, self()).
 
 -doc """
-Queue one retained-message batch for a handler.
+Queue one retained-message batch for a channel or an ExtSub handler.
 `Words` is `Topic` split with `emqx_topic:words/1`.
-The worker replies with `{retained_batch, RequestRef, Messages, Cursor | done}`.
+The worker replies with a `#retained_batch{}` message: directly to a channel pid, and with
+`emqx_extsub_handler:send/2` to a handler.
 """.
 -spec fetch(
     pid(),
-    emqx_extsub_handler:message_target(),
+    target(),
     reference(),
     emqx_types:topic(),
     emqx_types:words(),
@@ -147,7 +150,7 @@ dispatch(#{queue := Queue0} = State0, N) ->
         {empty, _} ->
             State0;
         {{value, #fetch{target = Target} = Request}, Queue} ->
-            case emqx_extsub_handler:is_target_alive(Target) of
+            case is_target_alive(Target) of
                 false ->
                     dispatch(State0#{queue := Queue}, N - 1);
                 true ->
@@ -204,9 +207,26 @@ read(
     State
 ) ->
     {Messages, Cursor, Cost} = read_batch(Topic, Words, Cursor0, BatchSize),
-    emqx_extsub_handler:send(Target, {retained_batch, RequestRef, Messages, Cursor}),
+    ok = reply(Target, Topic, RequestRef, Messages, Cursor),
     ?tp(retainer_dispatcher_batch, #{topic => Topic, cost => Cost}),
     {served, State#{next_demand := Cost}}.
+
+is_target_alive(Pid) when is_pid(Pid) ->
+    is_process_alive(Pid);
+is_target_alive(Target) ->
+    emqx_extsub_handler:is_target_alive(Target).
+
+reply(Target, Topic, RequestRef, Messages, Cursor) ->
+    Batch = #retained_batch{
+        topic_filter = Topic, request_ref = RequestRef, messages = Messages, cursor = Cursor
+    },
+    send(Target, Batch).
+
+send(Pid, Batch) when is_pid(Pid) ->
+    _ = erlang:send(Pid, Batch),
+    ok;
+send(Target, Batch) ->
+    emqx_extsub_handler:send(Target, Batch).
 
 %% A failed read ends delivery for its subscription only.
 read_batch(Topic, Words, Cursor, BatchSize) ->

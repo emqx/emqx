@@ -252,22 +252,24 @@ t_scan_ranges(_Config) ->
         [[], [[1]], [[2, 3]], [[1, 3], [2]]]
     ).
 
--doc "Unlimited exact-topic reads bypass the dispatcher and finish after acknowledgement.".
+-doc "An unlimited exact-topic read runs in the channel, not in the dispatcher.".
 t_exact_unlimited(_Config) ->
     store_messages(),
     Worker = emqx_retainer_dispatcher:worker(),
     ok = sys:suspend(Worker),
     emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),
-    {Ref, Handler0} = subscribe(#{rh => 0}, <<"t/1/a">>),
-    {ok, Handler1, [Msg]} = info(Handler0, receive_info(Ref), 1),
-    ?assertEqual(<<"t/1/a">>, Msg#message.topic),
-    assert_no_monitor(Worker),
-    AckCtx = #{desired_message_count => 1, delivering_count => 0, unacked_count => 0},
-    ?assertMatch(
-        {destroy, _, [<<"t/1/a">>]},
-        emqx_retainer_extsub_handler:handle_delivered(Handler1, AckCtx, Msg, ack)
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_retainer_channel:on_session_disconnected(#{}, #{})
+    end),
+    ok = emqx_retainer_channel:on_session_subscribed(
+        #{protocol => mqtt}, <<"t/1/a">>, #{rh => 0}
     ),
-    ok = emqx_retainer_extsub_handler:handle_terminate(Handler1).
+    ?assertReceive(
+        #retained_batch{
+            topic_filter = <<"t/1/a">>, messages = [#message{topic = <<"t/1/a">>}], cursor = done
+        }
+    ),
+    assert_no_monitor(Worker).
 
 -doc "Limited exact-topic reads use the dispatcher queue alongside wildcard reads.".
 t_exact_limited(_Config) ->
@@ -382,7 +384,10 @@ t_read_failure(_Config) ->
     ok = emqx_retainer_dispatcher:fetch(
         Worker, Target, Request, Topic, emqx_topic:words(Topic), Cursor
     ),
-    ?assertEqual({retained_batch, Request, [], done}, receive_info(Ref)),
+    ?assertMatch(
+        #retained_batch{topic_filter = Topic, request_ref = Request, messages = [], cursor = done},
+        receive_info(Ref)
+    ),
     ?assert(is_process_alive(Worker)).
 
 -doc "A repeated SUBSCRIBE that needs no retained messages keeps the running delivery.".
@@ -460,8 +465,161 @@ t_no_request_when_buffer_full(_Config) ->
     ?assertNotReceive(#info_to_extsub{handler_ref = Ref}, 200),
     ok = emqx_retainer_extsub_handler:handle_terminate(Handler1).
 
+-doc "A read that ends in one batch and fits the session is delivered without an ExtSub handler.".
+t_lazy_no_handover(_Config) ->
+    store_messages(),
+    ok = snabbkaffe:start_trace(),
+    emqx_common_test_helpers:on_exit(fun snabbkaffe:stop/0),
+    {Client, Channel} = connect(#{}),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
+    ?assertEqual([<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>], lists:sort(receive_publishes(3))),
+    ?assertEqual([], ?of_kind(retainer_handover, snabbkaffe:collect_trace())),
+    ?assertMatch({ok, #{registry := #{by_ref := []}}}, emqx_extsub:inspect(Channel)),
+    assert_no_monitor(Channel, gproc_pool:pick_worker(?DISPATCHER_POOL, Channel)),
+    assert_no_read_state(Channel),
+    ok = emqtt:stop(Client).
+
+-doc "A read with more batches is handed over to ExtSub, which delivers the rest and stops.".
+t_handover_more_batches(_Config) ->
+    store_qos1_messages(),
+    ok = set_batch_read_number(1),
+    ok = snabbkaffe:start_trace(),
+    emqx_common_test_helpers:on_exit(fun snabbkaffe:stop/0),
+    {Client, Channel} = connect(#{}),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
+    ?assertEqual(
+        [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>],
+        lists:sort(ack_publishes(Client, 3))
+    ),
+    ?assertMatch(
+        [#{topic_filter := <<"t/+/a">>, cursor := {cursor, _}, count := 0}],
+        ?of_kind(retainer_handover, snabbkaffe:collect_trace())
+    ),
+    ?retry(
+        100,
+        20,
+        ?assertMatch({ok, #{registry := #{by_ref := []}}}, emqx_extsub:inspect(Channel))
+    ),
+    ok = emqtt:stop(Client).
+
+-doc "Messages that the session refuses because the inflight window is full are handed over.".
+t_handover_nack(_Config) ->
+    store_qos1_messages(),
+    ok = snabbkaffe:start_trace(),
+    emqx_common_test_helpers:on_exit(fun snabbkaffe:stop/0),
+    {Client, Channel} = connect(#{receive_maximum => 1}),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
+
+    %% The session sends one message and refuses the other two, one by one
+    {publish, #{topic := Topic1, packet_id := PacketId1}} = ?assertReceive({publish, _}, 2000),
+    ?assertNotReceive({publish, _}, 500),
+    ?assertMatch(
+        [#{cursor := done, count := 1}, #{cursor := done, count := 1}],
+        ?of_kind(retainer_handover, snabbkaffe:collect_trace())
+    ),
+
+    %% ExtSub delivers the refused messages after the acknowledgements
+    ok = emqtt:puback(Client, PacketId1),
+    ?assertEqual(
+        [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>],
+        lists:sort([Topic1 | ack_publishes(Client, 2)])
+    ),
+    ?retry(
+        100,
+        20,
+        ?assertMatch({ok, #{registry := #{by_ref := []}}}, emqx_extsub:inspect(Channel))
+    ),
+    assert_no_read_state(Channel),
+    ok = emqtt:stop(Client).
+
+-doc "A batch larger than the session's room is split: the rest is handed over at once.".
+t_handover_room(_Config) ->
+    store_qos1_messages(),
+    ok = emqx_extsub:set_max_unacked(1),
+    emqx_common_test_helpers:on_exit(fun() -> emqx_extsub:set_max_unacked(?EXTSUB_MAX_UNACKED) end),
+    ok = snabbkaffe:start_trace(),
+    emqx_common_test_helpers:on_exit(fun snabbkaffe:stop/0),
+    {Client, _Channel} = connect(#{receive_maximum => 1}),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
+    ?assertEqual(
+        [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>],
+        lists:sort(ack_publishes(Client, 3))
+    ),
+    ?assertMatch(
+        [#{cursor := done, count := 2}],
+        ?of_kind(retainer_handover, snabbkaffe:collect_trace())
+    ),
+    ok = emqtt:stop(Client).
+
+-doc "Unsubscribe stops a pending read: the channel drops the monitor and the late reply.".
+t_lazy_unsubscribe_pending(_Config) ->
+    store_messages(),
+    {Client, Channel} = connect(#{}),
+    Worker = gproc_pool:pick_worker(?DISPATCHER_POOL, Channel),
+    ok = sys:suspend(Worker),
+    emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
+    {monitors, Monitors} = process_info(Channel, monitors),
+    ?assert(lists:member({process, Worker}, Monitors)),
+    {ok, _, _} = emqtt:unsubscribe(Client, <<"t/+/a">>),
+    assert_no_monitor(Channel, Worker),
+    ok = sys:resume(Worker),
+    ?assertEqual([], receive_publishes(1)),
+    ?assertMatch({ok, #{registry := #{by_ref := []}}}, emqx_extsub:inspect(Channel)),
+    ok = emqtt:stop(Client).
+
+-doc "When the dispatcher worker dies before it replies, ExtSub repeats the read.".
+t_lazy_worker_down(_Config) ->
+    store_messages(),
+    {Client, Channel} = connect(#{}),
+    Worker = gproc_pool:pick_worker(?DISPATCHER_POOL, Channel),
+    ok = sys:suspend(Worker),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
+    exit(Worker, kill),
+    ?assertEqual([<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>], lists:sort(receive_publishes(3))),
+    ok = emqtt:stop(Client).
+
 store_messages() ->
     lists:foreach(fun store/1, [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>]).
+
+store_qos1_messages() ->
+    lists:foreach(
+        fun(Topic) ->
+            emqx_retainer_mnesia:store_retained(
+                #{max_retained_messages => 0}, emqx_message:make(test, 1, Topic, <<"v">>)
+            )
+        end,
+        [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>]
+    ).
+
+connect(Props) ->
+    ClientId = <<"retainer_dispatcher_lazy">>,
+    Properties =
+        case Props of
+            #{receive_maximum := N} -> #{'Receive-Maximum' => N};
+            #{} -> #{}
+        end,
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId}, {proto_ver, v5}, {auto_ack, false}, {properties, Properties}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    [Channel] = emqx_cm:lookup_channels(ClientId),
+    {Client, Channel}.
+
+%% Acknowledge each received QoS 1 publish until N publishes are received.
+ack_publishes(Client, N) ->
+    ack_publishes(Client, N, []).
+
+ack_publishes(_Client, 0, Acc) ->
+    lists:reverse(Acc);
+ack_publishes(Client, N, Acc) ->
+    receive
+        {publish, #{topic := Topic, packet_id := PacketId}} ->
+            ok = emqtt:puback(Client, PacketId),
+            ack_publishes(Client, N - 1, [Topic | Acc])
+    after 2000 ->
+        lists:reverse(Acc)
+    end.
 
 set_batch_read_number(N) ->
     emqx_config:put([retainer, flow_control, batch_read_number], N).
@@ -485,15 +643,18 @@ subscribe() ->
 subscribe(SubOpts) ->
     subscribe(SubOpts, <<"t/+/a">>).
 
+%% Create a handler as `emqx_retainer_channel' does when it hands over a read before the
+%% first batch.
 subscribe(SubOpts, Topic) ->
     Ref = make_ref(),
     Ctx = #{
         clientinfo => #{protocol => mqtt},
         subopts => SubOpts,
-        message_target => emqx_extsub_handler:message_target(Ref)
+        message_target => emqx_extsub_handler:message_target(Ref),
+        handover => {cursor, undefined}
     },
     {ok, Handler} = emqx_retainer_extsub_handler:handle_subscribe(
-        subscribe, Ctx, undefined, Topic
+        handover, Ctx, undefined, Topic
     ),
     {Ref, Handler}.
 
@@ -509,12 +670,12 @@ receive_info(Ref) ->
 
 receive_batch(Ref) ->
     Info = receive_info(Ref),
-    ?assertMatch({retained_batch, _, _, _}, Info),
+    ?assertMatch(#retained_batch{}, Info),
     Info.
 
 receive_any_batch() ->
     receive
-        #info_to_extsub{handler_ref = Ref, info = {retained_batch, _, _, _}} -> Ref
+        #info_to_extsub{handler_ref = Ref, info = #retained_batch{}} -> Ref
     after 5000 -> ct:fail(no_batch)
     end.
 
@@ -547,5 +708,14 @@ receive_down(Ref) ->
     end.
 
 assert_no_monitor(Worker) ->
-    {monitors, Monitors} = process_info(self(), monitors),
+    assert_no_monitor(self(), Worker).
+
+%% A channel keeps no retainer state after its reads end.
+assert_no_read_state(Channel) ->
+    {dictionary, Dict} = process_info(Channel, dictionary),
+    ?assertEqual(undefined, proplists:get_value(emqx_retainer_reads, Dict)),
+    ?assertEqual(undefined, proplists:get_value(emqx_retainer_monitors, Dict)).
+
+assert_no_monitor(Pid, Worker) ->
+    {monitors, Monitors} = process_info(Pid, monitors),
     ?assertNot(lists:member({process, Worker}, Monitors)).

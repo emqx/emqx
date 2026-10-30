@@ -514,6 +514,7 @@ load_hooks() ->
         multi_topic => false,
         ignore_resubscribe => false
     }),
+    ok = emqx_retainer_channel:register_hooks(),
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER),
     emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),
     ok.
@@ -521,6 +522,7 @@ load_hooks() ->
 -spec unload_hooks() -> ok.
 unload_hooks() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    ok = emqx_retainer_channel:unregister_hooks(),
     ok = emqx_extsub_handler_registry:unregister(emqx_retainer_extsub_handler),
     emqx_stats:cancel_update(emqx_retainer_stats),
     ok.
