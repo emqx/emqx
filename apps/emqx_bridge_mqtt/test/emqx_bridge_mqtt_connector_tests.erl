@@ -53,6 +53,22 @@ connection_errors() ->
         eaddrnotavail
     ].
 
+%% Local client terminations: the tuple `{owner, Owner, Reason}' from emqtt's
+%% owner-exit handling, and the bare `killed' with which the client is terminated
+%% together with its pool worker.  In both cases the client is gone, not the
+%% connection target, so the query can still be delivered once the worker
+%% reconnects or the pool restarts.  The tuple form is a defensive contract: the
+%% owner is the client's `gen_statem' parent, so OTP intercepts the parent EXIT
+%% before the owner-exit handler can run.
+local_termination_errors() ->
+    [
+        killed,
+        {owner, self(), shutdown},
+        {owner, self(), normal},
+        {owner, self(), killed},
+        {owner, self(), {shutdown, tcp_closed}}
+    ].
+
 async_result(Result) ->
     ?CONNECTOR:on_async_result(fun(R) -> R end, Result).
 
@@ -72,6 +88,15 @@ inflight_connection_errors_are_recoverable_test_() ->
             )
          || Reason <- [tcp_closed, closed, ssl_closed, pingresp_timeout]
         ].
+
+inflight_local_terminations_are_recoverable_test_() ->
+    [
+        ?_assertEqual(
+            {error, {recoverable_error, Reason}},
+            async_result({error, Reason})
+        )
+     || Reason <- local_termination_errors()
+    ].
 
 %% A DISCONNECT received from the remote broker.
 inflight_disconnect_errors_are_recoverable_test_() ->

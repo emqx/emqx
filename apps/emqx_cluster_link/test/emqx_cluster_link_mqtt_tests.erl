@@ -68,18 +68,29 @@ shutdown_errors() ->
         {shutdown, tcp_closed}
     ].
 
+%% Local client terminations: the tuple `{owner, Owner, Reason}' from emqtt's
+%% owner-exit handling, and the bare reasons `shutdown' and `killed' with which
+%% the client can be terminated locally.  In every case the client is gone, not
+%% the connection target.
+local_termination_errors() ->
+    [
+        shutdown,
+        killed,
+        {owner, self(), shutdown},
+        {owner, self(), normal},
+        {owner, self(), killed},
+        {owner, self(), {shutdown, tcp_closed}}
+    ].
+
 %% Reasons on the fail-fast side: the query is acknowledged and counted `failed'
-%% instead of being retried until `request_ttl'.  This change moves
-%% `eaddrnotavail' here: it is a bind/connect-time error rather than a result of
-%% the send path, and a local address or address family that the host does not
-%% have is not something another attempt against the same peer fixes.  `dropped'
-%% is emqtt giving up on in-flight publishes (in-flight window overflow, or a
-%% clean-start reconnect) without resending them; it stays fail-fast because it is
-%% outside this change's scope.
+%% instead of being retried until `request_ttl'.  `eaddrnotavail' is a
+%% bind/connect-time error rather than a result of the send path, and a local
+%% address or address family that the host does not have is not something another
+%% attempt against the same peer fixes.  `dropped' is emqtt giving up on in-flight
+%% publishes (in-flight window overflow, or a clean-start reconnect) without
+%% resending them, so it is fail-fast too.
 %%
-%% Not pinned here, because they are outside this change's scope: broker replies
-%% (`classify_reply/1') and the client-owner exit shape `{owner, _, _}' that a
-%% pool restart can produce.
+%% Broker replies (`classify_reply/1') are not pinned here.
 unrecoverable_errors() ->
     [
         dropped,
@@ -114,7 +125,8 @@ retriable_errors_are_recoverable_test() ->
         connection_errors() ++
             connection_error_tuples() ++
             disconnected_errors() ++
-            shutdown_errors()
+            shutdown_errors() ++
+            local_termination_errors()
     ).
 
 permanent_errors_are_unrecoverable_test() ->
@@ -133,6 +145,44 @@ successful_async_results_test() ->
     ?assertEqual(ok, async_result(ok)),
     ?assertEqual(ok, async_result({ok, #{reason_code => ?RC_SUCCESS}})),
     ?assertEqual(ok, async_result({ok, #{reason_code => ?RC_NO_MATCHING_SUBSCRIBERS}})).
+
+%%--------------------------------------------------------------------
+%% Local client termination
+%%--------------------------------------------------------------------
+
+%% A local termination of the client is not a failure of the connection: it must
+%% not be reported as `socket_error', while a real socket error still is.
+owner_exit_is_not_reported_as_disconnect_test() ->
+    ok = meck:new(emqx_resource, [passthrough]),
+    ok = meck:expect(emqx_resource, allocate_resource, fun(_, _, _, _) -> ok end),
+    ok = meck:expect(emqx_resource, deallocate_resource, fun(_, _) -> ok end),
+    try
+        ResourceId = <<"emqx_cluster_link_mqtt:msg:test">>,
+        lists:foreach(
+            fun(Reason) ->
+                ?assertEqual(
+                    ok,
+                    ?MOD:handle_disconnect(Reason, ResourceId, 1, #{}),
+                    #{reason => Reason}
+                )
+            end,
+            local_termination_errors()
+        ),
+        ?assertNot(meck:called(emqx_resource, allocate_resource, '_')),
+        ?assertNot(meck:called(emqx_resource, deallocate_resource, '_')),
+        SocketError = {tcp_closed, make_ref()},
+        ?assertEqual(ok, ?MOD:handle_disconnect(SocketError, ResourceId, 1, #{})),
+        ?assertEqual(
+            {disconnect_reason, 1},
+            meck:capture(first, emqx_resource, allocate_resource, '_', 3)
+        ),
+        ?assertEqual(
+            #{cause => socket_error, reason => SocketError},
+            meck:capture(first, emqx_resource, allocate_resource, '_', 4)
+        )
+    after
+        ok = meck:unload(emqx_resource)
+    end.
 
 %%--------------------------------------------------------------------
 %% Pool errors

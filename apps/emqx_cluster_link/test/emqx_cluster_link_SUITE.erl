@@ -441,6 +441,235 @@ wait_forwarding_resource_connected(SourceNode, ResourceId) ->
         )
     ).
 
+%% Verifies that the messages held by a forwarding client are retried, not dropped,
+%% when the pool worker that owns the client is terminated.  The client replays those
+%% messages with a bare `killed', which is a local termination rather than a failure
+%% to reach the peer.  The peer's acknowledgements are held while the client
+%% accumulates the messages, so the termination is guaranteed to hit a client that
+%% holds some.
+t_message_forwarding_client_owner_terminated() ->
+    [{timetrap, {minutes, 2}}].
+
+t_message_forwarding_client_owner_terminated('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    LinkConf = owner_termination_link_conf(),
+    {SourceClusterSpec, TargetClusterSpec} =
+        mk_interlinked_clusters(?FUNCTION_NAME, 1, 1, LinkConf, Config),
+    %% The target cluster is started first, so that the source cluster's forwarding
+    %% client can connect at the first attempt: a failed first attempt would leave the
+    %% resource waiting for its next health check interval before retrying.
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | Config
+    ];
+t_message_forwarding_client_owner_terminated('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+%% A single forwarding client, so that terminating it is the only local termination in
+%% flight.  The health check is effectively disabled: a probe would find the peer silent
+%% while the test holds its acknowledgements and restart the resource under test, while
+%% the client recovers through its pool worker's own reconnection.
+owner_termination_link_conf() ->
+    emqx_utils_maps:deep_merge(outage_link_conf(), #{
+        <<"resource_opts">> => #{
+            <<"resume_interval">> => <<"500ms">>,
+            <<"health_check_interval">> => <<"60s">>
+        }
+    }).
+
+t_message_forwarding_client_owner_terminated(Config) ->
+    [SourceNode] = nodes_source(Config),
+    [TargetNode] = nodes_target(Config),
+    TargetName = atom_to_binary(emqx_cluster_link_cth:cluster_name(TargetNode)),
+    ResourceId = emqx_cluster_link_mqtt:resource_id(TargetName),
+    Topic = <<"t/owner-terminated">>,
+    TargetClient = emqx_cluster_link_cth:connect_client(
+        "t_message_forwarding_client_owner_terminated_target", TargetNode
+    ),
+    ?check_trace(
+        #{timetrap => 90_000},
+        try
+            {ok, _, _} = emqtt:subscribe(TargetClient, Topic, qos1),
+            %% The subscription is only forwarded once its route has been replicated to
+            %% the source cluster.
+            ok = wait_forwarding_route(SourceNode, Topic),
+            {WorkerPid, ClientPid} = wait_forwarding_client(SourceNode, ResourceId),
+            ClientId = ?ON(SourceNode, proplists:get_value(clientid, emqtt:info(ClientPid))),
+            PeerChannels = suspend_peer_channels(TargetNode, ClientId),
+            try
+                Payloads = [integer_to_binary(I) || I <- lists:seq(1, 100)],
+                ?ON(
+                    SourceNode,
+                    begin
+                        [
+                            emqx:publish(emqx_message:make(?MODULE, ?QOS_1, Topic, Payload))
+                         || Payload <- Payloads
+                        ]
+                    end
+                ),
+                ok = wait_until_client_holds(SourceNode, ClientPid, 5),
+                %% The pool worker is the client's `gen_statem' parent: killing it
+                %% terminates the client, which then replays the publishes it holds.
+                ClientMRef = erlang:monitor(process, ClientPid),
+                ?ON(SourceNode, exit(WorkerPid, kill)),
+                receive
+                    {'DOWN', ClientMRef, process, ClientPid, ClientReason} ->
+                        erlang:demonitor(ClientMRef, [flush]),
+                        ?assertEqual(killed, ClientReason)
+                after 5_000 ->
+                    ct:fail("the forwarding client did not terminate with its owner")
+                end,
+                ok = drop_peer_channels(TargetNode, PeerChannels),
+                ok = assert_all_delivered(Topic, TargetClient, Payloads, 60_000),
+                ?retry(
+                    200,
+                    25,
+                    ?assertMatch(
+                        #{
+                            counters := #{
+                                dropped := 0, failed := 0, retried := Retried, success := Success
+                            },
+                            gauges := #{inflight := 0, queuing := 0}
+                        } when Retried > 0 andalso Success >= 100,
+                        ?ON(SourceNode, emqx_resource:get_metrics(ResourceId))
+                    )
+                )
+            after
+                ok = drop_peer_channels(TargetNode, PeerChannels)
+            end
+        after
+            ok = emqtt:stop(TargetClient)
+        end,
+        fun(Trace) ->
+            %% The replay must have reached the buffer worker as a local client
+            %% termination, and the held messages must have been retried.
+            ?assertMatch(
+                [_ | _],
+                [
+                    Event
+                 || Event = #{
+                        ?snk_kind := handle_async_reply,
+                        result := {error, {recoverable_error, killed}}
+                    } <- Trace
+                ]
+            ),
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_retry_inflight, Trace)),
+            ok
+        end
+    ).
+
+wait_forwarding_route(Node, Topic) ->
+    ?retry(
+        100, 100, ?assertMatch([_ | _], ?ON(Node, emqx_cluster_link_extrouter:match_routes(Topic)))
+    ).
+
+%% Waits until the link has a connected forwarding client, without relying on the
+%% resource status: the status is only refreshed by the health check, whose interval is
+%% long here.
+wait_forwarding_client(Node, ResourceId) ->
+    ?retry(100, 100, begin
+        {WorkerPid, ClientPid} = ?ON(Node, forwarding_client(ResourceId)),
+        ok = ?assertEqual(connected, ?ON(Node, emqtt:status(ClientPid))),
+        {WorkerPid, ClientPid}
+    end).
+
+%% The forwarding pool worker starts the client with `emqtt:start_link/1', so it is the
+%% client's `gen_statem' parent.
+forwarding_client(ResourceId) ->
+    [{_WorkerName, WorkerPid}] = ecpool:workers(ResourceId),
+    {ok, ClientPid} = ecpool_worker:client(WorkerPid),
+    {WorkerPid, ClientPid}.
+
+%% Suspends the peer's channel that serves this client's connection: the socket stays
+%% open, but no acknowledgement is sent until the suspension is released, so the client
+%% keeps every publish it accepts.  A suspension ends with the process that requested
+%% it, hence the dedicated suspender process.
+%%
+%% `emqx_cm:lookup_channels/1' is cluster-wide and `erlang:suspend_process/1' only takes
+%% local processes, so the lookup is restricted to the peer node the test calls into.
+suspend_peer_channels(Node, ClientId) ->
+    Channels = ?ON(Node, emqx_cm:lookup_channels(local, ClientId)),
+    ?assertMatch([_ | _], Channels, #{clientid => ClientId}),
+    TestProc = self(),
+    Suspender = ?ON(Node, begin
+        spawn(fun() ->
+            [true = erlang:suspend_process(Channel) || Channel <- Channels],
+            TestProc ! {suspended, self()},
+            receive
+                stop -> ok
+            end
+        end)
+    end),
+    MRef = erlang:monitor(process, Suspender),
+    receive
+        {suspended, Suspender} ->
+            erlang:demonitor(MRef, [flush]),
+            {Suspender, Channels};
+        {'DOWN', MRef, process, Suspender, Reason} ->
+            ct:fail("the peer channel suspender exited: ~p", [Reason])
+    after 5_000 ->
+        ct:fail("the peer channels were not suspended")
+    end.
+
+%% The peer connection is stale once its client is gone: killing the channel removes
+%% it, and killing the suspender releases any suspension still in place.  Waiting for the
+%% channels to be gone lets the restarted client open its session without waiting for
+%% the stale one to be taken over.
+drop_peer_channels(Node, {Suspender, Channels}) ->
+    Refs = [erlang:monitor(process, Channel) || Channel <- Channels],
+    ?ON(Node, begin
+        _ = exit(Suspender, kill),
+        _ = [exit(Channel, kill) || Channel <- Channels],
+        ok
+    end),
+    _ = [
+        receive
+            {'DOWN', Ref, process, _Channel, _Reason} -> ok
+        after 5_000 ->
+            ct:fail("a peer channel of the forwarding client did not terminate")
+        end
+     || Ref <- Refs
+    ],
+    ok.
+
+wait_until_client_holds(Node, ClientPid, MinHeld) ->
+    ?retry(100, 100, begin
+        Held = ?ON(
+            Node, emqtt:info(ClientPid, n_inflight) + emqtt:info(ClientPid, n_queued)
+        ),
+        ?assert(Held >= MinHeld, #{held => Held, at_least => MinHeld})
+    end).
+
+%% Every payload must reach the target cluster at least once; a retried publish may
+%% arrive more than once, which is not a failure here.
+assert_all_delivered(Topic, ClientPid, Payloads, Timeout) ->
+    Expected = maps:from_list([{Payload, true} || Payload <- Payloads]),
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    Seen = collect_delivered(Topic, ClientPid, Expected, #{}, Deadline),
+    Missing = maps:keys(maps:without(maps:keys(Seen), Expected)),
+    ?assertEqual([], Missing, #{delivered => maps:size(Seen)}),
+    ok.
+
+collect_delivered(Topic, ClientPid, Expected, Seen, Deadline) ->
+    case maps:size(Seen) =:= maps:size(Expected) of
+        true ->
+            Seen;
+        false ->
+            Timeout = max(1, Deadline - erlang:monotonic_time(millisecond)),
+            receive
+                {publish, #{topic := Topic, client_pid := ClientPid, payload := Payload}} ->
+                    collect_delivered(Topic, ClientPid, Expected, Seen#{Payload => true}, Deadline)
+            after Timeout ->
+                Seen
+            end
+    end.
+
 %% Verifies that the message forwarding health check probes the remote broker.  The
 %% link is routed through a relay that the test freezes: the TCP connection stays open
 %% but nothing gets through it anymore, which is what a black-holed network looks like.
