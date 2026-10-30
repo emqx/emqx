@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("amqp_client/include/amqp_client.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -31,6 +32,10 @@
 
 -define(tcp, tcp).
 -define(tls, tls).
+-define(ack, ack).
+-define(no_ack, no_ack).
+
+-define(POOL_SIZE, 3).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -79,6 +84,10 @@ init_per_group(?tls, TCConfig) ->
         {enable_tls, true}
         | TCConfig
     ];
+init_per_group(?ack, TCConfig) ->
+    [{no_ack, false} | TCConfig];
+init_per_group(?no_ack, TCConfig) ->
+    [{no_ack, true} | TCConfig];
 init_per_group(_Group, TCConfig) ->
     TCConfig.
 
@@ -183,6 +192,19 @@ create_source_api(TCConfig, Overrides) ->
 get_source_metrics_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_source_metrics_api(TCConfig).
 
+get_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(emqx_bridge_v2_testlib:get_source_api(Type, Name)).
+
+get_connector_api(TCConfig) ->
+    Type = get_config(connector_type, TCConfig),
+    Name = get_config(connector_name, TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(emqx_bridge_v2_testlib:get_connector_api(Type, Name)).
+
+delete_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:delete_kind_api(source, Type, Name).
+
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
@@ -216,6 +238,37 @@ unique_payload() ->
 publish_message(Payload, TCConfig) ->
     ClientOpts = get_config(client_opts, TCConfig),
     emqx_bridge_rabbitmq_testlib:publish_message(Payload, ClientOpts).
+
+%% Ready messages and consumers of the test queue, from a passive `queue.declare'.
+queue_counts(TCConfig) ->
+    #{queue := Queue} = ClientOpts = get_config(client_opts, TCConfig),
+    {Connection, Channel} = emqx_bridge_rabbitmq_testlib:connect_client(ClientOpts),
+    #'queue.declare_ok'{message_count = Messages, consumer_count = Consumers} =
+        amqp_channel:call(Channel, #'queue.declare'{queue = Queue, passive = true}),
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
+    #{messages => Messages, consumers => Consumers}.
+
+receive_payloads(Topic, N) ->
+    receive_payloads(Topic, N, []).
+
+receive_payloads(_Topic, 0, Acc) ->
+    lists:sort(Acc);
+receive_payloads(Topic, N, Acc) ->
+    receive
+        {publish, #{topic := Topic, payload := Payload}} ->
+            #{<<"payload">> := P} = emqx_utils_json:decode(Payload),
+            receive_payloads(Topic, N - 1, [P | Acc])
+    after 10_000 ->
+        ct:fail({missing_publishes, N, Acc})
+    end.
+
+mark_ready_and_wait_waiter() ->
+    ?wait_async_action(
+        emqx_node_readiness:mark_ready(),
+        #{?snk_kind := resource_ready_waiter_ran},
+        5_000
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -283,4 +336,73 @@ t_source(TCConfig) ->
             get_source_metrics_api(TCConfig)
         )
     ),
+    ok.
+
+%% Checks that a source added while the node is not ready leaves the messages in the
+%% queue, with no consumer, and reports connected. Once the node is ready, every pool
+%% connection consumes and the messages reach the rule.
+t_consume_after_node_ready() ->
+    [{matrix, true}].
+t_consume_after_node_ready(matrix) ->
+    [[?ack], [?no_ack]];
+t_consume_after_node_ready(TCConfig) when is_list(TCConfig) ->
+    NumMessages = 5,
+    Payloads = lists:sort([
+        <<"msg-", (integer_to_binary(I))/binary>>
+     || I <- lists:seq(1, NumMessages)
+    ]),
+    %% Stands for a subscription that exists when the node becomes ready; the node
+    %% refuses new MQTT connections while it is not ready.
+    C = start_client(),
+    on_exit(fun emqx_node_readiness:mark_ready/0),
+    ok = emqx_node_readiness:mark_not_ready(),
+    lists:foreach(fun(P) -> publish_message(P, TCConfig) end, Payloads),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"pool_size">> => ?POOL_SIZE}),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_source_api(TCConfig, #{
+            <<"parameters">> => #{<<"no_ack">> => get_config(no_ack, TCConfig)}
+        }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, 1),
+    ?assertEqual(#{messages => NumMessages, consumers => 0}, queue_counts(TCConfig)),
+    ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_source_api(TCConfig)),
+    ?assertMatch({ok, {ok, #{keys := [_, _, _]}}}, mark_ready_and_wait_waiter()),
+    ?assertEqual(Payloads, receive_payloads(Topic, NumMessages)),
+    ?retry(
+        200,
+        20,
+        ?assertEqual(#{messages => 0, consumers => ?POOL_SIZE}, queue_counts(TCConfig))
+    ),
+    ok.
+
+%% Checks that a source deleted while the node is not ready never consumes.
+t_remove_before_node_ready(TCConfig) ->
+    NumMessages = 3,
+    lists:foreach(
+        fun(I) -> publish_message(integer_to_binary(I), TCConfig) end,
+        lists:seq(1, NumMessages)
+    ),
+    on_exit(fun emqx_node_readiness:mark_ready/0),
+    ok = emqx_node_readiness:mark_not_ready(),
+    {201, _} = create_connector_api(TCConfig, #{<<"pool_size">> => ?POOL_SIZE}),
+    {201, _} = create_source_api(TCConfig, #{<<"parameters">> => #{<<"no_ack">> => false}}),
+    {204, _} = delete_source_api(TCConfig),
+    ?assertMatch({ok, {ok, #{keys := [_, _, _]}}}, mark_ready_and_wait_waiter()),
+    ?assertEqual(#{messages => NumMessages, consumers => 0}, queue_counts(TCConfig)),
+    ok.
+
+%% Checks that a source on a missing queue fails to be added while the node is not
+%% ready, and that the connector stays connected.
+t_missing_queue_before_node_ready(TCConfig) ->
+    on_exit(fun emqx_node_readiness:mark_ready/0),
+    ok = emqx_node_readiness:mark_not_ready(),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"pool_size">> => ?POOL_SIZE}),
+    {201, #{<<"status">> := <<"disconnected">>, <<"error">> := Error}} =
+        create_source_api(TCConfig, #{
+            <<"parameters">> => #{<<"queue">> => <<"missing_queue">>}
+        }),
+    ?assertMatch({_, _}, binary:match(Error, <<"NOT_FOUND">>), Error),
+    ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig)),
     ok.
