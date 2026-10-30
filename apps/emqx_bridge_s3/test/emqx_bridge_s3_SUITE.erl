@@ -314,6 +314,24 @@ t_custom_headers(TCConfig) ->
     ok.
 
 -doc """
+Checks that we don't crash the `emqx_bridge_s3_upload:convert_action` converter when the
+raw config does not include `resource_opts`.
+
+For yet unknown reasons, despite having a default `#{}` value, this apparently does not
+reach the converter (maybe some recent change in hocon?).
+""".
+t_missing_resource_opts(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, action_config, fun(Cfg) ->
+        maps:remove(~"resource_opts", Cfg)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?assertMatch(
+        {201, #{~"status" := ~"connected"}},
+        create_action_api(TCConfig, #{})
+    ),
+    ok.
+
+-doc """
 Smoke test for handling non-successful HTTP responses without any bodies.
 
 Before the fix, `emqx_s3_utils:map_error_details` would crash on the `undefined` body.
