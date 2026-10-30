@@ -33,6 +33,7 @@
     on_format_query_result/1
 ]).
 -export([reply_callback/2]).
+-export([coordinated_reply_callback/3]).
 
 -export([
     roots/0,
@@ -44,7 +45,7 @@
 -export([precision_field/0]).
 
 %% only for test
--export([client_config/2, is_unrecoverable_error/1]).
+-export([client_config/2, is_unrecoverable_error/1, data_to_points/2, render_bucket/2]).
 
 -type ts_precision() :: ns | us | ms | s.
 
@@ -88,7 +89,8 @@ on_add_channel(
         Parameters,
         ChannelConfig0#{
             channel_client => influxdb:update_precision(Client, Precision),
-            write_syntax => to_config(WriteSytaxTmpl, Precision)
+            write_syntax => to_config(WriteSytaxTmpl, Precision),
+            bucket_tmpl => preproc_bucket_tmpl(Parameters)
         }
     ),
     {ok, OldState#{
@@ -124,15 +126,16 @@ on_stop(InstId, _State) ->
     end.
 
 on_query(InstId, {Channel, Message}, #{channels := ChannelConf}) ->
-    #{write_syntax := SyntaxLines} = maps:get(Channel, ChannelConf),
-    #{channel_client := Client} = maps:get(Channel, ChannelConf),
+    ChannelConfig = maps:get(Channel, ChannelConf),
+    #{write_syntax := SyntaxLines, channel_client := Client} = ChannelConfig,
     case data_to_points(Message, SyntaxLines) of
         {ok, Points} ->
+            Client1 = render_bucket_client(Message, Client, ChannelConfig),
             ?tp(
                 influxdb_connector_send_query,
-                #{points => Points, batch => false, mode => sync}
+                #{points => Points, batch => false, mode => sync, path => path(Client1)}
             ),
-            do_query(InstId, Channel, Client, Points);
+            do_query(InstId, Channel, Client1, Points);
         {error, ErrorPoints} ->
             ?tp(
                 influxdb_connector_send_query_error,
@@ -146,21 +149,28 @@ on_query(InstId, {Channel, Message}, #{channels := ChannelConf}) ->
 %% This batch query failed
 on_batch_query(InstId, BatchData, #{channels := ChannelConf}) ->
     [{Channel, _} | _] = BatchData,
-    #{write_syntax := SyntaxLines} = maps:get(Channel, ChannelConf),
-    #{channel_client := Client} = maps:get(Channel, ChannelConf),
-    case parse_batch_data(InstId, BatchData, SyntaxLines) of
-        {ok, Points} ->
-            ?tp(
-                influxdb_connector_send_query,
-                #{points => Points, batch => true, mode => sync}
-            ),
-            do_query(InstId, Channel, Client, Points);
-        {error, Reason} ->
-            ?tp(
-                influxdb_connector_send_query_error,
-                #{batch => true, mode => sync, error => Reason}
-            ),
-            {error, {unrecoverable_error, Reason}}
+    ChannelConfig = maps:get(Channel, ChannelConf),
+    #{write_syntax := SyntaxLines} = ChannelConfig,
+    case group_batch_by_bucket(BatchData, ChannelConfig) of
+        [{Client, Data}] ->
+            case parse_batch_data(InstId, Data, SyntaxLines) of
+                {ok, Points} ->
+                    ?tp(
+                        influxdb_connector_send_query,
+                        #{
+                            points => Points, batch => true, mode => sync, path => path(Client)
+                        }
+                    ),
+                    do_query(InstId, Channel, Client, Points);
+                {error, Reason} ->
+                    ?tp(
+                        influxdb_connector_send_query_error,
+                        #{batch => true, mode => sync, error => Reason}
+                    ),
+                    {error, {unrecoverable_error, Reason}}
+            end;
+        Groups ->
+            do_grouped_batch_query(InstId, Channel, Groups, SyntaxLines)
     end.
 
 on_query_async(
@@ -169,15 +179,16 @@ on_query_async(
     {ReplyFun, Args},
     #{channels := ChannelConf}
 ) ->
-    #{write_syntax := SyntaxLines} = maps:get(Channel, ChannelConf),
-    #{channel_client := Client} = maps:get(Channel, ChannelConf),
+    ChannelConfig = maps:get(Channel, ChannelConf),
+    #{write_syntax := SyntaxLines, channel_client := Client} = ChannelConfig,
     case data_to_points(Message, SyntaxLines) of
         {ok, Points} ->
+            Client1 = render_bucket_client(Message, Client, ChannelConfig),
             ?tp(
                 influxdb_connector_send_query,
-                #{points => Points, batch => false, mode => async}
+                #{points => Points, batch => false, mode => async, path => path(Client1)}
             ),
-            do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
+            do_async_query(InstId, Channel, Client1, Points, {ReplyFun, Args});
         {error, ErrorPoints} = Err ->
             ?tp(
                 influxdb_connector_send_query_error,
@@ -190,25 +201,34 @@ on_query_async(
 on_batch_query_async(
     InstId,
     BatchData,
-    {ReplyFun, Args},
+    ReplyFunAndArgs,
     #{channels := ChannelConf}
 ) ->
     [{Channel, _} | _] = BatchData,
-    #{write_syntax := SyntaxLines} = maps:get(Channel, ChannelConf),
-    #{channel_client := Client} = maps:get(Channel, ChannelConf),
-    case parse_batch_data(InstId, BatchData, SyntaxLines) of
-        {ok, Points} ->
-            ?tp(
-                influxdb_connector_send_query,
-                #{points => Points, batch => true, mode => async}
-            ),
-            do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
-        {error, Reason} ->
-            ?tp(
-                influxdb_connector_send_query_error,
-                #{batch => true, mode => async, error => Reason}
-            ),
-            {error, {unrecoverable_error, Reason}}
+    ChannelConfig = maps:get(Channel, ChannelConf),
+    #{write_syntax := SyntaxLines} = ChannelConfig,
+    case group_batch_by_bucket(BatchData, ChannelConfig) of
+        [{Client, Data}] ->
+            case parse_batch_data(InstId, Data, SyntaxLines) of
+                {ok, Points} ->
+                    ?tp(
+                        influxdb_connector_send_query,
+                        #{
+                            points => Points, batch => true, mode => async, path => path(Client)
+                        }
+                    ),
+                    do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs);
+                {error, Reason} ->
+                    ?tp(
+                        influxdb_connector_send_query_error,
+                        #{batch => true, mode => async, error => Reason}
+                    ),
+                    {error, {unrecoverable_error, Reason}}
+            end;
+        Groups ->
+            do_grouped_async_batch_query(
+                InstId, Channel, Groups, SyntaxLines, ReplyFunAndArgs
+            )
     end.
 
 on_format_query_result(Result) ->
@@ -229,6 +249,386 @@ on_get_status(_InstId, #{client := Client}) ->
         {false, Reason} ->
             {?status_disconnected, Reason}
     end.
+
+%% -------------------------------------------------------------------------------------------------
+%% Dynamic bucket
+
+preproc_bucket_tmpl(#{bucket := Bucket}) when is_binary(Bucket) ->
+    emqx_placeholder:preproc_tmpl(Bucket);
+preproc_bucket_tmpl(_) ->
+    undefined.
+
+render_bucket_client(Data, Client, ChannelConfig) ->
+    case render_bucket(Data, maps:get(bucket_tmpl, ChannelConfig, undefined)) of
+        {ok, Bucket} ->
+            influxdb:update_bucket(Client, Bucket);
+        undefined ->
+            Client
+    end.
+
+render_bucket(_Data, undefined) ->
+    undefined;
+render_bucket(Data, Tmpl) ->
+    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    case emqx_placeholder:proc_tmpl(Tmpl, Data, TransOptions) of
+        Parts when is_list(Parts) ->
+            %% a template may render to several parts (static text mixed with
+            %% placeholders, e.g. `tenant-${payload.tenant}`); concatenate them
+            %% into the bucket name. A missing part falls back to the static
+            %% bucket from the connector config.
+            case lists:member(undefined, Parts) of
+                true ->
+                    undefined;
+                false ->
+                    case iolist_to_binary([bin(Part) || Part <- Parts]) of
+                        <<>> ->
+                            undefined;
+                        Bucket ->
+                            {ok, Bucket}
+                    end
+            end;
+        _ ->
+            undefined
+    end.
+
+%% Group batch messages by their rendered bucket so that each group can be
+%% written to its own bucket with a single write request.
+%% Batch items are kept as {Channel, Message} pairs, as expected by parse_batch_data/3.
+group_batch_by_bucket(BatchData, ChannelConfig) ->
+    #{channel_client := Client} = ChannelConfig,
+    BucketTmpl = maps:get(bucket_tmpl, ChannelConfig, undefined),
+    Groups0 = lists:foldl(
+        fun(Item = {_Channel, Message}, Acc) ->
+            case render_bucket(Message, BucketTmpl) of
+                {ok, Bucket} ->
+                    %% Rebuild the write path at most once per distinct bucket:
+                    %% reuse the already updated client for repeated buckets.
+                    Key = {ok, Bucket},
+                    case maps:find(Key, Acc) of
+                        {ok, {Client1, Items}} ->
+                            Acc#{Key := {Client1, [Item | Items]}};
+                        error ->
+                            Client1 = influxdb:update_bucket(Client, Bucket),
+                            Acc#{Key => {Client1, [Item]}}
+                    end;
+                undefined ->
+                    maps:update_with(
+                        static,
+                        fun({C, Items}) -> {C, [Item | Items]} end,
+                        {Client, [Item]},
+                        Acc
+                    )
+            end
+        end,
+        #{},
+        BatchData
+    ),
+    [{C, lists:reverse(Items)} || {_, {C, Items}} <- maps:to_list(Groups0)].
+
+do_grouped_batch_query(InstId, Channel, Groups, SyntaxLines) ->
+    case parse_groups(InstId, Groups, SyntaxLines) of
+        {ok, ParsedGroups} ->
+            write_groups_sync(InstId, Channel, without_empty_groups(ParsedGroups));
+        {error, Reason} ->
+            ?tp(
+                influxdb_connector_send_query_error,
+                #{batch => true, mode => sync, error => Reason}
+            ),
+            {error, {unrecoverable_error, Reason}}
+    end.
+
+%% Every group is written; all results are aggregated after every group has been
+%% attempted, so one failing bucket does not drop the others.  A recoverable
+%% error takes precedence over an unrecoverable one: dropping the batch because
+%% one bucket permanently failed would silently lose data for another bucket
+%% that could have succeeded on retry.
+write_groups_sync(_InstId, _Channel, []) ->
+    ok;
+write_groups_sync(InstId, Channel, ParsedGroups) ->
+    GroupResults = lists:foldl(
+        fun({Client, Points}, Acc) ->
+            ?tp(
+                influxdb_connector_send_query,
+                #{points => Points, batch => true, mode => sync, path => path(Client)}
+            ),
+            emqx_trace:rendered_action_template(
+                Channel, #{points => Points, is_async => false}
+            ),
+            case do_query(InstId, Channel, Client, Points) of
+                ok -> Acc;
+                Result -> record_group_result(Result, Acc)
+            end
+        end,
+        group_results_acc(),
+        ParsedGroups
+    ),
+    grouped_result(GroupResults).
+
+%% When a batch is split into multiple bucket groups, each group write replies
+%% asynchronously. A coordinator process owns the group state, monitors every
+%% ehttpc worker used by the groups and calls the batch reply fun exactly once.
+%% Returning the coordinator PID lets the resource buffer monitor it as well.
+%%
+%% All groups are parsed before any write is issued, so a conversion failure in
+%% one group cannot leave the other groups partially written. Groups that render
+%% no points are not written at all.
+%%
+%% NOTE: if any group reports a recoverable write error the resource retries the
+%% whole batch, so groups that already succeeded may be written again. Structured
+%% points carry the message timestamp (the default `${timestamp}`) and are
+%% idempotent; raw lines without an explicit timestamp are not. Per-group retry
+%% would need resource-level sub-request tracking.
+do_grouped_async_batch_query(InstId, Channel, Groups, SyntaxLines, ReplyFunAndArgs) ->
+    case parse_groups(InstId, Groups, SyntaxLines) of
+        {ok, ParsedGroups} ->
+            write_groups_async(
+                InstId, Channel, without_empty_groups(ParsedGroups), ReplyFunAndArgs
+            );
+        {error, Reason} ->
+            ?tp(
+                influxdb_connector_send_query_error,
+                #{batch => true, mode => async, error => Reason}
+            ),
+            emqx_resource:apply_reply_fun(
+                ReplyFunAndArgs, {error, {unrecoverable_error, Reason}}
+            ),
+            ok
+    end.
+
+write_groups_async(_InstId, _Channel, [], ReplyFunAndArgs) ->
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, ok),
+    ok;
+write_groups_async(InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
+    Coordinator = spawn(fun() ->
+        grouped_async_coordinator(InstId, Channel, ParsedGroups, ReplyFunAndArgs)
+    end),
+    {ok, Coordinator}.
+
+grouped_async_coordinator(InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
+    Grouped = lists:zip(lists:seq(1, length(ParsedGroups)), ParsedGroups),
+    State0 = (group_results_acc())#{
+        pending => maps:from_keys([GroupRef || {GroupRef, _} <- Grouped], true),
+        group_workers => #{},
+        worker_groups => #{},
+        workers => #{}
+    },
+    State = start_grouped_writes(InstId, Channel, Grouped, State0),
+    wait_grouped_writes(ReplyFunAndArgs, State).
+
+start_grouped_writes(InstId, Channel, Grouped, State0) ->
+    lists:foldl(
+        fun({GroupRef, {Client, Points}}, State) ->
+            ?tp(
+                influxdb_connector_send_query,
+                #{points => Points, batch => true, mode => async, path => path(Client)}
+            ),
+            emqx_trace:rendered_action_template(
+                Channel, #{points => Points, is_async => true}
+            ),
+            WrappedReplyFunAndArgs = {
+                fun ?MODULE:coordinated_reply_callback/3,
+                [self(), GroupRef]
+            },
+            try influxdb:write_async(Client, Points, WrappedReplyFunAndArgs) of
+                {ok, WorkerPid} when is_pid(WorkerPid) ->
+                    associate_group_worker(GroupRef, WorkerPid, State);
+                {error, Reason} ->
+                    complete_group(GroupRef, {error, Reason}, State)
+            catch
+                Class:Reason:Stacktrace ->
+                    ?SLOG(error, #{
+                        msg => "influxdb_grouped_async_write_start_failed",
+                        connector => InstId,
+                        class => Class,
+                        reason => Reason,
+                        stacktrace => Stacktrace
+                    }),
+                    complete_group(
+                        GroupRef, {error, {async_write_start_failed, Reason}}, State
+                    )
+            end
+        end,
+        State0,
+        Grouped
+    ).
+
+%% Convert every group before any write is issued. If any group fails to
+%% convert, the whole batch fails and nothing has been written yet.
+parse_groups(InstId, Groups, SyntaxLines) ->
+    parse_groups(InstId, Groups, SyntaxLines, []).
+
+parse_groups(_InstId, [], _SyntaxLines, Acc) ->
+    {ok, lists:reverse(Acc)};
+parse_groups(InstId, [{Client, Data} | Rest], SyntaxLines, Acc) ->
+    case parse_batch_data(InstId, Data, SyntaxLines) of
+        {ok, Points} ->
+            parse_groups(InstId, Rest, SyntaxLines, [{Client, Points} | Acc]);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+without_empty_groups(ParsedGroups) ->
+    [{Client, Points} || {Client, Points} <- ParsedGroups, Points =/= []].
+
+coordinated_reply_callback(Coordinator, GroupRef, Result) ->
+    Coordinator ! {grouped_write_reply, GroupRef, Result},
+    ok.
+
+associate_group_worker(GroupRef, WorkerPid, State0) ->
+    Workers0 = maps:get(workers, State0),
+    WorkerGroups0 = maps:get(worker_groups, State0),
+    {Workers, WorkerGroups1} =
+        case maps:find(WorkerPid, Workers0) of
+            {ok, _MRef} ->
+                {Workers0, WorkerGroups0};
+            error ->
+                {
+                    maps:put(WorkerPid, monitor(process, WorkerPid), Workers0),
+                    maps:put(WorkerPid, [], WorkerGroups0)
+                }
+        end,
+    WorkerGroups = maps:update_with(
+        WorkerPid,
+        fun(GroupRefs) -> [GroupRef | GroupRefs] end,
+        [GroupRef],
+        WorkerGroups1
+    ),
+    State0#{
+        group_workers := maps:put(GroupRef, WorkerPid, maps:get(group_workers, State0)),
+        worker_groups := WorkerGroups,
+        workers := Workers
+    }.
+
+complete_group(GroupRef, Result, State0) ->
+    Pending0 = maps:get(pending, State0),
+    case maps:is_key(GroupRef, Pending0) of
+        false ->
+            State0;
+        true ->
+            State1 = remove_group_association(GroupRef, State0#{
+                pending := maps:remove(GroupRef, Pending0)
+            }),
+            record_group_result(Result, State1)
+    end.
+
+remove_group_association(GroupRef, State0) ->
+    GroupWorkers0 = maps:get(group_workers, State0),
+    case maps:take(GroupRef, GroupWorkers0) of
+        error ->
+            State0;
+        {WorkerPid, GroupWorkers} ->
+            WorkerGroups0 = maps:get(worker_groups, State0),
+            WorkerGroups = maps:update_with(
+                WorkerPid,
+                fun(GroupRefs) -> lists:delete(GroupRef, GroupRefs) end,
+                [],
+                WorkerGroups0
+            ),
+            State1 = State0#{
+                group_workers := GroupWorkers,
+                worker_groups := WorkerGroups
+            },
+            case maps:get(WorkerPid, WorkerGroups) of
+                [] -> remove_worker_monitor(WorkerPid, State1);
+                _ -> State1
+            end
+    end.
+
+remove_worker_monitor(WorkerPid, State0) ->
+    State1 = State0#{
+        worker_groups := maps:remove(WorkerPid, maps:get(worker_groups, State0))
+    },
+    Workers0 = maps:get(workers, State1),
+    case maps:take(WorkerPid, Workers0) of
+        error ->
+            State1;
+        {MRef, Workers} ->
+            _ = demonitor(MRef, [flush]),
+            State1#{workers := Workers}
+    end.
+
+handle_worker_down(WorkerPid, Reason, State0) ->
+    Workers0 = maps:get(workers, State0),
+    case maps:take(WorkerPid, Workers0) of
+        error ->
+            State0;
+        {_MRef, Workers} ->
+            GroupRefs = maps:get(WorkerPid, maps:get(worker_groups, State0), []),
+            ?tp(influxdb_connector_group_worker_down, #{
+                worker => WorkerPid,
+                reason => Reason,
+                pending_groups => GroupRefs
+            }),
+            State1 = State0#{workers := Workers},
+            lists:foldl(
+                fun(GroupRef, State) ->
+                    complete_group(
+                        GroupRef, {error, {async_worker_down, Reason}}, State
+                    )
+                end,
+                State1,
+                GroupRefs
+            )
+    end.
+
+wait_grouped_writes(ReplyFunAndArgs, State) ->
+    case maps:size(maps:get(pending, State)) of
+        0 ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, grouped_result(State));
+        _ ->
+            receive
+                {grouped_write_reply, GroupRef, Result} ->
+                    wait_grouped_writes(
+                        ReplyFunAndArgs, complete_group(GroupRef, Result, State)
+                    );
+                {'DOWN', _MRef, process, WorkerPid, Reason} ->
+                    case maps:is_key(WorkerPid, maps:get(workers, State)) of
+                        true ->
+                            wait_grouped_writes(
+                                ReplyFunAndArgs,
+                                handle_worker_down(WorkerPid, Reason, State)
+                            );
+                        false ->
+                            wait_grouped_writes(ReplyFunAndArgs, State)
+                    end;
+                _Other ->
+                    wait_grouped_writes(ReplyFunAndArgs, State)
+            after infinity ->
+                wait_grouped_writes(ReplyFunAndArgs, State)
+            end
+    end.
+
+group_results_acc() ->
+    #{
+        recoverable_error => undefined,
+        unrecoverable_error => undefined
+    }.
+
+record_group_result(Result, Acc0) ->
+    case classify_result(Result) of
+        {error, {recoverable_error, _}} = Error ->
+            put_first_group_error(recoverable_error, Error, Acc0);
+        {error, {unrecoverable_error, _}} = Error ->
+            put_first_group_error(unrecoverable_error, Error, Acc0);
+        _ ->
+            Acc0
+    end.
+
+put_first_group_error(Key, Error, Acc) ->
+    case maps:get(Key, Acc) of
+        undefined -> maps:put(Key, Error, Acc);
+        _ -> Acc
+    end.
+
+grouped_result(#{recoverable_error := Error}) when Error =/= undefined ->
+    Error;
+grouped_result(#{unrecoverable_error := Error}) when Error =/= undefined ->
+    Error;
+grouped_result(_) ->
+    ok.
+
+path(Client) ->
+    maps:get(path, Client, undefined).
 
 %% -------------------------------------------------------------------------------------------------
 %% schema
@@ -561,8 +961,12 @@ is_auth_key(_) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Query
+do_query(_InstId, _Channel, _Client, []) ->
+    ok;
 do_query(InstId, Channel, Client, Points) ->
-    emqx_trace:rendered_action_template(Channel, #{points => Points, is_async => false}),
+    emqx_trace:rendered_action_template(
+        Channel, #{points => Points, is_async => false}
+    ),
     case influxdb:write(Client, Points) of
         ok ->
             ?SLOG(debug, #{
@@ -593,6 +997,9 @@ do_query(InstId, Channel, Client, Points) ->
             end
     end.
 
+do_async_query(_InstId, _Channel, _Client, [], ReplyFunAndArgs) ->
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, ok),
+    ok;
 do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs) ->
     ?SLOG(info, #{
         msg => "influxdb_write_point_async",
@@ -603,36 +1010,39 @@ do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs) ->
     WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
     {ok, _WorkerPid} = influxdb:write_async(Client, Points, WrappedReplyFunAndArgs).
 
-reply_callback(ReplyFunAndArgs, {error, Reason} = Error) ->
+reply_callback(ReplyFunAndArgs, Result) ->
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, classify_result(Result)).
+
+classify_result({error, {unrecoverable_error, _}} = Error) ->
+    %% already classified, e.g. a parse failure reported by the coordinated
+    %% batch callback; do not wrap it again
+    Error;
+classify_result({error, {recoverable_error, _}} = Error) ->
+    Error;
+classify_result({error, Reason} = Error) ->
     case is_unrecoverable_error(Error) of
         true ->
-            Result = {error, {unrecoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+            {error, {unrecoverable_error, Reason}};
         false ->
-            Result = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+            {error, {recoverable_error, Reason}}
     end;
-reply_callback(ReplyFunAndArgs, {ok, 401, _, _}) ->
+classify_result({ok, 401, _, _}) ->
     ?tp(influxdb_connector_do_query_failure, #{error => <<"authorization failure">>}),
-    Result = {error, {unrecoverable_error, <<"authorization failure">>}},
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
-reply_callback(ReplyFunAndArgs, {ok, 401, _}) ->
+    {error, {unrecoverable_error, <<"authorization failure">>}};
+classify_result({ok, 401, _}) ->
     ?tp(influxdb_connector_do_query_failure, #{error => <<"authorization failure">>}),
-    Result = {error, {unrecoverable_error, <<"authorization failure">>}},
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
-reply_callback(ReplyFunAndArgs, {ok, Code, _, Body}) when ?IS_HTTP_ERROR(Code) ->
+    {error, {unrecoverable_error, <<"authorization failure">>}};
+classify_result({ok, Code, _, Body}) when ?IS_HTTP_ERROR(Code) ->
     Error = #{code => Code, body => Body},
     ?tp(influxdb_connector_do_query_failure, #{error => Error}),
-    Result = {error, {unrecoverable_error, Error}},
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
-reply_callback(ReplyFunAndArgs, {ok, Code, _}) when ?IS_HTTP_ERROR(Code) ->
+    {error, {unrecoverable_error, Error}};
+classify_result({ok, Code, _}) when ?IS_HTTP_ERROR(Code) ->
     Error = #{code => Code, body => <<"">>},
     ?tp(influxdb_connector_do_query_failure, #{error => Error}),
-    Result = {error, {unrecoverable_error, Error}},
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
-reply_callback(ReplyFunAndArgs, Result) ->
+    {error, {unrecoverable_error, Error}};
+classify_result(Result) ->
     ?tp(influxdb_connector_do_query_ok, #{result => Result}),
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
+    Result.
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
@@ -642,6 +1052,8 @@ to_config(Lines, Precision) ->
 
 to_config([], Acc, _Precision) ->
     lists:reverse(Acc);
+to_config([#{line := Line0} | Rest], Acc, Precision) ->
+    to_config(Rest, [#{line => emqx_placeholder:preproc_tmpl(Line0)} | Acc], Precision);
 to_config([Item0 | Rest], Acc, Precision) ->
     Ts0 = maps:get(timestamp, Item0, undefined),
     {Ts, FromPrecision, ToPrecision} = preproc_tmpl_timestamp(Ts0, Precision),
@@ -728,7 +1140,8 @@ parse_batch_data(InstId, BatchData, SyntaxLines) ->
         timestamp := emqx_placeholder:tmpl_token() | integer(),
         precision := {From :: ts_precision(), To :: ts_precision()}
     }
-]) -> {ok, [map()]} | {error, term()}.
+    | #{line := emqx_placeholder:tmpl_token()}
+]) -> {ok, [map() | binary()]} | {error, term()}.
 data_to_points(Data, SyntaxLines) ->
     lines_to_points(Data, SyntaxLines, [], []).
 
@@ -741,6 +1154,30 @@ lines_to_points(_, [], Points, ErrorPoints) ->
         _ ->
             %% ignore trans succeeded points
             {error, ErrorPoints}
+    end;
+%% a raw line protocol template, the rendered value is written verbatim
+lines_to_points(Data, [#{line := Tmpl} | Rest], PointsAcc, ErrorPointsAcc) ->
+    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    case emqx_placeholder:proc_tmpl(Tmpl, Data, TransOptions) of
+        [undefined] ->
+            lines_to_points(Data, Rest, PointsAcc, ErrorPointsAcc);
+        [RawLine0] ->
+            case raw_line_to_bin(RawLine0) of
+                {ok, RawLine1} ->
+                    RawLine = string:trim(RawLine1, trailing, "\n"),
+                    case RawLine of
+                        <<>> ->
+                            lines_to_points(Data, Rest, PointsAcc, ErrorPointsAcc);
+                        _ ->
+                            lines_to_points(Data, Rest, [RawLine | PointsAcc], ErrorPointsAcc)
+                    end;
+                {error, BadRawLine} ->
+                    lines_to_points(Data, Rest, PointsAcc, [
+                        {error, {non_textual_raw_line, BadRawLine}} | ErrorPointsAcc
+                    ])
+            end;
+        _ ->
+            lines_to_points(Data, Rest, PointsAcc, ErrorPointsAcc)
     end;
 lines_to_points(
     Data,
@@ -958,6 +1395,16 @@ data_filter(Number) when is_number(Number) -> Number;
 data_filter(Bool) when is_boolean(Bool) -> Bool;
 data_filter(Data) -> bin(Data).
 
+%% a raw line protocol line must be actual text; a value that cannot be
+%% text (a number, boolean, ...) is a conversion error, so the write is not
+%% silently turned into a no-op.
+raw_line_to_bin(<<_/binary>> = Raw) ->
+    {ok, Raw};
+raw_line_to_bin(Raw) when is_list(Raw) ->
+    {ok, bin(Raw)};
+raw_line_to_bin(Raw) ->
+    {error, Raw}.
+
 bin(Data) when is_list(Data) ->
     case io_lib:printable_unicode_list(Data) of
         true -> unicode:characters_to_binary(Data);
@@ -1031,6 +1478,503 @@ redact_auth_test_() ->
         ?_assertEqual(#{path => "******", auth_path => "******"}, Redacted),
         ?_assertEqual(nomatch, binary:match(Rendered, <<"public123">>))
     ].
+
+render_bucket_test_() ->
+    Tmpl = emqx_placeholder:preproc_tmpl(<<"${payload.bucket}">>),
+    Data = #{payload => #{bucket => <<"mqtt2">>}},
+    [
+        {"renders the bucket from the data",
+            ?_assertEqual({ok, <<"mqtt2">>}, render_bucket(Data, Tmpl))},
+        {"no template renders undefined", ?_assertEqual(undefined, render_bucket(Data, undefined))},
+        {"missing field falls back to the connector bucket",
+            ?_assertEqual(undefined, render_bucket(#{payload => #{}}, Tmpl))},
+        {"empty bucket falls back to the connector bucket",
+            ?_assertEqual(
+                undefined,
+                render_bucket(#{payload => #{bucket => <<>>}}, Tmpl)
+            )},
+        {"bucket without template still overrides",
+            ?_assertEqual(
+                {ok, <<"fixed_bucket">>},
+                render_bucket(Data, emqx_placeholder:preproc_tmpl(<<"fixed_bucket">>))
+            )},
+        {"static text and placeholder are concatenated",
+            ?_assertEqual(
+                {ok, <<"tenant-mqtt2">>},
+                render_bucket(
+                    Data,
+                    emqx_placeholder:preproc_tmpl(<<"tenant-${payload.bucket}">>)
+                )
+            )},
+        {"concatenated template with a missing part falls back",
+            ?_assertEqual(
+                undefined,
+                render_bucket(
+                    #{payload => #{}},
+                    emqx_placeholder:preproc_tmpl(<<"tenant-${payload.bucket}">>)
+                )
+            )}
+    ].
+
+group_batch_by_bucket_test_() ->
+    Tmpl = emqx_placeholder:preproc_tmpl(<<"${payload.bucket}">>),
+    ChannelConfig = #{channel_client => client, bucket_tmpl => Tmpl},
+    BatchData =
+        [
+            {c1, #{payload => #{bucket => Bucket}}}
+         || Bucket <- [<<"b1">>, <<"b1">>, <<"b2">>, <<"b1">>, <<>>]
+        ],
+    {setup,
+        fun() ->
+            ok = meck:new(influxdb, [passthrough, no_link]),
+            ok = meck:expect(influxdb, update_bucket, fun(_Client, Bucket) -> Bucket end),
+            group_batch_by_bucket(BatchData, ChannelConfig)
+        end,
+        fun(_Groups) ->
+            meck:unload(influxdb)
+        end,
+        fun(Groups) ->
+            [
+                {"the write path is rebuilt once per distinct bucket",
+                    ?_assertEqual(2, meck:num_calls(influxdb, update_bucket, ['_', '_']))},
+                {"batch items are grouped by rendered bucket; empty/missing falls back",
+                    ?_assertEqual(
+                        [{client, 1}, {<<"b1">>, 3}, {<<"b2">>, 1}],
+                        lists:sort([{C, length(Items)} || {C, Items} <- Groups])
+                    )}
+            ]
+        end}.
+
+group_batch_without_bucket_tmpl_test_() ->
+    BatchData = [{c1, #{payload => #{bucket => <<"b1">>}}}],
+    [
+        {"a channel config without bucket_tmpl groups everything to the static client",
+            ?_assertEqual(
+                [{client, BatchData}],
+                group_batch_by_bucket(BatchData, #{channel_client => client})
+            )}
+    ].
+
+data_to_points_test_() ->
+    SyntaxLines = [
+        #{line => emqx_placeholder:preproc_tmpl(<<"${payload.line}">>)}
+    ],
+    [
+        {"renders a raw line protocol string",
+            ?_assertEqual(
+                {ok, [
+                    <<"weather,location=us-midwest temperature=82 1465839830100400200">>
+                ]},
+                data_to_points(
+                    #{
+                        payload => #{
+                            line => <<
+                                "weather,location=us-midwest "
+                                "temperature=82 1465839830100400200"
+                            >>
+                        }
+                    },
+                    SyntaxLines
+                )
+            )},
+        {"raw line with trailing newline is trimmed",
+            ?_assertEqual(
+                {ok, [<<"weather temperature=82 1">>]},
+                data_to_points(
+                    #{payload => #{line => <<"weather temperature=82 1\n">>}},
+                    SyntaxLines
+                )
+            )},
+        {"missing field skips the raw line",
+            ?_assertEqual(
+                {ok, []},
+                data_to_points(#{payload => #{}}, SyntaxLines)
+            )},
+        {"empty rendered line is skipped",
+            ?_assertEqual(
+                {ok, []},
+                data_to_points(#{payload => #{line => <<>>}}, SyntaxLines)
+            )},
+        {"non-text rendered values fail the batch instead of silently succeeding",
+            ?_assertMatch(
+                {error, _},
+                data_to_points(#{payload => #{line => true}}, SyntaxLines)
+            )},
+        {"integer rendered values fail the batch instead of silently succeeding",
+            ?_assertMatch(
+                {error, _},
+                data_to_points(#{payload => #{line => 123}}, SyntaxLines)
+            )},
+        {"raw lines and structured points are mixed",
+            ?_assertEqual(
+                {ok, [
+                    #{
+                        measurement => <<"m">>,
+                        tags => #{<<"tag">> => <<"1">>},
+                        fields => #{<<"f">> => {int, 2}},
+                        timestamp => 1
+                    },
+                    <<"weather temperature=82 1">>
+                ]},
+                data_to_points(
+                    #{payload => #{line => <<"weather temperature=82 1">>}},
+                    [
+                        #{line => emqx_placeholder:preproc_tmpl(<<"${payload.line}">>)},
+                        #{
+                            measurement => emqx_placeholder:preproc_tmpl(<<"m">>),
+                            tags => #{
+                                emqx_placeholder:preproc_tmpl(<<"tag">>) =>
+                                    emqx_placeholder:preproc_tmpl(<<"1">>)
+                            },
+                            fields => #{
+                                emqx_placeholder:preproc_tmpl(<<"f">>) =>
+                                    emqx_placeholder:preproc_tmpl(<<"2i">>)
+                            },
+                            timestamp => emqx_placeholder:preproc_tmpl(<<"1">>),
+                            precision => {ms, ms}
+                        }
+                    ]
+                )
+            )}
+    ].
+
+classify_result_test_() ->
+    [
+        {"already classified errors are not wrapped again",
+            ?_assertEqual(
+                {error, {unrecoverable_error, boom}},
+                classify_result({error, {unrecoverable_error, boom}})
+            )},
+        {"already classified recoverable errors are not wrapped again",
+            ?_assertEqual(
+                {error, {recoverable_error, boom}},
+                classify_result({error, {recoverable_error, boom}})
+            )}
+    ].
+
+grouped_result_aggregation_test_() ->
+    Unrecoverable =
+        {error, {unrecoverable_error, #{code => 404, body => <<"missing">>}}},
+    Recoverable = {error, {recoverable_error, closed}},
+    [
+        {"a later recoverable error wins over an earlier unrecoverable error",
+            ?_assertEqual(
+                Recoverable,
+                aggregate_group_results([
+                    {ok, 404, [], <<"missing">>},
+                    {error, closed}
+                ])
+            )},
+        {"an earlier recoverable error wins over a later unrecoverable error",
+            ?_assertEqual(
+                Recoverable,
+                aggregate_group_results([
+                    {error, closed},
+                    {ok, 404, [], <<"missing">>}
+                ])
+            )},
+        {"only unrecoverable errors are reported as unrecoverable",
+            ?_assertEqual(
+                Unrecoverable,
+                aggregate_group_results([
+                    {ok, 204, [], <<>>},
+                    {ok, 404, [], <<"missing">>}
+                ])
+            )},
+        {"only successful groups result in ok",
+            ?_assertEqual(
+                ok,
+                aggregate_group_results([
+                    {ok, 204, [], <<>>},
+                    {ok, 204, [], <<>>}
+                ])
+            )}
+    ].
+
+aggregate_group_results(Results) ->
+    grouped_result(lists:foldl(fun record_group_result/2, group_results_acc(), Results)).
+
+grouped_sync_error_priority_test_() ->
+    Groups = [
+        {#{path => <<"a">>}, [point_a]},
+        {#{path => <<"b">>}, [point_b]}
+    ],
+    with_influxdb_mock(fun(_) ->
+        [
+            {"sync: a later recoverable error keeps the batch retriable", fun() ->
+                ?assertEqual(
+                    {error, {recoverable_error, closed}},
+                    run_sync_group_results(
+                        Groups,
+                        [
+                            {error, {404, <<"missing">>}},
+                            {error, closed}
+                        ]
+                    )
+                )
+            end},
+            {"sync: an earlier recoverable error keeps the batch retriable", fun() ->
+                ?assertEqual(
+                    {error, {recoverable_error, closed}},
+                    run_sync_group_results(
+                        Groups,
+                        [
+                            {error, closed},
+                            {error, {404, <<"missing">>}}
+                        ]
+                    )
+                )
+            end}
+        ]
+    end).
+
+run_sync_group_results(Groups, Results) ->
+    TID = ets:new(?MODULE, [set, public]),
+    true = ets:insert(TID, {calls, 0}),
+    try
+        meck:reset(influxdb),
+        meck:expect(influxdb, write, fun(_Client, _Points) ->
+            Index = ets:update_counter(TID, calls, 1),
+            lists:nth(Index, Results)
+        end),
+        Result = write_groups_sync(inst, chan, Groups),
+        ?assertEqual(
+            length(Results), meck:num_calls(influxdb, write, ['_', '_'])
+        ),
+        Result
+    after
+        ets:delete(TID)
+    end.
+
+grouped_async_worker_monitor_test_() ->
+    with_influxdb_mock(fun(_) ->
+        [
+            {"worker DOWN completes the batch with a recoverable error", fun() ->
+                Worker = test_worker(),
+                ok = meck:expect(influxdb, write_async, fun(_Client, _Points, _Reply) ->
+                    {ok, Worker}
+                end),
+                Self = self(),
+                ReplyFunAndArgs = {
+                    fun(Result) -> Self ! {grouped_async_reply, Result} end, []
+                },
+                {ok, Coordinator} = write_groups_async(
+                    inst,
+                    chan,
+                    [{#{path => <<"a">>}, [point]}],
+                    ReplyFunAndArgs
+                ),
+                ?assert(is_pid(Coordinator)),
+                exit(Worker, kill),
+                Result =
+                    receive
+                        {grouped_async_reply, AsyncResult} -> AsyncResult
+                    after 1000 ->
+                        no_reply
+                    end,
+                ?assertMatch(
+                    {error, {recoverable_error, {async_worker_down, _}}},
+                    Result
+                ),
+                ?assertEqual(
+                    1, meck:num_calls(influxdb, write_async, ['_', '_', '_'])
+                )
+            end},
+            {"different group workers are all monitored", fun() ->
+                meck:reset(influxdb),
+                WorkerA = test_worker(),
+                WorkerB = test_worker(),
+                CallCounter = counters:new(1, [write_concurrency]),
+                Self = self(),
+                ok = meck:expect(influxdb, write_async, fun(_Client, _Points, Reply) ->
+                    multi_worker_write_async(
+                        Self, CallCounter, WorkerA, WorkerB, Reply
+                    )
+                end),
+                ReplyFunAndArgs = {
+                    fun(Result) -> Self ! {grouped_async_reply, Result} end, []
+                },
+                {ok, _Coordinator} = write_groups_async(
+                    inst,
+                    chan,
+                    [
+                        {#{path => <<"a">>}, [point_a]},
+                        {#{path => <<"b">>}, [point_b]}
+                    ],
+                    ReplyFunAndArgs
+                ),
+                SecondReply =
+                    receive
+                        {second_worker_reply, ReplyFunAndArgs1} -> ReplyFunAndArgs1
+                    after 1000 ->
+                        no_reply
+                    end,
+                ?assert(is_tuple(SecondReply) andalso tuple_size(SecondReply) =:= 2),
+                exit(WorkerA, kill),
+                {ReplyFun, ReplyArgs} = SecondReply,
+                ok = apply(ReplyFun, ReplyArgs ++ [{ok, 204, [], <<>>}]),
+                Result =
+                    receive
+                        {grouped_async_reply, AsyncResult} -> AsyncResult
+                    after 1000 ->
+                        no_reply
+                    end,
+                ?assertMatch(
+                    {error, {recoverable_error, {async_worker_down, _}}},
+                    Result
+                ),
+                ?assertEqual(
+                    2, meck:num_calls(influxdb, write_async, ['_', '_', '_'])
+                )
+            end}
+        ]
+    end).
+
+test_worker() ->
+    spawn(fun() ->
+        receive
+            stop -> ok
+        after infinity ->
+            ok
+        end
+    end).
+
+multi_worker_write_async(Self, CallCounter, WorkerA, WorkerB, Reply) ->
+    case counters:get(CallCounter, 1) + 1 of
+        1 ->
+            counters:add(CallCounter, 1, 1),
+            {ok, WorkerA};
+        2 ->
+            counters:add(CallCounter, 1, 1),
+            Self ! {second_worker_reply, Reply},
+            {ok, WorkerB}
+    end.
+
+empty_points_skip_test_() ->
+    with_influxdb_mock(fun(_) ->
+        [
+            {"an empty point list is not written synchronously", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(ok, do_query(inst, chan, client, [])),
+                ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
+            end},
+            {"an empty point list is not written asynchronously and is acked once", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(
+                    ok,
+                    run_async_reply(fun(ReplyFunAndArgs) ->
+                        do_async_query(inst, chan, client, [], ReplyFunAndArgs)
+                    end)
+                ),
+                ?assertEqual(0, meck:num_calls(influxdb, write_async, ['_', '_', '_']))
+            end}
+        ]
+    end).
+
+grouped_preparse_test_() ->
+    Syntax = [structured_syntax()],
+    OkData = #{payload => #{v => <<"1">>, ts => 1}},
+    BadData = #{payload => #{v => <<"1">>, ts => <<"abc">>}},
+    ClientA = #{path => <<"a">>},
+    ClientB = #{path => <<"b">>},
+    ValidGroups = [{ClientA, [{c1, OkData}]}],
+    MixedGroups = [{ClientA, [{c1, OkData}]}, {ClientB, [{c2, BadData}]}],
+    with_influxdb_mock(fun(_) ->
+        [
+            {"sync: a later group parse failure prevents every write", fun() ->
+                meck:reset(influxdb),
+                ?assertMatch(
+                    {error, {unrecoverable_error, points_trans_failed}},
+                    do_grouped_batch_query(inst, chan, MixedGroups, Syntax)
+                ),
+                ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
+            end},
+            {"async: a later group parse failure replies one error and issues no write", fun() ->
+                meck:reset(influxdb),
+                ?assertMatch(
+                    {error, {unrecoverable_error, points_trans_failed}},
+                    run_async_reply(fun(ReplyFunAndArgs) ->
+                        do_grouped_async_batch_query(
+                            inst, chan, MixedGroups, Syntax, ReplyFunAndArgs
+                        )
+                    end)
+                ),
+                ?assertEqual(
+                    0, meck:num_calls(influxdb, write_async, ['_', '_', '_'])
+                )
+            end},
+            {"sync: a fully valid batch is still written", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(ok, do_grouped_batch_query(inst, chan, ValidGroups, Syntax)),
+                ?assertEqual(1, meck:num_calls(influxdb, write, ['_', '_']))
+            end}
+        ]
+    end).
+
+grouped_empty_points_skip_test_() ->
+    EmptySyntax = [#{line => emqx_placeholder:preproc_tmpl(<<"${payload.missing}">>)}],
+    Groups = [
+        {#{path => <<"a">>}, [{c1, #{payload => #{}}}]},
+        {#{path => <<"b">>}, [{c2, #{payload => #{}}}]}
+    ],
+    with_influxdb_mock(fun(_) ->
+        [
+            {"sync: groups that render no points are a no-op", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(ok, do_grouped_batch_query(inst, chan, Groups, EmptySyntax)),
+                ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
+            end},
+            {"async: groups that render no points reply ok once", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(
+                    ok,
+                    run_async_reply(fun(ReplyFunAndArgs) ->
+                        do_grouped_async_batch_query(
+                            inst, chan, Groups, EmptySyntax, ReplyFunAndArgs
+                        )
+                    end)
+                ),
+                ?assertEqual(0, meck:num_calls(influxdb, write_async, ['_', '_', '_']))
+            end}
+        ]
+    end).
+
+with_influxdb_mock(TestFun) ->
+    {setup,
+        fun() ->
+            ok = meck:new(influxdb, [passthrough, no_link]),
+            ok = meck:expect(influxdb, write, fun(_Client, _Points) -> ok end),
+            ok = meck:expect(influxdb, write_async, fun(_Client, _Points, _Reply) ->
+                {ok, self()}
+            end),
+            ok
+        end,
+        fun(_) ->
+            meck:unload(influxdb)
+        end,
+        TestFun}.
+
+structured_syntax() ->
+    #{
+        measurement => emqx_placeholder:preproc_tmpl(<<"m">>),
+        tags => #{},
+        fields => #{
+            emqx_placeholder:preproc_tmpl(<<"f">>) =>
+                emqx_placeholder:preproc_tmpl(<<"${payload.v}">>)
+        },
+        timestamp => emqx_placeholder:preproc_tmpl(<<"${payload.ts}">>),
+        precision => {ms, ms}
+    }.
+
+run_async_reply(Run) ->
+    Self = self(),
+    ReplyFunAndArgs = {fun(Result) -> Self ! {async_reply, Result} end, []},
+    ok = Run(ReplyFunAndArgs),
+    receive
+        {async_reply, Result} -> Result
+    after 1000 ->
+        no_reply
+    end.
 
 %% for coverage
 desc_test_() ->
