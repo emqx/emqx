@@ -28,6 +28,7 @@
 -include("emqx_auth_http.hrl").
 
 -define(DEFAULT_CONTENT_TYPE, <<"application/json">>).
+-define(MAX_AUTO_SUBSCRIBE, 200).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -352,8 +353,9 @@ extract_auth_data(Source, Body) ->
         ACL = acl(ExpireAt, Source, Body),
         ClientIdOverride = clientid_override(Body),
         ZoneOverride = zone_override(Body),
+        AutoSubscribe = auto_subscribe(Body),
         Result = merge_maps(
-            [ExpireAt, IsSuperuser, ACL, ClientIdOverride, ZoneOverride, Attrs]
+            [ExpireAt, IsSuperuser, ACL, ClientIdOverride, ZoneOverride, Attrs, AutoSubscribe]
         ),
         {ok, Result}
     catch
@@ -437,6 +439,42 @@ zone_override(#{<<"zone_override">> := ZoneOverride} = _Body) when
     #{zone_override => ZoneOverride};
 zone_override(_Body) ->
     #{}.
+
+auto_subscribe(#{<<"auto_subscribe">> := Entries}) when is_list(Entries) ->
+    Count = length(Entries),
+    case Count > ?MAX_AUTO_SUBSCRIBE of
+        true ->
+            ?TRACE_AUTHN_PROVIDER(warning, "auto_subscribe_limit_exceeded", #{
+                count => Count, limit => ?MAX_AUTO_SUBSCRIBE
+            });
+        false ->
+            ok
+    end,
+    Topics = lists:filtermap(
+        fun auto_subscribe_entry/1, lists:sublist(Entries, ?MAX_AUTO_SUBSCRIBE)
+    ),
+    #{auto_subscribe => Topics};
+auto_subscribe(#{<<"auto_subscribe">> := _}) ->
+    ?TRACE_AUTHN_PROVIDER(warning, "invalid_auto_subscribe", #{reason => expected_array}),
+    #{};
+auto_subscribe(_) ->
+    #{}.
+
+auto_subscribe_entry(#{<<"topic">> := Topic} = Entry) when is_binary(Topic) ->
+    case maps:get(<<"qos">>, Entry, 0) of
+        QoS when is_integer(QoS), QoS >= 0, QoS =< 2 ->
+            {true, {Topic, #{qos => QoS}}};
+        QoS ->
+            ?TRACE_AUTHN_PROVIDER(warning, "invalid_auto_subscribe_entry", #{
+                topic => Topic, reason => {invalid_qos, QoS}
+            }),
+            false
+    end;
+auto_subscribe_entry(_) ->
+    ?TRACE_AUTHN_PROVIDER(warning, "invalid_auto_subscribe_entry", #{
+        reason => expected_topic_object
+    }),
+    false.
 
 safely_parse_body(ContentType, Body) ->
     try
