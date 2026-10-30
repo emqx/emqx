@@ -2464,8 +2464,7 @@ t_attached_service_account_auth(TCConfig) ->
 Simple smoke test for ensuring we override hackney's `ssl_options` in all WIF steps.
 
 If not overridden, hackney will use `hackney.cacertfile_path`, which `node.trusted_certs`
-sets, or `public_key:cacerts_get/0` for `cacertfile`, which would be out of the control of
-EMQX's user.
+sets, or `public_key:cacerts_get/0` for `cacertfile`.
 """.
 t_wif_auth_tls_opts() ->
     [{matrix, true}].
