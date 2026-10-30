@@ -274,6 +274,12 @@ create_action_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
     ).
 
+probe_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_bridge_api_simple(TCConfig, Overrides).
+
+update_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:update_bridge_api2(TCConfig, Overrides).
+
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
@@ -849,6 +855,879 @@ t_auto_cast_int_to_float(TCConfig) ->
     ),
 
     ok.
+
+-doc """
+Verifies that a plain JSON binary can be written to a pre-created JSON2 column.
+EMQX does not create JSON2 columns automatically; the driver uses the existing
+server schema to encode the field as JSON2.
+""".
+t_json2_write() ->
+    [{matrix, true}].
+t_json2_write(matrix) ->
+    [
+        [?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_json2_write(TCConfig) ->
+    TableName = <<"json2_write">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    {ok, _} = create_json2_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<TableName/binary, " payload=${.payload.p}">>
+            }
+        }),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+        C = start_client(#{clientid => ClientId}),
+        Payload = json_encode(#{
+            p => #{name => <<"alice">>, nested => #{ok => true}}
+        }),
+        emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                #{<<"name">> := <<"alice">>, <<"ok">> := <<"true">>},
+                query_by_sql(json2_subfield_sql(TableName), TCConfig)
+            )
+        ),
+        ?retry(
+            200,
+            10,
+            begin
+                Columns = query_by_sql(json2_type_sql(TableName), TCConfig),
+                [PayloadColumn] = [
+                    Column
+                 || #{<<"Column">> := <<"payload">>} = Column <- Columns
+                ],
+                ?assertNotEqual(
+                    nomatch,
+                    binary:match(maps:get(<<"Type">>, PayloadColumn), <<"Json2">>)
+                )
+            end
+        ),
+        ok
+    end).
+
+-doc """
+Confirms the current limitation: auto-created tables infer plain binary fields
+as STRING, not JSON2.
+""".
+t_json2_auto_create_is_string() ->
+    [{matrix, true}].
+t_json2_auto_create_is_string(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_auto_create_is_string(TCConfig) ->
+    TableName = <<"json2_auto_string">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    _ = drop_table(TableName, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> => <<TableName/binary, " payload=${.payload.p}">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    Payload = json_encode(#{p => #{name => <<"alice">>}}),
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        begin
+            Columns = query_by_sql(json2_type_sql(TableName), TCConfig),
+            [PayloadColumn] = [
+                Column
+             || #{<<"Column">> := <<"payload">>} = Column <- Columns
+            ],
+            Type = maps:get(<<"Type">>, PayloadColumn),
+            ?assertEqual(nomatch, binary:match(Type, <<"Json2">>)),
+            ?assertNotEqual(nomatch, binary:match(Type, <<"String">>))
+        end
+    ),
+    ok.
+
+-doc """
+Verifies that `field_types` explicitly declares a JSON2 column when EMQX Tables
+auto-creates the target table.
+""".
+t_json2_auto_create_with_field_types() ->
+    [{matrix, true}].
+t_json2_auto_create_with_field_types(matrix) ->
+    [
+        [?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_json2_auto_create_with_field_types(TCConfig) ->
+    TableName = <<"json2_auto_create">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    _ = drop_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<TableName/binary, " payload=${payload}">>,
+                <<"field_types">> => #{<<"payload">> => <<"json2">>}
+            }
+        }),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        Payload = <<"{\"name\":\"alice\",\"nested\":{\"ok\":true}}">>,
+        ?check_trace(
+            begin
+                {_, {ok, _}} = ?wait_async_action(
+                    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+                    #{?snk_kind := Kind} when
+                        Kind == handle_async_reply orelse
+                            Kind == "greptime_rs_sync_batch_reply",
+                    5000
+                ),
+                ok
+            end,
+            fun(Trace) ->
+                Results =
+                    case query_mode(TCConfig) of
+                        ?async ->
+                            [#{result := AsyncResults} | _] = ?of_kind(handle_async_reply, Trace),
+                            AsyncResults;
+                        ?sync ->
+                            [#{results := SyncResults} | _] =
+                                ?of_kind("greptime_rs_sync_batch_reply", Trace),
+                            SyncResults
+                    end,
+                case query_mode(TCConfig) of
+                    ?async ->
+                        ?assertEqual({ok, 1}, Results);
+                    ?sync ->
+                        ?assert(lists:all(fun(R) -> R =:= {ok, 1} end, Results))
+                end,
+                ok
+            end
+        ),
+        ?retry(
+            200,
+            10,
+            begin
+                ?assertMatch(
+                    #{<<"name">> := <<"alice">>, <<"ok">> := <<"true">>},
+                    query_by_sql(json2_subfield_sql(TableName), TCConfig)
+                ),
+                Columns = query_by_sql(json2_type_sql(TableName), TCConfig),
+                [PayloadColumn] = [
+                    Column
+                 || #{<<"Column">> := <<"payload">>} = Column <- Columns
+                ],
+                ?assertNotEqual(
+                    nomatch,
+                    binary:match(maps:get(<<"Type">>, PayloadColumn), <<"Json2">>)
+                )
+            end
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that `field_types` accepts arbitrary field names, not only fields
+whose names already exist as atoms.
+""".
+t_json2_auto_create_with_arbitrary_field_type_name() ->
+    [{matrix, true}].
+t_json2_auto_create_with_arbitrary_field_type_name(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_auto_create_with_arbitrary_field_type_name(TCConfig) ->
+    TableName = <<"json2_arbitrary_field">>,
+    FieldName = <<"json2_arbitrary_column">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    _ = drop_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        Overrides = #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<
+                    TableName/binary, " ", FieldName/binary, "=${payload}"
+                >>,
+                <<"field_types">> => #{FieldName => <<"json2">>}
+            }
+        },
+        ?assertMatch({204, _}, probe_action_api(TCConfig, Overrides)),
+        {201, _} = create_action_api(TCConfig, Overrides),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        Payload = json_encode(#{device_id => <<"device-001">>, floor => 2}),
+        emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                #{<<"device_id">> := <<"device-001">>, <<"floor">> := <<"2">>},
+                query_by_sql(
+                    <<
+                        "select ",
+                        FieldName/binary,
+                        ".device_id as device_id, ",
+                        FieldName/binary,
+                        ".floor as floor from ",
+                        TableName/binary
+                    >>,
+                    TCConfig
+                )
+            )
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that a row omitting a declared JSON2 field keeps the existing
+omission behavior for that field, and that a later first JSON2 write is
+rejected if the earlier sparse write auto-created a non-append-only table.
+""".
+t_json2_auto_create_with_missing_declared_field_value() ->
+    [{matrix, true}].
+t_json2_auto_create_with_missing_declared_field_value(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_auto_create_with_missing_declared_field_value(TCConfig) ->
+    TableName = <<"json2_missing_declared_field">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    _ = drop_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        Overrides = #{
+            <<"parameters">> => #{
+                <<"write_syntax">> =>
+                    <<
+                        TableName/binary,
+                        " payload=${.payload.p},value=${.payload.v}i"
+                    >>,
+                <<"field_types">> => #{<<"payload">> => <<"json2">>}
+            }
+        },
+        ?assertMatch({204, _}, probe_action_api(TCConfig, Overrides)),
+        {201, _} = create_action_api(TCConfig, Overrides),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        emqtt:publish(C, Topic, json_encode(#{v => 7}), [{qos, 1}]),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(
+                #{<<"value">> => 7},
+                query_by_sql(<<"select value from ", TableName/binary>>, TCConfig)
+            )
+        ),
+        #{<<"Create Table">> := CreateTableSql} =
+            query_by_sql(<<"show create table ", TableName/binary>>, TCConfig),
+        ?assertEqual(nomatch, binary:match(CreateTableSql, <<"append_mode = 'true'">>)),
+        ?check_trace(
+            begin
+                {_, {ok, _}} = ?wait_async_action(
+                    emqtt:publish(
+                        C,
+                        Topic,
+                        json_encode(#{v => 8, p => #{ok => true}}),
+                        [{qos, 1}]
+                    ),
+                    #{?snk_kind := "greptime_rs_sync_batch_reply"},
+                    5000
+                ),
+                ok
+            end,
+            fun(Trace) ->
+                [#{results := Results} | _] =
+                    ?of_kind("greptime_rs_sync_batch_reply", Trace),
+                ?assertMatch([{error, _}], Results),
+                [{error, Reason}] = Results,
+                ?assertNotEqual(
+                    nomatch,
+                    binary:match(Reason, <<"JSON2 column `payload` requires append_mode='true'">>)
+                ),
+                ok
+            end
+        ),
+        ?assertEqual(
+            #{<<"value">> => 7},
+            query_by_sql(<<"select value from ", TableName/binary>>, TCConfig)
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that a declaration applies only to lines containing the JSON2 field in
+a multi-line write syntax.
+""".
+t_json2_auto_create_with_multiline_partial_field_type() ->
+    [{matrix, true}].
+t_json2_auto_create_with_multiline_partial_field_type(matrix) ->
+    [[?tcp, ?sync, ?with_batch]];
+t_json2_auto_create_with_multiline_partial_field_type(TCConfig) ->
+    TableA = <<"json2_multiline_a">>,
+    TableB = <<"json2_multiline_b">>,
+    on_exit(fun() ->
+        drop_table(TableA, TCConfig),
+        drop_table(TableB, TCConfig)
+    end),
+    _ = drop_table(TableA, TCConfig),
+    _ = drop_table(TableB, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        Overrides = #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<
+                    TableA/binary,
+                    " payload=${.payload.p}\n",
+                    TableB/binary,
+                    " value=${.payload.v}i"
+                >>,
+                <<"field_types">> => #{<<"payload">> => <<"json2">>}
+            }
+        },
+        ?assertMatch({204, _}, probe_action_api(TCConfig, Overrides)),
+        {201, _} = create_action_api(TCConfig, Overrides),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        Payload = json_encode(#{
+            p => #{device_id => <<"device-001">>},
+            v => 7
+        }),
+        emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(
+                #{<<"device_id">> => <<"device-001">>},
+                query_by_sql(
+                    <<"select payload.device_id as device_id from ", TableA/binary>>,
+                    TCConfig
+                )
+            )
+        ),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(
+                #{<<"value">> => 7},
+                query_by_sql(<<"select value from ", TableB/binary>>, TCConfig)
+            )
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that `field_types` only accepts static names that occur as fields in
+the write syntax. Invalid names are rejected by actions_probe and the
+create/update action APIs.
+""".
+t_json2_field_types_must_name_write_syntax_fields() ->
+    [{matrix, true}].
+t_json2_field_types_must_name_write_syntax_fields(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_field_types_must_name_write_syntax_fields(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    Cases = [
+        #{
+            <<"write_syntax">> => <<"mqtt payload=${payload}">>,
+            <<"field_types">> => #{<<"missing">> => <<"json2">>}
+        },
+        #{
+            <<"write_syntax">> => <<"mqtt,meta_info=${meta_info} payload=${payload}">>,
+            <<"field_types">> => #{<<"meta_info">> => <<"json2">>}
+        },
+        #{
+            <<"write_syntax">> => <<"logs ${payload.key}=${payload.value}">>,
+            <<"field_types">> => #{<<"${payload.key}">> => <<"json2">>}
+        }
+    ],
+    lists:foreach(
+        fun(Parameters) ->
+            ?assertMatch(
+                {400, _},
+                probe_action_api(TCConfig, #{<<"parameters">> => Parameters})
+            )
+        end,
+        Cases
+    ),
+    lists:foreach(
+        fun(Parameters) ->
+            ?assertMatch(
+                {400, _},
+                create_action_api(TCConfig, #{<<"parameters">> => Parameters})
+            )
+        end,
+        Cases
+    ),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> => <<"mqtt payload=${payload}">>,
+            <<"field_types">> => #{<<"payload">> => <<"json2">>}
+        }
+    }),
+    lists:foreach(
+        fun(Parameters) ->
+            ?assertMatch(
+                {400, _},
+                update_action_api(TCConfig, #{<<"parameters">> => Parameters})
+            )
+        end,
+        Cases
+    ),
+    ok.
+
+-doc """
+Verifies that invalid JSON is unrecoverable when `field_types` is used for
+auto-creation, creates no table for the failed insert, and does not poison
+later valid writes through the same action.
+""".
+t_json2_auto_create_invalid_json() ->
+    [{matrix, true}].
+t_json2_auto_create_invalid_json(matrix) ->
+    [[?tcp, Sync, ?with_batch] || Sync <- [?sync, ?async]];
+t_json2_auto_create_invalid_json(TCConfig) ->
+    TableName = <<"json2_auto_invalid">>,
+    CountSql = json2_count_sql(TableName),
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    _ = drop_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<TableName/binary, " payload=${payload}">>,
+                <<"field_types">> => #{<<"payload">> => <<"json2">>}
+            },
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 100,
+                <<"batch_time">> => <<"500ms">>,
+                <<"query_mode">> => <<"async">>,
+                <<"worker_pool_size">> => 1
+            }
+        }),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        ?check_trace(
+            begin
+                {_, {ok, _}} = ?wait_async_action(
+                    emqtt:publish(C, Topic, <<"not-json">>, [{qos, 1}]),
+                    #{?snk_kind := Kind} when
+                        Kind == handle_async_reply orelse
+                            Kind == "greptime_rs_sync_batch_reply",
+                    5000
+                ),
+                ok
+            end,
+            fun(Trace) ->
+                Results =
+                    case query_mode(TCConfig) of
+                        ?async ->
+                            [#{result := AsyncResults} | _] = ?of_kind(handle_async_reply, Trace),
+                            AsyncResults;
+                        ?sync ->
+                            [#{results := SyncResults} | _] =
+                                ?of_kind("greptime_rs_sync_batch_reply", Trace),
+                            SyncResults
+                    end,
+                case query_mode(TCConfig) of
+                    ?async ->
+                        ?assertMatch({error, {unrecoverable_error, _}}, Results);
+                    ?sync ->
+                        ?assertMatch([{error, {unrecoverable_error, _}}], Results)
+                end,
+                ok
+            end
+        ),
+        ?assertEqual(#{}, query_by_sql(CountSql, TCConfig)),
+        {_, {ok, _}} = ?wait_async_action(
+            emqtt:publish(C, Topic, <<"{\"name\":\"recovered\"}">>, [{qos, 1}]),
+            #{?snk_kind := Kind} when
+                Kind == handle_async_reply orelse
+                    Kind == "greptime_rs_sync_batch_reply",
+            5000
+        ),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(#{<<"c">> => 1}, query_by_sql(CountSql, TCConfig))
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that `field_types` rejects unsupported type names instead of
+silently falling back to inferred column types.
+""".
+t_json2_auto_create_rejects_unsupported_field_type() ->
+    [{matrix, true}].
+t_json2_auto_create_rejects_unsupported_field_type(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_auto_create_rejects_unsupported_field_type(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<"mqtt payload=${payload}">>,
+                <<"field_types">> => #{<<"payload">> => <<"string">>}
+            }
+        })
+    ),
+    ok.
+
+-doc """
+Verifies that one invalid JSON document invalidates the whole insert call for
+its table, while another table in the same action batch can still be written.
+Result order and stored values are preserved.
+""".
+t_json2_invalid_json_batch() ->
+    [{matrix, true}].
+t_json2_invalid_json_batch(matrix) ->
+    [
+        [?tcp, Sync, ?with_batch]
+     || Sync <- [?sync, ?async]
+    ];
+t_json2_invalid_json_batch(TCConfig) ->
+    TableA = <<"json2_batch_a">>,
+    TableB = <<"json2_batch_b">>,
+    on_exit(fun() ->
+        drop_table(TableA, TCConfig),
+        drop_table(TableB, TCConfig)
+    end),
+    {ok, _} = create_json2_table(TableA, TCConfig),
+    {ok, _} = create_json2_table(TableB, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<"${.payload.t} payload=${.payload.p}">>
+            },
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 100,
+                <<"batch_time">> => <<"500ms">>,
+                <<"query_mode">> => <<"async">>,
+                <<"worker_pool_size">> => 1
+            }
+        }),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+        C = start_client(#{clientid => ClientId}),
+        Payloads = [
+            json_encode(#{t => TableA, p => #{name => <<"a">>}}),
+            json_encode(#{t => TableB, p => #{name => <<"b">>}}),
+            json_encode(#{t => TableA, p => <<"not-json">>})
+        ],
+        ?check_trace(
+            begin
+                {ok, {ok, _}} = ?wait_async_action(
+                    lists:foreach(
+                        fun(Payload) -> emqtt:publish(C, Topic, Payload, [{qos, 1}]) end,
+                        Payloads
+                    ),
+                    #{?snk_kind := Kind} when
+                        Kind == handle_async_reply orelse
+                            Kind == "greptime_rs_sync_batch_reply",
+                    5000
+                ),
+                ok
+            end,
+            fun(Trace) ->
+                Results =
+                    case query_mode(TCConfig) of
+                        ?async ->
+                            [#{result := AsyncResults} | _] = ?of_kind(handle_async_reply, Trace),
+                            AsyncResults;
+                        ?sync ->
+                            [#{results := SyncResults} | _] =
+                                ?of_kind("greptime_rs_sync_batch_reply", Trace),
+                            SyncResults
+                    end,
+                ?assertMatch(
+                    [
+                        {error, {unrecoverable_error, _}},
+                        {ok, _},
+                        {error, {unrecoverable_error, _}}
+                    ],
+                    Results
+                ),
+                ok
+            end
+        ),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(#{<<"c">> => 0}, query_by_sql(json2_count_sql(TableA), TCConfig))
+        ),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(
+                #{<<"name">> => <<"b">>},
+                query_by_sql(
+                    <<"select payload.name as name from ", TableB/binary>>,
+                    TCConfig
+                )
+            )
+        ),
+        ok
+    end).
+
+-doc """
+Writes raw JSON object documents and a JSON null document to a pre-created
+JSON2 column.
+""".
+t_json2_raw_documents() ->
+    [{matrix, true}].
+t_json2_raw_documents(matrix) ->
+    [[?tcp, ?sync, ?with_batch]];
+t_json2_raw_documents(TCConfig) ->
+    TableName = <<"json2_raw_documents">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    {ok, _} = create_json2_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<TableName/binary, " payload=${payload}">>
+            },
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 100,
+                <<"batch_time">> => <<"500ms">>,
+                <<"query_mode">> => <<"async">>,
+                <<"worker_pool_size">> => 1
+            }
+        }),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        Payloads = [
+            <<"{\"name\":\"alice\"}">>,
+            <<"{\"nested\":{\"ok\":true},\"items\":[1,\"two\",null]}">>,
+            <<"null">>
+        ],
+        ?check_trace(
+            begin
+                {ok, {ok, _}} = ?wait_async_action(
+                    lists:foreach(
+                        fun(Payload) -> emqtt:publish(C, Topic, Payload, [{qos, 1}]) end,
+                        Payloads
+                    ),
+                    #{?snk_kind := "greptime_rs_sync_batch_reply"},
+                    5000
+                ),
+                ok
+            end,
+            fun(Trace) ->
+                [#{results := Results} | _] =
+                    ?of_kind("greptime_rs_sync_batch_reply", Trace),
+                ?assertEqual(length(Payloads), length(Results)),
+                ?assert(lists:all(fun(R) -> R =:= {ok, length(Payloads)} end, Results)),
+                ok
+            end
+        ),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(
+                #{<<"c">> => length(Payloads)},
+                query_by_sql(json2_count_sql(TableName), TCConfig)
+            )
+        ),
+        ?assertEqual(
+            lists:sort([
+                #{
+                    <<"name">> => <<"alice">>,
+                    <<"ok">> => null,
+                    <<"first_item">> => null,
+                    <<"payload_is_null">> => false
+                },
+                #{
+                    <<"name">> => null,
+                    <<"ok">> => true,
+                    <<"first_item">> => 1,
+                    <<"payload_is_null">> => false
+                },
+                #{
+                    <<"name">> => null,
+                    <<"ok">> => null,
+                    <<"first_item">> => null,
+                    <<"payload_is_null">> => true
+                }
+            ]),
+            lists:sort(query_by_sql(json2_raw_documents_sql(TableName), TCConfig))
+        ),
+        ok
+    end).
+
+-doc """
+Rejects each unsupported JSON2 document independently. The erlnif JSON2
+encoder currently accepts only JSON objects or null. See the GreptimeDB JSON2
+limitations documentation.
+""".
+t_json2_non_object_documents_are_invalid() ->
+    [{matrix, true}].
+t_json2_non_object_documents_are_invalid(matrix) ->
+    [[?tcp, ?sync, ?with_batch]];
+t_json2_non_object_documents_are_invalid(TCConfig) ->
+    TableName = <<"json2_non_object">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    {ok, _} = create_json2_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<TableName/binary, " payload=${payload}">>
+            },
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 100,
+                <<"batch_time">> => <<"500ms">>,
+                <<"query_mode">> => <<"async">>,
+                <<"worker_pool_size">> => 1
+            }
+        }),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        Payloads = [
+            <<"[1,2,3]">>,
+            <<"\"hello\"">>,
+            <<"42">>,
+            <<"true">>
+        ],
+        lists:foreach(
+            fun(Payload) ->
+                {_, {ok, #{results := Results}}} = ?wait_async_action(
+                    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+                    #{?snk_kind := "greptime_rs_sync_batch_reply"},
+                    5000
+                ),
+                ?assertMatch([{error, {unrecoverable_error, _}}], Results)
+            end,
+            Payloads
+        ),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(#{<<"c">> => 0}, query_by_sql(json2_count_sql(TableName), TCConfig))
+        ),
+        ok
+    end).
+
+-doc """
+Rejects an invalid JSON document in a single-row JSON2 write as unrecoverable.
+""".
+t_json2_invalid_json_single() ->
+    [{matrix, true}].
+t_json2_invalid_json_single(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_invalid_json_single(TCConfig) ->
+    TableName = <<"json2_invalid_single">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    {ok, _} = create_json2_table(TableName, TCConfig),
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        {201, _} = create_connector_api(TCConfig, #{}),
+        {201, _} = create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<TableName/binary, " payload=${payload}">>
+            }
+        }),
+        #{topic := Topic} = simple_create_rule_api(TCConfig),
+        C = start_client(),
+        ?check_trace(
+            begin
+                {_, {ok, _}} = ?wait_async_action(
+                    emqtt:publish(C, Topic, <<"not-json">>, [{qos, 1}]),
+                    #{?snk_kind := "greptime_rs_sync_batch_reply"},
+                    5000
+                ),
+                ok
+            end,
+            fun(Trace) ->
+                [#{results := Results} | _] =
+                    ?of_kind("greptime_rs_sync_batch_reply", Trace),
+                ?assertMatch([{error, {unrecoverable_error, _}}], Results),
+                ok
+            end
+        ),
+        ?retry(
+            200,
+            10,
+            ?assertEqual(#{<<"c">> => 0}, query_by_sql(json2_count_sql(TableName), TCConfig))
+        ),
+        ok
+    end).
+
+-doc """
+Verifies that JSON validation is driven by the target column type: the same
+invalid JSON binary is accepted by a STRING column.
+""".
+t_json2_string_column_accepts_invalid_json() ->
+    [{matrix, true}].
+t_json2_string_column_accepts_invalid_json(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_json2_string_column_accepts_invalid_json(TCConfig) ->
+    TableName = <<"json2_string_column">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    _ = drop_table(TableName, TCConfig),
+    {ok, _} = query_by_sql(
+        <<
+            "create table ",
+            TableName/binary,
+            " (ts timestamp time index, payload string) engine=mito"
+        >>,
+        TCConfig
+    ),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> => <<TableName/binary, " payload=${payload}">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, Topic, <<"not-json">>, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertEqual(
+            #{<<"payload">> => <<"not-json">>},
+            query_by_sql(<<"select payload from ", TableName/binary>>, TCConfig)
+        )
+    ),
+    ok.
+
+create_json2_table(TableName, TCConfig) ->
+    _ = drop_table(TableName, TCConfig),
+    query_by_sql(
+        <<
+            "create table ",
+            TableName/binary,
+            " (ts timestamp time index, payload json2) "
+            "engine=mito with (append_mode = 'true')"
+        >>,
+        TCConfig
+    ).
+
+json2_subfield_sql(TableName) ->
+    <<
+        "select payload.name as name, payload.nested.ok as ok, "
+        "payload.active as active from ",
+        TableName/binary
+    >>.
+
+json2_type_sql(TableName) ->
+    <<"describe ", TableName/binary>>.
+
+json2_count_sql(TableName) ->
+    <<"select count(*) as c from ", TableName/binary>>.
+
+json2_raw_documents_sql(TableName) ->
+    <<
+        "select payload.name as name, payload.nested.ok::BOOLEAN as ok, "
+        "payload.items[0]::BIGINT as first_item, payload is null as payload_is_null "
+        "from ",
+        TableName/binary,
+        " order by ts"
+    >>.
 
 -doc """
 Smoke test for using `ts_column` -- verifies that a custom timestamp column name is
