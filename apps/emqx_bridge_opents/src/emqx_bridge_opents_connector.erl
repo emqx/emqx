@@ -135,7 +135,7 @@ on_start(
         config => emqx_utils:redact(Config)
     }),
 
-    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
+    SSLOpts = emqx_connector_lib:to_hackney_tls_client_opts(SSLOpts0),
     Options = [
         {server, to_str(Server)},
         {summary, Summary},

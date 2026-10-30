@@ -449,3 +449,19 @@ do_t_heavy_batching(TCConfig) ->
     CheckKey = fun(Key) -> maps:get(Key, KeySet, false) end,
     true = lists:all(CheckKey, lists:seq(1, NumberOfMessages)),
     ok.
+
+-doc """
+Smoke test to ensure correct hackney tls opts.
+
+In particular, that we can connect to a server with certs from an untrusted CA when using
+`verify_none`.
+""".
+t_tls_verify_none(TCConfig) ->
+    ?assertMatch(
+        {201, #{~"status" := ~"connected"}},
+        create_connector_api(TCConfig, #{
+            ~"url" => ~"https://clickhouse_tls_lb:8124",
+            ~"ssl" => #{~"enable" => true, ~"verify" => ~"verify_none"}
+        })
+    ),
+    ok.
