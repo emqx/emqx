@@ -296,6 +296,66 @@ t_exact_limited(_Config) ->
         Handler3, Handler4, Handler5
     ]).
 
+-doc "Requests that arrive while the limiter refuses reads are served in arrival order.".
+t_paused_order(_Config) ->
+    store_messages(),
+    %% The first read of a worker is free, so one token allows two reads.
+    emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
+    ok = emqx_retainer_limiter:update(),
+    ok = restart_workers(),
+    Topics = [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>, <<"t/+/a">>, <<"t/1/a">>],
+    Refs = [element(1, subscribe(#{rh => 0}, Topic)) || Topic <- Topics],
+    [Ref0, Ref1 | WaitingRefs] = Refs,
+    _ = receive_batch(Ref0),
+    _ = receive_batch(Ref1),
+    ?assertNotReceive(#info_to_extsub{}, 200),
+
+    %% After the limit is removed, the waiting requests are served in order
+    emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
+    ok = emqx_retainer_limiter:update(),
+    ?assertEqual(WaitingRefs, [receive_any_batch() || _ <- WaitingRefs]),
+
+    %% A new request is served at once
+    {Ref2, _} = subscribe(),
+    _ = receive_batch(Ref2).
+
+-doc "A waiting request of a dead channel is not read when the limiter allows reads again.".
+t_paused_dead_target(_Config) ->
+    store_messages(),
+    emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
+    ok = emqx_retainer_limiter:update(),
+    ok = restart_workers(),
+    Worker = emqx_retainer_dispatcher:worker(),
+    %% The first read of a worker is free, so one token allows two exact-topic reads.
+    {Ref0, _} = subscribe(#{rh => 0}, <<"t/1/a">>),
+    {Ref1, _} = subscribe(#{rh => 0}, <<"t/2/a">>),
+    _ = receive_batch(Ref0),
+    _ = receive_batch(Ref1),
+
+    %% The request of a dead channel waits, then a live channel's request waits
+    {Dead, MRef} = spawn_monitor(fun() -> ok end),
+    receive
+        {'DOWN', MRef, process, Dead, _} -> ok
+    end,
+    DeadTopic = <<"t/+/dead">>,
+    ok = emqx_retainer_dispatcher:fetch(
+        Worker, {Dead, make_ref()}, make_ref(), DeadTopic, emqx_topic:words(DeadTopic), undefined
+    ),
+    {Ref2, _} = subscribe(),
+    ?assertNotReceive(#info_to_extsub{}, 200),
+
+    %% Only the live request is read after the limit is removed
+    ok = snabbkaffe:start_trace(),
+    emqx_common_test_helpers:on_exit(fun snabbkaffe:stop/0),
+    emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
+    ok = emqx_retainer_limiter:update(),
+    _ = receive_batch(Ref2),
+    {ok, _} = ?block_until(#{?snk_kind := retainer_dispatcher_batch, topic := <<"t/+/a">>}, 5000),
+    ?assertEqual(
+        [<<"t/+/a">>],
+        ?projection(topic, ?of_kind(retainer_dispatcher_batch, snabbkaffe:collect_trace()))
+    ).
+
 -doc "A handler with a pending read stops when the retainer is disabled.".
 t_retainer_disabled(_Config) ->
     store_messages(),
@@ -448,6 +508,12 @@ receive_batch(Ref) ->
     Info = receive_info(Ref),
     ?assertMatch({retained_batch, _, _, _}, Info),
     Info.
+
+receive_any_batch() ->
+    receive
+        #info_to_extsub{handler_ref = Ref, info = {retained_batch, _, _, _}} -> Ref
+    after 5000 -> ct:fail(no_batch)
+    end.
 
 connect_with_suspended_dispatcher() ->
     ClientId = <<"retainer_dispatcher_resubscribe">>,
