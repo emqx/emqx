@@ -8,18 +8,20 @@
 Periodic global garbage collection.
 
 A sweep walks every process on the node and forces a garbage collection on
-each one whose status is `waiting`. That costs CPU in proportion to the
-process count, so `node.global_gc_interval` is `disabled` by default and the
-sweep is meant for a node whose memory keeps growing.
+each one whose status is `waiting`. A process that is waiting is not running,
+so it never reaches its own collection thresholds, however `fullsweep_after`
+is tuned. The sweep reclaims what those processes hold.
 
-A sweep runs in a one-off process, in chunks, with a pause between chunks, so
-it spreads its cost over time instead of taking the scheduler for the whole
-walk. Only one sweep runs at a time: starting one kills the sweep still in
-progress.
+`node.global_gc_interval` sets the period. A sweep runs in a one-off process
+and walks in chunks, pausing between them. The pause comes from the interval
+and the process count, so a sweep aims to finish within half the period and
+the work per chunk stays a small share of wall clock. That is what keeps the
+cost from showing on a CPU graph. Only one sweep runs at a time: starting one
+kills the sweep still in progress.
 
-`run/1` starts a sweep and takes over the schedule without a node restart,
+`run/1` starts a sweep and takes over the period without a node restart,
 which is the way to use this during support work. `node.global_gc_interval`
-is `readOnly`, so a configuration change needs a restart.
+is `readOnly`, so changing the configured value needs a restart.
 """.
 
 -behaviour(gen_server).
