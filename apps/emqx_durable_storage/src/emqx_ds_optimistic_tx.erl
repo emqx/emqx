@@ -350,7 +350,10 @@ commit_kv_tx(Leader, DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
     case Leader of
         P when P =/= undefined ->
             Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
-            TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
+            %% Due to potential idempotency issues with the
+            %% transactions, we should not automatically retry them.
+            %% Hence error kind is `unrecoverable':
+            TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(unrecoverable, Alias)),
             put({?pending_commit_timer, Alias}, TRef),
             cast(
                 Leader,
@@ -387,7 +390,7 @@ tx_commit_outcome(Reply) ->
 del_batch(Leader, DB, Stream, TopicRange, Opts) ->
     #{timeout := Timeout, batch_size := BatchSize, sync := Sync, dirty := Dirty} = Opts,
     Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
-    TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
+    TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(recoverable, Alias)),
     put({?pending_commit_timer, Alias}, TRef),
     cast(
         Leader,
@@ -1375,8 +1378,9 @@ verify_preconditions(DBShard, CBM, GenId, Ops) ->
             ?err_unrec({precondition_failed, Unrecoverable})
     end.
 
-tx_timeout_msg(Ref) ->
-    ?ds_tx_commit_error(Ref, undefined, unrecoverable, commit_timeout).
+-spec tx_timeout_msg(recoverable | unrecoverable, reference()) -> term().
+tx_timeout_msg(Kind, Ref) ->
+    ?ds_tx_commit_error(Ref, undefined, Kind, commit_timeout).
 
 reply_success(From, Ref, Meta, Reply) ->
     ?tp(
