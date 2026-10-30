@@ -145,9 +145,7 @@ handle_stream_data(
         list_to_binary(lists:reverse([Bin | QueuedData])), PS, Channel
     ),
     NewTQ = lists:foldl(
-        fun(Item, Acc) ->
-            queue:in(Item, Acc)
-        end,
+        fun queue:in/2,
         TQ,
         [{incoming, P} || P <- lists:reverse(MQTTPackets)]
     ),
