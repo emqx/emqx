@@ -122,8 +122,8 @@ check(Keepalive) ->
 %% @doc Check keepalive, crediting one sampling interval of idle time.
 -spec check(non_neg_integer(), keepalive()) ->
     {ok, keepalive()} | {error, timeout}.
-check(NewVal, #keepalive{check_interval = Interval} = KeepAlive) ->
-    check(NewVal, Interval, KeepAlive).
+check(NewVal, #keepalive{check_interval = Interval} = Keepalive) ->
+    check(NewVal, Interval, Keepalive).
 
 %% @doc Check keepalive, crediting `ElapsedMs` of idle time.
 %% The sampling timer credits its own interval. The deadline timer used while
@@ -140,13 +140,13 @@ check(
     }
 ) when IdleAcc + ElapsedMs >= Max ->
     {error, timeout};
-check(NewVal, ElapsedMs, #keepalive{} = KeepAlive) ->
-    {ok, advance(NewVal, ElapsedMs, KeepAlive)}.
+check(NewVal, ElapsedMs, #keepalive{} = Keepalive) ->
+    {ok, advance(NewVal, ElapsedMs, Keepalive)}.
 
-advance(NewVal, ElapsedMs, #keepalive{statval = NewVal, idle_milliseconds = IdleAcc} = KeepAlive) ->
-    KeepAlive#keepalive{idle_milliseconds = IdleAcc + ElapsedMs};
-advance(NewVal, _ElapsedMs, KeepAlive) ->
-    KeepAlive#keepalive{statval = NewVal, idle_milliseconds = 0}.
+advance(NewVal, ElapsedMs, #keepalive{statval = NewVal, idle_milliseconds = IdleAcc} = Keepalive) ->
+    Keepalive#keepalive{idle_milliseconds = IdleAcc + ElapsedMs};
+advance(NewVal, _ElapsedMs, Keepalive) ->
+    Keepalive#keepalive{statval = NewVal, idle_milliseconds = 0}.
 
 %% `idle_milliseconds` does not change between hibernate/2 and wakeup/2, so this
 %% is also the time the deadline timer was armed with.
