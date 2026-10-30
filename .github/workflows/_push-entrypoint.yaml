@@ -60,6 +60,7 @@ jobs:
       release: ${{ steps.parse-git-ref.outputs.release }}
       latest: ${{ steps.parse-git-ref.outputs.latest }}
       official_release: ${{ steps.parse-git-ref.outputs.official_release }}
+      preview: ${{ steps.parse-git-ref.outputs.preview }}
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
@@ -81,10 +82,12 @@ jobs:
           RELEASE=$(echo "$JSON" | jq -cr '.release')
           LATEST=$(echo "$JSON"  | jq -cr '.latest')
           OFFICIAL_RELEASE=$(echo "$JSON"  | jq -cr '.official_release')
+          PREVIEW=$(echo "$JSON"  | jq -cr '.preview')
           echo "profile=$PROFILE" | tee -a $GITHUB_OUTPUT
           echo "release=$RELEASE" | tee -a $GITHUB_OUTPUT
           echo "latest=$LATEST"   | tee -a $GITHUB_OUTPUT
           echo "official_release=$OFFICIAL_RELEASE" | tee -a $GITHUB_OUTPUT
+          echo "preview=$PREVIEW" | tee -a $GITHUB_OUTPUT
       - name: Build matrix
         id: matrix
         run: |
@@ -146,7 +149,7 @@ jobs:
       build_type: ${{ matrix.build_type }}
 
   update_emqx_i18n:
-    if: needs.prepare.outputs.release == 'true'
+    if: needs.prepare.outputs.release == 'true' && needs.prepare.outputs.preview != 'true'
     needs:
       - prepare
       - compile
@@ -204,7 +207,7 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
 
   update-emqx-docs:
-    if: needs.prepare.outputs.release == 'true'
+    if: needs.prepare.outputs.release == 'true' && needs.prepare.outputs.preview != 'true'
     needs:
       - init
       - prepare

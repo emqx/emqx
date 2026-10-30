@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 
 all() ->
@@ -23,6 +24,8 @@ all() ->
 groups() ->
     ClusterTCs = [
         t_cluster_routing,
+        t_sharded_route_unsubscribe,
+        t_sharded_route_subscriber_down,
         t_slow_rlog_routing_consistency
     ],
     SingleTCs = [t_concurrent_routing_updates],
@@ -226,6 +229,119 @@ unsubscribe(Nodes, C, Topic) ->
     ct:pal("Un-subscribe ~p ~s", [C, Topic]),
     {ok, _Props, undefined} = emqtt:unsubscribe(C, Topic),
     emqx_cth_cluster:sync_routes(Nodes, 10_000).
+
+-doc "Keep routes and deliver messages to remaining shards after explicit unsubscribe".
+t_sharded_route_unsubscribe(Config) ->
+    test_sharded_route(Config, unsubscribe).
+
+-doc "Keep routes and deliver messages to remaining shards after subscriber processes exit".
+t_sharded_route_subscriber_down(Config) ->
+    test_sharded_route(Config, down).
+
+test_sharded_route(Config, Stop) ->
+    [Core, _Core2, Replicant] = Nodes = ?config(cluster, Config),
+    lists:foreach(
+        fun(#{filter := FilterSuffix, topic := TopicSuffix, order := Order}) ->
+            Prefix = atom_to_binary(Stop),
+            Topic = <<Prefix/binary, "/sharded/", TopicSuffix/binary>>,
+            Filter = <<Prefix/binary, "/sharded/", FilterSuffix/binary>>,
+            %% Fill three shards through the public subscription API.
+            Count = 2 * (emqx_broker_helper:shard_capacity() + 1) + 1,
+            Subscribers = [start_sharded_subscriber(Replicant, Filter) || _ <- lists:seq(1, Count)],
+            Shards = maps:from_list([
+                {I, rpc:call(Replicant, emqx_broker, subscribers, [subscriber_shard(Filter, I)])}
+             || I <- Order
+            ]),
+            ?assert(lists:all(fun(Pids) -> Pids =/= [] end, maps:values(Shards))),
+            ok = emqx_cth_cluster:sync_routes(Nodes),
+            assert_sharded_delivery([Replicant, Core], Topic, Subscribers),
+            %% Remove shards in both orders, including the last subscriber.
+            remove_subscriber_shards(Order, Shards, Stop, Nodes, Filter, Topic)
+        end,
+        [
+            #{filter => <<"ascending/#">>, topic => <<"ascending/1">>, order => [0, 1, 2]},
+            #{filter => <<"descending">>, topic => <<"descending">>, order => [2, 1, 0]}
+        ]
+    ).
+
+start_sharded_subscriber(Node, Filter) ->
+    Parent = self(),
+    Pid = spawn_link(Node, fun() ->
+        ok = emqx_broker:subscribe(Filter),
+        Parent ! {subscribed, self()},
+        sharded_subscriber_loop(Parent, Filter)
+    end),
+    ?assertReceive({subscribed, Pid}, 5000),
+    Pid.
+
+sharded_subscriber_loop(Parent, Filter) ->
+    receive
+        {deliver, Filter, Message} ->
+            Parent ! {delivered, self(), Message},
+            sharded_subscriber_loop(Parent, Filter);
+        unsubscribe ->
+            ok = emqx_broker:unsubscribe(Filter)
+    end.
+
+remove_subscriber_shards([], _Shards, _Stop, _Nodes, _Filter, _Topic) ->
+    ok;
+remove_subscriber_shards([I | Rest], Shards0, Stop, Nodes, Filter, Topic) ->
+    [Core, _Core2, Replicant] = Nodes,
+    {Subscribers, Shards1} = maps:take(I, Shards0),
+    lists:foreach(fun(Pid) -> stop_sharded_subscriber(Pid, Stop) end, Subscribers),
+    ok = rpc:call(Replicant, ?MODULE, wait_subscriber_shard_empty, [Filter, I]),
+    ok = emqx_cth_cluster:sync_routes(Nodes),
+    Remaining = lists:append(maps:values(Shards1)),
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual(
+                Remaining =/= [],
+                rpc:call(Node, emqx_router, has_route, [Filter, Replicant]),
+                #{node => Node, removed_shard => I}
+            )
+        end,
+        Nodes
+    ),
+    assert_sharded_delivery([Replicant, Core], Topic, Remaining),
+    remove_subscriber_shards(Rest, Shards1, Stop, Nodes, Filter, Topic).
+
+stop_sharded_subscriber(Pid, unsubscribe) ->
+    Ref = monitor(process, Pid),
+    Pid ! unsubscribe,
+    ?assertReceive({'DOWN', Ref, process, Pid, normal}, 5000);
+stop_sharded_subscriber(Pid, down) ->
+    ?assertEqual(shutdown, stop_concurrent_client(Pid)).
+
+subscriber_shard(Filter, 0) ->
+    Filter;
+subscriber_shard(Filter, I) ->
+    {shard, Filter, I}.
+
+wait_subscriber_shard_empty(Filter, I) ->
+    ?retry(10, 500, ?assertEqual([], emqx_broker:subscribers(subscriber_shard(Filter, I)))),
+    %% Wait for shard cleanup and its notification to the route-owning worker.
+    _ = sys:get_state(gproc_pool:pick_worker(broker_pool, {Filter, I})),
+    _ = sys:get_state(gproc_pool:pick_worker(broker_pool, {Filter, 0})),
+    ok.
+
+assert_sharded_delivery(Nodes, Topic, Subscribers) ->
+    lists:foreach(
+        fun(Node) ->
+            Payload = emqx_guid:gen(),
+            Message = emqx_message:make(?MODULE, Topic, Payload),
+            Result = rpc:call(Node, emqx_broker, publish, [Message]),
+            ?assertEqual(Subscribers =/= [], Result =/= []),
+            lists:foreach(
+                fun(Pid) ->
+                    ?assertReceive(
+                        {delivered, Pid, #message{topic = Topic, payload = Payload}}, 5000
+                    )
+                end,
+                Subscribers
+            )
+        end,
+        Nodes
+    ).
 
 %%
 

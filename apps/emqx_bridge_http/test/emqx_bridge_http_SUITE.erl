@@ -940,10 +940,15 @@ t_active_health_check_upgrade(TCConfig) ->
     ResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
     ?assertEqual({ok, disconnected}, emqx_resource:health_check(ResId)),
     {ok, _, #{error := Error}} = emqx_resource:get_instance(ResId),
+    %% Gun 2.7 reports the close of an upgrade response instead of leaving the
+    %% request pending until the health-check timeout.
     ?assert(
         lists:member(Error, [
-            {http_health_check_failed, timeout}, <<"resource_health_check_timed_out">>
-        ])
+            {http_health_check_failed, timeout},
+            {http_health_check_failed, {closed, normal}},
+            <<"resource_health_check_timed_out">>
+        ]),
+        Error
     ),
     ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
     ?retry(100, 30, ?assertEqual({ok, connected}, emqx_resource:health_check(ResId))).

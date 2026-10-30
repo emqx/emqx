@@ -252,7 +252,14 @@ t_independent_subopts(_) ->
         ?assertEqual(<<"all">>, Msg#coap_message.token),
         send(S, emqx_coap_message:ack(Msg)),
         ?assertEqual({error, timeout}, gen_udp:recv(S, 0, 300)),
-        sub(S, Auth, Topic, <<"all">>, 1),
+        Mismatched = emqx_coap_SUITE:raw_observe_request(S, Auth, Topic, <<"all">>, [{observe, 1}]),
+        ?assertEqual({error, bad_request}, Mismatched#coap_message.method),
+        ?assertMatch([{Topic, #{qos := 1, nl := 0}}], emqx_broker:subscriptions(Pid)),
+        Cancel = emqx_coap_SUITE:raw_observe_request(
+            S, Auth, Topic, <<"all">>, [{observe, 1}], #{"nl" => <<"0">>, "qos" => <<"1">>}
+        ),
+        ?assertEqual({ok, content}, Cancel#coap_message.method),
+        ?assertEqual(undefined, emqx_coap_message:get_option(observe, Cancel, undefined)),
         [{Topic, Remaining}] = emqx_broker:subscriptions(Pid),
         ?assertMatch(#{qos := 0, nl := 1}, Remaining),
         {200, [ApiSub]} = emqx_gateway_test_utils:request(

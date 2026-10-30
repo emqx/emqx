@@ -312,13 +312,9 @@ handle_call(
         'session.subscribed',
         [ClientInfo, MountedTopic, NSubOpts]
     ),
-    %% modify session state
     SubReq = #{topic => MountedTopic, token => Token, subopts => NSubOpts, clientid => ClientId},
-    TempMsg = #coap_message{type = non},
-    %% FIXME: The subopts is not used for emqx_coap_session
-    Result = emqx_coap_session:process_subscribe(
-        SubReq, TempMsg, #{}, Session
-    ),
+    NSession = emqx_coap_session:update_subscription(SubReq, Session),
+    Result = #{session => NSession},
     reply_subscription({ok, {MountedTopic, NSubOpts}}, Result, Channel);
 handle_call(
     {unsubscribe, Topic},
@@ -915,7 +911,8 @@ do_call_handler_request(Msg, Result, Channel, Iter) ->
     #channel{
         ctx = Ctx,
         clientinfo = ClientInfo,
-        connection_required = ConnectionRequired
+        connection_required = ConnectionRequired,
+        session = Session
     } = Channel,
     Result0 = Result#{request_msg => Msg},
     HandlerResult =
@@ -923,7 +920,7 @@ do_call_handler_request(Msg, Result, Channel, Iter) ->
             [<<"ps">> | RestPath] ->
                 IsConnectionless = not ConnectionRequired,
                 emqx_coap_pubsub_handler:handle_request(
-                    RestPath, Msg, Ctx, ClientInfo, IsConnectionless
+                    RestPath, Msg, Ctx, ClientInfo, IsConnectionless, Session
                 );
             [<<"mqtt">> | RestPath] ->
                 emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
@@ -1038,10 +1035,12 @@ process_subscribe(
         end,
         maps:get(observe_unsubscribed, Result2, [])
     ),
+    Channel1 = clear_discarded_observe_blockwise(Result2, Channel),
+    Result3 = attach_and_drain_channel_blockwise(Result2, Channel1),
     iter(
-        [session, fun process_session/4 | Iter],
-        Result2,
-        clear_discarded_observe_blockwise(Result2, Channel)
+        [session, fun process_session/4, blockwise, fun process_blockwise/4 | Iter],
+        Result3,
+        Channel1
     ).
 process_reply(
     Reply,

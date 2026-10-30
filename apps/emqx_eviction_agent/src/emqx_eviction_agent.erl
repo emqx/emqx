@@ -301,11 +301,17 @@ channel_stream(RequiredConnState) ->
         WithRequiredConnStateStream
     ).
 
-%% The stored `clientinfo' omits the fields derivable from `conninfo'. Put them
-%% back before the snapshot leaves this node, so that the channel rebuilt on the
-%% receiving node runs its hooks with the `clientinfo' the connection had.
+%% The stored `clientinfo' omits the fields derivable from `conninfo', and the stored
+%% `conninfo' the ones derivable from `clientinfo'. Put them back before the snapshot
+%% leaves this node, so that the channel rebuilt on the receiving node runs its hooks
+%% with the `clientinfo' and `conninfo' the connection had.
 channel_stream_entry({ClientId, ChanPid, _ConnState, ConnInfo, ClientInfo}) ->
-    {ClientId, ChanPid, ConnInfo, emqx_channel:restore_derivable_peer_fields(ClientInfo, ConnInfo)}.
+    {
+        ClientId,
+        ChanPid,
+        emqx_channel:restore_derivable_conninfo_fields(ConnInfo, ClientInfo),
+        emqx_channel:restore_derivable_peer_fields(ClientInfo, ConnInfo)
+    }.
 
 -spec all_channels_count() -> non_neg_integer().
 all_channels_count() ->

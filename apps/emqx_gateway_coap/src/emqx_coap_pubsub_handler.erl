@@ -10,7 +10,7 @@
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include("emqx_coap.hrl").
 
--export([handle_request/4, handle_request/5]).
+-export([handle_request/4, handle_request/6]).
 
 -import(emqx_coap_medium, [reply/2, reply/3]).
 -import(emqx_coap_channel, [run_hooks/3]).
@@ -31,26 +31,30 @@
 %% TODO maybe can merge this code into emqx_coap_session, simplify the call chain
 
 handle_request(Path, #coap_message{} = Msg, Ctx, CInfo) ->
-    handle_request(Path, Msg, Ctx, CInfo, false).
+    handle_request(Path, Msg, Ctx, CInfo, false, undefined).
 
-handle_request(Path, #coap_message{method = Method} = Msg, Ctx, CInfo, IsConnectionless) ->
+handle_request(
+    Path, #coap_message{method = Method} = Msg, Ctx, CInfo, IsConnectionless, Session
+) ->
     case check_topic(Method, Path) of
         {ok, Topic} ->
-            handle_method(Method, Topic, Msg, Ctx, CInfo, IsConnectionless);
+            handle_method(Method, Topic, Msg, Ctx, CInfo, IsConnectionless, Session);
         _ ->
             reply({error, bad_request}, <<"invalid topic">>, Msg)
     end.
 
-handle_method(get, Topic, Msg, Ctx, CInfo, IsConnectionless) ->
+handle_method(get, Topic, Msg, Ctx, CInfo, IsConnectionless, Session) ->
     case emqx_coap_message:get_option(observe, Msg) of
         0 ->
             subscribe(Msg, Topic, Ctx, CInfo, IsConnectionless);
         1 ->
-            unsubscribe(Msg, Topic, Ctx, CInfo);
+            unsubscribe(Msg, Topic, Ctx, CInfo, Session);
         _ ->
             reply({error, bad_request}, <<"invalid observe value">>, Msg)
     end;
-handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _IsConnectionless) ->
+handle_method(
+    post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _IsConnectionless, _Session
+) ->
     PublishOpts = get_publish_opts(Msg),
     QoS = get_publish_qos(Msg, PublishOpts),
     #{clientid := ClientId} = CInfo,
@@ -64,7 +68,7 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _
         {error, _Reason} ->
             reply({error, unauthorized}, Msg)
     end;
-handle_method(_, _, Msg, _, _, _) ->
+handle_method(_, _, Msg, _, _, _, _) ->
     reply({error, method_not_allowed}, Msg).
 
 check_topic(_Method, []) ->
@@ -192,9 +196,12 @@ maybe_run_session_subscribed(true, _Ctx, _CInfo, _MountTopic, _SubOpts) ->
 maybe_run_session_subscribed(false, Ctx, CInfo, MountTopic, SubOpts) ->
     run_hooks(Ctx, 'session.subscribed', [CInfo, MountTopic, SubOpts]).
 
-unsubscribe(#coap_message{token = Token} = Msg, Topic, _Ctx, CInfo) ->
+unsubscribe(#coap_message{token = Token} = Msg, Topic, _Ctx, CInfo, Session) ->
     MountTopic = mount(CInfo, Topic),
-    ?UNSUB({MountTopic, Token}, Msg).
+    case emqx_coap_session:observe_matches(MountTopic, Msg, Session) of
+        true -> ?UNSUB({MountTopic, Token}, Msg);
+        false -> reply({error, bad_request}, Msg)
+    end.
 
 mount(#{mountpoint := Mountpoint}, Topic) ->
     <<Mountpoint/binary, Topic/binary>>.

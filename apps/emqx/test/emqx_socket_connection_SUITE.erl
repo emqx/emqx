@@ -30,6 +30,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
+init_per_testcase(_Case, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config.
+
+end_per_testcase(_Case, _Config) ->
+    snabbkaffe:stop().
+
 t_send_congestion_times_out(_) ->
     Self = self(),
     ok = meck_esockd_socket([no_history]),
@@ -152,6 +159,139 @@ t_info_omits_sock(_) ->
     end.
 
 -doc """
+Retention strategy `always` retains the configured 1 MiB receive buffer while the
+connection waits for CONNECT.
+""".
+t_always_buffer_retained(_) ->
+    with_buffer_retention_strategy(?FUNCTION_NAME, ~"1MB", always, fun(_Sock, Pid) ->
+        ?retry(
+            50,
+            20,
+            ?assertMatch(
+                #{{'<', 1048576} := 0, {'<', 2097152} := 1, infinity := 0},
+                drv_buffer_histogram(Pid)
+            )
+        )
+    end).
+
+-doc """
+Retention strategy `packet` releases the configured 1 MiB receive buffer while the
+connection waits for CONNECT.
+""".
+t_packet_buffer_released_before_connect(_) ->
+    with_buffer_retention_strategy(?FUNCTION_NAME, ~"1MB", packet, fun(_Sock, Pid) ->
+        ?retry(
+            50,
+            20,
+            ?assertMatch(
+                #{{'<', 1048576} := 0, {'<', 2097152} := 0, infinity := 0},
+                drv_buffer_histogram(Pid)
+            )
+        )
+    end).
+
+-doc """
+Retention strategy `packet` releases large receive buffers after PUBACK, before
+the client sends another packet.
+""".
+t_packet_buffer_released_after_puback(_) ->
+    with_buffer_retention_strategy(?FUNCTION_NAME, ~"1MB", packet, fun(Sock, Pid) ->
+        Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = atom_to_binary(?FUNCTION_NAME)}),
+        ok = gen_tcp:send(Sock, emqx_frame:serialize(Connect)),
+        ?assertMatch(?CONNACK_PACKET(?CONNACK_ACCEPT), recv_packet(Sock, 4, 1000)),
+        Payload = binary:copy(<<"x">>, 256 * 1024),
+        Publish = ?PUBLISH_PACKET(?QOS_1, <<"t/buffer_alloc">>, 1, Payload),
+        ok = gen_tcp:send(Sock, emqx_frame:serialize(Publish)),
+        ?assertMatch(?PUBACK_PACKET(1), recv_packet(Sock, 4, 1000)),
+        #{socket := ServerSocket} = emqx_socket_connection:get_state(Pid),
+        true = erlang:garbage_collect(Pid),
+        ct:pal("Receive buffer: ~p", [socket:getopt(ServerSocket, {otp, rcvbuf})]),
+        ct:pal("Process binaries: ~p", [erlang:process_info(Pid, binary)]),
+        ?retry(
+            50,
+            20,
+            ?assertMatch(
+                #{{'<', 1048576} := 0, {'<', 2097152} := 0, infinity := 0},
+                drv_buffer_histogram(Pid)
+            )
+        )
+    end).
+
+-doc """
+Retention strategy `packet` releases large receive buffers after PINGREQ,
+while the MQTT connection remains open.
+""".
+t_packet_buffer_released_after_pingresp(_) ->
+    with_buffer_retention_strategy(?FUNCTION_NAME, ~"1MB", packet, fun(Sock, Pid) ->
+        Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = atom_to_binary(?FUNCTION_NAME)}),
+        ok = gen_tcp:send(Sock, emqx_frame:serialize(Connect)),
+        ?assertMatch(?CONNACK_PACKET(?CONNACK_ACCEPT), recv_packet(Sock, 4, 1000)),
+        ok = gen_tcp:send(Sock, emqx_frame:serialize(?PACKET(?PINGREQ))),
+        PingResp = iolist_to_binary(emqx_frame:serialize(?PACKET(?PINGRESP))),
+        ?assertEqual({ok, PingResp}, gen_tcp:recv(Sock, byte_size(PingResp), 1000)),
+        #{socket := ServerSocket} = emqx_socket_connection:get_state(Pid),
+        true = erlang:garbage_collect(Pid),
+        ct:pal("Receive buffer: ~p", [socket:getopt(ServerSocket, {otp, rcvbuf})]),
+        ct:pal("Process binaries: ~p", [erlang:process_info(Pid, binary)]),
+        ?retry(
+            50,
+            20,
+            ?assertMatch(
+                #{{'<', 1048576} := 0, {'<', 2097152} := 0, infinity := 0},
+                drv_buffer_histogram(Pid)
+            )
+        )
+    end).
+
+with_buffer_retention_strategy(Name, Buffer, Strategy, Check) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Path = [listeners, tcp, Name],
+    {ok, _} = emqx:update_config(
+        Path,
+        {create, #{
+            <<"bind">> => iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]),
+            <<"tcp_backend">> => <<"socket">>,
+            <<"tcp_options">> => #{
+                <<"buffer">> => Buffer,
+                <<"buffer_retention_strategy">> => atom_to_binary(Strategy)
+            }
+        }}
+    ),
+    try
+        {{ok, Sock}, {ok, #{?snk_meta := #{pid := Pid}}}} = ?wait_async_action(
+            gen_tcp:connect("127.0.0.1", Port, [binary, {active, false}, {nodelay, true}]),
+            #{?snk_kind := connection_started, listener := {tcp, Name}}
+        ),
+        _ = sys:get_state(Pid),
+        Check(Sock, Pid)
+    after
+        {ok, _} = emqx:remove_config(Path)
+    end.
+
+drv_buffer_histogram(Pid) ->
+    Width = 4,
+    {ok, {Start, 0, Allocations}} = instrument:allocations(#{
+        allocator_types => [binary_alloc],
+        flags => [per_process],
+        histogram_start => (1024 * 1024) div 2,
+        histogram_width => Width
+    }),
+    maybe
+        true ?= is_process_alive(Pid),
+        Binaries = maps:with([binary, drv_binary], maps:get(Pid, Allocations, #{})),
+        Boundaries =
+            [{'<', Start bsl N} || N <- lists:seq(0, Width - 2)] ++ [infinity],
+        Counts = lists:foldl(
+            fun(Hist, Acc) -> lists:zipwith(fun erlang:'+'/2, tuple_to_list(Hist), Acc) end,
+            lists:duplicate(Width, 0),
+            maps:values(Binaries)
+        ),
+        maps:from_list(lists:zip(Boundaries, Counts))
+    else
+        false -> dead
+    end.
+
+-doc """
 PUBLISH packets smaller than, equal to and larger than the 4 KiB receive buffer
 arrive complete and in order. The publisher sends them one packet per write,
 all in one write, and each packet split over several writes.
@@ -164,7 +304,7 @@ t_recv_packet_sizes(_) ->
     {ok, Sock} = gen_tcp:connect("127.0.0.1", 1883, [binary, {active, false}, {nodelay, true}]),
     Connect = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"recv_packet_sizes_pub">>}),
     ok = gen_tcp:send(Sock, emqx_frame:serialize(Connect)),
-    ?assertEqual({ok, <<16#20, 2, 0, 0>>}, gen_tcp:recv(Sock, 4, 5000)),
+    ?assertMatch(?CONNACK_PACKET(?CONNACK_ACCEPT), recv_packet(Sock, 4, 5000)),
     Sizes = [1, 1000, 4090, 4096, 4100, 6144, 16384, 20480, 65536, 262144],
     Payloads = [crypto:strong_rand_bytes(Size) || Size <- Sizes],
     Packets = [
@@ -179,6 +319,11 @@ t_recv_packet_sizes(_) ->
     ?assertEqual([byte_size(P) || P <- Expected], [byte_size(P) || P <- Received]),
     ?assert(Expected =:= Received),
     ?assertNotReceive({publish, _}).
+
+recv_packet(Sock, Size, Timeout) ->
+    {ok, Data} = gen_tcp:recv(Sock, Size, Timeout),
+    {Packet, <<>>, _ParseState} = emqx_frame:parse(Data),
+    Packet.
 
 receive_payloads(0) ->
     [];

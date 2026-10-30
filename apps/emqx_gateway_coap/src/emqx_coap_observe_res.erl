@@ -10,11 +10,13 @@
 -export([
     new_manager/0,
     insert/2,
+    update_subscription/2,
     remove/2,
     remove/3,
     lookup/3,
     tokens/2,
     res_changed/2,
+    resource_context/2,
     foreach/2,
     subscriptions/1,
     current_value/0,
@@ -35,7 +37,8 @@
     token := token(),
     clientid => emqx_types:clientid() | undefined,
     seq_id := seq_id(),
-    subopts := emqx_types:subopts()
+    subopts := emqx_types:subopts(),
+    resource_context => resource_context() | undefined
 }.
 
 -type manager() :: #{emqx_types:topic() => #{token() => res()}}.
@@ -50,15 +53,32 @@ new_manager() ->
 -spec insert(sub_data(), manager()) -> {seq_id(), manager()}.
 insert(#{topic := Topic, token := Token, subopts := SubOpts} = Sub, Manager) ->
     Observers = maps:get(Topic, Manager, #{}),
+    Context = maps:get(resource_context, Sub, undefined),
     Res =
         case maps:get(Token, Observers, undefined) of
             undefined ->
                 new_res(Token, SubOpts);
-            Any ->
-                Any#{subopts := SubOpts}
+            #{resource_context := Context} = Existing ->
+                Existing#{subopts := SubOpts};
+            _ ->
+                new_res(Token, SubOpts)
         end,
-    Res1 = Res#{clientid => maps:get(clientid, Sub, undefined)},
+    Res1 = Res#{
+        clientid => maps:get(clientid, Sub, undefined),
+        resource_context => maps:get(resource_context, Sub, undefined)
+    },
     {maps:get(seq_id, Res1), Manager#{Topic => Observers#{Token => Res1}}}.
+
+-spec update_subscription(sub_data(), manager()) -> manager().
+update_subscription(#{topic := Topic, subopts := SubOpts} = SubData, Manager) ->
+    case maps:find(Topic, Manager) of
+        {ok, Observers} ->
+            Updated = maps:map(fun(_Token, Res) -> Res#{subopts := SubOpts} end, Observers),
+            Manager#{Topic := Updated};
+        error ->
+            {_SeqId, Manager1} = insert(SubData, Manager),
+            Manager1
+    end.
 
 -spec remove(emqx_types:topic(), manager()) -> manager().
 remove(Topic, Manager) ->
@@ -92,6 +112,19 @@ res_changed(Topic, Manager) ->
              || {Token, #{seq_id := SeqId}} <- maps:to_list(Updated)
             ],
             {Notifications, Manager#{Topic := Updated}}
+    end.
+
+-spec resource_context(token(), manager()) -> resource_context() | undefined.
+resource_context(Token, Manager) ->
+    Contexts = [
+        Context
+     || Observers <- maps:values(Manager),
+        #{token := T, resource_context := Context} <- maps:values(Observers),
+        T =:= Token
+    ],
+    case Contexts of
+        [Context] -> Context;
+        _ -> undefined
     end.
 
 foreach(F, Manager) ->

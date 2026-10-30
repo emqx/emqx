@@ -5,6 +5,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -63,6 +64,7 @@ persistent_session_testcases() ->
         t_list_clients_v2,
         t_list_clients_v2_limit,
         t_list_clients_v2_limit2,
+        t_delete_offline_durable_session,
         t_list_clients_v2_exact_filters,
         t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters
@@ -1482,7 +1484,10 @@ t_client_stats_after_traffic(Config) ->
         ?assert(maps:get(<<"recv_pkt">>, Client) >= 8, Client),
         %% CONNACK, SUBACK, 3 PUBLISH and 3 PUBACK
         ?assert(maps:get(<<"send_pkt">>, Client) >= 8, Client),
-        ?assert(maps:get(<<"recv_oct">>, Client) > 0, Client)
+        ?assert(maps:get(<<"recv_oct">>, Client) > 0, Client),
+        %% Kept for compatibility, with the values of the packet counters.
+        ?assertEqual(maps:get(<<"recv_pkt">>, Client), maps:get(<<"recv_cnt">>, Client), Client),
+        ?assertEqual(maps:get(<<"send_pkt">>, Client), maps:get(<<"send_cnt">>, Client), Client)
     after
         ok = emqtt:disconnect(C)
     end.
@@ -1786,6 +1791,39 @@ t_mqueue_messages(Config) ->
         request(get, Path, [], "limit=-5&position=not-valid", Config)
     ).
 
+-doc "Message cursor transport preserves structured values and safely rejects invalid terms.".
+t_message_cursor_codec(_) ->
+    Values = [
+        42,
+        <<255, 255, 255, 251>>,
+        {1700000000000000, 65535},
+        {42, infinity},
+        #{<<"generation">> => 3, <<"offset">> => [1, {2, <<"opaque">>}]}
+    ],
+    lists:foreach(
+        fun(Value) ->
+            Encoded = emqx_mgmt_api_clients:encode_pos(Value),
+            ?assertEqual(nomatch, binary:match(Encoded, [<<"+">>, <<"/">>, <<"=">>])),
+            ?assertEqual(Value, emqx_mgmt_api_clients:decode_pos(inflight_msgs, Encoded))
+        end,
+        Values
+    ),
+    ?assertEqual(
+        1700000000000000123,
+        emqx_mgmt_api_clients:decode_pos(inflight_msgs, <<"1700000000000000123">>)
+    ),
+    ?assertError(
+        badarg, emqx_mgmt_api_clients:decode_pos(inflight_msgs, <<"1700000000000000_42">>)
+    ),
+    AtomName = <<"message_cursor_atom_must_not_be_created_1642">>,
+    Unsafe = cow_base64url:encode(
+        <<131, 119, (byte_size(AtomName)), AtomName/binary>>,
+        #{padding => false}
+    ),
+    ?assertError(_, emqx_mgmt_api_clients:decode_pos(inflight_msgs, Unsafe)),
+    ?assertError(badarg, binary_to_existing_atom(AtomName)),
+    ?assertError(_, emqx_mgmt_api_clients:decode_pos(inflight_msgs, <<"!">>)).
+
 t_inflight_messages(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Topic = <<"t/test_inflight_msgs">>,
@@ -1806,7 +1844,65 @@ t_inflight_messages(Config) ->
         {error, {?HTTP400, _, #{<<"code">> := <<"BAD_REQUEST">>}}},
         request(get, Path, [], "limit=-5&position=invalid-int", Config)
     ),
+    InvalidCursor = emqx_mgmt_api_clients:encode_pos(#{<<"unknown">> => 1}),
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := []}}},
+        request(get, Path, [], "limit=10&position=" ++ binary_to_list(InvalidCursor), Config)
+    ),
+    %% Invalid pagination cursor must not terminate the MQTT client.
+    ?assert(is_process_alive(Client)),
     emqtt:stop(Client).
+
+-doc "Cursor-aware API formats legacy channel replies and preserves integer continuation positions.".
+t_inflight_messages_legacy_reply(_) ->
+    Ts = 1700000000000000123,
+    Msg0 = emqx_message:make(clientid, ?QOS_1, <<"t">>, <<"payload">>),
+    Msg = Msg0#message{extra = #{inflight_insert_ts => Ts}},
+    Msg2 = Msg0#message{extra = #{inflight_insert_ts => Ts + 1}},
+    ok = meck:new(emqx_mgmt, [passthrough, no_link]),
+    try
+        ok = meck:expect(emqx_mgmt, list_client_msgs, fun(inflight_msgs, _, Params) ->
+            case maps:get(position, Params, none) of
+                none ->
+                    ?assertEqual(none, maps:get(cursor, Params)),
+                    {[Msg, Msg2], #{start => Ts, position => Ts + 1}};
+                Ts ->
+                    ?assertNot(maps:is_key(cursor, Params)),
+                    {[Msg2], #{start => Ts, position => Ts + 1}}
+            end
+        end),
+        Query = #{<<"limit">> => 1, <<"payload">> => plain, <<"max_payload_bytes">> => 100},
+        Request = #{bindings => #{clientid => <<"legacy">>}, query_string => Query},
+        {200, _, Body} = emqx_mgmt_api_clients:inflight_msgs(get, Request),
+        TsBin = integer_to_binary(Ts),
+        ?assertMatch(
+            #{
+                <<"data">> := [#{<<"inserted_at">> := TsBin}],
+                <<"meta">> := #{<<"start">> := TsBin, <<"position">> := TsBin}
+            },
+            emqx_utils_json:decode(Body)
+        ),
+        {200, _, NextBody} = emqx_mgmt_api_clients:inflight_msgs(get, Request#{
+            query_string := Query#{<<"position">> => TsBin}
+        }),
+        NextTsBin = integer_to_binary(Ts + 1),
+        ?assertMatch(
+            #{
+                <<"data">> := [#{<<"inserted_at">> := NextTsBin}],
+                <<"meta">> := #{<<"position">> := <<"end_of_data">>}
+            },
+            emqx_utils_json:decode(NextBody)
+        ),
+        {200, _, TruncatedBody} = emqx_mgmt_api_clients:inflight_msgs(get, Request#{
+            query_string := Query#{<<"limit">> := 10, <<"max_payload_bytes">> := 7}
+        }),
+        ?assertMatch(
+            #{<<"data">> := [_], <<"meta">> := #{<<"position">> := TsBin}},
+            emqx_utils_json:decode(TruncatedBody)
+        )
+    after
+        meck:unload(emqx_mgmt)
+    end.
 
 client_with_mqueue(ClientId, Topic, Count) ->
     {ok, Client} = emqtt:start_link([
@@ -1877,16 +1973,16 @@ payloads_bytes(Count) ->
 test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     Qs0 = io_lib:format("payload=~s&limit=~p", [PayloadEncoding, Count]),
 
-    {Msgs, StartPos, FinalMsgPos} = ?retry(500, 10, begin
+    {Msgs, StartPos} = ?retry(500, 10, begin
         {ok, MsgsResp} = emqx_mgmt_api_test_util:request_api(get, Path, Qs0, AuthHeader),
         #{<<"meta">> := Meta, <<"data">> := Msgs} = emqx_utils_json:decode(MsgsResp),
         #{<<"start">> := StartPos, <<"position">> := Position} = Meta,
 
-        ?assertEqual(StartPos, msg_pos(hd(Msgs), IsMqueue)),
+        assert_msg_pos(StartPos, hd(Msgs), IsMqueue),
         ?assertEqual(<<"end_of_data">>, Position),
         ?assertEqual(length(Msgs), Count),
 
-        {Msgs, StartPos, msg_pos(lists:last(Msgs), IsMqueue)}
+        {Msgs, StartPos}
     end),
 
     lists:foreach(
@@ -1932,7 +2028,7 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     %% When `max_payload_bytes` cuts the page short, the position must point at the last
     %% returned message, not at the last message walked before the cut, so that paging
     %% skips no message.
-    ?assertEqual(TruncatedPos, msg_pos(hd(FirstMsgOnly), IsMqueue)),
+    assert_msg_pos(TruncatedPos, hd(FirstMsgOnly), IsMqueue),
     ?assertNotEqual(<<"end_of_data">>, TruncatedPos),
     %% Page through the remaining messages one message per page.
     lists:foldl(
@@ -1949,12 +2045,10 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
                 integer_to_binary(Seq),
                 decode_payload(maps:get(<<"payload">>, hd(PageMsgs)), PayloadEncoding)
             ),
-            ExpectedPos =
-                case Seq =:= Count of
-                    true -> <<"end_of_data">>;
-                    false -> msg_pos(hd(PageMsgs), IsMqueue)
-                end,
-            ?assertEqual(ExpectedPos, PosOut),
+            case Seq =:= Count of
+                true -> ?assertEqual(<<"end_of_data">>, PosOut);
+                false -> assert_msg_pos(PosOut, hd(PageMsgs), IsMqueue)
+            end,
             PosOut
         end,
         TruncatedPos,
@@ -1972,7 +2066,7 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
             } = emqx_utils_json:decode(MsgsRespPage),
 
             ?assertNotEqual(<<"end_of_data">>, NextPos),
-            ?assertEqual(NextPos, msg_pos(lists:last(MsgsPage), IsMqueue)),
+            assert_msg_pos(NextPos, lists:last(MsgsPage), IsMqueue),
             %% Start position is the same in every response and points to the first msg
             ?assertEqual(StartPos, ThisStart),
 
@@ -2010,10 +2104,11 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
         integer_to_binary(Count),
         decode_payload(maps:get(<<"payload">>, lists:last(MsgsLastPage)), PayloadEncoding)
     ),
-    ?assertEqual(FinalMsgPos, msg_pos(lists:last(MsgsLastPage), IsMqueue)),
+    ?assertEqual(lists:last(Msgs), lists:last(MsgsLastPage)),
 
+    ExceedPos = position_after_msg(lists:last(MsgsLastPage), IsMqueue),
     ExceedQs = io_lib:format("payload=~s&position=~s&limit=~p", [
-        PayloadEncoding, FinalMsgPos, Limit
+        PayloadEncoding, ExceedPos, Limit
     ]),
     {ok, MsgsEmptyResp} = emqx_mgmt_api_test_util:request_api(get, Path, ExceedQs, AuthHeader),
     ?assertMatch(
@@ -2052,10 +2147,23 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
         emqx_mgmt_api_test_util:request_api(get, Path, "max_payload_bytes=0MB", AuthHeader)
     ).
 
-msg_pos(#{<<"inserted_at">> := TsBin, <<"mqueue_priority">> := Prio} = _Msg, true = _IsMqueue) ->
-    <<TsBin/binary, "_", (emqx_utils_conv:bin(Prio))/binary>>;
-msg_pos(#{<<"inserted_at">> := TsBin} = _Msg, _IsMqueue) ->
-    TsBin.
+assert_msg_pos(Pos, #{<<"inserted_at">> := Ts, <<"mqueue_priority">> := Prio}, true) ->
+    ?assertEqual(<<Ts/binary, "_", (emqx_utils_conv:bin(Prio))/binary>>, Pos);
+assert_msg_pos(Pos, #{<<"inserted_at">> := TsBin}, false) ->
+    {Ts, PacketId} = emqx_mgmt_api_clients:decode_pos(inflight_msgs, Pos),
+    ?assertEqual(binary_to_integer(TsBin), Ts * 1000),
+    ?assert(PacketId >= 0).
+
+position_after_msg(#{<<"inserted_at">> := TsBin, <<"mqueue_priority">> := Prio}, true) ->
+    %% Mqueue positions use nanoseconds:
+    %% Advance by one nanosecond at the same priority.
+    NextTs = integer_to_binary(binary_to_integer(TsBin) + 1),
+    Suffix = emqx_utils_conv:bin(Prio),
+    <<NextTs/binary, "_", Suffix/binary>>;
+position_after_msg(#{<<"inserted_at">> := TsBin}, false) ->
+    %% Inflight cursors use microseconds while `inserted_at` are nanoseconds:
+    %% Advance by one microsecond, so packet ID 0 sorts after every ID at original time.
+    emqx_mgmt_api_clients:encode_pos({binary_to_integer(TsBin) div 1000 + 1, 0}).
 
 decode_payload(Payload, base64) ->
     base64:decode(Payload);
@@ -2668,6 +2776,46 @@ t_list_clients_v2_limit2(Config) ->
         ],
         ok
     end.
+
+-doc """
+Regression case for https://github.com/emqx/emqx/issues/19699
+
+`DELETE /clients/:clientid` returned 204 for an offline durable session without
+removing it. The session must be purged by the DELETE call, long before its
+natural expiry.
+""".
+t_delete_offline_durable_session(Config) ->
+    [Node1 | _] = ?config(cluster_nodes, Config),
+    ClientId = ?CLIENTID(<<"delete-offline">>),
+    C = connect_client(#{
+        port => get_mqtt_port(Node1, tcp),
+        clientid => ClientId,
+        clean_start => true,
+        expiry => 120
+    }),
+    %% Graceful disconnect leaves the offline durable session behind:
+    ok = emqtt:stop(C),
+    ?retry(
+        _Interval0 = 100,
+        _Attempts0 = 30,
+        ?assertMatch(
+            {ok, {{_, 200, _}, _, #{<<"connected">> := false, <<"is_persistent">> := true}}},
+            get_client_request(ClientId, Config)
+        )
+    ),
+    ?assertMatch(
+        {ok, {{_, 204, _}, _, _}},
+        request(delete, emqx_mgmt_api_test_util:api_path(["clients", ClientId]), Config)
+    ),
+    %% The session must be gone well before its natural (120 s) expiry:
+    ?retry(
+        _Interval1 = 100,
+        _Attempts1 = 20,
+        ?assertMatch(
+            {error, {{_, 404, _}, _, _}},
+            get_client_request(ClientId, Config)
+        )
+    ).
 
 %% Checks that exact match filters (username) works in clients_v2 API.
 t_list_clients_v2_exact_filters(Config) ->
