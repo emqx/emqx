@@ -497,7 +497,7 @@ handle_result(
 ->
     ?tp(info, "gcp_pubsub_backoff_error_response", #{
         query_mode => QueryMode,
-        request => emqx_bridge_http_connector:redact_request(Request),
+        request => redact_request(Request),
         connector => ConnResId,
         status_code => StatusCode,
         resp_body => RespBody
@@ -511,7 +511,7 @@ handle_result(
 ) ->
     ?SLOG(error, #{
         msg => "gcp_pubsub_error_response",
-        request => emqx_bridge_http_connector:redact_request(Request),
+        request => redact_request(Request),
         connector => ConnResId,
         status_code => StatusCode,
         resp_body => RespBody
@@ -523,7 +523,7 @@ handle_result({error, #{status_code := StatusCode} = Resp}, Request, QueryMode, 
 ->
     ?tp(info, "gcp_pubsub_backoff_error_response", #{
         query_mode => QueryMode,
-        request => emqx_bridge_http_connector:redact_request(Request),
+        request => redact_request(Request),
         connector => ConnResId,
         status_code => StatusCode
     }),
@@ -531,7 +531,7 @@ handle_result({error, #{status_code := StatusCode} = Resp}, Request, QueryMode, 
 handle_result({error, #{status_code := StatusCode}} = Result, Request, _QueryMode, ConnResId) ->
     ?SLOG(error, #{
         msg => "gcp_pubsub_error_response",
-        request => emqx_bridge_http_connector:redact_request(Request),
+        request => redact_request(Request),
         connector => ConnResId,
         status_code => StatusCode
     }),
@@ -550,6 +550,9 @@ handle_result({error, Reason} = Result, _Request, QueryMode, ConnResId) ->
     Result;
 handle_result({ok, _} = Result, _Request, _QueryMode, _ConnResId) ->
     Result.
+
+redact_request({prepared_request, {Method, Path, _Body}, _ReqOpts}) ->
+    {Method, Path, <<"******">>}.
 
 on_format_query_result({ok, Info}) ->
     #{result => ok, info => Info};

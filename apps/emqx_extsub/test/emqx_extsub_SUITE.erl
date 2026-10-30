@@ -130,6 +130,144 @@ t_message_target(_Config) ->
         ct:fail(sender_did_not_finish)
     end.
 
+-doc "A handler monitor sends a tagged down message, and demonitor/2 removes it from the mailbox.".
+t_monitor_message(_Config) ->
+    Ref = make_ref(),
+    Target = emqx_extsub_handler:message_target(Ref),
+    %% A down message carries the handler reference in its tag
+    Pid1 = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    MRef1 = emqx_extsub_handler:monitor(Target, Pid1),
+    exit(Pid1, kill),
+    receive
+        {#extsub_down{handler_ref = Ref}, MRef1, process, Pid1, killed} -> ok
+    after 1000 ->
+        ct:fail(down_message_not_received)
+    end,
+    %% demonitor/2 removes a down message that is already in the mailbox
+    Pid2 = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    MRef2 = emqx_extsub_handler:monitor(Target, Pid2),
+    exit(Pid2, kill),
+    ?retry(20, 50, ?assert(has_message_with_ref(MRef2))),
+    ok = emqx_extsub_handler:demonitor(Target, MRef2),
+    ?assertNot(has_message_with_ref(MRef2)).
+
+-doc "Only the process that owns the message target can create or remove a handler monitor.".
+t_monitor_owner(_Config) ->
+    Target = emqx_extsub_handler:message_target(make_ref()),
+    Pid = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    MRef = emqx_extsub_handler:monitor(Target, Pid),
+    {Caller, CallerMRef} = spawn_monitor(fun() ->
+        exit(
+            {result, [
+                catch emqx_extsub_handler:monitor(Target, Pid),
+                catch emqx_extsub_handler:demonitor(Target, MRef)
+            ]}
+        )
+    end),
+    receive
+        {'DOWN', CallerMRef, process, Caller, {result, Results}} ->
+            ?assertMatch([{'EXIT', {function_clause, _}}, {'EXIT', {function_clause, _}}], Results)
+    after 1000 ->
+        ct:fail(caller_did_not_finish)
+    end,
+    ok = emqx_extsub_handler:demonitor(Target, MRef),
+    Pid ! stop.
+
+-doc "A channel routes the down message of a handler monitor to that handler as a 'DOWN' message.".
+t_monitor_down(_Config) ->
+    Pid = start_monitored_process(?FUNCTION_NAME),
+    C = emqx_extsub_test_utils:emqtt_connect([{clientid, <<"monitor-down">>}]),
+    {ok, {ok, #{mref := MRef}}} = ?wait_async_action(
+        emqx_extsub_test_utils:emqtt_subscribe(C, monitor_topic(<<"demonitor">>, ?FUNCTION_NAME)),
+        #{?snk_kind := extsub_test_handler_monitor, pid := Pid},
+        5000
+    ),
+    {true, {ok, _}} = ?wait_async_action(
+        exit(Pid, kill),
+        #{?snk_kind := extsub_test_handler_down, mref := MRef, pid := Pid, reason := killed},
+        5000
+    ),
+    ok = emqtt:disconnect(C).
+
+-doc "A handler that calls demonitor/2 in handle_terminate/1 leaves no monitor and gets no down message.".
+t_monitor_demonitor_on_terminate(_Config) ->
+    Pid = start_monitored_process(?FUNCTION_NAME),
+    ClientId = <<"monitor-demonitor">>,
+    Topic = monitor_topic(<<"demonitor">>, ?FUNCTION_NAME),
+    C = emqx_extsub_test_utils:emqtt_connect([{clientid, ClientId}]),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    {ok, {ok, _}} = ?wait_async_action(
+        emqx_extsub_test_utils:emqtt_subscribe(C, Topic),
+        #{?snk_kind := extsub_test_handler_monitor, pid := Pid},
+        5000
+    ),
+    ?assert(lists:member(ChanPid, monitored_by(Pid))),
+    %% Unsubscribe terminates the handler, which removes the monitor
+    {ok, _, _} = emqtt:unsubscribe(C, Topic),
+    ?retry(20, 50, ?assertNot(lists:member(ChanPid, monitored_by(Pid)))),
+    exit(Pid, kill),
+    ?assertEqual(timeout, ?block_until(#{?snk_kind := extsub_test_handler_down}, 500)),
+    ok = emqtt:disconnect(C).
+
+-doc "A down message for a destroyed handler does not reach any handler and does not crash the channel.".
+t_monitor_down_after_destroy(_Config) ->
+    Pid = start_monitored_process(?FUNCTION_NAME),
+    ClientId = <<"monitor-after-destroy">>,
+    Topic = monitor_topic(<<"keep">>, ?FUNCTION_NAME),
+    C = emqx_extsub_test_utils:emqtt_connect([{clientid, ClientId}]),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    {ok, {ok, _}} = ?wait_async_action(
+        emqx_extsub_test_utils:emqtt_subscribe(C, Topic),
+        #{?snk_kind := extsub_test_handler_monitor, pid := Pid},
+        5000
+    ),
+    %% The handler keeps its monitor after it is destroyed
+    {ok, _, _} = emqtt:unsubscribe(C, Topic),
+    ?assert(lists:member(ChanPid, monitored_by(Pid))),
+    exit(Pid, kill),
+    ?assertEqual(timeout, ?block_until(#{?snk_kind := extsub_test_handler_down}, 500)),
+    ?retry(20, 50, ?assertEqual({message_queue_len, 0}, process_info(ChanPid, message_queue_len))),
+    ?assertEqual([ChanPid], emqx_cm:lookup_channels(ClientId)),
+    ok = emqtt:disconnect(C).
+
+start_monitored_process(Name) ->
+    Pid = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    true = register(Name, Pid),
+    Pid.
+
+monitor_topic(Mode, Name) ->
+    <<"extsub_st_monitor/", Mode/binary, "/", (atom_to_binary(Name))/binary>>.
+
+monitored_by(Pid) ->
+    {monitored_by, MonitoredBy} = process_info(Pid, monitored_by),
+    MonitoredBy.
+
+has_message_with_ref(MRef) ->
+    {messages, Msgs} = process_info(self(), messages),
+    lists:any(
+        fun
+            ({_Tag, Ref, process, _Pid, _Reason}) -> Ref =:= MRef;
+            (_) -> false
+        end,
+        Msgs
+    ).
+
 -doc "Active external subscriptions retain data instead of callback closures.".
 t_handler_state_has_no_closures(_Config) ->
     ClientId = <<"handler-state">>,

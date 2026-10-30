@@ -43,7 +43,8 @@
 
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
--define(DEFAULT_KERNEL_INET_DIST_OPTIONS, <<"[{buffer,1048576}]">>).
+%% Keep distribution buffers above inet_drv's 1 MiB buffer-cache limit.
+-define(DEFAULT_KERNEL_INET_DIST_OPTIONS, <<"[{buffer,1114112}]">>).
 -define(DEFAULT_KERNEL_INET_DIST_CONNECT_OPTIONS, ?DEFAULT_KERNEL_INET_DIST_OPTIONS).
 -define(DEFAULT_KERNEL_INET_DIST_LISTEN_OPTIONS, ?DEFAULT_KERNEL_INET_DIST_OPTIONS).
 
@@ -589,7 +590,7 @@ fields("node") ->
                 hoconsc:union([disabled, emqx_schema:duration()]),
                 #{
                     mapping => "emqx_machine.global_gc_interval",
-                    default => disabled,
+                    default => <<"15m">>,
                     desc => ?DESC(node_global_gc_interval),
                     importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
@@ -1022,7 +1023,8 @@ fields("rpc") ->
                 emqx_schema:bytesize(),
                 #{
                     mapping => "gen_rpc.socket_buffer",
-                    default => <<"1MB">>,
+                    %% Avoid recycling these buffers through inet_drv's buffer cache.
+                    default => <<"1088KB">>,
                     desc => ?DESC(rpc_socket_buffer)
                 }
             )},
