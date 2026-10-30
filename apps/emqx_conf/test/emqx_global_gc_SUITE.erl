@@ -109,6 +109,41 @@ t_no_overlapping_sweeps(_) ->
         ok = emqx_global_gc:stop()
     end.
 
+-doc """
+Loading this module into a running node leaves the server holding the state
+the previous version built, which has only `timer`. A code load does not call
+`code_change/3`, so every callback has to tolerate that state.
+
+`sys:replace_state/2` puts the server into it, which is what a code load
+leaves behind, and then each callback is driven.
+""".
+t_upgrade_from_previous_state(_) ->
+    ok = load_interval(<<"1h">>),
+    {ok, Pid} = emqx_global_gc:start_link(),
+    try
+        %% The state the version before pacing built.
+        Previous = fun(#{timer := TRef}) -> #{timer => TRef} end,
+        _ = sys:replace_state(Pid, Previous),
+        ?assertEqual([timer], maps:keys(sys:get_state(Pid))),
+        %% run/0 reads `worker' and `interval', and writes `worker'.
+        ?assertEqual(ok, emqx_global_gc:run()),
+        ?assertMatch(#{worker := {_, _}}, sys:get_state(Pid)),
+        %% run/1 writes `interval' into a state that has no such key.
+        _ = sys:replace_state(Pid, Previous),
+        ?assertEqual(ok, emqx_global_gc:run(timer:minutes(10))),
+        ?assertMatch(#{interval := 600000, worker := {_, _}}, sys:get_state(Pid)),
+        %% The periodic tick reads and writes both.
+        _ = sys:replace_state(Pid, Previous),
+        #{timer := TRef} = sys:get_state(Pid),
+        Pid ! {timeout, TRef, run},
+        ?retry(20, 100, ?assertMatch(#{worker := {_, _}}, sys:get_state(Pid))),
+        %% terminate/2 reads `worker'.
+        ?assertEqual(ok, emqx_global_gc:stop()),
+        ?assertNot(is_process_alive(Pid))
+    after
+        catch emqx_global_gc:stop()
+    end.
+
 idle() ->
     receive
         stop -> ok

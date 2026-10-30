@@ -106,7 +106,9 @@ handle_call(run, _From, State) ->
     {reply, ok, start_sweep(State), hibernate};
 handle_call({run, Interval}, _From, State0) ->
     %% Set the interval first, so the sweep paces itself against the new one.
-    State = start_sweep(cancel_timer(State0#{interval := Interval})),
+    %% `=>' rather than `:=': a state built by the previous version of this
+    %% module has no `interval' key. See `kill_worker/1'.
+    State = start_sweep(cancel_timer(State0#{interval => Interval})),
     {reply, ok, ensure_timer(State), hibernate};
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
@@ -147,7 +149,10 @@ start_timer(_Disabled, State) ->
 configured_interval(#{interval := undefined}) ->
     application:get_env(emqx_machine, global_gc_interval, disabled);
 configured_interval(#{interval := Interval}) ->
-    Interval.
+    Interval;
+configured_interval(State) ->
+    %% See `kill_worker/1' on why a state can arrive without the key.
+    configured_interval(State#{interval => undefined}).
 
 %% What a sweep paces itself against. A manual run/0 on a node with the
 %% periodic sweep disabled has no interval to work from, so it paces as if the
@@ -174,7 +179,13 @@ kill_worker(State = #{worker := {Pid, MRef}}) ->
     %% only 'DOWN' this server ever sees is a worker ending on its own.
     true = erlang:demonitor(MRef, [flush]),
     true = erlang:exit(Pid, kill),
-    State#{worker := undefined}.
+    State#{worker := undefined};
+kill_worker(State) ->
+    %% Loading this module into a running node leaves the server holding the
+    %% state the previous version built, which has only `timer'. A code load
+    %% does not call `code_change/3', so fill the key in here rather than fail
+    %% the callback that reads it.
+    kill_worker(State#{worker => undefined}).
 
 log_worker_exit(normal) ->
     ok;
