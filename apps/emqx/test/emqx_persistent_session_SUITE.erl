@@ -1471,6 +1471,42 @@ t_client_replies_puback_when_qos2(Config) ->
     ),
     ok.
 
+-doc """
+A QoS 1 delivery discarded as too large for the client's Maximum Packet Size
+leaves the inflight window, so the next delivery is sent with Receive Maximum 1.
+""".
+t_deliver_too_large_qos1(Config) ->
+    deliver_too_large_then_small(?QOS_1, Config).
+
+-doc """
+A QoS 2 delivery discarded as too large for the client's Maximum Packet Size
+completes the QoS 2 flow, so the next delivery is sent with Receive Maximum 1.
+""".
+t_deliver_too_large_qos2(Config) ->
+    deliver_too_large_then_small(?QOS_2, Config).
+
+deliver_too_large_then_small(QoS, Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    ClientId = ?config(client_id, Config),
+    {ok, Client} = emqtt_start_and_connect(ConnFun, [
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{
+            'Session-Expiry-Interval' => 30,
+            'Maximum-Packet-Size' => 128,
+            'Receive-Maximum' => 1
+        }}
+        | Config
+    ]),
+    {ok, _, [QoS]} = emqtt:subscribe(Client, Topic, QoS),
+    TooLarge0 = emqx_metrics:val_global('delivery.dropped.too_large'),
+    publish(Topic, binary:copy(<<"x">>, 256), QoS),
+    publish(Topic, <<"small">>, QoS),
+    ?assertMatch([#{payload := <<"small">>}], receive_messages(1)),
+    ?assertEqual(1, emqx_metrics:val_global('delivery.dropped.too_large') - TooLarge0),
+    ok = emqtt:disconnect(Client).
+
 emqtt_start_and_connect(ConnFun, Opts) ->
     {ok, Pid} = emqtt:start_link(Opts),
     case emqtt_connect(ConnFun, Pid) of
