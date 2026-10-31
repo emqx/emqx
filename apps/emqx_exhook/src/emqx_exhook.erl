@@ -9,7 +9,8 @@
 
 -export([
     cast/2,
-    call_fold/3
+    call_fold/3,
+    call_fold_valued/3
 ]).
 
 %% exported for `emqx_telemetry'
@@ -43,8 +44,24 @@ call_fold(Hookpoint, Req, AccFun) ->
         [] ->
             no_running_server_result(Hookpoint, Req);
         ServerNames ->
-            call_fold(true, Hookpoint, Req, AccFun, ServerNames)
+            call_fold(true, fun emqx_exhook_server:call/3, Hookpoint, Req, AccFun, ServerNames)
     end.
+
+%% Folds over the servers that registered `Hookpoint' with `valued_response';
+%% `cast/2' skips them.
+-spec call_fold_valued(atom(), term(), function()) ->
+    {ok, term()}
+    | {stop, term()}
+    | ignore.
+call_fold_valued(Hookpoint, Req, AccFun) ->
+    call_fold(
+        true,
+        fun emqx_exhook_server:call_valued/3,
+        Hookpoint,
+        Req,
+        AccFun,
+        emqx_exhook_mgr:running()
+    ).
 
 no_running_server_result(Hookpoint, Req) ->
     case no_running_server_action() of
@@ -76,26 +93,34 @@ configured_failed_action() ->
         false -> ignore
     end.
 
-call_fold(true, _, _Req, _, []) ->
+call_fold(true, _, _, _Req, _, []) ->
     ignore;
-call_fold(false, _, Req, _, []) ->
+call_fold(false, _, _, Req, _, []) ->
     {ok, Req};
-call_fold(IsIgnore, Hookpoint, Req, AccFun, [ServerName | More]) ->
+call_fold(IsIgnore, CallFun, Hookpoint, Req, AccFun, [ServerName | More]) ->
     Server = emqx_exhook_mgr:service(ServerName),
-    case emqx_exhook_server:call(Hookpoint, Req, Server) of
+    case CallFun(Hookpoint, Req, Server) of
         {ok, Resp} ->
             case AccFun(Req, Resp) of
                 {stop, NReq} ->
                     {stop, NReq};
                 {ok, NReq} ->
-                    call_fold(false, Hookpoint, NReq, AccFun, More);
+                    call_fold(false, CallFun, Hookpoint, NReq, AccFun, More);
                 ignore ->
-                    call_fold(IsIgnore, Hookpoint, Req, AccFun, More)
+                    call_fold(IsIgnore, CallFun, Hookpoint, Req, AccFun, More)
             end;
+        ignore ->
+            %% The server did not register this hookpoint for this kind of
+            %% call, or a message hook's topic filter did not match. Nothing
+            %% was attempted, so there is no failure to act on: continue with
+            %% the next server rather than applying `failed_action', which
+            %% under the default `deny' would stop the chain and skip the
+            %% remaining servers.
+            call_fold(IsIgnore, CallFun, Hookpoint, Req, AccFun, More);
         _ ->
             case emqx_exhook_server:failed_action(Server) of
                 ignore ->
-                    call_fold(IsIgnore, Hookpoint, Req, AccFun, More);
+                    call_fold(IsIgnore, CallFun, Hookpoint, Req, AccFun, More);
                 deny ->
                     {stop, deny_action_result(Hookpoint, Req)}
             end
@@ -106,6 +131,12 @@ deny_action_result('client.authenticate', _) ->
     #{result => false};
 deny_action_result('client.authorize', _) ->
     #{result => false};
+%% The hook may only rewrite topic filters, so denying it means: use the topic
+%% filters the client sent.
+deny_action_result('client.subscribe', Req) ->
+    Req;
+deny_action_result('client.unsubscribe', Req) ->
+    Req;
 deny_action_result('message.ingress', _) ->
     #{result => false};
 deny_action_result('message.publish', Req) ->
