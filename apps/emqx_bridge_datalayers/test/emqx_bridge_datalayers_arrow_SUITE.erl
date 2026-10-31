@@ -229,6 +229,7 @@ parameters {
 ssl {
   enable = ~p
   verify = verify_peer
+  server_name_indication = "datalayers_tls"
   cacertfile = "~s"
 }
 """
@@ -484,13 +485,7 @@ t_prepare_auto_rebuild(Config) ->
         username => <<"admin">>,
         password => <<"public">>
     },
-    ConnConfig =
-        case ?config(use_tls, Config) of
-            true ->
-                ConnConfig0#{tls_cert => cacert_file()};
-            false ->
-                ConnConfig0
-        end,
+    ConnConfig = tls_conn_opts(Config, ConnConfig0),
     {ok, Client} = datalayers:connect(ConnConfig),
 
     _ = datalayers:execute(Client, <<"DROP TABLE IF EXISTS mqtt_arrow.auto_rebuild_test">>),
@@ -554,13 +549,7 @@ exec_sql(SQL, Config) ->
         username => <<"admin">>,
         password => <<"public">>
     },
-    ConnConfig =
-        case ?config(use_tls, Config) of
-            true ->
-                ConnConfig0#{tls_cert => cacert_file()};
-            false ->
-                ConnConfig0
-        end,
+    ConnConfig = tls_conn_opts(Config, ConnConfig0),
     {ok, Conn} = datalayers:connect(ConnConfig),
     Res = datalayers:execute(Conn, bin(SQL)),
     ok = datalayers:stop(Conn),
@@ -572,6 +561,19 @@ bin(A) when is_atom(A) ->
     atom_to_binary(A);
 bin(B) when is_binary(B) ->
     B.
+
+tls_conn_opts(Config, ConnConfig) ->
+    case ?config(use_tls, Config) of
+        true ->
+            ConnConfig#{
+                tls_enable => true,
+                tls_cacertfile => bin(cacert_file()),
+                verify => verify_peer,
+                tls_server_name => <<"datalayers_tls">>
+            };
+        false ->
+            ConnConfig
+    end.
 
 random_clientid_() ->
     <<"mqtt_", (emqx_guid:to_hexstr(emqx_guid:gen()))/binary>>.
