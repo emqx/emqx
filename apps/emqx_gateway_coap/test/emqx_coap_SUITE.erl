@@ -893,7 +893,7 @@ t_invalid_token_does_not_take_over_udp_downlink(_) ->
         MigratedPayload = <<"after-valid-migration">>,
         publish(Topic, ?QOS_0, MigratedPayload),
         ?assertEqual({error, timeout}, with_message_response(Channel1, 300)),
-        {ok, {_Host, _Port, MigratedData}} = gen_udp:recv(Sock2, 0, 2000),
+        {ok, {_Host, _Port, MigratedData}} = gen_udp:recv(Sock2, 0, 5000),
         #coap_message{payload = MigratedPayload} = parse_udp_message(MigratedData),
         ok
     after
@@ -1299,7 +1299,7 @@ t_subscribe_opts_nl_rh(_) ->
         UnReq = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
             token = ObserveReply#coap_message.token
         },
-        {ok, nocontent, _} = do_message_request(Channel, URI, UnReq),
+        {ok, content, _} = do_message_request(Channel, URI, UnReq),
         true
     end,
     with_connection(Fun).
@@ -1333,7 +1333,7 @@ t_subscribe_qos_from_config(_) ->
                 UnReq = (make_req_type(ReqType, get, <<>>, [{observe, 1}]))#coap_message{
                     token = ObserveReply#coap_message.token
                 },
-                {ok, nocontent, _} = do_message_request(Channel, URI, UnReq)
+                {ok, content, _} = do_message_request(Channel, URI, UnReq)
             end,
             Cases
         ),
@@ -1576,7 +1576,7 @@ t_un_subscribe(_) ->
         UnReq = (make_req(get, Payload, [{observe, 1}]))#coap_message{
             token = ObserveReply#coap_message.token
         },
-        {ok, nocontent, _} = do_message_request(Channel, URI, UnReq),
+        {ok, content, _} = do_message_request(Channel, URI, UnReq),
         ?LOGT("un observer topic:~ts~n", [Topic]),
         timer:sleep(100),
         ?assertEqual([], emqx:subscribers(Topic)),
@@ -1883,14 +1883,23 @@ t_observe_replace(_) ->
                 ),
                 publish(Topic, ?QOS_1, blockwise_payload(<<"D">>, <<"E">>, <<"F">>)),
                 ?assertEqual({error, timeout}, with_message_response(Channel, 100)),
-                NewToken =
+                NewReply =
                     case ReuseToken of
                         true ->
-                            _ = register_observe(Channel, NewURI, OldToken),
-                            OldToken;
+                            register_observe(Channel, NewURI, OldToken);
                         false ->
-                            observe_block2_uri(Channel, NewURI)
+                            CancelOld = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
+                                token = OldToken
+                            },
+                            {ok, content, CancelReply} = do_message_request(
+                                Channel, URI, CancelOld
+                            ),
+                            finish_block2_response(Channel, URI, CancelReply),
+                            RegisteredToken = observe_block2_uri(Channel, NewURI),
+                            register_observe(Channel, NewURI, RegisteredToken)
                     end,
+                NewToken = NewReply#coap_message.token,
+                finish_block2_response(Channel, NewURI, NewReply),
                 Tail = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
                     token = <<"old-tail">>
                 },
@@ -1907,7 +1916,13 @@ t_observe_replace(_) ->
                     {datagram, {{127, 0, 0, 1}, 5683},
                         er_coap_message_parser:encode(emqx_coap_message:reset(Old))},
                 Cancel = (make_req(get, <<>>, [{observe, 1}]))#coap_message{token = OldToken},
-                ?assertMatch({error, _, _}, do_message_request(Channel, URI, Cancel)),
+                case ReuseToken of
+                    true ->
+                        ?assertMatch({error, _, _}, do_message_request(Channel, URI, Cancel));
+                    false ->
+                        {ok, content, CancelReply1} = do_message_request(Channel, URI, Cancel),
+                        finish_block2_response(Channel, URI, CancelReply1)
+                end,
                 {200, Subscriptions} = request(get, "/gateways/coap/clients/client1/subscriptions"),
                 [Subscription] = [Sub || #{topic := T} = Sub <- Subscriptions, T =:= Topic],
                 ?assertEqual(
@@ -2033,7 +2048,7 @@ t_observe_update_by_api(_) ->
                     Cancel = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
                         token = ObserveToken
                     },
-                    ?assertMatch({ok, nocontent, _}, do_message_request(Channel, URI, Cancel)),
+                    ?assertMatch({ok, content, _}, do_message_request(Channel, URI, Cancel)),
                     publish(MountedTopic, ?QOS_1, <<"cancelled">>),
                     ?assertEqual({error, timeout}, with_message_response(Channel, 300)),
                     {200, []} = request(get, Path)
@@ -2093,6 +2108,18 @@ t_observe_renew_preserves_block2(_) ->
         )
     end).
 
+finish_block2_response(Channel, URI, #coap_message{token = Token} = Reply) ->
+    case coap_option(block2, Reply, undefined) of
+        {Num, true, Size} ->
+            Req = (make_req(get, <<>>, [{block2, {Num + 1, false, Size}}]))#coap_message{
+                token = Token
+            },
+            {ok, content, Next} = do_message_request(Channel, URI, Req),
+            finish_block2_response(Channel, URI, Next);
+        _ ->
+            ok
+    end.
+
 register_observe(Channel, URI, Token) ->
     Req = (make_req(get, <<>>, [{observe, 0}]))#coap_message{token = Token},
     {ok, content, Reply} = do_message_request(Channel, URI, Req),
@@ -2129,9 +2156,12 @@ t_observe_block2_retransmit_exhaustion(_) ->
             #coap_message{payload = <<"BBBBBBBBBBBBBBBB">>}, raw_coap_request(Socket, URI, Mid)
         ),
         publish(Topic, ?QOS_0, <<"next notice">>),
-        Next = wait_observe_retries(Socket, First, 0),
-        ?assertEqual(ObserveToken, Next#coap_message.token),
-        raw_coap_send(Socket, #coap_message{type = ack, id = Next#coap_message.id}),
+        [Pid] = emqx:subscribers(Topic),
+        ok = wait_observe_retries(Socket, First, 0),
+        ?retry(500, 110, ?assertNot(emqx_broker:subscribed(Pid, Topic))),
+        ?assertEqual({error, timeout}, gen_udp:recv(Socket, 0, 500)),
+        publish(Topic, ?QOS_0, <<"after failure">>),
+        ?assertEqual({error, timeout}, gen_udp:recv(Socket, 0, 500)),
         Tail = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
             token = <<"retryend">>
         },
@@ -2141,18 +2171,13 @@ t_observe_block2_retransmit_exhaustion(_) ->
         {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
     end.
 
+wait_observe_retries(_Socket, _First, 4) ->
+    ok;
 wait_observe_retries(Socket, First, Count) ->
-    Msg = raw_coap_receive(Socket, 100000),
-    ct:pal("Received notification after ~p retransmissions", [Count]),
-    case Msg#coap_message.id =:= First#coap_message.id of
-        true ->
-            ?assertEqual(First#coap_message.payload, Msg#coap_message.payload),
-            wait_observe_retries(Socket, First, Count + 1);
-        false ->
-            ?assertEqual(4, Count),
-            ?assertEqual(<<"next notice">>, Msg#coap_message.payload),
-            Msg
-    end.
+    Msg = raw_coap_receive(Socket, 25000),
+    ?assertEqual(First#coap_message.id, Msg#coap_message.id),
+    ?assertEqual(First#coap_message.payload, Msg#coap_message.payload),
+    wait_observe_retries(Socket, First, Count + 1).
 
 raw_coap_request(Socket, URI, #coap_message{options = Options} = Req) ->
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
@@ -2182,7 +2207,8 @@ t_observe_block2_new_token_cancel(_) ->
             Channel, URI, <<"cancel-1">>, 1, binary:copy(<<"B">>, 16), {1, true, 16}
         ),
         Cancel = (make_req(get, <<>>, [{observe, 1}]))#coap_message{token = ObserveToken},
-        ?assertMatch({ok, nocontent, _}, do_message_request(Channel, URI, Cancel)),
+        {ok, content, CancelReply} = do_message_request(Channel, URI, Cancel),
+        finish_block2_response(Channel, URI, CancelReply),
         Req = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{
             token = <<"cancel-2">>
         },
@@ -2190,7 +2216,7 @@ t_observe_block2_new_token_cancel(_) ->
         true
     end).
 
--doc "Reset discards the representation while retaining the 6.x Observe relationship.".
+-doc "Reset discards the representation and cancels the Observe relationship.".
 t_observe_block2_new_token_reset(_) ->
     with_block2_observe(con, fun(Channel, Token) ->
         Topic = <<"coap/block2_new_token_reset">>,
@@ -2204,9 +2230,8 @@ t_observe_block2_new_token_reset(_) ->
         reset_if_con(Channel, Notify),
         Req = (make_req(get, <<>>, [{block2, {2, false, 16}}]))#coap_message{token = <<"reset-2">>},
         ?assertMatch({error, _, _}, do_message_request(Channel, URI, Req)),
-        publish(Topic, ?QOS_0, <<"still subscribed">>),
-        Next = assert_notify(Channel, con, <<"still subscribed">>),
-        ack_if_con(Channel, Next),
+        publish(Topic, ?QOS_0, <<"after reset">>),
+        ?assertEqual({error, timeout}, with_message_response(Channel, 500)),
         true
     end).
 
@@ -2325,7 +2350,15 @@ t_observe_con_notify_queue_preserves_block2_until_drained(_) ->
                     coap_option(block2, FollowResp, undefined)
                 ),
 
-                reset_if_con(Channel, NotifyA0),
+                ack_if_con(Channel, NotifyA0),
+                _ = assert_block2_followup(
+                    Channel,
+                    URI,
+                    NotifyA0#coap_message.token,
+                    2,
+                    binary:copy(<<"C">>, 8),
+                    {2, false, 16}
+                ),
                 NotifyB0 = assert_block2_notify(
                     Channel, con, binary:copy(<<"X">>, 16), {0, true, 16}
                 ),
@@ -2639,6 +2672,213 @@ t_observe_con_notify_queue_drops_oldest_when_full(_) ->
         with_connection(Fun)
     end).
 
+-doc "A CON Reset removes only the failed Observe and clears its queued and Block2 notifications.".
+t_observe_con_reset_cancels_relationship(_) ->
+    test_observe_terminal_failure(reset).
+
+-doc "A NON Reset also aborts a later CON notification belonging to the same Observe.".
+t_observe_non_reset_cancels_relationship(_) ->
+    test_observe_terminal_failure(non_reset).
+
+-doc "Real CON retransmission exhaustion removes the Observe without disconnecting the client.".
+t_observe_retransmission_exhaustion_cancels_relationship(_) ->
+    ct:timetrap({seconds, 120}),
+    test_observe_terminal_failure(timeout).
+
+test_observe_terminal_failure(Failure) ->
+    with_raw_observe_connection(fun(Socket, AuthToken) ->
+        Topic = <<"coap/terminal/+">>,
+        PublishTopic = <<"coap/terminal/a">>,
+        OtherTopic = <<"coap/other">>,
+        ObserveToken = <<"terminal">>,
+        ?assertMatch(
+            #coap_message{method = {ok, content}},
+            raw_observe_request(Socket, AuthToken, Topic, ObserveToken, [{observe, 0}])
+        ),
+        ?assertMatch(
+            #coap_message{method = {ok, content}},
+            raw_observe_request(Socket, AuthToken, OtherTopic, <<"other">>, [{observe, 0}])
+        ),
+        [Pid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+        Non =
+            case Failure of
+                non_reset ->
+                    publish(PublishTopic, ?QOS_0, <<"non">>),
+                    NonNotify = recv_raw_observe(Socket, 2000),
+                    ?assertEqual(non, NonNotify#coap_message.type),
+                    NonNotify;
+                _ ->
+                    undefined
+            end,
+        Payload = blockwise_payload(<<"A">>, <<"B">>, <<"C">>),
+        publish(PublishTopic, ?QOS_1, Payload),
+        Notify = recv_raw_observe(Socket, 2000),
+        ?assertEqual(con, Notify#coap_message.type),
+        ?assertEqual({0, true, 16}, coap_option(block2, Notify, undefined)),
+        publish(PublishTopic, ?QOS_1, <<"queued">>),
+        publish(OtherTopic, ?QOS_1, <<"other">>),
+        ?retry(
+            20,
+            100,
+            ?assertEqual(2, proplists:get_value(mqueue_len, emqx_gateway_conn:stats(Pid)))
+        ),
+        case Failure of
+            reset ->
+                send_raw_observe(Socket, emqx_coap_message:reset(Notify));
+            non_reset ->
+                send_raw_observe(Socket, emqx_coap_message:reset(Non));
+            timeout ->
+                lists:foreach(
+                    fun(_) ->
+                        Retry = recv_raw_observe(Socket, 25000),
+                        ?assertEqual(Notify#coap_message.id, Retry#coap_message.id),
+                        ?assertEqual(Notify#coap_message.payload, Retry#coap_message.payload)
+                    end,
+                    lists:seq(1, 4)
+                )
+        end,
+        OtherNotify = recv_raw_observe(Socket, 50000),
+        ?assertEqual(<<"other">>, OtherNotify#coap_message.token),
+        send_raw_observe(Socket, emqx_coap_message:ack(OtherNotify)),
+        ?assertEqual([OtherTopic], [T || {T, _} <- emqx_broker:subscriptions(Pid)]),
+        {200, Subs} = request(get, "/gateways/coap/clients/client1/subscriptions"),
+        ?assertMatch([#{topic := OtherTopic}], Subs),
+        ?assertMatch(
+            #coap_message{method = {error, _}},
+            raw_observe_request(Socket, AuthToken, PublishTopic, ObserveToken, [
+                {block2, {1, false, 16}}
+            ])
+        ),
+        publish(PublishTopic, ?QOS_1, <<"after-failure">>),
+        ?assertEqual({error, timeout}, gen_udp:recv(Socket, 0, 300)),
+        ?assertMatch(
+            #coap_message{method = {ok, content}},
+            raw_observe_request(Socket, AuthToken, Topic, ObserveToken, [{observe, 0}])
+        ),
+        publish(PublishTopic, ?QOS_1, <<"reestablished">>),
+        NewNotify = recv_raw_observe(Socket, 2000),
+        ?assertEqual(<<"reestablished">>, NewNotify#coap_message.payload),
+        send_raw_observe(Socket, emqx_coap_message:reset(Notify)),
+        send_raw_observe(Socket, emqx_coap_message:ack(NewNotify)),
+        publish(PublishTopic, ?QOS_1, <<"after-old-reset">>),
+        LastNotify = recv_raw_observe(Socket, 2000),
+        ?assertEqual(<<"after-old-reset">>, LastNotify#coap_message.payload),
+        send_raw_observe(Socket, emqx_coap_message:ack(LastNotify)),
+        ?assertEqual({error, timeout}, gen_udp:recv(Socket, 0, 300))
+    end).
+
+-doc "A delayed NON Reset cannot cancel a new Observe that reuses the same topic and Token.".
+t_observe_old_non_reset_preserves_new_relationship(_) ->
+    with_raw_observe_connection(fun(Socket, AuthToken) ->
+        Topic = <<"coap/reobserve">>,
+        ObserveToken = <<"reuse">>,
+        _ = raw_observe_request(Socket, AuthToken, Topic, ObserveToken, [{observe, 0}]),
+        publish(Topic, ?QOS_0, <<"old">>),
+        OldNotify = recv_raw_observe(Socket, 2000),
+        ?assertEqual(non, OldNotify#coap_message.type),
+        _ = raw_observe_request(Socket, AuthToken, Topic, ObserveToken, [{observe, 1}]),
+        _ = raw_observe_request(Socket, AuthToken, Topic, ObserveToken, [{observe, 0}]),
+        publish(Topic, ?QOS_1, blockwise_payload(<<"N">>, <<"E">>, <<"W">>)),
+        Notify = recv_raw_observe(Socket, 2000),
+        ?assertEqual(con, Notify#coap_message.type),
+        send_raw_observe(Socket, emqx_coap_message:reset(OldNotify)),
+        send_raw_observe(Socket, emqx_coap_message:ack(Notify)),
+        Follow = raw_observe_request(Socket, AuthToken, Topic, ObserveToken, [
+            {block2, {1, false, 16}}
+        ]),
+        ?assertEqual({ok, content}, Follow#coap_message.method),
+        ?assertEqual(binary:copy(<<"E">>, 16), Follow#coap_message.payload),
+        LastBlock = raw_observe_request(Socket, AuthToken, Topic, ObserveToken, [
+            {block2, {2, false, 16}}
+        ]),
+        ?assertEqual(binary:copy(<<"W">>, 8), LastBlock#coap_message.payload),
+        publish(Topic, ?QOS_1, <<"still-observed">>),
+        LastNotify = recv_raw_observe(Socket, 2000),
+        ?assertEqual(<<"still-observed">>, LastNotify#coap_message.payload),
+        send_raw_observe(Socket, emqx_coap_message:ack(LastNotify))
+    end).
+
+-doc "Reset of a notification sent from the shared queue cancels its Observe.".
+t_observe_queued_reset_cancels_relationship(_) ->
+    with_raw_observe_connection(fun(Socket, AuthToken) ->
+        Topic = <<"coap/queued-reset">>,
+        OtherTopic = <<"coap/queue-blocker">>,
+        _ = raw_observe_request(Socket, AuthToken, OtherTopic, <<"blocker">>, [{observe, 0}]),
+        _ = raw_observe_request(Socket, AuthToken, Topic, <<"queued">>, [{observe, 0}]),
+        publish(OtherTopic, ?QOS_1, <<"blocking">>),
+        Blocker = recv_raw_observe(Socket, 2000),
+        publish(Topic, ?QOS_1, <<"queued">>),
+        [Pid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+        ?retry(
+            20,
+            100,
+            ?assertEqual(1, proplists:get_value(mqueue_len, emqx_gateway_conn:stats(Pid)))
+        ),
+        send_raw_observe(Socket, emqx_coap_message:ack(Blocker)),
+        Notify = recv_raw_observe(Socket, 2000),
+        ?assertEqual(<<"queued">>, Notify#coap_message.token),
+        send_raw_observe(Socket, emqx_coap_message:reset(Notify)),
+        ?retry(
+            20,
+            100,
+            ?assertEqual([OtherTopic], [T || {T, _} <- emqx_broker:subscriptions(Pid)])
+        ),
+        publish(Topic, ?QOS_1, <<"after-reset">>),
+        ?assertEqual({error, timeout}, gen_udp:recv(Socket, 0, 300))
+    end).
+
+with_raw_observe_connection(Fun) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf#{
+        <<"heartbeat">> => <<"120s">>,
+        <<"idle_timeout">> => <<"120s">>,
+        <<"notify_type">> => <<"qos">>
+    }),
+    try
+        with_blockwise_max_size(16, fun() ->
+            {ok, Socket} = gen_udp:open(0, [binary, {active, false}]),
+            URI = compose_uri(?MQTT_PREFIX ++ "/connection", #{"clientid" => <<"client1">>}, false),
+            try
+                {ok, created, AuthToken} = raw_udp_request(Socket, URI, make_req(post)),
+                Fun(Socket, AuthToken)
+            after
+                _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+                gen_udp:close(Socket)
+            end
+        end)
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
+raw_observe_request(Socket, AuthToken, Topic, ObserveToken, Options) ->
+    raw_observe_request(Socket, AuthToken, Topic, ObserveToken, Options, #{}).
+
+raw_observe_request(Socket, AuthToken, Topic, ObserveToken, Options, SubOpts) ->
+    Queries = maps:merge(SubOpts, #{"clientid" => <<"client1">>, "token" => AuthToken}),
+    URI = pubsub_uri(binary_to_list(Topic), Queries),
+    {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = erlang:unique_integer([positive]) band 16#FFFF,
+        token = ObserveToken,
+        options = [{uri_path, Path}, {uri_query, Query} | Options]
+    },
+    ok = gen_udp:send(Socket, {127, 0, 0, 1}, 5683, er_coap_message_parser:encode(Msg)),
+    recv_raw_observe(Socket, 2000).
+
+recv_raw_observe(Socket, Timeout) ->
+    {ok, {_, _, Data}} = gen_udp:recv(Socket, 0, max(5000, Timeout)),
+    parse_udp_message(Data).
+
+send_raw_observe(Socket, Msg) ->
+    gen_udp:send(
+        Socket,
+        {127, 0, 0, 1},
+        5683,
+        emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts())
+    ).
+
 t_observe_con_notify_queue_drains_after_reset(_) ->
     with_notify_type(con, fun() ->
         Fun = fun(Channel, Token) ->
@@ -2675,7 +2915,7 @@ t_observe_cancel_drops_pending_notifications(_) ->
             UnReq = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
                 token = ObserveToken
             },
-            {ok, nocontent, _} = do_message_request(Channel, URI, UnReq),
+            {ok, content, _} = do_message_request(Channel, URI, UnReq),
 
             ack_if_con(Channel, Notify1),
             ?assertEqual({error, timeout}, with_message_response(Channel, 500)),
@@ -2701,7 +2941,7 @@ t_observe_cancel_wildcard_drops_pending_notifications(_) ->
             UnReq = (make_req(get, <<>>, [{observe, 1}]))#coap_message{
                 token = ObserveToken
             },
-            {ok, nocontent, _} = do_message_request(Channel, URI, UnReq),
+            {ok, content, _} = do_message_request(Channel, URI, UnReq),
 
             ack_if_con(Channel, Notify1),
             ?assertEqual({error, timeout}, with_message_response(Channel, 500)),
@@ -3174,7 +3414,7 @@ observe(Channel, Token, {false, ObserveToken}, ShortenParamName) ->
     },
     URI = compose_uri(Prefix, Queries, ShortenParamName),
     Req = (make_req(get, <<>>, [{observe, 1}]))#coap_message{token = ObserveToken},
-    {ok, nocontent, _Data} = do_message_request(Channel, URI, Req),
+    {ok, content, _Data} = do_message_request(Channel, URI, Req),
     ok.
 
 observe_topic(Channel, Token, Topic, ObserveToken) ->
@@ -3298,9 +3538,38 @@ reset_if_con(Channel, #coap_message{type = con} = Message) ->
     {ok, _} = er_coap_channel:send(Channel, emqx_coap_message:reset(Message)),
     ok.
 
-do_request(Channel, URI, Req) ->
-    ok = send_request(Channel, URI, Req),
-    with_response(Channel).
+do_request(Channel, URI, #coap_message{options = Options, token = Token} = Req) ->
+    Key = {observe_token, Channel, URI, Token},
+    case proplists:get_value(observe, Options) of
+        0 ->
+            ok = send_request(Channel, URI, Req),
+            case with_message_response(Channel, 10000) of
+                {ok, Code, Response} ->
+                    %% send/2 allocates its own Token; retain it for deregistration.
+                    put(Key, Response#coap_message.token),
+                    return_response({ok, Code}, Response);
+                {error, Code, Response} ->
+                    return_response({error, Code}, Response);
+                Error ->
+                    Error
+            end;
+        1 ->
+            ActualToken =
+                case get(Key) of
+                    undefined -> Token;
+                    Saved -> Saved
+                end,
+            case do_message_request(Channel, URI, Req#coap_message{token = ActualToken}) of
+                {Class, Code, Response} ->
+                    erase(Key),
+                    return_response({Class, Code}, Response);
+                Error ->
+                    Error
+            end;
+        _ ->
+            ok = send_request(Channel, URI, Req),
+            with_response(Channel)
+    end.
 
 send_request(Channel, URI, #coap_message{options = Opts} = Req) ->
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
@@ -3382,7 +3651,7 @@ with_response(Channel) ->
     end.
 
 with_message_response(Channel) ->
-    with_message_response(Channel, 2000).
+    with_message_response(Channel, 5000).
 
 with_message_response(Channel, Timeout) ->
     receive

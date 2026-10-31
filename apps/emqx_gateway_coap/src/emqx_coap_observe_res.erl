@@ -12,11 +12,16 @@
     insert/2,
     update_subscription/2,
     remove/2,
+    remove/3,
+    lookup/3,
+    tokens/2,
     res_changed/2,
     resource_context/2,
     foreach/2,
     subscriptions/1,
     current_value/0,
+    next_value/0,
+    confirmation_interval/0,
     observe_value/1
 ]).
 -export_type([manager/0]).
@@ -28,13 +33,15 @@
 -type seq_id() :: non_neg_integer().
 
 -type res() :: #{
+    id := reference(),
     token := token(),
+    clientid => emqx_types:clientid() | undefined,
     seq_id := seq_id(),
     subopts := emqx_types:subopts(),
     resource_context => resource_context() | undefined
 }.
 
--type manager() :: #{emqx_types:topic() => res()}.
+-type manager() :: #{emqx_types:topic() => #{token() => res()}}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -44,27 +51,30 @@ new_manager() ->
     #{}.
 
 -spec insert(sub_data(), manager()) -> {seq_id(), manager()}.
-insert(#{topic := Topic, token := Token, subopts := SubOpts} = SubData, Manager) ->
+insert(#{topic := Topic, token := Token, subopts := SubOpts} = Sub, Manager) ->
+    Observers = maps:get(Topic, Manager, #{}),
+    Context = maps:get(resource_context, Sub, undefined),
     Res =
-        case maps:get(Topic, Manager, undefined) of
+        case maps:get(Token, Observers, undefined) of
             undefined ->
-                (new_res(Token, SubOpts))#{
-                    resource_context => maps:get(resource_context, SubData, undefined)
-                };
-            Existing ->
-                Existing#{
-                    token := Token,
-                    subopts := SubOpts,
-                    resource_context => maps:get(resource_context, SubData, undefined)
-                }
+                new_res(Token, SubOpts);
+            #{resource_context := Context} = Existing ->
+                Existing#{subopts := SubOpts};
+            _ ->
+                new_res(Token, SubOpts)
         end,
-    {maps:get(seq_id, Res), Manager#{Topic => Res}}.
+    Res1 = Res#{
+        clientid => maps:get(clientid, Sub, undefined),
+        resource_context => maps:get(resource_context, Sub, undefined)
+    },
+    {maps:get(seq_id, Res1), Manager#{Topic => Observers#{Token => Res1}}}.
 
 -spec update_subscription(sub_data(), manager()) -> manager().
 update_subscription(#{topic := Topic, subopts := SubOpts} = SubData, Manager) ->
     case maps:find(Topic, Manager) of
-        {ok, Res} ->
-            Manager#{Topic := Res#{subopts := SubOpts}};
+        {ok, Observers} ->
+            Updated = maps:map(fun(_Token, Res) -> Res#{subopts := SubOpts} end, Observers),
+            Manager#{Topic := Updated};
         error ->
             {_SeqId, Manager1} = insert(SubData, Manager),
             Manager1
@@ -74,24 +84,43 @@ update_subscription(#{topic := Topic, subopts := SubOpts} = SubData, Manager) ->
 remove(Topic, Manager) ->
     maps:remove(Topic, Manager).
 
--spec res_changed(emqx_types:topic(), manager()) -> undefined | {token(), seq_id(), manager()}.
+-spec remove(emqx_types:topic(), token(), manager()) -> manager().
+remove(Topic, Token, Manager) ->
+    Observers = maps:remove(Token, maps:get(Topic, Manager, #{})),
+    case map_size(Observers) of
+        0 -> maps:remove(Topic, Manager);
+        _ -> Manager#{Topic => Observers}
+    end.
+
+-spec lookup(emqx_types:topic(), token(), manager()) -> res() | undefined.
+lookup(Topic, Token, Manager) ->
+    maps:get(Token, maps:get(Topic, Manager, #{}), undefined).
+
+-spec tokens(emqx_types:topic(), manager()) -> [token()].
+tokens(Topic, Manager) ->
+    maps:keys(maps:get(Topic, Manager, #{})).
+
+-spec res_changed(emqx_types:topic(), manager()) -> undefined | {[{token(), seq_id()}], manager()}.
 res_changed(Topic, Manager) ->
     case maps:get(Topic, Manager, undefined) of
         undefined ->
             undefined;
-        Res ->
-            #{
-                token := Token,
-                seq_id := SeqId
-            } = Res2 = res_changed(Res),
-            {Token, SeqId, Manager#{Topic := Res2}}
+        Observers ->
+            Updated = maps:map(fun(_Token, Res) -> res_changed(Res) end, Observers),
+            Notifications = [
+                {Token, SeqId}
+             || {Token, #{seq_id := SeqId}} <- maps:to_list(Updated)
+            ],
+            {Notifications, Manager#{Topic := Updated}}
     end.
 
 -spec resource_context(token(), manager()) -> resource_context() | undefined.
 resource_context(Token, Manager) ->
     Contexts = [
         Context
-     || #{token := T, resource_context := Context} <- maps:values(Manager), T =:= Token
+     || Observers <- maps:values(Manager),
+        #{token := T, resource_context := Context} <- maps:values(Observers),
+        T =:= Token
     ],
     case Contexts of
         [Context] -> Context;
@@ -111,8 +140,13 @@ foreach(F, Manager) ->
 -spec subscriptions(manager()) -> _.
 subscriptions(Manager) ->
     maps:map(
-        fun(_Topic, #{subopts := SubOpts}) ->
-            SubOpts
+        fun(_Topic, Observers) ->
+            Opts = [SubOpts || #{subopts := SubOpts} <- maps:values(Observers)],
+            [First | _] = Opts,
+            First#{
+                qos => lists:max([maps:get(qos, O, 0) || O <- Opts]),
+                nl => lists:min([maps:get(nl, O, 0) || O <- Opts])
+            }
         end,
         Manager
     ).
@@ -126,6 +160,7 @@ subscriptions(Manager) ->
 -spec new_res(token(), emqx_types:subopts()) -> res().
 new_res(Token, SubOpts) ->
     #{
+        id => make_ref(),
         token => Token,
         %% RFC 7641 Section 4.4: start Observe sequence at a current value.
         seq_id => current_seq(),
@@ -141,6 +176,21 @@ res_changed(#{seq_id := SeqId} = Res) ->
 %% RFC 7641 Section 4.4: derive Observe value from a local timestamp.
 current_value() ->
     observe_value(current_seq()).
+
+-spec next_value() -> non_neg_integer().
+next_value() ->
+    Now = current_seq(),
+    SeqId =
+        case get({?MODULE, seq_id}) of
+            undefined -> Now;
+            Last -> max(Now, Last + 1)
+        end,
+    put({?MODULE, seq_id}, SeqId),
+    observe_value(SeqId).
+
+-spec confirmation_interval() -> pos_integer().
+confirmation_interval() ->
+    timer:hours(24).
 
 observe_value(SeqId) ->
     SeqId band ?MAX_SEQ_ID.

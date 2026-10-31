@@ -18,6 +18,7 @@
     handle_out/2,
     handle_out/3,
     abort_context/2,
+    abort_observe_notifications/2,
     set_reply/2,
     timeout/2,
     discard_observe_notifications/2
@@ -161,6 +162,18 @@ abort_context(Ctx, TM) ->
     ],
     lists:foldl(fun delete_machine/2, TM, SeqIds).
 
+-spec abort_observe_notifications(any(), manager()) -> {non_neg_integer(), manager()}.
+abort_observe_notifications(Ctx, TM) ->
+    Machines = [
+        {SeqId, Confirmable}
+     || {SeqId, #state_machine{
+            id = {out, _}, transport = Transport, observe_notification = Confirmable
+        }} <- maps:to_list(TM),
+        emqx_coap_transport:req_context(Transport) =:= Ctx
+    ],
+    Done = length([SeqId || {SeqId, con} <- Machines]),
+    {Done, lists:foldl(fun({SeqId, _}, Acc) -> delete_machine(SeqId, Acc) end, TM, Machines)}.
+
 set_reply(#coap_message{id = MsgId} = Msg, TM) ->
     Id = {in, MsgId},
     case find_machine(Id, TM) of
@@ -262,6 +275,10 @@ process_observe_response(
         _ ->
             iter(Iter, Result2, Machine, TM)
     end;
+process_observe_response(
+    {Type, {{observe_notification, _, _} = Ctx, _}} = Proto, Result, Machine, TM, Iter
+) when Type =:= reset; Type =:= ack_failure ->
+    iter(Iter, proto_out(Proto, Result#{observe_notification_failed => Ctx}), Machine, TM);
 process_observe_response(Proto, Result, Machine, TM, Iter) ->
     iter(Iter, proto_out(Proto, Result), Machine, TM).
 

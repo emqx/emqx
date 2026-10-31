@@ -21,6 +21,7 @@
         #{
             topic => Topic,
             token => Token,
+            clientid => ClientId,
             subopts => Opts
         },
         Msg
@@ -195,17 +196,12 @@ maybe_run_session_subscribed(true, _Ctx, _CInfo, _MountTopic, _SubOpts) ->
 maybe_run_session_subscribed(false, Ctx, CInfo, MountTopic, SubOpts) ->
     run_hooks(Ctx, 'session.subscribed', [CInfo, MountTopic, SubOpts]).
 
-unsubscribe(Msg, Topic, Ctx, CInfo, Session) ->
+unsubscribe(#coap_message{token = Token} = Msg, Topic, _Ctx, CInfo, Session) ->
     MountTopic = mount(CInfo, Topic),
     case emqx_coap_session:observe_matches(MountTopic, Msg, Session) of
-        true -> do_unsubscribe(Msg, Topic, MountTopic, Ctx, CInfo);
+        true -> ?UNSUB({MountTopic, Token}, Msg);
         false -> reply({error, bad_request}, Msg)
     end.
-
-do_unsubscribe(Msg, Topic, MountTopic, Ctx, CInfo) ->
-    emqx_broker:unsubscribe(MountTopic),
-    run_hooks(Ctx, 'session.unsubscribed', [CInfo, Topic, mk_subopts()]),
-    ?UNSUB(MountTopic, Msg).
 
 mount(#{mountpoint := Mountpoint}, Topic) ->
     <<Mountpoint/binary, Topic/binary>>.
