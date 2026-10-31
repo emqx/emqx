@@ -529,6 +529,40 @@ ensure_attached_service_account_token_resources_cleared() ->
     ?assertMatch([], ets:tab2list(?SA_TOKEN_RESP_TAB)),
     ok.
 
+disable_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:disable_kind_api(source, Type, Name).
+
+enable_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:enable_kind_api(source, Type, Name).
+
+delete_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:delete_kind_api(source, Type, Name).
+
+activated_alarm_names() ->
+    [Name || #{name := Name} <- emqx_alarm:get_alarms(activated)].
+
+mark_ready_and_wait_waiter() ->
+    ?tp(test_marking_node_ready, #{}),
+    ?wait_async_action(
+        emqx_node_readiness:mark_ready(),
+        #{?snk_kind := resource_ready_waiter_ran},
+        5_000
+    ).
+
+receive_published_values(0) ->
+    [];
+receive_published_values(N) ->
+    receive
+        {publish, #{payload := Payload}} ->
+            #{~"value" := Value} = emqx_utils_json:decode(Payload),
+            [Value | receive_published_values(N - 1)]
+    after 10_000 ->
+        ct:fail({missing_published_messages, N})
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -1329,6 +1363,122 @@ t_create_subscription_aborted_due_to_race(TCConfig) ->
             ?assertMatch(
                 [_ | _],
                 ?of_kind(["gcp_pubsub_consumer_grpc_aborted_subscription_creation"], Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+Checks that a source started while the node is not ready opens no stream, so it pulls
+and acknowledges nothing, and that it reports `connected` while it waits, then delivers
+the messages published meanwhile.  The source is restarted first, so its worker updates
+the existing subscription, as after a node restart.
+""".
+t_pull_after_node_ready(TCConfig) ->
+    SourceResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    NumMsgs = 3,
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            %% MQTT connections are refused while the node is not ready.
+            C = start_client(),
+            on_exit(fun emqx_node_readiness:mark_ready/0),
+            ok = emqx_node_readiness:mark_not_ready(),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, _}} =
+                ?wait_async_action(
+                    create_source_api(TCConfig, #{}),
+                    #{?snk_kind := "gcp_pubsub_consumer_enter_state", s := s_pull},
+                    10_000
+                ),
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
+            {204, _} = disable_source_api(TCConfig),
+            ?tp(test_source_disabled, #{}),
+            {{204, _}, {ok, _}} =
+                ?wait_async_action(
+                    enable_source_api(TCConfig),
+                    #{?snk_kind := "gcp_pubsub_consumer_enter_state", s := s_pull},
+                    10_000
+                ),
+            Payloads = [emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- lists:seq(1, NumMsgs)],
+            pubsub_publish([#{~"data" => P} || P <- Payloads], #{}, TCConfig),
+            ?retry(
+                200,
+                20,
+                ?assertMatch({200, #{~"status" := ~"connected"}}, get_source_api(TCConfig))
+            ),
+            ?assertNot(lists:member(SourceResId, activated_alarm_names())),
+            {ok, {ok, _}} = mark_ready_and_wait_waiter(),
+            ?assertEqual(lists:sort(Payloads), lists:sort(receive_published_values(NumMsgs))),
+            ok
+        end,
+        fun(Trace) ->
+            {BeforeReady, _AfterReady} =
+                ?split_trace_at(#{?snk_kind := test_marking_node_ready}, Trace),
+            ?assertEqual(
+                [], ?of_kind("gcp_pubsub_consumer_grpc_worker_pulling", BeforeReady)
+            ),
+            ?assertEqual(
+                [], ?of_kind("gcp_pubsub_consumer_grpc_worker_process_msg", BeforeReady)
+            ),
+            ?assertEqual(
+                [], ?of_kind("gcp_pubsub_consumer_grpc_will_send_ack_req0", BeforeReady)
+            ),
+            {_, AfterDisable} = ?split_trace_at(#{?snk_kind := test_source_disabled}, Trace),
+            ?assertEqual(
+                [],
+                [
+                    E
+                 || #{s := s_create_subscription} = E <- ?of_kind(
+                        "gcp_pubsub_consumer_enter_state", AfterDisable
+                    )
+                ]
+            ),
+            %% Both the stopped and the running worker left a deferred pull.
+            WorkerKeys = [
+                {emqx_bridge_gcp_pubsub_consumer_grpc_worker, Pid}
+             || #{s := s_pull, ?snk_meta := #{pid := Pid}} <- ?of_kind(
+                    "gcp_pubsub_consumer_enter_state", BeforeReady
+                )
+            ],
+            ?assertMatch([_, _], WorkerKeys),
+            ?assertMatch([#{keys := _}], ?of_kind(resource_ready_waiter_ran, Trace)),
+            [#{keys := Keys}] = ?of_kind(resource_ready_waiter_ran, Trace),
+            ?assertEqual(lists:sort(WorkerKeys), lists:sort(Keys)),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+Checks that a source deleted while the node is not ready never opens a stream, and that
+the waiter clears its deferred pull once the node is ready.
+""".
+t_remove_before_node_ready(TCConfig) ->
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            on_exit(fun emqx_node_readiness:mark_ready/0),
+            ok = emqx_node_readiness:mark_not_ready(),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, #{?snk_meta := #{pid := WorkerPid}}}} =
+                ?wait_async_action(
+                    create_source_api(TCConfig, #{}),
+                    #{?snk_kind := "gcp_pubsub_consumer_enter_state", s := s_pull},
+                    10_000
+                ),
+            {204, _} = delete_source_api(TCConfig),
+            ?retry(100, 20, ?assertNot(is_process_alive(WorkerPid))),
+            {ok, {ok, _}} = mark_ready_and_wait_waiter(),
+            WorkerPid
+        end,
+        fun(WorkerPid, Trace) ->
+            ?assertEqual([], ?of_kind("gcp_pubsub_consumer_grpc_worker_pulling", Trace)),
+            ?assertMatch(
+                [#{keys := [{emqx_bridge_gcp_pubsub_consumer_grpc_worker, WorkerPid}]}],
+                ?of_kind(resource_ready_waiter_ran, Trace)
             ),
             ok
         end
