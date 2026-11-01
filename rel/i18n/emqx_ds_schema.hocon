@@ -8,6 +8,13 @@ emqx_ds_schema {
       Configuration of the durable storage for MQTT messages.~"""
   }
 
+  retained_messages {
+    label: "Retained MQTT Message Storage"
+    desc:
+      """~
+      Configuration of the durable storage for retained MQTT messages.~"""
+  }
+
   sessions {
     label: "MQTT Session Storage"
     desc:
