@@ -941,7 +941,48 @@ t_jq(_) ->
     ?assertThrow(
         {jq_exception, {timeout, _}},
         apply_func(jq, [TOProgram, <<"-2">>])
-    ).
+    ),
+    Canary = "EMQX_T_JQ_CANARY",
+    PrevImpl = jq:implementation_module(),
+    true = os:putenv(Canary, "canary"),
+    try
+        %% Port programs spawned after this inherit the variable.
+        ok = application:stop(jq),
+        {ok, _} = application:ensure_all_started(jq),
+        lists:foreach(fun(Impl) -> jq_assert_empty_env(Impl, list_to_binary(Canary)) end, [
+            jq_nif, jq_port
+        ])
+    after
+        jq:set_implementation_module(PrevImpl),
+        os:unsetenv(Canary)
+    end.
+
+%% os:putenv/2 reaches port programs, but not the C environment of the emulator
+%% that the NIF sees. BINDIR is in the C environment because erlexec sets it.
+jq_assert_empty_env(Impl, Canary) ->
+    ok = jq:set_implementation_module(Impl),
+    true = is_list(os:getenv("BINDIR")),
+    lists:foreach(
+        fun(Var) ->
+            ?assertEqual(
+                [null], apply_func(jq, [<<"$ENV.", Var/binary>>, <<"null">>]), {Impl, Var}
+            ),
+            ?assertEqual(
+                [null], apply_func(jq, [<<"env.", Var/binary>>, <<"null">>]), {Impl, Var}
+            )
+        end,
+        [Canary, <<"BINDIR">>]
+    ),
+    ?assertEqual([#{}], apply_func(jq, [<<"$ENV">>, <<"null">>]), Impl),
+    ?assertEqual([#{}], apply_func(jq, [<<"env">>, <<"null">>]), Impl),
+    %% The binding also covers a program with unbalanced parentheses.
+    ?assertEqual([1, #{}, 1], apply_func(jq, [<<"1), env, (1">>, <<"null">>]), Impl),
+    ?assertEqual([1, #{}, 1], apply_func(jq, [<<"1), $ENV, (1">>, <<"null">>]), Impl),
+    %% Other filters are not affected.
+    ?assertEqual([1], apply_func(jq, [<<".a">>, <<"{\"a\": 1}">>]), Impl),
+    ?assertEqual([1], apply_func(jq, [<<".a # comment">>, <<"{\"a\": 1}">>]), Impl),
+    ?assertEqual([2], apply_func(jq, [<<"def f: .a + 1; f">>, <<"{\"a\": 1}">>]), Impl),
+    ?assertEqual([1, 1], apply_func(jq, [<<".a, .a">>, <<"{\"a\": 1}">>]), Impl).
 
 ascii_string() -> list(range(0, 127)).
 

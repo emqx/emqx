@@ -963,7 +963,7 @@ join_to_sql_values_string(List) ->
 jq(FilterProgram, JSONBin, TimeoutMS) when
     is_binary(FilterProgram), is_binary(JSONBin)
 ->
-    case jq:process_json(FilterProgram, JSONBin, TimeoutMS) of
+    case jq:process_json(jq_program(FilterProgram), JSONBin, TimeoutMS) of
         {ok, Result} ->
             [json_decode(JSONString) || JSONString <- Result];
         {error, ErrorReason} ->
@@ -972,6 +972,12 @@ jq(FilterProgram, JSONBin, TimeoutMS) when
 jq(FilterProgram, JSONTerm, TimeoutMS) when is_binary(FilterProgram) ->
     JSONBin = json_encode(JSONTerm),
     jq(FilterProgram, JSONBin, TimeoutMS).
+
+%% In a filter program, `env' and `$ENV' evaluate to an empty object.
+%% The newline before the closing parenthesis keeps it out of a line comment
+%% at the end of the program.
+jq_program(FilterProgram) ->
+    <<"def env: {}; {} as $ENV | (\n", FilterProgram/binary, "\n)">>.
 
 -spec jq(FilterProgram, JSON) -> Result when
     FilterProgram :: binary(),
