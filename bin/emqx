@@ -596,10 +596,15 @@ check_license() {
         return 0
     fi
 
+    # Turn off debug so the license key isn't traced by 'set -x'.
+    set +x
     key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key' || echo '')}"
 
     if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
-      call_nodetool check_license_key "$key_license"
+      local ret=0
+      printf '%s' "$key_license" | call_nodetool check_license_key || ret=$?
+      if [ "$DEBUG" -gt 0 ]; then set -x; fi
+      return $ret
     else
       set +x
       logerr "License not found."
