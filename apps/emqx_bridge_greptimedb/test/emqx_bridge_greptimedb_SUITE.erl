@@ -233,6 +233,100 @@ query_by_clientid_and_int_key(ClientId, IntKey, TCConfig) ->
             "\"=", IntKeyBin/binary>>,
     query_by_sql(SQL, TCConfig).
 
+async_connector_state(WriteSyntax) ->
+    WriteSyntaxLines = emqx_bridge_greptimedb_utils:parse_write_syntax(
+        emqx_bridge_influxdb:to_influx_lines(WriteSyntax), ms
+    ),
+    #{
+        client => test_client,
+        database => <<"public">>,
+        installed_channels => #{
+            channel => #{
+                write_syntax => WriteSyntaxLines,
+                precision => ms,
+                field_types => #{}
+            }
+        }
+    }.
+
+async_connector_data(Id) ->
+    #{
+        <<"payload">> => json_encode(#{id => Id}),
+        <<"timestamp">> => Id
+    }.
+
+async_table_data(Id, Table) ->
+    #{
+        <<"payload">> => #{<<"t">> => Table},
+        <<"raw">> => json_encode(#{id => Id}),
+        <<"timestamp">> => Id
+    }.
+
+async_multi_table_data(Id, Table1, Table2) ->
+    #{
+        <<"payload">> => #{<<"t1">> => Table1, <<"t2">> => Table2},
+        <<"raw">> => json_encode(#{id => Id}),
+        <<"timestamp">> => Id
+    }.
+
+assert_multiline_partial_batch_results(Results) ->
+    ?assertEqual(2, length(Results)),
+    ?assertEqual(
+        [],
+        [
+            Result
+         || {error, {recoverable_error, _}} = Result <- Results
+        ]
+    ),
+    Reasons = [
+        Reason
+     || {error, {unrecoverable_error, #{reason := Reason}}} <- Results
+    ],
+    ?assertEqual(
+        lists:sort([multiline_partial_write, partial_batch_write]),
+        lists:sort(Reasons)
+    ),
+    [PartialResult] = [
+        Result
+     || {error, {unrecoverable_error, #{reason := multiline_partial_write}}} = Result <- Results
+    ],
+    {error, {unrecoverable_error, #{successful_rows := Rows}}} = PartialResult,
+    ?assert(Rows > 0).
+
+assert_mixed_batch_failure_recoverable(Results) ->
+    ?assertEqual(2, length(Results)),
+    lists:foreach(
+        fun
+            (
+                {error,
+                    {recoverable_error, #{
+                        reason := mixed_batch_failure,
+                        batch_results := OriginalResults
+                    }}}
+            ) ->
+                ?assertEqual(2, length(OriginalResults)),
+                ?assert(
+                    lists:any(
+                        fun
+                            ({error, {unrecoverable_error, _}}) -> true;
+                            (_) -> false
+                        end,
+                        OriginalResults
+                    )
+                );
+            (Result) ->
+                ct:fail({unexpected_batch_result, Result})
+        end,
+        Results
+    ).
+
+receive_reply(Tag) ->
+    receive
+        {Tag, Result} -> Result
+    after 1_000 ->
+        ct:fail({reply_timeout, Tag})
+    end.
+
 clear_table(TCConfig) ->
     query_by_sql(<<"delete from mqtt">>, TCConfig).
 
@@ -749,6 +843,464 @@ t_partially_invalid_batch(TCConfig) ->
             )
         end
     ).
+
+t_batch_result_aggregation() ->
+    [].
+t_batch_result_aggregation(_TCConfig) ->
+    Aggregate = fun emqx_bridge_greptimedb_rs_impl:aggregate_message_results/3,
+    ?assertEqual(
+        [{ok, 2}, {ok, 2}],
+        Aggregate(
+            2,
+            [
+                {1, 1, {ok, 1}},
+                {1, 1, {ok, 1}},
+                {2, 1, {ok, 1}},
+                {2, 1, {ok, 1}}
+            ],
+            []
+        )
+    ),
+    ?assertEqual(
+        [
+            {error, {recoverable_error, timeout}},
+            {error, {recoverable_error, closed}}
+        ],
+        Aggregate(
+            2,
+            [],
+            [
+                {1, {error, {recoverable_error, timeout}}},
+                {2, {error, {recoverable_error, closed}}}
+            ]
+        )
+    ),
+    ?assertEqual(
+        [{error, {unrecoverable_error, rejected}}],
+        Aggregate(1, [], [{1, {error, {unrecoverable_error, rejected}}}])
+    ),
+    ?assertEqual(
+        [{error, {recoverable_error, not_connected}}],
+        Aggregate(1, [], [{1, {error, not_connected}}])
+    ),
+    ?assertEqual(
+        [{error, {recoverable_error, disconnected}}],
+        Aggregate(1, [], [{1, {error, disconnected}}])
+    ),
+    ?assertEqual(
+        [{error, {recoverable_error, ecpool_empty}}],
+        Aggregate(1, [], [{1, {error, ecpool_empty}}])
+    ),
+    ?assertEqual(
+        [{error, {unrecoverable_error, unexpected_call}}],
+        Aggregate(1, [], [{1, {error, unexpected_call}}])
+    ),
+    ?assertMatch(
+        [
+            {error,
+                {unrecoverable_error, #{
+                    reason := multiline_partial_write,
+                    successful_rows := 1,
+                    errors := timeout
+                }}}
+        ],
+        Aggregate(
+            1,
+            [
+                {1, 1, {ok, 1}},
+                {1, 1, {error, {recoverable_error, timeout}}}
+            ],
+            []
+        )
+    ),
+    ?assertEqual(
+        [{ok, 1}, {error, {unrecoverable_error, points_trans_failed}}],
+        Aggregate(
+            2,
+            [{1, 1, {ok, 1}}],
+            [{2, {error, {unrecoverable_error, points_trans_failed}}}]
+        )
+    ).
+
+t_async_insert_submission_pool_errors() ->
+    [].
+t_async_insert_submission_pool_errors(_TCConfig) ->
+    State = async_connector_state(<<"mqtt payload=${payload}">>),
+    Query = {channel, async_connector_data(1)},
+    Batch = [Query, {channel, async_connector_data(2)}],
+    Self = self(),
+    SingleReply = {fun(Result) -> Self ! {single_reply, Result} end, []},
+    BatchReply = {fun(Result) -> Self ! {batch_reply, Result} end, []},
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert_async,
+        fun(_Client, _Table, _Points, _ReplyFnAndArgs) -> {error, ecpool_empty} end,
+        fun() ->
+            ?assertMatch(
+                {ok, _},
+                emqx_bridge_greptimedb_rs_impl:on_query_async(
+                    <<"connector:test">>, Query, SingleReply, State
+                )
+            ),
+            ?assertEqual(
+                {error, {recoverable_error, ecpool_empty}},
+                receive_reply(single_reply)
+            ),
+            ?assertMatch(
+                {ok, _},
+                emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                    <<"connector:test">>, Batch, BatchReply, State
+                )
+            ),
+            ?assertEqual(
+                [
+                    {error, {recoverable_error, ecpool_empty}},
+                    {error, {recoverable_error, ecpool_empty}}
+                ],
+                receive_reply(batch_reply)
+            )
+        end
+    ).
+
+t_async_insert_continuation_pool_error() ->
+    [].
+t_async_insert_continuation_pool_error(_TCConfig) ->
+    State = async_connector_state(
+        <<"table_a payload=${payload}\ntable_b payload=${payload}">>
+    ),
+    Query = {channel, async_connector_data(1)},
+    Self = self(),
+    ReplyFnAndArgs = {fun(Result) -> Self ! {final_reply, Result} end, []},
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert_async,
+        fun(_Client, _Table, _Points, ReplyFnAndArgs0) ->
+            Self ! {async_insert_started, ReplyFnAndArgs0},
+            {ok, self()}
+        end,
+        fun() ->
+            ?assertMatch(
+                {ok, _},
+                emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                    <<"connector:test">>, [Query], ReplyFnAndArgs, State
+                )
+            ),
+            {ReplyFun, ReplyArgs} =
+                receive
+                    {async_insert_started, Callback} -> Callback
+                after 1_000 ->
+                    ct:fail(async_insert_not_submitted)
+                end,
+            ok = meck:expect(
+                greptimedb_rs,
+                insert_async,
+                fun(_Client, _Table, _Points, _ReplyFnAndArgs0) ->
+                    {error, ecpool_empty}
+                end
+            ),
+            _ = erlang:apply(ReplyFun, ReplyArgs ++ [{ok, 1}]),
+            ?assertMatch(
+                {error,
+                    {unrecoverable_error, #{
+                        reason := multiline_partial_write,
+                        successful_rows := 1,
+                        errors := ecpool_empty
+                    }}},
+                receive_reply(final_reply)
+            ),
+            receive
+                {final_reply, Duplicate} ->
+                    ct:fail({duplicate_final_reply, Duplicate})
+            after 100 ->
+                ok
+            end
+        end
+    ).
+
+t_async_insert_failure_accounts_for_remaining_tables() ->
+    [].
+t_async_insert_failure_accounts_for_remaining_tables(_TCConfig) ->
+    State = async_connector_state(<<"${.payload.t} payload=${raw}">>),
+    Batch = [
+        {channel, async_table_data(1, <<"table_a">>)},
+        {channel, async_table_data(2, <<"table_b">>)},
+        {channel, async_table_data(3, <<"table_c">>)}
+    ],
+    Self = self(),
+    ReplyFnAndArgs = {fun(Result) -> Self ! {final_reply, Result} end, []},
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert_async,
+        fun(_Client, _Table, _Points, ReplyFnAndArgs0) ->
+            Self ! {async_insert_started, ReplyFnAndArgs0},
+            {ok, self()}
+        end,
+        fun() ->
+            ?assertMatch(
+                {ok, _},
+                emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                    <<"connector:test">>, Batch, ReplyFnAndArgs, State
+                )
+            ),
+            {ReplyFun, ReplyArgs} =
+                receive
+                    {async_insert_started, Callback} -> Callback
+                after 1_000 ->
+                    ct:fail(async_insert_not_submitted)
+                end,
+            ok = meck:expect(
+                greptimedb_rs,
+                insert_async,
+                fun(_Client, _Table, _Points, _ReplyFnAndArgs0) ->
+                    {error, ecpool_empty}
+                end
+            ),
+            _ = erlang:apply(ReplyFun, ReplyArgs ++ [{ok, 1}]),
+            Results = receive_reply(final_reply),
+            ?assertEqual(3, length(Results)),
+            ?assertMatch([{ok, 1}], [Result || {ok, _} = Result <- Results]),
+            Unrecoverable = [Result || {error, _} = Result <- Results],
+            ?assertMatch(
+                [
+                    {error,
+                        {unrecoverable_error, #{
+                            reason := partial_batch_write
+                        }}},
+                    {error,
+                        {unrecoverable_error, #{
+                            reason := partial_batch_write
+                        }}}
+                ],
+                Unrecoverable
+            )
+        end
+    ).
+
+t_sync_insert_coalesces_mixed_batch_results() ->
+    [].
+t_sync_insert_coalesces_mixed_batch_results(_TCConfig) ->
+    State = async_connector_state(<<"${.payload.t} payload=${raw}">>),
+    Batch = [
+        {channel, async_table_data(1, <<"table_a">>)},
+        {channel, async_table_data(2, <<"table_b">>)},
+        {channel, async_table_data(3, <<"table_c">>)}
+    ],
+    InsertCounter = counters:new(1, []),
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert,
+        fun(_Client, _Table, _Points) ->
+            Count = counters:get(InsertCounter, 1),
+            ok = counters:add(InsertCounter, 1, 1),
+            case Count of
+                0 -> {ok, 1};
+                _ -> {error, ecpool_empty}
+            end
+        end,
+        fun() ->
+            Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
+                <<"connector:test">>, Batch, State
+            ),
+            ?assertEqual(3, length(Results)),
+            ?assertMatch([{ok, 1}], [Result || {ok, _} = Result <- Results]),
+            ?assertEqual(
+                [],
+                [
+                    Result
+                 || {error, {recoverable_error, _}} = Result <- Results
+                ]
+            ),
+            ?assertMatch(
+                [
+                    {error,
+                        {unrecoverable_error, #{
+                            reason := partial_batch_write
+                        }}},
+                    {error,
+                        {unrecoverable_error, #{
+                            reason := partial_batch_write
+                        }}}
+                ],
+                [Result || {error, _} = Result <- Results]
+            )
+        end
+    ).
+
+t_sync_insert_preserves_retryability_without_success() ->
+    [].
+t_sync_insert_preserves_retryability_without_success(_TCConfig) ->
+    State = async_connector_state(<<"${.payload.t} payload=${raw}">>),
+    InvalidData = (async_table_data(2, <<"table_b">>))#{<<"timestamp">> => <<"bad">>},
+    Batch = [
+        {channel, async_table_data(1, <<"table_a">>)},
+        {channel, InvalidData}
+    ],
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert,
+        fun(_Client, _Table, _Points) -> {error, ecpool_empty} end,
+        fun() ->
+            Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
+                <<"connector:test">>, Batch, State
+            ),
+            assert_mixed_batch_failure_recoverable(Results)
+        end
+    ).
+
+t_async_insert_preserves_retryability_without_success() ->
+    [].
+t_async_insert_preserves_retryability_without_success(_TCConfig) ->
+    State = async_connector_state(<<"${.payload.t} payload=${raw}">>),
+    InvalidData = (async_table_data(2, <<"table_b">>))#{<<"timestamp">> => <<"bad">>},
+    Batch = [
+        {channel, async_table_data(1, <<"table_a">>)},
+        {channel, InvalidData}
+    ],
+    Self = self(),
+    ReplyFnAndArgs = {fun(Result) -> Self ! {final_reply, Result} end, []},
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert_async,
+        fun(_Client, _Table, _Points, _ReplyFnAndArgs0) -> {error, ecpool_empty} end,
+        fun() ->
+            ?assertMatch(
+                {ok, _},
+                emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                    <<"connector:test">>, Batch, ReplyFnAndArgs, State
+                )
+            ),
+            assert_mixed_batch_failure_recoverable(receive_reply(final_reply))
+        end
+    ).
+
+t_sync_insert_treats_multiline_partial_as_success() ->
+    [].
+t_sync_insert_treats_multiline_partial_as_success(_TCConfig) ->
+    State = async_connector_state(
+        <<"${.payload.t1} payload=${raw}\n${.payload.t2} payload=${raw}">>
+    ),
+    Batch = [
+        {channel, async_multi_table_data(1, <<"table_a">>, <<"table_b">>)},
+        {channel, async_multi_table_data(2, <<"table_c">>, <<"table_d">>)}
+    ],
+    InsertCounter = counters:new(1, []),
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert,
+        fun(_Client, _Table, _Points) ->
+            Count = counters:get(InsertCounter, 1),
+            ok = counters:add(InsertCounter, 1, 1),
+            case Count of
+                0 -> {ok, 1};
+                _ -> {error, ecpool_empty}
+            end
+        end,
+        fun() ->
+            Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
+                <<"connector:test">>, Batch, State
+            ),
+            assert_multiline_partial_batch_results(Results)
+        end
+    ).
+
+t_async_insert_treats_multiline_partial_as_success() ->
+    [].
+t_async_insert_treats_multiline_partial_as_success(_TCConfig) ->
+    State = async_connector_state(
+        <<"${.payload.t1} payload=${raw}\n${.payload.t2} payload=${raw}">>
+    ),
+    Batch = [
+        {channel, async_multi_table_data(1, <<"table_a">>, <<"table_b">>)},
+        {channel, async_multi_table_data(2, <<"table_c">>, <<"table_d">>)}
+    ],
+    Self = self(),
+    ReplyFnAndArgs = {fun(Result) -> Self ! {final_reply, Result} end, []},
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert_async,
+        fun(_Client, _Table, _Points, ReplyFnAndArgs0) ->
+            Self ! {async_insert_started, ReplyFnAndArgs0},
+            {ok, self()}
+        end,
+        fun() ->
+            ?assertMatch(
+                {ok, _},
+                emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                    <<"connector:test">>, Batch, ReplyFnAndArgs, State
+                )
+            ),
+            {ReplyFun, ReplyArgs} =
+                receive
+                    {async_insert_started, Callback} -> Callback
+                after 1_000 ->
+                    ct:fail(async_insert_not_submitted)
+                end,
+            ok = meck:expect(
+                greptimedb_rs,
+                insert_async,
+                fun(_Client, _Table, _Points, _ReplyFnAndArgs0) ->
+                    {error, ecpool_empty}
+                end
+            ),
+            _ = erlang:apply(ReplyFun, ReplyArgs ++ [{ok, 1}]),
+            assert_multiline_partial_batch_results(receive_reply(final_reply))
+        end
+    ).
+
+-doc """
+Verifies that channels loaded by a pre-upgrade beam continue to work when
+their action state does not contain the new `field_types` key.
+""".
+t_legacy_channel_state_without_field_types() ->
+    [].
+t_legacy_channel_state_without_field_types(_TCConfig) ->
+    State0 = async_connector_state(<<"mqtt payload=${payload}">>),
+    #{installed_channels := InstalledChannels0} = State0,
+    ActionState = maps:remove(field_types, maps:get(channel, InstalledChannels0)),
+    State = State0#{installed_channels => #{channel => ActionState}},
+    emqx_common_test_helpers:with_mock(
+        greptimedb_rs,
+        insert,
+        fun(_Client, _Table, _Points) -> {ok, 1} end,
+        fun() ->
+            ?assertEqual(
+                {ok, 1},
+                emqx_bridge_greptimedb_rs_impl:on_query(
+                    <<"connector:test">>,
+                    {channel, async_connector_data(1)},
+                    State
+                )
+            )
+        end
+    ).
+
+-doc """
+Verifies that async replies scheduled by a pre-upgrade beam are normalized from
+the old callback context shape before they are processed by the new module.
+""".
+t_legacy_async_reply_context() ->
+    [].
+t_legacy_async_reply_context(_TCConfig) ->
+    Self = self(),
+    ReplyFnAndArgs = {fun(Result) -> Self ! {legacy_reply, Result} end, []},
+    LegacySingle = #{
+        res_id => channel,
+        iter => maps:iterator(#{}),
+        last_indices => [1],
+        final_cont => ReplyFnAndArgs,
+        final_res => [],
+        client => test_client,
+        is_batch => false
+    },
+    ok = emqx_bridge_greptimedb_rs_impl:reply_callback(LegacySingle, {ok, 1}),
+    ?assertEqual({ok, 1}, receive_reply(legacy_reply)),
+    LegacyBatch = LegacySingle#{
+        last_indices := [2],
+        final_res := [{1, {ok, 1}}],
+        is_batch := true
+    },
+    ok = emqx_bridge_greptimedb_rs_impl:reply_callback(LegacyBatch, {ok, 1}),
+    ?assertEqual([{ok, 1}, {ok, 1}], receive_reply(legacy_reply)).
 
 t_bad_timestamp() ->
     [{matrix, true}].

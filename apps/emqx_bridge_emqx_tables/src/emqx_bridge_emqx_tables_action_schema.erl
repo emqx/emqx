@@ -56,22 +56,34 @@ fields(action) ->
         )};
 fields(?ACTION_TYPE) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
-        mk(hoconsc:ref(emqx_bridge_greptimedb, action_parameters), #{
-            required => true, desc => ?DESC("parameters")
+        mk(ref(action_parameters), #{
+            required => true,
+            desc => ?DESC("parameters"),
+            validator => fun validate_action_parameters/1
         }),
         #{resource_opts_ref => ref(action_resource_opts)}
     );
+fields(action_parameters) ->
+    emqx_bridge_greptimedb:fields(action_parameters) ++
+        [
+            {field_types,
+                mk(map(), #{
+                    required => false,
+                    default => #{},
+                    validator => fun validate_field_types/1,
+                    desc => ?DESC(field_types)
+                })}
+        ];
 fields(action_resource_opts) ->
     emqx_bridge_v2_schema:action_resource_opts_fields([
         {batch_size, #{default => 1000}},
         {batch_time, #{default => <<"100ms">>}}
     ]).
 
-desc(Name) when
-    Name =:= ?ACTION_TYPE;
-    Name =:= action_parameters
-->
-    ?DESC(Name);
+desc(?ACTION_TYPE) ->
+    ?DESC(?ACTION_TYPE);
+desc(action_parameters) ->
+    ?DESC("parameters");
 desc(action_resource_opts) ->
     emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(_Name) ->
@@ -120,6 +132,7 @@ action_example(put) ->
         parameters =>
             #{
                 write_syntax => write_syntax_value(),
+                field_types => #{payload => json2},
                 precision => ms
             },
         resource_opts =>
@@ -150,3 +163,88 @@ write_syntax_value() ->
         "${clientid}_int_value=${payload.int_key}i,",
         "uint_value=${payload.uint_key}u,"
         "bool=${payload.bool}">>.
+
+validate_field_types(undefined) ->
+    ok;
+validate_field_types(FieldTypes) when is_map(FieldTypes) ->
+    DynamicNames = [
+        Name
+     || Name <- maps:keys(FieldTypes),
+        has_placeholder(Name)
+    ],
+    UnsupportedTypes = [
+        {Name, Type}
+     || {Name, Type} <- maps:to_list(FieldTypes),
+        Type =/= json2,
+        Type =/= <<"json2">>
+    ],
+    case {DynamicNames, UnsupportedTypes} of
+        {[_ | _], _} ->
+            {error,
+                io_lib:format(
+                    "dynamic field_types names are not supported: ~p",
+                    [DynamicNames]
+                )};
+        {[], []} ->
+            ok;
+        {[], Unsupported} ->
+            {error, io_lib:format("unsupported field types: ~p", [Unsupported])}
+    end;
+validate_field_types(FieldTypes) ->
+    {error, io_lib:format("field_types must be a map, got: ~p", [FieldTypes])}.
+
+has_placeholder(Name) ->
+    Tokens = emqx_placeholder:preproc_tmpl(emqx_utils_conv:bin(Name)),
+    lists:any(
+        fun
+            ({var, _}) -> true;
+            (_) -> false
+        end,
+        Tokens
+    ).
+
+validate_action_parameters(Parameters) when is_map(Parameters) ->
+    WriteSyntax = parameter_value(write_syntax, Parameters),
+    FieldTypes = parameter_value(field_types, Parameters),
+    validate_action_parameters(WriteSyntax, FieldTypes);
+validate_action_parameters(_Parameters) ->
+    ok.
+
+validate_action_parameters(WriteSyntax, FieldTypes) when is_map(FieldTypes) ->
+    Lines = write_syntax_lines(WriteSyntax),
+    FieldsInTemplate = maps:from_list([
+        {emqx_utils_conv:bin(FieldName), true}
+     || #{fields := Fields} <- Lines,
+        {FieldName, _} <- Fields
+    ]),
+    Missing = [
+        FieldName
+     || FieldName <- maps:keys(FieldTypes),
+        not maps:is_key(emqx_utils_conv:bin(FieldName), FieldsInTemplate)
+    ],
+    case Missing of
+        [] ->
+            ok;
+        _ ->
+            {error,
+                io_lib:format(
+                    "field_types names must be fields in write_syntax: ~p",
+                    [Missing]
+                )}
+    end;
+validate_action_parameters(_WriteSyntax, _FieldTypes) ->
+    ok.
+
+parameter_value(Key, Parameters) ->
+    maps:get(
+        Key,
+        Parameters,
+        maps:get(atom_to_binary(Key, utf8), Parameters, undefined)
+    ).
+
+write_syntax_lines(Lines) when is_list(Lines) ->
+    Lines;
+write_syntax_lines(WriteSyntax) when is_binary(WriteSyntax) ->
+    emqx_bridge_influxdb:to_influx_lines(WriteSyntax);
+write_syntax_lines(_WriteSyntax) ->
+    [].
