@@ -167,6 +167,33 @@ t_stop_apps_stops_listeners_first(Config) ->
         catch emqx_cth_cluster:stop([Node])
     end.
 
+-doc """
+`post_boot/0` unsets `EMQX_BOOT_CONFIGS` in the environment of the VM. An OS process that the node
+starts after this point does not inherit the variable, and `emqx ctl conf load` still works. That
+command runs a config check, which reads the environment again.
+""".
+t_post_boot_unsets_boot_configs(Config) ->
+    [Node] = emqx_cth_cluster:start(
+        [{machine_post_boot_SUITE1, #{role => core, apps => app_specs()}}],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Var = "EMQX_BOOT_CONFIGS",
+    PrintVar = "printenv " ++ Var ++ " || echo ABSENT",
+    ConfFile = filename:join(?config(priv_dir, Config), "post_boot_unset.conf"),
+    ok = file:write_file(ConfFile, <<"mqtt.max_topic_levels = 99\n">>),
+    try
+        true = erpc:call(Node, os, putenv, [Var, "node.name=x"]),
+        ?assertEqual("node.name=x\n", erpc:call(Node, os, cmd, [PrintVar])),
+        ok = erpc:call(Node, emqx_app, set_config_loader, [emqx_cth_suite]),
+        ?assertEqual(ignore, erpc:call(Node, emqx_machine_boot, post_boot, [])),
+        ?assertEqual(false, erpc:call(Node, os, getenv, [Var])),
+        ?assertEqual("ABSENT\n", erpc:call(Node, os, cmd, [PrintVar])),
+        ?assertEqual(ok, erpc:call(Node, emqx_conf_cli, conf, [["load", "--merge", ConfFile]])),
+        ?assertEqual(99, erpc:call(Node, emqx_config, get, [[mqtt, max_topic_levels]]))
+    after
+        catch emqx_cth_cluster:stop([Node])
+    end.
+
 t_sorted_reboot_apps(_Config) ->
     Apps = emqx_machine_boot:sorted_reboot_apps(),
     SortApps = [App || App <- Apps, (App =:= emqx_dashboard orelse App =:= emqx_license)],
