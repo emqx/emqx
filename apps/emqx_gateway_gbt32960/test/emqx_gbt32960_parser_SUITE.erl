@@ -17,6 +17,8 @@
 
 all() ->
     [
+        t_split_frame_heading,
+        t_frame_errors_follow_parser_contract,
         case01_login,
         case02_realtime_report_0x01,
         case03_realtime_report_0x02,
@@ -64,6 +66,41 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     Config.
+
+-doc "Both protocol versions parse identically at every TCP split position, including the heading.".
+t_split_frame_heading(_) ->
+    lists:foreach(
+        fun(Version) ->
+            Bin = encode(?CMD_HEARTBEAT, <<"1G1BL52P7TR115520">>, <<>>, Version),
+            Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+            {ok, Expected, <<>>, _} = emqx_gbt32960_frame:parse(Bin, Parser),
+            lists:foreach(
+                fun(Offset) ->
+                    <<First:Offset/binary, Rest/binary>> = Bin,
+                    {more, Next} = emqx_gbt32960_frame:parse(First, Parser),
+                    {more, Next1} = emqx_gbt32960_frame:parse(<<>>, Next),
+                    ?assertMatch(
+                        {ok, Expected, <<>>, _},
+                        emqx_gbt32960_frame:parse(Rest, Next1)
+                    )
+                end,
+                lists:seq(1, byte_size(Bin) - 1)
+            )
+        end,
+        [<<"2016">>, <<"2025">>]
+    ).
+
+-doc "Invalid headings and checksums raise parser errors for the connection's controlled error path.".
+t_frame_errors_follow_parser_contract(_) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    ?assertError(invalid_frame, emqx_gbt32960_frame:parse(<<"invalid">>, Parser)),
+    Bin = encode(?CMD_HEARTBEAT, <<"1G1BL52P7TR115520">>, <<>>),
+    Size = byte_size(Bin) - 1,
+    <<Prefix:Size/binary, Check>> = Bin,
+    ?assertError(
+        frame_check_error,
+        emqx_gbt32960_frame:parse(<<Prefix/binary, (Check bxor 1)>>, Parser)
+    ).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
