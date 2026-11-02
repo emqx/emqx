@@ -1699,6 +1699,8 @@ t_stomp_hook_rejections(_) ->
         {"access denied", <<"access denied">>},
         {<<"access denied">>, <<"access denied">>},
         {[16#62D2, 16#7EDD], unicode:characters_to_binary([16#62D2, 16#7EDD])},
+        {binary_to_list(<<"拒绝"/utf8>>), <<"拒绝"/utf8>>},
+        {[binary_to_list(<<"拒"/utf8>>), <<"绝"/utf8>>], <<"拒绝"/utf8>>},
         {<<255>>, <<"<<255>>">>},
         {<<16#E4, 16#B8>>, <<"<<228,184>>">>},
         {[invalid], <<"[invalid]">>},

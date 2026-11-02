@@ -774,6 +774,19 @@ close({ConnPid, _StreamRef}) ->
 t_connect_hook_rejection(_) ->
     check_ocpp_hook_reason(?RC_QUOTA_EXCEEDED, <<"Quota exceeded">>).
 
+-doc "OCPP preserves UTF-8 byte lists, binaries, and Unicode character-list hook reasons.".
+t_ocpp_utf8_reason(_) ->
+    Text = <<"拒绝"/utf8>>,
+    Reasons = [
+        binary_to_list(Text),
+        [binary_to_list(<<"拒"/utf8>>), <<"绝"/utf8>>],
+        Text,
+        [16#62D2, 16#7EDD],
+        [<<"拒"/utf8>>, [16#7EDD]]
+    ],
+    lists:foreach(fun(Reason) -> check_ocpp_hook_reason(Reason, Text) end, Reasons),
+    check_ocpp_hook_reason([16#E9], <<"é"/utf8>>).
+
 -doc "OCPP returns readable HTTP 400 text for a hook reason containing invalid UTF-8 bytes.".
 t_ocpp_invalid_utf8_reason(_) ->
     check_ocpp_hook_reason(<<255>>, <<"<<255>>">>).
