@@ -718,7 +718,12 @@ template_suffix_value_test() ->
         <<"mqtt,tag=prefix_${n}i field=prefix_${n}i">>, BaseData, <<"prefix_65i">>
     ),
     %% a fully literal `65i` is one text token and stays text
-    assert_tag_and_field_text(<<"mqtt,tag=65i field=65i">>, BaseData, <<"65i">>).
+    assert_tag_and_field_text(<<"mqtt,tag=65i field=65i">>, BaseData, <<"65i">>),
+    %% an unset placeholder is skipped also when a literal suffix follows it
+    {ok, [{_, [#{tags := UnsetTags}]}]} = convert_line(
+        <<"mqtt,tag=${n}i field=1">>, #{<<"timestamp">> => 1_789_360_000_000}
+    ),
+    ?assertNot(maps:is_key(<<"tag">>, UnsetTags)).
 
 quoted_template_suffix_value_test() ->
     BaseData = #{<<"timestamp">> => 1_789_360_000_000, <<"n">> => 65},
