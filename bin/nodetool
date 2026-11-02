@@ -32,9 +32,9 @@ main(Args) ->
             ok = add_libs_dir(),
             %% forward the call to hocon_cli
             hocon_cli:main(Rest);
-        ["check_license_key", Key0] ->
+        ["check_license_key"] ->
             ok = add_libs_dir(),
-            Key = cleanup_key(Key0),
+            Key = cleanup_key(read_stdin([])),
             check_license(#{key => Key});
         _ ->
             do(Args)
@@ -45,6 +45,13 @@ main(Args) ->
 cleanup_key(Str0) ->
     Str1 = iolist_to_binary(string:replace(Str0, "<<", "", leading)),
     iolist_to_binary(string:replace(Str1, ">>", "", trailing)).
+
+%% Read standard input to the end. Return a string (list).
+read_stdin(Acc) ->
+    case io:get_chars(standard_io, "", 4096) of
+        eof -> lists:append(lists:reverse(Acc));
+        Chars when is_list(Chars) -> read_stdin([Chars | Acc])
+    end.
 
 do(Args) ->
     ok = do_with_halt(Args, "mnesia_dir", fun create_mnesia_dir/2),
