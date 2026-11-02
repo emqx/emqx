@@ -80,14 +80,14 @@ parse(Data0, ?PAYLOAD_STATE(State, Buffer)) ->
 %%--------------------------------------------------------------------
 %% Control frames
 
-parse_operation(<<"PING\r\n", Rest/binary>>, State) ->
-    return_ping(Rest, State);
-parse_operation(<<"ping\r\n", Rest/binary>>, State) ->
-    return_ping(Rest, State);
-parse_operation(<<"PONG\r\n", Rest/binary>>, State) ->
-    return_pong(Rest, State);
-parse_operation(<<"pong\r\n", Rest/binary>>, State) ->
-    return_pong(Rest, State);
+parse_operation(<<"PING", Rest/binary>> = Data, State) ->
+    parse_control_line(Rest, Data, ?OP_PING, State);
+parse_operation(<<"ping", Rest/binary>> = Data, State) ->
+    parse_control_line(Rest, Data, ?OP_PING, State);
+parse_operation(<<"PONG", Rest/binary>> = Data, State) ->
+    parse_control_line(Rest, Data, ?OP_PONG, State);
+parse_operation(<<"pong", Rest/binary>> = Data, State) ->
+    parse_control_line(Rest, Data, ?OP_PONG, State);
 parse_operation(<<"CONNECT ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_CONNECT));
 parse_operation(<<"connect ", Rest/binary>>, State) ->
@@ -96,10 +96,10 @@ parse_operation(<<"INFO ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_INFO));
 parse_operation(<<"info ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_INFO));
-parse_operation(<<"+OK\r\n", Rest/binary>>, State) ->
-    return_ok(Rest, State);
-parse_operation(<<"+ok\r\n", Rest/binary>>, State) ->
-    return_ok(Rest, State);
+parse_operation(<<"+OK", Rest/binary>> = Data, State) ->
+    parse_control_line(Rest, Data, ?OP_OK, State);
+parse_operation(<<"+ok", Rest/binary>> = Data, State) ->
+    parse_control_line(Rest, Data, ?OP_OK, State);
 parse_operation(<<"-ERR ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_ERR));
 parse_operation(<<"-err ", Rest/binary>>, State) ->
@@ -131,15 +131,6 @@ parse_operation(<<"HMSG ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_HMSG));
 parse_operation(<<"hmsg ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_HMSG));
-parse_operation(Data, State) when
-    Data =:= <<"PING\r">>;
-    Data =:= <<"ping\r">>;
-    Data =:= <<"PONG\r">>;
-    Data =:= <<"pong\r">>;
-    Data =:= <<"+OK\r">>;
-    Data =:= <<"+ok\r">>
-->
-    {more, State#{buffer => Data}};
 parse_operation(Data, State) ->
     case is_prefix_of_any(Data, ?ALL_OPS) of
         true ->
@@ -421,14 +412,12 @@ to_header_state(State = #{state := args, iframe := Frame0}, M0) ->
     Frame = Frame0#nats_frame{message = M0},
     State#{state => headers, iframe => Frame}.
 
-return_ping(Rest, State) ->
-    {ok, #nats_frame{operation = ?OP_PING}, Rest, reset(State)}.
-
-return_pong(Rest, State) ->
-    {ok, #nats_frame{operation = ?OP_PONG}, Rest, reset(State)}.
-
-return_ok(Rest, State) ->
-    {ok, #nats_frame{operation = ?OP_OK}, Rest, reset(State)}.
+parse_control_line(<<"\r\n", Rest/binary>>, _Data, Op, State) ->
+    {ok, #nats_frame{operation = Op}, Rest, reset(State)};
+parse_control_line(Rest, Data, _Op, State) when Rest =:= <<>>; Rest =:= <<"\r">> ->
+    {more, State#{buffer => Data}};
+parse_control_line(_Rest, Data, _Op, _State) ->
+    error({unknown_operation, Data}).
 
 parse_args(
     Data,
