@@ -498,9 +498,17 @@ reason_text(Code) when is_integer(Code) ->
 reason_text(Reason) when is_atom(Reason) ->
     atom_to_binary(Reason, utf8);
 reason_text(Text) when is_list(Text); is_binary(Text) ->
-    unicode:characters_to_binary(Text);
+    try unicode:characters_to_binary(Text) of
+        Bin when is_binary(Bin) -> Bin;
+        _ -> format_reason(Text)
+    catch
+        error:badarg -> format_reason(Text)
+    end;
 reason_text(Reason) ->
-    stringfy(Reason).
+    format_reason(Reason).
+
+format_reason(Reason) ->
+    unicode:characters_to_binary(io_lib:format("~tw", [Reason])).
 
 %%--------------------------------------------------------------------
 %% Envs

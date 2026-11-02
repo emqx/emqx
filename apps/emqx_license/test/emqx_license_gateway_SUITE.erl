@@ -19,7 +19,12 @@
 
 all() ->
     [{group, Reason} || Reason <- [no_license, quota_exceeded, expired, max_uptime_reached]] ++
-        [t_stomp_hook_rejections].
+        [
+            t_stomp_hook_rejections,
+            t_ocpp_invalid_utf8_reason,
+            t_ocpp_incomplete_utf8_reason,
+            t_ocpp_invalid_chardata_reason
+        ].
 
 groups() ->
     Tests = [
@@ -135,21 +140,49 @@ t_stomp_hook_rejections(Config) ->
         {"access denied", <<"access denied">>},
         {<<"access denied">>, <<"access denied">>},
         {[16#62D2, 16#7EDD], unicode:characters_to_binary([16#62D2, 16#7EDD])},
+        {<<255>>, <<"<<255>>">>},
+        {<<16#E4, 16#B8>>, <<"<<228,184>>">>},
+        {[invalid], <<"[invalid]">>},
+        {[16#110000], <<"[1114112]">>},
         {255, <<"Unknown error">>},
         {{access_denied, policy}, <<"{access_denied,policy}">>}
     ],
     lists:foreach(
         fun({Reason, Text}) ->
-            ok = emqx_hooks:put('client.connect', {?MODULE, reject_connect, [Reason]}, 2001),
-            try
+            with_connect_rejection(Reason, fun() ->
                 stomp_connect(Port, {rejected, <<"Login Failed: ", Text/binary>>})
-            after
-                emqx_hooks:del('client.connect', {?MODULE, reject_connect})
-            end,
+            end),
             stomp_connect(Port, accepted)
         end,
         Reasons
     ).
+
+-doc "OCPP returns readable HTTP 400 text for a hook reason containing invalid UTF-8 bytes.".
+t_ocpp_invalid_utf8_reason(Config) ->
+    check_ocpp_hook_reason(Config, <<255>>, <<"<<255>>">>).
+
+-doc "OCPP returns readable HTTP 400 text for a hook reason containing incomplete UTF-8 bytes.".
+t_ocpp_incomplete_utf8_reason(Config) ->
+    check_ocpp_hook_reason(Config, <<16#E4, 16#B8>>, <<"<<228,184>>">>).
+
+-doc "OCPP returns readable HTTP 400 text when a hook reason is not valid character data.".
+t_ocpp_invalid_chardata_reason(Config) ->
+    check_ocpp_hook_reason(Config, [invalid], <<"[invalid]">>).
+
+check_ocpp_hook_reason(Config, Reason, ExpectedText) ->
+    Port = ?config(port, Config),
+    with_connect_rejection(Reason, fun() ->
+        ocpp_connect(Port, {rejected, ExpectedText})
+    end),
+    ocpp_connect(Port, accepted).
+
+with_connect_rejection(Reason, Fun) ->
+    ok = emqx_hooks:put('client.connect', {?MODULE, reject_connect, [Reason]}, 2001),
+    try
+        Fun()
+    after
+        emqx_hooks:del('client.connect', {?MODULE, reject_connect})
+    end.
 
 reject_connect(_ConnInfo, _ConnProps, Reason) ->
     {stop, {error, Reason}}.
@@ -220,6 +253,9 @@ gateway(t_coap) -> coap;
 gateway(t_lwm2m) -> lwm2m;
 gateway(t_mqttsn) -> mqttsn;
 gateway(t_ocpp) -> ocpp;
+gateway(t_ocpp_invalid_utf8_reason) -> ocpp;
+gateway(t_ocpp_incomplete_utf8_reason) -> ocpp;
+gateway(t_ocpp_invalid_chardata_reason) -> ocpp;
 gateway(t_jt808) -> jt808;
 gateway(t_jt808_direct_auth) -> jt808;
 gateway(t_jt808_direct_auth_2019) -> jt808.
@@ -374,6 +410,8 @@ mqttsn_connect(Port, Expected) ->
         ?assertMatch({ok, {_, ServerPort, <<3, 5, Code>>}}, gen_udp:recv(Socket, 0, 5000))
     end).
 
+ocpp_connect(Port, rejected) ->
+    ocpp_connect(Port, {rejected, <<"Quota exceeded">>});
 ocpp_connect(Port, Expected) ->
     {ok, Conn} = gun:open("127.0.0.1", Port, #{retry => 0}),
     try
@@ -389,9 +427,9 @@ ocpp_connect(Port, Expected) ->
                     {gun_upgrade, Conn, Stream, [<<"websocket">>], _} -> ok
                 after 5000 -> ct:fail(websocket_upgrade_timeout)
                 end;
-            rejected ->
+            {rejected, ExpectedText} ->
                 ?assertMatch({response, _, 400, _}, gun:await(Conn, Stream, 5000)),
-                ?assertEqual({ok, <<"Quota exceeded">>}, gun:await_body(Conn, Stream, 5000))
+                ?assertEqual({ok, ExpectedText}, gun:await_body(Conn, Stream, 5000))
         end
     after
         gun:close(Conn)
