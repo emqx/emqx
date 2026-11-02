@@ -131,6 +131,15 @@ parse_operation(<<"HMSG ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_HMSG));
 parse_operation(<<"hmsg ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_HMSG));
+parse_operation(Data, State) when
+    Data =:= <<"PING\r">>;
+    Data =:= <<"ping\r">>;
+    Data =:= <<"PONG\r">>;
+    Data =:= <<"pong\r">>;
+    Data =:= <<"+OK\r">>;
+    Data =:= <<"+ok\r">>
+->
+    {more, State#{buffer => Data}};
 parse_operation(Data, State) ->
     case is_prefix_of_any(Data, ?ALL_OPS) of
         true ->
