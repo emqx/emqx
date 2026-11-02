@@ -7,7 +7,7 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([{elvis_style, no_god_modules, disable}]).
 
 %% IoT Funcs
 -export([
@@ -772,7 +772,7 @@ hexstr2bin(Str) ->
 hexstr2bin(Str, undefined) ->
     emqx_variform_bif:hexstr2bin(Str);
 hexstr2bin(Str, Prefix) when is_binary(Prefix) ->
-    Length = size(Prefix),
+    Length = byte_size(Prefix),
     case Str of
         <<Prefix:Length/binary, Rest/binary>> ->
             emqx_variform_bif:hexstr2bin(Rest);
