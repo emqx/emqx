@@ -340,7 +340,10 @@ do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
                     authack({0, MsgSn, NChannel});
                 false ->
                     authack({1, MsgSn, Channel})
-            end
+            end;
+        {error, Reason, Channel} ->
+            log(warning, #{msg => "login_failed", reason => Reason}, Channel),
+            handle_auth_error(Frame, Channel)
     end;
 do_handle_in(Frame = ?MSG(?MC_HEARTBEAT), Channel) ->
     handle_out({?MS_GENERAL_RESPONSE, 0, ?MC_HEARTBEAT}, msgsn(Frame), Channel);
@@ -509,6 +512,17 @@ msgs2frame(Messages, Channel) ->
         Messages
     ),
     {lists:reverse(Frames), NChannel}.
+
+handle_auth_error(
+    #{<<"header">> := Header = #{<<"phone">> := Phone, <<"msg_sn">> := MsgSn}},
+    Channel = #channel{msg_sn = TxMsgSn}
+) ->
+    ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
+    Reply = #{
+        <<"header">> => build_frame_header(?MS_GENERAL_RESPONSE, 0, Phone, TxMsgSn, ProtoVer),
+        <<"body">> => #{<<"seq">> => MsgSn, <<"result">> => 1, <<"id">> => ?MC_AUTH}
+    },
+    {ok, [{outgoing, Reply}], state_inc_sn(Channel)}.
 
 authack(
     {Code, MsgSn,

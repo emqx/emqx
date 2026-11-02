@@ -55,7 +55,7 @@ Utility functions for EMQX gateway.
     random_clientid/1
 ]).
 
--export([stringfy/1]).
+-export([stringfy/1, reason_name/1, reason_text/1]).
 
 %% Common Envs
 -export([
@@ -485,6 +485,22 @@ stringfy(T) when is_list(T); is_binary(T) ->
     iolist_to_binary(T);
 stringfy(T) ->
     iolist_to_binary(io_lib:format("~0p", [T])).
+
+-spec reason_name(term()) -> term().
+reason_name(Code) when is_integer(Code) ->
+    emqx_reason_codes:name(Code);
+reason_name(Reason) ->
+    Reason.
+
+-spec reason_text(term()) -> binary().
+reason_text(Code) when is_integer(Code) ->
+    emqx_reason_codes:text(Code);
+reason_text(Reason) when is_atom(Reason) ->
+    atom_to_binary(Reason, utf8);
+reason_text(Text) when is_list(Text); is_binary(Text) ->
+    unicode:characters_to_binary(Text);
+reason_text(Reason) ->
+    stringfy(Reason).
 
 %%--------------------------------------------------------------------
 %% Envs

@@ -433,7 +433,8 @@ process_connect(
                 msg => "failed_to_open_session",
                 reason => Reason
             }),
-            ErrMsg = io_lib:format("Failed to open session: ~ts", [Reason]),
+            ErrMsg =
+                <<"Failed to open session: ", (emqx_gateway_utils:reason_text(Reason))/binary>>,
             handle_out(connerr, {failed_to_open_session, ErrMsg}, Channel)
     end.
 
@@ -482,8 +483,9 @@ handle_in(
         {ok, _NPacket, NChannel} ->
             process_connect(ensure_connected(NChannel));
         {error, ReasonCode, NChannel} ->
-            ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
-            handle_out(connerr, {ReasonCode, ErrMsg}, NChannel)
+            ErrMsg = <<"Login Failed: ", (emqx_gateway_utils:reason_text(ReasonCode))/binary>>,
+            Reason = emqx_gateway_utils:reason_name(ReasonCode),
+            handle_out(connerr, {Reason, ErrMsg}, NChannel)
     end;
 handle_in(
     Frame = ?PACKET(Op),
