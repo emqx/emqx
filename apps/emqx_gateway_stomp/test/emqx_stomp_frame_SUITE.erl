@@ -132,7 +132,7 @@ t_crlf_heartbeat(_) ->
         parse_chunks([<<"\r">>, <<"\n">>])
     ).
 
--doc "A heartbeat consumes one EOL and preserves a following command, even when CRLF is split.".
+-doc "Heartbeats preserve the next command, including split CRLF.".
 t_heartbeat_before_frame(_) ->
     Bin = send_frame(<<"audit">>),
     lists:foreach(
@@ -145,7 +145,7 @@ t_heartbeat_before_frame(_) ->
         [[<<"\n", Bin/binary>>], [<<"\r\n", Bin/binary>>], [<<"\r">>, <<"\n", Bin/binary>>]]
     ).
 
--doc "Consecutive LF and CRLF heartbeats leave the following command intact.".
+-doc "Consecutive heartbeats preserve the next command.".
 t_consecutive_heartbeats(_) ->
     Bin = send_frame(<<"audit">>),
     {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, Rest, Parser} =

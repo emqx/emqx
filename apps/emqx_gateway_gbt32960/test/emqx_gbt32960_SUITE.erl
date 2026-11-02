@@ -906,7 +906,7 @@ t_case14_platform_logout(_Config) ->
     % TODO: necessary?
     ok.
 
--doc "A logged-in device receives a heartbeat acknowledgement when the heading spans TCP reads.".
+-doc "A logged-in device can split heartbeat headings across TCP reads.".
 t_split_heartbeat_heading(_) ->
     {ok, Socket} = login_first_without_broker_asserts(),
     try
@@ -926,7 +926,7 @@ t_split_heartbeat_heading(_) ->
         gen_tcp:close(Socket)
     end.
 
--doc "A checksum failure terminates the connection through its protocol error handler.".
+-doc "A checksum error causes a controlled connection shutdown.".
 t_checksum_error_shutdown(_) ->
     {ok, Socket} = login_first_without_broker_asserts(),
     try

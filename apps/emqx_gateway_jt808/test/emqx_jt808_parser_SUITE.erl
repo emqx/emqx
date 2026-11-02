@@ -30,7 +30,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     Config.
 
--doc "Ordinary and escaped bytes retain their meaning at every TCP split position.".
+-doc "TCP splits preserve ordinary and escaped bytes.".
 t_heartbeat_at_every_split(_) ->
     Phone = <<0, 1, 16#23, 16#45, 16#67, 16#89>>,
     lists:foreach(
@@ -52,7 +52,7 @@ t_heartbeat_at_every_split(_) ->
         [1, 2, 16#7d, 16#7e]
     ).
 
--doc "An invalid escape is rejected whether its two bytes arrive together or separately.".
+-doc "Invalid escapes fail in complete and split input.".
 t_invalid_split_escape(_) ->
     Parser = emqx_jt808_frame:initial_parse_state(#{}),
     ?assertError(invalid_message, emqx_jt808_frame:parse(<<16#7e, 0, 16#7d, 3>>, Parser)),

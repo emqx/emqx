@@ -59,7 +59,7 @@ t_ping_pong(_Config) ->
     ?assertEqual(?OP_PONG, emqx_nats_frame:type(Frame2)),
     ?assertEqual(<<>>, Rest2).
 
--doc "Control commands remain parseable when split at any byte, including between CR and LF.".
+-doc "Control commands parse at every byte split, including CRLF.".
 t_split_control_frames(_Config) ->
     lists:foreach(
         fun({Data, Operation}) ->

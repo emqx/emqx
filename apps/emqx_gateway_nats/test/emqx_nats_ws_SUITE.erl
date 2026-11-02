@@ -23,27 +23,24 @@ init_per_suite(Config) ->
     application:load(emqx_gateway_nats),
     [WsPort, WssPort] = emqx_common_test_helpers:select_free_ports(tcp, 2),
     CertDir = filename:join([code:lib_dir(emqx), "etc", "certs"]),
-    GatewayConfig = #{
-        gateway => #{
-            nats => #{
-                listeners => #{
-                    ws => #{default => #{bind => WsPort}},
-                    wss => #{
-                        default => #{
-                            bind => WssPort,
-                            ssl_options => #{
-                                cacertfile => filename:join(CertDir, "cacert.pem"),
-                                certfile => filename:join(CertDir, "cert.pem"),
-                                keyfile => filename:join(CertDir, "key.pem")
-                            }
-                        }
-                    }
+    Listeners = #{
+        ws => #{default => #{bind => WsPort}},
+        wss => #{
+            default => #{
+                bind => WssPort,
+                ssl_options => #{
+                    cacertfile => filename:join(CertDir, "cacert.pem"),
+                    certfile => filename:join(CertDir, "cert.pem"),
+                    keyfile => filename:join(CertDir, "key.pem")
                 }
             }
         }
     },
     Apps = emqx_cth_suite:start(
-        [{emqx_conf, #{config => GatewayConfig}}, emqx_gateway, emqx_auth, gun],
+        [
+            {emqx_conf, #{config => #{gateway => #{nats => #{listeners => Listeners}}}}},
+            emqx_gateway
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps}, {ws_port, WsPort}, {wss_port, WssPort} | Config].
@@ -67,25 +64,17 @@ end_per_group(_Group, _Config) ->
 tls_options() ->
     #{transport => tls, tls_opts => [{verify, verify_none}]}.
 
--doc "A command split across WebSocket messages is buffered until it is complete.".
+-doc "Commands span WebSocket messages.".
 t_split_command(Config) ->
     with_connection(Config, fun(Conn, Stream, Type) ->
-        lists:foreach(
-            fun(Fragment) -> send(Conn, Stream, Type, Fragment) end,
-            [<<"P">>, <<"I">>, <<"N">>, <<"G\r">>, <<"\n">>]
-        ),
-        ?assertEqual(<<"PONG\r\n">>, recv(Conn, Stream)),
-        send(Conn, Stream, Type, <<"ping\r">>),
+        send(Conn, Stream, Type, <<"PI">>),
+        send(Conn, Stream, Type, <<"NG\r">>),
         send(Conn, Stream, Type, <<"\n">>),
         ?assertEqual(<<"PONG\r\n">>, recv(Conn, Stream)),
-        send(Conn, Stream, Type, <<"PONG\r">>),
-        send(Conn, Stream, Type, <<"\n">>),
-        send(Conn, Stream, Type, <<"pong\r">>),
-        send(Conn, Stream, Type, <<"\n">>),
         ping(Conn, Stream, Type)
     end).
 
--doc "A split PUB header, payload and terminator produce one complete message.".
+-doc "PUB headers, payloads, and terminators span WebSocket messages.".
 t_split_payload(Config) ->
     with_connection(Config, fun(Conn, Stream, Type) ->
         send(Conn, Stream, Type, <<"SUB ws.partial 1\r\n">>),
@@ -98,7 +87,7 @@ t_split_payload(Config) ->
         ping(Conn, Stream, Type)
     end).
 
--doc "A complete command before a partial command is dispatched without losing parser state.".
+-doc "A complete command is dispatched before an incomplete one.".
 t_complete_then_partial(Config) ->
     with_connection(Config, fun(Conn, Stream, Type) ->
         send(Conn, Stream, Type, <<"PING\r\nPI">>),

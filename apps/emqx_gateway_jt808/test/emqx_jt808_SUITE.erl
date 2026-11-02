@@ -708,7 +708,7 @@ t_jt808_register_ack_uses_register_phone_after_failed_auth(_) ->
 
     ok = gen_tcp:close(Socket).
 
--doc "Authenticated TCP clients receive acknowledgements when a heartbeat is split before 0x01 or 0x02.".
+-doc "Authenticated clients can split heartbeat frames across TCP reads.".
 t_split_heartbeat(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     try

@@ -67,7 +67,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     Config.
 
--doc "Both protocol versions parse identically at every TCP split position, including the heading.".
+-doc "TCP splits preserve frames for both protocol versions.".
 t_split_frame_heading(_) ->
     lists:foreach(
         fun(Version) ->
@@ -90,7 +90,7 @@ t_split_frame_heading(_) ->
         [<<"2016">>, <<"2025">>]
     ).
 
--doc "Invalid headings and checksums raise parser errors for the connection's controlled error path.".
+-doc "Invalid headings and checksums raise parser errors.".
 t_frame_errors_follow_parser_contract(_) ->
     Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
     ?assertError(invalid_frame, emqx_gbt32960_frame:parse(<<"invalid">>, Parser)),

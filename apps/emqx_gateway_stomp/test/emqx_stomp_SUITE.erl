@@ -1511,7 +1511,7 @@ t_mountpoint(_) ->
     with_connection(ReceiveMsgFromMqtt),
     update_stomp_with_mountpoint(<<>>).
 
--doc "TCP clients receive SEND receipts when one or more heartbeats precede the command in the same read.".
+-doc "SEND receipts work after coalesced heartbeats.".
 t_coalesced_heartbeat_and_send(_) ->
     with_connection(fun(Sock) ->
         ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
