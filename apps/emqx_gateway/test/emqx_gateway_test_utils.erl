@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 assert_confs(Expected0, Effected) ->
     Expected = maybe_unconvert_listeners(Expected0),
@@ -335,3 +336,15 @@ delete_gateway_client_subscription(Gateway, ClientId, Topic0) ->
         {400, _} = Err ->
             Err
     end.
+
+with_connect_rejection(Reason, Fun) ->
+    Action = {?MODULE, reject_connect, [Reason]},
+    ok = emqx_hooks:put('client.connect', Action, ?HP_HIGHEST),
+    try
+        Fun()
+    after
+        emqx_hooks:del('client.connect', Action)
+    end.
+
+reject_connect(_ConnInfo, _ConnProps, Reason) ->
+    {stop, {error, Reason}}.

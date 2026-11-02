@@ -6,6 +6,8 @@
 
 -include("emqx_nats.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-undef(PACKET).
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -409,6 +411,7 @@ needs_gateway(TestCase) ->
     lists:member(
         TestCase,
         [
+            t_connect_hook_rejection,
             t_gateway_client_management,
             t_gateway_client_subscription_management,
             t_clientinfo_override_with_empty_clientid,
@@ -436,3 +439,44 @@ find_client_by_username(Username) ->
         end,
         ClientInfos
     ).
+
+-doc "NATS returns a numeric hook rejection as -ERR and connects after the hook is removed.".
+t_connect_hook_rejection(Config) ->
+    Port = ?config(nats_port, Config),
+    emqx_gateway_test_utils:with_connect_rejection(?RC_QUOTA_EXCEEDED, fun() ->
+        check_hook_connect(Port, rejected)
+    end),
+    ListenerId = emqx_gateway_utils:listener_id(nats, tcp, default),
+    ?retry(
+        20,
+        100,
+        ?assertEqual(
+            1,
+            proplists:get_value(quota_exceeded, esockd:get_shutdown_count({ListenerId, Port}))
+        )
+    ),
+    check_hook_connect(Port, accepted).
+
+check_hook_connect(Port, Expected) ->
+    {ok, Socket} = gen_tcp:connect(
+        "127.0.0.1", Port, [binary, {active, false}, {packet, line}], 5000
+    ),
+    try
+        {ok, <<"INFO ", _/binary>>} = gen_tcp:recv(Socket, 0, 5000),
+        ok = gen_tcp:send(Socket, [
+            <<"CONNECT ">>, emqx_utils_json:encode(#{verbose => true}), <<13, 10, "PING", 13, 10>>
+        ]),
+        case Expected of
+            rejected ->
+                ?assertEqual(
+                    {ok, <<"-ERR Login Failed: Quota exceeded", 13, 10>>},
+                    gen_tcp:recv(Socket, 0, 5000)
+                ),
+                ?assertEqual({error, closed}, gen_tcp:recv(Socket, 0, 5000));
+            accepted ->
+                ?assertEqual({ok, <<"+OK", 13, 10>>}, gen_tcp:recv(Socket, 0, 5000)),
+                ?assertEqual({ok, <<"PONG", 13, 10>>}, gen_tcp:recv(Socket, 0, 5000))
+        end
+    after
+        gen_tcp:close(Socket)
+    end.

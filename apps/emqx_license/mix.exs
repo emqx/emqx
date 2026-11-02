@@ -39,13 +39,7 @@ defmodule EMQXLicense.MixProject do
   defp test_deps() do
     if UMP.test_env?() do
       [
-        {:emqx_gateway_stomp, in_umbrella: true, runtime: false},
-        {:emqx_gateway_nats, in_umbrella: true, runtime: false},
-        {:emqx_gateway_coap, in_umbrella: true, runtime: false},
-        {:emqx_gateway_lwm2m, in_umbrella: true, runtime: false},
-        {:emqx_gateway_mqttsn, in_umbrella: true, runtime: false},
-        {:emqx_gateway_ocpp, in_umbrella: true, runtime: false},
-        {:emqx_gateway_jt808, in_umbrella: true, runtime: false}
+        {:emqx_gateway_stomp, in_umbrella: true, runtime: false}
       ]
     else
       []

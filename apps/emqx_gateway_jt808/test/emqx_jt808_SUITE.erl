@@ -11,6 +11,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -137,6 +138,9 @@ init_per_testcase(Case = t_case_invalid_auth_reg_server, Config) ->
     Apps = boot_apps(Case, ?CONF_INVALID_AUTH_SERVER, Config),
     [{suite_apps, Apps} | Config];
 init_per_testcase(Case, Config) when
+    Case =:= t_connect_hook_rejection;
+    Case =:= t_direct_auth_hook_rejection;
+    Case =:= t_direct_auth_2019_hook_rejection;
     Case =:= t_case02_anonymous_register_and_auth;
     Case =:= t_jt808_reject_anonymous_auth_with_unregistered_phone
 ->
@@ -4892,3 +4896,88 @@ t_case_uplink_text_encoding_gbk(_) ->
     ?assertEqual(<<"北京"/utf8>>, ReceivedOrg),
 
     ok = gen_tcp:close(Socket).
+
+-doc "JT/T 808 rejects numeric hook reasons after REGISTER and authenticates after recovery.".
+t_connect_hook_rejection(_) ->
+    with_hook_socket(fun(Socket) ->
+        jt808_register(Socket, 0),
+        emqx_gateway_test_utils:with_connect_rejection(?RC_QUOTA_EXCEEDED, fun() ->
+            jt808_auth(Socket, 0, rejected)
+        end),
+        jt808_auth(Socket, 0, accepted)
+    end).
+
+-doc "JT/T 808 rejects direct 2013 AUTH using its request header and recovers on the same socket.".
+t_direct_auth_hook_rejection(_) ->
+    check_direct_auth_hook_rejection(0).
+
+-doc "JT/T 808 rejects direct 2019 AUTH using its request header and recovers on the same socket.".
+t_direct_auth_2019_hook_rejection(_) ->
+    check_direct_auth_hook_rejection(1).
+
+check_direct_auth_hook_rejection(ProtoVer) ->
+    with_hook_socket(fun(Socket) ->
+        emqx_gateway_test_utils:with_connect_rejection(?RC_QUOTA_EXCEEDED, fun() ->
+            jt808_auth(Socket, ProtoVer, rejected)
+        end),
+        jt808_register(Socket, ProtoVer),
+        jt808_auth(Socket, ProtoVer, accepted)
+    end).
+
+with_hook_socket(Fun) ->
+    {ok, Socket} = gen_tcp:connect("127.0.0.1", ?PORT, [binary, {active, false}], 5000),
+    try
+        Fun(Socket)
+    after
+        gen_tcp:close(Socket)
+    end.
+
+jt808_register(Socket, ProtoVer) ->
+    Register =
+        case ProtoVer of
+            0 -> <<58:16, 59:16, "examp", 0:160, 0:56, 3, "plate">>;
+            1 -> <<58:16, 59:16, "examp", 0:48, 0:240, 0:240, 3, "plate">>
+        end,
+    ok = gen_tcp:send(Socket, jt808_packet(16#0100, Register, ProtoVer)),
+    Reply = recv_jt808(Socket, emqx_jt808_frame:initial_parse_state(#{})),
+    ?assertMatch(#{<<"header">> := #{<<"msg_id">> := 16#8100}}, Reply).
+
+jt808_auth(Socket, ProtoVer, Expected) ->
+    Auth =
+        case ProtoVer of
+            0 -> <<"anonymous">>;
+            1 -> <<9, "anonymous", "123456789012345", "1.0", 0:136>>
+        end,
+    ok = gen_tcp:send(Socket, jt808_packet(16#0102, Auth, ProtoVer)),
+    Reply = recv_jt808(Socket, emqx_jt808_frame:initial_parse_state(#{})),
+    Result =
+        case Expected of
+            accepted -> 0;
+            rejected -> 1
+        end,
+    #{<<"header">> := Header, <<"body">> := #{<<"data">> := Body}} = Reply,
+    ?assertEqual(16#8001, maps:get(<<"msg_id">>, Header)),
+    ?assertEqual(ProtoVer, maps:get(<<"proto_ver">>, Header, 0)),
+    ?assertEqual(jt808_phone(ProtoVer), maps:get(<<"phone">>, Header)),
+    ?assertEqual(<<78:16, 16#0102:16, Result>>, base64:decode(Body)).
+
+jt808_phone(0) -> <<"000123456789">>;
+jt808_phone(1) -> <<"00000000000123456789">>.
+
+recv_jt808(Socket, State) ->
+    {ok, Data} = gen_tcp:recv(Socket, 0, 5000),
+    case emqx_jt808_frame:parse(Data, State) of
+        {ok, Frame, <<>>, _Next} -> Frame;
+        {more, Next} -> recv_jt808(Socket, Next)
+    end.
+
+jt808_packet(Id, Body, ProtoVer) ->
+    Header =
+        case ProtoVer of
+            0 ->
+                <<Id:16, (byte_size(Body)):16, 16#000123456789:48, 78:16>>;
+            1 ->
+                <<Id:16, 0:1, 1:1, 0:1, 0:3, (byte_size(Body)):10, ProtoVer,
+                    16#00000000000123456789:80, 78:16>>
+        end,
+    gen_packet(Header, Body).

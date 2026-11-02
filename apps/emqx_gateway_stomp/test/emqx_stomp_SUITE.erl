@@ -5,9 +5,11 @@
 -module(emqx_stomp_SUITE).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-undef(PACKET).
 -include("emqx_stomp.hrl").
 
 -compile(export_all).
@@ -1687,3 +1689,43 @@ create_subscription(ClientId, Topic, SubId) ->
         {400, #{message := Message}} ->
             {error, Message}
     end.
+
+-doc "Connection hook rejections support text, atoms, unknown codes, and compound reasons.".
+t_stomp_hook_rejections(_) ->
+    Reasons = [
+        {?RC_QUOTA_EXCEEDED, <<"Quota exceeded">>},
+        {not_authorized, <<"not_authorized">>},
+        {'access denied', <<"access denied">>},
+        {"access denied", <<"access denied">>},
+        {<<"access denied">>, <<"access denied">>},
+        {[16#62D2, 16#7EDD], unicode:characters_to_binary([16#62D2, 16#7EDD])},
+        {<<255>>, <<"<<255>>">>},
+        {<<16#E4, 16#B8>>, <<"<<228,184>>">>},
+        {[invalid], <<"[invalid]">>},
+        {[16#110000], <<"[1114112]">>},
+        {255, <<"Unknown error">>},
+        {{access_denied, policy}, <<"{access_denied,policy}">>}
+    ],
+    lists:foreach(
+        fun({Reason, Text}) ->
+            emqx_gateway_test_utils:with_connect_rejection(Reason, fun() ->
+                check_hook_connect({rejected, <<"Login Failed: ", Text/binary>>})
+            end),
+            check_hook_connect(accepted)
+        end,
+        Reasons
+    ).
+
+check_hook_connect(Expected) ->
+    with_connection(fun(Socket) ->
+        ok = send_connection_frame(Socket, <<"guest">>, <<"guest">>, <<"0,0">>),
+        {ok, Frame} = recv_a_frame(Socket),
+        case Expected of
+            accepted ->
+                ?assertEqual(<<"CONNECTED">>, Frame#stomp_frame.command);
+            {rejected, Text} ->
+                ?assertEqual(<<"ERROR">>, Frame#stomp_frame.command),
+                ?assertEqual(Text, Frame#stomp_frame.body),
+                ?assertEqual({error, closed}, gen_tcp:recv(Socket, 0, 5000))
+        end
+    end).
