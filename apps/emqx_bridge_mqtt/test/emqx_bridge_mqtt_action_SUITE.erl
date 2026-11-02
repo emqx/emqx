@@ -698,6 +698,73 @@ t_static_clientids(TCConfig) ->
 
     ok.
 
+%% The guard is unreachable through the delivery path (the status gates return first), so
+%% assert the callback contract directly against the connector's real resource state.
+-doc """
+A node without an assigned static clientid fails egress queries as unrecoverable.
+""".
+t_no_assigned_clientid_is_unrecoverable(TCConfig) ->
+    NodeBin = atom_to_binary(node()),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"static_clientids">> => [
+            %% This node is listed without any clientid, while another listed node owns
+            %% the one clientid the schema requires to accept the configuration.
+            #{<<"node">> => NodeBin, <<"ids">> => []},
+            #{<<"node">> => <<"remote@127.0.0.1">>, <<"ids">> => [<<"1">>]}
+        ]
+    }),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"disconnected">>}}, get_connector_api(TCConfig)
+        )
+    ),
+    {201, _} = create_action_api(TCConfig, #{}),
+    {ConnResId, ChanResId, State} = wait_for_installed_channel(TCConfig),
+    Msg = emqx_message:make(<<"t/static-clientid-guard">>, <<"payload">>),
+    ExpectedError =
+        {error, {unrecoverable_error, <<"This node has no assigned static clientid.">>}},
+    ?assertEqual(
+        ExpectedError,
+        emqx_bridge_mqtt_connector:on_query(ConnResId, {ChanResId, Msg}, State)
+    ),
+    ?assertEqual(
+        ExpectedError,
+        emqx_bridge_mqtt_connector:on_query_async(
+            ConnResId, {ChanResId, Msg}, {fun(_) -> ok end, []}, State
+        )
+    ),
+    %% The resource manager restarts this disconnected resource every second, so
+    %% `on_get_status/2' can race with the pool being re-registered.
+    ?retry(
+        200,
+        50,
+        ?assertEqual(
+            {?status_disconnected,
+                {unhealthy_target, <<"Connector has no assigned static clientids">>}},
+            emqx_bridge_mqtt_connector:on_get_status(ConnResId, State)
+        )
+    ),
+    ?assertEqual(
+        {?status_disconnected, {unhealthy_target, <<"No clientids assigned to this node">>}},
+        emqx_bridge_mqtt_connector:on_get_channel_status(ConnResId, ChanResId, State)
+    ),
+    ok.
+
+%% A disconnected connector installs its configured channels when it is retried, which
+%% the resource manager does every `health_check_interval'; wait for that incarnation.
+wait_for_installed_channel(TCConfig) ->
+    ActionName = get_config(action_name, TCConfig),
+    ?retry(200, 50, begin
+        {ok, {ConnResId, ChanResId}} =
+            emqx_bridge_v2:get_resource_ids(global, actions, ?ACTION_TYPE, ActionName),
+        {ok, _, #{state := State}} = emqx_resource:get_instance(ConnResId),
+        {?status_disconnected, _} =
+            emqx_bridge_mqtt_connector:on_get_channel_status(ConnResId, ChanResId, State),
+        {ConnResId, ChanResId, State}
+    end).
+
 t_static_clientids_inherit_credentials() ->
     [{matrix, true}].
 t_static_clientids_inherit_credentials(matrix) ->

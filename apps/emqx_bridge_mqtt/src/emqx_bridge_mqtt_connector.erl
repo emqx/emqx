@@ -309,19 +309,16 @@ on_remove_channel(
 on_get_channel_status(
     _ResId,
     ChannelId,
-    #{
-        ?available_clientid_info := AvailableClientidInfo,
-        installed_channels := Channels
-    } = _State
+    #{installed_channels := Channels} = State
 ) when is_map_key(ChannelId, Channels) ->
-    case AvailableClientidInfo of
-        [] ->
+    case is_expected_to_have_workers(State) of
+        true ->
+            %% The channel should be ok as long as the MQTT client is ok
+            ?status_connected;
+        false ->
             %% We should mark this connector as unhealthy so messages fail fast and an
             %% alarm is raised.
-            {?status_disconnected, {unhealthy_target, <<"No clientids assigned to this node">>}};
-        [_ | _] ->
-            %% The channel should be ok as long as the MQTT client is ok
-            ?status_connected
+            {?status_disconnected, {unhealthy_target, <<"No clientids assigned to this node">>}}
     end.
 
 on_get_channels(ResId) ->
@@ -653,14 +650,7 @@ combine_status(Statuses, ConnState) ->
     %% * `disconnected` wins over any other status
     %% * `connecting` wins over `connected`
     %% * status with reason wins overs those without
-    #{?available_clientid_info := AvailableClientidInfo} = ConnState,
-    ExpectedNoClientids =
-        case AvailableClientidInfo of
-            [] ->
-                true;
-            _ ->
-                false
-        end,
+    ExpectedNoClientids = not is_expected_to_have_workers(ConnState),
     ToStatus = fun
         ({S, _Reason}) -> S;
         (S) when is_atom(S) -> S
@@ -1041,7 +1031,9 @@ take(Key, Map0, Default) ->
             {Default, Map0}
     end.
 
-is_expected_to_have_workers(#{available_clientids := []} = _ConnState) ->
+%% States built by `start_mqtt_clients/3' always carry the field; a state without it is
+%% treated as having workers so the status callbacks stay total.
+is_expected_to_have_workers(#{?available_clientid_info := []}) ->
     false;
 is_expected_to_have_workers(_ConnState) ->
     true.
