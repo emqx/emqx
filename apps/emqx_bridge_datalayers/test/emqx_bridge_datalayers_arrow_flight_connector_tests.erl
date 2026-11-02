@@ -73,14 +73,14 @@ ssl_opts_test_() ->
             )
         ),
         ?_assertEqual(
-            {error, ssl_cacertfile_must_be_absolute},
+            {error, ssl_cacertfile_is_not_readable},
             ?CONNECTOR:ssl_opts(
                 <<"test:ssl_opts">>,
                 <<"datalayers.example.com">>,
                 #{
                     enable => true,
                     verify => verify_peer,
-                    cacertfile => <<"ca.crt">>
+                    cacertfile => <<"does-not-exist.pem">>
                 }
             )
         ),
@@ -110,6 +110,19 @@ ssl_opts_test_() ->
             )
         ),
         ?_assertEqual(
+            {error, tls_client_certificates_not_supported},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => CacertFile,
+                    managed_certs => #{bundle_name => <<"client">>}
+                }
+            )
+        ),
+        ?_assertEqual(
             {error, ssl_server_name_indication_disabled},
             ?CONNECTOR:ssl_opts(
                 <<"test:ssl_opts">>,
@@ -121,8 +134,106 @@ ssl_opts_test_() ->
                     server_name_indication => disable
                 }
             )
+        ),
+        ?_assertEqual(
+            {error, ssl_server_name_indication_disabled},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => CacertFile,
+                    server_name_indication => <<"disable">>
+                }
+            )
         )
     ].
+
+env_cacertfile_test() ->
+    EnvName = "EMQX_DATALAYERS_TEST_CA_DIR",
+    CacertFile = bin(cacert_file()),
+    Previous = os:getenv(EnvName),
+    true = os:putenv(EnvName, unicode:characters_to_list(filename:dirname(CacertFile))),
+    try
+        Template = unicode:characters_to_binary([
+            "${", EnvName, "}/", filename:basename(CacertFile)
+        ]),
+        ?assertEqual(
+            #{
+                tls_enable => true,
+                tls_cacertfile => unicode:characters_to_binary(filename:absname(CacertFile)),
+                verify => verify_peer,
+                tls_server_name => <<"datalayers.example.com">>
+            },
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => Template
+                }
+            )
+        )
+    after
+        restore_env(EnvName, Previous)
+    end.
+
+relative_cacertfile_test() ->
+    {ok, Contents} = file:read_file(cacert_file()),
+    Filename =
+        "datalayers-arrow-ca-" ++ integer_to_list(erlang:unique_integer([positive])) ++ ".pem",
+    ok = file:write_file(Filename, Contents),
+    try
+        Relative = unicode:characters_to_binary(Filename),
+        ?assertEqual(
+            #{
+                tls_enable => true,
+                tls_cacertfile => unicode:characters_to_binary(filename:absname(Relative)),
+                verify => verify_peer,
+                tls_server_name => <<"datalayers.example.com">>
+            },
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => Relative
+                }
+            )
+        )
+    after
+        file:delete(Filename)
+    end.
+
+invalid_cacertfile_test() ->
+    Filename = filename:join(
+        "/tmp",
+        "datalayers-arrow-invalid-ca-" ++
+            integer_to_list(erlang:unique_integer([positive])) ++ ".pem"
+    ),
+    ok = file:write_file(
+        Filename,
+        <<"-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----\n">>
+    ),
+    try
+        ?assertEqual(
+            {error, ssl_cacertfile_is_not_pem},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => unicode:characters_to_binary(Filename)
+                }
+            )
+        )
+    after
+        file:delete(Filename)
+    end.
 
 connect_propagates_driver_error_test() ->
     meck:new(datalayers, [passthrough, no_link]),
@@ -140,6 +251,35 @@ connect_propagates_driver_error_test() ->
         ),
         ?assertEqual(
             {error, {not_dispatched, <<"connect failed">>}},
+            ?CONNECTOR:connect([
+                {conn_config, #{
+                    database => <<"db">>,
+                    password => emqx_secret:wrap(<<"pass">>)
+                }}
+            ])
+        ),
+        ?assert(meck:validate(datalayers))
+    after
+        meck:unload(datalayers)
+    end.
+
+connect_propagates_database_error_test() ->
+    meck:new(datalayers, [passthrough, no_link]),
+    try
+        Client = self(),
+        Reason = {not_dispatched, <<"database lookup failed">>},
+        meck:expect(datalayers, connect, fun(_) -> {ok, Client} end),
+        meck:expect(datalayers, use_database, fun(_, _) -> {error, Reason} end),
+        meck:expect(
+            datalayers,
+            stop,
+            fun(Pid) ->
+                ?assertEqual(Client, Pid),
+                ok
+            end
+        ),
+        ?assertEqual(
+            {error, {use_database_failed, <<"db">>, Reason}},
             ?CONNECTOR:connect([
                 {conn_config, #{
                     database => <<"db">>,
@@ -223,3 +363,8 @@ bin(Bin) when is_binary(Bin) ->
     Bin;
 bin(List) when is_list(List) ->
     iolist_to_binary(List).
+
+restore_env(EnvName, false) ->
+    os:unsetenv(EnvName);
+restore_env(EnvName, Value) ->
+    os:putenv(EnvName, Value).

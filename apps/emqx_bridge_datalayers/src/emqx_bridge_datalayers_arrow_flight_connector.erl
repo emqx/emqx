@@ -444,9 +444,9 @@ connect(Opts) ->
             case datalayers:use_database(Pid, Database) of
                 {ok, _} ->
                     {ok, Pid};
-                {error, _} ->
+                {error, Reason} ->
                     datalayers:stop(Pid),
-                    {error, {database_not_existed, Database}}
+                    {error, {use_database_failed, Database, Reason}}
             end;
         {error, Reason} = Err ->
             ?SLOG(error, #{
@@ -640,33 +640,23 @@ ssl_opts(_InstId, _Host, _) ->
     #{}.
 
 make_tls_opts(Host, SSL) ->
-    case validate_tls_opts(SSL) of
-        ok ->
-            make_validated_tls_opts(Host, SSL);
-        {error, _} = Error ->
-            Error
-    end.
-
-make_validated_tls_opts(Host, SSL) ->
-    case ssl_cacertfile(SSL) of
-        {ok, CacertFile} ->
-            case tls_server_name(Host, SSL) of
-                {ok, ServerName} ->
-                    {ok, #{
-                        tls_enable => true,
-                        tls_cacertfile => CacertFile,
-                        verify => verify_peer,
-                        tls_server_name => ServerName
-                    }};
-                {error, _} = Error ->
-                    Error
-            end;
+    maybe
+        ok ?= validate_tls_opts(SSL),
+        {ok, CacertFile} ?= ssl_cacertfile(SSL),
+        {ok, ServerName} ?= tls_server_name(Host, SSL),
+        {ok, #{
+            tls_enable => true,
+            tls_cacertfile => CacertFile,
+            verify => verify_peer,
+            tls_server_name => ServerName
+        }}
+    else
         {error, _} = Error ->
             Error
     end.
 
 validate_tls_opts(SSL) ->
-    case maps:get(verify, SSL, undefined) of
+    case maps:get(verify, SSL, verify_none) of
         verify_peer ->
             validate_client_certificates(SSL);
         _ ->
@@ -674,7 +664,7 @@ validate_tls_opts(SSL) ->
     end.
 
 validate_client_certificates(SSL) ->
-    case [Key || Key <- [certfile, keyfile], has_nonempty_value(Key, SSL)] of
+    case [Key || Key <- [certfile, keyfile, managed_certs], has_nonempty_value(Key, SSL)] of
         [] -> ok;
         [_ | _] -> {error, tls_client_certificates_not_supported}
     end.
@@ -687,26 +677,25 @@ validate_ssl_cacertfile(undefined) ->
 validate_ssl_cacertfile(Path0) ->
     case to_utf8_binary(Path0) of
         {ok, Path} when byte_size(Path) > 0 ->
-            case filename:pathtype(Path) of
-                absolute -> validate_cacertfile_contents(Path);
-                _ -> {error, ssl_cacertfile_must_be_absolute}
-            end;
+            InterpolatedPath = emqx_schema:naive_env_interpolation(Path),
+            AbsolutePath = filename:absname(InterpolatedPath),
+            validate_cacertfile_file(unicode:characters_to_binary(AbsolutePath));
         _ ->
             {error, ssl_cacertfile_is_required}
     end.
 
-validate_cacertfile_contents(Path) ->
-    case file:read_file(Path) of
-        {ok, <<>>} ->
-            {error, ssl_cacertfile_is_empty};
-        {ok, Contents} ->
-            case binary:match(Contents, <<"-----BEGIN CERTIFICATE-----">>) of
-                nomatch -> {error, ssl_cacertfile_is_not_pem};
-                _ -> {ok, Path}
-            end;
-        {error, _} ->
-            {error, ssl_cacertfile_is_not_readable}
+validate_cacertfile_file(Path) ->
+    case emqx_tls_lib:ensure_ssl_files(filename:dirname(Path), #{cacertfile => Path}) of
+        {ok, _} ->
+            {ok, Path};
+        {error, Reason} ->
+            {error, ssl_cacertfile_error(Reason)}
     end.
+
+ssl_cacertfile_error(#{pem_check := Reason}) when Reason =/= not_pem ->
+    ssl_cacertfile_is_not_readable;
+ssl_cacertfile_error(_) ->
+    ssl_cacertfile_is_not_pem.
 
 tls_server_name(Host, SSL) ->
     case maps:get(server_name_indication, SSL, undefined) of
@@ -715,7 +704,14 @@ tls_server_name(Host, SSL) ->
         disable ->
             {error, ssl_server_name_indication_disabled};
         ServerName ->
-            nonempty_binary(ServerName, ssl_server_name_is_required)
+            case to_utf8_binary(ServerName) of
+                {ok, <<"disable">>} ->
+                    {error, ssl_server_name_indication_disabled};
+                {ok, Name} when byte_size(Name) > 0 ->
+                    {ok, Name};
+                _ ->
+                    {error, ssl_server_name_is_required}
+            end
     end.
 
 nonempty_binary(Value, Error) ->
