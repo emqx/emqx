@@ -264,7 +264,10 @@ validate_unique_topics(Topics) ->
         Topics
     ),
     DuplicatedMap = maps:filter(
-        fun(_T, Ts) -> length(Ts) > 1 end,
+        fun
+            (_T, [_, _ | _]) -> true;
+            (_T, _) -> false
+        end,
         Grouped
     ),
     case maps:keys(DuplicatedMap) of
