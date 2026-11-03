@@ -312,6 +312,23 @@ create_action_api(Config, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
     ).
 
+create_action_with_single_connection(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"disable_prepared_statements">> => true,
+        <<"pool_size">> => 1,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1h">>}
+    }),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1h">>,
+            <<"request_ttl">> => <<"30s">>
+        }
+    }),
+    ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, _, #{state := #{pool_name := PoolName} = State}} = emqx_resource:get_instance(ConnectorId),
+    [{_, Worker}] = ecpool:workers(PoolName),
+    {ConnectorId, State, Worker}.
+
 delete_action_api(TCConfig) ->
     #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
     emqx_bridge_v2_testlib:delete_kind_api(action, Type, Name).
@@ -809,7 +826,7 @@ t_disconnected_worker_retries(matrix) ->
         Batch <- [?without_batch, ?with_batch]
     ];
 t_disconnected_worker_retries(TCConfig) ->
-    {ConnectorId, _State, Worker} = create_raw_query_action(TCConfig),
+    {ConnectorId, _State, Worker} = create_action_with_single_connection(TCConfig),
     ActionId = emqx_bridge_v2_testlib:resource_id(TCConfig),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
     C = start_client(),
@@ -865,7 +882,7 @@ t_disconnected_worker_retries(TCConfig) ->
 
 -doc "Reports a disconnected channel without an exception when its pool worker has no connection.".
 t_disconnected_channel_health_check(TCConfig) ->
-    {ConnectorId, State, Worker} = create_raw_query_action(TCConfig),
+    {ConnectorId, State, Worker} = create_action_with_single_connection(TCConfig),
     ActionId = emqx_bridge_v2_testlib:resource_id(TCConfig),
     with_failure(down, TCConfig, fun() ->
         ?retry(50, 100, ?assertMatch({error, _}, ecpool_worker:client(Worker))),
@@ -883,23 +900,6 @@ t_disconnected_channel_health_check(TCConfig) ->
         )
     ),
     ok.
-
-create_raw_query_action(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig, #{
-        <<"disable_prepared_statements">> => true,
-        <<"pool_size">> => 1,
-        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1h">>}
-    }),
-    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"1h">>,
-            <<"request_ttl">> => <<"30s">>
-        }
-    }),
-    ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    {ok, _, #{state := #{pool_name := PoolName} = State}} = emqx_resource:get_instance(ConnectorId),
-    [{_, Worker}] = ecpool:workers(PoolName),
-    {ConnectorId, State, Worker}.
 
 t_disable_prepared_statements() ->
     [{matrix, true}].
