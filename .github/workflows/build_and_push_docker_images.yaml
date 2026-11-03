@@ -157,9 +157,11 @@ jobs:
     # Always runs on workflow_dispatch (dry-run when publish=false) so
     # developers can test the full manifest-assembly flow.
     # On workflow_call the job only runs when publish=true.
+    # Preview versions never go to Docker Hub.
     if: |
       !cancelled() && needs.docker.result == 'success'
       && (inputs.publish || github.event_name == 'workflow_dispatch')
+      && !(inputs.publish && contains(needs.docker.outputs.PKG_VSN, '-preview.'))
     needs:
       - docker
     defaults:
