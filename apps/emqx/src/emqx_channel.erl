@@ -2184,22 +2184,28 @@ notify_discarded(_Packet) ->
 %% MQTT-3.1.2-25: behave as if the delivery of the discarded PUBLISH is
 %% complete, so it leaves the inflight window.
 complete_discarded_publish(
-    ?QOS_1, PacketId, Channel = #channel{clientinfo = ClientInfo, session = Session}
+    ?QOS_1,
+    PacketId,
+    Channel = #channel{clientinfo = ClientInfo, session = Session, conn_flags = Flags}
 ) ->
-    case emqx_session:puback(ClientInfo, PacketId, ?RC_SUCCESS, Session) of
-        {ok, _Msg, Publishes, NSession} ->
-            handle_out(publish, Publishes, Channel#channel{session = NSession});
+    case emqx_session:puback(ClientInfo, PacketId, ?RC_SUCCESS, Flags, Session) of
+        {OkEffects, _Msg, Publishes, NSession} ->
+            NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
+            handle_out(publish, Publishes, NChannel);
         {error, _} ->
             {ok, Channel}
     end;
 complete_discarded_publish(
-    ?QOS_2, PacketId, Channel = #channel{clientinfo = ClientInfo, session = Session0}
+    ?QOS_2,
+    PacketId,
+    Channel = #channel{clientinfo = ClientInfo, session = Session0, conn_flags = Flags}
 ) ->
     maybe
         {ok, _Msg, Session1} ?= emqx_session:pubrec(ClientInfo, PacketId, Session0),
-        {ok, Publishes, Session} ?=
-            emqx_session:pubcomp(ClientInfo, PacketId, ?RC_SUCCESS, Session1),
-        handle_out(publish, Publishes, Channel#channel{session = Session})
+        {OkEffects, Publishes, Session} ?=
+            emqx_session:pubcomp(ClientInfo, PacketId, ?RC_SUCCESS, Flags, Session1),
+        NChannel = apply_session_effects(OkEffects, Channel#channel{session = Session}),
+        handle_out(publish, Publishes, NChannel)
     else
         {error, _} ->
             {ok, Channel}
