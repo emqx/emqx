@@ -4229,7 +4229,9 @@ t_resource_and_channel_health_check_race(_Config) ->
             ChanHCAlias1 ! {ChanHCAlias1, connected},
             %% 4) A new connector HC returns `connected'.
             ?tpal("4) A new connector HC returns `connected'"),
-            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+            ?assertReceive(
+                {returning_resource_health_check_result, ConnResId, ?status_connected, _}
+            ),
             ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId)),
             ?assertMatch(
                 #{status := connected}, emqx_resource:channel_health_check(ConnResId, ChanId)
@@ -4912,6 +4914,82 @@ t_retry_remove_channel(_Config) ->
     ),
     ok.
 
+-doc """
+Checks the following race:
+
+  1) Channel add initially fails, and a retry is scheduled.
+
+  2) A resource/connector health check finishes before the retry, and returns
+    `?status_connected`, which attempts to add pending channels to the resource state.  This
+    time, the add succeeds.
+
+The scheduled retry shouldn't run in this case.
+""".
+t_retry_add_channel_resource_health_check_race(_TCConfig) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    ConnResId = connector_res_id(Name),
+    TestPid = self(),
+    {ok, Agent} = emqx_utils_agent:start_link(#{
+        add_channel => [
+            {notify, TestPid, {error, ~"some transient error!"}},
+            {notify, TestPid, continue},
+            {notify, TestPid, {error, ~"shouldn't get to this retry!"}}
+        ],
+        resource_health_check => {notify, TestPid, ?status_connected}
+    }),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        add_channel_agent => Agent,
+                        health_check_agent => Agent
+                    },
+                    #{
+                        health_check_interval => 500,
+                        start_timeout => 100
+                    }
+                ),
+            ct:pal("first connector health check"),
+            EmptyMap = #{},
+            ?assertReceive(
+                {returning_resource_health_check_result, _, _, #{
+                    conn_state := #{channels := EmptyMap}
+                }}
+            ),
+            ct:pal("adding channel (first attempt)"),
+            ChanId = action_res_id(ConnResId),
+            ok =
+                add_channel(
+                    ConnResId,
+                    ChanId,
+                    #{
+                        resource_opts => #{health_check_interval => 700}
+                    }
+                ),
+            ?assertReceive(
+                {attempted_to_add_channel, #{action := {error, ~"some transient error!"}}}
+            ),
+            ct:pal("second connector health check"),
+            ?assertReceive(
+                {returning_resource_health_check_result, _, _, #{
+                    conn_state := #{channels := EmptyMap}
+                }}
+            ),
+            ?assertReceive({attempted_to_add_channel, #{action := continue}}),
+            ct:pal("should not retry adding the channel, since just succeeded"),
+            ?assertNotReceive({attempted_to_add_channel, #{}}, 1_000),
+            ok
+        end,
+        [log_consistency_prop()]
+    ),
+    ok.
+
 %% Checks that, if a channel is already installed, and we receive a remove and an add
 %% request (as happens in an config update operation), we do update the channel by
 %% removing and re-adding it with the new config to the resource state.
@@ -5041,7 +5119,9 @@ t_compress_channel_operations_existing_channel(Config) when is_list(Config) ->
                 _ ->
                     ?assertReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout)
             end,
-            ?assertReceive({attempted_to_add_channel, ConnResId, ChanId, ChanConfig2}, Timeout),
+            ?assertReceive(
+                {attempted_to_add_channel, #{conn_res_id := ConnResId, chan_id := ChanId}}, Timeout
+            ),
 
             %% We must eventually observe the new configuration in the channel.
             ?tpal("checking channels configs"),
@@ -5158,7 +5238,9 @@ t_health_check_while_resource_is_disconnected(_Config) ->
                     }
                 ),
             ?tpal("waiting for first (successful) resource health check"),
-            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+            ?assertReceive(
+                {returning_resource_health_check_result, ConnResId, ?status_connected, _}
+            ),
 
             %% 2) The resource then enters the disconnected state.  It'll try to restart at
             %%    least once and fail.  Note that this may destroy some resources related
@@ -5167,7 +5249,7 @@ t_health_check_while_resource_is_disconnected(_Config) ->
             %%    restarting.  If the restart then fails, we are left with no pool.
             ?tpal("waiting connector to be disconnected"),
             ?assertReceive(
-                {returning_resource_health_check_result, ConnResId, ?status_disconnected}
+                {returning_resource_health_check_result, ConnResId, ?status_disconnected, _}
             ),
             ?tpal("waiting connector to attempt and fail to restart"),
             receive
@@ -5203,7 +5285,9 @@ t_health_check_while_resource_is_disconnected(_Config) ->
                 ?assertReceive({waiting_health_check_result, _Alias, resource, ConnResId}),
             Alias2 ! {Alias2, ?status_connected},
             ?tpal("now it should return to normal"),
-            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+            ?assertReceive(
+                {returning_resource_health_check_result, ConnResId, ?status_connected, _}
+            ),
             ?assertMatch({ok, ?status_connected}, emqx_resource:health_check(ConnResId)),
 
             ok
@@ -5278,12 +5362,12 @@ t_independent_channel_health_check_interval(_Config) ->
             %% will kick off the channel health check.  After that, the channel manages its
             %% own interval with generic statem timers, and should not be triggered again
             %% by the more frequent connector health checks.
-            ?assertReceive({returning_resource_health_check_result, _, _}),
+            ?assertReceive({returning_resource_health_check_result, _, _, _}),
             ?assertReceive({returning_channel_health_check_result, _, _, _}),
             %% Should not perform other channel health checks for a long time now.
             ?assertNotReceive({returning_channel_health_check_result, _, _, _}),
             %% Resource health checks should continue quite frequently.
-            ?assertReceive({returning_resource_health_check_result, _, _}),
+            ?assertReceive({returning_resource_health_check_result, _, _, _}),
             ok
         end,
         [log_consistency_prop()]
