@@ -35,6 +35,59 @@ emqx_mgmt_api_certs {
         label: "Upload File"
     }
 
+    global_trusts_merge {
+        desc: """~
+            Add CA certificates to the `ca` file of an existing global namespace bundle.
+            Certificates already in the file are skipped.
+            The current file content is kept, and the new certificates are appended to it.
+            Other files in the bundle are not changed.
+            Requests which change the same bundle at the same time are not serialized, and one of them may be dropped.
+            To confirm the result, repeat the request: it reports `added: 0` when the file already holds every certificate.~"""
+        label: "Add Trusted CA Certificates"
+    }
+
+    trusts_merge_in {
+        desc: """~
+            One or more PEM-encoded X.509 certificates.
+            The request fails when it holds any other PEM entry, such as a private key.~"""
+        label: "CA Certificates"
+    }
+
+    trusts_merge_added {
+        desc: """~
+            Number of certificates added to the `ca` file.~"""
+        label: "Added"
+    }
+
+    trusts_merge_total {
+        desc: """~
+            Number of certificates in the `ca` file after the update.~"""
+        label: "Total"
+    }
+
+    global_trusts_delete {
+        desc: """~
+            Remove one CA certificate from the `ca` file of a global namespace bundle.
+            When no certificate is left, the `ca` file is deleted.
+            Deleting the last certificate fails while a configuration refers to the bundle.
+            Requests which change the same bundle at the same time are not serialized, and one of them may be dropped.
+            To confirm the result, repeat the request: it returns `404` when the certificate is already gone.~"""
+        label: "Remove Trusted CA Certificate"
+    }
+
+    param_path_fingerprint {
+        desc: """~
+            SHA-256 fingerprint of the certificate in hexadecimal, for example the output of
+            `openssl x509 -noout -fingerprint -sha256`. Colons between bytes are optional.~"""
+        label: "Certificate Fingerprint"
+    }
+
+    trusted_cert_not_found {
+        desc: """~
+            Bundle or certificate not found.~"""
+        label: "Not Found"
+    }
+
     global_bundle_delete {
         desc: """~
             Delete a global namespace bundle, or a single file in it when the `kind` query parameter is set.
