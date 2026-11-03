@@ -196,13 +196,15 @@ handle_deliver(
     Delivers,
     #{
         takeover := true,
-        pendings := Pendings
+        pendings := Pendings,
+        session := Session,
+        clientinfo := ClientInfo
     } = Channel
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(Pendings, emqx_channel:maybe_nack(Delivers)),
+    NPendings = lists:append(Pendings, emqx_channel:maybe_nack(Delivers, ClientInfo, Session)),
     Channel#{pendings => NPendings};
 handle_deliver(
     Delivers,
@@ -214,7 +216,7 @@ handle_deliver(
 ) ->
     % NOTE
     % This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    Delivers1 = emqx_channel:maybe_nack(Delivers),
+    Delivers1 = emqx_channel:maybe_nack(Delivers, ClientInfo, Session),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     Channel#{session := NSession}.
@@ -267,7 +269,9 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             % See also:
             % * `emqx_channel:maybe_resume_session/1`,
             % * `emqx_session_mem:replay_enqueue/4`.
-            DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
+            DeliversLocal = emqx_channel:maybe_nack(
+                emqx_utils:drain_deliver(), ClientInfo, Session
+            ),
             NSession = emqx_session_mem:replay_enqueue(ClientInfo, DeliversLocal, RCtx, Session),
             NChannel = Channel#{session => NSession},
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),

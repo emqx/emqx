@@ -45,7 +45,7 @@ all_cards() ->
 all_cards(Opts) ->
     Namespace = maps:get(namespace, Opts, ?global_ns),
     emqx_retainer:with_backend(fun(Mod, State) ->
-        {ok, Msgs, undefined} = Mod:match_messages(
+        {ok, Msgs, undefined, _ReadCost} = Mod:match_messages(
             State,
             emqx_a2a_registry:discovery_topic(Namespace, <<"+">>, <<"+">>, <<"+">>),
             undefined,

@@ -19,13 +19,20 @@
     get_option/3,
     get_module/1,
     message_target/1,
+    is_target_alive/1,
     send/2,
-    send_after/3
+    send_after/3,
+    monitor/2,
+    demonitor/2
 ]).
+
+-compile({no_auto_import, [monitor/2, demonitor/2]}).
 
 -type state() :: term().
 
--type subscribe_type() :: subscribe | resume.
+%% `handover': the channel already started delivery for the topic filter and passes the rest
+%% of it to the handler with `emqx_extsub:handover/6'. The context has the `handover' key.
+-type subscribe_type() :: subscribe | resume | handover.
 -type unsubscribe_type() :: unsubscribe | disconnect.
 
 -opaque message_target() :: {pid(), emqx_extsub_types:handler_ref()}.
@@ -38,7 +45,10 @@
     can_receive_acks := boolean(),
 
     %% Use send/2 and send_after/3 to send messages to the handler itself.
+    %% Use monitor/2 to receive 'DOWN' messages of other processes.
     message_target := message_target(),
+    %% Data passed to `emqx_extsub:handover/6', only for the `handover' subscribe type
+    handover => term(),
     _ => _
 }.
 
@@ -89,7 +99,7 @@
     state() | undefined,
     emqx_extsub_types:topic_filter()
 ) ->
-    {ok, state()} | ignore.
+    {ok, state()} | ignore | destroy.
 -callback handle_unsubscribe(
     unsubscribe_type(), unsubscribe_ctx(), state(), emqx_extsub_types:topic_filter()
 ) ->
@@ -102,14 +112,14 @@
     emqx_extsub_types:ack()
 ) ->
     {ok, state()}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy.
+    | {destroy, state(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, state()}.
 -callback handle_info(state(), info_ctx(), term()) ->
     {ok, state()}
     | {ok, state(), [emqx_types:message()]}
-    | recreate
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy.
+    | {recreate, state()}
+    | {destroy, state(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, state()}.
 
 -optional_callbacks([
     handle_unsubscribe/4,
@@ -125,6 +135,11 @@
 message_target(Ref) ->
     {self(), Ref}.
 
+-doc "Check whether the channel that owns the message target is alive.".
+-spec is_target_alive(message_target()) -> boolean().
+is_target_alive({Pid, _Ref}) ->
+    is_process_alive(Pid).
+
 -doc "Send a message to the channel that owns the handler.".
 -spec send(message_target(), term()) -> ok.
 send({Pid, Ref}, Info) ->
@@ -135,6 +150,24 @@ send({Pid, Ref}, Info) ->
 -spec send_after(non_neg_integer(), message_target(), term()) -> reference().
 send_after(Interval, {Pid, Ref}, Info) ->
     erlang:send_after(Interval, Pid, #info_to_extsub{handler_ref = Ref, info = Info}).
+
+-doc """
+Monitor a process on behalf of the handler.
+
+When the process exits, the handler receives `{'DOWN', MRef, process, Pid, Reason}`
+in `handle_info/3`. Only the channel that owns the handler can call this function.
+The handler must call `demonitor/2` before it is destroyed, for example in
+`handle_terminate/1`. Otherwise the monitor stays until the channel exits.
+""".
+-spec monitor(message_target(), pid()) -> reference().
+monitor({Owner, Ref}, Pid) when Owner =:= self() ->
+    erlang:monitor(process, Pid, [{tag, #extsub_down{handler_ref = Ref}}]).
+
+-doc "Remove a monitor created with `monitor/2` and drop its down message if it is already received.".
+-spec demonitor(message_target(), reference()) -> ok.
+demonitor({Owner, _Ref}, MRef) when Owner =:= self() ->
+    true = erlang:demonitor(MRef, [flush]),
+    ok.
 
 %% Handler options
 
@@ -168,6 +201,9 @@ subscribe_new(SubscribeType, CBM, Options, InitCtx, TopicFilter) ->
     try CBM:handle_subscribe(SubscribeType, InitCtx, undefined, TopicFilter) of
         ignore ->
             ignore;
+        %% No handler exists yet, so there is nothing to destroy.
+        destroy ->
+            ignore;
         {ok, State} ->
             {ok, #handler{
                 cbm = CBM,
@@ -186,11 +222,13 @@ subscribe_new(SubscribeType, CBM, Options, InitCtx, TopicFilter) ->
     end.
 
 -spec subscribe(subscribe_type(), subscribe_ctx(), t(), emqx_extsub_types:topic_filter()) ->
-    {ok, t()} | ignore.
+    {ok, t()} | ignore | destroy.
 subscribe(SubscribeType, SubscribeCtx, #handler{cbm = CBM, st = State0} = Handler, TopicFilter) ->
     case CBM:handle_subscribe(SubscribeType, SubscribeCtx, State0, TopicFilter) of
         ignore ->
             ignore;
+        destroy ->
+            destroy;
         {ok, State} ->
             {ok, Handler#handler{st = State}}
     end.
@@ -220,39 +258,41 @@ terminate(#handler{cbm = CBM, st = State}) ->
 
 -spec delivered(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) ->
     {ok, t()}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy.
+    | {destroy, t(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, t()}.
 delivered(#handler{cbm = CBM, st = State0} = Handler, AckCtx, Msg, Ack) ->
     case CBM:handle_delivered(State0, AckCtx, Msg, Ack) of
         {ok, State} ->
             {ok, Handler#handler{st = State}};
-        {destroy, TopicFilters} ->
-            {destroy, TopicFilters};
-        destroy ->
-            destroy
+        {destroy, State, TopicFilters} ->
+            {destroy, Handler#handler{st = State}, TopicFilters};
+        {destroy, State} ->
+            {destroy, Handler#handler{st = State}}
     end.
 
 -spec info(t(), info_ctx(), term()) ->
     {ok, t()}
     | {ok, t(), [emqx_types:message()]}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy
-    | recreate.
+    | {destroy, t(), [emqx_extsub_types:topic_filter()]}
+    | {destroy, t()}
+    | {recreate, t()}.
 info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
-    {TimeUs, Result} = timer:tc(CBM, handle_info, [State0, InfoCtx, Info]),
-    TimeMs = erlang:convert_time_unit(TimeUs, microsecond, millisecond),
-    emqx_extsub_metrics:observe_hist(handle_info_latency_ms, TimeMs),
+    Result =
+        case emqx_extsub:need_observe_latencies() of
+            true -> observed_handle_info(CBM, State0, InfoCtx, Info);
+            false -> CBM:handle_info(State0, InfoCtx, Info)
+        end,
     case Result of
         {ok, State} ->
             {ok, Handler#handler{st = State}};
         {ok, State, Messages} ->
             {ok, Handler#handler{st = State}, Messages};
-        {destroy, TopicFilters} ->
-            {destroy, TopicFilters};
-        destroy ->
-            destroy;
-        recreate ->
-            recreate
+        {destroy, State, TopicFilters} ->
+            {destroy, Handler#handler{st = State}, TopicFilters};
+        {destroy, State} ->
+            {destroy, Handler#handler{st = State}};
+        {recreate, State} ->
+            {recreate, Handler#handler{st = State}}
     end.
 
 save_subopts(#handler{cbm = CBM, st = State0} = Handler0, Context, SubOpts) ->
@@ -267,3 +307,12 @@ save_subopts(#handler{cbm = CBM, st = State0} = Handler0, Context, SubOpts) ->
         false ->
             {ok, Handler0}
     end.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+observed_handle_info(CBM, State, InfoCtx, Info) ->
+    {TimeMs, Result} = timer:tc(CBM, handle_info, [State, InfoCtx, Info], millisecond),
+    emqx_extsub_metrics:observe_hist(handle_info_latency_ms, TimeMs),
+    Result.
