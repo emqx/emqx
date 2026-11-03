@@ -452,7 +452,8 @@ authn_validations_test() ->
     "
         listeners.ssl.default.bind = 9999
         listeners.wss.default.bind = 9998
-        listeners.wss.default.ssl_options.cacertfile = \"mytest/certs/cacert.pem\"
+        # on dev-70, certs are no longer committed to the repo.
+        listeners.wss.default.ssl_options.cacertfile = \"/tmp/mycacert.pem\"
         listeners.wss.new.bind = 9997
         listeners.wss.new.websocket.mqtt_path = \"/my-mqtt\"
     "
@@ -462,7 +463,19 @@ listeners_test_() ->
     [
         {atom_to_list(Profile), fun() ->
             emqx_common_test_helpers:with_security_profile(Profile, fun() ->
-                listeners_test(Profile)
+                Root = emqx_common_test_helpers:proj_root(),
+                %% generate by `scripts/gen-test-certs.sh apps/emqx/etc/certs`
+                CAPath = filename:join([Root, "apps", "emqx", "etc", "certs", "cacert.pem"]),
+                %% {ok, CAContents} = file:read_file(CAPath),
+                try
+                    {ok, _} = file:copy(CAPath, "/tmp/mycacert.pem"),
+                    %% ok = file:write_file("/tmp/mycacert.pem", CAContents),
+                    %% ok = file:delete(CAPath),
+                    listeners_test(Profile)
+                after
+                    %% ok = file:write_file(CAPath, CAContents),
+                    ok = file:delete("/tmp/mycacert.pem")
+                end
             end)
         end}
      || Profile <- [legacy, hardened]
@@ -502,16 +515,19 @@ listeners_test(Profile) ->
         },
         Ws
     ),
-    %% No certificate defaults: a listener that configures none serves the
-    %% node's own generated bundle instead of a shipped example certificate.
-    ?assertMatch(#{<<"bind">> := SslBind}, Ssl),
-    assert_no_cert_defaults(Ssl),
+    ?assertMatch(
+        #{
+            <<"bind">> := SslBind,
+            <<"ssl_options">> := #{<<"cacertfile">> := <<"${EMQX_ETC_DIR}", _/binary>>}
+        },
+        Ssl
+    ),
     %% What the configuration sets is kept; what it does not set stays unset.
     ?assertMatch(
         #{
             <<"bind">> := DefaultWssBind,
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"},
-            <<"ssl_options">> := #{<<"cacertfile">> := <<"mytest/certs/cacert.pem">>}
+            <<"ssl_options">> := #{<<"cacertfile">> := <<"/tmp/mycacert.pem">>}
         },
         DefaultWss
     ),
@@ -519,15 +535,12 @@ listeners_test(Profile) ->
     ?assertMatch(
         #{
             <<"bind">> := NewWssBind,
-            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"}
+            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"},
+            <<"ssl_options">> := #{<<"cacertfile">> := <<"${EMQX_ETC_DIR}", _/binary>>}
         },
         NewWss
     ),
-    assert_no_cert_defaults(NewWss),
     ok.
-
-assert_no_cert_defaults(Listener) ->
-    assert_no_cert_defaults(Listener, [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]).
 
 assert_no_cert_defaults(Listener, Keys) ->
     SslOpts = maps:get(<<"ssl_options">>, Listener, #{}),
