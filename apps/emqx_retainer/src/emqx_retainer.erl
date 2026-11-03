@@ -269,7 +269,7 @@ init([]) ->
 handle_call({update_config, NewConf, OldConf}, _From, State) ->
     State2 = update_config(State, NewConf, OldConf),
     case maps:get(enable, NewConf) of
-        true -> ok = emqx_retainer_limiter:update();
+        true -> ok = emqx_retainer_limiter:update(NewConf);
         false -> ok
     end,
     {reply, ok, State2};
