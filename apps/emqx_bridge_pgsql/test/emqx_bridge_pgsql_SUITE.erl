@@ -321,7 +321,11 @@ create_action_with_single_connection(TCConfig) ->
     {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
         <<"resource_opts">> => #{
             <<"health_check_interval">> => <<"1h">>,
-            <<"request_ttl">> => <<"30s">>
+            <<"request_ttl">> => <<"30s">>,
+            <<"worker_pool_size">> => 1,
+            <<"batch_size">> => min(2, get_config(batch_size, TCConfig, 1)),
+            %% A partial batch must not flush before the NACK wait times out.
+            <<"batch_time">> => <<"10s">>
         }
     }),
     ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
@@ -829,8 +833,9 @@ t_disconnected_worker_retries(TCConfig) ->
     {ConnectorId, _State, Worker} = create_action_with_single_connection(TCConfig),
     ActionId = emqx_bridge_v2_testlib:resource_id(TCConfig),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
-    C = start_client(),
     Payloads = [unique_payload(), unique_payload()],
+    Publishers = [{start_client(), Payload} || Payload <- Payloads],
+    IsBatch = get_config(batch_size, TCConfig, 1) > 1,
     TestPid = self(),
     with_failure(down, TCConfig, fun() ->
         ?retry(50, 100, ?assertMatch({error, _}, ecpool_worker:client(Worker))),
@@ -838,17 +843,18 @@ t_disconnected_worker_retries(TCConfig) ->
         ?assertMatch({ok, _, #{status := connected}}, emqx_resource:get_instance(ConnectorId)),
         {_, {ok, _}} = ?wait_async_action(
             lists:foreach(
-                fun(Payload) ->
+                fun({C, Payload}) ->
                     emqtt:publish_async(C, Topic, Payload, [{qos, 1}], fun(Result) ->
                         TestPid ! {published, Payload, Result}
                     end)
                 end,
-                Payloads
+                Publishers
             ),
             #{
                 ?snk_kind := buffer_worker_flush_nack,
+                batch_or_query := BatchOrQuery,
                 result := {error, {recoverable_error, ecpool_disconnected}}
-            },
+            } when not IsBatch orelse length(BatchOrQuery) =:= 2,
             5_000
         )
     end),
