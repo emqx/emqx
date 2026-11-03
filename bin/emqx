@@ -473,7 +473,7 @@ fi
 set +x
 
 PS_LINE="$(find_emqx_process)"
-logdebug "PS_LINE=$PS_LINE"
+logdebug "PS_LINE=$(printf '%s' "$PS_LINE" | sed -E 's/(-setcookie) +[^ ]+/\1 ******/g')"
 RUNNING_NODES_COUNT="$(echo -e "$PS_LINE" | sed '/^\s*$/d' | wc -l)"
 [ "$RUNNING_NODES_COUNT" -gt 1 ] && logdebug "More than one running node found: count=$RUNNING_NODES_COUNT"
 
@@ -545,7 +545,10 @@ else
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
     fi
 fi
-logdebug "EMQX_BOOT_CONFIGS: $EMQX_BOOT_CONFIGS"
+# Redact the raw serialized string before any escape expansion, so an
+# embedded escape cannot split a secret across lines. Values may be
+# quoted (from hocon multi_get) or bare (parsed from ps output).
+logdebug "EMQX_BOOT_CONFIGS: $(printf '%s' "$EMQX_BOOT_CONFIGS" | sed -E 's/(node\.cookie|license\.key)=("(\\.|[^"\\])*"|[^\\ ]*)/\1=******/g')"
 [[ "$DEBUG" -gt 0 ]] && set -x
 
 get_boot_config() {
@@ -596,10 +599,15 @@ check_license() {
         return 0
     fi
 
+    # Turn off debug so the license key isn't traced by 'set -x'.
+    set +x
     key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key' || echo '')}"
 
     if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
-      call_nodetool check_license_key "$key_license"
+      local ret=0
+      printf '%s' "$key_license" | call_nodetool check_license_key || ret=$?
+      if [ "$DEBUG" -gt 0 ]; then set -x; fi
+      return $ret
     else
       set +x
       logerr "License not found."
