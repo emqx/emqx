@@ -1,9 +1,26 @@
 services:
   tdengine_server:
     container_name: tdengine
-    image: tdengine/tdengine:${TDENGINE_TAG}
+    image: tdengine/tdengine:3.0.2.4
     restart: always
-    ports:
-      - "6041:6041"
+    expose:
+      - 6041
     networks:
       - emqx_bridge
+
+  tdengine_tls_lb:
+    container_name: tdengine_tls_lb
+    image: public.ecr.aws/nginx/nginx:1.27-bookworm
+    restart: always
+    expose:
+      - 6042
+    networks:
+      - emqx_bridge
+    depends_on:
+      tdengine_server:
+        condition: service_started
+    volumes:
+      - ./tdengine/tls.conf:/etc/nginx/conf.d/default.conf
+      - ./certs/ca.crt:/opt/certs/ca.crt
+      - ./certs/server.crt:/opt/certs/server.crt
+      - ./certs/server.key:/opt/certs/server.key

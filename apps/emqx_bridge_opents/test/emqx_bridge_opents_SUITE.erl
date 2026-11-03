@@ -197,6 +197,9 @@ create_action_api(Config, Overrides) ->
 update_action_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:update_bridge_api2(Config, Overrides).
 
+get_action_metrics_api(TCConfig) ->
+    emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig).
+
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
@@ -433,4 +436,45 @@ t_list_tags_with_var(TCConfig) ->
             opentsdb_query(TCConfig)
         )
     ),
+    ok.
+
+-doc """
+Smoke test to ensure correct hackney tls opts.
+
+In particular, that we can connect to a server with certs from an untrusted CA when using
+`verify_none`.
+""".
+t_tls_verify_none(TCConfig) ->
+    ?assertMatch(
+        {201, #{~"status" := ~"connected"}},
+        create_connector_api(TCConfig, #{
+            ~"server" => ~"https://opents_tls_lb:4243",
+            ~"ssl" => #{~"enable" => true, ~"verify" => ~"verify_none"}
+        })
+    ),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(default_rule_sql(), TCConfig),
+    C = start_client(),
+    Metric = atom_to_binary(?FUNCTION_NAME),
+    Payload = emqx_utils_json:encode(#{
+        <<"value">> => 12,
+        <<"metric">> => Metric,
+        <<"tags">> => #{<<"host">> => <<"serverA">>}
+    }),
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    emqtt:stop(C),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"metrics" := #{
+                    ~"matched" := 1,
+                    ~"success" := 1
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+
     ok.

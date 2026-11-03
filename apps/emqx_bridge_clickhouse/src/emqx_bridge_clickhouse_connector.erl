@@ -151,7 +151,7 @@ on_start(
         connector => InstanceId,
         config => emqx_utils:redact(Config)
     }),
-    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
+    SSLOpts = emqx_connector_lib:to_hackney_tls_client_opts(SSLOpts0),
     Options = [
         {url, URL},
         {user, maps:get(username, Config, "default")},
