@@ -68,18 +68,34 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
+init_per_testcase(t_license_quota_rejection, Config0) ->
+    Config = init_per_testcase(common, Config0),
+    ?assertEqual(undefined, emqx_config:get([license], undefined)),
+    ok = emqx_cth_suite:load_apps([emqx_license]),
+    try
+        Apps = emqx_cth_suite:start_app(emqx_license, #{
+            config => #{license => #{key => emqx_license_parser:evaluation()}}
+        }),
+        [{license_apps, Apps} | Config]
+    catch
+        Class:Reason:Stacktrace ->
+            emqx_config:erase(license),
+            erlang:raise(Class, Reason, Stacktrace)
+    end;
 init_per_testcase(_TestCase, Config) ->
     snabbkaffe:start_trace(),
     [{stomp_raw_config, emqx_config:get_raw([gateway, stomp])} | Config].
 
+end_per_testcase(t_license_quota_rejection, Config) ->
+    try
+        end_per_testcase(common, Config)
+    after
+        emqx_cth_suite:stop_apps(?config(license_apps, Config)),
+        emqx_config:erase(license)
+    end;
 end_per_testcase(_TestCase, Config) ->
     snabbkaffe:stop(),
-    restore_stomp_config(?config(stomp_raw_config, Config)),
-    ok.
-
-%% Restore the config captured before the testcase, so a test that changes the
-%% gateway configuration cannot leak into the following ones.
-restore_stomp_config(Original) ->
+    Original = ?config(stomp_raw_config, Config),
     case emqx_config:get_raw([gateway, stomp]) of
         Original ->
             ok;
@@ -87,25 +103,6 @@ restore_stomp_config(Original) ->
             {ok, _} = emqx_gateway_conf:update_gateway(stomp, Original),
             ok
     end.
-
-default_config() ->
-    ?CONF_DEFAULT.
-
-stomp_ver() ->
-    ?STOMP_VER.
-
-update_stomp_with_mountpoint(Mountpoint) ->
-    Conf = emqx:get_raw_config([gateway, stomp]),
-    emqx_gateway_conf:update_gateway(
-        stomp,
-        Conf#{<<"mountpoint">> => Mountpoint}
-    ).
-
-update_stomp_transaction(TransConf) ->
-    RawConfig = emqx_config:get_raw([gateway, stomp]),
-    RawConfig1 = emqx_utils_maps:deep_put([<<"transaction">>], RawConfig, TransConf),
-    {ok, _} = emqx_gateway_conf:update_gateway(stomp, RawConfig1),
-    ok.
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -1010,14 +1007,6 @@ t_frame_error_declared_body_too_long(_) ->
         end,
     test_frame_error(Frame, Assert).
 
-test_frame_error(Frame, AssertFun) ->
-    with_connection(fun(Sock) ->
-        send_connection_frame(Sock, <<"guest">>, <<"guest">>),
-        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
-        gen_tcp:send(Sock, Frame),
-        AssertFun(Sock)
-    end).
-
 %% A transaction that is never committed must be dropped once it expires, and
 %% the cleanup must keep running for transactions opened later.
 t_transaction_expires(_) ->
@@ -1193,80 +1182,6 @@ t_transaction_commit_receipt_order(_) ->
         fun(CommitReceipt) -> transaction_commit_receipt_order(CommitReceipt) end,
         [[], [{<<"receipt">>, <<"commit">>}]]
     ).
-
-transaction_commit_receipt_order(CommitReceipt) ->
-    with_connection(fun(Sock) ->
-        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"0,0">>),
-        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
-        Topic = <<"/queue/commit-receipt-order">>,
-        ok = send_subscribe_frame(Sock, <<"sub">>, Topic),
-        assert_receipt(Sock, <<"sub">>),
-        ok = begin_frame(Sock, <<"tx1">>),
-        assert_receipt(Sock, <<"begin-tx1">>),
-        lists:foreach(
-            fun(Id) ->
-                ok = send_transactional_frame(
-                    Sock,
-                    <<"SEND">>,
-                    [
-                        transaction_header(<<"tx1">>),
-                        {<<"destination">>, Topic},
-                        {<<"receipt">>, Id}
-                    ],
-                    Id
-                )
-            end,
-            [<<"first">>, <<"second">>]
-        ),
-        ?assertEqual({error, timeout}, gen_tcp:recv(Sock, 0, 100)),
-        ok = send_transactional_frame(
-            Sock, <<"COMMIT">>, [transaction_header(<<"tx1">>) | CommitReceipt]
-        ),
-        ExpectedReceipts = [<<"first">>, <<"second">>] ++ [Id || {_, Id} <- CommitReceipt],
-        Frames = [
-            begin
-                {ok, Frame} = recv_a_frame(Sock),
-                Frame
-            end
-         || _ <- lists:seq(1, 2 + length(ExpectedReceipts))
-        ],
-        ?assertEqual(
-            ExpectedReceipts,
-            [
-                proplists:get_value(<<"receipt-id">>, Headers)
-             || #stomp_frame{command = <<"RECEIPT">>, headers = Headers} <- Frames
-            ]
-        ),
-        ?assertEqual(
-            [<<"first">>, <<"second">>],
-            [Body || #stomp_frame{command = <<"MESSAGE">>, body = Body} <- Frames]
-        )
-    end).
-
-assert_receipt(Sock, ReceiptId) ->
-    ?assertMatch(
-        {ok, #stomp_frame{
-            command = <<"RECEIPT">>,
-            headers = [{<<"receipt-id">>, ReceiptId}]
-        }},
-        recv_a_frame(Sock)
-    ).
-
-transaction_header(TxId) ->
-    {<<"transaction">>, TxId}.
-
-begin_frame(Sock, TxId) ->
-    send_transactional_frame(
-        Sock,
-        <<"BEGIN">>,
-        [transaction_header(TxId), {<<"receipt">>, <<"begin-", TxId/binary>>}]
-    ).
-
-send_transactional_frame(Sock, Command, Headers) ->
-    gen_tcp:send(Sock, serialize(Command, Headers)).
-
-send_transactional_frame(Sock, Command, Headers, Body) ->
-    gen_tcp:send(Sock, serialize(Command, Headers, Body)).
 
 t_rest_clientid_info(_) ->
     with_connection(fun(Sock) ->
@@ -1526,6 +1441,63 @@ t_update_not_restart_listener(_) ->
         ok = send_disconnect_frame(Sock)
     end).
 
+-doc "STOMP rejects connections at the real license session limit and recovers after clients disconnect.".
+t_license_quota_rejection(_) ->
+    {ok, #{max_sessions := Limit}} = emqx_license_checker:limits(),
+    ?assertEqual(25, Limit),
+    check_hook_connect(accepted),
+    wait_for_license_sessions(0),
+    with_stomp_connections(Limit, fun() ->
+        wait_for_license_sessions(Limit),
+        check_hook_connect({rejected, <<"Login Failed: Quota exceeded">>})
+    end),
+    wait_for_license_sessions(0),
+    check_hook_connect(accepted).
+
+-doc "STOMP sends a readable numeric hook rejection and connects after recovery.".
+t_connect_hook_rejection(_) ->
+    ListenerId = {'stomp:tcp:default', 61613},
+    Before = proplists:get_value(quota_exceeded, esockd:get_shutdown_count(ListenerId), 0),
+    emqx_gateway_test_utils:with_quota_exceeded(fun() ->
+        check_hook_connect({rejected, <<"Login Failed: Quota exceeded">>})
+    end),
+    ?retry(
+        20,
+        100,
+        ?assertEqual(
+            Before + 1,
+            proplists:get_value(quota_exceeded, esockd:get_shutdown_count(ListenerId), 0)
+        )
+    ),
+    check_hook_connect(accepted).
+
+-doc "Connection hook rejections support text, atoms, unknown codes, and compound reasons.".
+t_stomp_hook_rejections(_) ->
+    Reasons = [
+        {not_authorized, <<"not_authorized">>},
+        {'access denied', <<"access denied">>},
+        {"access denied", <<"access denied">>},
+        {<<"access denied">>, <<"access denied">>},
+        {[16#62D2, 16#7EDD], unicode:characters_to_binary([16#62D2, 16#7EDD])},
+        {binary_to_list(<<"拒绝"/utf8>>), <<"拒绝"/utf8>>},
+        {[binary_to_list(<<"拒"/utf8>>), <<"绝"/utf8>>], <<"拒绝"/utf8>>},
+        {<<255>>, <<"<<255>>">>},
+        {<<16#E4, 16#B8>>, <<"<<228,184>>">>},
+        {[invalid], <<"[invalid]">>},
+        {[16#110000], <<"[1114112]">>},
+        {255, <<"Unknown error">>},
+        {{access_denied, policy}, <<"{access_denied,policy}">>}
+    ],
+    lists:foreach(
+        fun({Reason, Text}) ->
+            emqx_gateway_test_utils:with_connect_rejection(Reason, fun() ->
+                check_hook_connect({rejected, <<"Login Failed: ", Text/binary>>})
+            end),
+            check_hook_connect(accepted)
+        end,
+        Reasons
+    ).
+
 %% TODO: Mountpoint, AuthChain, Authorization + Mountpoint, ClientInfoOverride,
 %%       Listeners, Metrics, Stats, ClientInfo
 %%
@@ -1535,6 +1507,25 @@ t_update_not_restart_listener(_) ->
 
 %%--------------------------------------------------------------------
 %% helpers
+
+default_config() ->
+    ?CONF_DEFAULT.
+
+stomp_ver() ->
+    ?STOMP_VER.
+
+update_stomp_with_mountpoint(Mountpoint) ->
+    Conf = emqx:get_raw_config([gateway, stomp]),
+    emqx_gateway_conf:update_gateway(
+        stomp,
+        Conf#{<<"mountpoint">> => Mountpoint}
+    ).
+
+update_stomp_transaction(TransConf) ->
+    RawConfig = emqx_config:get_raw([gateway, stomp]),
+    RawConfig1 = emqx_utils_maps:deep_put([<<"transaction">>], RawConfig, TransConf),
+    {ok, _} = emqx_gateway_conf:update_gateway(stomp, RawConfig1),
+    ok.
 
 with_connection(DoFun) ->
     {ok, Sock} = gen_tcp:connect(
@@ -1688,108 +1679,6 @@ create_subscription(ClientId, Topic, SubId) ->
             {error, Message}
     end.
 
--doc "STOMP rejects connections at the real license session limit and recovers after clients disconnect.".
-t_license_quota_rejection(_) ->
-    with_evaluation_license(fun() ->
-        {ok, #{max_sessions := Limit}} = emqx_license_checker:limits(),
-        ?assertEqual(25, Limit),
-        check_hook_connect(accepted),
-        wait_for_gateway_connections(0),
-        sync_license_resources(),
-        ?assertEqual(0, emqx_license_resources:cached_connection_count()),
-        with_stomp_connections(Limit, fun() ->
-            wait_for_gateway_connections(Limit),
-            sync_license_resources(),
-            ?assertEqual(Limit, emqx_license_resources:cached_connection_count()),
-            check_hook_connect({rejected, <<"Login Failed: Quota exceeded">>})
-        end),
-        wait_for_gateway_connections(0),
-        sync_license_resources(),
-        ?assertEqual(0, emqx_license_resources:cached_connection_count()),
-        check_hook_connect(accepted)
-    end).
-
-with_evaluation_license(Fun) ->
-    ?assertEqual(undefined, emqx_config:get([license], undefined)),
-    ok = emqx_cth_suite:load_apps([emqx_license]),
-    try
-        Apps = emqx_cth_suite:start_app(emqx_license, #{
-            config => #{license => #{key => emqx_license_parser:evaluation()}}
-        }),
-        try
-            Fun()
-        after
-            emqx_cth_suite:stop_apps(Apps)
-        end
-    after
-        emqx_config:erase(license)
-    end.
-
-with_stomp_connections(0, Fun) ->
-    Fun();
-with_stomp_connections(Count, Fun) ->
-    with_connection(fun(Socket) ->
-        ok = send_connection_frame(Socket, <<"guest">>, <<"guest">>, <<"0,0">>),
-        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Socket)),
-        with_stomp_connections(Count - 1, Fun)
-    end).
-
-wait_for_gateway_connections(Count) ->
-    ?retry(
-        100,
-        20,
-        ?assertEqual(Count, emqx_gateway_cm_registry:get_connected_client_count())
-    ).
-
-sync_license_resources() ->
-    ok = emqx_license_resources:update_now(),
-    _ = sys:get_state(emqx_license_resources),
-    ok.
-
--doc "STOMP sends a readable numeric hook rejection and connects after recovery.".
-t_connect_hook_rejection(_) ->
-    ListenerId = {'stomp:tcp:default', 61613},
-    Before = proplists:get_value(quota_exceeded, esockd:get_shutdown_count(ListenerId), 0),
-    emqx_gateway_test_utils:with_quota_exceeded(fun() ->
-        check_hook_connect({rejected, <<"Login Failed: Quota exceeded">>})
-    end),
-    ?retry(
-        20,
-        100,
-        ?assertEqual(
-            Before + 1,
-            proplists:get_value(quota_exceeded, esockd:get_shutdown_count(ListenerId), 0)
-        )
-    ),
-    check_hook_connect(accepted).
-
--doc "Connection hook rejections support text, atoms, unknown codes, and compound reasons.".
-t_stomp_hook_rejections(_) ->
-    Reasons = [
-        {not_authorized, <<"not_authorized">>},
-        {'access denied', <<"access denied">>},
-        {"access denied", <<"access denied">>},
-        {<<"access denied">>, <<"access denied">>},
-        {[16#62D2, 16#7EDD], unicode:characters_to_binary([16#62D2, 16#7EDD])},
-        {binary_to_list(<<"拒绝"/utf8>>), <<"拒绝"/utf8>>},
-        {[binary_to_list(<<"拒"/utf8>>), <<"绝"/utf8>>], <<"拒绝"/utf8>>},
-        {<<255>>, <<"<<255>>">>},
-        {<<16#E4, 16#B8>>, <<"<<228,184>>">>},
-        {[invalid], <<"[invalid]">>},
-        {[16#110000], <<"[1114112]">>},
-        {255, <<"Unknown error">>},
-        {{access_denied, policy}, <<"{access_denied,policy}">>}
-    ],
-    lists:foreach(
-        fun({Reason, Text}) ->
-            emqx_gateway_test_utils:with_connect_rejection(Reason, fun() ->
-                check_hook_connect({rejected, <<"Login Failed: ", Text/binary>>})
-            end),
-            check_hook_connect(accepted)
-        end,
-        Reasons
-    ).
-
 check_hook_connect(Expected) ->
     with_connection(fun(Socket) ->
         ok = send_connection_frame(Socket, <<"guest">>, <<"guest">>, <<"0,0">>),
@@ -1803,3 +1692,105 @@ check_hook_connect(Expected) ->
                 ?assertEqual({error, closed}, gen_tcp:recv(Socket, 0, 5000))
         end
     end).
+
+test_frame_error(Frame, AssertFun) ->
+    with_connection(fun(Sock) ->
+        send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        gen_tcp:send(Sock, Frame),
+        AssertFun(Sock)
+    end).
+
+transaction_commit_receipt_order(CommitReceipt) ->
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"0,0">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        Topic = <<"/queue/commit-receipt-order">>,
+        ok = send_subscribe_frame(Sock, <<"sub">>, Topic),
+        assert_receipt(Sock, <<"sub">>),
+        ok = begin_frame(Sock, <<"tx1">>),
+        assert_receipt(Sock, <<"begin-tx1">>),
+        lists:foreach(
+            fun(Id) ->
+                ok = send_transactional_frame(
+                    Sock,
+                    <<"SEND">>,
+                    [
+                        transaction_header(<<"tx1">>),
+                        {<<"destination">>, Topic},
+                        {<<"receipt">>, Id}
+                    ],
+                    Id
+                )
+            end,
+            [<<"first">>, <<"second">>]
+        ),
+        ?assertEqual({error, timeout}, gen_tcp:recv(Sock, 0, 100)),
+        ok = send_transactional_frame(
+            Sock, <<"COMMIT">>, [transaction_header(<<"tx1">>) | CommitReceipt]
+        ),
+        ExpectedReceipts = [<<"first">>, <<"second">>] ++ [Id || {_, Id} <- CommitReceipt],
+        Frames = [
+            begin
+                {ok, Frame} = recv_a_frame(Sock),
+                Frame
+            end
+         || _ <- lists:seq(1, 2 + length(ExpectedReceipts))
+        ],
+        ?assertEqual(
+            ExpectedReceipts,
+            [
+                proplists:get_value(<<"receipt-id">>, Headers)
+             || #stomp_frame{command = <<"RECEIPT">>, headers = Headers} <- Frames
+            ]
+        ),
+        ?assertEqual(
+            [<<"first">>, <<"second">>],
+            [Body || #stomp_frame{command = <<"MESSAGE">>, body = Body} <- Frames]
+        )
+    end).
+
+assert_receipt(Sock, ReceiptId) ->
+    ?assertMatch(
+        {ok, #stomp_frame{
+            command = <<"RECEIPT">>,
+            headers = [{<<"receipt-id">>, ReceiptId}]
+        }},
+        recv_a_frame(Sock)
+    ).
+
+transaction_header(TxId) ->
+    {<<"transaction">>, TxId}.
+
+begin_frame(Sock, TxId) ->
+    send_transactional_frame(
+        Sock,
+        <<"BEGIN">>,
+        [transaction_header(TxId), {<<"receipt">>, <<"begin-", TxId/binary>>}]
+    ).
+
+send_transactional_frame(Sock, Command, Headers) ->
+    gen_tcp:send(Sock, serialize(Command, Headers)).
+
+send_transactional_frame(Sock, Command, Headers, Body) ->
+    gen_tcp:send(Sock, serialize(Command, Headers, Body)).
+
+with_stomp_connections(0, Fun) ->
+    Fun();
+with_stomp_connections(Count, Fun) ->
+    with_connection(fun(Socket) ->
+        ok = send_connection_frame(Socket, <<"guest">>, <<"guest">>, <<"0,0">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Socket)),
+        with_stomp_connections(Count - 1, Fun)
+    end).
+
+wait_for_license_sessions(Count) ->
+    ?retry(
+        100,
+        20,
+        begin
+            ok = emqx_license_resources:update_now(),
+            _ = sys:get_state(emqx_license_resources),
+            ?assertEqual(Count, emqx_license_resources:cached_connection_count())
+        end
+    ).
