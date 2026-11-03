@@ -5,11 +5,9 @@
 -module(emqx_stomp_SUITE).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--undef(PACKET).
 -include("emqx_stomp.hrl").
 
 -compile(export_all).
@@ -1690,10 +1688,26 @@ create_subscription(ClientId, Topic, SubId) ->
             {error, Message}
     end.
 
+-doc "STOMP sends a readable numeric hook rejection and connects after recovery.".
+t_connect_hook_rejection(_) ->
+    ListenerId = {'stomp:tcp:default', 61613},
+    Before = proplists:get_value(quota_exceeded, esockd:get_shutdown_count(ListenerId), 0),
+    emqx_gateway_test_utils:with_quota_exceeded(fun() ->
+        check_hook_connect({rejected, <<"Login Failed: Quota exceeded">>})
+    end),
+    ?retry(
+        20,
+        100,
+        ?assertEqual(
+            Before + 1,
+            proplists:get_value(quota_exceeded, esockd:get_shutdown_count(ListenerId), 0)
+        )
+    ),
+    check_hook_connect(accepted).
+
 -doc "Connection hook rejections support text, atoms, unknown codes, and compound reasons.".
 t_stomp_hook_rejections(_) ->
     Reasons = [
-        {?RC_QUOTA_EXCEEDED, <<"Quota exceeded">>},
         {not_authorized, <<"not_authorized">>},
         {'access denied', <<"access denied">>},
         {"access denied", <<"access denied">>},

@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 assert_confs(Expected0, Effected) ->
     Expected = maybe_unconvert_listeners(Expected0),
@@ -336,6 +337,9 @@ delete_gateway_client_subscription(Gateway, ClientId, Topic0) ->
         {400, _} = Err ->
             Err
     end.
+
+with_quota_exceeded(Fun) ->
+    with_connect_rejection(?RC_QUOTA_EXCEEDED, Fun).
 
 with_connect_rejection(Reason, Fun) ->
     Action = {?MODULE, reject_connect, [Reason]},

@@ -6,8 +6,6 @@
 
 -include("emqx_nats.hrl").
 -include_lib("eunit/include/eunit.hrl").
--undef(PACKET).
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -443,7 +441,7 @@ find_client_by_username(Username) ->
 -doc "NATS returns a numeric hook rejection as -ERR and connects after the hook is removed.".
 t_connect_hook_rejection(Config) ->
     Port = ?config(nats_port, Config),
-    emqx_gateway_test_utils:with_connect_rejection(?RC_QUOTA_EXCEEDED, fun() ->
+    emqx_gateway_test_utils:with_quota_exceeded(fun() ->
         check_hook_connect(Port, rejected)
     end),
     ListenerId = emqx_gateway_utils:listener_id(nats, tcp, default),
@@ -458,25 +456,36 @@ t_connect_hook_rejection(Config) ->
     check_hook_connect(Port, accepted).
 
 check_hook_connect(Port, Expected) ->
-    {ok, Socket} = gen_tcp:connect(
-        "127.0.0.1", Port, [binary, {active, false}, {packet, line}], 5000
-    ),
+    Options = maps:put(verbose, true, default_client_opts(Port)),
+    {ok, Client} = emqx_nats_client:start_link(Options),
     try
-        {ok, <<"INFO ", _/binary>>} = gen_tcp:recv(Socket, 0, 5000),
-        ok = gen_tcp:send(Socket, [
-            <<"CONNECT ">>, emqx_utils_json:encode(#{verbose => true}), <<13, 10, "PING", 13, 10>>
-        ]),
+        ?assertMatch(
+            {ok, [#nats_frame{operation = ?OP_INFO}]},
+            emqx_nats_client:receive_message(Client)
+        ),
+        ok = emqx_nats_client:connect(Client),
         case Expected of
             rejected ->
-                ?assertEqual(
-                    {ok, <<"-ERR Login Failed: Quota exceeded", 13, 10>>},
-                    gen_tcp:recv(Socket, 0, 5000)
-                ),
-                ?assertEqual({error, closed}, gen_tcp:recv(Socket, 0, 5000));
+                ?assertMatch(
+                    {ok, [
+                        #nats_frame{
+                            operation = ?OP_ERR, message = <<"Login Failed: Quota exceeded">>
+                        },
+                        tcp_closed
+                    ]},
+                    emqx_nats_client:receive_message(Client, 2)
+                );
             accepted ->
-                ?assertEqual({ok, <<"+OK", 13, 10>>}, gen_tcp:recv(Socket, 0, 5000)),
-                ?assertEqual({ok, <<"PONG", 13, 10>>}, gen_tcp:recv(Socket, 0, 5000))
+                ?assertMatch(
+                    {ok, [#nats_frame{operation = ?OP_OK}]},
+                    emqx_nats_client:receive_message(Client)
+                ),
+                ok = emqx_nats_client:ping(Client),
+                ?assertMatch(
+                    {ok, [#nats_frame{operation = ?OP_PONG}]},
+                    emqx_nats_client:receive_message(Client)
+                )
         end
     after
-        gen_tcp:close(Socket)
+        emqx_nats_client:stop(Client)
     end.

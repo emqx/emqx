@@ -25,25 +25,13 @@ defmodule EMQXLicense.MixProject do
   end
 
   def deps() do
-    UMP.deps(
-      [
-        {:emqx_mix_utils, in_umbrella: true, runtime: false},
-        {:emqx, in_umbrella: true},
-        {:emqx_utils, in_umbrella: true},
-        {:emqx_ctl, in_umbrella: true},
-        {:emqx_gateway, in_umbrella: true}
-      ] ++ test_deps()
-    )
-  end
-
-  defp test_deps() do
-    if UMP.test_env?() do
-      [
-        {:emqx_gateway_stomp, in_umbrella: true, runtime: false}
-      ]
-    else
-      []
-    end
+    UMP.deps([
+      {:emqx_mix_utils, in_umbrella: true, runtime: false},
+      {:emqx, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
+      {:emqx_ctl, in_umbrella: true},
+      {:emqx_gateway, in_umbrella: true}
+    ])
   end
 
   defp extra_dirs() do
