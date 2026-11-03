@@ -1382,13 +1382,22 @@ server_ssl_opts_schema_ocsp_responder_url.label:
 """OCSP Responder URL"""
 
 mqtt_idle_timeout.desc:
-"""Configure the duration of time that a connection can remain idle (i.e., without any data transfer) before being:
-  - Automatically disconnected  if no CONNECT package is received from the client yet.
-  - Put into hibernation mode to save resources if some CONNECT packages are already received.
-Note: Please set the parameter with caution as long idle time will lead to resource waste."""
+"""The time that a new connection can stay without a CONNECT packet. When no CONNECT packet arrives in this time, the broker closes the connection.
+After the CONNECT packet, this option has no effect. `hibernate_after` controls hibernation, and `stats_emit_interval` controls the statistics timer.
+Note: A long time keeps the resources of a silent connection for longer."""
 
 mqtt_idle_timeout.label:
 """Idle Timeout"""
+
+mqtt_stats_emit_interval.desc:
+"""How often an active connection updates its socket byte counters, its send queue size and its session gauges (subscriptions, inflight messages, message queue) in the client statistics that the REST API and the Dashboard read.
+On the same timer, the connection checks its send queue for congestion, raises or clears the congestion alarm, and applies changes of the limiter configuration.
+The packet and message counters do not use this timer. They change when a packet arrives or leaves.
+An idle connection stops the timer until its next packet.
+A shorter period keeps these statistics fresher. It costs one socket query per connection in each period."""
+
+mqtt_stats_emit_interval.label:
+"""Statistics Emit Interval"""
 
 mqtt_hibernate_after.desc:
 """Put an established connection into hibernation after this period without any activity.
