@@ -28,7 +28,12 @@ The module passes the rest of the delivery to an ExtSub handler
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
--export([register_hooks/0, unregister_hooks/0]).
+-export([
+    register_hooks/0,
+    unregister_hooks/0,
+    register_unsubscribe_hook/0,
+    unregister_unsubscribe_hook/0
+]).
 
 %% Hooks
 -export([
@@ -73,9 +78,6 @@ The module passes the rest of the delivery to an ExtSub handler
 register_hooks() ->
     ok = emqx_hooks:put('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_RETAINER),
     ok = emqx_hooks:put(
-        'session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_RETAINER
-    ),
-    ok = emqx_hooks:put(
         'session.disconnected', {?MODULE, on_session_disconnected, []}, ?HP_RETAINER
     ),
     ok = emqx_hooks:put(
@@ -87,11 +89,22 @@ register_hooks() ->
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
     ok = emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
-    ok = emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     ok = emqx_hooks:del('session.disconnected', {?MODULE, on_session_disconnected}),
     ok = emqx_hooks:del('session.save_subopts', {?MODULE, on_session_save_subopts}),
     ok = emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}),
     ok = emqx_hooks:del('message.nack', {?MODULE, on_message_nack}).
+
+-doc """
+Register the `session.unsubscribed` hook for the lifetime of the retainer, also while the
+retainer is disabled. An unsubscribe then removes the read state that a disable left behind.
+""".
+-spec register_unsubscribe_hook() -> ok.
+register_unsubscribe_hook() ->
+    emqx_hooks:put('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_RETAINER).
+
+-spec unregister_unsubscribe_hook() -> ok.
+unregister_unsubscribe_hook() ->
+    emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}).
 
 -doc "Retain Handling 0 sends retained messages on each SUBSCRIBE, 1 only for a new subscription.".
 -spec need_retained(emqx_types:subopts()) -> boolean().

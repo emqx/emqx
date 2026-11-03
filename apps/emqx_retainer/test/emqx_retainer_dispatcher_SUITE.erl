@@ -568,6 +568,29 @@ t_lazy_unsubscribe_pending(_Config) ->
     ?assertMatch({ok, #{registry := #{by_ref := []}}}, emqx_extsub:inspect(Channel)),
     ok = emqtt:stop(Client).
 
+-doc "Unsubscribe while the retainer is disabled removes the state of a pending channel read.".
+t_lazy_unsubscribe_disabled(_Config) ->
+    store_messages(),
+    {Client, Channel} = connect(#{}),
+    Worker = gproc_pool:pick_worker(?DISPATCHER_POOL, Channel),
+    ok = sys:suspend(Worker),
+    emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
+    {dictionary, Dict} = process_info(Channel, dictionary),
+    ?assertMatch(#{<<"t/+/a">> := _}, proplists:get_value(emqx_retainer_reads, Dict)),
+
+    %% Disable stops the worker while the channel read waits for it
+    emqx_common_test_helpers:on_exit(fun() ->
+        {ok, _} = emqx_retainer:update_config(#{<<"enable">> => true})
+    end),
+    {ok, _} = emqx_retainer:update_config(#{<<"enable">> => false}),
+    ?assertNot(is_process_alive(Worker)),
+
+    %% Unsubscribe while disabled removes the read and the worker bookkeeping
+    {ok, _, _} = emqtt:unsubscribe(Client, <<"t/+/a">>),
+    assert_no_read_state(Channel),
+    ok = emqtt:stop(Client).
+
 -doc "When the dispatcher worker dies before it replies, ExtSub repeats the read.".
 t_lazy_worker_down(_Config) ->
     store_messages(),

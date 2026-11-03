@@ -295,6 +295,7 @@ batch_read_number() ->
 init([]) ->
     erlang:process_flag(trap_exit, true),
     emqx_conf:add_handler([retainer], ?MODULE),
+    ok = emqx_retainer_channel:register_unsubscribe_hook(),
     State = new_state(),
     RetainerConfig = emqx:get_config([retainer]),
     {ok,
@@ -336,6 +337,7 @@ handle_info(Info, State) ->
 terminate(_Reason, #{is_started := IsStarted} = State) ->
     emqx_conf:remove_handler([retainer]),
     IsStarted andalso stop_retainer(State),
+    ok = emqx_retainer_channel:unregister_unsubscribe_hook(),
     ok.
 
 %%------------------------------------------------------------------------------
