@@ -805,3 +805,43 @@ t_cleanup_resources(TCConfig) when is_list(TCConfig) ->
     ?assertMatch([], Producers0 -- Producers2, Ctx),
     ?assertMatch([], Producers2 -- Producers0, Ctx),
     ok.
+
+-doc """
+Check that we are able to recreate the same action while the connector still exists.
+
+Reproduces https://github.com/emqx/emqx/issues/19769
+""".
+t_recreate_same_action(TCConfig) ->
+    {201, #{~"status" := ~"connected"}} = create_connector_api(TCConfig, #{}),
+    {201, #{~"status" := ~"connected"}} = create_action_api(TCConfig, #{}),
+    #{id := RuleId0, topic := RuleTopic0} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, RuleTopic0, ~"1", [{qos, 1}]),
+
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"matched">> := 1, <<"dropped">> := 0, <<"failed">> := 0, <<"success">> := 1},
+            get_action_metrics(TCConfig)
+        )
+    ),
+
+    {204, _} = delete_rule_api(RuleId0),
+    {204, _} = delete_action_api(TCConfig),
+
+    {201, #{~"status" := ~"connected"}} = create_action_api(TCConfig, #{}),
+    #{topic := RuleTopic1} = simple_create_rule_api(TCConfig),
+
+    emqtt:publish(C, RuleTopic1, ~"2", [{qos, 1}]),
+
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"matched">> := 1, <<"dropped">> := 0, <<"failed">> := 0, <<"success">> := 1},
+            get_action_metrics(TCConfig)
+        )
+    ),
+
+    ok.

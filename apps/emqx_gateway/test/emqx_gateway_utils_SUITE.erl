@@ -32,6 +32,14 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     Config.
 
+-doc "The gateway test helper loads the NATS application.".
+t_all_gateway_apps_loaded(_Config) ->
+    ?assert(lists:member(emqx_gateway_nats, emqx_gateway_test_utils:all_gateway_apps())),
+    ?assertMatch(
+        {emqx_gateway_nats, _, _},
+        lists:keyfind(emqx_gateway_nats, 1, application:loaded_applications())
+    ).
+
 t_global_chain(_Config) ->
     Names = emqx_gateway_schema:gateway_names(),
     lists:foreach(

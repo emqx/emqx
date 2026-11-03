@@ -1313,6 +1313,7 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
             emqx_metrics:inc_global('delivery.dropped.too_large'),
             emqx_metrics:inc_global('delivery.dropped'),
             inc_dropped_stats(),
+            ok = emqx_channel:notify_discarded(Packet),
             [];
         IoVec ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
