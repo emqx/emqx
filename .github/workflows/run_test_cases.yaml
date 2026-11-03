@@ -68,6 +68,10 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}-test.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: generate test certificates
+        run: ./scripts/gen-test-certs.sh apps/emqx/etc/certs
+
         # produces eunit.coverdata
       - run: make eunit
 
@@ -188,6 +192,9 @@ jobs:
         with:
           name: ${{ matrix.profile }}-plugin-packages
           path: _build/plugins
+
+      - name: generate test certificates
+        run: ./scripts/gen-test-certs.sh apps/emqx/etc/certs
 
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
       - name: run common tests
