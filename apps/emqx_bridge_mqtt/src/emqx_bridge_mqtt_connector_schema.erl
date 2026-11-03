@@ -415,7 +415,13 @@ unique_static_clientid_validator(#{<<"mqtt">> := MQTTConnectors}) ->
             fun({_CIdServer, Name}) -> Name end,
             StaticClientIdsToNames0
         ),
-    Duplicated0 = maps:filter(fun(_, Vs) -> length(Vs) > 1 end, StaticClientIdsToNames),
+    Duplicated0 = maps:filter(
+        fun
+            (_, [_, _ | _]) -> true;
+            (_, _) -> false
+        end,
+        StaticClientIdsToNames
+    ),
     Duplicated = maps:values(Duplicated0),
     case Duplicated of
         [] ->
