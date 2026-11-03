@@ -264,6 +264,9 @@ jobs:
           useradd -m testuser
           chown -R testuser:testuser .
           su testuser -c "PROFILE=$PROFILE venv/bin/pytest scripts/test/test_emqx_boot.py -v -s"
+      - name: check db_schema baseline tables
+        run: |
+          su testuser -c "PROFILE=$PROFILE ./scripts/test/db-schema-baseline-test.sh"
 
   tests_passed:
     timeout-minutes: 30
