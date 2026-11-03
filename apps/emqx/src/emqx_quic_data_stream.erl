@@ -289,10 +289,19 @@ handle_outgoing(Packets, #{serialize := Serialize, stream := Stream, is_unidir :
 ->
     OutBin = [serialize_packet(P, Serialize) || P <- filter_disallowed_out(Packets)],
     %% Send data async but still want send feedback via {quic, send_complete, ...}
-    Res = quicer:async_send(Stream, OutBin, ?QUICER_SEND_FLAG_SYNC),
+    Res = async_send(Stream, OutBin),
     ?TRACE("MQTT", "mqtt_packet_sent", #{packets => Packets}),
     [ok = inc_outgoing_stats(P) || P <- Packets],
     Res.
+
+async_send(Stream, OutBin) ->
+    case iolist_size(OutBin) of
+        0 ->
+            %% Every packet was discarded.
+            {ok, 0};
+        _ ->
+            quicer:async_send(Stream, OutBin, ?QUICER_SEND_FLAG_SYNC)
+    end.
 
 serialize_packet(Packet, Serialize) ->
     try emqx_frame:serialize_pkt(Packet, Serialize) of
@@ -305,6 +314,7 @@ serialize_packet(Packet, Serialize) ->
             ok = emqx_metrics:inc('delivery.dropped.too_large'),
             ok = emqx_metrics:inc('delivery.dropped'),
             ok = inc_outgoing_stats({error, message_too_large}),
+            ok = emqx_channel:notify_discarded(Packet),
             <<>>;
         Data ->
             Data

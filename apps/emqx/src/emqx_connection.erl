@@ -922,6 +922,7 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
                 ok = emqx_metrics:inc('delivery.dropped.too_large'),
                 ok = emqx_metrics:inc('delivery.dropped'),
                 ok = inc_outgoing_stats({error, message_too_large}),
+                ok = emqx_channel:notify_discarded(Packet),
                 <<>>;
             Data ->
                 ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
@@ -949,8 +950,16 @@ serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
 %% Send data
 
 -spec send(iodata(), state()) -> {ok, state()}.
-send(IoData, #state{transport = Transport, socket = Socket} = State) ->
-    Oct = iolist_size(IoData),
+send(IoData, State) ->
+    case iolist_size(IoData) of
+        0 ->
+            %% Every packet was discarded.
+            {ok, State};
+        Oct ->
+            do_send(Oct, IoData, State)
+    end.
+
+do_send(Oct, IoData, #state{transport = Transport, socket = Socket} = State) ->
     emqx_metrics:inc('bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
     case Transport:send(Socket, IoData) of
