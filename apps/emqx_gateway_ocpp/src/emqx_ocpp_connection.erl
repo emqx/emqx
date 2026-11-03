@@ -224,7 +224,8 @@ do_init(Req, Opts, WsOpts) ->
         )
     of
         {error, Reason, _State} ->
-            {ok, cowboy_req:reply(400, #{}, to_bin(Reason), Req), WsOpts};
+            ErrorText = emqx_gateway_utils:reason_text(Reason),
+            {ok, cowboy_req:reply(400, #{}, ErrorText, Req), WsOpts};
         {ok, [Resp, Opts, WsOpts], NState} ->
             {cowboy_websocket_linger, Resp, [Req, Opts, NState], WsOpts}
     end.
@@ -873,10 +874,6 @@ get_peer(Req, Opts) ->
     catch
         _:_ -> {Addr, PeerPort}
     end.
-
-to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-to_bin(L) when is_list(L) -> list_to_binary(L);
-to_bin(B) when is_binary(B) -> B.
 
 %%--------------------------------------------------------------------
 %% For CT tests
