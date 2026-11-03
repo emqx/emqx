@@ -318,6 +318,68 @@ t_client_event(_Config) ->
     ?assert(erlang:byte_size(Bin3) > 0),
     ok.
 
+t_client_unlimited_payload(_Config) ->
+    lists:foreach(
+        fun({Formatter, Encode}) ->
+            test_client_unlimited_payload(Formatter, Encode)
+        end,
+        [{Formatter, Encode} || Formatter <- [text, json], Encode <- [text, hex, hidden]]
+    ).
+
+test_client_unlimited_payload(Formatter, Encode) ->
+    Name = iolist_to_binary(["unlimited_", atom_to_list(Formatter), "_", atom_to_list(Encode)]),
+    {ok, _} = emqx_trace:create(#{
+        name => Name,
+        filter => {clientid, Name},
+        formatter => Formatter,
+        payload_encode => Encode,
+        payload_limit => 0
+    }),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, Name}]),
+    try
+        {ok, _} = emqtt:connect(Client),
+        Text = binary:copy(<<"payload">>, 200),
+        Binary = <<(list_to_binary(lists:seq(0, 31)))/binary, 254, 255>>,
+        lists:foreach(
+            fun(Payload) ->
+                {ok, _} = emqtt:publish(Client, <<"unlimited">>, Payload, qos1)
+            end,
+            [Text, Binary]
+        ),
+        {ok, Content, _} = emqx_trace:stream_log(Name, start, undefined),
+        Lines = binary:split(Content, <<"\n">>, [global, trim_all]),
+        PublishLines = [Line || Line <- Lines, binary:match(Line, <<"publish_to">>) =/= nomatch],
+        PacketLines = [
+            Line
+         || Line <- Lines,
+            binary:match(Line, <<"mqtt_packet_received">>) =/= nomatch,
+            binary:match(Line, <<"PUBLISH(">>) =/= nomatch
+        ],
+        ?assertEqual(2, length(PublishLines)),
+        ?assertEqual(2, length(PacketLines)),
+        lists:foreach(
+            fun(Entries) ->
+                lists:foreach(
+                    fun({Line, Payload}) ->
+                        Expected =
+                            case {Encode, Payload} of
+                                {hidden, _} -> <<"******">>;
+                                {text, Text} -> Text;
+                                _ -> binary:encode_hex(Payload)
+                            end,
+                        ?assertNotEqual(nomatch, binary:match(Line, Expected)),
+                        ?assertEqual(nomatch, binary:match(Line, <<"...(">>))
+                    end,
+                    lists:zip(Entries, [Text, Binary])
+                )
+            end,
+            [PublishLines, PacketLines]
+        )
+    after
+        catch emqtt:disconnect(Client),
+        ok = emqx_trace:delete(Name)
+    end.
+
 t_client_huge_payload_truncated(_Config) ->
     ClientId = <<"client-truncated1">>,
     Now = erlang:system_time(second),
