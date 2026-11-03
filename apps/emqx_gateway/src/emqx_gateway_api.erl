@@ -368,7 +368,7 @@ fields(Gw) when
     Gw == nats
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
-        convert_listener_struct(emqx_gateway_schema:gateway_schema(Gw));
+        convert_listener_struct(Gw, emqx_gateway_schema:gateway_schema(Gw, Gw));
 fields(Gw) when
     Gw == update_stomp;
     Gw == update_mqttsn;
@@ -382,7 +382,15 @@ fields(Gw) when
 ->
     "update_" ++ GwStr = atom_to_list(Gw),
     Gw1 = list_to_existing_atom(GwStr),
-    remove_listener_and_authn(emqx_gateway_schema:gateway_schema(Gw1));
+    remove_listener_and_authn(emqx_gateway_schema:gateway_schema(Gw1, Gw1));
+fields(nats_ws_listener) ->
+    listener_fields(ws, emqx_gateway_schema:gateway_schema(nats, ws_listener));
+fields(nats_wss_listener) ->
+    listener_fields(wss, emqx_gateway_schema:gateway_schema(nats, wss_listener));
+fields(ocpp_ws_listener) ->
+    listener_fields(ws, emqx_gateway_schema:gateway_schema(ocpp, ws_listener));
+fields(ocpp_wss_listener) ->
+    listener_fields(wss, emqx_gateway_schema:gateway_schema(ocpp, wss_listener));
 fields(Listener) when
     Listener == tcp_listener;
     Listener == ssl_listener;
@@ -400,6 +408,11 @@ fields(Listener) when
             ws_listener -> ws;
             wss_listener -> wss
         end,
+    listener_fields(Type, emqx_gateway_schema:fields(Listener));
+fields(gateway_stats) ->
+    [{key, mk(binary(), #{})}].
+
+listener_fields(Type, Fields) ->
     [
         {id,
             mk(
@@ -425,9 +438,7 @@ fields(Listener) when
                     desc => ?DESC(gateway_listener_running)
                 }
             )}
-    ] ++ emqx_gateway_schema:fields(Listener);
-fields(gateway_stats) ->
-    [{key, mk(binary(), #{})}].
+    ] ++ Fields.
 
 check_api_schema(Req, #{path := "/gateways/:name", method := put} = Meta) ->
     do_check_named_gateway_api_schema(Req, Meta);
@@ -504,10 +515,10 @@ schema_gateways_conf() ->
         examples_gateway_confs()
     ).
 
-convert_listener_struct(Schema) ->
+convert_listener_struct(Gw, Schema) ->
     {value, {listeners, #{type := Type}}, Schema1} = lists:keytake(listeners, 1, Schema),
     ListenerSchema = hoconsc:mk(
-        listeners_schema(Type),
+        listeners_schema(Gw, Type),
         #{required => {false, recursively}}
     ),
     lists:keystore(listeners, 1, Schema1, {listeners, ListenerSchema}).
@@ -519,21 +530,35 @@ remove_listener_and_authn(Schema) ->
         lists:keydelete(listeners, 1, Schema)
     ).
 
-listeners_schema(?R_REF(_Mod, tcp_listeners)) ->
-    hoconsc:array(hoconsc:union(mk_listener_union([tcp, ssl])));
-listeners_schema(?R_REF(_Mod, udp_listeners)) ->
-    hoconsc:array(hoconsc:union(mk_listener_union([udp, dtls])));
-listeners_schema(?R_REF(_Mod, tcp_udp_listeners)) ->
-    hoconsc:array(hoconsc:union(mk_listener_union([tcp, ssl, udp, dtls])));
-listeners_schema(?R_REF(_Mod, ws_listeners)) ->
-    hoconsc:array(hoconsc:union(mk_listener_union([ws, wss])));
-listeners_schema(?R_REF(_Mod, tcp_ws_listeners)) ->
-    hoconsc:array(hoconsc:union(mk_listener_union([tcp, ssl, ws, wss]))).
+listeners_schema(Gw, ?R_REF(_Mod, tcp_listeners)) ->
+    hoconsc:array(hoconsc:union(mk_listener_union(Gw, [tcp, ssl])));
+listeners_schema(Gw, ?R_REF(_Mod, udp_listeners)) ->
+    hoconsc:array(hoconsc:union(mk_listener_union(Gw, [udp, dtls])));
+listeners_schema(Gw, ?R_REF(_Mod, tcp_udp_listeners)) ->
+    hoconsc:array(hoconsc:union(mk_listener_union(Gw, [tcp, ssl, udp, dtls])));
+listeners_schema(Gw, ?R_REF(_Mod, ws_listeners)) ->
+    hoconsc:array(hoconsc:union(mk_listener_union(Gw, [ws, wss])));
+listeners_schema(Gw, ?R_REF(_Mod, tcp_ws_listeners)) ->
+    hoconsc:array(hoconsc:union(mk_listener_union(Gw, [tcp, ssl, ws, wss]))).
+
+listener_ref(nats, ws_listener) ->
+    ref(?MODULE, nats_ws_listener);
+listener_ref(nats, wss_listener) ->
+    ref(?MODULE, nats_wss_listener);
+listener_ref(ocpp, ws_listener) ->
+    ref(?MODULE, ocpp_ws_listener);
+listener_ref(ocpp, wss_listener) ->
+    ref(?MODULE, ocpp_wss_listener);
+listener_ref(_Gw, Listener) ->
+    ref(?MODULE, Listener).
 
 listener_schema() ->
     hoconsc:union(fun listener_union/1).
 
-mk_listener_union(AllowedStructs) ->
+%% `listener_ref/2' resolves the gateways that define their own WebSocket
+%% listener schema, and falls back to the shared one for every other gateway and
+%% every other listener type.
+mk_listener_union(Gw, AllowedStructs) ->
     GWTypeToListenerType = #{
         tcp => tcp_listener,
         ssl => ssl_listener,
@@ -545,21 +570,21 @@ mk_listener_union(AllowedStructs) ->
     Index = maps:from_keys(AllowedStructs, true),
     fun
         (all_union_members) ->
-            [ref(?MODULE, maps:get(S, GWTypeToListenerType)) || S <- AllowedStructs];
+            [listener_ref(Gw, maps:get(S, GWTypeToListenerType)) || S <- AllowedStructs];
         ({value, V}) ->
             case V of
                 #{<<"type">> := <<"tcp">>} when is_map_key(tcp, Index) ->
-                    [ref(?MODULE, tcp_listener)];
+                    [listener_ref(Gw, tcp_listener)];
                 #{<<"type">> := <<"ssl">>} when is_map_key(ssl, Index) ->
-                    [ref(?MODULE, ssl_listener)];
+                    [listener_ref(Gw, ssl_listener)];
                 #{<<"type">> := <<"udp">>} when is_map_key(udp, Index) ->
-                    [ref(?MODULE, udp_listener)];
+                    [listener_ref(Gw, udp_listener)];
                 #{<<"type">> := <<"dtls">>} when is_map_key(dtls, Index) ->
-                    [ref(?MODULE, dtls_listener)];
+                    [listener_ref(Gw, dtls_listener)];
                 #{<<"type">> := <<"ws">>} when is_map_key(ws, Index) ->
-                    [ref(?MODULE, ws_listener)];
+                    [listener_ref(Gw, ws_listener)];
                 #{<<"type">> := <<"wss">>} when is_map_key(wss, Index) ->
-                    [ref(?MODULE, wss_listener)];
+                    [listener_ref(Gw, wss_listener)];
                 #{<<"type">> := TypeBin} ->
                     throw(#{
                         reason => <<"unknown_listener_type">>,

@@ -204,15 +204,15 @@ fields(tcp_ws_listeners) ->
         emqx_gateway_schema:fields(tcp_listeners);
 fields(ws_listener) ->
     [
-        {websocket, sc(ref(websocket), #{})}
+        {websocket, sc(ref(nats_websocket), #{})}
     ] ++
         emqx_gateway_schema:ws_listener();
 fields(wss_listener) ->
     [
-        {websocket, sc(ref(websocket), #{})}
+        {websocket, sc(ref(nats_websocket), #{})}
     ] ++
         emqx_gateway_schema:wss_listener();
-fields(websocket) ->
+fields(nats_websocket) ->
     Override = #{
         path => <<>>,
         fail_if_no_subprotocol => false,
@@ -242,7 +242,7 @@ desc(ws_listener) ->
     ?DESC(ws_listener);
 desc(wss_listener) ->
     ?DESC(wss_listener);
-desc(websocket) ->
+desc(nats_websocket) ->
     ?DESC(websocket).
 
 deobfuscate(NewConf, OldConf) when is_map(NewConf), is_map(OldConf) ->
