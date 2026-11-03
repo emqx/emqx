@@ -633,7 +633,7 @@ check_license() {
 
     if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
       local ret=0
-      call_nodetool check_license_key "$key_license" || ret=$?
+      printf '%s' "$key_license" | call_nodetool check_license_key || ret=$?
       if [ "$DEBUG" -gt 0 ]; then set -x; fi
       return $ret
     else
