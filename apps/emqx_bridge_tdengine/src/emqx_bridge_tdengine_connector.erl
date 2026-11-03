@@ -190,7 +190,7 @@ on_start(
                 []
         end,
     #{hostname := Host, port := Port} = Server1,
-    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
+    SSLOpts = emqx_connector_lib:to_hackney_tls_client_opts(SSLOpts0),
     Options = [
         {host, to_bin(Host)},
         {port, Port},

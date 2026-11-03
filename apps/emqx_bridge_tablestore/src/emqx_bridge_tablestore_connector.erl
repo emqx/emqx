@@ -76,7 +76,7 @@ on_get_channels(InstId) ->
 
 on_start(InstId, Config) ->
     #{ssl := SSLOpts0} = Config,
-    SSLOpts = emqx_tls_lib:to_client_opts(SSLOpts0),
+    SSLOpts = emqx_connector_lib:to_hackney_tls_client_opts(SSLOpts0),
     BaseOpts = [
         {instance, maps:get(instance_name, Config)},
         {pool, ?OTS_CLIENT_NAME(InstId)},
