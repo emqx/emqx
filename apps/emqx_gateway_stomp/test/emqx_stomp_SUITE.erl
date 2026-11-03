@@ -1688,6 +1688,64 @@ create_subscription(ClientId, Topic, SubId) ->
             {error, Message}
     end.
 
+-doc "STOMP rejects connections at the real license session limit and recovers after clients disconnect.".
+t_license_quota_rejection(_) ->
+    with_evaluation_license(fun() ->
+        {ok, #{max_sessions := Limit}} = emqx_license_checker:limits(),
+        ?assertEqual(25, Limit),
+        check_hook_connect(accepted),
+        wait_for_gateway_connections(0),
+        sync_license_resources(),
+        ?assertEqual(0, emqx_license_resources:cached_connection_count()),
+        with_stomp_connections(Limit, fun() ->
+            wait_for_gateway_connections(Limit),
+            sync_license_resources(),
+            ?assertEqual(Limit, emqx_license_resources:cached_connection_count()),
+            check_hook_connect({rejected, <<"Login Failed: Quota exceeded">>})
+        end),
+        wait_for_gateway_connections(0),
+        sync_license_resources(),
+        ?assertEqual(0, emqx_license_resources:cached_connection_count()),
+        check_hook_connect(accepted)
+    end).
+
+with_evaluation_license(Fun) ->
+    ?assertEqual(undefined, emqx_config:get([license], undefined)),
+    ok = emqx_cth_suite:load_apps([emqx_license]),
+    try
+        Apps = emqx_cth_suite:start_app(emqx_license, #{
+            config => #{license => #{key => emqx_license_parser:evaluation()}}
+        }),
+        try
+            Fun()
+        after
+            emqx_cth_suite:stop_apps(Apps)
+        end
+    after
+        emqx_config:erase(license)
+    end.
+
+with_stomp_connections(0, Fun) ->
+    Fun();
+with_stomp_connections(Count, Fun) ->
+    with_connection(fun(Socket) ->
+        ok = send_connection_frame(Socket, <<"guest">>, <<"guest">>, <<"0,0">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Socket)),
+        with_stomp_connections(Count - 1, Fun)
+    end).
+
+wait_for_gateway_connections(Count) ->
+    ?retry(
+        100,
+        20,
+        ?assertEqual(Count, emqx_gateway_cm_registry:get_connected_client_count())
+    ).
+
+sync_license_resources() ->
+    ok = emqx_license_resources:update_now(),
+    _ = sys:get_state(emqx_license_resources),
+    ok.
+
 -doc "STOMP sends a readable numeric hook rejection and connects after recovery.".
 t_connect_hook_rejection(_) ->
     ListenerId = {'stomp:tcp:default', 61613},
