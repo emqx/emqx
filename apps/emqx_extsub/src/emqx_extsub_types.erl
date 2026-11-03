@@ -20,7 +20,8 @@ The module contains basic types for the External Subscription application.
     buffer_size => pos_integer(),
     handle_generic_messages => boolean(),
     multi_topic => boolean(),
-    %% Default: true
+    %% Default: true. When false, a repeated subscription calls `handle_subscribe/4`
+    %% with the existing handler state.
     ignore_resubscribe => boolean(),
     _ => _
 }.

@@ -36,9 +36,13 @@ The module:
     on_client_handle_info/3
 ]).
 
+-export([handover/6]).
+
 -export([
     set_max_unacked/1,
     max_unacked/0,
+    observe_latencies/1,
+    need_observe_latencies/0,
     inspect/1
 ]).
 
@@ -53,6 +57,7 @@ The module:
 -define(DEFAULT_CHANNEL_INFO, #{can_receive_acks => false, proto_ver => undefined}).
 
 -define(MAX_UNACKED_PT_KEY, extsub_max_unacked).
+-define(OBSERVE_LATENCIES_PT_KEY, extsub_observe_latencies).
 
 -record(st, {
     registry :: emqx_extsub_handler_registry:t(),
@@ -295,25 +300,15 @@ on_client_handle_info(
     #{deliver := Delivers} = Acc
 ) ->
     ?tp_debug(extsub_on_client_handle_info_to_extsub, #{handler_ref => HandlerRef, info => InfoMsg}),
-    %% Message to a specific handler
-    with_st(
-        fun(#st{registry = HandlerRegistry0} = St0) ->
-            #{session_info_fn := SessionInfoFn} =
-                HookContext = emqx_hooks:context('client.handle_info'),
-            InfoCtx = info_ctx(HandlerRegistry0, HandlerRef, HookContext),
-            Res = emqx_extsub_handler_registry:info(HandlerRegistry0, HandlerRef, InfoCtx, InfoMsg),
-            case Res of
-                {ok, HandlerRegistry} ->
-                    {ok, St0#st{registry = HandlerRegistry}};
-                {ok, HandlerRegistry, Messages} ->
-                    {St, NewDelivers} = try_deliver(
-                        SessionInfoFn, St0#st{registry = HandlerRegistry}, [{HandlerRef, Messages}]
-                    ),
-                    {ok, St, {ok, Acc#{deliver := NewDelivers ++ Delivers}}}
-            end
-        end,
-        {ok, Acc}
-    );
+    handler_info(HandlerRef, InfoMsg, Delivers, Acc);
+on_client_handle_info(
+    _ClientInfo,
+    {#extsub_down{handler_ref = HandlerRef}, MRef, process, Pid, Reason},
+    #{deliver := Delivers} = Acc
+) ->
+    ?tp_debug(extsub_on_client_handle_info_down, #{handler_ref => HandlerRef, pid => Pid}),
+    %% Down message of a monitor created by the handler
+    handler_info(HandlerRef, {'DOWN', MRef, process, Pid, Reason}, Delivers, Acc);
 on_client_handle_info(
     _ClientInfo,
     #info_extsub_try_deliver{},
@@ -374,12 +369,63 @@ on_client_handle_info(
         {ok, St, {ok, Acc}}
     end).
 
+-doc """
+Pass the delivery for a topic filter to a handler of `Module` in the calling channel.
+
+A channel-side message source calls this function when it cannot finish the delivery itself,
+for example when the session refuses a message (the `message.nack` hook). ExtSub creates the
+handler with `handle_subscribe(handover, Ctx#{handover => Data}, undefined, TopicFilter)` and
+adds `Messages` to the handler's buffer. When the handler for the topic filter already exists,
+ExtSub only adds `Messages`. Only `Module` is called, other handler modules are not.
+
+The function sends no message to the session and can run inside the session's delivery.
+ExtSub delivers the buffer in a later channel turn.
+Return `ignore` when the handler is not created; the caller then drops `Messages`.
+""".
+-spec handover(
+    emqx_types:clientinfo(),
+    module(),
+    emqx_types:topic(),
+    emqx_types:subopts(),
+    term(),
+    [emqx_types:message()]
+) -> ok | ignore.
+handover(ClientInfo, Module, TopicFilter, SubOpts, Data, Messages) ->
+    with_st(fun(#st{registry = HandlerRegistry0} = St0) ->
+        SubscribeCtx0 = subscribe_ctx(ClientInfo),
+        SubscribeCtx = SubscribeCtx0#{handover => Data},
+        case
+            emqx_extsub_handler_registry:handover(
+                HandlerRegistry0, SubscribeCtx, Module, TopicFilter, SubOpts, Messages
+            )
+        of
+            {ok, HandlerRegistry} ->
+                St = ensure_deliver_retry_timer(0, St0#st{registry = HandlerRegistry}),
+                {ok, St, ok};
+            ignore ->
+                {ok, St0, ignore}
+        end
+    end).
+
 set_max_unacked(MaxUnacked) ->
     _ = persistent_term:put(?MAX_UNACKED_PT_KEY, MaxUnacked),
     ok.
 
 max_unacked() ->
     persistent_term:get(?MAX_UNACKED_PT_KEY, ?EXTSUB_MAX_UNACKED).
+
+-doc """
+Enable or disable the `handle_info_latency_ms' histogram of handler `handle_info/3' calls.
+Disabled by default. A change copies the flag to all processes, so do not toggle it often.
+""".
+-spec observe_latencies(boolean()) -> ok.
+observe_latencies(Enable) when is_boolean(Enable) ->
+    _ = persistent_term:put(?OBSERVE_LATENCIES_PT_KEY, Enable),
+    ok.
+
+-spec need_observe_latencies() -> boolean().
+need_observe_latencies() ->
+    persistent_term:get(?OBSERVE_LATENCIES_PT_KEY, false).
 
 %%--------------------------------------------------------------------
 %% Internal exports (for `emqx_extsub` application)
@@ -418,6 +464,27 @@ maybe_unwrap_ds_subopts(#{} = SubOpts) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% Pass a message to a specific handler and deliver the messages that the handler returns.
+handler_info(HandlerRef, InfoMsg, Delivers, Acc) ->
+    with_st(
+        fun(#st{registry = HandlerRegistry0} = St0) ->
+            #{session_info_fn := SessionInfoFn} =
+                HookContext = emqx_hooks:context('client.handle_info'),
+            InfoCtx = info_ctx(HandlerRegistry0, HandlerRef, HookContext),
+            Res = emqx_extsub_handler_registry:info(HandlerRegistry0, HandlerRef, InfoCtx, InfoMsg),
+            case Res of
+                {ok, HandlerRegistry} ->
+                    {ok, St0#st{registry = HandlerRegistry}};
+                {ok, HandlerRegistry, Messages} ->
+                    {St, NewDelivers} = try_deliver(
+                        SessionInfoFn, St0#st{registry = HandlerRegistry}, [{HandlerRef, Messages}]
+                    ),
+                    {ok, St, {ok, Acc#{deliver := NewDelivers ++ Delivers}}}
+            end
+        end,
+        {ok, Acc}
+    ).
 
 tombstone_subopts(Subs) ->
     _ = with_st(fun(#st{} = St0) ->
@@ -462,7 +529,7 @@ try_deliver(SessionInfoFn, #st{unacked = Unacked0, registry = HandlerRegistry0} 
         HandlerRegistry0,
         Messages
     ),
-    St = cancel_deliver_retry_timer(St0),
+    St = cancel_deliver_retry_timer(St0#st{registry = HandlerRegistry1}),
     BufferSize = emqx_extsub_handler_registry:buffer_size(HandlerRegistry1),
     UnackedCnt = map_size(Unacked0),
     DeliverCnt = deliver_count(SessionInfoFn, UnackedCnt),
@@ -476,7 +543,7 @@ try_deliver(SessionInfoFn, #st{unacked = Unacked0, registry = HandlerRegistry0} 
             %% * No room but noting to deliver (BufferSize =:= 0)
             %% * No room and there are unacked messages (UnackedCnt > 0) — we will retry
             %% on their ack callback.
-            {St#st{registry = HandlerRegistry1}, []};
+            {St, []};
         Room ->
             {MessageEntries, HandlerRegistry} = emqx_extsub_handler_registry:buffer_take(
                 HandlerRegistry1, Room

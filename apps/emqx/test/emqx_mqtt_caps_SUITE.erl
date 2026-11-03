@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
@@ -26,21 +27,36 @@ init_per_testcase(_TC, Config) ->
 end_per_testcase(_TC, Config) ->
     emqx_config:put([zones], proplists:get_value(pre_zone_conf, Config)).
 
+-doc "Publish capability checks read QoS and retain flags from the message.".
 t_check_pub(_) ->
     emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
     emqx_config:put_zone_conf(default, [mqtt, retain_available], false),
     timer:sleep(50),
-    ok = emqx_mqtt_caps:check_pub(default, #{qos => ?QOS_1, retain => false}),
-    PubFlags1 = #{qos => ?QOS_2, retain => false},
+    Msg = #message{topic = <<"topic">>, qos = ?QOS_1, flags = #{retain => false}},
+    ok = emqx_mqtt_caps:check_pub(default, Msg),
+    PubMsg1 = Msg#message{qos = ?QOS_2},
     ?assertEqual(
         {error, ?RC_QOS_NOT_SUPPORTED},
-        emqx_mqtt_caps:check_pub(default, PubFlags1)
+        emqx_mqtt_caps:check_pub(default, PubMsg1)
     ),
-    PubFlags2 = #{qos => ?QOS_1, retain => true},
+    PubMsg2 = Msg#message{flags = #{retain => true}},
     ?assertEqual(
         {error, ?RC_RETAIN_NOT_SUPPORTED},
-        emqx_mqtt_caps:check_pub(default, PubFlags2)
+        emqx_mqtt_caps:check_pub(default, PubMsg2)
     ).
+
+-doc "Topic limits take precedence over QoS and retain limits; zero disables the topic limit.".
+t_check_pub_topic_levels(_) ->
+    emqx_config:put_zone_conf(default, [mqtt, max_topic_levels], 2),
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
+    emqx_config:put_zone_conf(default, [mqtt, retain_available], false),
+    Msg = #message{topic = <<"a/b">>, qos = ?QOS_1, flags = #{retain => false}},
+    ?assertEqual(ok, emqx_mqtt_caps:check_pub(default, Msg)),
+    TooDeep = Msg#message{topic = <<"a/b/c">>, qos = ?QOS_2, flags = #{retain => true}},
+    ?assertEqual({error, ?RC_TOPIC_NAME_INVALID}, emqx_mqtt_caps:check_pub(default, TooDeep)),
+    emqx_config:put_zone_conf(default, [mqtt, max_topic_levels], 0),
+    ?assertEqual({error, ?RC_QOS_NOT_SUPPORTED}, emqx_mqtt_caps:check_pub(default, TooDeep)),
+    ?assertEqual(ok, emqx_mqtt_caps:check_pub(default, Msg#message{topic = <<"a/b/c">>})).
 
 t_check_sub(_) ->
     SubOpts = #{

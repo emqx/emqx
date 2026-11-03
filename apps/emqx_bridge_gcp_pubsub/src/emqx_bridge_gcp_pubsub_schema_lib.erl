@@ -218,7 +218,8 @@ fields(auth_wif_oidc_client_credentials) ->
                 required => false,
                 desc => ?DESC("auth_wif_oidc_client_credentials_audience")
             })}
-    ].
+    ] ++
+        emqx_connector_schema_lib:verify_peer_ssl_fields(#{enable_by_default => true}).
 
 desc(authentication) ->
     ?DESC(authentication);
