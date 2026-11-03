@@ -602,11 +602,7 @@ logger_formatter(#{
     payload_encode := PayloadEncode,
     payload_limit := PayloadLimit
 }) ->
-    PayloadFmtOpts = #{
-        payload_encode => PayloadEncode,
-        truncate_above => PayloadLimit,
-        truncate_to => PayloadLimit
-    },
+    PayloadFmtOpts = payload_format_opts(PayloadEncode, PayloadLimit),
     {emqx_trace_json_formatter, #{payload_fmt_opts => PayloadFmtOpts}};
 logger_formatter(#{
     formatter := _Text,
@@ -621,12 +617,20 @@ logger_formatter(#{
         single_line => true,
         max_size => unlimited,
         depth => unlimited,
-        payload_fmt_opts => #{
-            payload_encode => PayloadEncode,
-            truncate_above => PayloadLimit,
-            truncate_to => PayloadLimit
-        }
+        payload_fmt_opts => payload_format_opts(PayloadEncode, PayloadLimit)
     }}.
+
+payload_format_opts(PayloadEncode, PayloadLimit) ->
+    TruncateAbove =
+        case PayloadLimit of
+            0 -> infinity;
+            _ -> PayloadLimit
+        end,
+    #{
+        payload_encode => PayloadEncode,
+        truncate_above => TruncateAbove,
+        truncate_to => PayloadLimit
+    }.
 
 filter_handler_info(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
     case Filters of
