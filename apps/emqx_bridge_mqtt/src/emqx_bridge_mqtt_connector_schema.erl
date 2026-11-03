@@ -142,12 +142,10 @@ fields("server_configs") ->
                 default => <<"10s">>, desc => ?DESC("connect_timeout")
             })},
         {retry_interval,
-            emqx_schema:mk_duration(
-                #{
-                    default => <<"15s">>,
-                    desc => ?DESC("retry_interval")
-                }
-            )},
+            mk(emqx_schema:timeout_duration_s(), #{
+                default => <<"15s">>,
+                desc => ?DESC("retry_interval")
+            })},
         {max_inflight,
             mk(
                 non_neg_integer(),

@@ -333,6 +333,22 @@ start_client(Node, Opts) when is_atom(Node) ->
     {ok, _} = emqtt:connect(C),
     C.
 
+recv_downs(N, Timeout) ->
+    recv_downs(N, Timeout, []).
+
+recv_downs(0, _Timeout, Acc) ->
+    lists:reverse(Acc);
+recv_downs(N, Timeout, Acc) ->
+    receive
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            recv_downs(N - 1, Timeout, [Pid | Acc])
+    after Timeout ->
+        ct:fail("timeout waiting for ~b more DOWN messages, got: ~p", [N, lists:reverse(Acc)])
+    end.
+
+get_emqtt_clients(TCConfig) when is_list(TCConfig) ->
+    ConnResId = connector_resource_id(TCConfig),
+    get_emqtt_clients(ConnResId);
 get_emqtt_clients(PoolName) ->
     lists:filtermap(
         fun({_Id, Worker}) ->
@@ -2389,4 +2405,19 @@ t_health_check_hung_remote(TCConfig) ->
             ?assertEqual(0, maps:get(<<"dropped.expired">>, Metrics, -1), #{metrics => Metrics})
         end
     ),
+    ok.
+
+-doc """
+Verifies that `retry_interval` option is correctly applied.  `emqtt` interprets it as
+seconds.
+""".
+t_retry_interval_seconds(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"pool_size" => 1,
+        ~"retry_interval" => ~"1500ms"
+    }),
+    [ClientPid] = get_emqtt_clients(TCConfig),
+    %% duration_s uses ceiling to round up
+    Props = maps:from_list(emqtt:info(ClientPid)),
+    ?assertMatch(#{retry_interval := 2_000}, maps:with([retry_interval], Props), #{props => Props}),
     ok.
