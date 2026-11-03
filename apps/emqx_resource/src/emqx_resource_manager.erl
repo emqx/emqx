@@ -967,6 +967,7 @@ handle_event(
     handle_channel_health_check_worker_down(Data0, Pid, Res);
 handle_event({timeout, #retry_add_channel{channel_id = _}}, _, _State, _Data) ->
     %% We only add channels to the resource state in the connected state.
+    ?tp(resman_retry_add_channel_not_connected_enter, #{}),
     {keep_state_and_data, [postpone]};
 handle_event(
     {timeout, #retry_update_channel{channel_id = ChannelId}},
@@ -2221,12 +2222,16 @@ handle_retry_add_channel(Data0, ChannelId) ->
     ?tp(retry_add_channel, #{channel_id => ChannelId}),
     maybe
         {ok, StatusMap} ?= maps:find(ChannelId, Data0#data.added_channels),
+        false ?= channel_status_is_channel_added(StatusMap),
         %% Must contain config map if in data.
         #{config := #{} = ChannelConfig} = StatusMap,
         {Actions, Data1} = add_channels_to_resource_state([{ChannelId, ChannelConfig}], Data0),
         Data = trigger_health_check_for_added_channels(Data1),
         {keep_state, Data, Actions}
     else
+        true ->
+            %% channel was added during a connector status transition
+            keep_state_and_data;
         error ->
             %% Channel has been removed since timer was set?
             keep_state_and_data

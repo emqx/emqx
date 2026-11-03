@@ -4988,6 +4988,105 @@ t_retry_add_channel_resource_health_check_race(_TCConfig) ->
     ),
     ok.
 
+-doc """
+Checks the following race:
+
+  1) Channel add initially fails, and a retry is scheduled.
+
+  2) A resource/connector health check finishes before the retry, and returns
+    `?status_connecting`.
+
+  3) The add channel retry timeout triggers, but is postponed because the connector is not
+     `?status_connected`.
+
+  4) Another resource/connector health check finishes before the 2nd retry, and returns
+    `?status_connected`.  This attempts to add pending channels to the resource state.  This
+    time, the add succeeds.
+
+The 2nd scheduled retry shouldn't run in this case.
+""".
+t_retry_add_channel_resource_health_check_race_connecting(_TCConfig) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    ConnResId = connector_res_id(Name),
+    TestPid = self(),
+    {ok, Agent} = emqx_utils_agent:start_link(#{
+        add_channel => [
+            {notify, TestPid, {error, ~"some transient error!"}},
+            {notify, TestPid, continue},
+            {notify, TestPid, {error, ~"shouldn't get to this retry!"}}
+        ],
+        resource_health_check => {notify, TestPid, ?status_connected}
+    }),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            snabbkaffe_nemesis:inject_crash(
+                ?match_event(#{?snk_kind := resman_retry_add_channel_not_connected_enter}),
+                fun(_) ->
+                    TestPid ! {resman_retry_add_channel_not_connected_enter, #{}},
+                    false
+                end
+            ),
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        add_channel_agent => Agent,
+                        health_check_agent => Agent
+                    },
+                    #{
+                        health_check_interval => 500,
+                        start_timeout => 100
+                    }
+                ),
+            ct:pal("first connector health check"),
+            EmptyMap = #{},
+            ?assertReceive(
+                {returning_resource_health_check_result, _, ?status_connected, #{
+                    conn_state := #{channels := EmptyMap}
+                }}
+            ),
+            ct:pal("adding channel (first attempt)"),
+            ChanId = action_res_id(ConnResId),
+            ok =
+                add_channel(
+                    ConnResId,
+                    ChanId,
+                    #{
+                        resource_opts => #{health_check_interval => 700}
+                    }
+                ),
+            ?assertReceive(
+                {attempted_to_add_channel, #{action := {error, ~"some transient error!"}}}
+            ),
+            ct:pal("switching connector to `?status_connecting`"),
+            emqx_utils_agent:update(Agent, fun(St) ->
+                St#{resource_health_check := {notify, TestPid, ?status_connecting}}
+            end),
+            ct:pal("second connector health check"),
+            ?assertReceive(
+                {returning_resource_health_check_result, _, ?status_connecting, #{
+                    conn_state := #{channels := EmptyMap}
+                }}
+            ),
+            ct:pal("waiting for retry to be postponed"),
+            ?assertReceive({resman_retry_add_channel_not_connected_enter, _}),
+            ct:pal("switching connector to connected"),
+            emqx_utils_agent:update(Agent, fun(St) ->
+                St#{resource_health_check := {notify, TestPid, ?status_connected}}
+            end),
+            ?assertReceive({attempted_to_add_channel, #{action := continue}}),
+            ct:pal("should not retry adding the channel, since just succeeded"),
+            ?assertNotReceive({attempted_to_add_channel, _}, 1_000),
+            ok
+        end,
+        [log_consistency_prop()]
+    ),
+    ok.
+
 %% Checks that, if a channel is already installed, and we receive a remove and an add
 %% request (as happens in an config update operation), we do update the channel by
 %% removing and re-adding it with the new config to the resource state.
