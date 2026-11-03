@@ -342,15 +342,31 @@ producer_client_options_schema_test_() ->
     ].
 
 producer_client_id_length_schema_test_() ->
-    WithId = fun(Len) ->
+    WithClientId = fun(Id) ->
         emqx_bridge_kafka_testlib:action_connector_config(#{
-            <<"kafka_client_id">> => binary:copy(<<"a">>, Len)
+            <<"kafka_client_id">> => Id
         })
     end,
+    ThreeByteChar = <<16#20AC/utf8>>,
+    %% 10922 three-byte UTF-8 characters plus a one- or two-byte ASCII suffix.
+    Utf8Id = fun(AsciiBytes) ->
+        iolist_to_binary([
+            binary:copy(ThreeByteChar, 10922),
+            binary:copy(<<"a">>, AsciiBytes)
+        ])
+    end,
     [
-        {"32767 bytes is accepted", ?_assertMatch(#{<<"kafka_client_id">> := _}, WithId(32767))},
-        {"32768 bytes is rejected", ?_assertThrow(_, WithId(32768))},
-        {"empty string is accepted", ?_assertMatch(#{<<"kafka_client_id">> := <<>>}, WithId(0))}
+        {"32767 bytes is accepted",
+            ?_assertMatch(
+                #{<<"kafka_client_id">> := _},
+                WithClientId(binary:copy(<<"a">>, 32767))
+            )},
+        {"32768 bytes is rejected", ?_assertThrow(_, WithClientId(binary:copy(<<"a">>, 32768)))},
+        {"empty string is accepted",
+            ?_assertMatch(#{<<"kafka_client_id">> := <<>>}, WithClientId(<<>>))},
+        {"32767 bytes of UTF-8 text is accepted",
+            ?_assertMatch(#{<<"kafka_client_id">> := _}, WithClientId(Utf8Id(1)))},
+        {"32768 bytes of UTF-8 text is rejected", ?_assertThrow(_, WithClientId(Utf8Id(2)))}
     ].
 
 %%===========================================================================

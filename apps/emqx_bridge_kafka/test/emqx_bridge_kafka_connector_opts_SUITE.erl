@@ -34,6 +34,7 @@ all() ->
         t_fake_broker_fail_fast,
         t_defaults,
         t_client_id,
+        t_produce_and_wait_keeps_earlier_requests,
         t_jmq_compatibility,
         t_empty_client_id,
         t_omitted_client_id,
@@ -95,7 +96,7 @@ end_per_testcase(_TestCase, _TCConfig) ->
 %% Test cases
 %%------------------------------------------------------------------------------
 
--doc "An unexpected fake-broker request fails the fixture immediately.".
+-doc "A connection handler assertion failure reaches the broker and keeps its reason.".
 t_fake_broker_fail_fast(TCConfig) ->
     Broker = ?config(broker, TCConfig),
     unlink(Broker),
@@ -150,6 +151,31 @@ t_client_id(TCConfig) ->
     assert_client_id(Requests, ClientId),
     assert_produce(Requests, ClientId),
     assert_action_success(TCConfig),
+    ok.
+
+-doc "Request collection keeps requests already collected before a retry.".
+t_produce_and_wait_keeps_earlier_requests(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{})
+    ),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    %% Hold the report of the first Produce request until the next one arrives.
+    %% The first collection attempt then times out after it has already
+    %% collected the version requests, even though the connection stays up.
+    ok = emqx_bridge_kafka_fake_broker:defer_next_produce(?config(broker, TCConfig)),
+    Requests = produce_and_wait(RuleTopic, _Attempts = 3, _Timeout = 2_000),
+    receive
+        {kafka_produce_deferred, _ConnId} -> ok
+    after 0 ->
+        ct:fail(produce_report_not_deferred)
+    end,
+    assert_api_versions_request_version(Requests, 0),
+    assert_client_id(Requests, ConnResId),
+    assert_produce(Requests, ConnResId),
+    ?assertEqual(1, length(produce_conn_ids(Requests))),
     ok.
 
 -doc "JMQ-style version and PLAIN responses allow producing and reconnecting through REST.".
@@ -263,24 +289,28 @@ t_same_client_id_two_connectors(TCConfig) ->
     {ok, WolffPid1} = wolff_client_sup:find_client(ConnResId1),
     {ok, WolffPid2} = wolff_client_sup:find_client(ConnResId2),
     ?assertNotEqual(WolffPid1, WolffPid2),
-    ?retry(
-        100,
-        20,
-        ?assert(alive_leader_connections(WolffPid1, emqx_bridge_v2_testlib:resource_id(TC1)))
-    ),
-    ?retry(
-        100,
-        20,
-        ?assert(alive_leader_connections(WolffPid2, emqx_bridge_v2_testlib:resource_id(TC2)))
-    ),
+    %% Wait for each action to count its produce before the next phase starts,
+    %% so that the requests collected for a phase belong to one connector.
     Requests1 = produce_and_wait(RuleTopic1),
-    Requests2 = produce_and_wait(RuleTopic2),
     assert_client_id(Requests1, ClientId),
-    assert_client_id(Requests2, ClientId),
-    ?assertNotEqual([], produce_conn_ids(Requests1)),
-    ?assertNotEqual([], produce_conn_ids(Requests2)),
     assert_action_success(TC1),
+    ProduceConns1 = produce_conn_ids(Requests1),
+    ?assertNotEqual([], ProduceConns1),
+    flush_requests(),
+    Requests2 = produce_and_wait(RuleTopic2),
+    assert_client_id(Requests2, ClientId),
     assert_action_success(TC2),
+    ProduceConns2 = produce_conn_ids(Requests2),
+    ?assertNotEqual([], ProduceConns2),
+    ?assertEqual([], ordsets:intersection(ProduceConns1, ProduceConns2)),
+    %% Stopping one connector through the REST API must not affect the other.
+    ?assertMatch({ok, {{_, 204, _}, _, _}}, disable_connector_api(TC1)),
+    wait_client_stopped(ConnResId1),
+    Success2 = action_success(TC2),
+    flush_requests(),
+    Requests3 = produce_and_wait(RuleTopic2),
+    ?assertNotEqual([], produce_conn_ids(Requests3)),
+    assert_action_success(TC2, Success2 + 1),
     ok.
 
 %% Updating the connector applies the new `client_id` on the new connections,
@@ -330,16 +360,18 @@ t_reconnect_after_broker_close(TCConfig) ->
     {201, _} = create_action_api(TCConfig, #{}),
     #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
     Requests1 = produce_and_wait(RuleTopic),
+    assert_client_id(Requests1, ClientId),
     assert_action_success(TCConfig),
     SuccessBeforeReconnect = action_success(TCConfig),
-    ProduceConn1 = hd(produce_conn_ids(Requests1)),
+    ProduceConns1 = produce_conn_ids(Requests1),
+    ?assertNotEqual([], ProduceConns1),
     flush_requests(),
     ok = emqx_bridge_kafka_fake_broker:close_connections(Broker),
     Requests2 = produce_and_wait(RuleTopic),
     assert_client_id(Requests2, ClientId),
     ProduceConns2 = produce_conn_ids(Requests2),
     ?assertNotEqual([], ProduceConns2),
-    ?assertNot(lists:member(ProduceConn1, ProduceConns2)),
+    ?assertEqual([], ordsets:intersection(ProduceConns1, ProduceConns2)),
     assert_action_success(TCConfig, SuccessBeforeReconnect + 1),
     ok.
 
@@ -348,17 +380,20 @@ t_reconnect_after_broker_close(TCConfig) ->
 %%------------------------------------------------------------------------------
 
 produce_and_wait(RuleTopic) ->
-    produce_and_wait(RuleTopic, _Attempts = 3).
+    produce_and_wait(RuleTopic, _Attempts = 3, ?WAIT_TIMEOUT).
 
-produce_and_wait(_RuleTopic, 0) ->
-    ct:fail(no_produce_request);
-produce_and_wait(RuleTopic, Attempts) ->
+produce_and_wait(RuleTopic, Attempts, Timeout) ->
+    produce_and_wait(RuleTopic, Attempts, Timeout, []).
+
+produce_and_wait(_RuleTopic, 0, _Timeout, Requests) ->
+    ct:fail({no_produce_request, Requests});
+produce_and_wait(RuleTopic, Attempts, Timeout, Requests) ->
     ok = publish(RuleTopic),
-    case wait_requests_soft(fun(Rs) -> has_api_key(?API_PRODUCE, Rs) end, ?WAIT_TIMEOUT) of
-        {ok, Requests} ->
-            Requests;
-        {timeout, _Requests} ->
-            produce_and_wait(RuleTopic, Attempts - 1)
+    case wait_requests_soft(fun(Rs) -> has_api_key(?API_PRODUCE, Rs) end, Timeout, Requests) of
+        {ok, NewRequests} ->
+            NewRequests;
+        {timeout, NewRequests} ->
+            produce_and_wait(RuleTopic, Attempts - 1, Timeout, NewRequests)
     end.
 
 publish(RuleTopic) ->
@@ -371,11 +406,11 @@ publish(RuleTopic) ->
     _ = emqtt:stop(C),
     ok.
 
-wait_requests_soft(Pred, Timeout) ->
+wait_requests_soft(Pred, Timeout, Acc) ->
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
-    wait_requests_soft(Pred, Deadline, []).
+    wait_requests_soft_loop(Pred, Deadline, Acc).
 
-wait_requests_soft(Pred, Deadline, Acc) ->
+wait_requests_soft_loop(Pred, Deadline, Acc) ->
     NewAcc = Acc ++ collect_requests(),
     case Pred(NewAcc) of
         true ->
@@ -386,7 +421,7 @@ wait_requests_soft(Pred, Deadline, Acc) ->
                     {timeout, NewAcc};
                 false ->
                     timer:sleep(50),
-                    wait_requests_soft(Pred, Deadline, NewAcc)
+                    wait_requests_soft_loop(Pred, Deadline, NewAcc)
             end
     end.
 
@@ -503,16 +538,15 @@ wait_connector_connected(TCConfig) ->
         end
     ).
 
-alive_leader_connections(WolffPid, ActionResId) ->
-    case wolff_client:get_leader_connections(WolffPid, ActionResId, ?TOPIC, all_partitions) of
-        {ok, Leaders} ->
-            lists:all(
-                fun
-                    ({_Partition, Pid}) -> is_pid(Pid) andalso erlang:is_process_alive(Pid);
-                    (_) -> false
-                end,
-                Leaders
-            ) andalso Leaders =/= [];
-        {error, _} ->
-            false
-    end.
+disable_connector_api(TCConfig) ->
+    Name = ?config(connector_name, TCConfig),
+    emqx_bridge_v2_testlib:disable_connector_api(?CONNECTOR_TYPE, Name).
+
+%% The REST call returns before the connector has fully stopped. Wait for the
+%% wolff client to disappear so the next send phase cannot use it.
+wait_client_stopped(ConnResId) ->
+    ?retry(
+        50,
+        200,
+        ?assertMatch({error, #{reason := no_such_client}}, wolff_client_sup:find_client(ConnResId))
+    ).

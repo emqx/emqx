@@ -12,6 +12,10 @@
 %% Every request is reported to the owner process as:
 %%   {kafka_request, bootstrap | leader, ConnId, ApiKey, ApiVersion, ClientId}
 %%
+%% Produce requests are reported through the server process so that
+%% `defer_next_produce/1' can hold the report of the first request and release
+%% it together with the next one.
+%%
 %% Requests are answered with minimal protocol responses so that connectors can
 %% become connected and messages can actually be produced.
 
@@ -20,7 +24,13 @@
 -behaviour(gen_server).
 
 -export([
-    start_link/1, start_link/2, stop/1, close_connections/1, bootstrap_address/1, leader_address/1
+    start_link/1,
+    start_link/2,
+    stop/1,
+    close_connections/1,
+    defer_next_produce/1,
+    bootstrap_address/1,
+    leader_address/1
 ]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -34,7 +44,9 @@
     options = #{} :: map(),
     listeners = #{} :: #{bootstrap | leader => {gen_tcp:socket(), inet:port_number()}},
     conns = #{} :: #{reference() => {bootstrap | leader, gen_tcp:socket()}},
-    offset = 0 :: non_neg_integer()
+    offset = 0 :: non_neg_integer(),
+    defer_produce = false :: boolean(),
+    deferred_produce = [] :: [term()]
 }).
 
 %%--------------------------------------------------------------------
@@ -52,6 +64,9 @@ stop(Broker) ->
 
 close_connections(Broker) ->
     gen_server:call(Broker, close_connections).
+
+defer_next_produce(Broker) ->
+    gen_server:call(Broker, defer_next_produce).
 
 bootstrap_address(Broker) ->
     gen_server:call(Broker, {address, bootstrap}).
@@ -101,6 +116,26 @@ handle_call(next_offset, _From, State = #state{offset = Offset}) ->
 handle_call(close_connections, _From, State = #state{conns = Conns}) ->
     _ = [gen_tcp:close(Sock) || {_Role, Sock} <- maps:values(Conns)],
     {reply, ok, State#state{conns = #{}}};
+handle_call(defer_next_produce, _From, State) ->
+    {reply, ok, State#state{defer_produce = true, deferred_produce = []}};
+handle_call(
+    {report_produce, Msg = {kafka_request, _Role, ConnId, _ApiKey, _ApiVersion, _ClientId}},
+    _From,
+    State = #state{owner = Owner, defer_produce = true, deferred_produce = []}
+) ->
+    Owner ! {kafka_produce_deferred, ConnId},
+    {reply, ok, State#state{deferred_produce = [Msg]}};
+handle_call(
+    {report_produce, Msg},
+    _From,
+    State = #state{owner = Owner, deferred_produce = Deferred}
+) when Deferred =/= [] ->
+    _ = [Owner ! M || M <- lists:reverse(Deferred)],
+    Owner ! Msg,
+    {reply, ok, State#state{defer_produce = false, deferred_produce = []}};
+handle_call({report_produce, Msg}, _From, State = #state{owner = Owner}) ->
+    Owner ! Msg,
+    {reply, ok, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
@@ -144,7 +179,7 @@ connection_loop(Server, Owner, Role, ConnId, Sock) ->
 handle_request(Server, Owner, Role, ConnId, Sock, Packet) ->
     case parse_header(Packet) of
         {ApiKey, ApiVersion, CorrId, ClientId, Body} ->
-            Owner ! {kafka_request, Role, ConnId, ApiKey, ApiVersion, ClientId},
+            ok = report_request(Server, Owner, Role, ConnId, ApiKey, ApiVersion, ClientId),
             case response(Server, ApiKey, ApiVersion, CorrId, Body) of
                 undefined ->
                     ok;
@@ -154,6 +189,15 @@ handle_request(Server, Owner, Role, ConnId, Sock, Packet) ->
         error ->
             ok
     end.
+
+report_request(Server, _Owner, Role, ConnId, ?API_PRODUCE = ApiKey, ApiVersion, ClientId) ->
+    gen_server:call(Server, {
+        report_produce,
+        {kafka_request, Role, ConnId, ApiKey, ApiVersion, ClientId}
+    });
+report_request(_Server, Owner, Role, ConnId, ApiKey, ApiVersion, ClientId) ->
+    Owner ! {kafka_request, Role, ConnId, ApiKey, ApiVersion, ClientId},
+    ok.
 
 parse_header(
     <<ApiKey:16/signed, ApiVersion:16/signed, CorrId:32/signed, ClientIdLen:16/signed, Rest/binary>>
