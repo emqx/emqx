@@ -20,3 +20,17 @@
 %% `apps/emqx_bpapi/README.md'
 
 -define(EMQX_RELEASE_EE, "6.3.3-rc.1").
+
+%% Version of what a replicant node shares with its core nodes: the
+%% mria table definitions, and the transaction BPAPI versions
+%% (`<api>_tx_proto_v<N>' modules) whose funs a replicant passes to a
+%% core by name. Two nodes with the same value here, and the same mria
+%% application version, can serve each other as core and replicant.
+%%
+%% Bump it when either changes. CI compares both against the baseline
+%% in apps/emqx_machine/priv/db_schema/<version>/ and fails until the
+%% version is bumped and the baseline regenerated:
+%%
+%%   ./scripts/check-db-schema.escript --update
+%%   ./scripts/test/db-schema-baseline-test.sh --update
+-define(EMQX_DB_SCHEMA_VSN, "1").

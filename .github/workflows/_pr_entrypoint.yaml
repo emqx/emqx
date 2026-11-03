@@ -85,7 +85,9 @@ jobs:
             ^scripts/rel-versions$
             ^scripts/(check-api-scopes|check-changes-filename-pattern|check-format|check-nl-at-eof)\.sh$
             ^scripts/(elvis-check|elvis-check1)\.sh$
-            ^scripts/(check-api-scope-coverage|check-unlisted-ct-cases|cover-to-cobertura)\.escript$
+            ^scripts/(check-api-scope-coverage|check-db-schema|check-mria-tx-funs|check-unlisted-ct-cases)\.escript$
+            ^scripts/cover-to-cobertura\.escript$
+            ^scripts/mria-tx-fun-allowlist\.eterm$
             ^scripts/(generate-changelog\.sh|rerun-apps-version-check\.py)$
             ^scripts/(bump-actions-versions|dev-cluster-host|gen-elp-build-info|gen-erlang-ls-config)\.sh$
             ^scripts/(get-elixir-vsn|pr-sanity-checks|rerun-failed-checks|run-plugin-dev)\.sh$
@@ -141,6 +143,12 @@ jobs:
       - name: Check API module scopes
         run: |
           ./scripts/check-api-scopes.sh
+      - name: Check mria transaction funs
+        run: |
+          ./scripts/check-mria-tx-funs.escript
+      - name: Check db_schema baseline modules
+        run: |
+          ./scripts/check-db-schema.escript
       - name: Setup mix
         run: |
           mix local.hex --force --if-missing && mix local.rebar --force --if-missing

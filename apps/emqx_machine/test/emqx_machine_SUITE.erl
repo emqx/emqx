@@ -71,6 +71,14 @@ init_per_testcase(t_open_ports_check = TestCase, Config) ->
     ],
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
+init_per_testcase(t_mria_lb_compat_check = TestCase, Config) ->
+    AppSpecs = [emqx],
+    Cluster = [
+        {emqx_machine_SUITE_lb_core, #{role => core, apps => AppSpecs}},
+        {emqx_machine_SUITE_lb_replicant, #{role => replicant, apps => AppSpecs}}
+    ],
+    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
+    [{nodes, Nodes} | Config];
 init_per_testcase(t_sorted_reboot_apps, Config) ->
     application:set_env(emqx_machine, applications, ?APPS ++ [emqx_license]),
     Config;
@@ -88,7 +96,10 @@ end_per_testcase(t_custom_shard_transports, Config) ->
             application:unset_env(emqx_machine, custom_shard_transports)
     end,
     ok;
-end_per_testcase(t_open_ports_check, Config) ->
+end_per_testcase(TestCase, Config) when
+    TestCase =:= t_open_ports_check;
+    TestCase =:= t_mria_lb_compat_check
+->
     Nodes = ?config(nodes, Config),
     ok = emqx_cth_cluster:stop(Nodes),
     ok;
@@ -180,6 +191,60 @@ started once, from the OTP application list in `reboot_lists.eterm`.
 """.
 t_gproc_is_not_a_reboot_app(_Config) ->
     ?assertNot(lists:member(gproc, emqx_machine_boot:sorted_reboot_apps())).
+
+-doc """
+A replicant keeps a core that announces the same db_schema and mria
+versions, and drops one that announces another db_schema version for
+new connections. The test nodes do not boot through emqx_machine, so
+the mria callbacks are registered by hand first.
+""".
+t_mria_lb_compat_check(Config) ->
+    [Core, Replicant] = ?config(nodes, Config),
+    ok = erpc:call(
+        Core, mria_config, register_callback, [
+            lb_custom_info, fun emqx_machine:mria_lb_custom_info/0
+        ]
+    ),
+    ok = erpc:call(
+        Replicant,
+        mria_config,
+        register_callback,
+        [lb_custom_info_check, fun emqx_machine:mria_lb_custom_info_check/1]
+    ),
+    CoreInfo = erpc:call(Core, emqx_machine, mria_lb_custom_info, []),
+    ?assertMatch(#{db_schema := _, mria := _, emqx := _}, CoreInfo),
+    ?assert(erpc:call(Replicant, emqx_machine, mria_lb_custom_info_check, [CoreInfo])),
+    ?retry(
+        500,
+        40,
+        ?assertEqual({ok, Core}, replica_core_node(Replicant))
+    ),
+    %% The core announces another db_schema version.
+    ok = erpc:call(Core, meck, new, [emqx_machine, [passthrough, no_link]]),
+    try
+        ok = erpc:call(
+            Core,
+            meck,
+            expect,
+            [emqx_machine, mria_lb_custom_info, 0, CoreInfo#{db_schema => "incompatible"}]
+        ),
+        ?retry(
+            500,
+            40,
+            ?assertEqual(timeout, replica_core_node(Replicant))
+        )
+    after
+        ok = erpc:call(Core, meck, unload, [emqx_machine])
+    end,
+    ?retry(
+        500,
+        40,
+        ?assertEqual({ok, Core}, replica_core_node(Replicant))
+    ),
+    ok.
+
+replica_core_node(Replicant) ->
+    erpc:call(Replicant, mria_status, replica_get_core_node, [?COMMON_SHARD, 100]).
 
 t_custom_shard_transports(_Config) ->
     %% used to ensure the atom exists
