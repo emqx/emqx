@@ -1242,7 +1242,13 @@ add_channels_to_resource_state([{ChannelId, ChannelConfig} | Rest], Data, Action
                 channel_status_new_waiting_for_health_check(ChannelConfig),
                 AddedChannelsMap
             ),
-            NewActions = Actions,
+            %% since this is reachable via `channels_health_check`, there could be retry
+            %% timers pending.
+            NewActions = [
+                abort_retry_update_channel_action(ChannelId),
+                abort_retry_add_channel_action(ChannelId)
+                | Actions
+            ],
             NewData = Data#data{
                 state = NewState,
                 added_channels = NewAddedChannelsMap
