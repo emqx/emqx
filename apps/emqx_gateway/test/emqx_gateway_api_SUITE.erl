@@ -134,6 +134,277 @@ t_gateway_enable(_) ->
     {404, _} = request(put, "/gateways/coap/enable/true", undefined),
     ok.
 
+-doc "The combined OpenAPI specification preserves each gateway's WebSocket defaults.".
+t_gateway_websocket_openapi(_) ->
+    {_, GatewayComponents} = emqx_gateway_api:api_spec(),
+    {_, ListenerComponents} = emqx_gateway_api_listeners:api_spec(),
+    lists:foreach(
+        fun(Components) ->
+            Merged = lists:foldl(fun maps:merge/2, #{}, Components),
+            Schemas = emqx_utils_json:decode(emqx_utils_json:encode_proplist(Merged)),
+            lists:foreach(
+                fun(Type) -> assert_websocket_openapi(Type, Schemas) end,
+                [<<"ws_listener">>, <<"wss_listener">>]
+            )
+        end,
+        [GatewayComponents ++ ListenerComponents, ListenerComponents ++ GatewayComponents]
+    ).
+
+assert_websocket_openapi(Type, Schemas) ->
+    GenericRef = websocket_openapi_ref(<<"emqx_gateway_api.", Type/binary>>, Schemas),
+    NatsRef = websocket_openapi_ref(<<"emqx_gateway_api.nats_", Type/binary>>, Schemas),
+    OcppRef = websocket_openapi_ref(<<"emqx_gateway_api.ocpp_", Type/binary>>, Schemas),
+    ?assertNotEqual(GenericRef, NatsRef),
+    ?assertNotEqual(GenericRef, OcppRef),
+    ?assertNotEqual(NatsRef, OcppRef),
+    assert_websocket_openapi_defaults(
+        GenericRef,
+        #{
+            path => <<>>, supported_subprotocols => <<>>, fail_if_no_subprotocol => false
+        },
+        Schemas
+    ),
+    lists:foreach(
+        fun({Name, Defaults}) ->
+            Ref =
+                case Name of
+                    nats -> NatsRef;
+                    ocpp -> OcppRef
+                end,
+            assert_websocket_openapi_defaults(Ref, Defaults, Schemas)
+        end,
+        websocket_gateway_defaults()
+    ).
+
+websocket_openapi_ref(Listener, Schemas) ->
+    #{<<"properties">> := #{<<"websocket">> := #{<<"$ref">> := Ref}}} = maps:get(Listener, Schemas),
+    Ref.
+
+assert_websocket_openapi_defaults(<<"#/components/schemas/", Component/binary>>, Defaults, Schemas) ->
+    #{<<"properties">> := Properties} = maps:get(Component, Schemas),
+    maps:foreach(
+        fun(Key, Expected) ->
+            #{<<"default">> := Actual} = maps:get(atom_to_binary(Key), Properties),
+            ?assertEqual(Expected, Actual)
+        end,
+        Defaults
+    ).
+
+-doc "The API schema preserves gateway defaults before it translates requests.".
+t_gateway_websocket_schema(_) ->
+    lists:foreach(
+        fun({GwName, Defaults}) ->
+            lists:foreach(
+                fun(Type) ->
+                    assert_websocket_schema_overrides(GwName, Type, Defaults)
+                end,
+                [ws, wss]
+            )
+        end,
+        websocket_gateway_defaults()
+    ).
+
+assert_websocket_schema_overrides(GwName, Type, Defaults) ->
+    lists:foreach(
+        fun(Overrides) ->
+            assert_websocket_schema(GwName, Type, Overrides, Defaults)
+        end,
+        [
+            undefined,
+            #{},
+            #{path => <<"/custom">>},
+            #{supported_subprotocols => <<>>},
+            #{
+                supported_subprotocols => <<"custom.v1, custom.v2">>,
+                fail_if_no_subprotocol => true
+            }
+        ]
+    ).
+
+assert_websocket_schema(GwName, Type, Overrides, Defaults) ->
+    Schema = #{roots => [{gateway, hoconsc:ref(emqx_gateway_api, GwName)}]},
+    {Listener, Expected} =
+        case Overrides of
+            undefined ->
+                {websocket_test_listener(Type), Defaults};
+            _ ->
+                {
+                    (websocket_test_listener(Type))#{websocket => Overrides},
+                    maps:merge(Defaults, Overrides)
+                }
+        end,
+    Conf = #{gateway => #{name => atom_to_binary(GwName), listeners => [Listener]}},
+    #{gateway := #{listeners := [Checked]}} = hocon_tconf:check_plain(
+        Schema,
+        emqx_utils_maps:binary_key_map(Conf),
+        #{required => false, atom_key => true}
+    ),
+    ?assertEqual(Type, maps:get(type, Checked)),
+    #{path := Path, supported_subprotocols := Protocols} = Expected,
+    assert_websocket_options(
+        Expected#{
+            path := binary_to_list(Path),
+            supported_subprotocols := string:tokens(binary_to_list(Protocols), ", ")
+        },
+        Checked
+    ).
+
+-doc "The HTTP API preserves NATS WebSocket defaults.".
+t_gateway_nats_ws_defaults(_) ->
+    assert_gateway_websocket_defaults(nats, ws).
+
+-doc "The HTTP API preserves NATS secure WebSocket defaults.".
+t_gateway_nats_wss_defaults(_) ->
+    assert_gateway_websocket_defaults(nats, wss).
+
+-doc "The HTTP API preserves OCPP WebSocket defaults.".
+t_gateway_ocpp_ws_defaults(_) ->
+    assert_gateway_websocket_defaults(ocpp, ws).
+
+-doc "The HTTP API preserves OCPP secure WebSocket defaults.".
+t_gateway_ocpp_wss_defaults(_) ->
+    assert_gateway_websocket_defaults(ocpp, wss).
+
+assert_gateway_websocket_defaults(GwName, Type) ->
+    Defaults = proplists:get_value(GwName, websocket_gateway_defaults()),
+    assert_gateway_websocket_options(GwName, Type, #{}, Defaults),
+    assert_gateway_websocket_options(
+        GwName,
+        Type,
+        #{websocket => #{path => <<"/custom">>}},
+        Defaults#{path => <<"/custom">>}
+    ).
+
+-doc "The HTTP API preserves explicit empty and custom WebSocket options.".
+t_gateway_websocket_explicit_options(_) ->
+    lists:foreach(
+        fun({GwName, _Defaults}) ->
+            lists:foreach(
+                fun(Protocols) -> assert_explicit_websocket_options(GwName, Protocols) end,
+                [<<>>, <<"custom.v1, custom.v2">>]
+            )
+        end,
+        websocket_gateway_defaults()
+    ).
+
+assert_explicit_websocket_options(GwName, Protocols) ->
+    Options = #{
+        path => <<"/custom">>,
+        supported_subprotocols => Protocols,
+        fail_if_no_subprotocol => true
+    },
+    lists:foreach(
+        fun(Type) ->
+            assert_gateway_websocket_options(GwName, Type, #{websocket => Options}, Options)
+        end,
+        [ws, wss]
+    ).
+
+-doc "The NATS API preserves TCP and SSL options alongside WebSocket listeners.".
+t_gateway_nats_mixed_listeners(_) ->
+    Listeners = [websocket_test_listener(Type) || Type <- [tcp, ssl, ws, wss]],
+    with_websocket_gateway(nats, Listeners, fun(Path) ->
+        {200, #{listeners := Saved}} = request(get, Path),
+        ?assertEqual(4, length(Saved)),
+        lists:foreach(
+            fun(#{type := Type} = Listener) ->
+                case Type of
+                    <<"ws">> -> assert_websocket_options(nats_websocket_defaults(), Listener);
+                    <<"wss">> -> assert_websocket_options(nats_websocket_defaults(), Listener);
+                    _ -> ?assertNot(maps:is_key(websocket, Listener))
+                end
+            end,
+            Saved
+        )
+    end).
+
+-doc "The HTTP API rejects listener transports that the gateway does not support.".
+t_gateway_websocket_listener_types(_) ->
+    lists:foreach(
+        fun({GwName, Type}) ->
+            Path = "/gateways/" ++ atom_to_list(GwName),
+            ?assertMatch(
+                {400, _},
+                request(put, Path, #{
+                    name => atom_to_binary(GwName),
+                    listeners => [websocket_test_listener(Type)]
+                })
+            ),
+            {200, Unloaded} = request(get, Path),
+            assert_gw_unloaded(Unloaded)
+        end,
+        [{nats, udp}, {ocpp, tcp}, {nats, invalid}]
+    ).
+
+-doc "The listener create and update APIs preserve gateway WebSocket defaults.".
+t_gateway_websocket_listener_api(_) ->
+    lists:foreach(
+        fun({GwName, Defaults}) ->
+            with_websocket_gateway(GwName, [], fun(Path) ->
+                Listener = websocket_test_listener(ws),
+                ListenerPath = Path ++ "/listeners",
+                {201, Created} = request(post, ListenerPath, Listener),
+                assert_saved_websocket_options(Path, Defaults),
+                Id = maps:get(id, Created),
+                InstancePath = ListenerPath ++ "/" ++ binary_to_list(Id),
+                {200, _Updated} = request(put, InstancePath, Listener#{
+                    websocket => #{path => <<"/new">>}
+                }),
+                assert_saved_websocket_options(Path, Defaults#{path => <<"/new">>})
+            end)
+        end,
+        websocket_gateway_defaults()
+    ).
+
+websocket_gateway_defaults() ->
+    [
+        {nats, nats_websocket_defaults()},
+        {ocpp, #{
+            path => <<"/ocpp">>,
+            supported_subprotocols => <<"ocpp1.6, ocpp2.0">>,
+            fail_if_no_subprotocol => false
+        }}
+    ].
+
+nats_websocket_defaults() ->
+    #{
+        path => <<>>,
+        supported_subprotocols => <<"NATS/1.0, NATS">>,
+        fail_if_no_subprotocol => false
+    }.
+
+websocket_test_listener(Type) ->
+    #{
+        name => atom_to_binary(Type),
+        type => atom_to_binary(Type),
+        bind => <<"127.0.0.1:39009">>,
+        enable => false
+    }.
+
+assert_gateway_websocket_options(GwName, Type, Overrides, Expected) ->
+    Listener = maps:merge(websocket_test_listener(Type), Overrides),
+    with_websocket_gateway(GwName, [Listener], fun(Path) ->
+        assert_saved_websocket_options(Path, Expected)
+    end).
+
+assert_saved_websocket_options(Path, Expected) ->
+    {200, #{listeners := [Saved]}} = request(get, Path),
+    assert_websocket_options(Expected, Saved).
+
+assert_websocket_options(Expected, #{websocket := Options}) ->
+    ?assertEqual(Expected, maps:with(maps:keys(Expected), Options)).
+
+with_websocket_gateway(GwName, Listeners, Fun) ->
+    Path = "/gateways/" ++ atom_to_list(GwName),
+    try
+        {204, _} = request(put, Path, #{
+            name => atom_to_binary(GwName), enable => false, listeners => Listeners
+        }),
+        Fun(Path)
+    after
+        ok = emqx_gateway_conf:unload_gateway(GwName)
+    end.
+
 t_gateway_stomp(_) ->
     {200, Gw} = request(get, "/gateways/stomp"),
     assert_gw_unloaded(Gw),
