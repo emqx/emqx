@@ -55,7 +55,7 @@ t_reindex_stop(_Config) ->
     {ok, [_], Cursor0, 1} = batch(undefined),
     emqx_config:put([retainer, backend, reindex_delivery_action], stop),
     ok = emqx_retainer_mnesia:reindex([[1, 3]], false, fun(_) -> ok end),
-    ?assertEqual({ok, [], undefined, 1}, batch(Cursor0)).
+    ?assertEqual({ok, [], undefined, 0}, batch(Cursor0)).
 
 -doc "A cursor created during refill continues in the message table after finalize.".
 t_refill_cursor(_Config) ->
@@ -69,7 +69,7 @@ t_refill_cursor(_Config) ->
             {ok, [Second], Cursor1, 1} = batch(Cursor0),
             {ok, [Third], Cursor2, 1} = batch(Cursor1),
             ?assertEqual(3, length(lists:usort([First, Second, Third]))),
-            ?assertEqual({ok, [], undefined, 1}, batch(Cursor2))
+            ?assertEqual({ok, [], undefined, 0}, batch(Cursor2))
     after 1000 ->
         ct:fail(no_refill_cursor)
     end.
@@ -130,27 +130,37 @@ t_unsubscribe_pending(_Config) ->
     ?assertEqual({ok, Handler1}, info(Handler1, receive_batch(Ref), 1)),
     ok = emqx_retainer_extsub_handler:handle_terminate(Handler1).
 
--doc "Empty wildcard reads consume tokens and resume when the limiter allows reads.".
+-doc "Empty reads consume no tokens; a read that finds messages waits for tokens.".
 t_empty_read_limiter(_Config) ->
-    %% The first read of a worker is free, so one token allows two reads.
+    store_messages(),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
     ok = emqx_retainer_limiter:update(),
-    ok = emqx_retainer_sup:stop_workers(),
-    ok = emqx_retainer_sup:start_workers(),
-    {Ref0, Handler0} = subscribe(),
-    ?assertMatch({destroy, _, [_]}, info(Handler0, receive_batch(Ref0), 1)),
-    {Ref1, Handler1} = subscribe(),
-    ?assertMatch({destroy, _, [_]}, info(Handler1, receive_batch(Ref1), 1)),
-    {Ref2, Handler2} = subscribe(),
+    ok = restart_workers(),
+
+    %% Empty wildcard and exact-topic reads complete without tokens
+    lists:foreach(
+        fun(Topic) ->
+            {Ref, Handler} = subscribe(#{rh => 0}, Topic),
+            ?assertMatch({destroy, _, [Topic]}, info(Handler, receive_batch(Ref), 1))
+        end,
+        [<<"x/+/a">>, <<"t/+/b">>, <<"x/1/a">>, <<"t/1/b">>]
+    ),
+
+    %% The first read of a worker is free, so one token allows two reads that find a message
+    {Ref0, _} = subscribe(#{rh => 0}, <<"t/1/a">>),
+    {Ref1, _} = subscribe(#{rh => 0}, <<"t/2/a">>),
+    _ = receive_batch(Ref0),
+    _ = receive_batch(Ref1),
+    {Ref2, Handler2} = subscribe(#{rh => 0}, <<"t/3/a">>),
     ?assertNotReceive(#info_to_extsub{handler_ref = Ref2}, 200),
-    %% A barrier must complete even when requests are paused by the limiter.
+
+    %% A barrier completes while a read waits for tokens
     ok = emqx_retainer_dispatcher:wait_dispatch_complete(1000),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
     ok = emqx_retainer_limiter:update(),
-    ?assertMatch({destroy, _, [_]}, info(Handler2, receive_batch(Ref2), 1)),
-    lists:foreach(fun emqx_retainer_extsub_handler:handle_terminate/1, [
-        Handler0, Handler1, Handler2
-    ]).
+    ?assertMatch(
+        {ok, _, [#message{topic = <<"t/3/a">>}]}, info(Handler2, receive_batch(Ref2), 1)
+    ).
 
 -doc "Session takeover drops an outstanding retained batch and does not restart iteration.".
 t_takeover_pending(_Config) ->
@@ -219,7 +229,7 @@ t_bounded_scan(_Config) ->
             {ok, [#message{topic = <<"t/a/2">>}], Cursor1, 1} =
                 emqx_retainer_mnesia:match_messages(#{}, <<"+/a/#">>, Cursor0, Opts),
             ?assertEqual(
-                {ok, [], undefined, 1},
+                {ok, [], undefined, 0},
                 emqx_retainer_mnesia:match_messages(#{}, <<"+/a/#">>, Cursor1, Opts)
             )
         end,
@@ -240,7 +250,7 @@ t_scan_ranges(_Config) ->
                     {ok, Messages, undefined, Cost} = emqx_retainer_mnesia:match_messages(
                         #{}, Filter, undefined, #{batch_read_number => all_remaining}
                     ),
-                    ?assert(Cost >= max(1, length(Messages))),
+                    ?assert(Cost >= length(Messages)),
                     ?assertEqual(
                         lists:sort([T || T <- Topics, emqx_topic:match(T, Filter)]),
                         lists:sort([T || #message{topic = T} <- Messages])

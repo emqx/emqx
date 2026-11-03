@@ -98,7 +98,7 @@
     batch_read_number => pos_integer() | all_remaining,
     tokens => emqx_types:words()
 }.
--type read_cost() :: pos_integer().
+-type read_cost() :: non_neg_integer().
 -type match_result(Cursor) :: {ok, [message()], Cursor, read_cost()}.
 
 -define(CONTEXT_KEY, {?MODULE, context}).

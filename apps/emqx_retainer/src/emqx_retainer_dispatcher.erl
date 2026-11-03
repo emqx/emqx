@@ -255,7 +255,7 @@ do_read_batch(Topic, Words, Cursor0, BatchSize) ->
                 Mod:match_messages(BackendState, Topic, Cursor0, Opts);
             false ->
                 {ok, Msgs} = Mod:read_message(BackendState, Topic),
-                {ok, Msgs, undefined, 1}
+                {ok, Msgs, undefined, length(Msgs)}
         end,
     case Cursor of
         undefined ->
