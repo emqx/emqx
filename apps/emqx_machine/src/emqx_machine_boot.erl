@@ -48,10 +48,24 @@ post_boot() ->
     ok = start_autocluster(),
     ignore.
 
-%% `bin/emqx' exports this variable for its own recursive call. The VM does not
-%% read it, so OS processes that the node starts from here on do not inherit it.
+%% `bin/emqx' exports `EMQX_BOOT_CONFIGS' for its own recursive call; the VM does not
+%% read it. The other variables carry secrets that the node has consumed into its
+%% configuration by this point. Unsetting them keeps OS processes that the node
+%% starts from here on from inheriting them.
+%%
+%% `os:unsetenv/1' changes the environment the VM hands to processes it starts. It
+%% does not change the environment of the VM process itself.
 unset_boot_configs() ->
-    true = os:unsetenv("EMQX_BOOT_CONFIGS"),
+    lists:foreach(
+        fun(Var) -> true = os:unsetenv(Var) end,
+        [
+            "EMQX_BOOT_CONFIGS",
+            "EMQX_NODE__COOKIE",
+            "EMQX_NODE_COOKIE",
+            "EMQX_DASHBOARD__DEFAULT_PASSWORD",
+            "EMQX_LICENSE__KEY"
+        ]
+    ),
     ok.
 
 -ifdef(TEST).

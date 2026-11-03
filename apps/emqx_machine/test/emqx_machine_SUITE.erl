@@ -183,25 +183,43 @@ get_tcp_mqtt_port(Node) ->
     {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
     Port.
 
-%% `post_boot/0' unsets `EMQX_BOOT_CONFIGS' in the environment of the VM. An OS process that the
-%% node starts after this point does not inherit the variable, and `emqx ctl conf load' still
-%% works. That command runs a config check, which reads the environment again.
+%% `post_boot/0' unsets `EMQX_BOOT_CONFIGS' and the secret-bearing variables the node has already
+%% consumed (`EMQX_NODE__COOKIE', `EMQX_NODE_COOKIE', `EMQX_DASHBOARD__DEFAULT_PASSWORD',
+%% `EMQX_LICENSE__KEY') in the environment of the VM. An OS process that the node starts after
+%% this point does not inherit them, and `emqx ctl conf load' still works. That command runs a
+%% config check, which reads the environment again.
 t_post_boot_unsets_boot_configs(Config) ->
     [Node] = emqx_cth_cluster:start(
         [{machine_post_boot_SUITE1, #{role => core, apps => app_specs()}}],
         #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
     ),
-    Var = "EMQX_BOOT_CONFIGS",
-    PrintVar = "printenv " ++ Var ++ " || echo ABSENT",
+    Vars = [
+        "EMQX_BOOT_CONFIGS",
+        "EMQX_NODE__COOKIE",
+        "EMQX_NODE_COOKIE",
+        "EMQX_DASHBOARD__DEFAULT_PASSWORD",
+        "EMQX_LICENSE__KEY"
+    ],
+    PrintVar = fun(Var) -> "printenv " ++ Var ++ " || echo ABSENT" end,
     ConfFile = filename:join(?config(priv_dir, Config), "post_boot_unset.conf"),
     ok = file:write_file(ConfFile, <<"mqtt.max_topic_levels = 99\n">>),
     try
-        true = erpc:call(Node, os, putenv, [Var, "node.name=x"]),
-        ?assertEqual("node.name=x\n", erpc:call(Node, os, cmd, [PrintVar])),
+        lists:foreach(
+            fun(Var) ->
+                true = erpc:call(Node, os, putenv, [Var, "canary"]),
+                ?assertEqual("canary\n", erpc:call(Node, os, cmd, [PrintVar(Var)]))
+            end,
+            Vars
+        ),
         ok = erpc:call(Node, emqx_app, set_config_loader, [emqx_cth_suite]),
         ?assertEqual(ignore, erpc:call(Node, emqx_machine_boot, post_boot, [])),
-        ?assertEqual(false, erpc:call(Node, os, getenv, [Var])),
-        ?assertEqual("ABSENT\n", erpc:call(Node, os, cmd, [PrintVar])),
+        lists:foreach(
+            fun(Var) ->
+                ?assertEqual(false, erpc:call(Node, os, getenv, [Var])),
+                ?assertEqual("ABSENT\n", erpc:call(Node, os, cmd, [PrintVar(Var)]))
+            end,
+            Vars
+        ),
         ?assertEqual(ok, erpc:call(Node, emqx_conf_cli, conf, [["load", "--merge", ConfFile]])),
         ?assertEqual(99, erpc:call(Node, emqx_config, get, [[mqtt, max_topic_levels]]))
     after
