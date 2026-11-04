@@ -52,19 +52,12 @@ Anything that can depend on something or be a dependency of something is a verte
 vertices() ->
     [
         emqx_rl_boot,
-        emqx_rl_ready,
-
-        emqx_rl_config_table_create,
-        emqx_rl_config_table_ready,
-
-        emqx_rl_listener
+        emqx_rl_ready
     ].
 
 -doc """
 This function allows to restrict the closed interval of allowed run levels for a vertex.
 """.
-range(emqx_rl_config_table_ready) ->
-    {?min_level, ?classy_rl_cluster};
 range(_) ->
     {?min_level, ?max_level}.
 
@@ -76,9 +69,7 @@ or if they are sent across network.
 pinned_levels() ->
     #{
         emqx_rl_boot => ?mria_rl_ready,
-        emqx_rl_ready => ?classy_rl_ready,
-        %% Pinned to leave some run level space before ready:
-        emqx_rl_listener => ?classy_rl_ready - 20
+        emqx_rl_ready => ?classy_rl_ready
     }.
 
 -doc """
@@ -91,7 +82,7 @@ means "B depends on A".
 """.
 edges() ->
     [
-        {emqx_rl_config_table_create, emqx_rl_config_table_ready, []}
+        {emqx_rl_boot, emqx_rl_ready, []}
     ].
 
 -doc """
