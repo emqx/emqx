@@ -465,7 +465,8 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
         [#delayed_message{msg = Msg}] ->
             case emqx_banned:check_clientid(Msg#message.from) of
                 false ->
-                    emqx_pool:async_submit(fun emqx:publish/1, [Msg]);
+                    %% Delivery latency starts when the delayed message is republished.
+                    emqx_pool:async_submit(fun emqx:publish/1, [Msg#message{timestamp = Now}]);
                 true ->
                     ?tp(
                         notice,
