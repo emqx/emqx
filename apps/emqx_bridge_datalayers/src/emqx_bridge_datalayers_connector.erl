@@ -88,12 +88,24 @@ callback_mode() -> async_if_possible.
     Config :: resource_config()
 ) -> {ok, state()} | {error, term()}.
 on_start(InstId, Config) ->
-    case ?with_driver(Config, [InstId, enrich_config(Config)]) of
-        {ok, State} ->
-            {ok, State#{driver_type => DriverType}};
+    case ensure_database(Config) of
+        ok ->
+            case ?with_driver(Config, [InstId, enrich_config(Config)]) of
+                {ok, State} ->
+                    {ok, State#{driver_type => DriverType}};
+                {error, _} = Err ->
+                    Err
+            end;
         {error, _} = Err ->
             Err
     end.
+
+ensure_database(#{parameters := #{database := Database}}) when
+    is_binary(Database), Database =/= <<>>
+->
+    ok;
+ensure_database(_) ->
+    {error, {bad_config, database_required}}.
 
 enrich_config(Config = #{parameters := Params = #{driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX}}) ->
     Config#{
@@ -136,7 +148,9 @@ on_query(InstId, {Channel, Message}, State) ->
 on_batch_query(InstId, BatchData, State) ->
     ?with_driver(State, [InstId, BatchData, State]).
 
--spec on_query_async(InstId, QueryData, ReplyFun, State) -> ok | {error, term()} when
+-spec on_query_async(InstId, QueryData, ReplyFun, State) ->
+    ok | {ok, pid()} | {error, term()}
+when
     InstId :: resource_id(),
     QueryData :: {channel_id(), resource_config()},
     ReplyFun :: reply_fun(),
@@ -144,7 +158,9 @@ on_batch_query(InstId, BatchData, State) ->
 on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
     ?with_driver(State, [InstId, {Channel, Message}, {ReplyFun, Args}, State]).
 
--spec on_batch_query_async(InstId, BatchData, ReplyFun, State) -> ok | {error, term()} when
+-spec on_batch_query_async(InstId, BatchData, ReplyFun, State) ->
+    ok | {ok, pid()} | {error, term()}
+when
     InstId :: resource_id(),
     BatchData :: resource_config(),
     ReplyFun :: reply_fun(),
