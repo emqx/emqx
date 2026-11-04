@@ -207,11 +207,9 @@ parse_remaining_len(_Bin, _Header, _Multiplier, Length, #{max_size := MaxSize}) 
 parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
     {more, {{len, #{hdr => Header, len => {Multiplier, Length}}}, Options}};
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
-    ok = check_packet_size(2, Options),
     parse_bodyless_packet(Rest, Header, Options);
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
-    ok = check_packet_size(4, Options),
     parse_frame(Rest, Header, 2, Options);
 parse_remaining_len(<<1:1, _Len:7, _Rest/binary>>, _Header, Multiplier, _Value, _Options) when
     Multiplier > ?MULTIPLIER_MAX
@@ -224,16 +222,13 @@ parse_remaining_len(
     Header,
     Multiplier,
     Value,
-    Options
+    Options = #{max_size := MaxSize}
 ) ->
     FrameLen = Value + Len * Multiplier,
-    %% Maximum Packet Size includes the control byte and every encoded
-    %% Remaining Length byte, including those received in earlier chunks.
-    PacketSize = 1 + remaining_len_size(Multiplier) + FrameLen,
-    ok = check_packet_size(PacketSize, Options),
-    case FrameLen of
-        0 -> parse_bodyless_packet(Rest, Header, Options);
-        _ -> parse_frame(Rest, Header, FrameLen, Options)
+    case FrameLen > MaxSize of
+        true -> ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
+        false when FrameLen =:= 0 -> parse_bodyless_packet(Rest, Header, Options);
+        false -> parse_frame(Rest, Header, FrameLen, Options)
     end.
 
 %% Remaining Length is zero, whatever its encoding.
@@ -249,24 +244,6 @@ parse_bodyless_packet(_Rest, #mqtt_packet_header{type = ?PINGRESP}, _Options) ->
 %% All other types of messages should not have a zero remaining length.
 parse_bodyless_packet(_Rest, #mqtt_packet_header{type = Type}, _Options) ->
     ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Type}).
-
--compile({inline, [remaining_len_size/1]}).
-remaining_len_size(1) ->
-    1;
-remaining_len_size(16#80) ->
-    2;
-remaining_len_size(16#4000) ->
-    3;
-remaining_len_size(16#200000) ->
-    4;
-remaining_len_size(_Multiplier) ->
-    ?PARSE_ERR(malformed_variable_byte_integer).
-
--compile({inline, [check_packet_size/2]}).
-check_packet_size(Size, #{max_size := MaxSize}) when Size > MaxSize ->
-    ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => Size});
-check_packet_size(_Size, _Options) ->
-    ok.
 
 body_bytes(B) when is_binary(B) -> size(B);
 body_bytes(?Q(Bytes, _)) -> Bytes.
