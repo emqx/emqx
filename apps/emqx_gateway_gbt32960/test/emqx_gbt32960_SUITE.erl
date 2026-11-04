@@ -906,6 +906,47 @@ t_case14_platform_logout(_Config) ->
     % TODO: necessary?
     ok.
 
+-doc "A logged-in device can split heartbeat headings across TCP reads.".
+t_split_heartbeat_heading(_) ->
+    {ok, Socket} = login_first_without_broker_asserts(),
+    try
+        Bin = encode(?CMD_HEARTBEAT, <<"1G1BL52P7TR115520">>, <<>>),
+        <<First:1/binary, Rest/binary>> = Bin,
+        ok = gen_tcp:send(Socket, First),
+        ?assertEqual({error, timeout}, gen_tcp:recv(Socket, 0, 100)),
+        ok = gen_tcp:send(Socket, Rest),
+        ?assertMatch(
+            {ok, <<"##", ?CMD_HEARTBEAT, ?ACK_SUCCESS, _/binary>>}, gen_tcp:recv(Socket, 0, 2000)
+        ),
+        ok = gen_tcp:send(Socket, Bin),
+        ?assertMatch(
+            {ok, <<"##", ?CMD_HEARTBEAT, ?ACK_SUCCESS, _/binary>>}, gen_tcp:recv(Socket, 0, 2000)
+        )
+    after
+        gen_tcp:close(Socket)
+    end.
+
+-doc "A checksum error causes a controlled connection shutdown.".
+t_checksum_error_shutdown(_) ->
+    {ok, Socket} = login_first_without_broker_asserts(),
+    try
+        [Pid] = emqx_gateway_cm:lookup_channels(gbt32960, <<"1G1BL52P7TR115520">>),
+        Monitor = monitor(process, Pid),
+        Bin = encode(?CMD_HEARTBEAT, <<"1G1BL52P7TR115520">>, <<>>),
+        Size = byte_size(Bin) - 1,
+        <<Prefix:Size/binary, Check>> = Bin,
+        ok = gen_tcp:send(Socket, <<Prefix/binary, (Check bxor 1)>>),
+        ?assertEqual({error, closed}, gen_tcp:recv(Socket, 0, 2000)),
+        receive
+            {'DOWN', Monitor, process, Pid, Reason} ->
+                ?assertEqual({shutdown, frame_check_error}, Reason)
+        after 2000 ->
+            ct:fail(connection_not_stopped)
+        end
+    after
+        gen_tcp:close(Socket)
+    end.
+
 t_case15_heartbeat(_Config) ->
     % send VEHICLE LOGIN
     {ok, Socket} = login_first(),

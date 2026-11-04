@@ -409,6 +409,7 @@ needs_gateway(TestCase) ->
     lists:member(
         TestCase,
         [
+            t_connect_hook_rejection,
             t_gateway_client_management,
             t_gateway_client_subscription_management,
             t_clientinfo_override_with_empty_clientid,
@@ -436,3 +437,55 @@ find_client_by_username(Username) ->
         end,
         ClientInfos
     ).
+
+-doc "NATS returns a numeric hook rejection as -ERR and connects after the hook is removed.".
+t_connect_hook_rejection(Config) ->
+    Port = ?config(nats_port, Config),
+    emqx_gateway_test_utils:with_quota_exceeded(fun() ->
+        check_hook_connect(Port, rejected)
+    end),
+    ListenerId = emqx_gateway_utils:listener_id(nats, tcp, default),
+    ?retry(
+        20,
+        100,
+        ?assertEqual(
+            1,
+            proplists:get_value(quota_exceeded, esockd:get_shutdown_count({ListenerId, Port}))
+        )
+    ),
+    check_hook_connect(Port, accepted).
+
+check_hook_connect(Port, Expected) ->
+    Options = maps:put(verbose, true, default_client_opts(Port)),
+    {ok, Client} = emqx_nats_client:start_link(Options),
+    try
+        ?assertMatch(
+            {ok, [#nats_frame{operation = ?OP_INFO}]},
+            emqx_nats_client:receive_message(Client)
+        ),
+        ok = emqx_nats_client:connect(Client),
+        case Expected of
+            rejected ->
+                ?assertMatch(
+                    {ok, [
+                        #nats_frame{
+                            operation = ?OP_ERR, message = <<"Login Failed: Quota exceeded">>
+                        },
+                        tcp_closed
+                    ]},
+                    emqx_nats_client:receive_message(Client, 2)
+                );
+            accepted ->
+                ?assertMatch(
+                    {ok, [#nats_frame{operation = ?OP_OK}]},
+                    emqx_nats_client:receive_message(Client)
+                ),
+                ok = emqx_nats_client:ping(Client),
+                ?assertMatch(
+                    {ok, [#nats_frame{operation = ?OP_PONG}]},
+                    emqx_nats_client:receive_message(Client)
+                )
+        end
+    after
+        emqx_nats_client:stop(Client)
+    end.

@@ -476,8 +476,7 @@ do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
                     end
             end;
         {error, ReasonCode, _NChannel} ->
-            ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
-            Payload = erlang:list_to_binary(lists:flatten(ErrMsg)),
+            Payload = <<"Login Failed: ", (emqx_gateway_utils:reason_text(ReasonCode))/binary>>,
             iter(
                 Iter,
                 reply({error, bad_request}, Payload, Req, Result),

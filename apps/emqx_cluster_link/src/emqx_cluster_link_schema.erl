@@ -96,7 +96,8 @@ fields("link") ->
             })},
         {pool_size, ?HOCON(pos_integer(), #{default => 8, desc => ?DESC(pool_size)})},
         {retry_interval,
-            emqx_schema:mk_duration(
+            ?HOCON(
+                emqx_schema:timeout_duration_s(),
                 #{
                     default => <<"15s">>,
                     desc => ?DESC("retry_interval")

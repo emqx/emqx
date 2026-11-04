@@ -95,7 +95,8 @@ to_audit(#{from := From} = Log) when is_atom(From) ->
         http_method = Method,
         http_request = truncate_http_body(Request),
         duration_ms = DurationMs,
-        args = <<"">>
+        args = <<"">>,
+        extra = maps:with([operation_details], Log)
     }.
 
 log(_Level, undefined, _Handler) ->
