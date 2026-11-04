@@ -323,7 +323,9 @@ on_get_channel_status(
         ok ->
             ?status_connected;
         {error, {unhealthy_target, undefined_table}} ->
-            {?status_disconnected, {unhealthy_target, <<"Table does not exist">>}}
+            {?status_disconnected, {unhealthy_target, <<"Table does not exist">>}};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 do_check_channel_sql(
@@ -504,6 +506,8 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data, State) ->
                 #{reason := sync_required} ->
                     {error, {recoverable_error, Reason}};
                 #{reason := ecpool_empty} ->
+                    {error, {recoverable_error, Reason}};
+                #{reason := ecpool_disconnected} ->
                     {error, {recoverable_error, Reason}};
                 #{reason := sock_closed} ->
                     {error, {recoverable_error, Reason}};

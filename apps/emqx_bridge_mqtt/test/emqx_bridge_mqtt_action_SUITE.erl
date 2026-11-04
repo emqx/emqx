@@ -358,6 +358,9 @@ recv_downs(N, Timeout, Acc) ->
         ct:fail("timeout waiting for ~b more DOWN messages, got: ~p", [N, lists:reverse(Acc)])
     end.
 
+get_emqtt_clients(TCConfig) when is_list(TCConfig) ->
+    ConnResId = connector_resource_id(TCConfig),
+    get_emqtt_clients(ConnResId);
 get_emqtt_clients(PoolName) ->
     lists:filtermap(
         fun({_Id, Worker}) ->
@@ -460,6 +463,172 @@ unhook_authenticate() ->
 authenticate(Credential, _, TestRunnerPid) ->
     _ = TestRunnerPid ! {authenticate, Credential},
     ignore.
+
+action_metrics(TCConfig) ->
+    case get_action_metrics_api(TCConfig) of
+        {200, #{<<"metrics">> := Metrics}} ->
+            Metrics;
+        Other ->
+            error({unexpected_action_metrics, Other})
+    end.
+
+broker_address(Port) ->
+    iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]).
+
+%% A stand-in for a remote TCP endpoint that accepts a connection and drops it right
+%% away, so the client fails with a bare connection error.
+start_closing_broker() ->
+    {ok, ListenSocket} = gen_tcp:listen(0, [
+        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
+    ]),
+    {ok, Port} = inet:port(ListenSocket),
+    Pid = spawn(fun() -> closing_broker_accept_loop(ListenSocket) end),
+    {Port, {ListenSocket, Pid}}.
+
+stop_closing_broker({ListenSocket, Pid}) ->
+    _ = catch gen_tcp:close(ListenSocket),
+    exit(Pid, kill),
+    ok.
+
+closing_broker_accept_loop(ListenSocket) ->
+    case gen_tcp:accept(ListenSocket) of
+        {ok, Socket} ->
+            _ = spawn(fun() -> gen_tcp:close(Socket) end),
+            closing_broker_accept_loop(ListenSocket);
+        {error, _Reason} ->
+            ok
+    end.
+
+%% A TCP relay towards the broker that the test can freeze.  While frozen, bytes are
+%% dropped in both directions but the sockets stay open, which is what a black-holed
+%% network looks like to the client.
+start_relay(UpstreamPort) ->
+    {ok, ListenSocket} = gen_tcp:listen(0, [
+        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
+    ]),
+    {ok, Port} = inet:port(ListenSocket),
+    Pid = spawn(fun() -> relay_coordinator(ListenSocket, UpstreamPort) end),
+    {Port, {ListenSocket, Pid}}.
+
+stop_relay({ListenSocket, Pid}) ->
+    _ = catch gen_tcp:close(ListenSocket),
+    exit(Pid, kill),
+    ok.
+
+freeze_relay(Relay) ->
+    relay_set_frozen(Relay, true).
+
+thaw_relay(Relay) ->
+    relay_set_frozen(Relay, false).
+
+relay_set_frozen({_ListenSocket, Pid}, Frozen) ->
+    Pid ! {frozen, Frozen},
+    ok.
+
+relay_coordinator(ListenSocket, UpstreamPort) ->
+    process_flag(trap_exit, true),
+    Coordinator = self(),
+    _ = spawn_link(fun() -> relay_acceptor(ListenSocket, UpstreamPort, Coordinator) end),
+    relay_coordinator_loop(UpstreamPort, false, []).
+
+relay_coordinator_loop(UpstreamPort, Frozen, Connections) ->
+    receive
+        {connection, Pid} ->
+            %% Keep the state consistent for connections accepted while frozen.
+            Pid ! {frozen, Frozen},
+            relay_coordinator_loop(UpstreamPort, Frozen, [Pid | Connections]);
+        {frozen, NewFrozen} ->
+            [
+                Pid ! {frozen, NewFrozen}
+             || Pid <- Connections
+            ],
+            relay_coordinator_loop(UpstreamPort, NewFrozen, Connections);
+        {'EXIT', _Pid, _Reason} ->
+            relay_coordinator_loop(UpstreamPort, Frozen, Connections)
+    end.
+
+relay_acceptor(ListenSocket, UpstreamPort, Coordinator) ->
+    case gen_tcp:accept(ListenSocket) of
+        {ok, Downstream} ->
+            %% The accepted socket receives data in the process that controls it, so
+            %% hand it over before that process listens on it.  The connection process
+            %% is not linked to this one: a client that goes away while it is being
+            %% set up must not stop the relay from accepting later connections.
+            Pid = spawn(fun() -> relay_connection_start(UpstreamPort) end),
+            case gen_tcp:controlling_process(Downstream, Pid) of
+                ok ->
+                    Pid ! {downstream, Downstream},
+                    Coordinator ! {connection, Pid};
+                {error, _Reason} ->
+                    _ = gen_tcp:close(Downstream)
+            end,
+            relay_acceptor(ListenSocket, UpstreamPort, Coordinator);
+        {error, _Reason} ->
+            ok
+    end.
+
+relay_connection_start(UpstreamPort) ->
+    case relay_wait_for(downstream) of
+        undefined ->
+            ok;
+        Downstream ->
+            %% The coordinator reports the state of the relay as soon as it knows
+            %% about this connection, so a connection accepted while frozen never
+            %% forwards anything.
+            Frozen =
+                case relay_wait_for(frozen) of
+                    undefined -> false;
+                    Value -> Value
+                end,
+            relay_connection(Downstream, UpstreamPort, Frozen)
+    end.
+
+relay_wait_for(Tag) ->
+    receive
+        {Tag, Value} -> Value
+    after 5_000 -> undefined
+    end.
+
+relay_connection(Downstream, UpstreamPort, Frozen) ->
+    case gen_tcp:connect({127, 0, 0, 1}, UpstreamPort, [binary, {active, true}], 5_000) of
+        {ok, Upstream} ->
+            ok = inet:setopts(Downstream, [{active, true}]),
+            relay_loop(Downstream, Upstream, Frozen);
+        {error, _Reason} ->
+            ok = gen_tcp:close(Downstream)
+    end.
+
+relay_loop(Downstream, Upstream, Frozen) ->
+    receive
+        {tcp, Downstream, Data} ->
+            _ = relay_forward(Upstream, Data, Frozen),
+            relay_loop(Downstream, Upstream, Frozen);
+        {tcp, Upstream, Data} ->
+            _ = relay_forward(Downstream, Data, Frozen),
+            relay_loop(Downstream, Upstream, Frozen);
+        {frozen, NewFrozen} ->
+            relay_loop(Downstream, Upstream, NewFrozen);
+        {tcp_closed, _Socket} ->
+            ok;
+        {tcp_error, _Socket, _Reason} ->
+            ok
+    end.
+
+relay_forward(_To, _Data, true) ->
+    ok;
+relay_forward(To, Data, false) ->
+    gen_tcp:send(To, Data).
+
+is_resource_down_alarm(ResId) ->
+    lists:any(
+        fun
+            (#{name := Name, details := Details}) when is_map(Details) ->
+                Name =:= ResId andalso maps:get(reason, Details, undefined) =:= resource_down;
+            (_) ->
+                false
+        end,
+        emqx_alarm:get_alarms(activated)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -2277,172 +2446,17 @@ t_health_check_hung_remote(TCConfig) ->
     ),
     ok.
 
-action_metrics(TCConfig) ->
-    case get_action_metrics_api(TCConfig) of
-        {200, #{<<"metrics">> := Metrics}} ->
-            Metrics;
-        Other ->
-            error({unexpected_action_metrics, Other})
-    end.
-
-%%------------------------------------------------------------------------------
-%% Test fixtures
-%%------------------------------------------------------------------------------
-
-broker_address(Port) ->
-    iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]).
-
-%% A stand-in for a remote TCP endpoint that accepts a connection and drops it right
-%% away, so the client fails with a bare connection error.
-start_closing_broker() ->
-    {ok, ListenSocket} = gen_tcp:listen(0, [
-        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
-    ]),
-    {ok, Port} = inet:port(ListenSocket),
-    Pid = spawn(fun() -> closing_broker_accept_loop(ListenSocket) end),
-    {Port, {ListenSocket, Pid}}.
-
-stop_closing_broker({ListenSocket, Pid}) ->
-    _ = catch gen_tcp:close(ListenSocket),
-    exit(Pid, kill),
+-doc """
+Verifies that `retry_interval` option is correctly applied.  `emqtt` interprets it as
+seconds.
+""".
+t_retry_interval_seconds(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"pool_size" => 1,
+        ~"retry_interval" => ~"1500ms"
+    }),
+    [ClientPid] = get_emqtt_clients(TCConfig),
+    %% duration_s uses ceiling to round up
+    Props = maps:from_list(emqtt:info(ClientPid)),
+    ?assertMatch(#{retry_interval := 2_000}, maps:with([retry_interval], Props), #{props => Props}),
     ok.
-
-closing_broker_accept_loop(ListenSocket) ->
-    case gen_tcp:accept(ListenSocket) of
-        {ok, Socket} ->
-            _ = spawn(fun() -> gen_tcp:close(Socket) end),
-            closing_broker_accept_loop(ListenSocket);
-        {error, _Reason} ->
-            ok
-    end.
-
-%% A TCP relay towards the broker that the test can freeze.  While frozen, bytes are
-%% dropped in both directions but the sockets stay open, which is what a black-holed
-%% network looks like to the client.
-start_relay(UpstreamPort) ->
-    {ok, ListenSocket} = gen_tcp:listen(0, [
-        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
-    ]),
-    {ok, Port} = inet:port(ListenSocket),
-    Pid = spawn(fun() -> relay_coordinator(ListenSocket, UpstreamPort) end),
-    {Port, {ListenSocket, Pid}}.
-
-stop_relay({ListenSocket, Pid}) ->
-    _ = catch gen_tcp:close(ListenSocket),
-    exit(Pid, kill),
-    ok.
-
-freeze_relay(Relay) ->
-    relay_set_frozen(Relay, true).
-
-thaw_relay(Relay) ->
-    relay_set_frozen(Relay, false).
-
-relay_set_frozen({_ListenSocket, Pid}, Frozen) ->
-    Pid ! {frozen, Frozen},
-    ok.
-
-relay_coordinator(ListenSocket, UpstreamPort) ->
-    process_flag(trap_exit, true),
-    Coordinator = self(),
-    _ = spawn_link(fun() -> relay_acceptor(ListenSocket, UpstreamPort, Coordinator) end),
-    relay_coordinator_loop(UpstreamPort, false, []).
-
-relay_coordinator_loop(UpstreamPort, Frozen, Connections) ->
-    receive
-        {connection, Pid} ->
-            %% Keep the state consistent for connections accepted while frozen.
-            Pid ! {frozen, Frozen},
-            relay_coordinator_loop(UpstreamPort, Frozen, [Pid | Connections]);
-        {frozen, NewFrozen} ->
-            [
-                Pid ! {frozen, NewFrozen}
-             || Pid <- Connections
-            ],
-            relay_coordinator_loop(UpstreamPort, NewFrozen, Connections);
-        {'EXIT', _Pid, _Reason} ->
-            relay_coordinator_loop(UpstreamPort, Frozen, Connections)
-    end.
-
-relay_acceptor(ListenSocket, UpstreamPort, Coordinator) ->
-    case gen_tcp:accept(ListenSocket) of
-        {ok, Downstream} ->
-            %% The accepted socket receives data in the process that controls it, so
-            %% hand it over before that process listens on it.  The connection process
-            %% is not linked to this one: a client that goes away while it is being
-            %% set up must not stop the relay from accepting later connections.
-            Pid = spawn(fun() -> relay_connection_start(UpstreamPort) end),
-            case gen_tcp:controlling_process(Downstream, Pid) of
-                ok ->
-                    Pid ! {downstream, Downstream},
-                    Coordinator ! {connection, Pid};
-                {error, _Reason} ->
-                    _ = gen_tcp:close(Downstream)
-            end,
-            relay_acceptor(ListenSocket, UpstreamPort, Coordinator);
-        {error, _Reason} ->
-            ok
-    end.
-
-relay_connection_start(UpstreamPort) ->
-    case relay_wait_for(downstream) of
-        undefined ->
-            ok;
-        Downstream ->
-            %% The coordinator reports the state of the relay as soon as it knows
-            %% about this connection, so a connection accepted while frozen never
-            %% forwards anything.
-            Frozen =
-                case relay_wait_for(frozen) of
-                    undefined -> false;
-                    Value -> Value
-                end,
-            relay_connection(Downstream, UpstreamPort, Frozen)
-    end.
-
-relay_wait_for(Tag) ->
-    receive
-        {Tag, Value} -> Value
-    after 5_000 -> undefined
-    end.
-
-relay_connection(Downstream, UpstreamPort, Frozen) ->
-    case gen_tcp:connect({127, 0, 0, 1}, UpstreamPort, [binary, {active, true}], 5_000) of
-        {ok, Upstream} ->
-            ok = inet:setopts(Downstream, [{active, true}]),
-            relay_loop(Downstream, Upstream, Frozen);
-        {error, _Reason} ->
-            ok = gen_tcp:close(Downstream)
-    end.
-
-relay_loop(Downstream, Upstream, Frozen) ->
-    receive
-        {tcp, Downstream, Data} ->
-            _ = relay_forward(Upstream, Data, Frozen),
-            relay_loop(Downstream, Upstream, Frozen);
-        {tcp, Upstream, Data} ->
-            _ = relay_forward(Downstream, Data, Frozen),
-            relay_loop(Downstream, Upstream, Frozen);
-        {frozen, NewFrozen} ->
-            relay_loop(Downstream, Upstream, NewFrozen);
-        {tcp_closed, _Socket} ->
-            ok;
-        {tcp_error, _Socket, _Reason} ->
-            ok
-    end.
-
-relay_forward(_To, _Data, true) ->
-    ok;
-relay_forward(To, Data, false) ->
-    gen_tcp:send(To, Data).
-
-is_resource_down_alarm(ResId) ->
-    lists:any(
-        fun
-            (#{name := Name, details := Details}) when is_map(Details) ->
-                Name =:= ResId andalso maps:get(reason, Details, undefined) =:= resource_down;
-            (_) ->
-                false
-        end,
-        emqx_alarm:get_alarms(activated)
-    ).
