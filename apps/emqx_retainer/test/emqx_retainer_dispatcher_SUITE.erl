@@ -32,7 +32,7 @@ init_per_testcase(_Case, Config) ->
     emqx_config:put([retainer, backend, reindex_delivery_action], redo),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
     emqx_config:put([retainer, flow_control, batch_read_number], 0),
-    emqx_config:put([retainer, flow_control, max_queue_length], 50_000),
+    emqx_config:put([retainer, max_dispatcher_queue_length], 50_000),
     ok = emqx_retainer_limiter:update(),
     ok = restart_workers(),
     ok = emqx_retainer:clean(),
@@ -386,7 +386,7 @@ A worker with a full queue drops new requests; the requests in the queue are ser
 The requests of dead targets count until the worker reaches them.
 """.
 t_queue_full(_Config) ->
-    emqx_config:put([retainer, flow_control, max_queue_length], 3),
+    emqx_config:put([retainer, max_dispatcher_queue_length], 3),
     Worker = emqx_retainer_dispatcher:worker(),
     lists:foreach(
         fun(#{requests := Kinds, served := Served, dropped := Dropped} = Case) ->
@@ -415,6 +415,17 @@ t_queue_full(_Config) ->
     {live, Ref} = fetch_request(Worker, live),
     ?assertMatch(#retained_batch{}, receive_info(Ref)).
 
+-doc "A configuration update sets `retainer.max_dispatcher_queue_length` and rejects 0.".
+t_max_dispatcher_queue_length_config(_Config) ->
+    emqx_common_test_helpers:on_exit(fun() ->
+        {ok, _} = emqx_retainer:update_config(#{<<"max_dispatcher_queue_length">> => 50_000})
+    end),
+    {ok, _} = emqx_retainer:update_config(#{<<"max_dispatcher_queue_length">> => 7}),
+    ?assertEqual(7, emqx_config:get([retainer, max_dispatcher_queue_length])),
+    ?assertMatch(
+        {error, _}, emqx_retainer:update_config(#{<<"max_dispatcher_queue_length">> => 0})
+    ).
+
 -doc "A channel ends a read that the dispatcher worker drops and ignores the late reply.".
 t_lazy_dropped(_Config) ->
     store_messages(),
@@ -438,7 +449,7 @@ t_lazy_dropped(_Config) ->
 
 -doc "A handler whose request is dropped stops after the messages that it already delivers.".
 t_dropped_handler(_Config) ->
-    emqx_config:put([retainer, flow_control, max_queue_length], 1),
+    emqx_config:put([retainer, max_dispatcher_queue_length], 1),
     Worker = emqx_retainer_dispatcher:worker(),
     ok = sys:suspend(Worker),
     emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),

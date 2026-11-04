@@ -147,7 +147,7 @@ schedule(#{queue := Queue} = State) ->
 
 %% Drop a new request when the queue is full.
 enqueue(Request, #{queue := Queue, queue_len := Len} = State) ->
-    case Len >= emqx_config:get([retainer, flow_control, max_queue_length]) of
+    case Len >= emqx_config:get([retainer, max_dispatcher_queue_length]) of
         true ->
             ok = drop(Request),
             State;

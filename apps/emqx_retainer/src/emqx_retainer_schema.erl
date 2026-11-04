@@ -118,6 +118,15 @@ fields("retainer") ->
                     aliases => [deliver_rate]
                 }
             )},
+        {max_dispatcher_queue_length,
+            ?HOCON(
+                pos_integer(),
+                #{
+                    desc => ?DESC(max_dispatcher_queue_length),
+                    default => 50_000,
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {max_publish_rate,
             ?HOCON(
                 emqx_limiter_schema:rate_type(),
@@ -212,15 +221,6 @@ fields(flow_control) ->
                 #{
                     desc => ?DESC(batch_deliver_limiter),
                     default => <<"1000/s">>
-                }
-            )},
-        {max_queue_length,
-            ?HOCON(
-                pos_integer(),
-                #{
-                    desc => ?DESC(max_queue_length),
-                    default => 50_000,
-                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
