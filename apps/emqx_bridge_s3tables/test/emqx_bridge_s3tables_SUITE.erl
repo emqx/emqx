@@ -69,6 +69,7 @@ groups() ->
 flaky_tests() ->
     #{
         t_conflicting_transactions => 5,
+        t_consecutive_writes => 3,
         t_multipart_upload => 3
     }.
 

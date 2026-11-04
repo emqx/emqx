@@ -1726,6 +1726,55 @@ t_load_config(_Config) ->
 
     ok.
 
+%% https://github.com/emqx/emqx/issues/19814
+-doc """
+Tests that `PUT /configs` rejects an operation without `key` with a `required_field`
+error for that key, not with a converter crash.
+""".
+t_put_configs_missing_operation_key(_Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["configs?mode=merge"]),
+    Headers = [emqx_mgmt_api_test_util:auth_header_()],
+    Res = httpc:request(
+        put,
+        {Path, Headers, "text/plain", missing_operation_key_hocon()},
+        [],
+        [{body_format, binary}]
+    ),
+    ?assertMatch({ok, {{_, 400, _}, _, _}}, Res),
+    {ok, {_, _, Body}} = Res,
+    assert_missing_operation_key_error(Body),
+    ?assertEqual([], emqx_message_transformation:list()),
+    ok.
+
+%% https://github.com/emqx/emqx/issues/19814
+-doc """
+Tests that `emqx ctl conf load` rejects an operation without `key` with a
+`required_field` error for that key, not with a converter crash.
+""".
+t_load_config_missing_operation_key(_Config) ->
+    Res = emqx_conf_cli:load_config(?global_ns, missing_operation_key_hocon(), #{mode => merge}),
+    ?assertMatch({error, _}, Res),
+    {error, Reason} = Res,
+    assert_missing_operation_key_error(iolist_to_binary(io_lib:format("~0p", [Reason]))),
+    ?assertEqual([], emqx_message_transformation:list()),
+    ok.
+
+missing_operation_key_hocon() ->
+    <<
+        "message_transformation { transformations = [{ name = r, topics = [\"t/#\"],"
+        " failure_action = drop, operations = [{ value = \"1\" }] }] }"
+    >>.
+
+assert_missing_operation_key_error(Error) ->
+    ?assertMatch({match, _}, re:run(Error, "required_field"), Error),
+    ?assertMatch(
+        {match, _},
+        re:run(Error, "message_transformation\\.transformations\\.1\\.operations\\.1\\.key"),
+        Error
+    ),
+    ?assertEqual(nomatch, re:run(Error, "converter_crashed|stacktrace"), Error),
+    ok.
+
 %% We need to verify that the final `payload' output by the transformations is a binary.
 t_final_payload_must_be_binary(_Config) ->
     ?check_trace(
