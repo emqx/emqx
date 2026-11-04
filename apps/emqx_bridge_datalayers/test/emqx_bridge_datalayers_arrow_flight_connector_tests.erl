@@ -292,6 +292,63 @@ connect_propagates_database_error_test() ->
         meck:unload(datalayers)
     end.
 
+async_call_returns_client_for_monitoring_test() ->
+    meck:new(datalayers, [passthrough, no_link]),
+    try
+        Client = self(),
+        Sql = <<"insert into t values (1)">>,
+        Callback = {fun(_) -> ok end, []},
+        meck:expect(
+            datalayers,
+            async_execute,
+            fun(ActualClient, ActualSql, ActualCallback) ->
+                ?assertEqual(Client, ActualClient),
+                ?assertEqual(Sql, ActualSql),
+                ?assertEqual(Callback, ActualCallback),
+                ok
+            end
+        ),
+        ?assertEqual(
+            {ok, Client},
+            ?CONNECTOR:call_driver(Client, <<"channel">>, {async, false}, [Sql, Callback])
+        ),
+        ?assert(meck:validate(datalayers))
+    after
+        meck:unload(datalayers)
+    end.
+
+async_prepared_call_returns_client_for_monitoring_test() ->
+    meck:new(datalayers, [passthrough, no_link]),
+    try
+        Client = self(),
+        PreparedRef = make_ref(),
+        Rows = [[erlang:system_time(millisecond)]],
+        Callback = {fun(_) -> ok end, []},
+        meck:expect(
+            datalayers,
+            async_execute_prepare,
+            fun(ActualClient, ActualPreparedRef, ActualRows, ActualCallback) ->
+                ?assertEqual(Client, ActualClient),
+                ?assertEqual(PreparedRef, ActualPreparedRef),
+                ?assertEqual(Rows, ActualRows),
+                ?assertEqual(Callback, ActualCallback),
+                ok
+            end
+        ),
+        ?assertEqual(
+            {ok, Client},
+            ?CONNECTOR:call_driver(
+                Client,
+                <<"channel">>,
+                {async, true},
+                [#{Client => PreparedRef}, {<<"sql">>, []}, Rows, Callback]
+            )
+        ),
+        ?assert(meck:validate(datalayers))
+    after
+        meck:unload(datalayers)
+    end.
+
 blank_credentials_test_() ->
     {setup,
         fun() ->

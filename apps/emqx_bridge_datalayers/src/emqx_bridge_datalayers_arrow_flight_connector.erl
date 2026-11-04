@@ -478,6 +478,8 @@ call_driver(Client, _ChanResId, {_QueryMode, false} = FuncMode, Args) ->
 
 do_call_driver(Client, FuncName, Args) ->
     case erlang:apply(datalayers, FuncName, [Client | Args]) of
+        ok when FuncName =:= async_execute; FuncName =:= async_execute_prepare ->
+            {ok, Client};
         ok ->
             ok;
         {ok, _Res} = Ok ->
