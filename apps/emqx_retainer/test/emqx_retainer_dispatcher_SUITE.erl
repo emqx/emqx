@@ -263,26 +263,38 @@ t_scan_ranges(_Config) ->
         [[], [[1]], [[2, 3]], [[1, 3], [2]]]
     ).
 
--doc "An unlimited exact-topic read runs in the channel, not in the dispatcher.".
-t_exact_unlimited(_Config) ->
+-doc "An exact-topic read runs in the channel, not in the dispatcher, also with a read limit.".
+t_exact_in_channel(_Config) ->
     store_messages(),
-    Worker = emqx_retainer_dispatcher:worker(),
-    ok = sys:suspend(Worker),
-    emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),
     emqx_common_test_helpers:on_exit(fun() ->
         emqx_retainer_channel:on_session_disconnected(#{}, #{})
     end),
-    ok = emqx_retainer_channel:on_session_subscribed(
-        #{protocol => mqtt}, <<"t/1/a">>, #{rh => 0}
-    ),
-    ?assertReceive(
-        #retained_batch{
-            topic_filter = <<"t/1/a">>, messages = [#message{topic = <<"t/1/a">>}], cursor = done
-        }
-    ),
-    assert_no_monitor(Worker).
+    lists:foreach(
+        fun(#{limiter := Limiter} = Case) ->
+            emqx_config:put([retainer, flow_control, batch_deliver_limiter], Limiter),
+            ok = emqx_retainer_limiter:update(),
+            ok = restart_workers(),
+            Worker = emqx_retainer_dispatcher:worker(),
+            ok = sys:suspend(Worker),
+            ok = emqx_retainer_channel:on_session_subscribed(
+                #{protocol => mqtt}, <<"t/1/a">>, #{rh => 0}
+            ),
+            ?assertReceive(
+                #retained_batch{
+                    topic_filter = <<"t/1/a">>,
+                    messages = [#message{topic = <<"t/1/a">>}],
+                    cursor = done
+                },
+                1000,
+                Case
+            ),
+            assert_no_monitor(Worker),
+            ok = sys:resume(Worker)
+        end,
+        [#{limiter => infinity}, #{limiter => {1, 10000}}]
+    ).
 
--doc "Limited exact-topic reads use the dispatcher queue alongside wildcard reads.".
+-doc "Exact-topic requests of ExtSub handlers use the dispatcher queue alongside wildcard reads.".
 t_exact_limited(_Config) ->
     store_messages(),
     emqx_config:put([retainer, flow_control, batch_read_number], 1),

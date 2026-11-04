@@ -771,8 +771,8 @@ t_delete_rate_limit(_) ->
     ok.
 
 -doc """
-Checks that a non-wildcard subscription receives its retained message after it hits the
-dispatch rate limit.
+Checks that non-wildcard subscriptions receive their retained messages at once, also when the
+dispatch rate limit is exhausted.
 """.
 t_dispatch_rate_limit_non_wildcard(_) ->
     %% Setup tight dispatch rates
@@ -790,24 +790,17 @@ t_dispatch_rate_limit_non_wildcard(_) ->
     %% Sanity check
     ?assertEqual(2, emqx_retainer:retained_count()),
 
-    %% A dispatcher worker pays for a read before its next read, so the first read is free.
+    %% Exhaust the global retainer limit, then subscribe to both topics
+    hit_delivery_rate_limit(),
+    snabbkaffe:start_trace(),
     {ok, C1} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
     {ok, _} = emqtt:connect(C1),
     {ok, _, _} = emqtt:subscribe(C1, <<"t/a">>, 1),
-    ?assertMatch([_], receive_messages(1, 5_000)),
+    {ok, _, _} = emqtt:subscribe(C1, <<"t/b">>, 1),
 
-    %% Now consume the global retainer limit to make the next read of the worker hit the
-    %% limit. The read must still happen eventually.
-    hit_delivery_rate_limit(),
-    snabbkaffe:start_trace(),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqtt:subscribe(C1, <<"t/b">>, 1),
-            #{?snk_kind := retained_fetch_rate_limit_exceeded},
-            5_000
-        ),
-    Msgs1 = receive_messages(1, 5_000),
-    ?assertMatch([_], Msgs1),
+    %% Both messages arrive without waiting for the limit
+    ?assertMatch([_, _], receive_messages(2, 1_000)),
+    ?assertEqual([], ?of_kind(retained_fetch_rate_limit_exceeded, snabbkaffe:collect_trace())),
     ok = emqtt:stop(C1),
 
     update_retainer_config(#{<<"delivery_rate">> => <<"1000/1s">>}),

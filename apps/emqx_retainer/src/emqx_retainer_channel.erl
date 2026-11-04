@@ -8,9 +8,9 @@
 Retained-message delivery in the channel process.
 
 On SUBSCRIBE, the module starts a retained read for the topic filter:
-* An exact topic without the read limiter is read in the channel. The channel sends the
+* An exact topic is read in the channel, without the read limiter. The channel sends the
   result to itself.
-* Other topic filters request one batch from a dispatcher worker.
+* A wildcard topic filter requests one batch from a dispatcher worker.
 
 The channel receives each batch as a `#retained_batch{}` message. The `client.handle_info`
 hook returns the messages to the session. The channel keeps state for a read only until its
@@ -203,8 +203,7 @@ start_read(TopicFilter) ->
     end.
 
 need_dispatcher(Words) ->
-    emqx_topic:wildcard(Words) orelse
-        emqx_config:get([retainer, flow_control, batch_deliver_limiter]) =/= infinity.
+    emqx_topic:wildcard(Words).
 
 %% Read an exact topic in the channel and send the result to the channel itself.
 read_exact(TopicFilter, #read{request_ref = Ref} = Read) ->

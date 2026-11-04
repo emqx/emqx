@@ -28,7 +28,8 @@ For example, it is good to have <code>[2, 4]</code> index to optimize
 <code>+/X/+/Y/...</code> topic wildcard subscriptions."""
 
 batch_deliver_limiter.desc:
-"""The maximum rate of retained-message storage scans per second.
+"""The maximum number of storage records per second that retained-message reads for wildcard topic filters check.
+A subscription to a topic without wildcards reads its retained message without this limit.
 The value is set from `delivery_rate`."""
 
 max_queue_length.desc:
@@ -84,7 +85,8 @@ See:
 http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038"""
 
 delivery_rate.desc:
-"""The maximum rate of retained-message storage scans per second."""
+"""The maximum number of storage records per second that retained-message reads for wildcard topic filters check.
+A subscription to a topic without wildcards reads its retained message without this limit."""
 
 max_publish_rate.desc:
 """The maximum rate of publishing retained messages. Messages that are published over the limit are delivered but not stored as retained."""
