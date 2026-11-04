@@ -1426,6 +1426,28 @@ t_mountpoint(_) ->
     with_connection(ReceiveMsgFromMqtt),
     update_stomp_with_mountpoint(<<>>).
 
+-doc "SEND receipts work after coalesced heartbeats.".
+t_coalesced_heartbeat_and_send(_) ->
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        Frame = iolist_to_binary(
+            serialize(
+                <<"SEND">>,
+                [{<<"destination">>, <<"audit">>}, {<<"receipt">>, <<"audit-receipt">>}],
+                <<"hello">>
+            )
+        ),
+        lists:foreach(
+            fun(Heartbeats) ->
+                ok = gen_tcp:send(Sock, <<Heartbeats/binary, Frame/binary>>),
+                {ok, #stomp_frame{command = <<"RECEIPT">>, headers = Headers}} = recv_a_frame(Sock),
+                ?assertEqual(<<"audit-receipt">>, proplists:get_value(<<"receipt-id">>, Headers))
+            end,
+            [<<"\n">>, <<"\r\n">>, <<"\n\r\n">>]
+        )
+    end).
+
 t_update_not_restart_listener(_) ->
     update_stomp_with_mountpoint(<<"stomp/">>),
     with_connection(fun(Sock) ->

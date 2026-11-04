@@ -142,6 +142,7 @@ init_per_testcase(Case, Config) when
     Case =:= t_direct_auth_hook_rejection;
     Case =:= t_direct_auth_2019_hook_rejection;
     Case =:= t_case02_anonymous_register_and_auth;
+    Case =:= t_split_heartbeat;
     Case =:= t_jt808_reject_anonymous_auth_with_unregistered_phone
 ->
     Apps = boot_apps(Case, ?CONF_ANONYMOUS, Config),
@@ -710,6 +711,33 @@ t_jt808_register_ack_uses_register_phone_after_failed_auth(_) ->
     ),
 
     ok = gen_tcp:close(Socket).
+
+-doc "Authenticated clients can split heartbeat frames across TCP reads.".
+t_split_heartbeat(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    try
+        {ok, _} = client_regi_procedure(Socket, <<"anonymous">>),
+        client_auth_procedure(Socket, <<"anonymous">>),
+        Phone = <<0, 1, 16#23, 16#45, 16#67, 16#89>>,
+        Bin = gen_packet(<<?MC_HEARTBEAT:16, 0:16, Phone/binary, 78:16>>, <<>>),
+        lists:foreach(
+            fun(Offset) ->
+                <<First:Offset/binary, Rest/binary>> = Bin,
+                ok = gen_tcp:send(Socket, First),
+                ?assertEqual({error, timeout}, gen_tcp:recv(Socket, 0, 100)),
+                ok = gen_tcp:send(Socket, Rest),
+                {ok, Reply} = gen_tcp:recv(Socket, 0, 2000),
+                ?assertMatch(
+                    <<16#7e, ?MS_GENERAL_RESPONSE:16, 5:16, Phone:6/binary, _ServerSeq:16, 78:16,
+                        ?MC_HEARTBEAT:16, 0, _Check, 16#7e>>,
+                    unescape_packet(Reply)
+                )
+            end,
+            [2, 6]
+        )
+    after
+        gen_tcp:close(Socket)
+    end.
 
 t_case03_heartbeat(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
