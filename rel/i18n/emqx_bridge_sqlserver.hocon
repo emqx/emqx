@@ -31,7 +31,9 @@ driver.label:
 """SQL Server Driver Name"""
 
 sql_template.desc:
-"""A restricted SQL Server INSERT INTO VALUES template. Placeholders are allowed only in value positions and string values. Comments, extra statements, multiple configured rows, and dynamic identifiers are not allowed."""
+"""A restricted SQL Server INSERT INTO VALUES or UPDATE template. UPDATE requires `resource_opts.batch_size = 1`.
+Placeholders are allowed in value positions and string values, including SET expressions and WHERE conditions.
+Comments, extra statements, multiple configured rows, and dynamic identifiers are not allowed."""
 
 sql_template.label:
 """SQL Template"""

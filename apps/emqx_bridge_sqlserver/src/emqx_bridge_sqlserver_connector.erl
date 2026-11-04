@@ -53,7 +53,7 @@
 ]).
 
 %% Internal exports used to execute code with ecpool worker
--export([do_get_status/1, worker_do_insert/3, get_servername/1]).
+-export([do_get_status/1, worker_do_insert/3, get_servername/1, get_database_codepage/1]).
 
 -export([parse_server/1]).
 
@@ -228,6 +228,7 @@ on_start(
     %% odbc connection string required
     ServerBin = to_bin(Server),
     ConnectOptions = [
+        {pool_name, PoolName},
         {server, ServerBin},
         {username, Username},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
@@ -276,7 +277,7 @@ on_add_channel(
     end.
 
 create_channel_state(
-    #{parameters := ChannelConf}
+    #{parameters := ChannelConf} = ChannelConfig
 ) ->
     case maps:get(sql, ChannelConf, undefined) of
         undefined ->
@@ -284,10 +285,18 @@ create_channel_state(
         <<>> ->
             {error, missing_sql_template};
         SQL ->
-            case emqx_sql_plan:compile(emqx_bridge_sqlserver_sql, SQL) of
-                {ok, Plan} -> {ok, #{sql_plan => Plan, channel_conf => ChannelConf}};
-                {error, _} = Error -> Error
+            maybe
+                ok ?= validate_batch_size(SQL, ChannelConfig),
+                {ok, Plan} ?= emqx_sql_plan:compile(emqx_bridge_sqlserver_sql, SQL),
+                {ok, #{sql_plan => Plan, channel_conf => ChannelConf}}
             end
+    end.
+
+validate_batch_size(SQL, ChannelConfig) ->
+    BatchSize = emqx_utils_maps:deep_get([resource_opts, batch_size], ChannelConfig, 100),
+    case emqx_utils_sql:get_statement_type(SQL) of
+        update when BatchSize > 1 -> {error, ?UPDATE_BATCH_ERROR};
+        _ -> ok
     end.
 
 on_remove_channel(
@@ -322,7 +331,11 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_sqlserver_connector",
         connector => InstanceId
     }),
-    emqx_resource_pool:stop(InstanceId).
+    try
+        emqx_resource_pool:stop(InstanceId)
+    after
+        persistent_term:erase(codepage_key(InstanceId))
+    end.
 
 -spec on_query(
     resource_id(),
@@ -413,7 +426,16 @@ connect(Options) ->
     %% something opaque...
     ConnectStrWrapped = fun() -> ConnectStr end,
     Opts = proplists:get_value(options, Options, []),
-    odbc:connect(ConnectStrWrapped, Opts).
+    case odbc:connect(ConnectStrWrapped, Opts) of
+        {ok, Conn} = Result ->
+            case proplists:get_value(pool_name, Options) of
+                undefined -> ok;
+                PoolName -> cache_codepage(PoolName, get_database_codepage(Conn))
+            end,
+            Result;
+        Error ->
+            Error
+    end.
 
 -spec disconnect(connection_reference()) -> ok | {error, term()}.
 disconnect(ConnectionPid) ->
@@ -438,6 +460,44 @@ get_servername(Conn) ->
             {ok, RawName};
         _ ->
             error
+    end.
+
+get_database_codepage(Conn) ->
+    SQL =
+        "SELECT CAST(COLLATIONPROPERTY("
+        "CAST(DATABASEPROPERTYEX(DB_NAME(), 'Collation') AS VARCHAR(128)), 'CodePage') AS INT)",
+    try execute(Conn, SQL) of
+        {selected, _, [{Codepage}]} when is_integer(Codepage), Codepage > 0 -> {ok, Codepage};
+        _ -> error
+    catch
+        _:_ -> error
+    end.
+
+codepage_key(PoolName) ->
+    {?MODULE, varchar_codepage, PoolName}.
+
+cache_codepage(PoolName, {ok, Codepage}) ->
+    Key = codepage_key(PoolName),
+    case persistent_term:get(Key, undefined) of
+        Codepage -> ok;
+        _ -> persistent_term:put(Key, Codepage)
+    end;
+cache_codepage(_PoolName, _Error) ->
+    ok.
+
+database_codepage(PoolName) ->
+    case persistent_term:get(codepage_key(PoolName), undefined) of
+        undefined ->
+            Result =
+                try
+                    ecpool:pick_and_do(PoolName, {?MODULE, get_database_codepage, []}, handover)
+                catch
+                    _:_ -> error
+                end,
+            cache_codepage(PoolName, Result),
+            persistent_term:get(codepage_key(PoolName), 65001);
+        Codepage ->
+            Codepage
     end.
 
 %%====================================================================
@@ -497,8 +557,8 @@ do_query(ResourceId, Query, ApplyMode, State) ->
     ChannelId = get_channel_id(Query),
     QueryTuple = get_query_tuple(Query),
     #{sql_plan := Plan} = ChannelState = maps:get(ChannelId, Channels),
-    ChannelConf = maps:get(channel_conf, ChannelState, #{}),
-    %% only insert sql statement for single query and batch query
+    ChannelConf0 = maps:get(channel_conf, ChannelState, #{}),
+    ChannelConf = ChannelConf0#{varchar_codepage => database_codepage(PoolName)},
     case apply_template(QueryTuple, Plan, ChannelConf) of
         {ok, SQL} ->
             emqx_trace:rendered_action_template(ChannelId, #{
@@ -537,9 +597,12 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
     LogMeta = #{connector => ResourceId},
     try
         case execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
-            {selected, Rows, _} ->
+            {selected, _Columns, Rows} ->
                 {ok, Rows};
             {updated, _} ->
+                ok;
+            Results when is_list(Results) ->
+                lists:foreach(fun ensure_query_success/1, Results),
                 ok;
             {error, ErrStr} ->
                 IsConnectionClosedError = is_connection_closed_error(ErrStr),
@@ -567,10 +630,14 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
 
+ensure_query_success({updated, _}) -> ok;
+ensure_query_success({selected, _, _}) -> ok;
+ensure_query_success(Result) -> error({unexpected_query_result, Result}).
+
 %% Potential race condition: if an insert request is made while the connection is being
 %% cut by the remote server, this error might be returned.
 %% References:
-%% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error?view=sql-server-ver16
+%% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error
 is_connection_closed_error(MsgStr) ->
     case re:run(MsgStr, <<"0x2746[^0-9a-fA-F]?">>, [{capture, none}]) of
         match ->
@@ -606,21 +673,50 @@ is_table_or_view_not_found_error(MsgStr) ->
 -spec execute(connection_reference(), sql()) ->
     updated_tuple()
     | selected_tuple()
-    | [updated_tuple()]
-    | [selected_tuple()]
+    | [updated_tuple() | selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL) ->
-    %% ODBC forwards the outer list to gen_tcp:send/2 as iodata.
     odbc:sql_query(Conn, SQL).
 
 -spec execute(connection_reference(), sql(), time_out()) ->
     updated_tuple()
     | selected_tuple()
-    | [updated_tuple()]
-    | [selected_tuple()]
+    | [updated_tuple() | selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL, Timeout) ->
-    odbc:sql_query(Conn, SQL, Timeout).
+    case is_ascii(SQL) of
+        true ->
+            odbc:sql_query(Conn, SQL, Timeout);
+        false ->
+            execute_unicode(Conn, SQL, Timeout)
+    end.
+
+execute_unicode(Conn, SQL, Timeout) ->
+    case unicode:characters_to_binary(SQL, utf8, {utf16, little}) of
+        UTF16 when is_binary(UTF16) ->
+            %% ASCII transport preserves UTF-16 text while sql_query consumes all result sets.
+            Query = [
+                "DECLARE @emqx_sql NVARCHAR(MAX) = CONVERT(NVARCHAR(MAX), 0x",
+                binary:encode_hex(UTF16),
+                "); EXEC sys.sp_executesql @emqx_sql;"
+            ],
+            odbc:sql_query(Conn, Query, Timeout);
+        _InvalidUTF8 ->
+            {error, <<"SQL statement contains invalid UTF-8">>}
+    end.
+
+is_ascii(<<Byte, Rest/binary>>) when Byte < 128 ->
+    is_ascii(Rest);
+is_ascii(<<>>) ->
+    true;
+is_ascii([]) ->
+    true;
+is_ascii([Part | Rest]) ->
+    is_ascii(Part) andalso is_ascii(Rest);
+is_ascii(Byte) when is_integer(Byte), Byte >= 0, Byte < 128 ->
+    true;
+is_ascii(_) ->
+    false.
 
 get_channel_id([{ChannelId, _Req} | _]) ->
     ChannelId;
@@ -639,7 +735,7 @@ get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
 get_query_tuple([_InsertQuery | _] = Reqs) ->
     lists:map(fun get_query_tuple/1, Reqs).
 
-%% single insert
+%% Single statement
 apply_template(
     {?ACTION_SEND_MESSAGE, Msg}, Plan, ChannelConf
 ) ->
@@ -658,7 +754,10 @@ apply_template(Query, _Plan, _) ->
     {error, failed_to_apply_sql_template}.
 
 render_opts(ChannelConf) ->
-    #{undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false)}.
+    #{
+        undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false),
+        varchar_codepage => maps:get(varchar_codepage, ChannelConf, 65001)
+    }.
 
 to_bin(B) when is_binary(B) ->
     B;
