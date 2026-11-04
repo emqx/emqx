@@ -48,7 +48,9 @@ transformation(Name, Operations0, Overrides) ->
     emqx_utils_maps:deep_merge(Default, Overrides).
 
 normalize_operation({K, V}) ->
-    #{<<"key">> => bin(K), <<"value">> => bin(V)}.
+    #{<<"key">> => bin(K), <<"value">> => bin(V)};
+normalize_operation(#{} = Operation) ->
+    Operation.
 
 dummy_operation() ->
     topic_operation(<<"concat([topic, '/', payload.t])">>).
@@ -123,6 +125,44 @@ schema_test_() ->
                         []
                     )
                 ])
+            )},
+        {"operation key is required",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := required_field,
+                        path := ?TRANSFORMATIONS_PATH ".1.operations.1.key",
+                        kind := validation_error
+                    }
+                ]},
+                parse_and_check([transformation(<<"foo">>, [#{<<"value">> => <<"1">>}])])
+            )},
+        {"operation value is required",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := required_field,
+                        path := ?TRANSFORMATIONS_PATH ".1.operations.1.value",
+                        kind := validation_error
+                    }
+                ]},
+                parse_and_check([transformation(<<"foo">>, [#{<<"key">> => <<"payload.x">>}])])
+            )},
+        {"operation key must be non-empty",
+            ?_assertThrow(
+                {_Schema, [
+                    #{
+                        reason := #{reason := <<"key must be non-empty">>},
+                        path := ?TRANSFORMATIONS_PATH ".1.operations.1.key",
+                        kind := validation_error
+                    }
+                ]},
+                parse_and_check([transformation(<<"foo">>, [operation(<<"">>, <<"1">>)])])
+            )},
+        {"operation key path is parsed",
+            ?_assertMatch(
+                [#{<<"operations">> := [#{<<"key">> := [<<"payload">>, <<"x">>]}]}],
+                parse_and_check([transformation(<<"foo">>, [operation(<<"payload.x">>, <<"1">>)])])
             )},
         {"bogus check type: decoder",
             ?_assertThrow(

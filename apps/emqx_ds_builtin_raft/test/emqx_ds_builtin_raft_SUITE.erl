@@ -1593,17 +1593,13 @@ open_db(DB, Opts) ->
     end.
 
 kill_leader(DB, Shard, Reason) ->
-    do_kill_leader(DB, Shard, Reason, 5).
-
-do_kill_leader(DB, Shard, Reason, RetriesLeft) ->
-    case emqx_ds_optimistic_tx:where(DB, Shard) of
-        undefined when RetriesLeft =< 0 ->
-            error(could_not_find_leader_to_kill);
-        undefined ->
-            %% don't use `ct:sleep`; this runs on peer node, where test_server_ctrl
-            %% doesn't exist.
-            timer:sleep(10),
-            do_kill_leader(DB, Shard, Reason, RetriesLeft - 1);
-        Pid when is_pid(Pid) ->
-            exit(Pid, Reason)
-    end.
+    ?retry(
+        100,
+        40,
+        case emqx_ds_optimistic_tx:where(DB, Shard) of
+            undefined ->
+                error(could_not_find_leader_to_kill);
+            Pid when is_pid(Pid) ->
+                exit(Pid, Reason)
+        end
+    ).

@@ -44,7 +44,7 @@
     mountpoint/0,
     mountpoint/1,
     gateway_common_options/0,
-    gateway_schema/1,
+    gateway_schema/2,
     deobfuscate/3,
     gateway_names/0
 ]).
@@ -500,10 +500,10 @@ proxy_protocol_opts() ->
 %%--------------------------------------------------------------------
 %% dynamic schemas
 
-gateway_schema(Name) ->
-    case emqx_gateway_utils:find_gateway_definition(Name) of
+gateway_schema(GatewayName, StructName) ->
+    case emqx_gateway_utils:find_gateway_definition(GatewayName) of
         {ok, #{config_schema_module := SchemaMod}} ->
-            SchemaMod:fields(Name);
+            SchemaMod:fields(StructName);
         {error, _} = Error ->
             throw(Error)
     end.
