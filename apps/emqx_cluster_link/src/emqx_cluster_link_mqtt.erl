@@ -492,7 +492,10 @@ decode_payload(Payload) ->
 
 forward(ClusterName, #delivery{message = #message{topic = Topic} = Msg}) ->
     QueryOpts = #{pick_key => Topic},
-    emqx_resource:query(?MSG_RES_ID(ClusterName), Msg, QueryOpts).
+    %% Publish outcome headers describe this cluster: the remote cluster counts
+    %% its own deliveries, and an older remote cannot decode them.
+    FwdMsg = emqx_message:remove_header(message_persisted, Msg),
+    emqx_resource:query(?MSG_RES_ID(ClusterName), FwdMsg, QueryOpts).
 
 %%--------------------------------------------------------------------
 %% Internal functions
