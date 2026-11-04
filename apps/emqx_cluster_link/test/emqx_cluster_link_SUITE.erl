@@ -9,6 +9,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -812,6 +813,61 @@ t_target_extrouting_gc(Config) ->
             )
         end
     ).
+
+t_retry_interval_seconds('init', TCConfig) ->
+    ok = snabbkaffe:start_trace(),
+    LinkConf = #{
+        ~"retry_interval" => ~"1500ms"
+    },
+    {SourceClusterSpec, TargetClusterSpec} = mk_interlinked_clusters(
+        ?FUNCTION_NAME, 1, 2, LinkConf, TCConfig
+    ),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | TCConfig
+    ];
+t_retry_interval_seconds('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)),
+    ok.
+t_retry_interval_seconds(TCConfig) ->
+    [SourceNode] = nodes_source(TCConfig),
+    [TargetNode1 | _] = nodes_target(TCConfig),
+    TargetName = atom_to_binary(emqx_cluster_link_cth:cluster_name(TargetNode1)),
+    ResourceId = emqx_cluster_link_mqtt:resource_id(TargetName),
+    WorkerPids =
+        [_ | _] =
+        ?ON(
+            SourceNode,
+            ?retry(
+                500,
+                10,
+                begin
+                    {ok, _, #{state := #{pool_name := PoolName}}} =
+                        emqx_resource:get_instance(ResourceId),
+                    ecpool:workers(PoolName)
+                end
+            )
+        ),
+    lists:foreach(
+        fun({_WorkerName, WorkerPid}) ->
+            {ok, ClientPid} = ecpool_worker:client(WorkerPid),
+            Props = maps:from_list(emqtt:info(ClientPid)),
+            %% duration_s uses ceiling to round up
+            ?assertMatch(
+                #{retry_interval := 2_000},
+                maps:with([retry_interval], Props),
+                #{props => Props}
+            )
+        end,
+        WorkerPids
+    ),
+    ok.
 
 %%
 
