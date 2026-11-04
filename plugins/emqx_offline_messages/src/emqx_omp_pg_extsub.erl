@@ -131,8 +131,8 @@ handle_info(#h{stopped = true} = Handler, _Context, _Info) ->
 handle_info(#h{config = #{instance := Instance}} = Handler, Context, Info) ->
     case emqx_offline_messages_pg:config() of
         #{instance := Instance} -> info(Handler, Context, Info);
-        undefined -> destroy;
-        _ -> recreate
+        undefined -> {destroy, Handler};
+        _ -> {recreate, Handler}
     end.
 
 %%------------------------------------------------------------------------------
