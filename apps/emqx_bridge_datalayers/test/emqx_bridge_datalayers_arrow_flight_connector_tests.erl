@@ -387,8 +387,8 @@ blank_credentials_test_() ->
         end}.
 
 cacert_file() ->
-    Dir = code:lib_dir(emqx_bridge_datalayers),
-    filename:join([Dir, <<"test/emqx_bridge_datalayers_SUITE_data">>, <<"ca.crt">>]).
+    Dir = code:lib_dir(emqx),
+    filename:join([Dir, "etc", "certs", "cacert.pem"]).
 
 with_system_default_ca(Path, Fun) ->
     Previous = application:get_env(emqx, trusted_certs_path),

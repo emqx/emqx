@@ -96,16 +96,14 @@ init_per_group(GroupName, Config0) when
                 }
         end,
     ct:pal(
-        io_lib:format(
-            "Running group ~s with Datalayers at ~s:~b, TLS enabled: ~p, Proxy name: ~s",
-            [
-                GroupName,
-                DatalayersHost,
-                DatalayersPort,
-                UseTLS,
-                ProxyName
-            ]
-        )
+        "Running group ~s with Datalayers at ~s:~b, TLS enabled: ~p, Proxy name: ~s",
+        [
+            GroupName,
+            DatalayersHost,
+            DatalayersPort,
+            UseTLS,
+            ProxyName
+        ]
     ),
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
@@ -150,8 +148,8 @@ init_per_group(GroupName, Config0) when
             {connector_config_string, ConnConfString}
             | Config
         ],
-    ensure_database(NewConfig),
-    ensure_table(NewConfig),
+    {ok, _} = ensure_database(NewConfig),
+    {ok, _} = ensure_table(NewConfig),
     NewConfig;
 init_per_group(sync_query, Config) ->
     [{query_mode, sync} | Config];
@@ -222,7 +220,7 @@ enable = true
 server = "~s:~b"
 parameters {
   driver_type = arrow_flight
-  database = mqtt
+  database = mqtt_arrow
   username = admin
   password = public
 }
