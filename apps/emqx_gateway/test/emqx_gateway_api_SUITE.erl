@@ -386,12 +386,25 @@ nats_websocket_defaults() ->
     }.
 
 websocket_test_listener(Type) ->
-    #{
-        name => atom_to_binary(Type),
-        type => atom_to_binary(Type),
-        bind => <<"127.0.0.1:39009">>,
-        enable => false
-    }.
+    maps:merge(
+        #{
+            name => atom_to_binary(Type),
+            type => atom_to_binary(Type),
+            bind => <<"127.0.0.1:39009">>,
+            enable => false
+        },
+        tls_test_options(Type)
+    ).
+
+%% `etc/certs' holds only a README on this branch, so the schema default for
+%% `cacertfile' names a file that is not there and the API rejects every TLS
+%% listener these cases create. The cases are about the WebSocket options, not
+%% about verifying a peer, so leave the CA empty, which `emqx_tls_lib' allows
+%% for `cacertfile'.
+tls_test_options(Type) when Type =:= ssl; Type =:= wss; Type =:= dtls ->
+    #{ssl_options => #{cacertfile => <<>>}};
+tls_test_options(_Type) ->
+    #{}.
 
 assert_gateway_websocket_options(GwName, Type, Overrides, Expected) ->
     Listener = maps:merge(websocket_test_listener(Type), Overrides),
