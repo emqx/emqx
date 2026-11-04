@@ -47,6 +47,27 @@ t_help(_Config) ->
 t_info(_Config) ->
     _ = emqx_license_cli:license(["info"]).
 
+%% Load signed licenses and verify that CLI output preserves UTF-8 customer names.
+t_info_unicode(Config) ->
+    try
+        lists:foreach(
+            fun(Customer) ->
+                LicenseKey = emqx_license_test_lib:make_license(#{
+                    name => binary_to_list(Customer)
+                }),
+                ?assertMatch({ok, _}, emqx_license:update_key(LicenseKey)),
+                Output = capture_license_info(Config),
+                Lines = binary:split(Output, <<"\n">>, [global]),
+                ?assert(lists:member(<<"customer        : ", Customer/binary>>, Lines)),
+                ?assert(lists:member(<<"email           : contact@foo.com">>, Lines)),
+                ?assert(lists:member(<<"deployment      : bar-deployment">>, Lines))
+            end,
+            [<<"Foo">>, <<"示例科技有限公司"/utf8>>, <<"客户🚀"/utf8>>]
+        )
+    after
+        {ok, _} = emqx_license:update_key(<<"default">>)
+    end.
+
 t_update(_Config) ->
     LicenseValue = emqx_license_test_lib:default_license(),
     _ = emqx_license_cli:license(["update", LicenseValue]),
@@ -79,3 +100,17 @@ t_conf_update(_Config) ->
         Dump
     ),
     ok.
+
+capture_license_info(Config) ->
+    Path = filename:join(?config(priv_dir, Config), "license-info.txt"),
+    {ok, Device} = file:open(Path, [write, {encoding, utf8}]),
+    GroupLeader = group_leader(),
+    try
+        true = group_leader(Device, self()),
+        ok = emqx_license_cli:license(["info"])
+    after
+        true = group_leader(GroupLeader, self()),
+        ok = file:close(Device)
+    end,
+    {ok, Output} = file:read_file(Path),
+    Output.
