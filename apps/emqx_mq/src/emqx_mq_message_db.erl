@@ -278,10 +278,16 @@ drop(MQHandle) ->
     delete(DB, delete_topics(DB, MQHandle)).
 
 -doc """
-Reset quota indices at the purge start time, then delete older DS records.
-Commit each index reset before deleting messages in a separate transaction.
-Return the shared cutoff as epoch milliseconds for delivery filtering.
-Regular unlimited queues do not access or create quota indices.
+Purge all messages of the queue.
+
+For indexed queues, run two transactions in each slab:
+1. Reset the quota index. Delete messages stored at or after the purge start time.
+2. Delete messages stored before the purge start time.
+
+For regular unlimited queues, delete messages stored before the purge start time.
+These queues have no quota index.
+
+Return the purge start time as epoch milliseconds for delivery filtering.
 """.
 -spec purge(emqx_mq_types:mq()) ->
     {ok, emqx_utils_calendar:epoch_millisecond()} | {error, term()}.
@@ -609,6 +615,7 @@ cutoff_index_tx(TxKey, MQ, BeforeUs, Mode) ->
                 emqx_mq_quota_index:cutoff(Index0, BeforeUs);
             full ->
                 ok = emqx_ds:tx_del_topic(IndexTopic),
+                ok = emqx_ds:tx_del_topic(mq_message_topic(MQ, '#'), BeforeUs, infinity),
                 {BeforeUs, emqx_mq_quota_index:reset(Index0, BeforeUs)}
         end,
     ok = quota_buffer_flush_tx_write(TxKey, IndexTopic, Index),

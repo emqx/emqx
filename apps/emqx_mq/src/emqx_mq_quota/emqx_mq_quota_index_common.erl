@@ -66,6 +66,9 @@ A large insertion can exceed a threshold.
 Clock differences and buffered updates can add data to older buckets after a boundary is created.
 These updates can increase the data retained beyond the configured limit.
 A node crash can lose buffered updates and make the index undercount stored data.
+A full purge can delete messages whose updates are still buffered.
+When these updates are applied later, the index counts data that is no longer stored.
+Compaction removes these counts after newer buckets reach the configured limit.
 """.
 
 -include_lib("../../gen_src/MessageQueue.hrl").

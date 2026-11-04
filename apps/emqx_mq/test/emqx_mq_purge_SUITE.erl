@@ -31,11 +31,14 @@ all() ->
 
 groups() ->
     Common = [t_full_purge, t_bounded_purge_connected_client, t_full_purge_connected_client],
+    Indexed = [
+        t_bounded_purge, t_missing_index, t_full_purge_updates, t_full_purge_publish_before_reset
+    ],
     [
         {regular, [], [t_regular_unlimited | Common]},
-        {limited_regular, [], [t_bounded_purge, t_missing_index, t_full_purge_updates | Common]},
-        {lastvalue, [], [t_bounded_purge, t_missing_index, t_full_purge_updates | Common]},
-        {limited_lastvalue, [], [t_bounded_purge, t_missing_index, t_full_purge_updates | Common]},
+        {limited_regular, [], Indexed ++ Common},
+        {lastvalue, [], Indexed ++ Common},
+        {limited_lastvalue, [], Indexed ++ Common},
         {failed_messages, [], [t_full_purge_failure]},
         {failed_index, [], [t_full_purge_failure]}
     ].
@@ -469,7 +472,8 @@ t_failed_deletion(_Config) ->
     ?assertEqual([Fresh], emqx_mq_message_db:dirty_read_all(MQ)),
     ?assertEqual(ExpectedIndex, read_index(DB, Slab, MQ)).
 
-%% Check that full purge resets indices before deleting old messages and preserves records at or after its cutoff.
+%% Check that full purge resets indices before deleting old messages.
+%% Indexed queues lose records after the cutoff; regular unlimited queues keep them.
 t_full_purge(Config) ->
     %% Prepare quota counters for the queue type under test.
     Limits = #{max_shard_message_count => 1000, max_shard_message_bytes => 1000000},
@@ -507,9 +511,11 @@ t_full_purge(Config) ->
         Slabs
     ),
 
-    %% Verify that each slab commits its reset before the message-deletion transaction starts.
+    %% Verify that each slab commits its reset before the older-message deletion starts.
     ok = meck:expect(emqx_ds, tx_del_topic, fun(Topic, From, To) ->
         case emqx_mq_prop:is_append_only(MQ) of
+            _ when From =/= 0 ->
+                ok;
             true ->
                 ?assertEqual([], emqx_ds:dirty_read(DB, IndexTopic));
             false ->
@@ -531,10 +537,14 @@ t_full_purge(Config) ->
     ?assert(CutoffMs >= StartMs),
     ?assert(CutoffMs =< erlang:system_time(millisecond)),
     CutoffUs = CutoffMs * 1000,
-    %% Verify that old messages are gone and future records remain in every slab.
-    ?assertEqual(
-        repeated_records([Future], Slabs), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))
-    ),
+    %% Indexed queues delete every record stored before the reset.
+    %% Regular unlimited queues keep records newer than the cutoff.
+    Retained =
+        case emqx_mq_prop:is_append_only(MQ) of
+            true -> repeated_records([Future], Slabs);
+            false -> []
+        end,
+    ?assertEqual(Retained, lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
     ExpectedIndex = #'StorageIndex'{
         maxTsUs = CutoffUs,
         common = [#'StorageIndexBucket'{tsUs = CutoffUs, bytes = 0, count = 0}],
@@ -558,11 +568,9 @@ t_full_purge(Config) ->
         fun(Slab) -> ?assertEqual(Index, read_index(DB, Slab, OtherMQ)) end, Slabs
     ),
 
-    %% Repeating full purge still preserves records newer than its cutoff.
+    %% Repeating full purge gives the same result.
     {ok, _} = emqx_mq_message_db:purge(MQ),
-    ?assertEqual(
-        repeated_records([Future], Slabs), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))
-    ).
+    ?assertEqual(Retained, lists:sort(emqx_mq_message_db:dirty_read_all(MQ))).
 
 %% Check that full-purge failures preserve messages and queue settings while keeping any committed index reset.
 t_full_purge_failure(Config) ->
@@ -697,6 +705,44 @@ t_full_purge_updates(Config) ->
         read_index(DB, Slab, MQ)
     ).
 
+%% Check that full purge deletes a message published after the purge start
+%% when its quota update is flushed before the index reset.
+t_full_purge_publish_before_reset(Config) ->
+    %% Store an index in one slab.
+    Limits = #{max_shard_message_count => 1000, max_shard_message_bytes => 1000000},
+    QueueOpts = queue_opts(Config, Limits),
+    Stored = #'StorageIndex'{
+        maxTsUs = 1000,
+        common = [#'StorageIndexBucket'{tsUs = 1000, bytes = 100, count = 1}]
+    },
+    {ok, MQ} = emqx_mq_test_utils:create_mq(QueueOpts#{topic_filter => <<"purge/#">>}),
+    DB = message_db(MQ),
+    [{Shard, Generation} = Slab | _] = maps:keys(emqx_ds:list_slabs(DB)),
+    ok = write_records(DB, Slab, [index_record(MQ, Stored)]),
+    ok = meck:new(emqx_ds, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_ds) end),
+    %% Before the first purge transaction in the slab, commit a new message and its quota update.
+    %% Both timestamps follow the purge start time.
+    ok = meck:expect(emqx_ds, trans, fun(Opts, Fun) ->
+        IsSlab = maps:get(shard, Opts) =:= Shard andalso maps:get(generation, Opts) =:= Generation,
+        case IsSlab andalso put(published, true) =:= undefined of
+            true -> publish_before_reset(MQ, {DB, Slab});
+            false -> ok
+        end,
+        meck:passthrough([Opts, Fun])
+    end),
+    {ok, CutoffMs} = emqx_mq_message_db:purge(MQ),
+    CutoffUs = CutoffMs * 1000,
+    %% Verify that the new message is deleted together with its accounting.
+    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)),
+    ?assertEqual(
+        Stored#'StorageIndex'{
+            maxTsUs = CutoffUs,
+            common = [#'StorageIndexBucket'{tsUs = CutoffUs, bytes = 0, count = 0}]
+        },
+        read_index(DB, Slab, MQ)
+    ).
+
 %% Check that bounded purge preserves the MQTT connection and subscription for messages published afterward.
 t_bounded_purge_connected_client(Config) ->
     test_purge_connected_client(bounded, Config).
@@ -797,6 +843,23 @@ write_during_purge(MQ, {DB, {Shard, Generation} = Slab} = TxKey) ->
             ok = emqx_ds:tx_write(Boundary),
             ok = emqx_ds:tx_write(Fresh),
             emqx_mq_message_db:quota_buffer_flush_tx_write(TxKey, IndexTopic, Index1)
+        end)
+    ).
+
+publish_before_reset(MQ, {DB, {Shard, Generation}} = TxKey) ->
+    NowMs = erlang:system_time(millisecond),
+    Fresh = message_record(MQ, <<"fresh">>, ?ds_tx_ts_monotonic, NowMs),
+    IndexTopic = index_topic(MQ),
+    IndexOpts = emqx_mq_prop:quota_index_opts(MQ),
+    ?assertMatch(
+        {atomic, _, ok},
+        emqx_ds:trans(#{db => DB, shard => Shard, generation => Generation}, fun() ->
+            Index0 = emqx_mq_message_db:quota_buffer_flush_tx_read(TxKey, IndexTopic, IndexOpts),
+            Index = emqx_mq_quota_index:apply_update(
+                Index0, {NowMs * 1000, record_bytes([Fresh]), 1}
+            ),
+            ok = emqx_ds:tx_write(Fresh),
+            emqx_mq_message_db:quota_buffer_flush_tx_write(TxKey, IndexTopic, Index)
         end)
     ).
 

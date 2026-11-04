@@ -260,7 +260,8 @@ Messages whose message timestamps precede `before` are skipped during delivery.
 Indexed queues delete stored data only before the nearest quota bucket boundary strictly earlier than `before`.
 When no earlier boundary exists, stored records remain.
 Regular unlimited queues delete records whose storage timestamps precede `before`.
-Without `before`, purge resets quota indices and deletes records older than the purge start time.
+Without `before`, purge resets quota indices and deletes all records stored before the reset.
+For regular unlimited queues, it deletes records older than the purge start time.
 The queue keeps its identity and consumer progress.
 Consumers restart when the delivery cutoff changes, while MQTT clients stay connected.
 Delivery can pause for about twice the queue's `ping_interval`.
