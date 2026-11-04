@@ -150,6 +150,16 @@ on_client_handle_info(ClientInfo, #retained_batch{} = Batch, Acc0) ->
         _ ->
             {stop, Acc0}
     end;
+%% The dispatcher worker dropped the read from its full queue: the read ends without messages.
+on_client_handle_info(_ClientInfo, #retained_dropped{} = Dropped, Acc) ->
+    #retained_dropped{topic_filter = TopicFilter, request_ref = Ref} = Dropped,
+    case get_reads() of
+        #{TopicFilter := #read{request_ref = Ref}} ->
+            ok = stop_read(TopicFilter);
+        _ ->
+            ok
+    end,
+    {stop, Acc};
 on_client_handle_info(ClientInfo, {?DOWN_TAG, _MRef, process, Worker, _Reason}, Acc) ->
     ok = handle_worker_down(ClientInfo, Worker),
     {stop, Acc};

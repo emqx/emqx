@@ -32,6 +32,7 @@ init_per_testcase(_Case, Config) ->
     emqx_config:put([retainer, backend, reindex_delivery_action], redo),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
     emqx_config:put([retainer, flow_control, batch_read_number], 0),
+    emqx_config:put([retainer, flow_control, max_queue_length], 50_000),
     ok = emqx_retainer_limiter:update(),
     ok = restart_workers(),
     ok = emqx_retainer:clean(),
@@ -368,6 +369,84 @@ t_paused_dead_target(_Config) ->
         ?projection(topic, ?of_kind(retainer_dispatcher_batch, snabbkaffe:collect_trace()))
     ).
 
+-doc """
+A worker with a full queue drops new requests; the requests in the queue are served in order.
+The requests of dead targets count until the worker reaches them.
+""".
+t_queue_full(_Config) ->
+    emqx_config:put([retainer, flow_control, max_queue_length], 3),
+    Worker = emqx_retainer_dispatcher:worker(),
+    lists:foreach(
+        fun(#{requests := Kinds, served := Served, dropped := Dropped} = Case) ->
+            Dropped0 = emqx_metrics:val_global('retained.dropped'),
+            ok = sys:suspend(Worker),
+            Refs = [Ref || {live, Ref} <- [fetch_request(Worker, Kind) || Kind <- Kinds]],
+            ok = sys:resume(Worker),
+
+            %% The queued live requests are served, the requests above the limit are dropped
+            Replies = [element(1, receive_info(Ref)) || Ref <- Refs],
+            ?assertEqual(
+                lists:duplicate(Served, retained_batch) ++
+                    lists:duplicate(Dropped, retained_dropped),
+                Replies,
+                Case
+            ),
+            ?assertEqual(Dropped0 + Dropped, emqx_metrics:val_global('retained.dropped'), Case)
+        end,
+        [
+            #{requests => [live, live, live, live, live], served => 3, dropped => 2},
+            #{requests => [dead, dead, dead, live, live], served => 0, dropped => 2}
+        ]
+    ),
+
+    %% The worker accepts requests again after it empties the queue
+    {live, Ref} = fetch_request(Worker, live),
+    ?assertMatch(#retained_batch{}, receive_info(Ref)).
+
+-doc "A channel ends a read that the dispatcher worker drops and ignores the late reply.".
+t_lazy_dropped(_Config) ->
+    store_messages(),
+    {Client, Channel} = connect(#{}),
+    Worker = gproc_pool:pick_worker(?DISPATCHER_POOL, Channel),
+    ok = sys:suspend(Worker),
+    emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/+/a">>, 1),
+    {dictionary, Dict} = process_info(Channel, dictionary),
+    #{<<"t/+/a">> := {read, Ref, Worker}} = proplists:get_value(emqx_retainer_reads, Dict),
+
+    %% The drop reply ends the read and releases the worker monitor
+    Channel ! #retained_dropped{topic_filter = <<"t/+/a">>, request_ref = Ref},
+    ?retry(50, 20, assert_no_read_state(Channel)),
+    assert_no_monitor(Channel, Worker),
+
+    %% The late reply of the worker to the same request delivers nothing
+    ok = sys:resume(Worker),
+    ?assertEqual([], receive_publishes(1)),
+    ok = emqtt:stop(Client).
+
+-doc "A handler whose request is dropped stops after the messages that it already delivers.".
+t_dropped_handler(_Config) ->
+    emqx_config:put([retainer, flow_control, max_queue_length], 1),
+    Worker = emqx_retainer_dispatcher:worker(),
+    ok = sys:suspend(Worker),
+    emqx_common_test_helpers:on_exit(fun() -> catch sys:resume(Worker) end),
+    {Ref0, Handler0} = subscribe(),
+    {Ref1, Handler1} = subscribe(),
+    ok = sys:resume(Worker),
+
+    %% The second request is dropped: the handler waits for messages in delivery, then stops
+    Dropped = receive_info(Ref1),
+    ?assertMatch(#retained_dropped{topic_filter = <<"t/+/a">>}, Dropped),
+    DeliveringCtx = #{desired_message_count => 1, delivering_count => 1},
+    ?assertMatch(
+        {ok, _, []}, emqx_retainer_extsub_handler:handle_info(Handler1, DeliveringCtx, Dropped)
+    ),
+    ?assertMatch({destroy, _, [<<"t/+/a">>]}, info(Handler1, Dropped, 1)),
+
+    %% The first request is served
+    ?assertMatch({destroy, _, [<<"t/+/a">>]}, info(Handler0, receive_batch(Ref0), 1)),
+    lists:foreach(fun emqx_retainer_extsub_handler:handle_terminate/1, [Handler0, Handler1]).
+
 -doc "A handler with a pending read stops when the retainer is disabled.".
 t_retainer_disabled(_Config) ->
     store_messages(),
@@ -665,6 +744,26 @@ restart_workers() ->
 store(Topic) ->
     emqx_retainer_mnesia:store_retained(
         #{max_retained_messages => 0}, emqx_message:make(Topic, <<"v">>)
+    ).
+
+%% Send one request for `t/+/a' to the worker, from a live or a dead target.
+fetch_request(Worker, live) ->
+    Ref = make_ref(),
+    Target = emqx_extsub_handler:message_target(Ref),
+    ok = fetch_topic(Worker, Target),
+    {live, Ref};
+fetch_request(Worker, dead) ->
+    {Dead, MRef} = spawn_monitor(fun() -> ok end),
+    receive
+        {'DOWN', MRef, process, Dead, _} -> ok
+    end,
+    ok = fetch_topic(Worker, {Dead, make_ref()}),
+    dead.
+
+fetch_topic(Worker, Target) ->
+    Topic = <<"t/+/a">>,
+    emqx_retainer_dispatcher:fetch(
+        Worker, Target, make_ref(), Topic, emqx_topic:words(Topic), undefined
     ).
 
 batch(Cursor) ->

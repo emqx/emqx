@@ -213,6 +213,15 @@ fields(flow_control) ->
                     desc => ?DESC(batch_deliver_limiter),
                     default => <<"1000/s">>
                 }
+            )},
+        {max_queue_length,
+            ?HOCON(
+                pos_integer(),
+                #{
+                    desc => ?DESC(max_queue_length),
+                    default => 50_000,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields(external_backends) ->

@@ -31,6 +31,10 @@ batch_deliver_limiter.desc:
 """The maximum rate of retained-message storage scans per second.
 The value is set from `delivery_rate`."""
 
+max_queue_length.desc:
+"""The maximum number of retained-message reads that wait in the queue of one dispatcher worker.
+When the queue is full, the worker drops a new read. The subscription then receives no retained messages for that subscribe."""
+
 batch_deliver_number.desc:
 """Deprecated. This setting has no effect. Use `batch_read_number` to control backend read batch size."""
 
