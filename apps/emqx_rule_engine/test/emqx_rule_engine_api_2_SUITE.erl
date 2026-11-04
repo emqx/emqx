@@ -2835,7 +2835,10 @@ t_namespaced_delete_cascade_partial_failure(TCConfig0) when is_list(TCConfig0) -
             lists:foreach(fun(Pid) -> Pid ! die end, MockerPids),
             #{?snk_kind := "mt_janitor_finished_ns", failed := false}
         ),
-    ?assertNot(?ON(N1, emqx_mt_state:is_tombstoned(Namespace))),
+    %% The janitor clears the tombstone on the core node that owns this namespace, which
+    %% is not `N1'.  The table is replicated asynchronously, so poll instead of reading
+    %% `N1' once.
+    ?retry(250, 40, false = ?ON(N1, emqx_mt_state:is_tombstoned(Namespace))),
     ?assertMatch(
         [],
         ?ON(N1, emqx_resource:list_instances())
