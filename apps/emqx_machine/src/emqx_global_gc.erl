@@ -8,14 +8,26 @@
 Periodic global garbage collection.
 
 A sweep walks every process on the node and forces a garbage collection on
-each one whose status is `waiting`. A process that is waiting is not running,
+each one whose status is `waiting`. It walks with `erlang:processes_iterator/0`
+rather than `erlang:processes/0`, so it never holds a list of every pid on the
+node for the length of the sweep. The iterator is not a snapshot: a process
+created during a sweep may or may not be reached, and a pid may be returned
+for a process that has since exited. Both are fine here. A collection request
+for a process that is gone is simply answered `false`, and anything missed is
+reached by the next sweep, which is closer to the truth than a snapshot taken
+minutes earlier anyway. A process that is waiting is not running,
 so it never reaches its own collection thresholds, however `fullsweep_after`
 is tuned. The sweep reclaims what those processes hold.
 
 Hibernating processes are collected along with the rest. They hold nothing to
-reclaim, but telling them apart costs more than collecting them: the cheapest
-reliable test is `current_function`, and that costs about twice what the
-collection does.
+reclaim, but it is not worth telling them apart. The only reliable test is
+`current_function`, which costs a signal round-trip to the process, about
+twice what the collection itself costs. `stack_size` is cheap enough, since
+hibernating discards the stack, but it does not answer the question: on an
+idle node every process with a stack of 1 was something like
+`erts_code_purger` or `prim_file:helper_loop` rather than a hibernating
+process, and nothing ties a shallow stack to an empty heap, so a tail
+recursive receive loop holding garbage would be skipped.
 
 `node.global_gc_interval` sets the period. A sweep runs in a one-off process
 and walks in chunks, pausing between them. The pause comes from the interval
@@ -60,7 +72,7 @@ needs a restart.
 %% of the period free of it.
 -define(BUDGET_SHARE, 2).
 %% A pause longer than this buys no more smoothing. It only leaves the sweep
-%% half done for longer, over a process list that keeps changing.
+%% half done for longer, over a process table that keeps changing.
 -define(MAX_PAUSE, 1000).
 -define(MIN_PAUSE, 1).
 
@@ -189,10 +201,10 @@ log_worker_exit(Reason) ->
 
 sweep(Interval) ->
     Start = erlang:monotonic_time(millisecond),
-    Pids = processes(),
-    Scanned = length(Pids),
-    Pause = chunk_pause(Interval, Scanned),
-    Collected = sweep(Pids, Pause, 0),
+    %% The pause is sized from the process count, because the iterator never
+    %% builds a list whose length could be taken instead.
+    Pause = chunk_pause(Interval, erlang:system_info(process_count)),
+    {Scanned, Collected} = sweep(erlang:processes_iterator(), Pause, 0, 0),
     ?SLOG(info, #{
         msg => "global_gc_finished",
         elapsed_ms => erlang:monotonic_time(millisecond) - Start,
@@ -215,27 +227,29 @@ chunk_pause(Interval, Scanned) ->
 ceil_div(Dividend, Divisor) ->
     (Dividend + Divisor - 1) div Divisor.
 
-sweep([], _Pause, Collected) ->
-    Collected;
-sweep(Pids, Pause, Collected0) ->
-    {Chunk, Rest} = take_chunk(?CHUNK_SIZE, Pids, []),
+sweep(Iter0, Pause, Scanned0, Collected0) ->
+    {Chunk, Size, Iter} = take_chunk(?CHUNK_SIZE, Iter0, [], 0),
+    Scanned = Scanned0 + Size,
     Collected = Collected0 + gc_chunk(Chunk),
-    case Rest of
-        [] ->
-            Collected;
+    case Iter of
+        none ->
+            {Scanned, Collected};
         _ ->
             ok = timer:sleep(Pause),
-            sweep(Rest, Pause, Collected)
+            sweep(Iter, Pause, Scanned, Collected)
     end.
 
 %% The chunk comes back reversed. A sweep collects every process it is given,
 %% so the order does not matter and reversing it back would be wasted work.
-take_chunk(0, Rest, Acc) ->
-    {Acc, Rest};
-take_chunk(_N, [], Acc) ->
-    {Acc, []};
-take_chunk(N, [Pid | Rest], Acc) ->
-    take_chunk(N - 1, Rest, [Pid | Acc]).
+take_chunk(0, Iter, Acc, Size) ->
+    {Acc, Size, Iter};
+take_chunk(N, Iter0, Acc, Size) ->
+    case erlang:processes_next(Iter0) of
+        none ->
+            {Acc, Size, none};
+        {Pid, Iter} ->
+            take_chunk(N - 1, Iter, [Pid | Acc], Size + 1)
+    end.
 
 %% Request a collection for the whole chunk before waiting for any of it, so
 %% the collections can overlap instead of running strictly one after another.

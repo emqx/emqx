@@ -67,6 +67,35 @@ t_chunk_pause(_) ->
     %% Never zero, whatever the arithmetic comes to.
     ?assertEqual(1, emqx_global_gc:chunk_pause(1, 1000000)).
 
+-doc """
+The walk uses `erlang:processes_iterator/0`, so a sweep reaches every process
+without ever holding a list of every pid on the node. A process parked in
+`receive` holding a dead heap is reclaimed.
+""".
+t_sweep_reaches_processes(_) ->
+    ok = load_interval(<<"1s">>),
+    Waiting = spawn(fun() ->
+        _Dead = lists:seq(1, 200000),
+        receive
+            stop -> ok
+        end
+    end),
+    ok = timer:sleep(200),
+    {total_heap_size, Before} = process_info(Waiting, total_heap_size),
+    ?assert(Before > 100000),
+    {ok, _} = emqx_global_gc:start_link(),
+    try
+        ?assertEqual(ok, emqx_global_gc:run()),
+        ?retry(
+            20,
+            200,
+            ?assertMatch({total_heap_size, N} when N < 1000, process_info(Waiting, total_heap_size))
+        )
+    after
+        ok = emqx_global_gc:stop(),
+        exit(Waiting, kill)
+    end.
+
 -doc "`run/1` rejects an interval shorter than 10 minutes without reaching the server.".
 t_run_rejects_short_interval(_) ->
     ?assertEqual(
