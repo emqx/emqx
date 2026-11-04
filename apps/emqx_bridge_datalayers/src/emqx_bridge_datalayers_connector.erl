@@ -148,7 +148,9 @@ on_query(InstId, {Channel, Message}, State) ->
 on_batch_query(InstId, BatchData, State) ->
     ?with_driver(State, [InstId, BatchData, State]).
 
--spec on_query_async(InstId, QueryData, ReplyFun, State) -> ok | {error, term()} when
+-spec on_query_async(InstId, QueryData, ReplyFun, State) ->
+    ok | {ok, pid()} | {error, term()}
+when
     InstId :: resource_id(),
     QueryData :: {channel_id(), resource_config()},
     ReplyFun :: reply_fun(),
@@ -156,7 +158,9 @@ on_batch_query(InstId, BatchData, State) ->
 on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
     ?with_driver(State, [InstId, {Channel, Message}, {ReplyFun, Args}, State]).
 
--spec on_batch_query_async(InstId, BatchData, ReplyFun, State) -> ok | {error, term()} when
+-spec on_batch_query_async(InstId, BatchData, ReplyFun, State) ->
+    ok | {ok, pid()} | {error, term()}
+when
     InstId :: resource_id(),
     BatchData :: resource_config(),
     ReplyFun :: reply_fun(),

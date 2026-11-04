@@ -133,11 +133,10 @@ parse(<<>>, Parser) ->
 %% a byte kept from the previous chunk (a trailing `\r` or `\\`)
 parse(Bytes, Parser = #{pre := Pre}) ->
     parse(<<Pre/binary, Bytes/binary>>, maps:without([pre], Parser));
-%% treat a standalone EOL as a heartbeat frame
-parse(<<?LF>>, Parser = #{phase := none}) ->
-    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, <<>>, Parser};
-parse(<<?CR, ?LF>>, Parser = #{phase := none}) ->
-    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, <<>>, Parser};
+parse(<<?LF, Rest/binary>>, Parser = #{phase := none}) ->
+    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, Rest, Parser};
+parse(<<?CR, ?LF, Rest/binary>>, Parser = #{phase := none}) ->
+    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, Rest, Parser};
 parse(<<?CR>>, Parser = #{phase := none}) ->
     {more, Parser#{pre => <<?CR>>}};
 parse(Bytes, #{phase := body, length := Len, state := State}) ->

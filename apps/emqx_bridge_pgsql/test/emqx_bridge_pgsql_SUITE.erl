@@ -312,6 +312,27 @@ create_action_api(Config, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
     ).
 
+create_action_with_single_connection(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"disable_prepared_statements">> => true,
+        <<"pool_size">> => 1,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1h">>}
+    }),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1h">>,
+            <<"request_ttl">> => <<"30s">>,
+            <<"worker_pool_size">> => 1,
+            <<"batch_size">> => min(2, get_config(batch_size, TCConfig, 1)),
+            %% A partial batch must not flush before the NACK wait times out.
+            <<"batch_time">> => <<"10s">>
+        }
+    }),
+    ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, _, #{state := #{pool_name := PoolName} = State}} = emqx_resource:get_instance(ConnectorId),
+    [{_, Worker}] = ecpool:workers(PoolName),
+    {ConnectorId, State, Worker}.
+
 delete_action_api(TCConfig) ->
     #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
     emqx_bridge_v2_testlib:delete_kind_api(action, Type, Name).
@@ -813,6 +834,94 @@ t_concurrent_health_checks(TCConfig) ->
 
 t_start_action_or_source_with_disabled_connector(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(TCConfig),
+    ok.
+
+-doc "Retries messages after a pool connection is lost with prepared statements disabled.".
+t_disconnected_worker_retries() ->
+    [{matrix, true}].
+t_disconnected_worker_retries(matrix) ->
+    [
+        [Flavor, ?tcp, Mode, Batch]
+     || Flavor <- [?postgres, ?timescale, ?matrix],
+        Mode <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_disconnected_worker_retries(TCConfig) ->
+    {ConnectorId, _State, Worker} = create_action_with_single_connection(TCConfig),
+    ActionId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Payloads = [unique_payload(), unique_payload()],
+    Publishers = [{start_client(), Payload} || Payload <- Payloads],
+    IsBatch = get_config(batch_size, TCConfig, 1) > 1,
+    TestPid = self(),
+    with_failure(down, TCConfig, fun() ->
+        ?retry(50, 100, ?assertMatch({error, _}, ecpool_worker:client(Worker))),
+        %% The cached connector status must still allow the requests to reach its worker.
+        ?assertMatch({ok, _, #{status := connected}}, emqx_resource:get_instance(ConnectorId)),
+        {_, {ok, _}} = ?wait_async_action(
+            lists:foreach(
+                fun({C, Payload}) ->
+                    emqtt:publish_async(C, Topic, Payload, [{qos, 1}], fun(Result) ->
+                        TestPid ! {published, Payload, Result}
+                    end)
+                end,
+                Publishers
+            ),
+            #{
+                ?snk_kind := buffer_worker_flush_nack,
+                batch_or_query := BatchOrQuery,
+                result := {error, {recoverable_error, ecpool_disconnected}}
+            } when not IsBatch orelse length(BatchOrQuery) =:= 2,
+            5_000
+        )
+    end),
+    lists:foreach(
+        fun(Payload) ->
+            receive
+                {published, Payload, Result} -> ?assertMatch({ok, _}, Result)
+            after 10_000 ->
+                ct:fail({publish_timeout, Payload})
+            end
+        end,
+        Payloads
+    ),
+    ?retry(
+        200,
+        100,
+        begin
+            Conn = connect_direct_pgsql(TCConfig),
+            try
+                {ok, _, Rows} = epgsql:squery(Conn, <<"SELECT payload FROM mqtt_test">>),
+                ?assertEqual(lists:sort([{P} || P <- Payloads]), lists:sort(Rows))
+            after
+                epgsql:close(Conn)
+            end
+        end
+    ),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(ActionId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(ActionId)),
+    ?retry(200, 20, ?assertEqual(2, emqx_resource_metrics:success_get(ActionId))),
+    ok.
+
+-doc "Reports a disconnected channel without an exception when its pool worker has no connection.".
+t_disconnected_channel_health_check(TCConfig) ->
+    {ConnectorId, State, Worker} = create_action_with_single_connection(TCConfig),
+    ActionId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    with_failure(down, TCConfig, fun() ->
+        ?retry(50, 100, ?assertMatch({error, _}, ecpool_worker:client(Worker))),
+        ?assertEqual(
+            {disconnected, ecpool_disconnected},
+            emqx_resource:call_channel_health_check(ConnectorId, ActionId, emqx_postgresql, State)
+        )
+    end),
+    ?retry(
+        200,
+        100,
+        ?assertEqual(
+            connected,
+            emqx_resource:call_channel_health_check(ConnectorId, ActionId, emqx_postgresql, State)
+        )
+    ),
     ok.
 
 t_disable_prepared_statements() ->

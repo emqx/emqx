@@ -6,6 +6,349 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(CONNECTOR, emqx_bridge_datalayers_arrow_flight_connector).
+
+ssl_opts_test_() ->
+    CacertFile = bin(cacert_file()),
+    [
+        ?_assertEqual(
+            #{},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>, <<"datalayers.example.com">>, #{enable => false}
+            )
+        ),
+        ?_assertEqual(
+            #{
+                tls_enable => true,
+                tls_cacertfile => CacertFile,
+                verify => verify_peer,
+                tls_server_name => <<"datalayers.example.com">>
+            },
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => CacertFile
+                }
+            )
+        ),
+        ?_assertEqual(
+            #{
+                tls_enable => true,
+                tls_cacertfile => CacertFile,
+                verify => verify_peer,
+                tls_server_name => <<"server.example.com">>
+            },
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"127.0.0.1">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => CacertFile,
+                    server_name_indication => <<"server.example.com">>
+                }
+            )
+        ),
+        ?_assertEqual(
+            {error, ssl_cacertfile_is_required},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{enable => true, verify => verify_peer}
+            )
+        ),
+        ?_assertEqual(
+            {error, verify_none_not_supported},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_none,
+                    cacertfile => CacertFile
+                }
+            )
+        ),
+        ?_assertEqual(
+            {error, ssl_cacertfile_is_not_readable},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => <<"does-not-exist.pem">>
+                }
+            )
+        ),
+        ?_assertEqual(
+            {error, ssl_cacertfile_is_not_readable},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => <<"/definitely/not/exists/ca.crt">>
+                }
+            )
+        ),
+        ?_assertEqual(
+            {error, tls_client_certificates_not_supported},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => CacertFile,
+                    certfile => <<"/tmp/client.crt">>
+                }
+            )
+        ),
+        ?_assertEqual(
+            {error, tls_client_certificates_not_supported},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => CacertFile,
+                    managed_certs => #{bundle_name => <<"client">>}
+                }
+            )
+        ),
+        ?_assertEqual(
+            {error, ssl_server_name_indication_disabled},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => CacertFile,
+                    server_name_indication => disable
+                }
+            )
+        ),
+        ?_assertEqual(
+            {error, ssl_server_name_indication_disabled},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => CacertFile,
+                    server_name_indication => <<"disable">>
+                }
+            )
+        )
+    ].
+
+env_cacertfile_test() ->
+    EnvName = "EMQX_DATALAYERS_TEST_CA_DIR",
+    CacertFile = bin(cacert_file()),
+    Previous = os:getenv(EnvName),
+    true = os:putenv(EnvName, unicode:characters_to_list(filename:dirname(CacertFile))),
+    try
+        Template = unicode:characters_to_binary([
+            "${", EnvName, "}/", filename:basename(CacertFile)
+        ]),
+        ?assertEqual(
+            #{
+                tls_enable => true,
+                tls_cacertfile => unicode:characters_to_binary(filename:absname(CacertFile)),
+                verify => verify_peer,
+                tls_server_name => <<"datalayers.example.com">>
+            },
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => Template
+                }
+            )
+        )
+    after
+        restore_env(EnvName, Previous)
+    end.
+
+relative_cacertfile_test() ->
+    {ok, Contents} = file:read_file(cacert_file()),
+    Filename =
+        "datalayers-arrow-ca-" ++ integer_to_list(erlang:unique_integer([positive])) ++ ".pem",
+    ok = file:write_file(Filename, Contents),
+    try
+        Relative = unicode:characters_to_binary(Filename),
+        ?assertEqual(
+            #{
+                tls_enable => true,
+                tls_cacertfile => unicode:characters_to_binary(filename:absname(Relative)),
+                verify => verify_peer,
+                tls_server_name => <<"datalayers.example.com">>
+            },
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => Relative
+                }
+            )
+        )
+    after
+        file:delete(Filename)
+    end.
+
+invalid_cacertfile_test() ->
+    Filename = filename:join(
+        "/tmp",
+        "datalayers-arrow-invalid-ca-" ++
+            integer_to_list(erlang:unique_integer([positive])) ++ ".pem"
+    ),
+    ok = file:write_file(
+        Filename,
+        <<"-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----\n">>
+    ),
+    try
+        ?assertEqual(
+            {error, ssl_cacertfile_is_not_pem},
+            ?CONNECTOR:ssl_opts(
+                <<"test:ssl_opts">>,
+                <<"datalayers.example.com">>,
+                #{
+                    enable => true,
+                    verify => verify_peer,
+                    cacertfile => unicode:characters_to_binary(Filename)
+                }
+            )
+        )
+    after
+        file:delete(Filename)
+    end.
+
+connect_propagates_driver_error_test() ->
+    meck:new(datalayers, [passthrough, no_link]),
+    try
+        meck:expect(
+            datalayers,
+            connect,
+            fun(ClientOpts) ->
+                ?assertEqual(
+                    #{password => <<"pass">>},
+                    ClientOpts
+                ),
+                {error, {not_dispatched, <<"connect failed">>}}
+            end
+        ),
+        ?assertEqual(
+            {error, {not_dispatched, <<"connect failed">>}},
+            ?CONNECTOR:connect([
+                {conn_config, #{
+                    database => <<"db">>,
+                    password => emqx_secret:wrap(<<"pass">>)
+                }}
+            ])
+        ),
+        ?assert(meck:validate(datalayers))
+    after
+        meck:unload(datalayers)
+    end.
+
+connect_propagates_database_error_test() ->
+    meck:new(datalayers, [passthrough, no_link]),
+    try
+        Client = self(),
+        Reason = {not_dispatched, <<"database lookup failed">>},
+        meck:expect(datalayers, connect, fun(_) -> {ok, Client} end),
+        meck:expect(datalayers, use_database, fun(_, _) -> {error, Reason} end),
+        meck:expect(
+            datalayers,
+            stop,
+            fun(Pid) ->
+                ?assertEqual(Client, Pid),
+                ok
+            end
+        ),
+        ?assertEqual(
+            {error, {use_database_failed, <<"db">>, Reason}},
+            ?CONNECTOR:connect([
+                {conn_config, #{
+                    database => <<"db">>,
+                    password => emqx_secret:wrap(<<"pass">>)
+                }}
+            ])
+        ),
+        ?assert(meck:validate(datalayers))
+    after
+        meck:unload(datalayers)
+    end.
+
+async_call_returns_client_for_monitoring_test() ->
+    meck:new(datalayers, [passthrough, no_link]),
+    try
+        Client = self(),
+        Sql = <<"insert into t values (1)">>,
+        Callback = {fun(_) -> ok end, []},
+        meck:expect(
+            datalayers,
+            async_execute,
+            fun(ActualClient, ActualSql, ActualCallback) ->
+                ?assertEqual(Client, ActualClient),
+                ?assertEqual(Sql, ActualSql),
+                ?assertEqual(Callback, ActualCallback),
+                ok
+            end
+        ),
+        ?assertEqual(
+            {ok, Client},
+            ?CONNECTOR:call_driver(Client, <<"channel">>, {async, false}, [Sql, Callback])
+        ),
+        ?assert(meck:validate(datalayers))
+    after
+        meck:unload(datalayers)
+    end.
+
+async_prepared_call_returns_client_for_monitoring_test() ->
+    meck:new(datalayers, [passthrough, no_link]),
+    try
+        Client = self(),
+        PreparedRef = make_ref(),
+        Rows = [[erlang:system_time(millisecond)]],
+        Callback = {fun(_) -> ok end, []},
+        meck:expect(
+            datalayers,
+            async_execute_prepare,
+            fun(ActualClient, ActualPreparedRef, ActualRows, ActualCallback) ->
+                ?assertEqual(Client, ActualClient),
+                ?assertEqual(PreparedRef, ActualPreparedRef),
+                ?assertEqual(Rows, ActualRows),
+                ?assertEqual(Callback, ActualCallback),
+                ok
+            end
+        ),
+        ?assertEqual(
+            {ok, Client},
+            ?CONNECTOR:call_driver(
+                Client,
+                <<"channel">>,
+                {async, true},
+                [#{Client => PreparedRef}, {<<"sql">>, []}, Rows, Callback]
+            )
+        ),
+        ?assert(meck:validate(datalayers))
+    after
+        meck:unload(datalayers)
+    end.
+
 blank_credentials_test_() ->
     {setup,
         fun() ->
@@ -68,3 +411,17 @@ blank_credentials_test_() ->
                 )
             ]
         end}.
+
+cacert_file() ->
+    Dir = code:lib_dir(emqx_bridge_datalayers),
+    filename:join([Dir, <<"test/emqx_bridge_datalayers_SUITE_data">>, <<"ca.crt">>]).
+
+bin(Bin) when is_binary(Bin) ->
+    Bin;
+bin(List) when is_list(List) ->
+    iolist_to_binary(List).
+
+restore_env(EnvName, false) ->
+    os:unsetenv(EnvName);
+restore_env(EnvName, Value) ->
+    os:putenv(EnvName, Value).

@@ -142,12 +142,10 @@ fields("server_configs") ->
                 default => <<"10s">>, desc => ?DESC("connect_timeout")
             })},
         {retry_interval,
-            emqx_schema:mk_duration(
-                #{
-                    default => <<"15s">>,
-                    desc => ?DESC("retry_interval")
-                }
-            )},
+            mk(emqx_schema:timeout_duration_s(), #{
+                default => <<"15s">>,
+                desc => ?DESC("retry_interval")
+            })},
         {max_inflight,
             mk(
                 non_neg_integer(),
@@ -419,7 +417,13 @@ unique_static_clientid_validator(#{<<"mqtt">> := MQTTConnectors}) ->
             fun({_CIdServer, Name}) -> Name end,
             StaticClientIdsToNames0
         ),
-    Duplicated0 = maps:filter(fun(_, Vs) -> length(Vs) > 1 end, StaticClientIdsToNames),
+    Duplicated0 = maps:filter(
+        fun
+            (_, [_, _ | _]) -> true;
+            (_, _) -> false
+        end,
+        StaticClientIdsToNames
+    ),
     Duplicated = maps:values(Duplicated0),
     case Duplicated of
         [] ->
