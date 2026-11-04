@@ -42,6 +42,15 @@
 
 -export([counter_loop/0, set_callback_mode/1]).
 
+%% Since we want to emulate an external configuration source (`emqx_config'), especially
+%% when calling `on_get_channels', we must update this "external" source independently
+%% from calling `on_{add,remove}_channel' to have a more accurate model of `emqx_config'.
+-export([
+    add_channel_emulate_config/4,
+    remove_channel_emulate_config/3,
+    clear_emulated_config/1
+]).
+
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
 
@@ -57,6 +66,30 @@ roots() ->
         {name, fun name/1},
         {register, fun register/1}
     ].
+
+add_channel_emulate_config(ConnResId, ChanId, ChanConfig, Mode) ->
+    %% Update "external config"
+    do_add_channel(ConnResId, ChanId, ChanConfig),
+    case Mode of
+        sync ->
+            emqx_resource_manager:add_channel(ConnResId, ChanId, ChanConfig);
+        async ->
+            emqx_resource_manager:add_channel_async(ConnResId, ChanId, ChanConfig)
+    end.
+
+remove_channel_emulate_config(ConnResId, ChanId, Mode) ->
+    %% Update "external config"
+    do_remove_channel(ConnResId, ChanId),
+    case Mode of
+        sync ->
+            emqx_resource_manager:remove_channel(ConnResId, ChanId);
+        async ->
+            emqx_resource_manager:remove_channel_async(ConnResId, ChanId)
+    end.
+
+clear_emulated_config(ConnResId) ->
+    _ = persistent_term:erase(?PT_CHAN_KEY(ConnResId)),
+    ok.
 
 name(type) -> atom();
 name(required) -> true;
@@ -322,8 +355,8 @@ on_get_status(_InstId, #{pid := Pid, health_check_error := {delay, Delay}}) ->
         true -> ?status_connected;
         false -> ?status_disconnected
     end;
-on_get_status(ConnResId, #{health_check_agent := Agent}) ->
-    case get_agent_health_check_action(Agent, resource_health_check) of
+on_get_status(ConnResId, #{health_check_agent := Agent} = ConnState) ->
+    case get_agent_action(Agent, resource_health_check) of
         {ask, Pid} ->
             Alias = alias([reply]),
             Pid ! {waiting_health_check_result, Alias, resource, ConnResId},
@@ -332,7 +365,10 @@ on_get_status(ConnResId, #{health_check_agent := Agent}) ->
                     Result
             end;
         {notify, Pid, Status} when ?IS_STATUS(Status) ->
-            Pid ! {returning_resource_health_check_result, ConnResId, Status},
+            Ctx = #{
+                conn_state => ConnState
+            },
+            Pid ! {returning_resource_health_check_result, ConnResId, Status, Ctx},
             Status;
         Result ->
             Result
@@ -344,9 +380,37 @@ on_get_status(_InstId, #{pid := Pid}) ->
         false -> ?status_disconnected
     end.
 
+on_add_channel(ConnResId, #{add_channel_agent := Agent} = ConnSt0, ChanId, ChanCfg) ->
+    case get_agent_action(Agent, add_channel) of
+        {notify, Pid, continue} ->
+            Ctx = #{
+                conn_res_id => ConnResId,
+                chan_id => ChanId,
+                chan_cfg => ChanCfg,
+                conn_state => ConnSt0,
+                action => continue
+            },
+            Pid ! {attempted_to_add_channel, Ctx},
+            do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg);
+        {notify, Pid, {error, _} = Result} ->
+            Ctx = #{
+                conn_res_id => ConnResId,
+                chan_id => ChanId,
+                chan_cfg => ChanCfg,
+                conn_state => ConnSt0,
+                action => Result
+            },
+            Pid ! {attempted_to_add_channel, Ctx},
+            Result;
+        continue ->
+            do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg)
+    end;
 on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg) ->
+    do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg).
+
+do_on_add_channel(_ConnResId, ConnSt0, ChanId, ChanCfg) ->
     ConnSt = emqx_utils_maps:deep_put([channels, ChanId], ConnSt0, ChanCfg),
-    do_add_channel(ConnResId, ChanId, ChanCfg),
+    ?tp(added_channel, #{}),
     {ok, ConnSt}.
 
 on_remove_channel(ConnResId, ConnSt0, ChanId) ->
@@ -357,8 +421,8 @@ on_remove_channel(ConnResId, ConnSt0, ChanId) ->
 on_get_channels(ConnResId) ->
     persistent_term:get(?PT_CHAN_KEY(ConnResId), []).
 
-on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent}) ->
-    case get_agent_health_check_action(Agent, channel_health_check) of
+on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent} = ConnState) ->
+    case get_agent_action(Agent, channel_health_check, continue) of
         {ask, Pid} ->
             Alias = alias([reply]),
             Pid ! {waiting_health_check_result, Alias, channel, ConnResId, ChanId},
@@ -369,10 +433,15 @@ on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent}) ->
         {notify, Pid, Status} when ?IS_STATUS(Status) ->
             Pid ! {returning_channel_health_check_result, ConnResId, ChanId, Status},
             Status;
+        continue ->
+            do_on_get_channel_status(ConnResId, ChanId, ConnState);
         Result ->
             Result
     end;
-on_get_channel_status(_ConnResId, ChanId, #{channels := Chans}) ->
+on_get_channel_status(ConnResId, ChanId, ConnState) ->
+    do_on_get_channel_status(ConnResId, ChanId, ConnState).
+
+do_on_get_channel_status(_ConnResId, ChanId, #{channels := Chans}) ->
     case Chans of
         #{ChanId := #{health_check_delay := Delay}} ->
             ?tp(connector_demo_channel_health_check_delay, #{}),
@@ -553,7 +622,7 @@ do_remove_channel(ConnResId, ChanId) ->
     Chans = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),
     persistent_term:put(?PT_CHAN_KEY(ConnResId), proplists:delete(ChanId, Chans)).
 
-get_agent_health_check_action(Agent, Key) ->
+get_agent_action(Agent, Key) ->
     emqx_utils_agent:get_and_update(Agent, fun(Old) ->
         case Old of
             #{Key := [Action]} ->
@@ -562,5 +631,19 @@ get_agent_health_check_action(Agent, Key) ->
                 {Action, Old#{Key := Actions}};
             #{Key := Action} when not is_list(Action) ->
                 {Action, Old}
+        end
+    end).
+
+get_agent_action(Agent, Key, Default) ->
+    emqx_utils_agent:get_and_update(Agent, fun(Old) ->
+        case Old of
+            #{Key := [Action]} ->
+                {Action, Old};
+            #{Key := [Action | Actions]} ->
+                {Action, Old#{Key := Actions}};
+            #{Key := Action} when not is_list(Action) ->
+                {Action, Old};
+            #{} ->
+                {Default, Old}
         end
     end).
