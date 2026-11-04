@@ -177,15 +177,12 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
      || App <- [gen_rpc, classy, mria]
     ],
     ManagedSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, SystemSpecs)],
-
-    application:set_env(
-        classy,
-        setup_hooks,
-        {emqx_machine, register_hooks, [on_run_level(ManagedSpecs)]}
-    ),
+    % 6. Pre-boot. Start system apps:
     ClassyApps = start_apps(SystemSpecs, SuiteOpts),
+    emqx_machine:register_system_hooks(),
+    classy:on_run_level(on_run_level(ManagedSpecs), 100),
+    % 7. Boot:
     ok = classy:start_system(),
-    % 6. Start apps following instructions.
     ClassyApps ++ wait_business_apps(WaitStarted).
 
 -spec check_business_apps() -> boolean().
