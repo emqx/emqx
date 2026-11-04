@@ -96,16 +96,14 @@ init_per_group(GroupName, Config0) when
                 }
         end,
     ct:pal(
-        io_lib:format(
-            "Running group ~s with Datalayers at ~s:~b, TLS enabled: ~p, Proxy name: ~s",
-            [
-                GroupName,
-                DatalayersHost,
-                DatalayersPort,
-                UseTLS,
-                ProxyName
-            ]
-        )
+        "Running group ~s with Datalayers at ~s:~b, TLS enabled: ~p, Proxy name: ~s",
+        [
+            GroupName,
+            DatalayersHost,
+            DatalayersPort,
+            UseTLS,
+            ProxyName
+        ]
     ),
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
@@ -150,8 +148,8 @@ init_per_group(GroupName, Config0) when
             {connector_config_string, ConnConfString}
             | Config
         ],
-    ensure_database(NewConfig),
-    ensure_table(NewConfig),
+    {ok, _} = ensure_database(NewConfig),
+    {ok, _} = ensure_table(NewConfig),
     NewConfig;
 init_per_group(sync_query, Config) ->
     [{query_mode, sync} | Config];
@@ -222,13 +220,14 @@ enable = true
 server = "~s:~b"
 parameters {
   driver_type = arrow_flight
-  database = mqtt
+  database = mqtt_arrow
   username = admin
   password = public
 }
 ssl {
   enable = ~p
   verify = verify_peer
+  server_name_indication = "datalayers_tls"
   cacertfile = "~s"
 }
 """
@@ -484,13 +483,7 @@ t_prepare_auto_rebuild(Config) ->
         username => <<"admin">>,
         password => <<"public">>
     },
-    ConnConfig =
-        case ?config(use_tls, Config) of
-            true ->
-                ConnConfig0#{tls_cert => cacert_file()};
-            false ->
-                ConnConfig0
-        end,
+    ConnConfig = tls_conn_opts(Config, ConnConfig0),
     {ok, Client} = datalayers:connect(ConnConfig),
 
     _ = datalayers:execute(Client, <<"DROP TABLE IF EXISTS mqtt_arrow.auto_rebuild_test">>),
@@ -554,13 +547,7 @@ exec_sql(SQL, Config) ->
         username => <<"admin">>,
         password => <<"public">>
     },
-    ConnConfig =
-        case ?config(use_tls, Config) of
-            true ->
-                ConnConfig0#{tls_cert => cacert_file()};
-            false ->
-                ConnConfig0
-        end,
+    ConnConfig = tls_conn_opts(Config, ConnConfig0),
     {ok, Conn} = datalayers:connect(ConnConfig),
     Res = datalayers:execute(Conn, bin(SQL)),
     ok = datalayers:stop(Conn),
@@ -572,6 +559,19 @@ bin(A) when is_atom(A) ->
     atom_to_binary(A);
 bin(B) when is_binary(B) ->
     B.
+
+tls_conn_opts(Config, ConnConfig) ->
+    case ?config(use_tls, Config) of
+        true ->
+            ConnConfig#{
+                tls_enable => true,
+                tls_cacertfile => bin(cacert_file()),
+                verify => verify_peer,
+                tls_server_name => <<"datalayers_tls">>
+            };
+        false ->
+            ConnConfig
+    end.
 
 random_clientid_() ->
     <<"mqtt_", (emqx_guid:to_hexstr(emqx_guid:gen()))/binary>>.

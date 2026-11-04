@@ -128,6 +128,14 @@
 
 -define(HOOK_CTX_PD_KEY(NAME), {?MODULE, ctx, NAME}).
 
+%% `add' and `put' verify the hookpoint, so no callback runs on an invalid one.
+%% Running an invalid hookpoint runs nothing; tests still check it to catch typos.
+-ifdef(TEST).
+-define(VERIFY_RUN_HOOKPOINT(HOOKPOINT), ok = emqx_hookpoints:verify_hookpoint(HOOKPOINT)).
+-else.
+-define(VERIFY_RUN_HOOKPOINT(HOOKPOINT), ok).
+-endif.
+
 %%--------------------------------------------------------------------
 %% Test APIs
 %%--------------------------------------------------------------------
@@ -184,12 +192,12 @@ del(HookPoint, Action) ->
 %% @doc Run hooks.
 -spec run(hookpoint(), list(Arg :: term())) -> ok.
 run(HookPoint, Args) ->
-    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
+    ?VERIFY_RUN_HOOKPOINT(HookPoint),
     do_run(lookup(HookPoint), Args).
 
 -spec run(hookpoint(), context(), list(Arg :: term())) -> ok.
 run(HookPoint, Ctx, Args) ->
-    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
+    ?VERIFY_RUN_HOOKPOINT(HookPoint),
     ok = stash_context(HookPoint, Ctx),
     do_run(lookup(HookPoint), Args),
     ok = unstash_context(HookPoint).
@@ -197,12 +205,12 @@ run(HookPoint, Ctx, Args) ->
 %% @doc Run hooks with Accumulator.
 -spec run_fold(hookpoint(), list(_Arg :: term()), Acc) -> Acc when Acc :: term().
 run_fold(HookPoint, Args, Acc) ->
-    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
+    ?VERIFY_RUN_HOOKPOINT(HookPoint),
     do_run_fold(lookup(HookPoint), Args, Acc).
 
 -spec run_fold(hookpoint(), context(), list(_Arg :: term()), Acc) -> Acc when Acc :: term().
 run_fold(HookPoint, Ctx, Args, Acc) ->
-    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
+    ?VERIFY_RUN_HOOKPOINT(HookPoint),
     ok = stash_context(HookPoint, Ctx),
     Result = do_run_fold(lookup(HookPoint), Args, Acc),
     ok = unstash_context(HookPoint),

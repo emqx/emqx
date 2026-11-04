@@ -19,6 +19,7 @@ Collection of handlers for the external message sources.
 -export([
     new/0,
     subscribe/4,
+    handover/6,
     unsubscribe/3,
     save_subopts/3,
     delivered/6,
@@ -54,7 +55,9 @@ Collection of handlers for the external message sources.
 
 -type subscribe_init_ctx() :: #{
     clientinfo := emqx_types:clientinfo(),
-    can_receive_acks := boolean()
+    can_receive_acks := boolean(),
+    %% Only for the `handover' subscribe type
+    handover => term()
 }.
 
 -type info_init_ctx() :: #{
@@ -129,6 +132,48 @@ subscribe(Registry, SubscribeType, SubscribeCtx, TopicFiltersToSubOpts) ->
         ]
     ).
 
+-doc """
+Create the handler of one module for a topic filter with the `handover` subscribe type, then
+add `Messages` to its buffer. When the handler already exists, only add `Messages`.
+Return `ignore` when the module is not registered or does not create the handler.
+""".
+-spec handover(
+    t(),
+    subscribe_init_ctx(),
+    module(),
+    emqx_extsub_types:topic_filter(),
+    emqx_types:subopts(),
+    [emqx_types:message()]
+) -> {ok, t()} | ignore.
+handover(
+    #registry{by_topic_cbm = ByTopicCBM} = Registry0,
+    SubscribeCtx,
+    Module,
+    TopicFilter,
+    SubOpts,
+    Messages
+) ->
+    case ByTopicCBM of
+        #{{Module, TopicFilter} := HandlerRef} ->
+            {ok, buffer_add(Registry0, HandlerRef, Messages)};
+        _ ->
+            case ets:lookup(?TAB, Module) of
+                [CBMOptions] ->
+                    #registry{by_topic_cbm = ByTopicCBM1} =
+                        Registry = subscribe(
+                            Registry0, handover, SubscribeCtx, CBMOptions, TopicFilter, SubOpts
+                        ),
+                    case ByTopicCBM1 of
+                        #{{Module, TopicFilter} := HandlerRef} ->
+                            {ok, buffer_add(Registry, HandlerRef, Messages)};
+                        _ ->
+                            ignore
+                    end;
+                [] ->
+                    ignore
+            end
+    end.
+
 -spec unsubscribe(t(), emqx_extsub_handler:unsubscribe_type(), #{
     emqx_extsub_types:topic_filter() => emqx_types:subopts()
 }) ->
@@ -197,20 +242,17 @@ delivered(
     ReasonCode
 ) ->
     case ByRef of
-        #{HandlerRef := #extsub{handler = Handler0} = ExtSub} ->
+        #{HandlerRef := #extsub{handler = Handler0}} ->
             Buffer = emqx_extsub_buffer:set_delivered(Buffer0, HandlerRef, SeqId),
             Registry1 = Registry0#registry{buffer = Buffer},
             AckCtx = ack_ctx(Registry1, HandlerRef, InitAckCtx),
             case emqx_extsub_handler:delivered(Handler0, AckCtx, Msg, ReasonCode) of
                 {ok, Handler} ->
-                    Registry0#registry{
-                        buffer = Buffer,
-                        by_ref = ByRef#{HandlerRef := ExtSub#extsub{handler = Handler}}
-                    };
-                {destroy, TopicFilters} ->
-                    destroy(Registry0, HandlerRef, TopicFilters);
-                destroy ->
-                    destroy_all(Registry0, HandlerRef)
+                    put_handler(Registry1, HandlerRef, Handler);
+                {destroy, Handler, TopicFilters} ->
+                    destroy(put_handler(Registry1, HandlerRef, Handler), HandlerRef, TopicFilters);
+                {destroy, Handler} ->
+                    destroy_all(put_handler(Registry1, HandlerRef, Handler), HandlerRef)
             end;
         _ ->
             Registry0
@@ -218,32 +260,25 @@ delivered(
 
 -spec info(t(), emqx_extsub_types:handler_ref(), info_init_ctx(), term()) ->
     {ok, t()}
-    | {ok, t(), [emqx_types:message()]}
-    | {destroy, [emqx_extsub_types:topic_filter()]}
-    | destroy
-    | recreate.
+    | {ok, t(), [emqx_types:message()]}.
 info(
     #registry{by_ref = ByRef} = Registry0, HandlerRef, InfoCtx, Info
 ) ->
     case ByRef of
-        #{HandlerRef := #extsub{handler = Handler0} = ExtSub} ->
+        #{HandlerRef := #extsub{handler = Handler0}} ->
             case emqx_extsub_handler:info(Handler0, InfoCtx, Info) of
                 {ok, Handler} ->
-                    {ok, Registry0#registry{
-                        by_ref = ByRef#{HandlerRef := ExtSub#extsub{handler = Handler}}
-                    }};
+                    {ok, put_handler(Registry0, HandlerRef, Handler)};
                 {ok, Handler, Messages} ->
-                    {ok,
-                        Registry0#registry{
-                            by_ref = ByRef#{HandlerRef := ExtSub#extsub{handler = Handler}}
-                        },
-                        Messages};
-                {destroy, TopicFilters} ->
-                    {ok, destroy(Registry0, HandlerRef, TopicFilters)};
-                destroy ->
-                    {ok, destroy_all(Registry0, HandlerRef)};
-                recreate ->
-                    {ok, recreate(Registry0, to_subscribe_init_ctx(InfoCtx), HandlerRef)}
+                    {ok, put_handler(Registry0, HandlerRef, Handler), Messages};
+                {destroy, Handler, TopicFilters} ->
+                    Registry = put_handler(Registry0, HandlerRef, Handler),
+                    {ok, destroy(Registry, HandlerRef, TopicFilters)};
+                {destroy, Handler} ->
+                    {ok, destroy_all(put_handler(Registry0, HandlerRef, Handler), HandlerRef)};
+                {recreate, Handler} ->
+                    Registry = put_handler(Registry0, HandlerRef, Handler),
+                    {ok, recreate(Registry, to_subscribe_init_ctx(InfoCtx), HandlerRef)}
             end;
         _ ->
             {ok, Registry0}
@@ -317,6 +352,11 @@ buffer_add_back(#registry{buffer = Buffer0} = Registry, HandlerRef, SeqId, Msg) 
 %% Internal functions
 %%--------------------------------------------------------------------
 
+%% Store the handler state that a callback returned.
+put_handler(#registry{by_ref = ByRef} = Registry, HandlerRef, Handler) ->
+    #{HandlerRef := ExtSub} = ByRef,
+    Registry#registry{by_ref = ByRef#{HandlerRef := ExtSub#extsub{handler = Handler}}}.
+
 ack_ctx(HandlerRegistry, HandlerRef, AckCtx0) ->
     {DeliveringCnt, DesiredMsgCount} = message_counts(
         HandlerRegistry, HandlerRef
@@ -332,7 +372,7 @@ subscribe(
     } = Registry,
     SubscribeType,
     SubscribeCtx0,
-    {Module, #{multi_topic := true} = Options} = HandlerSpec,
+    {Module, #{multi_topic := true} = Options},
     TopicFilter,
     SubOpts
 ) ->
@@ -342,13 +382,7 @@ subscribe(
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
             resubscribe(
-                Registry,
-                SubscribeType,
-                SubscribeCtx0,
-                HandlerSpec,
-                TopicFilter,
-                SubOpts,
-                HandlerRef
+                Registry, SubscribeType, SubscribeCtx0, Module, TopicFilter, SubOpts, HandlerRef
             );
         _ ->
             case find_module_handler_ref(Registry, Module) of
@@ -374,7 +408,8 @@ subscribe(
                                 },
                                 by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
                             };
-                        ignore ->
+                        %% The handler does not handle this topic yet, so `destroy' removes nothing.
+                        Result when Result =:= ignore; Result =:= destroy ->
                             Registry
                     end;
                 not_found ->
@@ -409,7 +444,7 @@ subscribe(
     } = Registry,
     InitType,
     InitCtx0,
-    {Module, #{multi_topic := false} = Options} = HandlerSpec,
+    {Module, #{multi_topic := false} = Options},
     TopicFilter,
     SubOpts
 ) ->
@@ -418,9 +453,7 @@ subscribe(
         #{{Module, TopicFilter} := _HandlerRef} when IgnoreResubscribe ->
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
-            resubscribe(
-                Registry, InitType, InitCtx0, HandlerSpec, TopicFilter, SubOpts, HandlerRef
-            );
+            resubscribe(Registry, InitType, InitCtx0, Module, TopicFilter, SubOpts, HandlerRef);
         _ ->
             HandlerRef = make_ref(),
             InitCtx = create_subscribe_ctx(HandlerRef, Module, SubOpts, InitCtx0),
@@ -445,11 +478,32 @@ subscribe(
             end
     end.
 
+%% Pass the existing handler state to the handler. `ignore` keeps the handler unchanged,
+%% `destroy` removes the handler for the topic.
 resubscribe(
-    Registry, InitType, InitCtx, {Module, _} = HandlerSpec, TopicFilter, SubOpts, HandlerRef
+    #registry{by_ref = ByRef} = Registry,
+    SubscribeType,
+    SubscribeCtx0,
+    Module,
+    TopicFilter,
+    SubOpts,
+    HandlerRef
 ) ->
-    NewRegistry = unsubscribe(Registry, unsubscribe, SubOpts, Module, TopicFilter, HandlerRef),
-    subscribe(NewRegistry, InitType, InitCtx, HandlerSpec, TopicFilter, SubOpts).
+    #{HandlerRef := #extsub{handler = Handler0, topic_filters = TopicFiltersToSubOpts} = ExtSub0} =
+        ByRef,
+    SubscribeCtx = create_subscribe_ctx(HandlerRef, Module, SubOpts, SubscribeCtx0),
+    case emqx_extsub_handler:subscribe(SubscribeType, SubscribeCtx, Handler0, TopicFilter) of
+        {ok, Handler} ->
+            ExtSub = ExtSub0#extsub{
+                handler = Handler,
+                topic_filters = TopicFiltersToSubOpts#{TopicFilter => SubOpts}
+            },
+            Registry#registry{by_ref = ByRef#{HandlerRef := ExtSub}};
+        ignore ->
+            Registry;
+        destroy ->
+            unsubscribe(Registry, unsubscribe, SubOpts, Module, TopicFilter, HandlerRef)
+    end.
 
 unsubscribe(
     #registry{

@@ -302,7 +302,7 @@ invoke_and_assert(_Config, Args, AssertFn) ->
     end).
 
 invoke_and_assert_response(_Config, Args, AssertFn) ->
-    ReqId = base64:encode(crypto:strong_rand_bytes(8)),
+    ReqId = base64:encode(crypto:strong_rand_bytes(8), #{mode => urlsafe}),
     ReplyTopic = reply_topic(ReqId),
     ok = emqx:subscribe(ReplyTopic),
 

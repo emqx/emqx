@@ -37,3 +37,6 @@ redis-sentinel-tls-slave
 redis-tls
 seaweedfs-tls
 toxiproxy
+# datalayers arrow
+toxiproxy:8362
+datalayers_tls

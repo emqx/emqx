@@ -61,6 +61,23 @@ handle_subscribe(
             }),
             ignore
     end;
+handle_subscribe(
+    _SubscribeType,
+    #{message_target := MessageTarget} = _SubscribeCtx,
+    undefined,
+    <<"extsub_st_monitor/", Rest/binary>> = TopicFilter
+) ->
+    %% Topic filter: extsub_st_monitor/<demonitor | keep>/<registered name of the monitored process>
+    [Mode, Name] = binary:split(Rest, <<"/">>),
+    Pid = whereis(binary_to_existing_atom(Name)),
+    MRef = emqx_extsub_handler:monitor(MessageTarget, Pid),
+    ?tp(debug, extsub_test_handler_monitor, #{pid => Pid, mref => MRef, topic_filter => TopicFilter}),
+    {ok, #{
+        monitor => MRef,
+        mode => Mode,
+        message_target => MessageTarget,
+        topic_filter => TopicFilter
+    }};
 handle_subscribe(_SubscribeType, _SubscribeCtx, undefined, TopicFilter) ->
     ?tp(debug, handle_init_ignore, #{topic_filter => TopicFilter}),
     ignore.
@@ -69,6 +86,12 @@ handle_unsubscribe(_UnsubscribeType, _UnsubscribeCtx, State, _TopicFilter) ->
     ?tp(debug, handle_terminate, #{state => State, topic_filter => _TopicFilter}),
     State.
 
+handle_terminate(
+    #{monitor := MRef, mode := <<"demonitor">>, message_target := MessageTarget} = _State
+) ->
+    ok = emqx_extsub_handler:demonitor(MessageTarget, MRef),
+    ?tp(debug, handle_terminate, #{state => _State}),
+    ok;
 handle_terminate(_State) ->
     ?tp(debug, handle_terminate, #{state => _State}),
     ok.
@@ -104,6 +127,9 @@ handle_info(
         desired_message_count => DesiredCount, buffer_size => queue:len(Buffer)
     }),
     push_messages(State, DesiredCount);
+handle_info(#{monitor := MRef} = State, _InfoCtx, {'DOWN', MRef, process, Pid, Reason}) ->
+    ?tp(debug, extsub_test_handler_down, #{mref => MRef, pid => Pid, reason => Reason}),
+    {ok, State};
 handle_info(State, _InfoCtx, Info) ->
     ?tp_debug(handle_info_unknown, #{info => Info, state => State}),
     {ok, State}.

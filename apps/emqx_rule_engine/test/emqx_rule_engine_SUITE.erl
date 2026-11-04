@@ -2301,8 +2301,7 @@ t_sqlselect_03(_Config) ->
         'Content-Type' => <<"3">>,
         'Response-Topic' => <<"4">>,
         'Correlation-Data' => <<"5">>,
-        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
-        %% so the channel controls those aliases on its own, starting from 1.
+        %% The channel assigns Topic-Alias = 1 for this outgoing topic.
         'Topic-Alias' => 1,
         'User-Property' => UserProps
     },
@@ -2344,8 +2343,7 @@ t_sqlselect_03(_Config) ->
         'Content-Type' => <<"undefined">>,
         'Correlation-Data' => <<"undefined">>,
         'Response-Topic' => <<"undefined">>,
-        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
-        %% so the channel controls those aliases on its own, starting from 1.
+        %% The channel assigns Topic-Alias = 1 for this outgoing topic.
         'Topic-Alias' => 1,
         'User-Property' => UserProps
     },
@@ -2372,8 +2370,7 @@ t_sqlselect_03(_Config) ->
         }),
     emqtt:publish(Client, <<"t/r">>, PubProps, Payload1, [{qos, 0}]),
     ExpectedMQTTProps3 = #{
-        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
-        %% so the channel controls those aliases on its own, starting from 1.
+        %% The channel assigns Topic-Alias = 1 for this outgoing topic.
         'Topic-Alias' => 1,
         'Content-Type' => <<"some_value3">>,
         'Response-Topic' => <<"some_value4">>,
@@ -2441,8 +2438,7 @@ t_sqlselect_03(_Config) ->
         %% serializing nor parsing...
         'Payload-Format-Indicator' => 123,
         'Message-Expiry-Interval' => 9876,
-        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
-        %% so the channel controls those aliases on its own, starting from 1.
+        %% The channel assigns Topic-Alias = 1 for this outgoing topic.
         'Topic-Alias' => 1,
         'User-Property' => UserProps
     },
@@ -2470,8 +2466,7 @@ t_sqlselect_03(_Config) ->
         %% Note: PFI is capped at 16#FF
         'Payload-Format-Indicator' => 16#FF band 19999993,
         'Message-Expiry-Interval' => 9876,
-        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
-        %% so the channel controls those aliases on its own, starting from 1.
+        %% The channel assigns Topic-Alias = 1 for this outgoing topic.
         'Topic-Alias' => 1,
         'User-Property' => UserProps
     },

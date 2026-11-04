@@ -108,12 +108,19 @@ drop_handler(
     #buffer{message_buffer = MessageBuffer0, delivering = Delivering0} = Buffer, HandlerRef
 ) ->
     Delivering = maps:remove(HandlerRef, Delivering0),
-    MessageBuffer = gb_trees:from_orddict([
-        Entry
-     || {_SeqId, {Ref, _Msg}} = Entry <- gb_trees:to_list(MessageBuffer0),
-        Ref =/= HandlerRef
-    ]),
-    Buffer#buffer{message_buffer = MessageBuffer, delivering = Delivering}.
+    case Delivering0 of
+        %% The delivering count covers the handler's buffered messages,
+        %% so a handler with no delivering messages has none in the buffer.
+        #{HandlerRef := N} when N > 0 ->
+            MessageBuffer = gb_trees:from_orddict([
+                Entry
+             || {_SeqId, {Ref, _Msg}} = Entry <- gb_trees:to_list(MessageBuffer0),
+                Ref =/= HandlerRef
+            ]),
+            Buffer#buffer{message_buffer = MessageBuffer, delivering = Delivering};
+        #{} ->
+            Buffer#buffer{delivering = Delivering}
+    end.
 
 -spec size(t()) -> non_neg_integer().
 size(#buffer{message_buffer = MessageBuffer}) ->

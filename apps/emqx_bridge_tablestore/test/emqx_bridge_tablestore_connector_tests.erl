@@ -23,7 +23,8 @@ heavily mocked/unreal states, which tend to severely diminish the value of the t
     access_key_id => <<"access_key_id">>,
     access_key_secret => <<"access_key_secret">>,
     pool_size => 8,
-    probe_table_name => <<"probe_table">>
+    probe_table_name => <<"probe_table">>,
+    ssl => #{enable => false}
 }).
 
 -define(CONF_NO_PROBE, #{
@@ -31,7 +32,8 @@ heavily mocked/unreal states, which tend to severely diminish the value of the t
     endpoint => <<"https://test.cn-hangzhou.ots.aliyuncs.com">>,
     access_key_id => <<"access_key_id">>,
     access_key_secret => <<"access_key_secret">>,
-    pool_size => 8
+    pool_size => 8,
+    ssl => #{enable => false}
 }).
 
 -define(ACT_CONF, #{

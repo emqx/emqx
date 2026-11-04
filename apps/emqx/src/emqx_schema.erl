@@ -2606,8 +2606,8 @@ filter(Opts) ->
 
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.
--spec common_ssl_opts_schema(map()) -> hocon_schema:field_schema().
-common_ssl_opts_schema(Defaults) ->
+-spec common_ssl_opts_schema(map(), server | client) -> hocon_schema:field_schema().
+common_ssl_opts_schema(Defaults, Type) ->
     D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
@@ -2615,10 +2615,11 @@ common_ssl_opts_schema(Defaults) ->
         {"cacertfile",
             sc(
                 binary(),
-                #{
+                cacertfile_validator(Type, #{
+                    default => cacertfile_default(Defaults, Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
-                }
+                })
             )},
         {"cacerts",
             sc(
@@ -2754,7 +2755,7 @@ server_ssl_opts_schema(Defaults0, IsRanchListener) ->
     Defaults = maps:merge(#{reuse_sessions => false}, Defaults0),
     D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
-    common_ssl_opts_schema(Defaults) ++
+    common_ssl_opts_schema(Defaults, server) ++
         [
             {"dhfile",
                 sc(
@@ -2945,13 +2946,14 @@ crl_outer_validator(_SSLOpts) ->
 %% @doc Make schema for SSL client.
 -spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
 client_ssl_opts_schema(Defaults) ->
-    common_ssl_opts_schema(Defaults) ++
+    Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
+    common_ssl_opts_schema(Defaults, client) ++
         [
             {"enable",
                 sc(
                     boolean(),
                     #{
-                        default => false,
+                        default => Df(enable, false),
                         %% importance => ?IMPORTANCE_NO_DOC,
                         desc => ?DESC(client_ssl_opts_schema_enable)
                     }
@@ -4182,6 +4184,30 @@ ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
 
+%% A connector schema can set `cacertfile => system_default' in `Defaults'.
+cacertfile_default(#{cacertfile := system_default}, _Type) ->
+    ?CACERTFILE_SYSTEM_DEFAULT;
+cacertfile_default(#{cacertfile := CACertFile}, _Type) ->
+    CACertFile;
+cacertfile_default(#{}, Type) ->
+    cert_file("cacert.pem", Type).
+
+cacertfile_validator(client, Meta) ->
+    Meta;
+cacertfile_validator(server, Meta) ->
+    Meta#{validator => fun validate_server_cacertfile/1}.
+
+%% A listener that trusts every public CA would accept any publicly issued client certificate.
+validate_server_cacertfile(?CACERTFILE_SYSTEM_DEFAULT) ->
+    {error, "system_default is only allowed for TLS clients"};
+validate_server_cacertfile(_) ->
+    ok.
+
+cert_file(_File, client) ->
+    undefined;
+cert_file(File, server) ->
+    unicode:characters_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
+
 mqtt_converter(#{<<"keepalive_multiplier">> := Multi} = Mqtt, _Opts) ->
     case round(Multi * 100) =:= round(?DEFAULT_MULTIPLIER * 100) of
         false ->
@@ -4250,6 +4276,15 @@ mqtt_general() ->
                 #{
                     default => <<"15s">>,
                     desc => ?DESC(mqtt_idle_timeout)
+                }
+            )},
+        {"stats_emit_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"60s">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(mqtt_stats_emit_interval)
                 }
             )},
         {"hibernate_after",
