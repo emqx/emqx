@@ -227,7 +227,7 @@ enable = true
 server = "~s:~b"
 parameters {
   driver_type = arrow_flight
-  database = mqtt
+  database = mqtt_arrow
   username = admin
   password = public
 }
@@ -235,6 +235,7 @@ ssl {
   enable = ~p
   verify = verify_peer
   cacertfile = "~s"
+  server_name_indication = "datalayers_tls"
 }
 """
 ).
@@ -492,7 +493,12 @@ t_prepare_auto_rebuild(Config) ->
     ConnConfig =
         case ?config(use_tls, Config) of
             true ->
-                ConnConfig0#{tls_cert => cacert_file()};
+                ConnConfig0#{
+                    tls_enable => true,
+                    tls_cacertfile => bin(cacert_file()),
+                    verify => verify_peer,
+                    tls_server_name => <<"datalayers_tls">>
+                };
             false ->
                 ConnConfig0
         end,
@@ -562,7 +568,12 @@ exec_sql(SQL, Config) ->
     ConnConfig =
         case ?config(use_tls, Config) of
             true ->
-                ConnConfig0#{tls_cert => cacert_file()};
+                ConnConfig0#{
+                    tls_enable => true,
+                    tls_cacertfile => bin(cacert_file()),
+                    verify => verify_peer,
+                    tls_server_name => <<"datalayers_tls">>
+                };
             false ->
                 ConnConfig0
         end,
