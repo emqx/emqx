@@ -34,7 +34,7 @@ license(["info"]) ->
                 %% max_sessions will be printed
                 ok;
             ({K, V}) when is_binary(V); is_atom(V); is_list(V) ->
-                ?PRINT("~-16s: ~s~n", [K, V]);
+                ?PRINT("~-16s: ~ts~n", [K, V]);
             ({K, V}) ->
                 ?PRINT("~-16s: ~p~n", [K, V])
         end,
