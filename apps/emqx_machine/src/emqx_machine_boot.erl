@@ -42,17 +42,10 @@
 -define(OPTIONAL_APPS, [bcrypt, observer]).
 
 post_boot() ->
-    ok = unset_boot_configs(),
     ok = ensure_apps_started(),
     ok = print_vsn(),
     ok = start_autocluster(),
     ignore.
-
-%% `bin/emqx' exports this variable for its own recursive call. The VM does not
-%% read it, so OS processes that the node starts from here on do not inherit it.
-unset_boot_configs() ->
-    true = os:unsetenv("EMQX_BOOT_CONFIGS"),
-    ok.
 
 -ifdef(TEST).
 print_vsn() -> ok.
