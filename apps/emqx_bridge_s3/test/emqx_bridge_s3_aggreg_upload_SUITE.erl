@@ -914,3 +914,55 @@ t_aggreg_different_namespaces(TCConfig) ->
         aggreg_sup => ?AGGREG_SUP
     },
     emqx_bridge_v2_testlib:t_aggreg_different_namespaces(TCConfig, Opts).
+
+-doc """
+Verifies that we currently do not support templating for aggregated uploads, and headers
+are sent as-is even when they contain would-be placeholders.
+""".
+t_custom_headers_templates_not_supported(TCConfig) ->
+    BridgeName = get_config(action_name, TCConfig),
+    AggregId = aggreg_id(BridgeName),
+    Bucket = emqx_s3_test_helpers:unique_bucket(),
+    AwsConfig = emqx_s3_test_helpers:aws_config(tcp),
+    ok = erlcloud_s3:create_bucket(Bucket, AwsConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        ~"parameters" => #{
+            ~"bucket" => Bucket,
+            %% note: header names/keys with chaaracters other than alphanumeric, hyphens
+            %% and underscores are apparently rejected by the server.
+            ~"headers" => #{
+                ~"x-amz-meta-custom-header1" => ~"${.payload.ch}",
+                ~"x-amz-meta-custom-header2" => ~"${.payload.missing}",
+                ~"content-type" => ~"${.payload.ct}"
+            }
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId = ~"custom_headers",
+    C = start_client(#{clientid => ClientId}),
+    Payload = emqx_utils_json:encode(#{
+        ~"ch" => ~"dynamic_meta_val",
+        ~"ct" => ~"foo/bar"
+    }),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            begin
+                {ok, _} = emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+                {ok, _} = emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+                {ok, _} = emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+                emqtt:stop(C)
+            end,
+            #{?snk_kind := connector_aggreg_delivery_completed, action := AggregId},
+            5_000
+        ),
+    [Key] = [K || #{key := K} <- emqx_bridge_s3_test_helpers:list_objects(Bucket)],
+    ?assertMatch(
+        #{
+            "x-amz-meta-custom-header1" := "${.payload.ch}",
+            "x-amz-meta-custom-header2" := "${.payload.missing}",
+            content_type := "${.payload.ct}"
+        },
+        emqx_bridge_s3_test_helpers:get_object_metadata(Bucket, Key)
+    ),
+    ok.

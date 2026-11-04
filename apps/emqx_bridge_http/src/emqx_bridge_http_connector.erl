@@ -41,7 +41,7 @@
 ]).
 
 %% Internal exports (for other http-like connectors.)
--export([redact_request/1, render_headers/1]).
+-export([redact_request/1, parse_headers/1, render_headers/1, render_headers/2]).
 
 -export([validate_method/1, formalize_request/2, transform_result/1]).
 
@@ -943,8 +943,11 @@ drop_ehttpc_worker_down_call_args({ehttpc_worker_down, _}) ->
     ehttpc_worker_down.
 
 render_headers(HeadersTemplate) ->
+    render_headers(HeadersTemplate, _Msg = #{}).
+
+render_headers(HeadersTemplate, Msg) ->
     RenderTemplateFn = fun render_template/3,
-    render_headers(HeadersTemplate, RenderTemplateFn, _Msg = #{}).
+    render_headers(HeadersTemplate, RenderTemplateFn, Msg).
 
 %%--------------------------------------------------------------------
 %% Internal functions

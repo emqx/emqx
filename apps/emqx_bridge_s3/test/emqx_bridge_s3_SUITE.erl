@@ -314,6 +314,48 @@ t_custom_headers(TCConfig) ->
     ok.
 
 -doc """
+Verifies that we render action headers based on message context.
+""".
+t_custom_headers_templated(TCConfig) ->
+    Bucket = emqx_s3_test_helpers:unique_bucket(),
+    AwsConfig = emqx_s3_test_helpers:aws_config(tcp),
+    ok = erlcloud_s3:create_bucket(Bucket, AwsConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        ~"parameters" => #{
+            ~"bucket" => Bucket,
+            ~"key" => ~"${.clientid}",
+            ~"headers" => #{
+                ~"x-amz-meta-custom-header1" => ~"${.payload.ch}",
+                ~"x-amz-meta-custom-header2" => ~"${.payload.missing}",
+                ~"x-amz-meta-${.payload.k}" => ~"${.payload.k}",
+                ~"content-type" => ~"${.payload.ct}"
+            }
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId = ~"custom_headers",
+    C = start_client(#{clientid => ClientId}),
+    Payload = emqx_utils_json:encode(#{
+        ~"ch" => ~"dynamic_meta_val",
+        ~"k" => ~"dynamic",
+        ~"ct" => ~"foo/bar"
+    }),
+    {ok, _} = emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    emqtt:stop(C),
+    Key = binary_to_list(ClientId),
+    ?assertMatch(
+        #{
+            "x-amz-meta-custom-header1" := "dynamic_meta_val",
+            "x-amz-meta-custom-header2" := "undefined",
+            "x-amz-meta-dynamic" := "dynamic",
+            content_type := "foo/bar"
+        },
+        emqx_bridge_s3_test_helpers:get_object_metadata(Bucket, Key)
+    ),
+    ok.
+
+-doc """
 Checks that we don't crash the `emqx_bridge_s3_upload:convert_action` converter when the
 raw config does not include `resource_opts`.
 

@@ -183,6 +183,7 @@ start_channel(_State, _ActionResId, #{
         mode => Mode,
         bucket => emqx_template:parse(Bucket),
         key => emqx_template:parse(Key),
+        headers => parse_headers(Parameters),
         content => emqx_template:parse(Content),
         upload_options => upload_options(Parameters)
     },
@@ -243,13 +244,12 @@ start_channel(State, ActionResId, #{
     end.
 
 upload_options(Parameters) ->
-    Opts0 = #{acl => maps:get(acl, Parameters, undefined)},
-    case Parameters of
-        #{headers := Headers} when map_size(Headers) > 0 ->
-            Opts0#{headers => Headers};
-        #{} ->
-            Opts0
-    end.
+    #{acl => maps:get(acl, Parameters, undefined)}.
+
+parse_headers(#{headers := Headers0} = _ActionParams) when map_size(Headers0) > 0 ->
+    emqx_bridge_http_connector:parse_headers(Headers0);
+parse_headers(#{} = _ActionParams) ->
+    [].
 
 stop_channel(#{on_stop := OnStop}) ->
     OnStop();
@@ -341,14 +341,18 @@ run_simple_upload(
     #{
         bucket := BucketTemplate,
         key := KeyTemplate,
+        headers := HeadersTemplate,
         content := ContentTemplate,
-        upload_options := UploadOpts
+        upload_options := UploadOpts0
     },
     Config
 ) ->
     Bucket = render_bucket(BucketTemplate, Data),
     Client = emqx_s3_client:create(Bucket, Config),
     Key = render_key(KeyTemplate, Data),
+    Headers0 = emqx_bridge_http_connector:render_headers(HeadersTemplate, Data),
+    Headers = maps:from_list(Headers0),
+    UploadOpts = UploadOpts0#{headers => Headers},
     Content = render_content(ContentTemplate, Data),
     emqx_trace:rendered_action_template(ChannelId, #{
         bucket => Bucket,
