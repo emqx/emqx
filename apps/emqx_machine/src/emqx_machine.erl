@@ -10,7 +10,8 @@
     brutal_shutdown/0,
     is_ready/0,
 
-    register_hooks/1,
+    register_system_hooks/0,
+    register_business_hooks/0,
     set_readiness/2,
     maybe_migrate_cluster/0,
     manage_business_apps/2,
@@ -53,7 +54,8 @@ start() ->
     %% Start mria in dormant mode:
     {ok, _} = application:ensure_all_started(mria),
     %% Setup EMQX hooks:
-    register_hooks(fun ?MODULE:manage_business_apps/2),
+    register_system_hooks(),
+    register_business_hooks(),
     %% Launch:
     ok = classy:start_system().
 
@@ -87,7 +89,7 @@ setup_vm() ->
     os:set_signal(sigterm, handle),
     ok = set_backtrace_depth().
 
-register_hooks(OnRunLevel) ->
+register_system_hooks() ->
     %% Classy:
     _ = classy:on_node_init(fun ?MODULE:maybe_migrate_cluster/0, 100),
     %% Cluster:
@@ -97,7 +99,6 @@ register_hooks(OnRunLevel) ->
     _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 50),
     _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
     %% Staged application start:
-    _ = classy:on_run_level(OnRunLevel, 100),
     _ = classy:on_run_level(fun ?MODULE:set_readiness/2, 0),
     %% Fallback, allows to connect to legacy nodes:
     _ = classy:fallback_get_cluster(fun mria_classy_migration:fallback_get_cluster/1),
@@ -115,6 +116,12 @@ register_hooks(OnRunLevel) ->
     configure_shard_transports(),
     set_mnesia_extra_diagnostic_checks(),
     mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
+    ok.
+
+%% These hooks are registered separately to avoid starting unnecessary
+%% applications in test:
+register_business_hooks() ->
+    _ = classy:on_run_level(fun ?MODULE:manage_business_apps/2, 100),
     ok.
 
 -doc false.
