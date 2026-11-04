@@ -634,6 +634,7 @@ reserved_idx('client.banned') -> 106;
 reserved_idx('flapping.detected.clientid') -> 107;
 reserved_idx('flapping.detected.username') -> 108;
 reserved_idx('flapping.detected.peerhost') -> 109;
+reserved_idx('retained.dropped') -> 110;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -648,6 +649,7 @@ all_metrics() ->
         stats_authn_metrics(),
         olp_metrics(),
         flapping_metrics(),
+        retainer_metrics(),
         data_integration_metrics()
     ]).
 
@@ -803,6 +805,12 @@ flapping_metrics() ->
         {counter, 'flapping.detected.clientid', ?DESC("flapping_detected_clientid")},
         {counter, 'flapping.detected.username', ?DESC("flapping_detected_username")},
         {counter, 'flapping.detected.peerhost', ?DESC("flapping_detected_peerhost")}
+    ].
+
+%% Retained-message delivery metrics
+retainer_metrics() ->
+    [
+        {counter, 'retained.dropped', ?DESC("retained_dropped")}
     ].
 
 olp_metrics() ->
