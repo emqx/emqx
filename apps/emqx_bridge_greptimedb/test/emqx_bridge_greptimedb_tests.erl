@@ -827,6 +827,49 @@ native_auto_integer_suffixes_are_validated_test_() ->
         ?_test(assert_native_auto_max_uint())
     ].
 
+structured_auto_mixed_template_is_text_test_() ->
+    [
+        ?_assertEqual(
+            #{
+                tags => #{},
+                fields => #{
+                    <<"value">> => #{value_data => {string_value, <<"prefix65">>}}
+                }
+            },
+            rendered_structured_point(
+                erlang,
+                structured_auto_mixed_template_write(),
+                #{payload => #{value => 65}}
+            )
+        ),
+        ?_assertEqual(
+            #{
+                tags => #{},
+                fields => #{<<"value">> => <<"prefix65">>}
+            },
+            rendered_structured_point(
+                native,
+                structured_auto_mixed_template_write(),
+                #{payload => #{value => 65}}
+            )
+        )
+    ].
+
+structured_auto_mixed_template_write() ->
+    [
+        #{
+            measurement => <<"mqtt">>,
+            fields => [
+                #{
+                    key => <<"value">>,
+                    type => auto,
+                    value => <<"prefix", "${payload.value}">>
+                }
+            ],
+            timestamp => false
+        }
+    ].
+
 assert_native_auto_max_uint() ->
     ?assertMatch(
         {ok, [{_, [#{fields := #{<<"value">> := 18446744073709551615}}]}]},
@@ -1212,7 +1255,10 @@ missing_mixed_template_write() ->
     ].
 
 rendered_structured_point(DriverType, Write) ->
-    [{_, [Point]}] = render_points(DriverType, Write, #{payload => #{}}),
+    rendered_structured_point(DriverType, Write, #{payload => #{}}).
+
+rendered_structured_point(DriverType, Write, Data) ->
+    [{_, [Point]}] = render_points(DriverType, Write, Data),
     maps:without([timestamp], Point).
 
 all_missing_fields_error_test_() ->

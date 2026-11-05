@@ -363,7 +363,7 @@ maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType) ->
         true ->
             {ok, {Data, Res}};
         false ->
-            case typed_value(DriverType, Type, NV) of
+            case typed_field_value(DriverType, Type, Tmpl, NV) of
                 {ok, Value} ->
                     Key = render_template_text(NK),
                     {ok, {Data, put_structured_kv(field_key, Key, Value, Res)}};
@@ -447,6 +447,25 @@ tag_template({structured_tag, Tmpl}) ->
     Tmpl;
 tag_template(Tmpl) ->
     Tmpl.
+
+typed_field_value(DriverType, auto, Tmpl, Values) ->
+    case is_auto_text_template(Tmpl) of
+        true -> typed_value(DriverType, string, Values);
+        false -> typed_value(DriverType, auto, Values)
+    end;
+typed_field_value(DriverType, Type, _Tmpl, Values) ->
+    typed_value(DriverType, Type, Values).
+
+is_auto_text_template([{str, _}]) ->
+    false;
+is_auto_text_template([{var, _}]) ->
+    false;
+is_auto_text_template([{var, _}, {str, <<"i">>}]) ->
+    false;
+is_auto_text_template([{var, _}, {str, <<"u">>}]) ->
+    false;
+is_auto_text_template(_) ->
+    true.
 typed_value(erlang, auto, Values) ->
     value_type(Values);
 typed_value(native, auto, Values) ->
