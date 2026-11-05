@@ -1548,18 +1548,20 @@ put_structured_kv(KeyType, Key, Value, Acc) ->
             Acc#{Key => Value}
     end.
 
-value_type([Number], #{set_type := ?set_tag}) when is_number(Number) ->
-    %% all `tag` values are treated as string
-    %% See also: https://docs.influxdata.com/influxdb/v2/reference/syntax/line-protocol/#tag-set
-    emqx_utils_conv:bin(Number);
-value_type([Str], #{set_type := ?set_tag}) when is_binary(Str) ->
-    Str;
 value_type({quoted, ValList}, _) ->
     {string_list, ValList};
-value_type([Int, <<"i">>], #{tmpl_type := mixed}) when is_integer(Int) ->
-    {int, Int};
-value_type([UInt, <<"u">>], #{tmpl_type := mixed}) when is_integer(UInt) ->
-    {uint, UInt};
+value_type(Values, #{set_type := ?set_tag}) when is_list(Values) ->
+    %% Tags are strings in InfluxDB line protocol, including values that end
+    %% with i or u.
+    render_template_text(Values);
+value_type([Int, <<"i">>], #{set_type := ?set_field, tmpl_type := mixed}) when is_integer(Int) ->
+    checked_auto_integer(int, Int);
+value_type([UInt, <<"u">>], #{set_type := ?set_field, tmpl_type := mixed}) when is_integer(UInt) ->
+    checked_auto_integer(uint, UInt);
+value_type([Invalid, <<"i">>], #{set_type := ?set_field}) ->
+    throw({invalid_integer_value, Invalid});
+value_type([Invalid, <<"u">>], #{set_type := ?set_field}) ->
+    throw({invalid_unsigned_integer_value, Invalid});
 %% write `1`, `1.0`, `-1.0` all as float
 %% see also: https://docs.influxdata.com/influxdb/v2.7/reference/syntax/line-protocol/#float
 value_type([Number], #{set_type := ?set_field}) when is_number(Number) ->
@@ -1611,7 +1613,7 @@ tmpl_type(_) ->
 maybe_convert_to_integer(NumStr, String, Type) ->
     try
         Int = binary_to_integer(NumStr),
-        {Type, Int}
+        checked_auto_integer(Type, Int)
     catch
         error:badarg ->
             maybe_convert_to_integer_f(NumStr, String, Type)
@@ -1620,11 +1622,24 @@ maybe_convert_to_integer(NumStr, String, Type) ->
 maybe_convert_to_integer_f(NumStr, String, Type) ->
     try
         Float = binary_to_float(NumStr),
-        {Type, erlang:floor(Float)}
+        checked_auto_integer(Type, erlang:floor(Float))
     catch
         error:badarg ->
             String
     end.
+
+checked_auto_integer(int, Value) when
+    Value >= ?MIN_INT64, Value =< ?MAX_INT64
+->
+    {int, Value};
+checked_auto_integer(int, Value) ->
+    throw({invalid_integer_value, Value});
+checked_auto_integer(uint, Value) when
+    Value >= 0, Value =< ?MAX_UINT64
+->
+    {uint, Value};
+checked_auto_integer(uint, Value) ->
+    throw({invalid_unsigned_integer_value, Value}).
 
 maybe_convert_to_float_str(NumStr) ->
     try
