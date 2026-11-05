@@ -25,7 +25,9 @@ desc_type.label:
 """Bridge Type"""
 
 write_syntax.desc:
-"""Conf of InfluxDB line protocol to write data points. It is a text-based format that provides the measurement, tag set, field set, and timestamp of a data point, and placeholder supported.
+"""Legacy and advanced InfluxDB line protocol configuration. It is mutually exclusive with `write`. Use `write` for structured point definitions and `write_syntax` for raw or already formatted line protocol.
+
+It is a text-based format that provides the measurement, tag set, field set, and timestamp of a data point, and placeholder supported.
 See also [InfluxDB 2.3 Line Protocol](https://docs.influxdata.com/influxdb/v2.3/reference/syntax/line-protocol/) and
 [InfluxDB 1.8 Line Protocol](https://docs.influxdata.com/influxdb/v1.8/write_protocols/line_protocol_tutorial/) <br/>
 TLDR:<br/>
@@ -38,6 +40,69 @@ If a line consists of exactly one placeholder, the rendered value is written ver
 
 write_syntax.label:
 """Write Syntax"""
+
+write.desc:
+"""Structured data points to write. Each item defines one InfluxDB line protocol point. This field is mutually exclusive with `write_syntax`, which remains available for legacy and raw line protocol configurations."""
+
+write.label:
+"""Write Points"""
+
+influxdb_write_point.label:
+"""InfluxDB Write Point"""
+
+influxdb_write_point.desc:
+"""A templatable InfluxDB point definition."""
+
+influxdb_write_tag.label:
+"""InfluxDB Write Tag"""
+
+influxdb_write_tag.desc:
+"""A tag key and value. Both support placeholders."""
+
+influxdb_write_field.label:
+"""InfluxDB Write Field"""
+
+influxdb_write_field.desc:
+"""A field key, its InfluxDB value type, and a templatable value."""
+
+influxdb_write_timestamp.label:
+"""InfluxDB Write Timestamp"""
+
+influxdb_write_timestamp.desc:
+"""A templatable point timestamp and the precision of its rendered value."""
+
+write_measurement.desc:
+"""Measurement name. Placeholders are supported."""
+
+write_tags.desc:
+"""Tag set for this point. Tag keys and values support placeholders."""
+
+write_fields.desc:
+"""Non-empty field set for this point. Field keys and values support placeholders."""
+
+write_field_key.desc:
+"""Field key. Placeholders are supported."""
+
+write_field_type.desc:
+"""InfluxDB field value type: `string`, `integer`, `uint`, `float`, `boolean`, or `auto`. Use `auto` only when the rendered value type is intentionally dynamic."""
+
+write_field_value.desc:
+"""Field value template. The rendered value must match the configured field type."""
+
+write_tag_key.desc:
+"""Tag key. Placeholders are supported."""
+
+write_tag_value.desc:
+"""Tag value template."""
+
+write_timestamp.desc:
+"""Point timestamp configuration. Set to `false` to omit the timestamp and let InfluxDB assign the server time."""
+
+write_timestamp_value.desc:
+"""Timestamp template. The rendered value must be an integer Unix timestamp."""
+
+write_timestamp_source_precision.desc:
+"""Precision of the timestamp value produced by the template. Supported values are `s`, `ms`, `us`, and `ns`. EMQX converts this value to the action-level target `precision` before writing."""
 
 bucket.desc:
 """Bucket name to write data points to. It overrides the bucket (v2) or database (v1/v3) configured in the connector for this action. Placeholders are supported, so the bucket can be selected dynamically from the rule SQL result, e.g. `${payload.bucket_name}`. If the rendered value is empty or the referenced field is missing, the bucket configured in the connector is used."""
