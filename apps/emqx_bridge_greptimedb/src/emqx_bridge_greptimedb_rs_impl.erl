@@ -67,7 +67,8 @@
 
 -type channel_config() :: #{
     parameters := #{
-        write_syntax := [map()],
+        write_syntax => [map()],
+        write => [map()],
         precision := ns | us | ms | s
     }
 }.
@@ -143,15 +144,11 @@ on_get_channels(ConnResId) ->
 ) ->
     {ok, connector_state()}.
 on_add_channel(_ConnResId, ConnState0, ChanResId, ActionConfig) ->
-    #{
-        parameters := #{
-            write_syntax := WriteSyntaxTemplate,
-            precision := Precision
-        }
-    } = ActionConfig,
+    #{parameters := Parameters} = ActionConfig,
+    Precision = maps:get(precision, Parameters, ms),
     ActionState = #{
-        ?write_syntax => emqx_bridge_greptimedb_utils:parse_write_syntax(
-            WriteSyntaxTemplate, Precision
+        ?write_syntax => emqx_bridge_greptimedb_utils:parse_action_parameters(
+            Parameters, Precision
         ),
         ?precision => Precision
     },

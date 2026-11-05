@@ -5,7 +5,7 @@ defmodule EMQXBridgeGreptimedb.MixProject do
   def project do
     [
       app: :emqx_bridge_greptimedb,
-      version: "7.0.0",
+      version: "7.0.1",
       build_path: "../../_build",
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),

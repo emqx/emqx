@@ -75,14 +75,13 @@ on_add_channel(
     ChannelId,
     #{parameters := Parameters} = ChannelConfig0
 ) ->
-    #{write_syntax := WriteSyntaxTmpl} = Parameters,
     Precision = maps:get(precision, Parameters, ms),
+    WriteSyntax = emqx_bridge_greptimedb_utils:parse_action_parameters(Parameters, Precision),
     ChannelConfig = maps:merge(
         Parameters,
         ChannelConfig0#{
             precision => Precision,
-            write_syntax =>
-                emqx_bridge_greptimedb_utils:parse_write_syntax(WriteSyntaxTmpl, Precision)
+            write_syntax => WriteSyntax
         }
     ),
     {ok, OldState#{
