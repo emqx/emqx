@@ -51,7 +51,7 @@ influxdb_write_point.label:
 """InfluxDB Write Point"""
 
 influxdb_write_point.desc:
-"""A templatable InfluxDB point definition."""
+"""A template-based InfluxDB point definition."""
 
 influxdb_write_tag.label:
 """InfluxDB Write Tag"""
@@ -63,13 +63,13 @@ influxdb_write_field.label:
 """InfluxDB Write Field"""
 
 influxdb_write_field.desc:
-"""A field key, its InfluxDB value type, and a templatable value."""
+"""A field key, its InfluxDB value type, and a template-based value."""
 
 influxdb_write_timestamp.label:
 """InfluxDB Write Timestamp"""
 
 influxdb_write_timestamp.desc:
-"""A templatable point timestamp and the precision of its rendered value."""
+"""A template-based point timestamp and the precision of its rendered value."""
 
 write_measurement.desc:
 """Measurement name. Placeholders are supported."""
