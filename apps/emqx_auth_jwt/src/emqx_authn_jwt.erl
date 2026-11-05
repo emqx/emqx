@@ -95,6 +95,18 @@ update(
 update(#{use_jwks := true} = Config, _State) ->
     create(Config).
 
+%% MQTT 5.0 enhanced authentication: the token is carried in `Authentication
+%% Data' instead of the CONNECT field named by `from', so a connected client can
+%% renew it in-session with an AUTH packet.
+authenticate(
+    #{auth_method := ?MQTT_AUTHN_METHOD_BIN, auth_data := JWT} = Credential,
+    State
+) when is_binary(JWT) ->
+    do_authenticate(JWT, Credential, State);
+%% The client selected the `JWT' method, so it must send a token. Deny without
+%% one. `on_missing_jwt' applies to the token in the CONNECT fields only.
+authenticate(#{auth_method := ?MQTT_AUTHN_METHOD_BIN}, _State) ->
+    {error, bad_username_or_password};
 authenticate(#{auth_method := _}, _) ->
     ignore;
 authenticate(
