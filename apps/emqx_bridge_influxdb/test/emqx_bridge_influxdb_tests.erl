@@ -472,6 +472,11 @@ raw_line_write_syntax_test_() ->
             ?_assertMatch(
                 {error, _},
                 to_influx_lines(<<"${payload.a}${payload.b}">>)
+            )},
+        {"an empty placeholder is not a raw line template",
+            ?_assertMatch(
+                {error, _},
+                to_influx_lines(<<"${}">>)
             )}
     ].
 
