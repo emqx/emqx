@@ -32,7 +32,7 @@
 -type write_syntax() :: list() | undefined.
 -reflect_type([write_syntax/0]).
 -typerefl_from_string({write_syntax/0, ?MODULE, to_influx_lines}).
--export([to_influx_lines/1]).
+-export([to_influx_lines/1, to_influx_lines_with_raw/1]).
 
 -define(CONNECTOR_TYPE, influxdb).
 -define(ACTION_TYPE, influxdb).
@@ -387,7 +387,7 @@ write_syntax(required) ->
 write_syntax(validator) ->
     [];
 write_syntax(converter) ->
-    fun to_influx_lines/1;
+    fun to_influx_lines_with_raw/1;
 write_syntax(desc) ->
     ?DESC("write_syntax");
 write_syntax(format) ->
@@ -401,8 +401,18 @@ to_influx_lines(Lines = [#{} | _]) ->
     %% already parsed/converted (e.g.: bridge_probe, after hocon_tconf:check_plain)
     Lines;
 to_influx_lines(RawLines) ->
+    parse_influx_lines(RawLines, #{allow_raw_line => false}).
+
+to_influx_lines_with_raw(undefined) ->
+    undefined;
+to_influx_lines_with_raw(Lines = [#{} | _]) ->
+    Lines;
+to_influx_lines_with_raw(RawLines) ->
+    parse_influx_lines(RawLines, #{allow_raw_line => true}).
+
+parse_influx_lines(RawLines, Opts) ->
     try
-        influx_lines(str(RawLines), [])
+        influx_lines(str(RawLines), [], Opts)
     catch
         _:Reason:Stacktrace ->
             Msg = lists:flatten(
@@ -422,16 +432,21 @@ to_influx_lines(RawLines) ->
 -define(VAL_SEP, $,).
 -define(NON_EMPTY, [_ | _]).
 
-influx_lines([] = _RawLines, Acc) ->
+influx_lines([] = _RawLines, Acc, _Opts) ->
     ?NON_EMPTY = lists:reverse(Acc);
-influx_lines(RawLines, Acc) ->
-    {Acc1, RawLines1} = influx_line(string:trim(RawLines, leading, "\s\n"), Acc),
-    influx_lines(RawLines1, Acc1).
+influx_lines(RawLines, Acc, Opts) ->
+    {Acc1, RawLines1} = influx_line(string:trim(RawLines, leading, "\s\n"), Acc, Opts),
+    influx_lines(RawLines1, Acc1, Opts).
 
-influx_line([], Acc) ->
+influx_line([], Acc, _Opts) ->
     {Acc, []};
-influx_line(Line, Acc) ->
-    case raw_line_tmpl(Line) of
+influx_line(Line, Acc, Opts) ->
+    RawLineResult =
+        case maps:get(allow_raw_line, Opts) of
+            true -> raw_line_tmpl(Line);
+            false -> error
+        end,
+    case RawLineResult of
         {ok, Tmpl, Rest} ->
             {[#{line => Tmpl} | Acc], Rest};
         error ->

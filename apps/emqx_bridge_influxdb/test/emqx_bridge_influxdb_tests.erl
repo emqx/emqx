@@ -206,6 +206,27 @@ legacy_write_syntax_api_compatibility_test() ->
         })
     ).
 
+raw_line_write_syntax_schema_test() ->
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write_syntax">> := [#{line := "${payload.line}"}]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<"${payload.line}">>
+            }
+        })
+    ).
+
 write_config_forms_are_mutually_exclusive_test() ->
     Conf = structured_action_config(),
     Parameters0 = maps:get(<<"parameters">>, Conf),
@@ -679,17 +700,17 @@ raw_line_write_syntax_test_() ->
         {"a single placeholder line is a raw line template",
             ?_assertEqual(
                 [#{line => "${payload.line}"}],
-                to_influx_lines(<<"${payload.line}">>)
+                to_influx_lines_with_raw(<<"${payload.line}">>)
             )},
         {"raw line template with trailing newline",
             ?_assertEqual(
                 [#{line => "${payload.line}"}],
-                to_influx_lines(<<"${payload.line}\n">>)
+                to_influx_lines_with_raw(<<"${payload.line}\n">>)
             )},
         {"multiple raw line templates",
             ?_assertEqual(
                 [#{line => "${payload.l1}"}, #{line => "${payload.l2}"}],
-                to_influx_lines(<<"${payload.l1}\n${payload.l2}">>)
+                to_influx_lines_with_raw(<<"${payload.l1}\n${payload.l2}">>)
             )},
         {"raw line template mixed with structured lines",
             ?_assertEqual(
@@ -702,22 +723,36 @@ raw_line_write_syntax_test_() ->
                         timestamp => undefined
                     }
                 ],
-                to_influx_lines(<<"${payload.line}\nm,tag=1 f=2">>)
+                to_influx_lines_with_raw(<<"${payload.line}\nm,tag=1 f=2">>)
             )},
         {"escaped chars in a placeholder are unescaped",
             ?_assertEqual(
                 [#{line => "${payload.line 1}"}],
-                to_influx_lines(<<"${payload.line\\ 1}">>)
+                to_influx_lines_with_raw(<<"${payload.line\\ 1}">>)
             )},
         {"a line with two placeholders is not a raw line template",
             ?_assertMatch(
                 {error, _},
-                to_influx_lines(<<"${payload.a}${payload.b}">>)
+                to_influx_lines_with_raw(<<"${payload.a}${payload.b}">>)
             )},
         {"an empty placeholder is not a raw line template",
             ?_assertMatch(
                 {error, _},
-                to_influx_lines(<<"${}">>)
+                to_influx_lines_with_raw(<<"${}">>)
+            )}
+    ].
+
+raw_line_conversion_is_influxdb_specific_test_() ->
+    [
+        {"the shared structural converter rejects a raw line template",
+            ?_assertMatch(
+                {error, _},
+                to_influx_lines(<<"${payload.line}">>)
+            )},
+        {"the InfluxDB converter enables raw line templates",
+            ?_assertEqual(
+                [#{line => "${payload.line}"}],
+                to_influx_lines_with_raw(<<"${payload.line}">>)
             )}
     ].
 
@@ -975,6 +1010,16 @@ to_influx_lines(RawLines) ->
         %% mute error logs from this call
         emqx_logger:set_primary_log_level(none),
         emqx_bridge_influxdb:to_influx_lines(RawLines)
+    after
+        emqx_logger:set_primary_log_level(OldLevel)
+    end.
+
+to_influx_lines_with_raw(RawLines) ->
+    OldLevel = emqx_logger:get_primary_log_level(),
+    try
+        %% mute error logs from this call
+        emqx_logger:set_primary_log_level(none),
+        emqx_bridge_influxdb:to_influx_lines_with_raw(RawLines)
     after
         emqx_logger:set_primary_log_level(OldLevel)
     end.
