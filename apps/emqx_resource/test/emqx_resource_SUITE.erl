@@ -4338,6 +4338,189 @@ t_fallback_actions_overflow(Config) when is_list(Config) ->
                 end,
                 Results
             ),
+            %% Upon entering `?status_connected` for the first time, the connector/resource
+            %% will kick off the channel health check.  After that, the channel manages its
+            %% own interval with generic statem timers, and should not be triggered again
+            %% by the more frequent connector health checks.
+            ?assertReceive({returning_resource_health_check_result, _, _, _}),
+            ?assertReceive({returning_channel_health_check_result, _, _, _}),
+            %% N.B.: without async add channel, there is a second health check performed.
+            ?assertReceive({returning_channel_health_check_result, _, _, _}),
+            %% Should not perform other channel health checks for a long time now.
+            ?assertNotReceive({returning_channel_health_check_result, _, _, _}),
+            %% Resource health checks should continue quite frequently.
+            ?assertReceive({returning_resource_health_check_result, _, _, _}),
+            ok
+        end,
+        [log_consistency_prop()]
+    ),
+    ok.
+
+%% Checks the following race:
+%%
+%%   1) Channel add initially fails, and a retry is scheduled.
+%%
+%%   2) A resource/connector health check finishes before the retry, and returns
+%%     `?status_connected`, which attempts to add pending channels to the resource state.  This
+%%     time, the add succeeds.
+%%
+%% The scheduled retry shouldn't run in this case.
+t_retry_add_channel_resource_health_check_race(_TCConfig) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    ConnResId = connector_res_id(Name),
+    TestPid = self(),
+    {ok, Agent} = emqx_utils_agent:start_link(#{
+        add_channel => [
+            {notify, TestPid, {error, <<"some transient error!">>}},
+            {notify, TestPid, continue},
+            {notify, TestPid, {error, <<"shouldn't get to this retry!">>}}
+        ],
+        resource_health_check => {notify, TestPid, ?status_connected}
+    }),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        add_channel_agent => Agent,
+                        health_check_agent => Agent
+                    },
+                    #{
+                        health_check_interval => 500,
+                        start_timeout => 100
+                    }
+                ),
+            ct:pal("first connector health check"),
+            EmptyMap = #{},
+            ?assertReceive(
+                {returning_resource_health_check_result, _, _, #{
+                    conn_state := #{channels := EmptyMap}
+                }}
+            ),
+            ct:pal("adding channel (first attempt)"),
+            ChanId = action_res_id(ConnResId),
+            ok =
+                add_channel(
+                    ConnResId,
+                    ChanId,
+                    #{
+                        resource_opts => #{health_check_interval => 700}
+                    }
+                ),
+            ?assertReceive(
+                {attempted_to_add_channel, #{action := {error, <<"some transient error!">>}}}
+            ),
+            ct:pal("second connector health check"),
+            ?assertReceive(
+                {returning_resource_health_check_result, _, _, #{
+                    conn_state := #{channels := EmptyMap}
+                }}
+            ),
+            ?assertReceive({attempted_to_add_channel, #{action := continue}}),
+            ct:pal("should not retry adding the channel, since just succeeded"),
+            ?assertNotReceive({attempted_to_add_channel, #{}}, 1_000),
+            ok
+        end,
+        [log_consistency_prop()]
+    ),
+    ok.
+
+%% Checks the following race:
+%%
+%%   1) Channel add initially fails, and a retry is scheduled.
+%%
+%%   2) A resource/connector health check finishes before the retry, and returns
+%%     `?status_connecting`.
+%%
+%%   3) The add channel retry timeout triggers, but is postponed because the connector is not
+%%      `?status_connected`.
+%%
+%%   4) Another resource/connector health check finishes before the 2nd retry, and returns
+%%     `?status_connected`.  This attempts to add pending channels to the resource state.  This
+%%     time, the add succeeds.
+%%
+%% The 2nd scheduled retry shouldn't run in this case.
+t_retry_add_channel_resource_health_check_race_connecting(_TCConfig) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    ConnResId = connector_res_id(Name),
+    TestPid = self(),
+    {ok, Agent} = emqx_utils_agent:start_link(#{
+        add_channel => [
+            {notify, TestPid, {error, <<"some transient error!">>}},
+            {notify, TestPid, continue},
+            {notify, TestPid, {error, <<"shouldn't get to this retry!">>}}
+        ],
+        resource_health_check => {notify, TestPid, ?status_connected}
+    }),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            snabbkaffe_nemesis:inject_crash(
+                ?match_event(#{?snk_kind := resman_retry_add_channel_not_connected_enter}),
+                fun(_) ->
+                    TestPid ! {resman_retry_add_channel_not_connected_enter, #{}},
+                    false
+                end
+            ),
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        add_channel_agent => Agent,
+                        health_check_agent => Agent
+                    },
+                    #{
+                        health_check_interval => 500,
+                        start_timeout => 100
+                    }
+                ),
+            ct:pal("first connector health check"),
+            EmptyMap = #{},
+            ?assertReceive(
+                {returning_resource_health_check_result, _, ?status_connected, #{
+                    conn_state := #{channels := EmptyMap}
+                }}
+            ),
+            ct:pal("adding channel (first attempt)"),
+            ChanId = action_res_id(ConnResId),
+            ok =
+                add_channel(
+                    ConnResId,
+                    ChanId,
+                    #{
+                        resource_opts => #{health_check_interval => 700}
+                    }
+                ),
+            ?assertReceive(
+                {attempted_to_add_channel, #{action := {error, <<"some transient error!">>}}}
+            ),
+            ct:pal("switching connector to `?status_connecting`"),
+            emqx_utils_agent:update(Agent, fun(St) ->
+                St#{resource_health_check := {notify, TestPid, ?status_connecting}}
+            end),
+            ct:pal("second connector health check"),
+            ?assertReceive(
+                {returning_resource_health_check_result, _, ?status_connecting, #{
+                    conn_state := #{channels := EmptyMap}
+                }}
+            ),
+            ct:pal("waiting for retry to be postponed"),
+            ?assertReceive({resman_retry_add_channel_not_connected_enter, _}),
+            ct:pal("switching connector to connected"),
+            emqx_utils_agent:update(Agent, fun(St) ->
+                St#{resource_health_check := {notify, TestPid, ?status_connected}}
+            end),
+            ?assertReceive({attempted_to_add_channel, #{action := continue}}),
+            ct:pal("should not retry adding the channel, since just succeeded"),
+            ?assertNotReceive({attempted_to_add_channel, _}, 1_000),
             ok
         end,
         []
@@ -4952,7 +5135,15 @@ t_compress_channel_operations_existing_channel(Config) when is_list(Config) ->
                 _ ->
                     ?assertReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout)
             end,
-            ?assertReceive({attempted_to_add_channel, ConnResId, ChanId, ChanConfig2}, Timeout),
+            %% `emqx_connector_demo' now reports the attempt as a context map.
+            ?assertReceive(
+                {attempted_to_add_channel, #{
+                    conn_res_id := ConnResId,
+                    chan_id := ChanId,
+                    chan_cfg := ChanConfig2
+                }},
+                Timeout
+            ),
 
             %% We must eventually observe the new configuration in the channel.
             ?tpal("checking channels configs"),
