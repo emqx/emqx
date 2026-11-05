@@ -622,7 +622,8 @@ t_multiple_tables_failure_in_the_middle(TCConfig) when is_list(TCConfig) ->
 
 -doc """
 Verifies that a batch where one message does not transform still writes the
-other messages, and reports the failure in that message's own position.
+other messages, marks the whole batch as non-retryable, and keeps the original
+per-message results in `batch_results`.
 
 The native driver hands raw values to the Rust client, so a value only fails
 once it reaches the NIF. A timestamp is checked while the point is built, which
@@ -675,19 +676,31 @@ t_batch_invalid_typed_value(TCConfig) when is_list(TCConfig) ->
         fun(Trace) ->
             case query_mode(TCConfig) of
                 ?async ->
-                    ?assertMatch(
-                        [#{result := [{ok, _}, {error, _}, {ok, _}]} | _],
-                        ?of_kind(handle_async_reply, Trace)
-                    );
+                    [#{result := Results0} | _] = ?of_kind(handle_async_reply, Trace),
+                    assert_batch_contains_unrecoverable(Results0);
                 ?sync ->
-                    ?assertMatch(
-                        [#{results := [{ok, _}, {error, _}, {ok, _}]} | _],
-                        ?of_kind("greptime_rs_sync_batch_reply", Trace)
-                    )
+                    [#{results := Results0} | _] =
+                        ?of_kind("greptime_rs_sync_batch_reply", Trace),
+                    assert_batch_contains_unrecoverable(Results0)
             end
         end
     ),
     ok.
+
+assert_batch_contains_unrecoverable([Result, Result, Result] = Results) ->
+    ?assertEqual(3, length(Results)),
+    ?assertMatch(
+        {error,
+            {unrecoverable_error, #{
+                reason := batch_contains_unrecoverable,
+                batch_results := [
+                    {ok, _},
+                    {error, {unrecoverable_error, _}},
+                    {ok, _}
+                ]
+            }}},
+        Result
+    ).
 
 -doc """
 Verifies case where batch resolves to multiple tables, and the last one fails.
