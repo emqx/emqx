@@ -170,6 +170,9 @@ emqx_metrics {
     messages_rejected_quota_exceeded {
         desc: "Number of QoS 1 and QoS 2 messages rejected due to quota being exceeded"
     }
+    messages_consumed {
+        desc: "Number of messages that matched no subscriber and were not dropped, because a publish hook marked them as consumed, for example a rule with `consume_message` enabled"
+    }
     messages_forward {
         desc: "Number of messages forwarded to other nodes"
     }
