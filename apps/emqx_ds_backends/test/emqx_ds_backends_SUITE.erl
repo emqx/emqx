@@ -3214,6 +3214,113 @@ t_del_batch_timeouts(Config) ->
         []
     ).
 
+%% This testcase verifies crash behavior of OTX server. It should not
+%% dump all pending requests to the logs.
+%%
+%% NOTE: This testcase just creates the conditions for the crash and
+%% verifies that the system recovers. Logs should be checked manually.
+t_otx_crash_long_mql(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            %% 0. Prepare
+            Opts = maps:merge(opts(Config), #{transactions => #{max_items => 1}}),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            ?inject_crash(
+                #{?snk_kind := emqx_ds_optimistic_tx_unknown_event},
+                snabbkaffe_nemesis:always_crash()
+            ),
+            Shard = emqx_ds:shard_of(DB, <<"me">>),
+            MkTrans = fun() ->
+                {async, Ref, _} = emqx_ds:trans(
+                    #{db => DB, shard => Shard, generation => 1, timeout => 100, sync => false},
+                    fun() ->
+                        emqx_ds:tx_write({[~"foo"], ?ds_tx_ts_monotonic, ?ds_tx_serial})
+                    end
+                ),
+                Ref
+            end,
+            %% Resume process (assuming message that'll crash it is
+            %% already in the mailbox), wait for it terminate and then
+            %% wait until its replacement steps up.
+            UnblockExit = fun(Pid) ->
+                ?wait_async_action(
+                    begin
+                        MRef = monitor(process, Pid),
+                        erlang:resume_process(Pid),
+                        receive
+                            {'DOWN', MRef, process, _, _} -> ok
+                        end
+                    end,
+                    #{?snk_kind := ds_otx_up}
+                )
+            end,
+            %% Insert some data to obtain a stream:
+            Ref0 = MkTrans(),
+            receive
+                ?ds_tx_commit_reply(Ref0, Reply0) ->
+                    ?assertMatch({ok, _}, emqx_ds:del_batch_outcome(DB, Ref0, Reply0))
+            end,
+            {[{_, Stream}], []} = emqx_ds:get_streams(DB, ['#'], 0, #{}),
+            MkDelBatch = fun() ->
+                {async, Ref} = emqx_ds:del_batch(DB, Stream, ['#'], 0, 1, #{sync => false}),
+                Ref
+            end,
+            MkAppBatch = fun() ->
+                Data = [{[~"bar"], ?ds_tx_ts_monotonic, ~""}],
+                emqx_ds:dirty_append(#{db => DB, shard => Shard}, Data)
+            end,
+            ExpectTimeouts = fun(Pending) ->
+                lists:foreach(
+                    fun(Ref) ->
+                        receive
+                            ?ds_tx_commit_reply(Ref, Reply) ->
+                                ?assertMatch(
+                                    {error, _, commit_timeout},
+                                    emqx_ds:del_batch_outcome(DB, Ref, Reply)
+                                )
+                        end
+                    end,
+                    Pending
+                )
+            end,
+            %% 1. Verify recovery with a small message queue:
+            OtxLeader1 = emqx_ds_optimistic_tx:where(DB, Shard),
+            erlang:suspend_process(OtxLeader1),
+            OtxLeader1 ! notmyday,
+            [MkAppBatch() || _ <- lists:seq(1, 10)],
+            Pending1 =
+                [MkTrans() || _ <- lists:seq(1, 10)] ++
+                    [MkDelBatch() || _ <- lists:seq(1, 10)],
+            ExpectTimeouts(Pending1),
+            ?assertMatch(
+                [{message_queue_len, N}] when N > 30,
+                erlang:process_info(OtxLeader1, [message_queue_len])
+            ),
+            UnblockExit(OtxLeader1),
+            %% 2. Verify recovery with a long message queue:
+            OtxLeader2 = emqx_ds_optimistic_tx:where(DB, Shard),
+            erlang:suspend_process(OtxLeader2),
+            OtxLeader2 ! notmyday,
+            [MkAppBatch() || _ <- lists:seq(1, 1000)],
+            Pending2 =
+                [MkTrans() || _ <- lists:seq(1, 1000)] ++
+                    [MkDelBatch() || _ <- lists:seq(1, 1000)],
+            ExpectTimeouts(Pending2),
+            UnblockExit(OtxLeader2)
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{n_tx := 10, n_app := 10, n_del := 10},
+                    #{n_tx := NT, n_app := NA, n_del := ND}
+                ] when NT + NA + ND =:= 1000,
+                ?of_kind(ds_otx_terminate, Trace)
+            )
+        end
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.

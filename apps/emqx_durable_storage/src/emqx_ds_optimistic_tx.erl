@@ -480,16 +480,21 @@ init(Parent, DB, Shard, CBM) ->
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
-        loop(
-            check_soft_quota(D#d{
-                serial = Serial,
-                timestamp = Timestamp,
-                committed_serial = Serial
-            })
-        )
+        try
+            loop(
+                check_soft_quota(D#d{
+                    serial = Serial,
+                    timestamp = Timestamp,
+                    committed_serial = Serial
+                })
+            )
+        catch
+            EC:Err:Stack ->
+                terminate({EC, Err, Stack})
+        end
     else
-        Err ->
-            terminate({init_failed, Err}, D)
+        InitErr ->
+            terminate({init_failed, InitErr})
     end.
 
 -spec loop(d()) -> no_return().
@@ -533,7 +538,7 @@ loop(D0) ->
         {'EXIT', _From, Reason} ->
             case Reason of
                 normal -> loop(D0);
-                _ -> terminate(Reason, D0)
+                _ -> terminate(Reason)
             end;
         {system, From, SysReq} ->
             Debug = [],
@@ -569,8 +574,8 @@ system_continue(Parent, _Debug, D0) ->
     ?MODULE:loop(D0#d{parent = Parent}).
 
 -spec system_terminate(_, _, _, _) -> no_return().
-system_terminate(Reason, _Parent, _Debug, D) ->
-    terminate(Reason, D).
+system_terminate(Reason, _Parent, _Debug, _D) ->
+    terminate(Reason).
 
 system_code_change(D, _Module, _OldVsn, Extra) ->
     {ok, ?MODULE:code_change(D, Extra)}.
@@ -579,19 +584,12 @@ system_code_change(D, _Module, _OldVsn, Extra) ->
 %% Internal functions
 %%================================================================================
 
--spec terminate(term(), term()) -> no_return().
-terminate(Reason, _Data) ->
-    Level =
-        case Reason =:= normal orelse Reason =:= shutdown of
-            true ->
-                info;
-            false ->
-                %% Sleep some to prevent a hot restart loop
-                timer:sleep(500),
-                error
-        end,
-    ?tp(Level, ds_otx_terminate, #{reason => Reason}),
-    exit(Reason).
+-spec terminate(term()) -> no_return().
+terminate(Reason) ->
+    %% If process terminates due to an error, wait a little to avoid
+    %% hot restart loop:
+    is_normal_exit(Reason) orelse timer:sleep(500),
+    clean_mailbox(Reason).
 
 -spec flush(d()) -> d().
 flush(D0) ->
@@ -1535,6 +1533,65 @@ maybe_start_quota_check_timer(true) ->
 maybe_start_quota_check_timer(false) ->
     Interval = 1000,
     erlang:send_after(Interval, self(), ?timeout_quota_check).
+
+%% This process is created via `proc_lib', which is rather inflexible
+%% when it comes to exit report formatting. It'll always dump all
+%% messages. To avoid flooding the logs, we'll try to flush and count
+%% all *expected* payload-like requests.
+-spec clean_mailbox(term()) -> no_return().
+clean_mailbox(Reason) ->
+    clean_mailbox(Reason, 0, 0, 0, 0).
+
+-spec clean_mailbox(
+    term(),
+    non_neg_integer(),
+    non_neg_integer(),
+    non_neg_integer(),
+    non_neg_integer()
+) -> no_return().
+clean_mailbox(Reason, Total, NTrans, NApp, NDel) ->
+    %% Theoretically, the system can be under such pressure that
+    %% messages arrive faster than we can dump it here:
+    Continue = Total < 1000,
+    receive
+        {'$gen_cast', #ds_tx{}} when Continue ->
+            clean_mailbox(Reason, Total + 1, NTrans + 1, NApp, NDel);
+        {'$gen_cast', #cast_dirty_append{}} when Continue ->
+            clean_mailbox(Reason, Total + 1, NTrans, NApp + 1, NDel);
+        {'$gen_cast', #ds_del_batch{}} when Continue ->
+            clean_mailbox(Reason, Total + 1, NTrans, NApp, NDel + 1)
+    after 0 ->
+        Level =
+            case is_normal_exit(Reason) of
+                true -> info;
+                false -> error
+            end,
+        ?tp(
+            Level,
+            ds_otx_terminate,
+            #{
+                reason => Reason,
+                n_tx => NTrans,
+                n_app => NApp,
+                n_del => NDel
+            }
+        ),
+        case Continue of
+            true ->
+                exit(Reason);
+            false ->
+                exit(self(), kill)
+        end
+    end.
+
+is_normal_exit(normal) ->
+    true;
+is_normal_exit(shutdown) ->
+    true;
+is_normal_exit({shutdown, _}) ->
+    true;
+is_normal_exit(_) ->
+    false.
 
 %%================================================================================
 %% Tests
