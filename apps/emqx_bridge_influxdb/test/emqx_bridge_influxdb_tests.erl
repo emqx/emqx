@@ -117,6 +117,247 @@ parse(Hocon) ->
 check_connector(Conf) when is_map(Conf) ->
     hocon_tconf:check_plain(emqx_connector_schema, Conf, #{required => false}).
 
+check_action(InnerConfigMap) ->
+    Conf = #{
+        <<"actions">> => #{
+            <<"influxdb">> => #{
+                <<"test_action">> => InnerConfigMap
+            }
+        }
+    },
+    hocon_tconf:check_plain(emqx_bridge_v2_schema, Conf, #{
+        required => false,
+        atom_key => false,
+        make_serializable => false
+    }).
+
+structured_action_config() ->
+    #{
+        <<"connector">> => <<"influxdb_connector">>,
+        <<"parameters">> => #{
+            <<"write">> => [
+                #{
+                    <<"measurement">> => <<"${topic}">>,
+                    <<"fields">> => [
+                        #{
+                            <<"key">> => <<"temperature">>,
+                            <<"type">> => <<"float">>,
+                            <<"value">> => <<"${payload.temperature}">>
+                        }
+                    ],
+                    <<"timestamp">> => #{
+                        <<"value">> => <<"${payload.ts}">>,
+                        <<"source_precision">> => <<"ms">>
+                    }
+                }
+            ]
+        }
+    }.
+
+structured_action_schema_test() ->
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write">> := [
+                                #{
+                                    <<"timestamp">> := #{
+                                        <<"source_precision">> := ms
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(structured_action_config())
+    ).
+
+action_requires_write_config_test() ->
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{}
+        })
+    ).
+
+legacy_write_syntax_api_compatibility_test() ->
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write_syntax">> := [_]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<"m field=1">>
+            }
+        })
+    ).
+
+write_config_forms_are_mutually_exclusive_test() ->
+    Conf = structured_action_config(),
+    Parameters0 = maps:get(<<"parameters">>, Conf),
+    Parameters = Parameters0#{<<"write_syntax">> => <<"m field=1">>},
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(Conf#{<<"parameters">> => Parameters})
+    ).
+
+source_precision_enum_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    Timestamp0 = maps:get(<<"timestamp">>, Point0),
+    Timestamp = Timestamp0#{<<"source_precision">> => <<"minutes">>},
+    Point = Point0#{<<"timestamp">> => Timestamp},
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point]
+                }
+            }
+        )
+    ).
+
+auto_field_type_schema_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    [Field0] = maps:get(<<"fields">>, Point0),
+    Field = Field0#{<<"type">> => <<"auto">>},
+    Point = Point0#{<<"fields">> => [Field]},
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write">> := [
+                                #{
+                                    <<"fields">> := [#{<<"type">> := auto}]
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point]
+                }
+            }
+        )
+    ).
+
+timestamp_false_schema_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write">> := [#{<<"timestamp">> := false}]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point0#{<<"timestamp">> => false}]
+                }
+            }
+        )
+    ).
+
+write_points_must_not_be_empty_test() ->
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{<<"write">> => []}
+        })
+    ).
+
+write_fields_must_not_be_empty_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point0#{<<"fields">> => []}]
+                }
+            }
+        )
+    ).
+
+duplicate_static_field_keys_are_rejected_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    [Field0] = maps:get(<<"fields">>, Point0),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point0#{<<"fields">> => [Field0, Field0]}]
+                }
+            }
+        )
+    ).
+
+duplicate_static_field_keys_preserve_schema_error_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    [Field0] = maps:get(<<"fields">>, Point0),
+    DuplicatePoint = Point0#{<<"fields">> => [Field0, Field0]},
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [DuplicatePoint, Point0]
+                }
+            }
+        )
+    ).
+
+source_precision_is_required_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    Timestamp0 = maps:get(<<"timestamp">>, Point0),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [
+                        Point0#{<<"timestamp">> => maps:remove(<<"source_precision">>, Timestamp0)}
+                    ]
+                }
+            }
+        )
+    ).
+
 -define(VALID_LINE_PARSED_PAIRS, [
     {"m1,tag=tag1 field=field1 ${timestamp1}", #{
         measurement => "m1",
