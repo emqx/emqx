@@ -15,6 +15,7 @@
 -export([
     apply_rule/3,
     apply_rules/3,
+    apply_rules/4,
     eval_action_reply_to/2,
     rule_namespace/0
 ]).
@@ -60,30 +61,55 @@
     }),
     columns(),
     envs()
-) -> ok | consumed.
+) -> ok.
 apply_rules(RichedRules, Columns, Envs) ->
-    apply_rules(RichedRules, Columns, Envs, ok).
+    _ = apply_rules(RichedRules, Columns, Envs, ?global_ns),
+    ok.
 
-apply_rules([], _Columns, _Envs, Result) ->
+-doc """
+Apply the rules to a published message from namespace `MsgNamespace`.
+
+Return `consumed` when an enabled rule with `consume_message` produces output,
+whatever its actions return. Only a global rule or a rule in `MsgNamespace`
+can mark the message.
+""".
+-spec apply_rules(
+    list(#{
+        rule => rule(),
+        trigger := binary(),
+        matched := binary()
+    }),
+    columns(),
+    envs(),
+    ?global_ns | binary()
+) -> ok | consumed.
+apply_rules(RichedRules, Columns, Envs, MsgNamespace) ->
+    apply_rules(RichedRules, Columns, Envs, MsgNamespace, ok).
+
+apply_rules([], _Columns, _Envs, _MsgNamespace, Result) ->
     ?tp("rule_engine_applied_all_rules", #{}),
     Result;
-apply_rules([#{rule := #{enable := false, id := RuleId}} | More], Columns, Envs, Result) ->
-    ?TRACE("RULE", "skip_apply_disabled_rule", #{rule_id => RuleId}),
-    apply_rules(More, Columns, Envs, Result);
-apply_rules([RichedRule | More], Columns, Envs, Result0) ->
-    Result = apply_rule_check_consumed(RichedRule, Columns, Envs, Result0),
-    apply_rules(More, Columns, Envs, Result).
-
-%% Return `consumed' when a rule with `consume_message' enabled produces
-%% output, whatever its actions return.
-apply_rule_check_consumed(
-    #{rule := #{consume_message := true} = Rule} = RichedRule, Columns, Envs, Result
+apply_rules(
+    [#{rule := #{enable := false, id := RuleId}} | More], Columns, Envs, MsgNamespace, Result
 ) ->
+    ?TRACE("RULE", "skip_apply_disabled_rule", #{rule_id => RuleId}),
+    apply_rules(More, Columns, Envs, MsgNamespace, Result);
+apply_rules([RichedRule | More], Columns, Envs, MsgNamespace, Result0) ->
+    Result = apply_rule_check_consumed(RichedRule, Columns, Envs, MsgNamespace, Result0),
+    apply_rules(More, Columns, Envs, MsgNamespace, Result).
+
+apply_rule_check_consumed(
+    #{rule := #{consume_message := true, namespace := RuleNamespace} = Rule} = RichedRule,
+    Columns,
+    Envs,
+    MsgNamespace,
+    Result
+) when RuleNamespace =:= ?global_ns; RuleNamespace =:= MsgNamespace ->
     case is_output_produced(Rule, apply_rule(RichedRule, Columns, Envs)) of
         true -> consumed;
         false -> Result
     end;
-apply_rule_check_consumed(RichedRule, Columns, Envs, Result) ->
+apply_rule_check_consumed(RichedRule, Columns, Envs, _MsgNamespace, Result) ->
     _ = apply_rule(RichedRule, Columns, Envs),
     Result.
 
