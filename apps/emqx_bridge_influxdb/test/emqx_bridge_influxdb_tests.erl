@@ -422,7 +422,9 @@ auto_integer_suffixes_require_integer_values_test_() ->
                 <<"${payload.value}u">>,
                 #{payload => #{value => true}}
             )
-        )
+        ),
+        ?_test(assert_structured_auto_error(<<"1.5i">>, #{})),
+        ?_test(assert_structured_auto_error(<<"1.5u">>, #{}))
     ].
 
 legacy_mixed_integer_suffix_requires_integer_value_test() ->
