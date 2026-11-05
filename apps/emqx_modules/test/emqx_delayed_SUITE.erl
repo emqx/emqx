@@ -84,7 +84,10 @@ t_enable_disable_case(_) ->
 t_delayed_message(_) ->
     DelayedMsg = emqx_message:make(?MODULE, 1, <<"$delayed/1/publish">>, <<"delayed_m">>),
     ?assertEqual(
-        {stop, DelayedMsg#message{topic = <<"publish">>, headers = #{allow_publish => false}}},
+        {stop, DelayedMsg#message{
+            topic = <<"publish">>,
+            headers = #{allow_publish => false, delayed_publish_accepted => true}
+        }},
         on_message_publish(DelayedMsg)
     ),
 
