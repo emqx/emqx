@@ -8,6 +8,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
@@ -816,3 +817,64 @@ receive_msg({ConnPid, StreamRef}) ->
 
 close({ConnPid, _StreamRef}) ->
     gun:shutdown(ConnPid).
+
+-doc "OCPP returns HTTP 400 for a numeric hook rejection and upgrades after recovery.".
+t_connect_hook_rejection(_) ->
+    check_ocpp_hook_reason(?RC_QUOTA_EXCEEDED, <<"Quota exceeded">>).
+
+-doc "OCPP preserves UTF-8 byte lists, binaries, and Unicode character-list hook reasons.".
+t_ocpp_utf8_reason(_) ->
+    Text = <<"拒绝"/utf8>>,
+    Reasons = [
+        binary_to_list(Text),
+        [binary_to_list(<<"拒"/utf8>>), <<"绝"/utf8>>],
+        Text,
+        [16#62D2, 16#7EDD],
+        [<<"拒"/utf8>>, [16#7EDD]]
+    ],
+    lists:foreach(fun(Reason) -> check_ocpp_hook_reason(Reason, Text) end, Reasons),
+    check_ocpp_hook_reason([16#E9], <<"é"/utf8>>).
+
+-doc "OCPP returns readable HTTP 400 text for a hook reason containing invalid UTF-8 bytes.".
+t_ocpp_invalid_utf8_reason(_) ->
+    check_ocpp_hook_reason(<<255>>, <<"<<255>>">>).
+
+-doc "OCPP returns readable HTTP 400 text for a hook reason containing incomplete UTF-8 bytes.".
+t_ocpp_incomplete_utf8_reason(_) ->
+    check_ocpp_hook_reason(<<16#E4, 16#B8>>, <<"<<228,184>>">>).
+
+-doc "OCPP returns readable HTTP 400 text when a hook reason is not valid character data.".
+t_ocpp_invalid_chardata_reason(_) ->
+    check_ocpp_hook_reason([invalid], <<"[invalid]">>).
+
+check_ocpp_hook_reason(Reason, ExpectedText) ->
+    emqx_gateway_test_utils:with_connect_rejection(Reason, fun() ->
+        check_hook_connect({rejected, ExpectedText})
+    end),
+    check_hook_connect(accepted).
+
+check_hook_connect(Expected) ->
+    {ok, Conn} = gun:open("127.0.0.1", 33033, #{retry => 0}),
+    try
+        {ok, _} = gun:await_up(Conn, 5000),
+        Stream = gun:ws_upgrade(
+            Conn,
+            <<"/ocpp/hook-rejection">>,
+            handshake_auth_header(valid_credentials()),
+            #{protocols => [{<<"ocpp1.6">>, gun_ws_h}]}
+        ),
+        case Expected of
+            accepted ->
+                ?assertMatch({ok, _, _}, await_handshake(Conn, Stream));
+            {rejected, ExpectedText} ->
+                ?assertMatch({response, _, 400, _}, gun:await(Conn, Stream, 5000)),
+                ?assertEqual({ok, ExpectedText}, gun:await_body(Conn, Stream, 5000))
+        end
+    after
+        gun:close(Conn),
+        ?retry(
+            100,
+            50,
+            ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"hook-rejection">>))
+        )
+    end.

@@ -60,7 +60,7 @@
     %% required option
     payload_encode := payload_encode(),
     %% Truncate if over this limit, default is ?MAX_PAYLOAD_FORMAT_SIZE
-    truncate_above => non_neg_integer(),
+    truncate_above => non_neg_integer() | infinity,
     %% Truncate to this number of bytes, default is ?TRUNCATED_PAYLOAD_SIZE
     truncate_to => non_neg_integer()
 }.

@@ -1662,6 +1662,20 @@ t_extsub_no_leak_subscribe_unsubscribe(_TCConfig) ->
 
     ok.
 
+-doc """
+A runtime change of `delivery_rate` sets the dispatcher limiter to the new rate
+at once, also for two changes in a row and for `infinity`.
+""".
+t_delivery_rate_update(_) ->
+    check_rate_update(<<"delivery_rate">>, ?DISPATCHER_LIMITER_NAME).
+
+-doc """
+A runtime change of `max_publish_rate` sets the publisher limiter to the new rate
+at once, also for two changes in a row and for `infinity`.
+""".
+t_max_publish_rate_update(_) ->
+    check_rate_update(<<"max_publish_rate">>, ?PUBLISHER_LIMITER_NAME).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -1813,6 +1827,26 @@ reset_delivery_rate_to_default() ->
 restart_retainer_limiter() ->
     ok = emqx_retainer_limiter:delete(),
     ok = emqx_retainer_limiter:create().
+
+%% Update with `emqx_retainer:update_config/1' only: the limiter must follow
+%% the config update without a restart.
+check_rate_update(RateKey, LimiterName) ->
+    LimiterId = {?RETAINER_LIMITER_GROUP, LimiterName},
+    lists:foreach(
+        fun({Rate, Expected}) ->
+            {ok, _} = emqx_retainer:update_config(#{RateKey => Rate}),
+            ?assertEqual(
+                Expected,
+                emqx_limiter_registry:get_limiter_options(LimiterId),
+                #{rate => Rate}
+            )
+        end,
+        [
+            {<<"10/s">>, #{capacity => 10, interval => 1000, burst_capacity => 0}},
+            {<<"20/s">>, #{capacity => 20, interval => 1000, burst_capacity => 0}},
+            {<<"infinity">>, #{capacity => infinity}}
+        ]
+    ).
 
 update_retainer_config(Conf) ->
     {ok, _} = emqx_retainer:update_config(Conf),

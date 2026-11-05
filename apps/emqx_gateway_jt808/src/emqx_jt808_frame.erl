@@ -39,7 +39,7 @@
 
 -type frame() :: map().
 
--type phase() :: searching_head_hex7e | {escaping_hex7d, binary()}.
+-type phase() :: searching_head_hex7e | parsing_frame | escaping_hex7d.
 
 -type parser_state() :: #{
     data => binary(),
@@ -127,8 +127,11 @@ escape_head_hex7e(<<16#02, Rest/binary>>, State = #{data := Acc, phase := escapi
 escape_head_hex7e(<<16#01, Rest/binary>>, State = #{data := Acc, phase := escaping_hex7d}) ->
     %% corner case: 0x7d has been received in the end of last frame segment
     escape_frame(Rest, State#{data => append_byte(16#7d, Acc, max_length(State))});
-escape_head_hex7e(Rest, State = #{data := _Acc, phase := escaping_hex7d}) ->
-    %% continue parsing to escape 0x7d
+escape_head_hex7e(<<>>, State = #{phase := escaping_hex7d}) ->
+    {more, State};
+escape_head_hex7e(_Rest, #{phase := escaping_hex7d}) ->
+    error(invalid_message);
+escape_head_hex7e(Rest, State = #{phase := parsing_frame}) ->
     escape_frame(Rest, State).
 
 %% @doc Find the first 0x7E byte in the packet, returning the skipped prefix
@@ -168,6 +171,8 @@ escape_frame(Rest, State = #{data := Acc}) ->
                 data => <<>>, phase => searching_head_hex7e
             }};
         {more_data_follow, NRest} ->
+            {more, State#{data => NRest, phase => parsing_frame}};
+        {more_escape, NRest} ->
             {more, State#{data => NRest, phase => escaping_hex7d}}
     end.
 
@@ -181,7 +186,7 @@ do_escape_frame(<<16#7d, _Other:8, _Rest/binary>>, _Acc, _MaxLength) ->
 do_escape_frame(<<16#7d>>, Acc, _MaxLength) ->
     %% corner case: last byte of the frame segment is 0x7d,
     %% 0x01 or 0x02 is expected in next frame segment
-    {more_data_follow, Acc};
+    {more_escape, Acc};
 do_escape_frame(<<16#7e, _Rest/binary>>, <<>>, _MaxLength) ->
     %% empty message
     error(invalid_message);

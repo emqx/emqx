@@ -962,8 +962,7 @@ process_connection({open, Req}, Result, Channel = #channel{conn_state = idle}, I
         {ok, _Input, NChannel} ->
             process_connect(ensure_connected(NChannel), Req, Result, Iter);
         {error, ReasonCode, NChannel} ->
-            ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
-            Payload = iolist_to_binary(ErrMsg),
+            Payload = <<"Login Failed: ", (emqx_gateway_utils:reason_text(ReasonCode))/binary>>,
             Reply = emqx_coap_message:piggyback({error, bad_request}, Payload, Req),
             process_shutdown(Reply, Result, NChannel, Iter)
     end;

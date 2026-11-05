@@ -226,6 +226,11 @@ fields(audit) ->
             ?HOCON(?ARRAY(binary()), #{
                 desc => ?DESC("audit_failure")
             })},
+        {operation_details,
+            ?HOCON(map(), #{
+                desc => ?DESC("audit_operation_details"),
+                required => false
+            })},
         {http_request,
             ?HOCON(?REF(http_request), #{
                 desc => ?DESC("audit_http_request")
@@ -324,9 +329,10 @@ format(Audit) ->
         duration_ms = DurationMs,
         args = Args,
         failure = Failure,
-        http_request = HttpRequest
+        http_request = HttpRequest,
+        extra = Extra
     } = Audit,
-    #{
+    Result = #{
         created_at => emqx_utils_calendar:epoch_to_rfc3339(CreatedAt, microsecond),
         node => Node,
         from => From,
@@ -341,7 +347,11 @@ format(Audit) ->
         args => Args,
         failure => Failure,
         http_request => HttpRequest
-    }.
+    },
+    case Extra of
+        #{operation_details := Details} -> Result#{operation_details => Details};
+        _ -> Result
+    end.
 
 audit_log_list_example() ->
     #{
