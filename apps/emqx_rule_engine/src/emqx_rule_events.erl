@@ -195,19 +195,21 @@ on_alarm_deactivated(AlarmDeactivatedContext, Conf) ->
 on_message_publish(Message = #message{}, _Conf) ->
     case ignore_sys_message(Message) of
         true ->
-            ok;
+            {ok, Message};
         false ->
             case get_rules_for_topic(Message) of
                 [] ->
-                    ok;
+                    {ok, Message};
                 EnrichedRules ->
                     %% ENVs are the fields that can't be refereced by the SQL, but can be used
                     %% from actions. e.g. The 'headers' field in the internal record `#message{}`.
                     {Columns, Envs} = eventmsg_publish(Message),
-                    emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
+                    case emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs) of
+                        consumed -> {ok, emqx_message:set_consumed(Message)};
+                        ok -> {ok, Message}
+                    end
             end
-    end,
-    {ok, Message}.
+    end.
 
 on_bridge_message_received(Message, Namespace, Conf = #{event_topic := BridgeTopic}) ->
     apply_event_namespaced(
@@ -963,7 +965,8 @@ apply_event_namespaced(Namespace, EventName, GenEventMsg, _Conf) ->
         EnrichedRules ->
             %% delay the generating of eventmsg after we have found some rules to apply
             {Columns, Envs} = GenEventMsg(),
-            emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
+            _ = emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs),
+            ok
     end.
 
 apply_event_all_namespaces(EventName, GenEventMsg, _Conf) ->
@@ -973,7 +976,8 @@ apply_event_all_namespaces(EventName, GenEventMsg, _Conf) ->
         EnrichedRules ->
             %% delay the generating of eventmsg after we have found some rules to apply
             {Columns, Envs} = GenEventMsg(),
-            emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
+            _ = emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs),
+            ok
     end.
 
 %%--------------------------------------------------------------------

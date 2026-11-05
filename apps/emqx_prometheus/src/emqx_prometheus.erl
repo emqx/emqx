@@ -540,6 +540,7 @@ emqx_collect(K = emqx_messages_dropped_no_subscribers, D) -> counter_metrics(?MG
 emqx_collect(K = emqx_messages_dropped_quota_exceeded, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_receive_maximum, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_rejected_quota_exceeded, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_messages_consumed, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_forward, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_retained, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_delayed, D) -> counter_metrics(?MG(K, D));
@@ -1068,6 +1069,7 @@ message_metric_meta() ->
         {emqx_messages_dropped_quota_exceeded, counter, 'messages.dropped.quota_exceeded'},
         {emqx_messages_dropped_receive_maximum, counter, 'messages.dropped.receive_maximum'},
         {emqx_messages_rejected_quota_exceeded, counter, 'messages.rejected.quota_exceeded'},
+        {emqx_messages_consumed, counter, 'messages.consumed'},
         {emqx_messages_forward, counter, 'messages.forward'},
         {emqx_messages_retained, counter, 'messages.retained'},
         {emqx_messages_delayed, counter, 'messages.delayed'},
@@ -1075,8 +1077,9 @@ message_metric_meta() ->
         {emqx_messages_acked, counter, 'messages.acked'}
     ].
 
+%% The broker counts `messages.consumed' globally only.
 message_metric_ns_meta() ->
-    message_metric_meta().
+    lists:keydelete(emqx_messages_consumed, 1, message_metric_meta()).
 
 message_metric_meta(Mode) ->
     without_v4_metrics(Mode, message_metric_meta()).
@@ -1097,7 +1100,8 @@ without_v4_metrics(Mode, Meta) ->
 v4_metrics() ->
     [
         emqx_disconnected_sessions_count,
-        emqx_messages_rejected_quota_exceeded
+        emqx_messages_rejected_quota_exceeded,
+        emqx_messages_consumed
     ].
 
 %%==========

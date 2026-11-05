@@ -60,20 +60,37 @@
     }),
     columns(),
     envs()
-) -> ok.
-apply_rules([], _Columns, _Envs) ->
-    ?tp("rule_engine_applied_all_rules", #{}),
-    ok;
-apply_rules([#{rule := #{enable := false, id := RuleId}} | More], Columns, Envs) ->
-    ?TRACE("RULE", "skip_apply_disabled_rule", #{rule_id => RuleId}),
-    apply_rules(More, Columns, Envs);
-apply_rules([RichedRule | More], Columns, Envs) ->
-    apply_rule_discard_result(RichedRule, Columns, Envs),
-    apply_rules(More, Columns, Envs).
+) -> ok | consumed.
+apply_rules(RichedRules, Columns, Envs) ->
+    apply_rules(RichedRules, Columns, Envs, ok).
 
-apply_rule_discard_result(RichedRule, Columns, Envs) ->
+apply_rules([], _Columns, _Envs, Result) ->
+    ?tp("rule_engine_applied_all_rules", #{}),
+    Result;
+apply_rules([#{rule := #{enable := false, id := RuleId}} | More], Columns, Envs, Result) ->
+    ?TRACE("RULE", "skip_apply_disabled_rule", #{rule_id => RuleId}),
+    apply_rules(More, Columns, Envs, Result);
+apply_rules([RichedRule | More], Columns, Envs, Result0) ->
+    Result = apply_rule_check_consumed(RichedRule, Columns, Envs, Result0),
+    apply_rules(More, Columns, Envs, Result).
+
+%% Return `consumed' when a rule with `consume_message' enabled produces
+%% output, whatever its actions return.
+apply_rule_check_consumed(
+    #{rule := #{consume_message := true} = Rule} = RichedRule, Columns, Envs, Result
+) ->
+    case is_output_produced(Rule, apply_rule(RichedRule, Columns, Envs)) of
+        true -> consumed;
+        false -> Result
+    end;
+apply_rule_check_consumed(RichedRule, Columns, Envs, Result) ->
     _ = apply_rule(RichedRule, Columns, Envs),
-    ok.
+    Result.
+
+%% Same condition as the `passed' rule metric in `do_apply_rule2/3'.
+is_output_produced(#{is_foreach := true}, {ok, [_ | _]}) -> true;
+is_output_produced(#{is_foreach := false}, {ok, _}) -> true;
+is_output_produced(_Rule, _Result) -> false.
 
 apply_rule(
     #{rule := #{id := RuleId, namespace := Namespace}} = RichedRule,
