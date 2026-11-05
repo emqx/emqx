@@ -246,6 +246,67 @@ test_message_forwarding(SubType, Config) ->
         []
     ).
 
+-doc """
+The publish outcome headers of the source cluster, `message_persisted` and
+`consumed`, do not cross the link: the target cluster delivers the message
+without them.
+""".
+t_message_forwarding_drops_outcome_headers('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    {SourceClusterSpec, TargetClusterSpec} = mk_interlinked_clusters(?FUNCTION_NAME, 1, 1, Config),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | Config
+    ];
+t_message_forwarding_drops_outcome_headers('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+t_message_forwarding_drops_outcome_headers(Config) ->
+    [SourceNode] = nodes_source(Config),
+    [TargetNode] = nodes_target(Config),
+    Topic = <<"t/outcome">>,
+    TestPid = self(),
+    ok = ?ON(
+        SourceNode,
+        emqx_hooks:add('message.publish', {?MODULE, set_outcome_headers, []}, 0)
+    ),
+    %% A broker subscriber on the target sees the forwarded message with its headers.
+    {_, {ok, _}} = ?wait_async_action(
+        _ = ?ON(TargetNode, spawn(fun() -> relay_deliveries(Topic, TestPid) end)),
+        #{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TargetNode}}
+    ),
+    receive
+        {subscribed, Topic} -> ok
+    after 5_000 -> ct:fail(target_subscriber_not_ready)
+    end,
+    emqx_cth_cluster:sync_routes([SourceNode], 10_000),
+    Msg = emqx_message:make(?MODULE, 1, Topic, <<"hello">>),
+    {ok, [_ | _], _} = ?ON(SourceNode, emqx_broker:publish2(Msg)),
+    receive
+        {forwarded, #message{headers = Headers, payload = <<"hello">>}} ->
+            ?assertNot(maps:is_key(message_persisted, Headers), Headers),
+            ?assertNot(maps:is_key(consumed, Headers), Headers)
+    after 10_000 -> ct:fail(message_not_forwarded)
+    end.
+
+set_outcome_headers(Msg0) ->
+    Msg = emqx_message:set_header(message_persisted, true, Msg0),
+    {ok, emqx_message:set_consumed(Msg)}.
+
+relay_deliveries(Topic, TestPid) ->
+    ok = emqx_broker:subscribe(Topic),
+    TestPid ! {subscribed, Topic},
+    receive
+        {deliver, Topic, Msg} -> TestPid ! {forwarded, Msg}
+    after 30_000 -> ok
+    end.
+
 t_message_forwarding_ordering('init', Config) ->
     ok = snabbkaffe:start_trace(),
     {SourceClusterSpec, TargetClusterSpec} = mk_interlinked_clusters(?FUNCTION_NAME, 1, 1, Config),
