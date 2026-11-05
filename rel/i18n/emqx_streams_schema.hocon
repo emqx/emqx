@@ -1,4 +1,8 @@
 emqx_streams_schema {
+    deleted_at {
+        desc: "The deletion request time in milliseconds since the Unix epoch. Present only while the deletion is pending."
+        label: "Deleted At"
+    }
 
 enable {
     desc: """~
