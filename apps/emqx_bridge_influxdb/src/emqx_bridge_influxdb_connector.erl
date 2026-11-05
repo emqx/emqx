@@ -136,7 +136,12 @@ on_query(InstId, {Channel, Message}, #{channels := ChannelConf}) ->
             Client1 = render_bucket_client(Message, Client, ChannelConfig),
             ?tp(
                 influxdb_connector_send_query,
-                #{points => Points, batch => false, mode => sync, path => path(Client1)}
+                #{
+                    points => Points,
+                    batch => false,
+                    mode => sync,
+                    path => trace_path(Client1)
+                }
             ),
             do_query(InstId, Channel, Client1, Points);
         {error, ErrorPoints} ->
@@ -161,7 +166,10 @@ on_batch_query(InstId, BatchData, #{channels := ChannelConf}) ->
                     ?tp(
                         influxdb_connector_send_query,
                         #{
-                            points => Points, batch => true, mode => sync, path => path(Client)
+                            points => Points,
+                            batch => true,
+                            mode => sync,
+                            path => trace_path(Client)
                         }
                     ),
                     do_query(InstId, Channel, Client, Points);
@@ -189,7 +197,12 @@ on_query_async(
             Client1 = render_bucket_client(Message, Client, ChannelConfig),
             ?tp(
                 influxdb_connector_send_query,
-                #{points => Points, batch => false, mode => async, path => path(Client1)}
+                #{
+                    points => Points,
+                    batch => false,
+                    mode => async,
+                    path => trace_path(Client1)
+                }
             ),
             do_async_query(InstId, Channel, Client1, Points, {ReplyFun, Args});
         {error, ErrorPoints} = Err ->
@@ -217,7 +230,10 @@ on_batch_query_async(
                     ?tp(
                         influxdb_connector_send_query,
                         #{
-                            points => Points, batch => true, mode => async, path => path(Client)
+                            points => Points,
+                            batch => true,
+                            mode => async,
+                            path => trace_path(Client)
                         }
                     ),
                     do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs);
@@ -352,10 +368,7 @@ write_groups_sync(InstId, Channel, ParsedGroups) ->
         fun({Client, Points}, Acc) ->
             ?tp(
                 influxdb_connector_send_query,
-                #{points => Points, batch => true, mode => sync, path => path(Client)}
-            ),
-            emqx_trace:rendered_action_template(
-                Channel, #{points => Points, is_async => false}
+                #{points => Points, batch => true, mode => sync, path => trace_path(Client)}
             ),
             case do_query(InstId, Channel, Client, Points) of
                 ok -> Acc;
@@ -402,12 +415,13 @@ write_groups_async(_InstId, _Channel, [], ReplyFunAndArgs) ->
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, ok),
     ok;
 write_groups_async(InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
+    trace_rendered_groups(Channel, ParsedGroups, true),
     Coordinator = spawn(fun() ->
-        grouped_async_coordinator(InstId, Channel, ParsedGroups, ReplyFunAndArgs)
+        grouped_async_coordinator(InstId, ParsedGroups, ReplyFunAndArgs)
     end),
     {ok, Coordinator}.
 
-grouped_async_coordinator(InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
+grouped_async_coordinator(InstId, ParsedGroups, ReplyFunAndArgs) ->
     Grouped = lists:zip(lists:seq(1, length(ParsedGroups)), ParsedGroups),
     State0 = (group_results_acc())#{
         pending => maps:from_keys([GroupRef || {GroupRef, _} <- Grouped], true),
@@ -415,18 +429,15 @@ grouped_async_coordinator(InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
         worker_groups => #{},
         workers => #{}
     },
-    State = start_grouped_writes(InstId, Channel, Grouped, State0),
+    State = start_grouped_writes(InstId, Grouped, State0),
     wait_grouped_writes(ReplyFunAndArgs, State).
 
-start_grouped_writes(InstId, Channel, Grouped, State0) ->
+start_grouped_writes(InstId, Grouped, State0) ->
     lists:foldl(
         fun({GroupRef, {Client, Points}}, State) ->
             ?tp(
                 influxdb_connector_send_query,
-                #{points => Points, batch => true, mode => async, path => path(Client)}
-            ),
-            emqx_trace:rendered_action_template(
-                Channel, #{points => Points, is_async => true}
+                #{points => Points, batch => true, mode => async, path => trace_path(Client)}
             ),
             WrappedReplyFunAndArgs = {
                 fun ?MODULE:coordinated_reply_callback/3,
@@ -453,6 +464,16 @@ start_grouped_writes(InstId, Channel, Grouped, State0) ->
         end,
         State0,
         Grouped
+    ).
+
+trace_rendered_groups(Channel, ParsedGroups, IsAsync) ->
+    lists:foreach(
+        fun({_Client, Points}) ->
+            emqx_trace:rendered_action_template(
+                Channel, #{points => Points, is_async => IsAsync}
+            )
+        end,
+        ParsedGroups
     ).
 
 %% Convert every group before any write is issued. If any group fails to
@@ -632,6 +653,16 @@ grouped_result(_) ->
 
 path(Client) ->
     maps:get(path, Client, undefined).
+
+trace_path(Client) ->
+    case path(Client) of
+        undefined ->
+            undefined;
+        Path when is_binary(Path) ->
+            hd(binary:split(Path, <<"?">>));
+        Path ->
+            hd(string:split(Path, "?", leading))
+    end.
 
 %% -------------------------------------------------------------------------------------------------
 %% schema
@@ -2202,6 +2233,27 @@ structured_missing_timestamp_value_test() ->
         }
     ],
     assert_structured_write_error(Write, #{payload => #{}}).
+
+trace_path_redacts_query_string_test() ->
+    Client = #{path => "/write?u=user&p=secret&db=mqtt&precision=ms"},
+    ?assertEqual("/write", trace_path(Client)).
+
+grouped_async_trace_runs_before_spawn_test() ->
+    PreviousMetadata = logger:get_process_metadata(),
+    ok = logger:set_process_metadata(#{stop_action_after_render => true}),
+    try
+        Channel = <<"action:influxdb:test:connector:influxdb:c">>,
+        ?assertException(
+            error,
+            {unrecoverable_error, {action_stopped_after_template_rendering, _}},
+            trace_rendered_groups(Channel, [{client, [#{measurement => <<"m">>}]}], true)
+        )
+    after
+        case PreviousMetadata of
+            undefined -> logger:unset_process_metadata();
+            _ -> logger:set_process_metadata(PreviousMetadata)
+        end
+    end.
 
 assert_structured_write_error(Write, Data) ->
     ok = meck:new(influxdb, [passthrough, no_link]),
