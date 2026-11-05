@@ -1440,6 +1440,76 @@ t_raw_line_write_syntax(TCConfig) when is_list(TCConfig) ->
     end),
     ok.
 
+-doc "Write structured points through the action API.".
+t_structured_write() ->
+    [{matrix, true}].
+t_structured_write(matrix) ->
+    [
+        [?api_v2, ?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async], Batch <- [?without_batch, ?with_batch]
+    ];
+t_structured_write(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ActionConfig0 = ?config(action_config, TCConfig),
+    Parameters0 = maps:get(<<"parameters">>, ActionConfig0),
+    ActionConfig = ActionConfig0#{
+        <<"parameters">> => maps:remove(<<"write_syntax">>, Parameters0)
+    },
+    StructuredTCConfig = lists:keystore(
+        action_config, 1, TCConfig, {action_config, ActionConfig}
+    ),
+    Write = [
+        #{
+            <<"measurement">> => <<"${topic}">>,
+            <<"tags">> => [
+                #{
+                    <<"key">> => <<"clientid">>,
+                    <<"value">> => <<"${clientid}">>
+                }
+            ],
+            <<"fields">> => [
+                #{
+                    <<"key">> => <<"temperature">>,
+                    <<"type">> => <<"float">>,
+                    <<"value">> => <<"${payload.temperature}">>
+                },
+                #{
+                    <<"key">> => <<"count">>,
+                    <<"type">> => <<"integer">>,
+                    <<"value">> => <<"${payload.count}">>
+                }
+            ],
+            <<"timestamp">> => #{
+                <<"value">> => <<"${timestamp}">>,
+                <<"source_precision">> => <<"ms">>
+            }
+        }
+    ],
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(StructuredTCConfig, #{
+        <<"parameters">> => #{
+            <<"precision">> => <<"ns">>,
+            <<"write">> => Write
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    ct:timetrap({seconds, 30}),
+    Payload = emqx_utils_json:encode(#{
+        <<"temperature">> => 21.5,
+        <<"count">> => 7
+    }),
+    emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    ?retry(200, 10, begin
+        PersistedData = query_by_clientid(RuleTopic, ClientId, TCConfig),
+        Expected = #{
+            temperature => {<<"21.5">>, <<"double">>},
+            count => {<<"7">>, <<"long">>}
+        },
+        assert_persisted_data(ClientId, Expected, PersistedData)
+    end),
+    ok.
+
 t_authentication_error() ->
     [{matrix, true}].
 t_authentication_error(matrix) ->
