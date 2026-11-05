@@ -153,10 +153,14 @@ on_message_publish(
     PubMsg = Msg#message{topic = Topic1},
     Headers = PubMsg#message.headers,
     case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = PubMsg}) of
-        ok -> ok;
-        {error, Error} -> ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error})
-    end,
-    {stop, PubMsg#message{headers = Headers#{allow_publish => false}}};
+        ok ->
+            {stop, PubMsg#message{
+                headers = Headers#{allow_publish => false, delayed_publish_accepted => true}
+            }};
+        {error, Error} ->
+            ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error}),
+            {stop, PubMsg#message{headers = Headers#{allow_publish => false}}}
+    end;
 on_message_publish(Msg) ->
     {ok, Msg}.
 
