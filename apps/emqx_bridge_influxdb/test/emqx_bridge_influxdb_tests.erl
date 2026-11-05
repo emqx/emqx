@@ -379,6 +379,193 @@ source_precision_is_required_test() ->
         )
     ).
 
+auto_integer_ranges_are_checked_test_() ->
+    [
+        ?_test(
+            assert_structured_auto_error(
+                <<"${payload.value}u">>,
+                #{payload => #{value => -1}}
+            )
+        ),
+        ?_test(
+            assert_structured_auto_error(
+                <<"${payload.value}i">>,
+                #{payload => #{value => 9223372036854775808}}
+            )
+        ),
+        ?_test(assert_structured_auto_error(<<"-1u">>, #{})),
+        ?_test(assert_structured_auto_error(<<"9223372036854775808i">>, #{}))
+    ].
+
+auto_integer_suffixes_require_integer_values_test_() ->
+    [
+        ?_test(
+            assert_structured_auto_error(
+                <<"${payload.value}i">>,
+                #{payload => #{value => <<"1">>}}
+            )
+        ),
+        ?_test(
+            assert_structured_auto_error(
+                <<"${payload.value}u">>,
+                #{payload => #{value => <<"1">>}}
+            )
+        ),
+        ?_test(
+            assert_structured_auto_error(
+                <<"${payload.value}i">>,
+                #{payload => #{value => 1.5}}
+            )
+        ),
+        ?_test(
+            assert_structured_auto_error(
+                <<"${payload.value}u">>,
+                #{payload => #{value => true}}
+            )
+        )
+    ].
+
+legacy_mixed_integer_suffix_requires_integer_value_test() ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, _Points) ->
+                error(unexpected_write)
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        Lines = emqx_bridge_influxdb:to_influx_lines(
+            <<"m value=${payload.value}i">>
+        ),
+        ChannelConfig = #{
+            parameters => #{
+                write_syntax => Lines
+            }
+        },
+        {ok, State} = emqx_bridge_influxdb_connector:on_add_channel(
+            test_instance, State0, test_channel, ChannelConfig
+        ),
+        ?assertMatch(
+            {error, {unrecoverable_error, _}},
+            emqx_bridge_influxdb_connector:on_query(
+                test_instance,
+                {test_channel, #{payload => #{value => <<"1">>}}},
+                State
+            )
+        )
+    after
+        ok = meck:unload(influxdb)
+    end.
+
+legacy_tag_suffix_is_treated_as_string_test() ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        Self = self(),
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, Points) ->
+                Self ! {legacy_tag_points, Points},
+                ok
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        Lines = emqx_bridge_influxdb:to_influx_lines(
+            <<"m,device=${payload.tag}i value=1i ${timestamp}">>
+        ),
+        ChannelConfig = #{
+            parameters => #{
+                write_syntax => Lines
+            }
+        },
+        {ok, State} = emqx_bridge_influxdb_connector:on_add_channel(
+            test_instance, State0, test_channel, ChannelConfig
+        ),
+        ?assertEqual(
+            ok,
+            emqx_bridge_influxdb_connector:on_query(
+                test_instance,
+                {test_channel, #{
+                    payload => #{tag => <<"abc">>},
+                    timestamp => 1700000000123
+                }},
+                State
+            )
+        ),
+        receive
+            {legacy_tag_points, Points} ->
+                ?assertMatch(
+                    [#{tags := #{<<"device">> := <<"abci">>}}],
+                    Points
+                )
+        after 1_000 ->
+            error(legacy_tag_points_timeout)
+        end
+    after
+        ok = meck:unload(influxdb)
+    end.
+
+assert_structured_auto_error(ValueTemplate, Data) ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, _Points) ->
+                error(unexpected_write)
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        ChannelConfig = #{
+            parameters => #{
+                write => [
+                    #{
+                        measurement => <<"m">>,
+                        fields => [
+                            #{
+                                key => <<"value">>,
+                                type => auto,
+                                value => ValueTemplate
+                            }
+                        ],
+                        timestamp => false
+                    }
+                ]
+            }
+        },
+        {ok, State} = emqx_bridge_influxdb_connector:on_add_channel(
+            test_instance, State0, test_channel, ChannelConfig
+        ),
+        ?assertMatch(
+            {error, {unrecoverable_error, _}},
+            emqx_bridge_influxdb_connector:on_query(
+                test_instance, {test_channel, Data}, State
+            )
+        )
+    after
+        ok = meck:unload(influxdb)
+    end.
+
 -define(VALID_LINE_PARSED_PAIRS, [
     {"m1,tag=tag1 field=field1 ${timestamp1}", #{
         measurement => "m1",
