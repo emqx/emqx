@@ -27,4 +27,10 @@
     cursor :: term()
 }).
 
+%% Reply of a dispatcher worker that dropped a retained read from its full queue
+-record(retained_dropped, {
+    topic_filter :: emqx_types:topic(),
+    request_ref :: reference()
+}).
+
 -endif.

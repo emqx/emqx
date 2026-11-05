@@ -155,6 +155,7 @@
     retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
     retained_fetch_rate_limit_exceeded,
+    retained_read_dropped,
     retained_delete_failed_for_rate_exceeded_limit,
     session_buffer_high_watermark,
     socket_receive_paused_by_rate_limit,

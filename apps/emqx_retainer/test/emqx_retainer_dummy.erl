@@ -51,7 +51,7 @@ read_message(_Context, _Topic) -> {ok, []}.
 
 page_read(_Context, _Topic, _Deadline, _Offset, _Limit) -> {ok, false, []}.
 
-match_messages(_Context, _Topic, _Cursor, _Opts) -> {ok, [], undefined, 1}.
+match_messages(_Context, _Topic, _Cursor, _Opts) -> {ok, [], undefined, 0}.
 
 clear_expired(_Context, _Deadline, _Limit) -> {true, 0}.
 
