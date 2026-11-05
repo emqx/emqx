@@ -57,7 +57,9 @@ fields(action) ->
 fields(?ACTION_TYPE) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(hoconsc:ref(emqx_bridge_greptimedb, action_parameters), #{
-            required => true, desc => ?DESC("parameters")
+            required => true,
+            validator => fun emqx_bridge_greptimedb:action_parameters_validator/1,
+            desc => ?DESC("parameters")
         }),
         #{resource_opts_ref => ref(action_resource_opts)}
     );
@@ -117,11 +119,33 @@ action_example(put) ->
         enable => true,
         description => <<"my action">>,
         connector => <<"my_connector">>,
-        parameters =>
-            #{
-                write_syntax => write_syntax_value(),
-                precision => ms
-            },
+        parameters => #{
+            write => [
+                #{
+                    measurement => <<"mqtt">>,
+                    tags => [
+                        #{key => <<"clientid">>, value => <<"${clientid}">>}
+                    ],
+                    fields => [
+                        #{
+                            key => <<"temperature">>,
+                            type => float,
+                            value => <<"${payload.temperature}">>
+                        },
+                        #{
+                            key => <<"count">>,
+                            type => integer,
+                            value => <<"${payload.count}">>
+                        }
+                    ],
+                    timestamp => #{
+                        value => <<"${timestamp}">>,
+                        source_precision => ms
+                    }
+                }
+            ],
+            precision => ms
+        },
         resource_opts =>
             #{
                 batch_time => <<"100ms">>,
@@ -144,9 +168,3 @@ action_example(put) ->
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
-
-write_syntax_value() ->
-    <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
-        "${clientid}_int_value=${payload.int_key}i,",
-        "uint_value=${payload.uint_key}u,"
-        "bool=${payload.bool}">>.
