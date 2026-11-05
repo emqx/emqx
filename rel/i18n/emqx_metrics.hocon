@@ -197,9 +197,6 @@ emqx_metrics {
     messages_retained {
         desc: "Number of retained message writes"
     }
-    retained_dropped {
-        desc: "Number of retained-message reads that were dropped because the dispatcher queue was full. Each dropped read is one subscription that receives no further retained messages."
-    }
     delivery_dropped {
         desc: "Total number of discarded messages when sending"
     }

@@ -390,7 +390,6 @@ t_queue_full(_Config) ->
     Worker = emqx_retainer_dispatcher:worker(),
     lists:foreach(
         fun(#{requests := Kinds, served := Served, dropped := Dropped} = Case) ->
-            Dropped0 = emqx_metrics:val_global('retained.dropped'),
             ok = sys:suspend(Worker),
             Refs = [Ref || {live, Ref} <- [fetch_request(Worker, Kind) || Kind <- Kinds]],
             ok = sys:resume(Worker),
@@ -402,8 +401,7 @@ t_queue_full(_Config) ->
                     lists:duplicate(Dropped, retained_dropped),
                 Replies,
                 Case
-            ),
-            ?assertEqual(Dropped0 + Dropped, emqx_metrics:val_global('retained.dropped'), Case)
+            )
         end,
         [
             #{requests => [live, live, live, live, live], served => 3, dropped => 2},

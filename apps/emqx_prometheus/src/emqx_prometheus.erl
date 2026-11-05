@@ -538,7 +538,6 @@ emqx_collect(K = emqx_messages_dropped_quota_exceeded, D) -> counter_metrics(?MG
 emqx_collect(K = emqx_messages_dropped_receive_maximum, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_forward, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_retained, D) -> counter_metrics(?MG(K, D));
-emqx_collect(K = emqx_retained_dropped, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_delayed, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_delivered, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_acked, D) -> counter_metrics(?MG(K, D));
@@ -1046,7 +1045,6 @@ message_metric_meta() ->
         {emqx_messages_dropped_receive_maximum, counter, 'messages.dropped.receive_maximum'},
         {emqx_messages_forward, counter, 'messages.forward'},
         {emqx_messages_retained, counter, 'messages.retained'},
-        {emqx_retained_dropped, counter, 'retained.dropped'},
         {emqx_messages_delayed, counter, 'messages.delayed'},
         {emqx_messages_delivered, counter, 'messages.delivered'},
         {emqx_messages_acked, counter, 'messages.acked'}

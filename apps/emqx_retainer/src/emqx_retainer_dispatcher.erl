@@ -157,7 +157,6 @@ enqueue(Request, #{queue := Queue, queue_len := Len} = State) ->
 
 drop(#fetch{target = Target, request_ref = RequestRef, topic = Topic}) ->
     ok = send(Target, #retained_dropped{topic_filter = Topic, request_ref = RequestRef}),
-    ok = emqx_metrics:inc_global('retained.dropped'),
     ?tp(retainer_dispatcher_dropped, #{topic => Topic}),
     ?SLOG_THROTTLE(
         warning,
