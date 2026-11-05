@@ -48,6 +48,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
+%% Creates a false positive where length is actually needed.
+-elvis([{elvis_style, prefer_robot_butt, disable}]).
+
 %% Mnesia bootstrap
 -export([create_tables/0]).
 
@@ -208,7 +211,7 @@ init([]) ->
         {read_concurrency, true}
     ]),
     %% Monitor nodes lifecycle events.
-    ok = ekka:monitor(membership),
+    ok = mria_membership:monitor(membership, self(), true),
     TRef = schedule_task(reconcile, ?RECONCILE_TURBULENCE_DELAY),
     State = #{
         last_membership => emqx_maybe:define(cores(), []),
@@ -247,7 +250,7 @@ handle_info(Info, State) ->
 
 terminate(_Reason, _State) ->
     emqx_stats:cancel_update(route_stats),
-    ekka:unmonitor(membership).
+    mria_membership:monitor(membership, self(), false).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -330,13 +333,13 @@ reconcile(State = #{last_membership := MembersLast}) ->
     %% Missing core nodes must have been "force-left" from the cluster.
     %% On replicants, `cores()` may return `undefined` under severe connectivity loss.
     Members = emqx_maybe:define(cores(), MembersLast),
-    ok = lists:foreach(fun(Node) -> record_node_left(Node) end, MembersLast -- Members),
+    ok = lists:foreach(fun record_node_left/1, MembersLast -- Members),
     %% 2. Find out if there are (possibly) orphaned routes in the routing table.
     %% Mark them as down: they are most likely replicants.
     RunningNodes = mria:running_nodes(),
     RoutingNodes = list_routing_nodes(),
     OrphanNodes = [N || N <- RoutingNodes -- RunningNodes, lookup_node_status(N) == notfound],
-    ok = lists:foreach(fun(Node) -> record_node_down(Node) end, OrphanNodes),
+    ok = lists:foreach(fun record_node_down/1, OrphanNodes),
     %% 3. Avoid purging live nodes, if missed lifecycle events for whatever reason.
     %% This is a fallback mechanism. It's also possible a node "leave" that triggered
     %% this reconcile has not yet finished "leaving". Since it's extremely unlikely,
