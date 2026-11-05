@@ -71,6 +71,10 @@
 
 -define(DEFAULT_POOL_SIZE, 8).
 
+-define(MIN_INT64, -16#8000000000000000).
+-define(MAX_INT64, 16#7FFFFFFFFFFFFFFF).
+-define(MAX_UINT64, 16#FFFFFFFFFFFFFFFF).
+
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
 resource_type() -> influxdb.
@@ -83,13 +87,12 @@ on_add_channel(
     ChannelId,
     #{parameters := Parameters} = ChannelConfig0
 ) ->
-    #{write_syntax := WriteSytaxTmpl} = Parameters,
     Precision = maps:get(precision, Parameters, ms),
     ChannelConfig = maps:merge(
         Parameters,
         ChannelConfig0#{
             channel_client => influxdb:update_precision(Client, Precision),
-            write_syntax => to_config(WriteSytaxTmpl, Precision),
+            write_syntax => to_config(write_config(Parameters), Precision),
             bucket_tmpl => preproc_bucket_tmpl(Parameters)
         }
     ),
@@ -1047,14 +1050,21 @@ classify_result(Result) ->
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
 
-to_config(Lines, Precision) ->
-    to_config(Lines, [], Precision).
+write_config(#{write := Points}) ->
+    {structured, Points};
+write_config(#{write_syntax := Lines}) ->
+    {legacy, Lines}.
 
-to_config([], Acc, _Precision) ->
+to_config({legacy, Lines}, Precision) ->
+    legacy_to_config(Lines, [], Precision);
+to_config({structured, Points}, Precision) ->
+    [structured_point_to_config(Point, Precision) || Point <- Points].
+
+legacy_to_config([], Acc, _Precision) ->
     lists:reverse(Acc);
-to_config([#{line := Line0} | Rest], Acc, Precision) ->
-    to_config(Rest, [#{line => emqx_placeholder:preproc_tmpl(Line0)} | Acc], Precision);
-to_config([Item0 | Rest], Acc, Precision) ->
+legacy_to_config([#{line := Line0} | Rest], Acc, Precision) ->
+    legacy_to_config(Rest, [#{line => emqx_placeholder:preproc_tmpl(Line0)} | Acc], Precision);
+legacy_to_config([Item0 | Rest], Acc, Precision) ->
     Ts0 = maps:get(timestamp, Item0, undefined),
     {Ts, FromPrecision, ToPrecision} = preproc_tmpl_timestamp(Ts0, Precision),
     Item = #{
@@ -1064,7 +1074,54 @@ to_config([Item0 | Rest], Acc, Precision) ->
         tags => to_kv_config(maps:get(tags, Item0)),
         fields => to_kv_config(maps:get(fields, Item0))
     },
-    to_config(Rest, [Item | Acc], Precision).
+    legacy_to_config(Rest, [Item | Acc], Precision).
+
+structured_point_to_config(Point, TargetPrecision) ->
+    {Timestamp, SourcePrecision, MissingTimestamp} = structured_timestamp(
+        maps:get(timestamp, Point, undefined), TargetPrecision
+    ),
+    #{
+        measurement => {structured, emqx_placeholder:preproc_tmpl(maps:get(measurement, Point))},
+        tags => structured_tags(maps:get(tags, Point, [])),
+        fields => structured_fields(maps:get(fields, Point)),
+        timestamp => Timestamp,
+        missing_timestamp => MissingTimestamp,
+        precision => {SourcePrecision, TargetPrecision}
+    }.
+
+structured_timestamp(false, TargetPrecision) ->
+    {undefined, TargetPrecision, ignore};
+structured_timestamp(undefined, TargetPrecision) ->
+    {Ts, SourcePrecision, _} = preproc_tmpl_timestamp(undefined, TargetPrecision),
+    {Ts, SourcePrecision, default};
+structured_timestamp(#{value := Value, source_precision := SourcePrecision}, _TargetPrecision) ->
+    {emqx_placeholder:preproc_tmpl(Value), SourcePrecision, error}.
+
+structured_tags(Tags) ->
+    lists:foldl(
+        fun(#{key := Key, value := Value}, Acc) ->
+            maps:put(
+                emqx_placeholder:preproc_tmpl(Key),
+                {structured_tag, emqx_placeholder:preproc_tmpl(Value)},
+                Acc
+            )
+        end,
+        #{},
+        Tags
+    ).
+
+structured_fields(Fields) ->
+    lists:foldl(
+        fun(#{key := Key, type := Type, value := Value}, Acc) ->
+            maps:put(
+                emqx_placeholder:preproc_tmpl(Key),
+                {typed, Type, emqx_placeholder:preproc_tmpl(Value)},
+                Acc
+            )
+        end,
+        #{},
+        Fields
+    ).
 
 %% pre-process the timestamp template
 %% returns a tuple of three elements:
@@ -1188,7 +1245,14 @@ lines_to_points(
     is_list(Ts)
 ->
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    case parse_timestamp(emqx_placeholder:proc_tmpl(Ts, Data, TransOptions), Precision) of
+    MissingTimestamp = maps:get(missing_timestamp, Item, default),
+    case
+        parse_timestamp(
+            emqx_placeholder:proc_tmpl(Ts, Data, TransOptions),
+            Precision,
+            MissingTimestamp
+        )
+    of
         {ok, TsInt} ->
             Item1 = Item#{timestamp => TsInt},
             continue_lines_to_points(Data, Item1, Rest, ResultPointsAcc, ErrorPointsAcc);
@@ -1211,21 +1275,30 @@ lines_to_points(
         Rest,
         ResultPointsAcc,
         ErrorPointsAcc
-    ).
+    );
+lines_to_points(
+    Data,
+    [#{timestamp := undefined} = Item | Rest],
+    ResultPointsAcc,
+    ErrorPointsAcc
+) ->
+    continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc).
 
-parse_timestamp([undefined], {_From, To} = _Precision) ->
+parse_timestamp([undefined], _Precision, error) ->
+    {error, missing_timestamp};
+parse_timestamp([undefined], {_From, To} = _Precision, default) ->
     %% used ${timestamp} or keep it blank. but the `timestamp` field not present in RULE SQL
     {ok, maybe_convert_time_unit(emqx_message:timestamp_now(), {ms, To})};
-parse_timestamp([TsInt], Precision) when is_integer(TsInt) ->
+parse_timestamp([TsInt], Precision, _MissingTimestamp) when is_integer(TsInt) ->
     {ok, maybe_convert_time_unit(TsInt, Precision)};
-parse_timestamp([TsBin], Precision) ->
+parse_timestamp([TsBin], Precision, _MissingTimestamp) ->
     try
         {ok, maybe_convert_time_unit(binary_to_integer(TsBin), Precision)}
     catch
         _:_ ->
             {error, {non_integer_timestamp, TsBin}}
     end;
-parse_timestamp(InvalidTs, _) ->
+parse_timestamp(InvalidTs, _, _MissingTimestamp) ->
     %% The timestamp field must be a single integer or a single placeholder. i.e. the
     %%   following is not allowed:
     %%   - weather,location=us-midwest,season=summer temperature=82 ${timestamp}00
@@ -1245,11 +1318,25 @@ continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
             %% influxdb client doesn't like empty field maps...
             ErrorPointsAcc1 = [{error, no_fields} | ErrorPointsAcc],
             lines_to_points(Data, Rest, ResultPointsAcc, ErrorPointsAcc1);
+        {error, Reason} ->
+            ErrorPointsAcc1 = [{error, Reason} | ErrorPointsAcc],
+            lines_to_points(Data, Rest, ResultPointsAcc, ErrorPointsAcc1);
         Point ->
             lines_to_points(Data, Rest, [Point | ResultPointsAcc], ErrorPointsAcc)
     end.
 
 line_to_point(
+    Data,
+    Item
+) ->
+    try line_to_point_1(Data, Item) of
+        Point -> Point
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
+
+line_to_point_1(
     Data,
     #{
         measurement := Measurement,
@@ -1260,13 +1347,80 @@ line_to_point(
 ) ->
     {_, EncodedTags, _} = maps:fold(fun maps_config_to_data/3, {Data, #{}, ?set_tag}, Tags),
     {_, EncodedFields, _} = maps:fold(fun maps_config_to_data/3, {Data, #{}, ?set_field}, Fields),
-    maps:without([precision], Item#{
-        measurement => emqx_placeholder:proc_tmpl(Measurement, Data),
+    maps:without([precision, missing_timestamp], Item#{
+        measurement => render_measurement(Measurement, Data),
         tags => EncodedTags,
         fields => EncodedFields,
         timestamp => Ts
     }).
 
+render_measurement({structured, Tmpl}, Data) ->
+    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    Parts = emqx_placeholder:proc_tmpl(Tmpl, Data, TransOptions),
+    case {lists:member(undefined, Parts), render_template_text(Parts)} of
+        {true, _} ->
+            throw(missing_measurement);
+        {false, <<>>} ->
+            throw(empty_measurement);
+        {false, Measurement} ->
+            Measurement
+    end;
+render_measurement(Tmpl, Data) ->
+    emqx_placeholder:proc_tmpl(Tmpl, Data).
+
+maps_config_to_data(K, {structured_tag, Tmpl}, {Data, Res, ?set_tag}) ->
+    KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
+    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
+    NV = emqx_placeholder:proc_tmpl(Tmpl, Data, VTransOptions),
+    case {has_undefined(NK), has_undefined(NV)} of
+        {true, _} ->
+            {Data, Res, ?set_tag};
+        {_, true} ->
+            {Data, Res, ?set_tag};
+        _ ->
+            NRes = put_structured_kv(
+                tag_key,
+                render_template_text(NK),
+                render_template_text(NV),
+                Res
+            ),
+            {Data, NRes, ?set_tag}
+    end;
+maps_config_to_data(K, {typed, Type, Tmpl}, {Data, Res, _SetType}) ->
+    KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
+    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
+    NV = emqx_placeholder:proc_tmpl(Tmpl, Data, VTransOptions),
+    case {has_undefined(NK), has_undefined(NV)} of
+        {true, _} ->
+            {Data, Res, ?set_field};
+        {_, true} ->
+            {Data, Res, ?set_field};
+        _ ->
+            Value =
+                try
+                    case Type of
+                        auto ->
+                            value_type(NV, #{
+                                tmpl_type => tmpl_type(Tmpl),
+                                set_type => ?set_field
+                            });
+                        _ ->
+                            typed_field_value(Type, NV)
+                    end
+                catch
+                    _:_ ->
+                        throw({invalid_field_value, #{type => Type, value => NV}})
+                end,
+            NRes = put_structured_kv(
+                field_key,
+                render_template_text(NK),
+                Value,
+                Res
+            ),
+            {Data, NRes, ?set_field}
+    end;
 maps_config_to_data(K, V, {Data, Res, SetType}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
@@ -1287,6 +1441,80 @@ maps_config_to_data(K, V, {Data, Res, SetType}) ->
                 })
             },
             {Data, NRes, SetType}
+    end.
+
+typed_field_value(float, [Value]) when is_number(Value) ->
+    {float, Value};
+typed_field_value(float, [Value]) when is_binary(Value) ->
+    ok = valid_float_binary(Value),
+    {float, Value};
+typed_field_value(integer, [Value]) when
+    is_integer(Value), Value >= ?MIN_INT64, Value =< ?MAX_INT64
+->
+    {int, Value};
+typed_field_value(integer, [Value]) when is_binary(Value) ->
+    Int = binary_to_integer(Value),
+    typed_field_value(integer, [Int]);
+typed_field_value(uint, [Value]) when
+    is_integer(Value), Value >= 0, Value =< ?MAX_UINT64
+->
+    {uint, Value};
+typed_field_value(uint, [Value]) when is_binary(Value) ->
+    UInt = binary_to_integer(Value),
+    typed_field_value(uint, [UInt]);
+typed_field_value(boolean, [Value]) when is_boolean(Value) ->
+    Value;
+typed_field_value(boolean, [Value]) when is_binary(Value) ->
+    typed_boolean(Value);
+typed_field_value(string, Values) when is_list(Values) ->
+    {string, render_template_text(Values)}.
+
+typed_boolean(Value) ->
+    case string:lowercase(Value) of
+        <<"true">> -> true;
+        <<"t">> -> true;
+        <<"false">> -> false;
+        <<"f">> -> false
+    end.
+
+valid_float_binary(Value) ->
+    try
+        _ = binary_to_float(Value),
+        ok
+    catch
+        error:badarg ->
+            try
+                _ = binary_to_integer(Value),
+                ok
+            catch
+                error:badarg ->
+                    case
+                        re:run(
+                            Value,
+                            <<"^[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$">>,
+                            [{capture, none}]
+                        )
+                    of
+                        match -> ok;
+                        nomatch -> error(badarg)
+                    end
+            end
+    end.
+
+render_template_text(Values) when is_list(Values) ->
+    iolist_to_binary([bin(Value) || Value <- Values]).
+
+has_undefined(Values) ->
+    lists:member(undefined, Values).
+
+put_structured_kv(KeyType, Key, Value, Acc) ->
+    case {Key, maps:is_key(Key, Acc)} of
+        {<<>>, _} ->
+            throw({empty_rendered_key, KeyType});
+        {_, true} ->
+            throw({duplicate_rendered_key, #{type => KeyType, key => Key}});
+        {_, false} ->
+            Acc#{Key => Value}
     end.
 
 value_type([Number], #{set_type := ?set_tag}) when is_number(Number) ->
@@ -1456,6 +1684,582 @@ is_unrecoverable_error(_) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+structured_write_callback_test() ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, Points) ->
+                self() ! {structured_write_points, Points},
+                ok
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        ChannelConfig = #{
+            parameters => #{
+                precision => ns,
+                write => [
+                    #{
+                        measurement => <<"${topic}">>,
+                        tags => [
+                            #{key => <<"clientid">>, value => <<"${clientid}">>}
+                        ],
+                        fields => [
+                            #{
+                                key => <<"temperature">>,
+                                type => float,
+                                value => <<"${payload.temperature}">>
+                            },
+                            #{
+                                key => <<"count">>,
+                                type => integer,
+                                value => <<"${payload.count}">>
+                            },
+                            #{
+                                key => <<"unsigned">>,
+                                type => uint,
+                                value => <<"${payload.unsigned}">>
+                            },
+                            #{
+                                key => <<"online">>,
+                                type => boolean,
+                                value => <<"${payload.online}">>
+                            }
+                        ],
+                        timestamp => #{
+                            value => <<"${payload.ts}">>,
+                            source_precision => ms
+                        }
+                    }
+                ]
+            }
+        },
+        {ok, State} = on_add_channel(test_instance, State0, test_channel, ChannelConfig),
+        Data = #{
+            topic => <<"sensors">>,
+            clientid => <<"client-1">>,
+            payload => #{
+                temperature => 21.5,
+                count => 2,
+                unsigned => 3,
+                online => true,
+                ts => 1700000000123
+            }
+        },
+        ok = on_query(test_instance, {test_channel, Data}, State),
+        receive
+            {structured_write_points, [Point]} ->
+                ?assertEqual(
+                    #{
+                        measurement => <<"sensors">>,
+                        tags => #{<<"clientid">> => <<"client-1">>},
+                        fields => #{
+                            <<"temperature">> => {float, 21.5},
+                            <<"count">> => {int, 2},
+                            <<"unsigned">> => {uint, 3},
+                            <<"online">> => true
+                        },
+                        timestamp => 1700000000123000000
+                    },
+                    Point
+                )
+        after 1000 ->
+            error(no_structured_write)
+        end
+    after
+        meck:unload(influxdb)
+    end.
+
+legacy_write_syntax_callback_test() ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, Points) ->
+                self() ! {legacy_write_points, Points},
+                ok
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        ChannelConfig = #{
+            parameters => #{
+                write_syntax => emqx_bridge_influxdb:to_influx_lines(
+                    <<"m,clientid=${clientid} value=${payload.value}i">>
+                )
+            }
+        },
+        {ok, State} = on_add_channel(test_instance, State0, test_channel, ChannelConfig),
+        Data = #{clientid => <<"client-1">>, payload => #{value => 7}},
+        ok = on_query(test_instance, {test_channel, Data}, State),
+        receive
+            {legacy_write_points, [Point]} ->
+                ?assertEqual(<<"m">>, maps:get(measurement, Point)),
+                ?assertEqual(#{<<"clientid">> => <<"client-1">>}, maps:get(tags, Point)),
+                ?assertEqual(#{<<"value">> => {int, 7}}, maps:get(fields, Point))
+        after 1000 ->
+            error(no_legacy_write)
+        end
+    after
+        meck:unload(influxdb)
+    end.
+
+structured_field_value_coercion_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            tags => [],
+            fields => [
+                #{key => <<"f">>, type => float, value => <<"${payload.f}">>},
+                #{key => <<"i">>, type => integer, value => <<"${payload.i}">>},
+                #{key => <<"u">>, type => uint, value => <<"${payload.u}">>},
+                #{key => <<"b">>, type => boolean, value => <<"${payload.b}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    Data = #{
+        payload => #{
+            f => <<"21.5">>,
+            i => <<"2">>,
+            u => <<"3">>,
+            b => <<"true">>
+        }
+    },
+    {ok, [Point]} = run_structured_callback(Write, Data),
+    ?assertEqual(
+        #{
+            <<"f">> => {float, <<"21.5">>},
+            <<"i">> => {int, 2},
+            <<"u">> => {uint, 3},
+            <<"b">> => true
+        },
+        maps:get(fields, Point)
+    ),
+    ?assertEqual(undefined, maps:get(timestamp, Point)).
+
+structured_multiple_points_single_write_test() ->
+    Write = [
+        #{
+            measurement => <<"temperature">>,
+            fields => [
+                #{key => <<"value">>, type => float, value => <<"${payload.temperature}">>}
+            ],
+            timestamp => false
+        },
+        #{
+            measurement => <<"humidity">>,
+            fields => [
+                #{key => <<"value">>, type => float, value => <<"${payload.humidity}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    Data = #{payload => #{temperature => 21.5, humidity => 48.0}},
+    {ok, Points} = run_structured_callback(Write, Data),
+    ?assertEqual(2, length(Points)),
+    ?assertEqual(
+        [<<"humidity">>, <<"temperature">>],
+        lists:sort([maps:get(measurement, Point) || Point <- Points])
+    ).
+
+structured_batch_writes_all_points_once_test() ->
+    Write = [
+        #{
+            measurement => <<"temperature">>,
+            fields => [
+                #{key => <<"value">>, type => float, value => <<"${payload.temperature}">>}
+            ],
+            timestamp => false
+        },
+        #{
+            measurement => <<"humidity">>,
+            fields => [
+                #{key => <<"value">>, type => float, value => <<"${payload.humidity}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, Points) ->
+                self() ! {structured_batch_write_points, Points},
+                ok
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        ChannelConfig = #{parameters => #{write => Write}},
+        {ok, State} = on_add_channel(test_instance, State0, test_channel, ChannelConfig),
+        Batch = [
+            {test_channel, #{payload => #{temperature => 20.0, humidity => 40.0}}},
+            {test_channel, #{payload => #{temperature => 21.0, humidity => 41.0}}}
+        ],
+        ok = on_batch_query(test_instance, Batch, State),
+        receive
+            {structured_batch_write_points, Points} ->
+                ?assertEqual(4, length(Points))
+        after 1000 ->
+            error(no_structured_batch_write)
+        end
+    after
+        meck:unload(influxdb)
+    end.
+
+structured_batch_dynamic_bucket_groups_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"value">>, type => integer, value => <<"${payload.value}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            update_bucket,
+            fun(Client, Bucket) ->
+                Client#{bucket => Bucket}
+            end
+        ),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(Client, Points) ->
+                self() ! {structured_bucket_write, maps:get(bucket, Client), Points},
+                ok
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        ChannelConfig = #{
+            parameters => #{
+                bucket => <<"${payload.bucket}">>,
+                write => Write
+            }
+        },
+        {ok, State} = on_add_channel(test_instance, State0, test_channel, ChannelConfig),
+        Batch = [
+            {test_channel, #{payload => #{bucket => <<"b1">>, value => 1}}},
+            {test_channel, #{payload => #{bucket => <<"b2">>, value => 2}}}
+        ],
+        ok = on_batch_query(test_instance, Batch, State),
+        Writes = collect_structured_bucket_writes(2, []),
+        ?assertEqual([<<"b1">>, <<"b2">>], lists:sort(maps:keys(maps:from_list(Writes))))
+    after
+        meck:unload(influxdb)
+    end.
+
+collect_structured_bucket_writes(0, Acc) ->
+    Acc;
+collect_structured_bucket_writes(Count, Acc) ->
+    receive
+        {structured_bucket_write, Bucket, Points} ->
+            collect_structured_bucket_writes(Count - 1, [{Bucket, Points} | Acc])
+    after 1000 ->
+        error({missing_structured_bucket_writes, Count, Acc})
+    end.
+
+structured_float_accepts_integer_string_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"f">>, type => float, value => <<"${payload.f}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    {ok, [Point]} = run_structured_callback(Write, #{payload => #{f => <<"2">>}}),
+    ?assertEqual(#{<<"f">> => {float, <<"2">>}}, maps:get(fields, Point)).
+
+structured_float_accepts_scientific_notation_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"f">>, type => float, value => <<"${payload.f}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    {ok, [Point]} = run_structured_callback(Write, #{payload => #{f => <<"1e3">>}}),
+    ?assertEqual(#{<<"f">> => {float, <<"1e3">>}}, maps:get(fields, Point)).
+
+structured_string_and_missing_field_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{
+                    key => <<"greeting">>,
+                    type => string,
+                    value => <<"hello ", "${payload.name}">>
+                },
+                #{
+                    key => <<"missing">>,
+                    type => float,
+                    value => <<"${payload.missing}">>
+                }
+            ],
+            timestamp => false
+        }
+    ],
+    {ok, [Point]} = run_structured_callback(Write, #{payload => #{name => <<"emqx">>}}),
+    ?assertEqual(
+        #{<<"greeting">> => {string, <<"hello emqx">>}},
+        maps:get(fields, Point)
+    ).
+
+structured_tag_mixed_template_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            tags => [
+                #{
+                    key => <<"device-", "${payload.kind}">>,
+                    value => <<"tenant-", "${payload.tenant}">>
+                }
+            ],
+            fields => [
+                #{key => <<"value">>, type => integer, value => <<"${payload.value}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    Data = #{
+        payload => #{
+            kind => <<"sensor">>,
+            tenant => <<"acme">>,
+            value => 1
+        }
+    },
+    {ok, [Point]} = run_structured_callback(Write, Data),
+    ?assertEqual(
+        #{<<"device-sensor">> => <<"tenant-acme">>},
+        maps:get(tags, Point)
+    ).
+
+structured_auto_field_type_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"value">>, type => auto, value => <<"${payload.value}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    {ok, [Point]} = run_structured_callback(Write, #{payload => #{value => 1}}),
+    ?assertEqual(#{<<"value">> => {float, 1}}, maps:get(fields, Point)).
+
+structured_all_fields_missing_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"value">>, type => float, value => <<"${payload.value}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    assert_structured_write_error(Write, #{payload => #{}}).
+
+structured_field_type_error_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{
+                    key => <<"count">>,
+                    type => integer,
+                    value => <<"${payload.count}">>
+                }
+            ],
+            timestamp => false
+        }
+    ],
+    assert_structured_write_error(Write, #{payload => #{count => <<"1.5">>}}).
+
+structured_uint_overflow_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"count">>, type => uint, value => <<"${payload.count}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    assert_structured_write_error(
+        Write,
+        #{payload => #{count => 18446744073709551616}}
+    ).
+
+structured_duplicate_rendered_field_key_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"${payload.k1}">>, type => integer, value => <<"1">>},
+                #{key => <<"${payload.k2}">>, type => integer, value => <<"2">>}
+            ],
+            timestamp => false
+        }
+    ],
+    assert_structured_write_error(
+        Write,
+        #{payload => #{k1 => <<"value">>, k2 => <<"value">>}}
+    ).
+
+structured_missing_measurement_test() ->
+    Write = [
+        #{
+            measurement => <<"${payload.measurement}">>,
+            fields => [
+                #{key => <<"value">>, type => integer, value => <<"${payload.value}">>}
+            ],
+            timestamp => false
+        }
+    ],
+    assert_structured_write_error(Write, #{payload => #{value => 1}}).
+
+structured_empty_field_key_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"${payload.key}">>, type => integer, value => <<"1">>}
+            ],
+            timestamp => false
+        }
+    ],
+    assert_structured_write_error(Write, #{payload => #{key => <<>>}}).
+
+structured_mixed_template_missing_value_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            tags => [
+                #{key => <<"tenant">>, value => <<"tenant-", "${payload.missing}">>}
+            ],
+            fields => [
+                #{
+                    key => <<"greeting">>,
+                    type => string,
+                    value => <<"hello ", "${payload.missing}">>
+                },
+                #{key => <<"value">>, type => integer, value => <<"1">>}
+            ],
+            timestamp => false
+        }
+    ],
+    {ok, [Point]} = run_structured_callback(Write, #{payload => #{}}),
+    ?assertEqual(#{}, maps:get(tags, Point)),
+    ?assertEqual(#{<<"value">> => {int, 1}}, maps:get(fields, Point)).
+
+structured_missing_timestamp_value_test() ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{key => <<"value">>, type => integer, value => <<"1">>}
+            ],
+            timestamp => #{
+                value => <<"${payload.ts}">>,
+                source_precision => ms
+            }
+        }
+    ],
+    assert_structured_write_error(Write, #{payload => #{}}).
+
+assert_structured_write_error(Write, Data) ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, _Points) ->
+                error(unexpected_write)
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        ChannelConfig = #{parameters => #{write => Write}},
+        {ok, State} = on_add_channel(test_instance, State0, test_channel, ChannelConfig),
+        ?assertMatch(
+            {error, {unrecoverable_error, _}},
+            on_query(test_instance, {test_channel, Data}, State)
+        )
+    after
+        meck:unload(influxdb)
+    end.
+
+run_structured_callback(Write, Data) ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, Points) ->
+                self() ! {structured_write_points, Points},
+                ok
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        ChannelConfig = #{parameters => #{precision => ns, write => Write}},
+        {ok, State} = on_add_channel(test_instance, State0, test_channel, ChannelConfig),
+        ok = on_query(test_instance, {test_channel, Data}, State),
+        receive
+            {structured_write_points, Points} ->
+                {ok, Points}
+        after 1000 ->
+            error(no_structured_write)
+        end
+    after
+        meck:unload(influxdb)
+    end.
 
 is_auth_key_test_() ->
     [
