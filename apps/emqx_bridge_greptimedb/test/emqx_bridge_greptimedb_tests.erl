@@ -368,11 +368,15 @@ native_single_query_keeps_cross_table_error_test() ->
     State = native_rs_state(Write),
     Insert = fun
         (_Client, <<"ok_table">>, _Points) -> {ok, 1};
-        (_Client, <<"bad_table">>, _Points) -> {error, bad_table_failed}
+        (_Client, <<"bad_table">>, _Points) -> {error, ecpool_empty}
     end,
     with_rs_insert_mock(Insert, fun() ->
-        ?assertEqual(
-            {error, {recoverable_error, bad_table_failed}},
+        ?assertMatch(
+            {error,
+                {unrecoverable_error, #{
+                    reason := multiline_partial_write,
+                    successful_rows := 1
+                }}},
             emqx_bridge_greptimedb_rs_impl:on_query(
                 connector, {channel, #{}}, State
             )
@@ -428,6 +432,81 @@ native_batch_query_counts_points_per_message_test() ->
         ?assertEqual(
             [{ok, 1}, {ok, 1}],
             emqx_bridge_greptimedb_rs_impl:on_batch_query(connector, Batch, State)
+        )
+    end).
+
+native_batch_with_partial_success_is_unrecoverable_test() ->
+    Write = native_test_write(<<"${payload.table}">>, 1),
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"first">>}}},
+        {channel, #{payload => #{table => <<"second">>}}},
+        {channel, #{payload => #{table => <<"third">>}}}
+    ],
+    Insert = fun
+        (_Client, <<"first">>, _Points) -> {ok, 1};
+        (_Client, _Table, _Points) -> {error, ecpool_empty}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
+            connector, Batch, State
+        ),
+        assert_all_unrecoverable(Results, partial_batch_write)
+    end).
+
+native_batch_without_success_and_permanent_error_is_unrecoverable_test() ->
+    Write = [
+        #{
+            measurement => <<"${payload.table}">>,
+            fields => [
+                #{key => <<"value">>, type => integer, value => <<"1">>}
+            ],
+            timestamp => #{
+                value => <<"${payload.ts}">>,
+                source_precision => ms
+            }
+        }
+    ],
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"valid">>, ts => 1}}},
+        {channel, #{payload => #{table => <<"invalid">>, ts => <<"bad">>}}}
+    ],
+    Insert = fun(_Client, <<"valid">>, _Points) -> {error, ecpool_empty} end,
+    with_rs_insert_mock(Insert, fun() ->
+        Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
+            connector, Batch, State
+        ),
+        assert_all_unrecoverable(Results, batch_contains_unrecoverable)
+    end).
+
+native_batch_with_only_transient_errors_is_recoverable_test() ->
+    Write = native_test_write(<<"${payload.table}">>, 1),
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"first">>}}},
+        {channel, #{payload => #{table => <<"second">>}}}
+    ],
+    Insert = fun(_Client, _Table, _Points) -> {error, ecpool_empty} end,
+    with_rs_insert_mock(Insert, fun() ->
+        Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
+            connector, Batch, State
+        ),
+        assert_all_recoverable(Results, mixed_batch_failure)
+    end).
+
+native_nif_error_is_unrecoverable_test() ->
+    Write = native_test_write(<<"mqtt">>, 1),
+    State = native_rs_state(Write),
+    Insert = fun(_Client, <<"mqtt">>, _Points) ->
+        {error, {nif_error, bad_schema}}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        ?assertEqual(
+            {error, {unrecoverable_error, bad_schema}},
+            emqx_bridge_greptimedb_rs_impl:on_query(
+                connector, {channel, #{}}, State
+            )
         )
     end).
 
@@ -576,9 +655,8 @@ native_async_later_table_submission_error_completes_batch_test() ->
             {ok, self()};
         (_Client, <<"second">>, _Points, _Callback) ->
             {error, ecpool_empty};
-        (_Client, <<"third">>, _Points, Callback) ->
-            _ = invoke_rs_callback(Callback, {ok, 1}),
-            {ok, self()}
+        (_Client, <<"third">>, _Points, _Callback) ->
+            error(unexpected_third_submission)
     end,
     with_rs_insert_async_mock(InsertAsync, fun() ->
         ?assertMatch(
@@ -589,14 +667,7 @@ native_async_later_table_submission_error_completes_batch_test() ->
         ),
         receive
             {native_async_submit_error, Result} ->
-                ?assertEqual(
-                    [
-                        {ok, 1},
-                        {error, {recoverable_error, ecpool_empty}},
-                        {ok, 1}
-                    ],
-                    Result
-                )
+                assert_all_unrecoverable(Result, partial_batch_write)
         after 1_000 ->
             error(native_async_submit_error_timeout)
         end
@@ -628,6 +699,112 @@ native_async_transient_error_is_recoverable_test() ->
             error(native_async_recoverable_error_timeout)
         end
     end).
+
+legacy_async_reply_context_is_normalized_test() ->
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {legacy_async_context_result, Result} end,
+        []
+    },
+    Context = #{
+        iter => maps:iterator(#{}),
+        last_indices => [1],
+        final_cont => FinalReply,
+        final_res => [],
+        client => test_client,
+        is_batch => false
+    },
+    emqx_bridge_greptimedb_rs_impl:reply_callback(Context, {ok, 1}),
+    receive
+        {legacy_async_context_result, Result} ->
+            ?assertEqual({ok, 1}, Result)
+    after 1_000 ->
+        error(legacy_async_context_timeout)
+    end.
+
+legacy_batch_async_reply_context_is_normalized_test() ->
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {legacy_batch_async_context_result, Result} end,
+        []
+    },
+    Context = #{
+        iter => maps:iterator(#{}),
+        last_indices => [2],
+        final_cont => FinalReply,
+        final_res => [{1, {ok, 1}}],
+        client => test_client,
+        is_batch => true
+    },
+    emqx_bridge_greptimedb_rs_impl:reply_callback(Context, {ok, 1}),
+    receive
+        {legacy_batch_async_context_result, Result} ->
+            ?assertEqual([{ok, 1}, {ok, 1}], Result)
+    after 1_000 ->
+        error(legacy_batch_async_context_timeout)
+    end.
+
+legacy_async_reply_context_with_remaining_table_is_normalized_test() ->
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {legacy_remaining_table_result, Result} end,
+        []
+    },
+    Iter = maps:iterator(#{
+        <<"next">> => [{2, #{value_data => {i64_value, 1}}}]
+    }),
+    Context = #{
+        iter => Iter,
+        last_indices => [1],
+        final_cont => FinalReply,
+        final_res => [],
+        client => test_client,
+        is_batch => true
+    },
+    InsertAsync = fun(_Client, <<"next">>, _Points, Callback) ->
+        ok = invoke_rs_callback(Callback, {ok, 1}),
+        {ok, self()}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:reply_callback(Context, {ok, 1})
+        ),
+        receive
+            {legacy_remaining_table_result, Result} ->
+                ?assertEqual([{ok, 1}, {ok, 1}], Result)
+        after 1_000 ->
+            error(legacy_remaining_table_timeout)
+        end
+    end).
+
+intermediate_async_reply_context_is_normalized_test() ->
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {intermediate_async_context_result, Result} end,
+        []
+    },
+    Context = #{
+        iter => maps:iterator(#{}),
+        last_counts => #{1 => 2},
+        final_cont => FinalReply,
+        final_res => [{1, {error, {recoverable_error, ecpool_empty}}}],
+        client => test_client
+    },
+    emqx_bridge_greptimedb_rs_impl:reply_callback(Context, {ok, 1}),
+    receive
+        {intermediate_async_context_result, Result} ->
+            ?assertMatch(
+                {error,
+                    {unrecoverable_error, #{
+                        reason := multiline_partial_write,
+                        successful_rows := 2
+                    }}},
+                Result
+            )
+    after 1_000 ->
+        error(intermediate_async_context_timeout)
+    end.
 
 native_auto_integer_suffixes_are_validated_test_() ->
     [
@@ -670,6 +847,32 @@ native_auto_write(ValueTemplate) ->
             timestamp => false
         }
     ].
+
+assert_all_unrecoverable(Results, Reason) ->
+    ?assert(is_list(Results)),
+    ?assert(Results =/= []),
+    lists:foreach(
+        fun
+            ({error, {unrecoverable_error, #{reason := ActualReason}}}) ->
+                ?assertEqual(Reason, ActualReason);
+            (Other) ->
+                error({unexpected_unrecoverable_batch_result, Other})
+        end,
+        Results
+    ).
+
+assert_all_recoverable(Results, _Reason) ->
+    ?assert(is_list(Results)),
+    ?assert(Results =/= []),
+    lists:foreach(
+        fun
+            ({error, {recoverable_error, _}}) ->
+                ok;
+            (Other) ->
+                error({unexpected_recoverable_batch_result, Other})
+        end,
+        Results
+    ).
 
 native_test_write(Measurement, PointCount) ->
     [native_test_point(Measurement, I) || I <- lists:seq(1, PointCount)].
@@ -1281,3 +1484,74 @@ legacy_write_syntax_rendering_test() ->
         #{value_data => {i64_value, 7}},
         maps:get(<<"value">>, Fields)
     ).
+
+legacy_tag_suffix_is_treated_as_string_test_() ->
+    [
+        ?_assertEqual(
+            #{<<"device">> => #{value_data => {string_value, <<"abci">>}}},
+            render_legacy_tag(erlang)
+        ),
+        ?_assertEqual(
+            #{<<"device">> => <<"abci">>},
+            render_legacy_tag(native)
+        )
+    ].
+
+render_legacy_tag(DriverType) ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,device=${payload.tag}i value=1 ${timestamp}">>
+    ),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_action_parameters(
+        #{write_syntax => Lines}, ms
+    ),
+    {ok, [{_, [#{tags := Tags}]}]} =
+        emqx_bridge_greptimedb_utils:data_to_points(
+            #{
+                payload => #{tag => <<"abc">>},
+                timestamp => 1700000000123
+            },
+            <<"mydb">>,
+            SyntaxLines,
+            DriverType
+        ),
+    Tags.
+
+legacy_tag_without_new_wrapper_is_string_test_() ->
+    [
+        ?_assertEqual(
+            #{<<"device">> => #{value_data => {string_value, <<"abci">>}}},
+            render_old_legacy_tag_state(erlang)
+        ),
+        ?_assertEqual(
+            #{<<"device">> => <<"abci">>},
+            render_old_legacy_tag_state(native)
+        )
+    ].
+
+render_old_legacy_tag_state(DriverType) ->
+    OldSyntaxLines = [
+        #{
+            measurement => emqx_placeholder:preproc_tmpl(<<"mqtt">>),
+            tags => #{
+                emqx_placeholder:preproc_tmpl(<<"device">>) =>
+                    emqx_placeholder:preproc_tmpl(<<"${payload.tag}i">>)
+            },
+            fields => #{
+                emqx_placeholder:preproc_tmpl(<<"value">>) =>
+                    emqx_placeholder:preproc_tmpl(<<"1i">>)
+            },
+            timestamp => emqx_placeholder:preproc_tmpl(<<"${timestamp}">>),
+            precision => {ms, ms}
+        }
+    ],
+    {ok, [{_, [#{tags := Tags}]}]} =
+        emqx_bridge_greptimedb_utils:data_to_points(
+            #{
+                payload => #{tag => <<"abc">>},
+                timestamp => 1700000000123
+            },
+            <<"mydb">>,
+            OldSyntaxLines,
+            DriverType
+        ),
+    Tags.

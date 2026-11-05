@@ -226,15 +226,15 @@ line_to_point_1(
         precision := {_, ToPrecision} = Precision
     } = Item
 ) ->
-    FoldFnTag = fun(K, V, Acc) ->
-        maps_config_to_data(K, V, Acc, DriverType, tag)
+    FoldTagFn = fun(K, V, Acc) ->
+        maps_config_to_tag_data(K, V, Acc, DriverType)
     end,
-    FoldFnField = fun(K, V, Acc) ->
-        maps_config_to_data(K, V, Acc, DriverType, field)
+    FoldFieldFn = fun(K, V, Acc) ->
+        maps_config_to_data(K, V, Acc, DriverType)
     end,
     maybe
-        {ok, {_, EncodedTags}} ?= maps:fold(FoldFnTag, {ok, {Data, #{}}}, Tags),
-        {ok, {_, EncodedFields}} ?= maps:fold(FoldFnField, {ok, {Data, #{}}}, Fields),
+        {ok, {_, EncodedTags}} ?= maps:fold(FoldTagFn, {ok, {Data, #{}}}, Tags),
+        {ok, {_, EncodedFields}} ?= maps:fold(FoldFieldFn, {ok, {Data, #{}}}, Fields),
         {ok, TimestampFields} ?=
             timestamp_fields(
                 maps:get(timestamp, Item, undefined),
@@ -262,8 +262,8 @@ do_parse_write_syntax([Item0 | Rest], Acc, Precision) ->
         measurement => emqx_placeholder:preproc_tmpl(maps:get(measurement, Item0)),
         timestamp => Ts,
         precision => {FromPrecision, ToPrecision},
-        tags => to_kv_config(maps:get(tags, Item0)),
-        fields => to_kv_config(maps:get(fields, Item0))
+        tags => to_kv_config(maps:get(tags, Item0), tag),
+        fields => to_kv_config(maps:get(fields, Item0), field)
     },
     do_parse_write_syntax(Rest, [Item | Acc], Precision).
 
@@ -337,39 +337,24 @@ preproc_tmpl_timestamp(Ts, Precision) when is_binary(Ts) ->
     %% we can only hope it the value will be of the same precision in the configs
     {emqx_placeholder:preproc_tmpl(Ts), Precision, Precision}.
 
-to_kv_config(KVfields) ->
+to_kv_config(KVfields, Kind) ->
     lists:foldl(
-        fun({K, V}, Acc) -> to_maps_config(K, V, Acc) end,
+        fun({K, V}, Acc) -> to_maps_config(K, V, Kind, Acc) end,
         #{},
         KVfields
     ).
 
-to_maps_config(K, V, Res) ->
+to_maps_config(K, V, tag, Res) ->
+    NK = emqx_placeholder:preproc_tmpl(bin(K)),
+    Res#{NK => {legacy_tag, preproc_quoted(V)}};
+to_maps_config(K, V, field, Res) ->
     NK = emqx_placeholder:preproc_tmpl(bin(K)),
     NV = preproc_quoted(V),
     Res#{NK => NV}.
 
-maps_config_to_data(_K, _V, {error, _} = Error, _DriverType, _Kind) ->
+maps_config_to_data(_K, _V, {error, _} = Error, _DriverType) ->
     Error;
-maps_config_to_data(K, {structured_tag, Tmpl}, {ok, {Data, Res}}, DriverType, tag) ->
-    KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
-    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
-    NV = emqx_placeholder:proc_tmpl(Tmpl, Data, VTransOptions),
-    case has_undefined(NK) orelse has_undefined(NV) of
-        true ->
-            {ok, {Data, Res}};
-        false ->
-            Key = render_template_text(NK),
-            Value = render_template_text(NV),
-            StructuredValue =
-                case DriverType of
-                    erlang -> greptimedb_values:string_value(Value);
-                    native -> Value
-                end,
-            {ok, {Data, put_structured_kv(tag_key, Key, StructuredValue, Res)}}
-    end;
-maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType, field) ->
+maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
@@ -386,7 +371,7 @@ maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType, field
                     Error
             end
     end;
-maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType, Kind) ->
+maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
@@ -405,10 +390,10 @@ maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType, Kind) ->
                 true ->
                     {ok, {Data, Res}};
                 false ->
-                    convert_config_value(NK0, NV, SuffixType, DriverType, Kind, Data, Res)
+                    convert_config_value(NK0, NV, SuffixType, DriverType, field, Data, Res)
             end;
         _ ->
-            convert_config_value(NK0, NV, SuffixType, DriverType, Kind, Data, Res)
+            convert_config_value(NK0, NV, SuffixType, DriverType, field, Data, Res)
     end.
 
 convert_config_value(NK0, NV, SuffixType, DriverType, Kind, Data, Res) ->
@@ -428,6 +413,40 @@ driver_value(native, #{value_data := {_Type, Value}}) ->
     Value;
 driver_value(native, Float) when is_float(Float) ->
     Float.
+
+maps_config_to_tag_data(_K, _V, {error, _} = Error, _DriverType) ->
+    Error;
+maps_config_to_tag_data(K, Config, {ok, {Data, Res}}, DriverType) ->
+    Tmpl = tag_template(Config),
+    KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
+    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
+    NV = unwrap_quoted_tag(proc_quoted(Tmpl, Data, VTransOptions)),
+    SuffixType = tmpl_suffix_type(Tmpl),
+    case {NK0, NV} of
+        {[undefined], _} ->
+            {ok, {Data, Res}};
+        {_, [undefined | _]} ->
+            {ok, {Data, Res}};
+        {_, {quoted, Tokens}} when is_list(Tokens) ->
+            case lists:member(undefined, Tokens) of
+                true ->
+                    {ok, {Data, Res}};
+                false ->
+                    convert_config_value(NK0, NV, SuffixType, DriverType, tag, Data, Res)
+            end;
+        _ ->
+            convert_config_value(NK0, NV, SuffixType, DriverType, tag, Data, Res)
+    end.
+
+%% Earlier releases stored legacy tags without the `legacy_tag' wrapper.
+%% Structured tags use their own wrapper. Both forms follow the same tag typing rules.
+tag_template({legacy_tag, Tmpl}) ->
+    Tmpl;
+tag_template({structured_tag, Tmpl}) ->
+    Tmpl;
+tag_template(Tmpl) ->
+    Tmpl.
 typed_value(erlang, auto, Values) ->
     value_type(Values);
 typed_value(native, auto, Values) ->
@@ -835,6 +854,11 @@ proc_quoted({quoted, V}, Data, TransOpts) ->
     {quoted, emqx_placeholder:proc_tmpl(V, Data, TransOpts)};
 proc_quoted(V, Data, TransOpts) ->
     emqx_placeholder:proc_tmpl(V, Data, TransOpts).
+
+unwrap_quoted_tag({quoted, Values}) ->
+    Values;
+unwrap_quoted_tag(Values) ->
+    Values.
 
 log_error_points(InstId, Errs) ->
     lists:foreach(
