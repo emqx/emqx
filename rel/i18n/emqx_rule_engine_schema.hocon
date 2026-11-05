@@ -229,7 +229,7 @@ rules_description.label:
 rules_consume_message.desc:
 """When enabled, a message that this rule selects is marked as consumed. A rule selects a message when its `FROM` clause matches the message topic and its `WHERE` clause is true; the results of the rule's actions do not matter.<br/>
 A consumed message that matches no MQTT subscriber is treated as delivered: MQTT 5.0 clients receive reason code 0x00 (Success) instead of 0x10 (No matching subscribers) in PUBACK and PUBREC, the message is not counted in `messages.dropped` or `messages.dropped.no_subscribers` and does not trigger the `$events/message_dropped` event. It is counted in `messages.consumed` instead.<br/>
-Marking a message as consumed does not stop its delivery to subscribers. The option has an effect only on rules that select from message topics."""
+Marking a message as consumed does not stop its delivery to subscribers. The option has an effect only on rules that select from message topics, and a namespaced rule marks only messages from its own namespace."""
 
 rules_consume_message.label:
 """Consume Message"""

@@ -204,7 +204,8 @@ on_message_publish(Message = #message{}, _Conf) ->
                     %% ENVs are the fields that can't be refereced by the SQL, but can be used
                     %% from actions. e.g. The 'headers' field in the internal record `#message{}`.
                     {Columns, Envs} = eventmsg_publish(Message),
-                    case emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs) of
+                    Namespace = get_namespace_from_message(Message),
+                    case emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs, Namespace) of
                         consumed -> {ok, emqx_message:set_consumed(Message)};
                         ok -> {ok, Message}
                     end
@@ -965,8 +966,7 @@ apply_event_namespaced(Namespace, EventName, GenEventMsg, _Conf) ->
         EnrichedRules ->
             %% delay the generating of eventmsg after we have found some rules to apply
             {Columns, Envs} = GenEventMsg(),
-            _ = emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs),
-            ok
+            emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
     end.
 
 apply_event_all_namespaces(EventName, GenEventMsg, _Conf) ->
@@ -976,8 +976,7 @@ apply_event_all_namespaces(EventName, GenEventMsg, _Conf) ->
         EnrichedRules ->
             %% delay the generating of eventmsg after we have found some rules to apply
             {Columns, Envs} = GenEventMsg(),
-            _ = emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs),
-            ok
+            emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
     end.
 
 %%--------------------------------------------------------------------
