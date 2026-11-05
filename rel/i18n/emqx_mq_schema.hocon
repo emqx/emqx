@@ -110,6 +110,16 @@ emqx_mq_schema {
         label: "Data Retention Period"
     }
 
+    deliver_cutoff_date {
+        desc: """~
+            Skip messages stored before this date when delivering from the Message Queue.
+            The cutoff compares the time the queue stored the message.
+            Accepts an RFC 3339 timestamp or Unix epoch milliseconds.
+            When unset, no delivery cutoff applies.
+            Lowering the cutoff does not replay acknowledged messages."""
+        label: "Delivery Cutoff Date"
+    }
+
     dispatch_strategy {
         desc: """~
             The strategy used for dispatching messages from Message Queue to the Queue subscribers."""
@@ -128,6 +138,16 @@ emqx_mq_schema {
         label: "Message Queue Limits"
     }
 
+    on_full {
+        desc: """~
+            Choose how each shard handles its capacity limits.
+            `evict` accepts messages and removes older buckets later.
+            `reject` rejects messages that exceed estimated count or byte occupancy.
+            `reject` requires a finite limit and cannot change after queue creation.
+            Accounting precision is up to quota's `threshold_percentage`, which is 10% by default."""
+        label: "Full Queue Policy"
+    }
+
     max_shard_message_count {
         desc: """~
             The maximum number of messages in a shard for the Message Queue. The number of shards is configured
@@ -139,8 +159,9 @@ emqx_mq_schema {
     max_shard_message_bytes {
         desc: """~
             The maximum number of bytes in a shard for the Message Queue. The number of shards is configured
-            for all Message Queues in the Durable Storage settings. Note that this limit is not aware of the replication factor.
-            So the total byte limit for the Message Queue is `n_shards * replication_factor * max_shard_message_bytes`."""
+            for all Message Queues in the Durable Storage settings.
+            The total byte limit is `n_shards * max_shard_message_bytes`.
+            Replication adds physical storage usage."""
         label: "Max Shard Message Bytes"
     }
 

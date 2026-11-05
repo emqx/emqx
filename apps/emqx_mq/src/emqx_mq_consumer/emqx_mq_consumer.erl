@@ -23,7 +23,7 @@ Consumer's responsibilities:
 
 -export([
     start_link/1,
-    child_spec/2
+    child_spec/1
 ]).
 
 -export([
@@ -40,7 +40,7 @@ Consumer's responsibilities:
     disconnect/2,
     ack/4,
     ping/2,
-    stop/1,
+    stop/2,
     inspect/2
 ]).
 
@@ -50,7 +50,8 @@ Consumer's responsibilities:
     disconnect_v1/2,
     ack_v1/4,
     ping_v1/2,
-    stop_v1/1
+    stop_v1/1,
+    stop_v2/2
 ]).
 
 %% For testing
@@ -76,15 +77,15 @@ Consumer's responsibilities:
 %% API
 %%--------------------------------------------------------------------
 
--spec start_link(emqx_mq_types:mq_topic()) -> gen_server:start_ret().
-start_link(MQTopicFilter) ->
-    gen_server:start_link(?MODULE, [MQTopicFilter], []).
+-spec start_link(emqx_mq_types:mq()) -> gen_server:start_ret().
+start_link(MQ) ->
+    gen_server:start_link(?MODULE, [MQ], []).
 
--spec child_spec(emqx_mq_types:consumer_sup_id(), [emqx_mq_types:mq()]) -> supervisor:child_spec().
-child_spec(Id, Args) ->
+-spec child_spec(emqx_mq_types:mq()) -> supervisor:child_spec().
+child_spec(MQ) ->
     #{
-        id => Id,
-        start => {emqx_mq_consumer, start_link, Args},
+        id => ?MQ_CONSUMER_CHILD_ID,
+        start => {?MODULE, start_link, [MQ]},
         restart => temporary,
         shutdown => 5000
     }.
@@ -143,12 +144,19 @@ ping(ConsumerRef, SubscriberRef) when node(ConsumerRef) =:= node() ->
 ping(ConsumerRef, SubscriberRef) ->
     emqx_mq_consumer_proto_v1:mq_server_ping(node(ConsumerRef), ConsumerRef, SubscriberRef).
 
--spec stop(emqx_mq_types:consumer_ref()) -> ok.
-stop(ConsumerRef) when node(ConsumerRef) =:= node() ->
-    stop_v1(ConsumerRef);
-stop(ConsumerRef) ->
+-doc "Stop the consumer of the queue together with its per-queue supervisor.".
+-spec stop(emqx_mq_types:mq(), emqx_mq_types:consumer_ref()) -> ok.
+stop(MQ, ConsumerRef) when node(ConsumerRef) =:= node() ->
+    stop_v2(MQ, ConsumerRef);
+stop(MQ, ConsumerRef) ->
+    Node = node(ConsumerRef),
     try
-        emqx_mq_consumer_proto_v1:mq_server_stop(node(ConsumerRef), ConsumerRef)
+        case emqx_bpapi:supported_version(Node, emqx_mq_consumer) of
+            Version when is_integer(Version), Version >= 2 ->
+                emqx_mq_consumer_proto_v2:mq_server_stop(Node, MQ, ConsumerRef);
+            _ ->
+                emqx_mq_consumer_proto_v1:mq_server_stop(Node, ConsumerRef)
+        end
     catch
         Class:Reason:Stacktrace ->
             %% The consumer is unreachable or died during the call; treat it as
@@ -209,6 +217,29 @@ stop_v1(Pid) ->
             ok
     end.
 
+-doc """
+Stop the consumer without a time limit, then wait until its per-queue supervisor and cleaner stop.
+Do nothing when the queue's supervisor on this node runs a different consumer.
+""".
+-spec stop_v2(emqx_mq_types:mq(), emqx_mq_types:consumer_ref()) -> ok.
+stop_v2(MQ, Pid) ->
+    Id = emqx_mq_prop:id(MQ),
+    try
+        maybe
+            {ok, QueueSup} ?= emqx_mq_sup:find_queue_sup(Id),
+            %% Verify that we have actual pid here
+            {ok, Pid} ?= emqx_mq_queue_sup:consumer(QueueSup),
+            ok = stop_v1(Pid),
+            emqx_mq_sup:stop_queue_sup(Id)
+        else
+            _ -> ok
+        end
+    catch
+        %% The per-queue supervisor shut down by itself during the lookup
+        exit:{Reason, _} when Reason =:= noproc; Reason =:= shutdown ->
+            ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Gen Server Callbacks
 %%--------------------------------------------------------------------
@@ -257,6 +288,9 @@ handle_cast(_Request, State) ->
     ?tp_debug(mq_consumer_cast_unknown_request, #{request => _Request}),
     {noreply, State}.
 
+handle_info({mq_cleanup_attach, Cleaner}, #state{streams = Streams0} = State) ->
+    Streams = emqx_mq_consumer_streams:attach_cleaner(Streams0, Cleaner),
+    {noreply, State#state{streams = Streams}};
 handle_info(#info_to_mq_server{message = Message}, State) ->
     handle_mq_server_info(Message, State);
 handle_info(#persist_consumer_data{}, State) ->
@@ -322,9 +356,13 @@ handle_ds_info(
     end.
 
 handle_persist_consumer_data(
-    #state{mq = #{consumer_persistence_interval := PersistenceInterval}} = State0
+    #state{
+        mq = #{consumer_persistence_interval := PersistenceInterval}, streams = Streams0
+    } = State0
 ) ->
-    case persist_consumer_data(_ClaimLeadership = true, State0) of
+    %% Report consumption progress that stayed below the cleanup notification threshold
+    State1 = State0#state{streams = emqx_mq_consumer_streams:flush_progress_reporters(Streams0)},
+    case persist_consumer_data(_ClaimLeadership = true, State1) of
         {ok, State} ->
             erlang:send_after(
                 PersistenceInterval, self(), #persist_consumer_data{}

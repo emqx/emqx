@@ -63,6 +63,8 @@
 {emqx_mgmt_trace,2}.
 {emqx_mgmt_trace,3}.
 {emqx_mq_consumer,1}.
+{emqx_mq_consumer,2}.
+{emqx_mq_quota_index,1}.
 {emqx_mq_sub,1}.
 {emqx_mt_config,1}.
 {emqx_node_rebalance,3}.

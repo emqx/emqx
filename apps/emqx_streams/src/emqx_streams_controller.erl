@@ -263,6 +263,7 @@ can_be_stopped() ->
 quota_buffer_options() ->
     #{
         cbm => emqx_streams_message_db,
+        keep_legacy_indices => true,
         pool_size => emqx_streams_config:quota_buffer_pool_size()
     }.
 
