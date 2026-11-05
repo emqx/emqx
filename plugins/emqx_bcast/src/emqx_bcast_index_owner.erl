@@ -781,7 +781,7 @@ reserve_global(Len, GlobalMax) ->
 release_global(Len) ->
     case owner_node() =:= node() of
         true ->
-            _ = ets:update_counter(?TAB_QUOTA_ETS, global, {2, -Len}),
+            quota_update_local(-Len),
             ok;
         false ->
             _ = emqx_rpc:call(
@@ -803,7 +803,7 @@ reserve_global_local(Len, GlobalMax) ->
 
 %% Runs on the owner node (exported for emqx_rpc).
 release_global_local(Len) ->
-    _ = ets:update_counter(?TAB_QUOTA_ETS, global, {2, -Len}),
+    quota_update_local(-Len),
     ok.
 
 %% One atomic check-and-reserve call per shard: an active shard either
@@ -2674,13 +2674,15 @@ scan_sorted_deliveries_projection() ->
             }
         ]
     ),
-    %% Sort by (created_at, msg_id). created_at has second granularity, so
-    %% same-second commits tie: break the tie with the msg_id guid, whose
-    %% millisecond prefix keeps the rebuilt per-device FIFO in commit
-    %% order (an arbitrary tie order scrambles the FIFO after a takeover).
+    %% Sort by (created_at, delivery_id). created_at has second granularity,
+    %% so same-second commits tie. DeliveryId is generated when the publish
+    %% is admitted and carries a microsecond timestamp plus a process-local
+    %% sequence, so it represents this publication even when MessageId is
+    %% reused. MsgId cannot do that: it identifies the payload, not the order
+    %% in which payloads were published.
     lists:sort(
-        fun({_, Ma, _, _, _, _, _, Ca}, {_, Mb, _, _, _, _, _, Cb}) ->
-            {Ca, Ma} =< {Cb, Mb}
+        fun({Da, _, _, _, _, _, _, Ca}, {Db, _, _, _, _, _, _, Cb}) ->
+            {Ca, Da} =< {Cb, Db}
         end,
         Rows
     ).
@@ -3340,7 +3342,8 @@ quota_update_local(Delta) ->
                     msg => "bcast_quota_went_negative",
                     new_value => New,
                     delta => Delta
-                });
+                }),
+                clamp_negative_quota();
             false ->
                 ok
         end
@@ -3350,6 +3353,27 @@ quota_update_local(Delta) ->
             %% a leader restart it is briefly gone. Drop the delta - the
             %% drive's closing recount recomputes the row from live shard
             %% pendings.
+            ok
+    end.
+
+%% Clamp atomically. A concurrent reservation may race the comparison and win,
+%% in which case the new value is read and checked again rather than overwritten
+%% by a plain insert (which would lose that reservation).
+clamp_negative_quota() ->
+    case ets:lookup(?TAB_QUOTA_ETS, global) of
+        [{global, Negative}] when Negative < 0 ->
+            MS = [
+                {
+                    {global, '$1'},
+                    [{'=:=', '$1', Negative}],
+                    [{{global, 0}}]
+                }
+            ],
+            case ets:select_replace(?TAB_QUOTA_ETS, MS) of
+                1 -> ok;
+                0 -> clamp_negative_quota()
+            end;
+        _ ->
             ok
     end.
 %%--------------------------------------------------------------------
@@ -3761,16 +3785,34 @@ ack_one_index({PK, DN, Did}, State) ->
             State1 = remove_did(State, Key, Key3),
             %% This part's accounting: one ack applied, one entry fewer to
             %% wait for. The durable writes happen when the part reaches
-            %% zero, not per ack.
+            %% zero. A partial part still persists the individual device
+            %% marker: an owner handover rebuilds from these markers and must
+            %% not resurrect a device whose ACK was already counted.
             {Applied, State2} = note_part_ack(Did, State1),
-            State3 = maybe_report_part(Did, Applied, State2),
+            State3 = persist_partial_ack(Did, DN, State2),
+            State4 = maybe_report_part(Did, Applied, State3),
             %% The qos1_acked metric is counted by pull_shard on the
             %% take_pending match (it owns the dedup of duplicate
             %% PUBACKs); the owner does not count it again. The result
             %% carries whether the device still has queued (non-inflight)
             %% entries so the pull side can refill its window without an
             %% empty claim round.
-            {{counted, queued_remaining(State3, Key)}, State3, -1}
+            {{counted, queued_remaining(State4, Key)}, State4, -1}
+    end.
+
+%% A non-final ACK is not followed by the part-wide marker yet, so persist
+%% this device now. The final ACK writes the complete part marker through
+%% report_part_done/3. Markers are deleted with the delivery on completion.
+persist_partial_ack(Did, DN, State) ->
+    case maps:get(Did, maps:get(part_pending, State), 0) of
+        0 ->
+            State;
+        _ ->
+            ok = mnesia:dirty_write(#bcast_msg_acked{
+                delivery_id = Did,
+                device_names = [DN]
+            }),
+            State
     end.
 
 %% Queued (not in-flight) entries left for the device after an ack.

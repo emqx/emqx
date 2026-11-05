@@ -29,6 +29,8 @@
 
 %% Shared by gateway session takeover compatibility adapters.
 -export([
+    from_session/2,
+    to_session/2,
     legacy_session_version/1,
     from_legacy_session/2,
     to_legacy_session/5
@@ -38,9 +40,9 @@
 
 -type legacy_session_version() ::
     %% Pre-6.3 sessions:
-    1
+    v5
     %% Gateway sessions in 6.3.0/6.3.1:
-    | 2.
+    | v630.
 
 -record(chanref, {
     proto :: local | protocol() | legacy,
@@ -60,7 +62,13 @@
 -define(BPAPI, emqx_cm).
 -define(BPAPI_VSN_BASELINE, 4).
 
--define(VSN_TAKEOVER, 1).
+%% Takeover session formats:
+%% 1: Exported maps with millisecond `deliver_begin_at` and nanosecond `inflight_insert_ts`.
+%% 2: Microsecond `deliver_begin_at_us`, legacy timestamp metadata is no longer required.
+%%
+%% Keep `VSN_TAKEOVER` and its version meanings in sync with `emqx_gateway_cm_takeover`,
+%% which passes its protocol directly to these session codecs for MQTT-SN.
+-define(VSN_TAKEOVER, 2).
 
 %% v3 nodes:
 %% -> emqx_cm_proto_v3 -> emqx_cm:takeover_session/2 ->
@@ -144,18 +152,15 @@ begin_local(ClientId, ChanPid) when node(ChanPid) =:= node() ->
 -doc "Adapt takeover result received from remote node".
 from_begin_ret(none) ->
     none;
-from_begin_ret({ok, _ChanRef, _Session} = Ret) ->
-    %% NOTE
-    %% Any logic regarding adapting response from nodes running older EMQX version
-    %% (according to `ChanRef#chanref.proto`) goes here. Currently, this is a no-op.
-    Ret.
+from_begin_ret({ok, ChanRef = #chanref{proto = Proto}, Session}) ->
+    {ok, ChanRef, from_session(Session, Proto)}.
 
 upgrade_begin_ret(none) ->
     none;
 upgrade_begin_ret({living, ConnMod, ChanPid, Session}) ->
     %% NOTE: Convert pre-6.3.0 `#session{}` record into "exported" form.
     ChanRef = #chanref{proto = legacy, connmod = ConnMod, pid = ChanPid},
-    {ok, ChanRef, from_legacy_session(Session, 1)};
+    {ok, ChanRef, from_legacy_session(Session, v5)};
 upgrade_begin_ret({expired, _} = Ret) ->
     %% NOTE: Unsupported pre-5.3.0 stuff.
     error({unsupported, Ret});
@@ -163,17 +168,46 @@ upgrade_begin_ret({persistent, _} = Ret) ->
     %% NOTE: Unsupported pre-5.3.0 stuff.
     error({unsupported, Ret}).
 
-to_begin_ret(#{vsn := _}, {ok, ChanRef, Session}) ->
-    {ok, ChanRef#chanref{proto = current()}, Session};
+to_begin_ret(RequesterProto, {ok, ChanRef, Session}) ->
+    {ok, ChanRef#chanref{proto = current()}, to_session(Session, RequesterProto)};
 to_begin_ret(_RequesterProto, none) ->
     none.
 
 downgrade_begin_ret(ClientId, ChanInfo, {ok, ChanRef, Session}) ->
     %% NOTE: Turn back into pre-6.3.0 `#session{}` record.
     #chanref{connmod = ConnMod, pid = ChanPid} = ChanRef,
-    {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session, #{}, 1)};
+    Conf = emqx_session:get_session_conf(maps:get(clientinfo, ChanInfo)),
+    {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session, Conf, v5)};
 downgrade_begin_ret(_ClientId, _ChanInfo, none) ->
     none.
+
+-spec from_session(session(), protocol()) -> session().
+from_session(Session = #{inflight := Inflight}, Proto) ->
+    Session#{inflight := from_inflight(Inflight, Proto)}.
+
+from_inflight(Inflight, #{vsn := 1}) ->
+    lists:map(
+        fun(Entry = #{message := Message, timestamp := Timestamp}) ->
+            Entry#{message := from_legacy_inflight_message(Message, Timestamp)}
+        end,
+        Inflight
+    );
+from_inflight(Inflight, #{vsn := _}) ->
+    Inflight.
+
+-spec to_session(session(), protocol()) -> session().
+to_session(Session = #{inflight := Inflight}, Proto) ->
+    Session#{inflight := to_inflight(Inflight, Proto)}.
+
+to_inflight(Inflight, #{vsn := 1}) ->
+    lists:map(
+        fun(Entry = #{message := Message, timestamp := Timestamp}) ->
+            Entry#{message := to_legacy_inflight_message(Message, Timestamp)}
+        end,
+        Inflight
+    );
+to_inflight(Inflight, #{vsn := _}) ->
+    Inflight.
 
 %%
 
@@ -262,9 +296,9 @@ legacy_session_version(Node) ->
     %% Gateway takeover continued transferring raw records in 6.3.0 and 6.3.1.
     case emqx_bpapi:supported_version(Node, ?BPAPI) of
         Vsn when is_integer(Vsn), Vsn >= ?BPAPI_VSN_BASELINE ->
-            2;
+            v630;
         _ ->
-            1
+            v5
     end.
 
 %% Pre-6.3.0 in-memory session has the following shape:
@@ -306,7 +340,7 @@ legacy_session_version(Node) ->
 %% Legacy MQTT-SN peers resume raw session records without reapplying
 %% limits or timers. Populate these fields from Conf when encoding.
 %% erlfmt-ignore
-to_legacy_session(ClientId, ChanInfo, Session, Conf, 1) ->
+to_legacy_session(ClientId, ChanInfo, Session, Conf, v5) ->
     {session, ClientId, _Id = maps:get(id, Session),
         _IsPersistent = maps:get(is_persistent, Session),
         _Subscriptions = maps:get(subscriptions, Session),
@@ -314,25 +348,25 @@ to_legacy_session(ClientId, ChanInfo, Session, Conf, 1) ->
         _UpgradeQoS = maps:get(upgrade_qos, Conf, false),
         _Inflight = to_legacy_inflight(
             maps:get(inflight, Session),
-            maps:get(receive_maximum, Conf, 0)
+            emqx_utils_maps:deep_get([conninfo, receive_maximum], ChanInfo, 0)
         ),
-        _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), 1),
+        _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), v5),
         _NextPktId = maps:get(next_pkt_id, Session),
         _RetryInterval = maps:get(retry_interval, Conf, infinity),
         _AwaitingRel = maps:get(awaiting_rel, Session),
         _MaxAwaitingRel = maps:get(max_awaiting_rel, Conf, 100),
         _AwaitRelTimeout = maps:get(await_rel_timeout, Conf, timer:seconds(300)),
         _CreatedAt = maps:get(created_at, Session)};
-to_legacy_session(_ClientId, ChanInfo, Session, Conf, 2) ->
+to_legacy_session(_ClientId, ChanInfo, Session, Conf, v630) ->
     {session, maps:get(id, Session), _IsPersistent = maps:get(is_persistent, Session),
         _Subscriptions = maps:get(subscriptions, Session),
         _MaxSubscriptions = maps:get(max_subscriptions, Conf, infinity),
         _UpgradeQoS = maps:get(upgrade_qos, Conf, false),
         _Inflight = to_legacy_inflight(
             maps:get(inflight, Session),
-            maps:get(receive_maximum, Conf, 0)
+            emqx_utils_maps:deep_get([conninfo, receive_maximum], ChanInfo, 0)
         ),
-        _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), 2),
+        _MQueue = to_legacy_mqueue(ChanInfo, maps:get(mqueue, Session), v630),
         %% MQTT-SN uses quota = false:
         _Quota = false,
         _NextPktId = maps:get(next_pkt_id, Session),
@@ -343,7 +377,7 @@ to_legacy_session(_ClientId, ChanInfo, Session, Conf, 2) ->
         _CreatedAt = maps:get(created_at, Session)}.
 
 %% erlfmt-ignore
-from_legacy_session(Session, 1) ->
+from_legacy_session(Session, v5) ->
     {session,
         _ClientId,
         Id,
@@ -365,12 +399,12 @@ from_legacy_session(Session, 1) ->
         is_persistent => IsPersistent,
         subscriptions => Subscriptions,
         inflight => export_legacy_inflight(Inflight),
-        mqueue => export_legacy_mqueue(MQueue, 1),
+        mqueue => export_legacy_mqueue(MQueue, v5),
         next_pkt_id => NextPacketId,
         awaiting_rel => AwaitingRel,
         created_at => CreatedAt
     };
-from_legacy_session(Session, 2) ->
+from_legacy_session(Session, v630) ->
     {session,
         Id,
         IsPersistent,
@@ -392,7 +426,7 @@ from_legacy_session(Session, 2) ->
         is_persistent => IsPersistent,
         subscriptions => Subscriptions,
         inflight => export_legacy_inflight(Inflight),
-        mqueue => export_legacy_mqueue(MQueue, 2),
+        mqueue => export_legacy_mqueue(MQueue, v630),
         next_pkt_id => NextPacketId,
         awaiting_rel => AwaitingRel,
         created_at => CreatedAt
@@ -416,7 +450,11 @@ to_legacy_inflight(Inflight, MaxInflight) ->
             },
             Acc
         ) ->
-            gb_trees:insert(PacketId, {inflight_data, Phase, Message, Timestamp}, Acc)
+            gb_trees:insert(
+                PacketId,
+                {inflight_data, Phase, to_legacy_inflight_message(Message, Timestamp), Timestamp},
+                Acc
+            )
         end,
         gb_trees:empty(),
         Inflight
@@ -428,13 +466,46 @@ export_legacy_inflight({inflight, _, Tree}) ->
         #{
             packet_id => PacketId,
             phase => Phase,
-            message => Message,
+            message => from_legacy_inflight_message(Message, Timestamp),
             timestamp => Timestamp
         }
      || {PacketId, {inflight_data, Phase, Message, Timestamp}} <- gb_trees:to_list(Tree)
     ].
 
-%% Pre-6.3.0 mqueue (version 1) has the following shape:
+from_legacy_inflight_message(#message{headers = Headers0, extra = Extra0} = Message, Timestamp) ->
+    Headers = maps:remove(deliver_begin_at, Headers0),
+    Extra =
+        case Extra0 of
+            Map when is_map(Map) ->
+                maps:remove(inflight_insert_ts, Map);
+            [] ->
+                []
+        end,
+    Message#message{
+        headers = Headers#{
+            deliver_begin_at_us => maps:get(deliver_begin_at, Headers0, Timestamp) * 1000
+        },
+        extra = Extra
+    }.
+
+to_legacy_inflight_message(#message{headers = Headers0} = Message, Timestamp) ->
+    %% NOTE
+    %% Older peers use milliseconds for delivery latency and nanoseconds for pagination.
+    Begin = maps:get(deliver_begin_at_us, Headers0, Timestamp * 1000),
+    Headers = maps:remove(deliver_begin_at_us, Headers0),
+    Extra =
+        case Message#message.extra of
+            Map when is_map(Map) ->
+                Map;
+            [] ->
+                #{}
+        end,
+    Message#message{
+        headers = Headers#{deliver_begin_at => Begin div 1000},
+        extra = Extra#{inflight_insert_ts => Begin * 1000}
+    }.
+
+%% Pre-6.3.0 mqueue (v5) has the following shape:
 %% -type squeue() :: {queue, _In :: [any()], _Out :: [any()], _Len :: non_neg_integer()}.
 %%  ^ `In` holds newest messages first, `Out` holds oldest messages first.
 %% -type pq() :: squeue() | {pqueue, [{priority(), squeue()}]}.
@@ -452,7 +523,7 @@ export_legacy_inflight({inflight, _, Tree}) ->
 %%     p_credit :: non_neg_integer() | undefined
 %% }).
 
-%% 6.3.0/6.3.1 mqueue (version 2) has the following shape:
+%% 6.3.0/6.3.1 mqueue (v630) has the following shape:
 %% -record(prios, {
 %%     t :: p_table(),
 %%     default :: priority(),
@@ -473,7 +544,7 @@ export_legacy_inflight({inflight, _, Tree}) ->
 %% ^ `payload_bytes` counts queued message payload bytes.
 %% ^ Priority configuration and shift options moved into prios (or disabled).
 %%
-%% Version 2 also supports two-lane queues to distinguish QoS0 messages:
+%% The v630 layout also supports two-lane queues to distinguish QoS0 messages:
 %% -type cqueue() :: {
 %%     _HeadLane :: default | qos0,
 %%     _TailLane :: default | qos0,
@@ -485,7 +556,7 @@ export_legacy_inflight({inflight, _, Tree}) ->
 %% }.
 
 %% erlfmt-ignore
-to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue, 1) ->
+to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue, v5) ->
     %% NOTE
     %% For simplicity, legacy conversion ignores message priorities and builds a simple queue.
     %% Sort by insertion timestamp so pagination remains valid after flattening priorities.
@@ -511,7 +582,7 @@ to_legacy_mqueue(#{clientinfo := #{zone := Zone}}, Queue, 1) ->
     ShiftOpts = {shift_opts, 10, 0},
     {mqueue, StoreQoS0, MaxLen, Len, _Dropped = 0, PTable, DefaultPrio, PQueue, ShiftOpts,
         _LastPrio = undefined, _PCredit = undefined};
-to_legacy_mqueue(ChanInfo, Messages, 2) ->
+to_legacy_mqueue(ChanInfo, Messages, v630) ->
     %% NOTE
     %% 6.3.0/6.3.1 queues store a boolean instead of the current QoS0 count.
     %% Their remaining fields and priority/class queue representation are unchanged.
@@ -526,7 +597,7 @@ to_legacy_mqueue(ChanInfo, Messages, 2) ->
         {shift_opts, ShiftMult, ShiftBase},
         _LastPrio,
         PCredit
-    } = to_legacy_mqueue(ChanInfo, Messages, 1),
+    } = to_legacy_mqueue(ChanInfo, Messages, v5),
     Bytes = lists:sum([emqx_message:payload_size(Msg) || Msg <- Messages]),
     Prios =
         case PTable of
@@ -538,7 +609,7 @@ to_legacy_mqueue(ChanInfo, Messages, 2) ->
     {mqueue, StoreQoS0, MaxLen, Dropped, Bytes, PQueue, Prios, PCredit}.
 
 %% erlfmt-ignore
-export_legacy_mqueue(MQueue, 1) ->
+export_legacy_mqueue(MQueue, v5) ->
     {mqueue,
         _StoreQoS0,
         _MaxLen,
@@ -551,10 +622,10 @@ export_legacy_mqueue(MQueue, 1) ->
         _LastPrio,
         _PCredit
     } = MQueue,
-    sort_mqueue_by_timestamp(export_legacy_pqueue(PQueue, 1));
-export_legacy_mqueue(MQueue, 2) ->
+    sort_mqueue_by_timestamp(export_legacy_pqueue(PQueue, v5));
+export_legacy_mqueue(MQueue, v630) ->
     {mqueue, _StoreQoS0, _MaxLen, _Dropped, _Bytes, PQueue, _Prios, _Credit} = MQueue,
-    sort_mqueue_by_timestamp(export_legacy_pqueue(PQueue, 2)).
+    sort_mqueue_by_timestamp(export_legacy_pqueue(PQueue, v630)).
 
 %% Drain the pre-6.3 and 6.3.0/6.3.1 pqueue representations.
 %% Flatten priorities in stored order, ignoring credits.
@@ -562,15 +633,15 @@ export_legacy_pqueue({queue, In, Out, _Len}, _Vsn) ->
     Out ++ lists:reverse(In);
 export_legacy_pqueue({pqueue, Queues}, Vsn) ->
     lists:append([export_legacy_pqueue(Q, Vsn) || {_Priority, Q} <- Queues]);
-export_legacy_pqueue(CQueue = {_, _, _, _, _, _, _}, 2) ->
-    export_legacy_cqueue(CQueue, 2).
+export_legacy_pqueue(CQueue = {_, _, _, _, _, _, _}, v630) ->
+    export_legacy_cqueue(CQueue, v630).
 
-export_legacy_cqueue(CQueue, 2) ->
+export_legacy_cqueue(CQueue, v630) ->
     case cqueue_out(CQueue) of
         {empty, _} ->
             [];
         {{value, Msg}, Rest} ->
-            [Msg | export_legacy_cqueue(Rest, 2)]
+            [Msg | export_legacy_cqueue(Rest, v630)]
     end.
 
 sort_mqueue_by_timestamp(Messages) ->

@@ -238,6 +238,13 @@ handle_timeout(_, {state_machine, Msg}, Channel) ->
     call_session(timeout, Msg, Channel);
 handle_timeout(_, {transport, Msg}, Channel) ->
     call_session(timeout, Msg, Channel);
+handle_timeout(Ref, observe, #channel{timers = Timers} = Channel) ->
+    case maps:get(observe, Timers, undefined) of
+        Ref ->
+            call_session(timeout, observe, Channel#channel{timers = maps:remove(observe, Timers)});
+        _ ->
+            {ok, Channel}
+    end;
 handle_timeout(Ref, blockwise_expire, #channel{timers = Timers, blockwise = BW0} = Channel) ->
     case maps:get(blockwise_expire, Timers, undefined) of
         Ref ->
@@ -297,7 +304,7 @@ handle_call(
         emqx_gateway_utils:default_subopts(),
         SubOpts
     ),
-    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    MountedTopic = mount_topic(Mountpoint, Topic),
     _ = emqx_broker:subscribe(MountedTopic, ClientId, NSubOpts),
 
     _ = run_hooks(
@@ -305,15 +312,10 @@ handle_call(
         'session.subscribed',
         [ClientInfo, MountedTopic, NSubOpts]
     ),
-    %% modify session state
-    SubReq = #{topic => Topic, token => Token, subopts => NSubOpts},
-    TempMsg = #coap_message{type = non},
-    %% FIXME: The subopts is not used for emqx_coap_session
-    Result = emqx_coap_session:process_subscribe(
-        SubReq, TempMsg, #{}, Session
-    ),
-    NSession = maps:get(session, Result),
-    {reply, {ok, {MountedTopic, NSubOpts}}, [{event, updated}], Channel#channel{session = NSession}};
+    SubReq = #{topic => MountedTopic, token => Token, subopts => NSubOpts, clientid => ClientId},
+    NSession = emqx_coap_session:update_subscription(SubReq, Session),
+    Result = #{session => NSession},
+    reply_subscription({ok, {MountedTopic, NSubOpts}}, Result, Channel);
 handle_call(
     {unsubscribe, Topic},
     _From,
@@ -325,7 +327,7 @@ handle_call(
         session = Session
     }
 ) ->
-    MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+    MountedTopic = mount_topic(Mountpoint, Topic),
     ok = emqx_broker:unsubscribe(MountedTopic),
     _ = run_hooks(
         Ctx,
@@ -334,13 +336,12 @@ handle_call(
     ),
 
     %% modify session state
-    UnSubReq = Topic,
+    UnSubReq = MountedTopic,
     TempMsg = #coap_message{type = non},
     Result = emqx_coap_session:process_subscribe(
         UnSubReq, TempMsg, #{}, Session
     ),
-    NSession = maps:get(session, Result),
-    {reply, ok, [{event, updated}], Channel#channel{session = NSession}};
+    reply_subscription(ok, Result, Channel);
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     Subs = emqx_coap_session:info(subscriptions, Session),
     {reply, {ok, maps:to_list(Subs)}, Channel};
@@ -809,18 +810,23 @@ call_session(Fun, Msg, #channel{session = Session} = Channel) ->
     {Result, Channel1} = maybe_attach_blockwise_to_session_result(Fun, Msg, Result0, Channel),
     handle_result(Result, Channel1).
 
-maybe_attach_blockwise_to_session_result(
-    handle_response,
-    #coap_message{type = reset, token = Token},
-    Result,
-    Channel0
-) ->
-    Channel = clear_discarded_observe_blockwise(Result, clear_observe_blockwise(Token, Channel0)),
-    {attach_and_drain_channel_blockwise(Result, Channel), Channel};
-maybe_attach_blockwise_to_session_result(timeout, _Timer, Result, Channel0) ->
+reply_subscription(Reply, #{session := Session} = Result, Channel0) ->
+    Channel = clear_discarded_observe_blockwise(Result, Channel0#channel{session = Session}),
+    Drain = emqx_coap_session:drain_pending_observe_notifications(
+        Session, Channel#channel.blockwise
+    ),
+    case handle_result(Drain, Channel) of
+        {ok, Channel1} -> {reply, Reply, [{event, updated}], Channel1};
+        {ok, Replies, Channel1} -> {reply, Reply, Replies ++ [{event, updated}], Channel1}
+    end.
+
+mount_topic(undefined, Topic) when is_binary(Topic) -> Topic;
+mount_topic(Mountpoint, Topic) -> <<Mountpoint/binary, Topic/binary>>.
+
+maybe_attach_blockwise_to_session_result(Fun, _Msg, Result, Channel0) when
+    Fun =:= timeout; Fun =:= handle_response
+->
     Channel = clear_discarded_observe_blockwise(Result, Channel0),
-    {attach_and_drain_channel_blockwise(Result, Channel), Channel};
-maybe_attach_blockwise_to_session_result(handle_response, _Msg, Result, Channel) ->
     {attach_and_drain_channel_blockwise(Result, Channel), Channel};
 maybe_attach_blockwise_to_session_result(_Fun, _Msg, Result, Channel) ->
     {Result, Channel}.
@@ -843,23 +849,11 @@ attach_channel_blockwise(Result, _Channel) ->
     Result.
 
 clear_discarded_observe_blockwise(Result, Channel) ->
-    case is_discarded_observe_notification(Result) of
-        true ->
-            lists:foldl(
-                fun clear_observe_blockwise/2,
-                Channel,
-                maps:get(observe_notification_done_tokens, Result, [])
-            );
-        false ->
-            Channel
-    end.
-
-is_discarded_observe_notification(#{proto := {reset, _}}) ->
-    true;
-is_discarded_observe_notification(#{proto := {ack_failure, _}}) ->
-    true;
-is_discarded_observe_notification(_Result) ->
-    false.
+    lists:foldl(
+        fun clear_observe_blockwise/2,
+        Channel,
+        maps:get(observe_cancelled_tokens, Result, [])
+    ).
 
 clear_observe_blockwise(<<>>, Channel) ->
     Channel;
@@ -917,7 +911,8 @@ do_call_handler_request(Msg, Result, Channel, Iter) ->
     #channel{
         ctx = Ctx,
         clientinfo = ClientInfo,
-        connection_required = ConnectionRequired
+        connection_required = ConnectionRequired,
+        session = Session
     } = Channel,
     Result0 = Result#{request_msg => Msg},
     HandlerResult =
@@ -925,7 +920,7 @@ do_call_handler_request(Msg, Result, Channel, Iter) ->
             [<<"ps">> | RestPath] ->
                 IsConnectionless = not ConnectionRequired,
                 emqx_coap_pubsub_handler:handle_request(
-                    RestPath, Msg, Ctx, ClientInfo, IsConnectionless
+                    RestPath, Msg, Ctx, ClientInfo, IsConnectionless, Session
                 );
             [<<"mqtt">> | RestPath] ->
                 emqx_coap_mqtt_handler:handle_request(RestPath, Msg, Ctx, ClientInfo);
@@ -1028,9 +1023,25 @@ process_connection({close, Msg}, _, Channel, _) ->
     Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
     NChannel = ensure_disconnected(normal, Channel),
     {shutdown, normal, Reply, NChannel}.
-process_subscribe({Sub, Msg}, Result, #channel{session = Session} = Channel, Iter) ->
+process_subscribe(
+    {Sub, Msg}, Result, #channel{session = Session, ctx = Ctx, clientinfo = CInfo} = Channel, Iter
+) ->
     Result2 = emqx_coap_session:process_subscribe(Sub, Msg, Result, Session),
-    iter([session, fun process_session/4 | Iter], Result2, Channel).
+    lists:foreach(
+        fun(Topic) ->
+            run_hooks(Ctx, 'session.unsubscribed', [
+                CInfo, Topic, emqx_gateway_utils:default_subopts()
+            ])
+        end,
+        maps:get(observe_unsubscribed, Result2, [])
+    ),
+    Channel1 = clear_discarded_observe_blockwise(Result2, Channel),
+    Result3 = attach_and_drain_channel_blockwise(Result2, Channel1),
+    iter(
+        [session, fun process_session/4, blockwise, fun process_blockwise/4 | Iter],
+        Result3,
+        Channel1
+    ).
 process_reply(
     Reply,
     Result,
@@ -1051,7 +1062,26 @@ process_reply(
     Channel1 = Channel#channel{session = Session3, blockwise = BW2},
     {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, schedule_blockwise_timer(Channel1)}.
 
-schedule_blockwise_timer(#channel{timers = Timers, session = Session, blockwise = BW} = Channel) ->
+schedule_blockwise_timer(Channel) ->
+    schedule_observe_timer(schedule_blockwise_timer_only(Channel)).
+
+schedule_observe_timer(#channel{session = undefined} = Channel) ->
+    Channel;
+schedule_observe_timer(#channel{timers = Timers, session = Session} = Channel) ->
+    ok = emqx_utils:cancel_timer(maps:get(observe, Timers, undefined)),
+    Timers1 = maps:remove(observe, Timers),
+    case emqx_coap_session:next_timeout(Session) of
+        undefined ->
+            Channel#channel{timers = Timers1};
+        Deadline ->
+            Delay = max(1, Deadline - erlang:monotonic_time(millisecond)),
+            Ref = emqx_utils:start_timer(Delay, observe),
+            Channel#channel{timers = Timers1#{observe => Ref}}
+    end.
+
+schedule_blockwise_timer_only(
+    #channel{timers = Timers, session = Session, blockwise = BW} = Channel
+) ->
     OldRef = maps:get(blockwise_expire, Timers, undefined),
     ok = emqx_utils:cancel_timer(OldRef),
     Timers1 = maps:remove(blockwise_expire, Timers),

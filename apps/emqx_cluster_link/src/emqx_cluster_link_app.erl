@@ -12,8 +12,8 @@
 
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_link_extrouter:create_tables()),
+    ok = emqx_cluster_link:register_if_enabled(emqx_cluster_link_config:get_links()),
     ok = emqx_cluster_link_config:load(),
-    ok = emqx_cluster_link:register_external_broker(),
     ok = emqx_cluster_link:put_hook(),
     {ok, Sup} = emqx_cluster_link_sup:start_link(),
     ok = start_configured_links(),

@@ -149,9 +149,7 @@
 
 -define(SOCK_STATS, [
     recv_oct,
-    recv_cnt,
     send_oct,
-    send_cnt,
     send_pend
 ]).
 
@@ -410,7 +408,8 @@ run_loop(
     case activate_socket_for_connect(State) of
         {ok, NState} ->
             ok = set_tcp_keepalive(Listener),
-            IdleTimer = start_timer(get_zone_idle_timeout(Zone), idle_timeout),
+            IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
+            IdleTimer = start_timer(IdleTimeout, idle_timeout),
             hibernate(Parent, NState#state{stats_timer = {idle, IdleTimer}});
         {error, Reason} ->
             case pending_transport_error() of
@@ -478,12 +477,12 @@ handle_recv(Msg, Parent, State) ->
             terminate(Reason, NewState)
     end.
 
-hibernate(Parent, State) ->
-    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, State]).
+hibernate(Parent, State = #state{channel = Channel}) ->
+    NState = State#state{channel = emqx_channel:hibernate(Channel)},
+    proc_lib:hibernate(?MODULE, wakeup_from_hib, [Parent, NState]).
 
-%% Maybe do something here later.
-wakeup_from_hib(Parent, State) ->
-    ?MODULE:recvloop(Parent, State).
+wakeup_from_hib(Parent, State = #state{channel = Channel}) ->
+    ?MODULE:recvloop(Parent, State#state{channel = emqx_channel:wakeup(Channel)}).
 
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
@@ -498,7 +497,7 @@ init_stats_timer(#state{conf = #conf{zone = Zone}}) ->
 ensure_stats_timer(
     State = #state{stats_timer = undefined, conf = #conf{zone = Zone}}
 ) ->
-    Timeout = get_zone_idle_timeout(Zone),
+    Timeout = emqx_channel:get_mqtt_conf(Zone, stats_emit_interval),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
     %% Either already active, disabled, or paused.
@@ -516,10 +515,6 @@ cancel_idle_timer(#state{stats_timer = {idle, TRef}}) ->
     emqx_utils:cancel_timer(TRef);
 cancel_idle_timer(_State) ->
     ok.
-
--compile({inline, [get_zone_idle_timeout/1]}).
-get_zone_idle_timeout(Zone) ->
-    emqx_channel:get_mqtt_conf(Zone, idle_timeout).
 
 %%--------------------------------------------------------------------
 %% Process next Msg
@@ -594,6 +589,16 @@ handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
     inc_metrics('bytes.received', State, Oct),
     on_bytes_in(Oct, Data, State);
+handle_msg({inet_reply, _Sock, ok, send_async}, _State) ->
+    %% The driver queued the data of an asynchronous send, see `send/4'.
+    ok;
+handle_msg({inet_reply, _Sock, {error, Reason}, send_async}, State) ->
+    send_error(Reason, State);
+handle_msg({inet_reply, _Sock, ok}, _State) ->
+    %% The reply of `esockd_transport:async_send/3' in older esockd versions.
+    ok;
+handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
+    send_error(Reason, State);
 handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
     ok = inc_metrics('bytes.received', State, Len),
     on_bytes_in(Len, Data, State);
@@ -632,7 +637,10 @@ handle_msg(
     Deliver = #deliver{},
     #state{conf = #conf{active_n = ActiveN}} = State
 ) ->
-    ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
+    ?BROKER_INSTR_MSGLATENCY(begin
+        ?BROKER_INSTR_EXTRACT_MARK(Mark, Deliver#deliver.message),
+        ?BROKER_INSTR_SETMARK(t0_deliver, {Mark, ?BROKER_INSTR_TS()})
+    end),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 handle_msg({connack, ConnAck}, State) ->
@@ -657,7 +665,8 @@ handle_msg(
         ),
     ok = raise_packet_size_limit(State),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    ok = set_chan_stats(State),
+    emqx_cm:insert_channel_info(ClientId, info(State), emqx_chan_stats:ref()),
     {ok, ensure_stats_timer(State)};
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
@@ -669,14 +678,8 @@ handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
     {ok, State};
-handle_msg({event, _Other}, State = #state{channel = Channel}) ->
-    case emqx_channel:info(clientid, Channel) of
-        %% ClientId is yet unknown (i.e. connect packet is not received yet)
-        undefined ->
-            ok;
-        ClientId ->
-            set_chan_info_stats(ClientId, State)
-    end,
+handle_msg({event, updated}, State) ->
+    ok = set_session_stats(State),
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
     handle_timeout(TRef, TMsg, State);
@@ -780,16 +783,9 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
 
 handle_timeout(_TRef, idle_timeout, State) ->
     shutdown(idle_timeout, State);
-handle_timeout(
-    _TRef,
-    emit_stats,
-    State = #state{
-        channel = Channel
-    }
-) ->
-    ClientId = emqx_channel:info(clientid, Channel),
+handle_timeout(_TRef, emit_stats, State) ->
     {Msgs, NState} = check_sendq_congestion(State),
-    maybe_set_chan_stats(ClientId, NState),
+    ok = set_chan_stats(NState),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, NState),
     #state{channel = NChannel} = NState,
     {ok, Msgs, NState#state{
@@ -824,28 +820,23 @@ handle_timeout(TRef, Msg, State) ->
 try_set_chan_stats(State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientID is not yet known, nothing to report.
-        undefined -> false;
-        ClientId -> maybe_set_chan_stats(ClientId, State)
+        undefined -> ok;
+        _ClientId -> set_chan_stats(State)
     end.
 
-%% Write the info and, when the client-info REST API is enabled, the stats
-%% of the channel in one table write.
-set_chan_info_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_info_stats(ClientId, info(State), stats(State));
-        false -> emqx_cm:set_chan_info(ClientId, info(State))
-    end.
+%% Write the socket and session stats to the stats array of the connection,
+%% where the readers of the channel info table find them. The packet and
+%% message counters are kept in the array as they happen, and the readers
+%% take the process stats from the process.
+set_chan_stats(State = #state{channel = Channel}) ->
+    Stats = [sockstats(?SOCK_STATS, State), emqx_channel:session_stats(Channel)],
+    emqx_chan_stats:report(emqx_channel:info(clientid, Channel), Stats).
 
-%% Report per-connection stats to the client-info table, unless the client-info
-%% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
-%% the stats gathering and the ETS write. The stats timer itself keeps running,
-%% so its other duties (send-queue congestion recovery, congestion alarms) are
-%% unaffected.
-maybe_set_chan_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_stats(ClientId, stats(State));
-        false -> ok
-    end.
+%% Write the session stats after the session changed, so that a reader sees
+%% the change before the next stats timer.
+set_session_stats(#state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_chan_stats:report(ClientId, emqx_channel:session_stats(Channel)).
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
@@ -1116,6 +1107,7 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
             emqx_metrics:inc_global('delivery.dropped.too_large'),
             emqx_metrics:inc_global('delivery.dropped'),
             inc_dropped_stats(),
+            ok = emqx_channel:notify_discarded(Packet),
             <<>>;
         Data ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
@@ -1144,30 +1136,62 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
 
 -spec send(non_neg_integer(), non_neg_integer(), iodata(), state()) ->
     {ok, state()} | {ok, {sock_error, _}, state()}.
-send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) ->
+send(
+    Num,
+    Oct,
+    IoData,
+    #state{transport = Transport, socket = Socket} = State
+) ->
     inc_metrics('bytes.sent', State, Oct),
-    case Transport:send(Socket, IoData) of
+    case do_send(Transport, Socket, IoData) of
         ok ->
-            %% NOTE: for Transport=emqx_quic_stream, it's actually an
-            %% async_send, sent/1 should technically be called when
-            %% {quic, send_complete, _Stream, true | false} is received,
-            %% but it is handled early for simplicity
+            %% NOTE: for Transport=emqx_quic_stream and for an asynchronous
+            %% send, the data is only queued at this point. sent/1 should
+            %% technically be called when the send completes, but it is
+            %% handled early for simplicity.
             Ok = sent(Num, Oct, State),
-            ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
-                TSent = ?BROKER_INSTR_TS(),
-                ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
-                ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
-            end),
+            ?BROKER_INSTR_MSGLATENCY(
+                ?BROKER_INSTR_WMARK(
+                    t0_deliver,
+                    {?BROKER_INSTR_MARK(T0, TDisp), TDeliver},
+                    begin
+                        TSent = ?BROKER_INSTR_TS(),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, deliver_delay_us, TDisp, TDeliver),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, deliver_total_lat_us, TDisp, TSent),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, brokerage_delay_us, T0, TDeliver),
+                        ?BROKER_INSTR_OBSERVE_INTVL(connection, brokerage_latency_us, T0, TSent)
+                    end
+                )
+            ),
             Ok;
-        {error, timeout} ->
-            %% Defer error handling
-            %% so it's handled the same as tcp_closed or ssl_closed
-            {ok, {sock_error, send_timeout}, State};
-        {error, Reason} when Reason =:= closed; Reason =:= einval; Reason =:= enotconn ->
-            {ok, close_socket(State)};
         {error, Reason} ->
-            {ok, {sock_error, Reason}, State}
+            send_error(Reason, State)
     end.
+
+%% A TCP port (inet backend) is sent to with `async_send/3', which calls
+%% `prim_inet:send_async/3'. It returns when the driver has the data. The
+%% driver replies later with `{inet_reply, Socket, Status, send_async}',
+%% which `handle_msg/2' handles. `{error, busy}' means the driver queue is
+%% above its high watermark: send that packet synchronously, so that the
+%% caller waits for the queue to drain.
+do_send(Transport, Socket, IoData) when is_port(Socket) ->
+    case Transport:async_send(Socket, IoData, [nosuspend]) of
+        {error, busy} ->
+            Transport:send(Socket, IoData);
+        Result ->
+            Result
+    end;
+do_send(Transport, Socket, IoData) ->
+    Transport:send(Socket, IoData).
+
+send_error(timeout, State) ->
+    %% Defer error handling
+    %% so it's handled the same as tcp_closed or ssl_closed
+    {ok, {sock_error, send_timeout}, State};
+send_error(Reason, State) when Reason =:= closed; Reason =:= einval; Reason =:= enotconn ->
+    {ok, close_socket(State)};
+send_error(Reason, State) ->
+    {ok, {sock_error, Reason}, State}.
 
 %% Some bytes sent
 -spec sent(non_neg_integer(), non_neg_integer(), state()) ->
@@ -1356,13 +1380,10 @@ check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
 %%--------------------------------------------------------------------
 %% Handle Info
 
-handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
+handle_info(activate_socket, State) ->
     case activate_socket(State) of
-        {ok, NState = #state{sockstate = NewSst}} ->
-            case OldSst =/= NewSst of
-                true -> {ok, {event, NewSst}, NState};
-                false -> {ok, NState}
-            end;
+        {ok, NState} ->
+            {ok, NState};
         {error, Reason} ->
             handle_info({sock_error, Reason}, State)
     end;
@@ -1662,8 +1683,7 @@ stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
 
 inc_counter(Key, Inc) ->
-    _ = emqx_pd:inc_counter(Key, Inc),
-    ok.
+    emqx_chan_stats:inc(Key, Inc).
 
 set_tcp_keepalive({quic, _Listener}) ->
     ok;

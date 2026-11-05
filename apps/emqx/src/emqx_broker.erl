@@ -56,6 +56,11 @@
     deliver/3
 ]).
 
+-export([
+    dispatch_info/2,
+    do_dispatch_info/2
+]).
+
 %% PubSub Infos
 -export([
     subscriptions/1,
@@ -317,6 +322,9 @@ eval_hook_and_publish(Msg, Opts) ->
                 topic => Topic
             }),
             {error, disconnect, Message};
+        #message{headers = #{allow_publish := false, message_persisted := true}} = Message ->
+            %% A hook stored the message and delivers it by other means.
+            {ok, [persisted], Message};
         #message{headers = #{allow_publish := false}, topic = Topic} = Message ->
             ?TRACE("MQTT", "msg_not_routed_to_subscribers", #{
                 message => emqx_message:to_log_map(Msg),
@@ -551,6 +559,51 @@ dispatch(Topic, Delivery = #delivery{sender = _Sender, message = _Msg}) ->
         [Delivery]
     ).
 
+-doc """
+Send `Info` unchanged to every subscriber whose subscription matches `Topic`.
+
+The route lookup is the same as for a publish. Remote nodes receive `Info`
+through `emqx_broker_info_proto_v1`. Shared subscription routes are skipped.
+No hook, persistence, metric or cluster-link forwarding runs.
+
+Subscribers receive `Info` as an ordinary process message. Channels pass it to
+the `client.handle_info` hook. The caller must recover the data by other means
+when a subscriber ignores or loses `Info`.
+""".
+-spec dispatch_info(emqx_types:topic(), term()) -> ok.
+dispatch_info(Topic, Info) when is_binary(Topic) ->
+    lists:foreach(
+        fun
+            ({To, Node}) when Node =:= node() ->
+                do_dispatch_info(To, Info);
+            ({To, Node}) when is_atom(Node) ->
+                forward_info(Node, To, Info);
+            ({_To, _Group}) ->
+                ok
+        end,
+        aggre(emqx_router:match_routes(Topic))
+    ).
+
+-doc "Send `Info` to the local subscribers of the topic filter `Topic`.".
+-spec do_dispatch_info(emqx_types:topic(), term()) -> ok.
+do_dispatch_info(Topic, Info) ->
+    Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
+    _ = lists:foldl(
+        fun(I, N) -> do_dispatch_chans(Info, subscribers({shard, Topic, I}), N) end,
+        do_dispatch_chans(Info, subscribers(Topic), 0),
+        Shards
+    ),
+    ok.
+
+forward_info(Node, Topic, Info) ->
+    case emqx_bpapi:supported_version(Node, emqx_broker_info) of
+        undefined ->
+            ok;
+        _ ->
+            true = emqx_broker_info_proto_v1:forward_async(Node, Topic, Info),
+            ok
+    end.
+
 %% Notify channel about message delivery to a subscription topic.
 -spec deliver(pid(), emqx_types:topic(), emqx_types:message()) -> ok.
 deliver(ChannelPid, Topic, Msg) ->
@@ -775,11 +828,18 @@ handle_call(Req, _From, State) ->
     {reply, ignored, State}.
 
 handle_cast({dispatch, Topic, I, Msg}, State) ->
-    ?BROKER_INSTR_TS(TDisp),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_TS(T)),
     Deliver = #deliver{topic = Topic, message = Msg},
     _ = do_dispatch_chans(Deliver, subscribers({shard, Topic, I}), 0),
-    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_delay_us, ?US(TDisp - Msg#message.extra)),
-    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_lat_us, ?US_SINCE(TDisp)),
+    ?BROKER_INSTR_MSGLATENCY(
+        ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_delay_us, begin
+            ?BROKER_INSTR_EXTRACT_MARK(?BROKER_INSTR_MARK(_, TDispatch), Msg),
+            ?US(T - TDispatch)
+        end)
+    ),
+    ?BROKER_INSTR_MSGLATENCY(
+        ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_lat_us, ?US_SINCE(T))
+    ),
     {noreply, State};
 handle_cast({subscribed, Topic, shard, _I}, State) ->
     %% Do not need to 'maybe add' (i.e. to check if the route exists).
@@ -831,8 +891,9 @@ code_change(_OldVsn, State, _Extra) ->
 -spec do_dispatch2(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
 do_dispatch2(Topic, #delivery{message = MsgIn}) ->
-    ?BROKER_INSTR_TS(T0),
-    ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
+    ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_TS(T0)),
+    ?BROKER_INSTR_EXTRACT_MARK(?BROKER_INSTR_MARK(TFirst, _), MsgIn),
+    Msg = ?BROKER_INSTR_UPDATE_MARK(?BROKER_INSTR_MARK(TFirst, T0), MsgIn),
     AsyncDispatch = persistent_term:get(?PT_FLAG_ASYNC_SHARD_DISPATCH, false),
     Deliver = #deliver{topic = Topic, message = Msg},
     Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
@@ -843,7 +904,9 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
             DispN0 = do_dispatch_shards_async(Topic, Msg, Shards, 0)
     end,
     DispN = do_dispatch_chans(Deliver, subscribers(Topic), DispN0),
-    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
+    ?BROKER_INSTR_MSGLATENCY(
+        ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0))
+    ),
     case DispN of
         0 ->
             ok = emqx_hooks:'message.dropped'(Msg, #{node => node()}, no_subscribers),
@@ -889,7 +952,7 @@ maybe_add_route(_Existed = true, _Topic, _ReplyTo) ->
     ok.
 
 maybe_delete_route(Topic) ->
-    case ets:member(?SUBSCRIBER, Topic) of
+    case ets:member(?SUBSCRIBER, Topic) orelse ets:member(?SUBSCRIBER, {shard, Topic}) of
         true -> ok;
         false -> sync_route(delete, Topic, #{})
     end.

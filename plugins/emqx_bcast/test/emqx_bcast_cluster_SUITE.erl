@@ -59,6 +59,26 @@ recv(Count, Msgs) ->
     after 3000 -> Msgs
     end.
 
+recv_ordered(Count) ->
+    lists:reverse(recv(Count)).
+
+recv_payloads(Count) ->
+    recv_payloads(Count, #{}, 10000).
+
+recv_payloads(Count, Acc, _Timeout) when map_size(Acc) >= Count ->
+    maps:keys(Acc);
+recv_payloads(Count, Acc, Timeout) ->
+    receive
+        {publish, #{payload := Payload}} ->
+            recv_payloads(Count, maps:put(Payload, true, Acc), Timeout)
+    after Timeout ->
+        maps:keys(Acc)
+    end.
+
+wait_for_fresh_second() ->
+    Now = erlang:system_time(millisecond),
+    ct:sleep(1000 - (Now rem 1000) + 20).
+
 topic(DN) -> <<"/default/", DN/binary, "/user/get">>.
 
 api_call(Node, Body) ->
@@ -93,21 +113,21 @@ node_client_subscribed(Node, ClientId, Topic) ->
         end
     ).
 
-%% Cold-start settle: the async QoS1 pipeline runs at full speed only
-%% after mria converges and the plugin workers are warm. Start timing only
-%% after the cluster has settled so delivery latency has a meaningful
-%% budget (recv/1) instead of being polluted by cold-start. (The test
-%% process runs on the CT node, so this is a plain settle sleep; the
-%% emqx_cth_cluster:start/1 call already waits for the nodes to come up.)
-settle_cluster() ->
-    timer:sleep(3000).
+wait_channel_gone(Node, ClientId) ->
+    wait_until(
+        fun() -> erpc:call(Node, emqx_cm, lookup_channels, [ClientId]) =:= [] end,
+        100
+    ).
+
+settle_cluster(Nodes) ->
+    emqx_bcast_test_cluster:wait_ready(Nodes, Nodes).
 
 %% tests
 
 -doc "A failed remote delete-epoch bump must not let management delete return success.".
 t_failed_remote_epoch_blocks_delete_e2e(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     Payload = <<"epoch-delete-failure">>,
     Hash = crypto:hash(sha256, Payload),
     {ok, 200, _, R} = api_call(N1, #{
@@ -161,7 +181,7 @@ api_call_message(Node, Method, ApiId) ->
 -doc "QoS=0 BatchPub reaches devices connected to different cluster nodes.".
 t_cluster_cross_node_delivery(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN1 = <<"cl_dn1">>,
     DN2 = <<"cl_dn2">>,
     C1 = connect(N1, DN1),
@@ -202,7 +222,7 @@ t_cluster_cross_node_delivery(Config) ->
 -doc "QoS=1 delivery created on one node is replayed after reconnect on another node.".
 t_cluster_offline_replay_on_other_node(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN = <<"cl_offline_dn">>,
     PK = <<"default">>,
     {ok, 200, _, _Resp} = api_call(N1, #{
@@ -240,7 +260,7 @@ t_cluster_offline_replay_on_other_node(Config) ->
 -doc "Ack state is cluster-wide: a delivery acked on one node is not replayed on another.".
 t_cluster_ack_idempotent_across_nodes(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN1 = <<"cl_ack_dn1">>,
     DN2 = <<"cl_ack_dn2">>,
     PK = <<"default">>,
@@ -315,7 +335,7 @@ cluster_metric(Nodes, Suffix) ->
 "delivered counter matches the real sends across nodes.".
 t_metrics_ledger_combo_b_cluster(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     Nodes = [N1, N2],
     PK = <<"default">>,
     D1 = <<"cl_b_d1">>,
@@ -438,7 +458,7 @@ mnesia_safe_rows(Node) ->
 "changed hands.".
 t_core_with_a_stopped_plugin_hands_its_shards_over(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     ?assertEqual([N1, N2], lists:sort(erpc:call(N1, emqx_bcast, core_nodes, []))),
     %% Stop the plugin the way the plugin framework does it: the supervision
     %% tree goes down, the modules stay loaded.
@@ -520,7 +540,7 @@ all_partitions_active(Node, Shards) ->
 "keepalive (minutes at a 600s keepalive, and forever if it never pings).".
 t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
-    settle_cluster(),
+    settle_cluster([N1, N2]),
     DN = <<"cl_arm_dn">>,
     PK = <<"default">>,
     %% N2's plugin goes away, the client attaches there, and only then does the
@@ -560,3 +580,334 @@ t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
     ),
     ?assert(erpc:call(N2, ets, info, [bcast_device_registry, size]) > 0),
     emqtt:stop(C).
+
+-doc "The trigger fallback resolves a channel by client id alone, so it has to\n"
+"check that channel's own product before arming it: a BatchPub for a different\n"
+"ProductKey used to register a client of another product under the request's\n"
+"product and deliver to it, bypassing the product filter the connection hooks\n"
+"apply.".
+t_trigger_does_not_arm_a_client_of_another_product(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    DN = <<"cl_other_pk_dn">>,
+    OtherPK = <<"cl_other_pk">>,
+    C = connect(N2, DN),
+    %% Subscribed to everything, so nothing but the product membership could
+    %% stop the delivery - which is the check the fallback used to skip.
+    {ok, _, _} = sub(C, <<"#">>),
+    ?assert(wait_until(fun() -> node_client_subscribed(N2, DN, <<"#">>) end, 50)),
+    %% The client belongs to its own (default) product, so the request's product
+    %% is missing from the registry and the fallback path is the one that runs.
+    ?assertEqual({error, not_found}, erpc:call(N2, emqx_bcast, lookup_device, [{OtherPK, DN}])),
+    ArmedBefore = node_metric(N2, <<"batch_pub_qos1_armed_on_trigger">>),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => OtherPK,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    %% Let the request be promoted and the trigger fan out before judging.
+    ?assert(
+        wait_until(fun() -> cluster_metric([N1, N2], <<"batch_pub_qos1_wanted">>) > 0 end, 50)
+    ),
+    timer:sleep(500),
+    ?assertEqual([], recv(1)),
+    ?assertEqual(ArmedBefore, node_metric(N2, <<"batch_pub_qos1_armed_on_trigger">>)),
+    ?assertEqual({error, not_found}, erpc:call(N2, emqx_bcast, lookup_device, [{OtherPK, DN}])),
+    emqtt:stop(C).
+
+-doc "A committed delivery queued while the client node's plugin was restarting\n"
+"must resume from PING alone. The MQTT session is still connected and does not\n"
+"subscribe again, so connect/subscribe/resume hooks cannot provide the wakeup.".
+t_pending_delivery_resumes_after_client_plugin_restart(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    DN = <<"cl_resume_dn1">>,
+    PK = <<"default">>,
+    %% This key's index shard is owned by N1. The delivery can therefore be
+    %% durably committed and indexed while N2's plugin is down.
+    C = connect(N2, DN),
+    sub(C, topic(DN)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N2, DN, topic(DN)) end, 50)),
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    ?assert(
+        wait_until(
+            fun() ->
+                not lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, []))
+            end,
+            100
+        )
+    ),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => PK,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    Committed = wait_until(
+        fun() ->
+            case erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, DN}]) of
+                {ok, [_ | _]} -> true;
+                _ -> false
+            end
+        end,
+        100
+    ),
+    ?assert(Committed),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
+    settle_cluster([N1, N2]),
+    pong = emqtt:ping(C),
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
+    emqtt:stop(C).
+
+-doc "Rebuilt offline queues preserve publication order when an index owner\n"
+"changes. Message registration order is A/B while publication order is B/A,\n"
+"so sorting the rebuild by MessageId reverses the queue.".
+t_reused_message_fifo_survives_owner_handover(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"default">>,
+    Control = <<"cl_fifo_control">>,
+    Handover = <<"cl_fifo_handover">>,
+    PayloadA = <<"fifo-payload-a">>,
+    PayloadB = <<"fifo-payload-b">>,
+    %% Register A before B. The derived MessageIds therefore sort A before B,
+    %% independently of the publication order used below.
+    {ok, 200, _, RegA} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(PayloadA)
+    }),
+    MsgA = maps:get(<<"MessageId">>, RegA),
+    {ok, 200, _, RegB} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(PayloadB)
+    }),
+    MsgB = maps:get(<<"MessageId">>, RegB),
+    CControl = connect(N1, Control),
+    sub(CControl, topic(Control)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, Control, topic(Control)) end, 50)),
+    %% Delivery rows have second-granularity timestamps. Publish both at the
+    %% start of one second so only MessageId can break the tie during rebuild.
+    wait_for_fresh_second(),
+    publish_message(N1, PK, [Control, Handover], MsgB, 1),
+    publish_message(N1, PK, [Control, Handover], MsgA, 1),
+    ?assertEqual(
+        [PayloadB, PayloadA],
+        [maps:get(payload, Msg) || Msg <- recv_ordered(2)]
+    ),
+    emqtt:stop(CControl),
+    %% The handover device's shard is owned by N1. Stopping only its plugin
+    %% makes N2 rebuild every partition from the durable rows.
+    ok = erpc:call(N1, application, stop, [emqx_bcast]),
+    emqx_bcast_test_cluster:wait_ready([N2], [N2]),
+    C2 = connect(N2, Handover),
+    sub(C2, topic(Handover)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N2, Handover, topic(Handover)) end, 50)),
+    ?assertEqual(
+        [PayloadB, PayloadA],
+        [maps:get(payload, Msg) || Msg <- recv_ordered(2)]
+    ),
+    emqtt:stop(C2).
+
+-doc "The same publication order survives an actual core shutdown and index\n"
+"rebuild on the surviving core.".
+t_reused_message_fifo_survives_core_shutdown(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"default">>,
+    Control = <<"cl_fifo_shutdown_control">>,
+    SurvivorDevice = <<"cl_fifo_shutdown_handover">>,
+    PayloadA = <<"shutdown-fifo-a">>,
+    PayloadB = <<"shutdown-fifo-b">>,
+    {ok, 200, _, RegA} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(PayloadA)
+    }),
+    MsgA = maps:get(<<"MessageId">>, RegA),
+    {ok, 200, _, RegB} = api_call(N1, #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(PayloadB)
+    }),
+    MsgB = maps:get(<<"MessageId">>, RegB),
+    CControl = connect(N1, Control),
+    sub(CControl, topic(Control)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, Control, topic(Control)) end, 50)),
+    wait_for_fresh_second(),
+    publish_message(N1, PK, [Control, SurvivorDevice], MsgB, 1),
+    publish_message(N1, PK, [Control, SurvivorDevice], MsgA, 1),
+    ?assertEqual(
+        [PayloadB, PayloadA],
+        [maps:get(payload, Msg) || Msg <- recv_ordered(2)]
+    ),
+    emqtt:stop(CControl),
+    ok = emqx_cth_cluster:stop_node(N1),
+    emqx_bcast_test_cluster:wait_ready([N2], [N2]),
+    C2 = connect(N2, SurvivorDevice),
+    sub(C2, topic(SurvivorDevice)),
+    ?assert(
+        wait_until(
+            fun() -> node_client_subscribed(N2, SurvivorDevice, topic(SurvivorDevice)) end, 50
+        )
+    ),
+    ?assertEqual(
+        [PayloadB, PayloadA],
+        [maps:get(payload, Msg) || Msg <- recv_ordered(2)]
+    ),
+    emqtt:stop(C2).
+
+-doc "A partially acknowledged delivery reopened by owner handover may be\n"
+"redelivered, but each logical device ACK is counted once in the ledger.".
+t_partial_batch_ack_ledger_after_owner_handover(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"default">>,
+    D1 = <<"cl_ack_part_1">>,
+    D2 = <<"cl_ack_part_14">>,
+    %% Both device keys hash to shard 47, owned by N2 in this two-core
+    %% cluster. N1 hosts both clients and survives the owner handover.
+    C1 = connect(N1, D1),
+    sub(C1, topic(D1)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, D1, topic(D1)) end, 50)),
+    W0 = node_metric(N1, <<"batch_pub_qos1_wanted">>),
+    A0 = node_metric(N1, <<"batch_pub_qos1_acked">>),
+    publish_message(N1, PK, [D1, D2], undefined, 1),
+    ?assertEqual([?PAYLOAD], [maps:get(payload, Msg) || Msg <- recv_ordered(1)]),
+    ?assert(wait_until(fun() -> node_metric(N1, <<"batch_pub_qos1_acked">>) >= A0 + 1 end, 100)),
+    PartiallyAcked = wait_until(
+        fun() ->
+            {ok, []} =:= erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D1}]) andalso
+                case erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D2}]) of
+                    {ok, [_ | _]} -> true;
+                    _ -> false
+                end
+        end,
+        100
+    ),
+    ?assert(PartiallyAcked),
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    emqx_bcast_test_cluster:wait_ready([N1], [N1]),
+    %% Reconnect D1 through MQTT to arm the rebuilt index. The shard has no
+    %% durable marker for the incomplete part, so D1 is legitimately
+    %% redelivered.
+    emqtt:stop(C1),
+    ?assert(wait_channel_gone(N1, D1)),
+    C1b = connect(N1, D1),
+    sub(C1b, topic(D1)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, D1, topic(D1)) end, 50)),
+    %% Redelivery is allowed by QoS1. Drain it when it happens; the ledger
+    %% assertion below is what must remain exact.
+    _ = recv_ordered(1),
+    C2 = connect(N1, D2),
+    sub(C2, topic(D2)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, D2, topic(D2)) end, 50)),
+    ?assertEqual([?PAYLOAD], [maps:get(payload, Msg) || Msg <- recv_ordered(1)]),
+    Drained = wait_until(
+        fun() ->
+            {ok, []} =:= erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D1}]) andalso
+                {ok, []} =:= erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D2}])
+        end,
+        100
+    ),
+    ?assert(Drained),
+    ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_wanted">>) - W0),
+    ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_acked">>) - A0),
+    emqtt:stop(C1b),
+    emqtt:stop(C2).
+
+-doc "A plugin roll under QoS1 publish load must account every committed\n"
+"logical delivery in wanted even when rebuild delivers it before promoter\n"
+"retry observes that the delivery rows are already gone.".
+t_plugin_roll_restart_under_qos1_load(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"default">>,
+    DN = <<"cl_load_owner_dn">>,
+    Count = 200,
+    PerDevice = #{<<"max_pending_deliveries_per_device">> => 200},
+    ok = erpc:call(N1, emqx_bcast_config, update, [PerDevice]),
+    ok = erpc:call(N2, emqx_bcast_config, update, [PerDevice]),
+    Payloads = [<<"load-payload-", (integer_to_binary(I))/binary>> || I <- lists:seq(1, Count)],
+    C = connect(N1, DN),
+    sub(C, topic(DN)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, DN, topic(DN)) end, 50)),
+    W0 = node_metric(N1, <<"batch_pub_qos1_wanted">>),
+    A0 = node_metric(N1, <<"batch_pub_qos1_acked">>),
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    ?assert(
+        wait_until(
+            fun() ->
+                not lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, []))
+            end,
+            100
+        )
+    ),
+    lists:foreach(
+        fun(Payload) ->
+            {ok, 200, _, _} = api_call(N1, #{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => PK,
+                <<"DeviceName">> => [DN],
+                <<"MessageContent">> => base64:encode(Payload),
+                <<"Qos">> => 1
+            })
+        end,
+        Payloads
+    ),
+    Committed = wait_until(
+        fun() ->
+            erpc:call(N1, mnesia, table_info, [bcast_msg, size]) >= Count
+        end,
+        200
+    ),
+    ?assert(Committed),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
+    settle_cluster([N1, N2]),
+    emqtt:stop(C),
+    ?assert(wait_channel_gone(N1, DN)),
+    C2 = connect(N1, DN),
+    sub(C2, topic(DN)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N1, DN, topic(DN)) end, 50)),
+    ?assertEqual(lists:sort(Payloads), lists:sort(recv_payloads(Count))),
+    Drained = wait_until(
+        fun() ->
+            case erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, DN}]) of
+                {ok, []} -> true;
+                _ -> false
+            end
+        end,
+        300
+    ),
+    ?assert(Drained),
+    ?assert(
+        wait_until(fun() -> node_metric(N1, <<"batch_pub_qos1_acked">>) >= A0 + Count end, 300)
+    ),
+    ?assertEqual(Count, node_metric(N1, <<"batch_pub_qos1_wanted">>) - W0),
+    ?assertEqual(Count, node_metric(N1, <<"batch_pub_qos1_acked">>) - A0),
+    emqtt:stop(C2).
+
+publish_message(Node, PK, Devices, MessageId, Qos) ->
+    Body =
+        case MessageId of
+            undefined ->
+                #{
+                    <<"Action">> => <<"BatchPub">>,
+                    <<"ProductKey">> => PK,
+                    <<"DeviceName">> => Devices,
+                    <<"MessageContent">> => base64:encode(?PAYLOAD),
+                    <<"Qos">> => Qos
+                };
+            _ ->
+                #{
+                    <<"Action">> => <<"BatchPub">>,
+                    <<"ProductKey">> => PK,
+                    <<"DeviceName">> => Devices,
+                    <<"MessageId">> => MessageId,
+                    <<"Qos">> => Qos
+                }
+        end,
+    {ok, 200, _, _} = api_call(Node, Body),
+    ok.

@@ -56,8 +56,6 @@
 -export([
     do_get_status/2,
     worker_do_insert/4,
-    worker_do_literal/4,
-    worker_do_literal_batch/4,
     worker_describe/3,
     parse_server/2,
     parse_sql_template/1,
@@ -674,14 +672,6 @@ worker_do_insert(Conn, ChannelState, Msgs, #{resource_opts := ResourceOpts} = _S
                 {error, Err1}
         end
     end).
-
-%% Keep these exported worker entry points for calls queued before an upgrade.
-%% Literal interpolation is no longer supported; they must never execute SQL.
-worker_do_literal(_Conn, _ChannelState, _Msg, _State) ->
-    unsupported_statement().
-
-worker_do_literal_batch(_Conn, _ChannelState, _Msgs, _State) ->
-    unsupported_statement().
 
 %% `odbc:param_query/4' exits with `timeout' when the
 %% request TTL elapses (see `odbc:call/3'), so a caught exception must go

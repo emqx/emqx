@@ -1,5 +1,43 @@
 emqx_bridge_http_schema {
 
+active_health_check.desc:
+"""Optional active HTTP health check. When enabled, each probe must receive a complete 2xx response.
+The existing pool connection checks also run.
+Redirects are not followed. The check uses the Connector's TLS, OAuth2 and static request headers.
+Headers with variables in the name or value are omitted.
+Use <code>resource_opts.health_check_interval</code> and a finite
+<code>resource_opts.health_check_timeout</code> to control the check. The timeout covers token acquisition,
+connection establishment, the response, and one OAuth2 retry after a 401.
+A timeout of at least 5 seconds is recommended.
+Probes use a separate connection pool, independent of the business request queue.
+Use HEAD or an endpoint with a small response body.
+Stopping, disabling or updating the Connector closes the probe pool.
+A successful probe does not guarantee that every business connection can complete requests.
+When disabled, only the existing connection and OAuth2 checks run."""
+
+active_health_check.label:
+"""Active HTTP Health Check"""
+
+active_health_check_enable.desc:
+"""Enable active HTTP health checks. A failed check marks this Connector and its Actions as unavailable."""
+
+active_health_check_enable.label:
+"""Enable Active HTTP Health Check"""
+
+active_health_check_method.desc:
+"""HTTP method for the health check request. GET and HEAD are supported. No request body is sent."""
+
+active_health_check_method.label:
+"""Health Check Method"""
+
+active_health_check_path.desc:
+"""Path of the health check endpoint, relative to the server root. For example, <code>/health?full=1</code>.
+This path replaces the path in the Connector URL. It must start with <code>/</code> and must not contain
+template variables, a host or a fragment. Required when the health check is enabled."""
+
+active_health_check_path.label:
+"""Health Check Path"""
+
 config_body.desc:
 """The body of the HTTP request.<br/>
 If not provided, the body will be a JSON object of all the available fields.<br/>

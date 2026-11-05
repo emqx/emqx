@@ -1204,6 +1204,13 @@ t_clients_dump_stats_default(_Config) ->
             hd(Lines)
         )
     ),
+    %% The `recv_cnt` and `send_cnt` columns hold the packet counters.
+    ClientId = "test_client_stats_dump-1",
+    [Row] = [L || L <- tl(Lines), lists:member(ClientId, string:split(L, ",", all))],
+    [_Ts, ClientId, _RecvOct, RecvCnt, _SendOct, SendCnt | _] = string:split(Row, ",", all),
+    Stats = emqx_cm:get_chan_stats(list_to_binary(ClientId)),
+    ?assertEqual(proplists:get_value(recv_pkt, Stats), list_to_integer(RecvCnt), Row),
+    ?assertEqual(proplists:get_value(send_pkt, Stats), list_to_integer(SendCnt), Row),
 
     %% Clean up
     ok = file:delete(TestFile),
@@ -1298,7 +1305,10 @@ t_clients_dump_stats_table_changes_during_sleep(_Config) ->
             Tester ! {print, Line},
             case Line of
                 <<"Progress: 1/", _/binary>> ->
-                    true = ets:insert(?CHAN_INFO_TAB, {?CHURN_DUMP_KEY, #{}, []});
+                    _ = emqx_chan_stats:new([]),
+                    true = ets:insert(
+                        ?CHAN_INFO_TAB, {?CHURN_DUMP_KEY, #{}, emqx_chan_stats:ref()}
+                    );
                 _ ->
                     ok
             end,
@@ -1471,15 +1481,13 @@ wait_session_top_status(_Expected, 0) ->
     Output.
 
 insert_session_top_row({ClientId, MqueueLength, TotalPayloadBytes, InflightCount}) ->
-    ok = emqx_cm:insert_channel_info(
-        ClientId,
-        #{},
-        [
-            {mqueue_len, MqueueLength},
-            {total_payload_bytes, TotalPayloadBytes},
-            {inflight_cnt, InflightCount}
-        ]
-    ).
+    StatsRef = emqx_chan_stats:new([]),
+    ok = emqx_chan_stats:put([
+        {mqueue_len, MqueueLength},
+        {total_payload_bytes, TotalPayloadBytes},
+        {inflight_cnt, InflightCount}
+    ]),
+    ok = emqx_cm:insert_channel_info(ClientId, #{}, StatsRef).
 
 wait_csv_rows(File, ExpectedRows, Attempts) when Attempts > 0 ->
     case file:read_file(File) of

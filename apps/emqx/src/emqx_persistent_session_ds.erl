@@ -40,8 +40,8 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 
 %% Session API
 -export([
-    create/4,
-    open/4,
+    create/3,
+    open/3,
     destroy/1,
     kick_offline_session/1
 ]).
@@ -54,7 +54,8 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 
 -export([
     info/2,
-    stats/1
+    stats/1,
+    chan_info/1
 ]).
 
 -export([
@@ -264,25 +265,16 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 -type conninfo() :: emqx_session:conninfo().
 -type replies() :: emqx_session:replies().
 
+%% Gauges only: the channel process stores them in its stats array (see
+%% `emqx_chan_stats`). The attributes that do not change with traffic are
+%% cached in the channel info table instead, see `chan_info/1`.
 -define(STATS_KEYS, [
-    durable,
     subscriptions_cnt,
-    subscriptions_max,
     inflight_cnt,
-    inflight_max,
     mqueue_len,
     total_payload_bytes,
     mqueue_dropped,
-    seqno_q1_comm,
-    seqno_q1_dup,
-    seqno_q1_next,
-    seqno_q2_comm,
-    seqno_q2_dup,
-    seqno_q2_rec,
-    seqno_q2_next,
-    n_streams,
-    awaiting_rel_cnt,
-    awaiting_rel_max
+    awaiting_rel_cnt
 ]).
 
 %% Effects that may occur when sequence number is released:
@@ -294,15 +286,15 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 
 %%
 
--spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
+-spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     session().
-create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg) ->
     State = ensure_new_session_state(ClientID, ConnInfo),
-    create_session(new, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg, Conf).
+    create_session(new, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg).
 
--spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
+-spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
     {_IsPresent :: true, session(), []} | false.
-open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg) ->
     ok = ?tp_span(
         debug,
         ?sessds_takeover,
@@ -326,7 +318,7 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
                 false ->
                     %% Session state is valid, restore:
                     Session = create_session(
-                        takeover, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg, Conf
+                        takeover, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg
                     ),
                     {true, do_expire(ClientInfo, Session), []}
             end
@@ -448,20 +440,6 @@ info(awaiting_rel_cnt, #{s := S}) ->
     emqx_persistent_session_ds_state:n_awaiting_rel(S);
 info(await_rel_timeout, #{props := Conf}) ->
     maps:get(await_rel_timeout, Conf);
-info(seqno_q1_comm, #{s := S}) ->
-    emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S);
-info(seqno_q1_dup, #{s := S}) ->
-    emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_1), S);
-info(seqno_q1_next, #{s := S}) ->
-    emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S);
-info(seqno_q2_comm, #{s := S}) ->
-    emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S);
-info(seqno_q2_dup, #{s := S}) ->
-    emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_2), S);
-info(seqno_q2_rec, #{s := S}) ->
-    emqx_persistent_session_ds_state:get_seqno(?rec, S);
-info(seqno_q2_next, #{s := S}) ->
-    emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S);
 info(n_streams, #{s := S}) ->
     emqx_persistent_session_ds_state:n_streams(S);
 info({MsgsQ, _PagerParams}, _Session) when MsgsQ =:= mqueue_msgs; MsgsQ =:= inflight_msgs ->
@@ -470,6 +448,10 @@ info({MsgsQ, _PagerParams}, _Session) when MsgsQ =:= mqueue_msgs; MsgsQ =:= infl
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) ->
     info(?STATS_KEYS, Session).
+
+-doc "The attributes of a durable session that the channel info table caches.".
+chan_info(Session) ->
+    maps:from_list([{impl, ?MODULE} | info(?CHAN_INFO_SESSION_KEYS ++ [n_streams], Session)]).
 
 -doc """
 Return current timestamp in the unit native for the session (ms).
@@ -745,8 +727,7 @@ handle_timeout(_ClientInfo, Timeout, _Flags, Session) ->
 -spec handle_info(clientinfo(), term(), session()) ->
     {ok, session()} | {shutdown, _Reason, session()}.
 handle_info(ClientInfo, zone_changed, Session) ->
-    Conf = emqx_session:get_session_conf(ClientInfo),
-    {ok, Session#{props := Conf}};
+    {ok, Session#{props := emqx_session:get_session_conf(ClientInfo)}};
 handle_info(
     ClientInfo,
     ?shared_sub_message = Msg,
@@ -1635,10 +1616,9 @@ do_drain_buffer_of_stream(
     emqx_persistent_session_ds_state:t(),
     emqx_types:clientinfo(),
     emqx_types:conninfo(),
-    emqx_maybe:t(message()),
-    emqx_session:conf()
+    emqx_maybe:t(message())
 ) -> session().
-create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg) ->
     DSCli = emqx_ds_client:new(?MODULE, #{retry_interval => dscli_retry_interval()}),
     Buffer = emqx_persistent_session_ds_buffer:new(),
     Inflight = emqx_persistent_session_ds_inflight:new(
@@ -1664,7 +1644,7 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
         shared_sub_s => emqx_persistent_session_ds_shared_subs:new(),
         buffer => Buffer,
         inflight => Inflight,
-        props => Conf,
+        props => emqx_session:get_session_conf(ClientInfo),
         replay => undefined,
         will_msg => MaybeWillMsg,
         ?TIMER_DRAIN_INFLIGHT => false,

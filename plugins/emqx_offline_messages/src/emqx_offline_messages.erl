@@ -143,6 +143,9 @@ handle_on_config_changed(OldConf, NewConf) ->
     OldRedisConf = maps:get(<<"redis">>, OldConf, DefaultConf),
     NewRedisConf = maps:get(<<"redis">>, NewConf, DefaultConf),
     ok = emqx_offline_messages_redis:on_config_changed(OldRedisConf, NewRedisConf),
+    OldPgConf = maps:get(<<"postgresql">>, OldConf, DefaultConf),
+    NewPgConf = maps:get(<<"postgresql">>, NewConf, DefaultConf),
+    ok = emqx_offline_messages_pg:on_config_changed(OldPgConf, NewPgConf),
     ok.
 
 handle_on_health_check() ->
@@ -152,7 +155,12 @@ handle_on_health_check() ->
     RedisConf = maps:get(<<"redis">>, Config, DefaultConf),
     MysqlStatus = emqx_offline_messages_mysql:on_health_check(MysqlConf),
     RedisStatus = emqx_offline_messages_redis:on_health_check(RedisConf),
-    Errors = status_to_error_list(MysqlStatus) ++ status_to_error_list(RedisStatus),
+    PgStatus = emqx_offline_messages_pg:on_health_check(
+        maps:get(<<"postgresql">>, Config, DefaultConf)
+    ),
+    Errors =
+        status_to_error_list(MysqlStatus) ++ status_to_error_list(RedisStatus) ++
+            status_to_error_list(PgStatus),
     case Errors of
         [] ->
             ok;

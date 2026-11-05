@@ -15,7 +15,8 @@
 -export([
     convert_timestamp/2,
     data_to_points/4,
-    value_type/1
+    value_type/1,
+    value_type_for_kind/2
 ]).
 -endif.
 
@@ -228,7 +229,7 @@ line_to_point_1(
         maps_config_to_tag_data(K, V, Acc, DriverType)
     end,
     FoldFieldFn = fun(K, V, Acc) ->
-        maps_config_to_data(K, V, Acc, DriverType)
+        maps_config_to_data(K, V, Acc, DriverType, field)
     end,
     maybe
         {ok, {_, EncodedTags}} ?= maps:fold(FoldTagFn, {ok, {Data, #{}}}, Tags),
@@ -350,9 +351,9 @@ to_maps_config(K, V, field, Res) ->
     NV = preproc_quoted(V),
     Res#{NK => NV}.
 
-maps_config_to_data(_K, _V, {error, _} = Error, _DriverType) ->
+maps_config_to_data(_K, _V, {error, _} = Error, _DriverType, _Kind) ->
     Error;
-maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType) ->
+maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType, field) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
@@ -369,7 +370,7 @@ maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType) ->
                     Error
             end
     end;
-maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType) ->
+maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType, Kind) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
@@ -380,17 +381,30 @@ maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType) ->
         %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
         {_, [undefined | _]} ->
             {ok, {Data, Res}};
+        %% a quoted value is a single string, so it is skipped when any placeholder is unset
+        {_, {quoted, Tokens}} when is_list(Tokens) ->
+            case lists:member(undefined, Tokens) of
+                true ->
+                    {ok, {Data, Res}};
+                false ->
+                    convert_config_value(NK0, NV, DriverType, Kind, Data, Res)
+            end;
         _ ->
-            NK = list_to_binary(NK0),
-            case DriverType of
-                erlang ->
-                    case value_type(NV) of
-                        {ok, Value} -> {ok, {Data, Res#{NK => Value}}};
-                        {error, _} = Error -> Error
-                    end;
-                native ->
-                    {ok, {Data, Res#{NK => to_raw_value(NV)}}}
-            end
+            convert_config_value(NK0, NV, DriverType, Kind, Data, Res)
+    end.
+
+convert_config_value(NK0, NV, DriverType, Kind, Data, Res) ->
+    NK = list_to_binary(NK0),
+    case DriverType of
+        erlang ->
+            case value_type_for_kind(NV, Kind) of
+                {ok, Value} ->
+                    {ok, {Data, Res#{NK => Value}}};
+                {error, _} = Error ->
+                    Error
+            end;
+        native ->
+            {ok, {Data, Res#{NK => to_raw_value(NV)}}}
     end.
 
 maps_config_to_tag_data(_K, _V, {error, _} = Error, _DriverType) ->
@@ -406,13 +420,20 @@ maps_config_to_tag_data(K, Config, {ok, {Data, Res}}, DriverType) ->
             {ok, {Data, Res}};
         false ->
             Key = render_template_text(NK),
-            Value = render_template_text(NV),
-            StructuredValue =
-                case DriverType of
-                    erlang -> greptimedb_values:string_value(Value);
-                    native -> Value
-                end,
-            {ok, {Data, put_structured_kv(tag_key, Key, StructuredValue, Res)}}
+            case tag_value(DriverType, NV) of
+                {ok, Value} ->
+                    {ok, {Data, put_structured_kv(tag_key, Key, Value, Res)}};
+                {error, _} = Error ->
+                    Error
+            end
+    end.
+
+tag_value(erlang, Tokens) ->
+    text_value(Tokens);
+tag_value(native, Tokens) ->
+    case text_value(Tokens) of
+        {ok, #{value_data := {string_value, Value}}} -> {ok, Value};
+        {error, _} = Error -> Error
     end.
 
 %% Earlier releases stored legacy tags without the `legacy_tag' wrapper.
@@ -783,7 +804,32 @@ value_type([Int]) when is_integer(Int) ->
         error:badarg ->
             {error, {invalid_float_value, Int}}
     end;
+%% A quoted field value is one string: every token is rendered as text.
+value_type({quoted, Tokens}) when is_list(Tokens) ->
+    text_value(Tokens);
+%% A list value that is not a single typed value is a template: every token is rendered as text.
+value_type(Val0) when is_list(Val0) ->
+    text_value(Val0);
 value_type(Val0) ->
+    string_value(Val0).
+
+%% Line protocol tag values are text: token types are dropped, except an `i`/`u` suffix and a
+%% boolean from the payload, which stay typed.
+value_type_for_kind([_, <<"i">>] = NV, tag) ->
+    value_type(NV);
+value_type_for_kind([_, <<"u">>] = NV, tag) ->
+    value_type(NV);
+value_type_for_kind([Bool], tag) when is_boolean(Bool) ->
+    value_type([Bool]);
+value_type_for_kind(NV, tag) when is_list(NV) ->
+    text_value(NV);
+value_type_for_kind(NV, _Kind) ->
+    value_type(NV).
+
+text_value(Tokens) ->
+    string_value([render_token(Token) || Token <- Tokens]).
+
+string_value(Val0) ->
     try unicode:characters_to_binary(Val0, utf8) of
         Val1 when is_binary(Val1) ->
             {ok, greptimedb_values:string_value(Val1)};
@@ -793,6 +839,15 @@ value_type(Val0) ->
         error:badarg ->
             {error, {invalid_string_value, Val0}}
     end.
+
+render_token(Token) when is_boolean(Token) ->
+    atom_to_binary(Token, utf8);
+render_token(Token) when is_integer(Token) ->
+    integer_to_binary(Token);
+render_token(Token) when is_float(Token) ->
+    float_to_binary(Token, [short]);
+render_token(Token) ->
+    Token.
 
 bin(Data) -> emqx_utils_conv:bin(Data).
 

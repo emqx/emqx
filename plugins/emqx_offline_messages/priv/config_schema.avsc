@@ -566,6 +566,117 @@
 
         ]
       }
+    },
+    {
+      "name": "postgresql",
+      "default": {},
+      "$ui": {"label": "$postgresql_label"},
+      "type": {
+        "type": "record",
+        "name": "PostgreSQLRecord",
+        "fields": [
+          {"name": "enable", "type": "boolean", "default": false,
+           "$ui": {"component": "switch", "label": "$postgresql_enable_label", "description": "$postgresql_enable_desc"}},
+          {"name": "host", "type": "string", "default": "127.0.0.1",
+           "$ui": {"component": "input", "label": "$postgresql_host_label"}},
+          {"name": "port", "type": "int", "default": 5432,
+           "$ui": {"component": "input-number", "label": "$postgresql_port_label"}},
+          {"name": "database", "type": "string", "default": "mqtt",
+           "$ui": {"component": "input", "label": "$postgresql_database_label"}},
+          {"name": "username", "type": "string", "default": "root",
+           "$ui": {"component": "input", "label": "$postgresql_username_label"}},
+          {"name": "password", "type": "string", "default": "public",
+           "$ui": {"component": "input-password", "label": "$postgresql_password_label"}},
+          {"name": "namespace", "type": "string", "default": "",
+           "$ui": {"component": "input", "label": "$postgresql_namespace_label"}},
+          {"name": "topics", "type": {"type": "array", "items": "string"}, "default": [],
+           "$ui": {"component": "input-array", "label": "$postgresql_topics_label"}},
+          {"name": "init_default_schema", "type": "boolean", "default": false,
+           "$ui": {"component": "switch", "label": "$postgresql_init_default_schema_label"}},
+          {"name": "async_batched", "type": "boolean", "default": false,
+           "$ui": {"component": "switch", "label": "$postgresql_async_batched_label", "description": "$postgresql_async_batched_desc"}},
+          {"name": "max_topic_length", "type": "int", "default": 1024,
+           "$ui": {"component": "input-number", "label": "$postgresql_max_topic_length_label"}},
+          {"name": "new_subscription_start", "type": "string", "default": "earliest",
+           "$ui": {"component": "select", "label": "$postgresql_new_subscription_start_label",
+                   "options": [{"label": "earliest", "value": "earliest"}, {"label": "latest", "value": "latest"}]}},
+          {"name": "query_timeout", "type": "int", "default": 5000,
+           "$ui": {"component": "input-number", "label": "$postgresql_query_timeout_label"}},
+          {"name": "set_statement_timeout", "type": "boolean", "default": true,
+           "$ui": {"component": "switch", "label": "$postgresql_set_statement_timeout_label"}},
+          {"name": "message_publish_pool_size", "type": "int", "default": 8,
+           "$ui": {"component": "input-number", "label": "$postgresql_message_publish_pool_size_label"}},
+          {"name": "message_read_pool_size", "type": "int", "default": 8,
+           "$ui": {"component": "input-number", "label": "$postgresql_message_read_pool_size_label"}},
+          {"name": "subscription_meta_pool_size", "type": "int", "default": 8,
+           "$ui": {"component": "input-number", "label": "$postgresql_subscription_meta_pool_size_label"}},
+          {"name": "subscription_expiry", "type": "long", "default": 2592000000,
+           "$ui": {"component": "input-number", "label": "$postgresql_subscription_expiry_label"}},
+          {"name": "ssl", "default": {}, "$ui": {"label": "$postgresql_ssl_label"}, "type": {
+            "type": "record", "name": "PostgreSQLSSLRecord", "fields": [
+              {"name": "enable", "type": "boolean", "default": false,
+               "$ui": {"component": "switch", "label": "$postgresql_ssl_enable_label"}},
+              {"name": "verify", "type": "string", "default": "verify_peer",
+               "$ui": {"component": "select", "label": "$postgresql_ssl_verify_label",
+                       "options": [{"label": "verify_none", "value": "verify_none"}, {"label": "verify_peer", "value": "verify_peer"}]}},
+              {"name": "server_name_indication", "type": "string", "default": "auto",
+               "$ui": {"component": "input", "label": "$postgresql_ssl_server_name_indication_label"}},
+              {"name": "cacertfile", "type": "string", "default": "",
+               "$ui": {"component": "input", "label": "$postgresql_ssl_cacertfile_label"}},
+              {"name": "certfile", "type": "string", "default": "",
+               "$ui": {"component": "input", "label": "$postgresql_ssl_certfile_label"}},
+              {"name": "keyfile", "type": "string", "default": "",
+               "$ui": {"component": "input", "label": "$postgresql_ssl_keyfile_label"}}
+            ]
+          }},
+          {"name": "writer", "default": {}, "$ui": {"label": "$postgresql_writer_label"}, "type": {
+            "type": "record", "name": "PostgreSQLWriterRecord", "fields": [
+              {"name": "pool_size", "type": "int", "default": 4,
+               "$ui": {"component": "input-number", "label": "$postgresql_writer_pool_size_label"}},
+              {"name": "min_flush_timeout", "type": "int", "default": 5,
+               "$ui": {"component": "input-number", "label": "$postgresql_writer_min_flush_timeout_label"}},
+              {"name": "max_flush_timeout", "type": "int", "default": 50,
+               "$ui": {"component": "input-number", "label": "$postgresql_writer_max_flush_timeout_label"}},
+              {"name": "flush_max_messages", "type": "int", "default": 1000,
+               "$ui": {"component": "input-number", "label": "$postgresql_writer_flush_max_messages_label"}},
+              {"name": "flush_max_bytes", "type": "int", "default": 1048576,
+               "$ui": {"component": "input-number", "label": "$postgresql_writer_flush_max_bytes_label"}},
+              {"name": "call_timeout", "type": "int", "default": 5000,
+               "$ui": {"component": "input-number", "label": "$postgresql_writer_call_timeout_label"}}
+            ]
+          }},
+          {"name": "read", "default": {}, "$ui": {"label": "$postgresql_read_label"}, "type": {
+            "type": "record", "name": "PostgreSQLReadRecord", "fields": [
+              {"name": "page_max_messages", "type": "int", "default": 100,
+               "$ui": {"component": "input-number", "label": "$postgresql_read_page_max_messages_label"}},
+              {"name": "reorder_max_distance", "type": "int", "default": 32,
+               "$ui": {"component": "input-number", "label": "$postgresql_read_reorder_max_distance_label"}},
+              {"name": "reorder_timeout", "type": "int", "default": 50,
+               "$ui": {"component": "input-number", "label": "$postgresql_read_reorder_timeout_label"}},
+              {"name": "idle_poll_interval", "type": "int", "default": 30000,
+               "$ui": {"component": "input-number", "label": "$postgresql_read_idle_poll_interval_label"}}
+            ]
+          }},
+          {"name": "checkpoint", "default": {}, "$ui": {"label": "$postgresql_checkpoint_label"}, "type": {
+            "type": "record", "name": "PostgreSQLCheckpointRecord", "fields": [
+              {"name": "interval", "type": "int", "default": 1000,
+               "$ui": {"component": "input-number", "label": "$postgresql_checkpoint_interval_label"}},
+              {"name": "max_pending", "type": "int", "default": 100,
+               "$ui": {"component": "input-number", "label": "$postgresql_checkpoint_max_pending_label"}}
+            ]
+          }},
+          {"name": "retention", "default": {}, "$ui": {"label": "$postgresql_retention_label"}, "type": {
+            "type": "record", "name": "PostgreSQLRetentionRecord", "fields": [
+              {"name": "max_age", "type": "long", "default": 604800000,
+               "$ui": {"component": "input-number", "label": "$postgresql_retention_max_age_label"}},
+              {"name": "max_messages", "type": "long", "default": 1000000,
+               "$ui": {"component": "input-number", "label": "$postgresql_retention_max_messages_label"}},
+              {"name": "interval", "type": "int", "default": 60000,
+               "$ui": {"component": "input-number", "label": "$postgresql_retention_interval_label"}}
+            ]
+          }}
+        ]
+      }
     }
   ]
 }

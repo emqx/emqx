@@ -629,7 +629,7 @@ t_independent_mappings_device_and_eon(_TCConfig) ->
                 }
             }
         },
-        #{data_topic => DDataTopic}
+        #{data_topic => NDataTopic, name => Name1}
     ),
     ?assertReceivePublish(
         #{
@@ -640,7 +640,152 @@ t_independent_mappings_device_and_eon(_TCConfig) ->
                 }
             }
         },
-        #{data_topic => DDataTopic}
+        #{data_topic => DDataTopic, name => Name2}
+    ),
+
+    ok.
+
+-doc """
+Verifies that device and EoN mappings are independent for the same client, i.e., the
+aliases don't clash between them.
+
+Almost identical to `t_independent_mappings_device_and_eon2`, but with a different
+publishing order: here, we publish an NDATA message before DBIRTH, populating the current
+mapping in the process dictionary.
+
+Ref: https://github.com/emqx/emqx/issues/19695
+""".
+t_independent_mappings_device_and_eon2(_TCConfig) ->
+    C = start_client(),
+    NDataTopic = ndata_topic(),
+    DDataTopic = ddata_topic(),
+    #{republish_topic := RepublishTopicN} = create_rule(NDataTopic),
+    #{republish_topic := RepublishTopicD} = create_rule(DDataTopic),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopicN, [{qos, 1}]),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopicD, [{qos, 1}]),
+
+    Name1 = <<"name1">>,
+    Name2 = <<"name2">>,
+    Alias = 1,
+    publish_nbirth(C, singleton_aliased_metric(Name1, Alias)),
+    publish_ndata(C, singleton_aliased_metric(no_name, Alias)),
+
+    publish_dbirth(C, singleton_aliased_metric(Name2, Alias)),
+    publish_ddata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := NDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name1}]
+                }
+            }
+        },
+        #{data_topic => NDataTopic, name => Name1}
+    ),
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := DDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name2}]
+                }
+            }
+        },
+        #{data_topic => DDataTopic, name => Name2}
+    ),
+
+    ok.
+
+-doc """
+Smoke test to verify that a "rebirth" (EoN) with a different metric name for the same
+alias correctly updates the mapping.
+""".
+t_rebirth_eon(_TCConfig) ->
+    C = start_client(),
+    NDataTopic = ndata_topic(),
+    #{republish_topic := RepublishTopicN} = create_rule(NDataTopic),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopicN, [{qos, 1}]),
+
+    Name1 = <<"name1">>,
+    Name2 = <<"name2">>,
+    Alias = 1,
+    publish_nbirth(C, singleton_aliased_metric(Name1, Alias)),
+    publish_ndata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := NDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name1}]
+                }
+            }
+        },
+        #{data_topic => NDataTopic, name => Name1}
+    ),
+
+    %% rebirth with different metric name
+    publish_nbirth(C, singleton_aliased_metric(Name2, Alias)),
+    publish_ndata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := NDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name2}]
+                }
+            }
+        },
+        #{data_topic => NDataTopic, name => Name2}
+    ),
+
+    ok.
+
+-doc """
+Smoke test to verify that a "rebirth" (device) with a different metric name for the same
+alias correctly updates the mapping.
+""".
+t_rebirth_device(_TCConfig) ->
+    C = start_client(),
+    DDataTopic = ddata_topic(),
+    #{republish_topic := RepublishTopicD} = create_rule(DDataTopic),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopicD, [{qos, 1}]),
+
+    Name1 = <<"name1">>,
+    Name2 = <<"name2">>,
+    Alias = 1,
+    publish_dbirth(C, singleton_aliased_metric(Name1, Alias)),
+    publish_ddata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := DDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name1}]
+                }
+            }
+        },
+        #{data_topic => DDataTopic, name => Name1}
+    ),
+
+    %% rebirth with different metric name
+    publish_dbirth(C, singleton_aliased_metric(Name2, Alias)),
+    publish_ddata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"topic">> := DDataTopic,
+                <<"decoded">> := #{
+                    <<"metrics">> := [#{<<"name">> := Name2}]
+                }
+            }
+        },
+        #{data_topic => DDataTopic, name => Name2}
     ),
 
     ok.

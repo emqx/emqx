@@ -13,6 +13,7 @@
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
 -include("emqx_config.hrl").
+-include("emqx_instr.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -25,10 +26,12 @@
     info/1,
     info/2,
     restore_derivable_peer_fields/2,
+    restore_derivable_conninfo_fields/2,
     get_mqtt_conf/2,
     get_mqtt_conf/3,
     set_conn_state/2,
     stats/1,
+    session_stats/1,
     caps/1
 ]).
 
@@ -46,6 +49,11 @@
     terminate/2
 ]).
 
+%% Export for connection modules
+-export([
+    notify_discarded/1
+]).
+
 %% Export for emqx_sn
 -export([
     do_deliver/2,
@@ -55,12 +63,14 @@
 
 %% Export for emqx_channel implementations
 -export([
-    maybe_nack/1
+    maybe_nack/3
 ]).
 
 %% Export for connection modules
 -export([
-    shutdown_count/2
+    shutdown_count/2,
+    hibernate/1,
+    wakeup/1
 ]).
 
 %% Export for DS session GC worker and session implementations
@@ -93,6 +103,13 @@
     replayctx
 }).
 
+-record(topic_aliases, {
+    inbound = #{} :: map(),
+    outbound = #{} :: map(),
+    inbound_max = 0 :: non_neg_integer(),
+    outbound_max = 0 :: non_neg_integer()
+}).
+
 -record(channel, {
     %% MQTT ConnInfo
     conninfo :: emqx_types:conninfo(),
@@ -104,10 +121,8 @@
     keepalive :: option(emqx_keepalive:keepalive()),
     %% MQTT Will Msg
     will_msg :: option(emqx_types:message()),
-    %% MQTT Topic Aliases
-    topic_aliases :: emqx_types:topic_aliases(),
-    %% MQTT Topic Alias Maximum
-    alias_maximum :: option(map()),
+    %% Topic alias state, initialized on inbound use or explicit outbound negotiation.
+    topic_aliases :: option(#topic_aliases{}),
     %% Authentication Data Cache
     auth_cache :: option(map()),
     %% Quota checkers
@@ -192,24 +207,58 @@ The map omits `will_msg`, `conninfo.conn_props`, `conninfo.sock` and
 client input, and `conninfo.sock` is only valid in the connection process.
 Read them with `info/2`: `info(will_msg, Channel)`, `info(conninfo, Channel)` and
 `info({session, subscriptions}, Channel)`.
+
+The map also omits the values that `conninfo` and `clientinfo` hold twice: the peer
+address fields of `clientinfo`, and `conninfo.clientid` and `conninfo.username` when
+they are equal to the `clientinfo` ones. The readers of the table take them from
+`clientinfo`. `restore_derivable_peer_fields/2` and
+`restore_derivable_conninfo_fields/2` put them back.
 """.
 -spec info(channel()) -> emqx_types:infos().
-info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
+info(#channel{conninfo = ConnInfo, clientinfo = ClientInfo, session = Session} = Channel) ->
     #{
-        conninfo => maps:without([conn_props, sock], ConnInfo),
+        conninfo => drop_derivable_conninfo_fields(
+            maps:without([conn_props, sock], ConnInfo), ClientInfo
+        ),
         conn_state => info(conn_state, Channel),
-        clientinfo => drop_derivable_peer_fields(info(clientinfo, Channel)),
+        clientinfo => drop_derivable_peer_fields(ClientInfo),
         session => emqx_utils:maybe_apply(fun chan_info_session/1, Session)
     }.
 
 chan_info_session(Session) ->
-    maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session)).
+    emqx_session:chan_info(Session).
 
 %% `clientinfo' keeps these so that authn, authz and hooks can reach them without
 %% `conninfo'. The info map already carries `conninfo', so a reader can derive them
 %% from `conninfo.peername' and `conninfo.sockname' instead.
 drop_derivable_peer_fields(ClientInfo) ->
     maps:without([peerhost, peerport, peername, sockport], ClientInfo).
+
+%% `conninfo' holds the `clientid' and `username' of the CONNECT packet, `clientinfo'
+%% the ones the client ends up with. They differ when the broker assigns the client
+%% identifier or when a peer certificate supplies either value, so each is dropped
+%% only when it equals the `clientinfo' one.
+drop_derivable_conninfo_fields(ConnInfo, ClientInfo) ->
+    lists:foldl(
+        fun(Key, Acc) -> drop_if_equal(Key, Acc, ClientInfo) end,
+        ConnInfo,
+        [clientid, username]
+    ).
+
+drop_if_equal(Key, ConnInfo, ClientInfo) ->
+    case ConnInfo of
+        #{Key := Value} when map_get(Key, ClientInfo) =:= Value ->
+            maps:remove(Key, ConnInfo);
+        _ ->
+            ConnInfo
+    end.
+
+%% @doc Put back the `conninfo' fields that `info/1' leaves out, from `clientinfo'.
+%% The counterpart of `restore_derivable_peer_fields/2' for `conninfo'.
+-spec restore_derivable_conninfo_fields(emqx_types:conninfo(), emqx_types:clientinfo()) ->
+    emqx_types:conninfo().
+restore_derivable_conninfo_fields(ConnInfo, ClientInfo) ->
+    maps:merge(maps:with([clientid, username], ClientInfo), ConnInfo).
 
 %% @doc Put back the `clientinfo' fields that `info/1' leaves out.
 %% For code that rebuilds a channel from a stored info map, such as session
@@ -276,9 +325,21 @@ info(will_msg, #channel{will_msg = undefined}) ->
 info(will_msg, #channel{will_msg = WillMsg}) ->
     emqx_message:to_map(WillMsg);
 info(topic_aliases, #channel{topic_aliases = Aliases}) ->
-    Aliases;
-info(alias_maximum, #channel{alias_maximum = Limits}) ->
-    Limits;
+    case Aliases of
+        undefined ->
+            #{inbound => #{}, outbound => #{}};
+        #topic_aliases{inbound = Inbound, outbound = Outbound} ->
+            #{inbound => Inbound, outbound => Outbound}
+    end;
+info(alias_maximum, Channel = #channel{topic_aliases = Aliases}) ->
+    #{
+        inbound => inbound_alias_maximum(Channel),
+        outbound =>
+            case Aliases of
+                undefined -> 0;
+                #topic_aliases{outbound_max = Maximum} -> Maximum
+            end
+    };
 info(timers, #channel{timers = Timers}) ->
     Timers;
 info(quota, #channel{quota = Quota}) ->
@@ -299,15 +360,29 @@ inspect(#channel{} = Channel) ->
         lists:enumerate(2, record_info(fields, channel))
     ).
 
+%% A WebSocket connection counts its own socket stats and has no `send_pend`.
+chan_stats_masked(#{conn_mod := emqx_ws_connection}) -> [send_pend];
+chan_stats_masked(#{}) -> [].
+
 -spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
 -spec stats(channel()) -> emqx_types:stats().
 stats(#channel{session = undefined}) ->
-    emqx_pd:get_counters(?CHANNEL_METRICS);
-stats(#channel{session = Session}) ->
-    lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
+    emqx_chan_stats:get_counters(?CHANNEL_METRICS);
+stats(Channel) ->
+    lists:append(session_stats(Channel), emqx_chan_stats:get_counters(?CHANNEL_METRICS)).
+
+-doc """
+The session gauges of the channel: the stats that the channel process writes
+to its stats array when the session changes.
+""".
+-spec session_stats(channel()) -> emqx_types:stats().
+session_stats(#channel{session = undefined}) ->
+    [];
+session_stats(#channel{session = Session}) ->
+    emqx_session:stats(Session).
 
 -spec caps(channel()) -> emqx_types:caps().
 caps(#channel{clientinfo = #{zone := Zone}}) ->
@@ -360,13 +435,10 @@ init(
     {NClientInfo, NConnInfo0} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
     ok = validate_clientinfo_string(peersni, maps:get(peersni, NClientInfo, undefined)),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
+    _ = emqx_chan_stats:new(chan_stats_masked(NConnInfo)),
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
-        topic_aliases = #{
-            inbound => #{},
-            outbound => #{}
-        },
         auth_cache = #{},
         timers = #{},
         conn_state = idle,
@@ -685,14 +757,12 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel0) ->
             Channel0#channel{conn_state = connecting}
         )
     of
-        {ok, NConnPkt, Channel1 = #channel{clientinfo = ClientInfo}} ->
+        {ok, NConnPkt, Channel1} ->
             ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
             %% NOTE: Set alias_maximum before authentication, because enhanced
             %% authentication completes in `handle_in(?AUTH_PACKET(...))', which
             %% reaches `post_process_connect/2' without the connect packet.
-            Channel2 = Channel1#channel{
-                alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
-            },
+            Channel2 = init_topic_aliases(NConnPkt, Channel1),
             case authenticate(?CONNECT_PACKET(NConnPkt), Channel2) of
                 {ok, Properties, Channel3} ->
                     Channel = Channel3#channel{
@@ -748,12 +818,20 @@ adjust_limiter(ClientInfo) ->
 
 -doc """
 Build the limiter container when the channel has none and a finite limit is
-configured for its zone or listener. The connection calls this at CONNECT and
-on each stats timer, so a limit configured at runtime applies after at most
-one stats interval.
+configured for its zone or listener. Do the same for the session delivery
+limiter. The connection calls this at CONNECT and on each stats timer, so a
+limit configured at runtime applies after at most one stats interval.
 """.
 -spec refresh_quota(channel()) -> channel().
-refresh_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+refresh_quota(Channel) ->
+    refresh_session_quota(refresh_channel_quota(Channel)).
+
+refresh_session_quota(#channel{session = undefined} = Channel) ->
+    Channel;
+refresh_session_quota(#channel{session = Session} = Channel) ->
+    Channel#channel{session = emqx_session:refresh_quota(Session)}.
+
+refresh_channel_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
     #{zone := Zone, listener := ListenerId} = ClientInfo,
     case emqx_limiter:channel_limits_configured(Zone, ListenerId) of
         false ->
@@ -763,7 +841,7 @@ refresh_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
                 quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)
             }
     end;
-refresh_quota(Channel) ->
+refresh_channel_quota(Channel) ->
     Channel.
 
 try_consume_quota(_Needs, #channel{quota = undefined} = Channel) ->
@@ -803,21 +881,7 @@ handle_session_zone_change(#channel{session = Session, clientinfo = ClientInfo} 
 %%--------------------------------------------------------------------
 
 process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
-    case
-        emqx_utils:pipeline(
-            [
-                fun check_quota_exceeded/2,
-                fun process_alias/2,
-                fun check_pub_alias/2,
-                fun packet_to_message/2,
-                fun check_pub_authz/2,
-                fun check_pub_caps/2,
-                fun finalize_publish/2
-            ],
-            Packet,
-            Channel
-        )
-    of
+    case publish_pipeline(Packet, Channel) of
         {ok, Msg, NChannel} ->
             ok = ?EXT_TRACE_ADD_ATTRS(emqx_otel_trace:msg_attrs(Msg)),
             do_publish(PacketId, Msg, NChannel);
@@ -874,7 +938,7 @@ handle_publish_error(_QoS, Topic, _PacketId, RC, Channel) ->
     ),
     handle_out(disconnect, RC, Channel).
 
-packet_to_message(
+publish_packet_to_message(
     Packet,
     Channel = #channel{
         conninfo = #{
@@ -891,10 +955,11 @@ packet_to_message(
     }
 ) ->
     ClientAttrs = maps:get(client_attrs, ClientInfo, #{}),
+    Headers = ?BROKER_INSTR_HEADERS(?BROKER_INSTR_MARK(?BROKER_INSTR_TS(), undefined)),
     Msg = emqx_packet:to_message(
         Packet,
         ClientId,
-        #{
+        Headers#{
             client_attrs => ClientAttrs,
             peername => PeerName,
             proto_ver => ProtoVer,
@@ -903,9 +968,9 @@ packet_to_message(
             peerhost => PeerHost
         }
     ),
-    {ok, Msg, Channel}.
+    publish_check_authz(Msg, Channel).
 
-finalize_publish(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
+publish_finalize(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
     {ok, emqx_message_ingress:finalize(ClientInfo, Msg), Channel}.
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
@@ -1380,13 +1445,15 @@ process_maybe_shutdown(
 handle_deliver(
     Delivers,
     Channel = #channel{
-        takeover = Takeover = #takeover{pendings = Pendings}
+        takeover = Takeover = #takeover{pendings = Pendings},
+        session = Session,
+        clientinfo = ClientInfo
     }
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(Pendings, maybe_nack(Delivers)),
+    NPendings = lists:append(Pendings, maybe_nack(Delivers, ClientInfo, Session)),
     NTakeover = Takeover#takeover{pendings = NPendings},
     {ok, Channel#channel{takeover = NTakeover}};
 handle_deliver(
@@ -1400,7 +1467,7 @@ handle_deliver(
 ) ->
     %% NOTE
     %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    Delivers1 = maybe_nack(Delivers),
+    Delivers1 = maybe_nack(Delivers, ClientInfo, Session),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     %% we need to update stats here, as the stats_timer is canceled after disconnected
@@ -1431,10 +1498,17 @@ do_handle_deliver(
             handle_out(publish, Publishes, NChannel)
     end.
 
-%% Nack delivers from shared subscription
-maybe_nack(Delivers0) ->
+%% Nack delivers from shared subscription, then run the `message.nack` hook for the rest.
+%% The hook context is stashed once for all delivers.
+maybe_nack(Delivers0, ClientInfo, Session) ->
     Delivers = lists:filter(fun not_nacked_by_shared_sub/1, Delivers0),
-    lists:filter(fun not_nacked_by_hook/1, Delivers).
+    ok = emqx_hooks:stash_context('message.nack', #{
+        clientinfo => ClientInfo,
+        session_info_fn => fun(Prop) -> emqx_session:info(Prop, Session) end
+    }),
+    NotNacked = lists:filter(fun not_nacked_by_hook/1, Delivers),
+    ok = emqx_hooks:unstash_context('message.nack'),
+    NotNacked.
 
 not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
     case emqx_shared_sub:is_ack_required(Msg) of
@@ -1833,7 +1907,7 @@ handle_call(
     Channel = #channel{
         session = Session,
         takeover = #takeover{pendings = Pendings},
-        clientinfo = #{clientid := ClientId}
+        clientinfo = #{clientid := ClientId} = ClientInfo
     }
 ) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
@@ -1846,7 +1920,7 @@ handle_call(
             ok = emqx_session_mem:takeover(Session),
             %% TODO: Should not drain deliver here (side effect)
             Delivers = emqx_utils:drain_deliver(),
-            AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
+            AllPendings = lists:append(Pendings, maybe_nack(Delivers, ClientInfo, Session)),
             ?tp(
                 debug,
                 emqx_channel_takeover_end,
@@ -2058,6 +2132,8 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
+handle_info({?MODULE, publish_discarded, QoS, PacketId}, Channel) ->
+    complete_discarded_publish(QoS, PacketId, Channel);
 handle_info(heal_cluster_partition, Channel) ->
     handle_heal_partition(Channel),
     {ok, Channel};
@@ -2077,13 +2153,7 @@ handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInf
         Acc = run_fold_with_context('client.handle_info', [ClientInfo, Info], Acc0, Channel1),
         HookDelivers = maps:get(deliver, Acc, []),
         HookReplies = maps:get(replies, Acc, []),
-        {AllReplies, Channel} =
-            case handle_deliver(HookDelivers, Channel1) of
-                {ok, Channel2} ->
-                    {HookReplies, Channel2};
-                {ok, DeliverReplies, Channel2} ->
-                    {append_replies(DeliverReplies, HookReplies), Channel2}
-            end,
+        {AllReplies, Channel} = handle_info_deliver(HookDelivers, HookReplies, Channel1),
         case AllReplies of
             [] ->
                 {ok, Channel};
@@ -2104,6 +2174,65 @@ shutdown_on_session_request(Reason, Session, Channel) ->
             {shutdown, ExitReason, Packet, SChannel};
         {shutdown, ExitReason, _Reply, SChannel} ->
             {shutdown, ExitReason, SChannel}
+    end.
+
+%% Hook callbacks often handle an info message without delivering anything.
+handle_info_deliver([], Replies, Channel) ->
+    {Replies, Channel};
+handle_info_deliver(Delivers, Replies, Channel0) ->
+    case handle_deliver(Delivers, Channel0) of
+        {ok, Channel} ->
+            {Replies, Channel};
+        {ok, DeliverReplies, Channel} ->
+            {append_replies(DeliverReplies, Replies), Channel}
+    end.
+
+%%--------------------------------------------------------------------
+%% Discarded outgoing PUBLISH
+%%--------------------------------------------------------------------
+
+-doc """
+Called by the connection process when it discards an outgoing packet because
+it exceeds the client's Maximum Packet Size.
+
+The channel is not reachable at the drop site, so a QoS 1 or QoS 2 PUBLISH is
+completed later, when the message sent here reaches `handle_info/2`.
+""".
+-spec notify_discarded(emqx_types:packet()) -> ok.
+notify_discarded(?PUBLISH_PACKET(QoS, PacketId)) when QoS =:= ?QOS_1; QoS =:= ?QOS_2 ->
+    _ = erlang:send(self(), {?MODULE, publish_discarded, QoS, PacketId}),
+    ok;
+notify_discarded(_Packet) ->
+    ok.
+
+%% MQTT-3.1.2-25: behave as if the delivery of the discarded PUBLISH is
+%% complete, so it leaves the inflight window.
+complete_discarded_publish(
+    ?QOS_1,
+    PacketId,
+    Channel = #channel{clientinfo = ClientInfo, session = Session, conn_flags = Flags}
+) ->
+    case emqx_session:puback(ClientInfo, PacketId, ?RC_SUCCESS, Flags, Session) of
+        {OkEffects, _Msg, Publishes, NSession} ->
+            NChannel = apply_session_effects(OkEffects, Channel#channel{session = NSession}),
+            handle_out(publish, Publishes, NChannel);
+        {error, _} ->
+            {ok, Channel}
+    end;
+complete_discarded_publish(
+    ?QOS_2,
+    PacketId,
+    Channel = #channel{clientinfo = ClientInfo, session = Session0, conn_flags = Flags}
+) ->
+    maybe
+        {ok, _Msg, Session1} ?= emqx_session:pubrec(ClientInfo, PacketId, Session0),
+        {OkEffects, Publishes, Session} ?=
+            emqx_session:pubcomp(ClientInfo, PacketId, ?RC_SUCCESS, Flags, Session1),
+        NChannel = apply_session_effects(OkEffects, Channel#channel{session = Session}),
+        handle_out(publish, Publishes, NChannel)
+    else
+        {error, _} ->
+            {ok, Channel}
     end.
 
 append_replies(Replies1, Replies2) ->
@@ -2204,6 +2333,23 @@ handle_timeout(
         {ok, NKeepAlive} ->
             NChannel = Channel#channel{keepalive = NKeepAlive},
             {ok, reset_timer(keepalive, NChannel)};
+        {error, timeout} ->
+            handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
+    end;
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{keepalive = undefined}) ->
+    {ok, Channel};
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{conn_state = disconnected}) ->
+    {ok, Channel};
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{timers = #{keepalive := _}}) ->
+    %% A packet or a keepalive update re-armed the sampling first.
+    {ok, Channel};
+handle_timeout(TRef, keepalive_deadline, Channel = #channel{timers = #{keepalive_deadline := _}}) ->
+    %% The process did not hibernate, so wakeup/1 was not called.
+    handle_timeout(TRef, keepalive_deadline, wakeup(Channel));
+handle_timeout(_TRef, keepalive_deadline, Channel = #channel{keepalive = KeepAlive}) ->
+    case emqx_keepalive:check_deadline(KeepAlive) of
+        {ok, NKeepAlive} ->
+            {ok, ensure_timer(keepalive, Channel#channel{keepalive = NKeepAlive})};
         {error, timeout} ->
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
@@ -2996,36 +3142,45 @@ parse_zone_override(ZoneOverride) when is_binary(ZoneOverride) ->
 %%--------------------------------------------------------------------
 %% Process Topic Alias
 
-process_alias(
+publish_process_alias(
     Packet = #mqtt_packet{
         variable =
             #mqtt_packet_publish{
                 topic_name = <<>>,
-                properties = #{'Topic-Alias' := AliasId}
+                properties = #{'Topic-Alias' := AliasId} = Props
             } = Publish
     },
-    Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}
+    Channel = ?IS_MQTT_V5 = #channel{topic_aliases = Aliases}
 ) ->
-    case find_alias(inbound, AliasId, TopicAliases) of
-        {ok, Topic} ->
-            NPublish = Publish#mqtt_packet_publish{topic_name = Topic},
-            {ok, Packet#mqtt_packet{variable = NPublish}, Channel};
-        error ->
-            {error, ?RC_PROTOCOL_ERROR}
+    case Aliases of
+        #topic_aliases{inbound = #{AliasId := Topic}} ->
+            NPublish = Publish#mqtt_packet_publish{
+                topic_name = Topic,
+                properties = maps:remove('Topic-Alias', Props)
+            },
+            publish_packet_to_message(Packet#mqtt_packet{variable = NPublish}, Channel);
+        _ ->
+            {error, ?RC_PROTOCOL_ERROR, Channel}
     end;
-process_alias(
-    #mqtt_packet{
-        variable = #mqtt_packet_publish{
-            topic_name = Topic,
-            properties = #{'Topic-Alias' := AliasId}
-        }
+publish_process_alias(
+    Packet = #mqtt_packet{
+        variable =
+            #mqtt_packet_publish{
+                topic_name = Topic,
+                properties = #{'Topic-Alias' := AliasId} = Props
+            } = Publish
     },
-    Channel = ?IS_MQTT_V5 = #channel{topic_aliases = TopicAliases}
+    Channel =
+        ?IS_MQTT_V5 = #channel{
+            topic_aliases = #topic_aliases{inbound = Inbound} = Aliases
+        }
 ) ->
-    NTopicAliases = save_alias(inbound, AliasId, Topic, TopicAliases),
-    {ok, Channel#channel{topic_aliases = NTopicAliases}};
-process_alias(_Packet, Channel) ->
-    {ok, Channel}.
+    NAliases = Aliases#topic_aliases{inbound = Inbound#{AliasId => Topic}},
+    NPublish = Publish#mqtt_packet_publish{properties = maps:remove('Topic-Alias', Props)},
+    NChannel = Channel#channel{topic_aliases = NAliases},
+    publish_packet_to_message(Packet#mqtt_packet{variable = NPublish}, NChannel);
+publish_process_alias(Packet, Channel) ->
+    publish_packet_to_message(Packet, Channel).
 
 %%--------------------------------------------------------------------
 %% Packing Topic Alias
@@ -3035,54 +3190,75 @@ packing_alias(
         variable =
             #mqtt_packet_publish{
                 topic_name = Topic,
-                properties = Prop
+                properties = Props
             } = Publish
     },
     Channel =
         ?IS_MQTT_V5 = #channel{
-            topic_aliases = TopicAliases,
-            alias_maximum = Limits
+            topic_aliases = #topic_aliases{outbound = Outbound} = Aliases
         }
 ) ->
-    case find_alias(outbound, Topic, TopicAliases) of
-        {ok, AliasId} ->
+    case Outbound of
+        #{Topic := AliasId} ->
             NPublish = Publish#mqtt_packet_publish{
                 topic_name = <<>>,
-                properties = maps:merge(Prop, #{'Topic-Alias' => AliasId})
+                properties = Props#{'Topic-Alias' => AliasId}
             },
             {Packet#mqtt_packet{variable = NPublish}, Channel};
-        error ->
-            #{outbound := Aliases} = TopicAliases,
-            AliasId = maps:size(Aliases) + 1,
-            case
-                (Limits =:= undefined) orelse
-                    (AliasId =< maps:get(outbound, Limits, 0))
-            of
+        #{} ->
+            AliasId = map_size(Outbound) + 1,
+            case AliasId =< Aliases#topic_aliases.outbound_max of
                 true ->
-                    NTopicAliases = save_alias(outbound, AliasId, Topic, TopicAliases),
-                    NChannel = Channel#channel{topic_aliases = NTopicAliases},
+                    NAliases = Aliases#topic_aliases{outbound = Outbound#{Topic => AliasId}},
+                    NChannel = Channel#channel{topic_aliases = NAliases},
                     NPublish = Publish#mqtt_packet_publish{
                         topic_name = Topic,
-                        properties = maps:merge(Prop, #{'Topic-Alias' => AliasId})
+                        properties = Props#{'Topic-Alias' => AliasId}
                     },
                     {Packet#mqtt_packet{variable = NPublish}, NChannel};
                 false ->
-                    {Packet, Channel}
+                    {strip_topic_alias(Packet, Publish, Props), Channel}
             end
     end;
+packing_alias(
+    Packet = #mqtt_packet{variable = Publish = #mqtt_packet_publish{properties = Props}},
+    Channel = ?IS_MQTT_V5
+) ->
+    {strip_topic_alias(Packet, Publish, Props), Channel};
 packing_alias(Packet, Channel) ->
     {Packet, Channel}.
 
-%%--------------------------------------------------------------------
-%% Check quota state
+-compile({inline, [strip_topic_alias/3]}).
+strip_topic_alias(Packet, Publish, Props = #{'Topic-Alias' := _}) ->
+    Packet#mqtt_packet{
+        variable = Publish#mqtt_packet_publish{
+            properties = maps:remove('Topic-Alias', Props)
+        }
+    };
+strip_topic_alias(Packet, _, _) ->
+    Packet.
 
-check_quota_exceeded(
-    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), Chann0
+%%--------------------------------------------------------------------
+%% Publish pipeline
+
+%% Stages: check quota (updates channel.quota)
+%%      -> check alias
+%%      -> process alias (updates channel.topic_aliases)
+%%      -> packet to message
+%%      -> check authorization
+%%      -> check capabilities
+%%      -> finalize message
+publish_pipeline(Packet, Channel) ->
+    publish_check_quota(Packet, Channel).
+
+publish_check_quota(
+    Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload),
+    Chann0
 ) ->
     Needs = [{bytes, erlang:byte_size(Payload)}, {messages, 1}],
     case try_consume_quota(Needs, Chann0) of
         {true, Chann} ->
-            {ok, Chann};
+            publish_check_alias(Packet, Chann);
         {false, Chann, Reason} ->
             ?SLOG_THROTTLE(
                 warning,
@@ -3117,23 +3293,20 @@ check_subscribe_quota_exceeded(
 %%--------------------------------------------------------------------
 %% Check Pub Alias
 
-check_pub_alias(
-    #mqtt_packet{
-        variable = #mqtt_packet_publish{
-            properties = #{'Topic-Alias' := AliasId}
-        }
+publish_check_alias(
+    Packet = #mqtt_packet{
+        variable = #mqtt_packet_publish{properties = #{'Topic-Alias' := AliasId}}
     },
-    #channel{alias_maximum = Limits}
+    Channel
 ) ->
-    case
-        (Limits =:= undefined) orelse
-            (AliasId =< maps:get(inbound, Limits, ?MAX_TOPIC_AlIAS))
-    of
-        true -> ok;
-        false -> {error, ?RC_TOPIC_ALIAS_INVALID}
+    case AliasId =< inbound_alias_maximum(Channel) of
+        true ->
+            publish_process_alias(Packet, Channel);
+        false ->
+            {error, ?RC_TOPIC_ALIAS_INVALID, Channel}
     end;
-check_pub_alias(_Packet, _Channel) ->
-    ok.
+publish_check_alias(Packet, Channel) ->
+    publish_process_alias(Packet, Channel).
 
 %%--------------------------------------------------------------------
 %% Authorization action
@@ -3144,52 +3317,58 @@ authz_action({_Topic, #{qos := QoS} = _SubOpts} = _TopicFilter) ->
 %%--------------------------------------------------------------------
 %% Check Pub Authorization
 
-check_pub_authz(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
-    ?EXT_TRACE_CLIENT_AUTHZ(
-        ?EXT_TRACE_ATTR(
-            (basic_attrs(Channel))#{'authz.action_type' => publish}
-        ),
-        fun(NMsg) ->
-            do_check_pub_authz(NMsg, Channel, ClientInfo)
-        end,
-        [Msg]
-    ).
+publish_check_authz(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
+    case
+        ?EXT_TRACE_CLIENT_AUTHZ(
+            ?EXT_TRACE_ATTR(
+                (basic_attrs(Channel))#{'authz.action_type' => publish}
+            ),
+            fun(NMsg) -> publish_authorize(NMsg, ClientInfo) end,
+            [Msg]
+        )
+    of
+        {allow, NMsg} ->
+            publish_check_caps(NMsg, Channel);
+        {error, Reason} ->
+            {error, Reason, Channel}
+    end.
 
-do_check_pub_authz(
+publish_authorize(
     Msg,
-    Channel,
     ClientInfo
 ) ->
     case emqx_message_ingress:ingress_and_authorize(ClientInfo, Msg) of
-        {allow, NMsg = #message{topic = Topic}} ->
+        {allow, _NMsg = #message{topic = Topic}} = Allow ->
             ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.publish.topic' => Topic,
                 'authz.publish.result' => allow
             }),
             ?EXT_TRACE_SET_STATUS_OK(),
-            {ok, NMsg, Channel};
+            Allow;
         deny ->
             ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.publish.result' => deny,
                 'authz.reason_code' => ?RC_NOT_AUTHORIZED
             }),
             ?EXT_TRACE_SET_STATUS_ERROR(),
-            {error, ?RC_NOT_AUTHORIZED, Channel};
+            {error, ?RC_NOT_AUTHORIZED};
         {error, invalid_topic_name} ->
-            {error, ?RC_TOPIC_NAME_INVALID, Channel};
+            {error, ?RC_TOPIC_NAME_INVALID};
         {error, Reason} ->
             ?SLOG(warning, #{msg => "message_ingress_failed", reason => Reason}),
-            {error, ?RC_NOT_AUTHORIZED, Channel}
+            {error, ?RC_NOT_AUTHORIZED}
     end.
 
 %%--------------------------------------------------------------------
 %% Check Pub Caps
 
-check_pub_caps(
-    #message{qos = QoS, flags = #{retain := Retain}, topic = Topic},
-    #channel{clientinfo = #{zone := Zone}}
-) ->
-    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic => Topic}).
+publish_check_caps(Msg, Channel = #channel{clientinfo = #{zone := Zone}}) ->
+    case emqx_mqtt_caps:check_pub(Zone, Msg) of
+        ok ->
+            publish_finalize(Msg, Channel);
+        {error, Reason} ->
+            {error, Reason, Channel}
+    end.
 
 %%--------------------------------------------------------------------
 %% Check Subscribe Packet
@@ -3401,6 +3580,13 @@ merge_default_subopts(SubOpts) ->
 %% Enrich ConnAck Caps
 
 enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
+    %% TODO
+    %% Keep runtime checks consistent with the advertised capabilities after zone
+    %% updates.
+    %% * `Topic-Alias-Maximum` uses the connection stored limit.
+    %% * Other capabilities, such as `Maximum-QoS` and `Retain-Available`, still
+    %%   follow runtime configuration even though existing clients do not receive
+    %%   an updated CONNACK.
     #channel{
         clientinfo = #{
             zone := Zone
@@ -3411,7 +3597,6 @@ enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
         max_packet_size := MaxPktSize,
         max_qos_allowed := MaxQoS,
         retain_available := Retain,
-        max_topic_alias := MaxAlias,
         shared_subscription := Shared,
         wildcard_subscription := Wildcard
     } = emqx_mqtt_caps:get_caps(Zone),
@@ -3419,7 +3604,7 @@ enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
     NAckProps = AckProps#{
         'Retain-Available' => flag(Retain),
         'Maximum-Packet-Size' => MaxPktSize,
-        'Topic-Alias-Maximum' => MaxAlias,
+        'Topic-Alias-Maximum' => inbound_alias_maximum(Channel),
         'Wildcard-Subscription-Available' => flag(Wildcard),
         'Subscription-Identifier-Available' => 1,
         'Shared-Subscription-Available' => flag(Shared),
@@ -3545,19 +3730,26 @@ trim_conninfo(ConnInfo) ->
 %%--------------------------------------------------------------------
 %% Init Alias Maximum
 
-init_alias_maximum(
+init_topic_aliases(
     #mqtt_packet_connect{
         proto_ver = ?MQTT_PROTO_V5,
-        properties = Properties
+        properties = Props
     },
-    #{zone := Zone} = _ClientInfo
+    Channel = #channel{clientinfo = #{zone := Zone}}
 ) ->
-    #{
-        outbound => emqx_mqtt_props:get('Topic-Alias-Maximum', Properties, 0),
-        inbound => maps:get(max_topic_alias, emqx_mqtt_caps:get_caps(Zone))
+    Channel#channel{
+        topic_aliases = #topic_aliases{
+            inbound_max = emqx_config:get_zone_conf(Zone, [mqtt, max_topic_alias]),
+            outbound_max = emqx_mqtt_props:get('Topic-Alias-Maximum', Props, 0)
+        }
     };
-init_alias_maximum(_ConnPkt, _ClientInfo) ->
-    undefined.
+init_topic_aliases(_ConnPkt, Channel) ->
+    Channel.
+
+inbound_alias_maximum(#channel{topic_aliases = #topic_aliases{inbound_max = Maximum}}) ->
+    Maximum;
+inbound_alias_maximum(_Channel) ->
+    0.
 
 %%--------------------------------------------------------------------
 %% Ensure KeepAlive
@@ -3597,19 +3789,73 @@ ensure_keepalive_timer(
             #{cnts_ref := CntRef} ->
                 _MFA = {emqx_quic_connection, read_cnt, [CntRef, control_packet]};
             undefined ->
-                emqx_pd:get_counter(recv_pkt)
+                _MFA = {emqx_chan_stats, get, [recv_pkt]}
         end,
     KeepAlive = emqx_keepalive:init(Zone, Val, Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = KeepAlive}).
 
-clear_keepalive(Channel = #channel{timers = Timers}) ->
-    case maps:get(keepalive, Timers, undefined) of
-        undefined ->
-            Channel;
-        TRef ->
-            emqx_utils:cancel_timer(TRef),
-            Channel#channel{timers = maps:without([keepalive], Timers)}
-    end.
+clear_keepalive(Channel) ->
+    clean_timer(keepalive_deadline, clean_timer(keepalive, Channel)).
+
+-doc """
+Prepare the channel for the hibernation of its connection process.
+
+A hibernated process gets no packets, so the keepalive does not need to
+sample the receive counter. Replace the sampling timer with one timer that
+fires when the client is late.
+""".
+-spec hibernate(channel()) -> channel().
+hibernate(
+    Channel = #channel{
+        conn_state = connected,
+        conninfo = ConnInfo,
+        keepalive = KeepAlive,
+        timers = #{keepalive := TRef} = Timers
+    }
+) when KeepAlive =/= undefined ->
+    case
+        not is_map_key(conn_shared_state, ConnInfo) andalso
+            erlang:cancel_timer(TRef)
+    of
+        Remaining when is_integer(Remaining) ->
+            SinceArm = max(emqx_keepalive:info(check_interval, KeepAlive) - Remaining, 0),
+            {TillDeadline, NKeepAlive} = emqx_keepalive:hibernate(SinceArm, KeepAlive),
+            NChannel = Channel#channel{
+                keepalive = NKeepAlive, timers = maps:remove(keepalive, Timers)
+            },
+            ensure_timer(keepalive_deadline, TillDeadline, NChannel);
+        false ->
+            %% Not eligible, or the timer already fired and its message wakes
+            %% the process at once.
+            Channel
+    end;
+hibernate(Channel) ->
+    Channel.
+
+-doc """
+Restore the keepalive sampling after the connection process wakes up.
+
+When the deadline timer already fired, credit the whole deadline and do
+not flush: its message is in the mailbox, and `handle_timeout/3` checks it.
+""".
+-spec wakeup(channel()) -> channel().
+wakeup(
+    Channel = #channel{
+        keepalive = KeepAlive, timers = #{keepalive_deadline := TRef} = Timers
+    }
+) when KeepAlive =/= undefined ->
+    NTimers = maps:remove(keepalive_deadline, Timers),
+    case erlang:cancel_timer(TRef) of
+        Remaining when is_integer(Remaining) ->
+            NKeepAlive = emqx_keepalive:wakeup(Remaining, KeepAlive),
+            ensure_timer(keepalive, Channel#channel{keepalive = NKeepAlive, timers = NTimers});
+        false ->
+            NKeepAlive = emqx_keepalive:wakeup(0, KeepAlive),
+            Channel#channel{keepalive = NKeepAlive, timers = NTimers}
+    end;
+wakeup(Channel) ->
+    Channel.
+
 %%--------------------------------------------------------------------
 %% Maybe Resume Session
 
@@ -3946,21 +4192,6 @@ run_client_connack_hooks(Channel, ConnInfo, Reason, AckProps) ->
     Ctx = Ctx0#{namespace => Ns},
     emqx_hooks:'client.connack'(Ctx, ConnInfo, Reason, AckProps).
 
--compile({inline, [find_alias/3, save_alias/4]}).
-
-find_alias(_, _, undefined) -> error;
-find_alias(inbound, AliasId, _TopicAliases = #{inbound := Aliases}) -> maps:find(AliasId, Aliases);
-find_alias(outbound, Topic, _TopicAliases = #{outbound := Aliases}) -> maps:find(Topic, Aliases).
-
-save_alias(_, _, _, undefined) ->
-    false;
-save_alias(inbound, AliasId, Topic, TopicAliases = #{inbound := Aliases}) ->
-    NAliases = maps:put(AliasId, Topic, Aliases),
-    TopicAliases#{inbound => NAliases};
-save_alias(outbound, AliasId, Topic, TopicAliases = #{outbound := Aliases}) ->
-    NAliases = maps:put(Topic, AliasId, Aliases),
-    TopicAliases#{outbound => NAliases}.
-
 -compile({inline, [reply/2, shutdown/2, shutdown/3]}).
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.
@@ -4123,6 +4354,13 @@ inc_metrics(Name, _Channel) ->
 -ifdef(TEST).
 dummy() -> #channel{}.
 
+set_field(alias_maximum, Limits, Channel = #channel{topic_aliases = Aliases}) ->
+    Channel#channel{
+        topic_aliases = Aliases#topic_aliases{
+            inbound_max = maps:get(inbound, Limits, Aliases#topic_aliases.inbound_max),
+            outbound_max = maps:get(outbound, Limits, Aliases#topic_aliases.outbound_max)
+        }
+    };
 set_field(Name, Value, Channel) ->
     Pos = emqx_utils:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).

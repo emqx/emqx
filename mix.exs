@@ -86,6 +86,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:grpc),
       common_dep(:minirest),
       common_dep(:ecpool),
+      common_dep(:poolboy),
       common_dep(:replayq),
       # maybe forbid to fetch quicer
       common_dep(:emqtt),
@@ -174,18 +175,18 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.3", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.9", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.4", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.18.0", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.3", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.4", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
-  def common_dep(:gun), do: {:gun, "2.1.0", override: true}
+  def common_dep(:gun), do: {:gun, "2.7.0", override: true}
   # in conflict by cowboy_swagger and cowboy
-  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-4", override: true}
+  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-5", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.8", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.9", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, "2.0.1", override: true}
 
@@ -198,10 +199,15 @@ defmodule EMQXUmbrella.MixProject do
     do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-5", override: true}
 
   def common_dep(:hackney),
-    do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}
+    do: {:hackney, github: "emqx/hackney", tag: "2.0.0", override: true}
 
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.7.0", override: true}
+
+  # `emqx_mongodb` retains overflow connections, which needs the emqx fork.
+  def common_dep(:poolboy),
+    do: {:poolboy, github: "emqx/poolboy", tag: "1.5.2-emqx.1", override: true}
+
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.5.0", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
@@ -257,7 +263,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do: {:cowlib, "2.14.0", override: true}
+    do: {:cowlib, "2.21.0", override: true}
 
   def common_dep(:snabbkaffe),
     do: {
@@ -272,9 +278,6 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:recon),
     do: {:recon, github: "ferd/recon", tag: "2.5.6", override: true}
-
-  def common_dep(:ots_erl),
-    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.4", override: true}
 
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.19", override: true}
@@ -322,7 +325,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.3"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.13"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.14"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
@@ -361,13 +364,36 @@ defmodule EMQXUmbrella.MixProject do
       singleton(not test_env?(), :deterministic) ++
       singleton(test_env?(), {:d, :TEST}) ++
       singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
-      singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
+      broker_instr_options() ++
       singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
       singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
   end
 
-  defp enable_broker_instr?() do
-    "1" == System.get_env("EMQX_BROKER_INSTR")
+  # EMQX_BROKER_INSTR accepts comma-separated feature names; "1" enables all features.
+  defp broker_instr_options() do
+    features = %{
+      "message_latency" => :EMQX_BROKER_INSTR_MESSAGE_LATENCY,
+      "socket_packets" => :EMQX_BROKER_INSTR_SOCKET_PACKETS
+    }
+
+    enabled =
+      case System.get_env("EMQX_BROKER_INSTR", "") do
+        "1" -> Map.keys(features)
+        value when value in ["", "0"] -> []
+        value -> String.split(value, ",", trim: true) |> Enum.map(&String.trim/1)
+      end
+
+    defines =
+      enabled
+      |> Enum.uniq()
+      |> Enum.map(fn feature ->
+        case Map.fetch(features, feature) do
+          {:ok, define} -> {:d, define}
+          :error -> raise "Unknown EMQX_BROKER_INSTR feature: #{inspect(feature)}"
+        end
+      end)
+
+    singleton(defines != [], {:d, :EMQX_BROKER_INSTR}) ++ defines
   end
 
   defp store_state_in_ds?() do
@@ -1169,7 +1195,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.4.1", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.4.2", override: true}],
       else: []
   end
 

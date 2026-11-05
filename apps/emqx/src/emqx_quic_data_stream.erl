@@ -145,9 +145,7 @@ handle_stream_data(
         list_to_binary(lists:reverse([Bin | QueuedData])), PS, Channel
     ),
     NewTQ = lists:foldl(
-        fun(Item, Acc) ->
-            queue:in(Item, Acc)
-        end,
+        fun queue:in/2,
         TQ,
         [{incoming, P} || P <- lists:reverse(MQTTPackets)]
     ),
@@ -303,6 +301,7 @@ serialize_packet(Packet, Serialize, State) ->
             ok = emqx_metrics:inc_global('delivery.dropped.too_large'),
             ok = emqx_metrics:inc_global('delivery.dropped'),
             ok = inc_outgoing_stats({error, message_too_large}, State),
+            ok = emqx_channel:notify_discarded(Packet),
             <<>>;
         Data ->
             Data

@@ -2,6 +2,7 @@
 {emqx,emqx}.
 {emqx_broker,emqx}.
 {emqx_broker_heal,emqx}.
+{emqx_broker_info,emqx}.
 {emqx_cluster,emqx}.
 {emqx_cm,emqx}.
 {emqx_ds_shared_sub,emqx}.

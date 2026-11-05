@@ -146,6 +146,290 @@ t_gateway_enable(_) ->
     {404, _} = request(put, "/gateways/coap/enable/true", undefined),
     ok.
 
+-doc "The combined OpenAPI specification preserves each gateway's WebSocket defaults.".
+t_gateway_websocket_openapi(_) ->
+    {_, GatewayComponents} = emqx_gateway_api:api_spec(),
+    {_, ListenerComponents} = emqx_gateway_api_listeners:api_spec(),
+    lists:foreach(
+        fun(Components) ->
+            Merged = lists:foldl(fun maps:merge/2, #{}, Components),
+            Schemas = emqx_utils_json:decode(emqx_utils_json:encode_proplist(Merged)),
+            lists:foreach(
+                fun(Type) -> assert_websocket_openapi(Type, Schemas) end,
+                [<<"ws_listener">>, <<"wss_listener">>]
+            )
+        end,
+        [GatewayComponents ++ ListenerComponents, ListenerComponents ++ GatewayComponents]
+    ).
+
+assert_websocket_openapi(Type, Schemas) ->
+    GenericRef = websocket_openapi_ref(<<"emqx_gateway_api.", Type/binary>>, Schemas),
+    NatsRef = websocket_openapi_ref(<<"emqx_gateway_api.nats_", Type/binary>>, Schemas),
+    OcppRef = websocket_openapi_ref(<<"emqx_gateway_api.ocpp_", Type/binary>>, Schemas),
+    ?assertNotEqual(GenericRef, NatsRef),
+    ?assertNotEqual(GenericRef, OcppRef),
+    ?assertNotEqual(NatsRef, OcppRef),
+    assert_websocket_openapi_defaults(
+        GenericRef,
+        #{
+            path => <<>>, supported_subprotocols => <<>>, fail_if_no_subprotocol => false
+        },
+        Schemas
+    ),
+    lists:foreach(
+        fun({Name, Defaults}) ->
+            Ref =
+                case Name of
+                    nats -> NatsRef;
+                    ocpp -> OcppRef
+                end,
+            assert_websocket_openapi_defaults(Ref, Defaults, Schemas)
+        end,
+        websocket_gateway_defaults()
+    ).
+
+websocket_openapi_ref(Listener, Schemas) ->
+    #{<<"properties">> := #{<<"websocket">> := #{<<"$ref">> := Ref}}} = maps:get(Listener, Schemas),
+    Ref.
+
+assert_websocket_openapi_defaults(<<"#/components/schemas/", Component/binary>>, Defaults, Schemas) ->
+    #{<<"properties">> := Properties} = maps:get(Component, Schemas),
+    maps:foreach(
+        fun(Key, Expected) ->
+            #{<<"default">> := Actual} = maps:get(atom_to_binary(Key), Properties),
+            ?assertEqual(Expected, Actual)
+        end,
+        Defaults
+    ).
+
+-doc "The API schema preserves gateway defaults before it translates requests.".
+t_gateway_websocket_schema(_) ->
+    lists:foreach(
+        fun({GwName, Defaults}) ->
+            lists:foreach(
+                fun(Type) ->
+                    assert_websocket_schema_overrides(GwName, Type, Defaults)
+                end,
+                [ws, wss]
+            )
+        end,
+        websocket_gateway_defaults()
+    ).
+
+assert_websocket_schema_overrides(GwName, Type, Defaults) ->
+    lists:foreach(
+        fun(Overrides) ->
+            assert_websocket_schema(GwName, Type, Overrides, Defaults)
+        end,
+        [
+            undefined,
+            #{},
+            #{path => <<"/custom">>},
+            #{supported_subprotocols => <<>>},
+            #{
+                supported_subprotocols => <<"custom.v1, custom.v2">>,
+                fail_if_no_subprotocol => true
+            }
+        ]
+    ).
+
+assert_websocket_schema(GwName, Type, Overrides, Defaults) ->
+    Schema = #{roots => [{gateway, hoconsc:ref(emqx_gateway_api, GwName)}]},
+    {Listener, Expected} =
+        case Overrides of
+            undefined ->
+                {websocket_test_listener(Type), Defaults};
+            _ ->
+                {
+                    (websocket_test_listener(Type))#{websocket => Overrides},
+                    maps:merge(Defaults, Overrides)
+                }
+        end,
+    Conf = #{gateway => #{name => atom_to_binary(GwName), listeners => [Listener]}},
+    #{gateway := #{listeners := [Checked]}} = hocon_tconf:check_plain(
+        Schema,
+        emqx_utils_maps:binary_key_map(Conf),
+        #{required => false, atom_key => true}
+    ),
+    ?assertEqual(Type, maps:get(type, Checked)),
+    #{path := Path, supported_subprotocols := Protocols} = Expected,
+    assert_websocket_options(
+        Expected#{
+            path := binary_to_list(Path),
+            supported_subprotocols := string:tokens(binary_to_list(Protocols), ", ")
+        },
+        Checked
+    ).
+
+-doc "The HTTP API preserves NATS WebSocket defaults.".
+t_gateway_nats_ws_defaults(_) ->
+    assert_gateway_websocket_defaults(nats, ws).
+
+-doc "The HTTP API preserves NATS secure WebSocket defaults.".
+t_gateway_nats_wss_defaults(_) ->
+    assert_gateway_websocket_defaults(nats, wss).
+
+-doc "The HTTP API preserves OCPP WebSocket defaults.".
+t_gateway_ocpp_ws_defaults(_) ->
+    assert_gateway_websocket_defaults(ocpp, ws).
+
+-doc "The HTTP API preserves OCPP secure WebSocket defaults.".
+t_gateway_ocpp_wss_defaults(_) ->
+    assert_gateway_websocket_defaults(ocpp, wss).
+
+assert_gateway_websocket_defaults(GwName, Type) ->
+    Defaults = proplists:get_value(GwName, websocket_gateway_defaults()),
+    assert_gateway_websocket_options(GwName, Type, #{}, Defaults),
+    assert_gateway_websocket_options(
+        GwName,
+        Type,
+        #{websocket => #{path => <<"/custom">>}},
+        Defaults#{path => <<"/custom">>}
+    ).
+
+-doc "The HTTP API preserves explicit empty and custom WebSocket options.".
+t_gateway_websocket_explicit_options(_) ->
+    lists:foreach(
+        fun({GwName, _Defaults}) ->
+            lists:foreach(
+                fun(Protocols) -> assert_explicit_websocket_options(GwName, Protocols) end,
+                [<<>>, <<"custom.v1, custom.v2">>]
+            )
+        end,
+        websocket_gateway_defaults()
+    ).
+
+assert_explicit_websocket_options(GwName, Protocols) ->
+    Options = #{
+        path => <<"/custom">>,
+        supported_subprotocols => Protocols,
+        fail_if_no_subprotocol => true
+    },
+    lists:foreach(
+        fun(Type) ->
+            assert_gateway_websocket_options(GwName, Type, #{websocket => Options}, Options)
+        end,
+        [ws, wss]
+    ).
+
+-doc "The NATS API preserves TCP and SSL options alongside WebSocket listeners.".
+t_gateway_nats_mixed_listeners(_) ->
+    Listeners = [websocket_test_listener(Type) || Type <- [tcp, ssl, ws, wss]],
+    with_websocket_gateway(nats, Listeners, fun(Path) ->
+        {200, #{listeners := Saved}} = request(get, Path),
+        ?assertEqual(4, length(Saved)),
+        lists:foreach(
+            fun(#{type := Type} = Listener) ->
+                case Type of
+                    <<"ws">> -> assert_websocket_options(nats_websocket_defaults(), Listener);
+                    <<"wss">> -> assert_websocket_options(nats_websocket_defaults(), Listener);
+                    _ -> ?assertNot(maps:is_key(websocket, Listener))
+                end
+            end,
+            Saved
+        )
+    end).
+
+-doc "The HTTP API rejects listener transports that the gateway does not support.".
+t_gateway_websocket_listener_types(_) ->
+    lists:foreach(
+        fun({GwName, Type}) ->
+            Path = "/gateways/" ++ atom_to_list(GwName),
+            ?assertMatch(
+                {400, _},
+                request(put, Path, #{
+                    name => atom_to_binary(GwName),
+                    listeners => [websocket_test_listener(Type)]
+                })
+            ),
+            {200, Unloaded} = request(get, Path),
+            assert_gw_unloaded(Unloaded)
+        end,
+        [{nats, udp}, {ocpp, tcp}, {nats, invalid}]
+    ).
+
+-doc "The listener create and update APIs preserve gateway WebSocket defaults.".
+t_gateway_websocket_listener_api(_) ->
+    lists:foreach(
+        fun({GwName, Defaults}) ->
+            with_websocket_gateway(GwName, [], fun(Path) ->
+                Listener = websocket_test_listener(ws),
+                ListenerPath = Path ++ "/listeners",
+                {201, Created} = request(post, ListenerPath, Listener),
+                assert_saved_websocket_options(Path, Defaults),
+                Id = maps:get(id, Created),
+                InstancePath = ListenerPath ++ "/" ++ binary_to_list(Id),
+                {200, _Updated} = request(put, InstancePath, Listener#{
+                    websocket => #{path => <<"/new">>}
+                }),
+                assert_saved_websocket_options(Path, Defaults#{path => <<"/new">>})
+            end)
+        end,
+        websocket_gateway_defaults()
+    ).
+
+websocket_gateway_defaults() ->
+    [
+        {nats, nats_websocket_defaults()},
+        {ocpp, #{
+            path => <<"/ocpp">>,
+            supported_subprotocols => <<"ocpp1.6, ocpp2.0">>,
+            fail_if_no_subprotocol => false
+        }}
+    ].
+
+nats_websocket_defaults() ->
+    #{
+        path => <<>>,
+        supported_subprotocols => <<"NATS/1.0, NATS">>,
+        fail_if_no_subprotocol => false
+    }.
+
+websocket_test_listener(Type) ->
+    maps:merge(
+        #{
+            name => atom_to_binary(Type),
+            type => atom_to_binary(Type),
+            bind => <<"127.0.0.1:39009">>,
+            enable => false
+        },
+        tls_test_options(Type)
+    ).
+
+%% `etc/certs' holds only a README on this branch, so the schema default for
+%% `cacertfile' names a file that is not there and the API rejects every TLS
+%% listener these cases create. The cases are about the WebSocket options, not
+%% about verifying a peer, so leave the CA empty, which `emqx_tls_lib' allows
+%% for `cacertfile'.
+tls_test_options(Type) when Type =:= ssl; Type =:= wss; Type =:= dtls ->
+    #{ssl_options => #{cacertfile => <<>>}};
+tls_test_options(_Type) ->
+    #{}.
+
+assert_gateway_websocket_options(GwName, Type, Overrides, Expected) ->
+    Listener = maps:merge(websocket_test_listener(Type), Overrides),
+    with_websocket_gateway(GwName, [Listener], fun(Path) ->
+        assert_saved_websocket_options(Path, Expected)
+    end).
+
+assert_saved_websocket_options(Path, Expected) ->
+    {200, #{listeners := [Saved]}} = request(get, Path),
+    assert_websocket_options(Expected, Saved).
+
+assert_websocket_options(Expected, #{websocket := Options}) ->
+    ?assertEqual(Expected, maps:with(maps:keys(Expected), Options)).
+
+with_websocket_gateway(GwName, Listeners, Fun) ->
+    Path = "/gateways/" ++ atom_to_list(GwName),
+    try
+        {204, _} = request(put, Path, #{
+            name => atom_to_binary(GwName), enable => false, listeners => Listeners
+        }),
+        Fun(Path)
+    after
+        ok = emqx_gateway_conf:unload_gateway(GwName)
+    end.
+
 t_gateway_stomp(_) ->
     {200, Gw} = request(get, "/gateways/stomp"),
     assert_gw_unloaded(Gw),
@@ -190,6 +474,100 @@ t_gateway_mqttsn(_) ->
     {200, ConfResp2} = request(get, "/gateways/mqttsn"),
     assert_confs(GwConf2, ConfResp2),
     ok.
+
+-doc "Reject non-positive CoAP session byte budgets without changing the saved configuration.".
+t_coap_blockwise_total_size_validation(_) ->
+    assert_blockwise_total_size(coap).
+
+-doc "Reject non-positive LwM2M session byte budgets without changing the saved configuration.".
+t_lwm2m_blockwise_total_size_validation(_) ->
+    assert_blockwise_total_size(lwm2m).
+
+assert_blockwise_total_size(GwName) ->
+    Path = "/gateways/" ++ atom_to_list(GwName),
+    InitialConf = blockwise_total_size_gateway_conf(GwName),
+    InvalidValues = [0, <<"0B">>, <<"0KB">>, -1, <<"-1">>, <<"bad">>],
+    lists:foreach(
+        fun(Value) ->
+            ?assertMatch(
+                {400, _}, request(put, Path, InitialConf#{blockwise => #{max_total_size => Value}})
+            )
+        end,
+        InvalidValues
+    ),
+    {200, Unloaded} = request(get, Path),
+    assert_gw_unloaded(Unloaded),
+    lists:foreach(
+        fun(Value) ->
+            {204, _} = request(put, Path, InitialConf#{blockwise => #{max_total_size => Value}}),
+            {200, Saved} = request(get, Path),
+            assert_total_size_update_rejected(Path, Saved, InvalidValues)
+        end,
+        [1, <<"1B">>, <<"16MB">>]
+    ).
+
+assert_total_size_update_rejected(Path, Saved, InvalidValues) ->
+    lists:foreach(
+        fun(Invalid) ->
+            ?assertMatch(
+                {400, _}, request(put, Path, #{blockwise => #{max_total_size => Invalid}})
+            ),
+            {200, AfterRejectedUpdate} = request(get, Path),
+            ?assertEqual(maps:get(blockwise, Saved), maps:get(blockwise, AfterRejectedUpdate))
+        end,
+        InvalidValues
+    ).
+
+blockwise_total_size_gateway_conf(coap) ->
+    #{name => <<"coap">>};
+blockwise_total_size_gateway_conf(lwm2m) ->
+    #{
+        name => <<"lwm2m">>,
+        xml_dir => list_to_binary(
+            filename:join([
+                emqx_common_test_helpers:proj_root(), "apps", "emqx_gateway_lwm2m", "lwm2m_xml"
+            ])
+        ),
+        translators => #{
+            command => #{topic => <<"dn/#">>},
+            response => #{topic => <<"up/resp">>},
+            notify => #{topic => <<"up/notify">>},
+            register => #{topic => <<"up/register">>},
+            update => #{topic => <<"up/update">>}
+        }
+    }.
+
+-doc "Apply the byte limit configured through HTTP to a real CoAP Block1 upload.".
+t_coap_blockwise_total_size_enforcement(_) ->
+    Port = emqx_common_test_helpers:select_free_port(udp),
+    Conf = #{
+        name => <<"coap">>,
+        connection_required => false,
+        listeners => [#{name => <<"blockwise">>, type => <<"udp">>, bind => Port}],
+        blockwise => #{max_block_size => 16, max_total_size => <<"16B">>}
+    },
+    {204, _} = request(put, "/gateways/coap", Conf),
+    {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+    try
+        %% The first full block fits; the next byte exceeds the configured limit.
+        ?assertEqual(95, total_size_block1_reply(Sock, Port, 1, 8, binary:copy(<<"A">>, 16))),
+        ?assertEqual(141, total_size_block1_reply(Sock, Port, 2, 16, <<"B">>)),
+        ?assertMatch(
+            {400, _}, request(put, "/gateways/coap", #{blockwise => #{max_total_size => <<"0B">>}})
+        ),
+        {200, #{blockwise := #{max_total_size := <<"16B">>}}} = request(get, "/gateways/coap"),
+        ?assertEqual(95, total_size_block1_reply(Sock, Port, 3, 8, binary:copy(<<"C">>, 16))),
+        ?assertEqual(141, total_size_block1_reply(Sock, Port, 4, 16, <<"D">>))
+    after
+        gen_udp:close(Sock)
+    end.
+
+total_size_block1_reply(Sock, Port, Id, Block, Payload) ->
+    %% CON POST, Token 1, Uri-Path "limit", Block1 with a 16-byte block size.
+    Packet = <<16#41, 2, Id:16, 1, 16#b5, "limit", 16#d1, 3, Block, 16#ff, Payload/binary>>,
+    ok = gen_udp:send(Sock, {127, 0, 0, 1}, Port, Packet),
+    {ok, {_, _, <<_, Code, Id:16, _/binary>>}} = gen_udp:recv(Sock, 0, 2000),
+    Code.
 
 t_gateway_coap(_) ->
     {200, Gw} = request(get, "/gateways/coap"),
@@ -248,6 +626,111 @@ t_gateway_lwm2m(_) ->
     {200, ConfResp2} = request(get, "/gateways/lwm2m"),
     assert_confs(GwConf2, ConfResp2),
     ok.
+
+-doc "Reject non-positive CoAP block-wise body sizes without changing the saved configuration.".
+t_coap_blockwise_body_size_validation(_) ->
+    assert_positive_blockwise_option(coap, max_body_size, [1, <<"1B">>, <<"4MB">>], [
+        0, <<"0B">>, -1, <<"-1">>, <<"bad">>
+    ]).
+
+-doc "Reject non-positive LwM2M block-wise body sizes without changing the saved configuration.".
+t_lwm2m_blockwise_body_size_validation(_) ->
+    assert_positive_blockwise_option(lwm2m, max_body_size, [1, <<"1B">>, <<"4MB">>], [
+        0, <<"0B">>, -1, <<"-1">>, <<"bad">>
+    ]).
+
+-doc "Keep the CoAP exchange lifetime positive and within the supported timer range.".
+t_coap_blockwise_lifetime_validation(_) ->
+    assert_positive_blockwise_option(coap, exchange_lifetime, [1, <<"1ms">>, <<"247s">>], [
+        0, <<"0ms">>, <<"0s">>, -1, <<"bad">>, <<"4294967296ms">>
+    ]).
+
+-doc "Keep the LwM2M exchange lifetime positive and within the supported timer range.".
+t_lwm2m_blockwise_lifetime_validation(_) ->
+    assert_positive_blockwise_option(lwm2m, exchange_lifetime, [1, <<"1ms">>, <<"247s">>], [
+        0, <<"0ms">>, <<"0s">>, -1, <<"bad">>, <<"4294967296ms">>
+    ]).
+
+assert_positive_blockwise_option(GwName, Field, ValidValues, InvalidValues) ->
+    Path = "/gateways/" ++ atom_to_list(GwName),
+    InitialConf = positive_blockwise_gateway_conf(GwName),
+    lists:foreach(
+        fun(Value) ->
+            ?assertMatch({400, _}, request(put, Path, InitialConf#{blockwise => #{Field => Value}}))
+        end,
+        InvalidValues
+    ),
+    {200, Unloaded} = request(get, Path),
+    assert_gw_unloaded(Unloaded),
+    lists:foreach(
+        fun(Value) ->
+            {204, _} = request(put, Path, InitialConf#{blockwise => #{Field => Value}}),
+            {200, Saved} = request(get, Path),
+            assert_positive_blockwise_update_rejected(Path, Field, Saved, InvalidValues)
+        end,
+        ValidValues
+    ).
+
+assert_positive_blockwise_update_rejected(Path, Field, Saved, InvalidValues) ->
+    lists:foreach(
+        fun(Invalid) ->
+            ?assertMatch({400, _}, request(put, Path, #{blockwise => #{Field => Invalid}})),
+            {200, AfterRejectedUpdate} = request(get, Path),
+            ?assertEqual(maps:get(blockwise, Saved), maps:get(blockwise, AfterRejectedUpdate))
+        end,
+        InvalidValues
+    ).
+
+positive_blockwise_gateway_conf(coap) ->
+    #{name => <<"coap">>};
+positive_blockwise_gateway_conf(lwm2m) ->
+    #{
+        name => <<"lwm2m">>,
+        xml_dir => list_to_binary(
+            filename:join([
+                emqx_common_test_helpers:proj_root(), "apps", "emqx_gateway_lwm2m", "lwm2m_xml"
+            ])
+        ),
+        translators => #{
+            command => #{topic => <<"dn/#">>},
+            response => #{topic => <<"up/resp">>},
+            notify => #{topic => <<"up/notify">>},
+            register => #{topic => <<"up/register">>},
+            update => #{topic => <<"up/update">>}
+        }
+    }.
+
+-doc "Apply the byte limit configured through HTTP to a real CoAP Block1 upload.".
+t_coap_blockwise_body_size_enforcement(_) ->
+    Port = emqx_common_test_helpers:select_free_port(udp),
+    Conf = #{
+        name => <<"coap">>,
+        connection_required => false,
+        listeners => [#{name => <<"blockwise">>, type => <<"udp">>, bind => Port}],
+        blockwise => #{max_block_size => 16, max_body_size => <<"16B">>}
+    },
+    {204, _} = request(put, "/gateways/coap", Conf),
+    {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+    try
+        %% The first full block fits; the next byte exceeds the configured limit.
+        ?assertEqual(95, body_size_block1_reply(Sock, Port, 1, 8, binary:copy(<<"A">>, 16))),
+        ?assertEqual(141, body_size_block1_reply(Sock, Port, 2, 16, <<"B">>)),
+        ?assertMatch(
+            {400, _}, request(put, "/gateways/coap", #{blockwise => #{max_body_size => <<"0B">>}})
+        ),
+        {200, #{blockwise := #{max_body_size := <<"16B">>}}} = request(get, "/gateways/coap"),
+        ?assertEqual(95, body_size_block1_reply(Sock, Port, 3, 8, binary:copy(<<"C">>, 16))),
+        ?assertEqual(141, body_size_block1_reply(Sock, Port, 4, 16, <<"D">>))
+    after
+        gen_udp:close(Sock)
+    end.
+
+body_size_block1_reply(Sock, Port, Id, Block, Payload) ->
+    %% CON POST, Token 1, Uri-Path "limit", Block1 with a 16-byte block size.
+    Packet = <<16#41, 2, Id:16, 1, 16#b5, "limit", 16#d1, 3, Block, 16#ff, Payload/binary>>,
+    ok = gen_udp:send(Sock, {127, 0, 0, 1}, Port, Packet),
+    {ok, {_, _, <<_, Code, Id:16, _/binary>>}} = gen_udp:recv(Sock, 0, 2000),
+    Code.
 
 t_authn(_) ->
     init_gw("stomp"),

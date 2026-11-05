@@ -84,6 +84,8 @@ stop(Pid) ->
 
 init([#{conninfo := OldConnInfo, clientinfo := #{clientid := ClientId} = OldClientInfo} = Opts]) ->
     process_flag(trap_exit, true),
+    %% No socket: readers leave out the socket stats.
+    _ = emqx_chan_stats:new([recv_oct, send_oct, send_pend]),
     ClientInfo = clientinfo(OldClientInfo),
     ConnInfo = conninfo(OldConnInfo),
     MaybeWillMsg = maps:get(will_message, Opts, undefined),
@@ -164,8 +166,9 @@ handle_info(Deliver = {deliver, _Topic, _Msg}, Channel) ->
 handle_info(expire_session, Channel) ->
     {stop, {shutdown, expired}, Channel};
 handle_info(Info, Channel) ->
+    %% Subscribers can receive opaque terms from `emqx_broker:dispatch_info/2'.
     ?SLOG(
-        error,
+        debug,
         #{
             msg => "unexpected_info",
             info => Info
@@ -194,13 +197,15 @@ handle_deliver(
     Delivers,
     #{
         takeover := true,
-        pendings := Pendings
+        pendings := Pendings,
+        session := Session,
+        clientinfo := ClientInfo
     } = Channel
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(Pendings, emqx_channel:maybe_nack(Delivers)),
+    NPendings = lists:append(Pendings, emqx_channel:maybe_nack(Delivers, ClientInfo, Session)),
     Channel#{pendings => NPendings};
 handle_deliver(
     Delivers,
@@ -212,7 +217,7 @@ handle_deliver(
 ) ->
     % NOTE
     % This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    Delivers1 = emqx_channel:maybe_nack(Delivers),
+    Delivers1 = emqx_channel:maybe_nack(Delivers, ClientInfo, Session),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     Channel#{session := NSession}.
@@ -265,11 +270,14 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             % See also:
             % * `emqx_channel:maybe_resume_session/1`,
             % * `emqx_session_mem:replay_enqueue/4`.
-            DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
+            DeliversLocal = emqx_channel:maybe_nack(
+                emqx_utils:drain_deliver(), ClientInfo, Session
+            ),
             NSession = emqx_session_mem:replay_enqueue(ClientInfo, DeliversLocal, RCtx, Session),
             NChannel = Channel#{session => NSession},
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
-            ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), stats(NChannel)),
+            ok = emqx_chan_stats:report(ClientId, emqx_session:stats(NSession)),
+            ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), emqx_chan_stats:ref()),
             ?SLOG(
                 info,
                 #{
@@ -349,16 +357,10 @@ info(Channel) ->
         conninfo => maps:get(conninfo, Channel, undefined),
         clientinfo => maps:get(clientinfo, Channel, undefined),
         session => emqx_utils:maybe_apply(
-            fun(Session) ->
-                maps:from_list(emqx_session:info(?CHAN_INFO_SESSION_KEYS, Session))
-            end,
-            maps:get(session, Channel, undefined)
+            fun emqx_session:chan_info/1, maps:get(session, Channel, undefined)
         ),
         conn_state => disconnected
     }.
-
-stats(#{session := Session}) ->
-    lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
 
 bin_clientid(ClientId) when is_binary(ClientId) ->
     ClientId;

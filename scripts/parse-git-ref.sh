@@ -33,6 +33,9 @@ is_latest_stable() {
 
 PROFILE=emqx-enterprise
 OFFICIAL_RELEASE=false
+# A preview tag (X.Y.Z-preview.N, cut on a preview-* branch) builds and
+# uploads packages, but must not reach GA channels or the release docs.
+PREVIEW=false
 
 if [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+$ ]]; then
     RELEASE=true
@@ -51,6 +54,10 @@ elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-patch\.[0-9]+$ ]]; then
     RELEASE=true
     OFFICIAL_RELEASE=true
     LATEST=false
+elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]]; then
+    RELEASE=true
+    LATEST=false
+    PREVIEW=true
 elif [[ $1 =~ ^refs/tags/.+ ]]; then
     echo "Unrecognized tag: $1" 1>&2
     exit 1
@@ -69,5 +76,5 @@ else
 fi
 
 cat <<EOF
-{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST, "official_release": $OFFICIAL_RELEASE}
+{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST, "official_release": $OFFICIAL_RELEASE, "preview": $PREVIEW}
 EOF

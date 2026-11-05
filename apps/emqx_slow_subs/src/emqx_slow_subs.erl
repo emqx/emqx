@@ -242,11 +242,16 @@ do_clear(Logs) ->
 calc_timespan(whole, #message{timestamp = Ts}, Now) ->
     Now - Ts;
 calc_timespan(internal, #message{timestamp = Ts} = Msg, Now) ->
-    End = emqx_message:get_header(deliver_begin_at, Msg, Now),
+    End = deliver_begin_at_ms(Msg, Now),
     End - Ts;
 calc_timespan(response, Msg, Now) ->
-    Begin = emqx_message:get_header(deliver_begin_at, Msg, Now),
+    Begin = deliver_begin_at_ms(Msg, Now),
     Now - Begin.
+
+deliver_begin_at_ms(#message{headers = #{deliver_begin_at_us := Begin}}, _Default) ->
+    erlang:convert_time_unit(Begin, microsecond, millisecond);
+deliver_begin_at_ms(_Msg, Default) ->
+    Default.
 
 %% update_topk is safe, because each process has a unique clientid
 %% insert or delete are bind to this clientid, so there is no race condition

@@ -19,6 +19,7 @@ options:
 
   -b|--base:         Specify the current release base branch, can be one of
                      rel-M.N.P      (a release in code freeze, e.g. rel-6.0.4)
+                     preview-XY     (for an X.Y.Z-preview.N tag, e.g. preview-63)
                      release-60
                      release-61
                      release-62
@@ -47,6 +48,10 @@ patch, so the line branch is not merged into the freeze branch:
 
 Cutting straight from the release branch is still supported, for a line that
 is not using a freeze branch.
+
+A preview release (X.Y.Z-preview.N) is cut on the preview-XY branch of its
+line, for example 6.3.3-preview.1 on preview-63. Its packages are built and
+uploaded, but they are not published to GA channels.
 EOF
 }
 
@@ -112,6 +117,10 @@ rel_branch() {
         6.*-patch.* | 7.*-patch.*)
             echo "patch-${tag%-patch.*}"
             ;;
+        6.*-preview.* | 7.*-preview.*)
+            local major_minor="${tag%.*-preview.*}"
+            echo "preview-${major_minor/./}"
+            ;;
         6.0.*)
             echo 'release-60'
             ;;
@@ -136,12 +145,12 @@ rel_branch() {
 
 ## The branch a patch release is prepared on while it is in code freeze.
 ## A pre-release tag is cut from the same branch as its final tag:
-## 6.0.4-rc.2 comes from rel-6.0.4. Tags of the patch-* flow have no freeze
-## branch of their own.
+## 6.0.4-rc.2 comes from rel-6.0.4. Tags of the patch-* and preview-* flows
+## have no freeze branch of their own.
 freeze_branch() {
     local tag="$1"
     case "$tag" in
-        *-patch.*)
+        *-patch.* | *-preview.*)
             echo ''
             ;;
         *)
@@ -347,6 +356,9 @@ check_dashboard_version() {
 
 case "$TAG" in
     *rc*)
+        true
+        ;;
+    *-preview.*)
         true
         ;;
     *alpha*)

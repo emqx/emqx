@@ -74,6 +74,8 @@
     %% Set when the connection handles a frame or a message, cleared when the
     %% hibernate timer fires
     recently_active = false :: boolean(),
+    %% Set when the connection returns `hibernate`, cleared by the next callback
+    hibernated = false :: boolean(),
     %% Zone name
     zone :: atom(),
     %% Listener Type and Name
@@ -88,7 +90,7 @@
 
 -type state() :: #state{}.
 
--define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
+-define(SOCK_STATS, [recv_oct, send_oct]).
 
 -define(ENABLED(X), (X =/= undefined)).
 
@@ -144,7 +146,7 @@ info({channel, Info}, #state{channel = Channel}) ->
 stats(WsPid) when is_pid(WsPid) ->
     call(WsPid, stats);
 stats(#state{channel = Channel}) ->
-    SockStats = emqx_pd:get_counters(?SOCK_STATS),
+    SockStats = emqx_chan_stats:get_counters(?SOCK_STATS),
     ChanStats = emqx_channel:stats(Channel),
     ProcStats = emqx_utils:proc_stats(),
     lists:append([SockStats, ChanStats, ProcStats]).
@@ -370,6 +372,8 @@ get_peer_info(Type, Listener, Req, Opts) ->
             {get_peer(Req, Opts), cowboy_req:cert(Req), Host}
     end.
 
+websocket_handle(Frame, State = #state{hibernated = true}) ->
+    websocket_handle(Frame, wakeup(State));
 websocket_handle(Frame, State) ->
     handle_ws_frame(Frame, mark_active(State)).
 
@@ -386,6 +390,8 @@ handle_ws_frame({Frame, _}, State) ->
     ?LOG(error, #{msg => "unexpected_frame", frame => Frame}),
     {[{shutdown, unexpected_ws_frame}], State}.
 
+websocket_info(Info, State = #state{hibernated = true}) ->
+    websocket_info(Info, wakeup(State));
 %% A timer message is not activity. A connection that only wakes up for its own
 %% timers goes back to hibernation. Arm the hibernate timer again here, because
 %% a timer can fire while the connection is hibernated.
@@ -474,7 +480,8 @@ handle_info(Info, State) ->
 
 handle_event({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    ok = set_chan_stats(State),
+    emqx_cm:insert_channel_info(ClientId, info(State), emqx_chan_stats:ref()),
     resume_stats_timer(State);
 handle_event({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
@@ -482,14 +489,8 @@ handle_event({event, disconnected}, State = #state{channel = Channel}) ->
     State;
 handle_event({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State0#state{namespace = Namespace};
-handle_event({event, _Other}, State = #state{channel = Channel}) ->
-    case emqx_channel:info(clientid, Channel) of
-        %% ClientId is yet unknown (i.e. connect packet is not received yet)
-        undefined ->
-            ok;
-        ClientId ->
-            set_chan_info_stats(ClientId, State)
-    end,
+handle_event({event, updated}, State) ->
+    ok = set_session_stats(State),
     State.
 
 %%--------------------------------------------------------------------
@@ -505,8 +506,13 @@ handle_timeout(
 ) ->
     NState = State#state{hibernate_timer = undefined, recently_active = false},
     {ok, ensure_hibernate_timer(NState)};
-handle_timeout(TRef, hibernate, State = #state{hibernate_timer = TRef}) ->
-    {ok, State#state{hibernate_timer = undefined}, hibernate};
+handle_timeout(TRef, hibernate, State = #state{hibernate_timer = TRef, channel = Channel}) ->
+    NState = State#state{
+        hibernate_timer = undefined,
+        hibernated = true,
+        channel = emqx_channel:hibernate(Channel)
+    },
+    {ok, NState, hibernate};
 handle_timeout(_TRef, hibernate, State) ->
     {ok, State};
 handle_timeout(
@@ -517,32 +523,32 @@ handle_timeout(
         stats_timer = TRef
     }
 ) ->
-    ClientId = emqx_channel:info(clientid, Channel),
-    maybe_set_chan_stats(ClientId, State),
+    ok = set_chan_stats(State),
     {ok, State#state{channel = emqx_channel:refresh_quota(Channel), stats_timer = undefined}};
 handle_timeout(TRef, TMsg, State) ->
     commands(with_channel(handle_timeout, [TRef, TMsg], {[], State})).
 
-%% Write the info and, when the client-info REST API is enabled, the stats
-%% of the channel in one table write.
-set_chan_info_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_info_stats(ClientId, info(State), stats(State));
-        false -> emqx_cm:set_chan_info(ClientId, info(State))
-    end.
+%% Write the session stats to the stats array of the connection, where the
+%% readers of the channel info table find them. The socket, packet and
+%% message counters are kept in the array as they happen, and the readers
+%% take the process stats from the process.
+set_chan_stats(#state{channel = Channel}) ->
+    emqx_chan_stats:report(
+        emqx_channel:info(clientid, Channel), emqx_channel:session_stats(Channel)
+    ).
 
-%% Report per-connection stats to the client-info table, unless the client-info
-%% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
-%% the stats gathering and the ETS write.
-maybe_set_chan_stats(ClientId, State) ->
-    case emqx_features:client_info_enabled() of
-        true -> emqx_cm:set_chan_stats(ClientId, stats(State));
-        false -> ok
-    end.
+%% Write the session stats after the session changed, so that a reader sees
+%% the change before the next stats timer.
+set_session_stats(#state{channel = Channel}) ->
+    ClientId = emqx_channel:info(clientid, Channel),
+    emqx_chan_stats:report(ClientId, emqx_channel:session_stats(Channel)).
 
 %%--------------------------------------------------------------------
 %% Run GC, Check OOM
 %%--------------------------------------------------------------------
+
+%% The frame counts `recv_cnt` and `send_cnt` that trigger the GC are
+%% process dictionary counters, not stats.
 
 init_gc_metrics() ->
     erlang:put(last_recv_cnt, 0),
@@ -554,7 +560,7 @@ init_gc_metrics() ->
 
 rotate_gc_metrics(incoming, ActiveN) ->
     RecvCnt = emqx_pd:get_counter(recv_cnt),
-    RecvOct = emqx_pd:get_counter(recv_oct),
+    RecvOct = emqx_chan_stats:get(recv_oct),
     _ = erlang:put(gc_recv_cnt, RecvCnt + ActiveN),
     RecvCntLast = erlang:put(last_recv_cnt, RecvCnt),
     RecvOctLast = erlang:put(last_recv_oct, RecvOct),
@@ -563,7 +569,7 @@ rotate_gc_metrics(incoming, ActiveN) ->
     {Cnt, Oct};
 rotate_gc_metrics(outgoing, ActiveN) ->
     SendCnt = emqx_pd:get_counter(send_cnt),
-    SendOct = emqx_pd:get_counter(send_oct),
+    SendOct = emqx_chan_stats:get(send_oct),
     _ = erlang:put(gc_send_cnt, SendCnt + ActiveN),
     SendCntLast = erlang:put(last_send_cnt, SendCnt),
     SendOctLast = erlang:put(last_send_oct, SendOct),
@@ -834,6 +840,7 @@ serialize_packet_and_inc_stats(Packet, Serialize, State) ->
             _ = emqx_metrics:inc_global('delivery.dropped.too_large'),
             _ = emqx_metrics:inc_global('delivery.dropped'),
             _ = inc_outgoing_stats({error, message_too_large}, State),
+            ok = emqx_channel:notify_discarded(Packet),
             <<>>;
         Data ->
             ?TRACE("WS-MQTT", "mqtt_packet_sent", #{packet => Packet}),
@@ -864,15 +871,15 @@ framelist_bytesize({binary, Data}, Oct) ->
 
 inc_recv_stats(Cnt, Oct, State) ->
     _ = emqx_pd:inc_counter(recv_cnt, Cnt),
-    _ = emqx_pd:inc_counter(recv_oct, Oct),
+    _ = emqx_chan_stats:inc(recv_oct, Oct),
     inc_metrics('bytes.received', State, Oct).
 
 inc_incoming_stats(Packet = ?PACKET(Type), State) ->
-    _ = emqx_pd:inc_counter(recv_pkt, 1),
+    _ = emqx_chan_stats:inc(recv_pkt, 1),
     _ =
         case Type of
             ?PUBLISH ->
-                _ = emqx_pd:inc_counter(recv_msg, 1),
+                _ = emqx_chan_stats:inc(recv_msg, 1),
                 inc_qos_stats(recv_msg, Packet);
             _ ->
                 ok
@@ -880,14 +887,14 @@ inc_incoming_stats(Packet = ?PACKET(Type), State) ->
     emqx_metrics:inc_recv(Packet, State#state.namespace).
 
 inc_outgoing_stats({error, message_too_large}, _State) ->
-    _ = emqx_pd:inc_counter('send_msg.dropped', 1),
-    _ = emqx_pd:inc_counter('send_msg.dropped.too_large', 1);
+    _ = emqx_chan_stats:inc('send_msg.dropped', 1),
+    _ = emqx_chan_stats:inc('send_msg.dropped.too_large', 1);
 inc_outgoing_stats(Packet = ?PACKET(Type), State) ->
-    _ = emqx_pd:inc_counter(send_pkt, 1),
+    _ = emqx_chan_stats:inc(send_pkt, 1),
     _ =
         case Type of
             ?PUBLISH ->
-                _ = emqx_pd:inc_counter(send_msg, 1),
+                _ = emqx_chan_stats:inc(send_msg, 1),
                 inc_qos_stats(send_msg, Packet);
             _ ->
                 ok
@@ -896,7 +903,7 @@ inc_outgoing_stats(Packet = ?PACKET(Type), State) ->
 
 inc_sent_stats(Cnt, Oct, State) ->
     _ = emqx_pd:inc_counter(send_cnt, Cnt),
-    _ = emqx_pd:inc_counter(send_oct, Oct),
+    _ = emqx_chan_stats:inc(send_oct, Oct),
     inc_metrics('bytes.sent', State, Oct).
 
 inc_qos_stats(Type, Packet) ->
@@ -904,7 +911,7 @@ inc_qos_stats(Type, Packet) ->
         undefined ->
             ignore;
         Key ->
-            emqx_pd:inc_counter(Key, 1)
+            emqx_chan_stats:inc(Key, 1)
     end.
 
 inc_qos_stats_key(send_msg, ?QOS_0) -> 'send_msg.qos0';
@@ -938,7 +945,7 @@ ensure_stats_timer(
         stats_timer = undefined
     }
 ) ->
-    Timeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
+    Timeout = emqx_channel:get_mqtt_conf(Zone, stats_emit_interval),
     State#state{stats_timer = emqx_utils:start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
     %% Either already active, disabled or paused.
@@ -959,6 +966,9 @@ mark_active(State = #state{recently_active = true}) ->
     State;
 mark_active(State) ->
     ensure_hibernate_timer(State#state{recently_active = true}).
+
+wakeup(State = #state{channel = Channel}) ->
+    State#state{hibernated = false, channel = emqx_channel:wakeup(Channel)}.
 
 ensure_hibernate_timer(State = #state{hibernate_after = infinity}) ->
     State;

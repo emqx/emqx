@@ -1233,9 +1233,9 @@ t_wss_update_opts(Config) ->
             end,
         case CertReqErr of
             %% these errors may race
-            {ws_upgrade_failed, {closed, {error, {tls_alert, {certificate_required, _}}}}} ->
+            {ws_upgrade_failed, {closed, {tls_alert, {certificate_required, _}}}} ->
                 ok;
-            {ws_upgrade_failed, {error, {tls_alert, {certificate_required, _}}}} ->
+            {ws_upgrade_failed, {tls_alert, {certificate_required, _}}} ->
                 ok;
             {ws_upgrade_failed, {error, closed}} ->
                 ok;

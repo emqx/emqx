@@ -34,7 +34,8 @@ defmodule EMQXBridgeEmqxTables.MixProject do
     UMP.deps([
       {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      :greptimedb
+      :greptimedb,
+      :greptimedb_rs
     ])
   end
 

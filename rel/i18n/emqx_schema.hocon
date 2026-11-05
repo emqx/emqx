@@ -339,7 +339,9 @@ Append new certificates to the file if new CAs are to be trusted.
 There is no need to restart EMQX to have the updated file loaded, because
 the system regularly checks if file has been updated (and reload).<br/>
 NOTE: invalidating (deleting) a certificate from the file will not affect
-already established connections."""
+already established connections.<br/>
+TLS clients can set <code>system_default</code> instead of a path, to trust the CA certificates of <code>node.trusted_certs</code>.
+Listeners do not accept this value."""
 
 common_ssl_opts_schema_cacertfile.label:
 """CACertfile"""
@@ -1415,13 +1417,22 @@ server_ssl_opts_schema_ocsp_responder_url.label:
 """OCSP Responder URL"""
 
 mqtt_idle_timeout.desc:
-"""Configure the duration of time that a connection can remain idle (i.e., without any data transfer) before being:
-  - Automatically disconnected  if no CONNECT package is received from the client yet.
-  - Put into hibernation mode to save resources if some CONNECT packages are already received.
-Note: Please set the parameter with caution as long idle time will lead to resource waste."""
+"""The time that a new connection can stay without a CONNECT packet. When no CONNECT packet arrives in this time, the broker closes the connection.
+After the CONNECT packet, this option has no effect. `hibernate_after` controls hibernation, and `stats_emit_interval` controls the statistics timer.
+Note: A long time keeps the resources of a silent connection for longer."""
 
 mqtt_idle_timeout.label:
 """Idle Timeout"""
+
+mqtt_stats_emit_interval.desc:
+"""How often an active connection updates its socket byte counters, its send queue size and its session gauges (subscriptions, inflight messages, message queue) in the client statistics that the REST API and the Dashboard read.
+On the same timer, the connection checks its send queue for congestion, raises or clears the congestion alarm, and applies changes of the limiter configuration.
+The packet and message counters do not use this timer. They change when a packet arrives or leaves.
+An idle connection stops the timer until its next packet.
+A shorter period keeps these statistics fresher. It costs one socket query per connection in each period."""
+
+mqtt_stats_emit_interval.label:
+"""Statistics Emit Interval"""
 
 mqtt_hibernate_after.desc:
 """Put an established connection into hibernation after this period without any activity.
@@ -1909,6 +1920,15 @@ fields_tcp_opts_send_timeout_close.desc:
 
 fields_tcp_opts_send_timeout_close.label:
 """TCP send timeout close"""
+
+fields_tcp_opts_buffer_retention_strategy.desc:
+"""Receive buffer retention strategy for the `socket` TCP backend.
+
+- `packet`: Do not keep the *receive buffer* while waiting for the next packet.
+- `always`: Always keep the *receive buffer* while waiting for data."""
+
+fields_tcp_opts_buffer_retention_strategy.label:
+"""Receive Buffer Retention Strategy"""
 
 sysmon_os_cpu_check_interval.desc:
 """The time interval for the periodic CPU check. Disabled on Windows platform."""

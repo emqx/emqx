@@ -17,7 +17,7 @@ options:
 
   -b|--base:
     The base branch of current working branch if currently is not
-    on one of the supported branches: rel-M.N.P, patch-*,
+    on one of the supported branches: rel-M.N.P, patch-*, preview-*,
     release-5[5-9], release-510, or release-6*.
 
     For a rel-M.N.P branch, which holds a release in code freeze, the
@@ -89,12 +89,12 @@ is_freeze_branch() {
 
 is_supported_release_branch() {
     local branch="$1"
-    is_freeze_branch "$branch" || [[ "$branch" == patch-* ]] || [[ "$branch" =~ ^release-(5[5-9]|510|6[0-9]+)$ ]]
+    is_freeze_branch "$branch" || [[ "$branch" == patch-* ]] || [[ "$branch" == preview-* ]] || [[ "$branch" =~ ^release-(5[5-9]|510|6[0-9]+)$ ]]
 }
 
 if ! is_supported_release_branch "$BASE_BRANCH"; then
     logerr "Cannot work with branch $BASE_BRANCH"
-    logerr "The release base branch must be rel-M.N.P, patch-*, release-5[5-9], release-510, or release-6*"
+    logerr "The release base branch must be rel-M.N.P, patch-*, preview-*, release-5[5-9], release-510, or release-6*"
     logerr "Change work branch to one of the above."
     logerr "OR: use -b|--base to specify from which base branch is current working branch created"
     exit 1

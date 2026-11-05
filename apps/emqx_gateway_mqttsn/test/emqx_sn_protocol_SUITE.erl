@@ -115,6 +115,11 @@
 %% Setups
 %%--------------------------------------------------------------------
 
+%% TODO
+%% Cover delivery rate limits through retry_dequeue timers, ACKs and
+%% sleep/wakeup. Gateway configuration does not expose delivery rate limits
+%% or register session limiter groups.
+
 all() ->
     ProfileTests = hardened_profile_tests(),
     (emqx_common_test_helpers:all(?MODULE) -- ProfileTests) ++ [{group, hardened}].

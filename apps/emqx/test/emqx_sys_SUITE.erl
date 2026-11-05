@@ -24,16 +24,68 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
+    %% Forward every `$SYS` message that reaches the publish hooks, the way the
+    %% rule engine sees them.
+    ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, [self()]}, 0),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    emqx_config:erase(rule_engine),
     ok = emqx_broker:unsubscribe(?CONNECTED_TOPIC),
     ok = emqx_broker:unsubscribe(?DISCONNECTED_TOPIC),
     ok.
 
+on_message_publish(Msg, Pid) ->
+    emqx_message:is_sys(Msg) andalso (Pid ! {sys_publish, emqx_message:topic(Msg)}),
+    {ok, Msg}.
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+
+-doc """
+Without a subscriber, and with the rule engine ignoring `$SYS` messages, the
+client events are not published.
+""".
+t_client_event_skipped_without_subscriber(_Config) ->
+    ClientId = connect_and_disconnect(),
+    ?assertEqual([], client_event_topics(ClientId, 500)).
+
+-doc """
+A subscriber on the event topic receives the connected event. The disconnected
+event still has no subscriber.
+""".
+t_client_event_published_to_subscriber(_Config) ->
+    Filter = <<"$SYS/brokers/+/clients/+/connected">>,
+    ok = emqx:subscribe(Filter),
+    try
+        ClientId = connect_and_disconnect(),
+        Expected = systop(<<"clients/", ClientId/binary, "/connected">>),
+        receive
+            {deliver, Filter, #message{topic = Topic}} -> ?assertEqual(Expected, Topic)
+        after 1000 -> ct:fail("connected event not delivered")
+        end,
+        ?assertEqual([Expected], client_event_topics(ClientId, 500))
+    after
+        ok = emqx:unsubscribe(Filter)
+    end.
+
+-doc """
+With `rule_engine.ignore_sys_message = false` the client events are published
+for the rule engine, also with no subscriber.
+""".
+t_client_event_published_for_rule_engine(_Config) ->
+    %% The rule engine application is not started here, so its config root does not exist yet.
+    ok = emqx_config:force_put([rule_engine, ignore_sys_message], false),
+    ClientId = connect_and_disconnect(),
+    ?assertEqual(
+        [
+            systop(<<"clients/", ClientId/binary, "/connected">>),
+            systop(<<"clients/", ClientId/binary, "/disconnected">>)
+        ],
+        client_event_topics(ClientId, 500)
+    ).
 
 -doc """
 The connected system message payload has the expected shape:
@@ -132,6 +184,28 @@ t_absent_peername_no_crash(_Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+connect_and_disconnect() ->
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client),
+    ok = emqtt:disconnect(Client),
+    ClientId.
+
+%% The `$SYS` topics that carry `ClientId`, in the order the publish hooks saw them.
+client_event_topics(ClientId, Timeout) ->
+    receive
+        {sys_publish, Topic} ->
+            case binary:match(Topic, ClientId) of
+                nomatch -> client_event_topics(ClientId, Timeout);
+                _ -> [Topic | client_event_topics(ClientId, Timeout)]
+            end
+    after Timeout ->
+        []
+    end.
+
+systop(Suffix) ->
+    emqx_topic:systop(Suffix).
 
 channel_peername(ClientId) ->
     [ChanPid] = emqx_cm:lookup_channels(ClientId),

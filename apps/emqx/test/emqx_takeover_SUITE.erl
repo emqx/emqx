@@ -989,7 +989,7 @@ t_ongoing_takeover(Config) ->
 
 -doc """
 Regression test: chan-info stats reflect post-replay state after
-session takeover (instead of waiting up to 15s for the stats_timer).
+session takeover (instead of waiting up to 60s for the stats_timer).
 """.
 t_chan_info_refreshed_after_takeover_replay(Config) ->
     MqttVer = ?config(mqtt_vsn, Config),
@@ -1033,7 +1033,7 @@ t_chan_info_refreshed_after_takeover_replay(Config) ->
     {ok, _} = emqtt:connect(ClientB),
 
     %% THEN: chan-info stats reflect the post-replay inflight well before
-    %% the 15s stats_timer would tick. Comfort margin: 50ms x 100 = 5s.
+    %% the 60s stats_timer would tick. Comfort margin: 50ms x 100 = 5s.
     ?retry(
         50,
         100,
@@ -1156,24 +1156,24 @@ test_cluster_takeover(Protocol, OwnerNode, RequesterNode, Config) ->
                                 ?snk_meta := #{node := RequesterNode},
                                 clientid := ClientId,
                                 target_node := OwnerNode,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_kind := emqx_cm_takeover_begin_rpc,
                                 ?snk_meta := #{node := OwnerNode},
                                 clientid := ClientId,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_kind := emqx_cm_takeover_finish,
                                 ?snk_meta := #{node := RequesterNode},
                                 target_node := OwnerNode,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             },
                             #{
                                 ?snk_meta := #{node := OwnerNode},
                                 ?snk_kind := emqx_cm_takeover_finish_rpc,
-                                requester_proto := #{vsn := 1}
+                                requester_proto := #{vsn := 2}
                             }
                         ],
                         Events

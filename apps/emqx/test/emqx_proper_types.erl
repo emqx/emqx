@@ -133,15 +133,17 @@ sessioninfo() ->
             id = sessionid(),
             is_persistent = boolean(),
             subscriptions = subscriptions(),
-            max_subscriptions = non_neg_integer(),
-            upgrade_qos = boolean(),
+            conf = #session_conf{
+                max_subscriptions = non_neg_integer(),
+                upgrade_qos = boolean(),
+                retry_interval = safty_timeout(),
+                max_awaiting_rel = non_neg_integer(),
+                await_rel_timeout = safty_timeout()
+            },
             inflight = inflight(),
             mqueue = mqueue(),
             next_pkt_id = packet_id(),
-            retry_interval = safty_timeout(),
             awaiting_rel = awaiting_rel(),
-            max_awaiting_rel = non_neg_integer(),
-            await_rel_timeout = safty_timeout(),
             created_at = timestamp()
         },
         emqx_session:info(Session)

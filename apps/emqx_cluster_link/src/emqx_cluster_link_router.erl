@@ -52,7 +52,7 @@ push_intersections(_Cluster, _Op, _RouteID, _PushFun, []) ->
     ok.
 
 compute_intersections(Topic, Filters) ->
-    compute_intersections(Topic, Filters, []).
+    compute_intersections(emqx_topic:words(Topic), Filters, []).
 
 compute_intersections(Topic, [Filter | Rest], Acc) ->
     case emqx_topic:intersection(Topic, Filter) of

@@ -113,6 +113,7 @@ dummy_step(Overrides) ->
         url => fun(_StepContext) -> <<"http://auth.server/step1">> end,
         body => fun(_StepContext) -> <<"">> end,
         headers => fun(_StepContext) -> [{<<"Content-Type">>, <<"application/json">>}] end,
+        req_opts => fun(_StepContext) -> [] end,
         extract_result => fun(#{body := RespBody}) ->
             case emqx_utils_json:safe_decode(RespBody) of
                 {ok, #{<<"access_token">> := Token}} ->

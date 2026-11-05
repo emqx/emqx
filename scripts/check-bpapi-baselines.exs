@@ -63,7 +63,7 @@ defmodule CheckBpapiBaselines do
       {:ok, out} ->
         out
         |> String.split("\n", trim: true)
-        |> Enum.reject(&String.match?(&1, ~r/-(rc|alpha|beta|patch)/))
+        |> Enum.filter(&String.match?(&1, ~r/^e?[0-9]+\.[0-9]+\.[0-9]+$/))
         |> Enum.sort_by(&version_key/1)
         |> List.last()
 

@@ -23,7 +23,7 @@ curl -u "<api_key>:<api_secret>" -X POST "http://<host>:18083/api/v5/plugin_api/
 { "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "ErrorCode", "ErrorMessage": "human-readable description" }
 ```
 
-`RequestId` is UUID v4. `MessageId` is a UUID string: v4 for PubBroadcast, QoS=0 BatchPub and RegisterMessage; for BatchPub QoS=1 with new inline `MessageContent` it is derived from the payload's SHA-256 (a valid UUID string, not necessarily v4), and reused content returns the same id.
+`RequestId` is UUID v4. `MessageId` is a UUID string: v4 for PubBroadcast and QoS=0 BatchPub; for RegisterMessage and BatchPub QoS=1 with new inline `MessageContent` it is derived from the payload's SHA-256 (a valid UUID string, not necessarily v4), and reused content returns the stored id.
 
 ---
 
@@ -76,7 +76,7 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 | `ProductKey` | String | Yes | Target product identifier |
 | `DeviceName` | [String] | Yes | Target device list, max 10,000 (configurable), must not contain duplicates |
 | `MessageContent` | String | Conditional | Base64-encoded, max 10 KiB binary (API input limit: 13,656 characters). Mutually exclusive with `MessageId` |
-| `MessageId` | String | Conditional | UUID string: v4 for RegisterMessage / QoS=0 / PubBroadcast, hash-derived for QoS=1 inline content. Mutually exclusive with `MessageContent` |
+| `MessageId` | String | Conditional | UUID string: hash-derived for newly registered messages and QoS=1 inline content; existing messages retain their stored IDs. Mutually exclusive with `MessageContent` |
 | `Qos` | Integer | No | 0 (default, online only) or 1 (online + offline storage). QoS=1 state lives in `ram_copies` tables: it survives a single core failure but **not** a full cluster restart; entries expire after `msg_ttl` (default 15 days) |
 | `TopicShortName` | String | No | Custom topic suffix |
 | `TopicTemplateName` | String | No | Custom topic template. Higher priority than `TopicShortName` |
@@ -135,15 +135,15 @@ Pre-registers a message or refreshes an existing message's TTL. `MessageContent`
 |-------|------|----------|-------------|
 | `Action` | String | Yes | `"RegisterMessage"` |
 | `MessageContent` | String | Conditional | Base64-encoded, max 10 KiB binary. Creates a new message. Mutually exclusive with `MessageId` |
-| `MessageId` | String | Conditional | UUID v4 format. Refreshes an existing message's TTL. Mutually exclusive with `MessageContent` |
+| `MessageId` | String | Conditional | UUID string. Refreshes an existing message's TTL. Mutually exclusive with `MessageContent` |
 
 **SHA-256 Deduplication**: Identical `MessageContent` → same `MessageId`. Repeated calls refresh the TTL rather than creating duplicates.
 
 | Input | Behavior | Response MessageId |
 |-------|----------|--------------------|
-| `MessageContent` (first) | Create message, TTL = now + `msg_ttl` (default 15d) | New UUID v4 |
-| `MessageContent` (duplicate) | Content dedup, refresh TTL | Existing UUID v4 |
-| `MessageId` | Refresh TTL | Same UUID v4 |
+| `MessageContent` (first) | Create message, TTL = now + `msg_ttl` (default 15d) | UUID derived from the content hash |
+| `MessageContent` (duplicate) | Content dedup, refresh TTL | Existing stored UUID |
+| `MessageId` | Refresh TTL | Same UUID |
 
 ```json
 // Create new message

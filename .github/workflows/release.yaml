@@ -57,9 +57,13 @@ jobs:
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
           aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }} packages
           aws s3 cp --recursive s3://$BUCKET/emqx-plugins/${{ env.ref_name }} packages/plugins
+      # A preview tag (X.Y.Z-preview.N) is never published to GA channels,
+      # even when its GitHub release is not marked as a pre-release.
       - name: Decide whether to publish
         id: gate
-        if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts
+        if: >-
+          !contains(github.event.release.tag_name || inputs.tag, '-preview.') &&
+          ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts)
         run: echo "publish=true" >> "$GITHUB_OUTPUT"
       # The manifest tool runs from the workflow's own commit. For a release event
       # that is the tagged commit. For workflow_dispatch it lets a dry run inspect

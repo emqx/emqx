@@ -9,12 +9,14 @@
 -export([
     list_authz_cache/0,
     get_authz_cache/2,
+    get_authz_cache/3,
     put_authz_cache/3,
     cleanup_authz_cache/0,
     empty_authz_cache/0,
     get_cache_max_size/0,
     get_cache_ttl/0,
     is_enabled/1,
+    is_enabled/2,
     drain_cache/0,
     drain_cache/1,
     parse_key/1
@@ -57,7 +59,12 @@ drain_k() -> {?MODULE, drain_timestamp}.
 %% @doc Check if the authz cache is enabled for the given topic.
 -spec is_enabled(emqx_types:topic()) -> boolean().
 is_enabled(Topic) ->
-    case emqx:get_config([authorization, cache]) of
+    is_enabled(emqx_config:get([authorization, cache]), Topic).
+
+-doc "Check if the authz cache is enabled for the given topic, with the supplied cache config.".
+-spec is_enabled(map(), emqx_types:topic()) -> boolean().
+is_enabled(CacheConf, Topic) ->
+    case CacheConf of
         #{enable := true, excludes := Filters} when Filters =/= [] ->
             not is_excluded(Topic, Filters);
         #{enable := IsEnabled} ->
@@ -85,15 +92,21 @@ list_authz_cache() ->
 %% We'll cleanup the cache before replacing an expired authz.
 -spec get_authz_cache(emqx_types:pubsub(), emqx_types:topic()) ->
     authz_result() | not_found.
-get_authz_cache(#{action_type := subscribe}, _Topic) ->
-    not_found;
 get_authz_cache(PubSub, Topic) ->
+    get_authz_cache(PubSub, Topic, get_cache_ttl()).
+
+-doc "Same as `get_authz_cache/2`, with the supplied cache TTL.".
+-spec get_authz_cache(emqx_types:pubsub(), emqx_types:topic(), integer()) ->
+    authz_result() | not_found.
+get_authz_cache(#{action_type := subscribe}, _Topic, _TTL) ->
+    not_found;
+get_authz_cache(PubSub, Topic, TTL) ->
     case erlang:get(cache_k(PubSub, Topic)) of
         undefined ->
             not_found;
         {AuthzResult, CachedAt} ->
             if_expired(
-                get_cache_ttl(),
+                TTL,
                 CachedAt,
                 fun
                     (false) ->

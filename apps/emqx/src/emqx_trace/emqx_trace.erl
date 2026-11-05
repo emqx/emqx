@@ -124,6 +124,7 @@ publish(#message{topic = <<"$SYS/", _/binary>>}) ->
 publish(#message{from = From, topic = Topic, payload = Payload} = Msg) when
     is_binary(From); is_atom(From)
 ->
+    ?tp(emqx_trace_publish, #{topic => Topic}),
     ?TRACE(
         "PUBLISH",
         "publish_to",

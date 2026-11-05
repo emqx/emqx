@@ -281,7 +281,7 @@ maybe_update_observe(#coap_message{method = {ok, _}} = Msg) ->
         undefined ->
             Msg;
         _ ->
-            NewObserve = emqx_coap_observe_res:current_value(),
+            NewObserve = emqx_coap_observe_res:next_value(),
             emqx_coap_message:set(observe, NewObserve, Msg)
     end;
 maybe_update_observe(Msg) ->

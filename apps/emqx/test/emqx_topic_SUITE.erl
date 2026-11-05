@@ -7,6 +7,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
@@ -111,6 +112,84 @@ t_match_binary_levels(_) ->
         end,
         Cases
     ).
+
+%% The binary matcher gives the same result as the word matcher when the name is a valid topic
+%% name or filter. The filter can be any binary.
+t_match_binary_same_as_words(_) ->
+    ?assert(
+        proper:quickcheck(
+            ?FORALL(
+                {Name, Filter},
+                {valid_topic_gen(), topic_gen()},
+                match(Name, Filter) =:= match(words(Name), words(Filter))
+            ),
+            [{numtests, 20000}, {to_file, user}]
+        )
+    ).
+
+t_match_share_same_as_words(_) ->
+    ?assert(
+        proper:quickcheck(
+            ?FORALL(
+                {Name, Filter},
+                {share_or_topic_gen(), share_or_topic_gen()},
+                match(Name, Filter) =:= share_match_words(Name, Filter)
+            ),
+            [{numtests, 20000}, {to_file, user}]
+        )
+    ).
+
+%% emqx_topic:match_share/2 before it matched the binaries.
+share_match_words(#share{topic = Name}, Filter) when is_binary(Filter) ->
+    match(words(Name), words(Filter));
+share_match_words(#share{group = Group, topic = Name}, #share{group = Group, topic = Filter}) ->
+    match(words(Name), words(Filter));
+share_match_words(#share{}, _) ->
+    false;
+share_match_words(Name, #share{topic = Filter}) ->
+    match(Name, Filter);
+share_match_words(Name, Filter) ->
+    match(words(Name), words(Filter)).
+
+topic_level_gen() ->
+    oneof([
+        <<"a">>,
+        <<"b">>,
+        <<"$SYS">>,
+        <<"$">>,
+        <<"+">>,
+        <<"#">>,
+        <<>>,
+        <<"abcdef">>,
+        <<"abcdefgh">>,
+        <<"a+">>
+    ]).
+
+topic_gen() ->
+    ?LET(Levels, non_empty(list(topic_level_gen())), iolist_to_binary(lists:join(<<"/">>, Levels))).
+
+%% + only as a whole level, # only as the whole last level.
+valid_topic_gen() ->
+    ?LET(
+        {Levels, Last},
+        {
+            non_empty(
+                list(oneof([<<"a">>, <<"b">>, <<"$SYS">>, <<"$">>, <<"+">>, <<>>, <<"abcdefgh">>]))
+            ),
+            oneof([[], [<<"#">>]])
+        },
+        iolist_to_binary(lists:join(<<"/">>, Levels ++ Last))
+    ).
+
+share_or_topic_gen() ->
+    oneof([
+        valid_topic_gen(),
+        ?LET(
+            {Group, Topic},
+            {oneof([<<"g1">>, <<"g2">>]), valid_topic_gen()},
+            #share{group = Group, topic = Topic}
+        )
+    ]).
 
 t_match1(_) ->
     true = match(<<"a/b/c">>, <<"a/b/+">>),

@@ -140,6 +140,19 @@ t_has_route(_) ->
     ?assert(?R:has_route(<<"devices/+/messages">>, node())),
     ?R:delete_route(<<"devices/+/messages">>).
 
+t_has_routes(_) ->
+    Topic = <<"devices/d1/messages">>,
+    ?assertNot(?R:has_routes(Topic)),
+    ?R:add_route(Topic, node()),
+    ?assert(?R:has_routes(Topic)),
+    ?R:delete_route(Topic),
+    ?assertNot(?R:has_routes(Topic)),
+    ?R:add_route(<<"devices/+/messages">>, node()),
+    ?assert(?R:has_routes(Topic)),
+    ?assertNot(?R:has_routes(<<"devices/d1/status">>)),
+    ?R:delete_route(<<"devices/+/messages">>),
+    ?assertNot(?R:has_routes(Topic)).
+
 t_unexpected(_) ->
     Router = emqx_utils:proc_name(?R, 1),
     ?assertEqual(ignored, gen_server:call(Router, bad_request)),

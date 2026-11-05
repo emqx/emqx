@@ -35,6 +35,13 @@ init_per_testcase(t_log_path, Config) ->
     Log2 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"path">>], Log1, File),
     {ok, #{}} = emqx_conf:update([log], Log2, #{rawconf_with_defaults => true}),
     Config;
+init_per_testcase(TC, Config) when
+    TC =:= t_preview_version_shown;
+    TC =:= t_preview_version_hidden;
+    TC =:= t_preview_version_hidden_no_suffix
+->
+    meck:new(emqx_release, [passthrough, no_history, no_link]),
+    Config;
 init_per_testcase(_, Config) ->
     Config.
 
@@ -43,6 +50,14 @@ end_per_testcase(t_log_path, Config) ->
     Log1 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"enable">>], Log, false),
     {ok, #{}} = emqx_conf:update([log], Log1, #{rawconf_with_defaults => true}),
     emqx_config_logger:remove_handler(),
+    Config;
+end_per_testcase(TC, Config) when
+    TC =:= t_preview_version_shown;
+    TC =:= t_preview_version_hidden;
+    TC =:= t_preview_version_hidden_no_suffix
+->
+    meck:unload(emqx_release),
+    {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => true}, #{}),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -95,6 +110,45 @@ t_node_api_unreachable_node(_) ->
     after
         meck:unload(emqx_mgmt)
     end.
+
+-doc """
+With the default `dashboard.show_preview_version = true`, the nodes API
+reports a preview release version unchanged.
+""".
+t_preview_version_shown(_) ->
+    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+    ?assertEqual(true, emqx:get_config([dashboard, show_preview_version])),
+    ?assertEqual([<<"6.1.5-preview.1">>], api_node_versions()).
+
+-doc """
+With `dashboard.show_preview_version = false`, the nodes API cuts the
+`-preview.N` suffix. The node info that the data backup import reads keeps the
+real version.
+""".
+t_preview_version_hidden(_) ->
+    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+    {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => false}, #{}),
+    ?assertEqual([<<"6.1.5">>], api_node_versions()),
+    ?assertMatch(#{version := <<"6.1.5-preview.1">>}, emqx_mgmt:node_info()).
+
+-doc """
+With `dashboard.show_preview_version = false`, a version without the
+`-preview.N` suffix is reported unchanged.
+""".
+t_preview_version_hidden_no_suffix(_) ->
+    meck:expect(emqx_release, version, 0, "6.1.5-rc.1"),
+    {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => false}, #{}),
+    ?assertEqual([<<"6.1.5-rc.1">>], api_node_versions()).
+
+%% The versions that GET /nodes and GET /nodes/:node report for this node.
+api_node_versions() ->
+    NodesPath = emqx_mgmt_api_test_util:api_path(["nodes"]),
+    {ok, Nodes} = emqx_mgmt_api_test_util:request_api(get, NodesPath),
+    [#{<<"version">> := V1}] = emqx_utils_json:decode(Nodes),
+    NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
+    {ok, Node} = emqx_mgmt_api_test_util:request_api(get, NodePath),
+    #{<<"version">> := V2} = emqx_utils_json:decode(Node),
+    lists:usort([V1, V2]).
 
 t_log_path(_) ->
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),

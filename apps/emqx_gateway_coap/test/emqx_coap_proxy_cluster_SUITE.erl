@@ -72,7 +72,7 @@ t_udp_downlink_migration_across_nodes(Config) ->
         CommittedPayload = <<"after-cross-node-commit">>,
         publish(Node1, Topic, CommittedPayload),
         ?assertEqual({error, timeout}, emqx_coap_SUITE:with_message_response(Channel1, 300)),
-        {ok, {?HOST, Port2, NotificationData}} = gen_udp:recv(Sock2, 0, 2000),
+        {ok, {?HOST, Port2, NotificationData}} = gen_udp:recv(Sock2, 0, 5000),
         #coap_message{payload = CommittedPayload} =
             emqx_coap_SUITE:parse_udp_message(NotificationData)
     after

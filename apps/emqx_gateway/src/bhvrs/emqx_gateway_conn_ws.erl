@@ -315,13 +315,8 @@ parse_sec_websocket_protocol([Req, Opts, WsOpts], State) ->
                 true ->
                     {error, no_subprotocol};
                 false ->
-                    Picked = list_to_binary(lists:nth(1, SupportedSubprotocols)),
-                    Resp = cowboy_req:set_resp_header(
-                        <<"sec-websocket-protocol">>,
-                        Picked,
-                        Req
-                    ),
-                    {ok, [Resp, Opts, WsOpts], State}
+                    %% The response must not select a subprotocol when the request has none.
+                    {ok, [Req, Opts, WsOpts], State}
             end;
         Subprotocols ->
             NSupportedSubprotocols = [
@@ -536,8 +531,8 @@ handle_timeout(TRef, Keepalive, State) when
 ->
     StatVal =
         case Keepalive of
-            keepalive -> emqx_pd:get_counter(recv_oct);
-            keepalive_send -> emqx_pd:get_counter(send_oct)
+            keepalive -> emqx_gateway_conn:keepalive_stats(recv);
+            keepalive_send -> emqx_gateway_conn:keepalive_stats(send)
         end,
     handle_timeout(TRef, {Keepalive, StatVal}, State);
 handle_timeout(

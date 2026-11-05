@@ -452,7 +452,8 @@ authn_validations_test() ->
     "
         listeners.ssl.default.bind = 9999
         listeners.wss.default.bind = 9998
-        listeners.wss.default.ssl_options.cacertfile = \"mytest/certs/cacert.pem\"
+        # on dev-70, certs are no longer committed to the repo.
+        listeners.wss.default.ssl_options.cacertfile = \"/tmp/mycacert.pem\"
         listeners.wss.new.bind = 9997
         listeners.wss.new.websocket.mqtt_path = \"/my-mqtt\"
     "
@@ -462,7 +463,19 @@ listeners_test_() ->
     [
         {atom_to_list(Profile), fun() ->
             emqx_common_test_helpers:with_security_profile(Profile, fun() ->
-                listeners_test(Profile)
+                Root = emqx_common_test_helpers:proj_root(),
+                %% generate by `scripts/gen-test-certs.sh apps/emqx/etc/certs`
+                CAPath = filename:join([Root, "apps", "emqx", "etc", "certs", "cacert.pem"]),
+                %% {ok, CAContents} = file:read_file(CAPath),
+                try
+                    {ok, _} = file:copy(CAPath, "/tmp/mycacert.pem"),
+                    %% ok = file:write_file("/tmp/mycacert.pem", CAContents),
+                    %% ok = file:delete(CAPath),
+                    listeners_test(Profile)
+                after
+                    %% ok = file:write_file(CAPath, CAContents),
+                    ok = file:delete("/tmp/mycacert.pem")
+                end
             end)
         end}
      || Profile <- [legacy, hardened]
@@ -502,16 +515,19 @@ listeners_test(Profile) ->
         },
         Ws
     ),
-    %% No certificate defaults: a listener that configures none serves the
-    %% node's own generated bundle instead of a shipped example certificate.
-    ?assertMatch(#{<<"bind">> := SslBind}, Ssl),
-    assert_no_cert_defaults(Ssl),
+    ?assertMatch(
+        #{
+            <<"bind">> := SslBind,
+            <<"ssl_options">> := #{<<"cacertfile">> := <<"${EMQX_ETC_DIR}", _/binary>>}
+        },
+        Ssl
+    ),
     %% What the configuration sets is kept; what it does not set stays unset.
     ?assertMatch(
         #{
             <<"bind">> := DefaultWssBind,
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"},
-            <<"ssl_options">> := #{<<"cacertfile">> := <<"mytest/certs/cacert.pem">>}
+            <<"ssl_options">> := #{<<"cacertfile">> := <<"/tmp/mycacert.pem">>}
         },
         DefaultWss
     ),
@@ -519,15 +535,12 @@ listeners_test(Profile) ->
     ?assertMatch(
         #{
             <<"bind">> := NewWssBind,
-            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"}
+            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"},
+            <<"ssl_options">> := #{<<"cacertfile">> := <<"${EMQX_ETC_DIR}", _/binary>>}
         },
         NewWss
     ),
-    assert_no_cert_defaults(NewWss),
     ok.
-
-assert_no_cert_defaults(Listener) ->
-    assert_no_cert_defaults(Listener, [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]).
 
 assert_no_cert_defaults(Listener, Keys) ->
     SslOpts = maps:get(<<"ssl_options">>, Listener, #{}),
@@ -1134,3 +1147,59 @@ get_dist_bind_address_from_conf(Address) ->
 assert_dist_bind_address(Address, ExpectedAtomStr) ->
     DistBindAddr = get_dist_bind_address_from_conf(Address),
     ?assertEqual(ExpectedAtomStr, DistBindAddr).
+
+%% `PUT /configs?mode=merge` normalizes the submitted fragment as a partial
+%% document. An omitted field must stay omitted: its converter must neither
+%% crash on it nor make a value that the merge writes over the stored one.
+partial_merge_empty_roots_test() ->
+    Roots = [emqx_utils_conv:bin(Root) || Root <- get_roots(emqx_conf_schema)],
+    ?assertEqual(
+        [],
+        [
+            {Root, Result}
+         || Root <- Roots,
+            Result <- [normalize_partial(#{Root => #{}})],
+            not is_empty_root(Root, Result)
+        ]
+    ).
+
+partial_merge_connector_without_server_test_() ->
+    [
+        {Type, ?_assertMatch({ok, _}, normalize_partial(connector_fragment(Type)))}
+     || Type <- [<<"elasticsearch">>, <<"datalayers">>, <<"influxdb">>]
+    ].
+
+partial_merge_transformation_without_key_test() ->
+    Fragment = #{
+        <<"message_transformation">> => #{
+            <<"transformations">> => [
+                #{
+                    <<"name">> => <<"t">>,
+                    <<"topics">> => [<<"t/#">>],
+                    <<"operations">> => [#{<<"value">> => <<"1">>}]
+                }
+            ]
+        }
+    },
+    ?assertMatch({ok, _}, normalize_partial(Fragment)).
+
+connector_fragment(Type) ->
+    #{<<"connectors">> => #{Type => #{<<"c">> => #{<<"enable">> => false}}}}.
+
+is_empty_root(Root, {ok, Normalized}) ->
+    case maps:get(Root, Normalized) of
+        #{} = Conf -> map_size(Conf) =:= 0;
+        %% An array root, for which `#{}` is no fragment.
+        Conf -> is_list(Conf)
+    end;
+is_empty_root(_Root, _Result) ->
+    false.
+
+%% Same options as `emqx_config:normalize_raw_conf/1`.
+normalize_partial(Fragment) ->
+    Opts = #{partial => true, make_serializable => true},
+    try hocon_tconf:check_plain(emqx_conf_schema, Fragment, Opts, maps:keys(Fragment)) of
+        Normalized -> {ok, Normalized}
+    catch
+        throw:{_SchemaMod, Errors} -> {error, Errors}
+    end.

@@ -177,11 +177,19 @@ structured_action_schema_test() ->
     ).
 
 action_requires_write_config_test() ->
+    %% https://github.com/emqx/emqx/issues/19814
     ?assertThrow(
         {emqx_bridge_v2_schema, _},
         check_action(#{
             <<"connector">> => <<"influxdb_connector">>,
             <<"parameters">> => #{}
+        })
+    ),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{<<"precision">> => <<"ms">>}
         })
     ).
 

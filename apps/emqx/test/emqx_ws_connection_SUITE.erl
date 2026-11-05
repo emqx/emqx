@@ -6,6 +6,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -411,9 +412,7 @@ t_stats(_) ->
      || V <-
             [
                 {recv_oct, 0},
-                {recv_cnt, 0},
                 {send_oct, 0},
-                {send_cnt, 0},
                 {recv_pkt, 0},
                 {recv_msg, 0},
                 {send_pkt, 0},
@@ -681,6 +680,21 @@ t_websocket_incoming(_) ->
     ?assertEqual(<<224, 2, ?RC_MALFORMED_PACKET, 0>>, iolist_to_binary(IoData4)),
     ?assertEqual(<<"frame_error">>, CauseReq).
 
+-doc """
+The packet counts of the connection trigger the GC: the first packet in and
+out each sends a `gc` message, and after the GC the next trigger waits for
+`active_n` more packets.
+""".
+t_websocket_gc_trigger(_) ->
+    Ping = iolist_to_binary(emqx_frame:serialize(?PACKET(?PINGREQ))),
+    {[{binary, _}], St1} = ?ws_conn:websocket_handle({binary, Ping}, st_after_connect()),
+    ?assertReceive({gc, incoming}),
+    ?assertReceive({gc, outgoing}),
+    {ok, St2} = ?ws_conn:websocket_info({gc, incoming}, St1),
+    {ok, St3} = ?ws_conn:websocket_info({gc, outgoing}, St2),
+    {[{binary, _}], _St4} = ?ws_conn:websocket_handle({binary, Ping}, St3),
+    ?assertNotReceive({gc, _}).
+
 t_websocket_info_check_gc(_) ->
     Stats = #{cnt => 10, oct => 1000},
     {ok, _St} = ?ws_conn:websocket_info({check_gc, Stats}, st()).
@@ -691,6 +705,29 @@ t_websocket_info_deliver(_) ->
     self() ! {deliver, <<"#">>, Msg1},
     {[{binary, _Pub1}, {binary, _Pub2}], _St} =
         ?ws_conn:websocket_info({deliver, <<"#">>, Msg0}, st()).
+
+-doc """
+The connection calls `emqx_channel:hibernate/1` when it returns `hibernate`,
+and `emqx_channel:wakeup/1` once, from the first callback after it.
+""".
+t_websocket_hibernate_wakeup_channel(_) ->
+    ok = meck:new(emqx_channel, [passthrough, no_link]),
+    try
+        TRef = make_ref(),
+        St0 = st(#{hibernate_timer => TRef}),
+        {ok, St1, hibernate} = ?ws_conn:websocket_info({timeout, TRef, hibernate}, St0),
+        ?assertEqual(1, meck:num_calls(emqx_channel, hibernate, '_')),
+        ?assertEqual(0, meck:num_calls(emqx_channel, wakeup, '_')),
+        {ok, St2} = ?ws_conn:websocket_handle(ping, St1),
+        ?assertEqual(1, meck:num_calls(emqx_channel, wakeup, '_')),
+        {ok, _St3} = ?ws_conn:websocket_handle(ping, St2),
+        ?assertEqual(1, meck:num_calls(emqx_channel, wakeup, '_')),
+        {ok, St4, hibernate} = ?ws_conn:websocket_info({timeout, TRef, hibernate}, St0),
+        {ok, _St5} = ?ws_conn:websocket_info({timeout, make_ref(), keepalive}, St4),
+        ?assertEqual(2, meck:num_calls(emqx_channel, wakeup, '_'))
+    after
+        meck:unload(emqx_channel)
+    end.
 
 t_websocket_info_timeout_keepalive(_) ->
     {ok, _St} = ?ws_conn:websocket_info({timeout, make_ref(), keepalive}, st()).

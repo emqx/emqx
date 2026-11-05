@@ -168,6 +168,15 @@ fields(mnesia_config) ->
                 }
             )},
         {index_specs, fun retainer_indices/1},
+        {reindex_delivery_action,
+            ?HOCON(
+                hoconsc:enum([redo, stop]),
+                #{
+                    desc => ?DESC(reindex_delivery_action),
+                    default => redo,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {enable,
             ?HOCON(
                 boolean(), #{

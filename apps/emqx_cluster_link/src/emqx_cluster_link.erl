@@ -10,6 +10,8 @@
     is_registered/0,
     register_external_broker/0,
     unregister_external_broker/0,
+    register_if_enabled/1,
+    unregister_if_disabled/1,
     add_route/1,
     delete_route/1,
     add_shared_route/2,
@@ -49,6 +51,34 @@ register_external_broker() ->
 
 unregister_external_broker() ->
     emqx_external_broker:unregister_provider(?MODULE).
+
+-doc """
+Register as the external broker provider when at least one of `Links` is
+enabled. Call it before the links start.
+""".
+-spec register_if_enabled(_Links :: list()) -> ok.
+register_if_enabled(Links) ->
+    case has_enabled(Links) of
+        true -> register_external_broker();
+        false -> ok
+    end.
+
+-doc """
+Unregister the external broker provider when none of `Links` is enabled.
+Call it after the links stop.
+""".
+-spec unregister_if_disabled(_Links :: list()) -> ok.
+unregister_if_disabled(Links) ->
+    case has_enabled(Links) of
+        true ->
+            ok;
+        false ->
+            _ = unregister_external_broker(),
+            ok
+    end.
+
+has_enabled(Links) ->
+    lists:any(fun(#{enable := Enable}) -> Enable end, Links).
 
 %% Using original Topic as Route ID in the most common scenario:
 %% (non-shared, non-persistent routes).

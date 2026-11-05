@@ -223,7 +223,7 @@ jobs:
           driver-opts: network=host
 
       - name: Login to hub.docker.com
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         if: inputs.publish
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
@@ -284,7 +284,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          if ! [[ "${PKG_VSN}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc|M[0-9]+)\.[0-9]+)?(-g[0-9a-f]+)?$ ]]; then
+          if ! [[ "${PKG_VSN}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc|patch|preview|M[0-9]+)\.[0-9]+)?(-g[0-9a-f]+)?$ ]]; then
             echo "::error::Invalid PKG_VSN '${PKG_VSN}' from the docker job"
             exit 1
           fi

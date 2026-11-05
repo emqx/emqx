@@ -55,7 +55,10 @@ t_session_notify_qos_types(_) ->
         #{out := [Out0], session := Session2} =
             emqx_coap_session:deliver([Deliver0], Ctx, Session1),
         ?assertEqual(non, Out0#coap_message.type),
-        #{out := [Out1]} = emqx_coap_session:deliver([Deliver1], Ctx, Session2),
+        #{out := [], session := Session3} = emqx_coap_session:deliver([Deliver1], Ctx, Session2),
+        ?assertEqual(1, emqx_coap_session:info(mqueue_len, Session3)),
+        timer:sleep(3000),
+        #{out := [Out1]} = emqx_coap_session:timeout(observe, Session3),
         ?assertEqual(con, Out1#coap_message.type)
     after
         case OldValue of

@@ -395,6 +395,7 @@ write_syntax(format) ->
 write_syntax(_) ->
     undefined.
 
+%% Leave a missing value to the required-field check.
 to_influx_lines(undefined) ->
     undefined;
 to_influx_lines(Lines = [#{} | _]) ->

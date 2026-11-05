@@ -42,6 +42,7 @@
 
 -export([
     match_routes/1,
+    has_routes/1,
     lookup_routes/1
 ]).
 
@@ -271,6 +272,19 @@ match_routes(Topic) when is_binary(Topic) ->
 lookup_routes(Topic) ->
     lookup_routes_v2(Topic).
 
+%% @doc Take a real topic (not filter) as input, and tell whether any route matches it.
+%% Stops at the first match, so it is cheaper than `match_routes/1` when only the
+%% existence of a route matters.
+-spec has_routes(emqx_types:topic()) -> boolean().
+has_routes(Topic) when is_binary(Topic) ->
+    ets:member(route_table(), Topic) orelse has_filter_route(Topic).
+
+has_filter_route(Topic) ->
+    case emqx_topic_index:match(Topic, route_filters_table()) of
+        false -> false;
+        _Match -> true
+    end.
+
 -spec has_route(emqx_types:topic(), dest()) -> boolean().
 has_route(Topic, Dest) ->
     has_route_v2(Topic, Dest).
@@ -341,11 +355,11 @@ cleanup_routes(NodeOrExtDest) ->
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
-    fold_routes_v2(foldl, FoldFun, AccIn).
+    fold_routes_v2(fun ets:foldl/3, FoldFun, AccIn).
 
 -spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
-    fold_routes_v2(foldr, FoldFun, AccIn).
+    fold_routes_v2(fun ets:foldr/3, FoldFun, AccIn).
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
@@ -552,10 +566,10 @@ mk_route_stream(Tab, {MTopic, MDest}) when
 list_route_tab_topics() ->
     mnesia:dirty_all_keys(route_table()).
 
-fold_routes_v2(FunName, FoldFun, AccIn) ->
+fold_routes_v2(Fold, FoldFun, AccIn) ->
     FilterFoldFun = mk_filtertab_fold_fun(FoldFun),
-    Acc = ets:FunName(FoldFun, AccIn, route_table()),
-    ets:FunName(FilterFoldFun, Acc, route_filters_table()).
+    Acc = Fold(FoldFun, AccIn, route_table()),
+    Fold(FilterFoldFun, Acc, route_filters_table()).
 
 mk_filtertab_fold_fun(FoldFun) ->
     fun(#routeidx{entry = K}, Acc) -> FoldFun(match_to_route(K), Acc) end.

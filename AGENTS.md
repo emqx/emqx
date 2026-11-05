@@ -183,3 +183,46 @@ Two points that apply to agent-authored text:
   mistake becomes incorrect when the code moves.
 - Do not repeat the diff in the PR body. Write what the reviewer cannot see — the cause, the
   decision that you made, and what you verified.
+
+### Read your own pull request
+
+After you push, read the description and the diff again, as a reviewer who has not seen the issue.
+A reviewer must not have to work to find what changed and why. A long description costs more to
+read than a short one, so delete every line that does not help the decision.
+
+A line that only repeats one of these does not help:
+
+- the issue description, which the reviewer can open;
+- what the code says, which the reviewer is reading.
+
+Some detail is written for an agent rather than for a person: test output, a long trace, the
+searches you ran, the branches you checked. Fold it into a `<details>` block with a `<summary>`
+that says what it holds. A reviewer then skips it in one movement, and the next agent still has
+it.
+
+```markdown
+<details><summary>Test output</summary>
+
+    emqx_frame_SUITE: 42 ok, 0 failed, 0 skipped
+
+</details>
+```
+
+Leave a block out when it only repeats the issue or the code. A collapsed section is cheap to
+skip, not free.
+
+### Do not contaminate another reviewer's context
+
+Another agent may review your work, and an agent treats a confident sentence as settled. A claim
+written as a fact stops the next reader from checking it, so an incorrect claim survives.
+
+Write a finding as a finding. State what you observed and how you observed it, and keep the
+conclusion separate from the evidence:
+
+- "The suite passes on this branch" when you ran it, not "this change is safe".
+- "I found no other caller; I searched `apps/` and `deps/` for `foo/2`", not "there are no other
+  callers".
+- Name what you did not check. A reader assumes you checked everything that you do not exclude.
+
+This applies to a code comment as well. A comment that asserts an invariant nobody verified is
+worse than no comment, because the next change is built on it.

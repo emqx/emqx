@@ -21,9 +21,9 @@ t_observe_manager(_) ->
     ?assertEqual(SeqId, SeqId2),
     _ = emqx_coap_observe_res:remove(<<"t">>, Manager2),
     Manager3 = #{
-        <<"wrap">> => #{token => <<"t">>, seq_id => 16777215, subopts => #{qos => 0}}
+        <<"wrap">> => #{<<"t">> => #{token => <<"t">>, seq_id => 16777215, subopts => #{qos => 0}}}
     },
-    {_, SeqIdWrap, _} = emqx_coap_observe_res:res_changed(<<"wrap">>, Manager3),
+    {[{_, SeqIdWrap}], _} = emqx_coap_observe_res:res_changed(<<"wrap">>, Manager3),
     ?assert(SeqIdWrap >= 16777216),
     SeqVal = emqx_coap_observe_res:current_value(),
     ?assert(SeqVal >= 0 andalso SeqVal =< 16#FFFFFF),

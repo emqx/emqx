@@ -157,6 +157,27 @@ t_empty_export_import(_Config) ->
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
     ?assertEqual(ExpRawConf, emqx:get_raw_config([])).
 
+-doc """
+The backup metadata keeps the real release version, also when
+`dashboard.show_preview_version = false` hides the `-preview.N` suffix in the
+REST API. The import compares this version with the running release.
+""".
+t_export_meta_keeps_preview_version(_Config) ->
+    meck:new(emqx_release, [passthrough, no_history, no_link]),
+    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+    try
+        emqx_config:put([dashboard, show_preview_version], false),
+        ?assertEqual("6.1.5", emqx_dashboard:reported_version()),
+        {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+        {ok, Files} = erl_tar:extract(FileName, [memory, compressed]),
+        [MetaBin] = [Bin || {Name, Bin} <- Files, filename:basename(Name) =:= "META.hocon"],
+        {ok, Meta} = hocon:binary(MetaBin),
+        ?assertEqual(<<"6.1.5-preview.1">>, maps:get(<<"version">>, Meta))
+    after
+        emqx_config:put([dashboard, show_preview_version], true),
+        meck:unload(emqx_release)
+    end.
+
 t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
     FNameEmqx44 = "emqx-export-4.4.24-retainer-mqttsub.tar.gz",
     BackupFile = filename:join(?config(data_dir, Config), FNameEmqx44),
