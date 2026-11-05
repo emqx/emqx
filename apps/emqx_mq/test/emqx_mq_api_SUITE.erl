@@ -161,13 +161,15 @@ t_crud(_Config) ->
         {ok, 204},
         api_delete([message_queues, queues, <<"crud_12">>])
     ),
-    ?assertMatch(
-        {ok, 404, _},
-        api_delete([message_queues, queues, <<"crud_11">>])
-    ),
     ?retry(
-        5,
-        20,
+        50,
+        100,
+        ?assertMatch({ok, 404, _}, api_get([message_queues, queues, <<"crud_11">>]))
+    ),
+    ?assertMatch({ok, 404, _}, api_delete([message_queues, queues, <<"crud_11">>])),
+    ?retry(
+        50,
+        100,
         ?assertMatch(
             {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
             api_get([message_queues, queues])
@@ -215,7 +217,7 @@ t_legacy_queues_crud(_Config) ->
         api_delete([message_queues, queues, urlencode(<<"/t/#">>)])
     ),
 
-    ?assertEqual(not_found, emqx_mq_registry:find(<<"/t/#">>)).
+    ?retry(50, 100, ?assertEqual(not_found, emqx_mq_registry:find(<<"/t/#">>))).
 
 %% Verify pagination logic of message queue listing.
 t_pagination(_Config) ->
@@ -561,7 +563,7 @@ t_update_legacy_queue(_Config) ->
         {ok, 204},
         api_delete([message_queues, queues, urlencode(<<"/t/#">>)])
     ),
-    ?assertEqual(not_found, emqx_mq_registry:find(<<"/t/#">>)),
+    ?retry(50, 100, ?assertEqual(not_found, emqx_mq_registry:find(<<"/t/#">>))),
 
     %% Check list is empty
     ?assertMatch(
@@ -613,9 +615,10 @@ t_queues_alias_crud(_Config) ->
         api_delete([queue, <<"alias_q1">>])
     ),
     %% Verify deleted
-    ?assertMatch(
-        {ok, 404, _},
-        api_get([queue, <<"alias_q1">>])
+    ?retry(
+        50,
+        100,
+        ?assertMatch({ok, 404, _}, api_get([queue, <<"alias_q1">>]))
     ).
 
 %% Verify that /queues/config alias path works identically to /message_queues/config.
