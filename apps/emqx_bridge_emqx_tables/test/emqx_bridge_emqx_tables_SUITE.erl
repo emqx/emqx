@@ -298,6 +298,43 @@ json_encode(X) ->
 simple_write_syntax() ->
     <<"${.payload.t} payload=${.payload.p}">>.
 
+structured_write_point(TimestampValue, Temperature, Count, Label) ->
+    #{
+        <<"measurement">> => <<"mqtt">>,
+        <<"tags">> => [
+            #{
+                <<"key">> => <<"clientid">>,
+                <<"value">> => <<"${clientid}">>
+            }
+        ],
+        <<"fields">> => [
+            #{
+                <<"key">> => <<"temperature">>,
+                <<"type">> => <<"float">>,
+                <<"value">> => Temperature
+            },
+            #{
+                <<"key">> => <<"count">>,
+                <<"type">> => <<"integer">>,
+                <<"value">> => Count
+            },
+            #{
+                <<"key">> => <<"active">>,
+                <<"type">> => <<"boolean">>,
+                <<"value">> => <<"true">>
+            },
+            #{
+                <<"key">> => <<"label">>,
+                <<"type">> => <<"string">>,
+                <<"value">> => Label
+            }
+        ],
+        <<"timestamp">> => #{
+            <<"value">> => TimestampValue,
+            <<"source_precision">> => <<"ms">>
+        }
+    }.
+
 maybe_with_forced_sync_query_mode(TCConfig, Fn) ->
     case query_mode(TCConfig) of
         ?sync ->
@@ -889,6 +926,91 @@ t_auto_cast_int_to_float(TCConfig) ->
         )
     ),
 
+    ok.
+
+-doc "Write structured points through the native action API.".
+t_structured_write() ->
+    [{matrix, true}, {skip_create_table, true}].
+t_structured_write(matrix) ->
+    [
+        [?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_structured_write(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ActionConfig0 = ?config(action_config, TCConfig),
+    Parameters0 = maps:get(<<"parameters">>, ActionConfig0),
+    ActionConfig = ActionConfig0#{
+        <<"parameters">> => maps:remove(<<"write_syntax">>, Parameters0)
+    },
+    StructuredTCConfig = lists:keystore(
+        action_config, 1, TCConfig, {action_config, ActionConfig}
+    ),
+    Write = [
+        structured_write_point(
+            <<"${payload.first_ts}">>,
+            <<"${payload.first_temperature}">>,
+            <<"${payload.first_count}">>,
+            <<"${payload.first_label}">>
+        ),
+        structured_write_point(
+            <<"${payload.second_ts}">>,
+            <<"${payload.second_temperature}">>,
+            <<"${payload.second_count}">>,
+            <<"${payload.second_label}">>
+        )
+    ],
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(StructuredTCConfig, #{
+        <<"parameters">> => #{
+            <<"precision">> => <<"ms">>,
+            <<"write">> => Write
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    Now = erlang:system_time(millisecond),
+    Payload = json_encode(#{
+        <<"first_ts">> => Now,
+        <<"first_temperature">> => 21.5,
+        <<"first_count">> => 7,
+        <<"first_label">> => <<"first">>,
+        <<"second_ts">> => Now + 1,
+        <<"second_temperature">> => 22.5,
+        <<"second_count">> => 8,
+        <<"second_label">> => <<"second">>
+    }),
+    emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        begin
+            Rows = query_by_clientid(ClientId, TCConfig),
+            ?assertMatch(
+                [
+                    #{
+                        <<"temperature">> := 21.5,
+                        <<"count">> := 7,
+                        <<"active">> := true,
+                        <<"label">> := <<"first">>
+                    },
+                    #{
+                        <<"temperature">> := 22.5,
+                        <<"count">> := 8,
+                        <<"active">> := true,
+                        <<"label">> := <<"second">>
+                    }
+                ],
+                lists:sort(
+                    fun(Left, Right) ->
+                        maps:get(<<"count">>, Left) =< maps:get(<<"count">>, Right)
+                    end,
+                    Rows
+                )
+            )
+        end
+    ),
     ok.
 
 -doc """
