@@ -143,7 +143,12 @@ lines_to_points(_Data, _DbName, _DriverType, [], Points, ErrorPoints) ->
             {error, ErrorPoints}
     end;
 lines_to_points(
-    Data, DbName, DriverType, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc
+    Data,
+    DbName,
+    DriverType,
+    [#{timestamp := Ts, precision := Precision} = Item | Rest],
+    ResultPointsAcc,
+    ErrorPointsAcc
 ) when
     is_list(Ts)
 ->
@@ -152,7 +157,8 @@ lines_to_points(
     case
         parse_timestamp(
             emqx_placeholder:proc_tmpl(Ts, Data, TransOptions),
-            MissingTimestamp
+            MissingTimestamp,
+            Precision
         )
     of
         {ok, TsInt} ->
@@ -202,7 +208,9 @@ line_to_point(Data, DbName, DriverType, Item) ->
         Result -> Result
     catch
         throw:Reason ->
-            {error, Reason}
+            {error, Reason};
+        Class:Reason when Class =:= error; Class =:= exit ->
+            {error, {point_conversion_failed, Reason}}
     end.
 
 line_to_point_1(
@@ -400,7 +408,7 @@ maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType) ->
 typed_value(erlang, auto, Values) ->
     value_type(Values);
 typed_value(native, auto, Values) ->
-    {ok, to_raw_value(Values)};
+    native_auto_value(Values);
 typed_value(DriverType, string, Values) ->
     Value = render_template_text(Values),
     case DriverType of
@@ -446,7 +454,11 @@ typed_integer(_Value) ->
 typed_float(Value) when is_float(Value) ->
     {ok, Value};
 typed_float(Value) when is_integer(Value) ->
-    {ok, float(Value)};
+    try
+        {ok, float(Value)}
+    catch
+        error:badarg -> error
+    end;
 typed_float(Value) when is_binary(Value) ->
     try
         {ok, binary_to_float(Value)}
@@ -513,12 +525,16 @@ typed_boolean(true) ->
 typed_boolean(false) ->
     {ok, false};
 typed_boolean(Value) when is_binary(Value) ->
-    case string:lowercase(Value) of
-        <<"true">> -> {ok, true};
-        <<"t">> -> {ok, true};
-        <<"false">> -> {ok, false};
-        <<"f">> -> {ok, false};
-        _ -> error
+    try
+        case string:lowercase(Value) of
+            <<"true">> -> {ok, true};
+            <<"t">> -> {ok, true};
+            <<"false">> -> {ok, false};
+            <<"f">> -> {ok, false};
+            _ -> error
+        end
+    catch
+        error:_ -> error
     end;
 typed_boolean(_Value) ->
     error.
@@ -609,24 +625,38 @@ data_filter(Number) when is_number(Number) -> Number;
 data_filter(Bool) when is_boolean(Bool) -> Bool;
 data_filter(Data) -> bin(Data).
 
-parse_timestamp([undefined], error) ->
+parse_timestamp([undefined], error, _Precision) ->
     {error, missing_timestamp};
-parse_timestamp([undefined], default) ->
-    {ok, emqx_message:timestamp_now()};
-parse_timestamp([TsInt], _MissingTimestamp) when is_integer(TsInt) ->
+parse_timestamp([undefined], default, {FromPrecision, _}) ->
+    {ok,
+        maybe_convert_time_unit(
+            emqx_message:timestamp_now(),
+            {ms, FromPrecision}
+        )};
+parse_timestamp([TsInt], _MissingTimestamp, _Precision) when is_integer(TsInt) ->
     {ok, TsInt};
-parse_timestamp([TsBin], _MissingTimestamp) ->
+parse_timestamp([TsBin], _MissingTimestamp, _Precision) ->
     try
         {ok, binary_to_integer(TsBin)}
     catch
         _:_ ->
             {error, TsBin}
     end;
-parse_timestamp(InvalidTs, _MissingTimestamp) ->
+parse_timestamp(InvalidTs, _MissingTimestamp, _Precision) ->
     {error, {unsupported_placeholder_usage_for_timestamp, InvalidTs}}.
 
-to_raw_value([N, Suffix]) when is_number(N), is_binary(Suffix) ->
-    N;
+to_raw_value([Int, <<"i">>]) when
+    is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX
+->
+    Int;
+to_raw_value([Int, <<"i">>]) ->
+    throw({invalid_integer_value, Int});
+to_raw_value([UInt, <<"u">>]) when
+    is_integer(UInt), UInt >= 0, UInt =< ?UINT64_MAX
+->
+    UInt;
+to_raw_value([UInt, <<"u">>]) ->
+    throw({invalid_unsigned_integer_value, UInt});
 to_raw_value([<<"t">>]) ->
     true;
 to_raw_value([<<"T">>]) ->
@@ -658,6 +688,21 @@ to_raw_value(Val0) ->
         _Error ->
             throw({unrecoverable_error, {non_utf8_string_value, Val0}})
     end.
+
+native_auto_value([Int, <<"i">>]) ->
+    try to_raw_value([Int, <<"i">>]) of
+        Value -> {ok, Value}
+    catch
+        throw:Reason -> {error, Reason}
+    end;
+native_auto_value([UInt, <<"u">>]) ->
+    try to_raw_value([UInt, <<"u">>]) of
+        Value -> {ok, Value}
+    catch
+        throw:Reason -> {error, Reason}
+    end;
+native_auto_value(Values) ->
+    {ok, to_raw_value(Values)}.
 
 value_type([Int, <<"i">>]) when
     is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX

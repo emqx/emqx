@@ -331,6 +331,381 @@ structured_write_rendering_test_() ->
             )}
     ].
 
+native_single_query_aggregates_points_test() ->
+    Write = native_test_write(<<"mqtt">>, 2),
+    State = native_rs_state(Write),
+    Insert = fun(_Client, <<"mqtt">>, Points) ->
+        ?assertEqual(2, length(Points)),
+        {ok, 2}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        ?assertEqual(
+            {ok, 2},
+            emqx_bridge_greptimedb_rs_impl:on_query(
+                connector, {channel, #{}}, State
+            )
+        )
+    end).
+
+native_single_query_keeps_cross_table_error_test() ->
+    Write = [
+        native_test_point(<<"ok_table">>, 1),
+        native_test_point(<<"bad_table">>, 2)
+    ],
+    State = native_rs_state(Write),
+    Insert = fun
+        (_Client, <<"ok_table">>, _Points) -> {ok, 1};
+        (_Client, <<"bad_table">>, _Points) -> {error, bad_table_failed}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        ?assertEqual(
+            {error, {recoverable_error, bad_table_failed}},
+            emqx_bridge_greptimedb_rs_impl:on_query(
+                connector, {channel, #{}}, State
+            )
+        )
+    end).
+
+native_single_query_sums_cross_table_point_counts_test() ->
+    Write = [
+        native_test_point(<<"first">>, 1),
+        native_test_point(<<"second">>, 2)
+    ],
+    State = native_rs_state(Write),
+    Insert = fun(_Client, _Table, _Points) -> {ok, 1} end,
+    with_rs_insert_mock(Insert, fun() ->
+        ?assertEqual(
+            {ok, 2},
+            emqx_bridge_greptimedb_rs_impl:on_query(
+                connector, {channel, #{}}, State
+            )
+        )
+    end).
+
+native_batch_query_returns_one_result_per_message_test() ->
+    Write = native_test_write(<<"${payload.table}">>, 2),
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"first">>}}},
+        {channel, #{payload => #{table => <<"second">>}}}
+    ],
+    Insert = fun(_Client, Table, Points) ->
+        ?assertEqual(2, length(Points)),
+        {ok, Table}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        ?assertEqual(
+            [{ok, 2}, {ok, 2}],
+            emqx_bridge_greptimedb_rs_impl:on_batch_query(connector, Batch, State)
+        )
+    end).
+
+native_batch_query_counts_points_per_message_test() ->
+    Write = native_test_write(<<"mqtt">>, 1),
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"first">>}}},
+        {channel, #{payload => #{table => <<"second">>}}}
+    ],
+    Insert = fun(_Client, <<"mqtt">>, Points) ->
+        ?assertEqual(2, length(Points)),
+        {ok, 2}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        ?assertEqual(
+            [{ok, 1}, {ok, 1}],
+            emqx_bridge_greptimedb_rs_impl:on_batch_query(connector, Batch, State)
+        )
+    end).
+
+native_async_single_query_aggregates_points_test() ->
+    Write = native_test_write(<<"mqtt">>, 2),
+    State = native_rs_state(Write),
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {native_async_result, Result} end,
+        []
+    },
+    InsertAsync = fun(_Client, <<"mqtt">>, Points, Callback) ->
+        ?assertEqual(2, length(Points)),
+        ok = invoke_rs_callback(Callback, {ok, 2}),
+        {ok, self()}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:on_query_async(
+                connector, {channel, #{}}, FinalReply, State
+            )
+        ),
+        receive
+            {native_async_result, Result} ->
+                ?assertEqual({ok, 2}, Result)
+        after 1_000 ->
+            error(native_async_result_timeout)
+        end
+    end).
+
+native_async_single_query_sums_cross_table_points_test() ->
+    Write = [
+        native_test_point(<<"first">>, 1),
+        native_test_point(<<"second">>, 2)
+    ],
+    State = native_rs_state(Write),
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {native_async_cross_table_result, Result} end,
+        []
+    },
+    InsertAsync = fun(_Client, _Table, Points, Callback) ->
+        ?assertEqual(1, length(Points)),
+        _ = invoke_rs_callback(Callback, {ok, 1}),
+        {ok, self()}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:on_query_async(
+                connector, {channel, #{}}, FinalReply, State
+            )
+        ),
+        receive
+            {native_async_cross_table_result, Result} ->
+                ?assertEqual({ok, 2}, Result)
+        after 1_000 ->
+            error(native_async_cross_table_result_timeout)
+        end
+    end).
+
+native_async_batch_query_returns_one_result_per_message_test() ->
+    Write = native_test_write(<<"${payload.table}">>, 2),
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"first">>}}},
+        {channel, #{payload => #{table => <<"second">>}}}
+    ],
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {native_async_batch_result, Result} end,
+        []
+    },
+    InsertAsync = fun(_Client, Table, Points, Callback) ->
+        ?assertEqual(2, length(Points)),
+        _ = invoke_rs_callback(Callback, {ok, Table}),
+        {ok, self()}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                connector, Batch, FinalReply, State
+            )
+        ),
+        receive
+            {native_async_batch_result, Result} ->
+                ?assertEqual(
+                    [{ok, 2}, {ok, 2}],
+                    Result
+                )
+        after 1_000 ->
+            error(native_async_batch_result_timeout)
+        end
+    end).
+
+native_async_batch_query_counts_points_per_message_test() ->
+    Write = native_test_write(<<"mqtt">>, 1),
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"first">>}}},
+        {channel, #{payload => #{table => <<"second">>}}}
+    ],
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {native_async_shared_table_result, Result} end,
+        []
+    },
+    InsertAsync = fun(_Client, <<"mqtt">>, Points, Callback) ->
+        ?assertEqual(2, length(Points)),
+        ok = invoke_rs_callback(Callback, {ok, 2}),
+        {ok, self()}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                connector, Batch, FinalReply, State
+            )
+        ),
+        receive
+            {native_async_shared_table_result, Result} ->
+                ?assertEqual([{ok, 1}, {ok, 1}], Result)
+        after 1_000 ->
+            error(native_async_shared_table_result_timeout)
+        end
+    end).
+
+native_async_later_table_submission_error_completes_batch_test() ->
+    Write = native_test_write(<<"${payload.table}">>, 1),
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"first">>}}},
+        {channel, #{payload => #{table => <<"second">>}}},
+        {channel, #{payload => #{table => <<"third">>}}}
+    ],
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {native_async_submit_error, Result} end,
+        []
+    },
+    InsertAsync = fun
+        (_Client, <<"first">>, _Points, Callback) ->
+            _ = invoke_rs_callback(Callback, {ok, 1}),
+            {ok, self()};
+        (_Client, <<"second">>, _Points, _Callback) ->
+            {error, ecpool_empty};
+        (_Client, <<"third">>, _Points, Callback) ->
+            _ = invoke_rs_callback(Callback, {ok, 1}),
+            {ok, self()}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                connector, Batch, FinalReply, State
+            )
+        ),
+        receive
+            {native_async_submit_error, Result} ->
+                ?assertEqual(
+                    [
+                        {ok, 1},
+                        {error, {recoverable_error, ecpool_empty}},
+                        {ok, 1}
+                    ],
+                    Result
+                )
+        after 1_000 ->
+            error(native_async_submit_error_timeout)
+        end
+    end).
+
+native_async_transient_error_is_recoverable_test() ->
+    Write = native_test_write(<<"mqtt">>, 1),
+    State = native_rs_state(Write),
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {native_async_recoverable_error, Result} end,
+        []
+    },
+    InsertAsync = fun(_Client, <<"mqtt">>, _Points, Callback) ->
+        ok = invoke_rs_callback(Callback, {error, disconnected}),
+        {ok, self()}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:on_query_async(
+                connector, {channel, #{}}, FinalReply, State
+            )
+        ),
+        receive
+            {native_async_recoverable_error, Result} ->
+                ?assertEqual({error, {recoverable_error, disconnected}}, Result)
+        after 1_000 ->
+            error(native_async_recoverable_error_timeout)
+        end
+    end).
+
+native_auto_integer_suffixes_are_validated_test_() ->
+    [
+        ?_assertMatch(
+            {error, [{error, {invalid_unsigned_integer_value, -1}}]},
+            render_write_result(
+                native,
+                native_auto_write(<<"${payload.value}u">>),
+                #{payload => #{value => -1}}
+            )
+        ),
+        ?_assertMatch(
+            {error, [{error, {invalid_integer_value, 9223372036854775808}}]},
+            render_write_result(
+                native,
+                native_auto_write(<<"${payload.value}i">>),
+                #{payload => #{value => 9223372036854775808}}
+            )
+        ),
+        ?_test(assert_native_auto_max_uint())
+    ].
+
+assert_native_auto_max_uint() ->
+    ?assertMatch(
+        {ok, [{_, [#{fields := #{<<"value">> := 18446744073709551615}}]}]},
+        render_write_result(
+            native,
+            native_auto_write(<<"${payload.value}u">>),
+            #{payload => #{value => 18446744073709551615}}
+        )
+    ).
+
+native_auto_write(ValueTemplate) ->
+    [
+        #{
+            measurement => <<"mqtt">>,
+            fields => [
+                #{key => <<"value">>, type => auto, value => ValueTemplate}
+            ],
+            timestamp => false
+        }
+    ].
+
+native_test_write(Measurement, PointCount) ->
+    [native_test_point(Measurement, I) || I <- lists:seq(1, PointCount)].
+
+native_test_point(Measurement, Value) ->
+    #{
+        measurement => Measurement,
+        fields => [
+            #{key => <<"value">>, type => integer, value => integer_to_binary(Value)}
+        ],
+        timestamp => false
+    }.
+
+native_rs_state(Write) ->
+    WriteSyntax = emqx_bridge_greptimedb_utils:parse_action_parameters(
+        #{write => Write}, ms
+    ),
+    #{
+        database => <<"mydb">>,
+        client => test_client,
+        installed_channels => #{
+            channel => #{
+                write_syntax => WriteSyntax,
+                precision => ms
+            }
+        }
+    }.
+
+with_rs_insert_mock(Insert, TestFun) ->
+    ok = meck:new(greptimedb_rs, [passthrough, no_link]),
+    try
+        ok = meck:expect(greptimedb_rs, insert, Insert),
+        TestFun()
+    after
+        ok = meck:unload(greptimedb_rs)
+    end.
+
+with_rs_insert_async_mock(InsertAsync, TestFun) ->
+    ok = meck:new(greptimedb_rs, [passthrough, no_link]),
+    try
+        ok = meck:expect(greptimedb_rs, insert_async, InsertAsync),
+        TestFun()
+    after
+        ok = meck:unload(greptimedb_rs)
+    end.
+
+invoke_rs_callback({ReplyFun, Args}, Result) ->
+    apply(ReplyFun, Args ++ [Result]).
+
 render_structured_write(DriverType) ->
     Write = [
         #{
@@ -523,6 +898,43 @@ omitted_timestamp_uses_message_timestamp_test_() ->
         )
     ].
 
+legacy_missing_custom_timestamp_fallback_unit_test_() ->
+    [
+        ?_test(assert_legacy_missing_custom_timestamp_fallback(s)),
+        ?_test(assert_legacy_missing_custom_timestamp_fallback(us)),
+        ?_test(assert_legacy_missing_custom_timestamp_fallback(ns))
+    ].
+
+assert_legacy_missing_custom_timestamp_fallback(TargetPrecision) ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"mqtt,clientid=${clientid} value=1 ${payload.ts}">>
+    ),
+    SyntaxLines = emqx_bridge_greptimedb_utils:parse_action_parameters(
+        #{write_syntax => Lines}, TargetPrecision
+    ),
+    Before = timestamp_in_precision(TargetPrecision),
+    {ok, [{#{timeunit := TargetPrecision}, [#{timestamp := Timestamp}]}]} =
+        emqx_bridge_greptimedb_utils:data_to_points(
+            #{clientid => <<"client-1">>, payload => #{}},
+            <<"mydb">>,
+            SyntaxLines,
+            erlang
+        ),
+    After = timestamp_in_precision(TargetPrecision),
+    ?assert(Timestamp >= Before - 1),
+    ?assert(Timestamp =< After + 1).
+
+timestamp_in_precision(Precision) ->
+    erlang:convert_time_unit(
+        erlang:system_time(millisecond),
+        millisecond,
+        timestamp_unit(Precision)
+    ).
+
+timestamp_unit(s) -> second;
+timestamp_unit(us) -> microsecond;
+timestamp_unit(ns) -> nanosecond.
+
 render_timestamp(SourcePrecision, TargetPrecision) ->
     Write = [
         #{
@@ -685,6 +1097,28 @@ invalid_typed_values_error_test_() ->
             )
         )
     ].
+
+large_integer_float_conversion_error_is_contained_test() ->
+    TooLarge = 1 bsl 1024,
+    ?assertMatch(
+        {error, [{error, {invalid_float_value, TooLarge}}]},
+        render_write_result(
+            erlang,
+            typed_value_write(float, <<"${payload.value}">>),
+            #{payload => #{value => TooLarge}}
+        )
+    ).
+
+invalid_utf8_boolean_conversion_error_is_contained_test() ->
+    InvalidUtf8 = <<16#ff>>,
+    ?assertMatch(
+        {error, [{error, {invalid_boolean_value, InvalidUtf8}}]},
+        render_write_result(
+            erlang,
+            typed_value_write(boolean, <<"${payload.value}">>),
+            #{payload => #{value => InvalidUtf8}}
+        )
+    ).
 
 float_string_forms_are_accepted_test_() ->
     [
