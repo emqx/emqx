@@ -136,3 +136,69 @@ ws_opts() ->
 
 st() ->
     st.
+
+%% The cases below arrived from the 6.2 line. Their helper is named
+%% `subprotocol_opts/2' because this suite already has an `opts/2' that builds
+%% the proxy address and port header names.
+
+-doc "The gateway accepts a request without an optional subprotocol header when the supported list is empty.".
+t_optional_subprotocol_empty(_Config) ->
+    check_optional_subprotocol([]).
+
+-doc "The gateway sends no subprotocol header when the request omits an optional subprotocol.".
+t_optional_subprotocol_absent(_Config) ->
+    lists:foreach(fun check_optional_subprotocol/1, [["NATS"], ["ocpp1.6", "ocpp2.0"]]).
+
+check_optional_subprotocol(Supported) ->
+    Req = #{headers => #{}},
+    Opts = subprotocol_opts(false, Supported),
+    ?assertEqual(
+        {ok, [Req, Opts, #{}], state},
+        emqx_gateway_conn_ws:parse_sec_websocket_protocol([Req, Opts, #{}], state)
+    ).
+
+-doc "The gateway rejects a request that omits a required subprotocol.".
+t_required_subprotocol_absent(_Config) ->
+    lists:foreach(
+        fun(Supported) ->
+            Req = #{headers => #{}},
+            ?assertEqual(
+                {error, no_subprotocol},
+                emqx_gateway_conn_ws:parse_sec_websocket_protocol(
+                    [Req, subprotocol_opts(true, Supported), #{}], state
+                )
+            )
+        end,
+        [[], ["NATS"]]
+    ).
+
+-doc "The gateway selects a supported subprotocol in the client's preference order.".
+t_subprotocol_selected(_Config) ->
+    Req = #{headers => #{<<"sec-websocket-protocol">> => <<"other, NATS, ocpp1.6">>}},
+    Opts = subprotocol_opts(false, ["ocpp1.6", "NATS"]),
+    {ok, [Resp, Opts, #{}], state} =
+        emqx_gateway_conn_ws:parse_sec_websocket_protocol([Req, Opts, #{}], state),
+    ?assertEqual(<<"NATS">>, cowboy_req:resp_header(<<"sec-websocket-protocol">>, Resp)).
+
+-doc "The gateway rejects a request with no supported subprotocol.".
+t_subprotocol_not_supported(_Config) ->
+    lists:foreach(
+        fun(Supported) ->
+            Req = #{headers => #{<<"sec-websocket-protocol">> => <<"other">>}},
+            ?assertEqual(
+                {error, no_supported_subprotocol},
+                emqx_gateway_conn_ws:parse_sec_websocket_protocol(
+                    [Req, subprotocol_opts(false, Supported), #{}], state
+                )
+            )
+        end,
+        [[], ["NATS"]]
+    ).
+
+subprotocol_opts(FailIfNoSubprotocol, SupportedSubprotocols) ->
+    #{
+        websocket => #{
+            fail_if_no_subprotocol => FailIfNoSubprotocol,
+            supported_subprotocols => SupportedSubprotocols
+        }
+    }.

@@ -201,6 +201,9 @@ write_syntax(format) ->
 write_syntax(_) ->
     undefined.
 
+%% Leave a missing value to the required-field check.
+to_influx_lines(undefined) ->
+    undefined;
 to_influx_lines(Lines = [#{} | _]) ->
     %% already parsed/converted (e.g.: bridge_probe, after hocon_tconf:check_plain)
     Lines;

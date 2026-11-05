@@ -264,7 +264,10 @@ validate_unique_topics(Topics) ->
         Topics
     ),
     DuplicatedMap = maps:filter(
-        fun(_T, Ts) -> length(Ts) > 1 end,
+        fun
+            (_T, [_, _ | _]) -> true;
+            (_T, _) -> false
+        end,
         Grouped
     ),
     case maps:keys(DuplicatedMap) of
@@ -278,6 +281,9 @@ validate_unique_topics(Topics) ->
             {error, Msg}
     end.
 
+%% Leave a missing value to the required-field check.
+compile_variform(undefined, _Opts) ->
+    undefined;
 compile_variform(Expression, #{make_serializable := true}) ->
     case is_binary(Expression) of
         true ->
@@ -311,6 +317,9 @@ fully_qualify_local_bif("json_decode") ->
 fully_qualify_local_bif(FnName) ->
     FnName.
 
+%% Leave a missing key to the required-field check.
+parse_key_path(undefined, _Opts) ->
+    undefined;
 parse_key_path(<<"">>, _Opts) ->
     throw(#{reason => <<"key must be non-empty">>});
 parse_key_path(Key, #{make_serializable := true}) ->
