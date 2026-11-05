@@ -1433,10 +1433,7 @@ maps_config_to_data(K, {typed, Type, Tmpl}, {Data, Res, _SetType}) ->
                 try
                     case Type of
                         auto ->
-                            value_type(NV, #{
-                                tmpl_type => tmpl_type(Tmpl),
-                                set_type => ?set_field
-                            });
+                            auto_field_value(NV, Tmpl);
                         _ ->
                             typed_field_value(Type, NV)
                     end
@@ -1603,6 +1600,29 @@ value_type([Str], #{tmpl_type := literal, set_type := ?set_field}) when is_binar
 value_type(Str, _) ->
     Str.
 
+auto_field_value(Values, Tmpl) ->
+    TemplateType = tmpl_type(Tmpl),
+    Options = #{
+        tmpl_type => TemplateType,
+        set_type => ?set_field
+    },
+    case TemplateType of
+        mixed ->
+            case is_auto_integer_suffix_template(Tmpl) of
+                true -> value_type(Values, Options);
+                false -> render_template_text(Values)
+            end;
+        _ ->
+            value_type(Values, Options)
+    end.
+
+is_auto_integer_suffix_template([{var, _}, {str, <<"i">>}]) ->
+    true;
+is_auto_integer_suffix_template([{var, _}, {str, <<"u">>}]) ->
+    true;
+is_auto_integer_suffix_template(_) ->
+    false.
+
 tmpl_type([{str, _}]) ->
     literal;
 tmpl_type([{var, _}]) ->
@@ -1622,7 +1642,11 @@ maybe_convert_to_integer(NumStr, String, Type) ->
 maybe_convert_to_integer_f(NumStr, String, Type) ->
     try
         Float = binary_to_float(NumStr),
-        checked_auto_integer(Type, erlang:floor(Float))
+        Int = erlang:floor(Float),
+        case Float == Int of
+            true -> checked_auto_integer(Type, Int);
+            false -> throw({invalid_integer_value, String})
+        end
     catch
         error:badarg ->
             String
@@ -2128,6 +2152,43 @@ structured_auto_field_type_test() ->
     ],
     {ok, [Point]} = run_structured_callback(Write, #{payload => #{value => 1}}),
     ?assertEqual(#{<<"value">> => {float, 1}}, maps:get(fields, Point)).
+
+structured_auto_mixed_template_is_text_test_() ->
+    [
+        ?_assertEqual(
+            #{<<"value">> => <<"prefix65">>},
+            structured_auto_mixed_template_field(65)
+        ),
+        ?_assertEqual(
+            #{<<"value">> => <<"prefix300">>},
+            structured_auto_mixed_template_field(300)
+        ),
+        ?_assertEqual(
+            #{<<"value">> => <<"prefix1.5">>},
+            structured_auto_mixed_template_field(1.5)
+        ),
+        ?_assertEqual(
+            #{<<"value">> => <<"prefixtrue">>},
+            structured_auto_mixed_template_field(true)
+        )
+    ].
+
+structured_auto_mixed_template_field(Value) ->
+    Write = [
+        #{
+            measurement => <<"m">>,
+            fields => [
+                #{
+                    key => <<"value">>,
+                    type => auto,
+                    value => <<"prefix", "${payload.value}">>
+                }
+            ],
+            timestamp => false
+        }
+    ],
+    {ok, [Point]} = run_structured_callback(Write, #{payload => #{value => Value}}),
+    maps:get(fields, Point).
 
 structured_all_fields_missing_test() ->
     Write = [
