@@ -176,6 +176,7 @@ schedule_refresh(PeriodMs) ->
     erlang:send_after(PeriodMs, ?MODULE, refresh).
 
 new_throttler(Msg) when
+    Msg =:= async_reply_to_expired_request;
     Msg =:= unrecoverable_resource_error;
     Msg =:= buffer_worker_dropped_expired_messages;
     Msg =:= resource_exception;

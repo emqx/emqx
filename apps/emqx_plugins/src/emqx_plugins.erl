@@ -570,13 +570,19 @@ delete_package(NameVsn) ->
 safe_delete_package(NameVsn) ->
     with_unpinned_name(NameVsn, fun() ->
         _ = forget_allowed_installation(NameVsn),
-        case has_other_active_version(NameVsn) of
+        case has_other_active_version(NameVsn) orelse install_state(NameVsn) of
             true ->
                 ok = delete_state(NameVsn),
                 ok = purge(NameVsn),
                 _ = delete_package(NameVsn),
                 ok;
-            false ->
+            absent ->
+                %% Not on this node, for example after a cluster upload that
+                %% this node rejected: there is nothing to stop or unload.
+                ok = delete_state(NameVsn),
+                _ = delete_package(NameVsn),
+                ok;
+            _ ->
                 case maybe_stop_plugin(NameVsn) of
                     ok ->
                         ok = maybe_disable_plugin(NameVsn),
