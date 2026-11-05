@@ -298,7 +298,8 @@ on_batch_query_async(_ConnResId, Queries, _ReplyFnAndArgs, _ConnectorState) ->
 %% Internal exports
 %%------------------------------------------------------------------------------
 
-reply_callback(Context0, Result) ->
+reply_callback(Context0, Result0) ->
+    Result = classify_query_result(Result0),
     #{iter := Iter0} = Context0,
     case maps:next(Iter0) of
         none ->
@@ -363,24 +364,22 @@ do_insert_sync(TablesToPoints, ConnState, Failed) ->
         maps:fold(
             fun(Table, PointsWithIndices, Acc0) ->
                 {Indices, Points} = lists:unzip(PointsWithIndices),
-                Res0 = greptimedb_rs:insert(Client, Table, Points),
-                Res = lists:map(fun(I) -> {I, Res0} end, Indices),
+                Counts = point_counts(Indices),
+                Result = classify_query_result(greptimedb_rs:insert(Client, Table, Points)),
+                Res = index_table_result(Counts, Result),
                 [Res | Acc0]
             end,
             [Failed],
             TablesToPoints
         ),
-    Results1 = lists:flatten(Results0),
-    Results2 = lists:keysort(1, Results1),
-    {_, Results} = lists:unzip(Results2),
+    Results = collapse_indexed_results(lists:flatten(Results0)),
     ?tp("greptime_rs_sync_batch_reply", #{results => Results}),
     Results.
 
-do_insert_async(_ChanResId, TablesToPoints, _ConnState, ReplyFnAndArgs, _Failed) when
+do_insert_async(_ChanResId, TablesToPoints, _ConnState, ReplyFnAndArgs, Failed) when
     map_size(TablesToPoints) == 0
 ->
-    %% Should be impossible, since we only trigger action with non-empty batches.
-    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {ok, #{}}),
+    reply_indexed_results(Failed, ReplyFnAndArgs),
     {ok, self()};
 do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0, Failed) ->
     #{?client := Client} = ConnState,
@@ -388,56 +387,135 @@ do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0, Failed) -
     %% Already checked that map is non-empty.
     {Table, PointsWithIndices, Iter} = maps:next(Iter0),
     {Indices, Points} = lists:unzip(PointsWithIndices),
-    IsBatch =
-        case {map_size(TablesToPoints), PointsWithIndices, Failed} of
-            {1, [_], []} ->
-                false;
-            _ ->
-                true
-        end,
+    Counts = point_counts(Indices),
     Context = #{
         res_id => ChanResId,
         iter => Iter,
-        last_indices => Indices,
+        last_counts => Counts,
         final_cont => ReplyFnAndArgs0,
         final_res => Failed,
-        client => Client,
-        is_batch => IsBatch
+        client => Client
     },
-    ReplyFnAndArgs = {fun ?MODULE:reply_callback/2, [Context]},
-    greptimedb_rs:insert_async(Client, Table, Points, ReplyFnAndArgs).
+    submit_async_insert(Context, Table, Points).
 
 handle_last_async_result(Context, Result) ->
     #{
-        last_indices := LastIndices,
+        last_counts := LastCounts,
         final_cont := ReplyFnAndArgs,
-        final_res := ResAcc0,
-        is_batch := IsBatch
+        final_res := ResAcc0
     } = Context,
-    ResultsWithIndices = lists:map(fun(I) -> {I, Result} end, LastIndices),
-    ResAcc1 = ResultsWithIndices ++ ResAcc0,
-    ResAcc2 = lists:keysort(1, ResAcc1),
-    {_, FinalResult0} = lists:unzip(ResAcc2),
-    case IsBatch of
-        true ->
-            emqx_resource:apply_reply_fun(ReplyFnAndArgs, FinalResult0);
-        false ->
-            [FinalResult1] = FinalResult0,
-            emqx_resource:apply_reply_fun(ReplyFnAndArgs, FinalResult1)
-    end.
+    ResultsWithIndices = index_table_result(LastCounts, Result),
+    reply_indexed_results(ResultsWithIndices ++ ResAcc0, ReplyFnAndArgs).
 
 handle_async_result_continuation(Context0, Result, NextTable, PointsWithIndices) ->
     #{
-        client := Client,
-        last_indices := LastIndices,
+        last_counts := LastCounts,
         final_res := ResAcc0
     } = Context0,
     {NextIndices, Points} = lists:unzip(PointsWithIndices),
-    ResultsWithIndices = lists:map(fun(I) -> {I, Result} end, LastIndices),
+    ResultsWithIndices = index_table_result(LastCounts, Result),
     ResAcc = ResultsWithIndices ++ ResAcc0,
-    Context = Context0#{last_indices := NextIndices, final_res := ResAcc},
+    Context = Context0#{last_counts := point_counts(NextIndices), final_res := ResAcc},
+    submit_async_insert(Context, NextTable, Points).
+
+submit_async_insert(Context, Table, Points) ->
+    #{
+        client := Client,
+        last_counts := Counts,
+        final_res := ResAcc
+    } = Context,
     ReplyFnAndArgs = {fun ?MODULE:reply_callback/2, [Context]},
-    greptimedb_rs:insert_async(Client, NextTable, Points, ReplyFnAndArgs).
+    SubmitResult =
+        try greptimedb_rs:insert_async(Client, Table, Points, ReplyFnAndArgs) of
+            SubmitValue -> SubmitValue
+        catch
+            Class:Reason -> {error, {async_submit_failed, Class, Reason}}
+        end,
+    case SubmitResult of
+        {ok, _Pid} = Ok ->
+            Ok;
+        {error, _} = Error ->
+            Result = classify_query_result(Error),
+            FailedResults = index_table_result(Counts, Result),
+            continue_async_after_submit_error(Context, FailedResults ++ ResAcc)
+    end.
+
+continue_async_after_submit_error(Context, Results) ->
+    #{
+        iter := Iter,
+        final_cont := FinalReplyFnAndArgs
+    } = Context,
+    case maps:next(Iter) of
+        none ->
+            reply_indexed_results(Results, FinalReplyFnAndArgs),
+            {ok, self()};
+        {NextTable, PointsWithIndices, NextIter} ->
+            {NextIndices, Points} = lists:unzip(PointsWithIndices),
+            NextContext = Context#{
+                iter := NextIter,
+                last_counts := point_counts(NextIndices),
+                final_res := Results
+            },
+            submit_async_insert(NextContext, NextTable, Points)
+    end.
+
+point_counts(Indices) ->
+    lists:foldl(
+        fun(Index, Counts) ->
+            maps:update_with(Index, fun(Count) -> Count + 1 end, 1, Counts)
+        end,
+        #{},
+        Indices
+    ).
+
+index_table_result(Counts, {ok, _AffectedRows}) ->
+    [{Index, {ok, PointCount}} || {Index, PointCount} <- maps:to_list(Counts)];
+index_table_result(Counts, Result) ->
+    [{Index, Result} || Index <- maps:keys(Counts)].
+
+collapse_indexed_results(IndexedResults) ->
+    Grouped = maps:groups_from_list(
+        fun({Index, _Result}) -> Index end,
+        fun({_Index, Result}) -> Result end,
+        IndexedResults
+    ),
+    [
+        collapse_message_results(Results)
+     || {_Index, Results} <- lists:keysort(1, maps:to_list(Grouped))
+    ].
+
+collapse_message_results([Result | Rest]) ->
+    lists:foldl(fun merge_message_results/2, Result, Rest).
+
+merge_message_results({error, _} = Error, _Result) ->
+    Error;
+merge_message_results(_Result, {error, _} = Error) ->
+    Error;
+merge_message_results({ok, Left}, {ok, Right}) when is_integer(Left), is_integer(Right) ->
+    {ok, Left + Right};
+merge_message_results(_Result, NextResult) ->
+    NextResult.
+
+reply_indexed_results(IndexedResults, ReplyFnAndArgs) ->
+    case collapse_indexed_results(IndexedResults) of
+        [] ->
+            emqx_resource:apply_reply_fun(ReplyFnAndArgs, {ok, #{}});
+        [Result] ->
+            emqx_resource:apply_reply_fun(ReplyFnAndArgs, Result);
+        Results ->
+            emqx_resource:apply_reply_fun(ReplyFnAndArgs, Results)
+    end.
+
+classify_query_result({error, {unauth, _, _}}) ->
+    {error, {unrecoverable_error, <<"authorization failure">>}};
+classify_query_result({error, {unrecoverable_error, _}} = Error) ->
+    Error;
+classify_query_result({error, {recoverable_error, _}} = Error) ->
+    Error;
+classify_query_result({error, Reason}) ->
+    {error, {recoverable_error, Reason}};
+classify_query_result(Result) ->
+    Result.
 
 %% @doc Build the options map for `greptimedb_rs:start_client/1'.
 client_opts(ConnResId, ConnConfig) ->
