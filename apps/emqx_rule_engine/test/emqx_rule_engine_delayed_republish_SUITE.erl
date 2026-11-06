@@ -76,6 +76,7 @@ delayed_republish(Config, Delay, CheckDelay) ->
     Upstream = create_rule(upstream, Input, <<"$delayed/", Delay/binary, "/", Output/binary>>),
     Downstream = create_rule(downstream, Output, Final),
     {ok, _, [1]} = emqtt:subscribe(Client, Final, 1),
+    ReceivedBefore = received_metrics(),
     {ok, _} = emqtt:publish(Client, Input, <<"delayed">>, 1),
     assert_delayed_delivery(CheckDelay),
     receive
@@ -84,6 +85,7 @@ delayed_republish(Config, Delay, CheckDelay) ->
     end,
     assert_metrics(Upstream, 1, 0),
     assert_metrics(Downstream, 1, 0),
+    assert_received_metrics(ReceivedBefore, 3),
     receive
         {publish, Message1} -> ct:fail({duplicate_delivery, Message1})
     after 300 -> ok
@@ -103,9 +105,11 @@ t_delayed_queue_full(Config) ->
     {200, _} = request(put, ["mqtt", "delayed"], #{enable => true, max_delayed_messages => 1}),
     Input = <<"delayed_republish/input">>,
     Id = create_rule(upstream, Input, <<"$delayed/60/delayed_republish/output">>),
+    ReceivedBefore = received_metrics(),
     {ok, _} = emqtt:publish(Client, Input, <<"accepted">>, 1),
     {ok, _} = emqtt:publish(Client, Input, <<"rejected">>, 1),
     assert_metrics(Id, 1, 1),
+    assert_received_metrics(ReceivedBefore, 3),
     {200, #{<<"data">> := Messages}} = request(get, ["mqtt", "delayed", "messages"], #{}),
     ?assertEqual(1, length(Messages)).
 
@@ -117,8 +121,10 @@ t_republish_blocked(Config) ->
     Id = create_rule(upstream, Input, Output),
     ok = emqx_hooks:put('message.publish', {?MODULE, block_publish, [Output]}, 1000),
     {ok, _, [1]} = emqtt:subscribe(Client, Output, 1),
+    ReceivedBefore = received_metrics(),
     {ok, _} = emqtt:publish(Client, Input, <<"blocked">>, 1),
     assert_metrics(Id, 0, 1),
+    assert_received_metrics(ReceivedBefore, 1),
     receive
         {publish, Message} -> ct:fail({blocked_message_delivered, Message})
     after 300 -> ok
@@ -129,8 +135,20 @@ t_republish_no_subscribers(Config) ->
     Client = ?config(client, Config),
     Input = <<"delayed_republish/input">>,
     Id = create_rule(upstream, Input, <<"delayed_republish/no_subscribers">>),
+    ReceivedBefore = received_metrics(),
     {ok, _} = emqtt:publish(Client, Input, <<"ordinary">>, 1),
-    assert_metrics(Id, 1, 0).
+    assert_metrics(Id, 1, 0),
+    assert_received_metrics(ReceivedBefore, 2).
+
+received_metrics() ->
+    #{
+        received => emqx_metrics:val('messages.received'),
+        qos1_received => emqx_metrics:val('messages.qos1.received')
+    }.
+
+assert_received_metrics(Before, Count) ->
+    Expected = maps:map(fun(_Metric, Value) -> Value + Count end, Before),
+    ?assertEqual(Expected, received_metrics()).
 
 block_publish(Msg = #message{topic = Topic}, Topic) ->
     {stop, emqx_message:set_header(allow_publish, false, Msg)};
