@@ -124,6 +124,7 @@ static_checks: $(ELIXIR_COMMON_DEPS)
 	    emqx.static_checks + \
 	    emqx.check_cluster_rpc
 	./scripts/check-i18n-style.sh
+	./rel/i18n-tr/lint-zh-TW.py
 	./scripts/check_missing_reboot_apps.exs
 
 # Allow user-set CASES environment variable
