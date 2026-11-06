@@ -13,6 +13,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+%% Builds atoms that need not exist yet.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([start_link/0]).
 
 %% Rule Management
@@ -132,6 +135,7 @@
         sql := binary(),
         actions := [action()],
         enable := boolean(),
+        consume_message => boolean(),
         description => binary(),
         %% epoch in millisecond precision
         created_at := integer(),
@@ -598,6 +602,7 @@ with_parsed_rule(
                 sql => Sql,
                 actions => parse_actions(RuleId, Actions),
                 description => maps:get(description, Params, ""),
+                consume_message => maps:get(consume_message, Params, false),
                 %% -- calculated fields:
                 from => emqx_rule_sqlparser:select_from(Select),
                 is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
