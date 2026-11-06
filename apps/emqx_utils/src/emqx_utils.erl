@@ -915,7 +915,7 @@ is_mqtt_safe_utf8(<<_BadUtf8, _Rest/binary>>) ->
 %% per-byte inspection only runs when an offending byte is found.
 -spec http_header_byte_check(binary() | term()) ->
     ok | {error, contains_null | contains_cr | contains_lf}.
-http_header_byte_check(Bin) when is_binary(Bin) ->
+http_header_byte_check(Bin) when is_binary(Bin), byte_size(Bin) >= 1_000 ->
     case binary:match(Bin, [<<$\r>>, <<$\n>>, <<0>>]) of
         nomatch ->
             ok;
@@ -923,8 +923,21 @@ http_header_byte_check(Bin) when is_binary(Bin) ->
             <<_:Pos/binary, Byte, _/binary>> = Bin,
             {error, control_byte_to_reason(Byte)}
     end;
+http_header_byte_check(Bin) when is_binary(Bin) ->
+    do_http_header_byte_check(Bin);
 http_header_byte_check(_NonBin) ->
     ok.
+
+do_http_header_byte_check(<<>>) ->
+    ok;
+do_http_header_byte_check(<<$\r, _/binary>>) ->
+    {error, contains_cr};
+do_http_header_byte_check(<<$\n, _/binary>>) ->
+    {error, contains_lf};
+do_http_header_byte_check(<<0, _/binary>>) ->
+    {error, contains_null};
+do_http_header_byte_check(<<_, Rest/binary>>) ->
+    do_http_header_byte_check(Rest).
 
 control_byte_to_reason(0) -> contains_null;
 control_byte_to_reason($\r) -> contains_cr;
