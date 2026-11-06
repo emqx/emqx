@@ -17,7 +17,8 @@
 %% EMQX Plugin callbacks
 -export([
     on_config_changed/2,
-    on_health_check/1
+    on_health_check/1,
+    on_handle_api_call/4
 ]).
 
 start(_StartType, _StartArgs) ->
@@ -68,3 +69,6 @@ validate_limits([Field | Rest], NewConf) ->
 
 on_health_check(_Options) ->
     emqx_maptabs:health_check().
+
+on_handle_api_call(Method, PathRemainder, Request, _Context) ->
+    emqx_maptabs_api:handle(Method, PathRemainder, Request).
