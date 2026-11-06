@@ -102,7 +102,10 @@ init_per_testcase(TestCase, Config) when
     Config;
 init_per_testcase(t_license_quota_rejection, Config0) ->
     Config = init_per_testcase(common, Config0),
-    ?assertEqual(undefined, emqx_config:get([license], undefined)),
+    %% The `license' root is present on this branch with its schema defaults, so
+    %% assert that no real license is configured rather than that the root is
+    %% absent, which is what the case actually depends on.
+    ?assertMatch(#{key := default}, emqx_config:get([license], #{key => default})),
     ok = emqx_cth_suite:load_apps([emqx_license]),
     try
         Apps = emqx_cth_suite:start_app(emqx_license, #{
@@ -1820,25 +1823,19 @@ update_stomp_transaction(TransConf) ->
     {ok, _} = emqx_gateway_conf:update_gateway(stomp, RawConfig1),
     ok.
 
+%% Read and restore the raw listener config: `set_gateway_listeners_authn/2'
+%% writes through the raw-config path, so capturing a typed config here and
+%% restoring it leaves `enable_authn' stored as an atom key, and the next raw
+%% write of that listener is then rejected as an unknown field.
 with_stomp_tcp_listener_authn(EnableAuthn, Fun) ->
     ListenerPath = [gateway, stomp, listeners, tcp, default],
-    PrevListenerConf = emqx_conf:get(ListenerPath),
+    PrevListenerConf = emqx:get_raw_config(ListenerPath),
     try
-        update_stomp_tcp_listener_authn(EnableAuthn),
+        ok = emqx_gateway_test_utils:set_gateway_listeners_authn(stomp, EnableAuthn),
         Fun()
     after
         ok = update_stomp_tcp_listener(PrevListenerConf)
     end.
-
-update_stomp_tcp_listener_authn(EnableAuthn) ->
-    ListenerConf0 = emqx_conf:get([gateway, stomp, listeners, tcp, default]),
-    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
-    ok = update_stomp_tcp_listener(ListenerConf1),
-    ?assertEqual(
-        EnableAuthn,
-        emqx_conf:get([gateway, stomp, listeners, tcp, default, enable_authn], undefined)
-    ),
-    ok.
 
 update_stomp_tcp_listener(ListenerConf) ->
     case emqx_gateway_conf:update_listener(stomp, {tcp, default}, ListenerConf) of

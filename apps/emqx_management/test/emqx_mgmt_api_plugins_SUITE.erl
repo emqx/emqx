@@ -2498,7 +2498,9 @@ cluster_cases() ->
         t_cluster_update_order,
         t_cluster_rejects_invalid_local_config_on_start,
         t_cluster_rolls_back_partial_start_failure,
-        t_cluster_sync_reports_a_busy_peer
+        t_cluster_sync_reports_a_busy_peer,
+        t_cluster_install_rejected_by_peer,
+        t_cluster_install_rejected_by_initiator
     ].
 
 app_specs(_Config) ->
