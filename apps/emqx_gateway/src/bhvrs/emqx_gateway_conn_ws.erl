@@ -585,6 +585,8 @@ parse_incoming(<<>>, State) ->
     State;
 parse_incoming(Data, State = #state{frame_mod = FrameMod, parse_state = ParseState}) ->
     try FrameMod:parse(Data, ParseState) of
+        {more, NParseState} ->
+            State#state{parse_state = NParseState};
         {ok, Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, postpone({incoming, Packet}, NState))

@@ -24,6 +24,7 @@
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -64,6 +65,7 @@ groups() ->
         {legacy, [], profile_groups()},
         {hardened, [], profile_groups()},
         {test_grp_0_register, [RepeatOpt], [
+            t_connect_hook_rejection,
             case01_register,
             case01_auth_expire,
             case01_update_not_restart_listener,
@@ -7346,6 +7348,28 @@ request(
         Method,
         Payload,
         [{content_format, Format} | Opts]
+    ).
+
+-doc "LwM2M returns a readable numeric hook rejection and registers after recovery.".
+t_connect_hook_rejection(Config) ->
+    Socket = ?config(sock, Config),
+    emqx_gateway_test_utils:with_connect_rejection(?RC_QUOTA_EXCEEDED, fun() ->
+        check_hook_register(Socket, 12, {error, bad_request}, <<"Login Failed: Quota exceeded">>)
+    end),
+    check_hook_register(Socket, 13, {ok, created}, <<>>).
+
+check_hook_register(Socket, MsgId, Method, Payload) ->
+    test_send_coap_request(
+        Socket,
+        post,
+        sprintf("coap://127.0.0.1:~b/rd?ep=hook-rejection&lt=60&lwm2m=1", [?PORT]),
+        #coap_content{content_format = <<"text/plain">>, payload = <<"</1>,</2>,</3>">>},
+        [],
+        MsgId
+    ),
+    ?assertMatch(
+        #coap_message{id = MsgId, method = Method, payload = Payload},
+        test_recv_coap_response(Socket)
     ).
 
 with_context_stub() ->

@@ -33,7 +33,7 @@ init_per_testcase(_Case, Config) ->
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
     emqx_config:put([retainer, flow_control, batch_read_number], 0),
     emqx_config:put([retainer, max_dispatcher_queue_length], 50_000),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     ok = restart_workers(),
     ok = emqx_retainer:clean(),
     ok = emqx_retainer_mnesia:reindex([[1, 3]], true, fun(_) -> ok end),
@@ -135,7 +135,7 @@ t_unsubscribe_pending(_Config) ->
 t_empty_read_limiter(_Config) ->
     store_messages(),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     ok = restart_workers(),
 
     %% Empty wildcard and exact-topic reads complete without tokens
@@ -158,7 +158,7 @@ t_empty_read_limiter(_Config) ->
     %% A barrier completes while a read waits for tokens
     ok = emqx_retainer_dispatcher:wait_dispatch_complete(1000),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     ?assertMatch(
         {ok, _, [#message{topic = <<"t/3/a">>}]}, info(Handler2, receive_batch(Ref2), 1)
     ).
@@ -272,7 +272,7 @@ t_exact_in_channel(_Config) ->
     lists:foreach(
         fun(#{limiter := Limiter} = Case) ->
             emqx_config:put([retainer, flow_control, batch_deliver_limiter], Limiter),
-            ok = emqx_retainer_limiter:update(),
+            ok = update_limiter(),
             ok = restart_workers(),
             Worker = emqx_retainer_dispatcher:worker(),
             ok = sys:suspend(Worker),
@@ -300,7 +300,7 @@ t_exact_limited(_Config) ->
     emqx_config:put([retainer, flow_control, batch_read_number], 1),
     %% The first read of a worker is free, so one token allows two reads.
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     ok = emqx_retainer_sup:stop_workers(),
     ok = emqx_retainer_sup:start_workers(),
     Worker = emqx_retainer_dispatcher:worker(),
@@ -315,7 +315,7 @@ t_exact_limited(_Config) ->
     {ok, Handler4, [_]} = info(Handler1, receive_batch(Ref1), 0),
     ?assertNotReceive(#info_to_extsub{handler_ref = Ref2}, 200),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     {ok, Handler5, [#message{topic = <<"t/2/a">>}]} = info(Handler2, receive_batch(Ref2), 0),
     lists:foreach(fun emqx_retainer_extsub_handler:handle_terminate/1, [
         Handler3, Handler4, Handler5
@@ -326,7 +326,7 @@ t_paused_order(_Config) ->
     store_messages(),
     %% The first read of a worker is free, so one token allows two reads.
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     ok = restart_workers(),
     Topics = [<<"t/1/a">>, <<"t/2/a">>, <<"t/3/a">>, <<"t/+/a">>, <<"t/1/a">>],
     Refs = [element(1, subscribe(#{rh => 0}, Topic)) || Topic <- Topics],
@@ -337,7 +337,7 @@ t_paused_order(_Config) ->
 
     %% After the limit is removed, the waiting requests are served in order
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     ?assertEqual(WaitingRefs, [receive_any_batch() || _ <- WaitingRefs]),
 
     %% A new request is served at once
@@ -348,7 +348,7 @@ t_paused_order(_Config) ->
 t_paused_dead_target(_Config) ->
     store_messages(),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], {1, 10000}),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     ok = restart_workers(),
     Worker = emqx_retainer_dispatcher:worker(),
     %% The first read of a worker is free, so one token allows two exact-topic reads.
@@ -373,7 +373,7 @@ t_paused_dead_target(_Config) ->
     ok = snabbkaffe:start_trace(),
     emqx_common_test_helpers:on_exit(fun snabbkaffe:stop/0),
     emqx_config:put([retainer, flow_control, batch_deliver_limiter], infinity),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     _ = receive_batch(Ref2),
     {ok, _} = ?block_until(#{?snk_kind := retainer_dispatcher_batch, topic := <<"t/+/a">>}, 5000),
     ?assertEqual(
@@ -546,7 +546,7 @@ t_batch_size_limited(_Config) ->
         [retainer, flow_control, batch_deliver_limiter],
         {Share * emqx_vm:schedulers(), 1000}
     ),
-    ok = emqx_retainer_limiter:update(),
+    ok = update_limiter(),
     {Ref, Handler0} = subscribe(),
     {ok, Handler1, Messages} = info(Handler0, receive_batch(Ref), 0),
     ?assertEqual(Share, length(Messages)),
@@ -761,6 +761,12 @@ set_batch_read_number(N) ->
 restart_workers() ->
     ok = emqx_retainer_sup:stop_workers(),
     ok = emqx_retainer_sup:start_workers().
+
+%% `emqx_retainer_limiter:update/1' takes the retainer config rather than
+%% reading it back itself, the same way `emqx_retainer' passes it on a config
+%% update, so these cases have to hand it the config they just put.
+update_limiter() ->
+    emqx_retainer_limiter:update(emqx:get_config([retainer])).
 
 store(Topic) ->
     emqx_retainer_mnesia:store_retained(

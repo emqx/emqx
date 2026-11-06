@@ -78,7 +78,7 @@ fields(connector) ->
             )},
         {heartbeat,
             ?HOCON(
-                emqx_schema:timeout_duration_ms(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     default => <<"30s">>,
                     desc => ?DESC("heartbeat")

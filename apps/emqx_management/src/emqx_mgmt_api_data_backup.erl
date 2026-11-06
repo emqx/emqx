@@ -257,7 +257,9 @@ data_export(post, #{body := Params0} = Req) ->
         ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Params),
         {ok, Opts} ?= emqx_mgmt_data_backup:parse_export_request(Params),
         {ok, #{filename := Filename} = File} ?= emqx_mgmt_data_backup:export(Opts),
-        {200, File#{filename => filename:basename(Filename)}}
+        Basename = filename:basename(Filename),
+        _ = minirest_handler:update_log_meta(#{operation_details => #{filename => Basename}}),
+        {200, File#{filename => Basename}}
     else
         {error, {unknown_root_keys, UnknownKeys}} ->
             Msg = iolist_to_binary([

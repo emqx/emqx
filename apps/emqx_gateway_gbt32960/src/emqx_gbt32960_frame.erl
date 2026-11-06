@@ -67,13 +67,15 @@ parse(Bin, State) ->
                 data => <<>>, phase => search_heading, proto_ver => ?PROTO_VER_2016
             }};
         {error, Error} ->
-            {error, Error};
+            error(Error);
+        {more_heading, Partial} ->
+            {more, State#{data => Partial}};
         {more_data_follow, {Partial, Version}} ->
             {more, State#{data => Partial, phase => parse, proto_ver => Version}}
     end.
 
-enter_parse(Bin, #{phase := search_heading}) ->
-    case search_heading(Bin) of
+enter_parse(Bin, #{phase := search_heading, data := Data}) ->
+    case search_heading(<<Data/binary, Bin/binary>>) of
         {ok, Rest, Version} ->
             parse_msg(Rest, Version);
         Error ->
@@ -86,6 +88,8 @@ search_heading(<<16#23, 16#23, Rest/binary>>) ->
     {ok, Rest, ?PROTO_VER_2016};
 search_heading(<<16#24, 16#24, Rest/binary>>) ->
     {ok, Rest, ?PROTO_VER_2025};
+search_heading(<<Byte>> = Partial) when Byte =:= 16#23; Byte =:= 16#24 ->
+    {more_heading, Partial};
 search_heading(<<_, Rest/binary>>) ->
     search_heading(Rest);
 search_heading(<<>>) ->
