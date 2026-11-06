@@ -316,33 +316,28 @@ render_bucket(Data, Tmpl) ->
 group_batch_by_bucket(BatchData, ChannelConfig) ->
     #{channel_client := Client} = ChannelConfig,
     BucketTmpl = maps:get(bucket_tmpl, ChannelConfig, undefined),
-    Groups0 = lists:foldl(
-        fun(Item = {_Channel, Message}, Acc) ->
-            case render_bucket(Message, BucketTmpl) of
-                {ok, Bucket} ->
-                    %% Rebuild the write path at most once per distinct bucket:
-                    %% reuse the already updated client for repeated buckets.
-                    Key = {ok, Bucket},
-                    case maps:find(Key, Acc) of
-                        {ok, {Client1, Items}} ->
-                            Acc#{Key := {Client1, [Item | Items]}};
-                        error ->
-                            Client1 = influxdb:update_bucket(Client, Bucket),
-                            Acc#{Key => {Client1, [Item]}}
-                    end;
-                undefined ->
-                    maps:update_with(
-                        static,
-                        fun({C, Items}) -> {C, [Item | Items]} end,
-                        {Client, [Item]},
-                        Acc
-                    )
-            end
+    Groups = maps:groups_from_list(
+        fun({_Channel, Message}) ->
+            bucket_group_key(Message, BucketTmpl)
         end,
-        #{},
+        fun(Item) -> Item end,
         BatchData
     ),
-    [{C, lists:reverse(Items)} || {_, {C, Items}} <- maps:to_list(Groups0)].
+    [
+        {bucket_group_client(Key, Client), lists:reverse(Items)}
+     || {Key, Items} <- maps:to_list(Groups)
+    ].
+
+bucket_group_key(Message, BucketTmpl) ->
+    case render_bucket(Message, BucketTmpl) of
+        {ok, Bucket} -> {ok, Bucket};
+        undefined -> static
+    end.
+
+bucket_group_client(static, Client) ->
+    Client;
+bucket_group_client({ok, Bucket}, Client) ->
+    influxdb:update_bucket(Client, Bucket).
 
 do_grouped_batch_query(InstId, Channel, Groups, SyntaxLines) ->
     case parse_groups(InstId, Groups, SyntaxLines) of
@@ -416,14 +411,17 @@ write_groups_async(_InstId, _Channel, [], ReplyFunAndArgs) ->
     ok;
 write_groups_async(InstId, Channel, ParsedGroups, ReplyFunAndArgs) ->
     trace_rendered_groups(Channel, ParsedGroups, true),
+    Owner = self(),
     Coordinator = spawn(fun() ->
-        grouped_async_coordinator(InstId, ParsedGroups, ReplyFunAndArgs)
+        grouped_async_coordinator(Owner, InstId, ParsedGroups, ReplyFunAndArgs)
     end),
     {ok, Coordinator}.
 
-grouped_async_coordinator(InstId, ParsedGroups, ReplyFunAndArgs) ->
+grouped_async_coordinator(Owner, InstId, ParsedGroups, ReplyFunAndArgs) ->
     Grouped = lists:zip(lists:seq(1, length(ParsedGroups)), ParsedGroups),
     State0 = (group_results_acc())#{
+        owner => Owner,
+        owner_ref => monitor(process, Owner),
         pending => maps:from_keys([GroupRef || {GroupRef, _} <- Grouped], true),
         group_workers => #{},
         worker_groups => #{},
@@ -595,12 +593,18 @@ handle_worker_down(WorkerPid, Reason, State0) ->
             )
     end.
 
-wait_grouped_writes(ReplyFunAndArgs, State) ->
+wait_grouped_writes(
+    ReplyFunAndArgs,
+    State = #{owner := Owner, owner_ref := OwnerRef}
+) ->
     case maps:size(maps:get(pending, State)) of
         0 ->
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, grouped_result(State));
         _ ->
             receive
+                {'DOWN', OwnerRef, process, Owner, _Reason} ->
+                    %% The resource buffer stopped or restarted. No caller remains to reply.
+                    ok;
                 {grouped_write_reply, GroupRef, Result} ->
                     wait_grouped_writes(
                         ReplyFunAndArgs, complete_group(GroupRef, Result, State)
@@ -618,15 +622,13 @@ wait_grouped_writes(ReplyFunAndArgs, State) ->
                 _Other ->
                     wait_grouped_writes(ReplyFunAndArgs, State)
             after infinity ->
+                %% Elvis requires an after clause. Infinity keeps the wait event-driven.
                 wait_grouped_writes(ReplyFunAndArgs, State)
             end
     end.
 
 group_results_acc() ->
-    #{
-        recoverable_error => undefined,
-        unrecoverable_error => undefined
-    }.
+    #{}.
 
 record_group_result(Result, Acc0) ->
     case classify_result(Result) of
@@ -639,14 +641,11 @@ record_group_result(Result, Acc0) ->
     end.
 
 put_first_group_error(Key, Error, Acc) ->
-    case maps:get(Key, Acc) of
-        undefined -> maps:put(Key, Error, Acc);
-        _ -> Acc
-    end.
+    emqx_utils_maps:put_new(Key, Error, Acc).
 
-grouped_result(#{recoverable_error := Error}) when Error =/= undefined ->
+grouped_result(#{recoverable_error := Error}) ->
     Error;
-grouped_result(#{unrecoverable_error := Error}) when Error =/= undefined ->
+grouped_result(#{unrecoverable_error := Error}) ->
     Error;
 grouped_result(_) ->
     ok.
@@ -654,6 +653,8 @@ grouped_result(_) ->
 path(Client) ->
     maps:get(path, Client, undefined).
 
+%% Keep credentials out of trace metadata. v1 query-string authentication
+%% stores the username and password in the path query string.
 trace_path(Client) ->
     case path(Client) of
         undefined ->
@@ -2761,6 +2762,57 @@ grouped_async_worker_monitor_test_() ->
             end}
         ]
     end).
+
+grouped_async_owner_monitor_test_() ->
+    with_influxdb_mock(fun(_) ->
+        [
+            {"coordinator exits when its owner exits", fun() ->
+                Worker = test_worker(),
+                ok = meck:expect(influxdb, write_async, fun(_Client, _Points, _Reply) ->
+                    {ok, Worker}
+                end),
+                Self = self(),
+                ReplyFunAndArgs = {
+                    fun(Result) -> Self ! {unexpected_grouped_reply, Result} end, []
+                },
+                Owner = spawn(fun() ->
+                    {ok, Coordinator} = write_groups_async(
+                        inst,
+                        chan,
+                        [{#{path => <<"a">>}, [point]}],
+                        ReplyFunAndArgs
+                    ),
+                    Self ! {grouped_async_coordinator, Coordinator},
+                    wait_for_stop()
+                end),
+                try
+                    Coordinator =
+                        receive
+                            {grouped_async_coordinator, Pid} -> Pid
+                        after 1_000 ->
+                            error(grouped_async_coordinator_timeout)
+                        end,
+                    CoordinatorRef = monitor(process, Coordinator),
+                    exit(Owner, kill),
+                    receive
+                        {'DOWN', CoordinatorRef, process, Coordinator, Reason} ->
+                            ?assertEqual(normal, Reason)
+                    after 1_000 ->
+                        error(grouped_async_coordinator_still_running)
+                    end
+                after
+                    exit(Worker, kill)
+                end
+            end}
+        ]
+    end).
+
+wait_for_stop() ->
+    receive
+        stop -> ok
+    after infinity ->
+        ok
+    end.
 
 test_worker() ->
     spawn(fun() ->
