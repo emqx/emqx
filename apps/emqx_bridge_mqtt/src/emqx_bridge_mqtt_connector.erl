@@ -246,37 +246,16 @@ on_add_channel(
 on_remove_channel(
     _InstId,
     #{
-        installed_channels := InstalledChannels,
-        pool_name := PoolName,
-        subscription_id_to_handler_index := SubscriptionIdToHandlerIndex,
-        topic_to_handler_index := TopicToHandlerIndex
-    } = OldState,
-    ChannelId
+        installed_channels := InstalledChannels
+    } = ConnState0,
+    ChanResId
 ) ->
-    case maps:find(ChannelId, InstalledChannels) of
+    case maps:find(ChanResId, InstalledChannels) of
         error ->
             %% maybe the channel failed to be added, just ignore it
-            {ok, OldState};
-        {ok, ChannelState} ->
-            %% No need to call unsubscribe if state is already gone.
-            IsTableValid = undefined /= ets:info(TopicToHandlerIndex, name),
-            case ChannelState of
-                #{config_root := sources} when IsTableValid ->
-                    ok = emqx_bridge_mqtt_ingress:remove_reconnect_callback(PoolName, ChannelId),
-                    ok = emqx_bridge_mqtt_ingress:unsubscribe_channel(
-                        PoolName,
-                        ChannelState,
-                        ChannelId,
-                        SubscriptionIdToHandlerIndex,
-                        TopicToHandlerIndex
-                    );
-                _ ->
-                    ok
-            end,
-            NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
-            %% Update state
-            NewState = OldState#{installed_channels => NewInstalledChannels},
-            {ok, NewState}
+            {ok, ConnState0};
+        {ok, ChanState} ->
+            do_on_remove_channel(ChanState, ChanResId, ConnState0)
     end.
 
 on_get_channel_status(
@@ -914,6 +893,38 @@ do_add_sources_with_sessions_to_topic_handler(
         SubscriptionIdToHandlerIndex,
         TopicToHandlerIndex
     ).
+
+do_on_remove_channel(ChanState, ChanResId, ConnState0) ->
+    #{
+        installed_channels := InstalledChannels,
+        pool_name := PoolName,
+        subscription_id_to_handler_index := SubscriptionIdToHandlerIndex,
+        topic_to_handler_index := TopicToHandlerIndex,
+        clean_start := CleanStart
+    } = ConnState0,
+    %% No need to call unsubscribe if state is already gone.
+    IsTableValid = undefined /= ets:info(TopicToHandlerIndex, name),
+    maybe
+        #{config_root := sources} ?= ChanState,
+        true ?= IsTableValid,
+        ok = emqx_bridge_mqtt_ingress:remove_reconnect_callback(PoolName, ChanResId)
+    end,
+    maybe
+        #{config_root := sources} ?= ChanState,
+        true ?= IsTableValid,
+        true ?= CleanStart,
+        ok = emqx_bridge_mqtt_ingress:unsubscribe_channel(
+            PoolName,
+            ChanState,
+            ChanResId,
+            SubscriptionIdToHandlerIndex,
+            TopicToHandlerIndex
+        )
+    end,
+    NewInstalledChannels = maps:remove(ChanResId, InstalledChannels),
+    %% Update state
+    ConnState = ConnState0#{installed_channels := NewInstalledChannels},
+    {ok, ConnState}.
 
 -spec connect(pid(), name()) ->
     {ok, pid()} | {error, _Reason}.

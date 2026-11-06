@@ -150,10 +150,12 @@ init_per_group(?cluster = Group, TCConfig) ->
     ),
     [{nodes, Nodes} | TCConfig];
 init_per_group(?local, TCConfig) ->
+    SuiteOpts = #{work_dir => emqx_cth_suite:work_dir(TCConfig)},
     Apps = emqx_cth_suite:start(
         [
             emqx,
             emqx_conf,
+            emqx_retainer,
             emqx_connector,
             emqx_bridge_mqtt,
             emqx_bridge,
@@ -161,9 +163,9 @@ init_per_group(?local, TCConfig) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+        SuiteOpts
     ),
-    [{apps, Apps} | TCConfig];
+    [{apps, Apps}, {suite_opts, SuiteOpts} | TCConfig];
 init_per_group(_Group, TCConfig) ->
     TCConfig.
 
@@ -300,6 +302,9 @@ get_source_metrics_api(Config) ->
 
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+simple_create_rule_api(SQLOrOpts, TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(SQLOrOpts, TCConfig).
 
 start_client(TCConfigOrNode) ->
     start_client(TCConfigOrNode, _Opts = #{}).
@@ -1244,3 +1249,95 @@ t_ecpool_on_reconnect_callback_consistency(TCConfig) ->
         callback_mod => emqx_bridge_mqtt_ingress,
         reconnect_callback_fns => [on_reconnect]
     }).
+
+-doc """
+Verifies that we do not unsubscribe when removing a channel when `clean_start = false`.
+
+In this case, the removal is caused by stopping the bridge/connector apps.
+""".
+t_no_unsubscribe_for_clean_start_false(TCConfig) when is_list(TCConfig) ->
+    SuiteOpts = get_config(suite_opts, TCConfig),
+    [Source] = emqx_cth_cluster:start(
+        [
+            {remote_cluster1, #{
+                role => core,
+                apps => [
+                    emqx,
+                    {emqx_conf,
+                        "log.console.level = debug\n"
+                        "log.console.enable = true"},
+                    emqx_connector,
+                    emqx_bridge_mqtt,
+                    emqx_bridge
+                ],
+                base_port => 20100
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig)}
+    ),
+    on_exit(fun() -> emqx_cth_cluster:stop([Source]) end),
+    Port = emqx_cth_cluster:get_tcp_mqtt_port(Source),
+
+    {201, #{~"status" := ~"connected"}} = create_connector_api(TCConfig, #{
+        ~"server" => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
+        ~"proto_ver" => ~"v4",
+        ~"pool_size" => 1,
+        ~"clean_start" => false
+    }),
+    {201, #{~"status" := ~"connected"}} = create_source_api(TCConfig, #{
+        ~"parameters" => #{
+            ~"topic" => ~"remote/t/a",
+            ~"qos" => 1
+        }
+    }),
+    simple_create_rule_api(
+        #{
+            sql => auto,
+            republish_overrides => #{
+                ~"topic" => ~"local/t/${.payload}",
+                ~"payload" => ~"${payload}",
+                ~"retain" => true
+            }
+        },
+        TCConfig
+    ),
+
+    N1 = node(),
+    Sub1 = start_client(N1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub1, ~"local/t/+", ?QOS_1),
+    ct:sleep(200),
+
+    Pub1 = start_client(Source),
+    emqtt:subscribe(Pub1, ~"remote/t/a", [{qos, 1}]),
+    emqtt:publish(Pub1, ~"remote/t/a", ~"1", [{qos, 1}]),
+    ?assertReceive({publish, #{topic := ~"remote/t/a", payload := ~"1"}}),
+    %% sanity check: source is working as intended initially
+    ?assertReceive({publish, #{payload := ~"1", topic := ~"local/t/1"}}),
+
+    %% simulate node shut down; unfortunately, restarting cth peer doesn't behave like a
+    %% real node restart in this regard.
+    ct:pal("stopping nodes"),
+    emqtt:stop(Sub1),
+    emqx_cth_suite:stop_apps([emqx_bridge, emqx_connector]),
+
+    ct:pal("publishing messages while disconnected"),
+    emqtt:publish(Pub1, ~"remote/t/a", ~"2", [{qos, 1}]),
+    emqtt:publish(Pub1, ~"remote/t/a", ~"3", [{qos, 1}]),
+    emqtt:publish(Pub1, ~"remote/t/a", ~"4", [{qos, 1}]),
+    ?assertReceive({publish, #{topic := ~"remote/t/a", payload := ~"2"}}),
+    ?assertReceive({publish, #{topic := ~"remote/t/a", payload := ~"3"}}),
+    ?assertReceive({publish, #{topic := ~"remote/t/a", payload := ~"4"}}),
+    emqtt:stop(Pub1),
+
+    %% restart "node"; should resume session
+    ct:pal("restarting nodes"),
+    emqx_cth_suite:start_apps([emqx_connector, emqx_bridge], SuiteOpts),
+
+    Sub2 = start_client(N1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub2, ~"local/t/+", ?QOS_1),
+
+    ?assertReceive({publish, #{payload := ~"2", topic := ~"local/t/2"}}),
+    ?assertReceive({publish, #{payload := ~"3", topic := ~"local/t/3"}}),
+    ?assertReceive({publish, #{payload := ~"4", topic := ~"local/t/4"}}),
+
+    ok.
