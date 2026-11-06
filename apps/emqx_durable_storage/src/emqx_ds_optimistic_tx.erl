@@ -572,9 +572,9 @@ handle_call(From, Unknown, D) ->
 handle_cast(#ds_tx{} = Tx, D0) ->
     case handle_tx(check_soft_quota(D0), Tx) of
         {ok, _PresumedCommitSerial, D} ->
-            loop(finalize_add_pending(D));
+            finalize_add_pending(D);
         aborted ->
-            loop(D0)
+            D0
     end;
 handle_cast(#cast_dirty_append{} = Tx, D0) ->
     D = handle_dirty_append(Tx, check_soft_quota(D0)),
