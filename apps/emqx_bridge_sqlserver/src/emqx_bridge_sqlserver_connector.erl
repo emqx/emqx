@@ -53,7 +53,7 @@
 ]).
 
 %% Internal exports used to execute code with ecpool worker
--export([do_get_status/1, worker_do_insert/3, get_servername/1, get_database_codepage/1]).
+-export([do_get_status/1, worker_do_insert/3, get_servername/1, worker_varchar_bytes/3]).
 
 -export([parse_server/1]).
 
@@ -228,7 +228,6 @@ on_start(
     %% odbc connection string required
     ServerBin = to_bin(Server),
     ConnectOptions = [
-        {pool_name, PoolName},
         {server, ServerBin},
         {username, Username},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
@@ -331,11 +330,7 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_sqlserver_connector",
         connector => InstanceId
     }),
-    try
-        emqx_resource_pool:stop(InstanceId)
-    after
-        persistent_term:erase(codepage_key(InstanceId))
-    end.
+    emqx_resource_pool:stop(InstanceId).
 
 -spec on_query(
     resource_id(),
@@ -426,16 +421,7 @@ connect(Options) ->
     %% something opaque...
     ConnectStrWrapped = fun() -> ConnectStr end,
     Opts = proplists:get_value(options, Options, []),
-    case odbc:connect(ConnectStrWrapped, Opts) of
-        {ok, Conn} = Result ->
-            case proplists:get_value(pool_name, Options) of
-                undefined -> ok;
-                PoolName -> cache_codepage(PoolName, get_database_codepage(Conn))
-            end,
-            Result;
-        Error ->
-            Error
-    end.
+    odbc:connect(ConnectStrWrapped, Opts).
 
 -spec disconnect(connection_reference()) -> ok | {error, term()}.
 disconnect(ConnectionPid) ->
@@ -460,44 +446,6 @@ get_servername(Conn) ->
             {ok, RawName};
         _ ->
             error
-    end.
-
-get_database_codepage(Conn) ->
-    SQL =
-        "SELECT CAST(COLLATIONPROPERTY("
-        "CAST(DATABASEPROPERTYEX(DB_NAME(), 'Collation') AS VARCHAR(128)), 'CodePage') AS INT)",
-    try execute(Conn, SQL) of
-        {selected, _, [{Codepage}]} when is_integer(Codepage), Codepage > 0 -> {ok, Codepage};
-        _ -> error
-    catch
-        _:_ -> error
-    end.
-
-codepage_key(PoolName) ->
-    {?MODULE, varchar_codepage, PoolName}.
-
-cache_codepage(PoolName, {ok, Codepage}) ->
-    Key = codepage_key(PoolName),
-    case persistent_term:get(Key, undefined) of
-        Codepage -> ok;
-        _ -> persistent_term:put(Key, Codepage)
-    end;
-cache_codepage(_PoolName, _Error) ->
-    ok.
-
-database_codepage(PoolName) ->
-    case persistent_term:get(codepage_key(PoolName), undefined) of
-        undefined ->
-            Result =
-                try
-                    ecpool:pick_and_do(PoolName, {?MODULE, get_database_codepage, []}, handover)
-                catch
-                    _:_ -> error
-                end,
-            cache_codepage(PoolName, Result),
-            persistent_term:get(codepage_key(PoolName), 65001);
-        Codepage ->
-            Codepage
     end.
 
 %%====================================================================
@@ -558,22 +506,48 @@ do_query(ResourceId, Query, ApplyMode, State) ->
     QueryTuple = get_query_tuple(Query),
     #{sql_plan := Plan} = ChannelState = maps:get(ChannelId, Channels),
     ChannelConf0 = maps:get(channel_conf, ChannelState, #{}),
-    ChannelConf = ChannelConf0#{varchar_codepage => database_codepage(PoolName)},
-    case apply_template(QueryTuple, Plan, ChannelConf) of
-        {ok, SQL} ->
-            emqx_trace:rendered_action_template(ChannelId, #{
-                sql => SQL
-            }),
-            Result = ecpool:pick_and_do(
-                PoolName,
-                {?MODULE, worker_do_insert, [SQL, State]},
-                ApplyMode
-            );
-        {error, Reason} ->
-            Result = {error, {unrecoverable_error, Reason}}
-    end,
+    ChannelConf = ChannelConf0#{
+        varchar_bytes => fun(Unicode) ->
+            ?tp(sqlserver_varchar_size_requested, #{connector => ResourceId}),
+            try
+                ecpool:pick_and_do(
+                    PoolName, {?MODULE, worker_varchar_bytes, [Unicode, State]}, handover
+                )
+            of
+                {ok, Bytes} -> Bytes;
+                {error, _} = Error -> throw({sqlserver_query_error, Error})
+            catch
+                exit:Reason ->
+                    throw({sqlserver_query_error, {error, {recoverable_error, Reason}}})
+            end
+        end
+    },
+    Result =
+        try apply_template(QueryTuple, Plan, ChannelConf) of
+            {ok, SQL} ->
+                emqx_trace:rendered_action_template(ChannelId, #{sql => SQL}),
+                ecpool:pick_and_do(
+                    PoolName, {?MODULE, worker_do_insert, [SQL, State]}, ApplyMode
+                );
+            {error, Reason} ->
+                {error, {unrecoverable_error, Reason}}
+        catch
+            throw:{sqlserver_query_error, Error} -> Error
+        end,
     handle_result(Result, ResourceId, Query).
 
+handle_result({selected, Rows, _Columns}, ResourceId, Query) ->
+    handle_result({ok, Rows}, ResourceId, Query);
+handle_result({updated, _}, ResourceId, Query) ->
+    handle_result(ok, ResourceId, Query);
+handle_result(Results, ResourceId, Query) when is_list(Results) ->
+    Result =
+        try lists:foreach(fun ensure_query_success/1, Results) of
+            ok -> ok
+        catch
+            error:Reason -> {error, {unrecoverable_error, {invalid_request, Reason}}}
+        end,
+    handle_result(Result, ResourceId, Query);
 handle_result({error, {recoverable_error, _} = Reason} = Result, _ResourceId, _Query) ->
     ?tp(sqlserver_connector_query_return, #{error => Reason}),
     Result;
@@ -597,38 +571,46 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
     LogMeta = #{connector => ResourceId},
     try
         case execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
-            {selected, _Columns, Rows} ->
-                {ok, Rows};
-            {updated, _} ->
-                ok;
-            Results when is_list(Results) ->
-                lists:foreach(fun ensure_query_success/1, Results),
-                ok;
-            {error, ErrStr} ->
-                IsConnectionClosedError = is_connection_closed_error(ErrStr),
-                IsConnectionBrokenError = is_connection_broken_error(ErrStr),
-                ErrStr1 =
-                    case is_table_or_view_not_found_error(ErrStr) of
-                        true ->
-                            <<"table_or_view_not_found">>;
-                        false ->
-                            ErrStr
-                    end,
-                {LogLevel, Err} =
-                    case IsConnectionClosedError orelse IsConnectionBrokenError of
-                        true ->
-                            {info, {recoverable_error, <<"connection_closed">>}};
-                        false ->
-                            {error, {unrecoverable_error, {invalid_request, ErrStr1}}}
-                    end,
-                ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr1}),
-                {error, Err}
+            {error, ErrStr} -> query_error(ErrStr, LogMeta);
+            Result -> Result
         end
     catch
         _Type:Reason:St ->
             ?SLOG(error, LogMeta#{msg => "invalid_request", reason => Reason, stacktrace => St}),
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
+
+worker_varchar_bytes(Conn, Unicode, #{resource_opts := ResourceOpts, pool_name := ResourceId}) ->
+    SQL = ["SELECT CAST(DATALENGTH(CONVERT(VARCHAR(MAX),", Unicode, ")) AS INT)"],
+    try execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
+        {selected, _, [{Bytes}]} when is_integer(Bytes), Bytes >= 0 -> {ok, Bytes};
+        {error, connection_closed} -> {error, {recoverable_error, <<"connection_closed">>}};
+        {error, timeout} -> {error, {recoverable_error, timeout}};
+        {error, Reason} -> query_error(Reason, #{connector => ResourceId});
+        Other -> {error, {unrecoverable_error, {invalid_request, {unexpected_varchar_size, Other}}}}
+    catch
+        exit:ExitReason -> {error, {recoverable_error, ExitReason}}
+    end.
+
+query_error(ErrStr, LogMeta) ->
+    IsConnectionClosedError = is_connection_closed_error(ErrStr),
+    IsConnectionBrokenError = is_connection_broken_error(ErrStr),
+    ErrStr1 =
+        case is_table_or_view_not_found_error(ErrStr) of
+            true ->
+                <<"table_or_view_not_found">>;
+            false ->
+                ErrStr
+        end,
+    {LogLevel, Err} =
+        case IsConnectionClosedError orelse IsConnectionBrokenError of
+            true ->
+                {info, {recoverable_error, <<"connection_closed">>}};
+            false ->
+                {error, {unrecoverable_error, {invalid_request, ErrStr1}}}
+        end,
+    ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr1}),
+    {error, Err}.
 
 ensure_query_success({updated, _}) -> ok;
 ensure_query_success({selected, _, _}) -> ok;
@@ -676,7 +658,7 @@ is_table_or_view_not_found_error(MsgStr) ->
     | [updated_tuple() | selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL) ->
-    odbc:sql_query(Conn, SQL).
+    odbc:sql_query(Conn, binary_to_list(iolist_to_binary(SQL))).
 
 -spec execute(connection_reference(), sql(), time_out()) ->
     updated_tuple()
@@ -684,39 +666,7 @@ execute(Conn, SQL) ->
     | [updated_tuple() | selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL, Timeout) ->
-    case is_ascii(SQL) of
-        true ->
-            odbc:sql_query(Conn, SQL, Timeout);
-        false ->
-            execute_unicode(Conn, SQL, Timeout)
-    end.
-
-execute_unicode(Conn, SQL, Timeout) ->
-    case unicode:characters_to_binary(SQL, utf8, {utf16, little}) of
-        UTF16 when is_binary(UTF16) ->
-            %% ASCII transport preserves UTF-16 text while sql_query consumes all result sets.
-            Query = [
-                "DECLARE @emqx_sql NVARCHAR(MAX) = CONVERT(NVARCHAR(MAX), 0x",
-                binary:encode_hex(UTF16),
-                "); EXEC sys.sp_executesql @emqx_sql;"
-            ],
-            odbc:sql_query(Conn, Query, Timeout);
-        _InvalidUTF8 ->
-            {error, <<"SQL statement contains invalid UTF-8">>}
-    end.
-
-is_ascii(<<Byte, Rest/binary>>) when Byte < 128 ->
-    is_ascii(Rest);
-is_ascii(<<>>) ->
-    true;
-is_ascii([]) ->
-    true;
-is_ascii([Part | Rest]) ->
-    is_ascii(Part) andalso is_ascii(Rest);
-is_ascii(Byte) when is_integer(Byte), Byte >= 0, Byte < 128 ->
-    true;
-is_ascii(_) ->
-    false.
+    odbc:sql_query(Conn, binary_to_list(iolist_to_binary(SQL)), Timeout).
 
 get_channel_id([{ChannelId, _Req} | _]) ->
     ChannelId;
@@ -754,10 +704,8 @@ apply_template(Query, _Plan, _) ->
     {error, failed_to_apply_sql_template}.
 
 render_opts(ChannelConf) ->
-    #{
-        undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false),
-        varchar_codepage => maps:get(varchar_codepage, ChannelConf, 65001)
-    }.
+    Opts = maps:with([varchar_bytes], ChannelConf),
+    Opts#{undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false)}.
 
 to_bin(B) when is_binary(B) ->
     B;

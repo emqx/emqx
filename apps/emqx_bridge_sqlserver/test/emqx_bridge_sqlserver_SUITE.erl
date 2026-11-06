@@ -687,17 +687,7 @@ t_invalid_utf8_queries(TCConfig) ->
             Conn,
             "CREATE TABLE mqtt.dbo.t_utf8_guard (id INT, status NVARCHAR(100))"
         ),
-        {updated, 1} = directly_query(Conn, "INSERT mqtt.dbo.t_utf8_guard VALUES (0,N'old')"),
-        ?assertEqual(
-            {error,
-                {unrecoverable_error,
-                    {invalid_request, <<"SQL statement contains invalid UTF-8">>}}},
-            emqx_bridge_sqlserver_connector:worker_do_insert(
-                Conn,
-                <<"UPDATE mqtt.dbo.t_utf8_guard SET status='", 16#FF, "' WHERE id=0">>,
-                #{resource_opts => #{}, pool_name => ?FUNCTION_NAME}
-            )
-        )
+        {updated, 1} = directly_query(Conn, "INSERT mqtt.dbo.t_utf8_guard VALUES (0,N'old')")
     end),
     on_exit(fun() ->
         with_conn(fun(Conn) -> directly_query(Conn, "DROP TABLE mqtt.dbo.t_utf8_guard") end)
@@ -1487,13 +1477,7 @@ t_variant_strings(Cfg) ->
         directly_query(
             Conn, "CREATE TABLE mqtt.dbo.t_variant_strings(id INT PRIMARY KEY,v SQL_VARIANT)"
         ),
-        directly_query(Conn, "INSERT mqtt.dbo.t_variant_strings VALUES (0,N'old')"),
-        ?assertEqual(
-            {ok, [{123}]},
-            emqx_bridge_sqlserver_connector:worker_do_insert(Conn, "SELECT 123 AS n", #{
-                pool_name => variant_test, resource_opts => #{}
-            })
-        )
+        directly_query(Conn, "INSERT mqtt.dbo.t_variant_strings VALUES (0,N'old')")
     end),
     on_exit(fun() ->
         with_conn(fun(Conn) -> directly_query(Conn, "DROP TABLE mqtt.dbo.t_variant_strings") end)
@@ -1710,92 +1694,7 @@ create_json_result_action(Cfg, SQL) ->
     ),
     {start_client(), Topic}.
 
--doc "Retained plans preserve static continuations, Unicode constants and dynamic strings.".
-t_legacy_plan_upgrade(Cfg) ->
-    Mod = emqx_bridge_sqlserver_sql,
-    {Mod, NewBin, NewFile} = code:get_object_code(Mod),
-    Source = filename:join(?config(data_dir, Cfg), "legacy_sqlserver_sql.erl.txt"),
-    Temp = filename:join(?config(priv_dir, Cfg), "emqx_bridge_sqlserver_sql.erl"),
-    {ok, _} = file:copy(Source, Temp),
-    {ok, Mod, OldBin} = compile:file(Temp, [binary]),
-    with_conn(fun(Conn) ->
-        directly_query(
-            Conn,
-            "CREATE TABLE mqtt.dbo.t_legacy_plan(id INT PRIMARY KEY,v NVARCHAR(MAX),s NVARCHAR(MAX))"
-        )
-    end),
-    on_exit(fun() ->
-        with_conn(fun(Conn) -> directly_query(Conn, "DROP TABLE mqtt.dbo.t_legacy_plan") end)
-    end),
-    {201, _} = create_connector_api(Cfg, #{}),
-    SQL =
-        <<
-            "INSERT INTO t_legacy_plan VALUES (${payload.id},",
-            "N'pre\\\\\n${payload.value}post',",
-            "N'静态${$}{literal}\\\\\nconstant')"/utf8
-        >>,
-    {module, Mod} = code:load_binary(Mod, Temp, OldBin),
-    try
-        {201, _} = create_action_api(Cfg, #{
-            <<"parameters">> => #{<<"sql">> => SQL},
-            <<"resource_opts">> => #{<<"batch_size">> => 1, <<"worker_pool_size">> => 1}
-        }),
-        {module, Mod} = code:load_binary(Mod, NewFile, NewBin),
-        #{topic := Topic} = simple_create_rule_api(
-            <<"SELECT json_decode(payload) AS payload FROM \"${t}\"">>, Cfg
-        ),
-        C1 = start_client(),
-        C2 = start_client(),
-        check_legacy_publish(C1, Topic, 1, <<"v">>),
-        code:purge(Mod),
-        {module, Mod} = code:load_binary(Mod, Temp, OldBin),
-        {200, _} = emqx_bridge_v2_testlib:update_bridge_api2(Cfg, #{
-            <<"parameters">> => #{<<"sql">> => SQL},
-            <<"resource_opts">> => #{
-                <<"batch_size">> => 2, <<"batch_time">> => <<"2s">>, <<"worker_pool_size">> => 1
-            }
-        }),
-        code:purge(Mod),
-        {module, Mod} = code:load_binary(Mod, NewFile, NewBin),
-        emqtt:publish(C1, Topic, emqx_utils_json:encode(#{id => 2, value => <<"😀'\\\n"/utf8>>})),
-        emqtt:publish(C2, Topic, emqx_utils_json:encode(#{id => 3, value => <<"new">>})),
-        ?retry(
-            100, 50, ?assertEqual(3, update_count("SELECT COUNT(*) FROM mqtt.dbo.t_legacy_plan"))
-        ),
-        assert_legacy_value(2, <<"😀'\\\n"/utf8>>),
-        assert_legacy_value(3, <<"new">>)
-    after
-        code:purge(Mod),
-        {module, Mod} = code:load_binary(Mod, NewFile, NewBin)
-    end.
-check_legacy_publish(C, Topic, ID, Value) ->
-    {_, {ok, #{result := ok}}} = ?wait_async_action(
-        emqtt:publish(C, Topic, emqx_utils_json:encode(#{id => ID, value => Value})),
-        #{?snk_kind := sqlserver_connector_query_return},
-        10_000
-    ),
-    assert_legacy_value(ID, Value).
-assert_legacy_value(ID, Value) ->
-    Expected = <<"pre\\", Value/binary, "post">>,
-    VHex = binary:encode_hex(unicode:characters_to_binary(Expected, utf8, {utf16, little})),
-    SHex = binary:encode_hex(
-        unicode:characters_to_binary(<<"静态${literal}\\constant"/utf8>>, utf8, {utf16, little})
-    ),
-    ?assertEqual(
-        1,
-        update_count(
-            iolist_to_binary([
-                "SELECT COUNT(*) FROM mqtt.dbo.t_legacy_plan WHERE id=",
-                integer_to_binary(ID),
-                " AND CONVERT(VARBINARY(MAX),v)=0x",
-                VHex,
-                " AND CONVERT(VARBINARY(MAX),s)=0x",
-                SHex
-            ])
-        )
-    ).
-
--doc "Database code pages select safe bounded types and refresh when the connector is changed.".
+-doc "VARCHAR sizes follow the target database collation after connector changes.".
 t_varchar_codepages(Cfg) ->
     Profiles = [
         {"sqlserver_cp_latin", "SQL_Latin1_General_CP1_CI_AS", 1},
@@ -1892,56 +1791,185 @@ t_varchar_codepages(Cfg) ->
     ),
     ok.
 
--doc "Unicode identifiers use a stable dynamic context, independent of the value's characters.".
-t_unicode_identifier_context(Cfg) ->
-    with_conn(fun(Conn) ->
-        unicode_ddl(
-            Conn, <<"CREATE TABLE mqtt.dbo.[设备](id INT PRIMARY KEY,[状态] NVARCHAR(100))"/utf8>>
-        ),
-        unicode_ddl(Conn, <<"INSERT mqtt.dbo.[设备] VALUES(1,N'old')"/utf8>>),
-        directly_query(Conn, "CREATE TABLE mqtt.dbo.t_identifier_audit(depth INT)"),
-        directly_query(Conn, "USE mqtt"),
-        unicode_ddl(
-            Conn,
-            [
-                <<"CREATE TRIGGER dbo.identifier_guard ON dbo.[设备] AFTER UPDATE "/utf8>>,
-                "AS BEGIN SET NOCOUNT ON; IF TRIGGER_NESTLEVEL()>1 RETURN; ",
-                "INSERT dbo.t_identifier_audit VALUES(@@NESTLEVEL); END"
-            ]
-        )
-    end),
+-doc "Measure long VARCHAR values in the target database without truncating fitting or MAX values.".
+t_varchar_value_sizes() -> [{matrix, true}].
+t_varchar_value_sizes(matrix) ->
+    [[?sync], [?async]];
+t_varchar_value_sizes(Cfg) ->
+    Latin = binary:copy(<<"é"/utf8>>, 5000),
+    Mixed = <<(binary:copy(<<"中"/utf8>>, 3000))/binary, (binary:copy(<<"a">>, 2000))/binary>>,
+    Profiles = [
+        {"sqlserver_size_latin", "SQL_Latin1_General_CP1_CI_AS", Latin, binary:copy(<<233>>, 5000)},
+        {"sqlserver_size_dbcs", "Chinese_PRC_CI_AS", Mixed, <<
+            (binary:copy(<<16#D6, 16#D0>>, 3000))/binary, (binary:copy(<<"a">>, 2000))/binary
+        >>},
+        {"sqlserver_size_utf8", "Latin1_General_100_CI_AS_SC_UTF8", Latin, Latin}
+    ],
     on_exit(fun() ->
+        emqx_bridge_v2_testlib:delete_all_rules(),
+        emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
         with_conn(fun(Conn) ->
-            unicode_ddl(Conn, <<"DROP TABLE mqtt.dbo.[设备]"/utf8>>),
-            directly_query(Conn, "DROP TABLE mqtt.dbo.t_identifier_audit")
+            [directly_query(Conn, "DROP DATABASE IF EXISTS " ++ DB) || {DB, _, _, _} <- Profiles]
         end)
     end),
-    {C, Topic} = create_json_result_action(
-        Cfg, <<"UPDATE [设备] SET [状态]=${payload.value} WHERE id=1"/utf8>>
+    with_conn(fun(Conn) ->
+        [
+            begin
+                {updated, _} = directly_query(
+                    Conn, "CREATE DATABASE " ++ DB ++ " COLLATE " ++ Collation
+                ),
+                {updated, _} = directly_query(
+                    Conn,
+                    "CREATE TABLE " ++ DB ++ ".dbo.size_variants(id INT PRIMARY KEY,v SQL_VARIANT)"
+                ),
+                {updated, _} = directly_query(
+                    Conn, "INSERT " ++ DB ++ ".dbo.size_variants VALUES(0,N'old')"
+                ),
+                {updated, _} = directly_query(
+                    Conn,
+                    "CREATE TABLE " ++ DB ++ ".dbo.size_text(id INT PRIMARY KEY,v VARCHAR(MAX))"
+                ),
+                {updated, _} = directly_query(
+                    Conn, "INSERT " ++ DB ++ ".dbo.size_text VALUES(0,'old')"
+                )
+            end
+         || {DB, Collation, _, _} <- Profiles
+        ]
+    end),
+    [{DB0, _, _, _} | _] = Profiles,
+    {201, _} = create_connector_api(Cfg, #{<<"database">> => list_to_binary(DB0)}),
+    {201, _} = create_action_api(Cfg, #{
+        <<"resource_opts">> => #{<<"batch_size">> => 1, <<"worker_pool_size">> => 1},
+        <<"parameters">> => #{
+            <<"sql">> => <<"UPDATE size_variants SET v='${payload.value}' WHERE id=0">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(
+        <<"SELECT json_decode(payload) AS payload FROM \"${t}\"">>, Cfg
     ),
-    [
-        begin
-            {_, {ok, #{result := ok}}} = ?wait_async_action(
-                emqtt:publish(C, Topic, emqx_utils_json:encode(#{value => V})),
-                #{?snk_kind := sqlserver_connector_query_return},
-                10_000
-            )
-        end
-     || V <- [<<"ascii">>, <<"中文😀"/utf8>>]
-    ],
-    ?assertEqual(2, update_count("SELECT COUNT(*) FROM mqtt.dbo.t_identifier_audit WHERE depth=3")),
+    Clients = {start_client(), start_client(), Topic},
+    lists:foreach(
+        fun({DB, _, Value, Bytes}) ->
+            {200, _} = emqx_bridge_v2_testlib:update_connector_api_simple(Cfg, #{
+                <<"database">> => list_to_binary(DB)
+            }),
+            check_varchar_operations(Cfg, Clients, DB, Value, Bytes)
+        end,
+        Profiles
+    ),
     ok.
 
-unicode_ddl(Conn, SQL) ->
-    Query = iolist_to_binary([
-        "DECLARE @s NVARCHAR(MAX)=", unicode_sql_literal(SQL), ";EXEC sys.sp_executesql @s"
-    ]),
-    case directly_query(Conn, str(Query)) of
-        {error, Reason} -> ct:fail(Reason);
-        Result -> Result
-    end.
+check_varchar_operations(Cfg, Clients, DB, Value, Bytes) ->
+    Samples = [
+        {"size_variants", Value, Bytes, byte_size(Bytes) =< 8000},
+        {"size_text", Value, Bytes, true},
+        {"size_text", binary:copy(<<"a">>, 9000), binary:copy(<<"a">>, 9000), true},
+        {"size_text", binary:copy(Value, 2), binary:copy(Bytes, 2), true}
+    ],
+    lists:foreach(
+        fun(Op) ->
+            lists:foreach(
+                fun(Sample) ->
+                    check_varchar_write(Cfg, Clients, DB, Op, Sample)
+                end,
+                Samples
+            )
+        end,
+        [insert, update, batch]
+    ).
 
--doc "Value encoding and code-page discovery work with only SELECT/UPDATE table permissions.".
+check_varchar_write(Cfg, {C1, C2, Topic}, DB, Op, {Table, Value, Bytes, Success}) ->
+    with_conn(fun(Conn) ->
+        directly_query(Conn, "DELETE " ++ DB ++ ".dbo." ++ Table ++ " WHERE id IN (1,2)"),
+        directly_query(Conn, "UPDATE " ++ DB ++ ".dbo." ++ Table ++ " SET v=N'old' WHERE id=0")
+    end),
+    SQL =
+        case Op of
+            update ->
+                iolist_to_binary(["UPDATE ", Table, " SET v='${payload.value}' WHERE id=0"]);
+            _ ->
+                iolist_to_binary([
+                    "INSERT INTO ", Table, " VALUES(${payload.id},'${payload.value}')"
+                ])
+        end,
+    BatchSize =
+        case Op of
+            batch -> 2;
+            _ -> 1
+        end,
+    {200, _} = emqx_bridge_v2_testlib:update_bridge_api2(Cfg, #{
+        <<"parameters">> => #{<<"sql">> => SQL},
+        <<"resource_opts">> => #{<<"batch_size">> => BatchSize, <<"batch_time">> => <<"2s">>}
+    }),
+    {_, {ok, Event}} = ?wait_async_action(
+        begin
+            emqtt:publish(C1, Topic, emqx_utils_json:encode(#{id => 1, value => Value})),
+            case BatchSize of
+                2 -> emqtt:publish(C2, Topic, emqx_utils_json:encode(#{id => 2, value => Value}));
+                1 -> ok
+            end
+        end,
+        #{?snk_kind := sqlserver_connector_query_return},
+        10_000
+    ),
+    Predicate =
+        case Op of
+            update -> "id=0";
+            _ -> "id IN (1,2)"
+        end,
+    Select = ["SELECT COUNT(*) FROM ", DB, ".dbo.", Table, " WHERE ", Predicate],
+    Count =
+        case Success of
+            true ->
+                ?assertMatch(#{result := ok}, Event),
+                update_count(
+                    iolist_to_binary([
+                        Select, " AND CONVERT(VARBINARY(MAX),v)=0x", binary:encode_hex(Bytes)
+                    ])
+                );
+            false ->
+                ?assertMatch(#{error := {unrecoverable_error, _}}, Event),
+                case Op of
+                    update ->
+                        update_count(
+                            iolist_to_binary([
+                                Select, " AND CONVERT(VARBINARY(MAX),v)=0x6F006C006400"
+                            ])
+                        );
+                    _ ->
+                        BatchSize - update_count(iolist_to_binary(Select))
+                end
+        end,
+    ?assertEqual(BatchSize, Count).
+
+-doc "Preserve long VARCHAR writes through a connection interruption during size resolution.".
+t_varchar_size_reconnect() -> [{matrix, true}].
+t_varchar_size_reconnect(matrix) ->
+    [[?sync], [?async]];
+t_varchar_size_reconnect(Cfg) ->
+    create_result_fixture("t_varchar_reconnect"),
+    {C, Topic} = create_result_action(
+        Cfg,
+        <<"UPDATE t_varchar_reconnect SET status='${payload}' WHERE id=0">>
+    ),
+    Value = binary:copy(<<"é"/utf8>>, 5000),
+    with_failure(down, fun() ->
+        {_, {ok, _}} = ?wait_async_action(
+            emqtt:publish(C, Topic, Value),
+            #{?snk_kind := sqlserver_varchar_size_requested},
+            10_000
+        ),
+        PoolName = emqx_bridge_v2_testlib:connector_resource_id(Cfg),
+        [exit(Pid, kill) || {_, Pid} <- ecpool:workers(PoolName)],
+        ?assertEqual(1, exact_value_count("t_varchar_reconnect", <<"old">>))
+    end),
+    ?retry(200, 100, ?assertEqual(1, exact_value_count("t_varchar_reconnect", Value))),
+    ActionId = emqx_bridge_v2_testlib:resource_id(Cfg),
+    ?retry(200, 20, ?assertEqual(1, emqx_resource_metrics:success_get(ActionId))),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(ActionId)),
+    ok.
+
+-doc "Value encoding and size resolution work with only SELECT/UPDATE table permissions.".
 t_restricted_value_encoding(Cfg) ->
     on_exit(fun() ->
         emqx_bridge_v2_testlib:delete_all_rules(),

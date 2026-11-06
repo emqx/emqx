@@ -45,18 +45,15 @@ VARCHAR conversion can replace unrepresentable characters, so it must not be use
 arbitrary Unicode identity values.
 
 Unicode and backslash/line-ending values use UTF-16 hexadecimal expressions with bounded string
-types when they fit. VARCHAR conversion follows the configured database's code page. Ordinary
-identifiers keep the statement on the direct execution path regardless of the value's characters.
-Both execution paths read all query results, including errors after trigger results.
-Static string text in templates follows SQL Server line-continuation semantics, including when
-retaining an older compiled action plan during code loading.
+types when they fit. VARCHAR conversion follows the configured database's code page. Long non-ASCII
+VARCHAR values may require a read-only size query to choose a bounded type without truncating larger values.
+Data values use the direct execution path. The action reads all query results, including errors
+after trigger results.
+Static string text in templates follows SQL Server line-continuation semantics.
 
-Configured Unicode table, column or function names still require `sys.sp_executesql`. This path
-has a different `@@NESTLEVEL`, independent of the value's characters. For trigger recursion guards,
-use `TRIGGER_NESTLEVEL()` to count trigger invocations rather than all procedure invocations.
 String values must be valid UTF-8. Invalid UTF-8 returns a non-retryable rendering error;
 if any row in an INSERT batch contains an invalid string, the entire batch fails without
-being sent to the database. For binary data, use a bare placeholder with a `0x...` hexadecimal value;
+executing the INSERT statement. For binary data, use a bare placeholder with a `0x...` hexadecimal value;
 all characters after the lowercase prefix must be hexadecimal digits. Use a quoted template to
 store hexadecimal-looking values as text. Printable integer lists follow the template engine's
 character-list convention; use `json_encode` in the rule when an array should be stored as JSON.

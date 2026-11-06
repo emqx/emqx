@@ -45,10 +45,9 @@
 
 -type render_op() :: #raw{} | #value{} | #varchar_string{} | #nvarchar_string{}.
 -type render_plan() :: [render_op()].
--type versioned_plan() :: {2, render_plan()} | render_plan().
 
--record(sqlserver_plan, {insert_prefix :: binary(), plan :: versioned_plan()}).
--record(sqlserver_update_plan, {plan :: versioned_plan()}).
+-record(sqlserver_plan, {insert_prefix :: binary(), plan :: render_plan()}).
+-record(sqlserver_update_plan, {plan :: render_plan()}).
 
 -define(BATCH_SEPARATOR, <<", ">>).
 
@@ -91,10 +90,9 @@ render_batch(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, DataList, Opt
     %% https://learn.microsoft.com/en-us/sql/t-sql/queries/table-value-constructor-transact-sql#limitations
     length(DataList) =< 1000
 ->
-    maybe
-        {ok, Ops} ?= prepare_batch_plan(Plan, DataList, Opts),
-        {ok, Rendered} ?= render_batch_units(DataList, Ops, Opts, 1, []),
-        {ok, [Prefix, Rendered]}
+    case render_batch_units(DataList, Plan, Opts, 1, []) of
+        {ok, Rendered} -> {ok, [Prefix, Rendered]};
+        {error, _} = Error -> Error
     end;
 render_batch(_Plan, _DataList, _Opts) ->
     {error, sqlserver_values_row_limit_exceeded}.
@@ -103,94 +101,18 @@ render_batch(_Plan, _DataList, _Opts) ->
 %% Private funs
 %%------------------------------------------------------------------------------
 
-prepare_batch_plan(_Plan, [], _Opts) ->
-    {ok, []};
-prepare_batch_plan(Plan, _DataList, Opts) ->
-    case prepare_plan(Plan, Opts) of
-        {ok, _} = Result -> Result;
-        {error, Reason} -> batch_render_error(1, Reason)
-    end.
-
 render_batch_units([Data | Rest], Unit, Opts, Index, Acc) ->
-    case render_plan(Unit, Data, Opts, #{}, []) of
+    case render_unit(Unit, Data, Opts) of
         {ok, Rendered} ->
             render_batch_units(Rest, Unit, Opts, Index + 1, [Rendered | Acc]);
         {error, Reason} ->
-            batch_render_error(Index, Reason)
+            {error, {sqlserver_template_render_failed, #{batch_index => Index, reason => Reason}}}
     end;
 render_batch_units([], _Unit, _Opts, _Index, Acc) ->
     {ok, lists:join(?BATCH_SEPARATOR, lists:reverse(Acc))}.
 
-batch_render_error(Index, Reason) ->
-    {error, {sqlserver_template_render_failed, #{batch_index => Index, reason => Reason}}}.
-
 render_unit(Unit, Data, Opts) ->
-    maybe
-        {ok, Ops} ?= prepare_plan(Unit, Opts),
-        render_plan(Ops, Data, Opts, #{}, [])
-    end.
-
-prepare_plan(Unit, Opts) ->
-    case encode_result(fun() -> current_plan(Unit, Opts) end) of
-        {ok, _} = Result -> Result;
-        {error, Reason} -> {error, {invalid_legacy_sqlserver_plan, Reason}}
-    end.
-
-current_plan({2, Ops}, _Opts) ->
-    Ops;
-current_plan(Ops, Opts) when is_list(Ops) ->
-    lists:map(fun(Op) -> upgrade_legacy_op(Op, Opts) end, Ops).
-
-upgrade_legacy_op(#varchar_string{parts = Parts} = Op, _Opts) ->
-    Op#varchar_string{parts = upgrade_legacy_parts(Parts)};
-upgrade_legacy_op(#nvarchar_string{parts = Parts} = Op, _Opts) ->
-    Op#nvarchar_string{parts = upgrade_legacy_parts(Parts)};
-upgrade_legacy_op(#raw{sql = SQL} = Op, Opts) ->
-    case needs_hex_encoding(SQL) of
-        false ->
-            Op;
-        true ->
-            {ok, Tokens, _} = emqx_bridge_sqlserver_sql_lexer:string(binary_to_list(SQL)),
-            Encoded = [upgrade_legacy_token(T, Opts) || T <- Tokens],
-            Op#raw{sql = iolist_to_binary([" ", lists:join(" ", Encoded), " "])}
-    end;
-upgrade_legacy_op(Op, _Opts) ->
-    Op.
-
-upgrade_legacy_parts(Parts) ->
-    lists:map(
-        fun
-            (#tpl_text{text = Text} = Part) -> Part#tpl_text{text = fold_continuations(Text)};
-            (Part) -> Part
-        end,
-        Parts
-    ).
-
-upgrade_legacy_token({sq_string, _, Source}, Opts) ->
-    Text = decode_doubled(strip_quotes(Source), $', []),
-    encode_string(fold_continuations(Text), varchar, Opts);
-upgrade_legacy_token({nq_string, _, Source}, Opts) ->
-    Body = binary:part(Source, 2, byte_size(Source) - 3),
-    Text = decode_doubled(Body, $', []),
-    encode_string(fold_continuations(Text), nvarchar, Opts);
-upgrade_legacy_token({_Token, _Line, Source}, _Opts) ->
-    Source;
-upgrade_legacy_token({Token, _Line}, _Opts) ->
-    binary:replace(atom_to_binary(Token), <<"_kw">>, <<>>).
-
-fold_continuations(Text) ->
-    fold_continuations(Text, []).
-
-fold_continuations(<<$\\, $\r, $\n, Rest/binary>>, Acc) ->
-    fold_continuations(Rest, Acc);
-fold_continuations(<<$\\, $\n, Rest/binary>>, Acc) ->
-    fold_continuations(Rest, Acc);
-fold_continuations(<<$\\, $\r, Rest/binary>>, Acc) ->
-    fold_continuations(Rest, [$\r | Acc]);
-fold_continuations(<<Byte, Rest/binary>>, Acc) ->
-    fold_continuations(Rest, [Byte | Acc]);
-fold_continuations(<<>>, Acc) ->
-    iolist_to_binary(lists:reverse(Acc)).
+    render_plan(Unit, Data, Opts, #{}, []).
 
 render_plan([#raw{sql = SQL} | Rest], Data, Opts, Cache, Acc) ->
     render_plan(Rest, Data, Opts, Cache, [SQL | Acc]);
@@ -230,6 +152,7 @@ encode_result(Encoder) ->
     try
         {ok, Encoder()}
     catch
+        throw:{sqlserver_query_error, _} = QueryError -> throw(QueryError);
         Class:Reason -> {error, {Class, Reason}}
     end.
 
@@ -282,14 +205,14 @@ compile_ast({insert, #{target := Target, columns := Columns, row := Row}}) ->
     ColumnsSQL = serialize_columns(Columns),
     Head = <<"INSERT INTO ", TargetSQL/binary, ColumnsSQL/binary, " VALUES ">>,
     Unit = merge_render_ops(compile_row(Row)),
-    {ok, #sqlserver_plan{insert_prefix = Head, plan = {2, Unit}}};
+    {ok, #sqlserver_plan{insert_prefix = Head, plan = Unit}};
 compile_ast({update, #{target := Target, assignments := Assignments, where := Where}}) ->
     TargetSQL = iolist_to_binary(lists:join($., [serialize_target_part(I) || I <- Target])),
     Ops =
         [#raw{sql = <<"UPDATE ", TargetSQL/binary, " SET ">>}] ++
             join_ops(<<", ">>, [compile_assignment(A) || A <- Assignments]) ++
             compile_where(Where),
-    {ok, #sqlserver_update_plan{plan = {2, merge_render_ops(Ops)}}}.
+    {ok, #sqlserver_update_plan{plan = merge_render_ops(Ops)}}.
 
 compile_assignment({Column, Expression}) ->
     [#raw{sql = <<(serialize_identifier(Column))/binary, " = ">>} | compile_expression(Expression)].
@@ -600,14 +523,21 @@ encode_hex_string(Text, Style, Opts) ->
         nvarchar ->
             Unicode;
         varchar ->
-            MaxBytes =
-                case maps:get(varchar_codepage, Opts, 65001) of
-                    65001 -> byte_size(Text);
-                    %% Legacy SQL Server code pages use at most two bytes per UTF-16 unit.
-                    %% UTF-8 length is also a safe bound for those encodings.
-                    _ -> min(byte_size(Text), 2 * Units)
-                end,
+            MaxBytes = varchar_bytes(Text, Unicode, Opts),
             ["CONVERT(VARCHAR(", string_size(MaxBytes, 8000), "), ", Unicode, ")"]
+    end.
+
+%% UTF-8 bounds the converted size; resolve larger values in the target database.
+varchar_bytes(Text, Unicode, Opts) ->
+    UTF8Bytes = byte_size(Text),
+    case UTF8Bytes > 8000 andalso value_string_style(Text) =:= nvarchar of
+        true ->
+            case maps:find(varchar_bytes, Opts) of
+                {ok, Resolve} -> Resolve(Unicode);
+                error -> UTF8Bytes
+            end;
+        false ->
+            UTF8Bytes
     end.
 
 string_size(Size, Limit) when Size =< Limit -> integer_to_binary(max(1, Size));
@@ -634,9 +564,9 @@ assert_no_nul(Text) ->
 %% Checks that compilation merges adjacent static SQL around a value placeholder.
 compile_merges_raw_segments_test() ->
     {ok, Placeholder} = emqx_sql_plan:parse_placeholder(<<"${value}">>),
-    {ok, #sqlserver_plan{plan = {2, [#raw{sql = <<"(1, 2)">>}]}}} =
+    {ok, #sqlserver_plan{plan = [#raw{sql = <<"(1, 2)">>}]}} =
         compile(<<"INSERT INTO t VALUES (1, 2)">>),
-    {ok, #sqlserver_plan{plan = {2, Plan}}} =
+    {ok, #sqlserver_plan{plan = Plan}} =
         compile(<<"INSERT INTO t VALUES (1, ${value}, 2)">>),
     ?assertEqual(
         [
@@ -1012,38 +942,10 @@ float_precision_test() ->
 
 bounded_hex_strings_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES ('${payload}')">>),
-    lists:foreach(
-        fun({Codepage, Size}) ->
-            Opts = (null_opts())#{varchar_codepage => Codepage},
-            {ok, SQL} = render(Plan, #{payload => <<"中文😀"/utf8>>}, Opts),
-            ?assertNotEqual(
-                nomatch,
-                binary:match(
-                    iolist_to_binary(SQL),
-                    <<"CONVERT(VARCHAR(", Size/binary, "), CONVERT(NVARCHAR(4),">>
-                )
-            )
-        end,
-        [{1252, <<"8">>}, {936, <<"8">>}, {65001, <<"10">>}]
-    ).
-
-legacy_insert_plan_test() ->
-    %% This plan was compiled by the SQL Server implementation before UPDATE support.
-    Plan =
-        {sqlserver_plan, <<"INSERT INTO [t] ([v]) VALUES ">>, [
-            {raw, <<"(">>},
-            {value, {var, "payload", [<<"payload">>]}},
-            {raw, <<")">>}
-        ]},
-    ?assertEqual(
-        {ok, <<"INSERT INTO [t] ([v]) VALUES ('one')">>},
-        rendered_binary(render(Plan, #{payload => <<"one">>}, null_opts()))
-    ),
-    ?assertEqual(
-        {ok, <<"INSERT INTO [t] ([v]) VALUES ('one'), ('two')">>},
-        rendered_binary(
-            render_batch(Plan, [#{payload => <<"one">>}, #{payload => <<"two">>}], null_opts())
-        )
+    {ok, SQL} = render(Plan, #{payload => <<"中文😀"/utf8>>}, null_opts()),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(iolist_to_binary(SQL), <<"CONVERT(VARCHAR(10), CONVERT(NVARCHAR(4),">>)
     ).
 
 insert_keyword_identifiers_test() ->
