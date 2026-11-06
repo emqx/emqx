@@ -80,7 +80,7 @@ write_field_key.desc:
 """Field key. Placeholders are supported."""
 
 write_field_type.desc:
-"""GreptimeDB field value type: `auto`, `string`, `integer`, `float`, or `boolean`."""
+"""GreptimeDB field value type: `auto`, `string`, `integer`, `float`, or `boolean`. `auto` applies type inference to one rendered value. A template with static text or multiple parts is written as a string."""
 
 write_field_value.desc:
 """Field value template. The rendered value must match the configured field type."""
@@ -92,7 +92,7 @@ write_tag_value.desc:
 """Tag value template."""
 
 write_timestamp.desc:
-"""Row timestamp configuration. Set to `false` to use the current time instead of rendering a point timestamp. GreptimeDB tables require a time index."""
+"""Row timestamp configuration. When omitted, EMQX uses the message timestamp. Set to `false` to use the current time instead of rendering a point timestamp. GreptimeDB tables require a time index."""
 
 write_timestamp_value.desc:
 """Timestamp template. The rendered value must be an integer Unix timestamp."""

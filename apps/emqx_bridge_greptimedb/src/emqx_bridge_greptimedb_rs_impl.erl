@@ -69,7 +69,7 @@
     parameters := #{
         write_syntax => [map()],
         write => [map()],
-        precision := ns | us | ms | s
+        precision => ns | us | ms | s
     }
 }.
 -type channel_state() :: #{}.
@@ -145,6 +145,7 @@ on_get_channels(ConnResId) ->
     {ok, connector_state()}.
 on_add_channel(_ConnResId, ConnState0, ChanResId, ActionConfig) ->
     #{parameters := Parameters} = ActionConfig,
+    %% Keep the default for channel state created before precision was mandatory.
     Precision = maps:get(precision, Parameters, ms),
     ActionState = #{
         ?write_syntax => emqx_bridge_greptimedb_utils:parse_action_parameters(
@@ -323,9 +324,9 @@ reply_callback(Context0, Result0) ->
 
 bin(X) -> emqx_utils_conv:bin(X).
 
-%% Callbacks scheduled before a hot upgrade execute this module version with
-%% their original context. Normalize the two earlier context shapes before the
-%% current async continuation code reads them.
+%% The same module ships on the 6.3 release, which supports hot upgrades. A
+%% callback scheduled before an upgrade runs this module version with its old
+%% context. Normalize the earlier context shapes before reading them.
 normalize_async_reply_context(Context0) ->
     Iter = maps:get(iter, Context0),
     LastCounts = legacy_last_counts(Context0),
