@@ -678,10 +678,24 @@ try_subscribe(
     try
         WorkState = {RabbitChan, ChannelId, Params},
         {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
+        %% Fails the add on a missing or exclusively owned queue, also when
+        %% `basic.consume' is deferred.
+        #'queue.declare_ok'{} =
+            amqp_channel:call(RabbitChan, #'queue.declare'{queue = Queue, passive = true}),
         BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
-        #'basic.consume_ok'{consumer_tag = _} =
-            amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
-        ok
+        case
+            emqx_resource_ready_waiter:when_ready(
+                {?MODULE, ConsumePid},
+                {emqx_bridge_rabbitmq_source_worker, consume, [ConsumePid, BasicConsume]}
+            )
+        of
+            now ->
+                #'basic.consume_ok'{consumer_tag = _} =
+                    amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
+                ok;
+            deferred ->
+                ok
+        end
     catch
         Kind:Reason0:Stacktrace ->
             {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
