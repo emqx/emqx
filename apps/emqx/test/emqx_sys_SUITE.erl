@@ -14,14 +14,36 @@
 -define(CONNECTED_TOPIC, <<"$SYS/brokers/+/clients/+/connected">>).
 -define(DISCONNECTED_TOPIC, <<"$SYS/brokers/+/clients/+/disconnected">>).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+-define(DEFAULT_CONFIG_CASES, [t_no_client_event_hooks_by_default]).
+
+all() ->
+    [{group, default_config}, {group, events_enabled}].
+
+groups() ->
+    [
+        {default_config, [], ?DEFAULT_CONFIG_CASES},
+        {events_enabled, [], emqx_common_test_helpers:all(?MODULE) -- ?DEFAULT_CONFIG_CASES}
+    ].
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{apps, Apps} | Config].
+    Config.
 
-end_per_suite(Config) ->
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(default_config, Config) ->
+    start_apps([emqx], Config);
+init_per_group(events_enabled, Config) ->
+    EmqxConf =
+        "sys_topics.sys_event_messages {client_connected = true, client_disconnected = true}",
+    start_apps([{emqx, EmqxConf}], Config).
+
+end_per_group(_Group, Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
+
+start_apps(AppSpecs, Config) ->
+    Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    [{apps, Apps} | Config].
 
 init_per_testcase(_TestCase, Config) ->
     %% Forward every `$SYS` message that reaches the publish hooks, the way the
@@ -43,6 +65,18 @@ on_message_publish(Msg, Pid) ->
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+
+-doc """
+With the default configuration, EMQX does not publish client connected and
+disconnected events, and `emqx_sys` installs no hook for them.
+""".
+t_no_client_event_hooks_by_default(_Config) ->
+    ?assertMatch(
+        #{client_connected := false, client_disconnected := false},
+        emqx:get_config([sys_topics, sys_event_messages])
+    ),
+    ?assertNot(has_sys_hook('client.connected', on_client_connected)),
+    ?assertNot(has_sys_hook('client.disconnected', on_client_disconnected)).
 
 -doc """
 Without a subscriber, and with the rule engine ignoring `$SYS` messages, the
@@ -226,3 +260,14 @@ receive_sys_payload(Event) ->
     after 5000 ->
         ct:fail({timeout_waiting_for_sys_message, Event})
     end.
+
+has_sys_hook(HookPoint, Fun) ->
+    lists:any(
+        fun(Callback) ->
+            case emqx_hooks:callback_action(Callback) of
+                {emqx_sys, Fun, _} -> true;
+                _ -> false
+            end
+        end,
+        emqx_hooks:lookup(HookPoint)
+    ).
