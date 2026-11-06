@@ -490,7 +490,7 @@ init(Parent, DB, Shard, CBM) ->
         )
     else
         InitErr ->
-            terminate({init_failed, InitErr})
+            exit({init_failure, InitErr})
     end.
 
 -spec loop(d()) -> no_return().
@@ -519,7 +519,7 @@ loop(D0) ->
         {'EXIT', _From, Reason} ->
             case Reason of
                 normal -> loop(D0);
-                _ -> Reason
+                _ -> exit(Reason)
             end;
         {system, From, SysReq} ->
             Debug = [],
@@ -583,7 +583,7 @@ system_continue(Parent, _Debug, D0) ->
 
 -spec system_terminate(_, _, _, _) -> no_return().
 system_terminate(Reason, _Parent, _Debug, _D) ->
-    terminate(Reason).
+    exit(Reason).
 
 system_code_change(D, _Module, _OldVsn, Extra) ->
     {ok, ?MODULE:code_change(D, Extra)}.
