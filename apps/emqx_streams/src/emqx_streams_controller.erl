@@ -234,7 +234,7 @@ do_start_streams() ->
     ?tp(debug, streams_controller_wait_ready, #{}),
     ok = emqx_streams_message_db:wait_readiness(infinity),
     ok = emqx_mq_quota_buffer:start(?STREAMS_QUOTA_BUFFER, quota_buffer_options()),
-    ok = emqx_streams_sup:start_gc_scheduler(),
+    ok = emqx_streams_sup:start_services(),
     ok = emqx_streams:register_hooks(),
     ?tp(debug, streams_controller_start_streams_done, #{}),
     ok.
@@ -243,7 +243,7 @@ do_stop_streams() ->
     ?tp(debug, streams_controller_stop_streams, #{}),
     ok = emqx_streams:unregister_hooks(),
     _ = emqx_mq_quota_buffer:stop(?STREAMS_QUOTA_BUFFER),
-    ok = emqx_streams_sup:stop_gc_scheduler(),
+    ok = emqx_streams_sup:stop_services(),
     ok = emqx_streams_sup:stop_metrics(),
     _ = emqx_streams_message_db:close(),
     ?tp(debug, streams_controller_stop_streams_done, #{}),

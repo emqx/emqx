@@ -40,7 +40,19 @@ map_aws_error_details({http_error, Status, _, undefined}) ->
     %% error occurs when calling `hackney:body/1`, such as it returning `{error,
     %% req_not_found}`
     ["response status ", integer_to_binary(Status), " and no body"];
-map_aws_error_details({http_error, _Status, _, Body}) ->
+map_aws_error_details({http_error, Status, _, Body}) ->
+    case iolist_size(Body) of
+        0 ->
+            ["response status ", integer_to_binary(Status), " and no body"];
+        _ ->
+            format_bin_body(Body)
+    end;
+map_aws_error_details(#xmlElement{content = Content}) ->
+    Code = extract_xml_text(lists:keyfind('Code', #xmlElement.name, Content)),
+    Message = extract_xml_text(lists:keyfind('Message', #xmlElement.name, Content)),
+    [Code, $:, $\s | Message].
+
+format_bin_body(Body) ->
     try xmerl_scan:string(unicode:characters_to_list(Body), [{quiet, true}]) of
         {Error = #xmlElement{name = 'Error'}, _} ->
             map_aws_error_details(Error);
@@ -49,11 +61,7 @@ map_aws_error_details({http_error, _Status, _, Body}) ->
     catch
         exit:_ ->
             Body
-    end;
-map_aws_error_details(#xmlElement{content = Content}) ->
-    Code = extract_xml_text(lists:keyfind('Code', #xmlElement.name, Content)),
-    Message = extract_xml_text(lists:keyfind('Message', #xmlElement.name, Content)),
-    [Code, $:, $\s | Message].
+    end.
 
 extract_xml_text(#xmlElement{content = Content}) ->
     [Fragment || #xmlText{value = Fragment} <- Content];

@@ -270,6 +270,7 @@ run_conn_hooks(
     ConnProps = #{},
     emqx_gateway_ctx:metrics_inc(Ctx, 'client.connect'),
     case emqx_hooks:'client.connect'(ConnInfo, ConnProps) of
+        {error, ?RC_QUOTA_EXCEEDED} -> {error, ?SN_RC_CONGESTION};
         Error = {error, _Reason} -> Error;
         _NConnProps -> {ok, Packet, Channel}
     end.

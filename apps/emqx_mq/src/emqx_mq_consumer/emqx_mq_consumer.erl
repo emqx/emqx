@@ -406,12 +406,17 @@ find_or_start(#{id := Id, topic_filter := _MQTopicFilter, name := _MQName} = MQ)
 
 try_register_consumer(#{id := Id} = _MQ) ->
     case emqx_mq_registry:find_by_id(Id) of
-        {ok, _} ->
-            case global:register_name(global_name(Id), self()) of
-                yes ->
-                    ok;
-                no ->
-                    {error, already_registered}
+        {ok, MQ} ->
+            case emqx_mq_registry:is_deleting(MQ) of
+                true ->
+                    {error, mq_being_deleted};
+                false ->
+                    case global:register_name(global_name(Id), self()) of
+                        yes ->
+                            ok;
+                        no ->
+                            {error, already_registered}
+                    end
             end;
         _ ->
             {error, no_mq}

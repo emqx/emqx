@@ -121,6 +121,7 @@
 %% Don't forget to update `emqx_log_throttler:new_throttler/1` when adding a message that
 %% is throttled on a per-resource basis.
 -define(LOG_THROTTLING_MSGS, [
+    async_reply_to_expired_request,
     async_send_error,
     authentication_failure,
     authenticator_rejection,
@@ -156,6 +157,7 @@
     retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
     retained_fetch_rate_limit_exceeded,
+    retained_read_dropped,
     retained_delete_failed_for_rate_exceeded_limit,
     session_buffer_high_watermark,
     socket_receive_paused_by_rate_limit,

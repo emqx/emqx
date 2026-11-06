@@ -144,6 +144,30 @@ t_validate_name(_Config) ->
         )
     ).
 
+-doc "A marked Stream is skipped by match and list, is listed by list_all, and cannot be updated".
+t_mark_deleting(_Config) ->
+    {ok, Stream0} = create_stream(<<"stream-1">>, <<"a/#">>),
+    {ok, _} = create_stream(<<"stream-2">>, <<"a/b">>),
+    ok = emqx_streams_registry:mark_deleting(Stream0),
+    ?assert(emqx_streams_registry:is_deleting(Stream0)),
+    ?assertMatch([#{topic_filter := <<"a/b">>}], emqx_streams_registry:match(<<"a/b">>)),
+    ?assertMatch(
+        [#{name := <<"stream-2">>}], emqx_utils_stream:consume(emqx_streams_registry:list())
+    ),
+    ?assertMatch(
+        {ok, [#{name := <<"stream-2">>}], undefined}, emqx_streams_registry:list(undefined, 10)
+    ),
+    {ok, All0, undefined} = emqx_streams_registry:list_all(undefined, 10),
+    ?assertEqual(2, length(All0)),
+    ?assertMatch([#{name := <<"stream-1">>}], [S || #{deleted_at := _} = S <- All0]),
+    ?assertMatch({ok, #{name := <<"stream-1">>}}, emqx_streams_registry:find(<<"stream-1">>)),
+    ?assertEqual({error, being_deleted}, emqx_streams_registry:update(<<"stream-1">>, Stream0)),
+    %% A pre-6.1.1 Stream is marked through its legacy key
+    {ok, Stream1} = emqx_streams_test_utils:create_legacy_stream(#{topic_filter => <<"c/d">>}),
+    ok = emqx_streams_registry:mark_deleting(Stream1),
+    ?assert(emqx_streams_registry:is_deleting(Stream1)),
+    ?assertEqual([], emqx_streams_registry:match(<<"c/d">>)).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

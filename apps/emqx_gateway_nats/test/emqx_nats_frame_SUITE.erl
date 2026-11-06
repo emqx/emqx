@@ -59,6 +59,33 @@ t_ping_pong(_Config) ->
     ?assertEqual(?OP_PONG, emqx_nats_frame:type(Frame2)),
     ?assertEqual(<<>>, Rest2).
 
+-doc "Control commands parse at every byte split, including CRLF.".
+t_split_control_frames(_Config) ->
+    lists:foreach(
+        fun({Data, Operation}) ->
+            lists:foreach(
+                fun(Offset) ->
+                    <<First:Offset/binary, Rest/binary>> = Data,
+                    State = emqx_nats_frame:initial_parse_state(#{}),
+                    {more, NextState} = emqx_nats_frame:parse(First, State),
+                    ?assertMatch(
+                        {ok, #nats_frame{operation = Operation}, <<>>, _},
+                        emqx_nats_frame:parse(Rest, NextState)
+                    )
+                end,
+                lists:seq(1, byte_size(Data) - 1)
+            )
+        end,
+        [
+            {<<"PING\r\n">>, ?OP_PING},
+            {<<"ping\r\n">>, ?OP_PING},
+            {<<"PONG\r\n">>, ?OP_PONG},
+            {<<"pong\r\n">>, ?OP_PONG},
+            {<<"+OK\r\n">>, ?OP_OK},
+            {<<"+ok\r\n">>, ?OP_OK}
+        ]
+    ).
+
 t_connect(_Config) ->
     State = emqx_nats_frame:initial_parse_state(#{}),
     ConnectJson = <<"{\"verbose\":false,\"pedantic\":false,\"tls_required\":false}">>,
