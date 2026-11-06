@@ -808,9 +808,9 @@ t_auto_cast_integer_to_float(TCConfig) ->
     ).
 
 -doc """
-A tag value is written as the text it renders: numeric and mixed-template tags become
-strings, a literal boolean text tag stays a string, and only an `i`/`u` suffix or a
-payload boolean keeps its type.
+Every legacy and structured tag value is written as the text it renders. Numeric,
+mixed-template, suffixed, and boolean tag values all remain strings; only field values
+are typed.
 """.
 t_tag_values_as_string() ->
     [{matrix, true}].
@@ -932,13 +932,13 @@ assert_tag_value_row(Row, TagText) ->
     ?assertMatch(#{<<"float_tag">> := <<"pre_1.5">>}, Row),
     ?assertMatch(#{<<"big_float_tag">> := <<"1.0e300">>}, Row),
     ?assertMatch(#{<<"tiny_float_tag">> := <<"1.0e-11">>}, Row),
-    ?assertMatch(#{<<"i_tag">> := 123}, Row),
-    ?assertMatch(#{<<"u_tag">> := 456}, Row),
-    %% text that spells a boolean literal stays a string, a payload boolean keeps its type
+    ?assertMatch(#{<<"i_tag">> := <<"123i">>}, Row),
+    ?assertMatch(#{<<"u_tag">> := <<"456u">>}, Row),
+    %% every tag renders as text, including boolean-like text and payload booleans
     ?assertMatch(#{<<"lit_bool_tag">> := <<"T">>}, Row),
     ?assertMatch(#{<<"lit_false_tag">> := <<"F">>}, Row),
     ?assertMatch(#{<<"pre_bool_tag">> := <<"pre_true">>}, Row),
-    ?assertMatch(#{<<"bool_tag">> := true}, Row),
+    ?assertMatch(#{<<"bool_tag">> := <<"true">>}, Row),
     ?assertEqual(1.0, maps:get(<<"value">>, Row, undefined)).
 
 -doc """
