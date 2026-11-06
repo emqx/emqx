@@ -39,5 +39,5 @@ schema_module() ->
 
 api_schema(Method) ->
     emqx_connector_schema:api_ref(
-        ?MODULE, <<"rule_engine_test">>, Method ++ "_connector"
+        schema_module(), <<"rule_engine_test">>, Method ++ "_connector"
     ).
