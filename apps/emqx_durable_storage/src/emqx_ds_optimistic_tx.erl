@@ -480,18 +480,14 @@ init(Parent, DB, Shard, CBM) ->
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
-        try
-            loop(
-                check_soft_quota(D#d{
-                    serial = Serial,
-                    timestamp = Timestamp,
-                    committed_serial = Serial
-                })
-            )
-        catch
-            EC:Err:Stack ->
-                terminate({EC, Err, Stack})
-        end
+        ExitReason = loop(
+            check_soft_quota(D#d{
+                serial = Serial,
+                timestamp = Timestamp,
+                committed_serial = Serial
+            })
+        ),
+        terminate(ExitReason)
     else
         InitErr ->
             terminate({init_failed, InitErr})
@@ -511,47 +507,43 @@ loop(D0) ->
             _ -> IdleFlushInterval
         end,
     receive
-        {'$gen_cast', Tx = #ds_tx{}} ->
-            case handle_tx(check_soft_quota(D0), Tx) of
-                {ok, _PresumedCommitSerial, D} ->
-                    loop(finalize_add_pending(D));
-                aborted ->
-                    loop(D0)
+        {'$gen_cast', Cast} ->
+            try
+                loop(handle_cast(Cast, D0))
+            catch
+                EC:Err:Stack ->
+                    {EC, Err, Stack}
             end;
-        {'$gen_cast', #cast_dirty_append{} = Tx} ->
-            D = handle_dirty_append(Tx, check_soft_quota(D0)),
-            loop(finalize_add_pending(D));
-        {'$gen_call', From, #call_add_generation{}} ->
-            {Reply, D} = handle_add_generation(D0),
-            gen:reply(From, Reply),
-            loop(D);
-        {'$gen_cast', #ds_del_batch{} = DelBatch} ->
-            D = handle_del_batch(D0, DelBatch),
-            loop(D);
-        {'$gen_cast', config_change} ->
-            loop(do_update_config(D0));
+        {'$gen_call', From, Call} ->
+            try
+                loop(handle_call(From, Call, D0))
+            catch
+                EC:Err:Stack ->
+                    {EC, Err, Stack}
+            end;
         ?timeout_flush ->
-            loop(flush(D0));
+            try
+                loop(flush(D0))
+            catch
+                EC:Err:Stack ->
+                    {EC, Err, Stack}
+            end;
         ?timeout_quota_check ->
-            D = D0#d{quota_check_timer = undefined},
-            loop(check_soft_quota(D));
+            try
+                D = D0#d{quota_check_timer = undefined},
+                loop(check_soft_quota(D))
+            catch
+                EC:Err:Stack ->
+                    {EC, Err, Stack}
+            end;
         {'EXIT', _From, Reason} ->
             case Reason of
                 normal -> loop(D0);
-                _ -> terminate(Reason)
+                _ -> Reason
             end;
         {system, From, SysReq} ->
             Debug = [],
             sys:handle_system_msg(SysReq, From, D0#d.parent, ?MODULE, Debug, D0);
-        {'$gen_call', From, Other} ->
-            ?tp(warning, emqx_ds_optimistic_tx_unknown_call, #{
-                call => Other,
-                db => DB,
-                shard => Shard,
-                from => From
-            }),
-            gen:reply(From, ?err_unrec({unknown_call, Other})),
-            loop(D0);
         Other ->
             ?tp(warning, emqx_ds_optimistic_tx_unknown_event, #{
                 event => Other,
@@ -562,6 +554,42 @@ loop(D0) ->
     after Sleep ->
         loop(flush(D0))
     end.
+
+handle_call(From, #call_add_generation{}, D0) ->
+    {Reply, D} = handle_add_generation(D0),
+    gen:reply(From, Reply),
+    D;
+handle_call(From, Unknown, D) ->
+    ?tp(warning, emqx_ds_optimistic_tx_unknown_call, #{
+        call => Unknown,
+        db => D#d.db,
+        shard => D#d.shard,
+        from => From
+    }),
+    gen:reply(From, ?err_unrec({unknown_call, Unknown})),
+    D.
+
+handle_cast(#ds_tx{} = Tx, D0) ->
+    case handle_tx(check_soft_quota(D0), Tx) of
+        {ok, _PresumedCommitSerial, D} ->
+            loop(finalize_add_pending(D));
+        aborted ->
+            loop(D0)
+    end;
+handle_cast(#cast_dirty_append{} = Tx, D0) ->
+    D = handle_dirty_append(Tx, check_soft_quota(D0)),
+    finalize_add_pending(D);
+handle_cast(#ds_del_batch{} = DelBatch, D) ->
+    handle_del_batch(D, DelBatch);
+handle_cast(config_change, D) ->
+    do_update_config(D);
+handle_cast(Other, D) ->
+    ?tp(warning, emqx_ds_optimistic_tx_unknown_cast, #{
+        cast => Other,
+        db => D#d.db,
+        shard => D#d.shard
+    }),
+    D.
 
 code_change(D, _Extra) ->
     D#d{version = version()}.

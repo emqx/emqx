@@ -3228,7 +3228,7 @@ t_otx_crash_long_mql(Config) ->
             Opts = maps:merge(opts(Config), #{transactions => #{max_items => 1}}),
             ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
             ?inject_crash(
-                #{?snk_kind := emqx_ds_optimistic_tx_unknown_event},
+                #{?snk_kind := emqx_ds_optimistic_tx_unknown_cast},
                 snabbkaffe_nemesis:always_crash()
             ),
             Shard = emqx_ds:shard_of(DB, <<"me">>),
@@ -3288,7 +3288,7 @@ t_otx_crash_long_mql(Config) ->
             %% 1. Verify recovery with a small message queue:
             OtxLeader1 = emqx_ds_optimistic_tx:where(DB, Shard),
             erlang:suspend_process(OtxLeader1),
-            OtxLeader1 ! notmyday,
+            OtxLeader1 ! {'$gen_cast', notmyday},
             [MkAppBatch() || _ <- lists:seq(1, 10)],
             Pending1 =
                 [MkTrans() || _ <- lists:seq(1, 10)] ++
@@ -3302,7 +3302,7 @@ t_otx_crash_long_mql(Config) ->
             %% 2. Verify recovery with a long message queue:
             OtxLeader2 = emqx_ds_optimistic_tx:where(DB, Shard),
             erlang:suspend_process(OtxLeader2),
-            OtxLeader2 ! notmyday,
+            OtxLeader2 ! {'$gen_cast', notmyday},
             [MkAppBatch() || _ <- lists:seq(1, 1000)],
             Pending2 =
                 [MkTrans() || _ <- lists:seq(1, 1000)] ++
