@@ -280,7 +280,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:recon, github: "ferd/recon", tag: "2.5.6", override: true}
 
   def common_dep(:influxdb),
-    do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.18", override: true}
+    do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.19", override: true}
 
   def common_dep(:wolff), do: {:wolff, "4.2.1"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}

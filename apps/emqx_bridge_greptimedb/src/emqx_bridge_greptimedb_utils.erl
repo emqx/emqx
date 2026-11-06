@@ -6,6 +6,7 @@
 %% API
 -export([
     parse_write_syntax/2,
+    parse_action_parameters/2,
     parse_batch_data/5,
     parse_single_data/5
 ]).
@@ -14,8 +15,7 @@
 -export([
     convert_timestamp/2,
     data_to_points/4,
-    value_type/1,
-    value_type_for_kind/2
+    value_type/1
 ]).
 -endif.
 
@@ -33,6 +33,15 @@
 -define(UINT64_MAX, 16#FFFFFFFFFFFFFFFF).
 
 -type ts_precision() :: ns | us | ms | s.
+-type point_config() :: #{
+    measurement := term(),
+    tags := map(),
+    fields := map(),
+    timestamp := term(),
+    missing_timestamp => default | error | ignore,
+    precision := {From :: ts_precision(), To :: ts_precision()}
+}.
+-type encoded_data() :: {ok, {map(), map()}} | {error, term()}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -40,6 +49,11 @@
 
 parse_write_syntax(Lines, Precision) ->
     do_parse_write_syntax(Lines, [], Precision).
+
+parse_action_parameters(#{write := Points}, Precision) ->
+    parse_structured_write(Points, Precision);
+parse_action_parameters(#{write_syntax := Lines}, Precision) ->
+    parse_write_syntax(Lines, Precision).
 
 parse_batch_data(ConnResId, DbName, BatchData, SyntaxLines, DriverType) when
     DriverType == erlang;
@@ -113,37 +127,41 @@ last_error([LastError | _]) -> LastError.
 -spec data_to_points(
     map(),
     binary(),
-    [
-        #{
-            fields := [{binary(), binary()}],
-            measurement := binary(),
-            tags := [{binary(), binary()}],
-            timestamp := emqx_placeholder:tmpl_token() | integer(),
-            precision := {From :: ts_precision(), To :: ts_precision()}
-        }
-    ],
+    [point_config()],
     _DriverType :: erlang | native
 ) -> {ok, [map()]} | {error, term()}.
 data_to_points(Data, DbName, SyntaxLines, DriverType) ->
     lines_to_points(Data, DbName, DriverType, SyntaxLines, [], []).
 
-%% When converting multiple rows data into Greptimedb Line Protocol, they are considered to be strongly correlated.
-%% And once a row fails to convert, all of them are considered to have failed.
+%% Points configured for one message are strongly correlated. If any configured
+%% point fails to convert, all points for that message are treated as failed.
 lines_to_points(_Data, _DbName, _DriverType, [], Points, ErrorPoints) ->
     case ErrorPoints of
         [] ->
-            {ok, Points};
+            {ok, lists:reverse(Points)};
         _ ->
             %% ignore trans succeeded points
             {error, ErrorPoints}
     end;
 lines_to_points(
-    Data, DbName, DriverType, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc
+    Data,
+    DbName,
+    DriverType,
+    [#{timestamp := Ts, precision := Precision} = Item | Rest],
+    ResultPointsAcc,
+    ErrorPointsAcc
 ) when
     is_list(Ts)
 ->
+    MissingTimestamp = maps:get(missing_timestamp, Item, default),
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    case parse_timestamp(emqx_placeholder:proc_tmpl(Ts, Data, TransOptions)) of
+    case
+        parse_timestamp(
+            emqx_placeholder:proc_tmpl(Ts, Data, TransOptions),
+            MissingTimestamp,
+            Precision
+        )
+    of
         {ok, TsInt} ->
             Item1 = Item#{timestamp => TsInt},
             continue_lines_to_points(
@@ -159,6 +177,15 @@ lines_to_points(
 ) when
     is_integer(Ts)
 ->
+    continue_lines_to_points(Data, DbName, DriverType, Item, Rest, ResultPointsAcc, ErrorPointsAcc);
+lines_to_points(
+    Data,
+    DbName,
+    DriverType,
+    [#{timestamp := undefined} = Item | Rest],
+    ResultPointsAcc,
+    ErrorPointsAcc
+) ->
     continue_lines_to_points(Data, DbName, DriverType, Item, Rest, ResultPointsAcc, ErrorPointsAcc).
 
 continue_lines_to_points(Data, DbName, DriverType, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
@@ -177,7 +204,17 @@ continue_lines_to_points(Data, DbName, DriverType, Item, Rest, ResultPointsAcc, 
             )
     end.
 
-line_to_point(
+line_to_point(Data, DbName, DriverType, Item) ->
+    try line_to_point_1(Data, DbName, DriverType, Item) of
+        Result -> Result
+    catch
+        throw:Reason ->
+            {error, Reason};
+        _:Reason ->
+            {error, {point_conversion_failed, Reason}}
+    end.
+
+line_to_point_1(
     Data,
     DbName,
     DriverType,
@@ -185,30 +222,31 @@ line_to_point(
         measurement := Measurement,
         tags := Tags,
         fields := Fields,
-        timestamp := Ts,
         precision := {_, ToPrecision} = Precision
     } = Item
 ) ->
-    FoldFnTag = fun(K, V, Acc) ->
-        maps_config_to_data(K, V, Acc, DriverType, tag)
+    FoldTagFn = fun(K, V, Acc) ->
+        maps_config_to_tag_data(K, V, Acc, DriverType)
     end,
-    FoldFnField = fun(K, V, Acc) ->
-        maps_config_to_data(K, V, Acc, DriverType, field)
+    FoldFieldFn = fun(K, V, Acc) ->
+        maps_config_to_data(K, V, Acc, DriverType)
     end,
     maybe
-        {ok, {_, EncodedTags}} ?= maps:fold(FoldFnTag, {ok, {Data, #{}}}, Tags),
-        {ok, {_, EncodedFields}} ?= maps:fold(FoldFnField, {ok, {Data, #{}}}, Fields),
-        {ok, Timestamp} ?= convert_timestamp(Ts, Precision),
-        TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
+        {ok, {_, EncodedTags}} ?= maps:fold(FoldTagFn, {ok, {Data, #{}}}, Tags),
+        {ok, {_, EncodedFields}} ?= maps:fold(FoldFieldFn, {ok, {Data, #{}}}, Fields),
+        {ok, TimestampFields} ?=
+            timestamp_fields(
+                maps:get(timestamp, Item, undefined),
+                Precision,
+                maps:get(missing_timestamp, Item, default)
+            ),
+        TableName = render_measurement(Measurement, Data),
         Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
-        {ok,
-            {Metric, [
-                maps:without([precision, measurement], Item#{
-                    tags => EncodedTags,
-                    fields => EncodedFields,
-                    timestamp => Timestamp
-                })
-            ]}}
+        Point = maps:merge(
+            maps:with([tags, fields], Item#{tags => EncodedTags, fields => EncodedFields}),
+            TimestampFields
+        ),
+        {ok, {Metric, [Point]}}
     end.
 
 do_parse_write_syntax([], Acc, _Precision) ->
@@ -220,10 +258,58 @@ do_parse_write_syntax([Item0 | Rest], Acc, Precision) ->
         measurement => emqx_placeholder:preproc_tmpl(maps:get(measurement, Item0)),
         timestamp => Ts,
         precision => {FromPrecision, ToPrecision},
-        tags => to_kv_config(maps:get(tags, Item0)),
-        fields => to_kv_config(maps:get(fields, Item0))
+        tags => to_kv_config(maps:get(tags, Item0), tag),
+        fields => to_kv_config(maps:get(fields, Item0), field)
     },
     do_parse_write_syntax(Rest, [Item | Acc], Precision).
+
+parse_structured_point(Point, TargetPrecision) ->
+    {Timestamp, SourcePrecision, MissingTimestamp} = structured_timestamp(
+        maps:get(timestamp, Point, undefined), TargetPrecision
+    ),
+    #{
+        measurement => {structured, emqx_placeholder:preproc_tmpl(maps:get(measurement, Point))},
+        timestamp => Timestamp,
+        missing_timestamp => MissingTimestamp,
+        precision => {SourcePrecision, TargetPrecision},
+        tags => structured_tags(maps:get(tags, Point, [])),
+        fields => structured_fields(maps:get(fields, Point))
+    }.
+
+parse_structured_write(Points, Precision) ->
+    [parse_structured_point(Point, Precision) || Point <- Points].
+
+structured_timestamp(false, _TargetPrecision) ->
+    {undefined, ms, ignore};
+structured_timestamp(undefined, TargetPrecision) ->
+    {Ts, SourcePrecision, _} = preproc_tmpl_timestamp(undefined, TargetPrecision),
+    {Ts, SourcePrecision, default};
+structured_timestamp(#{value := Value, source_precision := SourcePrecision}, _TargetPrecision) ->
+    {emqx_placeholder:preproc_tmpl(Value), SourcePrecision, error}.
+
+structured_tags(Tags) ->
+    lists:foldl(
+        fun(#{key := Key, value := Value}, Acc) ->
+            maps:put(
+                emqx_placeholder:preproc_tmpl(Key), emqx_placeholder:preproc_tmpl(Value), Acc
+            )
+        end,
+        #{},
+        Tags
+    ).
+
+structured_fields(Fields) ->
+    lists:foldl(
+        fun(#{key := Key, type := Type, value := Value}, Acc) ->
+            maps:put(
+                emqx_placeholder:preproc_tmpl(Key),
+                {typed, Type, emqx_placeholder:preproc_tmpl(Value)},
+                Acc
+            )
+        end,
+        #{},
+        Fields
+    ).
 
 %% pre-process the timestamp template
 %% returns a tuple of three elements:
@@ -245,21 +331,42 @@ preproc_tmpl_timestamp(Ts, Precision) when is_binary(Ts) ->
     %% we can only hope it the value will be of the same precision in the configs
     {emqx_placeholder:preproc_tmpl(Ts), Precision, Precision}.
 
-to_kv_config(KVfields) ->
+to_kv_config(KVfields, Kind) ->
     lists:foldl(
-        fun({K, V}, Acc) -> to_maps_config(K, V, Acc) end,
+        fun({K, V}, Acc) -> to_maps_config(K, V, Kind, Acc) end,
         #{},
         KVfields
     ).
 
-to_maps_config(K, V, Res) ->
+to_maps_config(K, V, tag, Res) ->
+    NK = emqx_placeholder:preproc_tmpl(bin(K)),
+    Res#{NK => preproc_quoted(V)};
+to_maps_config(K, V, field, Res) ->
     NK = emqx_placeholder:preproc_tmpl(bin(K)),
     NV = preproc_quoted(V),
     Res#{NK => NV}.
 
-maps_config_to_data(_K, _V, {error, _} = Error, _DriverType, _Kind) ->
+-spec maps_config_to_data(term(), term(), encoded_data(), erlang | native) -> encoded_data().
+maps_config_to_data(_K, _V, {error, _} = Error, _DriverType) ->
     Error;
-maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType, Kind) ->
+maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType) ->
+    KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
+    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
+    NV = emqx_placeholder:proc_tmpl(Tmpl, Data, VTransOptions),
+    case has_undefined(NK) orelse has_undefined(NV) of
+        true ->
+            {ok, {Data, Res}};
+        false ->
+            case typed_field_value(DriverType, Type, Tmpl, NV) of
+                {ok, Value} ->
+                    Key = render_template_text(NK),
+                    {ok, {Data, put_structured_kv(field_key, Key, Value, Res)}};
+                {error, _} = Error ->
+                    Error
+            end
+    end;
+maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
@@ -276,17 +383,17 @@ maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType, Kind) ->
                 true ->
                     {ok, {Data, Res}};
                 false ->
-                    convert_config_value(NK0, NV, DriverType, Kind, Data, Res)
+                    convert_config_value(NK0, NV, DriverType, Data, Res)
             end;
         _ ->
-            convert_config_value(NK0, NV, DriverType, Kind, Data, Res)
+            convert_config_value(NK0, NV, DriverType, Data, Res)
     end.
 
-convert_config_value(NK0, NV, DriverType, Kind, Data, Res) ->
+convert_config_value(NK0, NV, DriverType, Data, Res) ->
     NK = list_to_binary(NK0),
     case DriverType of
         erlang ->
-            case value_type_for_kind(NV, Kind) of
+            case value_type(NV) of
                 {ok, Value} ->
                     {ok, {Data, Res#{NK => Value}}};
                 {error, _} = Error ->
@@ -296,8 +403,251 @@ convert_config_value(NK0, NV, DriverType, Kind, Data, Res) ->
             {ok, {Data, Res#{NK => to_raw_value(NV)}}}
     end.
 
+maps_config_to_tag_data(_K, _V, {error, _} = Error, _DriverType) ->
+    Error;
+maps_config_to_tag_data(K, Config, {ok, {Data, Res}}, DriverType) ->
+    KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
+    VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
+    NV = unwrap_quoted_tag(proc_quoted(Config, Data, VTransOptions)),
+    case has_undefined(NK) orelse has_undefined(NV) of
+        true ->
+            {ok, {Data, Res}};
+        false ->
+            Key = render_template_text(NK),
+            case tag_value(DriverType, NV) of
+                {ok, Value} ->
+                    {ok, {Data, put_structured_kv(tag_key, Key, Value, Res)}};
+                {error, _} = Error ->
+                    Error
+            end
+    end.
+
+tag_value(erlang, Tokens) ->
+    text_value(Tokens);
+tag_value(native, Tokens) ->
+    case text_value(Tokens) of
+        {ok, #{value_data := {string_value, Value}}} -> {ok, Value};
+        {error, _} = Error -> Error
+    end.
+
+typed_field_value(DriverType, auto, Tmpl, Values) ->
+    case is_auto_text_template(Tmpl) of
+        true -> typed_value(DriverType, string, Values);
+        false -> typed_value(DriverType, auto, Values)
+    end;
+typed_field_value(DriverType, Type, _Tmpl, Values) ->
+    typed_value(DriverType, Type, Values).
+
+%% Auto keeps line-protocol type inference for one rendered value. A template
+%% with static text or multiple parts renders as a string.
+is_auto_text_template([{str, _}]) ->
+    false;
+is_auto_text_template([{var, _}]) ->
+    false;
+is_auto_text_template([{var, _}, {str, <<"i">>}]) ->
+    false;
+is_auto_text_template([{var, _}, {str, <<"u">>}]) ->
+    false;
+is_auto_text_template(_) ->
+    true.
+
+typed_value(erlang, auto, Values) ->
+    value_type(Values);
+typed_value(native, auto, Values) ->
+    native_auto_value(Values);
+typed_value(DriverType, string, Values) ->
+    Value = render_template_text(Values),
+    case DriverType of
+        erlang -> {ok, greptimedb_values:string_value(Value)};
+        native -> {ok, Value}
+    end;
+typed_value(DriverType, integer, [Value]) ->
+    maybe
+        {ok, Int} ?= typed_integer(Value),
+        true ?= Int >= ?INT64_MIN andalso Int =< ?INT64_MAX,
+        typed_integer_result(DriverType, Int)
+    else
+        _ -> {error, {invalid_integer_value, Value}}
+    end;
+typed_value(DriverType, float, [Value]) ->
+    maybe
+        {ok, Float} ?= typed_float(Value),
+        typed_float_result(DriverType, Float)
+    else
+        _ -> {error, {invalid_float_value, Value}}
+    end;
+typed_value(DriverType, boolean, [Value]) ->
+    maybe
+        {ok, Bool} ?= typed_boolean(Value),
+        typed_boolean_result(DriverType, Bool)
+    else
+        _ -> {error, {invalid_boolean_value, Value}}
+    end;
+typed_value(_DriverType, Type, Value) ->
+    {error, {invalid_field_value, #{type => Type, value => Value}}}.
+
+typed_integer(Value) when is_integer(Value) ->
+    {ok, Value};
+typed_integer(Value) when is_binary(Value) ->
+    try
+        {ok, binary_to_integer(Value)}
+    catch
+        error:badarg -> error
+    end;
+typed_integer(_Value) ->
+    error.
+
+typed_float(Value) when is_float(Value) ->
+    {ok, Value};
+typed_float(Value) when is_integer(Value) ->
+    try
+        {ok, float(Value)}
+    catch
+        error:badarg -> error
+    end;
+typed_float(Value) when is_binary(Value) ->
+    try
+        {ok, binary_to_float(Value)}
+    catch
+        error:badarg ->
+            try
+                {ok, float(binary_to_integer(Value))}
+            catch
+                error:badarg ->
+                    typed_float_string(Value)
+            end
+    end;
+typed_float(_Value) ->
+    error.
+
+typed_float_string(Value) ->
+    case
+        re:run(
+            Value,
+            <<"^[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$">>,
+            [{capture, none}]
+        )
+    of
+        match ->
+            try
+                {ok, binary_to_float(normalize_float_binary(Value))}
+            catch
+                error:badarg -> error
+            end;
+        nomatch ->
+            error
+    end.
+
+normalize_float_binary(Value0) ->
+    Value1 = binary:replace(Value0, <<"E">>, <<"e">>, [global]),
+    {Mantissa0, Exponent} =
+        case binary:split(Value1, <<"e">>) of
+            [Mantissa, Exp] -> {Mantissa, <<"e", Exp/binary>>};
+            [Mantissa] -> {Mantissa, <<>>}
+        end,
+    Mantissa1 = normalize_float_leading_zero(Mantissa0),
+    Mantissa2 = normalize_float_fraction(Mantissa1),
+    <<Mantissa2/binary, Exponent/binary>>.
+
+normalize_float_leading_zero(<<".", Rest/binary>>) ->
+    <<"0.", Rest/binary>>;
+normalize_float_leading_zero(<<"-.", Rest/binary>>) ->
+    <<"-0.", Rest/binary>>;
+normalize_float_leading_zero(<<"+", Rest/binary>>) ->
+    normalize_float_leading_zero(Rest);
+normalize_float_leading_zero(Value) ->
+    Value.
+
+normalize_float_fraction(Value) ->
+    Last = binary:last(Value),
+    case {Last, binary:match(Value, <<".">>)} of
+        {_Dot, nomatch} -> <<Value/binary, ".0">>;
+        {$., _} -> <<Value/binary, "0">>;
+        _ -> Value
+    end.
+
+typed_boolean(true) ->
+    {ok, true};
+typed_boolean(false) ->
+    {ok, false};
+typed_boolean(Value) when is_binary(Value) ->
+    try
+        case string:lowercase(Value) of
+            <<"true">> -> {ok, true};
+            <<"t">> -> {ok, true};
+            <<"false">> -> {ok, false};
+            <<"f">> -> {ok, false};
+            _ -> error
+        end
+    catch
+        error:_ -> error
+    end;
+typed_boolean(_Value) ->
+    error.
+
+typed_integer_result(erlang, Value) ->
+    {ok, greptimedb_values:int64_value(Value)};
+typed_integer_result(native, Value) ->
+    {ok, Value}.
+
+typed_float_result(erlang, Value) ->
+    {ok, greptimedb_values:float64_value(Value)};
+typed_float_result(native, Value) ->
+    {ok, Value}.
+
+typed_boolean_result(erlang, Value) ->
+    {ok, greptimedb_values:boolean_value(Value)};
+typed_boolean_result(native, Value) ->
+    {ok, Value}.
+
+render_measurement({structured, Tmpl}, Data) ->
+    TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
+    Parts = emqx_placeholder:proc_tmpl(Tmpl, Data, TransOptions),
+    case {has_undefined(Parts), render_template_text(Parts)} of
+        {true, _} ->
+            throw(missing_measurement);
+        {false, <<>>} ->
+            throw(empty_measurement);
+        {false, Measurement} ->
+            Measurement
+    end;
+render_measurement(Tmpl, Data) ->
+    emqx_placeholder:proc_tmpl(Tmpl, Data).
+
+render_template_text(Values) ->
+    iolist_to_binary([bin(Value) || Value <- Values]).
+
+has_undefined(Values) ->
+    lists:member(undefined, Values).
+
+put_structured_kv(KeyType, Key, Value, Acc) ->
+    case {Key, maps:is_key(Key, Acc)} of
+        {<<>>, _} ->
+            throw({empty_rendered_key, KeyType});
+        {_, true} ->
+            throw({duplicate_rendered_key, #{type => KeyType, key => Key}});
+        {_, false} ->
+            Acc#{Key => Value}
+    end.
+
 %% greptimedb stores timestamps as int64, so a value that overflows after the
 %% unit conversion is rejected rather than written wrapped.
+timestamp_fields(undefined, {_FromPrecision, ToPrecision}, ignore) ->
+    case convert_timestamp(now_ms(), {ms, ToPrecision}) of
+        {ok, Timestamp} -> {ok, #{timestamp => Timestamp}};
+        {error, _} = Error -> Error
+    end;
+timestamp_fields(undefined, _Precision, _MissingTimestamp) ->
+    {ok, #{}};
+timestamp_fields(Ts, Precision, _MissingTimestamp) ->
+    case convert_timestamp(Ts, Precision) of
+        {ok, Timestamp} -> {ok, #{timestamp => Timestamp}};
+        {error, _} = Error -> Error
+    end.
+
+convert_timestamp(undefined, _Precision) ->
+    {ok, undefined};
 convert_timestamp(Ts, Precision) ->
     Timestamp = maybe_convert_time_unit(Ts, Precision),
     case Timestamp >= ?INT64_MIN andalso Timestamp =< ?INT64_MAX of
@@ -322,18 +672,38 @@ data_filter(Number) when is_number(Number) -> Number;
 data_filter(Bool) when is_boolean(Bool) -> Bool;
 data_filter(Data) -> bin(Data).
 
-parse_timestamp([TsInt]) when is_integer(TsInt) ->
+parse_timestamp([undefined], error, _Precision) ->
+    {error, missing_timestamp};
+parse_timestamp([undefined], default, {FromPrecision, _}) ->
+    {ok,
+        maybe_convert_time_unit(
+            now_ms(),
+            {ms, FromPrecision}
+        )};
+parse_timestamp([TsInt], _MissingTimestamp, _Precision) when is_integer(TsInt) ->
     {ok, TsInt};
-parse_timestamp([TsBin]) ->
+parse_timestamp([TsBin], _MissingTimestamp, _Precision) ->
     try
         {ok, binary_to_integer(TsBin)}
     catch
         _:_ ->
             {error, TsBin}
-    end.
+    end;
+parse_timestamp(InvalidTs, _MissingTimestamp, _Precision) ->
+    {error, {unsupported_placeholder_usage_for_timestamp, InvalidTs}}.
 
-to_raw_value([N, Suffix]) when is_number(N), is_binary(Suffix) ->
-    N;
+to_raw_value([Int, <<"i">>]) when
+    is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX
+->
+    Int;
+to_raw_value([Int, <<"i">>]) ->
+    throw({invalid_integer_value, Int});
+to_raw_value([UInt, <<"u">>]) when
+    is_integer(UInt), UInt >= 0, UInt =< ?UINT64_MAX
+->
+    UInt;
+to_raw_value([UInt, <<"u">>]) ->
+    throw({invalid_unsigned_integer_value, UInt});
 to_raw_value([<<"t">>]) ->
     true;
 to_raw_value([<<"T">>]) ->
@@ -365,6 +735,21 @@ to_raw_value(Val0) ->
         _Error ->
             throw({unrecoverable_error, {non_utf8_string_value, Val0}})
     end.
+
+native_auto_value([Int, <<"i">>]) ->
+    try to_raw_value([Int, <<"i">>]) of
+        Value -> {ok, Value}
+    catch
+        throw:Reason -> {error, Reason}
+    end;
+native_auto_value([UInt, <<"u">>]) ->
+    try to_raw_value([UInt, <<"u">>]) of
+        Value -> {ok, Value}
+    catch
+        throw:Reason -> {error, Reason}
+    end;
+native_auto_value(Values) ->
+    {ok, to_raw_value(Values)}.
 
 value_type([Int, <<"i">>]) when
     is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX
@@ -416,19 +801,6 @@ value_type(Val0) when is_list(Val0) ->
 value_type(Val0) ->
     string_value(Val0).
 
-%% Line protocol tag values are text: token types are dropped, except an `i`/`u` suffix and a
-%% boolean from the payload, which stay typed.
-value_type_for_kind([_, <<"i">>] = NV, tag) ->
-    value_type(NV);
-value_type_for_kind([_, <<"u">>] = NV, tag) ->
-    value_type(NV);
-value_type_for_kind([Bool], tag) when is_boolean(Bool) ->
-    value_type([Bool]);
-value_type_for_kind(NV, tag) when is_list(NV) ->
-    text_value(NV);
-value_type_for_kind(NV, _Kind) ->
-    value_type(NV).
-
 text_value(Tokens) ->
     string_value([render_token(Token) || Token <- Tokens]).
 
@@ -463,6 +835,14 @@ proc_quoted({quoted, V}, Data, TransOpts) ->
     {quoted, emqx_placeholder:proc_tmpl(V, Data, TransOpts)};
 proc_quoted(V, Data, TransOpts) ->
     emqx_placeholder:proc_tmpl(V, Data, TransOpts).
+
+unwrap_quoted_tag({quoted, Values}) ->
+    Values;
+unwrap_quoted_tag(Values) ->
+    Values.
+
+now_ms() ->
+    erlang:system_time(millisecond).
 
 log_error_points(InstId, Errs) ->
     lists:foreach(

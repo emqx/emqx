@@ -75,14 +75,14 @@ on_add_channel(
     ChannelId,
     #{parameters := Parameters} = ChannelConfig0
 ) ->
-    #{write_syntax := WriteSyntaxTmpl} = Parameters,
+    %% Keep the default for channel state created before precision was mandatory.
     Precision = maps:get(precision, Parameters, ms),
+    WriteSyntax = emqx_bridge_greptimedb_utils:parse_action_parameters(Parameters, Precision),
     ChannelConfig = maps:merge(
         Parameters,
         ChannelConfig0#{
             precision => Precision,
-            write_syntax =>
-                emqx_bridge_greptimedb_utils:parse_write_syntax(WriteSyntaxTmpl, Precision)
+            write_syntax => WriteSyntax
         }
     ),
     {ok, OldState#{
@@ -804,7 +804,6 @@ quoted_field_value_utf8_test() ->
     ).
 
 value_type(X) -> emqx_bridge_greptimedb_utils:value_type(X).
-value_type(X, Kind) -> emqx_bridge_greptimedb_utils:value_type_for_kind(X, Kind).
 
 field_mixed_template_value_test() ->
     ?assertEqual(
@@ -845,38 +844,6 @@ tag_value_utf8_test() ->
         {error, [{error, {invalid_string_value, [<<255, 255>>]}}]},
         emqx_bridge_greptimedb_utils:data_to_points(Data, <<"public">>, SyntaxLines, DriverType)
     ).
-
-tag_value_typing_test() ->
-    %% text in a tag stays a string even when it spells a boolean literal
-    ?assertEqual(
-        {ok, #{value_data => {string_value, <<"T">>}}},
-        value_type([<<"T">>], tag)
-    ),
-    ?assertEqual(
-        {ok, #{value_data => {string_value, <<"FALSE">>}}},
-        value_type([<<"FALSE">>], tag)
-    ),
-    %% a boolean from the payload keeps its type in a tag and in a field
-    ?assertEqual({ok, #{value_data => {bool_value, true}}}, value_type([true], tag)),
-    ?assertEqual({ok, #{value_data => {bool_value, false}}}, value_type([false], tag)),
-    ?assertEqual({ok, #{value_data => {bool_value, true}}}, value_type([<<"T">>])),
-    %% a number or boolean inside a longer tag template is rendered as text
-    ?assertEqual({ok, #{value_data => {string_value, <<"65">>}}}, value_type([65], tag)),
-    ?assertEqual(
-        {ok, #{value_data => {string_value, <<"pre_1.5">>}}},
-        value_type([<<"pre_">>, 1.5], tag)
-    ),
-    ?assertEqual(
-        {ok, #{value_data => {string_value, <<"pre_true">>}}},
-        value_type([<<"pre_">>, true], tag)
-    ),
-    %% an `i`/`u` suffix keeps its type, a field keeps its typing
-    ?assertEqual({ok, #{value_data => {i64_value, 65}}}, value_type([65, <<"i">>], tag)),
-    ?assertEqual({ok, #{value_data => {u64_value, 65}}}, value_type([65, <<"u">>], tag)),
-    ?assertEqual({ok, #{value_data => {f64_value, 65.0}}}, value_type([65])),
-    %% the tag clauses do not swallow the `i`/`u` type and range checks
-    ?assertEqual({error, {invalid_integer_value, 470.5}}, value_type([470.5, <<"i">>], tag)),
-    ?assertEqual({error, {invalid_unsigned_integer_value, -1}}, value_type([-1, <<"u">>], tag)).
 
 %% for coverage
 desc_test_() ->
