@@ -2,10 +2,13 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Compile and render restricted SQL Server INSERT INTO VALUES templates.
 -module(emqx_bridge_sqlserver_sql).
 
+-moduledoc "Compile and render restricted SQL Server INSERT and UPDATE templates.".
+
 -behaviour(emqx_sql_plan).
+
+-include("emqx_bridge_sqlserver.hrl").
 
 -export([compile/1, render/3, render_batch/3]).
 -export_type([plan/0]).
@@ -44,10 +47,11 @@
 -type render_plan() :: [render_op()].
 
 -record(sqlserver_plan, {insert_prefix :: binary(), plan :: render_plan()}).
+-record(sqlserver_update_plan, {plan :: render_plan()}).
 
 -define(BATCH_SEPARATOR, <<", ">>).
 
--opaque plan() :: #sqlserver_plan{}.
+-opaque plan() :: #sqlserver_plan{} | #sqlserver_update_plan{}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -61,16 +65,18 @@ compile(SQL0) ->
             {ok, Tokens, _EndLine} ->
                 case emqx_bridge_sqlserver_sql_parser:parse(Tokens) of
                     {ok, AST} -> compile_ast(AST);
-                    {error, Reason} -> {error, {invalid_sqlserver_insert_template, Reason}}
+                    {error, Reason} -> {error, {invalid_sqlserver_template, Reason}}
                 end;
             {error, Reason, _EndLine} ->
-                {error, {invalid_sqlserver_insert_template, Reason}}
+                {error, {invalid_sqlserver_template, Reason}}
         end
     catch
-        Class:CatchReason -> {error, {invalid_sqlserver_insert_template, {Class, CatchReason}}}
+        Class:CatchReason -> {error, {invalid_sqlserver_template, {Class, CatchReason}}}
     end.
 
 -spec render(plan(), map(), map()) -> {ok, iolist()} | {error, term()}.
+render(#sqlserver_update_plan{plan = Plan}, Data, Opts) ->
+    render_unit(Plan, Data, Opts);
 render(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, Data, Opts) ->
     case render_unit(Plan, Data, Opts) of
         {ok, Rendered} -> {ok, [Prefix, Rendered]};
@@ -78,6 +84,8 @@ render(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, Data, Opts) ->
     end.
 
 -spec render_batch(plan(), [map()], map()) -> {ok, iolist()} | {error, term()}.
+render_batch(#sqlserver_update_plan{}, _DataList, _Opts) ->
+    {error, ?UPDATE_BATCH_ERROR};
 render_batch(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, DataList, Opts) when
     %% https://learn.microsoft.com/en-us/sql/t-sql/queries/table-value-constructor-transact-sql#limitations
     length(DataList) =< 1000
@@ -129,7 +137,9 @@ render_template_op(Style, Parts, Rest, Data, Opts, Cache0, Acc) ->
     case resolve_template_parts(Parts, Data, Cache0, []) of
         {ok, Resolved, Cache} ->
             case
-                encode_result(fun() -> encode_string(render_text_parts(Resolved, Opts), Style) end)
+                encode_result(fun() ->
+                    encode_string(render_text_parts(Resolved, Opts), Style, Opts)
+                end)
             of
                 {ok, Encoded} -> render_plan(Rest, Data, Opts, Cache, [Encoded | Acc]);
                 {error, Reason} -> {error, render_template_error(Parts, Reason)}
@@ -142,6 +152,7 @@ encode_result(Encoder) ->
     try
         {ok, Encoder()}
     catch
+        throw:{sqlserver_query_error, _} = QueryError -> throw(QueryError);
         Class:Reason -> {error, {Class, Reason}}
     end.
 
@@ -194,7 +205,22 @@ compile_ast({insert, #{target := Target, columns := Columns, row := Row}}) ->
     ColumnsSQL = serialize_columns(Columns),
     Head = <<"INSERT INTO ", TargetSQL/binary, ColumnsSQL/binary, " VALUES ">>,
     Unit = merge_render_ops(compile_row(Row)),
-    {ok, #sqlserver_plan{insert_prefix = Head, plan = Unit}}.
+    {ok, #sqlserver_plan{insert_prefix = Head, plan = Unit}};
+compile_ast({update, #{target := Target, assignments := Assignments, where := Where}}) ->
+    TargetSQL = iolist_to_binary(lists:join($., [serialize_target_part(I) || I <- Target])),
+    Ops =
+        [#raw{sql = <<"UPDATE ", TargetSQL/binary, " SET ">>}] ++
+            join_ops(<<", ">>, [compile_assignment(A) || A <- Assignments]) ++
+            compile_where(Where),
+    {ok, #sqlserver_update_plan{plan = merge_render_ops(Ops)}}.
+
+compile_assignment({Column, Expression}) ->
+    [#raw{sql = <<(serialize_identifier(Column))/binary, " = ">>} | compile_expression(Expression)].
+
+compile_where(undefined) ->
+    [];
+compile_where(Expression) ->
+    [#raw{sql = <<" WHERE ">>} | compile_expression(Expression)].
 
 serialize_target_part(empty) ->
     <<>>;
@@ -254,7 +280,11 @@ compile_expression({var, Placeholder}) ->
 compile_expression({string, Style, Source}) ->
     case parse_string(Source, Style) of
         [#tpl_text{text = Text}] ->
-            [#raw{sql = iolist_to_binary(encode_string(Text, Style))}];
+            ok = assert_no_nul(Text),
+            case Style =:= varchar andalso value_string_style(Text) =:= nvarchar of
+                true -> [compile_string_op(Style, [#tpl_text{text = Text}])];
+                false -> [#raw{sql = iolist_to_binary(encode_string(Text, Style))}]
+            end;
         Parts ->
             [compile_string_op(Style, Parts)]
     end;
@@ -268,8 +298,9 @@ compile_expression(default) ->
     [#raw{sql = <<"DEFAULT">>}];
 compile_expression(current_timestamp) ->
     [#raw{sql = <<"CURRENT_TIMESTAMP">>}];
-compile_expression({identifier_value, Name}) ->
-    [#raw{sql = Name}];
+compile_expression({column, Name}) ->
+    SQL = iolist_to_binary(lists:join($., [serialize_function_part(I) || I <- Name])),
+    [#raw{sql = SQL}];
 compile_expression({call, Name, Args}) ->
     FunctionName = iolist_to_binary(lists:join($., [serialize_function_part(I) || I <- Name])),
     [
@@ -338,6 +369,12 @@ parse_string_body(<<>>, Text, Parts) ->
     finish_parts(Text, Parts);
 parse_string_body(<<$', $', Rest/binary>>, Text, Parts) ->
     parse_string_body(Rest, [$' | Text], Parts);
+parse_string_body(<<$\\, $\r, $\n, Rest/binary>>, Text, Parts) ->
+    parse_string_body(Rest, Text, Parts);
+parse_string_body(<<$\\, $\n, Rest/binary>>, Text, Parts) ->
+    parse_string_body(Rest, Text, Parts);
+parse_string_body(<<$\\, $\r, Rest/binary>>, Text, Parts) ->
+    parse_string_body(Rest, [$\r | Text], Parts);
 parse_string_body(<<"${$}", Rest/binary>>, Text, Parts) ->
     parse_string_body(Rest, [$$ | Text], Parts);
 parse_string_body(<<"${", _/binary>> = Bin, Text, Parts) ->
@@ -398,27 +435,44 @@ merge_render_ops(Ops) ->
         )
     ).
 
-encode_value(undefined, #{undefined_vars_as_null := false}) ->
-    encode_string(<<"undefined">>, varchar);
+encode_value(undefined, #{undefined_vars_as_null := false} = Opts) ->
+    encode_string(<<"undefined">>, varchar, Opts);
 encode_value(undefined, _Opts) ->
     <<"NULL">>;
 encode_value(null, _Opts) ->
     <<"NULL">>;
-encode_value(true, _Opts) ->
-    encode_string(<<"true">>, varchar);
-encode_value(false, _Opts) ->
-    encode_string(<<"false">>, varchar);
+encode_value(true, Opts) ->
+    encode_string(<<"true">>, varchar, Opts);
+encode_value(false, Opts) ->
+    encode_string(<<"false">>, varchar, Opts);
 encode_value(Value, _Opts) when is_integer(Value) ->
     integer_to_binary(Value);
 encode_value(Value, _Opts) when is_float(Value) ->
-    emqx_template:to_string(Value);
-encode_value(<<"0x", Rest/binary>> = Value, _Opts) ->
-    case Rest =/= <<>> andalso re:run(Rest, <<"^[0-9A-Fa-f]+$">>, [{capture, none}]) =:= match of
+    float_to_binary(Value, [short]);
+encode_value(<<"0x", Rest/binary>> = Value, Opts) ->
+    case re:run(Rest, <<"\\A[0-9A-Fa-f]+\\z">>, [{capture, none}]) =:= match of
         true -> Value;
-        false -> encode_string(Value, varchar)
+        false -> encode_text_value(Value, Opts)
     end;
-encode_value(Value, _Opts) ->
-    encode_string(to_text(Value), varchar).
+encode_value(Value, Opts) ->
+    encode_text_value(Value, Opts).
+
+encode_text_value(Value, Opts) ->
+    Text = to_text(Value),
+    encode_string(Text, value_string_style(Text), Opts).
+
+value_string_style(<<Byte, Rest/binary>>) when Byte < 128 ->
+    value_string_style(Rest);
+value_string_style(<<>>) ->
+    varchar;
+value_string_style(_Text) ->
+    nvarchar.
+
+assert_valid_utf8(Text) ->
+    case unicode:characters_to_binary(Text, utf8, utf8) of
+        UTF8 when is_binary(UTF8) -> ok;
+        _InvalidUTF8 -> error(invalid_utf8)
+    end.
 
 -spec render_text_parts([part()], map()) -> binary().
 render_text_parts(Parts, Opts) ->
@@ -438,13 +492,58 @@ render_text_parts(Parts, Opts) ->
     ]).
 
 to_text(Value) when is_binary(Value) -> Value;
-to_text(Value) -> iolist_to_binary(emqx_template:to_string(Value)).
+to_text(Value) when is_float(Value) -> float_to_binary(Value, [short]);
+to_text(Value) -> unicode:characters_to_binary(emqx_template:to_string(Value)).
 
 encode_string(Text, Style) ->
+    encode_string(Text, Style, #{}).
+
+encode_string(Text, Style, Opts) ->
     %% OTP ODBC uses SQL_NTS. An embedded NUL would truncate the statement:
     %% https://github.com/erlang/otp/blob/OTP-26.2.5.14/lib/odbc/c_src/odbcserver.c#L620-L642
     %% https://learn.microsoft.com/en-us/sql/odbc/reference/develop-app/using-length-and-indicator-values
     ok = assert_no_nul(Text),
+    ok = assert_valid_utf8(Text),
+    case needs_hex_encoding(Text) of
+        false -> encode_quoted_string(Text, Style);
+        true -> encode_hex_string(Text, Style, Opts)
+    end.
+
+needs_hex_encoding(Text) ->
+    value_string_style(Text) =:= nvarchar orelse
+        binary:match(Text, [<<$\\, $\n>>, <<$\\, $\r>>]) =/= nomatch.
+
+encode_hex_string(Text, Style, Opts) ->
+    UTF16 = unicode:characters_to_binary(Text, utf8, {utf16, little}),
+    Units = byte_size(UTF16) div 2,
+    Unicode = [
+        "CONVERT(NVARCHAR(", string_size(Units, 4000), "), 0x", binary:encode_hex(UTF16), ")"
+    ],
+    case Style of
+        nvarchar ->
+            Unicode;
+        varchar ->
+            MaxBytes = varchar_bytes(Text, Unicode, Opts),
+            ["CONVERT(VARCHAR(", string_size(MaxBytes, 8000), "), ", Unicode, ")"]
+    end.
+
+%% UTF-8 bounds the converted size; resolve larger values in the target database.
+varchar_bytes(Text, Unicode, Opts) ->
+    UTF8Bytes = byte_size(Text),
+    case UTF8Bytes > 8000 andalso value_string_style(Text) =:= nvarchar of
+        true ->
+            case maps:find(varchar_bytes, Opts) of
+                {ok, Resolve} -> Resolve(Unicode);
+                error -> UTF8Bytes
+            end;
+        false ->
+            UTF8Bytes
+    end.
+
+string_size(Size, Limit) when Size =< Limit -> integer_to_binary(max(1, Size));
+string_size(_Size, _Limit) -> <<"MAX">>.
+
+encode_quoted_string(Text, Style) ->
     Escaped = binary:replace(Text, <<"'">>, <<"''">>, [global]),
     Prefix =
         case Style of
@@ -653,18 +752,75 @@ batch_shape_test() ->
         render_batch(Plan, [#{payload => <<"extra">>} | Rows], null_opts())
     ).
 
-%% Checks rendering of arbitrary binary and Unicode values in SQL Server strings.
+%% Checks rejection of raw binary and rendering of Unicode values in SQL Server strings.
 binary_and_unicode_value_test() ->
     {ok, ValuePlan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     ?assertEqual(
-        {ok, <<"INSERT INTO [t] ([v]) VALUES ('", 16#FF, "')">>},
-        rendered_binary(render(ValuePlan, #{payload => <<16#FF>>}, null_opts()))
+        {error,
+            {invalid_sql_template_value, #{
+                placeholder => "payload", reason => {error, invalid_utf8}
+            }}},
+        render(ValuePlan, #{payload => <<16#FF>>}, null_opts())
     ),
     Unicode = <<"你好😀"/utf8>>,
     {ok, UnicodePlan} = compile(<<"INSERT INTO t(v) VALUES (N'pre${payload}post')">>),
     ?assertEqual(
-        {ok, <<"INSERT INTO [t] ([v]) VALUES (N'pre", Unicode/binary, "post')">>},
+        {ok,
+            <<"INSERT INTO [t] ([v]) VALUES (CONVERT(NVARCHAR(11), 0x700072006500604F7D593DD800DE70006F0073007400))">>},
         rendered_binary(render(UnicodePlan, #{payload => Unicode}, null_opts()))
+    ).
+
+line_ending_strings_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (N'${payload}\nb')">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO [t] ([v]) VALUES (CONVERT(NVARCHAR(4), 0x61005C000A006200))">>},
+        rendered_binary(render(Plan, #{payload => <<"a\\">>}, null_opts()))
+    ),
+    lists:foreach(
+        fun(Line) ->
+            {ok, StaticPlan} = compile(<<"INSERT INTO t(v) VALUES (N'a\\", Line/binary, "b')">>),
+            ?assertEqual(
+                {ok, <<"INSERT INTO [t] ([v]) VALUES (N'ab')">>},
+                rendered_binary(render(StaticPlan, #{}, null_opts()))
+            )
+        end,
+        [<<"\n">>, <<"\r\n">>]
+    ).
+
+invalid_utf8_strings_test() ->
+    InvalidValues = [
+        <<16#FF>>,
+        <<16#C3>>,
+        <<16#C0, 16#AF>>,
+        <<16#ED, 16#A0, 16#80>>,
+        <<16#F4, 16#90, 16#80, 16#80>>,
+        <<"中文😀"/utf8, 16#FF>>
+    ],
+    lists:foreach(
+        fun(Expression) ->
+            {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (", Expression/binary, ")">>),
+            lists:foreach(
+                fun(Value) ->
+                    ?assertMatch(
+                        {error, {invalid_sql_template_value, #{reason := {error, invalid_utf8}}}},
+                        render(Plan, #{payload => Value}, null_opts())
+                    ),
+                    ?assertMatch(
+                        {error,
+                            {sqlserver_template_render_failed, #{
+                                batch_index := 2,
+                                reason :=
+                                    {invalid_sql_template_value, #{reason := {error, invalid_utf8}}}
+                            }}},
+                        render_batch(
+                            Plan, [#{payload => <<"中文😀"/utf8>>}, #{payload => Value}], null_opts()
+                        )
+                    )
+                end,
+                InvalidValues
+            )
+        end,
+        [<<"${payload}">>, <<"'pre${payload}post'">>, <<"N'pre${payload}post'">>]
     ).
 
 %% Checks that a hexadecimal binary literal renders without string quoting.
@@ -737,6 +893,110 @@ lexical_boundary_test() ->
     lists:foreach(fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end, Rejected),
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     ?assertMatch({error, _}, render(Plan, #{payload => <<"a", 0, "b">>}, null_opts())).
+
+unicode_value_type_test() ->
+    {ok, Plan} = compile(<<"UPDATE t SET v = ${value} WHERE k = ${key}">>),
+    ?assertEqual(
+        {ok, <<
+            "UPDATE [t] SET [v] = CONVERT(NVARCHAR(4), 0x2857BF7E3DD800DE) "
+            "WHERE k = CONVERT(NVARCHAR(4), 0xBE8B075927003100)"
+        >>},
+        rendered_binary(
+            render(Plan, #{value => <<"在线😀"/utf8>>, key => <<"设备'1"/utf8>>}, null_opts())
+        )
+    ).
+
+text_normalization_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
+    lists:foreach(
+        fun({Value, Expected}) ->
+            {ok, SQL} = render(Plan, #{payload => Value}, null_opts()),
+            Bin = iolist_to_binary(SQL),
+            ?assert(lists:all(fun(Byte) -> Byte < 128 end, binary_to_list(Bin))),
+            Hex = binary:encode_hex(unicode:characters_to_binary(Expected, utf8, {utf16, little})),
+            ?assertNotEqual(nomatch, binary:match(Bin, Hex)),
+            ?assertNotEqual(nomatch, binary:match(Bin, <<"CONVERT(NVARCHAR(">>))
+        end,
+        [
+            {<<"0x中文😀"/utf8>>, <<"0x中文😀"/utf8>>},
+            {<<"0xz中文😀"/utf8>>, <<"0xz中文😀"/utf8>>},
+            {[233], <<"é"/utf8>>},
+            {[20013, 128512], <<"中😀"/utf8>>}
+        ]
+    ),
+    ?assertEqual(
+        {ok, <<"INSERT INTO [t] ([v]) VALUES ('0xFF\n')">>},
+        rendered_binary(render(Plan, #{payload => <<"0xFF\n">>}, null_opts()))
+    ).
+
+float_precision_test() ->
+    lists:foreach(
+        fun(Value) ->
+            Encoded = encode_value(Value, null_opts()),
+            ?assertEqual(Value, binary_to_float(Encoded)),
+            ?assert(byte_size(Encoded) < 32),
+            ?assertEqual(Encoded, to_text(Value))
+        end,
+        [1.0e-12, 1.0e40, 0.12345678901234566, 0.125]
+    ).
+
+bounded_hex_strings_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES ('${payload}')">>),
+    {ok, SQL} = render(Plan, #{payload => <<"中文😀"/utf8>>}, null_opts()),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(iolist_to_binary(SQL), <<"CONVERT(VARCHAR(10), CONVERT(NVARCHAR(4),">>)
+    ).
+
+insert_keyword_identifiers_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO Where(SET, Update) VALUES (${value}, ${key})">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO [Where] ([SET], [Update]) VALUES ('online', 'd1')">>},
+        rendered_binary(render(Plan, #{value => <<"online">>, key => <<"d1">>}, null_opts()))
+    ).
+
+update_template_test() ->
+    {ok, Plan} = compile(<<"""
+    UPDATE mqtt.dbo.points SET [value] = ${payload.value}, count = count + 1
+    WHERE [device] = ${payload.device} AND point = ${payload.point}
+    """>>),
+    ?assertEqual(
+        {ok, <<"""
+        UPDATE [mqtt].[dbo].[points] SET [value] = 'on''line', [count] = count + 1 WHERE [device] = 'd1' AND point = 2
+        """>>},
+        rendered_binary(
+            render(
+                Plan,
+                #{payload => #{value => <<"on'line">>, device => <<"d1">>, point => 2}},
+                null_opts()
+            )
+        )
+    ),
+    ?assertEqual(
+        {error, <<"UPDATE statements are not supported for batch operations">>},
+        render_batch(Plan, [#{}, #{}], null_opts())
+    ).
+
+update_quoted_columns_test() ->
+    {ok, Plan} = compile(<<"""
+    UPDATE [dbo].[points] SET "value" = COALESCE(${v}, [value]) WHERE points."key" IS NOT NULL;
+    """>>),
+    ?assertEqual(
+        {ok, <<"""
+        UPDATE [dbo].[points] SET [value] = COALESCE(NULL, [value]) WHERE points.[key] IS NOT NULL
+        """>>},
+        rendered_binary(render(Plan, #{v => null}, null_opts()))
+    ),
+    ?assertMatch({ok, _}, compile(<<"UPDATE points SET value = ${v}">>)),
+    lists:foreach(
+        fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end,
+        [
+            <<"UPDATE ${table} SET value = ${v} WHERE id = ${id}">>,
+            <<"UPDATE points SET [${column}] = ${v} WHERE id = ${id}">>,
+            <<"UPDATE points SET value = ${v}; DELETE FROM points">>,
+            <<"UPDATE points SET WHERE id = ${id}">>
+        ]
+    ).
 
 rendered_binary({ok, SQL}) ->
     ?assert(is_list(SQL)),

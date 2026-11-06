@@ -53,7 +53,7 @@
 ]).
 
 %% Internal exports used to execute code with ecpool worker
--export([do_get_status/1, worker_do_insert/3, get_servername/1]).
+-export([do_get_status/1, worker_do_insert/3, get_servername/1, worker_varchar_bytes/3]).
 
 -export([parse_server/1]).
 
@@ -276,7 +276,7 @@ on_add_channel(
     end.
 
 create_channel_state(
-    #{parameters := ChannelConf}
+    #{parameters := ChannelConf} = ChannelConfig
 ) ->
     case maps:get(sql, ChannelConf, undefined) of
         undefined ->
@@ -284,10 +284,18 @@ create_channel_state(
         <<>> ->
             {error, missing_sql_template};
         SQL ->
-            case emqx_sql_plan:compile(emqx_bridge_sqlserver_sql, SQL) of
-                {ok, Plan} -> {ok, #{sql_plan => Plan, channel_conf => ChannelConf}};
-                {error, _} = Error -> Error
+            maybe
+                ok ?= validate_batch_size(SQL, ChannelConfig),
+                {ok, Plan} ?= emqx_sql_plan:compile(emqx_bridge_sqlserver_sql, SQL),
+                {ok, #{sql_plan => Plan, channel_conf => ChannelConf}}
             end
+    end.
+
+validate_batch_size(SQL, ChannelConfig) ->
+    BatchSize = emqx_utils_maps:deep_get([resource_opts, batch_size], ChannelConfig, 100),
+    case emqx_utils_sql:get_statement_type(SQL) of
+        update when BatchSize > 1 -> {error, ?UPDATE_BATCH_ERROR};
+        _ -> ok
     end.
 
 on_remove_channel(
@@ -497,23 +505,49 @@ do_query(ResourceId, Query, ApplyMode, State) ->
     ChannelId = get_channel_id(Query),
     QueryTuple = get_query_tuple(Query),
     #{sql_plan := Plan} = ChannelState = maps:get(ChannelId, Channels),
-    ChannelConf = maps:get(channel_conf, ChannelState, #{}),
-    %% only insert sql statement for single query and batch query
-    case apply_template(QueryTuple, Plan, ChannelConf) of
-        {ok, SQL} ->
-            emqx_trace:rendered_action_template(ChannelId, #{
-                sql => SQL
-            }),
-            Result = ecpool:pick_and_do(
-                PoolName,
-                {?MODULE, worker_do_insert, [SQL, State]},
-                ApplyMode
-            );
-        {error, Reason} ->
-            Result = {error, {unrecoverable_error, Reason}}
-    end,
+    ChannelConf0 = maps:get(channel_conf, ChannelState, #{}),
+    ChannelConf = ChannelConf0#{
+        varchar_bytes => fun(Unicode) ->
+            ?tp(sqlserver_varchar_size_requested, #{connector => ResourceId}),
+            try
+                ecpool:pick_and_do(
+                    PoolName, {?MODULE, worker_varchar_bytes, [Unicode, State]}, handover
+                )
+            of
+                {ok, Bytes} -> Bytes;
+                {error, _} = Error -> throw({sqlserver_query_error, Error})
+            catch
+                exit:Reason ->
+                    throw({sqlserver_query_error, {error, {recoverable_error, Reason}}})
+            end
+        end
+    },
+    Result =
+        try apply_template(QueryTuple, Plan, ChannelConf) of
+            {ok, SQL} ->
+                emqx_trace:rendered_action_template(ChannelId, #{sql => SQL}),
+                ecpool:pick_and_do(
+                    PoolName, {?MODULE, worker_do_insert, [SQL, State]}, ApplyMode
+                );
+            {error, Reason} ->
+                {error, {unrecoverable_error, Reason}}
+        catch
+            throw:{sqlserver_query_error, Error} -> Error
+        end,
     handle_result(Result, ResourceId, Query).
 
+handle_result({selected, Rows, _Columns}, ResourceId, Query) ->
+    handle_result({ok, Rows}, ResourceId, Query);
+handle_result({updated, _}, ResourceId, Query) ->
+    handle_result(ok, ResourceId, Query);
+handle_result(Results, ResourceId, Query) when is_list(Results) ->
+    Result =
+        try lists:foreach(fun ensure_query_success/1, Results) of
+            ok -> ok
+        catch
+            error:Reason -> {error, {unrecoverable_error, {invalid_request, Reason}}}
+        end,
+    handle_result(Result, ResourceId, Query);
 handle_result({error, {recoverable_error, _} = Reason} = Result, _ResourceId, _Query) ->
     ?tp(sqlserver_connector_query_return, #{error => Reason}),
     Result;
@@ -537,29 +571,8 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
     LogMeta = #{connector => ResourceId},
     try
         case execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
-            {selected, Rows, _} ->
-                {ok, Rows};
-            {updated, _} ->
-                ok;
-            {error, ErrStr} ->
-                IsConnectionClosedError = is_connection_closed_error(ErrStr),
-                IsConnectionBrokenError = is_connection_broken_error(ErrStr),
-                ErrStr1 =
-                    case is_table_or_view_not_found_error(ErrStr) of
-                        true ->
-                            <<"table_or_view_not_found">>;
-                        false ->
-                            ErrStr
-                    end,
-                {LogLevel, Err} =
-                    case IsConnectionClosedError orelse IsConnectionBrokenError of
-                        true ->
-                            {info, {recoverable_error, <<"connection_closed">>}};
-                        false ->
-                            {error, {unrecoverable_error, {invalid_request, ErrStr1}}}
-                    end,
-                ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr1}),
-                {error, Err}
+            {error, ErrStr} -> query_error(ErrStr, LogMeta);
+            Result -> Result
         end
     catch
         _Type:Reason:St ->
@@ -567,10 +580,46 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
 
+worker_varchar_bytes(Conn, Unicode, #{resource_opts := ResourceOpts, pool_name := ResourceId}) ->
+    SQL = ["SELECT CAST(DATALENGTH(CONVERT(VARCHAR(MAX),", Unicode, ")) AS INT)"],
+    try execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
+        {selected, _, [{Bytes}]} when is_integer(Bytes), Bytes >= 0 -> {ok, Bytes};
+        {error, connection_closed} -> {error, {recoverable_error, <<"connection_closed">>}};
+        {error, timeout} -> {error, {recoverable_error, timeout}};
+        {error, Reason} -> query_error(Reason, #{connector => ResourceId});
+        Other -> {error, {unrecoverable_error, {invalid_request, {unexpected_varchar_size, Other}}}}
+    catch
+        exit:ExitReason -> {error, {recoverable_error, ExitReason}}
+    end.
+
+query_error(ErrStr, LogMeta) ->
+    IsConnectionClosedError = is_connection_closed_error(ErrStr),
+    IsConnectionBrokenError = is_connection_broken_error(ErrStr),
+    ErrStr1 =
+        case is_table_or_view_not_found_error(ErrStr) of
+            true ->
+                <<"table_or_view_not_found">>;
+            false ->
+                ErrStr
+        end,
+    {LogLevel, Err} =
+        case IsConnectionClosedError orelse IsConnectionBrokenError of
+            true ->
+                {info, {recoverable_error, <<"connection_closed">>}};
+            false ->
+                {error, {unrecoverable_error, {invalid_request, ErrStr1}}}
+        end,
+    ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr1}),
+    {error, Err}.
+
+ensure_query_success({updated, _}) -> ok;
+ensure_query_success({selected, _, _}) -> ok;
+ensure_query_success(Result) -> error({unexpected_query_result, Result}).
+
 %% Potential race condition: if an insert request is made while the connection is being
 %% cut by the remote server, this error might be returned.
 %% References:
-%% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error?view=sql-server-ver16
+%% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error
 is_connection_closed_error(MsgStr) ->
     case re:run(MsgStr, <<"0x2746[^0-9a-fA-F]?">>, [{capture, none}]) of
         match ->
@@ -606,21 +655,18 @@ is_table_or_view_not_found_error(MsgStr) ->
 -spec execute(connection_reference(), sql()) ->
     updated_tuple()
     | selected_tuple()
-    | [updated_tuple()]
-    | [selected_tuple()]
+    | [updated_tuple() | selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL) ->
-    %% ODBC forwards the outer list to gen_tcp:send/2 as iodata.
-    odbc:sql_query(Conn, SQL).
+    odbc:sql_query(Conn, binary_to_list(iolist_to_binary(SQL))).
 
 -spec execute(connection_reference(), sql(), time_out()) ->
     updated_tuple()
     | selected_tuple()
-    | [updated_tuple()]
-    | [selected_tuple()]
+    | [updated_tuple() | selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL, Timeout) ->
-    odbc:sql_query(Conn, SQL, Timeout).
+    odbc:sql_query(Conn, binary_to_list(iolist_to_binary(SQL)), Timeout).
 
 get_channel_id([{ChannelId, _Req} | _]) ->
     ChannelId;
@@ -639,7 +685,7 @@ get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
 get_query_tuple([_InsertQuery | _] = Reqs) ->
     lists:map(fun get_query_tuple/1, Reqs).
 
-%% single insert
+%% Single statement
 apply_template(
     {?ACTION_SEND_MESSAGE, Msg}, Plan, ChannelConf
 ) ->
@@ -658,7 +704,8 @@ apply_template(Query, _Plan, _) ->
     {error, failed_to_apply_sql_template}.
 
 render_opts(ChannelConf) ->
-    #{undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false)}.
+    Opts = maps:with([varchar_bytes], ChannelConf),
+    Opts#{undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false)}.
 
 to_bin(B) when is_binary(B) ->
     B;
