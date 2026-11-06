@@ -36,6 +36,14 @@
 %% Internal exports
 -export([reply_callback/2]).
 
+-ifdef(TEST).
+-export([
+    aggregate_message_results/3,
+    coalesce_mixed_batch_results/1,
+    normalize_insert_result/1
+]).
+-endif.
+
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
@@ -211,7 +219,7 @@ on_query(
     #{?write_syntax := WriteSyntax} = ActionState,
     case parse_batch_data(ConnResId, Database, [{ChanResId, Data}], WriteSyntax) of
         {ok, TablesToPoints, _Failed = []} ->
-            [Result] = do_insert_sync(TablesToPoints, ConnState, []),
+            [Result] = do_insert_sync(TablesToPoints, ConnState, [], 1),
             Result;
         {error, ErrorPoints} ->
             {error, ErrorPoints}
@@ -224,7 +232,7 @@ on_query(_ConnResId, Query, _ConnState) ->
     {message_tag(), map()},
     {ReplyFun :: function(), Args :: list()},
     connector_state()
-) -> {ok, pid()} | {error, term()}.
+) -> ok | {ok, pid()} | {error, term()}.
 on_query_async(
     ConnResId,
     {ChanResId, #{} = Data},
@@ -238,7 +246,7 @@ on_query_async(
     #{?write_syntax := WriteSyntax} = ActionState,
     case parse_batch_data(ConnResId, Database, [{ChanResId, Data}], WriteSyntax) of
         {ok, TablesToPoints, _Failed = []} ->
-            do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs, []);
+            do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs, [], 1);
         {error, ErrorPoints} ->
             {error, ErrorPoints}
     end;
@@ -259,7 +267,7 @@ on_batch_query(
     #{?write_syntax := WriteSyntax} = ActionState,
     case parse_batch_data(ConnResId, Database, Batch, WriteSyntax) of
         {ok, TablesToPoints, Failed} ->
-            do_insert_sync(TablesToPoints, ConnState, Failed);
+            do_insert_sync(TablesToPoints, ConnState, Failed, length(Batch));
         {error, ErrorPoints} ->
             {error, ErrorPoints}
     end;
@@ -286,7 +294,14 @@ on_batch_query_async(
     #{?write_syntax := WriteSyntax} = ActionState,
     case parse_batch_data(ConnResId, Database, Batch, WriteSyntax) of
         {ok, TablesToPoints, Failed} ->
-            do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs, Failed);
+            do_insert_async(
+                ChanResId,
+                TablesToPoints,
+                ConnState,
+                ReplyFnAndArgs,
+                Failed,
+                length(Batch)
+            );
         {error, ErrorPoints} ->
             {error, ErrorPoints}
     end;
@@ -301,14 +316,16 @@ on_batch_query_async(_ConnResId, Queries, _ReplyFnAndArgs, _ConnectorState) ->
 %% Internal exports
 %%------------------------------------------------------------------------------
 
-reply_callback(Context0, Result) ->
-    #{iter := Iter0} = Context0,
+reply_callback(Context0, Result0) ->
+    Result = normalize_insert_result(Result0),
+    Context = normalize_async_reply_context(Context0),
+    #{iter := Iter0} = Context,
     case maps:next(Iter0) of
         none ->
-            handle_last_async_result(Context0, Result);
+            handle_last_async_result(Context, Result);
         {NextTable, PointsWithIndices, Iter} ->
-            Context = Context0#{iter := Iter},
-            handle_async_result_continuation(Context, Result, NextTable, PointsWithIndices)
+            Context1 = Context#{iter := Iter},
+            handle_async_result_continuation(Context1, Result, NextTable, PointsWithIndices)
     end.
 
 %%------------------------------------------------------------------------------
@@ -316,6 +333,55 @@ reply_callback(Context0, Result) ->
 %%------------------------------------------------------------------------------
 
 bin(X) -> emqx_utils_conv:bin(X).
+
+%% A callback scheduled before a hot upgrade runs this module with the previous
+%% context shape. Normalize it before the current continuation reads the state.
+normalize_async_reply_context(#{last_points_by_index := _} = Context) ->
+    Context;
+normalize_async_reply_context(Context0) ->
+    Iter = maps:get(iter, Context0),
+    LastIndices = maps:get(last_indices, Context0, []),
+    LastPointsByIndex = count_points_by_index([{Index, undefined} || Index <- LastIndices]),
+    ResultAcc = normalize_legacy_result_acc(maps:get(final_res, Context0, [])),
+    BatchSize = legacy_batch_size(
+        maps:get(is_batch, Context0, true),
+        LastPointsByIndex,
+        ResultAcc,
+        Iter
+    ),
+    Context0#{
+        last_points_by_index => LastPointsByIndex,
+        result_acc => ResultAcc,
+        batch_size => BatchSize
+    }.
+
+normalize_legacy_result_acc(Results) ->
+    [normalize_legacy_result(Result) || Result <- Results].
+
+normalize_legacy_result({Index, PointCount, Result}) when
+    is_integer(Index), is_integer(PointCount)
+->
+    {Index, PointCount, Result};
+normalize_legacy_result({Index, Result}) ->
+    {Index, 1, Result}.
+
+legacy_batch_size(false, _LastPointsByIndex, _ResultAcc, _Iter) ->
+    1;
+legacy_batch_size(true, LastPointsByIndex, ResultAcc, Iter) ->
+    Indices =
+        [Index || {Index, _PointCount} <- LastPointsByIndex] ++
+            [Index || {Index, _PointCount, _Result} <- ResultAcc] ++
+            remaining_indices(Iter),
+    lists:max([1 | Indices]).
+
+remaining_indices(Iter) ->
+    remaining_indices(maps:next(Iter), []).
+
+remaining_indices(none, Acc) ->
+    Acc;
+remaining_indices({_Table, PointsWithIndices, Iter}, Acc) ->
+    Indices = [Index || {Index, _Point} <- PointsWithIndices],
+    remaining_indices(maps:next(Iter), Indices ++ Acc).
 
 %% `Failed' carries the messages whose points did not transform, each keyed by
 %% its position in the batch. The points keep their own positions too, so the
@@ -360,87 +426,368 @@ group_points_by_table(IndexedPoints) ->
         TablesToPoints0
     ).
 
-do_insert_sync(TablesToPoints, ConnState, Failed) ->
+do_insert_sync(TablesToPoints, ConnState, Failed, BatchSize) ->
     #{?client := Client} = ConnState,
-    Results0 =
+    TableResults =
         maps:fold(
-            fun(Table, PointsWithIndices, Acc0) ->
-                {Indices, Points} = lists:unzip(PointsWithIndices),
-                Res0 = greptimedb_rs:insert(Client, Table, Points),
-                Res = lists:map(fun(I) -> {I, Res0} end, Indices),
-                [Res | Acc0]
+            fun(Table, PointsWithIndices, Acc) ->
+                PointsByIndex = count_points_by_index(PointsWithIndices),
+                Points = [Point || {_, Point} <- PointsWithIndices],
+                Res0 = normalize_insert_result(greptimedb_rs:insert(Client, Table, Points)),
+                [
+                    {Index, PointCount, Res0}
+                 || {Index, PointCount} <- PointsByIndex
+                ] ++ Acc
             end,
-            [Failed],
+            [],
             TablesToPoints
         ),
-    Results1 = lists:flatten(Results0),
-    Results2 = lists:keysort(1, Results1),
-    {_, Results} = lists:unzip(Results2),
+    Results = coalesce_mixed_batch_results(
+        aggregate_message_results(BatchSize, TableResults, Failed)
+    ),
     ?tp("greptime_rs_sync_batch_reply", #{results => Results}),
     Results.
 
-do_insert_async(_ChanResId, TablesToPoints, _ConnState, ReplyFnAndArgs, _Failed) when
+do_insert_async(
+    _ChanResId, TablesToPoints, _ConnState, ReplyFnAndArgs, Failed, BatchSize
+) when
     map_size(TablesToPoints) == 0
 ->
-    %% Should be impossible, since we only trigger action with non-empty batches.
-    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {ok, #{}}),
-    {ok, self()};
-do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0, Failed) ->
+    Results = aggregate_message_results(BatchSize, [], Failed),
+    reply_async_result(ReplyFnAndArgs, BatchSize, Results),
+    ok;
+do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0, Failed, BatchSize) ->
     #{?client := Client} = ConnState,
     Iter0 = maps:iterator(TablesToPoints),
     %% Already checked that map is non-empty.
     {Table, PointsWithIndices, Iter} = maps:next(Iter0),
-    {Indices, Points} = lists:unzip(PointsWithIndices),
-    IsBatch =
-        case {map_size(TablesToPoints), PointsWithIndices, Failed} of
-            {1, [_], []} ->
-                false;
-            _ ->
-                true
-        end,
+    PointsByIndex = count_points_by_index(PointsWithIndices),
+    Points = [Point || {_, Point} <- PointsWithIndices],
     Context = #{
         res_id => ChanResId,
         iter => Iter,
-        last_indices => Indices,
+        last_points_by_index => PointsByIndex,
         final_cont => ReplyFnAndArgs0,
-        final_res => Failed,
+        result_acc => failed_results(Failed),
         client => Client,
-        is_batch => IsBatch
+        batch_size => BatchSize
     },
     ReplyFnAndArgs = {fun ?MODULE:reply_callback/2, [Context]},
-    greptimedb_rs:insert_async(Client, Table, Points, ReplyFnAndArgs).
+    submit_async_insert(
+        Client,
+        Table,
+        Points,
+        PointsByIndex,
+        maps:get(result_acc, Context),
+        ReplyFnAndArgs0,
+        BatchSize,
+        Iter,
+        ReplyFnAndArgs
+    ).
 
 handle_last_async_result(Context, Result) ->
     #{
-        last_indices := LastIndices,
+        last_points_by_index := LastPointsByIndex,
         final_cont := ReplyFnAndArgs,
-        final_res := ResAcc0,
-        is_batch := IsBatch
+        result_acc := ResAcc0,
+        batch_size := BatchSize
     } = Context,
-    ResultsWithIndices = lists:map(fun(I) -> {I, Result} end, LastIndices),
-    ResAcc1 = ResultsWithIndices ++ ResAcc0,
-    ResAcc2 = lists:keysort(1, ResAcc1),
-    {_, FinalResult0} = lists:unzip(ResAcc2),
-    case IsBatch of
-        true ->
-            emqx_resource:apply_reply_fun(ReplyFnAndArgs, FinalResult0);
-        false ->
-            [FinalResult1] = FinalResult0,
-            emqx_resource:apply_reply_fun(ReplyFnAndArgs, FinalResult1)
-    end.
+    ResAcc = table_results(LastPointsByIndex, Result) ++ ResAcc0,
+    FinalResults = aggregate_indexed_results(BatchSize, ResAcc),
+    reply_async_result(ReplyFnAndArgs, BatchSize, FinalResults).
 
 handle_async_result_continuation(Context0, Result, NextTable, PointsWithIndices) ->
     #{
         client := Client,
-        last_indices := LastIndices,
-        final_res := ResAcc0
+        last_points_by_index := LastPointsByIndex,
+        result_acc := ResAcc0
     } = Context0,
-    {NextIndices, Points} = lists:unzip(PointsWithIndices),
-    ResultsWithIndices = lists:map(fun(I) -> {I, Result} end, LastIndices),
-    ResAcc = ResultsWithIndices ++ ResAcc0,
-    Context = Context0#{last_indices := NextIndices, final_res := ResAcc},
+    NextPointsByIndex = count_points_by_index(PointsWithIndices),
+    Points = [Point || {_, Point} <- PointsWithIndices],
+    ResAcc = table_results(LastPointsByIndex, Result) ++ ResAcc0,
+    Context = Context0#{
+        last_points_by_index := NextPointsByIndex,
+        result_acc := ResAcc
+    },
     ReplyFnAndArgs = {fun ?MODULE:reply_callback/2, [Context]},
-    greptimedb_rs:insert_async(Client, NextTable, Points, ReplyFnAndArgs).
+    submit_async_insert(
+        Client,
+        NextTable,
+        Points,
+        NextPointsByIndex,
+        ResAcc,
+        maps:get(final_cont, Context),
+        maps:get(batch_size, Context),
+        maps:get(iter, Context),
+        ReplyFnAndArgs
+    ).
+
+submit_async_insert(
+    Client,
+    Table,
+    Points,
+    PointsByIndex,
+    ResultAcc,
+    FinalReplyFnAndArgs,
+    BatchSize,
+    RemainingTables,
+    ReplyFnAndArgs
+) ->
+    %% insert_async/4 may return a pool error before the callback is installed.
+    AsyncResult =
+        try erlang:apply(greptimedb_rs, insert_async, [Client, Table, Points, ReplyFnAndArgs]) of
+            SubmitValue -> SubmitValue
+        catch
+            Class:Reason -> {error, {async_submit_failed, Class, Reason}}
+        end,
+    case AsyncResult of
+        {ok, _Pid} = Ok ->
+            Ok;
+        {error, _Reason} = Error ->
+            ClassifiedError = classify_insert_result(Error),
+            Results = aggregate_indexed_results(
+                BatchSize,
+                table_results(PointsByIndex, ClassifiedError) ++
+                    unsubmitted_table_results(RemainingTables, ClassifiedError) ++
+                    ResultAcc
+            ),
+            reply_async_result(FinalReplyFnAndArgs, BatchSize, Results),
+            %% The final reply is synchronous here. Do not return a fake worker PID.
+            ok
+    end.
+
+unsubmitted_table_results(Iter, Result) ->
+    unsubmitted_table_results(maps:next(Iter), Result, []).
+
+unsubmitted_table_results(none, _Result, Acc) ->
+    Acc;
+unsubmitted_table_results({_Table, PointsWithIndices, Iter}, Result, Acc) ->
+    Results = table_results(count_points_by_index(PointsWithIndices), Result),
+    unsubmitted_table_results(maps:next(Iter), Result, Results ++ Acc).
+
+reply_async_result(ReplyFnAndArgs, BatchSize, Results0) ->
+    Results = coalesce_mixed_batch_results(Results0),
+    case BatchSize of
+        1 ->
+            [Result] = Results,
+            emqx_resource:apply_reply_fun(ReplyFnAndArgs, Result);
+        _ ->
+            emqx_resource:apply_reply_fun(ReplyFnAndArgs, Results)
+    end.
+
+normalize_insert_result({error, {greptimedb_error, Details}}) ->
+    classify_native_error(Details);
+normalize_insert_result({error, {recoverable_error, _}} = Result) ->
+    Result;
+normalize_insert_result({error, {unrecoverable_error, _}} = Result) ->
+    Result;
+normalize_insert_result({error, {nif_error, Reason}}) ->
+    {error, {unrecoverable_error, Reason}};
+normalize_insert_result({error, {nif_exit, Reason}}) ->
+    {error, {unrecoverable_error, {nif_exit, Reason}}};
+normalize_insert_result({error, {unauth, _, _}}) ->
+    {error, {unrecoverable_error, <<"authorization failure">>}};
+normalize_insert_result({error, Reason}) ->
+    case is_transient_pool_error(Reason) of
+        true -> {error, {recoverable_error, Reason}};
+        false -> {error, {unrecoverable_error, Reason}}
+    end;
+normalize_insert_result(Result) ->
+    Result.
+
+classify_native_error(#{kind := Kind, code := Code} = Details) ->
+    Result = {error, {recoverable_error, {greptimedb_error, Details}}},
+    case is_recoverable_native_error(Kind, Code, Details) of
+        true -> Result;
+        false -> {error, {unrecoverable_error, {greptimedb_error, Details}}}
+    end;
+classify_native_error(Details) ->
+    {error, {unrecoverable_error, {greptimedb_error, Details}}}.
+
+is_recoverable_native_error(transport, _Code, _Details) ->
+    %% Keep ambiguous writes in the buffer to avoid the message loss reported
+    %% in issue #18984. The resulting delivery semantics are at-least-once.
+    true;
+is_recoverable_native_error(timeout, _Code, _Details) ->
+    true;
+is_recoverable_native_error(cancelled, _Code, #{write_outcome := not_sent}) ->
+    true;
+is_recoverable_native_error(server, Code, _Details) ->
+    lists:member(Code, [
+        deadline_exceeded,
+        resource_exhausted,
+        aborted,
+        unavailable
+    ]);
+is_recoverable_native_error(_Kind, _Code, _Details) ->
+    false.
+
+classify_insert_result(Result) ->
+    case classify_insert_error(normalize_insert_result(Result)) of
+        {recoverable, Reason} -> {error, {recoverable_error, Reason}};
+        {unrecoverable, Reason} -> {error, {unrecoverable_error, Reason}}
+    end.
+
+classify_insert_error({error, {unrecoverable_error, Reason}}) ->
+    {unrecoverable, Reason};
+classify_insert_error({error, {recoverable_error, Reason}}) ->
+    {recoverable, Reason};
+classify_insert_error({error, Reason}) ->
+    case is_transient_pool_error(Reason) of
+        true -> {recoverable, Reason};
+        false -> {unrecoverable, Reason}
+    end.
+
+is_transient_pool_error(disconnected) ->
+    true;
+is_transient_pool_error({disconnected, _Reason}) ->
+    true;
+is_transient_pool_error(ecpool_empty) ->
+    true;
+is_transient_pool_error(no_such_pool) ->
+    true;
+is_transient_pool_error(ecpool_disconnected) ->
+    true;
+is_transient_pool_error(ecpool_client_disconnected) ->
+    true;
+is_transient_pool_error(not_connected) ->
+    true;
+is_transient_pool_error(timeout) ->
+    true;
+is_transient_pool_error(_Reason) ->
+    false.
+
+coalesce_mixed_batch_results(Results) ->
+    HasRecoverable = lists:any(fun is_recoverable_result/1, Results),
+    HasUnrecoverable = lists:any(fun is_unrecoverable_result/1, Results),
+    HasSuccess = lists:any(fun is_successful_result/1, Results),
+    %% The resource buffer makes one retry decision for the whole batch. Keep
+    %% successful and permanent outcomes intact, and promote only recoverable
+    %% outcomes when a retry could duplicate a partial write.
+    case {HasRecoverable, HasUnrecoverable, HasSuccess} of
+        {false, false, _} ->
+            Results;
+        {false, true, _} ->
+            Results;
+        {true, false, false} ->
+            Results;
+        {true, _, true} ->
+            make_recoverable_members_unrecoverable(partial_batch_write, Results);
+        {true, true, false} ->
+            make_recoverable_members_unrecoverable(batch_contains_unrecoverable, Results)
+    end.
+
+make_recoverable_members_unrecoverable(Reason, Results) ->
+    [make_result_unrecoverable(Reason, Results, Result) || Result <- Results].
+
+make_result_unrecoverable(
+    Reason,
+    BatchResults,
+    {error, {recoverable_error, _Error}} = Result
+) ->
+    {error,
+        {unrecoverable_error, #{
+            reason => Reason,
+            result => Result,
+            batch_results => BatchResults
+        }}};
+make_result_unrecoverable(_Reason, _BatchResults, Result) ->
+    Result.
+
+is_recoverable_result({error, {recoverable_error, _}}) ->
+    true;
+is_recoverable_result(_) ->
+    false.
+
+is_unrecoverable_result({error, {unrecoverable_error, _}}) ->
+    true;
+is_unrecoverable_result(_) ->
+    false.
+
+is_successful_result({ok, _}) ->
+    true;
+is_successful_result(_) ->
+    false.
+
+count_points_by_index(PointsWithIndices) ->
+    {OrderRev, Counts} = lists:foldl(
+        fun({Index, _Point}, {Order0, Counts0}) ->
+            case maps:find(Index, Counts0) of
+                {ok, Count} ->
+                    {Order0, Counts0#{Index => Count + 1}};
+                error ->
+                    {[Index | Order0], Counts0#{Index => 1}}
+            end
+        end,
+        {[], #{}},
+        PointsWithIndices
+    ),
+    [{Index, maps:get(Index, Counts)} || Index <- lists:reverse(OrderRev)].
+
+table_results(PointsByIndex, Result) ->
+    [{Index, PointCount, Result} || {Index, PointCount} <- PointsByIndex].
+
+failed_results(Failed) ->
+    [{Index, 0, Result} || {Index, Result} <- Failed].
+
+aggregate_message_results(BatchSize, TableResults, Failed) ->
+    aggregate_indexed_results(BatchSize, TableResults ++ failed_results(Failed)).
+
+aggregate_indexed_results(BatchSize, IndexedResults) ->
+    ResultsByIndex = maps:groups_from_list(
+        fun({Index, _PointCount, _Result}) -> Index end,
+        fun(Result) -> Result end,
+        IndexedResults
+    ),
+    [
+        aggregate_message_result(maps:get(Index, ResultsByIndex, []))
+     || Index <- lists:seq(1, BatchSize)
+    ].
+
+aggregate_message_result([]) ->
+    {error, {unrecoverable_error, missing_insert_result}};
+aggregate_message_result(Results) ->
+    {Successes, Errors} = lists:partition(
+        fun({_Index, _PointCount, Result}) -> element(1, Result) =:= ok end,
+        Results
+    ),
+    case {Successes, Errors} of
+        {_, []} ->
+            {ok, lists:sum([PointCount || {_Index, PointCount, {ok, _}} <- Successes])};
+        {[], Errors} ->
+            aggregate_errors(Errors);
+        {_, Errors} ->
+            {error,
+                {unrecoverable_error, #{
+                    reason => multiline_partial_write,
+                    successful_rows =>
+                        lists:sum([
+                            PointCount
+                         || {_Index, PointCount, {ok, _}} <- Successes
+                        ]),
+                    errors => classified_error_details([
+                        classify_insert_error(Result)
+                     || {_Index, _PointCount, Result} <- Errors
+                    ])
+                }}}
+    end.
+
+aggregate_errors(Errors) ->
+    Classified = [
+        classify_insert_error(Result)
+     || {_Index, _PointCount, Result} <- Errors
+    ],
+    case lists:any(fun({Kind, _}) -> Kind =:= unrecoverable end, Classified) of
+        true ->
+            {error, {unrecoverable_error, classified_error_details(Classified)}};
+        false ->
+            {error, {recoverable_error, classified_error_details(Classified)}}
+    end.
+
+classified_error_details([{_Kind, Reason}]) ->
+    Reason;
+classified_error_details(Classified) ->
+    [Reason || {_Kind, Reason} <- Classified].
 
 %% @doc Build the options map for `greptimedb_rs:start_client/1'.
 client_opts(ConnResId, ConnConfig) ->
