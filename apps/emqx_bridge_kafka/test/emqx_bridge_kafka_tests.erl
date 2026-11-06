@@ -275,6 +275,100 @@ custom_group_id_test() ->
     ),
     ok.
 
+%% `client_opts/1` only forwards connection options that the user configured.
+client_opts_test_() ->
+    ClientOpts = fun emqx_bridge_kafka_impl:client_opts/1,
+    [
+        ?_assertEqual(#{}, ClientOpts(#{})),
+        ?_assertEqual(#{}, ClientOpts(#{kafka_client_id => <<>>})),
+        ?_assertEqual(
+            #{client_id => <<"test-client">>}, ClientOpts(#{kafka_client_id => <<"test-client">>})
+        )
+    ].
+
+producer_client_options_schema_test_() ->
+    [
+        ?_assertMatch(
+            #{<<"kafka_client_id">> := <<"test-client">>},
+            emqx_bridge_kafka_testlib:action_connector_config(#{
+                <<"kafka_client_id">> => <<"test-client">>
+            })
+        ),
+        ?_assertThrow(
+            _,
+            emqx_bridge_kafka_testlib:source_connector_config(#{
+                <<"kafka_client_id">> => <<"test-client">>
+            })
+        ),
+        ?_test(begin
+            lists:foreach(
+                fun(Name) ->
+                    Fields = emqx_bridge_kafka:fields(Name),
+                    ?assert(lists:keymember(kafka_client_id, 1, Fields)),
+                    ?assertNot(lists:keymember(query_api_versions, 1, Fields)),
+                    ?assertNot(lists:keymember(api_versions_request_version, 1, Fields))
+                end,
+                ["post_connector", "config_connector_producer"]
+            )
+        end),
+        ?_test(begin
+            lists:foreach(
+                fun(Name) ->
+                    ?assertNot(lists:keymember(kafka_client_id, 1, emqx_bridge_kafka:fields(Name)))
+                end,
+                ["config_producer", "config_bridge_v2"]
+            )
+        end),
+        ?_test(begin
+            ?assertNot(
+                lists:keymember(
+                    kafka_client_id, 1, emqx_bridge_kafka:kafka_connector_config_fields()
+                )
+            ),
+            ?assertNot(
+                lists:keymember(kafka_client_id, 1, emqx_bridge_kafka:fields("config_connector"))
+            )
+        end),
+        ?_assertThrow(
+            _,
+            emqx_bridge_kafka_testlib:action_connector_config(#{<<"query_api_versions">> => false})
+        ),
+        ?_assertThrow(
+            _,
+            emqx_bridge_kafka_testlib:action_connector_config(#{
+                <<"api_versions_request_version">> => 1
+            })
+        )
+    ].
+
+producer_client_id_length_schema_test_() ->
+    WithClientId = fun(Id) ->
+        emqx_bridge_kafka_testlib:action_connector_config(#{
+            <<"kafka_client_id">> => Id
+        })
+    end,
+    ThreeByteChar = <<16#20AC/utf8>>,
+    %% 10922 three-byte UTF-8 characters plus a one- or two-byte ASCII suffix.
+    Utf8Id = fun(AsciiBytes) ->
+        iolist_to_binary([
+            binary:copy(ThreeByteChar, 10922),
+            binary:copy(<<"a">>, AsciiBytes)
+        ])
+    end,
+    [
+        {"32767 bytes is accepted",
+            ?_assertMatch(
+                #{<<"kafka_client_id">> := _},
+                WithClientId(binary:copy(<<"a">>, 32767))
+            )},
+        {"32768 bytes is rejected", ?_assertThrow(_, WithClientId(binary:copy(<<"a">>, 32768)))},
+        {"empty string is accepted",
+            ?_assertMatch(#{<<"kafka_client_id">> := <<>>}, WithClientId(<<>>))},
+        {"32767 bytes of UTF-8 text is accepted",
+            ?_assertMatch(#{<<"kafka_client_id">> := _}, WithClientId(Utf8Id(1)))},
+        {"32768 bytes of UTF-8 text is rejected", ?_assertThrow(_, WithClientId(Utf8Id(2)))}
+    ].
+
 %%===========================================================================
 %% Helper functions
 %%===========================================================================

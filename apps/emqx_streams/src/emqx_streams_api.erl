@@ -119,6 +119,9 @@ schema("/stream/:name") ->
                     emqx_streams_schema:stream_sctype_api_get(),
                     get_message_stream_example()
                 ),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], ?DESC(message_stream_being_deleted)
+                ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND'], ?DESC(message_stream_not_found)
                 ),
@@ -300,6 +303,8 @@ put_message_stream_config_example() ->
     case get_message_stream(Name) of
         not_found ->
             ?NOT_FOUND(<<"Message stream not found">>);
+        {error, being_deleted} ->
+            ?BAD_REQUEST(<<"Message stream is being deleted">>);
         {ok, Stream} ->
             ?OK(Stream)
     end;
@@ -317,6 +322,8 @@ put_message_stream_config_example() ->
             ?BAD_REQUEST(
                 <<"Regular streams cannot be updated from limited to unlimited and vice versa">>
             );
+        {error, being_deleted} ->
+            ?BAD_REQUEST(<<"Message stream is being deleted">>);
         {error, _} = Error ->
             ?SERVICE_UNAVAILABLE(Error)
     end;
@@ -324,8 +331,8 @@ put_message_stream_config_example() ->
     case delete_message_stream(Name) of
         not_found ->
             ?NOT_FOUND(<<"Message stream not found">>);
-        {error, Reason} ->
-            ?SERVICE_UNAVAILABLE(Reason);
+        {error, no_delete_worker} ->
+            ?SERVICE_UNAVAILABLE(<<"Not ready">>);
         ok ->
             ?NO_CONTENT
     end.
@@ -383,7 +390,7 @@ hidden_alias(Schema, OperationId) ->
     ).
 
 get_message_streams(Cursor, Limit) ->
-    case emqx_streams_registry:list(Cursor, Limit) of
+    case emqx_streams_registry:list_all(Cursor, Limit) of
         {ok, MessageStreams, CursorNext} ->
             {ok, [emqx_streams_config:stream_to_raw_get(Stream) || Stream <- MessageStreams],
                 CursorNext};
@@ -405,7 +412,10 @@ get_message_stream(Name) ->
         not_found ->
             not_found;
         {ok, Stream} ->
-            {ok, emqx_streams_config:stream_to_raw_get(Stream)}
+            case emqx_streams_registry:is_deleting(Stream) of
+                true -> {error, being_deleted};
+                false -> {ok, emqx_streams_config:stream_to_raw_get(Stream)}
+            end
     end.
 
 update_message_stream(Name, UpdatedStreamRaw) ->
@@ -419,8 +429,13 @@ update_message_stream(Name, UpdatedStreamRaw) ->
             Error
     end.
 
+%% A repeated DELETE schedules the deletion again, e.g. after a failed one.
 delete_message_stream(Name) ->
-    emqx_streams_registry:delete(Name).
+    maybe
+        {ok, #{id := Id} = Stream} ?= emqx_streams_registry:find(Name),
+        ok ?= emqx_streams_registry:mark_deleting(Stream),
+        emqx_streams_delete_worker:enqueue(Name, Id)
+    end.
 
 ref(Module, Name) ->
     hoconsc:ref(Module, Name).

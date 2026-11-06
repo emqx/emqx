@@ -15,6 +15,7 @@
     convert_timestamp/2,
     data_to_points/4,
     value_type/1,
+    value_type/3,
     value_type_for_kind/2
 ]).
 -endif.
@@ -264,10 +265,12 @@ maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType, Kind) ->
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
     NV = proc_quoted(V, Data, VTransOptions),
+    SuffixType = tmpl_suffix_type(V),
     case {NK0, NV} of
         {[undefined], _} ->
             {ok, {Data, Res}};
-        %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
+        %% the value starts with an unset placeholder: [undefined], or [undefined, <<"i">>]
+        %% when a literal suffix follows it
         {_, [undefined | _]} ->
             {ok, {Data, Res}};
         %% a quoted value is a single string, so it is skipped when any placeholder is unset
@@ -276,25 +279,29 @@ maps_config_to_data(K, V, {ok, {Data, Res}}, DriverType, Kind) ->
                 true ->
                     {ok, {Data, Res}};
                 false ->
-                    convert_config_value(NK0, NV, DriverType, Kind, Data, Res)
+                    convert_config_value(NK0, NV, SuffixType, DriverType, Kind, Data, Res)
             end;
         _ ->
-            convert_config_value(NK0, NV, DriverType, Kind, Data, Res)
+            convert_config_value(NK0, NV, SuffixType, DriverType, Kind, Data, Res)
     end.
 
-convert_config_value(NK0, NV, DriverType, Kind, Data, Res) ->
+convert_config_value(NK0, NV, SuffixType, DriverType, Kind, Data, Res) ->
     NK = list_to_binary(NK0),
-    case DriverType of
-        erlang ->
-            case value_type_for_kind(NV, Kind) of
-                {ok, Value} ->
-                    {ok, {Data, Res#{NK => Value}}};
-                {error, _} = Error ->
-                    Error
-            end;
-        native ->
-            {ok, {Data, Res#{NK => to_raw_value(NV)}}}
+    case value_type(NV, SuffixType, Kind) of
+        {ok, Value} ->
+            {ok, {Data, Res#{NK => driver_value(DriverType, Value)}}};
+        {error, _} = Error ->
+            Error
     end.
+
+%% The Erlang driver takes the typed value; the native driver takes the bare term. A float
+%% token is returned bare by `value_type/1`, so the typed-map clause does not cover it.
+driver_value(erlang, Value) ->
+    Value;
+driver_value(native, #{value_data := {_Type, Value}}) ->
+    Value;
+driver_value(native, Float) when is_float(Float) ->
+    Float.
 
 %% greptimedb stores timestamps as int64, so a value that overflows after the
 %% unit conversion is rejected rather than written wrapped.
@@ -332,52 +339,6 @@ parse_timestamp([TsBin]) ->
             {error, TsBin}
     end.
 
-to_raw_value([N, Suffix]) when is_number(N), is_binary(Suffix) ->
-    N;
-to_raw_value([<<"t">>]) ->
-    true;
-to_raw_value([<<"T">>]) ->
-    true;
-to_raw_value([true]) ->
-    true;
-to_raw_value([<<"TRUE">>]) ->
-    true;
-to_raw_value([<<"True">>]) ->
-    true;
-to_raw_value([<<"f">>]) ->
-    false;
-to_raw_value([<<"F">>]) ->
-    false;
-to_raw_value([false]) ->
-    false;
-to_raw_value([<<"FALSE">>]) ->
-    false;
-to_raw_value([<<"False">>]) ->
-    false;
-to_raw_value([Float]) when is_float(Float) ->
-    Float;
-to_raw_value([Int]) when is_integer(Int) ->
-    float(Int);
-to_raw_value(Val0) ->
-    case unicode:characters_to_binary(Val0, utf8) of
-        Val1 when is_binary(Val1) ->
-            Val1;
-        _Error ->
-            throw({unrecoverable_error, {non_utf8_string_value, Val0}})
-    end.
-
-value_type([Int, <<"i">>]) when
-    is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX
-->
-    {ok, greptimedb_values:int64_value(Int)};
-value_type([Invalid, <<"i">>]) ->
-    {error, {invalid_integer_value, Invalid}};
-value_type([UInt, <<"u">>]) when
-    is_integer(UInt), UInt >= 0, UInt =< ?UINT64_MAX
-->
-    {ok, greptimedb_values:uint64_value(UInt)};
-value_type([Invalid, <<"u">>]) ->
-    {error, {invalid_unsigned_integer_value, Invalid}};
 value_type([<<"t">>]) ->
     {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"T">>]) ->
@@ -416,12 +377,36 @@ value_type(Val0) when is_list(Val0) ->
 value_type(Val0) ->
     string_value(Val0).
 
-%% Line protocol tag values are text: token types are dropped, except an `i`/`u` suffix and a
-%% boolean from the payload, which stay typed.
-value_type_for_kind([_, <<"i">>] = NV, tag) ->
-    value_type(NV);
-value_type_for_kind([_, <<"u">>] = NV, tag) ->
-    value_type(NV);
+%% A line protocol type suffix is the literal `i`/`u` token after one value placeholder; the same
+%% text rendered by a placeholder is plain text.
+tmpl_suffix_type({quoted, _Tokens}) ->
+    none;
+tmpl_suffix_type([{var, _}, {str, <<"i">>}]) ->
+    int64;
+tmpl_suffix_type([{var, _}, {str, <<"u">>}]) ->
+    uint64;
+tmpl_suffix_type(_Tokens) ->
+    none.
+
+%% `proc_tmpl/3' renders one list element per template token, so an `int64'/`uint64' template
+%% always renders as `[Value, Suffix]`.
+value_type([Int, <<"i">>], int64, _Kind) when
+    is_integer(Int), Int >= ?INT64_MIN, Int =< ?INT64_MAX
+->
+    {ok, greptimedb_values:int64_value(Int)};
+value_type([Invalid, <<"i">>], int64, _Kind) ->
+    {error, {invalid_integer_value, Invalid}};
+value_type([UInt, <<"u">>], uint64, _Kind) when
+    is_integer(UInt), UInt >= 0, UInt =< ?UINT64_MAX
+->
+    {ok, greptimedb_values:uint64_value(UInt)};
+value_type([Invalid, <<"u">>], uint64, _Kind) ->
+    {error, {invalid_unsigned_integer_value, Invalid}};
+value_type(NV, none, Kind) ->
+    value_type_for_kind(NV, Kind).
+
+%% Line protocol tag values are text: token types are dropped, except a boolean from the payload,
+%% which stays typed. A typed `i`/`u` suffix never reaches here; `value_type/3' handles it first.
 value_type_for_kind([Bool], tag) when is_boolean(Bool) ->
     value_type([Bool]);
 value_type_for_kind(NV, tag) when is_list(NV) ->

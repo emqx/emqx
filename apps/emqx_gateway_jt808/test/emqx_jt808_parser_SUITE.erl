@@ -30,6 +30,35 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     Config.
 
+-doc "TCP splits preserve ordinary and escaped bytes.".
+t_heartbeat_at_every_split(_) ->
+    Phone = <<0, 1, 16#23, 16#45, 16#67, 16#89>>,
+    lists:foreach(
+        fun(Seq) ->
+            Header = <<?MC_HEARTBEAT:16, 0:16, Phone/binary, Seq:16>>,
+            Bin = encode(Header, <<>>),
+            Parser = emqx_jt808_frame:initial_parse_state(#{}),
+            {ok, Expected, <<>>, _} = emqx_jt808_frame:parse(Bin, Parser),
+            lists:foreach(
+                fun(Offset) ->
+                    <<First:Offset/binary, Rest/binary>> = Bin,
+                    {more, Next} = emqx_jt808_frame:parse(First, Parser),
+                    {more, Next1} = emqx_jt808_frame:parse(<<>>, Next),
+                    ?assertMatch({ok, Expected, <<>>, _}, emqx_jt808_frame:parse(Rest, Next1))
+                end,
+                lists:seq(1, byte_size(Bin) - 1)
+            )
+        end,
+        [1, 2, 16#7d, 16#7e]
+    ).
+
+-doc "Invalid escapes fail in complete and split input.".
+t_invalid_split_escape(_) ->
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    ?assertError(invalid_message, emqx_jt808_frame:parse(<<16#7e, 0, 16#7d, 3>>, Parser)),
+    {more, Next} = emqx_jt808_frame:parse(<<16#7e, 0, 16#7d>>, Parser),
+    ?assertError(invalid_message, emqx_jt808_frame:parse(<<3>>, Next)).
+
 t_case01_register(_Config) ->
     Parser = emqx_jt808_frame:initial_parse_state(#{}),
     Manuf = <<"examp">>,
@@ -460,7 +489,7 @@ t_case10_segmented_packet(_Config) ->
 
     <<Part1:7/binary, Part2/binary>> = Stream,
     {more, Parser2} = emqx_jt808_frame:parse(Part1, Parser),
-    ?assertMatch(#{phase := escaping_hex7d}, Parser2),
+    ?assertMatch(#{phase := parsing_frame}, Parser2),
     {ok, Map, Rest, State} = emqx_jt808_frame:parse(Part2, Parser2),
     ?assertEqual(
         #{

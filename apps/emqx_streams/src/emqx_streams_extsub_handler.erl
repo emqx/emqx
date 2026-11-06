@@ -590,7 +590,9 @@ split_name_topic(NameTopic) ->
     end.
 
 find_stream(Name, TopicFilter) ->
-    case emqx_streams_registry:find(Name) of
+    case find_active_stream(Name) of
+        being_deleted ->
+            ?err_rec({stream_being_deleted, #{name => Name, topic_filter => TopicFilter}});
         {ok, Stream} when TopicFilter =:= undefined ->
             {ok, Stream};
         {ok, #{topic_filter := TopicFilter} = Stream} ->
@@ -626,6 +628,18 @@ find_stream(Name, TopicFilter) ->
                 false ->
                     ?err_rec({stream_not_found, #{name => Name, topic_filter => TopicFilter}})
             end
+    end.
+
+%% A stream marked as being deleted is consumed as if it were already removed.
+find_active_stream(Name) ->
+    case emqx_streams_registry:find(Name) of
+        {ok, Stream} ->
+            case emqx_streams_registry:is_deleting(Stream) of
+                true -> being_deleted;
+                false -> {ok, Stream}
+            end;
+        not_found ->
+            not_found
     end.
 
 %% Other helpers
@@ -799,7 +813,7 @@ check_active_streams_status(
                 stream = #{id := Id} = Stream,
                 subscribe_params = SubscribeParams
             } = maps:get(DSSubId, DSSubs),
-            case emqx_streams_registry:find(emqx_streams_prop:name(Stream)) of
+            case find_active_stream(emqx_streams_prop:name(Stream)) of
                 {ok, #{id := Id}} ->
                     {HandlerAcc0, UnknownTopicFiltersAcc};
                 _ ->

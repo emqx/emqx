@@ -478,6 +478,8 @@ call_driver(Client, _ChanResId, {_QueryMode, false} = FuncMode, Args) ->
 
 do_call_driver(Client, FuncName, Args) ->
     case erlang:apply(datalayers, FuncName, [Client | Args]) of
+        ok when FuncName =:= async_execute; FuncName =:= async_execute_prepare ->
+            {ok, Client};
         ok ->
             ok;
         {ok, _Res} = Ok ->
@@ -711,7 +713,8 @@ tls_server_name(Host, SSL) ->
             case to_utf8_binary(ServerName) of
                 {ok, <<"disable">>} ->
                     {error, ssl_server_name_indication_disabled};
-                {ok, Name} when byte_size(Name) > 0 -> {ok, Name};
+                {ok, Name} when byte_size(Name) > 0 ->
+                    {ok, Name};
                 _ ->
                     {error, ssl_server_name_is_required}
             end

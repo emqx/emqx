@@ -223,18 +223,18 @@ handle_cast(_Request, State) ->
 
 handle_info({tcp, _Socket, Data}, State) ->
     handle_incoming_data(Data, State);
-handle_info({tcp_closed, _}, State = #{message_queue := Queue}) ->
-    {noreply, State#{message_queue => Queue ++ [tcp_closed]}};
+handle_info({tcp_closed, _}, State) ->
+    {noreply, handle_message_with_state(tcp_closed, State)};
 handle_info({ssl, _Socket, Data}, State) ->
     handle_incoming_data(Data, State);
-handle_info({ssl_closed, _}, State = #{message_queue := Queue}) ->
-    {noreply, State#{message_queue => Queue ++ [tcp_closed]}};
+handle_info({ssl_closed, _}, State) ->
+    {noreply, handle_message_with_state(tcp_closed, State)};
 handle_info({tcp_error, _Socket, _Reason}, State) ->
     {stop, normal, State};
 handle_info({gun_ws, _ConnPid, _StreamRef, {_Type, Msg}}, State) ->
     handle_incoming_data(Msg, State);
-handle_info({gun_down, _ConnPid, ws, _, _}, State = #{message_queue := Queue}) ->
-    {noreply, State#{message_queue => Queue ++ [tcp_closed]}};
+handle_info({gun_down, _ConnPid, ws, _, _}, State) ->
+    {noreply, handle_message_with_state(tcp_closed, State)};
 handle_info(Info, State) ->
     ct:pal("[nats-client] unexpected info: ~p", [Info]),
     {noreply, State}.

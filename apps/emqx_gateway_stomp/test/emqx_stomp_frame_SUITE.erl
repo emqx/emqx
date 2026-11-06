@@ -132,6 +132,28 @@ t_crlf_heartbeat(_) ->
         parse_chunks([<<"\r">>, <<"\n">>])
     ).
 
+-doc "Heartbeats preserve the next command, including split CRLF.".
+t_heartbeat_before_frame(_) ->
+    Bin = send_frame(<<"audit">>),
+    lists:foreach(
+        fun(Chunks) ->
+            {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, Rest, Parser} = parse_chunks(Chunks),
+            ?assertEqual(Bin, Rest),
+            {ok, Frame, <<>>, _} = emqx_stomp_frame:parse(Rest, Parser),
+            ?assertEqual(<<"audit">>, destination(Frame))
+        end,
+        [[<<"\n", Bin/binary>>], [<<"\r\n", Bin/binary>>], [<<"\r">>, <<"\n", Bin/binary>>]]
+    ).
+
+-doc "Consecutive heartbeats preserve the next command.".
+t_consecutive_heartbeats(_) ->
+    Bin = send_frame(<<"audit">>),
+    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, Rest, Parser} =
+        parse_frame(<<"\n\r\n", Bin/binary>>),
+    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, Bin, Next} = emqx_stomp_frame:parse(Rest, Parser),
+    {ok, Frame, <<>>, _} = emqx_stomp_frame:parse(Bin, Next),
+    ?assertEqual(<<"audit">>, destination(Frame)).
+
 -doc "A CR not followed by LF is a fatal frame error.".
 t_bare_cr_is_fatal(_) ->
     ?assertError(linefeed_expected, parse_frame(<<"CONNECT\rX">>)).

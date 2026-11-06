@@ -5493,3 +5493,27 @@ channel_timer(Pid, Timer) ->
 channel_timers(Pid) ->
     Channel = element(11, sys:get_state(Pid)),
     element(15, Channel).
+
+-doc "MQTT-SN maps MQTT quota rejection to congestion and accepts connections after recovery.".
+t_connect_hook_quota_rejection(_) ->
+    ClientId = ?CLIENTID,
+    emqx_gateway_test_utils:with_connect_rejection(?RC_QUOTA_EXCEEDED, fun() ->
+        check_hook_connect(ClientId, ?SN_RC_CONGESTION)
+    end),
+    check_hook_connect(ClientId, ?SN_RC_ACCEPTED).
+
+check_hook_connect(ClientId, ReturnCode) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ReturnCode>>, receive_response(Socket)),
+        case ReturnCode of
+            ?SN_RC_ACCEPTED ->
+                send_disconnect_msg(Socket, undefined),
+                ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket));
+            _ ->
+                ok
+        end
+    after
+        gen_udp:close(Socket)
+    end.

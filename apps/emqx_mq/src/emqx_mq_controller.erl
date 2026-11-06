@@ -236,7 +236,10 @@ do_start_mqs() ->
     ok = emqx_mq_message_db:wait_readiness(infinity),
     ok = emqx_mq_state_storage:wait_readiness(infinity),
     ok = emqx_mq_quota_buffer:start(?MQ_QUOTA_BUFFER, quota_buffer_options()),
-    ok = emqx_mq_sup:start_gc_scheduler(),
+    ok = emqx_mq_sup:start_services(),
+
+    %% Hook into EMQX
+    %% Claim handling of `$queue` topics to ourselves
     ok = emqx_topic:enable_queue_alias_to_share(false),
     ok = emqx_mq:register_hooks(),
     ?tp(debug, mq_controller_start_mqs_done, #{}),
@@ -247,7 +250,7 @@ do_stop_mqs() ->
     ok = emqx_topic:enable_queue_alias_to_share(true),
     ok = emqx_mq:unregister_hooks(),
     _ = emqx_mq_quota_buffer:stop(?MQ_QUOTA_BUFFER),
-    ok = emqx_mq_sup:stop_gc_scheduler(),
+    ok = emqx_mq_sup:stop_services(),
     ok = emqx_mq_sup:stop_metrics(),
     _ = emqx_mq_message_db:close(),
     _ = emqx_mq_state_storage:close_db(),

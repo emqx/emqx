@@ -169,6 +169,46 @@ t_delete_legacy_none(_Config) ->
     ?assertMatch({ok, _}, emqx_mq_registry:find(<<"mq-1">>)),
     ?assertMatch({ok, _}, emqx_mq_registry:find(<<"mq-2">>)).
 
+-doc "A marked MQ is skipped by match and list, is listed by list_all, and cannot be updated".
+t_mark_deleting(_Config) ->
+    {ok, MQ0} = create_mq(<<"mq-1">>, <<"a/#">>),
+    {ok, _} = create_mq(<<"mq-2">>, <<"a/b">>),
+    ok = emqx_mq_registry:mark_deleting(MQ0),
+    ?assert(emqx_mq_registry:is_deleting(MQ0)),
+    ?assertMatch([#{topic_filter := <<"a/b">>}], emqx_mq_registry:match(<<"a/b">>)),
+    ?assertMatch([#{name := <<"mq-2">>}], emqx_utils_stream:consume(emqx_mq_registry:list())),
+    ?assertMatch({ok, [#{name := <<"mq-2">>}], undefined}, emqx_mq_registry:list(undefined, 10)),
+    {ok, All0, undefined} = emqx_mq_registry:list_all(undefined, 10),
+    ?assertEqual(2, length(All0)),
+    ?assertMatch([#{name := <<"mq-1">>}], [MQ || #{deleted_at := _} = MQ <- All0]),
+    ?assertMatch({ok, #{name := <<"mq-1">>}}, emqx_mq_registry:find(<<"mq-1">>)),
+    ?assertEqual({error, being_deleted}, emqx_mq_registry:update(<<"mq-1">>, MQ0)),
+    %% A pre-6.1.1 MQ is marked through its legacy key
+    ok = emqx_mq_registry:create_pre_611_queue(
+        emqx_mq_test_utils:fill_mq_defaults(#{topic_filter => <<"c/d">>})
+    ),
+    {ok, MQ1} = emqx_mq_registry:find(<<"/c/d">>),
+    ok = emqx_mq_registry:mark_deleting(MQ1),
+    ?assert(emqx_mq_registry:is_deleting(MQ1)),
+    ?assertEqual([], emqx_mq_registry:match(<<"c/d">>)).
+
+-doc "Messages published to a topic of a marked MQ are not stored in it".
+t_mark_deleting_publish(_Config) ->
+    {ok, MQ0} = create_mq(<<"mq-1">>, <<"a/#">>),
+    {ok, MQ1} = create_mq(<<"mq-2">>, <<"a/#">>),
+    ok = emqx_mq_registry:mark_deleting(MQ0),
+    _ = emqx_broker:publish(emqx_message:make(<<"c">>, 1, <<"a/b">>, <<"data">>)),
+    ?retry(100, 20, ?assertNotEqual([], emqx_mq_message_db:dirty_read_all(MQ1))),
+    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ0)).
+
+-doc "Marking an MQ stops its consumer, and the consumer of a marked MQ does not start".
+t_mark_deleting_consumer(_Config) ->
+    {ok, #{id := Id} = MQ} = create_mq(<<"mq-1">>, <<"a/#">>),
+    {ok, _} = emqx_mq_sup:start_consumer(Id, [MQ]),
+    ok = emqx_mq_registry:mark_deleting(MQ),
+    ?retry(100, 20, ?assertEqual(not_found, emqx_mq_consumer:find(Id))),
+    ?assertEqual({error, mq_being_deleted}, emqx_mq_sup:start_consumer(Id, [MQ])).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

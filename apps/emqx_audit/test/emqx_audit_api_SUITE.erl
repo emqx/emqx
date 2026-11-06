@@ -230,6 +230,63 @@ t_http_api_rejects_namespaced_principals(_) ->
     ),
     ok.
 
+-doc "Record the generated backup filename and retain restore and delete request details.".
+t_backup_export_audit(_) ->
+    StartAt = erlang:system_time(microsecond),
+    ExportPath = emqx_mgmt_api_test_util:api_path(["data", "export"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Params = #{<<"root_keys">> => [<<"mqtt">>], <<"table_sets">> => []},
+    {ok, ExportBody} = emqx_mgmt_api_test_util:request_api(post, ExportPath, [], Auth, Params),
+    #{<<"filename">> := Filename} = emqx_utils_json:decode(ExportBody),
+    try
+        ExportAudit = latest_audit_record(
+            "operation_id=/data/export&operation_result=success", StartAt
+        ),
+        ?assertMatch(
+            #{<<"operation_details">> := #{<<"filename">> := Filename}},
+            ExportAudit
+        ),
+        ?assertEqual(
+            nomatch,
+            binary:match(maps:get(<<"body">>, maps:get(<<"http_request">>, ExportAudit)), Filename)
+        ),
+        ImportPath = emqx_mgmt_api_test_util:api_path(["data", "import"]),
+        {ok, _} = emqx_mgmt_api_test_util:request_api(
+            post, ImportPath, [], Auth, #{<<"filename">> => Filename}
+        ),
+        ImportAudit = latest_audit_record(
+            "operation_id=/data/import&operation_result=success", StartAt
+        ),
+        #{<<"http_request">> := #{<<"body">> := ImportBody}} = ImportAudit,
+        ?assertNotEqual(nomatch, binary:match(ImportBody, Filename)),
+        ?assertNot(maps:is_key(<<"operation_details">>, ImportAudit))
+    after
+        DeletePath = emqx_mgmt_api_test_util:api_path(["data", "files", binary_to_list(Filename)]),
+        {ok, _} = emqx_mgmt_api_test_util:request_api(delete, DeletePath, Auth)
+    end,
+    DeleteAudit = latest_audit_record(
+        "operation_id=/data/files/:filename&operation_result=success", StartAt
+    ),
+    ?assertMatch(
+        #{<<"http_request">> := #{<<"bindings">> := #{<<"filename">> := Filename}}},
+        DeleteAudit
+    ),
+    ?assertNot(maps:is_key(<<"operation_details">>, DeleteAudit)).
+
+-doc "A rejected backup export does not report a generated backup filename.".
+t_backup_export_failed_audit(_) ->
+    StartAt = erlang:system_time(microsecond),
+    ExportPath = emqx_mgmt_api_test_util:api_path(["data", "export"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, ExportPath, [], Auth, #{<<"root_keys">> => [<<"unknown_root_key">>]}
+        )
+    ),
+    Audit = latest_audit_record("operation_id=/data/export&operation_result=failure", StartAt),
+    ?assertNot(maps:is_key(<<"operation_details">>, Audit)).
+
 t_disabled(_) ->
     Enable = [log, audit, enable],
     ?assertEqual(true, emqx:get_config(Enable)),
