@@ -634,6 +634,10 @@ do_install_package_on_nodes(NameVsn, Bin) ->
      || {Node, Response} <- lists:zip(GoodNodes, Responses),
         Response =/= ok
     ],
+    InstalledNodes = [
+        Node
+     || {Node, ok} <- lists:zip(GoodNodes, Responses)
+    ],
     case {NodeErrors, BadNodes} of
         {[], []} ->
             {204};
@@ -642,35 +646,53 @@ do_install_package_on_nodes(NameVsn, Bin) ->
                 true ->
                     ?SLOG(error, #{
                         msg => "plugin_install_failed",
-                        node_errors => NodeErrors
+                        node_errors => NodeErrors,
+                        installed_nodes => InstalledNodes
                     }),
                     {500, #{
                         code => 'INTERNAL_ERROR',
-                        message => format_node_errors(NodeErrors)
+                        message => install_error_msg(NameVsn, NodeErrors, InstalledNodes)
                     }};
                 false ->
                     ?SLOG(warning, #{
                         msg => "invalid_plugin_package",
-                        node_errors => NodeErrors
+                        node_errors => NodeErrors,
+                        installed_nodes => InstalledNodes
                     }),
                     {400, #{
                         code => 'BAD_PLUGIN_INFO',
-                        message => format_node_errors(NodeErrors)
+                        message => install_error_msg(NameVsn, NodeErrors, InstalledNodes)
                     }}
             end;
         {NodeErrors, BadNodes} ->
             ?SLOG(error, #{
                 msg => "plugin_install_failed",
                 node_errors => NodeErrors,
-                bad_nodes => BadNodes
+                bad_nodes => BadNodes,
+                installed_nodes => InstalledNodes
             }),
             {500, #{
                 code => 'INTERNAL_ERROR',
-                message => format_node_errors(
-                    NodeErrors ++ [{Node, {badnode, Node}} || Node <- BadNodes]
+                message => install_error_msg(
+                    NameVsn,
+                    NodeErrors ++ [{Node, {badnode, Node}} || Node <- BadNodes],
+                    InstalledNodes
                 )
             }}
     end.
+
+%% The nodes that accepted the package keep it, so the caller is told where it
+%% is and how to remove it.
+install_error_msg(_NameVsn, NodeErrors, []) ->
+    format_node_errors(NodeErrors);
+install_error_msg(NameVsn, NodeErrors, InstalledNodes) ->
+    iolist_to_binary([
+        format_node_errors(NodeErrors),
+        ". The package was installed on node(s) ",
+        lists:join(", ", [atom_to_binary(Node) || Node <- InstalledNodes]),
+        ". To remove it from the cluster, call DELETE /api/v5/plugins/",
+        NameVsn
+    ]).
 
 is_rpc_error({badrpc, _}) -> true;
 is_rpc_error(_) -> false.
