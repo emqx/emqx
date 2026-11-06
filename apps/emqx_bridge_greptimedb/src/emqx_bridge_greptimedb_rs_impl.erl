@@ -222,7 +222,7 @@ on_query(_ConnResId, Query, _ConnState) ->
     {message_tag(), map()},
     {ReplyFun :: function(), Args :: list()},
     connector_state()
-) -> {ok, pid()} | {error, term()}.
+) -> ok | {ok, pid()} | {error, term()}.
 on_query_async(
     ConnResId,
     {ChanResId, #{} = Data},
@@ -444,7 +444,7 @@ do_insert_async(
     map_size(TablesToPoints) == 0
 ->
     reply_batch_results(BatchSize, failed_results(Failed), ReplyFnAndArgs),
-    {ok, self()};
+    ok;
 do_insert_async(
     ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0, Failed, BatchSize
 ) ->
@@ -516,7 +516,8 @@ submit_async_insert(Context, Table, Points) ->
                 CurrentResults ++ RemainingResults ++ ResAcc,
                 FinalReplyFnAndArgs
             ),
-            {ok, self()}
+            %% The final reply is synchronous here. Do not return a fake worker PID.
+            ok
     end.
 
 unsubmitted_table_results(Iter, Result) ->
