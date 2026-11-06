@@ -163,7 +163,10 @@ t_mark_deleting(_Config) ->
     ?assertMatch({ok, #{name := <<"stream-1">>}}, emqx_streams_registry:find(<<"stream-1">>)),
     ?assertEqual({error, being_deleted}, emqx_streams_registry:update(<<"stream-1">>, Stream0)),
     %% A pre-6.1.1 Stream is marked through its legacy key
-    {ok, Stream1} = emqx_streams_test_utils:create_legacy_stream(#{topic_filter => <<"c/d">>}),
+    {ok, _} = emqx_streams_registry:create_pre_611_stream(
+        emqx_streams_test_utils:fill_stream_defaults(#{topic_filter => <<"c/d">>})
+    ),
+    {ok, Stream1} = emqx_streams_registry:find(<<"/c/d">>),
     ok = emqx_streams_registry:mark_deleting(Stream1),
     ?assert(emqx_streams_registry:is_deleting(Stream1)),
     ?assertEqual([], emqx_streams_registry:match(<<"c/d">>)).
