@@ -3341,7 +3341,7 @@ t_otx_hot_code_change(Config) ->
                 end
              || S <- emqx_ds:list_shards(DB)
             ],
-            %% Schedul a transaction which should succeed after the
+            %% Schedule a transaction which should succeed after the
             %% code change:
             {async, Ref, _} = emqx_ds:trans(
                 #{db => DB, shard => Shard, generation => 1, sync => false},
@@ -3349,7 +3349,7 @@ t_otx_hot_code_change(Config) ->
                     emqx_ds:tx_write({Topic, 0, ~"hello"})
                 end
             ),
-            %% 2. Purge the leader code and perform code change:
+            %% 2. Purge the leader code. Processes should survive that.
             code:delete(emqx_ds_optimistic_tx),
             code:purge(emqx_ds_optimistic_tx),
             %% 3. Update the leaders:
