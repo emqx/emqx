@@ -451,7 +451,10 @@ native_batch_with_partial_success_is_unrecoverable_test() ->
         Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
             connector, Batch, State
         ),
-        assert_all_unrecoverable(Results, partial_batch_write)
+        [First, Second, Third] = Results,
+        ?assertEqual({ok, 1}, First),
+        assert_unrecoverable(Second, partial_batch_write),
+        assert_unrecoverable(Third, partial_batch_write)
     end).
 
 native_batch_without_success_and_permanent_error_is_unrecoverable_test() ->
@@ -477,7 +480,37 @@ native_batch_without_success_and_permanent_error_is_unrecoverable_test() ->
         Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
             connector, Batch, State
         ),
-        assert_all_unrecoverable(Results, batch_contains_unrecoverable)
+        [First, Second] = Results,
+        assert_unrecoverable(First, batch_contains_unrecoverable),
+        ?assertMatch({error, {unrecoverable_error, _}}, Second)
+    end).
+
+native_batch_with_success_and_permanent_error_keeps_success_test() ->
+    Write = [
+        #{
+            measurement => <<"${payload.table}">>,
+            fields => [
+                #{key => <<"value">>, type => integer, value => <<"1">>}
+            ],
+            timestamp => #{
+                value => <<"${payload.ts}">>,
+                source_precision => ms
+            }
+        }
+    ],
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{payload => #{table => <<"valid">>, ts => 1}}},
+        {channel, #{payload => #{table => <<"invalid">>, ts => <<"bad">>}}}
+    ],
+    Insert = fun(_Client, <<"valid">>, _Points) -> {ok, 1} end,
+    with_rs_insert_mock(Insert, fun() ->
+        Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
+            connector, Batch, State
+        ),
+        [First, Second] = Results,
+        ?assertEqual({ok, 1}, First),
+        ?assertMatch({error, {unrecoverable_error, _}}, Second)
     end).
 
 native_batch_with_only_transient_errors_is_recoverable_test() ->
@@ -667,7 +700,10 @@ native_async_later_table_submission_error_completes_batch_test() ->
         ),
         receive
             {native_async_submit_error, Result} ->
-                assert_all_unrecoverable(Result, partial_batch_write)
+                [First, Second, Third] = Result,
+                ?assertEqual({ok, 1}, First),
+                assert_unrecoverable(Second, partial_batch_write),
+                assert_unrecoverable(Third, partial_batch_write)
         after 1_000 ->
             error(native_async_submit_error_timeout)
         end
@@ -891,17 +927,10 @@ native_auto_write(ValueTemplate) ->
         }
     ].
 
-assert_all_unrecoverable(Results, Reason) ->
-    ?assert(is_list(Results)),
-    ?assert(Results =/= []),
-    lists:foreach(
-        fun
-            ({error, {unrecoverable_error, #{reason := ActualReason}}}) ->
-                ?assertEqual(Reason, ActualReason);
-            (Other) ->
-                error({unexpected_unrecoverable_batch_result, Other})
-        end,
-        Results
+assert_unrecoverable(Result, Reason) ->
+    ?assertMatch(
+        {error, {unrecoverable_error, #{reason := Reason}}},
+        Result
     ).
 
 assert_all_recoverable(Results, _Reason) ->

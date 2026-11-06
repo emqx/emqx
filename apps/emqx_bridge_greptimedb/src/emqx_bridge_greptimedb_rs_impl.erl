@@ -602,29 +602,40 @@ coalesce_mixed_batch_results(Results) ->
     HasRecoverable = lists:any(fun is_recoverable_result/1, Results),
     HasUnrecoverable = lists:any(fun is_unrecoverable_result/1, Results),
     HasSuccess = lists:any(fun is_successful_result/1, Results),
+    %% The resource buffer derives one retry decision for the whole batch.
+    %% Keep per-message outcomes, but promote recoverable errors when retrying
+    %% could duplicate a partial write or hide a permanent failure.
     case {HasRecoverable, HasUnrecoverable, HasSuccess} of
         {false, false, _} ->
             Results;
-        {false, true, false} ->
+        {false, true, _} ->
             Results;
-        {false, true, true} ->
-            make_batch_unrecoverable(batch_contains_unrecoverable, Results);
-        {true, _, true} ->
-            make_batch_unrecoverable(partial_batch_write, Results);
-        {true, true, false} ->
-            make_batch_unrecoverable(batch_contains_unrecoverable, Results);
         {true, false, false} ->
-            Results
+            Results;
+        {true, false, true} ->
+            make_recoverable_members_unrecoverable(partial_batch_write, Results);
+        {true, true, false} ->
+            make_recoverable_members_unrecoverable(batch_contains_unrecoverable, Results);
+        {true, true, true} ->
+            make_recoverable_members_unrecoverable(batch_contains_unrecoverable, Results)
     end.
 
-make_batch_unrecoverable(Reason, Results) ->
-    Result =
-        {error,
-            {unrecoverable_error, #{
-                reason => Reason,
-                batch_results => Results
-            }}},
-    lists:duplicate(length(Results), Result).
+make_recoverable_members_unrecoverable(Reason, Results) ->
+    [make_result_unrecoverable(Reason, Results, Result) || Result <- Results].
+
+make_result_unrecoverable(
+    Reason,
+    BatchResults,
+    {error, {recoverable_error, _Error}} = Result
+) ->
+    {error,
+        {unrecoverable_error, #{
+            reason => Reason,
+            result => Result,
+            batch_results => BatchResults
+        }}};
+make_result_unrecoverable(_Reason, _BatchResults, Result) ->
+    Result.
 
 is_successful_result({ok, _}) -> true;
 is_successful_result(_) -> false.
