@@ -33,6 +33,10 @@
 ##      default).
 ##   8) MISSED DELETE: deletes a table on emqx1 while emqx2 is down and
 ##      asserts the restarted emqx2 drops it too.
+##   9) REST: uploads a table with 'PUT tables/<name>' through emqx1's
+##      plugin API, asserts both nodes confirmed and serve it, repeats
+##      the upload (same version), reads it back, deletes it through
+##      emqx2's plugin API (204), and repeats the delete (404).
 ##
 ## Usage:
 ##   plugins/emqx_maptabs/smoke/cluster/cluster_smoke.sh [--keep-up]
@@ -384,6 +388,47 @@ scenario_missed_delete() {
     done
 }
 
+## Plugin REST API call: prints the HTTP status, then the body.
+maptabs_api() {
+    local port="$1" method="$2" path="$3" body="${4:-}"
+    local args=(-s -u "$BOOTSTRAP_KEY:$BOOTSTRAP_SECRET" -X "$method" -w '\n%{http_code}')
+    if [[ -n "$body" ]]; then
+        args+=(-H 'content-type: application/json' --data-binary "$body")
+    fi
+    curl "${args[@]}" "http://localhost:$port/api/v5/plugin_api/$PLUGIN_APP/$path" \
+        | tac
+}
+
+scenario_rest() {
+    info "REST: uploading $TABLE through emqx1's plugin API"
+    local out status body version
+    out=$(maptabs_api "${API_PORTS[0]}" PUT "tables/$TABLE" "$(rows_v2)")
+    status=$(head -1 <<<"$out")
+    body=$(tail -n +2 <<<"$out")
+    echo "PUT: $status $body" >>"$LOG_DIR/maptabs_api.log"
+    [[ "$status" == "200" ]] || fail "REST: PUT returned $status: $body"
+    jq -e '.nodes | length == 2' <<<"$body" >/dev/null \
+        || fail "REST: PUT was not confirmed by both nodes: $body"
+    version=$(jq -r .version <<<"$body")
+    assert_table_everywhere "$version" 4 "sig_new" "REST"
+    out=$(maptabs_api "${API_PORTS[1]}" PUT "tables/$TABLE" "$(rows_v2)")
+    [[ "$(head -1 <<<"$out")" == "200" ]] || fail "REST: repeated PUT failed: $out"
+    [[ "$(tail -n +2 <<<"$out" | jq -r .version)" == "$version" ]] \
+        || fail "REST: repeated PUT changed the version: $out"
+    out=$(maptabs_api "${API_PORTS[1]}" GET "tables/$TABLE")
+    [[ "$(tail -n +2 <<<"$out" | jq -r 'length')" == "3" ]] \
+        || fail "REST: GET did not return the 3 stored rows: $out"
+    info "REST: deleting $TABLE through emqx2's plugin API"
+    out=$(maptabs_api "${API_PORTS[1]}" DELETE "tables/$TABLE")
+    [[ "$(head -1 <<<"$out")" == "204" ]] || fail "REST: DELETE failed: $out"
+    local i
+    for i in "${!NODES[@]}"; do
+        assert_table_gone_on "REST" "${NODES[$i]}" "${API_PORTS[$i]}"
+    done
+    out=$(maptabs_api "${API_PORTS[0]}" DELETE "tables/$TABLE")
+    [[ "$(head -1 <<<"$out")" == "404" ]] || fail "REST: repeated DELETE was not 404: $out"
+}
+
 main() {
     check_prereqs
     build_plugin
@@ -395,6 +440,7 @@ main() {
     scenario_catch_up
     scenario_delete
     scenario_missed_delete
+    scenario_rest
     info "PASS"
 }
 

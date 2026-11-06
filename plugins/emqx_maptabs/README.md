@@ -55,7 +55,7 @@ needed, e.g. an `item_id` extracted with `subbits` is already an integer.
 
 ## Access and sharing
 
-Only the administrator manages tables (through the CLI). All tables are
+Only the administrator manages tables (through the CLI or the REST API). All tables are
 shared: a lookup returns the same rows for every client, whether or not the
 client belongs to a multi-tenancy namespace. The plugin does not scope tables
 or lookups by tenant namespace.
@@ -129,3 +129,37 @@ emqx ctl maptabs reload       # rebuild the cache from storage on all nodes (rec
 emqx ctl maptabs get <name>   # print the stored table content
 emqx ctl maptabs delete <name># delete a table on all nodes
 ```
+
+## REST API
+
+The same operations are served by the EMQX plugin API gateway, under
+`/api/v5/plugin_api/emqx_maptabs/`. An API key needs the `plugin_api` scope.
+
+| Method and path        | CLI equivalent    | Success                            |
+|------------------------|-------------------|------------------------------------|
+| `GET tables`           | `maptabs status`  | 200, tables cached on every node   |
+| `GET tables/<name>`    | `maptabs get`     | 200, the stored table JSON         |
+| `PUT tables/<name>`    | `maptabs load`    | 200, `name`, `version`, `row_count`, `nodes` |
+| `DELETE tables/<name>` | `maptabs delete`  | 204                                |
+| `POST reload`          | `maptabs reload`  | 200, `nodes`                       |
+
+```
+curl -u <key>:<secret> -X PUT -H 'Content-Type: application/json' \
+  --data-binary @can_signals.json \
+  http://127.0.0.1:18083/api/v5/plugin_api/emqx_maptabs/tables/can_signals
+```
+
+The table name comes from the path. The body is the table content, as in a
+table file. The table is stored as compact JSON, so `GET` returns the compact
+form and the same content always has the same `version`, whatever its
+formatting. The size limit `max_table_file_bytes` applies to the stored form.
+
+A rejected table is a 400 with `reason` and, where it applies, `row_number`
+and `key`. An unknown table is a 404.
+
+`PUT`, `DELETE` and `POST reload` answer 200 or 204 only when every running
+node has confirmed that its cache holds the result. Otherwise the answer is a
+503 with code `PARTIALLY_APPLIED` and the nodes that did not confirm in
+`failed_nodes`. The change is stored and is not rolled back; repeat the same
+request to complete it. A repeated `DELETE` of a table that is already gone
+answers 404 once every node has confirmed.

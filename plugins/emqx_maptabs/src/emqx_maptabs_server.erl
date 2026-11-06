@@ -35,6 +35,13 @@ replicated updates triggers one rebuild pass).
     list_tables/1
 ]).
 
+%% Parallel cache operations on several nodes, bounded by one deadline
+-export([
+    confirm_on_nodes/4,
+    reconcile_on_nodes/2,
+    list_tables_on_nodes/2
+]).
+
 %% gen_server callbacks
 -export([
     init/1,
@@ -51,6 +58,12 @@ replicated updates triggers one rebuild pass).
 -record(reconcile, {}).
 -record(list_tables, {}).
 -record(do_reconcile, {}).
+%% `expect' is the content version the cache must hold, or `absent'
+-record(confirm, {name, expect, timeout}).
+-record(confirm_expired, {}).
+
+-type expect() :: binary() | absent.
+-type deadline() :: integer().
 
 %%--------------------------------------------------------------------
 %% API
@@ -76,6 +89,34 @@ reconcile(Node) ->
 list_tables(Node) ->
     call_node(Node, #list_tables{}).
 
+-doc """
+Asks every node to reconcile its cache and to reply `ok` once the
+cache of `Name` holds `Expect`. A node whose storage replica has not
+received the write yet keeps the call open and re-checks after each
+reconcile, until shortly before `Deadline` (`erlang:monotonic_time`
+in milliseconds).
+""".
+-spec confirm_on_nodes([node()], binary(), expect(), deadline()) ->
+    [{node(), ok | {error, term()}}].
+confirm_on_nodes(Nodes, Name, Expect, Deadline) ->
+    multicall(
+        Nodes,
+        fun(Remaining) ->
+            %% leave time for the node's answer to come back before the
+            %% caller gives up, so a lagging node reports what it holds
+            #confirm{name = Name, expect = Expect, timeout = Remaining * 3 div 4}
+        end,
+        Deadline
+    ).
+
+-spec reconcile_on_nodes([node()], deadline()) -> [{node(), ok | {error, term()}}].
+reconcile_on_nodes(Nodes, Deadline) ->
+    multicall(Nodes, fun(_) -> #reconcile{} end, Deadline).
+
+-spec list_tables_on_nodes([node()], deadline()) -> [{node(), [map()] | {error, term()}}].
+list_tables_on_nodes(Nodes, Deadline) ->
+    multicall(Nodes, fun(_) -> #list_tables{} end, Deadline).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -86,10 +127,23 @@ init([]) ->
     %% every storage write and delete touches the index table
     {ok, _} = mnesia:subscribe({table, ?MAPTABS_INDEX_TAB, simple}),
     ok = do_reconcile(),
-    {ok, #{reconcile_timer => undefined}}.
+    {ok, #{reconcile_timer => undefined, waiters => #{}}}.
 
 handle_call(#reconcile{}, _From, State) ->
-    {reply, do_reconcile(), cancel_debounce(State)};
+    {reply, ok, reconcile_now(cancel_debounce(State))};
+handle_call(#confirm{name = Name, expect = Expect, timeout = Timeout}, From, State0) ->
+    State = reconcile_now(cancel_debounce(State0)),
+    case cached_version(Name) of
+        Expect ->
+            {reply, ok, State};
+        _ ->
+            %% the write has not reached this node's storage replica
+            %% yet; answer when a later reconcile catches up, or on
+            %% expiry
+            TRef = erlang:start_timer(max(Timeout, 0), self(), #confirm_expired{}),
+            #{waiters := Waiters} = State,
+            {noreply, State#{waiters := Waiters#{TRef => {From, Name, Expect}}}}
+    end;
 handle_call(#list_tables{}, _From, State) ->
     {reply, emqx_maptabs:list_local(), State};
 handle_call(Request, From, State) ->
@@ -105,8 +159,20 @@ handle_cast(Request, State) ->
 handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, ensure_debounce(State)};
 handle_info(#do_reconcile{}, State) ->
-    _ = do_reconcile(),
-    {noreply, State#{reconcile_timer := undefined}};
+    {noreply, reconcile_now(State#{reconcile_timer := undefined})};
+handle_info({timeout, TRef, #confirm_expired{}}, #{waiters := Waiters} = State) ->
+    case maps:take(TRef, Waiters) of
+        {{From, Name, Expect}, Waiters1} ->
+            gen_server:reply(
+                From,
+                {error, #{
+                    reason => not_confirmed, expected => Expect, cached => cached_version(Name)
+                }}
+            ),
+            {noreply, State#{waiters := Waiters1}};
+        error ->
+            {noreply, State}
+    end;
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "maptabs_unexpected_info", info => Info}),
     {noreply, State}.
@@ -130,6 +196,44 @@ call_node(Node, Request) ->
         exit:Reason -> {error, Reason}
     end.
 
+%% Sends `MkRequest(RemainingMs)' to the server on every node at once
+%% and collects the replies until `Deadline'. A node that has not
+%% answered by then is reported as `{error, timeout}'.
+multicall(Nodes, MkRequest, Deadline) ->
+    Request = MkRequest(max(Deadline - now_ms(), 0)),
+    ReqIds = lists:foldl(
+        fun(Node, Acc) ->
+            gen_server:send_request({?SERVER, Node}, Request, Node, Acc)
+        end,
+        gen_server:reqids_new(),
+        Nodes
+    ),
+    Replies = collect(ReqIds, Deadline, #{}),
+    [{Node, maps:get(Node, Replies)} || Node <- Nodes].
+
+collect(ReqIds, Deadline, Acc) ->
+    case gen_server:receive_response(ReqIds, {abs, Deadline}, true) of
+        no_request ->
+            Acc;
+        timeout ->
+            lists:foldl(
+                fun({_ReqId, Node}, Acc1) -> Acc1#{Node => {error, timeout}} end,
+                Acc,
+                gen_server:reqids_to_list(ReqIds)
+            );
+        {{reply, Reply}, Node, ReqIds1} ->
+            collect(ReqIds1, Deadline, Acc#{Node => Reply});
+        {{error, {Reason, _ServerRef}}, Node, ReqIds1} ->
+            collect(ReqIds1, Deadline, Acc#{Node => {error, call_error(Reason)}})
+    end.
+
+call_error(noproc) -> plugin_not_running;
+call_error(noconnection) -> nodedown;
+call_error(Reason) -> Reason.
+
+now_ms() ->
+    erlang:monotonic_time(millisecond).
+
 ensure_debounce(#{reconcile_timer := undefined} = State) ->
     Ref = erlang:send_after(?RECONCILE_DEBOUNCE, self(), #do_reconcile{}),
     State#{reconcile_timer := Ref};
@@ -147,6 +251,28 @@ cancel_debounce(#{reconcile_timer := Ref} = State) ->
 %%--------------------------------------------------------------------
 %% Cache operations (run inside the server process)
 %%--------------------------------------------------------------------
+
+%% Reconciles, then answers every waiting confirm the cache now satisfies.
+reconcile_now(#{waiters := Waiters} = State) ->
+    ok = do_reconcile(),
+    Done = maps:filter(
+        fun(_TRef, {_From, Name, Expect}) -> cached_version(Name) =:= Expect end,
+        Waiters
+    ),
+    ok = maps:foreach(
+        fun(TRef, {From, _Name, _Expect}) ->
+            _ = erlang:cancel_timer(TRef),
+            gen_server:reply(From, ok)
+        end,
+        Done
+    ),
+    State#{waiters := maps:without(maps:keys(Done), Waiters)}.
+
+cached_version(Name) ->
+    case ets:lookup(?MAPTABS_REGISTRY, Name) of
+        [{_, _Tid, #{version := Version}}] -> Version;
+        [] -> absent
+    end.
 
 %% Diffs the cache against storage by content version: (re)builds the
 %% cache of every stored table whose version differs, drops cached

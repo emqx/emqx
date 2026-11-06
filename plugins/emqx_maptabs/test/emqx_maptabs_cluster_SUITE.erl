@@ -12,6 +12,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TABLE, <<"can_signals">>).
+%% default of plugins.api_endpoint.timeout
+-define(GATEWAY_TIMEOUT, 5000).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -169,9 +171,149 @@ t_down_node_catches_up_missed_delete(Config) ->
     ),
     ok.
 
+-doc """
+The same content uploaded twice through the API: the second upload
+succeeds with the same version, and neither node rebuilds its cache.
+""".
+t_api_put_same_content_twice(Config) ->
+    [Node1, Node2] = Nodes = ?config(nodes, Config),
+    Rows = [#{key => 1, v => <<"v1">>}],
+    {200, #{version := Version, nodes := Confirmed}} = api_put(Node1, ?TABLE, Rows),
+    ?assertEqual(lists:sort(Nodes), lists:sort(Confirmed)),
+    %% a rebuild swaps a fresh ETS table into the registry
+    Tids1 = cached_tids(Nodes),
+    ?assertMatch({200, #{version := Version}}, api_put(Node1, ?TABLE, Rows)),
+    %% flush any reconcile the second write scheduled
+    [ok = erpc:call(N, emqx_maptabs_server, reconcile, [N]) || N <- Nodes],
+    ?assertEqual(Tids1, cached_tids(Nodes)),
+    ?assertEqual(#{<<"v">> => <<"v1">>}, erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])),
+    ok.
+
+-doc """
+A peer whose plugin is stopped cannot confirm: the upload is a 503
+naming it, the write stays, and repeating the upload after the peer is
+back answers 200.
+""".
+t_api_put_partial_when_peer_plugin_stopped(Config) ->
+    [Node1, Node2] = ?config(nodes, Config),
+    NameVsn = ?config(plugin_name_vsn, Config),
+    ok = erpc:call(Node2, emqx_plugins, ensure_stopped, [NameVsn]),
+    Rows = [#{key => 1, v => <<"v1">>}],
+    {503, Body} = api_put(Node1, ?TABLE, Rows),
+    ?assertMatch(
+        #{
+            code := <<"PARTIALLY_APPLIED">>,
+            nodes := [Node1],
+            failed_nodes := [#{node := Node2, reason := plugin_not_running}]
+        },
+        Body
+    ),
+    #{version := Version} = Body,
+    %% not rolled back: stored on both nodes, served by the survivor
+    ?assertMatch(
+        [{maptab_index, ?TABLE, Version, _, _}],
+        erpc:call(Node2, mnesia, dirty_read, [emqx_maptabs_index, ?TABLE])
+    ),
+    ?assertEqual(#{<<"v">> => <<"v1">>}, erpc:call(Node1, emqx_maptabs, lookup, [?TABLE, 1])),
+    %% heal: the peer is back, the same upload completes
+    ok = erpc:call(Node2, emqx_plugins, ensure_started, [NameVsn]),
+    ?assertMatch({200, #{version := Version}}, api_put(Node1, ?TABLE, Rows)),
+    ?assertEqual(#{<<"v">> => <<"v1">>}, erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])),
+    ok.
+
+-doc """
+A peer that does not answer is reported as a 503 naming it within the
+gateway's call budget, not as the gateway's own timeout.
+""".
+t_api_put_partial_within_gateway_budget(Config) ->
+    [Node1, Node2] = ?config(nodes, Config),
+    Server2 = erpc:call(Node2, erlang, whereis, [emqx_maptabs_server]),
+    ok = erpc:call(Node2, sys, suspend, [Server2]),
+    Rows = [#{key => 1, v => <<"v1">>}],
+    try
+        {Micros, Result} = timer:tc(fun() -> api_put(Node1, ?TABLE, Rows) end),
+        ?assertMatch(
+            {503, #{
+                code := <<"PARTIALLY_APPLIED">>,
+                failed_nodes := [#{node := Node2, reason := timeout}]
+            }},
+            Result
+        ),
+        ?assert(Micros div 1000 < ?GATEWAY_TIMEOUT)
+    after
+        ok = erpc:call(Node2, sys, resume, [Server2])
+    end,
+    ?assertMatch({200, #{nodes := [_, _]}}, api_put(Node1, ?TABLE, Rows)),
+    ok.
+
+-doc """
+A delete a peer could not confirm is completed by repeating it; the
+repeat answers 404 once every node confirms the table is gone.
+""".
+t_api_delete_partial_then_repeat(Config) ->
+    [Node1, Node2] = ?config(nodes, Config),
+    NameVsn = ?config(plugin_name_vsn, Config),
+    {200, _} = api_put(Node1, ?TABLE, [#{key => 1, v => <<"v1">>}]),
+    ok = erpc:call(Node2, emqx_plugins, ensure_stopped, [NameVsn]),
+    ?assertMatch(
+        {503, #{failed_nodes := [#{node := Node2, reason := plugin_not_running}]}},
+        api_call(Node1, delete, [<<"tables">>, ?TABLE], #{})
+    ),
+    ?assertEqual([], erpc:call(Node2, mnesia, dirty_read, [emqx_maptabs_index, ?TABLE])),
+    ok = erpc:call(Node2, emqx_plugins, ensure_started, [NameVsn]),
+    ?assertMatch(
+        {404, #{code := <<"NOT_FOUND">>}},
+        api_call(Node1, delete, [<<"tables">>, ?TABLE], #{})
+    ),
+    ?assertEqual(undefined, erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])),
+    ok.
+
+-doc "Reload asks every node and names the one that did not answer.".
+t_api_reload(Config) ->
+    [Node1, Node2] = Nodes = ?config(nodes, Config),
+    {200, #{nodes := Confirmed}} = api_call(Node1, post, [<<"reload">>], #{}),
+    ?assertEqual(lists:sort(Nodes), lists:sort(Confirmed)),
+    NameVsn = ?config(plugin_name_vsn, Config),
+    ok = erpc:call(Node2, emqx_plugins, ensure_stopped, [NameVsn]),
+    ?assertMatch(
+        {503, #{nodes := [Node1], failed_nodes := [#{node := Node2}]}},
+        api_call(Node1, post, [<<"reload">>], #{})
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+%% Calls the plugin through the gateway entry point the HTTP handler
+%% uses, with its default budget. HTTP body decoding is covered by
+%% emqx_maptabs_api_SUITE.
+api_put(Node, Name, Rows) ->
+    Body = emqx_utils_json:decode(emqx_utils_json:encode(Rows)),
+    api_call(Node, put, [<<"tables">>, Name], #{
+        headers => #{<<"content-type">> => <<"application/json">>},
+        body => Body
+    }).
+
+api_call(Node, Method, Path, ReqInfo) ->
+    Request = #{
+        method => Method,
+        path => Path,
+        request => maps:merge(#{method => Method, query_string => #{}, headers => #{}}, ReqInfo),
+        context => #{}
+    },
+    %% the response body is the handler's term, before JSON encoding
+    Args = [<<"emqx_maptabs">>, Request, ?GATEWAY_TIMEOUT],
+    case erpc:call(Node, emqx_plugins, handle_api_call, Args) of
+        {Status, _Headers, Resp} -> {Status, Resp};
+        {Status, Resp} -> {Status, Resp}
+    end.
+
+cached_tids(Nodes) ->
+    [
+        {N, erpc:call(N, ets, lookup_element, [emqx_maptabs_registry, ?TABLE, 2])}
+     || N <- Nodes
+    ].
 
 cluster_specs() ->
     Apps = [
