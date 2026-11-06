@@ -602,6 +602,33 @@ native_async_single_query_sums_cross_table_points_test() ->
         end
     end).
 
+native_async_submission_error_replies_and_returns_ok_test() ->
+    Write = native_test_write(<<"mqtt">>, 1),
+    State = native_rs_state(Write),
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {native_async_submission_error, Result} end,
+        []
+    },
+    InsertAsync = fun(_Client, <<"mqtt">>, Points, _Callback) ->
+        ?assertEqual(1, length(Points)),
+        {error, ecpool_empty}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertEqual(
+            ok,
+            emqx_bridge_greptimedb_rs_impl:on_query_async(
+                connector, {channel, #{}}, FinalReply, State
+            )
+        ),
+        receive
+            {native_async_submission_error, Result} ->
+                ?assertEqual({error, {recoverable_error, ecpool_empty}}, Result)
+        after 1_000 ->
+            error(native_async_submission_error_timeout)
+        end
+    end).
+
 native_async_batch_query_returns_one_result_per_message_test() ->
     Write = native_test_write(<<"${payload.table}">>, 2),
     State = native_rs_state(Write),
