@@ -46,6 +46,7 @@ backend can reject flush request.
 %% Internal exports
 -export([
     init/4,
+    terminate/1,
     code_change/2,
     loop/1
 ]).
@@ -480,14 +481,13 @@ init(Parent, DB, Shard, CBM) ->
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
-        ExitReason = loop(
+        loop(
             check_soft_quota(D#d{
                 serial = Serial,
                 timestamp = Timestamp,
                 committed_serial = Serial
             })
-        ),
-        terminate(ExitReason)
+        )
     else
         InitErr ->
             terminate({init_failed, InitErr})
@@ -508,34 +508,14 @@ loop(D0) ->
         end,
     receive
         {'$gen_cast', Cast} ->
-            try
-                loop(handle_cast(Cast, D0))
-            catch
-                EC:Err:Stack ->
-                    {EC, Err, Stack}
-            end;
+            loop(handle_cast(Cast, D0));
         {'$gen_call', From, Call} ->
-            try
-                loop(handle_call(From, Call, D0))
-            catch
-                EC:Err:Stack ->
-                    {EC, Err, Stack}
-            end;
+            loop(handle_call(From, Call, D0));
         ?timeout_flush ->
-            try
-                loop(flush(D0))
-            catch
-                EC:Err:Stack ->
-                    {EC, Err, Stack}
-            end;
+            loop(flush(D0));
         ?timeout_quota_check ->
-            try
-                D = D0#d{quota_check_timer = undefined},
-                loop(check_soft_quota(D))
-            catch
-                EC:Err:Stack ->
-                    {EC, Err, Stack}
-            end;
+            D = D0#d{quota_check_timer = undefined},
+            loop(check_soft_quota(D));
         {'EXIT', _From, Reason} ->
             case Reason of
                 normal -> loop(D0);
@@ -1589,16 +1569,21 @@ clean_mailbox(Reason, Total, NTrans, NApp, NDel) ->
         {'$gen_cast', #ds_del_batch{}} when Continue ->
             clean_mailbox(Reason, Total + 1, NTrans, NApp, NDel + 1)
     after 0 ->
-        Level =
-            case is_normal_exit(Reason) of
-                true -> info;
-                false -> error
-            end,
+        case is_normal_exit(Reason) of
+            true ->
+                LogLevel = info,
+                LogInfo = #{};
+            false ->
+                LogLevel = error,
+                case Continue of
+                    true -> LogInfo = #{};
+                    false -> LogInfo = #{reason => Reason}
+                end
+        end,
         ?tp(
-            Level,
+            LogLevel,
             ds_otx_terminate,
-            #{
-                reason => Reason,
+            LogInfo#{
                 n_tx => NTrans,
                 n_app => NApp,
                 n_del => NDel

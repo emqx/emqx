@@ -3331,29 +3331,44 @@ t_otx_hot_code_change(Config) ->
             ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
             Shard = emqx_ds:shard_of(DB, <<"me">>),
             Topic = [~"foo"],
-            OtxLeader = emqx_ds_optimistic_tx:where(DB, Shard),
-            link(OtxLeader),
-            %% 1. Suspend the leader, and then schedule a transaction
-            %% which should succeed after the code change:
-            ?assertMatch(ok, sys:suspend(OtxLeader)),
+            %% 1. Suspend the leaders
+            Leaders = [
+                begin
+                    OtxLeader = emqx_ds_optimistic_tx:where(DB, S),
+                    link(OtxLeader),
+                    ?assertMatch(ok, sys:suspend(OtxLeader)),
+                    OtxLeader
+                end
+             || S <- emqx_ds:list_shards(DB)
+            ],
+            %% Schedul a transaction which should succeed after the
+            %% code change:
             {async, Ref, _} = emqx_ds:trans(
                 #{db => DB, shard => Shard, generation => 1, sync => false},
                 fun() ->
                     emqx_ds:tx_write({Topic, 0, ~"hello"})
                 end
             ),
-            %% 2. Emulate hot code change
-            ?assertMatch(
-                ok,
-                sys:change_code(OtxLeader, emqx_ds_optimistic_tx, 0, extra, 5_000)
-            ),
-            ?assertMatch(ok, sys:resume(OtxLeader)),
+            %% 2. Purge the leader code and perform code change:
+            code:delete(emqx_ds_optimistic_tx),
+            code:purge(emqx_ds_optimistic_tx),
+            %% 3. Update the leaders:
+            [
+                begin
+                    ?assertMatch(
+                        ok,
+                        sys:change_code(OtxLeader, emqx_ds_optimistic_tx, 0, extra, 5_000)
+                    ),
+                    ?assertMatch(ok, sys:resume(OtxLeader)),
+                    unlink(OtxLeader)
+                end
+             || OtxLeader <- Leaders
+            ],
             %% 3. Transaction should still succeed:
             receive
                 ?ds_tx_commit_reply(Ref, Reply) ->
                     ?assertMatch({ok, _}, emqx_ds:del_batch_outcome(DB, Ref, Reply))
             end,
-            unlink(OtxLeader),
             ?assertMatch(
                 [{Topic, 0, ~"hello"}],
                 emqx_ds:dirty_read(DB, ['#'])
