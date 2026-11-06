@@ -3578,3 +3578,21 @@ shorten_param_name(true, Queries) ->
         Queries,
         emqx_coap_message:query_params_mapping_table()
     ).
+
+-doc "CoAP returns a readable numeric hook rejection and connects after recovery.".
+t_connect_hook_rejection(_) ->
+    emqx_gateway_test_utils:with_connect_rejection(?RC_QUOTA_EXCEEDED, fun() ->
+        do(fun(Channel) ->
+            URI = compose_uri(
+                ?MQTT_PREFIX ++ "/connection", #{"clientid" => <<"rejected">>}, false
+            ),
+            ?assertMatch(
+                {error, bad_request, #coap_content{payload = <<"Login Failed: Quota exceeded">>}},
+                do_request(Channel, URI, make_req(post))
+            )
+        end)
+    end),
+    do(fun(Channel) ->
+        Token = connection(Channel),
+        disconnection(Channel, Token)
+    end).

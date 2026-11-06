@@ -61,6 +61,32 @@ t_info({'end', _Config}) ->
 t_info(_Config) ->
     _ = emqx_license_cli:license(["info"]).
 
+-doc "Load signed licenses and preserve UTF-8 customer names in CLI output.".
+t_info_unicode({init, Config}) ->
+    Config;
+t_info_unicode({'end', _Config}) ->
+    ok;
+t_info_unicode(_Config) ->
+    OriginalKey = emqx_utils_conv:bin(emqx:get_config([license, key])),
+    try
+        lists:foreach(
+            fun(Customer) ->
+                LicenseKey = emqx_license_test_lib:make_license(#{
+                    name => binary_to_list(Customer)
+                }),
+                ?assertMatch({ok, _}, emqx_license:update_key(LicenseKey)),
+                {ok, Output} = ?CAPTURE(emqx_license_cli:license(["info"])),
+                Lines = binary:split(iolist_to_binary(Output), <<10>>, [global]),
+                ?assert(lists:member(<<"customer        : ", Customer/binary>>, Lines)),
+                ?assert(lists:member(<<"email           : contact@foo.com">>, Lines)),
+                ?assert(lists:member(<<"deployment      : bar-deployment">>, Lines))
+            end,
+            [<<"Foo">>, <<"示例科技有限公司"/utf8>>, <<"客户🚀"/utf8>>]
+        )
+    after
+        {ok, _} = emqx_license:update_key(OriginalKey)
+    end.
+
 -doc "History command shows monthly plain-text and JSON output.".
 t_history({init, Config}) ->
     {atomic, ok} = mria:clear_table(emqx_license_session_hwm),
