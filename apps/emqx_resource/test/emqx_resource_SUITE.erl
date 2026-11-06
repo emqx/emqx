@@ -4140,7 +4140,9 @@ t_resource_and_channel_health_check_race(_Config) ->
             ChanHCAlias1 ! {ChanHCAlias1, connected},
             %% 4) A new connector HC returns `connected'.
             ?tpal("4) A new connector HC returns `connected'"),
-            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+            ?assertReceive(
+                {returning_resource_health_check_result, ConnResId, ?status_connected, _}
+            ),
             ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId)),
             ?assertMatch(
                 #{status := connected}, emqx_resource:channel_health_check(ConnResId, ChanId)
@@ -4338,18 +4340,6 @@ t_fallback_actions_overflow(Config) when is_list(Config) ->
                 end,
                 Results
             ),
-            %% Upon entering `?status_connected` for the first time, the connector/resource
-            %% will kick off the channel health check.  After that, the channel manages its
-            %% own interval with generic statem timers, and should not be triggered again
-            %% by the more frequent connector health checks.
-            ?assertReceive({returning_resource_health_check_result, _, _, _}),
-            ?assertReceive({returning_channel_health_check_result, _, _, _}),
-            %% N.B.: without async add channel, there is a second health check performed.
-            ?assertReceive({returning_channel_health_check_result, _, _, _}),
-            %% Should not perform other channel health checks for a long time now.
-            ?assertNotReceive({returning_channel_health_check_result, _, _, _}),
-            %% Resource health checks should continue quite frequently.
-            ?assertReceive({returning_resource_health_check_result, _, _, _}),
             ok
         end,
         [log_consistency_prop()]
@@ -5260,7 +5250,9 @@ t_health_check_while_resource_is_disconnected(_Config) ->
                     }
                 ),
             ?tpal("waiting for first (successful) resource health check"),
-            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+            ?assertReceive(
+                {returning_resource_health_check_result, ConnResId, ?status_connected, _}
+            ),
 
             %% 2) The resource then enters the disconnected state.  It'll try to restart at
             %%    least once and fail.  Note that this may destroy some resources related
@@ -5269,7 +5261,7 @@ t_health_check_while_resource_is_disconnected(_Config) ->
             %%    restarting.  If the restart then fails, we are left with no pool.
             ?tpal("waiting connector to be disconnected"),
             ?assertReceive(
-                {returning_resource_health_check_result, ConnResId, ?status_disconnected}
+                {returning_resource_health_check_result, ConnResId, ?status_disconnected, _}
             ),
             ?tpal("waiting connector to attempt and fail to restart"),
             receive
@@ -5305,7 +5297,9 @@ t_health_check_while_resource_is_disconnected(_Config) ->
                 ?assertReceive({waiting_health_check_result, _Alias, resource, ConnResId}),
             Alias2 ! {Alias2, ?status_connected},
             ?tpal("now it should return to normal"),
-            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+            ?assertReceive(
+                {returning_resource_health_check_result, ConnResId, ?status_connected, _}
+            ),
             ?assertMatch({ok, ?status_connected}, emqx_resource:health_check(ConnResId)),
 
             ok
@@ -5371,14 +5365,14 @@ t_independent_channel_health_check_interval(_Config) ->
             %% will kick off the channel health check.  After that, the channel manages its
             %% own interval with generic statem timers, and should not be triggered again
             %% by the more frequent connector health checks.
-            ?assertReceive({returning_resource_health_check_result, _, _}),
+            ?assertReceive({returning_resource_health_check_result, _, _, _}),
             ?assertReceive({returning_channel_health_check_result, _, _, _}),
             %% N.B.: without async add channel, there is a second health check performed.
             ?assertReceive({returning_channel_health_check_result, _, _, _}),
             %% Should not perform other channel health checks for a long time now.
             ?assertNotReceive({returning_channel_health_check_result, _, _, _}),
             %% Resource health checks should continue quite frequently.
-            ?assertReceive({returning_resource_health_check_result, _, _}),
+            ?assertReceive({returning_resource_health_check_result, _, _, _}),
             ok
         end,
         [log_consistency_prop()]
