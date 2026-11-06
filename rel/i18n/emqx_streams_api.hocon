@@ -42,6 +42,9 @@ emqx_streams_api {
     cannot_create_message_stream {
         desc: "Cannot create message stream"
     }
+    message_stream_being_deleted {
+        desc: "Message stream is being deleted"
+    }
     message_stream_not_found {
         desc: "Message stream not found"
     }

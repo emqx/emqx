@@ -4,6 +4,11 @@
 
 -module(emqx_global_gc).
 
+%% `await_gc/3' waits without a timeout on purpose: `erlang:garbage_collect/2'
+%% with `{async, Ref}' answers every request, including one for a process that
+%% has exited in the meantime, so the loop always ends.
+-elvis([{elvis_style, no_receive_without_timeout, disable}]).
+
 -moduledoc """
 Periodic global garbage collection.
 

@@ -143,6 +143,9 @@ create_connector_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
     ).
 
+delete_connector_api(TCConfig) ->
+    emqx_bridge_v2_testlib:delete_connector_api(TCConfig).
+
 create_action_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
@@ -358,6 +361,32 @@ t_http_error_no_body(TCConfig) ->
         {201, #{
             ~"status" := ~"disconnected",
             ~"status_reason" := ~"AWS error: response status 307 and no body"
+        }},
+        create_connector_api(TCConfig, #{
+            ~"host" => ~"127.0.0.1",
+            ~"port" => Port
+        })
+    ),
+    {204, _} = delete_connector_api(TCConfig),
+    emqx_utils_http_test_server:set_handler(
+        fun(Req, State) ->
+            Rep =
+                cowboy_req:reply(
+                    503,
+                    #{
+                        <<"content-type">> => <<"application/xml">>,
+                        <<"location">> => <<"https://xxx.s3-sa-east-1.amazonaws.com/xxx">>
+                    },
+                    <<"">>,
+                    Req
+                ),
+            {ok, Rep, State}
+        end
+    ),
+    ?assertMatch(
+        {201, #{
+            ~"status" := ~"disconnected",
+            ~"status_reason" := ~"AWS error: response status 503 and no body"
         }},
         create_connector_api(TCConfig, #{
             ~"host" => ~"127.0.0.1",

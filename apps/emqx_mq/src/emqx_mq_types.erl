@@ -55,6 +55,8 @@ The module contains basic types for the Message Queue application.
     data_retention_period := interval_ms(),
     %% For lastvalue MQ.
     key_expression => emqx_variform:compiled(),
+    %% Set only in listings, while the MQ deletion is pending.
+    deleted_at => non_neg_integer(),
     _ => _
 }.
 
