@@ -75,6 +75,7 @@ on_add_channel(
     ChannelId,
     #{parameters := Parameters} = ChannelConfig0
 ) ->
+    %% Keep the default for channel state created before precision was mandatory.
     Precision = maps:get(precision, Parameters, ms),
     WriteSyntax = emqx_bridge_greptimedb_utils:parse_action_parameters(Parameters, Precision),
     ChannelConfig = maps:merge(
@@ -1036,7 +1037,6 @@ tag_value_typing_test() ->
         {error, {invalid_unsigned_integer_value, -1}},
         value_type([-1, <<"u">>], uint64, tag)
     ).
-
 %% for coverage
 desc_test_() ->
     [

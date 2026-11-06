@@ -43,6 +43,7 @@
     missing_timestamp => default | error | ignore,
     precision := {From :: ts_precision(), To :: ts_precision()}
 }.
+-type encoded_data() :: {ok, {map(), map()}} | {error, term()}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -211,7 +212,7 @@ line_to_point(Data, DbName, DriverType, Item) ->
     catch
         throw:Reason ->
             {error, Reason};
-        Class:Reason when Class =:= error; Class =:= exit ->
+        _:Reason ->
             {error, {point_conversion_failed, Reason}}
     end.
 
@@ -244,10 +245,7 @@ line_to_point_1(
         TableName = render_measurement(Measurement, Data),
         Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
         Point = maps:merge(
-            maps:without(
-                [precision, measurement, missing_timestamp, timestamp],
-                Item#{tags => EncodedTags, fields => EncodedFields}
-            ),
+            maps:with([tags, fields], Item#{tags => EncodedTags, fields => EncodedFields}),
             TimestampFields
         ),
         {ok, {Metric, [Point]}}
@@ -295,9 +293,7 @@ structured_tags(Tags) ->
     lists:foldl(
         fun(#{key := Key, value := Value}, Acc) ->
             maps:put(
-                emqx_placeholder:preproc_tmpl(Key),
-                {structured_tag, emqx_placeholder:preproc_tmpl(Value)},
-                Acc
+                emqx_placeholder:preproc_tmpl(Key), emqx_placeholder:preproc_tmpl(Value), Acc
             )
         end,
         #{},
@@ -346,12 +342,13 @@ to_kv_config(KVfields, Kind) ->
 
 to_maps_config(K, V, tag, Res) ->
     NK = emqx_placeholder:preproc_tmpl(bin(K)),
-    Res#{NK => {legacy_tag, preproc_quoted(V)}};
+    Res#{NK => preproc_quoted(V)};
 to_maps_config(K, V, field, Res) ->
     NK = emqx_placeholder:preproc_tmpl(bin(K)),
     NV = preproc_quoted(V),
     Res#{NK => NV}.
 
+-spec maps_config_to_data(term(), term(), encoded_data(), erlang | native) -> encoded_data().
 maps_config_to_data(_K, _V, {error, _} = Error, _DriverType) ->
     Error;
 maps_config_to_data(K, {typed, Type, Tmpl}, {ok, {Data, Res}}, DriverType) ->
@@ -447,7 +444,6 @@ tag_template({structured_tag, Tmpl}) ->
     Tmpl;
 tag_template(Tmpl) ->
     Tmpl.
-
 typed_field_value(DriverType, auto, Tmpl, Values) ->
     case is_auto_text_template(Tmpl) of
         true -> typed_value(DriverType, string, Values);
@@ -456,6 +452,8 @@ typed_field_value(DriverType, auto, Tmpl, Values) ->
 typed_field_value(DriverType, Type, _Tmpl, Values) ->
     typed_value(DriverType, Type, Values).
 
+%% Auto keeps line-protocol type inference for one rendered value. A template
+%% with static text or multiple parts renders as a string.
 is_auto_text_template([{str, _}]) ->
     false;
 is_auto_text_template([{var, _}]) ->
@@ -648,7 +646,7 @@ put_structured_kv(KeyType, Key, Value, Acc) ->
 %% greptimedb stores timestamps as int64, so a value that overflows after the
 %% unit conversion is rejected rather than written wrapped.
 timestamp_fields(undefined, {_FromPrecision, ToPrecision}, ignore) ->
-    case convert_timestamp(emqx_message:timestamp_now(), {ms, ToPrecision}) of
+    case convert_timestamp(now_ms(), {ms, ToPrecision}) of
         {ok, Timestamp} -> {ok, #{timestamp => Timestamp}};
         {error, _} = Error -> Error
     end;
@@ -691,7 +689,7 @@ parse_timestamp([undefined], error, _Precision) ->
 parse_timestamp([undefined], default, {FromPrecision, _}) ->
     {ok,
         maybe_convert_time_unit(
-            emqx_message:timestamp_now(),
+            now_ms(),
             {ms, FromPrecision}
         )};
 parse_timestamp([TsInt], _MissingTimestamp, _Precision) when is_integer(TsInt) ->
@@ -838,7 +836,6 @@ value_type_for_kind(NV, tag) when is_list(NV) ->
     text_value(NV);
 value_type_for_kind(NV, _Kind) ->
     value_type(NV).
-
 text_value(Tokens) ->
     string_value([render_token(Token) || Token <- Tokens]).
 
@@ -878,6 +875,9 @@ unwrap_quoted_tag({quoted, Values}) ->
     Values;
 unwrap_quoted_tag(Values) ->
     Values.
+
+now_ms() ->
+    erlang:system_time(millisecond).
 
 log_error_points(InstId, Errs) ->
     lists:foreach(

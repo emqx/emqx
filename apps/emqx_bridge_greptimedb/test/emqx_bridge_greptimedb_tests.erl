@@ -1531,6 +1531,17 @@ legacy_write_syntax_rendering_test() ->
         maps:get(<<"value">>, Fields)
     ).
 
+point_contains_only_driver_fields_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(<<"mqtt value=1 ${timestamp}">>),
+    [Item] = emqx_bridge_greptimedb_utils:parse_action_parameters(
+        #{write_syntax => Lines}, ms
+    ),
+    {ok, [{_, [Point]}]} =
+        emqx_bridge_greptimedb_utils:data_to_points(
+            #{timestamp => 1_700_000_000_123}, <<"mydb">>, [Item#{internal => secret}], erlang
+        ),
+    ?assertEqual([fields, tags, timestamp], lists:sort(maps:keys(Point))).
+
 legacy_tag_suffix_is_treated_as_string_test_() ->
     [
         ?_assertEqual(
@@ -1562,7 +1573,7 @@ render_legacy_tag(DriverType) ->
         ),
     Tags.
 
-legacy_tag_without_new_wrapper_is_string_test_() ->
+legacy_tag_from_old_channel_state_is_string_test_() ->
     [
         ?_assertEqual(
             #{<<"device">> => #{value_data => {string_value, <<"abci">>}}},
