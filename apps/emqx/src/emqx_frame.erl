@@ -205,11 +205,6 @@ parse_complete(
     <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>>,
     Options = #options{strict_mode = StrictMode}
 ) ->
-    %% The driver frames the packet with the limit that the listener read when
-    %% it started, so a later change of `max_packet_size' reaches only this
-    %% check. Count the control byte with the rest of the frame, as the
-    %% chunked path does.
-    ok = check_packet_size(1 + byte_size(Rest1), Options),
     ok = validate_connect_first(Type),
     %% Validate header if strict mode.
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
@@ -223,7 +218,12 @@ parse_complete(
         {_RemLen = 0, Rest2} ->
             {Packet, _, _} = parse_bodyless_packet(Rest2, Header, Options),
             Packet;
-        {_NotZero, Rest2} ->
+        {RemLen, Rest2} ->
+            %% The driver frames the packet with the limit that the listener
+            %% read when it started, so a later change of `max_packet_size'
+            %% reaches only this check. Apply it to the Remaining Length, the
+            %% same way the chunked path does.
+            ok = check_packet_size(RemLen, Options),
             parse_packet_complete(Rest2, Header, Options)
     end.
 
@@ -245,11 +245,9 @@ validate_connect_first(Type) ->
 parse_remaining_len(<<>>, Header, Mult, Length, Options) ->
     {more, #remlen{hdr = Header, len = Length, mult = Mult, opts = Options}};
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
-    ok = check_packet_size(2, Options),
     parse_bodyless_packet(Rest, Header, Options);
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
-    ok = check_packet_size(4, Options),
     parse_body_frame(Rest, Header, 2, <<>>, Options);
 parse_remaining_len(<<1:1, _Len:7, _Rest/binary>>, _Header, Multiplier, _Value, _Options) when
     Multiplier > ?MULTIPLIER_MAX
@@ -262,29 +260,19 @@ parse_remaining_len(
     Header,
     Multiplier,
     Value,
-    Options
+    Options = #options{max_size = MaxSize}
 ) ->
     FrameLen = Value + Len * Multiplier,
-    %% Maximum Packet Size includes the control byte and every encoded
-    %% Remaining Length byte, including those received in earlier chunks.
-    PacketSize = 1 + remaining_len_size(Multiplier) + FrameLen,
-    ok = check_packet_size(PacketSize, Options),
-    case FrameLen of
-        0 -> parse_bodyless_packet(Rest, Header, Options);
-        _ -> parse_body_frame(Rest, Header, FrameLen, <<>>, Options)
+    %% Maximum Packet Size applies to the Remaining Length alone. The control
+    %% byte and the encoded Remaining Length bytes are not counted.
+    case FrameLen > MaxSize of
+        true ->
+            ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
+        false when FrameLen =:= 0 ->
+            parse_bodyless_packet(Rest, Header, Options);
+        false ->
+            parse_body_frame(Rest, Header, FrameLen, <<>>, Options)
     end.
-
--compile({inline, [remaining_len_size/1]}).
-remaining_len_size(1) ->
-    1;
-remaining_len_size(16#80) ->
-    2;
-remaining_len_size(16#4000) ->
-    3;
-remaining_len_size(16#200000) ->
-    4;
-remaining_len_size(_Multiplier) ->
-    ?PARSE_ERR(malformed_variable_byte_integer).
 
 -compile({inline, [check_packet_size/2]}).
 check_packet_size(Size, #options{max_size = MaxSize}) when Size > MaxSize ->
@@ -1307,12 +1295,9 @@ serialize_variable_byte_integer(N) ->
     <<1:1, (N rem ?HIGHBIT):7, (serialize_variable_byte_integer(N div ?HIGHBIT))/binary>>.
 
 %% Is the frame too large?
-%% A packet whose size equals the limit is allowed: MQTT-3.1.2-24 forbids only
-%% packets *exceeding* Maximum Packet Size. This matches the parser, which also
-%% rejects on `FrameLen > MaxSize'.
 -spec is_too_large(iodata(), pos_integer()) -> boolean().
 is_too_large(IoData, MaxSize) ->
-    iolist_size(IoData) > MaxSize.
+    iolist_size(IoData) >= MaxSize.
 
 get_property(_Key, undefined, Default) ->
     Default;

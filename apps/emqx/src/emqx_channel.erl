@@ -839,7 +839,8 @@ process_puback(
 %%--------------------------------------------------------------------
 
 process_pubrec(
-    ?PUBREC_PACKET(PacketId, ReasonCode, Properties),
+    %% TODO: Why discard the Reason Code?
+    ?PUBREC_PACKET(PacketId, _ReasonCode, Properties),
     Channel =
         #channel{clientinfo = ClientInfo, session = Session}
 ) ->
@@ -847,31 +848,18 @@ process_pubrec(
         {ok, Msg, NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
             NChannel = Channel#channel{session = NSession},
-            case ReasonCode >= ?RC_UNSPECIFIED_ERROR of
-                true ->
-                    %% A negative PUBREC completes the exchange immediately (MQTT5 4.3.3)
-                    complete_qos2(PacketId, NChannel);
-                false ->
-                    handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel)
-            end;
+            handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PROTOCOL_ERROR} ->
             handle_out(disconnect, RC, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_inuse", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubrec.inuse'),
-            reply_pubrec_error(PacketId, ReasonCode, RC, Channel);
+            handle_out(pubrel, {PacketId, RC}, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubrec.missed'),
-            reply_pubrec_error(PacketId, ReasonCode, RC, Channel)
+            handle_out(pubrel, {PacketId, RC}, Channel)
     end.
-
-reply_pubrec_error(_PacketId, ReasonCode, _ErrorCode, Channel) when
-    ReasonCode >= ?RC_UNSPECIFIED_ERROR
-->
-    {ok, Channel};
-reply_pubrec_error(PacketId, _ReasonCode, ErrorCode, Channel) ->
-    handle_out(pubrel, {PacketId, ErrorCode}, Channel).
 
 %%--------------------------------------------------------------------
 %% Process PUBREL
@@ -898,11 +886,8 @@ process_pubrel(
 %% Process PUBCOMP
 %%--------------------------------------------------------------------
 
-process_pubcomp(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel) ->
-    complete_qos2(PacketId, Channel).
-
-complete_qos2(
-    PacketId,
+process_pubcomp(
+    ?PUBCOMP_PACKET(PacketId, _ReasonCode),
     Channel = #channel{
         clientinfo = ClientInfo, session = Session
     }
@@ -918,7 +903,7 @@ complete_qos2(
             ok = emqx_metrics:inc('packets.pubcomp.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "pubcomp_PacketId_not_found", packet_id => PacketId}),
+            ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubcomp.missed'),
             {ok, Channel}
     end.
