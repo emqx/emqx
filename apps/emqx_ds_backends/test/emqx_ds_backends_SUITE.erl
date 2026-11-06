@@ -3377,6 +3377,55 @@ t_otx_hot_code_change(Config) ->
         []
     ).
 
+%% This testcase verifies various scenarios of OTX server termination:
+t_otx_terminate(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            %% 0. Prepare:
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Shard = emqx_ds:shard_of(DB, <<"me">>),
+            Exit0 = fun(Reason, MaxDelay) ->
+                Pid = emqx_ds_optimistic_tx:where(DB, Shard),
+                MRef = monitor(process, Pid),
+                exit(Pid, Reason),
+                T0 = erlang:system_time(millisecond),
+                receive
+                    {'DOWN', MRef, process, _, ExitReason} ->
+                        T1 = erlang:system_time(millisecond),
+                        {ExitReason, T1 - T0}
+                after MaxDelay ->
+                    error({timeout_waiting_for, Pid, Reason})
+                end
+            end,
+            %% Also wait for the resurrection:
+            Exit = fun(Reason, MaxDelay) ->
+                {Ret, _} = ?wait_async_action(
+                    Exit0(Reason, MaxDelay),
+                    #{?snk_kind := ds_otx_up}
+                ),
+                Ret
+            end,
+            %% 1. `shutdown' (note: exit signals with `normal' reason
+            %% are ignored and hence aren't tested here):
+            ?assertMatch(
+                {shutdown, _},
+                Exit(shutdown, 10)
+            ),
+            ?assertMatch(
+                {{shutdown, foo}, _},
+                Exit({shutdown, foo}, 10)
+            ),
+            %% 2. non-normal reason:
+            ?assertMatch(
+                {{exit, foo, Stack}, T} when T >= 500 andalso is_list(Stack),
+                Exit(foo, 600)
+            )
+        end,
+        []
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.

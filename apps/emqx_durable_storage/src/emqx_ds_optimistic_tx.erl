@@ -46,6 +46,7 @@ backend can reject flush request.
 %% Internal exports
 -export([
     init/4,
+    is_normal_exit/1,
     terminate/1,
     code_change/2,
     loop/1
@@ -574,6 +575,23 @@ handle_cast(Other, D) ->
 code_change(D, _Extra) ->
     D#d{version = version()}.
 
+-spec terminate(term()) -> no_return().
+terminate(Reason) ->
+    %% If process terminates due to an error, wait a little to avoid
+    %% hot restart loop:
+    is_normal_exit(Reason) orelse timer:sleep(500),
+    clean_mailbox(Reason).
+
+-spec is_normal_exit(term()) -> boolean().
+is_normal_exit(normal) ->
+    true;
+is_normal_exit(shutdown) ->
+    true;
+is_normal_exit({shutdown, _}) ->
+    true;
+is_normal_exit(_) ->
+    false.
+
 %%================================================================================
 %% System functions
 %%================================================================================
@@ -591,13 +609,6 @@ system_code_change(D, _Module, _OldVsn, Extra) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
--spec terminate(term()) -> no_return().
-terminate(Reason) ->
-    %% If process terminates due to an error, wait a little to avoid
-    %% hot restart loop:
-    is_normal_exit(Reason) orelse timer:sleep(500),
-    clean_mailbox(Reason).
 
 -spec flush(d()) -> d().
 flush(D0) ->
@@ -1596,15 +1607,6 @@ clean_mailbox(Reason, Total, NTrans, NApp, NDel) ->
                 exit(self(), kill)
         end
     end.
-
-is_normal_exit(normal) ->
-    true;
-is_normal_exit(shutdown) ->
-    true;
-is_normal_exit({shutdown, _}) ->
-    true;
-is_normal_exit(_) ->
-    false.
 
 %%================================================================================
 %% Tests

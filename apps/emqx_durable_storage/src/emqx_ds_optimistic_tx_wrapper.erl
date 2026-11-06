@@ -29,5 +29,12 @@ init(Parent, DB, Shard, CBM) ->
     catch
         EC:Err:Stack ->
             gen:unregister_name(?via(DB, Shard)),
-            emqx_ds_optimistic_tx:terminate({EC, Err, Stack})
+            Reason =
+                case EC =:= exit andalso emqx_ds_optimistic_tx:is_normal_exit(Err) of
+                    true ->
+                        Err;
+                    false ->
+                        {EC, Err, Stack}
+                end,
+            emqx_ds_optimistic_tx:terminate(Reason)
     end.
