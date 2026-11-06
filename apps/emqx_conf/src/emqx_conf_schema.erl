@@ -806,6 +806,15 @@ fields("node") ->
                     desc => ?DESC("node_tls_server_session_ticket_lifetime")
                 }
             )},
+        {"tls_connection_tree_owner",
+            sc(
+                hoconsc:enum([caller, supervisor]),
+                #{
+                    mapping => "ssl.connection_tree_owner",
+                    default => caller,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"tls_stateless_tickets_seed",
             sc(
                 binary(),
