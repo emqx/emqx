@@ -231,6 +231,12 @@ message_queue_fields(IsLastvalue) ->
                     <<"max_shard_message_bytes">> => infinity
                 }
             })},
+        {deliver_cutoff_date,
+            mk(emqx_utils_calendar:epoch_millisecond(), #{
+                desc => ?DESC(deliver_cutoff_date),
+                required => false,
+                importance => ?IMPORTANCE_HIDDEN
+            })},
         {consumer_max_inactive,
             mk(emqx_schema:duration_ms(), #{
                 desc => ?DESC(consumer_max_inactive),

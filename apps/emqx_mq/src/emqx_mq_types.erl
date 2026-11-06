@@ -53,6 +53,7 @@ The module contains basic types for the Message Queue application.
     stream_max_unacked := non_neg_integer(),
     consumer_persistence_interval := interval_ms(),
     data_retention_period := interval_ms(),
+    deliver_cutoff_date => emqx_utils_calendar:epoch_millisecond(),
     %% For lastvalue MQ.
     key_expression => emqx_variform:compiled(),
     _ => _

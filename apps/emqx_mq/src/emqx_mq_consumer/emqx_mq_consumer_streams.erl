@@ -122,7 +122,7 @@ handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
             ignore;
         {data, ?SUB_ID, Stream, Handle, DSReply} ->
             {ok, Messages0, CS1} = handle_ds_reply(CS0, Stream, Handle, DSReply),
-            {Messages, CS} = ack_expired_messages(CS1, Messages0),
+            {Messages, CS} = ack_skipped_messages(CS1, Messages0),
             {ok, Messages, CS};
         {DSC, State} ->
             {ok, [], CS0#cs{ds_client = DSC, state = State}}
@@ -480,10 +480,10 @@ do_handle_ds_reply(
             {[], CS#cs{ds_client = DSC, state = State}}
     end.
 
-ack_expired_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
+ack_skipped_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
     {CS, Messages} = lists:foldl(
         fun({Id, Message} = MesssageWithId, {CSAcc, MessagesAcc}) ->
-            case is_expired(MQ, Message) of
+            case is_expired(MQ, Message) orelse is_before_deliver_cutoff(MQ, Message) of
                 true ->
                     {handle_ack(CSAcc, Id), MessagesAcc};
                 false ->
@@ -532,6 +532,11 @@ is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, Message) when
     is_integer(DataRetentionPeriod)
 ->
     emqx_message:timestamp(Message) < now_ms() - DataRetentionPeriod.
+
+is_before_deliver_cutoff(#{deliver_cutoff_date := CutoffDate}, Message) ->
+    emqx_message:timestamp(Message) < CutoffDate;
+is_before_deliver_cutoff(_MQ, _Message) ->
+    false.
 
 now_ms() ->
     erlang:system_time(millisecond).

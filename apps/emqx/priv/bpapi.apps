@@ -49,6 +49,7 @@
 {emqx_delayed,emqx_modules}.
 {emqx_topic_metrics,emqx_modules}.
 {emqx_mq_consumer,emqx_mq}.
+{emqx_mq_quota_index,emqx_mq}.
 {emqx_mq_sub,emqx_mq}.
 {emqx_mt_config,emqx_mt}.
 {emqx_node_rebalance,emqx_node_rebalance}.

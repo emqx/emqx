@@ -18,9 +18,9 @@ The module contains accessor functions for the MQs/MQ handles.
     is_append_only/1,
     topic_filter/1,
     quota_index_opts/1,
+    delivery_start_time/1,
     default_name/1,
-    default_name_from_topic/1,
-    delivery_start_time/1
+    default_name_from_topic/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -80,6 +80,7 @@ quota_index_opts(#{
     }.
 
 -spec delivery_start_time(emqx_mq_types:mq()) -> emqx_ds:time().
-delivery_start_time(#{data_retention_period := RetentionMs}) ->
+delivery_start_time(#{data_retention_period := RetentionMs} = MQ) ->
     RetentionStartMs = max(0, erlang:system_time(millisecond) - RetentionMs),
-    erlang:convert_time_unit(RetentionStartMs, millisecond, microsecond).
+    CutoffMs = maps:get(deliver_cutoff_date, MQ, 0),
+    erlang:convert_time_unit(max(RetentionStartMs, CutoffMs), millisecond, microsecond).

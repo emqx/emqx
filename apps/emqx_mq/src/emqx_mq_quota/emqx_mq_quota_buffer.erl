@@ -40,7 +40,8 @@ like (slab, mq_topic) in case of MQs in DS storage.
 %% Internal API
 -export([
     connect/1,
-    do_add/2
+    do_add/2,
+    do_all_nodes_support_combined_indices/0
 ]).
 
 %% gen_server callbacks
@@ -64,7 +65,8 @@ like (slab, mq_topic) in case of MQs in DS storage.
 
 -type options() :: #{
     pool_size := pos_integer(),
-    cbm := module()
+    cbm := module(),
+    keep_legacy_indices => boolean()
 }.
 
 %%--------------------------------------------------------------------
@@ -81,6 +83,7 @@ like (slab, mq_topic) in case of MQs in DS storage.
 -callback quota_buffer_notify_queue_size(emqx_metrics_worker:worker_id(), non_neg_integer()) -> ok.
 
 -define(AUTO_RECONNECT_INTERVAL, 2).
+-define(COMMON_INDEX_SUPPORTED_VERSION, 1).
 
 -record(add_updates, {
     quota_index_opts :: emqx_mq_quota_index:opts(),
@@ -102,7 +105,8 @@ like (slab, mq_topic) in case of MQs in DS storage.
     buffer_size :: non_neg_integer(),
     flush_tref :: reference() | undefined,
     worker_id :: term(),
-    cbm :: module()
+    cbm :: module(),
+    keep_legacy_indices :: boolean()
 }).
 
 -spec start(name(), options()) -> ok | {error, supervisor:startchild_err()}.
@@ -184,14 +188,15 @@ do_add(BufferPid, AddUpdates) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([#{worker_id := WorkerId, cbm := CBM}]) ->
+init([#{worker_id := WorkerId, cbm := CBM} = Opts]) ->
     erlang:process_flag(trap_exit, true),
     {ok, #st{
         buffer = #{},
         flush_tref = undefined,
         buffer_size = 0,
         worker_id = WorkerId,
-        cbm = CBM
+        cbm = CBM,
+        keep_legacy_indices = maps:get(keep_legacy_indices, Opts, false)
     }}.
 
 handle_info(#flush{}, State0) ->
@@ -265,8 +270,9 @@ add_to_buffer(#add_updates{} = Insert, State = #st{buffer = Buffer0, buffer_size
     Buffer = Buffer0#{TxKey => TxKeyBuffer},
     State#st{buffer = Buffer, buffer_size = BufferSize + 1}.
 
-do_flush(State = #st{buffer = Buffer}) ->
+do_flush(State = #st{buffer = Buffer, keep_legacy_indices = KeepLegacy}) ->
     ok = notify_queue_size(State),
+    DropLegacy = not KeepLegacy andalso ?MODULE:do_all_nodes_support_combined_indices(),
     ok = maps:foreach(
         fun(TxKey, TxKeyBuffer) ->
             UpdatesByKey = lists:map(
@@ -275,11 +281,24 @@ do_flush(State = #st{buffer = Buffer}) ->
                 end,
                 maps:to_list(TxKeyBuffer)
             ),
-            flush_quota_index(State, TxKey, UpdatesByKey)
+            flush_quota_index(State, TxKey, UpdatesByKey, DropLegacy)
         end,
         Buffer
     ),
     State#st{buffer = #{}, buffer_size = 0}.
+
+do_all_nodes_support_combined_indices() ->
+    lists:all(
+        fun(Node) ->
+            case emqx_bpapi:supported_version(Node, emqx_mq_quota_index) of
+                Version when is_integer(Version), Version >= ?COMMON_INDEX_SUPPORTED_VERSION ->
+                    true;
+                _ ->
+                    false
+            end
+        end,
+        emqx:cluster_nodes(all)
+    ).
 
 notify_queue_size(#st{worker_id = WorkerId, cbm = CBM}) ->
     {message_queue_len, InboxSize} = process_info(self(), message_queue_len),
@@ -318,19 +337,19 @@ message_timestamp_us(Message) ->
     Ms = emqx_message:timestamp(Message),
     erlang:convert_time_unit(Ms, millisecond, microsecond).
 
-flush_quota_index(#st{cbm = CBM} = State, TxKey, UpdatesByKey) ->
+flush_quota_index(#st{cbm = CBM} = State, TxKey, UpdatesByKey, DropLegacy) ->
     CBM:quota_buffer_flush_transaction(TxKey, fun() ->
         lists:foreach(
             fun({Key, QuotaIndexOpts, Updates}) ->
-                tx_update_index(State, TxKey, Key, QuotaIndexOpts, Updates)
+                tx_update_index(State, TxKey, Key, QuotaIndexOpts, Updates, DropLegacy)
             end,
             UpdatesByKey
         )
     end).
 
-tx_update_index(_State, _TxKey, _Key, _QuotaIndexOpts, []) ->
+tx_update_index(_State, _TxKey, _Key, _QuotaIndexOpts, [], _DropLegacy) ->
     ok;
-tx_update_index(State, TxKey, Key, QuotaIndexOpts, Updates) ->
+tx_update_index(State, TxKey, Key, QuotaIndexOpts, Updates, DropLegacy) ->
     Index0 =
         case tx_read_index(State, TxKey, Key, QuotaIndexOpts) of
             undefined ->
@@ -343,7 +362,12 @@ tx_update_index(State, TxKey, Key, QuotaIndexOpts, Updates) ->
             Idx ->
                 Idx
         end,
-    Index = emqx_mq_quota_index:apply_updates(Index0, Updates),
+    Index1 =
+        case DropLegacy of
+            true -> emqx_mq_quota_index:drop_legacy(Index0);
+            false -> Index0
+        end,
+    Index = emqx_mq_quota_index:apply_updates(Index1, Updates),
     tx_write_index(State, TxKey, Key, Index).
 
 tx_read_index(#st{cbm = CBM}, TxKey, Key, QuotaIndexOpts) ->
