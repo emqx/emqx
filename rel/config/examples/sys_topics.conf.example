@@ -12,8 +12,8 @@ sys_topics {
 
     ## Client events messages toggle
     sys_event_messages = {
-        client_connected = true
-        client_disconnected = true
+        client_connected = false
+        client_disconnected = false
         client_subscribed = false
         client_unsubscribed = false
     }
