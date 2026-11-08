@@ -150,7 +150,8 @@ curl -u <key>:<secret> -X PUT -H 'Content-Type: application/json' \
 ```
 
 The table name comes from the path. The body is the table content, as in a
-table file. The table is stored as compact JSON, so `GET` returns the compact
+table file, sent as `Content-Type: application/json`; any other content type
+is a 415. The table is stored as compact JSON, so `GET` returns the compact
 form and the same content always has the same `version`, whatever its
 formatting. The size limit `max_table_file_bytes` applies to the stored form.
 

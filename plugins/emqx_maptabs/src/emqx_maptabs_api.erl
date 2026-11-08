@@ -94,20 +94,14 @@ deadline() ->
     ),
     erlang:monotonic_time(millisecond) + Budget * 3 div 4.
 
-%% The stored bytes are the canonical JSON encoding of the body, so
+%% The body must be `application/json'. The gateway hands it over
+%% already decoded, so the stored bytes are its canonical encoding:
 %% equal content uploaded twice has one version, whatever its
-%% formatting or content type. An `application/json' body arrives
-%% already decoded by the gateway; any other body arrives as bytes.
+%% formatting.
 table_json(Request) ->
-    Body = maps:get(body, Request, #{}),
     case is_json_body(maps:get(headers, Request, #{})) of
-        false when is_binary(Body) ->
-            case emqx_utils_json:safe_decode(Body) of
-                {ok, Term} -> {ok, emqx_utils_json:encode(Term)};
-                {error, Reason} -> {error, #{reason => invalid_json, detail => Reason}}
-            end;
-        _ ->
-            {ok, emqx_utils_json:encode(Body)}
+        true -> {ok, emqx_utils_json:encode(maps:get(body, Request, #{}))};
+        false -> {error, unsupported_content_type}
     end.
 
 is_json_body(#{<<"content-type">> := ContentType}) ->
@@ -131,6 +125,11 @@ node_tables(Node, {error, Reason}) ->
 not_found(Name) ->
     {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Table not found">>, name => Name}}.
 
+error_response(unsupported_content_type) ->
+    {error, 415, #{}, #{
+        code => <<"UNSUPPORTED_MEDIA_TYPE">>,
+        message => <<"Content-Type must be application/json">>
+    }};
 error_response({partial, Info, Failed}) ->
     {error, 503, #{},
         json(Info#{

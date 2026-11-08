@@ -101,12 +101,11 @@ t_http_table_lifecycle(_Config) ->
 
 -doc """
 The stored bytes are the canonical JSON of the body: a pretty-printed
-non-JSON content-type body and an application/json body with the same
-content get one version.
+body and a compact body with the same content get one version.
 """.
 t_http_body_stored_canonical(_Config) ->
     Pretty = <<"[\n  {\"key\": 1,   \"v\": \"v1\"}\n]\n">>,
-    {200, #{<<"version">> := Version}} = api(put, ["tables", ?TABLE], {text, Pretty}),
+    {200, #{<<"version">> := Version}} = api(put, ["tables", ?TABLE], {json_bytes, Pretty}),
     ?assertEqual(canonical_version([#{key => 1, v => <<"v1">>}]), Version),
     {200, Stored} = raw(get, ["tables", ?TABLE], none),
     ?assertNotEqual(Pretty, Stored),
@@ -136,9 +135,10 @@ t_http_rejects_invalid_content(_Config) ->
         {400, #{<<"reason">> := <<"not_a_json_array">>}},
         Put({json, #{key => 1}})
     ),
+    %% the gateway rejects malformed JSON before the plugin sees it
     ?assertMatch(
-        {400, #{<<"reason">> := <<"invalid_json">>}},
-        Put({text, <<"[{oops">>})
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        Put({json_bytes, <<"[{oops">>})
     ),
     ?assertMatch(
         {400, #{<<"reason">> := <<"missing_key">>, <<"row_number">> := 2}},
@@ -151,6 +151,21 @@ t_http_rejects_invalid_content(_Config) ->
     ?assertMatch(
         {400, #{<<"reason">> := <<"duplicate_key">>, <<"row_number">> := 2, <<"key">> := 7}},
         Put({json, [#{key => 7}, #{key => 7}]})
+    ),
+    ?assertEqual({error, not_found}, emqx_maptabs:read_table(?TABLE)),
+    ok.
+
+-doc "An upload that is not application/json is a 415, even when it is valid JSON.".
+t_http_rejects_non_json_content_type(_Config) ->
+    Body = emqx_utils_json:encode([#{key => 1}]),
+    Expected =
+        {415, #{
+            <<"code">> => <<"UNSUPPORTED_MEDIA_TYPE">>,
+            <<"message">> => <<"Content-Type must be application/json">>
+        }},
+    ?assertEqual(Expected, api(put, ["tables", ?TABLE], {text, Body})),
+    ?assertEqual(
+        Expected, api(put, ["tables", ?TABLE], {"application/octet-stream", Body})
     ),
     ?assertEqual({error, not_found}, emqx_maptabs:read_table(?TABLE)),
     ok.
@@ -250,7 +265,9 @@ raw(Method, Path, Body, Auth) ->
             none when Method =:= post -> {Url, Headers, "application/json", <<>>};
             none -> {Url, Headers};
             {json, Term} -> {Url, Headers, "application/json", emqx_utils_json:encode(Term)};
-            {text, Bin} -> {Url, Headers, "text/plain", Bin}
+            {json_bytes, Bin} -> {Url, Headers, "application/json", Bin};
+            {text, Bin} -> {Url, Headers, "text/plain", Bin};
+            {ContentType, Bin} -> {Url, Headers, ContentType, Bin}
         end,
     {ok, {{_, Status, _}, _RespHeaders, RespBody}} =
         httpc:request(Method, Request, [], [{body_format, binary}]),
