@@ -49,6 +49,13 @@ ensure_new_stream_watch(DB) ->
 init(top) ->
     Children = [
         #{
+            id => leaderboard,
+            start => {emqx_ds_leaderboard, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 5_000
+        },
+        #{
             id => pending_tasks,
             start => {emqx_ds_pending_task_sup, start_link, []},
             type => supervisor,

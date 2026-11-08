@@ -348,7 +348,7 @@ get_invitation_status(get, _) ->
 
 force_leave(delete, #{bindings := #{node := Node0}}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
-    case emqx_cluster:force_leave(Node) of
+    case emqx_cluster:force_leave(Node, by_remote) of
         ok ->
             {204};
         ignore ->
@@ -359,7 +359,7 @@ force_leave(delete, #{bindings := #{node := Node0}}) ->
 
 -spec join(node()) -> ok | ignore | {error, term()}.
 join(Node) ->
-    emqx_cluster:join(Node).
+    emqx_cluster:join(Node, join).
 
 %% TODO: proper name of this function should be "connected agents",
 %% since with introduction of Mria merge tables, cores also appear in
