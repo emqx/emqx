@@ -20,18 +20,22 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    %% These cases are about WebSocket framing, and connect without credentials.
+    %% The default profile on this branch is `hardened', where
+    %% `authn_not_configured' denies, so pin `legacy' to keep the subject of the
+    %% suite its framing rather than its authentication.
+    ok = emqx_common_test_helpers:set_security_profile(legacy),
     application:load(emqx_gateway_nats),
     [WsPort, WssPort] = emqx_common_test_helpers:select_free_ports(tcp, 2),
-    CertDir = filename:join([code:lib_dir(emqx), "etc", "certs"]),
     Listeners = #{
         ws => #{default => #{bind => WsPort}},
         wss => #{
             default => #{
                 bind => WssPort,
                 ssl_options => #{
-                    cacertfile => filename:join(CertDir, "cacert.pem"),
-                    certfile => filename:join(CertDir, "cert.pem"),
-                    keyfile => filename:join(CertDir, "key.pem")
+                    cacertfile => cert_path("cacert.pem"),
+                    certfile => cert_path("cert.pem"),
+                    keyfile => cert_path("key.pem")
                 }
             }
         }
@@ -46,7 +50,8 @@ init_per_suite(Config) ->
     [{suite_apps, Apps}, {ws_port, WsPort}, {wss_port, WssPort} | Config].
 
 end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(suite_apps, Config)).
+    emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_group(Group, Config) ->
     {Port, Options, FrameType} =
@@ -63,6 +68,12 @@ end_per_group(_Group, _Config) ->
 
 tls_options() ->
     #{transport => tls, tls_opts => [{verify, verify_none}]}.
+
+%% `apps/emqx/etc/certs' holds only a README on this branch, so the `wss'
+%% listener takes the generated test certificates, the way the other suites in
+%% this application do.
+cert_path(Name) ->
+    emqx_common_test_helpers:test_cert(Name).
 
 -doc "Commands span WebSocket messages.".
 t_split_command(Config) ->

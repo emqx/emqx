@@ -2032,7 +2032,10 @@ cluster_install_rejected_by(RejectingNode, Config) ->
         <<"foo = \"bar\"\n">>
     ),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
-    ?ON(hd(Nodes), ok = allow_installation(NameVsn)),
+    %% `allow_package/1' rather than an unbound `allow_installation/1' grant: this
+    %% branch's hardened profile requires the grant to bind the package sha256, and
+    %% an unbound grant is answered 403 instead of the 400 this case asserts.
+    ?ON(hd(Nodes), ok = allow_package(PackagePath)),
     ok = load_app_outside_package(RejectingNode),
     {400, Response} = upload_plugin_into_cluster(Config, PackagePath),
     ?assertEqual(<<"BAD_PLUGIN_INFO">>, maps:get(<<"code">>, Response)),
