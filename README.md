@@ -117,7 +117,7 @@ EMQX builds against the EMQX fork of Erlang/OTP at
 A build with an upstream release is not supported.
 
 `.tool-versions` in the repository root gives the exact version, for example
-`erlang 26.2.5.14-1`. The trailing number is the fork revision. It does not exist upstream,
+`erlang 27.3.4.2-9`. The trailing number is the fork revision. It does not exist upstream,
 so an upstream installation cannot match it.
 
 ### Build in the EMQX builder image
