@@ -14,14 +14,7 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
-    [
-        t_delayed_republish,
-        t_delayed_republish_absolute,
-        t_delayed_republish_immediate,
-        t_delayed_queue_full,
-        t_republish_blocked,
-        t_republish_no_subscribers
-    ].
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -68,28 +61,6 @@ t_delayed_republish_absolute(Config) ->
 t_delayed_republish_immediate(Config) ->
     delayed_republish(Config, <<"0">>, false).
 
-delayed_republish(Config, Delay, CheckDelay) ->
-    Client = ?config(client, Config),
-    Input = <<"delayed_republish/input">>,
-    Output = <<"delayed_republish/output">>,
-    Final = <<"delayed_republish/final">>,
-    Upstream = create_rule(upstream, Input, <<"$delayed/", Delay/binary, "/", Output/binary>>),
-    Downstream = create_rule(downstream, Output, Final),
-    {ok, _, [1]} = emqtt:subscribe(Client, Final, 1),
-    ReceivedBefore = received_metrics(),
-    {ok, _} = emqtt:publish(Client, Input, <<"delayed">>, 1),
-    assert_delayed_delivery(CheckDelay),
-    ?assertReceive({publish, #{topic := Final, payload := <<"delayed">>}}, 7000),
-    assert_metrics(Upstream, 1, 0),
-    assert_metrics(Downstream, 1, 0),
-    assert_received_metrics(ReceivedBefore, 3),
-    ?assertNotReceive({publish, _}, 300, duplicate_delivery).
-
-assert_delayed_delivery(false) ->
-    ok;
-assert_delayed_delivery(true) ->
-    ?assertNotReceive({publish, _}, 500, delivered_too_early).
-
 -doc "Check that a full delayed queue remains an action failure.".
 t_delayed_queue_full(Config) ->
     Client = ?config(client, Config),
@@ -128,6 +99,28 @@ t_republish_no_subscribers(Config) ->
     {ok, _} = emqtt:publish(Client, Input, <<"ordinary">>, 1),
     assert_metrics(Id, 1, 0),
     assert_received_metrics(ReceivedBefore, 2).
+
+delayed_republish(Config, Delay, CheckDelay) ->
+    Client = ?config(client, Config),
+    Input = <<"delayed_republish/input">>,
+    Output = <<"delayed_republish/output">>,
+    Final = <<"delayed_republish/final">>,
+    Upstream = create_rule(upstream, Input, <<"$delayed/", Delay/binary, "/", Output/binary>>),
+    Downstream = create_rule(downstream, Output, Final),
+    {ok, _, [1]} = emqtt:subscribe(Client, Final, 1),
+    ReceivedBefore = received_metrics(),
+    {ok, _} = emqtt:publish(Client, Input, <<"delayed">>, 1),
+    assert_delayed_delivery(CheckDelay),
+    ?assertReceive({publish, #{topic := Final, payload := <<"delayed">>}}, 7000),
+    assert_metrics(Upstream, 1, 0),
+    assert_metrics(Downstream, 1, 0),
+    assert_received_metrics(ReceivedBefore, 3),
+    ?assertNotReceive({publish, _}, 300, duplicate_delivery).
+
+assert_delayed_delivery(false) ->
+    ok;
+assert_delayed_delivery(true) ->
+    ?assertNotReceive({publish, _}, 500, delivered_too_early).
 
 received_metrics() ->
     #{
