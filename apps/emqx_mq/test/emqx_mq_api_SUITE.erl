@@ -849,9 +849,9 @@ t_purge_all(Config) ->
     ok = emqx_mq_message_db:insert(MQ, Old),
     {ok, [#{payload := <<"before">>}]} = emqx_mq_test_utils:emqtt_drain(1, 1000),
 
-    %% Purge synchronously and verify that the queue keeps its identity and settings.
+    %% Purge, wait for the deletion worker, and verify that the queue keeps its identity and settings.
     StartMs = erlang:system_time(millisecond),
-    ?assertEqual({ok, 204}, api_delete([queue, Name, messages])),
+    ?assertEqual({ok, 204}, api_purge_and_wait([queue, Name, messages])),
     ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)),
     {ok, #{deliver_cutoff_date := CutoffMs} = Updated} = emqx_mq_registry:find(Name),
     ?assert(CutoffMs >= StartMs),
@@ -865,7 +865,7 @@ t_purge_all(Config) ->
     ?assertEqual(connected, emqtt:status(Client)),
     ?assertEqual(pong, emqtt:ping(Client)),
     ok = emqtt:disconnect(Client),
-    ?assertEqual({ok, 204}, api_delete([queue, Name, messages])),
+    ?assertEqual({ok, 204}, api_purge_and_wait([queue, Name, messages])),
     ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)).
 
 %% Check that purge accepts epoch and RFC 3339 cutoffs, and that the cutoff uses storage times.
@@ -884,7 +884,8 @@ t_purge_before(Config) ->
     lists:foreach(
         fun(#{query := Query, expected := Expected}) ->
             ?assertEqual(
-                {ok, 204}, api_delete([queue, Name, messages, "?before=" ++ urlencode(Query)])
+                {ok, 204},
+                api_purge_and_wait([queue, Name, messages, "?before=" ++ urlencode(Query)])
             ),
             ?assertEqual({ok, MQ#{deliver_cutoff_date => Expected}}, emqx_mq_registry:find(Name))
         end,
@@ -986,10 +987,8 @@ t_purge_storage_failure(_Config) ->
     {ok, MQ} = emqx_mq_registry:find(Name),
     ok = meck:new(emqx_mq_message_db, [passthrough, no_link]),
     ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_mq_message_db) end),
-    ok = meck:expect(emqx_mq_message_db, purge, fun(_) ->
-        {error, {recoverable, leader_unavailable}}
-    end),
-    ok = meck:expect(emqx_mq_message_db, purge, fun(_, _) ->
+    %% The queue is unlimited, so both purge modes list the slabs to calculate the boundaries.
+    ok = meck:expect(emqx_mq_message_db, calc_constant_bounds, fun(_, _) ->
         {error, {recoverable, leader_unavailable}}
     end),
     ?assertMatch(
@@ -1000,6 +999,48 @@ t_purge_storage_failure(_Config) ->
         api_delete([queue, Name, messages, "?before=0"])
     ),
     ?assertEqual({ok, MQ}, emqx_mq_registry:find(Name)).
+
+%% Check that both purge modes return 400 for a queue that is being deleted, without changing it.
+t_purge_being_deleted(_Config) ->
+    Name = <<"deleting_purge">>,
+    ?assertMatch(
+        {ok, 200, _}, api_post([queues], #{<<"name">> => Name, <<"topic_filter">> => <<"purge/#">>})
+    ),
+    {ok, MQ} = emqx_mq_registry:find(Name),
+    ok = emqx_mq_registry:mark_deleting(MQ),
+    lists:foreach(
+        fun(Path) ->
+            ?assertMatch(
+                {ok, 400, #{<<"message">> := <<"Message queue is being deleted">>}},
+                api_delete(Path)
+            )
+        end,
+        [[queue, Name, messages], [queue, Name, messages, "?before=0"]]
+    ),
+    ?assertEqual({ok, MQ}, emqx_mq_registry:find(Name)).
+
+%% Check that both purge modes succeed and set the delivery cutoff without a deletion worker.
+t_purge_no_delete_worker(_Config) ->
+    Name = <<"no_worker_purge">>,
+    ?assertMatch(
+        {ok, 200, _}, api_post([queues], #{<<"name">> => Name, <<"topic_filter">> => <<"purge/#">>})
+    ),
+    ok = meck:new(emqx_mq_delete_worker, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_mq_delete_worker) end),
+    ok = meck:expect(emqx_mq_delete_worker, enqueue_purge, fun(_, _) ->
+        {error, no_delete_worker}
+    end),
+    BeforeMs = erlang:system_time(millisecond) - 1000,
+    %% A bounded purge sets the delivery cutoff to the requested time.
+    ?assertEqual(
+        {ok, 204}, api_delete([queue, Name, messages, "?before=" ++ integer_to_list(BeforeMs)])
+    ),
+    ?assertMatch({ok, #{deliver_cutoff_date := BeforeMs}}, emqx_mq_registry:find(Name)),
+    %% A full purge moves the delivery cutoff to the current time.
+    ?assertEqual({ok, 204}, api_delete([queue, Name, messages])),
+    {ok, #{deliver_cutoff_date := CutoffMs}} = emqx_mq_registry:find(Name),
+    ?assert(CutoffMs > BeforeMs),
+    ?assertEqual(2, meck:num_calls(emqx_mq_delete_worker, enqueue_purge, '_')).
 
 %% Check that purge returns 503 while the queue subsystem is stopped or starting.
 t_purge_unavailable(_Config) ->
@@ -1019,6 +1060,13 @@ t_purge_unavailable(_Config) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% Send a purge request and wait until the deletion worker finishes deleting the purged messages.
+api_purge_and_wait(Path) ->
+    {Result, {ok, _}} = ?wait_async_action(
+        api_delete(Path), #{?snk_kind := mq_purge_finished}, 5000
+    ),
+    Result.
 
 create_purge_queue(Config) ->
     IsLastvalue = ?config(is_lastvalue, Config),

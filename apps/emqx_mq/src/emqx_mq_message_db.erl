@@ -29,9 +29,15 @@ Facade for all operations with the message database.
     create_client/1,
     subscribe/4,
     drop/1,
-    purge/1,
-    purge/2
+    rotate_quota_indexes/1,
+    truncate_quota_indexes/2,
+    calc_constant_bounds/2,
+    delete_before/2
 ]).
+-export_type([bounds/0]).
+
+%% For each slab, the DS timestamp before which purged messages can be deleted.
+-type bounds() :: #{emqx_ds:slab() => emqx_ds:time()}.
 
 -export([
     encode_message/1,
@@ -63,8 +69,6 @@ Facade for all operations with the message database.
 
 -define(MQ_MESSAGE_DB_APPEND_RETRY, 3).
 -define(MQ_MESSAGE_DB_INDEX_APPEND_RETRY, 3).
-%% How many times a full purge writes a new fence when a flush made the previous one unusable.
--define(MQ_MESSAGE_DB_PURGE_FENCE_ATTEMPTS, 3).
 -define(MQ_MESSAGE_DB_LTS_SETTINGS, #{
     %% "topic/MQ_TOPIC/MQ_ID/key/СOMPACTION_KEY"
     lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
@@ -276,48 +280,39 @@ drop(MQHandle) ->
     delete(DB, delete_topics(DB, MQHandle)).
 
 -doc """
-Delete all messages of the queue that were stored before the purge. Keep the queue.
+Rotate the quota index of a limited queue in every slab, and return the boundaries.
 
-In each slab:
-1. Write a fresh fence. DS gives it the serial S and the timestamp T of its transaction.
-2. Limited queues: rotate the quota index at the fence.
-   The index starts a new bucket at (S, T) and drops all older buckets.
-   If a flush made the fence unusable, go back to step 1.
-3. Delete the messages stored before T.
-
-Messages stored after the fence survive, and the index counts them.
-Unlimited queues have no index. They use the fence only to get T, and delete it after step 3.
-
-Return the delivery cutoff: the smallest T of all slabs, in milliseconds.
-Every message stored before it is deleted.
+The boundaries map each slab to its boundary.
+This function does not delete messages. Pass the boundaries to `delete_before/2`.
 """.
--spec purge(emqx_mq_types:mq()) ->
-    {ok, emqx_utils_calendar:epoch_millisecond()} | {error, term()}.
-purge(MQ) ->
-    maybe
-        {ok, BoundariesUs} ?= purge_slabs(MQ, fun purge_all_slab/2),
-        case BoundariesUs of
-            [] -> {ok, 0};
-            _ -> {ok, us_to_ms(lists:min(BoundariesUs))}
-        end
-    end.
+-spec rotate_quota_indexes(emqx_mq_types:mq()) -> {ok, bounds()} | {error, term()}.
+rotate_quota_indexes(MQ) ->
+    map_slabs(MQ, fun rotate_quota_index/2).
 
 -doc """
-Delete messages stored before BeforeMs, an epoch millisecond, as far as the quota index allows.
+Truncate the quota index of a limited queue in every slab, and return the boundaries.
 
-Limited queues delete the messages before the newest index bucket boundary at or before BeforeMs.
-The index drops the buckets before that boundary first, in its own transaction.
-When there is no such boundary, the messages stay.
-Unlimited queues have no index, so they delete the messages stored before BeforeMs.
+In each slab, the index drops the buckets that end at or before BeforeUs.
+Every slab's boundary is BeforeUs.
+This function does not delete messages. Pass the boundaries to `delete_before/2`.
 """.
--spec purge(emqx_mq_types:mq(), emqx_utils_calendar:epoch_millisecond()) ->
-    ok | {error, term()}.
-purge(MQ, BeforeMs) when is_integer(BeforeMs), BeforeMs >= 0 ->
-    BeforeUs = erlang:convert_time_unit(BeforeMs, millisecond, microsecond),
-    maybe
-        {ok, _} ?= purge_slabs(MQ, fun(TxOpts, M) -> purge_slab_before(TxOpts, M, BeforeUs) end),
-        ok
+-spec truncate_quota_indexes(emqx_mq_types:mq(), emqx_ds:time()) ->
+    {ok, bounds()} | {error, term()}.
+truncate_quota_indexes(MQ, BeforeUs) ->
+    map_slabs(MQ, fun(TxOpts, M) -> truncate_quota_index(TxOpts, M, BeforeUs) end).
+
+-doc "Return the same boundary for every slab of the queue's DB. Unlimited queues have no index to limit it".
+-spec calc_constant_bounds(emqx_mq_types:mq(), emqx_ds:time()) -> {ok, bounds()} | {error, term()}.
+calc_constant_bounds(MQ, BeforeUs) ->
+    case emqx_ds:list_slabs(db(MQ), #{}) of
+        {Slabs, []} -> {ok, maps:map(fun(_Slab, _Info) -> BeforeUs end, Slabs)};
+        {_Slabs, Errors} -> {error, Errors}
     end.
+
+-doc "Delete the queue messages stored before the given per-slab bounds".
+-spec delete_before(emqx_mq_types:mq(), bounds()) -> ok | {error, term()}.
+delete_before(MQ, Bounds) ->
+    emqx_mq_ds_queue_deleter:delete(db(MQ), [mq_message_topic(MQ, '#')], Bounds).
 
 -spec delete_all() -> ok.
 delete_all() ->
@@ -368,21 +363,21 @@ decode_message(Bin) ->
 add_regular_db_generation() ->
     ok = emqx_ds:add_generation(?MQ_MESSAGE_REGULAR_DB).
 
--doc "Compute this queue's retention cutoff for one last-value slab".
+-doc """
+Compute this queue's retention cutoff for one last-value slab.
+
+The cutoff is the latest of the retention start, the delivery cutoff,
+and, for limited queues, the quota index deadline.
+Messages before the retention start or the delivery cutoff are never delivered.
+""".
 -spec gc_info(emqx_mq_types:mq(), emqx_ds:slab()) ->
     skip | #{topic := emqx_ds:topic_filter(), cutoff := emqx_ds:time()}.
-gc_info(#{data_retention_period := DataRetentionPeriod} = MQ, {Shard, _}) ->
-    Index = dirty_index(MQ, Shard),
-    DataRetentionPeriodUs = erlang:convert_time_unit(DataRetentionPeriod, millisecond, microsecond),
-    TimeRetentionDeadline = max(now_us() - DataRetentionPeriodUs, 0),
-    LimitsDeadline =
-        case Index of
-            undefined ->
-                0;
-            _ ->
-                emqx_mq_quota_index:deadline(Index)
-        end,
-    DeleteTill = max(TimeRetentionDeadline, LimitsDeadline),
+gc_info(MQ, {Shard, _}) ->
+    DeleteTill = lists:max([
+        emqx_mq_prop:retention_start_time(MQ),
+        emqx_mq_prop:deliver_cutoff_time(MQ),
+        limits_deadline(MQ, Shard)
+    ]),
     Topic = mq_message_topic(MQ, '#'),
     %% Dirty GC assumes this past cutoff precedes leader-assigned monotonic insert timestamps.
     case DeleteTill of
@@ -462,12 +457,18 @@ quota_buffer_flush_tx_update(
 %% Quota index utilities
 %%--------------------------------------------------------------------
 
-dirty_index(MQHandle, Shard) ->
-    dirty_index(MQHandle, Shard, emqx_mq_prop:is_limited(MQHandle)).
+limits_deadline(MQ, Shard) ->
+    case emqx_mq_prop:is_limited(MQ) of
+        true ->
+            case dirty_index(MQ, Shard) of
+                undefined -> 0;
+                Index -> emqx_mq_quota_index:deadline(Index)
+            end;
+        false ->
+            0
+    end.
 
-dirty_index(_MQHandle, _Shard, false = _IsLimited) ->
-    undefined;
-dirty_index(MQHandle, Shard, true = _IsLimited) ->
+dirty_index(MQHandle, Shard) ->
     DB = db(MQHandle),
     case
         emqx_ds:dirty_read(
@@ -508,22 +509,22 @@ mq_fence_topic(#{topic_filter := TopicFilter, id := Id} = _MQ) ->
 %% Purge
 %%--------------------------------------------------------------------
 
-%% Run SlabFun in every slab of the queue's DB. Collect its results, or the errors of all slabs.
-purge_slabs(MQ, SlabFun) ->
+%% Run SlabFun in every slab of the queue's DB. Collect its results by slab, or the errors of all slabs.
+map_slabs(MQ, SlabFun) ->
     DB = db(MQ),
     case emqx_ds:list_slabs(DB, #{}) of
         {Slabs, []} ->
-            Results = [{Slab, SlabFun(purge_tx_opts(DB, Slab), MQ)} || Slab <- maps:keys(Slabs)],
+            Results = [{Slab, SlabFun(index_tx_opts(DB, Slab), MQ)} || Slab <- maps:keys(Slabs)],
             case [{Slab, Reason} || {Slab, {error, Reason}} <- Results] of
-                [] -> {ok, [Value || {_Slab, {ok, Value}} <- Results]};
+                [] -> {ok, maps:from_list([{Slab, Value} || {Slab, {ok, Value}} <- Results])};
                 Errors -> {error, Errors}
             end;
         {_Slabs, Errors} ->
             {error, Errors}
     end.
 
-%% Purge transactions conflict with quota index flushes, so retry like a flush.
-purge_tx_opts(DB, {Shard, Generation}) ->
+%% Index transactions conflict with quota index flushes, so retry like a flush.
+index_tx_opts(DB, {Shard, Generation}) ->
     #{
         db => DB,
         shard => Shard,
@@ -533,82 +534,43 @@ purge_tx_opts(DB, {Shard, Generation}) ->
         retry_interval => retry_interval(DB)
     }.
 
-%% Delete all messages stored before a fresh fence. Return the fence timestamp.
-purge_all_slab(TxOpts, MQ) ->
-    case emqx_mq_prop:is_limited(MQ) of
-        true -> rotate_and_delete(TxOpts, MQ, ?MQ_MESSAGE_DB_PURGE_FENCE_ATTEMPTS);
-        false -> fence_and_delete(TxOpts, MQ)
-    end.
-
-rotate_and_delete(#{shard := Shard} = TxOpts, MQ, Attempts) ->
+rotate_quota_index(#{shard := Shard} = TxOpts, MQ) ->
     IndexTopic = mq_index_topic(MQ),
     FenceTopic = mq_fence_topic(MQ),
     Opts = emqx_mq_prop:quota_index_opts(MQ),
     maybe
         {ok, FenceSerial, ok} ?=
-            purge_tx(TxOpts, fun() -> emqx_mq_quota_index_tx:write_fence_tx(FenceTopic) end),
+            run_transaction(TxOpts, fun() -> emqx_mq_quota_index_tx:write_fence_tx(FenceTopic) end),
         ?tp(mq_message_db_purge_fence_written, #{shard => Shard, fence_serial => FenceSerial}),
         ?tp(mq_message_db_purge_rotate, #{shard => Shard, fence_serial => FenceSerial}),
-        {ok, _, Rotated} ?=
-            purge_tx(TxOpts, fun() ->
-                emqx_mq_quota_index_tx:rotate_tx(IndexTopic, FenceTopic, Opts, FenceSerial)
+        {ok, _, {ok, #{ts_us := BoundaryUs}}} ?=
+            run_transaction(TxOpts, fun() ->
+                emqx_mq_quota_index_tx:rotate_tx(IndexTopic, FenceTopic, Opts)
             end),
-        case Rotated of
-            {ok, #{ts_us := BoundaryUs}} ->
-                ?tp(mq_message_db_purge_rotated, #{mq => MQ, boundary_us => BoundaryUs}),
-                delete_messages_before(TxOpts, MQ, BoundaryUs);
-            {error, stale_fence} when Attempts > 1 ->
-                ?tp(mq_message_db_purge_stale_fence, #{shard => Shard, fence_serial => FenceSerial}),
-                rotate_and_delete(TxOpts, MQ, Attempts - 1);
-            {error, stale_fence} = Error ->
-                Error
-        end
-    end.
-
-%% A queue without an index uses the fence only to get a DS timestamp.
-fence_and_delete(TxOpts, MQ) ->
-    FenceTopic = mq_fence_topic(MQ),
-    maybe
-        {ok, _, ok} ?=
-            purge_tx(TxOpts, fun() -> emqx_mq_quota_index_tx:write_fence_tx(FenceTopic) end),
-        {ok, _, BoundaryUs} ?=
-            purge_tx(TxOpts, fun() ->
-                #{ts_us := TsUs} = emqx_mq_quota_index_tx:read_fence_tx(FenceTopic),
-                emqx_ds:tx_del_topic(FenceTopic),
-                emqx_ds:tx_del_topic(mq_message_topic(MQ, '#'), 0, TsUs),
-                TsUs
-            end),
+        ?tp(mq_message_db_purge_rotated, #{mq => MQ, boundary_us => BoundaryUs}),
         {ok, BoundaryUs}
+    else
+        {ok, _, {error, no_fence} = Error} -> Error;
+        {error, _} = Error -> Error
     end.
 
-%% Delete messages stored before BeforeUs, as far as the index allows.
-purge_slab_before(TxOpts, MQ, BeforeUs) ->
-    case emqx_mq_prop:is_limited(MQ) of
-        true ->
-            IndexTopic = mq_index_topic(MQ),
-            Opts = emqx_mq_prop:quota_index_opts(MQ),
-            maybe
-                {ok, _, CutoffUs} ?=
-                    purge_tx(TxOpts, fun() ->
-                        emqx_mq_quota_index_tx:cutoff_tx(IndexTopic, Opts, BeforeUs)
-                    end),
-                ?tp(mq_message_db_purge_cut, #{mq => MQ, cutoff_us => CutoffUs}),
-                delete_messages_before(TxOpts, MQ, CutoffUs)
-            end;
-        false ->
-            delete_messages_before(TxOpts, MQ, BeforeUs)
+%% Drop the buckets that end at or before BeforeUs. Return BeforeUs as the slab's boundary.
+truncate_quota_index(TxOpts, MQ, BeforeUs) ->
+    IndexTopic = mq_index_topic(MQ),
+    Opts = emqx_mq_prop:quota_index_opts(MQ),
+    case
+        emqx_ds:trans(TxOpts, fun() ->
+            emqx_mq_quota_index_tx:truncate_tx(IndexTopic, Opts, BeforeUs)
+        end)
+    of
+        {atomic, _Serial, ok} ->
+            ?tp(mq_message_db_purge_truncated, #{mq => MQ, boundary_us => BeforeUs}),
+            {ok, BeforeUs};
+        {error, IsRecoverable, Reason} ->
+            {error, {IsRecoverable, Reason}}
     end.
 
-delete_messages_before(_TxOpts, _MQ, 0) ->
-    {ok, 0};
-delete_messages_before(TxOpts, MQ, TsUs) ->
-    maybe
-        {ok, _, _} ?=
-            purge_tx(TxOpts, fun() -> emqx_ds:tx_del_topic(mq_message_topic(MQ, '#'), 0, TsUs) end),
-        {ok, TsUs}
-    end.
-
-purge_tx(TxOpts, Fun) ->
+run_transaction(TxOpts, Fun) ->
     case emqx_ds:trans(TxOpts, Fun) of
         {atomic, SerialBin, Result} -> {ok, binary:decode_unsigned(SerialBin), Result};
         {error, IsRecoverable, Reason} -> {error, {IsRecoverable, Reason}}
@@ -689,10 +651,6 @@ us_to_ms(Us) ->
     erlang:convert_time_unit(Us, microsecond, millisecond).
 
 delete_topics(?MQ_MESSAGE_REGULAR_DB, MQHandle) ->
-    %% A purge writes a fence here even for unlimited queues.
-    [mq_fence_topic(MQHandle), mq_message_topic(MQHandle, '#')];
+    [mq_message_topic(MQHandle, '#')];
 delete_topics(?MQ_MESSAGE_LASTVALUE_DB, MQHandle) ->
     [mq_index_topic(MQHandle), mq_fence_topic(MQHandle), mq_message_topic(MQHandle, '#')].
-
-now_us() ->
-    erlang:system_time(microsecond).

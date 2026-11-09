@@ -30,16 +30,16 @@ So concurrent transactions on the same index conflict, and DS retries one of the
 
 A purge uses the other functions:
 
-* `write_fence_tx/1` writes a fresh fence. The caller takes its serial from the transaction result.
-* `rotate_tx/4`, in the next transaction, starts a new bucket at that fence and drops older buckets.
-* `cutoff_tx/3` drops the buckets before the newest boundary at or before a DS timestamp.
+* `write_fence_tx/1` writes a fresh fence.
+* `rotate_tx/3`, in the next transaction, drops the buckets before the fence stored in DS.
+* `truncate_tx/3` drops the buckets that end at or before a DS timestamp.
 """.
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("../emqx_mq_internal.hrl").
 -include("emqx_mq_quota.hrl").
 
--export([update_tx/5, write_fence_tx/1, read_fence_tx/1, rotate_tx/4, cutoff_tx/3]).
+-export([update_tx/5, write_fence_tx/1, rotate_tx/3, truncate_tx/3]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -73,7 +73,52 @@ update_tx(IndexTopic, FenceTopic, QuotaIndexOpts, Updates, NeedLegacy) ->
 write_fence_tx(FenceTopic) ->
     replace_fence_tx(FenceTopic, read_fence_tx(FenceTopic)).
 
--doc "Read the fence, if any".
+-doc """
+Drop the buckets before the fence stored in DS. See `emqx_mq_quota_index_serial:rotate/2`.
+Create the index if there is none. The legacy index is dropped.
+Return the fence boundary, or `{error, no_fence}` when DS has no fence.
+""".
+-spec rotate_tx(emqx_ds:topic(), emqx_ds:topic(), emqx_mq_quota_index:opts()) ->
+    {ok, emqx_mq_quota_index_serial:fence()} | {error, no_fence}.
+rotate_tx(IndexTopic, FenceTopic, QuotaIndexOpts) ->
+    case read_fence_tx(FenceTopic) of
+        undefined ->
+            {error, no_fence};
+        Fence ->
+            Index0 =
+                case emqx_ds:tx_read(IndexTopic) of
+                    [] ->
+                        emqx_mq_quota_index:new(QuotaIndexOpts, 0, false);
+                    [{_, ?QUOTA_INDEX_TS, IndexBin}] ->
+                        emqx_mq_quota_index:decode(QuotaIndexOpts, IndexBin)
+                end,
+            Index1 = emqx_mq_quota_index:drop_legacy(Index0),
+            {Boundary, Index} = emqx_mq_quota_index:rotate(Index1, Fence),
+            ok = write_index_tx(IndexTopic, Index),
+            {ok, Boundary}
+    end.
+
+-doc """
+Drop the buckets that end at or before the DS timestamp. The legacy index is dropped.
+Do nothing when there is no index.
+""".
+-spec truncate_tx(emqx_ds:topic(), emqx_mq_quota_index:opts(), non_neg_integer()) -> ok.
+truncate_tx(IndexTopic, QuotaIndexOpts, BeforeUs) ->
+    case emqx_ds:tx_read(IndexTopic) of
+        [] ->
+            ok;
+        [{_, ?QUOTA_INDEX_TS, IndexBin}] ->
+            Index0 = emqx_mq_quota_index:drop_legacy(
+                emqx_mq_quota_index:decode(QuotaIndexOpts, IndexBin)
+            ),
+            write_index_tx(IndexTopic, emqx_mq_quota_index:truncate(Index0, BeforeUs))
+    end.
+
+%%------------------------------------------------------------------------------
+%% Private
+%%------------------------------------------------------------------------------
+
+%% Read the fence, if any.
 -spec read_fence_tx(emqx_ds:topic()) -> emqx_mq_quota_index_serial:fence() | undefined.
 read_fence_tx(FenceTopic) ->
     case emqx_ds:tx_read(FenceTopic) of
@@ -82,50 +127,6 @@ read_fence_tx(FenceTopic) ->
         [{_, TsUs, SerialBin}] ->
             #{serial => binary:decode_unsigned(SerialBin), ts_us => TsUs}
     end.
-
--doc """
-Start a new bucket at the fence with the given serial and drop older buckets.
-Create the index if there is none. The legacy index is dropped.
-Return the fence boundary, or `{error, stale_fence}` when the fence cannot be used.
-""".
--spec rotate_tx(emqx_ds:topic(), emqx_ds:topic(), emqx_mq_quota_index:opts(), pos_integer()) ->
-    {ok, emqx_mq_quota_index_serial:fence()} | {error, stale_fence}.
-rotate_tx(IndexTopic, FenceTopic, QuotaIndexOpts, FenceSerial) ->
-    Index0 =
-        case emqx_ds:tx_read(IndexTopic) of
-            [] -> emqx_mq_quota_index:new(QuotaIndexOpts, 0, false);
-            [{_, ?QUOTA_INDEX_TS, IndexBin}] -> emqx_mq_quota_index:decode(QuotaIndexOpts, IndexBin)
-        end,
-    Index1 = emqx_mq_quota_index:drop_legacy(Index0),
-    maybe
-        {ok, Boundary, Index} ?=
-            emqx_mq_quota_index:rotate(Index1, read_fence_tx(FenceTopic), FenceSerial),
-        ok = write_index_tx(IndexTopic, Index),
-        {ok, Boundary}
-    end.
-
--doc """
-Drop the buckets before the newest boundary at or before the DS timestamp. The legacy index is dropped.
-Return that boundary, or 0 when there is no such boundary or no index.
-""".
--spec cutoff_tx(emqx_ds:topic(), emqx_mq_quota_index:opts(), non_neg_integer()) ->
-    non_neg_integer().
-cutoff_tx(IndexTopic, QuotaIndexOpts, BeforeUs) ->
-    case emqx_ds:tx_read(IndexTopic) of
-        [] ->
-            0;
-        [{_, ?QUOTA_INDEX_TS, IndexBin}] ->
-            Index0 = emqx_mq_quota_index:drop_legacy(
-                emqx_mq_quota_index:decode(QuotaIndexOpts, IndexBin)
-            ),
-            {CutoffUs, Index} = emqx_mq_quota_index:cutoff(Index0, BeforeUs),
-            ok = write_index_tx(IndexTopic, Index),
-            CutoffUs
-    end.
-
-%%------------------------------------------------------------------------------
-%% Private
-%%------------------------------------------------------------------------------
 
 read_index_tx(IndexTopic, QuotaIndexOpts, Updates, NeedLegacy) ->
     case emqx_ds:tx_read(IndexTopic) of

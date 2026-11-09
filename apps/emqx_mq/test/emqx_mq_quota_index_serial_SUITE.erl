@@ -56,7 +56,7 @@ t_rotate(_Config) ->
     {Index0, true} = update(new(), [add(1, 20, 2)], undefined),
     {Index1, false} = update(Index0, [add(11, 10, 1)], fence(10)),
     %% Rotate at a fresh fence, even though the head is not full.
-    {ok, Boundary, Index2} = emqx_mq_quota_index_serial:rotate(Index1, fence(30), 30),
+    {Boundary, Index2} = emqx_mq_quota_index_serial:rotate(Index1, fence(30)),
     ?assertEqual(fence(30), Boundary),
     ?assertEqual([bucket(30, 0, 0)], records(Index2)),
     ?assertEqual(30, seen_fence_serial(Index2)),
@@ -64,46 +64,54 @@ t_rotate(_Config) ->
     {Index3, false} = update(Index2, [add(29, 10, 1), del(11, 10, 1), add(31, 5, 1)], fence(30)),
     ?assertEqual([bucket(30, 5, 1)], records(Index3)).
 
--doc "Rotation fails at a fence that an update has seen without using it".
-t_rotate_stale_fence(_Config) ->
+-doc """
+Rotation at a fence that a flush has seen without closing the head starts an empty head there.
+The new head misses the messages that the flush counted after the fence.
+""".
+t_rotate_seen_fence(_Config) ->
     {Index0, false} = update(new(), [add(1, 10, 1)], undefined),
-    {Index1, false} = update(Index0, [], fence(10)),
-    ?assertEqual({error, stale_fence}, emqx_mq_quota_index_serial:rotate(Index1, fence(10), 10)),
-    %% A fence with another serial cannot be used either.
-    ?assertEqual({error, stale_fence}, emqx_mq_quota_index_serial:rotate(Index1, fence(20), 30)),
-    ?assertEqual({error, stale_fence}, emqx_mq_quota_index_serial:rotate(Index1, undefined, 30)).
+    %% The head is not full, so the flush only marks the fence seen and counts serial 11 in the head.
+    %% The head is full after the flush and asks for a new fence.
+    {Index1, true} = update(Index0, [add(11, 10, 1)], fence(10)),
+    ?assertEqual([bucket(0, 20, 2)], records(Index1)),
+    {Boundary, Index2} = emqx_mq_quota_index_serial:rotate(Index1, fence(10)),
+    ?assertEqual(fence(10), Boundary),
+    ?assertEqual([bucket(10, 0, 0)], records(Index2)),
+    ?assertEqual(10, seen_fence_serial(Index2)).
 
 -doc "Rotation after a flush already closed the head at the fence only drops older buckets".
 t_rotate_after_flush(_Config) ->
     {Index0, true} = update(new(), [add(1, 20, 2)], undefined),
     {Index1, false} = update(Index0, [add(11, 10, 1)], fence(10)),
     ?assertEqual([bucket(10, 10, 1), bucket(0, 20, 2)], records(Index1)),
-    {ok, Boundary, Index2} = emqx_mq_quota_index_serial:rotate(Index1, fence(10), 10),
+    {Boundary, Index2} = emqx_mq_quota_index_serial:rotate(Index1, fence(10)),
     ?assertEqual(fence(10), Boundary),
     ?assertEqual([bucket(10, 10, 1)], records(Index2)).
 
--doc "A new or rebuilt index accepts rotation at a fresh fence, because no update has seen it".
+-doc "Rotation of a new or rebuilt index starts an empty head at the fence".
 t_rotate_unknown_seen_fence(_Config) ->
     Index0 = emqx_mq_quota_index_serial:new(20, 2),
-    {ok, _, Index1} = emqx_mq_quota_index_serial:rotate(Index0, fence(10), 10),
-    ?assertEqual([bucket(10, 0, 0)], records(Index1)).
+    {_, Index1} = emqx_mq_quota_index_serial:rotate(Index0, fence(10)),
+    ?assertEqual([bucket(10, 0, 0)], records(Index1)),
+    ?assertEqual(10, seen_fence_serial(Index1)).
 
--doc "A cutoff keeps the buckets from the newest boundary at or before the given time".
-t_cutoff(_Config) ->
+-doc "Truncation drops the buckets that end at or before the given time, and keeps the one that contains it".
+t_truncate(_Config) ->
     {Index0, true} = update(new(), [add(1, 20, 2)], undefined),
     {Index1, true} = update(Index0, [add(11, 20, 2)], fence(10)),
     {Index2, false} = update(Index1, [add(21, 10, 1)], fence(20)),
     ?assertEqual([bucket(20, 10, 1), bucket(10, 20, 2), bucket(0, 20, 2)], records(Index2)),
     %% Only the bucket at (0, 0) starts that early: keep everything.
-    ?assertEqual({0, Index2}, emqx_mq_quota_index_serial:cutoff(Index2, ts(10) - 1)),
-    %% A cutoff exactly at a boundary keeps that bucket.
-    {CutoffUs0, Index3} = emqx_mq_quota_index_serial:cutoff(Index2, ts(10)),
-    ?assertEqual(ts(10), CutoffUs0),
+    ?assertEqual(Index2, emqx_mq_quota_index_serial:truncate(Index2, ts(10) - 1)),
+    %% Truncation exactly at a boundary keeps the bucket that starts there.
+    Index3 = emqx_mq_quota_index_serial:truncate(Index2, ts(10)),
     ?assertEqual([bucket(20, 10, 1), bucket(10, 20, 2)], records(Index3)),
-    %% A cutoff after the head start keeps only the head.
-    {CutoffUs1, Index4} = emqx_mq_quota_index_serial:cutoff(Index2, ts(25)),
-    ?assertEqual(ts(20), CutoffUs1),
-    ?assertEqual([bucket(20, 10, 1)], records(Index4)).
+    %% Truncation inside a bucket keeps that bucket.
+    Index4 = emqx_mq_quota_index_serial:truncate(Index2, ts(15)),
+    ?assertEqual([bucket(20, 10, 1), bucket(10, 20, 2)], records(Index4)),
+    %% Truncation after the head start keeps only the head.
+    Index5 = emqx_mq_quota_index_serial:truncate(Index2, ts(25)),
+    ?assertEqual([bucket(20, 10, 1)], records(Index5)).
 
 -doc "Without a fence, a full head stays open and the index asks for a fence again".
 t_missing_fence(_Config) ->
@@ -164,6 +172,19 @@ t_deadline(_Config) ->
     {Index2, true} = update(Index1, [add(21, 50, 5)], fence(20)),
     %% The head and the bucket at serial 10 reach the limit together.
     ?assertEqual(ts(10), deadline(Index2)).
+
+-doc "Below the limits, the deadline is the start of the oldest kept bucket after a rotation or a truncation".
+t_deadline_oldest_bucket(_Config) ->
+    {Index0, true} = update(new(), [add(1, 20, 2)], undefined),
+    {Index1, true} = update(Index0, [add(11, 20, 2)], fence(10)),
+    {Index2, false} = update(Index1, [add(21, 10, 1)], fence(20)),
+    ?assertEqual(0, deadline(Index2)),
+    %% Truncation drops the bucket at (0, 0).
+    Index3 = emqx_mq_quota_index_serial:truncate(Index2, ts(15)),
+    ?assertEqual(ts(10), deadline(Index3)),
+    %% A rotation keeps only the new head.
+    {_, Index4} = emqx_mq_quota_index_serial:rotate(Index2, fence(30)),
+    ?assertEqual(ts(30), deadline(Index4)).
 
 -doc "If one serial is shared by the fence and a later message, a replacement leaves +value and -value in two buckets".
 t_shared_serial(_Config) ->

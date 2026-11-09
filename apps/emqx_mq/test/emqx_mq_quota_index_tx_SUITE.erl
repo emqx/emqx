@@ -121,7 +121,7 @@ t_rotate(Config) ->
         emqx_mq_quota_index_tx:write_fence_tx(?FENCE_TOPIC)
     end),
     {_, {ok, #{serial := FenceSerial, ts_us := FenceTsUs}}} = trans_result(DB, fun() ->
-        emqx_mq_quota_index_tx:rotate_tx(?INDEX_TOPIC, ?FENCE_TOPIC, Opts, FenceSerial)
+        emqx_mq_quota_index_tx:rotate_tx(?INDEX_TOPIC, ?FENCE_TOPIC, Opts)
     end),
     ?assertMatch(
         #{
@@ -137,8 +137,8 @@ t_rotate(Config) ->
     [{_, MessageTsUs, _}] = read(DB, ?MESSAGE_TOPIC),
     ?assert(MessageTsUs < FenceTsUs).
 
--doc "A fence that a flush has seen without using it cannot be used for rotation".
-t_rotate_stale_fence(Config) ->
+-doc "Rotation at a fence that a flush has seen without closing the head starts an empty head there".
+t_rotate_seen_fence(Config) ->
     DB = ?config(db, Config),
     Opts = #{bytes => infinity, count => 10, threshold_percentage => 20},
     Serial0 = write_message(DB),
@@ -149,15 +149,17 @@ t_rotate_stale_fence(Config) ->
     %% A flush sees the fence. The head is not full, so the flush only marks it seen.
     Serial1 = write_message(DB),
     flush(DB, Opts, [add(Serial1, 0)], false),
+    {_, {ok, #{serial := FenceSerial}}} = trans_result(DB, fun() ->
+        emqx_mq_quota_index_tx:rotate_tx(?INDEX_TOPIC, ?FENCE_TOPIC, Opts)
+    end),
+    %% The new head misses the message that the flush counted after the fence.
     ?assertMatch(
-        {_, {error, stale_fence}},
-        trans_result(DB, fun() ->
-            emqx_mq_quota_index_tx:rotate_tx(?INDEX_TOPIC, ?FENCE_TOPIC, Opts, FenceSerial)
-        end)
+        #{serial := #{records := [#{serial := FenceSerial, count := 0}]}},
+        emqx_mq_quota_index:inspect(read_index(DB, Opts))
     ).
 
--doc "A cutoff keeps the buckets from the newest boundary at or before the given time".
-t_cutoff(Config) ->
+-doc "Truncation drops the buckets that end at or before the given time".
+t_truncate(Config) ->
     DB = ?config(db, Config),
     Opts = #{bytes => infinity, count => 10, threshold_percentage => 20},
     %% Fill the head twice, so the second flush closes it at the first fence.
@@ -166,21 +168,21 @@ t_cutoff(Config) ->
     [{_, FenceTsUs, _}] = read(DB, ?FENCE_TOPIC),
     Serial1 = write_message(DB),
     flush(DB, Opts, [add(Serial1, 1)], false),
-    %% A cutoff before the boundary keeps everything.
+    %% Truncation before the boundary keeps everything.
     ?assertMatch(
-        {_, 0},
+        {_, ok},
         trans_result(DB, fun() ->
-            emqx_mq_quota_index_tx:cutoff_tx(?INDEX_TOPIC, Opts, FenceTsUs - 1)
+            emqx_mq_quota_index_tx:truncate_tx(?INDEX_TOPIC, Opts, FenceTsUs - 1)
         end)
     ),
     ?assertMatch(
         #{serial := #{size := 2}}, emqx_mq_quota_index:inspect(read_index(DB, Opts))
     ),
-    %% A later cutoff drops the bucket before the boundary.
+    %% A later truncation drops the bucket before the boundary.
     ?assertMatch(
-        {_, FenceTsUs},
+        {_, ok},
         trans_result(DB, fun() ->
-            emqx_mq_quota_index_tx:cutoff_tx(?INDEX_TOPIC, Opts, FenceTsUs + 1)
+            emqx_mq_quota_index_tx:truncate_tx(?INDEX_TOPIC, Opts, FenceTsUs + 1)
         end)
     ),
     ?assertMatch(

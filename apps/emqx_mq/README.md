@@ -258,17 +258,30 @@ When `before` precedes the queue's current delivery cutoff, the request does not
 Purge never lowers the delivery cutoff.
 All times are storage times: the time at which a message was written to durable storage.
 Publication timestamps are not used.
-Messages stored before `before` are skipped during delivery.
-Limited queues delete stored messages only before the nearest quota bucket boundary at or before `before`.
-When no such boundary exists, stored messages remain, but they are not delivered.
-Unlimited queues delete the messages stored before `before`.
+Messages stored before `before` are skipped during delivery and deleted.
 Without `before`, purge deletes all messages stored before the purge.
+For unlimited queues, the delivery cutoff is then the current time of the node that handles the request.
+For limited queues, it is the latest storage time observed in DS during deletion.
+The node that handles the request clamps a `before` value that is later than its current time.
+
+The request changes the quota index and sets the delivery cutoff before it returns.
+So the queue stops dispatching purged messages when the request returns.
+Messages already passed to subscriber sessions can still be delivered.
+A deletion worker deletes the purged messages in the background, in bounded batches.
+When that deletion fails, the error is logged, and GC deletes the messages later:
+* For limited queues and unlimited last-value queues, GC deletes messages before the delivery cutoff.
+  For limited queues, it also deletes messages before the oldest quota bucket that the index keeps.
+* For unlimited regular queues, the messages stay until retention drops their storage generation.
+Repeat the request to delete them sooner.
+
 Purge is refused with 503 until all cluster nodes support the serial quota index.
+Purge is refused with 400 while the queue is being deleted.
 The queue keeps its identity and consumer progress.
 Consumers restart when the delivery cutoff changes, while MQTT clients stay connected.
 Delivery can pause for about twice the queue's `ping_interval`.
-The request returns 204 on success, 400 for an invalid or future cutoff, 404 for an unknown queue, or 503 on failure or when queues are unavailable.
-On failure, purge can already have deleted data from some storage slabs, but it does not change the delivery cutoff.
+The request returns 204 on success, 400 for an invalid or future cutoff or a queue that is being deleted, 404 for an unknown queue, or 503 on failure or when queues are unavailable.
+When no deletion worker is available, the request still returns 204 and logs a warning. GC deletes the purged messages later.
+If the index update fails, some storage slabs can already have changed, but the delivery cutoff stays unchanged.
 Repeat the request to complete the purge.
 
 Configure Message Queue global settings:

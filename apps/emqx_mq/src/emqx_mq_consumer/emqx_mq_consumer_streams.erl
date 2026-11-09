@@ -530,15 +530,8 @@ inc_received_message_stat(_DsSubReply) ->
 
 %% Retention and the delivery cutoff compare the DS timestamp at which the message was stored.
 %% The message id holds it. GC, purge, and the DS replay start use the same time.
-is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, {_Slab, DsTsUs}) when
-    is_integer(DataRetentionPeriod)
-->
-    DsTsUs < erlang:convert_time_unit(now_ms() - DataRetentionPeriod, millisecond, microsecond).
+is_expired(MQ, {_Slab, DsTsUs}) ->
+    DsTsUs < emqx_mq_prop:retention_start_time(MQ).
 
-is_before_deliver_cutoff(#{deliver_cutoff_date := CutoffMs}, {_Slab, DsTsUs}) ->
-    DsTsUs < erlang:convert_time_unit(CutoffMs, millisecond, microsecond);
-is_before_deliver_cutoff(_MQ, _MessageId) ->
-    false.
-
-now_ms() ->
-    erlang:system_time(millisecond).
+is_before_deliver_cutoff(MQ, {_Slab, DsTsUs}) ->
+    DsTsUs < emqx_mq_prop:deliver_cutoff_time(MQ).

@@ -17,6 +17,7 @@ All times are DS storage times. Records are written directly to DS with chosen t
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include("../src/emqx_mq_internal.hrl").
 -include("../gen_src/MessageQueue.hrl").
 
@@ -26,18 +27,20 @@ all() ->
         {group, limited_regular},
         {group, lastvalue},
         {group, limited_lastvalue},
-        t_concurrent_write_survives,
-        t_stale_fence_retry,
-        t_failed_deletion,
-        t_refused_during_upgrade
+        t_rotate_seen_fence,
+        t_failed_deletion_limited,
+        t_failed_deletion_unlimited_lastvalue,
+        t_refused_during_upgrade,
+        t_refused_being_deleted,
+        t_gc_limited_cutoff
     ].
 
 groups() ->
     Common = [t_full_purge, t_bounded_purge_connected_client, t_full_purge_connected_client],
     [
-        {regular, [], [t_bounded_purge_unlimited | Common]},
+        {regular, [], [t_bounded_purge_unlimited, t_unlimited_clock_boundary | Common]},
         {limited_regular, [], [t_bounded_purge, t_bounded_purge_no_boundary | Common]},
-        {lastvalue, [], [t_bounded_purge_unlimited | Common]},
+        {lastvalue, [], [t_bounded_purge_unlimited, t_unlimited_clock_boundary | Common]},
         {limited_lastvalue, [], [t_bounded_purge, t_bounded_purge_no_boundary | Common]}
     ].
 
@@ -94,8 +97,8 @@ end_per_testcase(_Case, _Config) ->
 %%------------------------------------------------------------------------------
 
 -doc """
-Bounded purge of a limited queue deletes the messages before the newest index boundary
-at or before the requested time. Delivery skips every message stored before the requested time.
+Bounded purge of a limited queue deletes the messages stored before the requested time,
+and drops the index buckets that end at or before it.
 """.
 t_bounded_purge(Config) ->
     {ok, #{name := Name} = MQ} = create_mq(Config),
@@ -125,11 +128,9 @@ t_bounded_purge(Config) ->
         Slabs
     ),
 
-    %% Purge deletes the messages before T2 and keeps the buckets from T2.
-    ?assertEqual(
-        {ok, MQ#{deliver_cutoff_date => BeforeMs}}, emqx_mq_registry:purge(Name, BeforeMs)
-    ),
-    Kept = [AfterT2, BeforeRequest, AtRequest, AfterT3],
+    %% Purge deletes the messages before the requested time and keeps the buckets from T2.
+    ?assertEqual({ok, MQ#{deliver_cutoff_date => BeforeMs}}, purge_and_wait(MQ, BeforeMs)),
+    Kept = [AtRequest, AfterT3],
     ?assertEqual(repeated(Kept, Slabs), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
     lists:foreach(
         fun(Slab) ->
@@ -140,18 +141,21 @@ t_bounded_purge(Config) ->
     %% Another queue is not changed.
     ?assertEqual(repeated([Other], Slabs), lists:sort(emqx_mq_message_db:dirty_read_all(OtherMQ))),
     %% Repeating the purge changes nothing.
-    {ok, _} = emqx_mq_registry:purge(Name, BeforeMs),
+    {ok, _} = purge_and_wait(MQ, BeforeMs),
     ?assertEqual(repeated(Kept, Slabs), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
 
-    %% Messages kept because of the index boundary are not delivered.
+    %% Only the kept messages are delivered.
     ?assertEqual(
         lists:sort(lists:append([[<<"at_request">>, <<"after_t3">>] || _ <- Slabs])),
         drain_payloads(Name, 2 * length(Slabs))
     ).
 
--doc "Bounded purge of a limited queue keeps all messages when no index boundary is that early".
+-doc """
+Bounded purge of a limited queue deletes the messages before the requested time,
+and keeps the index when only the bucket at (0, 0) starts that early.
+""".
 t_bounded_purge_no_boundary(Config) ->
-    {ok, #{name := Name} = MQ} = create_mq(Config),
+    {ok, MQ} = create_mq(Config),
     DB = message_db(MQ),
     Slabs = slabs(DB),
     BeforeMs = erlang:system_time(millisecond),
@@ -160,8 +164,8 @@ t_bounded_purge_no_boundary(Config) ->
     [FirstSlab | OtherSlabs] = Slabs,
     write_records(DB, FirstSlab, [index_record(MQ, [bucket(0, 0, 1)]), Old]),
     lists:foreach(fun(Slab) -> write_records(DB, Slab, [Old]) end, OtherSlabs),
-    {ok, _} = emqx_mq_registry:purge(Name, BeforeMs),
-    ?assertEqual(repeated([Old], Slabs), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
+    {ok, _} = purge_and_wait(MQ, BeforeMs),
+    ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)),
     %% The index is not changed, and no index is created.
     ?assertEqual([bucket(0, 0, 1)], read_buckets(DB, FirstSlab, MQ)),
     lists:foreach(
@@ -179,9 +183,7 @@ t_bounded_purge_unlimited(Config) ->
     AtRequest = message_record(MQ, <<"at_request">>, BeforeUs),
     Fresh = message_record(MQ, <<"fresh">>, BeforeUs + 1),
     lists:foreach(fun(Slab) -> write_records(DB, Slab, [Old, AtRequest, Fresh]) end, Slabs),
-    ?assertEqual(
-        {ok, MQ#{deliver_cutoff_date => BeforeMs}}, emqx_mq_registry:purge(Name, BeforeMs)
-    ),
+    ?assertEqual({ok, MQ#{deliver_cutoff_date => BeforeMs}}, purge_and_wait(MQ, BeforeMs)),
     ?assertEqual(
         repeated([AtRequest, Fresh], Slabs), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))
     ),
@@ -192,6 +194,20 @@ t_bounded_purge_unlimited(Config) ->
         drain_payloads(Name, 2 * length(Slabs))
     ).
 
+-doc "Purge of an unlimited queue uses the local time without fences, and clamps a future cutoff to it".
+t_unlimited_clock_boundary(Config) ->
+    {ok, MQ0} = create_mq(Config),
+    ok = meck:new(emqx_mq_quota_index_tx, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_mq_quota_index_tx) end),
+    ok = meck:expect(emqx_mq_quota_index_tx, write_fence_tx, fun(_) -> error(unexpected_fence) end),
+    StartMs = erlang:system_time(millisecond),
+    {ok, #{deliver_cutoff_date := CutoffMs0} = MQ1} = purge_and_wait(MQ0),
+    ?assert(CutoffMs0 >= StartMs),
+    ?assert(CutoffMs0 =< erlang:system_time(millisecond)),
+    {ok, #{deliver_cutoff_date := CutoffMs1}} = purge_and_wait(MQ1, StartMs + 3600_000),
+    ?assert(CutoffMs1 >= CutoffMs0),
+    ?assert(CutoffMs1 =< erlang:system_time(millisecond)).
+
 %%------------------------------------------------------------------------------
 %% Full purge
 %%------------------------------------------------------------------------------
@@ -199,10 +215,10 @@ t_bounded_purge_unlimited(Config) ->
 -doc """
 Full purge deletes all messages stored before it.
 A limited queue's index then has one empty bucket at the purge fence.
-The delivery cutoff is the earliest fence timestamp of all slabs.
+The delivery cutoff is the latest fence timestamp of all slabs, rounded up to a millisecond.
 """.
 t_full_purge(Config) ->
-    {ok, #{name := Name} = MQ} = create_mq(Config),
+    {ok, MQ} = create_mq(Config),
     DB = message_db(MQ),
     Slabs = slabs(DB),
     OldUs = (erlang:system_time(millisecond) - 10_000) * 1000,
@@ -216,24 +232,25 @@ t_full_purge(Config) ->
         end,
     lists:foreach(fun(Slab) -> write_records(DB, Slab, [Old, Other | Indices]) end, Slabs),
 
-    {ok, #{deliver_cutoff_date := CutoffMs}} = emqx_mq_registry:purge(Name),
+    {ok, #{deliver_cutoff_date := CutoffMs}} = purge_and_wait(MQ),
     ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)),
     ?assertEqual(repeated([Other], Slabs), lists:sort(emqx_mq_message_db:dirty_read_all(OtherMQ))),
     ?assert(CutoffMs > OldUs div 1000),
-    ?assert(CutoffMs =< erlang:system_time(millisecond)),
+    %% Rounding up can put the cutoff at most 1 ms after the current time.
+    ?assert(CutoffMs =< erlang:system_time(millisecond) + 1),
     case ?config(is_limited, Config) of
         true ->
             %% The fence stays. The index has one empty bucket at the fence and has seen it.
             FenceTsUs = [check_full_purge_index(DB, Slab, MQ) || Slab <- Slabs],
-            ?assertEqual(lists:min(FenceTsUs) div 1000, CutoffMs);
+            ?assertEqual((lists:max(FenceTsUs) + 999) div 1000, CutoffMs);
         false ->
-            %% An unlimited queue gets no index, and its fence is deleted.
+            %% An unlimited queue gets no index and no fence.
             ?assertEqual([], emqx_ds:dirty_read(DB, index_topic(MQ))),
             ?assertEqual([], emqx_ds:dirty_read(DB, fence_topic(MQ)))
     end,
 
     %% Repeating the purge works and keeps the queue empty.
-    {ok, #{deliver_cutoff_date := CutoffMs1}} = emqx_mq_registry:purge(Name),
+    {ok, #{deliver_cutoff_date := CutoffMs1}} = purge_and_wait(MQ),
     ?assert(CutoffMs1 >= CutoffMs),
     ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)).
 
@@ -244,55 +261,9 @@ check_full_purge_index(DB, Slab, MQ) ->
     ?assertEqual({[bucket(FenceSerial, FenceTsUs, 0)], FenceSerial}, read_index(DB, Slab, MQ)),
     FenceTsUs.
 
--doc """
-A message stored after the purge fence survives the purge, and the index counts it.
-The concurrent write runs between the fence write and the index rotation.
-""".
-t_concurrent_write_survives(_Config) ->
-    {ok, MQ} = create_mq(limited_lastvalue_config(<<"concurrent_write">>)),
-    DB = message_db(MQ),
-    %% Write messages to both shards after the fence of the first purged slab.
-    %% The second slab gets its fence after these messages.
-    Payloads = payloads_for_all_shards(DB),
-    ?force_ordering(
-        #{?snk_kind := mq_message_db_purge_fence_written},
-        #{?snk_kind := test_concurrent_write, ?snk_span := start}
-    ),
-    ?force_ordering(
-        #{?snk_kind := test_concurrent_write, ?snk_span := {complete, _}},
-        #{?snk_kind := mq_message_db_purge_rotate}
-    ),
-    _ = spawn_link(fun() ->
-        ?tp_span(test_concurrent_write, #{}, insert_messages(MQ, Payloads))
-    end),
-    {ok, _} = emqx_mq_message_db:purge(MQ),
-    [#{shard := FirstShard} | _] = ?of_kind(
-        mq_message_db_purge_fence_written, snabbkaffe:collect_trace()
-    ),
-    %% Messages stored after the fence of their slab survive. The others are deleted.
-    Survivors = [P || P <- Payloads, emqx_ds:shard_of(DB, P) =:= FirstShard],
-    ?assertEqual(lists:sort(Survivors), stored_payloads(MQ)),
-    %% The buffered updates of the survivors are counted in the new bucket of their slab.
-    ok = emqx_mq_quota_buffer:flush(?MQ_QUOTA_BUFFER),
-    lists:foreach(
-        fun({Shard, _} = Slab) ->
-            Expected =
-                case Shard of
-                    FirstShard -> length(Survivors);
-                    _ -> 0
-                end,
-            ?assertMatch([#'SerialIndexBucket'{count = Expected}], read_buckets(DB, Slab, MQ))
-        end,
-        slabs(DB)
-    ),
-    ?assertEqual([], ?of_kind(mq_message_db_purge_stale_fence, snabbkaffe:collect_trace())).
-
--doc """
-When a flush sees the purge fence before the rotation and does not use it,
-the purge writes another fence. The messages flushed in between are then deleted too.
-""".
-t_stale_fence_retry(_Config) ->
-    {ok, MQ} = create_mq(limited_lastvalue_config(<<"stale_fence">>)),
+-doc "A full purge rotates at the fence it wrote, also when a flush has seen that fence before".
+t_rotate_seen_fence(_Config) ->
+    {ok, MQ} = create_mq(limited_lastvalue_config(<<"seen_fence">>)),
     DB = message_db(MQ),
     %% Write and flush messages in both shards after the fence of the first purged slab.
     %% The flush sees that fence. The head is not full, so the flush only marks it seen.
@@ -311,52 +282,75 @@ t_stale_fence_retry(_Config) ->
             ok = emqx_mq_quota_buffer:flush(?MQ_QUOTA_BUFFER)
         end)
     end),
-    {ok, _} = emqx_mq_message_db:purge(MQ),
-    Trace = snabbkaffe:collect_trace(),
-    [#{shard := FirstShard} | _] = ?of_kind(mq_message_db_purge_fence_written, Trace),
-    %% Only the first slab needed a second fence. All messages are deleted.
-    ?assertMatch([#{shard := FirstShard}], ?of_kind(mq_message_db_purge_stale_fence, Trace)),
-    ?assertEqual([], stored_payloads(MQ)),
-    %% Every slab's index has one empty bucket.
+    {ok, _} = emqx_mq_message_db:rotate_quota_indexes(MQ),
+    WrittenFences = maps:from_list([
+        {Shard, FenceSerial}
+     || #{shard := Shard, fence_serial := FenceSerial} <- ?of_kind(
+            mq_message_db_purge_fence_written, snabbkaffe:collect_trace()
+        )
+    ]),
+    %% Each slab keeps the fence that the purge wrote, and its index has one empty bucket there.
     lists:foreach(
-        fun(Slab) ->
-            ?assertMatch(
-                [#'SerialIndexBucket'{bytes = 0, count = 0}], read_buckets(DB, Slab, MQ)
-            )
+        fun({Shard, _} = Slab) ->
+            [{_, _, FenceSerialBin}] = dirty_read(DB, Slab, fence_topic(MQ)),
+            ?assertEqual(maps:get(Shard, WrittenFences), binary:decode_unsigned(FenceSerialBin)),
+            _ = check_full_purge_index(DB, Slab, MQ)
         end,
         slabs(DB)
     ).
 
--doc "A failed deletion keeps the delivery cutoff, and a repeated purge completes the deletion".
-t_failed_deletion(_Config) ->
-    {ok, #{name := Name} = MQ} = create_mq(limited_lastvalue_config(<<"failed_deletion">>)),
+-doc """
+When the deletion worker fails, a limited queue keeps the delivery cutoff and the truncated index,
+and GC deletes the messages before the delivery cutoff.
+""".
+t_failed_deletion_limited(_Config) ->
+    {ok, MQ} = create_mq(limited_lastvalue_config(<<"failed_deletion_limited">>)),
     DB = message_db(MQ),
     [Slab | _] = slabs(DB),
-    BeforeMs = erlang:system_time(millisecond),
-    T1 = (BeforeMs - 2000) * 1000,
+    BeforeMs = erlang:system_time(millisecond) - 1000,
+    BeforeUs = BeforeMs * 1000,
+    T1 = BeforeUs - 2000_000,
     Old = message_record(MQ, <<"old">>, T1 - 1),
-    Fresh = message_record(MQ, <<"fresh">>, T1 + 1),
-    write_records(DB, Slab, [index_record(MQ, [bucket(1, T1, 1), bucket(0, 0, 1)]), Old, Fresh]),
-    ok = meck:new(emqx_ds, [passthrough, no_link]),
-    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_ds) end),
-    %% Make the deletion transaction fail its precondition: the index exists.
-    IndexTopic = index_topic(MQ),
-    ok = meck:expect(emqx_ds, tx_del_topic, fun(Topic, 0, To) ->
-        ok = emqx_ds:tx_ttv_assert_absent(IndexTopic, ?QUOTA_INDEX_TS),
-        meck:passthrough([Topic, 0, To])
-    end),
-    ?assertMatch(
-        {error, [{Slab, {unrecoverable, {precondition_failed, _}}}]},
-        emqx_mq_registry:purge(Name, BeforeMs)
-    ),
-    %% The index cut is committed. Both messages and the queue settings stay.
+    Hidden = message_record(MQ, <<"hidden">>, T1 + 1),
+    Fresh = message_record(MQ, <<"fresh">>, BeforeUs + 1),
+    write_records(DB, Slab, [
+        index_record(MQ, [bucket(1, T1, 1), bucket(0, 0, 1)]), Old, Hidden, Fresh
+    ]),
+    %% The purge succeeds, but the deletion worker fails.
+    ok = fail_del_batch(),
+    ?assertEqual({ok, MQ#{deliver_cutoff_date => BeforeMs}}, purge_and_wait(MQ, BeforeMs)),
     ?assertEqual([bucket(1, T1, 1)], read_buckets(DB, Slab, MQ)),
-    ?assertEqual(lists:sort([Old, Fresh]), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
-    ?assertEqual({ok, MQ}, emqx_mq_registry:find(Name)),
-    %% A repeated purge finds the same boundary and deletes the old message.
-    ok = meck:delete(emqx_ds, tx_del_topic, 3),
-    {ok, _} = emqx_mq_registry:purge(Name, BeforeMs),
+    ?assertEqual(
+        lists:sort([Old, Hidden, Fresh]), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))
+    ),
+    %% GC deletes the messages before the delivery cutoff, also inside the kept bucket.
+    ok = meck:unload(emqx_ds),
+    ?assertWaitEvent(emqx_mq_gc:gc(), #{?snk_kind := mq_gc_done}, 5000),
     ?assertEqual([Fresh], emqx_mq_message_db:dirty_read_all(MQ)).
+
+-doc """
+When the deletion worker fails, an unlimited last-value queue keeps the delivery cutoff,
+and GC deletes the messages before it.
+""".
+t_failed_deletion_unlimited_lastvalue(_Config) ->
+    {ok, MQ} = create_mq([
+        {queue_name, <<"failed_deletion_unlimited">>}, {is_lastvalue, true}, {is_limited, false}
+    ]),
+    DB = message_db(MQ),
+    [Slab | _] = slabs(DB),
+    BeforeMs = erlang:system_time(millisecond) - 2000,
+    BeforeUs = BeforeMs * 1000,
+    Old = message_record(MQ, <<"old">>, BeforeUs - 1),
+    AtCutoff = message_record(MQ, <<"at_cutoff">>, BeforeUs),
+    write_records(DB, Slab, [Old, AtCutoff]),
+    %% The purge succeeds, but the deletion worker fails.
+    ok = fail_del_batch(),
+    ?assertEqual({ok, MQ#{deliver_cutoff_date => BeforeMs}}, purge_and_wait(MQ, BeforeMs)),
+    ?assertEqual(lists:sort([Old, AtCutoff]), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
+    %% GC deletes the message before the delivery cutoff.
+    ok = meck:unload(emqx_ds),
+    ?assertWaitEvent(emqx_mq_gc:gc(), #{?snk_kind := mq_gc_done}, 5000),
+    ?assertEqual([AtCutoff], emqx_mq_message_db:dirty_read_all(MQ)).
 
 -doc "Purge is refused, and nothing changes, while some cluster node does not support the serial index".
 t_refused_during_upgrade(_Config) ->
@@ -378,6 +372,44 @@ t_refused_during_upgrade(_Config) ->
     ),
     ?assertEqual([Old], emqx_mq_message_db:dirty_read_all(MQ)),
     ?assertEqual({ok, MQ}, emqx_mq_registry:find(Name)).
+
+-doc "Purge is refused, and nothing changes, while the queue is being deleted".
+t_refused_being_deleted(_Config) ->
+    {ok, #{name := Name} = MQ} = create_mq(limited_lastvalue_config(<<"refused_deleting">>)),
+    DB = message_db(MQ),
+    [Slab | _] = slabs(DB),
+    Old = message_record(MQ, <<"old">>, 1000),
+    write_records(DB, Slab, [Old]),
+    ok = emqx_mq_registry:mark_deleting(MQ),
+    ?assertEqual({error, being_deleted}, emqx_mq_registry:purge(Name)),
+    ?assertEqual(
+        {error, being_deleted}, emqx_mq_registry:purge(Name, erlang:system_time(millisecond))
+    ),
+    ?assertEqual([Old], emqx_mq_message_db:dirty_read_all(MQ)),
+    ?assertEqual([], dirty_read(DB, Slab, fence_topic(MQ))),
+    ?assertEqual({ok, MQ}, emqx_mq_registry:find(Name)).
+
+-doc "GC of a limited queue deletes the messages stored before the delivery cutoff, also inside an index bucket".
+t_gc_limited_cutoff(_Config) ->
+    NowMs = erlang:system_time(millisecond),
+    %% Index boundaries T1 < T2 < T3. The delivery cutoff is between T2 and T3.
+    T1 = (NowMs - 30_000) * 1000,
+    T2 = (NowMs - 20_000) * 1000,
+    T3 = (NowMs - 10_000) * 1000,
+    {ok, MQ} = emqx_mq_test_utils:create_mq(
+        maps:merge(queue_opts(limited_lastvalue_config(<<"gc_cutoff">>)), #{
+            deliver_cutoff_date => NowMs - 15_000
+        })
+    ),
+    DB = message_db(MQ),
+    [Slab | _] = slabs(DB),
+    BeforeT2 = message_record(MQ, <<"before_t2">>, T2 - 1),
+    AfterT2 = message_record(MQ, <<"after_t2">>, T2 + 1),
+    AfterT3 = message_record(MQ, <<"after_t3">>, T3 + 1),
+    Buckets = [bucket(3, T3, 1), bucket(2, T2, 1), bucket(1, T1, 1), bucket(0, 0, 1)],
+    write_records(DB, Slab, [index_record(MQ, Buckets), BeforeT2, AfterT2, AfterT3]),
+    ?assertWaitEvent(emqx_mq_gc:gc(), #{?snk_kind := mq_gc_done}, 5000),
+    ?assertEqual([AfterT3], emqx_mq_message_db:dirty_read_all(MQ)).
 
 %%------------------------------------------------------------------------------
 %% Connected clients
@@ -431,6 +463,27 @@ test_purge_connected_client(Purge, Config) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
+%% Purge through the registry and wait until the deletion worker finishes.
+purge_and_wait(#{name := Name, id := Id}) ->
+    wait_purge_finished(Id, fun() -> emqx_mq_registry:purge(Name) end).
+
+purge_and_wait(#{name := Name, id := Id}, BeforeMs) ->
+    wait_purge_finished(Id, fun() -> emqx_mq_registry:purge(Name, BeforeMs) end).
+
+wait_purge_finished(Id, PurgeFun) ->
+    {Result, {ok, _}} = ?wait_async_action(
+        PurgeFun(), #{?snk_kind := mq_purge_finished, id := Id}, 5000
+    ),
+    Result.
+
+%% Make every batch deletion fail, so the deletion worker gives up.
+fail_del_batch() ->
+    ok = meck:new(emqx_ds, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> catch meck:unload(emqx_ds) end),
+    ok = meck:expect(emqx_ds, del_batch, fun(_DB, _Stream, _Topic, _From, _To, _Opts) ->
+        {error, unrecoverable, injected}
+    end).
+
 limited_lastvalue_config(Name) ->
     [{queue_name, Name}, {is_lastvalue, true}, {is_limited, true}].
 
@@ -471,12 +524,6 @@ insert_messages(MQ, Payloads) ->
         end,
         Payloads
     ).
-
-stored_payloads(MQ) ->
-    lists:sort([
-        emqx_message:payload(emqx_mq_message_db:decode_message(Bin))
-     || {_, _, Bin} <- emqx_mq_message_db:dirty_read_all(MQ)
-    ]).
 
 create_mq(Config) ->
     emqx_mq_test_utils:create_mq(queue_opts(Config)).

@@ -185,7 +185,7 @@ schema("/queue/:name/messages") ->
             responses => #{
                 204 => ?DESC(message_queues_purge_success),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], ?DESC(invalid_purge_before)
+                    ['BAD_REQUEST'], ?DESC(invalid_purge_request)
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND'], ?DESC(message_queue_not_found)
@@ -313,6 +313,8 @@ put_message_queue_config_example() ->
             ?NO_CONTENT;
         {error, before_in_future} ->
             ?BAD_REQUEST(<<"Purge cutoff must not be in the future">>);
+        {error, being_deleted} ->
+            ?BAD_REQUEST(<<"Message queue is being deleted">>);
         {error, cluster_upgrade_in_progress} ->
             ?SERVICE_UNAVAILABLE(<<"Purge is available after all cluster nodes are upgraded">>);
         not_found ->

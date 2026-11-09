@@ -47,7 +47,7 @@ That fence was written before the older node updated the index, so it does not m
 
 ## Purge
 
-`rotate/3` and `cutoff/2` change the serial index before a purge deletes messages.
+`rotate/2` and `truncate/2` change the serial index before a purge deletes messages.
 They require that the legacy index is dropped: a purge runs only when every node supports the serial index.
 """.
 
@@ -62,8 +62,8 @@ They require that the legacy index is dropped: a purge runs only when every node
     decode/2,
     encode/1,
     apply_updates/3,
-    rotate/3,
-    cutoff/2,
+    rotate/2,
+    truncate/2,
     drop_legacy/1,
     deadline/1,
     inspect/1,
@@ -148,20 +148,16 @@ apply_updates(#index{opts = Opts, serial = Serial0} = Index0, Updates, Fence) ->
     Index = apply_legacy_updates(Index0, Updates),
     {Index#index{serial = Serial}, NeedFence}.
 
--doc "Start a new head at a fresh fence and drop older buckets. See `emqx_mq_quota_index_serial`".
--spec rotate(t(), emqx_mq_quota_index_serial:fence() | undefined, pos_integer()) ->
-    {ok, emqx_mq_quota_index_serial:fence(), t()} | {error, stale_fence}.
-rotate(#index{legacy = undefined, serial = Serial0} = Index, Fence, FenceSerial) ->
-    maybe
-        {ok, Boundary, Serial} ?= emqx_mq_quota_index_serial:rotate(Serial0, Fence, FenceSerial),
-        {ok, Boundary, Index#index{serial = Serial}}
-    end.
+-doc "Drop the buckets before the fence stored in DS. See `emqx_mq_quota_index_serial`".
+-spec rotate(t(), emqx_mq_quota_index_serial:fence()) -> {emqx_mq_quota_index_serial:fence(), t()}.
+rotate(#index{legacy = undefined, serial = Serial0} = Index, Fence) ->
+    {Boundary, Serial} = emqx_mq_quota_index_serial:rotate(Serial0, Fence),
+    {Boundary, Index#index{serial = Serial}}.
 
--doc "Keep buckets from the newest boundary at or before a DS timestamp. See `emqx_mq_quota_index_serial`".
--spec cutoff(t(), timestamp_us()) -> {timestamp_us(), t()}.
-cutoff(#index{legacy = undefined, serial = Serial0} = Index, BeforeUs) ->
-    {CutoffUs, Serial} = emqx_mq_quota_index_serial:cutoff(Serial0, BeforeUs),
-    {CutoffUs, Index#index{serial = Serial}}.
+-doc "Drop the buckets that end at or before a DS timestamp. See `emqx_mq_quota_index_serial`".
+-spec truncate(t(), timestamp_us()) -> t().
+truncate(#index{legacy = undefined, serial = Serial0} = Index, BeforeUs) ->
+    Index#index{serial = emqx_mq_quota_index_serial:truncate(Serial0, BeforeUs)}.
 
 -doc "Drop the legacy index. Call only when every node supports the serial index".
 -spec drop_legacy(t()) -> t().

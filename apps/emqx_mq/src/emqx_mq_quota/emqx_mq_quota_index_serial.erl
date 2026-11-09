@@ -90,30 +90,42 @@ The index then guarantees:
 
 ## Accepted inaccuracy
 
-The index is not strictly exact. These are the known errors:
+The index is not strictly exact. Its errors must keep this property:
+
+* A bucket can count less than is stored. GC then keeps more data.
+* A bucket can count more than is stored only in two cases:
+  * Newer buckets count less by at least the same amount.
+    Every sum from the head then stays at or below the stored data.
+  * It is the tail: the oldest bucket that holds messages the queue must keep.
+    The extra count of the tail can only move the deadline to the start of the tail,
+    and make the index drop older buckets. Those buckets hold no messages to keep.
+
+So GC can delete messages later than needed, but never earlier.
+These are the known errors:
 
 * Bucket size. The deadline is always a bucket boundary.
   Up to one bucket of extra data stays. Bucket size is the threshold, a percentage of the limit.
 * Waiting head. A full head keeps growing until the next flush provides its fence.
   On a busy queue one flush can add many messages to it, so a bucket can exceed the threshold.
 * Lost updates. A node that stops without flushing loses its buffered updates.
-  The index then counts fewer messages than are stored, and GC keeps more data.
+  The buckets count less than is stored.
 * Rebuilt index. After an old node rewrites the index, all its data is in one bucket at (0, 0).
   That bucket cannot give a deadline, so GC keeps everything older than the next boundaries.
   The fence in DS is treated as seen, so the first boundary comes from the next fence.
 * Shared serial. A message can share the fence serial but be stored after the fence.
   It is added to the bucket before the fence, because its serial is not greater than the fence serial.
   When it is replaced, it is subtracted from the bucket after the fence, because of its DS timestamp.
-  So the bucket before the fence counts too much, and the bucket after the fence counts too little.
+  So the bucket before the fence counts more than is stored, and the newer bucket after the fence counts less.
   A counter can become negative. We do not clamp it: the sum of the two buckets is correct.
-  A sum of buckets that ends at the bucket after the fence may be too small,
-  so the deadline can be one bucket older than needed.
   The index cannot tell whether such a message was stored before or after the fence.
   It emits the debug trace event `mq_quota_index_shared_fence_serial` for each one.
-
-Each of these errors either leaves extra data in a bucket, or makes a sum of buckets smaller than the stored data.
-No error makes a sum larger than the stored data.
-So the deadline can only move to an older timestamp: GC deletes messages later than needed, never earlier.
+* Rotation at a seen fence. A flush can see the purge fence before the rotation and not close the head.
+  It counts the messages stored after the fence in the old head.
+  The rotation drops the old head, so the new head counts less than is stored.
+* Deletion inside a bucket. Retention, the delivery cutoff, and a purge before a given time
+  delete messages before a DS timestamp T that is not a bucket boundary.
+  The bucket that contains T keeps counting the deleted messages, so it counts more than is stored.
+  It is the tail: the older buckets hold only messages stored before T.
 
 ## Merging
 
@@ -141,25 +153,32 @@ The head is not in this sum, because its counters can still change a lot.
 
 Sum all buckets, head included, from the newest to the oldest.
 The deadline is the start timestamp of the bucket at which the sum first reaches a limit.
-If no limit is reached, the deadline is 0 and nothing is deleted.
+If no limit is reached, the deadline is the start timestamp of the oldest kept bucket.
+
+The index counts no message stored before the oldest kept bucket.
+Such messages were purged, or their buckets were dropped because the newer buckets reached a limit.
+So GC deletes them too.
+When the oldest kept bucket starts at (0, 0), the deadline is 0.
+
+The caller applies retention and the delivery cutoff separately. See "Deletion inside a bucket".
 
 ## Purge
 
-A purge deletes messages below a bucket boundary.
-It first changes the index, then deletes the messages in a separate transaction.
-Between the two, the index counts fewer messages than are stored, so GC can only keep more.
+A purge first changes the index, then deletes the messages in separate requests.
+GC deletes the purged messages too, also when the deletion requests fail.
 
-* `cutoff/2` keeps the buckets from the newest boundary at or before a given DS timestamp.
-  It returns that boundary. Older messages can then be deleted.
-  It returns 0 and keeps everything when only the bucket at (0, 0) starts that early.
-* `rotate/3` is used to purge everything.
-  The caller first writes a fresh fence, and gets its serial S from the transaction result.
-  In the next transaction, `rotate/3` starts a new empty head at that fence and drops all older buckets.
+* `truncate/2` is used to purge the messages stored before a DS timestamp T.
+  It drops the buckets that end at or before T, and keeps the bucket that contains T.
+  The caller then deletes the messages stored before T. See "Deletion inside a bucket".
+* `rotate/2` is used to purge everything.
+  The caller first writes a fresh fence. In the next transaction, it reads the fence (S, T) stored in DS,
+  and passes it to `rotate/2`. A flush can replace the fence between the two transactions.
+  * If a bucket starts at the fence, `rotate/2` keeps the buckets from it.
+    A flush closed the head at the fence between the two transactions.
+  * Otherwise `rotate/2` starts a new empty head at the fence and drops all older buckets.
+    If a flush saw the fence without closing the head, the new head counts too little.
+    See "Accepted inaccuracy".
   It returns the fence boundary (S, T). Messages stored before T can then be deleted.
-  A flush can see the fence between the two transactions:
-  * If the flush closed the head at the fence, `rotate/3` keeps the buckets from that boundary.
-  * If the flush only marked it seen, the fence cannot be used: some newer messages may be counted already.
-    `rotate/3` then returns `{error, stale_fence}`, and the caller writes another fence.
 
 Updates for purged messages are older than the kept buckets, so the index ignores them.
 """.
@@ -177,8 +196,8 @@ Updates for purged messages are older than the kept buckets, so the index ignore
     from_storage/2,
     to_storage/1,
     apply_updates/4,
-    rotate/3,
-    cutoff/2,
+    rotate/2,
+    truncate/2,
     deadline/2,
     inspect/1
 ]).
@@ -235,53 +254,38 @@ apply_updates(Index0, Updates, Fence, Opts) ->
     {Index#serial_index{buckets = [Head | Closed]}, NeedFence}.
 
 -doc """
-Start a new empty head at the fence with the given serial, and drop all older buckets.
-The fence must be written by the caller just before, so that no update has used it.
-If a flush already closed the head at that fence, only drop the older buckets.
+Drop all buckets before the fence that is stored in DS.
+Keep the bucket that starts at the fence, or start a new empty head there.
 Return the fence boundary. Messages stored before its timestamp can be deleted.
 """.
--spec rotate(t(), fence() | undefined, pos_integer()) ->
-    {ok, fence(), t()} | {error, stale_fence}.
-rotate(#serial_index{buckets = Buckets} = Index, Fence, Serial) ->
-    case [B || #'SerialIndexBucket'{serial = S} = B <- Buckets, S =:= Serial] of
-        [#'SerialIndexBucket'{tsUs = TsUs}] ->
-            Kept = [B || #'SerialIndexBucket'{serial = S} = B <- Buckets, S >= Serial],
-            {ok, #{serial => Serial, ts_us => TsUs}, Index#serial_index{buckets = Kept}};
+-spec rotate(t(), fence()) -> {fence(), t()}.
+rotate(#serial_index{buckets = Buckets} = Index, #{serial := Serial, ts_us := TsUs} = Fence) ->
+    case [B || #'SerialIndexBucket'{serial = S} = B <- Buckets, S >= Serial] of
+        [_ | _] = Kept ->
+            {Fence, Index#serial_index{buckets = Kept}};
         [] ->
-            case Fence of
-                #{serial := Serial, ts_us := TsUs} ->
-                    case is_unseen(Index, Fence) of
-                        true ->
-                            Head = #'SerialIndexBucket'{
-                                serial = Serial, tsUs = TsUs, bytes = 0, count = 0
-                            },
-                            {ok, Fence, #serial_index{buckets = [Head], seen_fence_serial = Serial}};
-                        false ->
-                            {error, stale_fence}
-                    end;
-                _ ->
-                    {error, stale_fence}
-            end
+            Head = #'SerialIndexBucket'{serial = Serial, tsUs = TsUs, bytes = 0, count = 0},
+            {Fence, #serial_index{buckets = [Head], seen_fence_serial = Serial}}
     end.
 
 -doc """
-Keep the buckets from the newest boundary at or before the given DS timestamp, and return that boundary.
-Return 0 and keep everything when only the bucket at (0, 0) starts that early.
+Drop the buckets that end at or before the given DS timestamp. Keep the bucket that contains it.
+Keep everything when only the bucket at (0, 0) starts that early.
 """.
--spec cutoff(t(), non_neg_integer()) -> {non_neg_integer(), t()}.
-cutoff(#serial_index{buckets = Buckets} = Index, BeforeUs) ->
+-spec truncate(t(), non_neg_integer()) -> t().
+truncate(#serial_index{buckets = Buckets} = Index, BeforeUs) ->
     case [TsUs || #'SerialIndexBucket'{tsUs = TsUs} <- Buckets, TsUs > 0, TsUs =< BeforeUs] of
-        [CutoffUs | _] ->
-            Kept = [B || #'SerialIndexBucket'{tsUs = TsUs} = B <- Buckets, TsUs >= CutoffUs],
-            {CutoffUs, Index#serial_index{buckets = Kept}};
+        [BoundaryUs | _] ->
+            Kept = [B || #'SerialIndexBucket'{tsUs = TsUs} = B <- Buckets, TsUs >= BoundaryUs],
+            Index#serial_index{buckets = Kept};
         [] ->
-            {0, Index}
+            Index
     end.
 
 -doc "Return the DS timestamp before which messages can be deleted, or 0".
 -spec deadline(t(), opts()) -> non_neg_integer().
 deadline(#serial_index{buckets = Buckets}, Opts) ->
-    deadline(Buckets, Opts, 0, 0).
+    limits_deadline(Buckets, Opts, 0, 0).
 
 -doc "Return buckets and totals in a readable form".
 -spec inspect(t()) -> map().
@@ -322,9 +326,6 @@ see_fence(#serial_index{buckets = [Head | _] = Buckets} = Index, Fence, Opts) ->
             Index#serial_index{seen_fence_serial = max_seen(Index, Serial)}
     end.
 
-%% A rotate after a fresh fence write accepts an unknown seen serial: no update has seen the fence.
-is_unseen(#serial_index{seen_fence_serial = undefined}, _Fence) ->
-    true;
 is_unseen(#serial_index{seen_fence_serial = SeenSerial}, #{serial := Serial}) ->
     Serial > SeenSerial.
 
@@ -395,14 +396,17 @@ drop_old([#'SerialIndexBucket'{bytes = B, count = C} = Bucket | Older], Opts, By
     end.
 
 %% Return the start of the bucket at which the sum of all newer buckets reaches a limit.
-deadline([], _Opts, _Bytes, _Count) ->
-    0;
-deadline([#'SerialIndexBucket'{tsUs = TsUs, bytes = B, count = C} | Older], Opts, Bytes0, Count0) ->
+%% If no limit is reached, return the start of the oldest bucket.
+limits_deadline([#'SerialIndexBucket'{tsUs = TsUs}], _Opts, _Bytes, _Count) ->
+    TsUs;
+limits_deadline(
+    [#'SerialIndexBucket'{tsUs = TsUs, bytes = B, count = C} | Older], Opts, Bytes0, Count0
+) ->
     Bytes = Bytes0 + B,
     Count = Count0 + C,
     case is_limit_reached(Bytes, Count, Opts) of
         true -> TsUs;
-        false -> deadline(Older, Opts, Bytes, Count)
+        false -> limits_deadline(Older, Opts, Bytes, Count)
     end.
 
 is_full(#'SerialIndexBucket'{bytes = Bytes, count = Count}, Opts) ->

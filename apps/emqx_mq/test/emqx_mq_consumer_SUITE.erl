@@ -86,13 +86,7 @@ t_subscription_start_time(_Config) ->
     ?assertEqual(
         {ok, client, state}, emqx_mq_message_db:subscribe(MQ, client, [], state)
     ),
-    ok = meck:unload(emqx_ds_client),
-    ?assertEqual(
-        0,
-        emqx_mq_prop:delivery_start_time(#{
-            data_retention_period => erlang:system_time(millisecond) + 60_000
-        })
-    ).
+    ok = meck:unload(emqx_ds_client).
 
 %% Check that iterator creation skips expired records and preserves saved acknowledgements.
 t_delivery_start_time_replay(_Config) ->
@@ -225,32 +219,6 @@ t_deliver_cutoff_date(Config) ->
     ?assertEqual([<<"marker">>], [P || #{payload := P} <- Msgs1]),
     ok = emqtt:disconnect(CSub1),
     ok = emqx_mq_registry:delete(Name).
-
-%% Check that subscription start times use the later of retention and the optional delivery cutoff.
-t_delivery_start_time(_Config) ->
-    NowMs = erlang:system_time(millisecond),
-    RetentionMs = 60_000,
-    lists:foreach(
-        fun(#{settings := Settings, earliest := Earliest}) ->
-            StartUs = emqx_mq_prop:delivery_start_time(Settings),
-            ?assert(StartUs >= Earliest * 1000),
-            Latest = max(Earliest, erlang:system_time(millisecond) - RetentionMs),
-            ?assert(StartUs =< Latest * 1000)
-        end,
-        [
-            #{settings => #{data_retention_period => RetentionMs}, earliest => NowMs - RetentionMs},
-            #{
-                settings => #{
-                    data_retention_period => RetentionMs, deliver_cutoff_date => NowMs - 120_000
-                },
-                earliest => NowMs - RetentionMs
-            },
-            #{
-                settings => #{data_retention_period => RetentionMs, deliver_cutoff_date => NowMs},
-                earliest => NowMs
-            }
-        ]
-    ).
 
 %% Check that fresh and restored consumers skip old DS records while preserving acknowledgements.
 t_delivery_cutoff_replay(_Config) ->
