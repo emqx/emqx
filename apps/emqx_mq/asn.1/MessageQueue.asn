@@ -47,6 +47,7 @@ BEGIN
     keyExpression [13] OCTET STRING OPTIONAL,
     limits [14] Limits OPTIONAL,
     name [15] OCTET STRING OPTIONAL,
+    deliverCutoffDate [16] INTEGER OPTIONAL,
     ...
   }
 
