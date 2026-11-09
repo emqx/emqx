@@ -246,3 +246,38 @@ t_from_map(_) ->
     },
     ?assertEqual(Map, emqx_message:to_map(Msg)),
     ?assertEqual(Msg, emqx_message:from_map(emqx_message:to_map(Msg))).
+
+-doc """
+`mark_persisted/1` sets the same header as `set_header/3` with `message_persisted`,
+and `is_persisted/1` reads the header from either one.
+""".
+t_mark_persisted(_) ->
+    Msg = emqx_message:make(<<"t">>, <<"payload">>),
+    Marked = emqx_message:mark_persisted(Msg),
+    ?assertEqual(emqx_message:set_header(message_persisted, true, Msg), Marked),
+    ?assert(emqx_message:is_persisted(Marked)),
+    ?assert(emqx_message:is_persisted(emqx_message:set_header(message_persisted, true, Msg))),
+    ?assertNot(emqx_message:is_persisted(Msg)),
+    ?assertNot(emqx_message:is_persisted(emqx_message:set_header(message_persisted, false, Msg))).
+
+-doc """
+`keep_portable_headers/1` keeps the publisher headers and removes every other header,
+including a header that no module in EMQX sets.
+""".
+t_keep_portable_headers(_) ->
+    Portable = #{
+        client_attrs => #{<<"tns">> => <<"ns1">>},
+        peerhost => {127, 0, 0, 1},
+        peername => {{127, 0, 0, 1}, 1883},
+        proto_ver => ?MQTT_PROTO_V5,
+        protocol => mqtt,
+        properties => #{'User-Property' => [{<<"k">>, <<"v">>}]},
+        republish_by => <<"rule1">>,
+        username => <<"user1">>
+    },
+    ?assertEqual(lists:sort(maps:keys(Portable)), lists:sort(emqx_message:portable_headers())),
+    Msg0 = emqx_message:set_headers(Portable, emqx_message:make(<<"t">>, <<"payload">>)),
+    Msg = emqx_message:set_header(
+        t_header_nobody_knows, true, emqx_message:mark_persisted(Msg0)
+    ),
+    ?assertEqual(Msg0, emqx_message:keep_portable_headers(Msg)).

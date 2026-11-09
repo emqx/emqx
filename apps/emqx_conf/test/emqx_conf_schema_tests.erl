@@ -722,6 +722,28 @@ rpc_insecure_fallback_is_ignored_test() ->
         proplists:get_value(insecure_auth_fallback_allowed, GenRpcEnv)
     ).
 
+tls_connection_tree_owner_test_() ->
+    ensure_acl_conf(),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
+    Gen = fun(Extra) ->
+        {ok, ConfMap} = hocon:binary(<<BaseConf/binary, Extra/binary>>, #{format => richmap}),
+        ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap),
+        proplists:get_value(connection_tree_owner, proplists:get_value(ssl, ConfList))
+    end,
+    [
+        {"default is caller", ?_assertEqual(caller, Gen(<<>>))},
+        {"caller", ?_assertEqual(caller, Gen(<<"\nnode.tls_connection_tree_owner = caller\n">>))},
+        {"supervisor",
+            ?_assertEqual(
+                supervisor, Gen(<<"\nnode.tls_connection_tree_owner = supervisor\n">>)
+            )},
+        {"other values are rejected",
+            ?_assertThrow(
+                {emqx_conf_schema, [#{kind := validation_error}]},
+                Gen(<<"\nnode.tls_connection_tree_owner = foo\n">>)
+            )}
+    ].
+
 node_role_conf(Role0) ->
     Role = atom_to_binary(Role0),
     Hocon = <<"node { role =", Role/binary, ", cookie = \"cookie\", data_dir = \".\" }">>,

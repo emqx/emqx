@@ -310,22 +310,23 @@ do_publish(#message{topic = Topic} = Msg) ->
 
 -doc """
 Return `[persisted]` when built-in persistence accepts the message, or when
-a publish hook sets the internal `message_persisted` header
-to `true` after storing it. Return `[]` otherwise.
+a publish hook marks the message with `emqx_message:mark_persisted/1`
+after storing it. Return `[]` otherwise.
 
 The broker includes `persisted` in the publish result alongside any subscriber
 delivery results. The primary purpose of this result is to help `publish` callers
 detect that the message was not completely dropped.
 """.
 persist_publish(Msg) ->
-    case {emqx_persistent_message:persist(Msg, #{sync => noreply}), Msg} of
-        {noreply, _} ->
+    case emqx_persistent_message:persist(Msg, #{sync => noreply}) of
+        noreply ->
             [persisted];
-        %% Persisted by some subsystem via hook
-        {{skipped, _}, #message{headers = #{message_persisted := true}}} ->
-            [persisted];
-        {{skipped, _}, _} ->
-            []
+        {skipped, _} ->
+            %% Persisted by some subsystem via hook
+            case emqx_message:is_persisted(Msg) of
+                true -> [persisted];
+                false -> []
+            end
     end.
 
 %% Called internally
