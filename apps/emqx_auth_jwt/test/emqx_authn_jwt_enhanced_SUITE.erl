@@ -149,7 +149,7 @@ t_reauthenticate_rejects_bad_method(_Config) ->
     _ = connect(<<"c_method">>, jws(#{<<"exp">> => exp(60)})),
     ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
 
-    %% [MQTT-4.12.0-1]: the method is fixed at CONNECT and cannot be switched.
+    %% [MQTT-4.12.1-1]: the method is fixed at CONNECT and cannot be switched.
     ok = emqx_mqtt_test_client:send(
         get_client(),
         ?AUTH_PACKET(?RC_RE_AUTHENTICATE, #{
