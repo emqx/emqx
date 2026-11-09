@@ -22,6 +22,7 @@
 -define(TAB_MSG_META, bcast_msg_meta).
 -define(TAB_MSG_META_CNT, bcast_msg_meta_counter).
 -define(TAB_MSG_ACKED, bcast_msg_acked).
+-define(TAB_MSG_PART_ACCOUNTED, bcast_msg_part_accounted).
 -define(TAB_MSG_IDX, bcast_msg_index).
 -define(TAB_QUOTA, bcast_quota).
 
@@ -194,6 +195,16 @@
     device_names = [] :: [binary()]
 }).
 
+%% Durable per-part counter watermark. A row means the part's full ACK list
+%% has been reflected in bcast_msg_meta_counter. It is written in the same
+%% transaction as the full bcast_msg_acked row and the counter update, so a
+%% failed report can never leave a half-applied decrement.
+-record(bcast_msg_part_accounted, {
+    delivery_id :: binary(),
+    shard :: non_neg_integer() | delivery,
+    acked :: non_neg_integer()
+}).
+
 -record(bcast_msg_index, {
     key :: {ProductKey :: binary(), DeviceName :: binary()},
     deliveries :: [bcast_index_entry()],
@@ -281,7 +292,10 @@
     %% deferral can never be dropped: every client that can be refused already
     %% owns this row, so the worst case is one extra word per client, while a
     %% bounded queue loses the wakeup as soon as it fills up.
-    rearm_at = undefined :: undefined | {non_neg_integer(), cap | residual}
+    %% `restage` marks the first claim after a new client generation; the core
+    %% retires an in-flight claim left by the previous session before claiming
+    %% the next queued delivery.
+    rearm_at = undefined :: undefined | {non_neg_integer(), cap | residual | restage}
 }).
 
 -endif.

@@ -1256,6 +1256,11 @@ create_delivery(Did, MsgId, PK, Tpl, DNs, Target) ->
                             delivery_id = Did,
                             counter = Target
                         }),
+                        mnesia:write(#bcast_msg_part_accounted{
+                            delivery_id = Did,
+                            shard = delivery,
+                            acked = 0
+                        }),
                         mnesia:write(Delivery)
                 end
             end,
@@ -3008,20 +3013,22 @@ backfill_meta_from_projection(Proj) ->
 
 %% bcast_msg_meta.counter is the remaining-ack count, but since 0.4.0 it is
 %% only ever written with the full target and never decremented (the atomic
-%% bcast_msg_meta_counter is authoritative). When persisted ack markers exist,
-%% derive the remaining from them; keep the conservative minimum so a delivery
-%% whose counter row was lost can never be completed early. Callers must not
-%% route a delivery without markers here: the rebuild re-indexes every device
-%% of such a delivery, so its counter belongs at the full target and is
-%% restored by backfill_meta_from_projection/1. The zero-marker clause below
-%% is only a defensive fallback.
+%% bcast_msg_meta_counter is authoritative). Only a marker that covers a whole
+%% index-shard part proves a counter decrement is owed. Partial ACK markers
+%% are deliberately ignored here: they make a device non-claimable after a
+%% rebuild, but their part has not necessarily been reflected in the counter.
+%% Keep the conservative minimum so a delivery whose counter row was lost can
+%% never be completed early.
 backfill_remaining(Did, MetaCounter, TargetByDid) ->
-    case maps:size(acked_device_set(Did)) of
-        0 ->
-            max(0, MetaCounter);
-        Acked ->
+    case mnesia:dirty_read(?TAB_MSG_REC, Did) of
+        [#bcast_msg{} = Delivery] ->
+            Completed = completed_part_ack_count(
+                Delivery, mnesia:dirty_read(?TAB_MSG_ACKED, Did)
+            ),
             Target = maps:get(Did, TargetByDid, MetaCounter),
-            min(max(0, MetaCounter), max(0, Target - Acked))
+            min(max(0, MetaCounter), max(0, Target - Completed));
+        [] ->
+            max(0, MetaCounter)
     end.
 
 %% Deliveries that own at least one persisted ack marker, as a set. One scan
@@ -3381,7 +3388,8 @@ clamp_negative_quota() ->
 %%--------------------------------------------------------------------
 
 %% Claim up to the per-device window of entries for a client. Returns
-%% {Result, NewState} where Result is {ok, [ClaimMap]} | {no_more, Residual}.
+%% {Result, NewState} where Result is {ok, [ClaimMap]} |
+%% {no_more, Residual} | {no_more, Residual, restage_acked}.
 %% Residual is how many live entries the device still holds in this shard,
 %% so the pull side can tell "drained" (0) from "entries are there but not
 %% claimable right now" (subscription cache not visible to the core yet,
@@ -3392,9 +3400,10 @@ clamp_negative_quota() ->
 %% so one device with a long blocked head cannot hold the shard (see
 %% claim_scan).
 claim_one(#{clientid := DN, product_key := PK} = E, State) ->
+    RestageAck = maps:get(restage_ack, E, false),
     try do_claim_one(E, PK, DN, State) of
         {ok, Result, St} -> {{ok, Result}, St};
-        {no_more, Residual, St} -> {{no_more, Residual}, St}
+        {no_more, Residual, St} -> {no_more_result(RestageAck, Residual), St}
     catch
         Error:Reason:Stacktrace ->
             ?SLOG(error, #{
@@ -3406,12 +3415,18 @@ claim_one(#{clientid := DN, product_key := PK} = E, State) ->
             {{error, {Error, Reason}}, State}
     end.
 
+no_more_result(true, Residual) ->
+    {no_more, Residual, restage_acked};
+no_more_result(false, Residual) ->
+    {no_more, Residual}.
+
 do_claim_one(E, PK, DN, State) ->
     Topics = maps:get(topics, E, []),
     Tag = maps:get(claim_tag, E, undefined),
     Key = {PK, DN},
+    State0 = maybe_restage_device(Key, maps:get(restage, E, false), State),
     %% Expired in-flight claims become claimable again (at-least-once).
-    State1 = release_expired_inflights(Key, State),
+    State1 = release_expired_inflights(Key, State0),
     InflightCount = maps:size(maps:get(Key, maps:get(inflights, State1), #{})),
     Capacity = window_size() - InflightCount,
     case Capacity =< 0 of
@@ -3427,6 +3442,26 @@ do_claim_one(E, PK, DN, State) ->
                 {no_more, Residual, St} ->
                     {no_more, Residual, St}
             end
+    end.
+
+%% A client's first claim after a reconnect/takeover can arrive while the old
+%% generation still owns the sole in-flight slot. Retire that claim before
+%% claiming the FIFO head; otherwise the core reports no_more with residual 0
+%% and the one-shot trigger has nothing left to wake.
+maybe_restage_device(_Key, false, State) ->
+    State;
+maybe_restage_device(Key, true, State) ->
+    case maps:get(Key, maps:get(inflights, State), #{}) of
+        Inflights when map_size(Inflights) =:= 0 ->
+            State;
+        Inflights ->
+            State1 = requeue_inflight(State, Key, maps:to_list(Inflights)),
+            State2 = maps:put(
+                inflights,
+                maps:put(Key, #{}, maps:get(inflights, State1)),
+                State1
+            ),
+            clear_holder(State2, Key)
     end.
 
 %% Per-device in-flight window is FIXED at 1 (one outstanding delivery
@@ -3928,55 +3963,14 @@ retry_unreported_parts(State) ->
         maps:get(part_pending, State, #{})
     ).
 
-%% The remaining-ack counter, recomputed from the durable markers. Used when a
-%% part's report is retried after its marker already landed: the marker proves
-%% which devices acked, so the marker-derived remaining is an upper bound of the
-%% truth (acks whose marker has not been written yet are not counted), and the
-%% delivery is only ever completed from that bound - never early. Only a lower
-%% value is written, so a delivery whose counter already matches is untouched,
-%% and a concurrent decrement that lands meanwhile is repaired by the next
-%% report or by the activation rebuild.
-reconcile_part_counter(Did) ->
-    case {mnesia:dirty_read(?TAB_MSG_META_CNT, Did), mnesia:dirty_read(?TAB_MSG_REC, Did)} of
-        {[#bcast_msg_meta_counter{counter = Current}], [#bcast_msg{target_ack_count = Target}]} ->
-            Remaining = backfill_remaining(Did, Current, #{Did => Target}),
-            case Remaining < Current of
-                true ->
-                    ?SLOG(warning, #{
-                        msg => "bcast_ack_counter_reconciled",
-                        delivery_id => Did,
-                        counter => Current,
-                        reconciled => Remaining
-                    }),
-                    ok = write_meta_counters([{Did, Remaining}]),
-                    case Remaining =< 0 of
-                        true ->
-                            _ = complete_delivery(Did),
-                            ok;
-                        false ->
-                            ok
-                    end;
-                false ->
-                    ok
-            end;
-        _ ->
-            %% No counter row (already completed) or no delivery row: nothing to
-            %% reconcile.
-            ok
-    end.
-
-%% One durable pair of writes for a finished part: the marker first, so a
-%% crash between the two can only leave the counter too high (the delivery then
-%% completes late or is reclaimed by TTL, but an acked device is never
-%% resurrected and a replayed ack cannot decrement a live delivery twice), then
-%% the decrement, then the completion check.
+%% One durable transaction for a finished part. The full ACK marker, the
+%% per-part accounting watermark, and the counter update either all commit or
+%% all abort. On the normal path, the watermark count proves the counter is in
+%% the exact state this build expects, so the update remains O(1). If that
+%% equality does not hold (mixed-version or crash recovery), fall back to a
+%% conservative marker-based reconciliation that never decrements a partial
+%% part twice.
 report_part_done(Shard, Did, Applied) ->
-    %% try/1 (no `of` clause) on purpose: a failure in the `of` body is NOT
-    %% caught by that same try's catch clauses, so the counter write and the
-    %% completion check have to be inside the protected expression too -
-    %% otherwise a failed decrement escapes to the ack handler, the whole ack
-    %% batch is answered with an error and the part accounting that would have
-    %% retried the report is dropped with it.
     try
         do_report_part_done(Shard, Did, Applied)
     catch
@@ -3993,51 +3987,205 @@ report_part_done(Shard, Did, Applied) ->
             {error, {Class, Reason}}
     end.
 
-do_report_part_done(Shard, Did, Applied) ->
+do_report_part_done(Shard, Did, _Applied) ->
     case part_devices(Shard, Did) of
         not_found ->
             %% The delivery is gone (completed or deleted): the acks are moot.
             ok;
         {ok, Devices} ->
-            Marker = #bcast_msg_acked{delivery_id = Did, device_names = Devices},
-            case mnesia:dirty_match_object(Marker) of
-                [_] ->
-                    %% This part already reported in an earlier incarnation of
-                    %% the shard, so the decrement must not be applied twice -
-                    %% but it may not have been applied at all (the counter
-                    %% write failed, or the shard died right after the marker).
-                    %% Recompute the remaining from the durable markers instead
-                    %% of skipping: the recompute is idempotent either way, and
-                    %% it is the only thing that can release a delivery whose
-                    %% counter was left at 1 by that window (the in-memory part
-                    %% accounting is gone once this shard restarts, and the
-                    %% periodic sweep only scans counters at or below zero).
-                    reconcile_part_counter(Did),
+            case
+                mnesia:transaction(
+                    fun() -> report_part_done_tx(Shard, Did, Devices) end,
+                    20
+                )
+            of
+                {atomic, {ok, NewCounter}} ->
+                    maybe_complete_reported_part(Did, NewCounter);
+                {atomic, not_found} ->
                     ok;
-                [] ->
-                    mnesia:dirty_write(Marker),
-                    case mnesia:dirty_update_counter(?TAB_MSG_META_CNT, Did, -Applied) of
-                        New when New =< 0 ->
-                            %% Counter reached zero (or the row is already
-                            %% gone): the delivery is finished. A completion
-                            %% that aborts here is retried by the periodic
-                            %% sweep, which scans for counters at or below
-                            %% zero.
-                            case complete_delivery(Did) of
-                                {error, Reason} ->
-                                    ?SLOG(warning, #{
-                                        msg => "bcast_ack_completion_failed",
-                                        delivery_id => Did,
-                                        reason => Reason
-                                    }),
-                                    ok;
-                                _ ->
-                                    ok
-                            end;
-                        _ ->
-                            ok
-                    end
+                {aborted, Reason} ->
+                    {error, {transaction_aborted, Reason}}
             end
+    end.
+
+report_part_done_tx(Shard, Did, Devices) ->
+    %% Lock order is acked -> accounted -> counter -> rec, matching the
+    %% delete/expiry paths closely enough to avoid a reverse wait with them.
+    _ = mnesia:lock({record, ?TAB_MSG_ACKED, Did}, write),
+    Accounts = mnesia:read(?TAB_MSG_PART_ACCOUNTED, Did, write),
+    CounterRow =
+        case mnesia:read(?TAB_MSG_META_CNT, Did, write) of
+            [#bcast_msg_meta_counter{} = Row] -> Row;
+            [] -> mnesia:abort(missing_counter)
+        end,
+    case mnesia:read(?TAB_MSG_REC, Did, read) of
+        [] ->
+            not_found;
+        [#bcast_msg{target_ack_count = Target} = Delivery] ->
+            Marker = #bcast_msg_acked{delivery_id = Did, device_names = Devices},
+            Account = #bcast_msg_part_accounted{
+                delivery_id = Did,
+                shard = Shard,
+                acked = length(Devices)
+            },
+            ExistingMarkers = mnesia:read(?TAB_MSG_ACKED, Did, read),
+            CurrentPartAccounted = has_part_account(Shard, Accounts),
+            AllCompletePartsAccounted = all_complete_parts_accounted(
+                Delivery, ExistingMarkers, Accounts
+            ),
+            Expected = max(0, Target - accounted_ack_count(Accounts)),
+            Current = CounterRow#bcast_msg_meta_counter.counter,
+            case CurrentPartAccounted of
+                false when AllCompletePartsAccounted, Current =:= Expected ->
+                    case has_delivery_account(Accounts) of
+                        true ->
+                            %% Every existing complete part is represented in
+                            %% the watermark, so only this part is still owed.
+                            mnesia:write(Marker),
+                            New = max(0, Current - length(Devices)),
+                            mnesia:write(Account),
+                            mnesia:write(CounterRow#bcast_msg_meta_counter{counter = New}),
+                            {ok, New};
+                        false ->
+                            mnesia:write(Marker),
+                            reconcile_part_counter_tx(
+                                Delivery,
+                                CounterRow,
+                                Accounts,
+                                [Marker | lists:delete(Marker, ExistingMarkers)]
+                            )
+                    end;
+                _ ->
+                    mnesia:write(Marker),
+                    reconcile_part_counter_tx(
+                        Delivery,
+                        CounterRow,
+                        Accounts,
+                        [Marker | lists:delete(Marker, ExistingMarkers)]
+                    )
+            end
+    end.
+
+all_complete_parts_accounted(Delivery, Markers, Accounts) ->
+    AccountedShards = maps:from_keys(
+        [Shard || #bcast_msg_part_accounted{shard = Shard} <- Accounts],
+        true
+    ),
+    lists:all(
+        fun({Shard, _Acked}) ->
+            maps:is_key(Shard, AccountedShards)
+        end,
+        completed_part_markers(Delivery, Markers)
+    ).
+
+reconcile_part_counter_tx(
+    #bcast_msg{delivery_id = Did, target_ack_count = Target} = Delivery,
+    #bcast_msg_meta_counter{counter = Current} = CounterRow,
+    Accounts,
+    Markers
+) ->
+    CompletedParts = completed_part_markers(Delivery, Markers),
+    AccountedShards = maps:from_keys([S || #bcast_msg_part_accounted{shard = S} <- Accounts], true),
+    InitAccounts =
+        case has_delivery_account(Accounts) of
+            true ->
+                [];
+            false ->
+                [
+                    #bcast_msg_part_accounted{
+                        delivery_id = Did,
+                        shard = delivery,
+                        acked = 0
+                    }
+                ]
+        end,
+    PartAccounts = [
+        #bcast_msg_part_accounted{
+            delivery_id = Did,
+            shard = Shard,
+            acked = Acked
+        }
+     || {Shard, Acked} <- CompletedParts,
+        not maps:is_key(Shard, AccountedShards)
+    ],
+    NewAccounts = InitAccounts ++ PartAccounts,
+    lists:foreach(fun mnesia:write/1, NewAccounts),
+    Accounted = accounted_ack_count(Accounts ++ NewAccounts),
+    Remaining = max(0, Target - Accounted),
+    New = min(Current, Remaining),
+    case New =:= Current of
+        true -> ok;
+        false -> mnesia:write(CounterRow#bcast_msg_meta_counter{counter = New})
+    end,
+    {ok, New}.
+
+has_delivery_account(Accounts) ->
+    lists:any(
+        fun(#bcast_msg_part_accounted{shard = Shard}) ->
+            Shard =:= delivery
+        end,
+        Accounts
+    ).
+
+has_part_account(Shard, Accounts) ->
+    lists:any(
+        fun(#bcast_msg_part_accounted{shard = AccountedShard}) ->
+            AccountedShard =:= Shard
+        end,
+        Accounts
+    ).
+
+accounted_ack_count(Accounts) ->
+    lists:sum([
+        Acked
+     || #bcast_msg_part_accounted{acked = Acked} <- Accounts
+    ]).
+
+%% ACK markers carry the full device list of a completed index-shard part.
+%% Partial markers do not match any full part list and are ignored for counter
+%% accounting, while still remaining available to suppress re-delivery.
+completed_part_markers(#bcast_msg{product_key = PK, device_names = DeviceNames}, Markers) ->
+    RevParts = lists:foldl(
+        fun(DN, Acc) ->
+            Shard = shard_of({PK, DN}),
+            maps:update_with(Shard, fun(DNs) -> [DN | DNs] end, [DN], Acc)
+        end,
+        #{},
+        DeviceNames
+    ),
+    PartsByList = maps:from_list([
+        {lists:reverse(DNs), Shard}
+     || {Shard, DNs} <- maps:to_list(RevParts)
+    ]),
+    lists:filtermap(
+        fun(#bcast_msg_acked{device_names = DNs}) ->
+            case maps:find(DNs, PartsByList) of
+                {ok, Shard} -> {true, {Shard, length(DNs)}};
+                error -> false
+            end
+        end,
+        Markers
+    ).
+
+completed_part_ack_count(Delivery, Markers) ->
+    lists:sum([
+        Acked
+     || {_Shard, Acked} <- completed_part_markers(Delivery, Markers)
+    ]).
+
+maybe_complete_reported_part(_Did, NewCounter) when NewCounter > 0 ->
+    ok;
+maybe_complete_reported_part(Did, _NewCounter) ->
+    case complete_delivery(Did) of
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "bcast_ack_completion_failed",
+                delivery_id => Did,
+                reason => Reason
+            }),
+            ok;
+        _ ->
+            ok
     end.
 
 %% The devices of this delivery the shard owns, in the committed delivery row's
@@ -4065,6 +4213,7 @@ complete_delivery(Did) ->
         mnesia:transaction(
             fun() ->
                 mnesia:delete({?TAB_MSG_ACKED, Did}),
+                mnesia:delete({?TAB_MSG_PART_ACCOUNTED, Did}),
                 case mnesia:wread({?TAB_MSG_META, Did}) of
                     [#bcast_msg_meta{}] ->
                         mnesia:delete({?TAB_MSG_META, Did}),
@@ -4397,6 +4546,7 @@ delete_delivery_rows_local(Did, _MsgId) ->
             fun() ->
                 %% The acked-device markers share the delivery's lifetime.
                 mnesia:delete({?TAB_MSG_ACKED, Did}),
+                mnesia:delete({?TAB_MSG_PART_ACCOUNTED, Did}),
                 case mnesia:wread({?TAB_MSG_META, Did}) of
                     [] ->
                         case mnesia:wread({?TAB_MSG_REC, Did}) of
@@ -4438,6 +4588,7 @@ delete_delivery_rows_local(DeliveryIds) ->
                 lists:foreach(
                     fun(Did) ->
                         mnesia:delete({?TAB_MSG_ACKED, Did}),
+                        mnesia:delete({?TAB_MSG_PART_ACCOUNTED, Did}),
                         mnesia:delete({?TAB_MSG_META, Did}),
                         mnesia:delete({?TAB_MSG_META_CNT, Did}),
                         mnesia:delete({?TAB_MSG_REC, Did})
@@ -4569,6 +4720,7 @@ delete_expired_deliveries_batched(Expired) ->
 %% retries masked it, but each retry is wasted work and latency).
 delete_one_expired_delivery_tx({DeliveryId, _MsgId, _ProductKey, _DeviceNames}) ->
     mnesia:delete({?TAB_MSG_ACKED, DeliveryId}),
+    mnesia:delete({?TAB_MSG_PART_ACCOUNTED, DeliveryId}),
     case mnesia:wread({?TAB_MSG_META, DeliveryId}) of
         [] ->
             %% Meta gone: either the delivery was acked/completed
@@ -4707,6 +4859,7 @@ delete_completed_deliveries_batched(Dids) ->
 %% Lock order acked -> meta -> rec, matching complete_delivery/1.
 delete_one_completed_delivery_tx(Did) ->
     mnesia:delete({?TAB_MSG_ACKED, Did}),
+    mnesia:delete({?TAB_MSG_PART_ACCOUNTED, Did}),
     case mnesia:wread({?TAB_MSG_META, Did}) of
         [#bcast_msg_meta{}] ->
             mnesia:delete({?TAB_MSG_META, Did}),

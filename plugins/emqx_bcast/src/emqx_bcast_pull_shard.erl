@@ -129,6 +129,10 @@
 %% rows) pass.
 -define(CLAIM_STALE_SWEEP_MS, 5000).
 -define(CLAIM_STALE_AGE_MS, 10000).
+%% A mixed-version peer may ignore restage until the old claim lease expires.
+%% Keep retrying beyond that lease, but do not turn an empty-row restage into
+%% an unbounded sweep task forever.
+-define(RESTAGE_MAX_AGE_MS, 300000).
 
 %% An ack-in-flight mark whose core-applied confirmation never arrives
 %% would hold the per-device window closed forever. The sweep expires
@@ -716,50 +720,49 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({client_connected, ClientId, Pid, ProductKey}, State) ->
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
-    %% (Re)create the client state row when a fresh session starts.
-    ensure_row(ProductKey, ClientId, Pid, State#state.shard),
+    State1 = adopt_client_generation(ProductKey, ClientId, Pid, State),
     Ref = monitor(process, Pid),
     Mons = maps:put(Ref, {Pid, ClientId, ProductKey}, State#state.mons),
-    {noreply, State#state{mons = Mons}};
+    {noreply, State1#state{mons = Mons}};
 handle_cast({client_disconnected, ClientId, Pid, ProductKey}, State) ->
     cleanup_client(ClientId, Pid, ProductKey, State),
     {noreply, State};
 handle_cast({topic_added, ClientId, Pid, ProductKey, TopicFilter, Qos}, State) ->
     %% session.subscribed fired (post-commit): cache the filter so the
     %% claim path no longer reads emqx_broker:subscriptions/1 per claim.
-    Shard = State#state.shard,
-    case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
-        [#bcast_client_state{} = Row] ->
-            Topics = upsert_topic(TopicFilter, Qos, Row#bcast_client_state.topics),
-            row_put(Shard, Row#bcast_client_state{pid = Pid, topics = Topics});
-        [] ->
-            row_put(
-                Shard,
-                #bcast_client_state{
-                    key = {ProductKey, ClientId},
-                    product_key = ProductKey,
-                    clientid = ClientId,
-                    pid = Pid,
-                    topics = [{TopicFilter, Qos}]
-                }
-            )
-    end,
-    %% The pre-commit subscribe hook arms the client before the filter is
-    %% committed, so a claim round that reaches the core in that window sees
-    %% no matching subscription and answers no_more. The post-commit filter
-    %% is the first point where the subscription is visible, so arm an idle
-    %% client here: maybe_claim/4 is a no-op unless the client has no claim
-    %% round and an empty window, which is exactly the stranded state.
-    {noreply, maybe_claim(ProductKey, ClientId, Pid, State)};
+    case accept_client_event(ProductKey, ClientId, Pid, State) of
+        stale ->
+            {noreply, State};
+        {ok, State1} ->
+            Shard = State#state.shard,
+            case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
+                [#bcast_client_state{pid = Pid} = Row] ->
+                    Topics = upsert_topic(TopicFilter, Qos, Row#bcast_client_state.topics),
+                    row_put(Shard, Row#bcast_client_state{topics = Topics}),
+                    %% The pre-commit subscribe hook arms the client before
+                    %% the filter is committed, so a claim round that reaches
+                    %% the core in that window sees no matching subscription
+                    %% and answers no_more. The post-commit filter is the
+                    %% first point where the subscription is visible.
+                    {noreply, maybe_claim(ProductKey, ClientId, Pid, State1)};
+                _ ->
+                    {noreply, State}
+            end
+    end;
 handle_cast({topic_removed, ClientId, Pid, ProductKey, TopicFilter}, State) ->
     %% session.unsubscribed fired (post-commit): drop the cached filter.
     Shard = State#state.shard,
-    case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
-        [#bcast_client_state{} = Row] ->
-            Topics = lists:keydelete(TopicFilter, 1, Row#bcast_client_state.topics),
-            row_put(Shard, Row#bcast_client_state{pid = Pid, topics = Topics});
-        [] ->
-            ok
+    case accept_client_event(ProductKey, ClientId, Pid, State) of
+        stale ->
+            ok;
+        {ok, _State1} ->
+            case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
+                [#bcast_client_state{pid = Pid} = Row] ->
+                    Topics = lists:keydelete(TopicFilter, 1, Row#bcast_client_state.topics),
+                    row_put(Shard, Row#bcast_client_state{topics = Topics});
+                _ ->
+                    ok
+            end
     end,
     {noreply, State};
 handle_cast({resume, ClientId, Pid, ProductKey}, State) ->
@@ -767,6 +770,7 @@ handle_cast({resume, ClientId, Pid, ProductKey}, State) ->
     %% restores subscriptions without re-firing session.subscribed), then
     %% re-arm a want_next so a resumed backlog keeps draining.
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
+    State1 = adopt_client_generation(ProductKey, ClientId, Pid, State),
     Shard = State#state.shard,
     case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
         [#bcast_client_state{} = Row] ->
@@ -780,7 +784,7 @@ handle_cast({resume, ClientId, Pid, ProductKey}, State) ->
         [] ->
             ensure_row(ProductKey, ClientId, Pid, Shard)
     end,
-    {noreply, maybe_claim(ProductKey, ClientId, Pid, State)};
+    {noreply, maybe_claim(ProductKey, ClientId, Pid, State1)};
 handle_cast({ping, ClientId, Pid, ProductKey}, State) ->
     %% Keepalive pings normally refresh only the device registry. A missing
     %% row is different: the plugin restarted after this long-lived client
@@ -1144,14 +1148,23 @@ note_claim_deferred(Shard, ProductKey, ClientId, Origin, PendingRow) ->
             is_integer(Last), Now - Last < ?REARM_MIN_INTERVAL_MS
         ->
             ok;
-        [#bcast_client_state{}] ->
+        [#bcast_client_state{rearm_at = Current}] ->
             %% The flag is on the row, not in a separate queue, so it cannot
             %% be dropped when the backpressure episode is large: the row
             %% already exists for every client that can reach this path.
-            true = ets:update_element(Tab, Key, {#bcast_client_state.rearm_at, Mark}),
+            true = ets:update_element(
+                Tab,
+                Key,
+                {#bcast_client_state.rearm_at, preserve_restage(Current, Mark)}
+            ),
             ok;
         [] when PendingRow =/= undefined ->
-            true = ets:insert(Tab, PendingRow#bcast_client_state{rearm_at = Mark}),
+            true = ets:insert(
+                Tab,
+                PendingRow#bcast_client_state{
+                    rearm_at = preserve_restage(PendingRow#bcast_client_state.rearm_at, Mark)
+                }
+            ),
             ok;
         [] ->
             %% No row and nothing pending means no window and no claim for
@@ -1203,10 +1216,26 @@ drain_deferred_claims(Shard, RearmRev, State) ->
     end,
     State1 = lists:foldl(
         fun({ProductKey, ClientId}, St) ->
+            Key = {ProductKey, ClientId},
+            Rearm = row_rearm_at(Tab, Key),
             _ = ets:update_element(
-                Tab, {ProductKey, ClientId}, {#bcast_client_state.rearm_at, undefined}
+                Tab, Key, {#bcast_client_state.rearm_at, undefined}
             ),
-            reclaim_online(ProductKey, ClientId, Shard, St)
+            case restage_expired(Rearm, erlang:system_time(millisecond)) of
+                true ->
+                    ?SLOG(warning, #{
+                        msg => "bcast_restage_retry_expired",
+                        product_key => ProductKey,
+                        clientid => ClientId
+                    }),
+                    %% Expire only the restage capability retry. Make one
+                    %% ordinary claim so a residual backlog is re-marked and
+                    %% an offline client remains owned by its reconnect path.
+                    reclaim_online(ProductKey, ClientId, Shard, St);
+                false ->
+                    _ = restore_restage(Tab, Key, Rearm),
+                    reclaim_online(ProductKey, ClientId, Shard, St)
+            end
         end,
         State,
         Batch
@@ -1220,6 +1249,27 @@ deferred_origin(Tab, Key) ->
         _ -> residual
     end.
 
+row_rearm_at(Tab, Key) ->
+    case ets:lookup(Tab, Key) of
+        [#bcast_client_state{rearm_at = Rearm}] -> Rearm;
+        _ -> undefined
+    end.
+
+preserve_restage({Ts, restage}, _Mark) ->
+    {Ts, restage};
+preserve_restage(_Current, Mark) ->
+    Mark.
+
+restore_restage(Tab, Key, {Ts, restage}) ->
+    ets:update_element(Tab, Key, {#bcast_client_state.rearm_at, {Ts, restage}});
+restore_restage(_Tab, _Key, _Origin) ->
+    true.
+
+restage_expired({Ts, restage}, Now) when is_integer(Ts) ->
+    Now - Ts > ?RESTAGE_MAX_AGE_MS;
+restage_expired(_Rearm, _Now) ->
+    false.
+
 ensure_row(ProductKey, ClientId, Pid, Shard) ->
     Key = {ProductKey, ClientId},
     case ets:member(?TAB_STATE(Shard), Key) of
@@ -1232,15 +1282,97 @@ ensure_row(ProductKey, ClientId, Pid, Shard) ->
                     key = Key,
                     product_key = ProductKey,
                     clientid = ClientId,
-                    pid = Pid
+                    pid = Pid,
+                    rearm_at = restage_mark()
                 }
             ),
             ok
     end.
 
+%% A clean-session reconnect can deliver client.connected/topic_added before
+%% the old channel's asynchronous disconnect event. The old state row then owns
+%% the only window slot, so the new session cannot claim, while the delayed
+%% disconnect is (correctly) ignored after the PID has changed. Retire the old
+%% generation here. Its first core claim carries `restage' so the core retires
+%% the old in-flight slot before claiming the next delivery.
+adopt_client_generation(ProductKey, ClientId, NewPid, State) ->
+    Shard = State#state.shard,
+    Tab = ?TAB_STATE(Shard),
+    Key = {ProductKey, ClientId},
+    case ets:lookup(Tab, Key) of
+        [] ->
+            ensure_row(ProductKey, ClientId, NewPid, Shard),
+            State;
+        [#bcast_client_state{pid = NewPid}] ->
+            State;
+        [OldRow] ->
+            retire_client_generation(NewPid, OldRow, State)
+    end.
+
+%% Subscription events are not lifecycle authority: an old channel can deliver
+%% one after the new generation has adopted the row. Adopt from such an event
+%% only when the device registry still names that exact PID. Otherwise leave
+%% the current row untouched; client_connected/resume will advance generations.
+accept_client_event(ProductKey, ClientId, Pid, State) ->
+    Tab = ?TAB_STATE(State#state.shard),
+    case ets:lookup(Tab, {ProductKey, ClientId}) of
+        [#bcast_client_state{pid = Pid}] ->
+            {ok, State};
+        [] ->
+            case current_device_pid(ProductKey, ClientId) of
+                {ok, Pid} ->
+                    ensure_row(ProductKey, ClientId, Pid, State#state.shard),
+                    {ok, State};
+                _ ->
+                    stale
+            end;
+        [#bcast_client_state{}] ->
+            case current_device_pid(ProductKey, ClientId) of
+                {ok, Pid} ->
+                    {ok, adopt_client_generation(ProductKey, ClientId, Pid, State)};
+                _ ->
+                    stale
+            end
+    end.
+
+current_device_pid(ProductKey, ClientId) ->
+    case emqx_bcast:lookup_device({ProductKey, ClientId}) of
+        {ok, Pid} when is_pid(Pid) -> {ok, Pid};
+        _ -> error
+    end.
+
+retire_client_generation(NewPid, OldRow, State) ->
+    Shard = State#state.shard,
+    {Keep, _Retire} = lists:partition(
+        fun({_Did, AckInFlight}) -> AckInFlight =/= false end,
+        OldRow#bcast_client_state.inflight
+    ),
+    %% The new generation's first core claim is marked restage=true. That call
+    %% requeues any in-flight claim left by the previous session, including a
+    %% claim whose release timing outlived the disconnect, before claiming the
+    %% next queued delivery. Keeping acks already in flight preserves the
+    %% existing duplicate-ACK accounting.
+    drop_row_indexes(Shard, OldRow),
+    row_put(Shard, OldRow#bcast_client_state{
+        pid = NewPid,
+        claim = undefined,
+        inflight = Keep,
+        topics = [],
+        rearm_at = restage_mark()
+    }),
+    State.
+
 row_put(Shard, Row) ->
     ets:insert(?TAB_STATE(Shard), Row),
     ok.
+
+restage_mark() ->
+    {erlang:system_time(millisecond), restage}.
+
+row_restage(#bcast_client_state{rearm_at = {_Ts, restage}}) ->
+    true;
+row_restage(_Row) ->
+    false.
 
 row_delete(State, Row) ->
     Shard = State#state.shard,
@@ -1288,7 +1420,8 @@ claim_next(ClientId, Pid, ProductKey, State) ->
                     key = Key,
                     product_key = ProductKey,
                     clientid = ClientId,
-                    pid = Pid
+                    pid = Pid,
+                    rearm_at = restage_mark()
                 },
                 State
             );
@@ -1408,10 +1541,17 @@ claim_row(Shard, Row, State) ->
             State;
         false ->
             Tag = next_claim_tag(),
-            Row1 = Row#bcast_client_state{claim = {Tag, erlang:system_time(millisecond)}},
+            Restage = row_restage(Row),
+            Row1 = Row#bcast_client_state{
+                claim = {Tag, erlang:system_time(millisecond)},
+                %% Keep restage until this claim round has a fresh result.
+                %% If the round is dropped before it reaches the core, the
+                %% release/re-arm path must send the marker again.
+                rearm_at = preserve_restage(Row#bcast_client_state.rearm_at, undefined)
+            },
             ets:insert(?TAB_STATE(Shard), Row1),
             bump_claim(Shard, 1),
-            Entry = #{
+            Entry0 = #{
                 clientid => Row1#bcast_client_state.clientid,
                 product_key => Row1#bcast_client_state.product_key,
                 pid => Row1#bcast_client_state.pid,
@@ -1422,6 +1562,14 @@ claim_row(Shard, Row, State) ->
                 %% then answers it with the shape it understands.
                 residual => true
             },
+            Entry =
+                case Restage of
+                    %% restage_ack makes a new core explicitly confirm that it
+                    %% understood restage. An old core ignores the extra key,
+                    %% leaving the marker retryable across a rolling upgrade.
+                    true -> Entry0#{restage => true, restage_ack => true};
+                    false -> Entry0
+                end,
             %% Arm the flush here so every claim path (trigger, subscribe,
             %% refill, release, retry) submits its pending entries; the
             %% timer is a single-armed 2ms cadence regardless of caller.
@@ -1575,11 +1723,40 @@ clear_row_claim(ProductKey, ClientId, Tag) ->
             stale
     end.
 
+%% Clear the claim round. Only a core that explicitly acknowledged the
+%% restage request may clear restage. An older core ignores that request and
+%% may still hold the previous generation's in-flight claim, so its no_more
+%% must leave restage set for the sweep to retry until the claim lease expires.
+clear_row_claim_after_no_more(ProductKey, ClientId, Tag, ClearRestage) ->
+    Shard = shard_of(ProductKey, ClientId),
+    Tab = ?TAB_STATE(Shard),
+    case ets:lookup(Tab, {ProductKey, ClientId}) of
+        [#bcast_client_state{claim = {Tag, _Ts}, rearm_at = Rearm} = Row] ->
+            ets:insert(Tab, Row#bcast_client_state{
+                claim = undefined,
+                rearm_at =
+                    case ClearRestage of
+                        true -> clear_restage(Rearm);
+                        false -> Rearm
+                    end
+            }),
+            bump_claim(Shard, -1),
+            ok;
+        _ ->
+            stale
+    end.
+
+clear_restage({_Ts, restage}) ->
+    undefined;
+clear_restage(Rearm) ->
+    Rearm.
+
 %%--------------------------------------------------------------------
 %% Deliver-result dispatch (gen_server side)
 %%--------------------------------------------------------------------
 
-%% Results: [{ClientId, {ok, [ClaimMap]} | {no_more, Residual} | no_more | {error, _}}].
+%% Results: [{ClientId, {ok, [ClaimMap]} | {no_more, Residual} |
+%%            {no_more, Residual, restage_acked} | no_more | {error, _}}].
 %% Fresh claim results are committed by ONE worker task per batch (the
 %% gen_server is out of the per-message drain path). Marks whose result
 %% is missing/error/stale have their claim released first
@@ -1680,7 +1857,11 @@ commit_delivery_result(Shard, ClientId, {ok, ClaimMaps}, PK, Tag) ->
             OldInflight = Row#bcast_client_state.inflight,
             case prepare_and_commit(Shard, PK, ClientId, ClaimMaps) of
                 {ok, Added, Sends} ->
-                    case commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) of
+                    case
+                        commit_window_update(
+                            Shard, PK, ClientId, Tag, OldInflight, Added, row_restage(Row)
+                        )
+                    of
                         true ->
                             bump_claim(Shard, -1),
                             %% Send in claim order after the window rows are
@@ -1695,7 +1876,11 @@ commit_delivery_result(Shard, ClientId, {ok, ClaimMaps}, PK, Tag) ->
                     %% claimable part were committed, the failed dids were
                     %% released synchronously; re-claim the client for the
                     %% next round.
-                    case commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) of
+                    case
+                        commit_window_update(
+                            Shard, PK, ClientId, Tag, OldInflight, Added, row_restage(Row)
+                        )
+                    of
                         true ->
                             bump_claim(Shard, -1),
                             gen_server:cast(shard_name(Shard), {retry_client, ClientId, PK});
@@ -1767,13 +1952,18 @@ prepare_and_commit(Shard, PK, ClientId, ClaimMaps) ->
 %% would clobber fields owned by the shard gen_server or other writers
 %% (topics from subscribe/unsubscribe hooks, pid, an ack that landed
 %% mid-commit); the guarded replace preserves them.
-commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) ->
+commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added, ClearRestage) ->
     Tab = ?TAB_STATE(Shard),
     NewInflight = OldInflight ++ Added,
     %% Match-spec bodies cannot hold literal tuples (a tuple in expression
     %% position is parsed as a BIF call), so each inflight entry is
     %% emitted with tuple-construction syntax.
     InflightExpr = [{{Did, Acked}} || {Did, Acked} <- NewInflight],
+    RearmExpr =
+        case ClearRestage of
+            true -> undefined;
+            false -> '$3'
+        end,
     MS = [
         {
             #bcast_client_state{
@@ -1792,7 +1982,7 @@ commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) ->
             [],
             [
                 {{bcast_client_state, {{PK, ClientId}}, PK, ClientId, '$1', undefined, InflightExpr,
-                    '$2', '$3'}}
+                    '$2', RearmExpr}}
             ]
         }
     ],
@@ -1971,7 +2161,20 @@ split_deliver_results(Shard, Results, Marks) ->
                     %% round without re-arming would leave the client idle
                     %% with a backlog until TTL, so hand the client to the
                     %% bounded sweep retry when the core reports a residual.
-                    _ = clear_row_claim(ProductKey, ClientId, Tag),
+                    _ = clear_row_claim_after_no_more(ProductKey, ClientId, Tag, false),
+                    case Residual of
+                        0 ->
+                            ok;
+                        _ ->
+                            _ = note_claim_deferred(Shard, ProductKey, ClientId),
+                            ok
+                    end,
+                    {FreshAcc, ReleaseAcc};
+                {true, {no_more, Residual, restage_acked}} ->
+                    %% The core understood and processed restage. It is safe
+                    %% to clear the marker even when the old in-flight claim
+                    %% was requeued and could not yet be claimed.
+                    _ = clear_row_claim_after_no_more(ProductKey, ClientId, Tag, true),
                     case Residual of
                         0 ->
                             ok;
@@ -1981,10 +2184,10 @@ split_deliver_results(Shard, Results, Marks) ->
                     end,
                     {FreshAcc, ReleaseAcc};
                 {true, no_more} ->
-                    %% Bare no_more (a simulated or pre-residual round):
-                    %% nothing claimed at core, only the local round mark is
-                    %% cleared (no release RPC needed).
-                    _ = clear_row_claim(ProductKey, ClientId, Tag),
+                    %% Bare no_more came from a pre-capability core. Keep any
+                    %% restage mark so the sweep can retry after the old claim
+                    %% lease expires.
+                    _ = clear_row_claim_after_no_more(ProductKey, ClientId, Tag, false),
                     {FreshAcc, ReleaseAcc};
                 {true, {error, _}} ->
                     %% The round failed at core; clear the local mark and
