@@ -747,6 +747,7 @@ t_invalid_utf8_queries(TCConfig) ->
             FailedBefore = emqx_resource_metrics:failed_get(ActionId),
             lists:foreach(
                 fun({Values, BadIndex}) ->
+                    _ = snabbkaffe:collect_trace(),
                     {_, {ok, #{error := Error}}} = ?wait_async_action(
                         publish_utf8_pair(C, C2, Topic, Values, ActionId),
                         #{?snk_kind := sqlserver_connector_query_return, error := _},
@@ -761,15 +762,18 @@ t_invalid_utf8_queries(TCConfig) ->
                             }}},
                         Error
                     ),
-                    assert_utf8_guard_unchanged()
+                    assert_utf8_guard_unchanged(),
+                    assert_size_query_count(0)
                 end,
                 [
                     {[<<"中文😀"/utf8>>, <<16#FF>>], 2},
-                    {[<<16#FF>>, <<"中文😀"/utf8>>], 1}
+                    {[<<16#FF>>, <<"中文😀"/utf8>>], 1},
+                    {[binary:copy(<<"é"/utf8>>, 5000), <<16#FF>>], 2},
+                    {[<<16#FF>>, binary:copy(<<"é"/utf8>>, 5000)], 1}
                 ]
             ),
             ?retry(
-                200, 20, ?assertEqual(FailedBefore + 4, emqx_resource_metrics:failed_get(ActionId))
+                200, 20, ?assertEqual(FailedBefore + 8, emqx_resource_metrics:failed_get(ActionId))
             ),
             ?assertEqual(0, emqx_resource_metrics:success_get(ActionId))
         end,
@@ -1941,6 +1945,109 @@ check_varchar_write(Cfg, {C1, C2, Topic}, DB, Op, {Table, Value, Bytes, Success}
                 end
         end,
     ?assertEqual(BatchSize, Count).
+
+-doc "Combine and deduplicate VARCHAR size queries across rows and fields in one request.".
+t_varchar_size_queries() -> [{matrix, true}].
+t_varchar_size_queries(matrix) ->
+    [[?sync], [?async]];
+t_varchar_size_queries(Cfg) ->
+    with_conn(fun(Conn) ->
+        directly_query(
+            Conn,
+            "CREATE TABLE mqtt.dbo.t_size_queries(id INT PRIMARY KEY,v VARCHAR(MAX),w VARCHAR(MAX))"
+        )
+    end),
+    on_exit(fun() ->
+        with_conn(fun(Conn) -> directly_query(Conn, "DROP TABLE mqtt.dbo.t_size_queries") end)
+    end),
+    {201, _} = create_connector_api(Cfg, #{}),
+    {201, _} = create_action_api(Cfg, #{
+        <<"resource_opts">> => #{
+            <<"batch_size">> => 20, <<"batch_time">> => <<"5s">>, <<"worker_pool_size">> => 1
+        },
+        <<"parameters">> => #{
+            <<"sql">> =>
+                <<"INSERT INTO t_size_queries VALUES(${payload.id},'${payload.value}','${payload.value}')">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(
+        <<"SELECT json_decode(payload) AS payload FROM \"${t}\"">>, Cfg
+    ),
+    Clients = [start_client() || _ <- lists:seq(1, 20)],
+    Long = binary:copy(<<"é"/utf8>>, 5000),
+    Larger = binary:copy(<<"é"/utf8>>, 9000),
+    Samples = [
+        {lists:duplicate(20, Long), 1},
+        {[<<Long/binary, (integer_to_binary(I))/binary>> || I <- lists:seq(1, 20)], 20},
+        {lists:duplicate(10, Long) ++ lists:duplicate(10, Larger), 2},
+        {lists:duplicate(20, binary:copy(<<"é"/utf8>>, 4000)), 0}
+    ],
+    lists:foreach(
+        fun({Values, UniqueCount}) ->
+            with_conn(fun(Conn) ->
+                directly_query(Conn, "TRUNCATE TABLE mqtt.dbo.t_size_queries")
+            end),
+            _ = snabbkaffe:collect_trace(),
+            {_, {ok, _}} = ?wait_async_action(
+                lists:foreach(
+                    fun({Id, Client}) ->
+                        Value = lists:nth(Id, Values),
+                        emqtt:publish(
+                            Client, Topic, emqx_utils_json:encode(#{id => Id, value => Value})
+                        )
+                    end,
+                    lists:enumerate(Clients)
+                ),
+                #{?snk_kind := sqlserver_connector_query_return, result := ok},
+                10_000
+            ),
+            assert_size_query_count(UniqueCount),
+            ?assertEqual(20, update_count("SELECT COUNT(*) FROM mqtt.dbo.t_size_queries")),
+            [assert_sized_values(Id, Value, Value) || {Id, Value} <- lists:enumerate(Values)]
+        end,
+        Samples
+    ),
+    {200, _} = emqx_bridge_v2_testlib:update_bridge_api2(Cfg, #{
+        <<"resource_opts">> => #{<<"batch_size">> => 1},
+        <<"parameters">> => #{
+            <<"sql">> =>
+                <<"UPDATE t_size_queries SET v='${payload.left}',w='${payload.right}' WHERE id=1">>
+        }
+    }),
+    _ = snabbkaffe:collect_trace(),
+    {_, {ok, _}} = ?wait_async_action(
+        emqtt:publish(hd(Clients), Topic, emqx_utils_json:encode(#{left => Long, right => Larger})),
+        #{?snk_kind := sqlserver_connector_query_return, result := ok},
+        10_000
+    ),
+    assert_size_query_count(2),
+    assert_sized_values(1, Long, Larger),
+    ok.
+
+assert_size_query_count(UniqueCount) ->
+    Trace = snabbkaffe:collect_trace(),
+    Events = ?of_kind(sqlserver_varchar_size_requested, Trace),
+    case UniqueCount of
+        0 -> ?assertEqual([], Events);
+        _ -> ?assertMatch([#{count := UniqueCount}], Events)
+    end.
+
+assert_sized_values(Id, Left, Right) ->
+    LeftHex = binary:encode_hex(unicode:characters_to_binary(Left, utf8, latin1)),
+    RightHex = binary:encode_hex(unicode:characters_to_binary(Right, utf8, latin1)),
+    ?assertEqual(
+        1,
+        update_count(
+            iolist_to_binary([
+                "SELECT COUNT(*) FROM mqtt.dbo.t_size_queries WHERE id=",
+                integer_to_binary(Id),
+                " AND CONVERT(VARBINARY(MAX),v)=0x",
+                LeftHex,
+                " AND CONVERT(VARBINARY(MAX),w)=0x",
+                RightHex
+            ])
+        )
+    ).
 
 -doc "Preserve long VARCHAR writes through a connection interruption during size resolution.".
 t_varchar_size_reconnect() -> [{matrix, true}].

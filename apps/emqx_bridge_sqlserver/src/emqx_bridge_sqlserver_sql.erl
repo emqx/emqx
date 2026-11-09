@@ -42,6 +42,7 @@
 -record(value, {placeholder :: placeholder()}).
 -record(varchar_string, {parts :: [template_part()]}).
 -record(nvarchar_string, {parts :: [template_part()]}).
+-record(varchar_size, {unicode :: binary()}).
 
 -type render_op() :: #raw{} | #value{} | #varchar_string{} | #nvarchar_string{}.
 -type render_plan() :: [render_op()].
@@ -76,10 +77,10 @@ compile(SQL0) ->
 
 -spec render(plan(), map(), map()) -> {ok, iolist()} | {error, term()}.
 render(#sqlserver_update_plan{plan = Plan}, Data, Opts) ->
-    render_unit(Plan, Data, Opts);
+    finish_render(render_unit(Plan, Data, Opts), Opts);
 render(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, Data, Opts) ->
     case render_unit(Plan, Data, Opts) of
-        {ok, Rendered} -> {ok, [Prefix, Rendered]};
+        {ok, Rendered} -> finish_render({ok, [Prefix, Rendered]}, Opts);
         {error, _} = Error -> Error
     end.
 
@@ -91,7 +92,7 @@ render_batch(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, DataList, Opt
     length(DataList) =< 1000
 ->
     case render_batch_units(DataList, Plan, Opts, 1, []) of
-        {ok, Rendered} -> {ok, [Prefix, Rendered]};
+        {ok, Rendered} -> finish_render({ok, [Prefix, Rendered]}, Opts);
         {error, _} = Error -> Error
     end;
 render_batch(_Plan, _DataList, _Opts) ->
@@ -100,6 +101,32 @@ render_batch(_Plan, _DataList, _Opts) ->
 %%------------------------------------------------------------------------------
 %% Private funs
 %%------------------------------------------------------------------------------
+
+finish_render({ok, SQL}, Opts) ->
+    case collect_varchar_sizes(SQL, #{}) of
+        Sizes when map_size(Sizes) =:= 0 ->
+            {ok, SQL};
+        Pending ->
+            Resolve = maps:get(varchar_bytes, Opts),
+            Sizes = Resolve(maps:keys(Pending)),
+            {ok, fill_varchar_sizes(SQL, Sizes)}
+    end;
+finish_render({error, _} = Error, _Opts) ->
+    Error.
+
+collect_varchar_sizes(#varchar_size{unicode = Unicode}, Acc) ->
+    Acc#{Unicode => pending};
+collect_varchar_sizes(Parts, Acc) when is_list(Parts) ->
+    lists:foldl(fun collect_varchar_sizes/2, Acc, Parts);
+collect_varchar_sizes(_SQL, Acc) ->
+    Acc.
+
+fill_varchar_sizes(#varchar_size{unicode = Unicode}, Sizes) ->
+    varchar_conversion(Unicode, maps:get(Unicode, Sizes));
+fill_varchar_sizes(Parts, Sizes) when is_list(Parts) ->
+    [fill_varchar_sizes(Part, Sizes) || Part <- Parts];
+fill_varchar_sizes(SQL, _Sizes) ->
+    SQL.
 
 render_batch_units([Data | Rest], Unit, Opts, Index, Acc) ->
     case render_unit(Unit, Data, Opts) of
@@ -152,7 +179,6 @@ encode_result(Encoder) ->
     try
         {ok, Encoder()}
     catch
-        throw:{sqlserver_query_error, _} = QueryError -> throw(QueryError);
         Class:Reason -> {error, {Class, Reason}}
     end.
 
@@ -523,22 +549,19 @@ encode_hex_string(Text, Style, Opts) ->
         nvarchar ->
             Unicode;
         varchar ->
-            MaxBytes = varchar_bytes(Text, Unicode, Opts),
-            ["CONVERT(VARCHAR(", string_size(MaxBytes, 8000), "), ", Unicode, ")"]
+            UTF8Bytes = byte_size(Text),
+            %% UTF-8 bounds the converted size; resolve larger values together after rendering.
+            case
+                UTF8Bytes > 8000 andalso value_string_style(Text) =:= nvarchar andalso
+                    maps:is_key(varchar_bytes, Opts)
+            of
+                true -> #varchar_size{unicode = iolist_to_binary(Unicode)};
+                false -> varchar_conversion(Unicode, UTF8Bytes)
+            end
     end.
 
-%% UTF-8 bounds the converted size; resolve larger values in the target database.
-varchar_bytes(Text, Unicode, Opts) ->
-    UTF8Bytes = byte_size(Text),
-    case UTF8Bytes > 8000 andalso value_string_style(Text) =:= nvarchar of
-        true ->
-            case maps:find(varchar_bytes, Opts) of
-                {ok, Resolve} -> Resolve(Unicode);
-                error -> UTF8Bytes
-            end;
-        false ->
-            UTF8Bytes
-    end.
+varchar_conversion(Unicode, Bytes) ->
+    ["CONVERT(VARCHAR(", string_size(Bytes, 8000), "), ", Unicode, ")"].
 
 string_size(Size, Limit) when Size =< Limit -> integer_to_binary(max(1, Size));
 string_size(_Size, _Limit) -> <<"MAX">>.

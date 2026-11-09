@@ -53,7 +53,7 @@
 ]).
 
 %% Internal exports used to execute code with ecpool worker
--export([do_get_status/1, worker_do_insert/3, get_servername/1, worker_varchar_bytes/3]).
+-export([do_get_status/1, worker_do_insert/3, get_servername/1, worker_varchar_sizes/3]).
 
 -export([parse_server/1]).
 
@@ -507,14 +507,16 @@ do_query(ResourceId, Query, ApplyMode, State) ->
     #{sql_plan := Plan} = ChannelState = maps:get(ChannelId, Channels),
     ChannelConf0 = maps:get(channel_conf, ChannelState, #{}),
     ChannelConf = ChannelConf0#{
-        varchar_bytes => fun(Unicode) ->
-            ?tp(sqlserver_varchar_size_requested, #{connector => ResourceId}),
+        varchar_bytes => fun(Unicodes) ->
+            ?tp(sqlserver_varchar_size_requested, #{
+                connector => ResourceId, count => length(Unicodes)
+            }),
             try
                 ecpool:pick_and_do(
-                    PoolName, {?MODULE, worker_varchar_bytes, [Unicode, State]}, handover
+                    PoolName, {?MODULE, worker_varchar_sizes, [Unicodes, State]}, handover
                 )
             of
-                {ok, Bytes} -> Bytes;
+                {ok, Sizes} -> Sizes;
                 {error, _} = Error -> throw({sqlserver_query_error, Error})
             catch
                 exit:Reason ->
@@ -580,14 +582,31 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
 
-worker_varchar_bytes(Conn, Unicode, #{resource_opts := ResourceOpts, pool_name := ResourceId}) ->
-    SQL = ["SELECT CAST(DATALENGTH(CONVERT(VARCHAR(MAX),", Unicode, ")) AS INT)"],
+worker_varchar_sizes(Conn, Unicodes, #{resource_opts := ResourceOpts, pool_name := ResourceId}) ->
+    Values = [
+        ["(", integer_to_binary(Index), ",", Unicode, ")"]
+     || {Index, Unicode} <- lists:enumerate(Unicodes)
+    ],
+    SQL = [
+        "SELECT CAST(DATALENGTH(CONVERT(VARCHAR(MAX),v)) AS INT) FROM (VALUES ",
+        lists:join(",", Values),
+        ") AS sizes(i,v) ORDER BY i"
+    ],
     try execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
-        {selected, _, [{Bytes}]} when is_integer(Bytes), Bytes >= 0 -> {ok, Bytes};
-        {error, connection_closed} -> {error, {recoverable_error, <<"connection_closed">>}};
-        {error, timeout} -> {error, {recoverable_error, timeout}};
-        {error, Reason} -> query_error(Reason, #{connector => ResourceId});
-        Other -> {error, {unrecoverable_error, {invalid_request, {unexpected_varchar_size, Other}}}}
+        {selected, _, Rows} when length(Rows) =:= length(Unicodes) ->
+            Sizes = [Bytes || {Bytes} <- Rows, is_integer(Bytes), Bytes >= 0],
+            case length(Sizes) =:= length(Unicodes) of
+                true -> {ok, maps:from_list(lists:zip(Unicodes, Sizes))};
+                false -> {error, {unrecoverable_error, {invalid_request, unexpected_varchar_sizes}}}
+            end;
+        {error, connection_closed} ->
+            {error, {recoverable_error, <<"connection_closed">>}};
+        {error, timeout} ->
+            {error, {recoverable_error, timeout}};
+        {error, Reason} ->
+            query_error(Reason, #{connector => ResourceId});
+        Other ->
+            {error, {unrecoverable_error, {invalid_request, {unexpected_varchar_sizes, Other}}}}
     catch
         exit:ExitReason -> {error, {recoverable_error, ExitReason}}
     end.

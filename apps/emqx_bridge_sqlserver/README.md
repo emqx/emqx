@@ -46,7 +46,8 @@ arbitrary Unicode identity values.
 
 Unicode and backslash/line-ending values use UTF-16 hexadecimal expressions with bounded string
 types when they fit. VARCHAR conversion follows the configured database's code page. Long non-ASCII
-VARCHAR values may require a read-only size query to choose a bounded type without truncating larger values.
+VARCHAR values may require one read-only size query per request or INSERT batch to choose bounded types
+without truncating larger values. Repeated values share the same size lookup within that request.
 Data values use the direct execution path. The action reads all query results, including errors
 after trigger results.
 Static string text in templates follows SQL Server line-continuation semantics.
