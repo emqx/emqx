@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
+-include("../gen_src/MessageQueue.hrl").
 
 all() ->
     [{group, mq}].
@@ -139,23 +140,26 @@ t_gc_quota_cutoffs(Config) ->
     IndexOpts0 = #{count => 1, bytes => infinity, threshold_percentage => 10},
     Shards0 = emqx_ds:list_shards(DB),
     %% Store a different quota deadline in each shard.
+    %% The newest bucket alone reaches the count limit, so the deadline is its start.
     Cutoffs0 = lists:map(
         fun({Shard, Scale}) ->
-            Index0 = emqx_mq_quota_index:new(IndexOpts0, 0),
-            Index1 = emqx_mq_quota_index:apply_updates(
-                Index0,
-                [{I * Scale * 1000_000, 0, 1} || I <- lists:seq(1, 20)]
+            Buckets = [
+                #'SerialIndexBucket'{serial = 2, tsUs = Scale * 1000_000, bytes = 0, count = 1},
+                #'SerialIndexBucket'{serial = 0, tsUs = 0, bytes = 0, count = 1}
+            ],
+            IndexBin = 'MessageQueue':encode('StorageIndex', #'StorageIndex'{
+                maxTsUs = 0, serialBuckets = Buckets
+            }),
+            Cutoff0 = emqx_mq_quota_index:deadline(
+                emqx_mq_quota_index:decode(IndexOpts0, IndexBin)
             ),
-            Cutoff0 = emqx_mq_quota_index:deadline(Index1),
-            ?assert(Cutoff0 > 0),
+            ?assertEqual(Scale * 1000_000, Cutoff0),
             seed(DB, Shard, 1, Topic0, [Cutoff0 - 1, Cutoff0, Cutoff0 + 1]),
             ?assertMatch(
                 {atomic, _, _},
                 emqx_ds:trans(
                     #{db => DB, shard => Shard, generation => 1},
-                    fun() ->
-                        emqx_ds:tx_write({IndexTopic0, 1, emqx_mq_quota_index:encode(Index1)})
-                    end
+                    fun() -> emqx_ds:tx_write({IndexTopic0, 1, IndexBin}) end
                 )
             ),
             {Shard, Cutoff0}

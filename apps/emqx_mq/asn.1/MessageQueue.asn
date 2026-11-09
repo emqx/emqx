@@ -55,10 +55,19 @@ BEGIN
     value [1] INTEGER
   }
 
+  SerialIndexBucket ::= SEQUENCE {
+    tsUs [0] INTEGER,
+    serial [1] INTEGER,
+    bytes [2] INTEGER,
+    count [3] INTEGER,
+    ...
+  }
+
   StorageIndex ::= SEQUENCE {
     maxTsUs [0] INTEGER,
-    count [1] SEQUENCE OF StorageIndexRecord,
-    bytes [2] SEQUENCE OF StorageIndexRecord,
+    count [1] SEQUENCE OF StorageIndexRecord OPTIONAL,
+    bytes [2] SEQUENCE OF StorageIndexRecord OPTIONAL,
+    serialBuckets [3] SEQUENCE OF SerialIndexBucket OPTIONAL,
     ...
   }
 
