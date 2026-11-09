@@ -78,7 +78,7 @@ jobs:
         id: parse-git-ref
         env:
           # MAJOR.MINOR of the line whose newest release is tagged 'latest',
-          # e.g. 6.3. Empty means the newest release of any line.
+          # e.g. 6.3. Required: a stable tag fails here without it.
           LATEST_RELEASE_LINE: ${{ vars.LATEST_RELEASE_LINE }}
         run: |
           JSON="$(./scripts/parse-git-ref.sh $GITHUB_REF)"

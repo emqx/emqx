@@ -9,11 +9,11 @@ set -euo pipefail
 # set-latest-release workflow feeds it the tags of published GitHub releases.
 #
 # Environment:
-#   LATEST_RELEASE_LINE  Optional MAJOR.MINOR, e.g. 6.3. When set, only the
-#                        highest stable tag of that line is the latest
-#                        release. When empty, the highest stable tag of all
-#                        lines is. Set from the repository variable of the
-#                        same name, so the latest line moves without a commit.
+#   LATEST_RELEASE_LINE  MAJOR.MINOR, e.g. 6.3. Only the highest stable tag of
+#                        that line is the latest release. Required for a
+#                        stable X.Y.Z tag and for --pick-latest. Set from the
+#                        repository variable of the same name, so the latest
+#                        line moves without a commit.
 
 # Read tag names on stdin and print the highest stable one (X.Y.Z, no suffix)
 # whose name starts with the given prefix, e.g. '6.3.' or '6.' or '' for any.
@@ -43,16 +43,13 @@ is_highest_stable() {
   fi
 }
 
-# Print the tag prefix of the latest line: '6.3.' for LATEST_RELEASE_LINE=6.3,
-# or '' for any line when it is empty.
+# Print the tag prefix of the latest line: '6.3.' for LATEST_RELEASE_LINE=6.3.
 latest_line_prefix() {
   local line="${LATEST_RELEASE_LINE:-}"
-  if [[ -z "$line" ]]; then
-    echo ''
-  elif [[ "$line" =~ ^[1-9][0-9]*\.[0-9]+$ ]]; then
+  if [[ "$line" =~ ^[1-9][0-9]*\.[0-9]+$ ]]; then
     echo "${line}."
   else
-    echo "LATEST_RELEASE_LINE must be MAJOR.MINOR, e.g. 6.3, got: $line" 1>&2
+    echo "LATEST_RELEASE_LINE must be MAJOR.MINOR, e.g. 6.3, got: '$line'" 1>&2
     exit 1
   fi
 }
