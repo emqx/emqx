@@ -868,8 +868,7 @@ check_negative_pubrec(Topic, Filter, Config) ->
         %% PUBREL/PUBCOMP, removing the message from inflight state.
         ?assertEqual(pong, emqtt:ping(Sub)),
         ?assertNotReceive({pubrel, #{packet_id := PacketId}}, 3000),
-        [ChanPid] = emqx_cm:lookup_channels(client_info(clientid, Sub)),
-        ?assertEqual(0, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config))
+        ?assertEqual(0, emqx_cth_broker:connection_info({channel, {session, inflight_cnt}}, Sub))
     end).
 
 t_negative_pubrec_unknown_id(Config) ->
@@ -897,13 +896,12 @@ t_negative_pubrec_after_success(Config) ->
         %% Then the broker sends no additional PUBREL and still awaits PUBCOMP.
         ?assertEqual(pong, emqtt:ping(Sub)),
         ?assertNotReceive({pubrel, _}),
-        [ChanPid] = emqx_cm:lookup_channels(client_info(clientid, Sub)),
-        ?assertEqual(1, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config)),
+        ?assertEqual(1, emqx_cth_broker:connection_info({channel, {session, inflight_cnt}}, Sub)),
         %% When the subscriber completes the original exchange.
         ok = emqtt:pubcomp(Sub, PacketId),
         %% Then the connection stays open and the inflight message is removed.
         ?assertEqual(pong, emqtt:ping(Sub)),
-        ?assertEqual(0, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config))
+        ?assertEqual(0, emqx_cth_broker:connection_info({channel, {session, inflight_cnt}}, Sub))
     end).
 
 t_negative_pubrec_with_pending_pubcomp(Config) ->
@@ -925,13 +923,12 @@ t_negative_pubrec_with_pending_pubcomp(Config) ->
         %% Then no PUBREL is sent and only the first message remains inflight.
         ?assertEqual(pong, emqtt:ping(Sub)),
         ?assertNotReceive({pubrel, _}),
-        [ChanPid] = emqx_cm:lookup_channels(client_info(clientid, Sub)),
-        ?assertEqual(1, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config)),
+        ?assertEqual(1, emqx_cth_broker:connection_info({channel, {session, inflight_cnt}}, Sub)),
         %% When the subscriber completes the first exchange.
         ok = emqtt:pubcomp(Sub, PacketId),
         %% Then the connection stays open and no messages remain inflight.
         ?assertEqual(pong, emqtt:ping(Sub)),
-        ?assertEqual(0, connection_info({channel, {session, inflight_cnt}}, ChanPid, Config))
+        ?assertEqual(0, emqx_cth_broker:connection_info({channel, {session, inflight_cnt}}, Sub))
     end).
 
 t_negative_pubrec_releases_quota(init, Config) ->

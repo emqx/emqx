@@ -853,7 +853,7 @@ process_pubrec(
             case ReasonCode >= ?RC_UNSPECIFIED_ERROR of
                 true ->
                     %% A negative PUBREC completes the exchange immediately (MQTT5 4.3.3)
-                    complete_qos2(PacketId, ?RC_SUCCESS, NChannel);
+                    complete_qos2(pubrec_error, PacketId, ReasonCode, NChannel);
                 false ->
                     handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel)
             end;
@@ -902,16 +902,17 @@ process_pubrel(
 %%--------------------------------------------------------------------
 
 process_pubcomp(?PUBCOMP_PACKET(PacketId, ReasonCode), Channel) ->
-    complete_qos2(PacketId, ReasonCode, Channel).
+    complete_qos2(pubcomp, PacketId, ReasonCode, Channel).
 
 complete_qos2(
+    Ack,
     PacketId,
     ReasonCode,
     Channel = #channel{
         clientinfo = ClientInfo, session = Session
     }
 ) ->
-    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
+    case emqx_session:Ack(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, [], NSession} ->
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
