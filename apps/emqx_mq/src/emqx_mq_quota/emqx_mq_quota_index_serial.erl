@@ -38,13 +38,22 @@ The index relies on this property.
 Serials can be equal because DS can give one serial to several transactions that commit together.
 See "Accepted inaccuracy" for the effect.
 
+A fence stays in DS until the index asks for a new one.
+The index remembers the serial of the last fence it has seen.
+A fence is used at most once: by the first update that sees it.
+That update is the first update after the fence was written, because every update reads the fence.
+So no message stored after the fence has been counted when the head closes at it.
+
+A new or rebuilt index does not know which fences it has seen.
+It treats a fence that is already in DS as seen, because that fence may be older than its counters.
+
 ## Updates
 
 `apply_updates/4` applies one flush of buffered updates:
 
-1. If a fence is given and the head is full, close the head at the fence.
+1. If the fence is not seen yet, mark it seen.
+   If the head is also full, close the head at the fence.
    That is, start a new empty head at the fence boundary.
-   If the head is no longer full, ignore the fence.
    This step runs before the new updates are applied.
 2. Add each new message to the newest bucket that starts at a lower serial.
    Buffered messages can be older than the fence, so they can go to an older bucket.
@@ -53,7 +62,8 @@ See "Accepted inaccuracy" for the effect.
    Its message is already before the deadline.
 5. Merge small closed buckets and drop old ones. See below.
 6. Return `NeedFence = true` when the head is full.
-   The caller then writes a fence and passes it to the next call.
+   After step 1 every fence is seen, so the head needs a new one.
+   The caller then replaces the fence, and the next call gets the new fence.
 
 Publication timestamps are not used. Clock differences between nodes and publishers do not matter.
 
@@ -63,8 +73,8 @@ The caller must:
 
 * Read and write the index inside the DS transaction that applies the updates.
   Then two concurrent flushes of the same index conflict, and DS retries one of them.
-* Pass only the fence written by the previous update of this index.
-  Delete that fence in the same transaction, whether or not the index used it.
+* Pass the fence stored in DS, if any.
+  Replace it only when the index returns `NeedFence = true`, or before a purge.
 * Pass the serial of the transaction that wrote each new message.
 * Pass the DS timestamp at which each replaced message was stored.
 
@@ -90,6 +100,7 @@ The index is not strictly exact. These are the known errors:
   The index then counts fewer messages than are stored, and GC keeps more data.
 * Rebuilt index. After an old node rewrites the index, all its data is in one bucket at (0, 0).
   That bucket cannot give a deadline, so GC keeps everything older than the next boundaries.
+  The fence in DS is treated as seen, so the first boundary comes from the next fence.
 * Shared serial. A message can share the fence serial but be stored after the fence.
   It is added to the bucket before the fence, because its serial is not greater than the fence serial.
   When it is replaced, it is subtracted from the bucket after the fence, because of its DS timestamp.
@@ -131,6 +142,26 @@ The head is not in this sum, because its counters can still change a lot.
 Sum all buckets, head included, from the newest to the oldest.
 The deadline is the start timestamp of the bucket at which the sum first reaches a limit.
 If no limit is reached, the deadline is 0 and nothing is deleted.
+
+## Purge
+
+A purge deletes messages below a bucket boundary.
+It first changes the index, then deletes the messages in a separate transaction.
+Between the two, the index counts fewer messages than are stored, so GC can only keep more.
+
+* `cutoff/2` keeps the buckets from the newest boundary at or before a given DS timestamp.
+  It returns that boundary. Older messages can then be deleted.
+  It returns 0 and keeps everything when only the bucket at (0, 0) starts that early.
+* `rotate/3` is used to purge everything.
+  The caller first writes a fresh fence, and gets its serial S from the transaction result.
+  In the next transaction, `rotate/3` starts a new empty head at that fence and drops all older buckets.
+  It returns the fence boundary (S, T). Messages stored before T can then be deleted.
+  A flush can see the fence between the two transactions:
+  * If the flush closed the head at the fence, `rotate/3` keeps the buckets from that boundary.
+  * If the flush only marked it seen, the fence cannot be used: some newer messages may be counted already.
+    `rotate/3` then returns `{error, stale_fence}`, and the caller writes another fence.
+
+Updates for purged messages are older than the kept buckets, so the index ignores them.
 """.
 
 %% ASN1-generated record field names are in camelCase.
@@ -140,10 +171,28 @@ If no limit is reached, the deadline is 0 and nothing is deleted.
 -include("emqx_mq_quota.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([new/0, new/2, apply_updates/4, deadline/2, inspect/1]).
--export_type([t/0, fence/0]).
+-export([
+    new/0,
+    new/2,
+    from_storage/2,
+    to_storage/1,
+    apply_updates/4,
+    rotate/3,
+    cutoff/2,
+    deadline/2,
+    inspect/1
+]).
+-export_type([t/0, fence/0, buckets/0, seen_fence_serial/0]).
 
--type t() :: nonempty_list(#'SerialIndexBucket'{}).
+-type buckets() :: nonempty_list(#'SerialIndexBucket'{}).
+%% `undefined`: unknown, so a fence already in DS is treated as seen.
+%% 0: no fence seen yet.
+-type seen_fence_serial() :: non_neg_integer() | undefined.
+-record(serial_index, {
+    buckets :: buckets(),
+    seen_fence_serial :: seen_fence_serial()
+}).
+-opaque t() :: #serial_index{}.
 -type fence() :: #{serial := non_neg_integer(), ts_us := non_neg_integer()}.
 -type opts() :: emqx_mq_quota_index:opts().
 
@@ -159,54 +208,128 @@ new() ->
 -doc "Create an index with one bucket at (0, 0) that already holds the given totals".
 -spec new(integer(), integer()) -> t().
 new(Bytes, Count) ->
-    [#'SerialIndexBucket'{serial = 0, tsUs = 0, bytes = Bytes, count = Count}].
+    #serial_index{
+        buckets = [#'SerialIndexBucket'{serial = 0, tsUs = 0, bytes = Bytes, count = Count}],
+        seen_fence_serial = undefined
+    }.
+
+-doc "Restore an index from its stored buckets and the serial of the last seen fence".
+-spec from_storage(buckets(), seen_fence_serial()) -> t().
+from_storage(Buckets, SeenFenceSerial) ->
+    #serial_index{buckets = Buckets, seen_fence_serial = SeenFenceSerial}.
+
+-doc "Return the buckets and the serial of the last seen fence for storage".
+-spec to_storage(t()) -> {buckets(), seen_fence_serial()}.
+to_storage(#serial_index{buckets = Buckets, seen_fence_serial = SeenFenceSerial}) ->
+    {Buckets, SeenFenceSerial}.
 
 -doc "Apply one flush of updates. Return the new index and whether the caller must write a fence".
 -spec apply_updates(t(), [emqx_mq_quota_index:update()], fence() | undefined, opts()) ->
     {t(), boolean()}.
 apply_updates(Index0, Updates, Fence, Opts) ->
-    Index1 = maybe_close_head(Index0, Fence, Opts),
-    [Head | Closed0] = lists:foldl(fun apply_update/2, Index1, Updates),
+    #serial_index{buckets = Buckets0} = Index = see_fence(Index0, Fence, Opts),
+    [Head | Closed0] = lists:foldl(fun apply_update/2, Buckets0, Updates),
     Closed1 = merge_closed(Closed0, Opts),
     Closed = drop_old(Closed1, Opts, 0, 0),
     NeedFence = is_full(Head, Opts),
-    {[Head | Closed], NeedFence}.
+    {Index#serial_index{buckets = [Head | Closed]}, NeedFence}.
+
+-doc """
+Start a new empty head at the fence with the given serial, and drop all older buckets.
+The fence must be written by the caller just before, so that no update has used it.
+If a flush already closed the head at that fence, only drop the older buckets.
+Return the fence boundary. Messages stored before its timestamp can be deleted.
+""".
+-spec rotate(t(), fence() | undefined, pos_integer()) ->
+    {ok, fence(), t()} | {error, stale_fence}.
+rotate(#serial_index{buckets = Buckets} = Index, Fence, Serial) ->
+    case [B || #'SerialIndexBucket'{serial = S} = B <- Buckets, S =:= Serial] of
+        [#'SerialIndexBucket'{tsUs = TsUs}] ->
+            Kept = [B || #'SerialIndexBucket'{serial = S} = B <- Buckets, S >= Serial],
+            {ok, #{serial => Serial, ts_us => TsUs}, Index#serial_index{buckets = Kept}};
+        [] ->
+            case Fence of
+                #{serial := Serial, ts_us := TsUs} ->
+                    case is_unseen(Index, Fence) of
+                        true ->
+                            Head = #'SerialIndexBucket'{
+                                serial = Serial, tsUs = TsUs, bytes = 0, count = 0
+                            },
+                            {ok, Fence, #serial_index{buckets = [Head], seen_fence_serial = Serial}};
+                        false ->
+                            {error, stale_fence}
+                    end;
+                _ ->
+                    {error, stale_fence}
+            end
+    end.
+
+-doc """
+Keep the buckets from the newest boundary at or before the given DS timestamp, and return that boundary.
+Return 0 and keep everything when only the bucket at (0, 0) starts that early.
+""".
+-spec cutoff(t(), non_neg_integer()) -> {non_neg_integer(), t()}.
+cutoff(#serial_index{buckets = Buckets} = Index, BeforeUs) ->
+    case [TsUs || #'SerialIndexBucket'{tsUs = TsUs} <- Buckets, TsUs > 0, TsUs =< BeforeUs] of
+        [CutoffUs | _] ->
+            Kept = [B || #'SerialIndexBucket'{tsUs = TsUs} = B <- Buckets, TsUs >= CutoffUs],
+            {CutoffUs, Index#serial_index{buckets = Kept}};
+        [] ->
+            {0, Index}
+    end.
 
 -doc "Return the DS timestamp before which messages can be deleted, or 0".
 -spec deadline(t(), opts()) -> non_neg_integer().
-deadline(Index, Opts) ->
-    deadline(Index, Opts, 0, 0).
+deadline(#serial_index{buckets = Buckets}, Opts) ->
+    deadline(Buckets, Opts, 0, 0).
 
 -doc "Return buckets and totals in a readable form".
 -spec inspect(t()) -> map().
-inspect(Index) ->
+inspect(#serial_index{buckets = Buckets, seen_fence_serial = SeenFenceSerial}) ->
     #{
         records => [
             #{serial => S, ts_us => T, bytes => B, count => C}
-         || #'SerialIndexBucket'{serial = S, tsUs = T, bytes = B, count = C} <- Index
+         || #'SerialIndexBucket'{serial = S, tsUs = T, bytes = B, count = C} <- Buckets
         ],
         total => #{
-            bytes => lists:sum([B || #'SerialIndexBucket'{bytes = B} <- Index]),
-            count => lists:sum([C || #'SerialIndexBucket'{count = C} <- Index])
+            bytes => lists:sum([B || #'SerialIndexBucket'{bytes = B} <- Buckets]),
+            count => lists:sum([C || #'SerialIndexBucket'{count = C} <- Buckets])
         },
-        size => length(Index)
+        size => length(Buckets),
+        seen_fence_serial => SeenFenceSerial
     }.
 
 %%------------------------------------------------------------------------------
 %% Private
 %%------------------------------------------------------------------------------
 
-%% Start a new empty head at the fence if the current head is full.
-maybe_close_head(Index, undefined, _Opts) ->
+%% Mark the fence seen. If it was not seen yet and the head is full, start a new empty head at it.
+see_fence(#serial_index{seen_fence_serial = undefined} = Index, undefined, _Opts) ->
+    %% No fence in DS, so the next fence is written for this index.
+    Index#serial_index{seen_fence_serial = 0};
+see_fence(Index, undefined, _Opts) ->
     Index;
-maybe_close_head([Head | _] = Index, #{serial := Serial, ts_us := TsUs}, Opts) ->
-    case is_full(Head, Opts) of
+see_fence(#serial_index{seen_fence_serial = undefined} = Index, #{serial := Serial}, _Opts) ->
+    %% The fence may be older than the counters of a new or rebuilt index.
+    Index#serial_index{seen_fence_serial = Serial};
+see_fence(#serial_index{buckets = [Head | _] = Buckets} = Index, Fence, Opts) ->
+    #{serial := Serial, ts_us := TsUs} = Fence,
+    case is_unseen(Index, Fence) andalso is_full(Head, Opts) of
         true ->
             NewHead = #'SerialIndexBucket'{serial = Serial, tsUs = TsUs, bytes = 0, count = 0},
-            [NewHead | Index];
+            #serial_index{buckets = [NewHead | Buckets], seen_fence_serial = Serial};
         false ->
-            Index
+            Index#serial_index{seen_fence_serial = max_seen(Index, Serial)}
     end.
+
+%% A rotate after a fresh fence write accepts an unknown seen serial: no update has seen the fence.
+is_unseen(#serial_index{seen_fence_serial = undefined}, _Fence) ->
+    true;
+is_unseen(#serial_index{seen_fence_serial = SeenSerial}, #{serial := Serial}) ->
+    Serial > SeenSerial.
+
+max_seen(#serial_index{seen_fence_serial = SeenSerial}, Serial) ->
+    max(SeenSerial, Serial).
 
 %% Walk from the newest bucket to the oldest and change the first bucket that holds the message.
 apply_update(Update, Index) ->

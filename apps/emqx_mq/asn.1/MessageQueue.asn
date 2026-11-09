@@ -69,6 +69,7 @@ BEGIN
     count [1] SEQUENCE OF StorageIndexRecord OPTIONAL,
     bytes [2] SEQUENCE OF StorageIndexRecord OPTIONAL,
     serialBuckets [3] SEQUENCE OF SerialIndexBucket OPTIONAL,
+    seenFenceSerial [4] INTEGER OPTIONAL,
     ...
   }
 

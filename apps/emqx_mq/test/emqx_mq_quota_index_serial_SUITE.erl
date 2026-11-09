@@ -28,6 +28,83 @@ t_fence_placement(_Config) ->
     {Index2, false} = update(Index1, [del(9, 10, 1)], undefined),
     ?assertEqual([bucket(10, 10, 1), bucket(0, 20, 2)], records(Index2)).
 
+-doc "A fence is used only by the first update that sees it. A seen fence never closes the head later".
+t_fence_seen_once(_Config) ->
+    {Index0, false} = update(new(), [add(1, 10, 1)], undefined),
+    %% The head is not full, so the fence is only marked seen.
+    {Index1, true} = update(Index0, [add(11, 10, 1)], fence(10)),
+    ?assertEqual([bucket(0, 20, 2)], records(Index1)),
+    ?assertEqual(10, seen_fence_serial(Index1)),
+    %% The head is full now, but the same fence must not close it: messages after it are counted.
+    {Index2, true} = update(Index1, [], fence(10)),
+    ?assertEqual([bucket(0, 20, 2)], records(Index2)),
+    %% A new fence closes it.
+    {Index3, false} = update(Index2, [], fence(20)),
+    ?assertEqual([bucket(20, 0, 0), bucket(0, 20, 2)], records(Index3)).
+
+-doc "A new index treats a fence that is already in DS as seen, and uses the next one".
+t_unknown_seen_fence(_Config) ->
+    Index0 = emqx_mq_quota_index_serial:new(20, 2),
+    {Index1, true} = update(Index0, [], fence(10)),
+    ?assertEqual([bucket(0, 20, 2)], records(Index1)),
+    ?assertEqual(10, seen_fence_serial(Index1)),
+    {Index2, false} = update(Index1, [], fence(20)),
+    ?assertEqual([bucket(20, 0, 0), bucket(0, 20, 2)], records(Index2)).
+
+-doc "Rotation at a fresh fence starts an empty bucket there and drops all older buckets".
+t_rotate(_Config) ->
+    {Index0, true} = update(new(), [add(1, 20, 2)], undefined),
+    {Index1, false} = update(Index0, [add(11, 10, 1)], fence(10)),
+    %% Rotate at a fresh fence, even though the head is not full.
+    {ok, Boundary, Index2} = emqx_mq_quota_index_serial:rotate(Index1, fence(30), 30),
+    ?assertEqual(fence(30), Boundary),
+    ?assertEqual([bucket(30, 0, 0)], records(Index2)),
+    ?assertEqual(30, seen_fence_serial(Index2)),
+    %% Updates for messages before the fence are ignored, later ones are counted.
+    {Index3, false} = update(Index2, [add(29, 10, 1), del(11, 10, 1), add(31, 5, 1)], fence(30)),
+    ?assertEqual([bucket(30, 5, 1)], records(Index3)).
+
+-doc "Rotation fails at a fence that an update has seen without using it".
+t_rotate_stale_fence(_Config) ->
+    {Index0, false} = update(new(), [add(1, 10, 1)], undefined),
+    {Index1, false} = update(Index0, [], fence(10)),
+    ?assertEqual({error, stale_fence}, emqx_mq_quota_index_serial:rotate(Index1, fence(10), 10)),
+    %% A fence with another serial cannot be used either.
+    ?assertEqual({error, stale_fence}, emqx_mq_quota_index_serial:rotate(Index1, fence(20), 30)),
+    ?assertEqual({error, stale_fence}, emqx_mq_quota_index_serial:rotate(Index1, undefined, 30)).
+
+-doc "Rotation after a flush already closed the head at the fence only drops older buckets".
+t_rotate_after_flush(_Config) ->
+    {Index0, true} = update(new(), [add(1, 20, 2)], undefined),
+    {Index1, false} = update(Index0, [add(11, 10, 1)], fence(10)),
+    ?assertEqual([bucket(10, 10, 1), bucket(0, 20, 2)], records(Index1)),
+    {ok, Boundary, Index2} = emqx_mq_quota_index_serial:rotate(Index1, fence(10), 10),
+    ?assertEqual(fence(10), Boundary),
+    ?assertEqual([bucket(10, 10, 1)], records(Index2)).
+
+-doc "A new or rebuilt index accepts rotation at a fresh fence, because no update has seen it".
+t_rotate_unknown_seen_fence(_Config) ->
+    Index0 = emqx_mq_quota_index_serial:new(20, 2),
+    {ok, _, Index1} = emqx_mq_quota_index_serial:rotate(Index0, fence(10), 10),
+    ?assertEqual([bucket(10, 0, 0)], records(Index1)).
+
+-doc "A cutoff keeps the buckets from the newest boundary at or before the given time".
+t_cutoff(_Config) ->
+    {Index0, true} = update(new(), [add(1, 20, 2)], undefined),
+    {Index1, true} = update(Index0, [add(11, 20, 2)], fence(10)),
+    {Index2, false} = update(Index1, [add(21, 10, 1)], fence(20)),
+    ?assertEqual([bucket(20, 10, 1), bucket(10, 20, 2), bucket(0, 20, 2)], records(Index2)),
+    %% Only the bucket at (0, 0) starts that early: keep everything.
+    ?assertEqual({0, Index2}, emqx_mq_quota_index_serial:cutoff(Index2, ts(10) - 1)),
+    %% A cutoff exactly at a boundary keeps that bucket.
+    {CutoffUs0, Index3} = emqx_mq_quota_index_serial:cutoff(Index2, ts(10)),
+    ?assertEqual(ts(10), CutoffUs0),
+    ?assertEqual([bucket(20, 10, 1), bucket(10, 20, 2)], records(Index3)),
+    %% A cutoff after the head start keeps only the head.
+    {CutoffUs1, Index4} = emqx_mq_quota_index_serial:cutoff(Index2, ts(25)),
+    ?assertEqual(ts(20), CutoffUs1),
+    ?assertEqual([bucket(20, 10, 1)], records(Index4)).
+
 -doc "Without a fence, a full head stays open and the index asks for a fence again".
 t_missing_fence(_Config) ->
     {Index0, true} = update(new(), [add(1, 50, 5)], undefined),
@@ -199,6 +276,10 @@ deadline(Index) ->
 records(Index) ->
     #{records := Records} = emqx_mq_quota_index_serial:inspect(Index),
     Records.
+
+seen_fence_serial(Index) ->
+    #{seen_fence_serial := SeenFenceSerial} = emqx_mq_quota_index_serial:inspect(Index),
+    SeenFenceSerial.
 
 totals(Index) ->
     #{total := Total} = emqx_mq_quota_index_serial:inspect(Index),

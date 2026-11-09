@@ -45,23 +45,37 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     ok = emqx_ds:drop_db(?config(db, Config)).
 
--doc "A fence gets the serial and timestamp of its flush transaction, and the next flush uses and deletes it".
+-doc """
+A fence gets the serial and timestamp of its flush transaction.
+The next flush uses it once and keeps it. The fence is replaced only when the index asks again.
+""".
 t_fence_lifecycle(Config) ->
     DB = ?config(db, Config),
     Opts = #{bytes => infinity, count => 10, threshold_percentage => 20},
     %% The first flush fills the head and writes a fence.
     Serial0 = write_message(DB),
     flush(DB, Opts, [add(Serial0, 2)], true),
-    [{_, FenceTsUs, FenceSerial}] = read(DB, ?FENCE_TOPIC),
-    ?assert(binary:decode_unsigned(FenceSerial) > Serial0),
-    %% The second flush closes the head at the fence and deletes the fence.
+    [{_, FenceTsUs, FenceSerialBin}] = read(DB, ?FENCE_TOPIC),
+    FenceSerial = binary:decode_unsigned(FenceSerialBin),
+    ?assert(FenceSerial > Serial0),
+    %% The second flush closes the head at the fence and marks it seen. The fence stays.
     Serial1 = write_message(DB),
     flush(DB, Opts, [add(Serial1, 1)], false),
-    ?assertEqual([], read(DB, ?FENCE_TOPIC)),
+    ?assertEqual([{?FENCE_TOPIC, FenceTsUs, FenceSerialBin}], read(DB, ?FENCE_TOPIC)),
     ?assertMatch(
-        #{serial := #{records := [#{ts_us := FenceTsUs, count := 1}, #{ts_us := 0, count := 2}]}},
+        #{
+            serial := #{
+                records := [#{ts_us := FenceTsUs, count := 1}, #{ts_us := 0, count := 2}],
+                seen_fence_serial := FenceSerial
+            }
+        },
         emqx_mq_quota_index:inspect(read_index(DB, Opts))
-    ).
+    ),
+    %% The third flush fills the head again. The seen fence cannot close it, so it is replaced.
+    Serial2 = write_message(DB),
+    flush(DB, Opts, [add(Serial2, 1)], false),
+    [{_, _, NewFenceSerialBin}] = read(DB, ?FENCE_TOPIC),
+    ?assert(binary:decode_unsigned(NewFenceSerialBin) > Serial2).
 
 -doc "Deleting messages before the deadline keeps the newest messages that the limit requires".
 t_cleanup_boundary(Config) ->
@@ -96,6 +110,84 @@ t_concurrent_flushes(Config) ->
     ),
     ?assert(length(read(DB, ?FENCE_TOPIC)) =< 1).
 
+-doc "Rotation at a fresh fence starts an empty bucket at the fence and drops older buckets".
+t_rotate(Config) ->
+    DB = ?config(db, Config),
+    Opts = #{bytes => infinity, count => 10, threshold_percentage => 20},
+    Serial0 = write_message(DB),
+    flush(DB, Opts, [add(Serial0, 1)], false),
+    %% Write a fresh fence and rotate at it in the next transaction.
+    {FenceSerial, ok} = trans_result(DB, fun() ->
+        emqx_mq_quota_index_tx:write_fence_tx(?FENCE_TOPIC)
+    end),
+    {_, {ok, #{serial := FenceSerial, ts_us := FenceTsUs}}} = trans_result(DB, fun() ->
+        emqx_mq_quota_index_tx:rotate_tx(?INDEX_TOPIC, ?FENCE_TOPIC, Opts, FenceSerial)
+    end),
+    ?assertMatch(
+        #{
+            legacy := undefined,
+            serial := #{
+                records := [#{serial := FenceSerial, ts_us := FenceTsUs, count := 0}],
+                seen_fence_serial := FenceSerial
+            }
+        },
+        emqx_mq_quota_index:inspect(read_index(DB, Opts))
+    ),
+    %% The message stored before the fence is older than the new bucket.
+    [{_, MessageTsUs, _}] = read(DB, ?MESSAGE_TOPIC),
+    ?assert(MessageTsUs < FenceTsUs).
+
+-doc "A fence that a flush has seen without using it cannot be used for rotation".
+t_rotate_stale_fence(Config) ->
+    DB = ?config(db, Config),
+    Opts = #{bytes => infinity, count => 10, threshold_percentage => 20},
+    Serial0 = write_message(DB),
+    flush(DB, Opts, [add(Serial0, 1)], false),
+    {FenceSerial, ok} = trans_result(DB, fun() ->
+        emqx_mq_quota_index_tx:write_fence_tx(?FENCE_TOPIC)
+    end),
+    %% A flush sees the fence. The head is not full, so the flush only marks it seen.
+    Serial1 = write_message(DB),
+    flush(DB, Opts, [add(Serial1, 0)], false),
+    ?assertMatch(
+        {_, {error, stale_fence}},
+        trans_result(DB, fun() ->
+            emqx_mq_quota_index_tx:rotate_tx(?INDEX_TOPIC, ?FENCE_TOPIC, Opts, FenceSerial)
+        end)
+    ).
+
+-doc "A cutoff keeps the buckets from the newest boundary at or before the given time".
+t_cutoff(Config) ->
+    DB = ?config(db, Config),
+    Opts = #{bytes => infinity, count => 10, threshold_percentage => 20},
+    %% Fill the head twice, so the second flush closes it at the first fence.
+    Serial0 = write_message(DB),
+    flush(DB, Opts, [add(Serial0, 2)], false),
+    [{_, FenceTsUs, _}] = read(DB, ?FENCE_TOPIC),
+    Serial1 = write_message(DB),
+    flush(DB, Opts, [add(Serial1, 1)], false),
+    %% A cutoff before the boundary keeps everything.
+    ?assertMatch(
+        {_, 0},
+        trans_result(DB, fun() ->
+            emqx_mq_quota_index_tx:cutoff_tx(?INDEX_TOPIC, Opts, FenceTsUs - 1)
+        end)
+    ),
+    ?assertMatch(
+        #{serial := #{size := 2}}, emqx_mq_quota_index:inspect(read_index(DB, Opts))
+    ),
+    %% A later cutoff drops the bucket before the boundary.
+    ?assertMatch(
+        {_, FenceTsUs},
+        trans_result(DB, fun() ->
+            emqx_mq_quota_index_tx:cutoff_tx(?INDEX_TOPIC, Opts, FenceTsUs + 1)
+        end)
+    ),
+    ?assertMatch(
+        #{serial := #{records := [#{ts_us := FenceTsUs, count := 1}]}},
+        emqx_mq_quota_index:inspect(read_index(DB, Opts))
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -121,6 +213,10 @@ read_index(DB, Opts) ->
 %% Publication time 1 is far before DS time, as if the publisher clock were wrong.
 add(Serial, Count) ->
     #quota_add{pub_ts_us = 1, serial = Serial, bytes = Count * 7, count = Count}.
+
+trans_result(DB, Fun) ->
+    {atomic, SerialBin, Result} = trans(DB, Fun),
+    {binary:decode_unsigned(SerialBin), Result}.
 
 flush(DB, Opts, Updates, NeedLegacy) ->
     {atomic, _, ok} = trans(DB, fun() ->

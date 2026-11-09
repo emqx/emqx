@@ -42,7 +42,8 @@ end_per_testcase(_TestCase, _Config) ->
 -doc "An older node reads the legacy lists from a record that also holds serial buckets".
 t_old_node_reads_new_record(_Config) ->
     Bin = encode(new_index_with_data()),
-    {'StorageIndex', MaxTsUs, Count, Bytes, [_ | _]} = 'MessageQueue':decode('StorageIndex', Bin),
+    {'StorageIndex', MaxTsUs, Count, Bytes, [_ | _], _SeenFenceSerial} =
+        'MessageQueue':decode('StorageIndex', Bin),
     ?assertEqual(
         {'StorageIndex', MaxTsUs, Count, Bytes},
         'MessageQueueOld':decode('StorageIndex', Bin)

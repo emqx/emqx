@@ -42,8 +42,13 @@ the next flush drops the legacy index, and the serial deadline is used from then
 An older node keeps only the legacy index when it rewrites the record.
 The next flush on a new node then rebuilds the serial index:
 one bucket at (0, 0) with the totals that the legacy index keeps.
-A rebuilt index ignores the fence that is stored in DS.
+A rebuilt index treats the fence that is stored in DS as seen.
 That fence was written before the older node updated the index, so it does not mark a valid boundary.
+
+## Purge
+
+`rotate/3` and `cutoff/2` change the serial index before a purge deletes messages.
+They require that the legacy index is dropped: a purge runs only when every node supports the serial index.
 """.
 
 %% ASN1-generated record field names are in camelCase.
@@ -57,6 +62,8 @@ That fence was written before the older node updated the index, so it does not m
     decode/2,
     encode/1,
     apply_updates/3,
+    rotate/3,
+    cutoff/2,
     drop_legacy/1,
     deadline/1,
     inspect/1,
@@ -71,9 +78,7 @@ That fence was written before the older node updated the index, so it does not m
 -record(index, {
     opts :: opts(),
     legacy :: emqx_mq_quota_index_legacy:t() | undefined,
-    serial :: emqx_mq_quota_index_serial:t(),
-    %% The serial index was just created or rebuilt, so the stored fence does not belong to it.
-    is_new :: boolean()
+    serial :: emqx_mq_quota_index_serial:t()
 }).
 -opaque t() :: #index{}.
 
@@ -110,47 +115,53 @@ new(Opts, TsUs, NeedLegacy) ->
             true -> emqx_mq_quota_index_legacy:new(Opts, TsUs);
             false -> undefined
         end,
-    #index{
-        opts = Opts,
-        legacy = Legacy,
-        serial = emqx_mq_quota_index_serial:new(),
-        is_new = true
-    }.
+    #index{opts = Opts, legacy = Legacy, serial = emqx_mq_quota_index_serial:new()}.
 
 -doc "Decode a stored index. Rebuild the serial index if an older node removed it".
 -spec decode(opts(), binary()) -> t().
 decode(Opts, Bin) ->
     Storage = 'MessageQueue':decode('StorageIndex', Bin),
     Legacy = decode_legacy(Opts, Storage),
-    case Storage of
-        #'StorageIndex'{serialBuckets = asn1_NOVALUE} ->
-            Serial = rebuild_serial(Storage, Legacy),
-            #index{opts = Opts, legacy = Legacy, serial = Serial, is_new = true};
-        #'StorageIndex'{serialBuckets = Serial} ->
-            #index{opts = Opts, legacy = Legacy, serial = Serial, is_new = false}
-    end.
+    Serial =
+        case Storage of
+            #'StorageIndex'{serialBuckets = asn1_NOVALUE} ->
+                rebuild_serial(Storage, Legacy);
+            #'StorageIndex'{serialBuckets = Buckets, seenFenceSerial = SeenFenceSerial} ->
+                emqx_mq_quota_index_serial:from_storage(Buckets, from_asn1(SeenFenceSerial))
+        end,
+    #index{opts = Opts, legacy = Legacy, serial = Serial}.
 
 -doc "Encode both indices. The legacy fields are left out after the legacy index is dropped".
 -spec encode(t()) -> binary().
 encode(#index{legacy = Legacy, serial = Serial}) ->
     Storage = legacy_storage(Legacy),
-    'MessageQueue':encode('StorageIndex', Storage#'StorageIndex'{serialBuckets = Serial}).
+    {Buckets, SeenFenceSerial} = emqx_mq_quota_index_serial:to_storage(Serial),
+    'MessageQueue':encode('StorageIndex', Storage#'StorageIndex'{
+        serialBuckets = Buckets, seenFenceSerial = to_asn1(SeenFenceSerial)
+    }).
 
 -doc "Apply one flush of updates to both indices. Return the index and whether to write a fence".
 -spec apply_updates(t(), [update()], emqx_mq_quota_index_serial:fence() | undefined) ->
     {t(), boolean()}.
-apply_updates(#index{opts = Opts, serial = Serial0, is_new = IsNew} = Index0, Updates, Fence0) ->
-    Fence =
-        case IsNew of
-            true ->
-                %% A new or rebuilt index cannot use a fence written for the previous index.
-                undefined;
-            false ->
-                Fence0
-        end,
+apply_updates(#index{opts = Opts, serial = Serial0} = Index0, Updates, Fence) ->
     {Serial, NeedFence} = emqx_mq_quota_index_serial:apply_updates(Serial0, Updates, Fence, Opts),
     Index = apply_legacy_updates(Index0, Updates),
-    {Index#index{serial = Serial, is_new = false}, NeedFence}.
+    {Index#index{serial = Serial}, NeedFence}.
+
+-doc "Start a new head at a fresh fence and drop older buckets. See `emqx_mq_quota_index_serial`".
+-spec rotate(t(), emqx_mq_quota_index_serial:fence() | undefined, pos_integer()) ->
+    {ok, emqx_mq_quota_index_serial:fence(), t()} | {error, stale_fence}.
+rotate(#index{legacy = undefined, serial = Serial0} = Index, Fence, FenceSerial) ->
+    maybe
+        {ok, Boundary, Serial} ?= emqx_mq_quota_index_serial:rotate(Serial0, Fence, FenceSerial),
+        {ok, Boundary, Index#index{serial = Serial}}
+    end.
+
+-doc "Keep buckets from the newest boundary at or before a DS timestamp. See `emqx_mq_quota_index_serial`".
+-spec cutoff(t(), timestamp_us()) -> {timestamp_us(), t()}.
+cutoff(#index{legacy = undefined, serial = Serial0} = Index, BeforeUs) ->
+    {CutoffUs, Serial} = emqx_mq_quota_index_serial:cutoff(Serial0, BeforeUs),
+    {CutoffUs, Index#index{serial = Serial}}.
 
 -doc "Drop the legacy index. Call only when every node supports the serial index".
 -spec drop_legacy(t()) -> t().
@@ -208,3 +219,9 @@ inspect_legacy(undefined) ->
     undefined;
 inspect_legacy(Legacy) ->
     emqx_mq_quota_index_legacy:inspect(Legacy).
+
+from_asn1(asn1_NOVALUE) -> undefined;
+from_asn1(Value) -> Value.
+
+to_asn1(undefined) -> asn1_NOVALUE;
+to_asn1(Value) -> Value.
