@@ -27,6 +27,7 @@ init_per_suite(Config) ->
     application:load(prometheus),
     {ok, _} = application:ensure_all_started(prometheus),
     emqx_bcast_metrics:init(),
+    ok = emqx_bcast_log_throttle:init(),
     %% Delivery goes through the async pool; start the plugin supervisor so
     %% pool workers exist, without starting the full application (no hooks).
     %% NOTE: start_link makes the caller the supervisor's parent, and a
@@ -58,6 +59,7 @@ init_per_testcase(_Case, Config) ->
             bcast_msg_meta,
             bcast_msg_meta_counter,
             bcast_msg_acked,
+            bcast_msg_part_accounted,
             bcast_message,
             bcast_message_order,
             bcast_message_hash,
@@ -97,6 +99,7 @@ init_per_testcase(_Case, Config) ->
     %% Full metric registry reset: per-test isolation so ledger/gauge
     %% assertions can compare absolute values, not just deltas.
     catch emqx_bcast_metrics:reset(),
+    catch emqx_bcast_log_throttle:init(),
     Config.
 
 wait_intake_idle() ->
@@ -340,6 +343,61 @@ t_config_negative_limits_fall_back_to_default(_Config) ->
     after
         init_test_config()
     end.
+
+-doc "Plugin configuration updates reject values outside the declared schema\n"
+"range before persistence. Runtime load keeps accepting legacy stored values\n"
+"and still applies its defensive fallback, so upgrades remain compatible.".
+t_config_update_rejects_out_of_range_values(_Config) ->
+    Fields = [
+        <<"max_device_count">>,
+        <<"max_message_size_broadcast">>,
+        <<"max_message_size_batch">>,
+        <<"max_pending_deliveries">>,
+        <<"delivery_pool_size">>
+    ],
+    try
+        lists:foreach(
+            fun(Field) ->
+                Before = emqx_bcast_config:get(binary_to_atom(Field, utf8)),
+                ?assertMatch(
+                    {error, {invalid_plugin_config_value, _, -1, _}},
+                    emqx_bcast_app:on_config_changed(#{}, #{Field => -1})
+                ),
+                ?assertEqual(Before, emqx_bcast_config:get(binary_to_atom(Field, utf8)))
+            end,
+            Fields
+        ),
+        lists:foreach(
+            fun(Value) ->
+                Result = emqx_bcast_app:on_config_changed(
+                    #{}, #{<<"max_pending_deliveries_per_device">> => Value}
+                ),
+                ?assertMatch(
+                    {error, {invalid_plugin_config_value, _, Value, _}},
+                    Result
+                )
+            end,
+            [9, 201]
+        ),
+        ?assertEqual(
+            ok,
+            emqx_bcast_app:on_config_changed(
+                #{}, #{<<"max_pending_deliveries_per_device">> => 50}
+            )
+        )
+    after
+        init_test_config()
+    end.
+
+-doc "429 diagnostics are node-throttled by the plugin itself, so a\n"
+"plugin-only upgrade remains bounded on cores that do not know the new\n"
+"message IDs.".
+t_rate_limit_log_throttle(_Config) ->
+    ok = emqx_bcast_log_throttle:init(),
+    Msg = bcast_batch_pub_intake_busy,
+    ?assertEqual({true, 0}, emqx_bcast_log_throttle:allow(Msg)),
+    ?assertEqual(false, emqx_bcast_log_throttle:allow(Msg)),
+    ?assertEqual(false, emqx_bcast_log_throttle:allow(Msg)).
 
 -doc "Configured topic templates are validated like per-request templates: "
 "wildcards and unknown placeholders fall back to the default with a "
@@ -768,7 +826,8 @@ t_redelivery_duplicate_ack_no_early_complete(_Config) ->
             fun() ->
                 mnesia:dirty_match_object(#bcast_msg{_ = '_'}) =:= [] andalso
                     mnesia:dirty_match_object(#bcast_msg_meta{_ = '_'}) =:= [] andalso
-                    mnesia:dirty_match_object(#bcast_msg_meta_counter{_ = '_'}) =:= []
+                    mnesia:dirty_match_object(#bcast_msg_meta_counter{_ = '_'}) =:= [] andalso
+                    mnesia:dirty_match_object(#bcast_msg_part_accounted{_ = '_'}) =:= []
             end,
             100
         )
@@ -934,6 +993,26 @@ t_process_ack(_Config) ->
     {ok, IdsB} = emqx_bcast_storage:get_device_deliveries({PK, <<"DB">>}),
     ?assertEqual([DeliveryId], IdsB).
 
+-doc "PendingCount follows ACKed devices even when the remaining devices are\n"
+"on the same index shard. The durable completion counter alone only moves when\n"
+"a whole shard-part completes, so it must be projected through the persisted\n"
+"device ACK markers for the management API.".
+t_mgmt_pending_count_tracks_partial_ack_in_same_shard(_Config) ->
+    PK = <<"PMGMTPART">>,
+    [A, B] = same_shard_dns(PK, 0, 2),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt partial ack">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    Id = emqx_bcast_utils:guid_to_uuid(DeliveryId),
+    {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
+    ?assertEqual(1, maps:get(<<"PendingCount">>, Resp)),
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    {error, 404, _, Gone} = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
+    ?assertEqual(<<"DeliveryNotFound">>, maps:get(<<"Code">>, Gone)).
+
 -doc "the delivery record is deleted once all devices have acked.".
 t_process_ack_all_devices(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
@@ -994,29 +1073,30 @@ t_process_ack_duplicate(_Config) ->
     {ok, Ids} = emqx_bcast_storage:get_device_deliveries({PK, <<"DE">>}),
     ?assertEqual([DeliveryId], Ids).
 
--doc "The ack flush persists the per-device acked marker and decrements the\n"
-"completion counter with two lock-free dirty writes, and it writes the\n"
-"marker FIRST. The pair is ordered, not atomic. The ordering is what keeps\n"
-"the crash window safe in the direction that matters: a rebuilt index skips\n"
-"a device whose marker is persisted, so a replayed ack of an already-counted\n"
-"device is rejected instead of decrementing the counter a second time and\n"
-"deleting the delivery before the remaining devices acked. The reverse order\n"
-"would allow exactly that. The residual of this order - a counter left too\n"
-"high when the shard dies between the two writes - is covered by\n"
-"t_counted_ack_crash_window_between_marker_and_decrement.".
+-doc "A completed part durably records its ACK marker and accounting\n"
+"watermark, and decrements the counter exactly once. Partial ACKs only write\n"
+"their device marker; they do not move the part counter.".
 t_counted_ack_counter_and_marker_atomic(_Config) ->
     PK = <<"PATOM">>,
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"atomic ack">>),
-    A = <<"DATOM_A">>,
-    B = <<"DATOM_B">>,
+    [A] = same_shard_dns(PK, 7, 1),
+    [B] = same_shard_dns(PK, 8, 1),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-    %% The async flush lands the marker first and the counter second. Wait on
-    %% the counter: the two writes are ordered, not atomic, so seeing the
-    %% marker does not imply the counter has moved yet.
-    ?assert(wait_until(fun() -> ack_counter(DeliveryId) =:= 1 end, 100)),
-    ?assert(mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= []),
+    ?assertEqual(1, ack_counter(DeliveryId)),
+    [#bcast_msg_acked{device_names = [A]}] = mnesia:dirty_read(
+        bcast_msg_acked, DeliveryId
+    ),
+    Accounts = mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
+    ?assert(
+        lists:any(
+            fun(#bcast_msg_part_accounted{shard = Shard, acked = Acked}) ->
+                is_integer(Shard) andalso Acked =:= 1
+            end,
+            Accounts
+        )
+    ),
     %% a rebuild keeps A acked and the counter untouched; B keeps its entry
     ok = emqx_bcast_index_owner:rebuild_index(),
     {ok, []} = emqx_bcast_storage:get_device_deliveries({PK, A}),
@@ -1033,172 +1113,89 @@ t_counted_ack_counter_and_marker_atomic(_Config) ->
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
     [] = mnesia:dirty_read(bcast_msg_acked, DeliveryId),
+    [] = mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
     [] = mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId).
 
--doc "Crash window between the acked-marker write and the counter decrement:\n"
-"mock mnesia:dirty_update_counter so that the index shard is killed right\n"
-"after the decrement lands (both dirty writes of the flush are then done).\n"
-"The restart re-drives a rebuild from the projection plus the markers. The\n"
-"marker is written BEFORE the counter precisely so that this crash can never\n"
-"resurrect the already-acked device nor let its replayed ack decrement the\n"
-"counter a second time: the counter can only be left too high, which delays\n"
-"completion instead of completing the delivery early.".
-t_counted_ack_crash_window_between_decrement_and_marker(_Config) ->
+-doc "After a completed part report commits, a shard restart must preserve the\n"
+"acked device and leave exactly the unfinished device claimable. The report is\n"
+"now one transaction, so the fallback branch also covers a report that\n"
+"finishes before the worker observes a shutdown.".
+t_committed_part_report_survives_rebuild(_Config) ->
     PK = <<"PWIN">>,
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"crash window">>),
-    A = <<"DWIN_A">>,
-    B = <<"DWIN_B">>,
+    {A, B} = two_different_shards(PK),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
     ),
-    TestProc = self(),
-    meck:new(mnesia, [passthrough, no_link]),
-    try
-        meck:expect(
-            mnesia,
-            dirty_update_counter,
-            fun
-                (Tab, Key, Incr) when Tab =:= bcast_msg_meta_counter, Key =:= DeliveryId ->
-                    Res = meck:passthrough([Tab, Key, Incr]),
-                    TestProc ! {decrement_done, self()},
-                    receive
-                        kill_me -> exit(kill)
-                    after 3000 -> ok
-                    end,
-                    Res;
-                (Tab, Key, Incr) ->
-                    meck:passthrough([Tab, Key, Incr])
-            end
-        ),
-        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-        receive
-            {decrement_done, ShardPid} ->
-                %% Kill it for real: the flush guard retries anything raised
-                %% inside the flush, and only a process death models the crash
-                %% this window is about (an untrappable kill that leaves the
-                %% decrement applied and the rest of the flush un-run).
-                exit(ShardPid, kill),
-                put(shard_died, true)
-        after 3000 ->
-            put(shard_died, false)
-        end
-    after
-        meck:unload(mnesia)
-    end,
-    ShardDied = erase(shard_died),
-    case ShardDied of
-        true ->
-            %% The shard died after the decrement. The marker for A was
-            %% written first, so the rebuild must not bring A back: it has no
-            %% pending entry, its replayed ack is rejected, and the counter
-            %% still owes exactly B's ack.
-            ok = emqx_bcast_index_owner:rebuild_index(),
-            ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
-            not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-            timer:sleep(300),
-            ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
-            [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
-                bcast_msg_meta_counter, DeliveryId
-            ),
-            ?assertEqual(
-                {ok, [DeliveryId]},
-                emqx_bcast_storage:get_device_deliveries({PK, B})
-            );
-        false ->
-            %% The hook never fired (the shard was already gone when the ack
-            %% was buffered). The accounting contract is the same.
-            ?assert(wait_until(fun() -> ack_counter(DeliveryId) =:= 1 end, 100)),
-            ?assert(mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= []),
-            ok = emqx_bcast_index_owner:rebuild_index(),
-            {ok, []} = emqx_bcast_storage:get_device_deliveries({PK, A}),
-            not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-            ?assertEqual(
-                {ok, [DeliveryId]},
-                emqx_bcast_storage:get_device_deliveries({PK, B})
-            )
-    end,
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ?assertEqual(1, ack_counter(DeliveryId)),
+    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    %% Rebuild after the committed report: A is skipped, B remains owed.
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
+    not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ?assertEqual(
+        {ok, [DeliveryId]},
+        emqx_bcast_storage:get_device_deliveries({PK, B})
+    ),
     %% B completes the delivery exactly once.
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
     ?assert(
         wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)
     ).
 
--doc "Reproduction of the crash window the part report leaves open: mock\n"
-"mnesia:dirty_write so the index shard is killed right after the acked marker\n"
-"lands and BEFORE the counter is decremented. The marker is durable, so the\n"
-"restart + rebuild must not resurrect the already-acked device and its\n"
-"replayed ack must not be counted a second time; the marker-based reconcile\n"
-"brings the counter back in step, so the remaining device's ack completes the\n"
-"delivery exactly once - nothing lost, nothing delivered twice.".
-t_counted_ack_crash_window_between_marker_and_decrement(_Config) ->
+-doc "The full ACK marker, per-part accounting watermark, and counter update\n"
+"are one transaction. Injecting a report abort leaves no marker-only state;\n"
+"the retained in-memory accounting retries the whole report and counts the\n"
+"part exactly once.".
+t_ack_part_report_transaction_is_atomic(_Config) ->
     PK = <<"PWIN2">>,
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"crash between marker and counter">>),
-    %% One device per part: A's own ack finishes its part (the marker write),
-    %% B's is the one still owed.
     {A, B} = two_different_shards(PK),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
     ),
-    TestProc = self(),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    ShardA = emqx_bcast_index_owner:shard_of({PK, A}),
+    Name = index_shard_name(ShardA),
+    Cnt = atomics:new(1, []),
     meck:new(mnesia, [passthrough, no_link]),
     try
-        meck:expect(
-            mnesia,
-            dirty_write,
-            fun
-                (#bcast_msg_acked{delivery_id = Did} = Rec) when Did =:= DeliveryId ->
-                    %% The marker lands first; die before the counter moves.
-                    Res = meck:passthrough([Rec]),
-                    TestProc ! {marker_written, self()},
-                    receive
-                        kill_me -> exit(kill)
-                    after 3000 -> ok
-                    end,
-                    Res;
-                (Rec) ->
-                    meck:passthrough([Rec])
+        meck:expect(mnesia, transaction, fun(Fun, Retries) ->
+            case in_index_shard() andalso atomics:add_get(Cnt, 1, 1) =:= 1 of
+                true -> {aborted, injected_report_abort};
+                false -> meck:passthrough([Fun, Retries])
             end
-        ),
+        end),
         counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-        receive
-            {marker_written, ShardPid} ->
-                %% Untrappable kill: the flush guard retries a raise from
-                %% inside the flush, so the crash window has to be a real
-                %% process death (marker written, counter not decremented).
-                exit(ShardPid, kill),
-                put(marker_window_hit, true)
-        after 3000 ->
-            put(marker_window_hit, false)
-        end
+        ?assertEqual(2, ack_counter(DeliveryId)),
+        ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+        [
+            #bcast_msg_part_accounted{
+                delivery_id = DeliveryId,
+                shard = delivery,
+                acked = 0
+            }
+        ] =
+            mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)
     after
         meck:unload(mnesia)
     end,
-    %% The window is hit deterministically: the flush always writes the
-    %% marker before the counter, so this hook always fires for this ack.
-    ?assert(erase(marker_window_hit)),
-    Shard = emqx_bcast_index_owner:shard_of({PK, A}),
-    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)),
-    ?assert(
-        wait_until(
-            fun() -> whereis(Name) =/= undefined andalso shard_active(Shard) end, 200
-        )
-    ),
-    ok = emqx_bcast_index_owner:rebuild_index(),
-    %% The durable marker keeps A out of the rebuilt index, and A's replayed
-    %% ack is rejected: no second decrement, no early completion.
+    %% The part accounting survived the abort. The cleanup tick retries the
+    %% entire transaction and accounts A once.
+    ok = gen_server:call(Name, {cleanup_local}, 30000),
+    ?assertEqual(1, ack_counter(DeliveryId)),
+    ?assertEqual(1, length(mnesia:dirty_read(bcast_msg_acked, DeliveryId))),
+    ?assertEqual(2, length(mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId))),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
     not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
-    %% The rebuild reconciled the counter from the durable marker: exactly B's
-    %% acknowledgement is still owed.
-    ?assert(wait_until(fun() -> ack_counter(DeliveryId) =:= 1 end, 100)),
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
-    %% Both devices are now accounted for, so the delivery completes exactly
-    %% once - and A was never re-indexed, so it was not delivered twice.
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
-    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})).
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)).
 
 -doc "A delivery committed by a build without ack markers leaves none behind, so\n"
 "a rebuild re-indexes every target device and its legacy remaining-ack counter\n"
@@ -1257,18 +1254,119 @@ t_legacy_delivery_counter_restored_on_rebuild(_Config) ->
         wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)
     ).
 
--doc "The ack flush is lock-free: one dirty marker write plus one dirty counter\n"
-"decrement per delivery, and no mnesia transaction. A transaction there would\n"
-"make every device shard take an exclusive write lock on the single\n"
-"per-delivery counter row, and mnesia_tm restarts the whole shard with a\n"
-"timer:sleep/1 backoff on each conflict - the fanout collapse this pins down.\n"
-"The hook only fails when the transaction is issued by an index shard, so\n"
-"unrelated mnesia traffic on the node cannot make this test flaky.".
+-doc "Concurrent BatchPub reuse of one MessageId on one node must not exhaust\n"
+"transaction retries. Every request has a distinct delivery and device set, so\n"
+"the only shared promotion state is the message/hash row.".
+t_concurrent_same_message_reuse_does_not_return_nomore(_Config) ->
+    PK = <<"PREUSEHOT">>,
+    Payload = <<"reuse-hot-message">>,
+    {ApiMsgId, MsgId} = create_test_msg(Payload),
+    Hash = crypto:hash(sha256, Payload),
+    Workers = 32,
+    DevicesPerRequest = 241,
+    Entries = [
+        reuse_promotion_entry(
+            ApiMsgId,
+            MsgId,
+            Hash,
+            Payload,
+            PK,
+            I,
+            DevicesPerRequest
+        )
+     || I <- lists:seq(1, Workers)
+    ],
+    Results = run_concurrent_promotions(Entries),
+    ct:pal("same-MessageId concurrent promotion results: ~p", [Results]),
+    ?assertEqual(
+        [],
+        [
+            {Result, Entry}
+         || {Result, Entry} <- lists:zip(Results, Entries),
+            Result =/= {ok, [ok]}
+        ]
+    ).
+
+-doc "At the observed 100 requests/second, 200 devices per request, and one\n"
+"shared MessageId, Mnesia may retry transactions but must not exhaust the\n"
+"per-transaction retry budget without another lock participant.".
+t_same_message_reuse_at_100_rps_does_not_return_nomore(_Config) ->
+    PK = <<"PREUSENATURAL">>,
+    Payload = <<"reuse-natural-nomore">>,
+    {ApiMsgId, MsgId} = create_test_msg(Payload),
+    Hash = crypto:hash(sha256, Payload),
+    Workers = 100,
+    DevicesPerRequest = 200,
+    Entries = [
+        reuse_promotion_entry(
+            ApiMsgId,
+            MsgId,
+            Hash,
+            Payload,
+            PK,
+            I,
+            DevicesPerRequest
+        )
+     || I <- lists:seq(1, Workers)
+    ],
+    RestartsBefore = mnesia:system_info(transaction_restarts),
+    Results = run_concurrent_promotions(Entries),
+    RestartsAfter = mnesia:system_info(transaction_restarts),
+    Nomore = [Result || Result <- Results, Result =:= {error, nomore}],
+    ct:pal(
+        "natural same-MessageId promotion: workers=~p devices=~p "
+        "nomore=~p transaction_restarts=~p",
+        [
+            Workers,
+            DevicesPerRequest,
+            length(Nomore),
+            RestartsAfter - RestartsBefore
+        ]
+    ),
+    ?assertEqual([], Nomore).
+
+-doc "The observed one-second burst through the real API path: 100 BatchPub\n"
+"requests at 10ms intervals, 200 distinct devices per request, one reused\n"
+"MessageId. Every request is accepted and promoted without a natural nomore.".
+t_batch_pub_100_rps_reuse_does_not_naturally_return_nomore(_Config) ->
+    PK = <<"PREUSEAPI100">>,
+    {ApiMsgId, _MsgId} = create_test_msg(<<"reuse api 100 rps">>),
+    Requests = 100,
+    DevicesPerRequest = 200,
+    WantedBefore = metric(<<"batch_pub_qos1_wanted">>),
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        Results = run_paced_reuse_batch_pub(
+            ApiMsgId, PK, Requests, DevicesPerRequest, 10
+        ),
+        ?assertEqual(
+            [],
+            [
+                Result
+             || Result <- Results,
+                element(1, Result) =/= ok orelse element(2, Result) =/= 200
+            ]
+        ),
+        ?assert(
+            wait_until(
+                fun() ->
+                    emqx_bcast_intake:admission_depth() =:= 0 andalso
+                        metric(<<"batch_pub_qos1_wanted">>) >=
+                            WantedBefore + Requests * DevicesPerRequest
+                end,
+                400
+            )
+        )
+    end),
+    ?assertEqual([], nomore_promotion_reports(Reports)),
+    ?assertEqual(Requests, mnesia:table_info(bcast_msg, size)).
+
+-doc "The common partial-ACK path stays lock-free. Only the final ACK of an\n"
+"index-shard part enters the accounting transaction; a transaction on every\n"
+"device ACK would serialize the per-delivery counter row and collapse fanout.".
 t_ack_flush_uses_no_transaction(_Config) ->
     PK = <<"PNOTX">>,
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"no transaction">>),
-    A = <<"DNOTX_A">>,
-    B = <<"DNOTX_B">>,
+    [A, B] = same_shard_dns(PK, 7, 2),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
@@ -1286,9 +1384,7 @@ t_ack_flush_uses_no_transaction(_Config) ->
             meck:passthrough([Fun, Retries])
         end),
         counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-        %% The flush lands the marker first and the counter second, so wait on
-        %% the counter: seeing the marker does not mean the decrement happened.
-        ?assert(wait_until(fun() -> ack_counter(DeliveryId) =:= 1 end, 100))
+        ?assertEqual(2, ack_counter(DeliveryId))
     after
         meck:unload(mnesia)
     end,
@@ -1296,9 +1392,10 @@ t_ack_flush_uses_no_transaction(_Config) ->
         ack_flush_used_transaction -> ?assert(false)
     after 0 -> ok
     end,
-    %% The flush still landed: marker plus a counter that only owes B.
+    %% The partial marker still landed, while the counter waits for the whole
+    %% part to finish.
     ?assert(mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= []),
-    [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
+    [#bcast_msg_meta_counter{counter = 2}] = mnesia:dirty_read(
         bcast_msg_meta_counter, DeliveryId
     ),
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
@@ -1425,7 +1522,28 @@ t_delete_delivery_clears_acked_markers(_Config) ->
     counted = emqx_bcast_storage:process_ack(PK, DN1, DeliveryId),
     ?assert(wait_until(fun() -> acked_devices(DeliveryId) =:= [DN1] end, 100)),
     ok = emqx_bcast_storage:delete_delivery(DeliveryId),
-    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)).
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)).
+
+-doc "A rolling upgrade can have an old delivery/meta cleanup path that does\n"
+"not know the watermark table. The bounded periodic orphan scan must remove\n"
+"those rows after both delivery and meta are gone.".
+t_cleanup_reclaims_orphan_part_accounting(_Config) ->
+    PK = <<"PORPHANACCT">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"orphan accounting">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+    ),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)),
+    %% What an older plugin node leaves behind: it deletes the delivery and
+    %% its meta/counter, but has no knowledge of the new watermark table.
+    ok = mnesia:dirty_delete(bcast_msg, DeliveryId),
+    ok = mnesia:dirty_delete(bcast_msg_meta, DeliveryId),
+    ok = mnesia:dirty_delete(bcast_msg_meta_counter, DeliveryId),
+    {ok, _Continuation} = emqx_bcast_storage:cleanup_expired(undefined),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)).
 
 -doc "A crash inside promoter batch processing must be contained: the\n"
 "intake take is atomic (dequeue-then-process), so an uncaught worker\n"
@@ -1509,6 +1627,73 @@ retry_entry(PK, DN) ->
         created_at => Now,
         expires_at => Now + 3600
     }.
+
+reuse_promotion_entry(ApiMsgId, MsgId, Hash, Payload, PK, Worker, DeviceCount) ->
+    Now = emqx_bcast_utils:now_sec(),
+    #{
+        payload => Payload,
+        hash => Hash,
+        api_msg_id => ApiMsgId,
+        msg_id => MsgId,
+        delivery_id => emqx_bcast_utils:gen_guid(),
+        product_key => PK,
+        topic_template => <<"reuse/${productKey}/${deviceName}">>,
+        devices => [
+            iolist_to_binary(io_lib:format("REUSE-~B-~B", [Worker, I]))
+         || I <- lists:seq(1, DeviceCount)
+        ],
+        created_at => Now,
+        expires_at => Now + 3600,
+        epoch => emqx_bcast:msg_epoch(Hash),
+        can_create => false
+    }.
+
+run_concurrent_promotions(Entries) ->
+    Parent = self(),
+    Indexed = lists:zip(lists:seq(1, length(Entries)), Entries),
+    Workers = [
+        begin
+            Pid = spawn(fun() ->
+                Parent ! {promotion_ready, Index, self()},
+                receive
+                    go ->
+                        Result =
+                            try emqx_bcast_storage:promote_batch([Entry]) of
+                                Promoted -> Promoted
+                            catch
+                                Class:Reason -> {error, {Class, Reason}}
+                            end,
+                        Parent ! {promotion_result, Index, Result}
+                end
+            end),
+            {Index, Pid}
+        end
+     || {Index, Entry} <- Indexed
+    ],
+    wait_for_promotion_ready(length(Workers)),
+    lists:foreach(fun({_Index, Pid}) -> Pid ! go end, Workers),
+    Results = collect_promotion_results(length(Workers), #{}),
+    [maps:get(Index, Results) || Index <- lists:seq(1, length(Entries))].
+
+wait_for_promotion_ready(0) ->
+    ok;
+wait_for_promotion_ready(N) ->
+    receive
+        {promotion_ready, _Index, _Pid} ->
+            wait_for_promotion_ready(N - 1)
+    after 10000 ->
+        ct:fail(promotion_worker_ready_timeout)
+    end.
+
+collect_promotion_results(0, Acc) ->
+    Acc;
+collect_promotion_results(N, Acc) ->
+    receive
+        {promotion_result, Index, Result} ->
+            collect_promotion_results(N - 1, maps:put(Index, Result, Acc))
+    after 60000 ->
+        ct:fail({promotion_result_timeout, maps:size(Acc)})
+    end.
 
 indexed_deliveries(PK, DN) ->
     case catch emqx_bcast_index_owner:device_deliveries({PK, DN}) of
@@ -1651,6 +1836,35 @@ t_commit_preserves_concurrent_topics_update(_Config) ->
     ?assertEqual(NewTopics, Row#bcast_client_state.topics),
     ?assertEqual(undefined, Row#bcast_client_state.claim),
     cleanup_row(PK, DN).
+
+-doc "A shard that requests restage acknowledgement gets an explicit marker in\n"
+"the no_more result. The marker lets the pull side distinguish a new core\n"
+"that processed restage from an older core that ignored it.".
+t_claim_restage_capability_is_explicit(_Config) ->
+    PK = <<"PRESTAGECAP">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    ?assert(
+        wait_until(
+            fun() ->
+                shard_active(emqx_bcast_index_owner:shard_of({PK, DN}))
+            end,
+            200
+        )
+    ),
+    ?assertMatch(
+        [{DN, {no_more, 0, restage_acked}}],
+        emqx_bcast_storage:claim_want_next_batch([
+            #{
+                clientid => DN,
+                product_key => PK,
+                topics => [{<<"tpl">>, 1}],
+                claim_tag => 616161,
+                residual => true,
+                restage => true,
+                restage_ack => true
+            }
+        ])
+    ).
 
 %%--------------------------------------------------------------------
 %% Utils tests
@@ -2322,9 +2536,27 @@ t_quota_per_device_exceeded(_Config) ->
         <<"MessageContent">> => <<"aGVsbG8=">>,
         <<"Qos">> => 1
     },
-    {ok, 429, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ok = emqx_bcast_log_throttle:init(),
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        put(
+            rate_limit_result,
+            emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body})
+        ),
+        ok
+    end),
+    {ok, 429, _, Resp} = erase(rate_limit_result),
     ?assertEqual(<<"QuotaExceeded">>, maps:get(<<"Code">>, Resp)),
     ?assertEqual([<<"D1">>], maps:get(<<"Devices">>, Resp)),
+    [RateLimitReport | _] = [
+        R
+     || R <- Reports,
+        maps:get(msg, R, undefined) =:= bcast_batch_pub_device_quota_exceeded
+    ],
+    ?assert(maps:is_key(request_id, RateLimitReport)),
+    ?assertEqual(<<"PQ">>, maps:get(product_key, RateLimitReport)),
+    ?assertEqual(2, maps:get(devices, RateLimitReport)),
+    ?assertEqual(1, maps:get(over_limit_devices, RateLimitReport)),
+    ?assertEqual(0, maps:get(suppressed_since_last_log, RateLimitReport)),
     persistent_term:put({?APP, config}, Cfg).
 
 -doc "BatchPub QoS=1 passes when the per-device pending count is within quota.".
@@ -2375,8 +2607,24 @@ t_quota_global_exceeded(_Config) ->
         <<"MessageContent">> => <<"aGVsbG8=">>,
         <<"Qos">> => 1
     },
-    {ok, 429, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ok = emqx_bcast_log_throttle:init(),
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        put(
+            rate_limit_result,
+            emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body})
+        ),
+        ok
+    end),
+    {ok, 429, _, Resp} = erase(rate_limit_result),
     ?assertEqual(<<"QuotaExceeded">>, maps:get(<<"Code">>, Resp)),
+    ?assert(
+        lists:any(
+            fun(R) ->
+                maps:get(msg, R, undefined) =:= bcast_batch_pub_global_quota_exceeded
+            end,
+            Reports
+        )
+    ),
     persistent_term:put({?APP, config}, Cfg).
 
 %%--------------------------------------------------------------------
@@ -2602,6 +2850,18 @@ seed_claim_row(PK, DN, Tag, Ts, Shard) ->
         clientid = DN,
         pid = self(),
         claim = {Tag, Ts}
+    },
+    ets:insert(emqx_bcast_pull_shard:tab(Shard, bcast_client_state), Row),
+    ok.
+
+seed_restage_claim_row(PK, DN, Tag, Ts, Shard) ->
+    Row = #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = self(),
+        claim = {Tag, Ts},
+        rearm_at = {Ts, restage}
     },
     ets:insert(emqx_bcast_pull_shard:tab(Shard, bcast_client_state), Row),
     ok.
@@ -3040,6 +3300,52 @@ t_pull_topic_added_rearms_idle_client(_Config) ->
     cleanup_row(PK, DN),
     emqx_bcast:unregister_device(PK, DN, self()).
 
+-doc "A late subscription event from the previous connection must not adopt\n"
+"its PID back over the current generation. The registry is the ownership\n"
+"authority for these non-lifecycle events.".
+t_pull_stale_topic_added_does_not_roll_back_generation(_Config) ->
+    PK = <<"PSTALETOPIC">>,
+    DN = <<"DSTALETOPIC">>,
+    Self = self(),
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    OldPid = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    try
+        _ = emqx_bcast:register_device(PK, DN, Self),
+        ets:insert(emqx_bcast_pull_shard:tab(Shard, bcast_client_state), #bcast_client_state{
+            key = {PK, DN},
+            product_key = PK,
+            clientid = DN,
+            pid = Self,
+            topics = [{<<"keep">>, 1}]
+        }),
+        emqx_bcast_pull_shard:cast_client(
+            PK, DN, {topic_added, DN, OldPid, PK, <<"stale">>, 1}
+        ),
+        _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
+        #bcast_client_state{
+            pid = CurrentPid,
+            topics = StaleTopics,
+            claim = StaleClaim
+        } = row_lookup(PK, DN),
+        ?assertEqual(Self, CurrentPid),
+        ?assertEqual([{<<"keep">>, 1}], StaleTopics),
+        ?assertEqual(undefined, StaleClaim),
+        emqx_bcast_pull_shard:cast_client(
+            PK, DN, {topic_added, DN, Self, PK, <<"fresh">>, 1}
+        ),
+        _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
+        #bcast_client_state{pid = Self, topics = FreshTopics} = row_lookup(PK, DN),
+        ?assert(lists:keymember(<<"fresh">>, 1, FreshTopics))
+    after
+        cleanup_row(PK, DN),
+        emqx_bcast:unregister_device(PK, DN, Self),
+        exit(OldPid, kill)
+    end.
+
 -doc "A claim round answered no_more must re-arm the client when the core\n"
 "reports that entries are still waiting: no_more is not only the drained\n"
 "answer, it is also what the core says while the entries are there and\n"
@@ -3065,6 +3371,47 @@ t_pull_no_more_residual_rearms_only_when_entries_remain(_Config) ->
     Tag2 = 424243,
     seed_claim_row(PK, DN2, Tag2, erlang:system_time(millisecond), Shard),
     gen_server:cast(Name, {deliver_results, [{DN2, {no_more, 0}}], [{DN2, Tag2, PK}]}),
+    _ = sys:get_state(Name),
+    ?assertEqual(undefined, row_claim_of(PK, DN2)),
+    ?assertEqual(undefined, rearm_at_of(PK, DN2)),
+    cleanup_row(PK, DN1),
+    cleanup_row(PK, DN2).
+
+-doc "A restage marker can only be cleared when the core acknowledges the\n"
+"capability. An older core ignores the restage request and may still hold the\n"
+"previous generation's in-flight claim; its ordinary no_more must keep the\n"
+"marker for the sweep until the claim lease is reclaimed.".
+t_pull_legacy_no_more_preserves_restage(_Config) ->
+    PK = <<"PRESTAGEACK">>,
+    [DN1, DN2] = same_shard_dns(PK, 7, 2),
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN1),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    Tag1 = 515151,
+    seed_restage_claim_row(
+        PK, DN1, Tag1, erlang:system_time(millisecond), Shard
+    ),
+    gen_server:cast(
+        Name,
+        {
+            deliver_results, [{DN1, {no_more, 0}}], [{DN1, Tag1, PK}]
+        }
+    ),
+    _ = sys:get_state(Name),
+    ?assertEqual(undefined, row_claim_of(PK, DN1)),
+    ?assertMatch(
+        #bcast_client_state{rearm_at = {_, restage}},
+        row_lookup(PK, DN1)
+    ),
+    Tag2 = 515152,
+    seed_restage_claim_row(
+        PK, DN2, Tag2, erlang:system_time(millisecond), Shard
+    ),
+    gen_server:cast(
+        Name,
+        {
+            deliver_results, [{DN2, {no_more, 0, restage_acked}}], [{DN2, Tag2, PK}]
+        }
+    ),
     _ = sys:get_state(Name),
     ?assertEqual(undefined, row_claim_of(PK, DN2)),
     ?assertEqual(undefined, rearm_at_of(PK, DN2)),
@@ -4401,24 +4748,17 @@ t_index_shard_deactivates_when_ownership_moves(_Config) ->
     %% Ownership comes back: the dormant shard rebuilds itself.
     ?assert(wait_until(fun() -> shard_active(Shard) end, 200)).
 
--doc "A flush that dies between the marker write and the counter decrement must\n"
-"not resurrect an already-acked device. The marker is the durable record a\n"
-"rebuild consults, so the remaining-ack count may stay too high (the delivery\n"
-"finishes late, or is reclaimed by the TTL) but never too low - a low count\n"
-"would re-deliver the message and decrement a second time. Both tables live in\n"
-"one mria shard (mria_config:shard_rlookup/1), so the decrement cannot reach a\n"
-"replica ahead of the marker, and this pins the write order the design relies\n"
-"on.".
+-doc "A full-part ACK marker written by an older core may not have a matching\n"
+"account row even though the new delivery has its sentinel. A later part must\n"
+"notice the unaccounted complete marker and take recovery, not the fast path.".
 t_ack_marker_survives_lost_counter_decrement(_Config) ->
     PK = <<"PMARKERWIN">>,
-    A = <<"DMARKERWIN_A">>,
-    B = <<"DMARKERWIN_B">>,
+    {A, B} = two_different_shards(PK),
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"marker window">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
     ),
-    ok = emqx_bcast_index_owner:rebuild_index(),
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, A})),
     %% The crash window: the ack flush persisted A's marker and died before
     %% decrementing the remaining-ack count, which therefore still says 2.
@@ -4427,58 +4767,51 @@ t_ack_marker_survives_lost_counter_decrement(_Config) ->
         [#bcast_msg_meta_counter{counter = 2}],
         mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)
     ),
-    ok = emqx_bcast_index_owner:rebuild_index(),
-    %% A stays out of the rebuilt index: no duplicate delivery, and its
-    %% replayed ack finds nothing to count a second time.
+    %% The old ack had already removed A's index entry before its counter
+    %% write was lost. Remove it directly so the delivery row and the durable
+    %% marker remain, but no rebuild corrects the counter first.
+    ?assertEqual(1, emqx_bcast_index_owner:remove_batch([{PK, A, DeliveryId}])),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
     not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
-    %% B's ack is durable and its decrement applied; the count is still above
-    %% zero because A's decrement was lost, so the delivery is not finished
-    %% here - the next rebuild reconciles it from the markers.
+    %% B's report sees A's complete marker without an account row, falls back
+    %% to recovery, accounts both parts, and completes without waiting for a
+    %% rebuild or TTL.
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
-    timer:sleep(200),
-    ok = emqx_bcast_index_owner:rebuild_index(),
-    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
 
--doc "The ack flush must persist the device marker before it decrements the\n"
-"remaining-ack count: the marker is what a rebuild consults, so a crash\n"
-"between the two writes may leave the count too high but must never leave it\n"
-"decremented with the marker missing. This pins the order itself, which the\n"
-"same-shard mria replication then preserves for every core.".
-t_ack_flush_writes_marker_before_counter(_Config) ->
+-doc "A completed part commits its full ACK marker, accounting watermark, and\n"
+"counter decrement together. The durable state therefore never contains a\n"
+"marker without the corresponding accounting decision.".
+t_ack_part_report_commits_marker_watermark_and_counter(_Config) ->
     PK = <<"PORDER">>,
-    A = <<"DORDER_A">>,
-    B = <<"DORDER_B">>,
+    [A1, A2] = same_shard_dns(PK, 0, 2),
+    [C] = same_shard_dns(PK, 1, 1),
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"write order">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(
-        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A1, A2, C], 3
     ),
     ok = emqx_bcast_index_owner:rebuild_index(),
-    TestProc = self(),
-    meck:new(mnesia, [passthrough, no_link]),
-    try
-        meck:expect(mnesia, dirty_update_counter, fun(Tab, Key, Incr) ->
-            case {Tab, Key} of
-                {bcast_msg_meta_counter, DeliveryId} ->
-                    TestProc !
-                        {marker_durable_before_decrement,
-                            mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= []};
-                _ ->
-                    ok
-            end,
-            meck:passthrough([Tab, Key, Incr])
-        end),
-        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-        receive
-            {marker_durable_before_decrement, Durable} -> ?assert(Durable)
-        after 5000 ->
-            ?assert(false)
-        end
-    after
-        meck:unload(mnesia)
-    end.
+    counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
+    counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
+    ?assertEqual(1, ack_counter(DeliveryId)),
+    Markers = mnesia:dirty_read(bcast_msg_acked, DeliveryId),
+    AckedDevices = lists:append([
+        DeviceNames
+     || #bcast_msg_acked{device_names = DeviceNames} <- Markers
+    ]),
+    ?assertEqual(lists:sort([A1, A2]), lists:usort(AckedDevices)),
+    [Account] = [
+        A
+     || #bcast_msg_part_accounted{shard = Shard} = A <-
+            mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
+        is_integer(Shard)
+    ],
+    ?assertEqual(emqx_bcast_index_owner:shard_of({PK, A1}), Account#bcast_msg_part_accounted.shard),
+    ?assertEqual(2, Account#bcast_msg_part_accounted.acked),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, C})).
+
 -doc "A peer that has not been upgraded yet releases claims as\n"
 "{claim, {PK, DN, Did}} - the nested shape that crashed the sender's own index\n"
 "shards. The receiver must release it instead of crashing, and must not crash\n"
@@ -5084,7 +5417,7 @@ t_intake_admission_counts_deferred(_Config) ->
     %% (its workers would otherwise drain it).
     ok = supervisor:terminate_child(emqx_bcast_sup, emqx_bcast_promoter),
     try
-        Depth = ?INTAKE_QUEUE_DEPTH,
+        Depth = emqx_bcast_intake:queue_limit(),
         Enqueued = [
             emqx_bcast_intake:enqueue(retry_entry(<<"PCAP">>, <<"DCAP">>))
          || _ <- lists:seq(1, Depth)
@@ -5112,20 +5445,378 @@ t_intake_admission_counts_deferred(_Config) ->
         ?assertEqual(full, emqx_bcast_intake:enqueue(retry_entry(<<"PCAP">>, <<"DCAP">>))),
         ?assert(emqx_bcast_intake:depth() < Depth),
         persistent_term:put({?APP, config}, Cfg#{max_pending_deliveries => 0}),
-        {ok, 429, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{
-            body => #{
-                <<"Action">> => <<"BatchPub">>,
-                <<"ProductKey">> => <<"PCAP">>,
-                <<"DeviceName">> => [<<"DCAP-API">>],
-                <<"MessageContent">> => <<"aGVsbG8=">>,
-                <<"Qos">> => 1
-            }
-        }),
-        ?assertEqual(<<"Busy">>, maps:get(<<"Code">>, Resp))
+        ok = emqx_bcast_log_throttle:init(),
+        Reports = emqx_cth_log_capture:capture(debug, fun() ->
+            put(
+                rate_limit_result,
+                emqx_bcast_api:handle(post, [<<"pub">>], #{
+                    body => #{
+                        <<"Action">> => <<"BatchPub">>,
+                        <<"ProductKey">> => <<"PCAP">>,
+                        <<"DeviceName">> => [<<"DCAP-API">>],
+                        <<"MessageContent">> => <<"aGVsbG8=">>,
+                        <<"Qos">> => 1
+                    }
+                })
+            ),
+            ok
+        end),
+        {ok, 429, _, Resp} = erase(rate_limit_result),
+        ?assertEqual(<<"Busy">>, maps:get(<<"Code">>, Resp)),
+        ?assert(
+            lists:any(
+                fun(R) ->
+                    maps:get(msg, R, undefined) =:= bcast_batch_pub_intake_busy
+                end,
+                Reports
+            )
+        )
     after
         persistent_term:put({?APP, config}, Cfg),
         catch emqx_bcast_intake:reset(),
         {ok, _} = supervisor:restart_child(emqx_bcast_sup, emqx_bcast_promoter)
+    end.
+
+-doc "Repeated promotion failures must retain accepted reuse requests in the\n"
+"deferred queue and apply bounded intake backpressure. This injects the\n"
+"promotion failure at its storage boundary to exercise the downstream\n"
+"API -> intake -> promoter -> deferred -> Busy chain with 200 distinct\n"
+"devices in every request.".
+t_nomore_promotion_backlog_returns_busy_429(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    PK = <<"PNOMOREBUSY">>,
+    {ApiMsgId, _MsgId} = create_test_msg(<<"nomore backlog">>),
+    Requests = 16,
+    DevicesPerRequest = 200,
+    ok = application:set_env(?APP, intake_queue_depth, Requests),
+    ok = supervisor:terminate_child(emqx_bcast_sup, emqx_bcast_promoter),
+    try
+        %% All requests use the same MessageId but distinct deliveries/devices.
+        Accepted = run_concurrent_reuse_batch_pub(
+            ApiMsgId, PK, Requests, DevicesPerRequest
+        ),
+        ?assertEqual(
+            [],
+            [
+                Result
+             || Result <- Accepted,
+                element(1, Result) =/= ok orelse element(2, Result) =/= 200
+            ]
+        ),
+        ?assert(emqx_bcast_intake:admission_depth() >= Requests),
+        Test = self(),
+        ok = meck:new(emqx_bcast_storage, [passthrough, no_link]),
+        ok = meck:expect(emqx_bcast_storage, promote_batch, fun(Entries) ->
+            Test ! {promote_attempt, length(Entries)},
+            {error, nomore}
+        end),
+        Reports = emqx_cth_log_capture:capture(debug, fun() ->
+            {ok, _} = supervisor:restart_child(emqx_bcast_sup, emqx_bcast_promoter),
+            receive
+                {promote_attempt, BatchSize} when BatchSize > 0 -> ok
+            after 5000 ->
+                ct:fail(promotion_attempt_not_observed)
+            end,
+            ?assert(wait_for_deferred_depth(Requests, 1000)),
+            put(
+                red_busy_result,
+                reuse_batch_pub_api(
+                    ApiMsgId,
+                    PK,
+                    reuse_device_names(Requests + 1, DevicesPerRequest)
+                )
+            )
+        end),
+        BusyResult = erase(red_busy_result),
+        ct:pal(
+            "reuse nomore backlog: accepted=~p deferred=~p result=~p reports=~p",
+            [
+                length(Accepted),
+                emqx_bcast_intake:deferred_depth(),
+                BusyResult,
+                Reports
+            ]
+        ),
+        ?assert(
+            lists:any(
+                fun(R) ->
+                    maps:get(msg, R, undefined) =:= "bcast_promote_batch_failed" andalso
+                        maps:get(reason, R, undefined) =:= nomore
+                end,
+                Reports
+            )
+        ),
+        ?assert(
+            lists:any(
+                fun(R) ->
+                    maps:get(msg, R, undefined) =:= "bcast_promoter_promote_deferred" andalso
+                        maps:get(result, R, undefined) =:= nomore
+                end,
+                Reports
+            )
+        ),
+        {ok, 429, _, BusyResp} = BusyResult,
+        ?assertEqual(<<"Busy">>, maps:get(<<"Code">>, BusyResp)),
+        ?assert(
+            lists:any(
+                fun(R) ->
+                    maps:get(msg, R, undefined) =:= bcast_batch_pub_intake_busy
+                end,
+                Reports
+            )
+        )
+    after
+        catch meck:unload(emqx_bcast_storage),
+        application:unset_env(?APP, intake_queue_depth),
+        persistent_term:put({?APP, config}, Cfg),
+        catch supervisor:terminate_child(emqx_bcast_sup, emqx_bcast_promoter),
+        catch emqx_bcast_intake:reset(),
+        catch supervisor:restart_child(emqx_bcast_sup, emqx_bcast_promoter)
+    end.
+
+-doc "A reuse request can be accepted while an already-expired message row is\n"
+"still waiting for cleanup. The admission lookup does not refresh TTL. If\n"
+"cleanup removes the row before promotion, promotion reports deleted and the\n"
+"request is dropped; it does not enter a Mnesia retry loop or return nomore.".
+t_reuse_accepted_at_ttl_edge_is_dropped_not_nomore(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    PK = <<"PTTLEDGE">>,
+    {ApiMsgId, MsgId} = create_test_msg(<<"ttl edge reuse">>),
+    ExpiredAt = emqx_bcast_utils:now_sec() - 1,
+    {atomic, ok} = mnesia:transaction(fun() ->
+        [#bcast_message{} = Msg] = mnesia:wread({bcast_message, MsgId}),
+        mnesia:write(Msg#bcast_message{expires_at = ExpiredAt})
+    end),
+    DevicesPerRequest = 200,
+    ok = supervisor:terminate_child(emqx_bcast_sup, emqx_bcast_promoter),
+    try
+        {ok, 200, _, _} = reuse_batch_pub_api(
+            ApiMsgId,
+            PK,
+            reuse_device_names(1, DevicesPerRequest)
+        ),
+        ?assertEqual(1, emqx_bcast_intake:depth()),
+        ?assertMatch(
+            {ok, #bcast_message{expires_at = ExpiredAt}},
+            emqx_bcast_storage:lookup_message(MsgId)
+        ),
+        Reports = emqx_cth_log_capture:capture(debug, fun() ->
+            ok = emqx_bcast_storage:cleanup_expired(),
+            ?assertEqual(
+                {error, not_found},
+                emqx_bcast_storage:lookup_message(MsgId)
+            ),
+            {ok, _} = supervisor:restart_child(
+                emqx_bcast_sup, emqx_bcast_promoter
+            ),
+            ?assert(
+                wait_until(
+                    fun() ->
+                        emqx_bcast_intake:depth() =:= 0 andalso
+                            emqx_bcast_intake:deferred_depth() =:= 0
+                    end,
+                    200
+                )
+            )
+        end),
+        ?assertEqual([], nomore_promotion_reports(Reports)),
+        ?assert(
+            lists:any(
+                fun(R) ->
+                    maps:get(msg, R, undefined) =:=
+                        "bcast_promoter_dropped_deleted_message"
+                end,
+                Reports
+            )
+        ),
+        ?assertEqual(0, mnesia:table_info(bcast_msg, size)),
+        ?assertEqual(0, emqx_bcast_storage:pending_delivery_count())
+    after
+        persistent_term:put({?APP, config}, Cfg),
+        catch supervisor:terminate_child(emqx_bcast_sup, emqx_bcast_promoter),
+        catch emqx_bcast_intake:reset(),
+        catch supervisor:restart_child(emqx_bcast_sup, emqx_bcast_promoter)
+    end.
+
+-doc "Reuse refreshes TTL from the request's admission timestamp, not from\n"
+"promotion completion. If concurrent promotions commit out of admission\n"
+"order, an older request must not shorten an expiry already extended by a\n"
+"newer one.".
+t_reuse_ttl_refresh_is_monotonic(_Config) ->
+    Payload = <<"monotonic reuse ttl">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgId} = create_test_msg(Payload),
+    PK = <<"PTTLMONOTONIC">>,
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = 3600,
+    {atomic, ok} = mnesia:transaction(fun() ->
+        [Msg] = mnesia:wread({bcast_message, MsgId}),
+        mnesia:write(Msg#bcast_message{expires_at = Now - 100})
+    end),
+    Newer = #{
+        created_at => Now + 10,
+        expires_at => Now + 10 + TTL
+    },
+    Older = #{
+        created_at => Now,
+        expires_at => Now + TTL
+    },
+    NewerEntry = maps:merge(
+        reuse_promotion_entry(ApiMsgId, MsgId, Hash, Payload, PK, 1, 1),
+        Newer
+    ),
+    OlderEntry = maps:merge(
+        reuse_promotion_entry(ApiMsgId, MsgId, Hash, Payload, PK, 2, 1),
+        Older
+    ),
+    ?assertEqual({ok, [ok]}, emqx_bcast_storage:promote_batch([NewerEntry])),
+    {ok, AfterNewer} = emqx_bcast_storage:lookup_message(MsgId),
+    ?assertEqual(Now + 10 + TTL, AfterNewer#bcast_message.expires_at),
+    ?assertEqual({ok, [ok]}, emqx_bcast_storage:promote_batch([OlderEntry])),
+    {ok, AfterOlder} = emqx_bcast_storage:lookup_message(MsgId),
+    ?assertEqual(Now + 10 + TTL, AfterOlder#bcast_message.expires_at).
+
+-doc "The synchronous legacy promotion path applies the same monotonic TTL\n"
+"refresh as the async promoter.".
+t_legacy_reuse_ttl_refresh_is_monotonic(_Config) ->
+    Payload = <<"monotonic legacy reuse ttl">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgId} = create_test_msg(Payload),
+    PK = <<"PTTLLEGACY">>,
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = 3600,
+    {atomic, ok} = mnesia:transaction(fun() ->
+        [Msg] = mnesia:wread({bcast_message, MsgId}),
+        mnesia:write(Msg#bcast_message{expires_at = Now - 100})
+    end),
+    NewerEntry = maps:merge(
+        reuse_promotion_entry(ApiMsgId, MsgId, Hash, Payload, PK, 1, 1),
+        #{created_at => Now + 10, expires_at => Now + 10 + TTL}
+    ),
+    OlderEntry = maps:merge(
+        reuse_promotion_entry(ApiMsgId, MsgId, Hash, Payload, PK, 2, 1),
+        #{created_at => Now, expires_at => Now + TTL}
+    ),
+    {atomic, {ok, _, _}} = mnesia:transaction(fun() ->
+        emqx_bcast_storage:promote_entry_tx(NewerEntry)
+    end),
+    {ok, AfterNewer} = emqx_bcast_storage:lookup_message(MsgId),
+    ?assertEqual(Now + 10 + TTL, AfterNewer#bcast_message.expires_at),
+    {atomic, {ok, _, _}} = mnesia:transaction(fun() ->
+        emqx_bcast_storage:promote_entry_tx(OlderEntry)
+    end),
+    {ok, AfterOlder} = emqx_bcast_storage:lookup_message(MsgId),
+    ?assertEqual(Now + 10 + TTL, AfterOlder#bcast_message.expires_at).
+
+nomore_promotion_reports(Reports) ->
+    [
+        R
+     || R <- Reports,
+        maps:get(msg, R, undefined) =:= "bcast_promote_batch_failed",
+        maps:get(reason, R, undefined) =:= nomore
+    ].
+
+reuse_batch_pub_api(ApiMsgId, PK, DeviceNames) ->
+    emqx_bcast_api:handle(post, [<<"pub">>], #{
+        body => #{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => PK,
+            <<"DeviceName">> => DeviceNames,
+            <<"MessageId">> => ApiMsgId,
+            <<"Qos">> => 1
+        }
+    }).
+
+run_concurrent_reuse_batch_pub(ApiMsgId, PK, Count, DevicesPerRequest) ->
+    Parent = self(),
+    Workers = [
+        begin
+            DeviceNames = reuse_device_names(Index, DevicesPerRequest),
+            Pid = spawn(fun() ->
+                Parent ! {batch_pub_ready, Index, self()},
+                receive
+                    go ->
+                        Parent !
+                            {
+                                batch_pub_result,
+                                Index,
+                                reuse_batch_pub_api(ApiMsgId, PK, DeviceNames)
+                            }
+                end
+            end),
+            {Index, Pid}
+        end
+     || Index <- lists:seq(1, Count)
+    ],
+    wait_for_batch_pub_ready(Count),
+    lists:foreach(fun({_Index, Pid}) -> Pid ! go end, Workers),
+    Results = collect_batch_pub_results(Count, #{}),
+    [maps:get(Index, Results) || Index <- lists:seq(1, Count)].
+
+run_paced_reuse_batch_pub(ApiMsgId, PK, Count, DevicesPerRequest, IntervalMs) ->
+    Parent = self(),
+    Workers = [
+        begin
+            DeviceNames = reuse_device_names(Index, DevicesPerRequest),
+            Pid = spawn(fun() ->
+                Parent ! {batch_pub_ready, Index, self()},
+                receive
+                    go ->
+                        timer:sleep((Index - 1) * IntervalMs),
+                        Parent !
+                            {
+                                batch_pub_result,
+                                Index,
+                                reuse_batch_pub_api(ApiMsgId, PK, DeviceNames)
+                            }
+                end
+            end),
+            {Index, Pid}
+        end
+     || Index <- lists:seq(1, Count)
+    ],
+    wait_for_batch_pub_ready(Count),
+    lists:foreach(fun({_Index, Pid}) -> Pid ! go end, Workers),
+    Results = collect_batch_pub_results(Count, #{}),
+    [maps:get(Index, Results) || Index <- lists:seq(1, Count)].
+
+reuse_device_names(RequestIndex, Count) ->
+    [
+        iolist_to_binary(
+            io_lib:format("DN-REUSE-~B-~B", [RequestIndex, DeviceIndex])
+        )
+     || DeviceIndex <- lists:seq(1, Count)
+    ].
+
+wait_for_batch_pub_ready(0) ->
+    ok;
+wait_for_batch_pub_ready(N) ->
+    receive
+        {batch_pub_ready, _Index, _Pid} ->
+            wait_for_batch_pub_ready(N - 1)
+    after 10000 ->
+        ct:fail(batch_pub_worker_ready_timeout)
+    end.
+
+collect_batch_pub_results(0, Acc) ->
+    Acc;
+collect_batch_pub_results(N, Acc) ->
+    receive
+        {batch_pub_result, Index, Result} ->
+            collect_batch_pub_results(N - 1, maps:put(Index, Result, Acc))
+    after 30000 ->
+        ct:fail({batch_pub_result_timeout, maps:size(Acc)})
+    end.
+
+wait_for_deferred_depth(_Depth, 0) ->
+    false;
+wait_for_deferred_depth(Depth, Attempts) ->
+    case emqx_bcast_intake:deferred_depth() >= Depth of
+        true ->
+            true;
+        false ->
+            timer:sleep(2),
+            wait_for_deferred_depth(Depth, Attempts - 1)
     end.
 
 -doc "The TTL reap must not strip a message whose expiry a concurrent refresh\n"
@@ -5509,6 +6200,44 @@ t_ack_counter_repaired_when_decrement_is_lost(_Config) ->
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)).
+
+-doc "A partial ACK that an older recovery pass already counted must not be\n"
+"counted again when its part later completes. The per-part accounting\n"
+"watermark detects the mixed/recovery state and reconciles whole-part markers\n"
+"conservatively, so another unacknowledged part cannot be completed early.".
+t_part_report_does_not_recount_reconciled_partial_ack(_Config) ->
+    PK = <<"PRECOUNT">>,
+    [A1, A2] = same_shard_dns(PK, 0, 2),
+    [B1, B2, B3] = same_shard_dns(PK, 1, 3),
+    [C] = same_shard_dns(PK, 2, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"partial reconcile watermark">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A1, A2, B1, B2, B3, C], 6
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    %% Finish part A (two devices).
+    counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
+    counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
+    ?assertEqual(4, ack_counter(DeliveryId)),
+    %% Start part B. Simulate an older recovery pass that counted this partial
+    %% marker when it reconciled the delivery globally.
+    counted = emqx_bcast_storage:process_ack(PK, B1, DeliveryId),
+    ok = mnesia:dirty_write(#bcast_msg_meta_counter{
+        delivery_id = DeliveryId,
+        counter = 3
+    }),
+    %% Completing B must count all three of B's devices exactly once and leave
+    %% exactly C outstanding. A blind full-part decrement would reach zero and
+    %% delete C's still-unacknowledged delivery.
+    counted = emqx_bcast_storage:process_ack(PK, B2, DeliveryId),
+    counted = emqx_bcast_storage:process_ack(PK, B3, DeliveryId),
+    ?assertEqual(1, ack_counter(DeliveryId)),
+    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, C})),
+    counted = emqx_bcast_storage:process_ack(PK, C, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)).
 
 -doc "Deleting one delivery must fail - and keep the durable rows - when a\n"
 "device shard cannot remove its index entry: deleting the rows first would\n"
