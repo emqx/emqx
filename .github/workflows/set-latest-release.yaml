@@ -1,0 +1,58 @@
+name: Set latest release
+
+# Point the GitHub 'Latest' release at the newest published release of the
+# line in the LATEST_RELEASE_LINE repository variable, e.g. 6.3. Scripts that
+# download EMQX read it from https://github.com/emqx/emqx/releases/latest.
+#
+# GitHub marks every newly published release as Latest by default, so
+# publishing a release of another line moves it. A 'release' trigger would run
+# this file from the tagged commit, which on an older branch does not have it.
+# 'workflow_run' always runs it from the default branch, so it runs after every
+# release, whichever branch the release was cut from.
+
+concurrency:
+  group: set-latest-release
+  cancel-in-progress: false
+
+on:
+  workflow_run:
+    workflows:
+      - Upload release assets
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  set-latest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/parse-git-ref.sh
+          sparse-checkout-cone-mode: false
+      - name: Set latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST_RELEASE_LINE: ${{ vars.LATEST_RELEASE_LINE }}
+        run: |
+          set -euo pipefail
+          tag="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+                   --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' \
+                 | ./scripts/parse-git-ref.sh --pick-latest)"
+          if [ -z "$tag" ]; then
+            echo "::warning::No published release matches LATEST_RELEASE_LINE='${LATEST_RELEASE_LINE}'"
+            exit 0
+          fi
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name || true)"
+          if [ "$current" = "$tag" ]; then
+            echo "The latest release is already $tag"
+            exit 0
+          fi
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq .id)"
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${id}" -f make_latest=true --silent
+          echo "The latest release moved from ${current:-none} to $tag"

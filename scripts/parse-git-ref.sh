@@ -3,39 +3,89 @@
 set -euo pipefail
 
 # $1 is fully qualified git ref name, e.g. refs/tags/6.0.0 or refs/heads/master
+#
+# With --pick-latest instead, read tag names on stdin, one per line, and print
+# the one that is the latest release under the rule below, or nothing. The
+# set-latest-release workflow feeds it the tags of published GitHub releases.
+#
+# Environment:
+#   LATEST_RELEASE_LINE  Optional MAJOR.MINOR, e.g. 6.3. When set, only the
+#                        highest stable tag of that line is the latest
+#                        release. When empty, the highest stable tag of all
+#                        lines is. Set from the repository variable of the
+#                        same name, so the latest line moves without a commit.
 
-is_latest_stable() {
-  local ref_name
+# Read tag names on stdin and print the highest stable one (X.Y.Z, no suffix)
+# whose name starts with the given prefix, e.g. '6.3.' or '6.' or '' for any.
+pick_highest_stable() {
+  local prefix="$1" tag
+  while IFS= read -r tag || [[ -n "$tag" ]]; do
+    if [[ "$tag" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ && "$tag" == "$prefix"* ]]; then
+      echo "$tag"
+    fi
+  done | sort -V | tail -n1
+}
+
+highest_stable_tag() {
+  git tag --list | pick_highest_stable "$1"
+}
+
+# Print true when the tag in ref $1 is the highest stable tag with prefix $2.
+is_highest_stable() {
+  local ref_name prefix highest
   ref_name="$(basename "$1")"
-
-  # Find all tags that look like stable releases: X.Y.Z with no suffix
-  # Example matches: 6.0.0, 6.0.1 ; excludes 6.0.0-rc1, 6.0.0-beta, etc.
-  local latest_stable
-  latest_stable="$(
-    git tag --list \
-    | grep -E '^[1-9]+\.[0-9]+\.[0-9]+$' \
-    | sort -V \
-    | tail -n1
-  )"
-
-  # If no stable tags found, it's not the latest stable.
-  if [[ -z "$latest_stable" ]]; then
-    echo false
-    return
-  fi
-
-  if [[ "$ref_name" == "$latest_stable" ]]; then
+  prefix="$2"
+  highest="$(highest_stable_tag "$prefix")"
+  if [[ -n "$highest" && "$ref_name" == "$highest" ]]; then
     echo true
   else
     echo false
   fi
 }
 
+# Print the tag prefix of the latest line: '6.3.' for LATEST_RELEASE_LINE=6.3,
+# or '' for any line when it is empty.
+latest_line_prefix() {
+  local line="${LATEST_RELEASE_LINE:-}"
+  if [[ -z "$line" ]]; then
+    echo ''
+  elif [[ "$line" =~ ^[1-9][0-9]*\.[0-9]+$ ]]; then
+    echo "${line}."
+  else
+    echo "LATEST_RELEASE_LINE must be MAJOR.MINOR, e.g. 6.3, got: $line" 1>&2
+    exit 1
+  fi
+}
+
+# The release that gets the 'latest' docker tag, the public broker update and
+# the GitHub 'Latest' release.
+is_latest_stable() {
+  local prefix
+  prefix="$(latest_line_prefix)" || exit 1
+  is_highest_stable "$1" "$prefix"
+}
+
+# The release that gets the 'MAJOR' docker tag: the highest stable tag of its
+# major version, independent of LATEST_RELEASE_LINE.
+is_latest_in_major() {
+  local ref_name
+  ref_name="$(basename "$1")"
+  is_highest_stable "$1" "${ref_name%%.*}."
+}
+
+if [[ "${1:-}" == "--pick-latest" ]]; then
+  prefix="$(latest_line_prefix)" || exit 1
+  pick_highest_stable "$prefix"
+  exit 0
+fi
+
 PROFILE=emqx-enterprise
 OFFICIAL_RELEASE=false
 # A preview tag (X.Y.Z-preview.N, cut on a preview-* branch) builds and
 # uploads packages, but must not reach GA channels or the release docs.
 PREVIEW=false
+# Only a stable X.Y.Z tag can be the latest of its major version.
+LATEST_MAJOR=false
 
 if [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+$ ]]; then
     RELEASE=true
@@ -50,6 +100,7 @@ elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+$ ]]; then
     RELEASE=true
     OFFICIAL_RELEASE=true
     LATEST=$(is_latest_stable "$1")
+    LATEST_MAJOR=$(is_latest_in_major "$1")
 elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-patch\.[0-9]+$ ]]; then
     RELEASE=true
     OFFICIAL_RELEASE=true
@@ -76,5 +127,5 @@ else
 fi
 
 cat <<EOF
-{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST, "official_release": $OFFICIAL_RELEASE, "preview": $PREVIEW}
+{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST, "latest_major": $LATEST_MAJOR, "official_release": $OFFICIAL_RELEASE, "preview": $PREVIEW}
 EOF

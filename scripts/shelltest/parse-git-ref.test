@@ -55,47 +55,47 @@ Unrecognized tag: refs/tags/e5.3.0-rc.1
 
 ./parse-git-ref.sh refs/tags/6.0.0-M1.202507
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.0.0-M1.202507-alpha.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.0.0-M1.202507-beta.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.0.0-M1.202507-rc.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.1.0-M2.202508
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.1.0-M2.202508-alpha.2
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.3.0-patch.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": true, "preview": false}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": true, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.1.5-preview.1
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": true}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": false, "preview": true}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/7.0.0-preview.12
 >>>
-{"profile": "emqx-enterprise", "release": true, "latest": false, "official_release": false, "preview": true}
+{"profile": "emqx-enterprise", "release": true, "latest": false, "latest_major": false, "official_release": false, "preview": true}
 >>>= 0
 
 ./parse-git-ref.sh refs/tags/6.1.5-preview
@@ -140,7 +140,7 @@ false
 
 ./parse-git-ref.sh refs/heads/master
 >>>
-{"profile": "emqx-enterprise", "release": false, "latest": false, "official_release": false, "preview": false}
+{"profile": "emqx-enterprise", "release": false, "latest": false, "latest_major": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/heads/release-51
@@ -160,10 +160,91 @@ Unrecognized git ref: refs/heads/release-53
 
 ./parse-git-ref.sh refs/heads/ci/foobar
 >>>
-{"profile": "emqx-enterprise", "release": false, "latest": false, "official_release": false, "preview": false}
+{"profile": "emqx-enterprise", "release": false, "latest": false, "latest_major": false, "official_release": false, "preview": false}
 >>>= 0
 
 ./parse-git-ref.sh refs/heads/release-44
 >>>2
 Unrecognized git ref: refs/heads/release-44
+>>>= 1
+
+## The latest release follows LATEST_RELEASE_LINE. The tags are created by parse-git-ref.setup in a
+## scratch repository: 6.2.9 6.3.0 6.3.2 6.3.10 7.0.0 7.0.1 7.1.0-rc.1 7.1.0-patch.1
+
+## No line set: the highest stable tag of any line.
+cd shelltest/parse-git-ref.repo && ../../parse-git-ref.sh refs/tags/7.0.1 | jq -c '[.latest, .latest_major]'
+>>>
+[true,true]
+>>>= 0
+
+cd shelltest/parse-git-ref.repo && ../../parse-git-ref.sh refs/tags/6.3.10 | jq -c '[.latest, .latest_major]'
+>>>
+[false,true]
+>>>= 0
+
+## Line set: the highest tag of that line, compared by version (6.3.10 > 6.3.2).
+cd shelltest/parse-git-ref.repo && LATEST_RELEASE_LINE=6.3 ../../parse-git-ref.sh refs/tags/6.3.10 | jq -c '[.latest, .latest_major]'
+>>>
+[true,true]
+>>>= 0
+
+cd shelltest/parse-git-ref.repo && LATEST_RELEASE_LINE=6.3 ../../parse-git-ref.sh refs/tags/6.3.2 | jq -c '[.latest, .latest_major]'
+>>>
+[false,false]
+>>>= 0
+
+## A newer major outside the line still gets its :MAJOR tag, but not :latest.
+cd shelltest/parse-git-ref.repo && LATEST_RELEASE_LINE=6.3 ../../parse-git-ref.sh refs/tags/7.0.1 | jq -c '[.latest, .latest_major]'
+>>>
+[false,true]
+>>>= 0
+
+cd shelltest/parse-git-ref.repo && LATEST_RELEASE_LINE=6.3 ../../parse-git-ref.sh refs/tags/7.0.0 | jq -c '[.latest, .latest_major]'
+>>>
+[false,false]
+>>>= 0
+
+## An older line is never the latest.
+cd shelltest/parse-git-ref.repo && LATEST_RELEASE_LINE=6.3 ../../parse-git-ref.sh refs/tags/6.2.9 | jq -c '[.latest, .latest_major]'
+>>>
+[false,false]
+>>>= 0
+
+## A line with no stable release yet: nothing is the latest.
+cd shelltest/parse-git-ref.repo && LATEST_RELEASE_LINE=7.1 ../../parse-git-ref.sh refs/tags/7.0.1 | jq -c '[.latest, .latest_major]'
+>>>
+[false,true]
+>>>= 0
+
+## A malformed line fails the run instead of silently publishing no latest.
+cd shelltest/parse-git-ref.repo && LATEST_RELEASE_LINE=6 ../../parse-git-ref.sh refs/tags/6.3.10
+>>>2
+LATEST_RELEASE_LINE must be MAJOR.MINOR, e.g. 6.3, got: 6
+>>>= 1
+
+## --pick-latest reads tag names on stdin and prints the latest release under the same rule.
+printf '6.2.9\n6.3.2\n6.3.10\n6.3.11-rc.1\n7.0.1\n7.1.0-preview.1\ne5.10.5\n' | LATEST_RELEASE_LINE=6.3 ./parse-git-ref.sh --pick-latest
+>>>
+6.3.10
+>>>= 0
+
+printf '6.2.9\n6.3.2\n6.3.10\n7.0.1\ne5.10.5\n' | ./parse-git-ref.sh --pick-latest
+>>>
+7.0.1
+>>>= 0
+
+## The line prefix matches whole components: 6.3 is not 6.30.
+printf '6.3.2\n6.30.1\n' | LATEST_RELEASE_LINE=6.3 ./parse-git-ref.sh --pick-latest
+>>>
+6.3.2
+>>>= 0
+
+## No release in the line: no output, success. The workflow then leaves Latest alone.
+printf '6.3.2\n' | LATEST_RELEASE_LINE=7.0 ./parse-git-ref.sh --pick-latest
+>>>
+>>>= 0
+
+printf '6.3.2\n' | LATEST_RELEASE_LINE=6.3.2 ./parse-git-ref.sh --pick-latest
+>>>2
+LATEST_RELEASE_LINE must be MAJOR.MINOR, e.g. 6.3, got: 6.3.2
 >>>= 1
