@@ -9,6 +9,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/asserts.hrl").
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
     [
@@ -37,23 +40,20 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(Case, Config) ->
-    {200, DelayedConfig} = request(get, ["mqtt", "delayed"], #{}),
+    {200, DelayedConfig} = request(get, ["mqtt", "delayed"], []),
+    on_exit(fun() ->
+        {200, _} = request(put, ["mqtt", "delayed"], DelayedConfig)
+    end),
     {200, _} = request(put, ["mqtt", "delayed"], #{enable => true, max_delayed_messages => 0}),
     ok = emqx_delayed:clear_all(),
+    on_exit(fun emqx_delayed:clear_all/0),
     {ok, Client} = emqtt:start_link(#{clientid => atom_to_binary(Case), proto_ver => v5}),
+    on_exit(fun() -> catch emqtt:stop(Client) end),
     {ok, _} = emqtt:connect(Client),
-    [{client, Client}, {delayed_config, DelayedConfig} | Config].
+    [{client, Client} | Config].
 
-end_per_testcase(_Case, Config) ->
-    ok = emqx_hooks:del('message.publish', {?MODULE, block_publish}),
-    lists:foreach(
-        fun(Id) -> request(delete, ["rules", Id], #{}) end,
-        [<<"delayed_republish_upstream">>, <<"delayed_republish_downstream">>]
-    ),
-    emqtt:stop(?config(client, Config)),
-    ok = emqx_delayed:clear_all(),
-    {200, _} = request(put, ["mqtt", "delayed"], ?config(delayed_config, Config)),
-    ok.
+end_per_testcase(_Case, _Config) ->
+    emqx_common_test_helpers:call_janitor().
 
 -doc "Check delayed delivery, downstream rule execution, and action metrics.".
 t_delayed_republish(Config) ->
@@ -79,25 +79,16 @@ delayed_republish(Config, Delay, CheckDelay) ->
     ReceivedBefore = received_metrics(),
     {ok, _} = emqtt:publish(Client, Input, <<"delayed">>, 1),
     assert_delayed_delivery(CheckDelay),
-    receive
-        {publish, #{topic := Final, payload := <<"delayed">>}} -> ok
-    after 7000 -> ct:fail(delayed_message_missing)
-    end,
+    ?assertReceive({publish, #{topic := Final, payload := <<"delayed">>}}, 7000),
     assert_metrics(Upstream, 1, 0),
     assert_metrics(Downstream, 1, 0),
     assert_received_metrics(ReceivedBefore, 3),
-    receive
-        {publish, Message1} -> ct:fail({duplicate_delivery, Message1})
-    after 300 -> ok
-    end.
+    ?assertNotReceive({publish, _}, 300, duplicate_delivery).
 
 assert_delayed_delivery(false) ->
     ok;
 assert_delayed_delivery(true) ->
-    receive
-        {publish, Message} -> ct:fail({delivered_too_early, Message})
-    after 500 -> ok
-    end.
+    ?assertNotReceive({publish, _}, 500, delivered_too_early).
 
 -doc "Check that a full delayed queue remains an action failure.".
 t_delayed_queue_full(Config) ->
@@ -110,7 +101,7 @@ t_delayed_queue_full(Config) ->
     {ok, _} = emqtt:publish(Client, Input, <<"rejected">>, 1),
     assert_metrics(Id, 1, 1),
     assert_received_metrics(ReceivedBefore, 3),
-    {200, #{<<"data">> := Messages}} = request(get, ["mqtt", "delayed", "messages"], #{}),
+    {200, #{<<"data">> := Messages}} = request(get, ["mqtt", "delayed", "messages"], []),
     ?assertEqual(1, length(Messages)).
 
 -doc "Check that an unrelated publish hook rejection remains an action failure.".
@@ -120,15 +111,13 @@ t_republish_blocked(Config) ->
     Output = <<"delayed_republish/blocked">>,
     Id = create_rule(upstream, Input, Output),
     ok = emqx_hooks:put('message.publish', {?MODULE, block_publish, [Output]}, 1000),
+    on_exit(fun() -> emqx_hooks:del('message.publish', {?MODULE, block_publish}) end),
     {ok, _, [1]} = emqtt:subscribe(Client, Output, 1),
     ReceivedBefore = received_metrics(),
     {ok, _} = emqtt:publish(Client, Input, <<"blocked">>, 1),
     assert_metrics(Id, 0, 1),
     assert_received_metrics(ReceivedBefore, 1),
-    receive
-        {publish, Message} -> ct:fail({blocked_message_delivered, Message})
-    after 300 -> ok
-    end.
+    ?assertNotReceive({publish, _}, 300, blocked_message_delivered).
 
 -doc "Check that ordinary republishing without subscribers still succeeds.".
 t_republish_no_subscribers(Config) ->
@@ -165,7 +154,7 @@ create_rule(Name, Input, Output) ->
             [Input]
         )
     ),
-    {201, _} = request(post, ["rules"], #{
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(#{
         id => Id,
         sql => SQL,
         actions => [
@@ -175,35 +164,24 @@ create_rule(Name, Input, Output) ->
             }
         ]
     }),
+    on_exit(fun() ->
+        {204, _} = emqx_bridge_v2_testlib:delete_rule_api(Id)
+    end),
     Id.
 
 assert_metrics(Id, Success, Failed) ->
-    assert_metrics(Id, Success, Failed, 20).
-
-assert_metrics(Id, Success, Failed, Retries) ->
-    {200, #{<<"metrics">> := Metrics}} = request(get, ["rules", Id, "metrics"], #{}),
     Expected = #{
         <<"actions.total">> => Success + Failed,
         <<"actions.success">> => Success,
         <<"actions.failed">> => Failed,
         <<"actions.failed.unknown">> => Failed
     },
-    Actual = maps:with(maps:keys(Expected), Metrics),
-    case Actual =:= Expected orelse Retries =:= 0 of
-        true ->
-            ?assertEqual(Expected, Actual);
-        false ->
-            timer:sleep(50),
-            assert_metrics(Id, Success, Failed, Retries - 1)
-    end.
+    ?retry(50, 20, begin
+        {200, #{<<"metrics">> := Metrics}} = request(get, ["rules", Id, "metrics"], []),
+        ?assertEqual(Expected, maps:with(maps:keys(Expected), Metrics))
+    end).
 
 request(Method, Path, Body) ->
-    Params =
-        case Method of
-            get -> [];
-            delete -> [];
-            _ -> Body
-        end,
     emqx_mgmt_api_test_util:simple_request(
-        Method, emqx_mgmt_api_test_util:api_path(Path), Params
+        Method, emqx_mgmt_api_test_util:api_path(Path), Body
     ).
