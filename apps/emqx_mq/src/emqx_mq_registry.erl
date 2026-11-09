@@ -22,6 +22,8 @@ The module contains the registry of Message Queues.
     delete_by_id/1,
     mark_deleting/1,
     is_deleting/1,
+    purge/1,
+    purge/2,
     update/2,
     list/0,
     list/2,
@@ -196,6 +198,44 @@ delete(Name) ->
             delete_by_id(Id);
         not_found ->
             not_found
+    end.
+
+-doc """
+Delete all messages of the queue, then set its delivery cutoff to the purge boundary.
+Keep a later stored delivery cutoff.
+Refuse while some cluster node does not support the serial quota index.
+""".
+-spec purge(emqx_mq_types:mq_name()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name) ->
+    maybe
+        ok ?= check_purge_supported(),
+        {ok, #{id := Id} = MQ} ?= find(Name),
+        {ok, CutoffMs} ?= emqx_mq_message_db:purge(MQ),
+        update_mq_state(Id, advance_deliver_cutoff_date(CutoffMs))
+    end.
+
+-doc """
+Delete messages stored before the epoch millisecond, as far as the quota index allows.
+Then set the delivery cutoff to it, so the remaining older messages are not delivered.
+Return the queue unchanged when its delivery cutoff is later than BeforeMs.
+Refuse while some cluster node does not support the serial quota index.
+""".
+-spec purge(emqx_mq_types:mq_name(), emqx_utils_calendar:epoch_millisecond()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+purge(Name, BeforeMs) when is_integer(BeforeMs), BeforeMs >= 0 ->
+    maybe
+        ok ?= check_purge_supported(),
+        {ok, MQ} ?= find(Name),
+        case MQ of
+            #{deliver_cutoff_date := CutoffMs} when CutoffMs > BeforeMs ->
+                {ok, MQ};
+            #{id := Id} ->
+                maybe
+                    ok ?= emqx_mq_message_db:purge(MQ, BeforeMs),
+                    update_mq_state(Id, advance_deliver_cutoff_date(BeforeMs))
+                end
+        end
     end.
 
 -doc """
@@ -447,6 +487,22 @@ update_mq_state(Id, UpdateFields) ->
             true -> ok = stop_consumer(Id)
         end,
         {ok, MQ}
+    end.
+
+%% Purge changes the serial quota index. Older nodes keep only the legacy index.
+check_purge_supported() ->
+    case emqx_mq_quota_index:is_serial_index_supported() of
+        true -> ok;
+        false -> {error, cluster_upgrade_in_progress}
+    end.
+
+%% Compare with the stored cutoff in the update transaction, so concurrent purges cannot lower it.
+advance_deliver_cutoff_date(CutoffMs) ->
+    fun
+        (#{deliver_cutoff_date := StoredMs} = MQ) when StoredMs >= CutoffMs ->
+            MQ;
+        (MQ) ->
+            MQ#{deliver_cutoff_date => CutoffMs}
     end.
 
 drop_queue_data(MQ) ->
