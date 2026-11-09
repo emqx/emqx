@@ -35,6 +35,7 @@ import sys
 
 # Linux: full os x arch product, minus LINUX_EXCLUDE.
 LINUX_OS = [
+    "ubuntu26.04",
     "ubuntu24.04",
     "ubuntu22.04",
     "ubuntu20.04",
