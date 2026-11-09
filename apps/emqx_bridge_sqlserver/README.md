@@ -33,9 +33,6 @@ Placeholders represent values; table and column names must be static.
 UPDATE supports SET expressions and an optional WHERE condition, but not JOIN, FROM, OUTPUT or CTEs.
 Without WHERE, UPDATE affects every row. No matching row still returns success.
 
-Strings must be valid UTF-8. Non-ASCII bare values use NVARCHAR; use `N'prefix ${payload.status}'`
-for an explicit Unicode string template. The destination column must support the characters.
-For indexed keys, match VARCHAR/NVARCHAR to the column type. VARCHAR can replace unsupported characters.
 Missing variables follow `undefined_vars_as_null`; use `IS NULL` to test SQL NULL.
 
 Connection retries can repeat an update, so prefer assignments over increments.

@@ -42,7 +42,6 @@
 -record(value, {placeholder :: placeholder()}).
 -record(varchar_string, {parts :: [template_part()]}).
 -record(nvarchar_string, {parts :: [template_part()]}).
--record(varchar_size, {unicode :: binary()}).
 
 -type render_op() :: #raw{} | #value{} | #varchar_string{} | #nvarchar_string{}.
 -type render_plan() :: [render_op()].
@@ -77,10 +76,10 @@ compile(SQL0) ->
 
 -spec render(plan(), map(), map()) -> {ok, iolist()} | {error, term()}.
 render(#sqlserver_update_plan{plan = Plan}, Data, Opts) ->
-    finish_render(render_unit(Plan, Data, Opts), Opts);
+    render_unit(Plan, Data, Opts);
 render(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, Data, Opts) ->
     case render_unit(Plan, Data, Opts) of
-        {ok, Rendered} -> finish_render({ok, [Prefix, Rendered]}, Opts);
+        {ok, Rendered} -> {ok, [Prefix, Rendered]};
         {error, _} = Error -> Error
     end.
 
@@ -92,7 +91,7 @@ render_batch(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, DataList, Opt
     length(DataList) =< 1000
 ->
     case render_batch_units(DataList, Plan, Opts, 1, []) of
-        {ok, Rendered} -> finish_render({ok, [Prefix, Rendered]}, Opts);
+        {ok, Rendered} -> {ok, [Prefix, Rendered]};
         {error, _} = Error -> Error
     end;
 render_batch(_Plan, _DataList, _Opts) ->
@@ -101,32 +100,6 @@ render_batch(_Plan, _DataList, _Opts) ->
 %%------------------------------------------------------------------------------
 %% Private funs
 %%------------------------------------------------------------------------------
-
-finish_render({ok, SQL}, Opts) ->
-    case collect_varchar_sizes(SQL, #{}) of
-        Sizes when map_size(Sizes) =:= 0 ->
-            {ok, SQL};
-        Pending ->
-            Resolve = maps:get(varchar_bytes, Opts),
-            Sizes = Resolve(maps:keys(Pending)),
-            {ok, fill_varchar_sizes(SQL, Sizes)}
-    end;
-finish_render({error, _} = Error, _Opts) ->
-    Error.
-
-collect_varchar_sizes(#varchar_size{unicode = Unicode}, Acc) ->
-    Acc#{Unicode => pending};
-collect_varchar_sizes(Parts, Acc) when is_list(Parts) ->
-    lists:foldl(fun collect_varchar_sizes/2, Acc, Parts);
-collect_varchar_sizes(_SQL, Acc) ->
-    Acc.
-
-fill_varchar_sizes(#varchar_size{unicode = Unicode}, Sizes) ->
-    varchar_conversion(Unicode, maps:get(Unicode, Sizes));
-fill_varchar_sizes(Parts, Sizes) when is_list(Parts) ->
-    [fill_varchar_sizes(Part, Sizes) || Part <- Parts];
-fill_varchar_sizes(SQL, _Sizes) ->
-    SQL.
 
 render_batch_units([Data | Rest], Unit, Opts, Index, Acc) ->
     case render_unit(Unit, Data, Opts) of
@@ -164,9 +137,7 @@ render_template_op(Style, Parts, Rest, Data, Opts, Cache0, Acc) ->
     case resolve_template_parts(Parts, Data, Cache0, []) of
         {ok, Resolved, Cache} ->
             case
-                encode_result(fun() ->
-                    encode_string(render_text_parts(Resolved, Opts), Style, Opts)
-                end)
+                encode_result(fun() -> encode_string(render_text_parts(Resolved, Opts), Style) end)
             of
                 {ok, Encoded} -> render_plan(Rest, Data, Opts, Cache, [Encoded | Acc]);
                 {error, Reason} -> {error, render_template_error(Parts, Reason)}
@@ -306,11 +277,7 @@ compile_expression({var, Placeholder}) ->
 compile_expression({string, Style, Source}) ->
     case parse_string(Source, Style) of
         [#tpl_text{text = Text}] ->
-            ok = assert_no_nul(Text),
-            case Style =:= varchar andalso value_string_style(Text) =:= nvarchar of
-                true -> [compile_string_op(Style, [#tpl_text{text = Text}])];
-                false -> [#raw{sql = iolist_to_binary(encode_string(Text, Style))}]
-            end;
+            [#raw{sql = iolist_to_binary(encode_string(Text, Style))}];
         Parts ->
             [compile_string_op(Style, Parts)]
     end;
@@ -395,12 +362,6 @@ parse_string_body(<<>>, Text, Parts) ->
     finish_parts(Text, Parts);
 parse_string_body(<<$', $', Rest/binary>>, Text, Parts) ->
     parse_string_body(Rest, [$' | Text], Parts);
-parse_string_body(<<$\\, $\r, $\n, Rest/binary>>, Text, Parts) ->
-    parse_string_body(Rest, Text, Parts);
-parse_string_body(<<$\\, $\n, Rest/binary>>, Text, Parts) ->
-    parse_string_body(Rest, Text, Parts);
-parse_string_body(<<$\\, $\r, Rest/binary>>, Text, Parts) ->
-    parse_string_body(Rest, [$\r | Text], Parts);
 parse_string_body(<<"${$}", Rest/binary>>, Text, Parts) ->
     parse_string_body(Rest, [$$ | Text], Parts);
 parse_string_body(<<"${", _/binary>> = Bin, Text, Parts) ->
@@ -461,44 +422,27 @@ merge_render_ops(Ops) ->
         )
     ).
 
-encode_value(undefined, #{undefined_vars_as_null := false} = Opts) ->
-    encode_string(<<"undefined">>, varchar, Opts);
+encode_value(undefined, #{undefined_vars_as_null := false}) ->
+    encode_string(<<"undefined">>, varchar);
 encode_value(undefined, _Opts) ->
     <<"NULL">>;
 encode_value(null, _Opts) ->
     <<"NULL">>;
-encode_value(true, Opts) ->
-    encode_string(<<"true">>, varchar, Opts);
-encode_value(false, Opts) ->
-    encode_string(<<"false">>, varchar, Opts);
+encode_value(true, _Opts) ->
+    encode_string(<<"true">>, varchar);
+encode_value(false, _Opts) ->
+    encode_string(<<"false">>, varchar);
 encode_value(Value, _Opts) when is_integer(Value) ->
     integer_to_binary(Value);
 encode_value(Value, _Opts) when is_float(Value) ->
-    float_to_binary(Value, [short]);
-encode_value(<<"0x", Rest/binary>> = Value, Opts) ->
-    case re:run(Rest, <<"\\A[0-9A-Fa-f]+\\z">>, [{capture, none}]) =:= match of
+    emqx_template:to_string(Value);
+encode_value(<<"0x", Rest/binary>> = Value, _Opts) ->
+    case Rest =/= <<>> andalso re:run(Rest, <<"^[0-9A-Fa-f]+$">>, [{capture, none}]) =:= match of
         true -> Value;
-        false -> encode_text_value(Value, Opts)
+        false -> encode_string(Value, varchar)
     end;
-encode_value(Value, Opts) ->
-    encode_text_value(Value, Opts).
-
-encode_text_value(Value, Opts) ->
-    Text = to_text(Value),
-    encode_string(Text, value_string_style(Text), Opts).
-
-value_string_style(<<Byte, Rest/binary>>) when Byte < 128 ->
-    value_string_style(Rest);
-value_string_style(<<>>) ->
-    varchar;
-value_string_style(_Text) ->
-    nvarchar.
-
-assert_valid_utf8(Text) ->
-    case unicode:characters_to_binary(Text, utf8, utf8) of
-        UTF8 when is_binary(UTF8) -> ok;
-        _InvalidUTF8 -> error(invalid_utf8)
-    end.
+encode_value(Value, _Opts) ->
+    encode_string(to_text(Value), varchar).
 
 -spec render_text_parts([part()], map()) -> binary().
 render_text_parts(Parts, Opts) ->
@@ -518,55 +462,13 @@ render_text_parts(Parts, Opts) ->
     ]).
 
 to_text(Value) when is_binary(Value) -> Value;
-to_text(Value) when is_float(Value) -> float_to_binary(Value, [short]);
-to_text(Value) -> unicode:characters_to_binary(emqx_template:to_string(Value)).
+to_text(Value) -> iolist_to_binary(emqx_template:to_string(Value)).
 
 encode_string(Text, Style) ->
-    encode_string(Text, Style, #{}).
-
-encode_string(Text, Style, Opts) ->
     %% OTP ODBC uses SQL_NTS. An embedded NUL would truncate the statement:
     %% https://github.com/erlang/otp/blob/OTP-26.2.5.14/lib/odbc/c_src/odbcserver.c#L620-L642
     %% https://learn.microsoft.com/en-us/sql/odbc/reference/develop-app/using-length-and-indicator-values
     ok = assert_no_nul(Text),
-    ok = assert_valid_utf8(Text),
-    case needs_hex_encoding(Text) of
-        false -> encode_quoted_string(Text, Style);
-        true -> encode_hex_string(Text, Style, Opts)
-    end.
-
-needs_hex_encoding(Text) ->
-    value_string_style(Text) =:= nvarchar orelse
-        binary:match(Text, [<<$\\, $\n>>, <<$\\, $\r>>]) =/= nomatch.
-
-encode_hex_string(Text, Style, Opts) ->
-    UTF16 = unicode:characters_to_binary(Text, utf8, {utf16, little}),
-    Units = byte_size(UTF16) div 2,
-    Unicode = [
-        "CONVERT(NVARCHAR(", string_size(Units, 4000), "), 0x", binary:encode_hex(UTF16), ")"
-    ],
-    case Style of
-        nvarchar ->
-            Unicode;
-        varchar ->
-            UTF8Bytes = byte_size(Text),
-            %% UTF-8 bounds the converted size; resolve larger values together after rendering.
-            case
-                UTF8Bytes > 8000 andalso value_string_style(Text) =:= nvarchar andalso
-                    maps:is_key(varchar_bytes, Opts)
-            of
-                true -> #varchar_size{unicode = iolist_to_binary(Unicode)};
-                false -> varchar_conversion(Unicode, UTF8Bytes)
-            end
-    end.
-
-varchar_conversion(Unicode, Bytes) ->
-    ["CONVERT(VARCHAR(", string_size(Bytes, 8000), "), ", Unicode, ")"].
-
-string_size(Size, Limit) when Size =< Limit -> integer_to_binary(max(1, Size));
-string_size(_Size, _Limit) -> <<"MAX">>.
-
-encode_quoted_string(Text, Style) ->
     Escaped = binary:replace(Text, <<"'">>, <<"''">>, [global]),
     Prefix =
         case Style of
@@ -775,75 +677,18 @@ batch_shape_test() ->
         render_batch(Plan, [#{payload => <<"extra">>} | Rows], null_opts())
     ).
 
-%% Checks rejection of raw binary and rendering of Unicode values in SQL Server strings.
+%% Checks rendering of arbitrary binary and Unicode values in SQL Server strings.
 binary_and_unicode_value_test() ->
     {ok, ValuePlan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     ?assertEqual(
-        {error,
-            {invalid_sql_template_value, #{
-                placeholder => "payload", reason => {error, invalid_utf8}
-            }}},
-        render(ValuePlan, #{payload => <<16#FF>>}, null_opts())
+        {ok, <<"INSERT INTO [t] ([v]) VALUES ('", 16#FF, "')">>},
+        rendered_binary(render(ValuePlan, #{payload => <<16#FF>>}, null_opts()))
     ),
     Unicode = <<"你好😀"/utf8>>,
     {ok, UnicodePlan} = compile(<<"INSERT INTO t(v) VALUES (N'pre${payload}post')">>),
     ?assertEqual(
-        {ok,
-            <<"INSERT INTO [t] ([v]) VALUES (CONVERT(NVARCHAR(11), 0x700072006500604F7D593DD800DE70006F0073007400))">>},
+        {ok, <<"INSERT INTO [t] ([v]) VALUES (N'pre", Unicode/binary, "post')">>},
         rendered_binary(render(UnicodePlan, #{payload => Unicode}, null_opts()))
-    ).
-
-line_ending_strings_test() ->
-    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (N'${payload}\nb')">>),
-    ?assertEqual(
-        {ok, <<"INSERT INTO [t] ([v]) VALUES (CONVERT(NVARCHAR(4), 0x61005C000A006200))">>},
-        rendered_binary(render(Plan, #{payload => <<"a\\">>}, null_opts()))
-    ),
-    lists:foreach(
-        fun(Line) ->
-            {ok, StaticPlan} = compile(<<"INSERT INTO t(v) VALUES (N'a\\", Line/binary, "b')">>),
-            ?assertEqual(
-                {ok, <<"INSERT INTO [t] ([v]) VALUES (N'ab')">>},
-                rendered_binary(render(StaticPlan, #{}, null_opts()))
-            )
-        end,
-        [<<"\n">>, <<"\r\n">>]
-    ).
-
-invalid_utf8_strings_test() ->
-    InvalidValues = [
-        <<16#FF>>,
-        <<16#C3>>,
-        <<16#C0, 16#AF>>,
-        <<16#ED, 16#A0, 16#80>>,
-        <<16#F4, 16#90, 16#80, 16#80>>,
-        <<"中文😀"/utf8, 16#FF>>
-    ],
-    lists:foreach(
-        fun(Expression) ->
-            {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (", Expression/binary, ")">>),
-            lists:foreach(
-                fun(Value) ->
-                    ?assertMatch(
-                        {error, {invalid_sql_template_value, #{reason := {error, invalid_utf8}}}},
-                        render(Plan, #{payload => Value}, null_opts())
-                    ),
-                    ?assertMatch(
-                        {error,
-                            {sqlserver_template_render_failed, #{
-                                batch_index := 2,
-                                reason :=
-                                    {invalid_sql_template_value, #{reason := {error, invalid_utf8}}}
-                            }}},
-                        render_batch(
-                            Plan, [#{payload => <<"中文😀"/utf8>>}, #{payload => Value}], null_opts()
-                        )
-                    )
-                end,
-                InvalidValues
-            )
-        end,
-        [<<"${payload}">>, <<"'pre${payload}post'">>, <<"N'pre${payload}post'">>]
     ).
 
 %% Checks that a hexadecimal binary literal renders without string quoting.
@@ -916,60 +761,6 @@ lexical_boundary_test() ->
     lists:foreach(fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end, Rejected),
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     ?assertMatch({error, _}, render(Plan, #{payload => <<"a", 0, "b">>}, null_opts())).
-
-unicode_value_type_test() ->
-    {ok, Plan} = compile(<<"UPDATE t SET v = ${value} WHERE k = ${key}">>),
-    ?assertEqual(
-        {ok, <<
-            "UPDATE [t] SET [v] = CONVERT(NVARCHAR(4), 0x2857BF7E3DD800DE) "
-            "WHERE k = CONVERT(NVARCHAR(4), 0xBE8B075927003100)"
-        >>},
-        rendered_binary(
-            render(Plan, #{value => <<"在线😀"/utf8>>, key => <<"设备'1"/utf8>>}, null_opts())
-        )
-    ).
-
-text_normalization_test() ->
-    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
-    lists:foreach(
-        fun({Value, Expected}) ->
-            {ok, SQL} = render(Plan, #{payload => Value}, null_opts()),
-            Bin = iolist_to_binary(SQL),
-            ?assert(lists:all(fun(Byte) -> Byte < 128 end, binary_to_list(Bin))),
-            Hex = binary:encode_hex(unicode:characters_to_binary(Expected, utf8, {utf16, little})),
-            ?assertNotEqual(nomatch, binary:match(Bin, Hex)),
-            ?assertNotEqual(nomatch, binary:match(Bin, <<"CONVERT(NVARCHAR(">>))
-        end,
-        [
-            {<<"0x中文😀"/utf8>>, <<"0x中文😀"/utf8>>},
-            {<<"0xz中文😀"/utf8>>, <<"0xz中文😀"/utf8>>},
-            {[233], <<"é"/utf8>>},
-            {[20013, 128512], <<"中😀"/utf8>>}
-        ]
-    ),
-    ?assertEqual(
-        {ok, <<"INSERT INTO [t] ([v]) VALUES ('0xFF\n')">>},
-        rendered_binary(render(Plan, #{payload => <<"0xFF\n">>}, null_opts()))
-    ).
-
-float_precision_test() ->
-    lists:foreach(
-        fun(Value) ->
-            Encoded = encode_value(Value, null_opts()),
-            ?assertEqual(Value, binary_to_float(Encoded)),
-            ?assert(byte_size(Encoded) < 32),
-            ?assertEqual(Encoded, to_text(Value))
-        end,
-        [1.0e-12, 1.0e40, 0.12345678901234566, 0.125]
-    ).
-
-bounded_hex_strings_test() ->
-    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES ('${payload}')">>),
-    {ok, SQL} = render(Plan, #{payload => <<"中文😀"/utf8>>}, null_opts()),
-    ?assertNotEqual(
-        nomatch,
-        binary:match(iolist_to_binary(SQL), <<"CONVERT(VARCHAR(10), CONVERT(NVARCHAR(4),">>)
-    ).
 
 insert_keyword_identifiers_test() ->
     {ok, Plan} = compile(<<"INSERT INTO Where(SET, Update) VALUES (${value}, ${key})">>),

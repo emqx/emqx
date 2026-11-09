@@ -53,7 +53,7 @@
 ]).
 
 %% Internal exports used to execute code with ecpool worker
--export([do_get_status/1, worker_do_insert/3, get_servername/1, worker_varchar_sizes/3]).
+-export([do_get_status/1, worker_do_insert/3, get_servername/1]).
 
 -export([parse_server/1]).
 
@@ -505,51 +505,22 @@ do_query(ResourceId, Query, ApplyMode, State) ->
     ChannelId = get_channel_id(Query),
     QueryTuple = get_query_tuple(Query),
     #{sql_plan := Plan} = ChannelState = maps:get(ChannelId, Channels),
-    ChannelConf0 = maps:get(channel_conf, ChannelState, #{}),
-    ChannelConf = ChannelConf0#{
-        varchar_bytes => fun(Unicodes) ->
-            ?tp(sqlserver_varchar_size_requested, #{
-                connector => ResourceId, count => length(Unicodes)
+    ChannelConf = maps:get(channel_conf, ChannelState, #{}),
+    case apply_template(QueryTuple, Plan, ChannelConf) of
+        {ok, SQL} ->
+            emqx_trace:rendered_action_template(ChannelId, #{
+                sql => SQL
             }),
-            try
-                ecpool:pick_and_do(
-                    PoolName, {?MODULE, worker_varchar_sizes, [Unicodes, State]}, handover
-                )
-            of
-                {ok, Sizes} -> Sizes;
-                {error, _} = Error -> throw({sqlserver_query_error, Error})
-            catch
-                exit:Reason ->
-                    throw({sqlserver_query_error, {error, {recoverable_error, Reason}}})
-            end
-        end
-    },
-    Result =
-        try apply_template(QueryTuple, Plan, ChannelConf) of
-            {ok, SQL} ->
-                emqx_trace:rendered_action_template(ChannelId, #{sql => SQL}),
-                ecpool:pick_and_do(
-                    PoolName, {?MODULE, worker_do_insert, [SQL, State]}, ApplyMode
-                );
-            {error, Reason} ->
-                {error, {unrecoverable_error, Reason}}
-        catch
-            throw:{sqlserver_query_error, Error} -> Error
-        end,
+            Result = ecpool:pick_and_do(
+                PoolName,
+                {?MODULE, worker_do_insert, [SQL, State]},
+                ApplyMode
+            );
+        {error, Reason} ->
+            Result = {error, {unrecoverable_error, Reason}}
+    end,
     handle_result(Result, ResourceId, Query).
 
-handle_result({selected, Rows, _Columns}, ResourceId, Query) ->
-    handle_result({ok, Rows}, ResourceId, Query);
-handle_result({updated, _}, ResourceId, Query) ->
-    handle_result(ok, ResourceId, Query);
-handle_result(Results, ResourceId, Query) when is_list(Results) ->
-    Result =
-        try lists:foreach(fun ensure_query_success/1, Results) of
-            ok -> ok
-        catch
-            error:Reason -> {error, {unrecoverable_error, {invalid_request, Reason}}}
-        end,
-    handle_result(Result, ResourceId, Query);
 handle_result({error, {recoverable_error, _} = Reason} = Result, _ResourceId, _Query) ->
     ?tp(sqlserver_connector_query_return, #{error => Reason}),
     Result;
@@ -573,67 +544,35 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
     LogMeta = #{connector => ResourceId},
     try
         case execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
-            {error, ErrStr} -> query_error(ErrStr, LogMeta);
-            Result -> Result
+            {selected, Rows, _} ->
+                {ok, Rows};
+            {updated, _} ->
+                ok;
+            {error, ErrStr} ->
+                IsConnectionClosedError = is_connection_closed_error(ErrStr),
+                IsConnectionBrokenError = is_connection_broken_error(ErrStr),
+                ErrStr1 =
+                    case is_table_or_view_not_found_error(ErrStr) of
+                        true ->
+                            <<"table_or_view_not_found">>;
+                        false ->
+                            ErrStr
+                    end,
+                {LogLevel, Err} =
+                    case IsConnectionClosedError orelse IsConnectionBrokenError of
+                        true ->
+                            {info, {recoverable_error, <<"connection_closed">>}};
+                        false ->
+                            {error, {unrecoverable_error, {invalid_request, ErrStr1}}}
+                    end,
+                ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr1}),
+                {error, Err}
         end
     catch
         _Type:Reason:St ->
             ?SLOG(error, LogMeta#{msg => "invalid_request", reason => Reason, stacktrace => St}),
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
-
-worker_varchar_sizes(Conn, Unicodes, #{resource_opts := ResourceOpts, pool_name := ResourceId}) ->
-    Values = [
-        ["(", integer_to_binary(Index), ",", Unicode, ")"]
-     || {Index, Unicode} <- lists:enumerate(Unicodes)
-    ],
-    SQL = [
-        "SELECT CAST(DATALENGTH(CONVERT(VARCHAR(MAX),v)) AS INT) FROM (VALUES ",
-        lists:join(",", Values),
-        ") AS sizes(i,v) ORDER BY i"
-    ],
-    try execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
-        {selected, _, Rows} when length(Rows) =:= length(Unicodes) ->
-            Sizes = [Bytes || {Bytes} <- Rows, is_integer(Bytes), Bytes >= 0],
-            case length(Sizes) =:= length(Unicodes) of
-                true -> {ok, maps:from_list(lists:zip(Unicodes, Sizes))};
-                false -> {error, {unrecoverable_error, {invalid_request, unexpected_varchar_sizes}}}
-            end;
-        {error, connection_closed} ->
-            {error, {recoverable_error, <<"connection_closed">>}};
-        {error, timeout} ->
-            {error, {recoverable_error, timeout}};
-        {error, Reason} ->
-            query_error(Reason, #{connector => ResourceId});
-        Other ->
-            {error, {unrecoverable_error, {invalid_request, {unexpected_varchar_sizes, Other}}}}
-    catch
-        exit:ExitReason -> {error, {recoverable_error, ExitReason}}
-    end.
-
-query_error(ErrStr, LogMeta) ->
-    IsConnectionClosedError = is_connection_closed_error(ErrStr),
-    IsConnectionBrokenError = is_connection_broken_error(ErrStr),
-    ErrStr1 =
-        case is_table_or_view_not_found_error(ErrStr) of
-            true ->
-                <<"table_or_view_not_found">>;
-            false ->
-                ErrStr
-        end,
-    {LogLevel, Err} =
-        case IsConnectionClosedError orelse IsConnectionBrokenError of
-            true ->
-                {info, {recoverable_error, <<"connection_closed">>}};
-            false ->
-                {error, {unrecoverable_error, {invalid_request, ErrStr1}}}
-        end,
-    ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr1}),
-    {error, Err}.
-
-ensure_query_success({updated, _}) -> ok;
-ensure_query_success({selected, _, _}) -> ok;
-ensure_query_success(Result) -> error({unexpected_query_result, Result}).
 
 %% Potential race condition: if an insert request is made while the connection is being
 %% cut by the remote server, this error might be returned.
@@ -674,18 +613,21 @@ is_table_or_view_not_found_error(MsgStr) ->
 -spec execute(connection_reference(), sql()) ->
     updated_tuple()
     | selected_tuple()
-    | [updated_tuple() | selected_tuple()]
+    | [updated_tuple()]
+    | [selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL) ->
-    odbc:sql_query(Conn, binary_to_list(iolist_to_binary(SQL))).
+    %% ODBC forwards the outer list to gen_tcp:send/2 as iodata.
+    odbc:sql_query(Conn, SQL).
 
 -spec execute(connection_reference(), sql(), time_out()) ->
     updated_tuple()
     | selected_tuple()
-    | [updated_tuple() | selected_tuple()]
+    | [updated_tuple()]
+    | [selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL, Timeout) ->
-    odbc:sql_query(Conn, binary_to_list(iolist_to_binary(SQL)), Timeout).
+    odbc:sql_query(Conn, SQL, Timeout).
 
 get_channel_id([{ChannelId, _Req} | _]) ->
     ChannelId;
@@ -723,8 +665,7 @@ apply_template(Query, _Plan, _) ->
     {error, failed_to_apply_sql_template}.
 
 render_opts(ChannelConf) ->
-    Opts = maps:with([varchar_bytes], ChannelConf),
-    Opts#{undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false)}.
+    #{undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false)}.
 
 to_bin(B) when is_binary(B) ->
     B;
