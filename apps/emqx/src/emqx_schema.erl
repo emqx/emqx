@@ -1684,7 +1684,7 @@ fields("event_names") ->
             sc(
                 boolean(),
                 #{
-                    default => true,
+                    default => false,
                     desc => ?DESC(sys_event_client_connected)
                 }
             )},
@@ -1692,7 +1692,7 @@ fields("event_names") ->
             sc(
                 boolean(),
                 #{
-                    default => true,
+                    default => false,
                     desc => ?DESC(sys_event_client_disconnected)
                 }
             )},

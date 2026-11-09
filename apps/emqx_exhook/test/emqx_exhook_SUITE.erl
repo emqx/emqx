@@ -745,9 +745,13 @@ t_cluster_name(_) ->
     %% See emqx_exhook_demo_svr:on_provider_loaded/2
     ?assertEqual([], emqx_hooks:lookup('session.created')),
     ?assertEqual([], emqx_hooks:lookup('message_publish')),
-    ?assertEqual(
-        true,
-        erlang:length(emqx_hooks:lookup('client.connected')) > 1
+    ?assert(
+        lists:any(
+            fun(Callback) ->
+                element(1, emqx_hooks:callback_action(Callback)) =:= emqx_exhook_handler
+            end,
+            emqx_hooks:lookup('client.connected')
+        )
     ),
     emqx_exhook_mgr:disable(<<"default">>).
 
