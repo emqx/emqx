@@ -6,6 +6,13 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-moduledoc """
+DO NOT COPY AND PASTE THIS MODULE WHEN IMPLEMENTING A NEW BRIDGE.
+
+This kind of test not only makes it harder to fix/refactor thing, but also relies on
+heavily mocked/unreal states, which tend to severely diminish the value of the tests.
+""".
+
 ssl_opts_test_() ->
     CacertFile = bin(cacert_file()),
     [
@@ -326,15 +333,21 @@ connect_propagates_database_error_test() ->
 blank_credentials_test_() ->
     {setup,
         fun() ->
-            meck:new(emqx_resource_pool, [passthrough, no_link]),
+            meck:new(emqx_resource_pool, [passthrough]),
+            meck:new(emqx_resource, [passthrough]),
             meck:expect(
                 emqx_resource_pool,
                 start,
                 fun(_, _, _) -> {error, {start_pool_failed, noproc, mocked}} end
             ),
+            meck:expect(
+                emqx_resource,
+                allocate_resource,
+                fun(_, _, _, _) -> ok end
+            ),
             ok
         end,
-        fun(_) -> meck:unload(emqx_resource_pool) end, fun(_) ->
+        fun(_) -> meck:unload() end, fun(_) ->
             Base = #{
                 server => <<"127.0.0.1:8360">>,
                 pool_size => 8,
