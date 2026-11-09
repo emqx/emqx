@@ -716,29 +716,24 @@ t_batch_invalid_typed_value(TCConfig) when is_list(TCConfig) ->
             case query_mode(TCConfig) of
                 ?async ->
                     [#{result := Results0} | _] = ?of_kind(handle_async_reply, Trace),
-                    assert_batch_contains_unrecoverable(Results0);
+                    assert_invalid_typed_value_batch_results(Results0);
                 ?sync ->
                     [#{results := Results0} | _] =
                         ?of_kind("greptime_rs_sync_batch_reply", Trace),
-                    assert_batch_contains_unrecoverable(Results0)
+                    assert_invalid_typed_value_batch_results(Results0)
             end
         end
     ),
     ok.
 
-assert_batch_contains_unrecoverable([Result, Result, Result] = Results) ->
-    ?assertEqual(3, length(Results)),
-    ?assertMatch(
-        {error,
-            {unrecoverable_error, #{
-                reason := batch_contains_unrecoverable,
-                batch_results := [
-                    {ok, _},
-                    {error, {unrecoverable_error, _}},
-                    {ok, _}
-                ]
-            }}},
-        Result
+assert_invalid_typed_value_batch_results(Results) ->
+    ?assertEqual(
+        [
+            {ok, 1},
+            {error, {unrecoverable_error, points_trans_failed}},
+            {ok, 1}
+        ],
+        Results
     ).
 
 -doc """
