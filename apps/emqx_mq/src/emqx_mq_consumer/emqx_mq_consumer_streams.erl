@@ -482,8 +482,8 @@ do_handle_ds_reply(
 
 ack_skipped_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
     {CS, Messages} = lists:foldl(
-        fun({Id, Message} = MesssageWithId, {CSAcc, MessagesAcc}) ->
-            case is_expired(MQ, Message) orelse is_before_deliver_cutoff(MQ, Id) of
+        fun({Id, _Message} = MesssageWithId, {CSAcc, MessagesAcc}) ->
+            case is_expired(MQ, Id) orelse is_before_deliver_cutoff(MQ, Id) of
                 true ->
                     {handle_ack(CSAcc, Id), MessagesAcc};
                 false ->
@@ -528,13 +528,13 @@ inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, TTVs}}) ->
 inc_received_message_stat(_DsSubReply) ->
     ok.
 
-is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, Message) when
+%% Retention and the delivery cutoff compare the DS timestamp at which the message was stored.
+%% The message id holds it. GC, purge, and the DS replay start use the same time.
+is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, {_Slab, DsTsUs}) when
     is_integer(DataRetentionPeriod)
 ->
-    emqx_message:timestamp(Message) < now_ms() - DataRetentionPeriod.
+    DsTsUs < erlang:convert_time_unit(now_ms() - DataRetentionPeriod, millisecond, microsecond).
 
-%% Compare the DS timestamp at which the message was stored. The message id holds it.
-%% Purge deletes messages by DS timestamp too, so both use the same time.
 is_before_deliver_cutoff(#{deliver_cutoff_date := CutoffMs}, {_Slab, DsTsUs}) ->
     DsTsUs < erlang:convert_time_unit(CutoffMs, millisecond, microsecond);
 is_before_deliver_cutoff(_MQ, _MessageId) ->

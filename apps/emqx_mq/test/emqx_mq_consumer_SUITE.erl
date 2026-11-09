@@ -146,13 +146,14 @@ t_delivery_start_time_replay(_Config) ->
     ?assertEqual(2, ds_received_messages() - Received1),
     ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ0))).
 
-%% Verify that the cutoff skips messages stored before it, whatever their publication time,
+%% Verify that the cutoff and retention skip messages by storage time, whatever their publication time,
 %% and that auto-acks persist, for the group's queue type.
 t_deliver_cutoff_date(Config) ->
     IsLastvalue = ?config(is_lastvalue, Config),
     Name = <<"deliver_cutoff_date">>,
     Now = erlang:system_time(millisecond),
-    Cutoff = Now - 60_000,
+    %% The cutoff is older than the retention boundary, so messages between them expire.
+    Cutoff = Now - 120_000,
     CutoffUs = erlang:convert_time_unit(Cutoff, millisecond, microsecond),
     MQOpts0 = #{
         name => Name,
@@ -160,6 +161,7 @@ t_deliver_cutoff_date(Config) ->
         is_lastvalue => IsLastvalue,
         limits => ?config(limits, Config),
         deliver_cutoff_date => Cutoff,
+        data_retention_period => 60_000,
         stream_max_buffer_size => 1,
         stream_max_unacked => 1
     },
@@ -178,7 +180,7 @@ t_deliver_cutoff_date(Config) ->
     [Shard | _] = emqx_ds:list_shards(DB),
     #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ),
 
-    %% Put storage and publication times on opposite sides of the cutoff.
+    %% Skipped messages have recent publication times, the delivered one has an old one.
     %% Only the storage time decides whether a message is skipped.
     Records = [
         begin
@@ -190,12 +192,11 @@ t_deliver_cutoff_date(Config) ->
             }
         end
      || {Payload, StoredAt, PublishedAt} <- [
-            {<<"old-1">>, CutoffUs - 3, Cutoff + 10},
-            {<<"old-2">>, CutoffUs - 2, Cutoff + 10},
-            {<<"old-3">>, CutoffUs - 1, Cutoff + 10},
-            {<<"boundary">>, CutoffUs, Cutoff - 1},
-            {<<"fresh">>, CutoffUs + 1, Cutoff - 1},
-            {<<"expired">>, CutoffUs + 2, Now - 7_200_000}
+            {<<"old-1">>, CutoffUs - 3, Now},
+            {<<"old-2">>, CutoffUs - 2, Now},
+            {<<"old-3">>, CutoffUs - 1, Now},
+            {<<"expired">>, CutoffUs + 1, Now},
+            {<<"fresh">>, (Now - 30_000) * 1000, Cutoff - 1}
         ]
     ],
     ?assertMatch(
@@ -205,12 +206,12 @@ t_deliver_cutoff_date(Config) ->
         end)
     ),
 
-    %% Messages stored before the cutoff are not delivered: the DS replay starts at the cutoff,
-    %% and the consumer skips any it still reads. The expired message is auto-acked.
+    %% Messages stored before the cutoff or the retention boundary are not delivered:
+    %% the DS replay starts at the later of the two, and the consumer skips any it still reads.
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
     ok = emqx_mq_test_utils:emqtt_sub_mq(CSub0, Name),
-    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(2, 1000),
-    ?assertEqual([<<"boundary">>, <<"fresh">>], [P || #{payload := P} <- Msgs0]),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(1, 1000),
+    ?assertEqual([<<"fresh">>], [P || #{payload := P} <- Msgs0]),
     ok = emqtt:disconnect(CSub0),
     ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))),
 
