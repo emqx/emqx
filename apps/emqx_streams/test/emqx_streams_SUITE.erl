@@ -879,6 +879,33 @@ t_stream_recreate(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+-doc "A subscription stops consuming a stream once the stream is marked as being deleted".
+t_stream_marked_deleting(_Config) ->
+    emqx_config:put([streams, check_stream_status_interval], 100),
+    Stream0 = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"t_stream_marked_deleting">>, topic_filter => <<"t/#">>, is_lastvalue => false
+    }),
+    emqx_streams_test_utils:populate(1, #{
+        topic_prefix => <<"t/">>, payload_prefix => <<"payload-1-">>
+    }),
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_stream_marked_deleting">>, [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
+    {ok, [#{payload := <<"payload-1-", _/binary>>}]} = emqx_streams_test_utils:emqtt_drain(
+        _MinMsg0 = 1, _Timeout0 = 1000
+    ),
+
+    %% Mark the stream and wait for the stream status check
+    ok = emqx_streams_registry:mark_deleting(Stream0),
+    ct:sleep(emqx_config:get([streams, check_stream_status_interval]) * 3),
+
+    %% Write to the stream directly, because publishing skips a marked stream
+    Message = emqx_message:make(<<"c">>, 1, <<"t/1">>, <<"payload-2">>),
+    ok = emqx_streams_message_db:insert(Stream0, Message),
+    {ok, []} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 0, _Timeout1 = 1000),
+    ok = emqtt:disconnect(CSub).
+
 %% Verify that the metrics are updated correctly
 t_metrics(_Config) ->
     #{received_messages := ReceivedMessages0, inserted_messages := InsertedMessages0} =

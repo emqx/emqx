@@ -1797,10 +1797,11 @@ handle_async_reply1(
             IsAcked andalso
                 begin
                     emqx_resource_metrics:late_reply_inc(Id),
-                    ?SLOG(
+                    ?SLOG_THROTTLE(
                         warning,
+                        Id,
                         #{
-                            msg => "async_reply_to_expired_request",
+                            msg => async_reply_to_expired_request,
                             resource_id => Id,
                             expired_count => 1
                         },
@@ -1929,10 +1930,11 @@ handle_async_batch_reply2([Inflight], ReplyContext, Results0, Now) ->
     %% worker
     emqx_resource_metrics:late_reply_inc(Id, NumExpired),
     NumExpired > 0 andalso
-        ?SLOG(
+        ?SLOG_THROTTLE(
             warning,
+            Id,
             #{
-                msg => "async_reply_to_expired_request",
+                msg => async_reply_to_expired_request,
                 resource_id => Id,
                 expired_count => NumExpired
             },

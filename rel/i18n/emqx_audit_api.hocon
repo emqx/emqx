@@ -128,6 +128,11 @@ audit_failure.desc:
 audit_failure.label:
 """Failure"""
 
+audit_operation_details.desc:
+"""Details produced by the operation, such as the generated backup filename."""
+audit_operation_details.label:
+"""Operation Details"""
+
 audit_http_request.desc:
 """The http request of the log."""
 audit_http_request.label:

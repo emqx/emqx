@@ -62,6 +62,7 @@ Queue one retained-message batch for a channel or an ExtSub handler.
 `Words` is `Topic` split with `emqx_topic:words/1`.
 The worker replies with a `#retained_batch{}` message: directly to a channel pid, and with
 `emqx_extsub_handler:send/2` to a handler.
+When the worker drops the request from its full queue, it replies with `#retained_dropped{}`.
 """.
 -spec fetch(
     pid(),
@@ -101,6 +102,8 @@ init([Pool, Id]) ->
         pool => Pool,
         id => Id,
         queue => queue:new(),
+        %% `queue:len/1' walks the whole queue, so the length is kept here
+        queue_len => 0,
         scheduled => false,
         limiter => Limiter,
         next_demand => 0
@@ -112,8 +115,8 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast(#fetch{} = Request, #{queue := Queue} = State) ->
-    {noreply, schedule(State#{queue := queue:in(Request, Queue)})};
+handle_cast(#fetch{} = Request, State) ->
+    {noreply, schedule(enqueue(Request, State))};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -142,6 +145,26 @@ schedule(#{queue := Queue} = State) ->
             State#{scheduled := true}
     end.
 
+%% Drop a new request when the queue is full.
+enqueue(Request, #{queue := Queue, queue_len := Len} = State) ->
+    case Len >= emqx_config:get([retainer, max_dispatcher_queue_length]) of
+        true ->
+            ok = drop(Request),
+            State;
+        false ->
+            State#{queue := queue:in(Request, Queue), queue_len := Len + 1}
+    end.
+
+drop(#fetch{target = Target, request_ref = RequestRef, topic = Topic}) ->
+    ok = send(Target, #retained_dropped{topic_filter = Topic, request_ref = RequestRef}),
+    ?tp(retainer_dispatcher_dropped, #{topic => Topic}),
+    ?SLOG_THROTTLE(
+        warning,
+        #{msg => retained_read_dropped, reason => queue_full, topic => Topic},
+        #{tag => "RETAINER"}
+    ),
+    ok.
+
 %% Serve up to N requests, then yield so that calls and casts are handled.
 dispatch(State, 0) ->
     schedule(State);
@@ -152,14 +175,17 @@ dispatch(#{queue := Queue0} = State0, N) ->
         {{value, #fetch{target = Target} = Request}, Queue} ->
             case is_target_alive(Target) of
                 false ->
-                    dispatch(State0#{queue := Queue}, N - 1);
+                    dispatch(dequeued(Queue, State0), N - 1);
                 true ->
                     case serve(Request, State0) of
-                        {served, State} -> dispatch(State#{queue := Queue}, N - 1);
+                        {served, State} -> dispatch(dequeued(Queue, State), N - 1);
                         {paused, State} -> State
                     end
             end
     end.
+
+dequeued(Queue, #{queue_len := Len} = State) ->
+    State#{queue := Queue, queue_len := Len - 1}.
 
 %% Pay for the previous read, then read. A worker can exceed the limit by one batch.
 %% Read the settings for each request: workers restart before a config update is saved.
@@ -255,7 +281,7 @@ do_read_batch(Topic, Words, Cursor0, BatchSize) ->
                 Mod:match_messages(BackendState, Topic, Cursor0, Opts);
             false ->
                 {ok, Msgs} = Mod:read_message(BackendState, Topic),
-                {ok, Msgs, undefined, 1}
+                {ok, Msgs, undefined, length(Msgs)}
         end,
     case Cursor of
         undefined ->

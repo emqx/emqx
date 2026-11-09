@@ -309,7 +309,7 @@ match_batch(Tokens, Cursor0, BatchSize) ->
     {Indices, Incarnation} = dirty_indices(read),
     case read_cursor(Cursor0, Tokens, Indices, Incarnation) of
         done ->
-            {ok, [], undefined, 1};
+            {ok, [], undefined, 0};
         Cursor ->
             select_batch(Tokens, Cursor, BatchSize)
     end.
@@ -333,7 +333,7 @@ select_batch(Tokens, #{index := Index, continuation := Cont0} = Cursor0, N) ->
     Now = erlang:system_time(millisecond),
     case select_rows(Index, Tokens, Cont0, N) of
         '$end_of_table' ->
-            {ok, [], undefined, 1};
+            {ok, [], undefined, 0};
         {Rows, Cont} ->
             Messages = batch_messages(Index, Rows, Tokens, Now),
             Cursor =
@@ -341,8 +341,7 @@ select_batch(Tokens, #{index := Index, continuation := Cont0} = Cursor0, N) ->
                     '$end_of_table' -> undefined;
                     _ -> Cursor0#{continuation := Cont}
                 end,
-            %% Charge at least one token for an empty read.
-            {ok, Messages, Cursor, max(1, length(Rows))}
+            {ok, Messages, Cursor, length(Rows)}
     end.
 
 select_rows(Index, Tokens, undefined, N) ->

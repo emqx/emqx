@@ -28,6 +28,7 @@
 
 -export([
     kafka_connector_config_fields/0,
+    kafka_producer_connector_config_fields/0,
     kafka_producer_converter/2,
     producer_strategy_key_validator/1,
     producer_buffer_mode_validator/1,
@@ -225,7 +226,7 @@ fields(Field) when
     emqx_connector_schema:api_fields(
         Field,
         ?CONNECTOR_TYPE,
-        kafka_connector_config_fields()
+        kafka_producer_connector_config_fields()
     );
 fields("post_" ++ Type) ->
     [type_field(Type), name_field() | fields("config_" ++ Type)];
@@ -235,6 +236,8 @@ fields("get_" ++ Type) ->
     emqx_bridge_v2_api:status_fields() ++ fields("post_" ++ Type);
 fields("config_bridge_v2") ->
     fields(kafka_producer_action);
+fields("config_connector_producer") ->
+    emqx_connector_schema:common_fields() ++ kafka_producer_connector_config_fields();
 fields("config_connector") ->
     connector_config_fields();
 fields("config_producer") ->
@@ -623,6 +626,8 @@ fields(action_field) ->
 fields(action) ->
     fields(action_field).
 
+desc("config_connector_producer") ->
+    ?DESC("desc_config");
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(resource_opts) ->
@@ -708,6 +713,26 @@ kafka_connector_config_fields() ->
                 desc => ?DESC(allow_auto_topic_creation)
             })}
     ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts).
+
+%% Client options that are only exposed by the Kafka producer connectors.
+kafka_producer_connector_config_fields() ->
+    kafka_connector_config_fields() ++ client_options_fields().
+
+client_options_fields() ->
+    [
+        {kafka_client_id,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC(kafka_client_id),
+                validator => fun kafka_client_id_validator/1
+            })}
+    ].
+
+%% Kafka encodes the client ID as a 16-bit length prefixed string.
+kafka_client_id_validator(Id) when is_binary(Id), byte_size(Id) =< 32767 ->
+    ok;
+kafka_client_id_validator(_) ->
+    {error, "The 'kafka_client_id' must not be longer than 32767 bytes"}.
 
 auth_union_member_selector(all_union_members) ->
     auth_union_members();

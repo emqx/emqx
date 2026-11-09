@@ -98,7 +98,7 @@
     batch_read_number => pos_integer() | all_remaining,
     tokens => emqx_types:words()
 }.
--type read_cost() :: pos_integer().
+-type read_cost() :: non_neg_integer().
 -type match_result(Cursor) :: {ok, [message()], Cursor, read_cost()}.
 
 -define(CONTEXT_KEY, {?MODULE, context}).
@@ -311,7 +311,7 @@ init([]) ->
 handle_call({update_config, NewConf, OldConf}, _From, State) ->
     State2 = update_config(State, NewConf, OldConf),
     case maps:get(enable, NewConf) of
-        true -> ok = emqx_retainer_limiter:update();
+        true -> ok = emqx_retainer_limiter:update(NewConf);
         false -> ok
     end,
     {reply, ok, State2};

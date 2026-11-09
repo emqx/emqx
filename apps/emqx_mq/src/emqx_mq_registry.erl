@@ -19,9 +19,13 @@ The module contains the registry of Message Queues.
     find_by_id/1,
     match/1,
     delete/1,
+    delete_by_id/1,
+    mark_deleting/1,
+    is_deleting/1,
     update/2,
     list/0,
     list/2,
+    list_all/2,
     queue_count/0
 ]).
 
@@ -134,6 +138,8 @@ match(Topic) ->
             case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
                 [] ->
                     [];
+                [#?MQ_REGISTRY_INDEX_TAB{extra = #{deleted_at := _}}] ->
+                    [];
                 [#?MQ_REGISTRY_INDEX_TAB{} = Rec] ->
                     [record_to_mq_handle(Rec)]
             end
@@ -210,6 +216,40 @@ delete_by_id(Id) ->
     end.
 
 -doc """
+Mark the MQ as being deleted and stop its consumer. Publishing and listing ignore a marked
+MQ, and its consumer does not start again. A repeated mark keeps the first `deleted_at`.
+""".
+-spec mark_deleting(emqx_mq_types:mq()) -> ok | not_found.
+mark_deleting(#{id := Id} = MQ) ->
+    case mark_deleting_index(MQ) of
+        ok -> stop_consumer(Id);
+        not_found -> not_found
+    end.
+
+mark_deleting_index(#{id := Id} = MQ) ->
+    Key = make_key(MQ),
+    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
+        case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
+            [#?MQ_REGISTRY_INDEX_TAB{id = Id, extra = #{deleted_at := _}}] ->
+                ok;
+            [#?MQ_REGISTRY_INDEX_TAB{id = Id, extra = Extra} = Rec] ->
+                DeletedAt = erlang:system_time(millisecond),
+                mnesia:write(Rec#?MQ_REGISTRY_INDEX_TAB{extra = Extra#{deleted_at => DeletedAt}});
+            _ ->
+                not_found
+        end
+    end),
+    Result.
+
+-doc "Check whether the MQ is marked as being deleted".
+-spec is_deleting(emqx_mq_types:mq()) -> boolean().
+is_deleting(#{id := Id} = MQ) ->
+    case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, make_key(MQ)) of
+        [#?MQ_REGISTRY_INDEX_TAB{id = Id, extra = #{deleted_at := _}}] -> true;
+        _ -> false
+    end.
+
+-doc """
 Delete all MQs. Only for testing/maintenance.
 """.
 -spec delete_all() -> ok.
@@ -268,6 +308,7 @@ Update the MQ by its topic filter.
     | {error,
         is_lastvalue_not_allowed_to_be_updated
         | limit_presence_cannot_be_updated_for_regular_queues
+        | being_deleted
         | term()}.
 update(?LEGACY_QUEUE_NAME(TopicFilter), UpdateFields) ->
     Key = make_default_queue_key(TopicFilter),
@@ -292,6 +333,7 @@ Update the MQ by its ID.
     | {error,
         is_lastvalue_not_allowed_to_be_updated
         | limit_presence_cannot_be_updated_for_regular_queues
+        | being_deleted
         | term()}.
 update_by_id(Id, UpdateFields0) ->
     UpdateFields = maps:without([topic_filter, id, name], UpdateFields0),
@@ -303,7 +345,10 @@ update_by_id(Id, UpdateFields0) ->
         IsLimitedOld = emqx_mq_prop:is_limited(MQ),
         IsLimitedNew = emqx_mq_prop:is_limited(UpdateFields),
         NeedUpdateIndex = need_update_index(MQ, UpdateFields),
+        IsDeleting = is_deleting(MQ),
         case UpdateFields of
+            _ when IsDeleting ->
+                {error, being_deleted};
             _ when IsLastvalueOld =/= IsLastvalueNew ->
                 {error, is_lastvalue_not_allowed_to_be_updated};
             _ when (not IsLastvalueNew) andalso (IsLimitedOld =/= IsLimitedNew) ->
@@ -321,7 +366,7 @@ update_by_id(Id, UpdateFields0) ->
     end.
 
 -doc """
-List all MQs.
+List all MQs, except the MQs marked as being deleted.
 """.
 -spec list() -> emqx_utils_stream:stream(emqx_mq_types:mq()).
 list() ->
@@ -329,28 +374,44 @@ list() ->
         fun({_Key, MQ}) ->
             MQ
         end,
-        mq_record_stream_to_queues(mq_record_stream())
+        mq_record_stream_to_queues(skip_deleting(mq_record_stream()))
     ).
 
 -doc """
-List at most `Limit` MQs starting from `Cursor` position.
+List at most `Limit` MQs starting from `Cursor` position, except the MQs marked as being
+deleted.
 """.
 -spec list(cursor(), non_neg_integer()) ->
     {ok, [emqx_mq_types:mq()], cursor()} | {error, bad_cursor}.
 list(Cursor, Limit) when Limit >= 1 ->
     case key_from_cursor(Cursor) of
         {ok, Key} ->
-            {MQs, CursorNext} = do_list(Key, Limit),
+            {MQs, CursorNext} = do_list(skip_deleting(mq_record_stream(Key)), Limit),
             {ok, MQs, CursorNext};
         {error, bad_cursor} ->
             {error, bad_cursor}
     end.
 
-do_list(StartKey, Limit) ->
+-doc """
+List at most `Limit` MQs starting from `Cursor` position, including the MQs marked as being
+deleted.
+""".
+-spec list_all(cursor(), non_neg_integer()) ->
+    {ok, [emqx_mq_types:mq()], cursor()} | {error, bad_cursor}.
+list_all(Cursor, Limit) when Limit >= 1 ->
+    case key_from_cursor(Cursor) of
+        {ok, Key} ->
+            {MQs, CursorNext} = do_list(mq_record_stream(Key), Limit),
+            {ok, MQs, CursorNext};
+        {error, bad_cursor} ->
+            {error, bad_cursor}
+    end.
+
+do_list(RecordStream, Limit) ->
     KeyMQs0 = emqx_utils_stream:consume(
         emqx_utils_stream:limit_length(
             Limit + 1,
-            mq_record_stream_to_queues(mq_record_stream(StartKey))
+            mq_record_stream_to_queues(RecordStream)
         )
     ),
     case length(KeyMQs0) < Limit + 1 of
@@ -384,18 +445,20 @@ drop_queue_data(MQ) ->
     ).
 
 drop_consumer_state(MQ) ->
-    Id = emqx_mq_prop:id(MQ),
-    case emqx_mq_consumer:find(Id) of
-        {ok, ConsumerRef} ->
-            emqx_mq_consumer:stop(ConsumerRef);
-        not_found ->
-            ok
-    end,
+    ok = stop_consumer(emqx_mq_prop:id(MQ)),
     safe_with_log(
         MQ,
         fun() -> emqx_mq_state_storage:destroy_consumer_state(MQ) end,
         mq_registry_drop_consumer_error
     ).
+
+stop_consumer(Id) ->
+    case emqx_mq_consumer:find(Id) of
+        {ok, ConsumerRef} ->
+            emqx_mq_consumer:stop(ConsumerRef);
+        not_found ->
+            ok
+    end.
 
 drop_queue_state(MQ) ->
     safe_with_log(
@@ -489,14 +552,20 @@ next_key(Key) ->
 
 mq_record_stream_to_queues(Stream) ->
     emqx_utils_stream:chainmap(
-        fun(#?MQ_REGISTRY_INDEX_TAB{key = Key, id = Id}) ->
+        fun(#?MQ_REGISTRY_INDEX_TAB{key = Key, id = Id, extra = Extra}) ->
             case emqx_mq_state_storage:find_mq(Id) of
                 {ok, MQ} ->
-                    [{Key, MQ}];
+                    [{Key, maps:merge(MQ, maps:with([deleted_at], Extra))}];
                 not_found ->
                     []
             end
         end,
+        Stream
+    ).
+
+skip_deleting(Stream) ->
+    emqx_utils_stream:filter(
+        fun(#?MQ_REGISTRY_INDEX_TAB{extra = Extra}) -> not is_map_key(deleted_at, Extra) end,
         Stream
     ).
 

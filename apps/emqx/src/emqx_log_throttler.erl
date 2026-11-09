@@ -178,6 +178,7 @@ schedule_refresh(PeriodMs) ->
 new_throttler(Msg) when
     Msg =:= authenticator_rejection;
     Msg =:= authorization_source_denied;
+    Msg =:= async_reply_to_expired_request;
     Msg =:= async_send_error;
     Msg =:= unrecoverable_resource_error;
     Msg =:= buffer_worker_dropped_expired_messages;

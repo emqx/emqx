@@ -15,7 +15,9 @@ The structure of the supervisor is as follows:
   - ?CONSUMER_SUP supervisor - to host MQ consumers (emqx_mq_consumer)
   - ?MQ_SUP supervisor
     - ?METRICS_SUP supervisor - start MQ metrics workers
-    - emqx_mq_gc - scheduler for garbage collection tasks
+    - ?SERVICES_SUP supervisor
+      - emqx_mq_gc - scheduler for garbage collection tasks
+      - emqx_mq_delete_pool_sup - queue deletion workers
   - emqx_mq_controller (starts and stops services under ?MQ_SUP supervisor)
 """.
 
@@ -26,7 +28,8 @@ The structure of the supervisor is as follows:
     start_link/0,
     start_consumer_sup/0,
     start_gc_sup/0,
-    start_mq_sup/0
+    start_mq_sup/0,
+    start_services_sup/0
 ]).
 
 %% Start and stop services/taks
@@ -34,8 +37,8 @@ The structure of the supervisor is as follows:
     start_consumer/2,
     start_metrics/0,
     stop_metrics/0,
-    start_gc_scheduler/0,
-    stop_gc_scheduler/0,
+    start_services/0,
+    stop_services/0,
     start_gc/0
 ]).
 
@@ -46,6 +49,8 @@ The structure of the supervisor is as follows:
 -define(CONSUMER_SUP, emqx_mq_consumer_sup).
 -define(GC_SUP, emqx_mq_gc_sup).
 -define(MQ_SUP, emqx_mq_enabled_sup).
+-define(SERVICES_SUP, emqx_mq_services_sup).
+-define(DELETE_POOL_SIZE, 5).
 
 start_link() ->
     supervisor:start_link({local, ?ROOT_SUP}, ?MODULE, ?ROOT_SUP).
@@ -59,8 +64,11 @@ start_gc_sup() ->
 start_mq_sup() ->
     supervisor:start_link({local, ?MQ_SUP}, ?MODULE, ?MQ_SUP).
 
-start_gc_scheduler() ->
-    ensure_child(?MQ_SUP, emqx_mq_gc:child_spec()).
+start_services_sup() ->
+    supervisor:start_link({local, ?SERVICES_SUP}, ?MODULE, ?SERVICES_SUP).
+
+start_services() ->
+    ensure_child(?MQ_SUP, services_sup_child_spec()).
 
 start_metrics() ->
     ensure_child(?MQ_SUP, emqx_mq_metrics:child_spec()).
@@ -68,8 +76,8 @@ start_metrics() ->
 stop_metrics() ->
     ensure_no_child(?MQ_SUP, ?MQ_METRICS_WORKER).
 
-stop_gc_scheduler() ->
-    ensure_no_child(?MQ_SUP, ?MQ_GC_SCHEDULER).
+stop_services() ->
+    ensure_no_child(?MQ_SUP, ?SERVICES_SUP).
 
 start_consumer(Id, Args) ->
     case supervisor:start_child(?CONSUMER_SUP, emqx_mq_consumer:child_spec(Id, Args)) of
@@ -124,6 +132,15 @@ init(?MQ_SUP) ->
         period => 10
     },
     ChildSpecs = [],
+    {ok, {SupFlags, ChildSpecs}};
+init(?SERVICES_SUP) ->
+    SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
+    ChildSpecs = [
+        emqx_pool_sup:spec(emqx_mq_delete_pool_sup, permanent, [
+            emqx_mq_delete_worker, hash, ?DELETE_POOL_SIZE, {emqx_mq_delete_worker, start_link, []}
+        ]),
+        emqx_mq_gc:child_spec()
+    ],
     {ok, {SupFlags, ChildSpecs}}.
 
 consumer_sup_child_spec() ->
@@ -150,6 +167,16 @@ mq_sup_child_spec() ->
     #{
         id => ?MQ_SUP,
         start => {?MODULE, start_mq_sup, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [?MODULE]
+    }.
+
+services_sup_child_spec() ->
+    #{
+        id => ?SERVICES_SUP,
+        start => {?MODULE, start_services_sup, []},
         restart => permanent,
         shutdown => infinity,
         type => supervisor,

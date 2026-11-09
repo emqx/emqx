@@ -179,14 +179,21 @@ t_crud(_Config) ->
         api_delete([message_streams, streams, <<"crud_12">>])
     ),
     %% Verify that the streams are deleted
+    ?retry(
+        50,
+        100,
+        ?assertMatch(
+            {ok, 404, _}, api_get([message_streams, streams, <<"crud_11">>])
+        )
+    ),
     ?assertMatch(
         {ok, 404, _},
         api_delete([message_streams, streams, <<"crud_11">>])
     ),
     %% Verify that the streams are not listed
     ?retry(
-        5,
-        20,
+        50,
+        100,
         ?assertMatch(
             {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
             api_get([message_streams, streams])
@@ -234,7 +241,7 @@ t_legacy_streams_crud(_Config) ->
         api_delete([message_streams, streams, urlencode(<<"/t/#">>)])
     ),
 
-    ?assertEqual(not_found, emqx_streams_registry:find(<<"/t/#">>)).
+    ?retry(50, 100, ?assertEqual(not_found, emqx_streams_registry:find(<<"/t/#">>))).
 
 %% Verify pagination logic of message stream listing.
 t_pagination(_Config) ->
@@ -558,7 +565,7 @@ t_update_legacy_stream(_Config) ->
         {ok, 204},
         api_delete([message_streams, streams, urlencode(<<"/t/#">>)])
     ),
-    ?assertEqual(not_found, emqx_streams_registry:find(<<"/t/#">>)),
+    ?retry(50, 100, ?assertEqual(not_found, emqx_streams_registry:find(<<"/t/#">>))),
 
     %% Check list is empty
     ?assertMatch(
@@ -610,10 +617,7 @@ t_streams_alias_crud(_Config) ->
         api_delete([stream, <<"alias_s1">>])
     ),
     %% Verify deleted
-    ?assertMatch(
-        {ok, 404, _},
-        api_get([stream, <<"alias_s1">>])
-    ).
+    ?retry(50, 100, ?assertMatch({ok, 404, _}, api_get([stream, <<"alias_s1">>]))).
 
 %% Verify that /streams/config alias path works identically to /message_streams/config.
 t_streams_alias_config(_Config) ->

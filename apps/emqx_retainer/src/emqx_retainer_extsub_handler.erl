@@ -126,6 +126,16 @@ handle_info(
         _ ->
             {ok, Handler1, Messages}
     end;
+%% The dispatcher worker dropped the request from its full queue: end the delivery as if the
+%% last batch had no messages, so that the messages already in the buffer are still delivered.
+handle_info(
+    #h{request_ref = Ref} = Handler, InfoCtx, #retained_dropped{request_ref = Ref} = Dropped
+) ->
+    #retained_dropped{topic_filter = TopicFilter} = Dropped,
+    Batch = #retained_batch{
+        topic_filter = TopicFilter, request_ref = Ref, messages = [], cursor = done
+    },
+    handle_info(Handler, InfoCtx, Batch);
 handle_info(#h{monitor = Ref} = Handler0, _InfoCtx, {'DOWN', Ref, process, _Pid, _Reason}) ->
     Handler = Handler0#h{dispatcher = undefined, monitor = undefined, request_ref = undefined},
     case Handler0#h.request_ref of

@@ -176,7 +176,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.4", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.18.0", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.18.1", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "1.0.4", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -282,11 +282,11 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.18", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.2.1"}
+  def common_dep(:wolff), do: {:wolff, "4.2.2", override: true}
+
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
-  def common_dep(:kafka_protocol),
-    do: {:kafka_protocol, "4.3.7", override: true}
+  def common_dep(:kafka_protocol), do: {:kafka_protocol, "4.3.8", override: true}
 
   def common_dep(:brod), do: {:brod, "4.5.5"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override

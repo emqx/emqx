@@ -119,6 +119,9 @@ schema("/queue/:name") ->
                     emqx_mq_schema:mq_sctype_api_get(),
                     get_message_queue_example()
                 ),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], ?DESC(message_queue_being_deleted)
+                ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND'], ?DESC(message_queue_not_found)
                 ),
@@ -309,6 +312,8 @@ put_message_queue_config_example() ->
     case get_message_queue(Name) of
         not_found ->
             ?NOT_FOUND(<<"Message queue not found">>);
+        {error, being_deleted} ->
+            ?BAD_REQUEST(<<"Message queue is being deleted">>);
         {ok, MessageQueue} ->
             ?OK(MessageQueue)
     end;
@@ -326,6 +331,8 @@ put_message_queue_config_example() ->
             ?BAD_REQUEST(
                 <<"Regular queues cannot be updated from limited to unlimited and vice versa">>
             );
+        {error, being_deleted} ->
+            ?BAD_REQUEST(<<"Message queue is being deleted">>);
         {error, _} = Error ->
             ?SERVICE_UNAVAILABLE(Error)
     end;
@@ -333,8 +340,8 @@ put_message_queue_config_example() ->
     case delete_message_queue(Name) of
         not_found ->
             ?NOT_FOUND(<<"Message queue not found">>);
-        {error, Reason} ->
-            ?SERVICE_UNAVAILABLE(Reason);
+        {error, no_delete_worker} ->
+            ?SERVICE_UNAVAILABLE(<<"Not ready">>);
         ok ->
             ?NO_CONTENT
     end.
@@ -388,7 +395,7 @@ hidden_alias(Schema, OperationId) ->
     ).
 
 get_message_queues(Cursor, Limit) ->
-    case emqx_mq_registry:list(Cursor, Limit) of
+    case emqx_mq_registry:list_all(Cursor, Limit) of
         {ok, MessageQueues, CursorNext} ->
             {ok, [emqx_mq_config:mq_to_raw_get(MQ) || MQ <- MessageQueues], CursorNext};
         {error, _} ->
@@ -409,7 +416,10 @@ get_message_queue(Name) ->
         not_found ->
             not_found;
         {ok, MQ} ->
-            {ok, emqx_mq_config:mq_to_raw_get(MQ)}
+            case emqx_mq_registry:is_deleting(MQ) of
+                true -> {error, being_deleted};
+                false -> {ok, emqx_mq_config:mq_to_raw_get(MQ)}
+            end
     end.
 
 update_message_queue(Name, UpdatedMessageQueueRaw) ->
@@ -423,8 +433,13 @@ update_message_queue(Name, UpdatedMessageQueueRaw) ->
             Error
     end.
 
+%% A repeated DELETE schedules the deletion again, e.g. after a failed one.
 delete_message_queue(Name) ->
-    emqx_mq_registry:delete(Name).
+    maybe
+        {ok, #{id := Id} = MQ} ?= emqx_mq_registry:find(Name),
+        ok ?= emqx_mq_registry:mark_deleting(MQ),
+        emqx_mq_delete_worker:enqueue(Id)
+    end.
 
 ref(Module, Name) ->
     hoconsc:ref(Module, Name).

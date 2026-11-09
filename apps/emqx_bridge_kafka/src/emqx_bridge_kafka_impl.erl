@@ -9,10 +9,28 @@
     hosts/1,
     sasl/1,
     sasl/2,
-    socket_opts/1
+    socket_opts/1,
+    client_opts/1
 ]).
 
 -include_lib("emqx/include/logger.hrl").
+
+%% Options passed down to the Kafka client library that are only present when
+%% the user explicitly configured them.
+-spec client_opts(map()) -> map().
+client_opts(Config) ->
+    maps:filter(
+        fun(_, Value) -> Value =/= undefined end,
+        #{
+            client_id => kafka_client_id_opt(Config)
+        }
+    ).
+
+kafka_client_id_opt(Config) ->
+    case maps:get(kafka_client_id, Config, <<>>) of
+        <<>> -> undefined;
+        ClientId -> ClientId
+    end.
 
 %% Parse comma separated host:port list into a [{Host,Port}] list
 hosts(Hosts) when is_binary(Hosts) ->

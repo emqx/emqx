@@ -14,7 +14,9 @@ The structure of the supervisor is as follows:
   - ?GC_SUP supervisor — to host garbage collection tasks (emqx_streams_gc_worker)
   - ?STREAMS_SUP supervisor
     - ?METRICS_SUP supervisor - start Streams metrics workers
-    - emqx_streams_gc - scheduler for garbage collection tasks
+    - ?SERVICES_SUP supervisor
+      - emqx_streams_gc - scheduler for garbage collection tasks
+      - emqx_streams_delete_pool_sup - stream deletion workers
   - emqx_streams_controller (starts and stops services under ?STREAMS_SUP supervisor)
 """.
 
@@ -22,11 +24,12 @@ The structure of the supervisor is as follows:
     start_link/0,
     start_metrics/0,
     stop_metrics/0,
-    start_gc_scheduler/0,
-    stop_gc_scheduler/0,
+    start_services/0,
+    stop_services/0,
     start_gc_sup/0,
     start_gc/0,
-    start_streams_sup/0
+    start_streams_sup/0,
+    start_services_sup/0
 ]).
 
 -behaviour(supervisor).
@@ -35,6 +38,8 @@ The structure of the supervisor is as follows:
 -define(ROOT_SUP, ?MODULE).
 -define(GC_SUP, emqx_streams_gc_sup).
 -define(STREAMS_SUP, emqx_streams_enabled_sup).
+-define(SERVICES_SUP, emqx_streams_services_sup).
+-define(DELETE_POOL_SIZE, 5).
 
 %%
 
@@ -47,8 +52,11 @@ start_gc_sup() ->
 start_streams_sup() ->
     supervisor:start_link({local, ?STREAMS_SUP}, ?MODULE, ?STREAMS_SUP).
 
-start_gc_scheduler() ->
-    ensure_child(?STREAMS_SUP, emqx_streams_gc:child_spec()).
+start_services_sup() ->
+    supervisor:start_link({local, ?SERVICES_SUP}, ?MODULE, ?SERVICES_SUP).
+
+start_services() ->
+    ensure_child(?STREAMS_SUP, services_sup_child_spec()).
 
 start_metrics() ->
     ensure_child(?STREAMS_SUP, emqx_streams_metrics:child_spec()).
@@ -56,8 +64,8 @@ start_metrics() ->
 stop_metrics() ->
     ensure_no_child(?STREAMS_SUP, ?STREAMS_METRICS_WORKER).
 
-stop_gc_scheduler() ->
-    ensure_no_child(?STREAMS_SUP, ?STREAMS_GC_SCHEDULER).
+stop_services() ->
+    ensure_no_child(?STREAMS_SUP, ?SERVICES_SUP).
 
 start_gc() ->
     ensure_child(?GC_SUP, emqx_streams_gc_worker:child_spec()).
@@ -91,7 +99,29 @@ init(?STREAMS_SUP) ->
         period => 10
     },
     ChildSpecs = [],
+    {ok, {SupFlags, ChildSpecs}};
+init(?SERVICES_SUP) ->
+    SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
+    ChildSpecs = [
+        emqx_pool_sup:spec(emqx_streams_delete_pool_sup, permanent, [
+            emqx_streams_delete_worker,
+            hash,
+            ?DELETE_POOL_SIZE,
+            {emqx_streams_delete_worker, start_link, []}
+        ]),
+        emqx_streams_gc:child_spec()
+    ],
     {ok, {SupFlags, ChildSpecs}}.
+
+services_sup_child_spec() ->
+    #{
+        id => ?SERVICES_SUP,
+        start => {?MODULE, start_services_sup, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [?MODULE]
+    }.
 
 streams_sup_child_spec() ->
     #{

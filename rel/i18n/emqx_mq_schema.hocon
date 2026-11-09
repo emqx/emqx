@@ -1,4 +1,8 @@
 emqx_mq_schema {
+    deleted_at {
+        desc: "The deletion request time in milliseconds since the Unix epoch. Present only while the deletion is pending."
+        label: "Deleted At"
+    }
     gc_interval {
         desc: """~
             The interval at which the Message Queues will clean up expired messages."""
