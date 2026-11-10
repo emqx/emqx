@@ -10,7 +10,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([register_hooks/0, unregister_hooks/0]).
+-export([register_hooks/0, unregister_hooks/0, register_gate_hooks/0]).
 
 -export([
     on_message_publish/1,
@@ -27,13 +27,29 @@
 
 -define(IS_MQ_SUPPORTED_PD_KEY, {?MODULE, is_mq_supported}).
 
+-doc """
+Registers the hooks that guard subscriptions to MQ topics.
+
+They must be in place before the MQ subsystem is fully started (and before
+listeners accept connections), so that:
+- a subscription to an MQ topic made while the subsystem is still starting is
+  refused instead of being silently accepted without an MQ handler behind it;
+- sessions created while the subsystem is still starting are checked for MQ
+  support, and are able to subscribe once the subsystem is started.
+""".
+-spec register_gate_hooks() -> ok.
+register_gate_hooks() ->
+    %% Idempotent hooks registration
+    _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
+    _ = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
+    ok.
+
 -spec register_hooks() -> ok.
 register_hooks() ->
     %% Idempotent hooks registration
-    _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
+    ok = register_gate_hooks(),
     _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
-    _ = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
-    _ = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
     _ = emqx_extsub_handler_registry:register(emqx_mq_extsub_handler, #{
         multi_topic => true,
         handle_generic_messages => true
@@ -108,12 +124,20 @@ deny_if_mq_not_supported(_ClientInfo, _Topic, Result) ->
     ?tp_mq_client(mq_on_client_authorize, #{
         client_info => _ClientInfo, topic => _Topic
     }),
-    case validate_mq_supported() of
+    case validate_mq_started() of
         ok ->
-            {ok, Result};
+            case validate_mq_supported() of
+                ok ->
+                    {ok, Result};
+                {error, Reason} ->
+                    ?tp(warning, mq_cannot_subscribe_to_mq, #{reason => Reason}),
+                    {stop, #{result => deny, from => mq}}
+            end;
         {error, Reason} ->
+            %% The condition is transient: the client is expected to retry,
+            %% so the denial must not end up in the authz cache.
             ?tp(warning, mq_cannot_subscribe_to_mq, #{reason => Reason}),
-            {stop, #{result => deny, from => mq}}
+            {stop, #{result => deny, from => mq, is_cacheable => false}}
     end.
 
 %%
@@ -159,6 +183,14 @@ set_mq_supported(Ctx, _SessionInfo) ->
         end,
     _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, MQSupported),
     ok.
+
+validate_mq_started() ->
+    case emqx_mq_controller:status() of
+        started ->
+            ok;
+        _NotStarted ->
+            {error, mq_not_started}
+    end.
 
 validate_mq_supported() ->
     case erlang:get(?IS_MQ_SUPPORTED_PD_KEY) of
