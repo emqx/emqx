@@ -246,6 +246,11 @@ tx_commit(
         tx_counter = TxCntr
     } = Pmap
 ) when is_binary(CollectionId) ->
+    %% Claim the entire pmap data topic filter to avoid locking individual keys:
+    LockedTF = pmap_topic(Name, CollectionId, '+'),
+    emqx_ds:tx_lock(LockedTF, 0, infinity, w),
+    emqx_ds:tx_lock(LockedTF, 0, infinity, d),
+    %% Dump data:
     maps:foreach(
         fun
             (_Key, {del, _, Topic}) ->
