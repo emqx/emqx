@@ -243,13 +243,27 @@ line_to_point_1(
                 maps:get(missing_timestamp, Item, default)
             ),
         TableName = render_measurement(Measurement, Data),
-        Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
-        Point = maps:merge(
+        DriverPrecision = driver_timestamp_precision(DriverType, ToPrecision),
+        Metric = #{dbname => DbName, table => TableName, timeunit => DriverPrecision},
+        Point0 = maps:merge(
             maps:with([tags, fields], Item#{tags => EncodedTags, fields => EncodedFields}),
             TimestampFields
         ),
+        Point = driver_timestamp_point(DriverType, ToPrecision, Point0),
         {ok, {Metric, [Point]}}
     end.
+
+driver_timestamp_precision(erlang, Precision) ->
+    Precision;
+driver_timestamp_precision(native, _Precision) ->
+    ms.
+
+driver_timestamp_point(erlang, _Precision, Point) ->
+    Point;
+driver_timestamp_point(native, FromPrecision, #{timestamp := Timestamp} = Point) ->
+    Point#{timestamp => maybe_convert_time_unit(Timestamp, {FromPrecision, ms})};
+driver_timestamp_point(native, _FromPrecision, Point) ->
+    Point.
 
 do_parse_write_syntax([], Acc, _Precision) ->
     lists:reverse(Acc);
@@ -270,7 +284,7 @@ parse_structured_point(Point, TargetPrecision) ->
         maps:get(timestamp, Point, undefined), TargetPrecision
     ),
     #{
-        measurement => {structured, emqx_placeholder:preproc_tmpl(maps:get(measurement, Point))},
+        measurement => {structured, structured_tmpl(maps:get(measurement, Point))},
         timestamp => Timestamp,
         missing_timestamp => MissingTimestamp,
         precision => {SourcePrecision, TargetPrecision},
@@ -287,14 +301,14 @@ structured_timestamp(undefined, TargetPrecision) ->
     {Ts, SourcePrecision, _} = preproc_tmpl_timestamp(undefined, TargetPrecision),
     {Ts, SourcePrecision, default};
 structured_timestamp(#{value := Value, source_precision := SourcePrecision}, _TargetPrecision) ->
-    {emqx_placeholder:preproc_tmpl(Value), SourcePrecision, error}.
+    {structured_tmpl(Value), SourcePrecision, error}.
 
 structured_tags(Tags) ->
     lists:foldl(
         fun(#{key := Key, value := Value}, Acc) ->
             maps:put(
-                emqx_placeholder:preproc_tmpl(Key),
-                {structured_tag, emqx_placeholder:preproc_tmpl(Value)},
+                structured_tmpl(Key),
+                {structured_tag, structured_tmpl(Value)},
                 Acc
             )
         end,
@@ -306,14 +320,22 @@ structured_fields(Fields) ->
     lists:foldl(
         fun(#{key := Key, type := Type, value := Value}, Acc) ->
             maps:put(
-                emqx_placeholder:preproc_tmpl(Key),
-                {typed, Type, emqx_placeholder:preproc_tmpl(Value)},
+                structured_tmpl(Key),
+                {typed, Type, structured_tmpl(Value)},
                 Acc
             )
         end,
         #{},
         Fields
     ).
+
+structured_tmpl(Value) ->
+    Tokens = emqx_placeholder:preproc_tmpl(emqx_utils_conv:bin(Value)),
+    case Tokens of
+        [] -> Tokens;
+        [_] -> Tokens;
+        _ -> throw({mixed_structured_template, Value})
+    end.
 
 %% pre-process the timestamp template
 %% returns a tuple of three elements:

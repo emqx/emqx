@@ -348,8 +348,10 @@ normalize_final_results(FinalResults, LastCounts) ->
 
 normalize_final_result({Index, PointCount, Result}, _LastCounts) ->
     {Index, PointCount, Result};
-normalize_final_result({Index, Result}, LastCounts) ->
-    {Index, maps:get(Index, LastCounts, 1), Result}.
+normalize_final_result({Index, Result}, _LastCounts) ->
+    %% Legacy pair results came from earlier tables and carry no point count.
+    %% Do not borrow the current table's count for the same message index.
+    {Index, 1, Result}.
 
 legacy_batch_size(#{batch_size := BatchSize}, _LastCounts, _FinalResults, _Iter) when
     is_integer(BatchSize), BatchSize > 0
@@ -710,6 +712,16 @@ is_recoverable_error_reason(ecpool_disconnected) ->
 is_recoverable_error_reason(ecpool_client_disconnected) ->
     true;
 is_recoverable_error_reason(not_connected) ->
+    true;
+is_recoverable_error_reason(timeout) ->
+    true;
+is_recoverable_error_reason(etimedout) ->
+    true;
+is_recoverable_error_reason({timeout, _Reason}) ->
+    true;
+is_recoverable_error_reason({shutdown, timeout}) ->
+    true;
+is_recoverable_error_reason({shutdown, {timeout, _Reason}}) ->
     true;
 is_recoverable_error_reason(_Reason) ->
     false.

@@ -274,59 +274,7 @@ desc(_) ->
     undefined.
 
 action_parameters_validator(Conf) ->
-    case {has_config(Conf, write), has_config(Conf, write_syntax)} of
-        {true, false} ->
-            validate_write_points(config_value(Conf, write));
-        {false, true} ->
-            ok;
-        {true, true} ->
-            {error, <<"parameters.write and parameters.write_syntax are mutually exclusive">>};
-        {false, false} ->
-            {error, <<"either parameters.write or parameters.write_syntax must be configured">>}
-    end.
-
-has_config(Conf, Key) ->
-    maps:is_key(Key, Conf) orelse maps:is_key(atom_to_binary(Key), Conf).
-
-config_value(Conf, Key) ->
-    config_value(Conf, Key, undefined).
-
-config_value(Conf, Key, Default) ->
-    case maps:find(Key, Conf) of
-        {ok, Value} -> Value;
-        error -> maps:get(atom_to_binary(Key), Conf, Default)
-    end.
-
-validate_write_points(Points) ->
-    lists:foldl(
-        fun
-            (Point, ok) -> validate_write_point(Point);
-            (_Point, Error) -> Error
-        end,
-        ok,
-        Points
-    ).
-
-validate_write_point(Point) ->
-    case has_duplicate_entry_keys(config_value(Point, tags, [])) of
-        true ->
-            {error, <<"duplicate tag key in write point">>};
-        false ->
-            case has_duplicate_entry_keys(config_value(Point, fields, [])) of
-                true -> {error, <<"duplicate field key in write point">>};
-                false -> ok
-            end
-    end.
-
-has_duplicate_entry_keys(Entries) ->
-    Keys = [entry_key(Entry) || Entry <- Entries],
-    length(Keys) =/= length(lists:usort(Keys)).
-
-entry_key(Entry) ->
-    case maps:find(key, Entry) of
-        {ok, Key} -> Key;
-        error -> maps:get(<<"key">>, Entry)
-    end.
+    emqx_bridge_influxdb:action_parameters_validator(Conf).
 
 write_syntax(type) ->
     emqx_bridge_influxdb:write_syntax_type();

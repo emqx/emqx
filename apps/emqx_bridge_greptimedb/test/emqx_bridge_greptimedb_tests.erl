@@ -84,6 +84,19 @@ emqx_tables_structured_action_schema_test() ->
         check_action(<<"emqx_tables">>, structured_action_config())
     ).
 
+mixed_structured_template_is_rejected_test_() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    Mixed = Conf#{
+        <<"parameters">> => #{
+            <<"write">> => [Point0#{<<"measurement">> => <<"mqtt-${topic}">>}]
+        }
+    },
+    [
+        ?_assertThrow({emqx_bridge_v2_schema, _}, check_action(Mixed)),
+        ?_assertThrow({emqx_bridge_v2_schema, _}, check_action(<<"emqx_tables">>, Mixed))
+    ].
+
 action_requires_write_config_test() ->
     ?assertThrow(
         {emqx_bridge_v2_schema, _},
@@ -386,6 +399,33 @@ native_single_query_sums_cross_table_point_counts_test() ->
         )
     end).
 
+native_single_query_uses_millisecond_timestamp_test() ->
+    Write = [
+        #{
+            measurement => <<"mqtt">>,
+            fields => [
+                #{key => <<"value">>, type => integer, value => <<"1">>}
+            ],
+            timestamp => #{
+                value => <<"${payload.ts}">>,
+                source_precision => ms
+            }
+        }
+    ],
+    State = native_rs_state(Write, ns),
+    Insert = fun(_Client, <<"mqtt">>, [Point]) ->
+        ?assertEqual(1700000000123, maps:get(timestamp, Point)),
+        {ok, 1}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        ?assertEqual(
+            {ok, 1},
+            emqx_bridge_greptimedb_rs_impl:on_query(
+                connector, {channel, #{payload => #{ts => 1700000000123}}}, State
+            )
+        )
+    end).
+
 native_batch_query_returns_one_result_per_message_test() ->
     Write = native_test_write(<<"${payload.table}">>, 2),
     State = native_rs_state(Write),
@@ -556,6 +596,21 @@ native_nif_error_is_unrecoverable_test() ->
     with_rs_insert_mock(Insert, fun() ->
         ?assertEqual(
             {error, {unrecoverable_error, bad_schema}},
+            emqx_bridge_greptimedb_rs_impl:on_query(
+                connector, {channel, #{}}, State
+            )
+        )
+    end).
+
+native_timeout_is_recoverable_test() ->
+    Write = native_test_write(<<"mqtt">>, 1),
+    State = native_rs_state(Write),
+    Insert = fun(_Client, <<"mqtt">>, _Points) ->
+        {error, timeout}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        ?assertEqual(
+            {error, {recoverable_error, timeout}},
             emqx_bridge_greptimedb_rs_impl:on_query(
                 connector, {channel, #{}}, State
             )
@@ -888,90 +943,27 @@ intermediate_async_reply_context_is_normalized_test() ->
         error(intermediate_async_context_timeout)
     end.
 
-native_auto_integer_suffixes_are_validated_test_() ->
-    [
-        ?_assertMatch(
-            {error, [{error, {invalid_unsigned_integer_value, -1}}]},
-            render_write_result(
-                native,
-                native_auto_write(<<"${payload.value}u">>),
-                #{payload => #{value => -1}}
-            )
-        ),
-        ?_assertMatch(
-            {error, [{error, {invalid_integer_value, 9223372036854775808}}]},
-            render_write_result(
-                native,
-                native_auto_write(<<"${payload.value}i">>),
-                #{payload => #{value => 9223372036854775808}}
-            )
-        ),
-        ?_test(assert_native_auto_max_uint())
-    ].
-
-structured_auto_mixed_template_is_text_test_() ->
-    [
-        ?_assertEqual(
-            #{
-                tags => #{},
-                fields => #{
-                    <<"value">> => #{value_data => {string_value, <<"prefix65">>}}
-                }
-            },
-            rendered_structured_point(
-                erlang,
-                structured_auto_mixed_template_write(),
-                #{payload => #{value => 65}}
-            )
-        ),
-        ?_assertEqual(
-            #{
-                tags => #{},
-                fields => #{<<"value">> => <<"prefix65">>}
-            },
-            rendered_structured_point(
-                native,
-                structured_auto_mixed_template_write(),
-                #{payload => #{value => 65}}
-            )
-        )
-    ].
-
-structured_auto_mixed_template_write() ->
-    [
-        #{
-            measurement => <<"mqtt">>,
-            fields => [
-                #{
-                    key => <<"value">>,
-                    type => auto,
-                    value => <<"prefix", "${payload.value}">>
-                }
-            ],
-            timestamp => false
-        }
-    ].
-
-assert_native_auto_max_uint() ->
-    ?assertMatch(
-        {ok, [{_, [#{fields := #{<<"value">> := 18446744073709551615}}]}]},
-        render_write_result(
-            native,
-            native_auto_write(<<"${payload.value}u">>),
-            #{payload => #{value => 18446744073709551615}}
-        )
-    ).
-
-native_auto_write(ValueTemplate) ->
-    [
-        #{
-            measurement => <<"mqtt">>,
-            fields => [
-                #{key => <<"value">>, type => auto, value => ValueTemplate}
-            ],
-            timestamp => false
-        }
-    ].
+legacy_async_pair_results_count_each_old_table_point_once_test() ->
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {legacy_pair_counts_result, Result} end,
+        []
+    },
+    Context = #{
+        iter => maps:iterator(#{}),
+        last_counts => #{1 => 2, 2 => 2},
+        final_cont => FinalReply,
+        final_res => [{1, {ok, 1}}, {2, {ok, 1}}],
+        client => test_client,
+        batch_size => 2
+    },
+    emqx_bridge_greptimedb_rs_impl:reply_callback(Context, {ok, 1}),
+    receive
+        {legacy_pair_counts_result, Result} ->
+            ?assertEqual([{ok, 3}, {ok, 3}], Result)
+    after 1_000 ->
+        error(legacy_pair_counts_timeout)
+    end.
 
 assert_unrecoverable(Result, Reason) ->
     ?assertMatch(
@@ -1005,8 +997,11 @@ native_test_point(Measurement, Value) ->
     }.
 
 native_rs_state(Write) ->
+    native_rs_state(Write, ms).
+
+native_rs_state(Write, Precision) ->
     WriteSyntax = emqx_bridge_greptimedb_utils:parse_action_parameters(
-        #{write => Write}, ms
+        #{write => Write}, Precision
     ),
     #{
         database => <<"mydb">>,
@@ -1104,7 +1099,7 @@ expected_erlang_points() ->
 expected_native_points() ->
     [
         {
-            #{dbname => <<"mydb">>, table => <<"sensors">>, timeunit => ns},
+            #{dbname => <<"mydb">>, table => <<"sensors">>, timeunit => ms},
             [
                 #{
                     tags => #{<<"clientid">> => <<"client-1">>},
@@ -1115,7 +1110,7 @@ expected_native_points() ->
                         <<"label">> => <<"ok">>,
                         <<"automatic">> => 7.0
                     },
-                    timestamp => 1700000000123000000
+                    timestamp => 1700000000123
                 }
             ]
         }
@@ -1169,10 +1164,16 @@ timestamp_false_uses_current_time_test_() ->
     ].
 
 assert_timestamp_false_uses_current_time(DriverType) ->
-    [{#{timeunit := ns}, [Point]}] = render_structured_write_without_timestamp(DriverType),
+    {ExpectedUnit, MinimumTimestamp} =
+        case DriverType of
+            erlang -> {ns, 1_000_000_000_000_000_000};
+            native -> {ms, 1_000_000_000_000}
+        end,
+    [{#{timeunit := ExpectedUnit}, [Point]}] =
+        render_structured_write_without_timestamp(DriverType),
     Timestamp = maps:get(timestamp, Point),
     ?assert(is_integer(Timestamp)),
-    ?assert(Timestamp > 1_000_000_000_000_000_000),
+    ?assert(Timestamp > MinimumTimestamp),
     ?assertEqual(
         expected_fields(DriverType),
         maps:get(fields, Point)
@@ -1227,9 +1228,23 @@ omitted_timestamp_uses_message_timestamp_test_() ->
             render_points(erlang, Write, Data)
         ),
         ?_assertMatch(
-            [{#{timeunit := ns}, [#{timestamp := 1700000000123000000}]}],
+            [{#{timeunit := ms}, [#{timestamp := 1700000000123}]}],
             render_points(native, Write, Data)
         )
+    ].
+
+native_timestamps_are_always_milliseconds_test_() ->
+    [
+        ?_assertMatch(
+            [{#{timeunit := ms}, [#{timestamp := ExpectedTimestamp}]}],
+            render_timestamp(native, ms, Precision)
+        )
+     || {Precision, ExpectedTimestamp} <- [
+            {s, 1700000000000},
+            {ms, 1700000000123},
+            {us, 1700000000123},
+            {ns, 1700000000123}
+        ]
     ].
 
 legacy_missing_custom_timestamp_fallback_unit_test_() ->
@@ -1270,6 +1285,9 @@ timestamp_unit(us) -> microsecond;
 timestamp_unit(ns) -> nanosecond.
 
 render_timestamp(SourcePrecision, TargetPrecision) ->
+    render_timestamp(erlang, SourcePrecision, TargetPrecision).
+
+render_timestamp(DriverType, SourcePrecision, TargetPrecision) ->
     Write = [
         #{
             measurement => <<"mqtt">>,
@@ -1286,55 +1304,9 @@ render_timestamp(SourcePrecision, TargetPrecision) ->
         #{write => Write}, TargetPrecision
     ),
     {ok, Points} = emqx_bridge_greptimedb_utils:data_to_points(
-        #{payload => #{ts => 1700000000123}}, <<"mydb">>, SyntaxLines, erlang
+        #{payload => #{ts => 1700000000123}}, <<"mydb">>, SyntaxLines, DriverType
     ),
     Points.
-
-missing_mixed_template_values_are_omitted_test_() ->
-    [
-        ?_assertEqual(
-            #{
-                tags => #{},
-                fields => #{
-                    <<"value">> => #{value_data => {i64_value, 1}}
-                }
-            },
-            rendered_structured_point(erlang, missing_mixed_template_write())
-        ),
-        ?_assertEqual(
-            #{
-                tags => #{},
-                fields => #{<<"value">> => 1}
-            },
-            rendered_structured_point(native, missing_mixed_template_write())
-        )
-    ].
-
-missing_mixed_template_write() ->
-    [
-        #{
-            measurement => <<"mqtt">>,
-            tags => [
-                #{key => <<"tenant">>, value => <<"tenant-", "${payload.missing}">>}
-            ],
-            fields => [
-                #{
-                    key => <<"greeting">>,
-                    type => string,
-                    value => <<"hello ", "${payload.missing}">>
-                },
-                #{key => <<"value">>, type => integer, value => <<"1">>}
-            ],
-            timestamp => false
-        }
-    ].
-
-rendered_structured_point(DriverType, Write) ->
-    rendered_structured_point(DriverType, Write, #{payload => #{}}).
-
-rendered_structured_point(DriverType, Write, Data) ->
-    [{_, [Point]}] = render_points(DriverType, Write, Data),
-    maps:without([timestamp], Point).
 
 all_missing_fields_error_test_() ->
     [
