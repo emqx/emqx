@@ -459,6 +459,16 @@ setup_fake_telemetry_data() ->
     {201, _} = emqx_bridge_v2_testlib:create_source_api(MQTTTCConfig2, #{}),
     ok.
 
+collect_batch_messages(Remaining, _Timeout) when Remaining =< 0 ->
+    0;
+collect_batch_messages(Remaining, Timeout) ->
+    receive
+        {batch_called, N, _Msgs} ->
+            N + collect_batch_messages(Remaining - N, Timeout)
+    after Timeout ->
+        0
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -2185,13 +2195,3 @@ t_actions_messages_exceeds_executed_in_batch_mode(_Config) ->
     unregister(registered_process_name()),
     ok = remove(bridge_type(), BridgeName),
     ok.
-
-collect_batch_messages(Remaining, _Timeout) when Remaining =< 0 ->
-    0;
-collect_batch_messages(Remaining, Timeout) ->
-    receive
-        {batch_called, N, _Msgs} ->
-            N + collect_batch_messages(Remaining - N, Timeout)
-    after Timeout ->
-        0
-    end.
