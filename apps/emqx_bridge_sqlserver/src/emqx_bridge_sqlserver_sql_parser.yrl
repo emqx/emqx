@@ -2,15 +2,16 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Restricted SQL Server INSERT INTO VALUES grammar.
+%% Restricted SQL Server INSERT and UPDATE grammar.
 
 Nonterminals
-    template insert_stmt target static_identifier opt_static_identifier opt_columns columns identifier_list row
+    template insert_stmt update_stmt assignments assignment opt_where target
+    static_identifier opt_static_identifier opt_columns columns identifier_list row
     expression_list expression expression_args opt_expression_args function_name opt_semicolon
     case_expression opt_case_operand when_clauses when_clause opt_case_else.
 
 Terminals
-    insert into values null default current_timestamp
+    insert into values update set_kw where_kw null default current_timestamp
     case_kw when_kw then_kw else_kw end_kw is_kw and_kw or_kw not_kw
     identifier placeholder number hex sq_string nq_string dq_identifier br_identifier
     '(' ')' ',' '.' ';' '=' '>=' '<=' '<>' '!=' '>' '<' '+' '-' '*' '/' '%'.
@@ -26,6 +27,15 @@ Left 100 '+' '-'.
 Left 200 '*' '/' '%'.
 
 template -> insert_stmt : '$1'.
+template -> update_stmt : '$1'.
+
+update_stmt -> update target set_kw assignments opt_where opt_semicolon :
+    {update, #{target => '$2', assignments => '$4', where => '$5'}}.
+assignments -> assignment : ['$1'].
+assignments -> assignments ',' assignment : '$1' ++ ['$3'].
+assignment -> static_identifier '=' expression : {'$1', '$3'}.
+opt_where -> '$empty' : undefined.
+opt_where -> where_kw expression : '$2'.
 
 %% This grammar is a restricted subset of SQL Server INSERT:
 %% https://github.com/microsoft/SqlScriptDOM/blob/01aa17bfa32f25f1b1084b72c2e6a1a92b44633a/SqlScriptDom/Parser/TSql/TSql160.g#L19710-L19781
@@ -40,6 +50,9 @@ target -> static_identifier '.' opt_static_identifier '.' opt_static_identifier 
     ['$1', '$3', '$5', '$7'].
 
 static_identifier -> identifier : {identifier, bare, value('$1')}.
+static_identifier -> update : {identifier, bare, value('$1')}.
+static_identifier -> set_kw : {identifier, bare, value('$1')}.
+static_identifier -> where_kw : {identifier, bare, value('$1')}.
 static_identifier -> dq_identifier : {identifier, double, value('$1')}.
 static_identifier -> br_identifier : {identifier, bracket, value('$1')}.
 
@@ -70,7 +83,7 @@ expression -> null : null.
 expression -> default : default.
 expression -> current_timestamp : current_timestamp.
 expression -> case_expression : '$1'.
-expression -> identifier : {identifier_value, value('$1')}.
+expression -> function_name : {column, '$1'}.
 expression -> function_name '(' opt_expression_args ')' : {call, '$1', '$3'}.
 expression -> '(' expression ')' : {group, '$2'}.
 expression -> '+' expression : {unary, '+', '$2'}.

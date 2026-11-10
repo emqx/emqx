@@ -88,6 +88,10 @@ init_per_group(?with_batch, TCConfig0) ->
     [{batch_size, 100}, {batch_time, <<"200ms">>} | TCConfig0];
 init_per_group(?without_batch, TCConfig0) ->
     [{batch_size, 1}, {batch_time, <<"0ms">>} | TCConfig0];
+init_per_group(null_values, TCConfig) ->
+    [{undefined_vars_as_null, true} | TCConfig];
+init_per_group(undefined_values, TCConfig) ->
+    [{undefined_vars_as_null, false} | TCConfig];
 init_per_group(_Group, TCConfig) ->
     TCConfig.
 
@@ -383,6 +387,310 @@ t_rule_action(TCConfig) when is_list(TCConfig) ->
         post_publish_fn => PostPublishFn
     },
     emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+-doc "Preserve INSERT templates with identifiers that are also UPDATE keywords.".
+t_insert_keyword_identifiers() ->
+    [{matrix, true}].
+t_insert_keyword_identifiers(matrix) ->
+    [[Sync, Batch] || Sync <- [?sync, ?async], Batch <- [?without_batch, ?with_batch]];
+t_insert_keyword_identifiers(TCConfig) ->
+    with_conn(fun(Conn) ->
+        {updated, _} = directly_query(Conn, """
+        CREATE TABLE mqtt.dbo.[where] ([set] VARCHAR(100), [update] VARCHAR(256))
+        """)
+    end),
+    on_exit(fun() ->
+        with_conn(fun(Conn) -> directly_query(Conn, "DROP TABLE mqtt.dbo.[where]") end)
+    end),
+    BatchSize = min(2, get_config(batch_size, TCConfig)),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"batch_size">> => BatchSize},
+        <<"parameters">> => #{
+            <<"sql">> =>
+                <<"INSERT INTO mqtt.dbo.where(set, update) VALUES (${payload}, ${topic})">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    lists:foreach(fun(_) -> emqtt:publish(C, Topic, <<"online">>) end, lists:seq(1, BatchSize)),
+    Expected = lists:duplicate(BatchSize, {"online", str(Topic)}),
+    ?retry(
+        200,
+        20,
+        ?assertEqual(
+            Expected,
+            with_conn(fun(Conn) ->
+                {selected, _, Rows} = directly_query(
+                    Conn, "SELECT [set], [update] FROM mqtt.dbo.[where]"
+                ),
+                Rows
+            end)
+        )
+    ),
+    ok.
+
+-doc "Update existing rows through a rule in sync and async modes with both missing-value policies.".
+t_update() ->
+    [{matrix, true}].
+t_update(matrix) ->
+    [[Sync, Nulls] || Sync <- [?sync, ?async], Nulls <- [null_values, undefined_values]];
+t_update(TCConfig) ->
+    Nulls = get_config(undefined_vars_as_null, TCConfig),
+    with_conn(fun(Conn) ->
+        {updated, _} = directly_query(Conn, """
+        CREATE TABLE mqtt.dbo.t_update_points (
+            device NVARCHAR(100), point INT, status NVARCHAR(100), updates INT);
+        """)
+    end),
+    on_exit(fun() ->
+        with_conn(fun(Conn) -> directly_query(Conn, "DROP TABLE mqtt.dbo.t_update_points") end)
+    end),
+    with_conn(fun(Conn) ->
+        {updated, 3} = directly_query(Conn, """
+        INSERT INTO mqtt.dbo.t_update_points VALUES
+            (N'device''1', 1, N'old', 0),
+            (N'device''1', 2, N'old', 0),
+            (N'device2', 1, N'old', 0)
+        """)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    Overrides = #{
+        <<"resource_opts">> => #{<<"batch_size">> => 1},
+        <<"parameters">> => #{
+            <<"undefined_vars_as_null">> => Nulls,
+            <<"sql">> => <<"""
+            UPDATE mqtt.dbo.t_update_points
+            SET [status] = CASE WHEN ${payload.value} IS NULL THEN NULL ELSE N'${payload.value}' END,
+                [updates] = [updates] + 1
+            WHERE [device] = ${payload.key} AND [point] = ${payload.point} AND [updates] < 10
+            """>>
+        }
+    },
+    ?assertMatch({204, _}, emqx_bridge_v2_testlib:probe_bridge_api_simple(TCConfig, Overrides)),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, Overrides),
+    #{topic := Topic} = simple_create_rule_api(
+        <<"""
+        SELECT json_decode(payload) AS payload FROM "${t}"
+        """>>,
+        TCConfig
+    ),
+    C = start_client(),
+    MissingPredicate =
+        case Nulls of
+            true -> <<"status IS NULL">>;
+            false -> <<"status = N'undefined'">>
+        end,
+    EscapedValue = <<"online'); DROP TABLE t_update_points; --">>,
+    EscapedPredicate = <<"status = N'online''); DROP TABLE t_update_points; --'">>,
+    Cases = [
+        {#{value => <<"online">>}, <<"status = N'online'">>},
+        {#{value => EscapedValue}, EscapedPredicate},
+        {#{value => null}, <<"status IS NULL">>},
+        {#{}, MissingPredicate}
+    ],
+    lists:foldl(
+        fun({Values, Predicate}, Count) ->
+            Payload = emqx_utils_json:encode(Values#{key => <<"device'1">>, point => 1}),
+            emqtt:publish(C, Topic, Payload),
+            CheckSQL = iolist_to_binary([
+                "SELECT COUNT(*) FROM mqtt.dbo.t_update_points WHERE device = N'device''1' ",
+                "AND point = 1 AND updates = ",
+                integer_to_binary(Count),
+                " AND ",
+                Predicate
+            ]),
+            ?retry(200, 20, ?assertEqual(1, update_count(CheckSQL))),
+            ?assertEqual(
+                2,
+                update_count(
+                    "SELECT COUNT(*) FROM mqtt.dbo.t_update_points WHERE status = N'old' AND updates = 0"
+                )
+            ),
+            Count + 1
+        end,
+        1,
+        Cases
+    ),
+    NoMatchKeys = [#{key => <<"anything' OR 1 = 1 --">>}, #{key => null}, #{}],
+    lists:foreach(
+        fun(Keys) ->
+            Payload = emqx_utils_json:encode(Keys#{value => <<"unexpected">>, point => 1}),
+            ?wait_async_action(
+                emqtt:publish(C, Topic, Payload),
+                #{?snk_kind := sqlserver_connector_query_return, result := ok},
+                10_000
+            ),
+            assert_update_rows_unchanged()
+        end,
+        NoMatchKeys
+    ),
+    NulCases = [
+        {#{key => <<"device'1">>, value => <<"new", 0>>}, "payload.value"},
+        {#{key => <<"device'1", 0>>, value => <<"new">>}, "payload.key"}
+    ],
+    lists:foreach(
+        fun({Values, Placeholder}) ->
+            Payload = emqx_utils_json:encode(Values#{point => 1}),
+            {_, {ok, #{error := Error}}} = ?wait_async_action(
+                emqtt:publish(C, Topic, Payload),
+                #{?snk_kind := sqlserver_connector_query_return, error := _},
+                10_000
+            ),
+            ?assertMatch(
+                {unrecoverable_error,
+                    {invalid_sql_template_value, #{
+                        placeholder := Placeholder, reason := {error, nul_character_not_allowed}
+                    }}},
+                Error
+            ),
+            assert_update_rows_unchanged()
+        end,
+        NulCases
+    ),
+    ok.
+
+assert_update_rows_unchanged() ->
+    ?assertEqual(
+        1,
+        update_count(
+            "SELECT COUNT(*) FROM mqtt.dbo.t_update_points WHERE updates = 4"
+        )
+    ),
+    ?assertEqual(
+        2,
+        update_count(
+            "SELECT COUNT(*) FROM mqtt.dbo.t_update_points WHERE status = N'old' AND updates = 0"
+        )
+    ).
+
+update_count(SQL) ->
+    with_conn(fun(Conn) ->
+        {selected, _, [{Count}]} = directly_query(Conn, str(SQL)),
+        Count
+    end).
+
+-doc "Recover an UPDATE after a real connection failure and execute bare SET placeholders.".
+t_update_reconnect() ->
+    [{matrix, true}].
+t_update_reconnect(matrix) ->
+    [[?sync], [?async]];
+t_update_reconnect(TCConfig) ->
+    with_conn(fun(Conn) ->
+        {updated, 2} = directly_query(Conn, """
+        INSERT INTO mqtt.dbo.t_mqtt_msg(topic, payload) VALUES ('device', 'old'), ('other', 'old')
+        """)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"batch_size">> => 1, <<"request_ttl">> => <<"30s">>},
+        <<"parameters">> => #{
+            <<"sql">> =>
+                <<"UPDATE t_mqtt_msg SET payload = ${payload} WHERE topic = ${topic}">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(
+        <<"""
+        SELECT payload, 'device' AS topic FROM "${t}"
+        """>>,
+        TCConfig
+    ),
+    C = start_client(),
+    with_failure(down, fun() ->
+        ?wait_async_action(
+            emqtt:publish(C, Topic, <<"online'1">>),
+            #{?snk_kind := buffer_worker_retry_inflight},
+            10_000
+        ),
+        ?assertEqual(
+            2,
+            update_count(
+                "SELECT COUNT(*) FROM mqtt.dbo.t_mqtt_msg WHERE payload = 'old'"
+            )
+        )
+    end),
+    ?retry(
+        200,
+        100,
+        ?assertEqual(
+            1,
+            update_count(
+                "SELECT COUNT(*) FROM mqtt.dbo.t_mqtt_msg WHERE topic = 'device' AND payload = 'online''1'"
+            )
+        )
+    ),
+    ?assertEqual(
+        1,
+        update_count(
+            "SELECT COUNT(*) FROM mqtt.dbo.t_mqtt_msg WHERE topic = 'other' AND payload = 'old'"
+        )
+    ),
+    ActionId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    ?retry(200, 20, ?assertEqual(1, emqx_resource_metrics:success_get(ActionId))),
+    ok.
+
+-doc "Reject unsupported UPDATE syntax through the probe API without changing database rows.".
+t_update_invalid_template(TCConfig) ->
+    with_conn(fun(Conn) ->
+        {updated, 1} = directly_query(
+            Conn,
+            "INSERT INTO mqtt.dbo.t_mqtt_msg(topic, payload) VALUES ('device', 'old')"
+        )
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    InvalidSQLs = [
+        <<"UPDATE ${table} SET payload = ${payload} WHERE topic = ${topic}">>,
+        <<"UPDATE t_mqtt_msg SET [${column}] = ${payload} WHERE topic = ${topic}">>,
+        <<"UPDATE t_mqtt_msg SET payload = ${payload}; DELETE FROM t_mqtt_msg">>,
+        <<"UPDATE t_mqtt_msg SET payload = ${payload} -- WHERE topic = ${topic}">>,
+        <<"UPDATE t_mqtt_msg SET payload = ${payload} /* comment */ WHERE topic = ${topic}">>,
+        <<"UPDATE t_mqtt_msg SET payload = ${payload} WHERE [${column}] = ${topic}">>,
+        <<"UPDATE t_mqtt_msg SET payload = 'old", 0, "' WHERE topic = ${topic}">>
+    ],
+    lists:foreach(
+        fun(SQL) ->
+            ?assertMatch(
+                {400, _},
+                emqx_bridge_v2_testlib:probe_bridge_api_simple(TCConfig, #{
+                    <<"resource_opts">> => #{<<"batch_size">> => 1},
+                    <<"parameters">> => #{<<"sql">> => SQL}
+                })
+            ),
+            ?assertEqual(
+                1,
+                update_count(
+                    "SELECT COUNT(*) FROM mqtt.dbo.t_mqtt_msg WHERE topic = 'device' AND payload = 'old'"
+                )
+            )
+        end,
+        InvalidSQLs
+    ),
+    ok.
+
+-doc "Reject batched UPDATE on probe, create, and update, and recover when batching is disabled.".
+t_batch_update(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    Overrides = #{
+        <<"resource_opts">> => #{<<"batch_size">> => 100},
+        <<"parameters">> => #{
+            <<"sql">> =>
+                <<"UPDATE t_mqtt_msg SET payload = ${payload} WHERE topic = ${topic}">>
+        }
+    },
+    {400, _} = emqx_bridge_v2_testlib:probe_bridge_api_simple(TCConfig, Overrides),
+    {201, #{<<"status">> := <<"disconnected">>, <<"status_reason">> := Reason}} =
+        create_action_api(TCConfig, Overrides),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(Reason, <<"UPDATE statements are not supported for batch operations">>)
+    ),
+    {200, #{<<"status">> := <<"connected">>}} = emqx_bridge_v2_testlib:update_bridge_api2(
+        TCConfig,
+        emqx_utils_maps:deep_merge(Overrides, #{<<"resource_opts">> => #{<<"batch_size">> => 1}})
+    ),
+    {200, #{<<"status">> := <<"disconnected">>, <<"status_reason">> := Reason}} =
+        emqx_bridge_v2_testlib:update_bridge_api2(TCConfig, Overrides),
+    ok.
 
 t_undefined_vars_as_null(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),

@@ -2,7 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% This lexer recognizes the restricted SQL Server INSERT template token set.
+%% This lexer recognizes the restricted SQL Server INSERT and UPDATE template token set.
 %% Leex selects the longest prefix. Rule order resolves equal-length matches.
 
 Definitions.
@@ -91,6 +91,9 @@ placeholder(Chars, Line) ->
 identifier(Chars, Line) ->
     Bin = to_binary(Chars),
     case string:lowercase(Bin) of
+        <<"update">> -> {token, {update, Line, Bin}};
+        <<"set">> -> {token, {set_kw, Line, Bin}};
+        <<"where">> -> {token, {where_kw, Line, Bin}};
         <<"insert">> -> {token, {insert, Line}};
         <<"into">> -> {token, {into, Line}};
         <<"values">> -> {token, {values, Line}};

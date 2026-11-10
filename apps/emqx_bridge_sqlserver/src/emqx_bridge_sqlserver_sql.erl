@@ -2,10 +2,13 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Compile and render restricted SQL Server INSERT INTO VALUES templates.
 -module(emqx_bridge_sqlserver_sql).
 
+-moduledoc "Compile and render restricted SQL Server INSERT and UPDATE templates.".
+
 -behaviour(emqx_sql_plan).
+
+-include("emqx_bridge_sqlserver.hrl").
 
 -export([compile/1, render/3, render_batch/3]).
 -export_type([plan/0]).
@@ -44,10 +47,11 @@
 -type render_plan() :: [render_op()].
 
 -record(sqlserver_plan, {insert_prefix :: binary(), plan :: render_plan()}).
+-record(sqlserver_update_plan, {plan :: render_plan()}).
 
 -define(BATCH_SEPARATOR, <<", ">>).
 
--opaque plan() :: #sqlserver_plan{}.
+-opaque plan() :: #sqlserver_plan{} | #sqlserver_update_plan{}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -61,16 +65,18 @@ compile(SQL0) ->
             {ok, Tokens, _EndLine} ->
                 case emqx_bridge_sqlserver_sql_parser:parse(Tokens) of
                     {ok, AST} -> compile_ast(AST);
-                    {error, Reason} -> {error, {invalid_sqlserver_insert_template, Reason}}
+                    {error, Reason} -> {error, {invalid_sqlserver_template, Reason}}
                 end;
             {error, Reason, _EndLine} ->
-                {error, {invalid_sqlserver_insert_template, Reason}}
+                {error, {invalid_sqlserver_template, Reason}}
         end
     catch
-        Class:CatchReason -> {error, {invalid_sqlserver_insert_template, {Class, CatchReason}}}
+        Class:CatchReason -> {error, {invalid_sqlserver_template, {Class, CatchReason}}}
     end.
 
 -spec render(plan(), map(), map()) -> {ok, iolist()} | {error, term()}.
+render(#sqlserver_update_plan{plan = Plan}, Data, Opts) ->
+    render_unit(Plan, Data, Opts);
 render(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, Data, Opts) ->
     case render_unit(Plan, Data, Opts) of
         {ok, Rendered} -> {ok, [Prefix, Rendered]};
@@ -78,6 +84,8 @@ render(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, Data, Opts) ->
     end.
 
 -spec render_batch(plan(), [map()], map()) -> {ok, iolist()} | {error, term()}.
+render_batch(#sqlserver_update_plan{}, _DataList, _Opts) ->
+    {error, ?UPDATE_BATCH_ERROR};
 render_batch(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, DataList, Opts) when
     %% https://learn.microsoft.com/en-us/sql/t-sql/queries/table-value-constructor-transact-sql#limitations
     length(DataList) =< 1000
@@ -194,7 +202,22 @@ compile_ast({insert, #{target := Target, columns := Columns, row := Row}}) ->
     ColumnsSQL = serialize_columns(Columns),
     Head = <<"INSERT INTO ", TargetSQL/binary, ColumnsSQL/binary, " VALUES ">>,
     Unit = merge_render_ops(compile_row(Row)),
-    {ok, #sqlserver_plan{insert_prefix = Head, plan = Unit}}.
+    {ok, #sqlserver_plan{insert_prefix = Head, plan = Unit}};
+compile_ast({update, #{target := Target, assignments := Assignments, where := Where}}) ->
+    TargetSQL = iolist_to_binary(lists:join($., [serialize_target_part(I) || I <- Target])),
+    Ops =
+        [#raw{sql = <<"UPDATE ", TargetSQL/binary, " SET ">>}] ++
+            join_ops(<<", ">>, [compile_assignment(A) || A <- Assignments]) ++
+            compile_where(Where),
+    {ok, #sqlserver_update_plan{plan = merge_render_ops(Ops)}}.
+
+compile_assignment({Column, Expression}) ->
+    [#raw{sql = <<(serialize_identifier(Column))/binary, " = ">>} | compile_expression(Expression)].
+
+compile_where(undefined) ->
+    [];
+compile_where(Expression) ->
+    [#raw{sql = <<" WHERE ">>} | compile_expression(Expression)].
 
 serialize_target_part(empty) ->
     <<>>;
@@ -268,8 +291,9 @@ compile_expression(default) ->
     [#raw{sql = <<"DEFAULT">>}];
 compile_expression(current_timestamp) ->
     [#raw{sql = <<"CURRENT_TIMESTAMP">>}];
-compile_expression({identifier_value, Name}) ->
-    [#raw{sql = Name}];
+compile_expression({column, Name}) ->
+    SQL = iolist_to_binary(lists:join($., [serialize_function_part(I) || I <- Name])),
+    [#raw{sql = SQL}];
 compile_expression({call, Name, Args}) ->
     FunctionName = iolist_to_binary(lists:join($., [serialize_function_part(I) || I <- Name])),
     [
@@ -737,6 +761,56 @@ lexical_boundary_test() ->
     lists:foreach(fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end, Rejected),
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     ?assertMatch({error, _}, render(Plan, #{payload => <<"a", 0, "b">>}, null_opts())).
+
+insert_keyword_identifiers_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO Where(SET, Update) VALUES (${value}, ${key})">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO [Where] ([SET], [Update]) VALUES ('online', 'd1')">>},
+        rendered_binary(render(Plan, #{value => <<"online">>, key => <<"d1">>}, null_opts()))
+    ).
+
+update_template_test() ->
+    {ok, Plan} = compile(<<"""
+    UPDATE mqtt.dbo.points SET [value] = ${payload.value}, count = count + 1
+    WHERE [device] = ${payload.device} AND point = ${payload.point}
+    """>>),
+    ?assertEqual(
+        {ok, <<"""
+        UPDATE [mqtt].[dbo].[points] SET [value] = 'on''line', [count] = count + 1 WHERE [device] = 'd1' AND point = 2
+        """>>},
+        rendered_binary(
+            render(
+                Plan,
+                #{payload => #{value => <<"on'line">>, device => <<"d1">>, point => 2}},
+                null_opts()
+            )
+        )
+    ),
+    ?assertEqual(
+        {error, <<"UPDATE statements are not supported for batch operations">>},
+        render_batch(Plan, [#{}, #{}], null_opts())
+    ).
+
+update_quoted_columns_test() ->
+    {ok, Plan} = compile(<<"""
+    UPDATE [dbo].[points] SET "value" = COALESCE(${v}, [value]) WHERE points."key" IS NOT NULL;
+    """>>),
+    ?assertEqual(
+        {ok, <<"""
+        UPDATE [dbo].[points] SET [value] = COALESCE(NULL, [value]) WHERE points.[key] IS NOT NULL
+        """>>},
+        rendered_binary(render(Plan, #{v => null}, null_opts()))
+    ),
+    ?assertMatch({ok, _}, compile(<<"UPDATE points SET value = ${v}">>)),
+    lists:foreach(
+        fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end,
+        [
+            <<"UPDATE ${table} SET value = ${v} WHERE id = ${id}">>,
+            <<"UPDATE points SET [${column}] = ${v} WHERE id = ${id}">>,
+            <<"UPDATE points SET value = ${v}; DELETE FROM points">>,
+            <<"UPDATE points SET WHERE id = ${id}">>
+        ]
+    ).
 
 rendered_binary({ok, SQL}) ->
     ?assert(is_list(SQL)),

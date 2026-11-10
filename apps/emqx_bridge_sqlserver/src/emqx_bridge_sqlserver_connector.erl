@@ -276,7 +276,7 @@ on_add_channel(
     end.
 
 create_channel_state(
-    #{parameters := ChannelConf}
+    #{parameters := ChannelConf} = ChannelConfig
 ) ->
     case maps:get(sql, ChannelConf, undefined) of
         undefined ->
@@ -284,10 +284,18 @@ create_channel_state(
         <<>> ->
             {error, missing_sql_template};
         SQL ->
-            case emqx_sql_plan:compile(emqx_bridge_sqlserver_sql, SQL) of
-                {ok, Plan} -> {ok, #{sql_plan => Plan, channel_conf => ChannelConf}};
-                {error, _} = Error -> Error
+            maybe
+                ok ?= validate_batch_size(SQL, ChannelConfig),
+                {ok, Plan} ?= emqx_sql_plan:compile(emqx_bridge_sqlserver_sql, SQL),
+                {ok, #{sql_plan => Plan, channel_conf => ChannelConf}}
             end
+    end.
+
+validate_batch_size(SQL, ChannelConfig) ->
+    BatchSize = emqx_utils_maps:deep_get([resource_opts, batch_size], ChannelConfig, 100),
+    case emqx_utils_sql:get_statement_type(SQL) of
+        update when BatchSize > 1 -> {error, ?UPDATE_BATCH_ERROR};
+        _ -> ok
     end.
 
 on_remove_channel(
@@ -498,7 +506,6 @@ do_query(ResourceId, Query, ApplyMode, State) ->
     QueryTuple = get_query_tuple(Query),
     #{sql_plan := Plan} = ChannelState = maps:get(ChannelId, Channels),
     ChannelConf = maps:get(channel_conf, ChannelState, #{}),
-    %% only insert sql statement for single query and batch query
     case apply_template(QueryTuple, Plan, ChannelConf) of
         {ok, SQL} ->
             emqx_trace:rendered_action_template(ChannelId, #{
@@ -570,7 +577,7 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
 %% Potential race condition: if an insert request is made while the connection is being
 %% cut by the remote server, this error might be returned.
 %% References:
-%% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error?view=sql-server-ver16
+%% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error
 is_connection_closed_error(MsgStr) ->
     case re:run(MsgStr, <<"0x2746[^0-9a-fA-F]?">>, [{capture, none}]) of
         match ->
@@ -639,7 +646,7 @@ get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
 get_query_tuple([_InsertQuery | _] = Reqs) ->
     lists:map(fun get_query_tuple/1, Reqs).
 
-%% single insert
+%% Single statement
 apply_template(
     {?ACTION_SEND_MESSAGE, Msg}, Plan, ChannelConf
 ) ->
