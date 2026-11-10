@@ -1150,14 +1150,8 @@ check_quota(false, Ops) ->
 -spec update_dirty_d(serial(), emqx_ds:tx_ops(), emqx_ds_tx_conflict_trie:t()) ->
     emqx_ds_tx_conflict_trie:t().
 update_dirty_d(Serial, Ops, Dirty0) ->
-    %% Add dlocks:
-    Dirty = mark_tf_ranges_dirty(
-        Serial,
-        Dirty0,
-        maps:get(?ds_tx_dlock, Ops, [])
-    ),
     %% Mark all deleted topics as dirty:
-    lists:foldl(
+    Dirty = lists:foldl(
         fun({TF, FromTime, ToTime}, Acc) ->
             emqx_ds_tx_conflict_trie:push_topic(
                 emqx_ds_tx_conflict_trie:topic_filter_to_conflict_domain(TF),
@@ -1167,26 +1161,32 @@ update_dirty_d(Serial, Ops, Dirty0) ->
                 Acc
             )
         end,
-        Dirty,
+        Dirty0,
         maps:get(?ds_tx_delete_topic, Ops, [])
+    ),
+    %% Add dlocks:
+    mark_tf_ranges_dirty(
+        Serial,
+        Dirty,
+        maps:get(?ds_tx_dlock, Ops, [])
     ).
 
 -spec update_dirty_w(serial(), emqx_ds:tx_ops(), emqx_ds_tx_conflict_trie:t()) ->
     emqx_ds_tx_conflict_trie:t().
 update_dirty_w(Serial, Ops, Dirty0) ->
-    %% Add wlocks:
-    Dirty = mark_tf_ranges_dirty(
-        Serial,
-        Dirty0,
-        maps:get(?ds_tx_wlock, Ops, [])
-    ),
     %% Mark written topics as dirty:
-    lists:foldl(
+    Dirty = lists:foldl(
         fun({TF, TS, _Val}, Acc) ->
             emqx_ds_tx_conflict_trie:push_topic(TF, TS, TS, Serial, Acc)
         end,
-        Dirty,
+        Dirty0,
         maps:get(?ds_tx_write, Ops, [])
+    ),
+    %% Add wlocks:
+    mark_tf_ranges_dirty(
+        Serial,
+        Dirty,
+        maps:get(?ds_tx_wlock, Ops, [])
     ).
 
 mark_tf_ranges_dirty(Serial, Dirty, TopicRanges) ->
