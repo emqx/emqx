@@ -227,17 +227,21 @@ actual_channel_nums(Conns) ->
         ?GET_STATUS_TIMEOUT
     ).
 
-on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
+on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) when
+    is_map_key(ChannelId, Channels)
+->
     ?tp("rabbitmq_on_get_channel_status_enter", #{channel_id => ChannelId}),
-    case emqx_utils_maps:deep_find([ChannelId, rabbitmq], Channels) of
-        {ok, RabbitMQ} ->
-            case lists:all(fun is_process_alive/1, maps:values(RabbitMQ)) of
-                true -> ?status_connected;
-                false -> {?status_disconnected, not_connected}
-            end;
-        _ ->
-            ?status_disconnected
-    end.
+    #{ChannelId := ChanState} = Channels,
+    #{rabbitmq := RabbitMQ} = ChanState,
+    case lists:all(fun is_process_alive/1, maps:values(RabbitMQ)) of
+        true ->
+            ?status_connected;
+        false ->
+            {?status_disconnected, not_connected}
+    end;
+on_get_channel_status(_InstanceId, _ChannelId, _ConnState) ->
+    %% impossible
+    ?status_disconnected.
 
 on_query(ResourceID, {ChannelId, Data} = MsgReq, State) ->
     ?SLOG(debug, #{

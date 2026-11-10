@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("amqp_client/include/amqp_client.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -31,6 +32,26 @@
 
 -define(tcp, tcp).
 -define(tls, tls).
+
+-define(assertReceivePublish(EXPR, TIMEOUT, EXTRA),
+    (fun() ->
+        lists:foreach(
+            fun(Pub0___) ->
+                Pub___ = maps:update_with(
+                    payload,
+                    fun emqx_utils_json:decode/1,
+                    Pub0___
+                ),
+                self() ! {decoded, Pub___}
+            end,
+            drain_publishes([], TIMEOUT)
+        ),
+        {decoded, __X} = ?assertReceive({decoded, EXPR}, 200, EXTRA),
+        __X
+    end)()
+).
+-define(assertReceivePublish(EXPR), ?assertReceivePublish(EXPR, 1_000, #{})).
+-define(assertReceivePublish(EXPR, TIMEOUT), ?assertReceivePublish(EXPR, TIMEOUT, #{})).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -180,6 +201,13 @@ create_connector_api(TCConfig, Overrides) ->
 create_source_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:create_source_api([{bridge_kind, source} | TCConfig], Overrides).
 
+get_source_api(TCConfig) ->
+    #{type := Type, name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_source_api(Type, Name)
+    ).
+
 get_source_metrics_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_source_metrics_api(TCConfig).
 
@@ -216,6 +244,40 @@ unique_payload() ->
 publish_message(Payload, TCConfig) ->
     ClientOpts = get_config(client_opts, TCConfig),
     emqx_bridge_rabbitmq_testlib:publish_message(Payload, ClientOpts).
+
+drain_publishes(Acc, Timeout) ->
+    receive
+        {publish, Msg} ->
+            drain_publishes([Msg | Acc], Timeout)
+    after Timeout ->
+        lists:reverse(Acc)
+    end.
+
+delete_queue(TCConfig) ->
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:delete_queue(ClientOpts).
+
+connect_and_setup_exchange_and_queue(TCConfig) ->
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(ClientOpts).
+
+wait_basic_cancel_received(TCConfig, Fn) ->
+    #{~"pool_size" := PoolSize} = get_config(connector_config, TCConfig),
+    TS = trace:session_create(?MODULE, self(), []),
+    on_exit(fun() -> trace:session_destroy(TS) end),
+    trace:process(TS, all, true, [call]),
+    M = emqx_bridge_rabbitmq_source_worker,
+    F = handle_info,
+    trace:function(TS, {M, F, 2}, [], []),
+    Fn(),
+    lists:foreach(
+        fun(_) ->
+            ?assertReceive({trace, _, call, {M, F, [#'basic.cancel'{}, _]}})
+        end,
+        lists:seq(1, PoolSize)
+    ),
+    trace:session_destroy(TS),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -283,4 +345,41 @@ t_source(TCConfig) ->
             get_source_metrics_api(TCConfig)
         )
     ),
+    ok.
+
+t_queue_deleted_while_consuming(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"resource_opts" => #{~"health_check_timeout" => ~"1s"}
+    }),
+    {201, _} = create_source_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, _, [_]} = emqtt:subscribe(C, RuleTopic, [{qos, 1}]),
+    Payload1 = payload(#{key => 1}),
+    PayloadBin1 = emqx_utils_json:encode(Payload1),
+    publish_message(PayloadBin1, TCConfig),
+    %% sanity check: it's initially working
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 1}}}),
+
+    wait_basic_cancel_received(TCConfig, fun() ->
+        delete_queue(TCConfig)
+    end),
+    %% give it some time to process the `#'basic.cancel'{}` message and start trying to
+    %% resubscribe.
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{~"status" := ~"disconnected"}},
+            get_source_api(TCConfig)
+        )
+    ),
+
+    %% recovery
+    connect_and_setup_exchange_and_queue(TCConfig),
+    Payload2 = payload(#{key => 2}),
+    PayloadBin2 = emqx_utils_json:encode(Payload2),
+    publish_message(PayloadBin2, TCConfig),
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 2}}}, 5_000),
+
     ok.

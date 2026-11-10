@@ -16,6 +16,9 @@
 ]).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
+-include_lib("emqx/include/logger.hrl").
+
+-record(subscribe, {}).
 
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
@@ -26,7 +29,9 @@ init({_RabbitChannel, _InstanceId, _Params} = State) ->
 handle_continue(confirm_ok, State) ->
     receive
         #'basic.consume_ok'{} -> {noreply, State}
-    end.
+    end;
+handle_continue(#subscribe{}, State) ->
+    handle_subscribe(State).
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -54,6 +59,8 @@ handle_info(
     {noreply, State};
 handle_info(#'basic.cancel_ok'{}, State) ->
     {stop, normal, State};
+handle_info(#'basic.cancel'{}, State) ->
+    {noreply, State, {continue, #subscribe{}}};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -113,4 +120,22 @@ make_payload(Payload) ->
     case emqx_utils_json:safe_decode(Payload) of
         {ok, Map} -> Map;
         {error, _} -> Payload
+    end.
+
+handle_subscribe(State) ->
+    {Chan, SourceResId, Params} = State,
+    #{queue := Queue, no_ack := NoAck} = Params,
+    BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
+    try
+        #'basic.consume_ok'{consumer_tag = _} =
+            amqp_channel:subscribe(Chan, BasicConsume, self()),
+        {noreply, State, {continue, confirm_ok}}
+    catch
+        exit:{Reason, _Stack} ->
+            ?SLOG(warning, #{
+                msg => "rabbitmq_source_worker_failed_to_subscribe",
+                source_resource_id => SourceResId,
+                reason => Reason
+            }),
+            {stop, {shutdown, failed_to_subscribe}, State}
     end.

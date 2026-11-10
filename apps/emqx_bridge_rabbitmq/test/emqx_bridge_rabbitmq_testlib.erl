@@ -12,6 +12,7 @@
     connect_client/1,
     connect_and_setup_exchange_and_queue/1,
     cleanup_client_and_queue/1,
+    delete_queue/1,
 
     receive_message/1,
     receive_message/3,
@@ -115,6 +116,20 @@ connect_and_setup_exchange_and_queue(ClientOpts) ->
                 exchange = Exchange,
                 routing_key = RoutingKey
             }
+        ),
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
+    ok.
+
+delete_queue(ClientOpts) ->
+    #{
+        queue := Queue
+    } = ClientOpts,
+    {Connection, Channel} = connect_client(ClientOpts),
+    #'queue.delete_ok'{} =
+        amqp_channel:call(
+            Channel,
+            #'queue.delete'{queue = Queue}
         ),
     amqp_channel:close(Channel),
     amqp_connection:close(Connection),
