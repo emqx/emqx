@@ -293,7 +293,9 @@ structured_tags(Tags) ->
     lists:foldl(
         fun(#{key := Key, value := Value}, Acc) ->
             maps:put(
-                emqx_placeholder:preproc_tmpl(Key), emqx_placeholder:preproc_tmpl(Value), Acc
+                emqx_placeholder:preproc_tmpl(Key),
+                {structured_tag, emqx_placeholder:preproc_tmpl(Value)},
+                Acc
             )
         end,
         #{},
@@ -414,36 +416,37 @@ driver_value(native, Float) when is_float(Float) ->
 maps_config_to_tag_data(_K, _V, {error, _} = Error, _DriverType) ->
     Error;
 maps_config_to_tag_data(K, Config, {ok, {Data, Res}}, DriverType) ->
-    Tmpl = tag_template(Config),
+    {TagKind, Tmpl} = tag_template(Config),
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
-    NV = unwrap_quoted_tag(proc_quoted(Tmpl, Data, VTransOptions)),
+    ProcNV = proc_quoted(Tmpl, Data, VTransOptions),
+    NV = unwrap_quoted_tag(ProcNV),
     SuffixType = tmpl_suffix_type(Tmpl),
-    case {NK0, NV} of
-        {[undefined], _} ->
+    case tag_input_missing(TagKind, NK0, ProcNV) of
+        true ->
             {ok, {Data, Res}};
-        {_, [undefined | _]} ->
-            {ok, {Data, Res}};
-        {_, {quoted, Tokens}} when is_list(Tokens) ->
-            case lists:member(undefined, Tokens) of
-                true ->
-                    {ok, {Data, Res}};
-                false ->
-                    convert_config_value(NK0, NV, SuffixType, DriverType, tag, Data, Res)
-            end;
-        _ ->
+        false ->
             convert_config_value(NK0, NV, SuffixType, DriverType, tag, Data, Res)
     end.
+
+tag_input_missing(structured, NK, NV) ->
+    has_undefined(NK) orelse has_undefined(NV);
+tag_input_missing(legacy, NK, {quoted, Tokens}) ->
+    has_undefined(NK) orelse lists:member(undefined, Tokens);
+tag_input_missing(legacy, _NK, [undefined | _]) ->
+    true;
+tag_input_missing(legacy, NK, _NV) ->
+    has_undefined(NK).
 
 %% Earlier releases stored legacy tags without the `legacy_tag' wrapper.
 %% Structured tags use their own wrapper. Both forms follow the same tag typing rules.
 tag_template({legacy_tag, Tmpl}) ->
-    Tmpl;
+    {legacy, Tmpl};
 tag_template({structured_tag, Tmpl}) ->
-    Tmpl;
+    {structured, Tmpl};
 tag_template(Tmpl) ->
-    Tmpl.
+    {legacy, Tmpl}.
 typed_field_value(DriverType, auto, Tmpl, Values) ->
     case is_auto_text_template(Tmpl) of
         true -> typed_value(DriverType, string, Values);

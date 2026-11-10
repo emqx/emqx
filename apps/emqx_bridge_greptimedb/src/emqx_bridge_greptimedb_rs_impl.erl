@@ -600,25 +600,27 @@ aggregate_errors(Errors) ->
 coalesce_mixed_batch_results([]) ->
     [];
 coalesce_mixed_batch_results(Results) ->
-    HasRecoverable = lists:any(fun is_recoverable_result/1, Results),
-    HasUnrecoverable = lists:any(fun is_unrecoverable_result/1, Results),
-    HasSuccess = lists:any(fun is_successful_result/1, Results),
     %% The resource buffer derives one retry decision for the whole batch.
-    %% Keep per-message outcomes, but promote recoverable errors when retrying
-    %% could duplicate a partial write or hide a permanent failure.
-    case {HasRecoverable, HasUnrecoverable, HasSuccess} of
-        {false, false, _} ->
+    %% Only retry when every member of the batch is recoverable. When any write
+    %% succeeded, retrying would duplicate written rows. When a permanent
+    %% failure is present, retrying would keep replaying that failure too.
+    case lists:any(fun is_recoverable_result/1, Results) of
+        false ->
             Results;
-        {false, true, _} ->
-            Results;
-        {true, false, false} ->
-            Results;
-        {true, false, true} ->
-            make_recoverable_members_unrecoverable(partial_batch_write, Results);
-        {true, true, false} ->
-            make_recoverable_members_unrecoverable(batch_contains_unrecoverable, Results);
-        {true, true, true} ->
-            make_recoverable_members_unrecoverable(batch_contains_unrecoverable, Results)
+        true ->
+            case lists:any(fun is_successful_result/1, Results) of
+                true ->
+                    make_recoverable_members_unrecoverable(partial_batch_write, Results);
+                false ->
+                    case lists:any(fun is_unrecoverable_result/1, Results) of
+                        true ->
+                            make_recoverable_members_unrecoverable(
+                                batch_contains_unrecoverable, Results
+                            );
+                        false ->
+                            Results
+                    end
+            end
     end.
 
 make_recoverable_members_unrecoverable(Reason, Results) ->
@@ -627,19 +629,31 @@ make_recoverable_members_unrecoverable(Reason, Results) ->
 make_result_unrecoverable(
     Reason,
     BatchResults,
-    {error, {recoverable_error, _Error}} = Result
+    {error, {recoverable_error, OriginalError}}
 ) ->
     {error,
         {unrecoverable_error, #{
             reason => Reason,
-            result => Result,
+            original_error => OriginalError,
             batch_results => BatchResults
         }}};
 make_result_unrecoverable(_Reason, _BatchResults, Result) ->
     Result.
 
-is_successful_result({ok, _}) -> true;
-is_successful_result(_) -> false.
+is_successful_result({ok, _}) ->
+    true;
+is_successful_result(
+    {error,
+        {unrecoverable_error, #{
+            reason := multiline_partial_write,
+            successful_rows := Rows
+        }}}
+) when
+    is_integer(Rows) andalso Rows > 0
+->
+    true;
+is_successful_result(_) ->
+    false.
 
 is_recoverable_result({error, {recoverable_error, _}}) -> true;
 is_recoverable_result(_) -> false.

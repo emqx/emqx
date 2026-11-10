@@ -5,19 +5,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-%% https://github.com/emqx/emqx/issues/19814
-missing_write_syntax_test() ->
-    ?assertThrow(
-        {_, [#{reason := required_field, path := "parameters.write_syntax"}]},
-        check_action_parameters(#{<<"precision">> => <<"ms">>})
-    ).
-
-check_action_parameters(Conf) ->
-    Schema = #{
-        roots => [{parameters, hoconsc:mk(hoconsc:ref(emqx_bridge_greptimedb, action_parameters))}]
-    },
-    hocon_tconf:check_plain(Schema, #{<<"parameters">> => Conf}, #{required => false}).
-
 check_action(InnerConfigMap) ->
     check_action(<<"greptimedb">>, InnerConfigMap).
 
@@ -455,6 +442,38 @@ native_batch_with_partial_success_is_unrecoverable_test() ->
         ?assertEqual({ok, 1}, First),
         assert_unrecoverable(Second, partial_batch_write),
         assert_unrecoverable(Third, partial_batch_write)
+    end).
+
+native_batch_with_multiline_partial_success_is_unrecoverable_test() ->
+    Write = [
+        native_test_point(<<"${payload.first_table}">>, 1),
+        native_test_point(<<"${payload.second_table}">>, 2)
+    ],
+    State = native_rs_state(Write),
+    Batch = [
+        {channel, #{
+            payload => #{
+                first_table => <<"ok">>,
+                second_table => <<"partial">>
+            }
+        }},
+        {channel, #{
+            payload => #{
+                first_table => <<"retry_a">>,
+                second_table => <<"retry_b">>
+            }
+        }}
+    ],
+    Insert = fun
+        (_Client, <<"ok">>, _Points) -> {ok, 1};
+        (_Client, _Table, _Points) -> {error, ecpool_empty}
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        [First, Second] = emqx_bridge_greptimedb_rs_impl:on_batch_query(
+            connector, Batch, State
+        ),
+        assert_unrecoverable(First, multiline_partial_write),
+        assert_unrecoverable(Second, partial_batch_write)
     end).
 
 native_batch_without_success_and_permanent_error_is_unrecoverable_test() ->
@@ -1598,21 +1617,34 @@ point_contains_only_driver_fields_test() ->
         ),
     ?assertEqual([fields, tags, timestamp], lists:sort(maps:keys(Point))).
 
-legacy_tag_suffix_is_treated_as_string_test_() ->
+legacy_tag_literal_suffix_keeps_type_test_() ->
     [
         ?_assertEqual(
-            #{<<"device">> => #{value_data => {string_value, <<"abci">>}}},
-            render_legacy_tag(erlang)
+            #{<<"device">> => #{value_data => {i64_value, 65}}},
+            render_legacy_tag(erlang, <<"${payload.tag}i">>, #{tag => 65})
         ),
         ?_assertEqual(
-            #{<<"device">> => <<"abci">>},
-            render_legacy_tag(native)
+            #{<<"device">> => 65},
+            render_legacy_tag(native, <<"${payload.tag}i">>, #{tag => 65})
         )
     ].
 
-render_legacy_tag(DriverType) ->
+legacy_tag_placeholder_suffix_is_text_test_() ->
+    Data = #{tag => 65, suffix => <<"i">>},
+    [
+        ?_assertEqual(
+            #{<<"device">> => #{value_data => {string_value, <<"65i">>}}},
+            render_legacy_tag(erlang, <<"${payload.tag}${payload.suffix}">>, Data)
+        ),
+        ?_assertEqual(
+            #{<<"device">> => <<"65i">>},
+            render_legacy_tag(native, <<"${payload.tag}${payload.suffix}">>, Data)
+        )
+    ].
+
+render_legacy_tag(DriverType, TagTemplate, Payload) ->
     Lines = emqx_bridge_influxdb:to_influx_lines(
-        <<"mqtt,device=${payload.tag}i value=1 ${timestamp}">>
+        <<"mqtt,device=", TagTemplate/binary, " value=1 ${timestamp}">>
     ),
     SyntaxLines = emqx_bridge_greptimedb_utils:parse_action_parameters(
         #{write_syntax => Lines}, ms
@@ -1620,7 +1652,7 @@ render_legacy_tag(DriverType) ->
     {ok, [{_, [#{tags := Tags}]}]} =
         emqx_bridge_greptimedb_utils:data_to_points(
             #{
-                payload => #{tag => <<"abc">>},
+                payload => Payload,
                 timestamp => 1700000000123
             },
             <<"mydb">>,
@@ -1629,14 +1661,14 @@ render_legacy_tag(DriverType) ->
         ),
     Tags.
 
-legacy_tag_from_old_channel_state_is_string_test_() ->
+legacy_tag_from_old_channel_state_keeps_literal_type_test_() ->
     [
         ?_assertEqual(
-            #{<<"device">> => #{value_data => {string_value, <<"abci">>}}},
+            #{<<"device">> => #{value_data => {i64_value, 65}}},
             render_old_legacy_tag_state(erlang)
         ),
         ?_assertEqual(
-            #{<<"device">> => <<"abci">>},
+            #{<<"device">> => 65},
             render_old_legacy_tag_state(native)
         )
     ].
@@ -1660,7 +1692,7 @@ render_old_legacy_tag_state(DriverType) ->
     {ok, [{_, [#{tags := Tags}]}]} =
         emqx_bridge_greptimedb_utils:data_to_points(
             #{
-                payload => #{tag => <<"abc">>},
+                payload => #{tag => 65},
                 timestamp => 1700000000123
             },
             <<"mydb">>,

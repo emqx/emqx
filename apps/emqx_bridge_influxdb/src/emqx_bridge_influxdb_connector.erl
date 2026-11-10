@@ -365,10 +365,8 @@ write_groups_sync(InstId, Channel, ParsedGroups) ->
                 influxdb_connector_send_query,
                 #{points => Points, batch => true, mode => sync, path => trace_path(Client)}
             ),
-            case do_query(InstId, Channel, Client, Points) of
-                ok -> Acc;
-                Result -> record_group_result(Result, Acc)
-            end
+            Result = do_query(InstId, Channel, Client, Points),
+            record_group_result(Result, Acc)
         end,
         group_results_acc(),
         ParsedGroups
@@ -628,27 +626,53 @@ wait_grouped_writes(
     end.
 
 group_results_acc() ->
-    #{}.
+    #{results => []}.
 
 record_group_result(Result, Acc0) ->
-    case classify_result(Result) of
+    ClassifiedResult = classify_result(Result),
+    Results = [ClassifiedResult | maps:get(results, Acc0)],
+    Acc1 = Acc0#{results := Results},
+    case ClassifiedResult of
         {error, {recoverable_error, _}} = Error ->
-            put_first_group_error(recoverable_error, Error, Acc0);
+            put_first_group_error(recoverable_error, Error, Acc1);
         {error, {unrecoverable_error, _}} = Error ->
-            put_first_group_error(unrecoverable_error, Error, Acc0);
+            put_first_group_error(unrecoverable_error, Error, Acc1);
         _ ->
-            Acc0
+            Acc1
     end.
 
 put_first_group_error(Key, Error, Acc) ->
     emqx_utils_maps:put_new(Key, Error, Acc).
 
-grouped_result(#{recoverable_error := Error}) ->
-    Error;
-grouped_result(#{unrecoverable_error := Error}) ->
-    Error;
-grouped_result(_) ->
-    ok.
+grouped_result(State) ->
+    Results = maps:get(results, State, []),
+    HasSuccess = lists:any(fun is_group_success/1, Results),
+    HasRecoverable = maps:is_key(recoverable_error, State),
+    HasUnrecoverable = maps:is_key(unrecoverable_error, State),
+    case {HasRecoverable, HasUnrecoverable, HasSuccess} of
+        {false, false, _} ->
+            ok;
+        {false, true, _} ->
+            maps:get(unrecoverable_error, State);
+        {true, false, false} ->
+            maps:get(recoverable_error, State);
+        {true, false, true} ->
+            grouped_unrecoverable(partial_batch_write, State);
+        {true, true, false} ->
+            grouped_unrecoverable(batch_contains_unrecoverable, State);
+        {true, true, true} ->
+            grouped_unrecoverable(partial_batch_write, State)
+    end.
+
+grouped_unrecoverable(Reason, State) ->
+    {error,
+        {unrecoverable_error, #{
+            reason => Reason,
+            batch_results => lists:reverse(maps:get(results, State))
+        }}}.
+
+is_group_success({error, _}) -> false;
+is_group_success(_) -> true.
 
 path(Client) ->
     maps:get(path, Client, undefined).
@@ -2590,20 +2614,40 @@ grouped_result_aggregation_test_() ->
         {error, {unrecoverable_error, #{code => 404, body => <<"missing">>}}},
     Recoverable = {error, {recoverable_error, closed}},
     [
-        {"a later recoverable error wins over an earlier unrecoverable error",
-            ?_assertEqual(
-                Recoverable,
+        {"mixed permanent and transient errors are unrecoverable",
+            ?_assertMatch(
+                {error,
+                    {unrecoverable_error, #{
+                        reason := batch_contains_unrecoverable,
+                        batch_results := [_, _]
+                    }}},
                 aggregate_group_results([
                     {ok, 404, [], <<"missing">>},
                     {error, closed}
                 ])
             )},
-        {"an earlier recoverable error wins over a later unrecoverable error",
-            ?_assertEqual(
-                Recoverable,
+        {"mixed permanent and transient errors are unrecoverable regardless of order",
+            ?_assertMatch(
+                {error,
+                    {unrecoverable_error, #{
+                        reason := batch_contains_unrecoverable,
+                        batch_results := [_, _]
+                    }}},
                 aggregate_group_results([
                     {error, closed},
                     {ok, 404, [], <<"missing">>}
+                ])
+            )},
+        {"a transient error after success makes the batch unrecoverable",
+            ?_assertMatch(
+                {error,
+                    {unrecoverable_error, #{
+                        reason := partial_batch_write,
+                        batch_results := [_, _]
+                    }}},
+                aggregate_group_results([
+                    {ok, 204, [], <<>>},
+                    {error, closed}
                 ])
             )},
         {"only unrecoverable errors are reported as unrecoverable",
@@ -2612,6 +2656,14 @@ grouped_result_aggregation_test_() ->
                 aggregate_group_results([
                     {ok, 204, [], <<>>},
                     {ok, 404, [], <<"missing">>}
+                ])
+            )},
+        {"only recoverable errors remain retriable",
+            ?_assertEqual(
+                Recoverable,
+                aggregate_group_results([
+                    {error, closed},
+                    {error, closed}
                 ])
             )},
         {"only successful groups result in ok",
@@ -2634,9 +2686,9 @@ grouped_sync_error_priority_test_() ->
     ],
     with_influxdb_mock(fun(_) ->
         [
-            {"sync: a later recoverable error keeps the batch retriable", fun() ->
-                ?assertEqual(
-                    {error, {recoverable_error, closed}},
+            {"sync: permanent plus transient errors are unrecoverable", fun() ->
+                ?assertMatch(
+                    {error, {unrecoverable_error, #{reason := batch_contains_unrecoverable}}},
                     run_sync_group_results(
                         Groups,
                         [
@@ -2646,14 +2698,38 @@ grouped_sync_error_priority_test_() ->
                     )
                 )
             end},
-            {"sync: an earlier recoverable error keeps the batch retriable", fun() ->
+            {"sync: permanent plus transient errors are unrecoverable in any order", fun() ->
+                ?assertMatch(
+                    {error, {unrecoverable_error, #{reason := batch_contains_unrecoverable}}},
+                    run_sync_group_results(
+                        Groups,
+                        [
+                            {error, closed},
+                            {error, {404, <<"missing">>}}
+                        ]
+                    )
+                )
+            end},
+            {"sync: a transient error after success is unrecoverable", fun() ->
+                ?assertMatch(
+                    {error, {unrecoverable_error, #{reason := partial_batch_write}}},
+                    run_sync_group_results(
+                        Groups,
+                        [
+                            ok,
+                            {error, closed}
+                        ]
+                    )
+                )
+            end},
+            {"sync: only transient errors remain retriable", fun() ->
                 ?assertEqual(
                     {error, {recoverable_error, closed}},
                     run_sync_group_results(
                         Groups,
                         [
                             {error, closed},
-                            {error, {404, <<"missing">>}}
+                            {error, closed}
                         ]
                     )
                 )
@@ -2753,7 +2829,14 @@ grouped_async_worker_monitor_test_() ->
                         no_reply
                     end,
                 ?assertMatch(
-                    {error, {recoverable_error, {async_worker_down, _}}},
+                    {error,
+                        {unrecoverable_error, #{
+                            reason := partial_batch_write,
+                            batch_results := [
+                                {ok, 204, [], <<>>},
+                                {error, {recoverable_error, {async_worker_down, _}}}
+                            ]
+                        }}},
                     Result
                 ),
                 ?assertEqual(
