@@ -812,15 +812,15 @@ A tag value is written as the text it renders: numeric and mixed-template tags b
 strings, a literal boolean text tag stays a string, and only a value that is one
 placeholder followed by a literal `i`/`u` token, or a payload boolean, keeps its type.
 """.
-t_tag_values_as_string() ->
+t_tag_value_typing() ->
     [{matrix, true}].
-t_tag_values_as_string(matrix) ->
+t_tag_value_typing(matrix) ->
     [
         [?tcp, Mode, Batch]
      || Mode <- [?sync, ?async],
         Batch <- [?without_batch, ?with_batch]
     ];
-t_tag_values_as_string(TCConfig) ->
+t_tag_value_typing(TCConfig) ->
     BatchSize = tag_value_batch_size(TCConfig),
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, tag_value_action_overrides(BatchSize)),
