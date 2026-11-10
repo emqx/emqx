@@ -89,13 +89,9 @@ regex=^(feat|fix|docs|style|refactor|test|build|ci|revert|chore|perf)(\(.+\))*: 
 # regex=[^@]+@foo.com
 
 [ignore-by-title]
-# Ignore certain rules for commits of which the title matches a regex
-# E.g. Match commit titles that start with "Release"
-# regex=^Release(.*)
-
-# Ignore certain rules, you can reference them by their id or by their full name
-# Use 'all' to ignore all rules
-# ignore=T1,body-min-length
+# f37a29c4e5
+regex=^correct and clarify the 6\.3\.3 changelog$
+ignore=all
 
 [ignore-by-body]
 # Ignore certain rules for commits of which the body has a line that matches a regex
