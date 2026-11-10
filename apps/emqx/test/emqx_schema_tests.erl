@@ -1627,5 +1627,16 @@ cacertfile_system_default_test_() ->
             ?_assertThrow(
                 {_, [#{kind := validation_error, path := "ssl_opts.cacertfile"}]},
                 Check(emqx_schema:server_ssl_opts_schema(#{}, false))
+            )},
+        {"no default for listeners",
+            ?_assertNotMatch(
+                #{ssl_opts := #{cacertfile := _}},
+                begin
+                    Sc = #{
+                        roots => [ssl_opts],
+                        fields => #{ssl_opts => emqx_schema:server_ssl_opts_schema(#{}, false)}
+                    },
+                    hocon_tconf:check_plain(Sc, #{<<"ssl_opts">> => #{}}, #{atom_key => true})
+                end
             )}
     ].
