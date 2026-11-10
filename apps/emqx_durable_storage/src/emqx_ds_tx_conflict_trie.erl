@@ -16,6 +16,7 @@
     push_topic/5,
     is_dirty_topic/5,
     rotate/1,
+    get_size/1,
     print/1
 ]).
 
@@ -62,6 +63,10 @@
 %%================================================================================
 %% API functions
 %%================================================================================
+
+-spec get_size(t()) -> non_neg_integer().
+get_size(#conflict_tree{old_trie = Old, trie = Current}) ->
+    gb_trees:size(Old) + gb_trees:size(Current).
 
 -spec print(t()) -> map().
 print(#conflict_tree{min_serial = Min, max_serial = Max, old_trie = Old, trie = Current}) ->
