@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -import(
     emqx_mq_api_helpers,
@@ -60,6 +61,7 @@ end_per_testcase(t_cluster_runtime_enable, Config) ->
     ok = snabbkaffe:stop(),
     ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_testcase(_TestCase, Config) ->
+    _ = catch meck:unload(emqx_mq_message_db),
     ok = snabbkaffe:stop(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
@@ -70,6 +72,8 @@ mq_initial_config(t_auto_no_queues) ->
 mq_initial_config(t_auto_with_queues) ->
     #{<<"mq">> => #{<<"enable">> => true}};
 mq_initial_config(t_idempotency) ->
+    #{<<"mq">> => #{<<"enable">> => true}};
+mq_initial_config(t_subscribe_while_starting) ->
     #{<<"mq">> => #{<<"enable">> => true}};
 mq_initial_config(t_cluster_runtime_enable) ->
     #{<<"mq">> => #{<<"enable">> => false}}.
@@ -205,3 +209,57 @@ t_idempotency(_Config) ->
         5000
     ),
     stopped = emqx_mq_controller:wait_status(5000).
+
+%% Verify that a subscription to an MQ topic made while the MQ subsystem is still starting
+%% is refused, and that the same connection can subscribe once the subsystem is started.
+t_subscribe_while_starting(_Config) ->
+    started = emqx_mq_controller:wait_status(5000),
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        topic_filter => <<"test/#">>, name => <<"test">>, is_lastvalue => false
+    }),
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"test/">>}),
+
+    %% Restart the MQ application and hold the startup before the DBs are ready,
+    %% as it happens on a node that already accepts connections.
+    ok = application:stop(emqx_mq),
+    TestPid = self(),
+    ok = meck:new(emqx_mq_message_db, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_mq_message_db, wait_readiness, fun(infinity) ->
+        TestPid ! {readiness_waiting, self()},
+        receive
+            continue -> ok
+        end
+    end),
+    ok = application:start(emqx_mq),
+    Controller =
+        receive
+            {readiness_waiting, Pid} -> Pid
+        after 5_000 ->
+            ct:fail(readiness_not_reached)
+        end,
+    ?assertEqual(starting, emqx_mq_controller:status()),
+
+    %% The subscriptions are refused, they are not silently accepted.
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    ?assertMatch(
+        {ok, _, [?RC_NOT_AUTHORIZED]},
+        emqtt:subscribe(CSub, {<<"$queue/test">>, ?QOS_1})
+    ),
+    ?assertMatch(
+        {ok, _, [?RC_NOT_AUTHORIZED]},
+        emqtt:subscribe(CSub, {<<"$q/test/#">>, ?QOS_1})
+    ),
+    ?assertMatch({ok, []}, emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 0, _Timeout0 = 500)),
+
+    %% Let the startup complete.
+    Controller ! continue,
+    started = emqx_mq_controller:wait_status(5000),
+
+    %% The session was created while the subsystem was starting.
+    %% It is able to subscribe and consume now, without reconnecting.
+    ok = emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"test">>),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 1000),
+    ?assertEqual(10, length(Msgs)),
+    ok = emqtt:disconnect(CSub),
+
+    emqx_mq_test_utils:cleanup_mqs().
