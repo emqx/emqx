@@ -3965,11 +3965,10 @@ retry_unreported_parts(State) ->
 
 %% One durable transaction for a finished part. The full ACK marker, the
 %% per-part accounting watermark, and the counter update either all commit or
-%% all abort. On the normal path, the watermark count proves the counter is in
-%% the exact state this build expects, so the update remains O(1). If that
-%% equality does not hold (mixed-version or crash recovery), fall back to a
-%% conservative marker-based reconciliation that never decrements a partial
-%% part twice.
+%% all abort. A delivery created by this build has the watermark sentinel and
+%% every later part update is O(1). A delivery persisted before the watermark
+%% existed has no sentinel, so its first part report falls back once to a
+%% conservative marker-based reconciliation.
 report_part_done(Shard, Did, Applied) ->
     try
         do_report_part_done(Shard, Did, Applied)
@@ -4009,74 +4008,80 @@ do_report_part_done(Shard, Did, _Applied) ->
     end.
 
 report_part_done_tx(Shard, Did, Devices) ->
-    %% Lock order is acked -> accounted -> counter -> rec, matching the
-    %% delete/expiry paths closely enough to avoid a reverse wait with them.
+    %% Lock order is acked -> accounted -> meta -> counter -> rec, matching
+    %% the delete/expiry paths and avoiding a reverse wait with them.
     _ = mnesia:lock({record, ?TAB_MSG_ACKED, Did}, write),
     Accounts = mnesia:read(?TAB_MSG_PART_ACCOUNTED, Did, write),
-    CounterRow =
-        case mnesia:read(?TAB_MSG_META_CNT, Did, write) of
-            [#bcast_msg_meta_counter{} = Row] -> Row;
-            [] -> mnesia:abort(missing_counter)
-        end,
+    MetaRows = mnesia:read(?TAB_MSG_META, Did, read),
+    CounterRows = mnesia:read(?TAB_MSG_META_CNT, Did, write),
+    case {MetaRows, CounterRows} of
+        {[#bcast_msg_meta{counter = Target}], [#bcast_msg_meta_counter{} = CounterRow]} ->
+            report_accounted_part_tx(Shard, Did, Devices, Target, CounterRow, Accounts);
+        {[#bcast_msg_meta{counter = Target}], []} ->
+            %% Activation backfill is best-effort and its transaction can abort.
+            %% Recover here from durable target/account rows so a finished part
+            %% is not retried forever without ever writing its marker.
+            CounterRow = missing_counter_row(Did, Target, Accounts),
+            reconcile_part_done_tx(Did, Devices, CounterRow, Accounts);
+        {[], [#bcast_msg_meta_counter{} = CounterRow]} ->
+            reconcile_part_done_tx(Did, Devices, CounterRow, Accounts);
+        {[], []} ->
+            reconcile_part_done_tx(Did, Devices, undefined, Accounts)
+    end.
+
+report_accounted_part_tx(Shard, Did, Devices, Target, CounterRow, Accounts) ->
+    Marker = #bcast_msg_acked{delivery_id = Did, device_names = Devices},
+    Account = #bcast_msg_part_accounted{
+        delivery_id = Did,
+        shard = Shard,
+        acked = length(Devices)
+    },
+    CurrentPartAccounted = has_part_account(Shard, Accounts),
+    Expected = max(0, Target - accounted_ack_count(Accounts)),
+    Current = CounterRow#bcast_msg_meta_counter.counter,
+    case has_delivery_account(Accounts) of
+        true when CurrentPartAccounted, Current =:= Expected ->
+            %% A retry after the transaction committed already applied this
+            %% part. The counter remains authoritative.
+            {ok, Current};
+        true when Current =:= Expected ->
+            mnesia:write(Marker),
+            New = max(0, Current - length(Devices)),
+            mnesia:write(Account),
+            mnesia:write(CounterRow#bcast_msg_meta_counter{counter = New}),
+            {ok, New};
+        _ ->
+            %% A legacy persisted delivery can have marker-derived accounting
+            %% that is not yet represented by a sentinel.
+            reconcile_part_done_tx(Did, Devices, CounterRow, Accounts)
+    end.
+
+missing_counter_row(Did, Target, Accounts) ->
+    #bcast_msg_meta_counter{
+        delivery_id = Did,
+        counter = max(0, Target - accounted_ack_count(Accounts))
+    }.
+
+reconcile_part_done_tx(Did, Devices, CounterRow0, Accounts) ->
     case mnesia:read(?TAB_MSG_REC, Did, read) of
         [] ->
             not_found;
         [#bcast_msg{target_ack_count = Target} = Delivery] ->
+            CounterRow =
+                case CounterRow0 of
+                    undefined -> missing_counter_row(Did, Target, Accounts);
+                    #bcast_msg_meta_counter{} -> CounterRow0
+                end,
             Marker = #bcast_msg_acked{delivery_id = Did, device_names = Devices},
-            Account = #bcast_msg_part_accounted{
-                delivery_id = Did,
-                shard = Shard,
-                acked = length(Devices)
-            },
             ExistingMarkers = mnesia:read(?TAB_MSG_ACKED, Did, read),
-            CurrentPartAccounted = has_part_account(Shard, Accounts),
-            AllCompletePartsAccounted = all_complete_parts_accounted(
-                Delivery, ExistingMarkers, Accounts
-            ),
-            Expected = max(0, Target - accounted_ack_count(Accounts)),
-            Current = CounterRow#bcast_msg_meta_counter.counter,
-            case CurrentPartAccounted of
-                false when AllCompletePartsAccounted, Current =:= Expected ->
-                    case has_delivery_account(Accounts) of
-                        true ->
-                            %% Every existing complete part is represented in
-                            %% the watermark, so only this part is still owed.
-                            mnesia:write(Marker),
-                            New = max(0, Current - length(Devices)),
-                            mnesia:write(Account),
-                            mnesia:write(CounterRow#bcast_msg_meta_counter{counter = New}),
-                            {ok, New};
-                        false ->
-                            mnesia:write(Marker),
-                            reconcile_part_counter_tx(
-                                Delivery,
-                                CounterRow,
-                                Accounts,
-                                [Marker | lists:delete(Marker, ExistingMarkers)]
-                            )
-                    end;
-                _ ->
-                    mnesia:write(Marker),
-                    reconcile_part_counter_tx(
-                        Delivery,
-                        CounterRow,
-                        Accounts,
-                        [Marker | lists:delete(Marker, ExistingMarkers)]
-                    )
-            end
+            mnesia:write(Marker),
+            reconcile_part_counter_tx(
+                Delivery,
+                CounterRow,
+                Accounts,
+                [Marker | lists:delete(Marker, ExistingMarkers)]
+            )
     end.
-
-all_complete_parts_accounted(Delivery, Markers, Accounts) ->
-    AccountedShards = maps:from_keys(
-        [Shard || #bcast_msg_part_accounted{shard = Shard} <- Accounts],
-        true
-    ),
-    lists:all(
-        fun({Shard, _Acked}) ->
-            maps:is_key(Shard, AccountedShards)
-        end,
-        completed_part_markers(Delivery, Markers)
-    ).
 
 reconcile_part_counter_tx(
     #bcast_msg{delivery_id = Did, target_ack_count = Target} = Delivery,
@@ -4113,10 +4118,9 @@ reconcile_part_counter_tx(
     Accounted = accounted_ack_count(Accounts ++ NewAccounts),
     Remaining = max(0, Target - Accounted),
     New = min(Current, Remaining),
-    case New =:= Current of
-        true -> ok;
-        false -> mnesia:write(CounterRow#bcast_msg_meta_counter{counter = New})
-    end,
+    %% This is a recovery path. Always write the counter so a missing row is
+    %% recreated even when the conservative current value already equals New.
+    mnesia:write(CounterRow#bcast_msg_meta_counter{counter = New}),
     {ok, New}.
 
 has_delivery_account(Accounts) ->

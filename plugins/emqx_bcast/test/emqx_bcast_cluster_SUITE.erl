@@ -581,6 +581,51 @@ t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
     ?assert(erpc:call(N2, ets, info, [bcast_device_registry, size]) > 0),
     emqtt:stop(C).
 
+-doc "A client can connect while its node's plugin is stopped, then subscribe\n"
+"again after the plugin starts. The post-commit subscription event must verify\n"
+"the local channel, register the client and claim the existing backlog without\n"
+"waiting for a ping or another publish trigger.".
+t_subscription_after_plugin_start_arms_existing_client(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    DN = <<"cl_sub_after_ready">>,
+    PK = <<"default">>,
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    NotServing = wait_until(
+        fun() -> not lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, [])) end,
+        50
+    ),
+    ?assert(NotServing),
+    C = connect(N2, DN),
+    {ok, _, _} = sub(C, topic(DN)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N2, DN, topic(DN)) end, 50)),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => PK,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    ?assert(
+        wait_until(
+            fun() -> erpc:call(N1, mnesia, table_info, [bcast_msg, size]) >= 1 end,
+            100
+        )
+    ),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
+    ?assert(
+        wait_until(
+            fun() -> lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, [])) end,
+            50
+        )
+    ),
+    ?assertEqual(0, erpc:call(N2, ets, info, [bcast_device_registry, size])),
+    {ok, _, _} = sub(C, <<"/default/+/user/get">>),
+    [Msg] = recv(1),
+    ?assertMatch(#{payload := ?PAYLOAD}, Msg),
+    ?assert(erpc:call(N2, ets, info, [bcast_device_registry, size]) > 0),
+    emqtt:stop(C).
+
 -doc "The trigger fallback resolves a channel by client id alone, so it has to\n"
 "check that channel's own product before arming it: a BatchPub for a different\n"
 "ProductKey used to register a client of another product under the request's\n"

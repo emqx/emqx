@@ -1311,25 +1311,45 @@ adopt_client_generation(ProductKey, ClientId, NewPid, State) ->
 
 %% Subscription events are not lifecycle authority: an old channel can deliver
 %% one after the new generation has adopted the row. Adopt from such an event
-%% only when the device registry still names that exact PID. Otherwise leave
-%% the current row untouched; client_connected/resume will advance generations.
+%% only when the present local channel can be verified. When the plugin missed
+%% the original connect, the registry and row are both empty, so fall back to
+%% the node's authoritative channel state before rejecting the event.
 accept_client_event(ProductKey, ClientId, Pid, State) ->
     Tab = ?TAB_STATE(State#state.shard),
     case ets:lookup(Tab, {ProductKey, ClientId}) of
         [#bcast_client_state{pid = Pid}] ->
             {ok, State};
         [] ->
-            case current_device_pid(ProductKey, ClientId) of
-                {ok, Pid} ->
+            case authorize_client_event(ProductKey, ClientId, Pid) of
+                ok ->
                     ensure_row(ProductKey, ClientId, Pid, State#state.shard),
                     {ok, State};
-                _ ->
+                stale ->
                     stale
             end;
         [#bcast_client_state{}] ->
-            case current_device_pid(ProductKey, ClientId) of
-                {ok, Pid} ->
+            case authorize_client_event(ProductKey, ClientId, Pid) of
+                ok ->
                     {ok, adopt_client_generation(ProductKey, ClientId, Pid, State)};
+                stale ->
+                    stale
+            end
+    end.
+
+authorize_client_event(ProductKey, ClientId, Pid) ->
+    case current_device_pid(ProductKey, ClientId) of
+        {ok, Pid} ->
+            ok;
+        _ ->
+            case local_channel(ClientId) of
+                {ok, Pid} ->
+                    case channel_product_key(ClientId, Pid) of
+                        ProductKey ->
+                            emqx_bcast:register_device(ProductKey, ClientId, Pid),
+                            ok;
+                        _ ->
+                            stale
+                    end;
                 _ ->
                     stale
             end
