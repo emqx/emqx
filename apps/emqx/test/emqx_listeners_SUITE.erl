@@ -1032,10 +1032,17 @@ generate_tls_certs(Config) ->
     PrivDir = ?config(priv_dir, Config),
     emqx_common_test_helpers:gen_ca(PrivDir, "ca"),
     emqx_common_test_helpers:gen_ca(PrivDir, "ca-next"),
-    emqx_common_test_helpers:gen_host_cert("server", "ca-next", PrivDir, #{}),
+    %% The QUIC test cases connect to 127.0.0.1 with verify_peer. msquic 2.5.11
+    %% validates the connect target against the certificate SAN, so the server
+    %% certificates must carry an IP SAN for 127.0.0.1 in addition to the DNS
+    %% entry. The client certificate is not hostname-checked, so it needs none.
+    emqx_common_test_helpers:gen_host_cert("server", "ca-next", PrivDir, #{
+        san_ip => "127.0.0.1"
+    }),
     emqx_common_test_helpers:gen_host_cert("client", "ca-next", PrivDir, #{}),
     emqx_common_test_helpers:gen_host_cert("server-password", "ca", PrivDir, #{
-        password => ?SERVER_KEY_PASSWORD
+        password => ?SERVER_KEY_PASSWORD,
+        san_ip => "127.0.0.1"
     }).
 
 format_bind(Bind) ->
