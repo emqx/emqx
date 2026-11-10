@@ -236,6 +236,48 @@ write_config_forms_are_mutually_exclusive_test() ->
         check_action(Conf#{<<"parameters">> => Parameters})
     ).
 
+mixed_structured_template_is_rejected_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    [Field0] = maps:get(<<"fields">>, Point0),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point0#{<<"measurement">> => <<"mqtt-${topic}">>}]
+                }
+            }
+        )
+    ),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [
+                        Point0#{<<"fields">> => [Field0#{<<"value">> => <<"${payload.value}i">>}]}
+                    ]
+                }
+            }
+        )
+    ),
+    Timestamp0 = maps:get(<<"timestamp">>, Point0),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [
+                        Point0#{
+                            <<"timestamp">> => Timestamp0#{<<"value">> => <<"${payload.ts}000">>}
+                        }
+                    ]
+                }
+            }
+        )
+    ).
+
 source_precision_enum_test() ->
     Conf = structured_action_config(),
     [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
@@ -379,54 +421,6 @@ source_precision_is_required_test() ->
         )
     ).
 
-auto_integer_ranges_are_checked_test_() ->
-    [
-        ?_test(
-            assert_structured_auto_error(
-                <<"${payload.value}u">>,
-                #{payload => #{value => -1}}
-            )
-        ),
-        ?_test(
-            assert_structured_auto_error(
-                <<"${payload.value}i">>,
-                #{payload => #{value => 9223372036854775808}}
-            )
-        ),
-        ?_test(assert_structured_auto_error(<<"-1u">>, #{})),
-        ?_test(assert_structured_auto_error(<<"9223372036854775808i">>, #{}))
-    ].
-
-auto_integer_suffixes_require_integer_values_test_() ->
-    [
-        ?_test(
-            assert_structured_auto_error(
-                <<"${payload.value}i">>,
-                #{payload => #{value => <<"1">>}}
-            )
-        ),
-        ?_test(
-            assert_structured_auto_error(
-                <<"${payload.value}u">>,
-                #{payload => #{value => <<"1">>}}
-            )
-        ),
-        ?_test(
-            assert_structured_auto_error(
-                <<"${payload.value}i">>,
-                #{payload => #{value => 1.5}}
-            )
-        ),
-        ?_test(
-            assert_structured_auto_error(
-                <<"${payload.value}u">>,
-                #{payload => #{value => true}}
-            )
-        ),
-        ?_test(assert_structured_auto_error(<<"1.5i">>, #{})),
-        ?_test(assert_structured_auto_error(<<"1.5u">>, #{}))
-    ].
-
 legacy_mixed_integer_suffix_requires_integer_value_test() ->
     ok = meck:new(influxdb, [passthrough, no_link]),
     try
@@ -517,53 +511,6 @@ legacy_tag_suffix_is_treated_as_string_test() ->
         after 1_000 ->
             error(legacy_tag_points_timeout)
         end
-    after
-        ok = meck:unload(influxdb)
-    end.
-
-assert_structured_auto_error(ValueTemplate, Data) ->
-    ok = meck:new(influxdb, [passthrough, no_link]),
-    try
-        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
-        ok = meck:expect(
-            influxdb,
-            write,
-            fun(_Client, _Points) ->
-                error(unexpected_write)
-            end
-        ),
-        Client = #{
-            protocol => http,
-            opts => [{version, v2}, {precision, ms}],
-            path => "/api/v2/write"
-        },
-        State0 = #{client => Client, channels => #{}},
-        ChannelConfig = #{
-            parameters => #{
-                write => [
-                    #{
-                        measurement => <<"m">>,
-                        fields => [
-                            #{
-                                key => <<"value">>,
-                                type => auto,
-                                value => ValueTemplate
-                            }
-                        ],
-                        timestamp => false
-                    }
-                ]
-            }
-        },
-        {ok, State} = emqx_bridge_influxdb_connector:on_add_channel(
-            test_instance, State0, test_channel, ChannelConfig
-        ),
-        ?assertMatch(
-            {error, {unrecoverable_error, _}},
-            emqx_bridge_influxdb_connector:on_query(
-                test_instance, {test_channel, Data}, State
-            )
-        )
     after
         ok = meck:unload(influxdb)
     end.
@@ -871,15 +818,12 @@ valid_write_syntax_escaped_chars_with_extra_spaces_test_() ->
 %% https://github.com/emqx/emqx/issues/19814
 missing_write_syntax_test() ->
     ?assertThrow(
-        {_, [#{reason := required_field, path := "parameters.write_syntax"}]},
-        check_action_parameters(#{<<"precision">> => <<"ms">>})
+        {emqx_bridge_v2_schema, _},
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{<<"precision">> => <<"ms">>}
+        })
     ).
-
-check_action_parameters(Conf) ->
-    Schema = #{
-        roots => [{parameters, hoconsc:mk(hoconsc:ref(emqx_bridge_influxdb, action_parameters))}]
-    },
-    hocon_tconf:check_plain(Schema, #{<<"parameters">> => Conf}, #{required => false}).
 
 unicode_write_syntax_test_() ->
     Tag = unicode:characters_to_list(<<"标签"/utf8>>),

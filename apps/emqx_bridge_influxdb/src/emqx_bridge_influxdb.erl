@@ -13,7 +13,8 @@
 -import(hoconsc, [mk/2, ref/2]).
 
 -export([
-    write_syntax_type/0
+    write_syntax_type/0,
+    action_parameters_validator/1
 ]).
 
 -export([
@@ -360,6 +361,52 @@ validate_write_points(Points) ->
     ).
 
 validate_write_point(Point) ->
+    case validate_point_templates(Point) of
+        ok ->
+            validate_point_entry_keys(Point);
+        {error, _} = Error ->
+            Error
+    end.
+
+validate_point_templates(Point) ->
+    Values =
+        [config_value(Point, measurement)] ++
+            entry_template_values(config_value(Point, tags, [])) ++
+            entry_template_values(config_value(Point, fields, [])) ++
+            timestamp_template_values(config_value(Point, timestamp)),
+    case lists:all(fun is_single_segment_template/1, Values) of
+        true -> ok;
+        false -> {error, <<"structured templates must contain one literal or one placeholder">>}
+    end.
+
+entry_template_values(Entries) ->
+    lists:append([
+        [entry_key(Entry), entry_value(Entry)]
+     || Entry <- Entries
+    ]).
+
+timestamp_template_values(Point) when is_map(Point) ->
+    case config_value(Point, value, undefined) of
+        undefined -> [];
+        Value -> [Value]
+    end;
+timestamp_template_values(_) ->
+    [].
+
+is_single_segment_template(undefined) ->
+    true;
+is_single_segment_template(false) ->
+    true;
+is_single_segment_template(Value) ->
+    is_single_segment_template_tokens(
+        emqx_placeholder:preproc_tmpl(emqx_utils_conv:bin(Value))
+    ).
+
+is_single_segment_template_tokens([]) -> true;
+is_single_segment_template_tokens([_]) -> true;
+is_single_segment_template_tokens(_) -> false.
+
+validate_point_entry_keys(Point) ->
     case has_duplicate_entry_keys(config_value(Point, tags, [])) of
         true ->
             {error, <<"duplicate tag key in write point">>};
@@ -378,6 +425,12 @@ entry_key(Entry) ->
     case maps:find(key, Entry) of
         {ok, Key} -> Key;
         error -> maps:get(<<"key">>, Entry)
+    end.
+
+entry_value(Entry) ->
+    case maps:find(value, Entry) of
+        {ok, Value} -> Value;
+        error -> maps:get(<<"value">>, Entry)
     end.
 
 write_syntax(type) ->

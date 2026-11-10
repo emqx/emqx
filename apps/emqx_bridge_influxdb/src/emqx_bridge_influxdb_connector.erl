@@ -91,7 +91,7 @@ on_add_channel(
     ChannelConfig = maps:merge(
         Parameters,
         ChannelConfig0#{
-            channel_client => influxdb:update_precision(Client, Precision),
+            channel_client => update_action_precision(Client, Precision),
             write_syntax => to_config(write_config(Parameters), Precision),
             bucket_tmpl => preproc_bucket_tmpl(Parameters)
         }
@@ -280,7 +280,7 @@ preproc_bucket_tmpl(_) ->
 render_bucket_client(Data, Client, ChannelConfig) ->
     case render_bucket(Data, maps:get(bucket_tmpl, ChannelConfig, undefined)) of
         {ok, Bucket} ->
-            influxdb:update_bucket(Client, Bucket);
+            update_bucket(Client, Bucket);
         undefined ->
             Client
     end.
@@ -318,7 +318,7 @@ group_batch_by_bucket(BatchData, ChannelConfig) ->
     BucketTmpl = maps:get(bucket_tmpl, ChannelConfig, undefined),
     Groups = maps:groups_from_list(
         fun({_Channel, Message}) ->
-            bucket_group_key(Message, BucketTmpl)
+            bucket_group_key(Message, BucketTmpl, Client)
         end,
         fun(Item) -> Item end,
         BatchData
@@ -328,16 +328,68 @@ group_batch_by_bucket(BatchData, ChannelConfig) ->
      || {Key, Items} <- maps:to_list(Groups)
     ].
 
-bucket_group_key(Message, BucketTmpl) ->
+bucket_group_key(Message, BucketTmpl, Client) ->
     case render_bucket(Message, BucketTmpl) of
-        {ok, Bucket} -> {ok, Bucket};
-        undefined -> static
+        {ok, Bucket} ->
+            case client_bucket(Client) of
+                Bucket -> static;
+                _ -> {ok, Bucket}
+            end;
+        undefined ->
+            static
     end.
+
+client_bucket(#{opts := Opts}) ->
+    Bucket =
+        case proplists:get_value(version, Opts, v1) of
+            v2 -> proplists:get_value(bucket, Opts);
+            _ -> proplists:get_value(database, Opts)
+        end,
+    normalize_client_bucket(Bucket);
+client_bucket(_Client) ->
+    undefined.
+
+normalize_client_bucket(undefined) ->
+    undefined;
+normalize_client_bucket(Bucket) ->
+    emqx_utils_conv:bin(Bucket).
 
 bucket_group_client(static, Client) ->
     Client;
 bucket_group_client({ok, Bucket}, Client) ->
-    influxdb:update_bucket(Client, Bucket).
+    update_bucket(Client, Bucket).
+
+update_action_precision(Client, Precision) ->
+    preserve_v3_precision(influxdb:update_precision(Client, Precision)).
+
+update_bucket(Client, Bucket) ->
+    preserve_v3_precision(influxdb:update_bucket(Client, Bucket)).
+
+%% influxdb-client-erl 1.1.19 omits precision from InfluxDB v3 write paths.
+%% Keep the action precision in the path until the pinned client sends it.
+preserve_v3_precision(#{opts := Opts} = Client) ->
+    case {proplists:get_value(version, Opts), proplists:get_value(precision, Opts)} of
+        {v3, Precision} when Precision =/= undefined ->
+            Path = str(maps:get(path, Client)),
+            Client#{path => append_query_parameter(Path, "precision", atom_to_list(Precision))};
+        _ ->
+            Client
+    end;
+preserve_v3_precision(Client) ->
+    Client.
+
+append_query_parameter(Path, Key, Value) ->
+    case string:find(Path, Key ++ "=") of
+        nomatch ->
+            Separator =
+                case string:find(Path, "?") of
+                    nomatch -> "?";
+                    _ -> "&"
+                end,
+            Path ++ Separator ++ Key ++ "=" ++ Value;
+        _ ->
+            Path
+    end.
 
 do_grouped_batch_query(InstId, Channel, Groups, SyntaxLines) ->
     case parse_groups(InstId, Groups, SyntaxLines) of
@@ -351,11 +403,11 @@ do_grouped_batch_query(InstId, Channel, Groups, SyntaxLines) ->
             {error, {unrecoverable_error, Reason}}
     end.
 
-%% Every group is written; all results are aggregated after every group has been
-%% attempted, so one failing bucket does not drop the others.  A recoverable
-%% error takes precedence over an unrecoverable one: dropping the batch because
-%% one bucket permanently failed would silently lose data for another bucket
-%% that could have succeeded on retry.
+%% Every group is written, and all results are aggregated after every group has
+%% been attempted. The resource buffer needs one retry decision for the whole
+%% batch. Retry only when every group is recoverable. A successful or permanent
+%% group makes recoverable members non-retryable to avoid duplicate writes and
+%% repeated permanent failures.
 write_groups_sync(_InstId, _Channel, []) ->
     ok;
 write_groups_sync(InstId, Channel, ParsedGroups) ->
@@ -1137,7 +1189,7 @@ structured_point_to_config(Point, TargetPrecision) ->
         maps:get(timestamp, Point, undefined), TargetPrecision
     ),
     #{
-        measurement => {structured, emqx_placeholder:preproc_tmpl(maps:get(measurement, Point))},
+        measurement => {structured, structured_tmpl(maps:get(measurement, Point))},
         tags => structured_tags(maps:get(tags, Point, [])),
         fields => structured_fields(maps:get(fields, Point)),
         timestamp => Timestamp,
@@ -1151,14 +1203,14 @@ structured_timestamp(undefined, TargetPrecision) ->
     {Ts, SourcePrecision, _} = preproc_tmpl_timestamp(undefined, TargetPrecision),
     {Ts, SourcePrecision, default};
 structured_timestamp(#{value := Value, source_precision := SourcePrecision}, _TargetPrecision) ->
-    {emqx_placeholder:preproc_tmpl(Value), SourcePrecision, error}.
+    {structured_tmpl(Value), SourcePrecision, error}.
 
 structured_tags(Tags) ->
     lists:foldl(
         fun(#{key := Key, value := Value}, Acc) ->
             maps:put(
-                emqx_placeholder:preproc_tmpl(Key),
-                {structured_tag, emqx_placeholder:preproc_tmpl(Value)},
+                structured_tmpl(Key),
+                {structured_tag, structured_tmpl(Value)},
                 Acc
             )
         end,
@@ -1170,14 +1222,22 @@ structured_fields(Fields) ->
     lists:foldl(
         fun(#{key := Key, type := Type, value := Value}, Acc) ->
             maps:put(
-                emqx_placeholder:preproc_tmpl(Key),
-                {typed, Type, emqx_placeholder:preproc_tmpl(Value)},
+                structured_tmpl(Key),
+                {typed, Type, structured_tmpl(Value)},
                 Acc
             )
         end,
         #{},
         Fields
     ).
+
+structured_tmpl(Value) ->
+    Tokens = emqx_placeholder:preproc_tmpl(emqx_utils_conv:bin(Value)),
+    case Tokens of
+        [] -> Tokens;
+        [_] -> Tokens;
+        _ -> throw({mixed_structured_template, Value})
+    end.
 
 %% pre-process the timestamp template
 %% returns a tuple of three elements:
@@ -1263,10 +1323,10 @@ data_to_points(Data, SyntaxLines) ->
 lines_to_points(_, [], Points, ErrorPoints) ->
     case ErrorPoints of
         [] ->
-            {ok, Points};
+            {ok, lists:reverse(Points)};
         _ ->
             %% ignore trans succeeded points
-            {error, ErrorPoints}
+            {error, lists:reverse(ErrorPoints)}
     end;
 %% a raw line protocol template, the rendered value is written verbatim
 lines_to_points(Data, [#{line := Tmpl} | Rest], PointsAcc, ErrorPointsAcc) ->
@@ -1968,8 +2028,8 @@ structured_multiple_points_single_write_test() ->
     {ok, Points} = run_structured_callback(Write, Data),
     ?assertEqual(2, length(Points)),
     ?assertEqual(
-        [<<"humidity">>, <<"temperature">>],
-        lists:sort([maps:get(measurement, Point) || Point <- Points])
+        [<<"temperature">>, <<"humidity">>],
+        [maps:get(measurement, Point) || Point <- Points]
     ).
 
 structured_batch_writes_all_points_once_test() ->
@@ -2119,7 +2179,7 @@ structured_string_and_missing_field_test() ->
                 #{
                     key => <<"greeting">>,
                     type => string,
-                    value => <<"hello ", "${payload.name}">>
+                    value => <<"${payload.name}">>
                 },
                 #{
                     key => <<"missing">>,
@@ -2132,11 +2192,11 @@ structured_string_and_missing_field_test() ->
     ],
     {ok, [Point]} = run_structured_callback(Write, #{payload => #{name => <<"emqx">>}}),
     ?assertEqual(
-        #{<<"greeting">> => {string, <<"hello emqx">>}},
+        #{<<"greeting">> => {string, <<"emqx">>}},
         maps:get(fields, Point)
     ).
 
-structured_tag_mixed_template_test() ->
+structured_mixed_template_throws_before_conversion_test() ->
     Write = [
         #{
             measurement => <<"m">>,
@@ -2152,18 +2212,7 @@ structured_tag_mixed_template_test() ->
             timestamp => false
         }
     ],
-    Data = #{
-        payload => #{
-            kind => <<"sensor">>,
-            tenant => <<"acme">>,
-            value => 1
-        }
-    },
-    {ok, [Point]} = run_structured_callback(Write, Data),
-    ?assertEqual(
-        #{<<"device-sensor">> => <<"tenant-acme">>},
-        maps:get(tags, Point)
-    ).
+    ?assertThrow({mixed_structured_template, _}, to_config({structured, Write}, ms)).
 
 structured_auto_field_type_test() ->
     Write = [
@@ -2177,43 +2226,6 @@ structured_auto_field_type_test() ->
     ],
     {ok, [Point]} = run_structured_callback(Write, #{payload => #{value => 1}}),
     ?assertEqual(#{<<"value">> => {float, 1}}, maps:get(fields, Point)).
-
-structured_auto_mixed_template_is_text_test_() ->
-    [
-        ?_assertEqual(
-            #{<<"value">> => <<"prefix65">>},
-            structured_auto_mixed_template_field(65)
-        ),
-        ?_assertEqual(
-            #{<<"value">> => <<"prefix300">>},
-            structured_auto_mixed_template_field(300)
-        ),
-        ?_assertEqual(
-            #{<<"value">> => <<"prefix1.5">>},
-            structured_auto_mixed_template_field(1.5)
-        ),
-        ?_assertEqual(
-            #{<<"value">> => <<"prefixtrue">>},
-            structured_auto_mixed_template_field(true)
-        )
-    ].
-
-structured_auto_mixed_template_field(Value) ->
-    Write = [
-        #{
-            measurement => <<"m">>,
-            fields => [
-                #{
-                    key => <<"value">>,
-                    type => auto,
-                    value => <<"prefix", "${payload.value}">>
-                }
-            ],
-            timestamp => false
-        }
-    ],
-    {ok, [Point]} = run_structured_callback(Write, #{payload => #{value => Value}}),
-    maps:get(fields, Point).
 
 structured_all_fields_missing_test() ->
     Write = [
@@ -2298,28 +2310,6 @@ structured_empty_field_key_test() ->
     ],
     assert_structured_write_error(Write, #{payload => #{key => <<>>}}).
 
-structured_mixed_template_missing_value_test() ->
-    Write = [
-        #{
-            measurement => <<"m">>,
-            tags => [
-                #{key => <<"tenant">>, value => <<"tenant-", "${payload.missing}">>}
-            ],
-            fields => [
-                #{
-                    key => <<"greeting">>,
-                    type => string,
-                    value => <<"hello ", "${payload.missing}">>
-                },
-                #{key => <<"value">>, type => integer, value => <<"1">>}
-            ],
-            timestamp => false
-        }
-    ],
-    {ok, [Point]} = run_structured_callback(Write, #{payload => #{}}),
-    ?assertEqual(#{}, maps:get(tags, Point)),
-    ?assertEqual(#{<<"value">> => {int, 1}}, maps:get(fields, Point)).
-
 structured_missing_timestamp_value_test() ->
     Write = [
         #{
@@ -2338,6 +2328,46 @@ structured_missing_timestamp_value_test() ->
 trace_path_redacts_query_string_test() ->
     Client = #{path => "/write?u=user&p=secret&db=mqtt&precision=ms"},
     ?assertEqual("/write", trace_path(Client)).
+
+v3_action_precision_is_preserved_in_write_path_test() ->
+    Write = [
+        #{
+            measurement => <<"mqtt">>,
+            fields => [
+                #{key => <<"value">>, type => integer, value => <<"1">>}
+            ],
+            timestamp => false
+        }
+    ],
+    Client = #{
+        protocol => http,
+        opts => [{version, v3}, {database, <<"mqtt">>}],
+        path => "/api/v3/write_lp?db=mqtt"
+    },
+    State0 = #{client => Client, channels => #{}},
+    {ok, #{channels := Channels} = State} =
+        on_add_channel(test_instance, State0, test_channel, #{
+            parameters => #{
+                precision => ns,
+                bucket => <<"${payload.bucket}">>,
+                write => Write
+            }
+        }),
+    #{channel_client := StaticClient} = maps:get(test_channel, Channels),
+    ?assertNotEqual(
+        nomatch,
+        string:find(iolist_to_binary(maps:get(path, StaticClient)), "precision=ns")
+    ),
+    ChannelConfig = maps:get(test_channel, maps:get(channels, State)),
+    DynamicClient = render_bucket_client(
+        #{payload => #{bucket => <<"other">>}},
+        maps:get(channel_client, ChannelConfig),
+        ChannelConfig
+    ),
+    ?assertNotEqual(
+        nomatch,
+        string:find(iolist_to_binary(maps:get(path, DynamicClient)), "precision=ns")
+    ).
 
 grouped_async_trace_runs_before_spawn_test() ->
     PreviousMetadata = logger:get_process_metadata(),
@@ -2512,6 +2542,26 @@ group_batch_without_bucket_tmpl_test_() ->
             )}
     ].
 
+group_batch_by_effective_bucket_test_() ->
+    Tmpl = emqx_placeholder:preproc_tmpl(<<"${payload.bucket}">>),
+    Client = #{
+        protocol => http,
+        opts => [{version, v2}, {bucket, "mqtt"}],
+        path => "/api/v2/write"
+    },
+    ChannelConfig = #{channel_client => Client, bucket_tmpl => Tmpl},
+    BatchData = [
+        {c1, #{payload => #{bucket => <<"mqtt">>}}},
+        {c1, #{payload => #{}}}
+    ],
+    [
+        {"an explicit bucket equal to the connector fallback stays in one group",
+            ?_assertEqual(
+                1,
+                length(group_batch_by_bucket(BatchData, ChannelConfig))
+            )}
+    ].
+
 data_to_points_test_() ->
     SyntaxLines = [
         #{line => emqx_placeholder:preproc_tmpl(<<"${payload.line}">>)}
@@ -2565,13 +2615,13 @@ data_to_points_test_() ->
         {"raw lines and structured points are mixed",
             ?_assertEqual(
                 {ok, [
+                    <<"weather temperature=82 1">>,
                     #{
                         measurement => <<"m">>,
                         tags => #{<<"tag">> => <<"1">>},
                         fields => #{<<"f">> => {int, 2}},
                         timestamp => 1
-                    },
-                    <<"weather temperature=82 1">>
+                    }
                 ]},
                 data_to_points(
                     #{payload => #{line => <<"weather temperature=82 1">>}},
