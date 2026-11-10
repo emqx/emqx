@@ -10,7 +10,10 @@ Enables and disables its integration into the EMQX.
 
 Startup is split into two phases to avoid blocking config propagation:
 - `starting`: DB opened, metrics started.
-- `started`: DB readiness confirmed, hooks and services started.
+- `started`: DB readiness confirmed, publish hook and services started.
+
+Subscription hooks are registered synchronously when MQ is enabled.
+Subscriptions wait for the `started` status before discovering queues and consumers.
 """.
 
 -include("emqx_mq_internal.hrl").
@@ -105,6 +108,7 @@ init([]) ->
     process_flag(trap_exit, true),
     case need_start() of
         true ->
+            ok = claim_queue_topics(),
             TargetStatus = started;
         false ->
             TargetStatus = stopped
@@ -185,6 +189,7 @@ status_reached(#state{status = Status, target_status = TargetStatus}) ->
 do_start_mqs(State) ->
     ?tp(debug, mq_controller_start_mqs, #{}),
     ok = set_status(starting),
+    ok = claim_queue_topics(),
 
     %% Open DB
     ok = emqx_mq_message_db:open(),
@@ -209,8 +214,6 @@ do_ready_mqs(State = #state{}) ->
     ok = emqx_mq_sup:start_services(),
 
     %% Hook into EMQX
-    %% Claim handling of `$queue` topics to ourselves
-    ok = emqx_topic:enable_queue_alias_to_share(false),
     ok = emqx_mq:register_hooks(),
 
     ok = set_status(started),
@@ -221,10 +224,10 @@ do_ready_mqs(State = #state{}) ->
 do_stop_mqs(State = #state{status = Status}) ->
     ?tp(debug, mq_controller_stop_mqs, #{}),
 
+    ok = emqx_topic:enable_queue_alias_to_share(true),
+    ok = emqx_mq:unregister_hooks(),
     case Status of
         started ->
-            ok = emqx_topic:enable_queue_alias_to_share(true),
-            ok = emqx_mq:unregister_hooks(),
             _ = emqx_mq_quota_buffer:stop(?MQ_QUOTA_BUFFER),
             ok = emqx_mq_sup:stop_services();
         _ ->
@@ -240,6 +243,10 @@ do_stop_mqs(State = #state{status = Status}) ->
     ?tp(debug, mq_controller_stop_mqs_done, #{}),
 
     State#state{status = stopped}.
+
+claim_queue_topics() ->
+    ok = emqx_topic:enable_queue_alias_to_share(false),
+    ok = emqx_mq:register_subscription_hooks().
 
 need_start() ->
     case emqx_mq_config:enabled() of
