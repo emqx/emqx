@@ -27,6 +27,7 @@ jobs:
           - "61"
           - "62"
           - "63"
+          - "70"
 
     env:
       DEV_BRANCH: dev-${{ matrix.version }}
