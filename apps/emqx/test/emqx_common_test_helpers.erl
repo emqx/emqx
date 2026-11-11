@@ -1292,7 +1292,7 @@ gen_host_cert(H, CaName, Path, Opts) ->
             undefined ->
                 "";
             Ip ->
-                ",IP:~s" ++ [Ip]
+                io_lib:format(",IP:~s", [Ip])
         end,
     CSR_Cmd =
         lists:flatten(
