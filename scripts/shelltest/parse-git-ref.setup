@@ -1,1 +1,10 @@
 #!/usr/bin/env bash
+
+# A scratch repository with release tags, for the tests that pick the latest release.
+repo=shelltest/parse-git-ref.repo
+rm -rf "$repo"
+git init -q "$repo"
+git -C "$repo" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m init
+for t in 6.2.9 6.3.0 6.3.2 6.3.10 7.0.0 7.0.1 7.1.0-rc.1 7.1.0-patch.1; do
+    git -C "$repo" tag "$t"
+done

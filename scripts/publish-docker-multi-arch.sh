@@ -8,7 +8,7 @@
 ##       --amd64 <tarball> --arm64 <tarball> \
 ##       --owner <github-owner> --profile <emqx-profile> \
 ##       --variant base|sf \
-##       [--latest] [--publish] [--require-attestations]
+##       [--latest] [--latest-major] [--publish] [--require-attestations]
 ##
 ## Without --publish the buildx command is printed instead of executed
 ## (the load/tag/push to the local registry still happen).
@@ -20,7 +20,7 @@
 ## For unit-testing the tag policy:
 ##   publish-docker-multi-arch.sh --print-tags \
 ##       --variant base|sf --owner <owner> --profile <profile> \
-##       --version <version> [--latest]
+##       --version <version> [--latest] [--latest-major]
 ## In --print-tags mode no docker commands are run; the script only echoes
 ## the tag set that would be passed to `docker buildx imagetools create`.
 
@@ -32,6 +32,7 @@ OWNER=
 PROFILE=
 VARIANT=
 LATEST=false
+LATEST_MAJOR=false
 PUBLISH=false
 REQUIRE_ATTESTATIONS=false
 PRINT_TAGS_ONLY=false
@@ -45,6 +46,7 @@ while [ $# -gt 0 ]; do
         --profile)     PROFILE=$2; shift 2;;
         --variant)     VARIANT=$2; shift 2;;
         --latest)      LATEST=true; shift;;
+        --latest-major) LATEST_MAJOR=true; shift;;
         --publish)     PUBLISH=true; shift;;
         --require-attestations) REQUIRE_ATTESTATIONS=true; shift;;
         --print-tags)  PRINT_TAGS_ONLY=true; shift;;
@@ -71,10 +73,13 @@ esac
 #   - base also: emqx/emqx:${version}
 #   - For stable MAJOR.MINOR.PATCH on base:
 #       additionally :MAJOR.MINOR (always — patch follows its line)
-#       additionally :MAJOR and :latest (only when latest=true)
+#       additionally :MAJOR (only when latest_major=true: the highest
+#       release of that major version)
+#       additionally :latest (only when latest=true: the highest release of
+#       the line chosen to be the latest, see parse-git-ref.sh)
 #   - For sf: full version only, no mirror, no rolling.
 compute_tags() {
-    local version=$1 variant=$2 owner=$3 profile=$4 latest=$5
+    local version=$1 variant=$2 owner=$3 profile=$4 latest=$5 latest_major=$6
 
     echo "docker.io/${owner}/${profile}:${version}"
 
@@ -94,9 +99,12 @@ compute_tags() {
         echo "docker.io/${owner}/${profile}:${minor}"
         echo "docker.io/emqx/emqx:${minor}"
 
-        if [ "$latest" = "true" ]; then
+        if [ "$latest_major" = "true" ]; then
             echo "docker.io/${owner}/${profile}:${major}"
             echo "docker.io/emqx/emqx:${major}"
+        fi
+
+        if [ "$latest" = "true" ]; then
             echo "docker.io/${owner}/${profile}:latest"
             echo "docker.io/emqx/emqx:latest"
         fi
@@ -108,7 +116,7 @@ if [ "$PRINT_TAGS_ONLY" = "true" ]; then
         echo "error: --print-tags requires --version" >&2
         exit 1
     fi
-    compute_tags "$VERSION_OVERRIDE" "$VARIANT" "$OWNER" "$PROFILE" "$LATEST"
+    compute_tags "$VERSION_OVERRIDE" "$VARIANT" "$OWNER" "$PROFILE" "$LATEST" "$LATEST_MAJOR"
     exit 0
 fi
 
@@ -162,7 +170,7 @@ if [ "$VERSION" != "$ARM64_VERSION" ]; then
     exit 1
 fi
 
-mapfile -t TAGS < <(compute_tags "$VERSION" "$VARIANT" "$OWNER" "$PROFILE" "$LATEST")
+mapfile -t TAGS < <(compute_tags "$VERSION" "$VARIANT" "$OWNER" "$PROFILE" "$LATEST" "$LATEST_MAJOR")
 
 echo "Tags (publish=${PUBLISH}):"
 printf '  - %s\n' "${TAGS[@]}"

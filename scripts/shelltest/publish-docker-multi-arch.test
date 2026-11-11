@@ -1,5 +1,6 @@
-## Stable release with latest=true: full version, mirror, :MAJOR.MINOR, :MAJOR, :latest.
-./publish-docker-multi-arch.sh --variant base --owner emqx --profile emqx-enterprise --version 6.2.1 --latest --print-tags
+## Stable release, latest of its major and of the latest line: full version, mirror, :MAJOR.MINOR,
+## :MAJOR, :latest.
+./publish-docker-multi-arch.sh --variant base --owner emqx --profile emqx-enterprise --version 6.2.1 --latest --latest-major --print-tags
 >>>
 docker.io/emqx/emqx-enterprise:6.2.1
 docker.io/emqx/emqx:6.2.1
@@ -21,7 +22,7 @@ docker.io/emqx/emqx:6.1
 >>>= 0
 
 ## Two-digit minor must not be misparsed (6.10 != 6.1).
-./publish-docker-multi-arch.sh --variant base --owner emqx --profile emqx-enterprise --version 6.10.5 --latest --print-tags
+./publish-docker-multi-arch.sh --variant base --owner emqx --profile emqx-enterprise --version 6.10.5 --latest --latest-major --print-tags
 >>>
 docker.io/emqx/emqx-enterprise:6.10.5
 docker.io/emqx/emqx:6.10.5
@@ -33,8 +34,30 @@ docker.io/emqx/emqx-enterprise:latest
 docker.io/emqx/emqx:latest
 >>>= 0
 
+## Newest release of a major that is not the latest line: :MAJOR, no :latest.
+./publish-docker-multi-arch.sh --variant base --owner emqx --profile emqx-enterprise --version 7.0.1 --latest-major --print-tags
+>>>
+docker.io/emqx/emqx-enterprise:7.0.1
+docker.io/emqx/emqx:7.0.1
+docker.io/emqx/emqx-enterprise:7.0
+docker.io/emqx/emqx:7.0
+docker.io/emqx/emqx-enterprise:7
+docker.io/emqx/emqx:7
+>>>= 0
+
+## Newest release of the latest line, but not of its major: :latest, no :MAJOR.
+./publish-docker-multi-arch.sh --variant base --owner emqx --profile emqx-enterprise --version 7.2.3 --latest --print-tags
+>>>
+docker.io/emqx/emqx-enterprise:7.2.3
+docker.io/emqx/emqx:7.2.3
+docker.io/emqx/emqx-enterprise:7.2
+docker.io/emqx/emqx:7.2
+docker.io/emqx/emqx-enterprise:latest
+docker.io/emqx/emqx:latest
+>>>= 0
+
 ## Prerelease: only the full version, even with --latest.
-./publish-docker-multi-arch.sh --variant base --owner emqx --profile emqx-enterprise --version 6.2.1-rc.1 --latest --print-tags
+./publish-docker-multi-arch.sh --variant base --owner emqx --profile emqx-enterprise --version 6.2.1-rc.1 --latest --latest-major --print-tags
 >>>
 docker.io/emqx/emqx-enterprise:6.2.1-rc.1
 docker.io/emqx/emqx:6.2.1-rc.1
@@ -55,7 +78,7 @@ docker.io/emqx/emqx:6.2.1+build.42
 >>>= 0
 
 ## Snowflake variant: profile-specific full version only, no mirror, no rolling.
-./publish-docker-multi-arch.sh --variant sf --owner emqx --profile emqx-enterprise --version 6.2.1 --latest --print-tags
+./publish-docker-multi-arch.sh --variant sf --owner emqx --profile emqx-enterprise --version 6.2.1 --latest --latest-major --print-tags
 >>>
 docker.io/emqx/emqx-enterprise:6.2.1
 >>>= 0
