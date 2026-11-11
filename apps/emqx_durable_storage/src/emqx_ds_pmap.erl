@@ -15,6 +15,13 @@ the pmap are of the same type and binary encoding.
 Each key-value pair of a pmap is kept in DS individually, reducing
 write amplification from the updates.
 
+Pmaps come in two flavors: regular and diff-based. Diff based pmaps
+try to minimize changes to the durable storage at the cost of higher
+RAM usage. Their representation at rest is the same, so they are
+interchangeable.
+
+## Collections
+
 Pmaps of different types can be grouped together into "collections".
 Consistency is guaranteed at the level of an individual collection.
 
@@ -51,7 +58,9 @@ taking over the collection. Such locking is out of scope of this module.
     lts_threshold_cb/2,
 
     new_pmap/2,
+    new_pmap/3,
     tx_restore/3,
+    tx_restore/4,
     tx_commit/2,
     tx_success/2,
     tx_destroy/2,
@@ -104,6 +113,8 @@ taking over the collection. Such locking is out of scope of this module.
 %% Type declarations
 %%================================================================================
 
+-type kind() :: diff | dirty.
+
 -type tx_counter() :: integer().
 
 -opaque pmap(K, V) ::
@@ -113,6 +124,12 @@ taking over the collection. Such locking is out of scope of this module.
         cache :: #{K => V},
         dirty :: #{K => tx_counter() | {del, tx_counter(), emqx_ds:topic()}},
         tx_counter :: tx_counter()
+    }
+    | #pdiffmap{
+        name :: binary(),
+        module :: module(),
+        pstate :: #{K => V},
+        diff :: #{K => {ok, V} | {del, emqx_ds:topic()}}
     }.
 
 -type collection_id() :: binary().
@@ -212,7 +229,13 @@ lts_threshold_cb(_, _) ->
     infinity.
 
 -spec new_pmap(module(), binary()) -> pmap(_K, _V).
-new_pmap(CBM, Name) when is_atom(CBM), is_binary(Name) ->
+new_pmap(CBM, Name) ->
+    new_pmap(CBM, Name, dirty).
+
+-spec new_pmap(module(), binary(), kind()) -> pmap(_K, _V).
+new_pmap(CBM, Name, diff) when is_atom(CBM), is_binary(Name) ->
+    #pdiffmap{name = Name, module = CBM};
+new_pmap(CBM, Name, dirty) when is_atom(CBM), is_binary(Name) ->
     #pmap{name = Name, module = CBM}.
 
 -doc """
@@ -261,7 +284,38 @@ tx_commit(
         end,
         Dirty
     ),
-    {TxCntr, Pmap#pmap{tx_counter = TxCntr + 1}}.
+    {TxCntr, Pmap#pmap{tx_counter = TxCntr + 1}};
+tx_commit(
+    CollectionId,
+    #pdiffmap{
+        name = Name,
+        module = CBM,
+        diff = Diff,
+        pending = Pending0
+    } = Pmap
+) ->
+    %% Claim the entire pmap data topic filter to avoid locking individual keys:
+    LockedTF = pmap_topic(Name, CollectionId, '+'),
+    emqx_ds:tx_lock(LockedTF, 0, infinity, w),
+    emqx_ds:tx_lock(LockedTF, 0, infinity, d),
+    %% Dump the diff:
+    Pending = maps:fold(
+        fun(Key, VDiff, Acc) ->
+            case VDiff of
+                {ok, Val} ->
+                    tx_write_pmap_kv(CBM, Name, CollectionId, Key, Val);
+                del ->
+                    emqx_ds:tx_del_topic(pmap_topic(Name, CollectionId, Key))
+            end,
+            Acc#{Key => VDiff}
+        end,
+        Pending0,
+        Diff
+    ),
+    Pmap#pdiffmap{
+        pending = Pending,
+        diff = #{}
+    }.
 
 -doc """
 Commit all pmaps in the collection using `tx_commit`.
@@ -306,7 +360,22 @@ tx_success(Committed, Pmap = #pmap{dirty = Dirty0}) ->
             end,
             Dirty0
         ),
-    Pmap#pmap{dirty = Dirty}.
+    Pmap#pmap{dirty = Dirty};
+tx_success(_, Pmap = #pdiffmap{pstate = Pstate0, pending = Pending}) ->
+    Pstate = maps:fold(
+        fun(Key, VDiff, Acc) ->
+            case VDiff of
+                {ok, Val} -> Acc#{Key => Val};
+                del -> maps:remove(Key, Acc)
+            end
+        end,
+        Pstate0,
+        Pending
+    ),
+    Pmap#pdiffmap{
+        pending = #{},
+        pstate = Pstate
+    }.
 
 -doc """
 Release dirty records in all pmaps in the collection.
@@ -327,25 +396,40 @@ collection_release_dirty(Fields, Committed, Collection0) ->
     ),
     Collection#{?collection_dirty := IsDirty}.
 
+-spec tx_restore(module(), pmap_name(), collection_id()) -> pmap(_, _).
+tx_restore(CBM, Name, CollectionId) ->
+    tx_restore(CBM, Name, CollectionId, dirty).
+
 -doc """
 Read data from a durable storage to RAM, creating a new pmap.
 
 This function should be called in a transaction context.
 """.
--spec tx_restore(module(), pmap_name(), collection_id()) -> pmap(_, _).
-tx_restore(CBM, Name, CollectionId) when is_atom(CBM), is_binary(Name), is_binary(CollectionId) ->
-    Cache = emqx_ds:tx_fold_topic(
+-spec tx_restore(module(), pmap_name(), collection_id(), kind()) -> pmap(_, _).
+tx_restore(CBM, Name, CollectionId, Kind) when
+    is_atom(CBM), is_binary(Name), is_binary(CollectionId)
+->
+    PData = emqx_ds:tx_fold_topic(
         fun(_Slab, _Stream, Payload, Acc) ->
             restore_fun(CBM, Payload, Acc)
         end,
         #{},
         pmap_topic(Name, CollectionId, '+')
     ),
-    #pmap{
-        name = Name,
-        module = CBM,
-        cache = Cache
-    }.
+    case Kind of
+        dirty ->
+            #pmap{
+                name = Name,
+                module = CBM,
+                cache = PData
+            };
+        diff ->
+            #pdiffmap{
+                name = Name,
+                module = CBM,
+                pstate = PData
+            }
+    end.
 
 -doc """
 Read data from a durable storage to RAM, creating a regular map.
@@ -370,7 +454,21 @@ dirty_read(CBM, Name, CollectionId, FoldOptions) when
 
 -spec get(K, pmap(K, V)) -> V | undefined.
 get(Key, #pmap{cache = Cache}) ->
-    maps:get(Key, Cache, undefined).
+    maps:get(Key, Cache, undefined);
+get(Key, #pdiffmap{diff = Diff, pstate = PS}) ->
+    case Diff of
+        #{Key := {ok, Val}} ->
+            Val;
+        #{Key := _} ->
+            undefined;
+        #{} ->
+            case PS of
+                #{Key := Val} ->
+                    Val;
+                _ ->
+                    undefined
+            end
+    end.
 
 -spec put(K, V, pmap(K, V)) -> pmap(K, V).
 put(
@@ -385,7 +483,29 @@ put(
     Pmap#pmap{
         cache = Cache#{Key => Val},
         dirty = Dirty#{Key => TxCntr}
-    }.
+    };
+put(
+    Key,
+    Val,
+    Pmap = #pdiffmap{
+        pstate = Pstate,
+        pending = Pending,
+        diff = Diff0
+    }
+) ->
+    maybe
+        %% Happy path (drop the diff without side effects):
+        false ?= is_map_key(Key, Pending),
+        #{Key := Val} ?= Pstate,
+        Pmap#pdiffmap{
+            diff = maps:remove(Key, Diff0)
+        }
+    else
+        _ ->
+            Pmap#pdiffmap{
+                diff = Diff0#{Key => {ok, Val}}
+            }
+    end.
 
 -spec del(collection_id(), K, pmap(K, V)) -> pmap(K, V).
 del(
@@ -408,15 +528,66 @@ del(
             };
         error ->
             Pmap
+    end;
+del(
+    _CollectionId,
+    Key,
+    Pmap = #pdiffmap{
+        pstate = Pstate,
+        pending = Pending,
+        diff = Diff
+    }
+) ->
+    maybe
+        %% Happy path (drop the diff without side effects):
+        false ?= is_map_key(Key, Pending),
+        false ?= is_map_key(Key, Pstate),
+        Pmap#pdiffmap{
+            diff = maps:remove(Key, Diff)
+        }
+    else
+        _ ->
+            Pmap#pdiffmap{
+                diff = Diff#{Key => del}
+            }
     end.
 
 -spec fold(fun((K, V, A) -> A), A, pmap(K, V)) -> A.
 fold(Fun, Acc, #pmap{cache = Cache}) ->
-    maps:fold(Fun, Acc, Cache).
+    maps:fold(Fun, Acc, Cache);
+fold(Fun, Acc0, #pdiffmap{diff = Diff, pstate = Pstate}) ->
+    Acc1 = maps:fold(
+        fun(Key, Item, Acc) ->
+            case Item of
+                del ->
+                    Acc;
+                {ok, Val} ->
+                    Fun(Key, Val, Acc)
+            end
+        end,
+        Acc0,
+        Diff
+    ),
+    maps:fold(
+        fun(Key, Val, Acc) ->
+            case Diff of
+                #{Key := _} ->
+                    %% Already visited or deleted per the diff:
+                    Acc;
+                #{} ->
+                    Fun(Key, Val, Acc)
+            end
+        end,
+        Acc1,
+        Pstate
+    ).
 
 -spec size(pmap(_K, _V)) -> non_neg_integer().
 size(#pmap{cache = Cache}) ->
-    maps:size(Cache).
+    maps:size(Cache);
+size(#pdiffmap{} = Pmap) ->
+    %% TODO: optimize
+    fold(fun(_, _, Acc) -> Acc + 1 end, 0, Pmap).
 
 %% == Operations with the pmap collections ==
 

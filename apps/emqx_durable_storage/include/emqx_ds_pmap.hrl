@@ -28,6 +28,27 @@
     tx_counter = 0
 }).
 
+%% A "diff"-style persistent map that tries to avoid unnecessary
+%% writes and deletions to the store that lead to the identical
+%% persistent state:
+-record(pdiffmap, {
+    name,
+    module,
+    %% Simulated persistent state:
+    pstate = #{},
+    %% Data being flushed to the storage by an ongoing async commit.
+    %% If the application updates a key while it's already in-flight
+    %% to the storage, it's unconditionally added to the diff. This is
+    %% because the commit may timeout with system ending in unknown
+    %% state: with changes applied or not. We resolve this ambiguity
+    %% in the simulated state by overwriting such keys, at the cost of
+    %% potentially duplicate writes.
+    pending = #{},
+    %% The diff between the persistent state and the working copy of
+    %% the data:
+    diff = #{}
+}).
+
 -define(top_data, <<"d">>).
 -define(top_guard, <<"g">>).
 

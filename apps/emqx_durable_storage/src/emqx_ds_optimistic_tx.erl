@@ -456,10 +456,10 @@ Get the number of tracked conflict per generation.
     #{emqx_ds:generation() => #{w := non_neg_integer(), d := non_neg_integer()}}.
 conflict_stats(DB, Shard) ->
     call(
-      ?via(DB, Shard),
-      #call_conflict_stats{},
-      infinity
-     ).
+        ?via(DB, Shard),
+        #call_conflict_stats{},
+        infinity
+    ).
 
 -doc """
 Dump conflict statistics for all generations.
@@ -472,10 +472,10 @@ dump_conflicts(DB, Shard, Generation, Kind) when
     is_integer(Generation), Kind =:= d orelse Kind =:= w
 ->
     call(
-      ?via(DB, Shard),
-      #call_dump_conflicts{gen = Generation, kind = Kind},
-      infinity
-     ).
+        ?via(DB, Shard),
+        #call_dump_conflicts{gen = Generation, kind = Kind},
+        infinity
+    ).
 
 %%================================================================================
 %% Internal exports
@@ -1350,9 +1350,11 @@ preprocess_ops(_PresumedCommitSerial, Tx) ->
     MonotonicTS = get_monotonic_timestamp(),
     maps:map(
         fun
-            (K, Ops) when K =:= ?ds_tx_delete_topic;
-                          K =:= ?ds_tx_wlock;
-                          K =:= ?ds_tx_dlock ->
+            (K, Ops) when
+                K =:= ?ds_tx_delete_topic;
+                K =:= ?ds_tx_wlock;
+                K =:= ?ds_tx_dlock
+            ->
                 [preprocess_topic_range(MonotonicTS, I) || I <- Ops];
             (_K, Ops) ->
                 Ops
@@ -1577,7 +1579,6 @@ prepare_del_batch(CBM, DB, Stream, TopicRange, CookOpts) ->
             ),
             {error, recoverable, otx_backend_error}
     end.
-
 
 -spec do_dump_conflicts(emqx_ds:generation(), w | d, d()) -> list() | undefined.
 do_dump_conflicts(Gen, Kind, #d{gens = Gens}) ->
