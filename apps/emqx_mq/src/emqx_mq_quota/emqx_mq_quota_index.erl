@@ -42,8 +42,6 @@ the next flush drops the legacy index, and the serial deadline is used from then
 An older node keeps only the legacy index when it rewrites the record.
 The next flush on a new node then rebuilds the serial index:
 one bucket at (0, 0) with the totals that the legacy index keeps.
-A rebuilt index treats the fence that is stored in DS as seen.
-That fence was written before the older node updated the index, so it does not mark a valid boundary.
 
 ## Purge
 

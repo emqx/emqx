@@ -202,21 +202,16 @@ delete(Name) ->
     end.
 
 -doc """
-Purge all messages of the queue.
+Purge all messages of the queue. Keep the queue and its consumer progress.
 
-Limited queues rotate the quota index at a fresh fence in each slab.
-The delivery cutoff is the latest fence timestamp of all slabs, rounded up to a millisecond.
-Unlimited queues have no index. They use the current time of this node as the delivery cutoff,
-and as the boundary in every slab.
-Keep a later stored delivery cutoff.
+1. Ask the message DB to prepare the deletion. It returns the deletion bounds.
+2. Set the delivery cutoff from the bounds, so the queue stops dispatching the purged messages.
+   Keep a later stored delivery cutoff.
+3. Schedule the deletion on a deletion worker, and do not wait for it.
+   When no deletion worker is available, GC deletes the messages later.
 
-The queue stops dispatching purged messages when this function returns.
 Messages already passed to subscriber sessions can still be delivered.
-A deletion worker deletes them later. This function does not wait for it.
-When no deletion worker is available, GC deletes them later.
-
-Refuse while some cluster node does not support the serial quota index,
-and while the queue is being deleted.
+Refuse while some cluster node does not support purge, and while the queue is being deleted.
 """.
 -spec purge(emqx_mq_types:mq_name()) ->
     {ok, emqx_mq_types:mq()} | not_found | {error, purge_error()}.
@@ -234,20 +229,18 @@ purge(Name) ->
     end.
 
 -doc """
-Purge the messages stored before the epoch millisecond.
+Purge the messages stored before the epoch millisecond. Keep the queue and its consumer progress.
 
 The delivery cutoff is BeforeMs, but not later than the current time of this node.
-Return the queue unchanged when its stored delivery cutoff is later.
-Every slab's boundary is the delivery cutoff.
-Limited queues first drop the quota index buckets that end at or before it.
+Return the queue unchanged when its stored delivery cutoff is later. Otherwise:
 
-The queue stops dispatching purged messages when this function returns.
+1. Ask the message DB to prepare the deletion before the cutoff. It returns the deletion bounds.
+2. Set the delivery cutoff, so the queue stops dispatching the purged messages.
+3. Schedule the deletion on a deletion worker, and do not wait for it.
+   When no deletion worker is available, GC deletes the messages later.
+
 Messages already passed to subscriber sessions can still be delivered.
-A deletion worker deletes them later. This function does not wait for it.
-When no deletion worker is available, GC deletes them later.
-
-Refuse while some cluster node does not support the serial quota index,
-and while the queue is being deleted.
+Refuse while some cluster node does not support purge, and while the queue is being deleted.
 """.
 -spec purge(emqx_mq_types:mq_name(), emqx_utils_calendar:epoch_millisecond()) ->
     {ok, emqx_mq_types:mq()} | not_found | {error, purge_error()}.
@@ -512,7 +505,7 @@ update_mq_state(Id, UpdateFields) ->
         {ok, MQ}
     end.
 
-%% Change the index, set the delivery cutoff, and schedule the deletion of the older messages.
+%% Prepare the deletion before the cutoff, set the delivery cutoff, and schedule the deletion.
 purge_before(#{id := Id} = MQ0, CutoffMs) ->
     CutoffUs = ms_to_us(CutoffMs),
     maybe
@@ -553,7 +546,7 @@ enqueue_purge(#{id := Id} = MQ, Bounds) ->
             })
     end.
 
-%% Purge changes the serial quota index. Older nodes keep only the legacy index.
+%% Purge needs a quota index that only upgraded nodes keep.
 check_purge_supported() ->
     case emqx_mq_quota_index:is_serial_index_supported() of
         true -> ok;
@@ -570,9 +563,8 @@ advance_deliver_cutoff_date(CutoffMs) ->
         end
     end.
 
-%% The delivery cutoff of a full purge: the latest boundary of all slabs.
-%% Round up, so the cutoff hides every purged message. GC and a later purge convert the cutoff
-%% back to microseconds, and select the same boundary, the newest one at or before it.
+%% The delivery cutoff of a full purge: the latest deletion bound, rounded up to a millisecond,
+%% so the cutoff hides every purged message.
 max_boundary_ms(Bounds) when map_size(Bounds) =:= 0 ->
     0;
 max_boundary_ms(Bounds) ->

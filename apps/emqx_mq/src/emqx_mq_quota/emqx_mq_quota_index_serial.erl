@@ -38,11 +38,11 @@ The index relies on this property.
 Serials can be equal because DS can give one serial to several transactions that commit together.
 See "Accepted inaccuracy" for the effect.
 
-A fence stays in DS until the index asks for a new one.
-The index remembers the serial of the last fence it has seen.
-A fence is used at most once: by the first update that sees it.
-That update is the first update after the fence was written, because every update reads the fence.
-So no message stored after the fence has been counted when the head closes at it.
+When a bucket is full, the index asks the surrounding transaction to create a new fence,
+and on next index flush, the new fence is used to spawn a new head bucket.
+
+The index remembers the serial of the last fence it has seen -- this is
+needed when (e.g. on truncation) we need to rotate the index without waiting for the next flush.
 
 A new or rebuilt index does not know which fences it has seen.
 It treats a fence that is already in DS as seen, because that fence may be older than its counters.
@@ -67,36 +67,41 @@ It treats a fence that is already in DS as seen, because that fence may be older
 
 Publication timestamps are not used. Clock differences between nodes and publishers do not matter.
 
-## Invariants
+## Contract and guarantees
 
 The caller must:
 
 * Read and write the index inside the DS transaction that applies the updates.
   Then two concurrent flushes of the same index conflict, and DS retries one of them.
 * Pass the fence stored in DS, if any.
-  Replace it only when the index returns `NeedFence = true`, or before a purge.
+  Replace it when the index returns `NeedFence = true`.
 * Pass the serial of the transaction that wrote each new message.
-* Pass the DS timestamp at which each replaced message was stored.
+* Pass the DS timestamps of removed messages (in lastvalue case).
 
 The index then guarantees:
+If T is a bucket boundary and S is the sum of counters of buckets above the boundary,
+the non of valid top-S messages can be older than T.
 
-* Boundaries grow strictly in both serial and timestamp, from the oldest bucket to the head.
-* Take a bucket that starts at (S0, T0), and the next newer bucket that starts at (S1, T1).
-  A new message is added to the bucket when S0 < serial <= S1.
-  A replaced message is subtracted from the bucket when T0 <= DS timestamp < T1.
-  Both rules select the same bucket for a message, with one exception:
-  a message that has serial S1 and was stored after the fence. See "Accepted inaccuracy".
-* A boundary never moves. Later updates only change bucket counters.
+```
+    newest                              oldest
+             t1         t2         t3
+    [  5     |     10   |     10    |     10    ]
+                                      ^^^ no valid message from top-25 can be older that t3
+```
 
-## Accepted inaccuracy
+In other words, if we want to keep at least S messages, we are safe to delete messages older than T.
 
-The index is not strictly exact. Its errors must keep this property:
+Valid here means not outdated or purged.
+
+## Accepted inaccuracies
+
+The index is not strictly exact. Its errors must keep this property to keep the guarantees:
 
 * A bucket can count less than is stored. GC then keeps more data.
 * A bucket can count more than is stored only in two cases:
   * Newer buckets count less by at least the same amount.
     Every sum from the head then stays at or below the stored data.
-  * It is the tail: the oldest bucket that holds messages the queue must keep.
+  * It is the tail bucket: the oldest bucket that holds messages the queue must keep.
     The extra count of the tail can only move the deadline to the start of the tail,
     and make the index drop older buckets. Those buckets hold no messages to keep.
 
@@ -107,8 +112,6 @@ These are the known errors:
   Up to one bucket of extra data stays. Bucket size is the threshold, a percentage of the limit.
 * Waiting head. A full head keeps growing until the next flush provides its fence.
   On a busy queue one flush can add many messages to it, so a bucket can exceed the threshold.
-* Lost updates. A node that stops without flushing loses its buffered updates.
-  The buckets count less than is stored.
 * Rebuilt index. After an old node rewrites the index, all its data is in one bucket at (0, 0).
   That bucket cannot give a deadline, so GC keeps everything older than the next boundaries.
   The fence in DS is treated as seen, so the first boundary comes from the next fence.
@@ -118,7 +121,6 @@ These are the known errors:
   So the bucket before the fence counts more than is stored, and the newer bucket after the fence counts less.
   A counter can become negative. We do not clamp it: the sum of the two buckets is correct.
   The index cannot tell whether such a message was stored before or after the fence.
-  It emits the debug trace event `mq_quota_index_shared_fence_serial` for each one.
 * Rotation at a seen fence. A flush can see the purge fence before the rotation and not close the head.
   It counts the messages stored after the fence in the old head.
   The rotation drops the old head, so the new head counts less than is stored.
@@ -126,6 +128,13 @@ These are the known errors:
   delete messages before a DS timestamp T that is not a bucket boundary.
   The bucket that contains T keeps counting the deleted messages, so it counts more than is stored.
   It is the tail: the older buckets hold only messages stored before T.
+
+Lost updates make break this property.
+A lost replacement of a large last-value message by a small one is not safe:
+the bucket of the old larger message keeps counting its bytes, and the newer bucket misses
+only the bytes of the new smaller message.
+The older bucket then counts more than is stored, so a byte limit can be reached too early,
+and GC can delete messages that the queue must keep. This error corrects over time.
 
 ## Merging
 
