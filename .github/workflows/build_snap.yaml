@@ -1,0 +1,186 @@
+name: Build and publish Snap
+
+on:
+  push:
+    tags:
+      - '[6-9].[0-9]*.[0-9]*'
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing EMQX release tag
+        type: string
+        required: true
+      task:
+        description: Build and upload to S3, or publish existing S3 files to the Snap Store
+        type: choice
+        options:
+          - build
+          - publish
+        default: build
+      architecture:
+        description: Architectures to build or publish
+        type: choice
+        options:
+          - both
+          - amd64
+          - arm64
+        default: both
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snap-${{ github.event_name }}-${{ inputs.task }}-${{ inputs.architecture }}-${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.event_name != 'release' ||
+      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-preview.'))
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.prepare.outputs.tag }}
+      task: ${{ steps.prepare.outputs.task }}
+      architectures: ${{ steps.prepare.outputs.architectures }}
+      builder: ${{ steps.prepare.outputs.builder }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
+        fetch-depth: 0
+    - name: Prepare Snap task
+      id: prepare
+      env:
+        TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
+        TASK: ${{ github.event_name == 'release' && 'publish' || inputs.task || 'build' }}
+        ARCHITECTURE: ${{ inputs.architecture || 'both' }}
+        LATEST_RELEASE_LINE: ${{ vars.LATEST_RELEASE_LINE }}
+      run: |
+        set -euo pipefail
+        metadata=$(./scripts/parse-git-ref.sh "refs/tags/$TAG")
+        test "$(jq -r .release <<< "$metadata")" = true
+        version=$(./pkg-vsn.sh emqx-enterprise)
+        if [ "$version" != "$TAG" ]; then
+          echo "::error::The source version does not match the selected release tag"
+          exit 1
+        fi
+        if [ "$TASK" = publish ] && [ "$(jq -r .official_release <<< "$metadata")" != true ]; then
+          echo "::error::Only a GA release can be published to the stable Snap channel"
+          exit 1
+        fi
+        case "$ARCHITECTURE" in
+          both) architectures='["amd64","arm64"]' ;;
+          amd64|arm64) architectures="[\"$ARCHITECTURE\"]" ;;
+          *) echo "::error::Unknown Snap architecture"; exit 1 ;;
+        esac
+        source ./env.sh
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        echo "task=$TASK" >> "$GITHUB_OUTPUT"
+        echo "architectures=$architectures" >> "$GITHUB_OUTPUT"
+        echo "builder=ghcr.io/emqx/emqx-builder/$EMQX_BUILDER_VSN:$ELIXIR_VSN-$OTP_VSN-ubuntu22.04" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.task == 'build'
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.prepare.outputs.architectures) }}
+    env:
+      PROFILE: emqx-enterprise
+      ARCH: ${{ matrix.arch }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ needs.prepare.outputs.tag }}
+        fetch-depth: 0
+    - name: Build tar.gz
+      env:
+        BUILDER: ${{ needs.prepare.outputs.builder }}
+        BUILDER_SYSTEM: force_docker
+        SNAP_BASE: core22
+      run: |
+        set -euo pipefail
+        ./scripts/buildx.sh --profile "$PROFILE" --arch "$ARCH" --builder "$BUILDER" --pkgtype tgz
+        export EMQX_VERSION="$(./pkg-vsn.sh "$PROFILE")"
+        export PACKAGE_SOURCE="_packages/$PROFILE/$PROFILE-$EMQX_VERSION-ubuntu22.04-$ARCH.tar.gz"
+        export EMQX_VERSION="${EMQX_VERSION:0:32}"
+        echo "EMQX_VERSION=$EMQX_VERSION" >> "$GITHUB_ENV"
+        envsubst '${PROFILE},${EMQX_VERSION},${PACKAGE_SOURCE},${SNAP_BASE}' < deploy/snap/snapcraft.yaml > snapcraft.yaml
+    - name: Build snap
+      id: snapcraft
+      uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0
+    - name: Show logs if failed
+      if: failure()
+      run: |
+        if compgen -G "$HOME/.local/state/snapcraft/log/*.log" > /dev/null; then
+          cat "$HOME"/.local/state/snapcraft/log/*.log
+        fi
+    - name: Test snap
+      env:
+        SNAP: ${{ steps.snapcraft.outputs.snap }}
+      run: |
+        set -euo pipefail
+        sudo snap install "$SNAP" --dangerous --devmode
+        for port in 1883 8883 8083 8084 18083; do
+          sudo fuser -k "$port"/tcp || true
+        done
+        sudo snap start "$PROFILE"
+        for i in {1..30}; do
+          if sudo snap logs "$PROFILE" | grep -Eq "EMQX Enterprise $EMQX_VERSION.* is running now!"; then
+            sudo snap remove "$PROFILE"
+            exit 0
+          fi
+          sleep 1
+        done
+        sudo snap logs -n=all "$PROFILE"
+        exit 1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: snap-${{ matrix.arch }}
+        path: ${{ steps.snapcraft.outputs.snap }}
+        if-no-files-found: error
+    - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+    - name: Upload Snap to S3
+      env:
+        SNAP: ${{ steps.snapcraft.outputs.snap }}
+        TAG: ${{ needs.prepare.outputs.tag }}
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+      run: aws s3 cp "$SNAP" "s3://$AWS_S3_BUCKET/emqx-ee/$TAG/"
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.task == 'publish'
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.prepare.outputs.architectures) }}
+    steps:
+    - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+    - name: Download and publish Snap
+      env:
+        TAG: ${{ needs.prepare.outputs.tag }}
+        ARCH: ${{ matrix.arch }}
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+        SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+      run: |
+        set -euo pipefail
+        snap="emqx-enterprise_${TAG:0:32}_$ARCH.snap"
+        aws s3 cp "s3://$AWS_S3_BUCKET/emqx-ee/$TAG/$snap" "$snap"
+        test -s "$snap"
+        sudo snap install snapcraft --classic
+        snapcraft upload --release=stable "$snap"

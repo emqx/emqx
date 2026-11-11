@@ -149,16 +149,6 @@ jobs:
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-amd64.rpm"
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-arm64.rpm"
 
-      - name: Upload to snap store
-        if: steps.gate.outputs.publish == 'true'
-        env:
-          PROFILE: ${{ steps.profile.outputs.profile }}
-          VERSION: ${{ steps.profile.outputs.version }}
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
-        run: |
-          sudo snap install snapcraft --classic
-          snapcraft upload --release=stable "packages/${PROFILE}_${VERSION}_amd64.snap"
-          snapcraft upload --release=stable "packages/${PROFILE}_${VERSION}_arm64.snap"
       - name: Fail the job when package manifests were not recorded
         if: ${{ !cancelled() && steps.manifests.outcome == 'failure' }}
         run: |
