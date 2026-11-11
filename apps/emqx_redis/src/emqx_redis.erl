@@ -30,6 +30,9 @@
 
 -export([do_cmd/3]).
 
+%% internal exports for redis-based modules
+-export([is_auth_error/1]).
+
 %% redis host don't need parse
 -define(REDIS_HOST_OPTIONS, #{
     default_port => ?REDIS_DEFAULT_PORT
@@ -384,10 +387,22 @@ do_get_status(Conn) ->
 
 sum_worker_results([]) ->
     ?status_connected;
-sum_worker_results([{error, <<"NOAUTH Authentication required.">>} = Error | _Rest]) ->
-    ?tp(emqx_redis_auth_required_error, #{}),
-    %% This requires user action to fix so we set the status to disconnected
-    {?status_disconnected, {unhealthy_target, Error}};
+sum_worker_results([{error, Reason} = Error | _Rest]) when is_binary(Reason) ->
+    case is_auth_error(Reason) of
+        true ->
+            ?tp(emqx_redis_auth_required_error, #{}),
+            %% This requires user action to fix so we set the status to disconnected
+            {?status_disconnected, {unhealthy_target, Error}};
+        false ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "emqx_redis_check_status_error",
+                    error => Error
+                }
+            ),
+            {?status_disconnected, Error}
+    end;
 sum_worker_results([{ok, _} | Rest]) ->
     sum_worker_results(Rest);
 sum_worker_results([Error | _Rest]) ->
@@ -477,3 +492,24 @@ sentinel_auth(#{redis_type := sentinel} = Config) ->
     ];
 sentinel_auth(_) ->
     [].
+
+%% Sometimes, eredis_client might return an error during authentication phase (hence
+%% tagged authentication_error) that's not actually an authentication error, such as
+%% `{unexpected_data, {error, timeout}}`.
+is_auth_error(<<"-", Rest/binary>>) ->
+    is_auth_error1(Rest);
+is_auth_error(Reason) when is_binary(Reason) ->
+    is_auth_error1(Reason);
+is_auth_error(_) ->
+    false.
+
+is_auth_error1(<<"WRONGPASS ", _/binary>>) ->
+    true;
+is_auth_error1(<<"NOAUTH ", _/binary>>) ->
+    true;
+is_auth_error1(<<"ERR AUTH ", _/binary>>) ->
+    true;
+is_auth_error1(<<"NOPERM ", _/binary>>) ->
+    true;
+is_auth_error1(_) ->
+    false.

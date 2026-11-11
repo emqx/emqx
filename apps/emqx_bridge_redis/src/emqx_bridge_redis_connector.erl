@@ -77,7 +77,12 @@ on_start(InstId, Config) ->
                 redis_bridge_connector_start_error,
                 #{error => Error}
             ),
-            throw({unhealthy_target, Reason});
+            case emqx_redis:is_auth_error(Reason) of
+                true ->
+                    throw({unhealthy_target, Reason});
+                false ->
+                    Error
+            end;
         {error, _} = Error ->
             ?tp(
                 redis_bridge_connector_start_error,
@@ -144,9 +149,9 @@ on_batch_query(
                 redis_bridge_connector_send,
                 #{batch_data => BatchData, batch => true, mode => sync}
             ),
-            [{ChannelID, _} | _] = BatchData,
+            [{ChannelId, _} | _] = BatchData,
             emqx_trace:rendered_action_template(
-                ChannelID,
+                ChannelId,
                 #{
                     commands => #emqx_trace_format_func_data{
                         function = fun trace_format_commands/1,
