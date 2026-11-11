@@ -100,6 +100,37 @@ t_update_with_invalid_config(_Config) ->
     ),
     ok.
 
+-doc """
+Creating an authenticator fails the schema check when its query changes data
+or has more than one SQL statement.
+""".
+t_create_with_write_query(_Config) ->
+    AuthConfig = raw_pgsql_auth_config(),
+    lists:foreach(
+        fun({Query, Reason}) ->
+            ?assertMatch(
+                {error, #{
+                    kind := validation_error,
+                    path := "authentication.1.query",
+                    reason := Reason
+                }},
+                emqx:update_config(
+                    ?PATH,
+                    {create_authenticator, ?GLOBAL, AuthConfig#{<<"query">> => Query}}
+                )
+            )
+        end,
+        [
+            {<<"DELETE FROM users WHERE username = ${username}">>,
+                <<"The query must not change data. It contains the keyword DELETE">>},
+            {<<"SELECT 1; SELECT 2">>, <<"The query must contain only one SQL statement">>}
+        ]
+    ),
+    ?assertEqual(
+        {error, {not_found, {chain, ?GLOBAL}}},
+        emqx_authn_chains:list_authenticators(?GLOBAL)
+    ).
+
 %% bad config values may cause connection failure, but should still be able to update
 t_update_with_bad_config_value(_Config) ->
     AuthConfig = raw_pgsql_auth_config(),

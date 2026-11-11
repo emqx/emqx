@@ -109,6 +109,37 @@ t_create_invalid(_Config) ->
         InvalidConfigs
     ).
 
+-doc """
+Creating an authenticator fails the schema check when its query changes data
+or has more than one SQL statement.
+""".
+t_create_with_write_query(_Config) ->
+    AuthConfig = raw_mysql_auth_config(),
+    lists:foreach(
+        fun({Query, Reason}) ->
+            ?assertMatch(
+                {error, #{
+                    kind := validation_error,
+                    path := "authentication.1.query",
+                    reason := Reason
+                }},
+                emqx:update_config(
+                    ?PATH,
+                    {create_authenticator, ?GLOBAL, AuthConfig#{<<"query">> => Query}}
+                )
+            )
+        end,
+        [
+            {<<"DELETE FROM users WHERE username = ${username}">>,
+                <<"The query must not change data. It contains the keyword DELETE">>},
+            {<<"SELECT 1; SELECT 2">>, <<"The query must contain only one SQL statement">>}
+        ]
+    ),
+    ?assertEqual(
+        {error, {not_found, {chain, ?GLOBAL}}},
+        emqx_authn_chains:list_authenticators(?GLOBAL)
+    ).
+
 t_authenticate(_Config) ->
     ok = lists:foreach(
         fun(Sample) ->

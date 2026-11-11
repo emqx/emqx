@@ -1,7 +1,7 @@
 emqx_authz_mysql_schema {
 
 query.desc:
-"""Database query used to retrieve authorization data."""
+"""Database query used to retrieve authorization data. The query must only read data. EMQX rejects a query that changes data, for example with `INSERT`, `UPDATE` or `DELETE`, and a query that has more than one SQL statement."""
 
 query.label:
 """query"""
