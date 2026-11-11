@@ -27,6 +27,7 @@ Message buffering and inflight tracking are handled by emqx_extsub.
 """.
 
 -include("emqx_mq_internal.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -41,6 +42,8 @@ Message buffering and inflight tracking are handled by emqx_extsub.
     handle_disconnect/1,
     ack_consumer/3
 ]).
+
+-export([mq_status/0]).
 
 -export([
     connected/2,
@@ -88,6 +91,8 @@ Message buffering and inflight tracking are handled by emqx_extsub.
 -define(CONNECT_RETRY_INTERVAL_UNEXPECTED_ERROR, 1000).
 %% Quick retry if conflict occurred when trying to connect to the consumer and spawning a new one.
 -define(CONNECT_RETRY_INTERVAL_ALREADY_REGISTERED, 100).
+%% Upper bound for the retry interval while the MQ subsystem is not started.
+-define(FIND_MQ_RETRY_INTERVAL_NOT_STARTED, 1000).
 
 %%--------------------------------------------------------------------
 %% Messages
@@ -127,7 +132,7 @@ handle_connect(#{clientid := ClientId}, Name, MQTopic) ->
         name => Name,
         subscriber_ref => SubscriberRef
     },
-    case emqx_mq_registry:find(Name) of
+    case find_mq(Name, MQTopic) of
         {ok, #{topic_filter := FoundMQTopic} = MQ} when
             FoundMQTopic =:= MQTopic orelse MQTopic =:= undefined
         ->
@@ -171,6 +176,13 @@ handle_connect(#{clientid := ClientId}, Name, MQTopic) ->
                     },
                     Sub#{status => Status}
             end;
+        not_started ->
+            Status = #finding_mq{
+                find_mq_retry_tref = send_after(
+                    Sub, find_mq_retry_interval_not_started(), #find_mq_retry{}
+                )
+            },
+            Sub#{status => Status};
         _ ->
             %% No queue found, or currently the queue is associated with a different topic filter.
             %% NOTE
@@ -183,6 +195,10 @@ handle_connect(#{clientid := ClientId}, Name, MQTopic) ->
             },
             Sub#{status => Status}
     end.
+
+-spec mq_status() -> started | starting | stopped.
+mq_status() ->
+    emqx_mq_controller:status().
 
 -spec handle_info(t(), term()) ->
     {ok, t()} | {ok, t(), [emqx_types:message()]} | {error, recreate}.
@@ -307,6 +323,44 @@ messages_v1(SubscriberRef, ConsumerRef, Messages) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+find_mq(Name, MQTopic) ->
+    case ?MODULE:mq_status() of
+        started ->
+            find_or_create_mq(Name, MQTopic);
+        _ ->
+            not_started
+    end.
+
+find_or_create_mq(Name, MQTopic) ->
+    case emqx_mq_registry:find(Name) of
+        not_found when MQTopic =/= undefined ->
+            maybe_auto_create(Name, MQTopic);
+        Result ->
+            Result
+    end.
+
+%% `$q/` subscriptions use the legacy queue name, which `emqx_mq_registry:create/1` rejects.
+maybe_auto_create(?LEGACY_QUEUE_NAME(_), _MQTopic) ->
+    not_found;
+maybe_auto_create(Name, MQTopic) ->
+    case emqx_mq_config:auto_create(Name, MQTopic) of
+        {true, MQ} ->
+            auto_create_mq(MQ);
+        false ->
+            not_found
+    end.
+
+auto_create_mq(#{name := Name} = MQ) ->
+    case emqx_mq_registry:create(MQ) of
+        {ok, _} = Result ->
+            Result;
+        {error, {queue_exists, _}} ->
+            emqx_mq_registry:find(Name);
+        {error, Reason} ->
+            ?SLOG_THROTTLE(error, #{msg => mq_sub_auto_create_error, mq => MQ, reason => Reason}),
+            not_found
+    end.
+
 handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
     ?tp_debug(handle_connected, #{sub => inspect(Sub0), consumer_ref => ConsumerRef}),
     Sub1 = cancel_consumer_connect_timeout_timer(Sub0),
@@ -413,6 +467,9 @@ send_after(#{subscriber_ref := SubscriberRef}, Interval, InfoMessage) ->
 %% because MQ is still not known when we try to find it.
 find_mq_retry_interval() ->
     emqx_config:get([mq, find_queue_retry_interval]).
+
+find_mq_retry_interval_not_started() ->
+    min(find_mq_retry_interval(), ?FIND_MQ_RETRY_INTERVAL_NOT_STARTED).
 
 ping_interval(#{ping_interval := ConsumerPingIntervalMs} = _MQ) ->
     ConsumerPingIntervalMs.
