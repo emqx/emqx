@@ -157,7 +157,7 @@ Serialized representation of the value.
 %% Callbacks
 %%================================================================================
 
--callback pmap_encode_key(pmap_name(), _Key, _Val) -> key_bin().
+-callback pmap_encode_key(pmap_name(), _Key) -> key_bin().
 
 -callback pmap_decode_key(pmap_name(), key_bin()) -> _Key.
 
@@ -395,8 +395,8 @@ del(
     }
 ) ->
     case maps:take(Key, Cache0) of
-        {Val, Cache} ->
-            Topic = pmap_topic(Name, CollectionId, encode_key(CBM, Name, Key, Val)),
+        {_Val, Cache} ->
+            Topic = pmap_topic(Name, CollectionId, encode_key(CBM, Name, Key)),
             Pmap#pmap{
                 cache = Cache,
                 dirty = Dirty#{Key => {del, TxCntr, Topic}}
@@ -508,9 +508,9 @@ pmap_topic(Name, CollectionId, Key) ->
 %% Internal functions
 %%================================================================================
 
--spec encode_key(module(), pmap_name(), _Key, _Val) -> key_bin().
-encode_key(CBM, Name, K, V) ->
-    CBM:pmap_encode_key(Name, K, V).
+-spec encode_key(module(), pmap_name(), _Key) -> key_bin().
+encode_key(CBM, Name, K) ->
+    CBM:pmap_encode_key(Name, K).
 
 -spec decode_key(module(), pmap_name(), key_bin()) -> _Key.
 decode_key(CBM, Name, KeyBin) ->
@@ -536,7 +536,7 @@ restore_fun(CBM, {?pmap_topic(Name, _CollectionId, KeyBin), _TS, ValBin}, Acc) -
 tx_write_pmap_kv(CBM, Name, CollectionId, Key, Val) ->
     emqx_ds:tx_write(
         {
-            pmap_topic(Name, CollectionId, encode_key(CBM, Name, Key, Val)),
+            pmap_topic(Name, CollectionId, encode_key(CBM, Name, Key)),
             0,
             encode_val(CBM, Name, Key, Val)
         }
