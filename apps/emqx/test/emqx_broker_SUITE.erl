@@ -130,7 +130,7 @@ end_per_testcase(Case, Config) ->
 %% PubSub Test
 %%--------------------------------------------------------------------
 
-%% Verify that a publish hook can report persistence through `message_persisted` message header
+%% Verify that a publish hook can report persistence with `emqx_message:mark_persisted/1`
 t_message_persisted({init, Config}) ->
     Config;
 t_message_persisted({'end', _Config}) ->
@@ -169,7 +169,7 @@ t_message_persisted(_Config) ->
     ?assertEqual(disconnect, emqx_broker:publish(Disconnect)).
 
 mark_message_persisted(Message) ->
-    {ok, emqx_message:set_header(message_persisted, true, Message)}.
+    {ok, emqx_message:mark_persisted(Message)}.
 
 t_stats_fun({init, Config}) ->
     ok = emqx_stats:reset(),

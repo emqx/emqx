@@ -54,6 +54,14 @@
     remove_header/2
 ]).
 
+%% Conventional headers
+-export([
+    mark_persisted/1,
+    is_persisted/1,
+    portable_headers/0,
+    keep_portable_headers/1
+]).
+
 -export([
     is_expired/2,
     update_expiry/1,
@@ -68,6 +76,22 @@
     from_map/1,
     estimate_size/1
 ]).
+
+%% Headers that describe the message and its publisher.
+%% Any other header describes how this node handled the message.
+-define(PORTABLE_HEADERS, [
+    client_attrs,
+    peerhost,
+    peername,
+    proto_ver,
+    protocol,
+    properties,
+    republish_by,
+    username
+]).
+
+%% Set by a `message.publish' hook that stored the message.
+-define(HEADER_PERSISTED, message_persisted).
 
 -export_type([
     timestamp/0,
@@ -278,6 +302,36 @@ remove_header(Hdr, Msg = #message{headers = Headers}) ->
         true -> Msg#message{headers = maps:remove(Hdr, Headers)};
         false -> Msg
     end.
+
+-doc """
+Report that a `message.publish` hook stored the message.
+
+The broker then counts the message as persisted when no subscriber receives it.
+The mark applies only on this node: `keep_portable_headers/1` removes it.
+""".
+-spec mark_persisted(emqx_types:message()) -> emqx_types:message().
+mark_persisted(Msg) ->
+    set_header(?HEADER_PERSISTED, true, Msg).
+
+-doc "Return `true` when a `message.publish` hook marked the message as persisted.".
+-spec is_persisted(emqx_types:message()) -> boolean().
+is_persisted(#message{headers = #{?HEADER_PERSISTED := true}}) -> true;
+is_persisted(#message{}) -> false.
+
+-doc """
+Return the headers that describe the message and its publisher.
+
+These headers keep their meaning on another node or in another cluster.
+Every other header describes how this node handled the message.
+""".
+-spec portable_headers() -> [atom()].
+portable_headers() ->
+    ?PORTABLE_HEADERS.
+
+-doc "Remove each header that is not in `portable_headers/0`.".
+-spec keep_portable_headers(emqx_types:message()) -> emqx_types:message().
+keep_portable_headers(Msg = #message{headers = Headers}) ->
+    Msg#message{headers = maps:with(?PORTABLE_HEADERS, Headers)}.
 
 -spec is_expired(emqx_types:message(), atom()) -> boolean().
 is_expired(

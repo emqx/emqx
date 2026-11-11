@@ -31,10 +31,10 @@
 ]).
 
 -include("emqx_cluster_link.hrl").
+-include("emqx_cluster_link_internal.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("snabbkaffe/include/trace.hrl").
 
 %%--------------------------------------------------------------------
 %% emqx_external_broker API
@@ -331,6 +331,14 @@ maybe_filter_incoming_msg(#message{topic = T} = Msg, ClusterName) ->
     %% the remote routing state lags behind the local config changes.
     #{enable := Enable, topics := Topics} = emqx_cluster_link_config:link(ClusterName),
     case Enable andalso emqx_topic:match_any(T, Topics) of
-        true -> with_sender_name(Msg, ClusterName);
-        false -> []
+        true ->
+            %% An older remote forwards every header.
+            IncomingMsg = with_sender_name(emqx_message:keep_portable_headers(Msg), ClusterName),
+            ?tp_debug("cluster_link_message_received", #{
+                from_cluster => ClusterName,
+                message => IncomingMsg
+            }),
+            IncomingMsg;
+        false ->
+            []
     end.
