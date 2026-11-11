@@ -42,6 +42,9 @@
 %% callbacks for ecpool_worker
 -export([connect/1]).
 
+%% internal exports
+-export([set_health/3]).
+
 %% Internal callbacks
 -export([publish_messages/5]).
 
@@ -61,6 +64,11 @@ fields(config) ->
 
 -define(AUTO_RECONNECT_INTERVAL_S, 2).
 
+-define(OPTVAR_CHAN_HEALTH(CHANRESID, IDX), {?MODULE, chan_health, CHANRESID, IDX}).
+
+%% Allocatable resources
+-define(optvars(CHANRESID), {optvars, CHANRESID}).
+
 %% ===================================================================
 %% Callbacks defined in emqx_resource
 %% ===================================================================
@@ -77,15 +85,19 @@ on_start(InstanceId, Config) ->
         config => emqx_utils:redact(Config)
     }),
     init_secret(),
+    #{pool_size := PoolSize} = Config,
     Options = [
         {config, Config},
-        {pool_size, maps:get(pool_size, Config)},
+        {pool_size, PoolSize},
         {pool, InstanceId},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S}
     ],
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
-            {ok, #{channels => #{}}};
+            {ok, #{
+                pool_size => PoolSize,
+                channels => #{}
+            }};
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "rabbitmq_connector_start_failed",
@@ -96,26 +108,41 @@ on_start(InstanceId, Config) ->
     end.
 
 on_add_channel(
-    InstanceId,
-    #{channels := Channels} = State,
-    ChannelId,
-    Config
+    ConnResId,
+    #{channels := Channels0} = ConnState,
+    ChanResId,
+    ChanConfig
 ) ->
-    case maps:is_key(ChannelId, Channels) of
+    case maps:is_key(ChanResId, Channels0) of
         true ->
             {error, already_exists};
         false ->
-            ProcParam = preproc_parameter(ChannelId, Config),
-            case make_channel(InstanceId, ChannelId, ProcParam) of
+            #{resource_opts := #{health_check_timeout := HCTimeout}} = ChanConfig,
+            ProcParam = preproc_parameter(ChanResId, ChanConfig),
+            #{config_root := Kind0} = ProcParam,
+            Kind =
+                case Kind0 of
+                    actions -> action;
+                    sources -> source
+                end,
+            #{pool_size := PoolSize} = ConnState,
+            clear_health(ChanResId, PoolSize),
+            allocate(ConnResId, ?optvars(ChanResId), optvar_keys(ChanResId, PoolSize)),
+            case make_channel(ConnResId, ChanResId, ProcParam) of
                 {ok, RabbitChannels} ->
-                    Channel = #{param => ProcParam, rabbitmq => RabbitChannels},
-                    NewChannels = maps:put(ChannelId, Channel, Channels),
-                    {ok, State#{channels => NewChannels}};
+                    ChanState = #{
+                        kind => Kind,
+                        param => ProcParam,
+                        rabbitmq => RabbitChannels,
+                        health_check_timeout => HCTimeout
+                    },
+                    Channels = maps:put(ChanResId, ChanState, Channels0),
+                    {ok, ConnState#{channels := Channels}};
                 {{error, Error}, PartialRabbitChannels} ->
                     ?SLOG(error, #{
                         msg => "failed_to_start_rabbitmq_channel",
-                        instance_id => InstanceId,
-                        params => emqx_utils:redact(Config),
+                        instance_id => ConnResId,
+                        params => emqx_utils:redact(ChanConfig),
                         error => Error
                     }),
                     close_channels(maps:values(PartialRabbitChannels)),
@@ -123,18 +150,21 @@ on_add_channel(
             end
     end.
 
-on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
-    try_unsubscribe(ChannelId, Channels),
-    {ok, State#{channels => maps:remove(ChannelId, Channels)}}.
+on_remove_channel(ConnResId, ConnState, ChanResId) ->
+    #{channels := Channels} = ConnState,
+    clear_health_allocated(ConnResId, ChanResId),
+    try_unsubscribe(ChanResId, Channels),
+    {ok, ConnState#{channels := maps:remove(ChanResId, Channels)}}.
 
-on_get_channels(InstanceId) ->
-    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+on_get_channels(ConnResId) ->
+    emqx_bridge_v2:get_channels_for_connector(ConnResId).
 
-on_stop(ResourceID, _State) ->
+on_stop(ConnResId, _ConnState) ->
     ?SLOG(info, #{
         msg => "stopping_rabbitmq_connector",
-        connector => ResourceID
+        connector => ConnResId
     }),
+    clear_health_allocated(ConnResId),
     lists:foreach(
         fun({_Name, Worker}) ->
             case ecpool_worker:client(Worker) of
@@ -142,11 +172,39 @@ on_stop(ResourceID, _State) ->
                 _ -> ok
             end
         end,
-        ecpool:workers(ResourceID)
+        ecpool:workers(ConnResId)
     ),
-    Res = emqx_resource_pool:stop(ResourceID),
-    ?tp("rabbitmq_connector_stop", #{instance_id => ResourceID}),
+    Res = emqx_resource_pool:stop(ConnResId),
+    ?tp("rabbitmq_connector_stop", #{instance_id => ConnResId}),
     Res.
+
+%% internal export
+set_health(ChanResId, Idx, HealthStatus) ->
+    optvar:set(?OPTVAR_CHAN_HEALTH(ChanResId, Idx), HealthStatus),
+    ok.
+
+clear_health(ChanResId, PoolSize) ->
+    lists:foreach(
+        fun(Idx) -> optvar:unset(?OPTVAR_CHAN_HEALTH(ChanResId, Idx)) end,
+        lists:seq(1, PoolSize)
+    ).
+
+clear_health_allocated(ConnResId) ->
+    clear_health_allocated(ConnResId, _ChanResIdPat = '_').
+
+clear_health_allocated(ConnResId, ChanResIdPat) ->
+    maps:foreach(
+        fun
+            (?optvars(Id) = Key, Keys) when
+                ChanResIdPat == '_' orelse Id == ChanResIdPat
+            ->
+                lists:foreach(fun optvar:unset/1, Keys),
+                deallocate(ConnResId, Key);
+            (_, _) ->
+                ok
+        end,
+        emqx_resource:get_allocated_resources(ConnResId)
+    ).
 
 %% This is the callback function that is called by ecpool
 -spec connect(term()) -> {ok, {pid(), pid()}, map()} | {error, term()}.
@@ -227,19 +285,19 @@ actual_channel_nums(Conns) ->
         ?GET_STATUS_TIMEOUT
     ).
 
-on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) when
-    is_map_key(ChannelId, Channels)
+on_get_channel_status(_ConnResId, ChanResId, #{channels := Channels} = ConnState) when
+    is_map_key(ChanResId, Channels)
 ->
-    ?tp("rabbitmq_on_get_channel_status_enter", #{channel_id => ChannelId}),
-    #{ChannelId := ChanState} = Channels,
+    ?tp("rabbitmq_on_get_channel_status_enter", #{channel_id => ChanResId}),
+    #{ChanResId := ChanState} = Channels,
     #{rabbitmq := RabbitMQ} = ChanState,
     case lists:all(fun is_process_alive/1, maps:values(RabbitMQ)) of
         true ->
-            ?status_connected;
+            channel_health_check_cont(ChanResId, ChanState, ConnState);
         false ->
             {?status_disconnected, not_connected}
     end;
-on_get_channel_status(_InstanceId, _ChannelId, _ConnState) ->
+on_get_channel_status(_ConnResId, _ChanResId, _ConnState) ->
     %% impossible
     ?status_disconnected.
 
@@ -469,25 +527,26 @@ handle_result(Res) ->
 
 make_channel(PoolName, ChannelId, Params) ->
     Conns = get_rabbitmq_connections(PoolName),
-    make_channel(Conns, ChannelId, Params, #{}).
+    IndexedConns = lists:enumerate(Conns),
+    make_channel(IndexedConns, ChannelId, Params, #{}).
 
 make_channel([], _ChannelId, _Param, Acc) ->
     {ok, Acc};
-make_channel([Conn | Conns], ChannelId, Params, Acc) ->
+make_channel([{Idx, Conn} | Conns], ChannelId, Params, Acc) ->
     maybe
         ?tp("rabbitmq_will_make_channel", #{}),
         {ok, RabbitMQChannel} ?= open_channel(Conn),
-        make_channel_cont([Conn | Conns], RabbitMQChannel, ChannelId, Params, Acc)
+        make_channel_cont([{Idx, Conn} | Conns], RabbitMQChannel, ChannelId, Params, Acc)
     else
         Error ->
             {Error, Acc}
     end.
 
-make_channel_cont([Conn | Conns], RabbitMQChannel, ChannelId, Params, Acc) ->
+make_channel_cont([{Idx, Conn} | Conns], RabbitMQChannel, ChannelId, Params, Acc) ->
     NewAcc = Acc#{Conn => RabbitMQChannel},
     maybe
         ok ?= try_confirm_channel(Params, RabbitMQChannel),
-        ok ?= try_subscribe(Params, RabbitMQChannel, ChannelId),
+        ok ?= try_subscribe(Params, RabbitMQChannel, Idx, ChannelId),
         make_channel(Conns, ChannelId, Params, NewAcc)
     else
         Error ->
@@ -677,11 +736,17 @@ open_channel(Conn) ->
 try_subscribe(
     #{queue := Queue, no_ack := NoAck, config_root := sources} = Params,
     RabbitChan,
+    Idx,
     ChannelId
 ) ->
     try
-        WorkState = {RabbitChan, ChannelId, Params},
-        {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
+        Opts = #{
+            id => Idx,
+            chan_pid => RabbitChan,
+            source_res_id => ChannelId,
+            subscription_params => Params
+        },
+        {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, Opts),
         BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
         #'basic.consume_ok'{consumer_tag = _} =
             amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
@@ -690,7 +755,7 @@ try_subscribe(
         Kind:Reason0:Stacktrace ->
             {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
     end;
-try_subscribe(#{config_root := actions}, _RabbitChan, _ChannelId) ->
+try_subscribe(#{config_root := actions}, _RabbitChan, _Idx, _ChannelId) ->
     ok.
 
 try_unsubscribe(ChannelId, Channels) ->
@@ -713,3 +778,87 @@ close_channels(Pids) ->
         _:_ ->
             ok
     end.
+
+channel_health_check_cont(_ChanResId, #{kind := action} = _ChanState, _ConnState) ->
+    ?status_connected;
+channel_health_check_cont(ChanResId, #{kind := source} = ChanState, ConnState) ->
+    #{pool_size := PoolSize} = ConnState,
+    #{health_check_timeout := HCTimeout} = ChanState,
+    Keys = optvar_keys(ChanResId, PoolSize),
+    case optvar:wait_vars(Keys, HCTimeout) of
+        ok ->
+            do_fold_optvar_results(Keys);
+        {timeout, _} ->
+            {?status_disconnected, ~"rabbitmq_source_workers_health_check_timeout"}
+    end.
+
+optvar_keys(ChanResId, PoolSize) ->
+    [?OPTVAR_CHAN_HEALTH(ChanResId, Idx) || Idx <- lists:seq(1, PoolSize)].
+
+do_fold_optvar_results(Keys) ->
+    Results = [optvar:peek(Key) || Key <- Keys],
+    Errors0 = lists:filtermap(
+        fun
+            ({ok, ?status_connected}) ->
+                false;
+            ({ok, {?status_connected, _}}) ->
+                false;
+            ({ok, {Status, Reason}}) when
+                ?IS_HEALTH_CHECK_STATUS(Status),
+                Status /= ?status_connected
+            ->
+                {true, {Status, Reason}};
+            ({ok, Status}) when
+                ?IS_HEALTH_CHECK_STATUS(Status),
+                Status /= ?status_connected
+            ->
+                {true, Status};
+            ({ok, Reason}) ->
+                %% shouldn't happen; it's a code bug.
+                {true, {?status_disconnected, Reason}};
+            (_) ->
+                %% not ok should be a very rare race condition, since we wait for all
+                %% optvars before peeking.
+                false
+        end,
+        Results
+    ),
+    case sort_status(Errors0) of
+        [{Status, Reason} | _] ->
+            {Status, Reason};
+        [Status | _] ->
+            Status;
+        [] ->
+            ?status_connected
+    end.
+
+%% {disconnected, unhealthy_target} > disconnected > connecting > connected
+sort_status(Errors0) ->
+    ToStatus = fun
+        ({S, {unhealthy_target, _}}) -> {S, unhealthy_target};
+        ({S, _Reason}) -> S;
+        (S) -> S
+    end,
+    CompareFn = fun(S1A, S2A) ->
+        S1 = ToStatus(S1A),
+        S2 = ToStatus(S2A),
+        case S1 == S2 of
+            true ->
+                case {S1A, S2A} of
+                    {{_, _}, _} when not is_tuple(S2A) ->
+                        %% prefer those with reason
+                        true;
+                    _ ->
+                        false
+                end;
+            false ->
+                S1 > S2
+        end
+    end,
+    lists:sort(CompareFn, Errors0).
+
+allocate(ConnResId, Key, Value) ->
+    ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, Key, Value).
+
+deallocate(ConnResId, Key) ->
+    ok = emqx_resource:deallocate_resource(ConnResId, Key).

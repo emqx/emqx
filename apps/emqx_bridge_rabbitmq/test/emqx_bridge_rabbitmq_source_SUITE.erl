@@ -208,6 +208,11 @@ get_source_api(TCConfig) ->
         emqx_bridge_v2_testlib:get_source_api(Type, Name)
     ).
 
+delete_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    Opts = #{query_params => #{<<"also_delete_dep_actions">> => <<"true">>}},
+    emqx_bridge_v2_testlib:delete_kind_api(source, Type, Name, Opts).
+
 get_source_metrics_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_source_metrics_api(TCConfig).
 
@@ -261,8 +266,12 @@ connect_and_setup_exchange_and_queue(TCConfig) ->
     ClientOpts = get_config(client_opts, TCConfig),
     emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(ClientOpts).
 
-wait_basic_cancel_received(TCConfig, Fn) ->
+wait_basic_cancel_received(TCConfig, Fn) when is_list(TCConfig) ->
     #{~"pool_size" := PoolSize} = get_config(connector_config, TCConfig),
+    Opts = #{n => PoolSize},
+    wait_basic_cancel_received(Opts, Fn);
+wait_basic_cancel_received(Opts, Fn) when is_map(Opts) ->
+    #{n := N} = Opts,
     TS = trace:session_create(?MODULE, self(), []),
     on_exit(fun() -> trace:session_destroy(TS) end),
     trace:process(TS, all, true, [call]),
@@ -274,7 +283,7 @@ wait_basic_cancel_received(TCConfig, Fn) ->
         fun(_) ->
             ?assertReceive({trace, _, call, {M, F, [#'basic.cancel'{}, _]}})
         end,
-        lists:seq(1, PoolSize)
+        lists:seq(1, N)
     ),
     trace:session_destroy(TS),
     ok.
@@ -382,4 +391,73 @@ t_queue_deleted_while_consuming(TCConfig) ->
     publish_message(PayloadBin2, TCConfig),
     ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 2}}}, 5_000),
 
+    ok.
+
+-doc """
+Verifies that the health from subscription workers is also checked when doing channel health checks.
+""".
+t_resubscribe_timeout(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"pool_size" => 1,
+        ~"resource_opts" => #{~"health_check_timeout" => ~"1s"}
+    }),
+    {201, _} = create_source_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, _, [_]} = emqtt:subscribe(C, RuleTopic, [{qos, 1}]),
+    Payload1 = payload(#{key => 1}),
+    PayloadBin1 = emqx_utils_json:encode(Payload1),
+    publish_message(PayloadBin1, TCConfig),
+    %% sanity check: it's initially working
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 1}}}),
+
+    emqx_bridge_v2_testlib:print_tree(emqx_bridge_rabbitmq_sup),
+    WorkerPids = [
+        P
+     || {_, SP, supervisor, _} <- supervisor:which_children(emqx_bridge_rabbitmq_sup),
+        {_, P, worker, _} <- supervisor:which_children(SP)
+    ],
+    [WorkerPid] = WorkerPids,
+    PreviousCallTimeout = application:get_env(amqp_client, gen_server_call_timeout),
+    on_exit(fun() ->
+        case PreviousCallTimeout of
+            {ok, T} -> application:set_env(amqp_client, gen_server_call_timeout, T);
+            undefined -> application:unset_env(amqp_client, gen_server_call_timeout)
+        end
+    end),
+    emqx_common_test_helpers:with_mock(
+        amqp_channel,
+        subscribe,
+        fun(Chan, Consume, Pid) ->
+            case Pid == self() of
+                false ->
+                    %% connector resubscribing if restarted
+                    meck:passthrough([Chan, Consume, Pid]);
+                true ->
+                    %% worker
+                    %% can't call `amqp_util:update_call_timeout` here, as it overrides
+                    %% the application level config....
+                    put(gen_server_call_timeout, 0),
+                    meck:passthrough([Chan, Consume, Pid])
+            end
+        end,
+        fun() ->
+            %% make just one worker get "cancelled"
+            wait_basic_cancel_received(#{n => 1}, fun() ->
+                WorkerPid ! #'basic.cancel'{consumer_tag = ~"mocked"}
+            end),
+            ?retry(
+                500,
+                10,
+                ?assertMatch(
+                    {200, #{~"status" := ~"disconnected"}},
+                    get_source_api(TCConfig)
+                )
+            ),
+            ok
+        end
+    ),
+    %% recreate source; should clear optvars
+    {204, _} = delete_source_api(TCConfig),
+    ?assertMatch({201, #{~"status" := ~"connected"}}, create_source_api(TCConfig, #{})),
     ok.
