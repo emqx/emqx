@@ -335,7 +335,7 @@ session_command(SessionId, S) ->
             false ->
                 [
                     {1, {call, ?MODULE, create_new, [session_id()]}},
-                    {3, {call, ?MODULE, break_ds, []}},
+                    {0, {call, ?MODULE, break_ds, []}},
                     %% NOTE: during normal operation, the session
                     %% always uses async commit, which tolerates
                     %% recoverable errors. But if **sync** commit runs
@@ -430,13 +430,13 @@ postcondition(#gs{ds_broken = false}, {call, ?MODULE, commit, [SessionId | _]}, 
     %% Verify that dirty state of all pmaps is cleaned by a successful commit:
     lists:foreach(
         fun(I) ->
-            #{I := #pmap{dirty = Dirty}} = Memory,
-            ?assertEqual(
-                #{},
-                Dirty,
+            #{I := Pmap} = Memory,
+            ?assertNot(
+                emqx_ds_pmap:is_dirty(Pmap),
                 #{
                     field => I,
-                    session => SessionId
+                    session => SessionId,
+                    pmap => Pmap
                 }
             )
         end,

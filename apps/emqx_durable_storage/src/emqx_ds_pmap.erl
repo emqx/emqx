@@ -71,6 +71,8 @@ taking over the collection. Such locking is out of scope of this module.
     del/3,
     fold/3,
     size/1,
+    to_map/1,
+    is_dirty/1,
 
     collection_get/3,
     collection_fold/4,
@@ -230,7 +232,7 @@ lts_threshold_cb(_, _) ->
 
 -spec new_pmap(module(), binary()) -> pmap(_K, _V).
 new_pmap(CBM, Name) ->
-    new_pmap(CBM, Name, dirty).
+    new_pmap(CBM, Name, diff).
 
 -spec new_pmap(module(), binary(), kind()) -> pmap(_K, _V).
 new_pmap(CBM, Name, diff) when is_atom(CBM), is_binary(Name) ->
@@ -305,17 +307,18 @@ tx_commit(
                 {ok, Val} ->
                     tx_write_pmap_kv(CBM, Name, CollectionId, Key, Val);
                 del ->
-                    emqx_ds:tx_del_topic(pmap_topic(Name, CollectionId, Key))
+                    Topic = pmap_topic(Name, CollectionId, encode_key(CBM, Name, Key)),
+                    emqx_ds:tx_del_topic(Topic)
             end,
             Acc#{Key => VDiff}
         end,
         Pending0,
         Diff
     ),
-    Pmap#pdiffmap{
+    {undefined, Pmap#pdiffmap{
         pending = Pending,
         diff = #{}
-    }.
+    }}.
 
 -doc """
 Commit all pmaps in the collection using `tx_commit`.
@@ -333,13 +336,17 @@ tx_collection_commit([_ | _] = Fields, #{id := CollectionId} = Collection) ->
         fun(Field, {CntrAcc, Acc}) ->
             #{Field := Pmap0} = Acc,
             {Cntr, Pmap} = tx_commit(CollectionId, Pmap0),
-            %% Verify that all pmaps in the collection were updated in
-            %% accord:
-            case CntrAcc of
-                undefined -> ok;
-                Cntr -> ok
-            end,
-            {Cntr, Acc#{Field := Pmap}}
+            CollCntr =
+                case Cntr of
+                    undefined ->
+                        CntrAcc;
+                    _ when CntrAcc =:= undefined ->
+                        Cntr;
+                    CntrAcc ->
+                        %% Implicit assert
+                        Cntr
+                end,
+            {CollCntr, Acc#{Field := Pmap}}
         end,
         {undefined, Collection},
         Fields
@@ -362,16 +369,7 @@ tx_success(Committed, Pmap = #pmap{dirty = Dirty0}) ->
         ),
     Pmap#pmap{dirty = Dirty};
 tx_success(_, Pmap = #pdiffmap{pstate = Pstate0, pending = Pending}) ->
-    Pstate = maps:fold(
-        fun(Key, VDiff, Acc) ->
-            case VDiff of
-                {ok, Val} -> Acc#{Key => Val};
-                del -> maps:remove(Key, Acc)
-            end
-        end,
-        Pstate0,
-        Pending
-    ),
+    Pstate = patch_map(Pstate0, Pending),
     Pmap#pdiffmap{
         pending = #{},
         pstate = Pstate
@@ -385,9 +383,9 @@ collection_release_dirty(Fields, Committed, Collection0) ->
     {IsDirty, Collection} = lists:foldl(
         fun(Field, {IsDirtyAcc, Acc}) ->
             #{Field := Pmap0} = Acc,
-            Pmap = #pmap{dirty = Dirty} = tx_success(Committed, Pmap0),
+            Pmap = tx_success(Committed, Pmap0),
             {
-                IsDirtyAcc orelse maps:size(Dirty) > 0,
+                IsDirtyAcc orelse is_dirty(Pmap),
                 Acc#{Field := Pmap}
             }
         end,
@@ -398,7 +396,7 @@ collection_release_dirty(Fields, Committed, Collection0) ->
 
 -spec tx_restore(module(), pmap_name(), collection_id()) -> pmap(_, _).
 tx_restore(CBM, Name, CollectionId) ->
-    tx_restore(CBM, Name, CollectionId, dirty).
+    tx_restore(CBM, Name, CollectionId, diff).
 
 -doc """
 Read data from a durable storage to RAM, creating a new pmap.
@@ -455,14 +453,14 @@ dirty_read(CBM, Name, CollectionId, FoldOptions) when
 -spec get(K, pmap(K, V)) -> V | undefined.
 get(Key, #pmap{cache = Cache}) ->
     maps:get(Key, Cache, undefined);
-get(Key, #pdiffmap{diff = Diff, pstate = PS}) ->
-    case Diff of
+get(Key, #pdiffmap{diff = L1, pstate = L2}) ->
+    case L1 of
         #{Key := {ok, Val}} ->
             Val;
         #{Key := _} ->
             undefined;
         #{} ->
-            case PS of
+            case L2 of
                 #{Key := Val} ->
                     Val;
                 _ ->
@@ -589,6 +587,18 @@ size(#pdiffmap{} = Pmap) ->
     %% TODO: optimize
     fold(fun(_, _, Acc) -> Acc + 1 end, 0, Pmap).
 
+-spec to_map(pmap(K, V)) -> #{K => V}.
+to_map(#pmap{cache = Cache}) ->
+    Cache;
+to_map(#pdiffmap{pstate = Pstate, diff = Diff}) ->
+    patch_map(Pstate, Diff).
+
+-spec is_dirty(pmap(_K, _V)) -> boolean().
+is_dirty(#pmap{dirty = D}) ->
+    maps:size(D) > 0;
+is_dirty(#pdiffmap{diff = D}) ->
+    maps:size(D) > 0.
+
 %% == Operations with the pmap collections ==
 
 -spec collection_get(field(), _Key, collection()) -> _Val | undefined.
@@ -704,6 +714,19 @@ restore_fun(CBM, {?pmap_topic(Name, _CollectionId, KeyBin), _TS, ValBin}, Acc) -
     Key = decode_key(CBM, Name, KeyBin),
     Val = decode_val(CBM, Name, Key, ValBin),
     Acc#{Key => Val}.
+
+-spec patch_map(#{K => V}, #{K => {ok, V} | del}) -> #{K => V}.
+patch_map(Base, Patch) ->
+    maps:fold(
+        fun(Key, VDiff, Acc) ->
+            case VDiff of
+                {ok, Val} -> Acc#{Key => Val};
+                del -> maps:remove(Key, Acc)
+            end
+        end,
+        Base,
+        Patch
+    ).
 
 %% == Operations over PMap KV pairs ==
 
