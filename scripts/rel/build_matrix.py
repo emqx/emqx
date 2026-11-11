@@ -33,6 +33,7 @@ import sys
 # lives in the os list rather than as a separate include row -- that keeps every
 # generated matrix key pure os/arch data with no build-tool dimensions.
 LINUX_OS = [
+    "ubuntu26.04",
     "ubuntu24.04",
     "ubuntu22.04",
     "debian13",

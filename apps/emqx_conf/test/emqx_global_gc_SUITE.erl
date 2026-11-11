@@ -68,6 +68,47 @@ t_chunk_pause(_) ->
     ?assertEqual(1, emqx_global_gc:chunk_pause(1, 1000000)).
 
 -doc """
+A collection is requested for every process in a chunk before any reply is
+waited for, and the wait has no timeout, so the sweep depends on every request
+being answered even when the process is already gone. `garbage_collect/2`
+guarantees that: the reply still arrives, carrying `false` because the process
+"terminated before the request could be satisfied".
+
+Without this, a chunk that caught a process mid-exit would block the sweep
+forever.
+""".
+t_async_collect_answers_for_a_dead_process(_) ->
+    Dead = spawn(fun() -> ok end),
+    ?retry(20, 20, ?assertNot(is_process_alive(Dead))),
+    Ref = make_ref(),
+    ?assertEqual(async, erlang:garbage_collect(Dead, [{async, Ref}])),
+    receive
+        {garbage_collect, Ref, Result} ->
+            %% `false' means the process terminated before the request could be
+            %% satisfied, which is exactly this case.
+            ?assertEqual(false, Result)
+    after 5000 ->
+        ct:fail("no reply for a dead process: a sweep would block forever")
+    end,
+    %% The synchronous form answers the same way, so neither can stall a chunk.
+    ?assertEqual(false, erlang:garbage_collect(Dead)),
+    %% A live process still answers `true', so the counter stays meaningful.
+    Live = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    LiveRef = make_ref(),
+    ?assertEqual(async, erlang:garbage_collect(Live, [{async, LiveRef}])),
+    receive
+        {garbage_collect, LiveRef, LiveResult} ->
+            ?assertEqual(true, LiveResult)
+    after 5000 ->
+        ct:fail("no reply for a live process")
+    end,
+    exit(Live, kill).
+
+-doc """
 The walk uses `erlang:processes_iterator/0`, so a sweep reaches every process
 without ever holding a list of every pid on the node. A process parked in
 `receive` holding a dead heap is reclaimed.

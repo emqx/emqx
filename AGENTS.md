@@ -56,6 +56,8 @@ in the PR body.
   test that passes on the unfixed tree proves nothing.
 - A suite that reports 0 failures can still have skipped every case. Check the skip count.
 - Do not paste a command's expected output as if you had run it.
+- After you push, compare the pushed diff with the PR description. Check that the diff has no
+  unrelated files and that the description matches the final change.
 
 ## Fix the class, not the instance
 
@@ -184,21 +186,33 @@ Two points that apply to agent-authored text:
 - Do not repeat the diff in the PR body. Write what the reviewer cannot see — the cause, the
   decision that you made, and what you verified.
 
-### Read your own pull request
+### Pull Request Description
 
-After you push, read the description and the diff again, as a reviewer who has not seen the issue.
-A reviewer must not have to work to find what changed and why. A long description costs more to
-read than a short one, so delete every line that does not help the decision.
+The pull request title and description should be clear and concise for a reviewer who has not seen
+the issue. The first priority is explaining why the change was made from the perspective of the
+product: why a reviewer or code owner should care about the change at all.
 
-A line that only repeats one of these does not help:
+The description should follow the writing principles in CONTRIBUTING.md. Spend the reviewer's time
+and attention carefully. The main idea should be grasped from the title. The idea of a section
+should be grasped from the first paragraph. The idea of a paragraph should be grasped from the
+first sentence.
 
-- the issue description, which the reviewer can open;
-- what the code says, which the reviewer is reading.
+Do not go into low-level details directly. Start with the high-level systems and behaviour, then
+add low-level details. A reviewer must not have to work to find what changed and why.
 
-Some detail is written for an agent rather than for a person: test output, a long trace, the
-searches you ran, the branches you checked. Fold it into a `<details>` block with a `<summary>`
-that says what it holds. A reviewer then skips it in one movement, and the next agent still has
-it.
+Things that do not help in a description:
+- The issue description, which the reviewer can open.
+- Repeating details that code changes already say.
+- Code names, such as function, field or variable names, that the text uses without saying what
+  they are. The reviewer then has to stop reading, switch to the diff and search for them.
+
+Some details are for completeness and for later reference, not for human review: added or run
+tests, test output, a long trace, the searches you ran, the branches you checked. When the
+description includes such details, fold them into a `<details>` block with a `<summary>` that
+says what it holds. A reviewer then skips it in one movement, and the next agent still has it.
+
+This section does not ask you to add such details. Include only the details that other sections
+require.
 
 ```markdown
 <details><summary>Test output</summary>
