@@ -1,20 +1,32 @@
-pytest==7.0.1 \
+# Python 3.14 removed ast.Str, which pytest 7.0.1 uses (Ubuntu 26.04).
+# Older Pythons keep the old pins: el7 and el8 have Python 3.6, which pytest 8 does not support.
+pytest==7.0.1 ; python_version < "3.14" \
     --hash=sha256:9ce3ff477af913ecf6321fe337b93a2c0dcf2a0a1439c43f5452112c1e4280db
-pluggy==1.0.0 \
+pluggy==1.0.0 ; python_version < "3.14" \
     --hash=sha256:74134bbf457f031a36d68416e1509f34bd5ccc019f0bcc952c7b909d06b37bd3
-iniconfig==1.1.1 \
+iniconfig==1.1.1 ; python_version < "3.14" \
     --hash=sha256:011e24c64b7f47f6ebd835bb12a743f2fbe9a26d4cecaa7f53bc4f35ee9da8b3
-tomli==1.2.3 \
+tomli==1.2.3 ; python_version < "3.14" \
     --hash=sha256:e3069e4be3ead9668e21cb9b074cd948f7b3113fd9c8bba083f48247aab8b11c
-packaging==21.3 \
+packaging==21.3 ; python_version < "3.14" \
     --hash=sha256:ef103e05f519cdc783ae24ea4e2e0f508a9c99b2d4969652eed6a2e1ea5bd522
-importlib-metadata==0.12 \
+importlib-metadata==0.12 ; python_version < "3.14" \
     --hash=sha256:37bbea81dec44d1ff72d58a1b5c1599a9f3436537f33e9e26f276610064c4830
-zipp==3.6.0 \
+zipp==3.6.0 ; python_version < "3.14" \
     --hash=sha256:9fe5ea21568a0a70e50f273397638d39b03353731e6cbbb3fd8502a33fec40bc
-py==1.11.0 \
+py==1.11.0 ; python_version < "3.14" \
     --hash=sha256:607c53218732647dff4acdfcd50cb62615cedf612e72d1724fb1a0cc6405b378
-attrs==22.2.0 \
+attrs==22.2.0 ; python_version < "3.14" \
     --hash=sha256:29e95c7f6778868dbd49170f98f8818f78f3dc5e0e37c0b1f474e3561b240836
-pyparsing==3.1.1 \
+pyparsing==3.1.1 ; python_version < "3.14" \
     --hash=sha256:32c7c0b711493c72ff18a981d24f28aaf9c1fb7ed5e9667c9e84e3db623bdbfb
+pytest==8.4.2 ; python_version >= "3.14" \
+    --hash=sha256:872f880de3fc3a5bdc88a11b39c9710c3497a547cfa9320bc3c5e62fbf272e79
+pluggy==1.7.0 ; python_version >= "3.14" \
+    --hash=sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec
+iniconfig==2.3.1 ; python_version >= "3.14" \
+    --hash=sha256:9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7
+packaging==26.3 ; python_version >= "3.14" \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+pygments==2.21.0 ; python_version >= "3.14" \
+    --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
