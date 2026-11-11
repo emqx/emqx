@@ -4189,8 +4189,8 @@ cacertfile_default(#{cacertfile := system_default}, _Type) ->
     ?CACERTFILE_SYSTEM_DEFAULT;
 cacertfile_default(#{cacertfile := CACertFile}, _Type) ->
     CACertFile;
-cacertfile_default(#{}, Type) ->
-    cert_file("cacert.pem", Type).
+cacertfile_default(#{}, _Type) ->
+    undefined.
 
 cacertfile_validator(client, Meta) ->
     Meta;
@@ -4202,11 +4202,6 @@ validate_server_cacertfile(?CACERTFILE_SYSTEM_DEFAULT) ->
     {error, "system_default is only allowed for TLS clients"};
 validate_server_cacertfile(_) ->
     ok.
-
-cert_file(_File, client) ->
-    undefined;
-cert_file(File, server) ->
-    unicode:characters_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
 
 mqtt_converter(#{<<"keepalive_multiplier">> := Multi} = Mqtt, _Opts) ->
     case round(Multi * 100) =:= round(?DEFAULT_MULTIPLIER * 100) of

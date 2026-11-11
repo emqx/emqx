@@ -515,13 +515,10 @@ listeners_test(Profile) ->
         },
         Ws
     ),
-    ?assertMatch(
-        #{
-            <<"bind">> := SslBind,
-            <<"ssl_options">> := #{<<"cacertfile">> := <<"${EMQX_ETC_DIR}", _/binary>>}
-        },
-        Ssl
-    ),
+    %% No certificate defaults: a listener that configures none serves the
+    %% node's own generated bundle instead of a shipped example certificate.
+    ?assertMatch(#{<<"bind">> := SslBind}, Ssl),
+    assert_no_cert_defaults(Ssl),
     %% What the configuration sets is kept; what it does not set stays unset.
     ?assertMatch(
         #{
@@ -535,12 +532,15 @@ listeners_test(Profile) ->
     ?assertMatch(
         #{
             <<"bind">> := NewWssBind,
-            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"},
-            <<"ssl_options">> := #{<<"cacertfile">> := <<"${EMQX_ETC_DIR}", _/binary>>}
+            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"}
         },
         NewWss
     ),
+    assert_no_cert_defaults(NewWss),
     ok.
+
+assert_no_cert_defaults(Listener) ->
+    assert_no_cert_defaults(Listener, [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]).
 
 assert_no_cert_defaults(Listener, Keys) ->
     SslOpts = maps:get(<<"ssl_options">>, Listener, #{}),
