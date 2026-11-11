@@ -1,0 +1,7 @@
+server {
+  url = "http://127.0.0.1:8080"
+  token = ""
+  pool_size = 8
+  connect_timeout_ms = 5000
+  request_timeout_ms = 2000
+}
