@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rule SQL Functions</title>
+<style>
+  :root {
+    --bg: #f5f7fa; --panel: #ffffff; --text: #1f2329; --muted: #646a73;
+    --border: #dee0e3; --accent: #00b173; --accent-text: #ffffff;
+    --err: #d83931; --err-bg: #fdecea; --ok-bg: #e8f7f0; --sel: #e9f4ff;
+    --mono: "Cascadia Code", Consolas, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181a; --panel: #212224; --text: #e8e9eb; --muted: #a0a4ab;
+      --border: #3a3c40; --accent: #22c38a; --accent-text: #0d1f17;
+      --err: #ff6b61; --err-bg: #3a2120; --ok-bg: #18322a; --sel: #23324a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font-size: 14px;
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  }
+  .app { max-width: 1280px; margin: 0 auto; padding: 20px 16px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  .hint { color: var(--muted); margin: 4px 0 16px; }
+  code { font-family: var(--mono); font-size: 13px; }
+  #server { font-size: 13px; color: var(--muted); }
+  #server.ok::before { content: "● "; color: var(--accent); }
+  #server.bad::before { content: "● "; color: var(--err); }
+  .layout { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px; min-width: 0; }
+  .list { list-style: none; margin: 8px 0 0; padding: 0; }
+  .list li { padding: 8px; border-radius: 4px; cursor: pointer; word-break: break-all; }
+  .list li:hover { background: var(--sel); }
+  .list li.sel { background: var(--sel); font-weight: 600; }
+  .list .meta { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); padding: 8px; }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
+  input[type=text], textarea {
+    width: 100%; border: 1px solid var(--border); border-radius: 4px; background: var(--panel);
+    color: var(--text); padding: 8px; font-family: var(--mono); font-size: 13px;
+  }
+  input[type=text]:disabled { opacity: .7; }
+  textarea { resize: vertical; tab-size: 4; white-space: pre; }
+  #source { min-height: 360px; }
+  #args { min-height: 60px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  button {
+    height: 32px; padding: 0 14px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); cursor: pointer; font-size: 14px;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.danger { color: var(--err); }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { margin-top: 12px; padding: 8px 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 13px; }
+  .msg.err { background: var(--err-bg); color: var(--err); }
+  .msg.ok { background: var(--ok-bg); }
+  .msg:empty { display: none; }
+  .info { color: var(--muted); font-size: 12px; margin-top: 6px; word-break: break-all; }
+  h2 { font-size: 15px; margin: 18px 0 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Rule SQL Functions</h1>
+    <span id="server">checking function server…</span>
+  </header>
+  <p class="hint">Programs run on the function server. Call one from rule SQL with
+    <code>rsf('name', arg1, arg2, ...)</code>. A <code>python3</code> program must define <code>handle(*args)</code>.</p>
+
+  <div class="layout">
+    <div class="panel">
+      <button id="new" class="primary">New program</button>
+      <ul id="list" class="list"></ul>
+    </div>
+
+    <div class="panel">
+      <label for="name">Name (A-Z a-z 0-9 . _ -, must not start with '.')</label>
+      <input id="name" type="text" maxlength="64" spellcheck="false" autocomplete="off" placeholder="temp-convert.py">
+      <div id="meta" class="info"></div>
+
+      <label for="source">Source (python3)</label>
+      <textarea id="source" spellcheck="false"></textarea>
+
+      <div class="row">
+        <button id="save" class="primary">Save</button>
+        <button id="delete" class="danger">Delete</button>
+      </div>
+      <div id="saveMsg" class="msg"></div>
+
+      <h2>Test</h2>
+      <label for="args">Arguments, as a JSON array</label>
+      <textarea id="args" spellcheck="false">["hello"]</textarea>
+      <div class="row">
+        <button id="run">Run saved version</button>
+        <span id="sql" class="info"></span>
+      </div>
+      <div id="runMsg" class="msg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const base = window.location.pathname.replace(/\/ui\/?$/, "");
+  const NAME_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/;
+  const $ = (id) => document.getElementById(id);
+  const TEMPLATE = "def handle(s):\n    return s.upper()\n";
+  let current = null; // name of the program in the editor, or null for a new one
+
+  async function api(path, options) {
+    const res = await fetch(base + path, Object.assign({
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+    }, options || {}));
+    const ctype = res.headers.get("content-type") || "";
+    const body = ctype.includes("application/json") ? await res.json() : await res.text();
+    if (!res.ok) {
+      const err = new Error(formatError(body, res.status));
+      err.status = res.status;
+      throw err;
+    }
+    return body;
+  }
+
+  function formatError(body, status) {
+    if (!body || typeof body !== "object") return "HTTP " + status + ": " + String(body || "");
+    const lines = [(body.code || ("HTTP " + status)) + ": " + (body.message || "")];
+    if (Array.isArray(body.problems)) body.problems.forEach((p) => lines.push("  - " + p));
+    if (body.stderr) lines.push("stderr:\n" + body.stderr);
+    return lines.join("\n");
+  }
+
+  function show(el, text, kind) {
+    el.textContent = text || "";
+    el.className = "msg" + (kind ? " " + kind : "");
+  }
+
+  async function loadServer() {
+    const el = $("server");
+    try {
+      const s = await api("/server");
+      if (s.reachable) {
+        const rt = (s.info.runtimes || []).map((r) => r.name + (r.version ? " " + r.version : "")).join(", ");
+        el.textContent = (s.info.server || "function server") + " · " + (s.info.protocol || "") + " · " + rt;
+        el.className = "ok";
+      } else {
+        el.textContent = "function server unreachable: " + s.error;
+        el.className = "bad";
+      }
+    } catch (e) {
+      el.textContent = e.message;
+      el.className = "bad";
+    }
+  }
+
+  async function loadList() {
+    const ul = $("list");
+    let programs = [];
+    try {
+      programs = (await api("/programs")).programs;
+    } catch (e) {
+      ul.innerHTML = "";
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = e.message;
+      ul.appendChild(li);
+      return;
+    }
+    ul.innerHTML = "";
+    if (programs.length === 0) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "No programs yet.";
+      ul.appendChild(li);
+    }
+    programs.forEach((p) => {
+      const li = document.createElement("li");
+      li.textContent = p.name;
+      if (p.name === current) li.className = "sel";
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = p.size + " bytes · " + new Date(p.updated_at_ms).toLocaleString();
+      li.appendChild(meta);
+      li.addEventListener("click", () => openProgram(p.name));
+      ul.appendChild(li);
+    });
+  }
+
+  function setEditor(p) {
+    current = p ? p.name : null;
+    $("name").value = p ? p.name : "";
+    $("name").disabled = !!p;
+    $("source").value = p ? p.source : TEMPLATE;
+    $("delete").disabled = !p;
+    $("run").disabled = !p;
+    $("meta").textContent = p
+      ? "sha256 " + p.sha256 + " · updated by " + p.updated_by + " at " + new Date(p.updated_at_ms).toLocaleString()
+      : "New program. It is saved only after the function server accepts it.";
+    updateSql();
+    show($("saveMsg"));
+    show($("runMsg"));
+  }
+
+  function updateSql() {
+    const name = $("name").value || "name";
+    $("sql").textContent = "SQL: rsf('" + name + "', ...)";
+  }
+
+  async function openProgram(name) {
+    try {
+      setEditor(await api("/programs/" + encodeURIComponent(name)));
+      await loadList();
+    } catch (e) {
+      show($("saveMsg"), e.message, "err");
+    }
+  }
+
+  async function save() {
+    const name = $("name").value.trim();
+    if (!NAME_RE.test(name)) {
+      show($("saveMsg"), "Invalid name. Use 1 to 64 characters from A-Z a-z 0-9 . _ - and do not start with '.'.", "err");
+      return;
+    }
+    $("save").disabled = true;
+    show($("saveMsg"), "Saving…");
+    try {
+      const p = await api("/programs/" + encodeURIComponent(name), {
+        method: "PUT",
+        body: JSON.stringify({ runtime: "python3", source: $("source").value }),
+      });
+      setEditor(p);
+      show($("saveMsg"), "Saved. The function server accepted version " + p.sha256.slice(0, 12) + ".", "ok");
+      await loadList();
+    } catch (e) {
+      show($("saveMsg"), e.message, "err");
+    } finally {
+      $("save").disabled = false;
+    }
+  }
+
+  async function remove() {
+    if (!current || !window.confirm("Delete program '" + current + "'? Rules that call it will fail.")) return;
+    try {
+      await api("/programs/" + encodeURIComponent(current), { method: "DELETE" });
+      setEditor(null);
+      await loadList();
+    } catch (e) {
+      show($("saveMsg"), e.message, "err");
+    }
+  }
+
+  async function run() {
+    if (!current) return;
+    let args;
+    try {
+      args = JSON.parse($("args").value);
+      if (!Array.isArray(args)) throw new Error("not an array");
+    } catch (e) {
+      show($("runMsg"), "Arguments must be a JSON array, for example [\"hello\", 42].", "err");
+      return;
+    }
+    show($("runMsg"), "Running…");
+    try {
+      const r = await api("/programs/" + encodeURIComponent(current) + "/call", {
+        method: "POST",
+        body: JSON.stringify({ args: args }),
+      });
+      show($("runMsg"), JSON.stringify(r.result, null, 2), "ok");
+    } catch (e) {
+      show($("runMsg"), e.message, "err");
+    }
+  }
+
+  // Tab inserts four spaces instead of moving the focus.
+  $("source").addEventListener("keydown", (ev) => {
+    if (ev.key !== "Tab" || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    ev.preventDefault();
+    const t = ev.target;
+    t.setRangeText("    ", t.selectionStart, t.selectionEnd, "end");
+  });
+  $("source").addEventListener("keydown", (ev) => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === "s") { ev.preventDefault(); save(); }
+  });
+  $("name").addEventListener("input", updateSql);
+  $("new").addEventListener("click", () => { setEditor(null); loadList(); $("name").focus(); });
+  $("save").addEventListener("click", save);
+  $("delete").addEventListener("click", remove);
+  $("run").addEventListener("click", run);
+
+  setEditor(null);
+  loadServer();
+  loadList();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+{
+  "type": "record",
+  "name": "EmqxRsfConfigSchema",
+  "fields": [
+    {
+      "name": "server",
+      "type": {
+        "type": "record",
+        "name": "ServerConfig",
+        "fields": [
+          {
+            "name": "url",
+            "type": "string",
+            "default": "http://127.0.0.1:8080",
+            "$ui": {
+              "component": "input",
+              "flex": 24,
+              "required": true,
+              "label": "$url_label",
+              "description": "$url_desc"
+            }
+          },
+          {
+            "name": "token",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input-password",
+              "flex": 24,
+              "required": false,
+              "label": "$token_label",
+              "description": "$token_desc"
+            }
+          },
+          {
+            "name": "pool_size",
+            "type": "int",
+            "default": 8,
+            "$ui": {
+              "component": "input-number",
+              "flex": 8,
+              "required": false,
+              "label": "$pool_size_label",
+              "description": "$pool_size_desc"
+            }
+          },
+          {
+            "name": "connect_timeout_ms",
+            "type": "int",
+            "default": 5000,
+            "$ui": {
+              "component": "input-number",
+              "flex": 8,
+              "required": false,
+              "label": "$connect_timeout_label",
+              "description": "$connect_timeout_desc"
+            }
+          },
+          {
+            "name": "request_timeout_ms",
+            "type": "int",
+            "default": 2000,
+            "$ui": {
+              "component": "input-number",
+              "flex": 8,
+              "required": false,
+              "label": "$request_timeout_label",
+              "description": "$request_timeout_desc"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
