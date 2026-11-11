@@ -11,6 +11,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
 
@@ -406,6 +407,83 @@ t_ssl_chunk_parsing_conn(Config) ->
         ?assertMatch({ssl, ?FUNCTION_NAME}, emqx_cth_broker:connection_info(listener, Client)),
         ?assertMatch(#{parser := Tuple} when element(1, Tuple) =:= options, CState)
     end).
+
+-doc """
+With `ssl.connection_tree_owner = caller`, both TLS ends of an MQTT connection start their
+connection trees outside `tls_connection_sup`. A client DISCONNECT closes the connection cleanly
+and leaves no tree behind.
+""".
+t_ssl_tree_owner_caller_disconnect(Config) ->
+    ssl_tree_owner_test(caller, fun emqtt:disconnect/1, normal, Config).
+
+-doc """
+With `ssl.connection_tree_owner = caller`, a kick from the broker closes the connection cleanly
+and leaves no tree behind.
+""".
+t_ssl_tree_owner_caller_kick(Config) ->
+    Kick = fun(Client) ->
+        ClientId = proplists:get_value(clientid, emqtt:info(Client)),
+        ok = emqx_cm:kick_session(ClientId)
+    end,
+    ssl_tree_owner_test(caller, Kick, {shutdown, kicked}, Config).
+
+-doc """
+With `ssl.connection_tree_owner = supervisor`, the OTP default, both TLS ends start their
+connection trees under `tls_connection_sup`, and a client DISCONNECT closes the connection cleanly.
+""".
+t_ssl_tree_owner_supervisor_disconnect(Config) ->
+    ssl_tree_owner_test(supervisor, fun emqtt:disconnect/1, normal, Config).
+
+ssl_tree_owner_test(Owner, Close, ExitReason, Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => filename:join(PrivDir, "ca.pem"),
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key")
+        }
+    },
+    OldEnv = application:get_env(ssl, connection_tree_owner),
+    on_exit(fun() ->
+        case OldEnv of
+            {ok, V} -> application:set_env(ssl, connection_tree_owner, V);
+            undefined -> application:unset_env(ssl, connection_tree_owner)
+        end
+    end),
+    ok = application:set_env(ssl, connection_tree_owner, Owner),
+    with_listener(ssl, ?FUNCTION_NAME, Conf, fun() ->
+        Baseline = count_tls_trees(),
+        Client = emqtt_connect_ssl({127, 0, 0, 1}, Port, [{verify, verify_none}]),
+        pong = emqtt:ping(Client),
+        ClientId = proplists:get_value(clientid, emqtt:info(Client)),
+        [CPid] = emqx_cm:lookup_channels(ClientId),
+        %% One tree for the client end and one for the server end.
+        #{all := All0, supervised := Supervised0} = Baseline,
+        Expected =
+            case Owner of
+                caller -> #{all => All0 + 2, supervised => Supervised0};
+                supervisor -> #{all => All0 + 2, supervised => Supervised0 + 2}
+            end,
+        ?assertEqual(Expected, count_tls_trees()),
+        ClientMRef = monitor(process, Client),
+        ConnMRef = monitor(process, CPid),
+        Close(Client),
+        ?assertReceive({'DOWN', ConnMRef, process, CPid, ExitReason}, 5_000),
+        ?assertReceive({'DOWN', ClientMRef, process, Client, _}, 5_000),
+        ?retry(100, 30, ?assertEqual(Baseline, count_tls_trees()))
+    end).
+
+%% Count TLS connection trees of this node: all of them, and those under `tls_connection_sup`.
+count_tls_trees() ->
+    All = [
+        P
+     || P <- processes(),
+        proc_lib:translate_initial_call(P) =:= {supervisor, tls_dyn_connection_sup, 1}
+    ],
+    Supervised = proplists:get_value(active, supervisor:count_children(tls_connection_sup)),
+    #{all => length(All), supervised => Supervised}.
 
 t_wss_conn(Config) ->
     PrivDir = ?config(priv_dir, Config),

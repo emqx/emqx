@@ -1445,6 +1445,14 @@ This setting does not affect how long a new connection may wait before it sends 
 mqtt_hibernate_after.label:
 """Hibernate After"""
 
+mqtt_min_heap_size.desc:
+"""Minimum heap size in words for each new MQTT connection process on TCP and TLS listeners.
+The runtime rounds this value up to a supported heap size.
+Changes apply to new connections only."""
+
+mqtt_min_heap_size.label:
+"""Minimum connection heap size"""
+
 mqtt_minor_gc_after.desc:
 """Run a minor garbage collection after this period of mailbox inactivity on TCP connections using the `socket` backend, or set to `infinity` to disable it.
 For finite values, the connection then starts waiting for the `hibernate_after` timeout.

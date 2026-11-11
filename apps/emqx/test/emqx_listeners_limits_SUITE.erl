@@ -332,9 +332,14 @@ wait_closed(Socket, Timeout) ->
         {error, Reason} -> Reason
     end.
 
-%% Count TLS connection processes and TCP ports of this node.
+%% Count TLS connection trees and TCP ports of this node.
+%% A tree starts under `tls_connection_sup` or in the caller, per `ssl.connection_tree_owner`.
 count_tls_resources() ->
-    TLSConns = proplists:get_value(active, supervisor:count_children(tls_connection_sup)),
+    TLSConns = length([
+        P
+     || P <- processes(),
+        proc_lib:translate_initial_call(P) =:= {supervisor, tls_dyn_connection_sup, 1}
+    ]),
     TCPPorts = [P || P <- erlang:ports(), erlang:port_info(P, name) =:= {name, "tcp_inet"}],
     #{tls_connections => TLSConns, tcp_ports => length(TCPPorts)}.
 

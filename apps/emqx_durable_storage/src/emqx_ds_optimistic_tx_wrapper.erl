@@ -21,9 +21,20 @@ all the business logic.
 
 -spec init(pid(), emqx_ds:db(), emqx_ds:shard(), module()) -> no_return().
 init(Parent, DB, Shard, CBM) ->
+    %% NOTE: `gen' doesn't expose `register_name'
     yes = gproc:register_name(?name(DB, Shard), self()),
     try
-        emqx_ds_optimistic_tx:init(Parent, DB, Shard, CBM)
-    after
+        emqx_ds_optimistic_tx:init(Parent, DB, Shard, CBM),
         gen:unregister_name(?via(DB, Shard))
+    catch
+        EC:Err:Stack ->
+            gen:unregister_name(?via(DB, Shard)),
+            Reason =
+                case EC =:= exit andalso emqx_ds_optimistic_tx:is_normal_exit(Err) of
+                    true ->
+                        Err;
+                    false ->
+                        {EC, Err, Stack}
+                end,
+            emqx_ds_optimistic_tx:terminate(Reason)
     end.

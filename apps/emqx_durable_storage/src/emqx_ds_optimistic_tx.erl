@@ -46,6 +46,8 @@ backend can reject flush request.
 %% Internal exports
 -export([
     init/4,
+    is_normal_exit/1,
+    terminate/1,
     code_change/2,
     loop/1
 ]).
@@ -488,8 +490,8 @@ init(Parent, DB, Shard, CBM) ->
             })
         )
     else
-        Err ->
-            terminate({init_failed, Err}, D)
+        InitErr ->
+            exit({init_failure, InitErr})
     end.
 
 -spec loop(d()) -> no_return().
@@ -506,25 +508,10 @@ loop(D0) ->
             _ -> IdleFlushInterval
         end,
     receive
-        {'$gen_cast', Tx = #ds_tx{}} ->
-            case handle_tx(check_soft_quota(D0), Tx) of
-                {ok, _PresumedCommitSerial, D} ->
-                    loop(finalize_add_pending(D));
-                aborted ->
-                    loop(D0)
-            end;
-        {'$gen_cast', #cast_dirty_append{} = Tx} ->
-            D = handle_dirty_append(Tx, check_soft_quota(D0)),
-            loop(finalize_add_pending(D));
-        {'$gen_call', From, #call_add_generation{}} ->
-            {Reply, D} = handle_add_generation(D0),
-            gen:reply(From, Reply),
-            loop(D);
-        {'$gen_cast', #ds_del_batch{} = DelBatch} ->
-            D = handle_del_batch(D0, DelBatch),
-            loop(D);
-        {'$gen_cast', config_change} ->
-            loop(do_update_config(D0));
+        {'$gen_cast', Cast} ->
+            loop(handle_cast(Cast, D0));
+        {'$gen_call', From, Call} ->
+            loop(handle_call(From, Call, D0));
         ?timeout_flush ->
             loop(flush(D0));
         ?timeout_quota_check ->
@@ -533,20 +520,11 @@ loop(D0) ->
         {'EXIT', _From, Reason} ->
             case Reason of
                 normal -> loop(D0);
-                _ -> terminate(Reason, D0)
+                _ -> exit(Reason)
             end;
         {system, From, SysReq} ->
             Debug = [],
             sys:handle_system_msg(SysReq, From, D0#d.parent, ?MODULE, Debug, D0);
-        {'$gen_call', From, Other} ->
-            ?tp(warning, emqx_ds_optimistic_tx_unknown_call, #{
-                call => Other,
-                db => DB,
-                shard => Shard,
-                from => From
-            }),
-            gen:reply(From, ?err_unrec({unknown_call, Other})),
-            loop(D0);
         Other ->
             ?tp(warning, emqx_ds_optimistic_tx_unknown_event, #{
                 event => Other,
@@ -558,8 +536,61 @@ loop(D0) ->
         loop(flush(D0))
     end.
 
+handle_call(From, #call_add_generation{}, D0) ->
+    {Reply, D} = handle_add_generation(D0),
+    gen:reply(From, Reply),
+    D;
+handle_call(From, Unknown, D) ->
+    ?tp(warning, emqx_ds_optimistic_tx_unknown_call, #{
+        call => Unknown,
+        db => D#d.db,
+        shard => D#d.shard,
+        from => From
+    }),
+    gen:reply(From, ?err_unrec({unknown_call, Unknown})),
+    D.
+
+handle_cast(#ds_tx{} = Tx, D0) ->
+    case handle_tx(check_soft_quota(D0), Tx) of
+        {ok, _PresumedCommitSerial, D} ->
+            finalize_add_pending(D);
+        aborted ->
+            D0
+    end;
+handle_cast(#cast_dirty_append{} = Tx, D0) ->
+    D = handle_dirty_append(Tx, check_soft_quota(D0)),
+    finalize_add_pending(D);
+handle_cast(#ds_del_batch{} = DelBatch, D) ->
+    handle_del_batch(D, DelBatch);
+handle_cast(config_change, D) ->
+    do_update_config(D);
+handle_cast(Other, D) ->
+    ?tp(warning, emqx_ds_optimistic_tx_unknown_cast, #{
+        cast => Other,
+        db => D#d.db,
+        shard => D#d.shard
+    }),
+    D.
+
 code_change(D, _Extra) ->
     D#d{version = version()}.
+
+-spec terminate(term()) -> no_return().
+terminate(Reason) ->
+    %% If process terminates due to an error, wait a little to avoid
+    %% hot restart loop:
+    is_normal_exit(Reason) orelse timer:sleep(500),
+    clean_mailbox(Reason).
+
+-spec is_normal_exit(term()) -> boolean().
+is_normal_exit(normal) ->
+    true;
+is_normal_exit(shutdown) ->
+    true;
+is_normal_exit({shutdown, _}) ->
+    true;
+is_normal_exit(_) ->
+    false.
 
 %%================================================================================
 %% System functions
@@ -569,8 +600,8 @@ system_continue(Parent, _Debug, D0) ->
     ?MODULE:loop(D0#d{parent = Parent}).
 
 -spec system_terminate(_, _, _, _) -> no_return().
-system_terminate(Reason, _Parent, _Debug, D) ->
-    terminate(Reason, D).
+system_terminate(Reason, _Parent, _Debug, _D) ->
+    exit(Reason).
 
 system_code_change(D, _Module, _OldVsn, Extra) ->
     {ok, ?MODULE:code_change(D, Extra)}.
@@ -578,20 +609,6 @@ system_code_change(D, _Module, _OldVsn, Extra) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
--spec terminate(term(), term()) -> no_return().
-terminate(Reason, _Data) ->
-    Level =
-        case Reason =:= normal orelse Reason =:= shutdown of
-            true ->
-                info;
-            false ->
-                %% Sleep some to prevent a hot restart loop
-                timer:sleep(500),
-                error
-        end,
-    ?tp(Level, ds_otx_terminate, #{reason => Reason}),
-    exit(Reason).
 
 -spec flush(d()) -> d().
 flush(D0) ->
@@ -1539,6 +1556,61 @@ maybe_start_quota_check_timer(true) ->
 maybe_start_quota_check_timer(false) ->
     Interval = 1000,
     erlang:send_after(Interval, self(), ?timeout_quota_check).
+
+%% This process is created via `proc_lib', which is rather inflexible
+%% when it comes to exit report formatting. It'll always dump all
+%% messages. To avoid flooding the logs, we'll try to flush and count
+%% all *expected* payload-like requests.
+-spec clean_mailbox(term()) -> no_return().
+clean_mailbox(Reason) ->
+    clean_mailbox(Reason, 0, 0, 0, 0).
+
+-spec clean_mailbox(
+    term(),
+    non_neg_integer(),
+    non_neg_integer(),
+    non_neg_integer(),
+    non_neg_integer()
+) -> no_return().
+clean_mailbox(Reason, Total, NTrans, NApp, NDel) ->
+    %% Theoretically, the system can be under such pressure that
+    %% messages arrive faster than we can dump it here:
+    Continue = Total < 1000,
+    receive
+        {'$gen_cast', #ds_tx{}} when Continue ->
+            clean_mailbox(Reason, Total + 1, NTrans + 1, NApp, NDel);
+        {'$gen_cast', #cast_dirty_append{}} when Continue ->
+            clean_mailbox(Reason, Total + 1, NTrans, NApp + 1, NDel);
+        {'$gen_cast', #ds_del_batch{}} when Continue ->
+            clean_mailbox(Reason, Total + 1, NTrans, NApp, NDel + 1)
+    after 0 ->
+        case is_normal_exit(Reason) of
+            true ->
+                LogLevel = info,
+                LogInfo = #{};
+            false ->
+                LogLevel = error,
+                case Continue of
+                    true -> LogInfo = #{};
+                    false -> LogInfo = #{reason => Reason}
+                end
+        end,
+        ?tp(
+            LogLevel,
+            ds_otx_terminate,
+            LogInfo#{
+                n_tx => NTrans,
+                n_app => NApp,
+                n_del => NDel
+            }
+        ),
+        case Continue of
+            true ->
+                exit(Reason);
+            false ->
+                exit(self(), kill)
+        end
+    end.
 
 %%================================================================================
 %% Tests

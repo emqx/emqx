@@ -14,6 +14,10 @@ on:
         required: false
         type: string
         default: false
+      latest_major:
+        required: false
+        type: string
+        default: false
       publish:
         required: false
         type: boolean
@@ -54,6 +58,10 @@ on:
         type: string
         default: 'emqx-enterprise'
       latest:
+        required: false
+        type: boolean
+        default: false
+      latest_major:
         required: false
         type: boolean
         default: false
@@ -240,6 +248,7 @@ jobs:
         env:
           OWNER: ${{ github.repository_owner }}
           LATEST: ${{ inputs.latest }}
+          LATEST_MAJOR: ${{ inputs.latest_major }}
           PUBLISH: ${{ inputs.publish }}
         run: |
           set -euo pipefail
@@ -252,6 +261,7 @@ jobs:
               --require-attestations
           )
           if [ "$LATEST" = "true" ]; then ARGS+=(--latest); fi
+          if [ "$LATEST_MAJOR" = "true" ]; then ARGS+=(--latest-major); fi
           if [ "$PUBLISH" = "true" ]; then ARGS+=(--publish); fi
           ./scripts/publish-docker-multi-arch.sh "${ARGS[@]}"
 

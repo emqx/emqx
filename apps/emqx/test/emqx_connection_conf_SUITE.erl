@@ -31,11 +31,14 @@
     t_shared_after_connect,
     t_absent_entry,
     t_client_max_packet_size,
+    t_connection_min_heap_size,
     t_pre_connect_strict_mode,
     t_parse_error,
     t_zone_conf_shared,
     t_zone_conf_absent_entry,
-    t_zone_changed
+    t_zone_changed,
+    t_global_config_change,
+    t_zone_config_change
 ]).
 
 -define(QUIC_CASES, [
@@ -63,8 +66,6 @@ all() ->
             t_session_registration_uses_current_config,
             t_registration_after_zone_removal,
             t_build_matches_frame,
-            t_global_config_change,
-            t_zone_config_change,
             t_session_retry_interval_zero,
             t_zone_conf_change_keeps_frame_shared,
             t_listener_config_change,
@@ -89,19 +90,6 @@ quic_groups() -> [{group, quic}].
 -else.
 quic_groups() -> [].
 -endif.
-
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [{emqx, listeners_conf()}],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    BootMqtt = maps:with(
-        [<<"strict_mode">>, <<"max_packet_size">>], emqx_config:get_raw([<<"mqtt">>])
-    ),
-    [{apps, Apps}, {boot_mqtt, BootMqtt} | Config].
-
-end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_group(socket, Config) ->
     [
@@ -141,7 +129,11 @@ init_per_group(ws, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
-init_per_testcase(_Case, Config) ->
+init_per_testcase(Case, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, listeners_conf()}],
+        #{work_dir => emqx_cth_suite:work_dir(Case, Config)}
+    ),
     %% Start each case with the entries of the zone in place, as on a node
     %% that has served a connection before. A case about the first connection
     %% erases them itself.
@@ -152,21 +144,11 @@ init_per_testcase(_Case, Config) ->
         Listener -> _ = emqx_connection_conf:conn_conf(Listener, default)
     end,
     ok = emqx_connection_conf:sync(),
-    Config.
+    [{apps, Apps} | Config].
 
 end_per_testcase(_Case, Config) ->
     catch meck:unload(),
-    {ok, _} = emqx:update_config([zones], #{}),
-    #{<<"strict_mode">> := StrictMode, <<"max_packet_size">> := MaxSize} = ?config(
-        boot_mqtt, Config
-    ),
-    {ok, _} = emqx:update_config([mqtt, strict_mode], StrictMode),
-    {ok, _} = emqx:update_config([mqtt, max_packet_size], MaxSize),
-    %% Restore an entry that a case erased.
-    ok = emqx_connection_conf:post_zone_config_update(#{}, emqx_config:get([zones])),
-    ok = emqx_connection_conf:sync(),
-    emqx_common_test_helpers:call_janitor(),
-    ok.
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 listeners_conf() ->
     """
@@ -389,34 +371,50 @@ t_parse_error(Config) ->
 
 -doc """
 A change to the global `mqtt.max_packet_size` rebuilds the entry of every
-zone. An existing connection keeps working with its own terms, and a new
-connection shares the new terms.
+zone. An existing connection keeps working with its own terms. A new connection
+shares the new terms and uses the configured heap floor.
 """.
-t_global_config_change(_Config) ->
-    Config = socket_config(),
+t_global_config_change(Config) ->
+    Listener = ?config(listener, Config),
     {ok, _} = emqx:update_config([zones], #{<<"other">> => #{}}),
-    ok = ensure_entries(?SOCKET_LISTENER, [default, other]),
+    ok = ensure_entries(Listener, [default, other]),
     Old = persistent_term:get(?FRAME_KEY(default)),
     OldOther = persistent_term:get(?FRAME_KEY(other)),
     OldSession = persistent_term:get(?SESSION_KEY(default)),
     OldOtherSession = persistent_term:get(?SESSION_KEY(other)),
+    #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := OldParseState}}} = Old,
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config([mqtt, max_packet_size], <<"2MB">>),
+    {ok, _} = emqx:update_config([mqtt, min_heap_size], 987),
+    ?assertEqual([{min_heap_size, 987}], emqx_connection_conf:spawn_opts(Listener, other)),
     assert_zone_entry(default, 2 * 1024 * 1024, Old),
     assert_zone_entry(other, 2 * 1024 * 1024, OldOther),
     ?assert(erts_debug:same(OldSession, persistent_term:get(?SESSION_KEY(default)))),
     ?assert(erts_debug:same(OldOtherSession, persistent_term:get(?SESSION_KEY(other)))),
-    assert_after_change(Config, C1, Old).
+    %% Existing connection keeps the terms it had: runtime copied them into its heap
+    %% when the old entry was replaced.
+    ?assertMatch({OldParseState, _}, frame_state(Config, C1)),
+    ?assertEqual(#{initial_parse_state => false, serialize_opts => false}, held_shared(C1, 5)),
+    C2 = connect(Config, v5),
+    ?assertEqual({min_heap_size, 987}, process_info(conn_pid(C2), min_heap_size)),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C2, 5)),
+    ?assert(held_session_conf(C2, default)),
+    ok = assert_pubsub(C1, C2),
+    ok = assert_pubsub(C2, C1),
+    ok = emqtt:stop(C1),
+    ok = emqtt:stop(C2).
 
 -doc """
 A change to one zone rebuilds its frame and session entries. Existing
-connections keep their settings, and new connections share the new terms.
+connections keep their settings. New connections use the new heap floor
+and share the new terms.
 """.
-t_zone_config_change(_Config) ->
-    Config = socket_config(),
-    ok = ensure_entries(?SOCKET_LISTENER, [default]),
+t_zone_config_change(Config) ->
+    Listener = ?config(listener, Config),
+    ok = ensure_entries(Listener, [default]),
     Old = persistent_term:get(?FRAME_KEY(default)),
     OldSession = persistent_term:get(?SESSION_KEY(default)),
+    #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := OldParseState}}} = Old,
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config(
         [zones],
@@ -424,6 +422,7 @@ t_zone_config_change(_Config) ->
             <<"default">> => #{
                 <<"mqtt">> => #{
                     <<"max_packet_size">> => <<"3MB">>,
+                    <<"min_heap_size">> => 1598,
                     <<"max_subscriptions">> => 25,
                     <<"retry_interval">> => <<"25s">>,
                     <<"await_rel_timeout">> => <<"5s">>
@@ -442,7 +441,24 @@ t_zone_config_change(_Config) ->
     ),
     ?assertEqual(OldSession, session_conf_of(C1)),
     ?assertNot(held_session_conf(C1, default)),
-    assert_after_change(Config, C1, Old).
+    %% Existing connection keeps the terms it had: runtime copied them into its heap
+    %% when the old entry was replaced.
+    ?assertMatch({OldParseState, _}, frame_state(Config, C1)),
+    ?assertEqual(#{initial_parse_state => false, serialize_opts => false}, held_shared(C1, 5)),
+    C2 = connect(Config, v5),
+    ?assertEqual({min_heap_size, 1598}, process_info(conn_pid(C2), min_heap_size)),
+    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C2, 5)),
+    ?assert(held_session_conf(C2, default)),
+    ok = assert_pubsub(C1, C2),
+    ok = assert_pubsub(C2, C1),
+    ok = emqtt:stop(C1),
+    ok = emqtt:stop(C2).
+
+-doc "A new connection uses the default minimum heap size.".
+t_connection_min_heap_size(Config) ->
+    C = connect(Config, v5),
+    ?assertEqual({min_heap_size, 610}, process_info(conn_pid(C), min_heap_size)),
+    ok = emqtt:stop(C).
 
 -doc "Session retry intervals normalize zero to infinity and preserve other values.".
 t_session_retry_interval_zero(_Config) ->
@@ -467,9 +483,6 @@ t_listener_config_change(_Config) ->
     Config = socket_config(),
     {tcp, Name} = ?SOCKET_LISTENER,
     OldRaw = emqx_config:get_raw([listeners, tcp, Name]),
-    emqx_common_test_helpers:on_exit(fun() ->
-        {ok, _} = emqx:update_config([listeners, tcp, Name], {update, OldRaw})
-    end),
     ok = ensure_entries(?SOCKET_LISTENER, [default]),
     Old = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
     ?assertNotMatch(#conf{active_n = 77}, Old),
@@ -493,9 +506,6 @@ t_listener_unrelated_change_keeps_entry(_Config) ->
     Config = socket_config(),
     {tcp, Name} = ?SOCKET_LISTENER,
     OldRaw = emqx_config:get_raw([listeners, tcp, Name]),
-    emqx_common_test_helpers:on_exit(fun() ->
-        {ok, _} = emqx:update_config([listeners, tcp, Name], {update, OldRaw})
-    end),
     ok = ensure_entries(?SOCKET_LISTENER, [default]),
     Old = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
     ?assertNotEqual(7777, maps:get(<<"max_connections">>, OldRaw, undefined)),
@@ -515,9 +525,6 @@ t_listener_delete_erases_entry(_Config) ->
         [listeners, tcp, tmp_listener],
         {create, #{<<"bind">> => <<"127.0.0.1:21887">>, <<"enable">> => false}}
     ),
-    emqx_common_test_helpers:on_exit(fun() ->
-        _ = emqx:update_config([listeners, tcp, tmp_listener], ?TOMBSTONE_CONFIG_CHANGE_REQ)
-    end),
     ok = ensure_entries(?SOCKET_LISTENER, [default]),
     ok = ensure_entries(Listener, [default]),
     Kept = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
@@ -612,9 +619,6 @@ t_zone_conf_change_keeps_frame_shared(_Config) ->
     OldFrame = persistent_term:get(?FRAME_KEY(default)),
     OldZoneConf = persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)),
     OldForceGc = emqx_config:get_raw([force_gc]),
-    emqx_common_test_helpers:on_exit(fun() ->
-        {ok, _} = emqx:update_config([force_gc], OldForceGc)
-    end),
     C1 = connect(Config, v5),
     {ok, _} = emqx:update_config([force_gc], OldForceGc#{<<"count">> => 4321}),
     ?assertMatch(
@@ -759,20 +763,6 @@ assert_zone_entry(Zone, MaxSize, Old) ->
         ),
         ParseState
     ).
-
-assert_after_change(Config, C1, Old) ->
-    #{common := #{?MQTT_PROTO_V5 := #{initial_parse_state := OldParseState}}} = Old,
-    %% The existing connection keeps the terms it had. The runtime copied them
-    %% into its heap when the old entry was replaced.
-    ?assertMatch({OldParseState, _}, frame_state(Config, C1)),
-    ?assertEqual(#{initial_parse_state => false, serialize_opts => false}, held_shared(C1, 5)),
-    C2 = connect(Config, v5),
-    ?assertEqual(#{initial_parse_state => true, serialize_opts => true}, held_shared(C2, 5)),
-    ?assert(held_session_conf(C2, default)),
-    ok = assert_pubsub(C1, C2),
-    ok = assert_pubsub(C2, C1),
-    ok = emqtt:stop(C1),
-    ok = emqtt:stop(C2).
 
 connect(Config, ProtoVer) ->
     connect(Config, ProtoVer, []).
