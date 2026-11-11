@@ -93,7 +93,7 @@
 -export([num_comp/2, num_eq/2, num_neq/2, num_lt/2, num_lte/2, num_gt/2, num_gte/2]).
 
 %% System
--export([getenv/1, timestamp_s/0, timestamp_ms/0]).
+-export([getenv/1, timestamp_s/0, timestamp_ms/0, now_rfc3339_s/0, now_rfc3339_ms/0]).
 
 -define(CACHE(Key), {?MODULE, Key}).
 -define(ENV_CACHE(Env), ?CACHE({env, Env})).
@@ -1042,3 +1042,9 @@ timestamp_s() ->
 
 timestamp_ms() ->
     os:system_time(millisecond).
+
+now_rfc3339_s() ->
+    emqx_utils_calendar:now_to_rfc3339().
+
+now_rfc3339_ms() ->
+    emqx_utils_calendar:now_to_rfc3339(millisecond).

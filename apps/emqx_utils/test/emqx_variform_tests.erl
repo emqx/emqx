@@ -577,3 +577,8 @@ base64url_encode(Bin) ->
     ),
     %% Remove padding
     binary:replace(Base64Url, <<"=">>, <<>>, [global]).
+
+now_rfc3339_test() ->
+    ?assertMatch({ok, _}, render("now_rfc3339_s()", #{})),
+    ?assertMatch({ok, _}, render("now_rfc3339_ms()", #{})),
+    ok.
