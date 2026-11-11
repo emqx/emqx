@@ -487,7 +487,7 @@ open_tx(ClientId) ->
 
 -spec new_pmap(atom()) -> emqx_ds_pmap:pmap(_, _).
 new_pmap(Pmap) ->
-    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap)).
+    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap), pmap_kind(Pmap)).
 
 pmap_encode_key(?top_metadata, MetaKey) ->
     atom_to_binary(MetaKey, latin1);
@@ -738,4 +738,10 @@ pmap_name(Pmap) ->
         ?streams -> ?top_streams;
         ?ranks -> ?top_ranks;
         ?awaiting_rel -> ?top_awaiting_rel
+    end.
+
+pmap_kind(Pmap) ->
+    case Pmap of
+        ?awaiting_rel -> diff;
+        _ -> dirty
     end.
