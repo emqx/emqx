@@ -155,7 +155,9 @@
 -spec start_link(esockd_socket, socket:socket(), emqx_channel:opts()) -> {ok, pid()}.
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
-    CPid = proc_lib:spawn_link(?MODULE, init, Args),
+    #{listener := Listener, zone := Zone} = Options,
+    SpawnOpts = [link | emqx_connection_conf:spawn_opts(Listener, Zone)],
+    CPid = proc_lib:spawn_opt(?MODULE, init, Args, SpawnOpts),
     {ok, CPid}.
 
 %%--------------------------------------------------------------------
