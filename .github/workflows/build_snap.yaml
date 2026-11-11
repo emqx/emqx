@@ -155,7 +155,21 @@ jobs:
         SNAP: ${{ steps.snapcraft.outputs.snap }}
         TAG: ${{ needs.prepare.outputs.tag }}
         AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-      run: aws s3 cp "$SNAP" "s3://$AWS_S3_BUCKET/emqx-ee/$TAG/"
+      run: |
+        set -euo pipefail
+        key="emqx-ee/$TAG/$(basename "$SNAP")"
+        checksum=$(openssl dgst -sha256 -binary "$SNAP" | base64 -w0)
+        sha256sum "$SNAP"
+        if aws s3api put-object --bucket "$AWS_S3_BUCKET" --key "$key" --body "$SNAP" \
+          --checksum-algorithm SHA256 --checksum-sha256 "$checksum" --if-none-match '*'; then
+          exit 0
+        fi
+        aws s3 cp "s3://$AWS_S3_BUCKET/$key" existing.snap
+        if ! cmp --silent "$SNAP" existing.snap; then
+          echo "::error::A different Snap already exists at this release path; refusing to overwrite it"
+          exit 1
+        fi
+        echo "The identical Snap is already uploaded"
 
   publish:
     needs: prepare
