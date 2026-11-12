@@ -141,7 +141,8 @@ t_overshoot_and_retention(_Config) ->
     ?assertEqual(Records, emqx_mq_message_db:dirty_read_all(MQ)),
     ok = gc([MQ#{data_retention_period := 0}]),
     ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)),
-    ?retry(50, 100, ?assertMatch({ok, #{count := 0}}, occupancy(MQ))).
+    %% The closed bucket is released. The index keeps its newest bucket
+    ?retry(50, 100, ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ))).
 
 -doc "Check that slab GC processes multiple reject queues without dropping unexpired data".
 t_gc_batches_reject_queues(_Config) ->
@@ -179,11 +180,12 @@ t_retention_conflict_isolation(_Config) ->
     ]),
     ?assertEqual([], stored_payloads(MQ0)),
     ?assertEqual([], stored_payloads(MQ1)),
-    ?retry(50, 100, ?assertMatch({ok, #{count := 0}}, occupancy(MQ1))),
+    %% The closed bucket is released. The index keeps its newest bucket
+    ?retry(50, 100, ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ1))),
     {ok, _} = ?block_until(#{?snk_kind := mq_cleanup_retry}, 5000, infinity),
-    ?assertMatch({ok, #{count := 2}}, occupancy(MQ0)),
+    ?assertMatch({ok, #{count := 2, buckets := 2}}, occupancy(MQ0)),
     meck:unload(emqx_mq_message_db),
-    ?retry(50, 100, ?assertMatch({ok, #{count := 0}}, occupancy(MQ0))).
+    ?retry(50, 100, ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ0))).
 
 %% Check that GC reports expiry only when its cutoff reaches the end of the oldest bucket.
 t_gc_reports_whole_buckets(_Config) ->
@@ -213,34 +215,39 @@ t_stale_high_admission(_Config) ->
     meck:unload(emqx_mq_message_db),
     ok = emqx_mq_message_db:insert(MQ, message(<<"value">>)).
 
-%% Check that the processing delay lets a quota flush that follows consumption land first.
+%% Check that consumption before the quota flush does not block the queue.
 t_delayed_quota_flush(_Config) ->
     MQ = queue(#{max_shard_message_count => 1}),
     meck:new(emqx_mq_message_db, [passthrough, no_link]),
     meck:expect(emqx_mq_message_db, quota_buffer_flush_interval, fun() -> 60000 end),
-    meck:new(emqx_mq_cleanup_worker, [passthrough, no_link]),
-    meck:expect(emqx_mq_cleanup_worker, process_delay, fun() -> 1000 end),
     C = subscriber(),
-    ok = emqx_mq_message_db:insert(MQ, message(<<"value">>)),
+    ok = emqx_mq_message_db:insert(MQ, message(<<"first">>)),
     {ok, Received} = emqx_mq_test_utils:emqtt_drain(1, 1000),
-    %% The consumer reports before the quota of the record is flushed
+    %% The consumer reports before the quota of the record is flushed, so nothing is released
     ?assertWaitEvent(
         emqx_mq_test_utils:emqtt_ack(Received),
-        #{?snk_kind := mq_cleanup_report},
+        #{?snk_kind := mq_cleanup_refreshed},
         5000
     ),
-    ?assertMatch({ok, #{count := 0}}, occupancy(MQ)),
-    ?assertWaitEvent(ok = flush(), #{?snk_kind := mq_cleanup_released}, 5000),
+    ok = flush(),
+    ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ)),
+    %% The single bucket admits the next message. Its consumption releases the first bucket
+    ok = emqx_mq_message_db:insert(MQ, message(<<"second">>)),
+    ok = flush(),
+    {ok, Received1} = emqx_mq_test_utils:emqtt_drain(1, 1000),
+    ?assertWaitEvent(
+        emqx_mq_test_utils:emqtt_ack(Received1),
+        #{?snk_kind := mq_cleanup_released},
+        5000
+    ),
+    ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ)),
     ?assertEqual([], stored_payloads(MQ)),
-    ?assertMatch({ok, #{count := 0}}, occupancy(MQ)),
     ok = emqtt:disconnect(C).
 
 %% Check that failed deletion of consumed records keeps their quota until a retry deletes them.
 t_failed_cleanup_deletion(_Config) ->
     MQ = queue(#{max_shard_message_count => 2}),
-    ok = emqx_mq_message_db:insert(MQ, message(<<"first">>)),
-    ok = emqx_mq_message_db:insert(MQ, message(<<"second">>)),
-    ok = flush(),
+    ok = fill(MQ, [<<"first">>, <<"second">>]),
     meck:new(emqx_mq_ds_queue_deleter, [passthrough, no_link]),
     meck:expect(emqx_mq_ds_queue_deleter, delete, fun(_, _, _) -> {error, injected} end),
     meck:new(emqx_mq_cleanup_worker, [passthrough, no_link]),
@@ -252,11 +259,11 @@ t_failed_cleanup_deletion(_Config) ->
     ),
     %% The consumed records stay on disk, so their quota stays charged
     ?assertMatch([_, _], emqx_mq_message_db:dirty_read_all(MQ)),
-    ?assertMatch({ok, #{count := 2}}, occupancy(MQ)),
+    ?assertMatch({ok, #{count := 2, buckets := 2}}, occupancy(MQ)),
     ?assertEqual({error, queue_full}, emqx_mq_message_db:insert(MQ, message(<<"third">>))),
-    %% A retry after the deletion recovers releases the quota
+    %% A retry after the deletion recovers releases the closed bucket
     meck:unload(emqx_mq_ds_queue_deleter),
-    ?retry(50, 100, ?assertMatch({ok, #{count := 0}}, occupancy(MQ))),
+    ?retry(50, 100, ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ))),
     ?assertEqual([], emqx_mq_message_db:dirty_read_all(MQ)),
     ok = emqx_mq_message_db:insert(MQ, message(<<"third">>)),
     ok = emqtt:disconnect(C).
@@ -341,7 +348,7 @@ t_cleanup_unknown_message(_Config) ->
     ?assertEqual({error, unknown_request}, gen_server:call(Worker, synchronize)),
     ?assertEqual(Worker, gproc_pool:pick_worker(emqx_mq_cleanup_worker, Id)).
 
-%% Check that a head below the bucket threshold stays charged without repeated refreshes.
+%% Check that a consumed head stays charged, its records are deleted, and repeated reports are ignored.
 t_unclosable_head(_Config) ->
     MQ = queue(#{max_shard_message_count => 100}),
     ok = emqx_mq_message_db:insert(MQ, message(<<"value">>)),
@@ -350,14 +357,18 @@ t_unclosable_head(_Config) ->
     {ok, Received} = emqx_mq_test_utils:emqtt_drain(1, 1000),
     ?assertWaitEvent(
         emqx_mq_test_utils:emqtt_ack(Received),
-        #{?snk_kind := mq_cleanup_refreshed, released := 0},
+        #{?snk_kind := mq_cleanup_released},
         5000
     ),
-    ?assertMatch({ok, #{count := 1}}, occupancy(MQ)),
+    ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ)),
+    ?assertEqual([], stored_payloads(MQ)),
+    %% The consumer repeats its boundary at each persistence flush
+    {ok, _} = ?block_until(#{?snk_kind := mq_cleanup_report_ignored}, 5000, infinity),
     ?assertEqual(timeout, ?block_until(#{?snk_kind := mq_cleanup_refreshed}, 3000, 0)),
     ok = emqtt:disconnect(C).
 
-%% Check that each consumed record of a count-one queue releases its quota.
+%% Check that consecutive consumption of a count-one queue keeps the queue open.
+%% Each consumed record is deleted. Its bucket is released when the next record is consumed.
 t_consecutive_consumption(_Config) ->
     MQ = queue(#{max_shard_message_count => 1}),
     C = subscriber(),
@@ -371,17 +382,16 @@ t_consecutive_consumption(_Config) ->
                 #{?snk_kind := mq_cleanup_released},
                 5000
             ),
-            ?assertMatch({ok, #{count := 0}}, occupancy(MQ))
+            ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ)),
+            ?assertEqual([], stored_payloads(MQ))
         end,
-        [<<"first">>, <<"second">>]
+        [<<"first">>, <<"second">>, <<"third">>]
     ),
     ok = emqtt:disconnect(C).
 
 %% Check that a worker ignores reports at or below the processed boundary of a consumer.
 t_cleanup_ignores_processed_reports(_Config) ->
     MQ = queue(#{max_shard_message_count => 10}),
-    meck:new(emqx_mq_cleanup_worker, [passthrough, no_link]),
-    meck:expect(emqx_mq_cleanup_worker, process_delay, fun() -> 0 end),
     ?assertWaitEvent(
         emqx_mq_cleanup_worker:report_consumed(MQ, shard(), 100),
         #{?snk_kind := mq_cleanup_refreshed, boundary := 100},
@@ -410,8 +420,6 @@ t_cleanup_ignores_processed_reports(_Config) ->
 %% Check that a worker drops the boundaries of a consumer that stops.
 t_cleanup_consumer_down(_Config) ->
     #{id := Id} = MQ = queue(#{max_shard_message_count => 10}),
-    meck:new(emqx_mq_cleanup_worker, [passthrough, no_link]),
-    meck:expect(emqx_mq_cleanup_worker, process_delay, fun() -> 0 end),
     Worker = gproc_pool:pick_worker(emqx_mq_cleanup_worker, Id),
     Shard = shard(),
     Consumer = spawn(fun() ->
@@ -436,31 +444,32 @@ t_cleanup_consumer_down(_Config) ->
         end
     ).
 
-%% Check that a quota flush between the index refresh and the truncation keeps its charge.
+%% Check that a quota flush during a release keeps the charge of records after the boundary,
+%% and that the bucket it closes is released once the boundary passes its end.
 t_cleanup_flush_conflict(_Config) ->
     MQ = queue(#{max_shard_message_count => 10}),
     ok = emqx_mq_message_db:insert(MQ, message(<<"consumed">>)),
     ok = flush(),
     [{_, DSPosition, _}] = emqx_mq_message_db:dirty_read_all(MQ),
-    %% Store and flush another record after the release has picked its boundary
+    %% Store another record and close the bucket between the deletion and the index transaction
     meck:new(emqx_mq_ds_queue_deleter, [passthrough, no_link]),
     meck:expect(emqx_mq_ds_queue_deleter, delete, fun(DB, Topics, Bounds) ->
         ok = emqx_mq_message_db:insert(MQ, message(<<"unconsumed">>)),
         ok = flush(),
         meck:passthrough([DB, Topics, Bounds])
     end),
-    {ok, Released} = emqx_mq_message_db:release_before(MQ, shard(), DSPosition + 1),
-    ?assert(Released > DSPosition),
-    [{_, UnconsumedPosition, _}] = [
-        R
-     || {_, _, Bin} = R <- emqx_mq_message_db:dirty_read_all(MQ),
-        emqx_message:payload(emqx_mq_message_db:decode_message(Bin)) =:= <<"unconsumed">>
-    ],
-    ?assert(Released =< UnconsumedPosition),
+    ok = emqx_mq_message_db:release_before(MQ, shard(), DSPosition + 1),
+    meck:unload(emqx_mq_ds_queue_deleter),
     ?assertEqual([<<"unconsumed">>], stored_payloads(MQ)),
-    ?assertMatch({ok, #{count := 1}}, occupancy(MQ)).
+    %% The closed bucket ends at a fence after the boundary, so both buckets stay charged
+    ?assertMatch({ok, #{count := 2, buckets := 2}}, occupancy(MQ)),
+    [{_, UnconsumedPosition, _}] = emqx_mq_message_db:dirty_read_all(MQ),
+    ok = emqx_mq_message_db:release_before(MQ, shard(), UnconsumedPosition + 1),
+    ?assertEqual([], stored_payloads(MQ)),
+    ?assertMatch({ok, #{count := 1, buckets := 1}}, occupancy(MQ)).
 
-%% Check that a single retained head bucket admits a message above the limit, then rotates and releases.
+%% Check that a single retained head bucket admits messages above the limit,
+%% and that the bucket is released after it closes and a later record is consumed.
 t_single_head_admission(_Config) ->
     Large = message(binary:copy(<<1>>, 2000)),
     MaxBytes = byte_size(emqx_mq_message_db:encode_message(Large)),
@@ -471,21 +480,33 @@ t_single_head_admission(_Config) ->
     ok = flush(),
     C = subscriber(),
     {ok, Received} = emqx_mq_test_utils:emqtt_drain(1, 1000),
-    %% The consumed head is below the bucket threshold, so cleanup cannot release it
+    %% The consumed head is the only bucket, so it stays charged
     ?assertWaitEvent(
         emqx_mq_test_utils:emqtt_ack(Received),
-        #{?snk_kind := mq_cleanup_refreshed, released := 0},
+        #{?snk_kind := mq_cleanup_released},
         5000
     ),
     ?assertMatch({ok, #{bytes := SmallBytes, buckets := 1}}, occupancy(MQ)),
-    %% The single bucket admits a message above the limit
+    %% The single bucket admits a message above the limit, and fills
     ok = emqx_mq_message_db:insert(MQ, Large),
     ok = flush(),
     {ok, Received1} = emqx_mq_test_utils:emqtt_drain(1, 1000),
-    ok = emqx_mq_test_utils:emqtt_ack(Received1),
-    %% The full head closes, and its consumed records are released
-    ?retry(50, 100, ?assertMatch({ok, #{bytes := 0}}, occupancy(MQ))),
+    ?assertWaitEvent(
+        emqx_mq_test_utils:emqtt_ack(Received1),
+        #{?snk_kind := mq_cleanup_released},
+        5000
+    ),
     ?assertEqual([], stored_payloads(MQ)),
+    %% The next message closes the full bucket. Its consumption releases the bucket
+    ok = emqx_mq_message_db:insert(MQ, Small),
+    ok = flush(),
+    {ok, Received2} = emqx_mq_test_utils:emqtt_drain(1, 1000),
+    ?assertWaitEvent(
+        emqx_mq_test_utils:emqtt_ack(Received2),
+        #{?snk_kind := mq_cleanup_released},
+        5000
+    ),
+    ?assertMatch({ok, #{bytes := SmallBytes, buckets := 1}}, occupancy(MQ)),
     ok = emqtt:disconnect(C).
 
 %% Check that the cleanup worker retries reported progress after a release fails.
@@ -508,9 +529,9 @@ t_cleanup_retry(_Config) ->
         #{?snk_kind := mq_cleanup_retry},
         5000
     ),
-    ?assertMatch({ok, #{count := 1}}, occupancy(MQ)),
+    ?assertEqual([<<"value">>], stored_payloads(MQ)),
     meck:unload(emqx_mq_message_db),
-    ?retry(50, 100, ?assertMatch({ok, #{count := 0}}, occupancy(MQ))),
+    ?retry(50, 100, ?assertEqual([], stored_payloads(MQ))),
     ok = emqtt:disconnect(C).
 
 %% Check that cleanup releases quota after a full purge that keeps the consumer running.
@@ -522,19 +543,20 @@ t_purge_with_running_cleanup(_Config) ->
     C = subscriber(),
     {ok, Received} = emqx_mq_test_utils:emqtt_drain(1, 1000),
     ok = emqx_mq_test_utils:emqtt_ack(Received),
-    ?retry(50, 100, ?assertMatch({ok, #{count := 0}}, occupancy(MQ0))),
+    ?retry(50, 100, ?assertEqual([], stored_payloads(MQ0))),
     {ok, Consumer} = emqx_mq_consumer:find(Id),
     %% A later stored cutoff keeps the consumer running through the purge
     {ok, MQ1, true} = emqx_mq_state_storage:update_mq_state(Id, #{deliver_cutoff_date => FutureMs}),
     ?assertEqual({ok, MQ1}, emqx_mq_registry:purge(<<"capped">>)),
     ?assertEqual({ok, Consumer}, emqx_mq_consumer:find(Id)),
     %% The running consumer keeps its settings and delivers the new record.
-    %% Its acknowledgment releases the charge in the reset index.
+    %% Its acknowledgment deletes it. The reset index keeps one bucket, so admission stays open.
     ok = emqx_mq_message_db:insert(MQ1, message(<<"second">>)),
     ok = flush(),
     {ok, [#{payload := <<"second">>}] = Received1} = emqx_mq_test_utils:emqtt_drain(1, 1000),
     ok = emqx_mq_test_utils:emqtt_ack(Received1),
-    ?retry(50, 100, ?assertMatch({ok, #{count := 0}}, occupancy(MQ1))),
+    ?retry(50, 100, ?assertEqual([], stored_payloads(MQ1))),
+    ?assertMatch({ok, #{buckets := 1}}, occupancy(MQ1)),
     ok = emqx_mq_message_db:insert(MQ1, message(<<"third">>)),
     ok = emqtt:disconnect(C).
 

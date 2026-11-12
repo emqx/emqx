@@ -49,6 +49,15 @@ one bucket at (0, 0) with the totals that the legacy index keeps.
 
 `rotate/2` and `truncate/2` change the serial index before a purge deletes messages.
 They require that the legacy index is dropped: a purge runs only when every node supports the serial index.
+
+## Released boundary
+
+Reject queues release quota of consumed and expired messages.
+Cleanup first deletes the messages stored before a DS timestamp, then calls `release/2` with it.
+The index keeps the latest such timestamp, the released boundary,
+and drops the buckets that end at or before it.
+Each flush drops them too, so a bucket that closes later is released when it closes.
+The index keeps the bucket that contains the boundary, and always keeps the newest bucket.
 """.
 
 %% ASN1-generated record field names are in camelCase.
@@ -69,6 +78,8 @@ They require that the legacy index is dropped: a purge runs only when every node
     inspect/1,
     is_serial_index_supported/0,
     occupancy/1,
+    release/2,
+    released_before/1,
     next_boundary/1,
     boundaries/1,
     oldest_boundary/1,
@@ -87,7 +98,9 @@ They require that the legacy index is dropped: a purge runs only when every node
 -record(index, {
     opts :: opts(),
     legacy :: emqx_mq_quota_index_legacy:t() | undefined,
-    serial :: emqx_mq_quota_index_serial:t()
+    serial :: emqx_mq_quota_index_serial:t(),
+    %% See "Released boundary"
+    released_before :: timestamp_us() | undefined
 }).
 -opaque t() :: #index{}.
 
@@ -110,15 +123,44 @@ is_serial_index_supported() ->
         error:badarg -> false
     end.
 
--doc "Return the total bytes and count of all buckets, and the number of buckets".
--spec occupancy(t()) -> #{bytes := integer(), count := integer(), buckets := pos_integer()}.
+-doc """
+Return the total bytes and count of all buckets, the number of buckets,
+and whether the newest bucket, the head, counts nothing.
+""".
+-spec occupancy(t()) ->
+    #{
+        bytes := integer(),
+        count := integer(),
+        buckets := pos_integer(),
+        head_empty := boolean()
+    }.
 occupancy(#index{serial = Serial}) ->
-    {Records, _} = emqx_mq_quota_index_serial:to_storage(Serial),
+    {[#'SerialIndexBucket'{bytes = HeadBytes, count = HeadCount} | _] = Records, _} =
+        emqx_mq_quota_index_serial:to_storage(Serial),
     #{
         bytes => lists:sum([Bytes || #'SerialIndexBucket'{bytes = Bytes} <- Records]),
         count => lists:sum([Count || #'SerialIndexBucket'{count = Count} <- Records]),
-        buckets => length(Records)
+        buckets => length(Records),
+        head_empty => HeadBytes =< 0 andalso HeadCount =< 0
     }.
+
+-doc """
+Raise the released boundary to the DS timestamp, and drop the buckets that end at or before it.
+Call only after the messages stored before the timestamp are deleted. See "Released boundary".
+""".
+-spec release(t(), timestamp_us()) -> t().
+release(#index{legacy = undefined, released_before = Released0} = Index, BeforeUs) ->
+    Released =
+        case Released0 of
+            undefined -> BeforeUs;
+            _ -> max(Released0, BeforeUs)
+        end,
+    apply_released(Index#index{released_before = Released}).
+
+-doc "Return the released boundary, or `undefined` when nothing was released".
+-spec released_before(t()) -> timestamp_us() | undefined.
+released_before(#index{released_before = Released}) ->
+    Released.
 
 -doc "Return the DS timestamp at which the oldest retained bucket ends, or `undefined` for one bucket".
 -spec next_boundary(t()) -> timestamp_us() | undefined.
@@ -176,24 +218,34 @@ decode(Opts, Bin) ->
             #'StorageIndex'{serialBuckets = Buckets, seenFenceSerial = SeenFenceSerial} ->
                 emqx_mq_quota_index_serial:from_storage(Buckets, from_asn1(SeenFenceSerial))
         end,
-    #index{opts = Opts, legacy = Legacy, serial = Serial}.
+    #index{
+        opts = Opts,
+        legacy = Legacy,
+        serial = Serial,
+        released_before = from_asn1(Storage#'StorageIndex'.releasedBeforeUs)
+    }.
 
 -doc "Encode both indices. The legacy fields are left out after the legacy index is dropped".
 -spec encode(t()) -> binary().
-encode(#index{legacy = Legacy, serial = Serial}) ->
+encode(#index{legacy = Legacy, serial = Serial, released_before = Released}) ->
     Storage = legacy_storage(Legacy),
     {Buckets, SeenFenceSerial} = emqx_mq_quota_index_serial:to_storage(Serial),
     'MessageQueue':encode('StorageIndex', Storage#'StorageIndex'{
-        serialBuckets = Buckets, seenFenceSerial = to_asn1(SeenFenceSerial)
+        serialBuckets = Buckets,
+        seenFenceSerial = to_asn1(SeenFenceSerial),
+        releasedBeforeUs = to_asn1(Released)
     }).
 
--doc "Apply one flush of updates to both indices. Return the index and whether to write a fence".
+-doc """
+Apply one flush of updates to both indices. Return the index and whether to write a fence.
+Drop the buckets that end at or before the released boundary, also when the flush closes them.
+""".
 -spec apply_updates(t(), [update()], emqx_mq_quota_index_serial:fence() | undefined) ->
     {t(), boolean()}.
 apply_updates(#index{opts = Opts, serial = Serial0} = Index0, Updates, Fence) ->
     {Serial, NeedFence} = emqx_mq_quota_index_serial:apply_updates(Serial0, Updates, Fence, Opts),
     Index = apply_legacy_updates(Index0, Updates),
-    {Index#index{serial = Serial}, NeedFence}.
+    {apply_released(Index#index{serial = Serial}), NeedFence}.
 
 -doc "Drop the buckets before the fence stored in DS. See `emqx_mq_quota_index_serial`".
 -spec rotate(t(), emqx_mq_quota_index_serial:fence()) -> {emqx_mq_quota_index_serial:fence(), t()}.
@@ -220,16 +272,25 @@ deadline(#index{legacy = Legacy}) ->
 
 -doc "Return both indices in a readable form. `legacy` is undefined after it is dropped".
 -spec inspect(t()) -> map().
-inspect(#index{opts = Opts, legacy = Legacy, serial = Serial}) ->
+inspect(#index{opts = Opts, legacy = Legacy, serial = Serial, released_before = Released}) ->
     #{
         opts => Opts,
         legacy => inspect_legacy(Legacy),
-        serial => emqx_mq_quota_index_serial:inspect(Serial)
+        serial => emqx_mq_quota_index_serial:inspect(Serial),
+        released_before => Released
     }.
 
 %%------------------------------------------------------------------------------
 %% Private
 %%------------------------------------------------------------------------------
+
+%% The released boundary is set only on indices without the legacy part.
+apply_released(#index{legacy = undefined, serial = Serial, released_before = Released} = Index) when
+    is_integer(Released)
+->
+    Index#index{serial = emqx_mq_quota_index_serial:truncate(Serial, Released)};
+apply_released(Index) ->
+    Index.
 
 apply_legacy_updates(#index{legacy = undefined} = Index, _Updates) ->
     Index;

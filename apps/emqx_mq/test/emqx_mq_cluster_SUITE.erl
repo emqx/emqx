@@ -255,8 +255,9 @@ t_cluster_reject_consumption(Config) ->
         100,
         lists:foreach(
             fun(Shard) ->
+                %% Consumed closed buckets are released. The index keeps its newest bucket
                 ?assertMatch(
-                    {ok, #{count := 0}},
+                    {ok, #{buckets := Buckets}} when Buckets =< 1,
                     erpc:call(PubNode, emqx_mq_message_db, occupancy, [MQ, Shard])
                 )
             end,

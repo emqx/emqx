@@ -71,6 +71,7 @@ BEGIN
     bytes [2] SEQUENCE OF StorageIndexRecord OPTIONAL,
     serialBuckets [3] SEQUENCE OF SerialIndexBucket OPTIONAL,
     seenFenceSerial [4] INTEGER OPTIONAL,
+    releasedBeforeUs [5] INTEGER OPTIONAL,
     ...
   }
 
