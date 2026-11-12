@@ -75,6 +75,14 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: git fetch --no-tags --depth=1 --force origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+      - name: Configure trusted SSH release signers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allowed_signers="$RUNNER_TEMP/release-allowed-signers"
+          gh api users/zmstone/ssh_signing_keys --jq '.[] | "zmstone \(.key)"' > "$allowed_signers"
+          test -s "$allowed_signers"
+          git config gpg.ssh.allowedSignersFile "$allowed_signers"
       - name: Generate GitHub App token for emqx-package-manifests
         id: app-token
         if: steps.gate.outputs.publish == 'true'
