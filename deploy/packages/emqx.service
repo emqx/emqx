@@ -20,12 +20,10 @@ ExecStart=/bin/bash /usr/bin/emqx foreground
 # Give EMQX enough file descriptors
 LimitNOFILE=1048576
 
-# ExecStop is commented out so systemd will send a SIGTERM when 'systemctl stop'.
-# SIGTERM is handled by EMQX and it then performs a graceful shutdown
-# emqx stop will ping node, always return 0 to make sure next command will be executed
+# 'emqx stop' asks the node to shut down gracefully and waits for it to exit.
+# It always returns 0. After ExecStop, systemd sends SIGTERM to any process
+# still running, which EMQX also handles as a graceful shutdown.
 ExecStop=/bin/bash -c '/usr/bin/emqx stop; exit 0'
-# If the process is still running, force kill it
-ExecStop=/bin/bash -c 'if [ ps -p $MAINPID >/dev/null 2>&1 ]; then kill -15 $MAINPID; fi'
 
 # Wait long enough before force kill for graceful shutdown
 TimeoutStopSec=120s
