@@ -259,6 +259,9 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps, DirectDispatch) ->
             ok;
         disconnect ->
             error;
+        {blocked, #message{headers = #{delayed_publish_accepted := true}}} ->
+            emqx_metrics:inc_msg(Msg),
+            ok;
         {blocked, _Msg} ->
             error
     end.
