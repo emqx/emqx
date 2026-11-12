@@ -90,6 +90,14 @@
 -export([match/2, matches/3, get_id/1, get_topic/1, matches_filter/3]).
 -export_type([key/1, word/0, words/0, nextf/0, opts/0]).
 
+%% Seven-byte SWAR scans stay within small integers on 64-bit BEAM.
+%% See `emqx_topic` for additional details.
+-define(SLASH_BYTES7, 16#2F2F2F2F2F2F2F).
+-define(HAS_ZERO_BYTE7(V),
+    (((((V) band 16#7F7F7F7F7F7F7F) + 16#7F7F7F7F7F7F7F) bor (V)) band
+        16#80808080808080 =/= 16#80808080808080)
+).
+
 -define(END, '$end_of_table').
 
 -type word() :: binary() | '+' | '#'.
@@ -145,6 +153,8 @@ get_topic({Topic, _ID}) ->
 base(Prefix) ->
     {Prefix, {}}.
 
+base_init(<<"$", _/bytes>> = Topic) ->
+    base([first_level(Topic)]);
 base_init([W = <<"$", _/bytes>> | _]) ->
     base([W]);
 base_init(_) ->
@@ -156,7 +166,13 @@ move_up(NextF, Base) ->
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
--spec match(emqx_types:topic(), nextf()) -> false | key(_).
+%% Binary inputs must be valid MQTT topic names. This function does not validate them:
+%% results and errors for invalid topic names are unspecified.
+%% Parsed lists may contain wildcard atoms for filter queries:
+%% * '#' matches any remaining filter levels,
+%% * '+' matches one filter level.
+%% Parsed lists are not validated here.
+-spec match(emqx_types:topic() | [word()], nextf()) -> false | key(_).
 match(Topic, NextF) ->
     try search(Topic, NextF, [return_first]) of
         _ -> false
@@ -167,11 +183,18 @@ match(Topic, NextF) ->
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
+%% Binary inputs must be valid MQTT topic names. This function does not validate them:
+%% results and errors for invalid topic names are unspecified.
+%% Parsed lists may contain wildcard atoms for filter queries:
+%% '#' matches any remaining filter levels; '+' matches one filter level.
+%% Parsed lists are not validated here.
 -spec matches(emqx_types:topic() | [word()], nextf(), opts()) -> [key(_)].
 matches(Topic, NextF, Opts) ->
     search(Topic, NextF, Opts).
 
 %% @doc Match given topic filter against the index and return _all_ matches.
+%% Unlike the binary input to match/2 and matches/3, this API accepts wildcard
+%% topic filters.
 -spec matches_filter(emqx_types:topic() | [word()], nextf(), opts()) -> [key(_)].
 matches_filter(TopicFilter, NextF, Opts) ->
     search(TopicFilter, NextF, [topic_filter | Opts]).
@@ -183,7 +206,7 @@ search(Topic, NextF, Opts) ->
     Words =
         case IsFilter of
             true -> filter_words(Topic);
-            false -> topic_words(Topic)
+            false -> Topic
         end,
     Base = base_init(Words),
     ORetFirst = proplists:get_bool(return_first, Opts),
@@ -227,7 +250,7 @@ search_new(Words0, NewBase, NextF, Acc) ->
 search_up(Words, {Filter, _} = Cursor, NextF, Acc) ->
     case compare(Filter, Words, 0) of
         match_full ->
-            search_new(Words, Cursor, NextF, match_add(Cursor, Acc));
+            search_adjacent(Words, Cursor, NextF, match_add(Cursor, Acc));
         match_prefix ->
             search_new(Words, Cursor, NextF, Acc);
         lower ->
@@ -240,15 +263,40 @@ search_up(Words, {Filter, _} = Cursor, NextF, Acc) ->
             search_new(Words, NewBase, NextF, Acc)
     end.
 
+%% Adjacent entries can have the same filter and different IDs. Once the filter
+%% matched, collect those entries without scanning the topic again.
+search_adjacent(Words, {Filter, _} = Cursor, NextF, Acc) ->
+    case move_up(NextF, Cursor) of
+        ?END ->
+            Acc;
+        {Filter, _} = Next ->
+            search_adjacent(Words, Next, NextF, match_add(Next, Acc));
+        Next ->
+            search_up(Words, Next, NextF, Acc)
+    end.
+
 seek(_Pos = 0, SeekWord, _FilterTail) ->
     [SeekWord];
 seek(Pos, SeekWord, [FilterWord | Rest]) ->
     [FilterWord | seek(Pos - 1, SeekWord, Rest)].
 
 compare(NotFilter, _, _) when is_binary(NotFilter) ->
+    % Case 1: Non-filter key.
     lower;
+%% Binary topic names are traversed without building a list of levels.
+compare(Filter, Topic, Pos) when is_binary(Topic) ->
+    % Case 2: Binary topic dispatch.
+    case compare_binary(Topic, Filter, Pos, 0) of
+        {At, Offset} ->
+            % Case 2a: Materialize the seek level.
+            {At, level_at(Topic, Offset)};
+        Result ->
+            % Case 2b: Pass through the comparison result.
+            Result
+    end;
 compare([], [], _) ->
-    % NOTE
+    % Case 3: Exact match.
+    % ------
     %  Topic: a/b/c/d
     % Filter: a/+/+/d
     % We matched the topic to a topic filter exactly (possibly with pluses).
@@ -258,7 +306,8 @@ compare([], [], _) ->
     % * a/+/+/d/# (also a match)
     match_full;
 compare([], _Words, _) ->
-    % NOTE
+    % Case 4: Filter is a prefix.
+    % ------
     %  Topic: a/b/c/d
     % Filter: a/+/c
     % We found out that a topic filter is a prefix of the topic (possibly with pluses).
@@ -268,7 +317,8 @@ compare([], _Words, _) ->
     % * a/+/c/+ (also a match)
     match_prefix;
 compare(['#'], _Words, _) ->
-    % NOTE
+    % Case 5: Multi-level wildcard.
+    % ------
     %  Topic: a/b/c/d
     % Filter: a/+/+/d/# or just a/#
     % We matched the topic to a topic filter with wildcard (possibly with pluses).
@@ -278,19 +328,25 @@ compare(['#'], _Words, _) ->
     match_full;
 %% Filter search %%
 compare(_Filter, ['#'], _) ->
+    % Case F1: Multi-level wildcard query (list input only).
     match_full;
 compare([_ | TF], ['+' | TW], Pos) ->
+    % Case F2: Single-level wildcard query (list input only).
     case compare(TF, TW, Pos + 1) of
         lower ->
+            % Case F2a: Pass through lower.
             lower;
         Other ->
+            % Case F2b: Pass through seek / match.
             Other
     end;
 %% Filter search end %%
 compare(['+' | TF], [HW | TW], Pos) ->
+    % Case 6: Single-level wildcard filter.
     case compare(TF, TW, Pos + 1) of
         lower ->
-            % NOTE
+            % Case 6a: Backtrack to this wildcard.
+            % ------
             %  Topic: a/b/c/d
             % Filter: a/+/+/e/1 or a/b/+/d/1
             % The topic is lower than a topic filter. But we're at the `+` position,
@@ -300,18 +356,21 @@ compare(['+' | TF], [HW | TW], Pos) ->
             % Next: a/+/c
             {Pos, HW};
         Other ->
-            % NOTE
+            % Case 6b: Pass through seek / match.
+            % ------
             % It's either already a backtrack point, emitted from the last `+`
             % position or just a seek / match. In both cases we just pass it
             % through.
             Other
     end;
 compare([HW | TF], [HW | TW], Pos) ->
-    % NOTE
+    % Case 7: Equal levels.
+    % ------
     % Skip over the same word in both topic and filter, keeping the last backtrack point.
     compare(TF, TW, Pos + 1);
 compare([HF | _], [HW | _], _) when HF > HW ->
-    % NOTE
+    % Case 8: Topic level is lower.
+    % ------
     %  Topic: a/b/c/d
     % Filter: a/b/c/e/1 or a/b/+/e
     % The topic is lower than a topic filter. In the first case there's nowhere to
@@ -319,7 +378,8 @@ compare([HF | _], [HW | _], _) when HF > HW ->
     % on 3rd level, we'll seek up from there.
     lower;
 compare([_ | _], [], _) ->
-    % NOTE
+    % Case 9: Topic is exhausted.
+    % ------
     %  Topic: a/b/c/d
     % Filter: a/b/c/d/1 or a/+/c/d/1
     % The topic is lower than a topic filter (since it's shorter). In the first case
@@ -327,13 +387,97 @@ compare([_ | _], [], _) ->
     % there's a `+` on 2nd level, we'll seek up from there.
     lower;
 compare([_ | _], [HW | _], Pos) ->
-    % NOTE
+    % Case 10: Topic level is higher.
+    % ------
     %  Topic: a/b/c/d
     % Filter: a/+/+/0/1/2
     % Topic is higher than the filter, we need to skip over to the next possible filter.
     % Seek: {3, d}
     % Next: a/+/+/d
     {Pos, HW}.
+
+%% NOTE
+%% This awkward binary pattern keeps the topic as a match context across levels.
+compare_binary(<<_/binary>> = Topic, Filter, Pos, Offset) ->
+    case Filter of
+        [] ->
+            %% Same as Case 4, see `compare/3`.
+            match_prefix;
+        ['#'] ->
+            %% Same as Case 5.
+            match_full;
+        ['+' | TF] ->
+            %% Same as Case 6.
+            case skip_level_compare(Topic, TF, Pos + 1, Offset) of
+                %% Same as Case 6a.
+                %% ----
+                %% Backtracking returns an offset, outer `compare/3` materializes
+                %% the word needed for a seek key.
+                lower -> {Pos, Offset};
+                %% Same as Case 6b.
+                Other -> Other
+            end;
+        [HF | TF] ->
+            N = byte_size(HF),
+            case Topic of
+                <<HF:N/binary, $/, Rest/binary>> ->
+                    %% Same as Case 7.
+                    compare_binary(Rest, TF, Pos + 1, Offset + N + 1);
+                <<HF:N/binary>> ->
+                    %% Same as Case 7, then cases 3 / 5 / 9.
+                    compare_end(TF);
+                <<HF:N/binary, _/binary>> ->
+                    %% Same as Case 10: Filter level is a proper prefix.
+                    {Pos, Offset};
+                _ ->
+                    case HF > first_level(Topic) of
+                        %% Same as Case 8.
+                        true -> lower;
+                        %% Same as Case 10.
+                        false -> {Pos, Offset}
+                    end
+            end
+    end.
+
+compare_end([]) ->
+    %% Same as Case 3.
+    match_full;
+compare_end(['#']) ->
+    %% Same as Case 5.
+    match_full;
+compare_end(_) ->
+    %% Same as Case 9.
+    lower.
+
+skip_level_compare(<<W:56, Rest/binary>>, Filter, Pos, Offset) when
+    not ?HAS_ZERO_BYTE7(W bxor ?SLASH_BYTES7)
+->
+    skip_level_compare(Rest, Filter, Pos, Offset + 7);
+skip_level_compare(<<$/, Rest/binary>>, Filter, Pos, Offset) ->
+    compare_binary(Rest, Filter, Pos, Offset + 1);
+skip_level_compare(<<_, Rest/binary>>, Filter, Pos, Offset) ->
+    skip_level_compare(Rest, Filter, Pos, Offset + 1);
+skip_level_compare(<<>>, Filter, _Pos, _Offset) ->
+    compare_end(Filter).
+
+level_at(Topic, Offset) ->
+    <<_:Offset/binary, Tail/binary>> = Topic,
+    End = level_end_offset(Tail, Offset),
+    binary:part(Topic, Offset, End - Offset).
+
+first_level(Topic) ->
+    level_at(Topic, 0).
+
+level_end_offset(<<W:56, Rest/binary>>, Offset) when
+    not ?HAS_ZERO_BYTE7(W bxor ?SLASH_BYTES7)
+->
+    level_end_offset(Rest, Offset + 7);
+level_end_offset(<<$/, _/binary>>, Offset) ->
+    Offset;
+level_end_offset(<<_, Rest/binary>>, Offset) ->
+    level_end_offset(Rest, Offset + 1);
+level_end_offset(<<>>, Offset) ->
+    Offset.
 
 match_add(K = {_Filter, ID}, Acc = #{}) ->
     % NOTE: ensuring uniqueness by record ID
@@ -351,19 +495,11 @@ filter_words(Topic) when is_binary(Topic) ->
     % This is almost identical to `emqx_topic:words/1`, but it doesn't convert empty
     % tokens to ''. This is needed to keep ordering of words consistent with what
     % `match_filter/3` expects.
-    [word(W, filter) || W <- emqx_topic:tokens(Topic)].
+    [word(W) || W <- emqx_topic:tokens(Topic)].
 
--spec topic_words(emqx_types:topic()) -> [binary()].
-topic_words(Words) when is_list(Words) ->
-    Words;
-topic_words(Topic) when is_binary(Topic) ->
-    [word(W, topic) || W <- emqx_topic:tokens(Topic)].
-
-word(<<"+">>, topic) -> error(badarg);
-word(<<"#">>, topic) -> error(badarg);
-word(<<"+">>, filter) -> '+';
-word(<<"#">>, filter) -> '#';
-word(Bin, _) -> Bin.
+word(<<"+">>) -> '+';
+word(<<"#">>) -> '#';
+word(Bin) -> Bin.
 
 %% match non-wildcard topics
 match_topics(Topic, {Topic, _} = Key, NextF, Acc) ->
