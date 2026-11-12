@@ -1084,7 +1084,10 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
             AuthHeaderGetter = get_auth_header_getter(),
             on_exit(fun() ->
                 set_auth_header_getter(AuthHeaderGetter),
-                {204, _} = delete_rule_api(RuleId)
+                case delete_rule_api(RuleId) of
+                    {204, _} -> ok;
+                    {404, _} -> ok
+                end
             end),
             {ok, Res};
         Error ->
