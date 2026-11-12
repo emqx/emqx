@@ -59,12 +59,12 @@ jobs:
 
 
     steps:
-      - name: Install prerequisites
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: >
-          apt-get update -qy &&
-            apt-get install -qy gitlint shellcheck shelltestrunner python3-venv
+      - name: Check preinstalled CI tools
+        run: |
+          gitlint --version
+          shellcheck --version
+          shelltest --version
+          python3 -c 'import venv, ensurepip'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.ref }}
