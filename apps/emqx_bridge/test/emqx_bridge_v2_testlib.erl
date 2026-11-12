@@ -847,6 +847,17 @@ delete_kind_api2(TCConfig) ->
     #{kind := Kind, type := Type, name := Name} = get_common_values(TCConfig),
     delete_kind_api(Kind, Type, Name).
 
+reset_kind_metrics_api(TCConfig, Opts) ->
+    #{kind := Kind, type := Type, name := Name} = get_common_values(TCConfig),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    PathRoot = api_path_root(Kind),
+    Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId, ~"metrics", ~"reset"]),
+    simple_request(#{
+        auth_header => auth_header_lazy(Opts),
+        method => put,
+        url => Path
+    }).
+
 op_bridge_api(Op, BridgeType, BridgeName) ->
     op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
 

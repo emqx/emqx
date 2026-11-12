@@ -342,6 +342,12 @@ is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
     true;
 is_unrecoverable_error({error, invalid_cluster_command}) ->
     true;
+is_unrecoverable_error(<<"ERR ", _/binary>>) ->
+    true;
+is_unrecoverable_error(<<"WRONGTYPE ", _/binary>>) ->
+    true;
+is_unrecoverable_error(<<"NOPERM ", _/binary>>) ->
+    true;
 is_unrecoverable_error(_) ->
     false.
 
