@@ -194,6 +194,12 @@ t_handle_msg_tcp_closed(_) ->
 t_handle_msg_passive(_) ->
     ?assertMatch({ok, _Event, _St}, handle_msg({tcp_passive, sock}, st())).
 
+%% The socket closes before the passive notification is handled. Re-activating
+%% it fails, and the channel shuts down the connection.
+t_handle_msg_passive_socket_closed(_) ->
+    ok = meck:expect(emqx_transport, setopts, fun(_Sock, _Opts) -> {error, closed} end),
+    ?assertMatch({stop, {shutdown, closed}, _St}, handle_msg({ssl_passive, sock}, st())).
+
 t_handle_msg_deliver(_) ->
     ok = meck:expect(emqx_channel, handle_deliver, fun(_, Channel) -> {ok, Channel} end),
     ?assertMatch(
