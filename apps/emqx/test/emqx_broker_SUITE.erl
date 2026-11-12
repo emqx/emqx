@@ -131,7 +131,7 @@ end_per_testcase(Case, Config) ->
 %% PubSub Test
 %%--------------------------------------------------------------------
 
-%% Verify that a publish hook can report persistence through `message_persisted` message header
+%% Verify that a publish hook can report persistence with `emqx_message:mark_persisted/1`
 t_message_persisted({init, Config}) ->
     Config;
 t_message_persisted({'end', _Config}) ->
@@ -189,7 +189,7 @@ t_message_persisted(_Config) ->
     ?assertEqual({error, disconnect, PersistedDisconnect}, emqx_broker:publish2(Disconnect)).
 
 mark_message_persisted(Message) ->
-    {ok, emqx_message:set_header(message_persisted, true, Message)}.
+    {ok, emqx_message:mark_persisted(Message)}.
 
 %% Verify that `dispatch_info/2' sends the term unchanged to exact and wildcard subscribers only.
 t_dispatch_info({init, Config}) ->

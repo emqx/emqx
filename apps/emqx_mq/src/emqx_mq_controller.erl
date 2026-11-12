@@ -15,6 +15,9 @@ The controller does not cancel the current lifecycle operation when the target
 changes. It lets the operation complete before it starts the operation for the
 new target. Therefore, `status/0` may briefly report a state opposite to the
 latest target.
+
+Subscription hooks are registered synchronously when MQ is enabled.
+Subscriptions wait for the `started` status before discovering queues and consumers.
 """.
 
 -include("emqx_mq_internal.hrl").
@@ -195,6 +198,10 @@ target_operation(stopped) -> stop.
 start_operation(Operation, State = #state{worker = undefined}) ->
     Status = operation_status(Operation),
     ok = set_status(Status),
+    case Operation of
+        start -> ok = claim_queue_topics();
+        stop -> ok
+    end,
     Pid = spawn_link(fun() ->
         ?tp(mq_controller_worker_start, #{operation => Operation, status => Status}),
         ok = run_operation(Operation)
@@ -239,8 +246,6 @@ do_start_mqs() ->
     ok = emqx_mq_sup:start_services(),
 
     %% Hook into EMQX
-    %% Claim handling of `$queue` topics to ourselves
-    ok = emqx_topic:enable_queue_alias_to_share(false),
     ok = emqx_mq:register_hooks(),
     ?tp(debug, mq_controller_start_mqs_done, #{}),
     ok.
@@ -256,6 +261,10 @@ do_stop_mqs() ->
     _ = emqx_mq_state_storage:close_db(),
     ?tp(debug, mq_controller_stop_mqs_done, #{}),
     ok.
+
+claim_queue_topics() ->
+    ok = emqx_topic:enable_queue_alias_to_share(false),
+    ok = emqx_mq:register_subscription_hooks().
 
 need_start() ->
     case emqx_mq_config:enabled() of

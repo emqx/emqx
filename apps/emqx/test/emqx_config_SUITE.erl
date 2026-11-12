@@ -628,6 +628,7 @@ zone_global_defaults() ->
                 max_subscriptions => infinity,
                 max_topic_alias => 65535,
                 max_topic_levels => 128,
+                min_heap_size => 610,
                 minor_gc_after => 10,
                 mqueue_default_priority => lowest,
                 mqueue_priorities => disabled,

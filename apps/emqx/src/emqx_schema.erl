@@ -4290,6 +4290,22 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_hibernate_after)
                 }
             )},
+        {"min_heap_size",
+            sc(
+                range(200, inf),
+                #{
+                    %% NOTE
+                    %% Using 610 words (third step of the heap block size ladder) provides a good
+                    %% balance of memory use, CPU and latency across the tested QoS1 workloads,
+                    %% both for `gen_tcp` and `socket` backends.
+                    %% Compared with 233 words under default GC settings, measured mean RSS fell
+                    %% about 3-15% and peak RSS 3-25%. CPU use and latency improved by a few
+                    %% percent across most workloads.
+                    default => 610,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(mqtt_min_heap_size)
+                }
+            )},
         {"minor_gc_after",
             sc(
                 hoconsc:union([infinity, timeout_duration_ms()]),

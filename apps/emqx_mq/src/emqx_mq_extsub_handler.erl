@@ -51,7 +51,6 @@ handle_subscribe(_SubscribeType, SubscribeCtx, Handler0, TopicFilter) ->
     case check_mq_topic_filter(SubscribeCtx, TopicFilter) of
         {ok, Name, MQTopic} ->
             #{clientinfo := ClientInfo} = SubscribeCtx,
-            ok = maybe_auto_create(Name, MQTopic),
             Sub = emqx_mq_sub:handle_connect(ClientInfo, Name, MQTopic),
             SubscriberRef = emqx_mq_sub:subscriber_ref(Sub),
             #state{subs = Subs, by_topic = ByTopic} = Handler1,
@@ -229,32 +228,6 @@ split_name_topic(NameTopic) ->
     case emqx_mq_schema:validate_name(Name) of
         ok -> {ok, Name, Topic};
         {error, _} = Err -> Err
-    end.
-
-maybe_auto_create(_Name, undefined) ->
-    ok;
-maybe_auto_create(Name, Topic) ->
-    case emqx_mq_config:auto_create(Name, Topic) of
-        {true, MQ} -> auto_create_mq(MQ);
-        false -> ok
-    end.
-
-auto_create_mq(#{name := Name} = MQ) ->
-    case emqx_mq_registry:find(Name) of
-        {ok, _} ->
-            ok;
-        not_found ->
-            case emqx_mq_registry:create(MQ) of
-                {ok, _} ->
-                    ok;
-                {error, {queue_exists, _}} ->
-                    ok;
-                {error, Reason} ->
-                    ?tp(error, mq_extsub_handler_auto_create_error, #{
-                        mq => MQ, reason => Reason
-                    }),
-                    ok
-            end
     end.
 
 mq_ack_from_extsub_ack(undefined) -> ?MQ_ACK;

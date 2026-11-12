@@ -4,6 +4,13 @@
 
 -module(emqx_bridge_datalayers_arrow_flight_connector_tests).
 
+-moduledoc """
+DO NOT COPY AND PASTE THIS MODULE WHEN IMPLEMENTING A NEW BRIDGE.
+
+This kind of test not only makes it harder to fix/refactor thing, but also relies on
+heavily mocked/unreal states, which tend to severely diminish the value of the tests.
+""".
+
 -include_lib("eunit/include/eunit.hrl").
 
 ssl_opts_test_() ->
@@ -351,12 +358,16 @@ async_call_returns_client_for_monitoring_test() ->
     end.
 
 async_prepared_call_returns_client_for_monitoring_test() ->
-    meck:new(datalayers, [passthrough, no_link]),
+    meck:new(datalayers, [passthrough]),
+    meck:new(emqx_resource, [passthrough]),
+    Tid = ets:new(client_state_tab, [public, ordered_set]),
     try
         Client = self(),
         PreparedRef = make_ref(),
         Rows = [[erlang:system_time(millisecond)]],
         Callback = {fun(_) -> ok end, []},
+        ChanResId = <<"channel">>,
+        ets:insert(Tid, {{prepared_refs, ChanResId, Client}, PreparedRef}),
         meck:expect(
             datalayers,
             async_execute_prepare,
@@ -368,32 +379,44 @@ async_prepared_call_returns_client_for_monitoring_test() ->
                 ok
             end
         ),
+        meck:expect(
+            emqx_resource,
+            allocate_resource,
+            fun(_, _, _, _) -> ok end
+        ),
         ?assertEqual(
             {ok, Client},
             emqx_bridge_datalayers_arrow_flight_connector:call_driver(
                 Client,
-                <<"channel">>,
+                ChanResId,
                 {async, true},
-                [#{Client => PreparedRef}, {<<"sql">>, []}, Rows, Callback]
+                [Tid, {<<"sql">>, []}, Rows, Callback]
             )
         ),
         ?assert(meck:validate(datalayers))
     after
-        meck:unload(datalayers)
+        ets:delete(Tid),
+        meck:unload()
     end.
 
 blank_credentials_test_() ->
     {setup,
         fun() ->
-            meck:new(emqx_resource_pool, [passthrough, no_link]),
+            meck:new(emqx_resource_pool, [passthrough]),
+            meck:new(emqx_resource, [passthrough]),
             meck:expect(
                 emqx_resource_pool,
                 start,
                 fun(_, _, _) -> {error, {start_pool_failed, noproc, mocked}} end
             ),
+            meck:expect(
+                emqx_resource,
+                allocate_resource,
+                fun(_, _, _, _) -> ok end
+            ),
             ok
         end,
-        fun(_) -> meck:unload(emqx_resource_pool) end, fun(_) ->
+        fun(_) -> meck:unload() end, fun(_) ->
             Base = #{
                 server => <<"127.0.0.1:8360">>,
                 pool_size => 8,

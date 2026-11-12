@@ -159,6 +159,27 @@ validate_ciphers_accepts_both_formats_test_() ->
         )
     ].
 
+-doc "MQTT connection heap sizes default to 610 words and accept integers of at least 200.".
+mqtt_min_heap_size_test() ->
+    Schema = #{
+        roots => [mqtt],
+        fields => #{mqtt => emqx_schema:fields("mqtt")}
+    },
+    Check = fun(Conf) ->
+        hocon_tconf:check_plain(Schema, #{<<"mqtt">> => Conf}, #{required => false})
+    end,
+    ?assertMatch(#{<<"mqtt">> := #{<<"min_heap_size">> := 610}}, Check(#{})),
+    ?assertMatch(
+        #{<<"mqtt">> := #{<<"min_heap_size">> := 1598}},
+        Check(#{<<"min_heap_size">> => 1598})
+    ),
+    lists:foreach(
+        fun(Value) ->
+            ?assertThrow(_, Check(#{<<"min_heap_size">> => Value}))
+        end,
+        [0, -1, 199, 200.5]
+    ).
+
 mqtt_tcp_listener_backend_default_test() ->
     Opts = #{atom_key => true, required => false},
     Sc = #{

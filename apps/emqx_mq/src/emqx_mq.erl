@@ -10,7 +10,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([register_hooks/0, unregister_hooks/0]).
+-export([register_hooks/0, register_subscription_hooks/0, unregister_hooks/0]).
 
 -export([
     on_message_publish/1,
@@ -30,11 +30,16 @@
 
 -spec register_hooks() -> ok.
 register_hooks() ->
-    %% Idempotent hooks registration
-    _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
+    ok = register_subscription_hooks(),
     _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
     _ = emqx_hooks:add('message.puback', {?MODULE, on_message_puback, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('message.pubrec', {?MODULE, on_message_puback, []}, ?HP_LOWEST),
+    ok.
+
+-spec register_subscription_hooks() -> ok.
+register_subscription_hooks() ->
+    %% Idempotent hooks registration
+    _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     _ = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
     _ = emqx_extsub_handler_registry:register(emqx_mq_extsub_handler, #{

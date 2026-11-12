@@ -7,6 +7,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -868,6 +869,137 @@ t_retry_interval_seconds(TCConfig) ->
         WorkerPids
     ),
     ok.
+
+-doc """
+A message that a publish hook marks with `message_persisted` on the source cluster
+reaches the target cluster without that header.
+""".
+t_forward_drops_persisted_header('init', Config) ->
+    header_forwarding_init(?FUNCTION_NAME, Config);
+t_forward_drops_persisted_header('end', Config) ->
+    header_forwarding_end(Config).
+
+t_forward_drops_persisted_header(Config) ->
+    Topic = <<"t/persisted">>,
+    {Subscriber, #message{headers = SentHeaders}} =
+        publish_via_link(Topic, #{message_persisted => true}, Config),
+    ?assertNot(maps:is_key(message_persisted, SentHeaders), SentHeaders),
+    #message{headers = ReceivedHeaders} = wait_message_received(Topic),
+    ?assertNot(maps:is_key(message_persisted, ReceivedHeaders), ReceivedHeaders),
+    ?assertReceive({publish, #{topic := Topic, payload := <<"hello">>}}),
+    ok = emqtt:stop(Subscriber).
+
+-doc """
+A header that no part of EMQX knows, set by a publish hook on the source cluster,
+does not reach the target cluster.
+""".
+t_forward_drops_unknown_header('init', Config) ->
+    header_forwarding_init(?FUNCTION_NAME, Config);
+t_forward_drops_unknown_header('end', Config) ->
+    header_forwarding_end(Config).
+
+t_forward_drops_unknown_header(Config) ->
+    Topic = <<"t/unknown">>,
+    {Subscriber, #message{headers = SentHeaders}} =
+        publish_via_link(Topic, #{t_header_nobody_knows => true}, Config),
+    ?assertNot(maps:is_key(t_header_nobody_knows, SentHeaders), SentHeaders),
+    #message{headers = ReceivedHeaders} = wait_message_received(Topic),
+    ?assertNot(maps:is_key(t_header_nobody_knows, ReceivedHeaders), ReceivedHeaders),
+    ?assertReceive({publish, #{topic := Topic, payload := <<"hello">>}}),
+    ok = emqtt:stop(Subscriber).
+
+-doc """
+The headers that describe the publisher and the MQTT properties of the message
+reach the target cluster.
+""".
+t_forward_keeps_publisher_headers('init', Config) ->
+    header_forwarding_init(?FUNCTION_NAME, Config);
+t_forward_keeps_publisher_headers('end', Config) ->
+    header_forwarding_end(Config).
+
+t_forward_keeps_publisher_headers(Config) ->
+    Topic = <<"t/publisher">>,
+    {Subscriber, _Sent} = publish_via_link(Topic, #{}, Config),
+    #message{headers = Headers} = wait_message_received(Topic),
+    ?assertMatch(
+        #{
+            client_attrs := #{},
+            peerhost := {127, 0, 0, 1},
+            peername := {{127, 0, 0, 1}, _},
+            proto_ver := ?MQTT_PROTO_V5,
+            protocol := mqtt,
+            properties := #{'User-Property' := [{<<"k">>, <<"v">>}]},
+            username := <<"publisher">>
+        },
+        Headers
+    ),
+    ?assertReceive(
+        {publish, #{
+            topic := Topic,
+            payload := <<"hello">>,
+            properties := #{'User-Property' := [{<<"k">>, <<"v">>}]}
+        }}
+    ),
+    ok = emqtt:stop(Subscriber).
+
+header_forwarding_init(TCName, Config) ->
+    ok = snabbkaffe:start_trace(),
+    {SourceClusterSpec, TargetClusterSpec} = mk_interlinked_clusters(TCName, 1, 1, Config),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | Config
+    ].
+
+header_forwarding_end(Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+%% Subscribe on the target cluster, then publish on the source cluster with `Headers'
+%% added by a publish hook. Return the subscriber and the message that the source cluster
+%% sent to the link.
+publish_via_link(Topic, Headers, Config) ->
+    [SourceNode] = nodes_source(Config),
+    [TargetNode] = nodes_target(Config),
+    ok = ?ON(
+        SourceNode,
+        emqx_hooks:add('message.publish', {?MODULE, add_headers, [Headers]}, ?HP_LOWEST)
+    ),
+    Subscriber = emqx_cluster_link_cth:connect_client(<<"subscriber">>, TargetNode),
+    {_, {ok, _}} = ?wait_async_action(
+        {ok, _, _} = emqtt:subscribe(Subscriber, Topic, qos1),
+        #{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TargetNode}},
+        10_000
+    ),
+    {ok, Publisher} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, <<"publisher">>},
+        {username, <<"publisher">>},
+        {port, emqx_cluster_link_cth:tcp_port(SourceNode)}
+    ]),
+    {ok, _} = emqtt:connect(Publisher),
+    Props = #{'User-Property' => [{<<"k">>, <<"v">>}]},
+    {ok, _} = emqtt:publish(Publisher, Topic, Props, <<"hello">>, [{qos, ?QOS_1}]),
+    ok = emqtt:stop(Publisher),
+    {ok, #{message := Sent}} = ?block_until(
+        #{?snk_kind := "cluster_link_message_forwarded", message := #message{topic = Topic}},
+        10_000
+    ),
+    {Subscriber, Sent}.
+
+wait_message_received(Topic) ->
+    {ok, #{message := Received}} = ?block_until(
+        #{?snk_kind := "cluster_link_message_received", message := #message{topic = Topic}},
+        10_000
+    ),
+    Received.
+
+add_headers(Message, Headers) ->
+    {ok, emqx_message:set_headers(Headers, Message)}.
 
 %%
 

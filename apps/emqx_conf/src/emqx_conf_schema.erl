@@ -152,6 +152,7 @@
     gcp_pubsub_consumer_worker_pull_error,
     handle_resource_metrics_failed,
     mq_message_db_key_expression_error,
+    mq_sub_auto_create_error,
     readiness_check_failed,
     resource_exception,
     retain_failed_for_payload_size_exceeded_limit,
@@ -994,6 +995,15 @@ fields("node") ->
                     mapping => "ssl.server_session_ticket_lifetime",
                     default => 7200,
                     desc => ?DESC("node_tls_server_session_ticket_lifetime")
+                }
+            )},
+        {"tls_connection_tree_owner",
+            sc(
+                hoconsc:enum([caller, supervisor]),
+                #{
+                    mapping => "ssl.connection_tree_owner",
+                    default => caller,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"tls_stateless_tickets_seed",

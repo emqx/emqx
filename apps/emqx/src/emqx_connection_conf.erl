@@ -62,6 +62,7 @@ the current config, since an application restart can load a different config.
     pre_connect_codec/1,
     post_connect_codec/4,
     conn_conf/2,
+    spawn_opts/2,
     session_conf/1,
     post_zone_config_update/2,
     listeners_changed/1,
@@ -183,6 +184,14 @@ post_connect_codec(Zone, ProtoVer, ParseState, SerializeOpts) ->
         _ ->
             {ParseState, SerializeOpts}
     end.
+
+-doc "Return the spawn options for a new TCP or TLS connection in the zone.".
+-spec spawn_opts(listener(), emqx_types:zone()) -> [term()].
+spawn_opts({Type, _Name}, Zone) when Type =:= tcp; Type =:= ssl ->
+    %% TODO: Apply min_heap_size updates to existing connections, including zone changes.
+    [{min_heap_size, emqx_config:get_zone_conf(Zone, [mqtt, min_heap_size])}];
+spawn_opts(_Listener, _Zone) ->
+    [].
 
 -doc "Return the settings of a connection on the listener in the zone.".
 -spec conn_conf(listener(), emqx_types:zone()) -> conn_conf().
