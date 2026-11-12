@@ -37,12 +37,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-release-tag:
+    if: >-
+      github.event_name != 'release' ||
+      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-preview.'))
+    uses: ./.github/workflows/verify_release_tag.yaml
+    with:
+      ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
+      require_ga: ${{ github.event_name == 'release' || inputs.task == 'publish' }}
+
   prepare:
+    needs: verify-release-tag
     if: >-
       github.event_name != 'release' ||
       (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-preview.'))
     runs-on: ubuntu-latest
     outputs:
+      ref: ${{ needs.verify-release-tag.outputs.ref }}
       tag: ${{ steps.prepare.outputs.tag }}
       task: ${{ steps.prepare.outputs.task }}
       architectures: ${{ steps.prepare.outputs.architectures }}
@@ -50,7 +61,7 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
+        ref: ${{ needs.verify-release-tag.outputs.ref }}
         fetch-depth: 0
     - name: Prepare Snap task
       id: prepare
@@ -97,7 +108,7 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ needs.prepare.outputs.tag }}
+        ref: ${{ needs.prepare.outputs.ref }}
         fetch-depth: 0
     - name: Build tar.gz
       env:
