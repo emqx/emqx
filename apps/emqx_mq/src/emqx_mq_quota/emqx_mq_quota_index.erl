@@ -67,11 +67,21 @@ They require that the legacy index is dropped: a purge runs only when every node
     drop_legacy/1,
     deadline/1,
     inspect/1,
-    is_serial_index_supported/0
+    is_serial_index_supported/0,
+    occupancy/1,
+    next_boundary/1,
+    boundaries/1,
+    oldest_boundary/1,
+    bucket_thresholds/1
 ]).
 -export_type([t/0, opts/0, update/0, timestamp_us/0]).
 
--type opts() :: emqx_mq_quota_index_legacy:opts().
+-type opts() :: #{
+    bytes => pos_integer() | infinity,
+    count => pos_integer() | infinity,
+    on_full => evict | reject,
+    threshold_percentage => pos_integer()
+}.
 -type update() :: #quota_add{} | #quota_del{}.
 -type timestamp_us() :: non_neg_integer().
 -record(index, {
@@ -99,6 +109,47 @@ is_serial_index_supported() ->
     catch
         error:badarg -> false
     end.
+
+-doc "Return the total bytes and count of all buckets, and the number of buckets".
+-spec occupancy(t()) -> #{bytes := integer(), count := integer(), buckets := pos_integer()}.
+occupancy(#index{serial = Serial}) ->
+    {Records, _} = emqx_mq_quota_index_serial:to_storage(Serial),
+    #{
+        bytes => lists:sum([Bytes || #'SerialIndexBucket'{bytes = Bytes} <- Records]),
+        count => lists:sum([Count || #'SerialIndexBucket'{count = Count} <- Records]),
+        buckets => length(Records)
+    }.
+
+-doc "Return the DS timestamp at which the oldest retained bucket ends, or `undefined` for one bucket".
+-spec next_boundary(t()) -> timestamp_us() | undefined.
+next_boundary(Index) ->
+    case boundaries(Index) of
+        [TsUs | _] -> TsUs;
+        [] -> undefined
+    end.
+
+-doc "Return the DS timestamps at which retained buckets end, oldest first".
+-spec boundaries(t()) -> [timestamp_us()].
+boundaries(#index{serial = Serial}) ->
+    {Records, _} = emqx_mq_quota_index_serial:to_storage(Serial),
+    [_Oldest | Newer] = lists:reverse(Records),
+    [TsUs || #'SerialIndexBucket'{tsUs = TsUs} <- Newer].
+
+-doc "Return the DS timestamp of the oldest retained bucket".
+-spec oldest_boundary(t()) -> timestamp_us().
+oldest_boundary(#index{serial = Serial}) ->
+    {Records, _} = emqx_mq_quota_index_serial:to_storage(Serial),
+    #'SerialIndexBucket'{tsUs = TsUs} = lists:last(Records),
+    TsUs.
+
+-doc "Return the count and byte values at which a serial bucket closes".
+-spec bucket_thresholds(opts()) ->
+    #{bytes := pos_integer() | infinity, count := pos_integer() | infinity}.
+bucket_thresholds(Opts) ->
+    #{
+        bytes => emqx_mq_quota_index_serial:threshold(bytes, Opts),
+        count => emqx_mq_quota_index_serial:threshold(count, Opts)
+    }.
 
 -doc """
 Create an index. Add a legacy index only while some node needs it.

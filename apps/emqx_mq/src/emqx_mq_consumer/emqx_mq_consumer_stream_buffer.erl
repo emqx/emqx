@@ -22,6 +22,8 @@ The module represents a consumer of a single stream of the Message Queue data.
     inspect/1
 ]).
 
+-define(EMPTY_TOTALS, #{count => 0, bytes => 0}).
+
 %%--------------------------------------------------------------------
 %% Types
 %%--------------------------------------------------------------------
@@ -32,11 +34,20 @@ The module represents a consumer of a single stream of the Message Queue data.
 
 -type message_id() :: non_neg_integer().
 
+%% Number and serialized size of the records read into a buffer.
+-type totals() :: #{count := non_neg_integer(), bytes := non_neg_integer()}.
+
+%% Acknowledgment progress of the lower buffers retired by one call,
+%% or `undefined` when no buffer retired.
+-type acked_progress() :: #progress{} | undefined.
+
 -type buffer() :: #{
+    last_record := undefined | message_id(),
     it_begin := emqx_ds:iterator() | end_of_stream,
     it_end := emqx_ds:iterator() | end_of_stream,
     n := non_neg_integer(),
-    unacked := #{message_id() => true}
+    unacked := #{message_id() => true},
+    totals := totals() | undefined
 }.
 
 %% State of the active stream buffer, receiving messages from DS and dispatching them to the consumer
@@ -78,7 +89,7 @@ The module represents a consumer of a single stream of the Message Queue data.
         unacked := [#{message_id() => true}]
     }.
 
--export_type([t/0, progress/0, options/0]).
+-export_type([t/0, progress/0, options/0, totals/0, acked_progress/0]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -94,7 +105,9 @@ new(StartIterator, MQ) ->
             it_begin => StartIterator,
             it_end => StartIterator,
             n => 0,
-            unacked => #{}
+            last_record => undefined,
+            unacked => #{},
+            totals => ?EMPTY_TOTALS
         },
         upper_buffer => undefined,
         upper_seqno => undefined,
@@ -117,8 +130,13 @@ restore(#{it := It, last_message_id := LastMessageId, unacked := UnackedMaps}, M
         last_message_id => LastMessageId
     }.
 
+-doc """
+Handle a DS subscription reply.
+Also return the acknowledgment progress of the lower buffers that the reply retired.
+Return `{finished, Progress}` when the stream is complete.
+""".
 -spec handle_ds_reply(t(), emqx_ds:subscription_handle(), #ds_sub_reply{}) ->
-    {ok, [emqx_ds:ttv()], t()} | finished.
+    {ok, [emqx_ds:ttv()], acked_progress(), t()} | {finished, acked_progress()}.
 handle_ds_reply(
     #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SB0,
     Handle,
@@ -143,10 +161,10 @@ handle_ds_reply(
         end,
     SB2 = suback(SB1, Handle, SeqNo),
     case compact(SB2) of
-        finished ->
-            finished;
-        {ok, SB} ->
-            {ok, [], SB}
+        {finished, _} = Finished ->
+            Finished;
+        {ok, Progress, SB} ->
+            {ok, [], Progress, SB}
     end;
 handle_ds_reply(
     #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SB0,
@@ -173,7 +191,7 @@ handle_ds_reply(
                         suback(SB2, Handle, SeqNo)
                 end
         end,
-    {ok, TTVs, SB};
+    {ok, TTVs, undefined, SB};
 %% End of stream occured while restoring the buffer
 handle_ds_reply(
     #{
@@ -196,7 +214,12 @@ handle_ds_reply(
             it_begin => ItBegin,
             it_end => end_of_stream,
             n => length(TTVs),
-            unacked => Unacked
+            %% Each record up to the checkpoint is acknowledged, unacknowledged in this buffer,
+            %% or deleted
+            last_record => LastMessageId,
+            unacked => Unacked,
+            %% Records read during restoration are not counted
+            totals => undefined
         },
         upper_buffer => undefined,
         upper_seqno => undefined,
@@ -204,25 +227,31 @@ handle_ds_reply(
     },
     SB1 = suback(SB0, Handle, SeqNo),
     case compact(SB1) of
-        finished ->
-            finished;
-        {ok, SB} ->
-            {ok, TTVs, SB}
+        {finished, _} = Finished ->
+            Finished;
+        {ok, Progress, SB} ->
+            {ok, TTVs, Progress, SB}
     end;
 handle_ds_reply(#{status := restoring} = SB0, Handle, #ds_sub_reply{
     payload = {ok, It, NewTTVs}, seqno = SeqNo, size = _Size
 }) ->
-    case handle_restore(SB0, NewTTVs, 0, It) of
+    case handle_restore(SB0, NewTTVs, undefined, It) of
         {ok, TTVs, #{status := active} = SB} ->
             ?tp_debug(mq_consumer_stream_buffer_handle_ds_reply_buffer_restored, #{
                 sb => inspect(SB)
             }),
-            {ok, TTVs, suback(SB, Handle, SeqNo)};
+            {ok, Progress, SB1} = compact(suback(SB, Handle, SeqNo)),
+            {ok, TTVs, Progress, SB1};
         {ok, TTVs, #{status := restoring} = SB} ->
-            {ok, TTVs, suback(SB, Handle, SeqNo)}
+            {ok, TTVs, undefined, suback(SB, Handle, SeqNo)}
     end.
 
--spec handle_ack(t(), message_id()) -> {ok, t()} | finished.
+-doc """
+Acknowledge a message.
+Also return the acknowledgment progress of the lower buffers that the acknowledgment retired.
+Return `{finished, Progress}` when the stream is complete.
+""".
+-spec handle_ack(t(), message_id()) -> {ok, acked_progress(), t()} | {finished, acked_progress()}.
 handle_ack(
     #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SB0, MessageId
 ) ->
@@ -243,7 +272,7 @@ handle_ack(
 handle_ack(
     #{status := restoring, unacked := Unacked0, actual_unacked := ActualUnacked0} = SB, MessageId
 ) ->
-    {ok, SB#{
+    {ok, undefined, SB#{
         unacked => maps:remove(MessageId, Unacked0),
         actual_unacked => maps:remove(MessageId, ActualUnacked0)
     }}.
@@ -345,7 +374,7 @@ handle_restore(
     LastTTVMessageId,
     It
 ) ->
-    case LastMessageId =< LastTTVMessageId of
+    case is_integer(LastTTVMessageId) andalso LastMessageId =< LastTTVMessageId of
         %% Restoration is complete, we can transition to active state
         true ->
             {Unacked, TTVs} = restore_unacked(ActualUnacked),
@@ -357,7 +386,10 @@ handle_restore(
                     it_begin => ItBegin,
                     it_end => It,
                     n => map_size(Unacked),
-                    unacked => Unacked
+                    last_record => LastTTVMessageId,
+                    unacked => Unacked,
+                    %% Records read during restoration are not counted
+                    totals => undefined
                 },
                 upper_buffer => undefined,
                 upper_seqno => undefined,
@@ -401,18 +433,27 @@ handle_restore(
     handle_restore(SB, Rest, MessageId, It).
 
 maybe_init_upper_buffer(#{it_end := ItEnd} = _LowerBuffer, undefined) ->
-    #{it_begin => ItEnd, it_end => ItEnd, n => 0, unacked => #{}};
+    #{
+        it_begin => ItEnd,
+        it_end => ItEnd,
+        n => 0,
+        unacked => #{},
+        last_record => undefined,
+        totals => ?EMPTY_TOTALS
+    };
 maybe_init_upper_buffer(_LowerBuffer, #{} = UpperBuffer) ->
     UpperBuffer.
 
+%% Rotation and compaction can each retire a lower buffer, so merge their progress.
 compact(SB0) ->
-    SB1 = try_rotate_upper_buffer(SB0),
-    SB2 = try_compact_lower_buffer(SB1),
+    {Progress1, SB1} = try_rotate_upper_buffer(SB0),
+    {Progress2, SB2} = try_compact_lower_buffer(SB1),
+    Progress = merge_progress(Progress1, Progress2),
     case is_finished(SB2) of
         true ->
-            finished;
+            {finished, Progress};
         false ->
-            {ok, SB2}
+            {ok, Progress, SB2}
     end.
 
 is_finished(
@@ -425,30 +466,58 @@ is_finished(
 is_finished(_SB) ->
     false.
 
-try_compact_lower_buffer(#{lower_buffer := LowerBuffer0} = SB) ->
+try_compact_lower_buffer(#{lower_buffer := LowerBuffer0} = SB0) ->
     case LowerBuffer0 of
         #{it_end := ItEnd, unacked := Unacked} when map_size(Unacked) =:= 0 ->
             LowerBuffer = LowerBuffer0#{
                 it_begin => ItEnd,
                 it_end => ItEnd,
-                n => 0
+                n => 0,
+                last_record => undefined,
+                totals => ?EMPTY_TOTALS
             },
-            SB#{lower_buffer => LowerBuffer};
+            {buffer_progress(LowerBuffer0), SB0#{lower_buffer => LowerBuffer}};
         _ ->
-            SB
+            {undefined, SB0}
     end.
 
 try_rotate_upper_buffer(#{upper_buffer := undefined} = SB) ->
-    SB;
+    {undefined, SB};
 try_rotate_upper_buffer(#{lower_buffer := LowerBuffer, upper_buffer := UpperBuffer} = SB0) ->
     case LowerBuffer of
         #{unacked := Unacked} when map_size(Unacked) =:= 0 ->
             SB = SB0#{lower_buffer => UpperBuffer, upper_buffer => undefined},
-            resume(SB);
+            {buffer_progress(LowerBuffer), resume(SB)};
         _ ->
-            SB0
+            {undefined, SB0}
     end.
 
+%% Progress of a completely acknowledged buffer. A buffer without records reports no progress.
+buffer_progress(#{last_record := Last, totals := Totals}) when is_integer(Last) ->
+    #progress{boundary = Last + 1, totals = Totals};
+buffer_progress(_Buffer) ->
+    undefined.
+
+%% Totals are unknown if either part is uncounted.
+merge_progress(Progress, undefined) ->
+    Progress;
+merge_progress(undefined, Progress) ->
+    Progress;
+merge_progress(
+    #progress{boundary = Boundary1, totals = Totals1},
+    #progress{boundary = Boundary2, totals = Totals2}
+) ->
+    #progress{boundary = max(Boundary1, Boundary2), totals = sum_totals(Totals1, Totals2)}.
+
+sum_totals(undefined, _Totals) ->
+    undefined;
+sum_totals(_Totals, undefined) ->
+    undefined;
+sum_totals(#{count := Count1, bytes := Bytes1}, #{count := Count2, bytes := Bytes2}) ->
+    #{count => Count1 + Count2, bytes => Bytes1 + Bytes2}.
+
+ack_from_buffer(undefined, _MessageId) ->
+    false;
 ack_from_buffer(#{unacked := Unacked} = Buffer, MessageId) ->
     case Unacked of
         #{MessageId := true} ->
@@ -457,19 +526,35 @@ ack_from_buffer(#{unacked := Unacked} = Buffer, MessageId) ->
             false
     end.
 
-push_to_buffer(#{n := N, unacked := Unacked0} = Buffer0, It, TTVs, Size) ->
+push_to_buffer(
+    #{n := N, unacked := Unacked0, last_record := LastRecord, totals := Totals} = Buffer0,
+    It,
+    TTVs,
+    Size
+) ->
     {LastMessageId, Unacked} = lists:foldl(
         fun({_Topic, MessageId, _TTV}, {_LastTTVMessageId, UnackedAcc}) ->
             {MessageId, UnackedAcc#{MessageId => true}}
         end,
-        {undefined, Unacked0},
+        {LastRecord, Unacked0},
         TTVs
     ),
     {LastMessageId, Buffer0#{
         it_end => It,
         n => N + Size,
-        unacked => Unacked
+        last_record => LastMessageId,
+        unacked => Unacked,
+        totals => add_totals(Totals, TTVs)
     }}.
+
+%% A restored buffer stays uncounted when it receives more records.
+add_totals(undefined, _TTVs) ->
+    undefined;
+add_totals(#{count := Count, bytes := Bytes}, TTVs) ->
+    #{
+        count => Count + length(TTVs),
+        bytes => Bytes + lists:sum([byte_size(Payload) || {_Topic, _MessageId, Payload} <- TTVs])
+    }.
 
 update_last_seen_message_id(SB, undefined) ->
     SB;

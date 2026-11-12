@@ -142,8 +142,18 @@ validate_auto_create(
     #{auto_create := #{regular := #{}, lastvalue := #{}}} = _NewConf
 ) ->
     {error, #{reason => cannot_enable_both_regular_and_lastvalue_auto_create}};
+validate_auto_create(#{auto_create := #{regular := #{} = MQ}}) ->
+    validate_auto_create_policy(MQ);
+validate_auto_create(#{auto_create := #{lastvalue := #{} = MQ}}) ->
+    validate_auto_create_policy(MQ);
 validate_auto_create(_NewConf) ->
     ok.
+
+validate_auto_create_policy(MQ) ->
+    case emqx_mq_registry:validate_policy(MQ) of
+        ok -> ok;
+        {error, Reason} -> {error, #{reason => Reason}}
+    end.
 
 binary_key_map(Map) ->
     maps:fold(

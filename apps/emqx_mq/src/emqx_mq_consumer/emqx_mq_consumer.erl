@@ -62,7 +62,7 @@ Consumer's responsibilities:
 -export_type([supported/0]).
 
 %% The MQ features that a node supports.
--type supported() :: #{purge := boolean(), serial_index := boolean()}.
+-type supported() :: #{purge := boolean(), serial_index := boolean(), reject_queues := boolean()}.
 
 -record(state, {
     mq :: emqx_mq_types:mq(),
@@ -208,7 +208,7 @@ ping_v1(Pid, SubscriberRef) ->
 
 -spec supported_v2() -> supported().
 supported_v2() ->
-    #{purge => true, serial_index => true}.
+    #{purge => true, serial_index => true, reject_queues => true}.
 
 -spec stop_v1(emqx_mq_types:consumer_ref()) -> ok.
 stop_v1(Pid) ->
@@ -333,9 +333,13 @@ handle_ds_info(
     end.
 
 handle_persist_consumer_data(
-    #state{mq = #{consumer_persistence_interval := PersistenceInterval}} = State0
+    #state{
+        mq = #{consumer_persistence_interval := PersistenceInterval}, streams = Streams0
+    } = State0
 ) ->
-    case persist_consumer_data(_ClaimLeadership = true, State0) of
+    %% Report progress below the notification threshold, and repeat it for a restarted cleanup worker
+    State1 = State0#state{streams = emqx_mq_consumer_streams:flush_progress_reporters(Streams0)},
+    case persist_consumer_data(_ClaimLeadership = true, State1) of
         {ok, State} ->
             erlang:send_after(
                 PersistenceInterval, self(), #persist_consumer_data{}

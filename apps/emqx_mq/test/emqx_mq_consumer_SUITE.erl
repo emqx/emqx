@@ -27,7 +27,7 @@ groups() ->
     ].
 
 queue_type_cases() ->
-    [t_deliver_cutoff_date].
+    [t_deliver_cutoff_date, t_storage_timestamp_retention].
 
 init_per_group(Group, Config) ->
     {IsLastvalue, MaxCount} =
@@ -220,6 +220,92 @@ t_deliver_cutoff_date(Config) ->
     ok = emqtt:disconnect(CSub1),
     ok = emqx_mq_registry:delete(Name).
 
+-doc "Check storage-time retention and preserve the publication timestamp on delivery".
+t_storage_timestamp_retention(Config) ->
+    #{id := Id} =
+        MQ = emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"storage_timestamp">>,
+            topic_filter => <<"time/#">>,
+            is_lastvalue => ?config(is_lastvalue, Config),
+            limits => ?config(limits, Config),
+            data_retention_period => 60000
+        }),
+    DB =
+        case emqx_mq_prop:is_append_only(MQ) of
+            true -> ?MQ_MESSAGE_REGULAR_DB;
+            false -> ?MQ_MESSAGE_LASTVALUE_DB
+        end,
+    [Shard | _] = emqx_ds:list_shards(DB),
+    #{Shard := Generation} = emqx_mq_message_db:initial_generations(MQ),
+    NowMs = erlang:system_time(millisecond),
+    FreshUs = (NowMs - 1000) * 1000 + 123,
+    Records = [
+        begin
+            Message = emqx_message:make(<<"publisher">>, 1, <<"time/message">>, Payload),
+            {
+                [<<"topic">>, <<"time/#">>, Id, <<"key">>, Payload],
+                StoredAt,
+                emqx_mq_message_db:encode_message(Message#message{timestamp = PublishedAt})
+            }
+        end
+     || #{payload := Payload, stored_at := StoredAt, published_at := PublishedAt} <- [
+            #{
+                payload => <<"expired">>,
+                stored_at => (NowMs - 120000) * 1000,
+                published_at => NowMs
+            },
+            #{payload => <<"fresh">>, stored_at => FreshUs, published_at => NowMs - 120000}
+        ]
+    ],
+    ?assertMatch(
+        {atomic, _, ok},
+        emqx_ds:trans(#{db => DB, shard => Shard, generation => Generation}, fun() ->
+            lists:foreach(fun emqx_ds:tx_write/1, Records)
+        end)
+    ),
+    %% Read the expired record too, so this checks filtering and auto-ack after retrieval.
+    meck:new(emqx_mq_prop, [passthrough, no_link]),
+    meck:expect(emqx_mq_prop, delivery_start_time, fun(_) -> 0 end),
+    CS0 = emqx_mq_consumer_streams:new(MQ, #{}),
+    {[{MessageId, Delivered}], CS1} = receive_consumer_messages(CS0, 1),
+    ?assertEqual(<<"fresh">>, emqx_message:payload(Delivered)),
+    ?assertEqual(NowMs - 120000, emqx_message:timestamp(Delivered)),
+    {Progress0, CS2} = emqx_mq_consumer_streams:fetch_progress_updates(CS1),
+    #{Shard := #{buffer_progress := #{unacked := Unacked0}}} = Progress0,
+    ?assertEqual(#{FreshUs => true}, emqx_utils_maps:merge(Unacked0)),
+    CS3 = emqx_mq_consumer_streams:handle_ack(CS2, MessageId),
+    {Progress1, CS4} = emqx_mq_consumer_streams:fetch_progress_updates(CS3),
+    #{Shard := #{buffer_progress := #{unacked := Unacked1}}} = Progress1,
+    ?assertEqual(#{}, emqx_utils_maps:merge(Unacked1)),
+    _ = emqx_mq_consumer_streams:destroy(CS4),
+    ?assertEqual(lists:sort(Records), lists:sort(emqx_mq_message_db:dirty_read_all(MQ))).
+
+%% Check that subscription start times use the later of retention and the optional delivery cutoff.
+t_delivery_start_time(_Config) ->
+    NowMs = erlang:system_time(millisecond),
+    RetentionMs = 60_000,
+    lists:foreach(
+        fun(#{settings := Settings, earliest := Earliest}) ->
+            StartUs = emqx_mq_prop:delivery_start_time(Settings),
+            ?assert(StartUs >= Earliest * 1000),
+            Latest = max(Earliest, erlang:system_time(millisecond) - RetentionMs),
+            ?assert(StartUs =< Latest * 1000)
+        end,
+        [
+            #{settings => #{data_retention_period => RetentionMs}, earliest => NowMs - RetentionMs},
+            #{
+                settings => #{
+                    data_retention_period => RetentionMs, deliver_cutoff_date => NowMs - 120_000
+                },
+                earliest => NowMs - RetentionMs
+            },
+            #{
+                settings => #{data_retention_period => RetentionMs, deliver_cutoff_date => NowMs},
+                earliest => NowMs
+            }
+        ]
+    ).
+
 %% Check that fresh and restored consumers skip old DS records while preserving acknowledgements.
 t_delivery_cutoff_replay(_Config) ->
     %% Store three records around the cutoff in one shard.
@@ -310,7 +396,7 @@ t_ack_restoring_stream_buffer(_Config) ->
     },
     SB0 = emqx_mq_consumer_stream_buffer:restore(Progress, MQ),
 
-    {ok, SB} = emqx_mq_consumer_stream_buffer:handle_ack(SB0, 1),
+    {ok, undefined, SB} = emqx_mq_consumer_stream_buffer:handle_ack(SB0, 1),
     ?assertMatch(
         #{status := restoring, unacked := 1},
         emqx_mq_consumer_stream_buffer:inspect(SB)

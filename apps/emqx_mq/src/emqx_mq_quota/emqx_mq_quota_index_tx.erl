@@ -33,17 +33,49 @@ A purge uses the other functions:
 * `write_fence_tx/1` writes a fresh fence.
 * `rotate_tx/3`, in the next transaction, drops the buckets before the fence stored in DS.
 * `truncate_tx/3` drops the buckets that end at or before a DS timestamp.
+
+Quota release of reject queues uses `refresh_tx/3` to close a full head without a new flush,
+then `truncate_tx/3`.
 """.
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("../emqx_mq_internal.hrl").
 -include("emqx_mq_quota.hrl").
 
--export([update_tx/5, write_fence_tx/1, rotate_tx/3, truncate_tx/3]).
+-export([update_tx/5, write_fence_tx/1, rotate_tx/3, truncate_tx/3, refresh_tx/3]).
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+-doc """
+Close a full head at the stored fence without waiting for more publications.
+Replace the fence if the index asks for it. The legacy index is dropped.
+Return the index and whether a fresh fence was written, or `undefined` when there is no index.
+A fresh fence closes the full head in the next refresh.
+""".
+-spec refresh_tx(emqx_ds:topic(), emqx_ds:topic(), emqx_mq_quota_index:opts()) ->
+    {emqx_mq_quota_index:t(), _NeedFence :: boolean()} | undefined.
+refresh_tx(IndexTopic, FenceTopic, QuotaIndexOpts) ->
+    case emqx_ds:tx_read(IndexTopic) of
+        [] ->
+            undefined;
+        [{_, ?QUOTA_INDEX_TS, IndexBin}] ->
+            Index0 = emqx_mq_quota_index:drop_legacy(
+                emqx_mq_quota_index:decode(QuotaIndexOpts, IndexBin)
+            ),
+            Fence = read_fence_tx(FenceTopic),
+            {Index, NeedFence} = emqx_mq_quota_index:apply_updates(Index0, [], Fence),
+            case NeedFence of
+                true -> replace_fence_tx(FenceTopic, Fence);
+                false -> ok
+            end,
+            case Index =:= Index0 of
+                true -> ok;
+                false -> write_index_tx(IndexTopic, Index)
+            end,
+            {Index, NeedFence}
+    end.
 
 -doc "Apply one flush of updates to the stored index. Replace the fence if the index asks for it".
 -spec update_tx(
