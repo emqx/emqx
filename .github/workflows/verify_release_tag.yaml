@@ -16,9 +16,6 @@ on:
       tag_object:
         description: Verified annotated tag object
         value: ${{ jobs.verify.outputs.tag_object }}
-      allowed_signers:
-        description: Trusted SSH release signing keys
-        value: ${{ jobs.verify.outputs.allowed_signers }}
 
 permissions:
   contents: read
@@ -29,7 +26,6 @@ jobs:
     outputs:
       ref: ${{ steps.verify.outputs.commit || steps.select.outputs.ref }}
       tag_object: ${{ steps.verify.outputs.tag_object }}
-      allowed_signers: ${{ steps.signers.outputs.allowed_signers }}
     steps:
       - name: Select release ref
         id: select
@@ -83,11 +79,6 @@ jobs:
             printf '%s\n' "$keys"
           done > "$allowed_signers"
           git config gpg.ssh.allowedSignersFile "$allowed_signers"
-          {
-            echo 'allowed_signers<<RELEASE_SIGNERS'
-            cat "$allowed_signers"
-            echo RELEASE_SIGNERS
-          } >> "$GITHUB_OUTPUT"
       - name: Verify GA release tag
         id: verify
         if: steps.select.outputs.ga == 'true'

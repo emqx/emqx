@@ -100,11 +100,12 @@ class FakeGitHub:
         return {"oid": "c", "url": "https://example.com/c"}
 
 
-def generate(packages, repo, tmp_path):
+def generate(packages, repo, tmp_path, *extra_args):
     out = tmp_path / "out"
     rc = pm.main([
         "--packages-dir", str(packages), "--version", VERSION, "--tag", VERSION,
         "--git-dir", str(repo), "--out-dir", str(out),
+        *extra_args,
     ])
     return rc, out / "manifests" / VERSION
 
@@ -298,3 +299,79 @@ def test_verified_signed_tag(repo, tmp_path):
     run_git(repo, "config", "gpg.ssh.allowedSignersFile", str(allowed))
     run_git(repo, "tag", "-s", "-m", "release", "6.3.4")
     assert pm.tag_info(repo, "6.3.4") == (head(repo), True)
+
+
+@pytest.fixture
+def verified_tag(repo, tmp_path):
+    """Verify a real SSH tag, then remove local access to its trusted keys."""
+    if git_version() < (2, 34):
+        pytest.skip("SSH tag signing needs git 2.34 or newer")
+    key = tmp_path / "key"
+    subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True
+    )
+    allowed = tmp_path / "allowed_signers"
+    allowed.write_text("test@example.com " + (tmp_path / "key.pub").read_text())
+    run_git(repo, "config", "gpg.format", "ssh")
+    run_git(repo, "config", "user.signingkey", str(key))
+    run_git(repo, "config", "gpg.ssh.allowedSignersFile", str(allowed))
+    run_git(repo, "tag", "-f", "-s", "-m", "release", VERSION)
+    run_git(repo, "verify-tag", f"refs/tags/{VERSION}")
+    tag_object = pm.git(repo, "rev-parse", f"refs/tags/{VERSION}").stdout.strip()
+    allowed.unlink()
+    return tag_object
+
+
+def test_reuses_verified_tag_object(repo, verified_tag):
+    """A prior verification applies to the same object without local keys."""
+    assert pm.tag_info(repo, VERSION, verified_tag_object=verified_tag) == (head(repo), True)
+
+
+def test_changed_tag_object_rejected(repo, verified_tag):
+    """Moving an annotated tag on the same commit invalidates the prior result."""
+    run_git(repo, "tag", "-f", "-s", "-m", "replacement", VERSION)
+    with pytest.raises(ValueError, match="does not match"):
+        pm.tag_info(repo, VERSION, verified_tag_object=verified_tag)
+
+
+def test_verified_object_must_be_annotated(repo):
+    """A commit ID cannot assert verification of a lightweight tag."""
+    with pytest.raises(ValueError, match="annotated"):
+        pm.tag_info(repo, VERSION, verified_tag_object=head(repo))
+
+
+def test_verified_object_must_have_signature(repo):
+    """An unsigned annotated object cannot be recorded as verified."""
+    run_git(repo, "tag", "-f", "-a", "-m", "unsigned", VERSION)
+    tag_object = pm.git(repo, "rev-parse", f"refs/tags/{VERSION}").stdout.strip()
+    with pytest.raises(ValueError, match="signature"):
+        pm.tag_info(repo, VERSION, verified_tag_object=tag_object)
+
+
+def test_cli_reuses_verified_tag_object(packages, repo, tmp_path, verified_tag):
+    """CI can record signed metadata without importing the signer keys again."""
+    rc, out = generate(packages, repo, tmp_path, "--verified-tag-object", verified_tag)
+    assert rc == 0
+    records = [json.loads(path.read_text()) for path in out.iterdir()]
+    assert len(records) == 2
+    assert all(record["git_tag_signed"] is True for record in records)
+    assert all(record["git_commit"] == head(repo) for record in records)
+
+
+def test_cli_mismatched_object_does_not_publish(packages, repo, verified_tag, monkeypatch):
+    """A mismatched verification result fails before any manifest publication."""
+    gh = FakeGitHub()
+    monkeypatch.setattr(pm, "GitHub", lambda *args: gh)
+    monkeypatch.setenv("GH_TOKEN", "fixture-token")
+    rc = pm.main([
+        "--packages-dir", str(packages), "--version", VERSION, "--tag", VERSION,
+        "--git-dir", str(repo), "--verified-tag-object", "0" * 40, "--publish",
+    ])
+    assert rc == 1
+    assert gh.commits == []
+
+
+def test_empty_verified_object_requires_local_verification(repo, verified_tag):
+    """An absent CI output keeps standalone signature verification enabled."""
+    with pytest.raises(ValueError, match="verify-tag"):
+        pm.tag_info(repo, VERSION, verified_tag_object="")
