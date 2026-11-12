@@ -123,6 +123,9 @@ pending-delivery quotas (429 `QuotaExceeded`).
 | `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); requests targeting a device over the cap are rejected with 429 QuotaExceeded and the over-limit device list |
 | `delivery_pool_size` | `0` | Worker count for each delivery pool (the per-node claim pool and the core-side server pool); 0 = one per scheduler |
 
+Plugin config updates reject out-of-range limits and retain the previous
+configuration. Startup continues to normalize values from legacy stored config.
+
 ## Metrics
 
 Prometheus text format at `GET /api/v5/plugin_api/emqx_bcast/metrics`

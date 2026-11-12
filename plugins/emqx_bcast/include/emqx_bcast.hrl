@@ -22,6 +22,7 @@
 -define(TAB_MSG_META, bcast_msg_meta).
 -define(TAB_MSG_META_CNT, bcast_msg_meta_counter).
 -define(TAB_MSG_ACKED, bcast_msg_acked).
+-define(TAB_MSG_PART_ACCOUNTED, bcast_msg_part_accounted).
 -define(TAB_MSG_IDX, bcast_msg_index).
 -define(TAB_QUOTA, bcast_quota).
 
@@ -179,19 +180,26 @@
     counter :: non_neg_integer()
 }).
 
-%% Persistent ack markers for incomplete deliveries: one bag row per
-%% delivery per shard flush tick, carrying the device names acked in that
-%% tick. Consulted on index rebuilds so an already-acked device is not
-%% resurrected as pending (a resurrected entry would deliver a duplicate
-%% whose ack then decrements the completion counter a second time).
-%% One row per tick instead of one row per device matters at fanout scale:
-%% a bs=1000 delivery written per-device would produce 1000 replicated
-%% rows (and 1000 deletes on completion) instead of one per flush tick.
-%% Bag table keyed by delivery_id; all rows of a delivery are deleted with
-%% the delivery row on completion, expiry or management delete.
+%% Replaceable partial-ACK markers for incomplete delivery parts. A shard
+%% writes one bag row containing all device names it has acknowledged so far;
+%% the next flush writes the expanded row before deleting the previous exact
+%% row. Consulted on index rebuilds so an already-acked device is not
+%% resurrected as pending. A completed part is represented by
+%% bcast_msg_part_accounted instead, so it needs no full marker row. Bag table
+%% keyed by delivery_id; all rows are deleted with the delivery row.
 -record(bcast_msg_acked, {
     delivery_id :: binary(),
     device_names = [] :: [binary()]
+}).
+
+%% Durable per-part counter watermark. A row means the part's full ACK list
+%% has been reflected in bcast_msg_meta_counter. It is written with the partial
+%% marker deletion and counter update in one transaction, so a failed report
+%% can never leave a half-applied decrement.
+-record(bcast_msg_part_accounted, {
+    delivery_id :: binary(),
+    shard :: non_neg_integer() | delivery,
+    acked :: non_neg_integer()
 }).
 
 -record(bcast_msg_index, {
@@ -281,7 +289,10 @@
     %% deferral can never be dropped: every client that can be refused already
     %% owns this row, so the worst case is one extra word per client, while a
     %% bounded queue loses the wakeup as soon as it fills up.
-    rearm_at = undefined :: undefined | {non_neg_integer(), cap | residual}
+    %% `restage` marks the first claim after a new client generation; the core
+    %% retires an in-flight claim left by the previous session before claiming
+    %% the next queued delivery.
+    rearm_at = undefined :: undefined | {non_neg_integer(), cap | residual | restage}
 }).
 
 -endif.

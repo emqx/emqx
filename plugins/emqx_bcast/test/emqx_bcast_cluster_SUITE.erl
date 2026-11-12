@@ -581,6 +581,51 @@ t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
     ?assert(erpc:call(N2, ets, info, [bcast_device_registry, size]) > 0),
     emqtt:stop(C).
 
+-doc "A client can connect while its node's plugin is stopped, then subscribe\n"
+"again after the plugin starts. The post-commit subscription event must verify\n"
+"the local channel, register the client and claim the existing backlog without\n"
+"waiting for a ping or another publish trigger.".
+t_subscription_after_plugin_start_arms_existing_client(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    DN = <<"cl_sub_after_ready">>,
+    PK = <<"default">>,
+    ok = erpc:call(N2, application, stop, [emqx_bcast]),
+    NotServing = wait_until(
+        fun() -> not lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, [])) end,
+        50
+    ),
+    ?assert(NotServing),
+    C = connect(N2, DN),
+    {ok, _, _} = sub(C, topic(DN)),
+    ?assert(wait_until(fun() -> node_client_subscribed(N2, DN, topic(DN)) end, 50)),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => PK,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    ?assert(
+        wait_until(
+            fun() -> erpc:call(N1, mnesia, table_info, [bcast_msg, size]) >= 1 end,
+            100
+        )
+    ),
+    {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
+    ?assert(
+        wait_until(
+            fun() -> lists:member(N2, erpc:call(N1, emqx_bcast, plugin_running_nodes, [])) end,
+            50
+        )
+    ),
+    ?assertEqual(0, erpc:call(N2, ets, info, [bcast_device_registry, size])),
+    {ok, _, _} = sub(C, <<"/default/+/user/get">>),
+    [Msg] = recv(1),
+    ?assertMatch(#{payload := ?PAYLOAD}, Msg),
+    ?assert(erpc:call(N2, ets, info, [bcast_device_registry, size]) > 0),
+    emqtt:stop(C).
+
 -doc "The trigger fallback resolves a channel by client id alone, so it has to\n"
 "check that channel's own product before arming it: a BatchPub for a different\n"
 "ProductKey used to register a client of another product under the request's\n"
@@ -788,6 +833,9 @@ t_partial_batch_ack_ledger_after_owner_handover(Config) ->
         100
     ),
     ?assert(PartiallyAcked),
+    {ok, [DeliveryId]} = erpc:call(
+        N1, emqx_bcast_storage, get_device_deliveries, [{PK, D2}]
+    ),
     ok = erpc:call(N2, application, stop, [emqx_bcast]),
     emqx_bcast_test_cluster:wait_ready([N1], [N1]),
     %% Reconnect D1 through MQTT to arm the rebuilt index. The shard has no
@@ -813,6 +861,24 @@ t_partial_batch_ack_ledger_after_owner_handover(Config) ->
         100
     ),
     ?assert(Drained),
+    RowsGone = wait_until(
+        fun() ->
+            erpc:call(N1, fun() ->
+                lists:all(
+                    fun(Tab) -> mnesia:dirty_read(Tab, DeliveryId) =:= [] end,
+                    [
+                        bcast_msg,
+                        bcast_msg_meta,
+                        bcast_msg_meta_counter,
+                        bcast_msg_acked,
+                        bcast_msg_part_accounted
+                    ]
+                )
+            end)
+        end,
+        100
+    ),
+    ?assert(RowsGone),
     ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_wanted">>) - W0),
     ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_acked">>) - A0),
     emqtt:stop(C1b),
@@ -888,6 +954,128 @@ t_plugin_roll_restart_under_qos1_load(Config) ->
     ?assertEqual(Count, node_metric(N1, <<"batch_pub_qos1_wanted">>) - W0),
     ?assertEqual(Count, node_metric(N1, <<"batch_pub_qos1_acked">>) - A0),
     emqtt:stop(C2).
+
+-doc "High-concurrency reuse of one MessageId across multiple cores must not\n"
+"exhaust distributed Mnesia transaction retries. Every request has a unique\n"
+"delivery and device set, leaving the message/hash rows as the only shared\n"
+"promotion state.".
+t_concurrent_same_message_reuse_across_cores(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    Payload = <<"cluster-reuse-hot-message">>,
+    Hash = crypto:hash(sha256, Payload),
+    ApiMsgId = emqx_bcast_utils:gen_api_uuid(),
+    MsgId = emqx_bcast_utils:gen_guid(),
+    ok = erpc:call(N1, emqx_bcast_storage, create_message, [
+        ApiMsgId, MsgId, Hash, Payload
+    ]),
+    ?assert(
+        wait_until(
+            fun() ->
+                erpc:call(
+                    N2,
+                    mnesia,
+                    dirty_read,
+                    [bcast_message, MsgId]
+                ) =/= []
+            end,
+            100
+        )
+    ),
+    Workers = 32,
+    DevicesPerRequest = 241,
+    Indexed = lists:zip(lists:seq(1, Workers), [
+        reuse_cluster_promotion_entry(
+            ApiMsgId,
+            MsgId,
+            Hash,
+            Payload,
+            I,
+            DevicesPerRequest
+        )
+     || I <- lists:seq(1, Workers)
+    ]),
+    Specs = [
+        {Index,
+            case Index rem 2 of
+                0 -> N2;
+                1 -> N1
+            end,
+            Entry}
+     || {Index, Entry} <- Indexed
+    ],
+    Results = run_cluster_promotions(Specs),
+    ct:pal("cross-core same-MessageId promotion results: ~p", [Results]),
+    ?assertEqual(
+        [],
+        [Result || Result <- Results, Result =/= {ok, [ok]}]
+    ).
+
+reuse_cluster_promotion_entry(ApiMsgId, MsgId, Hash, Payload, Worker, DeviceCount) ->
+    Now = emqx_bcast_utils:now_sec(),
+    #{
+        payload => Payload,
+        hash => Hash,
+        api_msg_id => ApiMsgId,
+        msg_id => MsgId,
+        delivery_id => emqx_bcast_utils:gen_guid(),
+        product_key => <<"PREUSECLUSTER">>,
+        topic_template => <<"reuse/${productKey}/${deviceName}">>,
+        devices => [
+            iolist_to_binary(io_lib:format("CL-REUSE-~B-~B", [Worker, I]))
+         || I <- lists:seq(1, DeviceCount)
+        ],
+        created_at => Now,
+        expires_at => Now + 3600,
+        epoch => 0,
+        can_create => false
+    }.
+
+run_cluster_promotions(Specs) ->
+    Parent = self(),
+    Workers = [
+        begin
+            Pid = spawn(fun() ->
+                Parent ! {promotion_ready, Index, self()},
+                receive
+                    go ->
+                        Result =
+                            try erpc:call(Node, emqx_bcast_storage, promote_batch, [[Entry]]) of
+                                Promoted -> Promoted
+                            catch
+                                Class:Reason -> {error, {Class, Reason}}
+                            end,
+                        Parent ! {promotion_result, Index, Result}
+                end
+            end),
+            {Index, Pid}
+        end
+     || {Index, Node, Entry} <- Specs
+    ],
+    wait_cluster_promotions_ready(length(Workers)),
+    lists:foreach(fun({_Index, Pid}) -> Pid ! go end, Workers),
+    Results = collect_cluster_promotion_results(length(Workers), #{}),
+    [maps:get(Index, Results) || {Index, _Node, _Entry} <- Specs].
+
+wait_cluster_promotions_ready(0) ->
+    ok;
+wait_cluster_promotions_ready(N) ->
+    receive
+        {promotion_ready, _Index, _Pid} ->
+            wait_cluster_promotions_ready(N - 1)
+    after 10000 ->
+        ct:fail(promotion_worker_ready_timeout)
+    end.
+
+collect_cluster_promotion_results(0, Acc) ->
+    Acc;
+collect_cluster_promotion_results(N, Acc) ->
+    receive
+        {promotion_result, Index, Result} ->
+            collect_cluster_promotion_results(N - 1, maps:put(Index, Result, Acc))
+    after 60000 ->
+        ct:fail({promotion_result_timeout, maps:size(Acc)})
+    end.
 
 publish_message(Node, PK, Devices, MessageId, Qos) ->
     Body =

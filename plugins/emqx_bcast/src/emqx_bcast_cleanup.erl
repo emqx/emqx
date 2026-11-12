@@ -15,30 +15,43 @@ start_link() ->
 init([]) ->
     Interval = cleanup_interval(),
     TimerRef = schedule(Interval),
-    {ok, {Interval, TimerRef}}.
+    {ok, #{
+        interval => Interval,
+        timer => TimerRef,
+        part_accounting_continuation => undefined
+    }}.
 
-handle_info(cleanup, {Interval, _TimerRef}) ->
-    case is_cleanup_leader() of
-        true ->
-            ok = emqx_bcast_storage:cleanup_expired();
-        false ->
-            %% A smaller-named core owns the cleanup; skip to avoid every
-            %% core scanning the same mnesia tables at the same interval.
-            ok
-    end,
+handle_info(cleanup, State = #{interval := Interval}) ->
+    Continuation = maps:get(part_accounting_continuation, State, undefined),
+    NextContinuation =
+        case is_cleanup_leader() of
+            true ->
+                {ok, Next} = emqx_bcast_storage:cleanup_expired(Continuation),
+                Next;
+            false ->
+                %% A smaller-named core owns the cleanup; skip to avoid every
+                %% core scanning the same mnesia tables at the same interval.
+                Continuation
+        end,
     TimerRef = schedule(Interval),
-    {noreply, {Interval, TimerRef}};
+    {noreply, State#{
+        timer => TimerRef,
+        part_accounting_continuation => NextContinuation
+    }};
 handle_info(_Msg, State) ->
     {noreply, State}.
 
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 
-handle_cast(reschedule, {_Interval, TimerRef}) ->
-    ok = emqx_bcast_utils:cancel_timer(TimerRef),
+handle_cast(reschedule, State) ->
+    ok = emqx_bcast_utils:cancel_timer(maps:get(timer, State)),
     Interval = cleanup_interval(),
     NewTimerRef = schedule(Interval),
-    {noreply, {Interval, NewTimerRef}};
+    {noreply, State#{
+        interval => Interval,
+        timer => NewTimerRef
+    }};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 

@@ -13,6 +13,7 @@
 start(_StartType, _StartArgs) ->
     {ok, _} = application:ensure_all_started(prometheus),
     ok = emqx_bcast_config:load(),
+    ok = emqx_bcast_log_throttle:init(),
     %% Tables before the supervisor: the index owner rebuilds from mria in
     %% its init and must find the tables ready on first activation.
     ok = emqx_bcast:init_tables(),
@@ -26,14 +27,19 @@ stop(_State) ->
     ok.
 
 on_config_changed(_OldConf, NewConf) ->
-    OldSize = normalized_pool_size(),
-    ok = emqx_bcast_config:update(NewConf),
-    NewSize = normalized_pool_size(),
-    case OldSize =:= NewSize of
-        true ->
-            ok;
-        false ->
-            emqx_bcast_sup:restart_pools(NewSize)
+    case emqx_bcast_config:validate(NewConf) of
+        ok ->
+            OldSize = normalized_pool_size(),
+            ok = emqx_bcast_config:update(NewConf),
+            NewSize = normalized_pool_size(),
+            case OldSize =:= NewSize of
+                true ->
+                    ok;
+                false ->
+                    emqx_bcast_sup:restart_pools(NewSize)
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 normalized_pool_size() ->

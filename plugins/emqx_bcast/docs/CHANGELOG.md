@@ -2,7 +2,80 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
+## 0.4.5
+
+Follow-up to `0.4.4`, the release shipped with EMQX 6.3.3.
+
+### Upgrade notes
+
+- Existing stored configurations are still normalized when a plugin starts,
+  so a legacy negative limit or an out-of-range per-device cap does not prevent
+  an upgrade. Configuration updates through the plugin config API now reject
+  those values instead of persisting a value different from the effective one.
+- Existing delivery and ACK table layouts are unchanged. A new derived
+  `bcast_msg_part_accounted` table records which index-shard parts have already
+  been reflected in the completion counter. It is created automatically, and
+  legacy completed-part markers are reconciled through it, so no data migration
+  is required.
+- Different versions of the `emqx_bcast` plugin must not run in one cluster.
+  Upgrade the plugin cluster-wide by uninstalling the old version and then
+  installing the new version. For an EMQX rolling upgrade, stopping the plugin
+  on every node before the upgrade and enabling it after all nodes have been
+  upgraded is a recommended operational procedure, not a plugin compatibility
+  requirement.
+
+### Fixed
+
+- Commit a completed part's partial-marker deletion, durable accounting
+  watermark, and counter update in one transaction. Recovery compares the
+  counter against the watermark before applying the part decrement, so a partial
+  ACK counted by an older recovery pass cannot be subtracted a second time. A
+  partial ACK followed by owner handover no longer leaves delivery, metadata,
+  counter, and marker rows behind until the next rebuild or `msg_ttl`.
+- Rebuild a missing remaining-ack counter row during the completed-part report
+  instead of aborting every cleanup retry.
+- Report `PendingCount` from durable partial ACK markers and the completion
+  counter. A same-shard partial ACK lowers the management count on the next
+  ACK-marker flush while completed parts use their watermark and counter
+  decrement instead of retaining a full marker.
+- Coalesce partial ACK markers per delivery and index shard into one 500 ms
+  flush. A hot ACK path no longer performs one replicated Mnesia write per
+  acknowledgement and no longer lets ACK-marker growth delay the core-applied
+  confirmation past the pull side's 30-second recovery window.
+- Replace each unfinished part's previous partial marker instead of appending a
+  new bag row per flush, and rebuild completed parts from
+  `bcast_msg_part_accounted`. `bcast_msg_acked` is bounded by unfinished parts
+  that received an ACK, not by drain duration or completed parts.
+- Use a constant-time queue for the bounded ACK-worker backlog. A sustained ACK
+  burst no longer copies the complete backlog for every incoming batch.
+- Aggregate expired ACK-in-flight warnings into one report per pull-shard sweep.
+  Each report carries the expired count and a bounded sample.
+- Arm a client whose connect event predates the plugin from a verified local
+  subscription event, without waiting for its next keepalive or publish.
+- Retire an unacknowledged in-flight slot left by the previous client
+  generation when the same ClientID reconnects with a clean session. The new
+  generation's first claim restages that slot, so the pending delivery is
+  retried without waiting for another publish or the old claim lease.
+- Reject negative schema-bounded plugin limits and out-of-range per-device
+  limits at configuration-update time. Runtime fallback/clamping remains for
+  legacy stored configurations.
+- Reclaim orphan `bcast_msg_part_accounted` rows. The periodic cleanup leader
+  scans a bounded slice with a rotating continuation and deletes a row group
+  only after both the delivery and metadata rows are gone.
+- Log plugin-generated 429 responses for intake `Busy`, global
+  `QuotaExceeded`, and per-device `QuotaExceeded`. The warnings include the
+  request ID, ProductKey, device count, relevant quota/depth information, and
+  the number suppressed since the previous warning. Throttling is maintained
+  inside the plugin so a sustained rejection burst cannot flood the log or
+  regress the admission hot path.
+- Keep message expiry monotonic when identical-content or reused-MessageId
+  promotions commit out of admission order. A late promotion for an older
+  request can no longer shorten an expiry already extended by a newer request,
+  including when both requests are promoted in the same batch.
+
 ## 0.4.4
+
+Released with EMQX 6.3.3.
 
 ### Fixed
 

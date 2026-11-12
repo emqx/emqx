@@ -377,7 +377,9 @@ mnesia_table_specs() ->
         {?TAB_MSG_META, bcast_msg_meta, record_info(fields, bcast_msg_meta), set},
         {?TAB_MSG_META_CNT, bcast_msg_meta_counter, record_info(fields, bcast_msg_meta_counter),
             set},
-        {?TAB_MSG_ACKED, bcast_msg_acked, record_info(fields, bcast_msg_acked), bag}
+        {?TAB_MSG_ACKED, bcast_msg_acked, record_info(fields, bcast_msg_acked), bag},
+        {?TAB_MSG_PART_ACCOUNTED, bcast_msg_part_accounted,
+            record_info(fields, bcast_msg_part_accounted), bag}
     ].
 
 %% Table names only, in creation order (see `mnesia_table_specs/0`).

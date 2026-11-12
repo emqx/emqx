@@ -88,6 +88,13 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 | 0 | Deliver | Skip | None | None |
 | 1 | Deliver + wait PUBACK | Store, replay on reconnect | TTL = `msg_ttl` (default 15 days) | Deleted when the remaining-ack counter reaches 0 |
 
+For QoS=1 `MessageId` reuse, the admission lookup reads the stored payload from
+the message table and does not change its TTL. A successful promotion extends
+the message expiry to
+`max(current_expiry, request_admission_time + msg_ttl)`. There is no message
+content or TTL cache: configuration is read live, while message state is read
+from the replicated Mnesia tables.
+
 ```json
 // Request (inline MessageContent)
 {
@@ -105,6 +112,19 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 
 // Response
 { "Success": true, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "MessageId": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+Plugin-generated 429 responses use the same error shape:
+
+```json
+// Global pending-delivery quota
+{ "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "QuotaExceeded", "ErrorMessage": "Pending delivery quota exceeded" }
+
+// Per-device pending-delivery quota
+{ "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "QuotaExceeded", "ErrorMessage": "Device pending delivery quota exceeded", "Devices": ["D1"] }
+
+// Intake queue full
+{ "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "Busy", "ErrorMessage": "Intake queue full, retry later" }
 ```
 
 ```bash
@@ -271,10 +291,15 @@ GET /api/v5/plugin_api/emqx_bcast/deliveries/:deliveryId
 ```
 
 `PendingCount` is the number of target devices that have not yet
-acknowledged. `MessageId` is `null` when the message record the delivery
-belongs to has already been removed (deleted through the management API, or
-reclaimed when it expired): the delivery row outlives it until its own cleanup.
-404 `DeliveryNotFound` if unknown.
+acknowledged. It is projected from durable partial-ACK markers and the
+completion counter. A completed index-shard part is represented by its durable
+watermark and counter decrement, so it does not retain a full device-list
+marker. Partial markers are coalesced and flushed at 500 ms intervals; the
+count can therefore lag a new partial ACK by one flush interval, or longer when
+the scheduler delays the shard. `MessageId` is `null` when the message record
+the delivery belongs to has already been removed (deleted through the
+management API, or reclaimed when it expired): the delivery row outlives it
+until its own cleanup. 404 `DeliveryNotFound` if unknown.
 
 ### Query Deliveries by Device
 
@@ -319,8 +344,8 @@ unknown.
 | `InvalidMessageId` | 400 | `MessageId` is not a UUID string; it cannot name a stored message, so it is rejected as input rather than reported as not found |
 | `InvalidParams` | 400 | Invalid query parameters on management endpoints: missing `product_key`/`device_name`, `limit` outside 1..1000, or a malformed `cursor` |
 | `DeliveryNotFound` | 404 | DeliveryId does not exist (management endpoints) |
-| `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap |
-| `Busy` | 429 | BatchPub QoS=1 intake queue is full; retry later |
+| `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap. A node-throttled warning records the request ID, ProductKey, device count, quota scope, and number suppressed since the previous warning |
+| `Busy` | 429 | BatchPub QoS=1 intake queue is full; retry later. A node-throttled warning records the request ID, ProductKey, device count, admission depth, and number suppressed since the previous warning |
 | `PendingDeliveries` | 409 | Metrics reset refused because at least one node still has queued or in-flight deliveries; the body lists the `BlockedNodes` |
 | `PartialReset` | 500 | Metrics reset failed on at least one node during the reset phase; the body lists the already zeroed `ResetNodes` and the `FailedNodes` with reasons |
 | `InternalError` | 500 | Internal server error |
@@ -382,7 +407,7 @@ ratio of the shares. That is expected and is not a leak.
 | `bcast_batch_pub_qos1_wanted` | intake | Logical deliveries durably committed to mria (promotion). Ledger base; incremented once per committed device of every batch this node accepted, NOT at API acceptance |
 | `bcast_batch_pub_qos1_delivered` | device | Actual PUBLISH sends by this node (includes redeliveries and the QoS0-subscription auto path) |
 | `bcast_batch_pub_qos1_redelivered` | device | Sends whose core claim attempt number was >= 2 (same logical delivery attempted before: lease expiry, disconnect, unsubscribe, claim-race release) |
-| `bcast_batch_pub_qos1_acked` | device | PUBACKs matched to a pending delivery. Matching an ack removes the device from the index, so a duplicate PUBACK is not matched twice while the index shard survives. If the shard dies in the up-to-50 ms window before that ack's marker is durable, the rebuild re-indexes the device and the redelivered duplicate's PUBACK is counted once more — delivery itself stays at-least-once |
+| `bcast_batch_pub_qos1_acked` | device | PUBACKs matched to a pending delivery. Matching an ack removes the device from the index, so a duplicate PUBACK is not matched twice while the index shard survives. Partial ACK markers are replaced once per delivery part and flushed every 500 ms. A completed part keeps only its accounting watermark. If the shard dies before a partial marker is durable, the rebuild re-indexes that device and the redelivered duplicate's PUBACK is counted once more — delivery itself stays at-least-once |
 | `bcast_batch_pub_qos1_auto_acked` | device | Logical deliveries completed because the subscription QoS is 0 |
 | `bcast_batch_pub_qos1_ttl_expired` | index | Logical deliveries abandoned because the delivery TTL expired before confirmation; counted on the core that reclaims them |
 | `bcast_batch_pub_qos1_canceled` | index | Logical deliveries removed by management delete or reset before confirmation; counted on the core that runs the removal |
