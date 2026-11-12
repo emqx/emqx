@@ -116,7 +116,7 @@ handle_info(_Info, State) ->
 
 handle_subscribe(State) ->
     #{
-        ?chan_pid := Chan,
+        ?chan_pid := ChanPid,
         ?source_res_id := SourceResId,
         ?subscription_params := SubParams
     } = State,
@@ -124,7 +124,7 @@ handle_subscribe(State) ->
     BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
     try
         #'basic.consume_ok'{consumer_tag = _} =
-            amqp_channel:subscribe(Chan, BasicConsume, self()),
+            amqp_channel:subscribe(ChanPid, BasicConsume, self()),
         {noreply, State, {continue, confirm_ok}}
     catch
         exit:{Reason, _Stack} ->
@@ -134,14 +134,28 @@ handle_subscribe(State) ->
                 reason => Reason
             }),
             %% let the connector restart to start from a fresh slate.
-            case is_process_alive(Chan) of
+            case is_process_alive(ChanPid) of
                 false ->
                     ok;
                 true ->
-                    _ = amqp_channel:close(Chan),
-                    ok
+                    try_close(ChanPid, SourceResId)
             end,
             {stop, {shutdown, failed_to_subscribe}, State}
+    end.
+
+try_close(ChanPid, SourceResId) ->
+    try
+        _ = amqp_channel:close(ChanPid),
+        ok
+    catch
+        Kind:Reason ->
+            ?SLOG(warning, #{
+                msg => "rabbitmq_source_worker_failed_to_close_chan",
+                source_resource_id => SourceResId,
+                reason => {Kind, Reason}
+            }),
+            exit(ChanPid, kill),
+            ok
     end.
 
 to_map(BasicDeliver, PBasic, Params, Payload) ->

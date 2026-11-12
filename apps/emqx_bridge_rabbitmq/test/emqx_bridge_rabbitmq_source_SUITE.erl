@@ -426,35 +426,39 @@ t_resubscribe_timeout(TCConfig) ->
         end
     end),
     {ok, Agent} = emqx_utils_agent:start_link(false),
-    emqx_common_test_helpers:with_mock(
-        amqp_channel,
-        subscribe,
-        fun(Chan, Consume, Pid) ->
-            case Pid == self() of
-                false ->
-                    %% connector resubscribing if restarted
-                    meck:passthrough([Chan, Consume, Pid]);
-                true ->
-                    %% worker
-                    %% can't call `amqp_util:update_call_timeout` here, as it overrides
-                    %% the application level config....
-                    Triggered = emqx_utils_agent:get_and_update(
-                        Agent, fun(Triggered) -> {Triggered, true} end
-                    ),
-                    case Triggered of
-                        true ->
-                            erase(gen_server_call_timeout),
-                            meck:passthrough([Chan, Consume, Pid]);
+    emqx_common_test_helpers:with_mocks(
+        #{
+            amqp_channel => #{
+                subscribe => fun(Chan, Consume, Pid) ->
+                    case Pid == self() of
                         false ->
-                            put(gen_server_call_timeout, 0),
-                            try
-                                meck:passthrough([Chan, Consume, Pid])
-                            after
-                                erase(gen_server_call_timeout)
+                            %% connector resubscribing if restarted
+                            meck:passthrough([Chan, Consume, Pid]);
+                        true ->
+                            %% worker
+                            %% can't call `amqp_util:update_call_timeout` here, as it overrides
+                            %% the application level config....
+                            Triggered = emqx_utils_agent:get_and_update(
+                                Agent, fun(Triggered) -> {Triggered, true} end
+                            ),
+                            case Triggered of
+                                true ->
+                                    erase(gen_server_call_timeout),
+                                    meck:passthrough([Chan, Consume, Pid]);
+                                false ->
+                                    put(gen_server_call_timeout, 0),
+                                    try
+                                        meck:passthrough([Chan, Consume, Pid])
+                                    after
+                                        erase(gen_server_call_timeout)
+                                    end
                             end
                     end
-            end
-        end,
+                end,
+                close => fun(_ChanPid) -> exit({timeout, [gen_server_stacktrace]}) end
+            }
+        },
+
         fun() ->
             %% make just one worker get "cancelled"
             wait_basic_cancel_received(#{n => 1}, fun() ->
