@@ -36,7 +36,7 @@
 ##   9) REST: uploads a table with 'PUT tables/<name>' through emqx1's
 ##      plugin API, asserts both nodes confirmed and serve it, repeats
 ##      the upload (same version), reads it back, deletes it through
-##      emqx2's plugin API (204), and repeats the delete (404).
+##      emqx2's plugin API (204), and repeats the delete (204).
 ##
 ## Usage:
 ##   plugins/emqx_maptabs/smoke/cluster/cluster_smoke.sh [--keep-up]
@@ -426,7 +426,7 @@ scenario_rest() {
         assert_table_gone_on "REST" "${NODES[$i]}" "${API_PORTS[$i]}"
     done
     out=$(maptabs_api "${API_PORTS[0]}" DELETE "tables/$TABLE")
-    [[ "$(head -1 <<<"$out")" == "404" ]] || fail "REST: repeated DELETE was not 404: $out"
+    [[ "$(head -1 <<<"$out")" == "204" ]] || fail "REST: repeated DELETE was not 204: $out"
 }
 
 main() {

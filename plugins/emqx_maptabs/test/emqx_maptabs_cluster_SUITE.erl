@@ -248,7 +248,7 @@ t_api_put_partial_within_gateway_budget(Config) ->
 
 -doc """
 A delete a peer could not confirm is completed by repeating it; the
-repeat answers 404 once every node confirms the table is gone.
+repeat answers 204 once every node confirms the table is gone.
 """.
 t_api_delete_partial_then_repeat(Config) ->
     [Node1, Node2] = ?config(nodes, Config),
@@ -261,10 +261,7 @@ t_api_delete_partial_then_repeat(Config) ->
     ),
     ?assertEqual([], erpc:call(Node2, mnesia, dirty_read, [emqx_maptabs_index, ?TABLE])),
     ok = erpc:call(Node2, emqx_plugins, ensure_started, [NameVsn]),
-    ?assertMatch(
-        {404, #{code := <<"NOT_FOUND">>}},
-        api_call(Node1, delete, [<<"tables">>, ?TABLE], #{})
-    ),
+    ?assertMatch({204, _}, api_call(Node1, delete, [<<"tables">>, ?TABLE], #{})),
     ?assertEqual(undefined, erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])),
     ok.
 

@@ -156,11 +156,11 @@ form and the same content always has the same `version`, whatever its
 formatting. The size limit `max_table_file_bytes` applies to the stored form.
 
 A rejected table is a 400 with `reason` and, where it applies, `row_number`
-and `key`. An unknown table is a 404.
+and `key`. Reading an unknown table is a 404. `DELETE` is idempotent: deleting
+an unknown table is a 204.
 
 `PUT`, `DELETE` and `POST reload` answer 200 or 204 only when every running
 node has confirmed that its cache holds the result. Otherwise the answer is a
 503 with code `PARTIALLY_APPLIED` and the nodes that did not confirm in
 `failed_nodes`. The change is stored and is not rolled back; repeat the same
-request to complete it. A repeated `DELETE` of a table that is already gone
-answers 404 once every node has confirmed.
+request to complete it.

@@ -208,16 +208,21 @@ t_http_rejects_over_limits(Config) ->
     end,
     ok.
 
--doc "Reading or deleting an unknown table is a 404.".
+-doc "Reading an unknown table is a 404.".
 t_http_unknown_table(_Config) ->
     ?assertMatch(
         {404, #{<<"code">> := <<"NOT_FOUND">>, <<"name">> := <<"nope">>}},
         api(get, ["tables", "nope"], none)
     ),
-    ?assertMatch(
-        {404, #{<<"code">> := <<"NOT_FOUND">>, <<"name">> := <<"nope">>}},
-        api(delete, ["tables", "nope"], none)
-    ),
+    ok.
+
+-doc "Deleting is idempotent: an unknown or already deleted table is a 204.".
+t_http_delete_idempotent(_Config) ->
+    ?assertMatch({204, _}, raw(delete, ["tables", "nope"], none)),
+    {200, _} = api(put, ["tables", ?TABLE], {json, [#{key => 1}]}),
+    ?assertMatch({204, _}, raw(delete, ["tables", ?TABLE], none)),
+    ?assertMatch({204, _}, raw(delete, ["tables", ?TABLE], none)),
+    ?assertEqual({error, not_found}, emqx_maptabs:read_table(?TABLE)),
     ok.
 
 -doc "An API key needs the plugin_api scope; the gateway enforces it for the plugin.".

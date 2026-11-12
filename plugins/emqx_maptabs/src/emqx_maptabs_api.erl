@@ -11,7 +11,7 @@ REST handlers, served by the EMQX plugin API gateway under
 - `GET    tables`        tables cached on every running node
 - `GET    tables/:name`  stored table content
 - `PUT    tables/:name`  validate, store and load a table
-- `DELETE tables/:name`  delete a table
+- `DELETE tables/:name`  delete a table (idempotent)
 - `POST   reload`        rebuild the cache from storage on every node
 
 A write is answered with 200/204 only when every running node has
@@ -63,10 +63,8 @@ handle(put, [<<"tables">>, Name], Request) ->
     end;
 handle(delete, [<<"tables">>, Name], _Request) ->
     case emqx_maptabs:delete_table(Name, deadline()) of
-        {ok, deleted} ->
+        ok ->
             {ok, 204, #{}, <<>>};
-        {ok, not_found} ->
-            not_found(Name);
         {error, Reason} ->
             error_response(Reason)
     end;

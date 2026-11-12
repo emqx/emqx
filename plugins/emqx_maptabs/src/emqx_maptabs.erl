@@ -164,31 +164,26 @@ put_table(Name, Json, Deadline) ->
 
 -doc """
 Deletes a table, then asks every running node to confirm its cache
-has dropped it, as `put_table/3`. Returns `{ok, not_found}` when no
-such table was stored and every node confirms none is cached.
+has dropped it, as `put_table/3`. Idempotent: an unknown table is
+`ok` once every node confirms none is cached.
 """.
 -spec delete_table(binary(), integer()) ->
-    {ok, deleted | not_found}
+    ok
     | {error, {partial, map(), [{node(), term()}]}}
     | {error, term()}.
 delete_table(Name, Deadline) ->
     maybe
         ok ?= health_check(),
         ok ?= emqx_maptabs_loader:validate_name(Name),
-        {ok, Result} ?=
+        %% an unknown table still goes to confirm: a retry after a
+        %% partial delete must reach the nodes that missed it
+        ok ?=
             case emqx_maptabs_store:get(Name) of
-                {ok, _} ->
-                    maybe
-                        ok ?= emqx_maptabs_store:delete(Name),
-                        {ok, deleted}
-                    end;
-                {error, not_found} ->
-                    %% still confirm: a retry after a partial delete
-                    %% must reach the nodes that missed it
-                    {ok, not_found}
+                {ok, _} -> emqx_maptabs_store:delete(Name);
+                {error, not_found} -> ok
             end,
         {ok, _} ?= confirm_cluster(Name, absent, #{name => Name}, Deadline),
-        {ok, Result}
+        ok
     end.
 
 -doc "Rebuilds the cache from storage on every running node, in parallel.".
