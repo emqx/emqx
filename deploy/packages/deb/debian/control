@@ -8,5 +8,5 @@ Homepage: https://www.emqx.com
 
 Package: emqx
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, adduser, mawk | awk, procps
 Description: EMQX, a distributed, massively scalable, highly extensible MQTT message broker.
