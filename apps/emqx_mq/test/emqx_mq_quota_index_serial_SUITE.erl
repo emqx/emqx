@@ -48,6 +48,41 @@ t_reject_retains_overshoot(_Config) ->
         [#{count => 2}, #{bytes => 200}, #{count => 2, bytes => 200}]
     ).
 
+-doc "A flush drops a bucket that it closes at or before the released boundary".
+t_release_on_flush(_Config) ->
+    Opts = #{count => 10, on_full => reject, threshold_percentage => 10},
+    Index0 = emqx_mq_quota_index:new(Opts, 0, false),
+    {Index1, true} = emqx_mq_quota_index:apply_updates(Index0, [add(1, 10, 1)], undefined),
+    %% Releasing inside the single bucket keeps it
+    Index2 = emqx_mq_quota_index:release(Index1, ts(15)),
+    ?assertMatch(#{count := 1, buckets := 1}, emqx_mq_quota_index:occupancy(Index2)),
+    ?assertEqual(ts(15), emqx_mq_quota_index:released_before(Index2)),
+    %% A later flush closes the bucket at a fence before the released boundary and drops it
+    {Index3, true} = emqx_mq_quota_index:apply_updates(Index2, [add(11, 10, 1)], fence(10)),
+    ?assertMatch(#{count := 1, buckets := 1}, emqx_mq_quota_index:occupancy(Index3)),
+    ?assertEqual(ts(10), emqx_mq_quota_index:oldest_boundary(Index3)),
+    %% A bucket that ends after the released boundary stays
+    {Index4, _} = emqx_mq_quota_index:apply_updates(Index3, [add(21, 10, 1)], fence(20)),
+    ?assertMatch(#{count := 2, buckets := 2}, emqx_mq_quota_index:occupancy(Index4)),
+    %% A lower boundary does not lower the released boundary
+    Index5 = emqx_mq_quota_index:release(Index4, ts(5)),
+    ?assertEqual(ts(15), emqx_mq_quota_index:released_before(Index5)),
+    Index6 = emqx_mq_quota_index:release(Index5, ts(20)),
+    ?assertMatch(#{count := 1, buckets := 1}, emqx_mq_quota_index:occupancy(Index6)),
+    ?assertEqual(
+        Index6, emqx_mq_quota_index:decode(Opts, emqx_mq_quota_index:encode(Index6))
+    ).
+
+-doc "An index stored without a released boundary decodes without one".
+t_release_absent(_Config) ->
+    Opts = #{count => 10, on_full => reject, threshold_percentage => 10},
+    {Index, _} = emqx_mq_quota_index:apply_updates(
+        emqx_mq_quota_index:new(Opts, 0, false), [add(1, 10, 1)], undefined
+    ),
+    Decoded = emqx_mq_quota_index:decode(Opts, emqx_mq_quota_index:encode(Index)),
+    ?assertEqual(undefined, emqx_mq_quota_index:released_before(Decoded)),
+    ?assertEqual(Index, Decoded).
+
 -doc "Reject indices retain a partially filled head and accept delayed serial updates".
 t_reject_retains_partial_head(_Config) ->
     Opts = #{count => 100, on_full => reject, threshold_percentage => 10},

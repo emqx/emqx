@@ -137,13 +137,13 @@ Occupancy is an estimate. Quota updates are buffered, so concurrent writes can e
 
 ### Releasing quota through consumption
 
-A reject queue reports consumption when a whole consumer buffer has been acknowledged or skipped by existing consumption rules. Garbage collection reports expired records the same way. A shared pool of cleanup workers handles the reports. The queue ID selects the worker. The worker deletes the consumed or expired records below a whole quota-index bucket boundary, then drops the buckets below that boundary. Quota is released only after the records are deleted. Disk compaction can finish later. Publishing does not wait for cleanup.
+A reject queue reports consumption when a whole consumer buffer has been acknowledged or skipped by existing consumption rules. Garbage collection reports expired records the same way. A shared pool of cleanup workers handles the reports. The queue ID selects the worker. The worker deletes the consumed or expired records below the reported boundary. Then it stores the boundary in the quota index as the released boundary. The index drops the buckets that end at or before the released boundary. Each quota flush drops them too, so a bucket that closes later is released when it closes. Quota is released only after the records are deleted. Disk compaction can finish later. Publishing does not wait for cleanup.
 
 When cleanup falls behind, the queue stays full and rejects new messages. So the amount of pending cleanup work stays bounded. The cleanup pool is separate from the pool that deletes queues and purged messages.
 
-The worker processes a reported boundary after two quota flush intervals, so the index counts every record below it. The worker keeps the processed boundary of each consumer and ignores repeated reports, so an idle queue causes no index reads. Consumers repeat their latest boundary periodically, so a restarted worker recovers it.
+The worker keeps the processed boundary of each consumer and ignores repeated reports, so an idle queue causes no index reads. Consumers repeat their latest boundary periodically, so a restarted worker recovers it.
 
-Cleanup always retains the newest index bucket. A full bucket closes at a DS fence. The default bucket threshold is ten percent of the corresponding limit. While the index of a shard has one bucket, the queue accepts messages above the limit. The bucket then fills, closes, and cleanup can release it. So one large bucket cannot block the queue.
+The index always retains its newest bucket. A full bucket closes at a DS fence on the next quota flush. The default bucket threshold is ten percent of the corresponding limit. A bucket is released after the consumer passes a record stored after the bucket. So one consumed bucket can stay charged until the next message is consumed. While the index of a shard has one bucket, or its newest bucket is empty, the queue accepts messages above the limit. The next message then releases the older bucket. So consumed buckets cannot block the queue.
 
 Reject last-value queues retain unconsumed values. Cleanup deletes consumed values. Admission does not credit the previous value of the same key. A rejected replacement leaves that value intact.
 

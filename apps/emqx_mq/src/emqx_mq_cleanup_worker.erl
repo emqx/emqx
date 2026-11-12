@@ -12,13 +12,11 @@ The workers form a pool. The queue id selects the worker, so one worker handles 
 Consumers report the boundary below which every record of a shard is consumed.
 Garbage collection reports the boundary below which every record of a shard is expired.
 The worker calls `emqx_mq_message_db:release_before/3` for the reported boundary.
-That function deletes the records before it releases quota.
+That function deletes the records below the boundary, then stores the boundary in the quota index.
+The index drops the buckets that end at or before it, also when a later quota flush closes them.
+So quota is released only after the records are deleted.
 
-The worker waits two quota flush intervals before it processes a new boundary.
-Records below the boundary were stored before they were consumed, so the index counts them by then.
-After a release, no more quota below the boundary can be released until new records arrive.
-
-The worker monitors each reporting consumer and keeps the released boundary of each of its shards.
+The worker monitors each reporting consumer and keeps the processed boundary of each of its shards.
 It ignores reports at or below that boundary, so repeated reports of an idle queue do not read the index.
 When the consumer stops, the worker drops its boundaries.
 Consumers repeat their latest boundary periodically, so a restarted worker recovers it.
@@ -35,7 +33,7 @@ When cleanup falls behind, the queue stays full and rejects new records, so the 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% For testing
--export([retry_interval/0, process_delay/0]).
+-export([retry_interval/0]).
 
 -record(report, {
     mq :: emqx_mq_types:mq(),
@@ -73,10 +71,6 @@ report_expired(MQ, Shard, Boundary) ->
 -spec retry_interval() -> pos_integer().
 retry_interval() ->
     ?RETRY_INTERVAL.
-
--spec process_delay() -> non_neg_integer().
-process_delay() ->
-    2 * emqx_mq_message_db:quota_buffer_flush_interval().
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -207,12 +201,11 @@ work({Id, Shard, Owner} = Key, #{mq := MQ, boundary := Boundary, failures := Fai
                 {error, {Class, Reason, Stacktrace}}
         end,
     case Result of
-        {ok, Released} ->
-            ?tp(mq_cleanup_refreshed, #{
-                id => Id, shard => Shard, released => Released, boundary => Boundary
-            }),
+        ok ->
+            ?tp(mq_cleanup_refreshed, #{id => Id, shard => Shard, boundary => Boundary}),
             Failures > 0 andalso
                 ?tp(info, mq_cleanup_recovered, #{id => Id, shard => Shard, failures => Failures}),
+            %% Keep the boundary of a consumer to ignore its repeated reports
             case Owner of
                 expired -> done;
                 _ -> {continue, Item#{failures := 0}}
@@ -233,11 +226,12 @@ retry_delay(Failures) ->
     Interval = ?MODULE:retry_interval(),
     min(Interval bsl min(Failures, 8), ?MAX_RETRY_FACTOR * Interval).
 
-%% Start processing after the delay, unless a timer is already pending.
+%% Process after the reports already in the mailbox, unless a timer is already pending.
+%% So the reports that arrive meanwhile only raise the boundary.
 ensure_timer(_Key, #{timer := Timer} = Item) when Timer =/= undefined ->
     Item;
 ensure_timer(Key, Item) ->
-    start_timer(Key, ?MODULE:process_delay(), Item).
+    start_timer(Key, 0, Item).
 
 start_timer(Key, Delay, Item) ->
     Item#{timer := emqx_utils:start_timer(Delay, {work, Key})}.
