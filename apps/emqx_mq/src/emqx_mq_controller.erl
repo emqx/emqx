@@ -112,7 +112,6 @@ init([]) ->
     ok = clear_status(),
     case {need_start(), PreviousStatus} of
         {true, _} ->
-            ok = claim_queue_topics(),
             {ok, start_operation(start, #state{target_status = started})};
         {false, stopped} ->
             {ok, #state{target_status = stopped}};
@@ -199,6 +198,10 @@ target_operation(stopped) -> stop.
 start_operation(Operation, State = #state{worker = undefined}) ->
     Status = operation_status(Operation),
     ok = set_status(Status),
+    case Operation of
+        start -> ok = claim_queue_topics();
+        stop -> ok
+    end,
     Pid = spawn_link(fun() ->
         ?tp(mq_controller_worker_start, #{operation => Operation, status => Status}),
         ok = run_operation(Operation)

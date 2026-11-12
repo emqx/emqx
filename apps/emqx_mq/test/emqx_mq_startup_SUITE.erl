@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -33,6 +34,7 @@ init_per_testcase(TestCase, Config) ->
     [{suite_apps, Apps} | Config].
 
 end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:call_janitor(),
     lists:foreach(
         fun(Module) -> _ = catch meck:unload(Module) end,
         [
@@ -48,6 +50,75 @@ end_per_testcase(_TestCase, Config) ->
 -doc "Fresh subscriptions attach after MQ startup without another SUBSCRIBE.".
 t_subscribe_while_starting(_Config) ->
     startup_subscription(false).
+
+-doc "MQ registers publish hooks only after restart completes, then stores both publish paths.".
+t_publish_after_restart(_Config) ->
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"publish-ready">>, topic_filter => <<"publish-ready/#">>, is_lastvalue => false
+    }),
+    ?check_trace(
+        begin
+            %% Hold the restart before the storage readiness wait.
+            ok = application:stop(emqx_mq),
+            ?force_ordering(
+                #{?snk_kind := mq_startup_continue},
+                #{?snk_kind := mq_controller_wait_ready}
+            ),
+            emqx_common_test_helpers:on_exit(fun() -> ?tp(mq_startup_continue, #{}) end),
+            ok = application:start(emqx_mq),
+            ?assertEqual(starting, emqx_mq_controller:status()),
+            ?assertEqual([], mq_publish_hooks()),
+
+            %% After readiness, both publish paths store messages that a subscriber receives.
+            ?tp(mq_startup_continue, #{}),
+            started = emqx_mq_controller:wait_status(5000),
+            Publisher = connect([]),
+            lists:foreach(
+                fun(Topic) ->
+                    {ok, #{reason_code := ReasonCode}} = emqtt:publish(
+                        Publisher, Topic, <<"m">>, 1
+                    ),
+                    ?assert(ReasonCode < 128)
+                end,
+                [<<"publish-ready/message">>, <<"$queue/publish-ready">>]
+            ),
+            Subscriber = connect([]),
+            ok = emqx_mq_test_utils:emqtt_sub_mq(Subscriber, <<"publish-ready">>),
+            {ok, Messages} = emqx_mq_test_utils:emqtt_drain(2, 5000),
+            ?assertEqual([<<"m">>, <<"m">>], [P || #{payload := P} <- Messages]),
+            ok = emqtt:disconnect(Subscriber),
+            ok = emqtt:disconnect(Publisher)
+        end,
+        []
+    ).
+
+-doc "Runtime re-enable claims the queue topic prefix.".
+t_queue_prefix_after_runtime_restart(_Config) ->
+    {ok, _} = emqx_mq_config:update_config(#{<<"enable">> => false}),
+    stopped = emqx_mq_controller:wait_status(5000),
+    {ok, _} = emqx_mq_config:update_config(#{<<"enable">> => true}),
+    started = emqx_mq_controller:wait_status(5000),
+
+    %% A `$queue/` subscription must receive messages from the queue.
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"runtime-ready">>, topic_filter => <<"runtime-ready/#">>, is_lastvalue => false
+    }),
+    Subscriber = connect([]),
+    {ok, _, [1]} = emqtt:subscribe(Subscriber, {<<"$queue/runtime-ready">>, 1}),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"runtime-ready/">>}),
+    ?assertMatch(
+        {ok, [#{topic := <<"runtime-ready/0">>}]},
+        emqx_mq_test_utils:emqtt_drain(1, 3000)
+    ),
+    ok = emqtt:disconnect(Subscriber).
+
+mq_publish_hooks() ->
+    [
+        HookPoint
+     || HookPoint <- ['message.publish', 'message.puback', 'message.pubrec'],
+        Callback <- emqx_hooks:lookup(HookPoint),
+        element(1, emqx_hooks:callback_action(Callback)) =:= emqx_mq
+    ].
 
 -doc "Resumed subscriptions attach after MQ startup without another SUBSCRIBE.".
 t_resume_while_starting(_Config) ->
