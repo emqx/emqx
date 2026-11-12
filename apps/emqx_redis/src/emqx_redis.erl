@@ -320,20 +320,24 @@ do_query(InstId, Query, #{pool_name := PoolName, type := Type} = State) ->
                 query => Query,
                 reason => Reason
             }),
-            case is_unrecoverable_error(Reason) of
-                true ->
-                    {error, {unrecoverable_error, Reason}};
-                false when Reason =:= ecpool_empty ->
-                    {error, {recoverable_error, Reason}};
-                false ->
-                    Result
-            end;
+            map_error(Reason);
         _ ->
             Result
     end.
 
-is_unrecoverable_error(Results) when is_list(Results) ->
-    lists:any(fun is_unrecoverable_error/1, Results);
+map_error(Results) when is_list(Results) ->
+    [map_error1(R) || R <- Results];
+map_error(Reason) ->
+    map_error1(Reason).
+
+map_error1(Reason) ->
+    case is_unrecoverable_error(Reason) of
+        true ->
+            {error, {unrecoverable_error, Reason}};
+        false ->
+            {error, {recoverable_error, Reason}}
+    end.
+
 is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
     true;
 is_unrecoverable_error({error, invalid_cluster_command}) ->
@@ -407,24 +411,9 @@ do_cmd(Conn, _Type, {cmd, Command}) ->
 do_cmd(PoolName, cluster, {cmds, Commands}) ->
     % TODO
     % Cluster mode is currently incompatible with batching.
-    wrap_qp_result([eredis_cluster:q(PoolName, Command) || Command <- Commands]);
+    [eredis_cluster:q(PoolName, Command) || Command <- Commands];
 do_cmd(Conn, _Type, {cmds, Commands}) ->
-    wrap_qp_result(eredis:qp(Conn, Commands)).
-
-wrap_qp_result({error, _} = Error) ->
-    Error;
-wrap_qp_result(Results) when is_list(Results) ->
-    AreAllOK = lists:all(
-        fun
-            ({ok, _}) -> true;
-            ({error, _}) -> false
-        end,
-        Results
-    ),
-    case AreAllOK of
-        true -> {ok, Results};
-        false -> {error, Results}
-    end.
+    eredis:qp(Conn, Commands).
 
 %% ===================================================================
 %% parameters for connector

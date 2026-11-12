@@ -200,11 +200,7 @@ try_render_message([], _Channels, Acc) ->
     {ok, lists:reverse(Acc)}.
 
 query(InstId, Query, RedisConnSt) ->
-    case emqx_redis:on_query(InstId, Query, RedisConnSt) of
-        {ok, _} = Ok -> Ok;
-        {error, no_connection} -> {error, {recoverable_error, no_connection}};
-        {error, _} = Error -> Error
-    end.
+    emqx_redis:on_query(InstId, Query, RedisConnSt).
 
 proc_command_template(CommandTemplate, Msg) ->
     lists:reverse(

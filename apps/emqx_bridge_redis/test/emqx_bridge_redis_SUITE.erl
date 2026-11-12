@@ -291,6 +291,9 @@ create_action_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
     ).
 
+get_action_metrics_api(TCConfig) ->
+    emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig).
+
 format_topic(Base, I) ->
     iolist_to_binary(io_lib:format("~s/~2..0B", [Base, I rem ?KEYSHARDS])).
 
@@ -348,7 +351,7 @@ simple_create_rule_api(TCConfig) ->
 
 start_client() ->
     {ok, C} = emqtt:start_link(),
-    on_exit(fun() -> emqtt:stop(C) end),
+    on_exit(fun() -> catch emqtt:stop(C) end),
     {ok, _} = emqtt:connect(C),
     C.
 
@@ -428,16 +431,17 @@ t_check_replay(TCConfig) ->
                             batch := true,
                             result := {error, _}
                         }
-                    )
+                    ),
+                ct:pal("published")
             end),
-            #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := {ok, _}}
+            #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := [{ok, _}]}
         ),
         fun(Trace) ->
             SubTrace = ?of_kind(redis_bridge_connector_send_done, Trace),
             %% No strict causality here because, depending on timing, multiple batches may
             %% be enqueued.
             ?assertMatch([#{result := {error, _}} | _], SubTrace),
-            ?assertMatch([#{result := {ok, _}} | _], lists:reverse(SubTrace)),
+            ?assertMatch([#{result := [{ok, _}]} | _], lists:reverse(SubTrace)),
             ok
         end
     ),
@@ -471,6 +475,69 @@ t_permanent_error(TCConfig) ->
             ?assertMatch(
                 [#{result := {error, _}} | _],
                 ?of_kind(redis_bridge_connector_send_done, Trace)
+            )
+        end
+    ),
+    ok.
+
+-doc """
+Checks that individual commands in a batch get their individual responses for metrics.
+""".
+t_batch_individual_reply_results() ->
+    [{matrix, true}].
+t_batch_individual_reply_results(matrix) ->
+    [
+        [?tcp, Type, Sync, ?with_batch]
+     || Type <- [?single, ?sentinel, ?cluster],
+        Sync <- [?sync, ?async]
+    ];
+t_batch_individual_reply_results(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        ~"resource_opts" => #{~"worker_pool_size" => 1}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    {ok, Agent} = emqx_utils_agent:start_link(ok),
+    MkRes = fun() ->
+        emqx_utils_agent:get_and_update(
+            Agent,
+            fun
+                (ok) -> {ok, error};
+                (error) -> {{error, ~"ERR unknown command xxx"}, ok}
+            end
+        )
+    end,
+    emqx_common_test_helpers:with_mocks(
+        #{
+            eredis => #{
+                qp => fun(_PoolName, Commands) ->
+                    lists:map(fun(_) -> MkRes() end, Commands)
+                end
+            },
+            eredis_cluster => #{q => fun(_PoolName, _Command) -> MkRes() end}
+        },
+        fun() ->
+            lists:foreach(
+                fun(_) ->
+                    C = start_client(),
+                    emqtt:publish(C, Topic, ~"hey", [{qos, 0}]),
+                    emqtt:stop(C)
+                end,
+                lists:seq(1, 3)
+            ),
+            ?retry(
+                700,
+                5,
+                ?assertMatch(
+                    {200, #{
+                        ~"metrics" := #{
+                            ~"matched" := 3,
+                            ~"success" := 2,
+                            ~"failed" := 1
+                        }
+                    }},
+                    get_action_metrics_api(TCConfig)
+                )
             )
         end
     ),
