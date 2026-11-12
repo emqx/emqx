@@ -157,6 +157,7 @@ Sum the closed buckets from the newest to the oldest.
 When the sum of the newer buckets reaches a limit, drop the current bucket and all older ones.
 Their messages are before the deadline.
 The head is not in this sum, because its counters can still change a lot.
+Reject queues keep all buckets until consumption, retention, or purge truncates them.
 
 ## Deadline
 
@@ -208,6 +209,7 @@ Updates for purged messages are older than the kept buckets, so the index ignore
     rotate/2,
     truncate/2,
     deadline/2,
+    threshold/2,
     inspect/1
 ]).
 -export_type([t/0, fence/0, buckets/0, seen_fence_serial/0]).
@@ -293,6 +295,9 @@ truncate(#serial_index{buckets = Buckets} = Index, BeforeUs) ->
 
 -doc "Return the DS timestamp before which messages can be deleted, or 0".
 -spec deadline(t(), opts()) -> non_neg_integer().
+deadline(#serial_index{buckets = Buckets}, #{on_full := reject}) ->
+    #'SerialIndexBucket'{tsUs = TsUs} = lists:last(Buckets),
+    TsUs;
 deadline(#serial_index{buckets = Buckets}, Opts) ->
     limits_deadline(Buckets, Opts, 0, 0).
 
@@ -396,6 +401,8 @@ merge_closed(Buckets, _Opts) ->
     Buckets.
 
 %% Keep closed buckets from the newest one until the sum of the kept buckets reaches a limit.
+drop_old(Buckets, #{on_full := reject}, _Bytes, _Count) ->
+    Buckets;
 drop_old([], _Opts, _Bytes, _Count) ->
     [];
 drop_old([#'SerialIndexBucket'{bytes = B, count = C} = Bucket | Older], Opts, Bytes, Count) ->
@@ -424,7 +431,8 @@ is_full(#'SerialIndexBucket'{bytes = Bytes, count = Count}, Opts) ->
 is_within_threshold(#'SerialIndexBucket'{bytes = Bytes, count = Count}, Opts) ->
     Bytes =< threshold(bytes, Opts) andalso Count =< threshold(count, Opts).
 
-%% The threshold is a percentage of the limit. An unset limit has no threshold.
+-doc "Return the value at which a bucket closes: a percentage of the limit, or infinity without a limit".
+-spec threshold(bytes | count, opts()) -> pos_integer() | infinity.
 threshold(Kind, #{threshold_percentage := Percentage} = Opts) ->
     case Opts of
         #{Kind := Max} when is_integer(Max) -> max(1, Max * Percentage div 100);

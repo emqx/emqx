@@ -90,6 +90,116 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+%% Check that reject limits round-trip through the API and policy changes return a field-specific error.
+t_reject_policy(_Config) ->
+    Limits = #{<<"on_full">> => <<"reject">>, <<"max_shard_message_count">> => 10},
+    {ok, 200, _} = api_post([queues], #{
+        <<"name">> => <<"reject_api">>,
+        <<"topic_filter">> => <<"reject/#">>,
+        <<"is_lastvalue">> => true,
+        <<"limits">> => Limits
+    }),
+    ?assertMatch(
+        {ok, 200, #{<<"limits">> := #{<<"on_full">> := <<"reject">>}}},
+        api_get([queue, reject_api])
+    ),
+    {ok, 400, #{<<"message">> := Error}} = api_put([queue, reject_api], #{
+        <<"is_lastvalue">> => true, <<"limits">> => maps:remove(<<"on_full">>, Limits)
+    }),
+    ?assertNotEqual(nomatch, binary:match(Error, <<"on_full">>)),
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([queue, reject_api], #{
+            <<"is_lastvalue">> => true,
+            <<"limits">> => Limits#{<<"max_shard_message_count">> := 20}
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([queue, reject_api], #{
+            <<"is_lastvalue">> => true,
+            <<"limits">> => #{<<"on_full">> => <<"reject">>}
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([queues], #{
+            <<"name">> => <<"invalid_reject">>,
+            <<"topic_filter">> => <<"invalid/#">>,
+            <<"limits">> => #{<<"on_full">> => <<"reject">>}
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([queues, config], #{
+            <<"auto_create">> => #{
+                <<"regular">> => false,
+                <<"lastvalue">> => #{<<"limits">> => #{<<"on_full">> => <<"reject">>}}
+            }
+        })
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_put([queues, config], #{
+            <<"auto_create">> => #{
+                <<"regular">> => false, <<"lastvalue">> => #{<<"limits">> => Limits}
+            }
+        })
+    ).
+
+%% Check that auto-creation policy errors use the config handler's reason map.
+t_reject_auto_create_error(_Config) ->
+    lists:foreach(
+        fun(Type) ->
+            NewConf = #{
+                auto_create => #{
+                    Type => #{
+                        limits => #{
+                            on_full => reject,
+                            max_shard_message_count => infinity,
+                            max_shard_message_bytes => infinity
+                        }
+                    }
+                }
+            },
+            ?assertEqual(
+                {error, #{reason => on_full_reject_requires_finite_limit}},
+                emqx_mq_config:post_config_update([mq], NewConf, NewConf, #{}, [])
+            )
+        end,
+        [regular, lastvalue]
+    ).
+
+%% Check that reject queue creation and updates are refused until every cluster node is upgraded.
+t_reject_cluster_version(_Config) ->
+    Limits = #{<<"on_full">> => <<"reject">>, <<"max_shard_message_count">> => 10},
+    Queue = #{
+        <<"name">> => <<"reject_cluster">>,
+        <<"topic_filter">> => <<"reject/#">>,
+        <<"limits">> => Limits
+    },
+    {ok, 200, _} = api_post([queues], Queue),
+    ok = emqx_mq_test_utils:stub_bpapi_supported_version(emqx_mq_consumer, 1),
+    {ok, 503, #{<<"message">> := CreateError}} = api_post(
+        [queues], Queue#{<<"name">> := <<"unsupported">>}
+    ),
+    ?assertNotEqual(nomatch, binary:match(CreateError, <<"on_full">>)),
+    {ok, 503, #{<<"message">> := UpdateError}} = api_put(
+        [queue, reject_cluster], #{<<"limits">> => Limits}
+    ),
+    ?assertNotEqual(nomatch, binary:match(UpdateError, <<"on_full">>)),
+    ?assertMatch(
+        {error,
+            {post_config_update, emqx_mq_config, #{
+                reason := cluster_upgrade_in_progress
+            }}},
+        emqx_mq_config:update_config(#{
+            <<"auto_create">> => #{
+                <<"regular">> => false, <<"lastvalue">> => #{<<"limits">> => Limits}
+            }
+        })
+    ).
+
 %% Verify basic CRUD operations on message queues.
 t_crud(_Config) ->
     ?assertMatch(

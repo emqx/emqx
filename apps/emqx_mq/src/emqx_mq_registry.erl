@@ -28,7 +28,8 @@ The module contains the registry of Message Queues.
     list/0,
     list/2,
     list_all/2,
-    queue_count/0
+    queue_count/0,
+    validate_policy/1
 ]).
 
 -dialyzer(no_improper_lists).
@@ -87,16 +88,18 @@ Create a new MQ.
     | {error, max_queue_count_reached}
     | {error, term()}.
 %% Create a queue with a non-default name, store it in the new way.
-create(#{is_lastvalue := IsLastValue} = MQ0) when
+create(#{is_lastvalue := IsLastValue, limits := Limits0} = MQ0) when
     (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, MQ0)))
 ->
     Id = emqx_guid:gen(),
-    MQ = MQ0#{id => Id},
+    Limits = maps:merge(#{on_full => evict}, Limits0),
+    MQ = MQ0#{id => Id, limits := Limits},
     Name = emqx_mq_prop:name(MQ),
     Key = make_key(MQ),
     IndexRecord = mq_to_record(MQ),
     maybe
         ok ?= validate_name(Name),
+        ok ?= validate_policy(MQ),
         ok ?= validate_max_queue_count(),
         ok ?=
             do_create(
@@ -395,6 +398,7 @@ update_by_id(Id, UpdateFields0) ->
     UpdateFields = maps:without([topic_filter, id, name], UpdateFields0),
     maybe
         {ok, MQ} ?= find_by_id(Id),
+        ok ?= validate_policy_update(MQ, UpdateFields),
         Key = make_key(MQ),
         IsLastvalueOld = emqx_mq_prop:is_lastvalue(MQ),
         IsLastvalueNew = emqx_mq_prop:is_lastvalue(UpdateFields),
@@ -489,6 +493,19 @@ Get the number of queues.
 queue_count() ->
     mnesia:table_info(?MQ_REGISTRY_INDEX_TAB, size).
 
+-spec validate_policy(map()) -> ok | {error, term()}.
+validate_policy(MQ) ->
+    case emqx_mq_prop:on_full(MQ) of
+        evict ->
+            ok;
+        reject ->
+            #{limits := Limits} = MQ,
+            maybe
+                ok ?= emqx_mq_schema:validate_limits(Limits),
+                check_cluster_upgraded()
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -522,7 +539,7 @@ purge_before(#{id := Id} = MQ0, CutoffMs) ->
 %% Check everything that can refuse a purge before the purge changes anything.
 find_purgeable(Name) ->
     maybe
-        ok ?= check_purge_supported(),
+        ok ?= check_cluster_upgraded(),
         {ok, MQ} ?= find(Name),
         false ?= is_deleting(MQ),
         {ok, MQ}
@@ -546,8 +563,8 @@ enqueue_purge(#{id := Id} = MQ, Bounds) ->
             })
     end.
 
-%% Purge needs a quota index that only upgraded nodes keep.
-check_purge_supported() ->
+%% Purge and reject queues need a quota index that only upgraded nodes keep.
+check_cluster_upgraded() ->
     case emqx_mq_quota_index:is_serial_index_supported() of
         true -> ok;
         false -> {error, cluster_upgrade_in_progress}
@@ -743,7 +760,7 @@ record_to_mq_handle(#?MQ_REGISTRY_INDEX_TAB{
         topic_filter => emqx_topic_index:get_topic(Key),
         is_lastvalue => IsLastValue,
         key_expression => KeyExpr,
-        limits => maps:get(limits, Extra, ?DEFAULT_MQ_LIMITS)
+        limits => maps:merge(?DEFAULT_MQ_LIMITS, maps:get(limits, Extra, #{}))
     }.
 
 mq_to_record(MQ) ->
@@ -760,6 +777,12 @@ mq_to_record(#{id := Id, is_lastvalue := IsLastValue, limits := Limits} = MQ, Ke
             limits => Limits
         }
     }.
+
+validate_policy_update(MQ, Update) ->
+    case emqx_mq_prop:on_full(MQ) =:= emqx_mq_prop:on_full(Update) of
+        true -> validate_policy(Update);
+        false -> {error, on_full_not_allowed_to_be_updated}
+    end.
 
 validate_max_queue_count() ->
     case queue_count() >= emqx_mq_config:max_queue_count() of

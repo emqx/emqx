@@ -45,6 +45,7 @@
 ]).
 
 -define(COMMON_MQ_METRICS, [
+    {counter, queue_full},
     {counter, insert_errors},
     {hist, insert_latency_ms, ?LATENCY_BUCKETS}
 ]).

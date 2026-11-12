@@ -17,6 +17,48 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+-doc "Reject indices retain overshoot and release only whole consumed buckets".
+t_reject_retains_overshoot(_Config) ->
+    lists:foreach(
+        fun(Limits) ->
+            Opts = Limits#{on_full => reject, threshold_percentage => 10},
+            Index0 = emqx_mq_quota_index:new(Opts, 0, false),
+            {Index1, true} = emqx_mq_quota_index:apply_updates(Index0, [add(1, 100, 1)], undefined),
+            {Index2, true} = emqx_mq_quota_index:apply_updates(
+                Index1, [add(11, 300, 3)], fence(10)
+            ),
+            {Index3, true} = emqx_mq_quota_index:apply_updates(
+                Index2, [add(21, 300, 3)], fence(20)
+            ),
+            {Index4, false} = emqx_mq_quota_index:apply_updates(Index3, [], fence(30)),
+            ?assertMatch(#{bytes := 700, count := 7}, emqx_mq_quota_index:occupancy(Index4)),
+            ?assertEqual(0, emqx_mq_quota_index:deadline(Index4)),
+            ?assertEqual(ts(10), emqx_mq_quota_index:next_boundary(Index4)),
+            ?assertEqual(Index4, emqx_mq_quota_index:truncate(Index4, ts(10) - 1)),
+            Index5 = emqx_mq_quota_index:truncate(Index4, ts(10)),
+            ?assertMatch(#{bytes := 600, count := 6}, emqx_mq_quota_index:occupancy(Index5)),
+            ?assertEqual(ts(10), emqx_mq_quota_index:deadline(Index5)),
+            Index6 = emqx_mq_quota_index:truncate(Index5, ts(30)),
+            ?assertMatch(#{bytes := 0, count := 0}, emqx_mq_quota_index:occupancy(Index6)),
+            ?assertEqual(undefined, emqx_mq_quota_index:next_boundary(Index6)),
+            ?assertEqual(
+                Index6, emqx_mq_quota_index:decode(Opts, emqx_mq_quota_index:encode(Index6))
+            )
+        end,
+        [#{count => 2}, #{bytes => 200}, #{count => 2, bytes => 200}]
+    ).
+
+-doc "Reject indices retain a partially filled head and accept delayed serial updates".
+t_reject_retains_partial_head(_Config) ->
+    Opts = #{count => 100, on_full => reject, threshold_percentage => 10},
+    Index0 = emqx_mq_quota_index:new(Opts, 0, false),
+    {Index1, false} = emqx_mq_quota_index:apply_updates(
+        Index0, [add(2, 20, 1), add(1, 10, 1)], undefined
+    ),
+    ?assertEqual(0, emqx_mq_quota_index:oldest_boundary(Index1)),
+    ?assertMatch(#{bytes := 30, count := 2}, emqx_mq_quota_index:occupancy(Index1)),
+    ?assertEqual(Index1, emqx_mq_quota_index:truncate(Index1, ts(100))).
+
 -doc "A fence closes the full head, and buffered messages on both sides of the fence go to the right buckets".
 t_fence_placement(_Config) ->
     {Index0, true} = update(new(), [add(1, 20, 2)], undefined),

@@ -20,6 +20,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     handle_ds_info/2,
     handle_ack/2,
     destroy/1,
+    flush_progress_reporters/1,
     inspect/1
 ]).
 
@@ -64,6 +65,8 @@ The module holds a stream_buffers for all streams of a single Message Queue.
         status := active,
         generation := emqx_ds:generation(),
         stream_buffer := emqx_mq_consumer_stream_buffer:t(),
+        %% Reports acknowledgment progress of the stream buffer to the cleanup pool
+        progress_reporter := emqx_mq_consumer_progress_reporter:t(),
         stream := emqx_ds:stream(),
         sub_ref := undefined | emqx_ds:sub_ref()
     }
@@ -128,6 +131,17 @@ handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
             {ok, [], CS0#cs{ds_client = DSC, state = State}}
     end.
 
+-doc "Send the latest consumed boundary of all shards to the cleanup pool.".
+-spec flush_progress_reporters(t()) -> t().
+flush_progress_reporters(#cs{state = State0} = CS) ->
+    State = map_shard_states(State0, fun
+        (#{status := active, progress_reporter := Reporter} = ShardState) ->
+            ShardState#{progress_reporter := emqx_mq_consumer_progress_reporter:flush(Reporter)};
+        (ShardState) ->
+            ShardState
+    end),
+    CS#cs{state = State}.
+
 -spec handle_ack(t(), emqx_mq_types:message_id()) -> t().
 handle_ack(
     #cs{
@@ -143,19 +157,24 @@ handle_ack(
             Shard := #{
                 status := active,
                 stream_buffer := SB,
+                progress_reporter := Reporter0,
                 sub_ref := SubRef,
                 generation := Generation,
                 stream := Stream
             } = ShardState0
         } ?= Shards0,
         case emqx_mq_consumer_stream_buffer:handle_ack(SB, StreamMessageId) of
-            {ok, SB1} ->
+            {ok, Progress, SB1} ->
+                Reporter = emqx_mq_consumer_progress_reporter:handle_progress(Reporter0, Progress),
                 State1 = State0#{
-                    shards => Shards0#{Shard => ShardState0#{stream_buffer => SB1}}
+                    shards => Shards0#{
+                        Shard => ShardState0#{stream_buffer => SB1, progress_reporter => Reporter}
+                    }
                 },
                 State = save_progress_update(State1, Shard),
                 CS#cs{state = State};
-            finished ->
+            {finished, Progress} ->
+                ok = finish_progress_reporter(Reporter0, Progress),
                 Streams = maps:remove(Stream, Streams0),
                 ShardState = #{status => finished, generation => Generation},
                 State1 = State0#{
@@ -304,7 +323,8 @@ on_unrecoverable_error(
         mq_topic => MQTopic, slab => {Shard, Generation}, stream => Stream, error => Error
     }),
     case Shards of
-        #{Shard := #{status := active, generation := Generation}} ->
+        #{Shard := #{status := active, generation := Generation, progress_reporter := Reporter}} ->
+            ok = finish_progress_reporter(Reporter, undefined),
             State#{
                 shards => Shards#{Shard => #{status => finished, generation => Generation}},
                 streams => maps:remove(Stream, Streams)
@@ -410,7 +430,10 @@ restore_stream(
                     Shard => #{
                         status => active,
                         generation => Generation,
-                        stream_buffer => emqx_mq_consumer_stream_buffer:restore(BufferProgress, MQ),
+                        stream_buffer => emqx_mq_consumer_stream_buffer:restore(
+                            BufferProgress, MQ
+                        ),
+                        progress_reporter => new_progress_reporter(State, Shard),
                         stream => Stream,
                         sub_ref => undefined
                     }
@@ -448,7 +471,7 @@ do_handle_ds_reply(
     #cs{state = #{shards := Shards0} = State0, ds_client = DSC0} = CS,
     _Stream,
     Shard,
-    #{stream_buffer := SB, generation := Generation} = ShardState,
+    #{stream_buffer := SB, progress_reporter := Reporter0, generation := Generation} = ShardState,
     Handle,
     #ds_sub_reply{ref = SRef} = DSReply
 ) ->
@@ -457,18 +480,27 @@ do_handle_ds_reply(
         slab => Slab, stream => _Stream, handle => Handle, ds_reply => DSReply
     }),
     case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
-        {ok, Messages0, SB1} ->
+        {ok, Messages0, Progress, SB1} ->
             ?tp_debug(mq_consumer_streams_do_handle_ds_reply_ok, #{
                 slab => Slab, sb => emqx_mq_consumer_stream_buffer:inspect(SB1)
             }),
             Messages = [
-                {{Slab, StreamMessageId}, emqx_mq_message_db:decode_message(Payload)}
+                {
+                    {Slab, StreamMessageId},
+                    emqx_mq_message_db:decode_message(Payload)
+                }
              || {_Topic, StreamMessageId, Payload} <- Messages0
             ],
-            Shards = Shards0#{Shard => ShardState#{stream_buffer => SB1, sub_ref => SRef}},
+            Reporter = emqx_mq_consumer_progress_reporter:handle_progress(Reporter0, Progress),
+            Shards = Shards0#{
+                Shard => ShardState#{
+                    stream_buffer => SB1, progress_reporter => Reporter, sub_ref => SRef
+                }
+            },
             State = State0#{shards => Shards},
             {Messages, CS#cs{state = State}};
-        finished ->
+        {finished, Progress} ->
+            ok = finish_progress_reporter(Reporter0, Progress),
             State1 = State0#{
                 shards => Shards0#{
                     Shard => #{status => finished, generation => Generation}
@@ -505,6 +537,7 @@ init_shard_state(
         status => active,
         generation => Generation,
         stream_buffer => emqx_mq_consumer_stream_buffer:new(It, MQ),
+        progress_reporter => new_progress_reporter(State, Shard),
         sub_ref => undefined,
         stream => Stream
     },
@@ -512,6 +545,19 @@ init_shard_state(
         shards => Shards#{Shard => ShardState},
         streams => Streams#{Stream => Shard}
     }.
+
+new_progress_reporter(#{mq := MQ}, Shard) ->
+    emqx_mq_consumer_progress_reporter:new(MQ, Shard).
+
+map_shard_states(#{shards := Shards} = State, Fun) ->
+    State#{shards := maps:map(fun(_Shard, ShardState) -> Fun(ShardState) end, Shards)}.
+
+%% The progress reporter is dropped with a finished stream, so send its unreported progress.
+finish_progress_reporter(Reporter, Progress) ->
+    _ = emqx_mq_consumer_progress_reporter:flush(
+        emqx_mq_consumer_progress_reporter:handle_progress(Reporter, Progress)
+    ),
+    ok.
 
 shards_inspect(Shards) ->
     maps:map(fun(_Shard, ShardState) -> shard_inspect(ShardState) end, Shards).

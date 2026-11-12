@@ -33,6 +33,7 @@ The module contains basic types for the Message Queue application.
 -type dispatch_strategy() :: random | least_inflight | round_robin.
 
 -type limits() :: #{
+    on_full := evict | reject,
     max_shard_message_count := infinity | pos_integer(),
     max_shard_message_bytes := infinity | pos_integer()
 }.
