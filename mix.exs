@@ -230,7 +230,7 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.5", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
-  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "4.0.0", override: true}
+  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "4.0.1", override: true}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
@@ -1156,7 +1156,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict with emqx and emqtt
       do: [
         {:quicer,
-         github: "emqx/quic", tag: "0.4.11", override: true, system_env: quicer_build_env()}
+         github: "emqx/quic", tag: "0.4.13", override: true, system_env: quicer_build_env()}
       ],
       else: []
   end

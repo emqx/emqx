@@ -994,10 +994,14 @@ t_dispatch_qos0(Config) when is_list(Config) ->
 t_session_takeover({init, Config}) when is_list(Config) ->
     Config;
 t_session_takeover({'end', Config}) when is_list(Config) ->
+    %% The case can fail before it unsubscribes and stops its own client.  The session it
+    %% leaves behind keeps a member in the shared-sub group for the whole
+    %% `Session-Expiry-Interval', and the retry then loses its messages to that session.
+    ok = emqx_cm:try_kick_session(?CLIENTID(1)),
     ok;
 t_session_takeover(Config) when is_list(Config) ->
     Topic = <<"t1/a">>,
-    ClientId = iolist_to_binary("c" ++ integer_to_list(erlang:system_time())),
+    ClientId = ?CLIENTID(1),
     Opts = [
         {clientid, ClientId},
         {auto_ack, true},
@@ -1028,6 +1032,18 @@ t_session_takeover(Config) when is_list(Config) ->
 
     %% should trigger session take over
     {ok, _} = emqtt:connect(ConnPid2),
+    %% Both channels are members of the shared-sub group for a short while: the new
+    %% session subscribes in `emqx_session_mem:resume/2' before the old one unsubscribes
+    %% in `emqx_session_mem:takeover/1'.  A message dispatched to the old channel in that
+    %% window can be lost, so wait for the group to name the new channel only.
+    ?retry(
+        100,
+        50,
+        begin
+            [ChanPid] = emqx_cm:lookup_channels(ClientId),
+            [ChanPid] = emqx_shared_sub:subscribers(<<"t1">>, Topic)
+        end
+    ),
     ?assertMatch([_], emqx:publish(Message3)),
     ?assertMatch([_], emqx:publish(Message4)),
     %% Messages published around the takeover are delivered by session
