@@ -541,7 +541,6 @@ fields("node") ->
                 pos_integer(),
                 #{
                     mapping => "vm_args.+e",
-                    desc => ?DESC(max_ets_tables),
                     default => 262144,
                     importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true

@@ -248,12 +248,6 @@ rpc_driver.desc:
 rpc_driver.label:
 """RPC dirver"""
 
-max_ets_tables.desc:
-"""Max number of ETS tables"""
-
-max_ets_tables.label:
-"""Max number of ETS tables"""
-
 desc_db.desc:
 """Settings for the embedded database."""
 

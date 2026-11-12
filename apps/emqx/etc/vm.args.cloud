@@ -17,10 +17,6 @@
 ## Preferably set in `emqx.conf`,
 #+Q 1048576
 
-## Sets the maximum number of ETS tables
-## Preferably set in `emqx.conf`,
-#+e 262144
-
 ## Sets the maximum number of atoms the virtual machine can handle.
 #+t 1048576
 
