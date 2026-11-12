@@ -81,12 +81,19 @@ permissions:
   contents: read
 
 jobs:
+  verify-release-tag:
+    uses: ./.github/workflows/verify_release_tag.yaml
+    with:
+      ref: ${{ github.event.inputs.ref || github.ref }}
+      require_ga: ${{ inputs.notarize }}
+
   # scripts/rel/build_matrix.py is the single source of truth for the platforms
   # offered as emqx.com downloads (it also drives the download-links script).
   # The linux and mac jobs below read their os/arch dimensions from these
   # outputs via fromJSON, so the build matrix cannot drift from the
   # download-links matrix. Snap is managed independently by build_snap.yaml.
   prepare-matrix:
+    needs: verify-release-tag
     runs-on: ubuntu-latest
     outputs:
       linux_os: ${{ steps.matrix.outputs.linux_os }}
@@ -96,12 +103,14 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.inputs.ref }}
+        ref: ${{ needs.verify-release-tag.outputs.ref }}
+        fetch-depth: 0
     - name: compute package matrix
       id: matrix
       run: ./scripts/rel/build_matrix.py --github >> "$GITHUB_OUTPUT"
 
   plugins-linux-debian13-amd64:
+    needs: verify-release-tag
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     defaults:
       run:
@@ -109,7 +118,7 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.inputs.ref }}
+        ref: ${{ needs.verify-release-tag.outputs.ref }}
         fetch-depth: 0
     - name: build plugins in debian13 builder
       env:
@@ -129,7 +138,7 @@ jobs:
         retention-days: 7
 
   mac:
-    needs: prepare-matrix
+    needs: [prepare-matrix, verify-release-tag]
     strategy:
       fail-fast: false
       matrix:
@@ -144,7 +153,7 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.inputs.ref }}
+        ref: ${{ needs.verify-release-tag.outputs.ref }}
         fetch-depth: 0
     - uses: ./.github/actions/package-macos
       with:
@@ -174,6 +183,7 @@ jobs:
     needs:
       - mac
       - prepare-matrix
+      - verify-release-tag
     if: inputs.publish
     strategy:
       fail-fast: false
@@ -188,7 +198,8 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.inputs.ref }}
+        ref: ${{ needs.verify-release-tag.outputs.ref }}
+        fetch-depth: 0
     - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: build-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
@@ -218,7 +229,7 @@ jobs:
         retention-days: 7
 
   linux:
-    needs: prepare-matrix
+    needs: [prepare-matrix, verify-release-tag]
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     strategy:
       fail-fast: false
@@ -242,7 +253,7 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        ref: ${{ github.event.inputs.ref }}
+        ref: ${{ needs.verify-release-tag.outputs.ref }}
         fetch-depth: 0
     - name: build tgz
       env:
