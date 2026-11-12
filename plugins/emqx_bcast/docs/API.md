@@ -293,10 +293,12 @@ GET /api/v5/plugin_api/emqx_bcast/deliveries/:deliveryId
 `PendingCount` is the number of target devices that have not yet
 acknowledged. It is projected from durable per-device ACK markers, so one
 device's ACK lowers the count while another device in the same index-shard part
-is still pending. `MessageId` is `null` when the message record the delivery
-belongs to has already been removed (deleted through the management API, or
-reclaimed when it expired): the delivery row outlives it until its own cleanup.
-404 `DeliveryNotFound` if unknown.
+is still pending. Partial markers are coalesced and flushed at 500 ms intervals;
+the count can therefore lag a new partial ACK by one flush interval, or longer
+when the scheduler delays the shard. `MessageId` is `null` when the message
+record the delivery belongs to has already been removed (deleted through the
+management API, or reclaimed when it expired): the delivery row outlives it
+until its own cleanup. 404 `DeliveryNotFound` if unknown.
 
 ### Query Deliveries by Device
 
@@ -404,7 +406,7 @@ ratio of the shares. That is expected and is not a leak.
 | `bcast_batch_pub_qos1_wanted` | intake | Logical deliveries durably committed to mria (promotion). Ledger base; incremented once per committed device of every batch this node accepted, NOT at API acceptance |
 | `bcast_batch_pub_qos1_delivered` | device | Actual PUBLISH sends by this node (includes redeliveries and the QoS0-subscription auto path) |
 | `bcast_batch_pub_qos1_redelivered` | device | Sends whose core claim attempt number was >= 2 (same logical delivery attempted before: lease expiry, disconnect, unsubscribe, claim-race release) |
-| `bcast_batch_pub_qos1_acked` | device | PUBACKs matched to a pending delivery. Matching an ack removes the device from the index, so a duplicate PUBACK is not matched twice while the index shard survives. If the shard dies in the up-to-50 ms window before that ack's marker is durable, the rebuild re-indexes the device and the redelivered duplicate's PUBACK is counted once more — delivery itself stays at-least-once |
+| `bcast_batch_pub_qos1_acked` | device | PUBACKs matched to a pending delivery. Matching an ack removes the device from the index, so a duplicate PUBACK is not matched twice while the index shard survives. Partial ACK markers are flushed every 500 ms. If the shard dies before its buffered marker is durable, the rebuild re-indexes the device and the redelivered duplicate's PUBACK is counted once more — delivery itself stays at-least-once |
 | `bcast_batch_pub_qos1_auto_acked` | device | Logical deliveries completed because the subscription QoS is 0 |
 | `bcast_batch_pub_qos1_ttl_expired` | index | Logical deliveries abandoned because the delivery TTL expired before confirmation; counted on the core that reclaims them |
 | `bcast_batch_pub_qos1_canceled` | index | Logical deliveries removed by management delete or reset before confirmation; counted on the core that runs the removal |

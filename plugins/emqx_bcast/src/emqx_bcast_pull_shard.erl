@@ -2586,26 +2586,39 @@ safe_drain_deferred_claims(Shard, RearmRev, State) ->
 expire_ack_in_flight(_Shard, [], State) ->
     State;
 expire_ack_in_flight(Shard, Expired, State) ->
-    lists:foldl(
-        fun({PK, DN, Did, Mark}, St) ->
+    {State1, Count, SampleRev} = lists:foldl(
+        fun({PK, DN, Did, Mark}, {St, N, Sample}) ->
             case take_expired_ack_in_flight(PK, DN, Did, Mark) of
                 true ->
-                    ?SLOG(warning, #{
-                        msg => "bcast_ack_in_flight_expired",
+                    St1 = reclaim_online(
+                        PK, DN, Shard, release_claims_later(St, [{PK, DN, Did}])
+                    ),
+                    Entry = #{
                         product_key => PK,
                         clientid => DN,
                         delivery_id => Did
-                    }),
-                    reclaim_online(
-                        PK, DN, Shard, release_claims_later(St, [{PK, DN, Did}])
-                    );
+                    },
+                    {St1, N + 1, [Entry | Sample]};
                 false ->
-                    St
+                    {St, N, Sample}
             end
         end,
-        State,
+        {State, 0, []},
         Expired
-    ).
+    ),
+    log_expired_ack_marks(Shard, Count, lists:reverse(SampleRev)),
+    State1.
+
+log_expired_ack_marks(_Shard, 0, _Sample) ->
+    ok;
+log_expired_ack_marks(Shard, Count, Sample) ->
+    ?SLOG(warning, #{
+        msg => "bcast_ack_in_flight_expired",
+        node => node(),
+        shard => Shard,
+        count => Count,
+        sample => lists:sublist(Sample, 5)
+    }).
 
 %% Atomically drop the expired mark from the row's window (returns true
 %% when the row still carried exactly this mark). The match spec guards

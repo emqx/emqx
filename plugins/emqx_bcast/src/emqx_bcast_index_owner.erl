@@ -192,24 +192,20 @@
 -define(QUOTA_RECOUNT_MS, 60000).
 
 %% Ack bookkeeping is per delivery *part*: one shard, one delivery. Counted
-%% acks only update this shard's local counters (`part_pending` /
-%% `part_applied` in the shard state); the two durable writes - the acked
-%% marker and the remaining-ack decrement - happen once, when this shard's part
-%% has nothing left to acknowledge. Both tables are copied to every core, so
-%% the earlier per-tick flush made the cross-core write rate follow the
-%% acknowledgement rate (at 8k deliveries the 50ms tick alone reached ~70k/s
-%% per node towards three peers, and the peer transaction-manager queues grew
-%% into the hundreds of thousands, stalling every Mnesia user on the node).
-%% Now the write count is bounded by parts, not by time: #deliveries x #shards
-%% writes for a whole run, independent of how long the drain takes.
-%%
-%% The marker is still written before the decrement, and a part writes its
-%% marker only if it is not there yet - so a part that already reported is
-%% never counted a second time, whatever happened to the shard in between.
-%% Acks that arrive before the part completes are not written at all: a node
-%% that dies before a part completes only causes those devices to be delivered
-%% again (at-least-once), which is exactly what the uncounted counter expects,
-%% because the decrement for that part has not happened either.
+%% acks update this shard's local counters (`part_pending` / `part_applied`).
+%% A non-final ACK joins a per-delivery buffer, so all ACKs seen in one flush
+%% interval produce one replicated marker row. The final ACK writes the full
+%% marker and the remaining-ack decrement in one transaction. Both tables are
+%% copied to every core, so writing one marker per ACK made the replicated
+%% write rate equal the acknowledgement rate. The marker is still durable
+%% before the counter update, and a completed part writes its marker once.
+
+%% Partial ACK markers are coalesced per delivery. A 1000-device delivery
+%% produces about 21 acknowledgements per index shard, so writing each one
+%% separately creates a replicated Mnesia write per acknowledgement. The
+%% buffered marker remains well inside the pull side's 30-second ACK recovery
+%% window.
+-define(PARTIAL_ACK_FLUSH_MS, 500).
 
 -spec start_link(integer()) -> gen_server:start_ret().
 start_link(Shard) ->
@@ -305,6 +301,10 @@ init([Shard]) ->
         %% again when the delivery itself is gone (see prune_ended_parts/1).
         part_pending => #{},
         part_applied => #{},
+        %% Counted ACKs waiting for the next durable marker flush. One row is
+        %% written for each delivery represented here.
+        partial_ack_buf => #{},
+        partial_ack_flush_ref => undefined,
         %% deliveries whose marker-based completion aborted its transaction:
         %% #{Did => true}, retried by the periodic cleanup tick
         pending_completions => #{},
@@ -1551,9 +1551,11 @@ handle_call({cleanup_local}, _From, State = #{active := true}) ->
     State4 = retry_pending_completions(State3),
     %% Retry the parts that finished but whose report failed.
     State5 = retry_unreported_parts(State4),
+    %% Persist partial ACK markers even if the periodic timer was delayed.
+    State5b = flush_partial_ack_markers(State5),
     %% Then drop the accounting of deliveries that no longer exist (see
     %% prune_ended_parts/1).
-    {reply, ok, prune_ended_parts(State5)};
+    {reply, ok, prune_ended_parts(State5b)};
 handle_call({rebuild_index}, From, State = #{active := true}) ->
     %% A manual rebuild used to run inside this call, so its caller could
     %% rebuild and then look at the result. Keep that contract - answer when the
@@ -1803,7 +1805,8 @@ handle_info(maybe_activate, State) ->
             %% clauses above re-activate this shard if the node becomes the
             %% owner again.
             erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
-            {noreply, (drop_activation_mark(reset_state(State)))#{active => false}}
+            State1 = flush_partial_ack_markers(State),
+            {noreply, (drop_activation_mark(reset_state(State1)))#{active => false}}
     end;
 handle_info(
     quota_sync, State = #{shard := 0, quota_last_synced := Last, quota_epoch := Epoch}
@@ -1833,12 +1836,19 @@ handle_info(
     end;
 handle_info(quota_recount_done, State = #{shard := 0}) ->
     {noreply, State#{quota_recount_running => false}};
+handle_info(flush_partial_acks, State) ->
+    State1 = State#{partial_ack_flush_ref => undefined},
+    {noreply, flush_partial_ack_markers(State1)};
 handle_info(maybe_gc, State) ->
     {noreply, maybe_fullsweep(State)};
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, State) ->
+    %% A normal stop or ownership handover must preserve partial ACKs that are
+    %% still inside the flush window. An abrupt process death cannot run this
+    %% callback; those ACKs are then redelivered, which at-least-once permits.
+    _ = flush_partial_ack_markers(State),
     ok.
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -2723,8 +2733,9 @@ activate_partition(Proj, State, Completed) ->
         %% counter above zero and leak the delivery rows until TTL expiry. The
         %% parts that are not finished yet are simply recomputed by the
         %% re-append below.
-        State0 = retry_unreported_parts(State),
-        State1 = reset_state(State0),
+        State0 = flush_partial_ack_markers(State),
+        State0b = retry_unreported_parts(State0),
+        State1 = reset_state(State0b),
         Shard = maps:get(shard, State),
         {State2, Completed1} = lists:foldl(
             fun(
@@ -3093,6 +3104,7 @@ acked_device_set(Did) ->
     ).
 
 reset_state(State) ->
+    ok = emqx_bcast_utils:cancel_timer(maps:get(partial_ack_flush_ref, State, undefined)),
     State#{
         queues => #{},
         dids => #{},
@@ -3104,7 +3116,9 @@ reset_state(State) ->
         peak => 0,
         orphan_cursor => 0,
         part_pending => #{},
-        part_applied => #{}
+        part_applied => #{},
+        partial_ack_buf => #{},
+        partial_ack_flush_ref => undefined
     }.
 
 %% Live gauges for this shard's partition: queued = live pending minus
@@ -3819,12 +3833,11 @@ ack_one_index({PK, DN, Did}, State) ->
         true ->
             State1 = remove_did(State, Key, Key3),
             %% This part's accounting: one ack applied, one entry fewer to
-            %% wait for. The durable writes happen when the part reaches
-            %% zero. A partial part still persists the individual device
-            %% marker: an owner handover rebuilds from these markers and must
-            %% not resurrect a device whose ACK was already counted.
+            %% wait for. The counter changes only when the part reaches zero.
+            %% A non-final ACK joins a per-delivery buffer so an owner
+            %% handover does not resurrect it.
             {Applied, State2} = note_part_ack(Did, State1),
-            State3 = persist_partial_ack(Did, DN, State2),
+            State3 = buffer_partial_ack(Did, DN, State2),
             State4 = maybe_report_part(Did, Applied, State3),
             %% The qos1_acked metric is counted by pull_shard on the
             %% take_pending match (it owns the dedup of duplicate
@@ -3835,20 +3848,76 @@ ack_one_index({PK, DN, Did}, State) ->
             {{counted, queued_remaining(State4, Key)}, State4, -1}
     end.
 
-%% A non-final ACK is not followed by the part-wide marker yet, so persist
-%% this device now. The final ACK writes the complete part marker through
-%% report_part_done/3. Markers are deleted with the delivery on completion.
-persist_partial_ack(Did, DN, State) ->
+%% A non-final ACK is not followed by the part-wide marker yet. Buffer it so
+%% the next flush writes one replicated row for all ACKs of this delivery.
+%% That row is durable evidence for an index rebuild until the part completes.
+buffer_partial_ack(Did, DN, State) ->
     case maps:get(Did, maps:get(part_pending, State), 0) of
         0 ->
             State;
         _ ->
-            ok = mnesia:dirty_write(#bcast_msg_acked{
-                delivery_id = Did,
-                device_names = [DN]
-            }),
-            State
+            Buf = maps:get(partial_ack_buf, State),
+            State1 = State#{
+                partial_ack_buf => maps:update_with(
+                    Did, fun(DNs) -> [DN | DNs] end, [DN], Buf
+                )
+            },
+            arm_partial_ack_flush(State1)
     end.
+
+arm_partial_ack_flush(State = #{partial_ack_flush_ref := undefined}) ->
+    Ref = erlang:send_after(?PARTIAL_ACK_FLUSH_MS, self(), flush_partial_acks),
+    State#{partial_ack_flush_ref => Ref};
+arm_partial_ack_flush(State) ->
+    State.
+
+%% Persist every buffered delivery with one dirty write. Dirty writes are
+%% deliberate: the ACK path must not wait on Mnesia locks while the marker
+%% table is large. A write that fails stays buffered and is retried. A marker
+%% for a deleted delivery is dropped, which prevents an orphan row from being
+%% recreated after the cleanup transaction removed it.
+flush_partial_ack_markers(State) ->
+    Buf = maps:get(partial_ack_buf, State),
+    case map_size(Buf) of
+        0 ->
+            State;
+        _ ->
+            {Retry, Failed} = maps:fold(
+                fun(Did, RevDNs, {RetryAcc, FailedAcc}) ->
+                    flush_partial_ack_marker(Did, RevDNs, RetryAcc, FailedAcc)
+                end,
+                {#{}, []},
+                Buf
+            ),
+            log_partial_ack_flush_failures(Failed),
+            arm_partial_ack_flush(State#{partial_ack_buf => Retry})
+    end.
+
+flush_partial_ack_marker(Did, RevDNs, Retry, Failed) ->
+    case delivery_row_gone(Did) of
+        true ->
+            {Retry, Failed};
+        false ->
+            try
+                ok = mnesia:dirty_write(#bcast_msg_acked{
+                    delivery_id = Did,
+                    device_names = lists:reverse(RevDNs)
+                }),
+                {Retry, Failed}
+            catch
+                Class:Reason ->
+                    {maps:put(Did, RevDNs, Retry), [{Did, Class, Reason} | Failed]}
+            end
+    end.
+
+log_partial_ack_flush_failures([]) ->
+    ok;
+log_partial_ack_flush_failures(Failed) ->
+    ?SLOG(warning, #{
+        msg => "bcast_partial_ack_flush_failed_retry",
+        failed => length(Failed),
+        sample => lists:sublist(Failed, 5)
+    }).
 
 %% Queued (not in-flight) entries left for the device after an ack.
 queued_remaining(State, Key) ->
@@ -3867,10 +3936,10 @@ queued_remaining(State, Key) ->
 %% this shard holds for the delivery, in the committed row's order, so the same
 %% part reported again is bit-identical (bag inserts are idempotent) and the
 %% decrement is skipped when the row is already there. A part that never
-%% completes writes nothing, and its acks are not counted either - the counter
-%% has not been decremented for them - so a node that dies mid-part only causes
-%% those devices to be delivered again, which is what the untouched counter
-%% expects.
+%% completes writes its buffered partial marker, but not a counter decrement.
+%% A node that dies after the marker flush does not deliver those devices
+%% again; a node that dies before the flush can deliver them again, which the
+%% untouched counter permits.
 bump_part_pending(Did, Delta, State) ->
     Pending = maps:get(Did, maps:get(part_pending, State), 0),
     State#{part_pending => (maps:get(part_pending, State))#{Did => Pending + Delta}}.
@@ -3904,7 +3973,8 @@ maybe_report_part(_Did, _Applied, State) ->
 drop_part_accounting(Did, State) ->
     State#{
         part_pending => maps:remove(Did, maps:get(part_pending, State)),
-        part_applied => maps:remove(Did, maps:get(part_applied, State))
+        part_applied => maps:remove(Did, maps:get(part_applied, State)),
+        partial_ack_buf => maps:remove(Did, maps:get(partial_ack_buf, State))
     }.
 
 %% Drop the accounting of deliveries that no longer exist, so a delivery that
@@ -3921,7 +3991,8 @@ drop_part_accounting(Did, State) ->
 prune_ended_parts(State) ->
     Dids = lists:usort(
         maps:keys(maps:get(part_pending, State)) ++
-            maps:keys(maps:get(part_applied, State))
+            maps:keys(maps:get(part_applied, State)) ++
+            maps:keys(maps:get(partial_ack_buf, State))
     ),
     lists:foldl(
         fun(Did, St) ->

@@ -1006,6 +1006,7 @@ t_mgmt_pending_count_tracks_partial_ack_in_same_shard(_Config) ->
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
     ),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    flush_partial_acks(PK, A),
     Id = emqx_bcast_utils:guid_to_uuid(DeliveryId),
     {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
     ?assertEqual(1, maps:get(<<"PendingCount">>, Resp)),
@@ -1115,6 +1116,47 @@ t_counted_ack_counter_and_marker_atomic(_Config) ->
     [] = mnesia:dirty_read(bcast_msg_acked, DeliveryId),
     [] = mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
     [] = mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId).
+
+-doc "Partial ACKs applied across ACK batches must be coalesced into\n"
+"one durable marker row. Writing one replicated row per ACK turns a normal\n"
+"1000-device batch into hundreds of Mnesia writes and pushes ACK completion\n"
+"past the pull-side 30s recovery window.".
+t_ack_batch_coalesces_partial_markers(_Config) ->
+    PK = <<"PACKCOALESCE">>,
+    DNs = same_shard_dns(PK, 7, 200),
+    AckedDNs = lists:sublist(DNs, 100),
+    {Acked1, Acked2} = lists:split(50, AckedDNs),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"coalesce partial acks">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, length(DNs)
+    ),
+    ?assertEqual(
+        [counted || _ <- Acked1],
+        emqx_bcast_storage:process_ack_batch([
+            {PK, DN, DeliveryId}
+         || DN <- Acked1
+        ])
+    ),
+    ?assertEqual(
+        [counted || _ <- Acked2],
+        emqx_bcast_storage:process_ack_batch([
+            {PK, DN, DeliveryId}
+         || DN <- Acked2
+        ])
+    ),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    flush_partial_acks(PK, hd(AckedDNs)),
+    [#bcast_msg_acked{device_names = MarkerDNs}] =
+        mnesia:dirty_read(bcast_msg_acked, DeliveryId),
+    ?assertEqual(lists:sort(AckedDNs), lists:sort(MarkerDNs)).
+
+-doc "The bounded ACK-worker backlog must use a constant-time queue. A list\n"
+"append copies the complete backlog for every incoming ACK batch and makes\n"
+"the coordinator itself quadratic under sustained lag.".
+t_pending_ack_backlog_uses_queue(_Config) ->
+    State = sys:get_state(emqx_bcast_pull_server_pool),
+    ?assert(queue:is_queue(maps:get(pending_acks, State))).
 
 -doc "After a completed part report commits, a shard restart must preserve the\n"
 "acked device and leave exactly the unfinished device claimable. The report is\n"
@@ -1449,6 +1491,7 @@ t_ack_flush_uses_no_transaction(_Config) ->
     after
         meck:unload(mnesia)
     end,
+    flush_partial_acks(PK, A),
     receive
         ack_flush_used_transaction -> ?assert(false)
     after 0 -> ok
@@ -3006,7 +3049,8 @@ t_ack_micro_storm_throughput(_Config) ->
         wait_until(
             fun() ->
                 S = sys:get_state(emqx_bcast_pull_server_pool),
-                maps:get(in_flight, S) =:= 0 andalso maps:get(pending_acks, S) =:= []
+                maps:get(in_flight, S) =:= 0 andalso
+                    queue:is_empty(maps:get(pending_acks, S))
             end,
             400
         )
@@ -3027,7 +3071,7 @@ storm_sample(Stats, N) ->
     case S of
         #{} ->
             In = maps:get(in_flight, S),
-            Pending = length(maps:get(pending_acks, S)),
+            Pending = queue:len(maps:get(pending_acks, S)),
             [{_, MaxI}] = ets:lookup(Stats, max_i),
             [{_, MaxP}] = ets:lookup(Stats, max_p),
             ets:insert(Stats, {max_i, max(MaxI, In)}),
@@ -3266,6 +3310,54 @@ t_pull_ack_in_flight_ttl_reclaims_window(_Config) ->
     _ = sys:get_state(Name),
     ?assertEqual([Fresh], (row_lookup(PK, DN))#bcast_client_state.inflight),
     cleanup_row(PK, DN).
+
+-doc "Many expired ACK-in-flight marks handled by one sweep must produce one\n"
+"aggregated warning with the count and a bounded sample. Per-mark warnings made\n"
+"the log volume follow the ACK backlog when the same delivery path was delayed.".
+t_pull_ack_in_flight_expiry_logs_are_aggregated(_Config) ->
+    PK = <<"PACKTTLLOG">>,
+    Shard = 0,
+    DNs = lists:sublist(
+        [
+            DN
+         || I <- lists:seq(1, 2000),
+            DN <- [<<"DACKTTLLOG_", (integer_to_binary(I))/binary>>],
+            emqx_bcast_pull_shard:shard_of(PK, DN) =:= Shard
+        ],
+        5
+    ),
+    ?assertEqual(5, length(DNs)),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    Tab = emqx_bcast_pull_shard:tab(Shard, bcast_client_state),
+    Old = erlang:system_time(millisecond) - 60_000,
+    lists:foreach(
+        fun(DN) ->
+            ets:insert(Tab, #bcast_client_state{
+                key = {PK, DN},
+                product_key = PK,
+                clientid = DN,
+                pid = self(),
+                inflight = [{emqx_bcast_utils:gen_guid(), {true, Old}}]
+            })
+        end,
+        DNs
+    ),
+    Reports = emqx_cth_log_capture:capture(fun() ->
+        Name ! sweep_stale_claims,
+        _ = sys:get_state(Name)
+    end),
+    ExpiredReports = [
+        R
+     || R <- Reports,
+        maps:get(msg, R, undefined) =:= "bcast_ack_in_flight_expired"
+    ],
+    ?assertEqual(1, length(ExpiredReports)),
+    [Report] = ExpiredReports,
+    ?assertEqual(5, maps:get(count, Report)),
+    ?assertEqual(Shard, maps:get(shard, Report)),
+    ?assertEqual(node(), maps:get(node, Report)),
+    ?assertEqual(5, length(maps:get(sample, Report))),
+    lists:foreach(fun(DN) -> cleanup_row(PK, DN) end, DNs).
 
 -doc "While an ack is in flight, a ping keepalive trigger must also be\n"
 "suppressed (no want_next claimed).".
@@ -4843,6 +4935,13 @@ t_shard_op_capacity_probe(_Config) ->
 same_shard_dns(PK, Target, N) ->
     same_shard_dns(PK, Target, N, 1, []).
 
+flush_partial_acks(PK, DN) ->
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Name = index_shard_name(Shard),
+    Name ! flush_partial_acks,
+    _ = sys:get_state(Name),
+    ok.
+
 %% Two device names whose index shards differ, so each device forms a delivery
 %% part of its own (the ack path books per shard, per delivery).
 two_different_shards(PK) ->
@@ -6375,7 +6474,7 @@ part_held(Shard, Did) ->
     ),
     HasAccounting = lists:any(
         fun(Key) -> maps:is_key(Did, maps:get(Key, State, #{})) end,
-        [part_pending, part_applied]
+        [part_pending, part_applied, partial_ack_buf]
     ),
     HasEntry orelse HasAccounting.
 
