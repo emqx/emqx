@@ -472,6 +472,19 @@ find_emqx_process() {
     fi
 }
 
+## Exit if a boot command would start a node named $1 while a node with
+## that name is already running from this installation (see PS_LINE).
+exit_if_node_running() {
+    local name="$1"
+    if [ "$RUNNING_NODES_COUNT" -eq 0 ] || [ "$COMMAND" = 'check_config' ] || [ -z "$name" ]; then
+        return 0
+    fi
+    if echo -e "$PS_LINE" | $GREP -oE '[[:space:]]-s?name[[:space:]]+[^[:space:]]+' | awk '{print $2}' | $GREP -qxF "$name"; then
+        echo "Node ${name} is already running!"
+        exit 1
+    fi
+}
+
 ## Resolve boot configs in a batch
 ## This is because starting the Erlang beam with all modules loaded
 ## and parsing HOCON config + environment variables is a non-trivial task
@@ -497,19 +510,21 @@ if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
     unset EMQX_NODE_COOKIE
 fi
 
+## 'ps' finds the running node, so without it this script cannot tell
+## whether a node is already running, or wait for a node to stop.
+if ! command -v ps >/dev/null 2>&1; then
+    die "Command 'ps' not found. Install it, for example the 'procps' package."
+fi
+
 PS_LINE="$(find_emqx_process)"
 logdebug "PS_LINE=$(printf '%s' "$PS_LINE" | sed -E 's/(-setcookie) +[^ ]+/\1 ******/g')"
 RUNNING_NODES_COUNT="$(echo -e "$PS_LINE" | sed '/^\s*$/d' | wc -l)"
 [ "$RUNNING_NODES_COUNT" -gt 1 ] && logdebug "More than one running node found: count=$RUNNING_NODES_COUNT"
 
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-    if [ "$RUNNING_NODES_COUNT" -gt 0 ] && [ "$COMMAND" != 'check_config' ]; then
-        running_node_name=$(echo -e "$PS_LINE" | $GREP -oE "\s-s?name.*" | awk '{print $2}' || true)
-        if [ -n "$running_node_name" ] && [ "$running_node_name" = "${EMQX_NODE__NAME:-}" ]; then
-            echo "Node ${running_node_name} is already running!"
-            exit 1
-        fi
-    fi
+    ## Fast check when the node name is set in the environment, before parsing emqx.conf.
+    ## A name from emqx.conf is checked again after NAME is resolved, below.
+    exit_if_node_running "${EMQX_NODE__NAME:-}"
     [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
     maybe_use_portable_dynlibs
     if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
@@ -885,6 +900,11 @@ if ! (echo "$SHORT_NAME" | $GREP -q '^[0-9A-Za-z_\-]\+$'); then
     logerr "Invalid node name, should be of format '^[0-9A-Za-z_-]+$'."
     exit 1
 fi
+## Unlike the fast check above, this also covers a node name from emqx.conf.
+if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+    exit_if_node_running "$NAME"
+fi
+
 # This also changes the program name from 'beam.smp' to node name
 # e.g. the 'ps' command output
 export ESCRIPT_NAME="$SHORT_NAME"
