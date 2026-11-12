@@ -2262,6 +2262,111 @@ t_will_publish_allowed_by_authz(_) ->
         ok = emqx_broker:unsubscribe(WillTopic)
     end.
 
+t_publish_negqos_idle_authn_rejected(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-authn-rejected">>,
+    ok = emqx:subscribe(Topic),
+    ok = emqx_gateway_test_utils:enable_gateway_auth(<<"mqttsn">>),
+    ok = emqx_gateway_test_utils:add_gateway_auth_user(<<"mqttsn">>, #{
+        user_id => <<"user1">>,
+        password => <<"pw123">>,
+        is_superuser => false
+    }),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        ?assertMatch(
+            {_, {ok, #{return_code := ?SN_RC2_NOT_AUTHORIZE}}},
+            ?wait_async_action(
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                #{?snk_kind := idle_negative_qos_publish_rejected, topic := Topic},
+                3000
+            )
+        ),
+        ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 100)
+    after
+        gen_udp:close(Socket),
+        emqx_gateway_test_utils:delete_gateway_auth_user(<<"mqttsn">>, <<"user1">>),
+        emqx_gateway_test_utils:disable_gateway_auth(<<"mqttsn">>),
+        emqx:unsubscribe(Topic)
+    end.
+
+t_publish_negqos_idle_authz_denied(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-authz-denied">>,
+    ok = emqx:subscribe(Topic),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        with_gateway_authz_result('mqtt-sn', publish, Topic, deny, fun() ->
+            ?assertMatch(
+                {_, {ok, #{return_code := ?SN_RC2_NOT_AUTHORIZE}}},
+                ?wait_async_action(
+                    send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                    #{?snk_kind := idle_negative_qos_publish_rejected, topic := Topic},
+                    3000
+                )
+            ),
+            ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 100)
+        end)
+    after
+        gen_udp:close(Socket),
+        emqx:unsubscribe(Topic)
+    end.
+
+t_publish_negqos_idle_authz_allowed(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-authz-allowed">>,
+    OldAuthz = emqx:get_raw_config([authorization]),
+    ok = emqx:subscribe(Topic),
+    ok = emqx_gateway_test_utils:update_authz_file_rule(
+        <<
+            "{allow, {clientid, \"NegQoS-Client\"}, {publish, [{qos, 0}, {retain, false}]}, [\"ab\"]}.\n"
+            "{deny, all}."
+        >>
+    ),
+    Recorder = {?MODULE, record_authorize, [self()]},
+    ok = emqx_hooks:put('client.authorize', Recorder, ?HP_HIGHEST),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+        ?assertReceive(
+            {authorize, #{clientid := <<"NegQoS-Client">>, protocol := 'mqtt-sn'},
+                #{action_type := publish, qos := 0}, Topic},
+            3000
+        ),
+        ?assertReceive({deliver, Topic, #message{payload = Payload}}, 3000)
+    after
+        gen_udp:close(Socket),
+        ok = emqx_hooks:del('client.authorize', Recorder),
+        {ok, _} = emqx:update_config([authorization], OldAuthz),
+        emqx:unsubscribe(Topic)
+    end.
+
+t_publish_negqos_idle_disabled(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-disabled">>,
+    ok = emqx:subscribe(Topic),
+    update_mqttsn_with_neg_qos_off(),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        ?assertMatch(
+            {_, {ok, #{return_code := ?SN_RC_NOT_SUPPORTED}}},
+            ?wait_async_action(
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                #{?snk_kind := ignore_negative_qos},
+                3000
+            )
+        ),
+        ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 100)
+    after
+        gen_udp:close(Socket),
+        update_mqttsn_with_neg_qos_on(),
+        emqx:unsubscribe(Topic)
+    end.
+
+record_authorize(ClientInfo, Action, Topic, Result, TestPid) ->
+    TestPid ! {authorize, ClientInfo, Action, Topic},
+    {ok, Result}.
+
 t_will_test2(_) ->
     QoS = 2,
     Duration = 1,
