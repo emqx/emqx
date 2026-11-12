@@ -215,7 +215,8 @@ stop_v1(Pid) ->
     try
         gen_server:call(Pid, stop, infinity)
     catch
-        exit:{noproc, _} ->
+        %% The consumer is gone or exits on its own, e.g. after inactivity.
+        exit:_ ->
             ok
     end.
 
