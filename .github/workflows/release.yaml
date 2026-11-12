@@ -80,7 +80,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           allowed_signers="$RUNNER_TEMP/release-allowed-signers"
-          for user in zmstone id; do
+          for user in zmstone id hjianbo; do
             keys="$(gh api "users/${user}/ssh_signing_keys" --jq ".[] | \"${user} \(.key)\"")"
             test -n "$keys"
             echo "$keys"
