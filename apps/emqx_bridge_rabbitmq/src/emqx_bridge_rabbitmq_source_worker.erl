@@ -105,6 +105,8 @@ handle_info(#'basic.cancel'{}, State) ->
         {?status_disconnected, ~"subscription cancelled by remote server"}, State
     ),
     {noreply, State, {continue, #subscribe{}}};
+handle_info(#subscribe{}, State) ->
+    handle_subscribe(State);
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -131,7 +133,15 @@ handle_subscribe(State) ->
                 source_resource_id => SourceResId,
                 reason => Reason
             }),
-            {stop, {shutdown, failed_to_subscribe}, State}
+            case is_process_alive(Chan) of
+                false ->
+                    %% no point continuing; connector will be marked as disconencted and
+                    %% restart.
+                    {stop, {shutdown, failed_to_subscribe}, State};
+                true ->
+                    erlang:send_after(1_000, self(), #subscribe{}),
+                    {noreply, State}
+            end
     end.
 
 to_map(BasicDeliver, PBasic, Params, Payload) ->

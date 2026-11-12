@@ -425,6 +425,7 @@ t_resubscribe_timeout(TCConfig) ->
             undefined -> application:unset_env(amqp_client, gen_server_call_timeout)
         end
     end),
+    {ok, Agent} = emqx_utils_agent:start_link(false),
     emqx_common_test_helpers:with_mock(
         amqp_channel,
         subscribe,
@@ -437,8 +438,17 @@ t_resubscribe_timeout(TCConfig) ->
                     %% worker
                     %% can't call `amqp_util:update_call_timeout` here, as it overrides
                     %% the application level config....
-                    put(gen_server_call_timeout, 0),
-                    meck:passthrough([Chan, Consume, Pid])
+                    Triggered = emqx_utils_agent:get_and_update(
+                        Agent, fun(Triggered) -> {Triggered, true} end
+                    ),
+                    case Triggered of
+                        true ->
+                            erase(gen_server_call_timeout),
+                            meck:passthrough([Chan, Consume, Pid]);
+                        false ->
+                            put(gen_server_call_timeout, 0),
+                            meck:passthrough([Chan, Consume, Pid])
+                    end
             end
         end,
         fun() ->
@@ -454,10 +464,30 @@ t_resubscribe_timeout(TCConfig) ->
                     get_source_api(TCConfig)
                 )
             ),
+            %% recovery
+            ?retry(
+                500,
+                10,
+                ?assertMatch(
+                    {200, #{~"status" := ~"connected"}},
+                    get_source_api(TCConfig)
+                )
+            ),
             ok
         end
     ),
+
+    Payload2 = payload(#{key => 2}),
+    PayloadBin2 = emqx_utils_json:encode(Payload2),
+    publish_message(PayloadBin2, TCConfig),
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 2}}}),
+
     %% recreate source; should clear optvars
     {204, _} = delete_source_api(TCConfig),
     ?assertMatch({201, #{~"status" := ~"connected"}}, create_source_api(TCConfig, #{})),
+    Payload3 = payload(#{key => 3}),
+    PayloadBin3 = emqx_utils_json:encode(Payload3),
+    publish_message(PayloadBin3, TCConfig),
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 3}}}),
+
     ok.
