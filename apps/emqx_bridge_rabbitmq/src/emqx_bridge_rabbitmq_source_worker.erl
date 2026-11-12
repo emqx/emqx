@@ -133,15 +133,15 @@ handle_subscribe(State) ->
                 source_resource_id => SourceResId,
                 reason => Reason
             }),
+            %% let the connector restart to start from a fresh slate.
             case is_process_alive(Chan) of
                 false ->
-                    %% no point continuing; connector will be marked as disconencted and
-                    %% restart.
-                    {stop, {shutdown, failed_to_subscribe}, State};
+                    ok;
                 true ->
-                    erlang:send_after(1_000, self(), #subscribe{}),
-                    {noreply, State}
-            end
+                    _ = amqp_channel:close(Chan),
+                    ok
+            end,
+            {stop, {shutdown, failed_to_subscribe}, State}
     end.
 
 to_map(BasicDeliver, PBasic, Params, Payload) ->

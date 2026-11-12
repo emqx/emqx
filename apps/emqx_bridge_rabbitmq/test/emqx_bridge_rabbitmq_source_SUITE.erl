@@ -447,32 +447,44 @@ t_resubscribe_timeout(TCConfig) ->
                             meck:passthrough([Chan, Consume, Pid]);
                         false ->
                             put(gen_server_call_timeout, 0),
-                            meck:passthrough([Chan, Consume, Pid])
+                            try
+                                meck:passthrough([Chan, Consume, Pid])
+                            after
+                                erase(gen_server_call_timeout)
+                            end
                     end
             end
         end,
         fun() ->
             %% make just one worker get "cancelled"
             wait_basic_cancel_received(#{n => 1}, fun() ->
-                WorkerPid ! #'basic.cancel'{consumer_tag = ~"mocked"}
+                WorkerPid ! #'basic.cancel'{consumer_tag = ~"mocked"},
+                ?retry(
+                    500,
+                    10,
+                    ?assertMatch(
+                        {200, #{~"status" := ~"disconnected"}},
+                        get_source_api(TCConfig)
+                    )
+                ),
+                %% shouldn't receive late replies from channel
+                ?assertNotReceive(
+                    {trace, _, call,
+                        {emqx_bridge_rabbitmq_source_worker, handle_info, [
+                            #'basic.consume_ok'{}, _
+                        ]}}
+                ),
+                %% recovery
+                ?retry(
+                    500,
+                    10,
+                    ?assertMatch(
+                        {200, #{~"status" := ~"connected"}},
+                        get_source_api(TCConfig)
+                    )
+                ),
+                ok
             end),
-            ?retry(
-                500,
-                10,
-                ?assertMatch(
-                    {200, #{~"status" := ~"disconnected"}},
-                    get_source_api(TCConfig)
-                )
-            ),
-            %% recovery
-            ?retry(
-                500,
-                10,
-                ?assertMatch(
-                    {200, #{~"status" := ~"connected"}},
-                    get_source_api(TCConfig)
-                )
-            ),
             ok
         end
     ),
@@ -481,6 +493,9 @@ t_resubscribe_timeout(TCConfig) ->
     PayloadBin2 = emqx_utils_json:encode(Payload2),
     publish_message(PayloadBin2, TCConfig),
     ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 2}}}),
+    %% receive only once
+    ?assertNotReceive({decoded, _}),
+    ?assertNotReceive({publish, _}),
 
     %% recreate source; should clear optvars
     {204, _} = delete_source_api(TCConfig),
@@ -489,5 +504,8 @@ t_resubscribe_timeout(TCConfig) ->
     PayloadBin3 = emqx_utils_json:encode(Payload3),
     publish_message(PayloadBin3, TCConfig),
     ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 3}}}),
+    %% receive only once
+    ?assertNotReceive({decoded, _}),
+    ?assertNotReceive({publish, _}),
 
     ok.
