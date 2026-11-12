@@ -114,6 +114,12 @@ ct: $(REBAR) merge-config render-test-env
 check-bpapi-baselines:
 	./scripts/check-bpapi-baselines.exs
 
+## Transaction funs that a replicant ships to a core node by value. Reads the
+## sources, no build needed; CI runs it in the sanity-checks job.
+.PHONY: check-mria-tx-funs
+check-mria-tx-funs:
+	./scripts/check-mria-tx-funs.escript
+
 .PHONY: static_checks
 static_checks: $(ELIXIR_COMMON_DEPS)
 	@# the cluster-rpc check reads plugin beams from the shared build tree
