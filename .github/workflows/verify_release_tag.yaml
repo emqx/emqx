@@ -59,10 +59,25 @@ jobs:
         if: steps.select.outputs.ga == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SIGNERS: ${{ vars.RELEASE_SIGNERS }}
         run: |
           set -euo pipefail
+          : "${RELEASE_SIGNERS:?Set repository variable RELEASE_SIGNERS to space-separated GitHub usernames}"
+          if [[ "$RELEASE_SIGNERS" == *$'\n'* || "$RELEASE_SIGNERS" == *$'\r'* ]]; then
+            echo "::error::RELEASE_SIGNERS must be a space-separated list on one line"
+            exit 1
+          fi
+          read -r -a release_signers <<< "$RELEASE_SIGNERS"
+          if [ "${#release_signers[@]}" -eq 0 ]; then
+            echo "::error::RELEASE_SIGNERS must contain at least one GitHub username"
+            exit 1
+          fi
           allowed_signers="$RUNNER_TEMP/release-allowed-signers"
-          for user in zmstone id hjianbo; do
+          for user in "${release_signers[@]}"; do
+            if [[ ! "$user" =~ ^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$ ]]; then
+              echo "::error::RELEASE_SIGNERS contains an invalid GitHub username"
+              exit 1
+            fi
             keys="$(gh api "users/${user}/ssh_signing_keys" --jq ".[] | \"${user} \(.key)\"")"
             test -n "$keys"
             printf '%s\n' "$keys"
