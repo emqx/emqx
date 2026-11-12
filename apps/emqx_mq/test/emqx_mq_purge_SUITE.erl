@@ -359,12 +359,7 @@ t_refused_during_upgrade(_Config) ->
     [Slab | _] = slabs(DB),
     Old = message_record(MQ, <<"old">>, 1000),
     write_records(DB, Slab, [Old]),
-    ok = meck:new(emqx_bpapi, [passthrough, no_link]),
-    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_bpapi) end),
-    ok = meck:expect(emqx_bpapi, supported_version, fun
-        (_, emqx_mq_quota_index) -> undefined;
-        (Node, API) -> meck:passthrough([Node, API])
-    end),
+    ok = emqx_mq_test_utils:stub_bpapi_supported_version(emqx_mq_consumer, 1),
     ?assertEqual({error, cluster_upgrade_in_progress}, emqx_mq_registry:purge(Name)),
     ?assertEqual(
         {error, cluster_upgrade_in_progress},

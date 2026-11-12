@@ -961,12 +961,7 @@ t_purge_upgrade_in_progress(_Config) ->
         {ok, 200, _}, api_post([queues], #{<<"name">> => Name, <<"topic_filter">> => <<"purge/#">>})
     ),
     {ok, MQ} = emqx_mq_registry:find(Name),
-    ok = meck:new(emqx_bpapi, [passthrough, no_link]),
-    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_bpapi) end),
-    ok = meck:expect(emqx_bpapi, supported_version, fun
-        (_, emqx_mq_quota_index) -> undefined;
-        (Node, API) -> meck:passthrough([Node, API])
-    end),
+    ok = emqx_mq_test_utils:stub_bpapi_supported_version(emqx_mq_consumer, 1),
     lists:foreach(
         fun(Path) ->
             ?assertMatch(

@@ -13,12 +13,7 @@
 -doc "Make the BPAPI guard report an older node (mixed version) or check that it reports none".
 -spec setup_index_mode(mode()) -> ok.
 setup_index_mode(mixed_version) ->
-    ok = meck:new(emqx_bpapi, [passthrough, no_link]),
-    emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_bpapi) end),
-    ok = meck:expect(emqx_bpapi, supported_version, fun
-        (_, emqx_mq_quota_index) -> undefined;
-        (Node, API) -> meck:passthrough([Node, API])
-    end),
+    ok = emqx_mq_test_utils:stub_bpapi_supported_version(emqx_mq_consumer, 1),
     ?assertNot(emqx_mq_quota_index:is_serial_index_supported()),
     ok;
 setup_index_mode(fully_transitioned) ->

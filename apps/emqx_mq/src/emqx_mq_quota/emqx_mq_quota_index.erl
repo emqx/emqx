@@ -38,6 +38,8 @@ While some cluster node does not support the serial index, keep both indices up 
 and use the legacy deadline. Older nodes use the same legacy data.
 When every node supports the serial index (see `is_serial_index_supported/0`),
 the next flush drops the legacy index, and the serial deadline is used from then on.
+Stopped nodes count too. A node that left the cluster still counts until the core nodes restart,
+so the legacy index is kept, and purge is refused, until then.
 
 An older node keeps only the legacy index when it rewrites the record.
 The next flush on a new node then rebuilds the serial index:
@@ -65,8 +67,7 @@ They require that the legacy index is dropped: a purge runs only when every node
     drop_legacy/1,
     deadline/1,
     inspect/1,
-    is_serial_index_supported/0,
-    supports_serial_index/0
+    is_serial_index_supported/0
 ]).
 -export_type([t/0, opts/0, update/0, timestamp_us/0]).
 
@@ -84,23 +85,20 @@ They require that the legacy index is dropped: a purge runs only when every node
 %% API
 %%------------------------------------------------------------------------------
 
--doc "Return true when every cluster node supports the serial index, so the legacy index can be dropped".
+-doc """
+Return true when every node supports the serial index, so the legacy index can be dropped.
+
+Nodes that support the serial index announce version 2 of the `emqx_mq_consumer` BPAPI.
+The cluster version of a BPAPI is the lowest version that the announcing nodes support.
+Nodes keep their announcements when they stop, so a stopped older replicant keeps the legacy index.
+""".
 -spec is_serial_index_supported() -> boolean().
 is_serial_index_supported() ->
-    lists:all(
-        fun(Node) ->
-            case emqx_bpapi:supported_version(Node, emqx_mq_quota_index) of
-                Version when is_integer(Version), Version >= 1 -> true;
-                _ -> false
-            end
-        end,
-        emqx:cluster_nodes(all)
-    ).
-
--doc "Called over BPAPI. A node that has this function supports the serial index".
--spec supports_serial_index() -> true.
-supports_serial_index() ->
-    true.
+    try emqx_bpapi:supported_version(emqx_mq_consumer) of
+        Version -> Version >= 2
+    catch
+        error:badarg -> false
+    end.
 
 -doc """
 Create an index. Add a legacy index only while some node needs it.

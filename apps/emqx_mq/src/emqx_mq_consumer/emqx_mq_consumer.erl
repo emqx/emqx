@@ -50,13 +50,19 @@ Consumer's responsibilities:
     disconnect_v1/2,
     ack_v1/4,
     ping_v1/2,
-    stop_v1/1
+    stop_v1/1,
+    supported_v2/0
 ]).
 
 %% For testing
 -export([
     global_name/1
 ]).
+
+-export_type([supported/0]).
+
+%% The MQ features that a node supports.
+-type supported() :: #{purge := boolean(), serial_index := boolean()}.
 
 -record(state, {
     mq :: emqx_mq_types:mq(),
@@ -199,6 +205,10 @@ ack_v1(Pid, SubscriberRef, MessageId, Ack) ->
 -spec ping_v1(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
 ping_v1(Pid, SubscriberRef) ->
     send_to_consumer_server(Pid, #mq_server_ping{subscriber_ref = SubscriberRef}).
+
+-spec supported_v2() -> supported().
+supported_v2() ->
+    #{purge => true, serial_index => true}.
 
 -spec stop_v1(emqx_mq_types:consumer_ref()) -> ok.
 stop_v1(Pid) ->

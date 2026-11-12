@@ -97,18 +97,20 @@ t_both_indices(_Config) ->
     %% The serial deadline is a DS timestamp.
     ?assertEqual(ts(10), emqx_mq_quota_index:deadline(Index3)).
 
--doc "The legacy index is dropped only when every cluster node supports the serial index".
+-doc "The legacy index is dropped only when every node supports version 2 of the consumer BPAPI".
 t_bpapi_guard(_Config) ->
-    ok = meck:new([emqx, emqx_bpapi], [passthrough]),
-    emqx_common_test_helpers:on_exit(fun() -> meck:unload([emqx, emqx_bpapi]) end),
-    ok = meck:expect(emqx, cluster_nodes, fun(all) -> [upgraded, old] end),
-    ok = meck:expect(emqx_bpapi, supported_version, fun
-        (upgraded, emqx_mq_quota_index) -> 1;
-        (old, emqx_mq_quota_index) -> undefined
-    end),
-    ?assertNot(emqx_mq_quota_index:is_serial_index_supported()),
-    ok = meck:expect(emqx_bpapi, supported_version, fun(_, emqx_mq_quota_index) -> 1 end),
-    ?assert(emqx_mq_quota_index:is_serial_index_supported()).
+    lists:foreach(
+        fun(#{version := Version, expected := Expected}) ->
+            ok = emqx_mq_test_utils:stub_bpapi_supported_version(emqx_mq_consumer, Version),
+            ?assertEqual(Expected, emqx_mq_quota_index:is_serial_index_supported())
+        end,
+        [
+            #{version => 1, expected => false},
+            #{version => 2, expected => true},
+            %% No node has announced the API yet.
+            #{version => fun() -> error(badarg) end, expected => false}
+        ]
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
