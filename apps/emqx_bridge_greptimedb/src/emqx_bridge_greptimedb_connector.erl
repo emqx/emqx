@@ -75,14 +75,14 @@ on_add_channel(
     ChannelId,
     #{parameters := Parameters} = ChannelConfig0
 ) ->
-    #{write_syntax := WriteSyntaxTmpl} = Parameters,
+    %% Keep the default for channel state created before precision was mandatory.
     Precision = maps:get(precision, Parameters, ms),
+    WriteSyntax = emqx_bridge_greptimedb_utils:parse_action_parameters(Parameters, Precision),
     ChannelConfig = maps:merge(
         Parameters,
         ChannelConfig0#{
             precision => Precision,
-            write_syntax =>
-                emqx_bridge_greptimedb_utils:parse_write_syntax(WriteSyntaxTmpl, Precision)
+            write_syntax => WriteSyntax
         }
     ),
     {ok, OldState#{
@@ -553,8 +553,27 @@ classify_query_result({error, Reason} = Error) ->
 classify_query_result(Result) ->
     Result.
 
-merge_batch_result({error, _} = Error, _BatchResults) ->
-    Error;
+merge_batch_result({error, _} = Error, BatchResults) ->
+    Results =
+        lists:map(
+            fun
+                (valid) -> Error;
+                ({error, _} = ExistingError) -> ExistingError
+            end,
+            BatchResults
+        ),
+    case
+        lists:any(fun is_recoverable_result/1, Results) andalso
+            lists:any(fun is_unrecoverable_result/1, Results)
+    of
+        true ->
+            [
+                promote_recoverable_result(batch_contains_unrecoverable, Results, Result)
+             || Result <- Results
+            ];
+        false ->
+            Results
+    end;
 merge_batch_result(Result, BatchResults) ->
     lists:map(
         fun
@@ -563,6 +582,26 @@ merge_batch_result(Result, BatchResults) ->
         end,
         BatchResults
     ).
+
+promote_recoverable_result(
+    Reason,
+    BatchResults,
+    {error, {recoverable_error, OriginalError}}
+) ->
+    {error,
+        {unrecoverable_error, #{
+            reason => Reason,
+            original_error => OriginalError,
+            batch_results => BatchResults
+        }}};
+promote_recoverable_result(_Reason, _BatchResults, Result) ->
+    Result.
+
+is_recoverable_result({error, {recoverable_error, _}}) -> true;
+is_recoverable_result(_) -> false.
+
+is_unrecoverable_result({error, {unrecoverable_error, _}}) -> true;
+is_unrecoverable_result(_) -> false.
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Data Trans
@@ -650,8 +689,18 @@ integer_point_validation_test() ->
         [{ok, written}, InvalidResult],
         merge_batch_result({ok, written}, BatchResults)
     ),
+    MixedFailureResult =
+        {error,
+            {unrecoverable_error, #{
+                reason => batch_contains_unrecoverable,
+                original_error => timeout,
+                batch_results => [
+                    {error, {recoverable_error, timeout}},
+                    InvalidResult
+                ]
+            }}},
     ?assertEqual(
-        {error, {recoverable_error, timeout}},
+        [MixedFailureResult, InvalidResult],
         merge_batch_result({error, {recoverable_error, timeout}}, BatchResults)
     ),
     Self = self(),
@@ -1037,7 +1086,6 @@ tag_value_typing_test() ->
         {error, {invalid_unsigned_integer_value, -1}},
         value_type([-1, <<"u">>], uint64, tag)
     ).
-
 %% for coverage
 desc_test_() ->
     [

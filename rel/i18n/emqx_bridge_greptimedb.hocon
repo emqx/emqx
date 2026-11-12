@@ -25,7 +25,7 @@ desc_type.label:
 """Action Type"""
 
 write_syntax.desc:
-"""Conf of GreptimeDB gRPC protocol to write data points. Write syntax is a text-based format that provides the measurement, tag set, field set, and timestamp of a data point, and placeholder supported, which is the same as InfluxDB line protocol.
+"""Legacy GreptimeDB line protocol configuration. It is mutually exclusive with `write`. The text format provides the table, tag set, field set, and timestamp of a data point, and supports placeholders.
 See also [InfluxDB 2.3 Line Protocol](https://docs.influxdata.com/influxdb/v2.3/reference/syntax/line-protocol/) and
 [GreptimeDB 1.8 Line Protocol](https://docs.influxdata.com/influxdb/v1.8/write_protocols/line_protocol_tutorial/) <br/>
 TLDR:<br/>
@@ -36,6 +36,69 @@ Please note that a placeholder for an integer value must be annotated with a suf
 
 write_syntax.label:
 """Write Syntax"""
+
+write.desc:
+"""Structured GreptimeDB points to write. Each item defines one table row template. This field is mutually exclusive with `write_syntax`."""
+
+write.label:
+"""Write Points"""
+
+greptimedb_write_point.label:
+"""GreptimeDB Write Point"""
+
+greptimedb_write_point.desc:
+"""A template-based GreptimeDB row definition. `measurement` is used as the table name."""
+
+greptimedb_write_tag.label:
+"""GreptimeDB Write Tag"""
+
+greptimedb_write_tag.desc:
+"""A tag key and value. Both support placeholders."""
+
+greptimedb_write_field.label:
+"""GreptimeDB Write Field"""
+
+greptimedb_write_field.desc:
+"""A field key, value type, and template-based value."""
+
+greptimedb_write_timestamp.label:
+"""GreptimeDB Write Timestamp"""
+
+greptimedb_write_timestamp.desc:
+"""A template-based row timestamp and the source precision of its rendered value."""
+
+write_measurement.desc:
+"""Table name. Placeholders are supported."""
+
+write_tags.desc:
+"""Tag set for this row. Tag keys and values support placeholders."""
+
+write_fields.desc:
+"""Non-empty field set for this row. Field keys and values support placeholders."""
+
+write_field_key.desc:
+"""Field key. Placeholders are supported."""
+
+write_field_type.desc:
+"""GreptimeDB field value type: `auto`, `string`, `integer`, `float`, or `boolean`. `auto` applies type inference to one rendered value. A template with static text or multiple parts is written as a string."""
+
+write_field_value.desc:
+"""Field value template. The rendered value must match the configured field type."""
+
+write_tag_key.desc:
+"""Tag key. Placeholders are supported."""
+
+write_tag_value.desc:
+"""Tag value template."""
+
+write_timestamp.desc:
+"""Row timestamp configuration. When omitted, EMQX uses the message timestamp. Set to `false` to use the current time instead of rendering a point timestamp. GreptimeDB tables require a time index."""
+
+write_timestamp_value.desc:
+"""Timestamp template. The rendered value must be an integer Unix timestamp."""
+
+write_timestamp_source_precision.desc:
+"""Precision of the timestamp value produced by the template. Supported values are `s`, `ms`, `us`, and `ns`. EMQX converts this value to the action-level target `precision` before writing."""
 
 action_parameters.label:
 """Action Parameters"""

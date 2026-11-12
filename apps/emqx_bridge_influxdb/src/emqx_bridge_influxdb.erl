@@ -13,7 +13,8 @@
 -import(hoconsc, [mk/2, ref/2]).
 
 -export([
-    write_syntax_type/0
+    write_syntax_type/0,
+    action_parameters_validator/1
 ]).
 
 -export([
@@ -29,10 +30,10 @@
     connector_examples/1
 ]).
 
--type write_syntax() :: list().
+-type write_syntax() :: list() | undefined.
 -reflect_type([write_syntax/0]).
 -typerefl_from_string({write_syntax/0, ?MODULE, to_influx_lines}).
--export([to_influx_lines/1]).
+-export([to_influx_lines/1, to_influx_lines_with_raw/1]).
 
 -define(CONNECTOR_TYPE, influxdb).
 -define(ACTION_TYPE, influxdb).
@@ -46,12 +47,35 @@ write_syntax_type() ->
 %% Examples
 
 bridge_v2_examples(Method) ->
-    WriteExample =
-        <<"${topic},clientid=${clientid} ", "payload=${payload},",
-            "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>,
+    WriteExample = [
+        #{
+            measurement => <<"${topic}">>,
+            tags => [
+                #{key => <<"clientid">>, value => <<"${clientid}">>}
+            ],
+            fields => [
+                #{key => <<"temperature">>, type => float, value => <<"${payload.temperature}">>},
+                #{key => <<"count">>, type => integer, value => <<"${payload.count}">>}
+            ],
+            timestamp => #{
+                value => <<"${timestamp}">>,
+                source_precision => ms
+            }
+        },
+        #{
+            measurement => <<"device_status">>,
+            tags => [
+                #{key => <<"clientid">>, value => <<"${clientid}">>}
+            ],
+            fields => [
+                #{key => <<"status">>, type => string, value => <<"${payload.status}">>}
+            ],
+            timestamp => false
+        }
+    ],
     ParamsExample = #{
         parameters => #{
-            write_syntax => WriteExample, precision => ms
+            write => WriteExample, precision => ns
         }
     },
     [
@@ -133,14 +157,120 @@ fields(action) ->
 fields(influxdb_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(ref(?MODULE, action_parameters), #{
-            required => true, desc => ?DESC(action_parameters)
+            required => true,
+            validator => fun action_parameters_validator/1,
+            desc => ?DESC(action_parameters)
         }),
         #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters) ->
     [
         {write_syntax, fun write_syntax/1},
+        {write,
+            mk(
+                hoconsc:array(ref(?MODULE, influxdb_write_point)),
+                #{
+                    required => false,
+                    validator => fun emqx_schema:non_empty_array/1,
+                    desc => ?DESC("write")
+                }
+            )},
+        {bucket,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("bucket")
+            })},
         emqx_bridge_influxdb_connector:precision_field()
+    ];
+fields(influxdb_write_point) ->
+    [
+        {measurement,
+            mk(emqx_schema:template(), #{
+                required => true,
+                validator => fun emqx_schema:non_empty_string/1,
+                desc => ?DESC("write_measurement")
+            })},
+        {tags,
+            mk(
+                hoconsc:array(ref(?MODULE, influxdb_write_tag)),
+                #{
+                    required => false,
+                    default => [],
+                    desc => ?DESC("write_tags")
+                }
+            )},
+        {fields,
+            mk(
+                hoconsc:array(ref(?MODULE, influxdb_write_field)),
+                #{
+                    required => true,
+                    validator => fun emqx_schema:non_empty_array/1,
+                    desc => ?DESC("write_fields")
+                }
+            )},
+        {timestamp,
+            mk(
+                hoconsc:union([
+                    hoconsc:enum([false]),
+                    ref(?MODULE, influxdb_write_timestamp)
+                ]),
+                #{
+                    required => false,
+                    desc => ?DESC("write_timestamp")
+                }
+            )}
+    ];
+fields(influxdb_write_tag) ->
+    [
+        {key,
+            mk(emqx_schema:template(), #{
+                required => true,
+                validator => fun emqx_schema:non_empty_string/1,
+                desc => ?DESC("write_tag_key")
+            })},
+        {value,
+            mk(emqx_schema:template(), #{
+                required => true,
+                desc => ?DESC("write_tag_value")
+            })}
+    ];
+fields(influxdb_write_field) ->
+    [
+        {key,
+            mk(emqx_schema:template(), #{
+                required => true,
+                validator => fun emqx_schema:non_empty_string/1,
+                desc => ?DESC("write_field_key")
+            })},
+        {type,
+            mk(
+                hoconsc:enum([string, integer, uint, float, boolean, auto]),
+                #{
+                    required => true,
+                    desc => ?DESC("write_field_type")
+                }
+            )},
+        {value,
+            mk(emqx_schema:template(), #{
+                required => true,
+                desc => ?DESC("write_field_value")
+            })}
+    ];
+fields(influxdb_write_timestamp) ->
+    [
+        {value,
+            mk(emqx_schema:template(), #{
+                required => true,
+                desc => ?DESC("write_timestamp_value")
+            })},
+        {source_precision,
+            mk(
+                hoconsc:enum([s, ms, us, ns]),
+                #{
+                    required => true,
+                    desc => ?DESC("write_timestamp_source_precision")
+                }
+            )}
     ];
 fields(action_resource_opts) ->
     emqx_bridge_v2_schema:action_resource_opts_fields([
@@ -177,6 +307,14 @@ desc(influxdb_action) ->
     ?DESC(influxdb_action);
 desc(action_parameters) ->
     ?DESC(action_parameters);
+desc(influxdb_write_point) ->
+    ?DESC(influxdb_write_point);
+desc(influxdb_write_tag) ->
+    ?DESC(influxdb_write_tag);
+desc(influxdb_write_field) ->
+    ?DESC(influxdb_write_field);
+desc(influxdb_write_timestamp) ->
+    ?DESC(influxdb_write_timestamp);
 desc(action_resource_opts) ->
     emqx_bridge_v2_schema:desc(action_resource_opts);
 desc("config_connector") ->
@@ -186,14 +324,123 @@ desc(connector_resource_opts) ->
 desc(_) ->
     undefined.
 
+action_parameters_validator(Conf) ->
+    case {has_config(Conf, write), has_config(Conf, write_syntax)} of
+        {true, false} ->
+            validate_write_points(config_value(Conf, write));
+        {false, true} ->
+            ok;
+        {true, true} ->
+            {error, <<"parameters.write and parameters.write_syntax are mutually exclusive">>};
+        {false, false} ->
+            {error, <<"either parameters.write or parameters.write_syntax must be configured">>}
+    end.
+
+has_config(Conf, Key) ->
+    maps:is_key(Key, Conf) orelse maps:is_key(atom_to_binary(Key), Conf).
+
+config_value(Conf, Key) ->
+    config_value(Conf, Key, undefined).
+
+config_value(Conf, Key, Default) ->
+    case maps:find(Key, Conf) of
+        {ok, Value} -> Value;
+        error -> maps:get(atom_to_binary(Key), Conf, Default)
+    end.
+
+validate_write_points(Points) ->
+    lists:foldl(
+        fun
+            (Point, ok) ->
+                validate_write_point(Point);
+            (_Point, Error) ->
+                Error
+        end,
+        ok,
+        Points
+    ).
+
+validate_write_point(Point) ->
+    case validate_point_templates(Point) of
+        ok ->
+            validate_point_entry_keys(Point);
+        {error, _} = Error ->
+            Error
+    end.
+
+validate_point_templates(Point) ->
+    Values =
+        [config_value(Point, measurement)] ++
+            entry_template_values(config_value(Point, tags, [])) ++
+            entry_template_values(config_value(Point, fields, [])) ++
+            timestamp_template_values(config_value(Point, timestamp)),
+    case lists:all(fun is_single_segment_template/1, Values) of
+        true -> ok;
+        false -> {error, <<"structured templates must contain one literal or one placeholder">>}
+    end.
+
+entry_template_values(Entries) ->
+    lists:append([
+        [entry_key(Entry), entry_value(Entry)]
+     || Entry <- Entries
+    ]).
+
+timestamp_template_values(Point) when is_map(Point) ->
+    case config_value(Point, value, undefined) of
+        undefined -> [];
+        Value -> [Value]
+    end;
+timestamp_template_values(_) ->
+    [].
+
+is_single_segment_template(undefined) ->
+    true;
+is_single_segment_template(false) ->
+    true;
+is_single_segment_template(Value) ->
+    is_single_segment_template_tokens(
+        emqx_placeholder:preproc_tmpl(emqx_utils_conv:bin(Value))
+    ).
+
+is_single_segment_template_tokens([]) -> true;
+is_single_segment_template_tokens([_]) -> true;
+is_single_segment_template_tokens(_) -> false.
+
+validate_point_entry_keys(Point) ->
+    case has_duplicate_entry_keys(config_value(Point, tags, [])) of
+        true ->
+            {error, <<"duplicate tag key in write point">>};
+        false ->
+            case has_duplicate_entry_keys(config_value(Point, fields, [])) of
+                true -> {error, <<"duplicate field key in write point">>};
+                false -> ok
+            end
+    end.
+
+has_duplicate_entry_keys(Entries) ->
+    Keys = [entry_key(Entry) || Entry <- Entries],
+    length(Keys) =/= length(lists:usort(Keys)).
+
+entry_key(Entry) ->
+    case maps:find(key, Entry) of
+        {ok, Key} -> Key;
+        error -> maps:get(<<"key">>, Entry)
+    end.
+
+entry_value(Entry) ->
+    case maps:find(value, Entry) of
+        {ok, Value} -> Value;
+        error -> maps:get(<<"value">>, Entry)
+    end.
+
 write_syntax(type) ->
     write_syntax_type();
 write_syntax(required) ->
-    true;
+    false;
 write_syntax(validator) ->
-    [?NOT_EMPTY("the value of the field 'write_syntax' cannot be empty")];
+    [];
 write_syntax(converter) ->
-    fun to_influx_lines/1;
+    fun to_influx_lines_with_raw/1;
 write_syntax(desc) ->
     ?DESC("write_syntax");
 write_syntax(format) ->
@@ -208,8 +455,18 @@ to_influx_lines(Lines = [#{} | _]) ->
     %% already parsed/converted (e.g.: bridge_probe, after hocon_tconf:check_plain)
     Lines;
 to_influx_lines(RawLines) ->
+    parse_influx_lines(RawLines, #{allow_raw_line => false}).
+
+to_influx_lines_with_raw(undefined) ->
+    undefined;
+to_influx_lines_with_raw(Lines = [#{} | _]) ->
+    Lines;
+to_influx_lines_with_raw(RawLines) ->
+    parse_influx_lines(RawLines, #{allow_raw_line => true}).
+
+parse_influx_lines(RawLines, Opts) ->
     try
-        influx_lines(str(RawLines), [])
+        influx_lines(str(RawLines), [], Opts)
     catch
         _:Reason:Stacktrace ->
             Msg = lists:flatten(
@@ -229,31 +486,81 @@ to_influx_lines(RawLines) ->
 -define(VAL_SEP, $,).
 -define(NON_EMPTY, [_ | _]).
 
-influx_lines([] = _RawLines, Acc) ->
+influx_lines([] = _RawLines, Acc, _Opts) ->
     ?NON_EMPTY = lists:reverse(Acc);
-influx_lines(RawLines, Acc) ->
-    {Acc1, RawLines1} = influx_line(string:trim(RawLines, leading, "\s\n"), Acc),
-    influx_lines(RawLines1, Acc1).
+influx_lines(RawLines, Acc, Opts) ->
+    {Acc1, RawLines1} = influx_line(string:trim(RawLines, leading, "\s\n"), Acc, Opts),
+    influx_lines(RawLines1, Acc1, Opts).
 
-influx_line([], Acc) ->
+influx_line([], Acc, _Opts) ->
     {Acc, []};
-influx_line(Line, Acc) ->
-    {?NON_EMPTY = Measurement, Line1} = measurement(Line),
-    {Tags, Line2} = tags(Line1),
-    {?NON_EMPTY = Fields, Line3} = influx_fields(Line2),
-    {Timestamp, Line4} = timestamp(Line3),
-    {
-        [
-            #{
-                measurement => Measurement,
-                tags => Tags,
-                fields => Fields,
-                timestamp => Timestamp
+influx_line(Line, Acc, Opts) ->
+    RawLineResult =
+        case maps:get(allow_raw_line, Opts) of
+            true -> raw_line_tmpl(Line);
+            false -> error
+        end,
+    case RawLineResult of
+        {ok, Tmpl, Rest} ->
+            {[#{line => Tmpl} | Acc], Rest};
+        error ->
+            {?NON_EMPTY = Measurement, Line1} = measurement(Line),
+            {Tags, Line2} = tags(Line1),
+            {?NON_EMPTY = Fields, Line3} = influx_fields(Line2),
+            {Timestamp, Line4} = timestamp(Line3),
+            {
+                [
+                    #{
+                        measurement => Measurement,
+                        tags => Tags,
+                        fields => Fields,
+                        timestamp => Timestamp
+                    }
+                    | Acc
+                ],
+                Line4
             }
-            | Acc
-        ],
-        Line4
-    }.
+    end.
+
+%% A whole line that is exactly one placeholder is treated as a raw line
+%% protocol template. The rendered value is written verbatim, which makes
+%% it possible to write a select result that is already a formatted line.
+raw_line_tmpl(Line) ->
+    {Line0, Rest} = split_line(Line, []),
+    Unescaped = unescape_raw_line(string:trim(Line0), []),
+    case single_placeholder(Unescaped) of
+        true -> {ok, Unescaped, Rest};
+        false -> error
+    end.
+
+split_line([$\n | _] = Line, Acc) ->
+    {lists:reverse(Acc), Line};
+split_line([], Acc) ->
+    {lists:reverse(Acc), []};
+split_line([Ch | Rest], Acc) ->
+    split_line(Rest, [Ch | Acc]).
+
+%% unescape a whole line the same way as other templates, but do not stop at
+%% any separator, e.g. `${payload.line\ 1}` is a single placeholder
+unescape_raw_line([$\\, Char | T], Acc) ->
+    IsEscapeChar = lists:member(Char, ?TAG_FIELD_KEY_ESC_CHARS),
+    Acc1 =
+        case IsEscapeChar of
+            true -> [Char | Acc];
+            false -> [Char, $\\ | Acc]
+        end,
+    unescape_raw_line(T, Acc1);
+unescape_raw_line([Char | T], Acc) ->
+    unescape_raw_line(T, [Char | Acc]);
+unescape_raw_line([], Acc) ->
+    lists:reverse(Acc).
+
+single_placeholder(Line) ->
+    Subject = unicode:characters_to_binary(Line),
+    case re:run(Subject, "^\\$\\{[^{}]+\\}$", [{capture, none}]) of
+        match -> true;
+        nomatch -> false
+    end.
 
 measurement(Line) ->
     unescape(?MEASUREMENT_ESC_CHARS, [?MEASUREMENT_TAG_SEP, ?SEP], Line, []).

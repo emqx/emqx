@@ -169,6 +169,33 @@ example_write_syntax() ->
         "float_value=${payload.float_key},", "undef_value=${payload.undef},",
         "${undef_key}=\"hard-coded-value\",", "bool=${payload.bool}">>.
 
+structured_write_point(TimestampValue, Temperature, Count) ->
+    #{
+        <<"measurement">> => <<"mqtt">>,
+        <<"tags">> => [
+            #{
+                <<"key">> => <<"clientid">>,
+                <<"value">> => <<"${clientid}">>
+            }
+        ],
+        <<"fields">> => [
+            #{
+                <<"key">> => <<"temperature">>,
+                <<"type">> => <<"float">>,
+                <<"value">> => Temperature
+            },
+            #{
+                <<"key">> => <<"count">>,
+                <<"type">> => <<"integer">>,
+                <<"value">> => Count
+            }
+        ],
+        <<"timestamp">> => #{
+            <<"value">> => TimestampValue,
+            <<"source_precision">> => <<"ms">>
+        }
+    }.
+
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
 get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
 
@@ -538,6 +565,131 @@ t_start_ok_no_subject_tags_write_syntax(TCConfig) ->
     ),
     ok.
 
+-doc "Write structured points through the action API.".
+t_structured_write() ->
+    [{matrix, true}].
+t_structured_write(matrix) ->
+    [
+        [?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_structured_write(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ActionConfig0 = ?config(action_config, TCConfig),
+    Parameters0 = maps:get(<<"parameters">>, ActionConfig0),
+    ActionConfig = ActionConfig0#{
+        <<"parameters">> => maps:remove(<<"write_syntax">>, Parameters0)
+    },
+    StructuredTCConfig = lists:keystore(
+        action_config, 1, TCConfig, {action_config, ActionConfig}
+    ),
+    Write = [
+        structured_write_point(
+            <<"${payload.first_ts}">>,
+            <<"${payload.first_temperature}">>,
+            <<"${payload.first_count}">>
+        ),
+        structured_write_point(
+            <<"${payload.second_ts}">>,
+            <<"${payload.second_temperature}">>,
+            <<"${payload.second_count}">>
+        )
+    ],
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(StructuredTCConfig, #{
+        <<"parameters">> => #{
+            <<"precision">> => <<"ns">>,
+            <<"write">> => Write
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    Now = erlang:system_time(millisecond),
+    Payload = json_encode(#{
+        <<"first_ts">> => Now,
+        <<"first_temperature">> => 21.5,
+        <<"first_count">> => 7,
+        <<"second_ts">> => Now + 1,
+        <<"second_temperature">> => 22.5,
+        <<"second_count">> => 8
+    }),
+    emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        begin
+            Rows = query_by_clientid(ClientId, TCConfig),
+            ?assertMatch(
+                [
+                    #{<<"temperature">> := 21.5, <<"count">> := 7},
+                    #{<<"temperature">> := 22.5, <<"count">> := 8}
+                ],
+                lists:sort(
+                    fun(Left, Right) ->
+                        maps:get(<<"count">>, Left) =< maps:get(<<"count">>, Right)
+                    end,
+                    Rows
+                )
+            )
+        end
+    ),
+    ok.
+
+-doc "Write a structured point without rendering a timestamp.".
+t_structured_write_timestamp_false() ->
+    [{matrix, true}].
+t_structured_write_timestamp_false(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_structured_write_timestamp_false(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ActionConfig0 = ?config(action_config, TCConfig),
+    Parameters0 = maps:get(<<"parameters">>, ActionConfig0),
+    ActionConfig = ActionConfig0#{
+        <<"parameters">> => maps:remove(<<"write_syntax">>, Parameters0)
+    },
+    StructuredTCConfig = lists:keystore(
+        action_config, 1, TCConfig, {action_config, ActionConfig}
+    ),
+    Write = [
+        #{
+            <<"measurement">> => <<"mqtt">>,
+            <<"tags">> => [
+                #{
+                    <<"key">> => <<"clientid">>,
+                    <<"value">> => <<"${clientid}">>
+                }
+            ],
+            <<"fields">> => [
+                #{
+                    <<"key">> => <<"value">>,
+                    <<"type">> => <<"integer">>,
+                    <<"value">> => <<"${payload.value}">>
+                }
+            ],
+            <<"timestamp">> => false
+        }
+    ],
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(StructuredTCConfig, #{
+        <<"parameters">> => #{
+            <<"precision">> => <<"ns">>,
+            <<"write">> => Write
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    emqtt:publish(C, RuleTopic, json_encode(#{<<"value">> => 7}), [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"value">> := 7},
+            query_by_clientid(ClientId, TCConfig)
+        )
+    ),
+    ok.
+
 t_const_timestamp(TCConfig) ->
     Const = erlang:system_time(nanosecond),
     ConstBin = integer_to_binary(Const),
@@ -660,15 +812,15 @@ A tag value is written as the text it renders: numeric and mixed-template tags b
 strings, a literal boolean text tag stays a string, and only a value that is one
 placeholder followed by a literal `i`/`u` token, or a payload boolean, keeps its type.
 """.
-t_tag_values_as_string() ->
+t_tag_value_typing() ->
     [{matrix, true}].
-t_tag_values_as_string(matrix) ->
+t_tag_value_typing(matrix) ->
     [
         [?tcp, Mode, Batch]
      || Mode <- [?sync, ?async],
         Batch <- [?without_batch, ?with_batch]
     ];
-t_tag_values_as_string(TCConfig) ->
+t_tag_value_typing(TCConfig) ->
     BatchSize = tag_value_batch_size(TCConfig),
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, tag_value_action_overrides(BatchSize)),

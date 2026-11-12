@@ -49,7 +49,7 @@ password.label:
 """Password"""
 
 precision.desc:
-"""InfluxDB time precision."""
+"""The target precision used for timestamp integers in the HTTP line protocol request. InfluxDB interprets the request timestamps using this precision. For structured `write` points, each timestamp declares its own source precision before conversion to this target precision."""
 
 precision.label:
 """Time Precision"""
