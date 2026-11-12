@@ -102,8 +102,10 @@ confirm_on_nodes(Nodes, Name, Expect, Deadline) ->
     multicall(
         Nodes,
         fun(Remaining) ->
-            %% leave time for the node's answer to come back before the
-            %% caller gives up, so a lagging node reports what it holds
+            %% `Deadline' bounds the caller's wait. The node stops
+            %% waiting earlier, so its `not_confirmed' answer, with the
+            %% version it holds, arrives before the caller gives up and
+            %% reports a bare `timeout'.
             #confirm{name = Name, expect = Expect, timeout = Remaining * 3 div 4}
         end,
         Deadline

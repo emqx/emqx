@@ -45,6 +45,8 @@ handle(get, [<<"tables">>], _Request) ->
 handle(get, [<<"tables">>, Name], _Request) ->
     case emqx_maptabs:read_table(Name) of
         {ok, Json} ->
+            %% the stored JSON is sent as is; minirest sets the JSON
+            %% content type only for map and list bodies it encodes
             {ok, 200, #{<<"content-type">> => <<"application/json">>}, Json};
         {error, not_found} ->
             not_found(Name);
