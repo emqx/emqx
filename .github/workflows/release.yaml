@@ -51,14 +51,6 @@ jobs:
           if [ -n "$VERIFIED_TAG_OBJECT" ]; then
             test "$(git rev-parse "refs/tags/$TAG")" = "$VERIFIED_TAG_OBJECT"
           fi
-      - name: Configure trusted SSH release signers
-        if: needs.verify-release-tag.outputs.allowed_signers != ''
-        env:
-          ALLOWED_SIGNERS: ${{ needs.verify-release-tag.outputs.allowed_signers }}
-        run: |
-          allowed_signers="$RUNNER_TEMP/release-allowed-signers"
-          printf '%s\n' "$ALLOWED_SIGNERS" > "$allowed_signers"
-          git config gpg.ssh.allowedSignersFile "$allowed_signers"
       - name: Detect profile
         id: profile
         run: |
@@ -111,9 +103,11 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
           VERSION: ${{ steps.profile.outputs.version }}
+          VERIFIED_TAG_OBJECT: ${{ needs.verify-release-tag.outputs.tag_object }}
         run: |
           python3 _manifest_tool/scripts/rel/package_manifests.py \
             --packages-dir packages --version "$VERSION" --tag "$TAG" --publish \
+            --verified-tag-object "$VERIFIED_TAG_OBJECT" \
             --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
       - name: Dry-run package manifests
         if: steps.gate.outputs.publish != 'true' && github.event_name == 'workflow_dispatch'
@@ -121,9 +115,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.profile.outputs.version }}
+          VERIFIED_TAG_OBJECT: ${{ needs.verify-release-tag.outputs.tag_object }}
         run: |
           python3 _manifest_tool/scripts/rel/package_manifests.py \
-            --packages-dir packages --version "$VERSION" --tag "$TAG"
+            --packages-dir packages --version "$VERSION" --tag "$TAG" \
+            --verified-tag-object "$VERIFIED_TAG_OBJECT"
       - name: update to emqx.io
         if: steps.gate.outputs.publish == 'true'
         run: |
