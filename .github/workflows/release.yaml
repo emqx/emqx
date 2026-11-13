@@ -79,6 +79,17 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: git fetch --no-tags --depth=1 --force origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+      - name: Configure trusted SSH release signers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          allowed_signers="$RUNNER_TEMP/release-allowed-signers"
+          for user in zmstone id hjianbo; do
+            keys="$(gh api "users/${user}/ssh_signing_keys" --jq ".[] | \"${user} \(.key)\"")"
+            test -n "$keys"
+            echo "$keys"
+          done > "$allowed_signers"
+          git config gpg.ssh.allowedSignersFile "$allowed_signers"
       - name: Generate GitHub App token for emqx-package-manifests
         id: app-token
         if: steps.gate.outputs.publish == 'true'
@@ -153,16 +164,6 @@ jobs:
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-amd64.rpm"
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-arm64.rpm"
 
-      - name: Upload to snap store
-        if: steps.gate.outputs.publish == 'true'
-        env:
-          PROFILE: ${{ steps.profile.outputs.profile }}
-          VERSION: ${{ steps.profile.outputs.version }}
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
-        run: |
-          sudo snap install snapcraft --classic
-          snapcraft upload --release=stable "packages/${PROFILE}_${VERSION}_amd64.snap"
-          snapcraft upload --release=stable "packages/${PROFILE}_${VERSION}_arm64.snap"
       - name: Fail the job when package manifests were not recorded
         if: ${{ !cancelled() && steps.manifests.outcome == 'failure' }}
         run: |

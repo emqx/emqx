@@ -1340,22 +1340,31 @@ gen_host_cert(H, CaName, Path, Opts) ->
             Password ->
                 io_lib:format(" -passout pass:'~s' ", [Password])
         end,
+    %% An optional IP address added to the subjectAltName, so a client that
+    %% connects to that IP passes certificate hostname validation.
+    IpSan =
+        case maps:get(san_ip, Opts, undefined) of
+            undefined ->
+                "";
+            Ip ->
+                io_lib:format(",IP:~s", [Ip])
+        end,
     CSR_Cmd =
         lists:flatten(
             io_lib:format(
                 "openssl req -new ~s -newkey ec:~s "
                 "-keyout ~s -out ~s "
-                "-addext \"subjectAltName=DNS:~s\" "
+                "-addext \"subjectAltName=DNS:~s~s\" "
                 "-addext keyUsage=digitalSignature,keyAgreement "
                 "-subj \"/C=SE/O=Internet Widgits Pty Ltd/CN=~s\"",
-                [PasswordArg, ECKeyFile, HKey, HCSR, CN, CN]
+                [PasswordArg, ECKeyFile, HKey, HCSR, CN, IpSan, CN]
             )
         ),
     create_file(
         HEXT,
         "keyUsage=digitalSignature,keyAgreement\n"
-        "subjectAltName=DNS:~s\n",
-        [CN]
+        "subjectAltName=DNS:~s~s\n",
+        [CN, IpSan]
     ),
     CERT_Cmd =
         lists:flatten(
