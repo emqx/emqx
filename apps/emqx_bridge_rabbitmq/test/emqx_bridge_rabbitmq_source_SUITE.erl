@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("amqp_client/include/amqp_client.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -31,6 +32,26 @@
 
 -define(tcp, tcp).
 -define(tls, tls).
+
+-define(assertReceivePublish(EXPR, TIMEOUT, EXTRA),
+    (fun() ->
+        lists:foreach(
+            fun(Pub0___) ->
+                Pub___ = maps:update_with(
+                    payload,
+                    fun emqx_utils_json:decode/1,
+                    Pub0___
+                ),
+                self() ! {decoded, Pub___}
+            end,
+            drain_publishes([], TIMEOUT)
+        ),
+        {decoded, __X} = ?assertReceive({decoded, EXPR}, 200, EXTRA),
+        __X
+    end)()
+).
+-define(assertReceivePublish(EXPR), ?assertReceivePublish(EXPR, 1_000, #{})).
+-define(assertReceivePublish(EXPR, TIMEOUT), ?assertReceivePublish(EXPR, TIMEOUT, #{})).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -180,6 +201,18 @@ create_connector_api(TCConfig, Overrides) ->
 create_source_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:create_source_api([{bridge_kind, source} | TCConfig], Overrides).
 
+get_source_api(TCConfig) ->
+    #{type := Type, name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_source_api(Type, Name)
+    ).
+
+delete_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    Opts = #{query_params => #{<<"also_delete_dep_actions">> => <<"true">>}},
+    emqx_bridge_v2_testlib:delete_kind_api(source, Type, Name, Opts).
+
 get_source_metrics_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_source_metrics_api(TCConfig).
 
@@ -216,6 +249,44 @@ unique_payload() ->
 publish_message(Payload, TCConfig) ->
     ClientOpts = get_config(client_opts, TCConfig),
     emqx_bridge_rabbitmq_testlib:publish_message(Payload, ClientOpts).
+
+drain_publishes(Acc, Timeout) ->
+    receive
+        {publish, Msg} ->
+            drain_publishes([Msg | Acc], Timeout)
+    after Timeout ->
+        lists:reverse(Acc)
+    end.
+
+delete_queue(TCConfig) ->
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:delete_queue(ClientOpts).
+
+connect_and_setup_exchange_and_queue(TCConfig) ->
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(ClientOpts).
+
+wait_basic_cancel_received(TCConfig, Fn) when is_list(TCConfig) ->
+    #{~"pool_size" := PoolSize} = get_config(connector_config, TCConfig),
+    Opts = #{n => PoolSize},
+    wait_basic_cancel_received(Opts, Fn);
+wait_basic_cancel_received(Opts, Fn) when is_map(Opts) ->
+    #{n := N} = Opts,
+    TS = trace:session_create(?MODULE, self(), []),
+    on_exit(fun() -> trace:session_destroy(TS) end),
+    trace:process(TS, all, true, [call]),
+    M = emqx_bridge_rabbitmq_source_worker,
+    F = handle_info,
+    trace:function(TS, {M, F, 2}, [], []),
+    Fn(),
+    lists:foreach(
+        fun(_) ->
+            ?assertReceive({trace, _, call, {M, F, [#'basic.cancel'{}, _]}})
+        end,
+        lists:seq(1, N)
+    ),
+    trace:session_destroy(TS),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -283,4 +354,162 @@ t_source(TCConfig) ->
             get_source_metrics_api(TCConfig)
         )
     ),
+    ok.
+
+t_queue_deleted_while_consuming(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"resource_opts" => #{~"health_check_timeout" => ~"1s"}
+    }),
+    {201, _} = create_source_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, _, [_]} = emqtt:subscribe(C, RuleTopic, [{qos, 1}]),
+    Payload1 = payload(#{key => 1}),
+    PayloadBin1 = emqx_utils_json:encode(Payload1),
+    publish_message(PayloadBin1, TCConfig),
+    %% sanity check: it's initially working
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 1}}}),
+
+    wait_basic_cancel_received(TCConfig, fun() ->
+        delete_queue(TCConfig)
+    end),
+    %% give it some time to process the `#'basic.cancel'{}` message and start trying to
+    %% resubscribe.
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{~"status" := ~"disconnected"}},
+            get_source_api(TCConfig)
+        )
+    ),
+
+    %% recovery
+    connect_and_setup_exchange_and_queue(TCConfig),
+    Payload2 = payload(#{key => 2}),
+    PayloadBin2 = emqx_utils_json:encode(Payload2),
+    publish_message(PayloadBin2, TCConfig),
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 2}}}, 5_000),
+
+    ok.
+
+-doc """
+Verifies that the health from subscription workers is also checked when doing channel health checks.
+""".
+t_resubscribe_timeout(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"pool_size" => 1,
+        ~"resource_opts" => #{~"health_check_timeout" => ~"1s"}
+    }),
+    {201, _} = create_source_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, _, [_]} = emqtt:subscribe(C, RuleTopic, [{qos, 1}]),
+    Payload1 = payload(#{key => 1}),
+    PayloadBin1 = emqx_utils_json:encode(Payload1),
+    publish_message(PayloadBin1, TCConfig),
+    %% sanity check: it's initially working
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 1}}}),
+
+    emqx_bridge_v2_testlib:print_tree(emqx_bridge_rabbitmq_sup),
+    WorkerPids = [
+        P
+     || {_, SP, supervisor, _} <- supervisor:which_children(emqx_bridge_rabbitmq_sup),
+        {_, P, worker, _} <- supervisor:which_children(SP)
+    ],
+    [WorkerPid] = WorkerPids,
+    PreviousCallTimeout = application:get_env(amqp_client, gen_server_call_timeout),
+    on_exit(fun() ->
+        case PreviousCallTimeout of
+            {ok, T} -> application:set_env(amqp_client, gen_server_call_timeout, T);
+            undefined -> application:unset_env(amqp_client, gen_server_call_timeout)
+        end
+    end),
+    {ok, Agent} = emqx_utils_agent:start_link(false),
+    emqx_common_test_helpers:with_mocks(
+        #{
+            amqp_channel => #{
+                subscribe => fun(Chan, Consume, Pid) ->
+                    case Pid == self() of
+                        false ->
+                            %% connector resubscribing if restarted
+                            meck:passthrough([Chan, Consume, Pid]);
+                        true ->
+                            %% worker
+                            %% can't call `amqp_util:update_call_timeout` here, as it overrides
+                            %% the application level config....
+                            Triggered = emqx_utils_agent:get_and_update(
+                                Agent, fun(Triggered) -> {Triggered, true} end
+                            ),
+                            case Triggered of
+                                true ->
+                                    erase(gen_server_call_timeout),
+                                    meck:passthrough([Chan, Consume, Pid]);
+                                false ->
+                                    put(gen_server_call_timeout, 0),
+                                    try
+                                        meck:passthrough([Chan, Consume, Pid])
+                                    after
+                                        erase(gen_server_call_timeout)
+                                    end
+                            end
+                    end
+                end,
+                close => fun(_ChanPid) -> exit({timeout, [gen_server_stacktrace]}) end
+            }
+        },
+
+        fun() ->
+            %% make just one worker get "cancelled"
+            wait_basic_cancel_received(#{n => 1}, fun() ->
+                WorkerPid ! #'basic.cancel'{consumer_tag = ~"mocked"},
+                ?retry(
+                    500,
+                    10,
+                    ?assertMatch(
+                        {200, #{~"status" := ~"disconnected"}},
+                        get_source_api(TCConfig)
+                    )
+                ),
+                %% shouldn't receive late replies from channel
+                ?assertNotReceive(
+                    {trace, _, call,
+                        {emqx_bridge_rabbitmq_source_worker, handle_info, [
+                            #'basic.consume_ok'{}, _
+                        ]}}
+                ),
+                %% recovery
+                ?retry(
+                    500,
+                    10,
+                    ?assertMatch(
+                        {200, #{~"status" := ~"connected"}},
+                        get_source_api(TCConfig)
+                    )
+                ),
+                ok
+            end),
+            ok
+        end
+    ),
+
+    Payload2 = payload(#{key => 2}),
+    PayloadBin2 = emqx_utils_json:encode(Payload2),
+    publish_message(PayloadBin2, TCConfig),
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 2}}}),
+    %% receive only once
+    ?assertNotReceive({decoded, _}),
+    ?assertNotReceive({publish, _}),
+
+    %% recreate source; should clear optvars
+    {204, _} = delete_source_api(TCConfig),
+    ?assertMatch({201, #{~"status" := ~"connected"}}, create_source_api(TCConfig, #{})),
+    Payload3 = payload(#{key => 3}),
+    PayloadBin3 = emqx_utils_json:encode(Payload3),
+    publish_message(PayloadBin3, TCConfig),
+    ?assertReceivePublish(#{payload := #{~"payload" := #{~"key" := 3}}}),
+    %% receive only once
+    ?assertNotReceive({decoded, _}),
+    ?assertNotReceive({publish, _}),
+
     ok.

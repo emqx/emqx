@@ -3046,19 +3046,27 @@ is_connector_aggregator_delivery_ongoing(SupRef) ->
 
 print_tree(SupRef) ->
     Res = do_print_tree(SupRef, 0),
-    ct:pal("~s", [Res]).
+    ct:pal("~p's children:\n~s", [SupRef, Res]).
 
-do_print_child({Id, _Pid, worker, Mod}, Level) ->
-    io_lib:format("~s* [w] ~p\n", [binary:copy(<<" ">>, Level * 2), do_format_child_id(Id, Mod)]);
-do_print_child({Id, Pid, supervisor, Mod}, Level) ->
+do_print_child({Id, Pid, worker, Mods}, Level) ->
+    io_lib:format("~s* [w] ~p (pid: ~p)\n", [
+        binary:copy(<<" ">>, Level * 2),
+        do_format_child_id(Id, Mods),
+        Pid
+    ]);
+do_print_child({Id, Pid, supervisor, Mods}, Level) ->
     [
-        io_lib:format("~s* [s] ~p\n", [binary:copy(<<" ">>, Level * 2), do_format_child_id(Id, Mod)]),
+        io_lib:format("~s* [s] ~p (pid: ~p)\n", [
+            binary:copy(<<" ">>, Level * 2),
+            do_format_child_id(Id, Mods),
+            Pid
+        ]),
         do_print_tree(Pid, Level + 1)
     ].
 
-do_format_child_id(undefined, Mod) ->
-    {undefined, Mod};
-do_format_child_id(Id, _Mod) ->
+do_format_child_id(undefined, Mods) ->
+    {undefined, Mods};
+do_format_child_id(Id, _Mods) ->
     Id.
 
 do_print_tree(SupRef, Level) ->
