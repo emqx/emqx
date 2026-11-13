@@ -22,6 +22,8 @@ The module contains the registry of Message Queues.
     delete_by_id/1,
     mark_deleting/1,
     is_deleting/1,
+    purge/1,
+    purge/2,
     update/2,
     list/0,
     list/2,
@@ -51,6 +53,7 @@ The module contains the registry of Message Queues.
 }).
 
 -type cursor() :: binary() | undefined.
+-type purge_error() :: cluster_upgrade_in_progress | being_deleted | term().
 
 %%--------------------------------------------------------------------
 %% API
@@ -196,6 +199,59 @@ delete(Name) ->
             delete_by_id(Id);
         not_found ->
             not_found
+    end.
+
+-doc """
+Purge all messages of the queue. Keep the queue and its consumer progress.
+
+1. Ask the message DB to prepare the deletion. It returns the deletion bounds.
+2. Set the delivery cutoff from the bounds, so the queue stops dispatching the purged messages.
+   Keep a later stored delivery cutoff.
+3. Schedule the deletion on a deletion worker, and do not wait for it.
+   When no deletion worker is available, GC deletes the messages later.
+
+Messages already passed to subscriber sessions can still be delivered.
+Refuse while some cluster node does not support purge, and while the queue is being deleted.
+""".
+-spec purge(emqx_mq_types:mq_name()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, purge_error()}.
+purge(Name) ->
+    maybe
+        {ok, #{id := Id} = MQ0} ?= find_purgeable(Name),
+        {ok, Bounds} ?=
+            case emqx_mq_prop:is_limited(MQ0) of
+                true -> emqx_mq_message_db:rotate_quota_indexes(MQ0);
+                false -> emqx_mq_message_db:calc_constant_bounds(MQ0, ms_to_us(now_ms()))
+            end,
+        {ok, MQ} ?= update_mq_state(Id, advance_deliver_cutoff_date(max_boundary_ms(Bounds))),
+        ok = enqueue_purge(MQ, Bounds),
+        {ok, MQ}
+    end.
+
+-doc """
+Purge the messages stored before the epoch millisecond. Keep the queue and its consumer progress.
+
+The delivery cutoff is BeforeMs, but not later than the current time of this node.
+Return the queue unchanged when its stored delivery cutoff is later. Otherwise:
+
+1. Ask the message DB to prepare the deletion before the cutoff. It returns the deletion bounds.
+2. Set the delivery cutoff, so the queue stops dispatching the purged messages.
+3. Schedule the deletion on a deletion worker, and do not wait for it.
+   When no deletion worker is available, GC deletes the messages later.
+
+Messages already passed to subscriber sessions can still be delivered.
+Refuse while some cluster node does not support purge, and while the queue is being deleted.
+""".
+-spec purge(emqx_mq_types:mq_name(), emqx_utils_calendar:epoch_millisecond()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, purge_error()}.
+purge(Name, BeforeMs) when is_integer(BeforeMs), BeforeMs >= 0 ->
+    maybe
+        {ok, MQ} ?= find_purgeable(Name),
+        CutoffMs = min(BeforeMs, now_ms()),
+        case emqx_mq_prop:deliver_cutoff_time(MQ) > ms_to_us(CutoffMs) of
+            true -> {ok, MQ};
+            false -> purge_before(MQ, CutoffMs)
+        end
     end.
 
 -doc """
@@ -356,12 +412,12 @@ update_by_id(Id, UpdateFields0) ->
             _ when NeedUpdateIndex ->
                 case update_index(Key, Id, UpdateFields) of
                     ok ->
-                        emqx_mq_state_storage:update_mq_state(Id, UpdateFields);
+                        update_mq_state(Id, UpdateFields);
                     not_found ->
                         not_found
                 end;
             _ ->
-                emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
+                update_mq_state(Id, UpdateFields)
         end
     end.
 
@@ -436,6 +492,89 @@ queue_count() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% A consumer keeps the settings it started with, so stop it if they changed.
+%% TODO: Apply queue updates without restarting the consumer.
+update_mq_state(Id, UpdateFields) ->
+    maybe
+        {ok, MQ, Changed} ?= emqx_mq_state_storage:update_mq_state(Id, UpdateFields),
+        case Changed of
+            false -> ok;
+            true -> ok = stop_consumer(Id)
+        end,
+        {ok, MQ}
+    end.
+
+%% Prepare the deletion before the cutoff, set the delivery cutoff, and schedule the deletion.
+purge_before(#{id := Id} = MQ0, CutoffMs) ->
+    CutoffUs = ms_to_us(CutoffMs),
+    maybe
+        {ok, Bounds} ?=
+            case emqx_mq_prop:is_limited(MQ0) of
+                true -> emqx_mq_message_db:truncate_quota_indexes(MQ0, CutoffUs);
+                false -> emqx_mq_message_db:calc_constant_bounds(MQ0, CutoffUs)
+            end,
+        {ok, MQ} ?= update_mq_state(Id, advance_deliver_cutoff_date(CutoffMs)),
+        ok = enqueue_purge(MQ, Bounds),
+        {ok, MQ}
+    end.
+
+%% Check everything that can refuse a purge before the purge changes anything.
+find_purgeable(Name) ->
+    maybe
+        ok ?= check_purge_supported(),
+        {ok, MQ} ?= find(Name),
+        false ?= is_deleting(MQ),
+        {ok, MQ}
+    else
+        true -> {error, being_deleted};
+        Other -> Other
+    end.
+
+%% The delivery cutoff already hides the purged messages, so a purge succeeds without a worker.
+%% GC deletes the messages later, or retention drops them with their generation.
+enqueue_purge(#{id := Id} = MQ, Bounds) ->
+    case emqx_mq_delete_worker:enqueue_purge(Id, Bounds) of
+        ok ->
+            ok;
+        {error, no_delete_worker} ->
+            ?SLOG(warning, #{
+                msg => "mq_purge_deletion_not_scheduled",
+                reason => no_delete_worker,
+                name => emqx_mq_prop:name(MQ),
+                id => Id
+            })
+    end.
+
+%% Purge needs a quota index that only upgraded nodes keep.
+check_purge_supported() ->
+    case emqx_mq_quota_index:is_serial_index_supported() of
+        true -> ok;
+        false -> {error, cluster_upgrade_in_progress}
+    end.
+
+%% Compare with the stored cutoff in the update transaction, so concurrent purges cannot lower it.
+advance_deliver_cutoff_date(CutoffMs) ->
+    CutoffUs = ms_to_us(CutoffMs),
+    fun(MQ) ->
+        case emqx_mq_prop:deliver_cutoff_time(MQ) > CutoffUs of
+            true -> MQ;
+            false -> MQ#{deliver_cutoff_date => CutoffMs}
+        end
+    end.
+
+%% The delivery cutoff of a full purge: the latest deletion bound, rounded up to a millisecond,
+%% so the cutoff hides every purged message.
+max_boundary_ms(Bounds) when map_size(Bounds) =:= 0 ->
+    0;
+max_boundary_ms(Bounds) ->
+    (lists:max(maps:values(Bounds)) + 999) div 1000.
+
+ms_to_us(Ms) ->
+    erlang:convert_time_unit(Ms, millisecond, microsecond).
+
+now_ms() ->
+    erlang:system_time(millisecond).
 
 drop_queue_data(MQ) ->
     safe_with_log(

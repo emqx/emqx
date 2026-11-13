@@ -24,8 +24,8 @@ Message Queue application
 * Is integrated via hooks into the EMQX core.
 
 The major components are:
-* Local subscription registry ([emqx_mq_sub_registry.erl](./src/emqx_mq_sub_registry.erl), [emqx_mq_sub.erl](./src/emqx_mq_sub.erl), [emqx_mq_sub_buffer.erl](./src/emqx_mq_sub_buffer.erl)). These are data structures
-facilitating channel's connections to the Message Queues. They are stored in the process dictionary of the channel.
+* Message Queue subscriptions ([emqx_mq_extsub_handler.erl](./src/emqx_mq_extsub_handler.erl), [emqx_mq_sub.erl](./src/emqx_mq_sub.erl)) manage each client's connections to queue consumers.
+  [emqx_extsub.erl](../emqx_extsub/src/emqx_extsub.erl) handles message buffering and delivery.
 * Message Queue registry ([emqx_mq_registry.erl](./src/emqx_mq_registry.erl)). This is a registry responsible for keeping track of the Message Queues: creating, updating, deleting, and looking up.
 * Message Queue state storage ([emqx_mq_state_storage.erl](./src/emqx_mq_state_storage.erl)). This is a storage layer responsible for storing the Message Queue metadata and state of consumption.
 * Message Queue message database ([emqx_mq_message_db.erl](./src/emqx_mq_message_db.erl)). This is a storage layer responsible for storing the Message Queue messages.
@@ -244,6 +244,45 @@ Delete Message Queue:
 ```bash
 curl -s -u key:secret -X DELETE http://localhost:18083/api/v5/message_queues/queues/t1%2F%23
 ```
+
+Purge messages without deleting the queue:
+
+```bash
+curl -s -u key:secret -X DELETE http://localhost:18083/api/v5/queue/q1/messages
+curl -s -u key:secret -X DELETE 'http://localhost:18083/api/v5/queue/q1/messages?before=2026-10-01T00:00:00Z'
+```
+
+The optional `before` parameter accepts an RFC 3339 timestamp or epoch milliseconds.
+The `before` value must not be later than the current time.
+When `before` precedes the queue's current delivery cutoff, the request does nothing.
+Purge never lowers the delivery cutoff.
+All times are storage times: the time at which a message was written to durable storage.
+Publication timestamps are not used.
+Messages stored before `before` are skipped during delivery and deleted.
+Without `before`, purge deletes all messages stored before the purge.
+For unlimited queues, the delivery cutoff is then the current time of the node that handles the request.
+For limited queues, it is the latest storage time observed in DS during deletion.
+The node that handles the request clamps a `before` value that is later than its current time.
+
+The request changes the quota index and sets the delivery cutoff before it returns.
+So the queue stops dispatching purged messages when the request returns.
+Messages already passed to subscriber sessions can still be delivered.
+A deletion worker deletes the purged messages in the background, in bounded batches.
+When that deletion fails, the error is logged, and GC deletes the messages later:
+* For limited queues and unlimited last-value queues, GC deletes messages before the delivery cutoff.
+  For limited queues, it also deletes messages before the oldest quota bucket that the index keeps.
+* For unlimited regular queues, the messages stay until retention drops their storage generation.
+Repeat the request to delete them sooner.
+
+Purge is refused with 503 until all cluster nodes support the serial quota index.
+Purge is refused with 400 while the queue is being deleted.
+The queue keeps its identity and consumer progress.
+Consumers restart when the delivery cutoff changes, while MQTT clients stay connected.
+Delivery can pause for about twice the queue's `ping_interval`.
+The request returns 204 on success, 400 for an invalid or future cutoff or a queue that is being deleted, 404 for an unknown queue, or 503 on failure or when queues are unavailable.
+When no deletion worker is available, the request still returns 204 and logs a warning. GC deletes the purged messages later.
+If the index update fails, some storage slabs can already have changed, but the delivery cutoff stays unchanged.
+Repeat the request to complete the purge.
 
 Configure Message Queue global settings:
 

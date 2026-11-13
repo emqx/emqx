@@ -122,7 +122,7 @@ handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
             ignore;
         {data, ?SUB_ID, Stream, Handle, DSReply} ->
             {ok, Messages0, CS1} = handle_ds_reply(CS0, Stream, Handle, DSReply),
-            {Messages, CS} = ack_expired_messages(CS1, Messages0),
+            {Messages, CS} = ack_skipped_messages(CS1, Messages0),
             {ok, Messages, CS};
         {DSC, State} ->
             {ok, [], CS0#cs{ds_client = DSC, state = State}}
@@ -480,10 +480,10 @@ do_handle_ds_reply(
             {[], CS#cs{ds_client = DSC, state = State}}
     end.
 
-ack_expired_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
+ack_skipped_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
     {CS, Messages} = lists:foldl(
-        fun({Id, Message} = MesssageWithId, {CSAcc, MessagesAcc}) ->
-            case is_expired(MQ, Message) of
+        fun({Id, _Message} = MesssageWithId, {CSAcc, MessagesAcc}) ->
+            case is_expired(MQ, Id) orelse is_before_deliver_cutoff(MQ, Id) of
                 true ->
                     {handle_ack(CSAcc, Id), MessagesAcc};
                 false ->
@@ -528,10 +528,10 @@ inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, TTVs}}) ->
 inc_received_message_stat(_DsSubReply) ->
     ok.
 
-is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, Message) when
-    is_integer(DataRetentionPeriod)
-->
-    emqx_message:timestamp(Message) < now_ms() - DataRetentionPeriod.
+%% Retention and the delivery cutoff compare the DS timestamp at which the message was stored.
+%% The message id holds it. GC, purge, and the DS replay start use the same time.
+is_expired(MQ, {_Slab, DsTsUs}) ->
+    DsTsUs < emqx_mq_prop:retention_start_time(MQ).
 
-now_ms() ->
-    erlang:system_time(millisecond).
+is_before_deliver_cutoff(MQ, {_Slab, DsTsUs}) ->
+    DsTsUs < emqx_mq_prop:deliver_cutoff_time(MQ).
